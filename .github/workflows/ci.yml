@@ -40,6 +40,21 @@ jobs:
           host: ${{ matrix.qt_host }}
           arch: ${{ matrix.qt_arch }}
 
+      - name: Read core toolchain version
+        id: core
+        shell: bash
+        run: python -c 'import json, os; open(os.environ["GITHUB_OUTPUT"], "a").write("version=" + json.load(open("core/manifest.json"))["go_version"] + "\n")'
+
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: ${{ steps.core.outputs.version }}
+          cache-dependency-path: core/manifest.json
+
+      - name: Build and verify core
+        run: |
+          python -m unittest discover -s tests -p build_core_test.py
+          python scripts/build-core.py
+
       - name: Configure
         shell: bash
         run: cmake -S . -B build -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release -DNIGHTLY_BUILD=ON "-DGIT_HASH=$(git rev-parse --short=7 HEAD)"
