@@ -61,7 +61,7 @@ set(SOURCE_FILES
     infrastructure/update/updatechecker.cpp
     infrastructure/platform/platformsystemproxybackend.cpp
     infrastructure/platform/systemproxyfunctions.cpp
-    infrastructure/coreprocess/zjuconnectprocess.cpp
+    infrastructure/coreprocess/externalcoreprocess.cpp
     presentation/presentationhelpers.cpp
     presentation/dialogs/extrasettingwindow/extrasettingwindow.cpp
     presentation/dialogs/settingwindow/settingwindow.cpp
@@ -81,25 +81,16 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 if (WIN32)
     message("Building for Windows")
 
-    enable_language("RC")
-
     add_executable(${PROJECT_NAME} WIN32
         ${SOURCE_FILES}
-        ${CMAKE_CURRENT_SOURCE_DIR}/resource/icon.rc
     )
 
     set(PLATFORM_LIBS wininet rasapi32 shell32)
 elseif(APPLE)
     message("Building for MacOS")
     
-    set(MACOSX_BUNDLE_ICON_FILE icon.icns)
-    
-    set(app_icon_macos ${CMAKE_CURRENT_SOURCE_DIR}/resource/icon.icns)
-    set_source_files_properties(${app_icon_macos} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
-
     add_executable(${PROJECT_NAME} MACOSX_BUNDLE
         ${SOURCE_FILES}
-        ${app_icon_macos}
     )
 
     set_target_properties(${PROJECT_NAME}

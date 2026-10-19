@@ -218,7 +218,7 @@ void SettingWindow::loadSettings()
         QByteArray::fromBase64(settings->value("Credential/CertPassword").toString().toUtf8())
     );
     ui->credentialsAsArgumentsCheckBox->setChecked(
-        settings->value("ZJUConnect/CredentialsAsArguments", false).toBool()
+        settings->value("JustConnect/CredentialsAsArguments", false).toBool()
     );
 
     ProfileManager profileManager;
@@ -233,31 +233,31 @@ void SettingWindow::loadSettings()
     ui->suppressProxyOverrideWarningCheckBox->setChecked(settings->value("Common/SuppressProxyOverrideWarning", false).toBool());
 
 
-    ui->serverAddressLineEdit->setText(settings->value("ZJUConnect/ServerAddress").toString());
-    ui->serverPortSpinBox->setValue(settings->value("ZJUConnect/ServerPort").toInt());
-    ui->dnsLineEdit->setText(settings->value("ZJUConnect/DNS").toString());
-    ui->dnsAutoCheckBox->setChecked(settings->value("ZJUConnect/DNSAuto").toBool());
-    ui->secondaryDnsLineEdit->setText(settings->value("ZJUConnect/SecondaryDNS").toString());
+    ui->serverAddressLineEdit->setText(settings->value("JustConnect/ServerAddress").toString());
+    ui->serverPortSpinBox->setValue(settings->value("JustConnect/ServerPort").toInt());
+    ui->dnsLineEdit->setText(settings->value("JustConnect/DNS").toString());
+    ui->dnsAutoCheckBox->setChecked(settings->value("JustConnect/DNSAuto").toBool());
+    ui->secondaryDnsLineEdit->setText(settings->value("JustConnect/SecondaryDNS").toString());
     ui->localDnsServerLineEdit->setText(
-        settings->value("ZJUConnect/LocalDNSServer", "").toString()
+        settings->value("JustConnect/LocalDNSServer", "").toString()
     );
     ui->dnsServerBindLineEdit->setText(
-        settings->value("ZJUConnect/DNSServerBind", "").toString()
+        settings->value("JustConnect/DNSServerBind", "").toString()
     );
-    ui->dnsTTLSpinBox->setValue(settings->value("ZJUConnect/DNSTTL").toInt());
-    ui->socks5PortSpinBox->setValue(settings->value("ZJUConnect/SOCKS5Port").toInt());
-    ui->httpPortSpinBox->setValue(settings->value("ZJUConnect/HTTPPort").toInt());
-    ui->shadowsocksUrlLineEdit->setText(settings->value("ZJUConnect/ShadowsocksURL").toString());
-    ui->dialDirectProxyLineEdit->setText(settings->value("ZJUConnect/DialDirectProxy").toString());
+    ui->dnsTTLSpinBox->setValue(settings->value("JustConnect/DNSTTL").toInt());
+    ui->socks5PortSpinBox->setValue(settings->value("JustConnect/SOCKS5Port").toInt());
+    ui->httpPortSpinBox->setValue(settings->value("JustConnect/HTTPPort").toInt());
+    ui->shadowsocksUrlLineEdit->setText(settings->value("JustConnect/ShadowsocksURL").toString());
+    ui->dialDirectProxyLineEdit->setText(settings->value("JustConnect/DialDirectProxy").toString());
     ui->updateBestNodesIntervalSpinBox->setValue(
-        settings->value("ZJUConnect/UpdateBestNodesInterval", 300).toInt());
+        settings->value("JustConnect/UpdateBestNodesInterval", 300).toInt());
 
-    if (settings->value("ZJUConnect/Protocol").toString() == "atrust")
+    if (settings->value("JustConnect/Protocol").toString() == "atrust")
         ui->atrustRadioButton->setChecked(true);
     else
         ui->easyconnectRadioButton->setChecked(true);
-    ui->loginDomainLineEdit->setText(settings->value("ZJUConnect/LoginDomain").toString());
-    auto authType = settings->value("ZJUConnect/AuthType").toString();
+    ui->loginDomainLineEdit->setText(settings->value("JustConnect/LoginDomain").toString());
+    auto authType = settings->value("JustConnect/AuthType").toString();
     if (authType == "smsCheckCode")
         ui->smsCheckCodeRadioButton->setChecked(true);
     else if (authType == "cas")
@@ -266,42 +266,41 @@ void SettingWindow::loadSettings()
         ui->oauth2RadioButton->setChecked(true);
     else
         ui->pswRadioButton->setChecked(true);
-    ui->loginUrlLineEdit->setText(settings->value("ZJUConnect/LoginURL").toString());
-    ui->countryCodeLineEdit->setText(settings->value("ZJUConnect/PhoneCountryCode").toString());
-    ui->phoneNumberLineEdit->setText(settings->value("ZJUConnect/PhoneNumber").toString());
+    ui->loginUrlLineEdit->setText(settings->value("JustConnect/LoginURL").toString());
+    ui->countryCodeLineEdit->setText(settings->value("JustConnect/PhoneCountryCode").toString());
+    ui->phoneNumberLineEdit->setText(settings->value("JustConnect/PhoneNumber").toString());
 
-    ui->multiLineCheckBox->setChecked(settings->value("ZJUConnect/MultiLine").toBool());
-    ui->keepAliveCheckBox->setChecked(settings->value("ZJUConnect/KeepAlive").toBool());
-    ui->keepAliveUrlLineEdit->setText(settings->value("ZJUConnect/KeepAliveURL", "").toString());
-    ui->bindInterfaceLineEdit->setText(settings->value("ZJUConnect/BindInterface", "").toString());
-    ui->outsideAccessCheckBox->setChecked(settings->value("ZJUConnect/OutsideAccess").toBool());
+    ui->multiLineCheckBox->setChecked(settings->value("JustConnect/MultiLine").toBool());
+    ui->keepAliveCheckBox->setChecked(settings->value("JustConnect/KeepAlive").toBool());
+    ui->keepAliveUrlLineEdit->setText(settings->value("JustConnect/KeepAliveURL", "").toString());
+    ui->bindInterfaceLineEdit->setText(settings->value("JustConnect/BindInterface", "").toString());
+    ui->outsideAccessCheckBox->setChecked(settings->value("JustConnect/OutsideAccess").toBool());
 
-    ui->skipDomainResourceCheckBox->setChecked(settings->value("ZJUConnect/SkipDomainResource").toBool());
-    ui->disableServerConfigCheckBox->setChecked(settings->value("ZJUConnect/DisableServerConfig").toBool());
-    ui->proxyAllCheckBox->setChecked(settings->value("ZJUConnect/ProxyAll").toBool());
+    ui->skipDomainResourceCheckBox->setChecked(settings->value("JustConnect/SkipDomainResource").toBool());
+    ui->disableServerConfigCheckBox->setChecked(settings->value("JustConnect/DisableServerConfig").toBool());
+    ui->proxyAllCheckBox->setChecked(settings->value("JustConnect/ProxyAll").toBool());
     
-    ui->zjuDefaultCheckBox->setChecked(settings->value("ZJUConnect/ZJUDefault").toBool());
-    ui->disableDNSCheckBox->setChecked(settings->value("ZJUConnect/DisableZJUDNS").toBool());
-    ui->detailedDebugCheckBox->setChecked(settings->value("ZJUConnect/Debug").toBool());
+    ui->disableDNSCheckBox->setChecked(settings->value("JustConnect/DisableRemoteDNS").toBool());
+    ui->detailedDebugCheckBox->setChecked(settings->value("JustConnect/Debug").toBool());
     ui->debugPcapCheckBox->setChecked(
-        settings->value("ZJUConnect/DebugPCAP", false).toBool()
+        settings->value("JustConnect/DebugPCAP", false).toBool()
     );
     ui->debugTlsLogCheckBox->setChecked(
-        settings->value("ZJUConnect/DebugTLSLog", false).toBool()
+        settings->value("JustConnect/DebugTLSLog", false).toBool()
     );
 
-    ui->tunCheckBox->setChecked(settings->value("ZJUConnect/TUNMode").toBool());
-    ui->routeCheckBox->setChecked(settings->value("ZJUConnect/AddRoute").toBool());
-    ui->dnsHijackCheckBox->setChecked(settings->value("ZJUConnect/DNSHijack").toBool());
-    ui->fakeIPCheckBox->setChecked(settings->value("ZJUConnect/FakeIP").toBool());
-    ui->tcpTunnelModeCheckBox->setChecked(settings->value("ZJUConnect/TCPTunnelMode").toBool());
-    ui->autoDetectInterfaceCheckBox->setChecked(settings->value("ZJUConnect/AutoDetectInterface", false).toBool());
+    ui->tunCheckBox->setChecked(settings->value("JustConnect/TUNMode").toBool());
+    ui->routeCheckBox->setChecked(settings->value("JustConnect/AddRoute").toBool());
+    ui->dnsHijackCheckBox->setChecked(settings->value("JustConnect/DNSHijack").toBool());
+    ui->fakeIPCheckBox->setChecked(settings->value("JustConnect/FakeIP").toBool());
+    ui->tcpTunnelModeCheckBox->setChecked(settings->value("JustConnect/TCPTunnelMode").toBool());
+    ui->autoDetectInterfaceCheckBox->setChecked(settings->value("JustConnect/AutoDetectInterface", false).toBool());
 
-    tcpPortForwarding = settings->value("ZJUConnect/TCPPortForwarding").toString();
-    udpPortForwarding = settings->value("ZJUConnect/UDPPortForwarding").toString();
-	customDNS = settings->value("ZJUConnect/CustomDNS").toString();
-	customProxyDomain = settings->value("ZJUConnect/CustomProxyDomain").toString();
-    extraArguments = settings->value("ZJUConnect/ExtraArguments").toString();
+    tcpPortForwarding = settings->value("JustConnect/TCPPortForwarding").toString();
+    udpPortForwarding = settings->value("JustConnect/UDPPortForwarding").toString();
+	customDNS = settings->value("JustConnect/CustomDNS").toString();
+	customProxyDomain = settings->value("JustConnect/CustomProxyDomain").toString();
+    extraArguments = settings->value("JustConnect/ExtraArguments").toString();
 
     ui->routeCheckBox->setEnabled(ui->tunCheckBox->isChecked());
     ui->dnsHijackCheckBox->setEnabled(ui->tunCheckBox->isChecked());
@@ -326,7 +325,7 @@ void SettingWindow::applySettings()
     settings->setValue("Credential/CertFile", ui->certFileLineEdit->text());
     settings->setValue("Credential/CertPassword", QString(ui->certPasswordLineEdit->text().toUtf8().toBase64()));
     settings->setValue(
-        "ZJUConnect/CredentialsAsArguments",
+        "JustConnect/CredentialsAsArguments",
         ui->credentialsAsArgumentsCheckBox->isChecked()
     );
 
@@ -339,32 +338,32 @@ void SettingWindow::applySettings()
     settings->setValue("Common/SuppressProxyOverrideWarning", ui->suppressProxyOverrideWarningCheckBox->isChecked());
 
 
-    settings->setValue("ZJUConnect/ServerAddress", ui->serverAddressLineEdit->text());
-    settings->setValue("ZJUConnect/ServerPort", ui->serverPortSpinBox->value());
-    settings->setValue("ZJUConnect/DNS", ui->dnsLineEdit->text());
-    settings->setValue("ZJUConnect/DNSAuto", ui->dnsAutoCheckBox->isChecked());
-    settings->setValue("ZJUConnect/SecondaryDNS", ui->secondaryDnsLineEdit->text());
+    settings->setValue("JustConnect/ServerAddress", ui->serverAddressLineEdit->text());
+    settings->setValue("JustConnect/ServerPort", ui->serverPortSpinBox->value());
+    settings->setValue("JustConnect/DNS", ui->dnsLineEdit->text());
+    settings->setValue("JustConnect/DNSAuto", ui->dnsAutoCheckBox->isChecked());
+    settings->setValue("JustConnect/SecondaryDNS", ui->secondaryDnsLineEdit->text());
     settings->setValue(
-        "ZJUConnect/LocalDNSServer",
+        "JustConnect/LocalDNSServer",
         ui->localDnsServerLineEdit->text().trimmed()
     );
     settings->setValue(
-        "ZJUConnect/DNSServerBind",
+        "JustConnect/DNSServerBind",
         ui->dnsServerBindLineEdit->text().trimmed()
     );
-    settings->setValue("ZJUConnect/DNSTTL", ui->dnsTTLSpinBox->value());
-    settings->setValue("ZJUConnect/SOCKS5Port", ui->socks5PortSpinBox->value());
-    settings->setValue("ZJUConnect/HTTPPort", ui->httpPortSpinBox->value());
-    settings->setValue("ZJUConnect/ShadowsocksURL", ui->shadowsocksUrlLineEdit->text());
-    settings->setValue("ZJUConnect/DialDirectProxy", ui->dialDirectProxyLineEdit->text());
-    settings->setValue("ZJUConnect/UpdateBestNodesInterval", ui->updateBestNodesIntervalSpinBox->value());
+    settings->setValue("JustConnect/DNSTTL", ui->dnsTTLSpinBox->value());
+    settings->setValue("JustConnect/SOCKS5Port", ui->socks5PortSpinBox->value());
+    settings->setValue("JustConnect/HTTPPort", ui->httpPortSpinBox->value());
+    settings->setValue("JustConnect/ShadowsocksURL", ui->shadowsocksUrlLineEdit->text());
+    settings->setValue("JustConnect/DialDirectProxy", ui->dialDirectProxyLineEdit->text());
+    settings->setValue("JustConnect/UpdateBestNodesInterval", ui->updateBestNodesIntervalSpinBox->value());
 
-    settings->setValue("ZJUConnect/Protocol", ui->atrustRadioButton->isChecked() ? "atrust" : "easyconnect");
+    settings->setValue("JustConnect/Protocol", ui->atrustRadioButton->isChecked() ? "atrust" : "easyconnect");
     settings->setValue(
-        "ZJUConnect/EasyConnectAuthType",
+        "JustConnect/EasyConnectAuthType",
         ui->certFileLineEdit->text().isEmpty() ? "password" : "certificate"
     );
-    settings->setValue("ZJUConnect/LoginDomain", ui->loginDomainLineEdit->text());
+    settings->setValue("JustConnect/LoginDomain", ui->loginDomainLineEdit->text());
     QString authType;
     if (ui->smsCheckCodeRadioButton->isChecked())
         authType = "smsCheckCode";
@@ -374,40 +373,39 @@ void SettingWindow::applySettings()
         authType = "httpsOauth2";
     else
         authType = "psw";
-    settings->setValue("ZJUConnect/AuthType", authType);
-    settings->setValue("ZJUConnect/LoginURL", ui->loginUrlLineEdit->text());
-    settings->setValue("ZJUConnect/PhoneCountryCode", ui->countryCodeLineEdit->text());
-    settings->setValue("ZJUConnect/PhoneNumber", ui->phoneNumberLineEdit->text());
+    settings->setValue("JustConnect/AuthType", authType);
+    settings->setValue("JustConnect/LoginURL", ui->loginUrlLineEdit->text());
+    settings->setValue("JustConnect/PhoneCountryCode", ui->countryCodeLineEdit->text());
+    settings->setValue("JustConnect/PhoneNumber", ui->phoneNumberLineEdit->text());
 
-    settings->setValue("ZJUConnect/MultiLine", ui->multiLineCheckBox->isChecked());
-    settings->setValue("ZJUConnect/KeepAlive", ui->keepAliveCheckBox->isChecked());
-    settings->setValue("ZJUConnect/KeepAliveURL", ui->keepAliveUrlLineEdit->text().trimmed());
-    settings->setValue("ZJUConnect/BindInterface", ui->bindInterfaceLineEdit->text().trimmed());
-    settings->setValue("ZJUConnect/OutsideAccess", ui->outsideAccessCheckBox->isChecked());
+    settings->setValue("JustConnect/MultiLine", ui->multiLineCheckBox->isChecked());
+    settings->setValue("JustConnect/KeepAlive", ui->keepAliveCheckBox->isChecked());
+    settings->setValue("JustConnect/KeepAliveURL", ui->keepAliveUrlLineEdit->text().trimmed());
+    settings->setValue("JustConnect/BindInterface", ui->bindInterfaceLineEdit->text().trimmed());
+    settings->setValue("JustConnect/OutsideAccess", ui->outsideAccessCheckBox->isChecked());
 
-    settings->setValue("ZJUConnect/SkipDomainResource", ui->skipDomainResourceCheckBox->isChecked());
-    settings->setValue("ZJUConnect/DisableServerConfig", ui->disableServerConfigCheckBox->isChecked());
-    settings->setValue("ZJUConnect/ProxyAll", ui->proxyAllCheckBox->isChecked());
+    settings->setValue("JustConnect/SkipDomainResource", ui->skipDomainResourceCheckBox->isChecked());
+    settings->setValue("JustConnect/DisableServerConfig", ui->disableServerConfigCheckBox->isChecked());
+    settings->setValue("JustConnect/ProxyAll", ui->proxyAllCheckBox->isChecked());
 
-    settings->setValue("ZJUConnect/DisableZJUDNS", ui->disableDNSCheckBox->isChecked());
-    settings->setValue("ZJUConnect/ZJUDefault", ui->zjuDefaultCheckBox->isChecked());
-    settings->setValue("ZJUConnect/Debug", ui->detailedDebugCheckBox->isChecked());
-    settings->setValue("ZJUConnect/DebugPCAP", ui->debugPcapCheckBox->isChecked());
-    settings->setValue("ZJUConnect/DebugTLSLog", ui->debugTlsLogCheckBox->isChecked());
+    settings->setValue("JustConnect/DisableRemoteDNS", ui->disableDNSCheckBox->isChecked());
+    settings->setValue("JustConnect/Debug", ui->detailedDebugCheckBox->isChecked());
+    settings->setValue("JustConnect/DebugPCAP", ui->debugPcapCheckBox->isChecked());
+    settings->setValue("JustConnect/DebugTLSLog", ui->debugTlsLogCheckBox->isChecked());
 
-    settings->setValue("ZJUConnect/TUNMode", ui->tunCheckBox->isChecked());
-    settings->setValue("ZJUConnect/AddRoute", ui->routeCheckBox->isChecked());
-    settings->setValue("ZJUConnect/DNSHijack", ui->dnsHijackCheckBox->isChecked());
-    settings->setValue("ZJUConnect/FakeIP", ui->fakeIPCheckBox->isChecked());
-    settings->setValue("ZJUConnect/TCPTunnelMode", ui->tcpTunnelModeCheckBox->isChecked());
-    settings->setValue("ZJUConnect/AutoDetectInterface", ui->autoDetectInterfaceCheckBox->isChecked());
+    settings->setValue("JustConnect/TUNMode", ui->tunCheckBox->isChecked());
+    settings->setValue("JustConnect/AddRoute", ui->routeCheckBox->isChecked());
+    settings->setValue("JustConnect/DNSHijack", ui->dnsHijackCheckBox->isChecked());
+    settings->setValue("JustConnect/FakeIP", ui->fakeIPCheckBox->isChecked());
+    settings->setValue("JustConnect/TCPTunnelMode", ui->tcpTunnelModeCheckBox->isChecked());
+    settings->setValue("JustConnect/AutoDetectInterface", ui->autoDetectInterfaceCheckBox->isChecked());
 
 
-    settings->setValue("ZJUConnect/TCPPortForwarding", tcpPortForwarding);
-    settings->setValue("ZJUConnect/UDPPortForwarding", udpPortForwarding);
-    settings->setValue("ZJUConnect/CustomDNS", customDNS);
-    settings->setValue("ZJUConnect/CustomProxyDomain", customProxyDomain);
-    settings->setValue("ZJUConnect/ExtraArguments", extraArguments);
+    settings->setValue("JustConnect/TCPPortForwarding", tcpPortForwarding);
+    settings->setValue("JustConnect/UDPPortForwarding", udpPortForwarding);
+    settings->setValue("JustConnect/CustomDNS", customDNS);
+    settings->setValue("JustConnect/CustomProxyDomain", customProxyDomain);
+    settings->setValue("JustConnect/ExtraArguments", extraArguments);
 
     settings->setValue(
         "Common/ConfigVersion",
@@ -420,10 +418,10 @@ void SettingWindow::applySettings()
 bool SettingWindow::isAuthSettingChanged()
 {
     if (ui->atrustRadioButton->isChecked() == false &&
-        settings->value("ZJUConnect/Protocol").toString() != "atrust")
+        settings->value("JustConnect/Protocol").toString() != "atrust")
         return false;
     if (ui->atrustRadioButton->isChecked() == true &&
-        settings->value("ZJUConnect/Protocol").toString() != "atrust")
+        settings->value("JustConnect/Protocol").toString() != "atrust")
         return true;
     QString currentAuthType;
     if (ui->casRadioButton->isChecked())
@@ -435,10 +433,10 @@ bool SettingWindow::isAuthSettingChanged()
     else
         currentAuthType = "psw";
 
-    return currentAuthType != settings->value("ZJUConnect/AuthType").toString() ||
-           ui->loginDomainLineEdit->text() != settings->value("ZJUConnect/LoginDomain").toString() ||
+    return currentAuthType != settings->value("JustConnect/AuthType").toString() ||
+           ui->loginDomainLineEdit->text() != settings->value("JustConnect/LoginDomain").toString() ||
            ((currentAuthType == "cas" || currentAuthType == "httpsOauth2") &&
-            ui->loginUrlLineEdit->text() != settings->value("ZJUConnect/LoginURL").toString()) ||
-           ui->serverAddressLineEdit->text() != settings->value("ZJUConnect/ServerAddress").toString() ||
-           ui->serverPortSpinBox->value() != settings->value("ZJUConnect/ServerPort").toInt();
+            ui->loginUrlLineEdit->text() != settings->value("JustConnect/LoginURL").toString()) ||
+           ui->serverAddressLineEdit->text() != settings->value("JustConnect/ServerAddress").toString() ||
+           ui->serverPortSpinBox->value() != settings->value("JustConnect/ServerPort").toInt();
 }

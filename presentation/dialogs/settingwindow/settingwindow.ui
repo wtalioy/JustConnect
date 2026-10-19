@@ -112,7 +112,7 @@
            </widget>
           </item>
           <item row="5" column="0">
-           <widget class="QLabel" name="zjuConnectTabLabel7">
+           <widget class="QLabel" name="connectionTabLabel7">
             <property name="text">
              <string>自动重连（秒）</string>
             </property>
@@ -170,7 +170,7 @@
            </widget>
           </item>
           <item row="7" column="0">
-           <widget class="QLabel" name="zjuConnectTabLabel11">
+           <widget class="QLabel" name="connectionTabLabel11">
             <property name="text">
              <string>系统代理排除</string>
             </property>
@@ -279,7 +279,7 @@
           <item row="1" column="1">
            <widget class="QLineEdit" name="serverAddressLineEdit">
             <property name="text">
-             <string>trust.hitsz.edu.cn</string>
+             <string/>
             </property>
            </widget>
           </item>
@@ -343,7 +343,7 @@
            </widget>
           </item>
           <item row="1" column="0">
-           <widget class="QLabel" name="zjuConnectTabLabel1">
+           <widget class="QLabel" name="connectionTabLabel1">
             <property name="text">
              <string>服务器地址</string>
             </property>
@@ -475,7 +475,7 @@
            </widget>
           </item>
           <item row="3" column="0">
-           <widget class="QLabel" name="zjuConnectTabLabel6_2">
+           <widget class="QLabel" name="connectionTabLabel6_2">
             <property name="text">
              <string>TOTP 密钥</string>
             </property>
@@ -695,7 +695,7 @@
        </item>
       </layout>
      </widget>
-     <widget class="QWidget" name="zjuConnectTab">
+     <widget class="QWidget" name="connectionTab">
       <attribute name="title">
        <string>高级</string>
       </attribute>
@@ -736,14 +736,14 @@
         </widget>
        </item>
        <item row="6" column="0">
-        <widget class="QLabel" name="zjuConnectTabLabel5">
+        <widget class="QLabel" name="connectionTabLabel5">
          <property name="text">
           <string>SOCKS5 代理端口</string>
          </property>
         </widget>
        </item>
        <item row="10" column="0">
-        <widget class="QLabel" name="zjuConnectTabLabel6_3">
+        <widget class="QLabel" name="connectionTabLabel6_3">
          <property name="text">
           <string>直连代理</string>
          </property>
@@ -774,14 +774,14 @@
         </widget>
        </item>
        <item row="8" column="0">
-        <widget class="QLabel" name="zjuConnectTabLabel10">
+        <widget class="QLabel" name="connectionTabLabel10">
          <property name="text">
           <string>Shadowsocks 代理</string>
          </property>
         </widget>
        </item>
        <item row="7" column="0">
-        <widget class="QLabel" name="zjuConnectTabLabel6">
+        <widget class="QLabel" name="connectionTabLabel6">
          <property name="text">
           <string>HTTP 代理端口</string>
          </property>
@@ -795,7 +795,7 @@
         </widget>
        </item>
        <item row="9" column="0">
-        <widget class="QLabel" name="zjuConnectTabLabel12">
+        <widget class="QLabel" name="connectionTabLabel12">
          <property name="text">
           <string>节点优选间隔（秒）</string>
          </property>
@@ -809,7 +809,7 @@
         </widget>
        </item>
        <item row="5" column="0">
-        <widget class="QLabel" name="zjuConnectTabLabel9_2">
+        <widget class="QLabel" name="connectionTabLabel9_2">
          <property name="text">
           <string>DNS TTL（秒）</string>
          </property>
@@ -836,7 +836,7 @@
         </widget>
        </item>
        <item row="1" column="0">
-        <widget class="QLabel" name="zjuConnectTabLabel8">
+        <widget class="QLabel" name="connectionTabLabel8">
          <property name="text">
           <string>DNS 服务器</string>
          </property>
@@ -850,7 +850,7 @@
         </widget>
        </item>
        <item row="2" column="0">
-        <widget class="QLabel" name="zjuConnectTabLabel9">
+        <widget class="QLabel" name="connectionTabLabel9">
          <property name="text">
           <string>备用 DNS</string>
          </property>
@@ -960,13 +960,6 @@
            </property>
           </widget>
          </item>
-         <item row="2" column="1">
-          <widget class="QCheckBox" name="zjuDefaultCheckBox">
-           <property name="text">
-            <string>ZJU 默认配置</string>
-           </property>
-          </widget>
-         </item>
          <item row="2" column="0">
           <widget class="QCheckBox" name="disableDNSCheckBox">
            <property name="text">
@@ -1024,7 +1017,7 @@
         </widget>
        </item>
        <item row="11" column="0">
-        <widget class="QLabel" name="zjuConnectTabLabel6_4">
+        <widget class="QLabel" name="connectionTabLabel6_4">
          <property name="text">
           <string>定时保活 URL</string>
          </property>
@@ -1038,7 +1031,7 @@
         </widget>
        </item>
        <item row="12" column="0">
-        <widget class="QLabel" name="zjuConnectTabLabel6_5">
+        <widget class="QLabel" name="connectionTabLabel6_5">
          <property name="text">
           <string>绑定网络接口</string>
          </property>

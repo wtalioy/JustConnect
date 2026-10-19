@@ -53,7 +53,7 @@ private:
         const QString &password,
         const QString &phone = QString()
     );
-    void showConnectionError(ZJU_ERROR error);
+    void showConnectionError(ConnectionError error);
     QSettings *settings() const;
 
     QWidget *parentWidget;

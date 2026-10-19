@@ -6,8 +6,6 @@
 	<string>zh-CN</string>
 	<key>CFBundleExecutable</key>
 	<string>JustConnect</string>
-	<key>CFBundleIconFile</key>
-	<string>icon.icns</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.github.wtalioy.JustConnect</string>
 	<key>CFBundleInfoDictionaryVersion</key>
@@ -27,6 +25,6 @@
 	<key>CSResourcesFileMapped</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>
-	<string>JustConnect contributors; based on EZ4Connect, Copyright © 2025 Chenx Dust. See LICENSE.</string>
+	<string>JustConnect contributors; Copyright © 2025 Chenx Dust. See LICENSE.</string>
 </dict>
 </plist>

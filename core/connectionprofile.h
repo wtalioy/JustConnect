@@ -29,7 +29,7 @@ struct DnsOptions
     bool automatic = false;
     QString secondary;
     int ttl = 3600;
-    bool disableZjuDns = false;
+    bool disableRemoteDns = false;
     QString custom;
     QString localDnsServer;
     QString dnsServerBind;
@@ -66,7 +66,6 @@ struct ConnectionBehavior
     bool autoDetectInterface = false;
     bool skipDomainResource = false;
     bool disableServerConfig = false;
-    bool disableZjuConfig = false;
 };
 
 struct DebugOptions

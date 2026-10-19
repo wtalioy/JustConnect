@@ -25,9 +25,11 @@ infrastructure -------+
 `application` 不引用 `presentation` 或具体的 `infrastructure` 类型。具体实现统一由
 `MainWindowCoordinator` 创建并注入：
 
-- `CoreProcess` → `ZjuConnectProcess`
+- `CoreProcess` → `ExternalCoreProcess`
 - `SystemProxyBackend` → `PlatformSystemProxyBackend`
 - `ProfileBackend` → `ProfileManager`
+
+`CoreProcess` 定义连接配置、事件和错误接口，`ExternalCoreProcess` 负责启动核心与转换进程事件。当前使用 [zju-connect](https://github.com/Mythologyli/zju-connect)；命令构建与输出解析位于 `infrastructure/coreprocess/`。接入其他核心需适配其协议、认证查询、版本检查与打包来源。
 
 ## 主要流程
 

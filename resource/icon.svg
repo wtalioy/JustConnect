@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>JustConnect</title>
+  <rect width="64" height="64" rx="14" fill="#2563eb"/>
+  <g fill="none" stroke="#fff" stroke-width="5" transform="rotate(-40 32 32)">
+    <rect x="9" y="22" width="29" height="20" rx="10"/>
+    <rect x="26" y="22" width="29" height="20" rx="10"/>
+  </g>
+</svg>

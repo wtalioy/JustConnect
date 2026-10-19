@@ -13,23 +13,24 @@ APP_PATH="$TARGET_NAME.app"
 # Copy app bundle
 cp -R "$BUILD_DIR/$TARGET_NAME.app" .
 
-# Download and extract zju-connect
-ZJU_ARCH="${ARCH}"
+# Download and extract core
+CORE_ARCH="${ARCH}"
 if [ "$ARCH" = "x86_64" ]; then
-    ZJU_ARCH="amd64"
+    CORE_ARCH="amd64"
 fi
 
-ZJU_RELEASE_PATH="latest/download"
+CORE_RELEASE_PATH="latest/download"
 if [ "$NIGHTLY" = "true" ]; then
-    ZJU_RELEASE_PATH="download/nightly"
+    CORE_RELEASE_PATH="download/nightly"
 fi
 
-curl -LO "https://github.com/Mythologyli/zju-connect/releases/$ZJU_RELEASE_PATH/zju-connect-darwin-$ZJU_ARCH.zip"
-unzip -o "zju-connect-darwin-$ZJU_ARCH.zip"
-rm "zju-connect-darwin-$ZJU_ARCH.zip"
+curl -LO "https://github.com/Mythologyli/zju-connect/releases/$CORE_RELEASE_PATH/zju-connect-darwin-$CORE_ARCH.zip"
+unzip -o "zju-connect-darwin-$CORE_ARCH.zip"
+rm "zju-connect-darwin-$CORE_ARCH.zip"
 
-# Copy zju-connect into app bundle
+# Copy core into app bundle
 cp zju-connect "$APP_PATH/Contents/MacOS/"
+"$APP_PATH/Contents/MacOS/zju-connect" -version
 
 # Run macdeployqt
 macdeployqt "$APP_PATH"

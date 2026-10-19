@@ -30,23 +30,23 @@ class ConnectionSessionState
 {
 public:
     ConnectionState state() const;
-    ZJU_ERROR error() const;
+    ConnectionError error() const;
     bool isActive() const;
     bool wantsConnection() const;
     int reconnectDelayMs() const;
 
     bool requestStart(const ReconnectPolicy &policy);
     void connectionEstablished();
-    void recordError(ZJU_ERROR error);
+    void recordError(ConnectionError error);
     bool requestStop();
     ProcessFinishAction processFinished();
     void beginReconnect();
 
 private:
-    static bool isReconnectable(ZJU_ERROR error);
+    static bool isReconnectable(ConnectionError error);
 
     ConnectionState currentState = ConnectionState::Disconnected;
-    ZJU_ERROR currentError = ZJU_ERROR::NONE;
+    ConnectionError currentError = ConnectionError::NONE;
     ReconnectPolicy reconnectPolicy;
     bool desiredConnected = false;
 };

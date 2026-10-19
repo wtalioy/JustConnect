@@ -1,4 +1,4 @@
-#include "zjuconnectprocess.h"
+#include "externalcoreprocess.h"
 #include "infrastructure/coreprocess/corecommandbuilder.h"
 #include "infrastructure/coreprocess/consoleoutputdecoder.h"
 #include "infrastructure/coreprocess/coreoutputparser.h"
@@ -10,47 +10,47 @@
 #include <QFileInfo>
 #include <QStandardPaths>
 
-ZjuConnectProcess::ZjuConnectProcess(QObject *parent) : CoreProcess(parent)
+ExternalCoreProcess::ExternalCoreProcess(QObject *parent) : CoreProcess(parent)
 {
-    zjuConnectProcess = new QProcess(this);
+    process = new QProcess(this);
 
-    connect(zjuConnectProcess, &QProcess::readyReadStandardOutput, this, [this]()
+    connect(process, &QProcess::readyReadStandardOutput, this, [this]()
     {
-        processOutput(standardOutputBuffer, zjuConnectProcess->readAllStandardOutput());
+        processOutput(standardOutputBuffer, process->readAllStandardOutput());
     });
 
-    connect(zjuConnectProcess, &QProcess::readyReadStandardError, this, [this]()
+    connect(process, &QProcess::readyReadStandardError, this, [this]()
     {
-        processOutput(standardErrorBuffer, zjuConnectProcess->readAllStandardError());
+        processOutput(standardErrorBuffer, process->readAllStandardError());
     });
 
-    connect(zjuConnectProcess, &QProcess::errorOccurred, this, [&](QProcess::ProcessError err)
+    connect(process, &QProcess::errorOccurred, this, [&](QProcess::ProcessError err)
     {
         if (stopRequested)
         {
             return;
         }
-        QString errorString = zjuConnectProcess->errorString();
+        QString errorString = process->errorString();
         qWarning().noquote() << "退出原因：" + errorString;
 
         if (errorString.contains("No such file or directory") || errorString.contains("not found") || errorString.contains("找不到"))
         {
-            qWarning().noquote() << "核心路径：" + zjuConnectProcess->program();
-            emit error(ZJU_ERROR::PROGRAM_NOT_FOUND);
+            qWarning().noquote() << "核心路径：" + process->program();
+            emit error(ConnectionError::PROGRAM_NOT_FOUND);
         }
     });
 
-    connect(zjuConnectProcess, &QProcess::finished, this, [&]()
+    connect(process, &QProcess::finished, this, [&]()
     {
-        processOutput(standardOutputBuffer, zjuConnectProcess->readAllStandardOutput(), true);
-        processOutput(standardErrorBuffer, zjuConnectProcess->readAllStandardError(), true);
+        processOutput(standardOutputBuffer, process->readAllStandardOutput(), true);
+        processOutput(standardErrorBuffer, process->readAllStandardError(), true);
         stopRequested = false;
         qInfo().noquote() << "退出原因：进程已结束";
         emit finished();
     });
 }
 
-void ZjuConnectProcess::processOutput(CoreOutputBuffer &buffer, const QByteArray &data, bool flushPending)
+void ExternalCoreProcess::processOutput(CoreOutputBuffer &buffer, const QByteArray &data, bool flushPending)
 {
     QList<QByteArray> lines = buffer.append(data);
 
@@ -65,7 +65,7 @@ void ZjuConnectProcess::processOutput(CoreOutputBuffer &buffer, const QByteArray
     processOutputLines(lines);
 }
 
-void ZjuConnectProcess::processOutputLines(const QList<QByteArray> &lines)
+void ExternalCoreProcess::processOutputLines(const QList<QByteArray> &lines)
 {
     if (lines.isEmpty())
     {
@@ -114,37 +114,37 @@ void ZjuConnectProcess::processOutputLines(const QList<QByteArray> &lines)
             emit connectionEstablished();
             break;
         case CoreOutputEvent::CaptchaFailed:
-            emit error(ZJU_ERROR::CAPTCHA_FAILED);
+            emit error(ConnectionError::CAPTCHA_FAILED);
             break;
         case CoreOutputEvent::AccessDenied:
-            emit error(ZJU_ERROR::ACCESS_DENIED);
+            emit error(ConnectionError::ACCESS_DENIED);
             break;
         case CoreOutputEvent::ListenFailed:
-            emit error(ZJU_ERROR::LISTEN_FAILED);
+            emit error(ConnectionError::LISTEN_FAILED);
             break;
         case CoreOutputEvent::InvalidCredentials:
-            emit error(ZJU_ERROR::INVALID_DETAIL);
+            emit error(ConnectionError::INVALID_DETAIL);
             break;
         case CoreOutputEvent::BruteForceBlocked:
-            emit error(ZJU_ERROR::BRUTE_FORCE);
+            emit error(ConnectionError::BRUTE_FORCE);
             break;
         case CoreOutputEvent::LoginFailed:
-            emit error(ZJU_ERROR::OTHER_LOGIN_FAILED);
+            emit error(ConnectionError::OTHER_LOGIN_FAILED);
             break;
         case CoreOutputEvent::InteractiveError:
-            emit error(ZJU_ERROR::INTERACTIVE_ERROR);
+            emit error(ConnectionError::INTERACTIVE_ERROR);
             break;
         case CoreOutputEvent::AuthNotAvailable:
-            emit error(ZJU_ERROR::AUTH_NOT_AVAILABLE);
+            emit error(ConnectionError::AUTH_NOT_AVAILABLE);
             break;
         case CoreOutputEvent::AuthExpired:
-            emit error(ZJU_ERROR::AUTH_EXPIRED);
+            emit error(ConnectionError::AUTH_EXPIRED);
             break;
         case CoreOutputEvent::ClientFailed:
-            emit error(ZJU_ERROR::CLIENT_FAILED);
+            emit error(ConnectionError::CLIENT_FAILED);
             break;
         case CoreOutputEvent::CorePanic:
-            emit error(ZJU_ERROR::OTHER);
+            emit error(ConnectionError::OTHER);
             break;
         case CoreOutputEvent::None:
             break;
@@ -152,7 +152,7 @@ void ZjuConnectProcess::processOutputLines(const QList<QByteArray> &lines)
     }
 }
 
-QString ZjuConnectProcess::copyCoreForAppImage(const QString &programPath)
+QString ExternalCoreProcess::copyCoreForAppImage(const QString &programPath)
 {
 #if defined(Q_OS_UNIX)
     static QString cachedSourcePath;
@@ -196,7 +196,7 @@ QString ZjuConnectProcess::copyCoreForAppImage(const QString &programPath)
 #endif
 }
 
-void ZjuConnectProcess::start(const ConnectionProfile &profile)
+void ExternalCoreProcess::start(const ConnectionProfile &profile)
 {
     CoreRuntimePaths runtimePaths;
 
@@ -267,10 +267,10 @@ void ZjuConnectProcess::start(const ConnectionProfile &profile)
     }
 #endif
 
-    zjuConnectProcess->setProcessEnvironment(processEnvironment);
-    zjuConnectProcess->start(programToStart, finalArgs);
-    zjuConnectProcess->waitForStarted();
-    if (zjuConnectProcess->state() == QProcess::NotRunning)
+    process->setProcessEnvironment(processEnvironment);
+    process->start(programToStart, finalArgs);
+    process->waitForStarted();
+    if (process->state() == QProcess::NotRunning)
     {
         emit finished();
     }
@@ -280,9 +280,9 @@ void ZjuConnectProcess::start(const ConnectionProfile &profile)
     }
 }
 
-void ZjuConnectProcess::stop()
+void ExternalCoreProcess::stop()
 {
-    if (zjuConnectProcess->state() == QProcess::NotRunning)
+    if (process->state() == QProcess::NotRunning)
     {
         return;
     }
@@ -290,32 +290,32 @@ void ZjuConnectProcess::stop()
     if (!stopRequested)
     {
         stopRequested = true;
-        zjuConnectProcess->terminate();
+        process->terminate();
     }
     else
     {
-        zjuConnectProcess->kill();
+        process->kill();
     }
 }
 
-void ZjuConnectProcess::writeInput(const QByteArray &data)
+void ExternalCoreProcess::writeInput(const QByteArray &data)
 {
-    zjuConnectProcess->write(data);
+    process->write(data);
 }
 
-ZjuConnectProcess::~ZjuConnectProcess()
+ExternalCoreProcess::~ExternalCoreProcess()
 {
-    disconnect(zjuConnectProcess, nullptr, this, nullptr);
+    disconnect(process, nullptr, this, nullptr);
 
-    if (zjuConnectProcess->state() == QProcess::NotRunning)
+    if (process->state() == QProcess::NotRunning)
     {
         return;
     }
 
-    zjuConnectProcess->terminate();
-    if (!zjuConnectProcess->waitForFinished(3000))
+    process->terminate();
+    if (!process->waitForFinished(3000))
     {
-        zjuConnectProcess->kill();
-        zjuConnectProcess->waitForFinished();
+        process->kill();
+        process->waitForFinished();
     }
 }

@@ -65,6 +65,7 @@ QString environmentVariableName(const QString &option)
     {
         name.remove(0, 1);
     }
+    // Match the core credential environment variables.
     return "ZJU_CONNECT_" + name.replace('-', '_').toUpper();
 }
 
@@ -152,10 +153,8 @@ CoreCommand CoreCommandBuilder::build(const ConnectionProfile &profile, const Co
         {
             arguments << "-disable-multi-line";
         }
-        if (profile.behavior.disableZjuConfig)
-        {
-            arguments << "-disable-zju-config";
-        }
+        // Use server-provided resources and user settings.
+        arguments << "-disable-zju-config";
         if (profile.behavior.skipDomainResource)
         {
             arguments << "-skip-domain-resource";
@@ -191,7 +190,7 @@ CoreCommand CoreCommandBuilder::build(const ConnectionProfile &profile, const Co
     {
         arguments << "-auto-detect-interface";
     }
-    if (profile.dns.disableZjuDns)
+    if (profile.dns.disableRemoteDns)
     {
         arguments << "-disable-remote-dns";
     }

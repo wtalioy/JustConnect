@@ -36,7 +36,7 @@ signals:
     void askSudoPass();
     void savedSudoPasswordRejected();
     void reconnectScheduled(int delayMs);
-    void finished(ZJU_ERROR error);
+    void finished(ConnectionError error);
 
 private:
     void startCore();
