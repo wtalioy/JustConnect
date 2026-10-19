@@ -20,7 +20,7 @@
 
 同时导入 `go.mod`、`go.sum`、根许可证、`internal/ping/LICENSE` 和两份上游 README。根许可证原文保存为 [LICENSE.zju-connect](LICENSE.zju-connect)，上游说明与致谢原文保存为 [UPSTREAM-README.md](UPSTREAM-README.md) 和 [UPSTREAM-README_en.md](UPSTREAM-README_en.md)。未导入上游 Actions、Docker／服务安装配置、示例配置及推广图片；当前源码没有依赖它们的嵌入资源。
 
-S1-05 的代码差异仅有模块及 Go 导入路径迁移、固定工具链、`go mod tidy`／`go mod download` 生成的依赖锁，以及 JustConnect 自己的模块集成测试；协议实现和原有测试逻辑不变。不维护指向上游源码的本地 `replace`。`inet.af/netaddr` 的远程替换沿用上游，用于该外部依赖的实际模块来源，并非另一个 VPN 核心模块。
+S1-05 迁移模块及 Go 导入路径、固定工具链、通过 `go mod tidy`／`go mod download` 重建依赖锁，添加 JustConnect 的模块集成测试并修正两处测试的平台断言；协议实现不变。首次三平台 CI 暴露 Windows 不提供 Unix 权限位：`internal/keylog/keylog_test.go` 和 `underlay/pcap_test.go` 的 `0600` 断言仅在非 Windows 平台执行；文件内容、错误传播和抓包行为测试仍在全部平台执行。不维护指向上游源码的本地 `replace`。`inet.af/netaddr` 的远程替换沿用上游，用于该外部依赖的实际模块来源，并非另一个 VPN 核心模块。
 
 导入时逐文件验证了源码：除上述路径迁移和模块锁外，与校验过的归档一致；许可证和上游说明保持逐字节一致。以后直接提交这里的实际修改，利用本次导入提交和固定归档审查差异，有选择地合入上游修复，不重新下载覆盖源码、不维护外部补丁队列。Go 的外部依赖由 `go.sum` 和 module cache 管理，不提交整个缓存或 vendor。
 
@@ -42,7 +42,9 @@ go -C corelib test -timeout 60s ./...
 
 计划已记录：修正测试调用后还会暴露 `TestRefreshCancellation` 的真实上下文缺陷，`Session.request` 当前覆盖请求自带的取消上下文。这些在 S1-07 修复并恢复认证包测试，再实施依赖它们的会话接入。源码中现有的致命退出、全局状态和认证 TLS 默认行为也不能直接当作可嵌入的安全会话；它们仍按 S1-07、S2-03 的边界收敛。
 
-代码 `1611e9c` 已在本地 Linux／WSL2 通过上述限定基线及来源核对，并验证新增认证编译错误不会被已知缺陷例外掩盖。[推送 CI](https://github.com/wtalioy/JustConnect/actions/runs/39279301877)和[一次手动重试](https://github.com/wtalioy/JustConnect/actions/runs/39280768377)截至 2026-10-19 23:51（香港时间）均停留排队，三平台尚未分配 runner；没有执行结果，S1-05 保持待 CI 验收，不据此宣称 Windows／macOS 回归通过。
+代码 `1611e9c` 已在本地 Linux／WSL2 通过上述限定基线及来源核对，并验证新增认证编译错误不会被已知缺陷例外掩盖。[首次推送 CI](https://github.com/wtalioy/JustConnect/actions/runs/39279301877)的 Linux、macOS 限定基线及应用测试通过，Windows 因上述两处 Unix 权限断言失败。2026-10-20 已修正断言范围，本地 Linux 限定基线及两个受影响包的 Windows x64 测试程序实际运行通过，完整三平台 CI 待重验，S1-05 保持待验收。
+
+Windows 的 Go `FileMode`／`Chmod` 只表达文件只读属性，不能证明 ACL 限制为当前用户；现有调试文件沿用上游的继承 ACL，未做隐私权限验收。正式会话接入前须移除这些敏感调试输出入口或实现并验证访问限制，不能用本次断言修正作为安全验收。
 
 ## 许可证与分发
 
