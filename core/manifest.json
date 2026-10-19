@@ -1,0 +1,12 @@
+{
+  "name": "zju-connect",
+  "repository": "https://github.com/Mythologyli/zju-connect",
+  "commit": "c19eb4ed34b9cf6e8e8ea3315fe9973c8411eb63",
+  "source_url": "https://codeload.github.com/Mythologyli/zju-connect/tar.gz/c19eb4ed34b9cf6e8e8ea3315fe9973c8411eb63",
+  "source_sha256": "d0f48689be9a63432768f8e228920cfc7371b939281123628a91e583bc847798",
+  "license": "AGPL-3.0",
+  "license_sha256": "8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef",
+  "go_version": "1.27.2",
+  "go_sum_sha256": "9d3ab7b3f7cf9b04c0d3325b1d18ef1653c7db3c2940fc75415f0bad1945f914",
+  "patches": []
+}

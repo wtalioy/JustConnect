@@ -58,6 +58,28 @@ ctest --test-dir build --build-config Release --output-on-failure
 无显示服务器的 Linux 环境可设置 `QT_QPA_PLATFORM=offscreen` 运行界面测试。
 核心依赖为 [Mythologyli/zju-connect](https://github.com/Mythologyli/zju-connect)。开发运行时将 `zju-connect`（Windows 为 `zju-connect.exe`）放在应用旁或加入 PATH。
 
+### 固定核心构建
+
+[构建清单](../core/manifest.json)固定上游提交、源码归档 SHA-256、AGPL-3.0 许可证、Go 版本、模块锁校验和，以及按数组顺序应用的补丁。当前补丁数组为空，直接构建上游源码；会话恢复等功能补丁另按计划审查。
+
+使用清单指定的 Go 1.27.2、Python 3.12 或更新版本及 Git，在本机执行：
+
+```sh
+python -m unittest discover -s tests -p build_core_test.py
+python scripts/build-core.py
+```
+
+脚本先校验源码与补丁，再校验 Go 模块，以 `CGO_ENABLED=0`、`-trimpath` 和固定版本信息编译本机核心，并实际执行 `-version` 检查输出。它不修改 shell 配置，也不接受浮动分支或预编译核心；Go 版本不符会在下载前失败。输出在 `build/core`：可执行文件与 `core-provenance/`，后者包含原始源码、补丁、许可证、清单和构建记录。构建记录保存签名前二进制校验和；macOS 后续签名会改变 Mach-O 文件。
+
+三个平台的 `Tests` 工作流也执行上述验证。上游完整测试并非当前通过项：`session_context_test.go` 调用了不存在的旧方法 `Session.do`；临时纠正该调用后，还发现 `TestRefreshCancellation` 失败，`Session.request` 覆盖了调用者的取消上下文。已撤销临时纠正，不删除上游测试、不携带测试修补；这些问题记入计划，相关行为修复时再恢复完整验证。安装包接入仍在 S1-02 进行中；本节的源码构建通过不代表已替换现有安装包或完成校园登录。
+
+本机通过已有 Go 的工具链机制缓存了 Go 1.27.2（约 253 MiB），未替换系统 Go 或修改全局 PATH。本机运行核心构建可使用：
+
+```sh
+env PATH="/home/lioy/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.2.linux-amd64/bin:$PATH" \
+    python scripts/build-core.py
+```
+
 ### 当前 Linux／WSL2 开发环境
 
 本机 SDK 位于 `/home/lioy/.local/share/JustConnect/Qt/6.12.0/gcc_64`，编译器为 `/usr/bin/c++`（GCC 16.2.1），CMake 4.4.4，Ninja 1.13.2。所需的字体、XCB 和 xkbfile 依赖单独放在 `/home/lioy/.local/share/JustConnect/sysroot`，包清单与 SHA-256 保存在其中的 `packages.json`；未修改系统软件包或全局 shell 配置。
