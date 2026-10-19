@@ -2,7 +2,8 @@
 
 基于 [EZ4Connect](https://github.com/chenx-dust/EZ4Connect) 继续开发，由 [wtalioy](https://github.com/wtalioy) 维护。
 
-![Action](https://github.com/wtalioy/JustConnect/actions/workflows/build.yml/badge.svg)
+![Tests](https://github.com/wtalioy/JustConnect/actions/workflows/ci.yml/badge.svg?branch=develop)
+![Packages](https://github.com/wtalioy/JustConnect/actions/workflows/build.yml/badge.svg?branch=main)
 ![Release](https://img.shields.io/github/v/release/wtalioy/JustConnect)
 ![Downloads](https://img.shields.io/github/downloads/wtalioy/JustConnect/total)
 ![License](https://img.shields.io/github/license/wtalioy/JustConnect)
@@ -17,11 +18,11 @@
 
 ## 使用方式
 
-在本项目的 [Releases](https://github.com/wtalioy/JustConnect/releases) 页面下载最新版本：
+开发构建可在 [Actions](https://github.com/wtalioy/JustConnect/actions/workflows/build.yml) 的 Artifacts 下载；正式版本发布后，可在 [Releases](https://github.com/wtalioy/JustConnect/releases) 页面下载：
 
 - **Windows 用户**：下载 `JustConnect-vX.X.X-windows-ARCH.zip` ，解压至同一目录下，双击运行 `JustConnect.exe` ；
   - 如果遇到缺少 DLL 等问题，请先下载安装 Microsoft Visual C++ 可再发行程序包版本（[x64](https://aka.ms/vs/17/release/vc_redist.x64.exe) | [arm64](https://aka.ms/vs/17/release/vc_redist.arm64.exe)），再运行程序；
-- **macOS 用户**：下载 `JustConnect-vX.X.X-macOS-ARCH.dmg` ，将 JustConnect 移动到应用程序目录中；
+- **macOS 用户**：下载 `JustConnect-vX.X.X-macos-ARCH.dmg` ，将 JustConnect 移动到应用程序目录中；
   - macOS 包仅在维护者配置 Apple 凭据后执行开发者签名及公证；未配置时提供临时签名的测试包，不能视为已公证版本；
 - **Linux 用户**：下载 `JustConnect-vX.X.X-linux-ARCH.AppImage` ，赋予执行权限，运行即可；
   - AppImage x64 仅支持系统 `glibc >= 2.31` 的发行版，Ubuntu 22.04 及以上版本可以正常运行（受限于 GitHub Actions Runner）；
