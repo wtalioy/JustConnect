@@ -1,12 +1,11 @@
 # Windows deployment script
-# Usage: .\deploy-windows.ps1 -TargetName "JustConnect" -DisplayName "JustConnect" -BuildDir "build" -Architecture "amd64" -Nightly "false"
+# Usage: .\deploy-windows.ps1 -TargetName "JustConnect" -DisplayName "JustConnect" -BuildDir "build" -Architecture "amd64"
 
 param(
     [string]$TargetName = "JustConnect",
     [string]$DisplayName = "JustConnect",
     [string]$BuildDir = "build",
-    [string]$Architecture = "amd64",
-    [string]$Nightly = "false"
+    [string]$Architecture = "amd64"
 )
 
 $ErrorActionPreference = "Stop"
@@ -26,21 +25,16 @@ if ($LASTEXITCODE -ne 0) {
     throw "windeployqt failed with exit code $LASTEXITCODE"
 }
 
-# Download and extract core
-$CoreReleasePath = if ($Nightly -eq "true") { "download/nightly" } else { "latest/download" }
-$CoreUrl = "https://github.com/Mythologyli/zju-connect/releases/$CoreReleasePath/zju-connect-windows-$Architecture.zip"
-$CoreZipPath = "zju-connect-windows-$Architecture.zip"
-Invoke-WebRequest -Uri $CoreUrl -OutFile $CoreZipPath
-Expand-Archive -Path $CoreZipPath -DestinationPath . -Force
-Remove-Item -Path $CoreZipPath
+Copy-Item -Path "../$BuildDir/core/zju-connect.exe" -Destination .
+Copy-Item -Path "../$BuildDir/core/core-provenance" -Destination . -Recurse
 
 # Copy additional files
 Copy-Item -Path "../libs/wintun/bin/$Architecture/wintun.dll" -Destination .
 Copy-Item -Path "../resource/qt.conf" -Destination .
 
-& .\zju-connect.exe -version
+python ../scripts/build-core.py --verify .
 if ($LASTEXITCODE -ne 0) {
-    throw "Bundled core failed with exit code $LASTEXITCODE"
+    throw "Bundled core verification failed with exit code $LASTEXITCODE"
 }
 
 # Remove vc_redist executable

@@ -12,10 +12,6 @@ on:
         type: boolean
         default: true
         description: Nightly build (develop previews always use this mode)
-      core_nightly:
-        type: boolean
-        default: false
-        description: Build with the core nightly release
       version:
         type: string
         default: ''
@@ -51,7 +47,6 @@ jobs:
       ARCHIVE_NAME: JustConnect-${{ github.ref == 'refs/heads/develop' && format('preview-{0}', github.sha) || inputs.version || github.event.release.tag_name || 'nightly' }}-${{ matrix.platform }}-${{ matrix.arch }}
       NIGHTLY_BUILD: ${{ github.ref == 'refs/heads/develop' || (github.event_name == 'workflow_dispatch' && inputs.nightly) || (github.event_name != 'workflow_dispatch' && github.event_name != 'release') }}
       RELEASE_VERSION: ${{ inputs.version || github.event.release.tag_name }}
-      CORE_NIGHTLY: ${{ github.event_name == 'workflow_dispatch' && inputs.core_nightly }}
       MACOS_SIGNING: ${{ github.ref != 'refs/heads/develop' && matrix.platform == 'macos' && secrets.MACOS_CERT_P12 != '' && secrets.MACOS_CERT_PASSWORD != '' && secrets.MACOS_CERT_IDENTITY != '' }}
       MACOS_NOTARIZATION: ${{ github.ref != 'refs/heads/develop' && matrix.platform == 'macos' && secrets.MACOS_CERT_P12 != '' && secrets.MACOS_CERT_PASSWORD != '' && secrets.MACOS_CERT_IDENTITY != '' && secrets.APPLE_ID != '' && secrets.APPLE_APP_SPECIFIC_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
     steps:
@@ -68,6 +63,9 @@ jobs:
         with:
           host: ${{ matrix.qt_host }}
           arch: ${{ matrix.qt_arch }}
+
+      - name: Build and verify core
+        uses: ./.github/actions/build-core
 
       - name: Configure
         shell: bash
@@ -103,22 +101,29 @@ jobs:
         env:
           CORE_ARCH: ${{ matrix.core_arch }}
         run: |
-          ./scripts/deploy-windows.ps1 -TargetName $env:TARGET_NAME -DisplayName $env:DISPLAY_NAME -BuildDir build -Architecture $env:CORE_ARCH -Nightly $env:CORE_NIGHTLY
+          ./scripts/deploy-windows.ps1 -TargetName $env:TARGET_NAME -DisplayName $env:DISPLAY_NAME -BuildDir build -Architecture $env:CORE_ARCH
           Compress-Archive -Path $env:DISPLAY_NAME -DestinationPath "$env:ARCHIVE_NAME.zip"
+          Expand-Archive -Path "$env:ARCHIVE_NAME.zip" -DestinationPath "$env:RUNNER_TEMP/package-check"
+          python scripts/build-core.py --verify "$env:RUNNER_TEMP/package-check/$env:DISPLAY_NAME"
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged core verification failed' }
 
       - name: Package Linux
         if: runner.os == 'Linux'
         env:
           CORE_ARCH: ${{ matrix.core_arch }}
         run: |
-          ./scripts/deploy-linux.sh "$TARGET_NAME" "$DISPLAY_NAME" build "$CORE_ARCH" "$CORE_NIGHTLY"
+          ./scripts/deploy-linux.sh "$TARGET_NAME" "$DISPLAY_NAME" build "$CORE_ARCH"
           mv "$TARGET_NAME"-*.AppImage "$ARCHIVE_NAME.AppImage"
+          package_check=$(mktemp -d)
+          (cd "$package_check" && "$GITHUB_WORKSPACE/$ARCHIVE_NAME.AppImage" --appimage-extract 'usr/bin/*' > /dev/null)
+          python scripts/build-core.py --verify "$package_check/squashfs-root/usr/bin"
+          rm -rf "$package_check"
 
       - name: Prepare macOS bundle
         if: runner.os == 'macOS'
         env:
           CORE_ARCH: ${{ matrix.core_arch }}
-        run: ./scripts/deploy-macos.sh "$TARGET_NAME" build "$CORE_ARCH" "$CORE_NIGHTLY"
+        run: ./scripts/deploy-macos.sh "$TARGET_NAME" build "$CORE_ARCH"
 
       - name: Import macOS signing certificate
         if: env.MACOS_SIGNING == 'true'
@@ -155,6 +160,11 @@ jobs:
           hdiutil create -volname "$DISPLAY_NAME" -srcfolder dmg-root -format UDZO "$ARCHIVE_NAME.dmg"
           hdiutil attach "$ARCHIVE_NAME.dmg" -readonly -nobrowse -mountpoint "$RUNNER_TEMP/dmg-check"
           test -x "$RUNNER_TEMP/dmg-check/$TARGET_NAME.app/Contents/MacOS/$TARGET_NAME"
+          codesign --verify --deep --strict "$RUNNER_TEMP/dmg-check/$TARGET_NAME.app"
+          bundled_core="$RUNNER_TEMP/dmg-check/$TARGET_NAME.app/Contents/MacOS"
+          diff -r build/core/core-provenance "$bundled_core/core-provenance"
+          expected_version=$(python -c 'import json; print(json.load(open("build/core/core-provenance/build.json"))["version"])')
+          test "$("$bundled_core/zju-connect" -version)" = "$expected_version"
           hdiutil detach "$RUNNER_TEMP/dmg-check"
 
       - name: Notarize macOS package
