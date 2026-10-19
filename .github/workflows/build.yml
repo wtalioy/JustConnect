@@ -71,7 +71,7 @@ jobs:
           host: ${{ matrix.qt_host }}
           target: desktop
           arch: ${{ matrix.qt_arch }}
-          modules: qt5compat qtpositioning qtwebchannel qtwebengine
+          modules: ${{ matrix.platform == 'linux' && 'qt5compat qtpositioning qtserialport qtwebchannel qtwebengine' || 'qt5compat qtpositioning qtwebchannel qtwebengine' }}
           cache: true
           cache-key-prefix: qt-${{ matrix.platform }}-${{ matrix.arch }}
           # Windows ARM64 WebEngine requires the upstream aqt workaround.
@@ -147,7 +147,7 @@ jobs:
           MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-keychain
         run: |
-          printf '%s' "$MACOS_CERT_P12" | base64 --decode > "$RUNNER_TEMP/signing.p12"
+          printf '%s' "$MACOS_CERT_P12" | base64 -D > "$RUNNER_TEMP/signing.p12"
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/signing.keychain-db"
           security set-keychain-settings -lut 21600 "$RUNNER_TEMP/signing.keychain-db"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/signing.keychain-db"
@@ -168,7 +168,14 @@ jobs:
 
       - name: Package macOS
         if: runner.os == 'macOS'
-        run: hdiutil create -volname "$DISPLAY_NAME" -srcfolder "$TARGET_NAME.app" -format UDZO "$ARCHIVE_NAME.dmg"
+        run: |
+          mkdir dmg-root
+          cp -R "$TARGET_NAME.app" dmg-root/
+          ln -s /Applications dmg-root/Applications
+          hdiutil create -volname "$DISPLAY_NAME" -srcfolder dmg-root -format UDZO "$ARCHIVE_NAME.dmg"
+          hdiutil attach "$ARCHIVE_NAME.dmg" -readonly -nobrowse -mountpoint "$RUNNER_TEMP/dmg-check"
+          test -x "$RUNNER_TEMP/dmg-check/$TARGET_NAME.app/Contents/MacOS/$TARGET_NAME"
+          hdiutil detach "$RUNNER_TEMP/dmg-check"
 
       - name: Notarize macOS package
         if: env.MACOS_NOTARIZATION == 'true'
