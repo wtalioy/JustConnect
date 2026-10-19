@@ -1,5 +1,7 @@
 # 当前代码结构
 
+当前代码仍通过 `QProcess` 运行独立核心。[实施计划](../plan.md#s1)已调整为同仓库维护 aTrust 源码、编成库并通过 C ABI 在 Qt 宿主内调用；这一迁移尚未实现。下文描述现有实现，不能将旧构建通过视为库化验证。
+
 JustConnect 使用轻量级分层架构。界面层通过 Coordinator 组合应用服务和平台实现，避免
 `MainWindow` 直接承担连接进程、配置存储及认证窗口的生命周期。
 
@@ -31,6 +33,8 @@ infrastructure -------+
 
 `CoreProcess` 定义连接配置、事件和错误接口，`ExternalCoreProcess` 负责启动核心与转换进程事件。当前使用 [zju-connect](https://github.com/Mythologyli/zju-connect)；命令构建与输出解析位于 `infrastructure/coreprocess/`。接入其他核心需适配其协议、认证查询、版本检查与打包来源。
 
+目标边界为 `application/CoreEngine` → `infrastructure/EmbeddedCoreEngine` → JustConnect 内部 C ABI → `corelib/` Go 会话 → `third_party/zju-connect/` 协议实现。Qt 主线程接收结构化事件，数据转发留在 Go 内；凭据、认证回应和策略通过显式接口传入。正式切换时删除核心命令行、文本解析及进程兼容层，不保留两套正式后端。必要的权限助手和独立恢复守护不承载 VPN 核心。
+
 ## 主要流程
 
 - `MainWindowCoordinator` 是主界面的组合入口，并维护 VPN 与系统代理之间的生命周期联动。
@@ -55,4 +59,4 @@ infrastructure -------+
 
 领域与应用层允许使用现有 Qt Core 类型、QObject 和事件机制，与 Widgets 的分离不表示已脱离 Qt。`CoreProcess` 是当前外部核心的应用端口，不是动态协议插件系统。
 
-这些改进的顺序、完成条件和验证状态统一维护在[实施计划](../plan.md)：基础结果与认证见 [S2](../plan.md#s2)，产品流程见 [S7](../plan.md#s7)，完整配置封装和构建拆层见后续改进。本文只在实际代码结构变化后同步更新，不将计划中的服务或能力写成当前实现。
+这些改进的顺序、完成条件和验证状态统一维护在[实施计划](../plan.md)：库链接、生命周期、Qt 适配和旧构建清理见 [S1](../plan.md#s1)，基础结果与认证见 [S2](../plan.md#s2)，产品流程见 [S7](../plan.md#s7)。库化所需的构建 target 和结构化事件已列为 S1 必需交付；其他配置与 C++ 分层改进按需继续。目标与当前实现分开记录，代码结构变化后再同步目录和调用关系。
