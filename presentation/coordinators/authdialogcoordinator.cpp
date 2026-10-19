@@ -162,7 +162,7 @@ void AuthDialogCoordinator::requestGraphCaptcha(const QString &graphFile)
 {
     qInfo().noquote() << "需要图形验证码";
     const bool textInputMode = settings == nullptr
-        || settings->value("ZJUConnect/Protocol", "easyconnect").toString() == "easyconnect";
+        || settings->value("JustConnect/Protocol", "easyconnect").toString() == "easyconnect";
     if (graphCaptchaWindow != nullptr)
     {
         graphCaptchaWindow->setGraph(graphFile, textInputMode);
@@ -314,8 +314,8 @@ void AuthDialogCoordinator::requestSsoLogin()
     }
 
     const QString serverHost =
-        settings->value("ZJUConnect/ServerAddress", "trust.hitsz.edu.cn").toString();
-    const int serverPort = settings->value("ZJUConnect/ServerPort", 443).toInt();
+        settings->value("JustConnect/ServerAddress").toString();
+    const int serverPort = settings->value("JustConnect/ServerPort", 443).toInt();
     QUrl serverUrl;
     serverUrl.setScheme("https");
     serverUrl.setHost(serverHost);
@@ -324,7 +324,7 @@ void AuthDialogCoordinator::requestSsoLogin()
         serverUrl.setPort(serverPort);
     }
 
-    QString ssoUrl = settings->value("ZJUConnect/LoginURL").toString();
+    QString ssoUrl = settings->value("JustConnect/LoginURL").toString();
     if (ssoUrl.isEmpty())
     {
         QUrl defaultSsoUrl = serverUrl;
@@ -332,7 +332,7 @@ void AuthDialogCoordinator::requestSsoLogin()
         QUrlQuery query;
         query.addQueryItem(
             "sfDomain",
-            settings->value("ZJUConnect/LoginDomain").toString()
+            settings->value("JustConnect/LoginDomain").toString()
         );
         defaultSsoUrl.setQuery(query);
         ssoUrl = defaultSsoUrl.toString();

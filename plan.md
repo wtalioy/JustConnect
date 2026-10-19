@@ -8,6 +8,7 @@
 - Actions 使用明确的最小权限，移除上游 AUR 自动发布；macOS 未配置 Apple 凭据时生成临时签名测试包，完整配置后执行开发者签名和公证，不沿用上游“已公证”的声明。详细操作见 [构建与发布](docs/DEVELOPMENT.md)。
 - 本节记录已完成的代码与配置变更；云端运行结果与网络功能的实机验收分别记录，不把配置完成视为所有安装包或共存功能已经通过验证。
 - 已通过工作流静态检查、版本参数自检，以及 [develop 首次 CI](https://github.com/wtalioy/JustConnect/actions/runs/39234405357) 的 Windows、macOS、Linux 编译和各 15 项测试。开发者签名及公证因尚未配置 Apple 凭据而未验证；校园网络共存仍按下文实施。
+- 核心进程由 `ExternalCoreProcess` 实现 `CoreProcess` 接口，错误类型使用 `ConnectionError`，配置存储在 `JustConnect` 分组；已有预览配置兼容迁移，不覆盖已填的新字段。当前依赖 [zju-connect](https://github.com/Mythologyli/zju-connect)。新配置的服务器与登录域留空，EasyConnect 使用服务端资源和用户设置。README 已清空，历史截图已移除，界面使用连接图标，Windows/macOS 文件图标暂用系统默认；复旦认证模板与透明共存尚待实现。
 
 ## 目标与默认行为
 

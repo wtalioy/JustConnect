@@ -23,49 +23,48 @@ bool loadsSettingsIntoTypedProfile()
         "Credential/CertPassword",
         QString(QStringLiteral("cert-password").toUtf8().toBase64())
     );
-    settings.setValue("ZJUConnect/Protocol", "atrust");
-    settings.setValue("ZJUConnect/AuthType", "cas");
-    settings.setValue("ZJUConnect/LoginDomain", "domain");
-    settings.setValue("ZJUConnect/PhoneCountryCode", "86");
-    settings.setValue("ZJUConnect/PhoneNumber", "123456");
-    settings.setValue("ZJUConnect/ServerAddress", "vpn.example.edu");
-    settings.setValue("ZJUConnect/ServerPort", 8443);
-    settings.setValue("ZJUConnect/DNS", "10.0.0.1");
-    settings.setValue("ZJUConnect/DNSAuto", false);
-    settings.setValue("ZJUConnect/SecondaryDNS", "10.0.0.2");
-    settings.setValue("ZJUConnect/LocalDNSServer", "223.5.5.5:53");
-    settings.setValue("ZJUConnect/DNSServerBind", "127.0.0.1:5353");
-    settings.setValue("ZJUConnect/DNSTTL", 60);
-    settings.setValue("ZJUConnect/DisableZJUDNS", true);
-    settings.setValue("ZJUConnect/CustomDNS", "example.org=1.1.1.1");
-    settings.setValue("ZJUConnect/OutsideAccess", true);
-    settings.setValue("ZJUConnect/SOCKS5Port", 1080);
-    settings.setValue("ZJUConnect/HTTPPort", 1081);
-    settings.setValue("ZJUConnect/ShadowsocksURL", "ss://url");
-    settings.setValue("ZJUConnect/DialDirectProxy", "http://direct");
-    settings.setValue("ZJUConnect/ProxyAll", true);
-    settings.setValue("ZJUConnect/CustomProxyDomain", "example.org");
-    settings.setValue("ZJUConnect/TUNMode", true);
-    settings.setValue("ZJUConnect/AddRoute", true);
-    settings.setValue("ZJUConnect/DNSHijack", true);
-    settings.setValue("ZJUConnect/FakeIP", true);
-    settings.setValue("ZJUConnect/TCPTunnelMode", true);
-    settings.setValue("ZJUConnect/TCPPortForwarding", "tcp-forward");
-    settings.setValue("ZJUConnect/UDPPortForwarding", "udp-forward");
-    settings.setValue("ZJUConnect/UpdateBestNodesInterval", 30);
-    settings.setValue("ZJUConnect/CredentialsAsArguments", true);
-    settings.setValue("ZJUConnect/MultiLine", false);
-    settings.setValue("ZJUConnect/KeepAlive", false);
-    settings.setValue("ZJUConnect/KeepAliveURL", "https://keepalive");
-    settings.setValue("ZJUConnect/BindInterface", "en0");
-    settings.setValue("ZJUConnect/AutoDetectInterface", true);
-    settings.setValue("ZJUConnect/SkipDomainResource", true);
-    settings.setValue("ZJUConnect/DisableServerConfig", true);
-    settings.setValue("ZJUConnect/ZJUDefault", false);
-    settings.setValue("ZJUConnect/Debug", true);
-    settings.setValue("ZJUConnect/DebugPCAP", true);
-    settings.setValue("ZJUConnect/DebugTLSLog", true);
-    settings.setValue("ZJUConnect/ExtraArguments", "-foo bar");
+    settings.setValue("JustConnect/Protocol", "atrust");
+    settings.setValue("JustConnect/AuthType", "cas");
+    settings.setValue("JustConnect/LoginDomain", "domain");
+    settings.setValue("JustConnect/PhoneCountryCode", "86");
+    settings.setValue("JustConnect/PhoneNumber", "123456");
+    settings.setValue("JustConnect/ServerAddress", "vpn.example.edu");
+    settings.setValue("JustConnect/ServerPort", 8443);
+    settings.setValue("JustConnect/DNS", "10.0.0.1");
+    settings.setValue("JustConnect/DNSAuto", false);
+    settings.setValue("JustConnect/SecondaryDNS", "10.0.0.2");
+    settings.setValue("JustConnect/LocalDNSServer", "223.5.5.5:53");
+    settings.setValue("JustConnect/DNSServerBind", "127.0.0.1:5353");
+    settings.setValue("JustConnect/DNSTTL", 60);
+    settings.setValue("JustConnect/DisableRemoteDNS", true);
+    settings.setValue("JustConnect/CustomDNS", "example.org=1.1.1.1");
+    settings.setValue("JustConnect/OutsideAccess", true);
+    settings.setValue("JustConnect/SOCKS5Port", 1080);
+    settings.setValue("JustConnect/HTTPPort", 1081);
+    settings.setValue("JustConnect/ShadowsocksURL", "ss://url");
+    settings.setValue("JustConnect/DialDirectProxy", "http://direct");
+    settings.setValue("JustConnect/ProxyAll", true);
+    settings.setValue("JustConnect/CustomProxyDomain", "example.org");
+    settings.setValue("JustConnect/TUNMode", true);
+    settings.setValue("JustConnect/AddRoute", true);
+    settings.setValue("JustConnect/DNSHijack", true);
+    settings.setValue("JustConnect/FakeIP", true);
+    settings.setValue("JustConnect/TCPTunnelMode", true);
+    settings.setValue("JustConnect/TCPPortForwarding", "tcp-forward");
+    settings.setValue("JustConnect/UDPPortForwarding", "udp-forward");
+    settings.setValue("JustConnect/UpdateBestNodesInterval", 30);
+    settings.setValue("JustConnect/CredentialsAsArguments", true);
+    settings.setValue("JustConnect/MultiLine", false);
+    settings.setValue("JustConnect/KeepAlive", false);
+    settings.setValue("JustConnect/KeepAliveURL", "https://keepalive");
+    settings.setValue("JustConnect/BindInterface", "en0");
+    settings.setValue("JustConnect/AutoDetectInterface", true);
+    settings.setValue("JustConnect/SkipDomainResource", true);
+    settings.setValue("JustConnect/DisableServerConfig", true);
+    settings.setValue("JustConnect/Debug", true);
+    settings.setValue("JustConnect/DebugPCAP", true);
+    settings.setValue("JustConnect/DebugTLSLog", true);
+    settings.setValue("JustConnect/ExtraArguments", "-foo bar");
 
     const ConnectionProfile profile =
         SettingsProfileLoader::load(settings, "campus", "alice", "secret");
@@ -88,7 +87,7 @@ bool loadsSettingsIntoTypedProfile()
         && !profile.dns.automatic
         && profile.dns.secondary == "10.0.0.2"
         && profile.dns.ttl == 60
-        && profile.dns.disableZjuDns
+        && profile.dns.disableRemoteDns
         && profile.dns.custom == "example.org=1.1.1.1"
         && profile.dns.localDnsServer == "223.5.5.5:53"
         && profile.dns.dnsServerBind == "127.0.0.1:5353"
@@ -113,7 +112,6 @@ bool loadsSettingsIntoTypedProfile()
         && profile.behavior.autoDetectInterface
         && profile.behavior.skipDomainResource
         && profile.behavior.disableServerConfig
-        && profile.behavior.disableZjuConfig
         && profile.debug.detailedOutput
         && profile.debug.capturePcap
         && profile.debug.exportTlsKeys
@@ -137,7 +135,6 @@ bool usesCompatibleDefaults()
         && !profile.credentials.passAsArguments
         && profile.behavior.disableMultiLine
         && profile.behavior.disableKeepAlive
-        && profile.behavior.disableZjuConfig
         && profile.dns.localDnsServer.isEmpty()
         && profile.dns.dnsServerBind.isEmpty()
         && !profile.debug.detailedOutput
@@ -156,14 +153,14 @@ bool respectsEasyConnectAuthenticationMode()
 {
     QTemporaryDir directory;
     QSettings settings(directory.filePath("easyconnect.ini"), QSettings::IniFormat);
-    settings.setValue("ZJUConnect/Protocol", "easyconnect");
+    settings.setValue("JustConnect/Protocol", "easyconnect");
     settings.setValue("Credential/CertFile", "/tmp/client.p12");
     settings.setValue(
         "Credential/CertPassword",
         QString(QStringLiteral("cert-password").toUtf8().toBase64())
     );
 
-    settings.setValue("ZJUConnect/EasyConnectAuthType", "password");
+    settings.setValue("JustConnect/EasyConnectAuthType", "password");
     const ConnectionProfile passwordProfile =
         SettingsProfileLoader::load(settings, "", "alice", "secret");
     if (!passwordProfile.credentials.certFile.isEmpty()
@@ -173,7 +170,7 @@ bool respectsEasyConnectAuthenticationMode()
         return false;
     }
 
-    settings.setValue("ZJUConnect/EasyConnectAuthType", "certificate");
+    settings.setValue("JustConnect/EasyConnectAuthType", "certificate");
     const ConnectionProfile certificateProfile =
         SettingsProfileLoader::load(settings, "", "", "");
     const bool passed =

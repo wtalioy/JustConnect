@@ -36,7 +36,7 @@ JustConnect 的主仓库是 [wtalioy/JustConnect](https://github.com/wtalioy/Jus
 | `APPLE_TEAM_ID` | Apple 开发者团队 ID |
 
 PR 测试流程不使用签名 Secrets。配置了凭据但签名或公证失败时，构建失败，不降级为成功发布。
-Windows 当前未配置代码签名；未维护 JustConnect 的 AUR 包，也不再更新上游的 `ez4connect` 包。
+Windows 当前未配置代码签名；未维护额外的软件源包。
 
 ## 本地构建
 
@@ -49,10 +49,12 @@ ctest --test-dir build --build-config Release --output-on-failure
 ```
 
 无显示服务器的 Linux 环境可设置 `QT_QPA_PLATFORM=offscreen` 运行界面测试。
-开发运行时需将 `zju-connect`（Windows 为 `zju-connect.exe`）放在应用旁，或加入 PATH。
+核心依赖为 [Mythologyli/zju-connect](https://github.com/Mythologyli/zju-connect)。开发运行时将 `zju-connect`（Windows 为 `zju-connect.exe`）放在应用旁或加入 PATH。
 
 ## 当前范围
 
-应用名称、更新检查、项目链接和发布均归属 JustConnect。新应用标识使用独立的配置、认证数据和日志路径，不自动迁移上游应用的数据；旧应用的自启动项和网络设置清理仍属于后续恢复功能的范围。
+配置、认证数据和日志使用 JustConnect 的数据路径，不自动导入其他应用的数据。遗留自启动项和网络设置的清理尚待实现。
 
-当前打包仍使用上游 zju-connect 的发布版（手动构建可选其 nightly），核心版本查询仍指向上游；固定源码提交、应用补丁和校园网络自动共存尚待按 [计划](../plan.md) 实现。不要以未修改的上游核心替换未来带共存补丁的核心。
+已有预览配置在读取时迁移字段，并保留已填的新字段。新配置的服务器和登录域留空，需先完成服务器与认证配置。README 暂时留空，界面使用连接图标；Windows/macOS 文件图标暂用系统默认。
+
+当前打包仍使用第三方核心的上游发布版（手动构建可选其 nightly），核心版本查询仍指向上游；固定源码提交、应用补丁和校园网络自动共存尚待按 [计划](../plan.md) 实现。不要以未修改的上游核心替换未来带共存补丁的核心。

@@ -16,9 +16,6 @@
 - 开启本软件的系统代理；
 - 启动 Clash 时不需要打开系统代理或 TUN，即可正确转发流量。
 
-<div align="center">
-<img src="proxy_setting.png" width="600px">
-</div>
 
 ### 方式二：Clash 作为主代理
 
@@ -52,18 +49,15 @@ proxy-groups:
 
 ```yaml
 rules:
-  - DOMAIN,ids.hit.edu.cn,DIRECT      # 鉴权服务器
-  - DOMAIN,trust.hitsz.edu.cn,DIRECT  # aTrust 服务器
-  - DOMAIN-SUFFIX,hitsz.edu.cn,🏫 校园网
+  - DOMAIN,login.example.edu.cn,DIRECT      # 鉴权服务器
+  - DOMAIN,vpn.example.edu.cn,DIRECT  # aTrust 服务器
+  - DOMAIN-SUFFIX,example.edu.cn,🏫 校园网
   - IP-CIDR,10.0.0.0/8,🏫 校园网,no-resolve
   # 可在此添加其它你需要代理的 ip 段，如课程中心
 ```
 
 这样即可通过简单的切换实现在校外使用本项目时选择 JustConnect 代理，在校内使用 DIRECT 直连。
 
-<div align="center">
-<img src="proxy_group.png" width="600px">
-</div>
 
 ## TUN 模式
 
@@ -107,11 +101,11 @@ proxy-groups:
 
 ```yaml
 rules:
-  - DOMAIN,ids.hit.edu.cn,DIRECT      # 鉴权服务器
-  - DOMAIN,trust.hitsz.edu.cn,DIRECT  # aTrust 服务器
+  - DOMAIN,login.example.edu.cn,DIRECT      # 鉴权服务器
+  - DOMAIN,vpn.example.edu.cn,DIRECT  # aTrust 服务器
   - PROCESS-NAME,zju-connect.exe,DIRECT
   - PROCESS-NAME,JustConnect.exe,DIRECT
-  - DOMAIN-SUFFIX,hitsz.edu.cn,🏫 校园网
+  - DOMAIN-SUFFIX,example.edu.cn,🏫 校园网
   - IP-CIDR,10.0.0.0/8,🏫 校园网,no-resolve
   # 可在此添加其它你需要代理的 ip 段，如课程中心
 ```
@@ -119,7 +113,7 @@ rules:
 其中：
 
 - `PROCESS-NAME`精确匹配`JustConnect.exe`和`zju-connect.exe`联网核心进程；
-- 上述两类规则在可以正确匹配的情况下选其一或保留两者均可，推荐使用`PROCESS-NAME`。并且**必须**至少放在`DOMAIN-SUFFIX,hitsz.edu.cn,🏫 校园网`之前，以达到放行流量，防止回环的目的。
+- 上述两类规则在可以正确匹配的情况下选其一或保留两者均可，推荐使用`PROCESS-NAME`。并且**必须**至少放在`DOMAIN-SUFFIX,example.edu.cn,🏫 校园网`之前，以达到放行流量，防止回环的目的。
 - 在较新版本的 JustConnect 中，可以通过设置“自动检测网口“来避免回环，此时可以不使用`PROCESS-NAME`规则。
 
 
@@ -130,7 +124,7 @@ dns:
   # 仅在使用 fake-ip 时需要配置
   enhanced-mode: fake-ip
   fake-ip-filter:
-    - +.hitsz.edu.cn
+    - +.example.edu.cn
 ```
 
 如果使用 Clash 的“全局扩展脚本”功能动态修改配置，以下是最小示例，可自行对比修改：
@@ -141,7 +135,7 @@ dns:
 // DNS 配置
 const dnsConfig = {
 	"enhanced-mode": "fake-ip",
-	"fake-ip-filter": ["+.hitsz.edu.cn"],
+	"fake-ip-filter": ["+.example.edu.cn"],
 };
 
 function main(config, profileName) {
@@ -169,10 +163,10 @@ function main(config, profileName) {
 	});
 
 	config.rules.unshift(
-		"DOMAIN,trust.hitsz.edu.cn,DIRECT",
+		"DOMAIN,vpn.example.edu.cn,DIRECT",
 		"PROCESS-NAME,zju-connect.exe,DIRECT",
 		"PROCESS-NAME,JustConnect.exe,DIRECT",
-		"DOMAIN-SUFFIX,hitsz.edu.cn, 校园网",
+		"DOMAIN-SUFFIX,example.edu.cn, 校园网",
 		"IP-CIDR,10.0.0.0/8, 校园网,no-resolve",
 	);
 

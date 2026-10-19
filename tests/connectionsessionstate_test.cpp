@@ -44,7 +44,7 @@ bool reconnectsOnlyEligibleFailures()
     ConnectionSessionState session;
     session.requestStart({true, 2500});
     session.connectionEstablished();
-    session.recordError(ZJU_ERROR::AUTH_EXPIRED);
+    session.recordError(ConnectionError::AUTH_EXPIRED);
 
     if (session.processFinished() != ProcessFinishAction::Reconnect
         || session.state() != ConnectionState::Reconnecting
@@ -55,13 +55,13 @@ bool reconnectsOnlyEligibleFailures()
     }
 
     session.beginReconnect();
-    if (session.state() != ConnectionState::Starting || session.error() != ZJU_ERROR::NONE)
+    if (session.state() != ConnectionState::Starting || session.error() != ConnectionError::NONE)
     {
         qCritical() << "reconnectsOnlyEligibleFailures failed at restart";
         return false;
     }
 
-    session.recordError(ZJU_ERROR::INVALID_DETAIL);
+    session.recordError(ConnectionError::INVALID_DETAIL);
     if (session.processFinished() != ProcessFinishAction::Complete
         || session.state() != ConnectionState::Failed)
     {
@@ -76,9 +76,9 @@ bool keepsFirstErrorAndCancelsPendingReconnect()
     ConnectionSessionState session;
     session.requestStart({true, 1000});
     session.connectionEstablished();
-    session.recordError(ZJU_ERROR::AUTH_EXPIRED);
-    session.recordError(ZJU_ERROR::OTHER);
-    if (session.error() != ZJU_ERROR::AUTH_EXPIRED)
+    session.recordError(ConnectionError::AUTH_EXPIRED);
+    session.recordError(ConnectionError::OTHER);
+    if (session.error() != ConnectionError::AUTH_EXPIRED)
     {
         qCritical() << "keepsFirstErrorAndCancelsPendingReconnect did not keep first error";
         return false;
@@ -100,7 +100,7 @@ bool establishedConnectionEndsAsInterrupted()
     ConnectionSessionState session;
     session.requestStart({false, 1000});
     session.connectionEstablished();
-    session.recordError(ZJU_ERROR::OTHER);
+    session.recordError(ConnectionError::OTHER);
 
     if (session.processFinished() != ProcessFinishAction::Complete
         || session.state() != ConnectionState::Interrupted)

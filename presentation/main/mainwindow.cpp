@@ -144,7 +144,7 @@ MainWindow::MainWindow(
     setupTrayIcon();
     setupProfileMenu();
 
-    setWindowIcon(QIcon(QPixmap(":/resource/icon.png").scaled(
+    setWindowIcon(QIcon(QPixmap(":/resource/icon.svg").scaled(
         512, 512, Qt::KeepAspectRatio, Qt::SmoothTransformation
     )));
 
@@ -249,9 +249,9 @@ MainWindow::MainWindow(
                 try
                 {
                     DeviceTrust::set(this,
-                        settings->value("ZJUConnect/Protocol", "easyconnect").toString(),
-                        settings->value("ZJUConnect/ServerAddress").toString(),
-                        settings->value("ZJUConnect/ServerPort").toInt(),
+                        settings->value("JustConnect/Protocol", "easyconnect").toString(),
+                        settings->value("JustConnect/ServerAddress").toString(),
+                        settings->value("JustConnect/ServerPort").toInt(),
                         currentProfileId, true);
                     qInfo().noquote() << "设置授信设备成功";
                     QMessageBox::information(this, "成功", "已设置授信设备");
@@ -270,9 +270,9 @@ MainWindow::MainWindow(
                 try
                 {
                     DeviceTrust::set(this,
-                        settings->value("ZJUConnect/Protocol", "easyconnect").toString(),
-                        settings->value("ZJUConnect/ServerAddress").toString(),
-                        settings->value("ZJUConnect/ServerPort").toInt(),
+                        settings->value("JustConnect/Protocol", "easyconnect").toString(),
+                        settings->value("JustConnect/ServerAddress").toString(),
+                        settings->value("JustConnect/ServerPort").toInt(),
                         currentProfileId, false);
                     qInfo().noquote() << "取消授信设备成功";
                     QMessageBox::information(this, "成功", "已取消授信设备");
@@ -421,7 +421,7 @@ void MainWindow::clearLog()
         "配置路径：" + settings->fileName() + "\n");
 }
 
-void MainWindow::resetZjuConnectUi()
+void MainWindow::resetConnectionUi()
 {
     ui->pushButton1->setText("连接服务器");
     trayConnectAction->setText("连接服务器");
@@ -516,7 +516,7 @@ void MainWindow::updateProfileSummary()
         ? QStringLiteral("默认")
         : currentProfileId;
     const QString protocolSetting = settings->value(
-        "ZJUConnect/Protocol",
+        "JustConnect/Protocol",
         "easyconnect"
     ).toString();
     const QString protocol = protocolSetting.compare(
@@ -524,7 +524,7 @@ void MainWindow::updateProfileSummary()
         Qt::CaseInsensitive
     ) == 0 ? QStringLiteral("aTrust") : QStringLiteral("EasyConnect");
     const QString server = settings->value(
-        "ZJUConnect/ServerAddress"
+        "JustConnect/ServerAddress"
     ).toString().trimmed();
 
     QStringList details{protocol};
@@ -539,7 +539,7 @@ void MainWindow::setupTrayIcon()
     // 系统托盘
     trayIcon = new QSystemTrayIcon(this);
     trayIcon->setIcon(
-        QIcon(QPixmap(":/resource/icon.png").scaled(512, 512, Qt::KeepAspectRatio, Qt::SmoothTransformation)));
+        QIcon(QPixmap(":/resource/icon.svg").scaled(512, 512, Qt::KeepAspectRatio, Qt::SmoothTransformation)));
     trayIcon->setToolTip(QApplication::applicationName());
     connect(trayIcon, &QSystemTrayIcon::activated, this, [&](QSystemTrayIcon::ActivationReason reason) {
         switch (reason)
@@ -725,7 +725,7 @@ bool MainWindow::switchProfile(const QString &profileId)
 
     upgradeSettings();
     updateVersionInfo();
-    resetZjuConnectUi();
+    resetConnectionUi();
     clearLog();
     refreshProfileMenu();
 
@@ -772,7 +772,7 @@ void MainWindow::createProfile()
     authenticationDialogs->setSettings(settings);
     upgradeSettings();
     updateVersionInfo();
-    resetZjuConnectUi();
+    resetConnectionUi();
     updateVersionInfo();
     clearLog();
     refreshProfileMenu();
@@ -801,19 +801,19 @@ void MainWindow::openConfigurationGuide()
     }
 
     const QString oldServerAddress =
-        settings->value("ZJUConnect/ServerAddress").toString();
+        settings->value("JustConnect/ServerAddress").toString();
     const int oldServerPort =
-        settings->value("ZJUConnect/ServerPort").toInt();
+        settings->value("JustConnect/ServerPort").toInt();
     const QString oldProtocol =
-        settings->value("ZJUConnect/Protocol").toString();
+        settings->value("JustConnect/Protocol").toString();
     const QString oldAuthType =
-        settings->value("ZJUConnect/AuthType").toString();
+        settings->value("JustConnect/AuthType").toString();
     const QString oldEasyConnectAuthType =
-        settings->value("ZJUConnect/EasyConnectAuthType").toString();
+        settings->value("JustConnect/EasyConnectAuthType").toString();
     const QString oldLoginDomain =
-        settings->value("ZJUConnect/LoginDomain").toString();
+        settings->value("JustConnect/LoginDomain").toString();
     const QString oldLoginUrl =
-        settings->value("ZJUConnect/LoginURL").toString();
+        settings->value("JustConnect/LoginURL").toString();
 
     ConfigurationGuideDialog guide(this, settings);
     if (guide.exec() != QDialog::Accepted)
@@ -823,20 +823,20 @@ void MainWindow::openConfigurationGuide()
     guide.applyTo(*settings);
 
     const bool authenticationSettingsChanged =
-        oldServerAddress != settings->value("ZJUConnect/ServerAddress").toString()
-        || oldServerPort != settings->value("ZJUConnect/ServerPort").toInt()
-        || oldProtocol != settings->value("ZJUConnect/Protocol").toString()
-        || oldAuthType != settings->value("ZJUConnect/AuthType").toString()
+        oldServerAddress != settings->value("JustConnect/ServerAddress").toString()
+        || oldServerPort != settings->value("JustConnect/ServerPort").toInt()
+        || oldProtocol != settings->value("JustConnect/Protocol").toString()
+        || oldAuthType != settings->value("JustConnect/AuthType").toString()
         || oldEasyConnectAuthType
-            != settings->value("ZJUConnect/EasyConnectAuthType").toString()
-        || oldLoginDomain != settings->value("ZJUConnect/LoginDomain").toString()
-        || oldLoginUrl != settings->value("ZJUConnect/LoginURL").toString();
+            != settings->value("JustConnect/EasyConnectAuthType").toString()
+        || oldLoginDomain != settings->value("JustConnect/LoginDomain").toString()
+        || oldLoginUrl != settings->value("JustConnect/LoginURL").toString();
     if (authenticationSettingsChanged)
     {
         ApplicationPaths::clearClientData(currentProfileId);
     }
 
-    resetZjuConnectUi();
+    resetConnectionUi();
     clearLog();
     qInfo().noquote() << "已通过配置引导更新当前配置";
 }
@@ -959,7 +959,7 @@ void MainWindow::deleteCurrentProfile()
     authenticationDialogs->setSettings(settings);
     upgradeSettings();
     updateVersionInfo();
-    resetZjuConnectUi();
+    resetConnectionUi();
     clearLog();
     refreshProfileMenu();
     qInfo().noquote() << "已删除配置：" + removedProfileId;
@@ -1045,7 +1045,7 @@ void MainWindow::gracefullyQuit()
     if (connectionSession != nullptr && connectionSession->isActive())
     {
         connect(connectionSession, &ConnectionSession::finished, qApp,
-                [](ZJU_ERROR) { QApplication::quit(); });
+                [](ConnectionError) { QApplication::quit(); });
         ui->pushButton1->click();
     }
     else

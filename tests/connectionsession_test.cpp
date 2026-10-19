@@ -53,7 +53,7 @@ bool delegatesProcessLifecycleThroughPort()
     QObject::connect(
         &session,
         &ConnectionSession::finished,
-        [&](ZJU_ERROR) { ++finishedCalls; }
+        [&](ConnectionError) { ++finishedCalls; }
     );
 
     if (!session.start(profile, {})
@@ -102,7 +102,7 @@ bool distinguishesInterruptedConnectionFromStartupFailure()
 
     session.start(profile, {});
     coreProcess->establishConnection();
-    emit coreProcess->error(ZJU_ERROR::OTHER);
+    emit coreProcess->error(ConnectionError::OTHER);
     coreProcess->complete();
 
     if (session.state() != ConnectionState::Interrupted)

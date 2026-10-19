@@ -26,17 +26,22 @@ if ($LASTEXITCODE -ne 0) {
     throw "windeployqt failed with exit code $LASTEXITCODE"
 }
 
-# Download and extract zju-connect
-$ZjuReleasePath = if ($Nightly -eq "true") { "download/nightly" } else { "latest/download" }
-$ZjuUrl = "https://github.com/Mythologyli/zju-connect/releases/$ZjuReleasePath/zju-connect-windows-$Architecture.zip"
-$ZjuZipPath = "zju-connect-windows-$Architecture.zip"
-Invoke-WebRequest -Uri $ZjuUrl -OutFile $ZjuZipPath
-Expand-Archive -Path $ZjuZipPath -DestinationPath . -Force
-Remove-Item -Path $ZjuZipPath
+# Download and extract core
+$CoreReleasePath = if ($Nightly -eq "true") { "download/nightly" } else { "latest/download" }
+$CoreUrl = "https://github.com/Mythologyli/zju-connect/releases/$CoreReleasePath/zju-connect-windows-$Architecture.zip"
+$CoreZipPath = "zju-connect-windows-$Architecture.zip"
+Invoke-WebRequest -Uri $CoreUrl -OutFile $CoreZipPath
+Expand-Archive -Path $CoreZipPath -DestinationPath . -Force
+Remove-Item -Path $CoreZipPath
 
 # Copy additional files
 Copy-Item -Path "../libs/wintun/bin/$Architecture/wintun.dll" -Destination .
 Copy-Item -Path "../resource/qt.conf" -Destination .
+
+& .\zju-connect.exe -version
+if ($LASTEXITCODE -ne 0) {
+    throw "Bundled core failed with exit code $LASTEXITCODE"
+}
 
 # Remove vc_redist executable
 if ($Architecture -eq "amd64") {

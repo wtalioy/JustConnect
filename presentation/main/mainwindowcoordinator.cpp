@@ -5,7 +5,7 @@
 #include "application/connectionsession.h"
 #include "application/profileservice.h"
 #include "application/systemproxysession.h"
-#include "infrastructure/coreprocess/zjuconnectprocess.h"
+#include "infrastructure/coreprocess/externalcoreprocess.h"
 #include "infrastructure/platform/platformsystemproxybackend.h"
 #include "infrastructure/settings/profilemanager.h"
 #include "infrastructure/update/updatechecker.h"
@@ -22,7 +22,7 @@ MainWindowCoordinator::MainWindowCoordinator(
           overrideConfigPath,
           this
       )),
-      connectionSession(new ConnectionSession(new ZjuConnectProcess(), this)),
+      connectionSession(new ConnectionSession(new ExternalCoreProcess(), this)),
       systemProxySession(new SystemProxySession(
           std::make_unique<PlatformSystemProxyBackend>(),
           this
@@ -111,7 +111,7 @@ MainWindowCoordinator::MainWindowCoordinator(
         connectionSession,
         &ConnectionSession::finished,
         this,
-        [this](ZJU_ERROR)
+        [this](ConnectionError)
         {
             if (systemProxySession->isEnabled())
             {

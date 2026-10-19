@@ -12,10 +12,10 @@ on:
         type: boolean
         default: true
         description: Nightly build (develop previews always use this mode)
-      zju_connect_nightly:
+      core_nightly:
         type: boolean
         default: false
-        description: Use nightly zju-connect (before the pinned core is implemented)
+        description: Build with the core nightly release
       version:
         type: string
         default: ''
@@ -52,7 +52,7 @@ jobs:
       ARCHIVE_NAME: JustConnect-${{ github.ref == 'refs/heads/develop' && format('preview-{0}', github.sha) || inputs.version || github.event.release.tag_name || 'nightly' }}-${{ matrix.platform }}-${{ matrix.arch }}
       NIGHTLY_BUILD: ${{ github.ref == 'refs/heads/develop' || (github.event_name == 'workflow_dispatch' && inputs.nightly) || (github.event_name != 'workflow_dispatch' && github.event_name != 'release') }}
       RELEASE_VERSION: ${{ inputs.version || github.event.release.tag_name }}
-      CORE_NIGHTLY: ${{ github.event_name == 'workflow_dispatch' && inputs.zju_connect_nightly }}
+      CORE_NIGHTLY: ${{ github.event_name == 'workflow_dispatch' && inputs.core_nightly }}
       MACOS_SIGNING: ${{ github.ref != 'refs/heads/develop' && matrix.platform == 'macos' && secrets.MACOS_CERT_P12 != '' && secrets.MACOS_CERT_PASSWORD != '' && secrets.MACOS_CERT_IDENTITY != '' }}
       MACOS_NOTARIZATION: ${{ github.ref != 'refs/heads/develop' && matrix.platform == 'macos' && secrets.MACOS_CERT_P12 != '' && secrets.MACOS_CERT_PASSWORD != '' && secrets.MACOS_CERT_IDENTITY != '' && secrets.APPLE_ID != '' && secrets.APPLE_APP_SPECIFIC_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
     steps:

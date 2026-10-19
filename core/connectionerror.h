@@ -1,7 +1,7 @@
 #ifndef CONNECTIONERROR_H
 #define CONNECTIONERROR_H
 
-enum class ZJU_ERROR
+enum class ConnectionError
 {
     NONE,
     INVALID_DETAIL,

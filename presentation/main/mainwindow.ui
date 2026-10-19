@@ -56,7 +56,7 @@
          </size>
         </property>
         <property name="pixmap">
-         <pixmap resource="../../resource.qrc">:/resource/icon.png</pixmap>
+         <pixmap resource="../../resource.qrc">:/resource/icon.svg</pixmap>
         </property>
         <property name="scaledContents">
          <bool>true</bool>

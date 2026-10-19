@@ -92,8 +92,8 @@ ConnectionUiController::ConnectionUiController(
         {
             if (saveDetails)
             {
-                settings()->setValue("ZJUConnect/PhoneCountryCode", countryCode);
-                settings()->setValue("ZJUConnect/PhoneNumber", phoneNumber);
+                settings()->setValue("JustConnect/PhoneCountryCode", countryCode);
+                settings()->setValue("JustConnect/PhoneNumber", phoneNumber);
                 settings()->sync();
             }
 
@@ -119,10 +119,10 @@ ConnectionUiController::ConnectionUiController(
         connectionSession,
         &ConnectionSession::finished,
         this,
-        [this](ZJU_ERROR error)
+        [this](ConnectionError error)
         {
             qInfo().noquote() << "VPN 断开！";
-            if (error != ZJU_ERROR::NONE)
+            if (error != ConnectionError::NONE)
             {
                 this->notificationHandler(
                     "VPN",
@@ -167,8 +167,8 @@ void ConnectionUiController::handleConnectClicked()
         return;
     }
 
-    if (settings()->contains("ZJUConnect/ServerAddress") &&
-        settings()->value("ZJUConnect/ServerAddress").toString().isEmpty())
+    if (settings()->contains("JustConnect/ServerAddress") &&
+        settings()->value("JustConnect/ServerAddress").toString().isEmpty())
     {
         QMessageBox::critical(parentWidget, "错误", "服务器地址不能为空");
         return;
@@ -179,11 +179,11 @@ void ConnectionUiController::handleConnectClicked()
         settings()->value("Credential/Password", "").toString().toUtf8()
     );
     const QString protocol =
-        settings()->value("ZJUConnect/Protocol", "easyconnect").toString();
+        settings()->value("JustConnect/Protocol", "easyconnect").toString();
     const QString authType =
-        settings()->value("ZJUConnect/AuthType", "psw").toString();
+        settings()->value("JustConnect/AuthType", "psw").toString();
     const QString easyconnectAuthType = settings()->value(
-        "ZJUConnect/EasyConnectAuthType",
+        "JustConnect/EasyConnectAuthType",
         settings()->value("Credential/CertFile", "").toString().isEmpty()
             ? "password"
             : "certificate"
@@ -203,7 +203,7 @@ void ConnectionUiController::handleConnectClicked()
     }
 
 #if defined(Q_OS_WIN)
-    if (settings()->value("ZJUConnect/TUNMode").toBool() &&
+    if (settings()->value("JustConnect/TUNMode").toBool() &&
         !Privileges::isElevated())
     {
         if (Privileges::relaunchElevated())
@@ -228,11 +228,11 @@ void ConnectionUiController::handleConnectClicked()
     if (protocol == "atrust" && authType == "smsCheckCode")
     {
         QString countryCode = settings()
-            ->value("ZJUConnect/PhoneCountryCode", "86")
+            ->value("JustConnect/PhoneCountryCode", "86")
             .toString()
             .trimmed();
         const QString phoneNumber = settings()
-            ->value("ZJUConnect/PhoneNumber", "")
+            ->value("JustConnect/PhoneNumber", "")
             .toString()
             .trimmed();
         if (countryCode.isEmpty() || phoneNumber.isEmpty())
@@ -265,8 +265,8 @@ void ConnectionUiController::handleProxyClicked()
         return;
     }
 
-    const int httpPort = settings()->value("ZJUConnect/HTTPPort").toInt();
-    const int socksPort = settings()->value("ZJUConnect/SOCKS5Port").toInt();
+    const int httpPort = settings()->value("JustConnect/HTTPPort").toInt();
+    const int socksPort = settings()->value("JustConnect/SOCKS5Port").toInt();
     const SystemProxyConfig proxyConfig{
         httpPort,
         socksPort,
@@ -364,48 +364,48 @@ void ConnectionUiController::startConnection(
     }
 }
 
-void ConnectionUiController::showConnectionError(ZJU_ERROR error)
+void ConnectionUiController::showConnectionError(ConnectionError error)
 {
     QString message;
     switch (error)
     {
-    case ZJU_ERROR::INVALID_DETAIL:
+    case ConnectionError::INVALID_DETAIL:
         message = "登录失败！\n请检查设置中的网络账号和密码是否设置正确。";
         break;
-    case ZJU_ERROR::BRUTE_FORCE:
+    case ConnectionError::BRUTE_FORCE:
         message = "登录失败！\n登录尝试过于频繁，IP 被风控，请稍后重试或换用 EasyConnect。";
         break;
-    case ZJU_ERROR::OTHER_LOGIN_FAILED:
+    case ConnectionError::OTHER_LOGIN_FAILED:
         message = "登录失败！\n未知原因，可将日志反馈给开发者以便调查。";
         break;
-    case ZJU_ERROR::ACCESS_DENIED:
+    case ConnectionError::ACCESS_DENIED:
         message = "权限不足！\n请关闭程序，点击右键以管理员身份运行。";
         break;
-    case ZJU_ERROR::LISTEN_FAILED:
-        message = "监听失败！\n请关闭占用端口的程序（如残留的 zju-connect.exe），或者监听其它端口。";
+    case ConnectionError::LISTEN_FAILED:
+        message = "监听失败！\n请关闭占用端口的程序（如残留的核心进程），或者监听其它端口。";
         break;
-    case ZJU_ERROR::CLIENT_FAILED:
+    case ConnectionError::CLIENT_FAILED:
         message = "连接失败！\n可能是响应超时，请检查本地网络配置是否正常，服务器设置是否正确。";
         break;
-    case ZJU_ERROR::CAPTCHA_FAILED:
+    case ConnectionError::CAPTCHA_FAILED:
         message = "登录失败！\n验证码问题，可能是已验证码过期或者有误。";
         break;
-    case ZJU_ERROR::PROGRAM_NOT_FOUND:
+    case ConnectionError::PROGRAM_NOT_FOUND:
         message = "程序未找到！\n请检查核心是否在正确路径下，检查是否解压在当前目录下。";
         break;
-    case ZJU_ERROR::INTERACTIVE_ERROR:
+    case ConnectionError::INTERACTIVE_ERROR:
         message = "登录失败！\n请检查您的输入是否正确，检查是否完成 SSO 登录。";
         break;
-    case ZJU_ERROR::AUTH_NOT_AVAILABLE:
+    case ConnectionError::AUTH_NOT_AVAILABLE:
         message = "认证方式/登录域不可用！\n请通过“获取认证方式”按钮配置认证方式。";
         break;
-    case ZJU_ERROR::AUTH_EXPIRED:
+    case ConnectionError::AUTH_EXPIRED:
         message = "认证已过期！\n请重新登录。";
         break;
-    case ZJU_ERROR::OTHER:
+    case ConnectionError::OTHER:
         message = "其它错误！\n未知原因，可将日志反馈给开发者以便调查。";
         break;
-    case ZJU_ERROR::NONE:
+    case ConnectionError::NONE:
         return;
     }
     QMessageBox::critical(parentWidget, "错误", message);

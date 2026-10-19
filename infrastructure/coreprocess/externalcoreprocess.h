@@ -1,19 +1,19 @@
-#ifndef ZJUCONNECTPROCESS_H
-#define ZJUCONNECTPROCESS_H
+#ifndef EXTERNALCOREPROCESS_H
+#define EXTERNALCOREPROCESS_H
 
 #include <QtCore>
 
 #include "application/coreprocess.h"
 #include "infrastructure/coreprocess/coreoutputbuffer.h"
 
-class ZjuConnectProcess : public CoreProcess
+class ExternalCoreProcess : public CoreProcess
 {
 Q_OBJECT
 
 public:
-    explicit ZjuConnectProcess(QObject *parent = nullptr);
+    explicit ExternalCoreProcess(QObject *parent = nullptr);
 
-    ~ZjuConnectProcess() override;
+    ~ExternalCoreProcess() override;
 
     void start(const ConnectionProfile &profile) override;
 
@@ -28,7 +28,7 @@ private:
 
     void processOutputLines(const QList<QByteArray> &lines);
 
-    QProcess *zjuConnectProcess;
+    QProcess *process;
 
     QTemporaryDir *tempDir = nullptr;
 
@@ -38,4 +38,4 @@ private:
 
 };
 
-#endif // ZJUCONNECTPROCESS_H
+#endif // EXTERNALCOREPROCESS_H

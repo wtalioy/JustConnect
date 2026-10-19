@@ -17,7 +17,7 @@ ConnectionSession::ConnectionSession(CoreProcess *coreProcess, QObject *parent)
     connect(coreProcess, &CoreProcess::askSudoPass,
             this, &ConnectionSession::handleSudoPasswordRequest);
 
-    connect(coreProcess, &CoreProcess::error, this, [this](ZJU_ERROR error)
+    connect(coreProcess, &CoreProcess::error, this, [this](ConnectionError error)
     {
         sessionState.recordError(error);
     });

@@ -22,7 +22,7 @@ public:
     virtual void writeInput(const QByteArray &data) = 0;
 
 signals:
-    void error(ZJU_ERROR error);
+    void error(ConnectionError error);
     void outputRead(const QString &output);
     void graphCaptcha(const QString &graphFile);
     void smsCode(bool showSkipSecondaryAuthOption);

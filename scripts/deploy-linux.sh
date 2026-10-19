@@ -43,24 +43,25 @@ if [ -d "/usr/lib/$APPIMAGE_ARCH-linux-gnu/nss" ]; then
     cp -R "/usr/lib/$APPIMAGE_ARCH-linux-gnu/nss/" AppDir/usr/lib/
 fi
 
-# Download and extract zju-connect
-ZJU_ARCH="${ARCH}"
+# Download and extract core
+CORE_ARCH="${ARCH}"
 if [ "$ARCH" = "x86_64" ]; then
-    ZJU_ARCH="amd64"
+    CORE_ARCH="amd64"
 fi
 
-ZJU_RELEASE_PATH="latest/download"
+CORE_RELEASE_PATH="latest/download"
 if [ "$NIGHTLY" = "true" ]; then
-    ZJU_RELEASE_PATH="download/nightly"
+    CORE_RELEASE_PATH="download/nightly"
 fi
 
-wget -O "zju-connect-linux-$ZJU_ARCH.zip" "https://github.com/Mythologyli/zju-connect/releases/$ZJU_RELEASE_PATH/zju-connect-linux-$ZJU_ARCH.zip"
-unzip -o "zju-connect-linux-$ZJU_ARCH.zip"
+wget -O "zju-connect-linux-$CORE_ARCH.zip" "https://github.com/Mythologyli/zju-connect/releases/$CORE_RELEASE_PATH/zju-connect-linux-$CORE_ARCH.zip"
+unzip -o "zju-connect-linux-$CORE_ARCH.zip"
 cp zju-connect AppDir/usr/bin/
-rm "zju-connect-linux-$ZJU_ARCH.zip"
+AppDir/usr/bin/zju-connect -version
+rm "zju-connect-linux-$CORE_ARCH.zip"
 
 # Copy icon
-cp resource/icon.png "AppDir/usr/share/icons/hicolor/scalable/apps/$TARGET_NAME.png"
+cp resource/icon.svg "AppDir/usr/share/icons/hicolor/scalable/apps/$TARGET_NAME.svg"
 
 # Create desktop file
 cat > "AppDir/usr/share/applications/$TARGET_NAME.desktop" <<EOF

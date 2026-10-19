@@ -41,7 +41,7 @@ bool buildsMinimalCommand()
     profile.endpoint.protocol = "easyconnect";
 
     const CoreCommand command = CoreCommandBuilder::build(profile);
-    return expectEqual(command.arguments, {"-protocol", "easyconnect"}, "buildsMinimalCommand")
+    return expectEqual(command.arguments, {"-protocol", "easyconnect", "-disable-zju-config"}, "buildsMinimalCommand")
         && expectEqual(command.loggableArguments, command.arguments, "minimalCommandIsLoggable")
         && command.environmentVariables.isEmpty();
 }
@@ -68,6 +68,7 @@ bool addsGraphCaptchaFileForEasyConnect()
         {
             "-protocol", "easyconnect",
             "-graph-code-file", "/tmp/easyconnect-graph.jpg",
+            "-disable-zju-config",
             "-server", "vpn.example.edu",
             "-port", "443"
         },
@@ -86,8 +87,7 @@ bool buildsCompleteCommandInCompatibleOrder()
                      true, "example.org"};
     profile.tunnel = {true, true, true, true, true, "127.0.0.1:80/10.0.0.1:80",
                       "127.0.0.1:53/10.0.0.1:53"};
-    profile.behavior = {30, true, true, "https://keepalive", "en0", true, true, true,
-                        true};
+    profile.behavior = {30, true, true, "https://keepalive", "en0", true, true, true};
     profile.debug = {true, true, true};
     profile.extraArguments = "-foo bar";
 
@@ -153,7 +153,6 @@ bool keepsEasyConnectOnlyOptionsOutOfATrustCommand()
     profile.credentials.certPassword = "cert-secret";
     profile.proxy.customDomains = "example.org";
     profile.behavior.disableMultiLine = true;
-    profile.behavior.disableZjuConfig = true;
     profile.behavior.skipDomainResource = true;
 
     const CoreCommand command = CoreCommandBuilder::build(profile);
@@ -173,7 +172,6 @@ bool addsEasyConnectOnlyOptionsForEasyConnect()
     profile.credentials.certPassword = "cert-secret";
     profile.proxy.customDomains = "example.org";
     profile.behavior.disableMultiLine = true;
-    profile.behavior.disableZjuConfig = true;
     profile.behavior.skipDomainResource = true;
 
     const CoreCommand command = CoreCommandBuilder::build(profile);
@@ -203,7 +201,7 @@ bool keepsATrustOnlyOptionsOutOfEasyConnectCommand()
     const CoreCommand command = CoreCommandBuilder::build(profile, runtimePaths);
     return expectEqual(
         command.arguments,
-        {"-protocol", "easyconnect"},
+        {"-protocol", "easyconnect", "-disable-zju-config"},
         "keepsATrustOnlyOptionsOutOfEasyConnectCommand"
     );
 }
@@ -249,13 +247,14 @@ bool passesCredentialsAsArgumentsWhenEnabled()
             "-username", "alice",
             "-password", "secret",
             "-totp-secret", "TOTP",
-            "-protocol", "easyconnect"
+            "-protocol", "easyconnect",
+            "-disable-zju-config"
         },
         "passesCredentialsAsArgumentsWhenEnabled"
     )
         && expectEqual(
             command.loggableArguments,
-            {"-protocol", "easyconnect"},
+            {"-protocol", "easyconnect", "-disable-zju-config"},
             "argumentCredentialsStayOutOfLogs"
         )
         && command.environmentVariables.isEmpty();
@@ -316,7 +315,7 @@ bool omitsDisabledDebugArtifacts()
     const CoreCommand command = CoreCommandBuilder::build(profile);
     return expectEqual(
         command.arguments,
-        {"-protocol", "easyconnect"},
+        {"-protocol", "easyconnect", "-disable-zju-config"},
         "omitsDisabledDebugArtifacts"
     );
 }

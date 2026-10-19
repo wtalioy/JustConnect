@@ -51,7 +51,7 @@ private:
 
     void clearLog();
 
-    void resetZjuConnectUi();
+    void resetConnectionUi();
 
     void applyColorScheme(Qt::ColorScheme scheme);
 
