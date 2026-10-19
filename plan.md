@@ -17,10 +17,11 @@
 
 | 项目 | 当前记录 |
 | --- | --- |
-| 下一任务 | S1-06：六组 Go／C++／Qt 链接原型与平台权限可行性 |
-| 状态 | S1-06 链接原型进行中：Linux／macOS 四组静态调用与 WebEngine 共存通过；Windows 静态运行遇到超时，定位及 DLL 回退待验证；设备权限待验收；其余库化与 UI 改造未开始 |
-| 已有基础 | Qt SDK、应用测试及旧独立核心的三平台 CI／六组打包基线可复用；原始核心提交为 `c19eb4e` |
-| 已知缺口 | Windows 两组链接／运行证据待补；真实设备权限未验证，现有 Windows Wintun 候选路径的非提权交付尚未证明；透明入口 D2 未选型，TUN 并非既定前提；正式库生命周期／C ABI、上游取消、会话失效及致命退出仍需实现 |
+| 当前任务 | S1-06：六组链接原型已验收，权限可行性核对已记录，真实设备权限待验收 |
+| 可独立继续 | S1-05：按已验证的工具链结论导入源码；不继续依赖未证明权限路径的网络接管 |
+| 状态 | S1-06 待验收：Linux／macOS 四组静态调用、Windows 两组 DLL 调用与同宿主 WebEngine 共存通过；真实设备／授权交互未验收；其余库化与 UI 改造未开始 |
+| 已有基础 | 代码 `481c61b` 的六组库链接原型与三平台应用 CI 已通过；旧独立核心的六组打包基线仍可复用；原始核心提交为 `c19eb4e` |
+| 已知缺口 | 真实设备权限未验证，现有 Windows Wintun 候选路径的非提权交付尚未证明；透明入口 D2 未选型，TUN 并非既定前提；正式库生命周期／C ABI、上游取消、会话失效及致命退出仍需实现 |
 | 网络验证 | 暂无真实校园登录、透明转发、Clash 共存或异常恢复的通过记录 |
 | 外部条件 | 实机验收需要相应操作系统、校园账户及交互式 MFA；缺少时记录待验收，不降低验收要求 |
 
@@ -120,7 +121,7 @@ flowchart LR
 - [ ] **S1-04**：建立 Go 单元测试、真实 C ABI 宿主集成测试及 Qt 适配回归，使用受控 HTTP／TLS 网关与脱敏的真实资源／认证样本。覆盖错误输入、内存所有权、认证取消／超时／重复或过期回应、监听端口冲突、半途失败、终态事件、事件积压与旧会话结果。验证重复启停后监听端口、会话 goroutine、TUN／路由所有权和句柄释放；压力与竞态检查按工具链实际支持执行，不通过关掉 cgo 指针检查来过关。真实校园样本缺少时保留待验收，不将模拟网关写成 Fudan 实测。
 - [ ] **S1-05**：将选定源码、参与构建的公共包和必要回归测试纳入 `third_party/zju-connect/`，记录上游 URL、完整提交、导入范围、原始归档校验和及许可证；保留原模块／包路径和版权。`corelib/` 作为 JustConnect 自有 Go 模块与会话入口，通过本地模块依赖使用它；固定 Go 工具链及 `go.sum`，Go 第三方依赖使用缓存，不默认把整个 module cache 或 vendor 目录纳入仓库。上游跟进使用可审查的提交／差异和相关测试，直接提交本地修改；不以修改模块名或批量改第三方类名代替整合。确认合并后的源码与分发许可要求，保存实际修改后的对应源码。
 - [ ] **S1-06**：用最小 C ABI 库链接当前 Qt 的 Windows／macOS／Linux x64 与 ARM64 宿主，验证初始化、调用、工作线程、缓冲区及重复创建／销毁。优先 `c-archive` 静态链接；必须实测 Windows cgo 编译器、Qt MSVC、COFF／CRT／链接器组合，不能由 Go 宣称支持某 buildmode 推断 MSVC 已兼容。静态路径确有阻碍时验证随包固定的 `c-shared` 库，仍同进程调用；选择和证据写入 D5，不退回外部核心，不为库化整体更换 Qt。提前核对 TUN 创建、设备权限、句柄／fd 生命周期及 GUI／WebEngine 权限边界；不能假定 Windows Wintun 句柄可像 Unix fd 一样跨进程交付。必要助手只做最小网络操作；若某平台尚无法让非提权宿主持有数据路径，明确记录阻塞，不能默认将整个 GUI 提权或把核心移入助手。CI 链接通过与真实设备权限验收分别记录。
-  - 链接原型已实现，Linux／macOS 四组 `c-archive`、257 轮缓冲区／生命周期、四个 QThread 与同宿主 WebEngine JavaScript [CI 通过](https://github.com/wtalioy/JustConnect/actions/runs/39271373771)；Windows x64 静态可链接但运行超时，两组定位及 DLL 回退待验收。设备权限仅核对上游 TUN 候选：本地普通用户创建返回 `EPERM`，Unix fd 交付尚未实测，现有 Windows Wintun 的非提权交付尚未证明；不据此预定产品使用 TUN。源码依据、复现入口与具体缺口见[原型记录](docs/CORELINK-PROBE.md)；本项保持未勾选。
+  - **链接部分已验收，整体待真实设备权限验收**：代码 `481c61b` 的[六组原型 CI](https://github.com/wtalioy/JustConnect/actions/runs/39272524508) 全部通过；Linux／macOS 使用 `c-archive`，Windows 静态库首次 Go 调用超时后以 `c-shared` 通过。六组均实际验证 257 轮缓冲区／生命周期、四个 QThread、Go GC 与同宿主 WebEngine JavaScript；[三平台应用 CI](https://github.com/wtalioy/JustConnect/actions/runs/39272524710) 各 16 项通过。设备权限仅核对上游 TUN 候选：本地普通用户创建返回 `EPERM`，Unix fd 交付尚未实测，现有 Windows Wintun 的非提权交付尚未证明；不据此预定产品使用 TUN。源码依据、复现入口与具体缺口见[原型记录](docs/CORELINK-PROBE.md)；本项保持未勾选，可继续独立的 S1-05。
 - [ ] **S1-07**：将初始化、认证、underlay、解析、栈及必要监听收进会话对象，配置显式传入；复用现有 `SetupContext`、公开 dialer 与 `authchallenge.Handler`。认证方式查询、DNS／选线和建立隧道同样受调用者取消约束，日志经注入接口脱敏交付，不改宿主全局日志目标。移除库调用路径中的 `os.Exit`、`log.Fatal`、进程级信号／stdin／浏览器接管、环境变量配置及全局关闭注册表；不只检查 `main.go`，同时审查 aTrust 会话、L3／TCP 隧道、gVisor、DNS 和监听 goroutine。错误向会话返回并触发一次清理，修复调用者 context 被覆盖、setup 结束误取消长期会话的问题，随实际修复同步恢复上游取消测试。初始化部分成功也能撤销；Stop／Destroy 幂等，阻塞 I/O 可打断，停完才允许再次 Start。可恢复 panic 在产生它的 goroutine 内转成错误，不能用入口 `recover` 冒充处理 `os.Exit`、其他 goroutine panic 或 Go 致命运行时错误；不可恢复故障按宿主崩溃交由独立恢复保障。
 - [ ] **S1-08**：将应用端口 `CoreProcess` 改为表达库能力的 `CoreEngine`，由 `EmbeddedCoreEngine` 实现；替换 `ExternalCoreProcess`、命令构造、文本解析、`writeInput`、认证方式子进程查询及 CLI 版本探测。Qt 工作线程读取有界事件队列，再通过排队信号提交给应用线程，不从 Go goroutine 操作 QWidget；Go 内等待认证回应时可取消，不阻塞 Qt 主线程。所有事件／回应带会话代次和请求标识，销毁前停止事件泵并等待借用数据结束；测试销毁与晚到事件竞态。结构化日志仅作诊断，不再根据提示词驱动状态。库在宿主生命周期内保持加载，释放会话不等于卸载 Go runtime；不实现运行中卸载重载或双后端自动回退。
 - [ ] **S1-09**：用 CMake 的核心库 target 统一驱动 Go／C ABI 头生成、链接及实际宿主测试，源文件、`go.mod/go.sum`、构建选项变化均正确触发增量构建；Tests 与打包使用同一入口，显式 `CGO_ENABLED=1` 并记录 Go／C／C++ 工具链、ABI、平台和架构。保留 Qt 公共安装步骤和用户确定的触发规则：推送 develop 三平台测试、develop 手动六组预览、main 六组打包及 Release 附件。CI 加入 Go 格式／vet／相关包测试、FFI 测试和支持环境的 race 检查；六组库化包实际执行离线自检，验证 ABI、版本、动态依赖、系统最低版本与签名，不能只检查生成了 `.a/.lib`。动态库方案检查包内固定路径与依赖来源。源码包来自本仓库的实际修改树，发布产物不再附一份被误当成实际实现的原始源码归档。
@@ -274,7 +275,7 @@ V7 另记录首次设置、日常主操作、MFA／取消、重试、配置切�
 | D2 | 三平台透明入口、路由优先级、系统 DNS 与回环排除：S5、S6 | 待原型证明；各平台可采用不同实现，TUN 仅是候选。Clash 的 TUN／系统代理开关不决定 JustConnect 自身入口，也不作为校园访问的前提 |
 | D3 | Clash 可安全增量修改的字段、接口及重载路径：S6-03 | 待目标版本实测，不能预设任意字段均可通过 API 修改 |
 | D4 | 同进程共存策略 API 与生效确认：S4-02 | 已调整为版本化、原子替换的库 API；原每秒轮询策略文件方案不再作为实施前置 |
-| D5 | Go 库链接方式、cgo／Qt 工具链及设备权限：S1-06 | Linux／macOS 四组静态 CI 通过；Windows x64 LLVM-MinGW UCRT → MSVC 可链接但运行超时，定位及固定 DLL 回退待验收。上游 TUN 候选中 Unix 外部 fd 可接入的源码依据已核对；设备交付未实测，现有 Windows Wintun 的非提权交付尚未证明。入口选型仍属 D2。详见[原型记录](docs/CORELINK-PROBE.md) |
+| D5 | Go 库链接方式、cgo／Qt 工具链及设备权限：S1-06 | 六组原型 CI 已通过，选择 Linux／macOS `c-archive`、Windows 固定随包 `c-shared` DLL。Windows LLVM-MinGW UCRT → MSVC 静态可链接，但两组均卡在首次 Go 调用；DLL 实际调用通过，Qt 工具链不变。上游 TUN 候选中 Unix 外部 fd 可接入的源码依据已核对；设备交付未实测，现有 Windows Wintun 的非提权交付尚未证明。入口选型仍属 D2；正式核心／打包需 S1-05—09 复验。详见[原型记录](docs/CORELINK-PROBE.md) |
 
 确认决策时写明结论、依据、应用范围和对应任务／提交；失败的原型也保留结论，避免下一轮重复尝试。实测需要用户输入时记录具体所需账户／MFA／设备，其他独立任务继续推进。
 
@@ -317,7 +318,7 @@ V7 另记录首次设置、日常主操作、MFA／取消、重试、配置切�
 
 | 日期 | 任务／范围 | 证据与结论 | 仍未覆盖 |
 | --- | --- | --- | --- |
-| 2026-10-19 | S1-06，链接与权限原型 | 最小 Go C ABI／Qt 宿主、本地 Linux 静态库、257 轮边界／生命周期、4 QThread 与同宿主 WebEngine JavaScript 通过；原应用 CTest 16/16；六组原生 CI 已配置；[上游 TUN 候选权限核对及复现入口](docs/CORELINK-PROBE.md) | 六组 CI 待验收；Unix fd 交付与真实桌面权限未测；现有 Windows Wintun 的非提权交付尚未证明，不能继续依赖该路径的网络接管；不预定 D2 使用 TUN |
+| 2026-10-19 | S1-06，链接已验收／设备权限待验收 | 代码 `481c61b` 的[六组库原型 CI](https://github.com/wtalioy/JustConnect/actions/runs/39272524508) 与[三平台应用 CI](https://github.com/wtalioy/JustConnect/actions/runs/39272524710) 全部通过；Unix 静态、Windows DLL，同宿主通过 257 轮、4 QThread、GC、缓冲区及 WebEngine JavaScript。Windows 两组静态首次调用超时已记录；[上游 TUN 候选权限核对及复现入口](docs/CORELINK-PROBE.md) | 正式核心／安装包尚未切换；Unix fd 交付、真实桌面权限与授权取消未测；现有 Windows Wintun 的非提权交付尚未证明，不能继续依赖该路径的网络接管；不预定 D2 使用 TUN |
 | 2026-10-19 | 产品取向：针对性代码收敛与 UI 重设计 | 新增持续优化准则、S2-07 配置收敛、S7-08—10 原型／视觉／交互验收；一键校园访问、原网络保护与可解释恢复作为自身特色 | 本次仅计划调整；代码优化、原型和新 UI 均未实现或验收 |
 | 2026-10-19 | 架构决策：同进程核心库 | 选择同仓库维护 aTrust 源码、内部 C ABI 与 Qt 同进程调用；旧 CLI 契约改写，S1 新增链接、会话、Qt、构建及清理任务；上游问题映射见上表 | 本次仅修改计划和文档；未导入源码、未实现或验证库链接／权限，原工作流与旧基线继续可运行 |
 | 2026-10-19 | S0-01—03 | 应用提交 `954fc37` 的三平台测试与六组预览构建通过，链接见 S0；仓库及工作流准备完成 | 本地 Qt、固定源码核心、校园功能、Apple 开发者签名／公证 |
