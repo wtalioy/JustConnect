@@ -15,5 +15,5 @@ if [[ -z "$APP_PATH" || ! -d "$APP_PATH" ]]; then
   echo "App not found: $APP_PATH"
   exit 1
 fi
-codesign --verbose --force --options runtime --deep --sign "$CODESIGN_IDENTITY" "$APP_PATH"
 codesign --verbose --force --options runtime --sign "$CODESIGN_IDENTITY" --entitlements "$QTWEBENGINE_PATH/Contents/Resources/QtWebEngineProcess.entitlements" "$QTWEBENGINE_PATH/Contents/MacOS/QtWebEngineProcess"
+codesign --verbose --force --options runtime --deep --sign "$CODESIGN_IDENTITY" "$APP_PATH"

@@ -1,10 +1,10 @@
 #!/bin/bash
 # macOS deployment script
-# Usage: ./scripts/deploy-macos.sh "EZ4Connect" "build" "amd64" "false"
+# Usage: ./scripts/deploy-macos.sh "JustConnect" "build" "amd64" "false"
 
 set -euo pipefail
 
-TARGET_NAME="${1:-EZ4Connect}"
+TARGET_NAME="${1:-JustConnect}"
 BUILD_DIR="${2:-build}"
 ARCH="${3:-arm64}"
 NIGHTLY="${4:-false}"

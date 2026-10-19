@@ -384,7 +384,7 @@ void MainWindow::closeEvent(QCloseEvent *event)
     {
         event->ignore();
         hide();
-        showNotification("EZ4Connect", "程序已最小化到系统托盘，单击图标可恢复窗口。", QSystemTrayIcon::MessageIcon::Information);
+        showNotification("JustConnect", "程序已最小化到系统托盘，单击图标可恢复窗口。", QSystemTrayIcon::MessageIcon::Information);
     }
     else
     {
@@ -401,7 +401,7 @@ void MainWindow::changeEvent(QEvent *event)
         {
             event->ignore();
             hide();
-            showNotification("EZ4Connect", "程序已最小化到系统托盘，单击图标可恢复窗口。", QSystemTrayIcon::MessageIcon::Information);
+            showNotification("JustConnect", "程序已最小化到系统托盘，单击图标可恢复窗口。", QSystemTrayIcon::MessageIcon::Information);
         }
     }
     else
@@ -844,7 +844,7 @@ void MainWindow::openConfigurationGuide()
 void MainWindow::promptFirstLaunchGuide()
 {
     promptConfigurationGuide(
-        "欢迎使用 EZ4Connect",
+        "欢迎使用 JustConnect",
         "检测到这是首次启动，是否现在配置 VPN 服务器？"
     );
 }

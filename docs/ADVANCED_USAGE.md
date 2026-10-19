@@ -30,7 +30,7 @@
 ```yaml
 # 代理服务器
 proxies:
-  - name: 🖥 EZ4Connect
+  - name: 🖥 JustConnect
     type: socks5
     server: 127.0.0.1
     port: 11080
@@ -45,7 +45,7 @@ proxy-groups:
     type: select
     proxies:
       - DIRECT
-      - 🖥 EZ4Connect
+      - 🖥 JustConnect
 ```
 
 并在规则中加入：
@@ -59,7 +59,7 @@ rules:
   # 可在此添加其它你需要代理的 ip 段，如课程中心
 ```
 
-这样即可通过简单的切换实现在校外使用本项目时选择 EZ4Connect 代理，在校内使用 DIRECT 直连。
+这样即可通过简单的切换实现在校外使用本项目时选择 JustConnect 代理，在校内使用 DIRECT 直连。
 
 <div align="center">
 <img src="proxy_group.png" width="600px">
@@ -69,11 +69,11 @@ rules:
 
 ### Clash 作为主代理
 
-在本方式中，Clash 提供 TUN 虚拟网卡服务，捕获全部流量并将预筛选符合条件的流量发送给 EZ4Connect 代理。
+在本方式中，Clash 提供 TUN 虚拟网卡服务，捕获全部流量并将预筛选符合条件的流量发送给 JustConnect 代理。
 
-EZ4Connect 收到的流量会经过内部分流，将软件需要代理流量（默认为校园网流量）送入 VPN 通道，其余流量直接放行。
+JustConnect 收到的流量会经过内部分流，将软件需要代理流量（默认为校园网流量）送入 VPN 通道，其余流量直接放行。
 
-**这里需要特别注意**，在 Clash TUN 网卡的作用下，EZ4Connect 送出的流量会再次回到 Clash，因此本方式中**务必设置规则以排除这部分流量**，防止其再次被代理送回 EZ4Connect 引起回环。
+**这里需要特别注意**，在 Clash TUN 网卡的作用下，JustConnect 送出的流量会再次回到 Clash，因此本方式中**务必设置规则以排除这部分流量**，防止其再次被代理送回 JustConnect 引起回环。
 
 1. 取消/清空本软件的系统代理，无需设置“直连代理”，注意勾选“允许外部访问”；
 2. 在 Clash 中配置 TUN 相关设置。
@@ -85,7 +85,7 @@ EZ4Connect 收到的流量会经过内部分流，将软件需要代理流量（
 ```yaml
 # 代理服务器
 proxies:
-  - name: 🖥 EZ4Connect
+  - name: 🖥 JustConnect
     type: socks5
     server: 127.0.0.1
     port: 11080
@@ -100,7 +100,7 @@ proxy-groups:
     type: select
     proxies:
       - DIRECT
-      - 🖥 EZ4Connect
+      - 🖥 JustConnect
 ```
 
 并在规则中加入：
@@ -110,7 +110,7 @@ rules:
   - DOMAIN,ids.hit.edu.cn,DIRECT      # 鉴权服务器
   - DOMAIN,trust.hitsz.edu.cn,DIRECT  # aTrust 服务器
   - PROCESS-NAME,zju-connect.exe,DIRECT
-  - PROCESS-NAME,EZ4Connect.exe,DIRECT
+  - PROCESS-NAME,JustConnect.exe,DIRECT
   - DOMAIN-SUFFIX,hitsz.edu.cn,🏫 校园网
   - IP-CIDR,10.0.0.0/8,🏫 校园网,no-resolve
   # 可在此添加其它你需要代理的 ip 段，如课程中心
@@ -118,12 +118,12 @@ rules:
 
 其中：
 
-- `PROCESS-NAME`精确匹配`EZ4Connect.exe`和`zju-connect.exe`联网核心进程；
+- `PROCESS-NAME`精确匹配`JustConnect.exe`和`zju-connect.exe`联网核心进程；
 - 上述两类规则在可以正确匹配的情况下选其一或保留两者均可，推荐使用`PROCESS-NAME`。并且**必须**至少放在`DOMAIN-SUFFIX,hitsz.edu.cn,🏫 校园网`之前，以达到放行流量，防止回环的目的。
-- 在较新版本的 EZ4Connect 中，可以通过设置“自动检测网口“来避免回环，此时可以不使用`PROCESS-NAME`规则。
+- 在较新版本的 JustConnect 中，可以通过设置“自动检测网口“来避免回环，此时可以不使用`PROCESS-NAME`规则。
 
 
-最后，还需要在 DNS 配置中为`fake-ip`添加过滤规则，防止 EZ4Connect 的域名解析到 fake-ip 地址，从而无法正确分流。
+最后，还需要在 DNS 配置中为`fake-ip`添加过滤规则，防止 JustConnect 的域名解析到 fake-ip 地址，从而无法正确分流。
 
 ```yaml
 dns:
@@ -155,7 +155,7 @@ function main(config, profileName) {
 	config.rules = config.rules || [];
 
 	config.proxies.push({
-		name: "EZ4Connect",
+		name: "JustConnect",
 		type: "socks5",
 		server: "127.0.0.1",
 		port: 11080,
@@ -165,13 +165,13 @@ function main(config, profileName) {
 	config["proxy-groups"].push({
 		name: "校园网",
 		type: "select",
-		proxies: ["DIRECT", "EZ4Connect"],
+		proxies: ["DIRECT", "JustConnect"],
 	});
 
 	config.rules.unshift(
 		"DOMAIN,trust.hitsz.edu.cn,DIRECT",
 		"PROCESS-NAME,zju-connect.exe,DIRECT",
-		"PROCESS-NAME,EZ4Connect.exe,DIRECT",
+		"PROCESS-NAME,JustConnect.exe,DIRECT",
 		"DOMAIN-SUFFIX,hitsz.edu.cn, 校园网",
 		"IP-CIDR,10.0.0.0/8, 校园网,no-resolve",
 	);
@@ -181,4 +181,4 @@ function main(config, profileName) {
 }
 ```
 
-额外注意，`tun`的`route-exclude-address`（默认为空）不应加入`10.0.0.0/8`网段，否则会导致流量不能正确经由 tun 转发到 EZ4Connect。
+额外注意，`tun`的`route-exclude-address`（默认为空）不应加入`10.0.0.0/8`网段，否则会导致流量不能正确经由 tun 转发到 JustConnect。

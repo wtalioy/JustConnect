@@ -1,11 +1,11 @@
 #!/bin/bash
 # Linux deployment script
-# Usage: ./scripts/deploy-linux.sh "EZ4Connect" "EZ4Connect" "build" "x86_64" "false"
+# Usage: ./scripts/deploy-linux.sh "JustConnect" "JustConnect" "build" "x86_64" "false"
 
 set -euo pipefail
 
-TARGET_NAME="${1:-EZ4Connect}"
-DISPLAY_NAME="${2:-EZ4Connect}"
+TARGET_NAME="${1:-JustConnect}"
+DISPLAY_NAME="${2:-JustConnect}"
 BUILD_DIR="${3:-build}"
 ARCH="${4:-x86_64}"
 NIGHTLY="${5:-false}"
