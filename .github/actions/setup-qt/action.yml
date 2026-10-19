@@ -26,46 +26,38 @@ runs:
         cache: true
         cache-key-prefix: qt-6.12.0-${{ inputs.host }}-${{ inputs.arch }}
 
-    - name: Install stable WebEngine
-      id: webengine
-      uses: jurplel/install-qt-action@v4.4.1
-      with:
-        version: '6.11.2'
-        host: ${{ inputs.host }}
-        target: desktop
-        arch: ${{ inputs.arch }}
-        modules: qtwebengine
-        extra: --noarchives
-        dir: ${{ runner.temp }}/webengine
-        set-env: false
-        install-deps: false
-        aqtsource: git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7
-        py7zrversion: '==1.1.4'
-        cache: true
-        cache-key-prefix: webengine-6.11.2-${{ inputs.host }}-${{ inputs.arch }}
-
-    - name: Add WebEngine to the SDK
+    - name: Install stable WebEngine into the SDK
       shell: python
       env:
         QT_INSTALL_ROOT: ${{ steps.sdk.outputs.qtPath }}
-        QT_WEBENGINE_ROOT: ${{ steps.webengine.outputs.qtPath }}
+        QT_WEBENGINE_TEMP: ${{ runner.temp }}/webengine
         QT_INSTALL_HOST: ${{ inputs.host }}
         QT_INSTALL_ARCH: ${{ inputs.arch }}
       run: |
         import os
         import shutil
+        import subprocess
+        import sys
         from pathlib import Path
         from aqt.archives import TargetConfig
         from aqt.helper import Settings
+        from aqt.metadata import QtRepoProperty, Version
         from aqt.updater import Updater
 
         sdk = Path(os.environ['QT_INSTALL_ROOT'])
-        webengine = Path(os.environ['QT_WEBENGINE_ROOT'])
+        temporary = Path(os.environ['QT_WEBENGINE_TEMP'])
+        host = os.environ['QT_INSTALL_HOST']
+        arch = os.environ['QT_INSTALL_ARCH']
+        subprocess.run([sys.executable, '-m', 'aqt', 'install-qt', host, 'desktop',
+                        '6.11.2', arch, '--noarchives', '--modules', 'qtwebengine',
+                        '--outputdir', str(temporary), '--timeout', '30'], check=True)
+        webengine = temporary / '6.11.2' / QtRepoProperty.get_arch_dir_name(host, arch, Version('6.11.2'))
         for link in webengine.rglob('*'):
             destination = sdk / link.relative_to(webengine)
             if link.is_symlink() and destination.is_symlink():
                 destination.unlink()
         shutil.copytree(webengine, sdk, dirs_exist_ok=True, symlinks=True)
         Settings.load_settings()
-        target = TargetConfig('6.12.0', 'desktop', os.environ['QT_INSTALL_ARCH'], os.environ['QT_INSTALL_HOST'])
+        target = TargetConfig('6.12.0', 'desktop', arch, host)
         Updater.update(target, sdk.parents[1], None)
+        shutil.rmtree(temporary)
