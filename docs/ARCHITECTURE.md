@@ -13,6 +13,7 @@ application/      用例、会话及基础设施端口
 infrastructure/   QProcess、QSettings、系统代理、文件和更新检查等实现
 presentation/     Qt Widgets 界面、对话框和界面流程 Coordinator
 tests/            按端口或纯逻辑边界测试各层行为
+corelib/          JustConnect 单一 Go 模块，协议源码已整合；正式会话／C ABI 待实现
 ```
 
 依赖方向为：
@@ -33,7 +34,9 @@ infrastructure -------+
 
 `CoreProcess` 定义连接配置、事件和错误接口，`ExternalCoreProcess` 负责启动核心与转换进程事件。当前使用 [zju-connect](https://github.com/Mythologyli/zju-connect)；命令构建与输出解析位于 `infrastructure/coreprocess/`。接入其他核心需适配其协议、认证查询、版本检查与打包来源。
 
-目标边界为 `application/CoreEngine` → `infrastructure/EmbeddedCoreEngine` → JustConnect 内部 C ABI → `corelib/` Go 会话 → `third_party/zju-connect/` 协议实现。Qt 主线程接收结构化事件，数据转发留在 Go 内；凭据、认证回应和策略通过显式接口传入。正式切换时删除核心命令行、文本解析及进程兼容层，不保留两套正式后端。必要的权限助手和独立恢复守护不承载 VPN 核心。
+目标边界为 `application/CoreEngine` → `infrastructure/EmbeddedCoreEngine` → JustConnect 内部 C ABI → `corelib/` 内的 Go 会话与协议实现。Go 源码已直接整合进 `corelib/`，使用 `github.com/wtalioy/JustConnect/corelib` 单一模块；不另设上游源码目录、嵌套模块或本地 `replace`。协议包可直接维护和精简，[来源与许可证](../corelib/UPSTREAM.md)就地保留。正式会话、C ABI 和 Qt 接入尚未实现。
+
+Qt 主线程接收结构化事件，数据转发留在 Go 内；凭据、认证回应和策略通过显式接口传入。正式切换时删除核心命令行、文本解析及进程兼容层，不保留两套正式后端。必要的权限助手和独立恢复守护不承载 VPN 核心。
 
 `tests/corelink/` 是 S1-06 的独立工具链原型，通过最小 C ABI 在 Qt／WebEngine 宿主内调用 Go，不是第二套应用后端。它与正式源码／ABI 的实现分开，链接证据和各平台设备权限边界见[原型记录](CORELINK-PROBE.md)。
 

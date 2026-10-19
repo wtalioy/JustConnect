@@ -11,7 +11,9 @@ runs:
     - uses: actions/setup-go@v7.0.0
       with:
         go-version: ${{ steps.core.outputs.version }}
-        cache-dependency-path: core/manifest.json
+        cache-dependency-path: |
+          core/manifest.json
+          corelib/go.sum
 
     - name: Build and verify core
       shell: bash
