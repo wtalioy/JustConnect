@@ -12,6 +12,7 @@ JustConnect 的主仓库是 [wtalioy/JustConnect](https://github.com/wtalioy/Jus
 - 在本仓库发布 `vX.Y.Z`（可带 `-beta.1` 等后缀）的 GitHub Release 后，工作流重建该版本，全部成功后将安装包附加到该 Release。推送 `main` 仅生成 Actions 产物，不自动发布正式版本。
 - 可从 `main` 手动运行打包工作流；关闭 `nightly` 时必须提供有效的版本号。手动运行只生成产物，不创建 Release。
 - 开发预览：进入 Actions → `Build packages` → `Run workflow`，分支选择 `develop`。此时手动构建六组预览包并运行测试，产物名为 `JustConnect-preview-提交SHA-平台-架构`，在该次运行的 Artifacts 下载，保留 14 天。预览始终使用 nightly 应用版本（忽略 `nightly/version` 输入），macOS 使用临时签名，不执行开发者签名、公证或 Release 上传；普通推送到 `develop` 仍只触发测试。
+- 当前 `core_nightly` 输入只控制下载第三方核心的 release 或 nightly，与应用的 nightly 版本独立；固定源码与补丁构建尚待 [S1](../plan.md#s1) 完成，完成后同步更新此处操作。
 
 普通 CI 使用 `contents: read`，仅上传 Release 的 job 使用 `contents: write`，按 [GitHub 工作流权限文档](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#permissions) 配置。无需为普通构建或 Release 上传单独创建 PAT。
 
@@ -51,10 +52,10 @@ ctest --test-dir build --build-config Release --output-on-failure
 无显示服务器的 Linux 环境可设置 `QT_QPA_PLATFORM=offscreen` 运行界面测试。
 核心依赖为 [Mythologyli/zju-connect](https://github.com/Mythologyli/zju-connect)。开发运行时将 `zju-connect`（Windows 为 `zju-connect.exe`）放在应用旁或加入 PATH。
 
-## 当前范围
+## 任务与验证记录
 
-配置、认证数据和日志使用 JustConnect 的数据路径，不自动导入其他应用的数据。遗留自启动项和网络设置的清理尚待实现。
+开始开发时先查看[实施计划](../plan.md)中的当前任务与阶段依赖。实现后更新任务勾选、提交／测试证据及受影响的平台验收结果；代码完成但缺实机条件时保留待验收。
 
-已有预览配置在读取时迁移字段，并保留已填的新字段。新配置的服务器和登录域留空，需先完成服务器与认证配置。README 暂时留空，界面使用连接图标；Windows/macOS 文件图标暂用系统默认。
+CI 编译、CTest、预览打包与真实校园网络验收分别记录。当前代码结构及封装限制见[架构说明](ARCHITECTURE.md)，后续目标和状态以计划为准；本文维护可执行的构建与发布操作。
 
-当前打包仍使用第三方核心的上游发布版（手动构建可选其 nightly），核心版本查询仍指向上游；固定源码提交、应用补丁和校园网络自动共存尚待按 [计划](../plan.md) 实现。不要以未修改的上游核心替换未来带共存补丁的核心。
+当前打包仍下载第三方核心的上游版本，校园透明访问与自动共存尚未实现。上游高级用法的来源与已采用约束保留在计划参考索引中，原手工配置示例不再作为当前产品的操作说明；新的使用文档随 [S8](../plan.md#s8) 的实测结果补充，README 暂时留空。
