@@ -1,0 +1,126 @@
+name: Core library probe
+
+on:
+  push:
+    branches: [develop]
+    paths: ['tests/corelink/**', '.github/workflows/corelink.yml', '.github/actions/setup-qt/**', 'core/manifest.json']
+  pull_request:
+    branches: [main, develop]
+    paths: ['tests/corelink/**', '.github/workflows/corelink.yml', '.github/actions/setup-qt/**', 'core/manifest.json']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    name: ${{ matrix.platform }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: windows-2025, platform: windows, arch: x64, qt_host: windows, qt_arch: win64_msvc2022_64, cc: x86_64-w64-mingw32-clang}
+          - {os: windows-11-vs2026-arm, platform: windows, arch: arm64, qt_host: windows_arm64, qt_arch: win64_msvc2022_arm64, cc: aarch64-w64-mingw32-clang}
+          - {os: macos-26-intel, platform: macos, arch: x64, qt_host: mac, qt_arch: clang_64, cc: clang}
+          - {os: macos-26, platform: macos, arch: arm64, qt_host: mac, qt_arch: clang_64, cc: clang}
+          - {os: ubuntu-26.04, platform: linux, arch: x64, qt_host: linux, qt_arch: linux_gcc_64, cc: gcc}
+          - {os: ubuntu-26.04-arm, platform: linux, arch: arm64, qt_host: linux_arm64, qt_arch: linux_gcc_arm64, cc: gcc}
+    env:
+      CC: ${{ matrix.cc }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1 libegl1 libxkbcommon-x11-0 libxcb-cursor0 libnss3 libevent-dev libminizip-dev
+
+      - uses: ./.github/actions/setup-qt
+        with:
+          host: ${{ matrix.qt_host }}
+          arch: ${{ matrix.qt_arch }}
+
+      - name: Read pinned Go version
+        id: go
+        shell: bash
+        run: python -c 'import json, os; open(os.environ["GITHUB_OUTPUT"], "a").write("version=" + json.load(open("core/manifest.json"))["go_version"] + "\n")'
+
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: ${{ steps.go.outputs.version }}
+          cache: false
+
+      - name: Install pinned Windows cgo compiler (UCRT)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          PROBE_ARCH: ${{ matrix.arch }}
+        run: |
+          if ($env:PROBE_ARCH -eq 'arm64') {
+            $hostArch = 'aarch64'
+            $expected = '9a835d5179c9f3a5a783c11a7f14062a249b4765dd11add64a66786864e82ab2'
+          } else {
+            $hostArch = 'x86_64'
+            $expected = '317492c456aa27ee607a5919f1d2d38dcdc1112516a24d0bf4b00d078f52d17a'
+          }
+          $name = "llvm-mingw-20261006-ucrt-$hostArch"
+          $archive = "$env:RUNNER_TEMP/$name.zip"
+          Invoke-WebRequest "https://github.com/mstorsjo/llvm-mingw/releases/download/20261006/$name.zip" -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLower() -ne $expected) { throw 'Compiler SHA-256 mismatch' }
+          Expand-Archive $archive "$env:RUNNER_TEMP/cgo"
+          "$env:RUNNER_TEMP/cgo/$name/bin" >> $env:GITHUB_PATH
+
+      - name: Probe archive, with Windows DLL fallback only after link failure
+        shell: python
+        run: |
+          import os, pathlib, subprocess, sys
+          output = pathlib.Path('build/corelink')
+          output.mkdir(parents=True, exist_ok=True)
+          def run(name, args, required=True):
+              result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+              (output / (name + '.log')).write_text(result.stdout, encoding='utf-8')
+              print(result.stdout, flush=True)
+              if required and result.returncode:
+                  sys.exit(result.returncode)
+              return result.returncode
+          run('go', ['go', 'version'])
+          run('cgo-env', ['go', 'env', 'GOHOSTOS', 'GOHOSTARCH', 'CC', 'CGO_ENABLED'])
+          run('cc', [os.environ['CC'], '--version'])
+          def configure(mode):
+              directory = str(output / mode)
+              args = ['cmake', '-S', 'tests/corelink', '-B', directory, '-DPROBE_MODE=' + mode, '-DCMAKE_BUILD_TYPE=Release']
+              if sys.platform == 'win32':
+                  args += ['-A', 'ARM64' if os.environ['RUNNER_ARCH'] == 'ARM64' else 'x64']
+              run(mode + '-configure', args)
+              run(mode + '-go', ['cmake', '--build', directory, '--config', 'Release', '--target', 'probe_library'])
+              return directory
+          mode = 'c-archive'
+          directory = configure(mode)
+          failed = run(mode + '-link', ['cmake', '--build', directory, '--config', 'Release'], required=False)
+          if failed:
+              if sys.platform != 'win32':
+                  sys.exit(failed)
+              mode = 'c-shared'
+              directory = configure(mode)
+              run(mode + '-link', ['cmake', '--build', directory, '--config', 'Release'])
+          (output / 'selected-mode.txt').write_text(mode + '\n', encoding='utf-8')
+          # A runtime failure must fail CI, never silently select another backend.
+          run(mode + '-runtime', ['ctest', '--test-dir', directory, '-C', 'Release', '-V', '--output-on-failure'])
+
+      - name: Upload toolchain and runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: corelink-${{ matrix.platform }}-${{ matrix.arch }}
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            build/corelink/*.log
+            build/corelink/selected-mode.txt
+            build/corelink/*/CMakeCache.txt
