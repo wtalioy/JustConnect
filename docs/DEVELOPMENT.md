@@ -3,6 +3,8 @@
 JustConnect 的主仓库是 [wtalioy/JustConnect](https://github.com/wtalioy/JustConnect)。
 `origin` 用于自己的开发和发布；`upstream` 等 remote 仅用于查看上游变更，保留原有历史和致谢。
 
+计划已调整为将核心源码纳入仓库并编为 Qt 同进程调用的库，见 [S1](../plan.md#s1)。下文的核心构建命令、Actions 和包内校验描述的是当前仍可运行的独立进程基线，库化尚未实现。S1-09 将统一改为 CMake 驱动 Go／C ABI 库、实际宿主测试及六组产物自检；验收后 S1-10 删除 `build-core.py`、旧构建 action 和独立 EXE 打包／校验链路。Qt SDK、分支与发布触发规则继续复用，不提前删除仍被工作流调用的脚本。
+
 ## 分支与 Actions
 
 - 日常开发使用 `develop`。每次推送到该分支，`Tests` 工作流在 Windows、macOS、Linux 上构建并验证固定核心、编译应用并运行 CTest，不打包、不发布。
@@ -58,7 +60,7 @@ ctest --test-dir build --build-config Release --output-on-failure
 无显示服务器的 Linux 环境可设置 `QT_QPA_PLATFORM=offscreen` 运行界面测试。
 核心依赖为 [Mythologyli/zju-connect](https://github.com/Mythologyli/zju-connect)。开发运行时将 `zju-connect`（Windows 为 `zju-connect.exe`）放在应用旁或加入 PATH。
 
-### 固定核心构建
+### 当前独立核心构建（迁移前基线）
 
 [构建清单](../core/manifest.json)固定上游提交、源码归档 SHA-256、AGPL-3.0 许可证、Go 版本、模块锁校验和，以及按数组顺序应用的补丁。当前补丁数组为空，直接构建上游源码；会话恢复等功能补丁另按计划审查。
 
