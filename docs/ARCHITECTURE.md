@@ -1,4 +1,4 @@
-# 架构说明
+# 当前代码结构
 
 JustConnect 使用轻量级分层架构。界面层通过 Coordinator 组合应用服务和平台实现，避免
 `MainWindow` 直接承担连接进程、配置存储及认证窗口的生命周期。
@@ -22,7 +22,7 @@ presentation -> application -> core
 infrastructure -------+
 ```
 
-`application` 不引用 `presentation` 或具体的 `infrastructure` 类型。具体实现统一由
+`application` 不引用 `presentation` 或具体的 `infrastructure` 类型。具体实现主要由
 `MainWindowCoordinator` 创建并注入：
 
 - `CoreProcess` → `ExternalCoreProcess`
@@ -43,3 +43,16 @@ infrastructure -------+
 `application`，平台或文件 I/O 放入 `infrastructure`，可独立验证的连接规则放入
 `core`。不要重新引入通用 `utils` 目录；只有跨多个职责且没有明确归属的代码才需要新建
 共享模块。
+
+## 目前的边界限制
+
+上述目录结构不代表所有封装已经完成：
+
+- `ProfileService::settings()` 仍向调用方暴露 `QSettings*`，界面中仍有配置键名和存储操作。
+- `AuthInfoWindow` 仍直接调用核心查询认证方式；部分平台函数仍决定错误弹窗，代理后端的成功结果尚未完整反映底层失败。
+- 主窗口仍承担配置菜单、托盘和部分工作流；平台代理实现集中在含条件编译的大型源文件中。
+- CMake 仍以单一应用源码列表组织构建，目录分层尚未由独立目标与依赖检查约束。
+
+领域与应用层允许使用现有 Qt Core 类型、QObject 和事件机制，与 Widgets 的分离不表示已脱离 Qt。`CoreProcess` 是当前外部核心的应用端口，不是动态协议插件系统。
+
+这些改进的顺序、完成条件和验证状态统一维护在[实施计划](../plan.md)：基础结果与认证见 [S2](../plan.md#s2)，产品流程见 [S7](../plan.md#s7)，完整配置封装和构建拆层见后续改进。本文只在实际代码结构变化后同步更新，不将计划中的服务或能力写成当前实现。
