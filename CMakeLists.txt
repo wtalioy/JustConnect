@@ -126,6 +126,14 @@ target_link_libraries(${PROJECT_NAME}
 include(CTest)
 
 if(BUILD_TESTING)
+    add_executable(webengine_test tests/webengine_test.cpp)
+    target_link_libraries(webengine_test Qt::WebEngineWidgets)
+    add_test(NAME webengine_test COMMAND webengine_test)
+    set_tests_properties(webengine_test PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 20
+    )
+
     add_executable(applicationlogger_test
         tests/applicationlogger_test.cpp
         application/applicationlogger.cpp
