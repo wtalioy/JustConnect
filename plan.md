@@ -7,6 +7,7 @@
 - `develop` 为开发分支：每次推送以及面向 `main/develop` 的 PR 执行三平台编译与测试，不生成安装包。合并并推送到 `main` 后生成三平台 x64/ARM64 安装包；发布 GitHub Release 时将对应产物上传到自己的仓库。
 - Actions 使用明确的最小权限，移除上游 AUR 自动发布；macOS 未配置 Apple 凭据时生成临时签名测试包，完整配置后执行开发者签名和公证，不沿用上游“已公证”的声明。详细操作见 [构建与发布](docs/DEVELOPMENT.md)。
 - 本节记录已完成的代码与配置变更；云端运行结果与网络功能的实机验收分别记录，不把配置完成视为所有安装包或共存功能已经通过验证。
+- 已通过工作流静态检查、版本参数自检，以及 [develop 首次 CI](https://github.com/wtalioy/JustConnect/actions/runs/39234405357) 的 Windows、macOS、Linux 编译和各 15 项测试。开发者签名及公证因尚未配置 Apple 凭据而未验证；校园网络共存仍按下文实施。
 
 ## 目标与默认行为
 
