@@ -17,6 +17,8 @@ cmake --build build/corelink --config Release --parallel 3
 ctest --test-dir build/corelink -C Release -V --output-on-failure
 ```
 
+Windows 手工复现使用配置参数 `-DPROBE_MODE=c-shared`，并将 `CC` 设为工作流固定的 LLVM-MinGW 本机目标编译器；C++ 仍由 Visual Studio 生成器构建，ARM64 增加 `-A ARM64`。完整的 SDK／编译器安装与两种模式尝试步骤保留在工作流中。
+
 本机额外使用 DEVELOPMENT 中的 Qt 运行依赖环境；相同环境也须用于链接：
 
 ```sh
@@ -30,13 +32,16 @@ export FONTCONFIG_PATH=/home/lioy/.local/share/JustConnect/sysroot/etc/fonts
 
 | 目标 | 链接结论 | 证据 |
 | --- | --- | --- |
-| Linux x64 | `c-archive` 本地通过 | WSL2，GCC 16.2.1，Go 1.27.2；0.56 秒，心跳 12 次；应用 CTest 16/16 |
-| Linux ARM64 | `c-archive` CI 通过 | 原生 ubuntu-26.04-arm，Go 1.27.2，GCC 15.2.0；[首轮 CI](https://github.com/wtalioy/JustConnect/actions/runs/39271373771) |
-| macOS x64／ARM64 | `c-archive` CI 通过 | 原生 macos-26-intel／macos-26；[首轮 CI](https://github.com/wtalioy/JustConnect/actions/runs/39271373771) |
-| Windows x64 | 静态链接成功，运行 60 秒超时；待带定位日志重验及 DLL 回退 | LLVM-MinGW Clang 23.1.3 UCRT → MSVC 19.51.36260／VS 18；[首轮 CI](https://github.com/wtalioy/JustConnect/actions/runs/39271373771)，原始日志保留在 artifact |
-| Windows ARM64 | 待 CI | 原生 windows-11-vs2026-arm；不能由 buildmode 支持表推断 MSVC 可链接／运行 |
+| Linux x64 | `c-archive` 本地及 CI 通过 | WSL2 本地 GCC 16.2.1；原生 ubuntu-26.04 GCC 15.2.0 |
+| Linux ARM64 | `c-archive` CI 通过 | 原生 ubuntu-26.04-arm，GCC 15.2.0 |
+| macOS x64 | `c-archive` CI 通过 | 原生 macos-26-intel，AppleClang 21.0.0.21000101 |
+| macOS ARM64 | `c-archive` CI 通过 | 原生 macos-26，AppleClang 21.0.0.21000101 |
+| Windows x64 | `c-shared` CI 通过；静态链接成功，但首次 Go 调用 60 秒超时 | LLVM-MinGW Clang 23.1.3 UCRT → MSVC 19.51.36260／VS 18；[定位及 DLL CI](https://github.com/wtalioy/JustConnect/actions/runs/39272524508)，257 轮检查与 WebEngine JavaScript 通过 |
+| Windows ARM64 | `c-shared` CI 通过；静态链接成功，但首次 Go 调用 60 秒超时 | 原生 windows-11-vs2026-arm，LLVM-MinGW Clang 23.1.3 UCRT → MSVC 19.51.36260／VS 18 |
 
-Windows 静态路径的已知线索：固定 Go 的 `cmd/link/internal/ld/pe.go:addInitArray` 生成 `.ctors`，而 [MSVC CRT 初始化](https://learn.microsoft.com/en-us/cpp/c-runtime-library/crt-initialization?view=msvc-170) 使用 `.CRT$XCU`。这与首次调用等待 Go 初始化的超时相符，但仍是源码推断，需定位日志确认；不调用 Go 的私有启动符号或改写 archive 的节区来作为正式方案。
+以上六组均对应代码提交 `481c61b` 的[链接原型 CI](https://github.com/wtalioy/JustConnect/actions/runs/39272524508)，均使用 Go 1.27.2，并实际通过前述 257 轮、4 QThread、GC、缓冲区与 WebEngine 检查。同提交的[三平台应用 CI](https://github.com/wtalioy/JustConnect/actions/runs/39272524710) 也全部通过，每平台 16 项 CTest。本地 `go vet`、actionlint 1.7.12（仅忽略其目录尚未收录的 runner 标签）与差异空白检查通过。
+
+Windows 静态路径的已知线索：固定 Go 的 [PE 链接器 `addInitArray`](https://go.dev/src/cmd/link/internal/ld/pe.go) 生成 `.ctors`，而 [MSVC CRT 初始化](https://learn.microsoft.com/en-us/cpp/c-runtime-library/crt-initialization?view=msvc-170) 使用 `.CRT$XCU`。两组定位日志均已确认静态宿主完成 Qt 初始化后，卡在首次 Go ABI 调用且不返回；构造段约定的归因仍属源码推断。不调用 Go 的私有启动符号或改写 archive 的节区来作为正式方案。DLL 初始化及同一份回归在两组均通过，故 D5 的原型选择为 Unix 静态、Windows 固定随包 DLL；正式核心及打包仍由 S1-05—09 复验。
 
 构建原型通过不代表正式 aTrust 核心、取消／超时、事件积压、网络吞吐或安装包已验收。这里没有执行 race detector；指针检查、并发调用和 GC 压力不等于数据竞争检测。正式 Go／FFI 回归与工具链支持范围在 S1-04／09 落实。
 
