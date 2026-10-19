@@ -16,4 +16,4 @@ if [[ -z "$APP_PATH" || ! -d "$APP_PATH" ]]; then
   exit 1
 fi
 codesign --verbose --force --options runtime --sign "$CODESIGN_IDENTITY" --entitlements "$QTWEBENGINE_PATH/Contents/Resources/QtWebEngineProcess.entitlements" "$QTWEBENGINE_PATH/Contents/MacOS/QtWebEngineProcess"
-codesign --verbose --force --options runtime --deep --sign "$CODESIGN_IDENTITY" "$APP_PATH"
+codesign --verbose --force --options runtime --deep --preserve-metadata=entitlements --sign "$CODESIGN_IDENTITY" "$APP_PATH"
