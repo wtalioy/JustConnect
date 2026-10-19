@@ -53,7 +53,7 @@ Windows 静态路径的已知线索：固定 Go 的 [PE 链接器 `addInitArray`
 
 | 平台 | 源码核对与候选边界 | 当前证据／缺口 |
 | --- | --- | --- |
-| Linux | `sing-tun.New` 可通过 `Options.FileDescriptor` 接收已创建 fd，跳过设备创建／配置；Go 关闭 `os.File`，最终 fd 关闭后非持久 TUN 自动消失。候选：小助手创建／配置设备，验证对端后通过 Unix socket `SCM_RIGHTS` 交付，Go 独占接收的 fd；助手另负责路由／DNS 和恢复。 | **WSL2 内核／fd 原型通过**：root 在隔离网络创建设备，通过 `SCM_RIGHTS` 交给 uid=1000、有效 capabilities 为零的进程；实际 UDP 双向收发、正常关闭、SIGKILL 后设备及自动路由清理均通过。普通用户直接创建仍返回 `EPERM`。本机没有免密 sudo，但可经 WSL `--user root` 启动隔离测试，并非完全缺少提权测试入口。正式 Go／Qt 接入、授权助手、AppImage 路径、真实路由／DNS 恢复仍未验证。 |
+| Linux | `sing-tun.New` 可通过 `Options.FileDescriptor` 接收已创建 fd，跳过设备创建／配置；Go 关闭 `os.File`，最终 fd 关闭后非持久 TUN 自动消失。候选：小助手创建／配置设备，验证对端后通过 Unix socket `SCM_RIGHTS` 交付，Go 独占接收的 fd；助手另负责路由／DNS 和恢复。 | **WSL2 与原生 Linux x64／ARM64 内核／fd 原型通过**：root 在隔离网络创建设备，通过 `SCM_RIGHTS` 交给普通用户（本地 uid=1000，CI uid=1001）、有效 capabilities 为零的进程；实际 UDP 双向收发、正常关闭、SIGKILL 后设备及自动路由清理均通过。普通用户直接创建仍返回 `EPERM`。本机没有免密 sudo，但可经 WSL `--user root` 启动隔离测试，并非完全缺少提权测试入口。正式 Go／Qt 接入、授权助手、AppImage 路径、真实路由／DNS 恢复仍未验证。 |
 | macOS | `sing-tun.New` 同样可接收外部 utun fd；创建 utun 的 kernel control 要求权限。候选：授权助手创建／配置，`SCM_RIGHTS` 交付已连接 socket；最后关闭 fd 结束 utun。utun 数据还带地址族头，不能按 Linux 包格式直接套用。 | 仅源码可行性核对，无 macOS 实机授权／传递／数据面证据。`sing-tun.Close` 还会刷新 DNS 缓存，库化时须将需权限的系统操作移到助手，不能只接收 fd 就认为完全非提权。 |
 | Windows | `CreateTUNWithRequestedGUID` 在宿主内创建／打开适配器，并调用 `StartSession` 注册 ring；session 包含进程虚拟内存、锁和事件，`End` 与适配器 `Close` 分别清理。单独 `DuplicateHandle` 不能转移这个指针与内存集合，不能把助手创建的 `WINTUN_SESSION_HANDLE` 强转给宿主。 | **现有 Wintun 候选路径的非提权交付尚未证明**：当前公开封装没有接收预创建会话的接口，尚无非提权宿主启动 ring 的实测方案。若采用此入口，需要 Windows x64／ARM64 设备、正常用户及受 UAC 授权的小助手，验证驱动 ACL／ring 注册权限和支持的安全交付办法。不得据此给整套 GUI 提权或把核心放到助手。 |
 
@@ -74,7 +74,9 @@ wsl.exe --distribution archlinux --user root --exec unshare --net -- \
     python /home/lioy/JustConnect/tests/corelink/linux_device_probe.py --uid 1000
 ```
 
-父进程创建 TUN 并配置隔离地址后，接收进程先清空补充组并降为普通 uid／gid，再接收 fd；父进程关闭原 fd。接收进程读取内核发出的 UDP 包，再经 TUN 注入合法 IPv4／UDP 回包，由普通 UDP socket 验证收到预期数据。分别验证主动关闭与持有 fd 时被 SIGKILL 后的设备／自动路由清理。本地另验证了宿主命名空间／非 root 调用及测试设备名已存在时会被拒绝，以及测试前后宿主接口、全表路由和 `/etc/resolv.conf` 一致。Linux x64／ARM64 CI 增加同一隔离测试，云端结果待记录。
+父进程创建 TUN 并配置隔离地址后，接收进程先清空补充组并降为普通 uid／gid，再接收 fd；父进程关闭原 fd。接收进程读取内核发出的 UDP 包，再经 TUN 注入合法 IPv4／UDP 回包，由普通 UDP socket 验证收到预期数据。分别验证主动关闭与持有 fd 时被 SIGKILL 后的设备／自动路由清理。本地另验证了宿主命名空间／非 root 调用及测试设备名已存在时会被拒绝，以及测试前后宿主接口、全表路由和 `/etc/resolv.conf` 一致。代码 `7a910de` 的 [Linux x64／ARM64 CI](https://github.com/wtalioy/JustConnect/actions/runs/39275742177) 两组均通过同一隔离测试，日志保存在各组 artifact 的 `linux-device.log`。
+
+同提交的[六组库链接／宿主检查](https://github.com/wtalioy/JustConnect/actions/runs/39275742177)和[三平台应用回归](https://github.com/wtalioy/JustConnect/actions/runs/39275741690)均通过；Windows／macOS 在本次仅重跑链接与宿主回归，没有执行设备权限测试。
 
 该测试只覆盖内核设备与 fd 生命周期；直连路由随设备删除不等于已经实现任意路由／DNS 的所有权恢复。它没有验证提权界面、助手身份认证、Go fd 接收、TCP 转发、校园隧道或 Clash 共存。Windows 本机为 x64 普通用户，WSL root 不代表 Windows 管理员权限；没有据此进行 Windows 驱动安装或 UAC 提权。
 
