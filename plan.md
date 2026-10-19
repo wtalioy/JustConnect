@@ -4,7 +4,7 @@
 
 - 主仓库为 `wtalioy/JustConnect`（origin），GitHub 上是独立仓库；保留原有提交历史及上游 remote、许可证与致谢。
 - 应用名称、CMake 目标、窗口与托盘文案、macOS Bundle 标识、打包默认名称、日志及文档改为 JustConnect；项目主页、问题反馈、应用更新检查和 Release 地址指向自己的仓库。新应用使用自己的配置和认证数据路径，不自动迁移旧应用数据；旧数据、自启动及遗留网络设置的安全清理尚待实现。
-- `develop` 为开发分支：每次推送以及面向 `main/develop` 的 PR 执行三平台编译与测试，不生成安装包。合并并推送到 `main` 后生成三平台 x64/ARM64 安装包；发布 GitHub Release 时将对应产物上传到自己的仓库。
+- `develop` 为开发分支：每次推送以及面向 `main/develop` 的 PR 执行三平台编译与测试，自动流程不生成安装包；可手动选择 `Build packages` 的 `develop` 分支生成带提交 SHA 的六组开发预览包，不发布 Release。合并并推送到 `main` 后生成三平台 x64/ARM64 安装包；发布 GitHub Release 时将对应产物上传到自己的仓库。
 - Actions 使用明确的最小权限，移除上游 AUR 自动发布；macOS 未配置 Apple 凭据时生成临时签名测试包，完整配置后执行开发者签名和公证，不沿用上游“已公证”的声明。详细操作见 [构建与发布](docs/DEVELOPMENT.md)。
 - 本节记录已完成的代码与配置变更；云端运行结果与网络功能的实机验收分别记录，不把配置完成视为所有安装包或共存功能已经通过验证。
 - 已通过工作流静态检查、版本参数自检，以及 [develop 首次 CI](https://github.com/wtalioy/JustConnect/actions/runs/39234405357) 的 Windows、macOS、Linux 编译和各 15 项测试。开发者签名及公证因尚未配置 Apple 凭据而未验证；校园网络共存仍按下文实施。

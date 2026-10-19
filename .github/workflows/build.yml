@@ -1,4 +1,5 @@
 name: Build packages
+run-name: ${{ github.ref == 'refs/heads/develop' && 'Development preview' || 'Build packages' }} (${{ github.ref_name }})
 
 on:
   push:
@@ -10,7 +11,7 @@ on:
       nightly:
         type: boolean
         default: true
-        description: Nightly build
+        description: Nightly build (develop previews always use this mode)
       zju_connect_nightly:
         type: boolean
         default: false
@@ -18,7 +19,7 @@ on:
       version:
         type: string
         default: ''
-        description: Version for a non-nightly manual build (e.g. v0.1.0)
+        description: Version for a non-nightly main build (e.g. v0.1.0)
 
 permissions:
   contents: read
@@ -35,7 +36,7 @@ env:
 jobs:
   build:
     name: ${{ matrix.platform }}-${{ matrix.arch }}
-    if: github.ref == 'refs/heads/main' || github.event_name == 'release'
+    if: github.ref == 'refs/heads/main' || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/develop')
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -48,12 +49,12 @@ jobs:
           - {os: ubuntu-22.04, platform: linux, arch: x64, core_arch: x86_64, qt_host: linux, qt_arch: linux_gcc_64}
           - {os: ubuntu-24.04-arm, platform: linux, arch: arm64, core_arch: arm64, qt_host: linux_arm64, qt_arch: linux_gcc_arm64}
     env:
-      ARCHIVE_NAME: JustConnect-${{ inputs.version || github.event.release.tag_name || 'nightly' }}-${{ matrix.platform }}-${{ matrix.arch }}
-      NIGHTLY_BUILD: ${{ (github.event_name == 'workflow_dispatch' && inputs.nightly) || (github.event_name != 'workflow_dispatch' && github.event_name != 'release') }}
+      ARCHIVE_NAME: JustConnect-${{ github.ref == 'refs/heads/develop' && format('preview-{0}', github.sha) || inputs.version || github.event.release.tag_name || 'nightly' }}-${{ matrix.platform }}-${{ matrix.arch }}
+      NIGHTLY_BUILD: ${{ github.ref == 'refs/heads/develop' || (github.event_name == 'workflow_dispatch' && inputs.nightly) || (github.event_name != 'workflow_dispatch' && github.event_name != 'release') }}
       RELEASE_VERSION: ${{ inputs.version || github.event.release.tag_name }}
       CORE_NIGHTLY: ${{ github.event_name == 'workflow_dispatch' && inputs.zju_connect_nightly }}
-      MACOS_SIGNING: ${{ matrix.platform == 'macos' && secrets.MACOS_CERT_P12 != '' && secrets.MACOS_CERT_PASSWORD != '' && secrets.MACOS_CERT_IDENTITY != '' }}
-      MACOS_NOTARIZATION: ${{ matrix.platform == 'macos' && secrets.MACOS_CERT_P12 != '' && secrets.MACOS_CERT_PASSWORD != '' && secrets.MACOS_CERT_IDENTITY != '' && secrets.APPLE_ID != '' && secrets.APPLE_APP_SPECIFIC_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
+      MACOS_SIGNING: ${{ github.ref != 'refs/heads/develop' && matrix.platform == 'macos' && secrets.MACOS_CERT_P12 != '' && secrets.MACOS_CERT_PASSWORD != '' && secrets.MACOS_CERT_IDENTITY != '' }}
+      MACOS_NOTARIZATION: ${{ github.ref != 'refs/heads/develop' && matrix.platform == 'macos' && secrets.MACOS_CERT_P12 != '' && secrets.MACOS_CERT_PASSWORD != '' && secrets.MACOS_CERT_IDENTITY != '' && secrets.APPLE_ID != '' && secrets.APPLE_APP_SPECIFIC_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
     steps:
       - uses: actions/checkout@v4
 
