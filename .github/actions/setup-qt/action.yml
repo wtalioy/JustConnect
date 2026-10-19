@@ -29,7 +29,6 @@ runs:
     - name: Install stable WebEngine into the SDK
       shell: python
       env:
-        QT_INSTALL_ROOT: ${{ steps.sdk.outputs.qtPath }}
         QT_WEBENGINE_TEMP: ${{ runner.temp }}/webengine
         QT_INSTALL_HOST: ${{ inputs.host }}
         QT_INSTALL_ARCH: ${{ inputs.arch }}
@@ -44,7 +43,9 @@ runs:
         from aqt.metadata import QtRepoProperty, Version
         from aqt.updater import Updater
 
-        sdk = Path(os.environ['QT_INSTALL_ROOT'])
+        sdk = Path(os.environ['QT_ROOT_DIR'])
+        if not sdk.is_absolute() or not (sdk / 'bin').is_dir():
+            raise RuntimeError(f'Invalid Qt installation directory: {sdk}')
         temporary = Path(os.environ['QT_WEBENGINE_TEMP'])
         host = os.environ['QT_INSTALL_HOST']
         arch = os.environ['QT_INSTALL_ARCH']
