@@ -35,6 +35,8 @@ infrastructure -------+
 
 目标边界为 `application/CoreEngine` → `infrastructure/EmbeddedCoreEngine` → JustConnect 内部 C ABI → `corelib/` Go 会话 → `third_party/zju-connect/` 协议实现。Qt 主线程接收结构化事件，数据转发留在 Go 内；凭据、认证回应和策略通过显式接口传入。正式切换时删除核心命令行、文本解析及进程兼容层，不保留两套正式后端。必要的权限助手和独立恢复守护不承载 VPN 核心。
 
+`tests/corelink/` 是 S1-06 的独立工具链原型，通过最小 C ABI 在 Qt／WebEngine 宿主内调用 Go，不是第二套应用后端。它与正式源码／ABI 的实现分开，链接证据和各平台设备权限边界见[原型记录](CORELINK-PROBE.md)。
+
 ## 主要流程
 
 - `MainWindowCoordinator` 是主界面的组合入口，并维护 VPN 与系统代理之间的生命周期联动。
