@@ -86,6 +86,8 @@ CTest 现为 16 项，其中 `webengine_test` 使用 offscreen 和软件渲染�
 
 SDK 安装阶段另运行三项 Python 安装器测试，覆盖路径校验、未审核构建拒绝和重复合并／清理；Unix 框架符号链接用例仅在 Unix 上执行。安装器测试需要 aqt，日常应用的 CTest 不需要。
 
+本次 SDK 基线提交为 `794f2be`：[三平台测试](https://github.com/wtalioy/JustConnect/actions/runs/39256137284)与[六组开发预览](https://github.com/wtalioy/JustConnect/actions/runs/39256137984)均已通过；预览包可在后者的 Artifacts 下载。它们验证构建、浏览器运行测试与打包，不代替校园网络或真实桌面验收。
+
 ## 任务与验证记录
 
 开始开发时先查看[实施计划](../plan.md)中的当前任务与阶段依赖。实现后更新任务勾选、提交／测试证据及受影响的平台验收结果；代码完成但缺实机条件时保留待验收。
