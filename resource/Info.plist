@@ -5,17 +5,17 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>zh-CN</string>
 	<key>CFBundleExecutable</key>
-	<string>EZ4Connect</string>
+	<string>JustConnect</string>
 	<key>CFBundleIconFile</key>
 	<string>icon.icns</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.github.chenx-dust.EZ4Connect</string>
+	<string>com.github.wtalioy.JustConnect</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleLongVersionString</key>
-	<string>EZ4Connect</string>
+	<string>JustConnect</string>
 	<key>CFBundleName</key>
-	<string>EZ4Connect</string>
+	<string>JustConnect</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -27,6 +27,6 @@
 	<key>CSResourcesFileMapped</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>
-	<string>Copyright © 2025 Chenx Dust. Licensed under LGPL-3.0.</string>
+	<string>JustConnect contributors; based on EZ4Connect, Copyright © 2025 Chenx Dust. See LICENSE.</string>
 </dict>
 </plist>

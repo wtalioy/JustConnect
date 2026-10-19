@@ -1,6 +1,6 @@
 # 架构说明
 
-EZ4Connect 使用轻量级分层架构。界面层通过 Coordinator 组合应用服务和平台实现，避免
+JustConnect 使用轻量级分层架构。界面层通过 Coordinator 组合应用服务和平台实现，避免
 `MainWindow` 直接承担连接进程、配置存储及认证窗口的生命周期。
 
 ## 目录职责

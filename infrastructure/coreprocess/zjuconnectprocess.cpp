@@ -172,7 +172,7 @@ QString ZjuConnectProcess::copyCoreForAppImage(const QString &programPath)
     }
 
     const QString tempRoot = QStandardPaths::writableLocation(QStandardPaths::TempLocation)
-                             + "/EZ4Connect-" + QString::number(QCoreApplication::applicationPid());
+                             + "/JustConnect-" + QString::number(QCoreApplication::applicationPid());
     QDir().mkpath(tempRoot);
 
     const QString tempPath = tempRoot + "/" + sourceInfo.fileName();

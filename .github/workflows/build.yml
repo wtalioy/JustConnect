@@ -1,547 +1,216 @@
-name: Build
+name: Build packages
 
 on:
-  release:
-    types: [ published ]
   push:
-    branches: [ master, dev ]
-    tags-ignore: [ 'v*' ]
-  pull_request:
+    branches: [main]
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       nightly:
         type: boolean
         default: true
-        description: "Nightly Build"
+        description: Nightly build
       zju_connect_nightly:
         type: boolean
         default: false
-        description: "Use nightly zju-connect"
+        description: Use nightly zju-connect (before the pinned core is implemented)
       version:
         type: string
         default: ''
-        description: "Version (e.g. v0.0.0)"
+        description: Version for a non-nightly manual build (e.g. v0.1.0)
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name != 'release' }}
 
 env:
   QT_VERSION: '6.10.3'
-  TARGET_NAME: 'EZ4Connect'
-  DISPLAY_NAME: 'EZ4Connect'
+  TARGET_NAME: JustConnect
+  DISPLAY_NAME: JustConnect
 
 jobs:
-  unit-tests:
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Qt
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: ${{ env.QT_VERSION }}
-          host: 'linux'
-          target: 'desktop'
-          arch: 'linux_gcc_64'
-          modules: 'qt5compat qtpositioning qtserialport qtwebchannel qtwebengine'
-          cache: 'true'
-          cache-key-prefix: 'install-qt-action-linux_gcc_64'
-
-      - name: Configure tests
-        run: |
-          cmake -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release -S . -B build
-
-      - name: Build tests
-        run: |
-          cmake --build build --config Release --parallel $(nproc)
-
-      - name: Run tests
-        run: |
-          ctest --test-dir build --build-config Release --output-on-failure
-
-  build-windows-x64:
-    runs-on: windows-latest
+  build:
+    name: ${{ matrix.platform }}-${{ matrix.arch }}
+    if: github.ref == 'refs/heads/main' || github.event_name == 'release'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: windows-2022, platform: windows, arch: x64, core_arch: amd64, qt_host: windows, qt_arch: win64_msvc2022_64}
+          - {os: windows-11-arm, platform: windows, arch: arm64, core_arch: arm64, qt_host: windows_arm64, qt_arch: win64_msvc2022_arm64}
+          - {os: macos-15-intel, platform: macos, arch: x64, core_arch: x86_64, qt_host: mac, qt_arch: clang_64}
+          - {os: macos-15, platform: macos, arch: arm64, core_arch: arm64, qt_host: mac, qt_arch: clang_64}
+          - {os: ubuntu-22.04, platform: linux, arch: x64, core_arch: x86_64, qt_host: linux, qt_arch: linux_gcc_64}
+          - {os: ubuntu-24.04-arm, platform: linux, arch: arm64, core_arch: arm64, qt_host: linux_arm64, qt_arch: linux_gcc_arm64}
     env:
-      ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ github.event.release.tag_name || 'nightly' }}-windows-x64
+      ARCHIVE_NAME: JustConnect-${{ inputs.version || github.event.release.tag_name || 'nightly' }}-${{ matrix.platform }}-${{ matrix.arch }}
+      NIGHTLY_BUILD: ${{ (github.event_name == 'workflow_dispatch' && inputs.nightly) || (github.event_name != 'workflow_dispatch' && github.event_name != 'release') }}
+      RELEASE_VERSION: ${{ inputs.version || github.event.release.tag_name }}
+      CORE_NIGHTLY: ${{ github.event_name == 'workflow_dispatch' && inputs.zju_connect_nightly }}
+      MACOS_SIGNING: ${{ matrix.platform == 'macos' && secrets.MACOS_CERT_P12 != '' && secrets.MACOS_CERT_PASSWORD != '' && secrets.MACOS_CERT_IDENTITY != '' }}
+      MACOS_NOTARIZATION: ${{ matrix.platform == 'macos' && secrets.MACOS_CERT_P12 != '' && secrets.MACOS_CERT_PASSWORD != '' && secrets.MACOS_CERT_IDENTITY != '' && secrets.APPLE_ID != '' && secrets.APPLE_APP_SPECIFIC_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Qt
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: ${{ env.QT_VERSION }}
-          host: 'windows'
-          target: 'desktop'
-          arch: 'win64_msvc2022_64'
-          modules: 'qt5compat qtpositioning qtwebchannel qtwebengine'
-          cache: 'true'
-          cache-key-prefix: 'install-qt-action-win64_msvc2022_64'
-
-      - name: Configure
-        env:
-          NIGHTLY_BUILD: ${{ inputs.nightly || github.event_name != 'release' }}
-          RELEASE_VERSION: ${{ inputs.version || github.event.release.tag_name }}
-        run: |
-          mkdir build
-          if ( [bool]::Parse("${{ env.NIGHTLY_BUILD }}") ) {
-            cmake -DNIGHTLY_BUILD=ON -DQT_DEBUG_FIND_PACKAGE=ON -DGIT_HASH="$(git rev-parse --short=7 HEAD)" -DCMAKE_BUILD_TYPE=Release -S . -B build
-          } else {
-            $VER = "${{ env.RELEASE_VERSION }}".substring(1)
-            cmake -DNIGHTLY_BUILD=OFF -DREL_VER="$VER" -DCMAKE_BUILD_TYPE=Release -S . -B build
-          }
-
-      - name: Build
-        run: |
-          cmake --build build --target ${{ env.TARGET_NAME }} --config Release --parallel $(nproc)
-
-      - name: Download and copy files
-        shell: pwsh
-        run: |
-          .\scripts\deploy-windows.ps1 -TargetName "${{ env.TARGET_NAME }}" -DisplayName "${{ env.DISPLAY_NAME }}" -BuildDir "build" -Architecture "amd64" -Nightly ${{ github.event_name == 'workflow_dispatch' && inputs.zju_connect_nightly }}
-          Compress-Archive -Path "${{ env.DISPLAY_NAME }}" -DestinationPath ${{ env.ARCHIVE_NAME }}.zip
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.ARCHIVE_NAME }}
-          path: ${{ env.ARCHIVE_NAME }}.zip
-
-  build-windows-arm64:
-    runs-on: windows-11-arm
-    env:
-      ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ github.event.release.tag_name || 'nightly' }}-windows-arm64
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install host Qt
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: ${{ env.QT_VERSION }}
-          host: 'windows_arm64'
-          target: 'desktop'
-          arch: 'win64_msvc2022_arm64'
-          modules: 'qt5compat qtpositioning qtwebchannel qtwebengine'
-          cache: 'true'
-          cache-key-prefix: 'install-qt-action-win64_msvc2022_arm64'
-          aqtsource: 'git+https://github.com/miurahr/aqtinstall.git'  # workaround for Qt6 WebEngine on Windows ARM64
-
-      - name: Configure
-        env:
-          NIGHTLY_BUILD: ${{ inputs.nightly || github.event_name != 'release' }}
-          RELEASE_VERSION: ${{ inputs.version || github.event.release.tag_name }}
-        run: |
-          mkdir build
-          if ( [bool]::Parse("${{ env.NIGHTLY_BUILD }}") ) {
-            cmake -DNIGHTLY_BUILD=ON -DQT_DEBUG_FIND_PACKAGE=ON -DGIT_HASH="$(git rev-parse --short=7 HEAD)" -DCMAKE_BUILD_TYPE=Release -S . -B build
-          } else {
-            $VER = "${{ env.RELEASE_VERSION }}".substring(1)
-            cmake -DNIGHTLY_BUILD=OFF -DREL_VER="$VER" -DCMAKE_BUILD_TYPE=Release -S . -B build
-          }
-
-      - name: Build
-        run: |
-          cmake --build build --target ${{ env.TARGET_NAME }} --config Release --parallel $(nproc)
-
-      - name: Download and copy files
-        shell: pwsh
-        run: |
-          .\scripts\deploy-windows.ps1 -TargetName "${{ env.TARGET_NAME }}" -DisplayName "${{ env.DISPLAY_NAME }}" -BuildDir "build" -Architecture "arm64" -Nightly ${{ github.event_name == 'workflow_dispatch' && inputs.zju_connect_nightly }}
-          Compress-Archive -Path "${{ env.DISPLAY_NAME }}" -DestinationPath ${{ env.ARCHIVE_NAME }}.zip
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.ARCHIVE_NAME }}
-          path: ${{ env.ARCHIVE_NAME }}.zip
-
-  build-macos-x64:
-    runs-on: macos-14
-    env:
-      ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ github.event.release.tag_name || 'nightly' }}-macos-x64
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Qt
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: ${{ env.QT_VERSION }}
-          host: 'mac'
-          target: 'desktop'
-          arch: 'clang_64'
-          modules: 'qt5compat qtpositioning qtwebchannel qtwebengine'
-          cache: 'true'
-          cache-key-prefix: 'install-qt-action-macos_clang_x64'
-
-      - name: Configure
-        env:
-          NIGHTLY_BUILD: ${{ inputs.nightly || github.event_name != 'release' }}
-          RELEASE_VERSION: ${{ inputs.version || github.event.release.tag_name }}
-        run: |
-          mkdir build
-          if ${{ env.NIGHTLY_BUILD }} ; then
-            cmake -DNIGHTLY_BUILD=ON -DQT_DEBUG_FIND_PACKAGE=ON -DGIT_HASH=$(git rev-parse --short=7 HEAD) -DCMAKE_OSX_ARCHITECTURES="x86_64" -S . -B build
-          else
-            VER=${{ env.RELEASE_VERSION }}
-            cmake -DNIGHTLY_BUILD=OFF -DREL_VER=${VER#v} -DCMAKE_OSX_ARCHITECTURES="x86_64" -S . -B build
-          fi
-
-      - name: Build
-        run: |
-          cmake --build build --target ${{ env.TARGET_NAME }} --parallel $(nproc)
-
-      - name: Download and copy files
-        run: |
-          ./scripts/deploy-macos.sh "${{ env.TARGET_NAME }}" "build" "x86_64" "${{ github.event_name == 'workflow_dispatch' && inputs.zju_connect_nightly }}"
-
-      - name: Import macOS signing certificate
-        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
-        env:
-          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
-          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-keychain
-        run: |
-          CERTIFICATE_PATH="$RUNNER_TEMP/macos_signing_certificate.p12"
-          KEYCHAIN_PATH="$RUNNER_TEMP/macos-signing.keychain-db"
-          echo "$MACOS_CERT_P12" | base64 --decode > "$CERTIFICATE_PATH" || echo "$MACOS_CERT_P12" | base64 -D > "$CERTIFICATE_PATH"
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security import "$CERTIFICATE_PATH" -P "$MACOS_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
-          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security list-keychains -d user -s "$KEYCHAIN_PATH"
-
-      - name: Sign app bundle
-        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
-        env:
-          CODESIGN_IDENTITY: ${{ secrets.MACOS_CERT_IDENTITY }}
-        run: |
-          ./scripts/macos-sign-app.sh "./${{ env.TARGET_NAME }}.app"
-
-      - name: Package dmg file
-        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
-        run: |
-          brew install create-dmg
-          mkdir dmg-build
-          create-dmg \
-            --volname "${{ env.DISPLAY_NAME }}" \
-            --volicon ./resource/icon.icns \
-            --window-size 430 240 \
-            --app-drop-link 200 0 \
-            --add-file "${{ env.DISPLAY_NAME }}.app" "./${{ env.TARGET_NAME }}.app" 0 0 \
-            --filesystem APFS \
-            ${{ env.ARCHIVE_NAME }}.dmg dmg-build
-
-      - name: Notarize and staple dmg
-        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          ./scripts/macos-notarize-dmg.sh "${{ env.ARCHIVE_NAME }}.dmg"
-
-      - name: Upload artifact (dmg)
-        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.ARCHIVE_NAME }}
-          path: ${{ env.ARCHIVE_NAME }}.dmg
-
-      - name: Package zip file
-        if: github.event_name != 'release' && github.event_name != 'workflow_dispatch'
-        run: |
-          tar -cvf ${{ env.ARCHIVE_NAME }}.tar ${{ env.TARGET_NAME }}.app
-
-      - name: Upload artifact (tar)
-        uses: actions/upload-artifact@v4
-        if: github.event_name != 'release' && github.event_name != 'workflow_dispatch'
-        with:
-          name: ${{ env.ARCHIVE_NAME }}
-          path: ${{ env.ARCHIVE_NAME }}.tar
-
-  build-macos-arm64:
-    runs-on: macos-14
-    env:
-      ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ github.event.release.tag_name || 'nightly' }}-macos-arm64
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Qt
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: ${{ env.QT_VERSION }}
-          host: 'mac'
-          target: 'desktop'
-          arch: 'clang_64'
-          modules: 'qt5compat qtpositioning qtwebchannel qtwebengine'
-          cache: 'true'
-          cache-key-prefix: 'install-qt-action-macos_clang_arm64'
-
-      - name: Configure
-        env:
-          NIGHTLY_BUILD: ${{ inputs.nightly || github.event_name != 'release' }}
-          RELEASE_VERSION: ${{ inputs.version || github.event.release.tag_name }}
-        run: |
-          mkdir build
-          if ${{ env.NIGHTLY_BUILD }} ; then
-            cmake -DNIGHTLY_BUILD=ON -DQT_DEBUG_FIND_PACKAGE=ON -DGIT_HASH=$(git rev-parse --short=7 HEAD) -DCMAKE_OSX_ARCHITECTURES="arm64" -S . -B build
-          else
-            VER=${{ env.RELEASE_VERSION }}
-            cmake -DNIGHTLY_BUILD=OFF -DREL_VER=${VER#v} -DCMAKE_OSX_ARCHITECTURES="arm64" -S . -B build
-          fi
-
-      - name: Build
-        run: |
-          cmake --build build --target ${{ env.TARGET_NAME }} --parallel $(nproc)
-
-      - name: Download and copy files
-        run: |
-          ./scripts/deploy-macos.sh "${{ env.TARGET_NAME }}" "build" "arm64" "${{ github.event_name == 'workflow_dispatch' && inputs.zju_connect_nightly }}"
-
-      - name: Import macOS signing certificate
-        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
-        env:
-          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
-          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-keychain
-        run: |
-          CERTIFICATE_PATH="$RUNNER_TEMP/macos_signing_certificate.p12"
-          KEYCHAIN_PATH="$RUNNER_TEMP/macos-signing.keychain-db"
-          echo "$MACOS_CERT_P12" | base64 --decode > "$CERTIFICATE_PATH" || echo "$MACOS_CERT_P12" | base64 -D > "$CERTIFICATE_PATH"
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security import "$CERTIFICATE_PATH" -P "$MACOS_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
-          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security list-keychains -d user -s "$KEYCHAIN_PATH"
-
-      - name: Sign app bundle
-        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
-        env:
-          CODESIGN_IDENTITY: ${{ secrets.MACOS_CERT_IDENTITY }}
-        run: |
-          ./scripts/macos-sign-app.sh "./${{ env.TARGET_NAME }}.app"
-
-      - name: Package dmg file
-        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
-        run: |
-          brew install create-dmg
-          mkdir dmg-build
-          create-dmg \
-            --volname "${{ env.DISPLAY_NAME }}" \
-            --volicon ./resource/icon.icns \
-            --window-size 430 240 \
-            --app-drop-link 200 0 \
-            --add-file "${{ env.DISPLAY_NAME }}.app" "./${{ env.TARGET_NAME }}.app" 0 0 \
-            --filesystem APFS \
-            ${{ env.ARCHIVE_NAME }}.dmg dmg-build
-
-      - name: Notarize and staple dmg
-        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          ./scripts/macos-notarize-dmg.sh "${{ env.ARCHIVE_NAME }}.dmg"
-
-      - name: Upload artifact (dmg)
-        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.ARCHIVE_NAME }}
-          path: ${{ env.ARCHIVE_NAME }}.dmg
-
-      - name: Package zip file
-        if: github.event_name != 'release' && github.event_name != 'workflow_dispatch'
-        run: |
-          tar -cvf ${{ env.ARCHIVE_NAME }}.tar ${{ env.TARGET_NAME }}.app
-
-      - name: Upload artifact (tar)
-        uses: actions/upload-artifact@v4
-        if: github.event_name != 'release' && github.event_name != 'workflow_dispatch'
-        with:
-          name: ${{ env.ARCHIVE_NAME }}
-          path: ${{ env.ARCHIVE_NAME }}.tar
-
-  build-linux-x64:
-    runs-on: ubuntu-22.04
-    env:
-      ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ github.event.release.tag_name || 'nightly' }}-linux-x64
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Qt
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: ${{ env.QT_VERSION }}
-          host: 'linux'
-          target: 'desktop'
-          arch: 'linux_gcc_64'
-          modules: 'qt5compat qtpositioning qtserialport qtwebchannel qtwebengine'
-          cache: 'true'
-          cache-key-prefix: 'install-qt-action-linux_gcc_64'
-
-      - name: Configure
-        env:
-          NIGHTLY_BUILD: ${{ inputs.nightly || github.event_name != 'release' }}
-          RELEASE_VERSION: ${{ inputs.version || github.event.release.tag_name }}
-        run: |
-          mkdir build
-          if ${{ env.NIGHTLY_BUILD }} ; then
-            cmake -DNIGHTLY_BUILD=ON -DQT_DEBUG_FIND_PACKAGE=ON -DGIT_HASH=$(git rev-parse --short=7 HEAD) -S . -B build
-          else
-            VER=${{ env.RELEASE_VERSION }}
-            cmake -DNIGHTLY_BUILD=OFF -DREL_VER=${VER#v} -S . -B build
-          fi
-
-      - name: Build
-        run: |
-          cmake --build build --target ${{ env.TARGET_NAME }} --parallel $(nproc)
-
-      - name: Download and copy files
-        run: |
-          ./scripts/deploy-linux.sh "${{ env.TARGET_NAME }}" "${{ env.DISPLAY_NAME }}" "build" "x86_64" "${{ github.event_name == 'workflow_dispatch' && inputs.zju_connect_nightly }}"
-          mv *.AppImage ${{ env.ARCHIVE_NAME }}.AppImage
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.ARCHIVE_NAME }}
-          path: ${{ env.ARCHIVE_NAME }}.AppImage
-
-  build-linux-arm64:
-    runs-on: ubuntu-24.04-arm
-    env:
-      ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ github.event.release.tag_name || 'nightly' }}-linux-arm64
-    steps:
-      - uses: actions/checkout@v4
-        
-      - name: Setup dependencies
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libevent-2.1-7t64 libminizip1t64
+          sudo apt-get install -y libgl1 libegl1 libxkbcommon-x11-0 libxcb-cursor0 libnss3 libevent-dev libminizip-dev
 
       - name: Install Qt
+        if: matrix.qt_host != 'linux_arm64'
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: ${{ matrix.qt_host }}
+          target: desktop
+          arch: ${{ matrix.qt_arch }}
+          modules: qt5compat qtpositioning qtwebchannel qtwebengine
+          cache: true
+          cache-key-prefix: qt-${{ matrix.platform }}-${{ matrix.arch }}
+          # Windows ARM64 WebEngine requires the upstream aqt workaround.
+          aqtsource: ${{ matrix.qt_host == 'windows_arm64' && 'git+https://github.com/miurahr/aqtinstall.git' || '' }}
+
+      - name: Install Qt for Linux ARM64
+        if: matrix.qt_host == 'linux_arm64'
         uses: jdpurcell/install-qt-action@v5
         with:
           version: ${{ env.QT_VERSION }}
-          host: 'linux_arm64'
-          target: 'desktop'
-          arch: 'linux_gcc_arm64'
-          modules: 'qt5compat qtpositioning qtserialport qtwebchannel qtwebengine'
-          cache: 'true'
-          cache-key-prefix: 'install-qt-action-linux_arm64'
+          host: linux_arm64
+          target: desktop
+          arch: linux_gcc_arm64
+          modules: qt5compat qtpositioning qtserialport qtwebchannel qtwebengine
+          cache: true
+          cache-key-prefix: qt-linux-arm64
 
       - name: Configure
+        shell: bash
         env:
-          NIGHTLY_BUILD: ${{ inputs.nightly || github.event_name != 'release' }}
-          RELEASE_VERSION: ${{ inputs.version || github.event.release.tag_name }}
+          BUILD_ARCH: ${{ matrix.core_arch }}
         run: |
-          mkdir build
-          if ${{ env.NIGHTLY_BUILD }} ; then
-            cmake -DNIGHTLY_BUILD=ON -DQT_DEBUG_FIND_PACKAGE=ON -DGIT_HASH=$(git rev-parse --short=7 HEAD) -S . -B build
+          if [[ "$NIGHTLY_BUILD" == 'true' ]]; then
+            version_args=(-DNIGHTLY_BUILD=ON "-DGIT_HASH=$(git rev-parse --short=7 HEAD)")
           else
-            VER=${{ env.RELEASE_VERSION }}
-            cmake -DNIGHTLY_BUILD=OFF -DREL_VER=${VER#v} -S . -B build
+            if [[ ! "$RELEASE_VERSION" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]; then
+              echo 'A release version such as v0.1.0 is required.' >&2
+              exit 1
+            fi
+            version_args=(-DNIGHTLY_BUILD=OFF "-DREL_VER=${RELEASE_VERSION#v}")
           fi
+          platform_args=()
+          if [[ "$RUNNER_OS" == 'macOS' ]]; then
+            platform_args=("-DCMAKE_OSX_ARCHITECTURES=$BUILD_ARCH")
+          fi
+          cmake -S . -B build -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release "${version_args[@]}" "${platform_args[@]}"
 
       - name: Build
-        run: |
-          cmake --build build --target ${{ env.TARGET_NAME }} --parallel $(nproc)
+        run: cmake --build build --config Release --parallel 3
 
-      - name: Download and copy files
-        run: |
-          ./scripts/deploy-linux.sh "${{ env.TARGET_NAME }}" "${{ env.DISPLAY_NAME }}" "build" "arm64" "${{ github.event_name == 'workflow_dispatch' && inputs.zju_connect_nightly }}"
-          mv *.AppImage ${{ env.ARCHIVE_NAME }}.AppImage
+      - name: Run tests
+        run: ctest --test-dir build --build-config Release --output-on-failure
+        env:
+          QT_QPA_PLATFORM: offscreen
 
-      - name: Upload artifact
+      - name: Package Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          CORE_ARCH: ${{ matrix.core_arch }}
+        run: |
+          ./scripts/deploy-windows.ps1 -TargetName $env:TARGET_NAME -DisplayName $env:DISPLAY_NAME -BuildDir build -Architecture $env:CORE_ARCH -Nightly $env:CORE_NIGHTLY
+          Compress-Archive -Path $env:DISPLAY_NAME -DestinationPath "$env:ARCHIVE_NAME.zip"
+
+      - name: Package Linux
+        if: runner.os == 'Linux'
+        env:
+          CORE_ARCH: ${{ matrix.core_arch }}
+        run: |
+          ./scripts/deploy-linux.sh "$TARGET_NAME" "$DISPLAY_NAME" build "$CORE_ARCH" "$CORE_NIGHTLY"
+          mv "$TARGET_NAME"-*.AppImage "$ARCHIVE_NAME.AppImage"
+
+      - name: Prepare macOS bundle
+        if: runner.os == 'macOS'
+        env:
+          CORE_ARCH: ${{ matrix.core_arch }}
+        run: ./scripts/deploy-macos.sh "$TARGET_NAME" build "$CORE_ARCH" "$CORE_NIGHTLY"
+
+      - name: Import macOS signing certificate
+        if: env.MACOS_SIGNING == 'true'
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-keychain
+        run: |
+          printf '%s' "$MACOS_CERT_P12" | base64 --decode > "$RUNNER_TEMP/signing.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/signing.keychain-db"
+          security set-keychain-settings -lut 21600 "$RUNNER_TEMP/signing.keychain-db"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/signing.keychain-db"
+          security import "$RUNNER_TEMP/signing.p12" -P "$MACOS_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$RUNNER_TEMP/signing.keychain-db"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/signing.keychain-db"
+          security list-keychains -d user -s "$RUNNER_TEMP/signing.keychain-db"
+
+      - name: Sign macOS bundle
+        if: runner.os == 'macOS'
+        env:
+          CODESIGN_IDENTITY: ${{ env.MACOS_SIGNING == 'true' && secrets.MACOS_CERT_IDENTITY || '-' }}
+        run: |
+          if [[ "$MACOS_SIGNING" != 'true' ]]; then
+            echo '::notice::No Apple signing credentials; creating an ad-hoc signed test build without notarization.'
+          fi
+          ./scripts/macos-sign-app.sh "$TARGET_NAME.app"
+          codesign --verify --deep --strict "$TARGET_NAME.app"
+
+      - name: Package macOS
+        if: runner.os == 'macOS'
+        run: hdiutil create -volname "$DISPLAY_NAME" -srcfolder "$TARGET_NAME.app" -format UDZO "$ARCHIVE_NAME.dmg"
+
+      - name: Notarize macOS package
+        if: env.MACOS_NOTARIZATION == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: ./scripts/macos-notarize-dmg.sh "$ARCHIVE_NAME.dmg"
+
+      - name: Remove temporary signing credentials
+        if: always() && env.MACOS_SIGNING == 'true'
+        run: |
+          security delete-keychain "$RUNNER_TEMP/signing.keychain-db"
+          rm -f "$RUNNER_TEMP/signing.p12"
+
+      - name: Upload package
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ARCHIVE_NAME }}
-          path: ${{ env.ARCHIVE_NAME }}.AppImage
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            ${{ env.ARCHIVE_NAME }}.zip
+            ${{ env.ARCHIVE_NAME }}.dmg
+            ${{ env.ARCHIVE_NAME }}.AppImage
 
   release:
-    runs-on: ubuntu-latest
     if: github.event_name == 'release'
-    needs:
-      - unit-tests
-      - build-windows-x64
-      - build-windows-arm64
-      - build-macos-x64
-      - build-macos-arm64
-      - build-linux-x64
-      - build-linux-arm64
-    env:
-      ARCHIVE_PREFIX: ${{ github.event.repository.name }}-${{ github.event.release.tag_name || 'nightly' }}
-      AUR_PACKAGE_NAME: ez4connect
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Download artifacts
+      - name: Download packages
         uses: actions/download-artifact@v4
         with:
-          pattern: ${{ env.ARCHIVE_PREFIX }}-*
+          pattern: JustConnect-${{ github.event.release.tag_name }}-*
           merge-multiple: true
+          path: packages
 
-      - name: Upload to release
+      - name: Upload to this repository's release
         env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          gh release upload ${{ github.event.release.tag_name }} ${{ env.ARCHIVE_PREFIX }}-*
-
-      - name: Update AUR PKGBUILD
-        if: ${{ !github.event.release.prerelease }}
-        env:
-          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: |
-          if [ -z "$AUR_SSH_PRIVATE_KEY" ]; then
-            echo "AUR_SSH_PRIVATE_KEY is not set, skipping AUR update."
-            exit 0
-          fi
-
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur
-          chmod 600 ~/.ssh/aur
-          ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
-
-          export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/aur -o IdentitiesOnly=yes"
-          git clone ssh://aur@aur.archlinux.org/${{ env.AUR_PACKAGE_NAME }}.git aur
-          cd aur
-
-          sudo apt-get update
-          sudo apt-get install -y pacman-package-manager
-
-          VERSION="${RELEASE_TAG#v}"
-          PKG_VERSION="${VERSION%%-*}"
-          CURRENT_PKG_VERSION="$(sed -n 's/^pkgver=//p' PKGBUILD)"
-          CURRENT_PKG_REL="$(sed -n 's/^pkgrel=//p' PKGBUILD)"
-          if [ "$CURRENT_PKG_VERSION" = "$PKG_VERSION" ]; then
-            PKG_REL=$((CURRENT_PKG_REL + 1))
-          else
-            PKG_REL=1
-          fi
-
-          if grep -q '^_releasever=' PKGBUILD; then
-            sed -i "s/^_releasever=.*/_releasever=${VERSION}/" PKGBUILD
-          else
-            sed -i "/^pkgrel=/a _releasever=${VERSION}" PKGBUILD
-          fi
-          sed -i 's/${pkgver}/${_releasever}/g' PKGBUILD
-
-          SOURCE_URL="https://github.com/chenx-dust/EZ4Connect/archive/refs/tags/v${VERSION}.tar.gz"
-          SOURCE_SHA256="$(curl -L "$SOURCE_URL" | sha256sum | awk '{print $1}')"
-
-          sed -i "s/^pkgver=.*/pkgver=${PKG_VERSION}/" PKGBUILD
-          sed -i "s/^pkgrel=.*/pkgrel=${PKG_REL}/" PKGBUILD
-          sed -i "s/^sha256sums=.*/sha256sums=('${SOURCE_SHA256}')/" PKGBUILD
-          makepkg --printsrcinfo > .SRCINFO
-
-          if git diff --quiet; then
-            echo "No AUR changes to commit."
-            exit 0
-          fi
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add PKGBUILD .SRCINFO
-          git commit -m "Update to ${VERSION}"
-          git push
+        run: gh release upload "$RELEASE_TAG" packages/* --repo "$GITHUB_REPOSITORY"

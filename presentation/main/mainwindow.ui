@@ -17,7 +17,7 @@
    </size>
   </property>
   <property name="windowTitle">
-   <string>EZ4Connect</string>
+   <string>JustConnect</string>
   </property>
   <widget class="QWidget" name="centralWidget">
    <layout class="QVBoxLayout" name="pageLayout">
@@ -73,7 +73,7 @@
           <item>
            <widget class="QLabel" name="applicationNameLabel">
             <property name="text">
-             <string>EZ4Connect</string>
+             <string>JustConnect</string>
             </property>
            </widget>
           </item>
