@@ -73,7 +73,9 @@ python scripts/build-core.py
 
 测试与打包共用 [build-core](../.github/actions/build-core/action.yml)，本机也可独立运行脚本。构建脚本现有 10 项测试，覆盖损坏的源码／模块锁／许可证／补丁、补丁顺序、越界路径、错误的 Go 版本及打包后二进制／清单／版本不匹配。上游完整测试并非当前通过项：`session_context_test.go` 调用了不存在的旧方法 `Session.do`；临时纠正该调用后，还发现 `TestRefreshCancellation` 失败，`Session.request` 覆盖了调用者的取消上下文。已撤销临时纠正，不删除上游测试、不携带测试修补；这些问题记入计划，相关行为修复时再恢复完整验证。
 
-六组安装包在各自平台和架构上编译核心。部署脚本只复制 `build/core` 产物，验证源码、许可证、清单与签名前二进制校验和，并实际执行核心检查版本；可单独运行 `python scripts/build-core.py --verify build/core`。Linux 先完成 Qt 部署，再加入核心，避免打包工具再次 strip 导致校验和改变。工作流最终重新解压 Windows ZIP、提取 AppImage 中的核心、挂载 macOS DMG 后验证实际内容。macOS 因签名改变二进制，最终检查完整应用签名、核心版本与全部来源文件；构建记录中的二进制校验和对应签名前文件。当前六组产物仍待云端验收，不代表校园登录通过。
+六组安装包在各自平台和架构上编译核心。部署脚本只复制 `build/core` 产物，验证源码、许可证、清单与签名前二进制校验和，并实际执行核心检查版本；可单独运行 `python scripts/build-core.py --verify build/core`。Linux 先完成 Qt 部署，再加入核心，避免打包工具再次 strip 导致校验和改变。工作流最终重新解压 Windows ZIP、提取 AppImage 中的核心、挂载 macOS DMG 后验证实际内容。macOS 因签名改变二进制，最终检查完整应用签名、核心版本与全部来源文件；构建记录中的二进制校验和对应签名前文件。
+
+核心构建基线为 `81b85f8`：[三平台 CI](https://github.com/wtalioy/JustConnect/actions/runs/39263157320)与[六组开发预览](https://github.com/wtalioy/JustConnect/actions/runs/39263164818)全部通过，六份预览产物可在后者的 Artifacts 下载。该记录验证固定源码构建、应用回归和实际打包内容，不代表校园登录通过。
 
 本机通过已有 Go 的工具链机制缓存了 Go 1.27.2（约 253 MiB），未替换系统 Go 或修改全局 PATH。本机运行核心构建可使用：
 
