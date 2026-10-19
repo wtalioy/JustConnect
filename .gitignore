@@ -46,4 +46,7 @@ CMakeUserPresets.json
 
 /.vscode
 
+__pycache__/
+aqtinstall.log
+
 !wintun.dll

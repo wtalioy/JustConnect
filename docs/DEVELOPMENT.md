@@ -43,7 +43,9 @@ Windows 当前未配置代码签名；未维护额外的软件源包。
 
 需要 C++17 编译器、CMake、Qt 6.5 或更新版本，以及 Qt Core、Concurrent、Gui、Widgets、Network、Svg、Core5Compat、WebEngineWidgets。
 
-当前本地与 CI 使用 [Qt 6.12.0](https://www.qt.io/blog/qt-6.12-released)，搭配已正式发布的 [WebEngine 6.11.2](https://www.qt.io/blog/qt-6.11.2-released)。[WebEngine 从 Qt 6.12 起独立发布](https://www.qt.io/blog/qt-webengine-will-release-separate)，6.140.0 尚为候选版，不能直接采用仓库中较早的 6.12 预览组件。两者分别安装后合入同一个 SDK，并重新定位安装路径；操作集中在 [setup-qt](../.github/actions/setup-qt/action.yml)，测试与打包共用。aqt 固定到支持扩展仓库与原生 ARM64 的提交，避免依赖浮动分支。
+当前本地与 CI 使用 [Qt 6.12.0](https://www.qt.io/blog/qt-6.12-released)，搭配官方为它构建的 [WebEngine 6.140.0 候选版](https://download.qt.io/development_releases/qtwebengine/6.140.0-rc/)，固定二进制构建编号 `6.12.0-0-202609281005`。已确认允许使用这一候选组件以保持三平台统一 Qt 6.12；它尚不能标作 WebEngine 正式版。[WebEngine 从 Qt 6.12 起独立发布](https://www.qt.io/blog/qt-webengine-will-release-separate)，已排除在 Windows 上出现 DLL 接口不兼容的 Qt 6.12／WebEngine 6.11.2 组合。
+
+SDK 操作集中在 [setup-qt](../.github/actions/setup-qt/action.yml)，测试与打包共用。aqt 固定到支持扩展仓库与原生 ARM64 的提交；[组件安装脚本](../scripts/install-webengine.py) 处理新的 `6120/61400` 仓库路径，只下载 WebEngine，保留校验并拒绝未经审核的构建变更，合并后重新定位 SDK。它不下载源码或从源码构建浏览器。
 
 CI 使用当前可用的 Ubuntu 26.04、Windows Server 2025／Windows 11 ARM64 与 macOS 26 镜像；Actions 使用已核对的最新稳定版本。升级时同时验证 SDK、测试和六组预览包，不仅替换版本号。
 
@@ -60,7 +62,7 @@ ctest --test-dir build --build-config Release --output-on-failure
 
 本机 SDK 位于 `/home/lioy/.local/share/JustConnect/Qt/6.12.0/gcc_64`，编译器为 `/usr/bin/c++`（GCC 16.2.1），CMake 4.4.4，Ninja 1.13.2。所需的字体、XCB 和 xkbfile 依赖单独放在 `/home/lioy/.local/share/JustConnect/sysroot`，包清单与 SHA-256 保存在其中的 `packages.json`；未修改系统软件包或全局 shell 配置。
 
-本地只安装 `qtbase`、`qtsvg`、`qtdeclarative`、`qttranslations`、`qtwayland`、配套 ICU，以及 `qt5compat`、`qtshadertools`、`qtpositioning`、`qtserialport`、`qtwebchannel`、`qtwebengine`。QML／Quick 等是 WebEngine 的依赖。未安装 Qt Creator、Qt Tools、源码、示例、离线文档、独立调试符号或可选的 Vulkan／CUPS 开发包；SDK 静态库中附带的调试信息已移除，保留可链接的库和符号。本地 SDK 约 874 MiB，补充运行依赖约 6 MiB，构建目录另计。CI 额外安装 Qt Tools 以提供部署工具。
+本地只安装 `qtbase`、`qtsvg`、`qtdeclarative`、`qttranslations`、`qtwayland`、配套 ICU，以及 `qt5compat`、`qtshadertools`、`qtpositioning`、`qtserialport`、`qtwebchannel`、`qtwebengine`。QML／Quick 等是 WebEngine 的依赖。未安装 Qt Creator、Qt Tools、源码、示例、离线文档、独立调试符号或可选的 Vulkan／CUPS 开发包；SDK 静态库中附带的调试信息已移除，保留可链接的库和符号。本地 SDK 约 875 MiB，补充运行依赖约 6 MiB，构建目录另计。CI 额外安装 Qt Tools 以提供部署工具。
 
 已创建仅供本机使用且被 Git 忽略的 `CMakeUserPresets.json`，设置 SDK 路径、必要的动态库／字体配置、Ninja 和测试环境，直接运行：
 
@@ -80,7 +82,9 @@ env LD_LIBRARY_PATH="$HOME/.local/share/JustConnect/sysroot/usr/lib:$HOME/.local
 
 无显示服务器时额外设置 `QT_QPA_PLATFORM=offscreen`；WSLg 图形运行需要有效的 `DISPLAY` 或 `WAYLAND_DISPLAY`。本机自动验证使用 offscreen，未把它记作桌面视觉或校园网络验收。
 
-测试现为 16 项，其中 `webengine_test` 实际加载 HTML 并检查 JavaScript 结果，验证内嵌网页运行所需的浏览器进程与 SDK 兼容性。测试不访问校园网或修改系统代理。
+CTest 现为 16 项，其中 `webengine_test` 使用 offscreen 和软件渲染实际加载 HTML 并检查 JavaScript 结果，验证内嵌网页运行所需的浏览器进程与 SDK 兼容性。测试不访问校园网或修改系统代理。
+
+SDK 安装阶段另运行三项 Python 安装器测试，覆盖路径校验、未审核构建拒绝和重复合并／清理；Unix 框架符号链接用例仅在 Unix 上执行。安装器测试需要 aqt，日常应用的 CTest 不需要。
 
 ## 任务与验证记录
 

@@ -1,5 +1,5 @@
 name: Set up Qt
-description: Install the desktop SDK and the latest stable WebEngine
+description: Install Qt 6.12 and its compatible WebEngine candidate
 inputs:
   host:
     description: aqt host
@@ -10,9 +10,13 @@ inputs:
 runs:
   using: composite
   steps:
+    - uses: actions/setup-python@v7.0.0
+      with:
+        python-version: '3.14'
+
     - name: Install Qt SDK
       id: sdk
-      uses: jurplel/install-qt-action@v4.4.1
+      uses: jurplel/install-qt-action/action@v4.4.1
       with:
         version: '6.12.0'
         host: ${{ inputs.host }}
@@ -26,44 +30,13 @@ runs:
         cache: true
         cache-key-prefix: qt-6.12.0-${{ inputs.host }}-${{ inputs.arch }}
 
-    - name: Install stable WebEngine into the SDK
-      shell: python
+    - name: Check WebEngine installer
+      shell: bash
+      run: python -m unittest discover -s tests -p install_webengine_test.py
+
+    - name: Install compatible WebEngine candidate
+      shell: bash
       env:
-        QT_WEBENGINE_TEMP: ${{ runner.temp }}/webengine
         QT_INSTALL_HOST: ${{ inputs.host }}
         QT_INSTALL_ARCH: ${{ inputs.arch }}
-      run: |
-        import os
-        import shutil
-        import subprocess
-        import sys
-        from pathlib import Path
-        from aqt.archives import TargetConfig
-        from aqt.helper import Settings
-        from aqt.metadata import QtRepoProperty, Version
-        from aqt.updater import Updater
-
-        sdk = Path(os.environ['QT_ROOT_DIR'])
-        if not sdk.is_absolute() or not (sdk / 'bin').is_dir():
-            raise RuntimeError(f'Invalid Qt installation directory: {sdk}')
-        temporary = Path(os.environ['QT_WEBENGINE_TEMP'])
-        host = os.environ['QT_INSTALL_HOST']
-        arch = os.environ['QT_INSTALL_ARCH']
-        subprocess.run([sys.executable, '-m', 'aqt', 'install-qt', host, 'desktop',
-                        '6.11.2', arch, '--noarchives', '--modules', 'qtwebengine',
-                        '--outputdir', str(temporary), '--timeout', '30'], check=True)
-        webengine = temporary / '6.11.2' / QtRepoProperty.get_arch_dir_name(host, arch, Version('6.11.2'))
-        for link in webengine.rglob('*'):
-            destination = sdk / link.relative_to(webengine)
-            if link.is_symlink() and destination.is_symlink():
-                destination.unlink()
-        shutil.copytree(webengine, sdk, dirs_exist_ok=True, symlinks=True)
-        Settings.load_settings()
-        target = TargetConfig('6.12.0', 'desktop', arch, host)
-        Updater.update(target, sdk.parents[1], None)
-        if os.name == 'nt':
-            import ctypes
-            ctypes.windll.kernel32.SetErrorMode(0x8003)
-            with os.add_dll_directory(str(sdk / 'bin')):
-                ctypes.WinDLL(str(sdk / 'bin' / 'Qt6WebEngineWidgets.dll'))
-        shutil.rmtree(temporary)
+      run: python scripts/install-webengine.py
