@@ -1,7 +1,10 @@
 import hashlib
 import importlib.util
 import io
+import json
+import os
 from pathlib import Path
+import shutil
 import tarfile
 import tempfile
 import unittest
@@ -88,6 +91,53 @@ class BuildCoreTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'Required Go'):
                 builder.build(self.root / 'output')
             download.assert_not_called()
+
+    def bundle(self):
+        provenance = self.root / 'bundle/core-provenance'
+        provenance.mkdir(parents=True)
+        manifest = self.root / 'manifest.json'
+        manifest.write_text(json.dumps(self.manifest), encoding='utf-8')
+        shutil.copy2(manifest, provenance / 'manifest.json')
+        shutil.copy2(self.archive, provenance / 'source.tar.gz')
+        (provenance / 'LICENSE.zju-connect').write_bytes(b'license')
+        binary = provenance.parent / 'zju-connect'
+        binary.write_bytes(b'core executable')
+        record = dict(goos='linux', version='ZJU Connect v0.0.0-justconnect-test',
+                      manifest_sha256=builder.sha256(manifest),
+                      unsigned_binary_sha256=builder.sha256(binary))
+        (provenance / 'build.json').write_text(json.dumps(record), encoding='utf-8')
+        return provenance.parent, manifest
+
+    def test_verifies_packaged_core_and_ignores_inherited_credentials(self):
+        directory, manifest = self.bundle()
+        with patch.object(builder, 'MANIFEST', manifest), \
+                patch.object(builder.subprocess, 'check_output',
+                             return_value='ZJU Connect v0.0.0-justconnect-test\n') as run, \
+                patch.dict(os.environ, ZJU_CONNECT_PASSWORD='private'):
+            builder.verify(directory)
+            self.assertNotIn('ZJU_CONNECT_PASSWORD', run.call_args.kwargs['env'])
+
+    def test_rejects_replaced_binary_or_manifest_before_execution(self):
+        for filename in ('zju-connect', 'core-provenance/manifest.json'):
+            with self.subTest(filename=filename):
+                directory, manifest = self.bundle()
+                path = directory / filename
+                original = path.read_bytes()
+                path.write_bytes(b'replaced')
+                with patch.object(builder, 'MANIFEST', manifest), \
+                        patch.object(builder.subprocess, 'check_output') as run:
+                    with self.assertRaisesRegex(RuntimeError, 'SHA-256'):
+                        builder.verify(directory)
+                    run.assert_not_called()
+                path.write_bytes(original)
+                shutil.rmtree(directory)
+
+    def test_rejects_unexpected_packaged_version(self):
+        directory, manifest = self.bundle()
+        with patch.object(builder, 'MANIFEST', manifest), \
+                patch.object(builder.subprocess, 'check_output', return_value='ZJU Connect v1.3.1'):
+            with self.assertRaisesRegex(RuntimeError, 'Unexpected bundled core'):
+                builder.verify(directory)
 
 
 if __name__ == '__main__':

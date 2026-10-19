@@ -1,6 +1,6 @@
 #!/bin/bash
 # Linux deployment script
-# Usage: ./scripts/deploy-linux.sh "JustConnect" "JustConnect" "build" "x86_64" "false"
+# Usage: ./scripts/deploy-linux.sh "JustConnect" "JustConnect" "build" "x86_64"
 
 set -euo pipefail
 
@@ -8,7 +8,6 @@ TARGET_NAME="${1:-JustConnect}"
 DISPLAY_NAME="${2:-JustConnect}"
 BUILD_DIR="${3:-build}"
 ARCH="${4:-x86_64}"
-NIGHTLY="${5:-false}"
 
 # Determine AppImage tool architecture
 if [ "$ARCH" = "x86_64" ]; then
@@ -43,23 +42,6 @@ if [ -d "/usr/lib/$APPIMAGE_ARCH-linux-gnu/nss" ]; then
     cp -R "/usr/lib/$APPIMAGE_ARCH-linux-gnu/nss/" AppDir/usr/lib/
 fi
 
-# Download and extract core
-CORE_ARCH="${ARCH}"
-if [ "$ARCH" = "x86_64" ]; then
-    CORE_ARCH="amd64"
-fi
-
-CORE_RELEASE_PATH="latest/download"
-if [ "$NIGHTLY" = "true" ]; then
-    CORE_RELEASE_PATH="download/nightly"
-fi
-
-wget -O "zju-connect-linux-$CORE_ARCH.zip" "https://github.com/Mythologyli/zju-connect/releases/$CORE_RELEASE_PATH/zju-connect-linux-$CORE_ARCH.zip"
-unzip -o "zju-connect-linux-$CORE_ARCH.zip"
-cp zju-connect AppDir/usr/bin/
-AppDir/usr/bin/zju-connect -version
-rm "zju-connect-linux-$CORE_ARCH.zip"
-
 # Copy icon
 cp resource/icon.svg "AppDir/usr/share/icons/hicolor/scalable/apps/$TARGET_NAME.svg"
 
@@ -76,4 +58,10 @@ EOF
 # Build AppImage
 export EXTRA_QT_PLUGINS="waylandcompositor"
 export EXTRA_PLATFORM_PLUGINS="libqwayland.so"
-./linuxdeploy --appdir AppDir --output appimage --plugin qt
+./linuxdeploy --appdir AppDir --plugin qt
+
+# Add the core after Qt deployment to preserve its recorded binary checksum.
+cp "$BUILD_DIR/core/zju-connect" AppDir/usr/bin/
+cp -R "$BUILD_DIR/core/core-provenance" AppDir/usr/bin/
+python scripts/build-core.py --verify AppDir/usr/bin
+NO_STRIP=1 ./linuxdeploy --appdir AppDir --output appimage

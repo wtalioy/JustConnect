@@ -5,14 +5,14 @@ JustConnect 的主仓库是 [wtalioy/JustConnect](https://github.com/wtalioy/Jus
 
 ## 分支与 Actions
 
-- 日常开发使用 `develop`。每次推送到该分支，`Tests` 工作流在 Windows、macOS、Linux 上编译并运行 CTest，不打包、不发布。
+- 日常开发使用 `develop`。每次推送到该分支，`Tests` 工作流在 Windows、macOS、Linux 上构建并验证固定核心、编译应用并运行 CTest，不打包、不发布。
 - 向 `main` 或 `develop` 提交 PR 同样运行 `Tests`。本地提交需推送到 GitHub 才会触发 Actions。
 - 合并并推送到 `main` 后，`Build packages` 工作流为 Windows、macOS、Linux 的 x64/ARM64 构建、测试并打包，产物在该次 Actions 的 Artifacts 中保留 14 天。
 - Windows 产物为 ZIP，内含 `JustConnect.exe` 和依赖；macOS 为 DMG；Linux 为 AppImage。
 - 在本仓库发布 `vX.Y.Z`（可带 `-beta.1` 等后缀）的 GitHub Release 后，工作流重建该版本，全部成功后将安装包附加到该 Release。推送 `main` 仅生成 Actions 产物，不自动发布正式版本。
 - 可从 `main` 手动运行打包工作流；关闭 `nightly` 时必须提供有效的版本号。手动运行只生成产物，不创建 Release。
 - 开发预览：进入 Actions → `Build packages` → `Run workflow`，分支选择 `develop`。此时手动构建六组预览包并运行测试，产物名为 `JustConnect-preview-提交SHA-平台-架构`，在该次运行的 Artifacts 下载，保留 14 天。预览始终使用 nightly 应用版本（忽略 `nightly/version` 输入），macOS 使用临时签名，不执行开发者签名、公证或 Release 上传；普通推送到 `develop` 仍只触发测试。
-- 当前 `core_nightly` 输入只控制下载第三方核心的 release 或 nightly，与应用的 nightly 版本独立；固定源码与补丁构建尚待 [S1](../plan.md#s1) 完成，完成后同步更新此处操作。
+- 所有构建统一使用 [core/manifest.json](../core/manifest.json) 固定的源码和补丁清单；已移除 `core_nightly` 输入。应用的 nightly／正式版本均使用该清单，不下载上游浮动 release 或 nightly 核心。
 
 普通 CI 使用 `contents: read`，仅上传 Release 的 job 使用 `contents: write`，按 [GitHub 工作流权限文档](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#permissions) 配置。无需为普通构建或 Release 上传单独创建 PAT。
 
@@ -71,7 +71,9 @@ python scripts/build-core.py
 
 脚本先校验源码与补丁，再校验 Go 模块，以 `CGO_ENABLED=0`、`-trimpath` 和固定版本信息编译本机核心，并实际执行 `-version` 检查输出。它不修改 shell 配置，也不接受浮动分支或预编译核心；Go 版本不符会在下载前失败。输出在 `build/core`：可执行文件与 `core-provenance/`，后者包含原始源码、补丁、许可证、清单和构建记录。构建记录保存签名前二进制校验和；macOS 后续签名会改变 Mach-O 文件。
 
-三个平台的 `Tests` 工作流也执行上述验证。上游完整测试并非当前通过项：`session_context_test.go` 调用了不存在的旧方法 `Session.do`；临时纠正该调用后，还发现 `TestRefreshCancellation` 失败，`Session.request` 覆盖了调用者的取消上下文。已撤销临时纠正，不删除上游测试、不携带测试修补；这些问题记入计划，相关行为修复时再恢复完整验证。安装包接入仍在 S1-02 进行中；本节的源码构建通过不代表已替换现有安装包或完成校园登录。
+测试与打包共用 [build-core](../.github/actions/build-core/action.yml)，本机也可独立运行脚本。构建脚本现有 10 项测试，覆盖损坏的源码／模块锁／许可证／补丁、补丁顺序、越界路径、错误的 Go 版本及打包后二进制／清单／版本不匹配。上游完整测试并非当前通过项：`session_context_test.go` 调用了不存在的旧方法 `Session.do`；临时纠正该调用后，还发现 `TestRefreshCancellation` 失败，`Session.request` 覆盖了调用者的取消上下文。已撤销临时纠正，不删除上游测试、不携带测试修补；这些问题记入计划，相关行为修复时再恢复完整验证。
+
+六组安装包在各自平台和架构上编译核心。部署脚本只复制 `build/core` 产物，验证源码、许可证、清单与签名前二进制校验和，并实际执行核心检查版本；可单独运行 `python scripts/build-core.py --verify build/core`。Linux 先完成 Qt 部署，再加入核心，避免打包工具再次 strip 导致校验和改变。工作流最终重新解压 Windows ZIP、提取 AppImage 中的核心、挂载 macOS DMG 后验证实际内容。macOS 因签名改变二进制，最终检查完整应用签名、核心版本与全部来源文件；构建记录中的二进制校验和对应签名前文件。当前六组产物仍待云端验收，不代表校园登录通过。
 
 本机通过已有 Go 的工具链机制缓存了 Go 1.27.2（约 253 MiB），未替换系统 Go 或修改全局 PATH。本机运行核心构建可使用：
 
@@ -116,4 +118,4 @@ SDK 安装阶段另运行三项 Python 安装器测试，覆盖路径校验、�
 
 CI 编译、CTest、预览打包与真实校园网络验收分别记录。当前代码结构及封装限制见[架构说明](ARCHITECTURE.md)，后续目标和状态以计划为准；本文维护可执行的构建与发布操作。
 
-当前打包仍下载第三方核心的上游版本，校园透明访问与自动共存尚未实现。上游高级用法的来源与已采用约束保留在计划参考索引中，原手工配置示例不再作为当前产品的操作说明；新的使用文档随 [S8](../plan.md#s8) 的实测结果补充，README 暂时留空。
+当前打包使用固定源码构建的第三方核心；校园透明访问与自动共存尚未实现。上游高级用法的来源与已采用约束保留在计划参考索引中，原手工配置示例不再作为当前产品的操作说明；新的使用文档随 [S8](../plan.md#s8) 的实测结果补充，README 暂时留空。

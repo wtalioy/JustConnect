@@ -95,7 +95,35 @@ def build(output):
         print(f'{core_version}\nBuilt {host[0]}/{host[1]}: {output}')
 
 
+def verify(directory):
+    manifest = json.loads(MANIFEST.read_text(encoding='utf-8'))
+    provenance = directory / 'core-provenance'
+    record = json.loads((provenance / 'build.json').read_text(encoding='utf-8'))
+    check_hash(provenance / 'manifest.json', sha256(MANIFEST))
+    if record['manifest_sha256'] != sha256(MANIFEST):
+        raise RuntimeError('Core build uses a different manifest')
+    check_hash(provenance / 'source.tar.gz', manifest['source_sha256'])
+    check_hash(provenance / 'LICENSE.zju-connect', manifest['license_sha256'])
+    for patch in manifest['patches']:
+        check_hash(provenance / patch['file'], patch['sha256'])
+    binary = directory / ('zju-connect.exe' if record['goos'] == 'windows' else 'zju-connect')
+    check_hash(binary, record['unsigned_binary_sha256'])
+    env = {key: value for key, value in os.environ.items()
+           if not key.startswith('ZJU_CONNECT_')}
+    version = subprocess.check_output([str(binary), '-version'], env=env, text=True).strip()
+    expected = f"ZJU Connect v0.0.0-justconnect-{manifest['commit']}"
+    if version != expected or version != record['version']:
+        raise RuntimeError(f'Unexpected bundled core version: {version}')
+    print(f'Verified bundled core: {directory}')
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--output', type=Path, default=ROOT / 'build/core')
-    build(parser.parse_args().output.resolve())
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--output', type=Path, default=ROOT / 'build/core')
+    mode.add_argument('--verify', type=Path, help='Verify a bundled core before code signing')
+    args = parser.parse_args()
+    if args.verify:
+        verify(args.verify.resolve())
+    else:
+        build(args.output.resolve())

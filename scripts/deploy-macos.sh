@@ -1,36 +1,21 @@
 #!/bin/bash
 # macOS deployment script
-# Usage: ./scripts/deploy-macos.sh "JustConnect" "build" "amd64" "false"
+# Usage: ./scripts/deploy-macos.sh "JustConnect" "build" "arm64"
 
 set -euo pipefail
 
 TARGET_NAME="${1:-JustConnect}"
 BUILD_DIR="${2:-build}"
 ARCH="${3:-arm64}"
-NIGHTLY="${4:-false}"
 APP_PATH="$TARGET_NAME.app"
 
 # Copy app bundle
 cp -R "$BUILD_DIR/$TARGET_NAME.app" .
 
-# Download and extract core
-CORE_ARCH="${ARCH}"
-if [ "$ARCH" = "x86_64" ]; then
-    CORE_ARCH="amd64"
-fi
-
-CORE_RELEASE_PATH="latest/download"
-if [ "$NIGHTLY" = "true" ]; then
-    CORE_RELEASE_PATH="download/nightly"
-fi
-
-curl -LO "https://github.com/Mythologyli/zju-connect/releases/$CORE_RELEASE_PATH/zju-connect-darwin-$CORE_ARCH.zip"
-unzip -o "zju-connect-darwin-$CORE_ARCH.zip"
-rm "zju-connect-darwin-$CORE_ARCH.zip"
-
 # Copy core into app bundle
-cp zju-connect "$APP_PATH/Contents/MacOS/"
-"$APP_PATH/Contents/MacOS/zju-connect" -version
+cp "$BUILD_DIR/core/zju-connect" "$APP_PATH/Contents/MacOS/"
+cp -R "$BUILD_DIR/core/core-provenance" "$APP_PATH/Contents/MacOS/"
+python scripts/build-core.py --verify "$APP_PATH/Contents/MacOS"
 
 # Run macdeployqt
 macdeployqt "$APP_PATH"
