@@ -1,0 +1,216 @@
+name: Build packages
+
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      nightly:
+        type: boolean
+        default: true
+        description: Nightly build
+      zju_connect_nightly:
+        type: boolean
+        default: false
+        description: Use nightly zju-connect (before the pinned core is implemented)
+      version:
+        type: string
+        default: ''
+        description: Version for a non-nightly manual build (e.g. v0.1.0)
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name != 'release' }}
+
+env:
+  QT_VERSION: '6.10.3'
+  TARGET_NAME: JustConnect
+  DISPLAY_NAME: JustConnect
+
+jobs:
+  build:
+    name: ${{ matrix.platform }}-${{ matrix.arch }}
+    if: github.ref == 'refs/heads/main' || github.event_name == 'release'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: windows-2022, platform: windows, arch: x64, core_arch: amd64, qt_host: windows, qt_arch: win64_msvc2022_64}
+          - {os: windows-11-arm, platform: windows, arch: arm64, core_arch: arm64, qt_host: windows_arm64, qt_arch: win64_msvc2022_arm64}
+          - {os: macos-15-intel, platform: macos, arch: x64, core_arch: x86_64, qt_host: mac, qt_arch: clang_64}
+          - {os: macos-15, platform: macos, arch: arm64, core_arch: arm64, qt_host: mac, qt_arch: clang_64}
+          - {os: ubuntu-22.04, platform: linux, arch: x64, core_arch: x86_64, qt_host: linux, qt_arch: linux_gcc_64}
+          - {os: ubuntu-24.04-arm, platform: linux, arch: arm64, core_arch: arm64, qt_host: linux_arm64, qt_arch: linux_gcc_arm64}
+    env:
+      ARCHIVE_NAME: JustConnect-${{ inputs.version || github.event.release.tag_name || 'nightly' }}-${{ matrix.platform }}-${{ matrix.arch }}
+      NIGHTLY_BUILD: ${{ (github.event_name == 'workflow_dispatch' && inputs.nightly) || (github.event_name != 'workflow_dispatch' && github.event_name != 'release') }}
+      RELEASE_VERSION: ${{ inputs.version || github.event.release.tag_name }}
+      CORE_NIGHTLY: ${{ github.event_name == 'workflow_dispatch' && inputs.zju_connect_nightly }}
+      MACOS_SIGNING: ${{ matrix.platform == 'macos' && secrets.MACOS_CERT_P12 != '' && secrets.MACOS_CERT_PASSWORD != '' && secrets.MACOS_CERT_IDENTITY != '' }}
+      MACOS_NOTARIZATION: ${{ matrix.platform == 'macos' && secrets.MACOS_CERT_P12 != '' && secrets.MACOS_CERT_PASSWORD != '' && secrets.MACOS_CERT_IDENTITY != '' && secrets.APPLE_ID != '' && secrets.APPLE_APP_SPECIFIC_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1 libegl1 libxkbcommon-x11-0 libxcb-cursor0 libnss3 libevent-dev libminizip-dev
+
+      - name: Install Qt
+        if: matrix.qt_host != 'linux_arm64'
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: ${{ matrix.qt_host }}
+          target: desktop
+          arch: ${{ matrix.qt_arch }}
+          modules: qt5compat qtpositioning qtwebchannel qtwebengine
+          cache: true
+          cache-key-prefix: qt-${{ matrix.platform }}-${{ matrix.arch }}
+          # Windows ARM64 WebEngine requires the upstream aqt workaround.
+          aqtsource: ${{ matrix.qt_host == 'windows_arm64' && 'git+https://github.com/miurahr/aqtinstall.git' || '' }}
+
+      - name: Install Qt for Linux ARM64
+        if: matrix.qt_host == 'linux_arm64'
+        uses: jdpurcell/install-qt-action@v5
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: linux_arm64
+          target: desktop
+          arch: linux_gcc_arm64
+          modules: qt5compat qtpositioning qtserialport qtwebchannel qtwebengine
+          cache: true
+          cache-key-prefix: qt-linux-arm64
+
+      - name: Configure
+        shell: bash
+        env:
+          BUILD_ARCH: ${{ matrix.core_arch }}
+        run: |
+          if [[ "$NIGHTLY_BUILD" == 'true' ]]; then
+            version_args=(-DNIGHTLY_BUILD=ON "-DGIT_HASH=$(git rev-parse --short=7 HEAD)")
+          else
+            if [[ ! "$RELEASE_VERSION" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]; then
+              echo 'A release version such as v0.1.0 is required.' >&2
+              exit 1
+            fi
+            version_args=(-DNIGHTLY_BUILD=OFF "-DREL_VER=${RELEASE_VERSION#v}")
+          fi
+          platform_args=()
+          if [[ "$RUNNER_OS" == 'macOS' ]]; then
+            platform_args=("-DCMAKE_OSX_ARCHITECTURES=$BUILD_ARCH")
+          fi
+          cmake -S . -B build -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release "${version_args[@]}" "${platform_args[@]}"
+
+      - name: Build
+        run: cmake --build build --config Release --parallel 3
+
+      - name: Run tests
+        run: ctest --test-dir build --build-config Release --output-on-failure
+        env:
+          QT_QPA_PLATFORM: offscreen
+
+      - name: Package Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          CORE_ARCH: ${{ matrix.core_arch }}
+        run: |
+          ./scripts/deploy-windows.ps1 -TargetName $env:TARGET_NAME -DisplayName $env:DISPLAY_NAME -BuildDir build -Architecture $env:CORE_ARCH -Nightly $env:CORE_NIGHTLY
+          Compress-Archive -Path $env:DISPLAY_NAME -DestinationPath "$env:ARCHIVE_NAME.zip"
+
+      - name: Package Linux
+        if: runner.os == 'Linux'
+        env:
+          CORE_ARCH: ${{ matrix.core_arch }}
+        run: |
+          ./scripts/deploy-linux.sh "$TARGET_NAME" "$DISPLAY_NAME" build "$CORE_ARCH" "$CORE_NIGHTLY"
+          mv "$TARGET_NAME"-*.AppImage "$ARCHIVE_NAME.AppImage"
+
+      - name: Prepare macOS bundle
+        if: runner.os == 'macOS'
+        env:
+          CORE_ARCH: ${{ matrix.core_arch }}
+        run: ./scripts/deploy-macos.sh "$TARGET_NAME" build "$CORE_ARCH" "$CORE_NIGHTLY"
+
+      - name: Import macOS signing certificate
+        if: env.MACOS_SIGNING == 'true'
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-keychain
+        run: |
+          printf '%s' "$MACOS_CERT_P12" | base64 --decode > "$RUNNER_TEMP/signing.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/signing.keychain-db"
+          security set-keychain-settings -lut 21600 "$RUNNER_TEMP/signing.keychain-db"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/signing.keychain-db"
+          security import "$RUNNER_TEMP/signing.p12" -P "$MACOS_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$RUNNER_TEMP/signing.keychain-db"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/signing.keychain-db"
+          security list-keychains -d user -s "$RUNNER_TEMP/signing.keychain-db"
+
+      - name: Sign macOS bundle
+        if: runner.os == 'macOS'
+        env:
+          CODESIGN_IDENTITY: ${{ env.MACOS_SIGNING == 'true' && secrets.MACOS_CERT_IDENTITY || '-' }}
+        run: |
+          if [[ "$MACOS_SIGNING" != 'true' ]]; then
+            echo '::notice::No Apple signing credentials; creating an ad-hoc signed test build without notarization.'
+          fi
+          ./scripts/macos-sign-app.sh "$TARGET_NAME.app"
+          codesign --verify --deep --strict "$TARGET_NAME.app"
+
+      - name: Package macOS
+        if: runner.os == 'macOS'
+        run: hdiutil create -volname "$DISPLAY_NAME" -srcfolder "$TARGET_NAME.app" -format UDZO "$ARCHIVE_NAME.dmg"
+
+      - name: Notarize macOS package
+        if: env.MACOS_NOTARIZATION == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: ./scripts/macos-notarize-dmg.sh "$ARCHIVE_NAME.dmg"
+
+      - name: Remove temporary signing credentials
+        if: always() && env.MACOS_SIGNING == 'true'
+        run: |
+          security delete-keychain "$RUNNER_TEMP/signing.keychain-db"
+          rm -f "$RUNNER_TEMP/signing.p12"
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARCHIVE_NAME }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            ${{ env.ARCHIVE_NAME }}.zip
+            ${{ env.ARCHIVE_NAME }}.dmg
+            ${{ env.ARCHIVE_NAME }}.AppImage
+
+  release:
+    if: github.event_name == 'release'
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: JustConnect-${{ github.event.release.tag_name }}-*
+          merge-multiple: true
+          path: packages
+
+      - name: Upload to this repository's release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" packages/* --repo "$GITHUB_REPOSITORY"

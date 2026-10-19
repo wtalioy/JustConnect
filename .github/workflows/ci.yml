@@ -1,0 +1,58 @@
+name: Tests
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-22.04, qt_host: linux, qt_arch: linux_gcc_64}
+          - {os: windows-2022, qt_host: windows, qt_arch: win64_msvc2022_64}
+          - {os: macos-15, qt_host: mac, qt_arch: clang_64}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1 libegl1 libxkbcommon-x11-0 libxcb-cursor0 libnss3 libevent-dev libminizip-dev
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.10.3'
+          host: ${{ matrix.qt_host }}
+          target: desktop
+          arch: ${{ matrix.qt_arch }}
+          modules: qt5compat qtpositioning qtwebchannel qtwebengine
+          cache: true
+          cache-key-prefix: qt-test-${{ matrix.os }}
+
+      - name: Configure
+        shell: bash
+        run: cmake -S . -B build -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release -DNIGHTLY_BUILD=ON "-DGIT_HASH=$(git rev-parse --short=7 HEAD)"
+
+      - name: Build
+        run: cmake --build build --config Release --parallel 3
+
+      - name: Run tests
+        run: ctest --test-dir build --build-config Release --output-on-failure
+        env:
+          QT_QPA_PLATFORM: offscreen
