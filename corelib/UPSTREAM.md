@@ -6,6 +6,7 @@
 
 | 项目 | 固定值 |
 | --- | --- |
+| JustConnect 整合日期 | 2026-10-19 |
 | 上游 | https://github.com/Mythologyli/zju-connect |
 | 提交 | `c19eb4ed34b9cf6e8e8ea3315fe9973c8411eb63` |
 | 原始归档 | https://codeload.github.com/Mythologyli/zju-connect/tar.gz/c19eb4ed34b9cf6e8e8ea3315fe9973c8411eb63 |
@@ -40,6 +41,8 @@ go -C corelib test -timeout 60s ./...
 ```
 
 计划已记录：修正测试调用后还会暴露 `TestRefreshCancellation` 的真实上下文缺陷，`Session.request` 当前覆盖请求自带的取消上下文。这些在 S1-07 修复并恢复认证包测试，再实施依赖它们的会话接入。源码中现有的致命退出、全局状态和认证 TLS 默认行为也不能直接当作可嵌入的安全会话；它们仍按 S1-07、S2-03 的边界收敛。
+
+代码 `1611e9c` 已在本地 Linux／WSL2 通过上述限定基线及来源核对，并验证新增认证编译错误不会被已知缺陷例外掩盖。[推送 CI](https://github.com/wtalioy/JustConnect/actions/runs/39279301877)和[一次手动重试](https://github.com/wtalioy/JustConnect/actions/runs/39280768377)截至 2026-10-19 23:51（香港时间）均停留排队，三平台尚未分配 runner；没有执行结果，S1-05 保持待 CI 验收，不据此宣称 Windows／macOS 回归通过。
 
 ## 许可证与分发
 
