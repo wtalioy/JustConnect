@@ -43,6 +43,9 @@ jobs:
       - name: Build and verify core
         uses: ./.github/actions/build-core
 
+      - name: Verify integrated Go module (known upstream auth blocker reported)
+        run: python scripts/test-corelib.py
+
       - name: Configure
         shell: bash
         run: cmake -S . -B build -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release -DNIGHTLY_BUILD=ON "-DGIT_HASH=$(git rev-parse --short=7 HEAD)"
