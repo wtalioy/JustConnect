@@ -26,18 +26,23 @@ export LD_LIBRARY_PATH=/home/lioy/.local/share/JustConnect/sysroot/usr/lib:$CMAK
 export FONTCONFIG_PATH=/home/lioy/.local/share/JustConnect/sysroot/etc/fonts
 ```
 
-[Core library probe](../.github/workflows/corelink.yml) 在六组原生 runner 上分别编译并实际执行同一宿主。优先 `c-archive`；Windows 用 SHA-256 固定的 [llvm-mingw 20261006 UCRT](https://github.com/mstorsjo/llvm-mingw/releases/tag/20261006) 编译 cgo，C++ 宿主仍用 Qt 对应的 MSVC／Visual Studio 链接器及默认动态 CRT。仅静态宿主构建失败时允许尝试 `c-shared`；Go 编译失败或运行失败均直接使 CI 失败。构建日志包含实际工具链、链接命令和错误，`selected-mode.txt` 记录选择，作为 14 天 artifact 上传；长期结论在本文件和 plan 中保存。Windows DLL 用 QLibrary 直接解析固定 C 导出，不要求 MSVC 读取 MinGW import library，也没有跨 CRT 释放内存。
+[Core library probe](../.github/workflows/corelink.yml) 在六组原生 runner 上分别编译并实际执行同一宿主。优先 `c-archive`；Windows 用 SHA-256 固定的 [llvm-mingw 20261006 UCRT](https://github.com/mstorsjo/llvm-mingw/releases/tag/20261006) 编译 cgo，C++ 宿主仍用 Qt 对应的 MSVC／Visual Studio 链接器及默认动态 CRT。Windows 静态宿主构建失败，或明确超时在首次 Go ABI 初始化调用时，才允许尝试 `c-shared`；Go 编译失败、初始化返回后的功能失败或其他运行失败均使 CI 失败。构建日志包含实际工具链、链接错误和运行定位，`selected-mode.txt`／`fallback-reason.txt` 记录选择和回退原因，作为 14 天 artifact 上传；长期结论在本文件和 plan 中保存。Windows DLL 用 QLibrary 直接解析固定 C 导出，不要求 MSVC 读取 MinGW import library，也没有跨 CRT 释放内存。
 
 | 目标 | 链接结论 | 证据 |
 | --- | --- | --- |
 | Linux x64 | `c-archive` 本地通过 | WSL2，GCC 16.2.1，Go 1.27.2；0.56 秒，心跳 12 次；应用 CTest 16/16 |
-| Linux ARM64 | 待 CI | 原生 ubuntu-26.04-arm |
-| macOS x64／ARM64 | 待 CI | 原生 macos-26-intel／macos-26 |
-| Windows x64／ARM64 | 待 CI | 原生 windows-2025／windows-11-vs2026-arm；不能由 buildmode 支持表推断 MSVC 可链接 |
+| Linux ARM64 | `c-archive` CI 通过 | 原生 ubuntu-26.04-arm，Go 1.27.2，GCC 15.2.0；[首轮 CI](https://github.com/wtalioy/JustConnect/actions/runs/39271373771) |
+| macOS x64／ARM64 | `c-archive` CI 通过 | 原生 macos-26-intel／macos-26；[首轮 CI](https://github.com/wtalioy/JustConnect/actions/runs/39271373771) |
+| Windows x64 | 静态链接成功，运行 60 秒超时；待带定位日志重验及 DLL 回退 | LLVM-MinGW Clang 23.1.3 UCRT → MSVC 19.51.36260／VS 18；[首轮 CI](https://github.com/wtalioy/JustConnect/actions/runs/39271373771)，原始日志保留在 artifact |
+| Windows ARM64 | 待 CI | 原生 windows-11-vs2026-arm；不能由 buildmode 支持表推断 MSVC 可链接／运行 |
+
+Windows 静态路径的已知线索：固定 Go 的 `cmd/link/internal/ld/pe.go:addInitArray` 生成 `.ctors`，而 [MSVC CRT 初始化](https://learn.microsoft.com/en-us/cpp/c-runtime-library/crt-initialization?view=msvc-170) 使用 `.CRT$XCU`。这与首次调用等待 Go 初始化的超时相符，但仍是源码推断，需定位日志确认；不调用 Go 的私有启动符号或改写 archive 的节区来作为正式方案。
 
 构建原型通过不代表正式 aTrust 核心、取消／超时、事件积压、网络吞吐或安装包已验收。这里没有执行 race detector；指针检查、并发调用和 GC 压力不等于数据竞争检测。正式 Go／FFI 回归与工具链支持范围在 S1-04／09 落实。
 
 ## 设备与权限边界
+
+这里核对的是现有上游的 **TUN 候选路径**，不预先决定 JustConnect 必须创建 TUN。Clash 的 TUN／系统代理开关是独立的兼容场景，不能拿它们作为 JustConnect 流量入口的前提；JustConnect 自身采用何种透明入口仍由 D2／S5 原型决定。以下 `EPERM` 或 Wintun 交付缺口只约束对应候选路径，不代表整个透明访问方案不可行。无 Clash 时仍须证明网页与终端流量如何进入同进程核心，不能用 HTTP 代理测试替代这一验证。
 
 核对对象为 manifest 的上游 `c19eb4ed34b9cf6e8e8ea3315fe9973c8411eb63` 及其锁定依赖：Unix 使用 `github.com/mythologyli/sing-tun@c04d9db95dc7`；Windows 实际走 `golang.zx2c4.com/wireguard@ecfc5a8d5446/tun` 与 `golang.zx2c4.com/wintun@0fa3db229ce2`，并非 sing-tun 的 Windows 路径。
 
@@ -45,7 +50,7 @@ export FONTCONFIG_PATH=/home/lioy/.local/share/JustConnect/sysroot/etc/fonts
 | --- | --- | --- |
 | Linux | `sing-tun.New` 可通过 `Options.FileDescriptor` 接收已创建 fd，跳过设备创建／配置；Go 关闭 `os.File`，最终 fd 关闭后非持久 TUN 自动消失。候选：小助手创建／配置设备，验证对端后通过 Unix socket `SCM_RIGHTS` 交付，Go 独占接收的 fd；助手另负责路由／DNS 和恢复。 | 本地 uid=1000 可打开 `/dev/net/tun`，`TUNSETIFF(IFF_TUN\|IFF_NO_PI)` 返回 errno=1 `EPERM`，关闭 fd 后无遗留设备；`sudo -n true` 不可用。尚未验证提权助手、fd 交付后的非提权读写／关闭、AppImage 路径及退出／崩溃恢复。 |
 | macOS | `sing-tun.New` 同样可接收外部 utun fd；创建 utun 的 kernel control 要求权限。候选：授权助手创建／配置，`SCM_RIGHTS` 交付已连接 socket；最后关闭 fd 结束 utun。utun 数据还带地址族头，不能按 Linux 包格式直接套用。 | 仅源码可行性核对，无 macOS 实机授权／传递／数据面证据。`sing-tun.Close` 还会刷新 DNS 缓存，库化时须将需权限的系统操作移到助手，不能只接收 fd 就认为完全非提权。 |
-| Windows | `CreateTUNWithRequestedGUID` 在宿主内创建／打开适配器，并调用 `StartSession` 注册 ring；session 包含进程虚拟内存、锁和事件，`End` 与适配器 `Close` 分别清理。单独 `DuplicateHandle` 不能转移这个指针与内存集合，不能把助手创建的 `WINTUN_SESSION_HANDLE` 强转给宿主。 | **数据路径交付仍受阻**：当前公开封装没有接收预创建会话的接口，尚无非提权宿主启动 ring 的实测方案。需要 Windows x64／ARM64 设备、正常用户及受 UAC 授权的小助手，验证驱动 ACL／ring 注册权限和支持的安全交付办法。不得据此给整套 GUI 提权或把核心放到助手。 |
+| Windows | `CreateTUNWithRequestedGUID` 在宿主内创建／打开适配器，并调用 `StartSession` 注册 ring；session 包含进程虚拟内存、锁和事件，`End` 与适配器 `Close` 分别清理。单独 `DuplicateHandle` 不能转移这个指针与内存集合，不能把助手创建的 `WINTUN_SESSION_HANDLE` 强转给宿主。 | **现有 Wintun 候选路径的非提权交付尚未证明**：当前公开封装没有接收预创建会话的接口，尚无非提权宿主启动 ring 的实测方案。若采用此入口，需要 Windows x64／ARM64 设备、正常用户及受 UAC 授权的小助手，验证驱动 ACL／ring 注册权限和支持的安全交付办法。不得据此给整套 GUI 提权或把核心放到助手。 |
 
 Unix 的上游 `stack/tun/NewStack` 目前没有传入 `FileDescriptor`，后续必须显式接入设备所有权，并拆开它直接执行的 `ip`／`route`／`ifconfig`／DNS 修改。Windows 的地址、MTU、路由和 DNS 也直接在核心内执行；移到助手后仍需回读结果与按所有权恢复。这些是 S4 的实现范围，本原型不新增任意命令提权入口。
 

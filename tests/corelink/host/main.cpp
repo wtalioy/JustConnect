@@ -54,7 +54,10 @@ int main(int argc, char **argv)
     const auto destroy = jc_probe_destroy;
     const auto live = jc_probe_live;
 #endif
-    check(abi() == 1 && live() == 0, "Go initialization/ABI");
+    std::cerr << "Calling Go ABI initialization\n";
+    check(abi() == 1, "Go initialization/ABI");
+    std::cerr << "Go ABI initialized\n";
+    check(live() == 0, "initial live handles");
     check(create(nullptr, 1) == 0 && create(nullptr, 65537) == 0, "invalid input accepted");
     uint32_t length = 0;
     check(read(0, nullptr, 0, &length) == -1 && destroy(0) == -1, "invalid handle accepted");

@@ -76,7 +76,7 @@ jobs:
           Expand-Archive $archive "$env:RUNNER_TEMP/cgo"
           "$env:RUNNER_TEMP/cgo/$name/bin" >> $env:GITHUB_PATH
 
-      - name: Probe archive, with Windows DLL fallback only after link failure
+      - name: Probe archive, with Windows DLL fallback for confirmed toolchain failure
         shell: python
         run: |
           import os, pathlib, subprocess, sys
@@ -103,15 +103,23 @@ jobs:
           mode = 'c-archive'
           directory = configure(mode)
           failed = run(mode + '-link', ['cmake', '--build', directory, '--config', 'Release'], required=False)
+          reason = 'archive host build failed' if failed else ''
+          if not failed:
+              failed = run(mode + '-runtime', ['ctest', '--test-dir', directory, '-C', 'Release', '-V', '--output-on-failure'], required=False)
+              if failed:
+                  log = (output / (mode + '-runtime.log')).read_text(encoding='utf-8')
+                  if ('Calling Go ABI initialization' not in log or 'Go ABI initialized' in log or '***Timeout' not in log):
+                      sys.exit(failed)
+                  reason = 'archive timed out in first Go call before initialization returned'
           if failed:
               if sys.platform != 'win32':
                   sys.exit(failed)
+              (output / 'fallback-reason.txt').write_text(reason + '\n', encoding='utf-8')
               mode = 'c-shared'
               directory = configure(mode)
               run(mode + '-link', ['cmake', '--build', directory, '--config', 'Release'])
+              run(mode + '-runtime', ['ctest', '--test-dir', directory, '-C', 'Release', '-V', '--output-on-failure'])
           (output / 'selected-mode.txt').write_text(mode + '\n', encoding='utf-8')
-          # A runtime failure must fail CI, never silently select another backend.
-          run(mode + '-runtime', ['ctest', '--test-dir', directory, '-C', 'Release', '-V', '--output-on-failure'])
 
       - name: Upload toolchain and runtime evidence
         if: always()
@@ -123,4 +131,5 @@ jobs:
           path: |
             build/corelink/*.log
             build/corelink/selected-mode.txt
+            build/corelink/fallback-reason.txt
             build/corelink/*/CMakeCache.txt
