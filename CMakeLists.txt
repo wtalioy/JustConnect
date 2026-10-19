@@ -130,7 +130,7 @@ if(BUILD_TESTING)
     target_link_libraries(webengine_test Qt::WebEngineWidgets)
     add_test(NAME webengine_test COMMAND webengine_test)
     set_tests_properties(webengine_test PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu"
         TIMEOUT 20
     )
 

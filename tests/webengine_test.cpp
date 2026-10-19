@@ -8,7 +8,9 @@
 
 int main(int argc, char *argv[])
 {
+    std::cerr << "Starting WebEngine runtime check\n";
     QApplication app(argc, argv);
+    std::cerr << "Creating WebEngine view\n";
     QWebEngineView view;
     QTimer timeout;
     timeout.setSingleShot(true);
@@ -33,6 +35,7 @@ int main(int argc, char *argv[])
         });
     });
     timeout.start(15000);
+    std::cerr << "Loading HTML and JavaScript\n";
     view.setHtml("<!doctype html><title>JustConnect</title>"
                  "<script>document.title += ' ' + (6 * 7);</script>");
     return app.exec();
