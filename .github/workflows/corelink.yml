@@ -121,6 +121,11 @@ jobs:
               run(mode + '-runtime', ['ctest', '--test-dir', directory, '-C', 'Release', '-V', '--output-on-failure'])
           (output / 'selected-mode.txt').write_text(mode + '\n', encoding='utf-8')
 
+      - name: Check Linux TUN fd transfer and cleanup in an isolated network
+        if: runner.os == 'Linux'
+        shell: bash
+        run: sudo unshare --net -- "$(command -v python)" tests/corelink/linux_device_probe.py --uid "$(id -u)" | tee build/corelink/linux-device.log
+
       - name: Upload toolchain and runtime evidence
         if: always()
         uses: actions/upload-artifact@v7.0.2
