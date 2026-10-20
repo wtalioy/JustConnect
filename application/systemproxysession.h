@@ -21,13 +21,14 @@ public:
     bool disable();
     bool isEnabled() const;
     bool isBusy() const;
-    void clearBeforeShutdown();
+    PlatformOperationResult clearBeforeShutdown();
+    bool needsCleanup() const;
 
 signals:
     void enabledChanged(bool enabled);
     void busyChanged(bool busy);
-    void conflictCheckFinished(bool conflict);
-    void operationFinished(bool enabled);
+    void conflictCheckFinished(const SystemProxyCheck &check);
+    void operationFinished(bool enabled, const PlatformOperationResult &result);
 
 private:
     enum class Operation
@@ -41,8 +42,8 @@ private:
     struct OperationResult
     {
         Operation operation;
-        bool conflict = false;
-        bool succeeded = true;
+        SystemProxyCheck check;
+        PlatformOperationResult result;
     };
 
     bool startOperation(Operation operation, const SystemProxyConfig &config = {});
@@ -52,6 +53,8 @@ private:
     QFutureWatcher<OperationResult> operationWatcher;
     Operation currentOperation = Operation::None;
     bool enabled = false;
+    bool uncertain = false;
+    void updateState(Operation operation, const PlatformOperationResult &result);
 };
 
 #endif // SYSTEMPROXYSESSION_H

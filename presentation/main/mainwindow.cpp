@@ -126,14 +126,19 @@ MainWindow::MainWindow(
     connect(systemProxySession, &SystemProxySession::enabledChanged, this,
             [this](bool enabled)
             {
-                ui->pushButton2->setText(enabled ? "清除系统代理" : "设置系统代理");
-                if (!enabled && connectionSession != nullptr && !connectionSession->isActive())
+                ui->pushButton2->setText(systemProxySession->needsCleanup() ? "清除系统代理" : "设置系统代理");
+                if (!systemProxySession->needsCleanup() && connectionSession != nullptr && !connectionSession->isActive())
                 {
                     ui->pushButton2->hide();
                 }
                 updateProfileSummary();
                 updateConnectionState(connectionSession->state());
             });
+    connect(systemProxySession, &SystemProxySession::operationFinished, this,
+        [this](bool, const PlatformOperationResult &result) {
+            if (!result.succeeded()) QMessageBox::warning(this, "系统代理操作未完成",
+                PresentationHelpers::platformOperationMessage(result));
+        });
     setupTrayIcon();
     setupProfileMenu();
 
@@ -203,9 +208,9 @@ MainWindow::MainWindow(
                 }
 
                 connect(systemProxySession, &SystemProxySession::operationFinished, this,
-                        [this](bool enabled)
+                        [this](bool enabled, const PlatformOperationResult &result)
                         {
-                            if (!enabled)
+                            if (result.succeeded() && !enabled)
                             {
                                 qInfo().noquote() << "已清理系统代理设置";
                             }
@@ -418,7 +423,9 @@ void MainWindow::updateConnectionState(ConnectionState state)
     case ConnectionState::Running:
         propertyValue = "running";
         title = "已连接";
-        detail = systemProxySession->isEnabled()
+        detail = systemProxySession->needsCleanup() && !systemProxySession->isEnabled()
+            ? "系统代理状态未确认，请检查残留设置。"
+            : systemProxySession->isEnabled()
             ? "VPN 通道与系统代理均已启用。"
             : "VPN 通道运行中，可按需启用系统代理。";
         break;

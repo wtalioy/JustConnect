@@ -56,3 +56,7 @@ set_tests_properties(coreabi_performance_test PROPERTIES TIMEOUT 150 WORKING_DIR
 
 include("${REPO}/tests/CoreEngineTests.cmake")
 justconnect_core_ui_tests(coreabi_ui_test coreabi_engine coreabi)
+
+include("${REPO}/cmake/Platform.cmake")
+justconnect_platform(coreabi_platform)
+justconnect_platform_tests(coreabi_platform_test coreabi_platform)

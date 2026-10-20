@@ -18,32 +18,34 @@ public:
     int conflictChecks = 0;
     int applyCalls = 0;
     int clearCalls = 0;
+    PlatformOperationResult failure{PlatformOperationResult::Status::Failed, "operation failed"};
+    SystemProxyCheck checkResult;
     bool applySucceeds = true;
     bool clearSucceeds = true;
     SystemProxyConfig lastConfig;
     QSemaphore operationStarted;
     QSemaphore allowOperationToFinish;
 
-    bool hasConflict(const SystemProxyConfig &config) override
+    SystemProxyCheck check(const SystemProxyConfig &config) override
     {
         ++conflictChecks;
         lastConfig = config;
-        return conflict;
+        auto result = checkResult; result.conflict = conflict; return result;
     }
 
-    bool apply(const SystemProxyConfig &config) override
+    PlatformOperationResult apply(const SystemProxyConfig &config) override
     {
         ++applyCalls;
         lastConfig = config;
         operationStarted.release();
         allowOperationToFinish.acquire();
-        return applySucceeds;
+        return applySucceeds ? PlatformOperationResult{} : failure;
     }
 
-    bool clear() override
+    PlatformOperationResult clear() override
     {
         ++clearCalls;
-        return clearSucceeds;
+        return clearSucceeds ? PlatformOperationResult{} : failure;
     }
 };
 
@@ -69,7 +71,7 @@ bool delegatesPlatformOperationsAsynchronouslyAndTracksOwnedState()
 
     bool conflictResult = false;
     QObject::connect(&session, &SystemProxySession::conflictCheckFinished,
-                     [&](bool conflict) { conflictResult = conflict; });
+                     [&](const SystemProxyCheck &check) { conflictResult = check.result.succeeded() && check.conflict; });
     if (!session.checkConflict(config)
         || !waitUntil([&]() { return !session.isBusy(); })
         || !conflictResult
@@ -152,10 +154,43 @@ bool delegatesPlatformOperationsAsynchronouslyAndTracksOwnedState()
     }
     return true;
 }
+
+bool reportsFailuresAndRetainsCleanupState()
+{
+    using Status = PlatformOperationResult::Status;
+    auto backend = std::make_unique<FakeSystemProxyBackend>();
+    auto *fake = backend.get();
+    SystemProxySession session(std::move(backend));
+    PlatformOperationResult received;
+    int completions = 0;
+    QObject::connect(&session, &SystemProxySession::operationFinished, [&](bool, const PlatformOperationResult &r) { received = r; ++completions; });
+    SystemProxyCheck checked;
+    QObject::connect(&session, &SystemProxySession::conflictCheckFinished, [&](const SystemProxyCheck &r) { checked = r; });
+    fake->checkResult.result = {Status::PermissionDenied, "query denied"};
+    session.checkConflict({1081,1080,{}});
+    if (!waitUntil([&] { return !session.isBusy(); }) || checked.result.status != Status::PermissionDenied || fake->applyCalls != 0) return false;
+    for (auto status : {Status::Failed, Status::Cancelled, Status::PermissionDenied, Status::Unsupported, Status::TimedOut}) {
+        fake->applySucceeds = false; fake->failure = {status, "apply incomplete", true};
+        const int before = completions;
+        session.enable({1081,1080,{}}); fake->allowOperationToFinish.release();
+        if (!waitUntil([&] { return completions > before; }) || received.status != status || session.isEnabled() || !session.needsCleanup()) return false;
+        fake->clearSucceeds = false;
+        session.disable();
+        if (!waitUntil([&] { return !session.isBusy(); }) || !session.needsCleanup() || received.succeeded()) return false;
+        fake->clearSucceeds = true;
+        session.disable();
+        if (!waitUntil([&] { return !session.isBusy(); }) || session.needsCleanup()) return false;
+    }
+    fake->applySucceeds = true; session.enable({1081,1080,{}}); fake->allowOperationToFinish.release();
+    if (!waitUntil([&] { return !session.isBusy(); }) || !session.isEnabled()) return false;
+    fake->clearSucceeds = false; fake->failure = {Status::PermissionDenied,"shutdown denied",true};
+    auto result = session.clearBeforeShutdown();
+    return result.status == Status::PermissionDenied && session.needsCleanup() && !session.isEnabled();
+}
 }
 
 int main(int argc, char *argv[])
 {
     QCoreApplication app(argc, argv);
-    return delegatesPlatformOperationsAsynchronouslyAndTracksOwnedState() ? 0 : 1;
+    return delegatesPlatformOperationsAsynchronouslyAndTracksOwnedState() && reportsFailuresAndRetainsCleanupState() ? 0 : 1;
 }
