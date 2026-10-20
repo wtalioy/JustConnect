@@ -193,7 +193,13 @@ int main(int argc, char **argv) {
         if (args[2]=="cancel") { std::cerr << "User canceled. (-128)"; return 1; }
         if (args[2]=="denied") { std::cerr << "Permission denied"; return 3; }
         if (args[2]=="fail") return 7;
-        if (args[2]=="crash") std::abort();
+        if (args[2]=="crash") {
+#ifdef Q_OS_WIN
+            // Intentional aborts must not wait for Windows Error Reporting UI.
+            _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+#endif
+            std::abort();
+        }
         std::cout << "actual child output"; return 0;
     }
     if (args.contains("--readonly")) {
@@ -229,7 +235,10 @@ int main(int argc, char **argv) {
 #endif
     const auto self = app.applicationFilePath();
     check(runPlatformCommand(self,{"--child","ok"}).output=="actual child output","child output captured");
-    for (const auto &mode : {QString("fail"),QString("crash")}) check(runPlatformCommand(self,{"--child",mode}).result.status == Status::Failed,"nonzero/crash rejected");
+    for (const auto &mode : {QString("fail"),QString("crash")}) {
+        const auto result = runPlatformCommand(self,{"--child",mode}).result;
+        check(result.status == Status::Failed, qPrintable(mode + ": " + result.detail));
+    }
     check(runPlatformCommand(self,{"--child","hang"},50).result.status==Status::TimedOut,"child timeout killed and reaped");
     check(runPlatformCommand(self,{"--child","cancel"}).result.status==Status::Cancelled,"user cancellation classified");
     check(runPlatformCommand(self,{"--child","denied"}).result.status==Status::PermissionDenied,"permission denial classified");
