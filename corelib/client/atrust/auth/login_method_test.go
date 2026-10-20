@@ -7,15 +7,13 @@ import (
 
 func TestNewLoginMethodTruthTable(t *testing.T) {
 	passwordLogin := PasswordLogin{
-		Username:      "user",
-		Password:      "password",
-		Domain:        "domain",
-		GraphCodeFile: "graph-code.txt",
+		Username: "user",
+		Password: "password",
+		Domain:   "domain",
 	}
 	smsLogin := SMSLogin{
-		Phone:         "13800000000",
-		Domain:        "domain",
-		GraphCodeFile: "graph-code.txt",
+		Phone:  "13800000000",
+		Domain: "domain",
 	}
 
 	for _, tt := range []struct {
@@ -27,28 +25,28 @@ func TestNewLoginMethodTruthTable(t *testing.T) {
 		{
 			name: "infer password",
 			options: LoginMethodOptions{
-				Username: "user", Password: "password", Domain: "domain", GraphCodeFile: "graph-code.txt",
+				Username: "user", Password: "password", Domain: "domain",
 			},
 			want: passwordLogin,
 		},
 		{
 			name: "password takes precedence over phone",
 			options: LoginMethodOptions{
-				Username: "user", Password: "password", Phone: "13800000000", Domain: "domain", GraphCodeFile: "graph-code.txt",
+				Username: "user", Password: "password", Phone: "13800000000", Domain: "domain",
 			},
 			want: passwordLogin,
 		},
 		{
 			name: "infer SMS",
 			options: LoginMethodOptions{
-				Phone: "13800000000", Domain: "domain", GraphCodeFile: "graph-code.txt",
+				Phone: "13800000000", Domain: "domain",
 			},
 			want: smsLogin,
 		},
 		{
 			name: "explicit password",
 			options: LoginMethodOptions{
-				AuthType: "auth/psw", Username: "user", Password: "password", Domain: "domain", GraphCodeFile: "graph-code.txt",
+				AuthType: "auth/psw", Username: "user", Password: "password", Domain: "domain",
 			},
 			want: passwordLogin,
 		},
@@ -69,7 +67,7 @@ func TestNewLoginMethodTruthTable(t *testing.T) {
 		{
 			name: "explicit SMS",
 			options: LoginMethodOptions{
-				AuthType: "auth/smsCheckCode", Phone: "13800000000", Domain: "domain", GraphCodeFile: "graph-code.txt",
+				AuthType: "auth/smsCheckCode", Phone: "13800000000", Domain: "domain",
 			},
 			want: smsLogin,
 		},

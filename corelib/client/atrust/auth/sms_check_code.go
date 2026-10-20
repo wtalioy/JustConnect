@@ -11,9 +11,8 @@ import (
 )
 
 type SMSLogin struct {
-	Phone         string
-	Domain        string
-	GraphCodeFile string
+	Phone  string
+	Domain string
 }
 
 func (m SMSLogin) AuthType() string {
@@ -25,7 +24,7 @@ func (m SMSLogin) LoginDomain() string {
 }
 
 func (m SMSLogin) login(s *Session, _ AuthInfo) error {
-	if err := s.loginAuthSmsCheckCode(m.Phone, m.Domain, m.GraphCodeFile); err != nil {
+	if err := s.loginAuthSmsCheckCode(m.Phone, m.Domain); err != nil {
 		return err
 	}
 	s.username = smsUsername(m.Phone, m.Domain)
@@ -36,11 +35,11 @@ func smsUsername(phone, domain string) string {
 	return phone + "@" + domain
 }
 
-func (s *Session) loginAuthSmsCheckCode(phone, loginDomain, graphCodeFile string) error {
+func (s *Session) loginAuthSmsCheckCode(phone, loginDomain string) error {
 	sendSmsProcess := func(graphCheckCode string) (int, error) {
 		return s.sendSms(phone, loginDomain, graphCheckCode)
 	}
-	err := s.withGraphCheckCode(sendSmsProcess, graphCodeFile)
+	err := s.withGraphCheckCode(sendSmsProcess)
 	if err != nil {
 		return err
 	}
@@ -56,7 +55,7 @@ func (s *Session) loginAuthSmsCheckCode(phone, loginDomain, graphCodeFile string
 	smsCheckCodeProcess := func(graphCheckCode string) (int, error) {
 		return s.smsCheckCodeImpl(response.Code, phone, loginDomain, graphCheckCode)
 	}
-	return s.withGraphCheckCode(smsCheckCodeProcess, graphCodeFile)
+	return s.withGraphCheckCode(smsCheckCodeProcess)
 }
 
 func (s *Session) sendSms(phone, loginDomain, graphCheckCode string) (int, error) {
