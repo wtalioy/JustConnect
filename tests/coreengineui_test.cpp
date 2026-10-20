@@ -264,13 +264,71 @@ static void browserCookiesStayInLoginDialog() {
         dialog->setInitialUrl(QUrl(base+path));until([&]{return done;});QObject::disconnect(connection);
         check(okay,"actual SSO page loads from controlled HTTP server");
     };
-    auto *first=new SsoLoginWebView;first->show();visit(first,"/first");visit(first,"/echo");
+    auto *first=new SsoLoginWebView;first->setCallbackUrl(QUrl(base+"/passport/v1/auth/cas"));first->show();visit(first,"/first");visit(first,"/echo");
     check(cookies.size()==1 && cookies[0],"cookie works within the current login dialog");
-    auto *second=new SsoLoginWebView;second->show();visit(second,"/echo");
+    auto *second=new SsoLoginWebView;second->setCallbackUrl(QUrl(base+"/passport/v1/auth/cas"));second->show();visit(second,"/echo");
     check(cookies.size()==2 && !cookies[1],"another SSO dialog cannot reuse the first login's cookie");
     check(first->findChild<QWebEngineView *>()->page()->profile()->isOffTheRecord()
         && second->findChild<QWebEngineView *>()->page()->profile()->isOffTheRecord(),"login browser data remains in memory");
     delete second;delete first;
+}
+
+static void browserValidatesCallbackNavigation() {
+    ApplicationLogger logger;QString logs;
+    QObject::connect(&logger,&ApplicationLogger::entryAdded,[&](const QString &entry){logs+=entry;});
+    QTcpServer server;check(server.listen(QHostAddress::LocalHost),"isolated SSO callback server");
+    const auto base="http://127.0.0.1:"+QString::number(server.serverPort());int callbackRequests=0;
+    QObject::connect(&server,&QTcpServer::newConnection,&server,[&] {
+        while (auto *socket=server.nextPendingConnection()) {
+            QObject::connect(socket,&QTcpSocket::readyRead,&server,[&,socket] {
+                if (socket->property("handled").toBool()) return;
+                const auto request=socket->property("request").toByteArray()+socket->readAll();socket->setProperty("request",request);
+                if (!request.contains("\r\n\r\n")) return;
+                socket->setProperty("handled",true);const auto path=request.split(' ').value(1);
+                if (path.startsWith("/passport/v1/auth/")) ++callbackRequests;
+                QByteArray response;
+                if (path=="/redirect-unrelated" || path=="/redirect-oauth") {
+                    const auto target=path=="/redirect-unrelated" ? "/unrelated?code=fixture" : "/passport/v1/auth/httpsOauth2?code=fixture";
+                    response="HTTP/1.1 302 Found\r\nLocation: "+base.toUtf8()+target+"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                } else {
+                    const QByteArray body=path=="/frame" ? "<html><body><script>window.fixtureConsole=true;console.error('private-console-token');</script><iframe srcdoc='<p>local frame</p>'></iframe><iframe src='/passport/v1/auth/httpsOauth2?code=frame'></iframe></body></html>" : "<html><body>fixture</body></html>";
+                    response="HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\nContent-Length: "+QByteArray::number(body.size())+"\r\n\r\n"+body;
+                }
+                socket->write(response);socket->disconnectFromHost();
+            });QObject::connect(socket,&QTcpSocket::disconnected,socket,&QObject::deleteLater);
+        }
+    });
+    auto *dialog=new SsoLoginWebView;dialog->setAttribute(Qt::WA_DeleteOnClose,false);
+    dialog->setCallbackUrl(QUrl(base+"/passport/v1/auth/httpsOauth2"));dialog->show();
+    auto *view=dialog->findChild<QWebEngineView *>();int responses=0;QString callback;
+    QObject::connect(dialog,&SsoLoginWebView::loginCompleted,[&](const QString &value){++responses;callback=value;});
+    auto visit=[&](const QString &path) {
+        bool done=false;const auto connection=QObject::connect(view,&QWebEngineView::loadFinished,[&](bool){done=true;});
+        dialog->setInitialUrl(QUrl(base+path));until([&]{return done || responses>0;});QObject::disconnect(connection);
+    };
+    visit("/redirect-unrelated");check(responses==0 && dialog->isVisible() && view->url().path()=="/unrelated","a same-origin redirect to another path cannot complete SSO");
+    visit("/frame");check(responses==0 && dialog->isVisible() && callbackRequests==0,"iframe callbacks neither complete SSO nor consume the callback in the browser");
+    bool localFrame=false;
+    view->page()->runJavaScript("window.fixtureConsole===true && document.querySelector('iframe').contentDocument.body.textContent==='local frame'",[&](const QVariant &value){localFrame=value.toBool();});
+    until([&]{return localFrame;});
+    check(!logs.contains("private-console-token"),"identity provider console output cannot enter application logs");
+    auto *warning=dialog->findChild<QLabel *>("navigationWarningLabel");
+    for (const auto &path:QStringList{"/passport/v1/auth/httpsOauth2?code=a&code=b","/passport/v1/auth/httpsOauth2?code=fixture#fragment"}) {
+        visit(path);check(responses==0 && warning->isVisible() && callbackRequests==0,"ambiguous, fragment or other-method callbacks remain rejected");
+    }
+    dialog->setInitialUrl(QUrl(base+"/passport/v1/auth/cas?ticket=wrong-kind"));
+    check(responses==0 && warning->isVisible() && callbackRequests==0,"another authentication method is rejected before loading");
+    const auto current=view->url();
+    for (const auto &url:QStringList{"file:///etc/hosts","javascript:alert(1)","data:text/html,fixture","http://127.0.0.1:1/other","https://other.example.invalid/passport/v1/auth/httpsOauth2?code=fixture"}) {
+        dialog->setInitialUrl(QUrl(url));QApplication::processEvents();
+        check(warning->isVisible() && view->url()==current && responses==0,"unsafe initial navigation does not replace the login page");
+    }
+    visit("/redirect-oauth");check(responses==1 && callback==base+"/passport/v1/auth/httpsOauth2?code=fixture" && callbackRequests==0,"valid OAuth redirect is delivered once and intercepted before HTTP submission");delete dialog;
+    dialog=new SsoLoginWebView;dialog->setAttribute(Qt::WA_DeleteOnClose,false);dialog->setCallbackUrl(QUrl(base+"/passport/v1/auth/cas"));dialog->show();view=dialog->findChild<QWebEngineView *>();responses=0;
+    QObject::connect(dialog,&SsoLoginWebView::loginCompleted,[&](const QString &value){++responses;callback=value;});
+    auto *address=dialog->findChild<QLineEdit *>("addressLineEdit");address->setText(base+"/passport/v1/auth/cas?ticket=fixture");
+    check(QMetaObject::invokeMethod(address,"returnPressed"),"submit a main-frame callback from the address bar");until([&]{return responses==1;});
+    check(responses==1 && callback==base+"/passport/v1/auth/cas?ticket=fixture" && callbackRequests==0,"CAS uses its own exact callback path and ticket");delete dialog;
 }
 
 static void uiContracts() {
@@ -302,13 +360,15 @@ static void uiContracts() {
     }
     for (const QString &kind : {"cas", "oauth2"}) {
         const QJsonObject request{{"schema_version", 1}, {"generation", "2"}, {"request_id", "4"},
-            {"challenge", QJsonObject{{"kind", kind}, {"login_url", "http://127.0.0.1:1/login"}}}};
+            {"challenge", QJsonObject{{"kind", kind}, {"login_url", "https://idp.example.invalid/login"}}}};
         dialogs.requestAuthentication(request, QUrl("https://vpn.example.invalid"));
         auto *web = qobject_cast<SsoLoginWebView *>(challenge(parent));
         check(web != nullptr, "external login uses the challenge URL");
-        emit web->loginCompleted("https://vpn.example.invalid/callback?ticket=private-callback");
+        const auto callback=kind=="cas" ? "https://vpn.example.invalid/passport/v1/auth/cas?ticket=private-callback"
+            : "https://vpn.example.invalid/passport/v1/auth/httpsOauth2?code=private-callback";
+        emit web->loginCompleted(callback);
         web->accept();
-        check(submitted["callback_url"] == "https://vpn.example.invalid/callback?ticket=private-callback"
+        check(submitted["callback_url"] == callback
             && submitted["request_id"] == "4", "external callback retains request identity");
         const int before = responses;
         dialogs.requestAuthentication(request, {});
@@ -455,5 +515,5 @@ static void gateway(const QJsonObject &config) {
 int main(int argc, char **argv) {
     QApplication app(argc, argv);
     if (argc == 3 && QByteArray(argv[1]) == "--gateway") gateway(QJsonDocument::fromJson(argv[2]).object());
-    else { browserCookiesStayInLoginDialog(); uiContracts(); proxyWaitsForReady(); manualCredentialsAndLateResults(); }
+    else { browserCookiesStayInLoginDialog(); browserValidatesCallbackNavigation(); uiContracts(); proxyWaitsForReady(); manualCredentialsAndLateResults(); }
 }

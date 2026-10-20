@@ -209,3 +209,5 @@ S2-03 默认启用服务器证书验证，私有 CA 可在服务器编辑区以 
 `coreengineui_test` 的 SSO Cookie 回归使用随机回环端口和仅含公开测试值的 HTTP 服务，验证当前窗口 Cookie 生效、另一窗口不携带它。修复前实际发送了前一窗口的 Cookie；修复后各自的内存 Profile 隔离。Qt 的[无存储名称 Profile](https://doc.qt.io/qt-6.8/qwebengineprofile.html#QWebEngineProfile) 不持久化浏览器数据；旧默认 Profile 本身也是内存模式，本次修复针对窗口间共享状态，不声称旧实现写了浏览器 Cookie 文件。
 
 界面凭据回归使用注入存储端口与实际 Qt 控件，不访问用户的系统条目。`coreengineui_test` 覆盖不记住的内存登录、记住后的安全写入、原生读写失败仍手动启动、取消／切换后的晚到读拒绝和读取完成后的当前 TLS 策略；`settingwindow_test` 覆盖凭据清除、空密码保留、单独更新 TOTP、导入／重置取消与公开导出；`configurationguidedialog_test` 检查安全读写、手机号、SSO 页面和实际配置写入失败。`credentialaccess_test` 另外验证窗口销毁后已授权保存仍完成、公开草稿过期拒绝及锁定时禁止重新绑定遗留密码。各测试保留独有的失败和边界回归。
+
+S2-05 的回调回归使用两个受控 TLS 服务，先复现私有会话头被送往另一来源，再验证 CAS／OAuth2 均在发出请求前拒绝；同时验证正确网关的回调交换及门户票据、默认／自定义端口、IPv6、用户信息、片段、重复／坏编码和控制字符。可运行 `go -C corelib test ./client/atrust/auth`。实际浏览器回归使用已配置的私有回环 HTTP 网关，验证同源错误路径、iframe 和非法导航拒绝，正常内部 iframe、OAuth2 重定向及 CAS 地址栏回调仍可交付；使用页面 console.error 先复现脚本文本进入应用日志，再验证专用 Page 抑制输出且脚本仍执行；不访问校园账号或使用明文远程 IdP。

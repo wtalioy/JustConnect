@@ -62,35 +62,19 @@ func (s *Session) interactiveHttpsOauth2(loginURL string) (string, error) {
 		LoginURL: loginURL,
 		Message:  "Please enter the callback URL:",
 	})
-	if err != nil {
-		return "", err
-	}
-
-	callbackURL, err := url.Parse(response.CallbackURL)
-	if err != nil {
-		return "", err
-	}
-	if err := validateHTTPSOauth2CallbackURL(callbackURL); err != nil {
-		return "", err
-	}
-
-	return response.CallbackURL, nil
-}
-
-func validateHTTPSOauth2CallbackURL(callbackURL *url.URL) error {
-	if callbackURL.Path != "/passport/v1/auth/httpsOauth2" {
-		return fmt.Errorf("invalid callback url: path not match")
-	}
-	queries := callbackURL.Query()
-	if queries.Get("code") == "" {
-		return fmt.Errorf("invalid callback url: code not found")
-	}
-	return nil
+	return response.CallbackURL, err
 }
 
 func (s *Session) httpsOauth2(callback string) error {
 
-	req, _ := http.NewRequest("GET", callback, nil)
+	callbackURL, err := parseAuthCallback(s.baseURL, callback, "/passport/v1/auth/httpsOauth2", "code")
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest(http.MethodGet, callbackURL.String(), nil)
+	if err != nil {
+		return err
+	}
 	req.Header.Set("User-Agent", UserAgent)
 	req.Header.Set("x-csrf-token", s.csrfToken)
 	req.Header.Set("x-sdp-traceid", s.randSdpId())

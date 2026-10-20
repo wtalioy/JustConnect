@@ -19,7 +19,7 @@ public:
     ~SsoLoginWebView() override;
 
     void setInitialUrl(const QUrl &url);
-    void setCallbackServerUrl(const QUrl &url);
+    void setCallbackUrl(const QUrl &url);
 
 signals:
     void loginCompleted(const QString &url);
@@ -27,9 +27,10 @@ signals:
 private:
     void setupConnections();
     bool isCallbackUrl(const QUrl &url) const;
+    bool isAllowedUrl(const QUrl &url) const;
 
     Ui::SsoLoginWebView *ui;
-    QUrl callbackServerUrl;
+    QUrl callbackUrl;
     bool loginCompletedEmitted = false;
 };
 

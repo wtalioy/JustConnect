@@ -176,7 +176,10 @@ void AuthDialogCoordinator::requestAuthentication(const QJsonObject &request, co
         dialog = captcha;
     } else if (kind == "cas" || kind == "oauth2") {
         auto *web = new SsoLoginWebView(parentWidget);
-        web->setCallbackServerUrl(callbackServer);
+        auto callback=callbackServer;
+        callback.setPath(kind=="cas" ? "/passport/v1/auth/cas" : "/passport/v1/auth/httpsOauth2");
+        callback.setQuery(QString());callback.setFragment(QString());
+        web->setCallbackUrl(callback);
         web->setInitialUrl(QUrl(challenge["login_url"].toString()));
         connect(web, &SsoLoginWebView::loginCompleted, this, [submit](const QString &url) {
             if (!url.isEmpty()) submit({{"action", "submit"}, {"callback_url", url}});

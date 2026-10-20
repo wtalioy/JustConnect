@@ -57,34 +57,19 @@ func (s *Session) interactiveCas(loginURL string) (string, error) {
 		LoginURL: loginURL,
 		Message:  "Please enter the callback url:",
 	})
-	if err != nil {
-		return "", err
-	}
-
-	callbackURL, err := url.Parse(response.CallbackURL)
-	if err != nil {
-		return "", err
-	}
-	if err := validateCASCallbackURL(callbackURL); err != nil {
-		return "", err
-	}
-	return response.CallbackURL, nil
-}
-
-func validateCASCallbackURL(callbackURL *url.URL) error {
-	if callbackURL.Path != "/passport/v1/auth/cas" {
-		return fmt.Errorf("invalid callback url: path not match")
-	}
-	queries := callbackURL.Query()
-	if queries.Get("ticket") == "" {
-		return fmt.Errorf("invalid callback url: ticket not found")
-	}
-	return nil
+	return response.CallbackURL, err
 }
 
 func (s *Session) cas(callback string) error {
 
-	req, _ := http.NewRequest("GET", callback, nil)
+	callbackURL, err := parseAuthCallback(s.baseURL, callback, "/passport/v1/auth/cas", "ticket")
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest(http.MethodGet, callbackURL.String(), nil)
+	if err != nil {
+		return err
+	}
 	req.Header.Set("User-Agent", UserAgent)
 	req.Header.Set("x-csrf-token", s.csrfToken)
 	req.Header.Set("x-sdp-traceid", s.randSdpId())
