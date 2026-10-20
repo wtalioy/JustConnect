@@ -6,27 +6,8 @@
 
 QString ApplicationPaths::clientDataFile(const QString &profileId)
 {
-    QDir dataDirectory(
-        QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)
-    );
-    if (!dataDirectory.exists())
-    {
-        dataDirectory.mkpath(".");
-    }
-
-    QDir profileDirectory(dataDirectory.filePath("profiles/" + profileId));
-    if (!profileDirectory.exists())
-    {
-        profileDirectory.mkpath(".");
-    }
-
-    QFile clientData(profileDirectory.filePath("client-data.json"));
-    if (!clientData.exists() && clientData.open(QIODevice::WriteOnly))
-    {
-        clientData.write("{}");
-        clientData.close();
-    }
-    return clientData.fileName();
+    const QDir dataDirectory(QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation));
+    return QDir::cleanPath(dataDirectory.filePath("profiles/" + profileId + "/client-data.json"));
 }
 
 void ApplicationPaths::clearClientData(const QString &profileId)

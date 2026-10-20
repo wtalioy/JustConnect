@@ -1,6 +1,7 @@
 #include <QApplication>
 #include <QCheckBox>
 #include <QDialogButtonBox>
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <cstdlib>
@@ -19,7 +20,7 @@
 #include "infrastructure/storage/applicationpaths.h"
 #include "application/defaultsettings.h"
 static void check(bool ok,const char *message) { if (!ok) { std::cerr<<message<<'\n'; std::exit(1); } }
-static void write(const QString &path,const QByteArray &data) { QFile f(path); check(f.open(QIODevice::WriteOnly) && f.write(data)==data.size(),"write fixture"); }
+static void write(const QString &path,const QByteArray &data) { check(QDir().mkpath(QFileInfo(path).absolutePath()),"create fixture directory"); QFile f(path); check(f.open(QIODevice::WriteOnly) && f.write(data)==data.size(),"write fixture"); }
 static QByteArray read(const QString &path) { QFile f(path); check(f.open(QIODevice::ReadOnly),"read fixture"); return f.readAll(); }
 int main(int argc,char **argv) {
     QTemporaryDir directory; check(directory.isValid(),"isolated settings");
@@ -41,6 +42,7 @@ int main(int argc,char **argv) {
       check(settings.value("JustConnect/AuthID")=="persisted-id" && settings.value("JustConnect/AuthSubType")=="password","selected authentication identity survives settings reload/apply");
       check(!settings.value("JustConnect/TLSVerify").toBool(),"explicit TLS policy saved through the shared server editor"); }
     const auto cache=ApplicationPaths::clientDataFile("fixture"),otherCache=ApplicationPaths::clientDataFile("other");
+    check(!QFileInfo::exists(cache) && !QFileInfo::exists(otherCache),"locating legacy cache creates no plaintext files");
     write(cache,"current authentication"); write(otherCache,"other authentication");
     QString expectedMessage,fileSelection; bool shown=false;
     int messageResult=QMessageBox::Ok;
