@@ -47,6 +47,8 @@ QJsonObject configuration(const ConnectionProfile &p, CoreEngine::Operation oper
 }
 ConnectionError connectionError(int status) {
     if (status == JC_OK || status == JC_CANCELLED) return ConnectionError::NONE;
+    if (status == JC_INVALID_ARGUMENT) return ConnectionError::INVALID_CONFIGURATION;
+    if (status == JC_UNSUPPORTED || status == JC_ABI_MISMATCH) return ConnectionError::CORE_UNAVAILABLE;
     return ConnectionError::CLIENT_FAILED;
 }
 }
@@ -86,7 +88,8 @@ public:
         const auto status = library().jc_session_respond(handle,
             reinterpret_cast<const uint8_t *>(response.constData()), uint32_t(response.size()));
         response.fill('\0');
-        if (status != JC_OK) emit rejected(serial);
+        if (status == JC_OK) emit accepted(serial);
+        else emit rejected(serial);
     }
     void poll() {
         if (!active || QThread::currentThread()->isInterruptionRequested()) return;
@@ -99,7 +102,8 @@ public:
             return;
         }
         QJsonParseError error;
-        const auto doc = QJsonDocument::fromJson(buffer.first(length), &error);
+        const auto doc = length <= uint32_t(buffer.size())
+            ? QJsonDocument::fromJson(buffer.first(length), &error) : QJsonDocument();
         if (status != JC_OK || error.error != QJsonParseError::NoError || !doc.isObject()
             || doc.object()["schema_version"].toInt() != JC_ABI_VERSION
             || doc.object()["generation"].toString() != QString::number(generation)) {
@@ -116,6 +120,7 @@ public:
 signals:
     void received(quint64 serial, const QJsonObject &event);
     void failed(quint64 serial, int status);
+    void accepted(quint64 serial);
     void rejected(quint64 serial);
 };
 
@@ -131,6 +136,9 @@ EmbeddedCoreEngine::EmbeddedCoreEngine(QObject *parent) : CoreEngine(parent), pu
     connect(pump, &CoreEventPump::rejected, this, [this](quint64 id) {
         if (active && id == serial && !stopping) emit responseRejected();
     }, Qt::QueuedConnection);
+    connect(pump, &CoreEventPump::accepted, this, [this](quint64 id) {
+        if (active && id == serial && !stopping) emit responseAccepted();
+    }, Qt::QueuedConnection);
     thread.start();
 }
 EmbeddedCoreEngine::~EmbeddedCoreEngine() {
@@ -141,9 +149,19 @@ EmbeddedCoreEngine::~EmbeddedCoreEngine() {
 }
 bool EmbeddedCoreEngine::start(const ConnectionProfile &profile, Operation operation) {
     if (active) return false;
-    active = true; stopping = false;
+    active = true; stopping = false; established = false;
     const auto id = ++serial;
-    auto config = QJsonDocument(configuration(profile, operation)).toJson(QJsonDocument::Compact);
+    const bool unsupported = operation == Operation::Connect && (
+        profile.endpoint.protocol != "atrust" || !profile.extraArguments.isEmpty()
+        || profile.tunnel.tunMode || profile.tunnel.addRoute || profile.tunnel.dnsHijack || profile.tunnel.fakeIp
+        || profile.tunnel.tcpTunnelMode || !profile.tunnel.tcpPortForwarding.isEmpty() || !profile.tunnel.udpPortForwarding.isEmpty()
+        || !profile.proxy.shadowsocksUrl.isEmpty() || !profile.proxy.dialDirectProxy.isEmpty() || profile.proxy.proxyAll
+        || !profile.proxy.customDomains.isEmpty() || (!profile.dns.automatic && !profile.dns.primary.isEmpty()) || !profile.dns.custom.isEmpty()
+        || !profile.dns.dnsServerBind.isEmpty() || profile.behavior.updateBestNodesInterval != ConnectionBehavior{}.updateBestNodesInterval
+        || !profile.behavior.keepAliveUrl.isEmpty() || profile.behavior.skipDomainResource || profile.behavior.disableServerConfig
+        || profile.debug.capturePcap || profile.debug.exportTlsKeys || profile.debug.detailedOutput);
+    auto config = unsupported ? QByteArray() : QJsonDocument(configuration(profile, operation)).toJson(QJsonDocument::Compact);
+    if (config.size() > JC_MAX_INPUT) config.clear();
     QMetaObject::invokeMethod(pump, [this, id, config] { pump->start(id, config); }, Qt::QueuedConnection);
     return true;
 }
@@ -155,6 +173,7 @@ void EmbeddedCoreEngine::stop() {
 void EmbeddedCoreEngine::respond(const QJsonObject &response) {
     if (!active || stopping) return;
     auto bytes = QJsonDocument(response).toJson(QJsonDocument::Compact);
+    if (bytes.size() > JC_MAX_INPUT) bytes.clear();
     QMetaObject::invokeMethod(pump, [this, bytes] { pump->respond(bytes); }, Qt::QueuedConnection);
 }
 void EmbeddedCoreEngine::deliver(quint64 id, const QJsonObject &event) {
@@ -162,7 +181,9 @@ void EmbeddedCoreEngine::deliver(quint64 id, const QJsonObject &event) {
     const auto type = event["type"].toString();
     if (type == "terminal") {
         active = false;
-        emit finished(connectionError(event["status"].toInt(JC_INTERNAL)));
+        const auto status = event["status"].toInt(JC_INTERNAL);
+        emit finished(established && status != JC_OK && status != JC_CANCELLED
+            ? ConnectionError::OTHER : connectionError(status));
         return;
     }
     QMetaObject::invokeMethod(pump, &CoreEventPump::poll, Qt::QueuedConnection);
@@ -170,7 +191,7 @@ void EmbeddedCoreEngine::deliver(quint64 id, const QJsonObject &event) {
     if (type == "authentication") emit authenticationRequired(event);
     else if (type == "auth_methods") emit authMethodsReady(event["methods"].toArray());
     else if (type == "diagnostic") emit diagnostic(event["code"].toString());
-    else if (type == "state" && event["state"] == "ready") emit connectionEstablished();
+    else if (type == "state" && event["state"] == "ready") { established = true; emit connectionEstablished(); }
 }
 QJsonObject EmbeddedCoreEngine::buildInfo() {
     auto &api = library();
@@ -178,7 +199,7 @@ QJsonObject EmbeddedCoreEngine::buildInfo() {
     QByteArray buffer(JC_MAX_OUTPUT, Qt::Uninitialized);
     uint32_t length = 0;
     if (api.jc_build_info(JC_ABI_VERSION, reinterpret_cast<uint8_t *>(buffer.data()),
-            uint32_t(buffer.size()), &length) != JC_OK) return {};
+            uint32_t(buffer.size()), &length) != JC_OK || length > uint32_t(buffer.size())) return {};
     return QJsonDocument::fromJson(buffer.first(length)).object();
 }
 

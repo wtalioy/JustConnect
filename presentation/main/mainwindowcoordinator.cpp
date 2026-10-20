@@ -5,7 +5,7 @@
 #include "application/connectionsession.h"
 #include "application/profileservice.h"
 #include "application/systemproxysession.h"
-#include "infrastructure/coreprocess/externalcoreprocess.h"
+#include "infrastructure/coreengine/embeddedcoreengine.h"
 #include "infrastructure/platform/platformsystemproxybackend.h"
 #include "infrastructure/settings/profilemanager.h"
 #include "infrastructure/update/updatechecker.h"
@@ -22,7 +22,7 @@ MainWindowCoordinator::MainWindowCoordinator(
           overrideConfigPath,
           this
       )),
-      connectionSession(new ConnectionSession(new ExternalCoreProcess(), this)),
+      connectionSession(new ConnectionSession(new EmbeddedCoreEngine(), this)),
       systemProxySession(new SystemProxySession(
           std::make_unique<PlatformSystemProxyBackend>(),
           this
@@ -30,70 +30,16 @@ MainWindowCoordinator::MainWindowCoordinator(
       updateChecker(new UpdateChecker(this)),
       authenticationCoordinator(new AuthDialogCoordinator(
           parentWidget,
-          profileService->settings(),
           this
       ))
 {
-    connect(
-        connectionSession,
-        &ConnectionSession::askSudoPass,
-        authenticationCoordinator,
-        &AuthDialogCoordinator::requestSudoPassword
-    );
-    connect(
-        connectionSession,
-        &ConnectionSession::graphCaptcha,
-        authenticationCoordinator,
-        &AuthDialogCoordinator::requestGraphCaptcha
-    );
-    connect(
-        connectionSession,
-        &ConnectionSession::smsCode,
-        authenticationCoordinator,
-        &AuthDialogCoordinator::requestSmsCode
-    );
-    connect(
-        connectionSession,
-        &ConnectionSession::totpCode,
-        authenticationCoordinator,
-        &AuthDialogCoordinator::requestTotpCode
-    );
-    connect(
-        connectionSession,
-        &ConnectionSession::randCode,
-        authenticationCoordinator,
-        [this]() { authenticationCoordinator->requestSmsCode(false); }
-    );
-    connect(
-        connectionSession,
-        &ConnectionSession::radiusCode,
-        authenticationCoordinator,
-        &AuthDialogCoordinator::requestRadiusCode
-    );
-    connect(
-        connectionSession,
-        &ConnectionSession::ssoAuth,
-        authenticationCoordinator,
-        &AuthDialogCoordinator::requestSsoLogin
-    );
-    connect(
-        authenticationCoordinator,
-        &AuthDialogCoordinator::sudoPasswordSubmitted,
-        connectionSession,
-        &ConnectionSession::submitSudoPassword
-    );
-    connect(
-        authenticationCoordinator,
-        &AuthDialogCoordinator::interactiveInputSubmitted,
-        connectionSession,
-        &ConnectionSession::submitInput
-    );
-    connect(
-        authenticationCoordinator,
-        &AuthDialogCoordinator::interactiveInputCancelled,
-        connectionSession,
-        &ConnectionSession::cancelInteractiveInput
-    );
+    connect(connectionSession, &ConnectionSession::authenticationRequired,
+        authenticationCoordinator, &AuthDialogCoordinator::requestAuthentication);
+    connect(authenticationCoordinator, &AuthDialogCoordinator::responseSubmitted,
+        connectionSession, &ConnectionSession::submitResponse);
+    connect(connectionSession, &ConnectionSession::stateChanged, this, [this](ConnectionState state) {
+        if (state != ConnectionState::Starting) authenticationCoordinator->closeAuthentication();
+    });
 
     connect(
         systemProxySession,
@@ -149,5 +95,7 @@ MainWindowCoordinator::authenticationDialogs() const
 
 void MainWindowCoordinator::prepareForShutdown()
 {
+    authenticationCoordinator->closeAuthentication();
+    connectionSession->stop();
     systemProxySession->clearBeforeShutdown();
 }

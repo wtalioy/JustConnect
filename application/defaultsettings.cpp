@@ -30,7 +30,6 @@ void DefaultSettings::reset(QSettings &settings)
     settings.setValue("JustConnect/ShadowsocksURL", "");
     settings.setValue("JustConnect/DialDirectProxy", "");
     settings.setValue("JustConnect/UpdateBestNodesInterval", 300);
-    settings.setValue("JustConnect/CredentialsAsArguments", false);
 
     settings.setValue("JustConnect/Protocol", "atrust");
     settings.setValue("JustConnect/EasyConnectAuthType", "password");

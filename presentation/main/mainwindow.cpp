@@ -22,7 +22,6 @@
 #include "application/applicationconstants.h"
 #include "application/commandlineoptions.h"
 #include "application/settingsmigrator.h"
-#include "infrastructure/coreprocess/devicetrust.h"
 #include "infrastructure/logging/applicationlogfile.h"
 #include "infrastructure/storage/applicationpaths.h"
 #include "infrastructure/update/updatechecker.h"
@@ -88,14 +87,8 @@ MainWindow::MainWindow(
     connect(updateChecker, &UpdateChecker::versionInfoChanged, this,
             [this](const VersionInfo &) { updateVersionInfo(); });
     connect(updateChecker, &UpdateChecker::checkFailed, this,
-            [this](UpdateComponent component, const QString &)
-            {
-                const QString componentName =
-                    component == UpdateComponent::Ui ? QStringLiteral("UI") : QStringLiteral("核心");
-                ui->versionLabel->setToolTip(
-                    ui->versionLabel->toolTip()
-                    + "\n检查" + componentName + "更新失败"
-                );
+            [this](const QString &) {
+                ui->versionLabel->setToolTip(ui->versionLabel->toolTip() + "\n检查更新失败");
             });
     connect(updateChecker, &UpdateChecker::uiUpdateAvailable, this,
             [this](const QString &latestVersion)
@@ -242,48 +235,6 @@ MainWindow::MainWindow(
                 qInfo().noquote() << "已清理登录缓存";
             });
 
-    // 文件-设置授信设备
-    connect(ui->trustDeviceAction, &QAction::triggered, this,
-            [&]()
-            {
-                try
-                {
-                    DeviceTrust::set(this,
-                        settings->value("JustConnect/Protocol", "easyconnect").toString(),
-                        settings->value("JustConnect/ServerAddress").toString(),
-                        settings->value("JustConnect/ServerPort").toInt(),
-                        currentProfileId, true);
-                    qInfo().noquote() << "设置授信设备成功";
-                    QMessageBox::information(this, "成功", "已设置授信设备");
-                }
-                catch (const std::runtime_error &e)
-                {
-                    qWarning().noquote() << "设置授信设备失败：" + QString(e.what());
-                    QMessageBox::critical(this, "错误", "设置授信设备失败：\n" + QString(e.what()));
-                }
-            });
-
-    // 文件-取消授信设备
-    connect(ui->untrustDeviceAction, &QAction::triggered, this,
-            [&]()
-            {
-                try
-                {
-                    DeviceTrust::set(this,
-                        settings->value("JustConnect/Protocol", "easyconnect").toString(),
-                        settings->value("JustConnect/ServerAddress").toString(),
-                        settings->value("JustConnect/ServerPort").toInt(),
-                        currentProfileId, false);
-                    qInfo().noquote() << "取消授信设备成功";
-                    QMessageBox::information(this, "成功", "已取消授信设备");
-                }
-                catch (const std::runtime_error &e)
-                {
-                    qWarning().noquote() << "取消授信设备失败：" + QString(e.what());
-                    QMessageBox::critical(this, "错误", "取消授信设备失败：\n" + QString(e.what()));
-                }
-            });
-
     // 帮助-检查更新
     connect(ui->checkUpdateAction, &QAction::triggered,
             updateChecker, &UpdateChecker::check);
@@ -332,7 +283,6 @@ MainWindow::MainWindow(
         authenticationDialogs,
         applicationLogger,
         [this]() { return settings; },
-        [this]() { return currentProfileId; },
         [this](
             const QString &title,
             const QString &content,
@@ -720,7 +670,6 @@ bool MainWindow::switchProfile(const QString &profileId)
         return false;
     }
     settings = profileService->settings();
-    authenticationDialogs->setSettings(settings);
     currentProfileId = profileService->currentProfileId();
 
     upgradeSettings();
@@ -769,7 +718,6 @@ void MainWindow::createProfile()
 
     settings = profileService->settings();
     currentProfileId = profileService->currentProfileId();
-    authenticationDialogs->setSettings(settings);
     upgradeSettings();
     updateVersionInfo();
     resetConnectionUi();
@@ -912,7 +860,6 @@ void MainWindow::renameCurrentProfile()
 
     currentProfileId = profileService->currentProfileId();
     settings = profileService->settings();
-    authenticationDialogs->setSettings(settings);
     updateVersionInfo();
     refreshProfileMenu();
     clearLog();
@@ -956,7 +903,6 @@ void MainWindow::deleteCurrentProfile()
 
     currentProfileId = profileService->currentProfileId();
     settings = profileService->settings();
-    authenticationDialogs->setSettings(settings);
     upgradeSettings();
     updateVersionInfo();
     resetConnectionUi();
@@ -999,7 +945,7 @@ void MainWindow::updateVersionInfo()
     ui->versionLabel->setText("版本 " + versionInfo.uiVersion);
     ui->versionLabel->setToolTip(
         "UI 版本：" + versionInfo.uiVersion + "（最新：" + versionInfo.uiLatest + "）\n"
-        "核心版本：" + versionInfo.coreVersion + "（最新：" + versionInfo.coreLatest + "）"
+        "内置核心：" + versionInfo.coreVersion
     );
     updateProfileSummary();
 }

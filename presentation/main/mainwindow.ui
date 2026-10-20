@@ -105,7 +105,7 @@
         <item>
          <widget class="QLabel" name="applicationSubtitleLabel">
           <property name="text">
-           <string>支持 aTrust 与 EasyConnect 协议</string>
+           <string>支持 aTrust 协议</string>
           </property>
          </widget>
         </item>
@@ -461,8 +461,6 @@
     <addaction name="disableProxyAction"/>
     <addaction name="clearClientDataAction"/>
     <addaction name="separator"/>
-    <addaction name="trustDeviceAction"/>
-    <addaction name="untrustDeviceAction"/>
     <addaction name="separator"/>
     <addaction name="openLogAction"/>
     <addaction name="settingAction"/>
@@ -544,22 +542,6 @@
   <action name="clearClientDataAction">
    <property name="text">
     <string>清理登录缓存</string>
-   </property>
-  </action>
-  <action name="trustDeviceAction">
-   <property name="text">
-    <string>设置授信设备</string>
-   </property>
-   <property name="menuRole">
-    <enum>QAction::MenuRole::NoRole</enum>
-   </property>
-  </action>
-  <action name="untrustDeviceAction">
-   <property name="text">
-    <string>取消授信设备</string>
-   </property>
-   <property name="menuRole">
-    <enum>QAction::MenuRole::NoRole</enum>
    </property>
   </action>
  </widget>

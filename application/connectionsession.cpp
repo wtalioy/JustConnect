@@ -1,37 +1,38 @@
 #include "connectionsession.h"
 
-ConnectionSession::ConnectionSession(CoreProcess *coreProcess, QObject *parent)
+ConnectionSession::ConnectionSession(CoreEngine *coreEngine, QObject *parent)
     : QObject(parent),
-      coreProcess(coreProcess)
+      coreEngine(coreEngine)
 {
-    coreProcess->setParent(this);
+    coreEngine->setParent(this);
     reconnectTimer.setSingleShot(true);
-
-    connect(coreProcess, &CoreProcess::outputRead, this, &ConnectionSession::outputRead);
-    connect(coreProcess, &CoreProcess::graphCaptcha, this, &ConnectionSession::graphCaptcha);
-    connect(coreProcess, &CoreProcess::smsCode, this, &ConnectionSession::smsCode);
-    connect(coreProcess, &CoreProcess::totpCode, this, &ConnectionSession::totpCode);
-    connect(coreProcess, &CoreProcess::randCode, this, &ConnectionSession::randCode);
-    connect(coreProcess, &CoreProcess::radiusCode, this, &ConnectionSession::radiusCode);
-    connect(coreProcess, &CoreProcess::ssoAuth, this, &ConnectionSession::ssoAuth);
-    connect(coreProcess, &CoreProcess::askSudoPass,
-            this, &ConnectionSession::handleSudoPasswordRequest);
-
-    connect(coreProcess, &CoreProcess::error, this, [this](ConnectionError error)
-    {
-        sessionState.recordError(error);
+    connect(coreEngine, &CoreEngine::diagnostic, this, &ConnectionSession::diagnostic);
+    connect(coreEngine, &CoreEngine::authenticationRequired, this, [this](const QJsonObject &request) {
+        if (sessionState.state() != ConnectionState::Starting) return;
+        pendingAuthentication = request;
+        responseAction.clear();
+        emit authenticationRequired(request, serverUrl());
     });
-    connect(coreProcess, &CoreProcess::started, this, [this]()
-    {
-        emit stateChanged(sessionState.state());
+    connect(coreEngine, &CoreEngine::responseRejected, this, [this] {
+        responseAction.clear();
+        if (!pendingAuthentication.isEmpty() && sessionState.state() == ConnectionState::Starting)
+            emit authenticationRequired(pendingAuthentication, serverUrl());
     });
-    connect(coreProcess, &CoreProcess::connectionEstablished, this, [this]()
-    {
+    connect(coreEngine, &CoreEngine::responseAccepted, this, [this] {
+        if (responseAction == "cancel") stop();
+        else clearAuthentication();
+    });
+    connect(coreEngine, &CoreEngine::connectionEstablished, this, [this] {
+        clearAuthentication();
         sessionState.connectionEstablished();
         emit stateChanged(sessionState.state());
     });
-    connect(coreProcess, &CoreProcess::finished,
-            this, &ConnectionSession::handleCoreFinished);
+    connect(coreEngine, &CoreEngine::finished, this, [this](ConnectionError error) {
+        if (!sessionState.isActive()) return;
+        clearAuthentication();
+        sessionState.recordError(error);
+        handleCoreFinished();
+    });
     connect(&reconnectTimer, &QTimer::timeout, this, [this]()
     {
         if (sessionState.state() != ConnectionState::Reconnecting)
@@ -59,8 +60,9 @@ bool ConnectionSession::start(const ConnectionProfile &profile, const ReconnectP
 
 void ConnectionSession::stop()
 {
+    clearAuthentication();
     const ConnectionState previousState = sessionState.state();
-    const bool processNeedsStop = sessionState.requestStop();
+    const bool engineNeedsStop = sessionState.requestStop();
     if (previousState == ConnectionState::Reconnecting)
     {
         reconnectTimer.stop();
@@ -69,38 +71,30 @@ void ConnectionSession::stop()
         return;
     }
 
-    if (processNeedsStop)
+    if (engineNeedsStop)
     {
         emit stateChanged(sessionState.state());
-        coreProcess->stop();
+        coreEngine->stop();
     }
 }
 
-void ConnectionSession::submitInput(const QByteArray &data)
+void ConnectionSession::submitResponse(const QJsonObject &response)
 {
-    coreProcess->writeInput(data);
+    if (pendingAuthentication.isEmpty() || !responseAction.isEmpty()
+        || response["generation"] != pendingAuthentication["generation"]
+        || response["request_id"] != pendingAuthentication["request_id"]
+        || sessionState.state() != ConnectionState::Starting) return;
+    responseAction = response["action"].toString();
+    coreEngine->respond(response);
 }
 
-void ConnectionSession::cancelInteractiveInput()
+QUrl ConnectionSession::serverUrl() const
 {
-    submitInput("\r\n");
-    stop();
-}
-
-void ConnectionSession::submitSudoPassword(const QString &password, bool remember)
-{
-    if (password.isEmpty())
-    {
-        stop();
-        return;
-    }
-
-    if (remember)
-    {
-        savedSudoPassword = password;
-    }
-    sudoPasswordSubmitted = true;
-    submitInput(password.toUtf8() + "\n");
+    QUrl url;
+    url.setScheme("https");
+    url.setHost(currentProfile.endpoint.server);
+    url.setPort(currentProfile.endpoint.port);
+    return url;
 }
 
 ConnectionState ConnectionSession::state() const
@@ -115,13 +109,16 @@ bool ConnectionSession::isActive() const
 
 void ConnectionSession::startCore()
 {
-    sudoPasswordSubmitted = false;
-    coreProcess->start(currentProfile);
+    clearAuthentication();
+    if (!coreEngine->start(currentProfile)) {
+        sessionState.recordError(ConnectionError::OTHER);
+        handleCoreFinished();
+    }
 }
 
 void ConnectionSession::handleCoreFinished()
 {
-    if (sessionState.processFinished() == ProcessFinishAction::Reconnect)
+    if (sessionState.engineFinished() == SessionFinishAction::Reconnect)
     {
         emit stateChanged(sessionState.state());
         emit reconnectScheduled(sessionState.reconnectDelayMs());
@@ -133,22 +130,8 @@ void ConnectionSession::handleCoreFinished()
     emit finished(sessionState.error());
 }
 
-void ConnectionSession::handleSudoPasswordRequest()
+void ConnectionSession::clearAuthentication()
 {
-    if (savedSudoPassword.isEmpty())
-    {
-        emit askSudoPass();
-        return;
-    }
-
-    if (sudoPasswordSubmitted)
-    {
-        savedSudoPassword.clear();
-        emit savedSudoPasswordRejected();
-        emit askSudoPass();
-        return;
-    }
-
-    sudoPasswordSubmitted = true;
-    submitInput(savedSudoPassword.toUtf8() + "\n");
+    pendingAuthentication = {};
+    responseAction.clear();
 }

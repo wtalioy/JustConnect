@@ -18,11 +18,19 @@ public:
     virtual void stop() = 0;
     virtual void respond(const QJsonObject &response) = 0;
 
+    static QJsonObject responseFor(const QJsonObject &request, QJsonObject fields) {
+        fields["schema_version"] = request["schema_version"];
+        fields["generation"] = request["generation"];
+        fields["request_id"] = request["request_id"];
+        return fields;
+    }
+
 signals:
     void authenticationRequired(const QJsonObject &request);
     void authMethodsReady(const QJsonArray &methods);
     void diagnostic(const QString &code);
     void connectionEstablished();
     void finished(ConnectionError error);
+    void responseAccepted();
     void responseRejected();
 };

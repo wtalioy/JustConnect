@@ -65,6 +65,14 @@ function(justconnect_core_library KIND)
     endif()
 endfunction()
 
+function(justconnect_core_engine TARGET LIBRARY)
+    add_library(${TARGET} STATIC "${REPO}/application/coreengine.h"
+        "${REPO}/infrastructure/coreengine/embeddedcoreengine.cpp")
+    set_target_properties(${TARGET} PROPERTIES AUTOMOC ON)
+    target_include_directories(${TARGET} PUBLIC "${REPO}")
+    target_link_libraries(${TARGET} PUBLIC Qt6::Core ${LIBRARY})
+endfunction()
+
 function(justconnect_core_runtime HOST KIND)
     if(WIN32)
         get_target_property(LIBRARY ${KIND} JC_RUNTIME_LIBRARY)

@@ -11,7 +11,7 @@
 #include <QVersionNumber>
 
 #include "application/applicationconstants.h"
-#include "infrastructure/coreprocess/coreexecutable.h"
+#include "infrastructure/coreengine/embeddedcoreengine.h"
 
 namespace
 {
@@ -129,16 +129,18 @@ UpdateChecker::UpdateChecker(QObject *parent)
       versions{
           QApplication::applicationVersion(),
           QStringLiteral("正在检查"),
-          QStringLiteral("未知"),
-          QStringLiteral("正在检查")
+          QString()
       },
-      uiNetworkManager(new QNetworkAccessManager(this)),
-      coreNetworkManager(new QNetworkAccessManager(this))
+      uiNetworkManager(new QNetworkAccessManager(this))
 {
     connect(uiNetworkManager, &QNetworkAccessManager::finished,
             this, &UpdateChecker::handleUiReply);
-    connect(coreNetworkManager, &QNetworkAccessManager::finished,
-            this, &UpdateChecker::handleCoreReply);
+    const auto info = EmbeddedCoreEngine::buildInfo();
+    const auto build = info["build"].toObject();
+    versions.coreVersion = info.isEmpty() ? QStringLiteral("不可用")
+        : build["local_version"].toString() + " / ABI " + QString::number(info["abi_version"].toInt())
+            + " / " + build["os"].toString() + "-" + build["arch"].toString()
+            + " / " + build["go_version"].toString();
 }
 
 const VersionInfo &UpdateChecker::versionInfo() const
@@ -149,24 +151,11 @@ const VersionInfo &UpdateChecker::versionInfo() const
 void UpdateChecker::markDisabled()
 {
     versions.uiLatest = QStringLiteral("已禁用");
-    versions.coreLatest = QStringLiteral("已禁用");
     emit versionInfoChanged(versions);
 }
 
 void UpdateChecker::check()
 {
-    try
-    {
-        versions.coreVersion = CoreExecutable::version(this);
-        qInfo().noquote() << "检查核心版本成功：" + versions.coreVersion;
-    }
-    catch (const std::runtime_error &error)
-    {
-        qWarning().noquote() << "检查核心版本失败：" + QString(error.what());
-        versions.coreVersion = QStringLiteral("错误");
-    }
-    emit versionInfoChanged(versions);
-
     uiNetworkManager->get(QNetworkRequest(
         QUrl(
             "https://api.github.com/repos/" +
@@ -174,13 +163,7 @@ void UpdateChecker::check()
             "/releases/latest"
         )
     ));
-    coreNetworkManager->get(QNetworkRequest(
-        QUrl(
-            "https://api.github.com/repos/" +
-            ApplicationConstants::CoreRepositoryName +
-            "/releases/latest"
-        )
-    ));
+
 }
 
 QString UpdateChecker::normalizeVersionTag(const QString &tag)
@@ -246,7 +229,7 @@ void UpdateChecker::handleUiReply(QNetworkReply *reply)
         qWarning().noquote() << "检查 UI 更新失败。原因是：" + reason;
         versions.uiLatest = QStringLiteral("检查失败");
         reply->deleteLater();
-        emit checkFailed(UpdateComponent::Ui, reason);
+        emit checkFailed(reason);
         emit versionInfoChanged(versions);
         return;
     }
@@ -260,7 +243,7 @@ void UpdateChecker::handleUiReply(QNetworkReply *reply)
             QStringLiteral("响应中缺少有效的版本标签");
         qWarning().noquote() << "检查 UI 更新失败。原因是：" + reason;
         versions.uiLatest = QStringLiteral("检查失败");
-        emit checkFailed(UpdateComponent::Ui, reason);
+        emit checkFailed(reason);
         emit versionInfoChanged(versions);
         return;
     }
@@ -273,43 +256,5 @@ void UpdateChecker::handleUiReply(QNetworkReply *reply)
     if (isNewerVersion(versions.uiVersion, *latestVersion))
     {
         emit uiUpdateAvailable(*latestVersion);
-    }
-}
-
-void UpdateChecker::handleCoreReply(QNetworkReply *reply)
-{
-    if (reply->error() != QNetworkReply::NoError)
-    {
-        const QString reason = reply->errorString();
-        qWarning().noquote() << "检查核心更新失败。原因是：" + reason;
-        versions.coreLatest = QStringLiteral("检查失败");
-        reply->deleteLater();
-        emit checkFailed(UpdateComponent::Core, reason);
-        emit versionInfoChanged(versions);
-        return;
-    }
-
-    const std::optional<QString> latestVersion =
-        parseReleaseVersion(reply->readAll());
-    reply->deleteLater();
-    if (!latestVersion.has_value())
-    {
-        const QString reason =
-            QStringLiteral("响应中缺少有效的版本标签");
-        qWarning().noquote() << "检查核心更新失败。原因是：" + reason;
-        versions.coreLatest = QStringLiteral("检查失败");
-        emit checkFailed(UpdateComponent::Core, reason);
-        emit versionInfoChanged(versions);
-        return;
-    }
-
-    qInfo().noquote()
-        << "检查核心更新成功。最新版本：" + *latestVersion;
-    versions.coreLatest = *latestVersion;
-    emit versionInfoChanged(versions);
-
-    if (isNewerVersion(versions.coreVersion, *latestVersion))
-    {
-        qInfo().noquote() << "核心版本存在更新，可手动更新或通知开发者更新。";
     }
 }

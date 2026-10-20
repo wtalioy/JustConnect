@@ -29,7 +29,7 @@ bool normalLifecycle()
         return false;
     }
 
-    if (session.processFinished() != ProcessFinishAction::Complete
+    if (session.engineFinished() != SessionFinishAction::Complete
         || session.state() != ConnectionState::Disconnected
         || session.isActive())
     {
@@ -44,9 +44,9 @@ bool reconnectsOnlyEligibleFailures()
     ConnectionSessionState session;
     session.requestStart({true, 2500});
     session.connectionEstablished();
-    session.recordError(ConnectionError::AUTH_EXPIRED);
+    session.recordError(ConnectionError::OTHER);
 
-    if (session.processFinished() != ProcessFinishAction::Reconnect
+    if (session.engineFinished() != SessionFinishAction::Reconnect
         || session.state() != ConnectionState::Reconnecting
         || session.reconnectDelayMs() != 2500)
     {
@@ -61,8 +61,8 @@ bool reconnectsOnlyEligibleFailures()
         return false;
     }
 
-    session.recordError(ConnectionError::INVALID_DETAIL);
-    if (session.processFinished() != ProcessFinishAction::Complete
+    session.recordError(ConnectionError::INVALID_CONFIGURATION);
+    if (session.engineFinished() != SessionFinishAction::Complete
         || session.state() != ConnectionState::Failed)
     {
         qCritical() << "reconnectsOnlyEligibleFailures reconnected an ineligible error";
@@ -76,15 +76,15 @@ bool keepsFirstErrorAndCancelsPendingReconnect()
     ConnectionSessionState session;
     session.requestStart({true, 1000});
     session.connectionEstablished();
-    session.recordError(ConnectionError::AUTH_EXPIRED);
     session.recordError(ConnectionError::OTHER);
-    if (session.error() != ConnectionError::AUTH_EXPIRED)
+    session.recordError(ConnectionError::CLIENT_FAILED);
+    if (session.error() != ConnectionError::OTHER)
     {
         qCritical() << "keepsFirstErrorAndCancelsPendingReconnect did not keep first error";
         return false;
     }
 
-    session.processFinished();
+    session.engineFinished();
     if (session.requestStop()
         || session.state() != ConnectionState::Disconnected
         || session.wantsConnection())
@@ -102,7 +102,7 @@ bool establishedConnectionEndsAsInterrupted()
     session.connectionEstablished();
     session.recordError(ConnectionError::OTHER);
 
-    if (session.processFinished() != ProcessFinishAction::Complete
+    if (session.engineFinished() != SessionFinishAction::Complete
         || session.state() != ConnectionState::Interrupted)
     {
         qCritical() << "establishedConnectionEndsAsInterrupted failed";

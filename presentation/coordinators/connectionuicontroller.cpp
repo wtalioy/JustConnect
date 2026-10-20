@@ -14,8 +14,6 @@
 #include "application/applicationlogger.h"
 #include "application/connectionsession.h"
 #include "application/systemproxysession.h"
-#include "infrastructure/coreprocess/coreexecutable.h"
-#include "infrastructure/platform/privileges.h"
 #include "infrastructure/settings/settingsprofileloader.h"
 #include "presentation/coordinators/authdialogcoordinator.h"
 
@@ -29,7 +27,6 @@ ConnectionUiController::ConnectionUiController(
     AuthDialogCoordinator *authenticationDialogs,
     ApplicationLogger *applicationLogger,
     SettingsProvider settingsProvider,
-    ProfileIdProvider profileIdProvider,
     NotificationHandler notificationHandler,
     QObject *parent
 )
@@ -42,7 +39,6 @@ ConnectionUiController::ConnectionUiController(
       systemProxySession(systemProxySession),
       authenticationDialogs(authenticationDialogs),
       settingsProvider(std::move(settingsProvider)),
-      profileIdProvider(std::move(profileIdProvider)),
       notificationHandler(std::move(notificationHandler))
 {
     connectButton->setText("连接服务器");
@@ -50,18 +46,8 @@ ConnectionUiController::ConnectionUiController(
     proxyButton->setText("设置系统代理");
     proxyButton->hide();
 
-    connect(
-        connectionSession,
-        &ConnectionSession::outputRead,
-        applicationLogger,
-        &ApplicationLogger::appendCoreOutput
-    );
-    connect(
-        connectionSession,
-        &ConnectionSession::savedSudoPasswordRejected,
-        this,
-        []() { qWarning().noquote() << "sudo 密码可能有误，不使用记住的密码"; }
-    );
+    connect(connectionSession, &ConnectionSession::diagnostic, applicationLogger,
+        [applicationLogger](const QString &code) { applicationLogger->appendCoreOutput("[core] " + code + "\n"); });
     connect(
         authenticationDialogs,
         &AuthDialogCoordinator::loginSubmitted,
@@ -139,6 +125,13 @@ ConnectionUiController::ConnectionUiController(
             }
         }
     );
+    connect(connectionSession, &ConnectionSession::stateChanged, this, [this](ConnectionState state) {
+        if (state == ConnectionState::Running) {
+            this->proxyButton->show();
+            if (settings()->value("Common/AutoSetProxy", false).toBool() && !this->systemProxySession->isEnabled())
+                this->proxyButton->click();
+        } else this->proxyButton->hide();
+    });
     connect(
         connectButton,
         &QPushButton::clicked,
@@ -179,52 +172,14 @@ void ConnectionUiController::handleConnectClicked()
         settings()->value("Credential/Password", "").toString().toUtf8()
     );
     const QString protocol =
-        settings()->value("JustConnect/Protocol", "easyconnect").toString();
+        settings()->value("JustConnect/Protocol", "atrust").toString();
     const QString authType =
         settings()->value("JustConnect/AuthType", "psw").toString();
-    const QString easyconnectAuthType = settings()->value(
-        "JustConnect/EasyConnectAuthType",
-        settings()->value("Credential/CertFile", "").toString().isEmpty()
-            ? "password"
-            : "certificate"
-    ).toString();
-
-    if (protocol == "easyconnect"
-        && easyconnectAuthType == "certificate"
-        && settings()->value("Credential/CertFile", "").toString().isEmpty())
-    {
-        QMessageBox::information(
-            parentWidget,
-            "需要配置证书",
-            "当前配置选择了证书认证。\n"
-            "请通过“文件 → 配置引导”选择证书文件。"
-        );
+    if (protocol != "atrust") {
+        QMessageBox::warning(parentWidget, "协议不可用", "当前核心支持 aTrust，请通过配置引导选择 aTrust。");
         return;
     }
-
-#if defined(Q_OS_WIN)
-    if (settings()->value("JustConnect/TUNMode").toBool() &&
-        !Privileges::isElevated())
-    {
-        if (Privileges::relaunchElevated())
-        {
-            QApplication::quit();
-        }
-        else
-        {
-            QMessageBox::warning(
-                parentWidget,
-                "提升失败",
-                "无法以管理员权限重新启动，请手动以管理员方式运行。"
-            );
-        }
-        return;
-    }
-#endif
-
-    const bool passwordLogin =
-        (protocol == "atrust" && authType == "psw") ||
-        (protocol == "easyconnect" && easyconnectAuthType != "certificate");
+    const bool passwordLogin = authType == "psw";
     if (protocol == "atrust" && authType == "smsCheckCode")
     {
         QString countryCode = settings()
@@ -255,7 +210,7 @@ void ConnectionUiController::handleConnectClicked()
 
 void ConnectionUiController::handleProxyClicked()
 {
-    if (systemProxySession->isBusy())
+    if (connectionSession->state() != ConnectionState::Running || systemProxySession->isBusy())
     {
         return;
     }
@@ -278,7 +233,7 @@ void ConnectionUiController::handleProxyClicked()
         this,
         [this, proxyConfig, httpPort, socksPort](bool conflict)
         {
-            if (!connectionSession->isActive())
+            if (connectionSession->state() != ConnectionState::Running)
             {
                 return;
             }
@@ -335,7 +290,6 @@ void ConnectionUiController::startConnection(
 {
     ConnectionProfile profile = SettingsProfileLoader::load(
         *settings(),
-        profileIdProvider(),
         username,
         password
     );
@@ -343,7 +297,6 @@ void ConnectionUiController::startConnection(
     {
         profile.endpoint.phone = phone;
     }
-    profile.program = CoreExecutable::path();
     const ReconnectPolicy reconnectPolicy{
         settings()->value("Common/AutoReconnect", false).toBool(),
         settings()->value("Common/ReconnectTime", 1).toInt() * 1000
@@ -356,12 +309,7 @@ void ConnectionUiController::startConnection(
 
     connectButton->setText("断开服务器");
     trayConnectAction->setText("断开服务器");
-    proxyButton->show();
 
-    if (settings()->value("Common/AutoSetProxy", false).toBool())
-    {
-        proxyButton->click();
-    }
 }
 
 void ConnectionUiController::showConnectionError(ConnectionError error)
@@ -369,38 +317,14 @@ void ConnectionUiController::showConnectionError(ConnectionError error)
     QString message;
     switch (error)
     {
-    case ConnectionError::INVALID_DETAIL:
-        message = "登录失败！\n请检查设置中的网络账号和密码是否设置正确。";
-        break;
-    case ConnectionError::BRUTE_FORCE:
-        message = "登录失败！\n登录尝试过于频繁，IP 被风控，请稍后重试或换用 EasyConnect。";
-        break;
-    case ConnectionError::OTHER_LOGIN_FAILED:
-        message = "登录失败！\n未知原因，可将日志反馈给开发者以便调查。";
-        break;
-    case ConnectionError::ACCESS_DENIED:
-        message = "权限不足！\n请关闭程序，点击右键以管理员身份运行。";
-        break;
-    case ConnectionError::LISTEN_FAILED:
-        message = "监听失败！\n请关闭占用端口的程序（如残留的核心进程），或者监听其它端口。";
-        break;
     case ConnectionError::CLIENT_FAILED:
         message = "连接失败！\n可能是响应超时，请检查本地网络配置是否正常，服务器设置是否正确。";
         break;
-    case ConnectionError::CAPTCHA_FAILED:
-        message = "登录失败！\n验证码问题，可能是已验证码过期或者有误。";
+    case ConnectionError::CORE_UNAVAILABLE:
+        message = "核心库不可用！\n请检查安装包是否完整及核心 ABI 是否匹配。";
         break;
-    case ConnectionError::PROGRAM_NOT_FOUND:
-        message = "程序未找到！\n请检查核心是否在正确路径下，检查是否解压在当前目录下。";
-        break;
-    case ConnectionError::INTERACTIVE_ERROR:
-        message = "登录失败！\n请检查您的输入是否正确，检查是否完成 SSO 登录。";
-        break;
-    case ConnectionError::AUTH_NOT_AVAILABLE:
-        message = "认证方式/登录域不可用！\n请通过“获取认证方式”按钮配置认证方式。";
-        break;
-    case ConnectionError::AUTH_EXPIRED:
-        message = "认证已过期！\n请重新登录。";
+    case ConnectionError::INVALID_CONFIGURATION:
+        message = "配置无效或含有当前核心不支持的旧选项。\n请使用 aTrust 和回环 SOCKS/HTTP；TUN、额外 CLI 参数等功能尚不可用。";
         break;
     case ConnectionError::OTHER:
         message = "其它错误！\n未知原因，可将日志反馈给开发者以便调查。";

@@ -15,13 +15,6 @@ struct VersionInfo
     QString uiVersion;
     QString uiLatest;
     QString coreVersion;
-    QString coreLatest;
-};
-
-enum class UpdateComponent
-{
-    Ui,
-    Core
 };
 
 class UpdateChecker : public QObject
@@ -41,16 +34,14 @@ public:
 
 signals:
     void versionInfoChanged(const VersionInfo &versionInfo);
-    void checkFailed(UpdateComponent component, const QString &reason);
+    void checkFailed(const QString &reason);
     void uiUpdateAvailable(const QString &version);
 
 private:
     void handleUiReply(QNetworkReply *reply);
-    void handleCoreReply(QNetworkReply *reply);
 
     VersionInfo versions;
     QNetworkAccessManager *uiNetworkManager;
-    QNetworkAccessManager *coreNetworkManager;
 };
 
 #endif // UPDATECHECKER_H

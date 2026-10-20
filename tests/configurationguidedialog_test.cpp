@@ -70,7 +70,8 @@ bool savesPasswordCredentials(const QString &settingsPath)
     );
     const bool passed = settings.value("Credential/Username") == "alice"
         && savedPassword == "secret"
-        && settings.value("Credential/TOTPSecret") == "totp-key";
+        && settings.value("Credential/TOTPSecret") == "totp-key"
+        && settings.value("JustConnect/Protocol") == "atrust";
     if (!passed)
     {
         qCritical() << "Password credentials were not saved by the guide";
@@ -114,64 +115,6 @@ bool savesSmsCredentials(const QString &settingsPath)
     return passed;
 }
 
-bool savesCertificateCredentials(const QString &settingsPath)
-{
-    QSettings settings(settingsPath, QSettings::IniFormat);
-    settings.setValue("JustConnect/Protocol", "easyconnect");
-    settings.setValue("JustConnect/EasyConnectAuthType", "certificate");
-    settings.setValue("Credential/CertFile", "/tmp/old.p12");
-    settings.setValue(
-        "Credential/CertPassword",
-        QString(QStringLiteral("old-cert-password").toUtf8().toBase64())
-    );
-    settings.setValue("Credential/TOTPSecret", "old-cert-totp");
-
-    ConfigurationGuideDialog dialog(nullptr, &settings);
-    QStackedWidget *pages = credentialPages(dialog);
-    QLineEdit *certificateFile = lineEdit(
-        dialog,
-        "guideCertificateFileLineEdit"
-    );
-    QLineEdit *certificatePassword = lineEdit(
-        dialog,
-        "guideCertificatePasswordLineEdit"
-    );
-    QLineEdit *certificateTotp = lineEdit(
-        dialog,
-        "guideCertificateTotpSecretLineEdit"
-    );
-    if (pages == nullptr || certificateFile == nullptr
-        || certificatePassword == nullptr || certificateTotp == nullptr)
-    {
-        return false;
-    }
-    if (pages->currentIndex() != 2 || certificateFile->text() != "/tmp/old.p12"
-        || certificatePassword->text() != "old-cert-password"
-        || certificateTotp->text() != "old-cert-totp")
-    {
-        qCritical() << "Certificate credentials were not loaded into the guide";
-        return false;
-    }
-
-    certificateFile->setText("/tmp/client.pfx");
-    certificatePassword->setText("cert-secret");
-    certificateTotp->setText("new-cert-totp");
-    dialog.applyTo(settings);
-
-    const QString savedPassword = QByteArray::fromBase64(
-        settings.value("Credential/CertPassword").toByteArray()
-    );
-    const bool passed =
-        settings.value("Credential/CertFile") == "/tmp/client.pfx"
-        && savedPassword == "cert-secret"
-        && settings.value("Credential/TOTPSecret") == "new-cert-totp";
-    if (!passed)
-    {
-        qCritical() << "Certificate credentials were not saved by the guide";
-    }
-    return passed;
-}
-
 bool showsSsoWithoutCredentialFields(const QString &settingsPath)
 {
     QSettings settings(settingsPath, QSettings::IniFormat);
@@ -180,7 +123,7 @@ bool showsSsoWithoutCredentialFields(const QString &settingsPath)
 
     ConfigurationGuideDialog dialog(nullptr, &settings);
     QStackedWidget *pages = credentialPages(dialog);
-    const bool passed = pages != nullptr && pages->currentIndex() == 3;
+    const bool passed = pages != nullptr && pages->currentIndex() == 2;
     if (!passed)
     {
         qCritical() << "CAS did not select the credential-free guide page";
@@ -202,7 +145,6 @@ int main(int argc, char *argv[])
     const bool passed =
         savesPasswordCredentials(directory.filePath("password.ini"))
         && savesSmsCredentials(directory.filePath("sms.ini"))
-        && savesCertificateCredentials(directory.filePath("certificate.ini"))
         && showsSsoWithoutCredentialFields(directory.filePath("sso.ini"));
     return passed ? 0 : 1;
 }

@@ -23,7 +23,6 @@ class ConnectionUiController : public QObject
 
 public:
     using SettingsProvider = std::function<QSettings *()>;
-    using ProfileIdProvider = std::function<QString()>;
     using NotificationHandler = std::function<void(
         const QString &title,
         const QString &content,
@@ -40,7 +39,6 @@ public:
         AuthDialogCoordinator *authenticationDialogs,
         ApplicationLogger *applicationLogger,
         SettingsProvider settingsProvider,
-        ProfileIdProvider profileIdProvider,
         NotificationHandler notificationHandler,
         QObject *parent = nullptr
     );
@@ -64,7 +62,6 @@ private:
     SystemProxySession *systemProxySession;
     AuthDialogCoordinator *authenticationDialogs;
     SettingsProvider settingsProvider;
-    ProfileIdProvider profileIdProvider;
     NotificationHandler notificationHandler;
 };
 

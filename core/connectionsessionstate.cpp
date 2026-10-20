@@ -74,15 +74,15 @@ bool ConnectionSessionState::requestStop()
     return currentState == ConnectionState::Stopping;
 }
 
-ProcessFinishAction ConnectionSessionState::processFinished()
+SessionFinishAction ConnectionSessionState::engineFinished()
 {
     const bool connectionWasEstablished = currentState == ConnectionState::Running;
     if (desiredConnected
         && reconnectPolicy.enabled
-        && isReconnectable(currentError))
+        && currentError == ConnectionError::OTHER)
     {
         currentState = ConnectionState::Reconnecting;
-        return ProcessFinishAction::Reconnect;
+        return SessionFinishAction::Reconnect;
     }
 
     desiredConnected = false;
@@ -96,7 +96,7 @@ ProcessFinishAction ConnectionSessionState::processFinished()
             ? ConnectionState::Disconnected
             : ConnectionState::Failed;
     }
-    return ProcessFinishAction::Complete;
+    return SessionFinishAction::Complete;
 }
 
 void ConnectionSessionState::beginReconnect()
@@ -106,9 +106,4 @@ void ConnectionSessionState::beginReconnect()
         currentError = ConnectionError::NONE;
         currentState = ConnectionState::Starting;
     }
-}
-
-bool ConnectionSessionState::isReconnectable(ConnectionError error)
-{
-    return error == ConnectionError::AUTH_EXPIRED || error == ConnectionError::OTHER;
 }

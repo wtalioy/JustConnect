@@ -3,17 +3,7 @@ description: Build and verify the third-party core recorded in core/manifest.jso
 runs:
   using: composite
   steps:
-    - name: Read core toolchain version
-      id: core
-      shell: bash
-      run: python -c 'import json, os; open(os.environ["GITHUB_OUTPUT"], "a").write("version=" + json.load(open("core/manifest.json"))["go_version"] + "\n")'
-
-    - uses: actions/setup-go@v7.0.0
-      with:
-        go-version: ${{ steps.core.outputs.version }}
-        cache-dependency-path: |
-          core/manifest.json
-          corelib/go.sum
+    - uses: ./.github/actions/setup-core-toolchain
 
     - name: Build and verify core
       shell: bash

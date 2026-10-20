@@ -2,36 +2,12 @@
 
 ConnectionProfile SettingsProfileLoader::load(
     const QSettings &settings,
-    const QString &profileId,
     const QString &username,
     const QString &password
 )
 {
     ConnectionProfile profile;
-    profile.profileId = profileId;
-    const QString easyconnectAuthType = settings.value(
-        "JustConnect/EasyConnectAuthType",
-        settings.value("Credential/CertFile", "").toString().isEmpty()
-            ? "password"
-            : "certificate"
-    ).toString();
-    const bool useCertificate =
-        settings.value("JustConnect/Protocol").toString() == "easyconnect"
-        && easyconnectAuthType == "certificate";
-    profile.credentials = {
-        username,
-        password,
-        settings.value("Credential/TOTPSecret").toString(),
-        useCertificate
-            ? settings.value("Credential/CertFile", "").toString()
-            : QString(),
-        useCertificate
-            ? QByteArray::fromBase64(
-                  settings.value("Credential/CertPassword", "").toByteArray()
-              )
-            : QString(),
-        settings.value("JustConnect/CredentialsAsArguments", false).toBool()
-    };
+    profile.credentials = {username, password, settings.value("Credential/TOTPSecret").toString()};
 
     const QString countryCode = settings.value("JustConnect/PhoneCountryCode").toString();
     const QString phoneNumber = settings.value("JustConnect/PhoneNumber").toString();
@@ -62,8 +38,10 @@ ConnectionProfile SettingsProfileLoader::load(
         ? "[::]:"
         : "127.0.0.1:";
     profile.proxy = {
-        bindPrefix + QString::number(settings.value("JustConnect/SOCKS5Port").toInt()),
-        bindPrefix + QString::number(settings.value("JustConnect/HTTPPort").toInt()),
+        settings.value("JustConnect/SOCKS5Port").toInt() == 0 ? QString()
+            : bindPrefix + QString::number(settings.value("JustConnect/SOCKS5Port").toInt()),
+        settings.value("JustConnect/HTTPPort").toInt() == 0 ? QString()
+            : bindPrefix + QString::number(settings.value("JustConnect/HTTPPort").toInt()),
         settings.value("JustConnect/ShadowsocksURL").toString(),
         settings.value("JustConnect/DialDirectProxy").toString(),
         settings.value("JustConnect/ProxyAll").toBool(),

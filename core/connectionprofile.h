@@ -8,9 +8,6 @@ struct ConnectionCredentials
     QString username;
     QString password;
     QString totpSecret;
-    QString certFile;
-    QString certPassword;
-    bool passAsArguments = false;
 };
 
 struct ConnectionEndpoint
@@ -77,8 +74,6 @@ struct DebugOptions
 
 struct ConnectionProfile
 {
-    QString program;
-    QString profileId;
     ConnectionCredentials credentials;
     ConnectionEndpoint endpoint;
     DnsOptions dns;

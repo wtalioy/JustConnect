@@ -1,4 +1,5 @@
 #include "justconnect.h"
+#include "proxycheck.h"
 #include <QApplication>
 #include <QJsonDocument>
 #include <QJsonArray>
@@ -130,15 +131,6 @@ static QJsonObject protocolEvent(API &api, uint64_t handle) {
     return event;
 }
 
-static QByteArray receive(QTcpSocket &socket, qsizetype size) {
-    QByteArray data;
-    while (data.size() < size) {
-        if (!socket.bytesAvailable()) check(socket.waitForReadyRead(5000), "proxy receive deadline");
-        data += socket.read(size - data.size());
-    }
-    return data;
-}
-
 static void nativeProtocol(API &api, const QByteArray &input) {
     auto config = QJsonDocument::fromJson(input).object();
     uint64_t handle = 0, generation = 0;
@@ -159,40 +151,11 @@ static void nativeProtocol(API &api, const QByteArray &input) {
           static_cast<uint32_t>(response.size())) == JC_OK, "native gateway SMS response");
     response.fill('\0');
     check(protocolEvent(api, handle)["state"] == "ready", "real protocol ready");
-    const auto connectProxy = [&](QTcpSocket &socket, const QString &address) {
-        const auto port = address.mid(address.lastIndexOf(':') + 1).toUShort();
-        socket.connectToHost(QHostAddress::LocalHost, port);
-        check(socket.waitForConnected(5000), "connect owned loopback listener");
-    };
-    const auto verifyPayload = [&](QTcpSocket &socket) {
-        const QByteArray payload(65536, 'j');
-        check(socket.write(payload) == payload.size() && (socket.bytesToWrite() == 0 || socket.waitForBytesWritten(5000)), "proxy payload write");
-        check(receive(socket, payload.size()) == payload, "actual tunnel payload returned");
-    };
-    auto listeners = config["listeners"].toObject();
-    QTcpSocket socks;
-    connectProxy(socks, listeners["socks"].toString());
-    check(socks.write(QByteArray::fromHex("050100")) == 3 && (socks.bytesToWrite() == 0 || socks.waitForBytesWritten(5000)), "SOCKS greeting");
-    check(receive(socks, 2) == QByteArray::fromHex("0500"), "SOCKS authentication");
-    const auto destination = QByteArray::fromHex("05010001c000020a0050");
-    check(socks.write(destination) == destination.size() && (socks.bytesToWrite() == 0 || socks.waitForBytesWritten(5000)), "SOCKS destination");
-    check(receive(socks, 10).startsWith(QByteArray::fromHex("0500")), "SOCKS tunnel established");
-    verifyPayload(socks);
-    QTcpSocket http;
-    connectProxy(http, listeners["http"].toString());
-    const QByteArray request("CONNECT 192.0.2.10:80 HTTP/1.1\r\nHost: 192.0.2.10:80\r\n\r\n");
-    check(http.write(request) == request.size() && (http.bytesToWrite() == 0 || http.waitForBytesWritten(5000)), "HTTP CONNECT write");
-    QByteArray header;
-    while (!header.endsWith("\r\n\r\n")) header += receive(http, 1);
-    check(header.startsWith("HTTP/1.1 200"), "HTTP tunnel established");
-    verifyPayload(http);
+    ProxyCheck::exercise(config["listeners"].toObject(), [&] {
     check(api.jc_session_stop(handle, 5000) == JC_OK && api.jc_session_stop(handle, 1000) == JC_OK, "native protocol idempotent stop");
     auto terminal = protocolEvent(api, handle);
     check(terminal["type"] == "terminal" && terminal["status"].toInt() == JC_CANCELLED, "native protocol stopped terminal");
-    for (auto *socket : {&socks, &http}) {
-        if (socket->state() != QAbstractSocket::UnconnectedState) socket->waitForDisconnected(5000);
-        check(socket->state() == QAbstractSocket::UnconnectedState, "active proxy closed on stop");
-    }
+    });
     config["operation"] = "auth_methods";
     start();
     check(generation == 2, "native restart generation");

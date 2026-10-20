@@ -3,8 +3,9 @@
 
 #include <QObject>
 #include <QTimer>
+#include <QUrl>
 
-#include "application/coreprocess.h"
+#include "application/coreengine.h"
 #include "core/connectionprofile.h"
 #include "core/connectionsessionstate.h"
 
@@ -13,42 +14,34 @@ class ConnectionSession : public QObject
 Q_OBJECT
 
 public:
-    explicit ConnectionSession(CoreProcess *coreProcess, QObject *parent = nullptr);
+    explicit ConnectionSession(CoreEngine *coreEngine, QObject *parent = nullptr);
 
     bool start(const ConnectionProfile &profile, const ReconnectPolicy &policy);
     void stop();
-    void submitInput(const QByteArray &data);
-    void cancelInteractiveInput();
-    void submitSudoPassword(const QString &password, bool remember);
+    void submitResponse(const QJsonObject &response);
 
     ConnectionState state() const;
     bool isActive() const;
 
 signals:
     void stateChanged(ConnectionState state);
-    void outputRead(const QString &output);
-    void graphCaptcha(const QString &graphFile);
-    void smsCode(bool showSkipSecondaryAuthOption);
-    void totpCode();
-    void randCode();
-    void radiusCode(bool showSkipSecondaryAuthOption);
-    void ssoAuth();
-    void askSudoPass();
-    void savedSudoPasswordRejected();
+    void diagnostic(const QString &code);
+    void authenticationRequired(const QJsonObject &request, const QUrl &callbackServer);
     void reconnectScheduled(int delayMs);
     void finished(ConnectionError error);
 
 private:
     void startCore();
     void handleCoreFinished();
-    void handleSudoPasswordRequest();
+    QUrl serverUrl() const;
+    void clearAuthentication();
 
-    CoreProcess *coreProcess;
+    CoreEngine *coreEngine;
     QTimer reconnectTimer;
     ConnectionSessionState sessionState;
     ConnectionProfile currentProfile;
-    QString savedSudoPassword;
-    bool sudoPasswordSubmitted = false;
+    QJsonObject pendingAuthentication;
+    QString responseAction;
 };
 
 #endif // CONNECTIONSESSION_H

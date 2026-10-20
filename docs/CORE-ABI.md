@@ -1,6 +1,6 @@
 # JustConnect 内部 C ABI v1
 
-公共入口为 [justconnect.h](../corelib/abi/justconnect.h)，Go 实现在同一 `corelib/` 模块的 `abi/` 与 `internal/bridge/`。S1-03 提供契约和传输；S1-07 已接入正式 aTrust 会话，Qt 后端在 S1-08 切换。
+公共入口为 [justconnect.h](../corelib/abi/justconnect.h)，Go 实现在同一 `corelib/` 模块的 `abi/` 与 `internal/bridge/`。S1-03 提供契约和传输；S1-07 已接入正式 aTrust 会话，S1-08 的 `EmbeddedCoreEngine` 通过专属 Qt 工作线程调用本接口。
 
 ## 单一契约来源
 
@@ -111,3 +111,9 @@ S1-07 的本地受控网关与原生宿主已验证会话启停、后台工作�
 2026-10-20，代码 `c66be1d` 的[六组原生宿主 CI](https://github.com/wtalioy/JustConnect/actions/runs/39356166583)全部通过，包含五组可用的 race 检查；[三平台应用回归](https://github.com/wtalioy/JustConnect/actions/runs/39356166708)各通过 25 包限定 Go 基线和 16 项应用测试。S1-03 已验收；S1-04 的真实协议／Qt 回归仍须随后续接入完成。
 
 2026-10-20，S1-07 最终修复 `0a81fe5` 的[六组原生 CI](https://github.com/wtalioy/JustConnect/actions/runs/39368117638)全部通过，六组各通过完整 Go 与上述三个宿主场景，支持的五组完整 race 通过；[三平台应用 CI](https://github.com/wtalioy/JustConnect/actions/runs/39368117501)各通过完整 18 包及 16 项应用测试。S1-07 已验收，后续范围保持上述区分。
+
+## Qt 应用端口
+
+`CoreEngine` 表达连接、认证方式查询、结构化认证回应与停止能力；`EmbeddedCoreEngine` 负责 JSON／C ABI 边界。专属工作线程读取有界队列，并以一次一个事件的确认方式排队交付给应用线程。停止立即请求取消，随后等待清理终态；销毁中断泵并等待会话销毁，不卸载 Go runtime。认证和回应保留原始字符串代次／请求 ID，旧回应及取消均不会作用于新会话。图片从事件内存解码，不落临时文件；SSO 使用事件给出的登录 URL 和会话保存的回调服务器。
+
+配置映射只提交 ABI 支持字段；端口零转成关闭监听。EasyConnect、TUN／路由、非回环监听、额外 CLI 参数、旧转发及其它未实现选项明确失败，不自动退回进程。构建显示使用实际已加载库的来源信息。共享 CMake 入口见 `cmake/CoreLibrary.cmake`；真实窗口／正式网关回归在根 CTest 和六平台原生宿主中使用同一 `tests/CoreEngineTests.cmake`。

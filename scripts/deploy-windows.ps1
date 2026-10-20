@@ -19,6 +19,10 @@ Push-Location "$DisplayName"
 # Copy executable
 Copy-Item -Path "../$BuildDir/Release/$TargetName.exe" -Destination .
 
+# Install the CMake-selected embedded runtime next to the host.
+cmake --install "../$BuildDir" --config Release --component CoreRuntime --prefix (Get-Location).Path
+if ($LASTEXITCODE -ne 0) { throw "Embedded runtime installation failed" }
+
 # Run windeployqt
 & windeployqt.exe "$TargetName.exe"
 if ($LASTEXITCODE -ne 0) {

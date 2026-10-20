@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.12)
+cmake_minimum_required(VERSION 3.19)
 project(JustConnect)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -31,6 +31,12 @@ find_package(Qt6 6.5 COMPONENTS
     REQUIRED
 )
 
+include(cmake/CoreLibrary.cmake)
+justconnect_core_library(justconnect_core)
+justconnect_core_engine(justconnect_engine justconnect_core)
+if(WIN32)
+    install(FILES "$<TARGET_PROPERTY:justconnect_core,JC_RUNTIME_LIBRARY>" DESTINATION . COMPONENT CoreRuntime)
+endif()
 
 set(SOURCE_FILES
     main.cpp
@@ -40,33 +46,23 @@ set(SOURCE_FILES
     presentation/coordinators/connectionuicontroller.cpp
     application/applicationlogger.cpp
     application/commandlineoptions.cpp
-    application/coreprocess.h
     application/connectionsession.cpp
     application/profileservice.cpp
     application/settingsmigrator.cpp
     application/systemproxysession.cpp
     application/defaultsettings.cpp
-    infrastructure/coreprocess/corecommandbuilder.cpp
-    infrastructure/coreprocess/consoleoutputdecoder.cpp
-    infrastructure/coreprocess/coreexecutable.cpp
-    infrastructure/coreprocess/devicetrust.cpp
-    infrastructure/coreprocess/coreoutputbuffer.cpp
-    infrastructure/coreprocess/coreoutputparser.cpp
     core/connectionsessionstate.cpp
     infrastructure/logging/applicationlogfile.cpp
     infrastructure/platform/autostart.cpp
-    infrastructure/platform/privileges.cpp
     infrastructure/settings/settingsprofileloader.cpp
     infrastructure/storage/applicationpaths.cpp
     infrastructure/update/updatechecker.cpp
     infrastructure/platform/platformsystemproxybackend.cpp
     infrastructure/platform/systemproxyfunctions.cpp
-    infrastructure/coreprocess/externalcoreprocess.cpp
     presentation/presentationhelpers.cpp
     presentation/dialogs/extrasettingwindow/extrasettingwindow.cpp
     presentation/dialogs/settingwindow/settingwindow.cpp
     presentation/dialogs/loginwindow/loginwindow.cpp
-    presentation/dialogs/sudowindow/sudowindow.cpp
     presentation/dialogs/ssologinwebview/ssologinwebview.cpp
     presentation/dialogs/authinfowindow/authinfowindow.cpp
     presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp
@@ -119,13 +115,18 @@ target_link_libraries(${PROJECT_NAME}
         Qt::Svg
         Qt::Core5Compat
         Qt::WebEngineWidgets
+        justconnect_engine
         SingleApplication::SingleApplication
         ${PLATFORM_LIBS}
 )
 
+justconnect_core_runtime(${PROJECT_NAME} justconnect_core)
+
 include(CTest)
 
 if(BUILD_TESTING)
+    include(tests/CoreEngineTests.cmake)
+    justconnect_core_ui_tests(coreengineui_test justconnect_engine justconnect_core)
     add_executable(webengine_test tests/webengine_test.cpp)
     target_link_libraries(webengine_test Qt::WebEngineWidgets)
     add_test(NAME webengine_test COMMAND webengine_test)
@@ -150,30 +151,6 @@ if(BUILD_TESTING)
     target_link_libraries(applicationlogfile_test Qt::Core)
     add_test(NAME applicationlogfile_test COMMAND applicationlogfile_test)
 
-    add_executable(corecommandbuilder_test
-        tests/corecommandbuilder_test.cpp
-        infrastructure/coreprocess/corecommandbuilder.cpp
-    )
-    target_include_directories(corecommandbuilder_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(corecommandbuilder_test Qt::Core)
-    add_test(NAME corecommandbuilder_test COMMAND corecommandbuilder_test)
-
-    add_executable(coreoutputparser_test
-        tests/coreoutputparser_test.cpp
-        infrastructure/coreprocess/coreoutputparser.cpp
-    )
-    target_include_directories(coreoutputparser_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(coreoutputparser_test Qt::Core)
-    add_test(NAME coreoutputparser_test COMMAND coreoutputparser_test)
-
-    add_executable(coreoutputbuffer_test
-        tests/coreoutputbuffer_test.cpp
-        infrastructure/coreprocess/coreoutputbuffer.cpp
-    )
-    target_include_directories(coreoutputbuffer_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(coreoutputbuffer_test Qt::Core)
-    add_test(NAME coreoutputbuffer_test COMMAND coreoutputbuffer_test)
-
     add_executable(settingsprofileloader_test
         tests/settingsprofileloader_test.cpp
         infrastructure/settings/settingsprofileloader.cpp
@@ -191,8 +168,8 @@ if(BUILD_TESTING)
     add_test(NAME connectionsessionstate_test COMMAND connectionsessionstate_test)
 
     add_executable(connectionsession_test
+        application/coreengine.h
         tests/connectionsession_test.cpp
-        application/coreprocess.h
         application/connectionsession.cpp
         core/connectionsessionstate.cpp
     )
@@ -211,10 +188,10 @@ if(BUILD_TESTING)
     add_executable(updatechecker_test
         tests/updatechecker_test.cpp
         infrastructure/update/updatechecker.cpp
-        infrastructure/coreprocess/coreexecutable.cpp
     )
     target_include_directories(updatechecker_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(updatechecker_test Qt::Core Qt::Gui Qt::Widgets Qt::Network Qt::Core5Compat)
+    target_link_libraries(updatechecker_test justconnect_engine Qt::Core Qt::Gui Qt::Widgets Qt::Network Qt::Core5Compat)
+    justconnect_core_runtime(updatechecker_test justconnect_core)
     add_test(NAME updatechecker_test COMMAND updatechecker_test)
 
     add_executable(settingsmigrator_test
@@ -246,16 +223,16 @@ if(BUILD_TESTING)
         tests/configurationguidedialog_test.cpp
         presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp
         presentation/dialogs/authinfowindow/authinfowindow.cpp
-        infrastructure/coreprocess/consoleoutputdecoder.cpp
-        infrastructure/coreprocess/coreexecutable.cpp
     )
     target_include_directories(configurationguidedialog_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(configurationguidedialog_test
+        justconnect_engine
         Qt::Core
         Qt::Gui
         Qt::Widgets
         Qt::Core5Compat
     )
+    justconnect_core_runtime(configurationguidedialog_test justconnect_core)
     add_test(NAME configurationguidedialog_test COMMAND configurationguidedialog_test)
     set_tests_properties(configurationguidedialog_test PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
