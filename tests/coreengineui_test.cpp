@@ -24,6 +24,11 @@
 #include <QSemaphore>
 #include <QTemporaryDir>
 #include <QTimer>
+#include <QTcpServer>
+#include <QTcpSocket>
+#include <QWebEngineView>
+#include <QWebEnginePage>
+#include <QWebEngineProfile>
 #include <atomic>
 
 using ProxyCheck::check;
@@ -130,6 +135,51 @@ static void proxyWaitsForReady() {
     check(proxy->applied == 1, "failed conflict query cannot write system proxy");
     dismiss.stop(); session.stop(); emit engine->finished(ConnectionError::NONE);
 }
+static void browserCookiesStayInLoginDialog() {
+    QList<bool> cookies;
+    QTcpServer server;
+    check(server.listen(QHostAddress::LocalHost),"isolated SSO cookie server");
+    QObject::connect(&server,&QTcpServer::newConnection,&server,[&] {
+        while (auto *socket=server.nextPendingConnection()) {
+            QObject::connect(socket,&QTcpSocket::readyRead,&server,[socket,&cookies] {
+                if (socket->property("handled").toBool()) return;
+                const auto request=socket->property("request").toByteArray()+socket->readAll();
+                socket->setProperty("request",request);
+                if (!request.contains("\r\n\r\n")) return;
+                socket->setProperty("handled",true);
+                const auto path=request.split(' ').value(1);
+                if (path=="/echo") {
+                    bool present=false;
+                    for (const auto &line:request.split('\n'))
+                        if (line.toLower().startsWith("cookie:") && line.contains("jc_scope=first")) present=true;
+                    cookies.append(present);
+                }
+                const QByteArray body="<html><body>fixture</body></html>";
+                QByteArray response="HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: text/html\r\nCache-Control: no-store\r\n";
+                if (path=="/first") response+="Set-Cookie: jc_scope=first; Path=/; SameSite=Lax\r\n";
+                response+="Content-Length: "+QByteArray::number(body.size())+"\r\n\r\n"+body;
+                socket->write(response);socket->disconnectFromHost();
+            });
+            QObject::connect(socket,&QTcpSocket::disconnected,socket,&QObject::deleteLater);
+        }
+    });
+    const auto base="http://127.0.0.1:"+QString::number(server.serverPort());
+    const auto visit=[&](SsoLoginWebView *dialog,const QString &path) {
+        auto *view=dialog->findChild<QWebEngineView *>();
+        bool done=false,okay=false;
+        const auto connection=QObject::connect(view,&QWebEngineView::loadFinished,view,[&](bool success){okay=success;done=true;});
+        dialog->setInitialUrl(QUrl(base+path));until([&]{return done;});QObject::disconnect(connection);
+        check(okay,"actual SSO page loads from controlled HTTP server");
+    };
+    auto *first=new SsoLoginWebView;first->show();visit(first,"/first");visit(first,"/echo");
+    check(cookies.size()==1 && cookies[0],"cookie works within the current login dialog");
+    auto *second=new SsoLoginWebView;second->show();visit(second,"/echo");
+    check(cookies.size()==2 && !cookies[1],"another SSO dialog cannot reuse the first login's cookie");
+    check(first->findChild<QWebEngineView *>()->page()->profile()->isOffTheRecord()
+        && second->findChild<QWebEngineView *>()->page()->profile()->isOffTheRecord(),"login browser data remains in memory");
+    delete second;delete first;
+}
+
 static void uiContracts() {
     QWidget parent;
     AuthDialogCoordinator dialogs(&parent);
@@ -312,5 +362,5 @@ static void gateway(const QJsonObject &config) {
 int main(int argc, char **argv) {
     QApplication app(argc, argv);
     if (argc == 3 && QByteArray(argv[1]) == "--gateway") gateway(QJsonDocument::fromJson(argv[2]).object());
-    else { uiContracts(); proxyWaitsForReady(); }
+    else { browserCookiesStayInLoginDialog(); uiContracts(); proxyWaitsForReady(); }
 }
