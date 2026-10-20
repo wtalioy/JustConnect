@@ -1,5 +1,8 @@
 #include <QCoreApplication>
 #include <QDebug>
+#include <QDir>
+#include <QFile>
+#include "application/applicationconstants.h"
 #include <QSettings>
 #include <QTemporaryDir>
 
@@ -74,20 +77,60 @@ bool migratesKnownVersions()
     return passed;
 }
 
-bool recommendsResetForUnsupportedVersions()
+bool upgradesWithoutResettingValidProfiles()
 {
     QTemporaryDir directory;
-    QSettings settings(directory.filePath("profile.ini"), QSettings::IniFormat);
-    settings.setValue("Common/ConfigVersion", 5);
-    const bool passed =
-        SettingsMigrator::prepare(settings) ==
-        SettingsMigrationAction::RecommendReset;
-    if (!passed)
+    const QString otherPath = directory.filePath("other.ini");
+    QFile other(otherPath);
+    if (!other.open(QIODevice::WriteOnly) || other.write("other application data") < 0) return false;
+    other.close();
+    for (const int version : {-1, 4, 5, 6, 7, 8, 9, 42})
     {
-        qCritical() << "recommendsResetForUnsupportedVersions failed";
+        const QString path = directory.filePath(QString::number(version) + ".ini");
+        QSettings settings(path, QSettings::IniFormat);
+        if (version != -1) settings.setValue("Common/ConfigVersion", version);
+        settings.setValue("JustConnect/Protocol", "atrust");
+        settings.setValue("JustConnect/ServerAddress", "vpn.example.edu");
+        settings.setValue("JustConnect/ServerPort", 8443);
+        settings.setValue("JustConnect/AuthType", "httpsOauth2");
+        settings.setValue("JustConnect/LoginDomain", "retained-domain");
+        settings.setValue("JustConnect/SOCKS5Port", 0);
+        settings.setValue("Credential/Password", "retained encoded password");
+        settings.setValue("Credential/AccountB/Ticket", "retained account ticket");
+        settings.setValue("OtherApplication/Value", "retained external setting");
+        const auto action = SettingsMigrator::prepare(settings);
+        if (action != (version == 6 ? SettingsMigrationAction::MigrateAutoStart : SettingsMigrationAction::None)
+            || !SettingsMigrator::finish(settings)) return false;
+        QSettings saved(path, QSettings::IniFormat);
+        if (saved.value("JustConnect/ServerAddress") != "vpn.example.edu"
+            || saved.value("JustConnect/ServerPort") != 8443
+            || saved.value("JustConnect/AuthType") != "httpsOauth2"
+            || saved.value("JustConnect/LoginDomain") != "retained-domain"
+            || saved.value("JustConnect/SOCKS5Port") != 0
+            || saved.value("JustConnect/HTTPPort") != 11081
+            || saved.value("Credential/Password") != "retained encoded password"
+            || saved.value("Credential/AccountB/Ticket") != "retained account ticket"
+            || saved.value("OtherApplication/Value") != "retained external setting"
+            || saved.value("Common/ConfigVersion").toInt() != (version == 42 ? 42 : ApplicationConstants::ConfigVersion)) return false;
     }
-    return passed;
+    if (!other.open(QIODevice::ReadOnly)) return false;
+    return other.readAll() == "other application data";
 }
+
+bool failedSaveRemainsRetryable()
+{
+    QTemporaryDir directory;
+    const auto blocked = directory.filePath("blocked.ini");
+    if (!QDir().mkdir(blocked)) return false;
+    QSettings settings(blocked, QSettings::IniFormat);
+    settings.setValue("Common/ConfigVersion", 6);
+    settings.setValue("ZJUConnect/ServerAddress", "retained.example.edu");
+    if (SettingsMigrator::prepare(settings) != SettingsMigrationAction::Failed
+        || !settings.contains("ZJUConnect/ServerAddress")) return false;
+    if (SettingsMigrator::finish(settings)) return false;
+    return settings.value("Common/ConfigVersion").toInt() == 6;
+}
+
 }
 
 int main(int argc, char *argv[])
@@ -97,5 +140,6 @@ int main(int argc, char *argv[])
         && preservesAlreadyRenamedSettings()
         && startsWithoutSchoolSpecificDefaults()
         && migratesKnownVersions()
-        && recommendsResetForUnsupportedVersions() ? 0 : 1;
+        && upgradesWithoutResettingValidProfiles()
+        && failedSaveRemainsRetryable() ? 0 : 1;
 }

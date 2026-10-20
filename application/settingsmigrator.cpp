@@ -36,41 +36,31 @@ SettingsMigrationAction SettingsMigrator::prepare(QSettings &settings)
         else
         {
             qWarning() << "配置分组改名未能保存，已保留原配置";
+            return SettingsMigrationAction::Failed;
         }
     }
 
     const int configVersion = settings.value("Common/ConfigVersion", -1).toInt();
-    if (configVersion == -1)
-    {
-        DefaultSettings::reset(settings);
-        return SettingsMigrationAction::None;
-    }
-    if (configVersion == 4)
+    if (configVersion == 4 && !settings.contains("JustConnect/Protocol"))
     {
         settings.setValue("JustConnect/Protocol", "easyconnect");
-        return SettingsMigrationAction::None;
     }
+    DefaultSettings::initialize(settings);
     if (configVersion == 6)
     {
         return SettingsMigrationAction::MigrateAutoStart;
     }
-    if (configVersion < ApplicationConstants::ConfigVersion)
-    {
-        return SettingsMigrationAction::RecommendReset;
-    }
     return SettingsMigrationAction::None;
 }
 
-void SettingsMigrator::finish(QSettings &settings, bool resetToDefaults)
+bool SettingsMigrator::finish(QSettings &settings)
 {
-    if (resetToDefaults)
-    {
-        settings.clear();
-        DefaultSettings::reset(settings);
-    }
-    settings.setValue(
-        "Common/ConfigVersion",
-        ApplicationConstants::ConfigVersion
-    );
+    const auto previous = settings.value("Common/ConfigVersion");
+    if (previous.toInt() > ApplicationConstants::ConfigVersion) return true;
+    settings.setValue("Common/ConfigVersion", ApplicationConstants::ConfigVersion);
     settings.sync();
+    if (settings.status() == QSettings::NoError) return true;
+    if (previous.isValid()) settings.setValue("Common/ConfigVersion", previous);
+    else settings.remove("Common/ConfigVersion");
+    return false;
 }

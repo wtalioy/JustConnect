@@ -6,6 +6,7 @@ class QSettings;
 namespace DefaultSettings
 {
 void reset(QSettings &settings);
+void initialize(QSettings &settings);
 }
 
 #endif // DEFAULTSETTINGS_H
