@@ -24,12 +24,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {os: windows-2025, platform: windows, arch: x64, qt_host: windows, qt_arch: win64_msvc2022_64, cc: x86_64-w64-mingw32-clang}
-          - {os: windows-11-vs2026-arm, platform: windows, arch: arm64, qt_host: windows_arm64, qt_arch: win64_msvc2022_arm64, cc: aarch64-w64-mingw32-clang}
-          - {os: macos-26-intel, platform: macos, arch: x64, qt_host: mac, qt_arch: clang_64, cc: clang}
-          - {os: macos-26, platform: macos, arch: arm64, qt_host: mac, qt_arch: clang_64, cc: clang}
-          - {os: ubuntu-26.04, platform: linux, arch: x64, qt_host: linux, qt_arch: linux_gcc_64, cc: gcc}
-          - {os: ubuntu-26.04-arm, platform: linux, arch: arm64, qt_host: linux_arm64, qt_arch: linux_gcc_arm64, cc: gcc}
+          - {os: windows-2025, platform: windows, arch: x64, qt_host: windows, qt_arch: win64_msvc2022_64}
+          - {os: windows-11-vs2026-arm, platform: windows, arch: arm64, qt_host: windows_arm64, qt_arch: win64_msvc2022_arm64}
+          - {os: macos-26-intel, platform: macos, arch: x64, qt_host: mac, qt_arch: clang_64}
+          - {os: macos-26, platform: macos, arch: arm64, qt_host: mac, qt_arch: clang_64}
+          - {os: ubuntu-26.04, platform: linux, arch: x64, qt_host: linux, qt_arch: linux_gcc_64}
+          - {os: ubuntu-26.04-arm, platform: linux, arch: arm64, qt_host: linux_arm64, qt_arch: linux_gcc_arm64}
     steps:
       - uses: actions/checkout@v7.0.1
 
@@ -89,5 +89,5 @@ jobs:
           if-no-files-found: error
           path: |
             build/coreabi/*.log
-            build/coreabi/CMakeCache.txt
+            build/coreabi/*.txt
             build/coreabi/Testing/Temporary/*.log

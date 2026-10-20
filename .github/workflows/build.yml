@@ -4,6 +4,7 @@ run-name: ${{ github.ref == 'refs/heads/develop' && 'Development preview' || 'Bu
 on:
   push:
     branches: [main]
+
   release:
     types: [published]
   workflow_dispatch:
@@ -37,12 +38,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {os: windows-2025, platform: windows, arch: x64, core_arch: amd64, qt_host: windows, qt_arch: win64_msvc2022_64}
-          - {os: windows-11-vs2026-arm, platform: windows, arch: arm64, core_arch: arm64, qt_host: windows_arm64, qt_arch: win64_msvc2022_arm64}
-          - {os: macos-26-intel, platform: macos, arch: x64, core_arch: x86_64, qt_host: mac, qt_arch: clang_64}
-          - {os: macos-26, platform: macos, arch: arm64, core_arch: arm64, qt_host: mac, qt_arch: clang_64}
-          - {os: ubuntu-26.04, platform: linux, arch: x64, core_arch: x86_64, qt_host: linux, qt_arch: linux_gcc_64}
-          - {os: ubuntu-26.04-arm, platform: linux, arch: arm64, core_arch: arm64, qt_host: linux_arm64, qt_arch: linux_gcc_arm64}
+          - {os: windows-2025, platform: windows, arch: x64, qt_host: windows, qt_arch: win64_msvc2022_64}
+          - {os: windows-11-vs2026-arm, platform: windows, arch: arm64, qt_host: windows_arm64, qt_arch: win64_msvc2022_arm64}
+          - {os: macos-26-intel, platform: macos, arch: x64, native_arch: x86_64, qt_host: mac, qt_arch: clang_64}
+          - {os: macos-26, platform: macos, arch: arm64, native_arch: arm64, qt_host: mac, qt_arch: clang_64}
+          - {os: ubuntu-26.04, platform: linux, arch: x64, native_arch: x86_64, qt_host: linux, qt_arch: linux_gcc_64}
+          - {os: ubuntu-26.04-arm, platform: linux, arch: arm64, native_arch: arm64, qt_host: linux_arm64, qt_arch: linux_gcc_arm64}
     env:
       ARCHIVE_NAME: JustConnect-${{ github.ref == 'refs/heads/develop' && format('preview-{0}', github.sha) || inputs.version || github.event.release.tag_name || 'nightly' }}-${{ matrix.platform }}-${{ matrix.arch }}
       NIGHTLY_BUILD: ${{ github.ref == 'refs/heads/develop' || (github.event_name == 'workflow_dispatch' && inputs.nightly) || (github.event_name != 'workflow_dispatch' && github.event_name != 'release') }}
@@ -64,22 +65,31 @@ jobs:
           host: ${{ matrix.qt_host }}
           arch: ${{ matrix.qt_arch }}
 
-      - name: Build and verify core
-        uses: ./.github/actions/build-core
+      - name: Prepare Go and cgo toolchain
+        uses: ./.github/actions/setup-core-toolchain
+
+      - name: Verify module, formatting, vet and packaging checks
+        shell: bash
+        run: |
+          python scripts/test-corelib.py
+          python -m unittest discover -s tests -p '*_test.py'
 
       - name: Configure
         shell: bash
         env:
-          BUILD_ARCH: ${{ matrix.core_arch }}
+          BUILD_ARCH: ${{ matrix.native_arch }}
         run: |
           if [[ "$NIGHTLY_BUILD" == 'true' ]]; then
-            version_args=(-DNIGHTLY_BUILD=ON "-DGIT_HASH=$(git rev-parse --short=7 HEAD)")
+            short_revision=$(git rev-parse --short=7 HEAD)
+            version_args=(-DNIGHTLY_BUILD=ON "-DGIT_HASH=$short_revision")
+            echo "APP_VERSION=$short_revision-nightly" >> "$GITHUB_ENV"
           else
             if [[ ! "$RELEASE_VERSION" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]; then
               echo 'A release version such as v0.1.0 is required.' >&2
               exit 1
             fi
             version_args=(-DNIGHTLY_BUILD=OFF "-DREL_VER=${RELEASE_VERSION#v}")
+            echo "APP_VERSION=${RELEASE_VERSION#v}" >> "$GITHUB_ENV"
           fi
           platform_args=()
           if [[ "$RUNNER_OS" == 'macOS' ]]; then
@@ -98,32 +108,31 @@ jobs:
       - name: Package Windows
         if: runner.os == 'Windows'
         shell: pwsh
-        env:
-          CORE_ARCH: ${{ matrix.core_arch }}
         run: |
-          ./scripts/deploy-windows.ps1 -TargetName $env:TARGET_NAME -DisplayName $env:DISPLAY_NAME -BuildDir build -Architecture $env:CORE_ARCH
+          ./scripts/deploy-windows.ps1 -TargetName $env:TARGET_NAME -DisplayName $env:DISPLAY_NAME -BuildDir build
           Compress-Archive -Path $env:DISPLAY_NAME -DestinationPath "$env:ARCHIVE_NAME.zip"
           Expand-Archive -Path "$env:ARCHIVE_NAME.zip" -DestinationPath "$env:RUNNER_TEMP/package-check"
-          python scripts/build-core.py --verify "$env:RUNNER_TEMP/package-check/$env:DISPLAY_NAME"
-          if ($LASTEXITCODE -ne 0) { throw 'Packaged core verification failed' }
+          $package = "$env:RUNNER_TEMP/package-check/$env:DISPLAY_NAME"
+          python scripts/verify-package.py $package "$package/$env:TARGET_NAME.exe" --revision $env:GITHUB_SHA --version $env:APP_VERSION --output "build/$env:ARCHIVE_NAME.json"
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged application verification failed' }
 
       - name: Package Linux
         if: runner.os == 'Linux'
         env:
-          CORE_ARCH: ${{ matrix.core_arch }}
+          NATIVE_ARCH: ${{ matrix.native_arch }}
         run: |
-          ./scripts/deploy-linux.sh "$TARGET_NAME" "$DISPLAY_NAME" build "$CORE_ARCH"
+          ./scripts/deploy-linux.sh "$TARGET_NAME" "$DISPLAY_NAME" build "$NATIVE_ARCH"
           mv "$TARGET_NAME"-*.AppImage "$ARCHIVE_NAME.AppImage"
           package_check=$(mktemp -d)
-          (cd "$package_check" && "$GITHUB_WORKSPACE/$ARCHIVE_NAME.AppImage" --appimage-extract 'usr/bin/*' > /dev/null)
-          python scripts/build-core.py --verify "$package_check/squashfs-root/usr/bin"
+          (cd "$package_check" && "$GITHUB_WORKSPACE/$ARCHIVE_NAME.AppImage" --appimage-extract > /dev/null)
+          python scripts/verify-package.py "$package_check/squashfs-root" "$package_check/squashfs-root/usr/bin/$TARGET_NAME" --revision "$GITHUB_SHA" --version "$APP_VERSION" --output "build/$ARCHIVE_NAME.json"
           rm -rf "$package_check"
 
       - name: Prepare macOS bundle
         if: runner.os == 'macOS'
         env:
-          CORE_ARCH: ${{ matrix.core_arch }}
-        run: ./scripts/deploy-macos.sh "$TARGET_NAME" build "$CORE_ARCH"
+          NATIVE_ARCH: ${{ matrix.native_arch }}
+        run: ./scripts/deploy-macos.sh "$TARGET_NAME" build "$NATIVE_ARCH"
 
       - name: Import macOS signing certificate
         if: env.MACOS_SIGNING == 'true'
@@ -161,10 +170,9 @@ jobs:
           hdiutil attach "$ARCHIVE_NAME.dmg" -readonly -nobrowse -mountpoint "$RUNNER_TEMP/dmg-check"
           test -x "$RUNNER_TEMP/dmg-check/$TARGET_NAME.app/Contents/MacOS/$TARGET_NAME"
           codesign --verify --deep --strict "$RUNNER_TEMP/dmg-check/$TARGET_NAME.app"
-          bundled_core="$RUNNER_TEMP/dmg-check/$TARGET_NAME.app/Contents/MacOS"
-          diff -r build/core/core-provenance "$bundled_core/core-provenance"
-          expected_version=$(python -c 'import json; print(json.load(open("build/core/core-provenance/build.json"))["version"])')
-          test "$("$bundled_core/zju-connect" -version)" = "$expected_version"
+          signature_args=()
+          if [[ "$MACOS_SIGNING" == 'true' ]]; then signature_args=(--signed); fi
+          python scripts/verify-package.py "$RUNNER_TEMP/dmg-check/$TARGET_NAME.app" "$RUNNER_TEMP/dmg-check/$TARGET_NAME.app/Contents/MacOS/$TARGET_NAME" --revision "$GITHUB_SHA" --version "$APP_VERSION" --output "build/$ARCHIVE_NAME.json" "${signature_args[@]}"
           hdiutil detach "$RUNNER_TEMP/dmg-check"
 
       - name: Notarize macOS package
@@ -192,9 +200,40 @@ jobs:
             ${{ env.ARCHIVE_NAME }}.dmg
             ${{ env.ARCHIVE_NAME }}.AppImage
 
+      - name: Upload package verification evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: ${{ env.ARCHIVE_NAME }}-checks
+          retention-days: 14
+          path: build/${{ env.ARCHIVE_NAME }}.json
+
+  source:
+    if: github.ref == 'refs/heads/main' || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/develop')
+    runs-on: ubuntu-26.04
+    env:
+      ARCHIVE_NAME: JustConnect-${{ github.ref == 'refs/heads/develop' && format('preview-{0}', github.sha) || inputs.version || github.event.release.tag_name || 'nightly' }}-source
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.14'
+      - name: Verify corresponding-source export
+        run: python -m unittest discover -s tests -p archive_source_test.py
+      - name: Export maintained source tree
+        run: python scripts/archive-source.py "$ARCHIVE_NAME.tar.gz"
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: ${{ env.ARCHIVE_NAME }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            ${{ env.ARCHIVE_NAME }}.tar.gz
+            ${{ env.ARCHIVE_NAME }}.tar.gz.sha256
+
   release:
     if: github.event_name == 'release'
-    needs: build
+    needs: [build, source]
     runs-on: ubuntu-26.04
     permissions:
       contents: write

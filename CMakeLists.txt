@@ -37,6 +37,19 @@ justconnect_core_engine(justconnect_engine justconnect_core)
 if(WIN32)
     install(FILES "$<TARGET_PROPERTY:justconnect_core,JC_RUNTIME_LIBRARY>" DESTINATION . COMPONENT CoreRuntime)
 endif()
+if(APPLE)
+    set(CORE_DATA_DESTINATION "${PROJECT_NAME}.app/Contents/Resources")
+elseif(WIN32)
+    set(CORE_DATA_DESTINATION ".")
+else()
+    set(CORE_DATA_DESTINATION "usr/share/${PROJECT_NAME}")
+endif()
+install(FILES "${CMAKE_BINARY_DIR}/core-toolchain.txt" "${CMAKE_BINARY_DIR}/source-revision.txt"
+    DESTINATION "${CORE_DATA_DESTINATION}" COMPONENT CoreRuntime)
+install(FILES "${CORE}/UPSTREAM.md" "${CORE}/LICENSE.zju-connect" "${REPO}/LICENSE"
+    DESTINATION "${CORE_DATA_DESTINATION}/licenses" COMPONENT CoreRuntime)
+install(FILES "${CORE}/internal/ping/LICENSE"
+    DESTINATION "${CORE_DATA_DESTINATION}/licenses" RENAME LICENSE.ping COMPONENT CoreRuntime)
 
 set(SOURCE_FILES
     main.cpp

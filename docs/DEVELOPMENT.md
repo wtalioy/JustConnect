@@ -96,7 +96,13 @@ python scripts/test-corelib.py
 
 前者校验固定 Go、单模块／依赖锁、生成文件、gofmt、vet 和全部 cgo 包测试。后者直接运行正式应用，通过与界面相同的库入口验证版本／ABI、生产能力、无效输入拒绝和句柄释放，输出 JSON 并以退出码表示结果；无需显示服务器、账号、TUN 或网络，不创建应用日志／配置。Windows 路径为 `build/Release/JustConnect.exe`，macOS 为 `build/JustConnect.app/Contents/MacOS/JustConnect`。
 
-六平台原生 C／Qt 契约及协议测试使用同一 CMake 核心 target，支持的平台执行完整 race；Windows ARM64 的 Go race 不受工具链支持，普通 Go、FFI 和 Qt 回归仍必须通过。旧 CLI 下载构建只暂留作打包迁移基线，S1-09 实际包验收后由 S1-10 删除，不是应用后端。
+六平台原生 C／Qt 契约及协议测试使用同一 CMake 核心 target，支持的平台执行完整 race；Windows ARM64 的 Go race 不受工具链支持，普通 Go、FFI 和 Qt 回归仍必须通过。部署脚本统一通过 CMake 的 `CoreRuntime` 组件安装运行库、来源提交、Go／C／C++ 工具链记录、许可证和维护说明。包内不再附带旧 CLI、原始源码归档或 Wintun。Linux 的 linuxdeploy 工具以 `scripts/linuxdeploy.json` 固定内容校验和，使用免 FUSE 的提取运行方式。
+
+`Build packages` 保留 main 推送／Release、develop 手动六组预览的触发方式；预览不使用发布签名凭据。工作流解压 ZIP／AppImage、挂载 DMG 后，用 `scripts/verify-package.py` 从临时工作目录、清除 Qt SDK 和库搜索环境后运行正式程序。它检查 ABI／来源／版本、无网络生命周期、全部原生文件架构与依赖来源，拒绝缺失依赖和外部 Qt；Windows 还验证移走包内 DLL 后启动自检失败。报告记录程序和 DLL 的 SHA-256、PE 系统版本字段／ELF 所需 GLIBC 和 GLIBCXX／Mach-O 最低版本，以及真实签名状态。macOS 的部署目标由共享 CMake 统一设置，当前跟随 [Qt 6.12 的 14.4 下限](https://doc.qt.io/qt-6.12/supported-platforms.html)，要求所有包内二进制不高于 Info.plist 声明，并严格验签；预览为 ad-hoc，Developer ID 与公证仅在发布凭据齐全时执行。Windows 预览允许明确记录的 NotSigned，损坏签名失败。
+
+Linux 最低 glibc 来自实际包内 ELF 的版本需求，不能由 Qt 的理论平台下限推断本项目在旧发行版可运行；GLIBCXX 需求也写入报告。Windows PE 字段同样不能替代 Qt 的 Windows 10 1809／ARM64 Windows 支持要求。旧系统的实际桌面兼容性按后续平台验收执行，不将这些静态检查写成旧系统实机通过。
+
+每次打包另导出同一干净 Git 提交的完整维护源码和校验和（`archive-source.py`），包含实际修改的 `corelib/`、模块锁、构建脚本与许可证。归档附 `source-revision.txt`，可在无 `.git` 的源码树直接用同一 CMake 构建，重建明确报告 `source_state:archive`。六组自检 JSON 与源码归档作为预览／Release 附件。旧下载脚本与专属测试仅留待 S1-09 包验收后由 S1-10 删除。
 
 ### 当前 Linux／WSL2 开发环境
 

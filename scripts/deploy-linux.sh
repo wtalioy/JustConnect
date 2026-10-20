@@ -16,17 +16,18 @@ else
     APPIMAGE_ARCH="aarch64"
 fi
 
-# Install dependencies
-sudo apt-get install -y libxcb-cursor0 fuse
-
-# Download linuxdeploy tools if not present
-if [ ! -f linuxdeploy ]; then
-    wget -O linuxdeploy "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-$APPIMAGE_ARCH.AppImage"
-fi
-
-if [ ! -f linuxdeploy-plugin-qt ]; then
-    wget -O linuxdeploy-plugin-qt "https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-$APPIMAGE_ARCH.AppImage"
-fi
+# Pin the packaging tools by content; a moved continuous tag must fail closed.
+python - "$APPIMAGE_ARCH" <<'PYTOOLS'
+import hashlib, json, pathlib, sys, urllib.request
+for name, hashes in json.loads(pathlib.Path('scripts/linuxdeploy.json').read_text()).items():
+    path = pathlib.Path(name)
+    url = f'https://github.com/linuxdeploy/{name}/releases/download/continuous/{name}-{sys.argv[1]}.AppImage'
+    contents = path.read_bytes() if path.exists() else urllib.request.urlopen(url, timeout=60).read()
+    if hashlib.sha256(contents).hexdigest() != hashes[sys.argv[1]]:
+        raise SystemExit(f'{name}: SHA-256 mismatch; review upstream before changing linuxdeploy.json')
+    path.write_bytes(contents)
+PYTOOLS
+export APPIMAGE_EXTRACT_AND_RUN=1
 
 chmod a+x linuxdeploy linuxdeploy-plugin-qt
 
@@ -60,8 +61,5 @@ export EXTRA_QT_PLUGINS="waylandcompositor"
 export EXTRA_PLATFORM_PLUGINS="libqwayland.so"
 ./linuxdeploy --appdir AppDir --plugin qt
 
-# Add the core after Qt deployment to preserve its recorded binary checksum.
-cp "$BUILD_DIR/core/zju-connect" AppDir/usr/bin/
-cp -R "$BUILD_DIR/core/core-provenance" AppDir/usr/bin/
-python scripts/build-core.py --verify AppDir/usr/bin
+cmake --install "$BUILD_DIR" --config Release --component CoreRuntime --prefix "$PWD/AppDir"
 NO_STRIP=1 ./linuxdeploy --appdir AppDir --output appimage
