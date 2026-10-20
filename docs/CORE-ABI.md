@@ -100,13 +100,13 @@ cmake --build build/coreabi --config Release --parallel 3
 ctest --test-dir build/coreabi -C Release -V --output-on-failure
 ~~~
 
-使用固定 Go 与已配置 Qt SDK；Windows 另需 S1-06 验证过的 cgo 编译器。独立宿主沿用 Unix c-archive、Windows 随包 DLL 方案；正式应用的统一 CMake／打包仍在 S1-09。
+使用固定 Go 与已配置 Qt SDK；Windows 另需 S1-06 验证过的 cgo 编译器。独立宿主沿用 Unix c-archive、Windows 随包 DLL 方案；正式应用与安装包复用同一 CMake 核心 target，详情见 [开发说明](DEVELOPMENT.md)。
 
 宿主以 C11、C++17 头文件编译并实际调用正式库，检查来源、ABI 不匹配、257 轮生命周期、缓冲区护栏和四个 QThread 调用，并在同一进程验证 GUI 心跳与 WebEngine JavaScript；这部分已取代 S1-06 模拟探针。另一个仅通过 `jc_abi_test` 构建标签启用、明确标为 `test_driver:true` 的驱动，复用同一导出／传输实现，验证跨 C ABI 的认证成功回应、输入覆盖后使用、忙错误、重复／旧代次回应、取消与重启；不访问网络、不作为 VPN 分发。
 
 Go 回归覆盖严格配置、各类认证回应、事件积压、过期请求、慢清理超时、读者唤醒、并发启动、panic 脱敏和资源上限，并包含配置模糊测试。新增 `coreabi_protocol_test` 由测试 Go 网关驱动正式 C 宿主，经过实际 HTTP/TLS、短信认证、资源／选线／隧道握手、SOCKS 和 HTTP CONNECT 双向数据、活动连接停止及查询重启。网关只使用回环与测试资源地址；不是内置的生产替身。Go 还覆盖普通 HTTP、SOCKS UDP association、DNS／认证／IP 阶段取消、监听冲突回滚、会话失效和同 goroutine panic 交付。六组原生 CI 验证 7 项 C／Qt 宿主检查和完整 Go 套件；race 在 Go 支持的五组平台执行，Windows ARM64 由固定 Go 明确不支持，但仍执行普通 Go 与真实 FFI 回归。宿主库启用 `GOEXPERIMENT=cgocheck2`，没有关闭指针检查。
 
-S1-07 与 S1-08 的受控网关及六平台宿主已验证正式会话、Qt 认证窗口／查询、后台清理和代理收发，证据见计划。真实校园账号、TLS 生产策略、系统透明访问、Clash 共存及安装包仍分别按 S2、S4—6、S1-09 验收，不由回环网关代替。
+S1-07 与 S1-08 的受控网关及六平台宿主已验证正式会话、Qt 认证窗口／查询、后台清理和代理收发，证据见计划。真实校园账号、TLS 生产策略、系统透明访问及 Clash 共存仍分别按 S2、S4—6 验收；S1-09 的实际安装包离线验收独立于回环网关。
 
 2026-10-20，代码 `c66be1d` 的[六组原生宿主 CI](https://github.com/wtalioy/JustConnect/actions/runs/39356166583)全部通过，包含五组可用的 race 检查；[三平台应用回归](https://github.com/wtalioy/JustConnect/actions/runs/39356166708)各通过 25 包限定 Go 基线和 16 项应用测试。此为 S1-03 历史验收；S1-07／08 已接续正式协议和 Qt 受控回归，S1-04 的真实校园样本仍待验收。
 

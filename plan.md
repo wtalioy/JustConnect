@@ -17,11 +17,11 @@
 
 | 项目 | 当前记录 |
 | --- | --- |
-| 当前任务 | S1-08：Qt 正式库后端、结构化认证与查询 |
+| 当前任务 | S1-09：统一 CMake／CI 与六组库化包验收 |
 | 依赖依据 | S1-06 六组工具链结论已通过；按 S1 的实施顺序，可先做源码导入、契约和离线回归，不依赖尚未证明的设备权限路径 |
-| 状态 | S1-08 已验收：最终源码 `caf83a2` 的[六平台原生](https://github.com/wtalioy/JustConnect/actions/runs/39373967086)与[三平台应用](https://github.com/wtalioy/JustConnect/actions/runs/39373967115)全部成功，Windows 安装目录内真实 Qt 协议收发也通过 |
+| 状态 | `f3637d6` 的[三平台应用 CI](https://github.com/wtalioy/JustConnect/actions/runs/39379188772)及打包实现 `1ace0cc` 的[六组原生 CI](https://github.com/wtalioy/JustConnect/actions/runs/39378735573)全部通过；[最终六组预览](https://github.com/wtalioy/JustConnect/actions/runs/39379335280)验收中 |
 | 已有基础 | S1-03 契约、S1-05 一体源码和 S1-07 会话已验收；S1-08 应用已改用 EmbeddedCoreEngine，连接／认证／查询／版本均通过库接口；旧 C++ 进程链路已删除 |
-| 已知缺口 | S1-08 的应用／适配器验收已完成；S1-09／10 六组安装包迁移及签名／依赖、其余设备权限、真实校园／生产 TLS 与透明访问仍按各阶段验收；D2 未选型，产品 TUN 并非既定前提 |
+| 已知缺口 | S1-08 的应用／适配器验收已完成；S1-09 实际六包正在验收，S1-10 清理旧构建残留；其余设备权限、真实校园／生产 TLS 与透明访问仍按各阶段验收；D2 未选型，产品 TUN 并非既定前提 |
 | 网络验证 | 暂无真实校园登录、透明转发、Clash 共存或异常恢复的通过记录 |
 | 外部条件 | 实机验收需要相应操作系统、校园账户及交互式 MFA；缺少时记录待验收，不降低验收要求 |
 
@@ -64,7 +64,7 @@ S1-07 第一单元：HTTP 请求同时遵守调用者和认证会话的取消，
 | 范围 | 清理／保留结论 |
 | --- | --- |
 | Qt 日志、状态、配置、窗口与更新共 16 个宿主 | 均仍覆盖现用链路；状态规则与应用信号交付、日志信号与实际文件写入是不同边界，保留独有断言。EasyConnect Qt／CLI 仍在迁移期间运行，随 S1-08／10、S2-02 的实际替代一起删除对应测试 |
-| Python 构建／SDK 安装测试 | 旧核心构建 action 仍调用 10 个归档／校验／打包测试，SDK action 调用 3 个安装器测试；保留供应链校验、路径安全及安装合并检查 |
+| Python 构建／SDK 安装测试 | S1-09 新增 6 个来源／包检查回归，SDK 保留 3 个安装器测试；旧下载 action 已退出工作流，10 个旧构建测试暂由全量 Python 回归运行，随 S1-10 删除对应脚本一并移除 |
 | WebEngine、正式 ABI 与设备检查 | 独立 WebEngine 仍服务当前应用／打包流程，正式 ABI 验证 Go／Qt 共存与跨语言契约，Linux fd 脚本验证内核权限；覆盖范围不同，均保留 |
 | aTrust 资源、重试及 TCP 握手 | 删除已被表格用例覆盖的 AddrPretend 单例、重复的域资源筛选示例、单次忙等待及重试预算示例；逐字节握手并入现有 10 种状态码用例。保留实际超时、失败、报文、签名及取消行为 |
 | 构造与常量冒烟 | 删除仅抄写心跳／认证常量的两项检查及仅断言构造非空的 API 测试；dialer 注入仍由选项映射与实际 SetupContext 取消回归保障。手动接口构造测试并入实际拨号失败／不自动替换接口的用例 |
@@ -178,7 +178,7 @@ flowchart LR
 - [x] **S1-08**：将应用端口 `CoreProcess` 改为表达库能力的 `CoreEngine`，由 `EmbeddedCoreEngine` 实现；替换 `ExternalCoreProcess`、命令构造、文本解析、`writeInput`、认证方式子进程查询及 CLI 版本探测。Qt 工作线程读取有界事件队列，再通过排队信号提交给应用线程，不从 Go goroutine 操作 QWidget；Go 内等待认证回应时可取消，不阻塞 Qt 主线程。所有事件／回应带会话代次和请求标识，销毁前停止事件泵并等待借用数据结束；测试销毁与晚到事件竞态。结构化日志仅作诊断，不再根据提示词驱动状态。库在宿主生命周期内保持加载，释放会话不等于卸载 Go runtime；不实现运行中卸载重载或双后端自动回退。
   - **已验收（2026-10-20）**：`29932b3` 交付工作线程适配器，`8c9c23c` 将应用连接／认证／查询／版本切换为正式内嵌库并删除旧 C++ 进程链路，`caf83a2` 修复旧心跳测试的真实时间依赖及 Windows 日志解码。最终[六平台原生 CI](https://github.com/wtalioy/JustConnect/actions/runs/39373967086)全部通过，各执行完整 Go 回归及 7 项原生／Qt 宿主检查，五组支持的完整 race 通过；[三平台应用 CI](https://github.com/wtalioy/JustConnect/actions/runs/39373967115)各 15 项 CTest 通过，Windows 安装目录验证再次实际完成查询、认证、代理收发和停止。结构化状态、原始字符串身份、旧／重复回应和取消、销毁竞态、界面心跳及代理时机均有回归。清理和失败修复证据见上方记录；S1-04 的真实样本、S1-06 其余设备权限、S1-09／10 包迁移与校园／Clash 验收保持独立，不据此勾选。
 - [ ] **S1-09**：用 CMake 的核心库 target 统一驱动 Go／C ABI 头生成、链接及实际宿主测试，源文件、`go.mod/go.sum`、构建选项变化均正确触发增量构建；Tests 与打包使用同一入口，显式 `CGO_ENABLED=1` 并记录 Go／C／C++ 工具链、ABI、平台和架构。保留 Qt 公共安装步骤和用户确定的触发规则：推送 develop 三平台测试、develop 手动六组预览、main 六组打包及 Release 附件。CI 加入 Go 格式／vet／相关包测试、FFI 测试和支持环境的 race 检查；六组库化包实际执行离线自检，验证 ABI、版本、动态依赖、系统最低版本与签名，不能只检查生成了 `.a/.lib`。动态库方案检查包内固定路径与依赖来源。源码包来自本仓库的实际修改树，发布产物不再附一份被误当成实际实现的原始源码归档。
-  - **进行中**：先统一 CMake 生成／增量依赖、记录工具链，并由正式应用 `--core-self-test` 实际验证 ABI、无网络输入拒绝及创建／停止／销毁；本地 16 项应用测试、19 包 cgo／gofmt／vet、13 项现有 Python 测试及 actionlint 通过；已实测 Go 源码、go.mod／sum 触发增量重建、缺失 cgo 头重新生成、无变化构建无操作。首次 CI 发现 Windows 自动 CRLF 使 gofmt 拒绝源码，已以仓库属性固定 corelib 为 LF（保留格式断言）；`7d35793` 的[三平台应用 CI](https://github.com/wtalioy/JustConnect/actions/runs/39377235616)及[六组原生 CI](https://github.com/wtalioy/JustConnect/actions/runs/39377235904)全部通过；已接入 CMake 运行组件、正式应用离线自检、三平台原生依赖／架构／系统版本与签名检查、六组实际包检查及当前提交源码导出；删除部署脚本中的旧 CLI／来源归档／Wintun 复制和验证。新检查覆盖错误来源／ABI／平台、外部 SDK、最低系统版本虚报、未提交源码导出的拒绝行为。Linux 依赖的 glibc 下限取实际 ELF，macOS 声明与所有 Mach-O 检查一致；静态元数据检查不冒充旧系统实机验证。本地 16 项应用、19 项 Python／脚本与 actionlint 通过，实际源码归档内容一致且可重建；第一轮预览 Linux ARM64 已通过 134 个原生文件检查（glibc 2.43），macOS ARM64 实际 DMG 也已通过。Windows 发现环境变量大小写和 Git 归档 CRLF 转换问题，已修复并保留回归；六组最终预览与 CI 仍待验收。
+  - **进行中**：先统一 CMake 生成／增量依赖、记录工具链，并由正式应用 `--core-self-test` 实际验证 ABI、无网络输入拒绝及创建／停止／销毁；本地 16 项应用测试、19 包 cgo／gofmt／vet、13 项现有 Python 测试及 actionlint 通过；已实测 Go 源码、go.mod／sum 触发增量重建、缺失 cgo 头重新生成、无变化构建无操作。首次 CI 发现 Windows 自动 CRLF 使 gofmt 拒绝源码，已以仓库属性固定 corelib 为 LF（保留格式断言）；`7d35793` 的[三平台应用 CI](https://github.com/wtalioy/JustConnect/actions/runs/39377235616)及[六组原生 CI](https://github.com/wtalioy/JustConnect/actions/runs/39377235904)全部通过；已接入 CMake 运行组件、正式应用离线自检、三平台原生依赖／架构／系统版本与签名检查、六组实际包检查及当前提交源码导出；删除部署脚本中的旧 CLI／来源归档／Wintun 复制和验证。新检查覆盖错误来源／ABI／平台、外部 SDK、最低系统版本虚报、未提交源码导出的拒绝行为。Linux 依赖的 glibc 下限取实际 ELF，macOS 声明与所有 Mach-O 检查一致；静态元数据检查不冒充旧系统实机验证。本地 16 项应用、19 项 Python／脚本与 actionlint 通过，实际源码归档内容一致且可重建；第一轮预览 Linux ARM64 已通过 134 个原生文件检查（glibc 2.43），macOS ARM64 实际 DMG 也已通过。Windows 发现环境变量大小写和 Git 归档 CRLF 转换问题，已修复并保留回归；`f3637d6` 三平台应用 CI 已全部通过；最终包的 Windows ABI／依赖检查通过后，Authenticode 查询遇到 PowerShell 宿主问题，已统一为 CI 的 PowerShell 7 并保留原生回归和 UTF-8 失败诊断。本机 Windows 原生签名查询实际返回 NotSigned，本地 21 项 Python（1 项 Windows 平台跳过）通过；六组最终预览仍待修复推送验收。
 - [ ] **S1-10**：按下方清理表删除旧核心下载／补丁／EXE 校验链路及无用 action、脚本、测试和文档，替换旧进程替身为库端口／真实 ABI 测试；删除正式包中的独立 `zju-connect` 程序及 PATH 查找／上游核心更新逻辑。Qt、网络、平台所需的其他 QProcess 使用不做批量清除。清理完成后再验证三平台测试、六组产物及包内无旧核心；历史通过记录仍保留，但不能充当新架构证据。
 - [ ] **S1-11**：以 JustConnect 的 aTrust 功能为边界，删除不再引用的 CLI／EasyConnect／移动端专用代码、校内默认策略及已废弃的配置和依赖；保留协议所需测试、许可证、来源信息，以及 Clash 桥接必要的 SOCKS／HTTP 和实际使用的数据栈。每次删除先检查依赖闭包并回归，只移除对应废弃功能的测试；aTrust 错误处理和生命周期覆盖保留并随接口更新。建立包体积、宿主内存／CPU、TCP／UDP 吞吐／时延、重复重连和慢节点基线；仅针对复现的瓶颈优化，不预设“库化一定更小、更快”或替换 gVisor／整个协议栈。
 
@@ -186,14 +186,14 @@ flowchart LR
 
 ### 构建与旧代码清理节点
 
-应用已使用正式内嵌库，旧独立核心下载与打包校验仍被工作流调用。S1-09 验证新包后由 S1-10 删除这些脚本与旧产物；暂留构建文件不作为应用的运行后端。
+应用、测试与打包均已使用正式内嵌库，工作流不再调用旧核心 action／下载／包校验。S1-09 六组新包验收后由 S1-10 删除已无调用的脚本、旧清单及专属测试；这些文件不参与产品构建或运行。
 
 | 当前文件／机制 | 迁移动作与完成节点 |
 | --- | --- |
 | `core/manifest.json` 的归档与补丁清单 | S1-05 将来源记录放到 `corelib/`，新源码的工具链及依赖由单一 Go 模块维护；旧独立核心暂用原清单，S1-10 删除旧清单与补丁应用机制，保留来源可追溯性 |
 | `scripts/build-core.py`、`tests/build_core_test.py` | S1-09 用 CMake 核心库 target、Go 测试和 C ABI／Qt 集成测试接替；S1-10 删除下载、解包、补丁应用、CLI `-version` 和独立二进制校验脚本／测试，不再另造一套库下载包装器 |
 | `.github/actions/build-core/action.yml` | S1-09 把 Go／cgo 工具链准备接入 workflow，实际编译统一走 CMake；迁移验收后 S1-10 删除该旧构建 action，保留 `.github/actions/setup-qt` |
-| `.github/workflows/ci.yml`、`build.yml` | S1-09 更新库测试、链接、缓存键和产物自检；S1-10 删除独立核心构建／解压检查步骤，保留 develop／main／手动预览／Release 触发规则与最小权限 |
+| `.github/workflows/ci.yml`、`build.yml` | S1-09 更新库测试、链接、缓存键和产物自检；独立核心构建／解压检查步骤已删除，保留 develop／main／手动预览／Release 触发规则与最小权限；S1-10 复查残留 |
 | 三平台 `deploy-*`、macOS 签名与包检查 | S1-09 移除独立核心复制及 `core-provenance` 布局，静态方案打包宿主，动态方案带固定核心库并签名；改为调用宿主库自检及检查实际修改后的来源／许可证 |
 | `CoreProcess`／`ExternalCoreProcess`、命令／输出解析、`CoreExecutable`、旧测试替身 | S1-08 已将调用方迁移到库端口并删除旧 C++ 实现及专属测试；S1-10 复查旧构建／包内链路，保留独立于传输的应用行为回归 |
 | 当前开发说明和构建证据 | S1-09／10 同步实际命令、依赖、包布局；旧 S1-02 证据标注旧架构，不删除历史、不沿用验收结论 |

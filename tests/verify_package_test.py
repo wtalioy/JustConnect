@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import sys
 from types import SimpleNamespace
 import tempfile
 import unittest
@@ -16,6 +17,18 @@ spec.loader.exec_module(package)
 
 
 class VerifyPackageTest(unittest.TestCase):
+    def test_failed_native_command_preserves_utf8_diagnostics(self):
+        with self.assertRaisesRegex(RuntimeError, '签名失败'):
+            package.run(sys.executable, '-c',
+                        "import sys; sys.stderr.buffer.write('签名失败'.encode('utf-8')); sys.exit(7)")
+
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows Authenticode integration')
+    def test_native_signature_host_inspects_unsigned_file(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'unsigned.ps1'
+            path.write_text('# unsigned signature fixture\n')
+            self.assertEqual(package.windows_signature(path), 'NotSigned')
+
     def test_rejects_wrong_source_abi_platform_and_test_driver(self):
         contract = json.loads((ROOT / 'corelib/abi/contract.json').read_text())
         go = next(x.split()[1] for x in (ROOT / 'corelib/go.mod').read_text().splitlines() if x.startswith('go '))
