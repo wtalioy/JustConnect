@@ -9,6 +9,8 @@
 #include <QPushButton>
 #include <QSettings>
 #include <QWidget>
+#include <QUrl>
+#include <QTimer>
 
 #include <utility>
 
@@ -88,9 +90,17 @@ ConnectionUiController::ConnectionUiController(
     connect(connectionSession, &ConnectionSession::stateChanged, this, [this](ConnectionState state) {
         if (state == ConnectionState::Running) {
             this->proxyButton->show();
-            if (settings()->value("Common/AutoSetProxy", false).toBool() && !this->systemProxySession->isEnabled())
-                this->proxyButton->click();
-        } else this->proxyButton->hide();
+            autoProxyPending=settings()->value("Common/AutoSetProxy",false).toBool()
+                && (!this->systemProxySession->isEnabled() || this->systemProxySession->isBusy());
+            applyPendingAutomaticProxy();
+        } else { ++proxyGeneration;autoProxyPending=false;this->proxyButton->hide(); }
+    });
+    connect(systemProxySession,&SystemProxySession::busyChanged,this,[this](bool busy) {
+        // Deliver the old operation's result before starting the current session's request.
+        if (!busy && autoProxyPending) QTimer::singleShot(0,this,&ConnectionUiController::applyPendingAutomaticProxy);
+    });
+    connect(systemProxySession,&SystemProxySession::operationFinished,this,[this](bool,const PlatformOperationResult &result) {
+        if (!result.succeeded()) autoProxyPending=false;
     });
     connect(
         connectButton,
@@ -206,20 +216,40 @@ void ConnectionUiController::submitManual(const CredentialSource &source,const C
     });
 }
 
+void ConnectionUiController::applyPendingAutomaticProxy()
+{
+    if (!autoProxyPending) return;
+    if (connectionSession->state()!=ConnectionState::Running || !settings()->value("Common/AutoSetProxy",false).toBool()) {
+        autoProxyPending=false;return;
+    }
+    if (systemProxySession->isBusy()) return;
+    if (systemProxySession->needsCleanup()) { systemProxySession->disable();return; }
+    autoProxyPending=false;
+    handleProxyClicked();
+}
+
 void ConnectionUiController::handleProxyClicked()
 {
     if (connectionSession->state() != ConnectionState::Running || systemProxySession->isBusy())
     {
         return;
     }
+    autoProxyPending=false;
     if (systemProxySession->needsCleanup())
     {
         systemProxySession->disable();
         return;
     }
 
-    const int httpPort = settings()->value("JustConnect/HTTPPort").toInt();
-    const int socksPort = settings()->value("JustConnect/SOCKS5Port").toInt();
+    const auto listeners = connectionSession->proxyOptions();
+    const QUrl http("http://" + listeners.httpBind), socks("http://" + listeners.socksBind);
+    const int httpPort = http.host() == "127.0.0.1" ? http.port(0) : 0;
+    const int socksPort = socks.host() == "127.0.0.1" ? socks.port(0) : 0;
+    if (httpPort < 1 || socksPort < 1) {
+        QMessageBox::warning(parentWidget,"无法设置系统代理","设置系统代理需要同时启用本地 HTTP 和 SOCKS5 监听。请修改配置后重新连接。");
+        return;
+    }
+    const auto generation = ++proxyGeneration;
     const SystemProxyConfig proxyConfig{
         httpPort,
         socksPort,
@@ -229,12 +259,13 @@ void ConnectionUiController::handleProxyClicked()
         systemProxySession,
         &SystemProxySession::conflictCheckFinished,
         this,
-        [this, proxyConfig, httpPort, socksPort](const SystemProxyCheck &check)
+        [this, proxyConfig, httpPort, socksPort, generation](const SystemProxyCheck &check)
         {
-            if (connectionSession->state() != ConnectionState::Running)
-            {
-                return;
-            }
+            const auto current = [this,generation] {
+                return generation == proxyGeneration && connectionSession->state() == ConnectionState::Running
+                    && !systemProxySession->isBusy() && !systemProxySession->needsCleanup();
+            };
+            if (!current()) return;
 
             if (!check.result.succeeded()) {
                 QMessageBox::warning(parentWidget, "无法检查系统代理", PresentationHelpers::platformOperationMessage(check.result));
@@ -257,7 +288,7 @@ void ConnectionUiController::handleProxyClicked()
                 );
                 auto *dontShowCheckBox = new QCheckBox("不再提示");
                 messageBox.setCheckBox(dontShowCheckBox);
-                if (messageBox.exec() == QMessageBox::No)
+                if (messageBox.exec() != QMessageBox::Yes || !current())
                 {
                     return;
                 }
@@ -275,6 +306,7 @@ void ConnectionUiController::handleProxyClicked()
                 qInfo().noquote() << "跳过系统代理覆盖警告，因为已设置了不再提示";
             }
 
+            if (!current()) return;
             qInfo().noquote()
                 << "设置系统代理：HTTP端口 " + QString::number(httpPort)
                        + "，SOCKS5 端口 " + QString::number(socksPort);

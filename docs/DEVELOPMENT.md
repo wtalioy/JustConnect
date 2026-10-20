@@ -56,6 +56,8 @@ ctest --test-dir build/coreabi -C Release -R coreabi_performance_test --output-o
 
 [Platform.cmake](../cmake/Platform.cmake) 按 `windows/`、`macos/`、`linux/`、`unsupported/` 子目录为代理和自启动选择源文件，基础设施只依赖 Qt Core，弹窗及结果文案在界面层。WinINet／RAS 每次检查原生返回值，模式、各协议端点、绕过项及通知均检查；手动模式不改写原有 PAC 地址。查询返回的字符串按 [Microsoft WinINet 文档](https://learn.microsoft.com/en-us/windows/win32/wininet/setting-and-retrieving-internet-options) 用 GlobalFree 释放。Unix 工具每条命令共享 5 秒启动／完成期限，检查正常退出和退出码，超时杀死并等待回收；这不是整个多步骤操作或退出流程的 5 秒保证。GNOME 与 KDE 分开处理；端点、认证模式及绕过项必须回读匹配，空输出不是有效空列表。
 
+系统代理端口取活动连接的监听快照，修改待用配置须重连后才影响监听；禁用 HTTP／SOCKS5 时不设置系统代理。冲突查询和确认结果按连接代次隔离，新会话等待前次代理操作结束后发起新查询，旧结果不能替它设置代理；恢复失败保留清理责任并停止自动重试。
+
 Windows 按连接保存与恢复状态，不在清除时重新枚举并关闭未知连接；模式恢复还要求端点及 PAC 地址仍属原记录。按 [WinINet 选项文档](https://learn.microsoft.com/en-us/windows/win32/api/wininet/ns-wininet-internet_per_conn_optionw)以 `FLAGS_UI` 查询模式、以 `FLAGS` 设置模式。真实写入回归仅由 `GITHUB_ACTIONS=true` 的临时 runner 注册执行，限定 LAN，保留并恢复 runner 基线；普通本地测试仅使用原生只读查询和失败夹具。
 
 macOS 使用系统 [SCPreferences](https://developer.apple.com/documentation/systemconfiguration/scpreferences-ft8) 和网络服务 API，保存原始代理字典及字段缺失状态，按服务 ID 固定恢复对象；独占锁内一次提交，提交／应用失败保留或撤销改动，并回读恢复结果。临时本地端点不携带旧认证字段，不调用 Keychain 修改接口，也不把旧凭据传给命令行。测试以真实原生接口在临时绝对路径 preferences 文件中创建服务，覆盖空配置、禁用服务、失败重试和外部字段／服务变更；普通只读探针仍查询系统配置。桌面授权交互及真实用户 Keychain 状态不由私有文件回归代替，保留人工验收缺口。

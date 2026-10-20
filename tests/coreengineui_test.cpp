@@ -65,17 +65,19 @@ public:
 };
 class ProxyBackend : public SystemProxyBackend {
 public:
-    std::atomic<int> checks = 0, applied = 0;
+    std::atomic<int> checks = 0, applied = 0, clears = 0;
     bool block = false;
     SystemProxyCheck checkResult;
+    PlatformOperationResult clearResult;
+    SystemProxyConfig checkedConfig,appliedConfig;
     QSemaphore entered, proceed;
-    SystemProxyCheck check(const SystemProxyConfig &) override {
-        ++checks;
+    SystemProxyCheck check(const SystemProxyConfig &config) override {
+        checkedConfig=config;++checks;
         if (block) { entered.release(); proceed.acquire(); }
         return checkResult;
     }
-    PlatformOperationResult apply(const SystemProxyConfig &) override { ++applied; return {}; }
-    PlatformOperationResult clear() override { return {}; }
+    PlatformOperationResult apply(const SystemProxyConfig &config) override { appliedConfig=config;++applied;return {}; }
+    PlatformOperationResult clear() override { ++clears;return clearResult; }
 };
 static void proxyWaitsForReady() {
     QTemporaryDir directory;
@@ -86,6 +88,7 @@ static void proxyWaitsForReady() {
     settings.setValue("Credential/Username", "fixture-user");
     settings.setValue("Credential/Password", QByteArray("fixture-password").toBase64());
     settings.setValue("Common/AutoSetProxy", true);
+    settings.setValue("JustConnect/HTTPPort",13081);settings.setValue("JustConnect/SOCKS5Port",13080);
     QWidget parent;
     QPushButton connectButton(&parent), proxyButton(&parent);
     QAction trayAction(&parent);
@@ -107,9 +110,20 @@ static void proxyWaitsForReady() {
         "connect button waits for actual ready before applying automatic proxy");
     proxyButton.click();
     check(proxy->checks == 0, "early proxy requests cannot change system state");
+    settings.setValue("JustConnect/HTTPPort",23081);settings.setValue("JustConnect/SOCKS5Port",23080);
     emit engine->connectionEstablished();
     until([&] { return systemProxy.isEnabled(); });
+    check(proxy->checkedConfig.httpPort==13081 && proxy->appliedConfig.httpPort==13081 && proxy->appliedConfig.socksPort==13080,
+        "system proxy must use active listeners when the public configuration changes");
     check(proxy->applied == 1 && !proxyButton.isHidden(), "ready enables the configured automatic proxy once");
+    proxy->clearResult={PlatformOperationResult::Status::PermissionDenied,"fixture restore denial",true};
+    session.stop();emit engine->finished(ConnectionError::NONE);
+    systemProxy.disable();
+    check(session.start(engine->profile,{}),"new session while original proxy restoration is pending");emit engine->connectionEstablished();
+    until([&]{return !systemProxy.isBusy();});QApplication::processEvents();
+    check(!systemProxy.isBusy() && proxy->clears==1 && systemProxy.needsCleanup(),
+        "failed restoration retains ownership without an automatic retry loop");
+    proxy->clearResult={};
     systemProxy.disable();
     until([&] { return !systemProxy.isBusy(); });
     session.stop();
@@ -124,14 +138,44 @@ static void proxyWaitsForReady() {
     until([&] { return !systemProxy.isBusy(); });
     check(proxy->applied == 1, "late conflict result cannot apply a proxy to a stopping connection");
     emit engine->finished(ConnectionError::NONE);
-    proxy->block = false;
+    connectButton.click();until([&]{return session.state()==ConnectionState::Starting;});emit engine->connectionEstablished();
+    check(proxy->entered.tryAcquire(1,1000),"second delayed conflict query");
+    session.stop();emit engine->finished(ConnectionError::NONE);
+    settings.setValue("JustConnect/HTTPPort",33081);settings.setValue("JustConnect/SOCKS5Port",33080);
+    connectButton.click();until([&]{return session.state()==ConnectionState::Starting;});emit engine->connectionEstablished();
+    const int oldChecks=proxy->checks;
+    proxy->block=false;proxy->proceed.release();until([&]{return systemProxy.isEnabled() && !systemProxy.isBusy();});
+    check(proxy->applied==2 && proxy->checks==oldChecks+1 && proxy->appliedConfig.httpPort==33081 && proxy->appliedConfig.socksPort==33080,
+        "new running session uses a fresh conflict check and its own active listeners");
+    systemProxy.disable();until([&]{return !systemProxy.isBusy();});
+    session.stop();emit engine->finished(ConnectionError::NONE);
+    settings.setValue("Common/AutoSetProxy",false);
+    connectButton.click();until([&]{return session.state()==ConnectionState::Starting;});emit engine->connectionEstablished();
+    proxy->checkResult.conflict=true;
+    bool confirmed=false;QTimer confirm;
+    QObject::connect(&confirm,&QTimer::timeout,[&]{
+        for(auto *widget:QApplication::topLevelWidgets())if(auto *message=qobject_cast<QMessageBox *>(widget)) {
+            if(!message->text().contains("当前已存在系统代理"))continue;
+            confirm.stop();message->checkBox()->setChecked(true);
+            session.stop();emit engine->finished(ConnectionError::NONE);
+            check(session.start(engine->profile,{}),"another session starts while override confirmation is open");
+            emit engine->connectionEstablished();
+            confirmed=true;message->done(QMessageBox::Yes);
+        }
+    });
+    confirm.start(1);proxyButton.click();until([&]{return confirmed && !systemProxy.isBusy();});
+    check(proxy->applied==2 && !settings.value("Common/SuppressProxyOverrideWarning",false).toBool(),
+        "late override confirmation cannot change another running session or its preferences");
+    session.stop();emit engine->finished(ConnectionError::NONE);
+    settings.setValue("Common/AutoSetProxy",true);proxy->checkResult.conflict=false;
     proxy->checkResult.result = {PlatformOperationResult::Status::PermissionDenied, "fixture query denial"};
     bool shown = false;
+    QString expectedWarning="权限被拒绝";
     QTimer dismiss;
     QObject::connect(&dismiss, &QTimer::timeout, [&] {
         for (auto *widget : QApplication::topLevelWidgets()) {
             if (auto *message = qobject_cast<QMessageBox *>(widget)) {
-                check(message->text().contains("权限被拒绝"), "UI displays structured query failure");
+                check(message->text().contains(expectedWarning), "UI displays the actionable proxy failure");
                 shown = true; message->accept();
             }
         }
@@ -139,7 +183,14 @@ static void proxyWaitsForReady() {
     dismiss.start(1);
     connectButton.click(); until([&] {return session.state()==ConnectionState::Starting;}); emit engine->connectionEstablished();
     until([&] { return shown && !systemProxy.isBusy(); });
-    check(proxy->applied == 1, "failed conflict query cannot write system proxy");
+    check(proxy->applied == 2, "failed conflict query cannot write system proxy");
+    session.stop();emit engine->finished(ConnectionError::NONE);
+    settings.setValue("JustConnect/HTTPPort",0);shown=false;expectedWarning="同时启用";
+    const int previousChecks=proxy->checks;
+    connectButton.click();until([&]{return session.state()==ConnectionState::Starting;});emit engine->connectionEstablished();
+    until([&]{return shown;});
+    check(proxy->checks==previousChecks && proxy->applied==2 && engine->profile.proxy.httpBind.isEmpty(),
+        "disabled active listener blocks system proxy changes before the backend query");
     dismiss.stop(); session.stop(); emit engine->finished(ConnectionError::NONE);
 }
 static void manualCredentialsAndLateResults() {

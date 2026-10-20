@@ -52,6 +52,7 @@ public:
 private:
     void handleConnectClicked();
     void handleProxyClicked();
+    void applyPendingAutomaticProxy();
     void startConnection(const ConnectionProfile &profile);
     void requestConnection(const CredentialSource &source,ConnectionProfile profile);
     void submitLogin(const QString &username,const QString &password,bool save);
@@ -74,6 +75,8 @@ private:
     std::optional<CredentialSource> promptSource;
     ConnectionCredentials promptCredentials;
     quint64 credentialGeneration=0;
+    quint64 proxyGeneration=0;
+    bool autoProxyPending=false;
     bool credentialsPending=false;
     NotificationHandler notificationHandler;
 };
