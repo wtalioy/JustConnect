@@ -166,10 +166,13 @@ static void nativeProtocol(API &api, const QByteArray &input) {
     std::cout << "PASS: native protocol session, SMS, SOCKS/HTTP tunnel payloads, active stop and query restart\n";
 }
 
+#include "performance.h"
+
 int main(int argc, char **argv) {
     QApplication application(argc, argv);
     API api;
     if (argc == 3 && QByteArray(argv[1]) == "--gateway") { nativeProtocol(api, QByteArray(argv[2])); return 0; }
+    if (argc == 3 && QByteArray(argv[1]) == "--baseline") { performance(api, QByteArray(argv[2])); return 0; }
     check(api.jc_abi_version() == JC_ABI_VERSION && jc_c_header_smoke(api.jc_abi_version) == JC_OK, "C and C++ ABI");
     uint32_t length = 7;
     check(api.jc_build_info(JC_ABI_VERSION + 1, nullptr, 0, &length) == JC_ABI_MISMATCH && length == 0, "ABI mismatch");

@@ -19,7 +19,10 @@ spec.loader.exec_module(package)
 class VerifyPackageTest(unittest.TestCase):
     def test_rejects_obsolete_runtime_anywhere_in_package(self):
         with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder)
+            root = Path(folder) / "package"
+            root.mkdir()
+            archive = Path(folder) / "package.zip"
+            archive.write_bytes(b"archive fixture")
             host = root / 'JustConnect'
             host.touch()
             (root / 'source-revision.txt').write_text('revision\n')
@@ -30,13 +33,21 @@ class VerifyPackageTest(unittest.TestCase):
                 (notices / name).touch()
             nested = root / 'nested'
             nested.mkdir()
-            output = root / 'report.json'
+            output = Path(folder) / "report.json"
             with patch.object(package.subprocess, 'run', return_value=SimpleNamespace(stdout=b'{"runtime":"static"}')), \
                     patch.object(package, 'validate_report'), \
                     patch.object(package, 'linux_audit', return_value={}), \
                     patch.object(package.platform, 'machine', return_value='x86_64'), \
                     patch.object(package.sys, 'platform', 'linux'):
-                package.verify(root, host, 'revision', 'preview', output)
+                package.verify(root, host, 'revision', 'preview', output, archive)
+                report = json.loads(output.read_text())
+                self.assertEqual(report['size_bytes']['archive'], archive.stat().st_size)
+                self.assertEqual(report['size_bytes']['installed'], len('revision\nCGO_ENABLED=1\n'))
+                self.assertGreater(report['offline_self_test_wall_ms'], 0)
+                archive.rename(archive.with_suffix('.hidden'))
+                with self.assertRaises(FileNotFoundError):
+                    package.verify(root, host, 'revision', 'preview', output, archive)
+                archive.with_suffix('.hidden').rename(archive)
                 output.unlink()
                 for name in ('zju-connect', 'zju-connect.exe', 'ZJU-Connect.EXE', 'core-provenance', 'Wintun.dll'):
                     with self.subTest(name=name):
@@ -46,7 +57,7 @@ class VerifyPackageTest(unittest.TestCase):
                         else:
                             obsolete.touch()
                         with self.assertRaisesRegex(RuntimeError, 'Obsolete runtime in package'):
-                            package.verify(root, host, 'revision', 'preview', output)
+                            package.verify(root, host, 'revision', 'preview', output, archive)
                         self.assertFalse(output.exists())
                         if obsolete.is_dir():
                             obsolete.rmdir()

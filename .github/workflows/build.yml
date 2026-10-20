@@ -113,7 +113,7 @@ jobs:
           Compress-Archive -Path $env:DISPLAY_NAME -DestinationPath "$env:ARCHIVE_NAME.zip"
           Expand-Archive -Path "$env:ARCHIVE_NAME.zip" -DestinationPath "$env:RUNNER_TEMP/package-check"
           $package = "$env:RUNNER_TEMP/package-check/$env:DISPLAY_NAME"
-          python scripts/verify-package.py $package "$package/$env:TARGET_NAME.exe" --revision $env:GITHUB_SHA --version $env:APP_VERSION --output "build/$env:ARCHIVE_NAME.json"
+          python scripts/verify-package.py $package "$package/$env:TARGET_NAME.exe" --revision $env:GITHUB_SHA --version $env:APP_VERSION --archive "$env:ARCHIVE_NAME.zip" --output "build/$env:ARCHIVE_NAME.json"
           if ($LASTEXITCODE -ne 0) { throw 'Packaged application verification failed' }
 
       - name: Package Linux
@@ -125,7 +125,7 @@ jobs:
           mv "$TARGET_NAME"-*.AppImage "$ARCHIVE_NAME.AppImage"
           package_check=$(mktemp -d)
           (cd "$package_check" && "$GITHUB_WORKSPACE/$ARCHIVE_NAME.AppImage" --appimage-extract > /dev/null)
-          python scripts/verify-package.py "$package_check/squashfs-root" "$package_check/squashfs-root/usr/bin/$TARGET_NAME" --revision "$GITHUB_SHA" --version "$APP_VERSION" --output "build/$ARCHIVE_NAME.json"
+          python scripts/verify-package.py "$package_check/squashfs-root" "$package_check/squashfs-root/usr/bin/$TARGET_NAME" --revision "$GITHUB_SHA" --version "$APP_VERSION" --archive "$ARCHIVE_NAME.AppImage" --output "build/$ARCHIVE_NAME.json"
           rm -rf "$package_check"
 
       - name: Prepare macOS bundle
@@ -172,7 +172,7 @@ jobs:
           codesign --verify --deep --strict "$RUNNER_TEMP/dmg-check/$TARGET_NAME.app"
           signature_args=()
           if [[ "$MACOS_SIGNING" == 'true' ]]; then signature_args=(--signed); fi
-          python scripts/verify-package.py "$RUNNER_TEMP/dmg-check/$TARGET_NAME.app" "$RUNNER_TEMP/dmg-check/$TARGET_NAME.app/Contents/MacOS/$TARGET_NAME" --revision "$GITHUB_SHA" --version "$APP_VERSION" --output "build/$ARCHIVE_NAME.json" "${signature_args[@]}"
+          python scripts/verify-package.py "$RUNNER_TEMP/dmg-check/$TARGET_NAME.app" "$RUNNER_TEMP/dmg-check/$TARGET_NAME.app/Contents/MacOS/$TARGET_NAME" --revision "$GITHUB_SHA" --version "$APP_VERSION" --archive "$ARCHIVE_NAME.dmg" --output "build/$ARCHIVE_NAME.json" "${signature_args[@]}"
           hdiutil detach "$RUNNER_TEMP/dmg-check"
 
       - name: Notarize macOS package

@@ -90,4 +90,5 @@ jobs:
           path: |
             build/coreabi/*.log
             build/coreabi/*.txt
+            build/coreabi/*.json
             build/coreabi/Testing/Temporary/*.log

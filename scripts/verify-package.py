@@ -11,6 +11,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -181,14 +182,17 @@ def windows_signature(path):
     return run('pwsh', '-NoProfile', '-Command', command).strip()
 
 
-def verify(root, executable, revision, application_version, output, signed=False):
+def verify(root, executable, revision, application_version, output, archive, signed=False):
     root, executable = root.resolve(), executable.resolve()
     if not inside(executable, root):
         raise RuntimeError('Executable must be inside extracted package')
+    archive_bytes = archive.stat().st_size
     env = clean_environment()
+    started = time.perf_counter()
     with tempfile.TemporaryDirectory() as working:
         result = subprocess.run([str(executable), '--core-self-test'], cwd=working, env=env,
                                 check=True, capture_output=True, timeout=30)
+    startup_ms = (time.perf_counter() - started) * 1000
     report = json.loads(result.stdout)
     arch = {'AMD64': 'amd64', 'x86_64': 'amd64', 'aarch64': 'arm64', 'ARM64': 'arm64', 'arm64': 'arm64'}[platform.machine()]
     system = {'win32': 'windows', 'darwin': 'darwin', 'linux': 'linux'}[sys.platform]
@@ -231,6 +235,13 @@ def verify(root, executable, revision, application_version, output, signed=False
         report['audit'] = macos_audit(files, root, arch, env, signed)
     else:
         report['audit'] = linux_audit(files, root, arch, env)
+    report['offline_self_test_wall_ms'] = startup_ms
+    report['size_bytes'] = {
+        'archive': archive_bytes,
+        'installed': sum(p.stat().st_size for p in root.rglob('*') if p.is_file() and not p.is_symlink()),
+        'executable': executable.stat().st_size,
+        'runtime_dll': runtime.stat().st_size if system == 'windows' else 0,
+    }
     report['sha256'] = {}
     for path in [executable] + ([runtime] if system == 'windows' else []):
         with path.open('rb') as stream:
@@ -251,6 +262,7 @@ if __name__ == '__main__':
     parser.add_argument('--revision', required=True)
     parser.add_argument('--version', required=True)
     parser.add_argument('--output', required=True, type=Path)
+    parser.add_argument('--archive', required=True, type=Path)
     parser.add_argument('--signed', action='store_true')
     args = parser.parse_args()
-    verify(args.package, args.executable, args.revision, args.version, args.output, args.signed)
+    verify(args.package, args.executable, args.revision, args.version, args.output, args.archive, args.signed)
