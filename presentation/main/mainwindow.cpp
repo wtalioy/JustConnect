@@ -923,9 +923,10 @@ void MainWindow::upgradeSettings()
     const SettingsMigrationAction action = SettingsMigrator::prepare(*settings);
     if (action == SettingsMigrationAction::MigrateAutoStart)
     {
-        profileService->migrateAutoStartSetting(
-            settings->value("Common/AutoStart", false).toBool()
-        );
+        if (!profileService->migrateAutoStartSetting(settings->value("Common/AutoStart", false).toBool())) {
+            QMessageBox::warning(this, "自启动设置迁移失败", "未能保存原有自启动偏好，已保留旧配置以便重试。");
+            return;
+        }
     }
     else if (action == SettingsMigrationAction::RecommendReset)
     {

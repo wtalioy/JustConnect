@@ -67,7 +67,6 @@ set(SOURCE_FILES
     application/defaultsettings.cpp
     core/connectionsessionstate.cpp
     infrastructure/logging/applicationlogfile.cpp
-    infrastructure/platform/autostart.cpp
     infrastructure/settings/settingsprofileloader.cpp
     infrastructure/storage/applicationpaths.cpp
     infrastructure/update/updatechecker.cpp
@@ -138,6 +137,19 @@ include(CTest)
 
 if(BUILD_TESTING)
     justconnect_platform_tests(platformbackend_test justconnect_platform)
+    justconnect_autostart_tests(autostart_test justconnect_platform)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_executable(settingwindow_test tests/settingwindow_test.cpp
+            presentation/dialogs/settingwindow/settingwindow.cpp
+            presentation/dialogs/extrasettingwindow/extrasettingwindow.cpp
+            presentation/dialogs/authinfowindow/authinfowindow.cpp
+            presentation/presentationhelpers.cpp
+            application/defaultsettings.cpp infrastructure/settings/profilemanager.cpp
+            infrastructure/storage/applicationpaths.cpp)
+        target_link_libraries(settingwindow_test PRIVATE justconnect_engine justconnect_platform Qt6::WebEngineWidgets)
+        add_test(NAME settingwindow_test COMMAND settingwindow_test)
+        set_tests_properties(settingwindow_test PROPERTIES TIMEOUT 30 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    endif()
     add_test(NAME core_self_test COMMAND ${PROJECT_NAME} --core-self-test)
     set_tests_properties(core_self_test PROPERTIES TIMEOUT 30 PASS_REGULAR_EXPRESSION "\"ok\":true")
     include(tests/CoreEngineTests.cmake)

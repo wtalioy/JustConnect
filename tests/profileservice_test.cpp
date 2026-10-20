@@ -94,12 +94,15 @@ public:
         return false;
     }
 
-    void setAutoStartEnabled(bool enabled) const override
+    bool setAutoStartEnabled(bool enabled) const override
     {
+        if (!allowAutoStartSave) return false;
         migratedAutoStart = enabled;
+        return true;
     }
 
     mutable QString activeId;
+    bool allowAutoStartSave = true;
     mutable bool migratedAutoStart = false;
     bool allowActiveProfileChange = true;
     bool allowProfileRemoval = true;
@@ -190,8 +193,10 @@ bool managesCurrentProfileAsOneUnit()
     }
 
     fake->allowProfileRemoval = true;
-    service.migrateAutoStartSetting(true);
-    if (!fake->migratedAutoStart
+    fake->allowAutoStartSave = false;
+    if (service.migrateAutoStartSetting(true) || fake->migratedAutoStart) return false;
+    fake->allowAutoStartSave = true;
+    if (!service.migrateAutoStartSetting(true) || !fake->migratedAutoStart
         || !service.removeCurrentAndSwitchToDefault()
         || !service.currentProfileId().isEmpty())
     {

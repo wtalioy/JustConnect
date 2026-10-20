@@ -23,7 +23,7 @@ public:
 
 private:
     void loadSettings();
-    void applySettings();
+    bool applySettings();
     bool isAuthSettingChanged();
     bool shouldCheckCredential();
 

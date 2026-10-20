@@ -169,11 +169,12 @@ bool ProfileManager::autoStartEnabled() const
     return state.value("Global/AutoStart", false).toBool();
 }
 
-void ProfileManager::setAutoStartEnabled(bool enabled) const
+bool ProfileManager::setAutoStartEnabled(bool enabled) const
 {
     QSettings state(statePath, QSettings::IniFormat);
     state.setValue("Global/AutoStart", enabled);
     state.sync();
+    return state.status() == QSettings::NoError && state.value("Global/AutoStart").toBool() == enabled;
 }
 
 bool ProfileManager::silentStartEnabled() const
