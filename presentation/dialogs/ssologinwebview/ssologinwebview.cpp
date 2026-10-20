@@ -7,6 +7,7 @@
 #include <QWebEngineHistory>
 #include <QWebEngineView>
 #include <QWebEnginePage>
+#include <QWebEngineProfile>
 #include <QtWebEngineCore>
 #include <QUrl>
 
@@ -15,6 +16,8 @@ SsoLoginWebView::SsoLoginWebView(QWidget *parent)
     , ui(new Ui::SsoLoginWebView)
 {
     ui->setupUi(this);
+    auto *profile = new QWebEngineProfile(this);
+    ui->webEngineView->setPage(new QWebEnginePage(profile, ui->webEngineView));
 
     setAttribute(Qt::WA_DeleteOnClose);
     setModal(true);
