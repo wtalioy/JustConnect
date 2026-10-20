@@ -25,6 +25,7 @@
 #include <QSemaphore>
 #include <QTemporaryDir>
 #include <QTimer>
+#include <QUuid>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QWebEngineView>
@@ -209,7 +210,23 @@ static void manualCredentialsAndLateResults() {
     check(engine->profile.credentials.username=="manual-without-storage" && settings.value(ProfileCredentials::ScopeSetting)=="invalid-existing-namespace"
         && !settings.contains("Credential/Password"),"invalid storage namespace still permits explicit manual login without overwriting the namespace");
     finish();dismiss.stop();
-    check(!logs.contains("manual-secret") && !logs.contains("fixture-password"),"credential values never appear in UI logs");
+    settings.setValue(ProfileCredentials::ScopeSetting,source.scope);settings.setValue("Credential/Username","remembered");settings.sync();
+    auto totpOnly=source.profile;totpOnly.credentials.password.clear();totpOnly.credentials.totpSecret="JBSWY3DPEHPK3PXP";
+    check(vault.save(source.scope,totpOnly).succeeded(),"native TOTP without a password");
+    connectButton.click();until([&]{
+        for (auto *dialog:parent.findChildren<QDialog *>())
+            if (dialog->isVisible() && dialog->findChild<QLineEdit *>("usernameLineEdit")) return true;
+        return false;
+    });
+    settings.setValue(ProfileCredentials::ScopeSetting,QUuid::createUuid().toString(QUuid::WithoutBraces));settings.sync();
+    auto *dialog=challenge(parent);dialog->findChild<QLineEdit *>("passwordLineEdit")->setText("manual-secret");
+    dialog->findChild<QCheckBox *>("saveLoginDetailCheckBox")->setChecked(false);
+    dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+    until([&]{return session.state()==ConnectionState::Starting;});
+    check(engine->profile.credentials.totpSecret.isEmpty() && engine->profile.credentials.password=="manual-secret",
+        "explicit manual login does not reuse native TOTP after the storage namespace changes");finish();
+    check(vault.load(source.scope,totpOnly,loaded).succeeded() && loaded.totpSecret=="JBSWY3DPEHPK3PXP","manual input never deletes another namespace's native credentials");
+    check(!logs.contains("manual-secret") && !logs.contains("fixture-password") && !logs.contains("JBSWY3DPEHPK3PXP"),"credential values never appear in UI logs");
 }
 static void browserCookiesStayInLoginDialog() {
     QList<bool> cookies;

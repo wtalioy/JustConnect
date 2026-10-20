@@ -172,9 +172,11 @@ void ConnectionUiController::submitLogin(const QString &username,const QString &
 {
     if (!promptSource || !sourceStillCurrent(*promptSource)) return;
     const auto source=*promptSource;auto profile=SettingsProfileLoader::load(*settings());
-    const auto totp=username.trimmed()==source.profile.credentials.username ? promptCredentials.totpSecret : QString();
+    const auto totp=username.trimmed()==source.profile.credentials.username && CredentialAccess::matches(source,*settings())
+        ? promptCredentials.totpSecret : QString();
     profile.credentials={username.trimmed(),password,totp};promptSource.reset();promptCredentials={};
-    submitManual(source,profile,save,{{"Credential/Username",profile.credentials.username}},true);
+    submitManual(source,profile,save,{{"Credential/Username",profile.credentials.username}},
+        !profile.credentials.password.isEmpty() || !profile.credentials.totpSecret.isEmpty());
 }
 void ConnectionUiController::submitPhone(const QString &country,const QString &phone,bool save)
 {

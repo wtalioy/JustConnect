@@ -16,9 +16,8 @@ public:
 
     CredentialResult load(const QString &scope,const ConnectionProfile &profile,ConnectionCredentials &credentials);
     CredentialResult save(const QString &scope,const ConnectionProfile &profile);
-    CredentialResult remove(const QString &scope,const ConnectionProfile &profile);
-    // Migrate the loaded source identity before committing any identity edits.
     CredentialResult clear(QSettings &settings,const QString &scope,const ConnectionProfile &profile);
+    // Migrate the loaded source identity before committing any identity edits.
     CredentialResult migrate(QSettings &settings,const QString &scope,const ConnectionProfile &profile);
     // Old cache has no reliable account binding; seal it without using it for login.
     CredentialResult quarantine(const QString &path,const QString &scope);
