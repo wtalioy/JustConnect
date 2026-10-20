@@ -3,12 +3,14 @@ package atrust
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
 	"time"
 
 	"github.com/wtalioy/JustConnect/corelib/client"
+	"github.com/wtalioy/JustConnect/corelib/client/atrust/auth"
 	"github.com/wtalioy/JustConnect/corelib/internal/ipresource"
 	"github.com/wtalioy/JustConnect/corelib/log"
 )
@@ -30,9 +32,13 @@ type L3Tunnel struct {
 	vipMu   sync.Mutex
 	vipList []net.IP
 
-	dataChan  chan []byte
-	closeCh   chan struct{}
-	closeOnce sync.Once
+	dataChan      chan []byte
+	closeCh       chan struct{}
+	closeOnce     sync.Once
+	workers       sync.WaitGroup
+	closed        bool
+	connectCtx    context.Context
+	cancelConnect context.CancelFunc
 }
 
 type l3TunnelConnectCall struct {
@@ -58,6 +64,8 @@ func NewL3Tunnel(aTrustClient *Client) (*L3Tunnel, error) {
 	t.connect = func(ctx context.Context, addr string, conntrackMgr *conntrackMgr) (*l3TunnelConn, error) {
 		info := clientInfo{
 			sidProvider:  aTrustClient.sessionSID,
+			language:     aTrustClient.language,
+			onError:      aTrustClient.fail,
 			deviceID:     aTrustClient.DeviceID,
 			connectionID: aTrustClient.ConnectionID,
 			username:     aTrustClient.Username,
@@ -122,6 +130,10 @@ func (t *L3Tunnel) Close() {
 			close(t.closeCh)
 		}
 		t.connsMu.Lock()
+		t.closed = true
+		if t.cancelConnect != nil {
+			t.cancelConnect()
+		}
 		conns := make([]*l3TunnelConn, 0, len(t.conns))
 		for _, conn := range t.conns {
 			conns = append(conns, conn)
@@ -137,6 +149,10 @@ func (t *L3Tunnel) Close() {
 		for _, conn := range conns {
 			_ = conn.Close()
 		}
+		t.workers.Wait()
+		for _, conn := range conns {
+			conn.Wait()
+		}
 		for _, conntrackMgr := range conntrackMgrs {
 			conntrackMgr.close()
 		}
@@ -145,6 +161,10 @@ func (t *L3Tunnel) Close() {
 
 func (t *L3Tunnel) getConn(nodeGroupID string) (*l3TunnelConn, error) {
 	t.connsMu.Lock()
+	if t.closed {
+		t.connsMu.Unlock()
+		return nil, net.ErrClosed
+	}
 	if conn := t.conns[nodeGroupID]; conn != nil {
 		t.connsMu.Unlock()
 		return conn, nil
@@ -158,8 +178,9 @@ func (t *L3Tunnel) getConn(nodeGroupID string) (*l3TunnelConn, error) {
 		t.connecting = make(map[string]*l3TunnelConnectCall)
 	}
 	t.connecting[nodeGroupID] = call
+	t.workers.Add(1)
 	t.connsMu.Unlock()
-	go t.connectWithRetry(nodeGroupID, call, true)
+	go t.runConnect(nodeGroupID, call, true)
 	return t.waitConnectCall(call)
 }
 
@@ -183,7 +204,17 @@ func (t *L3Tunnel) connectConn(nodeGroupID string) (*l3TunnelConn, error) {
 		return nil, fmt.Errorf("no available node for group %s", nodeGroupID)
 	}
 
-	ctx, cancel := context.WithTimeout(t.client.lifecycleCtx, 10*time.Second)
+	t.connsMu.Lock()
+	if t.closed {
+		t.connsMu.Unlock()
+		return nil, net.ErrClosed
+	}
+	if t.connectCtx == nil {
+		t.connectCtx, t.cancelConnect = context.WithCancel(t.client.lifecycleCtx)
+	}
+	parent := t.connectCtx
+	t.connsMu.Unlock()
+	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
 	defer cancel()
 	conntrackMgr, err := t.getConntrackMgr(nodeGroupID)
 	if err != nil {
@@ -274,7 +305,7 @@ func (t *L3Tunnel) startReconnect(nodeGroupID string) {
 	default:
 	}
 	t.connsMu.Lock()
-	if t.conns[nodeGroupID] != nil || t.connecting[nodeGroupID] != nil {
+	if t.closed || t.conns[nodeGroupID] != nil || t.connecting[nodeGroupID] != nil {
 		t.connsMu.Unlock()
 		return
 	}
@@ -283,8 +314,9 @@ func (t *L3Tunnel) startReconnect(nodeGroupID string) {
 	}
 	call := &l3TunnelConnectCall{done: make(chan struct{})}
 	t.connecting[nodeGroupID] = call
+	t.workers.Add(1)
 	t.connsMu.Unlock()
-	go t.connectWithRetry(nodeGroupID, call, false)
+	go t.runConnect(nodeGroupID, call, false)
 }
 
 func (t *L3Tunnel) connectWithRetry(nodeGroupID string, call *l3TunnelConnectCall, immediate bool) {
@@ -309,6 +341,11 @@ func (t *L3Tunnel) connectWithRetry(nodeGroupID string, call *l3TunnelConnectCal
 			}
 		}
 		conn, err := t.connectConn(nodeGroupID)
+		if errors.Is(err, auth.ErrSessionInvalid) {
+			t.client.fail(err)
+			t.finishConnect(nodeGroupID, call, nil, err)
+			return
+		}
 		if err == nil {
 			t.finishConnect(nodeGroupID, call, conn, nil)
 			return
@@ -335,6 +372,9 @@ func (t *L3Tunnel) finishConnect(nodeGroupID string, call *l3TunnelConnectCall, 
 			t.conns[nodeGroupID] = conn
 		}
 	}
+	if err == nil {
+		t.workers.Add(1)
+	}
 	call.conn = conn
 	call.err = err
 	close(call.done)
@@ -342,6 +382,28 @@ func (t *L3Tunnel) finishConnect(nodeGroupID string, call *l3TunnelConnectCall, 
 	if err != nil && conn != nil {
 		_ = conn.Close()
 	} else if err == nil {
-		go t.forwardFromConn(nodeGroupID, conn)
+		go func() {
+			defer t.workers.Done()
+			defer conn.Wait()
+			defer func() {
+				if recover() != nil {
+					t.client.fail(errors.New("L3 forwarding panicked"))
+					_ = conn.Close()
+				}
+			}()
+			t.forwardFromConn(nodeGroupID, conn)
+		}()
 	}
+}
+
+func (t *L3Tunnel) runConnect(group string, call *l3TunnelConnectCall, immediate bool) {
+	defer t.workers.Done()
+	defer func() {
+		if recover() != nil {
+			err := errors.New("L3 connection worker panicked")
+			t.client.fail(err)
+			t.finishConnect(group, call, nil, err)
+		}
+	}()
+	t.connectWithRetry(group, call, immediate)
 }

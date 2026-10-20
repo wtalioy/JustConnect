@@ -1,7 +1,10 @@
 package atrust
 
 import (
+	"context"
+	"net"
 	"reflect"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -129,5 +132,22 @@ func TestSelectBestNodesOmitsGroupWhenNoNodeReachable(t *testing.T) {
 
 	if _, ok := got["group"]; ok {
 		t.Fatalf("selected unreachable node %q", got["group"])
+	}
+}
+
+func TestNodeProbeSkipsMalformedEndpointsAndKeepsIPv6(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var calls atomic.Int32
+	got := getBestReachableNodes(ctx, map[string][]string{"group": {"missing-port", "host:bad", "host:0", "[::1]:443"}}, func(_ context.Context, network, address string) (net.Conn, error) {
+		if network != "tcp" || address != "[::1]:443" {
+			t.Errorf("probe = %s %s", network, address)
+		}
+		calls.Add(1)
+		cancel()
+		return nil, context.Canceled
+	}, nil)
+	if len(got) != 0 || calls.Load() != 1 {
+		t.Fatalf("nodes = %v, calls = %d", got, calls.Load())
 	}
 }

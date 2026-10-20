@@ -10,6 +10,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/wtalioy/JustConnect/corelib/client/atrust/auth"
 	"github.com/wtalioy/JustConnect/corelib/log"
 )
 
@@ -20,7 +21,7 @@ func parseIPAuthResponse(data []byte) error {
 	}
 	if response.Code != 0 {
 		if response.Code == 10000004 || response.Code == 75500002 {
-			log.Fatalf("IP tunnel: aTrust session is invalid (code %d): %s", response.Code, response.Message)
+			return auth.ErrSessionInvalid
 		}
 		return fmt.Errorf("IP tunnel authentication failed (code %d): %s", response.Code, response.Message)
 	}
@@ -104,6 +105,8 @@ func (c *Client) getIP(parent context.Context) error {
 	if err != nil {
 		return err
 	}
+	stopCancel := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stopCancel()
 	defer func(conn *tls.Conn) {
 		_ = conn.Close()
 	}(conn)
@@ -126,6 +129,9 @@ func (c *Client) getIP(parent context.Context) error {
 	}
 	ip, err := readIPTunnelResponses(conn)
 	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		return err
 	}
 	c.setIP(ip)

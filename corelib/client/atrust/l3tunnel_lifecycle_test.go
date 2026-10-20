@@ -1850,3 +1850,24 @@ func (c *trackingNetConn) recordedDeadlines() []time.Time {
 	defer c.deadlineMu.Unlock()
 	return append([]time.Time(nil), c.deadlines...)
 }
+
+func TestTunnelAuthenticationCancellationWithoutDeadline(t *testing.T) {
+	local, remote := net.Pipe()
+	defer remote.Close()
+	conn := &l3TunnelConn{tlsConn: tls.Client(local, &tls.Config{InsecureSkipVerify: true})}
+	defer conn.tlsConn.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- conn.withContextDeadline(ctx, func() error { _, err := conn.tlsConn.Read(make([]byte, 1)); return err })
+	}()
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("auth cancellation = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("tunnel authentication did not cancel")
+	}
+}

@@ -4,11 +4,11 @@ import (
 	"bufio"
 	"context"
 	"crypto/hmac"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/wtalioy/JustConnect/corelib/client"
+	"github.com/wtalioy/JustConnect/corelib/client/atrust/auth"
 	"github.com/wtalioy/JustConnect/corelib/internal/ipresource"
 	"github.com/wtalioy/JustConnect/corelib/log"
 	"github.com/wtalioy/JustConnect/corelib/resolve"
@@ -32,6 +33,9 @@ type tcpTunnelConn struct {
 	reuse   bool
 	raw     bool
 
+	owner          *Client
+	closeOnce      sync.Once
+	closeErr       error
 	closeWriteOnce sync.Once
 	closeWriteErr  error
 }
@@ -168,7 +172,7 @@ func parseTCPTunnelAuthResponse(data string) error {
 	}
 	if response.Code != 0 {
 		if response.Code == 10000004 || response.Code == 75500002 {
-			log.Fatalf("tcp tunnel: aTrust session is invalid (code %d): %s", response.Code, response.Message)
+			return auth.ErrSessionInvalid
 		}
 		return fmt.Errorf("tcp tunnel authentication failed (code %d): %s", response.Code, response.Message)
 	}
@@ -389,12 +393,16 @@ func (c *tcpTunnelConn) Write(b []byte) (int, error) {
 }
 
 func (c *tcpTunnelConn) Close() error {
-	writeErr := c.CloseWrite()
-	closeErr := c.tlsConn.Close()
-	if writeErr != nil {
-		return writeErr
-	}
-	return closeErr
+	c.closeOnce.Do(func() {
+		// Full close must interrupt an in-flight write; protocol half-close is explicit.
+		c.closeErr = c.tlsConn.Close()
+		if c.owner != nil {
+			c.owner.tcpMu.Lock()
+			delete(c.owner.tcpConns, c)
+			c.owner.tcpMu.Unlock()
+		}
+	})
+	return c.closeErr
 }
 
 func (c *tcpTunnelConn) CloseRead() error {
@@ -439,14 +447,6 @@ func (c *tcpTunnelConn) SetWriteDeadline(t time.Time) error {
 	return c.tlsConn.SetWriteDeadline(t)
 }
 
-func randUint64() string {
-	var b [8]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		panic(err)
-	}
-	return fmt.Sprint(binary.BigEndian.Uint64(b[:]))
-}
-
 func calcXRequestSig(key []byte, data []byte) string {
 	h := hmac.New(sha256.New, key)
 	h.Write(data)
@@ -483,6 +483,13 @@ func tcpTunnelRealDstHost(addr *net.TCPAddr, domain string, addrPretend bool) st
 }
 
 func (c *Client) DialTCP(ctx context.Context, addr *net.TCPAddr) (net.Conn, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stopLifecycle := context.AfterFunc(c.lifecycleCtx, cancel)
+	defer stopLifecycle()
+	if c.lifecycleCtx.Err() != nil {
+		return nil, context.Canceled
+	}
 	sid, err := c.sessionSID()
 	if err != nil {
 		return nil, err
@@ -528,7 +535,9 @@ func (c *Client) DialTCP(ctx context.Context, addr *net.TCPAddr) (net.Conn, erro
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to aTrust server: %w", err)
 	}
-	if err := conn.SetReadDeadline(tcpTunnelHandshakeDeadline(ctx, time.Now())); err != nil {
+	stopCancel := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stopCancel()
+	if err := conn.SetDeadline(tcpTunnelHandshakeDeadline(ctx, time.Now())); err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("failed to set tcp tunnel handshake timeout: %w", err)
 	}
@@ -556,7 +565,7 @@ func (c *Client) DialTCP(ctx context.Context, addr *net.TCPAddr) (net.Conn, erro
 		ConnectionID: c.ConnectionID,
 		ProcHash:     procHash,
 		UserName:     c.Username,
-		Lang:         "en-US",
+		Lang:         c.requestLanguage(),
 		DestAddr:     destAddr,
 		DestIP:       destIP,
 		XRequestSig:  "",
@@ -604,8 +613,14 @@ func (c *Client) DialTCP(ctx context.Context, addr *net.TCPAddr) (net.Conn, erro
 		raw:     !c.tcpTunnelZeroRTT,
 	}
 	reuse, waitErr := waitForTCPConnectReply(ctx, conn, tunnelConn.reader)
-	clearDeadlineErr := conn.SetReadDeadline(time.Time{})
+	clearDeadlineErr := conn.SetDeadline(time.Time{})
 	if waitErr != nil {
+		if errors.Is(waitErr, auth.ErrSessionInvalid) {
+			c.fail(waitErr)
+		}
+		if ctx.Err() != nil {
+			waitErr = ctx.Err()
+		}
 		_ = conn.Close()
 		return nil, waitErr
 	}
@@ -614,5 +629,17 @@ func (c *Client) DialTCP(ctx context.Context, addr *net.TCPAddr) (net.Conn, erro
 		return nil, fmt.Errorf("failed to clear tcp tunnel handshake timeout: %w", clearDeadlineErr)
 	}
 	tunnelConn.reuse = c.tcpTunnelZeroRTT && reuse
+	c.tcpMu.Lock()
+	if c.lifecycleCtx.Err() != nil {
+		c.tcpMu.Unlock()
+		_ = tunnelConn.Close()
+		return nil, context.Canceled
+	}
+	if c.tcpConns == nil {
+		c.tcpConns = make(map[*tcpTunnelConn]struct{})
+	}
+	tunnelConn.owner = c
+	c.tcpConns[tunnelConn] = struct{}{}
+	c.tcpMu.Unlock()
 	return tunnelConn, nil
 }

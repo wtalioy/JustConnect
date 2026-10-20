@@ -34,7 +34,7 @@ infrastructure -------+
 
 `CoreProcess` 定义连接配置、事件和错误接口，`ExternalCoreProcess` 负责启动核心与转换进程事件。当前使用 [zju-connect](https://github.com/Mythologyli/zju-connect)；命令构建与输出解析位于 `infrastructure/coreprocess/`。接入其他核心需适配其协议、认证查询、版本检查与打包来源。
 
-目标边界为 `application/CoreEngine` → `infrastructure/EmbeddedCoreEngine` → JustConnect 内部 C ABI → `corelib/` 内的 Go 会话与协议实现。Go 源码已直接整合进 `corelib/`，使用 `github.com/wtalioy/JustConnect/corelib` 单一模块；不另设上游源码目录、嵌套模块或本地 `replace`。协议包可直接维护和精简，[来源与许可证](../corelib/UPSTREAM.md)就地保留。S1-03 已实现独立的 [C ABI 契约与传输](CORE-ABI.md)，包含有界事件、句柄、停止／销毁和认证回应；当前能力明确不支持真实 VPN。正式协议会话与 Qt 接入仍未实现。无调用的旧 CLI 初始化／配置与 EasyConnect Go 实现已删除，通用 gVisor 栈不再依赖具体 VPN 协议包；仍被 aTrust 使用的认证处理器、终止钩子和数据栈保留到各自替代方案验证完成。
+目标边界为 `application/CoreEngine` → `infrastructure/EmbeddedCoreEngine` → JustConnect 内部 C ABI → `corelib/` 内的 Go 会话与协议实现。Go 源码已直接整合进 `corelib/`，使用 `github.com/wtalioy/JustConnect/corelib` 单一模块；不另设上游源码目录、嵌套模块或本地 `replace`。协议包可直接维护和精简，[来源与许可证](../corelib/UPSTREAM.md)就地保留。S1-03 已实现独立的 [C ABI 契约与传输](CORE-ABI.md)，包含有界事件、句柄、停止／销毁和认证回应；当前能力明确不支持真实 VPN。正式协议会话与 Qt 接入仍未实现。无调用的旧 CLI 初始化／配置与 EasyConnect Go 实现已删除，通用 gVisor 栈不再依赖具体 VPN 协议包；认证交互保留 `authchallenge.Handler`，CLI 处理器及其 stdin／浏览器接管已删除；aTrust 客户端负责认证维护与隧道后台工作，失效通过错误返回，终止钩子和数据栈按 S1-07 接续替换。
 
 Qt 主线程接收结构化事件，数据转发留在 Go 内；凭据、认证回应和策略通过显式接口传入。正式切换时删除核心命令行、文本解析及进程兼容层，不保留两套正式后端。必要的权限助手和独立恢复守护不承载 VPN 核心。
 
