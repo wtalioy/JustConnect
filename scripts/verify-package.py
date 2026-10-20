@@ -104,6 +104,10 @@ def macos_audit(files, root, arch, env, signed):
         if run('lipo', '-archs', path, env=env).strip() != expected:
             raise RuntimeError(f'Wrong Mach-O architecture: {path}')
         commands = run('otool', '-l', path, env=env)
+        rpaths = re.findall(r'\bpath (.*?) \(offset', commands)
+        for rpath in rpaths:
+            if rpath.startswith('/') and not rpath.startswith(('/System/Library/', '/usr/lib/')):
+                raise RuntimeError(f'Non-relocatable Mach-O search path: {path}: {rpath}')
         for block in commands.split('Load command '):
             if re.search(r'cmd LC_(BUILD_VERSION|VERSION_MIN_MACOSX)\b', block):
                 match = re.search(r'^\s+(?:minos|version)\s+([0-9.]+)', block, re.M)
@@ -120,12 +124,12 @@ def macos_audit(files, root, arch, env, signed):
             if dependency.startswith('@rpath/'):
                 suffix = dependency.removeprefix('@rpath/')
                 candidates = [root / 'Contents/Frameworks' / suffix]
-                for rpath in re.findall(r'\bpath (.*?) \(offset', commands):
+                for rpath in rpaths:
                     candidates.append(Path(rpath.replace('@loader_path', str(path.parent))
                                            .replace('@executable_path', str(executable_dir))) / suffix)
             if not any(candidate.exists() and inside(candidate, root) for candidate in candidates):
                 raise RuntimeError(f'Dependency outside bundle/system: {path}: {dependency}')
-        evidence.append({'file': str(path.relative_to(root)), 'dependencies': dependencies})
+        evidence.append({'file': str(path.relative_to(root)), 'dependencies': dependencies, 'rpaths': rpaths})
     declared = plistlib.loads((root / 'Contents/Info.plist').read_bytes())['LSMinimumSystemVersion']
     if version(minimum) > version(declared) or version(declared) > version(platform.mac_ver()[0]):
         raise RuntimeError(f'Invalid macOS floor: declared {declared}, binaries {minimum}')
