@@ -2,9 +2,13 @@ package bridge
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
+	"net"
 
 	"github.com/wtalioy/JustConnect/corelib"
+	"github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/wtalioy/JustConnect/corelib/client/atrust"
 	"github.com/wtalioy/JustConnect/corelib/client/atrust/auth"
 	"github.com/wtalioy/JustConnect/corelib/client/authchallenge"
@@ -27,8 +31,19 @@ func RunProtocol(ctx context.Context, config Config, host *Session) Status {
 	if err != nil {
 		return InvalidArgument
 	}
+	tlsPolicy := &tls.Config{InsecureSkipVerify: config.TLS.SkipVerify}
+	if config.TLS.CAPEM != "" {
+		roots, err := x509.SystemCertPool()
+		if err != nil {
+			roots = x509.NewCertPool()
+		}
+		if !roots.AppendCertsFromPEM([]byte(config.TLS.CAPEM)) {
+			return InvalidArgument
+		}
+		tlsPolicy.RootCAs = roots
+	}
 	options := corelib.Options{
-		Client:   atrust.ClientOptions{Language: config.Network.Language, Diagnostic: func(code string) { host.Diagnostic(code) }},
+		Client:   atrust.ClientOptions{TLSConfig: tlsPolicy, Language: config.Network.Language, Diagnostic: func(code string) { host.Diagnostic(code) }},
 		Setup:    atrust.SetupOptions{AuthID: config.Auth.AuthID, AuthSubType: config.Auth.SubType, ServerAddress: config.Server.Host, ServerPort: int(config.Server.Port), LoginMethod: method, TOTPSecret: config.Auth.TOTPSecret, ChallengeHandler: challengeHandler(ctx, host)},
 		Underlay: underlay.Options{InterfaceName: config.Network.Interface, AutoDetect: config.Network.AutoDetect, LocalDNSServer: config.Network.LocalDNS},
 		SOCKS:    config.Listeners.SOCKS, HTTP: config.Listeners.HTTP, SecondaryDNS: config.Network.SecondaryDNS, DNSCacheTTL: uint64(config.Network.DNSCacheTTL), DisableRemoteDNS: config.Network.DisableRemoteDNS,
@@ -59,6 +74,22 @@ func RunProtocol(ctx context.Context, config Config, host *Session) Status {
 	}
 	if errors.Is(err, auth.ErrAuthMethodChanged) {
 		return AuthMethodChanged
+	}
+	var certificate *tls.CertificateVerificationError
+	if errors.As(err, &certificate) {
+		return TLSTrust
+	}
+	var networkError net.Error
+	if errors.As(err, &networkError) && networkError.Timeout() {
+		return Timeout
+	}
+	var socket *net.OpError
+	if errors.As(err, &socket) && socket.Op != "listen" {
+		return NetworkFailure
+	}
+	var handshake *client.TLSHandshakeError
+	if errors.As(err, &handshake) {
+		return TLSProtocol
 	}
 	return Internal
 }

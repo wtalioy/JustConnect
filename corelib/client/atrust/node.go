@@ -2,8 +2,8 @@ package atrust
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
-	"io"
 	"net"
 	"strconv"
 	"time"
@@ -21,16 +21,16 @@ type NodeGroup struct {
 
 type nodeGroupsProbeFunc func(map[string][]string) map[string]string
 
-func getBestNodes(ctx context.Context, nodeGroups map[string]NodeGroup, dialContext client.DialContextFunc, keyLogWriter io.Writer) (map[string]string, error) {
+func getBestNodes(ctx context.Context, nodeGroups map[string]NodeGroup, dialContext client.DialContextFunc, tlsPolicy *tls.Config) (map[string]string, error) {
 	var probeErr error
 	best := selectBestNodes(nodeGroups, func(groups map[string][]string) map[string]string {
-		if probeErr != nil {
-			return nil
-		}
-		nodes, err := getBestReachableNodes(ctx, groups, dialContext, keyLogWriter)
+		nodes, err := getBestReachableNodes(ctx, groups, dialContext, tlsPolicy)
 		probeErr = errors.Join(probeErr, err)
 		return nodes
 	})
+	if len(best) > 0 {
+		return best, nil
+	}
 	return best, probeErr
 }
 
@@ -57,8 +57,9 @@ func selectBestNodes(nodeGroups map[string]NodeGroup, probe nodeGroupsProbeFunc)
 	return bestNodes
 }
 
-func getBestReachableNodes(ctx context.Context, nodeGroups map[string][]string, dialContext client.DialContextFunc, keyLogWriter io.Writer) (map[string]string, error) {
+func getBestReachableNodes(ctx context.Context, nodeGroups map[string][]string, dialContext client.DialContextFunc, tlsPolicy *tls.Config) (map[string]string, error) {
 	bestNodes := make(map[string]string)
+	var probeErr error
 	for group, nodes := range nodeGroups {
 		if len(nodes) > 0 {
 			var pingList []*ping.TCPing
@@ -77,7 +78,7 @@ func getBestReachableNodes(ctx context.Context, nodeGroups map[string][]string, 
 
 				tcping := ping.NewTCPing()
 				tcping.SetDialContext(dialContext)
-				tcping.SetKeyLogWriter(keyLogWriter)
+				tcping.SetTLSConfig(tlsPolicy)
 				target := ping.Target{
 
 					Host:     host,
@@ -103,7 +104,8 @@ func getBestReachableNodes(ctx context.Context, nodeGroups map[string][]string, 
 			for i, tcping := range pingList {
 				result := tcping.Result()
 				if result.Err != nil {
-					return nil, result.Err
+					probeErr = errors.Join(probeErr, result.Err)
+					continue
 				}
 				score, reachable := nodeProbeScore(result)
 				if reachable && (bestScore == 0 || score < bestScore) {
@@ -119,7 +121,10 @@ func getBestReachableNodes(ctx context.Context, nodeGroups map[string][]string, 
 		}
 	}
 
-	return bestNodes, nil
+	if len(bestNodes) > 0 {
+		return bestNodes, nil
+	}
+	return bestNodes, probeErr
 }
 
 func nodeProbeScore(result *ping.Result) (time.Duration, bool) {
@@ -144,7 +149,7 @@ func (c *Client) updateBestNodes(ctx context.Context, interval time.Duration) {
 		case <-ticker.C:
 		}
 
-		bestNodes, err := getBestNodes(ctx, c.NodeGroups, c.underlayDialer.DialContext, c.tlsKeyLogWriter)
+		bestNodes, err := getBestNodes(ctx, c.NodeGroups, c.underlayDialer.DialContext, c.tlsPolicy)
 		if err != nil {
 			c.fail(err)
 			return

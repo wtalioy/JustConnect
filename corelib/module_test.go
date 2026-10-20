@@ -33,7 +33,9 @@ func TestIntegratedATrustGateway(t *testing.T) {
 			defer server.Close()
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			session := auth.NewSessionContext(ctx, "vpn.example.invalid:443", nil,
+			policy := server.Client().Transport.(*http.Transport).TLSClientConfig.Clone()
+			policy.ServerName = "example.com"
+			session := auth.NewSessionContext(ctx, "vpn.example.invalid:443", policy,
 				func(ctx context.Context, network, address string) (net.Conn, error) {
 					if address != "vpn.example.invalid:443" {
 						return nil, fmt.Errorf("unexpected dial: %s", address)

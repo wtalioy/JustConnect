@@ -8,9 +8,11 @@ import (
 	stdlog "log"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -259,5 +261,47 @@ func TestStaleAuthenticationIdentityReportsRequeryWithoutLogin(t *testing.T) {
 	}
 	if g.authCount.Load() != 0 {
 		t.Fatal("stale selection must not attempt login")
+	}
+}
+
+func TestProtocolReportsTrustProtocolAndNetworkFailures(t *testing.T) {
+	g := newGateway(t)
+	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusBadRequest) }))
+	defer plain.Close()
+	closed, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	closedAddress := closed.Addr().String()
+	closed.Close()
+	for _, test := range []struct {
+		name, address string
+		status        Status
+	}{
+		{"untrusted certificate", g.HTTP.Listener.Addr().String(), TLSTrust},
+		{"plaintext instead of TLS", plain.Listener.Addr().String(), TLSProtocol},
+		{"connection refused", closedAddress, NetworkFailure},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			c := g.config(t)
+			c.Operation = "auth_methods"
+			c.TLS.CAPEM = ""
+			address, port, _ := net.SplitHostPort(test.address)
+			number, _ := strconv.Atoi(port)
+			c.Server.Host = address
+			c.Server.Port = uint16(number)
+			e := New(RunProtocol)
+			h := create(t, e)
+			if _, status := e.Start(h, configBytes(t, c)); status != OK {
+				t.Fatal(status)
+			}
+			next(t, e, h)
+			if ev := next(t, e, h); ev.Type != "terminal" || ev.Status != test.status {
+				t.Fatalf("event=%+v", ev)
+			}
+			if g.authCount.Load() != 0 {
+				t.Fatal("failure sent authentication")
+			}
+		})
 	}
 }

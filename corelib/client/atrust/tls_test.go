@@ -2,39 +2,14 @@ package atrust
 
 import (
 	"bytes"
-	"crypto/tls"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/wtalioy/JustConnect/corelib/underlay"
 )
-
-func TestTunnelTLSConfigMatchesOfficialTransport(t *testing.T) {
-	config := tunnelTLSConfig(nil)
-
-	if !config.InsecureSkipVerify {
-		t.Fatal("tunnel certificate verification must be disabled")
-	}
-	if !config.SessionTicketsDisabled {
-		t.Fatal("tunnel TLS session tickets must be disabled")
-	}
-	if config.VerifyConnection != nil || config.VerifyPeerCertificate != nil {
-		t.Fatal("official tunnel transport does not install certificate verification callbacks")
-	}
-	if config.MinVersion != 0 || config.MaxVersion != 0 {
-		t.Fatal("official tunnel transport does not override Go's TLS version defaults")
-	}
-}
-
-func TestTunnelTLSConfigUsesKeyLogWriter(t *testing.T) {
-	var writer bytes.Buffer
-	config := tunnelTLSConfig(&writer)
-	if config.KeyLogWriter != &writer {
-		t.Fatal("tunnel TLS config did not receive the client key-log writer")
-	}
-}
 
 func TestDialTLSContextUsesCallerKeyLogWriter(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
@@ -45,11 +20,13 @@ func TestDialTLSContextUsesCallerKeyLogWriter(t *testing.T) {
 		t.Fatal(err)
 	}
 	var keyLog bytes.Buffer
-	base := &tls.Config{
-		InsecureSkipVerify: true,
-		KeyLogWriter:       &keyLog,
+	base := server.Client().Transport.(*http.Transport).TLSClientConfig.Clone()
+	base.KeyLogWriter = &keyLog
+	config := tunnelTLSConfig(base)
+	if !config.SessionTicketsDisabled || base.SessionTicketsDisabled {
+		t.Fatal("tunnel transport must disable tickets without mutating caller policy")
 	}
-	conn, err := dialTLSContext(t.Context(), dialer, "tcp", server.Listener.Addr().String(), base)
+	conn, err := client.DialTLSContext(t.Context(), dialer.DialContext, "tcp", server.Listener.Addr().String(), config)
 	if err != nil {
 		t.Fatal(err)
 	}

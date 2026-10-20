@@ -1,5 +1,8 @@
 #include "serversettingswidget.h"
 #include <QComboBox>
+#include <QCheckBox>
+#include <QPlainTextEdit>
+#include <QLabel>
 #include <QFormLayout>
 #include <QLineEdit>
 #include <QSettings>
@@ -10,6 +13,7 @@
 ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     auto *form = new QFormLayout(this);
     form->setContentsMargins(0,0,0,0);
+    form->setFormAlignment(Qt::AlignLeft|Qt::AlignTop);
     preset = new QComboBox(this);
     preset->setObjectName("profileKindComboBox");
     preset->addItem("请选择入口", "");
@@ -22,6 +26,14 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     port->setObjectName("serverPortSpinBox");
     port->setRange(1,65535); port->setValue(443);
     form->addRow("入口",preset); form->addRow("服务器地址",address); form->addRow("服务器端口",port);
+    verify=new QCheckBox("验证服务器证书（推荐）",this);
+    verify->setObjectName("tlsVerifyCheckBox"); verify->setChecked(true);
+    caPem=new QPlainTextEdit(this); caPem->setObjectName("tlsCaPemEdit"); caPem->setMaximumHeight(72);
+    caPem->setPlaceholderText("可选：学校提供的 PEM 格式 CA 证书；留空使用系统信任。");
+    auto *warning=new QLabel("关闭验证会失去服务器身份保护；不会因连接失败自动关闭。",this);
+    warning->setObjectName("tlsWarningLabel"); warning->setWordWrap(true); warning->setVisible(false);
+    form->addRow("TLS",verify); form->addRow(warning); form->addRow("附加 CA",caPem);
+    connect(verify,&QCheckBox::toggled,warning,[warning](bool checked){warning->setVisible(!checked);});
     connect(preset,&QComboBox::currentIndexChanged,this,&ServerSettingsWidget::selectPreset);
     connect(address,&QLineEdit::textChanged,this,&ServerSettingsWidget::serverChanged);
     connect(port,&QSpinBox::valueChanged,this,&ServerSettingsWidget::serverChanged);
@@ -29,6 +41,8 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
 }
 void ServerSettingsWidget::load(const QSettings &settings) {
     QSignalBlocker blocker(this), presetBlocker(preset);
+    verify->setChecked(settings.value("JustConnect/TLSVerify",true).toBool());
+    caPem->setPlainText(settings.value("JustConnect/TLSCAPEM").toString());
     customAddress = settings.value("JustConnect/ServerAddress").toString();
     customPort = settings.value("JustConnect/ServerPort",443).toInt();
     QString kind = settings.value("JustConnect/ProfileKind","Custom").toString();
@@ -50,7 +64,10 @@ void ServerSettingsWidget::selectPreset() {
 QString ServerSettingsWidget::serverAddress() const { return preset->currentData().toString().isEmpty() ? QString() : address->text().trimmed(); }
 int ServerSettingsWidget::serverPort() const { return port->value(); }
 bool ServerSettingsWidget::isFudan() const { return preset->currentData() == "Fudan"; }
+TlsOptions ServerSettingsWidget::tlsOptions() const { return {verify->isChecked(),caPem->toPlainText()}; }
 void ServerSettingsWidget::applyTo(QSettings &settings) const {
+    settings.setValue("JustConnect/TLSVerify",verify->isChecked());
+    settings.setValue("JustConnect/TLSCAPEM",caPem->toPlainText());
     settings.setValue("JustConnect/ProfileKind",preset->currentData());
     settings.setValue("JustConnect/ServerAddress",serverAddress());
     settings.setValue("JustConnect/ServerPort",serverPort());

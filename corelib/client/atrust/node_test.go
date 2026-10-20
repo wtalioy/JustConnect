@@ -2,7 +2,11 @@ package atrust
 
 import (
 	"context"
+	"crypto/tls"
+	"errors"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"sync/atomic"
 	"testing"
@@ -159,5 +163,23 @@ func TestNodeProbePanicReturnsToSetup(t *testing.T) {
 	_, err := getBestNodes(context.Background(), map[string]NodeGroup{"fixture": {WAN: []string{"127.0.0.1:443"}}}, func(context.Context, string, string) (net.Conn, error) { panic("private transport detail") }, nil)
 	if err == nil || err.Error() != "node probe panicked" {
 		t.Fatalf("probe panic = %v", err)
+	}
+}
+
+func TestNodeProbePreservesTrustFailureAndAllowsTrustedLANFallback(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer server.Close()
+	address := server.Listener.Addr().String()
+	groups := map[string]NodeGroup{"fixture": {WAN: []string{address}}}
+	_, err := getBestNodes(t.Context(), groups, (&net.Dialer{}).DialContext, nil)
+	var certificate *tls.CertificateVerificationError
+	if !errors.As(err, &certificate) {
+		t.Fatalf("missing node certificate error: %v", err)
+	}
+	groups["fixture"] = NodeGroup{WAN: []string{"127.0.0.1:0"}, LAN: []string{address}}
+	policy := server.Client().Transport.(*http.Transport).TLSClientConfig
+	best, err := getBestNodes(t.Context(), groups, (&net.Dialer{}).DialContext, policy)
+	if err != nil || best["fixture"] != address {
+		t.Fatalf("trusted fallback=%v, error=%v", best, err)
 	}
 }

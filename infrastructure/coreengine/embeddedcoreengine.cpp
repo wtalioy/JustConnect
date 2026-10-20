@@ -36,6 +36,7 @@ Library &library() {
 QJsonObject configuration(const ConnectionProfile &p, CoreEngine::Operation operation) {
     return {{"schema_version", int(JC_ABI_VERSION)},
         {"operation", operation == CoreEngine::Operation::AuthMethods ? "auth_methods" : "connect"},
+        {"tls",QJsonObject{{"skip_verify",!p.tls.verify},{"ca_pem",p.tls.caPem}}},
         {"server", QJsonObject{{"host", p.endpoint.server}, {"port", p.endpoint.port}}},
         {"auth", QJsonObject{{"auth_id",p.endpoint.authId},{"sub_type",p.endpoint.authSubType},{"method", p.endpoint.authType.isEmpty() ? QString() : "auth/" + p.endpoint.authType},
             {"username", p.credentials.username}, {"password", p.credentials.password},
@@ -52,6 +53,10 @@ QByteArray configurationBytes(const ConnectionProfile &profile, CoreEngine::Oper
 }
 ConnectionError connectionError(int status) {
     if (status == JC_OK || status == JC_CANCELLED) return ConnectionError::NONE;
+    if (status == JC_TLS_TRUST) return ConnectionError::TLS_TRUST;
+    if (status == JC_TLS_PROTOCOL) return ConnectionError::TLS_PROTOCOL;
+    if (status == JC_NETWORK_FAILURE) return ConnectionError::NETWORK_FAILED;
+    if (status == JC_TIMEOUT) return ConnectionError::TIMED_OUT;
     if (status == JC_AUTH_METHOD_CHANGED) return ConnectionError::AUTHENTICATION_CHANGED;
     if (status == JC_INVALID_ARGUMENT) return ConnectionError::INVALID_CONFIGURATION;
     if (status == JC_UNSUPPORTED || status == JC_ABI_MISMATCH) return ConnectionError::CORE_UNAVAILABLE;

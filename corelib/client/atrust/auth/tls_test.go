@@ -14,7 +14,7 @@ import (
 	"testing"
 )
 
-func TestAuthenticationTLSAcceptsSelfSignedCertificate(t *testing.T) {
+func TestAuthenticationTLSAcceptsExplicitlyTrustedCertificate(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"code":0,"data":{}}`))
 	}))

@@ -6,6 +6,8 @@ ConnectionProfile SettingsProfileLoader::load(const QSettings &settings) {
 }
 ConnectionProfile SettingsProfileLoader::load(const QSettings &settings,const QString &username,const QString &password) {
     ConnectionProfile p;
+    p.tls.verify=settings.value("JustConnect/TLSVerify",true).toBool();
+    p.tls.caPem=settings.value("JustConnect/TLSCAPEM").toString();
     p.credentials={username,password,settings.value("Credential/TOTPSecret").toString()};
     p.endpoint.authId=settings.value("JustConnect/AuthID").toString();
     p.endpoint.authSubType=settings.value("JustConnect/AuthSubType").toString();

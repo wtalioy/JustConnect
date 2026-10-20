@@ -29,7 +29,7 @@ func TestRefreshUsesLatestCookiesAndCSRF(t *testing.T) {
 		fmt.Fprintf(w, `{"code":0,"data":{"isLogin":1,"security":{"csrfToken":"csrf-%d"}}}`, calls)
 	}))
 	defer server.Close()
-	s := NewSession(strings.TrimPrefix(server.URL, "https://"), nil)
+	s := newTLSTestSession(server)
 	s.Restore("device", "sid-0", nil)
 	s.csrfToken = "csrf-0"
 	for i := 1; i <= 2; i++ {
@@ -72,7 +72,7 @@ func TestRefreshRejectsInvalidResponses(t *testing.T) {
 				fmt.Fprint(w, tt.body)
 			}))
 			defer server.Close()
-			s := NewSession(strings.TrimPrefix(server.URL, "https://"), nil)
+			s := newTLSTestSession(server)
 			s.Restore("device", "old", nil)
 			result, err := s.Refresh(context.Background())
 			if err == nil || result.SID != "" || errors.Is(err, ErrSessionInvalid) != tt.invalid {
@@ -93,7 +93,7 @@ func TestSnapshotAfterResourceResponseAndRestorePrecedence(t *testing.T) {
 	}))
 	defer server.Close()
 	host := strings.TrimPrefix(server.URL, "https://")
-	s := NewSession(host, nil)
+	s := newTLSTestSession(server)
 	s.Restore("device", "explicit", []Cookie{{Host: host, Scheme: "https", Name: "sid", Value: "stale"}})
 	if _, err := s.ClientResource(); err != nil {
 		t.Fatal(err)
@@ -111,7 +111,7 @@ func TestRefreshCancellation(t *testing.T) {
 		<-r.Context().Done()
 	}))
 	defer server.Close()
-	s := NewSession(strings.TrimPrefix(server.URL, "https://"), nil)
+	s := newTLSTestSession(server)
 	s.Restore("device", "sid", nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

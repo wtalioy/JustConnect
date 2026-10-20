@@ -1,6 +1,9 @@
 #pragma once
 #include <QWidget>
+#include "core/connectionprofile.h"
 class QComboBox;
+class QCheckBox;
+class QPlainTextEdit;
 class QLineEdit;
 class QSettings;
 class QSpinBox;
@@ -14,6 +17,7 @@ public:
     QString serverAddress() const;
     int serverPort() const;
     bool isFudan() const;
+    TlsOptions tlsOptions() const;
 signals:
     void serverChanged();
 private:
@@ -21,6 +25,8 @@ private:
     QComboBox *preset;
     QLineEdit *address;
     QSpinBox *port;
+    QCheckBox *verify;
+    QPlainTextEdit *caPem;
     QString previousPreset, customAddress;
     int customPort = 443;
 };

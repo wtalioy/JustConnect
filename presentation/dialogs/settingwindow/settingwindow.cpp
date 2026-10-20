@@ -148,6 +148,7 @@ void SettingWindow::loadSettings(const QSettings &source) {
 ConnectionProfile SettingWindow::currentProfile() const {
     ConnectionProfile profile;
     profile.credentials = {ui->usernameLineEdit->text().trimmed(), ui->passwordLineEdit->text(), ui->totpSecretLineEdit->text().trimmed()};
+    profile.tls=serverEditor->tlsOptions();
     profile.endpoint.server = serverEditor->serverAddress(); profile.endpoint.port = serverEditor->serverPort();
     profile.endpoint.authId=selectedAuthId; profile.endpoint.authSubType=selectedAuthSubType;
     profile.endpoint.authType = ui->authTypeComboBox->currentData().toString();

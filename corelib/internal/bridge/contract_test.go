@@ -33,6 +33,8 @@ func TestConfigBoundary(t *testing.T) {
 		strings.Replace(configJSON, "\"password\":\"private-password\"", "\"password\":null", 1),
 		strings.Replace(configJSON, "private-password", strings.Repeat("x", 4097), 1),
 		strings.Repeat(" ", MaxInput+1),
+		strings.Replace(configJSON, "\"schema_version\":1", "\"schema_version\":1,\"tls\":{\"ca_pem\":\"not a certificate\"}", 1),
+		strings.Replace(configJSON, "\"schema_version\":1", "\"schema_version\":1,\"tls\":{\"ca_pem\":\""+strings.Repeat("x", MaxCAPEM+1)+"\"}", 1),
 	} {
 		c, status := ParseConfig([]byte(input))
 		if status != InvalidArgument || c.Auth.Password != "" {

@@ -26,6 +26,8 @@ void apply(QSettings &settings, bool overwrite)
     set("JustConnect/ProfileKind", "Custom");
     set("JustConnect/ServerAddress", "");
     set("JustConnect/ServerPort", 443);
+    set("JustConnect/TLSVerify",true);
+    set("JustConnect/TLSCAPEM","");
     set("JustConnect/SecondaryDNS", "");
     set("JustConnect/LocalDNSServer", "");
     set("JustConnect/DNSTTL", 3600);
