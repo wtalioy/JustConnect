@@ -46,6 +46,8 @@ function(justconnect_platform_tests TARGET LIBRARY)
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         add_test(NAME ${TARGET}_isolated COMMAND ${TARGET} --isolated)
         set_tests_properties(${TARGET}_isolated PROPERTIES TIMEOUT 45)
+        add_test(NAME ${TARGET}_isolated_kde COMMAND dbus-run-session -- "$<TARGET_FILE:${TARGET}>" --isolated-kde)
+        set_tests_properties(${TARGET}_isolated_kde PROPERTIES TIMEOUT 45)
     endif()
 endfunction()
 
