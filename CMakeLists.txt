@@ -142,6 +142,7 @@ if(BUILD_TESTING)
     add_test(NAME serversettingswidget_test COMMAND serversettingswidget_test)
     set_tests_properties(serversettingswidget_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
     justconnect_platform_tests(platformbackend_test justconnect_platform)
+    justconnect_credential_tests(credentialstore_test justconnect_platform)
     justconnect_autostart_tests(autostart_test justconnect_platform)
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         add_executable(settingwindow_test tests/settingwindow_test.cpp

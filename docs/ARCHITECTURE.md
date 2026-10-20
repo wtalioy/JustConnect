@@ -39,3 +39,5 @@ Go 的会话代次和请求 ID 全程保留为十进制字符串。`AuthDialogCo
 S2-03 将 TLS 信任策略收敛到会话配置，查询用例只复制端点与 TLS 策略，不携带账户密码。服务器编辑控件维护验证开关及可选学校 CA；旧配置默认验证系统证书，显式关闭会显示持续提示。认证、节点探测与隧道复用同一个带取消的 TLS 握手实现，失败类型通过 ABI 和 Qt 保留；不再把上游历史兼容行为当作跳过证书验证的默认值。
 
 平台实现按 `infrastructure/platform/linux/`、`macos/`、`windows/` 归档，未支持平台的回退实现位于 `unsupported/`。外层保留公共端口适配声明、命令执行、代理校验和自启动共用规则；Windows 的原生代理 API 注入声明归 Windows 目录。`cmake/Platform.cmake` 只按目标系统选择对应目录，主应用与原生测试复用同一入口，调用方继续使用公共接口。
+
+系统凭据存储端口位于 `application/credentialstore.h`，提供有界不透明值的读／写／删和明确状态，平台工厂位于 `infrastructure/platform/systemcredentialstore.h`。`windows/credentialstore.cpp` 使用当前用户 Credential Manager，`macos/` 使用 Keychain，`linux/` 使用 Qt DBus 调用 Secret Service；锁定和权限状态不会被当作空凭据或成功。原生回归使用隔离条目／临时 Keychain／私有总线。安全迁移及界面接入仍在 S2-04 进行，应用旧配置中的凭据尚未因添加此端口自动迁移。

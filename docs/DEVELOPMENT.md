@@ -193,3 +193,9 @@ CI 编译、CTest、预览打包与真实校园网络验收分别记录。当前
 当前打包使用本仓库维护的内嵌核心；校园透明访问与自动共存尚未实现。上游高级用法的来源与已采用约束保留在计划参考索引中，原手工配置示例不再作为当前产品的操作说明；新的使用文档随 [S8](../plan.md#s8) 的实测结果补充，README 暂时留空。
 
 S2-03 默认启用服务器证书验证，私有 CA 可在服务器编辑区以 PEM 格式附加。关闭验证需在当前配置显式选择，界面持续提示其影响；没有错误后自动降级。离线网关夹具将测试 CA 送入正式 ABI，实际验证认证、选线和隧道的信任链；独立回归拒绝未知 CA／错误主机名，并检查取消、超时、协议与网络失败。公开 Fudan 查询使用系统信任成功，只取得公开方法元数据，不等于账号登录或校园业务就绪。
+
+系统凭据后端通过 `credentialstore_test`／`coreabi_credentialstore_test` 检查实际系统 API：Windows 用随机的 JustConnect 专属目标读写／更新／删除，匿名登录边界不能读取原账户材料；macOS 用专用临时 Keychain，显式锁定／解锁并在结束时删除。Linux 测试需要 `gnome-keyring`、`dbus-run-session` 和 `gdbus`，运行在没有服务激活目录的私有总线上，使用临时 XDG 目录及加密测试 keyring；另一个私有总线用真实策略拒绝 CreateItem。检查持久化、二进制不变、另一作用域保留和拒绝／锁定后的原值，未连接当前桌面的凭据库。CI 安装这些测试依赖；生产程序使用标准 Secret Service，可用性由当前用户的默认集合及锁定状态决定。
+
+本地测试可通过 `JC_TEST_SECRET_PROVIDER` 指定隔离安装的 gnome-keyring-daemon，必要的提供方库路径通过 `JC_TEST_SECRET_PROVIDER_LIBS` 传给测试子进程；不修改全局环境。仓库不分发 GNOME 提供方。Windows 使用当前用户 Credential Manager，其原生 blob 上限为 2560 字节，超限明确返回 Limit；各后端共同输入上限为 65536 字节。系统库锁定、不可用或拒绝时不创建应用明文副本。凭据服务／界面迁移及票据生命周期继续按 S2-04／08 验收，新增后端不单独代表这些功能完成。
+
+系统 API 依据：[Secret Service](https://specifications.freedesktop.org/secret-service/latest-single/)、[Windows Credential Manager](https://learn.microsoft.com/en-us/windows/win32/api/wincred/ns-wincred-credentialw)、[Apple SecItemCopyMatching](https://developer.apple.com/documentation/security/secitemcopymatching(_:_:))。Linux 提供方可以规范化 MIME 提示，因此后端按不透明字节读取，并验证会话、长度及实际回读数据。
