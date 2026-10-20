@@ -1,6 +1,6 @@
 # Go 核心来源与维护
 
-`corelib/` 是 JustConnect 自有的单一 Go 模块。协议源码直接在此维护、重构和精简，不是独立程序、插件、嵌套上游模块或 vendor 副本。正式会话和 C ABI 分别由 S1-07、S1-03 实现；当前 Qt 应用尚未切换到这个模块。
+`corelib/` 是 JustConnect 自有的单一 Go 模块。协议源码直接在此维护、重构和精简，不是独立程序、插件、嵌套上游模块或 vendor 副本。S1-03 已实现 [C ABI 契约和传输](../docs/CORE-ABI.md)，正式会话仍由 S1-07 接入；当前 Qt 应用尚未切换到这个模块。
 
 ## 导入基线
 
@@ -32,7 +32,7 @@ S1-05 迁移模块及 Go 导入路径、固定工具链、通过 `go mod tidy`�
 python scripts/test-corelib.py
 ```
 
-入口检查单一模块、固定工具链、没有远程上游核心依赖、Go 模块校验及构建；验证后要求 `go.mod/go.sum` 不变。运行 24 个包的限定离线基线（含无测试包），其中 JustConnect 的 `module_test.go` 通过注入 dialer 访问回环 TLS 网关，验证迁移后的真实 aTrust 清单读取与 HTTP 失败传播，不访问校园网或创建 TUN。此测试不代表正式 C ABI、认证、生产 TLS 策略或网络转发已经验收。
+入口检查单一模块、固定工具链、没有远程上游核心依赖、Go 模块校验及构建；验证后要求 `go.mod/go.sum` 不变。运行 25 个包的限定离线基线（含无测试包），其中 JustConnect 的 `module_test.go` 通过注入 dialer 访问回环 TLS 网关，验证迁移后的真实 aTrust 清单读取与 HTTP 失败传播，不访问校园网或创建 TUN。此测试不代表正式 C ABI、认证、生产 TLS 策略或网络转发已经验收。
 
 **认证包测试仍受阻，不能记录为通过。** 上游 `client/atrust/auth/session_context_test.go:28` 调用了不存在的 `Session.do`。验证入口单独编译这个测试包，只有仍为该条已知诊断时才标为 `BLOCKED`；出现新诊断或该缺陷消失都会失败，要求修复新问题或移除例外，不任意忽略测试失败。全部相关测试原样保留。可直接复现完整套件的现状：
 

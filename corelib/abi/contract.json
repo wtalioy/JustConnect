@@ -1,0 +1,37 @@
+{
+  "abi_version": 1,
+  "upstream_commit": "c19eb4ed34b9cf6e8e8ea3315fe9973c8411eb63",
+  "limits": {
+    "MaxInput": 65536,
+    "MaxOutput": 262144,
+    "MaxWaitMS": 30000,
+    "MaxHandles": 16,
+    "MaxDiagnostics": 24,
+    "MaxJSONDepth": 16,
+    "MaxAuthImage": 131072,
+    "MaxAuthPoints": 32,
+    "MaxAuthDimension": 8192,
+    "MaxAuthCode": 4096,
+    "MaxURL": 8192,
+    "MaxUsername": 1024,
+    "MaxPassword": 4096,
+    "MaxPhone": 64,
+    "MaxDomain": 1024,
+    "MaxTOTPSecret": 1024
+  },
+  "statuses": {
+    "OK": 0,
+    "BufferTooSmall": 1,
+    "Timeout": 2,
+    "End": 3,
+    "InvalidArgument": -1,
+    "ABIMismatch": -2,
+    "InvalidHandle": -3,
+    "Busy": -4,
+    "Unsupported": -5,
+    "StaleRequest": -6,
+    "Cancelled": -7,
+    "Limit": -8,
+    "Internal": -9
+  }
+}
