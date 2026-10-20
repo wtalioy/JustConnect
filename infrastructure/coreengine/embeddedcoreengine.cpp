@@ -46,16 +46,7 @@ QJsonObject configuration(const ConnectionProfile &p, CoreEngine::Operation oper
             {"dns_cache_ttl", p.dns.ttl}, {"disable_remote_dns", p.dns.disableRemoteDns}}}};
 }
 QByteArray configurationBytes(const ConnectionProfile &profile, CoreEngine::Operation operation) {
-    const bool unsupported = operation == CoreEngine::Operation::Connect && (
-        profile.endpoint.protocol != "atrust" || !profile.extraArguments.isEmpty()
-        || profile.tunnel.tunMode || profile.tunnel.addRoute || profile.tunnel.dnsHijack || profile.tunnel.fakeIp
-        || profile.tunnel.tcpTunnelMode || !profile.tunnel.tcpPortForwarding.isEmpty() || !profile.tunnel.udpPortForwarding.isEmpty()
-        || !profile.proxy.shadowsocksUrl.isEmpty() || !profile.proxy.dialDirectProxy.isEmpty() || profile.proxy.proxyAll
-        || !profile.proxy.customDomains.isEmpty() || (!profile.dns.automatic && !profile.dns.primary.isEmpty()) || !profile.dns.custom.isEmpty()
-        || !profile.dns.dnsServerBind.isEmpty() || profile.behavior.updateBestNodesInterval != ConnectionBehavior{}.updateBestNodesInterval
-        || !profile.behavior.keepAliveUrl.isEmpty() || profile.behavior.skipDomainResource || profile.behavior.disableServerConfig
-        || profile.debug.capturePcap || profile.debug.exportTlsKeys || profile.debug.detailedOutput);
-    auto config = unsupported ? QByteArray() : QJsonDocument(configuration(profile, operation)).toJson(QJsonDocument::Compact);
+    auto config = QJsonDocument(configuration(profile, operation)).toJson(QJsonDocument::Compact);
     if (config.size() > JC_MAX_INPUT) config.clear();
     return config;
 }
@@ -228,6 +219,7 @@ QJsonObject EmbeddedCoreEngine::selfTest() {
         if (handle) {
             // Invalid input exercises the ABI without starting networking or changing host settings.
             const uint8_t invalid[] = {'{', '}'};
+            ok = api.jc_config_validate(JC_ABI_VERSION, invalid, sizeof invalid) == JC_INVALID_ARGUMENT && ok;
             uint64_t generation = 0;
             ok = api.jc_session_start(handle, invalid, sizeof invalid, &generation) == JC_INVALID_ARGUMENT && ok;
             ok = api.jc_session_stop(handle, JC_MAX_WAIT_MS) == JC_OK && ok;

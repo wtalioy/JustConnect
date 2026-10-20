@@ -71,7 +71,7 @@ set(SOURCE_FILES
     infrastructure/storage/applicationpaths.cpp
     infrastructure/update/updatechecker.cpp
     presentation/presentationhelpers.cpp
-    presentation/dialogs/extrasettingwindow/extrasettingwindow.cpp
+    presentation/widgets/serversettingswidget.cpp
     presentation/dialogs/settingwindow/settingwindow.cpp
     presentation/dialogs/loginwindow/loginwindow.cpp
     presentation/dialogs/ssologinwebview/ssologinwebview.cpp
@@ -136,15 +136,20 @@ justconnect_core_runtime(${PROJECT_NAME} justconnect_core)
 include(CTest)
 
 if(BUILD_TESTING)
+    add_executable(serversettingswidget_test tests/serversettingswidget_test.cpp
+        presentation/widgets/serversettingswidget.cpp)
+    target_link_libraries(serversettingswidget_test PRIVATE Qt6::Widgets)
+    add_test(NAME serversettingswidget_test COMMAND serversettingswidget_test)
+    set_tests_properties(serversettingswidget_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
     justconnect_platform_tests(platformbackend_test justconnect_platform)
     justconnect_autostart_tests(autostart_test justconnect_platform)
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         add_executable(settingwindow_test tests/settingwindow_test.cpp
+            presentation/widgets/serversettingswidget.cpp
             presentation/dialogs/settingwindow/settingwindow.cpp
-            presentation/dialogs/extrasettingwindow/extrasettingwindow.cpp
             presentation/dialogs/authinfowindow/authinfowindow.cpp
             presentation/presentationhelpers.cpp
-            application/defaultsettings.cpp infrastructure/settings/profilemanager.cpp
+            application/defaultsettings.cpp application/settingsmigrator.cpp infrastructure/settings/settingsprofileloader.cpp infrastructure/settings/profilemanager.cpp
             infrastructure/storage/applicationpaths.cpp)
         target_link_libraries(settingwindow_test PRIVATE justconnect_engine justconnect_platform Qt6::WebEngineWidgets)
         add_test(NAME settingwindow_test COMMAND settingwindow_test)
@@ -248,6 +253,8 @@ if(BUILD_TESTING)
 
     add_executable(configurationguidedialog_test
         tests/configurationguidedialog_test.cpp
+        presentation/widgets/serversettingswidget.cpp
+        application/settingsmigrator.cpp application/defaultsettings.cpp infrastructure/settings/settingsprofileloader.cpp
         presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp
         presentation/dialogs/authinfowindow/authinfowindow.cpp
     )
@@ -261,6 +268,7 @@ if(BUILD_TESTING)
     justconnect_core_runtime(configurationguidedialog_test justconnect_core)
     add_test(NAME configurationguidedialog_test COMMAND configurationguidedialog_test)
     set_tests_properties(configurationguidedialog_test PROPERTIES
+        TIMEOUT 30
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
 

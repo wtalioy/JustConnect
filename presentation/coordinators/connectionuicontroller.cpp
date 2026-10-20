@@ -172,16 +172,13 @@ void ConnectionUiController::handleConnectClicked()
     const QString password = QByteArray::fromBase64(
         settings()->value("Credential/Password", "").toString().toUtf8()
     );
-    const QString protocol =
-        settings()->value("JustConnect/Protocol", "atrust").toString();
-    const QString authType =
-        settings()->value("JustConnect/AuthType", "psw").toString();
-    if (protocol != "atrust") {
-        QMessageBox::warning(parentWidget, "协议不可用", "当前核心支持 aTrust，请通过配置引导选择 aTrust。");
+    const QString authType = settings()->value("JustConnect/AuthType","psw").toString();
+    if (settings()->value("Common/NeedsConfiguration",false).toBool()) {
+        QMessageBox::warning(parentWidget,"配置需要更新","请选择 Fudan 或确认 Custom 的 aTrust 服务器后保存配置。");
         return;
     }
     const bool passwordLogin = authType == "psw";
-    if (protocol == "atrust" && authType == "smsCheckCode")
+    if (authType == "smsCheckCode")
     {
         QString countryCode = settings()
             ->value("JustConnect/PhoneCountryCode", "86")

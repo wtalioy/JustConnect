@@ -1,149 +1,47 @@
+#include "infrastructure/settings/settingsprofileloader.h"
 #include <QCoreApplication>
-#include <QDebug>
 #include <QSettings>
 #include <QTemporaryDir>
-
-#include "infrastructure/settings/settingsprofileloader.h"
-
-namespace
-{
-bool loadsSettingsIntoTypedProfile()
-{
-    QTemporaryDir directory;
-    if (!directory.isValid())
+#include <cstdlib>
+#include <iostream>
+static void check(bool ok,const char *message) { if (!ok) { std::cerr<<message<<'\n'; std::exit(1); } }
+int main(int argc,char **argv) {
+    QCoreApplication app(argc,argv);
+    QTemporaryDir folder;
+    check(folder.isValid(),"isolated profile");
+    const auto path=folder.filePath("profile.ini");
     {
-        qCritical() << "Unable to create temporary directory";
-        return false;
+        QSettings settings(path,QSettings::IniFormat);
+        settings.setValue("Credential/Username","saved-user");
+        settings.setValue("Credential/Password",QString::fromLatin1(QByteArray("saved-password").toBase64()));
+        settings.setValue("Credential/TOTPSecret","saved-totp");
+        settings.setValue("JustConnect/ServerAddress","vpn.example.edu");
+        settings.setValue("JustConnect/ServerPort",8443);
+        settings.setValue("JustConnect/AuthType","smsCheckCode");
+        settings.setValue("JustConnect/LoginDomain","selected-domain");
+        settings.setValue("JustConnect/PhoneCountryCode","86");
+        settings.setValue("JustConnect/PhoneNumber","123456");
+        settings.setValue("JustConnect/SOCKS5Port",0); settings.setValue("JustConnect/HTTPPort",11081);
+        settings.setValue("JustConnect/OutsideAccess",true);
+        settings.setValue("JustConnect/ExtraArguments","-password obsolete-argument");
+        settings.setValue("JustConnect/SecondaryDNS","10.0.0.2");
+        settings.setValue("JustConnect/LocalDNSServer","127.0.0.1:5353");
+        settings.setValue("JustConnect/DNSTTL",60);
+        settings.setValue("JustConnect/DisableRemoteDNS",true);
+        settings.setValue("JustConnect/BindInterface","fixture0");
+        settings.setValue("JustConnect/AutoDetectInterface",true);
+        settings.sync(); check(settings.status()==QSettings::NoError,"persist profile fixture");
     }
-
-    QSettings settings(directory.filePath("profile.ini"), QSettings::IniFormat);
-    settings.setValue("Credential/TOTPSecret", "totp");
-    settings.setValue("JustConnect/Protocol", "atrust");
-    settings.setValue("JustConnect/AuthType", "cas");
-    settings.setValue("JustConnect/LoginDomain", "domain");
-    settings.setValue("JustConnect/PhoneCountryCode", "86");
-    settings.setValue("JustConnect/PhoneNumber", "123456");
-    settings.setValue("JustConnect/ServerAddress", "vpn.example.edu");
-    settings.setValue("JustConnect/ServerPort", 8443);
-    settings.setValue("JustConnect/DNS", "10.0.0.1");
-    settings.setValue("JustConnect/DNSAuto", false);
-    settings.setValue("JustConnect/SecondaryDNS", "10.0.0.2");
-    settings.setValue("JustConnect/LocalDNSServer", "223.5.5.5:53");
-    settings.setValue("JustConnect/DNSServerBind", "127.0.0.1:5353");
-    settings.setValue("JustConnect/DNSTTL", 60);
-    settings.setValue("JustConnect/DisableRemoteDNS", true);
-    settings.setValue("JustConnect/CustomDNS", "example.org=1.1.1.1");
-    settings.setValue("JustConnect/OutsideAccess", true);
-    settings.setValue("JustConnect/SOCKS5Port", 1080);
-    settings.setValue("JustConnect/HTTPPort", 1081);
-    settings.setValue("JustConnect/ShadowsocksURL", "ss://url");
-    settings.setValue("JustConnect/DialDirectProxy", "http://direct");
-    settings.setValue("JustConnect/ProxyAll", true);
-    settings.setValue("JustConnect/CustomProxyDomain", "example.org");
-    settings.setValue("JustConnect/TUNMode", true);
-    settings.setValue("JustConnect/AddRoute", true);
-    settings.setValue("JustConnect/DNSHijack", true);
-    settings.setValue("JustConnect/FakeIP", true);
-    settings.setValue("JustConnect/TCPTunnelMode", true);
-    settings.setValue("JustConnect/TCPPortForwarding", "tcp-forward");
-    settings.setValue("JustConnect/UDPPortForwarding", "udp-forward");
-    settings.setValue("JustConnect/UpdateBestNodesInterval", 30);
-    settings.setValue("JustConnect/MultiLine", false);
-    settings.setValue("JustConnect/KeepAlive", false);
-    settings.setValue("JustConnect/KeepAliveURL", "https://keepalive");
-    settings.setValue("JustConnect/BindInterface", "en0");
-    settings.setValue("JustConnect/AutoDetectInterface", true);
-    settings.setValue("JustConnect/SkipDomainResource", true);
-    settings.setValue("JustConnect/DisableServerConfig", true);
-    settings.setValue("JustConnect/Debug", true);
-    settings.setValue("JustConnect/DebugPCAP", true);
-    settings.setValue("JustConnect/DebugTLSLog", true);
-    settings.setValue("JustConnect/ExtraArguments", "-foo bar");
-
-    const ConnectionProfile profile =
-        SettingsProfileLoader::load(settings, "alice", "secret");
-
-    const bool passed =
-        profile.credentials.username == "alice"
-        && profile.credentials.password == "secret"
-        && profile.credentials.totpSecret == "totp"
-        && profile.endpoint.protocol == "atrust"
-        && profile.endpoint.authType == "cas"
-        && profile.endpoint.loginDomain == "domain"
-        && profile.endpoint.phone == "86-123456"
-        && profile.endpoint.server == "vpn.example.edu"
-        && profile.endpoint.port == 8443
-        && profile.dns.primary == "10.0.0.1"
-        && !profile.dns.automatic
-        && profile.dns.secondary == "10.0.0.2"
-        && profile.dns.ttl == 60
-        && profile.dns.disableRemoteDns
-        && profile.dns.custom == "example.org=1.1.1.1"
-        && profile.dns.localDnsServer == "223.5.5.5:53"
-        && profile.dns.dnsServerBind == "127.0.0.1:5353"
-        && profile.proxy.socksBind == "[::]:1080"
-        && profile.proxy.httpBind == "[::]:1081"
-        && profile.proxy.shadowsocksUrl == "ss://url"
-        && profile.proxy.dialDirectProxy == "http://direct"
-        && profile.proxy.proxyAll
-        && profile.proxy.customDomains == "example.org"
-        && profile.tunnel.tunMode
-        && profile.tunnel.addRoute
-        && profile.tunnel.dnsHijack
-        && profile.tunnel.fakeIp
-        && profile.tunnel.tcpTunnelMode
-        && profile.tunnel.tcpPortForwarding == "tcp-forward"
-        && profile.tunnel.udpPortForwarding == "udp-forward"
-        && profile.behavior.updateBestNodesInterval == 30
-        && profile.behavior.disableMultiLine
-        && profile.behavior.disableKeepAlive
-        && profile.behavior.keepAliveUrl == "https://keepalive"
-        && profile.behavior.bindInterface == "en0"
-        && profile.behavior.autoDetectInterface
-        && profile.behavior.skipDomainResource
-        && profile.behavior.disableServerConfig
-        && profile.debug.detailedOutput
-        && profile.debug.capturePcap
-        && profile.debug.exportTlsKeys
-        && profile.extraArguments == "-foo bar";
-
-    if (!passed)
-    {
-        qCritical() << "loadsSettingsIntoTypedProfile failed";
-    }
-    return passed;
-}
-
-bool usesCompatibleDefaults()
-{
-    QTemporaryDir directory;
-    QSettings settings(directory.filePath("empty.ini"), QSettings::IniFormat);
-
-    const ConnectionProfile profile = SettingsProfileLoader::load(settings, "", "");
-    const bool passed =
-        profile.behavior.updateBestNodesInterval == 300
-        && profile.behavior.disableMultiLine
-        && profile.behavior.disableKeepAlive
-        && profile.dns.localDnsServer.isEmpty()
-        && profile.dns.dnsServerBind.isEmpty()
-        && !profile.debug.detailedOutput
-        && !profile.debug.capturePcap
-        && !profile.debug.exportTlsKeys
-        && profile.proxy.socksBind.isEmpty()
-        && profile.proxy.httpBind.isEmpty();
-    if (!passed)
-    {
-        qCritical() << "usesCompatibleDefaults failed";
-    }
-    return passed;
-}
-
-
-}
-
-int main(int argc, char *argv[])
-{
-    QCoreApplication app(argc, argv);
-    return loadsSettingsIntoTypedProfile()
-        && usesCompatibleDefaults() ? 0 : 1;
+    QSettings saved(path,QSettings::IniFormat);
+    const auto profile=SettingsProfileLoader::load(saved);
+    check(profile.credentials.username=="saved-user" && profile.credentials.password=="saved-password" && profile.credentials.totpSecret=="saved-totp","stored credential decoding");
+    check(profile.endpoint.server=="vpn.example.edu" && profile.endpoint.port==8443 && profile.endpoint.authType=="smsCheckCode" && profile.endpoint.loginDomain=="selected-domain" && profile.endpoint.phone=="86-123456","selected endpoint and authentication survive reload");
+    check(profile.proxy.socksBind.isEmpty() && profile.proxy.httpBind=="127.0.0.1:11081","zero disables listener; legacy outside-access option never exposes it");
+    check(profile.dns.secondary=="10.0.0.2" && profile.dns.localDnsServer=="127.0.0.1:5353" && profile.dns.ttl==60 && profile.dns.disableRemoteDns && profile.behavior.bindInterface=="fixture0" && profile.behavior.autoDetectInterface,"supported network settings survive reload");
+    const auto interactive=SettingsProfileLoader::load(saved,"interactive-user","interactive-password");
+    check(interactive.credentials.username=="interactive-user" && interactive.credentials.password=="interactive-password","interactive credentials override persisted values");
+    saved.setValue("Common/NeedsConfiguration",true);
+    check(SettingsProfileLoader::load(saved).endpoint.server.isEmpty(),"legacy protocol cannot connect before explicit configuration");
+    check(saved.value("JustConnect/ServerAddress")=="vpn.example.edu","legacy endpoint is retained for manual recovery");
+    std::cout<<"PASS: profile reload, credentials, listener boundaries and legacy confirmation\n";
 }

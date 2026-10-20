@@ -73,7 +73,6 @@ public:
 static void proxyWaitsForReady() {
     QTemporaryDir directory;
     QSettings settings(directory.filePath("profile.ini"), QSettings::IniFormat);
-    settings.setValue("JustConnect/Protocol", "atrust");
     settings.setValue("JustConnect/ServerAddress", "vpn.example.invalid");
     settings.setValue("JustConnect/AuthType", "psw");
     settings.setValue("Credential/Username", "fixture-user");
@@ -193,6 +192,19 @@ static void uiContracts() {
     query->accept();
     check(selected && fake->stops == 1, "selection preserves all method fields and cancels the query lifetime");
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    auto *fudanEngine = new QueryEngine;
+    auto *fudan = new AuthInfoWindow(&parent,fudanEngine);
+    fudan->fetchAuthInfo("configured.example.invalid",443,true);
+    emit fudanEngine->authMethodsReady({
+        QJsonObject{{"type","auth/psw"},{"name","Password"}},
+        QJsonObject{{"type","auth/httpsOauth2"},{"name","Other OAuth2"},{"domain","other"}},
+        QJsonObject{{"type","auth/httpsOauth2"},{"name","Fudan UIS"},{"domain","returned-domain"},{"login_url","https://returned.example.invalid/uis"}}
+    });
+    auto *preferred=fudan->findChild<QListWidget *>()->currentItem();
+    check(preferred && preferred->data(Qt::UserRole+1)=="returned-domain" && preferred->data(Qt::UserRole+2)=="https://returned.example.invalid/uis","Fudan prefers returned UIS OAuth2 without hardcoded domain or URL");
+    check(!fudan->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->isEnabled(),"preferred method still waits for query cleanup");
+    emit fudanEngine->finished(ConnectionError::NONE);
+    fudan->reject(); QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
 }
 static void gateway(const QJsonObject &config) {
     QWidget parent;
@@ -203,7 +215,6 @@ static void gateway(const QJsonObject &config) {
     const auto server = config["server"].toObject();
     const auto auth = config["auth"].toObject();
     const auto listeners = config["listeners"].toObject();
-    p.endpoint.protocol = "atrust";
     p.endpoint.server = server["host"].toString();
     p.endpoint.port = server["port"].toInt();
     p.endpoint.authType = auth["method"].toString().mid(QString("auth/").size());

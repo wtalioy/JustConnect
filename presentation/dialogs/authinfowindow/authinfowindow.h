@@ -14,7 +14,7 @@ public:
 
     ~AuthInfoWindow() override;
 
-    void fetchAuthInfo(const QString& serverAddress, int port);
+    void fetchAuthInfo(const QString& serverAddress, int port, bool preferOAuth = false);
 
 signals:
 	void finishAuthInfo(const QString& authType, const QString& loginDomain, const QString& loginUrl);
@@ -22,5 +22,6 @@ signals:
 private:
 	Ui::AuthInfoWindow *ui;
     CoreEngine *engine;
+    bool preferOAuth = false;
     bool queryCompleted = false;
 };

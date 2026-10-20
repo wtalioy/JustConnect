@@ -1,87 +1,29 @@
-#ifndef CONNECTIONPROFILE_H
-#define CONNECTIONPROFILE_H
-
+#pragma once
 #include <QString>
 
-struct ConnectionCredentials
-{
-    QString username;
-    QString password;
-    QString totpSecret;
-};
-
-struct ConnectionEndpoint
-{
-    QString protocol;
-    QString authType;
-    QString loginDomain;
-    QString phone;
-    QString server;
+struct ConnectionCredentials { QString username, password, totpSecret; };
+struct ConnectionEndpoint {
+    QString authType, loginDomain, phone, server;
     int port = 0;
 };
-
-struct DnsOptions
-{
-    QString primary;
-    bool automatic = false;
+struct DnsOptions {
     QString secondary;
     int ttl = 3600;
     bool disableRemoteDns = false;
-    QString custom;
     QString localDnsServer;
-    QString dnsServerBind;
 };
-
-struct ProxyOptions
-{
-    QString socksBind;
-    QString httpBind;
-    QString shadowsocksUrl;
-    QString dialDirectProxy;
-    bool proxyAll = false;
-    QString customDomains;
-};
-
-struct TunnelOptions
-{
-    bool tunMode = false;
-    bool addRoute = false;
-    bool dnsHijack = false;
-    bool fakeIp = false;
-    bool tcpTunnelMode = false;
-    QString tcpPortForwarding;
-    QString udpPortForwarding;
-};
-
-struct ConnectionBehavior
-{
-    int updateBestNodesInterval = 300;
-    bool disableMultiLine = false;
-    bool disableKeepAlive = false;
-    QString keepAliveUrl;
-    QString bindInterface;
-    bool autoDetectInterface = false;
-    bool skipDomainResource = false;
-    bool disableServerConfig = false;
-};
-
-struct DebugOptions
-{
-    bool detailedOutput = false;
-    bool capturePcap = false;
-    bool exportTlsKeys = false;
-};
-
-struct ConnectionProfile
-{
+struct ProxyOptions { QString socksBind, httpBind; };
+struct ConnectionBehavior { QString bindInterface; bool autoDetectInterface = false; };
+struct ConnectionProfile {
     ConnectionCredentials credentials;
     ConnectionEndpoint endpoint;
     DnsOptions dns;
     ProxyOptions proxy;
-    TunnelOptions tunnel;
     ConnectionBehavior behavior;
-    DebugOptions debug;
-    QString extraArguments;
+    bool hasSameAuthentication(const ConnectionProfile &other) const {
+        return endpoint.server == other.endpoint.server && endpoint.port == other.endpoint.port
+            && endpoint.authType == other.endpoint.authType && endpoint.loginDomain == other.endpoint.loginDomain
+            && endpoint.phone == other.endpoint.phone && credentials.username == other.credentials.username
+            && credentials.password == other.credentials.password && credentials.totpSecret == other.credentials.totpSecret;
+    }
 };
-
-#endif // CONNECTIONPROFILE_H

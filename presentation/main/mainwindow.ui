@@ -303,7 +303,7 @@
          <item>
           <widget class="QLabel" name="profileDetailLabel">
            <property name="text">
-            <string>EasyConnect · 等待连接</string>
+            <string>aTrust · 等待连接</string>
            </property>
            <property name="wordWrap">
             <bool>true</bool>

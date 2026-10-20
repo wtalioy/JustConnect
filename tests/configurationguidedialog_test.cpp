@@ -1,6 +1,11 @@
 #include <QApplication>
 #include <QDebug>
 #include <QLineEdit>
+#include <QDir>
+#include <QMessageBox>
+#include <QTimer>
+#include <cstdlib>
+#include "application/defaultsettings.h"
 #include <QSettings>
 #include <QStackedWidget>
 #include <QTemporaryDir>
@@ -31,11 +36,14 @@ QStackedWidget *credentialPages(ConfigurationGuideDialog &dialog)
     return pages;
 }
 
+QString expectedMessage;
+bool messageShown=false;
+
 bool savesPasswordCredentials(const QString &settingsPath)
 {
     QSettings settings(settingsPath, QSettings::IniFormat);
-    settings.setValue("JustConnect/Protocol", "easyconnect");
-    settings.setValue("JustConnect/EasyConnectAuthType", "password");
+    DefaultSettings::reset(settings);
+    settings.setValue("JustConnect/ServerAddress","vpn.example.edu");
     settings.setValue("Credential/Username", "old-user");
     settings.setValue(
         "Credential/Password",
@@ -63,7 +71,7 @@ bool savesPasswordCredentials(const QString &settingsPath)
     username->setText("alice");
     password->setText("secret");
     totp->setText("totp-key");
-    dialog.applyTo(settings);
+    if (!dialog.applyTo(settings)) return false;
 
     const QString savedPassword = QByteArray::fromBase64(
         settings.value("Credential/Password").toByteArray()
@@ -71,7 +79,8 @@ bool savesPasswordCredentials(const QString &settingsPath)
     const bool passed = settings.value("Credential/Username") == "alice"
         && savedPassword == "secret"
         && settings.value("Credential/TOTPSecret") == "totp-key"
-        && settings.value("JustConnect/Protocol") == "atrust";
+        && settings.value("JustConnect/ProfileKind") == "Custom"
+        && !settings.contains("JustConnect/Protocol");
     if (!passed)
     {
         qCritical() << "Password credentials were not saved by the guide";
@@ -82,7 +91,8 @@ bool savesPasswordCredentials(const QString &settingsPath)
 bool savesSmsCredentials(const QString &settingsPath)
 {
     QSettings settings(settingsPath, QSettings::IniFormat);
-    settings.setValue("JustConnect/Protocol", "atrust");
+    DefaultSettings::reset(settings);
+    settings.setValue("JustConnect/ServerAddress","vpn.example.edu");
     settings.setValue("JustConnect/AuthType", "smsCheckCode");
     settings.setValue("JustConnect/PhoneCountryCode", "86");
     settings.setValue("JustConnect/PhoneNumber", "123456");
@@ -104,7 +114,7 @@ bool savesSmsCredentials(const QString &settingsPath)
 
     countryCode->setText("852");
     phoneNumber->setText("98765432");
-    dialog.applyTo(settings);
+    if (!dialog.applyTo(settings)) return false;
 
     const bool passed = settings.value("JustConnect/PhoneCountryCode") == "852"
         && settings.value("JustConnect/PhoneNumber") == "98765432";
@@ -118,7 +128,8 @@ bool savesSmsCredentials(const QString &settingsPath)
 bool showsSsoWithoutCredentialFields(const QString &settingsPath)
 {
     QSettings settings(settingsPath, QSettings::IniFormat);
-    settings.setValue("JustConnect/Protocol", "atrust");
+    DefaultSettings::reset(settings);
+    settings.setValue("JustConnect/ServerAddress","vpn.example.edu");
     settings.setValue("JustConnect/AuthType", "cas");
 
     ConfigurationGuideDialog dialog(nullptr, &settings);
@@ -130,11 +141,50 @@ bool showsSsoWithoutCredentialFields(const QString &settingsPath)
     }
     return passed;
 }
+bool rejectsInvalidCoreSettingsAndFailedSaves(const QString &root)
+{
+    QSettings settings(root+"/invalid.ini",QSettings::IniFormat);
+    DefaultSettings::reset(settings);
+    settings.setValue("JustConnect/ServerAddress","vpn.example.edu");
+    settings.setValue("JustConnect/SecondaryDNS","not-an-address");
+    settings.setValue("Credential/Username","retained-user");
+    settings.setValue("OtherAccount/Ticket","retained-ticket");
+    ConfigurationGuideDialog invalid(nullptr,&settings);
+    lineEdit(invalid,"guideUsernameLineEdit")->setText("draft-user");
+    expectedMessage="配置无效"; messageShown=false;
+    if (invalid.applyTo(settings) || !messageShown || settings.value("Credential/Username")!="retained-user"
+        || settings.value("OtherAccount/Ticket")!="retained-ticket") return false;
+    const auto blocked=root+"/blocked.ini";
+    if (!QDir().mkdir(blocked)) return false;
+    QSettings failed(blocked,QSettings::IniFormat);
+    DefaultSettings::reset(failed);
+    failed.setValue("Common/ConfigVersion",8);
+    failed.setValue("JustConnect/ServerAddress","vpn.example.edu");
+    failed.setValue("Credential/Username","fixture-user");
+    failed.setValue("Credential/Password",QString::fromLatin1(QByteArray("fixture-password").toBase64()));
+    ConfigurationGuideDialog dialog(nullptr,&failed); dialog.show();
+    QMetaObject::invokeMethod(&dialog,"goNext"); QMetaObject::invokeMethod(&dialog,"goNext");
+    expectedMessage="保存设置失败"; messageShown=false;
+    QMetaObject::invokeMethod(&dialog,"goNext");
+    const bool passed=messageShown && dialog.isVisible() && dialog.result()!=QDialog::Accepted
+        && failed.value("Common/ConfigVersion").toInt()==8;
+    expectedMessage.clear(); return passed;
+}
+
 }
 
 int main(int argc, char *argv[])
 {
     QApplication application(argc, argv);
+    QTimer dismiss;
+    QObject::connect(&dismiss,&QTimer::timeout,[] {
+        for (auto *widget:QApplication::topLevelWidgets()) if (auto *message=qobject_cast<QMessageBox *>(widget)) {
+            if (expectedMessage.isEmpty() || message->windowTitle()!=expectedMessage) {
+                qCritical()<<"Unexpected guide message"<<message->windowTitle(); std::exit(1);
+            }
+            messageShown=true; message->accept();
+        }
+    }); dismiss.start(1);
     QTemporaryDir directory;
     if (!directory.isValid())
     {
@@ -145,6 +195,7 @@ int main(int argc, char *argv[])
     const bool passed =
         savesPasswordCredentials(directory.filePath("password.ini"))
         && savesSmsCredentials(directory.filePath("sms.ini"))
-        && showsSsoWithoutCredentialFields(directory.filePath("sso.ini"));
+        && showsSsoWithoutCredentialFields(directory.filePath("sso.ini"))
+        && rejectsInvalidCoreSettingsAndFailedSaves(directory.path());
     return passed ? 0 : 1;
 }

@@ -39,6 +39,7 @@ AuthInfoWindow::AuthInfoWindow(QWidget *parent, CoreEngine *inputEngine)
 
     engine->setParent(this);
     connect(engine, &CoreEngine::authMethodsReady, this, [this](const QJsonArray &methods) {
+        QListWidgetItem *preferred = nullptr;
         for (const auto &value : methods) {
             const auto method = value.toObject();
             const auto type = method["type"].toString();
@@ -47,7 +48,11 @@ AuthInfoWindow::AuthInfoWindow(QWidget *parent, CoreEngine *inputEngine)
             item->setData(Qt::UserRole + 1, method["domain"].toString());
             item->setData(Qt::UserRole + 2, method["login_url"].toString());
             ui->authInfoListWidget->addItem(item);
+            // shortcut: prefer returned UIS names; refine with S2-03 verified auth IDs.
+            if (preferOAuth && type == "auth/httpsOauth2"
+                && (!preferred || method["name"].toString().contains("UIS",Qt::CaseInsensitive))) preferred = item;
         }
+        if (preferred) ui->authInfoListWidget->setCurrentItem(preferred);
         ui->label->setText(methods.isEmpty() ? "服务器没有返回可用的认证方式。" : "请选择可用的认证方式：");
     });
     connect(engine, &CoreEngine::finished, this, [this](ConnectionError error) {
@@ -65,14 +70,14 @@ AuthInfoWindow::~AuthInfoWindow()
     delete ui;
 }
 
-void AuthInfoWindow::fetchAuthInfo(const QString& serverAddress, int port)
+void AuthInfoWindow::fetchAuthInfo(const QString& serverAddress, int port, bool preferOAuth)
 {
+    this->preferOAuth = preferOAuth;
     queryCompleted = false;
     ui->authInfoListWidget->clear();
     ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(false);
     ui->label->setText("正在获取认证方式，请稍候...");
     ConnectionProfile profile;
-    profile.endpoint.protocol = "atrust";
     profile.endpoint.server = serverAddress;
     profile.endpoint.port = port;
     if (!engine->start(profile, CoreEngine::Operation::AuthMethods))

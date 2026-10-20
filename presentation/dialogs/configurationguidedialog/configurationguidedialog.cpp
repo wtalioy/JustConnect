@@ -10,14 +10,16 @@
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
-#include <QRegularExpressionValidator>
 #include <QSettings>
-#include <QSpinBox>
 #include <QStackedWidget>
 #include <QStringList>
 #include <QVBoxLayout>
 
 #include "presentation/dialogs/authinfowindow/authinfowindow.h"
+#include "presentation/widgets/serversettingswidget.h"
+#include "infrastructure/coreengine/embeddedcoreengine.h"
+#include "infrastructure/settings/settingsprofileloader.h"
+#include "application/settingsmigrator.h"
 
 namespace
 {
@@ -34,7 +36,7 @@ QString normalizedAuthType(const QString &authType)
 
 ConfigurationGuideDialog::ConfigurationGuideDialog(
     QWidget *parent,
-    const QSettings *settings
+    QSettings *settings
 )
     : QDialog(parent),
       sourceSettings(settings)
@@ -103,15 +105,30 @@ ConfigurationGuideDialog::ConfigurationGuideDialog(
     );
     updateCredentialsPage();
     updateNavigation();
+    connect(serverEditor,&ServerSettingsWidget::serverChanged,this,[this] {
+        selectAuthenticationMethod({}, {}, {});
+    });
 }
 
-void ConfigurationGuideDialog::applyTo(QSettings &settings) const
+bool ConfigurationGuideDialog::applyTo(QSettings &settings)
 {
-    settings.setValue(
-        "JustConnect/ServerAddress",
-        serverAddressLineEdit->text().trimmed()
-    );
-    settings.setValue("JustConnect/ServerPort", serverPortSpinBox->value());
+    auto profile=SettingsProfileLoader::load(settings);
+    profile.endpoint.server=serverEditor->serverAddress(); profile.endpoint.port=serverEditor->serverPort();
+    profile.endpoint.authType=selectedAuthType; profile.endpoint.loginDomain=selectedLoginDomain;
+    profile.credentials={usernameLineEdit->text().trimmed(),passwordLineEdit->text(),totpSecretLineEdit->text().trimmed()};
+    const auto country=countryCodeLineEdit->text().trimmed(),phone=phoneNumberLineEdit->text().trimmed();
+    profile.endpoint.phone=!country.isEmpty() && !phone.isEmpty() ? country+'-'+phone : QString();
+    if (serverEditor->isFudan() && selectedAuthType.isEmpty()) {
+        QMessageBox::warning(this,"请选择认证方式","请从 Fudan 服务器获取并选择认证方式。"); return false;
+    }
+    const auto validation=EmbeddedCoreEngine::validateConfiguration(profile);
+    if (validation!=ConnectionError::NONE) {
+        const bool unavailable=validation==ConnectionError::CORE_UNAVAILABLE;
+        QMessageBox::warning(this,unavailable ? "核心不可用" : "配置无效",
+            unavailable ? "无法校验配置，请检查应用安装是否完整。配置未保存。" : "请检查服务器、认证方式及连接设置。配置未保存。");
+        return false;
+    }
+    serverEditor->applyTo(settings);
     settings.setValue(
         "Credential/Username",
         usernameLineEdit->text().trimmed()
@@ -133,37 +150,20 @@ void ConfigurationGuideDialog::applyTo(QSettings &settings) const
         phoneNumberLineEdit->text().trimmed()
     );
 
-    settings.setValue("JustConnect/Protocol", "atrust");
     settings.setValue("JustConnect/AuthType", selectedAuthType);
     settings.setValue("JustConnect/LoginDomain", selectedLoginDomain);
     settings.setValue("JustConnect/LoginURL", selectedLoginUrl);
-    settings.sync();
+    if (!SettingsMigrator::finish(settings)) {
+        QMessageBox::warning(this,"保存设置失败","部分设置可能已保存，请检查后重试。"); return false;
+    }
+    return true;
 }
 
 QWidget *ConfigurationGuideDialog::createServerPage()
 {
-    auto *page = new QWidget(this);
-    auto *pageLayout = new QVBoxLayout(page);
-    auto *formLayout = new QFormLayout();
-    formLayout->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
-
-    serverAddressLineEdit = new QLineEdit(page);
-    serverAddressLineEdit->setPlaceholderText("例如：vpn.example.edu.cn");
-    serverAddressLineEdit->setText(
-        sourceSettings->value("JustConnect/ServerAddress").toString()
-    );
-    formLayout->addRow("服务器地址", serverAddressLineEdit);
-
-    serverPortSpinBox = new QSpinBox(page);
-    serverPortSpinBox->setRange(1, 65535);
-    serverPortSpinBox->setValue(
-        sourceSettings->value("JustConnect/ServerPort", 443).toInt()
-    );
-    formLayout->addRow("服务器端口", serverPortSpinBox);
-
-    pageLayout->addLayout(formLayout);
-    pageLayout->addStretch();
-    return page;
+    serverEditor = new ServerSettingsWidget(this);
+    serverEditor->load(*sourceSettings);
+    return serverEditor;
 }
 
 QWidget *ConfigurationGuideDialog::createAuthenticationPage()
@@ -316,7 +316,7 @@ void ConfigurationGuideDialog::goNext()
 
     if (pages->currentIndex() == pages->count() - 1)
     {
-        accept();
+        if (applyTo(*sourceSettings)) accept();
         return;
     }
     pages->setCurrentIndex(pages->currentIndex() + 1);
@@ -346,15 +346,14 @@ void ConfigurationGuideDialog::updateCredentialsPage()
 void ConfigurationGuideDialog::fetchAuthenticationMethods()
 {
     auto *authInfoWindow = new AuthInfoWindow(this);
-    connect(
-        authInfoWindow,
-        &AuthInfoWindow::finishAuthInfo,
-        this,
-        &ConfigurationGuideDialog::selectAuthenticationMethod
-    );
+    const auto host=serverEditor->serverAddress(); const auto port=serverEditor->serverPort();
+    connect(authInfoWindow,&AuthInfoWindow::finishAuthInfo,this,[this,host,port](const QString &method,const QString &domain,const QString &url) {
+        if (host==serverEditor->serverAddress() && port==serverEditor->serverPort())
+            selectAuthenticationMethod(method,domain,url);
+    });
     authInfoWindow->fetchAuthInfo(
-        serverAddressLineEdit->text().trimmed(),
-        serverPortSpinBox->value()
+        serverEditor->serverAddress(),
+        serverEditor->serverPort(), serverEditor->isFudan()
     );
     authInfoWindow->show();
 }
@@ -363,7 +362,7 @@ bool ConfigurationGuideDialog::validateCurrentPage()
 {
     if (pages->currentIndex() == 0)
     {
-        if (serverAddressLineEdit->text().trimmed().isEmpty())
+        if (serverEditor->serverAddress().isEmpty())
         {
             QMessageBox::warning(this, "服务器地址无效", "服务器地址不能为空。");
             return false;
@@ -418,7 +417,7 @@ void ConfigurationGuideDialog::updateNavigation()
         "配置登录凭据"
     };
     static const QStringList descriptions{
-        "填写 VPN 服务器提供方给出的地址和端口。",
+        "选择 Fudan，或使用 Custom 填写其他 aTrust 服务器。",
         "选择服务器为你的账号提供的认证方式。",
         "填写当前认证方式连接时需要的登录信息。"
     };
