@@ -34,6 +34,7 @@ class VerifyPackageTest(unittest.TestCase):
             with patch.object(package.subprocess, 'run', return_value=SimpleNamespace(stdout=b'{"runtime":"static"}')), \
                     patch.object(package, 'validate_report'), \
                     patch.object(package, 'linux_audit', return_value={}), \
+                    patch.object(package.platform, 'machine', return_value='x86_64'), \
                     patch.object(package.sys, 'platform', 'linux'):
                 package.verify(root, host, 'revision', 'preview', output)
                 output.unlink()
