@@ -41,6 +41,9 @@ SystemProxyCheck PlatformSystemProxyBackend::check(const SystemProxyConfig &conf
             const auto data = fields(command.output);
             if (data["Enabled"] == "No") continue;
             if (data["Enabled"] != "Yes") return {{Status::Failed, "Missing proxy enabled state"}};
+            const auto auth = data.value("Authenticated Proxy Enabled");
+            if (auth != "0" && auth != "1") return {{Status::Failed, "Missing proxy authentication state"}};
+            conflict |= auth == "1";
             active = true;
             bool ok = false; const int port = data["Port"].toInt(&ok);
             if (!ok || port < 1 || port > 65535 || data["Server"].isEmpty())
@@ -67,7 +70,7 @@ PlatformOperationResult PlatformSystemProxyBackend::apply(const SystemProxyConfi
     for (const auto &name : names) {
         QList<QStringList> actions;
         for (const auto &type : types) {
-            actions.append({"-set" + type, name, "127.0.0.1", QString::number(type == "socksfirewallproxy" ? config.socksPort : config.httpPort)});
+            actions.append({"-set" + type, name, "127.0.0.1", QString::number(type == "socksfirewallproxy" ? config.socksPort : config.httpPort), "off"});
             actions.append({"-set" + type + "state", name, "on"});
         }
         actions.append({"-setautoproxystate", name, "off"});
@@ -85,12 +88,13 @@ PlatformOperationResult PlatformSystemProxyBackend::apply(const SystemProxyConfi
             auto command = runner(tool, {"-get" + type, name});
             if (!command.result.succeeded()) { command.result.mayHaveChanged = true; return command.result; }
             const auto data = fields(command.output);
-            if (data["Enabled"] != "Yes" || data["Server"] != "127.0.0.1"
+            if (data["Enabled"] != "Yes" || data["Authenticated Proxy Enabled"] != "0" || data["Server"] != "127.0.0.1"
                 || data["Port"] != QString::number(type == "socksfirewallproxy" ? config.socksPort : config.httpPort))
                 return {Status::Failed, "Proxy endpoint readback mismatch", true};
         }
         auto actual = runner(tool, {"-getproxybypassdomains", name});
         if (!actual.result.succeeded()) { actual.result.mayHaveChanged = true; return actual.result; }
+        if (actual.output.isEmpty()) return {Status::Failed, "Missing bypass domain readback", true};
         const auto domains = actual.output.startsWith("There aren't any bypass domains") ? QStringList{} : actual.output.split('\n', Qt::SkipEmptyParts);
         if (domains != bypass) return {Status::Failed, "Proxy bypass readback mismatch", true};
     }

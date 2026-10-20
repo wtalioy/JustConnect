@@ -18,30 +18,42 @@ QStringList kdeArgs(const QString &key) {
             "--group", "Proxy Settings", "--key", key};
 }
 // gsettings prints GVariant strings, which may use either quote style.
-QStringList strings(const QString &value, bool &ok) {
+QStringList strings(const QString &value, bool &ok, bool array) {
+    QString input = value.trimmed();
+    if (input.startsWith("@as ")) input.remove(0,4);
+    ok = false;
+    if (input.isEmpty()) return {};
+    if (array) {
+        if (!input.startsWith('[') || !input.endsWith(']')) return {};
+        input = input.mid(1,input.size()-2).trimmed();
+    }
     QStringList values; qsizetype i = 0;
-    QString input = value;
-    if (input.startsWith("@as ")) input.remove(0, 4);
     while (i < input.size()) {
-        if (QString(" [],").contains(input[i])) { ++i; continue; }
-        const QChar quote = input[i++];
-        if (quote != '\'' && quote != '"') { ok = false; return {}; }
+        while (i < input.size() && input[i].isSpace()) ++i;
+        if (i == input.size()) break;
+        const auto quote = input[i++];
+        if (quote != '\'' && quote != '"') return {};
         QString item; bool closed = false;
         while (i < input.size()) {
-            QChar ch = input[i++];
+            auto ch = input[i++];
             if (ch == quote) { closed = true; break; }
             if (ch == '\\') {
-                if (i == input.size()) { ok = false; return {}; }
+                if (i == input.size()) return {};
                 ch = input[i++];
-                if (ch != '\\' && ch != '\'' && ch != '"') { ok = false; return {}; }
+                if (ch != '\\' && ch != '\'' && ch != '"') return {};
             }
             item += ch;
         }
-        if (!closed) { ok = false; return {}; }
+        if (!closed) return {};
         values.append(item);
+        while (i < input.size() && input[i].isSpace()) ++i;
+        if (i == input.size()) break;
+        if (!array || input[i++] != ',') return {};
     }
-    ok = true; return values;
+    ok = array || values.size() == 1;
+    return values;
 }
+
 Result available() {
     if (!kde() && !gnome()) return {Status::Unsupported, "Desktop system proxy is unsupported"};
     if (kde() && qEnvironmentVariable("KDE_SESSION_VERSION") != "5" && qEnvironmentVariable("KDE_SESSION_VERSION") != "6")
@@ -70,7 +82,7 @@ SystemProxyCheck PlatformSystemProxyBackend::check(const SystemProxyConfig &conf
     }
     auto mode = runner("gsettings", {"get", "org.gnome.system.proxy", "mode"});
     if (!mode.result.succeeded()) return {mode.result};
-    bool ok = false; const auto values = strings(mode.output, ok);
+    bool ok = false; const auto values = strings(mode.output, ok, false);
     if (!ok || values.size() != 1 || !QStringList{"none", "manual", "auto"}.contains(values[0]))
         return {{Status::Failed, "Invalid GNOME proxy mode"}};
     if (values[0] != "manual") return {{}, values[0] == "auto"};
@@ -78,12 +90,16 @@ SystemProxyCheck PlatformSystemProxyBackend::check(const SystemProxyConfig &conf
     if (!same.result.succeeded()) return {same.result};
     if (same.output == "true") return {{}, true, true};
     if (same.output != "false") return {{Status::Failed, "Invalid shared proxy flag"}};
+    auto authenticated = runner("gsettings", {"get", "org.gnome.system.proxy.http", "use-authentication"});
+    if (!authenticated.result.succeeded()) return {authenticated.result};
+    if (authenticated.output == "true") return {{}, true, true};
+    if (authenticated.output != "false") return {{Status::Failed, "Invalid HTTP proxy authentication flag"}};
     for (const auto &protocol : {QString("http"), QString("https"), QString("ftp"), QString("socks")}) {
         auto host = runner("gsettings", {"get", "org.gnome.system.proxy." + protocol, "host"});
         if (!host.result.succeeded()) return {host.result};
         auto port = runner("gsettings", {"get", "org.gnome.system.proxy." + protocol, "port"});
         if (!port.result.succeeded()) return {port.result};
-        const auto hosts = strings(host.output, ok);
+        const auto hosts = strings(host.output, ok, false);
         if (!ok || hosts.size() != 1) return {{Status::Failed, "Invalid GNOME proxy host"}};
         const int number = port.output.toInt(&ok);
         if (!ok || number < 0 || number > 65535) return {{Status::Failed, "Invalid GNOME proxy port"}};
@@ -107,7 +123,10 @@ PlatformOperationResult PlatformSystemProxyBackend::apply(const SystemProxyConfi
         if (kde()) add({}, protocol + "Proxy", (protocol == "socks" ? "socks://127.0.0.1 " : "http://127.0.0.1 ") + port);
         else { add("org.gnome.system.proxy." + protocol, "host", "'127.0.0.1'"); add("org.gnome.system.proxy." + protocol, "port", port); }
     }
-    if (!kde()) add("org.gnome.system.proxy", "use-same-proxy", "false");
+    if (!kde()) {
+        add("org.gnome.system.proxy", "use-same-proxy", "false");
+        add("org.gnome.system.proxy.http", "use-authentication", "false");
+    }
     const auto bypass = ProxyValidation::bypass(config.bypass);
     add("org.gnome.system.proxy", kde() ? "NoProxyFor" : "ignore-hosts", kde() ? bypass.join(',') : ProxyValidation::listValue(bypass));
     add("org.gnome.system.proxy", kde() ? "ProxyType" : "mode", kde() ? "1" : "'manual'");
@@ -123,7 +142,7 @@ PlatformOperationResult PlatformSystemProxyBackend::apply(const SystemProxyConfi
         : runner("gsettings", {"get", "org.gnome.system.proxy", "ignore-hosts"});
     if (!bypassResult.result.succeeded()) { bypassResult.result.mayHaveChanged = true; return bypassResult.result; }
     bool ok = true;
-    const auto actual = kde() ? bypassResult.output.split(',', Qt::SkipEmptyParts) : strings(bypassResult.output, ok);
+    const auto actual = kde() ? bypassResult.output.split(',', Qt::SkipEmptyParts) : strings(bypassResult.output, ok, true);
     if (!ok || actual != bypass) return {Status::Failed, "Proxy bypass readback does not match", true};
     return {Status::Success, {}, true};
 }

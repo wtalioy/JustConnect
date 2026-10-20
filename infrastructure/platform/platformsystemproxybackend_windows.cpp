@@ -30,23 +30,22 @@ Result connections(const WindowsProxyApi &api, QStringList &names) {
     for (DWORD i=0; i<count; ++i) names.append(QString::fromWCharArray(entries[i].szEntryName));
     return {};
 }
-struct State { DWORD flags = 0; QString server, bypass, pac; };
+struct State { DWORD flags = 0; QString server, bypass; };
 Result query(const WindowsProxyApi &api, const QString &name, State &state) {
-    INTERNET_PER_CONN_OPTIONW options[4]{};
+    INTERNET_PER_CONN_OPTIONW options[3]{};
     options[0].dwOption = INTERNET_PER_CONN_FLAGS;
     options[1].dwOption = INTERNET_PER_CONN_PROXY_SERVER;
     options[2].dwOption = INTERNET_PER_CONN_PROXY_BYPASS;
-    options[3].dwOption = INTERNET_PER_CONN_AUTOCONFIG_URL;
     INTERNET_PER_CONN_OPTION_LISTW list{};
     list.dwSize = sizeof(list);
     list.pszConnection = name.isEmpty() ? nullptr : const_cast<wchar_t *>(reinterpret_cast<const wchar_t *>(name.utf16()));
-    list.dwOptionCount = 4; list.pOptions = options;
+    list.dwOptionCount = 3; list.pOptions = options;
     DWORD bytes = sizeof(list);
     const BOOL success = api.query(nullptr, INTERNET_OPTION_PER_CONNECTION_OPTION, &list, &bytes);
     const DWORD code = success ? ERROR_SUCCESS : GetLastError();
     state.flags = options[0].Value.dwValue;
-    QString *strings[] = {&state.server, &state.bypass, &state.pac};
-    for (int i=1; i<4; ++i) {
+    QString *strings[] = {&state.server, &state.bypass};
+    for (int i=1; i<3; ++i) {
         *strings[i-1] = QString::fromWCharArray(options[i].Value.pszValue ? options[i].Value.pszValue : L"");
         if (options[i].Value.pszValue) GlobalFree(options[i].Value.pszValue);
     }
@@ -59,17 +58,15 @@ QString server(const SystemProxyConfig &config) {
 Result set(const WindowsProxyApi &api, const QString &name, const SystemProxyConfig *config) {
     QString proxy = config ? server(*config) : QString();
     QString bypass = config ? ProxyValidation::bypass(config->bypass).join(';') : QString();
-    INTERNET_PER_CONN_OPTIONW options[4]{};
+    INTERNET_PER_CONN_OPTIONW options[3]{};
     options[0].dwOption = INTERNET_PER_CONN_FLAGS;
     options[0].Value.dwValue = config ? PROXY_TYPE_DIRECT | PROXY_TYPE_PROXY : PROXY_TYPE_DIRECT;
     options[1].dwOption = INTERNET_PER_CONN_PROXY_SERVER;
     options[1].Value.pszValue = const_cast<wchar_t *>(reinterpret_cast<const wchar_t *>(proxy.utf16()));
     options[2].dwOption = INTERNET_PER_CONN_PROXY_BYPASS;
     options[2].Value.pszValue = const_cast<wchar_t *>(reinterpret_cast<const wchar_t *>(bypass.utf16()));
-    options[3].dwOption = INTERNET_PER_CONN_AUTOCONFIG_URL;
-    options[3].Value.pszValue = const_cast<wchar_t *>(L"");
     INTERNET_PER_CONN_OPTION_LISTW list{};
-    list.dwSize = sizeof(list); list.dwOptionCount = config ? 4 : 1; list.pOptions = options;
+    list.dwSize = sizeof(list); list.dwOptionCount = config ? 3 : 1; list.pOptions = options;
     list.pszConnection = name.isEmpty() ? nullptr : const_cast<wchar_t *>(reinterpret_cast<const wchar_t *>(name.utf16()));
     if (!api.set(nullptr, INTERNET_OPTION_PER_CONNECTION_OPTION, &list, sizeof(list))) return error("Set WinINet proxy", GetLastError(), true);
     return {Status::Success, {}, true};
@@ -98,16 +95,14 @@ PlatformOperationResult PlatformSystemProxyBackend::apply(const SystemProxyConfi
     if (auto before = check(config); !before.result.succeeded()) return before.result;
     QStringList names;
     if (auto result = connections(api, names); !result.succeeded()) return result;
-    bool changed = false;
     for (const auto &name : names) {
         auto result = set(api, name, &config);
         if (!result.succeeded()) return result;
-        changed = true;
         State actual;
         result = query(api, name, actual);
-        if (!result.succeeded()) { result.mayHaveChanged = changed; return result; }
+        if (!result.succeeded()) { result.mayHaveChanged = true; return result; }
         if (actual.flags != (PROXY_TYPE_DIRECT | PROXY_TYPE_PROXY) || actual.server != server(config)
-            || actual.bypass != ProxyValidation::bypass(config.bypass).join(';') || !actual.pac.isEmpty())
+            || actual.bypass != ProxyValidation::bypass(config.bypass).join(';'))
             return {Status::Failed, "WinINet proxy readback mismatch", true};
     }
     return notify(api);
