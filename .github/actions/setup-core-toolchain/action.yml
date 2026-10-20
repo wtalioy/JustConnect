@@ -11,7 +11,8 @@ runs:
     - uses: actions/setup-go@v7.0.0
       with:
         go-version: ${{ steps.go.outputs.version }}
-        cache: false
+        cache: true
+        cache-dependency-path: corelib/go.sum
 
     - name: Install pinned Windows cgo compiler (UCRT)
       if: runner.os == 'Windows'

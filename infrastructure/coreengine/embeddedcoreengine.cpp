@@ -203,4 +203,32 @@ QJsonObject EmbeddedCoreEngine::buildInfo() {
     return QJsonDocument::fromJson(buffer.first(length)).object();
 }
 
+QJsonObject EmbeddedCoreEngine::selfTest() {
+    auto info = buildInfo();
+    auto &api = library();
+    bool ok = api.available && info["abi_version"].toInt() == JC_ABI_VERSION
+        && info["test_driver"].isBool() && !info["test_driver"].toBool()
+        && info["capabilities"].toObject()["embedded_vpn"].toBool();
+    uint64_t handle = 0;
+    if (ok) {
+        ok = api.jc_session_create(JC_ABI_VERSION, &handle) == JC_OK && handle != 0;
+        if (handle) {
+            // Invalid input exercises the ABI without starting networking or changing host settings.
+            const uint8_t invalid[] = {'{', '}'};
+            uint64_t generation = 0;
+            ok = api.jc_session_start(handle, invalid, sizeof invalid, &generation) == JC_INVALID_ARGUMENT && ok;
+            ok = api.jc_session_stop(handle, JC_MAX_WAIT_MS) == JC_OK && ok;
+            ok = api.jc_session_destroy(handle, JC_MAX_WAIT_MS) == JC_OK && ok;
+            ok = api.jc_session_destroy(handle, 0) == JC_OK && ok;
+        }
+    }
+    return {{"ok", ok}, {"core", info},
+#ifdef JC_SHARED_LIBRARY
+        {"runtime", QStringLiteral(JC_SHARED_LIBRARY)}
+#else
+        {"runtime", "static"}
+#endif
+    };
+}
+
 #include "embeddedcoreengine.moc"

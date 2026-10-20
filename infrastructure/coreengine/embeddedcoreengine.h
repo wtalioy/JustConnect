@@ -15,6 +15,7 @@ public:
     void stop() override;
     void respond(const QJsonObject &response) override;
     static QJsonObject buildInfo();
+    static QJsonObject selfTest();
 
 private:
     void deliver(quint64 serial, const QJsonObject &event);

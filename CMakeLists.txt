@@ -125,6 +125,8 @@ justconnect_core_runtime(${PROJECT_NAME} justconnect_core)
 include(CTest)
 
 if(BUILD_TESTING)
+    add_test(NAME core_self_test COMMAND ${PROJECT_NAME} --core-self-test)
+    set_tests_properties(core_self_test PROPERTIES TIMEOUT 30 PASS_REGULAR_EXPRESSION "\"ok\":true")
     include(tests/CoreEngineTests.cmake)
     justconnect_core_ui_tests(coreengineui_test justconnect_engine justconnect_core)
     add_executable(webengine_test tests/webengine_test.cpp)

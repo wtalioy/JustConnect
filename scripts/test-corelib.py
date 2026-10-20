@@ -8,7 +8,7 @@ import sys
 
 
 CORE = Path(__file__).resolve().parents[1] / 'corelib'
-ENV = dict(os.environ, CGO_ENABLED='0', GOTOOLCHAIN='local', GOWORK='off',
+ENV = dict(os.environ, CGO_ENABLED='1', GOEXPERIMENT='cgocheck2', GOTOOLCHAIN='local', GOWORK='off',
            GOENV='off', GOFLAGS='-mod=readonly')
 
 
@@ -30,11 +30,15 @@ def main():
         raise RuntimeError('The core must not contain nested modules or local replacements')
     subprocess.run([sys.executable, str(CORE.parent / "scripts/generate-core-abi.py"), "--check"], check=True)
     locks = {name: (CORE / name).read_bytes() for name in ('go.mod', 'go.sum')}
+    unformatted = subprocess.check_output(['gofmt', '-l', *map(str, CORE.rglob('*.go'))], text=True)
+    if unformatted.strip():
+        raise RuntimeError('Run gofmt on:\n' + unformatted)
     go('mod', 'download')
     go('mod', 'verify')
     modules = go('list', '-m', '-f', '{{.Path}}', 'all', capture=True).splitlines()
     if 'github.com/mythologyli/zju-connect' in modules:
         raise RuntimeError('Integrated sources must not depend on the remote upstream module')
+    go('vet', './...')
     go('build', './...')
 
     packages = go('list', './...', capture=True).splitlines()
