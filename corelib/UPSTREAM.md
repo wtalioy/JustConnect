@@ -42,7 +42,7 @@ go -C corelib test -timeout 60s ./...
 
 计划已记录：修正测试调用后还会暴露 `TestRefreshCancellation` 的真实上下文缺陷，`Session.request` 当前覆盖请求自带的取消上下文。这些在 S1-07 修复并恢复认证包测试，再实施依赖它们的会话接入。源码中现有的致命退出、全局状态和认证 TLS 默认行为也不能直接当作可嵌入的安全会话；它们仍按 S1-07、S2-03 的边界收敛。
 
-导入代码 `1611e9c` 已通过来源核对及原 23 包的 Linux 限定基线，并验证新增认证编译错误不会被已知缺陷例外掩盖。[首次推送 CI](https://github.com/wtalioy/JustConnect/actions/runs/39279301877)的 Linux、macOS 限定基线及应用测试通过，Windows 因两处 Unix 权限断言失败；`197ea01` 已修正断言平台范围。2026-10-20 进一步实测发现 Windows 仍保留继承／已有 ACL，现已在共享文件入口修复。当前 Linux 的 24 包限定基线、Windows x64 的 17 个离线测试程序实际运行通过，完整三平台 CI 待重验。
+导入代码 `1611e9c` 已通过来源核对及原 23 包的 Linux 限定基线，并验证新增认证编译错误不会被已知缺陷例外掩盖。[首次推送 CI](https://github.com/wtalioy/JustConnect/actions/runs/39279301877)的 Linux、macOS 限定基线及应用测试通过，Windows 因两处 Unix 权限断言失败；`197ea01` 已修正断言平台范围。2026-10-20 进一步实测发现 Windows 仍保留继承／已有 ACL，现已在共享文件入口修复。本机 Linux 的 24 包限定基线、Windows x64 的 17 个离线测试程序实际运行通过。修复提交 `f9b4111` 的[三平台 CI](https://github.com/wtalioy/JustConnect/actions/runs/39284985278)全部成功：Windows、Linux、macOS 均通过模块及依赖锁校验、全部源码构建、24 包限定离线基线与各 16 项应用测试；Windows ACL 回归也通过 CI。S1-05 源码整合已验收，认证包仍按上述 S1-07 缺陷单独标为受阻，不能把限定基线描述为完整认证套件通过。
 
 Windows 权限验收直接查询真实文件的 DACL，不从 Go `FileMode` 推断 ACL。`underlay/debug_permissions_windows_test.go` 对 TLS 密钥日志与 PCAP 各覆盖新文件、已有 Everyone 完全访问权限、拒绝写入三种情况：新建与重开后均禁止继承，只有当前用户 SID 的单条允许项；拒绝写入返回访问拒绝，原文件不被截断。修复前四个权限收紧用例均失败，修复后六个用例在本机 Windows 通过；同一测试进入 Windows CI。该实现复用现有 `golang.org/x/sys/windows`，无新增依赖；Windows 调试文件在打开期间独占，避免读者与已有文件 ACL 收紧竞争。权限建立失败即返回错误，不输出敏感数据。Unix 同时覆盖已有宽权限文件收紧和清空。
 
