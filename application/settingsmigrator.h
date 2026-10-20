@@ -7,14 +7,14 @@ enum class SettingsMigrationAction
 {
     None,
     MigrateAutoStart,
-    RecommendReset
+    Failed
 };
 
 class SettingsMigrator
 {
 public:
     static SettingsMigrationAction prepare(QSettings &settings);
-    static void finish(QSettings &settings, bool resetToDefaults);
+    static bool finish(QSettings &settings);
 };
 
 #endif // SETTINGSMIGRATOR_H

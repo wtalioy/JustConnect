@@ -928,23 +928,10 @@ void MainWindow::upgradeSettings()
             return;
         }
     }
-    else if (action == SettingsMigrationAction::RecommendReset)
+    if (action == SettingsMigrationAction::Failed || !SettingsMigrator::finish(*settings))
     {
-        QMessageBox msgBox;
-        msgBox.setText("存在配置更新");
-        msgBox.setInformativeText("建议恢复默认设置，以使用优化的配置。\n\n是否恢复默认设置？");
-        msgBox.setStandardButtons(QMessageBox::Ok | QMessageBox::Cancel);
-        msgBox.setDefaultButton(QMessageBox::Cancel);
-
-        const bool reset = msgBox.exec() == QMessageBox::Ok;
-        SettingsMigrator::finish(*settings, reset);
-        if (reset)
-        {
-            QMessageBox::information(this, "完成", "已恢复默认设置。");
-        }
-        return;
+        QMessageBox::warning(this, "配置迁移未完成", "未能保存升级后的配置，已保留旧版本以便重试。");
     }
-    SettingsMigrator::finish(*settings, false);
 }
 
 void MainWindow::updateVersionInfo()
@@ -979,15 +966,6 @@ void MainWindow::showNotification(const QString &title, const QString &content, 
 
 void MainWindow::cleanUpWhenQuit()
 {
-    // 保存配置
-    if (settings->value("Common/ConfigVersion", 0).toInt() <=
-        ApplicationConstants::ConfigVersion)
-    {
-        settings->setValue(
-            "Common/ConfigVersion",
-            ApplicationConstants::ConfigVersion
-        );
-    }
     settings->sync();
 
     // 清除系统代理

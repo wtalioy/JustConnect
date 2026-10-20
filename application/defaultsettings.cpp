@@ -1,69 +1,78 @@
 #include "application/defaultsettings.h"
 
 #include <QSettings>
+#include <QVariant>
 
 #include "application/applicationconstants.h"
 
-void DefaultSettings::reset(QSettings &settings)
+namespace {
+void apply(QSettings &settings, bool overwrite)
 {
-    settings.setValue("Credential/Username", "");
-    settings.setValue("Credential/Password", "");
-    settings.setValue("Credential/TOTPSecret", "");
+    const auto set = [&](const QString &key, const QVariant &value) {
+        if (overwrite || !settings.contains(key)) settings.setValue(key, value);
+    };
+    set("Credential/Username", "");
+    set("Credential/Password", "");
+    set("Credential/TOTPSecret", "");
 
-    settings.setValue("Common/ConnectAfterStart", false);
-    settings.setValue("Common/CheckUpdateAfterStart", false);
-    settings.setValue("Common/AutoSetProxy", false);
-    settings.setValue("Common/ReconnectTime", 1);
-    settings.setValue("Common/AutoReconnect", false);
-    settings.setValue("Common/SystemProxyBypass", "");
+    set("Common/ConnectAfterStart", false);
+    set("Common/CheckUpdateAfterStart", false);
+    set("Common/AutoSetProxy", false);
+    set("Common/ReconnectTime", 1);
+    set("Common/AutoReconnect", false);
+    set("Common/SystemProxyBypass", "");
 
-    settings.setValue("JustConnect/ServerAddress", "");
-    settings.setValue("JustConnect/ServerPort", 443);
-    settings.setValue("JustConnect/DNS", "");
-    settings.setValue("JustConnect/DNSAuto", true);
-    settings.setValue("JustConnect/SecondaryDNS", "");
-    settings.setValue("JustConnect/LocalDNSServer", "");
-    settings.setValue("JustConnect/DNSServerBind", "");
-    settings.setValue("JustConnect/DNSTTL", 3600);
-    settings.setValue("JustConnect/SOCKS5Port", 11080);
-    settings.setValue("JustConnect/HTTPPort", 11081);
-    settings.setValue("JustConnect/ShadowsocksURL", "");
-    settings.setValue("JustConnect/DialDirectProxy", "");
-    settings.setValue("JustConnect/UpdateBestNodesInterval", 300);
+    set("JustConnect/ServerAddress", "");
+    set("JustConnect/ServerPort", 443);
+    set("JustConnect/DNS", "");
+    set("JustConnect/DNSAuto", true);
+    set("JustConnect/SecondaryDNS", "");
+    set("JustConnect/LocalDNSServer", "");
+    set("JustConnect/DNSServerBind", "");
+    set("JustConnect/DNSTTL", 3600);
+    set("JustConnect/SOCKS5Port", 11080);
+    set("JustConnect/HTTPPort", 11081);
+    set("JustConnect/ShadowsocksURL", "");
+    set("JustConnect/DialDirectProxy", "");
+    set("JustConnect/UpdateBestNodesInterval", 300);
 
-    settings.setValue("JustConnect/Protocol", "atrust");
-    settings.setValue("JustConnect/EasyConnectAuthType", "password");
-    settings.setValue("JustConnect/LoginDomain", "");
-    settings.setValue("JustConnect/AuthType", "psw");
-    settings.setValue("JustConnect/LoginURL", "");
-    settings.setValue("JustConnect/PhoneCountryCode", "86");
-    settings.setValue("JustConnect/PhoneNumber", "");
+    set("JustConnect/Protocol", "atrust");
+    set("JustConnect/EasyConnectAuthType", "password");
+    set("JustConnect/LoginDomain", "");
+    set("JustConnect/AuthType", "psw");
+    set("JustConnect/LoginURL", "");
+    set("JustConnect/PhoneCountryCode", "86");
+    set("JustConnect/PhoneNumber", "");
 
-    settings.setValue("JustConnect/MultiLine", false);
-    settings.setValue("JustConnect/KeepAlive", false);
-    settings.setValue("JustConnect/KeepAliveURL", "");
-    settings.setValue("JustConnect/BindInterface", "");
-    settings.setValue("JustConnect/OutsideAccess", false);
-    settings.setValue("JustConnect/SkipDomainResource", false);
-    settings.setValue("JustConnect/DisableServerConfig", false);
-    settings.setValue("JustConnect/ProxyAll", false);
-    settings.setValue("JustConnect/DisableRemoteDNS", false);
-    settings.setValue("JustConnect/Debug", false);
-    settings.setValue("JustConnect/DebugPCAP", false);
-    settings.setValue("JustConnect/DebugTLSLog", false);
+    set("JustConnect/MultiLine", false);
+    set("JustConnect/KeepAlive", false);
+    set("JustConnect/KeepAliveURL", "");
+    set("JustConnect/BindInterface", "");
+    set("JustConnect/OutsideAccess", false);
+    set("JustConnect/SkipDomainResource", false);
+    set("JustConnect/DisableServerConfig", false);
+    set("JustConnect/ProxyAll", false);
+    set("JustConnect/DisableRemoteDNS", false);
+    set("JustConnect/Debug", false);
+    set("JustConnect/DebugPCAP", false);
+    set("JustConnect/DebugTLSLog", false);
 
-    settings.setValue("JustConnect/TUNMode", false);
-    settings.setValue("JustConnect/AddRoute", false);
-    settings.setValue("JustConnect/DNSHijack", false);
-    settings.setValue("JustConnect/FakeIP", false);
-    settings.setValue("JustConnect/TCPTunnelMode", false);
-    settings.setValue("JustConnect/AutoDetectInterface", false);
+    set("JustConnect/TUNMode", false);
+    set("JustConnect/AddRoute", false);
+    set("JustConnect/DNSHijack", false);
+    set("JustConnect/FakeIP", false);
+    set("JustConnect/TCPTunnelMode", false);
+    set("JustConnect/AutoDetectInterface", false);
 
-    settings.setValue("JustConnect/TCPPortForwarding", "");
-    settings.setValue("JustConnect/UDPPortForwarding", "");
-    settings.setValue("JustConnect/CustomDNS", "");
-    settings.setValue("JustConnect/CustomProxyDomain", "");
-    settings.setValue("JustConnect/ExtraArguments", "");
+    set("JustConnect/TCPPortForwarding", "");
+    set("JustConnect/UDPPortForwarding", "");
+    set("JustConnect/CustomDNS", "");
+    set("JustConnect/CustomProxyDomain", "");
+    set("JustConnect/ExtraArguments", "");
 
-    settings.setValue("Common/ConfigVersion", ApplicationConstants::ConfigVersion);
+    if (overwrite) set("Common/ConfigVersion", ApplicationConstants::ConfigVersion);
 }
+}
+
+void DefaultSettings::reset(QSettings &settings) { apply(settings, true); }
+void DefaultSettings::initialize(QSettings &settings) { apply(settings, false); }
