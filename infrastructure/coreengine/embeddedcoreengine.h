@@ -23,4 +23,5 @@ private:
     quint64 serial = 0;
     bool active = false;
     bool stopping = false;
+    bool established = false;
 };

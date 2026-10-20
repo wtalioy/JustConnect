@@ -1,41 +1,43 @@
 #include <QApplication>
 #include <QDebug>
 #include <QDialogButtonBox>
-#include <QJsonDocument>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QLineEdit>
 #include <QMouseEvent>
 #include <QPixmap>
 #include <QPushButton>
-#include <QTemporaryDir>
+#include <QBuffer>
 
 #include "presentation/dialogs/graphcaptchawindow/graphcaptchawindow.h"
 #include "presentation/dialogs/graphcaptchawindow/captchacanvas.h"
 
 namespace
 {
-QString createCaptchaImage(QTemporaryDir &directory)
+QByteArray createCaptchaImage()
 {
-    const QString path = directory.filePath("captcha.png");
+    QByteArray data;
+    QBuffer buffer(&data);
+    buffer.open(QIODevice::WriteOnly);
     QPixmap image(120, 40);
     image.fill(Qt::white);
-    return image.save(path) ? path : QString{};
+    image.save(&buffer, "PNG");
+    return data;
 }
 
 bool submitsTextCaptcha()
 {
-    QTemporaryDir directory;
-    const QString imagePath = createCaptchaImage(directory);
+    const auto imageData = createCaptchaImage();
     GraphCaptchaWindow window;
-    window.setGraph(imagePath, true);
+    window.setGraph(imageData, true);
 
     auto *codeEdit = window.findChild<QLineEdit *>("codeEdit");
     auto *buttonBox = window.findChild<QDialogButtonBox *>("buttonBox");
-    QByteArray submitted;
+    QJsonObject submitted;
     QObject::connect(&window, &GraphCaptchaWindow::finishCaptcha,
-                     [&](const QByteArray &captcha) { submitted = captcha; });
+                     [&](const QJsonObject &captcha) { submitted = captcha; });
 
-    if (imagePath.isEmpty() || codeEdit == nullptr || buttonBox == nullptr
+    if (imageData.isEmpty() || codeEdit == nullptr || buttonBox == nullptr
         || codeEdit->isHidden())
     {
         qCritical() << "text captcha controls were not configured";
@@ -44,7 +46,7 @@ bool submitsTextCaptcha()
 
     codeEdit->setText(" A1b2 ");
     buttonBox->button(QDialogButtonBox::Ok)->click();
-    if (submitted != "A1b2")
+    if (submitted["code"] != "A1b2")
     {
         qCritical() << "text captcha submission failed:" << submitted;
         return false;
@@ -54,15 +56,14 @@ bool submitsTextCaptcha()
 
 bool cancelsWithoutSubmittingPlaceholder()
 {
-    QTemporaryDir directory;
     GraphCaptchaWindow window;
-    window.setGraph(createCaptchaImage(directory), true);
+    window.setGraph(createCaptchaImage(), true);
 
     int submissions = 0;
     int cancellations = 0;
     QObject::connect(&window, &GraphCaptchaWindow::finishCaptcha,
-                     [&](const QByteArray &) { ++submissions; });
-    QObject::connect(&window, &GraphCaptchaWindow::cancelled,
+                     [&](const QJsonObject &) { ++submissions; });
+    QObject::connect(&window, &QDialog::rejected,
                      [&]() { ++cancellations; });
 
     window.findChild<QDialogButtonBox *>("buttonBox")
@@ -77,20 +78,27 @@ bool cancelsWithoutSubmittingPlaceholder()
 
 bool preservesCoordinateCaptchaResponse()
 {
-    QTemporaryDir directory;
     GraphCaptchaWindow window;
-    window.setGraph(createCaptchaImage(directory), false);
+    window.setGraph(createCaptchaImage(), false);
 
-    QByteArray submitted;
+    auto *canvas = window.findChild<CaptchaCanvas *>();
+    canvas->resize(240, 160);
+    const QPointF position(120, 80);
+    QMouseEvent click(QEvent::MouseButtonPress, position, position, position,
+        Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(canvas, &click);
+    QJsonObject submitted;
     QObject::connect(&window, &GraphCaptchaWindow::finishCaptcha,
-                     [&](const QByteArray &captcha) { submitted = captcha; });
+                     [&](const QJsonObject &captcha) { submitted = captcha; });
     window.findChild<QDialogButtonBox *>("buttonBox")
         ->button(QDialogButtonBox::Ok)->click();
 
-    const QJsonObject response = QJsonDocument::fromJson(submitted).object();
+    const QJsonObject response = submitted;
     if (response.value("width").toInt() != 120
         || response.value("height").toInt() != 40
-        || !response.value("coordinates").isArray())
+        || response["points"].toArray().size() != 1
+        || response["points"].toArray().first().toObject()["x"].toInt() != 60
+        || response["points"].toArray().first().toObject()["y"].toInt() != 20)
     {
         qCritical() << "coordinate captcha response changed:" << submitted;
         return false;
@@ -98,28 +106,7 @@ bool preservesCoordinateCaptchaResponse()
     return true;
 }
 
-bool mapsScaledClicksToImageCoordinates()
-{
-    CaptchaCanvas canvas;
-    QPixmap image(120, 40);
-    image.fill(Qt::white);
-    canvas.setImage(image);
-    canvas.resize(240, 160);
 
-    const QPointF clickPosition(120, 80);
-    QMouseEvent click(QEvent::MouseButtonPress, clickPosition, clickPosition,
-                      clickPosition, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
-    QApplication::sendEvent(&canvas, &click);
-
-    const auto &points = canvas.pointsPx();
-    if (points.size() != 1 || qAbs(points[0].x() - 60.0) > 0.01
-        || qAbs(points[0].y() - 20.0) > 0.01)
-    {
-        qCritical() << "scaled captcha click was mapped incorrectly:" << points;
-        return false;
-    }
-    return true;
-}
 }
 
 int main(int argc, char *argv[])
@@ -128,7 +115,6 @@ int main(int argc, char *argv[])
     return submitsTextCaptcha()
         && cancelsWithoutSubmittingPlaceholder()
         && preservesCoordinateCaptchaResponse()
-        && mapsScaledClicksToImageCoordinates()
         ? 0
         : 1;
 }

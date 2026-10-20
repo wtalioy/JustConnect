@@ -2,8 +2,7 @@
 
 #include "ui_graphcaptchawindow.h"
 #include <QDialog>
-
-class MainWindow;
+#include <QJsonObject>
 
 class GraphCaptchaWindow : public QDialog
 {
@@ -14,18 +13,15 @@ public:
 
     ~GraphCaptchaWindow() override;
 
-    void setGraph(const QString &graphFile, bool textInputMode);
+    void setGraph(const QByteArray &image, bool textInputMode);
 
 signals:
-    void finishCaptcha(const QByteArray &captcha);
-    void cancelled();
+    void finishCaptcha(const QJsonObject &response);
 
 public slots:
     void accept() override;
-    void reject() override;
 
 private:
     Ui::GraphCaptchaWindow *ui;
-    MainWindow *mainWindow = nullptr;
     bool textInputMode = false;
 };

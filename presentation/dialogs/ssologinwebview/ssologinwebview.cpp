@@ -32,15 +32,6 @@ void SsoLoginWebView::setupConnections()
     connect(ui->backButton, &QToolButton::clicked, ui->webEngineView, &QWebEngineView::back);
     connect(ui->forwardButton, &QToolButton::clicked, ui->webEngineView, &QWebEngineView::forward);
     connect(ui->reloadButton, &QToolButton::clicked, ui->webEngineView, &QWebEngineView::reload);
-    connect(ui->dialogButtonBox, &QDialogButtonBox::rejected, this, [&]()
-    {
-        if (!loginCompletedEmitted)
-        {
-            loginCompletedEmitted = true;
-            loginCompleted(QString());
-        }
-    });
-
     connect(ui->addressLineEdit, &QLineEdit::returnPressed, this, [&]()
     {
         const QUrl target = QUrl::fromUserInput(ui->addressLineEdit->text());
@@ -63,7 +54,7 @@ void SsoLoginWebView::setupConnections()
                         loginCompleted(request.url().toString());
                     }
                     request.reject();
-                    this->close();
+                    this->accept();
                 }
                 else
                     request.accept();
@@ -106,15 +97,4 @@ bool SsoLoginWebView::isCallbackUrl(const QUrl &url) const
 QUrl SsoLoginWebView::currentUrl() const
 {
     return ui->webEngineView->url();
-}
-
-void SsoLoginWebView::closeEvent(QCloseEvent *event)
-{
-    if (!loginCompletedEmitted)
-    {
-        loginCompletedEmitted = true;
-        loginCompleted(QString());
-    }
-
-    QDialog::closeEvent(event);
 }

@@ -2,14 +2,15 @@
 
 #include "ui_authinfowindow.h"
 #include <QDialog>
-#include <QProcess>
+
+class CoreEngine;
 
 class AuthInfoWindow : public QDialog
 {
 	Q_OBJECT
 
 public:
-	AuthInfoWindow(QWidget *parent = nullptr);
+	AuthInfoWindow(QWidget *parent = nullptr, CoreEngine *engine = nullptr);
 
     ~AuthInfoWindow() override;
 
@@ -20,7 +21,6 @@ signals:
 
 private:
 	Ui::AuthInfoWindow *ui;
-    QProcess *proc_ = nullptr;
-    QByteArray stdoutBuf_;
-    QByteArray stderrBuf_;
+    CoreEngine *engine;
+    bool queryCompleted = false;
 };

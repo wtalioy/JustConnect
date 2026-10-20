@@ -27,6 +27,10 @@ SettingWindow::SettingWindow(QWidget *parent, QSettings *inputSettings, const QS
     setAttribute(Qt::WA_DeleteOnClose);
 
     loadSettings();
+    ui->loginUrlLineEdit->setReadOnly(true);
+    ui->loginUrlLineEdit->setToolTip("此处为查询结果预览；连接时使用当前会话的认证挑战 URL。");
+    ui->easyconnectRadioButton->setEnabled(false);
+    ui->easyconnectRadioButton->setToolTip("当前内置核心支持 aTrust，请使用配置引导迁移旧配置。");
 
     connect(ui->openLogDirectoryPushButton, &QPushButton::clicked, this, [this]()
     {
@@ -205,7 +209,7 @@ void SettingWindow::loadSettings()
 {
     ui->configVersionLabel->setText(
         "当前配置文件版本：" + QString::number(settings->value("Common/ConfigVersion").toInt()) +
-        "\n程序配置文件版本：" +
+        "\n当前内置核心：aTrust、回环 SOCKS/HTTP；旧高级选项可清除，启用后将拒绝连接。\n程序配置文件版本：" +
         QString::number(ApplicationConstants::ConfigVersion)
     );
     ui->usernameLineEdit->setText(settings->value("Credential/Username").toString());
@@ -216,9 +220,6 @@ void SettingWindow::loadSettings()
     ui->certFileLineEdit->setText(settings->value("Credential/CertFile").toString());
     ui->certPasswordLineEdit->setText(
         QByteArray::fromBase64(settings->value("Credential/CertPassword").toString().toUtf8())
-    );
-    ui->credentialsAsArgumentsCheckBox->setChecked(
-        settings->value("JustConnect/CredentialsAsArguments", false).toBool()
     );
 
     ProfileManager profileManager;
@@ -324,10 +325,6 @@ void SettingWindow::applySettings()
     settings->setValue("Credential/TOTPSecret", ui->totpSecretLineEdit->text());
     settings->setValue("Credential/CertFile", ui->certFileLineEdit->text());
     settings->setValue("Credential/CertPassword", QString(ui->certPasswordLineEdit->text().toUtf8().toBase64()));
-    settings->setValue(
-        "JustConnect/CredentialsAsArguments",
-        ui->credentialsAsArgumentsCheckBox->isChecked()
-    );
 
     settings->setValue("Common/ConnectAfterStart", ui->connectAfterStartCheckBox->isChecked());
     settings->setValue("Common/CheckUpdateAfterStart", ui->checkUpdateAfterStartCheckBox->isChecked());

@@ -18,11 +18,6 @@ bool loadsSettingsIntoTypedProfile()
 
     QSettings settings(directory.filePath("profile.ini"), QSettings::IniFormat);
     settings.setValue("Credential/TOTPSecret", "totp");
-    settings.setValue("Credential/CertFile", "/tmp/client.p12");
-    settings.setValue(
-        "Credential/CertPassword",
-        QString(QStringLiteral("cert-password").toUtf8().toBase64())
-    );
     settings.setValue("JustConnect/Protocol", "atrust");
     settings.setValue("JustConnect/AuthType", "cas");
     settings.setValue("JustConnect/LoginDomain", "domain");
@@ -53,7 +48,6 @@ bool loadsSettingsIntoTypedProfile()
     settings.setValue("JustConnect/TCPPortForwarding", "tcp-forward");
     settings.setValue("JustConnect/UDPPortForwarding", "udp-forward");
     settings.setValue("JustConnect/UpdateBestNodesInterval", 30);
-    settings.setValue("JustConnect/CredentialsAsArguments", true);
     settings.setValue("JustConnect/MultiLine", false);
     settings.setValue("JustConnect/KeepAlive", false);
     settings.setValue("JustConnect/KeepAliveURL", "https://keepalive");
@@ -67,16 +61,12 @@ bool loadsSettingsIntoTypedProfile()
     settings.setValue("JustConnect/ExtraArguments", "-foo bar");
 
     const ConnectionProfile profile =
-        SettingsProfileLoader::load(settings, "campus", "alice", "secret");
+        SettingsProfileLoader::load(settings, "alice", "secret");
 
     const bool passed =
-        profile.profileId == "campus"
-        && profile.credentials.username == "alice"
+        profile.credentials.username == "alice"
         && profile.credentials.password == "secret"
         && profile.credentials.totpSecret == "totp"
-        && profile.credentials.certFile.isEmpty()
-        && profile.credentials.certPassword.isEmpty()
-        && profile.credentials.passAsArguments
         && profile.endpoint.protocol == "atrust"
         && profile.endpoint.authType == "cas"
         && profile.endpoint.loginDomain == "domain"
@@ -129,10 +119,9 @@ bool usesCompatibleDefaults()
     QTemporaryDir directory;
     QSettings settings(directory.filePath("empty.ini"), QSettings::IniFormat);
 
-    const ConnectionProfile profile = SettingsProfileLoader::load(settings, "", "", "");
+    const ConnectionProfile profile = SettingsProfileLoader::load(settings, "", "");
     const bool passed =
         profile.behavior.updateBestNodesInterval == 300
-        && !profile.credentials.passAsArguments
         && profile.behavior.disableMultiLine
         && profile.behavior.disableKeepAlive
         && profile.dns.localDnsServer.isEmpty()
@@ -140,8 +129,8 @@ bool usesCompatibleDefaults()
         && !profile.debug.detailedOutput
         && !profile.debug.capturePcap
         && !profile.debug.exportTlsKeys
-        && profile.proxy.socksBind == "127.0.0.1:0"
-        && profile.proxy.httpBind == "127.0.0.1:0";
+        && profile.proxy.socksBind.isEmpty()
+        && profile.proxy.httpBind.isEmpty();
     if (!passed)
     {
         qCritical() << "usesCompatibleDefaults failed";
@@ -149,45 +138,12 @@ bool usesCompatibleDefaults()
     return passed;
 }
 
-bool respectsEasyConnectAuthenticationMode()
-{
-    QTemporaryDir directory;
-    QSettings settings(directory.filePath("easyconnect.ini"), QSettings::IniFormat);
-    settings.setValue("JustConnect/Protocol", "easyconnect");
-    settings.setValue("Credential/CertFile", "/tmp/client.p12");
-    settings.setValue(
-        "Credential/CertPassword",
-        QString(QStringLiteral("cert-password").toUtf8().toBase64())
-    );
 
-    settings.setValue("JustConnect/EasyConnectAuthType", "password");
-    const ConnectionProfile passwordProfile =
-        SettingsProfileLoader::load(settings, "", "alice", "secret");
-    if (!passwordProfile.credentials.certFile.isEmpty()
-        || !passwordProfile.credentials.certPassword.isEmpty())
-    {
-        qCritical() << "password mode kept certificate credentials";
-        return false;
-    }
-
-    settings.setValue("JustConnect/EasyConnectAuthType", "certificate");
-    const ConnectionProfile certificateProfile =
-        SettingsProfileLoader::load(settings, "", "", "");
-    const bool passed =
-        certificateProfile.credentials.certFile == "/tmp/client.p12"
-        && certificateProfile.credentials.certPassword == "cert-password";
-    if (!passed)
-    {
-        qCritical() << "certificate mode did not load certificate credentials";
-    }
-    return passed;
-}
 }
 
 int main(int argc, char *argv[])
 {
     QCoreApplication app(argc, argv);
     return loadsSettingsIntoTypedProfile()
-        && usesCompatibleDefaults()
-        && respectsEasyConnectAuthenticationMode() ? 0 : 1;
+        && usesCompatibleDefaults() ? 0 : 1;
 }

@@ -57,3 +57,23 @@ jobs:
         run: ctest --test-dir build --build-config Release --output-on-failure
         env:
           QT_QPA_PLATFORM: offscreen
+
+      - name: Verify installed Windows runtime with the Qt protocol host
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QTWEBENGINE_CHROMIUM_FLAGS: --disable-gpu
+          CGO_ENABLED: '1'
+          GOEXPERIMENT: cgocheck2
+          GOTOOLCHAIN: local
+          GOWORK: 'off'
+          GOENV: 'off'
+        run: |
+          $destination = Join-Path (Get-Location) 'build/runtime-check'
+          cmake --install build --config Release --component CoreRuntime --prefix $destination
+          if ($LASTEXITCODE -ne 0) { throw 'Runtime installation failed' }
+          Copy-Item build/Release/coreengineui_test.exe $destination
+          $env:JC_NATIVE_PROTOCOL_HOST = Join-Path $destination 'coreengineui_test.exe'
+          go -C corelib test -mod=readonly -count=1 -timeout 60s -run '^TestNativeProtocolHost$' -v ./internal/bridge
+          if ($LASTEXITCODE -ne 0) { throw 'Installed runtime protocol test failed' }

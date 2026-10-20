@@ -5,17 +5,18 @@
 
 namespace
 {
-class FakeCoreProcess : public CoreProcess
+class FakeCoreEngine : public CoreEngine
 {
 public:
     int startCalls = 0;
     int stopCalls = 0;
-    QByteArray lastInput;
+    QJsonObject lastResponse;
+    bool acceptResponse = true;
 
-    void start(const ConnectionProfile &) override
+    bool start(const ConnectionProfile &, Operation = Operation::Connect) override
     {
         ++startCalls;
-        emit started();
+        return true;
     }
 
     void stop() override
@@ -23,14 +24,14 @@ public:
         ++stopCalls;
     }
 
-    void writeInput(const QByteArray &data) override
-    {
-        lastInput = data;
+    void respond(const QJsonObject &response) override {
+        lastResponse = response;
+        if (acceptResponse) emit responseAccepted();
     }
 
-    void complete()
+    void complete(ConnectionError error = ConnectionError::NONE)
     {
-        emit finished();
+        emit finished(error);
     }
 
     void establishConnection()
@@ -38,16 +39,13 @@ public:
         emit connectionEstablished();
     }
 
-    void requestSudoPassword()
-    {
-        emit askSudoPass();
-    }
+
 };
 
 bool delegatesProcessLifecycleThroughPort()
 {
-    auto *coreProcess = new FakeCoreProcess();
-    ConnectionSession session(coreProcess);
+    auto *engine = new FakeCoreEngine();
+    ConnectionSession session(engine);
     ConnectionProfile profile;
     int finishedCalls = 0;
     QObject::connect(
@@ -57,7 +55,7 @@ bool delegatesProcessLifecycleThroughPort()
     );
 
     if (!session.start(profile, {})
-        || coreProcess->startCalls != 1
+        || engine->startCalls != 1
         || session.state() != ConnectionState::Starting
         || !session.isActive()
         || session.start(profile, {}))
@@ -66,24 +64,22 @@ bool delegatesProcessLifecycleThroughPort()
         return false;
     }
 
-    coreProcess->establishConnection();
+    engine->establishConnection();
     if (session.state() != ConnectionState::Running)
     {
         qCritical() << "connection establishment was not reflected";
         return false;
     }
 
-    session.submitInput("input");
     session.stop();
-    if (coreProcess->lastInput != "input"
-        || coreProcess->stopCalls != 1
+    if (engine->stopCalls != 1
         || session.state() != ConnectionState::Stopping)
     {
         qCritical() << "input or stop delegation failed";
         return false;
     }
 
-    coreProcess->complete();
+    engine->complete();
     if (finishedCalls != 1
         || session.state() != ConnectionState::Disconnected
         || session.isActive())
@@ -96,14 +92,13 @@ bool delegatesProcessLifecycleThroughPort()
 
 bool distinguishesInterruptedConnectionFromStartupFailure()
 {
-    auto *coreProcess = new FakeCoreProcess();
-    ConnectionSession session(coreProcess);
+    auto *engine = new FakeCoreEngine();
+    ConnectionSession session(engine);
     ConnectionProfile profile;
 
     session.start(profile, {});
-    coreProcess->establishConnection();
-    emit coreProcess->error(ConnectionError::OTHER);
-    coreProcess->complete();
+    engine->establishConnection();
+    engine->complete(ConnectionError::OTHER);
 
     if (session.state() != ConnectionState::Interrupted)
     {
@@ -113,51 +108,47 @@ bool distinguishesInterruptedConnectionFromStartupFailure()
     return true;
 }
 
-bool emptySudoPasswordStopsTheSession()
+bool authenticatesOnlyTheCurrentRequest()
 {
-    auto *coreProcess = new FakeCoreProcess();
-    ConnectionSession session(coreProcess);
+    auto *engine = new FakeCoreEngine;
+    ConnectionSession session(engine);
     ConnectionProfile profile;
-
-    if (!session.start(profile, {}))
-    {
-        qCritical() << "failed to start session for sudo cancellation";
-        return false;
-    }
-
-    coreProcess->requestSudoPassword();
-    session.submitSudoPassword({}, false);
-    if (coreProcess->stopCalls != 1
-        || session.state() != ConnectionState::Stopping)
-    {
-        qCritical() << "empty sudo password did not stop the session";
-        return false;
-    }
+    session.start(profile, {});
+    QJsonObject request{{"schema_version", 1}, {"generation", "1"}, {"request_id", "1"}};
+    emit engine->authenticationRequired(request);
+    auto answer = CoreEngine::responseFor(request, {{"action", "submit"}, {"code", "验证码"}, {"skip_secondary_auth", true}});
+    engine->acceptResponse = false;
+    session.submitResponse(answer);
+    if (engine->lastResponse != answer) return false;
+    session.submitResponse(CoreEngine::responseFor(request, {{"action", "cancel"}}));
+    if (engine->lastResponse != answer || engine->stopCalls) return false;
+    emit engine->responseRejected();
+    engine->acceptResponse = true;
+    session.submitResponse(answer);
+    auto stale = answer;
+    stale["action"] = "cancel";
+    stale["generation"] = "0";
+    session.submitResponse(stale);
+    if (engine->stopCalls || engine->lastResponse != answer) return false;
+    stale["generation"] = "1";
+    stale["request_id"] = "0";
+    session.submitResponse(stale);
+    if (engine->stopCalls) return false;
+    session.submitResponse(CoreEngine::responseFor(request, {{"action", "cancel"}}));
+    if (engine->stopCalls != 0) return false;
+    request["request_id"] = "2";
+    emit engine->authenticationRequired(request);
+    session.submitResponse(CoreEngine::responseFor(request, {{"action", "cancel"}}));
+    if (engine->stopCalls != 1 || session.state() != ConnectionState::Stopping) return false;
+    engine->complete();
+    session.start(profile, {});
+    request["generation"] = "2";
+    emit engine->authenticationRequired(request);
+    session.submitResponse(answer);
+    if (engine->stopCalls != 1 || engine->lastResponse["action"] != "cancel") return false;
     return true;
 }
 
-bool cancelledInteractiveInputSubmitsNewlineBeforeStopping()
-{
-    auto *coreProcess = new FakeCoreProcess();
-    ConnectionSession session(coreProcess);
-    ConnectionProfile profile;
-
-    if (!session.start(profile, {}))
-    {
-        qCritical() << "failed to start session for interactive input cancellation";
-        return false;
-    }
-
-    session.cancelInteractiveInput();
-    if (coreProcess->lastInput != "\r\n"
-        || coreProcess->stopCalls != 1
-        || session.state() != ConnectionState::Stopping)
-    {
-        qCritical() << "interactive input cancellation did not submit a newline and stop";
-        return false;
-    }
-    return true;
-}
 }
 
 int main(int argc, char *argv[])
@@ -165,6 +156,5 @@ int main(int argc, char *argv[])
     QCoreApplication application(argc, argv);
     return delegatesProcessLifecycleThroughPort()
         && distinguishesInterruptedConnectionFromStartupFailure()
-        && emptySudoPasswordStopsTheSession()
-        && cancelledInteractiveInputSubmitsNewlineBeforeStopping() ? 0 : 1;
+        && authenticatesOnlyTheCurrentRequest() ? 0 : 1;
 }

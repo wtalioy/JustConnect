@@ -20,7 +20,7 @@ struct ReconnectPolicy
     int delayMs = 1000;
 };
 
-enum class ProcessFinishAction
+enum class SessionFinishAction
 {
     Complete,
     Reconnect,
@@ -39,12 +39,10 @@ public:
     void connectionEstablished();
     void recordError(ConnectionError error);
     bool requestStop();
-    ProcessFinishAction processFinished();
+    SessionFinishAction engineFinished();
     void beginReconnect();
 
 private:
-    static bool isReconnectable(ConnectionError error);
-
     ConnectionState currentState = ConnectionState::Disconnected;
     ConnectionError currentError = ConnectionError::NONE;
     ReconnectPolicy reconnectPolicy;

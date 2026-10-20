@@ -2,7 +2,9 @@
 
 #include "captchacanvas.h"
 
-#include <QFile>
+#include <QBuffer>
+#include <QImageReader>
+#include "corelib/abi/constants.h"
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -27,15 +29,18 @@ GraphCaptchaWindow::~GraphCaptchaWindow()
     delete ui;
 }
 
-void GraphCaptchaWindow::setGraph(const QString &graphFile, bool useTextInput)
+void GraphCaptchaWindow::setGraph(const QByteArray &image, bool useTextInput)
 {
     textInputMode = useTextInput;
     QPixmap graph;
-    QFile imageFile(graphFile);
-    if (imageFile.open(QIODevice::ReadOnly))
-    {
-        graph.loadFromData(imageFile.readAll());
-    }
+    QBuffer buffer;
+    buffer.setData(image);
+    buffer.open(QIODevice::ReadOnly);
+    QImageReader reader(&buffer);
+    const QSize size = reader.size();
+    if (image.size() <= JC_MAX_AUTH_IMAGE && size.isValid()
+        && size.width() <= JC_MAX_AUTH_DIMENSION && size.height() <= JC_MAX_AUTH_DIMENSION)
+        graph = QPixmap::fromImage(reader.read());
     ui->canvas->setImage(graph);
     ui->canvas->setEnabled(!textInputMode);
     ui->codeLabel->setVisible(textInputMode);
@@ -65,30 +70,25 @@ void GraphCaptchaWindow::accept()
             ui->codeEdit->setFocus();
             return;
         }
-        emit finishCaptcha(code.toLocal8Bit());
+        emit finishCaptcha({{"code", code}});
     }
     else
     {
+        if (ui->canvas->pointsPx().isEmpty() || ui->canvas->pointsPx().size() > JC_MAX_AUTH_POINTS) {
+            QMessageBox::warning(this, "图形验证码", "请按图片提示点选验证码。");
+            return;
+        }
         QJsonObject obj;
         QJsonArray points;
         for (const auto &point : ui->canvas->pointsPx())
         {
-            QJsonArray pointArray;
-            pointArray.append(int(point.x()));
-            pointArray.append(int(point.y()));
-            points.append(pointArray);
+            points.append(QJsonObject{{"x", int(point.x())}, {"y", int(point.y())}});
         }
-        obj.insert("coordinates", points);
+        obj.insert("points", points);
         obj.insert("width", ui->canvas->image().width());
         obj.insert("height", ui->canvas->image().height());
-        emit finishCaptcha(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+        emit finishCaptcha(obj);
     }
 
     QDialog::accept();
-}
-
-void GraphCaptchaWindow::reject()
-{
-    emit cancelled();
-    QDialog::reject();
 }

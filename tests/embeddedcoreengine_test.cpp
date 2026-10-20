@@ -34,13 +34,14 @@ int main(int argc, char **argv) {
     EmbeddedCoreEngine engine;
     QJsonObject request;
     int finished = 0, ready = 0, rejected = 0, ticks = 0;
+    ConnectionError lastError = ConnectionError::NONE;
     QObject::connect(&engine, &CoreEngine::authenticationRequired, &app, [&](const QJsonObject &event) {
         check(QThread::currentThread() == app.thread(), "authentication delivered on GUI thread");
         request = event;
     });
     QObject::connect(&engine, &CoreEngine::connectionEstablished, [&] { ++ready; });
     QObject::connect(&engine, &CoreEngine::responseRejected, [&] { ++rejected; });
-    QObject::connect(&engine, &CoreEngine::finished, [&](ConnectionError) { ++finished; });
+    QObject::connect(&engine, &CoreEngine::finished, [&](ConnectionError error) { lastError = error; ++finished; });
     QObject::connect(&engine, &CoreEngine::diagnostic, [&](const QString &code) {
         check(!code.contains("private-"), "diagnostics do not disclose credentials");
     });
@@ -91,6 +92,20 @@ int main(int argc, char **argv) {
         until([&] { return finished == i + 1; });
     }
 #endif
+    for (int i = 0; i < 5; ++i) {
+        auto invalid = profile;
+        switch (i) {
+        case 0: invalid.endpoint.protocol = "easyconnect"; break;
+        case 1: invalid.extraArguments = "-password private-argument"; break;
+        case 2: invalid.tunnel.tunMode = true; break;
+        case 3: invalid.proxy.socksBind = "0.0.0.0:1080"; break;
+        case 4: invalid.endpoint.port = 0; break;
+        }
+        const int before = finished;
+        check(engine.start(invalid), "invalid configuration is reported asynchronously");
+        until([&] { return finished == before + 1; });
+        check(lastError == ConnectionError::INVALID_CONFIGURATION, "unsafe or unsupported configuration is rejected");
+    }
     // Destroy immediately while start/read may still be queued; then reuse the global slot.
     for (int i = 0; i < 32; ++i) {
         auto *dying = new EmbeddedCoreEngine;
