@@ -6,6 +6,8 @@
 #include <QRegularExpression>
 #include <QSettings>
 #include <QStandardPaths>
+#include <QTemporaryDir>
+#include "application/settingsmigrator.h"
 
 namespace
 {
@@ -96,16 +98,14 @@ QString ProfileManager::createProfile(const QString &requestedName, const QStrin
     const QString normalizedId = ensureUniqueProfileId(normalizeProfileId(requestedName));
     const QString path = profilePath(normalizedId);
 
-    if (!sourcePath.isEmpty() && QFileInfo::exists(sourcePath))
+    if (!sourcePath.isEmpty())
     {
-        if (QFile::exists(path))
-        {
-            QFile::remove(path);
-        }
-        if (!QFile::copy(sourcePath, path))
-        {
-            return QString();
-        }
+        if (!QFileInfo(sourcePath).isFile()) return {};
+        QTemporaryDir folder;
+        if (!folder.isValid()) return {};
+        QSettings source(sourcePath,QSettings::IniFormat);
+        QSettings draft(folder.filePath("public.ini"),QSettings::IniFormat);
+        if (!SettingsMigrator::publicDraft(source,draft) || !QFile::copy(draft.fileName(),path)) return {};
     }
     else
     {

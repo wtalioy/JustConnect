@@ -8,6 +8,7 @@ namespace DefaultSettings
 {
 void reset(QSettings &settings);
 void initialize(QSettings &settings);
+bool isPublicKey(const QString &key);
 bool exportTo(const QSettings &settings,const QString &path);
 }
 

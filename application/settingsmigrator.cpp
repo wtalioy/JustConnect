@@ -6,6 +6,13 @@
 #include "application/applicationconstants.h"
 #include "application/defaultsettings.h"
 
+namespace {
+QString legacyTarget(const QString &key)
+{
+    return "JustConnect/" + (key=="DisableZJUDNS" ? QString("DisableRemoteDNS") : key);
+}
+}
+
 SettingsMigrationAction SettingsMigrator::prepare(QSettings &settings)
 {
     settings.beginGroup("ZJUConnect");
@@ -17,8 +24,7 @@ SettingsMigrationAction SettingsMigrator::prepare(QSettings &settings)
         {
             continue;
         }
-        const QString renamedKey = key == "DisableZJUDNS" ? "DisableRemoteDNS" : key;
-        const QString target = "JustConnect/" + renamedKey;
+        const QString target = legacyTarget(key);
         if (!settings.contains(target))
         {
             settings.setValue(target, settings.value("ZJUConnect/" + key));
@@ -107,4 +113,18 @@ bool SettingsMigrator::finish(QSettings &settings)
     if (previous.isValid()) settings.setValue("Common/ConfigVersion", previous);
     else settings.remove("Common/ConfigVersion");
     return false;
+}
+
+bool SettingsMigrator::publicDraft(const QSettings &source,QSettings &draft)
+{
+    if (source.status()!=QSettings::NoError || draft.status()!=QSettings::NoError || !draft.allKeys().isEmpty()) return false;
+    for (const auto &key:source.allKeys()) {
+        const auto current=key.startsWith("ZJUConnect/") ? legacyTarget(key.mid(11)) : key;
+        // Protocol is migration input, then removed at the public-data boundary.
+        if (DefaultSettings::isPublicKey(current) || current=="JustConnect/Protocol") draft.setValue(key,source.value(key));
+    }
+    if (source.status()!=QSettings::NoError || prepare(draft)==SettingsMigrationAction::Failed || !finish(draft)) return false;
+    for (const auto &key:draft.allKeys()) if (!DefaultSettings::isPublicKey(key)) draft.remove(key);
+    draft.sync();
+    return draft.status()==QSettings::NoError;
 }
