@@ -38,7 +38,7 @@ infrastructure -------+
 
 Qt 主线程接收结构化事件，数据转发留在 Go 内；凭据、认证回应和策略通过显式接口传入。正式切换时删除核心命令行、文本解析及进程兼容层，不保留两套正式后端。必要的权限助手和独立恢复守护不承载 VPN 核心。
 
-`tests/corelink/` 是 S1-06 的独立工具链原型，通过最小 C ABI 在 Qt／WebEngine 宿主内调用 Go，不是第二套应用后端。它与正式源码／ABI 的实现分开，链接证据和各平台设备权限边界见[原型记录](CORELINK-PROBE.md)。
+`tests/coreabi/` 直接验证正式 C ABI，同时检查 QThread 并发与 WebEngine 共存；已替代并删除 S1-06 模拟 ABI 原型，避免维护两套契约和链接构建。`tests/platform/` 独立验证 Linux 内核设备权限与 fd 生命周期；历史链接证据及各平台设备权限边界见[原型记录](CORELINK-PROBE.md)。
 
 ## 主要流程
 

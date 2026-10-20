@@ -5,7 +5,7 @@ JustConnect 的主仓库是 [wtalioy/JustConnect](https://github.com/wtalioy/Jus
 
 计划已调整为将核心源码纳入仓库并编为 Qt 同进程调用的库，见 [S1](../plan.md#s1)。下文的核心构建命令、Actions 和包内校验描述的是当前仍可运行的独立进程基线，库化迁移尚未完成。S1-09 将统一改为 CMake 驱动 Go／C ABI 库、实际宿主测试及六组产物自检；验收后 S1-10 删除 `build-core.py`、旧构建 action 和独立 EXE 打包／校验链路。Qt SDK、分支与发布触发规则继续复用，不提前删除仍被工作流调用的脚本。
 
-S1-06 的独立 [Go／Qt 链接原型](CORELINK-PROBE.md) 已加入 `tests/corelink/`，复用当前 SDK／固定 Go，不接入正式应用或打包。`Core library probe` 工作流单独运行六组原生链接与宿主检查；具体链接选择、内存／线程检查及设备权限缺口见原型记录。
+S1-06 的旧模拟 ABI 探针已由 `tests/coreabi/` 正式宿主替代，QThread／WebEngine 共存检查一并迁入；Linux 设备检查独立保留在 `tests/platform/`。`Core ABI` 工作流统一运行六组原生检查，不接入应用或打包；历史链接选型和设备权限缺口见[原型记录](CORELINK-PROBE.md)。
 
 S1-05 将协议源码直接整合到 `corelib/` 单一 JustConnect Go 模块，来源、许可、导入差异和已有缺陷见 [corelib/UPSTREAM.md](../corelib/UPSTREAM.md)。没有 `third_party` 核心模块，源码可直接优化。C ABI 契约／传输已实现，正式会话和 Qt 后端切换仍未完成；下述旧独立核心构建暂不改变。
 
@@ -24,7 +24,7 @@ env PATH="/home/lioy/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.2.linux-amd64
     python scripts/test-corelib.py
 ```
 
-入口显式关闭 workspace 和自动工具链切换，要求 Go 版本与模块声明一致；外部依赖使用 Go 缓存和 `go.sum`，不带 vendor。当前使用 `CGO_ENABLED=0` 验证协议源码与离线逻辑，六组 cgo 链接仍由 S1-06 原型单独验证，正式库构建由 S1-09 接入 CMake。`Tests` 三平台工作流增加同一入口，并将 `corelib/go.sum` 纳入 Go 缓存键。
+入口显式关闭 workspace 和自动工具链切换，要求 Go 版本与模块声明一致；外部依赖使用 Go 缓存和 `go.sum`，不带 vendor。当前使用 `CGO_ENABLED=0` 验证协议源码与离线逻辑，六组 cgo 链接由正式 ABI 宿主验证，正式库构建由 S1-09 接入 CMake。`Tests` 三平台工作流增加同一入口，并将 `corelib/go.sum` 纳入 Go 缓存键。
 
 该入口构建全部源码并运行 25 个包的限定基线（含无测试包）。上游认证包因 `session.do` 未定义仍标为 `BLOCKED`，不是通过；只允许这条已知编译诊断，变化即失败。原始测试保留，S1-07 修复调用者取消与会话生命周期时恢复完整套件；直接运行 `go -C corelib test -timeout 60s ./...` 目前仍会失败。Windows 还运行真实调试文件 ACL 回归，覆盖新建、已有宽权限文件收紧及拒绝访问后不截断；Unix 验证 `0600`。本单元不访问校园、获取设备权限或修改系统网络。
 
@@ -32,7 +32,7 @@ env PATH="/home/lioy/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.2.linux-amd64
 
 S1-03 的独立入口见 [CORE-ABI.md](CORE-ABI.md)。`corelib/abi/contract.json` 是 C／Go 共用常量的单一来源；普通 Go 验证入口运行 `scripts/generate-core-abi.py --check`，避免两个语言的状态码、版本或边界漂移。构建来源从 Git 注入，运行地址、端口与凭据由宿主传入。
 
-`tests/coreabi` 同时编译 C11／C++17 宿主，实际调用正式库及明确标记的认证测试驱动；Unix 使用静态库，Windows 使用固定随包 DLL。`Core library probe` 复用已有六组工具链执行该宿主及 Go 回归，支持的平台执行 race；日志在 `build/coreabi/*.log`，同原型日志一起上传。Windows ARM64 的 Go race 不支持，普通 Go 和真实 FFI 检查仍必需通过。正式应用的 CMake／安装包切换仍由 S1-09 实施。
+`tests/coreabi` 同时编译 C11／C++17 宿主，实际调用正式库及明确标记的认证测试驱动；Unix 使用静态库，Windows 使用固定随包 DLL。`Core ABI` 复用已有六组工具链执行该宿主、QThread／WebEngine 共存及 Go 回归，支持的平台执行 race；日志统一在 `build/coreabi/*.log` 并上传。Windows ARM64 的 Go race 不支持，普通 Go 和真实 FFI 检查仍必需通过。正式应用的 CMake／安装包切换仍由 S1-09 实施。
 
 ## 分支与 Actions
 

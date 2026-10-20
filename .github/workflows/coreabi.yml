@@ -1,12 +1,12 @@
-name: Core library probe
+name: Core ABI
 
 on:
   push:
     branches: [develop]
-    paths: ['tests/coreabi/**', 'corelib/abi/**', 'corelib/internal/bridge/**', 'corelib/go.mod', 'corelib/go.sum', 'scripts/generate-core-abi.py', 'tests/corelink/**', '.github/workflows/corelink.yml', '.github/actions/setup-qt/**', 'core/manifest.json']
+    paths: ['tests/coreabi/**', 'corelib/abi/**', 'corelib/internal/bridge/**', 'corelib/go.mod', 'corelib/go.sum', 'scripts/generate-core-abi.py', 'tests/platform/**', '.github/workflows/coreabi.yml', '.github/actions/setup-qt/**']
   pull_request:
     branches: [main, develop]
-    paths: ['tests/coreabi/**', 'corelib/abi/**', 'corelib/internal/bridge/**', 'corelib/go.mod', 'corelib/go.sum', 'scripts/generate-core-abi.py', 'tests/corelink/**', '.github/workflows/corelink.yml', '.github/actions/setup-qt/**', 'core/manifest.json']
+    paths: ['tests/coreabi/**', 'corelib/abi/**', 'corelib/internal/bridge/**', 'corelib/go.mod', 'corelib/go.sum', 'scripts/generate-core-abi.py', 'tests/platform/**', '.github/workflows/coreabi.yml', '.github/actions/setup-qt/**']
   workflow_dispatch:
 
 permissions:
@@ -49,7 +49,7 @@ jobs:
       - name: Read pinned Go version
         id: go
         shell: bash
-        run: python -c 'import json, os; open(os.environ["GITHUB_OUTPUT"], "a").write("version=" + json.load(open("core/manifest.json"))["go_version"] + "\n")'
+        run: python -c 'import os, pathlib; version = next(line.split()[1] for line in pathlib.Path("corelib/go.mod").read_text().splitlines() if line.startswith("go ")); open(os.environ["GITHUB_OUTPUT"], "a").write("version=" + version + "\n")'
 
       - uses: actions/setup-go@v7.0.0
         with:
@@ -76,51 +76,6 @@ jobs:
           Expand-Archive $archive "$env:RUNNER_TEMP/cgo"
           "$env:RUNNER_TEMP/cgo/$name/bin" >> $env:GITHUB_PATH
 
-      - name: Probe archive, with Windows DLL fallback for confirmed toolchain failure
-        shell: python
-        run: |
-          import os, pathlib, subprocess, sys
-          output = pathlib.Path('build/corelink')
-          output.mkdir(parents=True, exist_ok=True)
-          def run(name, args, required=True):
-              result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-              (output / (name + '.log')).write_text(result.stdout, encoding='utf-8')
-              print(result.stdout, flush=True)
-              if required and result.returncode:
-                  sys.exit(result.returncode)
-              return result.returncode
-          run('go', ['go', 'version'])
-          run('cgo-env', ['go', 'env', 'GOHOSTOS', 'GOHOSTARCH', 'CC', 'CGO_ENABLED'])
-          run('cc', [os.environ['CC'], '--version'])
-          def configure(mode):
-              directory = str(output / mode)
-              args = ['cmake', '-S', 'tests/corelink', '-B', directory, '-DPROBE_MODE=' + mode, '-DCMAKE_BUILD_TYPE=Release']
-              if sys.platform == 'win32':
-                  args += ['-A', 'ARM64' if os.environ['RUNNER_ARCH'] == 'ARM64' else 'x64']
-              run(mode + '-configure', args)
-              run(mode + '-go', ['cmake', '--build', directory, '--config', 'Release', '--target', 'probe_library'])
-              return directory
-          mode = 'c-archive'
-          directory = configure(mode)
-          failed = run(mode + '-link', ['cmake', '--build', directory, '--config', 'Release'], required=False)
-          reason = 'archive host build failed' if failed else ''
-          if not failed:
-              failed = run(mode + '-runtime', ['ctest', '--test-dir', directory, '-C', 'Release', '-V', '--output-on-failure'], required=False)
-              if failed:
-                  log = (output / (mode + '-runtime.log')).read_text(encoding='utf-8')
-                  if ('Calling Go ABI initialization' not in log or 'Go ABI initialized' in log or '***Timeout' not in log):
-                      sys.exit(failed)
-                  reason = 'archive timed out in first Go call before initialization returned'
-          if failed:
-              if sys.platform != 'win32':
-                  sys.exit(failed)
-              (output / 'fallback-reason.txt').write_text(reason + '\n', encoding='utf-8')
-              mode = 'c-shared'
-              directory = configure(mode)
-              run(mode + '-link', ['cmake', '--build', directory, '--config', 'Release'])
-              run(mode + '-runtime', ['ctest', '--test-dir', directory, '-C', 'Release', '-V', '--output-on-failure'])
-          (output / 'selected-mode.txt').write_text(mode + '\n', encoding='utf-8')
-
       - name: Verify formal C ABI and authentication contract
         shell: python
         run: |
@@ -133,6 +88,9 @@ jobs:
               print(result.stdout, flush=True)
               if result.returncode:
                   sys.exit(result.returncode)
+          run('go', ['go', 'version'])
+          run('cgo-env', ['go', 'env', 'GOHOSTOS', 'GOHOSTARCH', 'CC', 'CGO_ENABLED'])
+          run('cc', [os.environ['CC'], '--version'])
           run('constants', [sys.executable, 'scripts/generate-core-abi.py', '--check'])
           run('go-test', ['go', '-C', 'corelib', 'test', '-timeout', '60s', './internal/bridge'])
           if not (os.environ['RUNNER_OS'] == 'Windows' and os.environ['RUNNER_ARCH'] == 'ARM64'):
@@ -149,18 +107,15 @@ jobs:
       - name: Check Linux TUN fd transfer and cleanup in an isolated network
         if: runner.os == 'Linux'
         shell: bash
-        run: sudo unshare --net -- "$(command -v python)" tests/corelink/linux_device_probe.py --uid "$(id -u)" | tee build/corelink/linux-device.log
+        run: sudo unshare --net -- "$(command -v python)" tests/platform/linux_device_probe.py --uid "$(id -u)" | tee build/coreabi/linux-device.log
 
       - name: Upload toolchain and runtime evidence
         if: always()
         uses: actions/upload-artifact@v7.0.2
         with:
-          name: corelink-${{ matrix.platform }}-${{ matrix.arch }}
+          name: coreabi-${{ matrix.platform }}-${{ matrix.arch }}
           retention-days: 14
           if-no-files-found: error
           path: |
             build/coreabi/*.log
-            build/corelink/*.log
-            build/corelink/selected-mode.txt
-            build/corelink/fallback-reason.txt
-            build/corelink/*/CMakeCache.txt
+            build/coreabi/CMakeCache.txt
