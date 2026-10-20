@@ -54,7 +54,7 @@ ctest --test-dir build/coreabi -C Release -R coreabi_performance_test --output-o
 
 `application/platformoperationresult.h` 定义成功、失败、用户取消、权限拒绝、不支持和超时；`mayHaveChanged` 单独记录可能已有修改，不能用一个失败布尔值推断系统保持原样。`SystemProxyCheck` 将查询结果、冲突及启用状态分开；查询失败不进入覆盖确认或设置。会话只确认验证成功的启用状态，部分清除失败保留清理标记，退出清理失败不会清零。
 
-[Platform.cmake](../cmake/Platform.cmake) 按 `windows/`、`macos/`、`linux/`、`unsupported/` 子目录为代理和自启动选择源文件，基础设施只依赖 Qt Core，弹窗及结果文案在界面层。WinINet／RAS 每次检查原生返回值，模式、各协议端点、绕过项及通知均检查；手动模式不改写原有 PAC 地址。查询返回的字符串按 [Microsoft WinINet 文档](https://learn.microsoft.com/en-us/windows/win32/wininet/setting-and-retrieving-internet-options) 用 GlobalFree 释放。Unix 工具每条命令共享 5 秒启动／完成期限，检查正常退出和退出码，超时杀死并等待回收；这不是整个多步骤操作或退出流程的 5 秒保证。GNOME 与 KDE 分开处理；端点、认证模式及绕过项必须回读匹配，空输出不是有效空列表。
+[Platform.cmake](../cmake/Platform.cmake) 按 `windows/`、`macos/`、`linux/`、`unsupported/` 子目录为代理和自启动选择源文件，基础设施不依赖 Widgets，Linux 凭据后端使用 Qt DBus；弹窗及结果文案在界面层。WinINet／RAS 每次检查原生返回值，模式、各协议端点、绕过项及通知均检查；手动模式不改写原有 PAC 地址。查询返回的字符串按 [Microsoft WinINet 文档](https://learn.microsoft.com/en-us/windows/win32/wininet/setting-and-retrieving-internet-options) 用 GlobalFree 释放。Unix 工具每条命令共享 5 秒启动／完成期限，检查正常退出和退出码，超时杀死并等待回收；这不是整个多步骤操作或退出流程的 5 秒保证。GNOME 与 KDE 分开处理；端点、认证模式及绕过项必须回读匹配，空输出不是有效空列表。
 
 系统代理端口取活动连接的监听快照，修改待用配置须重连后才影响监听；禁用 HTTP／SOCKS5 时不设置系统代理。冲突查询和确认结果按连接代次隔离，新会话等待前次代理操作结束后发起新查询，旧结果不能替它设置代理；恢复失败保留清理责任并停止自动重试。连接结束统一向 SystemProxySession 请求恢复；若应用仍在进行，则待原操作结果明确后串行恢复，期间保持忙状态。确认没有修改的失败不清除未知代理，恢复失败保留手动重试责任，退出消费同一请求。
 
@@ -62,7 +62,7 @@ Windows 按连接保存与恢复状态，不在清除时重新枚举并关闭未
 
 macOS 使用系统 [SCPreferences](https://developer.apple.com/documentation/systemconfiguration/scpreferences-ft8) 和网络服务 API，保存原始代理字典及字段缺失状态，按服务 ID 固定恢复对象；独占锁内一次提交，提交／应用失败保留或撤销改动，并回读恢复结果。临时本地端点不携带旧认证字段，不调用 Keychain 修改接口，也不把旧凭据传给命令行。测试以真实原生接口在临时绝对路径 preferences 文件中创建服务，覆盖空配置、禁用服务、失败重试和外部字段／服务变更。Apple 的 [SCPreferencesLock 实现](https://github.com/apple-oss-distributions/configd/blob/main/SystemConfiguration.fproj/SCPLock.c)对私有文件同样要求 root 或授权；原生写入用例因此由 CTest 通过 `sudo -n` 执行，需预先具备免交互测试权限，权限不足仍失败。测试仅写临时文件，普通只读探针保持当前用户查询系统配置。桌面授权交互及真实用户 Keychain 状态不由私有文件回归代替，保留人工验收缺口。
 
-GNOME 输出按 [GLib 字符串格式](https://docs.gtk.org/glib/gvariant-text-format.html#strings)处理引号、控制字符及 Unicode 转义，避免写入后因无法回读而丢失恢复路径。Linux 的平台代理回归除模拟失败外，还在临时 `GSETTINGS_BACKEND=keyfile` 和私有 D-Bus／KConfig 文件中运行真实工具。需要 `gsettings`、`dbus-run-session`、`kreadconfig6` 和 `kwriteconfig6`（Ubuntu 的 [libkf6config-bin](https://packages.ubuntu.com/resolute/libkf6config-bin)）；这些是测试／对应桌面后端的系统工具，不链接或分发 KConfig 库。KConfig 的字符串值通过命令行参数写入，后端因此在修改前拒绝含用户信息的代理 URL，避免旧代理密码进入进程参数，原设置保持不动；接口语义见 [KConfig CLI 实现](https://github.com/KDE/kconfig/tree/master/src/kreadconfig)。
+GNOME 输出按 [GLib 字符串格式](https://docs.gtk.org/glib/gvariant-text-format.html#strings)处理引号、控制字符及 Unicode 转义，避免写入后因无法回读而丢失恢复路径。Linux 的平台代理回归除模拟失败外，还在临时 `GSETTINGS_BACKEND=keyfile` 和私有 D-Bus／KConfig 文件中运行真实工具。需要 `gsettings`、`dbus-run-session`、`kreadconfig6` 和 `kwriteconfig6`（Ubuntu 的 [libkf6config-bin](https://packages.ubuntu.com/resolute/libkf6config-bin)）；这些是测试／对应桌面后端的系统工具，不链接或分发 KConfig 库。若工具来自私有 SDK，需保留其 PATH／库路径；可用 `ctest --test-dir build/local` 避免用户 preset 覆盖启动环境。KConfig 的字符串值通过命令行参数写入，后端因此在修改前拒绝含用户信息的代理 URL，避免旧代理密码进入进程参数，原设置保持不动；接口语义见 [KConfig CLI 实现](https://github.com/KDE/kconfig/tree/master/src/kreadconfig)。
 
 自启动成功后才保存偏好；系统项已改变而偏好保存失败时明确提示部分完成，迁移保存失败保留旧版本供重试。设置保存失败不关闭窗口或提前清除认证材料。Linux .desktop 使用 QSaveFile 原子替换；路径按照 [Desktop Entry 规范](https://specifications.freedesktop.org/desktop-entry/latest-single/) 转义。实际 gio 回归发现含百分号的首个可执行路径在字段展开前被判为不存在，因此用固定脚本 exec "$0" 与独立路径参数启动，不把文件路径拼进脚本；测试实际启动含空格、引号、美元／反引号、百分号和反斜杠的文件。
 
@@ -186,7 +186,7 @@ env LD_LIBRARY_PATH="$HOME/.local/share/JustConnect/sysroot/usr/lib:$HOME/.local
 
 无显示服务器时额外设置 `QT_QPA_PLATFORM=offscreen`；WSLg 图形运行需要有效的 `DISPLAY` 或 `WAYLAND_DISPLAY`。本机自动验证使用 offscreen，未把它记作桌面视觉或校园网络验收。
 
-CTest 现为 16 项，其中 `webengine_test` 使用 offscreen 和软件渲染实际加载 HTML 并检查 JavaScript 结果，验证内嵌网页运行所需的浏览器进程与 SDK 兼容性。测试不访问校园网或修改系统代理。
+CTest 按平台由 CMake 注册，可用 `ctest --test-dir build/local -N` 查看当前清单；`webengine_test` 使用 offscreen 和软件渲染实际加载 HTML 并检查 JavaScript 结果。原生写入的隔离／恢复边界见上方平台验证说明，不能将自动回归写成用户桌面或校园账号实测。
 
 SDK 安装阶段另运行三项 Python 安装器测试，覆盖路径校验、未审核构建拒绝和重复合并／清理；Unix 框架符号链接用例仅在 Unix 上执行。安装器测试需要 aqt，日常应用的 CTest 不需要。
 
