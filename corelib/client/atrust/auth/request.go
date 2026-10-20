@@ -527,7 +527,6 @@ func (s *Session) smsCheckCode(step authStep) (authStep, error) {
 
 	challenge := authchallenge.CodeChallenge{
 		Kind:                 authchallenge.CodeSMS,
-		Message:              "Please enter the SMS verification code:",
 		CanSkipSecondaryAuth: true,
 	}
 	response, err := s.challengeHandler.HandleCodeChallenge(challenge)

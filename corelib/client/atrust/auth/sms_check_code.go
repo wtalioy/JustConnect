@@ -45,8 +45,7 @@ func (s *Session) loginAuthSmsCheckCode(phone, loginDomain string) error {
 	}
 
 	challenge := authchallenge.CodeChallenge{
-		Kind:    authchallenge.CodeSMS,
-		Message: "Please enter the SMS verification code:",
+		Kind: authchallenge.CodeSMS,
 	}
 	response, err := s.challengeHandler.HandleCodeChallenge(challenge)
 	if err != nil {

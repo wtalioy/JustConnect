@@ -17,7 +17,6 @@ const (
 
 type CodeChallenge struct {
 	Kind                 CodeKind
-	Message              string
 	CanSkipSecondaryAuth bool
 }
 
@@ -27,8 +26,7 @@ type CodeResponse struct {
 }
 
 type TextCaptchaChallenge struct {
-	Image   []byte
-	Message string
+	Image []byte
 }
 
 type TextCaptchaResponse struct {
@@ -41,8 +39,7 @@ type Point struct {
 }
 
 type ClickCaptchaChallenge struct {
-	Image   []byte
-	Message string
+	Image []byte
 }
 
 type ClickCaptchaResponse struct {
@@ -61,7 +58,6 @@ const (
 type ExternalLoginChallenge struct {
 	Kind     ExternalLoginKind
 	LoginURL string
-	Message  string
 }
 
 type ExternalLoginResponse struct {

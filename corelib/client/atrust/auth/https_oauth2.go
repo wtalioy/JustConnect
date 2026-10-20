@@ -60,7 +60,6 @@ func (s *Session) interactiveHttpsOauth2(loginURL string) (string, error) {
 	response, err := s.challengeHandler.HandleExternalLogin(authchallenge.ExternalLoginChallenge{
 		Kind:     authchallenge.ExternalLoginOAuth2,
 		LoginURL: loginURL,
-		Message:  "Please enter the callback URL:",
 	})
 	return response.CallbackURL, err
 }

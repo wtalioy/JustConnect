@@ -256,8 +256,7 @@ func (s *Session) withGraphCheckCode(process func(string) (int, error)) error {
 		}
 
 		captchaResponse, err := s.challengeHandler.HandleClickCaptcha(authchallenge.ClickCaptchaChallenge{
-			Image:   imgData,
-			Message: "Please enter the graph check code JSON:",
+			Image: imgData,
 		})
 		if err != nil {
 			return fmt.Errorf("complete aTrust captcha challenge: %w", err)

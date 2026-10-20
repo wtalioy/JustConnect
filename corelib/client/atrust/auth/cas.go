@@ -55,7 +55,6 @@ func (s *Session) interactiveCas(loginURL string) (string, error) {
 	response, err := s.challengeHandler.HandleExternalLogin(authchallenge.ExternalLoginChallenge{
 		Kind:     authchallenge.ExternalLoginCAS,
 		LoginURL: loginURL,
-		Message:  "Please enter the callback url:",
 	})
 	return response.CallbackURL, err
 }
