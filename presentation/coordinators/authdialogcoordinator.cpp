@@ -41,8 +41,15 @@ void AuthDialogCoordinator::requestLogin(
     loginWindow = new LoginWindow(parentWidget);
     loginWindow->setAttribute(Qt::WA_DeleteOnClose);
     loginWindow->setDetail(username, password);
-    connect(loginWindow, &LoginWindow::login, this,
-            &AuthDialogCoordinator::loginSubmitted);
+    const QPointer<LoginWindow> dialog=loginWindow;
+    connect(dialog,&LoginWindow::login,this,[this,dialog](const QString &username,const QString &password,bool save) {
+        if (dialog && loginWindow==dialog) emit loginSubmitted(username,password,save);
+    });
+    connect(dialog,&QDialog::finished,this,[this,dialog](int result) {
+        if (loginWindow!=dialog) return;
+        loginWindow=nullptr;
+        if (result==QDialog::Rejected) emit credentialInputCancelled();
+    });
     loginWindow->show();
 }
 
@@ -94,6 +101,7 @@ void AuthDialogCoordinator::requestPhoneNumber(
         dialog,
         [this, dialog, countryCodeEdit, phoneNumberEdit, saveCheckBox]()
         {
+            if (phoneNumberDialog!=dialog) return;
             const QString submittedCountryCode = countryCodeEdit->text().trimmed();
             const QString submittedPhoneNumber = phoneNumberEdit->text().trimmed();
             if (submittedCountryCode.isEmpty() || submittedPhoneNumber.isEmpty())
@@ -114,6 +122,11 @@ void AuthDialogCoordinator::requestPhoneNumber(
             dialog->accept();
         }
     );
+    connect(dialog,&QDialog::finished,this,[this,dialog](int result) {
+        if (phoneNumberDialog!=dialog) return;
+        phoneNumberDialog=nullptr;
+        if (result==QDialog::Rejected) emit credentialInputCancelled();
+    });
     connect(buttonBox, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
     layout->addWidget(buttonBox);
 
@@ -126,6 +139,14 @@ void AuthDialogCoordinator::requestPhoneNumber(
         countryCodeEdit->setFocus();
     }
     dialog->show();
+}
+
+void AuthDialogCoordinator::closeCredentialPrompts()
+{
+    const auto login=loginWindow;loginWindow=nullptr;
+    const auto phone=phoneNumberDialog;phoneNumberDialog=nullptr;
+    if (login) {const QSignalBlocker blocker(login);login->close();}
+    if (phone) {const QSignalBlocker blocker(phone);phone->close();}
 }
 
 void AuthDialogCoordinator::closeAuthentication()

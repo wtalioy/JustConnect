@@ -120,7 +120,7 @@ void verifiedMigration() {
     legacy(restarted,p);
     auto newer=p;newer.credentials.password="newer secure password";expect(vault.save(scope,newer),Status::Success,"save newer password");
     const auto stale=bytes(path);
-    expect(vault.migrate(restarted,scope,p),Status::Failed,"stale source must not replace newer secure password");
+    expect(vault.migrate(restarted,scope,p),Status::Conflict,"stale source must not replace newer secure password");
     require(bytes(path)==stale,"conflicting legacy source retained");
     expect(vault.load(scope,p,loaded),Status::Success,"newer password remains accessible");require(loaded.password==newer.credentials.password,"stale migration did not overwrite secure value");
     restarted.setValue("Credential/Password","%%%bad-base64");restarted.sync();const auto invalid=bytes(path);
@@ -180,6 +180,33 @@ void corruptAndFailedOperations() {
     store.values[key]=saved;store.readStatus=Status::Locked;loaded=p.credentials;
     expect(vault.load(scope,p,loaded),Status::Locked,"read failure stays distinct");require(loaded.password.isEmpty(),"locked store exposes no stale password");
 }
+void unboundAndFutureLegacy() {
+    QTemporaryDir folder;Store store;ProfileCredentials vault(store);const auto scope=newScope();auto p=profile();
+    QSettings settings(folder.filePath("unconfirmed.ini"),QSettings::IniFormat);legacy(settings,p);
+    p.endpoint.server.clear();
+    expect(vault.migrate(settings,scope,p),Status::Success,"unconfirmed credentials can be sealed without assigning an account");
+    require(!settings.contains("Credential/Password") && store.values.size()==1,"verified unbound archive replaces legacy plaintext");
+    ConnectionCredentials loaded;
+    expect(vault.load(scope,profile(),loaded),Status::NotFound,"confirming an address never automatically reuses unbound credentials");
+    store.loseRemoval=true;
+    expect(vault.clear(settings,scope,p),Status::Failed,"archive deletion requires verification");
+    store.loseRemoval=false;
+    expect(vault.clear(settings,scope,p),Status::Success,"explicit clear removes the unbound archive");
+    require(store.values.isEmpty(),"unbound archive removed");
+    p=profile();legacy(settings,p);settings.setValue("Common/ConfigVersion",999);settings.sync();const auto future=bytes(settings.fileName());
+    expect(vault.migrate(settings,scope,p),Status::InvalidArgument,"future credential format is not guessed");
+    expect(vault.clear(settings,scope,p),Status::InvalidArgument,"future credential values are preserved for their owning version");
+    require(bytes(settings.fileName())==future && store.values.isEmpty(),"future source left unchanged");
+    settings.setValue("Common/ConfigVersion",9);settings.setValue("Credential/Password",42);settings.sync();
+    expect(vault.migrate(settings,scope,p),Status::InvalidArgument,"unexpected legacy variant type is not decoded or deleted");
+    require(settings.value("Credential/Password").toInt()==42 && ProfileCredentials::hasLegacyCredentials(settings),"unsupported value remains pending");
+    legacy(settings,p);expect(vault.migrate(settings,scope,p),Status::Success,"known legacy version still migrates");
+    auto other=p;other.credentials.username="bob";expect(vault.save(scope,other),Status::Success,"other account saved");
+    legacy(settings,p);expect(vault.clear(settings,scope,p),Status::Success,"explicit clear removes both native and pending legacy credentials");
+    expect(vault.load(scope,p,loaded),Status::NotFound,"cleared account cannot reload");
+    expect(vault.load(scope,other,loaded),Status::Success,"clear leaves other account intact");
+    require(!settings.contains("Credential/Password") && !settings.contains("Credential/TOTPSecret") && settings.value("Unknown/Value")=="retained configuration","clear preserves public and unknown fields");
+}
 void sealedLegacyCache() {
     QTemporaryDir folder;require(folder.isValid(),"cache directory");
     Store store;ProfileCredentials vault(store);const auto scope=newScope();const auto path=folder.filePath("client-data.json");
@@ -190,7 +217,7 @@ void sealedLegacyCache() {
     expect(vault.quarantine(path,scope),Status::Failed,"unverified cache copy rejected");require(bytes(path)==original,"unverified copy retains cache");store.loseWrite=false;
     store.afterWrite=[&]{write(path,"changed cookie");};
     expect(vault.quarantine(path,scope),Status::Cancelled,"concurrent cache replacement retained");require(bytes(path)=="changed cookie","new cache not deleted");store.afterWrite={};
-    expect(vault.quarantine(path,scope),Status::Failed,"different legacy backup not overwritten");
+    expect(vault.quarantine(path,scope),Status::Conflict,"different legacy backup not overwritten");
     write(path,original);expect(vault.quarantine(path,scope),Status::Success,"verified quarantine removes plaintext cache");
     require(!QFileInfo::exists(path) && store.values.value(ProfileCredentials::legacyCacheKey(scope))==original,"cache sealed without assigning an account");
     ConnectionCredentials loaded;expect(vault.load(scope,profile(),loaded),Status::NotFound,"unbound cache never used as account credentials");
@@ -205,7 +232,7 @@ void sealedLegacyCache() {
 int main(int argc,char **argv) {
     QCoreApplication app(argc,argv);
     try {
-        isolatedIdentities();verifiedMigration();interruptedMigration();migrationSaveFailure();corruptAndFailedOperations();sealedLegacyCache();
+        isolatedIdentities();verifiedMigration();interruptedMigration();migrationSaveFailure();corruptAndFailedOperations();unboundAndFutureLegacy();sealedLegacyCache();
         std::cout<<"PASS: scoped credentials, verified migration, real file failure/retry and unbound cache quarantine\n";
         return 0;
     } catch(const std::exception &error) {std::cerr<<error.what()<<'\n';return 1;}

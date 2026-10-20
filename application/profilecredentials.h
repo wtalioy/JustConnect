@@ -9,6 +9,7 @@ class ProfileCredentials {
 public:
     explicit ProfileCredentials(CredentialStore &store):store(store) {}
     static constexpr auto ScopeSetting = "Credential/StoreID";
+    static bool hasLegacyCredentials(const QSettings &settings);
     static QString ensureScope(QSettings &settings);
     static QString key(const QString &scope,const ConnectionProfile &profile);
     static QString legacyCacheKey(const QString &scope);
@@ -17,10 +18,13 @@ public:
     CredentialResult save(const QString &scope,const ConnectionProfile &profile);
     CredentialResult remove(const QString &scope,const ConnectionProfile &profile);
     // Migrate the loaded source identity before committing any identity edits.
+    CredentialResult clear(QSettings &settings,const QString &scope,const ConnectionProfile &profile);
     CredentialResult migrate(QSettings &settings,const QString &scope,const ConnectionProfile &profile);
     // Old cache has no reliable account binding; seal it without using it for login.
     CredentialResult quarantine(const QString &path,const QString &scope);
 private:
     CredentialStore &store;
+    CredentialResult removeVerified(const QString &key);
+    CredentialResult preserveVerified(const QString &key,const QByteArray &value);
     CredentialResult writeVerified(const QString &key,const QByteArray &value);
 };

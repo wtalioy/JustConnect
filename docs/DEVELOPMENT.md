@@ -78,7 +78,7 @@ S2-01 不替代 S2-06 的系统快照／按所有权恢复，也不授予覆盖�
 
 配置版本 9 只补齐缺失默认值，保留现有端点、认证、监听禁用值、未知键及其他账户／配置文件。`SettingsMigrator` 集中复制旧分组、标记旧协议待人工确认、移除明确废弃字段和提交版本；失败保留旧版本，退出不抢先写入升级完成。版本高于当前值时不降级或清理未知的新格式。仍需支持旧分组的已发布配置，在验证不再支持这些版本后才能删除这条迁移路径。
 
-升级与废弃字段清理不删除认证缓存。显式成功保存改变当前服务器或认证身份时才清当前配置的旧缓存；网络参数和会变动的登录 URL 预览不属于这一身份。现有缓存仍按配置文件隔离，不能据此宣称已完成 S2-04 安全存储或 S2-08 账户级免登录复用。
+配置加载不再读取 INI 密码／TOTP，默认字段也不创建私有占位。访问安全凭据时先迁移旧值并回读确认，再删除旧值；未确认身份的材料只隔离归档。旧缓存文件不自动绑定账号，清理废弃字段不代替迁移；登录 URL 只作内存预览。S2-08 的核心票据恢复尚未接入，现有“清理旧版缓存”菜单只删除当前托管配置尚未迁移的旧文件。
 
 针对性回归可运行 `ctest --test-dir build -R 'serversettingswidget|settingwindow|configurationguidedialog|settingsmigrator|settingsprofileloader|coreengine' --output-on-failure`；根测试与包构建还运行完整套件，原生宿主检查实际纯校验导出及资源边界。Linux 设置窗口用临时目录操作真实 Qt 按钮／文件对话框，覆盖库校验失败、自启动失败、取消导入／重置、导出、废弃字段清理及缓存保留；这些检查不访问校园账号。
 
@@ -196,7 +196,7 @@ S2-03 默认启用服务器证书验证，私有 CA 可在服务器编辑区以 
 
 系统凭据后端通过 `credentialstore_test`／`coreabi_credentialstore_test` 检查实际系统 API：Windows 用随机的 JustConnect 专属目标读写／更新／删除，匿名登录边界不能读取原账户材料；macOS 用专用临时 Keychain，显式锁定／解锁并在结束时删除。Linux 测试需要 `gnome-keyring`、`dbus-run-session` 和 `gdbus`，运行在没有服务激活目录的私有总线上，使用临时 XDG 目录及加密测试 keyring；另一个私有总线用真实策略拒绝 CreateItem。检查持久化、二进制不变、另一作用域保留和拒绝／锁定后的原值，未连接当前桌面的凭据库。CI 安装这些测试依赖；生产程序使用标准 Secret Service，可用性由当前用户的默认集合及锁定状态决定。
 
-本地测试可通过 `JC_TEST_SECRET_PROVIDER` 指定隔离安装的 gnome-keyring-daemon，必要的提供方库路径通过 `JC_TEST_SECRET_PROVIDER_LIBS` 传给测试子进程；不修改全局环境。仓库不分发 GNOME 提供方。Windows 使用当前用户 Credential Manager，其原生 blob 上限为 2560 字节，超限明确返回 Limit；各后端共同输入上限为 65536 字节。系统库锁定、不可用或拒绝时不创建应用明文副本。凭据服务／界面迁移及票据生命周期继续按 S2-04／08 验收，新增后端不单独代表这些功能完成。
+本地测试可通过 `JC_TEST_SECRET_PROVIDER` 指定隔离安装的 gnome-keyring-daemon，必要的提供方库路径通过 `JC_TEST_SECRET_PROVIDER_LIBS` 传给测试子进程；不修改全局环境。仓库不分发 GNOME 提供方。Windows 使用当前用户 Credential Manager，其原生 blob 上限为 2560 字节，超限明确返回 Limit；各后端共同输入上限为 65536 字节。系统库锁定、不可用或拒绝时不创建应用明文副本。界面经串行后台入口访问系统存储；桌面解锁／授权提示仍需真实用户环境验证，核心票据生命周期继续按 S2-08 验收。
 
 系统 API 依据：[Secret Service](https://specifications.freedesktop.org/secret-service/latest-single/)、[Windows Credential Manager](https://learn.microsoft.com/en-us/windows/win32/api/wincred/ns-wincred-credentialw)、[Apple SecItemCopyMatching](https://developer.apple.com/documentation/security/secitemcopymatching(_:_:))。Linux 提供方可以规范化 MIME 提示，因此后端按不透明字节读取，并验证会话、长度及实际回读数据。
 
@@ -207,3 +207,5 @@ S2-03 默认启用服务器证书验证，私有 CA 可在服务器编辑区以 
 创建配置副本使用公开草稿，复制后由凭据访问入口生成独立命名空间；保留有效学校／认证／监听和偏好，不继承已保存的密码或其他账户材料。公开草稿在临时目录完成旧分组迁移再发布，源文件不修改。`profilemanager_test` 覆盖实际文件复制、同名目标、缺失／损坏输入及私有字段排除，`settingsmigrator_test` 覆盖旧／未来版本、当前字段优先、原文件不变及非空目标保护。原配置自身升级仍保留未知键及其他账户数据；公开转移与原地升级采用各自的边界。
 
 `coreengineui_test` 的 SSO Cookie 回归使用随机回环端口和仅含公开测试值的 HTTP 服务，验证当前窗口 Cookie 生效、另一窗口不携带它。修复前实际发送了前一窗口的 Cookie；修复后各自的内存 Profile 隔离。Qt 的[无存储名称 Profile](https://doc.qt.io/qt-6.8/qwebengineprofile.html#QWebEngineProfile) 不持久化浏览器数据；旧默认 Profile 本身也是内存模式，本次修复针对窗口间共享状态，不声称旧实现写了浏览器 Cookie 文件。
+
+界面凭据回归使用注入存储端口与实际 Qt 控件，不访问用户的系统条目。`coreengineui_test` 覆盖不记住的内存登录、记住后的安全写入、原生读写失败仍手动启动、取消／切换后的晚到读拒绝和读取完成后的当前 TLS 策略；`settingwindow_test` 覆盖凭据清除、空密码保留、单独更新 TOTP、导入／重置取消与公开导出；`configurationguidedialog_test` 检查安全读写、手机号、SSO 页面和实际配置写入失败。`credentialaccess_test` 另外验证窗口销毁后已授权保存仍完成、公开草稿过期拒绝及锁定时禁止重新绑定遗留密码。各测试保留独有的失败和边界回归。

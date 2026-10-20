@@ -14,8 +14,6 @@ const QVariantMap &defaults()
 {
     static const QVariantMap values{
         {"Credential/Username", ""},
-        {"Credential/Password", ""},
-        {"Credential/TOTPSecret", ""},
 
         {"Common/ConnectAfterStart", false},
         {"Common/CheckUpdateAfterStart", false},
@@ -41,7 +39,6 @@ const QVariantMap &defaults()
         {"JustConnect/AuthType", "psw"},
         {"JustConnect/AuthID", ""},
         {"JustConnect/AuthSubType", ""},
-        {"JustConnect/LoginURL", ""},
         {"JustConnect/PhoneCountryCode", "86"},
         {"JustConnect/PhoneNumber", ""},
 
@@ -66,8 +63,14 @@ void DefaultSettings::initialize(QSettings &settings) { apply(settings, false); 
 
 bool DefaultSettings::isPublicKey(const QString &key)
 {
-    return key=="Common/ConfigVersion" || (defaults().contains(key)
-        && key!="Credential/Password" && key!="Credential/TOTPSecret" && key!="JustConnect/LoginURL");
+    return key=="Common/ConfigVersion" || defaults().contains(key);
+}
+
+QVariantMap DefaultSettings::publicValues(const QSettings &settings)
+{
+    QVariantMap values;
+    for (const auto &key:settings.allKeys()) if (isPublicKey(key)) values.insert(key,settings.value(key));
+    return values;
 }
 
 bool DefaultSettings::exportTo(const QSettings &settings,const QString &path)
@@ -79,12 +82,8 @@ bool DefaultSettings::exportTo(const QSettings &settings,const QString &path)
     QTemporaryDir folder;
     if (!folder.isValid()) return false;
     QSettings output(folder.filePath("export.ini"),QSettings::IniFormat);
-    for (auto it=defaults().cbegin();it!=defaults().cend();++it) {
-        const auto &key=it.key();
-        // Export only owned public fields; URL previews may contain session tokens.
-        if (!isPublicKey(key)) continue;
-        if (settings.contains(key)) output.setValue(key,settings.value(key));
-    }
+    const auto values=publicValues(settings);
+    for (auto it=values.cbegin();it!=values.cend();++it) output.setValue(it.key(),it.value());
     output.setValue("Common/ConfigVersion",ApplicationConstants::ConfigVersion);
     output.sync();
     if (output.status()!=QSettings::NoError) return false;

@@ -22,6 +22,7 @@ namespace Ui
 class ApplicationLogger;
 class ApplicationLogFile;
 class ConnectionUiController;
+class ConfigurationGuideDialog;
 class UpdateChecker;
 
 class MainWindow : public QMainWindow
@@ -105,7 +106,7 @@ private:
     ConnectionSession *connectionSession = nullptr;
     SystemProxySession *systemProxySession = nullptr;
     AuthDialogCoordinator *authenticationDialogs = nullptr;
-    ConnectionUiController *connectionUiController;
+    ConnectionUiController *connectionUiController=nullptr;
     MainWindowCoordinator *coordinator;
     ApplicationLogger *applicationLogger;
     ApplicationLogFile *applicationLogFile;
@@ -115,6 +116,7 @@ private:
     QString currentProfileId;
 
     QPointer<SettingWindow> settingWindow;
+    QPointer<ConfigurationGuideDialog> guideWindow;
 
 };
 

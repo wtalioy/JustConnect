@@ -1,3 +1,4 @@
+#include "application/profileservice.h"
 #include "presentation/widgets/serversettingswidget.h"
 #include "application/applicationconstants.h"
 #include <QApplication>
@@ -39,7 +40,7 @@ int main(int argc,char **argv) {
     check(editor.serverAddress()=="draft.example.edu" && editor.serverPort()==9443,"Custom draft survives preset switching");
     QSettings unchanged(path,QSettings::IniFormat);
     check(unchanged.value("JustConnect/ServerAddress")=="custom.example.edu" && unchanged.value("JustConnect/ServerPort")==8443,"editing and cancelling do not save");
-    editor.applyTo(settings); settings.sync();
+    if (!ProfileService::writePublic(settings,editor.settingsValues())) return 1;
     QSettings saved(path,QSettings::IniFormat);
     editor.load(saved);
     check(!editor.tlsOptions().verify && editor.tlsOptions().caPem=="explicit private CA" && !warning->isHidden(),"explicit TLS policy survives save and reload");

@@ -20,6 +20,8 @@
 #include "infrastructure/coreengine/embeddedcoreengine.h"
 #include "infrastructure/settings/settingsprofileloader.h"
 #include "application/settingsmigrator.h"
+#include "application/defaultsettings.h"
+#include "presentation/presentationhelpers.h"
 
 namespace
 {
@@ -36,10 +38,12 @@ QString normalizedAuthType(const QString &authType)
 
 ConfigurationGuideDialog::ConfigurationGuideDialog(
     QWidget *parent,
-    QSettings *settings
+    QSettings *settings,
+    CredentialAccess *credentials,
+    const CredentialSource &source
 )
     : QDialog(parent),
-      sourceSettings(settings)
+      sourceSettings(settings),credentials(credentials),credentialSource(source)
 {
     setWindowTitle("配置引导");
     setWindowModality(Qt::WindowModal);
@@ -62,6 +66,7 @@ ConfigurationGuideDialog::ConfigurationGuideDialog(
     layout->addWidget(descriptionLabel);
 
     pages = new QStackedWidget(this);
+    pages->setObjectName("guidePages");
     pages->addWidget(createServerPage());
     pages->addWidget(createAuthenticationPage());
     pages->addWidget(createCredentialsPage());
@@ -70,6 +75,7 @@ ConfigurationGuideDialog::ConfigurationGuideDialog(
     auto *buttonBox = new QDialogButtonBox(QDialogButtonBox::Cancel, this);
     backButton = buttonBox->addButton("上一步", QDialogButtonBox::ActionRole);
     nextButton = buttonBox->addButton("下一步", QDialogButtonBox::AcceptRole);
+    nextButton->setObjectName("guideNextButton");
     layout->addWidget(buttonBox);
 
     connect(buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
@@ -85,19 +91,12 @@ ConfigurationGuideDialog::ConfigurationGuideDialog(
     selectAuthenticationMethod({
         {"type",sourceSettings->value("JustConnect/AuthType","psw").toString()},
         {"domain",sourceSettings->value("JustConnect/LoginDomain").toString()},
-        {"login_url",sourceSettings->value("JustConnect/LoginURL").toString()},
         {"auth_id",sourceSettings->value("JustConnect/AuthID").toString()},
         {"sub_type",sourceSettings->value("JustConnect/AuthSubType").toString()}
     });
 
     usernameLineEdit->setText(
         sourceSettings->value("Credential/Username").toString()
-    );
-    passwordLineEdit->setText(QByteArray::fromBase64(
-        sourceSettings->value("Credential/Password").toByteArray()
-    ));
-    totpSecretLineEdit->setText(
-        sourceSettings->value("Credential/TOTPSecret").toString()
     );
     countryCodeLineEdit->setText(
         sourceSettings->value("JustConnect/PhoneCountryCode", "86").toString()
@@ -107,14 +106,15 @@ ConfigurationGuideDialog::ConfigurationGuideDialog(
     );
     updateCredentialsPage();
     updateNavigation();
-    connect(serverEditor,&ServerSettingsWidget::serverChanged,this,[this] {
-        selectAuthenticationMethod({});
-    });
+    connect(this,&QDialog::finished,this,[this]{closed=true;++loadGeneration;});
+    connect(serverEditor,&ServerSettingsWidget::serverChanged,this,[this] {selectAuthenticationMethod({});});
+    for (auto *field:{usernameLineEdit,countryCodeLineEdit,phoneNumberLineEdit})
+        connect(field,&QLineEdit::textChanged,this,&ConfigurationGuideDialog::clearDraftCredentials);
+    readCredentials();
 }
 
-bool ConfigurationGuideDialog::applyTo(QSettings &settings)
-{
-    auto profile=SettingsProfileLoader::load(settings);
+ConnectionProfile ConfigurationGuideDialog::currentProfile() const {
+    auto profile=SettingsProfileLoader::load(*sourceSettings);
     profile.tls=serverEditor->tlsOptions();
     profile.endpoint.server=serverEditor->serverAddress(); profile.endpoint.port=serverEditor->serverPort();
     profile.endpoint.authId=selectedAuthId; profile.endpoint.authSubType=selectedAuthSubType;
@@ -122,8 +122,40 @@ bool ConfigurationGuideDialog::applyTo(QSettings &settings)
     profile.credentials={usernameLineEdit->text().trimmed(),passwordLineEdit->text(),totpSecretLineEdit->text().trimmed()};
     const auto country=countryCodeLineEdit->text().trimmed(),phone=phoneNumberLineEdit->text().trimmed();
     profile.endpoint.phone=!country.isEmpty() && !phone.isEmpty() ? country+'-'+phone : QString();
-    if (serverEditor->isFudan() && selectedAuthType.isEmpty()) {
-        QMessageBox::warning(this,"请选择认证方式","请从 Fudan 服务器获取并选择认证方式。"); return false;
+    return profile;
+}
+void ConfigurationGuideDialog::clearDraftCredentials() {
+    loadedCredentials={};passwordLineEdit->setText({});totpSecretLineEdit->setText({});
+    credentialStatus->setText("可留空，连接时使用已保存的凭据或手动输入。");
+}
+void ConfigurationGuideDialog::readCredentials() {
+    loading=true;updateNavigation();const auto generation=++loadGeneration;const auto source=credentialSource;
+    credentials->load(source).then(this,[this,source,generation](const CredentialLoadResult &loaded) {
+        if (closed || generation!=loadGeneration) return;
+        loading=false;updateNavigation();
+        if (!CredentialAccess::matches(source,*sourceSettings)) {credentialStatus->setText("已保存配置已变化，请重新打开引导。");return;}
+        credentialStatus->setText(PresentationHelpers::credentialOperationMessage(loaded.result.status));
+        if (loaded.result.succeeded() && currentProfile().authenticationIdentity()==source.profile.authenticationIdentity()) {
+            const bool passwordUntouched=passwordLineEdit->text()==loadedCredentials.password;
+            const bool totpUntouched=totpSecretLineEdit->text()==loadedCredentials.totpSecret;
+            loadedCredentials=loaded.credentials;
+            if (passwordUntouched) passwordLineEdit->setText(loaded.credentials.password);
+            if (totpUntouched) totpSecretLineEdit->setText(loaded.credentials.totpSecret);
+        }
+    });
+}
+bool ConfigurationGuideDialog::applyTo() {
+    if (closed || loading || saving) return false;
+    if (!CredentialAccess::matches(credentialSource,*sourceSettings) || credentialSource.publicValues!=DefaultSettings::publicValues(*sourceSettings)) {
+        QMessageBox::warning(this,"配置已变化","请重新打开引导后再保存。");return false;
+    }
+    auto profile=currentProfile();
+    if (profile.authenticationIdentity()==credentialSource.profile.authenticationIdentity()) {
+        if (profile.credentials.password.isEmpty()) profile.credentials.password=loadedCredentials.password;
+        if (profile.credentials.totpSecret.isEmpty()) profile.credentials.totpSecret=loadedCredentials.totpSecret;
+    }
+    if (selectedAuthType.isEmpty()) {
+        QMessageBox::warning(this,"请选择认证方式","请选择认证方式；可从当前服务器获取可用列表。"); return false;
     }
     const auto validation=EmbeddedCoreEngine::validateConfiguration(profile);
     if (validation!=ConnectionError::NONE) {
@@ -132,36 +164,20 @@ bool ConfigurationGuideDialog::applyTo(QSettings &settings)
             unavailable ? "无法校验配置，请检查应用安装是否完整。配置未保存。" : "请检查服务器、认证方式及连接设置。配置未保存。");
         return false;
     }
-    serverEditor->applyTo(settings);
-    settings.setValue(
-        "Credential/Username",
-        usernameLineEdit->text().trimmed()
-    );
-    settings.setValue(
-        "Credential/Password",
-        QString(passwordLineEdit->text().toUtf8().toBase64())
-    );
-    settings.setValue(
-        "Credential/TOTPSecret",
-        totpSecretLineEdit->text().trimmed()
-    );
-    settings.setValue(
-        "JustConnect/PhoneCountryCode",
-        countryCodeLineEdit->text().trimmed()
-    );
-    settings.setValue(
-        "JustConnect/PhoneNumber",
-        phoneNumberLineEdit->text().trimmed()
-    );
-
-    settings.setValue("JustConnect/AuthType", selectedAuthType);
-    settings.setValue("JustConnect/AuthID",selectedAuthId);
-    settings.setValue("JustConnect/AuthSubType",selectedAuthSubType);
-    settings.setValue("JustConnect/LoginDomain", selectedLoginDomain);
-    settings.setValue("JustConnect/LoginURL", selectedLoginUrl);
-    if (!SettingsMigrator::finish(settings)) {
-        QMessageBox::warning(this,"保存设置失败","部分设置可能已保存，请检查后重试。"); return false;
-    }
+    auto changes=serverEditor->settingsValues();
+    changes.insert("Credential/Username",profile.credentials.username);
+    changes.insert("JustConnect/PhoneCountryCode",countryCodeLineEdit->text().trimmed());changes.insert("JustConnect/PhoneNumber",phoneNumberLineEdit->text().trimmed());
+    changes.insert("JustConnect/AuthType",selectedAuthType);changes.insert("JustConnect/AuthID",selectedAuthId);
+    changes.insert("JustConnect/AuthSubType",selectedAuthSubType);changes.insert("JustConnect/LoginDomain",selectedLoginDomain);
+    const bool edited=(!passwordLineEdit->text().isEmpty() && passwordLineEdit->text()!=loadedCredentials.password)
+        || (!totpSecretLineEdit->text().isEmpty() && totpSecretLineEdit->text()!=loadedCredentials.totpSecret);
+    saving=true;pages->setEnabled(false);updateNavigation();const auto source=credentialSource;
+    credentials->save(source,profile,edited,changes).then(this,[this,source](const CredentialResult &result) {
+        if (closed) return;
+        saving=false;pages->setEnabled(true);updateNavigation();
+        if (!result.succeeded()) {QMessageBox::warning(this,"保存设置未完成",PresentationHelpers::credentialOperationMessage(result.status));return;}
+        if (sourceSettings->fileName()==source.path && sourceSettings->value(ProfileCredentials::ScopeSetting)==source.scope) accept();
+    });
     return true;
 }
 
@@ -226,7 +242,7 @@ QWidget *ConfigurationGuideDialog::createCredentialsPage()
     passwordLineEdit = new QLineEdit(passwordRow);
     passwordLineEdit->setObjectName("guidePasswordLineEdit");
     passwordLineEdit->setEchoMode(QLineEdit::Password);
-    passwordLineEdit->setPlaceholderText("VPN 密码");
+    passwordLineEdit->setPlaceholderText("可留空，连接时再输入密码");
     auto *showPasswordCheckBox = new QCheckBox("显示", passwordRow);
     passwordRowLayout->addWidget(passwordLineEdit, 1);
     passwordRowLayout->addWidget(showPasswordCheckBox);
@@ -291,6 +307,8 @@ QWidget *ConfigurationGuideDialog::createCredentialsPage()
     credentialPages->addWidget(ssoPage);
 
     pageLayout->addWidget(credentialPages);
+    credentialStatus=new QLabel(page);credentialStatus->setObjectName("credentialStatusLabel");credentialStatus->setWordWrap(true);
+    pageLayout->addWidget(credentialStatus);
 
     connect(showPasswordCheckBox, &QCheckBox::toggled, this, [this](bool checked) {
         passwordLineEdit->setEchoMode(
@@ -322,7 +340,7 @@ void ConfigurationGuideDialog::goNext()
 
     if (pages->currentIndex() == pages->count() - 1)
     {
-        if (applyTo(*sourceSettings)) accept();
+        applyTo();
         return;
     }
     pages->setCurrentIndex(pages->currentIndex() + 1);
@@ -354,7 +372,7 @@ void ConfigurationGuideDialog::fetchAuthenticationMethods()
     auto *authInfoWindow = new AuthInfoWindow(this);
     const auto host=serverEditor->serverAddress(); const auto port=serverEditor->serverPort();
     connect(authInfoWindow,&AuthInfoWindow::finishAuthInfo,this,[this,host,port](const QJsonObject &method) {
-        if (host==serverEditor->serverAddress() && port==serverEditor->serverPort())
+        if (!closed && host==serverEditor->serverAddress() && port==serverEditor->serverPort())
             selectAuthenticationMethod(method);
     });
     auto profile=SettingsProfileLoader::load(*sourceSettings);
@@ -388,17 +406,6 @@ bool ConfigurationGuideDialog::validateCurrentPage()
     }
     else if (pages->currentIndex() == 2)
     {
-        if (credentialPages->currentIndex() == 0
-            && (usernameLineEdit->text().trimmed().isEmpty()
-                || passwordLineEdit->text().isEmpty()))
-        {
-            QMessageBox::warning(
-                this,
-                "登录凭据不完整",
-                "请填写 VPN 账号和密码。"
-            );
-            return false;
-        }
         if (credentialPages->currentIndex() == 1
             && (countryCodeLineEdit->text().trimmed().isEmpty()
                 || phoneNumberLineEdit->text().trimmed().isEmpty()))
@@ -434,7 +441,8 @@ void ConfigurationGuideDialog::updateNavigation()
     );
     titleLabel->setText(titles.value(pageIndex));
     descriptionLabel->setText(descriptions.value(pageIndex));
-    backButton->setEnabled(pageIndex > 0);
+    backButton->setEnabled(!saving && pageIndex > 0);
+    nextButton->setEnabled(!saving && (!loading || pageIndex < pages->count()-1));
     nextButton->setText(
         pageIndex == pages->count() - 1 ? "保存" : "下一步"
     );
@@ -443,8 +451,9 @@ void ConfigurationGuideDialog::updateNavigation()
 
 void ConfigurationGuideDialog::selectAuthenticationMethod(const QJsonObject &method)
 {
+    clearDraftCredentials();
     selectedAuthType=normalizedAuthType(method["type"].toString());
-    selectedLoginDomain=method["domain"].toString(); selectedLoginUrl=method["login_url"].toString();
+    selectedLoginDomain=method["domain"].toString();
     selectedAuthId=method["auth_id"].toString(); selectedAuthSubType=method["sub_type"].toString();
 
     QString details = "当前选择：" + authenticationMethodName(selectedAuthType);

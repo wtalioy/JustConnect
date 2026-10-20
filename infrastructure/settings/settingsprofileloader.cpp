@@ -1,14 +1,10 @@
 #include "settingsprofileloader.h"
 
 ConnectionProfile SettingsProfileLoader::load(const QSettings &settings) {
-    return load(settings, settings.value("Credential/Username").toString(),
-        QString::fromUtf8(QByteArray::fromBase64(settings.value("Credential/Password").toByteArray())));
-}
-ConnectionProfile SettingsProfileLoader::load(const QSettings &settings,const QString &username,const QString &password) {
     ConnectionProfile p;
     p.tls.verify=settings.value("JustConnect/TLSVerify",true).toBool();
     p.tls.caPem=settings.value("JustConnect/TLSCAPEM").toString();
-    p.credentials={username,password,settings.value("Credential/TOTPSecret").toString()};
+    p.credentials.username=settings.value("Credential/Username").toString();
     p.endpoint.authId=settings.value("JustConnect/AuthID").toString();
     p.endpoint.authSubType=settings.value("JustConnect/AuthSubType").toString();
     p.endpoint.authType=settings.value("JustConnect/AuthType").toString();

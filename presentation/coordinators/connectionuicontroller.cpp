@@ -16,6 +16,7 @@
 #include "application/connectionsession.h"
 #include "application/systemproxysession.h"
 #include "infrastructure/settings/settingsprofileloader.h"
+#include "infrastructure/coreengine/embeddedcoreengine.h"
 #include "presentation/coordinators/authdialogcoordinator.h"
 
 ConnectionUiController::ConnectionUiController(
@@ -27,7 +28,9 @@ ConnectionUiController::ConnectionUiController(
     SystemProxySession *systemProxySession,
     AuthDialogCoordinator *authenticationDialogs,
     ApplicationLogger *applicationLogger,
+    CredentialAccess *credentials,
     SettingsProvider settingsProvider,
+    CredentialSourceProvider credentialSourceProvider,
     NotificationHandler notificationHandler,
     QObject *parent
 )
@@ -39,7 +42,7 @@ ConnectionUiController::ConnectionUiController(
       connectionSession(connectionSession),
       systemProxySession(systemProxySession),
       authenticationDialogs(authenticationDialogs),
-      settingsProvider(std::move(settingsProvider)),
+      settingsProvider(std::move(settingsProvider)),credentials(credentials),credentialSourceProvider(std::move(credentialSourceProvider)),
       notificationHandler(std::move(notificationHandler))
 {
     connectButton->setText("连接服务器");
@@ -49,53 +52,9 @@ ConnectionUiController::ConnectionUiController(
 
     connect(connectionSession, &ConnectionSession::diagnostic, applicationLogger,
         [applicationLogger](const QString &code) { applicationLogger->appendCoreOutput("[core] " + code + "\n"); });
-    connect(
-        authenticationDialogs,
-        &AuthDialogCoordinator::loginSubmitted,
-        this,
-        [this](const QString &username, const QString &password, bool saveDetails)
-        {
-            if (saveDetails)
-            {
-                settings()->setValue("Credential/Username", username);
-                settings()->setValue(
-                    "Credential/Password",
-                    QString(password.toUtf8().toBase64())
-                );
-                settings()->sync();
-            }
-            startConnection(username, password);
-        }
-    );
-    connect(
-        authenticationDialogs,
-        &AuthDialogCoordinator::phoneNumberSubmitted,
-        this,
-        [this](
-            const QString &countryCode,
-            const QString &phoneNumber,
-            bool saveDetails
-        )
-        {
-            if (saveDetails)
-            {
-                settings()->setValue("JustConnect/PhoneCountryCode", countryCode);
-                settings()->setValue("JustConnect/PhoneNumber", phoneNumber);
-                settings()->sync();
-            }
-
-            const QString username =
-                settings()->value("Credential/Username", "").toString();
-            const QString password = QByteArray::fromBase64(
-                settings()->value("Credential/Password", "").toString().toUtf8()
-            );
-            startConnection(
-                username,
-                password,
-                countryCode + "-" + phoneNumber
-            );
-        }
-    );
+    connect(authenticationDialogs,&AuthDialogCoordinator::loginSubmitted,this,&ConnectionUiController::submitLogin);
+    connect(authenticationDialogs,&AuthDialogCoordinator::phoneNumberSubmitted,this,&ConnectionUiController::submitPhone);
+    connect(authenticationDialogs,&AuthDialogCoordinator::credentialInputCancelled,this,&ConnectionUiController::cancelPendingCredentials);
     connect(
         connectionSession,
         &ConnectionSession::reconnectScheduled,
@@ -153,57 +112,96 @@ QSettings *ConnectionUiController::settings() const
     return settingsProvider();
 }
 
+bool ConnectionUiController::sourceStillCurrent(const CredentialSource &source) const
+{
+    return settings()->fileName()==source.path
+        && SettingsProfileLoader::load(*settings()).authenticationIdentity()==source.profile.authenticationIdentity();
+}
+
+void ConnectionUiController::cancelPendingCredentials()
+{
+    ++credentialGeneration;credentialsPending=false;promptSource.reset();promptCredentials={};
+    authenticationDialogs->closeCredentialPrompts();
+    if (!connectionSession->isActive()) {connectButton->setText("连接服务器");trayConnectAction->setText("连接服务器");}
+}
 void ConnectionUiController::handleConnectClicked()
 {
-    if (connectionSession->isActive())
-    {
-        connectionSession->stop();
-        return;
-    }
-
-    if (settings()->contains("JustConnect/ServerAddress") &&
-        settings()->value("JustConnect/ServerAddress").toString().isEmpty())
-    {
-        QMessageBox::critical(parentWidget, "错误", "服务器地址不能为空");
-        return;
-    }
-
-    const QString username = settings()->value("Credential/Username", "").toString();
-    const QString password = QByteArray::fromBase64(
-        settings()->value("Credential/Password", "").toString().toUtf8()
-    );
-    const QString authType = settings()->value("JustConnect/AuthType","psw").toString();
+    if (connectionSession->isActive()) {cancelPendingCredentials();connectionSession->stop();return;}
+    if (credentialsPending) {cancelPendingCredentials();return;}
+    if (auto *modal=QApplication::activeModalWidget()) {modal->raise();modal->activateWindow();return;}
+    if (credentials->isSaving(settings()->fileName())) {QMessageBox::information(parentWidget,"正在保存配置","请等待保存完成后再连接。");return;}
+    cancelPendingCredentials();
     if (settings()->value("Common/NeedsConfiguration",false).toBool()) {
-        QMessageBox::warning(parentWidget,"配置需要更新","请选择 Fudan 或确认 Custom 的 aTrust 服务器后保存配置。");
-        return;
+        QMessageBox::warning(parentWidget,"配置需要更新","请选择 Fudan 或确认 Custom 的 aTrust 服务器后保存配置。");return;
     }
-    const bool passwordLogin = authType == "psw";
-    if (authType == "smsCheckCode")
-    {
-        QString countryCode = settings()
-            ->value("JustConnect/PhoneCountryCode", "86")
-            .toString()
-            .trimmed();
-        const QString phoneNumber = settings()
-            ->value("JustConnect/PhoneNumber", "")
-            .toString()
-            .trimmed();
-        if (countryCode.isEmpty() || phoneNumber.isEmpty())
-        {
-            if (countryCode.isEmpty())
-            {
-                countryCode = "86";
-            }
-            authenticationDialogs->requestPhoneNumber(countryCode, phoneNumber);
-            return;
+    if (settings()->value("JustConnect/ServerAddress").toString().isEmpty()) {QMessageBox::critical(parentWidget,"错误","服务器地址不能为空");return;}
+    if (SettingsProfileLoader::load(*settings()).endpoint.authType.isEmpty()) {
+        QMessageBox::warning(parentWidget,"请选择认证方式","请在设置中确认认证方式；可从当前服务器获取可用列表。");return;
+    }
+    const auto source=credentialSourceProvider();const auto generation=credentialGeneration;
+    credentialsPending=true;connectButton->setText("取消连接");trayConnectAction->setText("取消连接");
+    credentials->load(source).then(this,[this,source,generation](const CredentialLoadResult &loaded) {
+        if (generation!=credentialGeneration) return;
+        credentialsPending=false;
+        if (!sourceStillCurrent(source) || (loaded.result.succeeded() && !CredentialAccess::matches(source,*settings()))) {cancelPendingCredentials();return;}
+        if (!loaded.result.succeeded() && loaded.result.status!=CredentialStatus::NotFound) {
+            QMessageBox::warning(parentWidget,"无法读取已保存凭据",PresentationHelpers::credentialOperationMessage(loaded.result.status)+"\n本次仍可手动登录。");
         }
+        if (generation!=credentialGeneration || !sourceStillCurrent(source)) return;
+        auto profile=SettingsProfileLoader::load(*settings());
+        if (loaded.result.succeeded()) profile.credentials=loaded.credentials;
+        connectButton->setText("连接服务器");trayConnectAction->setText("连接服务器");
+        requestConnection(source,profile);
+    });
+}
+void ConnectionUiController::requestConnection(const CredentialSource &source,ConnectionProfile profile)
+{
+    if (profile.endpoint.authType=="smsCheckCode" && profile.endpoint.phone.isEmpty()) {
+        promptSource=source;promptCredentials=profile.credentials;
+        auto country=settings()->value("JustConnect/PhoneCountryCode","86").toString().trimmed();
+        if (country.isEmpty()) country="86";
+        authenticationDialogs->requestPhoneNumber(country,settings()->value("JustConnect/PhoneNumber").toString());return;
     }
-    if (passwordLogin && (username.isEmpty() || password.isEmpty()))
-    {
-        authenticationDialogs->requestLogin(username, password);
-        return;
+    if (profile.endpoint.authType=="psw" && (profile.credentials.username.isEmpty() || profile.credentials.password.isEmpty())) {
+        promptSource=source;promptCredentials=profile.credentials;
+        authenticationDialogs->requestLogin(profile.credentials.username,profile.credentials.password);return;
     }
-    startConnection(username, password);
+    startConnection(profile);
+}
+void ConnectionUiController::submitLogin(const QString &username,const QString &password,bool save)
+{
+    if (!promptSource || !sourceStillCurrent(*promptSource)) return;
+    const auto source=*promptSource;auto profile=SettingsProfileLoader::load(*settings());
+    const auto totp=username.trimmed()==source.profile.credentials.username ? promptCredentials.totpSecret : QString();
+    profile.credentials={username.trimmed(),password,totp};promptSource.reset();promptCredentials={};
+    submitManual(source,profile,save,{{"Credential/Username",profile.credentials.username}},true);
+}
+void ConnectionUiController::submitPhone(const QString &country,const QString &phone,bool save)
+{
+    if (!promptSource || !sourceStillCurrent(*promptSource)) return;
+    const auto source=*promptSource;auto profile=SettingsProfileLoader::load(*settings());
+    profile.endpoint.phone=country+"-"+phone;promptSource.reset();promptCredentials={};
+    submitManual(source,profile,save,{{"JustConnect/PhoneCountryCode",country},{"JustConnect/PhoneNumber",phone}},false);
+}
+void ConnectionUiController::submitManual(const CredentialSource &source,const ConnectionProfile &profile,bool save,const QVariantMap &changes,bool updateCredentials)
+{
+    const auto validation=EmbeddedCoreEngine::validateConfiguration(profile);
+    if (validation!=ConnectionError::NONE) {showConnectionError(validation);return;}
+    if (!save) {startConnection(profile);return;}
+    const auto generation=++credentialGeneration;
+    credentialsPending=true;connectButton->setText("取消连接");trayConnectAction->setText("取消连接");
+    credentials->save(source,profile,updateCredentials,changes).then(this,[this,source,profile,generation](const CredentialResult &result) {
+        if (generation!=credentialGeneration) return;
+        credentialsPending=false;
+        const bool sameFile=settings()->fileName()==source.path;
+        if (!sameFile) {cancelPendingCredentials();return;}
+        if (!result.succeeded()) QMessageBox::warning(parentWidget,"未能记住登录信息",PresentationHelpers::credentialOperationMessage(result.status)+"\n本次仍可手动登录。");
+        if (generation!=credentialGeneration) return;
+        const auto current=SettingsProfileLoader::load(*settings());
+        const auto expected=result.succeeded() ? profile.authenticationIdentity() : source.profile.authenticationIdentity();
+        if (current.authenticationIdentity()!=expected) {cancelPendingCredentials();return;}
+        startConnection(profile);
+    });
 }
 
 void ConnectionUiController::handleProxyClicked()
@@ -285,21 +283,9 @@ void ConnectionUiController::handleProxyClicked()
     systemProxySession->checkConflict(proxyConfig);
 }
 
-void ConnectionUiController::startConnection(
-    const QString &username,
-    const QString &password,
-    const QString &phone
-)
+void ConnectionUiController::startConnection(const ConnectionProfile &profile)
 {
-    ConnectionProfile profile = SettingsProfileLoader::load(
-        *settings(),
-        username,
-        password
-    );
-    if (!phone.isNull())
-    {
-        profile.endpoint.phone = phone;
-    }
+    promptSource.reset();promptCredentials={};
     const ReconnectPolicy reconnectPolicy{
         settings()->value("Common/AutoReconnect", false).toBool(),
         settings()->value("Common/ReconnectTime", 1).toInt() * 1000

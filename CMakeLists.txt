@@ -139,7 +139,8 @@ include(CTest)
 
 if(BUILD_TESTING)
     add_executable(serversettingswidget_test tests/serversettingswidget_test.cpp
-        presentation/widgets/serversettingswidget.cpp)
+        presentation/widgets/serversettingswidget.cpp application/profileservice.cpp
+        application/defaultsettings.cpp application/settingsmigrator.cpp)
     target_link_libraries(serversettingswidget_test PRIVATE Qt6::Widgets)
     add_test(NAME serversettingswidget_test COMMAND serversettingswidget_test)
     set_tests_properties(serversettingswidget_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
@@ -153,8 +154,9 @@ if(BUILD_TESTING)
             presentation/dialogs/authinfowindow/authinfowindow.cpp
             presentation/presentationhelpers.cpp
             application/defaultsettings.cpp application/settingsmigrator.cpp infrastructure/settings/settingsprofileloader.cpp infrastructure/settings/profilemanager.cpp
-            infrastructure/storage/applicationpaths.cpp)
-        target_link_libraries(settingwindow_test PRIVATE justconnect_engine justconnect_platform Qt6::WebEngineWidgets)
+            infrastructure/storage/applicationpaths.cpp infrastructure/settings/credentialaccess.cpp
+            application/profilecredentials.cpp application/profileservice.cpp)
+        target_link_libraries(settingwindow_test PRIVATE justconnect_engine justconnect_platform Qt6::WebEngineWidgets Qt6::Concurrent)
         add_test(NAME settingwindow_test COMMAND settingwindow_test)
         set_tests_properties(settingwindow_test PROPERTIES TIMEOUT 30 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     endif()
@@ -187,7 +189,8 @@ if(BUILD_TESTING)
     add_test(NAME applicationlogfile_test COMMAND applicationlogfile_test)
 
     add_executable(credentialaccess_test tests/credentialaccess_test.cpp infrastructure/settings/credentialaccess.cpp
-        infrastructure/settings/settingsprofileloader.cpp application/profilecredentials.cpp)
+        infrastructure/settings/settingsprofileloader.cpp application/profilecredentials.cpp
+        application/profileservice.cpp application/defaultsettings.cpp application/settingsmigrator.cpp)
     target_link_libraries(credentialaccess_test PRIVATE Qt6::Core Qt6::Concurrent)
     add_test(NAME credentialaccess_test COMMAND credentialaccess_test)
     set_tests_properties(credentialaccess_test PROPERTIES TIMEOUT 20)
@@ -250,7 +253,7 @@ if(BUILD_TESTING)
 
     add_executable(profileservice_test
         tests/profileservice_test.cpp
-        application/profileservice.cpp
+        application/profileservice.cpp application/defaultsettings.cpp application/settingsmigrator.cpp
     )
     target_include_directories(profileservice_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(profileservice_test Qt::Core)
@@ -267,6 +270,8 @@ if(BUILD_TESTING)
 
     add_executable(configurationguidedialog_test
         tests/configurationguidedialog_test.cpp
+        infrastructure/settings/credentialaccess.cpp application/profilecredentials.cpp application/profileservice.cpp
+        presentation/presentationhelpers.cpp
         presentation/widgets/serversettingswidget.cpp
         application/settingsmigrator.cpp application/defaultsettings.cpp infrastructure/settings/settingsprofileloader.cpp
         presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp
@@ -275,6 +280,7 @@ if(BUILD_TESTING)
     target_include_directories(configurationguidedialog_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(configurationguidedialog_test
         justconnect_engine
+        Qt6::Concurrent
         Qt::Core
         Qt::Gui
         Qt::Widgets

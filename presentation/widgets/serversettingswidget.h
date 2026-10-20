@@ -1,5 +1,6 @@
 #pragma once
 #include <QWidget>
+#include <QVariantMap>
 #include "core/connectionprofile.h"
 class QComboBox;
 class QCheckBox;
@@ -13,7 +14,7 @@ class ServerSettingsWidget : public QWidget {
 public:
     explicit ServerSettingsWidget(QWidget *parent = nullptr);
     void load(const QSettings &settings);
-    void applyTo(QSettings &settings) const;
+    QVariantMap settingsValues() const;
     QString serverAddress() const;
     int serverPort() const;
     bool isFudan() const;

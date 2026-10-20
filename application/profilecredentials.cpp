@@ -1,4 +1,5 @@
 #include "profilecredentials.h"
+#include "application/applicationconstants.h"
 #include <QCryptographicHash>
 #include <QFile>
 #include <QFileInfo>
@@ -30,8 +31,35 @@ bool decode(const QByteArray &bytes,ConnectionCredentials &credentials) {
     credentials.totpSecret=object.value("totp_secret").toString();
     return true;
 }
+QString archiveKey(const QString &scope,const ConnectionProfile &profile,const QSettings &settings) {
+    if (!validScope(scope)) return {};
+    auto saved=profile;
+    // Unconfirmed addresses identify an archive, never a login credential.
+    if (saved.endpoint.server.isEmpty()) saved.endpoint.server=settings.value("JustConnect/ServerAddress").toString();
+    return digest({"legacy-credentials-v1",scope,saved.authenticationIdentity()});
+}
+CredentialResult eraseLegacy(QSettings &settings,const QVariant &password,const QVariant &totp,const QString &username) {
+    if (settings.value("Credential/Password")!=password || settings.value("Credential/TOTPSecret")!=totp
+        || settings.value("Credential/Username").toString()!=username) return {Status::Cancelled,{}};
+    settings.remove("Credential/Password");settings.remove("Credential/TOTPSecret");settings.sync();
+    if (settings.status()==QSettings::NoError) return {Status::Success,{}};
+    if (password.isValid()) settings.setValue("Credential/Password",password);
+    if (totp.isValid()) settings.setValue("Credential/TOTPSecret",totp);
+    settings.sync();
+    return {Status::Failed,{}};
+}
 }
 
+bool ProfileCredentials::hasLegacyCredentials(const QSettings &settings) {
+    for (const auto &key:{"Credential/Password","Credential/TOTPSecret"}) {
+        const auto value=settings.value(key);
+        if (!value.isValid()) continue;
+        if (value.metaType().id()==QMetaType::QString) {if (!value.toString().isEmpty()) return true;}
+        else if (value.metaType().id()==QMetaType::QByteArray) {if (!value.toByteArray().isEmpty()) return true;}
+        else return true;
+    }
+    return false;
+}
 QString ProfileCredentials::ensureScope(QSettings &settings) {
     if (settings.status()!=QSettings::NoError) return {};
     if (settings.contains(ScopeSetting)) {
@@ -44,8 +72,8 @@ QString ProfileCredentials::ensureScope(QSettings &settings) {
 }
 QString ProfileCredentials::key(const QString &scope,const ConnectionProfile &p) {
     if (!validScope(scope) || p.endpoint.server.isEmpty() || p.endpoint.port<1 || p.endpoint.port>65535 || p.endpoint.authType.isEmpty()) return {};
-    return digest({"credentials-v1",scope,p.endpoint.server.toLower(),p.endpoint.port,p.endpoint.authType,
-        p.endpoint.loginDomain,p.endpoint.authId,p.endpoint.authSubType,p.endpoint.phone,p.credentials.username});
+    auto identity=p.authenticationIdentity();identity.prepend(scope);identity.prepend("credentials-v1");
+    return digest(identity);
 }
 QString ProfileCredentials::legacyCacheKey(const QString &scope) {
     return validScope(scope) ? digest({"legacy-cache-v1",scope}) : QString();
@@ -74,11 +102,11 @@ CredentialResult ProfileCredentials::load(const QString &scope,const ConnectionP
 }
 CredentialResult ProfileCredentials::save(const QString &scope,const ConnectionProfile &p) {
     if (p.credentials.username.isEmpty() && p.endpoint.phone.isEmpty() && (!p.credentials.password.isEmpty() || !p.credentials.totpSecret.isEmpty())) return {Status::InvalidArgument,{}};
+    if (p.credentials.password.isEmpty() && p.credentials.totpSecret.isEmpty()) return remove(scope,p);
     return writeVerified(key(scope,p),encode(p.credentials));
 }
-CredentialResult ProfileCredentials::remove(const QString &scope,const ConnectionProfile &p) {
-    const auto id=key(scope,p);
-    if (id.isEmpty()) return {Status::InvalidArgument,{}};
+CredentialResult ProfileCredentials::removeVerified(const QString &id) {
+    if (!CredentialStore::validKey(id)) return {Status::InvalidArgument,{}};
     auto result=store.remove(id);
     if (!result.succeeded() && result.status!=Status::NotFound) return result;
     result=store.read(id);
@@ -86,34 +114,60 @@ CredentialResult ProfileCredentials::remove(const QString &scope,const Connectio
     if (result.succeeded()) return {Status::Failed,{}};
     result.value.clear();return result;
 }
+CredentialResult ProfileCredentials::remove(const QString &scope,const ConnectionProfile &p) {
+    return removeVerified(key(scope,p));
+}
+CredentialResult ProfileCredentials::preserveVerified(const QString &id,const QByteArray &value) {
+    if (!CredentialStore::validKey(id)) return {Status::InvalidArgument,{}};
+    if (value.size()>CredentialStore::MaxBytes) return {Status::Limit,{}};
+    const auto existing=store.read(id);
+    if (existing.status==Status::NotFound) return writeVerified(id,value);
+    if (!existing.succeeded()) return existing;
+    return {existing.value==value ? Status::Success : Status::Conflict,{}};
+}
+CredentialResult ProfileCredentials::clear(QSettings &settings,const QString &scope,const ConnectionProfile &p) {
+    const auto password=settings.value("Credential/Password"),totp=settings.value("Credential/TOTPSecret");
+    if (settings.status()!=QSettings::NoError) return {Status::Failed,{}};
+    if (hasLegacyCredentials(settings) && settings.value("Common/ConfigVersion").toInt()>ApplicationConstants::ConfigVersion) return {Status::InvalidArgument,{}};
+    if (settings.value("Credential/Username").toString()!=p.credentials.username) return {Status::Cancelled,{}};
+    const auto id=key(scope,p);
+    if (!id.isEmpty()) {
+        const auto removed=removeVerified(id);if (!removed.succeeded()) return removed;
+    }
+    const auto removed=removeVerified(archiveKey(scope,p,settings));
+    if (!removed.succeeded()) return removed;
+    return eraseLegacy(settings,password,totp,p.credentials.username);
+}
 CredentialResult ProfileCredentials::migrate(QSettings &settings,const QString &scope,const ConnectionProfile &p) {
     const auto password=settings.value("Credential/Password"),totp=settings.value("Credential/TOTPSecret");
     if (settings.status()!=QSettings::NoError) return {Status::Failed,{}};
+    if (hasLegacyCredentials(settings) && settings.value("Common/ConfigVersion").toInt()>ApplicationConstants::ConfigVersion) return {Status::InvalidArgument,{}};
+    for (const auto &value:{password,totp})
+        if (value.isValid() && value.metaType().id()!=QMetaType::QString && value.metaType().id()!=QMetaType::QByteArray) return {Status::InvalidArgument,{}};
     const auto decoded=QByteArray::fromBase64Encoding(password.toByteArray(),QByteArray::AbortOnBase64DecodingErrors);
     if (!decoded) return {Status::InvalidArgument,{}};
     ConnectionCredentials legacy{settings.value("Credential/Username").toString(),QString::fromUtf8(decoded.decoded),totp.toString()};
     if (legacy.password.toUtf8()!=decoded.decoded || legacy.username!=p.credentials.username) return {Status::InvalidArgument,{}};
     if (!legacy.password.isEmpty() || !legacy.totpSecret.isEmpty()) {
-        ConnectionCredentials existing;
-        const auto found=load(scope,p,existing);
-        if (found.succeeded()) {
-            // A stale INI must not overwrite a newer secure value.
-            if ((!legacy.password.isEmpty() && existing.password!=legacy.password)
-                || (!legacy.totpSecret.isEmpty() && existing.totpSecret!=legacy.totpSecret)) return {Status::Failed,{}};
-        } else if (found.status==Status::NotFound) {
-            auto migrated=p;migrated.credentials=legacy;
-            const auto saved=save(scope,migrated);
-            if (!saved.succeeded()) return saved;
-        } else return found;
+        if (key(scope,p).isEmpty() || (legacy.username.isEmpty() && p.endpoint.phone.isEmpty())) {
+            auto archive=QJsonDocument::fromJson(encode(legacy)).object();archive.insert("username",legacy.username);
+            const auto sealed=preserveVerified(archiveKey(scope,p,settings),QJsonDocument(archive).toJson(QJsonDocument::Compact));
+            if (!sealed.succeeded()) return sealed;
+        } else {
+            ConnectionCredentials existing;
+            const auto found=load(scope,p,existing);
+            if (found.succeeded()) {
+                // A stale INI must not overwrite a newer secure value.
+                if ((!legacy.password.isEmpty() && existing.password!=legacy.password)
+                    || (!legacy.totpSecret.isEmpty() && existing.totpSecret!=legacy.totpSecret)) return {Status::Conflict,{}};
+            } else if (found.status==Status::NotFound) {
+                auto migrated=p;migrated.credentials=legacy;
+                const auto saved=save(scope,migrated);
+                if (!saved.succeeded()) return saved;
+            } else return found;
+        }
     }
-    if (settings.value("Credential/Password")!=password || settings.value("Credential/TOTPSecret")!=totp
-        || settings.value("Credential/Username").toString()!=legacy.username) return {Status::Cancelled,{}};
-    settings.remove("Credential/Password");settings.remove("Credential/TOTPSecret");settings.sync();
-    if (settings.status()==QSettings::NoError) return {Status::Success,{}};
-    if (password.isValid()) settings.setValue("Credential/Password",password);
-    if (totp.isValid()) settings.setValue("Credential/TOTPSecret",totp);
-    settings.sync();
-    return {Status::Failed,{}};
+    return eraseLegacy(settings,password,totp,legacy.username);
 }
 CredentialResult ProfileCredentials::quarantine(const QString &path,const QString &scope) {
     const auto id=legacyCacheKey(scope);
@@ -129,12 +183,8 @@ CredentialResult ProfileCredentials::quarantine(const QString &path,const QStrin
     if (source.error()!=QFileDevice::NoError) return {Status::Failed,{}};
     if (bytes.size()>CredentialStore::MaxBytes) return {Status::Limit,{}};
     source.close();
-    const auto existing=store.read(id);
-    if (existing.status==Status::NotFound) {
-        const auto saved=writeVerified(id,bytes);
-        if (!saved.succeeded()) return saved;
-    } else if (!existing.succeeded()) return existing;
-    else if (existing.value!=bytes) return {Status::Failed,{}};
+    const auto saved=preserveVerified(id,bytes);
+    if (!saved.succeeded()) return saved;
     if (QFileInfo(path).isSymLink() || !source.open(QIODevice::ReadOnly)) return {Status::Failed,{}};
     const auto current=source.read(CredentialStore::MaxBytes+1);
     if (source.error()!=QFileDevice::NoError || current!=bytes) return {Status::Cancelled,{}};

@@ -5,6 +5,10 @@
 #include <QDir>
 #include <QMessageBox>
 #include <QTimer>
+#include <QElapsedTimer>
+#include <QFile>
+#include "tests/credentialstorefixture.h"
+#include "infrastructure/settings/settingsprofileloader.h"
 #include <cstdlib>
 #include "application/defaultsettings.h"
 #include <QSettings>
@@ -15,6 +19,13 @@
 
 namespace
 {
+template<class P> void until(P done) {
+    QElapsedTimer timer;timer.start();
+    while (!done() && timer.elapsed()<6000) QApplication::processEvents(QEventLoop::AllEvents,10);
+    if (!done()) {qCritical()<<"Guide operation timed out";std::exit(1);}
+}
+void ready(CredentialAccess &access,QSettings &settings) {until([&]{return !access.isBusy(settings.fileName());});QApplication::processEvents();}
+
 QLineEdit *lineEdit(ConfigurationGuideDialog &dialog, const char *name)
 {
     QLineEdit *field = dialog.findChild<QLineEdit *>(name);
@@ -54,7 +65,11 @@ bool savesPasswordCredentials(const QString &settingsPath)
     settings.setValue("JustConnect/AuthID","opaque-selection");
     settings.setValue("JustConnect/AuthSubType","password");
 
-    ConfigurationGuideDialog dialog(nullptr, &settings);
+    auto backend=std::make_unique<MemoryCredentialStore>();auto *store=backend.get();
+    CredentialAccess access(std::move(backend));
+    const auto source=CredentialAccess::source(settings,{});
+    ConfigurationGuideDialog dialog(nullptr, &settings,&access,source);
+    ready(access,settings);
     QStackedWidget *pages = credentialPages(dialog);
     QLineEdit *username = lineEdit(dialog, "guideUsernameLineEdit");
     QLineEdit *password = lineEdit(dialog, "guidePasswordLineEdit");
@@ -74,14 +89,14 @@ bool savesPasswordCredentials(const QString &settingsPath)
     username->setText("alice");
     password->setText("secret");
     totp->setText("totp-key");
-    if (!dialog.applyTo(settings)) return false;
+    if (!dialog.applyTo()) return false;
+    until([&]{return dialog.result()==QDialog::Accepted;});
 
-    const QString savedPassword = QByteArray::fromBase64(
-        settings.value("Credential/Password").toByteArray()
-    );
+    ConnectionCredentials saved;ProfileCredentials vault(*store);
+    if (!vault.load(source.scope,SettingsProfileLoader::load(settings),saved).succeeded()) return false;
     const bool passed = settings.value("Credential/Username") == "alice"
-        && savedPassword == "secret"
-        && settings.value("Credential/TOTPSecret") == "totp-key"
+        && saved.password == "secret" && saved.totpSecret == "totp-key"
+        && !settings.contains("Credential/Password") && !settings.contains("Credential/TOTPSecret")
         && settings.value("JustConnect/AuthID")=="opaque-selection"
         && settings.value("JustConnect/AuthSubType")=="password"
         && settings.value("JustConnect/ProfileKind") == "Custom"
@@ -102,7 +117,11 @@ bool savesSmsCredentials(const QString &settingsPath)
     settings.setValue("JustConnect/PhoneCountryCode", "86");
     settings.setValue("JustConnect/PhoneNumber", "123456");
 
-    ConfigurationGuideDialog dialog(nullptr, &settings);
+    auto backend=std::make_unique<MemoryCredentialStore>();auto *store=backend.get();
+    CredentialAccess access(std::move(backend));
+    const auto source=CredentialAccess::source(settings,{});
+    ConfigurationGuideDialog dialog(nullptr, &settings,&access,source);
+    ready(access,settings);
     QStackedWidget *pages = credentialPages(dialog);
     QLineEdit *countryCode = lineEdit(dialog, "guideCountryCodeLineEdit");
     QLineEdit *phoneNumber = lineEdit(dialog, "guidePhoneNumberLineEdit");
@@ -119,7 +138,8 @@ bool savesSmsCredentials(const QString &settingsPath)
 
     countryCode->setText("852");
     phoneNumber->setText("98765432");
-    if (!dialog.applyTo(settings)) return false;
+    if (!dialog.applyTo()) return false;
+    until([&]{return dialog.result()==QDialog::Accepted;});
 
     const bool passed = settings.value("JustConnect/PhoneCountryCode") == "852"
         && settings.value("JustConnect/PhoneNumber") == "98765432";
@@ -137,7 +157,11 @@ bool showsSsoWithoutCredentialFields(const QString &settingsPath)
     settings.setValue("JustConnect/ServerAddress","vpn.example.edu");
     settings.setValue("JustConnect/AuthType", "cas");
 
-    ConfigurationGuideDialog dialog(nullptr, &settings);
+    auto backend=std::make_unique<MemoryCredentialStore>();auto *store=backend.get();
+    CredentialAccess access(std::move(backend));
+    const auto source=CredentialAccess::source(settings,{});
+    ConfigurationGuideDialog dialog(nullptr, &settings,&access,source);
+    ready(access,settings);
     QStackedWidget *pages = credentialPages(dialog);
     const bool passed = pages != nullptr && pages->currentIndex() == 2;
     if (!passed)
@@ -154,25 +178,24 @@ bool rejectsInvalidCoreSettingsAndFailedSaves(const QString &root)
     settings.setValue("JustConnect/SecondaryDNS","not-an-address");
     settings.setValue("Credential/Username","retained-user");
     settings.setValue("OtherAccount/Ticket","retained-ticket");
-    ConfigurationGuideDialog invalid(nullptr,&settings);
+    CredentialAccess access(std::make_unique<MemoryCredentialStore>());
+    ConfigurationGuideDialog invalid(nullptr,&settings,&access,CredentialAccess::source(settings,{}));
+    ready(access,settings);
     lineEdit(invalid,"guideUsernameLineEdit")->setText("draft-user");
     expectedMessage="请检查服务器、认证方式及连接设置。配置未保存。"; messageShown=false;
-    if (invalid.applyTo(settings) || !messageShown || settings.value("Credential/Username")!="retained-user"
+    if (invalid.applyTo() || !messageShown || settings.value("Credential/Username")!="retained-user"
         || settings.value("OtherAccount/Ticket")!="retained-ticket") return false;
-    const auto blocked=root+"/blocked.ini";
-    if (!QDir().mkdir(blocked)) return false;
-    QSettings failed(blocked,QSettings::IniFormat);
-    DefaultSettings::reset(failed);
-    failed.setValue("Common/ConfigVersion",8);
-    failed.setValue("JustConnect/ServerAddress","vpn.example.edu");
-    failed.setValue("Credential/Username","fixture-user");
-    failed.setValue("Credential/Password",QString::fromLatin1(QByteArray("fixture-password").toBase64()));
-    ConfigurationGuideDialog dialog(nullptr,&failed); dialog.show();
-    QMetaObject::invokeMethod(&dialog,"goNext"); QMetaObject::invokeMethod(&dialog,"goNext");
-    expectedMessage="部分设置可能已保存，请检查后重试。"; messageShown=false;
-    QMetaObject::invokeMethod(&dialog,"goNext");
-    const bool passed=messageShown && dialog.isVisible() && dialog.result()!=QDialog::Accepted
-        && failed.value("Common/ConfigVersion").toInt()==8;
+    const auto path=root+"/write-failure.ini";
+    QSettings failed(path,QSettings::IniFormat);DefaultSettings::reset(failed);
+    failed.setValue("JustConnect/ServerAddress","vpn.example.edu");failed.setValue("Credential/Username","fixture-user");
+    ConfigurationGuideDialog dialog(nullptr,&failed,&access,CredentialAccess::source(failed,{}));dialog.show();ready(access,failed);
+    if (!QFile::rename(path,path+".backup") || !QDir().mkdir(path)) return false;
+    QMetaObject::invokeMethod(&dialog,"goNext");QMetaObject::invokeMethod(&dialog,"goNext");
+    expectedMessage="安全存储或配置操作未完成，请检查后重试。";messageShown=false;
+    if (!dialog.applyTo()) return false;
+    until([&]{return !dialog.isSaving();});QApplication::processEvents();
+    const bool passed=messageShown && dialog.isVisible() && dialog.result()!=QDialog::Accepted;
+    QDir().rmdir(path);QFile::rename(path+".backup",path);
     expectedMessage.clear(); return passed;
 }
 
