@@ -14,7 +14,7 @@ static CFStringRef path(SCNetworkServiceRef service) {
 }
 static int changes=0,failAt=0;
 static bool ignoreSet=false,failCommit=false,failApply=false;
-static Boolean set(SCPreferencesRef prefs, CFStringRef key, CFPropertyListRef value) {
+static Boolean set(SCPreferencesRef prefs, CFStringRef key, CFDictionaryRef value) {
     if(++changes==failAt)return false;
     return ignoreSet || SCPreferencesPathSetValue(prefs,key,value);
 }
@@ -68,7 +68,11 @@ static void backendTests() {
         check(value(disabledPath) && CFEqual(value(disabledPath),original),"disabled service remains untouched");
     };
     seed();PlatformSystemProxyBackend backend(api);
-    check(SCPreferencesPathSetValue(prefs,firstPath,CFSTR("invalid")) && SCPreferencesCommitChanges(prefs),"seed malformed native proxy data");
+    auto firstParent=CFStringCreateWithFormat(nullptr,nullptr,CFSTR("/%@/%@"),kSCPrefNetworkServices,SCNetworkServiceGetServiceID(first));
+    const auto releaseFirstParent=qScopeGuard([&]{CFRelease(firstParent);});
+    auto malformed=CFDictionaryCreateMutableCopy(nullptr,0,SCPreferencesPathGetValue(prefs,firstParent));
+    CFDictionarySetValue(malformed,kSCEntNetProxies,CFSTR("invalid"));
+    check(SCPreferencesPathSetValue(prefs,firstParent,malformed) && SCPreferencesCommitChanges(prefs),"seed malformed native proxy data");CFRelease(malformed);
     const auto beforeRead=changes;
     check(!backend.apply(config).succeeded() && changes==beforeRead,"invalid native data fails before the first mutation");
     seed();

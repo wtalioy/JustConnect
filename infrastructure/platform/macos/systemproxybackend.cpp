@@ -22,7 +22,10 @@ CFStringRef path(SCNetworkServiceRef service) {
     return CFStringCreateWithFormat(nullptr, nullptr, CFSTR("/%@/%@/%@"), kSCPrefNetworkServices, SCNetworkServiceGetServiceID(service), kSCEntNetProxies);
 }
 Result read(SCPreferencesRef prefs, CFStringRef path, CFDictionaryRef &value) {
-    auto raw = SCPreferencesPathGetValue(prefs, path);
+    auto parent = CFStringCreateWithSubstring(nullptr, path, CFRangeMake(0, CFStringGetLength(path) - CFStringGetLength(kSCEntNetProxies) - 1));
+    auto service = SCPreferencesPathGetValue(prefs, parent); CFRelease(parent);
+    if (!service) return {Status::Failed, "Network service no longer exists"};
+    auto raw = CFDictionaryGetValue(service, kSCEntNetProxies);
     if (raw && CFGetTypeID(raw) != CFDictionaryGetTypeID()) return {Status::Failed, "Invalid native proxy configuration"};
     value = static_cast<CFDictionaryRef>(raw); return {};
 }
