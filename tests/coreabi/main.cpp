@@ -209,11 +209,10 @@ int main(int argc, char **argv) {
     check(api.jc_session_create(JC_ABI_VERSION + 1, &invalid) == JC_ABI_MISMATCH && invalid == 0, "create ABI mismatch");
     check(api.jc_session_create(JC_ABI_VERSION, nullptr) == JC_INVALID_ARGUMENT, "missing handle pointer");
     QTcpServer reserve;
-    check(reserve.listen(QHostAddress::LocalHost, 0), "reserve loopback failure endpoint");
-    const auto failedPort = reserve.serverPort();
-    reserve.close();
+    check(reserve.listen(QHostAddress::LocalHost, 0), "reserve cancellable loopback endpoint");
+    const auto pendingPort = reserve.serverPort();
     const auto configBytes = QJsonDocument(QJsonObject{{"schema_version", 1},
-        {"server", QJsonObject{{"host", "127.0.0.1"}, {"port", failedPort}}},
+        {"server", QJsonObject{{"host", "127.0.0.1"}, {"port", pendingPort}}},
         {"auth", QJsonObject{{"password", "private-password"}}}}).toJson(QJsonDocument::Compact);
     const std::string config(configBytes.constData(), static_cast<size_t>(configBytes.size()));
     const auto *configInput = reinterpret_cast<const uint8_t *>(config.data());
@@ -248,8 +247,8 @@ int main(int argc, char **argv) {
         auto terminal = read(api, handle);
         while (terminal["type"] == "diagnostic") terminal = read(api, handle);
         check(terminal["type"] == "terminal" &&
-              (terminal["status"].toInt() == JC_INTERNAL || terminal["status"].toInt() == JC_CANCELLED) &&
-              terminal["generation"] == "1", "production failure or cancellation completes cleanup");
+              terminal["status"].toInt() == JC_CANCELLED &&
+              terminal["generation"] == "1", "cancelled production invocation completes cleanup");
         check(api.jc_session_read(handle, 0, nullptr, 0, &length) == JC_END && length == 0, "end of event stream");
         const std::string response = R"({"schema_version":1,"generation":"1","request_id":"1","action":"cancel"})";
         check(api.jc_session_respond(handle, reinterpret_cast<const uint8_t *>(response.data()),
@@ -257,7 +256,19 @@ int main(int argc, char **argv) {
         check(api.jc_session_stop(handle, 1000) == JC_OK && api.jc_session_stop(handle, 1000) == JC_OK, "idempotent stop");
         check(api.jc_session_destroy(handle, 1000) == JC_OK && api.jc_session_destroy(handle, 1000) == JC_OK, "idempotent destroy");
         check(api.jc_session_read(handle, 0, nullptr, 0, &length) == JC_INVALID_HANDLE, "stale handle");
+        while (reserve.hasPendingConnections() || reserve.waitForNewConnection(0)) delete reserve.nextPendingConnection();
     }
+    reserve.close();
+    uint64_t failedHandle = 0, failedGeneration = 0;
+    check(api.jc_session_create(JC_ABI_VERSION, &failedHandle) == JC_OK, "create network failure session");
+    check(api.jc_session_start(failedHandle, configInput, uint32_t(config.size()), &failedGeneration) == JC_OK, "start connection failure");
+    auto failure = read(api, failedHandle);
+    check(failure["type"] == "state" && failure["state"] == "starting", "network failure starts asynchronously");
+    do { failure = read(api, failedHandle); } while (failure["type"] == "diagnostic");
+    check(failure["type"] == "terminal" && failure["status"].toInt() == JC_NETWORK_FAILURE
+          && failure["generation"].toString() == QString::number(failedGeneration), "connection refusal has its precise network failure status");
+    check(api.jc_session_read(failedHandle, 0, nullptr, 0, &length) == JC_END, "network failure releases the event stream");
+    check(api.jc_session_destroy(failedHandle, 1000) == JC_OK, "network failure releases the handle");
     check(api.jc_session_destroy(0, 0) == JC_INVALID_HANDLE, "invalid zero handle");
     int finished = 0, ticks = 0;
     bool pageLoaded = false;
