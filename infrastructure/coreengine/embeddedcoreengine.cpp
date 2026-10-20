@@ -7,7 +7,7 @@
 #include <QTimer>
 
 namespace {
-#define CORE_FUNCTIONS(X) X(jc_abi_version) X(jc_build_info) X(jc_session_create) X(jc_session_start) \
+#define CORE_FUNCTIONS(X) X(jc_abi_version) X(jc_build_info) X(jc_config_validate) X(jc_session_create) X(jc_session_start) \
     X(jc_session_read) X(jc_session_respond) X(jc_session_stop) X(jc_session_destroy)
 struct Library {
 #define MEMBER(name) decltype(&::name) name = nullptr;
@@ -44,6 +44,20 @@ QJsonObject configuration(const ConnectionProfile &p, CoreEngine::Operation oper
         {"network", QJsonObject{{"interface", p.behavior.bindInterface}, {"auto_detect", p.behavior.autoDetectInterface},
             {"local_dns", p.dns.localDnsServer}, {"secondary_dns", p.dns.secondary},
             {"dns_cache_ttl", p.dns.ttl}, {"disable_remote_dns", p.dns.disableRemoteDns}}}};
+}
+QByteArray configurationBytes(const ConnectionProfile &profile, CoreEngine::Operation operation) {
+    const bool unsupported = operation == CoreEngine::Operation::Connect && (
+        profile.endpoint.protocol != "atrust" || !profile.extraArguments.isEmpty()
+        || profile.tunnel.tunMode || profile.tunnel.addRoute || profile.tunnel.dnsHijack || profile.tunnel.fakeIp
+        || profile.tunnel.tcpTunnelMode || !profile.tunnel.tcpPortForwarding.isEmpty() || !profile.tunnel.udpPortForwarding.isEmpty()
+        || !profile.proxy.shadowsocksUrl.isEmpty() || !profile.proxy.dialDirectProxy.isEmpty() || profile.proxy.proxyAll
+        || !profile.proxy.customDomains.isEmpty() || (!profile.dns.automatic && !profile.dns.primary.isEmpty()) || !profile.dns.custom.isEmpty()
+        || !profile.dns.dnsServerBind.isEmpty() || profile.behavior.updateBestNodesInterval != ConnectionBehavior{}.updateBestNodesInterval
+        || !profile.behavior.keepAliveUrl.isEmpty() || profile.behavior.skipDomainResource || profile.behavior.disableServerConfig
+        || profile.debug.capturePcap || profile.debug.exportTlsKeys || profile.debug.detailedOutput);
+    auto config = unsupported ? QByteArray() : QJsonDocument(configuration(profile, operation)).toJson(QJsonDocument::Compact);
+    if (config.size() > JC_MAX_INPUT) config.clear();
+    return config;
 }
 ConnectionError connectionError(int status) {
     if (status == JC_OK || status == JC_CANCELLED) return ConnectionError::NONE;
@@ -151,19 +165,18 @@ bool EmbeddedCoreEngine::start(const ConnectionProfile &profile, Operation opera
     if (active) return false;
     active = true; stopping = false; established = false;
     const auto id = ++serial;
-    const bool unsupported = operation == Operation::Connect && (
-        profile.endpoint.protocol != "atrust" || !profile.extraArguments.isEmpty()
-        || profile.tunnel.tunMode || profile.tunnel.addRoute || profile.tunnel.dnsHijack || profile.tunnel.fakeIp
-        || profile.tunnel.tcpTunnelMode || !profile.tunnel.tcpPortForwarding.isEmpty() || !profile.tunnel.udpPortForwarding.isEmpty()
-        || !profile.proxy.shadowsocksUrl.isEmpty() || !profile.proxy.dialDirectProxy.isEmpty() || profile.proxy.proxyAll
-        || !profile.proxy.customDomains.isEmpty() || (!profile.dns.automatic && !profile.dns.primary.isEmpty()) || !profile.dns.custom.isEmpty()
-        || !profile.dns.dnsServerBind.isEmpty() || profile.behavior.updateBestNodesInterval != ConnectionBehavior{}.updateBestNodesInterval
-        || !profile.behavior.keepAliveUrl.isEmpty() || profile.behavior.skipDomainResource || profile.behavior.disableServerConfig
-        || profile.debug.capturePcap || profile.debug.exportTlsKeys || profile.debug.detailedOutput);
-    auto config = unsupported ? QByteArray() : QJsonDocument(configuration(profile, operation)).toJson(QJsonDocument::Compact);
-    if (config.size() > JC_MAX_INPUT) config.clear();
+    auto config = configurationBytes(profile, operation);
     QMetaObject::invokeMethod(pump, [this, id, config] { pump->start(id, config); }, Qt::QueuedConnection);
     return true;
+}
+ConnectionError EmbeddedCoreEngine::validateConfiguration(const ConnectionProfile &profile) {
+    auto &api = library();
+    if (!api.available) return ConnectionError::CORE_UNAVAILABLE;
+    auto bytes = configurationBytes(profile, Operation::Connect);
+    const int status = api.jc_config_validate(JC_ABI_VERSION,
+        reinterpret_cast<const uint8_t *>(bytes.constData()), uint32_t(bytes.size()));
+    bytes.fill('\0');
+    return connectionError(status);
 }
 void EmbeddedCoreEngine::stop() {
     if (!active || stopping) return;

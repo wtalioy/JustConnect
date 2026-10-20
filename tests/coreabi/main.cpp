@@ -24,7 +24,7 @@ extern "C" int32_t jc_c_header_smoke(uint32_t (*query)(void));
 static void check(bool ok, const char *message) {
     if (!ok) { std::cerr << "FAIL: " << message << '\n'; std::exit(1); }
 }
-#define ABI_FUNCTIONS(X) X(jc_abi_version) X(jc_build_info) X(jc_session_create) X(jc_session_start) \
+#define ABI_FUNCTIONS(X) X(jc_abi_version) X(jc_build_info) X(jc_config_validate) X(jc_session_create) X(jc_session_start) \
     X(jc_session_read) X(jc_session_respond) X(jc_session_stop) X(jc_session_destroy)
 struct API {
 #define MEMBER(name) decltype(&::name) name;
@@ -208,6 +208,17 @@ int main(int argc, char **argv) {
         {"server", QJsonObject{{"host", "127.0.0.1"}, {"port", failedPort}}},
         {"auth", QJsonObject{{"password", "private-password"}}}}).toJson(QJsonDocument::Compact);
     const std::string config(configBytes.constData(), static_cast<size_t>(configBytes.size()));
+    const auto *configInput = reinterpret_cast<const uint8_t *>(config.data());
+    check(api.jc_config_validate(JC_ABI_VERSION + 1, configInput, uint32_t(config.size())) == JC_ABI_MISMATCH, "validate ABI mismatch");
+    check(api.jc_config_validate(JC_ABI_VERSION, nullptr, 1) == JC_INVALID_ARGUMENT, "validate null input");
+    check(api.jc_config_validate(JC_ABI_VERSION, configInput, JC_MAX_INPUT + 1) == JC_INVALID_ARGUMENT, "validate input size limit");
+    const std::string invalidConfig = R"({"schema_version":1,"server":{"host":"localhost","port":443},"extra_arguments":"-foo"})";
+    check(api.jc_config_validate(JC_ABI_VERSION, reinterpret_cast<const uint8_t *>(invalidConfig.data()), uint32_t(invalidConfig.size())) == JC_INVALID_ARGUMENT, "validate rejects unknown fields");
+    std::vector<uint64_t> idleHandles(JC_MAX_HANDLES);
+    for (auto &h : idleHandles) check(api.jc_session_create(JC_ABI_VERSION, &h) == JC_OK, "reserve idle handles before pure validation");
+    for (int i = 0; i < 32; ++i)
+        check(api.jc_config_validate(JC_ABI_VERSION, configInput, uint32_t(config.size())) == JC_OK, "validation needs no session or active slot");
+    for (auto h : idleHandles) check(api.jc_session_destroy(h, 1000) == JC_OK, "validation leaves idle handles intact");
     for (int round = 0; round < 257; ++round) {
         uint64_t handle = 0, generation = 99;
         check(api.jc_session_create(JC_ABI_VERSION, &handle) == JC_OK && handle != 0, "create");

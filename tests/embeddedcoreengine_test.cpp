@@ -92,6 +92,7 @@ int main(int argc, char **argv) {
         until([&] { return finished == i + 1; });
     }
 #endif
+    check(EmbeddedCoreEngine::validateConfiguration(profile) == ConnectionError::NONE, "pure Qt configuration validation");
     for (int i = 0; i < 5; ++i) {
         auto invalid = profile;
         switch (i) {
@@ -101,6 +102,7 @@ int main(int argc, char **argv) {
         case 3: invalid.proxy.socksBind = "0.0.0.0:1080"; break;
         case 4: invalid.endpoint.port = 0; break;
         }
+        check(EmbeddedCoreEngine::validateConfiguration(invalid) == ConnectionError::INVALID_CONFIGURATION, "saving and starting share strict configuration rules");
         const int before = finished;
         check(engine.start(invalid), "invalid configuration is reported asynchronously");
         until([&] { return finished == before + 1; });

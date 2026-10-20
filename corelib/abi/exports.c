@@ -7,6 +7,9 @@ uint32_t jc_abi_version(void) { return jc_go_abi_version(); }
 int32_t jc_build_info(uint32_t abi, uint8_t *out, uint32_t cap, uint32_t *len) {
     return jc_go_build_info(abi, out, cap, len);
 }
+int32_t jc_config_validate(uint32_t abi, const uint8_t *in, uint32_t len) {
+    return jc_go_config_validate(abi, (uint8_t *)in, len);
+}
 int32_t jc_session_create(uint32_t abi, uint64_t *handle) {
     return jc_go_session_create(abi, handle);
 }
