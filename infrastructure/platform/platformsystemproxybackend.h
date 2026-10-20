@@ -1,7 +1,7 @@
 #pragma once
 #include "application/systemproxybackend.h"
 #ifdef Q_OS_WIN
-#include "windowsproxyapi.h"
+#include "windows/proxyapi.h"
 #else
 #include "platformcommand.h"
 #endif

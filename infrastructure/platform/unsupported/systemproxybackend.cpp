@@ -1,4 +1,4 @@
-#include "platformsystemproxybackend.h"
+#include "infrastructure/platform/platformsystemproxybackend.h"
 SystemProxyCheck PlatformSystemProxyBackend::check(const SystemProxyConfig &) {
     return {{PlatformOperationResult::Status::Unsupported, "System proxy is unsupported on this platform"}, false};
 }

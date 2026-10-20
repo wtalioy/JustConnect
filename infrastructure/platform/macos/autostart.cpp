@@ -1,4 +1,4 @@
-#include "autostartcommon.h"
+#include "infrastructure/platform/autostartcommon.h"
 #include <QDir>
 
 namespace {

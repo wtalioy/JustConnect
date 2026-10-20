@@ -1,5 +1,5 @@
-#include "platformsystemproxybackend.h"
-#include "proxyvalidation.h"
+#include "infrastructure/platform/platformsystemproxybackend.h"
+#include "infrastructure/platform/proxyvalidation.h"
 #include <QMap>
 
 namespace {
