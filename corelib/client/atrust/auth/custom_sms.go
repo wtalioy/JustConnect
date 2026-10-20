@@ -18,7 +18,6 @@ func (s *Session) completeCustomSMS() (authStep, error) {
 
 	challenge := authchallenge.CodeChallenge{
 		Kind:                 authchallenge.CodeSMS,
-		Message:              "Please enter the SMS verification code:",
 		CanSkipSecondaryAuth: true,
 	}
 	response, err := s.challengeHandler.HandleCodeChallenge(challenge)
