@@ -4,6 +4,7 @@
 #include <QDialog>
 #include <QUrl>
 #include <QString>
+#include "core/connectionprofile.h"
 
 namespace Ui
 {
@@ -15,22 +16,23 @@ class SsoLoginWebView : public QDialog
     Q_OBJECT
 
 public:
-    explicit SsoLoginWebView(QWidget *parent = nullptr);
+    explicit SsoLoginWebView(QWidget *parent,const QUrl &callback,const TlsOptions &tls={});
     ~SsoLoginWebView() override;
 
     void setInitialUrl(const QUrl &url);
-    void setCallbackUrl(const QUrl &url);
 
 signals:
     void loginCompleted(const QString &url);
 
 private:
     void setupConnections();
+    void showNavigationError();
     bool isCallbackUrl(const QUrl &url) const;
     bool isAllowedUrl(const QUrl &url) const;
 
     Ui::SsoLoginWebView *ui;
-    QUrl callbackUrl;
+    const QUrl callbackUrl;
+    const TlsOptions tls;
     bool loginCompletedEmitted = false;
 };
 

@@ -1,6 +1,7 @@
 #pragma once
 #include <QString>
 #include <QJsonArray>
+#include <QMetaType>
 
 struct ConnectionCredentials { QString username, password, totpSecret; };
 struct ConnectionEndpoint {
@@ -29,3 +30,5 @@ struct ConnectionProfile {
     }
 
 };
+
+Q_DECLARE_METATYPE(TlsOptions)

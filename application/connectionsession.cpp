@@ -11,12 +11,12 @@ ConnectionSession::ConnectionSession(CoreEngine *coreEngine, QObject *parent)
         if (sessionState.state() != ConnectionState::Starting) return;
         pendingAuthentication = request;
         responseAction.clear();
-        emit authenticationRequired(request, serverUrl());
+        emit authenticationRequired(request, serverUrl(),currentProfile.tls);
     });
     connect(coreEngine, &CoreEngine::responseRejected, this, [this] {
         responseAction.clear();
         if (!pendingAuthentication.isEmpty() && sessionState.state() == ConnectionState::Starting)
-            emit authenticationRequired(pendingAuthentication, serverUrl());
+            emit authenticationRequired(pendingAuthentication, serverUrl(),currentProfile.tls);
     });
     connect(coreEngine, &CoreEngine::responseAccepted, this, [this] {
         if (responseAction == "cancel") stop();

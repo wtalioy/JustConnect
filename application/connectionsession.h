@@ -26,7 +26,7 @@ public:
 signals:
     void stateChanged(ConnectionState state);
     void diagnostic(const QString &code);
-    void authenticationRequired(const QJsonObject &request, const QUrl &callbackServer);
+    void authenticationRequired(const QJsonObject &request, const QUrl &callbackServer,const TlsOptions &tls);
     void reconnectScheduled(int delayMs);
     void finished(ConnectionError error);
 
