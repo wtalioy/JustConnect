@@ -38,15 +38,15 @@ S1-03 后按调用关系删除了 EasyConnect 协议及其三份专属测试，�
 python scripts/test-corelib.py
 ```
 
-入口检查单一模块、固定工具链、没有远程上游核心依赖、Go 模块校验及构建；验证后要求 `go.mod/go.sum` 不变。按 `go list` 的实际包集合运行限定离线基线（含无测试包），其中 JustConnect 的 `module_test.go` 通过注入 dialer 访问回环 TLS 网关，验证迁移后的真实 aTrust 清单读取与 HTTP 失败传播，不访问校园网或创建 TUN。此测试不代表正式 C ABI、认证、生产 TLS 策略或网络转发已经验收。
+入口检查单一模块、固定工具链、没有远程上游核心依赖、Go 模块校验及构建；验证后要求 `go.mod/go.sum` 不变。按 `go list` 的实际包集合运行完整离线测试（含无测试包），其中 JustConnect 的 `module_test.go` 通过注入 dialer 访问回环 TLS 网关，验证迁移后的真实 aTrust 清单读取与 HTTP 失败传播，不访问校园网或创建 TUN。此测试不代表正式 C ABI、认证、生产 TLS 策略或网络转发已经验收。
 
-**认证包测试仍受阻，不能记录为通过。** 上游 `client/atrust/auth/session_context_test.go:28` 调用了不存在的 `Session.do`。验证入口单独编译这个测试包，只有仍为该条已知诊断时才标为 `BLOCKED`；出现新诊断或该缺陷消失都会失败，要求修复新问题或移除例外，不任意忽略测试失败。全部相关测试原样保留。可直接复现完整套件的现状：
+S1-07 修复了原始认证测试的错误方法名及 `Session.request` 覆盖调用者 context 的缺陷。请求和认证会话任一取消均中断 HTTP 操作，包括响应体读取；完整认证测试已恢复，验证入口不再存在已知失败例外。可独立运行：
 
 ```sh
 go -C corelib test -timeout 60s ./...
 ```
 
-计划已记录：修正测试调用后还会暴露 `TestRefreshCancellation` 的真实上下文缺陷，`Session.request` 当前覆盖请求自带的取消上下文。这些在 S1-07 修复并恢复认证包测试，再实施依赖它们的会话接入。源码中现有的致命退出、全局状态和认证 TLS 默认行为也不能直接当作可嵌入的安全会话；它们仍按 S1-07、S2-03 的边界收敛。
+会话生命周期、致命退出及全局资源仍在 S1-07 接续收敛，TLS 生产策略按 S2-03 验收。
 
 导入代码 `1611e9c` 已通过来源核对及原 23 包的 Linux 限定基线，并验证新增认证编译错误不会被已知缺陷例外掩盖。[首次推送 CI](https://github.com/wtalioy/JustConnect/actions/runs/39279301877)的 Linux、macOS 限定基线及应用测试通过，Windows 因两处 Unix 权限断言失败；`197ea01` 已修正断言平台范围。2026-10-20 进一步实测发现 Windows 仍保留继承／已有 ACL，现已在共享文件入口修复。本机 Linux 的 24 包限定基线、Windows x64 的 17 个离线测试程序实际运行通过。修复提交 `f9b4111` 的[三平台 CI](https://github.com/wtalioy/JustConnect/actions/runs/39284985278)全部成功：Windows、Linux、macOS 均通过模块及依赖锁校验、全部源码构建、24 包限定离线基线与各 16 项应用测试；Windows ACL 回归也通过 CI。S1-05 源码整合已验收，认证包仍按上述 S1-07 缺陷单独标为受阻，不能把限定基线描述为完整认证套件通过。
 
