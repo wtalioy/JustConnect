@@ -28,7 +28,7 @@ S1-05 迁移模块及 Go 导入路径、固定工具链、通过 `go mod tidy`�
 
 S1-03 后按调用关系删除了 EasyConnect 协议及其三份专属测试，移除通用 gVisor 栈对 EasyConnect 错误类型和进程退出的依赖；aTrust 的数据面与回归保留。删除无调用方的旧 CLI 初始化注册表、`configs` 配置及默认值测试，包括写死校园 resolver 文件的初始化操作。macOS TUN 仍调用的 DNS 方法保留在 `internal/hook_func/dns_darwin.go`；在正式会话清理替代前仍保留有调用方的终止钩子。
 
-`go mod tidy` 删除 etree、utls、gopsutil 及仅由它们引入的依赖，其他协议依赖未升级。gVisor 入站包的较弱前缀断言测试已由完整字节相等、排除未读容量的现有用例覆盖，删除重复用例。`client/underlay_api_test.go` 继续从包外验证 aTrust 接受注入 dialer。CLI 认证处理器仍有 aTrust 的缺省调用方，其源码与取消测试保留到 S1-07 显式宿主认证接管时一并处理；不能只删测试或删除调用方仍依赖的实现。
+`go mod tidy` 删除 etree、utls、gopsutil 及仅由它们引入的依赖，其他协议依赖未升级。gVisor 入站包的较弱前缀断言测试已由完整字节相等、排除未读容量的现有用例覆盖，删除重复用例。aTrust 的 dialer 注入由选项映射及 `SetupContext` 的实际取消回归覆盖，已移除仅断言构造结果非空的旧 API 冒烟测试。CLI 认证处理器仍有 aTrust 的缺省调用方，其源码与取消测试保留到 S1-07 显式宿主认证接管时一并处理；不能只删测试或删除调用方仍依赖的实现。
 
 ## 离线验证与已有缺陷
 

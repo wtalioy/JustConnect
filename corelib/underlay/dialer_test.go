@@ -14,19 +14,6 @@ import (
 	"github.com/miekg/dns"
 )
 
-func TestNewManualInterfaceTakesPrecedence(t *testing.T) {
-	dialer, err := New(Options{
-		InterfaceName: "manual-interface",
-		AutoDetect:    true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := dialer.InterfaceName(); got != "manual-interface" {
-		t.Fatalf("InterfaceName() = %q, want %q", got, "manual-interface")
-	}
-}
-
 func TestNewAutoDetectDisabled(t *testing.T) {
 	dialer, err := New(Options{AutoDetect: false})
 	if err != nil {
@@ -184,7 +171,10 @@ func TestDialContextDoesNotReplaceManualInterface(t *testing.T) {
 		return "new-interface"
 	}
 	wantErr := errors.New("manual interface failed")
-	dialOnInterface = func(_ context.Context, _, _, _, _ string) (net.Conn, error) {
+	dialOnInterface = func(_ context.Context, _, _, iface, _ string) (net.Conn, error) {
+		if iface != "manual-interface" {
+			t.Errorf("dial interface = %q, want manual-interface", iface)
+		}
 		return nil, wantErr
 	}
 

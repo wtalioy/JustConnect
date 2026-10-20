@@ -550,32 +550,6 @@ func TestEncodeTCPTunnelDestinationTruncatesDomainLengthByte(t *testing.T) {
 	}
 }
 
-func TestWaitForTCPConnectHandlesSplitResponse(t *testing.T) {
-	client, server := net.Pipe()
-	defer client.Close()
-	defer server.Close()
-
-	serverErrCh := make(chan error, 1)
-	go func() {
-		responseJSON := []byte(`{"code":0,"message":"Successful"}`)
-		response := append([]byte{0x05, 0x81, 0x53, 0x00, 0x00, byte(len(responseJSON))}, responseJSON...)
-		response = append(response, 0x05, 0x00, 0x00, 0x01, 10, 0, 0, 1, 0x01, 0xBB)
-		for _, b := range response {
-			if _, err := server.Write([]byte{b}); err != nil {
-				serverErrCh <- err
-				return
-			}
-		}
-		serverErrCh <- nil
-	}()
-	if err := waitForTCPConnect(context.Background(), client, bufio.NewReader(client)); err != nil {
-		t.Fatal(err)
-	}
-	if err := <-serverErrCh; err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestWaitForTCPConnectRequiresExactlyOneServerHello(t *testing.T) {
 	responseJSON := []byte(`{"code":0,"message":"Successful"}`)
 	authResponse := append([]byte{0x53, 0x00, 0x00, byte(len(responseJSON))}, responseJSON...)
@@ -702,20 +676,20 @@ func runTCPConnectExchange(t *testing.T, status byte) error {
 
 	serverErrCh := make(chan error, 1)
 	go func() {
-		setupResponse := append([]byte{0x05, 0x81, 0x53, 0x00, 0x00, 0x21}, []byte(`{"code":0,"message":"Successful"}`)...)
-		for _, value := range setupResponse {
-			if _, err := server.Write([]byte{value}); err != nil {
-				serverErrCh <- err
-				return
-			}
-		}
+		responseJSON := []byte(`{"code":0,"message":"Successful"}`)
+		setupResponse := append([]byte{0x05, 0x81, 0x53, 0x00, byte(len(responseJSON) >> 8), byte(len(responseJSON))}, responseJSON...)
 
 		reply := []byte{0x05, status, 0x00, 0x01}
 		if status == 0x00 {
 			reply = append(reply, 10, 0, 0, 1, 0x1F, 0x90)
 		}
-		_, err := server.Write(reply)
-		serverErrCh <- err
+		for _, value := range append(setupResponse, reply...) {
+			if _, err := server.Write([]byte{value}); err != nil {
+				serverErrCh <- err
+				return
+			}
+		}
+		serverErrCh <- nil
 	}()
 
 	err := waitForTCPConnect(context.Background(), client, bufio.NewReader(client))

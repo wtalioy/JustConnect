@@ -42,19 +42,6 @@ func TestParseResourcePreservesMultipleRulesForDomain(t *testing.T) {
 	}
 }
 
-func TestParseResourcePreservesAddrPretendForDomain(t *testing.T) {
-	policy := []byte(`{"data":{"appList":{"data":{"appInfo":[{"apps":[{"ID":"tcp-app","NodeGroupID":"tcp-group","AccessModel":"L3VPN","addrPretend":true,"AddressList":[{"Protocol":"tcp","Port":"80","Host":"speedtest.zju.edu.cn"}]}]}]}}}}`)
-	c := &Client{}
-	if err := c.parseResource(policy); err != nil {
-		t.Fatalf("parseResource() error = %v", err)
-	}
-
-	resource, ok := client.MatchDomainResource(c.domainResources["speedtest.zju.edu.cn"], "tcp", 80)
-	if !ok || !resource.AddrPretend {
-		t.Fatalf("domain resource = (%#v, %t), want AddrPretend", resource, ok)
-	}
-}
-
 func TestParseResourceAddrPretendDefaultsTrueAndOnlyAcceptsBool(t *testing.T) {
 	for _, test := range []struct {
 		name  string
@@ -118,19 +105,6 @@ func TestParseResourcePreservesTCPPrefL3ForDomainAndResolvedIP(t *testing.T) {
 	ipResource, ok := c.resourceIndex.Match(net.ParseIP("10.0.0.42"), "tcp", 443)
 	if !ok || !ipResource.EnableTCPPrefL3 || ipResource.AppID != "l3-app" {
 		t.Fatalf("resolved IP resource = (%#v, %t), want l3-app TCP-prefers-L3", ipResource, ok)
-	}
-}
-
-func TestDomainTCPSelectionPrefersTCPTunnelResource(t *testing.T) {
-	resources := []client.DomainResource{
-		{PortMin: 443, PortMax: 443, Protocol: "tcp", AppID: "l3-app", EnableTCPPrefL3: true},
-		{PortMin: 443, PortMax: 443, Protocol: "tcp", AppID: "tcp-app"},
-	}
-	resource, ok := client.MatchDomainResourceWhere(resources, "tcp", 443, func(resource client.DomainResource) bool {
-		return !resource.EnableTCPPrefL3
-	})
-	if !ok || resource.AppID != "tcp-app" {
-		t.Fatalf("TCP tunnel domain match = (%#v, %t), want tcp-app", resource, ok)
 	}
 }
 
