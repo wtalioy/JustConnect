@@ -14,6 +14,7 @@ public:
     bool start(const ConnectionProfile &profile, Operation operation = Operation::Connect) override;
     void stop() override;
     void respond(const QJsonObject &response) override;
+    static ConnectionError validateConfiguration(const ConnectionProfile &profile);
     static QJsonObject buildInfo();
     static QJsonObject selfTest();
 

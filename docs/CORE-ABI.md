@@ -22,6 +22,7 @@ UTF-8 JSON 不带结尾 NUL。输入仅借用至调用返回，库在返回前�
 | --- | --- |
 | `jc_abi_version()` | 返回 ABI 版本 |
 | `jc_build_info(abi, output, capacity, length)` | 校验版本，返回构建来源和实际能力 JSON |
+| `jc_config_validate(abi, config, length)` | 使用启动时同一解析器作纯配置校验，不创建会话、不监听或联网；同样限制输入长度／未知字段 |
 | `jc_session_create(abi, handle)` | 校验版本，创建空闲句柄；保留数量受契约限制 |
 | `jc_session_start(handle, config, length, generation)` | 同步严格校验并复制配置，异步启动；返回代次 |
 | `jc_session_read(handle, wait_ms, output, capacity, length)` | 有界等待一个 FIFO 事件；容量不足可重试 |
@@ -37,7 +38,7 @@ UTF-8 JSON 不带结尾 NUL。输入仅借用至调用返回，库在返回前�
 
 ## JSON 配置
 
-ABI v1 与 JSON schema 版本同步。示例为隔离测试地址，运行配置由宿主提供：
+ABI v1 与 JSON schema 版本同步。S2-02 以兼容增补导出 `jc_config_validate`，不改变既有签名与 JSON 结构；应用同时检查版本和所需符号，缺失时明确报告核心不可用。示例为隔离测试地址，运行配置由宿主提供：
 
 ~~~json
 {

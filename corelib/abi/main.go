@@ -93,6 +93,20 @@ func jc_go_build_info(abi C.uint32_t, output *C.uint8_t, capacity C.uint32_t, le
 	return writeOutput(buildInfo(), output, capacity, length)
 }
 
+//export jc_go_config_validate
+func jc_go_config_validate(abi C.uint32_t, input *C.uint8_t, length C.uint32_t) C.int32_t {
+	if abi != bridge.ABIVersion {
+		return C.int32_t(bridge.ABIMismatch)
+	}
+	data, ok := inputBytes(input, length)
+	if !ok {
+		return C.int32_t(bridge.InvalidArgument)
+	}
+	_, status := bridge.ParseConfig(data)
+	clear(data)
+	return C.int32_t(status)
+}
+
 //export jc_go_session_create
 func jc_go_session_create(abi C.uint32_t, handle *C.uint64_t) C.int32_t {
 	if handle == nil {
