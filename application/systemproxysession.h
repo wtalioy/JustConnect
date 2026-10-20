@@ -54,6 +54,7 @@ private:
     Operation currentOperation = Operation::None;
     bool enabled = false;
     bool uncertain = false;
+    bool restoreRequested = false;
     void updateState(Operation operation, const PlatformOperationResult &result);
 };
 

@@ -56,7 +56,7 @@ ctest --test-dir build/coreabi -C Release -R coreabi_performance_test --output-o
 
 [Platform.cmake](../cmake/Platform.cmake) 按 `windows/`、`macos/`、`linux/`、`unsupported/` 子目录为代理和自启动选择源文件，基础设施只依赖 Qt Core，弹窗及结果文案在界面层。WinINet／RAS 每次检查原生返回值，模式、各协议端点、绕过项及通知均检查；手动模式不改写原有 PAC 地址。查询返回的字符串按 [Microsoft WinINet 文档](https://learn.microsoft.com/en-us/windows/win32/wininet/setting-and-retrieving-internet-options) 用 GlobalFree 释放。Unix 工具每条命令共享 5 秒启动／完成期限，检查正常退出和退出码，超时杀死并等待回收；这不是整个多步骤操作或退出流程的 5 秒保证。GNOME 与 KDE 分开处理；端点、认证模式及绕过项必须回读匹配，空输出不是有效空列表。
 
-系统代理端口取活动连接的监听快照，修改待用配置须重连后才影响监听；禁用 HTTP／SOCKS5 时不设置系统代理。冲突查询和确认结果按连接代次隔离，新会话等待前次代理操作结束后发起新查询，旧结果不能替它设置代理；恢复失败保留清理责任并停止自动重试。
+系统代理端口取活动连接的监听快照，修改待用配置须重连后才影响监听；禁用 HTTP／SOCKS5 时不设置系统代理。冲突查询和确认结果按连接代次隔离，新会话等待前次代理操作结束后发起新查询，旧结果不能替它设置代理；恢复失败保留清理责任并停止自动重试。连接结束统一向 SystemProxySession 请求恢复；若应用仍在进行，则待原操作结果明确后串行恢复，期间保持忙状态。确认没有修改的失败不清除未知代理，恢复失败保留手动重试责任，退出消费同一请求。
 
 Windows 按连接保存与恢复状态，不在清除时重新枚举并关闭未知连接；模式恢复还要求端点及 PAC 地址仍属原记录。按 [WinINet 选项文档](https://learn.microsoft.com/en-us/windows/win32/api/wininet/ns-wininet-internet_per_conn_optionw)以 `FLAGS_UI` 查询模式、以 `FLAGS` 设置模式。真实写入回归仅由 `GITHUB_ACTIONS=true` 的临时 runner 注册执行，限定 LAN，保留并恢复 runner 基线；普通本地测试仅使用原生只读查询和失败夹具。
 

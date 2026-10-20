@@ -4,6 +4,7 @@
 #include <QCoreApplication>
 #include <QDebug>
 #include <QElapsedTimer>
+#include <QList>
 #include <QSemaphore>
 #include <QThread>
 
@@ -89,7 +90,7 @@ bool delegatesPlatformOperationsAsynchronouslyAndTracksOwnedState()
         || !fake->operationStarted.tryAcquire(1, 1000)
         || !session.isBusy()
         || session.isEnabled()
-        || session.disable())
+        || session.checkConflict(config))
     {
         qCritical() << "delegatesPlatformOperationsAsynchronouslyAndTracksOwnedState failed while enabling";
         return false;
@@ -146,6 +147,7 @@ bool delegatesPlatformOperationsAsynchronouslyAndTracksOwnedState()
         qCritical() << "clearBeforeShutdown failed to start enable";
         return false;
     }
+    if(!session.disable()) {fake->allowOperationToFinish.release();return false;}
     fake->allowOperationToFinish.release();
     session.clearBeforeShutdown();
     if (session.isBusy()
@@ -156,6 +158,47 @@ bool delegatesPlatformOperationsAsynchronouslyAndTracksOwnedState()
         qCritical() << "clearBeforeShutdown must clear an in-flight enable";
         return false;
     }
+    return true;
+}
+
+bool restoresPendingOperationsOnce()
+{
+    using Status=PlatformOperationResult::Status;
+    for (int outcome : {0,1,2}) {
+        auto backend=std::make_unique<FakeSystemProxyBackend>();auto *fake=backend.get();
+        fake->applySucceeds=outcome==0;fake->failure={Status::PermissionDenied,"injected apply failure",outcome==1};
+        SystemProxySession session(std::move(backend));
+        int busy=0,idle=0;QList<Status> results;
+        QObject::connect(&session,&SystemProxySession::busyChanged,[&](bool value){value?++busy:++idle;});
+        QObject::connect(&session,&SystemProxySession::operationFinished,[&](bool,const PlatformOperationResult &result){results.append(result.status);});
+        if(!session.enable({1081,1080,{}}) || !fake->operationStarted.tryAcquire(1,1000))return false;
+        const bool requested=session.disable(),again=session.disable();
+        const bool held=session.isBusy() && fake->clearCalls==0;
+        fake->allowOperationToFinish.release();
+        if(!waitUntil([&]{return !session.isBusy();}) || !requested || !again || !held
+            || session.needsCleanup() || fake->applyCalls!=1 || fake->clearCalls!=(outcome==2?0:1)
+            || busy!=1 || idle!=1 || results.size()!=(outcome==2?1:2)
+            || results.front()!=(outcome==0?Status::Success:Status::PermissionDenied)
+            || (outcome!=2 && results.back()!=Status::Success)) {
+            qCritical()<<"pending apply must restore only its own changes, without an idle gap";return false;
+        }
+    }
+    auto backend=std::make_unique<FakeSystemProxyBackend>();auto *fake=backend.get();
+    fake->clearSucceeds=false;fake->failure={Status::PermissionDenied,"restore denied",true};
+    SystemProxySession session(std::move(backend));
+    if(!session.enable({1081,1080,{}}) || !fake->operationStarted.tryAcquire(1,1000))return false;
+    const bool requested=session.disable();fake->allowOperationToFinish.release();
+    if(!waitUntil([&]{return !session.isBusy();}) || !requested || !session.needsCleanup() || fake->clearCalls!=1)return false;
+    QCoreApplication::processEvents();
+    if(session.isBusy() || fake->clearCalls!=1)return false;
+    fake->clearSucceeds=true;
+    if(!session.disable() || !waitUntil([&]{return !session.isBusy();}) || session.needsCleanup() || fake->clearCalls!=2)return false;
+    session.checkConflict({1081,1080,{}});
+    if(session.disable() || !waitUntil([&]{return !session.isBusy();}) || fake->clearCalls!=2)return false;
+    session.enable({1081,1080,{}});fake->allowOperationToFinish.release();
+    if(!waitUntil([&]{return !session.isBusy();}) || !session.isEnabled())return false;
+    session.checkConflict({1081,1080,{}});
+    if(!session.disable() || !waitUntil([&]{return !session.isBusy();}) || session.needsCleanup() || fake->clearCalls!=3)return false;
     return true;
 }
 
@@ -196,5 +239,5 @@ bool reportsFailuresAndRetainsCleanupState()
 int main(int argc, char *argv[])
 {
     QCoreApplication app(argc, argv);
-    return delegatesPlatformOperationsAsynchronouslyAndTracksOwnedState() && reportsFailuresAndRetainsCleanupState() ? 0 : 1;
+    return restoresPendingOperationsOnce() && delegatesPlatformOperationsAsynchronouslyAndTracksOwnedState() && reportsFailuresAndRetainsCleanupState() ? 0 : 1;
 }
