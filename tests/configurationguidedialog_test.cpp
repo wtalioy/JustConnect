@@ -1,4 +1,5 @@
 #include <QApplication>
+#include <QAbstractButton>
 #include <QDebug>
 #include <QLineEdit>
 #include <QDir>
@@ -151,7 +152,7 @@ bool rejectsInvalidCoreSettingsAndFailedSaves(const QString &root)
     settings.setValue("OtherAccount/Ticket","retained-ticket");
     ConfigurationGuideDialog invalid(nullptr,&settings);
     lineEdit(invalid,"guideUsernameLineEdit")->setText("draft-user");
-    expectedMessage="配置无效"; messageShown=false;
+    expectedMessage="请检查服务器、认证方式及连接设置。配置未保存。"; messageShown=false;
     if (invalid.applyTo(settings) || !messageShown || settings.value("Credential/Username")!="retained-user"
         || settings.value("OtherAccount/Ticket")!="retained-ticket") return false;
     const auto blocked=root+"/blocked.ini";
@@ -164,7 +165,7 @@ bool rejectsInvalidCoreSettingsAndFailedSaves(const QString &root)
     failed.setValue("Credential/Password",QString::fromLatin1(QByteArray("fixture-password").toBase64()));
     ConfigurationGuideDialog dialog(nullptr,&failed); dialog.show();
     QMetaObject::invokeMethod(&dialog,"goNext"); QMetaObject::invokeMethod(&dialog,"goNext");
-    expectedMessage="保存设置失败"; messageShown=false;
+    expectedMessage="部分设置可能已保存，请检查后重试。"; messageShown=false;
     QMetaObject::invokeMethod(&dialog,"goNext");
     const bool passed=messageShown && dialog.isVisible() && dialog.result()!=QDialog::Accepted
         && failed.value("Common/ConfigVersion").toInt()==8;
@@ -179,10 +180,11 @@ int main(int argc, char *argv[])
     QTimer dismiss;
     QObject::connect(&dismiss,&QTimer::timeout,[] {
         for (auto *widget:QApplication::topLevelWidgets()) if (auto *message=qobject_cast<QMessageBox *>(widget)) {
-            if (expectedMessage.isEmpty() || message->windowTitle()!=expectedMessage) {
-                qCritical()<<"Unexpected guide message"<<message->windowTitle(); std::exit(1);
+            if (expectedMessage.isEmpty() || message->text()!=expectedMessage
+                || message->icon()!=QMessageBox::Warning || message->standardButtons()!=QMessageBox::Ok) {
+                qCritical()<<"Unexpected guide warning"<<message->text(); std::exit(1);
             }
-            messageShown=true; message->accept();
+            messageShown=true; message->button(QMessageBox::Ok)->click();
         }
     }); dismiss.start(1);
     QTemporaryDir directory;
