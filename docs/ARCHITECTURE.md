@@ -41,3 +41,5 @@ S2-03 将 TLS 信任策略收敛到会话配置，查询用例只复制端点与
 平台实现按 `infrastructure/platform/linux/`、`macos/`、`windows/` 归档，未支持平台的回退实现位于 `unsupported/`。外层保留公共端口适配声明、命令执行、代理校验和自启动共用规则；Windows 的原生代理 API 注入声明归 Windows 目录。`cmake/Platform.cmake` 只按目标系统选择对应目录，主应用与原生测试复用同一入口，调用方继续使用公共接口。
 
 系统凭据存储端口位于 `application/credentialstore.h`，提供有界不透明值的读／写／删和明确状态，平台工厂位于 `infrastructure/platform/systemcredentialstore.h`。`windows/credentialstore.cpp` 使用当前用户 Credential Manager，`macos/` 使用 Keychain，`linux/` 使用 Qt DBus 调用 Secret Service；锁定和权限状态不会被当作空凭据或成功。原生回归使用隔离条目／临时 Keychain／私有总线。安全迁移及界面接入仍在 S2-04 进行，应用旧配置中的凭据尚未因添加此端口自动迁移。
+
+`application/ProfileCredentials` 维护按配置命名空间、服务器／端口、完整认证身份、手机号和账户派生的存储键，以及有版本的密码／TOTP 记录。修改密码不改变键；网络／TLS 偏好不改变账户归属。迁移在来源身份改变之前运行，只有系统存储写入并回读一致后才能移除旧 INI 值；已有安全值与旧 INI 冲突时保留双方，不用旧值覆盖新值。旧 Cookie 文件缺少可靠账户绑定，只可验证后隔离保存，不自动投入登录。原生调用为同步边界，后续界面接入必须在工作线程串行调用并拒绝过期结果；此单元还未自动修改现有用户配置。
