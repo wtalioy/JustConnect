@@ -32,6 +32,24 @@ S1-03 的独立入口见 [CORE-ABI.md](CORE-ABI.md)。`corelib/abi/contract.json
 
 `tests/coreabi` 同时编译 C11／C++17 宿主，实际调用正式库及明确标记的认证测试驱动；新增 `coreabi_protocol_test` 用受控网关驱动正式 C 宿主完成认证、代理数据传输、停止与查询重启；Unix 使用静态库，Windows 使用固定随包 DLL。`Core ABI` 复用已有六组工具链执行该宿主、QThread／WebEngine 共存及 Go 回归，支持的平台执行 race；日志统一在 `build/coreabi/*.log` 并上传。Windows ARM64 的 Go race 不支持，普通 Go 和真实 FFI 检查仍必需通过。根应用及安装包使用相同的库构建入口和离线自检；旧下载文件删除由 S1-10 收尾。
 
+## aTrust 性能基线
+
+`tests/coreabi` 的 `coreabi_performance_test` 复用同一正式 C ABI／QApplication 宿主及受控 TLS 网关。按上述 SDK／Go 环境配置后执行：
+
+```sh
+cmake -S tests/coreabi -B build/coreabi -DCMAKE_BUILD_TYPE=Release
+cmake --build build/coreabi --config Release --parallel 3
+ctest --test-dir build/coreabi -C Release -R coreabi_performance_test --output-on-failure
+```
+
+输出 `build/coreabi/performance.json`，六组 Core ABI artifact 同时保存它和测试日志。普通 Go 套件没有原生宿主时明确跳过该集成用例，CTest 必须实际运行并验证网关计数、数据内容和生产库身份；缺少数据、超时或释放失败均导致失败。
+
+每个平台各运行正常节点和每次节点回应额外等待 5 ms 的慢节点。记录进程启动到 ABI 就绪的耗时、进程 CPU／墙钟时间、连接后 200 ms 空闲段 CPU、操作系统报告的峰值 RSS，以及每 5 次重连的峰值 RSS。每组完成 20 次实际短信认证、连接就绪、停止并重绑两个监听端口，最后取消一次等待用户输入的认证。节点探测的原有等待计入连接时间；峰值 RSS 是进程历史高水位，不能当成当前驻留量或证明没有泄漏。
+
+首轮通过 SOCKS 分别收发 TCP 64 KiB × 32、UDP 1200 B × 128，并各记录 16 次 32 B 往返；UDP 真实经过 gVisor 与 aTrust L3 的连接认证、数据分帧和校验和。吞吐按单个未完成回声请求的有效载荷计算，两向均逐字节验证。它是受控应用 goodput，受回声／TLS 分片／调度影响，不表示最大带宽。5 ms 是每次节点回应的等待，不是统一的网络 RTT；延迟场景验证传输和取消仍能完成，不引入跨硬件的性能通过阈值。
+
+六组安装包自检 JSON 另外记录 `size_bytes`（归档、去除符号链接的安装文件、宿主、Windows DLL）及 `offline_self_test_wall_ms`。后者是实际已安装应用的离线 ABI 自检耗时，包含进程启动和自检，不等同于主窗口／WebEngine 首屏时间。运行报告保留源码、工具链、Qt、平台／架构和逻辑 CPU 数；不同 CI 机器的数据只作为各自基线，不能直接归因于操作系统或库化。真实校园／生产 TLS、设备透明访问和长时间负载仍按计划单独验收。没有定位到可复现热点时，保留现有协议栈和依赖，不做推测性优化。
+
 ## 分支与 Actions
 
 - 日常开发使用 `develop`。每次推送到该分支，`Tests` 工作流在 Windows、macOS、Linux 上构建并验证固定核心、编译应用并运行 CTest，不打包、不发布。

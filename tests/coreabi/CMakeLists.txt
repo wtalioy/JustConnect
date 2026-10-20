@@ -46,5 +46,13 @@ add_test(NAME coreabi_protocol_test
 set_tests_properties(coreabi_protocol_test PROPERTIES TIMEOUT 90 WORKING_DIRECTORY "${CORE}"
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu")
 
+add_test(NAME coreabi_performance_test
+    COMMAND "${CMAKE_COMMAND}" -E env "JC_NATIVE_PROTOCOL_HOST=$<TARGET_FILE:coreabi_test>"
+        "JC_NATIVE_BASELINE_OUTPUT=${CMAKE_CURRENT_BINARY_DIR}/performance.json"
+        GOTOOLCHAIN=local GOWORK=off GOENV=off CGO_ENABLED=1 GOEXPERIMENT=cgocheck2
+        "${GO_EXECUTABLE}" test -mod=readonly -count=1 -timeout 120s -run "^TestNativePerformanceHost$" -v ./internal/bridge)
+set_tests_properties(coreabi_performance_test PROPERTIES TIMEOUT 150 WORKING_DIRECTORY "${CORE}"
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu")
+
 include("${REPO}/tests/CoreEngineTests.cmake")
 justconnect_core_ui_tests(coreabi_ui_test coreabi_engine coreabi)

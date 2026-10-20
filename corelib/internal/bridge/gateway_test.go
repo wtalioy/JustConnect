@@ -15,6 +15,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/wtalioy/JustConnect/corelib/internal/zctcpip"
 )
 
 // This gateway speaks the actual HTTP authentication and TCP/IP tunnel framing.
@@ -26,6 +28,8 @@ type gateway struct {
 	mu        sync.Mutex
 	closed    bool
 	conns     map[net.Conn]bool
+	udpCount  atomic.Int32
+	delay     atomic.Int64
 	tcpCount  atomic.Int32
 	authCount atomic.Int32
 	invalid   atomic.Bool
@@ -66,7 +70,7 @@ func newGateway(t *testing.T) *gateway {
 		case "/passport/v1/user/onlineInfo":
 			fmt.Fprint(w, `{"code":0,"data":{"username":"fixture-user"}}`)
 		case "/controller/v1/user/clientResource":
-			fmt.Fprintf(w, `{"data":{"appList":{"data":{"appInfo":[{"apps":[{"ID":"fixture-app","nodeGroupID":"fixture-group","accessModel":"L3VPN","addressList":[{"protocol":"tcp","port":"1-65535","host":"192.0.2.10"},{"protocol":"tcp","port":"1-65535","host":"campus.test","IP":["192.0.2.10"]}]}]}],"config":{"nodeGroupConf":{"majorNodeGroup":{"ID":"fixture-group"},"nodeGroupList":[{"ID":"fixture-group","addressInfo":[{"type":"wan","address":%q}]}]}}}}}}`, g.node.Addr().String())
+			fmt.Fprintf(w, `{"data":{"appList":{"data":{"appInfo":[{"apps":[{"ID":"fixture-app","nodeGroupID":"fixture-group","accessModel":"L3VPN","addressList":[{"protocol":"udp","port":"1-65535","host":"192.0.2.10"},{"protocol":"tcp","port":"1-65535","host":"192.0.2.10"},{"protocol":"tcp","port":"1-65535","host":"campus.test","IP":["192.0.2.10"]}]}]}],"config":{"nodeGroupConf":{"majorNodeGroup":{"ID":"fixture-group"},"nodeGroupList":[{"ID":"fixture-group","addressInfo":[{"type":"wan","address":%q}]}]}}}}}}`, g.node.Addr().String())
 		default:
 			t.Errorf("unexpected gateway route %s", r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
@@ -116,7 +120,7 @@ func newGateway(t *testing.T) *gateway {
 	return g
 }
 func (g *gateway) serveTunnel(conn net.Conn) {
-	_ = conn.SetDeadline(time.Now().Add(20 * time.Second))
+	_ = conn.SetDeadline(time.Now().Add(60 * time.Second))
 	header := make([]byte, 7)
 	if _, err := io.ReadFull(conn, header); err != nil {
 		return
@@ -160,7 +164,10 @@ func (g *gateway) serveTunnel(conn net.Conn) {
 		payload := []byte(`{"code":0}`)
 		response := append([]byte{5, 0xd0, 0x53, 0, 0, byte(len(payload))}, payload...)
 		response = append(response, 5, 0, 0x7f, 1, 10, 0, 0, 2, 0, 0)
-		_, _ = conn.Write(response)
+		time.Sleep(time.Duration(g.delay.Load()))
+		if _, err := conn.Write(response); err == nil {
+			g.serveL3(conn)
+		}
 		return
 	}
 	g.tcpCount.Add(1)
@@ -170,6 +177,7 @@ func (g *gateway) serveTunnel(conn net.Conn) {
 	}
 	response := append([]byte{5, 0x81, 0x53, 0, byte(len(payload) >> 8), byte(len(payload))}, payload...)
 	response = append(response, 5, 0, 0, 1, 10, 0, 0, 2, 0, 80)
+	time.Sleep(time.Duration(g.delay.Load()))
 	if _, err := conn.Write(response); err != nil {
 		return
 	}
@@ -186,6 +194,7 @@ func (g *gateway) serveTunnel(conn net.Conn) {
 		}
 		first = false
 		if n > 0 {
+			time.Sleep(time.Duration(g.delay.Load()))
 			if _, writeErr := conn.Write(buf[:n]); writeErr != nil {
 				return
 			}
@@ -298,4 +307,83 @@ func echo(t *testing.T, conn net.Conn) {
 		}
 	}
 	_ = conn.SetDeadline(time.Time{})
+}
+
+// L3 framing and UDP checksums match the production tunnel, with an echo endpoint.
+func (g *gateway) serveL3(conn net.Conn) {
+	for {
+		var header [2]byte
+		if _, err := io.ReadFull(conn, header[:]); err != nil || header[0] != 5 {
+			return
+		}
+		switch header[1] {
+		case 0x13, 0x15:
+			var length [2]byte
+			if _, err := io.ReadFull(conn, length[:]); err != nil {
+				return
+			}
+			data := make([]byte, int(binary.BigEndian.Uint16(length[:])))
+			if _, err := io.ReadFull(conn, data); err != nil {
+				return
+			}
+			response := []byte{5, 0x95, 0, 0}
+			if header[1] == 0x13 {
+				var request struct {
+					ConntrackHash uint64 `json:"conntrackHash"`
+				}
+				if json.Unmarshal(data, &request) != nil {
+					return
+				}
+				payload := []byte(fmt.Sprintf(`{"code":0,"data":{"conntrackHash":%d,"connectToken":"fixture-token"}}`, request.ConntrackHash))
+				response = append([]byte{5, 0x93, 0, byte(len(payload) >> 8), byte(len(payload))}, payload...)
+			}
+			time.Sleep(time.Duration(g.delay.Load()))
+			if _, err := conn.Write(response); err != nil {
+				return
+			}
+		case 0x14:
+			var tokenLength [1]byte
+			if _, err := io.ReadFull(conn, tokenLength[:]); err != nil {
+				return
+			}
+			tokenAndCount := make([]byte, int(tokenLength[0])+3)
+			if _, err := io.ReadFull(conn, tokenAndCount); err != nil {
+				return
+			}
+			for range int(tokenAndCount[len(tokenAndCount)-1]) {
+				var length [2]byte
+				if _, err := io.ReadFull(conn, length[:]); err != nil {
+					return
+				}
+				packet := make([]byte, int(binary.BigEndian.Uint16(length[:])))
+				if _, err := io.ReadFull(conn, packet); err != nil {
+					return
+				}
+				ip := zctcpip.IPv4Packet(packet)
+				if !ip.Valid() || ip.HeaderLen() < 20 || ip.Protocol() != zctcpip.UDP {
+					return
+				}
+				udp := zctcpip.UDPPacket(ip.Payload())
+				if !udp.Valid() || udp.Length() < 8 {
+					return
+				}
+				source, destination := ip.SourceIP(), ip.DestinationIP()
+				ip.SetSourceIP(destination)
+				ip.SetDestinationIP(source)
+				sourcePort, destinationPort := udp.SourcePort(), udp.DestinationPort()
+				udp.SetSourcePort(destinationPort)
+				udp.SetDestinationPort(sourcePort)
+				udp.ResetChecksum(ip.PseudoSum())
+				ip.ResetChecksum()
+				time.Sleep(time.Duration(g.delay.Load()))
+				response := append([]byte{5, 0x94, byte(len(packet) >> 8), byte(len(packet))}, packet...)
+				if _, err := conn.Write(response); err != nil {
+					return
+				}
+				g.udpCount.Add(1)
+			}
+		default:
+			return
+		}
+	}
 }
