@@ -160,7 +160,7 @@ func (e *Engine) execute(ctx context.Context, config Config, s *Session) {
 			status = Cancelled
 		}
 		switch status {
-		case OK, Timeout, Unsupported, Cancelled, Limit, Internal:
+		case OK, Timeout, Unsupported, Cancelled, Limit, Internal, AuthMethodChanged:
 		default:
 			status = Internal
 		}
@@ -401,7 +401,7 @@ func (s *Session) AuthMethods(methods []AuthMethod) Status {
 		return Limit
 	}
 	for _, m := range methods {
-		if len(m.Type) > MaxDomain || len(m.Domain) > MaxDomain || len(m.Name) > MaxAuthMethodName || len(m.LoginURL) > MaxURL {
+		if len(m.AuthID) > MaxDomain || len(m.SubType) > MaxDomain || len(m.Type) > MaxDomain || len(m.Domain) > MaxDomain || len(m.Name) > MaxAuthMethodName || len(m.LoginURL) > MaxURL {
 			return Limit
 		}
 	}

@@ -1,0 +1,20 @@
+{
+  "_provenance": {
+    "captured": "2026-10-20",
+    "source": "https://vpn.fudan.edu.cn/passport/v1/public/authConfig",
+    "verification": "HTTPS certificate verification enabled; public metadata only, no login",
+    "redactions": "Only method metadata retained; login URL query and all session/security fields omitted"
+  },
+  "code": 0,
+  "data": {
+    "isLogin": 0,
+    "authServerInfoList": [{
+      "authType": "auth/httpsOauth2",
+      "authName": "Fudan UIS",
+      "loginDomain": "id.fudan.edu.cn",
+      "authId": "29531010-5b0c-11f0-91ce-774b05826354",
+      "subType": "https",
+      "loginUrl": "https://id.fudan.edu.cn:443/idp/authCenter/authenticate"
+    }]
+  }
+}

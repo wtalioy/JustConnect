@@ -33,7 +33,7 @@ func TestProtocolQueryProxyStopAndRestart(t *testing.T) {
 	}
 	next(t, e, h)
 	methods := next(t, e, h)
-	if methods.Type != "auth_methods" || len(methods.Methods) != 1 || methods.Methods[0].Type != "auth/smsCheckCode" {
+	if methods.Type != "auth_methods" || len(methods.Methods) != 1 || (methods.Methods[0].Type != "auth/smsCheckCode" || methods.Methods[0].AuthID != "fixture-primary" || methods.Methods[0].SubType != "sms") {
 		t.Fatalf("methods = %+v", methods)
 	}
 	if ev := next(t, e, h); ev.Type != "terminal" || ev.Status != OK {
@@ -239,4 +239,25 @@ func TestNativeProtocolHost(t *testing.T) {
 		t.Fatalf("missing actual protocol exchanges: auth=%d TCP=%d\n%s", g.authCount.Load(), g.tcpCount.Load(), output)
 	}
 	t.Log(string(output))
+}
+
+func TestStaleAuthenticationIdentityReportsRequeryWithoutLogin(t *testing.T) {
+	g := newGateway(t)
+	e := New(RunProtocol)
+	h := create(t, e)
+	config := g.config(t)
+	config.Auth.AuthID = "no-longer-present"
+	config.Auth.SubType = "sms"
+	if _, status := e.Start(h, configBytes(t, config)); status != OK {
+		t.Fatal(status)
+	}
+	if ev := next(t, e, h); ev.State != "starting" {
+		t.Fatal(ev)
+	}
+	if ev := next(t, e, h); ev.Type != "terminal" || ev.Status != AuthMethodChanged {
+		t.Fatalf("stale identity: %+v", ev)
+	}
+	if g.authCount.Load() != 0 {
+		t.Fatal("stale selection must not attempt login")
+	}
 }

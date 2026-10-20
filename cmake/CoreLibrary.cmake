@@ -114,6 +114,7 @@ endfunction()
 
 function(justconnect_core_engine TARGET LIBRARY)
     add_library(${TARGET} STATIC "${REPO}/application/coreengine.h"
+        "${REPO}/application/authmethodsquery.cpp"
         "${REPO}/infrastructure/coreengine/embeddedcoreengine.cpp")
     set_target_properties(${TARGET} PROPERTIES AUTOMOC ON)
     target_include_directories(${TARGET} PUBLIC "${REPO}")

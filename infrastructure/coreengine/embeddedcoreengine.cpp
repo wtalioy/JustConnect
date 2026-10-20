@@ -37,7 +37,7 @@ QJsonObject configuration(const ConnectionProfile &p, CoreEngine::Operation oper
     return {{"schema_version", int(JC_ABI_VERSION)},
         {"operation", operation == CoreEngine::Operation::AuthMethods ? "auth_methods" : "connect"},
         {"server", QJsonObject{{"host", p.endpoint.server}, {"port", p.endpoint.port}}},
-        {"auth", QJsonObject{{"method", p.endpoint.authType.isEmpty() ? QString() : "auth/" + p.endpoint.authType},
+        {"auth", QJsonObject{{"auth_id",p.endpoint.authId},{"sub_type",p.endpoint.authSubType},{"method", p.endpoint.authType.isEmpty() ? QString() : "auth/" + p.endpoint.authType},
             {"username", p.credentials.username}, {"password", p.credentials.password},
             {"phone", p.endpoint.phone}, {"domain", p.endpoint.loginDomain}, {"totp_secret", p.credentials.totpSecret}}},
         {"listeners", QJsonObject{{"socks", p.proxy.socksBind}, {"http", p.proxy.httpBind}}},
@@ -52,6 +52,7 @@ QByteArray configurationBytes(const ConnectionProfile &profile, CoreEngine::Oper
 }
 ConnectionError connectionError(int status) {
     if (status == JC_OK || status == JC_CANCELLED) return ConnectionError::NONE;
+    if (status == JC_AUTH_METHOD_CHANGED) return ConnectionError::AUTHENTICATION_CHANGED;
     if (status == JC_INVALID_ARGUMENT) return ConnectionError::INVALID_CONFIGURATION;
     if (status == JC_UNSUPPORTED || status == JC_ABI_MISMATCH) return ConnectionError::CORE_UNAVAILABLE;
     return ConnectionError::CLIENT_FAILED;

@@ -50,7 +50,7 @@ func newGateway(t *testing.T) *gateway {
 				fmt.Fprint(w, `{"code":10000004}`)
 				return
 			}
-			fmt.Fprint(w, `{"code":0,"data":{"isLogin":0,"authServerInfoList":[{"authType":"auth/smsCheckCode","authName":"Fixture SMS","loginDomain":"fixture"}]}}`)
+			fmt.Fprint(w, `{"code":0,"data":{"isLogin":0,"authServerInfoList":[{"authType":"auth/smsCheckCode","authName":"Fixture SMS","loginDomain":"fixture","authId":"fixture-primary","subType":"sms"}]}}`)
 		case "/passport/v1/public/sendSms":
 			fmt.Fprint(w, `{"code":0,"data":{}}`)
 		case "/passport/v1/auth/smsCheckCode":

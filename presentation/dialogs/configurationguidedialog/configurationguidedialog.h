@@ -3,6 +3,7 @@
 
 #include <QDialog>
 #include <QString>
+#include <QJsonObject>
 
 class QLabel;
 class QLineEdit;
@@ -44,11 +45,7 @@ private:
 
     void updateCredentialsPage();
 
-    void selectAuthenticationMethod(
-        const QString &authType,
-        const QString &loginDomain,
-        const QString &loginUrl
-    );
+    void selectAuthenticationMethod(const QJsonObject &method);
 
     QString authenticationMethodName(const QString &authType) const;
 
@@ -76,6 +73,7 @@ private:
     QString selectedAuthType;
     QString selectedLoginDomain;
     QString selectedLoginUrl;
+    QString selectedAuthId, selectedAuthSubType;
 };
 
 #endif // CONFIGURATIONGUIDEDIALOG_H

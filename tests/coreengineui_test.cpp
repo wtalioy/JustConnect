@@ -174,37 +174,58 @@ static void uiContracts() {
     }
     auto *fake = new QueryEngine;
     auto *query = new AuthInfoWindow(&parent, fake);
-    query->fetchAuthInfo("vpn.example.invalid", 8443);
-    check(fake->operation == CoreEngine::Operation::AuthMethods && fake->profile.endpoint.port == 8443,
+    ConnectionProfile queryProfile; queryProfile.endpoint.server="vpn.example.invalid"; queryProfile.endpoint.port=8443;
+    queryProfile.credentials.password="must-not-be-queried";
+    query->fetchAuthInfo(queryProfile);
+    check(fake->operation == CoreEngine::Operation::AuthMethods && fake->profile.endpoint.port == 8443 && fake->profile.credentials.password.isEmpty(),
         "query uses the engine port and configured server");
     emit fake->authMethodsReady({QJsonObject{{"type", "auth/cas"}, {"domain", "campus"}, {"name", "校园登录"}, {"login_url", "https://vpn.example.invalid/login"}}});
     auto *list = query->findChild<QListWidget *>();
-    check(list->count() == 1, "structured methods populate the list");
+    check(list->count() == 0, "query results are buffered until cleanup succeeds");
     bool selected = false;
-    QObject::connect(query, &AuthInfoWindow::finishAuthInfo, [&](const QString &type, const QString &domain, const QString &url) {
-        selected = type == "auth/cas" && domain == "campus" && url == "https://vpn.example.invalid/login";
+    QObject::connect(query, &AuthInfoWindow::finishAuthInfo, [&](const QJsonObject &method) {
+        selected = method["type"] == "auth/cas" && method["domain"] == "campus" && method["login_url"] == "https://vpn.example.invalid/login";
     });
-    list->setCurrentRow(0);
     auto *ok = query->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok);
     check(!ok->isEnabled(), "method selection waits for query cleanup before releasing the global slot");
     emit fake->finished(ConnectionError::NONE);
+    check(list->count()==1,"successful query delivers its methods");
+    list->setCurrentRow(0);
     check(ok->isEnabled(), "completed query can be selected");
     query->accept();
-    check(selected && fake->stops == 1, "selection preserves all method fields and cancels the query lifetime");
+    check(selected, "selection preserves all method fields");
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     auto *fudanEngine = new QueryEngine;
     auto *fudan = new AuthInfoWindow(&parent,fudanEngine);
-    fudan->fetchAuthInfo("configured.example.invalid",443,true);
+    queryProfile.endpoint.server="configured.example.invalid"; queryProfile.endpoint.port=443;
+    fudan->fetchAuthInfo(queryProfile,true);
     emit fudanEngine->authMethodsReady({
         QJsonObject{{"type","auth/psw"},{"name","Password"}},
         QJsonObject{{"type","auth/httpsOauth2"},{"name","Other OAuth2"},{"domain","other"}},
-        QJsonObject{{"type","auth/httpsOauth2"},{"name","Fudan UIS"},{"domain","returned-domain"},{"login_url","https://returned.example.invalid/uis"}}
+        QJsonObject{{"type","auth/httpsOauth2"},{"name","Fudan UIS"},{"auth_id","selected-opaque-id"},{"sub_type","https"},{"domain","returned-domain"},{"login_url","https://returned.example.invalid/uis"}}
     });
-    auto *preferred=fudan->findChild<QListWidget *>()->currentItem();
-    check(preferred && preferred->data(Qt::UserRole+1)=="returned-domain" && preferred->data(Qt::UserRole+2)=="https://returned.example.invalid/uis","Fudan prefers returned UIS OAuth2 without hardcoded domain or URL");
-    check(!fudan->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->isEnabled(),"preferred method still waits for query cleanup");
+    check(fudan->findChild<QListWidget *>()->count()==0,"preferred query also waits for terminal cleanup");
     emit fudanEngine->finished(ConnectionError::NONE);
+    auto *preferred=fudan->findChild<QListWidget *>()->currentItem();
+    const auto choice=preferred ? preferred->data(Qt::UserRole).toJsonObject() : QJsonObject{};
+    check(choice["domain"]=="returned-domain" && choice["login_url"]=="https://returned.example.invalid/uis"
+        && choice["auth_id"]=="selected-opaque-id" && choice["sub_type"]=="https","Fudan selection retains complete returned identity");
     fudan->reject(); QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    auto *cancelEngine=new QueryEngine;
+    auto *cancelled=new AuthInfoWindow(&parent,cancelEngine);
+    cancelled->fetchAuthInfo(queryProfile); cancelled->reject();
+    emit cancelEngine->authMethodsReady({QJsonObject{{"type","auth/psw"},{"domain","late"}}});
+    emit cancelEngine->finished(ConnectionError::NONE);
+    check(cancelled->findChild<QListWidget *>()->count()==0,"closed query rejects late results");
+    QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    auto *failedEngine=new QueryEngine;
+    auto *failed=new AuthInfoWindow(&parent,failedEngine);
+    failed->fetchAuthInfo(queryProfile);
+    emit failedEngine->authMethodsReady({QJsonObject{{"type","auth/psw"}}});
+    emit failedEngine->finished(ConnectionError::CLIENT_FAILED);
+    check(failed->findChild<QListWidget *>()->count()==0 && !failed->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->isEnabled(),"failed cleanup discards partial query results");
+    failed->reject(); QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+
 }
 static void gateway(const QJsonObject &config) {
     QWidget parent;
@@ -225,12 +246,14 @@ static void gateway(const QJsonObject &config) {
     auto *queryWindow = new AuthInfoWindow(&parent);
     bool selected = false;
     QObject::connect(queryWindow, &AuthInfoWindow::finishAuthInfo,
-        [&](const QString &type, const QString &domain, const QString &) {
-            p.endpoint.authType = type.mid(QString("auth/").size());
-            p.endpoint.loginDomain = domain;
-            selected = type == "auth/smsCheckCode" && domain == "fixture";
+        [&](const QJsonObject &method) {
+            p.endpoint.authType = method["type"].toString().mid(QString("auth/").size());
+            p.endpoint.loginDomain = method["domain"].toString();
+            p.endpoint.authId=method["auth_id"].toString(); p.endpoint.authSubType=method["sub_type"].toString();
+            selected = method["type"] == "auth/smsCheckCode" && method["domain"] == "fixture"
+                && p.endpoint.authId=="fixture-primary" && p.endpoint.authSubType=="sms";
         });
-    queryWindow->fetchAuthInfo(p.endpoint.server, p.endpoint.port);
+    queryWindow->fetchAuthInfo(p);
     queryWindow->show();
     auto *methodsList = queryWindow->findChild<QListWidget *>();
     until([&] { return methodsList->count() != 0; });

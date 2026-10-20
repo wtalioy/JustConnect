@@ -51,9 +51,9 @@ ABI v1 与 JSON schema 版本同步。S2-02 以兼容增补导出 `jc_config_val
 }
 ~~~
 
-`schema_version/server.host/server.port` 必填。host 是 ASCII DNS 名或 IP，不是 URL／带端口地址，端口显式指定。其他字段可省略；`auth` 还接受 `phone/domain/totp_secret`，method 支持空值（按用户名／密码或手机号推导）、`auth/psw`、`auth/smsCheckCode`、`auth/cas`、`auth/httpsOauth2`。listener 空值不启用；非空必须是回环 IP:port。没有 CLI 附加参数、默认学校、TUN、路由／DNS 修改、跳过 TLS 或原始调试输出开关。
+`schema_version/server.host/server.port` 必填。host 是 ASCII DNS 名或 IP，不是 URL／带端口地址，端口显式指定。其他字段可省略；`auth` 还接受 `phone/domain/totp_secret/auth_id/sub_type`，method 支持空值（按用户名／密码或手机号推导）、`auth/psw`、`auth/smsCheckCode`、`auth/cas`、`auth/httpsOauth2`。listener 空值不启用；非空必须是回环 IP:port。没有 CLI 附加参数、默认学校、TUN、路由／DNS 修改、跳过 TLS 或原始调试输出开关。
 
-`operation` 缺省为 `connect`；`auth_methods` 只查询认证方式，产生 `auth_methods` 结果（`methods:[{type,domain,name,login_url}]`）及终态，不建立数据栈或代理。结果数量、字段和整体事件大小均有界，超限返回 `JC_LIMIT`。
+`operation` 缺省为 `connect`；`auth_methods` 只查询认证方式，产生 `auth_methods` 结果（`methods:[{type,domain,name,login_url,auth_id,sub_type}]`）及终态，不建立数据栈或代理。结果数量、字段和整体事件大小均有界，超限返回 `JC_LIMIT`。
 
 `network` 支持 `interface/auto_detect/local_dns/secondary_dns/dns_cache_ttl/disable_remote_dns/language`。接口、DNS 和语言显式传入；local DNS 允许 IP 或 IP:port，secondary DNS 为 IP。接口名优先于自动选择；自动选择默认关闭，避免悄悄改变宿主的网络策略。DNS 缓存寿命与维护间隔的默认值集中在 `corelib/session.go`，缓存不启动游离 janitor，且有容量上限。代理出口不读取系统 HTTP_PROXY 等环境配置；本阶段不修改路由、系统代理或系统 DNS，不创建自己的 TUN。Clash 共存仍由后续阶段验证。
 
@@ -120,3 +120,5 @@ S1-07 与 S1-08 的受控网关及六平台宿主已验证正式会话、Qt 认�
 配置模型仅保留 aTrust 与 ABI 支持字段，端口零关闭对应监听、监听固定在回环。S2-02 已删除 EasyConnect、TUN／路由、额外 CLI 参数及旧转发等控件／运行字段；旧协议要求显式确认 aTrust 入口。设置页与向导保存前调用 `jc_config_validate`，与启动复用同一 JSON 映射与 Go 严格解析；非法地址／认证／非回环监听、超限值及未知 JSON 字段仍被拒绝，不自动退回进程。构建显示使用实际已加载库的来源信息。共享 CMake 入口见 `cmake/CoreLibrary.cmake`；真实窗口／正式网关回归在根 CTest 和六平台原生宿主中使用同一 `tests/CoreEngineTests.cmake`。
 
 S1-09 已验收：`a729296` 的[三平台应用回归](https://github.com/wtalioy/JustConnect/actions/runs/39383282228)与[六组实际包自检](https://github.com/wtalioy/JustConnect/actions/runs/39383294934)全部通过。同一最终源码的[六组原生回归](https://github.com/wtalioy/JustConnect/actions/runs/39383282309)全部通过。包内实际调用版本／ABI、无效启动拒绝、创建／停止／销毁；来源归档逐文件一致，脱离 Git 完整重建的应用也通过同一自检。实际 glibc／macOS 下限、预览签名与正式签名边界见计划及开发说明。
+
+S2-03 为认证配置与查询事件兼容增补 `auth_id`／`sub_type` 字段；原始登录域与 URL 仍由服务器提供。新选择按完整身份匹配，旧配置只有唯一类型／登录域匹配时才继续；过期或歧义身份以 `JC_AUTH_METHOD_CHANGED` 结束，要求重新查询，不能退回列表第一项。

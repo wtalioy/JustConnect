@@ -51,6 +51,8 @@ bool savesPasswordCredentials(const QString &settingsPath)
         QString(QStringLiteral("old-password").toUtf8().toBase64())
     );
     settings.setValue("Credential/TOTPSecret", "old-totp");
+    settings.setValue("JustConnect/AuthID","opaque-selection");
+    settings.setValue("JustConnect/AuthSubType","password");
 
     ConfigurationGuideDialog dialog(nullptr, &settings);
     QStackedWidget *pages = credentialPages(dialog);
@@ -80,6 +82,8 @@ bool savesPasswordCredentials(const QString &settingsPath)
     const bool passed = settings.value("Credential/Username") == "alice"
         && savedPassword == "secret"
         && settings.value("Credential/TOTPSecret") == "totp-key"
+        && settings.value("JustConnect/AuthID")=="opaque-selection"
+        && settings.value("JustConnect/AuthSubType")=="password"
         && settings.value("JustConnect/ProfileKind") == "Custom"
         && !settings.contains("JustConnect/Protocol");
     if (!passed)

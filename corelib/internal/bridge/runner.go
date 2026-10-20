@@ -29,7 +29,7 @@ func RunProtocol(ctx context.Context, config Config, host *Session) Status {
 	}
 	options := corelib.Options{
 		Client:   atrust.ClientOptions{Language: config.Network.Language, Diagnostic: func(code string) { host.Diagnostic(code) }},
-		Setup:    atrust.SetupOptions{ServerAddress: config.Server.Host, ServerPort: int(config.Server.Port), LoginMethod: method, TOTPSecret: config.Auth.TOTPSecret, ChallengeHandler: challengeHandler(ctx, host)},
+		Setup:    atrust.SetupOptions{AuthID: config.Auth.AuthID, AuthSubType: config.Auth.SubType, ServerAddress: config.Server.Host, ServerPort: int(config.Server.Port), LoginMethod: method, TOTPSecret: config.Auth.TOTPSecret, ChallengeHandler: challengeHandler(ctx, host)},
 		Underlay: underlay.Options{InterfaceName: config.Network.Interface, AutoDetect: config.Network.AutoDetect, LocalDNSServer: config.Network.LocalDNS},
 		SOCKS:    config.Listeners.SOCKS, HTTP: config.Listeners.HTTP, SecondaryDNS: config.Network.SecondaryDNS, DNSCacheTTL: uint64(config.Network.DNSCacheTTL), DisableRemoteDNS: config.Network.DisableRemoteDNS,
 		QueryAuthMethods: config.Operation == "auth_methods",
@@ -39,7 +39,7 @@ func RunProtocol(ctx context.Context, config Config, host *Session) Status {
 		AuthMethods: func(list []auth.AuthInfo) error {
 			methods := make([]AuthMethod, len(list))
 			for i, m := range list {
-				methods[i] = AuthMethod{Type: m.AuthType, Domain: m.LoginDomain, Name: m.AuthName, LoginURL: m.LoginURL}
+				methods[i] = AuthMethod{AuthID: m.AuthID, SubType: m.SubType, Type: m.AuthType, Domain: m.LoginDomain, Name: m.AuthName, LoginURL: m.LoginURL}
 			}
 			return checkStatus(host.AuthMethods(methods))
 		},
@@ -56,6 +56,9 @@ func RunProtocol(ctx context.Context, config Config, host *Session) Status {
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return Timeout
+	}
+	if errors.Is(err, auth.ErrAuthMethodChanged) {
+		return AuthMethodChanged
 	}
 	return Internal
 }

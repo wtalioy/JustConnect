@@ -36,4 +36,5 @@
 #define JC_CANCELLED (-INT32_C(7))
 #define JC_LIMIT (-INT32_C(8))
 #define JC_INTERNAL (-INT32_C(9))
+#define JC_AUTH_METHOD_CHANGED (-INT32_C(10))
 #endif

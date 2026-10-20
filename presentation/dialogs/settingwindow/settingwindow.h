@@ -18,4 +18,5 @@ private:
     QSettings *settings;
     QString profileId;
     ServerSettingsWidget *serverEditor;
+    QString selectedAuthId, selectedAuthSubType;
 };

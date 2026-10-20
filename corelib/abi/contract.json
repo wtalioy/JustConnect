@@ -36,6 +36,7 @@
     "StaleRequest": -6,
     "Cancelled": -7,
     "Limit": -8,
-    "Internal": -9
+    "Internal": -9,
+    "AuthMethodChanged": -10
   }
 }

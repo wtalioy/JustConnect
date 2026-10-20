@@ -26,17 +26,18 @@ const (
 	MaxLanguage       = 64
 )
 const (
-	OK              Status = 0
-	BufferTooSmall  Status = 1
-	Timeout         Status = 2
-	End             Status = 3
-	InvalidArgument Status = -1
-	ABIMismatch     Status = -2
-	InvalidHandle   Status = -3
-	Busy            Status = -4
-	Unsupported     Status = -5
-	StaleRequest    Status = -6
-	Cancelled       Status = -7
-	Limit           Status = -8
-	Internal        Status = -9
+	OK                Status = 0
+	BufferTooSmall    Status = 1
+	Timeout           Status = 2
+	End               Status = 3
+	InvalidArgument   Status = -1
+	ABIMismatch       Status = -2
+	InvalidHandle     Status = -3
+	Busy              Status = -4
+	Unsupported       Status = -5
+	StaleRequest      Status = -6
+	Cancelled         Status = -7
+	Limit             Status = -8
+	Internal          Status = -9
+	AuthMethodChanged Status = -10
 )
