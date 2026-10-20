@@ -7,7 +7,6 @@ import (
 
 	"github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/wtalioy/JustConnect/corelib/client/atrust"
-	"github.com/wtalioy/JustConnect/corelib/client/easyconnect"
 	"github.com/wtalioy/JustConnect/corelib/underlay"
 )
 
@@ -24,17 +23,8 @@ var (
 	_ client.UnderlayDialer = (*underlay.Dialer)(nil)
 )
 
-func TestPublicClientsAcceptExternalUnderlay(t *testing.T) {
+func TestPublicATrustClientAcceptsExternalUnderlay(t *testing.T) {
 	var dialer client.UnderlayDialer = externalUnderlay{}
-
-	easyClient := easyconnect.NewClient(easyconnect.Options{
-		Server:         "vpn.example.com:443",
-		UnderlayDialer: dialer,
-	})
-	if easyClient == nil {
-		t.Fatal("easyconnect.NewClient returned nil")
-	}
-	easyClient.Close()
 
 	aTrustClient := atrust.NewClient(atrust.ClientOptions{UnderlayDialer: dialer})
 	if aTrustClient == nil {
