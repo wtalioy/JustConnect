@@ -41,6 +41,7 @@
     "AuthMethodChanged": -10,
     "TLSTrust": -11,
     "TLSProtocol": -12,
-    "NetworkFailure": -13
+    "NetworkFailure": -13,
+    "AuthUnsupported": -14
   }
 }

@@ -238,6 +238,7 @@ func TestNativeProtocolHost(t *testing.T) {
 	}))
 	defer other.Close()
 	g.browserURL.Store(other.URL)
+	g.nextService.Store("auth/bindAuthDevice")
 	c := g.config(t)
 	c.Listeners.SOCKS, c.Listeners.HTTP = freeAddress(t), freeAddress(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
@@ -247,7 +248,7 @@ func TestNativeProtocolHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("native protocol host: %v\n%s", err, output)
 	}
-	if !strings.Contains(string(output), "PASS: native protocol session") || g.authCount.Load() != 1 || g.tcpCount.Load() != 2 {
+	if !strings.Contains(string(output), "PASS: native protocol session") || g.authCount.Load() != 1 || g.deviceBinds.Load() != 1 || g.tcpCount.Load() != 2 {
 		t.Fatalf("missing actual protocol exchanges: auth=%d TCP=%d\n%s", g.authCount.Load(), g.tcpCount.Load(), output)
 	}
 	if strings.Contains(string(output), "PASS: browser TLS policy") && g.browserRedirects.Load() != 1 {
@@ -317,6 +318,41 @@ func TestProtocolReportsTrustProtocolAndNetworkFailures(t *testing.T) {
 			}
 			if g.authCount.Load() != 0 {
 				t.Fatal("failure sent authentication")
+			}
+		})
+	}
+}
+
+func TestProtocolTrustedDeviceDeclineAndUnknownStep(t *testing.T) {
+	for _, service := range []string{"auth/bindAuthDevice", "auth/futureStep?private-marker"} {
+		t.Run(service, func(t *testing.T) {
+			g := newGateway(t)
+			g.nextService.Store(service)
+			e := New(RunProtocol)
+			h := create(t, e)
+			if _, status := e.Start(h, configBytes(t, g.config(t))); status != OK {
+				t.Fatal(status)
+			}
+			next(t, e, h)
+			authenticate(t, e, h)
+			want := AuthUnsupported
+			if service == "auth/bindAuthDevice" {
+				ev := next(t, e, h)
+				if ev.Type != "authentication" || ev.Challenge.Kind != "trusted_device" {
+					t.Fatal(ev)
+				}
+				response := []byte(fmt.Sprintf(`{"schema_version":1,"generation":"%d","request_id":"%d","action":"cancel"}`, ev.Generation, ev.RequestID))
+				if status := e.Respond(h, response); status != OK {
+					t.Fatal(status)
+				}
+				want = Cancelled
+			}
+			terminal := next(t, e, h)
+			if terminal.Type != "terminal" || terminal.Status != want || strings.Contains(terminal.Message, "private-marker") {
+				t.Fatal(terminal)
+			}
+			if g.deviceBinds.Load() != 0 {
+				t.Fatal("unconfirmed device was bound")
 			}
 		})
 	}

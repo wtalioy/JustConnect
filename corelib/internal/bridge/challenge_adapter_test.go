@@ -15,6 +15,13 @@ func TestProtocolChallengeAdapterPreservesHostResponse(t *testing.T) {
 		run      func(authchallenge.Handler) error
 		response Response
 	}{
+		{"trusted_device", func(h authchallenge.Handler) error {
+			confirmed, err := h.HandleTrustedDevice()
+			if err == nil && !confirmed {
+				return fmt.Errorf("confirmation lost")
+			}
+			return err
+		}, Response{Action: "confirm"}},
 		{"sms", func(h authchallenge.Handler) error {
 			r, err := h.HandleCodeChallenge(authchallenge.CodeChallenge{Kind: authchallenge.CodeSMS, CanSkipSecondaryAuth: true})
 			if err == nil && (r.Code != "fixture-code" || !r.SkipSecondaryAuth) {
@@ -71,7 +78,9 @@ func TestProtocolChallengeAdapterPreservesHostResponse(t *testing.T) {
 			response.SchemaVersion = ABIVersion
 			response.Generation = ev.Generation
 			response.RequestID = ev.RequestID
-			response.Action = "submit"
+			if response.Action == "" {
+				response.Action = "submit"
+			}
 			data, err := json.Marshal(response)
 			if err != nil {
 				t.Fatal(err)

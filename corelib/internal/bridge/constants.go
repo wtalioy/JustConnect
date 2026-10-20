@@ -44,4 +44,5 @@ const (
 	TLSTrust          Status = -11
 	TLSProtocol       Status = -12
 	NetworkFailure    Status = -13
+	AuthUnsupported   Status = -14
 )

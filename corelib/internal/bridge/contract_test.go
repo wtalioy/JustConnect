@@ -44,11 +44,13 @@ func TestConfigBoundary(t *testing.T) {
 }
 
 func TestAuthenticationValidation(t *testing.T) {
-	for _, kind := range []string{"sms", "totp", "radius", "text_captcha", "click_captcha", "cas", "oauth2"} {
+	for _, kind := range []string{"sms", "totp", "radius", "text_captcha", "click_captcha", "cas", "oauth2", "trusted_device"} {
 		t.Run(kind, func(t *testing.T) {
 			c := Challenge{Kind: kind}
 			r := Response{Action: "submit"}
 			switch kind {
+			case "trusted_device":
+				r.Action = "confirm"
 			case "sms", "totp", "radius":
 				r.Code = "123456"
 			case "text_captcha":
@@ -112,4 +114,16 @@ func FuzzConfiguration(f *testing.F) {
 			}
 		}
 	})
+}
+
+func TestTrustedDeviceConfirmationCannotBeInferred(t *testing.T) {
+	c := Challenge{Kind: "trusted_device"}
+	for _, r := range []Response{{Action: "submit"}, {Action: "submit", Code: "yes"}, {Action: "confirm", Code: "yes"}, {Action: "confirm", SkipSecondaryAuth: true}, {Action: "confirm", CallbackURL: "https://gateway.test"}, {Action: "confirm", Width: 1}, {Action: "confirm", Points: []Point{{X: 0, Y: 0}}}} {
+		if r.valid(c) {
+			t.Fatal("non-explicit or mixed confirmation accepted")
+		}
+	}
+	if (Response{Action: "confirm"}).valid(Challenge{Kind: "sms"}) {
+		t.Fatal("confirmation accepted for a code request")
+	}
 }

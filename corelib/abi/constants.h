@@ -41,4 +41,5 @@
 #define JC_TLS_TRUST (-INT32_C(11))
 #define JC_TLS_PROTOCOL (-INT32_C(12))
 #define JC_NETWORK_FAILURE (-INT32_C(13))
+#define JC_AUTH_UNSUPPORTED (-INT32_C(14))
 #endif

@@ -2,10 +2,13 @@ package auth
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+
+	"github.com/wtalioy/JustConnect/corelib/client/authchallenge"
 )
 
 var enhancedAuthServices = map[string]struct{}{
@@ -16,12 +19,28 @@ var enhancedAuthServices = map[string]struct{}{
 
 func (s *Session) completeEnhancedAuth(step authStep) (authStep, error) {
 	if _, ok := enhancedAuthServices[step.Service]; !ok {
-		return authStep{}, fmt.Errorf("unsupported enhanced authentication service: %s", step.Service)
+		return authStep{}, fmt.Errorf("%w: enhanced service %s", authchallenge.ErrUnsupported, step.Service)
 	}
 	return s.requestAuthStep(http.MethodGet, step, nil)
 }
 
 func (s *Session) bindAuthDevice(step authStep) (authStep, error) {
+	if err := s.ctx.Err(); err != nil {
+		return authStep{}, err
+	}
+	if s.challengeHandler == nil {
+		return authStep{}, authchallenge.ErrUnsupported
+	}
+	confirmed, err := s.challengeHandler.HandleTrustedDevice()
+	if err != nil {
+		return authStep{}, err
+	}
+	if err := s.ctx.Err(); err != nil {
+		return authStep{}, err
+	}
+	if !confirmed {
+		return authStep{}, context.Canceled
+	}
 	payload := map[string]string{"deviceId": s.deviceID}
 	if step.AuthID != "" {
 		payload["authId"] = step.AuthID

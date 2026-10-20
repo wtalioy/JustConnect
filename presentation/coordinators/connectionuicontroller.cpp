@@ -308,6 +308,9 @@ void ConnectionUiController::showConnectionError(ConnectionError error)
     QString message;
     switch (error)
     {
+    case ConnectionError::AUTHENTICATION_UNSUPPORTED:
+        message="服务器要求的后续认证步骤暂不支持，请联系管理员确认认证策略。";
+        break;
     case ConnectionError::AUTHENTICATION_CHANGED:
         message = "认证方式已变化或不唯一，请重新获取并选择认证方式。";
         break;

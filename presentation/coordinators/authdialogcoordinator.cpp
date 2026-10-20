@@ -8,6 +8,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
+#include <QPushButton>
 #include <QVBoxLayout>
 #include <QWidget>
 
@@ -184,6 +185,21 @@ void AuthDialogCoordinator::requestAuthentication(const QJsonObject &request, co
             if (!url.isEmpty()) submit({{"action", "submit"}, {"callback_url", url}});
         });
         dialog = web;
+    } else if (kind == "trusted_device") {
+        dialog = new QDialog(parentWidget);
+        dialog->setWindowTitle("确认可信设备");
+        auto *layout = new QVBoxLayout(dialog);
+        auto *label = new QLabel("服务器要求将当前设备登记为可信设备。是否确认？", dialog);
+        label->setWordWrap(true);
+        layout->addWidget(label);
+        auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, dialog);
+        buttons->button(QDialogButtonBox::Ok)->setText("确认登记");
+        buttons->button(QDialogButtonBox::Ok)->setAutoDefault(false);
+        buttons->button(QDialogButtonBox::Cancel)->setDefault(true);
+        layout->addWidget(buttons);
+        connect(buttons, &QDialogButtonBox::accepted, dialog, &QDialog::accept);
+        connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
+        connect(dialog, &QDialog::accepted, this, [submit] { submit({{"action", "confirm"}}); });
     } else if (kind == "sms" || kind == "totp" || kind == "radius") {
         dialog = new QDialog(parentWidget);
         dialog->setWindowTitle(kind == "sms" ? "短信验证码" : kind == "totp" ? "TOTP 验证码" : "RADIUS 动态口令");

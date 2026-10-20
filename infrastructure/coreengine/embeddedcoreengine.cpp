@@ -57,6 +57,7 @@ ConnectionError connectionError(int status) {
     if (status == JC_TLS_PROTOCOL) return ConnectionError::TLS_PROTOCOL;
     if (status == JC_NETWORK_FAILURE) return ConnectionError::NETWORK_FAILED;
     if (status == JC_TIMEOUT) return ConnectionError::TIMED_OUT;
+    if (status == JC_AUTH_UNSUPPORTED) return ConnectionError::AUTHENTICATION_UNSUPPORTED;
     if (status == JC_AUTH_METHOD_CHANGED) return ConnectionError::AUTHENTICATION_CHANGED;
     if (status == JC_INVALID_ARGUMENT) return ConnectionError::INVALID_CONFIGURATION;
     if (status == JC_UNSUPPORTED || status == JC_ABI_MISMATCH) return ConnectionError::CORE_UNAVAILABLE;
