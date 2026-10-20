@@ -1,9 +1,6 @@
 package authchallenge
 
-import (
-	"fmt"
-	"strings"
-)
+import "fmt"
 
 type CodeKind string
 
@@ -32,13 +29,6 @@ type TextCaptchaChallenge struct {
 
 type TextCaptchaResponse struct {
 	Code string
-}
-
-func (TextCaptchaChallenge) Validate(response TextCaptchaResponse) error {
-	if strings.TrimSpace(response.Code) == "" {
-		return fmt.Errorf("captcha code is empty")
-	}
-	return nil
 }
 
 type Point struct {

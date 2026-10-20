@@ -322,22 +322,6 @@ func normalizeHostname(host string) string {
 	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
 }
 
-func (r *Resolver) RemoteUDPResolver() (*net.Resolver, error) {
-	if r.remoteUDPResolver != nil {
-		return r.remoteUDPResolver, nil
-	} else {
-		return nil, errors.New("remote UDP resolver is nil")
-	}
-}
-
-func (r *Resolver) RemoteTCPResolver() (*net.Resolver, error) {
-	if r.remoteTCPResolver != nil {
-		return r.remoteTCPResolver, nil
-	} else {
-		return nil, errors.New("remote TCP resolver is nil")
-	}
-}
-
 func (r *Resolver) ResolveWithSecondaryDNS(ctx context.Context, host string) (context.Context, net.IP, error) {
 	ip, err := r.resolveCoordinated(ctx, "secondary:"+host, func(ctx context.Context) (net.IP, error) {
 		targets, err := r.secondaryResolver.LookupIP(ctx, "ip4", host)

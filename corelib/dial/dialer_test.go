@@ -34,8 +34,8 @@ func TestMatchesIPResourcePreservesRangePortAndProtocolRules(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := matchesIPResource(index, test.ip, test.network, test.port); got != test.want {
-				t.Fatalf("matchesIPResource() = %v, want %v", got, test.want)
+			if _, got := matchIPResourceForTunnel(index, test.ip, test.network, test.port); got != test.want {
+				t.Fatalf("matchIPResourceForTunnel() = %v, want %v", got, test.want)
 			}
 		})
 	}

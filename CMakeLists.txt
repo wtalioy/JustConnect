@@ -26,7 +26,6 @@ find_package(Qt6 6.5 COMPONENTS
     Widgets
     Network
     Svg
-    Core5Compat
     WebEngineWidgets
     REQUIRED
 )
@@ -126,7 +125,6 @@ target_link_libraries(${PROJECT_NAME}
         Qt::Widgets
         Qt::Network
         Qt::Svg
-        Qt::Core5Compat
         Qt::WebEngineWidgets
         justconnect_engine
         SingleApplication::SingleApplication
@@ -205,7 +203,7 @@ if(BUILD_TESTING)
         infrastructure/update/updatechecker.cpp
     )
     target_include_directories(updatechecker_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(updatechecker_test justconnect_engine Qt::Core Qt::Gui Qt::Widgets Qt::Network Qt::Core5Compat)
+    target_link_libraries(updatechecker_test justconnect_engine Qt::Core Qt::Gui Qt::Widgets Qt::Network)
     justconnect_core_runtime(updatechecker_test justconnect_core)
     add_test(NAME updatechecker_test COMMAND updatechecker_test)
 
@@ -245,7 +243,6 @@ if(BUILD_TESTING)
         Qt::Core
         Qt::Gui
         Qt::Widgets
-        Qt::Core5Compat
     )
     justconnect_core_runtime(configurationguidedialog_test justconnect_core)
     add_test(NAME configurationguidedialog_test COMMAND configurationguidedialog_test)
