@@ -199,3 +199,5 @@ S2-03 默认启用服务器证书验证，私有 CA 可在服务器编辑区以 
 本地测试可通过 `JC_TEST_SECRET_PROVIDER` 指定隔离安装的 gnome-keyring-daemon，必要的提供方库路径通过 `JC_TEST_SECRET_PROVIDER_LIBS` 传给测试子进程；不修改全局环境。仓库不分发 GNOME 提供方。Windows 使用当前用户 Credential Manager，其原生 blob 上限为 2560 字节，超限明确返回 Limit；各后端共同输入上限为 65536 字节。系统库锁定、不可用或拒绝时不创建应用明文副本。凭据服务／界面迁移及票据生命周期继续按 S2-04／08 验收，新增后端不单独代表这些功能完成。
 
 系统 API 依据：[Secret Service](https://specifications.freedesktop.org/secret-service/latest-single/)、[Windows Credential Manager](https://learn.microsoft.com/en-us/windows/win32/api/wincred/ns-wincred-credentialw)、[Apple SecItemCopyMatching](https://developer.apple.com/documentation/security/secitemcopymatching(_:_:))。Linux 提供方可以规范化 MIME 提示，因此后端按不透明字节读取，并验证会话、长度及实际回读数据。
+
+`ctest --test-dir build -R '^profilecredentials_test$' --output-on-failure` 验证凭据作用域、密码更新、指定身份删除、版本／损坏数据拒绝、旧 INI 编码迁移、读写失败／回读锁定、来源被替换及真实文件提交失败后的重启重试。测试使用注入的存储端口和真实临时 INI／缓存文件；原生安全存储的证据由独立 `credentialstore_test` 提供，不能把替身当作 Keychain／Credential Manager／Secret Service 实测。未绑定账户的旧缓存使用独立隔离键，测试确认它不会成为任意账户的密码记录。

@@ -62,6 +62,7 @@ set(SOURCE_FILES
     application/commandlineoptions.cpp
     application/connectionsession.cpp
     application/profileservice.cpp
+    application/profilecredentials.cpp
     application/settingsmigrator.cpp
     application/systemproxysession.cpp
     application/defaultsettings.cpp
@@ -183,6 +184,10 @@ if(BUILD_TESTING)
     target_include_directories(applicationlogfile_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(applicationlogfile_test Qt::Core)
     add_test(NAME applicationlogfile_test COMMAND applicationlogfile_test)
+
+    add_executable(profilecredentials_test tests/profilecredentials_test.cpp application/profilecredentials.cpp)
+    target_link_libraries(profilecredentials_test PRIVATE Qt6::Core)
+    add_test(NAME profilecredentials_test COMMAND profilecredentials_test)
 
     add_executable(settingsprofileloader_test
         tests/settingsprofileloader_test.cpp
