@@ -49,6 +49,38 @@ bool exportsOnlyPublicConfiguration()
     return file.readAll()==before;
 }
 
+bool preparesPublicDraftWithoutCopyingSecrets()
+{
+    QTemporaryDir folder;
+    if (!folder.isValid()) return false;
+    for (const int version:{4,8,42}) {
+        QSettings source(folder.filePath(QString::number(version)+"-source.ini"),QSettings::IniFormat);
+        source.setValue("Common/ConfigVersion",version);
+        source.setValue("Credential/Username","alice");source.setValue("Credential/Password","private password");
+        source.setValue("Credential/TOTPSecret","private TOTP");source.setValue("Credential/StoreID","private namespace");
+        source.setValue("JustConnect/LoginURL","https://id.example.invalid/?state=private-session");
+        source.setValue("OtherAccount/Ticket","private ticket");source.setValue("Unknown/Cookie","private cookie");
+        source.setValue("ZJUConnect/ServerAddress","legacy.example.invalid");source.setValue("ZJUConnect/ServerPort",8443);
+        source.setValue("ZJUConnect/DisableZJUDNS",true);source.setValue("ZJUConnect/Secret","legacy private value");
+        source.setValue("JustConnect/ServerAddress","current.example.invalid");
+        if (version!=4) source.setValue("JustConnect/Protocol","atrust");
+        source.sync();QFile file(source.fileName());if (!file.open(QIODevice::ReadOnly)) return false;
+        const auto original=file.readAll();file.close();
+        QSettings draft(folder.filePath(QString::number(version)+"-draft.ini"),QSettings::IniFormat);
+        if (!SettingsMigrator::publicDraft(source,draft) || draft.value("Credential/Username")!="alice"
+            || draft.value("JustConnect/ServerAddress")!="current.example.invalid" || draft.value("JustConnect/ServerPort")!=8443
+            || !draft.value("JustConnect/DisableRemoteDNS").toBool() || draft.value("Common/NeedsConfiguration").toBool()!=(version==4)
+            || draft.value("Common/ConfigVersion").toInt()!=(version==42 ? 42 : ApplicationConstants::ConfigVersion)) return false;
+        for (const auto &key:QStringList{"Credential/Password","Credential/TOTPSecret","Credential/StoreID","JustConnect/LoginURL","OtherAccount/Ticket","Unknown/Cookie","ZJUConnect/Secret","JustConnect/Protocol"})
+            if (draft.contains(key)) return false;
+        for (const auto &key:draft.allKeys()) if (key.startsWith("ZJUConnect/")) return false;
+        if (!file.open(QIODevice::ReadOnly) || file.readAll()!=original) return false;
+        draft.setValue("Unknown/Unrelated","preserved");draft.sync();
+        if (SettingsMigrator::publicDraft(source,draft) || draft.value("Unknown/Unrelated")!="preserved") return false;
+    }
+    return true;
+}
+
 bool renamesPreviewSettingsWithoutLosingValues()
 {
     QTemporaryDir directory;
@@ -171,7 +203,8 @@ bool failedSaveRemainsRetryable()
 int main(int argc, char *argv[])
 {
     QCoreApplication app(argc, argv);
-    return exportsOnlyPublicConfiguration()
+    return preparesPublicDraftWithoutCopyingSecrets()
+        && exportsOnlyPublicConfiguration()
         && renamesPreviewSettingsWithoutLosingValues()
         && preservesAlreadyRenamedSettings()
         && requiresConfirmationForOldProtocols()

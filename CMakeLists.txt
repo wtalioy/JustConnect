@@ -259,6 +259,7 @@ if(BUILD_TESTING)
     add_executable(profilemanager_test
         tests/profilemanager_test.cpp
         infrastructure/settings/profilemanager.cpp
+        application/settingsmigrator.cpp application/defaultsettings.cpp
     )
     target_include_directories(profilemanager_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(profilemanager_test Qt::Core)

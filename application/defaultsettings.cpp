@@ -23,6 +23,7 @@ const QVariantMap &defaults()
         {"Common/ReconnectTime", 1},
         {"Common/AutoReconnect", false},
         {"Common/SystemProxyBypass", ""},
+        {"Common/SuppressProxyOverrideWarning", false},
 
         {"Common/NeedsConfiguration", false},
         {"JustConnect/ProfileKind", "Custom"},
@@ -63,6 +64,12 @@ void apply(QSettings &settings, bool overwrite)
 void DefaultSettings::reset(QSettings &settings) { apply(settings, true); }
 void DefaultSettings::initialize(QSettings &settings) { apply(settings, false); }
 
+bool DefaultSettings::isPublicKey(const QString &key)
+{
+    return key=="Common/ConfigVersion" || (defaults().contains(key)
+        && key!="Credential/Password" && key!="Credential/TOTPSecret" && key!="JustConnect/LoginURL");
+}
+
 bool DefaultSettings::exportTo(const QSettings &settings,const QString &path)
 {
     const QFileInfo source(settings.fileName()), destination(path);
@@ -75,7 +82,7 @@ bool DefaultSettings::exportTo(const QSettings &settings,const QString &path)
     for (auto it=defaults().cbegin();it!=defaults().cend();++it) {
         const auto &key=it.key();
         // Export only owned public fields; URL previews may contain session tokens.
-        if (key=="Credential/Password" || key=="Credential/TOTPSecret" || key=="JustConnect/LoginURL") continue;
+        if (!isPublicKey(key)) continue;
         if (settings.contains(key)) output.setValue(key,settings.value(key));
     }
     output.setValue("Common/ConfigVersion",ApplicationConstants::ConfigVersion);

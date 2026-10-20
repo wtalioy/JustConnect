@@ -15,6 +15,7 @@ class SettingsMigrator
 public:
     static SettingsMigrationAction prepare(QSettings &settings);
     static bool finish(QSettings &settings);
+    static bool publicDraft(const QSettings &source,QSettings &draft);
 };
 
 #endif // SETTINGSMIGRATOR_H
