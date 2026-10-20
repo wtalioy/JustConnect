@@ -174,10 +174,17 @@ static void manualCredentialsAndLateResults() {
     check(settings.value("Credential/Username")=="remembered" && vault.load(source.scope,source.profile,loaded).succeeded()
         && loaded.password=="manual-secret" && !settings.contains("Credential/Password"),"checked remember stores account and native credentials without plaintext fallback");finish();
     int warnings=0;QTimer dismiss;
+    QStringList expectedWarnings{
+        "系统凭据存储权限被拒绝，请检查授权。\n本次仍可手动登录。",
+        "系统凭据存储权限被拒绝，请检查授权。\n本次仍可手动登录。"
+    };
     QObject::connect(&dismiss,&QTimer::timeout,[&] {
-        for (auto *widget:QApplication::topLevelWidgets()) if (auto *message=qobject_cast<QMessageBox *>(widget)) {
-            check(message->windowTitle()=="无法读取已保存凭据" || message->windowTitle()=="未能记住登录信息","only expected native failures shown");
-            ++warnings;message->accept();
+        for (auto *widget:QApplication::topLevelWidgets()) if (auto *message=qobject_cast<QMessageBox *>(widget);message && message->isVisible()) {
+            // macOS ignores QMessageBox titles; assert the actual warning and available action.
+            check(warnings<expectedWarnings.size() && message->text()==expectedWarnings.at(warnings)
+                && message->icon()==QMessageBox::Warning && message->standardButtons()==QMessageBox::Ok,
+                "only the expected native failure and manual-login action are shown");
+            ++warnings;message->button(QMessageBox::Ok)->click();
         }
     });dismiss.start(1);store->failure=CredentialStatus::PermissionDenied;
     login(true,"unsaved");
@@ -197,7 +204,8 @@ static void manualCredentialsAndLateResults() {
     check(engine->starts==starts+1 && !session.isActive(),"late account read does not start or deliver old account secrets");
     store->beforeRead={};
     settings.remove("JustConnect/TLSCAPEM");settings.setValue(ProfileCredentials::ScopeSetting,"invalid-existing-namespace");settings.sync();
-    warnings=0;dismiss.start(1);login(false,"manual-without-storage");
+    warnings=0;expectedWarnings={"配置或凭据已变化，请重新打开设置或重试。\n本次仍可手动登录。"};
+    dismiss.start(1);login(false,"manual-without-storage");
     check(engine->profile.credentials.username=="manual-without-storage" && settings.value(ProfileCredentials::ScopeSetting)=="invalid-existing-namespace"
         && !settings.contains("Credential/Password"),"invalid storage namespace still permits explicit manual login without overwriting the namespace");
     finish();dismiss.stop();
