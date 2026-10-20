@@ -417,3 +417,21 @@ func TestExpiredChallengeCannotAcceptOrAccumulateReplies(t *testing.T) {
 		t.Fatal(status)
 	}
 }
+
+func TestExpiredResponseDoesNotDependOnWorkerScheduling(t *testing.T) {
+	e := New(func(ctx context.Context, _ Config, _ *Session) Status { <-ctx.Done(); return Cancelled })
+	h := create(t, e)
+	e.Start(h, []byte(configJSON))
+	read(t, e, h)
+	expired, cancel := context.WithCancel(context.Background())
+	cancel()
+	s := e.lookup(h)
+	s.mu.Lock()
+	// Model an expired request whose worker has not yet run its cleanup.
+	s.auth = &pending{id: 1, ctx: expired, delivered: true, challenge: Challenge{Kind: "sms"}, response: make(chan Response, 1)}
+	s.mu.Unlock()
+	response := []byte("{\"schema_version\":1,\"generation\":\"1\",\"request_id\":\"1\",\"action\":\"submit\",\"code\":\"private-response\"}")
+	if status := e.Respond(h, response); status != StaleRequest {
+		t.Fatal("expired response accepted", status)
+	}
+}
