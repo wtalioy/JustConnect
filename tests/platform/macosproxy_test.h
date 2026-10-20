@@ -81,6 +81,9 @@ static void backendTests() {
     check(SCPreferencesPathSetValue(prefs,firstParent,malformed) && nativeCommit(prefs),"seed malformed native proxy data");CFRelease(malformed);
     const auto beforeRead=changes;
     check(!backend.apply(config).succeeded() && changes==beforeRead,"invalid native data fails before the first mutation");
+    auto repaired=CFDictionaryCreateMutableCopy(nullptr,0,SCPreferencesPathGetValue(prefs,firstParent));
+    CFDictionarySetValue(repaired,kSCEntNetProxies,original);
+    check(SCPreferencesPathSetValue(prefs,firstParent,repaired) && nativeCommit(prefs),"repair malformed fixture through its dictionary parent");CFRelease(repaired);
     seed();
     check(backend.clear().succeeded(),"unknown native settings are not cleared");restored();
     check(backend.apply(config).succeeded(),"native private preferences apply/readback");
