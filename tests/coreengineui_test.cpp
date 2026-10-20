@@ -357,6 +357,19 @@ static void uiContracts() {
         dialogs.closeAuthentication();
         check(responses == before + 1, "programmatic invalidation does not send a new cancellation");
     }
+    const QJsonObject deviceRequest{{"schema_version",1},{"generation","3"},{"request_id","19"},
+        {"challenge",QJsonObject{{"kind","trusted_device"}}}};
+    for (bool confirm:{false,true}) {
+        const auto before=responses;
+        dialogs.requestAuthentication(deviceRequest,{});
+        auto *dialog=challenge(parent);
+        auto *buttons=dialog->findChild<QDialogButtonBox *>();
+        check(responses==before && buttons->button(QDialogButtonBox::Cancel)->isDefault()
+            && !buttons->button(QDialogButtonBox::Ok)->isDefault(),"trusted device never confirms on opening or by default");
+        buttons->button(confirm?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();
+        check(responses==before+1 && submitted["action"]==(confirm?"confirm":"cancel")
+            && submitted["generation"]=="3" && submitted["request_id"]=="19" && !submitted.contains("code"),"explicit device decision retains request identity");
+    }
     for (const QString &kind : {"cas", "oauth2"}) {
         const QJsonObject request{{"schema_version", 1}, {"generation", "2"}, {"request_id", "4"},
             {"challenge", QJsonObject{{"kind", kind}, {"login_url", "https://idp.example.invalid/login"}}}};
@@ -533,8 +546,11 @@ static void gateway(const QJsonObject &config) {
     until([&] { return ticks > 5; });
     check(session.state() == ConnectionState::Starting, "authentication wait leaves GUI responsive");
     enterCode(parent, "fixture-code");
+    until([&] {for (auto *dialog:parent.findChildren<QDialog *>()) if(dialog->isVisible() && dialog->findChild<QDialogButtonBox *>() && !dialog->findChild<QLineEdit *>("authCodeEdit"))return true;return false;});
+    check(responses==1 && session.state()==ConnectionState::Starting,"device registration waits for a second explicit UI action");
+    challenge(parent)->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
     until([&] { return session.state() == ConnectionState::Running; });
-    check(responses == 1, "actual UI code reaches production protocol once");
+    check(responses == 2, "SMS and explicit device confirmation each reach the production protocol once");
     ProxyCheck::exercise(listeners, [&] {
         session.stop();
         until([&] { return completed == 1; });

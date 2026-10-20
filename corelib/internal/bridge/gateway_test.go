@@ -22,6 +22,8 @@ import (
 
 // This gateway speaks the actual HTTP authentication and TCP/IP tunnel framing.
 type gateway struct {
+	nextService      atomic.Value
+	deviceBinds      atomic.Int32
 	browserURL       atomic.Value
 	browserRedirects atomic.Int32
 	HTTP             *httptest.Server
@@ -85,7 +87,16 @@ func newGateway(t *testing.T) *gateway {
 			g.authCount.Add(1)
 			http.SetCookie(w, &http.Cookie{Name: "sid", Value: "private-gateway-sid", Path: "/"})
 			fmt.Fprint(w, `{"code":0,"data":{"ticket":"private-ticket"}}`)
-		case "/controller/v1/public/reportEnv", "/passport/v1/auth/authCheck":
+		case "/passport/v1/auth/authCheck":
+			service, _ := g.nextService.Load().(string)
+			fmt.Fprintf(w, `{"code":0,"data":{"nextService":%q}}`, service)
+		case "/passport/v1/auth/bindAuthDevice":
+			if r.Method != http.MethodPost {
+				t.Error("device binding is not POST")
+			}
+			g.deviceBinds.Add(1)
+			fmt.Fprint(w, `{"code":0,"data":{}}`)
+		case "/controller/v1/public/reportEnv":
 			fmt.Fprint(w, `{"code":0,"data":{}}`)
 		case "/passport/v1/user/onlineInfo":
 			fmt.Fprint(w, `{"code":0,"data":{"username":"fixture-user"}}`)

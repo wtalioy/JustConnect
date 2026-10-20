@@ -80,16 +80,17 @@ ABI v1 与 JSON schema 版本同步。S2-02 以兼容增补导出 `jc_config_val
 }
 ~~~
 
-`action` 仅允许 `submit/cancel`；取消不能携带凭据。重复、过期、旧代次或未读请求的回应返回 `JC_STALE_REQUEST`。取消和响应竞争时只接受一个回应，Stop 后的迟到回应不会交给下一代。
+`action` 仅允许 `submit/cancel/confirm`；`confirm` 只用于可信设备登记，取消与确认均不能携带凭据或其他输入。重复、过期、旧代次或未读请求的回应返回 `JC_STALE_REQUEST`。取消和响应竞争时只接受一个回应，Stop 后的迟到回应不会交给下一代。
 
 | challenge.kind | 内容／有效回应 |
 | --- | --- |
 | `sms/totp/radius` | `code`；仅请求允许时接受 `skip_secondary_auth:true`，该独立标志可与验证码一同提交 |
 | `text_captcha` | base64 `image`；回应非空 `code` |
 | `click_captcha` | base64 `image`；回应 `points:[{x,y}]/width/height`，点在图片范围内且数量受限 |
+| `trusted_device` | 用户明确选择登记当前设备才回应 `action:confirm`，拒绝或关闭使用 `cancel`；无默认确认、验证码或设备标识输入 |
 | `cas/oauth2` | `login_url`；回应 `callback_url`，仅接受无 userinfo 的 HTTP(S) URL |
 
-桥接层不打开浏览器、不请求认证 URL。URL 和图片为目的明确的认证数据，不作为诊断日志输出；S2 接入真实校园时仍须验证登录／回调来源、域和认证标识，不能用语法验证代替来源验证。可信设备等新步骤须显式扩展契约，未知类型不落入通用文本输入。
+桥接层不打开浏览器、不请求认证 URL。URL 和图片为目的明确的认证数据，不作为诊断日志输出；S2 接入真实校园时仍须验证登录／回调来源、域和认证标识，不能用语法验证代替来源验证。可信设备登记通过同一请求／回应契约显式确认；缺少处理器时不发送登记请求。未知后续服务和缺少类型的 token 步骤返回 `JC_AUTH_UNSUPPORTED`，Qt 提示服务器认证策略暂不支持，不落入通用文本输入，也不输出服务器原文。
 
 ## 验证与构建
 

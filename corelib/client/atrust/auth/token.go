@@ -97,7 +97,7 @@ func (s *Session) submitToken(payload map[string]interface{}) (authStep, error) 
 
 func (s *Session) submitTokenAt(service string, payload map[string]interface{}) (authStep, error) {
 	if service != "auth/token" && service != "auth/challenge" {
-		return authStep{}, fmt.Errorf("unsupported token authentication service: %s", service)
+		return authStep{}, fmt.Errorf("%w: token service %s", authchallenge.ErrUnsupported, service)
 	}
 
 	postBody, err := json.Marshal(payload)

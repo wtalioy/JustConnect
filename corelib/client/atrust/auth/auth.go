@@ -314,9 +314,9 @@ func (s *Session) continueAuth(step authStep) error {
 		case "auth/bindAuthDevice":
 			step, err = s.bindAuthDevice(step)
 		case "auth/token":
-			return fmt.Errorf("token authentication type is missing")
+			return fmt.Errorf("%w: missing token type", authchallenge.ErrUnsupported)
 		default:
-			return fmt.Errorf("unsupported next authentication service: %s", step.Service)
+			return fmt.Errorf("%w: next service %s", authchallenge.ErrUnsupported, step.Service)
 		}
 		if err != nil {
 			return err
@@ -337,7 +337,7 @@ func (s *Session) completeSMS(step authStep) (authStep, error) {
 	case smsWithoutAuthID:
 		// SARI-style gateways refresh auth config after sending the SMS.
 	default:
-		return authStep{}, fmt.Errorf("unknown SMS authentication mode")
+		return authStep{}, fmt.Errorf("%w: SMS mode", authchallenge.ErrUnsupported)
 	}
 
 	if _, err := s.phoneNumber(step.AuthID); err != nil && s.Diagnostic != nil {

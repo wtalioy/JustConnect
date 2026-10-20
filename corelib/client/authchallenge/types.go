@@ -1,6 +1,11 @@
 package authchallenge
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
+
+var ErrUnsupported = errors.New("unsupported authentication step")
 
 type CodeKind string
 
@@ -64,6 +69,7 @@ type ExternalLoginResponse struct {
 }
 
 type Handler interface {
+	HandleTrustedDevice() (bool, error)
 	HandleCodeChallenge(CodeChallenge) (CodeResponse, error)
 	HandleTextCaptcha(TextCaptchaChallenge) (TextCaptchaResponse, error)
 	HandleClickCaptcha(ClickCaptchaChallenge) (ClickCaptchaResponse, error)
@@ -71,6 +77,7 @@ type Handler interface {
 }
 
 type HandlerFuncs struct {
+	TrustedDevice func() (bool, error)
 	Code          func(CodeChallenge) (CodeResponse, error)
 	TextCaptcha   func(TextCaptchaChallenge) (TextCaptchaResponse, error)
 	ClickCaptcha  func(ClickCaptchaChallenge) (ClickCaptchaResponse, error)
@@ -105,20 +112,29 @@ func (h HandlerFuncs) HandleExternalLogin(challenge ExternalLoginChallenge) (Ext
 	return h.ExternalLogin(challenge)
 }
 
+func (h HandlerFuncs) HandleTrustedDevice() (bool, error) {
+	if h.TrustedDevice == nil {
+		return UnsupportedHandler{}.HandleTrustedDevice()
+	}
+	return h.TrustedDevice()
+}
+
 type UnsupportedHandler struct{}
 
+func (UnsupportedHandler) HandleTrustedDevice() (bool, error) { return false, ErrUnsupported }
+
 func (UnsupportedHandler) HandleCodeChallenge(challenge CodeChallenge) (CodeResponse, error) {
-	return CodeResponse{}, fmt.Errorf("unsupported authentication code challenge: %s", challenge.Kind)
+	return CodeResponse{}, fmt.Errorf("%w: code %s", ErrUnsupported, challenge.Kind)
 }
 
 func (UnsupportedHandler) HandleTextCaptcha(TextCaptchaChallenge) (TextCaptchaResponse, error) {
-	return TextCaptchaResponse{}, fmt.Errorf("unsupported text captcha challenge")
+	return TextCaptchaResponse{}, ErrUnsupported
 }
 
 func (UnsupportedHandler) HandleClickCaptcha(ClickCaptchaChallenge) (ClickCaptchaResponse, error) {
-	return ClickCaptchaResponse{}, fmt.Errorf("unsupported click captcha challenge")
+	return ClickCaptchaResponse{}, ErrUnsupported
 }
 
 func (UnsupportedHandler) HandleExternalLogin(challenge ExternalLoginChallenge) (ExternalLoginResponse, error) {
-	return ExternalLoginResponse{}, fmt.Errorf("unsupported external login challenge: %s", challenge.Kind)
+	return ExternalLoginResponse{}, fmt.Errorf("%w: external login %s", ErrUnsupported, challenge.Kind)
 }

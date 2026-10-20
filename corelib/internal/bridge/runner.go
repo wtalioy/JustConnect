@@ -72,6 +72,9 @@ func RunProtocol(ctx context.Context, config Config, host *Session) Status {
 	if errors.Is(err, context.DeadlineExceeded) {
 		return Timeout
 	}
+	if errors.Is(err, authchallenge.ErrUnsupported) {
+		return AuthUnsupported
+	}
 	if errors.Is(err, auth.ErrAuthMethodChanged) {
 		return AuthMethodChanged
 	}
@@ -100,6 +103,10 @@ func challengeHandler(ctx context.Context, host *Session) authchallenge.Handler 
 		return response, checkStatus(status)
 	}
 	return authchallenge.HandlerFuncs{
+		TrustedDevice: func() (bool, error) {
+			r, err := ask(Challenge{Kind: "trusted_device"})
+			return r.Action == "confirm", err
+		},
 		Code: func(c authchallenge.CodeChallenge) (authchallenge.CodeResponse, error) {
 			r, err := ask(Challenge{Kind: string(c.Kind), CanSkipSecondaryAuth: c.CanSkipSecondaryAuth})
 			return authchallenge.CodeResponse{Code: r.Code, SkipSecondaryAuth: r.SkipSecondaryAuth}, err

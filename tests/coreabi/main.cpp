@@ -150,6 +150,12 @@ static void nativeProtocol(API &api, const QByteArray &input) {
     check(api.jc_session_respond(handle, reinterpret_cast<const uint8_t *>(response.constData()),
           static_cast<uint32_t>(response.size())) == JC_OK, "native gateway SMS response");
     response.fill('\0');
+    challenge=protocolEvent(api,handle);
+    check(challenge["type"]=="authentication" && challenge["challenge"].toObject()["kind"]=="trusted_device","real ABI device confirmation");
+    response=QJsonDocument(QJsonObject{{"schema_version",1},{"generation",QString::number(generation)},
+        {"request_id",challenge["request_id"]},{"action","confirm"}}).toJson(QJsonDocument::Compact);
+    check(api.jc_session_respond(handle,reinterpret_cast<const uint8_t *>(response.constData()),static_cast<uint32_t>(response.size()))==JC_OK,"explicit ABI device confirmation");
+    response.fill('\0');
     check(protocolEvent(api, handle)["state"] == "ready", "real protocol ready");
     ProxyCheck::exercise(config["listeners"].toObject(), [&] {
     check(api.jc_session_stop(handle, 5000) == JC_OK && api.jc_session_stop(handle, 1000) == JC_OK, "native protocol idempotent stop");

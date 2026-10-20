@@ -487,7 +487,7 @@ func (s *Session) authSms(step authStep) error {
 	case smsWithoutAuthID:
 		// The stateful SMS flow does not use authId.
 	default:
-		return fmt.Errorf("unknown SMS authentication mode")
+		return fmt.Errorf("%w: SMS mode", authchallenge.ErrUnsupported)
 	}
 	req, _ := http.NewRequest("GET", u+"?"+params.Encode(), nil)
 	req.Header.Set("User-Agent", UserAgent)
@@ -572,7 +572,7 @@ func (s *Session) secondarySMSCheckCodeImpl(step authStep, code string, skipSeco
 		req, _ = http.NewRequest("POST", u+"?"+params.Encode(), bytes.NewReader(bdy))
 		req.Header.Set("Content-Type", "application/json;charset=utf-8")
 	default:
-		return authStep{}, fmt.Errorf("unknown SMS authentication mode")
+		return authStep{}, fmt.Errorf("%w: SMS mode", authchallenge.ErrUnsupported)
 	}
 	req.Header.Set("User-Agent", UserAgent)
 	req.Header.Set("x-csrf-token", s.csrfToken)

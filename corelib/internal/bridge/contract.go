@@ -18,6 +18,8 @@ func (s Status) Message() string {
 	switch s {
 	case OK:
 		return "Session ended"
+	case AuthUnsupported:
+		return "Server requires an unsupported authentication step"
 	case AuthMethodChanged:
 		return "Authentication identity changed; query methods again"
 	case TLSTrust:
@@ -239,6 +241,8 @@ func (c Challenge) valid() bool {
 		return false
 	}
 	switch c.Kind {
+	case "trusted_device":
+		return len(c.Image) == 0 && c.LoginURL == "" && !c.CanSkipSecondaryAuth
 	case "sms", "totp", "radius":
 		return len(c.Image) == 0 && c.LoginURL == ""
 	case "text_captcha", "click_captcha":
@@ -258,9 +262,16 @@ func validURL(value string) bool {
 	return err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Hostname() != "" && u.User == nil
 }
 
+func (r Response) emptyInput() bool {
+	return r.Code == "" && !r.SkipSecondaryAuth && len(r.Points) == 0 && r.Width == 0 && r.Height == 0 && r.CallbackURL == ""
+}
+
 func (r Response) valid(c Challenge) bool {
 	if r.Action == "cancel" {
-		return r.Code == "" && !r.SkipSecondaryAuth && len(r.Points) == 0 && r.Width == 0 && r.Height == 0 && r.CallbackURL == ""
+		return r.emptyInput()
+	}
+	if c.Kind == "trusted_device" {
+		return r.Action == "confirm" && r.emptyInput()
 	}
 	if r.Action != "submit" {
 		return false
