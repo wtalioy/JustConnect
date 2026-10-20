@@ -8,9 +8,9 @@ function(justconnect_platform TARGET)
     else()
         set(PLATFORM unsupported)
     endif()
-    add_library(${TARGET} STATIC "${REPO}/infrastructure/platform/platformsystemproxybackend_${PLATFORM}.cpp"
+    add_library(${TARGET} STATIC "${REPO}/infrastructure/platform/${PLATFORM}/systemproxybackend.cpp"
         "${REPO}/infrastructure/platform/platformcommand.cpp"
-        "${REPO}/infrastructure/platform/autostart_${PLATFORM}.cpp")
+        "${REPO}/infrastructure/platform/${PLATFORM}/autostart.cpp")
     target_include_directories(${TARGET} PUBLIC "${REPO}")
     target_link_libraries(${TARGET} PUBLIC Qt6::Core)
     if(WIN32)
