@@ -7,7 +7,6 @@ class QWidget;
 
 namespace PresentationHelpers
 {
-void retainSizeWhenHidden(QWidget *widget);
 void showAboutDialog(QWidget *parent = nullptr);
 bool confirmCredentials(const QString &username, const QString &password);
 }

@@ -30,15 +30,6 @@ void CaptchaCanvas::clearAll()
     emit pointCountChanged(0);
 }
 
-void CaptchaCanvas::undoLast()
-{
-    if (m_pointsPx.isEmpty())
-        return;
-    m_pointsPx.removeLast();
-    update();
-    emit pointCountChanged(m_pointsPx.size());
-}
-
 void CaptchaCanvas::paintEvent(QPaintEvent *)
 {
     QPainter p(this);

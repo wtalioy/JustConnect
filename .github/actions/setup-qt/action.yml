@@ -23,12 +23,12 @@ runs:
         target: desktop
         arch: ${{ inputs.arch }}
         archives: qtbase qtsvg qtdeclarative qttools qttranslations qtwayland icu
-        modules: qt5compat qtshadertools qtpositioning qtserialport qtwebchannel
+        modules: qtshadertools qtpositioning qtserialport qtwebchannel
         # Extension repositories and native ARM64 support are not in aqt 3.3.0.
         aqtsource: git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7
         py7zrversion: '==1.1.4'
         cache: true
-        cache-key-prefix: qt-6.12.0-${{ inputs.host }}-${{ inputs.arch }}
+        cache-key-prefix: qt-6.12.0-v2-${{ inputs.host }}-${{ inputs.arch }}
 
     - name: Check WebEngine installer
       shell: bash

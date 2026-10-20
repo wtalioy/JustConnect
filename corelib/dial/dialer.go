@@ -184,11 +184,6 @@ func matchDomainResourceForTunnel(resources []client.DomainResource, network str
 	return client.MatchDomainResource(resources, network, port)
 }
 
-func matchesIPResource(index *ipresource.Index, target net.IP, network string, port int) bool {
-	_, ok := matchIPResourceForTunnel(index, target, network, port)
-	return ok
-}
-
 func matchIPResourceForTunnel(index *ipresource.Index, target net.IP, network string, port int) (client.IPResource, bool) {
 	if network == "tcp" {
 		if resource, ok := index.MatchWhere(target, network, port, func(resource client.IPResource) bool {

@@ -93,8 +93,3 @@ bool SsoLoginWebView::isCallbackUrl(const QUrl &url) const
            ) == 0
         && effectivePort(url) == effectivePort(callbackServerUrl);
 }
-
-QUrl SsoLoginWebView::currentUrl() const
-{
-    return ui->webEngineView->url();
-}

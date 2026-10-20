@@ -27,7 +27,3 @@ func Checksum(sum uint32, b []byte) (answer [2]byte) {
 	answer[1] = byte(sum)
 	return
 }
-
-func SetIPv4(packet []byte) {
-	packet[0] = (packet[0] & 0x0f) | (4 << 4)
-}

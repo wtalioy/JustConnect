@@ -19,7 +19,6 @@ public:
         return m_pointsPx;
     }
     void clearAll();
-    void undoLast();
     void setMaxPoints(int n)
     {
         m_maxPoints = n;

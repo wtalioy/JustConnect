@@ -20,7 +20,6 @@ public:
 
     void setInitialUrl(const QUrl &url);
     void setCallbackServerUrl(const QUrl &url);
-    QUrl currentUrl() const;
 
 signals:
     void loginCompleted(const QString &url);

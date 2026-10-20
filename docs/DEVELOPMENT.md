@@ -70,7 +70,7 @@ Windows 当前未配置代码签名；未维护额外的软件源包。
 
 ## 本地构建
 
-需要模块固定版本的 Go、原生 cgo C 编译器、C++17 编译器、CMake 3.19 或更新版本、Qt 6.5 或更新版本，以及 Qt Core、Concurrent、Gui、Widgets、Network、Svg、Core5Compat、WebEngineWidgets。
+需要模块固定版本的 Go、原生 cgo C 编译器、C++17 编译器、CMake 3.19 或更新版本、Qt 6.5 或更新版本，以及 Qt Core、Concurrent、Gui、Widgets、Network、Svg、WebEngineWidgets。
 
 当前本地与 CI 使用 [Qt 6.12.0](https://www.qt.io/blog/qt-6.12-released)，搭配官方为它构建的 [WebEngine 6.140.0 候选版](https://download.qt.io/development_releases/qtwebengine/6.140.0-rc/)，固定二进制构建编号 `6.12.0-0-202609281005`。已确认允许使用这一候选组件以保持三平台统一 Qt 6.12；它尚不能标作 WebEngine 正式版。[WebEngine 从 Qt 6.12 起独立发布](https://www.qt.io/blog/qt-webengine-will-release-separate)，已排除在 Windows 上出现 DLL 接口不兼容的 Qt 6.12／WebEngine 6.11.2 组合。
 
@@ -108,7 +108,7 @@ Linux 最低 glibc 来自实际包内 ELF 的版本需求，不能由 Qt 的理�
 
 本机 SDK 位于 `/home/lioy/.local/share/JustConnect/Qt/6.12.0/gcc_64`，编译器为 `/usr/bin/c++`（GCC 16.2.1），CMake 4.4.4，Ninja 1.13.2。所需的字体、XCB 和 xkbfile 依赖单独放在 `/home/lioy/.local/share/JustConnect/sysroot`，包清单与 SHA-256 保存在其中的 `packages.json`；未修改系统软件包或全局 shell 配置。
 
-本地只安装 `qtbase`、`qtsvg`、`qtdeclarative`、`qttranslations`、`qtwayland`、配套 ICU，以及 `qt5compat`、`qtshadertools`、`qtpositioning`、`qtserialport`、`qtwebchannel`、`qtwebengine`。QML／Quick 等是 WebEngine 的依赖。未安装 Qt Creator、Qt Tools、源码、示例、离线文档、独立调试符号或可选的 Vulkan／CUPS 开发包；SDK 静态库中附带的调试信息已移除，保留可链接的库和符号。本地 SDK 约 875 MiB，补充运行依赖约 6 MiB，构建目录另计。CI 额外安装 Qt Tools 以提供部署工具。
+本地只安装 `qtbase`、`qtsvg`、`qtdeclarative`、`qttranslations`、`qtwayland`、配套 ICU，以及 `qtshadertools`、`qtpositioning`、`qtserialport`、`qtwebchannel`、`qtwebengine`。QML／Quick 等是 WebEngine 的依赖。未安装 Qt Creator、Qt Tools、源码、示例、离线文档、独立调试符号或可选的 Vulkan／CUPS 开发包；SDK 静态库中附带的调试信息已移除，保留可链接的库和符号。本地 SDK 约 875 MiB，补充运行依赖约 6 MiB，构建目录另计。CI 额外安装 Qt Tools 以提供部署工具。S1-10 收尾已删除无调用的 Qt Core5Compat 构建／链接及 CI 安装依赖，并更新 SDK 缓存键；本机既有 SDK 中残留的 qt5compat 不参与构建，本地以禁用该包查找的干净构建验证。上述 SDK 大小为原安装记录，不作为本次精简的体积测量。
 
 已创建仅供本机使用且被 Git 忽略的 `CMakeUserPresets.json`，设置 SDK 路径、必要的动态库／字体配置、Ninja 和测试环境，直接运行：
 

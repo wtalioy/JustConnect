@@ -17,10 +17,6 @@ func (p ICMPPacket) Type() ICMPType {
 	return p[0]
 }
 
-func (p ICMPPacket) SetType(v ICMPType) {
-	p[0] = v
-}
-
 func (p ICMPPacket) Code() byte {
 	return p[1]
 }

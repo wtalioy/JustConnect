@@ -3,17 +3,9 @@
 #include <QApplication>
 #include <QMessageBox>
 #include <QPixmap>
-#include <QSizePolicy>
 #include <QWidget>
 
 #include "application/applicationconstants.h"
-
-void PresentationHelpers::retainSizeWhenHidden(QWidget *widget)
-{
-    QSizePolicy policy = widget->sizePolicy();
-    policy.setRetainSizeWhenHidden(true);
-    widget->setSizePolicy(policy);
-}
 
 void PresentationHelpers::showAboutDialog(QWidget *parent)
 {

@@ -29,11 +29,6 @@ const (
 )
 
 const (
-	FlagDontFragment = 1 << 1
-	FlagMoreFragment = 1 << 2
-)
-
-const (
 	IPv4HeaderSize = 20
 
 	IPv4Version = 4
@@ -67,32 +62,6 @@ func (p IPv4Packet) SetHeaderLen(length uint16) {
 	p[0] |= byte(length / 4)
 }
 
-func (p IPv4Packet) TypeOfService() byte {
-	return p[1]
-}
-
-func (p IPv4Packet) SetTypeOfService(tos byte) {
-	p[1] = tos
-}
-
-func (p IPv4Packet) Identification() uint16 {
-	return binary.BigEndian.Uint16(p[4:])
-}
-
-func (p IPv4Packet) SetIdentification(id uint16) {
-	binary.BigEndian.PutUint16(p[4:], id)
-}
-
-func (p IPv4Packet) FragmentOffset() uint16 {
-	return binary.BigEndian.Uint16([]byte{p[6] & 0x7, p[7]}) * 8
-}
-
-func (p IPv4Packet) SetFragmentOffset(offset uint32) {
-	flags := p.Flags()
-	binary.BigEndian.PutUint16(p[6:], uint16(offset/8))
-	p.SetFlags(flags)
-}
-
 func (p IPv4Packet) DataLen() uint16 {
 	return p.TotalLen() - p.HeaderLen()
 }
@@ -107,15 +76,6 @@ func (p IPv4Packet) Protocol() IPProtocol {
 
 func (p IPv4Packet) SetProtocol(protocol IPProtocol) {
 	p[9] = protocol
-}
-
-func (p IPv4Packet) Flags() byte {
-	return p[6] >> 5
-}
-
-func (p IPv4Packet) SetFlags(flags byte) {
-	p[6] &= 0x1F
-	p[6] |= flags << 5
 }
 
 func (p IPv4Packet) SourceIP() net.IP {
@@ -145,14 +105,6 @@ func (p IPv4Packet) Checksum() uint16 {
 func (p IPv4Packet) SetChecksum(sum [2]byte) {
 	p[10] = sum[0]
 	p[11] = sum[1]
-}
-
-func (p IPv4Packet) TimeToLive() uint8 {
-	return p[8]
-}
-
-func (p IPv4Packet) SetTimeToLive(ttl uint8) {
-	p[8] = ttl
 }
 
 func (p IPv4Packet) DecTimeToLive() {
