@@ -18,7 +18,12 @@ static Boolean set(SCPreferencesRef prefs, CFStringRef key, CFDictionaryRef valu
     if(++changes==failAt)return false;
     return ignoreSet || SCPreferencesPathSetValue(prefs,key,value);
 }
-static Boolean commit(SCPreferencesRef prefs) { return !failCommit && SCPreferencesCommitChanges(prefs); }
+static Boolean nativeCommit(SCPreferencesRef prefs) {
+    const auto result=SCPreferencesCommitChanges(prefs);
+    if(!result)std::cerr<<"Native preferences commit error "<<SCError()<<": "<<SCErrorString(SCError())<<'\n';
+    return result;
+}
+static Boolean commit(SCPreferencesRef prefs) { return !failCommit && nativeCommit(prefs); }
 static Boolean apply(SCPreferencesRef prefs) { return !failApply && SCPreferencesApplyChanges(prefs); }
 
 static void backendTests() {
@@ -43,6 +48,7 @@ static void backendTests() {
     check(first && second && disabled,"create services only in private preferences");
     const auto releaseServices=qScopeGuard([&]{CFRelease(first);CFRelease(second);CFRelease(disabled);});
     check(SCNetworkServiceSetEnabled(first,true) && SCNetworkServiceSetEnabled(second,true) && SCNetworkServiceSetEnabled(disabled,false),"native enabled and disabled services");
+    check(nativeCommit(prefs),"persist private service metadata before fixture synchronization");
     auto firstPath=path(first),secondPath=path(second),disabledPath=path(disabled);
     const auto releasePaths=qScopeGuard([&]{CFRelease(firstPath);CFRelease(secondPath);CFRelease(disabledPath);});
     auto original=CFDictionaryCreateMutable(nullptr,0,&kCFTypeDictionaryKeyCallBacks,&kCFTypeDictionaryValueCallBacks);
@@ -59,7 +65,7 @@ static void backendTests() {
         SCPreferencesSynchronize(prefs);
         check(SCPreferencesPathSetValue(prefs,firstPath,original) && SCPreferencesPathSetValue(prefs,disabledPath,original),"seed native proxy/PAC/bypass");
         if(SCPreferencesPathGetValue(prefs,secondPath))check(SCPreferencesPathRemoveValue(prefs,secondPath),"seed absent original proxy configuration");
-        check(SCPreferencesCommitChanges(prefs),"commit private native fixture");
+        check(nativeCommit(prefs),"commit private native fixture");
     };
     const auto value=[&](CFStringRef key){SCPreferencesSynchronize(prefs);return SCPreferencesPathGetValue(prefs,key);};
     const auto restored=[&] {
@@ -72,7 +78,7 @@ static void backendTests() {
     const auto releaseFirstParent=qScopeGuard([&]{CFRelease(firstParent);});
     auto malformed=CFDictionaryCreateMutableCopy(nullptr,0,SCPreferencesPathGetValue(prefs,firstParent));
     CFDictionarySetValue(malformed,kSCEntNetProxies,CFSTR("invalid"));
-    check(SCPreferencesPathSetValue(prefs,firstParent,malformed) && SCPreferencesCommitChanges(prefs),"seed malformed native proxy data");CFRelease(malformed);
+    check(SCPreferencesPathSetValue(prefs,firstParent,malformed) && nativeCommit(prefs),"seed malformed native proxy data");CFRelease(malformed);
     const auto beforeRead=changes;
     check(!backend.apply(config).succeeded() && changes==beforeRead,"invalid native data fails before the first mutation");
     seed();
@@ -95,9 +101,9 @@ static void backendTests() {
     check(backend.apply(config).succeeded(),"apply before restore failure");changes=0;failAt=1;
     check(!backend.clear().succeeded(),"native restore failure retains its original snapshot");failAt=0;
     check(backend.clear().succeeded(),"native restore resumes after failure");restored();
-    check(SCNetworkServiceSetEnabled(first,false) && SCNetworkServiceSetEnabled(second,false) && SCPreferencesCommitChanges(prefs),"disable private fixture services");
+    check(SCNetworkServiceSetEnabled(first,false) && SCNetworkServiceSetEnabled(second,false) && nativeCommit(prefs),"disable private fixture services");
     check(backend.apply(config).status==PlatformOperationResult::Status::Unsupported,"no enabled services is explicitly unsupported");
-    check(SCNetworkServiceSetEnabled(first,true) && SCNetworkServiceSetEnabled(second,true) && SCPreferencesCommitChanges(prefs),"reenable private fixture services");
+    check(SCNetworkServiceSetEnabled(first,true) && SCNetworkServiceSetEnabled(second,true) && nativeCommit(prefs),"reenable private fixture services");
     check(backend.apply(config).succeeded(),"apply before external changes");
     auto external=CFDictionaryCreateMutableCopy(nullptr,0,static_cast<CFDictionaryRef>(value(firstPath)));
     const auto releaseExternal=qScopeGuard([&]{CFRelease(external);});
@@ -105,11 +111,11 @@ static void backendTests() {
     CFDictionarySetValue(external,kSCPropNetProxiesProxyAutoConfigURLString,CFSTR("https://pac.invalid/new.pac"));
     const void *newDomain[]{CFSTR("external.invalid")};auto newDomains=CFArrayCreate(nullptr,newDomain,1,&kCFTypeArrayCallBacks);
     CFDictionarySetValue(external,kSCPropNetProxiesExceptionsList,newDomains);CFRelease(newDomains);
-    check(SCPreferencesPathSetValue(prefs,firstPath,external) && SCPreferencesCommitChanges(prefs),"commit private external state");
+    check(SCPreferencesPathSetValue(prefs,firstPath,external) && nativeCommit(prefs),"commit private external state");
     auto added=SCNetworkServiceCreate(prefs,interface);check(added,"create new external private service");
     const auto releaseAdded=qScopeGuard([&]{CFRelease(added);});
     auto addedPath=path(added);const auto releaseAddedPath=qScopeGuard([&]{CFRelease(addedPath);});
-    check(SCPreferencesPathSetValue(prefs,addedPath,original) && SCNetworkServiceRemove(second) && SCPreferencesCommitChanges(prefs),"external service addition and deletion");
+    check(SCPreferencesPathSetValue(prefs,addedPath,original) && SCNetworkServiceRemove(second) && nativeCommit(prefs),"external service addition and deletion");
     check(backend.clear().succeeded(),"native restoration respects external changes");
     check(value(addedPath) && CFEqual(value(addedPath),original),"new service is not changed by restoration");
     auto secondParent=CFStringCreateWithFormat(nullptr,nullptr,CFSTR("/%@/%@"),kSCPrefNetworkServices,SCNetworkServiceGetServiceID(second));
