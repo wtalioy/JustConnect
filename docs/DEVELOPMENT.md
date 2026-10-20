@@ -201,3 +201,5 @@ S2-03 默认启用服务器证书验证，私有 CA 可在服务器编辑区以 
 系统 API 依据：[Secret Service](https://specifications.freedesktop.org/secret-service/latest-single/)、[Windows Credential Manager](https://learn.microsoft.com/en-us/windows/win32/api/wincred/ns-wincred-credentialw)、[Apple SecItemCopyMatching](https://developer.apple.com/documentation/security/secitemcopymatching(_:_:))。Linux 提供方可以规范化 MIME 提示，因此后端按不透明字节读取，并验证会话、长度及实际回读数据。
 
 `ctest --test-dir build -R '^profilecredentials_test$' --output-on-failure` 验证凭据作用域、密码更新、指定身份删除、版本／损坏数据拒绝、旧 INI 编码迁移、读写失败／回读锁定、来源被替换及真实文件提交失败后的重启重试。测试使用注入的存储端口和真实临时 INI／缓存文件；原生安全存储的证据由独立 `credentialstore_test` 提供，不能把替身当作 Keychain／Credential Manager／Secret Service 实测。未绑定账户的旧缓存使用独立隔离键，测试确认它不会成为任意账户的密码记录。
+
+`credentialaccess_test` 在受控存储调用被阻塞时运行 GUI 事件，检查原生边界调用来自工作线程、串行迁移／保存、首次空配置、旧缓存迁移失败及重试，以及读／写期间切换账户或服务器后的旧结果拒绝。该测试使用真实线程、QSettings 和临时文件，存储端口仍为替身，不覆盖用户桌面的解锁／授权交互。
