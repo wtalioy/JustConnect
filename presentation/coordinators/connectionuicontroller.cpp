@@ -324,7 +324,7 @@ void ConnectionUiController::showConnectionError(ConnectionError error)
         message="网络连接失败。请检查 DNS、网络与服务器地址。";
         break;
     case ConnectionError::TIMED_OUT:
-        message="操作超时，请检查网络或重试。";
+        message="连接或认证操作超时，请重试。";
         break;
     case ConnectionError::CLIENT_FAILED:
         message = "连接失败！\n可能是响应超时，请检查本地网络配置是否正常，服务器设置是否正确。";

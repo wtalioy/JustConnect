@@ -212,6 +212,15 @@ func (s *Session) Diagnostic(code string) Status {
 }
 
 func (s *Session) Authenticate(ctx context.Context, challenge Challenge) (Response, Status) {
+	return s.authenticate(ctx, challenge, time.Duration(MaxAuthWaitMS)*time.Millisecond)
+}
+
+func (s *Session) authenticate(ctx context.Context, challenge Challenge, wait time.Duration) (Response, Status) {
+	ctx, cancel := context.WithTimeout(ctx, wait)
+	defer cancel()
+	if ctx.Err() == context.DeadlineExceeded {
+		return Response{}, Timeout
+	}
 	if ctx.Err() != nil {
 		return Response{}, Cancelled
 	}
@@ -246,17 +255,24 @@ func (s *Session) Authenticate(ctx context.Context, challenge Challenge) (Respon
 		}
 		s.mu.Unlock()
 	}()
+	var response Response
 	select {
-	case response := <-p.response:
-		if response.Action == "cancel" {
-			return Response{}, Cancelled
-		}
-		return response, OK
+	case response = <-p.response:
 	case <-ctx.Done():
-		return Response{}, Cancelled
+	case <-stopped:
+	}
+	select {
 	case <-stopped:
 		return Response{}, Cancelled
+	default:
 	}
+	if ctx.Err() == context.DeadlineExceeded {
+		return Response{}, Timeout
+	}
+	if ctx.Err() != nil || response.Action == "cancel" {
+		return Response{}, Cancelled
+	}
+	return response, OK
 }
 
 func (e *Engine) Respond(handle uint64, input []byte) Status {

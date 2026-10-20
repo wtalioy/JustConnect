@@ -149,6 +149,30 @@ bool authenticatesOnlyTheCurrentRequest()
     return true;
 }
 
+bool authenticationTimeoutEndsWaitAndAllowsManualRetry()
+{
+    auto *engine=new FakeCoreEngine;
+    ConnectionSession session(engine);
+    ConnectionProfile profile;
+    int reconnects=0;
+    QObject::connect(&session,&ConnectionSession::reconnectScheduled,[&](int){++reconnects;});
+    session.start(profile,{true,1});
+    QJsonObject request{{"schema_version",1},{"generation","1"},{"request_id","1"}};
+    emit engine->authenticationRequired(request);
+    const auto expired=CoreEngine::responseFor(request,{{"action","submit"},{"code","old-code"}});
+    engine->complete(ConnectionError::TIMED_OUT);
+    session.submitResponse(expired);
+    if(session.state()!=ConnectionState::Failed || session.isActive() || reconnects || !engine->lastResponse.isEmpty())return false;
+    if(!session.start(profile,{}))return false;
+    request["generation"]="2";request["request_id"]="2";
+    emit engine->authenticationRequired(request);
+    session.submitResponse(expired);
+    if(!engine->lastResponse.isEmpty())return false;
+    const auto current=CoreEngine::responseFor(request,{{"action","submit"},{"code","new-code"}});
+    session.submitResponse(current);
+    return engine->lastResponse==current && engine->startCalls==2;
+}
+
 }
 
 int main(int argc, char *argv[])
@@ -156,5 +180,6 @@ int main(int argc, char *argv[])
     QCoreApplication application(argc, argv);
     return delegatesSessionLifecycleThroughPort()
         && distinguishesInterruptedConnectionFromStartupFailure()
-        && authenticatesOnlyTheCurrentRequest() ? 0 : 1;
+        && authenticatesOnlyTheCurrentRequest()
+        && authenticationTimeoutEndsWaitAndAllowsManualRetry() ? 0 : 1;
 }

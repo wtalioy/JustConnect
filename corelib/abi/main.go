@@ -47,7 +47,7 @@ func buildInfo() []byte {
 		"capabilities": map[string]any{"embedded_vpn": !testDriver, "auth_method_query": !testDriver, "policy_update": false,
 			"async_start": true, "authentication_response": true, "bounded_events": true,
 			"max_sessions": 1, "max_handles": bridge.MaxHandles, "max_input_bytes": bridge.MaxInput,
-			"max_output_bytes": bridge.MaxOutput, "max_wait_ms": bridge.MaxWaitMS,
+			"max_output_bytes": bridge.MaxOutput, "max_wait_ms": bridge.MaxWaitMS, "max_auth_wait_ms": bridge.MaxAuthWaitMS,
 			"max_diagnostics": bridge.MaxDiagnostics},
 	})
 	return data
