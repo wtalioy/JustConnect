@@ -92,7 +92,11 @@ int main(int argc,char **argv) {
     check(settings.value("Credential/Username")=="fixture-user" && read(imported)==originalImport && read(cache)=="preserved authentication","cancelled import changes neither source file nor saved profile/cache");
     window=open(); const auto exported=directory.filePath("export.ini"); fileSelection=exported;
     window->findChild<QPushButton *>("exportPushButton")->click();
-    check(fileSelection.isEmpty() && read(exported)==read(settings.fileName()),"export atomically saves the persisted current profile");
+    QSettings publicExport(exported,QSettings::IniFormat);
+    check(fileSelection.isEmpty() && publicExport.value("JustConnect/ServerAddress")==settings.value("JustConnect/ServerAddress")
+        && publicExport.value("Credential/Username")=="fixture-user" && !publicExport.contains("Credential/Password")
+        && !publicExport.contains("Credential/TOTPSecret") && !publicExport.contains("Credential/OtherAccount/Ticket")
+        && !publicExport.contains("OtherApplication/Value") && !publicExport.contains("JustConnect/LoginURL"),"export saves public configuration without credentials, private unknown fields or session URLs");
     window->reject(); app.processEvents();
     check(settings.value("Credential/OtherAccount/Ticket")=="retained-ticket" && settings.value("OtherApplication/Value")=="retained-value" && read(otherCache)=="other authentication","other accounts and application data survive all operations");
     std::cout<<"PASS: real settings validation, failures, scoped cache cleanup, import/reset cancellation and export\n";

@@ -8,7 +8,6 @@
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QPushButton>
-#include <QSaveFile>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QVBoxLayout>
@@ -98,15 +97,9 @@ SettingWindow::SettingWindow(QWidget *parent,QSettings *inputSettings,const QStr
     connect(ui->exportPushButton,&QPushButton::clicked,this,[this] {
         const auto path=QFileDialog::getSaveFileName(this,"导出已保存配置",{},"Config Ini (*.ini)");
         if (path.isEmpty()) return;
-        settings->sync(); QFile source(settings->fileName());
-        if (settings->status()!=QSettings::NoError || !source.open(QIODevice::ReadOnly)) {
-            QMessageBox::warning(this,"导出失败","无法读取已保存配置。"); return;
-        }
-        const auto data=source.readAll();
-        if (source.error()!=QFileDevice::NoError) { QMessageBox::warning(this,"导出失败","读取配置失败。"); return; }
-        source.close(); QSaveFile target(path);
-        if (!target.open(QIODevice::WriteOnly) || target.write(data)!=data.size() || !target.commit())
-            QMessageBox::warning(this,"导出失败","未能提交导出文件。");
+        settings->sync();
+        if (settings->status()!=QSettings::NoError || !DefaultSettings::exportTo(*settings,path))
+            QMessageBox::warning(this,"导出失败","无法提交导出文件；不能覆盖当前配置。");
     });
 }
 SettingWindow::~SettingWindow() { delete ui; }

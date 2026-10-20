@@ -74,7 +74,7 @@ S2-01 不替代 S2-06 的系统快照／按所有权恢复，也不授予覆盖�
 
 设置页与配置向导共用 Fudan／Custom 服务器入口。Fudan 使用计划 R6 的 `vpn.fudan.edu.cn:443`，与[复旦信息办新 VPN 公告](https://icampus.fudan.edu.cn/f1/a8/c33159a782760/page.htm)一致；只预填端点，不写死登录域、认证编号或登录 URL。用户点击查询后，从服务器返回项中优先选择 OAuth2（名称含 UIS 的项优先），仍等待查询清理完成再允许确认；S2-03 已用验证证书的公开 authConfig 样本和 Qt／Go 回归核对 authId/subType 保留；真实 Fudan 登录仍按 S1-04 验收。Custom 保留其他学校的 aTrust 地址和认证选择，在预置间切换会保留 Custom 地址草稿。
 
-`ConnectionProfile` 只表示当前 ABI 可用的字段；没有协议选择器、任意附加参数或未实现的 TUN／旧转发开关。保存前由 `EmbeddedCoreEngine::validateConfiguration` 调用 `jc_config_validate`，不占用会话、不查询 DNS 或联网。向导保存失败停留原窗口；导入与恢复默认值先写窗口草稿，取消保留源文件和当前配置；导出用 QSaveFile 提交已保存的当前配置。
+`ConnectionProfile` 只表示当前 ABI 可用的字段；没有协议选择器、任意附加参数或未实现的 TUN／旧转发开关。保存前由 `EmbeddedCoreEngine::validateConfiguration` 调用 `jc_config_validate`，不占用会话、不查询 DNS 或联网。向导保存失败停留原窗口；导入与恢复默认值先写窗口草稿，取消保留源文件和当前配置；导出用 QSaveFile 原子提交当前配置的公开字段；字段清单从默认配置派生，不复制密码、TOTP、其他账户／未知私有键或可能带会话参数的登录 URL。导出不允许覆盖正在使用的配置（包括指向它的符号链接）。
 
 配置版本 9 只补齐缺失默认值，保留现有端点、认证、监听禁用值、未知键及其他账户／配置文件。`SettingsMigrator` 集中复制旧分组、标记旧协议待人工确认、移除明确废弃字段和提交版本；失败保留旧版本，退出不抢先写入升级完成。版本高于当前值时不降级或清理未知的新格式。仍需支持旧分组的已发布配置，在验证不再支持这些版本后才能删除这条迁移路径。
 

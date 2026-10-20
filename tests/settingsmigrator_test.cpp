@@ -11,6 +11,44 @@
 
 namespace
 {
+bool exportsOnlyPublicConfiguration()
+{
+    QTemporaryDir folder;
+    if (!folder.isValid()) return false;
+    QSettings source(folder.filePath("source.ini"),QSettings::IniFormat);
+    DefaultSettings::reset(source);
+    source.setValue("Credential/Username","alice");
+    source.setValue("Credential/Password","encoded-secret");
+    source.setValue("Credential/TOTPSecret","totp-secret");
+    source.setValue("Credential/OtherAccount/Ticket","ticket-secret");
+    source.setValue("JustConnect/LoginURL","https://id.example.invalid/?state=session-secret");
+    source.setValue("JustConnect/ServerAddress","vpn.example.invalid");
+    source.setValue("JustConnect/ServerPort",8443);
+    source.setValue("JustConnect/AuthID","selected-method");
+    source.setValue("JustConnect/SOCKS5Port",0);
+    source.setValue("Unknown/Cookie","unknown-secret");
+    source.sync();
+    QFile file(source.fileName());
+    if (!file.open(QIODevice::ReadOnly)) return false;
+    const auto before=file.readAll();file.close();
+    const auto target=folder.filePath("export.ini");
+    if (!DefaultSettings::exportTo(source,target)) return false;
+    QSettings exported(target,QSettings::IniFormat);
+    for (const auto &key:QStringList{"Credential/Password","Credential/TOTPSecret","Credential/OtherAccount/Ticket","JustConnect/LoginURL","Unknown/Cookie"})
+        if (exported.contains(key)) return false;
+    if (exported.value("JustConnect/ServerAddress")!="vpn.example.invalid"
+        || exported.value("JustConnect/ServerPort")!=8443 || exported.value("JustConnect/AuthID")!="selected-method"
+        || exported.value("Credential/Username")!="alice" || exported.value("JustConnect/SOCKS5Port")!=0
+        || SettingsMigrator::prepare(exported)==SettingsMigrationAction::Failed || !SettingsMigrator::finish(exported)) return false;
+    if (DefaultSettings::exportTo(source,source.fileName())) return false;
+#ifdef Q_OS_UNIX
+    const auto alias=folder.filePath("source-link.ini");
+    if (!QFile::link(source.fileName(),alias) || DefaultSettings::exportTo(source,alias)) return false;
+#endif
+    if (DefaultSettings::exportTo(source,folder.path()) || !file.open(QIODevice::ReadOnly)) return false;
+    return file.readAll()==before;
+}
+
 bool renamesPreviewSettingsWithoutLosingValues()
 {
     QTemporaryDir directory;
@@ -133,7 +171,8 @@ bool failedSaveRemainsRetryable()
 int main(int argc, char *argv[])
 {
     QCoreApplication app(argc, argv);
-    return renamesPreviewSettingsWithoutLosingValues()
+    return exportsOnlyPublicConfiguration()
+        && renamesPreviewSettingsWithoutLosingValues()
         && preservesAlreadyRenamedSettings()
         && requiresConfirmationForOldProtocols()
         && upgradesWithoutResettingValidProfiles()
