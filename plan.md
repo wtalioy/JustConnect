@@ -19,19 +19,19 @@
 | --- | --- |
 | 当前任务 | S1-03 后收尾：清理过时原型、无用代码和重复测试，并将阶段清理纳入仓库规则；正式 VPN 会话仍按 S1-07 接入 |
 | 依赖依据 | S1-06 六组工具链结论已通过；按 S1 的实施顺序，可先做源码导入、契约和离线回归，不依赖尚未证明的设备权限路径 |
-| 状态 | S1-03 已完成：代码 `c66be1d` 的[六组 FFI CI](https://github.com/wtalioy/JustConnect/actions/runs/39356166583)与[三平台应用 CI](https://github.com/wtalioy/JustConnect/actions/runs/39356166708)全部通过；正式与认证两个宿主均通过，Go 普通回归覆盖六组，race 覆盖五组。契约常量单一来源，地址／端口／凭据由宿主传入；正式 VPN 会话由 S1-07 接入 |
+| 状态 | 本次收尾已完成：规则、ABI 测试归并、Go 废弃依赖清理分单元验证并提交；两个代码单元分别通过六组原生 ABI 与三平台应用 CI，详情见下方记录。S1-03 保持已验收，S1-07 尚未开始；现用迁移代码及其必要回归保留到替代实现验收 |
 | 已有基础 | 代码 `481c61b` 的六组库链接原型与三平台应用 CI 已通过；旧独立核心的六组打包基线仍可复用；原始核心提交为 `c19eb4e` |
 | 已知缺口 | Linux fd 已向零有效 capabilities 的普通用户交付并双向收发，尚未接入正式 Go／Qt；其余真实设备权限及现有 Windows Wintun 候选路径的非提权交付尚未证明；透明入口 D2 未选型，TUN 并非既定前提；正式协议会话生命周期、上游取消、会话失效及致命退出仍需实现 |
 | 网络验证 | 暂无真实校园登录、透明转发、Clash 共存或异常恢复的通过记录 |
 | 外部条件 | 实机验收需要相应操作系统、校园账户及交互式 MFA；缺少时记录待验收，不降低验收要求 |
 
-## 阶段总览
-
-本次收尾分为独立单元：先固化 `AGENTS.md` 清理规则；再将旧链接原型独有的 QThread／WebEngine 检查迁入正式 ABI 宿主，删除模拟 ABI 和重复构建。预期保留正式接口的边界、认证、并发与 GUI 共存覆盖，以及独立的 Linux fd 权限检查；本地实际运行宿主与应用回归，提交后检查六组原生 ABI 和三平台应用 CI。另按依赖闭包检查旧 Go CLI 初始化与 EasyConnect 代码，确认可独立删除的部分后再实施、验证和提交。当前 Qt 仍使用 QProcess，其必要代码与测试保留到 S1-10。
+此次收尾按规则固化、链接测试归并、Go 废弃依赖清理三个单元独立验证并提交。保留正式接口的边界、认证、并发与 GUI 共存覆盖，以及独立的 Linux fd 权限检查；当前 Qt 仍使用 QProcess，其必要代码与测试保留到 S1-10。
 
 - 清理规则已写入 `AGENTS.md`（`25c9b55`）。旧模拟 ABI 的 Go 模块、导出、宿主和 CMake 已删除；独有 GUI 检查迁入正式 ABI，Linux 设备脚本移至 `tests/platform/`。`Core ABI` 工作流直接按 D5 选择链接方式，Go 版本从集成模块读取。本地 Release 两个正式宿主（含 QThread／WebEngine／认证）、16 项应用 CTest 和隔离 Linux 普通用户 fd 双向收发／正常与 SIGKILL 清理通过；actionlint 与差异检查通过。`00fcf5d` 的[六组原生 ABI CI](https://github.com/wtalioy/JustConnect/actions/runs/39358349707)及[三平台应用 CI](https://github.com/wtalioy/JustConnect/actions/runs/39358349649)全部通过，六组均实际执行正式 ABI／QThread／WebEngine 与认证宿主，两组 Linux 设备测试通过。
 
-- Go 废弃依赖清理：本地限定基线 23 包（含无测试包）、aTrust／gVisor／TUN 无缓存回归、六目标协议源码编译和依赖锁校验通过；删除 8 条不再需要的模块依赖声明。此单元三平台运行及六组 ABI CI 待本次提交后验收。认证包的原有编译阻塞单独记录，相关测试未删、例外未扩大。
+- Go 废弃依赖清理：本地限定基线 23 包（含无测试包）、aTrust／gVisor／TUN 无缓存回归、六目标协议源码编译和依赖锁校验通过；删除 8 条不再需要的模块依赖声明。`2dd408f` 的[三平台应用 CI](https://github.com/wtalioy/JustConnect/actions/runs/39359024032)与[六组原生 ABI CI](https://github.com/wtalioy/JustConnect/actions/runs/39359023998)全部通过：三平台各 23 包限定基线和 16 项应用 CTest，六组各两个正式 ABI／认证宿主，五组支持的 Go race 及两组 Linux fd 检查均通过。认证包的原有编译阻塞单独记录，相关测试未删、例外未扩大。
+
+## 阶段总览
 
 | 阶段 | 交付目标 | 前置依赖 | 状态 |
 | --- | --- | --- | --- |
