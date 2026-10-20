@@ -20,6 +20,7 @@ class ArchiveSourceTest(unittest.TestCase):
                 return subprocess.check_output(['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
                                                 *args], cwd=root).decode().strip()
             git('init', '-q')
+            git('config', 'core.autocrlf', 'true')
             code = root / 'core.go'
             code.write_bytes(b'maintained implementation\n')
             git('add', '.')

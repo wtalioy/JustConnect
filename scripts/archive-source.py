@@ -24,7 +24,7 @@ def archive(output):
     prefix = f'JustConnect-{revision}/'
     with tempfile.TemporaryDirectory() as folder:
         path = Path(folder) / 'source.tar'
-        git('archive', '--format=tar', f'--prefix={prefix}', '-o', str(path), 'HEAD')
+        git('-c', 'core.autocrlf=false', '-c', 'core.eol=lf', 'archive', '--format=tar', f'--prefix={prefix}', '-o', str(path), 'HEAD')
         with tarfile.open(path, 'a') as bundle:
             contents = (revision + '\n').encode()
             entry = tarfile.TarInfo(prefix + 'source-revision.txt')

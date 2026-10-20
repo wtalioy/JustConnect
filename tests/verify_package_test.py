@@ -3,6 +3,8 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import plistlib
+from types import SimpleNamespace
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -68,7 +70,6 @@ class VerifyPackageTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             (root / 'Contents').mkdir()
-            import plistlib
             (root / 'Contents/Info.plist').write_bytes(plistlib.dumps({'LSMinimumSystemVersion': '14.4'}))
             def run(*args, **kwargs):
                 return {'lipo': 'arm64', 'otool': ('cmd LC_BUILD_VERSION\n minos 26.0\n'
@@ -76,6 +77,29 @@ class VerifyPackageTest(unittest.TestCase):
             with patch.object(package, 'run', side_effect=run):
                 with self.assertRaisesRegex(RuntimeError, 'Invalid macOS floor'):
                     package.macos_audit([root / 'app'], root, 'arm64', {}, False)
+
+    def test_macos_helper_resolves_its_own_executable_directory(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            helper = root / 'Contents/Helpers/Helper.app/Contents/MacOS/helper'
+            dependency = root / 'Contents/Frameworks/libQt.dylib'
+            helper.parent.mkdir(parents=True)
+            dependency.parent.mkdir(parents=True)
+            dependency.touch()
+            (root / 'Contents/Info.plist').write_bytes(plistlib.dumps({'LSMinimumSystemVersion': '14.4'}))
+            relative = Path(os.path.relpath(dependency, helper.parent)).as_posix()
+            def run(*args, **kwargs):
+                if args[0] == 'lipo':
+                    return 'arm64'
+                if args[0] == 'otool':
+                    return ('cmd LC_BUILD_VERSION\n minos 14.4.0\n' if args[1] == '-l'
+                            else f'helper:\n @executable_path/{relative} (compatibility version 1.0)\n')
+                return ''
+            with patch.object(package, 'run', side_effect=run), \
+                    patch.object(package.platform, 'mac_ver', return_value=('26.0', (), '')), \
+                    patch.object(package.subprocess, 'run', return_value=SimpleNamespace(stderr=b'Signature=adhoc')):
+                audit = package.macos_audit([helper], root, 'arm64', {}, False)
+            self.assertEqual(package.version(audit['binary_minimum']), package.version('14.4'))
 
 
 if __name__ == '__main__':

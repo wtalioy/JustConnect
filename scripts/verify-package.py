@@ -25,7 +25,7 @@ def clean_environment():
     env = {k: v for k, v in os.environ.items() if not k.startswith(
         ('QT', 'QML', 'LD_', 'DYLD_'))}
     env['LC_ALL'] = 'C'
-    env['PATH'] = (str(Path(env['SystemRoot']) / 'System32') if sys.platform == 'win32'
+    env['PATH'] = (str(Path(os.environ['SystemRoot']) / 'System32') if sys.platform == 'win32'
                    else '/usr/bin:/bin:/usr/sbin:/sbin')
     return env
 
@@ -105,19 +105,20 @@ def macos_audit(files, root, arch, env, signed):
                 match = re.search(r'^\s+(?:minos|version)\s+([0-9.]+)', block, re.M)
                 if match and version(match[1]) > version(minimum):
                     minimum = match[1]
+        executable_dir = path.parent if path.parent.name == 'MacOS' else root / 'Contents/MacOS'
         dependencies = run('otool', '-L', path, env=env)
         for line in dependencies.splitlines()[1:]:
             dependency = line.strip().split(' (', 1)[0]
             if dependency.startswith(('/System/Library/', '/usr/lib/')):
                 continue
             candidates = [Path(dependency.replace('@loader_path', str(path.parent))
-                               .replace('@executable_path', str(root / 'Contents/MacOS')))]
+                               .replace('@executable_path', str(executable_dir)))]
             if dependency.startswith('@rpath/'):
                 suffix = dependency.removeprefix('@rpath/')
                 candidates = [root / 'Contents/Frameworks' / suffix]
                 for rpath in re.findall(r'\bpath (.*?) \(offset', commands):
                     candidates.append(Path(rpath.replace('@loader_path', str(path.parent))
-                                           .replace('@executable_path', str(root / 'Contents/MacOS'))) / suffix)
+                                           .replace('@executable_path', str(executable_dir))) / suffix)
             if not any(candidate.exists() and inside(candidate, root) for candidate in candidates):
                 raise RuntimeError(f'Dependency outside bundle/system: {path}: {dependency}')
         evidence.append({'file': str(path.relative_to(root)), 'dependencies': dependencies})
