@@ -146,38 +146,14 @@ static void nativeRoundtrip() {
     std::cout<<"PASS: native WinINet apply, restore and external ownership on disposable CI runner\n";
 }
 
+#elif defined(Q_OS_MACOS)
+#include "macosproxy_test.h"
 #else
 struct Fixture {
     QMap<QString, QString> values;
     int mutations = 0, failAt = 0;
     bool failRead = false, failWrite = false, ignoreWrite = false, malformed = false, emptyBypass = false;
     PlatformCommandResult run(const QString &program, const QStringList &args) {
-#ifdef Q_OS_MACOS
-        Q_UNUSED(program)
-        const auto operation = args.value(0);
-        if (operation.startsWith("-set")) {
-            ++mutations;
-            if (failWrite || mutations == failAt) return {{Status::PermissionDenied,"denied"},{}};
-            if (!ignoreWrite) {
-                if (operation == "-setproxybypassdomains") values["bypass"] = args.mid(2).join('\n');
-                else if (operation.endsWith("state")) values[operation.mid(4, operation.size()-9)] = args[2];
-                else if (operation == "-setproxyautodiscovery") values["discovery"] = args[2];
-                else {
-                    check(args.size()==5 && args.last()=="off", "manual endpoint disables stale proxy authentication");
-                    values[operation.mid(4)+"port"] = args[3];
-                }
-            }
-            return {};
-        }
-        if (failRead) return {{Status::Failed,"query failed"},{}};
-        if (malformed) return {{},"invalid"};
-        if (operation == "-listallnetworkservices") return {{},"An asterisk (*) denotes that a network service is disabled.\nWi-Fi\n*Disabled"};
-        if (operation == "-getautoproxyurl") return {{},"Enabled: No\nURL: "};
-        if (operation == "-getproxyautodiscovery") return {{},"Auto Proxy Discovery: Off"};
-        if (operation == "-getproxybypassdomains") return {{},emptyBypass ? QString() : values.value("bypass")=="Empty" ? QString("There aren't any bypass domains set on Wi-Fi.") : values.value("bypass")};
-        const auto type = operation.mid(4);
-        return {{},"Enabled: " + QString(values.value(type)=="on" ? "Yes" : "No") + "\nAuthenticated Proxy Enabled: 0\nServer: 127.0.0.1\nPort: " + values.value(type+"port")};
-#else
         if (program == "dbus-send") return {};
         const bool write = program.startsWith("kwriteconfig") || args.value(0)=="set";
         const bool kde = program.contains("config");
@@ -201,7 +177,6 @@ struct Fixture {
         else if(key.endsWith(":ignore-hosts"))fallback="@as []";
         else fallback=key.endsWith(":mode")?"'none'":"''";
         return {{}, malformed ? QString("invalid") : values.value(key,fallback)};
-#endif
     }
 };
 static void backendTests() {
@@ -217,18 +192,10 @@ static void backendTests() {
     check(!backend.check(config).result.succeeded(),"malformed read rejected");
     fixture.malformed = false; fixture.failWrite = true;
     auto result = backend.apply(config);
-#ifdef Q_OS_LINUX
     check(result.status==Status::PermissionDenied && !result.mayHaveChanged,"failed first write leaves the original settings intact");
-#else
-    check(result.status==Status::PermissionDenied && result.mayHaveChanged,"partial mutation reported");
-#endif
     fixture.failWrite = false; fixture.mutations = 0; fixture.failAt = 3;
     result = backend.apply(config);
-#ifdef Q_OS_LINUX
     check(!result.succeeded() && !result.mayHaveChanged && !backend.check(config).active,"partial application is rolled back and verified");
-#else
-    check(!result.succeeded() && result.mayHaveChanged && fixture.mutations == 3 && !fixture.values.isEmpty(), "earlier writes retained as partial failure");
-#endif
     fixture.failAt = 0; fixture.values.clear(); fixture.ignoreWrite = true;
     check(!backend.apply(config).succeeded(),"zero exit without state change rejected");
     fixture.ignoreWrite = false;
@@ -242,12 +209,10 @@ static void backendTests() {
     check(!backend.apply(noBypass).succeeded(), "missing bypass output is not a verified empty bypass list");
     fixture.emptyBypass = false;
     check(backend.apply(noBypass).succeeded(), "valid empty bypass representation accepted");
-#ifndef Q_OS_MACOS
     check(fixture.run("gsettings",{"get","org.gnome.system.proxy.http","use-authentication"}).output == "false", "GNOME HTTP auth disabled without clearing stored credentials");
     fixture.values["org.gnome.system.proxy:mode"] = "['manual']";
     check(!backend.check(config).result.succeeded(), "wrong GVariant value type is not a proxy mode");
     fixture.values["org.gnome.system.proxy:mode"] = "'manual'";
-#endif
     check(backend.clear().succeeded() && !backend.check(config).active,"disable readback verified");
 #ifdef Q_OS_LINUX
     qputenv("XDG_CURRENT_DESKTOP","KDE"); qputenv("KDE_SESSION_VERSION","6");
