@@ -3,10 +3,10 @@ name: Core ABI
 on:
   push:
     branches: [develop]
-    paths: ['tests/coreabi/**', 'corelib/**', 'scripts/generate-core-abi.py', 'tests/platform/**', '.github/workflows/coreabi.yml', '.github/actions/setup-qt/**']
+    paths: ['tests/coreabi/**', 'tests/embeddedcoreengine_test.cpp', 'infrastructure/coreengine/**', 'application/coreengine.h', 'cmake/**', 'corelib/**', 'scripts/generate-core-abi.py', 'tests/platform/**', '.github/workflows/coreabi.yml', '.github/actions/setup-qt/**']
   pull_request:
     branches: [main, develop]
-    paths: ['tests/coreabi/**', 'corelib/**', 'scripts/generate-core-abi.py', 'tests/platform/**', '.github/workflows/coreabi.yml', '.github/actions/setup-qt/**']
+    paths: ['tests/coreabi/**', 'tests/embeddedcoreengine_test.cpp', 'infrastructure/coreengine/**', 'application/coreengine.h', 'cmake/**', 'corelib/**', 'scripts/generate-core-abi.py', 'tests/platform/**', '.github/workflows/coreabi.yml', '.github/actions/setup-qt/**']
   workflow_dispatch:
 
 permissions:

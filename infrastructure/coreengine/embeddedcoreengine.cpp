@@ -1,0 +1,185 @@
+#include "embeddedcoreengine.h"
+#include "justconnect.h"
+
+#include <QCoreApplication>
+#include <QJsonDocument>
+#include <QLibrary>
+#include <QTimer>
+
+namespace {
+#define CORE_FUNCTIONS(X) X(jc_abi_version) X(jc_build_info) X(jc_session_create) X(jc_session_start) \
+    X(jc_session_read) X(jc_session_respond) X(jc_session_stop) X(jc_session_destroy)
+struct Library {
+#define MEMBER(name) decltype(&::name) name = nullptr;
+    CORE_FUNCTIONS(MEMBER)
+#undef MEMBER
+    QLibrary library;
+    bool available = false;
+    Library() {
+#ifdef JC_SHARED_LIBRARY
+        library.setFileName(QCoreApplication::applicationDirPath() + "/" + QStringLiteral(JC_SHARED_LIBRARY));
+        library.setLoadHints(QLibrary::PreventUnloadHint);
+        if (!library.load()) return;
+#define LOAD(name) name = reinterpret_cast<decltype(name)>(library.resolve(#name)); if (!name) return;
+#else
+#define LOAD(name) name = &::name;
+#endif
+        CORE_FUNCTIONS(LOAD)
+#undef LOAD
+        available = jc_abi_version() == JC_ABI_VERSION;
+    }
+};
+Library &library() {
+    static Library instance; // Go runtime stays loaded until process exit.
+    return instance;
+}
+QJsonObject configuration(const ConnectionProfile &p, CoreEngine::Operation operation) {
+    return {{"schema_version", int(JC_ABI_VERSION)},
+        {"operation", operation == CoreEngine::Operation::AuthMethods ? "auth_methods" : "connect"},
+        {"server", QJsonObject{{"host", p.endpoint.server}, {"port", p.endpoint.port}}},
+        {"auth", QJsonObject{{"method", p.endpoint.authType.isEmpty() ? QString() : "auth/" + p.endpoint.authType},
+            {"username", p.credentials.username}, {"password", p.credentials.password},
+            {"phone", p.endpoint.phone}, {"domain", p.endpoint.loginDomain}, {"totp_secret", p.credentials.totpSecret}}},
+        {"listeners", QJsonObject{{"socks", p.proxy.socksBind}, {"http", p.proxy.httpBind}}},
+        {"network", QJsonObject{{"interface", p.behavior.bindInterface}, {"auto_detect", p.behavior.autoDetectInterface},
+            {"local_dns", p.dns.localDnsServer}, {"secondary_dns", p.dns.secondary},
+            {"dns_cache_ttl", p.dns.ttl}, {"disable_remote_dns", p.dns.disableRemoteDns}}}};
+}
+ConnectionError connectionError(int status) {
+    if (status == JC_OK || status == JC_CANCELLED) return ConnectionError::NONE;
+    return ConnectionError::CLIENT_FAILED;
+}
+}
+
+class CoreEventPump : public QObject
+{
+    Q_OBJECT
+public:
+    uint64_t handle = 0;
+    uint64_t generation = 0;
+    quint64 serial = 0;
+    bool active = false;
+    ~CoreEventPump() override {
+        if (!handle) return;
+        // No ABI call or borrowed buffer may outlive this worker.
+        while (library().jc_session_destroy(handle, JC_MAX_WAIT_MS) == JC_TIMEOUT) {}
+    }
+    void start(quint64 nextSerial, QByteArray config) {
+        serial = nextSerial;
+        auto &api = library();
+        int status = JC_UNSUPPORTED;
+        if (api.available) {
+            status = handle ? JC_OK : api.jc_session_create(JC_ABI_VERSION, &handle);
+            if (status == JC_OK)
+                status = api.jc_session_start(handle, reinterpret_cast<const uint8_t *>(config.constData()),
+                    uint32_t(config.size()), &generation);
+        }
+        config.fill('\0');
+        if (status != JC_OK) { emit failed(serial, status); return; }
+        active = true;
+        poll();
+    }
+    void stop() {
+        if (active) library().jc_session_stop(handle, 0);
+    }
+    void respond(QByteArray response) {
+        const auto status = library().jc_session_respond(handle,
+            reinterpret_cast<const uint8_t *>(response.constData()), uint32_t(response.size()));
+        response.fill('\0');
+        if (status != JC_OK) emit rejected(serial);
+    }
+    void poll() {
+        if (!active || QThread::currentThread()->isInterruptionRequested()) return;
+        QByteArray buffer(JC_MAX_OUTPUT, Qt::Uninitialized);
+        uint32_t length = 0;
+        const int status = library().jc_session_read(handle, 100,
+            reinterpret_cast<uint8_t *>(buffer.data()), uint32_t(buffer.size()), &length);
+        if (status == JC_TIMEOUT || status == JC_CANCELLED) {
+            QTimer::singleShot(status == JC_CANCELLED ? 10 : 0, this, &CoreEventPump::poll);
+            return;
+        }
+        QJsonParseError error;
+        const auto doc = QJsonDocument::fromJson(buffer.first(length), &error);
+        if (status != JC_OK || error.error != QJsonParseError::NoError || !doc.isObject()
+            || doc.object()["schema_version"].toInt() != JC_ABI_VERSION
+            || doc.object()["generation"].toString() != QString::number(generation)) {
+            stop();
+            while (library().jc_session_destroy(handle, JC_MAX_WAIT_MS) == JC_TIMEOUT) {}
+            handle = 0; active = false;
+            emit failed(serial, JC_INTERNAL); return;
+        }
+        const auto event = doc.object();
+        if (event["type"] == "terminal") active = false;
+        // The receiver acknowledges each event: at most one Qt event is in flight.
+        emit received(serial, event);
+    }
+signals:
+    void received(quint64 serial, const QJsonObject &event);
+    void failed(quint64 serial, int status);
+    void rejected(quint64 serial);
+};
+
+EmbeddedCoreEngine::EmbeddedCoreEngine(QObject *parent) : CoreEngine(parent), pump(new CoreEventPump) {
+    pump->moveToThread(&thread);
+    connect(&thread, &QThread::finished, pump, &QObject::deleteLater);
+    connect(pump, &CoreEventPump::received, this, &EmbeddedCoreEngine::deliver, Qt::QueuedConnection);
+    connect(pump, &CoreEventPump::failed, this, [this](quint64 id, int status) {
+        if (!active || id != serial) return;
+        active = false;
+        emit finished(connectionError(status));
+    }, Qt::QueuedConnection);
+    connect(pump, &CoreEventPump::rejected, this, [this](quint64 id) {
+        if (active && id == serial && !stopping) emit responseRejected();
+    }, Qt::QueuedConnection);
+    thread.start();
+}
+EmbeddedCoreEngine::~EmbeddedCoreEngine() {
+    active = false;
+    thread.requestInterruption();
+    thread.quit();
+    thread.wait();
+}
+bool EmbeddedCoreEngine::start(const ConnectionProfile &profile, Operation operation) {
+    if (active) return false;
+    active = true; stopping = false;
+    const auto id = ++serial;
+    auto config = QJsonDocument(configuration(profile, operation)).toJson(QJsonDocument::Compact);
+    QMetaObject::invokeMethod(pump, [this, id, config] { pump->start(id, config); }, Qt::QueuedConnection);
+    return true;
+}
+void EmbeddedCoreEngine::stop() {
+    if (!active || stopping) return;
+    stopping = true;
+    QMetaObject::invokeMethod(pump, &CoreEventPump::stop, Qt::QueuedConnection);
+}
+void EmbeddedCoreEngine::respond(const QJsonObject &response) {
+    if (!active || stopping) return;
+    auto bytes = QJsonDocument(response).toJson(QJsonDocument::Compact);
+    QMetaObject::invokeMethod(pump, [this, bytes] { pump->respond(bytes); }, Qt::QueuedConnection);
+}
+void EmbeddedCoreEngine::deliver(quint64 id, const QJsonObject &event) {
+    if (!active || id != serial) return;
+    const auto type = event["type"].toString();
+    if (type == "terminal") {
+        active = false;
+        emit finished(connectionError(event["status"].toInt(JC_INTERNAL)));
+        return;
+    }
+    QMetaObject::invokeMethod(pump, &CoreEventPump::poll, Qt::QueuedConnection);
+    if (stopping) return;
+    if (type == "authentication") emit authenticationRequired(event);
+    else if (type == "auth_methods") emit authMethodsReady(event["methods"].toArray());
+    else if (type == "diagnostic") emit diagnostic(event["code"].toString());
+    else if (type == "state" && event["state"] == "ready") emit connectionEstablished();
+}
+QJsonObject EmbeddedCoreEngine::buildInfo() {
+    auto &api = library();
+    if (!api.available) return {};
+    QByteArray buffer(JC_MAX_OUTPUT, Qt::Uninitialized);
+    uint32_t length = 0;
+    if (api.jc_build_info(JC_ABI_VERSION, reinterpret_cast<uint8_t *>(buffer.data()),
+            uint32_t(buffer.size()), &length) != JC_OK) return {};
+    return QJsonDocument::fromJson(buffer.first(length)).object();
+}
+
+#include "embeddedcoreengine.moc"

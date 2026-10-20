@@ -17,9 +17,9 @@
 
 | 项目 | 当前记录 |
 | --- | --- |
-| 当前任务 | S1-07：可嵌入的 aTrust 会话及其取消、错误传播和资源所有权 |
+| 当前任务 | S1-08：Qt 正式库后端、结构化认证与查询 |
 | 依赖依据 | S1-06 六组工具链结论已通过；按 S1 的实施顺序，可先做源码导入、契约和离线回归，不依赖尚未证明的设备权限路径 |
-| 状态 | S1-07 已完成：源码 `0a81fe5` 的[六组原生 ABI](https://github.com/wtalioy/JustConnect/actions/runs/39368117638)与[三平台回归](https://github.com/wtalioy/JustConnect/actions/runs/39368117501)全部通过；尚未开始 S1-08 Qt 正式后端接入 |
+| 状态 | S1-07 已完成：源码 `0a81fe5` 的[六组原生 ABI](https://github.com/wtalioy/JustConnect/actions/runs/39368117638)与[三平台回归](https://github.com/wtalioy/JustConnect/actions/runs/39368117501)全部通过；正在实现 S1-08，先独立验证 Qt 事件泵与 C ABI，再迁移应用调用方 |
 | 已有基础 | S1-03 契约、S1-05 一体化源码与 S1-07 正式会话均已验收；当前 GUI 仍使用旧 QProcess，六组库／原生宿主已直接运行正式协议会话；原始核心提交为 `c19eb4e` |
 | 已知缺口 | Linux fd 已向零有效 capabilities 的普通用户交付并双向收发，尚未接入正式 Go／Qt；其余真实设备权限及现有 Windows Wintun 候选路径的非提权交付尚未证明；透明入口 D2 未选型，TUN 并非既定前提；正式会话及六平台回归已验收，Qt 正式后端、真实校园／TLS 生产策略与透明访问仍按后续任务验收 |
 | 网络验证 | 暂无真实校园登录、透明转发、Clash 共存或异常恢复的通过记录 |
@@ -34,6 +34,10 @@ S1-07 第一单元：HTTP 请求同时遵守调用者和认证会话的取消，
 按正式调用闭包删除旧系统 TUN／路由／DNS 操作、FakeIP／IPSet 副本、Shadowsocks／端口转发／外部站点保活、全局日志及终止钩子，以及对应废弃测试；移除 9 条不再需要的模块依赖声明和 netaddr 替换。阶段末复查也覆盖现有 Qt／Python／构建／CI，Qt 旧 QProcess 链路仍是产品入口，保留至 S1-08／10 接替。SOCKS UDP 由监听对象拥有，加入源地址约束与流数上限；回应失败后的真实 UDP 端口回读／重绑和活动 association 停止均有回归。DNS 协调与探测／栈／代理／抓包 worker 的可恢复 panic 在各自 goroutine 内变成固定错误，资源等待不借助入口 recover；不可恢复的 Go 致命故障仍由后续独立恢复机制保障。
 
 本地验证：受控 TLS／协议网关实际完成短信认证、查询、资源／选线／IP／TCP 握手、普通 HTTP、SOCKS 和 HTTP CONNECT 数据收发、活动停止及同端口重启；DNS／认证／IP 阶段取消、部分监听冲突回滚、会话失效、刷新寿命、栈初始化回滚／取消拨号和各 worker panic 交付通过。完整 18 包套件（cgo 模式额外包含 ABI 包）、完整 race、三个原生 C 宿主场景、16 项应用 CTest、13 项 Python 检查、六目标协议源码编译及 actionlint 已运行；首轮 `de5bb87` 的三平台 CI 中 Linux／macOS 通过，Windows 及部分原生目标暴露缓存测试的纳秒过期假设；改用明确过去的过期记录，不放宽回收断言。收尾半关闭回归也复现 SOCKS 客户端发送 EOF 后下行响应被提前丢弃，已透传连接半关闭并等待双向完成，错误／停止仍立即中断；服务层十轮 race、完整 race、三个原生宿主及 Windows 本机三个会话／解析／代理测试程序通过。修复提交 `0a81fe5` 的[六组原生 CI](https://github.com/wtalioy/JustConnect/actions/runs/39368117638)全部成功：Linux／macOS／Windows 的 x64、ARM64 各执行完整 Go 回归和三个 C 宿主场景，五组工具链支持的完整 race 通过，Windows ARM64 的 Go race 仍明确不支持；两组 Linux 独立 fd 检查也通过。[三平台应用 CI](https://github.com/wtalioy/JustConnect/actions/runs/39368117501)全部成功，各执行完整 18 包测试与 16 项应用 CTest。S1-07 已验收并勾选，S1-04 的真实样本／Qt、S1-06 的其余设备权限、S1-08／09 与后续网络验证保持原边界。
+
+### S1-08 Qt 接入记录
+
+第一单元实现 `CoreEngine` 与 `EmbeddedCoreEngine`，启动／回应／停止／事件读取只在专属 Qt 工作线程调用正式 C ABI，应用线程排队接收；每次最多交付一个尚未确认的事件，停止后忽略交互事件，销毁中断泵并等待句柄及借用数据释放。Windows 从可执行文件目录固定加载 DLL 并禁止卸载，Unix 使用静态库；提取现有原生宿主的 CMake 库入口供后续应用复用，不新增第二套 Go 构建逻辑。本地五项原生 CTest 通过，覆盖真实协议、Qt 主线程交付与心跳、旧代次／重复回应、认证取消、反复启停以及已排队回应／事件和立即销毁的竞态。六平台 CI 待提交后检查；界面调用方尚未切换，本项保持未勾选。
 
 ### S1-03 后清理记录（历史）
 
