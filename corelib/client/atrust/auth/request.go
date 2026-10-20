@@ -698,24 +698,11 @@ func (s *Session) checkCode() ([]byte, error) {
 }
 
 func parsePortalTicketFromRedirect(redirectLocation, baseHost string) (string, error) {
-	redirectURL, err := url.Parse(redirectLocation)
+	redirectURL, err := parseAuthCallback("https://"+baseHost, redirectLocation, "/portal/shortcut.html", "data")
 	if err != nil {
 		return "", err
 	}
-
-	if redirectURL.Scheme != "https" {
-		return "", fmt.Errorf("invalid redirect url: scheme not https")
-	}
-	if redirectURL.Host != baseHost {
-		return "", fmt.Errorf("invalid redirect url: host not match")
-	}
-	if redirectURL.Path != "/portal/shortcut.html" {
-		return "", fmt.Errorf("invalid redirect url: path not match")
-	}
 	queries := redirectURL.Query()
-	if queries.Get("data") == "" {
-		return "", fmt.Errorf("invalid redirect url: data not found")
-	}
 
 	var tk struct {
 		Ticket string `json:"ticket"`
