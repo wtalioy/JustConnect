@@ -12,10 +12,6 @@ func (p UDPPacket) Length() uint16 {
 	return binary.BigEndian.Uint16(p[4:])
 }
 
-func (p UDPPacket) SetLength(length uint16) {
-	binary.BigEndian.PutUint16(p[4:], length)
-}
-
 func (p UDPPacket) SourcePort() uint16 {
 	return binary.BigEndian.Uint16(p)
 }

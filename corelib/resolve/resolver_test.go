@@ -118,7 +118,7 @@ func TestResolverReleasesCoordinationEntry(t *testing.T) {
 	}
 
 	_, _, _ = resolver.Resolve(context.Background(), "missing.example")
-	if entries := resolver.coordinationEntryCount(); entries != 0 {
+	if entries := resolver.activeResolutions.Load(); entries != 0 {
 		t.Fatalf("coordination entries after Resolve = %d, want 0", entries)
 	}
 }
@@ -203,10 +203,10 @@ func TestResolverWaitingCallerHonorsContext(t *testing.T) {
 		t.Fatal("leader Resolve did not stop after context cancellation")
 	}
 	deadline := time.Now().Add(time.Second)
-	for resolver.coordinationEntryCount() != 0 && time.Now().Before(deadline) {
+	for resolver.activeResolutions.Load() != 0 && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 	}
-	if entries := resolver.coordinationEntryCount(); entries != 0 {
+	if entries := resolver.activeResolutions.Load(); entries != 0 {
 		t.Fatalf("active coordination entries after cancellation = %d after timeout, want 0", entries)
 	}
 }
@@ -387,7 +387,7 @@ func TestCloseJoinsCanceledLookupsAndPanicStaysInWorker(t *testing.T) {
 		case <-time.After(time.Second):
 			t.Fatal("resolver close left lookup running")
 		}
-		if r.coordinationEntryCount() != 0 {
+		if r.activeResolutions.Load() != 0 {
 			t.Fatal("lookup worker survived Close")
 		}
 	}

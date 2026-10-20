@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -116,7 +117,7 @@ func TestPerformAntiMITMRequest(t *testing.T) {
 	defer server.Close()
 
 	session := newTLSTestSession(server)
-	if err := session.performAntiMITMRequest(data, "csrf-token"); err != nil {
+	if err := session.performAntiMITMRequestContext(context.Background(), data, "csrf-token"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -140,7 +141,7 @@ func TestPerformAntiMITMRequestRejectsResponseSignature(t *testing.T) {
 	defer server.Close()
 
 	session := newTLSTestSession(server)
-	if err := session.performAntiMITMRequest(data, ""); err == nil || !strings.Contains(err.Error(), "response signature mismatch") {
+	if err := session.performAntiMITMRequestContext(context.Background(), data, ""); err == nil || !strings.Contains(err.Error(), "response signature mismatch") {
 		t.Fatalf("expected response signature mismatch, got %v", err)
 	}
 }

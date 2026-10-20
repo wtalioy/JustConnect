@@ -1796,10 +1796,9 @@ func makeTCPPacket(flags uint16) []byte {
 
 func makeTCPPacketWithSeq(flags uint16, sequence, acknowledgment uint32) []byte {
 	packet := make(zctcpip.IPv4Packet, zctcpip.IPv4HeaderSize+zctcpip.TCPHeaderSize)
-	packet[0] = zctcpip.IPv4Version << 4
-	packet.SetHeaderLen(zctcpip.IPv4HeaderSize)
-	packet.SetTotalLength(uint16(len(packet)))
-	packet.SetProtocol(zctcpip.TCP)
+	packet[0] = zctcpip.IPv4Version<<4 | zctcpip.IPv4HeaderSize/4
+	binary.BigEndian.PutUint16(packet[2:4], uint16(len(packet)))
+	packet[9] = zctcpip.TCP
 	tcpPacket := zctcpip.TCPPacket(packet.Payload())
 	binary.BigEndian.PutUint32(tcpPacket[4:8], sequence)
 	binary.BigEndian.PutUint32(tcpPacket[8:12], acknowledgment)
@@ -1809,16 +1808,15 @@ func makeTCPPacketWithSeq(flags uint16, sequence, acknowledgment uint32) []byte 
 
 func makeUDPPacket(srcPort, dstPort uint16) []byte {
 	packet := make(zctcpip.IPv4Packet, zctcpip.IPv4HeaderSize+zctcpip.UDPHeaderSize)
-	packet[0] = zctcpip.IPv4Version << 4
-	packet.SetHeaderLen(zctcpip.IPv4HeaderSize)
-	packet.SetTotalLength(uint16(len(packet)))
-	packet.SetProtocol(zctcpip.UDP)
+	packet[0] = zctcpip.IPv4Version<<4 | zctcpip.IPv4HeaderSize/4
+	binary.BigEndian.PutUint16(packet[2:4], uint16(len(packet)))
+	packet[9] = zctcpip.UDP
 	packet.SetSourceIP(net.IPv4(192, 0, 2, 1))
 	packet.SetDestinationIP(net.IPv4(198, 51, 100, 1))
 	udpPacket := zctcpip.UDPPacket(packet.Payload())
 	udpPacket.SetSourcePort(srcPort)
 	udpPacket.SetDestinationPort(dstPort)
-	udpPacket.SetLength(zctcpip.UDPHeaderSize)
+	binary.BigEndian.PutUint16(udpPacket[4:6], zctcpip.UDPHeaderSize)
 	return packet
 }
 
@@ -1881,4 +1879,41 @@ func TestTunnelAuthenticationCancellationWithoutDeadline(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("tunnel authentication did not cancel")
 	}
+}
+
+func (m *conntrackMgr) getByKey(key string) *conntrack {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.byKey[key]
+}
+
+func parseDataPayload(payload []byte) ([][]byte, error) {
+	if len(payload) < 4 {
+		return nil, fmt.Errorf("payload too short")
+	}
+	tokenLen := int(payload[0])
+	idx := 1 + tokenLen
+	if len(payload) < idx+3 {
+		return nil, fmt.Errorf("payload token overflow")
+	}
+	idx += 2 // reserved
+	count := int(payload[idx])
+	idx++
+
+	packets := make([][]byte, 0, count)
+	for i := 0; i < count; i++ {
+		if idx+2 > len(payload) {
+			return nil, fmt.Errorf("packet length overflow")
+		}
+		plen := int(binary.BigEndian.Uint16(payload[idx : idx+2]))
+		idx += 2
+		if idx+plen > len(payload) {
+			return nil, fmt.Errorf("packet data overflow")
+		}
+		pkt := make([]byte, plen)
+		copy(pkt, payload[idx:idx+plen])
+		idx += plen
+		packets = append(packets, pkt)
+	}
+	return packets, nil
 }

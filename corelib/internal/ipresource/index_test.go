@@ -27,7 +27,7 @@ func TestIndexCanPreserveLastMatchingResource(t *testing.T) {
 		{IPMin: net.IPv4(10, 0, 0, 0), IPMax: net.IPv4(10, 0, 0, 255), PortMin: 1, PortMax: 65535, Protocol: "all", AppID: "first"},
 		{IPMin: net.IPv4(10, 0, 0, 42), IPMax: net.IPv4(10, 0, 0, 42), PortMin: 443, PortMax: 443, Protocol: "tcp", AppID: "last"},
 	})
-	resource, ok := index.MatchLast(net.IPv4(10, 0, 0, 42), "tcp", 443)
+	resource, ok := index.MatchLastWhere(net.IPv4(10, 0, 0, 42), "tcp", 443, nil)
 	if !ok {
 		t.Fatal("overlapping resource did not match")
 	}
