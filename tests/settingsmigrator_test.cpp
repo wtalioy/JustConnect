@@ -49,32 +49,20 @@ bool preservesAlreadyRenamedSettings()
     return settings.value("JustConnect/ServerAddress").toString() == "new.example.edu";
 }
 
-bool startsWithoutSchoolSpecificDefaults()
+bool requiresConfirmationForOldProtocols()
 {
     QTemporaryDir directory;
-    QSettings settings(directory.filePath("profile.ini"), QSettings::IniFormat);
-    DefaultSettings::reset(settings);
-    return settings.value("JustConnect/ServerAddress").toString().isEmpty()
-        && settings.value("JustConnect/LoginDomain").toString().isEmpty()
-        && settings.value("JustConnect/Protocol").toString() == "atrust"
-        && !settings.childGroups().contains("ZJUConnect");
-}
-
-bool migratesKnownVersions()
-{
-    QTemporaryDir directory;
-    QSettings settings(directory.filePath("profile.ini"), QSettings::IniFormat);
-    settings.setValue("Common/ConfigVersion", 4);
-
-    const auto action = SettingsMigrator::prepare(settings);
-    const bool passed =
-        action == SettingsMigrationAction::None
-        && settings.value("JustConnect/Protocol").toString() == "easyconnect";
-    if (!passed)
-    {
-        qCritical() << "migratesKnownVersions failed";
-    }
-    return passed;
+    QSettings settings(directory.filePath("legacy.ini"),QSettings::IniFormat);
+    settings.setValue("Common/ConfigVersion",4);
+    settings.setValue("JustConnect/ServerAddress","retained-legacy.example.edu");
+    settings.setValue("Credential/CertFile","retained-on-disk.p12");
+    settings.setValue("JustConnect/ExtraArguments","obsolete argument");
+    return SettingsMigrator::prepare(settings)==SettingsMigrationAction::None
+        && settings.value("Common/NeedsConfiguration").toBool()
+        && SettingsMigrator::finish(settings)
+        && settings.value("JustConnect/ServerAddress")=="retained-legacy.example.edu"
+        && !settings.contains("JustConnect/Protocol") && !settings.contains("Credential/CertFile")
+        && !settings.contains("JustConnect/ExtraArguments");
 }
 
 bool upgradesWithoutResettingValidProfiles()
@@ -97,11 +85,16 @@ bool upgradesWithoutResettingValidProfiles()
         settings.setValue("JustConnect/SOCKS5Port", 0);
         settings.setValue("Credential/Password", "retained encoded password");
         settings.setValue("Credential/AccountB/Ticket", "retained account ticket");
+        settings.setValue("Credential/CertPassword", "obsolete certificate password");
+        settings.setValue("JustConnect/ExtraArguments", "obsolete arguments");
+        settings.setValue("JustConnect/TUNMode", true);
         settings.setValue("OtherApplication/Value", "retained external setting");
         const auto action = SettingsMigrator::prepare(settings);
         if (action != (version == 6 ? SettingsMigrationAction::MigrateAutoStart : SettingsMigrationAction::None)
             || !SettingsMigrator::finish(settings)) return false;
         QSettings saved(path, QSettings::IniFormat);
+        if (version <= ApplicationConstants::ConfigVersion && (saved.contains("JustConnect/ExtraArguments")
+            || saved.contains("JustConnect/TUNMode") || saved.contains("Credential/CertPassword") || saved.contains("JustConnect/Protocol"))) return false;
         if (saved.value("JustConnect/ServerAddress") != "vpn.example.edu"
             || saved.value("JustConnect/ServerPort") != 8443
             || saved.value("JustConnect/AuthType") != "httpsOauth2"
@@ -125,10 +118,14 @@ bool failedSaveRemainsRetryable()
     QSettings settings(blocked, QSettings::IniFormat);
     settings.setValue("Common/ConfigVersion", 6);
     settings.setValue("ZJUConnect/ServerAddress", "retained.example.edu");
+    settings.setValue("Common/AutoStart",true);
+    settings.setValue("JustConnect/ExtraArguments","retained until save succeeds");
     if (SettingsMigrator::prepare(settings) != SettingsMigrationAction::Failed
         || !settings.contains("ZJUConnect/ServerAddress")) return false;
     if (SettingsMigrator::finish(settings)) return false;
-    return settings.value("Common/ConfigVersion").toInt() == 6;
+    return settings.value("Common/ConfigVersion").toInt() == 6
+        && settings.value("Common/AutoStart").toBool()
+        && settings.value("JustConnect/ExtraArguments")=="retained until save succeeds";
 }
 
 }
@@ -138,8 +135,7 @@ int main(int argc, char *argv[])
     QCoreApplication app(argc, argv);
     return renamesPreviewSettingsWithoutLosingValues()
         && preservesAlreadyRenamedSettings()
-        && startsWithoutSchoolSpecificDefaults()
-        && migratesKnownVersions()
+        && requiresConfirmationForOldProtocols()
         && upgradesWithoutResettingValidProfiles()
         && failedSaveRemainsRetryable() ? 0 : 1;
 }

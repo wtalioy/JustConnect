@@ -1,452 +1,207 @@
-#include <QFileInfo>
-#include <QFileDialog>
-#include <QDesktopServices>
-#include <QMessageBox>
-#include <QHostAddress>
-#include <QStandardPaths>
-
 #include "settingwindow.h"
 #include "ui_settingwindow.h"
-#include "application/applicationconstants.h"
+#include <QCheckBox>
+#include <QComboBox>
+#include <QDesktopServices>
+#include <QDialogButtonBox>
+#include <QFile>
+#include <QFileDialog>
+#include <QMessageBox>
+#include <QPushButton>
+#include <QSaveFile>
+#include <QSettings>
+#include <QTemporaryDir>
+#include <QVBoxLayout>
 #include "application/defaultsettings.h"
+#include "infrastructure/coreengine/embeddedcoreengine.h"
+#include "application/settingsmigrator.h"
 #include "infrastructure/platform/autostart.h"
-#include "infrastructure/storage/applicationpaths.h"
-#include "presentation/presentationhelpers.h"
 #include "infrastructure/settings/profilemanager.h"
+#include "infrastructure/settings/settingsprofileloader.h"
+#include "infrastructure/storage/applicationpaths.h"
+#include "presentation/dialogs/authinfowindow/authinfowindow.h"
+#include "presentation/presentationhelpers.h"
+#include "presentation/widgets/serversettingswidget.h"
 
-SettingWindow::SettingWindow(QWidget *parent, QSettings *inputSettings, const QString &profileId) :
-    QDialog(parent),
-    ui(new Ui::SettingWindow)
-{
+SettingWindow::SettingWindow(QWidget *parent,QSettings *inputSettings,const QString &id)
+    : QDialog(parent),ui(new Ui::SettingWindow),settings(inputSettings),profileId(id) {
     ui->setupUi(this);
-
-    this->settings = inputSettings;
-    this->profileId = profileId;
-
-    setWindowModality(Qt::WindowModal);
-    setAttribute(Qt::WA_DeleteOnClose);
-
-    loadSettings();
+    setWindowModality(Qt::WindowModal); setAttribute(Qt::WA_DeleteOnClose);
+    serverEditor = new ServerSettingsWidget(ui->serverSettingsContainer);
+    auto *layout = new QVBoxLayout(ui->serverSettingsContainer);
+    layout->setContentsMargins(0,0,0,0); layout->addWidget(serverEditor);
+    const QStringList methods{"","psw","smsCheckCode","cas","httpsOauth2"};
+    for (int i=0;i<methods.size();++i) ui->authTypeComboBox->setItemData(i,methods[i]);
     ui->loginUrlLineEdit->setReadOnly(true);
-    ui->loginUrlLineEdit->setToolTip("此处为查询结果预览；连接时使用当前会话的认证挑战 URL。");
-    ui->easyconnectRadioButton->setEnabled(false);
-    ui->easyconnectRadioButton->setToolTip("当前内置核心支持 aTrust，请使用配置引导迁移旧配置。");
-
-    connect(ui->openLogDirectoryPushButton, &QPushButton::clicked, this, [this]()
-    {
-        if (!QDesktopServices::openUrl(
-                QUrl::fromLocalFile(ApplicationPaths::logDirectory())
-            ))
-        {
-            QMessageBox::warning(this, "日志目录", "无法打开日志目录。");
+    ui->loginUrlLineEdit->setToolTip("认证查询结果预览；连接时使用当前会话返回的地址。");
+    loadSettings(*settings);
+    connect(serverEditor,&ServerSettingsWidget::serverChanged,this,[this] {
+        ui->authTypeComboBox->setCurrentIndex(0);
+        ui->loginDomainLineEdit->clear(); ui->loginUrlLineEdit->clear();
+    });
+    connect(ui->passwordVisibleCheckBox,&QCheckBox::toggled,this,[this](bool on) {
+        ui->passwordLineEdit->setEchoMode(on ? QLineEdit::Normal : QLineEdit::Password);
+    });
+    connect(ui->totpSecretVisibleCheckBox,&QCheckBox::toggled,this,[this](bool on) {
+        ui->totpSecretLineEdit->setEchoMode(on ? QLineEdit::Normal : QLineEdit::Password);
+    });
+    connect(ui->openLogDirectoryPushButton,&QPushButton::clicked,this,[this] {
+        if (!QDesktopServices::openUrl(QUrl::fromLocalFile(ApplicationPaths::logDirectory())))
+            QMessageBox::warning(this,"日志目录","无法打开日志目录。");
+    });
+    connect(ui->authSelectPushButton,&QPushButton::clicked,this,[this] {
+        const auto host=serverEditor->serverAddress(); const auto port=serverEditor->serverPort();
+        auto *query=new AuthInfoWindow(this);
+        connect(query,&AuthInfoWindow::finishAuthInfo,this,[this,host,port](QString method,const QString &domain,const QString &url) {
+            if (host!=serverEditor->serverAddress() || port!=serverEditor->serverPort()) return;
+            if (method.startsWith("auth/")) method.remove(0,5);
+            int index=ui->authTypeComboBox->findData(method);
+            if (index<0) { ui->authTypeComboBox->addItem(method,method); index=ui->authTypeComboBox->count()-1; }
+            ui->authTypeComboBox->setCurrentIndex(index);
+            ui->loginDomainLineEdit->setText(domain); ui->loginUrlLineEdit->setText(url);
+        });
+        query->fetchAuthInfo(host,port,serverEditor->isFudan()); query->show();
+    });
+    connect(ui->buttonBox->button(QDialogButtonBox::Ok),&QPushButton::clicked,this,[this] {
+        if (applySettings()) accept();
+    });
+    connect(ui->buttonBox->button(QDialogButtonBox::Apply),&QPushButton::clicked,this,[this] {
+        if (applySettings()) loadSettings(*settings);
+    });
+    connect(ui->resetDefaultPushButton,&QPushButton::clicked,this,[this] {
+        if (QMessageBox::question(this,"恢复默认值","恢复当前窗口的默认值，应用后生效。是否继续？")!=QMessageBox::Yes) return;
+        QTemporaryDir folder;
+        if (!folder.isValid()) { QMessageBox::warning(this,"重置失败","无法创建临时配置。"); return; }
+        QSettings draft(folder.filePath("defaults.ini"),QSettings::IniFormat);
+        DefaultSettings::reset(draft); loadSettings(draft);
+    });
+    connect(ui->importPushButton,&QPushButton::clicked,this,[this] {
+        const auto path=QFileDialog::getOpenFileName(this,"导入配置",{},"Config Ini (*.ini)");
+        if (path.isEmpty()) return;
+        QTemporaryDir folder;
+        QSettings source(path,QSettings::IniFormat);
+        const auto keys=source.allKeys();
+        if (!folder.isValid() || source.status()!=QSettings::NoError) { QMessageBox::warning(this,"导入失败","无法读取配置。"); return; }
+        QSettings draft(folder.filePath("import.ini"),QSettings::IniFormat);
+        for (const auto &key:keys) draft.setValue(key,source.value(key));
+        if (SettingsMigrator::prepare(draft)==SettingsMigrationAction::Failed || !SettingsMigrator::finish(draft)) {
+            QMessageBox::warning(this,"导入失败","无法准备配置，当前设置未修改。"); return;
         }
+        loadSettings(draft);
     });
-
-    connect(ui->portForwardingPushButton, &QPushButton::clicked,
-            [&]()
-            {
-                extraSettingWindow = new ExtraSettingWindow(this);
-                extraSettingWindow->setup(tcpPortForwarding, udpPortForwarding, customDNS, customProxyDomain, extraArguments);
-
-                connect(extraSettingWindow, &ExtraSettingWindow::applied, this,
-				[&](const QString& tcpForwarding, const QString& udpForwarding, const QString& customDNS_, const QString& customProxyDomain_, const QString& extraArg)
-                    {
-                        tcpPortForwarding = tcpForwarding;
-                        udpPortForwarding = udpForwarding;
-						customDNS = customDNS_;
-						customProxyDomain = customProxyDomain_;
-						extraArguments = extraArg;
-                    });
-
-                extraSettingWindow->show();
-            });
-
-    connect(ui->buttonBox->button(QDialogButtonBox::Ok), &QPushButton::clicked, [&]() {
-        if (shouldCheckCredential() && !PresentationHelpers::confirmCredentials(
-                ui->usernameLineEdit->text(),
-                ui->passwordLineEdit->text()
-            ))
-            return;
-        const bool changed = isAuthSettingChanged();
-        if (!applySettings()) return;
-        if (changed) ApplicationPaths::clearClientData(this->profileId);
-        accept();
-    });
-
-    connect(ui->buttonBox->button(QDialogButtonBox::Apply), &QPushButton::clicked, [&]() {
-        if (shouldCheckCredential() && !PresentationHelpers::confirmCredentials(
-                ui->usernameLineEdit->text(),
-                ui->passwordLineEdit->text()
-            ))
-            return;
-        const bool changed = isAuthSettingChanged();
-        if (!applySettings()) return;
-        if (changed) ApplicationPaths::clearClientData(this->profileId);
-        loadSettings();
-    });
-
-    connect(ui->resetDefaultPushButton, &QPushButton::clicked,
-        [&]()
-        {
-            int status = QMessageBox::warning(this, "警告", "将会重置所有设置，是否继续？", QMessageBox::Ok, QMessageBox::Cancel);
-            if (status == QMessageBox::Ok)
-            {
-                settings->clear();
-				DefaultSettings::reset(*settings);
-				settings->sync();
-                loadSettings();
-            }
-        });
-
-    connect(ui->importPushButton, &QPushButton::clicked,
-            [&]()
-            {
-                QString filename = QFileDialog::getOpenFileName(this, "选择配置文件",
-                    QStandardPaths::writableLocation(QStandardPaths::HomeLocation),
-                    "Config Ini(*.ini);;All Files(*.*)");
-                if (filename.isEmpty()) {
-                    QMessageBox::critical(this, "错误", "未选择配置文件，不会带来任何更改。");
-                    return;
-                }
-                QSettings newSettings(filename, QSettings::IniFormat);
-                for (const auto& key : newSettings.allKeys()) {
-                    settings->setValue(key, newSettings.value(key));
-                }
-                settings->sync();
-                loadSettings();
-            });
-
-    connect(ui->exportPushButton, &QPushButton::clicked,
-            [&]()
-            {
-                QString filename = QFileDialog::getSaveFileName(this, "选择保存位置",
-                    QStandardPaths::writableLocation(QStandardPaths::HomeLocation),
-                    "Config Ini(*.ini);;All Files(*.*)");
-                if (filename.isEmpty())
-                {
-                    QMessageBox::critical(this, "错误", "未选择配置文件保存位置。");
-                    return;
-                }
-                settings->sync();
-                if (QFile::exists(filename))
-                    QFile::remove(filename);
-                QFile::copy(settings->fileName(), filename);
-            });
-
-    connect(ui->passwordVisibleCheckBox, &QCheckBox::checkStateChanged,
-        [&](Qt::CheckState state)
-        {
-            ui->passwordLineEdit->setEchoMode(state == Qt::Checked ? QLineEdit::Normal : QLineEdit::Password);
-        });
-
-    connect(ui->totpSecretVisibleCheckBox, &QCheckBox::checkStateChanged,
-        [&](Qt::CheckState state)
-        {
-            ui->totpSecretLineEdit->setEchoMode(state == Qt::Checked ? QLineEdit::Normal : QLineEdit::Password);
-        });
-
-    connect(ui->certPasswordVisibleCheckBox, &QCheckBox::checkStateChanged,
-        [&](Qt::CheckState state)
-        {
-            ui->certPasswordLineEdit->setEchoMode(state == Qt::Checked ? QLineEdit::Normal : QLineEdit::Password);
-        });
-
-    connect(ui->certFileBrowseButton, &QPushButton::clicked,
-        [&]()
-        {
-            QString filename = QFileDialog::getOpenFileName(this, "选择证书文件",
-                QStandardPaths::writableLocation(QStandardPaths::HomeLocation),
-                "P12 Certificate(*.p12 *.pfx);;All Files(*.*)");
-            if (!filename.isEmpty())
-            {
-                ui->certFileLineEdit->setText(filename);
-            }
-        });
-
-    connect(ui->authSelectPushButton, &QPushButton::clicked, this, [&]() {
-        authInfoWindow = new AuthInfoWindow(this);
-        connect(authInfoWindow, &AuthInfoWindow::finishAuthInfo, this,
-                [&](const QString &authType, const QString &loginDomain, const QString &loginUrl) {
-                    if (authType == "auth/cas")
-                    {
-                        ui->casRadioButton->setChecked(true);
-                        ui->loginUrlLineEdit->setText(loginUrl);
-                    }
-                    else if (authType == "auth/httpsOauth2")
-                    {
-                        ui->oauth2RadioButton->setChecked(true);
-                        ui->loginUrlLineEdit->setText(loginUrl);
-                    }
-                    else if (authType == "auth/smsCheckCode")
-                    {
-                        ui->smsCheckCodeRadioButton->setChecked(true);
-                    }
-                    else
-                    {
-                        ui->pswRadioButton->setChecked(true);
-                    }
-                    ui->loginDomainLineEdit->setText(loginDomain);
-        });
-        authInfoWindow->fetchAuthInfo(ui->serverAddressLineEdit->text(), ui->serverPortSpinBox->value());
-        authInfoWindow->show();
-    });
-}
-
-SettingWindow::~SettingWindow()
-{
-    delete ui;
-}
-
-bool SettingWindow::shouldCheckCredential()
-{
-    if (ui->atrustRadioButton->isChecked())
-        return ui->pswRadioButton->isChecked();
-    else
-        return !ui->certFileLineEdit->text().isEmpty();
-}
-
-void SettingWindow::loadSettings()
-{
-    ui->configVersionLabel->setText(
-        "当前配置文件版本：" + QString::number(settings->value("Common/ConfigVersion").toInt()) +
-        "\n当前内置核心：aTrust、回环 SOCKS/HTTP；旧高级选项可清除，启用后将拒绝连接。\n程序配置文件版本：" +
-        QString::number(ApplicationConstants::ConfigVersion)
-    );
-    ui->usernameLineEdit->setText(settings->value("Credential/Username").toString());
-    ui->passwordLineEdit->setText(
-        QByteArray::fromBase64(settings->value("Credential/Password").toString().toUtf8())
-    );
-    ui->totpSecretLineEdit->setText(settings->value("Credential/TOTPSecret").toString());
-    ui->certFileLineEdit->setText(settings->value("Credential/CertFile").toString());
-    ui->certPasswordLineEdit->setText(
-        QByteArray::fromBase64(settings->value("Credential/CertPassword").toString().toUtf8())
-    );
-
-    ProfileManager profileManager;
-    ui->autoStartCheckBox->setChecked(profileManager.autoStartEnabled());
-    ui->silentStartCheckBox->setChecked(profileManager.silentStartEnabled());
-    ui->connectAfterStartCheckBox->setChecked(settings->value("Common/ConnectAfterStart").toBool());
-    ui->checkUpdateAfterStartCheckBox->setChecked(settings->value("Common/CheckUpdateAfterStart").toBool());
-    ui->autoSetProxyCheckBox->setChecked(settings->value("Common/AutoSetProxy").toBool());
-    ui->reconnectTimeSpinBox->setValue(settings->value("Common/ReconnectTime").toInt());
-    ui->autoReconnectCheckBox->setChecked(settings->value("Common/AutoReconnect").toBool());
-	ui->systemProxyBypassLineEdit->setText(settings->value("Common/SystemProxyBypass").toString());
-    ui->suppressProxyOverrideWarningCheckBox->setChecked(settings->value("Common/SuppressProxyOverrideWarning", false).toBool());
-
-
-    ui->serverAddressLineEdit->setText(settings->value("JustConnect/ServerAddress").toString());
-    ui->serverPortSpinBox->setValue(settings->value("JustConnect/ServerPort").toInt());
-    ui->dnsLineEdit->setText(settings->value("JustConnect/DNS").toString());
-    ui->dnsAutoCheckBox->setChecked(settings->value("JustConnect/DNSAuto").toBool());
-    ui->secondaryDnsLineEdit->setText(settings->value("JustConnect/SecondaryDNS").toString());
-    ui->localDnsServerLineEdit->setText(
-        settings->value("JustConnect/LocalDNSServer", "").toString()
-    );
-    ui->dnsServerBindLineEdit->setText(
-        settings->value("JustConnect/DNSServerBind", "").toString()
-    );
-    ui->dnsTTLSpinBox->setValue(settings->value("JustConnect/DNSTTL").toInt());
-    ui->socks5PortSpinBox->setValue(settings->value("JustConnect/SOCKS5Port").toInt());
-    ui->httpPortSpinBox->setValue(settings->value("JustConnect/HTTPPort").toInt());
-    ui->shadowsocksUrlLineEdit->setText(settings->value("JustConnect/ShadowsocksURL").toString());
-    ui->dialDirectProxyLineEdit->setText(settings->value("JustConnect/DialDirectProxy").toString());
-    ui->updateBestNodesIntervalSpinBox->setValue(
-        settings->value("JustConnect/UpdateBestNodesInterval", 300).toInt());
-
-    if (settings->value("JustConnect/Protocol").toString() == "atrust")
-        ui->atrustRadioButton->setChecked(true);
-    else
-        ui->easyconnectRadioButton->setChecked(true);
-    ui->loginDomainLineEdit->setText(settings->value("JustConnect/LoginDomain").toString());
-    auto authType = settings->value("JustConnect/AuthType").toString();
-    if (authType == "smsCheckCode")
-        ui->smsCheckCodeRadioButton->setChecked(true);
-    else if (authType == "cas")
-        ui->casRadioButton->setChecked(true);
-    else if (authType == "httpsOauth2")
-        ui->oauth2RadioButton->setChecked(true);
-    else
-        ui->pswRadioButton->setChecked(true);
-    ui->loginUrlLineEdit->setText(settings->value("JustConnect/LoginURL").toString());
-    ui->countryCodeLineEdit->setText(settings->value("JustConnect/PhoneCountryCode").toString());
-    ui->phoneNumberLineEdit->setText(settings->value("JustConnect/PhoneNumber").toString());
-
-    ui->multiLineCheckBox->setChecked(settings->value("JustConnect/MultiLine").toBool());
-    ui->keepAliveCheckBox->setChecked(settings->value("JustConnect/KeepAlive").toBool());
-    ui->keepAliveUrlLineEdit->setText(settings->value("JustConnect/KeepAliveURL", "").toString());
-    ui->bindInterfaceLineEdit->setText(settings->value("JustConnect/BindInterface", "").toString());
-    ui->outsideAccessCheckBox->setChecked(settings->value("JustConnect/OutsideAccess").toBool());
-
-    ui->skipDomainResourceCheckBox->setChecked(settings->value("JustConnect/SkipDomainResource").toBool());
-    ui->disableServerConfigCheckBox->setChecked(settings->value("JustConnect/DisableServerConfig").toBool());
-    ui->proxyAllCheckBox->setChecked(settings->value("JustConnect/ProxyAll").toBool());
-    
-    ui->disableDNSCheckBox->setChecked(settings->value("JustConnect/DisableRemoteDNS").toBool());
-    ui->detailedDebugCheckBox->setChecked(settings->value("JustConnect/Debug").toBool());
-    ui->debugPcapCheckBox->setChecked(
-        settings->value("JustConnect/DebugPCAP", false).toBool()
-    );
-    ui->debugTlsLogCheckBox->setChecked(
-        settings->value("JustConnect/DebugTLSLog", false).toBool()
-    );
-
-    ui->tunCheckBox->setChecked(settings->value("JustConnect/TUNMode").toBool());
-    ui->routeCheckBox->setChecked(settings->value("JustConnect/AddRoute").toBool());
-    ui->dnsHijackCheckBox->setChecked(settings->value("JustConnect/DNSHijack").toBool());
-    ui->fakeIPCheckBox->setChecked(settings->value("JustConnect/FakeIP").toBool());
-    ui->tcpTunnelModeCheckBox->setChecked(settings->value("JustConnect/TCPTunnelMode").toBool());
-    ui->autoDetectInterfaceCheckBox->setChecked(settings->value("JustConnect/AutoDetectInterface", false).toBool());
-
-    tcpPortForwarding = settings->value("JustConnect/TCPPortForwarding").toString();
-    udpPortForwarding = settings->value("JustConnect/UDPPortForwarding").toString();
-	customDNS = settings->value("JustConnect/CustomDNS").toString();
-	customProxyDomain = settings->value("JustConnect/CustomProxyDomain").toString();
-    extraArguments = settings->value("JustConnect/ExtraArguments").toString();
-
-    ui->routeCheckBox->setEnabled(ui->tunCheckBox->isChecked());
-    ui->dnsHijackCheckBox->setEnabled(ui->tunCheckBox->isChecked());
-    ui->fakeIPCheckBox->setEnabled(ui->tunCheckBox->isChecked());
-
-	ui->dnsLineEdit->setDisabled(ui->dnsAutoCheckBox->isChecked());
-}
-
-bool SettingWindow::applySettings()
-{
-    ProfileManager profileManager;
-    bool oldAutoStart = profileManager.autoStartEnabled();
-    bool newAutoStart = ui->autoStartCheckBox->isChecked();
-    if (oldAutoStart != newAutoStart) {
-        const auto result = AutoStart::setEnabled(newAutoStart);
-        if (!result.succeeded()) {
-            QMessageBox::warning(this, "自启动操作未完成", PresentationHelpers::platformOperationMessage(result));
-            return false;
+    connect(ui->exportPushButton,&QPushButton::clicked,this,[this] {
+        const auto path=QFileDialog::getSaveFileName(this,"导出已保存配置",{},"Config Ini (*.ini)");
+        if (path.isEmpty()) return;
+        settings->sync(); QFile source(settings->fileName());
+        if (settings->status()!=QSettings::NoError || !source.open(QIODevice::ReadOnly)) {
+            QMessageBox::warning(this,"导出失败","无法读取已保存配置。"); return;
         }
-        if (!profileManager.setAutoStartEnabled(newAutoStart)) {
-            QMessageBox::warning(this, "自启动偏好未保存", "系统自启动项已修改，但偏好保存失败，请检查系统项后重试。");
-            return false;
-        }
+        const auto data=source.readAll();
+        if (source.error()!=QFileDevice::NoError) { QMessageBox::warning(this,"导出失败","读取配置失败。"); return; }
+        source.close(); QSaveFile target(path);
+        if (!target.open(QIODevice::WriteOnly) || target.write(data)!=data.size() || !target.commit())
+            QMessageBox::warning(this,"导出失败","未能提交导出文件。");
+    });
+}
+SettingWindow::~SettingWindow() { delete ui; }
+
+void SettingWindow::loadSettings(const QSettings &source) {
+    ProfileManager manager;
+    ui->autoStartCheckBox->setChecked(manager.autoStartEnabled());
+    ui->silentStartCheckBox->setChecked(manager.silentStartEnabled());
+    serverEditor->load(source);
+    ui->usernameLineEdit->setText(source.value("Credential/Username").toString());
+    ui->passwordLineEdit->setText(QString::fromUtf8(QByteArray::fromBase64(source.value("Credential/Password").toByteArray())));
+    ui->totpSecretLineEdit->setText(source.value("Credential/TOTPSecret").toString());
+    const auto method=source.value("JustConnect/AuthType","psw").toString();
+    int index=ui->authTypeComboBox->findData(method);
+    if (index<0) { ui->authTypeComboBox->addItem(method,method); index=ui->authTypeComboBox->count()-1; }
+    ui->authTypeComboBox->setCurrentIndex(index);
+    ui->loginDomainLineEdit->setText(source.value("JustConnect/LoginDomain").toString());
+    ui->loginUrlLineEdit->setText(source.value("JustConnect/LoginURL").toString());
+    ui->countryCodeLineEdit->setText(source.value("JustConnect/PhoneCountryCode","86").toString());
+    ui->phoneNumberLineEdit->setText(source.value("JustConnect/PhoneNumber").toString());
+    ui->connectAfterStartCheckBox->setChecked(source.value("Common/ConnectAfterStart").toBool());
+    ui->checkUpdateAfterStartCheckBox->setChecked(source.value("Common/CheckUpdateAfterStart").toBool());
+    ui->autoReconnectCheckBox->setChecked(source.value("Common/AutoReconnect").toBool());
+    ui->reconnectTimeSpinBox->setValue(source.value("Common/ReconnectTime",1).toInt());
+    ui->autoSetProxyCheckBox->setChecked(source.value("Common/AutoSetProxy").toBool());
+    ui->systemProxyBypassLineEdit->setText(source.value("Common/SystemProxyBypass").toString());
+    ui->suppressProxyOverrideWarningCheckBox->setChecked(source.value("Common/SuppressProxyOverrideWarning").toBool());
+    ui->socks5PortSpinBox->setValue(source.value("JustConnect/SOCKS5Port").toInt());
+    ui->httpPortSpinBox->setValue(source.value("JustConnect/HTTPPort").toInt());
+    ui->localDnsServerLineEdit->setText(source.value("JustConnect/LocalDNSServer").toString());
+    ui->secondaryDnsLineEdit->setText(source.value("JustConnect/SecondaryDNS").toString());
+    ui->dnsTTLSpinBox->setValue(source.value("JustConnect/DNSTTL",3600).toInt());
+    ui->bindInterfaceLineEdit->setText(source.value("JustConnect/BindInterface").toString());
+    ui->autoDetectInterfaceCheckBox->setChecked(source.value("JustConnect/AutoDetectInterface").toBool());
+    ui->disableDNSCheckBox->setChecked(source.value("JustConnect/DisableRemoteDNS").toBool());
+}
+
+ConnectionProfile SettingWindow::currentProfile() const {
+    ConnectionProfile profile;
+    profile.credentials = {ui->usernameLineEdit->text().trimmed(), ui->passwordLineEdit->text(), ui->totpSecretLineEdit->text().trimmed()};
+    profile.endpoint.server = serverEditor->serverAddress(); profile.endpoint.port = serverEditor->serverPort();
+    profile.endpoint.authType = ui->authTypeComboBox->currentData().toString();
+    profile.endpoint.loginDomain = ui->loginDomainLineEdit->text().trimmed();
+    const auto country=ui->countryCodeLineEdit->text().trimmed(), phone=ui->phoneNumberLineEdit->text().trimmed();
+    if (!country.isEmpty() && !phone.isEmpty()) profile.endpoint.phone=country+'-'+phone;
+    const auto bind = [](int port) { return port ? "127.0.0.1:"+QString::number(port) : QString(); };
+    profile.proxy.socksBind=bind(ui->socks5PortSpinBox->value()); profile.proxy.httpBind=bind(ui->httpPortSpinBox->value());
+    profile.dns.localDnsServer=ui->localDnsServerLineEdit->text().trimmed();
+    profile.dns.secondary=ui->secondaryDnsLineEdit->text().trimmed(); profile.dns.ttl=ui->dnsTTLSpinBox->value();
+    profile.dns.disableRemoteDns=ui->disableDNSCheckBox->isChecked();
+    profile.behavior.bindInterface=ui->bindInterfaceLineEdit->text().trimmed();
+    profile.behavior.autoDetectInterface=ui->autoDetectInterfaceCheckBox->isChecked();
+    return profile;
+}
+
+bool SettingWindow::applySettings() {
+    const auto profile=currentProfile();
+    if (serverEditor->isFudan() && profile.endpoint.authType.isEmpty()) {
+        QMessageBox::warning(this,"请选择认证方式","请从 Fudan 服务器获取并选择认证方式。"); return false;
     }
-    profileManager.setSilentStartEnabled(ui->silentStartCheckBox->isChecked());
-
-    settings->setValue("Credential/Username", ui->usernameLineEdit->text());
-    settings->setValue("Credential/Password", QString(ui->passwordLineEdit->text().toUtf8().toBase64()));
-    settings->setValue("Credential/TOTPSecret", ui->totpSecretLineEdit->text());
-    settings->setValue("Credential/CertFile", ui->certFileLineEdit->text());
-    settings->setValue("Credential/CertPassword", QString(ui->certPasswordLineEdit->text().toUtf8().toBase64()));
-
-    settings->setValue("Common/ConnectAfterStart", ui->connectAfterStartCheckBox->isChecked());
-    settings->setValue("Common/CheckUpdateAfterStart", ui->checkUpdateAfterStartCheckBox->isChecked());
-    settings->setValue("Common/AutoSetProxy", ui->autoSetProxyCheckBox->isChecked());
-    settings->setValue("Common/ReconnectTime", ui->reconnectTimeSpinBox->value());
-    settings->setValue("Common/AutoReconnect", ui->autoReconnectCheckBox->isChecked());
-    settings->setValue("Common/SystemProxyBypass", ui->systemProxyBypassLineEdit->text());
-    settings->setValue("Common/SuppressProxyOverrideWarning", ui->suppressProxyOverrideWarningCheckBox->isChecked());
-
-
-    settings->setValue("JustConnect/ServerAddress", ui->serverAddressLineEdit->text());
-    settings->setValue("JustConnect/ServerPort", ui->serverPortSpinBox->value());
-    settings->setValue("JustConnect/DNS", ui->dnsLineEdit->text());
-    settings->setValue("JustConnect/DNSAuto", ui->dnsAutoCheckBox->isChecked());
-    settings->setValue("JustConnect/SecondaryDNS", ui->secondaryDnsLineEdit->text());
-    settings->setValue(
-        "JustConnect/LocalDNSServer",
-        ui->localDnsServerLineEdit->text().trimmed()
-    );
-    settings->setValue(
-        "JustConnect/DNSServerBind",
-        ui->dnsServerBindLineEdit->text().trimmed()
-    );
-    settings->setValue("JustConnect/DNSTTL", ui->dnsTTLSpinBox->value());
-    settings->setValue("JustConnect/SOCKS5Port", ui->socks5PortSpinBox->value());
-    settings->setValue("JustConnect/HTTPPort", ui->httpPortSpinBox->value());
-    settings->setValue("JustConnect/ShadowsocksURL", ui->shadowsocksUrlLineEdit->text());
-    settings->setValue("JustConnect/DialDirectProxy", ui->dialDirectProxyLineEdit->text());
-    settings->setValue("JustConnect/UpdateBestNodesInterval", ui->updateBestNodesIntervalSpinBox->value());
-
-    settings->setValue("JustConnect/Protocol", ui->atrustRadioButton->isChecked() ? "atrust" : "easyconnect");
-    settings->setValue(
-        "JustConnect/EasyConnectAuthType",
-        ui->certFileLineEdit->text().isEmpty() ? "password" : "certificate"
-    );
-    settings->setValue("JustConnect/LoginDomain", ui->loginDomainLineEdit->text());
-    QString authType;
-    if (ui->smsCheckCodeRadioButton->isChecked())
-        authType = "smsCheckCode";
-    else if (ui->casRadioButton->isChecked())
-        authType = "cas";
-    else if (ui->oauth2RadioButton->isChecked())
-        authType = "httpsOauth2";
-    else
-        authType = "psw";
-    settings->setValue("JustConnect/AuthType", authType);
-    settings->setValue("JustConnect/LoginURL", ui->loginUrlLineEdit->text());
-    settings->setValue("JustConnect/PhoneCountryCode", ui->countryCodeLineEdit->text());
-    settings->setValue("JustConnect/PhoneNumber", ui->phoneNumberLineEdit->text());
-
-    settings->setValue("JustConnect/MultiLine", ui->multiLineCheckBox->isChecked());
-    settings->setValue("JustConnect/KeepAlive", ui->keepAliveCheckBox->isChecked());
-    settings->setValue("JustConnect/KeepAliveURL", ui->keepAliveUrlLineEdit->text().trimmed());
-    settings->setValue("JustConnect/BindInterface", ui->bindInterfaceLineEdit->text().trimmed());
-    settings->setValue("JustConnect/OutsideAccess", ui->outsideAccessCheckBox->isChecked());
-
-    settings->setValue("JustConnect/SkipDomainResource", ui->skipDomainResourceCheckBox->isChecked());
-    settings->setValue("JustConnect/DisableServerConfig", ui->disableServerConfigCheckBox->isChecked());
-    settings->setValue("JustConnect/ProxyAll", ui->proxyAllCheckBox->isChecked());
-
-    settings->setValue("JustConnect/DisableRemoteDNS", ui->disableDNSCheckBox->isChecked());
-    settings->setValue("JustConnect/Debug", ui->detailedDebugCheckBox->isChecked());
-    settings->setValue("JustConnect/DebugPCAP", ui->debugPcapCheckBox->isChecked());
-    settings->setValue("JustConnect/DebugTLSLog", ui->debugTlsLogCheckBox->isChecked());
-
-    settings->setValue("JustConnect/TUNMode", ui->tunCheckBox->isChecked());
-    settings->setValue("JustConnect/AddRoute", ui->routeCheckBox->isChecked());
-    settings->setValue("JustConnect/DNSHijack", ui->dnsHijackCheckBox->isChecked());
-    settings->setValue("JustConnect/FakeIP", ui->fakeIPCheckBox->isChecked());
-    settings->setValue("JustConnect/TCPTunnelMode", ui->tcpTunnelModeCheckBox->isChecked());
-    settings->setValue("JustConnect/AutoDetectInterface", ui->autoDetectInterfaceCheckBox->isChecked());
-
-
-    settings->setValue("JustConnect/TCPPortForwarding", tcpPortForwarding);
-    settings->setValue("JustConnect/UDPPortForwarding", udpPortForwarding);
-    settings->setValue("JustConnect/CustomDNS", customDNS);
-    settings->setValue("JustConnect/CustomProxyDomain", customProxyDomain);
-    settings->setValue("JustConnect/ExtraArguments", extraArguments);
-
-    settings->setValue(
-        "Common/ConfigVersion",
-        ApplicationConstants::ConfigVersion
-    );
-
-    settings->sync();
-    if (settings->status() != QSettings::NoError) {
-        QMessageBox::warning(this, "保存设置失败", "部分设置可能已保存，请检查后重试。");
+    const auto validation=EmbeddedCoreEngine::validateConfiguration(profile);
+    if (validation!=ConnectionError::NONE) {
+        const bool unavailable=validation==ConnectionError::CORE_UNAVAILABLE;
+        QMessageBox::warning(this,unavailable ? "核心不可用" : "配置无效",
+            unavailable ? "无法校验配置，请检查应用安装是否完整。配置未保存。" : "请检查服务器、认证方式、本地端口及 DNS 地址。配置未保存。");
         return false;
     }
+    const auto before=SettingsProfileLoader::load(*settings);
+    ProfileManager manager;
+    const bool autoStart=ui->autoStartCheckBox->isChecked();
+    if (manager.autoStartEnabled()!=autoStart) {
+        const auto result=AutoStart::setEnabled(autoStart);
+        if (!result.succeeded()) { QMessageBox::warning(this,"自启动操作未完成",PresentationHelpers::platformOperationMessage(result)); return false; }
+        if (!manager.setAutoStartEnabled(autoStart)) { QMessageBox::warning(this,"自启动偏好未保存","系统项已修改，但偏好保存失败，请检查后重试。"); return false; }
+    }
+    manager.setSilentStartEnabled(ui->silentStartCheckBox->isChecked());
+    serverEditor->applyTo(*settings);
+    settings->setValue("Credential/Username",profile.credentials.username);
+    settings->setValue("Credential/Password",QString::fromLatin1(profile.credentials.password.toUtf8().toBase64()));
+    settings->setValue("Credential/TOTPSecret",profile.credentials.totpSecret);
+    settings->setValue("JustConnect/AuthType",profile.endpoint.authType);
+    settings->setValue("JustConnect/LoginDomain",profile.endpoint.loginDomain);
+    settings->setValue("JustConnect/LoginURL",ui->loginUrlLineEdit->text());
+    settings->setValue("JustConnect/PhoneCountryCode",ui->countryCodeLineEdit->text().trimmed());
+    settings->setValue("JustConnect/PhoneNumber",ui->phoneNumberLineEdit->text().trimmed());
+    settings->setValue("Common/ConnectAfterStart",ui->connectAfterStartCheckBox->isChecked());
+    settings->setValue("Common/CheckUpdateAfterStart",ui->checkUpdateAfterStartCheckBox->isChecked());
+    settings->setValue("Common/AutoReconnect",ui->autoReconnectCheckBox->isChecked());
+    settings->setValue("Common/ReconnectTime",ui->reconnectTimeSpinBox->value());
+    settings->setValue("Common/AutoSetProxy",ui->autoSetProxyCheckBox->isChecked());
+    settings->setValue("Common/SystemProxyBypass",ui->systemProxyBypassLineEdit->text());
+    settings->setValue("Common/SuppressProxyOverrideWarning",ui->suppressProxyOverrideWarningCheckBox->isChecked());
+    settings->setValue("JustConnect/SOCKS5Port",ui->socks5PortSpinBox->value());
+    settings->setValue("JustConnect/HTTPPort",ui->httpPortSpinBox->value());
+    settings->setValue("JustConnect/LocalDNSServer",profile.dns.localDnsServer);
+    settings->setValue("JustConnect/SecondaryDNS",profile.dns.secondary);
+    settings->setValue("JustConnect/DNSTTL",profile.dns.ttl);
+    settings->setValue("JustConnect/DisableRemoteDNS",profile.dns.disableRemoteDns);
+    settings->setValue("JustConnect/BindInterface",profile.behavior.bindInterface);
+    settings->setValue("JustConnect/AutoDetectInterface",profile.behavior.autoDetectInterface);
+    if (!SettingsMigrator::finish(*settings)) { QMessageBox::warning(this,"保存设置失败","部分设置可能已保存，请检查后重试。"); return false; }
+    if (!before.hasSameAuthentication(profile)) ApplicationPaths::clearClientData(profileId);
     return true;
-}
-
-bool SettingWindow::isAuthSettingChanged()
-{
-    if (ui->atrustRadioButton->isChecked() == false &&
-        settings->value("JustConnect/Protocol").toString() != "atrust")
-        return false;
-    if (ui->atrustRadioButton->isChecked() == true &&
-        settings->value("JustConnect/Protocol").toString() != "atrust")
-        return true;
-    QString currentAuthType;
-    if (ui->casRadioButton->isChecked())
-        currentAuthType = "cas";
-    else if (ui->oauth2RadioButton->isChecked())
-        currentAuthType = "httpsOauth2";
-    else if (ui->smsCheckCodeRadioButton->isChecked())
-        currentAuthType = "smsCheckCode";
-    else
-        currentAuthType = "psw";
-
-    return currentAuthType != settings->value("JustConnect/AuthType").toString() ||
-           ui->loginDomainLineEdit->text() != settings->value("JustConnect/LoginDomain").toString() ||
-           ((currentAuthType == "cas" || currentAuthType == "httpsOauth2") &&
-            ui->loginUrlLineEdit->text() != settings->value("JustConnect/LoginURL").toString()) ||
-           ui->serverAddressLineEdit->text() != settings->value("JustConnect/ServerAddress").toString() ||
-           ui->serverPortSpinBox->value() != settings->value("JustConnect/ServerPort").toInt();
 }

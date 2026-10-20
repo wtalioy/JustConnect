@@ -27,7 +27,6 @@ int main(int argc, char **argv) {
     const auto info = EmbeddedCoreEngine::buildInfo();
     check(info["abi_version"].toInt() == JC_ABI_VERSION, "loaded library ABI metadata");
     ConnectionProfile profile;
-    profile.endpoint.protocol = "atrust";
     profile.endpoint.server = "127.0.0.1";
     profile.endpoint.port = 1;
     profile.credentials.password = QString::fromUtf8("private-验证");
@@ -96,9 +95,9 @@ int main(int argc, char **argv) {
     for (int i = 0; i < 5; ++i) {
         auto invalid = profile;
         switch (i) {
-        case 0: invalid.endpoint.protocol = "easyconnect"; break;
-        case 1: invalid.extraArguments = "-password private-argument"; break;
-        case 2: invalid.tunnel.tunMode = true; break;
+        case 0: invalid.endpoint.server = "https://invalid.example.edu"; break;
+        case 1: invalid.endpoint.authType = "unsupported"; break;
+        case 2: invalid.dns.localDnsServer = "invalid:port"; break;
         case 3: invalid.proxy.socksBind = "0.0.0.0:1080"; break;
         case 4: invalid.endpoint.port = 0; break;
         }

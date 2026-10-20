@@ -8,7 +8,7 @@ class QLabel;
 class QLineEdit;
 class QPushButton;
 class QSettings;
-class QSpinBox;
+class ServerSettingsWidget;
 class QStackedWidget;
 class QWidget;
 
@@ -19,22 +19,20 @@ class ConfigurationGuideDialog : public QDialog
 public:
     explicit ConfigurationGuideDialog(
         QWidget *parent,
-        const QSettings *settings
+        QSettings *settings
     );
 
-    void applyTo(QSettings &settings) const;
+    bool applyTo(QSettings &settings);
 
 private slots:
     void goBack();
 
     void goNext();
 
-
     void fetchAuthenticationMethods();
 
 private:
     QWidget *createServerPage();
-
 
     QWidget *createAuthenticationPage();
 
@@ -46,7 +44,6 @@ private:
 
     void updateCredentialsPage();
 
-
     void selectAuthenticationMethod(
         const QString &authType,
         const QString &loginDomain,
@@ -55,7 +52,7 @@ private:
 
     QString authenticationMethodName(const QString &authType) const;
 
-    const QSettings *sourceSettings;
+    QSettings *sourceSettings;
 
     QLabel *stepLabel;
     QLabel *titleLabel;
@@ -64,9 +61,7 @@ private:
     QPushButton *backButton;
     QPushButton *nextButton;
 
-    QLineEdit *serverAddressLineEdit;
-    QSpinBox *serverPortSpinBox;
-
+    ServerSettingsWidget *serverEditor;
 
     QLabel *selectedAuthenticationLabel;
     QPushButton *fetchAuthenticationButton;

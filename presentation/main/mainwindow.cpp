@@ -22,6 +22,7 @@
 #include "application/applicationconstants.h"
 #include "application/commandlineoptions.h"
 #include "application/settingsmigrator.h"
+#include "infrastructure/settings/settingsprofileloader.h"
 #include "infrastructure/logging/applicationlogfile.h"
 #include "infrastructure/storage/applicationpaths.h"
 #include "infrastructure/update/updatechecker.h"
@@ -472,14 +473,7 @@ void MainWindow::updateProfileSummary()
     const QString profileName = currentProfileId.isEmpty()
         ? QStringLiteral("默认")
         : currentProfileId;
-    const QString protocolSetting = settings->value(
-        "JustConnect/Protocol",
-        "easyconnect"
-    ).toString();
-    const QString protocol = protocolSetting.compare(
-        "atrust",
-        Qt::CaseInsensitive
-    ) == 0 ? QStringLiteral("aTrust") : QStringLiteral("EasyConnect");
+    const QString protocol = "aTrust · " + settings->value("JustConnect/ProfileKind","Custom").toString();
     const QString server = settings->value(
         "JustConnect/ServerAddress"
     ).toString().trimmed();
@@ -755,38 +749,14 @@ void MainWindow::openConfigurationGuide()
         settingWindow->close();
     }
 
-    const QString oldServerAddress =
-        settings->value("JustConnect/ServerAddress").toString();
-    const int oldServerPort =
-        settings->value("JustConnect/ServerPort").toInt();
-    const QString oldProtocol =
-        settings->value("JustConnect/Protocol").toString();
-    const QString oldAuthType =
-        settings->value("JustConnect/AuthType").toString();
-    const QString oldEasyConnectAuthType =
-        settings->value("JustConnect/EasyConnectAuthType").toString();
-    const QString oldLoginDomain =
-        settings->value("JustConnect/LoginDomain").toString();
-    const QString oldLoginUrl =
-        settings->value("JustConnect/LoginURL").toString();
-
+    const auto before = SettingsProfileLoader::load(*settings);
     ConfigurationGuideDialog guide(this, settings);
     if (guide.exec() != QDialog::Accepted)
     {
         return;
     }
-    guide.applyTo(*settings);
 
-    const bool authenticationSettingsChanged =
-        oldServerAddress != settings->value("JustConnect/ServerAddress").toString()
-        || oldServerPort != settings->value("JustConnect/ServerPort").toInt()
-        || oldProtocol != settings->value("JustConnect/Protocol").toString()
-        || oldAuthType != settings->value("JustConnect/AuthType").toString()
-        || oldEasyConnectAuthType
-            != settings->value("JustConnect/EasyConnectAuthType").toString()
-        || oldLoginDomain != settings->value("JustConnect/LoginDomain").toString()
-        || oldLoginUrl != settings->value("JustConnect/LoginURL").toString();
-    if (authenticationSettingsChanged)
+    if (!before.hasSameAuthentication(SettingsProfileLoader::load(*settings)))
     {
         ApplicationPaths::clearClientData(currentProfileId);
     }
@@ -813,7 +783,7 @@ void MainWindow::promptConfigurationGuide(
     messageBox.setWindowTitle(windowTitle);
     messageBox.setText(text);
     messageBox.setInformativeText(
-        "配置引导将协助你选择协议、填写服务器地址、认证方式和登录凭据。"
+        "配置引导将协助你选择 Fudan／Custom、认证方式和登录凭据。"
     );
 
     QPushButton *startButton = messageBox.addButton(

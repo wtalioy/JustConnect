@@ -70,6 +70,18 @@ Windows 自启动测试只操作预先确认不存在的唯一测试 Run 值，�
 
 S2-01 不替代 S2-06 的系统快照／按所有权恢复，也不授予覆盖已有代理的测试权限；真实会话代理写入、dconf／KDE 会话和 macOS 交互授权仍须相应环境与恢复路径后验收。现有 clear 仍是关闭代理模式，不能当成恢复用户原有 PAC／代理／绕过项；完整退出与强杀恢复按 S3／S4／S7 验收。
 
+## aTrust 配置与升级
+
+设置页与配置向导共用 Fudan／Custom 服务器入口。Fudan 使用计划 R6 的 `vpn.fudan.edu.cn:443`，与[复旦信息办新 VPN 公告](https://icampus.fudan.edu.cn/f1/a8/c33159a782760/page.htm)一致；只预填端点，不写死登录域、认证编号或登录 URL。用户点击查询后，从服务器返回项中优先选择 OAuth2（名称含 UIS 的项优先），仍等待查询清理完成再允许确认；真实 Fudan 登录与 authId/subType 等字段继续按 S1-04／S2-03 验收。Custom 保留其他学校的 aTrust 地址和认证选择，在预置间切换会保留 Custom 地址草稿。
+
+`ConnectionProfile` 只表示当前 ABI 可用的字段；没有协议选择器、任意附加参数或未实现的 TUN／旧转发开关。保存前由 `EmbeddedCoreEngine::validateConfiguration` 调用 `jc_config_validate`，不占用会话、不查询 DNS 或联网。向导保存失败停留原窗口；导入与恢复默认值先写窗口草稿，取消保留源文件和当前配置；导出用 QSaveFile 提交已保存的当前配置。
+
+配置版本 9 只补齐缺失默认值，保留现有端点、认证、监听禁用值、未知键及其他账户／配置文件。`SettingsMigrator` 集中复制旧分组、标记旧协议待人工确认、移除明确废弃字段和提交版本；失败保留旧版本，退出不抢先写入升级完成。版本高于当前值时不降级或清理未知的新格式。仍需支持旧分组的已发布配置，在验证不再支持这些版本后才能删除这条迁移路径。
+
+升级与废弃字段清理不删除认证缓存。显式成功保存改变当前服务器或认证身份时才清当前配置的旧缓存；网络参数和会变动的登录 URL 预览不属于这一身份。现有缓存仍按配置文件隔离，不能据此宣称已完成 S2-04 安全存储或 S2-08 账户级免登录复用。
+
+针对性回归可运行 `ctest --test-dir build -R 'serversettingswidget|settingwindow|configurationguidedialog|settingsmigrator|settingsprofileloader|coreengine' --output-on-failure`；根测试与包构建还运行完整套件，原生宿主检查实际纯校验导出及资源边界。Linux 设置窗口用临时目录操作真实 Qt 按钮／文件对话框，覆盖库校验失败、自启动失败、取消导入／重置、导出、废弃字段清理及缓存保留；这些检查不访问校园账号。
+
 ## 分支与 Actions
 
 - 日常开发使用 `develop`。每次推送到该分支，`Tests` 工作流在 Windows、macOS、Linux 上构建并验证固定核心、编译应用并运行 CTest，不打包、不发布。
