@@ -91,6 +91,14 @@ class VerifyPackageTest(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'Invalid macOS floor'):
                     package.macos_audit([root / 'app'], root, 'arm64', {}, False)
 
+    def test_macos_rejects_embedded_sdk_search_path(self):
+        def run(*args, **kwargs):
+            return 'arm64' if args[0] == 'lipo' else 'cmd LC_RPATH\n path /opt/Qt/lib (offset 12)\n'
+        with tempfile.TemporaryDirectory() as folder, patch.object(package, 'run', side_effect=run):
+            root = Path(folder)
+            with self.assertRaisesRegex(RuntimeError, 'Non-relocatable Mach-O search path'):
+                package.macos_audit([root / 'app'], root, 'arm64', {}, False)
+
     def test_macos_helper_resolves_its_own_executable_directory(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
