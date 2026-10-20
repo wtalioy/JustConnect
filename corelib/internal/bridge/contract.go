@@ -5,6 +5,10 @@ import (
 	"bytes"
 	"crypto/x509"
 	"encoding/json"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
 	"net/netip"
 	"net/url"
@@ -246,7 +250,12 @@ func (c Challenge) valid() bool {
 	case "sms", "totp", "radius":
 		return len(c.Image) == 0 && c.LoginURL == ""
 	case "text_captcha", "click_captcha":
-		return len(c.Image) > 0 && c.LoginURL == "" && !c.CanSkipSecondaryAuth
+		if c.LoginURL != "" || c.CanSkipSecondaryAuth {
+			return false
+		}
+		config, format, err := image.DecodeConfig(bytes.NewReader(c.Image))
+		return err == nil && (format == "png" || format == "jpeg" || format == "gif") &&
+			config.Width > 0 && config.Height > 0 && config.Width <= MaxAuthDimension && config.Height <= MaxAuthDimension && int64(config.Width)*int64(config.Height) <= MaxAuthPixels
 	case "cas", "oauth2":
 		return validURL(c.LoginURL) && len(c.Image) == 0 && !c.CanSkipSecondaryAuth
 	default:
@@ -283,7 +292,7 @@ func (r Response) valid(c Challenge) bool {
 			len(r.Points) == 0 && r.Width == 0 && r.Height == 0 && r.CallbackURL == ""
 	case "click_captcha":
 		if r.Code != "" || r.SkipSecondaryAuth || r.CallbackURL != "" || r.Width < 1 || r.Height < 1 ||
-			r.Width > MaxAuthDimension || r.Height > MaxAuthDimension || len(r.Points) == 0 || len(r.Points) > MaxAuthPoints {
+			r.Width > MaxAuthDimension || r.Height > MaxAuthDimension || int64(r.Width)*int64(r.Height) > MaxAuthPixels || len(r.Points) == 0 || len(r.Points) > MaxAuthPoints {
 			return false
 		}
 		for _, p := range r.Points {

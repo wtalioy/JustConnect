@@ -26,6 +26,7 @@ const (
 	MaxLanguage       = 64
 	MaxCAPEM          = 16384
 	MaxAuthWaitMS     = 300000
+	MaxAuthPixels     = 4194304
 )
 const (
 	OK                Status = 0

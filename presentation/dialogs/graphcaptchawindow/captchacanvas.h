@@ -19,18 +19,11 @@ public:
         return m_pointsPx;
     }
     void clearAll();
-    void setMaxPoints(int n)
-    {
-        m_maxPoints = n;
-    }
 
     QSize sizeHint() const override
     {
         return m_img.size();
     }
-
-signals:
-    void pointCountChanged(int count);
 
 protected:
     void paintEvent(QPaintEvent *) override;
@@ -41,5 +34,4 @@ private:
 
     QPixmap m_img;
     QVector<QPointF> m_pointsPx;
-    int m_maxPoints = -1;
 };

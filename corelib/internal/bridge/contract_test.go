@@ -3,6 +3,10 @@ package bridge
 import (
 	"bytes"
 	"encoding/json"
+	"image"
+	"image/gif"
+	"image/jpeg"
+	"image/png"
 	"strings"
 	"testing"
 )
@@ -54,10 +58,10 @@ func TestAuthenticationValidation(t *testing.T) {
 			case "sms", "totp", "radius":
 				r.Code = "123456"
 			case "text_captcha":
-				c.Image = []byte("image")
+				c.Image = captchaImage(t, 100, 100, "png")
 				r.Code = "ABCD"
 			case "click_captcha":
-				c.Image = []byte("image")
+				c.Image = captchaImage(t, 100, 100, "png")
 				r.Points = []Point{{X: 10, Y: 10}}
 				r.Width = 100
 				r.Height = 100
@@ -125,5 +129,40 @@ func TestTrustedDeviceConfirmationCannotBeInferred(t *testing.T) {
 	}
 	if (Response{Action: "confirm"}).valid(Challenge{Kind: "sms"}) {
 		t.Fatal("confirmation accepted for a code request")
+	}
+}
+
+func captchaImage(t *testing.T, width, height int, format string) []byte {
+	t.Helper()
+	var data bytes.Buffer
+	img := image.NewGray(image.Rect(0, 0, width, height))
+	var err error
+	switch format {
+	case "png":
+		err = png.Encode(&data, img)
+	case "jpeg":
+		err = jpeg.Encode(&data, img, nil)
+	case "gif":
+		err = gif.Encode(&data, img, nil)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data.Bytes()
+}
+
+func TestAuthenticationImageResourcesAreBounded(t *testing.T) {
+	for _, format := range []string{"png", "jpeg", "gif"} {
+		if !(Challenge{Kind: "text_captcha", Image: captchaImage(t, 40, 20, format)}).valid() {
+			t.Fatalf("valid %s image rejected", format)
+		}
+	}
+	for _, data := range [][]byte{nil, []byte("not an image"), make([]byte, MaxAuthImage+1), captchaImage(t, 8193, 1, "png"), captchaImage(t, 1, 8193, "png"), captchaImage(t, 2049, 2048, "png")} {
+		if (Challenge{Kind: "click_captcha", Image: data}).valid() {
+			t.Fatal("malformed or oversized image accepted")
+		}
+	}
+	if (Response{Action: "submit", Width: 2049, Height: 2048, Points: []Point{{X: 1, Y: 1}}}).valid(Challenge{Kind: "click_captcha"}) {
+		t.Fatal("oversized response canvas accepted")
 	}
 }

@@ -33,14 +33,20 @@ void GraphCaptchaWindow::setGraph(const QByteArray &image, bool useTextInput)
 {
     textInputMode = useTextInput;
     QPixmap graph;
-    QBuffer buffer;
-    buffer.setData(image);
-    buffer.open(QIODevice::ReadOnly);
-    QImageReader reader(&buffer);
-    const QSize size = reader.size();
-    if (image.size() <= JC_MAX_AUTH_IMAGE && size.isValid()
-        && size.width() <= JC_MAX_AUTH_DIMENSION && size.height() <= JC_MAX_AUTH_DIMENSION)
-        graph = QPixmap::fromImage(reader.read());
+    if (image.size() <= JC_MAX_AUTH_IMAGE) {
+        QBuffer buffer;
+        buffer.setData(image);
+        buffer.open(QIODevice::ReadOnly);
+        QImageReader reader(&buffer);
+        const auto format = reader.format();
+        if (format == "png" || format == "jpeg" || format == "gif") {
+            const QSize size = reader.size();
+            if (size.isValid() && size.width() <= JC_MAX_AUTH_DIMENSION
+                && size.height() <= JC_MAX_AUTH_DIMENSION
+                && qint64(size.width()) * size.height() <= JC_MAX_AUTH_PIXELS)
+                graph = QPixmap::fromImage(reader.read());
+        }
+    }
     ui->canvas->setImage(graph);
     ui->canvas->setEnabled(!textInputMode);
     ui->codeLabel->setVisible(textInputMode);

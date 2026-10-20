@@ -1,8 +1,10 @@
 package auth
 
 import (
+	"compress/gzip"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -84,5 +86,46 @@ func TestCancellationInterruptsResponseBody(t *testing.T) {
 				t.Fatal("response body did not cancel")
 			}
 		})
+	}
+}
+
+func TestAuthenticationResponseBodyIsBoundedAfterDecompression(t *testing.T) {
+	const limit = 8 << 20
+	for _, compressed := range []bool{false, true} {
+		for _, size := range []int{limit, limit + 1} {
+			t.Run(fmt.Sprintf("gzip=%t/size=%d", compressed, size), func(t *testing.T) {
+				server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					payload := strings.Repeat("x", size)
+					if compressed {
+						w.Header().Set("Content-Encoding", "gzip")
+						writer := gzip.NewWriter(w)
+						io.WriteString(writer, payload)
+						writer.Close()
+					} else {
+						io.WriteString(w, payload)
+					}
+				}))
+				defer server.Close()
+				session := newTLSTestSession(server)
+				defer session.Close()
+				req, _ := http.NewRequest(http.MethodGet, server.URL, nil)
+				response, err := session.request(req)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer response.Body.Close()
+				data, err := io.ReadAll(response.Body)
+				if size == limit {
+					if err != nil || len(data) != size {
+						t.Fatalf("valid boundary rejected: %d, %v", len(data), err)
+					}
+					return
+				}
+				var oversized *http.MaxBytesError
+				if !errors.As(err, &oversized) || len(data) != limit {
+					t.Fatalf("unbounded auth body: bytes=%d, error=%v", len(data), err)
+				}
+			})
+		}
 	}
 }
