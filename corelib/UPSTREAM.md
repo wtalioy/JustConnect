@@ -1,6 +1,6 @@
 # Go 核心来源与维护
 
-`corelib/` 是 JustConnect 自有的单一 Go 模块。协议源码直接在此维护、重构和精简，不是独立程序、插件、嵌套上游模块或 vendor 副本。S1-03 已实现 [C ABI 契约和传输](../docs/CORE-ABI.md)，S1-07 已接入正式会话（平台验收记录见计划）；当前 Qt 应用尚未切换到这个模块。
+`corelib/` 是 JustConnect 自有的单一 Go 模块。协议源码直接在此维护、重构和精简，不是独立程序、插件、嵌套上游模块或 vendor 副本。S1-03 已实现 [C ABI 契约和传输](../docs/CORE-ABI.md)，S1-07 已接入正式会话（平台验收记录见计划）；S1-08／09 已将 Qt 应用、测试及六组打包统一切换到同进程内嵌库。
 
 ## 导入基线
 
@@ -58,4 +58,4 @@ Windows 实现使用微软规定的 [CreateFile 安全描述符](https://learn.m
 
 导入代码保留上游 AGPL-3.0 许可及 `internal/ping/LICENSE` 中的 MIT 许可；不因目录、模块名或维护方改变而替换版权声明。仓库根部的现有 GPL-3.0 许可证保持不变。
 
-按 [GNU 许可证兼容说明](https://www.gnu.org/licenses/license-compatibility.html)及 [GPL／AGPL 的 FAQ](https://www.gnu.org/licenses/gpl-faq.html)，GPLv3 与 AGPLv3 可按第 13 条组合，AGPL 的网络交互相关要求适用于组合程序。后续分发须保留适用的许可证和声明，提供包含本地实际修改、相关构建／安装脚本和所需依赖的对应源码；不能把未修改的原始归档当作当前实现的源码。S1-09／10 的包和源码分发切换仍须落实这些要求及依赖声明，本次没有发布新核心或替换现有安装包。
+按 [GNU 许可证兼容说明](https://www.gnu.org/licenses/license-compatibility.html)及 [GPL／AGPL 的 FAQ](https://www.gnu.org/licenses/gpl-faq.html)，GPLv3 与 AGPLv3 可按第 13 条组合，AGPL 的网络交互相关要求适用于组合程序。后续分发须保留适用的许可证和声明，提供包含本地实际修改、相关构建／安装脚本和所需依赖的对应源码；不能把未修改的原始归档当作当前实现的源码。S1-09 已将六组包切换为同进程库，并导出含实际修改、模块锁、许可证及构建脚本的完整对应源码。S1-10 删除旧下载／补丁／独立 EXE 校验链路与无调用的 Wintun 分发文件；本表保留导入基线，当前构建使用仓库实际源码和 `go.mod/go.sum`，不重新获取原始核心归档。

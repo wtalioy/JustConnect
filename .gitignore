@@ -49,5 +49,3 @@ CMakeUserPresets.json
 
 __pycache__/
 aqtinstall.log
-
-!wintun.dll

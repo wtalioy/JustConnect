@@ -17,6 +17,41 @@ spec.loader.exec_module(package)
 
 
 class VerifyPackageTest(unittest.TestCase):
+    def test_rejects_obsolete_runtime_anywhere_in_package(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            host = root / 'JustConnect'
+            host.touch()
+            (root / 'source-revision.txt').write_text('revision\n')
+            (root / 'core-toolchain.txt').write_text('CGO_ENABLED=1\n')
+            notices = root / 'licenses'
+            notices.mkdir()
+            for name in ('LICENSE', 'LICENSE.zju-connect', 'LICENSE.ping', 'UPSTREAM.md'):
+                (notices / name).touch()
+            nested = root / 'nested'
+            nested.mkdir()
+            output = root / 'report.json'
+            with patch.object(package.subprocess, 'run', return_value=SimpleNamespace(stdout=b'{"runtime":"static"}')), \
+                    patch.object(package, 'validate_report'), \
+                    patch.object(package, 'linux_audit', return_value={}), \
+                    patch.object(package.sys, 'platform', 'linux'):
+                package.verify(root, host, 'revision', 'preview', output)
+                output.unlink()
+                for name in ('zju-connect', 'zju-connect.exe', 'ZJU-Connect.EXE', 'core-provenance', 'Wintun.dll'):
+                    with self.subTest(name=name):
+                        obsolete = nested / name
+                        if name == 'core-provenance':
+                            obsolete.mkdir()
+                        else:
+                            obsolete.touch()
+                        with self.assertRaisesRegex(RuntimeError, 'Obsolete runtime in package'):
+                            package.verify(root, host, 'revision', 'preview', output)
+                        self.assertFalse(output.exists())
+                        if obsolete.is_dir():
+                            obsolete.rmdir()
+                        else:
+                            obsolete.unlink()
+
     def test_failed_native_command_preserves_utf8_diagnostics(self):
         with self.assertRaisesRegex(RuntimeError, '签名失败'):
             package.run(sys.executable, '-c',

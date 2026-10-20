@@ -3,7 +3,7 @@
 JustConnect 的主仓库是 [wtalioy/JustConnect](https://github.com/wtalioy/JustConnect)。
 `origin` 用于自己的开发和发布；`upstream` 等 remote 仅用于查看上游变更，保留原有历史和致谢。
 
-应用已通过 `CoreEngine → EmbeddedCoreEngine → C ABI → corelib.Session` 在宿主内运行 aTrust。正式源码直接维护于 `corelib/` 单一模块，来源与许可见 [UPSTREAM.md](../corelib/UPSTREAM.md)。根 CMake 与原生宿主共用 [CoreLibrary.cmake](../cmake/CoreLibrary.cmake)，Unix 静态链接，Windows 固定随包 DLL。测试与打包均通过同一 CMake 核心 target；旧下载脚本已退出工作流，剩余文件按 S1-10 清理。
+应用已通过 `CoreEngine → EmbeddedCoreEngine → C ABI → corelib.Session` 在宿主内运行 aTrust。正式源码直接维护于 `corelib/` 单一模块，来源与许可见 [UPSTREAM.md](../corelib/UPSTREAM.md)。根 CMake 与原生宿主共用 [CoreLibrary.cmake](../cmake/CoreLibrary.cmake)，Unix 静态链接，Windows 固定随包 DLL。测试与打包均通过同一 CMake 核心 target；旧核心下载／补丁／独立 EXE 校验脚本、清单、action、专属测试及无调用的 Wintun 分发文件已删除。
 
 `Core ABI` 工作流验证六组原生库、Qt 适配器／认证 UI、受控协议网关及 Go 回归；三平台 `Tests` 同时构建实际应用并运行 CTest。Go 版本来自 `corelib/go.mod`，cgo 编译器由共用 [setup-core-toolchain](../.github/actions/setup-core-toolchain/action.yml) 准备。Windows 使用固定校验和的 LLVM-MinGW UCRT 编译 Go DLL，C++ 保持 Qt 对应 MSVC。六组安装包运行正式应用的离线 ABI 自检，并审计架构、依赖、最低系统版本和签名；具体证据见计划的 S1-09。Linux 权限检查独立保留在 `tests/platform/`。
 
@@ -41,7 +41,7 @@ S1-03 的独立入口见 [CORE-ABI.md](CORE-ABI.md)。`corelib/abi/contract.json
 - 在本仓库发布 `vX.Y.Z`（可带 `-beta.1` 等后缀）的 GitHub Release 后，工作流重建该版本，全部成功后将安装包附加到该 Release。推送 `main` 仅生成 Actions 产物，不自动发布正式版本。
 - 可从 `main` 手动运行打包工作流；关闭 `nightly` 时必须提供有效的版本号。手动运行只生成产物，不创建 Release。
 - 开发预览：进入 Actions → `Build packages` → `Run workflow`，分支选择 `develop`。此时手动构建六组预览包并运行测试，产物名为 `JustConnect-preview-提交SHA-平台-架构`，在该次运行的 Artifacts 下载，保留 14 天。预览始终使用 nightly 应用版本（忽略 `nightly/version` 输入），macOS 使用临时签名，不执行开发者签名、公证或 Release 上传；普通推送到 `develop` 仍只触发测试。
-- 内嵌库使用本仓库 `corelib/`、模块锁及固定工具链，nightly 与正式版本共用相同源码；旧 [core/manifest.json](../core/manifest.json) 仅为待 S1-10 删除的历史构建输入。
+- 内嵌库使用本仓库 `corelib/`、模块锁及固定工具链，nightly 与正式版本共用相同源码；导入时的上游提交与归档摘要保留在 [来源说明](../corelib/UPSTREAM.md)，不参与下载或补丁应用。
 
 普通 CI 使用 `contents: read`，仅上传 Release 的 job 使用 `contents: write`，按 [GitHub 工作流权限文档](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#permissions) 配置。无需为普通构建或 Release 上传单独创建 PAT。
 
@@ -102,7 +102,7 @@ python scripts/test-corelib.py
 
 Linux 最低 glibc 来自实际包内 ELF 的版本需求，不能由 Qt 的理论平台下限推断本项目在旧发行版可运行；GLIBCXX 需求也写入报告。Windows PE 字段同样不能替代 Qt 的 Windows 10 1809／ARM64 Windows 支持要求。旧系统的实际桌面兼容性按后续平台验收执行，不将这些静态检查写成旧系统实机通过。
 
-每次打包另导出同一干净 Git 提交的完整维护源码和校验和（`archive-source.py`），包含实际修改的 `corelib/`、模块锁、构建脚本与许可证。归档附 `source-revision.txt`，可在无 `.git` 的源码树直接用同一 CMake 构建，重建明确报告 `source_state:archive`。六组自检 JSON 与源码归档作为预览／Release 附件。旧下载脚本与专属测试仅留待 S1-09 包验收后由 S1-10 删除。
+每次打包另导出同一干净 Git 提交的完整维护源码和校验和（`archive-source.py`），包含实际修改的 `corelib/`、模块锁、构建脚本与许可证。归档附 `source-revision.txt`，可在无 `.git` 的源码树直接用同一 CMake 构建，重建明确报告 `source_state:archive`。六组自检 JSON 与源码归档作为预览／Release 附件。包检查递归拒绝独立 `zju-connect`／`.exe`、`core-provenance` 和 `wintun.dll`（含大小写变体）；对应回归覆盖嵌套文件与旧来源目录。
 
 ### 当前 Linux／WSL2 开发环境
 
