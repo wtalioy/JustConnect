@@ -8,7 +8,6 @@ import (
 	"net/http"
 
 	"github.com/wtalioy/JustConnect/corelib/client/authchallenge"
-	"github.com/wtalioy/JustConnect/corelib/log"
 )
 
 type SMSLogin struct {
@@ -61,7 +60,6 @@ func (s *Session) loginAuthSmsCheckCode(phone, loginDomain, graphCodeFile string
 }
 
 func (s *Session) sendSms(phone, loginDomain, graphCheckCode string) (int, error) {
-	log.Println("Perform POST /passport/v1/public/sendSms")
 
 	data := map[string]interface{}{
 		"phone":          phone + "@" + loginDomain,
@@ -86,7 +84,6 @@ func (s *Session) sendSms(phone, loginDomain, graphCheckCode string) (int, error
 		_ = Body.Close()
 	}(resp.Body)
 	body, _ := io.ReadAll(resp.Body)
-	log.DebugPrintf("Received sendSms: %s", string(body))
 
 	var re struct {
 		Code    int    `json:"code"`
@@ -101,7 +98,7 @@ func (s *Session) sendSms(phone, loginDomain, graphCheckCode string) (int, error
 	if err != nil {
 		return 0, err
 	}
-	log.DebugPrintf("Parsed sendSms: %+v", re)
+
 	if re.Code != 0 {
 		if re.Data.GraphCheckCodeEnable == 1 {
 			return re.Data.GraphCheckCodeEnable, nil
@@ -113,7 +110,6 @@ func (s *Session) sendSms(phone, loginDomain, graphCheckCode string) (int, error
 }
 
 func (s *Session) smsCheckCodeImpl(code, phone, loginDomain, graphCheckCode string) (int, error) {
-	log.Println("Perform POST /passport/v1/auth/smsCheckCode")
 
 	data := map[string]interface{}{
 		"code":  code,
@@ -141,7 +137,6 @@ func (s *Session) smsCheckCodeImpl(code, phone, loginDomain, graphCheckCode stri
 		_ = Body.Close()
 	}(resp.Body)
 	body, _ := io.ReadAll(resp.Body)
-	log.DebugPrintf("Received smsCheckCode: %s", string(body))
 
 	var re struct {
 		Code    int    `json:"code"`
@@ -161,7 +156,6 @@ func (s *Session) smsCheckCodeImpl(code, phone, loginDomain, graphCheckCode stri
 		}
 		return 0, fmt.Errorf("SMS authentication failed with code %d: %s", re.Code, re.Message)
 	}
-	log.DebugPrintf("Parsed smsCheckCode: %+v", re)
 
 	if re.Data.Ticket == "" && re.Data.GraphCheckCodeEnable == 0 {
 		return 0, fmt.Errorf("SMS authentication succeeded without a ticket")

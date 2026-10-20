@@ -119,6 +119,15 @@ func (c *pcapCapture) enqueue(event captureEvent) error {
 
 func (c *pcapCapture) writeLoop() {
 	defer close(c.done)
+	defer func() {
+		if recover() != nil {
+			c.writeErr = errors.New("packet capture worker panicked")
+			// Keep producers drainable until Close can close the queue.
+			for range c.events {
+			}
+			c.writeErr = errors.Join(c.writeErr, c.file.Close())
+		}
+	}()
 	writer := bufio.NewWriterSize(c.file, pcapWriteBufferSize)
 	streams := make(map[uint32]*pcapStreamState)
 	for event := range c.events {

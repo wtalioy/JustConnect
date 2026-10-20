@@ -7,8 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-
-	"github.com/wtalioy/JustConnect/corelib/log"
 )
 
 type QueryDeviceResult struct {
@@ -17,7 +15,6 @@ type QueryDeviceResult struct {
 }
 
 func (s *Session) QueryDevice() (*QueryDeviceResult, error) {
-	log.Println("Perform GET /passport/v1/security/queryDevice")
 
 	u := s.baseURL + "/passport/v1/security/queryDevice"
 	params := WithSharedParams(url.Values{
@@ -37,7 +34,6 @@ func (s *Session) QueryDevice() (*QueryDeviceResult, error) {
 		_ = Body.Close()
 	}(resp.Body)
 	body, _ := io.ReadAll(resp.Body)
-	log.DebugPrintf("Received query device: %s", string(body))
 
 	var re struct {
 		Code    int    `json:"code"`
@@ -51,10 +47,9 @@ func (s *Session) QueryDevice() (*QueryDeviceResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	log.DebugPrintf("Parsed query device: %+v", re)
 
 	if re.Code != 0 {
-		log.Printf("queryDevice failed with code %d: %s", re.Code, re.Message)
+
 		return nil, fmt.Errorf("queryDevice failed with code %d: %s", re.Code, re.Message)
 	}
 
@@ -65,7 +60,6 @@ func (s *Session) QueryDevice() (*QueryDeviceResult, error) {
 }
 
 func (s *Session) TrustDevice(idList []string) error {
-	log.Println("Perform POST /passport/v1/security/trustDevice")
 
 	u := s.baseURL + "/passport/v1/security/trustDevice"
 	payload := map[string]interface{}{
@@ -86,7 +80,6 @@ func (s *Session) TrustDevice(idList []string) error {
 		_ = Body.Close()
 	}(resp.Body)
 	body, _ := io.ReadAll(resp.Body)
-	log.DebugPrintf("Received trust device: %s", string(body))
 
 	var re struct {
 		Code    int    `json:"code"`
@@ -96,10 +89,9 @@ func (s *Session) TrustDevice(idList []string) error {
 	if err != nil {
 		return err
 	}
-	log.DebugPrintf("Parsed trust device: %+v", re)
 
 	if re.Code != 0 {
-		log.Printf("trustDevice failed with code %d: %s", re.Code, re.Message)
+
 		return fmt.Errorf("trustDevice failed with code %d: %s", re.Code, re.Message)
 	}
 
@@ -107,7 +99,6 @@ func (s *Session) TrustDevice(idList []string) error {
 }
 
 func (s *Session) UntrustDevice(idList []string) error {
-	log.Println("Perform POST /passport/v1/security/untrustDevice")
 
 	u := s.baseURL + "/passport/v1/security/untrustDevice"
 	payload := map[string]interface{}{
@@ -128,7 +119,6 @@ func (s *Session) UntrustDevice(idList []string) error {
 		_ = Body.Close()
 	}(resp.Body)
 	body, _ := io.ReadAll(resp.Body)
-	log.DebugPrintf("Received untrust device: %s", string(body))
 
 	var re struct {
 		Code    int    `json:"code"`
@@ -138,10 +128,9 @@ func (s *Session) UntrustDevice(idList []string) error {
 	if err != nil {
 		return err
 	}
-	log.DebugPrintf("Parsed untrust device: %+v", re)
 
 	if re.Code != 0 {
-		log.Printf("untrustDevice failed with code %d: %s", re.Code, re.Message)
+
 		return fmt.Errorf("untrustDevice failed with code %d: %s", re.Code, re.Message)
 	}
 

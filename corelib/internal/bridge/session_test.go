@@ -435,3 +435,26 @@ func TestExpiredResponseDoesNotDependOnWorkerScheduling(t *testing.T) {
 		t.Fatal("expired response accepted", status)
 	}
 }
+
+func TestAuthMethodResultsRespectReservedQueueAndOutputLimits(t *testing.T) {
+	for _, methods := range [][]AuthMethod{
+		make([]AuthMethod, MaxAuthMethods+1),
+		func() []AuthMethod {
+			result := make([]AuthMethod, MaxAuthMethods)
+			for i := range result {
+				result[i] = AuthMethod{Type: "auth/psw", LoginURL: strings.Repeat("a", MaxURL)}
+			}
+			return result
+		}(),
+	} {
+		e := New(func(_ context.Context, _ Config, s *Session) Status { return s.AuthMethods(methods) })
+		h := create(t, e)
+		if _, status := e.Start(h, []byte(configJSON)); status != OK {
+			t.Fatal(status)
+		}
+		read(t, e, h)
+		if ev := read(t, e, h); ev.Type != "terminal" || ev.Status != Limit || ev.Sequence != 2 {
+			t.Fatalf("oversized methods = %+v", ev)
+		}
+	}
+}

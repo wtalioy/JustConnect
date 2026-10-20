@@ -20,7 +20,7 @@ import (
 	"github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/wtalioy/JustConnect/corelib/client/atrust/auth"
 	"github.com/wtalioy/JustConnect/corelib/internal/ipresource"
-	"github.com/wtalioy/JustConnect/corelib/log"
+
 	"github.com/wtalioy/JustConnect/corelib/resolve"
 )
 
@@ -233,9 +233,7 @@ func waitForTCPConnectReply(ctx context.Context, conn net.Conn, reader *bufio.Re
 	if _, err := io.ReadFull(reader, serverHello); err != nil {
 		return false, fmt.Errorf("failed to read tcp tunnel server hello: %w", err)
 	}
-	if log.DebugEnabled() {
-		log.DebugPrintf("Received server hello: %02X %02X", serverHello[0], serverHello[1])
-	}
+
 	if serverHello[0] != 0x05 || serverHello[1] != 0x81 {
 		return false, fmt.Errorf("unexpected tcp tunnel server hello: %02X %02X", serverHello[0], serverHello[1])
 	}
@@ -251,8 +249,7 @@ func waitForTCPConnectReply(ctx context.Context, conn net.Conn, reader *bufio.Re
 	if err != nil {
 		return false, fmt.Errorf("failed to read tcp tunnel protocol response: %w", err)
 	}
-	log.DebugPrint("Received protocol response:")
-	log.DebugDumpHex([]byte(response))
+
 	if err := parseTCPTunnelAuthResponse(response); err != nil {
 		return false, err
 	}
@@ -260,9 +257,6 @@ func waitForTCPConnectReply(ctx context.Context, conn net.Conn, reader *bufio.Re
 	status, reuse, err := readSOCKS5ConnectReply(reader)
 	if err != nil {
 		return false, err
-	}
-	if log.DebugEnabled() {
-		log.DebugPrintf("Received TCP connect status: 0x%02X", status)
 	}
 
 	switch status {
@@ -298,13 +292,6 @@ func (c *tcpTunnelConn) Read(b []byte) (int, error) {
 	}
 	if c.raw {
 		n, err := c.reader.Read(b)
-		if n > 0 {
-			log.DebugPrintf("TCP tunnel received %d raw bytes", n)
-			log.DebugDumpHex(b[:n])
-		}
-		if err != nil {
-			log.DebugPrintf("TCP tunnel raw read ended after %d bytes: %v", n, err)
-		}
 		return n, err
 	}
 	if len(c.readBuf) > 0 {
@@ -316,7 +303,7 @@ func (c *tcpTunnelConn) Read(b []byte) (int, error) {
 	for {
 		var header [4]byte
 		if _, err := io.ReadFull(c.reader, header[:]); err != nil {
-			log.DebugPrintf("TCP tunnel read ended: %v", err)
+
 			return 0, err
 		}
 		switch {
@@ -329,8 +316,7 @@ func (c *tcpTunnelConn) Read(b []byte) (int, error) {
 				if _, err := io.ReadFull(c.reader, b[:length]); err != nil {
 					return 0, err
 				}
-				log.DebugPrintf("TCP tunnel received %d bytes", length)
-				log.DebugDumpHex(b[:length])
+
 				return length, nil
 			}
 
@@ -338,13 +324,12 @@ func (c *tcpTunnelConn) Read(b []byte) (int, error) {
 			if _, err := io.ReadFull(c.reader, payload); err != nil {
 				return 0, err
 			}
-			log.DebugPrintf("TCP tunnel received %d bytes", length)
-			log.DebugDumpHex(payload)
+
 			n := copy(b, payload)
 			c.readBuf = payload[n:]
 			return n, nil
 		case header[0] == 0x01 && header[1] == 0x01:
-			log.DebugPrint("TCP tunnel closed by server")
+
 			return 0, io.EOF
 		default:
 			return 0, fmt.Errorf("unexpected TCP tunnel data frame header: % x", header)
@@ -361,14 +346,8 @@ func (c *tcpTunnelConn) Write(b []byte) (int, error) {
 	}
 	if c.raw {
 		n, err := c.tlsConn.Write(b)
-		if n > 0 {
-			log.DebugPrintf("TCP tunnel sent %d raw bytes", n)
-			log.DebugDumpHex(b[:n])
-		}
-		if err != nil {
-			log.DebugPrintf("TCP tunnel raw write failed after %d bytes: %v", n, err)
-		} else if n != len(b) {
-			log.DebugPrintf("TCP tunnel raw write was short: sent %d of %d bytes", n, len(b))
+		if err == nil && n != len(b) {
+			err = io.ErrShortWrite
 		}
 		return n, err
 	}
@@ -382,13 +361,12 @@ func (c *tcpTunnelConn) Write(b []byte) (int, error) {
 		binary.BigEndian.PutUint16(frame[2:4], uint16(chunkSize))
 		copy(frame[4:], chunk)
 		if err := writeTCPTunnelHandshakeMessage(c.tlsConn, frame); err != nil {
-			log.DebugPrintf("TCP tunnel write failed after %d bytes: %v", written, err)
+
 			return written, err
 		}
 		written += chunkSize
 	}
-	log.DebugPrintf("TCP tunnel sent %d bytes", written)
-	log.DebugDumpHex(b)
+
 	return written, nil
 }
 
@@ -604,8 +582,6 @@ func (c *Client) DialTCP(ctx context.Context, addr *net.TCPAddr) (net.Conn, erro
 		_ = conn.Close()
 		return nil, err
 	}
-	log.DebugDumpHex(initMsg)
-	log.DebugDumpHex(destMsg)
 
 	tunnelConn := &tcpTunnelConn{
 		tlsConn: conn,

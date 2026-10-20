@@ -12,7 +12,6 @@ import (
 	"github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/wtalioy/JustConnect/corelib/client/atrust/auth"
 	"github.com/wtalioy/JustConnect/corelib/internal/ipresource"
-	"github.com/wtalioy/JustConnect/corelib/log"
 )
 
 type L3Tunnel struct {
@@ -110,7 +109,7 @@ func (t *L3Tunnel) updateVIP(ips []net.IP) {
 	t.vipMu.Unlock()
 	if changed && t.client != nil {
 		if err := t.client.applyIPUpdate(ipv4); err != nil {
-			log.Printf("Failed to apply updated l3-tunnel virtual IP %s: %v", ipv4, err)
+			t.client.fail(err)
 			return
 		}
 		t.vipMu.Lock()
@@ -120,7 +119,7 @@ func (t *L3Tunnel) updateVIP(ips []net.IP) {
 		if t.client.underlayDialer != nil {
 			t.client.underlayDialer.ExcludeIP(ipv4)
 		}
-		log.Printf("Updated l3-tunnel virtual IP: %s", ipv4)
+
 	}
 }
 
@@ -271,7 +270,7 @@ func (t *L3Tunnel) evictStaleConns(bestNodes map[string]string, majorNodeGroup s
 	t.connsMu.Unlock()
 
 	for _, conn := range stale {
-		log.DebugPrintf("l3-tunnel best node changed, closing stale connection to %s", conn.addr)
+
 		_ = conn.Close()
 	}
 }
@@ -284,7 +283,6 @@ func (t *L3Tunnel) forwardFromConn(nodeGroupID string, conn *l3TunnelConn) {
 			t.startReconnect(nodeGroupID)
 			return
 		}
-		logPacket("recv", pkt)
 		select {
 		case t.dataChan <- pkt:
 		case <-t.closeCh:
@@ -350,7 +348,7 @@ func (t *L3Tunnel) connectWithRetry(nodeGroupID string, call *l3TunnelConnectCal
 			t.finishConnect(nodeGroupID, call, conn, nil)
 			return
 		}
-		log.DebugPrintf("l3-tunnel connect attempt %d failed for group %s: %v", attempt+1, nodeGroupID, err)
+
 	}
 }
 

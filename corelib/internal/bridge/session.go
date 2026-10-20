@@ -21,23 +21,24 @@ type Engine struct {
 
 func New(run Runner) *Engine {
 	if run == nil {
-		// shortcut: S1-07 installs the protocol session; never report a simulated VPN as ready.
+		// A transport-only engine has no protocol runner.
 		run = func(context.Context, Config, *Session) Status { return Unsupported }
 	}
 	return &Engine{handles: make(map[uint64]*Session), run: run}
 }
 
 type event struct {
-	SchemaVersion int        `json:"schema_version"`
-	Generation    uint64     `json:"generation,string"`
-	Sequence      uint64     `json:"sequence,string"`
-	Type          string     `json:"type"`
-	State         string     `json:"state,omitempty"`
-	Status        Status     `json:"status"`
-	Message       string     `json:"message,omitempty"`
-	Code          string     `json:"code,omitempty"`
-	RequestID     uint64     `json:"request_id,omitempty,string"`
-	Challenge     *Challenge `json:"challenge,omitempty"`
+	SchemaVersion int          `json:"schema_version"`
+	Generation    uint64       `json:"generation,string"`
+	Sequence      uint64       `json:"sequence,string"`
+	Type          string       `json:"type"`
+	State         string       `json:"state,omitempty"`
+	Status        Status       `json:"status"`
+	Message       string       `json:"message,omitempty"`
+	Code          string       `json:"code,omitempty"`
+	RequestID     uint64       `json:"request_id,omitempty,string"`
+	Challenge     *Challenge   `json:"challenge,omitempty"`
+	Methods       []AuthMethod `json:"methods,omitempty"`
 }
 
 type queued struct {
@@ -80,15 +81,17 @@ func (s *Session) notify() {
 }
 
 // At most two state events, one unread challenge and one terminal use reserved slots.
-func (s *Session) push(e event) {
+func (s *Session) push(e event) Status {
 	s.sequence++
 	e.SchemaVersion, e.Generation, e.Sequence = ABIVersion, s.generation, s.sequence
 	data, err := json.Marshal(e)
 	if err != nil || len(data) > MaxOutput {
-		panic("invalid internal event")
+		s.sequence--
+		return Limit
 	}
 	s.queue = append(s.queue, queued{data: data, request: e.RequestID, diagnostic: e.Type == "diagnostic"})
 	s.notify()
+	return OK
 }
 
 func (e *Engine) Create(abi uint32) (uint64, Status) {
@@ -191,7 +194,7 @@ func (s *Session) Ready() Status {
 // Diagnostic accepts stable codes, never arbitrary server responses or credentials.
 func (s *Session) Diagnostic(code string) Status {
 	switch code {
-	case "transport_connected", "authentication_started", "keepalive_retry":
+	case "transport_connected", "authentication_started", "keepalive_retry", "anti_mitm_failed", "persistence_failed", "manifest_cached", "auth_detail_unavailable":
 	default:
 		return InvalidArgument
 	}
@@ -392,3 +395,27 @@ func (e *Engine) stop(handle uint64, waitMS uint32, destroy bool) Status {
 
 func (e *Engine) Stop(handle uint64, waitMS uint32) Status    { return e.stop(handle, waitMS, false) }
 func (e *Engine) Destroy(handle uint64, waitMS uint32) Status { return e.stop(handle, waitMS, true) }
+
+func (s *Session) AuthMethods(methods []AuthMethod) Status {
+	if len(methods) > MaxAuthMethods {
+		return Limit
+	}
+	for _, m := range methods {
+		if len(m.Type) > MaxDomain || len(m.Domain) > MaxDomain || len(m.Name) > MaxAuthMethodName || len(m.LoginURL) > MaxURL {
+			return Limit
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.running || s.stopping {
+		return Cancelled
+	}
+	if s.ready || s.auth != nil || s.sequence >= math.MaxUint64-1 {
+		return Busy
+	}
+	status := s.push(event{Type: "auth_methods", Methods: methods})
+	if status == OK {
+		s.ready = true
+	}
+	return status
+}

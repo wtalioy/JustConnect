@@ -7,7 +7,6 @@ import (
 	"net/url"
 
 	"github.com/wtalioy/JustConnect/corelib/client/authchallenge"
-	"github.com/wtalioy/JustConnect/corelib/log"
 )
 
 type CASLogin struct {
@@ -84,7 +83,6 @@ func validateCASCallbackURL(callbackURL *url.URL) error {
 }
 
 func (s *Session) cas(callback string) error {
-	log.Println("Perform GET /passport/v1/auth/cas")
 
 	req, _ := http.NewRequest("GET", callback, nil)
 	req.Header.Set("User-Agent", UserAgent)
@@ -112,8 +110,8 @@ func (s *Session) cas(callback string) error {
 		return err
 	}
 
-	body, _ := io.ReadAll(resp.Body)
-	log.DebugPrintf("Received cas data: %s", string(body))
+	_, _ = io.Copy(io.Discard, resp.Body)
+
 	s.ticket = ticket
 	return nil
 }

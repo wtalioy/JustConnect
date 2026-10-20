@@ -13,7 +13,7 @@ application/      用例、会话及基础设施端口
 infrastructure/   QProcess、QSettings、系统代理、文件和更新检查等实现
 presentation/     Qt Widgets 界面、对话框和界面流程 Coordinator
 tests/            按端口或纯逻辑边界测试各层行为
-corelib/          JustConnect 单一 Go 模块；C ABI 契约与传输已实现，正式会话待接入
+corelib/          JustConnect 单一 Go 模块；C ABI 与正式会话已实现，Qt 应用待接入
 ```
 
 依赖方向为：
@@ -34,7 +34,7 @@ infrastructure -------+
 
 `CoreProcess` 定义连接配置、事件和错误接口，`ExternalCoreProcess` 负责启动核心与转换进程事件。当前使用 [zju-connect](https://github.com/Mythologyli/zju-connect)；命令构建与输出解析位于 `infrastructure/coreprocess/`。接入其他核心需适配其协议、认证查询、版本检查与打包来源。
 
-目标边界为 `application/CoreEngine` → `infrastructure/EmbeddedCoreEngine` → JustConnect 内部 C ABI → `corelib/` 内的 Go 会话与协议实现。Go 源码已直接整合进 `corelib/`，使用 `github.com/wtalioy/JustConnect/corelib` 单一模块；不另设上游源码目录、嵌套模块或本地 `replace`。协议包可直接维护和精简，[来源与许可证](../corelib/UPSTREAM.md)就地保留。S1-03 已实现独立的 [C ABI 契约与传输](CORE-ABI.md)，包含有界事件、句柄、停止／销毁和认证回应；当前能力明确不支持真实 VPN。正式协议会话与 Qt 接入仍未实现。无调用的旧 CLI 初始化／配置与 EasyConnect Go 实现已删除，通用 gVisor 栈不再依赖具体 VPN 协议包；认证交互保留 `authchallenge.Handler`，CLI 处理器及其 stdin／浏览器接管已删除；aTrust 客户端负责认证维护与隧道后台工作，失效通过错误返回，终止钩子和数据栈按 S1-07 接续替换。
+目标边界为 `application/CoreEngine` → `infrastructure/EmbeddedCoreEngine` → JustConnect 内部 C ABI → `corelib/` 内的 Go 会话与协议实现。Go 源码已直接整合进 `corelib/`，使用 `github.com/wtalioy/JustConnect/corelib` 单一模块；不另设上游源码目录、嵌套模块或本地 `replace`。协议包可直接维护和精简，[来源与许可证](../corelib/UPSTREAM.md)就地保留。S1-03 已实现独立的 [C ABI 契约与传输](CORE-ABI.md)，包含有界事件、句柄、停止／销毁和认证回应；S1-07 的正式 Runner 调用同模块 `Session`，支持认证方式查询、宿主认证回应和会话启停；受控网关验证协议及代理数据路径，真实校园与 Qt 应用接入仍待对应阶段验收。无调用的旧 CLI 初始化／配置与 EasyConnect Go 实现已删除，通用 gVisor 栈不再依赖具体 VPN 协议包；认证交互保留 `authchallenge.Handler`，CLI 处理器及其 stdin／浏览器接管已删除；aTrust 客户端负责认证维护与隧道后台工作，失效通过错误返回。`Session.Run` 拥有 underlay、认证／隧道、gVisor、解析器及必要监听，退出前等待工作与资源清理；桥接层在该返回之后才允许新代次。必要的 SOCKS／HTTP（含 UDP association）由 `service.Listeners` 统一拥有，诊断通过会话注入且不接管全局日志。无产品调用方的系统 TUN／路由／DNS 修改、外部保活、Shadowsocks／端口转发及全局终止钩子已删除；设备权限脚本独立保留，D2 仍未选型。
 
 Qt 主线程接收结构化事件，数据转发留在 Go 内；凭据、认证回应和策略通过显式接口传入。正式切换时删除核心命令行、文本解析及进程兼容层，不保留两套正式后端。必要的权限助手和独立恢复守护不承载 VPN 核心。
 

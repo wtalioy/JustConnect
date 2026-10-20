@@ -3,6 +3,7 @@ package ping
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"io"
 	"net"
 	"strconv"
@@ -10,7 +11,6 @@ import (
 	"time"
 
 	"github.com/wtalioy/JustConnect/corelib/client"
-	"github.com/wtalioy/JustConnect/corelib/log"
 )
 
 // TCPing ...
@@ -38,8 +38,6 @@ func (tcping *TCPing) SetKeyLogWriter(writer io.Writer) {
 	tcping.keyLog = writer
 }
 
-var _ Pinger = (*TCPing)(nil)
-
 // NewTCPing return a new TCPing
 func NewTCPing() *TCPing {
 	return &TCPing{
@@ -61,11 +59,6 @@ func (tcping *TCPing) Result() *Result {
 	return tcping.result
 }
 
-// Start preserves the historical background-context API.
-func (tcping *TCPing) Start() <-chan struct{} {
-	return tcping.StartWithContext(context.Background())
-}
-
 // StartWithContext starts the probe loop with caller-owned cancellation.
 func (tcping *TCPing) StartWithContext(ctx context.Context) <-chan struct{} {
 	if ctx == nil {
@@ -78,6 +71,11 @@ func (tcping *TCPing) StartWithContext(ctx context.Context) <-chan struct{} {
 		tcping.runMu.Unlock()
 		go func() {
 			defer close(tcping.done)
+			defer func() {
+				if recover() != nil && tcping.result != nil {
+					tcping.result.Err = errors.New("node probe panicked")
+				}
+			}()
 			defer func() {
 				cancelRun()
 				tcping.runMu.Lock()
@@ -94,6 +92,10 @@ func (tcping *TCPing) run(ctx context.Context) {
 	if tcping.target == nil || tcping.result == nil {
 		return
 	}
+	if tcping.target.Interval <= 0 || tcping.target.Timeout <= 0 {
+		tcping.result.Err = errors.New("invalid node probe timing")
+		return
+	}
 	ticker := time.NewTicker(tcping.target.Interval)
 	defer ticker.Stop()
 	for {
@@ -108,16 +110,16 @@ func (tcping *TCPing) run(ctx context.Context) {
 		case <-ticker.C:
 		}
 
-		duration, remoteAddr, err := tcping.ping(ctx)
+		duration, _, err := tcping.ping(ctx)
 		if ctx.Err() != nil {
 			return
 		}
 		tcping.result.Counter++
 		if err != nil {
-			log.DebugPrintf("Ping %s - failed: %s\n", tcping.target, err)
+
 			continue
 		}
-		log.DebugPrintf("Ping %s(%s) - Connected - time=%s\n", tcping.target, remoteAddr, duration)
+
 		if tcping.result.MinDuration == 0 {
 			tcping.result.MinDuration = duration
 		}

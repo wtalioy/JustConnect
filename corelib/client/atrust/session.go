@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/wtalioy/JustConnect/corelib/client/atrust/auth"
-	"github.com/wtalioy/JustConnect/corelib/log"
 )
 
 func (c *Client) sessionSID() (string, error) {
@@ -43,21 +42,22 @@ func (c *Client) startSessionRefresh(refresh func(context.Context) (auth.LoginRe
 				return
 			}
 			if err != nil {
-				log.Printf("aTrust authConfig refresh failed: %v", err)
+				if c.diagnostic != nil {
+					c.diagnostic("keepalive_retry")
+				}
 				timer.Reset(min(interval, time.Minute))
 				continue
 			}
-			oldSID, _ := c.sessionSID()
 			c.setSessionSID(snapshot.SID, nil)
-			log.Printf("aTrust session refreshed (SID changed: %t)", oldSID != snapshot.SID)
+
 			data.Cookies = snapshot.Cookies
 			if save != nil {
 				encoded, err := json.Marshal(data)
 				if err == nil {
 					err = save(encoded)
 				}
-				if err != nil {
-					log.Printf("Failed to save refreshed aTrust cookies: %v", err)
+				if err != nil && c.diagnostic != nil {
+					c.diagnostic("persistence_failed")
 				}
 			}
 			timer.Reset(interval)

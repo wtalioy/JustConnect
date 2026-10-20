@@ -21,7 +21,8 @@ set(SOURCE_STATE clean)
 if(DIRTY)
     set(SOURCE_STATE dirty)
 endif()
-file(GLOB_RECURSE ABI_SOURCES CONFIGURE_DEPENDS "${CORE}/abi/*" "${CORE}/internal/bridge/*.go")
+file(GLOB_RECURSE ABI_SOURCES CONFIGURE_DEPENDS "${CORE}/*.go" "${CORE}/abi/*")
+list(FILTER ABI_SOURCES EXCLUDE REGEX "_test\\.go$")
 execute_process(COMMAND "${GIT_EXECUTABLE}" rev-parse --git-path HEAD WORKING_DIRECTORY "${REPO}"
     OUTPUT_VARIABLE GIT_HEAD OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
 execute_process(COMMAND "${GIT_EXECUTABLE}" symbolic-ref -q HEAD WORKING_DIRECTORY "${REPO}"
@@ -79,3 +80,10 @@ foreach(KIND coreabi coreabi_fixture)
     set_tests_properties(${HOST} PROPERTIES TIMEOUT 60
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu")
 endforeach()
+
+add_test(NAME coreabi_protocol_test
+    COMMAND "${CMAKE_COMMAND}" -E env "JC_NATIVE_PROTOCOL_HOST=$<TARGET_FILE:coreabi_test>"
+        GOTOOLCHAIN=local GOWORK=off GOENV=off CGO_ENABLED=1 GOEXPERIMENT=cgocheck2
+        "${GO_EXECUTABLE}" test -mod=readonly -count=1 -timeout 60s -run "^TestNativeProtocolHost$" -v ./internal/bridge)
+set_tests_properties(coreabi_protocol_test PROPERTIES TIMEOUT 90 WORKING_DIRECTORY "${CORE}"
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu")

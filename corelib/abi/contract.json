@@ -17,7 +17,11 @@
     "MaxPassword": 4096,
     "MaxPhone": 64,
     "MaxDomain": 1024,
-    "MaxTOTPSecret": 1024
+    "MaxTOTPSecret": 1024,
+    "MaxAuthMethods": 64,
+    "MaxAuthMethodName": 1024,
+    "MaxInterfaceName": 1024,
+    "MaxLanguage": 64
   },
   "statuses": {
     "OK": 0,

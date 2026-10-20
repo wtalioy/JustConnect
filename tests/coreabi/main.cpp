@@ -1,9 +1,13 @@
 #include "justconnect.h"
 #include <QApplication>
 #include <QJsonDocument>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QLibrary>
 #include <QThread>
+#include <QTcpServer>
+#include <QTcpSocket>
+#include <QHostAddress>
 #include <QTimer>
 #include <QWebEnginePage>
 #include <QWebEngineView>
@@ -44,13 +48,13 @@ static QJsonObject json(const std::vector<uint8_t> &bytes, uint32_t length) {
     QJsonParseError error;
     auto doc = QJsonDocument::fromJson(QByteArray(reinterpret_cast<const char *>(bytes.data() + 1), length), &error);
     check(error.error == QJsonParseError::NoError && doc.isObject(), "valid UTF-8 JSON output");
-    check(!doc.toJson().contains("private-password"), "password redaction");
+    check(!doc.toJson().contains("private-"), "password redaction");
     return doc.object();
 }
 
 static QJsonObject read(API &api, uint64_t handle) {
     uint32_t length = 0;
-    check(api.jc_session_read(handle, 1000, nullptr, 0, &length) == JC_BUFFER_TOO_SMALL && length > 0,
+    check(api.jc_session_read(handle, JC_MAX_WAIT_MS, nullptr, 0, &length) == JC_BUFFER_TOO_SMALL && length > 0,
           "query event without consuming");
     std::vector<uint8_t> output(length + 2, 0x5a);
     uint32_t required = 0;
@@ -120,9 +124,89 @@ static void authentication(API &api) {
     std::cout << "PASS: real C ABI authentication, owned buffers, busy, stale/duplicate replies, cancel and restart\n";
 }
 
+static QJsonObject protocolEvent(API &api, uint64_t handle) {
+    auto event = read(api, handle);
+    while (event["type"] == "diagnostic") event = read(api, handle);
+    return event;
+}
+
+static QByteArray receive(QTcpSocket &socket, qsizetype size) {
+    QByteArray data;
+    while (data.size() < size) {
+        if (!socket.bytesAvailable()) check(socket.waitForReadyRead(5000), "proxy receive deadline");
+        data += socket.read(size - data.size());
+    }
+    return data;
+}
+
+static void nativeProtocol(API &api, const QByteArray &input) {
+    auto config = QJsonDocument::fromJson(input).object();
+    uint64_t handle = 0, generation = 0;
+    check(api.jc_session_create(JC_ABI_VERSION, &handle) == JC_OK, "native protocol create");
+    const auto start = [&] {
+        auto bytes = QJsonDocument(config).toJson(QJsonDocument::Compact);
+        check(api.jc_session_start(handle, reinterpret_cast<const uint8_t *>(bytes.constData()),
+              static_cast<uint32_t>(bytes.size()), &generation) == JC_OK, "native protocol start");
+        bytes.fill('\0');
+        check(protocolEvent(api, handle)["state"] == "starting", "native protocol starting");
+    };
+    start();
+    auto challenge = protocolEvent(api, handle);
+    check(challenge["type"] == "authentication" && challenge["challenge"].toObject()["kind"] == "sms", "gateway SMS challenge");
+    auto response = QJsonDocument(QJsonObject{{"schema_version", 1}, {"generation", QString::number(generation)},
+        {"request_id", challenge["request_id"]}, {"action", "submit"}, {"code", "fixture-code"}}).toJson(QJsonDocument::Compact);
+    check(api.jc_session_respond(handle, reinterpret_cast<const uint8_t *>(response.constData()),
+          static_cast<uint32_t>(response.size())) == JC_OK, "native gateway SMS response");
+    response.fill('\0');
+    check(protocolEvent(api, handle)["state"] == "ready", "real protocol ready");
+    const auto connectProxy = [&](QTcpSocket &socket, const QString &address) {
+        const auto port = address.mid(address.lastIndexOf(':') + 1).toUShort();
+        socket.connectToHost(QHostAddress::LocalHost, port);
+        check(socket.waitForConnected(5000), "connect owned loopback listener");
+    };
+    const auto verifyPayload = [&](QTcpSocket &socket) {
+        const QByteArray payload(65536, 'j');
+        check(socket.write(payload) == payload.size() && (socket.bytesToWrite() == 0 || socket.waitForBytesWritten(5000)), "proxy payload write");
+        check(receive(socket, payload.size()) == payload, "actual tunnel payload returned");
+    };
+    auto listeners = config["listeners"].toObject();
+    QTcpSocket socks;
+    connectProxy(socks, listeners["socks"].toString());
+    check(socks.write(QByteArray::fromHex("050100")) == 3 && (socks.bytesToWrite() == 0 || socks.waitForBytesWritten(5000)), "SOCKS greeting");
+    check(receive(socks, 2) == QByteArray::fromHex("0500"), "SOCKS authentication");
+    const auto destination = QByteArray::fromHex("05010001c000020a0050");
+    check(socks.write(destination) == destination.size() && (socks.bytesToWrite() == 0 || socks.waitForBytesWritten(5000)), "SOCKS destination");
+    check(receive(socks, 10).startsWith(QByteArray::fromHex("0500")), "SOCKS tunnel established");
+    verifyPayload(socks);
+    QTcpSocket http;
+    connectProxy(http, listeners["http"].toString());
+    const QByteArray request("CONNECT 192.0.2.10:80 HTTP/1.1\r\nHost: 192.0.2.10:80\r\n\r\n");
+    check(http.write(request) == request.size() && (http.bytesToWrite() == 0 || http.waitForBytesWritten(5000)), "HTTP CONNECT write");
+    QByteArray header;
+    while (!header.endsWith("\r\n\r\n")) header += receive(http, 1);
+    check(header.startsWith("HTTP/1.1 200"), "HTTP tunnel established");
+    verifyPayload(http);
+    check(api.jc_session_stop(handle, 5000) == JC_OK && api.jc_session_stop(handle, 1000) == JC_OK, "native protocol idempotent stop");
+    auto terminal = protocolEvent(api, handle);
+    check(terminal["type"] == "terminal" && terminal["status"].toInt() == JC_CANCELLED, "native protocol stopped terminal");
+    for (auto *socket : {&socks, &http}) {
+        if (socket->state() != QAbstractSocket::UnconnectedState) socket->waitForDisconnected(5000);
+        check(socket->state() == QAbstractSocket::UnconnectedState, "active proxy closed on stop");
+    }
+    config["operation"] = "auth_methods";
+    start();
+    check(generation == 2, "native restart generation");
+    auto methods = protocolEvent(api, handle);
+    check(methods["type"] == "auth_methods" && !methods["methods"].toArray().isEmpty(), "real authentication method query");
+    check(protocolEvent(api, handle)["status"].toInt() == JC_OK, "query terminal");
+    check(api.jc_session_destroy(handle, 1000) == JC_OK && api.jc_session_destroy(handle, 1000) == JC_OK, "native protocol destroy");
+    std::cout << "PASS: native protocol session, SMS, SOCKS/HTTP tunnel payloads, active stop and query restart\n";
+}
+
 int main(int argc, char **argv) {
     QApplication application(argc, argv);
     API api;
+    if (argc == 3 && QByteArray(argv[1]) == "--gateway") { nativeProtocol(api, QByteArray(argv[2])); return 0; }
     check(api.jc_abi_version() == JC_ABI_VERSION && jc_c_header_smoke(api.jc_abi_version) == JC_OK, "C and C++ ABI");
     uint32_t length = 7;
     check(api.jc_build_info(JC_ABI_VERSION + 1, nullptr, 0, &length) == JC_ABI_MISMATCH && length == 0, "ABI mismatch");
@@ -137,7 +221,8 @@ int main(int argc, char **argv) {
     check(build["revision"].toString().size() == 40 && build["upstream_commit"].toString().size() == 40 &&
           !build["local_version"].toString().isEmpty(), "source provenance");
     check(build["source_state"] == "clean" || build["source_state"] == "dirty", "actual source state");
-    check(!info["capabilities"].toObject()["embedded_vpn"].toBool(true), "no simulated VPN capability");
+    check(info["capabilities"].toObject()["embedded_vpn"].toBool() == !info["test_driver"].toBool(),
+          "protocol capability identifies production and fixture drivers");
     check(metadata.front() == 0x5a && metadata.back() == 0x5a, "metadata bounds");
 #ifdef ABI_FIXTURE
     check(info["test_driver"].toBool(), "fixture build must identify itself");
@@ -149,7 +234,14 @@ int main(int argc, char **argv) {
     uint64_t invalid = 99;
     check(api.jc_session_create(JC_ABI_VERSION + 1, &invalid) == JC_ABI_MISMATCH && invalid == 0, "create ABI mismatch");
     check(api.jc_session_create(JC_ABI_VERSION, nullptr) == JC_INVALID_ARGUMENT, "missing handle pointer");
-    const std::string config = R"({"schema_version":1,"server":{"host":"vpn.example.invalid","port":443},"auth":{"password":"private-password"}})";
+    QTcpServer reserve;
+    check(reserve.listen(QHostAddress::LocalHost, 0), "reserve loopback failure endpoint");
+    const auto failedPort = reserve.serverPort();
+    reserve.close();
+    const auto configBytes = QJsonDocument(QJsonObject{{"schema_version", 1},
+        {"server", QJsonObject{{"host", "127.0.0.1"}, {"port", failedPort}}},
+        {"auth", QJsonObject{{"password", "private-password"}}}}).toJson(QJsonDocument::Compact);
+    const std::string config(configBytes.constData(), static_cast<size_t>(configBytes.size()));
     for (int round = 0; round < 257; ++round) {
         uint64_t handle = 0, generation = 99;
         check(api.jc_session_create(JC_ABI_VERSION, &handle) == JC_OK && handle != 0, "create");
@@ -161,6 +253,7 @@ int main(int argc, char **argv) {
         check(api.jc_session_start(handle, input.data(), static_cast<uint32_t>(input.size()), &generation) == JC_OK &&
               generation == 1, "async start accepted");
         std::fill(input.begin(), input.end(), 0);
+        check(api.jc_session_stop(handle, 1000) == JC_OK, "cancel production invocation");
         uint64_t busyGeneration = 99;
         check(api.jc_session_start(handle, reinterpret_cast<const uint8_t *>(config.data()), static_cast<uint32_t>(config.size()),
               &busyGeneration) == JC_BUSY && busyGeneration == 0, "unread events prevent restart");
@@ -168,8 +261,10 @@ int main(int argc, char **argv) {
         check(starting["type"] == "state" && starting["state"] == "starting" &&
               starting["generation"] == "1" && starting["sequence"] == "1", "starting event");
         auto terminal = read(api, handle);
-        check(terminal["type"] == "terminal" && terminal["status"].toInt() == JC_UNSUPPORTED &&
-              terminal["generation"] == "1" && terminal["sequence"] == "2", "honest unavailable terminal");
+        while (terminal["type"] == "diagnostic") terminal = read(api, handle);
+        check(terminal["type"] == "terminal" &&
+              (terminal["status"].toInt() == JC_INTERNAL || terminal["status"].toInt() == JC_CANCELLED) &&
+              terminal["generation"] == "1", "production failure or cancellation completes cleanup");
         check(api.jc_session_read(handle, 0, nullptr, 0, &length) == JC_END && length == 0, "end of event stream");
         const std::string response = R"({"schema_version":1,"generation":"1","request_id":"1","action":"cancel"})";
         check(api.jc_session_respond(handle, reinterpret_cast<const uint8_t *>(response.data()),

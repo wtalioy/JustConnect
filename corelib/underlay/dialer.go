@@ -11,7 +11,7 @@ import (
 
 	tun "github.com/mythologyli/sing-tun"
 	"github.com/wtalioy/JustConnect/corelib/internal/platformdialer"
-	"github.com/wtalioy/JustConnect/corelib/log"
+
 	"github.com/sagernet/sing/common/logger"
 )
 
@@ -20,6 +20,13 @@ import (
 // connections from being captured by the TUN interface itself.
 type Dialer struct {
 	mu             sync.RWMutex
+	detecting      chan struct{}
+	lifecycleCtx   context.Context
+	cancel         context.CancelFunc
+	active         sync.WaitGroup
+	closed         bool
+	closeOnce      sync.Once
+	closeErr       error
 	interfaceName  string
 	autoDetect     bool
 	excludedIPs    []net.IP
@@ -48,9 +55,11 @@ func New(options ...Options) (*Dialer, error) {
 	if len(options) > 0 {
 		option = options[0]
 	}
-	d := &Dialer{autoDetect: option.AutoDetect}
+	ctx, cancel := context.WithCancel(context.Background())
+	d := &Dialer{autoDetect: option.AutoDetect, lifecycleCtx: ctx, cancel: cancel}
 	localDNSServer, err := normalizeLocalDNSServer(option.LocalDNSServer)
 	if err != nil {
+		cancel()
 		return nil, err
 	}
 	d.localDNSServer = localDNSServer
@@ -61,6 +70,7 @@ func New(options ...Options) (*Dialer, error) {
 	if option.DebugPCAPFile != "" {
 		capture, err := newPCAPCapture(option.DebugPCAPFile)
 		if err != nil {
+			cancel()
 			return nil, fmt.Errorf("initialize underlay PCAP capture: %w", err)
 		}
 		d.capture = capture
@@ -73,10 +83,19 @@ func (d *Dialer) Close() error {
 	if d == nil {
 		return nil
 	}
-	if d.capture != nil {
-		return d.capture.Close()
-	}
-	return nil
+	d.closeOnce.Do(func() {
+		d.mu.Lock()
+		d.closed = true
+		if d.cancel != nil {
+			d.cancel()
+		}
+		d.mu.Unlock()
+		d.active.Wait()
+		if d.capture != nil {
+			d.closeErr = d.capture.Close()
+		}
+	})
+	return d.closeErr
 }
 
 // InterfaceName returns the currently selected underlay interface.
@@ -103,10 +122,30 @@ func (d *Dialer) ExcludeIP(ip net.IP) {
 
 // DialContext connects through the selected underlay interface.
 func (d *Dialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if d == nil {
 		return (&net.Dialer{}).DialContext(ctx, network, address)
 	}
-	interfaceName := d.ensureInterface(address)
+	d.mu.Lock()
+	if d.closed {
+		d.mu.Unlock()
+		return nil, net.ErrClosed
+	}
+	d.active.Add(1)
+	d.mu.Unlock()
+	defer d.active.Done()
+	if d.lifecycleCtx != nil {
+		child, cancel := context.WithCancel(ctx)
+		stop := context.AfterFunc(d.lifecycleCtx, cancel)
+		defer func() { stop(); cancel() }()
+		ctx = child
+	}
+	interfaceName := d.ensureInterface(ctx, address)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	d.mu.RLock()
 	autoDetect := d.autoDetect
 	requireBound := d.requireBound
@@ -123,6 +162,9 @@ func (d *Dialer) DialContext(ctx context.Context, network, address string) (net.
 		return d.wrapCapture(conn), nil
 	}
 
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	refreshedInterface := d.refreshInterface()
 	if refreshedInterface == "" || refreshedInterface == interfaceName {
 		return nil, err
@@ -135,16 +177,38 @@ func (d *Dialer) DialContext(ctx context.Context, network, address string) (net.
 	return d.wrapCapture(conn), nil
 }
 
-func (d *Dialer) ensureInterface(address string) string {
+func (d *Dialer) ensureInterface(ctx context.Context, address string) string {
+	for {
+		d.mu.Lock()
+		if !d.autoDetect || d.interfaceName != "" {
+			name := d.interfaceName
+			d.mu.Unlock()
+			return name
+		}
+		if done := d.detecting; done != nil {
+			d.mu.Unlock()
+			select {
+			case <-ctx.Done():
+				return ""
+			case <-done:
+				continue
+			}
+		}
+		done := make(chan struct{})
+		d.detecting = done
+		d.mu.Unlock()
+		return d.detectOnce(ctx, address, done)
+	}
+}
+func (d *Dialer) detectOnce(ctx context.Context, address string, done chan struct{}) (name string) {
+	defer func() { d.mu.Lock(); d.detecting = nil; close(done); name = d.interfaceName; d.mu.Unlock() }()
+	detected := detectInterface(ctx, address)
 	d.mu.Lock()
-	defer d.mu.Unlock()
-	if !d.autoDetect || d.interfaceName != "" {
-		return d.interfaceName
+	if ctx.Err() == nil && usableInterface(detected, d.excludedIPs) {
+		d.updateInterfaceName(detected)
 	}
-	if interfaceName := detectInterface(address); usableInterface(interfaceName, d.excludedIPs) {
-		d.updateInterfaceName(interfaceName)
-	}
-	return d.interfaceName
+	d.mu.Unlock()
+	return
 }
 
 func (d *Dialer) updateInterfaceName(interfaceName string) {
@@ -152,7 +216,7 @@ func (d *Dialer) updateInterfaceName(interfaceName string) {
 		return
 	}
 	d.interfaceName = interfaceName
-	log.Printf("Underlay interface: %s", interfaceName)
+
 }
 
 func (d *Dialer) wrapCapture(conn net.Conn) net.Conn {
@@ -224,7 +288,7 @@ func (d *Dialer) DialTimeout(network, address string, timeout time.Duration) (ne
 	return d.DialContext(ctx, network, address)
 }
 
-func detectInterface(targetAddress string) string {
+func detectInterface(ctx context.Context, targetAddress string) string {
 	if interfaceName := findDefaultInterface(); usableInterface(interfaceName, nil) {
 		return interfaceName
 	}
@@ -236,7 +300,7 @@ func detectInterface(targetAddress string) string {
 		host = targetAddress
 		port = "443"
 	}
-	conn, err := net.DialTimeout("udp", net.JoinHostPort(host, port), 3*time.Second)
+	conn, err := (&net.Dialer{Timeout: 3 * time.Second}).DialContext(ctx, "udp", net.JoinHostPort(host, port))
 	if err != nil {
 		return ""
 	}

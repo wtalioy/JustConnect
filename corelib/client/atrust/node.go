@@ -2,6 +2,7 @@ package atrust
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"strconv"
@@ -9,7 +10,6 @@ import (
 
 	"github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/wtalioy/JustConnect/corelib/internal/ping"
-	"github.com/wtalioy/JustConnect/corelib/log"
 )
 
 const pingNum = 3
@@ -21,10 +21,17 @@ type NodeGroup struct {
 
 type nodeGroupsProbeFunc func(map[string][]string) map[string]string
 
-func getBestNodes(ctx context.Context, nodeGroups map[string]NodeGroup, dialContext client.DialContextFunc, keyLogWriter io.Writer) map[string]string {
-	return selectBestNodes(nodeGroups, func(nodeGroups map[string][]string) map[string]string {
-		return getBestReachableNodes(ctx, nodeGroups, dialContext, keyLogWriter)
+func getBestNodes(ctx context.Context, nodeGroups map[string]NodeGroup, dialContext client.DialContextFunc, keyLogWriter io.Writer) (map[string]string, error) {
+	var probeErr error
+	best := selectBestNodes(nodeGroups, func(groups map[string][]string) map[string]string {
+		if probeErr != nil {
+			return nil
+		}
+		nodes, err := getBestReachableNodes(ctx, groups, dialContext, keyLogWriter)
+		probeErr = errors.Join(probeErr, err)
+		return nodes
 	})
+	return best, probeErr
 }
 
 func selectBestNodes(nodeGroups map[string]NodeGroup, probe nodeGroupsProbeFunc) map[string]string {
@@ -50,7 +57,7 @@ func selectBestNodes(nodeGroups map[string]NodeGroup, probe nodeGroupsProbeFunc)
 	return bestNodes
 }
 
-func getBestReachableNodes(ctx context.Context, nodeGroups map[string][]string, dialContext client.DialContextFunc, keyLogWriter io.Writer) map[string]string {
+func getBestReachableNodes(ctx context.Context, nodeGroups map[string][]string, dialContext client.DialContextFunc, keyLogWriter io.Writer) (map[string]string, error) {
 	bestNodes := make(map[string]string)
 	for group, nodes := range nodeGroups {
 		if len(nodes) > 0 {
@@ -72,7 +79,7 @@ func getBestReachableNodes(ctx context.Context, nodeGroups map[string][]string, 
 				tcping.SetDialContext(dialContext)
 				tcping.SetKeyLogWriter(keyLogWriter)
 				target := ping.Target{
-					Protocol: ping.TCP,
+
 					Host:     host,
 					Port:     port,
 					Counter:  pingNum,
@@ -95,6 +102,9 @@ func getBestReachableNodes(ctx context.Context, nodeGroups map[string][]string, 
 			bestNode := ""
 			for i, tcping := range pingList {
 				result := tcping.Result()
+				if result.Err != nil {
+					return nil, result.Err
+				}
 				score, reachable := nodeProbeScore(result)
 				if reachable && (bestScore == 0 || score < bestScore) {
 					bestNode = probedNodes[i]
@@ -104,12 +114,12 @@ func getBestReachableNodes(ctx context.Context, nodeGroups map[string][]string, 
 
 			if bestNode != "" {
 				bestNodes[group] = bestNode
-				log.Printf("Best node in group %s: %s with quality score %d ms", group, bestNode, bestScore.Milliseconds())
+
 			}
 		}
 	}
 
-	return bestNodes
+	return bestNodes, nil
 }
 
 func nodeProbeScore(result *ping.Result) (time.Duration, bool) {
@@ -134,7 +144,11 @@ func (c *Client) updateBestNodes(ctx context.Context, interval time.Duration) {
 		case <-ticker.C:
 		}
 
-		bestNodes := getBestNodes(ctx, c.NodeGroups, c.underlayDialer.DialContext, c.tlsKeyLogWriter)
+		bestNodes, err := getBestNodes(ctx, c.NodeGroups, c.underlayDialer.DialContext, c.tlsKeyLogWriter)
+		if err != nil {
+			c.fail(err)
+			return
+		}
 		c.BestNodesRWMutex.Lock()
 		c.BestNodes = bestNodes
 		c.BestNodesRWMutex.Unlock()

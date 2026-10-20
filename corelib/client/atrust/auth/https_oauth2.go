@@ -7,7 +7,6 @@ import (
 	"net/url"
 
 	"github.com/wtalioy/JustConnect/corelib/client/authchallenge"
-	"github.com/wtalioy/JustConnect/corelib/log"
 )
 
 type HTTPSOauth2Login struct {
@@ -90,7 +89,6 @@ func validateHTTPSOauth2CallbackURL(callbackURL *url.URL) error {
 }
 
 func (s *Session) httpsOauth2(callback string) error {
-	log.Println("Perform GET /passport/v1/auth/httpsOauth2")
 
 	req, _ := http.NewRequest("GET", callback, nil)
 	req.Header.Set("User-Agent", UserAgent)
@@ -120,8 +118,7 @@ func (s *Session) httpsOauth2(callback string) error {
 		return err
 	}
 
-	body, _ := io.ReadAll(resp.Body)
-	log.DebugPrintf("Received httpsOauth2 data: %s", string(body))
+	_, _ = io.Copy(io.Discard, resp.Body)
 
 	s.ticket = ticket
 	return nil

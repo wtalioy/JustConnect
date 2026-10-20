@@ -26,13 +26,13 @@ env PATH="/home/lioy/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.2.linux-amd64
 
 入口显式关闭 workspace 和自动工具链切换，要求 Go 版本与模块声明一致；外部依赖使用 Go 缓存和 `go.sum`，不带 vendor。当前使用 `CGO_ENABLED=0` 验证协议源码与离线逻辑，六组 cgo 链接由正式 ABI 宿主验证，正式库构建由 S1-09 接入 CMake。`Tests` 三平台工作流增加同一入口，并将 `corelib/go.sum` 纳入 Go 缓存键。
 
-该入口构建全部源码，并按 `go list` 的实际包集合运行限定基线（含无测试包），数量由验证输出记录。上游认证包因 `session.do` 未定义仍标为 `BLOCKED`，不是通过；只允许这条已知编译诊断，变化即失败。原始测试保留，S1-07 修复调用者取消与会话生命周期时恢复完整套件；直接运行 `go -C corelib test -timeout 60s ./...` 目前仍会失败。Windows 还运行真实调试文件 ACL 回归，覆盖新建、已有宽权限文件收紧及拒绝访问后不截断；Unix 验证 `0600`。本单元不访问校园、获取设备权限或修改系统网络。
+该入口构建全部源码，并按 `go list` 的实际包集合运行完整套件（含无测试包），数量由验证输出记录。S1-07 已恢复认证包，删除原 `session.do` 已知失败例外；回环 TLS／隧道网关覆盖实际认证、代理收发、查询、阶段取消与失败回滚。Windows 继续运行真实调试文件 ACL 回归，覆盖新建、已有宽权限收紧及拒绝访问后不截断；Unix 验证 `0600`。这些测试不访问校园、创建设备或修改系统网络。
 
 ## 正式 C ABI 契约验证
 
 S1-03 的独立入口见 [CORE-ABI.md](CORE-ABI.md)。`corelib/abi/contract.json` 是 C／Go 共用常量的单一来源；普通 Go 验证入口运行 `scripts/generate-core-abi.py --check`，避免两个语言的状态码、版本或边界漂移。构建来源从 Git 注入，运行地址、端口与凭据由宿主传入。
 
-`tests/coreabi` 同时编译 C11／C++17 宿主，实际调用正式库及明确标记的认证测试驱动；Unix 使用静态库，Windows 使用固定随包 DLL。`Core ABI` 复用已有六组工具链执行该宿主、QThread／WebEngine 共存及 Go 回归，支持的平台执行 race；日志统一在 `build/coreabi/*.log` 并上传。Windows ARM64 的 Go race 不支持，普通 Go 和真实 FFI 检查仍必需通过。正式应用的 CMake／安装包切换仍由 S1-09 实施。
+`tests/coreabi` 同时编译 C11／C++17 宿主，实际调用正式库及明确标记的认证测试驱动；新增 `coreabi_protocol_test` 用受控网关驱动正式 C 宿主完成认证、代理数据传输、停止与查询重启；Unix 使用静态库，Windows 使用固定随包 DLL。`Core ABI` 复用已有六组工具链执行该宿主、QThread／WebEngine 共存及 Go 回归，支持的平台执行 race；日志统一在 `build/coreabi/*.log` 并上传。Windows ARM64 的 Go race 不支持，普通 Go 和真实 FFI 检查仍必需通过。正式应用的 CMake／安装包切换仍由 S1-09 实施。
 
 ## 分支与 Actions
 

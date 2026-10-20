@@ -259,3 +259,29 @@ func assertIPv4TCPPacket(t *testing.T, packet []byte, payload string) {
 		t.Fatalf("TCP payload = %q, want %q", got, payload)
 	}
 }
+
+func TestCaptureWorkerPanicDrainsQueueAndReportsFailure(t *testing.T) {
+	capture, err := newPCAPCapture(filepath.Join(t.TempDir(), "panic.pcap"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// An impossible internal event exercises the worker boundary without crashing the host.
+	if err := capture.enqueue(captureEvent{payload: []byte("fixture")}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < pcapEventQueueSize*2; i++ {
+		if err := capture.enqueue(captureEvent{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	done := make(chan error, 1)
+	go func() { done <- capture.Close() }()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "packet capture worker panicked") {
+			t.Fatalf("capture error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("capture worker panic blocked Close")
+	}
+}

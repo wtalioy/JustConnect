@@ -31,7 +31,8 @@ func (s Status) Message() string {
 }
 
 type Config struct {
-	SchemaVersion int `json:"schema_version"`
+	SchemaVersion int    `json:"schema_version"`
+	Operation     string `json:"operation"`
 	Server        struct {
 		Host string `json:"host"`
 		Port uint16 `json:"port"`
@@ -44,6 +45,15 @@ type Config struct {
 		Domain     string `json:"domain"`
 		TOTPSecret string `json:"totp_secret"`
 	} `json:"auth"`
+	Network struct {
+		Interface        string `json:"interface"`
+		AutoDetect       bool   `json:"auto_detect"`
+		LocalDNS         string `json:"local_dns"`
+		SecondaryDNS     string `json:"secondary_dns"`
+		DNSCacheTTL      uint32 `json:"dns_cache_ttl"`
+		DisableRemoteDNS bool   `json:"disable_remote_dns"`
+		Language         string `json:"language"`
+	} `json:"network"`
 	Listeners struct {
 		SOCKS string `json:"socks"`
 		HTTP  string `json:"http"`
@@ -118,6 +128,17 @@ func ParseConfig(data []byte) (Config, Status) {
 	if !decode(data, &c) || c.SchemaVersion != ABIVersion || c.Server.Port == 0 || !validHost(c.Server.Host) {
 		return Config{}, InvalidArgument
 	}
+	if c.Operation != "" && c.Operation != "connect" && c.Operation != "auth_methods" {
+		return Config{}, InvalidArgument
+	}
+	if len(c.Network.Interface) > MaxInterfaceName || len(c.Network.Language) > MaxLanguage || !validDNS(c.Network.LocalDNS) {
+		return Config{}, InvalidArgument
+	}
+	if c.Network.SecondaryDNS != "" {
+		if _, err := netip.ParseAddr(c.Network.SecondaryDNS); err != nil {
+			return Config{}, InvalidArgument
+		}
+	}
 	switch c.Auth.Method {
 	case "", "auth/psw", "auth/smsCheckCode", "auth/cas", "auth/httpsOauth2":
 	default:
@@ -151,6 +172,17 @@ func validHost(host string) bool {
 	return true
 }
 
+func validDNS(address string) bool {
+	if address == "" {
+		return true
+	}
+	if _, err := netip.ParseAddr(address); err == nil {
+		return true
+	}
+	endpoint, err := netip.ParseAddrPort(address)
+	return err == nil && endpoint.Port() != 0
+}
+
 func validListener(address string) bool {
 	if address == "" {
 		return true
@@ -171,7 +203,7 @@ type Response struct {
 	Action            string  `json:"action"`
 	Code              string  `json:"code"`
 	SkipSecondaryAuth bool    `json:"skip_secondary_auth"`
-	Points            []Point `json:"points"`
+	Points            []Point `json:"points,omitempty"`
 	Width             int     `json:"width"`
 	Height            int     `json:"height"`
 	CallbackURL       string  `json:"callback_url"`
@@ -218,7 +250,6 @@ func (r Response) valid(c Challenge) bool {
 	switch c.Kind {
 	case "sms", "totp", "radius", "text_captcha":
 		return (strings.TrimSpace(r.Code) != "" || (r.SkipSecondaryAuth && c.CanSkipSecondaryAuth)) &&
-			(!r.SkipSecondaryAuth || r.Code == "") &&
 			len(r.Code) <= MaxAuthCode && (!r.SkipSecondaryAuth || c.CanSkipSecondaryAuth) &&
 			len(r.Points) == 0 && r.Width == 0 && r.Height == 0 && r.CallbackURL == ""
 	case "click_captcha":
@@ -236,4 +267,11 @@ func (r Response) valid(c Challenge) bool {
 		return validURL(r.CallbackURL) && r.Code == "" && !r.SkipSecondaryAuth && len(r.Points) == 0 && r.Width == 0 && r.Height == 0
 	}
 	return false
+}
+
+type AuthMethod struct {
+	Type     string `json:"type"`
+	Domain   string `json:"domain"`
+	Name     string `json:"name"`
+	LoginURL string `json:"login_url,omitempty"`
 }

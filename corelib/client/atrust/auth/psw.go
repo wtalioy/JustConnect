@@ -11,8 +11,6 @@ import (
 	"math/big"
 	"net/http"
 	"strconv"
-
-	"github.com/wtalioy/JustConnect/corelib/log"
 )
 
 type PasswordLogin struct {
@@ -42,7 +40,6 @@ func (s *Session) loginAuthPsw(username, password, loginDomain, graphCodeFile st
 }
 
 func (s *Session) pswImpl(username, password, loginDomain, graphCheckCode string) (int, error) {
-	log.Println("Perform POST /passport/v1/auth/psw")
 
 	N, ok := new(big.Int).SetString(s.pubKey, 16)
 	if !ok {
@@ -89,7 +86,6 @@ func (s *Session) pswImpl(username, password, loginDomain, graphCheckCode string
 		_ = Body.Close()
 	}(resp.Body)
 	body, _ := io.ReadAll(resp.Body)
-	log.DebugPrintf("Received psw: %s", string(body))
 
 	var re struct {
 		Code    int    `json:"code"`
@@ -111,7 +107,6 @@ func (s *Session) pswImpl(username, password, loginDomain, graphCheckCode string
 		}
 		return 0, fmt.Errorf("password authentication failed with code %d: %s", re.Code, re.Message)
 	}
-	log.DebugPrintf("Parsed psw: %+v", re)
 
 	if re.Data.Ticket == "" && re.Data.GraphCheckCodeEnable == 0 {
 		return 0, fmt.Errorf("password authentication succeeded without a ticket")
@@ -123,7 +118,6 @@ func (s *Session) pswImpl(username, password, loginDomain, graphCheckCode string
 	if re.Data.AntiReplayRand != "" {
 		s.antiReplayRand = re.Data.AntiReplayRand
 	}
-	log.DebugPrintf("After psw: nextService=%s antiReplayRand=%s", s.nextService, s.antiReplayRand)
 
 	return re.Data.GraphCheckCodeEnable, nil
 }

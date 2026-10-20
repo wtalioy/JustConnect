@@ -87,8 +87,8 @@ func TestAuthenticationValidation(t *testing.T) {
 	if !(Response{Action: "submit", SkipSecondaryAuth: true}).valid(Challenge{Kind: "sms", CanSkipSecondaryAuth: true}) {
 		t.Fatal("supported skip rejected")
 	}
-	if (Response{Action: "submit", SkipSecondaryAuth: true, Code: "123456"}).valid(Challenge{Kind: "sms", CanSkipSecondaryAuth: true}) {
-		t.Fatal("ambiguous skip and code accepted")
+	if !(Response{Action: "submit", SkipSecondaryAuth: true, Code: "123456"}).valid(Challenge{Kind: "sms", CanSkipSecondaryAuth: true}) {
+		t.Fatal("protocol code with secondary-auth flag rejected")
 	}
 	if (Response{Action: "submit", Width: 10, Height: 10, Points: []Point{{X: 10, Y: 1}}}).valid(Challenge{Kind: "click_captcha"}) {
 		t.Fatal("out of bounds point accepted")

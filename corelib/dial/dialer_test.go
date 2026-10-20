@@ -6,9 +6,7 @@ import (
 	"testing"
 
 	"github.com/wtalioy/JustConnect/corelib/client"
-	"github.com/wtalioy/JustConnect/corelib/internal/ippool"
 	"github.com/wtalioy/JustConnect/corelib/internal/ipresource"
-	"github.com/wtalioy/JustConnect/corelib/internal/zcdns"
 	"github.com/wtalioy/JustConnect/corelib/resolve"
 )
 
@@ -97,9 +95,6 @@ type capturingStack struct {
 	ipResource     client.IPResource
 }
 
-func (s *capturingStack) Run()                                                {}
-func (s *capturingStack) SetupResolve(zcdns.LocalServer)                      {}
-func (s *capturingStack) SetupIPPool(*ippool.IPPool[[]client.DomainResource]) {}
 func (s *capturingStack) DialTCP(ctx context.Context, _ *net.TCPAddr) (net.Conn, error) {
 	if resource, ok := ctx.Value(resolve.ContextKeyDomainResource).(client.DomainResource); ok {
 		s.domainResource = resource

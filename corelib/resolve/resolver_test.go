@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/patrickmn/go-cache"
+	"github.com/wtalioy/JustConnect/corelib/client"
 )
 
 var domainResourceMatchSink bool
@@ -355,5 +355,61 @@ func failingNetResolver() *net.Resolver {
 		Dial: func(context.Context, string, string) (net.Conn, error) {
 			return nil, errors.New("DNS unavailable")
 		},
+	}
+}
+
+func TestCloseJoinsCanceledLookupsAndPanicStaysInWorker(t *testing.T) {
+	for _, panics := range []bool{false, true} {
+		r := &Resolver{}
+		started := make(chan struct{})
+		result := make(chan error, 1)
+		go func() {
+			_, err := r.resolveCoordinated(context.Background(), "fixture", func(ctx context.Context) (net.IP, error) {
+				close(started)
+				if panics {
+					panic("private DNS detail")
+				}
+				<-ctx.Done()
+				return nil, ctx.Err()
+			})
+			result <- err
+		}()
+		<-started
+		r.Close()
+		select {
+		case err := <-result:
+			if err == nil {
+				t.Fatal("failed lookup succeeded")
+			}
+			if panics && err.Error() != "DNS worker panicked" {
+				t.Fatalf("panic error = %v", err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("resolver close left lookup running")
+		}
+		if r.coordinationEntryCount() != 0 {
+			t.Fatal("lookup worker survived Close")
+		}
+	}
+}
+
+func TestDNSCacheRemainsBoundedAndReusesExpiredSlots(t *testing.T) {
+	r := NewResolver(nil, "", "", 60, nil, nil, false)
+	defer r.Close()
+	ip := net.IPv4(192, 0, 2, 1)
+	for i := 0; i < maxDNSCacheEntries; i++ {
+		r.setDNSCache(fmt.Sprint(i), ip)
+	}
+	r.setDNSCache("overflow", ip)
+	if r.dnsCache.ItemCount() != maxDNSCacheEntries {
+		t.Fatal("DNS cache exceeded its capacity")
+	}
+	if _, found := r.getDNSCache("overflow"); found {
+		t.Fatal("overflow entry displaced a live record")
+	}
+	r.dnsCache.Set("0", ip, time.Nanosecond)
+	r.setDNSCache("new", ip)
+	if _, found := r.getDNSCache("new"); !found {
+		t.Fatal("expired slot was not reclaimed")
 	}
 }

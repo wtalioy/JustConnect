@@ -14,7 +14,7 @@ func TestTCPingStartWithContextStopsBlockedDial(t *testing.T) {
 	started := make(chan struct{})
 	tcping := NewTCPing()
 	tcping.SetTarget(&Target{
-		Protocol: TCP,
+
 		Host:     "node.example.test",
 		Port:     443,
 		Counter:  1,
@@ -49,7 +49,7 @@ func TestTCPingStopInterruptsBlockedDial(t *testing.T) {
 	dialCancelled := make(chan error, 1)
 	tcping := NewTCPing()
 	tcping.SetTarget(&Target{
-		Protocol: TCP,
+
 		Host:     "node.example.test",
 		Port:     443,
 		Counter:  1,
@@ -63,7 +63,7 @@ func TestTCPingStopInterruptsBlockedDial(t *testing.T) {
 		return nil, ctx.Err()
 	})
 
-	done := tcping.Start()
+	done := tcping.StartWithContext(context.Background())
 	select {
 	case <-started:
 	case <-time.After(time.Second):

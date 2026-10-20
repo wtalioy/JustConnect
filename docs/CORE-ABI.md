@@ -1,6 +1,6 @@
 # JustConnect 内部 C ABI v1
 
-公共入口为 [justconnect.h](../corelib/abi/justconnect.h)，Go 实现在同一 `corelib/` 模块的 `abi/` 与 `internal/bridge/`。S1-03 提供契约和传输；正式 VPN 会话在 S1-07 接入，Qt 后端在 S1-08 切换。
+公共入口为 [justconnect.h](../corelib/abi/justconnect.h)，Go 实现在同一 `corelib/` 模块的 `abi/` 与 `internal/bridge/`。S1-03 提供契约和传输；S1-07 已接入正式 aTrust 会话，Qt 后端在 S1-08 切换。
 
 ## 单一契约来源
 
@@ -8,7 +8,7 @@
 
 构建提交与工作树状态由 Git 查询注入，不填写开发机目录、学校地址或账户。`jc_build_info` 返回当前 Go 版本、目标 OS／架构、JustConnect 完整提交、上游基线和由提交／工作树状态组成的本地版本。直接手动构建而没有 VCS 信息时明确返回 `unversioned/unknown`，不能作为可追溯发布产物。
 
-当前 `embedded_vpn:false`、`policy_update:false`；异步启动、认证回应与有界事件传输可用。正式库的 Start 接受合法配置后产生 `starting` 和 `JC_UNSUPPORTED` 终态，不尝试连接、不产生 `ready`。S1-07 安装真实会话时再更新能力。
+正式库返回 `embedded_vpn:true`、`auth_method_query:true`、`policy_update:false`。Start 使用真实会话：认证、资源、选线、IP 握手、解析、gVisor 和监听均成功后才产生 `ready`，失败或取消在清理完成后产生终态。只有测试驱动和未安装 Runner 的纯传输引擎没有 VPN 能力；测试驱动始终标记 `test_driver:true`。
 
 ## C 边界与生命周期
 
@@ -42,21 +42,27 @@ ABI v1 与 JSON schema 版本同步。示例为隔离测试地址，运行配置
 ~~~json
 {
   "schema_version": 1,
+  "operation": "connect",
   "server": {"host": "vpn.example.invalid", "port": 443},
   "auth": {"method": "auth/psw", "username": "example-user", "password": "example-secret"},
-  "listeners": {"socks": "127.0.0.1:1080", "http": "[::1]:1081"}
+  "listeners": {"socks": "127.0.0.1:1080", "http": "[::1]:1081"},
+  "network": {"auto_detect": false, "language": "en-US"}
 }
 ~~~
 
-`schema_version/server.host/server.port` 必填。host 是 ASCII DNS 名或 IP，不是 URL／带端口地址，端口显式指定。其他字段可省略；`auth` 还接受 `phone/domain/totp_secret`，method 支持空值（由会话查询）、`auth/psw`、`auth/smsCheckCode`、`auth/cas`、`auth/httpsOauth2`。listener 空值不启用；非空必须是回环 IP:port。没有 CLI 附加参数、默认学校、TUN、路由／DNS 修改、跳过 TLS 或原始调试输出开关。
+`schema_version/server.host/server.port` 必填。host 是 ASCII DNS 名或 IP，不是 URL／带端口地址，端口显式指定。其他字段可省略；`auth` 还接受 `phone/domain/totp_secret`，method 支持空值（按用户名／密码或手机号推导）、`auth/psw`、`auth/smsCheckCode`、`auth/cas`、`auth/httpsOauth2`。listener 空值不启用；非空必须是回环 IP:port。没有 CLI 附加参数、默认学校、TUN、路由／DNS 修改、跳过 TLS 或原始调试输出开关。
+
+`operation` 缺省为 `connect`；`auth_methods` 只查询认证方式，产生 `auth_methods` 结果（`methods:[{type,domain,name,login_url}]`）及终态，不建立数据栈或代理。结果数量、字段和整体事件大小均有界，超限返回 `JC_LIMIT`。
+
+`network` 支持 `interface/auto_detect/local_dns/secondary_dns/dns_cache_ttl/disable_remote_dns/language`。接口、DNS 和语言显式传入；local DNS 允许 IP 或 IP:port，secondary DNS 为 IP。接口名优先于自动选择；自动选择默认关闭，避免悄悄改变宿主的网络策略。DNS 缓存寿命与维护间隔的默认值集中在 `corelib/session.go`，缓存不启动游离 janitor，且有容量上限。代理出口不读取系统 HTTP_PROXY 等环境配置；本阶段不修改路由、系统代理或系统 DNS，不创建自己的 TUN。Clash 共存仍由后续阶段验证。
 
 拒绝重复键、未知字段、非规范字段大小写、尾随 JSON、null、超深结构、无效 UTF-8、NUL 和 Unicode 替代字符。超限值不截断、不静默回退。无效输入只返回 `JC_INVALID_ARGUMENT`，不把账户、密码或输入片段写入错误。
 
 ## 事件与认证回应
 
-事件包含 `schema_version/type/generation/sequence/status`。代次、序列号与请求标识为十进制字符串，避免 Qt JSON 数值精度损失。状态事件为 `state:starting/ready`；终态为 `type:terminal`，携带安全消息。`ready` 在认证未完成／未读时不能产生，每代最多一次。诊断只接受已登记 `code`，没有任意文本／服务端响应字段。
+事件包含 `schema_version/type/generation/sequence/status`。代次、序列号与请求标识为十进制字符串，避免 Qt JSON 数值精度损失。状态事件为 `state:starting/ready`；终态为 `type:terminal`，携带安全消息。`ready` 在认证未完成／未读时不能产生，每代最多一次。诊断只接受已登记 `code`，没有任意文本／服务端响应字段：`authentication_started/transport_connected/keepalive_retry/anti_mitm_failed/persistence_failed/manifest_cached/auth_detail_unavailable`。宿主日志目标保持不变，SID、票据、签名、凭据、原始响应和报文不进入诊断。
 
-队列最多保留 `MaxDiagnostics` 条诊断；超限立即返回 `JC_LIMIT`，不阻塞数据面或退出。另外保留两条状态、一个未读认证请求和一个终态的位置，总数最多 `MaxDiagnostics + 4`；单个事件和图片受大小限制。未读认证不能回应；过期但未读的请求仍占据位置，避免重试积压图片。终态和清理均不依赖宿主消费诊断。
+队列最多保留 `MaxDiagnostics` 条诊断；超限立即返回 `JC_LIMIT`，不阻塞数据面或退出。另外保留两条状态、一个未读认证请求和一个终态的位置（查询结果占用该代的结果位置，不与 ready／认证并存），总数最多 `MaxDiagnostics + 4`；单个事件和图片受大小限制。未读认证不能回应；过期但未读的请求仍占据位置，避免重试积压图片。终态和清理均不依赖宿主消费诊断。
 
 ~~~json
 {
@@ -77,18 +83,18 @@ ABI v1 与 JSON schema 版本同步。示例为隔离测试地址，运行配置
 
 | challenge.kind | 内容／有效回应 |
 | --- | --- |
-| `sms/totp/radius` | `code`；仅请求允许时接受 `skip_secondary_auth:true` |
+| `sms/totp/radius` | `code`；仅请求允许时接受 `skip_secondary_auth:true`，该独立标志可与验证码一同提交 |
 | `text_captcha` | base64 `image`；回应非空 `code` |
 | `click_captcha` | base64 `image`；回应 `points:[{x,y}]/width/height`，点在图片范围内且数量受限 |
 | `cas/oauth2` | `login_url`；回应 `callback_url`，仅接受无 userinfo 的 HTTP(S) URL |
 
-桥接层不打开浏览器、不请求认证 URL。URL 和图片为目的明确的认证数据，不作为诊断日志输出；真实协议接入时仍须验证登录／回调来源、域和认证标识，不能用语法验证代替来源验证。可信设备等新步骤须显式扩展契约，未知类型不落入通用文本输入。
+桥接层不打开浏览器、不请求认证 URL。URL 和图片为目的明确的认证数据，不作为诊断日志输出；S2 接入真实校园时仍须验证登录／回调来源、域和认证标识，不能用语法验证代替来源验证。可信设备等新步骤须显式扩展契约，未知类型不落入通用文本输入。
 
 ## 验证与构建
 
 ~~~sh
 python scripts/test-corelib.py
-go -C corelib test -race -timeout 60s ./internal/bridge
+go -C corelib test -race -timeout 90s ./...
 cmake -S tests/coreabi -B build/coreabi -DCMAKE_BUILD_TYPE=Release
 cmake --build build/coreabi --config Release --parallel 3
 ctest --test-dir build/coreabi -C Release -V --output-on-failure
@@ -98,8 +104,8 @@ ctest --test-dir build/coreabi -C Release -V --output-on-failure
 
 宿主以 C11、C++17 头文件编译并实际调用正式库，检查来源、ABI 不匹配、257 轮生命周期、缓冲区护栏和四个 QThread 调用，并在同一进程验证 GUI 心跳与 WebEngine JavaScript；这部分已取代 S1-06 模拟探针。另一个仅通过 `jc_abi_test` 构建标签启用、明确标为 `test_driver:true` 的驱动，复用同一导出／传输实现，验证跨 C ABI 的认证成功回应、输入覆盖后使用、忙错误、重复／旧代次回应、取消与重启；不访问网络、不作为 VPN 分发。
 
-Go 回归覆盖严格配置、各类认证回应、事件积压、过期请求、慢清理超时、读者唤醒、并发启动、panic 脱敏和资源上限，并包含配置模糊测试。六组原生 CI 验证正式库与认证宿主；race 在 Go 支持的五组平台执行，Windows ARM64 由固定 Go 明确不支持，但仍执行普通 Go 与真实 FFI 回归。宿主库启用 `GOEXPERIMENT=cgocheck2`，没有关闭指针检查。
+Go 回归覆盖严格配置、各类认证回应、事件积压、过期请求、慢清理超时、读者唤醒、并发启动、panic 脱敏和资源上限，并包含配置模糊测试。新增 `coreabi_protocol_test` 由测试 Go 网关驱动正式 C 宿主，经过实际 HTTP/TLS、短信认证、资源／选线／隧道握手、SOCKS 和 HTTP CONNECT 双向数据、活动连接停止及查询重启。网关只使用回环与测试资源地址；不是内置的生产替身。Go 还覆盖普通 HTTP、SOCKS UDP association、DNS／认证／IP 阶段取消、监听冲突回滚、会话失效和同 goroutine panic 交付。六组原生 CI 验证三个宿主场景和完整 Go 套件；race 在 Go 支持的五组平台执行，Windows ARM64 由固定 Go 明确不支持，但仍执行普通 Go 与真实 FFI 回归。宿主库启用 `GOEXPERIMENT=cgocheck2`，没有关闭指针检查。
 
-此验收不代表校园登录、正式 VPN 启停、协议协程清理或网络转发完成；这些由 S1-07、S1-04 的真实协议回归及后续网络任务交付。
+S1-07 的本地受控网关与原生宿主已验证会话启停、后台工作清理和代理转发；平台 CI 证据见计划。真实校园账号、TLS 生产策略、系统透明访问、Clash 共存、Qt 正式后端及安装包分别按 S2、S4—6、S1-08／09 验收，不由回环网关代替。
 
 2026-10-20，代码 `c66be1d` 的[六组原生宿主 CI](https://github.com/wtalioy/JustConnect/actions/runs/39356166583)全部通过，包含五组可用的 race 检查；[三平台应用回归](https://github.com/wtalioy/JustConnect/actions/runs/39356166708)各通过 25 包限定 Go 基线和 16 项应用测试。S1-03 已验收；S1-04 的真实协议／Qt 回归仍须随后续接入完成。
