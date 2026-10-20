@@ -68,6 +68,9 @@ bool delegatesPlatformOperationsAsynchronouslyAndTracksOwnedState()
     fake->conflict = true;
     SystemProxySession session(std::move(backend));
     const SystemProxyConfig config{1081, 1080, "localhost"};
+    if(session.disable() || fake->clearCalls!=0) {
+        qCritical()<<"a new session must not clear another application's proxy";return false;
+    }
 
     bool conflictResult = false;
     QObject::connect(&session, &SystemProxySession::conflictCheckFinished,
@@ -104,6 +107,9 @@ bool delegatesPlatformOperationsAsynchronouslyAndTracksOwnedState()
         return false;
     }
 
+    if (session.enable(config) || fake->applyCalls!=1) {
+        qCritical()<<"owned state must be restored before applying another configuration";return false;
+    }
     if (!session.disable()
         || !waitUntil([&]() { return !session.isBusy(); })
         || session.isEnabled()
@@ -113,11 +119,9 @@ bool delegatesPlatformOperationsAsynchronouslyAndTracksOwnedState()
         return false;
     }
 
-    if (!session.disable()
-        || !waitUntil([&]() { return !session.isBusy(); })
-        || fake->clearCalls != 2)
+    if (session.disable() || fake->clearCalls != 1)
     {
-        qCritical() << "disable must also support clearing externally-owned proxy state";
+        qCritical() << "an already restored session must not clear externally-owned proxy state";
         return false;
     }
 
@@ -147,7 +151,7 @@ bool delegatesPlatformOperationsAsynchronouslyAndTracksOwnedState()
     if (session.isBusy()
         || session.isEnabled()
         || fake->applyCalls != 3
-        || fake->clearCalls != 3)
+        || fake->clearCalls != 2)
     {
         qCritical() << "clearBeforeShutdown must clear an in-flight enable";
         return false;

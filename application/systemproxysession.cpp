@@ -25,11 +25,13 @@ bool SystemProxySession::checkConflict(const SystemProxyConfig &config)
 
 bool SystemProxySession::enable(const SystemProxyConfig &config)
 {
+    if (needsCleanup()) return false;
     return startOperation(Operation::Enable, config);
 }
 
 bool SystemProxySession::disable()
 {
+    if (!needsCleanup()) return false;
     return startOperation(Operation::Disable);
 }
 

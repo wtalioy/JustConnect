@@ -123,11 +123,12 @@ MainWindow::MainWindow(
             [this](bool busy)
             {
                 ui->pushButton2->setEnabled(!busy);
-                ui->disableProxyAction->setEnabled(!busy);
+                ui->disableProxyAction->setEnabled(!busy && systemProxySession->needsCleanup());
             });
     connect(systemProxySession, &SystemProxySession::enabledChanged, this,
             [this](bool enabled)
             {
+                ui->disableProxyAction->setEnabled(!systemProxySession->isBusy() && systemProxySession->needsCleanup());
                 ui->pushButton2->setText(systemProxySession->needsCleanup() ? "清除系统代理" : "设置系统代理");
                 if (!systemProxySession->needsCleanup() && connectionSession != nullptr && !connectionSession->isActive())
                 {
@@ -198,6 +199,7 @@ MainWindow::MainWindow(
             });
 
     // 文件-清除系统代理
+    ui->disableProxyAction->setEnabled(false);
     connect(ui->disableProxyAction, &QAction::triggered,
             [&]()
             {
@@ -214,6 +216,7 @@ MainWindow::MainWindow(
                     return;
                 }
 
+                if (systemProxySession->isBusy() || !systemProxySession->needsCleanup()) return;
                 connect(systemProxySession, &SystemProxySession::operationFinished, this,
                         [this](bool enabled, const PlatformOperationResult &result)
                         {
