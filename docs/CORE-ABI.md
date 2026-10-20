@@ -109,3 +109,5 @@ Go 回归覆盖严格配置、各类认证回应、事件积压、过期请求�
 S1-07 的本地受控网关与原生宿主已验证会话启停、后台工作清理和代理转发；平台 CI 证据见计划。真实校园账号、TLS 生产策略、系统透明访问、Clash 共存、Qt 正式后端及安装包分别按 S2、S4—6、S1-08／09 验收，不由回环网关代替。
 
 2026-10-20，代码 `c66be1d` 的[六组原生宿主 CI](https://github.com/wtalioy/JustConnect/actions/runs/39356166583)全部通过，包含五组可用的 race 检查；[三平台应用回归](https://github.com/wtalioy/JustConnect/actions/runs/39356166708)各通过 25 包限定 Go 基线和 16 项应用测试。S1-03 已验收；S1-04 的真实协议／Qt 回归仍须随后续接入完成。
+
+2026-10-20，S1-07 最终修复 `0a81fe5` 的[六组原生 CI](https://github.com/wtalioy/JustConnect/actions/runs/39368117638)全部通过，六组各通过完整 Go 与上述三个宿主场景，支持的五组完整 race 通过；[三平台应用 CI](https://github.com/wtalioy/JustConnect/actions/runs/39368117501)各通过完整 18 包及 16 项应用测试。S1-07 已验收，后续范围保持上述区分。
