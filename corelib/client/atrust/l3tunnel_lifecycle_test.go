@@ -15,6 +15,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/wtalioy/JustConnect/corelib/client"
@@ -600,129 +601,141 @@ func TestIncomingFullQueueDropsPacket(t *testing.T) {
 }
 
 func TestHeartbeatTimeoutClosesTunnelConnection(t *testing.T) {
-	transport := &trackingNetConn{closed: make(chan struct{})}
-	conn := &l3TunnelConn{
-		tlsConn:            tls.Client(transport, &tls.Config{InsecureSkipVerify: true}),
-		closeCh:            make(chan struct{}),
-		conntrackMgr:       newConntrackMgr(),
-		heartbeatInterval:  5 * time.Millisecond,
-		heartbeatMissLimit: 2,
-		writeFrameHook:     func([]byte) error { return nil },
-	}
-	atomic.StoreInt32(&conn.heartbeatMisses, conn.heartbeatMissLimit)
+	synctest.Test(t, func(t *testing.T) {
+		transport := &trackingNetConn{closed: make(chan struct{})}
+		conn := &l3TunnelConn{
+			tlsConn:            tls.Client(transport, &tls.Config{InsecureSkipVerify: true}),
+			closeCh:            make(chan struct{}),
+			conntrackMgr:       newConntrackMgr(),
+			heartbeatInterval:  5 * time.Millisecond,
+			heartbeatMissLimit: 2,
+			writeFrameHook:     func([]byte) error { return nil },
+		}
+		atomic.StoreInt32(&conn.heartbeatMisses, conn.heartbeatMissLimit)
 
-	go conn.heartbeatLoop()
-	select {
-	case <-conn.closeCh:
-	case <-time.After(time.Second):
-		t.Fatal("heartbeat timeout did not close the tunnel connection")
-	}
-	select {
-	case <-transport.closed:
-	case <-time.After(time.Second):
-		t.Fatal("heartbeat timeout did not close the transport")
-	}
+		go conn.heartbeatLoop()
+		synctest.Wait()
+		select {
+		case <-conn.closeCh:
+		case <-time.After(time.Second):
+			t.Fatal("heartbeat timeout did not close the tunnel connection")
+		}
+		select {
+		case <-transport.closed:
+		case <-time.After(time.Second):
+			t.Fatal("heartbeat timeout did not close the transport")
+		}
+	})
 }
 
 func TestHeartbeatWaitsForFirstInterval(t *testing.T) {
-	transport := &trackingNetConn{closed: make(chan struct{})}
-	written := make(chan struct{}, 1)
-	conn := &l3TunnelConn{
-		tlsConn:            tls.Client(transport, &tls.Config{InsecureSkipVerify: true}),
-		closeCh:            make(chan struct{}),
-		conntrackMgr:       newConntrackMgr(),
-		heartbeatInterval:  50 * time.Millisecond,
-		heartbeatMissLimit: 2,
-		writeFrameHook: func([]byte) error {
-			written <- struct{}{}
-			return nil
-		},
-	}
-	go conn.heartbeatLoop()
-	select {
-	case <-written:
-		t.Fatal("heartbeat was sent before the first interval")
-	case <-time.After(15 * time.Millisecond):
-	}
-	select {
-	case <-written:
-	case <-time.After(time.Second):
-		t.Fatal("heartbeat was not sent after the first interval")
-	}
-	_ = conn.Close()
+	synctest.Test(t, func(t *testing.T) {
+		transport := &trackingNetConn{closed: make(chan struct{})}
+		written := make(chan struct{}, 1)
+		conn := &l3TunnelConn{
+			tlsConn:            tls.Client(transport, &tls.Config{InsecureSkipVerify: true}),
+			closeCh:            make(chan struct{}),
+			conntrackMgr:       newConntrackMgr(),
+			heartbeatInterval:  50 * time.Millisecond,
+			heartbeatMissLimit: 2,
+			writeFrameHook: func([]byte) error {
+				written <- struct{}{}
+				return nil
+			},
+		}
+		go conn.heartbeatLoop()
+		synctest.Wait()
+		select {
+		case <-written:
+			t.Fatal("heartbeat was sent before the first interval")
+		case <-time.After(15 * time.Millisecond):
+		}
+		select {
+		case <-written:
+		case <-time.After(time.Second):
+			t.Fatal("heartbeat was not sent after the first interval")
+		}
+		_ = conn.Close()
+	})
 }
 
 func TestHeartbeatSuccessfulCommandWriteSuppressesProbe(t *testing.T) {
-	transport := &trackingNetConn{closed: make(chan struct{})}
-	written := make(chan []byte, 2)
-	conn := &l3TunnelConn{
-		tlsConn:            tls.Client(transport, &tls.Config{InsecureSkipVerify: true}),
-		closeCh:            make(chan struct{}),
-		conntrackMgr:       newConntrackMgr(),
-		heartbeatInterval:  40 * time.Millisecond,
-		heartbeatMissLimit: 2,
-		writeFrameHook: func(frame []byte) error {
-			written <- append([]byte(nil), frame...)
-			return nil
-		},
-	}
-	atomic.StoreInt32(&conn.heartbeatMisses, 1)
-	if err := conn.writeFrame([]byte{l3Version, cmdDataReq}); err != nil {
-		t.Fatal(err)
-	}
-	<-written
-	go conn.heartbeatLoop()
+	synctest.Test(t, func(t *testing.T) {
+		transport := &trackingNetConn{closed: make(chan struct{})}
+		written := make(chan []byte, 2)
+		conn := &l3TunnelConn{
+			tlsConn:            tls.Client(transport, &tls.Config{InsecureSkipVerify: true}),
+			closeCh:            make(chan struct{}),
+			conntrackMgr:       newConntrackMgr(),
+			heartbeatInterval:  40 * time.Millisecond,
+			heartbeatMissLimit: 2,
+			writeFrameHook: func(frame []byte) error {
+				written <- append([]byte(nil), frame...)
+				return nil
+			},
+		}
+		atomic.StoreInt32(&conn.heartbeatMisses, 1)
+		if err := conn.writeFrame([]byte{l3Version, cmdDataReq}); err != nil {
+			t.Fatal(err)
+		}
+		<-written
+		go conn.heartbeatLoop()
+		synctest.Wait()
 
-	time.Sleep(60 * time.Millisecond)
-	if misses := atomic.LoadInt32(&conn.heartbeatMisses); misses != 0 {
-		t.Fatalf("heartbeat misses = %d, want command activity to clear misses", misses)
-	}
-	select {
-	case frame := <-written:
-		t.Fatalf("heartbeat sent despite command activity: % X", frame)
-	default:
-	}
-	_ = conn.Close()
+		time.Sleep(60 * time.Millisecond)
+		if misses := atomic.LoadInt32(&conn.heartbeatMisses); misses != 0 {
+			t.Fatalf("heartbeat misses = %d, want command activity to clear misses", misses)
+		}
+		select {
+		case frame := <-written:
+			t.Fatalf("heartbeat sent despite command activity: % X", frame)
+		default:
+		}
+		_ = conn.Close()
+	})
 }
 
 func TestSuccessfulHeartbeatWriteClearsMissesOnNextTick(t *testing.T) {
-	transport := &trackingNetConn{closed: make(chan struct{})}
-	written := make(chan []byte, 2)
-	conn := &l3TunnelConn{
-		tlsConn:            tls.Client(transport, &tls.Config{InsecureSkipVerify: true}),
-		closeCh:            make(chan struct{}),
-		conntrackMgr:       newConntrackMgr(),
-		heartbeatInterval:  30 * time.Millisecond,
-		heartbeatMissLimit: 2,
-		writeFrameHook: func(frame []byte) error {
-			written <- append([]byte(nil), frame...)
-			return nil
-		},
-	}
-	go conn.heartbeatLoop()
-
-	select {
-	case frame := <-written:
-		if !bytes.Equal(frame, []byte{l3Version, cmdHeartbeatReq, 0x00, 0x00}) {
-			t.Fatalf("first idle frame = % X, want heartbeat", frame)
+	synctest.Test(t, func(t *testing.T) {
+		transport := &trackingNetConn{closed: make(chan struct{})}
+		written := make(chan []byte, 2)
+		conn := &l3TunnelConn{
+			tlsConn:            tls.Client(transport, &tls.Config{InsecureSkipVerify: true}),
+			closeCh:            make(chan struct{}),
+			conntrackMgr:       newConntrackMgr(),
+			heartbeatInterval:  30 * time.Millisecond,
+			heartbeatMissLimit: 2,
+			writeFrameHook: func(frame []byte) error {
+				written <- append([]byte(nil), frame...)
+				return nil
+			},
 		}
-	case <-time.After(time.Second):
-		t.Fatal("idle heartbeat was not sent")
-	}
-	if misses := atomic.LoadInt32(&conn.heartbeatMisses); misses != 1 {
-		t.Fatalf("misses after heartbeat = %d, want 1", misses)
-	}
+		go conn.heartbeatLoop()
+		synctest.Wait()
 
-	time.Sleep(45 * time.Millisecond)
-	if misses := atomic.LoadInt32(&conn.heartbeatMisses); misses != 0 {
-		t.Fatalf("misses after successful heartbeat activity = %d, want 0", misses)
-	}
-	select {
-	case frame := <-written:
-		t.Fatalf("next tick sent a heartbeat instead of consuming hasWrite: % X", frame)
-	default:
-	}
-	_ = conn.Close()
+		select {
+		case frame := <-written:
+			if !bytes.Equal(frame, []byte{l3Version, cmdHeartbeatReq, 0x00, 0x00}) {
+				t.Fatalf("first idle frame = % X, want heartbeat", frame)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("idle heartbeat was not sent")
+		}
+		if misses := atomic.LoadInt32(&conn.heartbeatMisses); misses != 1 {
+			t.Fatalf("misses after heartbeat = %d, want 1", misses)
+		}
+
+		time.Sleep(45 * time.Millisecond)
+		if misses := atomic.LoadInt32(&conn.heartbeatMisses); misses != 0 {
+			t.Fatalf("misses after successful heartbeat activity = %d, want 0", misses)
+		}
+		select {
+		case frame := <-written:
+			t.Fatalf("next tick sent a heartbeat instead of consuming hasWrite: % X", frame)
+		default:
+		}
+		_ = conn.Close()
+	})
 }
 
 func TestFailedCommandWriteDoesNotSetHeartbeatActivity(t *testing.T) {

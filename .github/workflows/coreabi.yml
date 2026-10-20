@@ -53,9 +53,10 @@ jobs:
           output = pathlib.Path('build/coreabi')
           output.mkdir(parents=True, exist_ok=True)
           def run(name, args):
-              result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-              (output / (name + '.log')).write_text(result.stdout, encoding='utf-8')
-              print(result.stdout, flush=True)
+              result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+              (output / (name + '.log')).write_bytes(result.stdout)
+              sys.stdout.buffer.write(result.stdout)
+              sys.stdout.buffer.flush()
               if result.returncode:
                   sys.exit(result.returncode)
           run('go', ['go', 'version'])
@@ -89,3 +90,4 @@ jobs:
           path: |
             build/coreabi/*.log
             build/coreabi/CMakeCache.txt
+            build/coreabi/Testing/Temporary/*.log
