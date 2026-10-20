@@ -236,6 +236,27 @@ bool acceptsCustomAsARegularProfileId()
     return fake->activeId.isEmpty();
 }
 
+bool savesOnlyPublicBatchesAndRollsBackFailures()
+{
+    QTemporaryDir directory;const auto path=directory.filePath("batch.ini");
+    QSettings settings(path,QSettings::IniFormat);
+    settings.setValue("Credential/Username","alice");settings.setValue("Common/ConfigVersion",8);
+    settings.setValue("JustConnect/ExtraArguments","retained-until-commit");settings.setValue("OtherAccount/Ticket","retained");settings.sync();
+    if (ProfileService::writePublic(settings,{{"Credential/Password","plain"},{"Credential/Username","bob"}})
+        || ProfileService::writePublic(settings,{{"Common/ConfigVersion",999}})
+        || settings.value("Credential/Username")!="alice" || settings.contains("Credential/Password")) return false;
+    if (!QFile::rename(path,path+".backup") || !QDir().mkdir(path)) return false;
+    const auto failed=ProfileService::writePublic(settings,{{"Credential/Username","bob"},{"JustConnect/DNSTTL",123}});
+    const bool rolledBack=!failed && settings.value("Credential/Username")=="alice" && !settings.contains("JustConnect/DNSTTL")
+        && settings.value("Common/ConfigVersion")==8 && settings.value("JustConnect/ExtraArguments")=="retained-until-commit"
+        && settings.value("OtherAccount/Ticket")=="retained";
+    if (!QDir().rmdir(path) || !QFile::rename(path+".backup",path) || !rolledBack) return false;
+    QSettings retry(path,QSettings::IniFormat);
+    return ProfileService::writePublic(retry,{{"Credential/Username","bob"},{"JustConnect/DNSTTL",123}})
+        && retry.value("Credential/Username")=="bob" && retry.value("JustConnect/DNSTTL")==123
+        && !retry.contains("JustConnect/ExtraArguments") && retry.value("OtherAccount/Ticket")=="retained";
+}
+
 bool switchesAwayFromAnOverrideNamedCustom()
 {
     QTemporaryDir directory;
@@ -269,7 +290,8 @@ bool switchesAwayFromAnOverrideNamedCustom()
 int main(int argc, char *argv[])
 {
     QCoreApplication application(argc, argv);
-    return managesCurrentProfileAsOneUnit()
+    return savesOnlyPublicBatchesAndRollsBackFailures()
+        && managesCurrentProfileAsOneUnit()
         && acceptsCustomAsARegularProfileId()
         && switchesAwayFromAnOverrideNamedCustom() ? 0 : 1;
 }

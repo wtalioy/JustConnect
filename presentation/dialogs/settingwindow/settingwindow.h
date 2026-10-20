@@ -1,22 +1,35 @@
 #pragma once
 #include <QDialog>
-#include "core/connectionprofile.h"
+#include "infrastructure/settings/credentialaccess.h"
 class QSettings;
+class QLabel;
+class QPushButton;
 class ServerSettingsWidget;
 namespace Ui { class SettingWindow; }
 
 class SettingWindow : public QDialog {
     Q_OBJECT
 public:
-    explicit SettingWindow(QWidget *parent = nullptr, QSettings *settings = nullptr, const QString &profileId = {});
+    SettingWindow(QWidget *parent,QSettings *settings,CredentialAccess *credentials,const CredentialSource &source);
     ~SettingWindow() override;
+    bool isSaving() const {return saving;}
 private:
     void loadSettings(const QSettings &source);
-    bool applySettings();
+    void readCredentials();
+    void clearCredentials();
+    void updateBusy();
+    void clearDraftCredentials();
+    void applySettings(bool closeAfter);
     ConnectionProfile currentProfile() const;
     Ui::SettingWindow *ui;
     QSettings *settings;
-    QString profileId;
+    CredentialAccess *credentials;
+    CredentialSource credentialSource;
+    ConnectionCredentials loadedCredentials;
+    QLabel *credentialStatus;
+    QPushButton *clearCredentialButton;
+    bool loading=false,saving=false,closed=false;
+    quint64 loadGeneration=0;
     ServerSettingsWidget *serverEditor;
     QString selectedAuthId, selectedAuthSubType;
 };

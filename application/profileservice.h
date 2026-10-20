@@ -3,6 +3,7 @@
 
 #include <QObject>
 #include <QStringList>
+#include <QVariantMap>
 
 #include <memory>
 
@@ -21,6 +22,8 @@ public:
     );
     ~ProfileService() override;
 
+    static bool validPublicChanges(const QVariantMap &changes);
+    static bool writePublic(QSettings &settings,const QVariantMap &changes);
     QSettings *settings() const;
     QString currentProfileId() const;
     QStringList profiles() const;

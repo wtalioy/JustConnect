@@ -1,5 +1,6 @@
 #pragma once
 #include <QString>
+#include <QJsonArray>
 
 struct ConnectionCredentials { QString username, password, totpSecret; };
 struct ConnectionEndpoint {
@@ -22,11 +23,9 @@ struct ConnectionProfile {
     DnsOptions dns;
     ProxyOptions proxy;
     ConnectionBehavior behavior;
-    bool hasSameAuthentication(const ConnectionProfile &other) const {
-        return endpoint.authId == other.endpoint.authId && endpoint.authSubType == other.endpoint.authSubType
-            && endpoint.server == other.endpoint.server && endpoint.port == other.endpoint.port
-            && endpoint.authType == other.endpoint.authType && endpoint.loginDomain == other.endpoint.loginDomain
-            && endpoint.phone == other.endpoint.phone && credentials.username == other.credentials.username
-            && credentials.password == other.credentials.password && credentials.totpSecret == other.credentials.totpSecret;
+    QJsonArray authenticationIdentity() const {
+        return {endpoint.server.toLower(),endpoint.port,endpoint.authType,endpoint.loginDomain,
+            endpoint.authId,endpoint.authSubType,endpoint.phone,credentials.username};
     }
+
 };

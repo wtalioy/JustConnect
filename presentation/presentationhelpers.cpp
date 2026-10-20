@@ -90,3 +90,20 @@ QString PresentationHelpers::platformOperationMessage(const PlatformOperationRes
     if (result.mayHaveChanged && !result.succeeded()) text += "\n部分设置可能已修改，请检查残留设置。";
     return text;
 }
+
+QString PresentationHelpers::credentialOperationMessage(CredentialStatus status)
+{
+    switch(status) {
+    case CredentialStatus::Success: return {};
+    case CredentialStatus::NotFound: return "连接时可手动输入凭据。";
+    case CredentialStatus::Locked: return "系统凭据存储已锁定，请先解锁。";
+    case CredentialStatus::Unavailable: return "系统凭据存储不可用，可在连接时手动登录。";
+    case CredentialStatus::PermissionDenied: return "系统凭据存储权限被拒绝，请检查授权。";
+    case CredentialStatus::Cancelled: return "配置或凭据已变化，请重新打开设置或重试。";
+    case CredentialStatus::Limit: return "凭据超过系统安全存储容量，可在连接时手动输入。";
+    case CredentialStatus::InvalidArgument: return "旧凭据格式或帐号信息无法确认，原数据保留。可创建新配置后手动登录。";
+    case CredentialStatus::Conflict: return "旧版数据与安全存储不一致，原数据保留。可先手动登录，确认后再清理旧凭据或缓存。";
+    case CredentialStatus::Failed: return "安全存储或配置操作未完成，请检查后重试。";
+    }
+    return {};
+}

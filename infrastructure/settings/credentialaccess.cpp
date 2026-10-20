@@ -1,35 +1,37 @@
 #include "credentialaccess.h"
 #include "settingsprofileloader.h"
+#include "application/defaultsettings.h"
+#include "application/profileservice.h"
 #include <QSettings>
 #include <QtConcurrent>
 
-namespace {
-ConnectionProfile publicProfile(const QSettings &settings) {
-    auto profile=SettingsProfileLoader::load(settings);
-    profile.credentials.password.clear();profile.credentials.totpSecret.clear();
-    return profile;
-}
-}
 CredentialAccess::CredentialAccess(std::unique_ptr<CredentialStore> store,QObject *parent)
     :QObject(parent),store(std::move(store)) {pool.setMaxThreadCount(1);}
 CredentialAccess::~CredentialAccess() {pool.waitForDone();}
 CredentialSource CredentialAccess::source(QSettings &settings,const QString &legacyCachePath) {
     settings.sync();
-    CredentialSource source{settings.fileName(),ProfileCredentials::ensureScope(settings),legacyCachePath,publicProfile(settings)};
-    return source;
+    return {settings.fileName(),ProfileCredentials::ensureScope(settings),legacyCachePath,SettingsProfileLoader::load(settings),DefaultSettings::publicValues(settings)};
 }
 bool CredentialAccess::matches(const CredentialSource &source,const QSettings &settings) {
     return !source.scope.isEmpty() && settings.status()==QSettings::NoError && source.path==settings.fileName()
         && source.scope==settings.value(ProfileCredentials::ScopeSetting).toString()
-        && source.profile.hasSameAuthentication(publicProfile(settings));
+        && source.profile.authenticationIdentity()==SettingsProfileLoader::load(settings).authenticationIdentity();
 }
-CredentialResult CredentialAccess::checkSource(const CredentialSource &source,QSettings &settings) {
+bool CredentialAccess::isBusy(const QString &path) const {return pending.value(path)>0;}
+bool CredentialAccess::isSaving(const QString &path) const {return pendingSaves.value(path)>0;}
+void CredentialAccess::begin(const QString &path,bool saving) {++pending[path];if(saving)++pendingSaves[path];}
+void CredentialAccess::end(const QString &path,bool saving) {
+    if (--pending[path]==0) pending.remove(path);
+    if (saving && --pendingSaves[path]==0) pendingSaves.remove(path);
+}
+CredentialResult CredentialAccess::checkSource(const CredentialSource &source,QSettings &settings,bool unchangedPublic) {
     settings.sync();
     if (settings.status()!=QSettings::NoError) return {CredentialStatus::Failed,{}};
-    return {matches(source,settings) ? CredentialStatus::Success : CredentialStatus::Cancelled,{}};
+    const bool current=matches(source,settings) && (!unchangedPublic || source.publicValues==DefaultSettings::publicValues(settings));
+    return {current ? CredentialStatus::Success : CredentialStatus::Cancelled,{}};
 }
-CredentialResult CredentialAccess::prepare(const CredentialSource &source,QSettings &settings,ProfileCredentials &credentials) {
-    const auto current=checkSource(source,settings);
+CredentialResult CredentialAccess::prepare(const CredentialSource &source,QSettings &settings,ProfileCredentials &credentials,bool unchangedPublic) {
+    const auto current=checkSource(source,settings,unchangedPublic);
     if (!current.succeeded()) return current;
     auto result=credentials.migrate(settings,source.scope,source.profile);
     if (!result.succeeded()) return result;
@@ -37,9 +39,10 @@ CredentialResult CredentialAccess::prepare(const CredentialSource &source,QSetti
         result=credentials.quarantine(source.legacyCachePath,source.scope);
         if (!result.succeeded() && result.status!=CredentialStatus::NotFound) return result;
     }
-    return checkSource(source,settings);
+    return checkSource(source,settings,unchangedPublic);
 }
 QFuture<CredentialLoadResult> CredentialAccess::load(const CredentialSource &source) {
+    begin(source.path,false);
     return QtConcurrent::run(&pool,[this,source] {
         QSettings settings(source.path,QSettings::IniFormat);
         ProfileCredentials credentials(*store);
@@ -51,15 +54,54 @@ QFuture<CredentialLoadResult> CredentialAccess::load(const CredentialSource &sou
         const auto current=checkSource(source,settings);
         if (!current.succeeded()) return CredentialLoadResult{current,{}};
         return loaded;
-    });
+    }).then(this,[this,path=source.path](const CredentialLoadResult &result){end(path,false);return result;});
 }
-QFuture<CredentialResult> CredentialAccess::save(const CredentialSource &source,const ConnectionProfile &profile,bool updateCredentials) {
-    return QtConcurrent::run(&pool,[this,source,profile,updateCredentials] {
+QFuture<CredentialResult> CredentialAccess::save(const CredentialSource &source,const ConnectionProfile &profile,bool updateCredentials,const QVariantMap &publicChanges) {
+    const bool saving=!publicChanges.isEmpty();begin(source.path,saving);
+    return QtConcurrent::run(&pool,[this,source,profile,updateCredentials,publicChanges] {
+        if (!ProfileService::validPublicChanges(publicChanges)) return CredentialResult{CredentialStatus::InvalidArgument,{}};
         QSettings settings(source.path,QSettings::IniFormat);
         ProfileCredentials credentials(*store);
-        auto result=prepare(source,settings,credentials);
+        auto result=checkSource(source,settings,true);
         if (!result.succeeded()) return result;
-        if (updateCredentials) result=credentials.save(source.scope,profile);
-        return result.succeeded() ? checkSource(source,settings) : result;
+        if (updateCredentials && profile.credentials.password.isEmpty() && profile.credentials.totpSecret.isEmpty()
+            && profile.authenticationIdentity()==source.profile.authenticationIdentity()) {
+            result=credentials.clear(settings,source.scope,source.profile);
+        } else {
+            result=prepare(source,settings,credentials,true);
+            if (!result.succeeded() && result.status!=CredentialStatus::Cancelled && !updateCredentials && settings.status()==QSettings::NoError) {
+                const bool pendingLegacy=ProfileCredentials::hasLegacyCredentials(settings);
+                if (!pendingLegacy || profile.authenticationIdentity()==source.profile.authenticationIdentity())
+                    result={CredentialStatus::Success,{}};
+            }
+            if (result.succeeded() && updateCredentials) result=credentials.save(source.scope,profile);
+        }
+        if (!result.succeeded()) return result;
+        result=checkSource(source,settings,true);
+        if (!result.succeeded()) return result;
+        return CredentialResult{ProfileService::writePublic(settings,publicChanges) ? CredentialStatus::Success : CredentialStatus::Failed,{}};
+    }).then(this,[this,path=source.path,saving](const CredentialResult &result) {
+        end(path,saving);
+        if (result.succeeded() && saving) emit configurationSaved(path);
+        return result;
     });
+}
+QFuture<CredentialResult> CredentialAccess::migrate(const CredentialSource &source) {
+    begin(source.path,false);
+    return QtConcurrent::run(&pool,[this,source] {
+        QSettings settings(source.path,QSettings::IniFormat);
+        ProfileCredentials credentials(*store);
+        return prepare(source,settings,credentials,true);
+    }).then(this,[this,path=source.path](const CredentialResult &result){end(path,false);return result;});
+}
+QFuture<CredentialResult> CredentialAccess::clear(const CredentialSource &source) {
+    begin(source.path,false);
+    return QtConcurrent::run(&pool,[this,source] {
+        QSettings settings(source.path,QSettings::IniFormat);
+        const auto current=checkSource(source,settings,true);
+        if (!current.succeeded()) return current;
+        ProfileCredentials credentials(*store);
+        const auto result=credentials.clear(settings,source.scope,source.profile);
+        return result.succeeded() ? checkSource(source,settings,true) : result;
+    }).then(this,[this,path=source.path](const CredentialResult &result){end(path,false);return result;});
 }

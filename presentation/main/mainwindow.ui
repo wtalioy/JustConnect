@@ -541,7 +541,7 @@
   </action>
   <action name="clearClientDataAction">
    <property name="text">
-    <string>清理登录缓存</string>
+    <string>清理旧版缓存</string>
    </property>
   </action>
  </widget>

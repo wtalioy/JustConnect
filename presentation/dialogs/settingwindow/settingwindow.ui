@@ -252,7 +252,7 @@
              <widget class="QComboBox" name="authTypeComboBox">
               <item>
                <property name="text">
-                <string>自动选择</string>
+                <string>请选择认证方式</string>
                </property>
               </item>
               <item>

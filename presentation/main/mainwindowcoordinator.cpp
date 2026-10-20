@@ -8,6 +8,9 @@
 #include "infrastructure/coreengine/embeddedcoreengine.h"
 #include "infrastructure/platform/platformsystemproxybackend.h"
 #include "infrastructure/settings/profilemanager.h"
+#include "infrastructure/settings/credentialaccess.h"
+#include "infrastructure/platform/systemcredentialstore.h"
+#include "infrastructure/storage/applicationpaths.h"
 #include "infrastructure/update/updatechecker.h"
 #include "presentation/coordinators/authdialogcoordinator.h"
 
@@ -31,7 +34,8 @@ MainWindowCoordinator::MainWindowCoordinator(
       authenticationCoordinator(new AuthDialogCoordinator(
           parentWidget,
           this
-      ))
+      )),
+      credentialAccess(new CredentialAccess(createSystemCredentialStore(),this))
 {
     connect(connectionSession, &ConnectionSession::authenticationRequired,
         authenticationCoordinator, &AuthDialogCoordinator::requestAuthentication);
@@ -67,9 +71,21 @@ MainWindowCoordinator::MainWindowCoordinator(
     );
 }
 
+MainWindowCoordinator::~MainWindowCoordinator()
+{
+    // Finish worker writes before ProfileService synchronizes and destroys its settings.
+    delete credentialAccess;
+}
+
 ProfileService *MainWindowCoordinator::profiles() const
 {
     return profileService;
+}
+
+CredentialAccess *MainWindowCoordinator::credentials() const {return credentialAccess;}
+CredentialSource MainWindowCoordinator::credentialSource() {
+    const auto legacy=profileService->usesOverrideConfiguration() ? QString() : ApplicationPaths::clientDataFile(profileService->currentProfileId());
+    return CredentialAccess::source(*profileService->settings(),legacy);
 }
 
 ConnectionSession *MainWindowCoordinator::connection() const
@@ -96,6 +112,7 @@ MainWindowCoordinator::authenticationDialogs() const
 void MainWindowCoordinator::prepareForShutdown()
 {
     authenticationCoordinator->closeAuthentication();
+    authenticationCoordinator->closeCredentialPrompts();
     connectionSession->stop();
     const auto result = systemProxySession->clearBeforeShutdown();
     if (!result.succeeded()) qWarning() << "System proxy cleanup failed:" << result.detail << "partial:" << result.mayHaveChanged;

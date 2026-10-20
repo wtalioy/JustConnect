@@ -76,6 +76,7 @@ bool SettingsMigrator::finish(QSettings &settings)
             "JustConnect/DialDirectProxy",
             "JustConnect/UpdateBestNodesInterval",
             "JustConnect/Protocol",
+            "JustConnect/LoginURL",
             "JustConnect/EasyConnectAuthType",
             "JustConnect/MultiLine",
             "JustConnect/KeepAlive",

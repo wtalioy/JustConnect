@@ -9,11 +9,6 @@ class SettingsProfileLoader
 {
 public:
     static ConnectionProfile load(const QSettings &settings);
-    static ConnectionProfile load(
-        const QSettings &settings,
-        const QString &username,
-        const QString &password
-    );
 };
 
 #endif // SETTINGSPROFILELOADER_H

@@ -6,7 +6,6 @@
 namespace ApplicationPaths
 {
 QString clientDataFile(const QString &profileId);
-void clearClientData(const QString &profileId);
 QString logDirectory();
 QString logFile();
 

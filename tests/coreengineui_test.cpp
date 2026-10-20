@@ -1,4 +1,5 @@
 #include "application/connectionsession.h"
+#include "tests/credentialstorefixture.h"
 #include "application/applicationlogger.h"
 #include "application/systemproxysession.h"
 #include "infrastructure/coreengine/embeddedcoreengine.h"
@@ -56,8 +57,8 @@ class QueryEngine : public CoreEngine {
 public:
     ConnectionProfile profile;
     Operation operation = Operation::Connect;
-    int stops = 0;
-    bool start(const ConnectionProfile &p, Operation op) override { profile = p; operation = op; return true; }
+    int stops = 0,starts=0;
+    bool start(const ConnectionProfile &p, Operation op) override { ++starts;profile = p; operation = op; return true; }
     void stop() override { ++stops; }
     void respond(const QJsonObject &) override { check(false, "query never takes interactive input"); }
 };
@@ -79,6 +80,7 @@ static void proxyWaitsForReady() {
     QTemporaryDir directory;
     QSettings settings(directory.filePath("profile.ini"), QSettings::IniFormat);
     settings.setValue("JustConnect/ServerAddress", "vpn.example.invalid");
+    settings.setValue("JustConnect/ServerPort",443);
     settings.setValue("JustConnect/AuthType", "psw");
     settings.setValue("Credential/Username", "fixture-user");
     settings.setValue("Credential/Password", QByteArray("fixture-password").toBase64());
@@ -93,10 +95,13 @@ static void proxyWaitsForReady() {
     SystemProxySession systemProxy(std::move(backend));
     AuthDialogCoordinator dialogs(&parent);
     ApplicationLogger logger;
+    CredentialAccess credentials(std::make_unique<MemoryCredentialStore>());
     ConnectionUiController controller(&parent, &connectButton, &proxyButton, &trayAction,
-        &session, &systemProxy, &dialogs, &logger, [&] { return &settings; },
+        &session, &systemProxy, &dialogs, &logger, &credentials, [&] { return &settings; },
+        [&] {return CredentialAccess::source(settings,{});},
         [](const QString &, const QString &, QSystemTrayIcon::MessageIcon) {});
     connectButton.click();
+    until([&] {return session.state()==ConnectionState::Starting;});
     check(session.state() == ConnectionState::Starting && proxyButton.isHidden() && proxy->checks == 0,
         "connect button waits for actual ready before applying automatic proxy");
     proxyButton.click();
@@ -110,6 +115,7 @@ static void proxyWaitsForReady() {
     emit engine->finished(ConnectionError::NONE);
     proxy->block = true;
     connectButton.click();
+    until([&] {return session.state()==ConnectionState::Starting;});
     emit engine->connectionEstablished();
     check(proxy->entered.tryAcquire(1, 1000), "conflict check is asynchronous");
     session.stop();
@@ -130,10 +136,72 @@ static void proxyWaitsForReady() {
         }
     });
     dismiss.start(1);
-    connectButton.click(); emit engine->connectionEstablished();
+    connectButton.click(); until([&] {return session.state()==ConnectionState::Starting;}); emit engine->connectionEstablished();
     until([&] { return shown && !systemProxy.isBusy(); });
     check(proxy->applied == 1, "failed conflict query cannot write system proxy");
     dismiss.stop(); session.stop(); emit engine->finished(ConnectionError::NONE);
+}
+static void manualCredentialsAndLateResults() {
+    QTemporaryDir folder;QSettings settings(folder.filePath("manual.ini"),QSettings::IniFormat);
+    settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");settings.setValue("JustConnect/ServerPort",443);
+    settings.setValue("JustConnect/AuthType","psw");settings.setValue("Credential/Username","alice");
+    QWidget parent;QPushButton connectButton(&parent),proxyButton(&parent);QAction trayAction(&parent);
+    auto *engine=new QueryEngine;ConnectionSession session(engine);SystemProxySession proxy(std::make_unique<ProxyBackend>());
+    AuthDialogCoordinator dialogs(&parent);ApplicationLogger logger;QString logs;
+    QObject::connect(&logger,&ApplicationLogger::entryAdded,[&](const QString &entry){logs+=entry;});
+    auto backend=std::make_unique<MemoryCredentialStore>();auto *store=backend.get();CredentialAccess access(std::move(backend));
+    ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,&dialogs,&logger,
+        &access,[&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
+        [](const QString &,const QString &,QSystemTrayIcon::MessageIcon){});
+    auto login=[&](bool save,const QString &name) {
+        connectButton.click();until([&]{
+            for (auto *dialog:parent.findChildren<QDialog *>())
+                if (dialog->isVisible() && dialog->findChild<QLineEdit *>("usernameLineEdit")) return true;
+            return false;
+        });
+        auto *dialog=challenge(parent);dialog->findChild<QLineEdit *>("usernameLineEdit")->setText(name);
+        dialog->findChild<QLineEdit *>("passwordLineEdit")->setText("manual-secret");
+        dialog->findChild<QCheckBox *>("saveLoginDetailCheckBox")->setChecked(save);
+        dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+        until([&]{return session.state()==ConnectionState::Starting;});
+    };
+    auto finish=[&]{session.stop();emit engine->finished(ConnectionError::NONE);};
+    login(false,"temporary");
+    check(engine->profile.credentials.username=="temporary" && engine->profile.credentials.password=="manual-secret"
+        && settings.value("Credential/Username")=="alice" && store->values.isEmpty(),"unchecked remember uses memory only");finish();
+    login(true,"remembered");
+    ConnectionCredentials loaded;ProfileCredentials vault(*store);const auto source=CredentialAccess::source(settings,{});
+    check(settings.value("Credential/Username")=="remembered" && vault.load(source.scope,source.profile,loaded).succeeded()
+        && loaded.password=="manual-secret" && !settings.contains("Credential/Password"),"checked remember stores account and native credentials without plaintext fallback");finish();
+    int warnings=0;QTimer dismiss;
+    QObject::connect(&dismiss,&QTimer::timeout,[&] {
+        for (auto *widget:QApplication::topLevelWidgets()) if (auto *message=qobject_cast<QMessageBox *>(widget)) {
+            check(message->windowTitle()=="无法读取已保存凭据" || message->windowTitle()=="未能记住登录信息","only expected native failures shown");
+            ++warnings;message->accept();
+        }
+    });dismiss.start(1);store->failure=CredentialStatus::PermissionDenied;
+    login(true,"unsaved");
+    check(warnings==2 && engine->profile.credentials.username=="unsaved" && engine->profile.credentials.password=="manual-secret"
+        && settings.value("Credential/Username")=="remembered" && !settings.contains("Credential/Password"),"native read/save failure still permits manual login and preserves public account binding");
+    finish();dismiss.stop();store->failure=CredentialStatus::Success;
+    QSemaphore entered,resume;store->beforeRead=[&]{entered.release();check(resume.tryAcquire(1,5000),"release blocked UI native read");};
+    const auto starts=engine->starts;connectButton.click();check(entered.tryAcquire(1,1000),"pending UI native read");
+    controller.cancelPendingCredentials();resume.release();until([&]{return !access.isBusy(settings.fileName());});
+    check(engine->starts==starts && connectButton.text()=="连接服务器","cancelled read cannot start a late connection");
+    connectButton.click();check(entered.tryAcquire(1,1000),"fresh pending native read");
+    settings.setValue("JustConnect/TLSVerify",false);settings.setValue("JustConnect/TLSCAPEM","new policy");settings.sync();resume.release();
+    until([&]{return session.state()==ConnectionState::Starting;});
+    check(!engine->profile.tls.verify && engine->profile.tls.caPem=="new policy","connection reads current public TLS policy after native I/O");finish();
+    connectButton.click();check(entered.tryAcquire(1,1000),"account switch while loading");
+    settings.setValue("Credential/Username","bob");settings.sync();resume.release();until([&]{return !access.isBusy(settings.fileName());});
+    check(engine->starts==starts+1 && !session.isActive(),"late account read does not start or deliver old account secrets");
+    store->beforeRead={};
+    settings.remove("JustConnect/TLSCAPEM");settings.setValue(ProfileCredentials::ScopeSetting,"invalid-existing-namespace");settings.sync();
+    warnings=0;dismiss.start(1);login(false,"manual-without-storage");
+    check(engine->profile.credentials.username=="manual-without-storage" && settings.value(ProfileCredentials::ScopeSetting)=="invalid-existing-namespace"
+        && !settings.contains("Credential/Password"),"invalid storage namespace still permits explicit manual login without overwriting the namespace");
+    finish();dismiss.stop();
+    check(!logs.contains("manual-secret") && !logs.contains("fixture-password"),"credential values never appear in UI logs");
 }
 static void browserCookiesStayInLoginDialog() {
     QList<bool> cookies;
@@ -362,5 +430,5 @@ static void gateway(const QJsonObject &config) {
 int main(int argc, char **argv) {
     QApplication app(argc, argv);
     if (argc == 3 && QByteArray(argv[1]) == "--gateway") gateway(QJsonDocument::fromJson(argv[2]).object());
-    else { browserCookiesStayInLoginDialog(); uiContracts(); proxyWaitsForReady(); }
+    else { browserCookiesStayInLoginDialog(); uiContracts(); proxyWaitsForReady(); manualCredentialsAndLateResults(); }
 }

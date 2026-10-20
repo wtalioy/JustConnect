@@ -2,7 +2,7 @@
 #include <QByteArray>
 #include <QString>
 
-enum class CredentialStatus { Success, NotFound, Locked, Unavailable, PermissionDenied, Cancelled, Limit, InvalidArgument, Failed };
+enum class CredentialStatus { Success, NotFound, Locked, Unavailable, PermissionDenied, Cancelled, Limit, InvalidArgument, Failed, Conflict };
 struct CredentialResult {
     CredentialStatus status = CredentialStatus::Failed;
     QByteArray value;

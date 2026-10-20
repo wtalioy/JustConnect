@@ -65,11 +65,8 @@ QString ServerSettingsWidget::serverAddress() const { return preset->currentData
 int ServerSettingsWidget::serverPort() const { return port->value(); }
 bool ServerSettingsWidget::isFudan() const { return preset->currentData() == "Fudan"; }
 TlsOptions ServerSettingsWidget::tlsOptions() const { return {verify->isChecked(),caPem->toPlainText()}; }
-void ServerSettingsWidget::applyTo(QSettings &settings) const {
-    settings.setValue("JustConnect/TLSVerify",verify->isChecked());
-    settings.setValue("JustConnect/TLSCAPEM",caPem->toPlainText());
-    settings.setValue("JustConnect/ProfileKind",preset->currentData());
-    settings.setValue("JustConnect/ServerAddress",serverAddress());
-    settings.setValue("JustConnect/ServerPort",serverPort());
-    settings.setValue("Common/NeedsConfiguration",false);
+QVariantMap ServerSettingsWidget::settingsValues() const {
+    return {{"JustConnect/TLSVerify",verify->isChecked()},{"JustConnect/TLSCAPEM",caPem->toPlainText()},
+        {"JustConnect/ProfileKind",preset->currentData()},{"JustConnect/ServerAddress",serverAddress()},
+        {"JustConnect/ServerPort",serverPort()},{"Common/NeedsConfiguration",false}};
 }

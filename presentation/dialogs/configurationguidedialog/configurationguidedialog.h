@@ -4,6 +4,7 @@
 #include <QDialog>
 #include <QString>
 #include <QJsonObject>
+#include "infrastructure/settings/credentialaccess.h"
 
 class QLabel;
 class QLineEdit;
@@ -20,10 +21,13 @@ class ConfigurationGuideDialog : public QDialog
 public:
     explicit ConfigurationGuideDialog(
         QWidget *parent,
-        QSettings *settings
+        QSettings *settings,
+        CredentialAccess *credentials,
+        const CredentialSource &source
     );
 
-    bool applyTo(QSettings &settings);
+    bool applyTo();
+    bool isSaving() const {return saving;}
 
 private slots:
     void goBack();
@@ -33,6 +37,9 @@ private slots:
     void fetchAuthenticationMethods();
 
 private:
+    ConnectionProfile currentProfile() const;
+    void readCredentials();
+    void clearDraftCredentials();
     QWidget *createServerPage();
 
     QWidget *createAuthenticationPage();
@@ -50,6 +57,12 @@ private:
     QString authenticationMethodName(const QString &authType) const;
 
     QSettings *sourceSettings;
+    CredentialAccess *credentials;
+    CredentialSource credentialSource;
+    ConnectionCredentials loadedCredentials;
+    QLabel *credentialStatus;
+    bool loading=false,saving=false,closed=false;
+    quint64 loadGeneration=0;
 
     QLabel *stepLabel;
     QLabel *titleLabel;
@@ -72,7 +85,6 @@ private:
 
     QString selectedAuthType;
     QString selectedLoginDomain;
-    QString selectedLoginUrl;
     QString selectedAuthId, selectedAuthSubType;
 };
 

@@ -5,6 +5,8 @@
 
 class AuthDialogCoordinator;
 class ConnectionSession;
+class CredentialAccess;
+struct CredentialSource;
 class ProfileService;
 class SystemProxySession;
 class UpdateChecker;
@@ -21,7 +23,11 @@ public:
         QObject *parent = nullptr
     );
 
+    ~MainWindowCoordinator() override;
+
     ProfileService *profiles() const;
+    CredentialAccess *credentials() const;
+    CredentialSource credentialSource();
     ConnectionSession *connection() const;
     SystemProxySession *systemProxy() const;
     UpdateChecker *updates() const;
@@ -35,6 +41,7 @@ private:
     SystemProxySession *systemProxySession;
     UpdateChecker *updateChecker;
     AuthDialogCoordinator *authenticationCoordinator;
+    CredentialAccess *credentialAccess;
 };
 
 #endif // MAINWINDOWCOORDINATOR_H

@@ -29,8 +29,10 @@ public:
     );
     void requestAuthentication(const QJsonObject &request, const QUrl &callbackServer);
     void closeAuthentication();
+    void closeCredentialPrompts();
 
 signals:
+    void credentialInputCancelled();
     void loginSubmitted(const QString &username, const QString &password, bool saveDetails);
     void phoneNumberSubmitted(
         const QString &countryCode,

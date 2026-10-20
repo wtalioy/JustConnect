@@ -6,6 +6,8 @@
 #include <utility>
 
 #include "application/profilebackend.h"
+#include "application/defaultsettings.h"
+#include "application/settingsmigrator.h"
 
 ProfileService::ProfileService(
     std::unique_ptr<ProfileBackend> backend,
@@ -178,4 +180,26 @@ bool ProfileService::silentStartEnabled() const
 bool ProfileService::migrateAutoStartSetting(bool enabled)
 {
     return profileBackend->setAutoStartEnabled(enabled);
+}
+
+bool ProfileService::validPublicChanges(const QVariantMap &changes)
+{
+    for (auto it=changes.cbegin();it!=changes.cend();++it)
+        if (!DefaultSettings::isPublicKey(it.key()) || it.key()=="Common/ConfigVersion") return false;
+    return true;
+}
+bool ProfileService::writePublic(QSettings &settings,const QVariantMap &changes)
+{
+    if (settings.status()!=QSettings::NoError || !validPublicChanges(changes)) return false;
+    if (changes.isEmpty()) return true;
+    QVariantMap previous;
+    for (auto it=changes.cbegin();it!=changes.cend();++it) previous.insert(it.key(),settings.value(it.key()));
+    for (auto it=changes.cbegin();it!=changes.cend();++it) settings.setValue(it.key(),it.value());
+    if (SettingsMigrator::finish(settings)) return true;
+    for (auto it=previous.cbegin();it!=previous.cend();++it) {
+        if (it.value().isValid()) settings.setValue(it.key(),it.value());
+        else settings.remove(it.key());
+    }
+    settings.sync();
+    return false;
 }

@@ -154,6 +154,7 @@ bool upgradesWithoutResettingValidProfiles()
         settings.setValue("JustConnect/LoginDomain", "retained-domain");
         settings.setValue("JustConnect/SOCKS5Port", 0);
         settings.setValue("Credential/Password", "retained encoded password");
+        settings.setValue("JustConnect/LoginURL","https://id.example.invalid/?session=obsolete");
         settings.setValue("Credential/AccountB/Ticket", "retained account ticket");
         settings.setValue("Credential/CertPassword", "obsolete certificate password");
         settings.setValue("JustConnect/ExtraArguments", "obsolete arguments");
@@ -164,7 +165,8 @@ bool upgradesWithoutResettingValidProfiles()
             || !SettingsMigrator::finish(settings)) return false;
         QSettings saved(path, QSettings::IniFormat);
         if (version <= ApplicationConstants::ConfigVersion && (saved.contains("JustConnect/ExtraArguments")
-            || saved.contains("JustConnect/TUNMode") || saved.contains("Credential/CertPassword") || saved.contains("JustConnect/Protocol"))) return false;
+            || saved.contains("JustConnect/LoginURL") || saved.contains("JustConnect/TUNMode") || saved.contains("Credential/CertPassword") || saved.contains("JustConnect/Protocol"))) return false;
+        if (version==42 && saved.value("JustConnect/LoginURL")!="https://id.example.invalid/?session=obsolete") return false;
         if (saved.value("JustConnect/ServerAddress") != "vpn.example.edu"
             || saved.value("JustConnect/ServerPort") != 8443
             || saved.value("JustConnect/AuthType") != "httpsOauth2"
