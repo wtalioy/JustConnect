@@ -1,39 +1,6 @@
 package atrust
 
-import (
-	"strings"
-	"testing"
-
-	"github.com/wtalioy/JustConnect/corelib/underlay"
-)
-
-func TestNewClientMapsOptions(t *testing.T) {
-	dialer, err := underlay.New(underlay.Options{AutoDetect: false})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = dialer.Close() })
-	var keyLogWriter strings.Builder
-
-	c := NewClient(ClientOptions{
-		Session: SessionOptions{
-			Username: "user",
-			SID:      "sid",
-			DeviceID: "device-id",
-			SignKey:  "sign-key",
-		},
-		UnderlayDialer:  dialer,
-		TLSKeyLogWriter: &keyLogWriter,
-	})
-	t.Cleanup(c.Close)
-
-	if c.Username != "user" || c.SID != "sid" || c.DeviceID != "device-id" || c.SignKey != "sign-key" {
-		t.Fatalf("session options were not mapped: %+v", c)
-	}
-	if c.underlayDialer != dialer || c.tlsKeyLogWriter != &keyLogWriter {
-		t.Fatal("transport dependencies were not mapped")
-	}
-}
+import "testing"
 
 func TestCanResumeTruthTable(t *testing.T) {
 	for _, tt := range []struct {

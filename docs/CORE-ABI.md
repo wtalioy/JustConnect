@@ -51,7 +51,7 @@ ABI v1 与 JSON schema 版本同步。S2-02 以兼容增补导出 `jc_config_val
 }
 ~~~
 
-`schema_version/server.host/server.port` 必填。host 是 ASCII DNS 名或 IP，不是 URL／带端口地址，端口显式指定。其他字段可省略；`auth` 还接受 `phone/domain/totp_secret/auth_id/sub_type`，method 支持空值（按用户名／密码或手机号推导）、`auth/psw`、`auth/smsCheckCode`、`auth/cas`、`auth/httpsOauth2`。listener 空值不启用；非空必须是回环 IP:port。没有 CLI 附加参数、默认学校、TUN、路由／DNS 修改、跳过 TLS 或原始调试输出开关。
+`schema_version/server.host/server.port` 必填。host 是 ASCII DNS 名或 IP，不是 URL／带端口地址，端口显式指定。其他字段可省略；`auth` 还接受 `phone/domain/totp_secret/auth_id/sub_type`，method 支持空值（按用户名／密码或手机号推导）、`auth/psw`、`auth/smsCheckCode`、`auth/cas`、`auth/httpsOauth2`。listener 空值不启用；非空必须是回环 IP:port。没有 CLI 附加参数、默认学校、TUN、路由／DNS 修改或原始调试输出开关。
 
 `operation` 缺省为 `connect`；`auth_methods` 只查询认证方式，产生 `auth_methods` 结果（`methods:[{type,domain,name,login_url,auth_id,sub_type}]`）及终态，不建立数据栈或代理。结果数量、字段和整体事件大小均有界，超限返回 `JC_LIMIT`。
 
@@ -122,3 +122,7 @@ S1-07 与 S1-08 的受控网关及六平台宿主已验证正式会话、Qt 认�
 S1-09 已验收：`a729296` 的[三平台应用回归](https://github.com/wtalioy/JustConnect/actions/runs/39383282228)与[六组实际包自检](https://github.com/wtalioy/JustConnect/actions/runs/39383294934)全部通过。同一最终源码的[六组原生回归](https://github.com/wtalioy/JustConnect/actions/runs/39383282309)全部通过。包内实际调用版本／ABI、无效启动拒绝、创建／停止／销毁；来源归档逐文件一致，脱离 Git 完整重建的应用也通过同一自检。实际 glibc／macOS 下限、预览签名与正式签名边界见计划及开发说明。
 
 S2-03 为认证配置与查询事件兼容增补 `auth_id`／`sub_type` 字段；原始登录域与 URL 仍由服务器提供。新选择按完整身份匹配，旧配置只有唯一类型／登录域匹配时才继续；过期或歧义身份以 `JC_AUTH_METHOD_CHANGED` 结束，要求重新查询，不能退回列表第一项。
+
+S2-03 的 `tls` 可省略（默认验证系统信任链及目标主机名）；`skip_verify:true` 仅接受调用者显式选择，不会因证书失败自动重试为不验证。可用 `ca_pem` 附加学校 CA，最多 16384 字节，非法证书在纯配置校验时拒绝。查询、认证 HTTP、节点探测、IP 与 TCP／L3 隧道共用此会话策略；隧道仍禁用 TLS session tickets，未固定 TLS 版本。Go 的 `atrust.ClientOptions.TLSConfig` 与 `auth.NewSessionContext` 接受标准 `*tls.Config`，克隆后使用；调用者须按 Go 的 Config 约定保持证书池等引用只读。
+
+终态 `JC_TLS_TRUST` 表示证书链／主机名失败，`JC_TLS_PROTOCOL` 表示握手协议失败，`JC_NETWORK_FAILURE` 表示网络连接／读写失败；超时继续使用 `JC_TIMEOUT`。Qt 查询及连接分别显示对应原因，事件不交付原始 TLS／URL／服务器错误文本。错误分类直接使用 Go 的证书错误、握手边界与网络错误类型，未匹配终端文字。规范依据：[Go TLS](https://pkg.go.dev/crypto/tls@go1.27.2)、[HTTP Transport](https://pkg.go.dev/net/http@go1.27.2#Transport)。

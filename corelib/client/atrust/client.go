@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/md5"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -30,6 +31,7 @@ type SessionOptions struct {
 type ClientOptions struct {
 	Session         SessionOptions
 	UnderlayDialer  client.UnderlayDialer
+	TLSConfig       *tls.Config
 	TLSKeyLogWriter io.Writer
 	Language        string
 	Diagnostic      func(string)
@@ -98,7 +100,7 @@ type Client struct {
 	lifecycleCancel  context.CancelFunc
 	closeOnce        sync.Once
 	underlayDialer   client.UnderlayDialer
-	tlsKeyLogWriter  io.Writer
+	tlsPolicy        *tls.Config
 	tcpTunnelZeroRTT bool
 }
 
@@ -110,7 +112,7 @@ func NewClient(options ClientOptions) *Client {
 		DeviceID:        options.Session.DeviceID,
 		SignKey:         options.Session.SignKey,
 		underlayDialer:  options.UnderlayDialer,
-		tlsKeyLogWriter: options.TLSKeyLogWriter,
+		tlsPolicy:       tlsConfig(options.TLSConfig, options.TLSKeyLogWriter),
 		language:        options.Language,
 		diagnostic:      options.Diagnostic,
 		failures:        make(chan error, 1),
@@ -238,7 +240,7 @@ func (c *Client) GetAuthInfoList(ctx context.Context, serverAddress string, serv
 	if c.lifecycleCtx.Err() != nil {
 		cancel()
 	}
-	sess := auth.NewSessionContext(queryCtx, net.JoinHostPort(serverAddress, fmt.Sprint(serverPort)), c.tlsKeyLogWriter, c.underlayDialer.DialContext)
+	sess := auth.NewSessionContext(queryCtx, net.JoinHostPort(serverAddress, fmt.Sprint(serverPort)), c.tlsPolicy, c.underlayDialer.DialContext)
 	defer sess.Close()
 	sess.Language = c.language
 	sess.Diagnostic = c.diagnostic
@@ -294,7 +296,7 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) ([]byte
 	}
 
 	authServerHost := net.JoinHostPort(options.ServerAddress, fmt.Sprint(options.ServerPort))
-	sess := auth.NewSessionContext(setupCtx, authServerHost, c.tlsKeyLogWriter, c.underlayDialer.DialContext)
+	sess := auth.NewSessionContext(setupCtx, authServerHost, c.tlsPolicy, c.underlayDialer.DialContext)
 	c.authSession = sess
 	sess.Diagnostic = c.diagnostic
 	sess.Language = c.language
@@ -378,7 +380,7 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) ([]byte
 		return nil, err
 	}
 
-	c.BestNodes, err = getBestNodes(setupCtx, c.NodeGroups, c.underlayDialer.DialContext, c.tlsKeyLogWriter)
+	c.BestNodes, err = getBestNodes(setupCtx, c.NodeGroups, c.underlayDialer.DialContext, c.tlsPolicy)
 	if err != nil {
 		return nil, err
 	}
@@ -397,7 +399,7 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) ([]byte
 	}
 	l3Tunnel, err := NewL3Tunnel(c)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create L3 tunnel: %v", err)
+		return nil, fmt.Errorf("failed to create L3 tunnel: %w", err)
 	}
 	c.l3TunnelMu.Lock()
 	c.l3Tunnel = l3Tunnel

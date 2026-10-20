@@ -3,6 +3,7 @@ package bridge
 
 import (
 	"bytes"
+	"crypto/x509"
 	"encoding/json"
 	"io"
 	"net/netip"
@@ -19,6 +20,12 @@ func (s Status) Message() string {
 		return "Session ended"
 	case AuthMethodChanged:
 		return "Authentication identity changed; query methods again"
+	case TLSTrust:
+		return "TLS certificate is not trusted"
+	case TLSProtocol:
+		return "TLS protocol negotiation failed"
+	case NetworkFailure:
+		return "Network connection failed"
 	case Timeout:
 		return "Operation timed out"
 	case Unsupported:
@@ -39,6 +46,10 @@ type Config struct {
 		Host string `json:"host"`
 		Port uint16 `json:"port"`
 	} `json:"server"`
+	TLS struct {
+		SkipVerify bool   `json:"skip_verify"`
+		CAPEM      string `json:"ca_pem"`
+	} `json:"tls"`
 	Auth struct {
 		AuthID     string `json:"auth_id"`
 		SubType    string `json:"sub_type"`
@@ -130,6 +141,9 @@ func scanValue(d *json.Decoder, depth int) bool {
 func ParseConfig(data []byte) (Config, Status) {
 	var c Config
 	if !decode(data, &c) || c.SchemaVersion != ABIVersion || c.Server.Port == 0 || !validHost(c.Server.Host) {
+		return Config{}, InvalidArgument
+	}
+	if len(c.TLS.CAPEM) > MaxCAPEM || (c.TLS.CAPEM != "" && !x509.NewCertPool().AppendCertsFromPEM([]byte(c.TLS.CAPEM))) {
 		return Config{}, InvalidArgument
 	}
 	if c.Operation != "" && c.Operation != "connect" && c.Operation != "auth_methods" {

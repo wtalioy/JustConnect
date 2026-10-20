@@ -21,7 +21,8 @@
     "MaxAuthMethods": 64,
     "MaxAuthMethodName": 1024,
     "MaxInterfaceName": 1024,
-    "MaxLanguage": 64
+    "MaxLanguage": 64,
+    "MaxCAPEM": 16384
   },
   "statuses": {
     "OK": 0,
@@ -37,6 +38,9 @@
     "Cancelled": -7,
     "Limit": -8,
     "Internal": -9,
-    "AuthMethodChanged": -10
+    "AuthMethodChanged": -10,
+    "TLSTrust": -11,
+    "TLSProtocol": -12,
+    "NetworkFailure": -13
   }
 }

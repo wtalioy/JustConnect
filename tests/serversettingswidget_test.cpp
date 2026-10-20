@@ -2,6 +2,9 @@
 #include "application/applicationconstants.h"
 #include <QApplication>
 #include <QComboBox>
+#include <QCheckBox>
+#include <QPlainTextEdit>
+#include <QLabel>
 #include <QLineEdit>
 #include <QSettings>
 #include <QSpinBox>
@@ -22,6 +25,12 @@ int main(int argc,char **argv) {
     auto *preset=editor.findChild<QComboBox *>("profileKindComboBox");
     auto *address=editor.findChild<QLineEdit *>("serverAddressLineEdit");
     auto *port=editor.findChild<QSpinBox *>("serverPortSpinBox");
+    auto *verify=editor.findChild<QCheckBox *>("tlsVerifyCheckBox");
+    auto *ca=editor.findChild<QPlainTextEdit *>("tlsCaPemEdit");
+    auto *warning=editor.findChild<QLabel *>("tlsWarningLabel");
+    check(editor.tlsOptions().verify && warning->isHidden(),"legacy server settings enable certificate verification");
+    verify->setChecked(false); ca->setPlainText("explicit private CA");
+    check(!warning->isHidden(),"explicit unsafe choice shows an identity-protection warning");
     address->setText("draft.example.edu"); port->setValue(9443);
     preset->setCurrentIndex(preset->findData("Fudan"));
     check(editor.isFudan() && editor.serverAddress()==ApplicationConstants::FudanServer && editor.serverPort()==443,"Fudan selects its server");
@@ -32,6 +41,8 @@ int main(int argc,char **argv) {
     check(unchanged.value("JustConnect/ServerAddress")=="custom.example.edu" && unchanged.value("JustConnect/ServerPort")==8443,"editing and cancelling do not save");
     editor.applyTo(settings); settings.sync();
     QSettings saved(path,QSettings::IniFormat);
+    editor.load(saved);
+    check(!editor.tlsOptions().verify && editor.tlsOptions().caPem=="explicit private CA" && !warning->isHidden(),"explicit TLS policy survives save and reload");
     check(saved.value("JustConnect/ServerAddress")=="draft.example.edu" && saved.value("JustConnect/ProfileKind")=="Custom","explicit apply saves selected endpoint");
     settings.setValue("Common/NeedsConfiguration",true);
     editor.load(settings);

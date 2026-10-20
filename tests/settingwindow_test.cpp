@@ -36,8 +36,10 @@ int main(int argc,char **argv) {
     settings.setValue("OtherApplication/Value","retained-value"); settings.sync();
     // Saving an unrelated change must preserve the selected opaque identity.
     { auto *initial=new SettingWindow(nullptr,&settings,"fixture"); initial->show();
+      initial->findChild<QCheckBox *>("tlsVerifyCheckBox")->setChecked(false);
       initial->findChild<QDialogButtonBox *>("buttonBox")->button(QDialogButtonBox::Ok)->click(); app.processEvents();
-      check(settings.value("JustConnect/AuthID")=="persisted-id" && settings.value("JustConnect/AuthSubType")=="password","selected authentication identity survives settings reload/apply"); }
+      check(settings.value("JustConnect/AuthID")=="persisted-id" && settings.value("JustConnect/AuthSubType")=="password","selected authentication identity survives settings reload/apply");
+      check(!settings.value("JustConnect/TLSVerify").toBool(),"explicit TLS policy saved through the shared server editor"); }
     const auto cache=ApplicationPaths::clientDataFile("fixture"),otherCache=ApplicationPaths::clientDataFile("other");
     write(cache,"current authentication"); write(otherCache,"other authentication");
     QString expectedMessage,fileSelection; bool shown=false;

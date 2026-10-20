@@ -17,6 +17,7 @@ int main(int argc,char **argv) {
         settings.setValue("Credential/TOTPSecret","saved-totp");
         settings.setValue("JustConnect/ServerAddress","vpn.example.edu");
         settings.setValue("JustConnect/ServerPort",8443);
+        settings.setValue("JustConnect/TLSVerify",false); settings.setValue("JustConnect/TLSCAPEM","stored CA");
         settings.setValue("JustConnect/AuthType","smsCheckCode");
         settings.setValue("JustConnect/AuthID","returned-id"); settings.setValue("JustConnect/AuthSubType","sms");
         settings.setValue("JustConnect/LoginDomain","selected-domain");
@@ -37,6 +38,9 @@ int main(int argc,char **argv) {
     const auto profile=SettingsProfileLoader::load(saved);
     check(profile.credentials.username=="saved-user" && profile.credentials.password=="saved-password" && profile.credentials.totpSecret=="saved-totp","stored credential decoding");
     check(profile.endpoint.server=="vpn.example.edu" && profile.endpoint.port==8443 && profile.endpoint.authType=="smsCheckCode" && profile.endpoint.authId=="returned-id" && profile.endpoint.authSubType=="sms" && profile.endpoint.loginDomain=="selected-domain" && profile.endpoint.phone=="86-123456","selected endpoint and authentication survive reload");
+    check(!profile.tls.verify && profile.tls.caPem=="stored CA","explicit session TLS policy survives disk reload");
+    saved.remove("JustConnect/TLSVerify"); saved.remove("JustConnect/TLSCAPEM");
+    check(SettingsProfileLoader::load(saved).tls.verify,"legacy profiles default to certificate validation");
     check(profile.proxy.socksBind.isEmpty() && profile.proxy.httpBind=="127.0.0.1:11081","zero disables listener; legacy outside-access option never exposes it");
     check(profile.dns.secondary=="10.0.0.2" && profile.dns.localDnsServer=="127.0.0.1:5353" && profile.dns.ttl==60 && profile.dns.disableRemoteDns && profile.behavior.bindInterface=="fixture0" && profile.behavior.autoDetectInterface,"supported network settings survive reload");
     const auto interactive=SettingsProfileLoader::load(saved,"interactive-user","interactive-password");

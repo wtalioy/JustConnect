@@ -61,7 +61,7 @@ func TestCancellationInterruptsResponseBody(t *testing.T) {
 			} else {
 				sessionCtx = ctx
 			}
-			session := NewSessionContext(sessionCtx, strings.TrimPrefix(server.URL, "https://"), nil)
+			session := NewSessionContext(sessionCtx, strings.TrimPrefix(server.URL, "https://"), server.Client().Transport.(*http.Transport).TLSClientConfig)
 			defer session.client.CloseIdleConnections()
 			req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, server.URL, nil)
 			if err != nil {

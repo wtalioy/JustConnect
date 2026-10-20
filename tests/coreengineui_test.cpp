@@ -175,9 +175,9 @@ static void uiContracts() {
     auto *fake = new QueryEngine;
     auto *query = new AuthInfoWindow(&parent, fake);
     ConnectionProfile queryProfile; queryProfile.endpoint.server="vpn.example.invalid"; queryProfile.endpoint.port=8443;
-    queryProfile.credentials.password="must-not-be-queried";
+    queryProfile.credentials.password="must-not-be-queried"; queryProfile.tls={false,"query CA"};
     query->fetchAuthInfo(queryProfile);
-    check(fake->operation == CoreEngine::Operation::AuthMethods && fake->profile.endpoint.port == 8443 && fake->profile.credentials.password.isEmpty(),
+    check(fake->operation == CoreEngine::Operation::AuthMethods && fake->profile.endpoint.port == 8443 && fake->profile.credentials.password.isEmpty() && !fake->profile.tls.verify && fake->profile.tls.caPem=="query CA",
         "query uses the engine port and configured server");
     emit fake->authMethodsReady({QJsonObject{{"type", "auth/cas"}, {"domain", "campus"}, {"name", "校园登录"}, {"login_url", "https://vpn.example.invalid/login"}}});
     auto *list = query->findChild<QListWidget *>();
@@ -235,6 +235,7 @@ static void gateway(const QJsonObject &config) {
     ConnectionProfile p;
     const auto server = config["server"].toObject();
     const auto auth = config["auth"].toObject();
+    p.tls.caPem=config["tls"].toObject()["ca_pem"].toString();
     const auto listeners = config["listeners"].toObject();
     p.endpoint.server = server["host"].toString();
     p.endpoint.port = server["port"].toInt();
@@ -243,6 +244,16 @@ static void gateway(const QJsonObject &config) {
     p.endpoint.loginDomain = auth["domain"].toString();
     p.proxy.socksBind = listeners["socks"].toString();
     p.proxy.httpBind = listeners["http"].toString();
+    auto *untrustedEngine=new EmbeddedCoreEngine;
+    auto *untrustedQuery=new AuthInfoWindow(&parent,untrustedEngine);
+    bool trustFailure=false;
+    QObject::connect(untrustedEngine,&CoreEngine::finished,[&](ConnectionError error){trustFailure=error==ConnectionError::TLS_TRUST;});
+    auto untrustedProfile=p; untrustedProfile.tls.caPem.clear();
+    untrustedQuery->fetchAuthInfo(untrustedProfile);
+    until([&]{return trustFailure;});
+    check(untrustedQuery->findChild<QLabel *>("label")->text().contains("证书")
+        && untrustedQuery->findChild<QListWidget *>()->count()==0,"real query reports certificate failure without delivering methods");
+    untrustedQuery->close(); QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     auto *queryWindow = new AuthInfoWindow(&parent);
     bool selected = false;
     QObject::connect(queryWindow, &AuthInfoWindow::finishAuthInfo,

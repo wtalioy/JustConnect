@@ -115,6 +115,7 @@ ConfigurationGuideDialog::ConfigurationGuideDialog(
 bool ConfigurationGuideDialog::applyTo(QSettings &settings)
 {
     auto profile=SettingsProfileLoader::load(settings);
+    profile.tls=serverEditor->tlsOptions();
     profile.endpoint.server=serverEditor->serverAddress(); profile.endpoint.port=serverEditor->serverPort();
     profile.endpoint.authId=selectedAuthId; profile.endpoint.authSubType=selectedAuthSubType;
     profile.endpoint.authType=selectedAuthType; profile.endpoint.loginDomain=selectedLoginDomain;
@@ -357,6 +358,7 @@ void ConfigurationGuideDialog::fetchAuthenticationMethods()
             selectAuthenticationMethod(method);
     });
     auto profile=SettingsProfileLoader::load(*sourceSettings);
+    profile.tls=serverEditor->tlsOptions();
     profile.endpoint.server=host; profile.endpoint.port=port;
     authInfoWindow->fetchAuthInfo(profile,serverEditor->isFudan());
     authInfoWindow->show();

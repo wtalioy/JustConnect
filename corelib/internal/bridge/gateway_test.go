@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"encoding/binary"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"net"
@@ -214,6 +215,7 @@ func (g *gateway) config(t *testing.T) Config {
 	host, port, _ := net.SplitHostPort(strings.TrimPrefix(g.HTTP.URL, "https://"))
 	number, _ := strconv.Atoi(port)
 	c.Server.Host, c.Server.Port = host, uint16(number)
+	c.TLS.CAPEM = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: g.HTTP.Certificate().Raw}))
 	return c
 }
 func configBytes(t *testing.T, c Config) []byte {

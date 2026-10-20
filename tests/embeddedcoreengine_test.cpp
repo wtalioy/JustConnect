@@ -92,7 +92,7 @@ int main(int argc, char **argv) {
     }
 #endif
     check(EmbeddedCoreEngine::validateConfiguration(profile) == ConnectionError::NONE, "pure Qt configuration validation");
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 7; ++i) {
         auto invalid = profile;
         switch (i) {
         case 0: invalid.endpoint.server = "https://invalid.example.edu"; break;
@@ -100,6 +100,8 @@ int main(int argc, char **argv) {
         case 2: invalid.dns.localDnsServer = "invalid:port"; break;
         case 3: invalid.proxy.socksBind = "0.0.0.0:1080"; break;
         case 4: invalid.endpoint.port = 0; break;
+        case 5: invalid.tls.caPem="not a certificate"; break;
+        case 6: invalid.tls.caPem=QString(65536,'x'); break;
         }
         check(EmbeddedCoreEngine::validateConfiguration(invalid) == ConnectionError::INVALID_CONFIGURATION, "saving and starting share strict configuration rules");
         const int before = finished;

@@ -79,7 +79,7 @@ func TestSetupOwnsAuthenticationLifetimeAndRollsBack(t *testing.T) {
 			resource := fmt.Sprintf(`{"data":{"appList":{"data":{"config":{"nodeGroupConf":{"majorNodeGroup":{"ID":"test"},"nodeGroupList":[{"ID":"test","addressInfo":[{"type":"wan","address":%q}]}]}}}}}}`, listener.Addr().String())
 			host, port, _ := net.SplitHostPort(strings.TrimPrefix(gateway.URL, "https://"))
 			portNumber, _ := strconv.Atoi(port)
-			c := NewClient(ClientOptions{UnderlayDialer: &localUnderlay{}, Session: SessionOptions{SID: "sid", DeviceID: "device"}})
+			c := NewClient(ClientOptions{TLSConfig: gateway.Client().Transport.(*http.Transport).TLSClientConfig, UnderlayDialer: &localUnderlay{}, Session: SessionOptions{SID: "sid", DeviceID: "device"}})
 			defer c.Close()
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()

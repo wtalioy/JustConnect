@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
-	"io"
 	"net"
 	"strconv"
 	"sync"
@@ -15,12 +14,12 @@ import (
 
 // TCPing ...
 type TCPing struct {
-	target *Target
-	done   chan struct{}
-	stop   chan struct{}
-	result *Result
-	dial   client.DialContextFunc
-	keyLog io.Writer
+	target    *Target
+	done      chan struct{}
+	stop      chan struct{}
+	result    *Result
+	dial      client.DialContextFunc
+	tlsPolicy *tls.Config
 
 	startOnce sync.Once
 	stopOnce  sync.Once
@@ -33,9 +32,11 @@ func (tcping *TCPing) SetDialContext(dial client.DialContextFunc) {
 	tcping.dial = dial
 }
 
-// SetKeyLogWriter records probe TLS secrets in NSS key log format.
-func (tcping *TCPing) SetKeyLogWriter(writer io.Writer) {
-	tcping.keyLog = writer
+// SetTLSConfig uses the same trust policy as the session's authenticated traffic.
+func (tcping *TCPing) SetTLSConfig(config *tls.Config) {
+	if config != nil {
+		tcping.tlsPolicy = config.Clone()
+	}
 }
 
 // NewTCPing return a new TCPing
@@ -100,6 +101,9 @@ func (tcping *TCPing) run(ctx context.Context) {
 	defer ticker.Stop()
 	for {
 		if tcping.target.Counter != 0 && tcping.result.Counter >= tcping.target.Counter {
+			if tcping.result.SuccessCounter > 0 {
+				tcping.result.Err = nil
+			}
 			return
 		}
 		select {
@@ -116,7 +120,7 @@ func (tcping *TCPing) run(ctx context.Context) {
 		}
 		tcping.result.Counter++
 		if err != nil {
-
+			tcping.result.Err = err
 			continue
 		}
 
@@ -158,26 +162,12 @@ func (tcping *TCPing) ping(parent context.Context) (time.Duration, net.Addr, err
 	if tcping.dial != nil {
 		dial = tcping.dial
 	}
-	conn, err := dial(ctx, "tcp", net.JoinHostPort(tcping.target.Host, strconv.Itoa(tcping.target.Port)))
+	conn, err := client.DialTLSContext(ctx, dial, "tcp", net.JoinHostPort(tcping.target.Host, strconv.Itoa(tcping.target.Port)), tcping.tlsPolicy)
 	if err != nil {
 		return 0, nil, contextError(ctx, err)
 	}
 	defer conn.Close()
 	remoteAddr := conn.RemoteAddr()
-
-	tlsConn := tls.Client(conn, &tls.Config{
-		ServerName:         tcping.target.Host,
-		InsecureSkipVerify: true,
-		KeyLogWriter:       tcping.keyLog,
-	})
-	stopClose := context.AfterFunc(ctx, func() {
-		_ = tlsConn.Close()
-	})
-	defer stopClose()
-	defer tlsConn.Close()
-	if err := tlsConn.HandshakeContext(ctx); err != nil {
-		return 0, remoteAddr, contextError(ctx, err)
-	}
 	return time.Since(startedAt), remoteAddr, nil
 }
 

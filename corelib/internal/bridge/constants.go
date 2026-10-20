@@ -24,6 +24,7 @@ const (
 	MaxAuthMethodName = 1024
 	MaxInterfaceName  = 1024
 	MaxLanguage       = 64
+	MaxCAPEM          = 16384
 )
 const (
 	OK                Status = 0
@@ -40,4 +41,7 @@ const (
 	Limit             Status = -8
 	Internal          Status = -9
 	AuthMethodChanged Status = -10
+	TLSTrust          Status = -11
+	TLSProtocol       Status = -12
+	NetworkFailure    Status = -13
 )

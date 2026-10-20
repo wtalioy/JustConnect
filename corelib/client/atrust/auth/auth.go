@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	mathrand "math/rand"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -116,19 +117,23 @@ type Session struct {
 	challengeHandler authchallenge.Handler
 }
 
-func NewSession(server string, tlsKeyLogWriter io.Writer, dialContext ...client.DialContextFunc) *Session {
-	return NewSessionContext(context.Background(), server, tlsKeyLogWriter, dialContext...)
+func NewSession(server string, config *tls.Config, dialContext ...client.DialContextFunc) *Session {
+	return NewSessionContext(context.Background(), server, config, dialContext...)
 }
 
-func NewSessionContext(ctx context.Context, server string, tlsKeyLogWriter io.Writer, dialContext ...client.DialContextFunc) *Session {
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true,
-			KeyLogWriter:       tlsKeyLogWriter,
-		},
+func NewSessionContext(ctx context.Context, server string, config *tls.Config, dialContext ...client.DialContextFunc) *Session {
+	if config == nil {
+		config = &tls.Config{}
+	} else {
+		config = config.Clone()
 	}
+	dial := client.DialContextFunc((&net.Dialer{}).DialContext)
 	if len(dialContext) > 0 && dialContext[0] != nil {
-		tr.DialContext = dialContext[0]
+		dial = dialContext[0]
+	}
+	tr := &http.Transport{TLSClientConfig: config, DialContext: dial}
+	tr.DialTLSContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		return client.DialTLSContext(ctx, dial, network, address, config)
 	}
 	jar, _ := cookiejar.New(nil)
 	httpClient := &http.Client{Transport: tr, Jar: jar, Timeout: 20 * time.Second}

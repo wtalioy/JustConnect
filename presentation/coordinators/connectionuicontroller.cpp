@@ -323,6 +323,18 @@ void ConnectionUiController::showConnectionError(ConnectionError error)
     case ConnectionError::AUTHENTICATION_CHANGED:
         message = "认证方式已变化或不唯一，请重新获取并选择认证方式。";
         break;
+    case ConnectionError::TLS_TRUST:
+        message="服务器证书不受信任或与地址不匹配。请检查服务器地址、系统时间和学校 CA。";
+        break;
+    case ConnectionError::TLS_PROTOCOL:
+        message="TLS 协议协商失败。请检查服务器端口与 TLS 兼容性。";
+        break;
+    case ConnectionError::NETWORK_FAILED:
+        message="网络连接失败。请检查 DNS、网络与服务器地址。";
+        break;
+    case ConnectionError::TIMED_OUT:
+        message="操作超时，请检查网络或重试。";
+        break;
     case ConnectionError::CLIENT_FAILED:
         message = "连接失败！\n可能是响应超时，请检查本地网络配置是否正常，服务器设置是否正确。";
         break;

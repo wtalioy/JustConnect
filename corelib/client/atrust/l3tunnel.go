@@ -69,8 +69,8 @@ func NewL3Tunnel(aTrustClient *Client) (*L3Tunnel, error) {
 			connectionID: aTrustClient.ConnectionID,
 			username:     aTrustClient.Username,
 		}
-		dialTLS := func(ctx context.Context, network, address string, config *tls.Config) (*tls.Conn, error) {
-			return dialTLSContext(ctx, aTrustClient.underlayDialer, network, address, tlsConfig(config, aTrustClient.tlsKeyLogWriter))
+		dialTLS := func(ctx context.Context, network, address string) (*tls.Conn, error) {
+			return client.DialTLSContext(ctx, aTrustClient.underlayDialer.DialContext, network, address, tunnelTLSConfig(aTrustClient.tlsPolicy))
 		}
 		return newL3TunnelConn(ctx, dialTLS, addr, info, aTrustClient.SignKey, conntrackMgr, t.updateVIP)
 	}
@@ -83,7 +83,7 @@ func NewL3Tunnel(aTrustClient *Client) (*L3Tunnel, error) {
 
 	ip, err := aTrustClient.IP()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get client IP: %v", err)
+		return nil, fmt.Errorf("failed to get client IP: %w", err)
 	}
 	t.ip = ip
 
