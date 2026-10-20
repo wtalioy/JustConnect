@@ -16,13 +16,19 @@
 | 原始 go.sum SHA-256 | `9d3ab7b3f7cf9b04c0d3325b1d18ef1653c7db3c2940fc75415f0bad1945f914` |
 | 原始许可证 SHA-256 | `8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef` |
 
-导入范围为原归档中的全部 Go 文件，但不导入独立 CLI 的 `main.go`、`init.go`、`init_test.go`，以及 EasyConnect／Android 的 `mobile/mobile_android.go`。共保留 137 份上游 Go 源文件，含 46 份协议和公共包测试。保留其包职责结构、版权，以及当前依赖闭包所需的 `configs`、EasyConnect 包和平台文件；产品仍只计划提供 aTrust，这些内部残留在 S1-11 按依赖和回归精简。
+导入范围为原归档中的全部 Go 文件，但不导入独立 CLI 的 `main.go`、`init.go`、`init_test.go`，以及 EasyConnect／Android 的 `mobile/mobile_android.go`。导入时共保留 137 份上游 Go 源文件，含 46 份协议和公共包测试，并暂存当时依赖闭包中的 `configs`、EasyConnect 包和平台文件；这是历史导入基线，不是当前文件数。产品仅提供 aTrust，后续清理见下文。
 
 同时导入 `go.mod`、`go.sum`、根许可证、`internal/ping/LICENSE` 和两份上游 README。根许可证原文保存为 [LICENSE.zju-connect](LICENSE.zju-connect)，上游说明与致谢原文保存为 [UPSTREAM-README.md](UPSTREAM-README.md) 和 [UPSTREAM-README_en.md](UPSTREAM-README_en.md)。未导入上游 Actions、Docker／服务安装配置、示例配置及推广图片；当前源码没有依赖它们的嵌入资源。
 
 S1-05 迁移模块及 Go 导入路径、固定工具链、通过 `go mod tidy`／`go mod download` 重建依赖锁，并添加 JustConnect 的模块集成测试。首次 Windows 回归后，TLS 密钥日志与 PCAP 改用共享的 `internal/privatefile`：写入前收紧已有文件权限，Windows 使用仅当前账户可访问的受保护 DACL，Unix 使用 `0600`；协议实现不变。首次三平台 CI 暴露 Windows 不提供 Unix 权限位：`internal/keylog/keylog_test.go` 和 `underlay/pcap_test.go` 的 `0600` 断言仅在非 Windows 平台执行；文件内容、错误传播和抓包行为测试仍在全部平台执行。不维护指向上游源码的本地 `replace`。`inet.af/netaddr` 的远程替换沿用上游，用于该外部依赖的实际模块来源，并非另一个 VPN 核心模块。
 
 导入时逐文件验证了源码：除上述路径迁移和模块锁外，与校验过的归档一致；许可证和上游说明保持逐字节一致。以后直接提交这里的实际修改，利用本次导入提交和固定归档审查差异，有选择地合入上游修复，不重新下载覆盖源码、不维护外部补丁队列。Go 的外部依赖由 `go.sum` 和 module cache 管理，不提交整个缓存或 vendor。
+
+## 阶段收尾清理
+
+S1-03 后按调用关系删除了 EasyConnect 协议及其三份专属测试，移除通用 gVisor 栈对 EasyConnect 错误类型和进程退出的依赖；aTrust 的数据面与回归保留。删除无调用方的旧 CLI 初始化注册表、`configs` 配置及默认值测试，包括写死校园 resolver 文件的初始化操作。macOS TUN 仍调用的 DNS 方法保留在 `internal/hook_func/dns_darwin.go`；在正式会话清理替代前仍保留有调用方的终止钩子。
+
+`go mod tidy` 删除 etree、utls、gopsutil 及仅由它们引入的依赖，其他协议依赖未升级。gVisor 入站包的较弱前缀断言测试已由完整字节相等、排除未读容量的现有用例覆盖，删除重复用例。`client/underlay_api_test.go` 继续从包外验证 aTrust 接受注入 dialer。CLI 认证处理器仍有 aTrust 的缺省调用方，其源码与取消测试保留到 S1-07 显式宿主认证接管时一并处理；不能只删测试或删除调用方仍依赖的实现。
 
 ## 离线验证与已有缺陷
 
@@ -32,7 +38,7 @@ S1-05 迁移模块及 Go 导入路径、固定工具链、通过 `go mod tidy`�
 python scripts/test-corelib.py
 ```
 
-入口检查单一模块、固定工具链、没有远程上游核心依赖、Go 模块校验及构建；验证后要求 `go.mod/go.sum` 不变。运行 25 个包的限定离线基线（含无测试包），其中 JustConnect 的 `module_test.go` 通过注入 dialer 访问回环 TLS 网关，验证迁移后的真实 aTrust 清单读取与 HTTP 失败传播，不访问校园网或创建 TUN。此测试不代表正式 C ABI、认证、生产 TLS 策略或网络转发已经验收。
+入口检查单一模块、固定工具链、没有远程上游核心依赖、Go 模块校验及构建；验证后要求 `go.mod/go.sum` 不变。按 `go list` 的实际包集合运行限定离线基线（含无测试包），其中 JustConnect 的 `module_test.go` 通过注入 dialer 访问回环 TLS 网关，验证迁移后的真实 aTrust 清单读取与 HTTP 失败传播，不访问校园网或创建 TUN。此测试不代表正式 C ABI、认证、生产 TLS 策略或网络转发已经验收。
 
 **认证包测试仍受阻，不能记录为通过。** 上游 `client/atrust/auth/session_context_test.go:28` 调用了不存在的 `Session.do`。验证入口单独编译这个测试包，只有仍为该条已知诊断时才标为 `BLOCKED`；出现新诊断或该缺陷消失都会失败，要求修复新问题或移除例外，不任意忽略测试失败。全部相关测试原样保留。可直接复现完整套件的现状：
 

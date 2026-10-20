@@ -1,15 +1,12 @@
 package gvisor
 
 import (
-	"context"
 	"errors"
 	"io"
 	"net"
-	"os"
 	"sync"
 
 	clientpkg "github.com/wtalioy/JustConnect/corelib/client"
-	"github.com/wtalioy/JustConnect/corelib/client/easyconnect"
 	"github.com/wtalioy/JustConnect/corelib/internal/hook_func"
 	"github.com/wtalioy/JustConnect/corelib/internal/ippool"
 	"github.com/wtalioy/JustConnect/corelib/internal/zcdns"
@@ -102,20 +99,6 @@ func (ep *Endpoint) WritePackets(list stack.PacketBufferList) (int, tcpip.Error)
 				if errors.Is(err, clientpkg.ErrResourceNotFound) {
 					log.Printf("%v", err)
 					continue
-				}
-
-				// Server-initiated SHUTDOWN: known terminal state from
-				// sangfor (cmd 0x08). No point retrying; run the registered
-				// cleanup hooks (DNS revert, tun device close, etc.) and
-				// exit so systemd / a wrapper can do a fresh login. This
-				// is strictly better than panicking with a gvisor stack
-				// trace, which obscures the actual cause.
-				if errors.Is(err, easyconnect.ErrSangforShutdown) {
-					log.Printf("WritePackets: server SHUTDOWN; running cleanup hooks and exiting for clean restart")
-					if !hook_func.IsTerminal() {
-						hook_func.ExecTerminalFunc(context.Background())
-					}
-					os.Exit(2)
 				}
 
 				if hook_func.IsTerminal() {
