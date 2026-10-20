@@ -66,17 +66,21 @@ public:
 class ProxyBackend : public SystemProxyBackend {
 public:
     std::atomic<int> checks = 0, applied = 0, clears = 0;
-    bool block = false;
+    bool block = false,blockApply=false;
     SystemProxyCheck checkResult;
-    PlatformOperationResult clearResult;
+    PlatformOperationResult clearResult,applyResult;
     SystemProxyConfig checkedConfig,appliedConfig;
-    QSemaphore entered, proceed;
+    QSemaphore entered, proceed,applyEntered,applyProceed;
     SystemProxyCheck check(const SystemProxyConfig &config) override {
         checkedConfig=config;++checks;
         if (block) { entered.release(); proceed.acquire(); }
         return checkResult;
     }
-    PlatformOperationResult apply(const SystemProxyConfig &config) override { appliedConfig=config;++applied;return {}; }
+    PlatformOperationResult apply(const SystemProxyConfig &config) override {
+        appliedConfig=config;++applied;
+        if(blockApply){applyEntered.release();applyProceed.acquire();}
+        return applyResult;
+    }
     PlatformOperationResult clear() override { ++clears;return clearResult; }
 };
 static void proxyWaitsForReady() {
@@ -97,6 +101,12 @@ static void proxyWaitsForReady() {
     auto backend = std::make_unique<ProxyBackend>();
     auto *proxy = backend.get();
     SystemProxySession systemProxy(std::move(backend));
+    QObject::connect(&session,&ConnectionSession::finished,&systemProxy,&SystemProxySession::disable);
+    QObject::connect(&systemProxy,&SystemProxySession::operationFinished,&parent,[&](bool,const PlatformOperationResult &result) {
+        if(result.succeeded())return;
+        QMessageBox message(QMessageBox::Warning,"proxy failure","fixture failure",QMessageBox::Ok,&parent);
+        QTimer::singleShot(0,&message,&QDialog::accept);message.exec();
+    });
     AuthDialogCoordinator dialogs(&parent);
     ApplicationLogger logger;
     CredentialAccess credentials(std::make_unique<MemoryCredentialStore>());
@@ -118,7 +128,6 @@ static void proxyWaitsForReady() {
     check(proxy->applied == 1 && !proxyButton.isHidden(), "ready enables the configured automatic proxy once");
     proxy->clearResult={PlatformOperationResult::Status::PermissionDenied,"fixture restore denial",true};
     session.stop();emit engine->finished(ConnectionError::NONE);
-    systemProxy.disable();
     check(session.start(engine->profile,{}),"new session while original proxy restoration is pending");emit engine->connectionEstablished();
     until([&]{return !systemProxy.isBusy();});QApplication::processEvents();
     check(!systemProxy.isBusy() && proxy->clears==1 && systemProxy.needsCleanup(),
@@ -192,6 +201,19 @@ static void proxyWaitsForReady() {
     check(proxy->checks==previousChecks && proxy->applied==2 && engine->profile.proxy.httpBind.isEmpty(),
         "disabled active listener blocks system proxy changes before the backend query");
     dismiss.stop(); session.stop(); emit engine->finished(ConnectionError::NONE);
+    settings.setValue("JustConnect/HTTPPort",44081);proxy->checkResult={};proxy->blockApply=true;
+    for(bool partial:{false,true}) {
+        proxy->applyResult=partial?PlatformOperationResult{PlatformOperationResult::Status::PermissionDenied,"partial native apply",true}:PlatformOperationResult{};
+        connectButton.click();until([&]{return session.state()==ConnectionState::Starting;});emit engine->connectionEstablished();
+        until([&]{return proxy->applyEntered.available()>0;});
+        check(proxy->applyEntered.tryAcquire(),"proxy apply reached its controlled wait");
+        const int priorClears=proxy->clears;
+        session.stop();emit engine->finished(ConnectionError::NONE);
+        check(systemProxy.isBusy() && proxy->clears==priorClears,"stop waits for the in-flight proxy mutation before restoration");
+        proxy->applyProceed.release();until([&]{return !systemProxy.isBusy();});
+        check(!systemProxy.needsCleanup() && proxy->clears==priorClears+1,
+            "finished connection restores successful or partial in-flight proxy changes exactly once");
+    }
 }
 static void manualCredentialsAndLateResults() {
     QTemporaryDir folder;QSettings settings(folder.filePath("manual.ini"),QSettings::IniFormat);

@@ -99,9 +99,6 @@ ConnectionUiController::ConnectionUiController(
         // Deliver the old operation's result before starting the current session's request.
         if (!busy && autoProxyPending) QTimer::singleShot(0,this,&ConnectionUiController::applyPendingAutomaticProxy);
     });
-    connect(systemProxySession,&SystemProxySession::operationFinished,this,[this](bool,const PlatformOperationResult &result) {
-        if (!result.succeeded()) autoProxyPending=false;
-    });
     connect(
         connectButton,
         &QPushButton::clicked,
@@ -223,8 +220,8 @@ void ConnectionUiController::applyPendingAutomaticProxy()
         autoProxyPending=false;return;
     }
     if (systemProxySession->isBusy()) return;
-    if (systemProxySession->needsCleanup()) { systemProxySession->disable();return; }
     autoProxyPending=false;
+    if (systemProxySession->needsCleanup()) return;
     handleProxyClicked();
 }
 

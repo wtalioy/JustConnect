@@ -45,30 +45,7 @@ MainWindowCoordinator::MainWindowCoordinator(
         if (state != ConnectionState::Starting) authenticationCoordinator->closeAuthentication();
     });
 
-    connect(
-        systemProxySession,
-        &SystemProxySession::operationFinished,
-        this,
-        [this](bool enabled, const PlatformOperationResult &result)
-        {
-            if (result.succeeded() && enabled && !connectionSession->isActive())
-            {
-                systemProxySession->disable();
-            }
-        }
-    );
-    connect(
-        connectionSession,
-        &ConnectionSession::finished,
-        this,
-        [this](ConnectionError)
-        {
-            if (systemProxySession->needsCleanup())
-            {
-                systemProxySession->disable();
-            }
-        }
-    );
+    connect(connectionSession,&ConnectionSession::finished,systemProxySession,&SystemProxySession::disable);
 }
 
 MainWindowCoordinator::~MainWindowCoordinator()
