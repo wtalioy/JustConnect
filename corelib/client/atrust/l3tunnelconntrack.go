@@ -90,12 +90,6 @@ func newConntrackMgr() *conntrackMgr {
 	}
 }
 
-func (m *conntrackMgr) getByKey(key string) *conntrack {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.byKey[key]
-}
-
 func (m *conntrackMgr) getByID(authID uint64) *conntrack {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -402,14 +396,6 @@ func (m *conntrackMgr) retryAuth(authID uint64, delay time.Duration) bool {
 	ct.authDeadline = time.Time{}
 	ct.authRetryAt = m.now().Add(delay)
 	return true
-}
-
-func (m *conntrackMgr) remove(key string) {
-	m.mu.Lock()
-	if ct := m.byKey[key]; ct != nil {
-		m.removeLocked(ct, errConntrackEvicted)
-	}
-	m.mu.Unlock()
 }
 
 func (m *conntrackMgr) removeExpired() {

@@ -170,10 +170,6 @@ func (s *Session) checkAntiMITMAuthConfig(ctx context.Context, resp *http.Respon
 	return s.performAntiMITMRequestContext(ctx, data, csrfToken)
 }
 
-func (s *Session) performAntiMITMRequest(data antiMITMAttackData, csrfToken string) error {
-	return s.performAntiMITMRequestContext(context.Background(), data, csrfToken)
-}
-
 func (s *Session) performAntiMITMRequestContext(ctx context.Context, data antiMITMAttackData, csrfToken string) error {
 	nonce, err := sangforNonce()
 	if err != nil {

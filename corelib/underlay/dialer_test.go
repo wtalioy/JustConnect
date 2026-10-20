@@ -14,16 +14,6 @@ import (
 	"github.com/miekg/dns"
 )
 
-func TestNewAutoDetectDisabled(t *testing.T) {
-	dialer, err := New(Options{AutoDetect: false})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := dialer.InterfaceName(); got != "" {
-		t.Fatalf("InterfaceName() = %q, want empty", got)
-	}
-}
-
 func TestAutoDetectionIsDeferredAndSharedByConcurrentFirstDials(t *testing.T) {
 	originalFind := findDefaultInterface
 	originalDial := dialOnInterface
@@ -72,7 +62,7 @@ func TestAutoDetectionIsDeferredAndSharedByConcurrentFirstDials(t *testing.T) {
 	if got := detectCalls.Load(); got != 0 {
 		t.Fatalf("New triggered %d interface detections, want 0", got)
 	}
-	if got := dialer.InterfaceName(); got != "" {
+	if got := dialer.interfaceName; got != "" {
 		t.Fatalf("InterfaceName before first dial = %q, want empty", got)
 	}
 
@@ -97,7 +87,7 @@ func TestAutoDetectionIsDeferredAndSharedByConcurrentFirstDials(t *testing.T) {
 	if got := detectCalls.Load(); got != 1 {
 		t.Fatalf("interface detection calls = %d, want 1", got)
 	}
-	if got := dialer.InterfaceName(); got != interfaceName {
+	if got := dialer.interfaceName; got != interfaceName {
 		t.Fatalf("InterfaceName after first dial = %q, want %q", got, interfaceName)
 	}
 }
@@ -152,7 +142,7 @@ func TestDialContextRedetectsAndRetriesOnNewInterface(t *testing.T) {
 	if len(attempts) != 2 || attempts[0] != "old-interface" || attempts[1] != newInterface {
 		t.Fatalf("dial attempts = %q, want [old-interface %s]", attempts, newInterface)
 	}
-	if got := dialer.InterfaceName(); got != newInterface {
+	if got := dialer.interfaceName; got != newInterface {
 		t.Fatalf("InterfaceName() = %q, want %q", got, newInterface)
 	}
 }
@@ -247,9 +237,10 @@ func TestUnderlayResolverUsesConfiguredLocalDNSServer(t *testing.T) {
 	}
 }
 
-func TestDialContextPassesConfiguredLocalDNSServer(t *testing.T) {
-	originalDial := dialOnInterface
-	t.Cleanup(func() { dialOnInterface = originalDial })
+func TestDialContextUsesDNSWithoutInterfaceAutoDetection(t *testing.T) {
+	originalDial, originalFind := dialOnInterface, findDefaultInterface
+	t.Cleanup(func() { dialOnInterface, findDefaultInterface = originalDial, originalFind })
+	findDefaultInterface = func() string { t.Error("disabled auto-detection queried the interface"); return "" }
 
 	client, server := net.Pipe()
 	t.Cleanup(func() {

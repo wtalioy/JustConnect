@@ -27,16 +27,6 @@ func parseIPAuthResponse(data []byte) error {
 	return nil
 }
 
-func parseIPv4VIPResponse(data []byte) (net.IP, error) {
-	if len(data) != 6 {
-		return nil, fmt.Errorf("unexpected IPv4 VIP response length: %d", len(data))
-	}
-	if data[1] != 0x01 {
-		return nil, fmt.Errorf("unexpected IPv4 VIP response: %x", data)
-	}
-	return net.IPv4(data[2], data[3], data[4], data[5]), nil
-}
-
 func readIPTunnelResponses(reader io.Reader) (net.IP, error) {
 	method := make([]byte, 2)
 	if _, err := io.ReadFull(reader, method); err != nil {

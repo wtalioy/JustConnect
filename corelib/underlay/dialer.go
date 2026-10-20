@@ -98,16 +98,6 @@ func (d *Dialer) Close() error {
 	return d.closeErr
 }
 
-// InterfaceName returns the currently selected underlay interface.
-func (d *Dialer) InterfaceName() string {
-	if d == nil {
-		return ""
-	}
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-	return d.interfaceName
-}
-
 // ExcludeIP prevents an interface carrying ip from being selected as the
 // underlay. VPN clients use this to exclude their own TUN interface.
 func (d *Dialer) ExcludeIP(ip net.IP) {
@@ -281,13 +271,6 @@ func normalizeLocalDNSServer(address string) (string, error) {
 
 var dialOnInterface = dialContextOnInterface
 
-// DialTimeout connects through the underlay with the provided timeout.
-func (d *Dialer) DialTimeout(network, address string, timeout time.Duration) (net.Conn, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	return d.DialContext(ctx, network, address)
-}
-
 func detectInterface(ctx context.Context, targetAddress string) string {
 	if interfaceName := findDefaultInterface(); usableInterface(interfaceName, nil) {
 		return interfaceName
@@ -366,7 +349,7 @@ func detectDefaultInterface() string {
 	}
 	defer networkMonitor.Close()
 
-	interfaceMonitor, err := tun.NewDefaultInterfaceMonitor(networkMonitor, logger.NOP(), tun.DefaultInterfaceMonitorOptions{OverrideAndroidVPN: true})
+	interfaceMonitor, err := tun.NewDefaultInterfaceMonitor(networkMonitor, logger.NOP(), tun.DefaultInterfaceMonitorOptions{})
 	if err != nil {
 		return ""
 	}

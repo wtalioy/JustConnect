@@ -49,17 +49,8 @@ func (p IPv4Packet) TotalLen() uint16 {
 	return binary.BigEndian.Uint16(p[2:])
 }
 
-func (p IPv4Packet) SetTotalLength(length uint16) {
-	binary.BigEndian.PutUint16(p[2:], length)
-}
-
 func (p IPv4Packet) HeaderLen() uint16 {
 	return uint16(p[0]&0xf) * 4
-}
-
-func (p IPv4Packet) SetHeaderLen(length uint16) {
-	p[0] &= 0xF0
-	p[0] |= byte(length / 4)
 }
 
 func (p IPv4Packet) DataLen() uint16 {
@@ -72,10 +63,6 @@ func (p IPv4Packet) Payload() []byte {
 
 func (p IPv4Packet) Protocol() IPProtocol {
 	return p[9]
-}
-
-func (p IPv4Packet) SetProtocol(protocol IPProtocol) {
-	p[9] = protocol
 }
 
 func (p IPv4Packet) SourceIP() net.IP {

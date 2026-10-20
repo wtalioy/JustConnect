@@ -103,8 +103,8 @@ func TestWaitForTCPConnectPreservesBufferedDownstreamData(t *testing.T) {
 	}()
 
 	reader := bufio.NewReader(client)
-	if err := waitForTCPConnect(context.Background(), client, reader); err != nil {
-		t.Fatalf("waitForTCPConnect() error = %v", err)
+	if _, err := waitForTCPConnectReply(context.Background(), client, reader); err != nil {
+		t.Fatalf("waitForTCPConnectReply() error = %v", err)
 	}
 	conn := &tcpTunnelConn{reader: reader}
 	got := make([]byte, len(payload))
@@ -591,9 +591,9 @@ func TestWaitForTCPConnectRequiresExactlyOneServerHello(t *testing.T) {
 			if test.name == "missing" {
 				response = append(append([]byte(nil), authResponse...), connectReply...)
 			}
-			err := waitForTCPConnect(context.Background(), &recordingConn{}, bufio.NewReader(bytes.NewReader(response)))
+			_, err := waitForTCPConnectReply(context.Background(), &recordingConn{}, bufio.NewReader(bytes.NewReader(response)))
 			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
-				t.Fatalf("waitForTCPConnect() error = %v, want %q", err, test.wantErr)
+				t.Fatalf("waitForTCPConnectReply() error = %v, want %q", err, test.wantErr)
 			}
 		})
 	}
@@ -715,7 +715,7 @@ func runTCPConnectExchange(t *testing.T, status byte) error {
 		serverErrCh <- nil
 	}()
 
-	err := waitForTCPConnect(context.Background(), client, bufio.NewReader(client))
+	_, err := waitForTCPConnectReply(context.Background(), client, bufio.NewReader(client))
 	if serverErr := <-serverErrCh; serverErr != nil {
 		t.Fatalf("server exchange failed: %v", serverErr)
 	}
@@ -745,12 +745,12 @@ func TestWaitForTCPConnectStatus(t *testing.T) {
 			err := runTCPConnectExchange(t, test.status)
 			if test.wantErrMsg == "" {
 				if err != nil {
-					t.Fatalf("waitForTCPConnect() error = %v", err)
+					t.Fatalf("waitForTCPConnectReply() error = %v", err)
 				}
 				return
 			}
 			if err == nil || !strings.Contains(err.Error(), test.wantErrMsg) {
-				t.Fatalf("waitForTCPConnect() error = %v, want message %q", err, test.wantErrMsg)
+				t.Fatalf("waitForTCPConnectReply() error = %v, want message %q", err, test.wantErrMsg)
 			}
 		})
 	}
@@ -777,13 +777,14 @@ func TestWaitForTCPConnectHonorsContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	resultCh := make(chan error, 1)
 	go func() {
-		resultCh <- waitForTCPConnect(ctx, client, reader)
+		_, err := waitForTCPConnectReply(ctx, client, reader)
+		resultCh <- err
 	}()
 
 	<-started
 	cancel()
 	if err := <-resultCh; !errors.Is(err, context.Canceled) {
-		t.Fatalf("waitForTCPConnect() error = %v, want context.Canceled", err)
+		t.Fatalf("waitForTCPConnectReply() error = %v, want context.Canceled", err)
 	}
 }
 
@@ -796,9 +797,9 @@ func TestWaitForTCPConnectRejectsMalformedResponse(t *testing.T) {
 		_, _ = server.Write([]byte{0x01, 0x00})
 	}()
 
-	err := waitForTCPConnect(context.Background(), client, bufio.NewReader(client))
+	_, err := waitForTCPConnectReply(context.Background(), client, bufio.NewReader(client))
 	if err == nil || !strings.Contains(err.Error(), "unexpected tcp tunnel server hello: 01 00") {
-		t.Fatalf("waitForTCPConnect() error = %v", err)
+		t.Fatalf("waitForTCPConnectReply() error = %v", err)
 	}
 }
 
@@ -807,7 +808,7 @@ func TestMatchTCPIPResourceUsesLastMatchingRule(t *testing.T) {
 		{IPMin: net.IPv4(10, 0, 0, 1), IPMax: net.IPv4(10, 0, 0, 10), PortMin: 443, PortMax: 443, Protocol: "tcp", AppID: "first"},
 		{IPMin: net.IPv4(10, 0, 0, 1), IPMax: net.IPv4(10, 0, 0, 10), PortMin: 1, PortMax: 65535, Protocol: "all", AppID: "last"},
 	}
-	resource, ok := matchTCPIPResource(ipresource.New(resources), &net.TCPAddr{IP: net.IPv4(10, 0, 0, 5), Port: 443}, false)
+	resource, ok := matchTCPIPResource(ipresource.New(resources), &net.TCPAddr{IP: net.IPv4(10, 0, 0, 5), Port: 443})
 	if !ok {
 		t.Fatal("matchTCPIPResource() did not find matching resource")
 	}
@@ -821,45 +822,19 @@ func TestMatchTCPIPResourceRejectsTCPPrefL3(t *testing.T) {
 		IPMin: net.IPv4(10, 0, 0, 1), IPMax: net.IPv4(10, 0, 0, 10), PortMin: 443, PortMax: 443,
 		Protocol: "tcp", AppID: "l3-app", EnableTCPPrefL3: true,
 	}}
-	if resource, ok := matchTCPIPResource(ipresource.New(resources), &net.TCPAddr{IP: net.IPv4(10, 0, 0, 5), Port: 443}, false); ok {
+	if resource, ok := matchTCPIPResource(ipresource.New(resources), &net.TCPAddr{IP: net.IPv4(10, 0, 0, 5), Port: 443}); ok {
 		t.Fatalf("matchTCPIPResource() = %#v, want no TCP tunnel resource", resource)
 	}
 }
 
-func TestMatchTCPIPResourceAllowsTCPPrefL3Fallback(t *testing.T) {
-	resources := []client.IPResource{{
-		IPMin: net.IPv4(192, 0, 2, 1), IPMax: net.IPv4(192, 0, 2, 254), PortMin: 1, PortMax: 65535,
-		Protocol: "tcp", AppID: "l3-app", EnableTCPPrefL3: true,
-	}}
-	resource, ok := matchTCPIPResource(ipresource.New(resources), &net.TCPAddr{IP: net.IPv4(192, 0, 2, 120), Port: 2222}, true)
-	if !ok || resource.AppID != "l3-app" {
-		t.Fatalf("matchTCPIPResource() = (%#v, %t), want l3-app fallback", resource, ok)
-	}
-}
-
-func TestMatchTCPIPResourceFallbackStillPrefersRegularTCPResource(t *testing.T) {
+func TestMatchTCPIPResourceExcludesL3WhenTCPAlsoMatches(t *testing.T) {
 	resources := []client.IPResource{
 		{IPMin: net.IPv4(192, 0, 2, 1), IPMax: net.IPv4(192, 0, 2, 254), PortMin: 1, PortMax: 65535, Protocol: "tcp", AppID: "tcp-app"},
 		{IPMin: net.IPv4(192, 0, 2, 1), IPMax: net.IPv4(192, 0, 2, 254), PortMin: 1, PortMax: 65535, Protocol: "tcp", AppID: "l3-app", EnableTCPPrefL3: true},
 	}
-	resource, ok := matchTCPIPResource(ipresource.New(resources), &net.TCPAddr{IP: net.IPv4(192, 0, 2, 120), Port: 2222}, true)
+	resource, ok := matchTCPIPResource(ipresource.New(resources), &net.TCPAddr{IP: net.IPv4(192, 0, 2, 120), Port: 2222})
 	if !ok || resource.AppID != "tcp-app" {
 		t.Fatalf("matchTCPIPResource() = (%#v, %t), want regular tcp-app", resource, ok)
-	}
-}
-
-func TestDialTCPAllowsTCPPrefL3DomainFallback(t *testing.T) {
-	atrustClient := NewClient(ClientOptions{})
-	defer atrustClient.Close()
-	atrustClient.resourceIndex = ipresource.New(nil)
-	resource := client.DomainResource{
-		PortMin: 1, PortMax: 65535, Protocol: "tcp", AppID: "l3-app", NodeGroupID: "test-node-group", EnableTCPPrefL3: true,
-	}
-	ctx := context.WithValue(context.Background(), resolve.ContextKeyDomainResource, resource)
-	ctx = resolve.WithIgnoreTCPPrefL3(ctx)
-	_, err := atrustClient.DialTCP(ctx, &net.TCPAddr{IP: net.IPv4(192, 0, 2, 120), Port: 2222})
-	if err == nil || errors.Is(err, client.ErrResourceNotFound) || !strings.Contains(err.Error(), "no available aTrust node") {
-		t.Fatalf("DialTCP() error = %v, want resource accepted before missing-node error", err)
 	}
 }
 

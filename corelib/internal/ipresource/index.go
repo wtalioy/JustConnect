@@ -62,10 +62,6 @@ func (i *Index) Match(destination net.IP, protocol string, port int) (client.IPR
 	return i.match(destination, protocol, port, false, nil)
 }
 
-func (i *Index) MatchLast(destination net.IP, protocol string, port int) (client.IPResource, bool) {
-	return i.match(destination, protocol, port, true, nil)
-}
-
 func (i *Index) MatchWhere(destination net.IP, protocol string, port int, accept func(client.IPResource) bool) (client.IPResource, bool) {
 	return i.match(destination, protocol, port, false, accept)
 }

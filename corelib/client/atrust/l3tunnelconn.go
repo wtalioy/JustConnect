@@ -722,37 +722,6 @@ func putDataPayload(frame *dataFrame) {
 
 const maxPooledDataPayload = 4096
 
-func parseDataPayload(payload []byte) ([][]byte, error) {
-	if len(payload) < 4 {
-		return nil, fmt.Errorf("payload too short")
-	}
-	tokenLen := int(payload[0])
-	idx := 1 + tokenLen
-	if len(payload) < idx+3 {
-		return nil, fmt.Errorf("payload token overflow")
-	}
-	idx += 2 // reserved
-	count := int(payload[idx])
-	idx++
-
-	packets := make([][]byte, 0, count)
-	for i := 0; i < count; i++ {
-		if idx+2 > len(payload) {
-			return nil, fmt.Errorf("packet length overflow")
-		}
-		plen := int(binary.BigEndian.Uint16(payload[idx : idx+2]))
-		idx += 2
-		if idx+plen > len(payload) {
-			return nil, fmt.Errorf("packet data overflow")
-		}
-		pkt := make([]byte, plen)
-		copy(pkt, payload[idx:idx+plen])
-		idx += plen
-		packets = append(packets, pkt)
-	}
-	return packets, nil
-}
-
 func readDataRespPayload(r *bufio.Reader) ([]byte, error) {
 	var lenBytes [2]byte
 	if _, err := io.ReadFull(r, lenBytes[:]); err != nil {

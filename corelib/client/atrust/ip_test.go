@@ -38,16 +38,6 @@ func TestReadIPTunnelResponsesRejectsAuthStatusWithoutLosingFraming(t *testing.T
 	}
 }
 
-func TestIPVIPResponseIgnoresThirdHeaderByte(t *testing.T) {
-	ip, err := parseIPv4VIPResponse([]byte{0x01, 0x01, 10, 249, 8, 102})
-	if err != nil {
-		t.Fatalf("parseIPv4VIPResponse() error = %v", err)
-	}
-	if got := ip.String(); got != "10.249.8.102" {
-		t.Fatalf("VIP = %s, want 10.249.8.102", got)
-	}
-}
-
 func TestIPAuthRequestUsesEncodedJSONLength(t *testing.T) {
 	payload, err := json.Marshal(authRequestSID{Sid: `sid-with-"-quote`})
 	if err != nil {
