@@ -80,6 +80,8 @@ ABI v1 与 JSON schema 版本同步。S2-02 以兼容增补导出 `jc_config_val
 }
 ~~~
 
+`jc_build_info.capabilities.max_auth_wait_ms` 为单次认证等待上限，目前五分钟，由核心设置 deadline；调用方 deadline 更早时优先生效。到期终态为 `JC_TIMEOUT`，停止／用户取消仍为 `JC_CANCELLED`，Qt 关闭认证窗口并提供重试。超时不接收已排队的晚到回应，新一代认证必须重新取得请求标识。
+
 `action` 仅允许 `submit/cancel/confirm`；`confirm` 只用于可信设备登记，取消与确认均不能携带凭据或其他输入。重复、过期、旧代次或未读请求的回应返回 `JC_STALE_REQUEST`。取消和响应竞争时只接受一个回应，Stop 后的迟到回应不会交给下一代。
 
 | challenge.kind | 内容／有效回应 |

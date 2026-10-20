@@ -25,6 +25,7 @@ const (
 	MaxInterfaceName  = 1024
 	MaxLanguage       = 64
 	MaxCAPEM          = 16384
+	MaxAuthWaitMS     = 300000
 )
 const (
 	OK                Status = 0

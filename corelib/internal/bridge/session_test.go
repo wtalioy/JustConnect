@@ -458,3 +458,55 @@ func TestAuthMethodResultsRespectReservedQueueAndOutputLimits(t *testing.T) {
 		}
 	}
 }
+
+func TestAuthenticationDeadlineRejectsLateReplyAndAllowsRetry(t *testing.T) {
+	for _, source := range []string{"caller", "core"} {
+		t.Run(source, func(t *testing.T) {
+			rounds := 0
+			e := New(func(ctx context.Context, _ Config, s *Session) Status {
+				rounds++
+				if rounds == 1 {
+					if source == "core" {
+						_, status := s.authenticate(ctx, Challenge{Kind: "sms"}, 200*time.Millisecond)
+						return status
+					}
+					deadline, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
+					defer cancel()
+					_, status := s.Authenticate(deadline, Challenge{Kind: "sms"})
+					return status
+				}
+				_, status := s.Authenticate(ctx, Challenge{Kind: "sms"})
+				return status
+			})
+			h := create(t, e)
+			e.Start(h, []byte(configJSON))
+			read(t, e, h)
+			expired := read(t, e, h)
+			terminal := read(t, e, h)
+			if terminal.Type != "terminal" || terminal.Status != Timeout {
+				t.Fatalf("authentication deadline: %+v", terminal)
+			}
+			response := func(ev event) []byte {
+				return []byte(fmt.Sprintf(`{"schema_version":1,"generation":"%d","request_id":"%d","action":"submit","code":"fixture-code"}`, ev.Generation, ev.RequestID))
+			}
+			if status := e.Respond(h, response(expired)); status != StaleRequest {
+				t.Fatal("late response accepted", status)
+			}
+			if _, status := e.Start(h, []byte(configJSON)); status != OK {
+				t.Fatal("retry failed", status)
+			}
+			read(t, e, h)
+			current := read(t, e, h)
+			if status := e.Respond(h, response(expired)); status != StaleRequest {
+				t.Fatal("old request entered retry", status)
+			}
+			if status := e.Respond(h, response(current)); status != OK {
+				t.Fatal("new request rejected", status)
+			}
+			if terminal := read(t, e, h); terminal.Type != "terminal" || terminal.Status != OK {
+				t.Fatal(terminal)
+			}
+
+		})
+	}
+}
