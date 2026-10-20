@@ -3,9 +3,9 @@
 JustConnect 的主仓库是 [wtalioy/JustConnect](https://github.com/wtalioy/JustConnect)。
 `origin` 用于自己的开发和发布；`upstream` 等 remote 仅用于查看上游变更，保留原有历史和致谢。
 
-应用已通过 `CoreEngine → EmbeddedCoreEngine → C ABI → corelib.Session` 在宿主内运行 aTrust。正式源码直接维护于 `corelib/` 单一模块，来源与许可见 [UPSTREAM.md](../corelib/UPSTREAM.md)。根 CMake 与原生宿主共用 [CoreLibrary.cmake](../cmake/CoreLibrary.cmake)，Unix 静态链接，Windows 固定随包 DLL。旧下载／独立核心打包校验脚本仍被构建工作流调用，S1-09／10 接续验收并删除；下文独立核心章节作为尚在迁移的构建链路保留，不代表应用仍调用外部核心。
+应用已通过 `CoreEngine → EmbeddedCoreEngine → C ABI → corelib.Session` 在宿主内运行 aTrust。正式源码直接维护于 `corelib/` 单一模块，来源与许可见 [UPSTREAM.md](../corelib/UPSTREAM.md)。根 CMake 与原生宿主共用 [CoreLibrary.cmake](../cmake/CoreLibrary.cmake)，Unix 静态链接，Windows 固定随包 DLL。测试与打包均通过同一 CMake 核心 target；旧下载脚本已退出工作流，剩余文件按 S1-10 清理。
 
-`Core ABI` 工作流验证六组原生库、Qt 适配器／认证 UI、受控协议网关及 Go 回归；三平台 `Tests` 同时构建实际应用并运行 CTest。Go 版本来自 `corelib/go.mod`，cgo 编译器由共用 [setup-core-toolchain](../.github/actions/setup-core-toolchain/action.yml) 准备。Windows 使用固定校验和的 LLVM-MinGW UCRT 编译 Go DLL，C++ 保持 Qt 对应 MSVC。安装包自检、完整依赖及签名验收仍属 S1-09，Linux 权限检查独立保留在 `tests/platform/`。
+`Core ABI` 工作流验证六组原生库、Qt 适配器／认证 UI、受控协议网关及 Go 回归；三平台 `Tests` 同时构建实际应用并运行 CTest。Go 版本来自 `corelib/go.mod`，cgo 编译器由共用 [setup-core-toolchain](../.github/actions/setup-core-toolchain/action.yml) 准备。Windows 使用固定校验和的 LLVM-MinGW UCRT 编译 Go DLL，C++ 保持 Qt 对应 MSVC。六组安装包运行正式应用的离线 ABI 自检，并审计架构、依赖、最低系统版本和签名；具体证据见计划的 S1-09。Linux 权限检查独立保留在 `tests/platform/`。
 
 ## 集成 Go 源码的离线基线
 
@@ -22,7 +22,7 @@ env PATH="/home/lioy/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.2.linux-amd64
     python scripts/test-corelib.py
 ```
 
-入口显式关闭 workspace 和自动工具链切换，要求 Go 版本与模块声明一致；外部依赖使用 Go 缓存和 `go.sum`，不带 vendor。当前使用 `CGO_ENABLED=0` 验证协议源码与离线逻辑，六组 cgo 链接由正式 ABI 宿主验证，正式库与 Qt 适配器构建已接入共享 CMake，S1-09 接续安装包验收。`Tests` 三平台工作流运行同一入口；当前共用工具链步骤关闭 Go 缓存，按源码及 `go.sum` 构建验证，缓存收敛由 S1-09 接续。
+入口显式关闭 workspace 和自动工具链切换，要求 Go 版本与模块声明一致；外部依赖使用 Go 缓存和 `go.sum`，不带 vendor。当前显式使用 `CGO_ENABLED=1` 和 `cgocheck2`，包括 ABI 包、生成文件校验、gofmt、vet 和完整离线测试。`Tests` 与打包运行同一入口；Go 缓存按平台、架构、工具链版本与 `corelib/go.sum` 区分。实际应用和六组 C／Qt 宿主通过共享 CMake 构建正式库。
 
 该入口构建全部源码，并按 `go list` 的实际包集合运行完整套件（含无测试包），数量由验证输出记录。S1-07 已恢复认证包，删除原 `session.do` 已知失败例外；回环 TLS／隧道网关覆盖实际认证、代理收发、查询、阶段取消与失败回滚。Windows 继续运行真实调试文件 ACL 回归，覆盖新建、已有宽权限收紧及拒绝访问后不截断；Unix 验证 `0600`。这些测试不访问校园、创建设备或修改系统网络。
 
@@ -30,7 +30,7 @@ env PATH="/home/lioy/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.2.linux-amd64
 
 S1-03 的独立入口见 [CORE-ABI.md](CORE-ABI.md)。`corelib/abi/contract.json` 是 C／Go 共用常量的单一来源；普通 Go 验证入口运行 `scripts/generate-core-abi.py --check`，避免两个语言的状态码、版本或边界漂移。构建来源从 Git 注入，运行地址、端口与凭据由宿主传入。
 
-`tests/coreabi` 同时编译 C11／C++17 宿主，实际调用正式库及明确标记的认证测试驱动；新增 `coreabi_protocol_test` 用受控网关驱动正式 C 宿主完成认证、代理数据传输、停止与查询重启；Unix 使用静态库，Windows 使用固定随包 DLL。`Core ABI` 复用已有六组工具链执行该宿主、QThread／WebEngine 共存及 Go 回归，支持的平台执行 race；日志统一在 `build/coreabi/*.log` 并上传。Windows ARM64 的 Go race 不支持，普通 Go 和真实 FFI 检查仍必需通过。根应用已使用相同的库构建入口，安装包自检和完整迁移仍由 S1-09／10 实施。
+`tests/coreabi` 同时编译 C11／C++17 宿主，实际调用正式库及明确标记的认证测试驱动；新增 `coreabi_protocol_test` 用受控网关驱动正式 C 宿主完成认证、代理数据传输、停止与查询重启；Unix 使用静态库，Windows 使用固定随包 DLL。`Core ABI` 复用已有六组工具链执行该宿主、QThread／WebEngine 共存及 Go 回归，支持的平台执行 race；日志统一在 `build/coreabi/*.log` 并上传。Windows ARM64 的 Go race 不支持，普通 Go 和真实 FFI 检查仍必需通过。根应用及安装包使用相同的库构建入口和离线自检；旧下载文件删除由 S1-10 收尾。
 
 ## 分支与 Actions
 
@@ -41,7 +41,7 @@ S1-03 的独立入口见 [CORE-ABI.md](CORE-ABI.md)。`corelib/abi/contract.json
 - 在本仓库发布 `vX.Y.Z`（可带 `-beta.1` 等后缀）的 GitHub Release 后，工作流重建该版本，全部成功后将安装包附加到该 Release。推送 `main` 仅生成 Actions 产物，不自动发布正式版本。
 - 可从 `main` 手动运行打包工作流；关闭 `nightly` 时必须提供有效的版本号。手动运行只生成产物，不创建 Release。
 - 开发预览：进入 Actions → `Build packages` → `Run workflow`，分支选择 `develop`。此时手动构建六组预览包并运行测试，产物名为 `JustConnect-preview-提交SHA-平台-架构`，在该次运行的 Artifacts 下载，保留 14 天。预览始终使用 nightly 应用版本（忽略 `nightly/version` 输入），macOS 使用临时签名，不执行开发者签名、公证或 Release 上传；普通推送到 `develop` 仍只触发测试。
-- 旧独立核心打包构建暂用 [core/manifest.json](../core/manifest.json) 固定源码和补丁；实际内嵌库使用本仓库 `corelib/` 源码；已移除 `core_nightly` 输入。应用的 nightly／正式版本均使用该清单，不下载上游浮动 release 或 nightly 核心。
+- 内嵌库使用本仓库 `corelib/`、模块锁及固定工具链，nightly 与正式版本共用相同源码；旧 [core/manifest.json](../core/manifest.json) 仅为待 S1-10 删除的历史构建输入。
 
 普通 CI 使用 `contents: read`，仅上传 Release 的 job 使用 `contents: write`，按 [GitHub 工作流权限文档](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#permissions) 配置。无需为普通构建或 Release 上传单独创建 PAT。
 
@@ -85,7 +85,7 @@ ctest --test-dir build --build-config Release --output-on-failure
 ```
 
 无显示服务器的 Linux 环境可设置 `QT_QPA_PLATFORM=offscreen` 运行界面测试。
-核心源码维护在 `corelib/`，应用与测试通过 `cmake/CoreLibrary.cmake` 构建同一份库。使用 `corelib/go.mod` 指定的 Go、Python、原生 C／C++ 工具链；Windows 的 cgo 使用 setup-core-toolchain 中固定校验和的 LLVM-MinGW UCRT，Qt 宿主仍用 MSVC。Unix 链接 Go 静态归档，Windows 从应用目录加载固定 DLL，不搜索外部核心。
+核心源码维护在 `corelib/`，应用与测试通过 `cmake/CoreLibrary.cmake` 构建同一份库。使用 `corelib/go.mod` 指定的 Go、Python 3.11 或更新版本、原生 C／C++ 工具链；Windows 的 cgo 使用 setup-core-toolchain 中固定校验和的 LLVM-MinGW UCRT，Qt 宿主仍用 MSVC。Unix 链接 Go 静态归档，Windows 从应用目录加载固定 DLL，不搜索外部核心。
 
 CMake 从 ABI 契约生成 C／Go 常量，显式启用 `CGO_ENABLED=1` 和 `cgocheck2`；Go 源码、模块锁、契约、头文件缺失和构建选项变化都会重建。版本取当前 Git 提交及工作树状态，工具链写入 `build/core-toolchain.txt`。连续无变化构建不重新编译核心。CI 缓存使用平台、架构、Go 版本和 `corelib/go.sum`。
 
@@ -98,7 +98,7 @@ python scripts/test-corelib.py
 
 六平台原生 C／Qt 契约及协议测试使用同一 CMake 核心 target，支持的平台执行完整 race；Windows ARM64 的 Go race 不受工具链支持，普通 Go、FFI 和 Qt 回归仍必须通过。部署脚本统一通过 CMake 的 `CoreRuntime` 组件安装运行库、来源提交、Go／C／C++ 工具链记录、许可证和维护说明。包内不再附带旧 CLI、原始源码归档或 Wintun。Linux 的 linuxdeploy 工具以 `scripts/linuxdeploy.json` 固定内容校验和，使用免 FUSE 的提取运行方式。
 
-`Build packages` 保留 main 推送／Release、develop 手动六组预览的触发方式；预览不使用发布签名凭据。工作流解压 ZIP／AppImage、挂载 DMG 后，用 `scripts/verify-package.py` 从临时工作目录、清除 Qt SDK 和库搜索环境后运行正式程序。它检查 ABI／来源／版本、无网络生命周期、全部原生文件架构与依赖来源，拒绝缺失依赖和外部 Qt；Windows 还验证移走包内 DLL 后启动自检失败。报告记录程序和 DLL 的 SHA-256、PE 系统版本字段／ELF 所需 GLIBC 和 GLIBCXX／Mach-O 最低版本，以及真实签名状态。macOS 的部署目标由共享 CMake 统一设置，当前跟随 [Qt 6.12 的 14.4 下限](https://doc.qt.io/qt-6.12/supported-platforms.html)，要求所有包内二进制不高于 Info.plist 声明，并严格验签；预览为 ad-hoc，Developer ID 与公证仅在发布凭据齐全时执行。Windows 预览允许明确记录的 NotSigned，损坏签名失败。
+`Build packages` 保留 main 推送／Release、develop 手动六组预览的触发方式；预览不使用发布签名凭据。工作流解压 ZIP／AppImage、挂载 DMG 后，用 `scripts/verify-package.py` 从临时工作目录、清除 Qt SDK 和库搜索环境后运行正式程序。它检查 ABI／来源／版本、无网络生命周期、全部原生文件架构与依赖来源，拒绝缺失依赖和外部 Qt；Windows 还验证移走包内 DLL 后启动自检失败。报告记录程序和 DLL 的 SHA-256、PE 系统版本字段／ELF 所需 GLIBC 和 GLIBCXX／Mach-O 最低版本，以及真实签名状态。macOS 的部署目标由共享 CMake 统一设置，当前跟随 [Qt 6.12 的 14.4 下限](https://doc.qt.io/qt-6.12/supported-platforms.html)，要求所有包内二进制不高于 Info.plist 声明，并严格验签；预览为 ad-hoc，Developer ID 与公证仅在发布凭据齐全时执行。Windows 部署与签名查询使用 PowerShell 7；预览允许明确记录的 NotSigned，损坏签名失败。
 
 Linux 最低 glibc 来自实际包内 ELF 的版本需求，不能由 Qt 的理论平台下限推断本项目在旧发行版可运行；GLIBCXX 需求也写入报告。Windows PE 字段同样不能替代 Qt 的 Windows 10 1809／ARM64 Windows 支持要求。旧系统的实际桌面兼容性按后续平台验收执行，不将这些静态检查写成旧系统实机通过。
 
@@ -140,4 +140,4 @@ SDK 安装阶段另运行三项 Python 安装器测试，覆盖路径校验、�
 
 CI 编译、CTest、预览打包与真实校园网络验收分别记录。当前代码结构及封装限制见[架构说明](ARCHITECTURE.md)，后续目标和状态以计划为准；本文维护可执行的构建与发布操作。
 
-当前打包使用固定源码构建的第三方核心；校园透明访问与自动共存尚未实现。上游高级用法的来源与已采用约束保留在计划参考索引中，原手工配置示例不再作为当前产品的操作说明；新的使用文档随 [S8](../plan.md#s8) 的实测结果补充，README 暂时留空。
+当前打包使用本仓库维护的内嵌核心；校园透明访问与自动共存尚未实现。上游高级用法的来源与已采用约束保留在计划参考索引中，原手工配置示例不再作为当前产品的操作说明；新的使用文档随 [S8](../plan.md#s8) 的实测结果补充，README 暂时留空。

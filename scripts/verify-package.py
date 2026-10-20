@@ -16,8 +16,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def run(*args, env=None):
-    result = subprocess.run(list(map(str, args)), env=env, check=True,
+    result = subprocess.run(list(map(str, args)), env=env, check=False,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
+    if result.returncode:
+        raise RuntimeError(f'{args[0]} exited {result.returncode}: '
+                           + result.stderr.decode('utf-8', errors='replace')
+                           + result.stdout.decode('utf-8', errors='replace'))
     return result.stdout.decode('utf-8', errors='replace')
 
 
@@ -165,6 +169,14 @@ def windows_audit(files, root, arch):
     return {'files': evidence}
 
 
+def windows_signature(path):
+    # Use the same PowerShell host as CI, including its compatible module paths.
+    command = ("[Console]::OutputEncoding = [Text.UTF8Encoding]::new(); "
+               "$s = Get-AuthenticodeSignature -LiteralPath '"
+               + str(path).replace("'", "''") + "'; $s.Status.ToString()")
+    return run('pwsh', '-NoProfile', '-Command', command).strip()
+
+
 def verify(root, executable, revision, application_version, output, signed=False):
     root, executable = root.resolve(), executable.resolve()
     if not inside(executable, root):
@@ -220,12 +232,7 @@ def verify(root, executable, revision, application_version, output, signed=False
         with path.open('rb') as stream:
             report['sha256'][str(path.relative_to(root))] = hashlib.file_digest(stream, 'sha256').hexdigest()
         if system == 'windows':
-            # Native signature inspection records unsigned previews and rejects damaged signatures.
-            command = ("[Console]::OutputEncoding = [Text.UTF8Encoding]::new(); "
-                       "$s = Get-AuthenticodeSignature -LiteralPath $args[0]; "
-                       "$s.Status.ToString()")
-            status = run('powershell.exe', '-NoProfile', '-Command',
-                         command.replace('$args[0]', "'" + str(path).replace("'", "''") + "'")).strip()
+            status = windows_signature(path)
             if status not in ('Valid', 'NotSigned'):
                 raise RuntimeError(f'Invalid Authenticode signature: {path}: {status}')
             report.setdefault('signatures', {})[path.name] = status
