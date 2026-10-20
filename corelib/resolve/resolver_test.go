@@ -407,7 +407,9 @@ func TestDNSCacheRemainsBoundedAndReusesExpiredSlots(t *testing.T) {
 	if _, found := r.getDNSCache("overflow"); found {
 		t.Fatal("overflow entry displaced a live record")
 	}
-	r.dnsCache.Set("0", ip, time.Nanosecond)
+	items := r.dnsCache.Items()
+	items["0"] = cache.Item{Object: ip, Expiration: time.Now().Add(-time.Second).UnixNano()}
+	r.dnsCache = cache.NewFrom(time.Minute, 0, items)
 	r.setDNSCache("new", ip)
 	if _, found := r.getDNSCache("new"); !found {
 		t.Fatal("expired slot was not reclaimed")

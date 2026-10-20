@@ -41,6 +41,19 @@ func (c *ownedConn) Close() error {
 	return c.err
 }
 
+func (c *ownedConn) CloseWrite() error {
+	if conn, ok := c.Conn.(interface{ CloseWrite() error }); ok {
+		return conn.CloseWrite()
+	}
+	return nil
+}
+func (c *ownedConn) CloseRead() error {
+	if conn, ok := c.Conn.(interface{ CloseRead() error }); ok {
+		return conn.CloseRead()
+	}
+	return nil
+}
+
 func joinedContext(ctx, parent context.Context) (context.Context, context.CancelFunc) {
 	child, cancel := context.WithCancel(ctx)
 	stop := context.AfterFunc(parent, cancel)

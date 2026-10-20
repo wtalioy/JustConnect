@@ -150,7 +150,7 @@ func (p *httpProxy) handleConnect(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	relayDone := make(chan struct{}, 2)
+	relayDone := make(chan error, 2)
 	go relayHTTPConnect(targetConn, buffered, relayDone, p.failure)
 	go relayHTTPConnect(clientConn, targetConn, relayDone, p.failure)
 	<-relayDone
@@ -159,17 +159,22 @@ func (p *httpProxy) handleConnect(w http.ResponseWriter, req *http.Request) {
 	<-relayDone
 }
 
-func relayHTTPConnect(dst io.Writer, src io.Reader, done chan<- struct{}, fail func(error)) {
+func relayHTTPConnect(dst io.Writer, src io.Reader, done chan<- error, fail func(error)) {
+	var relayErr error
 	defer func() {
-		if recover() != nil && fail != nil {
-			fail(errors.New("proxy relay panicked"))
+		if recover() != nil {
+			relayErr = errors.New("proxy relay panicked")
+			if fail != nil {
+				fail(relayErr)
+			}
 		}
-		done <- struct{}{}
+		done <- relayErr
 	}()
-	_, _ = io.Copy(dst, src)
-
-	if conn, ok := dst.(interface{ CloseWrite() error }); ok {
-		_ = conn.CloseWrite()
+	_, relayErr = io.Copy(dst, src)
+	if relayErr == nil {
+		if conn, ok := dst.(interface{ CloseWrite() error }); ok {
+			relayErr = conn.CloseWrite()
+		}
 	}
 	if conn, ok := src.(interface{ CloseRead() error }); ok {
 		_ = conn.CloseRead()
