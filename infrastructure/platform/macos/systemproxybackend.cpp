@@ -132,10 +132,10 @@ PlatformOperationResult PlatformSystemProxyBackend::apply(const SystemProxyConfi
     auto pending = std::make_shared<Snapshot>(); pending->preferences = api.open(&pending->authorization);
     if (!pending->preferences) return error("Open proxy preferences");
     auto prefs = pending->preferences;
+    SCPreferencesSynchronize(prefs);
     if (!SCPreferencesLock(prefs, false)) return error("Lock proxy preferences");
     bool locked = true;
     const auto unlock = qScopeGuard([&] { if (locked) SCPreferencesUnlock(prefs); });
-    SCPreferencesSynchronize(prefs);
     auto all = SCNetworkServiceCopyAll(prefs);
     if (!all) return error("Read network services");
     const auto release = qScopeGuard([&] { CFRelease(all); });
@@ -172,9 +172,9 @@ PlatformOperationResult PlatformSystemProxyBackend::clear() {
     if (!snapshot) return {};
     auto saved = snapshot;
     auto prefs = saved->preferences;
+    SCPreferencesSynchronize(prefs);
     if (!SCPreferencesLock(prefs, false)) return error("Lock proxy preferences for restoration", true);
     const auto unlock = qScopeGuard([&] { SCPreferencesUnlock(prefs); });
-    SCPreferencesSynchronize(prefs);
     auto expected = dictionary();
     const auto releaseExpected = qScopeGuard([&] { CFRelease(expected); });
     for (const auto &service : saved->services) {
