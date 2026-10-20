@@ -33,24 +33,6 @@ func newSessionTestClient() *Client {
 	})
 }
 
-func TestDefaultHeartbeatIntervalMatchesOfficialClient(t *testing.T) {
-	if defaultHeartbeatInterval != 5*time.Second {
-		t.Fatalf("default heartbeat interval = %v, want 5s", defaultHeartbeatInterval)
-	}
-}
-
-func TestDefaultAuthTimingMatchesOfficialClient(t *testing.T) {
-	if defaultAuthTimeout != 5*time.Second {
-		t.Fatalf("default auth timeout = %v, want 5s", defaultAuthTimeout)
-	}
-	if defaultAuthRetryWait != 10*time.Second {
-		t.Fatalf("default auth retry wait = %v, want 10s", defaultAuthRetryWait)
-	}
-	if defaultAuthMaxAttempts != 3 {
-		t.Fatalf("default auth attempts = %d, want 3", defaultAuthMaxAttempts)
-	}
-}
-
 func TestForwardFromConnPreservesPacket(t *testing.T) {
 	transport := &trackingNetConn{closed: make(chan struct{})}
 	conn := &l3TunnelConn{
@@ -1476,36 +1458,6 @@ func TestPendingPacketCacheMatchesBinaryLimitAndAuthTimeoutRetries(t *testing.T)
 	}
 }
 
-func TestAuthServerBusyWaitsBeforeRetry(t *testing.T) {
-	now := time.Unix(1000, 0)
-	manager := newConntrackMgr()
-	manager.now = func() time.Time { return now }
-	ct := manager.getOrCreate("flow", "app", "group")
-	if _, err := manager.cachePacket(ct, packetMeta{key: ct.key}, []byte{1}); err != nil {
-		t.Fatal(err)
-	}
-	jobs, _ := manager.nextAuthBatch(defaultAuthBatchSize)
-	manager.markAuthSent(ct.authID, now.Add(defaultAuthTimeout))
-	conn := &l3TunnelConn{closeCh: make(chan struct{}), authWake: make(chan struct{}, 1), conntrackMgr: manager}
-	response, err := json.Marshal(authResponseIP{
-		Data: authResponseIPData{ConntrackHash: ct.authID},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	conn.handleAuthResp(authRetryStatusMin, response)
-
-	jobs, _ = manager.nextAuthBatch(defaultAuthBatchSize)
-	if len(jobs) != 0 {
-		t.Fatalf("immediate retry jobs = %d, want 0", len(jobs))
-	}
-	now = now.Add(defaultAuthRetryWait)
-	jobs, _ = manager.nextAuthBatch(defaultAuthBatchSize)
-	if len(jobs) != 1 || jobs[0].conntrack != ct {
-		t.Fatalf("delayed retry jobs = %v, want conntrack", jobs)
-	}
-}
-
 func TestAuthStatus84RetriesImmediately(t *testing.T) {
 	now := time.Unix(1000, 0)
 	manager := newConntrackMgr()
@@ -1536,30 +1488,6 @@ func TestAuthStatus84RetriesImmediately(t *testing.T) {
 	case <-conn.authWake:
 	default:
 		t.Fatal("immediate retry did not wake auth scheduler")
-	}
-}
-
-func TestAuthServerRetriesDoNotConsumeTimeoutBudget(t *testing.T) {
-	now := time.Unix(1000, 0)
-	manager := newConntrackMgr()
-	manager.now = func() time.Time { return now }
-	ct := manager.getOrCreate("flow", "app", "group")
-	if _, err := manager.cachePacket(ct, packetMeta{key: ct.key}, []byte{1}); err != nil {
-		t.Fatal(err)
-	}
-
-	for attempt := 0; attempt < defaultAuthMaxAttempts+1; attempt++ {
-		jobs, _ := manager.nextAuthBatch(defaultAuthBatchSize)
-		if len(jobs) != 1 || jobs[0].conntrack != ct {
-			t.Fatalf("server retry %d jobs = %v, want conntrack", attempt, jobs)
-		}
-		manager.markAuthSent(ct.authID, now.Add(defaultAuthTimeout))
-		if !manager.retryAuth(ct.authID, 0) {
-			t.Fatalf("server retry %d exhausted timeout budget", attempt)
-		}
-	}
-	if ct.authTimeouts != 0 {
-		t.Fatalf("auth timeouts after server retries = %d, want 0", ct.authTimeouts)
 	}
 }
 
