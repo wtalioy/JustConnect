@@ -141,6 +141,11 @@ func NewSessionContext(ctx context.Context, server string, tlsKeyLogWriter io.Wr
 	}
 }
 
+// SetContext changes the lifetime between serialized setup and maintenance calls.
+func (s *Session) SetContext(ctx context.Context) { s.ctx = ctx }
+
+func (s *Session) Close() { s.client.CloseIdleConnections() }
+
 func (s *Session) request(req *http.Request) (*http.Response, error) {
 	ctx, cancel := context.WithCancel(req.Context())
 	stop := context.AfterFunc(s.ctx, cancel)
@@ -151,6 +156,12 @@ func (s *Session) request(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		stop()
 		cancel()
+		if req.Context().Err() != nil {
+			return nil, req.Context().Err()
+		}
+		if s.ctx.Err() != nil {
+			return nil, s.ctx.Err()
+		}
 		return nil, err
 	}
 	response.Body = &responseBody{ReadCloser: response.Body, release: func() { stop(); cancel() }}
@@ -353,7 +364,7 @@ func (s *Session) Login(method LoginMethod, opts LoginOptions) (LoginResult, err
 	s.totpSecret = opts.TOTPSecret
 	s.challengeHandler = opts.ChallengeHandler
 	if s.challengeHandler == nil {
-		s.challengeHandler = authchallenge.NewCLIHandler(authchallenge.CLIOptions{})
+		s.challengeHandler = authchallenge.UnsupportedHandler{}
 	}
 	s.env = base64.StdEncoding.EncodeToString([]byte(`{"deviceId":"` + opts.DeviceID + `"}`))
 

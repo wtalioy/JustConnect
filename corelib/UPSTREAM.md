@@ -46,7 +46,7 @@ S1-07 修复了原始认证测试的错误方法名及 `Session.request` 覆盖�
 go -C corelib test -timeout 60s ./...
 ```
 
-会话生命周期、致命退出及全局资源仍在 S1-07 接续收敛，TLS 生产策略按 S2-03 验收。
+S1-07 已将 aTrust 认证、IP／L3／TCP 隧道的会话失效退出改为错误交付，加入后台工作等待、初始化失败回滚及握手取消，修复 setup 结束误取消维护请求的问题。CLI 的 stdin／浏览器／验证码 HTTP 服务已删除；宿主注入 `authchallenge.Handler`，缺省明确拒绝交互。认证方式查询通过客户端的显式 context 与 underlay 发起，不再另建带隐式文件配置的临时客户端。数据栈、监听、日志及 ABI 的正式会话仍在接续收敛，TLS 生产策略按 S2-03 验收。
 
 导入代码 `1611e9c` 已通过来源核对及原 23 包的 Linux 限定基线，并验证新增认证编译错误不会被已知缺陷例外掩盖。[首次推送 CI](https://github.com/wtalioy/JustConnect/actions/runs/39279301877)的 Linux、macOS 限定基线及应用测试通过，Windows 因两处 Unix 权限断言失败；`197ea01` 已修正断言平台范围。2026-10-20 进一步实测发现 Windows 仍保留继承／已有 ACL，现已在共享文件入口修复。本机 Linux 的 24 包限定基线、Windows x64 的 17 个离线测试程序实际运行通过。修复提交 `f9b4111` 的[三平台 CI](https://github.com/wtalioy/JustConnect/actions/runs/39284985278)全部成功：Windows、Linux、macOS 均通过模块及依赖锁校验、全部源码构建、24 包限定离线基线与各 16 项应用测试；Windows ACL 回归也通过 CI。S1-05 源码整合已验收，认证包仍按上述 S1-07 缺陷单独标为受阻，不能把限定基线描述为完整认证套件通过。
 

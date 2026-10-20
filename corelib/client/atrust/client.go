@@ -18,9 +18,7 @@ import (
 	"github.com/wtalioy/JustConnect/corelib/client/atrust/auth"
 	"github.com/wtalioy/JustConnect/corelib/client/authchallenge"
 	"github.com/wtalioy/JustConnect/corelib/internal/ipresource"
-	"github.com/wtalioy/JustConnect/corelib/internal/keylog"
 	"github.com/wtalioy/JustConnect/corelib/log"
-	"github.com/wtalioy/JustConnect/corelib/underlay"
 	"inet.af/netaddr"
 )
 
@@ -35,6 +33,7 @@ type ClientOptions struct {
 	Session         SessionOptions
 	UnderlayDialer  client.UnderlayDialer
 	TLSKeyLogWriter io.Writer
+	Language        string
 }
 
 type SetupOptions struct {
@@ -57,9 +56,16 @@ type Client struct {
 	ConnectionID string
 	SignKey      string
 
-	sessionMu   sync.RWMutex
-	sessionErr  error
-	refreshDone chan struct{}
+	setupMu      sync.Mutex
+	setupStarted bool
+	authSession  *auth.Session
+	workers      sync.WaitGroup
+	failures     chan error
+	failureOnce  sync.Once
+	language     string
+	sessionMu    sync.RWMutex
+	sessionErr   error
+	refreshDone  chan struct{}
 
 	serverAddress   string
 	ipResources     []client.IPResource
@@ -83,6 +89,8 @@ type Client struct {
 
 	l3Tunnel   *L3Tunnel
 	l3TunnelMu sync.Mutex
+	tcpMu      sync.Mutex
+	tcpConns   map[*tcpTunnelConn]struct{}
 
 	lifecycleCtx     context.Context
 	lifecycleCancel  context.CancelFunc
@@ -101,6 +109,8 @@ func NewClient(options ClientOptions) *Client {
 		SignKey:         options.Session.SignKey,
 		underlayDialer:  options.UnderlayDialer,
 		tlsKeyLogWriter: options.TLSKeyLogWriter,
+		language:        options.Language,
+		failures:        make(chan error, 1),
 		lifecycleCtx:    lifecycleCtx,
 		lifecycleCancel: lifecycleCancel,
 	}
@@ -113,8 +123,20 @@ func (c *Client) canResume(resourceData []byte) bool {
 func (c *Client) Close() {
 	c.closeOnce.Do(func() {
 		c.lifecycleCancel()
-		if c.refreshDone != nil {
-			<-c.refreshDone
+		c.setupMu.Lock()
+		defer c.setupMu.Unlock()
+		c.workers.Wait()
+		c.tcpMu.Lock()
+		connections := make([]*tcpTunnelConn, 0, len(c.tcpConns))
+		for conn := range c.tcpConns {
+			connections = append(connections, conn)
+		}
+		c.tcpMu.Unlock()
+		for _, conn := range connections {
+			_ = conn.Close()
+		}
+		if c.authSession != nil {
+			c.authSession.Close()
 		}
 		c.l3TunnelMu.Lock()
 		tunnel := c.l3Tunnel
@@ -207,36 +229,22 @@ func (c *Client) DNSServers() ([]string, error) {
 func randHex(n int) string {
 	numBytes := (n + 1) / 2
 	b := make([]byte, numBytes)
-	if _, err := rand.Read(b); err != nil {
-		panic(err)
-	}
+	_, _ = rand.Read(b)
 	return strings.ToUpper(hex.EncodeToString(b)[:n])
 }
 
-func GetAuthInfoList(serverAddress string, serverPort int, bindInterface string, autoDetectInterface bool, localDNSServer, debugTLSLogFile string) (authInfo []auth.AuthInfo, err error) {
-	var serverHost string
-	if serverPort == 443 {
-		serverHost = serverAddress
-	} else {
-		serverHost = fmt.Sprintf("%s:%d", serverAddress, serverPort)
+func (c *Client) GetAuthInfoList(ctx context.Context, serverAddress string, serverPort int) ([]auth.AuthInfo, error) {
+	if c.underlayDialer == nil {
+		return nil, errors.New("underlay dialer is required")
 	}
-	dialer, err := newUnderlayDialer(bindInterface, autoDetectInterface, localDNSServer)
-	if err != nil {
-		return nil, err
+	queryCtx, cancel := context.WithCancel(ctx)
+	stop := context.AfterFunc(c.lifecycleCtx, cancel)
+	defer func() { stop(); cancel() }()
+	if c.lifecycleCtx.Err() != nil {
+		cancel()
 	}
-	defer dialer.Close()
-	tlsKeyLogWriter, err := keylog.Open(debugTLSLogFile)
-	if err != nil {
-		return nil, fmt.Errorf("open TLS key log: %w", err)
-	}
-	defer func() {
-		if tlsKeyLogWriter != nil {
-			if closeErr := tlsKeyLogWriter.Close(); closeErr != nil {
-				err = errors.Join(err, fmt.Errorf("close TLS key log: %w", closeErr))
-			}
-		}
-	}()
-	sess := auth.NewSession(serverHost, tlsKeyLogWriter, dialer.DialContext)
+	sess := auth.NewSessionContext(queryCtx, net.JoinHostPort(serverAddress, fmt.Sprint(serverPort)), c.tlsKeyLogWriter, c.underlayDialer.DialContext)
+	defer sess.Close()
 	return sess.GetAuthInfoList()
 }
 
@@ -254,76 +262,20 @@ func (c *Client) NewL3Conn() (io.ReadWriteCloser, error) {
 	return tunnel.NewL3Conn()
 }
 
-func SetTrusted(serverAddress string, serverPort int, authData []byte, trusted bool, bindInterface string, autoDetectInterface bool, localDNSServer, debugTLSLogFile string) (err error) {
-	var clientAuthData auth.ClientAuthData
-	if authData != nil {
-		err := json.Unmarshal(authData, &clientAuthData)
-		if err != nil {
-			log.Println("Error parsing client data:", err)
-			return err
-		}
-	}
-	log.DebugPrintf("Given auth data: %+v", clientAuthData)
-
-	if clientAuthData.DeviceID == "" {
-		clientAuthData.DeviceID = strings.ToLower(randHex(32))
-	}
-
-	var serverHost string
-	if serverPort == 443 {
-		serverHost = serverAddress
-	} else {
-		serverHost = fmt.Sprintf("%s:%d", serverAddress, serverPort)
-	}
-	dialer, err := newUnderlayDialer(bindInterface, autoDetectInterface, localDNSServer)
-	if err != nil {
-		return err
-	}
-	defer dialer.Close()
-	tlsKeyLogWriter, err := keylog.Open(debugTLSLogFile)
-	if err != nil {
-		return fmt.Errorf("open TLS key log: %w", err)
-	}
-	defer func() {
-		if tlsKeyLogWriter != nil {
-			if closeErr := tlsKeyLogWriter.Close(); closeErr != nil {
-				err = errors.Join(err, fmt.Errorf("close TLS key log: %w", closeErr))
-			}
-		}
-	}()
-	sess := auth.NewSession(serverHost, tlsKeyLogWriter, dialer.DialContext)
-
-	if _, err := sess.Login(nil, auth.LoginOptions{
-		DeviceID: clientAuthData.DeviceID,
-		Cookies:  clientAuthData.Cookies,
-	}); err != nil {
-		return err
-	}
-	result, err := sess.QueryDevice()
-	if err != nil {
-		return err
-	}
-
-	if trusted {
-		if result.DeviceTrusted {
-			log.Println("Device already trusted, skipping")
-			return nil
-		}
-		return sess.TrustDevice([]string{result.SelfID})
-	} else {
-		if !result.DeviceTrusted {
-			log.Println("Device already untrusted, skipping")
-			return nil
-		}
-		return sess.UntrustDevice([]string{result.SelfID})
-	}
-}
-
 func (c *Client) Setup(options SetupOptions) ([]byte, error) {
 	return c.SetupContext(context.Background(), options)
 }
 
 func (c *Client) SetupContext(ctx context.Context, options SetupOptions) ([]byte, error) {
+	c.setupMu.Lock()
+	defer c.setupMu.Unlock()
+	if c.lifecycleCtx.Err() != nil {
+		return nil, context.Canceled
+	}
+	if c.setupStarted {
+		return nil, errors.New("client setup already attempted")
+	}
+	c.setupStarted = true
 	setupCtx, cancelSetup := context.WithCancel(ctx)
 	defer cancelSetup()
 	stopLifecycleCancellation := context.AfterFunc(c.lifecycleCtx, cancelSetup)
@@ -348,14 +300,22 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) ([]byte
 		clientAuthData.DeviceID = c.DeviceID
 	}
 
-	var authServerHost string
-	if options.ServerPort == 443 {
-		authServerHost = options.ServerAddress
-	} else {
-		authServerHost = fmt.Sprintf("%s:%d", options.ServerAddress, options.ServerPort)
-	}
+	authServerHost := net.JoinHostPort(options.ServerAddress, fmt.Sprint(options.ServerPort))
 	sess := auth.NewSessionContext(setupCtx, authServerHost, c.tlsKeyLogWriter, c.underlayDialer.DialContext)
+	c.authSession = sess
+	success := false
+	defer func() {
+		if !success {
+			sess.Close()
+			if c.l3Tunnel != nil {
+				c.l3Tunnel.Close()
+			}
+		}
+	}()
 	serverVersionInfo, manifestErr := sess.ServerVersionInfo()
+	if err := setupCtx.Err(); err != nil {
+		return nil, err
+	}
 	serverVersionInfo, err := resolveServerVersionInfo(clientAuthData.ServerVersionInfo, serverVersionInfo, manifestErr)
 	if err != nil {
 		return nil, err
@@ -456,23 +416,17 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) ([]byte
 			return nil, fmt.Errorf("failed to save client data: %w", err)
 		}
 	}
+	sess.SetContext(c.lifecycleCtx)
 	if options.SessionRefreshInterval > 0 {
 		c.startSessionRefresh(sess.Refresh, clientAuthData, options.SaveClientData, options.SessionRefreshInterval)
 	}
 
 	if options.BestNodesRefreshInterval > 0 {
-		go c.updateBestNodes(c.lifecycleCtx, options.BestNodesRefreshInterval)
+		c.startWorker(func() { c.updateBestNodes(c.lifecycleCtx, options.BestNodesRefreshInterval) })
 	}
 
+	success = true
 	return authData, nil
-}
-
-func newUnderlayDialer(bindInterface string, autoDetectInterface bool, localDNSServer string) (*underlay.Dialer, error) {
-	return underlay.New(underlay.Options{
-		InterfaceName:  bindInterface,
-		AutoDetect:     autoDetectInterface,
-		LocalDNSServer: localDNSServer,
-	})
 }
 
 func resolveServerVersionInfo(cached, fetched []byte, fetchErr error) ([]byte, error) {

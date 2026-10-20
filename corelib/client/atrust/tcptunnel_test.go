@@ -277,18 +277,41 @@ func (c *recordingConn) SetWriteDeadline(time.Time) error { return nil }
 func (c *recordingConn) CloseRead() error                 { c.readClosed = true; return nil }
 func (c *recordingConn) CloseWrite() error                { c.writeClosed = true; return nil }
 
-func TestTCPTunnelCloseSendsCloseFrame(t *testing.T) {
-	underlying := &recordingConn{}
-	conn := &tcpTunnelConn{tlsConn: underlying, reuse: true}
+type writeNotifyingConn struct {
+	net.Conn
+	started chan struct{}
+}
 
+func (c *writeNotifyingConn) Write(b []byte) (int, error) { close(c.started); return c.Conn.Write(b) }
+
+func TestTCPTunnelCloseInterruptsBlockedWrite(t *testing.T) {
+	local, remote := net.Pipe()
+	defer remote.Close()
+	transport := &writeNotifyingConn{Conn: local, started: make(chan struct{})}
+	conn := &tcpTunnelConn{tlsConn: transport, reuse: true}
+	written := make(chan error, 1)
+	go func() { _, err := conn.Write([]byte("blocked payload")); written <- err }()
+	<-transport.started
+	closed := make(chan error, 1)
+	go func() { closed <- conn.Close() }()
+	select {
+	case err := <-closed:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Close blocked behind tunnel write")
+	}
+	select {
+	case err := <-written:
+		if err == nil {
+			t.Fatal("blocked write unexpectedly succeeded")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Close failed to unblock write")
+	}
 	if err := conn.Close(); err != nil {
-		t.Fatalf("Close() error = %v", err)
-	}
-	if !underlying.closed {
-		t.Fatal("Close() did not close the underlying connection")
-	}
-	if got, want := underlying.Bytes(), []byte{0x01, 0x01, 0x00, 0x00}; !bytes.Equal(got, want) {
-		t.Fatalf("Close() wrote % X, want % X", got, want)
+		t.Fatal(err)
 	}
 }
 
@@ -826,7 +849,9 @@ func TestMatchTCPIPResourceFallbackStillPrefersRegularTCPResource(t *testing.T) 
 }
 
 func TestDialTCPAllowsTCPPrefL3DomainFallback(t *testing.T) {
-	atrustClient := &Client{resourceIndex: ipresource.New(nil)}
+	atrustClient := NewClient(ClientOptions{})
+	defer atrustClient.Close()
+	atrustClient.resourceIndex = ipresource.New(nil)
 	resource := client.DomainResource{
 		PortMin: 1, PortMax: 65535, Protocol: "tcp", AppID: "l3-app", NodeGroupID: "test-node-group", EnableTCPPrefL3: true,
 	}
@@ -839,7 +864,9 @@ func TestDialTCPAllowsTCPPrefL3DomainFallback(t *testing.T) {
 }
 
 func TestDialTCPRejectsTCPPrefL3DomainWithoutFallback(t *testing.T) {
-	atrustClient := &Client{resourceIndex: ipresource.New(nil)}
+	atrustClient := NewClient(ClientOptions{})
+	defer atrustClient.Close()
+	atrustClient.resourceIndex = ipresource.New(nil)
 	resource := client.DomainResource{
 		PortMin: 1, PortMax: 65535, Protocol: "tcp", AppID: "l3-app", NodeGroupID: "test-node-group", EnableTCPPrefL3: true,
 	}
@@ -851,7 +878,9 @@ func TestDialTCPRejectsTCPPrefL3DomainWithoutFallback(t *testing.T) {
 }
 
 func TestDialTCPRejectsDestinationWithoutTCPResource(t *testing.T) {
-	atrustClient := &Client{resourceIndex: ipresource.New(nil)}
+	atrustClient := NewClient(ClientOptions{})
+	defer atrustClient.Close()
+	atrustClient.resourceIndex = ipresource.New(nil)
 	_, err := atrustClient.DialTCP(context.Background(), &net.TCPAddr{
 		IP:   net.IPv4(223, 5, 5, 5),
 		Port: 53,

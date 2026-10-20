@@ -3,9 +3,9 @@ package ping
 import (
 	"context"
 	"crypto/tls"
-	"fmt"
 	"io"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 
@@ -156,7 +156,7 @@ func (tcping *TCPing) ping(parent context.Context) (time.Duration, net.Addr, err
 	if tcping.dial != nil {
 		dial = tcping.dial
 	}
-	conn, err := dial(ctx, "tcp", fmt.Sprintf("%s:%d", tcping.target.Host, tcping.target.Port))
+	conn, err := dial(ctx, "tcp", net.JoinHostPort(tcping.target.Host, strconv.Itoa(tcping.target.Port)))
 	if err != nil {
 		return 0, nil, contextError(ctx, err)
 	}

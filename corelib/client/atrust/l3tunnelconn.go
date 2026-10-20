@@ -13,13 +13,13 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os"
 	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/wtalioy/JustConnect/corelib/client/atrust/auth"
 	"github.com/wtalioy/JustConnect/corelib/internal/zctcpip"
 	"github.com/wtalioy/JustConnect/corelib/log"
 )
@@ -59,6 +59,8 @@ var dataFramePool = sync.Pool{
 }
 
 type clientInfo struct {
+	language     string
+	onError      func(error)
 	sid          string
 	sidProvider  func() (string, error)
 	deviceID     string
@@ -79,6 +81,7 @@ type l3TunnelConn struct {
 	reader             *bufio.Reader
 	writeMu            sync.Mutex
 	incoming           chan []byte
+	workers            sync.WaitGroup
 	closeOnce          sync.Once
 	closeCh            chan struct{}
 	conntrackMgr       *conntrackMgr
@@ -212,21 +215,30 @@ func newL3TunnelConn(ctx context.Context, dialTLS func(context.Context, string, 
 		return nil, err
 	}
 
-	go c.authLoop()
-	go c.readLoop()
-	go c.heartbeatLoop()
+	c.startWorker(c.authLoop)
+	c.startWorker(c.readLoop)
+	c.startWorker(c.heartbeatLoop)
 	return c, nil
 }
 
 func (c *l3TunnelConn) withContextDeadline(ctx context.Context, operation func() error) error {
+	stopCancel := context.AfterFunc(ctx, func() { _ = c.tlsConn.Close() })
+	defer stopCancel()
 	deadline, ok := ctx.Deadline()
 	if !ok {
-		return operation()
+		err := operation()
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return err
 	}
 	if err := c.tlsConn.SetDeadline(deadline); err != nil {
 		return err
 	}
 	operationErr := operation()
+	if ctx.Err() != nil {
+		operationErr = ctx.Err()
+	}
 	clearErr := c.tlsConn.SetDeadline(time.Time{})
 	if operationErr != nil {
 		return operationErr
@@ -238,7 +250,9 @@ func (c *l3TunnelConn) Close() error {
 	var err error
 	c.closeOnce.Do(func() {
 		close(c.closeCh)
-		err = c.tlsConn.Close()
+		if c.tlsConn != nil {
+			err = c.tlsConn.Close()
+		}
 	})
 	return err
 }
@@ -527,7 +541,9 @@ func (c *l3TunnelConn) handleAuthResp(status byte, payload []byte) {
 		return
 	}
 	if resp.Code == 10000004 || resp.Code == 75500002 {
-		log.Fatalf("l3-tunnel resource auth: aTrust session is invalid (code %d): %s", resp.Code, resp.Message)
+		c.report(auth.ErrSessionInvalid)
+		_ = c.Close()
+		return
 	}
 	ct := c.conntrackMgr.getByID(resp.Data.ConntrackHash)
 	if ct == nil {
@@ -654,7 +670,7 @@ func buildAuthRequest(info clientInfo, signKey []byte, meta packetMeta, ct *conn
 		ConnectionID:  info.connectionID,
 		Env:           env,
 		ConntrackHash: ct.authID,
-		Lang:          langFromEnv(url),
+		Lang:          protocolLanguage(info.language),
 		IP: authIP{
 			Atype:    authIPType(meta.atype),
 			Protocol: meta.proto,
@@ -936,7 +952,7 @@ func (c *l3TunnelConn) authTunnel() error {
 			return err
 		}
 		if resp.Code == 10000004 || resp.Code == 75500002 {
-			log.Fatalf("l3-tunnel: aTrust session is invalid (code %d): %s", resp.Code, resp.Message)
+			return auth.ErrSessionInvalid
 		}
 		if resp.Code != 0 {
 			return fmt.Errorf("l3-tunnel tunnel auth failed: %d %s", resp.Code, resp.Message)
@@ -1071,36 +1087,36 @@ func authIPType(atype int) int {
 	}
 }
 
-func langFromEnv(_ string) string {
-	lang := firstNonEmpty(
-		os.Getenv("ZJU_CONNECT_LANG"),
-		os.Getenv("LC_ALL"),
-		os.Getenv("LC_MESSAGES"),
-		os.Getenv("LANG"),
-	)
-	if lang == "" {
+func protocolLanguage(language string) string {
+	if language == "" {
 		return "en-US"
 	}
-	lang = strings.Split(lang, ".")[0]
-	lang = strings.ReplaceAll(lang, "_", "-")
-	if len(lang) == 2 {
-		lang = strings.ToLower(lang)
-		return lang + "-" + strings.ToUpper(lang)
-	}
-	if parts := strings.Split(lang, "-"); len(parts) == 2 {
-		return strings.ToLower(parts[0]) + "-" + strings.ToUpper(parts[1])
-	}
-	return lang
+	return language
 }
 
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if value != "" {
-			return value
-		}
+func (c *Client) requestLanguage() string { return protocolLanguage(c.language) }
+
+func (c *l3TunnelConn) report(err error) {
+	if c.info.onError != nil {
+		c.info.onError(err)
 	}
-	return ""
 }
+
+func (c *l3TunnelConn) startWorker(work func()) {
+	c.workers.Add(1)
+	go func() {
+		defer c.workers.Done()
+		defer func() {
+			if recover() != nil {
+				c.report(errors.New("L3 worker panicked"))
+				_ = c.Close()
+			}
+		}()
+		work()
+	}()
+}
+
+func (c *l3TunnelConn) Wait() { c.workers.Wait() }
 
 func connTrackKey(meta packetMeta) string {
 	return fmt.Sprintf("%d:%d:%s:%d-%s:%d", meta.atype, meta.proto, meta.srcIP.String(), meta.srcPort, meta.dstIP.String(), meta.dstPort)

@@ -24,7 +24,7 @@ func (c *Client) setSessionSID(sid string, err error) {
 
 func (c *Client) startSessionRefresh(refresh func(context.Context) (auth.LoginResult, error), data auth.ClientAuthData, save func([]byte) error, interval time.Duration) {
 	c.refreshDone = make(chan struct{})
-	go func() {
+	c.startWorker(func() {
 		defer close(c.refreshDone)
 		timer := time.NewTimer(interval)
 		defer timer.Stop()
@@ -39,7 +39,8 @@ func (c *Client) startSessionRefresh(refresh func(context.Context) (auth.LoginRe
 				return
 			}
 			if errors.Is(err, auth.ErrSessionInvalid) {
-				log.Fatalf("aTrust session maintenance failed: %v", err)
+				c.fail(err)
+				return
 			}
 			if err != nil {
 				log.Printf("aTrust authConfig refresh failed: %v", err)
@@ -61,5 +62,29 @@ func (c *Client) startSessionRefresh(refresh func(context.Context) (auth.LoginRe
 			}
 			timer.Reset(interval)
 		}
+	})
+}
+
+// Errors reports the first terminal failure. Close cancels and joins the workers.
+func (c *Client) Errors() <-chan error { return c.failures }
+
+func (c *Client) fail(err error) {
+	c.failureOnce.Do(func() {
+		c.setSessionSID("", err)
+		c.failures <- err
+		c.lifecycleCancel()
+	})
+}
+
+func (c *Client) startWorker(work func()) {
+	c.workers.Add(1)
+	go func() {
+		defer c.workers.Done()
+		defer func() {
+			if recover() != nil {
+				c.fail(errors.New("aTrust worker panicked"))
+			}
+		}()
+		work()
 	}()
 }
