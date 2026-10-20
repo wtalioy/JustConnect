@@ -118,4 +118,4 @@ S1-07 与 S1-08 的受控网关及六平台宿主已验证正式会话、Qt 认�
 
 配置映射只提交 ABI 支持字段；端口零转成关闭监听。EasyConnect、TUN／路由、非回环监听、额外 CLI 参数、旧转发及其它未实现选项明确失败，不自动退回进程。构建显示使用实际已加载库的来源信息。共享 CMake 入口见 `cmake/CoreLibrary.cmake`；真实窗口／正式网关回归在根 CTest 和六平台原生宿主中使用同一 `tests/CoreEngineTests.cmake`。
 
-S1-09 已验收：`26fcc21` 的[三平台应用回归](https://github.com/wtalioy/JustConnect/actions/runs/39381505103)与[六组实际包自检](https://github.com/wtalioy/JustConnect/actions/runs/39381517435)全部通过。同一构建实现的[六组原生回归](https://github.com/wtalioy/JustConnect/actions/runs/39378735573)全部通过。包内实际调用版本／ABI、无效启动拒绝、创建／停止／销毁；来源归档逐文件一致，脱离 Git 完整重建的应用也通过同一自检。实际 glibc／macOS 下限、预览签名与正式签名边界见计划及开发说明。
+S1-09 已验收：`a729296` 的[三平台应用回归](https://github.com/wtalioy/JustConnect/actions/runs/39383282228)与[六组实际包自检](https://github.com/wtalioy/JustConnect/actions/runs/39383294934)全部通过。同一最终源码的[六组原生回归](https://github.com/wtalioy/JustConnect/actions/runs/39383282309)全部通过。包内实际调用版本／ABI、无效启动拒绝、创建／停止／销毁；来源归档逐文件一致，脱离 Git 完整重建的应用也通过同一自检。实际 glibc／macOS 下限、预览签名与正式签名边界见计划及开发说明。
