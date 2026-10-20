@@ -3,7 +3,7 @@
 JustConnect 的主仓库是 [wtalioy/JustConnect](https://github.com/wtalioy/JustConnect)。
 `origin` 用于自己的开发和发布；`upstream` 等 remote 仅用于查看上游变更，保留原有历史和致谢。
 
-计划已调整为将核心源码纳入仓库并编为 Qt 同进程调用的库，见 [S1](../plan.md#s1)。下文的核心构建命令、Actions 和包内校验描述的是当前仍可运行的独立进程基线，库化尚未实现。S1-09 将统一改为 CMake 驱动 Go／C ABI 库、实际宿主测试及六组产物自检；验收后 S1-10 删除 `build-core.py`、旧构建 action 和独立 EXE 打包／校验链路。Qt SDK、分支与发布触发规则继续复用，不提前删除仍被工作流调用的脚本。
+计划已调整为将核心源码纳入仓库并编为 Qt 同进程调用的库，见 [S1](../plan.md#s1)。下文的核心构建命令、Actions 和包内校验描述的是当前仍可运行的独立进程基线，库化迁移尚未完成。S1-09 将统一改为 CMake 驱动 Go／C ABI 库、实际宿主测试及六组产物自检；验收后 S1-10 删除 `build-core.py`、旧构建 action 和独立 EXE 打包／校验链路。Qt SDK、分支与发布触发规则继续复用，不提前删除仍被工作流调用的脚本。
 
 S1-06 的独立 [Go／Qt 链接原型](CORELINK-PROBE.md) 已加入 `tests/corelink/`，复用当前 SDK／固定 Go，不接入正式应用或打包。`Core library probe` 工作流单独运行六组原生链接与宿主检查；具体链接选择、内存／线程检查及设备权限缺口见原型记录。
 
