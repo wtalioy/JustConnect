@@ -27,33 +27,51 @@ separate_arguments(CGO_CC NATIVE_COMMAND "${CGO_CC}")
 execute_process(COMMAND ${CGO_CC} --version OUTPUT_VARIABLE CGO_CC_VERSION COMMAND_ERROR_IS_FATAL ANY)
 file(WRITE "${CMAKE_BINARY_DIR}/core-toolchain.txt"
     "${GO_VERSION}\n${GO_ENV}\n${CGO_CC_VERSION}\nABI=${ABI_MODE}\nCGO_ENABLED=1\nGOEXPERIMENT=cgocheck2\nC=${CMAKE_C_COMPILER} ${CMAKE_C_COMPILER_VERSION}\nCXX=${CMAKE_CXX_COMPILER} ${CMAKE_CXX_COMPILER_VERSION}\n")
-execute_process(COMMAND "${GIT_EXECUTABLE}" rev-parse HEAD
-    WORKING_DIRECTORY "${REPO}" OUTPUT_VARIABLE REVISION OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
-execute_process(COMMAND "${GIT_EXECUTABLE}" status --porcelain
-    WORKING_DIRECTORY "${REPO}" OUTPUT_VARIABLE DIRTY COMMAND_ERROR_IS_FATAL ANY)
-set(SOURCE_STATE clean)
-if(DIRTY)
-    set(SOURCE_STATE dirty)
-endif()
-# Provenance changes when any tracked input is edited, staged or restored.
-execute_process(COMMAND "${GIT_EXECUTABLE}" ls-files WORKING_DIRECTORY "${REPO}"
-    OUTPUT_VARIABLE TRACKED_INPUTS OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
-string(REPLACE "\n" ";" TRACKED_INPUTS "${TRACKED_INPUTS}")
-list(TRANSFORM TRACKED_INPUTS PREPEND "${REPO}/")
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${TRACKED_INPUTS})
 file(GLOB_RECURSE ABI_SOURCES CONFIGURE_DEPENDS "${CORE}/*.go" "${CORE}/abi/*")
 list(FILTER ABI_SOURCES EXCLUDE REGEX "_test\\.go$")
-execute_process(COMMAND "${GIT_EXECUTABLE}" rev-parse --git-path HEAD WORKING_DIRECTORY "${REPO}"
-    OUTPUT_VARIABLE GIT_HEAD OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
-execute_process(COMMAND "${GIT_EXECUTABLE}" symbolic-ref -q HEAD WORKING_DIRECTORY "${REPO}"
-    OUTPUT_VARIABLE GIT_REF OUTPUT_STRIP_TRAILING_WHITESPACE)
-get_filename_component(GIT_HEAD "${GIT_HEAD}" ABSOLUTE BASE_DIR "${REPO}")
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CORE}/go.mod" "${CORE}/go.sum" "${REPO}/scripts/generate-core-abi.py" ${ABI_SOURCES} "${GIT_HEAD}")
-if(GIT_REF)
-    execute_process(COMMAND "${GIT_EXECUTABLE}" rev-parse --git-path "${GIT_REF}" WORKING_DIRECTORY "${REPO}"
-        OUTPUT_VARIABLE GIT_REF_PATH OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
-    get_filename_component(GIT_REF_PATH "${GIT_REF_PATH}" ABSOLUTE BASE_DIR "${REPO}")
-    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${GIT_REF_PATH}")
+if(EXISTS "${REPO}/source-revision.txt")
+    file(STRINGS "${REPO}/source-revision.txt" REVISION)
+    string(LENGTH "${REVISION}" REVISION_LENGTH)
+    if(NOT REVISION MATCHES "^[0-9a-f]+$" OR NOT REVISION_LENGTH EQUAL 40)
+        message(FATAL_ERROR "Invalid source archive revision")
+    endif()
+    set(SOURCE_STATE archive)
+else()
+    execute_process(COMMAND "${GIT_EXECUTABLE}" rev-parse HEAD
+        WORKING_DIRECTORY "${REPO}" OUTPUT_VARIABLE REVISION OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
+    execute_process(COMMAND "${GIT_EXECUTABLE}" status --porcelain
+        WORKING_DIRECTORY "${REPO}" OUTPUT_VARIABLE DIRTY COMMAND_ERROR_IS_FATAL ANY)
+    set(SOURCE_STATE clean)
+    if(DIRTY)
+        set(SOURCE_STATE dirty)
+    endif()
+    # Provenance changes when any tracked input is edited, staged or restored.
+    execute_process(COMMAND "${GIT_EXECUTABLE}" ls-files WORKING_DIRECTORY "${REPO}"
+        OUTPUT_VARIABLE TRACKED_INPUTS OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
+    string(REPLACE "\n" ";" TRACKED_INPUTS "${TRACKED_INPUTS}")
+    list(TRANSFORM TRACKED_INPUTS PREPEND "${REPO}/")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${TRACKED_INPUTS})
+    execute_process(COMMAND "${GIT_EXECUTABLE}" rev-parse --git-path HEAD WORKING_DIRECTORY "${REPO}"
+        OUTPUT_VARIABLE GIT_HEAD OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
+    execute_process(COMMAND "${GIT_EXECUTABLE}" symbolic-ref -q HEAD WORKING_DIRECTORY "${REPO}"
+        OUTPUT_VARIABLE GIT_REF OUTPUT_STRIP_TRAILING_WHITESPACE)
+    get_filename_component(GIT_HEAD "${GIT_HEAD}" ABSOLUTE BASE_DIR "${REPO}")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CORE}/go.mod" "${CORE}/go.sum" "${REPO}/scripts/generate-core-abi.py" ${ABI_SOURCES} "${GIT_HEAD}")
+    if(GIT_REF)
+        execute_process(COMMAND "${GIT_EXECUTABLE}" rev-parse --git-path "${GIT_REF}" WORKING_DIRECTORY "${REPO}"
+            OUTPUT_VARIABLE GIT_REF_PATH OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
+        get_filename_component(GIT_REF_PATH "${GIT_REF_PATH}" ABSOLUTE BASE_DIR "${REPO}")
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${GIT_REF_PATH}")
+    endif()
+endif()
+file(WRITE "${CMAKE_BINARY_DIR}/source-revision.txt" "${REVISION}\n")
+if(APPLE)
+    # Qt 6.12's documented deployment floor also governs cgo and Info.plist.
+    if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+        set(CMAKE_OSX_DEPLOYMENT_TARGET "14.4" CACHE STRING "Minimum macOS version" FORCE)
+    endif()
+    set(CGO_PLATFORM_ENV "CGO_CFLAGS=$ENV{CGO_CFLAGS} -mmacosx-version-min=${CMAKE_OSX_DEPLOYMENT_TARGET}"
+        "CGO_LDFLAGS=$ENV{CGO_LDFLAGS} -mmacosx-version-min=${CMAKE_OSX_DEPLOYMENT_TARGET}")
 endif()
 
 function(justconnect_core_library KIND)
@@ -68,7 +86,7 @@ function(justconnect_core_library KIND)
         CONTENT "${REVISION}\n${SOURCE_STATE}\n${TAGS}\n${ABI_MODE}\n${GO_EXECUTABLE}\n$ENV{CC}\n$ENV{CGO_CFLAGS}\n$ENV{CGO_LDFLAGS}\n${CMAKE_OSX_DEPLOYMENT_TARGET}\n")
     add_custom_command(OUTPUT "${LIBRARY}" "${CMAKE_CURRENT_BINARY_DIR}/${KIND}.h"
         COMMAND "${CMAKE_COMMAND}" -E env CGO_ENABLED=1 GOTOOLCHAIN=local GOWORK=off GOENV=off
-            GOEXPERIMENT=cgocheck2 "${GO_EXECUTABLE}" build -mod=readonly -trimpath -buildvcs=false ${TAGS}
+            GOEXPERIMENT=cgocheck2 ${CGO_PLATFORM_ENV} "${GO_EXECUTABLE}" build -mod=readonly -trimpath -buildvcs=false ${TAGS}
             "-ldflags=-X main.revision=${REVISION} -X main.sourceState=${SOURCE_STATE}"
             "-buildmode=${ABI_MODE}" -o "${LIBRARY}" ./abi
         WORKING_DIRECTORY "${CORE}"

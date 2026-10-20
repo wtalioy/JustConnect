@@ -46,6 +46,9 @@ jobs:
       - name: Verify integrated Go module and complete tests
         run: python scripts/test-corelib.py
 
+      - name: Verify source export and package validation
+        run: python -m unittest discover -s tests -p '*_test.py'
+
       - name: Configure
         shell: bash
         run: cmake -S . -B build -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release -DNIGHTLY_BUILD=ON "-DGIT_HASH=$(git rev-parse --short=7 HEAD)"

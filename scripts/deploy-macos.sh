@@ -12,18 +12,12 @@ APP_PATH="$TARGET_NAME.app"
 # Copy app bundle
 cp -R "$BUILD_DIR/$TARGET_NAME.app" .
 
-# Copy core into app bundle
-cp "$BUILD_DIR/core/zju-connect" "$APP_PATH/Contents/MacOS/"
-cp -R "$BUILD_DIR/core/core-provenance" "$APP_PATH/Contents/MacOS/"
-python scripts/build-core.py --verify "$APP_PATH/Contents/MacOS"
+cmake --install "$BUILD_DIR" --config Release --component CoreRuntime --prefix "$PWD"
 
 # Run macdeployqt
 macdeployqt "$APP_PATH"
 
 # Reduce bundle size by stripping unused slices from universal Mach-O binaries.
-thinned_count=0
-before_size=0
-after_size=0
 while IFS= read -r -d '' binary; do
     file_output="$(file "$binary")"
     if [[ "$file_output" != *"Mach-O universal binary"* ]]; then
@@ -32,8 +26,8 @@ while IFS= read -r -d '' binary; do
 
     lipo_info="$(lipo -info "$binary" 2>/dev/null || true)"
         if [[ "$lipo_info" != *"$ARCH"* ]]; then
-            echo "Skipping universal binary without $ARCH slice: $binary" >&2
-            continue
+            echo "Missing $ARCH slice: $binary" >&2
+            exit 1
         fi
 
         original_mode="$(stat -f%Lp "$binary")"
