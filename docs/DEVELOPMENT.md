@@ -56,6 +56,8 @@ ctest --test-dir build/coreabi -C Release -R coreabi_performance_test --output-o
 
 [Platform.cmake](../cmake/Platform.cmake) 按 `windows/`、`macos/`、`linux/`、`unsupported/` 子目录为代理和自启动选择源文件，基础设施只依赖 Qt Core，弹窗及结果文案在界面层。WinINet／RAS 每次检查原生返回值，模式、各协议端点、绕过项及通知均检查；手动模式不改写原有 PAC 地址。查询返回的字符串按 [Microsoft WinINet 文档](https://learn.microsoft.com/en-us/windows/win32/wininet/setting-and-retrieving-internet-options) 用 GlobalFree 释放。Unix 工具每条命令共享 5 秒启动／完成期限，检查正常退出和退出码，超时杀死并等待回收；这不是整个多步骤操作或退出流程的 5 秒保证。GNOME 与 KDE 分开处理，macOS 检查各网络服务；端点、认证模式及绕过项必须回读匹配，空输出不是有效空列表。
 
+Windows 按连接保存与恢复状态，不在清除时重新枚举并关闭未知连接；模式恢复还要求端点及 PAC 地址仍属原记录。按 [WinINet 选项文档](https://learn.microsoft.com/en-us/windows/win32/api/wininet/ns-wininet-internet_per_conn_optionw)以 `FLAGS_UI` 查询模式、以 `FLAGS` 设置模式。真实写入回归仅由 `GITHUB_ACTIONS=true` 的临时 runner 注册执行，限定 LAN，保留并恢复 runner 基线；普通本地测试仅使用原生只读查询和失败夹具。
+
 GNOME 输出按 [GLib 字符串格式](https://docs.gtk.org/glib/gvariant-text-format.html#strings)处理引号、控制字符及 Unicode 转义，避免写入后因无法回读而丢失恢复路径。Linux 的平台代理回归除模拟失败外，还在临时 `GSETTINGS_BACKEND=keyfile` 和私有 D-Bus／KConfig 文件中运行真实工具。需要 `gsettings`、`dbus-run-session`、`kreadconfig6` 和 `kwriteconfig6`（Ubuntu 的 [libkf6config-bin](https://packages.ubuntu.com/resolute/libkf6config-bin)）；这些是测试／对应桌面后端的系统工具，不链接或分发 KConfig 库。KConfig 的字符串值通过命令行参数写入，后端因此在修改前拒绝含用户信息的代理 URL，避免旧代理密码进入进程参数，原设置保持不动；接口语义见 [KConfig CLI 实现](https://github.com/KDE/kconfig/tree/master/src/kreadconfig)。
 
 自启动成功后才保存偏好；系统项已改变而偏好保存失败时明确提示部分完成，迁移保存失败保留旧版本供重试。设置保存失败不关闭窗口或提前清除认证材料。Linux .desktop 使用 QSaveFile 原子替换；路径按照 [Desktop Entry 规范](https://specifications.freedesktop.org/desktop-entry/latest-single/) 转义。实际 gio 回归发现含百分号的首个可执行路径在字段展开前被判为不存在，因此用固定脚本 exec "$0" 与独立路径参数启动，不把文件路径拼进脚本；测试实际启动含空格、引号、美元／反引号、百分号和反斜杠的文件。

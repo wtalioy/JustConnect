@@ -2,6 +2,7 @@
 #include "infrastructure/platform/proxyvalidation.h"
 #include <raserror.h>
 #include <vector>
+#include <QMap>
 
 namespace {
 using Result = PlatformOperationResult;
@@ -30,22 +31,23 @@ Result connections(const WindowsProxyApi &api, QStringList &names) {
     for (DWORD i=0; i<count; ++i) names.append(QString::fromWCharArray(entries[i].szEntryName));
     return {};
 }
-struct State { DWORD flags = 0; QString server, bypass; };
+struct State { DWORD flags = 0; QString server, bypass, pac; };
 Result query(const WindowsProxyApi &api, const QString &name, State &state) {
-    INTERNET_PER_CONN_OPTIONW options[3]{};
-    options[0].dwOption = INTERNET_PER_CONN_FLAGS;
+    INTERNET_PER_CONN_OPTIONW options[4]{};
+    options[0].dwOption = INTERNET_PER_CONN_FLAGS_UI;
     options[1].dwOption = INTERNET_PER_CONN_PROXY_SERVER;
     options[2].dwOption = INTERNET_PER_CONN_PROXY_BYPASS;
+    options[3].dwOption = INTERNET_PER_CONN_AUTOCONFIG_URL;
     INTERNET_PER_CONN_OPTION_LISTW list{};
     list.dwSize = sizeof(list);
     list.pszConnection = name.isEmpty() ? nullptr : const_cast<wchar_t *>(reinterpret_cast<const wchar_t *>(name.utf16()));
-    list.dwOptionCount = 3; list.pOptions = options;
+    list.dwOptionCount = 4; list.pOptions = options;
     DWORD bytes = sizeof(list);
     const BOOL success = api.query(nullptr, INTERNET_OPTION_PER_CONNECTION_OPTION, &list, &bytes);
     const DWORD code = success ? ERROR_SUCCESS : GetLastError();
     state.flags = options[0].Value.dwValue;
-    QString *strings[] = {&state.server, &state.bypass};
-    for (int i=1; i<3; ++i) {
+    QString *strings[] = {&state.server, &state.bypass, &state.pac};
+    for (int i=1; i<4; ++i) {
         *strings[i-1] = QString::fromWCharArray(options[i].Value.pszValue ? options[i].Value.pszValue : L"");
         if (options[i].Value.pszValue) GlobalFree(options[i].Value.pszValue);
     }
@@ -55,18 +57,16 @@ QString server(const SystemProxyConfig &config) {
     const auto http = "127.0.0.1:" + QString::number(config.httpPort);
     return "http=" + http + ";https=" + http + ";ftp=" + http + ";socks=127.0.0.1:" + QString::number(config.socksPort);
 }
-Result set(const WindowsProxyApi &api, const QString &name, const SystemProxyConfig *config) {
-    QString proxy = config ? server(*config) : QString();
-    QString bypass = config ? ProxyValidation::bypass(config->bypass).join(';') : QString();
+Result set(const WindowsProxyApi &api, const QString &name, const State &state,
+           bool flags = true, bool proxy = true, bool bypass = true) {
     INTERNET_PER_CONN_OPTIONW options[3]{};
-    options[0].dwOption = INTERNET_PER_CONN_FLAGS;
-    options[0].Value.dwValue = config ? PROXY_TYPE_DIRECT | PROXY_TYPE_PROXY : PROXY_TYPE_DIRECT;
-    options[1].dwOption = INTERNET_PER_CONN_PROXY_SERVER;
-    options[1].Value.pszValue = const_cast<wchar_t *>(reinterpret_cast<const wchar_t *>(proxy.utf16()));
-    options[2].dwOption = INTERNET_PER_CONN_PROXY_BYPASS;
-    options[2].Value.pszValue = const_cast<wchar_t *>(reinterpret_cast<const wchar_t *>(bypass.utf16()));
+    DWORD count = 0;
+    if (flags) { options[count].dwOption = INTERNET_PER_CONN_FLAGS; options[count++].Value.dwValue = state.flags; }
+    if (proxy) { options[count].dwOption = INTERNET_PER_CONN_PROXY_SERVER; options[count++].Value.pszValue = const_cast<wchar_t *>(reinterpret_cast<const wchar_t *>(state.server.utf16())); }
+    if (bypass) { options[count].dwOption = INTERNET_PER_CONN_PROXY_BYPASS; options[count++].Value.pszValue = const_cast<wchar_t *>(reinterpret_cast<const wchar_t *>(state.bypass.utf16())); }
+    if (!count) return {};
     INTERNET_PER_CONN_OPTION_LISTW list{};
-    list.dwSize = sizeof(list); list.dwOptionCount = config ? 3 : 1; list.pOptions = options;
+    list.dwSize = sizeof(list); list.dwOptionCount = count; list.pOptions = options;
     list.pszConnection = name.isEmpty() ? nullptr : const_cast<wchar_t *>(reinterpret_cast<const wchar_t *>(name.utf16()));
     if (!api.set(nullptr, INTERNET_OPTION_PER_CONNECTION_OPTION, &list, sizeof(list))) return error("Set WinINet proxy", GetLastError(), true);
     return {Status::Success, {}, true};
@@ -77,6 +77,11 @@ Result notify(const WindowsProxyApi &api) {
     return {Status::Success, {}, true};
 }
 }
+struct PlatformSystemProxyBackend::Snapshot {
+    QMap<QString, State> before;
+    State installed;
+};
+
 SystemProxyCheck PlatformSystemProxyBackend::check(const SystemProxyConfig &config) {
     if (auto valid = ProxyValidation::config(config); !valid.succeeded()) return {valid};
     QStringList names;
@@ -92,31 +97,51 @@ SystemProxyCheck PlatformSystemProxyBackend::check(const SystemProxyConfig &conf
     return {{}, conflict, active};
 }
 PlatformOperationResult PlatformSystemProxyBackend::apply(const SystemProxyConfig &config) {
-    if (auto before = check(config); !before.result.succeeded()) return before.result;
+    if (auto valid = ProxyValidation::config(config); !valid.succeeded()) return valid;
+    if (snapshot) return {Status::Failed, "Restore the current proxy settings before applying another configuration", true};
     QStringList names;
     if (auto result = connections(api, names); !result.succeeded()) return result;
+    auto pending = std::make_shared<Snapshot>();
     for (const auto &name : names) {
-        auto result = set(api, name, &config);
-        if (!result.succeeded()) return result;
+        State state;
+        if (auto result = query(api, name, state); !result.succeeded()) return result;
+        pending->before.insert(name, state);
+    }
+    pending->installed = {PROXY_TYPE_DIRECT | PROXY_TYPE_PROXY, server(config), ProxyValidation::bypass(config.bypass).join(';'), {}};
+    snapshot = pending;
+    const auto fail = [this](Result result) { const auto restored = clear(); result.mayHaveChanged = !restored.succeeded(); return result; };
+    for (const auto &name : names) {
+        auto result = set(api, name, pending->installed);
+        if (!result.succeeded()) return fail(result);
         State actual;
         result = query(api, name, actual);
-        if (!result.succeeded()) { result.mayHaveChanged = true; return result; }
-        if (actual.flags != (PROXY_TYPE_DIRECT | PROXY_TYPE_PROXY) || actual.server != server(config)
-            || actual.bypass != ProxyValidation::bypass(config.bypass).join(';'))
-            return {Status::Failed, "WinINet proxy readback mismatch", true};
+        if (!result.succeeded()) return fail(result);
+        if (actual.flags != pending->installed.flags || actual.server != pending->installed.server
+            || actual.bypass != pending->installed.bypass || actual.pac != pending->before[name].pac)
+            return fail({Status::Failed, "WinINet proxy readback mismatch", true});
     }
-    return notify(api);
+    if (auto result = notify(api); !result.succeeded()) return fail(result);
+    return {Status::Success, {}, true};
 }
 PlatformOperationResult PlatformSystemProxyBackend::clear() {
-    QStringList names;
-    if (auto result = connections(api, names); !result.succeeded()) return result;
-    for (const auto &name : names) {
-        auto result = set(api, name, nullptr);
-        if (!result.succeeded()) return result;
+    if (!snapshot) return {};
+    const auto &saved = *snapshot;
+    const auto failed = [](Result result) { result.mayHaveChanged = true; return result; };
+    for (auto it = saved.before.cbegin(); it != saved.before.cend(); ++it) {
+        const auto &before = it.value(); State current;
+        if (auto result = query(api, it.key(), current); !result.succeeded()) return failed(result);
+        const bool proxy = current.server == saved.installed.server;
+        const bool bypass = current.bypass == saved.installed.bypass;
+        // PAC and proxy endpoint changes belong to the external writer, including their mode.
+        const bool flags = (current.flags == saved.installed.flags || current.flags == before.flags)
+            && (proxy || current.server == before.server) && current.pac == before.pac;
+        if (!proxy && !bypass && !flags) continue;
+        if (auto result = set(api, it.key(), before, flags, proxy, bypass); !result.succeeded()) return failed(result);
         State actual;
-        result = query(api, name, actual);
-        if (!result.succeeded()) { result.mayHaveChanged = true; return result; }
-        if (actual.flags != PROXY_TYPE_DIRECT) return {Status::Failed, "WinINet disable readback mismatch", true};
+        if (auto result = query(api, it.key(), actual); !result.succeeded()) return failed(result);
+        if ((proxy && actual.server != before.server) || (bypass && actual.bypass != before.bypass)
+            || (flags && actual.flags != before.flags)) return {Status::Failed, "WinINet restoration readback mismatch", true};
     }
-    return notify(api);
+    if (auto result = notify(api); !result.succeeded()) return result;
+    snapshot.reset(); return {};
 }

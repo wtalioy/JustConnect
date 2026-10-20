@@ -17,78 +17,135 @@ const SystemProxyConfig config{11081,11080,"localhost;*.example.test"};
 
 #ifdef Q_OS_WIN
 namespace {
-DWORD flags = PROXY_TYPE_DIRECT;
-QString proxy, bypass, pac;
-bool denyQuery = false, denySet = false, ignoreSet = false, denyNotify = false, denyRas = false;
-int writes = 0, failAt = 0;
-DWORD queryError = ERROR_ACCESS_DENIED;
+struct WinState { DWORD flags=PROXY_TYPE_DIRECT; QString proxy,bypass,pac; };
+QMap<QString,WinState> states;
+QStringList rasNames{"fixture connection"};
+bool denyQuery=false,denySet=false,ignoreSet=false,denyNotify=false,denyRas=false;
+int writes=0,failAt=0;
+DWORD queryError=ERROR_ACCESS_DENIED;
 BOOL WINAPI query(HINTERNET, DWORD, LPVOID buffer, LPDWORD) {
-    if (denyQuery) { SetLastError(queryError); return FALSE; }
-    auto *list = static_cast<INTERNET_PER_CONN_OPTION_LISTW *>(buffer);
-    list->pOptions[0].Value.dwValue = flags;
-    const QString values[]{proxy,bypass};
-    for (int i=1; i<3; ++i) {
-        const auto &value = values[i-1];
-        auto *text = static_cast<wchar_t *>(GlobalAlloc(GMEM_FIXED, (value.size()+1)*sizeof(wchar_t)));
-        check(text != nullptr,"allocate query strings"); value.toWCharArray(text); text[value.size()] = 0;
-        list->pOptions[i].Value.pszValue = text;
+    if(denyQuery){SetLastError(queryError);return FALSE;}
+    auto *list=static_cast<INTERNET_PER_CONN_OPTION_LISTW *>(buffer);
+    const auto &state=states[QString::fromWCharArray(list->pszConnection?list->pszConnection:L"")];
+    for(DWORD i=0;i<list->dwOptionCount;++i) {
+        auto &option=list->pOptions[i];
+        if(option.dwOption==INTERNET_PER_CONN_FLAGS_UI){option.Value.dwValue=state.flags;continue;}
+        const auto value=option.dwOption==INTERNET_PER_CONN_PROXY_SERVER?state.proxy:option.dwOption==INTERNET_PER_CONN_PROXY_BYPASS?state.bypass:state.pac;
+        auto *text=static_cast<wchar_t *>(GlobalAlloc(GMEM_FIXED,(value.size()+1)*sizeof(wchar_t)));
+        check(text!=nullptr,"allocate query strings");value.toWCharArray(text);text[value.size()]=0;option.Value.pszValue=text;
     }
     return TRUE;
 }
 BOOL WINAPI set(HINTERNET, DWORD option, LPVOID buffer, DWORD) {
-    if (option != INTERNET_OPTION_PER_CONNECTION_OPTION) {
-        if (denyNotify) { SetLastError(ERROR_ACCESS_DENIED); return FALSE; } return TRUE;
-    }
-    ++writes;
-    if (denySet || writes == failAt) { SetLastError(ERROR_CANCELLED); return FALSE; }
-    if (ignoreSet) return TRUE;
-    auto *list = static_cast<INTERNET_PER_CONN_OPTION_LISTW *>(buffer);
-    check(list->dwOptionCount == 1 || list->dwOptionCount == 3, "manual proxy must not overwrite stored PAC URL");
-    flags = list->pOptions[0].Value.dwValue;
-    if (list->dwOptionCount > 1) {
-        proxy = QString::fromWCharArray(list->pOptions[1].Value.pszValue);
-        bypass = QString::fromWCharArray(list->pOptions[2].Value.pszValue);
-
+    if(option!=INTERNET_OPTION_PER_CONNECTION_OPTION){if(denyNotify){SetLastError(ERROR_ACCESS_DENIED);return FALSE;}return TRUE;}
+    if(denySet || ++writes==failAt){SetLastError(ERROR_CANCELLED);return FALSE;}
+    if(ignoreSet)return TRUE;
+    auto *list=static_cast<INTERNET_PER_CONN_OPTION_LISTW *>(buffer);
+    auto &state=states[QString::fromWCharArray(list->pszConnection?list->pszConnection:L"")];
+    for(DWORD i=0;i<list->dwOptionCount;++i) {
+        const auto &value=list->pOptions[i];
+        if(value.dwOption==INTERNET_PER_CONN_FLAGS)state.flags=value.Value.dwValue;
+        else if(value.dwOption==INTERNET_PER_CONN_PROXY_SERVER)state.proxy=QString::fromWCharArray(value.Value.pszValue);
+        else if(value.dwOption==INTERNET_PER_CONN_PROXY_BYPASS)state.bypass=QString::fromWCharArray(value.Value.pszValue);
+        else check(false,"manual proxy must not overwrite stored PAC URL");
     }
     return TRUE;
 }
-DWORD WINAPI entries(LPCWSTR, LPCWSTR, LPRASENTRYNAMEW names, LPDWORD bytes, LPDWORD count) {
-    if (denyRas) return ERROR_ACCESS_DENIED;
-    *count = 1;
-    if (!names) { *bytes = sizeof(RASENTRYNAMEW); return ERROR_BUFFER_TOO_SMALL; }
-    wcscpy_s(names[0].szEntryName, L"fixture connection"); return ERROR_SUCCESS;
+DWORD WINAPI entries(LPCWSTR,LPCWSTR,LPRASENTRYNAMEW names,LPDWORD bytes,LPDWORD count) {
+    if(denyRas)return ERROR_ACCESS_DENIED;
+    *count=DWORD(rasNames.size());if(!*count)return ERROR_SUCCESS;
+    if(!names){*bytes=DWORD(sizeof(RASENTRYNAMEW)*rasNames.size());return ERROR_BUFFER_TOO_SMALL;}
+    for(int i=0;i<rasNames.size();++i)rasNames[i].toWCharArray(names[i].szEntryName),names[i].szEntryName[rasNames[i].size()]=0;
+    return ERROR_SUCCESS;
 }
 }
 static void backendTests() {
+    const WinState original{PROXY_TYPE_DIRECT|PROXY_TYPE_AUTO_PROXY_URL,"http=prior.invalid:3128","old.invalid","https://pac.invalid/original.pac"};
+    states[""]=original;states["fixture connection"]={PROXY_TYPE_DIRECT,"socks=old.invalid:1080","ras.invalid",{}};
     PlatformSystemProxyBackend backend(WindowsProxyApi{query,set,entries});
-    denyQuery = true;
-    check(backend.check(config).result.status == Status::PermissionDenied,"query denial propagated");
-    check(!backend.apply(config).succeeded() && writes == 0,"failed query prevents writes");
-    queryError = ERROR_TIMEOUT;
-    check(backend.check(config).result.status == Status::TimedOut, "WinINet timeout classified");
-    queryError = ERROR_NOT_SUPPORTED;
-    check(backend.check(config).result.status == Status::Unsupported, "WinINet unsupported classified");
-    denyQuery = false; denyRas = true;
-    check(backend.check(config).result.status == Status::PermissionDenied,"RAS failure propagated");
-    denyRas = false; denySet = true;
-    auto result = backend.apply(config);
-    check(result.status == Status::Cancelled && result.mayHaveChanged,"cancelled WinINet mutation");
-    denySet = false; writes = 0; failAt = 2;
-    result = backend.apply(config);
-    check(!result.succeeded() && result.mayHaveChanged && writes == 2 && flags != PROXY_TYPE_DIRECT, "LAN changed before RAS failure");
-    failAt = 0; flags = PROXY_TYPE_DIRECT; proxy.clear(); bypass.clear(); pac.clear();
-    ignoreSet = true;
-    check(!backend.apply(config).succeeded(),"successful API without actual change fails readback");
-    ignoreSet = false;
-    pac = "https://pac.example.invalid/proxy.pac";
+    check(backend.clear().succeeded() && writes==0,"unknown LAN and RAS settings must not be cleared");
+    denyQuery=true;
+    check(backend.check(config).result.status==Status::PermissionDenied,"query denial propagated");
+    check(!backend.apply(config).succeeded() && writes==0,"failed query prevents writes");
+    queryError=ERROR_TIMEOUT;check(backend.check(config).result.status==Status::TimedOut,"WinINet timeout classified");
+    queryError=ERROR_NOT_SUPPORTED;check(backend.check(config).result.status==Status::Unsupported,"WinINet unsupported classified");
+    denyQuery=false;denyRas=true;
+    check(backend.check(config).result.status==Status::PermissionDenied,"RAS failure propagated");denyRas=false;
+    denySet=true;const auto cancelled=backend.apply(config);
+    check(cancelled.status==Status::Cancelled && cancelled.mayHaveChanged,"cancelled WinINet mutation retains unresolved responsibility");
+    denySet=false;check(backend.clear().succeeded(),"cancelled application can be recovered");
+    writes=0;failAt=2;
+    const auto partial=backend.apply(config);
+    check(!partial.succeeded() && !partial.mayHaveChanged,"LAN mutation is rolled back after RAS failure");
+    check(states[""].flags==original.flags && states[""].proxy==original.proxy && states[""].bypass==original.bypass,"partial apply restores distinct LAN state");
+    check(states["fixture connection"].proxy=="socks=old.invalid:1080","unmodified RAS state retained");
+    failAt=0;ignoreSet=true;check(!backend.apply(config).succeeded(),"successful API without actual change fails readback");ignoreSet=false;
     check(backend.apply(config).succeeded() && !backend.check(config).conflict,"all endpoints and bypass verified");
-    check(pac == "https://pac.example.invalid/proxy.pac", "manual mode preserves inactive PAC address");
-    check(proxy == "http=127.0.0.1:11081;https=127.0.0.1:11081;ftp=127.0.0.1:11081;socks=127.0.0.1:11080", "WinINet protocol endpoints encoded independently");
-    denyNotify = true;
-    check(!backend.clear().succeeded(),"notification failure propagated");
-    denyNotify = false;
-    check(backend.clear().succeeded() && !backend.check(config).active,"clear verified");
+    check(states[""].pac==original.pac,"manual mode preserves inactive PAC address");
+    check(states[""].proxy=="http=127.0.0.1:11081;https=127.0.0.1:11081;ftp=127.0.0.1:11081;socks=127.0.0.1:11080","WinINet endpoints encoded independently");
+    check(!backend.apply(config).succeeded(),"repeated apply cannot overwrite the original snapshot");
+    writes=0;failAt=1;check(!backend.clear().succeeded(),"restore failure retained for retry");failAt=0;
+    denyNotify=true;check(!backend.clear().succeeded(),"notification failure propagated");denyNotify=false;
+    check(backend.clear().succeeded() && states[""].flags==original.flags && states[""].proxy==original.proxy && states[""].bypass==original.bypass,"original PAC/proxy/bypass restored");
+    const int restoredWrites=writes;check(backend.clear().succeeded() && writes==restoredWrites,"restored backend cannot clear unknown changes");
+    check(backend.apply(config).succeeded(),"apply before external changes");
+    states[""].proxy="http=external.invalid:8899";states[""].bypass="external.invalid";states[""].pac="https://pac.invalid/external.pac";
+    states["new connection"]={PROXY_TYPE_PROXY,"new.invalid:1234","new.invalid",{}};rasNames<<"new connection";
+    check(backend.clear().succeeded(),"restore owned fields around external changes");
+    check(states[""].proxy=="http=external.invalid:8899" && states[""].bypass=="external.invalid" && states[""].flags==(PROXY_TYPE_DIRECT|PROXY_TYPE_PROXY),"external fields and dependent mode retained");
+    check(states["new connection"].proxy=="new.invalid:1234" && states["fixture connection"].proxy=="socks=old.invalid:1080","new connections untouched and original RAS restored");
 }
+
+namespace {
+WinState nativeOriginal;
+bool nativeSaved=false;
+bool nativeRead(WinState &state) {
+    INTERNET_PER_CONN_OPTIONW options[4]{};
+    const DWORD keys[]{INTERNET_PER_CONN_FLAGS_UI,INTERNET_PER_CONN_PROXY_SERVER,INTERNET_PER_CONN_PROXY_BYPASS,INTERNET_PER_CONN_AUTOCONFIG_URL};
+    for(int i=0;i<4;++i)options[i].dwOption=keys[i];
+    INTERNET_PER_CONN_OPTION_LISTW list{};list.dwSize=sizeof(list);list.dwOptionCount=4;list.pOptions=options;DWORD bytes=sizeof(list);
+    const auto ok=InternetQueryOptionW(nullptr,INTERNET_OPTION_PER_CONNECTION_OPTION,&list,&bytes);
+    state.flags=options[0].Value.dwValue;
+    QString *values[]{&state.proxy,&state.bypass,&state.pac};
+    for(int i=1;i<4;++i){*values[i-1]=QString::fromWCharArray(options[i].Value.pszValue?options[i].Value.pszValue:L"");if(options[i].Value.pszValue)GlobalFree(options[i].Value.pszValue);}
+    return ok;
+}
+bool nativeWrite(const WinState &state) {
+    INTERNET_PER_CONN_OPTIONW options[4]{};
+    options[0].dwOption=INTERNET_PER_CONN_FLAGS;options[0].Value.dwValue=state.flags;
+    const DWORD keys[]{INTERNET_PER_CONN_PROXY_SERVER,INTERNET_PER_CONN_PROXY_BYPASS,INTERNET_PER_CONN_AUTOCONFIG_URL};
+    const QString *values[]{&state.proxy,&state.bypass,&state.pac};
+    for(int i=0;i<3;++i){options[i+1].dwOption=keys[i];options[i+1].Value.pszValue=const_cast<wchar_t *>(reinterpret_cast<const wchar_t *>(values[i]->utf16()));}
+    INTERNET_PER_CONN_OPTION_LISTW list{};list.dwSize=sizeof(list);list.dwOptionCount=4;list.pOptions=options;
+    return InternetSetOptionW(nullptr,INTERNET_OPTION_PER_CONNECTION_OPTION,&list,sizeof(list));
+}
+void nativeRestore() {
+    if(!nativeSaved)return;
+    if(!nativeWrite(nativeOriginal)
+        || !InternetSetOptionW(nullptr,INTERNET_OPTION_SETTINGS_CHANGED,nullptr,0)
+        || !InternetSetOptionW(nullptr,INTERNET_OPTION_REFRESH,nullptr,0)) {
+        std::cerr<<"Failed to restore the disposable runner baseline\n";std::_Exit(1);
+    }
+}
+}
+static void nativeRoundtrip() {
+    check(qEnvironmentVariable("GITHUB_ACTIONS")=="true","native Windows mutation requires a disposable CI runner");
+    check(nativeRead(nativeOriginal),"read native WinINet baseline");nativeSaved=true;std::atexit(nativeRestore);
+    const WinState original{PROXY_TYPE_DIRECT|PROXY_TYPE_AUTO_PROXY_URL,"http=prior.invalid:3128","old.invalid","https://pac.invalid/original.pac"};
+    check(nativeWrite(original),"seed disposable WinINet PAC/proxy/bypass");
+    rasNames.clear();PlatformSystemProxyBackend backend(WindowsProxyApi{InternetQueryOptionW,InternetSetOptionW,entries});
+    check(backend.clear().succeeded(),"native clear without snapshot");
+    WinState current;check(nativeRead(current) && current.flags==original.flags,"unknown native PAC remains enabled");
+    check(backend.apply(config).succeeded(),"native WinINet apply/readback");
+    check(backend.clear().succeeded(),"native WinINet restoration");
+    check(nativeRead(current) && current.flags==original.flags && current.proxy==original.proxy && current.bypass==original.bypass && current.pac==original.pac,"native original settings restored exactly");
+    check(backend.apply(config).succeeded(),"native reapply");
+    current={PROXY_TYPE_DIRECT|PROXY_TYPE_PROXY,"http=external.invalid:8899","external.invalid","https://pac.invalid/new.pac"};
+    check(nativeWrite(current) && backend.clear().succeeded(),"native external changes during ownership");
+    WinState actual;check(nativeRead(actual) && actual.flags==current.flags && actual.proxy==current.proxy && actual.bypass==current.bypass && actual.pac==current.pac,"native external proxy/PAC/bypass retained");
+    std::cout<<"PASS: native WinINet apply, restore and external ownership on disposable CI runner\n";
+}
+
 #else
 struct Fixture {
     QMap<QString, QString> values;
@@ -240,6 +297,9 @@ static void isolatedKde() {
 int main(int argc, char **argv) {
     QCoreApplication app(argc,argv);
     const auto args = app.arguments();
+#ifdef Q_OS_WIN
+    if(args.contains("--native-roundtrip")){nativeRoundtrip();return 0;}
+#endif
     if (args.size()==3 && args[1]=="--child") {
         if (args[2]=="hang") QThread::sleep(10);
         if (args[2]=="cancel") { std::cerr << "User canceled. (-128)"; return 1; }
