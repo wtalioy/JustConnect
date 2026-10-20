@@ -161,6 +161,8 @@ static void nativeProtocol(API &api, const QByteArray &input) {
     check(generation == 2, "native restart generation");
     auto methods = protocolEvent(api, handle);
     check(methods["type"] == "auth_methods" && !methods["methods"].toArray().isEmpty(), "real authentication method query");
+    const auto selected=methods["methods"].toArray().first().toObject();
+    check(selected["auth_id"]=="fixture-primary" && selected["sub_type"]=="sms", "C ABI retains actual method identity");
     check(protocolEvent(api, handle)["status"].toInt() == JC_OK, "query terminal");
     check(api.jc_session_destroy(handle, 1000) == JC_OK && api.jc_session_destroy(handle, 1000) == JC_OK, "native protocol destroy");
     std::cout << "PASS: native protocol session, SMS, SOCKS/HTTP tunnel payloads, active stop and query restart\n";

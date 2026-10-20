@@ -36,6 +36,8 @@ type ClientOptions struct {
 }
 
 type SetupOptions struct {
+	AuthID                   string
+	AuthSubType              string
 	ServerAddress            string
 	ServerPort               int
 	LoginMethod              auth.LoginMethod
@@ -340,6 +342,7 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) ([]byte
 		c.SignKey = randHex(64)
 
 		loginResult, err := sess.Login(options.LoginMethod, auth.LoginOptions{
+			AuthID: options.AuthID, SubType: options.AuthSubType,
 			DeviceID:         c.DeviceID,
 			Cookies:          clientAuthData.Cookies,
 			TOTPSecret:       options.TOTPSecret,

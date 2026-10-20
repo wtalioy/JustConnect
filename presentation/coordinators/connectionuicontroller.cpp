@@ -320,6 +320,9 @@ void ConnectionUiController::showConnectionError(ConnectionError error)
     QString message;
     switch (error)
     {
+    case ConnectionError::AUTHENTICATION_CHANGED:
+        message = "认证方式已变化或不唯一，请重新获取并选择认证方式。";
+        break;
     case ConnectionError::CLIENT_FAILED:
         message = "连接失败！\n可能是响应超时，请检查本地网络配置是否正常，服务器设置是否正确。";
         break;

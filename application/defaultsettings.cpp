@@ -34,6 +34,8 @@ void apply(QSettings &settings, bool overwrite)
 
     set("JustConnect/LoginDomain", "");
     set("JustConnect/AuthType", "psw");
+    set("JustConnect/AuthID", "");
+    set("JustConnect/AuthSubType", "");
     set("JustConnect/LoginURL", "");
     set("JustConnect/PhoneCountryCode", "86");
     set("JustConnect/PhoneNumber", "");

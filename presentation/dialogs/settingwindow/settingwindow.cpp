@@ -36,9 +36,13 @@ SettingWindow::SettingWindow(QWidget *parent,QSettings *inputSettings,const QStr
     ui->loginUrlLineEdit->setToolTip("认证查询结果预览；连接时使用当前会话返回的地址。");
     loadSettings(*settings);
     connect(serverEditor,&ServerSettingsWidget::serverChanged,this,[this] {
+        selectedAuthId.clear(); selectedAuthSubType.clear();
         ui->authTypeComboBox->setCurrentIndex(0);
         ui->loginDomainLineEdit->clear(); ui->loginUrlLineEdit->clear();
     });
+    const auto clearIdentity=[this] { selectedAuthId.clear(); selectedAuthSubType.clear(); };
+    connect(ui->authTypeComboBox,&QComboBox::currentIndexChanged,this,clearIdentity);
+    connect(ui->loginDomainLineEdit,&QLineEdit::textEdited,this,clearIdentity);
     connect(ui->passwordVisibleCheckBox,&QCheckBox::toggled,this,[this](bool on) {
         ui->passwordLineEdit->setEchoMode(on ? QLineEdit::Normal : QLineEdit::Password);
     });
@@ -52,15 +56,17 @@ SettingWindow::SettingWindow(QWidget *parent,QSettings *inputSettings,const QStr
     connect(ui->authSelectPushButton,&QPushButton::clicked,this,[this] {
         const auto host=serverEditor->serverAddress(); const auto port=serverEditor->serverPort();
         auto *query=new AuthInfoWindow(this);
-        connect(query,&AuthInfoWindow::finishAuthInfo,this,[this,host,port](QString method,const QString &domain,const QString &url) {
+        connect(query,&AuthInfoWindow::finishAuthInfo,this,[this,host,port](const QJsonObject &selection) {
             if (host!=serverEditor->serverAddress() || port!=serverEditor->serverPort()) return;
+            auto method=selection["type"].toString();
             if (method.startsWith("auth/")) method.remove(0,5);
             int index=ui->authTypeComboBox->findData(method);
             if (index<0) { ui->authTypeComboBox->addItem(method,method); index=ui->authTypeComboBox->count()-1; }
             ui->authTypeComboBox->setCurrentIndex(index);
-            ui->loginDomainLineEdit->setText(domain); ui->loginUrlLineEdit->setText(url);
+            ui->loginDomainLineEdit->setText(selection["domain"].toString()); ui->loginUrlLineEdit->setText(selection["login_url"].toString());
+            selectedAuthId=selection["auth_id"].toString(); selectedAuthSubType=selection["sub_type"].toString();
         });
-        query->fetchAuthInfo(host,port,serverEditor->isFudan()); query->show();
+        query->fetchAuthInfo(currentProfile(),serverEditor->isFudan()); query->show();
     });
     connect(ui->buttonBox->button(QDialogButtonBox::Ok),&QPushButton::clicked,this,[this] {
         if (applySettings()) accept();
@@ -117,6 +123,7 @@ void SettingWindow::loadSettings(const QSettings &source) {
     int index=ui->authTypeComboBox->findData(method);
     if (index<0) { ui->authTypeComboBox->addItem(method,method); index=ui->authTypeComboBox->count()-1; }
     ui->authTypeComboBox->setCurrentIndex(index);
+    selectedAuthId=source.value("JustConnect/AuthID").toString(); selectedAuthSubType=source.value("JustConnect/AuthSubType").toString();
     ui->loginDomainLineEdit->setText(source.value("JustConnect/LoginDomain").toString());
     ui->loginUrlLineEdit->setText(source.value("JustConnect/LoginURL").toString());
     ui->countryCodeLineEdit->setText(source.value("JustConnect/PhoneCountryCode","86").toString());
@@ -142,6 +149,7 @@ ConnectionProfile SettingWindow::currentProfile() const {
     ConnectionProfile profile;
     profile.credentials = {ui->usernameLineEdit->text().trimmed(), ui->passwordLineEdit->text(), ui->totpSecretLineEdit->text().trimmed()};
     profile.endpoint.server = serverEditor->serverAddress(); profile.endpoint.port = serverEditor->serverPort();
+    profile.endpoint.authId=selectedAuthId; profile.endpoint.authSubType=selectedAuthSubType;
     profile.endpoint.authType = ui->authTypeComboBox->currentData().toString();
     profile.endpoint.loginDomain = ui->loginDomainLineEdit->text().trimmed();
     const auto country=ui->countryCodeLineEdit->text().trimmed(), phone=ui->phoneNumberLineEdit->text().trimmed();
@@ -182,6 +190,8 @@ bool SettingWindow::applySettings() {
     settings->setValue("Credential/Password",QString::fromLatin1(profile.credentials.password.toUtf8().toBase64()));
     settings->setValue("Credential/TOTPSecret",profile.credentials.totpSecret);
     settings->setValue("JustConnect/AuthType",profile.endpoint.authType);
+    settings->setValue("JustConnect/AuthID",profile.endpoint.authId);
+    settings->setValue("JustConnect/AuthSubType",profile.endpoint.authSubType);
     settings->setValue("JustConnect/LoginDomain",profile.endpoint.loginDomain);
     settings->setValue("JustConnect/LoginURL",ui->loginUrlLineEdit->text());
     settings->setValue("JustConnect/PhoneCountryCode",ui->countryCodeLineEdit->text().trimmed());

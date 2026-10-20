@@ -82,11 +82,13 @@ ConfigurationGuideDialog::ConfigurationGuideDialog(
         &ConfigurationGuideDialog::updateNavigation
     );
 
-    selectAuthenticationMethod(
-        sourceSettings->value("JustConnect/AuthType", "psw").toString(),
-        sourceSettings->value("JustConnect/LoginDomain").toString(),
-        sourceSettings->value("JustConnect/LoginURL").toString()
-    );
+    selectAuthenticationMethod({
+        {"type",sourceSettings->value("JustConnect/AuthType","psw").toString()},
+        {"domain",sourceSettings->value("JustConnect/LoginDomain").toString()},
+        {"login_url",sourceSettings->value("JustConnect/LoginURL").toString()},
+        {"auth_id",sourceSettings->value("JustConnect/AuthID").toString()},
+        {"sub_type",sourceSettings->value("JustConnect/AuthSubType").toString()}
+    });
 
     usernameLineEdit->setText(
         sourceSettings->value("Credential/Username").toString()
@@ -106,7 +108,7 @@ ConfigurationGuideDialog::ConfigurationGuideDialog(
     updateCredentialsPage();
     updateNavigation();
     connect(serverEditor,&ServerSettingsWidget::serverChanged,this,[this] {
-        selectAuthenticationMethod({}, {}, {});
+        selectAuthenticationMethod({});
     });
 }
 
@@ -114,6 +116,7 @@ bool ConfigurationGuideDialog::applyTo(QSettings &settings)
 {
     auto profile=SettingsProfileLoader::load(settings);
     profile.endpoint.server=serverEditor->serverAddress(); profile.endpoint.port=serverEditor->serverPort();
+    profile.endpoint.authId=selectedAuthId; profile.endpoint.authSubType=selectedAuthSubType;
     profile.endpoint.authType=selectedAuthType; profile.endpoint.loginDomain=selectedLoginDomain;
     profile.credentials={usernameLineEdit->text().trimmed(),passwordLineEdit->text(),totpSecretLineEdit->text().trimmed()};
     const auto country=countryCodeLineEdit->text().trimmed(),phone=phoneNumberLineEdit->text().trimmed();
@@ -151,6 +154,8 @@ bool ConfigurationGuideDialog::applyTo(QSettings &settings)
     );
 
     settings.setValue("JustConnect/AuthType", selectedAuthType);
+    settings.setValue("JustConnect/AuthID",selectedAuthId);
+    settings.setValue("JustConnect/AuthSubType",selectedAuthSubType);
     settings.setValue("JustConnect/LoginDomain", selectedLoginDomain);
     settings.setValue("JustConnect/LoginURL", selectedLoginUrl);
     if (!SettingsMigrator::finish(settings)) {
@@ -347,14 +352,13 @@ void ConfigurationGuideDialog::fetchAuthenticationMethods()
 {
     auto *authInfoWindow = new AuthInfoWindow(this);
     const auto host=serverEditor->serverAddress(); const auto port=serverEditor->serverPort();
-    connect(authInfoWindow,&AuthInfoWindow::finishAuthInfo,this,[this,host,port](const QString &method,const QString &domain,const QString &url) {
+    connect(authInfoWindow,&AuthInfoWindow::finishAuthInfo,this,[this,host,port](const QJsonObject &method) {
         if (host==serverEditor->serverAddress() && port==serverEditor->serverPort())
-            selectAuthenticationMethod(method,domain,url);
+            selectAuthenticationMethod(method);
     });
-    authInfoWindow->fetchAuthInfo(
-        serverEditor->serverAddress(),
-        serverEditor->serverPort(), serverEditor->isFudan()
-    );
+    auto profile=SettingsProfileLoader::load(*sourceSettings);
+    profile.endpoint.server=host; profile.endpoint.port=port;
+    authInfoWindow->fetchAuthInfo(profile,serverEditor->isFudan());
     authInfoWindow->show();
 }
 
@@ -435,15 +439,11 @@ void ConfigurationGuideDialog::updateNavigation()
     updateCredentialsPage();
 }
 
-void ConfigurationGuideDialog::selectAuthenticationMethod(
-    const QString &authType,
-    const QString &loginDomain,
-    const QString &loginUrl
-)
+void ConfigurationGuideDialog::selectAuthenticationMethod(const QJsonObject &method)
 {
-    selectedAuthType = normalizedAuthType(authType);
-    selectedLoginDomain = loginDomain;
-    selectedLoginUrl = loginUrl;
+    selectedAuthType=normalizedAuthType(method["type"].toString());
+    selectedLoginDomain=method["domain"].toString(); selectedLoginUrl=method["login_url"].toString();
+    selectedAuthId=method["auth_id"].toString(); selectedAuthSubType=method["sub_type"].toString();
 
     QString details = "当前选择：" + authenticationMethodName(selectedAuthType);
     if (!selectedLoginDomain.isEmpty())

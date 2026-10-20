@@ -17,6 +17,8 @@ func (s Status) Message() string {
 	switch s {
 	case OK:
 		return "Session ended"
+	case AuthMethodChanged:
+		return "Authentication identity changed; query methods again"
 	case Timeout:
 		return "Operation timed out"
 	case Unsupported:
@@ -38,6 +40,8 @@ type Config struct {
 		Port uint16 `json:"port"`
 	} `json:"server"`
 	Auth struct {
+		AuthID     string `json:"auth_id"`
+		SubType    string `json:"sub_type"`
 		Method     string `json:"method"`
 		Username   string `json:"username"`
 		Password   string `json:"password"`
@@ -144,7 +148,7 @@ func ParseConfig(data []byte) (Config, Status) {
 	default:
 		return Config{}, InvalidArgument
 	}
-	if len(c.Auth.Username) > MaxUsername || len(c.Auth.Password) > MaxPassword ||
+	if len(c.Auth.AuthID) > MaxDomain || len(c.Auth.SubType) > MaxDomain || len(c.Auth.Username) > MaxUsername || len(c.Auth.Password) > MaxPassword ||
 		len(c.Auth.Phone) > MaxPhone || len(c.Auth.Domain) > MaxDomain || len(c.Auth.TOTPSecret) > MaxTOTPSecret ||
 		!validListener(c.Listeners.SOCKS) || !validListener(c.Listeners.HTTP) {
 		return Config{}, InvalidArgument
@@ -270,6 +274,8 @@ func (r Response) valid(c Challenge) bool {
 }
 
 type AuthMethod struct {
+	AuthID   string `json:"auth_id,omitempty"`
+	SubType  string `json:"sub_type,omitempty"`
 	Type     string `json:"type"`
 	Domain   string `json:"domain"`
 	Name     string `json:"name"`

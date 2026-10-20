@@ -2,8 +2,11 @@
 
 #include "ui_authinfowindow.h"
 #include <QDialog>
+#include <QJsonObject>
+#include "core/connectionprofile.h"
 
 class CoreEngine;
+class AuthMethodsQuery;
 
 class AuthInfoWindow : public QDialog
 {
@@ -14,14 +17,14 @@ public:
 
     ~AuthInfoWindow() override;
 
-    void fetchAuthInfo(const QString& serverAddress, int port, bool preferOAuth = false);
+    void fetchAuthInfo(const ConnectionProfile &profile, bool preferOAuth = false);
 
 signals:
-	void finishAuthInfo(const QString& authType, const QString& loginDomain, const QString& loginUrl);
+	void finishAuthInfo(const QJsonObject &method);
 
 private:
 	Ui::AuthInfoWindow *ui;
-    CoreEngine *engine;
+    AuthMethodsQuery *query;
     bool preferOAuth = false;
     bool queryCompleted = false;
 };

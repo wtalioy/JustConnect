@@ -14,7 +14,7 @@ cmake/            应用和原生宿主共享的 Go 库／Qt 适配构建入口
 tests/            领域、端口、界面、真实 C ABI 与受控网关回归
 ```
 
-`application` 依赖 `core`，不引用 Widgets 或具体基础设施。`MainWindowCoordinator` 组合 `CoreEngine → EmbeddedCoreEngine`、`SystemProxyBackend → PlatformSystemProxyBackend` 和 `ProfileBackend → ProfileManager`。认证方式窗口同样使用 `CoreEngine`，允许注入测试端口。
+`application` 依赖 `core`，不引用 Widgets 或具体基础设施。`MainWindowCoordinator` 组合 `CoreEngine → EmbeddedCoreEngine`、`SystemProxyBackend → PlatformSystemProxyBackend` 和 `ProfileBackend → ProfileManager`。认证方式窗口通过应用层 `AuthMethodsQuery` 使用 `CoreEngine`，允许注入测试端口；只在查询与清理均成功后交付完整方法身份，取消或失败不暴露部分结果。
 
 ## 会话与线程
 

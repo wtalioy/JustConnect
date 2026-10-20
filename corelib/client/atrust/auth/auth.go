@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	mathrand "math/rand"
@@ -186,7 +187,11 @@ func (b *responseBody) Close() error {
 	return b.ReadCloser.Close()
 }
 
+var ErrAuthMethodChanged = errors.New("authentication identity is stale or ambiguous")
+
 type AuthInfo struct {
+	AuthID      string `json:"authId"`
+	SubType     string `json:"subType"`
 	LoginDomain string `json:"loginDomain"`
 	AuthType    string `json:"authType"`
 	AuthName    string `json:"authName"`
@@ -194,6 +199,8 @@ type AuthInfo struct {
 }
 
 type LoginOptions struct {
+	AuthID           string
+	SubType          string
 	DeviceID         string
 	Cookies          []Cookie
 	TOTPSecret       string
@@ -385,15 +392,19 @@ func (s *Session) Login(method LoginMethod, opts LoginOptions) (LoginResult, err
 		return LoginResult{}, fmt.Errorf("login method is nil, but user is not logged in")
 	}
 	var foundAuthInfo *AuthInfo
-	for _, authInfo := range authInfoList {
-		if authInfo.AuthType == method.AuthType() && authInfo.LoginDomain == method.LoginDomain() {
-			foundAuthInfo = &authInfo
-			break
+	for _, info := range authInfoList {
+		if info.AuthType != method.AuthType() || info.LoginDomain != method.LoginDomain() ||
+			(opts.AuthID != "" && opts.AuthID != info.AuthID) || (opts.SubType != "" && opts.SubType != info.SubType) {
+			continue
 		}
+		if foundAuthInfo != nil {
+			return LoginResult{}, ErrAuthMethodChanged
+		}
+		copy := info
+		foundAuthInfo = &copy
 	}
 	if foundAuthInfo == nil {
-
-		return LoginResult{}, fmt.Errorf("auth type/login domain combination not found: auth type: %s, login domain: %s", method.AuthType(), method.LoginDomain())
+		return LoginResult{}, ErrAuthMethodChanged
 	}
 
 	err = method.login(s, *foundAuthInfo)

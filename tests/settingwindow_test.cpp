@@ -31,8 +31,13 @@ int main(int argc,char **argv) {
     settings.setValue("Credential/Username","fixture-user");
     settings.setValue("Credential/Password",QString::fromLatin1(QByteArray("fixture-password").toBase64()));
     settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");
+    settings.setValue("JustConnect/AuthID","persisted-id"); settings.setValue("JustConnect/AuthSubType","password");
     settings.setValue("Credential/OtherAccount/Ticket","retained-ticket");
     settings.setValue("OtherApplication/Value","retained-value"); settings.sync();
+    // Saving an unrelated change must preserve the selected opaque identity.
+    { auto *initial=new SettingWindow(nullptr,&settings,"fixture"); initial->show();
+      initial->findChild<QDialogButtonBox *>("buttonBox")->button(QDialogButtonBox::Ok)->click(); app.processEvents();
+      check(settings.value("JustConnect/AuthID")=="persisted-id" && settings.value("JustConnect/AuthSubType")=="password","selected authentication identity survives settings reload/apply"); }
     const auto cache=ApplicationPaths::clientDataFile("fixture"),otherCache=ApplicationPaths::clientDataFile("other");
     write(cache,"current authentication"); write(otherCache,"other authentication");
     QString expectedMessage,fileSelection; bool shown=false;

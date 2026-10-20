@@ -7,6 +7,8 @@ ConnectionProfile SettingsProfileLoader::load(const QSettings &settings) {
 ConnectionProfile SettingsProfileLoader::load(const QSettings &settings,const QString &username,const QString &password) {
     ConnectionProfile p;
     p.credentials={username,password,settings.value("Credential/TOTPSecret").toString()};
+    p.endpoint.authId=settings.value("JustConnect/AuthID").toString();
+    p.endpoint.authSubType=settings.value("JustConnect/AuthSubType").toString();
     p.endpoint.authType=settings.value("JustConnect/AuthType").toString();
     p.endpoint.loginDomain=settings.value("JustConnect/LoginDomain").toString();
     const auto country=settings.value("JustConnect/PhoneCountryCode").toString(), phone=settings.value("JustConnect/PhoneNumber").toString();
