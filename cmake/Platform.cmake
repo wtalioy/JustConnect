@@ -9,13 +9,31 @@ function(justconnect_platform TARGET)
         set(PLATFORM unsupported)
     endif()
     add_library(${TARGET} STATIC "${REPO}/infrastructure/platform/${PLATFORM}/systemproxybackend.cpp"
+        "${REPO}/infrastructure/platform/${PLATFORM}/credentialstore.cpp"
         "${REPO}/infrastructure/platform/platformcommand.cpp"
         "${REPO}/infrastructure/platform/${PLATFORM}/autostart.cpp")
     target_include_directories(${TARGET} PUBLIC "${REPO}")
     target_link_libraries(${TARGET} PUBLIC Qt6::Core)
     if(WIN32)
-        target_link_libraries(${TARGET} PRIVATE wininet rasapi32)
+        target_link_libraries(${TARGET} PRIVATE wininet rasapi32 advapi32)
+    elseif(APPLE)
+        target_link_libraries(${TARGET} PRIVATE "-framework Security" "-framework CoreFoundation")
+    elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        find_package(Qt6 REQUIRED COMPONENTS DBus)
+        target_link_libraries(${TARGET} PUBLIC Qt6::DBus)
     endif()
+endfunction()
+
+function(justconnect_credential_tests TARGET LIBRARY)
+    add_executable(${TARGET} "${REPO}/tests/platform/credentialstore_test.cpp")
+    target_link_libraries(${TARGET} PRIVATE ${LIBRARY} Qt6::Core)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_test(NAME ${TARGET} COMMAND "${Python3_EXECUTABLE}"
+            "${REPO}/tests/platform/credentialstore_linux.py" "$<TARGET_FILE:${TARGET}>")
+    else()
+        add_test(NAME ${TARGET} COMMAND ${TARGET})
+    endif()
+    set_tests_properties(${TARGET} PROPERTIES TIMEOUT 75)
 endfunction()
 
 function(justconnect_platform_tests TARGET LIBRARY)
