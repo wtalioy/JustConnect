@@ -54,9 +54,11 @@ ctest --test-dir build/coreabi -C Release -R coreabi_performance_test --output-o
 
 `application/platformoperationresult.h` 定义成功、失败、用户取消、权限拒绝、不支持和超时；`mayHaveChanged` 单独记录可能已有修改，不能用一个失败布尔值推断系统保持原样。`SystemProxyCheck` 将查询结果、冲突及启用状态分开；查询失败不进入覆盖确认或设置。会话只确认验证成功的启用状态，部分清除失败保留清理标记，退出清理失败不会清零。
 
-[Platform.cmake](../cmake/Platform.cmake) 按 `windows/`、`macos/`、`linux/`、`unsupported/` 子目录为代理和自启动选择源文件，基础设施只依赖 Qt Core，弹窗及结果文案在界面层。WinINet／RAS 每次检查原生返回值，模式、各协议端点、绕过项及通知均检查；手动模式不改写原有 PAC 地址。查询返回的字符串按 [Microsoft WinINet 文档](https://learn.microsoft.com/en-us/windows/win32/wininet/setting-and-retrieving-internet-options) 用 GlobalFree 释放。Unix 工具每条命令共享 5 秒启动／完成期限，检查正常退出和退出码，超时杀死并等待回收；这不是整个多步骤操作或退出流程的 5 秒保证。GNOME 与 KDE 分开处理，macOS 检查各网络服务；端点、认证模式及绕过项必须回读匹配，空输出不是有效空列表。
+[Platform.cmake](../cmake/Platform.cmake) 按 `windows/`、`macos/`、`linux/`、`unsupported/` 子目录为代理和自启动选择源文件，基础设施只依赖 Qt Core，弹窗及结果文案在界面层。WinINet／RAS 每次检查原生返回值，模式、各协议端点、绕过项及通知均检查；手动模式不改写原有 PAC 地址。查询返回的字符串按 [Microsoft WinINet 文档](https://learn.microsoft.com/en-us/windows/win32/wininet/setting-and-retrieving-internet-options) 用 GlobalFree 释放。Unix 工具每条命令共享 5 秒启动／完成期限，检查正常退出和退出码，超时杀死并等待回收；这不是整个多步骤操作或退出流程的 5 秒保证。GNOME 与 KDE 分开处理；端点、认证模式及绕过项必须回读匹配，空输出不是有效空列表。
 
 Windows 按连接保存与恢复状态，不在清除时重新枚举并关闭未知连接；模式恢复还要求端点及 PAC 地址仍属原记录。按 [WinINet 选项文档](https://learn.microsoft.com/en-us/windows/win32/api/wininet/ns-wininet-internet_per_conn_optionw)以 `FLAGS_UI` 查询模式、以 `FLAGS` 设置模式。真实写入回归仅由 `GITHUB_ACTIONS=true` 的临时 runner 注册执行，限定 LAN，保留并恢复 runner 基线；普通本地测试仅使用原生只读查询和失败夹具。
+
+macOS 使用系统 [SCPreferences](https://developer.apple.com/documentation/systemconfiguration/scpreferences-ft8) 和网络服务 API，保存原始代理字典及字段缺失状态，按服务 ID 固定恢复对象；独占锁内一次提交，提交／应用失败保留或撤销改动，并回读恢复结果。临时本地端点不携带旧认证字段，不调用 Keychain 修改接口，也不把旧凭据传给命令行。测试以真实原生接口在临时绝对路径 preferences 文件中创建服务，覆盖空配置、禁用服务、失败重试和外部字段／服务变更；普通只读探针仍查询系统配置。桌面授权交互及真实用户 Keychain 状态不由私有文件回归代替，保留人工验收缺口。
 
 GNOME 输出按 [GLib 字符串格式](https://docs.gtk.org/glib/gvariant-text-format.html#strings)处理引号、控制字符及 Unicode 转义，避免写入后因无法回读而丢失恢复路径。Linux 的平台代理回归除模拟失败外，还在临时 `GSETTINGS_BACKEND=keyfile` 和私有 D-Bus／KConfig 文件中运行真实工具。需要 `gsettings`、`dbus-run-session`、`kreadconfig6` 和 `kwriteconfig6`（Ubuntu 的 [libkf6config-bin](https://packages.ubuntu.com/resolute/libkf6config-bin)）；这些是测试／对应桌面后端的系统工具，不链接或分发 KConfig 库。KConfig 的字符串值通过命令行参数写入，后端因此在修改前拒绝含用户信息的代理 URL，避免旧代理密码进入进程参数，原设置保持不动；接口语义见 [KConfig CLI 实现](https://github.com/KDE/kconfig/tree/master/src/kreadconfig)。
 
