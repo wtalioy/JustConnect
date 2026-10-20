@@ -92,6 +92,8 @@ ABI v1 与 JSON schema 版本同步。S2-02 以兼容增补导出 `jc_config_val
 | `trusted_device` | 用户明确选择登记当前设备才回应 `action:confirm`，拒绝或关闭使用 `cancel`；无默认确认、验证码或设备标识输入 |
 | `cas/oauth2` | `login_url`；回应 `callback_url`，仅接受无 userinfo 的 HTTP(S) URL |
 
+验证码只接受 PNG／JPEG／GIF；压缩图片不超过 `MaxAuthImage`（128 KiB），宽高不超过 `MaxAuthDimension`（8192），总像素不超过 `MaxAuthPixels`（4,194,304，RGBA 约 16 MiB）。Go 在交付事件前检查图片头，Qt 在完整解码前复用同一上限并拒绝其他格式；点选输入和回应均最多 32 个点，回应画布也受像素上限约束。认证 HTTP 控制面通过同一 `Session.request` 限制解压后响应体为 8 MiB，超限返回 `JC_LIMIT`；取消、关闭响应体及已有的请求超时继续生效，此限制不作用于业务隧道流量。
+
 桥接层不打开浏览器、不请求认证 URL。URL 和图片为目的明确的认证数据，不作为诊断日志输出；S2 接入真实校园时仍须验证登录／回调来源、域和认证标识，不能用语法验证代替来源验证。可信设备登记通过同一请求／回应契约显式确认；缺少处理器时不发送登记请求。未知后续服务和缺少类型的 token 步骤返回 `JC_AUTH_UNSUPPORTED`，Qt 提示服务器认证策略暂不支持，不落入通用文本输入，也不输出服务器原文。
 
 ## 验证与构建

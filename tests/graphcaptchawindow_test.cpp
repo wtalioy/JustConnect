@@ -1,4 +1,5 @@
 #include <QApplication>
+#include "corelib/abi/constants.h"
 #include <QDebug>
 #include <QDialogButtonBox>
 #include <QJsonArray>
@@ -14,14 +15,14 @@
 
 namespace
 {
-QByteArray createCaptchaImage()
+QByteArray createCaptchaImage(int width=120,int height=40,const char *format="PNG")
 {
     QByteArray data;
     QBuffer buffer(&data);
     buffer.open(QIODevice::WriteOnly);
-    QPixmap image(120, 40);
+    QPixmap image(width,height);
     image.fill(Qt::white);
-    image.save(&buffer, "PNG");
+    image.save(&buffer,format);
     return data;
 }
 
@@ -106,6 +107,38 @@ bool preservesCoordinateCaptchaResponse()
     return true;
 }
 
+bool rejectsUnsupportedOrOversizedImagesBeforeDecode()
+{
+    for(const auto &data:QList<QByteArray>{createCaptchaImage(2049,2048),createCaptchaImage(16,16,"BMP")}) {
+        GraphCaptchaWindow window;
+        window.setGraph(data,true);
+        if(data.isEmpty() || !window.findChild<CaptchaCanvas *>()->image().isNull()){
+            qCritical()<<"oversized or unsupported captcha decoded";return false;
+        }
+    }
+    for(const auto &data:QList<QByteArray>{createCaptchaImage(16,16,"JPEG"),QByteArray::fromBase64("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7")}) {
+        GraphCaptchaWindow window;window.setGraph(data,true);
+        if(window.findChild<CaptchaCanvas *>()->image().isNull())return false;
+    }
+    return true;
+}
+
+bool limitsCapturedPoints()
+{
+    GraphCaptchaWindow window;
+    window.setGraph(createCaptchaImage(),false);
+    auto *canvas=window.findChild<CaptchaCanvas *>();
+    canvas->resize(240,160);
+    const QPointF position(120,80);
+    for(int i=0;i<JC_MAX_AUTH_POINTS+5;++i) {
+        QMouseEvent click(QEvent::MouseButtonPress,position,position,position,Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+        QApplication::sendEvent(canvas,&click);
+    }
+    if(canvas->pointsPx().size()!=JC_MAX_AUTH_POINTS)return false;
+    window.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Reset)->click();
+    return canvas->pointsPx().isEmpty();
+}
+
 
 }
 
@@ -115,6 +148,8 @@ int main(int argc, char *argv[])
     return submitsTextCaptcha()
         && cancelsWithoutSubmittingPlaceholder()
         && preservesCoordinateCaptchaResponse()
+        && rejectsUnsupportedOrOversizedImagesBeforeDecode()
+        && limitsCapturedPoints()
         ? 0
         : 1;
 }

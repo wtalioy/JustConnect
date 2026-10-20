@@ -30,14 +30,14 @@ func TestProtocolChallengeAdapterPreservesHostResponse(t *testing.T) {
 			return err
 		}, Response{Code: "fixture-code", SkipSecondaryAuth: true}},
 		{"text_captcha", func(h authchallenge.Handler) error {
-			r, err := h.HandleTextCaptcha(authchallenge.TextCaptchaChallenge{Image: []byte{1, 2}})
+			r, err := h.HandleTextCaptcha(authchallenge.TextCaptchaChallenge{Image: captchaImage(t, 20, 10, "png")})
 			if err == nil && r.Code != "fixture-code" {
 				return fmt.Errorf("text code lost")
 			}
 			return err
 		}, Response{Code: "fixture-code"}},
 		{"click_captcha", func(h authchallenge.Handler) error {
-			r, err := h.HandleClickCaptcha(authchallenge.ClickCaptchaChallenge{Image: []byte{1, 2}})
+			r, err := h.HandleClickCaptcha(authchallenge.ClickCaptchaChallenge{Image: captchaImage(t, 20, 10, "png")})
 			if err == nil && (r.Width != 20 || r.Height != 10 || len(r.Points) != 1 || r.Points[0] != (authchallenge.Point{X: 3, Y: 4})) {
 				return fmt.Errorf("captcha coordinates lost")
 			}

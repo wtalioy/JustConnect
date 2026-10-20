@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/pem"
 	"fmt"
 	"io"
 	stdlog "log"
@@ -355,5 +356,32 @@ func TestProtocolTrustedDeviceDeclineAndUnknownStep(t *testing.T) {
 				t.Fatal("unconfirmed device was bound")
 			}
 		})
+	}
+}
+
+func TestProtocolOversizedAuthenticationBodyReportsLimit(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/public/manifest" {
+			t.Error("sent authentication after oversized manifest")
+		}
+		io.WriteString(w, strings.Repeat("x", (8<<20)+1))
+	}))
+	defer server.Close()
+	c, status := ParseConfig([]byte(configJSON))
+	if status != OK {
+		t.Fatal(status)
+	}
+	host, port, _ := net.SplitHostPort(server.Listener.Addr().String())
+	number, _ := strconv.Atoi(port)
+	c.Server.Host, c.Server.Port = host, uint16(number)
+	c.TLS.CAPEM = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}))
+	e := New(RunProtocol)
+	h := create(t, e)
+	if _, status := e.Start(h, configBytes(t, c)); status != OK {
+		t.Fatal(status)
+	}
+	next(t, e, h)
+	if terminal := next(t, e, h); terminal.Type != "terminal" || terminal.Status != Limit {
+		t.Fatal(terminal)
 	}
 }

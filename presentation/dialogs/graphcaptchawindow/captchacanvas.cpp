@@ -1,4 +1,5 @@
 #include "captchacanvas.h"
+#include "corelib/abi/constants.h"
 
 #include <QMouseEvent>
 #include <QPainter>
@@ -18,7 +19,6 @@ void CaptchaCanvas::setImage(const QPixmap &pm)
     m_pointsPx.clear();
     updateGeometry();
     update();
-    emit pointCountChanged(m_pointsPx.size());
 }
 
 void CaptchaCanvas::clearAll()
@@ -27,7 +27,6 @@ void CaptchaCanvas::clearAll()
         return;
     m_pointsPx.clear();
     update();
-    emit pointCountChanged(0);
 }
 
 void CaptchaCanvas::paintEvent(QPaintEvent *)
@@ -71,12 +70,11 @@ void CaptchaCanvas::mousePressEvent(QMouseEvent *ev)
         const QRectF target = imageRect();
         if (target.contains(pos))
         {
-            if (m_maxPoints < 0 || m_pointsPx.size() < m_maxPoints)
+            if (m_pointsPx.size() < JC_MAX_AUTH_POINTS)
             {
                 m_pointsPx.push_back(QPointF((pos.x() - target.left()) * m_img.width() / target.width(),
                                              (pos.y() - target.top()) * m_img.height() / target.height()));
                 update();
-                emit pointCountChanged(m_pointsPx.size());
             }
         }
     }

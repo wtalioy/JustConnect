@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"net"
+	"net/http"
 
 	"github.com/wtalioy/JustConnect/corelib"
 	"github.com/wtalioy/JustConnect/corelib/client"
@@ -77,6 +78,10 @@ func RunProtocol(ctx context.Context, config Config, host *Session) Status {
 	}
 	if errors.Is(err, auth.ErrAuthMethodChanged) {
 		return AuthMethodChanged
+	}
+	var oversized *http.MaxBytesError
+	if errors.As(err, &oversized) {
+		return Limit
 	}
 	var certificate *tls.CertificateVerificationError
 	if errors.As(err, &certificate) {
