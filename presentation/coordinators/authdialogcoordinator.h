@@ -5,6 +5,7 @@
 #include <QPointer>
 #include <QJsonObject>
 #include <QUrl>
+#include "core/connectionprofile.h"
 
 class GraphCaptchaWindow;
 class LoginWindow;
@@ -27,7 +28,7 @@ public:
         const QString &countryCode,
         const QString &phoneNumber
     );
-    void requestAuthentication(const QJsonObject &request, const QUrl &callbackServer);
+    void requestAuthentication(const QJsonObject &request, const QUrl &callbackServer,const TlsOptions &tls={});
     void closeAuthentication();
     void closeCredentialPrompts();
 

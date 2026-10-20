@@ -264,9 +264,9 @@ static void browserCookiesStayInLoginDialog() {
         dialog->setInitialUrl(QUrl(base+path));until([&]{return done;});QObject::disconnect(connection);
         check(okay,"actual SSO page loads from controlled HTTP server");
     };
-    auto *first=new SsoLoginWebView;first->setCallbackUrl(QUrl(base+"/passport/v1/auth/cas"));first->show();visit(first,"/first");visit(first,"/echo");
+    auto *first=new SsoLoginWebView(nullptr,QUrl(base+"/passport/v1/auth/cas"));first->show();visit(first,"/first");visit(first,"/echo");
     check(cookies.size()==1 && cookies[0],"cookie works within the current login dialog");
-    auto *second=new SsoLoginWebView;second->setCallbackUrl(QUrl(base+"/passport/v1/auth/cas"));second->show();visit(second,"/echo");
+    auto *second=new SsoLoginWebView(nullptr,QUrl(base+"/passport/v1/auth/cas"));second->show();visit(second,"/echo");
     check(cookies.size()==2 && !cookies[1],"another SSO dialog cannot reuse the first login's cookie");
     check(first->findChild<QWebEngineView *>()->page()->profile()->isOffTheRecord()
         && second->findChild<QWebEngineView *>()->page()->profile()->isOffTheRecord(),"login browser data remains in memory");
@@ -298,8 +298,7 @@ static void browserValidatesCallbackNavigation() {
             });QObject::connect(socket,&QTcpSocket::disconnected,socket,&QObject::deleteLater);
         }
     });
-    auto *dialog=new SsoLoginWebView;dialog->setAttribute(Qt::WA_DeleteOnClose,false);
-    dialog->setCallbackUrl(QUrl(base+"/passport/v1/auth/httpsOauth2"));dialog->show();
+    auto *dialog=new SsoLoginWebView(nullptr,QUrl(base+"/passport/v1/auth/httpsOauth2"));dialog->setAttribute(Qt::WA_DeleteOnClose,false);dialog->show();
     auto *view=dialog->findChild<QWebEngineView *>();int responses=0;QString callback;
     QObject::connect(dialog,&SsoLoginWebView::loginCompleted,[&](const QString &value){++responses;callback=value;});
     auto visit=[&](const QString &path) {
@@ -324,7 +323,7 @@ static void browserValidatesCallbackNavigation() {
         check(warning->isVisible() && view->url()==current && responses==0,"unsafe initial navigation does not replace the login page");
     }
     visit("/redirect-oauth");check(responses==1 && callback==base+"/passport/v1/auth/httpsOauth2?code=fixture" && callbackRequests==0,"valid OAuth redirect is delivered once and intercepted before HTTP submission");delete dialog;
-    dialog=new SsoLoginWebView;dialog->setAttribute(Qt::WA_DeleteOnClose,false);dialog->setCallbackUrl(QUrl(base+"/passport/v1/auth/cas"));dialog->show();view=dialog->findChild<QWebEngineView *>();responses=0;
+    dialog=new SsoLoginWebView(nullptr,QUrl(base+"/passport/v1/auth/cas"));dialog->setAttribute(Qt::WA_DeleteOnClose,false);dialog->show();view=dialog->findChild<QWebEngineView *>();responses=0;
     QObject::connect(dialog,&SsoLoginWebView::loginCompleted,[&](const QString &value){++responses;callback=value;});
     auto *address=dialog->findChild<QLineEdit *>("addressLineEdit");address->setText(base+"/passport/v1/auth/cas?ticket=fixture");
     check(QMetaObject::invokeMethod(address,"returnPressed"),"submit a main-frame callback from the address bar");until([&]{return responses==1;});
@@ -430,6 +429,43 @@ static void uiContracts() {
     failed->reject(); QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
 
 }
+static void browserTlsPolicy(const ConnectionProfile &gatewayProfile) {
+    QUrl target;target.setScheme("https");target.setHost(gatewayProfile.endpoint.server);target.setPort(gatewayProfile.endpoint.port);target.setPath("/browser");
+    QString foreignUrl;
+    for (const auto &policy:QList<TlsOptions>{{},{true,gatewayProfile.tls.caPem},{},{false,{}}}) {
+        QWidget parent;auto *engine=new QueryEngine;ConnectionSession session(engine);AuthDialogCoordinator dialogs(&parent);
+        QObject::connect(&session,&ConnectionSession::authenticationRequired,&dialogs,&AuthDialogCoordinator::requestAuthentication);
+        auto profile=gatewayProfile;profile.tls=policy;check(session.start(profile,{}),"start immutable browser TLS policy context");profile.tls={};
+        auto loginTarget=target;if(!policy.verify)loginTarget.setQuery("scope=unsafe");
+        const QJsonObject request{{"schema_version",1},{"generation","1"},{"request_id","1"},
+            {"challenge",QJsonObject{{"kind","oauth2"},{"login_url",loginTarget.toString()}}}};
+        emit engine->authenticationRequired(request);
+        auto *dialog=qobject_cast<SsoLoginWebView *>(challenge(parent));check(dialog!=nullptr,"SSO uses the active session browser");
+        auto *view=dialog->findChild<QWebEngineView *>();bool done=false,okay=false;
+        auto connection=QObject::connect(view,&QWebEngineView::loadFinished,[&](bool success){done=true;okay=success;});
+        until([&]{return done;});QObject::disconnect(connection);
+        const bool trusted=!policy.verify || !policy.caPem.isEmpty();
+        check(okay==trusted,"browser honors the active session CA and verification policy without changing another profile");
+        check(view->page()->profile()->isOffTheRecord(),"custom browser trust keeps all authentication data in memory");
+        if (okay) {
+            bool content=false;
+            view->page()->runJavaScript("document.getElementById('fixture').textContent==='browser TLS fixture' && getComputedStyle(document.getElementById('fixture')).getPropertyValue('--scope-proof').trim()==='allowed'",[&](const QVariant &value){content=value.toBool();});until([&]{return content;});
+            foreignUrl.clear();view->page()->runJavaScript("document.getElementById('otherOrigin').href",[&](const QVariant &value){foreignUrl=value.toString();});until([&]{return !foreignUrl.isEmpty();});
+        }
+        if (!policy.verify) {
+            check(!foreignUrl.isEmpty() && QUrl(foreignUrl).port()!=target.port(),"different browser origin supplied by the TLS fixture");
+            auto otherHost=QUrl(foreignUrl);otherHost.setHost("localhost");
+            for (const auto &foreign:{QUrl(foreignUrl),otherHost}) {
+                done=false;okay=true;connection=QObject::connect(view,&QWebEngineView::loadFinished,[&](bool success){done=true;okay=success;});
+                view->load(foreign);until([&]{return done;});QObject::disconnect(connection);
+                check(!okay,"an explicit gateway TLS bypass does not apply to another port or host");
+            }
+        }
+        dialogs.closeAuthentication();session.stop();emit engine->finished(ConnectionError::NONE);QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    }
+    std::cout<<"PASS: browser TLS policy, isolated trust and resource origin checks\n";
+}
+
 static void gateway(const QJsonObject &config) {
     QWidget parent;
     AuthDialogCoordinator dialogs(&parent);
@@ -510,6 +546,7 @@ static void gateway(const QJsonObject &config) {
     });
     check(engine->start(p, CoreEngine::Operation::AuthMethods), "query restarts same engine after connection cleanup");
     until([&] { return methods && queryDone; });
+    browserTlsPolicy(p);
     std::cout << "PASS: native protocol session through Qt UI, SMS, SOCKS/HTTP, active stop and query restart\n";
 }
 int main(int argc, char **argv) {

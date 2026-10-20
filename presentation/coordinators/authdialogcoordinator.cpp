@@ -157,7 +157,7 @@ void AuthDialogCoordinator::closeAuthentication()
     challengeDialog = nullptr;
 }
 
-void AuthDialogCoordinator::requestAuthentication(const QJsonObject &request, const QUrl &callbackServer)
+void AuthDialogCoordinator::requestAuthentication(const QJsonObject &request, const QUrl &callbackServer,const TlsOptions &tls)
 {
     closeAuthentication();
     const auto challenge = request["challenge"].toObject();
@@ -175,11 +175,10 @@ void AuthDialogCoordinator::requestAuthentication(const QJsonObject &request, co
         });
         dialog = captcha;
     } else if (kind == "cas" || kind == "oauth2") {
-        auto *web = new SsoLoginWebView(parentWidget);
         auto callback=callbackServer;
         callback.setPath(kind=="cas" ? "/passport/v1/auth/cas" : "/passport/v1/auth/httpsOauth2");
         callback.setQuery(QString());callback.setFragment(QString());
-        web->setCallbackUrl(callback);
+        auto *web = new SsoLoginWebView(parentWidget,callback,tls);
         web->setInitialUrl(QUrl(challenge["login_url"].toString()));
         connect(web, &SsoLoginWebView::loginCompleted, this, [submit](const QString &url) {
             if (!url.isEmpty()) submit({{"action", "submit"}, {"callback_url", url}});

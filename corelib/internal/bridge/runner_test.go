@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	stdlog "log"
 	"net"
@@ -14,6 +15,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -228,6 +230,14 @@ func TestNativeProtocolHost(t *testing.T) {
 		t.Skip("native host is exercised by the Core ABI CTest target")
 	}
 	g := newGateway(t)
+	var foreignRequests atomic.Int32
+	other := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		foreignRequests.Add(1)
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<html><body>unexpected foreign browser request</body></html>`)
+	}))
+	defer other.Close()
+	g.browserURL.Store(other.URL)
 	c := g.config(t)
 	c.Listeners.SOCKS, c.Listeners.HTTP = freeAddress(t), freeAddress(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
@@ -239,6 +249,12 @@ func TestNativeProtocolHost(t *testing.T) {
 	}
 	if !strings.Contains(string(output), "PASS: native protocol session") || g.authCount.Load() != 1 || g.tcpCount.Load() != 2 {
 		t.Fatalf("missing actual protocol exchanges: auth=%d TCP=%d\n%s", g.authCount.Load(), g.tcpCount.Load(), output)
+	}
+	if strings.Contains(string(output), "PASS: browser TLS policy") && g.browserRedirects.Load() != 1 {
+		t.Fatal("browser did not exercise the same-origin resource redirect")
+	}
+	if foreignRequests.Load() != 0 {
+		t.Fatal("browser TLS bypass escaped the configured gateway origin")
 	}
 	t.Log(string(output))
 }

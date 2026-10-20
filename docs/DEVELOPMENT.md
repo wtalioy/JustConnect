@@ -120,7 +120,7 @@ Windows 当前未配置代码签名；未维护额外的软件源包。
 
 ## 本地构建
 
-需要模块固定版本的 Go、原生 cgo C 编译器、C++17 编译器、CMake 3.19 或更新版本、Qt 6.5 或更新版本，以及 Qt Core、Concurrent、Gui、Widgets、Network、Svg、WebEngineWidgets。
+需要模块固定版本的 Go、原生 cgo C 编译器、C++17 编译器、CMake 3.19 或更新版本、Qt 6.10 或更新版本（SSO 内存 Profile 的独立 CA 数据库需要此版本），以及 Qt Core、Concurrent、Gui、Widgets、Network、Svg、WebEngineWidgets。
 
 当前本地与 CI 使用 [Qt 6.12.0](https://www.qt.io/blog/qt-6.12-released)，搭配官方为它构建的 [WebEngine 6.140.0 候选版](https://download.qt.io/development_releases/qtwebengine/6.140.0-rc/)，固定二进制构建编号 `6.12.0-0-202609281005`。已确认允许使用这一候选组件以保持三平台统一 Qt 6.12；它尚不能标作 WebEngine 正式版。[WebEngine 从 Qt 6.12 起独立发布](https://www.qt.io/blog/qt-webengine-will-release-separate)，已排除在 Windows 上出现 DLL 接口不兼容的 Qt 6.12／WebEngine 6.11.2 组合。
 
@@ -211,3 +211,5 @@ S2-03 默认启用服务器证书验证，私有 CA 可在服务器编辑区以 
 界面凭据回归使用注入存储端口与实际 Qt 控件，不访问用户的系统条目。`coreengineui_test` 覆盖不记住的内存登录、记住后的安全写入、原生读写失败仍手动启动、取消／切换后的晚到读拒绝和读取完成后的当前 TLS 策略；`settingwindow_test` 覆盖凭据清除、空密码保留、单独更新 TOTP、导入／重置取消与公开导出；`configurationguidedialog_test` 检查安全读写、手机号、SSO 页面和实际配置写入失败。`credentialaccess_test` 另外验证窗口销毁后已授权保存仍完成、公开草稿过期拒绝及锁定时禁止重新绑定遗留密码。各测试保留独有的失败和边界回归。
 
 S2-05 的回调回归使用两个受控 TLS 服务，先复现私有会话头被送往另一来源，再验证 CAS／OAuth2 均在发出请求前拒绝；同时验证正确网关的回调交换及门户票据、默认／自定义端口、IPv6、用户信息、片段、重复／坏编码和控制字符。可运行 `go -C corelib test ./client/atrust/auth`。实际浏览器回归使用已配置的私有回环 HTTP 网关，验证同源错误路径、iframe 和非法导航拒绝，正常内部 iframe、OAuth2 重定向及 CAS 地址栏回调仍可交付；使用页面 console.error 先复现脚本文本进入应用日志，再验证专用 Page 抑制输出且脚本仍执行；不访问校园账号或使用明文远程 IdP。
+
+浏览器 TLS 使用 [Qt 6.10 的 Profile CA 接口](https://doc.qt.io/qt-6.10/qwebengineprofilebuilder.html#setAdditionalTrustedCertificates)，通过无存储名称创建窗口私有 Profile；[Qt 实现](https://raw.githubusercontent.com/qt/qtwebengine/6.10/src/core/profile_adapter.cpp) 将该形式保持为 off-the-record，不因配置 CA 改用磁盘 Profile。真实协议宿主在受控 HTTPS 网关中验证默认拒绝、学校 CA 成功、后续默认窗口仍拒绝及当前会话快照；另一同主机端口使用相同测试证书，检查页面、样式及同源地址重定向都不能继承网关的证书例外，同时验证同源样式生效，另一主机也仍校验。测试服务统计外部请求必须为零，不仅检查界面布尔值；原有正常协议、SMS、SOCKS／HTTP 与停止检查仍保留。

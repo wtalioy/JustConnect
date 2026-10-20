@@ -22,20 +22,22 @@ import (
 
 // This gateway speaks the actual HTTP authentication and TCP/IP tunnel framing.
 type gateway struct {
-	HTTP      *httptest.Server
-	node      net.Listener
-	worker    sync.WaitGroup
-	accepted  chan struct{}
-	mu        sync.Mutex
-	closed    bool
-	conns     map[net.Conn]bool
-	udpCount  atomic.Int32
-	delay     atomic.Int64
-	tcpCount  atomic.Int32
-	authCount atomic.Int32
-	invalid   atomic.Bool
-	pauseIP   atomic.Bool
-	ipStarted chan struct{}
+	browserURL       atomic.Value
+	browserRedirects atomic.Int32
+	HTTP             *httptest.Server
+	node             net.Listener
+	worker           sync.WaitGroup
+	accepted         chan struct{}
+	mu               sync.Mutex
+	closed           bool
+	conns            map[net.Conn]bool
+	udpCount         atomic.Int32
+	delay            atomic.Int64
+	tcpCount         atomic.Int32
+	authCount        atomic.Int32
+	invalid          atomic.Bool
+	pauseIP          atomic.Bool
+	ipStarted        chan struct{}
 }
 
 func newGateway(t *testing.T) *gateway {
@@ -44,6 +46,23 @@ func newGateway(t *testing.T) *gateway {
 	g.HTTP = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
+		case "/browser":
+			w.Header().Set("Content-Type", "text/html")
+			target, _ := g.browserURL.Load().(string)
+			stylesheet := ""
+			if r.URL.Query().Get("scope") == "unsafe" {
+				stylesheet = fmt.Sprintf(`<link rel="stylesheet" href="%s/resource"><link rel="stylesheet" href="/browser-redirect">`, target)
+			}
+			fmt.Fprintf(w, `<html><head><link rel="icon" href="data:,"><link rel="stylesheet" href="/browser-style">%s</head><body><p id="fixture">browser TLS fixture</p><a id="otherOrigin" href="%s/browser">other origin</a></body></html>`, stylesheet, target)
+		case "/browser-style":
+			w.Header().Set("Content-Type", "text/css")
+			fmt.Fprint(w, `#fixture {--scope-proof: allowed;}`)
+		case "/browser-redirect":
+			g.browserRedirects.Add(1)
+			target, _ := g.browserURL.Load().(string)
+			http.Redirect(w, r, target+"/redirected-resource", http.StatusFound)
+		case "/favicon.ico":
+			w.WriteHeader(http.StatusNoContent)
 		case "/public/manifest":
 			fmt.Fprint(w, `{"code":0,"data":{}}`)
 		case "/passport/v1/public/authConfig":
