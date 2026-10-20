@@ -15,7 +15,7 @@ func (s *Stack) DialTCP(ctx context.Context, addr *net.TCPAddr) (net.Conn, error
 		return s.endpoint.client.DialTCP(ctx, addr)
 	}
 
-	return gonet.DialTCP(s.gvisorStack, tcpip.FullAddress{
+	return gonet.DialContextTCP(ctx, s.gvisorStack, tcpip.FullAddress{
 		NIC:  NICID,
 		Port: uint16(addr.Port),
 		Addr: tcpip.AddrFromSlice(addr.IP),

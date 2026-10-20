@@ -44,7 +44,7 @@ func buildInfo() []byte {
 		"build": map[string]any{"revision": rev, "source_state": state,
 			"upstream_commit": bridge.UpstreamCommit, "local_version": rev + "+" + state,
 			"go_version": runtime.Version(), "os": runtime.GOOS, "arch": runtime.GOARCH},
-		"capabilities": map[string]any{"embedded_vpn": false, "policy_update": false,
+		"capabilities": map[string]any{"embedded_vpn": !testDriver, "auth_method_query": !testDriver, "policy_update": false,
 			"async_start": true, "authentication_response": true, "bounded_events": true,
 			"max_sessions": 1, "max_handles": bridge.MaxHandles, "max_input_bytes": bridge.MaxInput,
 			"max_output_bytes": bridge.MaxOutput, "max_wait_ms": bridge.MaxWaitMS,

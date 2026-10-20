@@ -139,7 +139,7 @@ func TestNodeProbeSkipsMalformedEndpointsAndKeepsIPv6(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var calls atomic.Int32
-	got := getBestReachableNodes(ctx, map[string][]string{"group": {"missing-port", "host:bad", "host:0", "[::1]:443"}}, func(_ context.Context, network, address string) (net.Conn, error) {
+	got, err := getBestReachableNodes(ctx, map[string][]string{"group": {"missing-port", "host:bad", "host:0", "[::1]:443"}}, func(_ context.Context, network, address string) (net.Conn, error) {
 		if network != "tcp" || address != "[::1]:443" {
 			t.Errorf("probe = %s %s", network, address)
 		}
@@ -147,7 +147,17 @@ func TestNodeProbeSkipsMalformedEndpointsAndKeepsIPv6(t *testing.T) {
 		cancel()
 		return nil, context.Canceled
 	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(got) != 0 || calls.Load() != 1 {
 		t.Fatalf("nodes = %v, calls = %d", got, calls.Load())
+	}
+}
+
+func TestNodeProbePanicReturnsToSetup(t *testing.T) {
+	_, err := getBestNodes(context.Background(), map[string]NodeGroup{"fixture": {WAN: []string{"127.0.0.1:443"}}}, func(context.Context, string, string) (net.Conn, error) { panic("private transport detail") }, nil)
+	if err == nil || err.Error() != "node probe panicked" {
+		t.Fatalf("probe panic = %v", err)
 	}
 }

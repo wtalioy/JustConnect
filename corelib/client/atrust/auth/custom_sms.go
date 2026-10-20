@@ -9,7 +9,6 @@ import (
 	"net/url"
 
 	"github.com/wtalioy/JustConnect/corelib/client/authchallenge"
-	"github.com/wtalioy/JustConnect/corelib/log"
 )
 
 func (s *Session) completeCustomSMS() (authStep, error) {
@@ -30,7 +29,6 @@ func (s *Session) completeCustomSMS() (authStep, error) {
 }
 
 func (s *Session) sendCustomSMS() error {
-	log.Println("Perform POST /passport/v1/auth/customSms")
 
 	payload := struct {
 		IsPrevEffect string `json:"isPrevEffect"`
@@ -64,7 +62,6 @@ func (s *Session) sendCustomSMS() error {
 	if err != nil {
 		return err
 	}
-	log.DebugPrintf("Received custom SMS send response: %s", string(body))
 
 	var result struct {
 		Code    int    `json:"code"`
@@ -80,12 +77,10 @@ func (s *Session) sendCustomSMS() error {
 		return fmt.Errorf("sendCustomSMS failed with code %d: %s", result.Code, result.Message)
 	}
 
-	log.Printf("%s: %s", result.Message, result.Data.Tips)
 	return nil
 }
 
 func (s *Session) customSMSCheckCode(code string, skipSecondaryAuth bool) (authStep, error) {
-	log.Println("Perform POST /passport/v1/auth/customSms")
 
 	skipSecondaryAuthStr := "0"
 	if skipSecondaryAuth {
@@ -128,7 +123,6 @@ func (s *Session) customSMSCheckCode(code string, skipSecondaryAuth bool) (authS
 	if err != nil {
 		return authStep{}, err
 	}
-	log.DebugPrintf("Received custom SMS check response: %s", string(body))
 
 	var result struct {
 		Code    int          `json:"code"`

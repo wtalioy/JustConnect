@@ -1,6 +1,6 @@
 # Go 核心来源与维护
 
-`corelib/` 是 JustConnect 自有的单一 Go 模块。协议源码直接在此维护、重构和精简，不是独立程序、插件、嵌套上游模块或 vendor 副本。S1-03 已实现 [C ABI 契约和传输](../docs/CORE-ABI.md)，正式会话仍由 S1-07 接入；当前 Qt 应用尚未切换到这个模块。
+`corelib/` 是 JustConnect 自有的单一 Go 模块。协议源码直接在此维护、重构和精简，不是独立程序、插件、嵌套上游模块或 vendor 副本。S1-03 已实现 [C ABI 契约和传输](../docs/CORE-ABI.md)，S1-07 已接入正式会话（平台验收记录见计划）；当前 Qt 应用尚未切换到这个模块。
 
 ## 导入基线
 
@@ -20,15 +20,15 @@
 
 同时导入 `go.mod`、`go.sum`、根许可证、`internal/ping/LICENSE` 和两份上游 README。根许可证原文保存为 [LICENSE.zju-connect](LICENSE.zju-connect)，上游说明与致谢原文保存为 [UPSTREAM-README.md](UPSTREAM-README.md) 和 [UPSTREAM-README_en.md](UPSTREAM-README_en.md)。未导入上游 Actions、Docker／服务安装配置、示例配置及推广图片；当前源码没有依赖它们的嵌入资源。
 
-S1-05 迁移模块及 Go 导入路径、固定工具链、通过 `go mod tidy`／`go mod download` 重建依赖锁，并添加 JustConnect 的模块集成测试。首次 Windows 回归后，TLS 密钥日志与 PCAP 改用共享的 `internal/privatefile`：写入前收紧已有文件权限，Windows 使用仅当前账户可访问的受保护 DACL，Unix 使用 `0600`；协议实现不变。首次三平台 CI 暴露 Windows 不提供 Unix 权限位：`internal/keylog/keylog_test.go` 和 `underlay/pcap_test.go` 的 `0600` 断言仅在非 Windows 平台执行；文件内容、错误传播和抓包行为测试仍在全部平台执行。不维护指向上游源码的本地 `replace`。`inet.af/netaddr` 的远程替换沿用上游，用于该外部依赖的实际模块来源，并非另一个 VPN 核心模块。
+S1-05 迁移模块及 Go 导入路径、固定工具链、通过 `go mod tidy`／`go mod download` 重建依赖锁，并添加 JustConnect 的模块集成测试。首次 Windows 回归后，TLS 密钥日志与 PCAP 改用共享的 `internal/privatefile`：写入前收紧已有文件权限，Windows 使用仅当前账户可访问的受保护 DACL，Unix 使用 `0600`；协议实现不变。首次三平台 CI 暴露 Windows 不提供 Unix 权限位：`internal/keylog/keylog_test.go` 和 `underlay/pcap_test.go` 的 `0600` 断言仅在非 Windows 平台执行；文件内容、错误传播和抓包行为测试仍在全部平台执行。不维护指向上游源码的本地 `replace`。历史 `inet.af/netaddr` 替换已随无调用方的系统路由 IPSet 副本删除；当前没有模块替换。
 
 导入时逐文件验证了源码：除上述路径迁移和模块锁外，与校验过的归档一致；许可证和上游说明保持逐字节一致。以后直接提交这里的实际修改，利用本次导入提交和固定归档审查差异，有选择地合入上游修复，不重新下载覆盖源码、不维护外部补丁队列。Go 的外部依赖由 `go.sum` 和 module cache 管理，不提交整个缓存或 vendor。
 
 ## 阶段收尾清理
 
-S1-03 后按调用关系删除了 EasyConnect 协议及其三份专属测试，移除通用 gVisor 栈对 EasyConnect 错误类型和进程退出的依赖；aTrust 的数据面与回归保留。删除无调用方的旧 CLI 初始化注册表、`configs` 配置及默认值测试，包括写死校园 resolver 文件的初始化操作。macOS TUN 仍调用的 DNS 方法保留在 `internal/hook_func/dns_darwin.go`；在正式会话清理替代前仍保留有调用方的终止钩子。
+S1-03 后按调用关系删除了 EasyConnect 协议及其三份专属测试，移除通用 gVisor 栈对 EasyConnect 错误类型和进程退出的依赖；aTrust 的数据面与回归保留。删除无调用方的旧 CLI 初始化注册表、`configs` 配置及默认值测试，包括写死校园 resolver 文件的初始化操作。这些是 S1-03 后的历史清理；当时尚有 macOS TUN 调用的 DNS 方法和终止钩子，现已按 S1-07 的实际闭包删除。
 
-`go mod tidy` 删除 etree、utls、gopsutil 及仅由它们引入的依赖，其他协议依赖未升级。gVisor 入站包的较弱前缀断言测试已由完整字节相等、排除未读容量的现有用例覆盖，删除重复用例。aTrust 的 dialer 注入由选项映射及 `SetupContext` 的实际取消回归覆盖，已移除仅断言构造结果非空的旧 API 冒烟测试。CLI 认证处理器仍有 aTrust 的缺省调用方，其源码与取消测试保留到 S1-07 显式宿主认证接管时一并处理；不能只删测试或删除调用方仍依赖的实现。
+`go mod tidy` 删除 etree、utls、gopsutil 及仅由它们引入的依赖，其他协议依赖未升级。gVisor 入站包的较弱前缀断言测试已由完整字节相等、排除未读容量的现有用例覆盖，删除重复用例。aTrust 的 dialer 注入由选项映射及 `SetupContext` 的实际取消回归覆盖，已移除仅断言构造结果非空的旧 API 冒烟测试。S1-07 已将认证交互改由宿主 Handler 接管，删除旧 CLI 及其专属测试。
 
 ## 离线验证与已有缺陷
 
@@ -38,7 +38,7 @@ S1-03 后按调用关系删除了 EasyConnect 协议及其三份专属测试，�
 python scripts/test-corelib.py
 ```
 
-入口检查单一模块、固定工具链、没有远程上游核心依赖、Go 模块校验及构建；验证后要求 `go.mod/go.sum` 不变。按 `go list` 的实际包集合运行完整离线测试（含无测试包），其中 JustConnect 的 `module_test.go` 通过注入 dialer 访问回环 TLS 网关，验证迁移后的真实 aTrust 清单读取与 HTTP 失败传播，不访问校园网或创建 TUN。此测试不代表正式 C ABI、认证、生产 TLS 策略或网络转发已经验收。
+入口检查单一模块、固定工具链、没有远程上游核心依赖、Go 模块校验及构建；验证后要求 `go.mod/go.sum` 不变。按 `go list` 的实际包集合运行完整离线测试（含无测试包），其中 JustConnect 的 `module_test.go` 通过注入 dialer 访问回环 TLS 网关，验证迁移后的真实 aTrust 清单读取与 HTTP 失败传播，不访问校园网或创建 TUN。这项早期清单测试不单独代表会话验收；正式认证、代理、C ABI 和生命周期由新增受控网关／宿主回归验证，真实校园及 TLS 生产策略仍在后续阶段。
 
 S1-07 修复了原始认证测试的错误方法名及 `Session.request` 覆盖调用者 context 的缺陷。请求和认证会话任一取消均中断 HTTP 操作，包括响应体读取；完整认证测试已恢复，验证入口不再存在已知失败例外。可独立运行：
 
@@ -46,7 +46,7 @@ S1-07 修复了原始认证测试的错误方法名及 `Session.request` 覆盖�
 go -C corelib test -timeout 60s ./...
 ```
 
-S1-07 已将 aTrust 认证、IP／L3／TCP 隧道的会话失效退出改为错误交付，加入后台工作等待、初始化失败回滚及握手取消，修复 setup 结束误取消维护请求的问题。CLI 的 stdin／浏览器／验证码 HTTP 服务已删除；宿主注入 `authchallenge.Handler`，缺省明确拒绝交互。认证方式查询通过客户端的显式 context 与 underlay 发起，不再另建带隐式文件配置的临时客户端。数据栈、监听、日志及 ABI 的正式会话仍在接续收敛，TLS 生产策略按 S2-03 验收。
+S1-07 已将 aTrust 认证、IP／L3／TCP 隧道的会话失效退出改为错误交付，加入后台工作等待、初始化失败回滚及握手取消，修复 setup 结束误取消维护请求的问题。CLI 的 stdin／浏览器／验证码 HTTP 服务已删除；宿主注入 `authchallenge.Handler`，缺省明确拒绝交互。认证方式查询通过客户端的显式 context 与 underlay 发起，不再另建带隐式文件配置的临时客户端。`corelib.Session` 组合 underlay、客户端、解析器、gVisor 及 SOCKS／HTTP，返回前等待资源清理；正式 ABI 使用同一会话。日志只经注入诊断接口交付固定事件，不改宿主全局日志或输出凭据报文。删除无产品调用的系统 TUN／路由／DNS 操作、Shadowsocks、端口转发、外部站点保活和全局关闭注册表，仅保留当前实际调用的协议及代理路径；SOCKS UDP 绑定、连接和工作也纳入会话，回应失败立即撤销。对应废弃功能的测试随实现删除，安全文件、报文、取消及生命周期回归保留并补充。TLS 的上游兼容默认值和协议身份字段仍按 S2-03／真实校园验证收敛；本单元不新增证书跳过开关。
 
 导入代码 `1611e9c` 已通过来源核对及原 23 包的 Linux 限定基线，并验证新增认证编译错误不会被已知缺陷例外掩盖。[首次推送 CI](https://github.com/wtalioy/JustConnect/actions/runs/39279301877)的 Linux、macOS 限定基线及应用测试通过，Windows 因两处 Unix 权限断言失败；`197ea01` 已修正断言平台范围。2026-10-20 进一步实测发现 Windows 仍保留继承／已有 ACL，现已在共享文件入口修复。本机 Linux 的 24 包限定基线、Windows x64 的 17 个离线测试程序实际运行通过。修复提交 `f9b4111` 的[三平台 CI](https://github.com/wtalioy/JustConnect/actions/runs/39284985278)全部成功：Windows、Linux、macOS 均通过模块及依赖锁校验、全部源码构建、24 包限定离线基线与各 16 项应用测试；Windows ACL 回归也通过 CI。S1-05 源码整合已验收，认证包仍按上述 S1-07 缺陷单独标为受阻，不能把限定基线描述为完整认证套件通过。
 

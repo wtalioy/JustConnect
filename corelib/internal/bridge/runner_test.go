@@ -1,0 +1,242 @@
+package bridge
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"io"
+	stdlog "log"
+	"net"
+	"net/http"
+	"net/url"
+	"os"
+	"os/exec"
+	"strings"
+	"testing"
+	"time"
+
+	"golang.org/x/net/proxy"
+)
+
+func TestProtocolQueryProxyStopAndRestart(t *testing.T) {
+	var logs bytes.Buffer
+	previous := stdlog.Writer()
+	stdlog.SetOutput(&logs)
+	defer stdlog.SetOutput(previous)
+	g := newGateway(t)
+	e := New(RunProtocol)
+	h := create(t, e)
+	c := g.config(t)
+	c.Operation = "auth_methods"
+	if _, status := e.Start(h, configBytes(t, c)); status != OK {
+		t.Fatal(status)
+	}
+	next(t, e, h)
+	methods := next(t, e, h)
+	if methods.Type != "auth_methods" || len(methods.Methods) != 1 || methods.Methods[0].Type != "auth/smsCheckCode" {
+		t.Fatalf("methods = %+v", methods)
+	}
+	if ev := next(t, e, h); ev.Type != "terminal" || ev.Status != OK {
+		t.Fatal(ev)
+	}
+	c.Operation = "connect"
+	c.Listeners.SOCKS, c.Listeners.HTTP = freeAddress(t), freeAddress(t)
+	for round := 0; round < 2; round++ {
+		startProtocol(t, e, h, c)
+		if ev := next(t, e, h); ev.State != "ready" {
+			t.Fatalf("ready = %+v", ev)
+		}
+		socks, err := proxy.SOCKS5("tcp", c.Listeners.SOCKS, nil, &net.Dialer{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		connection, err := socks.(proxy.ContextDialer).DialContext(ctx, "tcp", "campus.test:80")
+		cancel()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer connection.Close()
+		echo(t, connection)
+		tunnel, err := net.Dial("tcp", c.Listeners.HTTP)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tunnel.Close()
+		_, err = io.WriteString(tunnel, "CONNECT 192.0.2.10:80 HTTP/1.1\r\nHost: 192.0.2.10:80\r\n\r\n")
+		if err != nil {
+			t.Fatal(err)
+		}
+		reply, err := http.ReadResponse(bufio.NewReader(tunnel), &http.Request{Method: http.MethodConnect})
+		if err != nil || reply.StatusCode != http.StatusOK {
+			t.Fatalf("CONNECT = %v, %v", reply, err)
+		}
+		echo(t, tunnel)
+		proxyURL, _ := url.Parse("http://" + c.Listeners.HTTP)
+		transport := &http.Transport{Proxy: http.ProxyURL(proxyURL)}
+		client := &http.Client{Transport: transport, Timeout: 5 * time.Second}
+		response, err := client.Get("http://campus.test/resource")
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err := io.ReadAll(response.Body)
+		_ = response.Body.Close()
+		client.CloseIdleConnections()
+		if err != nil || string(body) != "vpn-response" {
+			t.Fatalf("HTTP response = %q, %v", body, err)
+		}
+		if e.Stop(h, 3000) != OK || e.Stop(h, 3000) != OK {
+			t.Fatal("protocol stop did not finish")
+		}
+		if ev := next(t, e, h); ev.Type != "terminal" || ev.Status != Cancelled {
+			t.Fatal(ev)
+		}
+		awaitClosed(t, connection)
+		awaitClosed(t, tunnel)
+	}
+	if g.authCount.Load() != 2 || g.tcpCount.Load() != 6 {
+		t.Fatalf("gateway exchanges: auth=%d, TCP=%d", g.authCount.Load(), g.tcpCount.Load())
+	}
+	if stdlog.Writer() != &logs || logs.Len() != 0 {
+		t.Fatalf("protocol wrote to or replaced host logger: %q", logs.String())
+	}
+}
+
+func TestProtocolCancellationDuringAuthenticationAndIPSetup(t *testing.T) {
+	for _, phase := range []string{"authentication", "ip"} {
+		t.Run(phase, func(t *testing.T) {
+			g := newGateway(t)
+			g.pauseIP.Store(true)
+			e := New(RunProtocol)
+			h := create(t, e)
+			if _, status := e.Start(h, configBytes(t, g.config(t))); status != OK {
+				t.Fatal(status)
+			}
+			next(t, e, h)
+			if phase == "ip" {
+				authenticate(t, e, h)
+				select {
+				case <-g.ipStarted:
+				case <-time.After(5 * time.Second):
+					t.Fatal("IP setup did not start")
+				}
+			} else {
+				if ev := next(t, e, h); ev.Type != "authentication" {
+					t.Fatal(ev)
+				}
+			}
+			if status := e.Stop(h, 1000); status != OK {
+				t.Fatalf("stop at %s = %d", phase, status)
+			}
+			if ev := next(t, e, h); ev.Type != "terminal" || ev.Status != Cancelled {
+				t.Fatal(ev)
+			}
+		})
+	}
+}
+
+func TestProtocolListenerFailureRollsBackAndInvalidSessionStops(t *testing.T) {
+	g := newGateway(t)
+	e := New(RunProtocol)
+	h := create(t, e)
+	c := g.config(t)
+	conflict, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conflict.Close()
+	c.Listeners.SOCKS, c.Listeners.HTTP = freeAddress(t), conflict.Addr().String()
+	startProtocol(t, e, h, c)
+	if ev := next(t, e, h); ev.Type != "terminal" || ev.Status != Internal {
+		t.Fatalf("listener failure = %+v", ev)
+	}
+	rebound, err := net.Listen("tcp", c.Listeners.SOCKS)
+	if err != nil {
+		t.Fatalf("partial listener was not rolled back: %v", err)
+	}
+	_ = rebound.Close()
+	c.Listeners.HTTP = ""
+	startProtocol(t, e, h, c)
+	if ev := next(t, e, h); ev.State != "ready" {
+		t.Fatal(ev)
+	}
+	g.invalid.Store(true)
+	socks, err := proxy.SOCKS5("tcp", c.Listeners.SOCKS, nil, &net.Dialer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if conn, err := socks.(proxy.ContextDialer).DialContext(ctx, "tcp", "campus.test:80"); err == nil {
+		_ = conn.Close()
+		t.Fatal("invalid session accepted")
+	}
+	if ev := next(t, e, h); ev.Type != "terminal" || ev.Status != Internal {
+		t.Fatalf("runtime failure = %+v", ev)
+	}
+	if e.Stop(h, 1000) != OK || e.Destroy(h, 1000) != OK {
+		t.Fatal("failed protocol did not clean up")
+	}
+}
+
+func TestProtocolDNSCancellation(t *testing.T) {
+	dns, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dns.Close()
+	arrived := make(chan struct{})
+	go func() {
+		_, _, err := dns.ReadFrom(make([]byte, 2048))
+		if err == nil {
+			close(arrived)
+		}
+	}()
+	e := New(RunProtocol)
+	h := create(t, e)
+	c := gconfigForDNS()
+	c.Network.LocalDNS = dns.LocalAddr().String()
+	if _, status := e.Start(h, configBytes(t, c)); status != OK {
+		t.Fatal(status)
+	}
+	next(t, e, h)
+	select {
+	case <-arrived:
+	case <-time.After(2 * time.Second):
+		t.Fatal("DNS query did not reach configured server")
+	}
+	if status := e.Stop(h, 1000); status != OK {
+		t.Fatalf("stop during DNS = %d", status)
+	}
+	if ev := next(t, e, h); ev.Type != "terminal" || ev.Status != Cancelled {
+		t.Fatal(ev)
+	}
+}
+func gconfigForDNS() Config {
+	var c Config
+	c.SchemaVersion = ABIVersion
+	c.Server.Host = "gateway.test"
+	c.Server.Port = 443
+	return c
+}
+
+func TestNativeProtocolHost(t *testing.T) {
+	host := os.Getenv("JC_NATIVE_PROTOCOL_HOST")
+	if host == "" {
+		t.Skip("native host is exercised by the Core ABI CTest target")
+	}
+	g := newGateway(t)
+	c := g.config(t)
+	c.Listeners.SOCKS, c.Listeners.HTTP = freeAddress(t), freeAddress(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, host, "--gateway", string(configBytes(t, c)))
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("native protocol host: %v\n%s", err, output)
+	}
+	if !strings.Contains(string(output), "PASS: native protocol session") || g.authCount.Load() != 1 || g.tcpCount.Load() != 2 {
+		t.Fatalf("missing actual protocol exchanges: auth=%d TCP=%d\n%s", g.authCount.Load(), g.tcpCount.Load(), output)
+	}
+	t.Log(string(output))
+}

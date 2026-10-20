@@ -1,10 +1,9 @@
 package service
 
 import (
-	"context"
 	"errors"
-	"fmt"
 	"io"
+	stdlog "log"
 	"net"
 	"net/http"
 	"sync"
@@ -12,8 +11,6 @@ import (
 
 	"github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/wtalioy/JustConnect/corelib/dial"
-	"github.com/wtalioy/JustConnect/corelib/internal/hook_func"
-	"github.com/wtalioy/JustConnect/corelib/log"
 )
 
 const (
@@ -53,6 +50,8 @@ type httpTunnel struct {
 }
 
 type httpProxy struct {
+	failure     func(error)
+	closed      bool
 	dialContext client.DialContextFunc
 	client      *http.Client
 	tunnelsMu   sync.Mutex
@@ -64,13 +63,13 @@ func newHTTPProxy(dialer *dial.Dialer) *httpProxy {
 		dialContext: dialer.Dial,
 		tunnels:     make(map[*httpTunnel]struct{}),
 	}
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.DialContext = proxy.dialContext
-	transport.MaxIdleConns = httpProxyMaxIdleConns
-	transport.MaxIdleConnsPerHost = httpProxyMaxIdleConnsPerHost
-	transport.MaxConnsPerHost = httpProxyMaxConnsPerHost
-	transport.IdleConnTimeout = httpProxyIdleConnTimeout
-	transport.ResponseHeaderTimeout = httpProxyResponseTimeout
+	transport := &http.Transport{
+		DialContext: proxy.dialContext, ForceAttemptHTTP2: true,
+		MaxIdleConns: httpProxyMaxIdleConns, MaxIdleConnsPerHost: httpProxyMaxIdleConnsPerHost,
+		MaxConnsPerHost: httpProxyMaxConnsPerHost, IdleConnTimeout: httpProxyIdleConnTimeout,
+		ResponseHeaderTimeout: httpProxyResponseTimeout, TLSHandshakeTimeout: httpProxyResponseTimeout,
+	}
+
 	proxy.client = &http.Client{
 		Transport: transport,
 		// We must pass redirect response to browser
@@ -81,28 +80,22 @@ func newHTTPProxy(dialer *dial.Dialer) *httpProxy {
 	return proxy
 }
 
-func newHTTPHandler(dialer *dial.Dialer) http.Handler {
-	return newHTTPProxy(dialer)
-}
-
 func (p *httpProxy) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if req.Method == http.MethodConnect {
 		p.handleConnect(w, req)
 		return
 	}
 
-	log.DebugPrintf("HTTP proxy request: %s %s", req.Method, req.URL.String())
 	req.RequestURI = ""
 
 	resp, err := p.client.Do(req)
 	if err != nil {
-		log.DebugPrintf("HTTP proxy upstream request failed: %s %s: %v", req.Method, req.URL.String(), err)
+
 		w.WriteHeader(500)
 		_, _ = w.Write([]byte(err.Error() + "\n"))
 		return
 	}
 	defer resp.Body.Close()
-	log.DebugPrintf("HTTP proxy upstream response: %s %s: %s", req.Method, req.URL.String(), resp.Status)
 
 	hdr := w.Header()
 	for k, v := range resp.Header {
@@ -111,19 +104,15 @@ func (p *httpProxy) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	w.WriteHeader(resp.StatusCode)
 
-	written, err := io.Copy(w, resp.Body)
-	if err != nil {
-		log.DebugPrintf("HTTP proxy response relay failed after %d bytes: %s %s: %v", written, req.Method, req.URL.String(), err)
-		return
-	}
-	log.DebugPrintf("HTTP proxy response relayed: %s %s: %d bytes", req.Method, req.URL.String(), written)
+	_, _ = io.Copy(w, resp.Body)
+
 }
 
 func (p *httpProxy) handleConnect(w http.ResponseWriter, req *http.Request) {
-	log.DebugPrintf("HTTP proxy CONNECT request: %s", req.Host)
+
 	targetConn, err := p.dialContext(req.Context(), "tcp", req.Host)
 	if err != nil {
-		log.DebugPrintf("HTTP proxy CONNECT dial failed: %s: %v", req.Host, err)
+
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(err.Error() + "\n"))
 		return
@@ -144,7 +133,11 @@ func (p *httpProxy) handleConnect(w http.ResponseWriter, req *http.Request) {
 	}
 
 	tunnel := &httpTunnel{client: clientConn, target: targetConn}
-	p.registerTunnel(tunnel)
+	if !p.registerTunnel(tunnel) {
+		_ = clientConn.Close()
+		_ = targetConn.Close()
+		return
+	}
 	defer p.unregisterTunnel(tunnel)
 	defer clientConn.Close()
 	defer targetConn.Close()
@@ -153,36 +146,44 @@ func (p *httpProxy) handleConnect(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	if err := buffered.Flush(); err != nil {
-		log.DebugPrintf("HTTP proxy CONNECT response failed: %s: %v", req.Host, err)
+
 		return
 	}
-	log.DebugPrintf("HTTP proxy CONNECT established: %s", req.Host)
 
 	relayDone := make(chan struct{}, 2)
-	go relayHTTPConnect(targetConn, buffered, req.Host, "upstream", relayDone)
-	go relayHTTPConnect(clientConn, targetConn, req.Host, "downstream", relayDone)
+	go relayHTTPConnect(targetConn, buffered, relayDone, p.failure)
+	go relayHTTPConnect(clientConn, targetConn, relayDone, p.failure)
 	<-relayDone
 	_ = clientConn.Close()
 	_ = targetConn.Close()
 	<-relayDone
 }
 
-func relayHTTPConnect(dst net.Conn, src io.Reader, host, direction string, done chan<- struct{}) {
-	written, err := io.Copy(dst, src)
-	log.DebugPrintf("HTTP proxy CONNECT %s relay ended: %s: %d bytes: %v", direction, host, written, err)
+func relayHTTPConnect(dst io.Writer, src io.Reader, done chan<- struct{}, fail func(error)) {
+	defer func() {
+		if recover() != nil && fail != nil {
+			fail(errors.New("proxy relay panicked"))
+		}
+		done <- struct{}{}
+	}()
+	_, _ = io.Copy(dst, src)
+
 	if conn, ok := dst.(interface{ CloseWrite() error }); ok {
 		_ = conn.CloseWrite()
 	}
 	if conn, ok := src.(interface{ CloseRead() error }); ok {
 		_ = conn.CloseRead()
 	}
-	done <- struct{}{}
 }
 
-func (p *httpProxy) registerTunnel(tunnel *httpTunnel) {
+func (p *httpProxy) registerTunnel(tunnel *httpTunnel) bool {
 	p.tunnelsMu.Lock()
+	defer p.tunnelsMu.Unlock()
+	if p.closed {
+		return false
+	}
 	p.tunnels[tunnel] = struct{}{}
-	p.tunnelsMu.Unlock()
+	return true
 }
 
 func (p *httpProxy) unregisterTunnel(tunnel *httpTunnel) {
@@ -193,6 +194,7 @@ func (p *httpProxy) unregisterTunnel(tunnel *httpTunnel) {
 
 func (p *httpProxy) closeTunnels() {
 	p.tunnelsMu.Lock()
+	p.closed = true
 	tunnels := make([]*httpTunnel, 0, len(p.tunnels))
 	for tunnel := range p.tunnels {
 		tunnels = append(tunnels, tunnel)
@@ -214,34 +216,8 @@ func newHTTPServer(bindAddr string, handler http.Handler) *http.Server {
 	return &http.Server{
 		Addr:              bindAddr,
 		Handler:           handler,
+		ErrorLog:          stdlog.New(io.Discard, "", 0),
 		ReadHeaderTimeout: httpProxyReadHeaderTimeout,
 		IdleTimeout:       httpProxyServerIdleTimeout,
-	}
-}
-
-func ServeHTTP(bindAddr string, dialer *dial.Dialer) {
-	proxy := newHTTPProxy(dialer)
-
-	log.Printf("HTTP server listening on %s", bindAddr)
-
-	server := newHTTPServer(bindAddr, proxy)
-
-	hook_func.RegisterTerminalFunc("CloseHTTPListener", func(ctx context.Context) error {
-		log.Println("Closing HTTP listener...")
-		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
-		defer proxy.close()
-		if err := server.Shutdown(ctx); err != nil {
-			return fmt.Errorf("close HTTP listener failed: %w", err)
-		}
-		return nil
-	})
-
-	if err := server.ListenAndServe(); err != nil {
-		if errors.Is(err, http.ErrServerClosed) {
-			log.Println("HTTP server closed")
-		} else {
-			log.Println("HTTP listen failed: " + err.Error())
-		}
 	}
 }

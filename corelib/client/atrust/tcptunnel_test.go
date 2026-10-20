@@ -889,3 +889,13 @@ func TestDialTCPRejectsDestinationWithoutTCPResource(t *testing.T) {
 		t.Fatalf("DialTCP() error = %v, want client.ErrResourceNotFound", err)
 	}
 }
+
+type shortDataConn struct{ recordingConn }
+
+func (*shortDataConn) Write(data []byte) (int, error) { return len(data) - 1, nil }
+func TestRawTCPTunnelRejectsShortWrite(t *testing.T) {
+	conn := &tcpTunnelConn{tlsConn: &shortDataConn{}, raw: true}
+	if _, err := conn.Write([]byte("payload")); !errors.Is(err, io.ErrShortWrite) {
+		t.Fatalf("raw write = %v", err)
+	}
+}

@@ -7,7 +7,7 @@ import (
 
 	"github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/wtalioy/JustConnect/corelib/internal/ipresource"
-	"github.com/wtalioy/JustConnect/corelib/log"
+
 	"github.com/wtalioy/JustConnect/corelib/resolve"
 	"github.com/wtalioy/JustConnect/corelib/stack"
 )
@@ -101,7 +101,7 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 	if pureIp := net.ParseIP(ip); pureIp != nil {
 		target = &net.IPAddr{IP: pureIp}
 	} else {
-		log.Printf("Illegal situation, host is not pure IP format: %s", ip)
+
 		return d.dialDirectIP(ctx, network, ipAddr, hostAddr)
 	}
 
@@ -147,27 +147,25 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 	// we have no whitelist to enforce. An empty but non-nil slice still means
 	// resources were parsed and no IP destinations are allowed.
 	if useVPN && !matchedResource && d.ipResources != nil {
-		log.Printf("ACL: refusing %s/%s — not in sangfor IPResources whitelist (would trigger tunnel SHUTDOWN)", ipAddr, network)
+
 		return nil, ErrACLDenied
 	}
 
 	if useVPN {
 		if network == "tcp" {
-			log.Printf("%s -> VPN", ipAddr)
 
 			return d.stack.DialTCP(ctx, &net.TCPAddr{
 				IP:   target.IP,
 				Port: port,
 			})
 		} else if network == "udp" {
-			log.Printf("%s -> VPN", ipAddr)
 
 			return d.stack.DialUDP(ctx, &net.UDPAddr{
 				IP:   target.IP,
 				Port: port,
 			})
 		} else {
-			log.Printf("VPN only support TCP/UDP. Connection to %s will use direct connection", ipAddr)
+
 			return d.dialDirectIP(ctx, network, ipAddr, hostAddr)
 		}
 	} else {
@@ -235,8 +233,6 @@ func NewDialer(stack stack.Stack, resolver *resolve.Resolver, ipResources []clie
 		dialHttpProxy = strings.TrimPrefix(dialDirectProxy, "http://")
 	} else if strings.HasPrefix(dialDirectProxy, "socks://") {
 		dialSocksProxy = strings.TrimPrefix(dialDirectProxy, "socks://")
-	} else if len(dialDirectProxy) > 0 {
-		log.Println("暂不支持除[http/socks]之外的DialDirectProxy，忽略该配置项")
 	}
 	return &Dialer{
 		stack:                stack,

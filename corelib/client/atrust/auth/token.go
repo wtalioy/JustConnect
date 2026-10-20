@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/wtalioy/JustConnect/corelib/client/authchallenge"
-	"github.com/wtalioy/JustConnect/corelib/log"
+
 	"github.com/pquerna/otp/totp"
 )
 
@@ -106,7 +106,7 @@ func (s *Session) submitTokenAt(service string, payload map[string]interface{}) 
 	}
 
 	path := "/passport/v1/" + service
-	log.Printf("Perform POST %s", path)
+
 	u := s.baseURL + path
 	req, err := http.NewRequest("POST", u+"?"+WithSharedParams(nil).Encode(), bytes.NewReader(postBody))
 	if err != nil {
@@ -127,7 +127,6 @@ func (s *Session) submitTokenAt(service string, payload map[string]interface{}) 
 	if err != nil {
 		return authStep{}, err
 	}
-	log.DebugPrintf("Received token authentication: %s", string(body))
 
 	var result tokenResponse
 	if err := json.Unmarshal(body, &result); err != nil {
@@ -140,7 +139,7 @@ func (s *Session) submitTokenAt(service string, payload map[string]interface{}) 
 }
 
 func (s *Session) accessCheck() (authStep, error) {
-	log.Println("Perform GET /passport/v1/auth/accessCheck")
+
 	u := s.baseURL + "/passport/v1/auth/accessCheck"
 	req, err := http.NewRequest("GET", u+"?"+WithSharedParams(nil).Encode(), nil)
 	if err != nil {
@@ -159,7 +158,6 @@ func (s *Session) accessCheck() (authStep, error) {
 	if err != nil {
 		return authStep{}, err
 	}
-	log.DebugPrintf("Received access check: %s", string(body))
 
 	var result tokenResponse
 	if err := json.Unmarshal(body, &result); err != nil {

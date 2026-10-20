@@ -20,7 +20,6 @@ import (
 	"github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/wtalioy/JustConnect/corelib/internal/ipresource"
 	"github.com/wtalioy/JustConnect/corelib/internal/zctcpip"
-	zlog "github.com/wtalioy/JustConnect/corelib/log"
 )
 
 func newSessionTestClient() *Client {
@@ -733,16 +732,6 @@ func TestFailedCommandWriteDoesNotSetHeartbeatActivity(t *testing.T) {
 	}
 	if atomic.LoadUint32(&conn.heartbeatHasWrite) != 0 {
 		t.Fatal("failed command write set heartbeat activity")
-	}
-}
-
-func TestLogPacketDisabledAllocatesNothing(t *testing.T) {
-	zlog.DisableDebug()
-	packet := makeUDPPacket(12345, 53)
-	if allocations := testing.AllocsPerRun(1000, func() {
-		logPacket("send", packet)
-	}); allocations != 0 {
-		t.Fatalf("disabled logPacket allocations = %v, want 0", allocations)
 	}
 }
 
@@ -1734,12 +1723,21 @@ func TestUpdateVIPAppliesIPv4ToTunnelAndClient(t *testing.T) {
 
 func TestUpdateVIPKeepsOldAddressWhenStackRejectsUpdate(t *testing.T) {
 	client := newSessionTestClient()
+	defer client.Close()
 	oldIP := net.IPv4(192, 0, 2, 1)
 	client.setIP(oldIP)
 	client.SetIPUpdateHandler(func(net.IP) error { return errors.New("apply failed") })
 	tunnel := &L3Tunnel{client: client, ip: oldIP}
 
 	tunnel.updateVIP([]net.IP{net.IPv4(198, 51, 100, 7)})
+	select {
+	case err := <-client.Errors():
+		if err.Error() != "apply failed" {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("stack update failure did not reach owner")
+	}
 	got, err := client.IP()
 	if err != nil || !got.Equal(oldIP) || !tunnel.ip.Equal(oldIP) {
 		t.Fatalf("rejected update changed client=%s tunnel=%s err=%v", got, tunnel.ip, err)

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/wtalioy/JustConnect/corelib/client/atrust/auth"
-	"github.com/wtalioy/JustConnect/corelib/log"
 )
 
 func parseIPAuthResponse(data []byte) error {
@@ -135,6 +134,6 @@ func (c *Client) getIP(parent context.Context) error {
 		return err
 	}
 	c.setIP(ip)
-	log.Printf("Received IP: %s", ip.String())
+
 	return nil
 }

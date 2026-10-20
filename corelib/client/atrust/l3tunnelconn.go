@@ -21,7 +21,6 @@ import (
 
 	"github.com/wtalioy/JustConnect/corelib/client/atrust/auth"
 	"github.com/wtalioy/JustConnect/corelib/internal/zctcpip"
-	"github.com/wtalioy/JustConnect/corelib/log"
 )
 
 const (
@@ -261,7 +260,7 @@ func (c *l3TunnelConn) readLoop() {
 	for {
 		fr, err := c.readFrame()
 		if err != nil {
-			log.DebugPrintf("l3-tunnel read frame failed: %v", err)
+
 			_ = c.Close()
 			return
 		}
@@ -271,14 +270,12 @@ func (c *l3TunnelConn) readLoop() {
 			c.dataStream = append(c.dataStream, fr.payload...)
 			packets, remaining, err := splitIncomingIPPackets(c.dataStream)
 			if err != nil {
-				log.DebugPrintf("l3-tunnel parse data stream failed: %v", err)
+
 				_ = c.Close()
 				return
 			}
 			c.dataStream = remaining
-			if log.DebugEnabled() {
-				log.DebugPrintf("l3-tunnel recv data packets=%d payloadLen=%d buffered=%d", len(packets), len(fr.payload), len(remaining))
-			}
+
 			for _, pkt := range packets {
 				c.refreshIncomingConntrack(pkt)
 				if !c.deliverIncoming(pkt) {
@@ -286,17 +283,17 @@ func (c *l3TunnelConn) readLoop() {
 				}
 			}
 		case cmdAuthResp:
-			log.DebugPrintf("l3-tunnel recv auth resp status=%d payloadLen=%d", fr.status, len(fr.payload))
+
 			c.handleAuthResp(fr.status, fr.payload)
 		case cmdSecondVipResp:
-			log.DebugPrintf("l3-tunnel recv vip update cmd=0x%02x status=%d payloadLen=%d", fr.cmd, fr.status, len(fr.payload))
+
 			c.handleSecondVipResp(fr.status, fr.payload)
 		case cmdHeartbeatResp:
-			log.DebugPrintf("l3-tunnel recv heartbeat")
+
 			atomic.StoreUint32(&c.heartbeatHasWrite, 0)
 			atomic.StoreInt32(&c.heartbeatMisses, 0)
 		default:
-			log.DebugPrintf("l3-tunnel ignore cmd 0x%02x", fr.cmd)
+
 		}
 	}
 }
@@ -327,7 +324,7 @@ func (c *l3TunnelConn) deliverIncoming(packet []byte) bool {
 	case <-c.closeCh:
 		return false
 	default:
-		log.DebugPrintf("l3-tunnel incoming packet queue full; dropping packet len=%d", len(packet))
+
 		return true
 	}
 }
@@ -353,7 +350,7 @@ func (c *l3TunnelConn) heartbeatLoop() {
 			}
 			misses := atomic.LoadInt32(&c.heartbeatMisses)
 			if misses >= missLimit {
-				log.DebugPrintf("l3-tunnel heartbeat timed out after %d missed responses", misses)
+
 				_ = c.Close()
 				return
 			}
@@ -369,7 +366,7 @@ func (c *l3TunnelConn) heartbeatLoop() {
 
 func (c *l3TunnelConn) sendHeartbeat() bool {
 	if err := c.writeFrame([]byte{l3Version, cmdHeartbeatReq, 0x00, 0x00}); err != nil {
-		log.DebugPrintf("l3-tunnel heartbeat write failed: %v", err)
+
 		_ = c.Close()
 		return false
 	}
@@ -382,7 +379,7 @@ func (c *l3TunnelConn) readFrame() (frame, error) {
 		return frame{}, err
 	}
 	if header[0] != l3Version {
-		logFrame("recv unknown", header)
+
 		return frame{}, fmt.Errorf("unexpected L3 tunnel version 0x%02x", header[0])
 	}
 
@@ -399,25 +396,17 @@ func (c *l3TunnelConn) readFrame() (frame, error) {
 		if _, err := io.ReadFull(c.reader, payload); err != nil {
 			return frame{}, err
 		}
-		if log.DebugEnabled() {
-			raw := append(append(header, statusLen...), payload...)
-			logFrame("recv", raw)
-		}
+
 		return frame{cmd: cmd, status: status, payload: payload}, nil
 	case cmdDataResp, cmdHeartbeatResp:
 		payload, err := readDataRespPayload(c.reader)
 		if err != nil {
 			return frame{}, err
 		}
-		if log.DebugEnabled() {
-			lenBytes := make([]byte, 2)
-			binary.BigEndian.PutUint16(lenBytes, uint16(len(payload)))
-			raw := append(append(append([]byte{}, header...), lenBytes...), payload...)
-			logFrame("recv", raw)
-		}
+
 		return frame{cmd: cmd, payload: payload}, nil
 	default:
-		logFrame("recv unknown", header)
+
 		return frame{}, fmt.Errorf("unexpected L3 tunnel command 0x%02x", cmd)
 	}
 }
@@ -447,7 +436,7 @@ func (c *l3TunnelConn) WritePacket(meta packetMeta, appID, nodeGroupID string, p
 
 	_, err := c.conntrackMgr.cachePacket(ct, meta, pkt)
 	if errors.Is(err, errPendingPacketCacheFull) {
-		log.DebugPrintf("l3-tunnel pending packet cache full for %s; dropping packet", ct.key)
+
 		return nil
 	}
 	if err != nil {
@@ -464,9 +453,7 @@ func (c *l3TunnelConn) writeAuthenticatedPacket(ct *conntrack, meta packetMeta, 
 	frame := getDataPayload(token, pkt)
 	defer putDataPayload(frame)
 	payload := frame.payload
-	if log.DebugEnabled() {
-		log.DebugPrintf("l3-tunnel send data meta=%s appID=%s group=%s authID=%d tokenLen=%d pktLen=%d payloadLen=%d", formatMeta(meta), appID, nodeGroupID, ct.authID, len(token), len(pkt), len(payload))
-	}
+
 	err := c.writeFrame(payload)
 	return err
 }
@@ -488,9 +475,7 @@ func (c *l3TunnelConn) authLoop() {
 				return
 			}
 		case now := <-ticker.C:
-			if expired := c.conntrackMgr.expireAuth(now, errL3TunnelAuthTimeout); expired > 0 {
-				log.DebugPrintf("l3-tunnel exhausted retries for %d pending authentications", expired)
-			}
+			c.conntrackMgr.expireAuth(now, errL3TunnelAuthTimeout)
 			if !c.dispatchPendingAuth() {
 				return
 			}
@@ -522,9 +507,7 @@ func (c *l3TunnelConn) sendAuthRequest(ct *conntrack, meta packetMeta) error {
 	if err != nil {
 		return err
 	}
-	if log.DebugEnabled() {
-		log.DebugPrintf("l3-tunnel send auth authID=%d meta=%s payloadLen=%d", ct.authID, formatMeta(meta), len(req))
-	}
+
 	payload := make([]byte, 0, 4+len(req))
 	payload = append(payload, l3Version, cmdAuthReq)
 	lenBytes := make([]byte, 2)
@@ -568,7 +551,7 @@ func (c *l3TunnelConn) handleAuthResp(status byte, payload []byte) {
 	}
 
 	token := resp.Data.ConnectToken
-	log.DebugPrintf("l3-tunnel auth resp code=%d conntrack=%d tokenLen=%d", resp.Code, resp.Data.ConntrackHash, len(token))
+
 	c.completeAuthentication(authID, token, nil)
 }
 
@@ -578,14 +561,14 @@ func isRetryableAuthResponse(status byte, resp authResponseIP) bool {
 
 func (c *l3TunnelConn) scheduleAuthRetry(authID uint64, delay time.Duration) {
 	if c.conntrackMgr.retryAuth(authID, delay) {
-		log.DebugPrintf("l3-tunnel auth retry scheduled authID=%d delay=%s", authID, delay)
+
 		c.notifyAuth()
 	}
 }
 
 func (c *l3TunnelConn) handleSecondVipResp(status byte, payload []byte) {
 	if status != 0 {
-		log.DebugPrintf("l3-tunnel second vip status %d", status)
+
 		return
 	}
 	ips := extractVIPs(payload)
@@ -617,7 +600,7 @@ func (c *l3TunnelConn) completeAuthentication(authID uint64, token string, authE
 	}
 	for _, packet := range packets {
 		if err := c.writeAuthenticatedPacket(ct, ct.authMeta, ct.appID, ct.nodeGroupID, token, packet); err != nil {
-			log.DebugPrintf("l3-tunnel flush authenticated packet failed: %v", err)
+
 			_ = c.Close()
 			return
 		}
@@ -634,7 +617,7 @@ func (c *l3TunnelConn) writeFrame(data []byte) error {
 	}
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
-	logFrame("send", data)
+
 	n, err := c.tlsConn.Write(data)
 	if err == nil && n != len(data) {
 		return io.ErrShortWrite
@@ -645,11 +628,10 @@ func (c *l3TunnelConn) writeFrame(data []byte) error {
 	return err
 }
 
-func (c *l3TunnelConn) writeRaw(label string, data []byte) error {
+func (c *l3TunnelConn) writeRaw(data []byte) error {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
-	log.DebugPrintf("l3-tunnel %s len=%d", label, len(data))
-	log.DebugDumpHex(data)
+
 	_, err := c.tlsConn.Write(data)
 	return err
 }
@@ -886,22 +868,6 @@ func decodeMeta(metaBytes []byte) (packetMeta, error) {
 	return meta, nil
 }
 
-func formatMeta(meta packetMeta) string {
-	return fmt.Sprintf("atype=%d proto=%s %s:%d -> %s:%d", meta.atype, protoName(meta.proto), meta.srcIP, meta.srcPort, meta.dstIP, meta.dstPort)
-}
-
-func logFrame(prefix string, data []byte) {
-	if !log.DebugEnabled() {
-		return
-	}
-	if len(data) >= 2 {
-		log.DebugPrintf("l3-tunnel %s frame cmd=0x%02x len=%d", prefix, data[1], len(data))
-	} else {
-		log.DebugPrintf("l3-tunnel %s frame len=%d", prefix, len(data))
-	}
-	log.DebugDumpHex(data)
-}
-
 func (c *l3TunnelConn) authTunnel() error {
 	sid, err := c.info.currentSID()
 	if err != nil {
@@ -913,7 +879,7 @@ func (c *l3TunnelConn) authTunnel() error {
 	}
 
 	packet := wrapAuthReqData(req, 1)
-	if err := c.writeRaw("send tunnel auth", packet); err != nil {
+	if err := c.writeRaw(packet); err != nil {
 		return err
 	}
 
@@ -921,8 +887,7 @@ func (c *l3TunnelConn) authTunnel() error {
 	if _, err := io.ReadFull(c.reader, method); err != nil {
 		return err
 	}
-	log.DebugPrintf("l3-tunnel recv tunnel auth method len=%d", len(method))
-	log.DebugDumpHex(method)
+
 	if method[0] != l3Version || method[1] != 0xD0 {
 		return fmt.Errorf("l3-tunnel unexpected auth method resp: %02x %02x", method[0], method[1])
 	}
@@ -931,8 +896,7 @@ func (c *l3TunnelConn) authTunnel() error {
 	if _, err := io.ReadFull(c.reader, header); err != nil {
 		return err
 	}
-	log.DebugPrintf("l3-tunnel recv tunnel auth header len=%d", len(header))
-	log.DebugDumpHex(header)
+
 	if header[0] != 0x53 {
 		return fmt.Errorf("l3-tunnel unexpected auth resp version: 0x%02x", header[0])
 	}
@@ -944,8 +908,7 @@ func (c *l3TunnelConn) authTunnel() error {
 			return err
 		}
 	}
-	log.DebugPrintf("l3-tunnel recv tunnel auth payload len=%d status=%d", len(payload), status)
-	log.DebugDumpHex(payload)
+
 	if len(payload) > 0 {
 		var resp authResponseSID
 		if err := json.Unmarshal(payload, &resp); err != nil {
@@ -966,8 +929,7 @@ func (c *l3TunnelConn) authTunnel() error {
 	if _, err := io.ReadFull(c.reader, vipHeader); err != nil {
 		return err
 	}
-	log.DebugPrintf("l3-tunnel recv tunnel vip header len=%d", len(vipHeader))
-	log.DebugDumpHex(vipHeader)
+
 	dataLen, err := parseInitialVIPHeader(vipHeader)
 	if err != nil {
 		return err
@@ -976,8 +938,7 @@ func (c *l3TunnelConn) authTunnel() error {
 	if _, err := io.ReadFull(c.reader, vipData); err != nil {
 		return err
 	}
-	log.DebugPrintf("l3-tunnel recv tunnel vip data len=%d", len(vipData))
-	log.DebugDumpHex(vipData)
+
 	ips := parseVirtualIPData(vipData)
 	if len(ips) > 0 && c.onVIP != nil {
 		c.onVIP(ips)
@@ -1089,7 +1050,7 @@ func authIPType(atype int) int {
 
 func protocolLanguage(language string) string {
 	if language == "" {
-		return "en-US"
+		return auth.Language
 	}
 	return language
 }

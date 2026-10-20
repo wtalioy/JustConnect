@@ -8,8 +8,6 @@ import (
 
 	"github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/wtalioy/JustConnect/corelib/internal/ipresource"
-	"github.com/wtalioy/JustConnect/corelib/log"
-	"inet.af/netaddr"
 )
 
 type ClientResource struct {
@@ -86,8 +84,9 @@ func resourceAddrPretend(value any) bool {
 	return true
 }
 
+const defaultNodePort = 441
+
 func (c *Client) parseResource(resource []byte) error {
-	log.Println("Parsing resource...")
 
 	var clientResource ClientResource
 	err := json.Unmarshal(resource, &clientResource)
@@ -95,7 +94,6 @@ func (c *Client) parseResource(resource []byte) error {
 		return err
 	}
 
-	ipSetBuilder := netaddr.IPSetBuilder{}
 	c.ipResources = make([]client.IPResource, 0)
 	c.domainResources = make(client.DomainResources)
 	c.dnsResource = make(map[string][]net.IP)
@@ -103,7 +101,7 @@ func (c *Client) parseResource(resource []byte) error {
 	for _, app := range clientResource.Data.AppList.Data.AppInfo {
 		for _, appItem := range app.Apps {
 			if appItem.AccessModel != "L3VPN" {
-				log.DebugPrintf("Ignore unsupported aTrust access model %q for app %s", appItem.AccessModel, appItem.ID)
+
 				continue
 			}
 			for _, address := range appItem.AddressList {
@@ -115,24 +113,24 @@ func (c *Client) parseResource(resource []byte) error {
 						// Handle port range
 						ports := strings.Split(portStr, "-")
 						if len(ports) != 2 {
-							log.DebugPrintf("invalid port range: %s", portStr)
+
 							continue
 						}
 						portMin, err = strconv.Atoi(ports[0])
 						if err != nil {
-							log.DebugPrintf("invalid port range: %s", portStr)
+
 							continue
 						}
 						portMax, err = strconv.Atoi(ports[1])
 						if err != nil {
-							log.DebugPrintf("invalid port range: %s", portStr)
+
 							continue
 						}
 					} else {
 						// Handle single port
 						portMin, err = strconv.Atoi(portStr)
 						if err != nil {
-							log.DebugPrintf("invalid port: %s", portStr)
+
 							continue
 						}
 						portMax = portMin // Single port means min and max are the same
@@ -152,7 +150,6 @@ func (c *Client) parseResource(resource []byte) error {
 								for i := range ip4 {
 									ipMax4[i] = ip4[i] | ^ipNet.Mask[i]
 								}
-								ipSetBuilder.AddPrefix(netaddr.MustParseIPPrefix(hostStr))
 
 								c.ipResources = append(c.ipResources, client.IPResource{
 									IPMin:           ip4.To16(),
@@ -165,9 +162,8 @@ func (c *Client) parseResource(resource []byte) error {
 									EnableTCPPrefL3: appItem.EnableTCPPrefL3,
 								})
 
-								log.DebugPrintf("Add CIDR: %s (%s ~ %s), Port range: %d ~ %d, [%s]", hostStr, ip4, ipMax4, portMin, portMax, address.Protocol)
 							} else {
-								log.DebugPrintf("IPv6 CIDR found: %s, skipping", hostStr)
+
 							}
 						} else if ipParts := strings.Split(hostStr, "-"); len(ipParts) == 2 {
 							ipMin := net.ParseIP(ipParts[0])
@@ -175,7 +171,6 @@ func (c *Client) parseResource(resource []byte) error {
 							if ipMin != nil && ipMax != nil {
 								// It's a range of IP addresses
 								if ipMin.To4() != nil {
-									ipSetBuilder.AddRange(netaddr.IPRangeFrom(netaddr.MustParseIP(ipMin.String()), netaddr.MustParseIP(ipMax.String())))
 
 									c.ipResources = append(c.ipResources, client.IPResource{
 										IPMin:           ipMin,
@@ -188,9 +183,8 @@ func (c *Client) parseResource(resource []byte) error {
 										EnableTCPPrefL3: appItem.EnableTCPPrefL3,
 									})
 
-									log.DebugPrintf("Add IP range: %s ~ %s, Port range: %d ~ %d, [%s]", ipMin, ipMax, portMin, portMax, address.Protocol)
 								} else {
-									log.DebugPrintf("IPv6 address range found: %s ~ %s, skipping", ipMin, ipMax)
+
 								}
 							} else {
 								isDomain = true
@@ -201,7 +195,6 @@ func (c *Client) parseResource(resource []byte) error {
 					} else {
 						// It's an IP address
 						if ip.To4() != nil {
-							ipSetBuilder.Add(netaddr.MustParseIP(ip.String()))
 
 							c.ipResources = append(c.ipResources, client.IPResource{
 								IPMin:           ip,
@@ -214,16 +207,15 @@ func (c *Client) parseResource(resource []byte) error {
 								EnableTCPPrefL3: appItem.EnableTCPPrefL3,
 							})
 
-							log.DebugPrintf("Add IP: %s, Port range: %d ~ %d, [%s]", ip, portMin, portMax, address.Protocol)
 						} else {
-							log.DebugPrintf("IPv6 address found: %s, skipping", ip)
+
 						}
 					}
 
 					if isDomain {
 						domain := normalizePolicyDomain(hostStr)
 						if domain == "" {
-							log.DebugPrintf("Ignore unsupported domain pattern: %s", hostStr)
+
 							continue
 						}
 						c.domainResources[domain] = append(c.domainResources[domain], client.DomainResource{
@@ -236,13 +228,12 @@ func (c *Client) parseResource(resource []byte) error {
 							AddrPretend:     resourceAddrPretend(appItem.AddrPretend),
 						})
 
-						log.DebugPrintf("Add domain: %s, Port range: %d ~ %d, [%s]", hostStr, portMin, portMax, address.Protocol)
 					}
 
 					// Handle DNS rules
 					if address.IP != nil {
 						if !isDomain {
-							log.DebugPrintln("IP address found, but no domain name, skipping")
+
 							continue
 						}
 
@@ -250,19 +241,19 @@ func (c *Client) parseResource(resource []byte) error {
 							ip := net.ParseIP(ipStr)
 							if ip != nil {
 								if ip.To4() != nil {
-									ipSetBuilder.Add(netaddr.MustParseIP(ip.String()))
+
 									c.dnsResource[hostStr] = append(c.dnsResource[hostStr], ip)
 									c.ipResources = append(c.ipResources, client.IPResource{
 										IPMin: ip, IPMax: ip, PortMin: portMin, PortMax: portMax,
 										Protocol: address.Protocol, AppID: appItem.ID, NodeGroupID: appItem.NodeGroupID,
 										EnableTCPPrefL3: appItem.EnableTCPPrefL3,
 									})
-									log.DebugPrintf("Add DNS rule: %s -> %s", hostStr, ipStr)
+
 								} else {
-									log.DebugPrintf("IPv6 address found: %s, skipping", ip)
+
 								}
 							} else {
-								log.DebugPrintf("Invalid IP: %s", ipStr)
+
 							}
 						}
 					}
@@ -283,10 +274,10 @@ func (c *Client) parseResource(resource []byte) error {
 	}
 	if len(c.dnsServers) > 0 {
 		c.dnsServer = c.dnsServers[0]
-		log.DebugPrintf("Set DNS servers: %v", c.dnsServers)
+
 	} else {
 		c.dnsServer = ""
-		log.DebugPrintf("No DNS server found")
+
 	}
 	c.MajorNodeGroup = clientResource.Data.AppList.Data.Config.NodeGroupConf.MajorNodeGroup.ID
 	c.NodeGroups = make(map[string]NodeGroup)
@@ -297,8 +288,8 @@ func (c *Client) parseResource(resource []byte) error {
 			if address == "{{sdpcHost}}" {
 				address = c.serverAddress
 			}
-			if !strings.Contains(address, ":") {
-				address += ":441"
+			if net.ParseIP(address) != nil || !strings.Contains(address, ":") {
+				address = net.JoinHostPort(address, strconv.Itoa(defaultNodePort))
 			}
 			switch strings.ToLower(addressInfo.Type) {
 			case "wan":
@@ -306,30 +297,14 @@ func (c *Client) parseResource(resource []byte) error {
 			case "lan":
 				addresses.LAN = append(addresses.LAN, address)
 			default:
-				log.DebugPrintf("Ignore node with unsupported type %q: %s", addressInfo.Type, address)
+
 			}
 
-			// Remove ip from ipSetBuilder to prevent circular routing
-			host, _, err := net.SplitHostPort(address)
-			if err != nil {
-				continue
-			}
-			ip := net.ParseIP(host)
-			if ip != nil && ip.To4() != nil {
-				ipSetBuilder.Remove(netaddr.MustParseIP(ip.String()))
-				log.DebugPrintf("Remove IP from IP set to prevent circular routing: %s", ip)
-			}
 		}
 		c.NodeGroups[nodeGroup.ID] = addresses
-		log.DebugPrintf(
-			"Node Group ID: %s, WAN Addresses: %v, LAN Addresses: %v",
-			nodeGroup.ID,
-			addresses.WAN,
-			addresses.LAN,
-		)
+
 	}
 
-	c.ipSet, _ = ipSetBuilder.IPSet()
 	c.resourceIndex = ipresource.New(c.ipResources)
 
 	return nil

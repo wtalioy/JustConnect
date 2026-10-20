@@ -5,8 +5,6 @@ import (
 	"errors"
 	"io"
 	"net"
-
-	"inet.af/netaddr"
 )
 
 var ErrResourceNotFound = errors.New("resource not found")
@@ -61,7 +59,6 @@ func MatchDomainResourceWhere(resources []DomainResource, network string, port i
 
 type Client interface {
 	IP() (net.IP, error)
-	IPSet() (*netaddr.IPSet, error)
 	IPResources() ([]IPResource, error)
 	DomainResources() (DomainResources, error)
 	DNSResource() (map[string][]net.IP, error)

@@ -10,7 +10,6 @@ import (
 	"github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/wtalioy/JustConnect/corelib/internal/ipresource"
 	"github.com/wtalioy/JustConnect/corelib/internal/zctcpip"
-	"github.com/wtalioy/JustConnect/corelib/log"
 )
 
 func (t *L3Tunnel) processIPV4(packet zctcpip.IPv4Packet) error {
@@ -56,17 +55,16 @@ func (t *L3Tunnel) writePacket(packet zctcpip.IPv4Packet, appID, nodeGroupID str
 	conn, err := t.getConn(nodeGroupID)
 	if err != nil {
 		if isClosedConnErr(err) {
-			log.Printf("Drop packet while l3-tunnel reconnects after connection failure: %v", err)
+
 			return nil
 		}
 		return err
 	}
-	log.DebugPrintf("l3-tunnel send packet appID=%s group=%s len=%d", appID, nodeGroupID, len(packet))
-	logPacket("send", packet)
+
 	err = conn.WritePacket(meta, appID, nodeGroupID, packet)
 	for retry := 0; retry < 1 && isClosedConnErr(err); retry++ {
 		// If the cached tunnel conn was closed by network flaps, evict it and retry.
-		log.Printf("Write packet failed with closed connection, evicting conn and retrying: %v", err)
+
 		t.evictConn(nodeGroupID, conn)
 		t.startReconnect(nodeGroupID)
 		retryConn, retryErr := t.getConn(nodeGroupID)
@@ -81,11 +79,11 @@ func (t *L3Tunnel) writePacket(packet zctcpip.IPv4Packet, appID, nodeGroupID str
 		err = conn.WritePacket(meta, appID, nodeGroupID, packet)
 	}
 	if isAuthTimeoutErr(err) {
-		log.Printf("Drop packet after conntrack authentication timed out: %v", err)
+
 		return nil
 	}
 	if isClosedConnErr(err) {
-		log.Printf("Drop packet while l3-tunnel reconnect remains unavailable: %v", err)
+
 		t.evictConn(nodeGroupID, conn)
 		t.startReconnect(nodeGroupID)
 		return nil
@@ -144,64 +142,4 @@ func buildPacketMeta(packet zctcpip.IPv4Packet) (packetMeta, error) {
 		srcPort: srcPort,
 		dstPort: dstPort,
 	}, nil
-}
-
-func logPacket(direction string, packet []byte) {
-	if !log.DebugEnabled() {
-		return
-	}
-	if len(packet) == 0 {
-		log.DebugPrintf("l3-tunnel %s packet len=0", direction)
-		return
-	}
-
-	version := packet[0] >> 4
-	switch version {
-	case zctcpip.IPv4Version:
-		ipHeader := zctcpip.IPv4Packet(packet)
-		if !ipHeader.Valid() {
-			log.DebugPrintf("l3-tunnel %s ipv4 invalid len=%d", direction, len(packet))
-			log.DebugDumpHex(packet)
-			return
-		}
-		switch ipHeader.Protocol() {
-		case zctcpip.TCP:
-			payload := ipHeader.Payload()
-			if len(payload) < zctcpip.TCPHeaderSize {
-				log.DebugPrintf("l3-tunnel %s tcp %s -> %s len=%d invalid", direction, ipHeader.SourceIP(), ipHeader.DestinationIP(), len(packet))
-				log.DebugDumpHex(packet)
-				return
-			}
-			tcpHeader := zctcpip.TCPPacket(payload)
-			if !tcpHeader.Valid() {
-				log.DebugPrintf("l3-tunnel %s tcp %s -> %s len=%d invalid", direction, ipHeader.SourceIP(), ipHeader.DestinationIP(), len(packet))
-				log.DebugDumpHex(packet)
-				return
-			}
-			log.DebugPrintf("l3-tunnel %s tcp %s:%d -> %s:%d len=%d", direction, ipHeader.SourceIP(), tcpHeader.SourcePort(), ipHeader.DestinationIP(), tcpHeader.DestinationPort(), len(packet))
-		case zctcpip.UDP:
-			payload := ipHeader.Payload()
-			if len(payload) < zctcpip.UDPHeaderSize {
-				log.DebugPrintf("l3-tunnel %s udp %s -> %s len=%d invalid", direction, ipHeader.SourceIP(), ipHeader.DestinationIP(), len(packet))
-				log.DebugDumpHex(packet)
-				return
-			}
-			udpHeader := zctcpip.UDPPacket(payload)
-			if !udpHeader.Valid() {
-				log.DebugPrintf("l3-tunnel %s udp %s -> %s len=%d invalid", direction, ipHeader.SourceIP(), ipHeader.DestinationIP(), len(packet))
-				log.DebugDumpHex(packet)
-				return
-			}
-			log.DebugPrintf("l3-tunnel %s udp %s:%d -> %s:%d len=%d", direction, ipHeader.SourceIP(), udpHeader.SourcePort(), ipHeader.DestinationIP(), udpHeader.DestinationPort(), len(packet))
-		case zctcpip.ICMP:
-			log.DebugPrintf("l3-tunnel %s icmp %s -> %s len=%d", direction, ipHeader.SourceIP(), ipHeader.DestinationIP(), len(packet))
-		default:
-			log.DebugPrintf("l3-tunnel %s proto %d %s -> %s len=%d", direction, ipHeader.Protocol(), ipHeader.SourceIP(), ipHeader.DestinationIP(), len(packet))
-		}
-	case 6:
-		log.DebugPrintf("l3-tunnel %s ipv6 len=%d", direction, len(packet))
-	default:
-		log.DebugPrintf("l3-tunnel %s ipver %d len=%d", direction, version, len(packet))
-	}
-	log.DebugDumpHex(packet)
 }

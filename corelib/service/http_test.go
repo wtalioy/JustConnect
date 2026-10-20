@@ -95,7 +95,7 @@ func TestHTTPConnectClosesTargetWhenClientDisconnects(t *testing.T) {
 		}
 	}()
 
-	proxy := httptest.NewServer(newHTTPHandler(dial.NewDialer(nil, nil, nil, false, "")))
+	proxy := httptest.NewServer(newHTTPProxy(dial.NewDialer(nil, nil, nil, false, "")))
 	defer proxy.Close()
 
 	clientConn, err := net.Dial("tcp", proxy.Listener.Addr().String())

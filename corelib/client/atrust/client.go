@@ -18,8 +18,6 @@ import (
 	"github.com/wtalioy/JustConnect/corelib/client/atrust/auth"
 	"github.com/wtalioy/JustConnect/corelib/client/authchallenge"
 	"github.com/wtalioy/JustConnect/corelib/internal/ipresource"
-	"github.com/wtalioy/JustConnect/corelib/log"
-	"inet.af/netaddr"
 )
 
 type SessionOptions struct {
@@ -34,6 +32,7 @@ type ClientOptions struct {
 	UnderlayDialer  client.UnderlayDialer
 	TLSKeyLogWriter io.Writer
 	Language        string
+	Diagnostic      func(string)
 }
 
 type SetupOptions struct {
@@ -63,6 +62,7 @@ type Client struct {
 	failures     chan error
 	failureOnce  sync.Once
 	language     string
+	diagnostic   func(string)
 	sessionMu    sync.RWMutex
 	sessionErr   error
 	refreshDone  chan struct{}
@@ -71,10 +71,10 @@ type Client struct {
 	ipResources     []client.IPResource
 	resourceIndex   *ipresource.Index
 	domainResources client.DomainResources
-	ipSet           *netaddr.IPSet
-	dnsResource     map[string][]net.IP
-	dnsServer       string
-	dnsServers      []string
+
+	dnsResource map[string][]net.IP
+	dnsServer   string
+	dnsServers  []string
 
 	MajorNodeGroup   string
 	NodeGroups       map[string]NodeGroup
@@ -110,6 +110,7 @@ func NewClient(options ClientOptions) *Client {
 		underlayDialer:  options.UnderlayDialer,
 		tlsKeyLogWriter: options.TLSKeyLogWriter,
 		language:        options.Language,
+		diagnostic:      options.Diagnostic,
 		failures:        make(chan error, 1),
 		lifecycleCtx:    lifecycleCtx,
 		lifecycleCancel: lifecycleCancel,
@@ -179,14 +180,6 @@ func (c *Client) applyIPUpdate(ip net.IP) error {
 	return handler(append(net.IP(nil), ip...))
 }
 
-func (c *Client) IPSet() (*netaddr.IPSet, error) {
-	if c.ipSet == nil {
-		return nil, errors.New("IP set not available")
-	}
-
-	return c.ipSet, nil
-}
-
 func (c *Client) IPResources() ([]client.IPResource, error) {
 	if c.ipResources == nil {
 		return nil, errors.New("IP resources not available")
@@ -245,6 +238,8 @@ func (c *Client) GetAuthInfoList(ctx context.Context, serverAddress string, serv
 	}
 	sess := auth.NewSessionContext(queryCtx, net.JoinHostPort(serverAddress, fmt.Sprint(serverPort)), c.tlsKeyLogWriter, c.underlayDialer.DialContext)
 	defer sess.Close()
+	sess.Language = c.language
+	sess.Diagnostic = c.diagnostic
 	return sess.GetAuthInfoList()
 }
 
@@ -260,10 +255,6 @@ func (c *Client) NewL3Conn() (io.ReadWriteCloser, error) {
 		return nil, errors.New("L3 tunnel not initialized")
 	}
 	return tunnel.NewL3Conn()
-}
-
-func (c *Client) Setup(options SetupOptions) ([]byte, error) {
-	return c.SetupContext(context.Background(), options)
 }
 
 func (c *Client) SetupContext(ctx context.Context, options SetupOptions) ([]byte, error) {
@@ -291,11 +282,11 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) ([]byte
 	var clientAuthData auth.ClientAuthData
 	if options.ClientData != nil {
 		if err := json.Unmarshal(options.ClientData, &clientAuthData); err != nil {
-			log.Println("Error parsing client data:", err)
+
 			return nil, err
 		}
 	}
-	log.DebugPrintf("Given auth data: %+v", clientAuthData)
+
 	if clientAuthData.DeviceID == "" && c.DeviceID != "" {
 		clientAuthData.DeviceID = c.DeviceID
 	}
@@ -303,6 +294,8 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) ([]byte
 	authServerHost := net.JoinHostPort(options.ServerAddress, fmt.Sprint(options.ServerPort))
 	sess := auth.NewSessionContext(setupCtx, authServerHost, c.tlsKeyLogWriter, c.underlayDialer.DialContext)
 	c.authSession = sess
+	sess.Diagnostic = c.diagnostic
+	sess.Language = c.language
 	success := false
 	defer func() {
 		if !success {
@@ -320,8 +313,8 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) ([]byte
 	if err != nil {
 		return nil, err
 	}
-	if manifestErr != nil {
-		log.Printf("Failed to refresh aTrust server manifest, using cached version: %v", manifestErr)
+	if manifestErr != nil && c.diagnostic != nil {
+		c.diagnostic("manifest_cached")
 	}
 	clientAuthData.ServerVersionInfo = serverVersionInfo
 	parsedServerVersion, err := auth.ParseServerVersionInfo(serverVersionInfo)
@@ -329,11 +322,9 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) ([]byte
 		return nil, err
 	}
 	c.tcpTunnelZeroRTT = parsedServerVersion.TCPTunnelZeroRTT()
-	log.Printf("aTrust TCP tunnel zero-RTT: %t", c.tcpTunnelZeroRTT)
 
 	resourceData := options.ResourceData
 	if c.canResume(resourceData) {
-		log.Println("Skipping login")
 
 		c.ConnectionID = buildConnectionID(c.DeviceID)
 		if c.SignKey == "" {
@@ -348,10 +339,6 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) ([]byte
 		c.ConnectionID = buildConnectionID(c.DeviceID)
 		c.SignKey = randHex(64)
 
-		if options.LoginMethod == nil {
-			log.Println("No auth type specified, trying to skip auth")
-		}
-
 		loginResult, err := sess.Login(options.LoginMethod, auth.LoginOptions{
 			DeviceID:         c.DeviceID,
 			Cookies:          clientAuthData.Cookies,
@@ -359,14 +346,14 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) ([]byte
 			ChallengeHandler: options.ChallengeHandler,
 		})
 		if err != nil {
-			log.Println("Login error:", err)
+
 			return nil, err
 		}
 		c.Username = loginResult.Username
 
 		resourceData, err = sess.ClientResource()
 		if err != nil {
-			log.Println("Error fetching client resource:", err)
+
 			return nil, err
 		}
 
@@ -388,9 +375,10 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) ([]byte
 		return nil, err
 	}
 
-	log.DebugPrintf("SID: %s, DeviceID: %s, ConnectionID: %s, SignKey: %s", c.SID, c.DeviceID, c.ConnectionID, c.SignKey)
-
-	c.BestNodes = getBestNodes(setupCtx, c.NodeGroups, c.underlayDialer.DialContext, c.tlsKeyLogWriter)
+	c.BestNodes, err = getBestNodes(setupCtx, c.NodeGroups, c.underlayDialer.DialContext, c.tlsKeyLogWriter)
+	if err != nil {
+		return nil, err
+	}
 	if err := setupCtx.Err(); err != nil {
 		return nil, err
 	}

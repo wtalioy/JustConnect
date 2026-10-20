@@ -2,57 +2,47 @@ package service
 
 import (
 	"context"
-	"errors"
-	"fmt"
+	"io"
 	"net"
 
-	"github.com/wtalioy/JustConnect/corelib/dial"
-	"github.com/wtalioy/JustConnect/corelib/internal/hook_func"
-	"github.com/wtalioy/JustConnect/corelib/log"
-	"github.com/wtalioy/JustConnect/corelib/resolve"
 	"github.com/things-go/go-socks5"
+	"github.com/things-go/go-socks5/statute"
+	"github.com/wtalioy/JustConnect/corelib/resolve"
 )
 
-func ServeSocks5(bindAddr string, dialer *dial.Dialer, resolver *resolve.Resolver, user string, password string) {
-	var authMethods []socks5.Authenticator
-	if user != "" && password != "" {
-		authMethods = append(authMethods, socks5.UserPassAuthenticator{
-			Credentials: socks5.StaticCredentials{user: password},
-		})
+type sessionResolver struct {
+	ctx      context.Context
+	resolver *resolve.Resolver
+}
 
-		log.Println("Neither traffic nor credentials are encrypted in the SOCKS5 protocol!")
-		log.Println("DO NOT deploy it to the public network. All consequences and responsibilities have nothing to do with the developer")
-	} else {
-		authMethods = append(authMethods, socks5.NoAuthAuthenticator{})
-	}
+func (r sessionResolver) Resolve(_ context.Context, host string) (context.Context, net.IP, error) {
+	return r.resolver.Resolve(r.ctx, host)
+}
 
-	server := socks5.NewServer(
-		socks5.WithAuthMethods(authMethods),
-		socks5.WithResolver(resolver),
-		socks5.WithDial(dialer.DialIPPort),
-		socks5.WithLogger(socks5.NewLogger(log.NewLogger("[SOCKS5] "))),
+func (p *Listeners) socksServer(resolver *resolve.Resolver) *socks5.Server {
+	return socks5.NewServer(
+		socks5.WithAssociateHandle(p.handleSOCKSUDP),
+		socks5.WithResolver(sessionResolver{p.ctx, resolver}),
+		socks5.WithConnectHandle(func(ctx context.Context, writer io.Writer, request *socks5.Request) error {
+			target, err := p.dial(ctx, "tcp", request.DestAddr.String())
+			if err != nil {
+				_ = socks5.SendReply(writer, statute.RepHostUnreachable, nil)
+				return err
+			}
+			defer target.Close()
+			if err := socks5.SendReply(writer, statute.RepSuccess, target.LocalAddr()); err != nil {
+				return err
+			}
+			relayDone := make(chan struct{}, 2)
+			go relayHTTPConnect(target, request.Reader, relayDone, p.fail)
+			go relayHTTPConnect(writer, target, relayDone, p.fail)
+			<-relayDone
+			_ = target.Close()
+			if closer, ok := writer.(io.Closer); ok {
+				_ = closer.Close()
+			}
+			<-relayDone
+			return nil
+		}),
 	)
-
-	log.Printf("SOCKS5 server listening on %s", bindAddr)
-
-	listener, err := net.Listen("tcp", bindAddr)
-	if err != nil {
-		panic("SOCKS5 listen failed: " + err.Error())
-	}
-
-	hook_func.RegisterTerminalFunc("CloseSocks5Listener", func(ctx context.Context) error {
-		log.Println("Closing SOCKS5 listener...")
-		if err := listener.Close(); err != nil {
-			return fmt.Errorf("close SOCKS5 listener failed: %w", err)
-		}
-		return nil
-	})
-
-	if err = server.Serve(listener); err != nil {
-		if errors.Is(err, net.ErrClosed) {
-			log.Println("SOCKS5 server closed")
-		} else {
-			log.Println("SOCKS5 listen failed: " + err.Error())
-		}
-	}
 }

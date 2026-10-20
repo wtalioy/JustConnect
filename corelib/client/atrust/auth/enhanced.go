@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-
-	"github.com/wtalioy/JustConnect/corelib/log"
 )
 
 var enhancedAuthServices = map[string]struct{}{
@@ -37,7 +35,7 @@ func (s *Session) bindAuthDevice(step authStep) (authStep, error) {
 
 func (s *Session) requestAuthStep(method string, step authStep, body []byte) (authStep, error) {
 	path := "/passport/v1/" + step.Service
-	log.Printf("Perform %s %s", method, path)
+
 	params := WithSharedParams(nil)
 	if step.AuthID != "" {
 		params.Set("authId", step.AuthID)
@@ -68,7 +66,6 @@ func (s *Session) requestAuthStep(method string, step authStep, body []byte) (au
 	if err != nil {
 		return authStep{}, err
 	}
-	log.DebugPrintf("Received %s: %s", step.Service, string(responseBody))
 
 	var result tokenResponse
 	if err := json.Unmarshal(responseBody, &result); err != nil {

@@ -3,10 +3,10 @@ name: Core ABI
 on:
   push:
     branches: [develop]
-    paths: ['tests/coreabi/**', 'corelib/abi/**', 'corelib/internal/bridge/**', 'corelib/go.mod', 'corelib/go.sum', 'scripts/generate-core-abi.py', 'tests/platform/**', '.github/workflows/coreabi.yml', '.github/actions/setup-qt/**']
+    paths: ['tests/coreabi/**', 'corelib/**', 'scripts/generate-core-abi.py', 'tests/platform/**', '.github/workflows/coreabi.yml', '.github/actions/setup-qt/**']
   pull_request:
     branches: [main, develop]
-    paths: ['tests/coreabi/**', 'corelib/abi/**', 'corelib/internal/bridge/**', 'corelib/go.mod', 'corelib/go.sum', 'scripts/generate-core-abi.py', 'tests/platform/**', '.github/workflows/coreabi.yml', '.github/actions/setup-qt/**']
+    paths: ['tests/coreabi/**', 'corelib/**', 'scripts/generate-core-abi.py', 'tests/platform/**', '.github/workflows/coreabi.yml', '.github/actions/setup-qt/**']
   workflow_dispatch:
 
 permissions:
@@ -76,7 +76,7 @@ jobs:
           Expand-Archive $archive "$env:RUNNER_TEMP/cgo"
           "$env:RUNNER_TEMP/cgo/$name/bin" >> $env:GITHUB_PATH
 
-      - name: Verify formal C ABI and authentication contract
+      - name: Verify formal C ABI, protocol session and authentication
         shell: python
         run: |
           import os, pathlib, subprocess, sys
@@ -92,9 +92,9 @@ jobs:
           run('cgo-env', ['go', 'env', 'GOHOSTOS', 'GOHOSTARCH', 'CC', 'CGO_ENABLED'])
           run('cc', [os.environ['CC'], '--version'])
           run('constants', [sys.executable, 'scripts/generate-core-abi.py', '--check'])
-          run('go-test', ['go', '-C', 'corelib', 'test', '-timeout', '60s', './internal/bridge'])
+          run('go-test', ['go', '-C', 'corelib', 'test', '-timeout', '90s', './...'])
           if not (os.environ['RUNNER_OS'] == 'Windows' and os.environ['RUNNER_ARCH'] == 'ARM64'):
-              run('go-race', ['go', '-C', 'corelib', 'test', '-race', '-timeout', '60s', './internal/bridge'])
+              run('go-race', ['go', '-C', 'corelib', 'test', '-race', '-timeout', '90s', './...'])
           else:
               print('UNSUPPORTED: Go race detector on Windows ARM64; normal Go and C ABI tests still run', flush=True)
           args = ['cmake', '-S', 'tests/coreabi', '-B', str(output), '-DCMAKE_BUILD_TYPE=Release']

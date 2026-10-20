@@ -11,15 +11,14 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
-	"strings"
 	"time"
 
 	"github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/wtalioy/JustConnect/corelib/client/authchallenge"
-	"github.com/wtalioy/JustConnect/corelib/log"
 )
 
 const (
+	Language     = "en-US"
 	UserAgent    = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) aTrustTray/2.4.10.50 Chrome/83.0.4103.94 Electron/9.0.2 Safari/537.36 aTrustTray-Linux-Plat-Ubuntu-x64 SPCClientType"
 	maxAttempts  = 5
 	maxAuthSteps = 8
@@ -28,7 +27,7 @@ const (
 var sharedParams = url.Values{
 	"clientType": {"SDPClient"},
 	"platform":   {"Linux"},
-	"lang":       {"en-US"},
+	"lang":       {Language},
 }
 
 func WithSharedParams(extra url.Values) url.Values {
@@ -92,6 +91,8 @@ func (i ServerVersionInfo) TCPTunnelZeroRTT() bool {
 }
 
 type Session struct {
+	Language   string
+	Diagnostic func(string)
 	ctx        context.Context
 	client     *http.Client
 	deviceID   string
@@ -147,6 +148,12 @@ func (s *Session) SetContext(ctx context.Context) { s.ctx = ctx }
 func (s *Session) Close() { s.client.CloseIdleConnections() }
 
 func (s *Session) request(req *http.Request) (*http.Response, error) {
+	if s.Language != "" && req.URL.Query().Has("lang") {
+		req = req.Clone(req.Context())
+		query := req.URL.Query()
+		query.Set("lang", s.Language)
+		req.URL.RawQuery = query.Encode()
+	}
 	ctx, cancel := context.WithCancel(req.Context())
 	stop := context.AfterFunc(s.ctx, cancel)
 	if s.ctx.Err() != nil {
@@ -224,9 +231,6 @@ func (s *Session) withGraphCheckCode(process func(string) (int, error), graphCod
 	}
 
 	for attempt := 1; graphCheckCodeEnable == 1 && attempt <= maxAttempts; attempt++ {
-		if attempt > 1 {
-			log.Printf("Captcha attempt %d/%d", attempt, maxAttempts)
-		}
 
 		imgData, err := s.checkCode()
 		if err != nil {
@@ -251,8 +255,6 @@ func (s *Session) withGraphCheckCode(process func(string) (int, error), graphCod
 			return fmt.Errorf("encode aTrust captcha response: %w", err)
 		}
 
-		log.DebugPrintf("graphCheckCode submitted: %s", graphCheckCode)
-
 		graphCheckCodeEnable, err = process(graphCheckCode)
 		if err != nil {
 			return err
@@ -262,7 +264,6 @@ func (s *Session) withGraphCheckCode(process func(string) (int, error), graphCod
 			return nil
 		}
 
-		log.Printf("Captcha verification failed (attempt %d/%d), retrying with new captcha...", attempt, maxAttempts)
 	}
 
 	if graphCheckCodeEnable != 0 {
@@ -278,7 +279,6 @@ func (s *Session) GetAuthInfoList() ([]AuthInfo, error) {
 
 func (s *Session) continueAuth(step authStep) error {
 	for attempt := 0; attempt < maxAuthSteps; attempt++ {
-		log.DebugPrintf("Continue authentication: service=%s smsMode=%d", step.Service, step.SMSMode)
 
 		var err error
 		switch step.Service {
@@ -329,17 +329,13 @@ func (s *Session) completeSMS(step authStep) (authStep, error) {
 		return authStep{}, fmt.Errorf("unknown SMS authentication mode")
 	}
 
-	phoneNumbers, err := s.phoneNumber(step.AuthID)
-	if err != nil {
-		log.Printf("Warning: failed to get phone number: %v", err)
-	} else if len(phoneNumbers) > 0 {
-		log.Printf("Phone number: %s", strings.Join(phoneNumbers, ", "))
+	if _, err := s.phoneNumber(step.AuthID); err != nil && s.Diagnostic != nil {
+		s.Diagnostic("auth_detail_unavailable")
 	}
 
 	if err := s.authSms(step); err != nil {
 		return authStep{}, err
 	}
-
 	if step.SMSMode == smsWithoutAuthID {
 		if _, _, err := s.authConfig(true, true); err != nil {
 			return authStep{}, err
@@ -373,7 +369,7 @@ func (s *Session) Login(method LoginMethod, opts LoginOptions) (LoginResult, err
 		return LoginResult{}, err
 	}
 	if isLogin == 1 {
-		log.Println("Already logged in")
+
 		username, err := s.onlineInfo()
 		if err != nil {
 			return LoginResult{}, err
@@ -397,11 +393,10 @@ func (s *Session) Login(method LoginMethod, opts LoginOptions) (LoginResult, err
 		}
 	}
 	if foundAuthInfo == nil {
-		log.Printf("Available authentication methods: %+v", authInfoList)
+
 		return LoginResult{}, fmt.Errorf("auth type/login domain combination not found: auth type: %s, login domain: %s", method.AuthType(), method.LoginDomain())
 	}
 
-	log.Printf("Starting login with auth type: %s, login domain: %s", method.AuthType(), method.LoginDomain())
 	err = method.login(s, *foundAuthInfo)
 	if err != nil {
 		return LoginResult{}, err

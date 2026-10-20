@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wtalioy/JustConnect/corelib/log"
 	"github.com/things-go/go-socks5/statute"
 )
 
@@ -34,7 +33,7 @@ func (c *bufferedProxyConn) Read(p []byte) (int, error) {
 func (d *Dialer) dialDirectWithoutProxy(ctx context.Context, network, addr string) (net.Conn, error) {
 	goDialer := &net.Dialer{}
 	goDial := goDialer.DialContext
-	log.Printf("%s -> DIRECT", addr)
+
 	return goDial(ctx, network, addr)
 }
 
@@ -43,7 +42,6 @@ func (d *Dialer) dialDirectWithHTTPProxy(ctx context.Context, usedAddr string) (
 	goDialer := &net.Dialer{}
 	goDial := goDialer.DialContext
 
-	log.Printf("%s -> PROXY[%s]", usedAddr, d.dialDirectHTTPProxy)
 	conn, err := goDial(ctx, "tcp", d.dialDirectHTTPProxy)
 	if err != nil {
 		return nil, err
@@ -122,7 +120,6 @@ func (d *Dialer) dialDirectWithSocksProxy(ctx context.Context, network, usedAddr
 	goDialer := &net.Dialer{}
 	goDial := goDialer.DialContext
 
-	log.Printf("%s -> PROXY[%s]", usedAddr, d.dialDirectSocksProxy)
 	conn, err := goDial(ctx, "tcp", d.dialDirectSocksProxy)
 	if err != nil {
 		return nil, err

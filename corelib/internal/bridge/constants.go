@@ -2,24 +2,28 @@
 package bridge
 
 const (
-	ABIVersion       = 1
-	UpstreamCommit   = "c19eb4ed34b9cf6e8e8ea3315fe9973c8411eb63"
-	MaxInput         = 65536
-	MaxOutput        = 262144
-	MaxWaitMS        = 30000
-	MaxHandles       = 16
-	MaxDiagnostics   = 24
-	MaxJSONDepth     = 16
-	MaxAuthImage     = 131072
-	MaxAuthPoints    = 32
-	MaxAuthDimension = 8192
-	MaxAuthCode      = 4096
-	MaxURL           = 8192
-	MaxUsername      = 1024
-	MaxPassword      = 4096
-	MaxPhone         = 64
-	MaxDomain        = 1024
-	MaxTOTPSecret    = 1024
+	ABIVersion        = 1
+	UpstreamCommit    = "c19eb4ed34b9cf6e8e8ea3315fe9973c8411eb63"
+	MaxInput          = 65536
+	MaxOutput         = 262144
+	MaxWaitMS         = 30000
+	MaxHandles        = 16
+	MaxDiagnostics    = 24
+	MaxJSONDepth      = 16
+	MaxAuthImage      = 131072
+	MaxAuthPoints     = 32
+	MaxAuthDimension  = 8192
+	MaxAuthCode       = 4096
+	MaxURL            = 8192
+	MaxUsername       = 1024
+	MaxPassword       = 4096
+	MaxPhone          = 64
+	MaxDomain         = 1024
+	MaxTOTPSecret     = 1024
+	MaxAuthMethods    = 64
+	MaxAuthMethodName = 1024
+	MaxInterfaceName  = 1024
+	MaxLanguage       = 64
 )
 const (
 	OK              Status = 0
