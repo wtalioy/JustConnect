@@ -1,0 +1,38 @@
+#ifndef JUSTCONNECT_CORE_ABI_H
+#define JUSTCONNECT_CORE_ABI_H
+#include "constants.h"
+
+#if defined(_WIN32) && defined(JC_BUILDING)
+#define JC_API __declspec(dllexport)
+#else
+#define JC_API
+#endif
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* ABI/schema v1; JSON bytes are UTF-8, length-delimited, without a trailing NUL.
+ * Inputs are borrowed read-only during the call and copied before returning.
+ * Nonzero lengths/capacities require valid, non-overlapping caller memory.
+ * Outputs and scalar pointers are caller-owned; Go pointers never escape.
+ * All length/handle/generation outputs are zeroed on error, except required
+ * length on JC_BUFFER_TOO_SMALL. That result never writes or consumes an event.
+ * Functions may run concurrently. See docs/CORE-ABI.md for lifecycle rules.
+ */
+JC_API uint32_t jc_abi_version(void);
+JC_API int32_t jc_build_info(uint32_t abi, uint8_t *output, uint32_t capacity, uint32_t *length);
+JC_API int32_t jc_session_create(uint32_t abi, uint64_t *handle);
+JC_API int32_t jc_session_start(uint64_t handle, const uint8_t *config, uint32_t length, uint64_t *generation);
+JC_API int32_t jc_session_read(uint64_t handle, uint32_t wait_ms, uint8_t *output, uint32_t capacity, uint32_t *length);
+JC_API int32_t jc_session_respond(uint64_t handle, const uint8_t *response, uint32_t length);
+/* Stop cancels before waiting; timeout retains the active slot until cleanup.
+ * Destroy invalidates only after cleanup. Retry after timeout; repeated destroy
+ * succeeds for issued handles. No library unload while the host is alive.
+ */
+JC_API int32_t jc_session_stop(uint64_t handle, uint32_t wait_ms);
+JC_API int32_t jc_session_destroy(uint64_t handle, uint32_t wait_ms);
+
+#ifdef __cplusplus
+}
+#endif
+#endif

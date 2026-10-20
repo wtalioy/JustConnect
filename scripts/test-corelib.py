@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 
 
 CORE = Path(__file__).resolve().parents[1] / 'corelib'
@@ -27,6 +28,7 @@ def main():
     if list(CORE.rglob('go.mod')) != [CORE / 'go.mod'] or any(
             not entry['New'].get('Version') for entry in metadata.get('Replace') or []):
         raise RuntimeError('The core must not contain nested modules or local replacements')
+    subprocess.run([sys.executable, str(CORE.parent / "scripts/generate-core-abi.py"), "--check"], check=True)
     locks = {name: (CORE / name).read_bytes() for name in ('go.mod', 'go.sum')}
     go('mod', 'download')
     go('mod', 'verify')
