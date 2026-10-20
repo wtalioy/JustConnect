@@ -101,3 +101,5 @@ ctest --test-dir build/coreabi -C Release -V --output-on-failure
 Go 回归覆盖严格配置、各类认证回应、事件积压、过期请求、慢清理超时、读者唤醒、并发启动、panic 脱敏和资源上限，并包含配置模糊测试。六组原生 CI 验证正式库与认证宿主；race 在 Go 支持的五组平台执行，Windows ARM64 由固定 Go 明确不支持，但仍执行普通 Go 与真实 FFI 回归。宿主库启用 `GOEXPERIMENT=cgocheck2`，没有关闭指针检查。
 
 此验收不代表校园登录、正式 VPN 启停、协议协程清理或网络转发完成；这些由 S1-07、S1-04 的真实协议回归及后续网络任务交付。
+
+2026-10-20，代码 `c66be1d` 的[六组原生宿主 CI](https://github.com/wtalioy/JustConnect/actions/runs/39356166583)全部通过，包含五组可用的 race 检查；[三平台应用回归](https://github.com/wtalioy/JustConnect/actions/runs/39356166708)各通过 25 包限定 Go 基线和 16 项应用测试。S1-03 已验收；S1-04 的真实协议／Qt 回归仍须随后续接入完成。
