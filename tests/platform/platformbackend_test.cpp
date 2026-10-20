@@ -26,8 +26,8 @@ BOOL WINAPI query(HINTERNET, DWORD, LPVOID buffer, LPDWORD) {
     if (denyQuery) { SetLastError(queryError); return FALSE; }
     auto *list = static_cast<INTERNET_PER_CONN_OPTION_LISTW *>(buffer);
     list->pOptions[0].Value.dwValue = flags;
-    const QString values[]{proxy,bypass,pac};
-    for (int i=1; i<4; ++i) {
+    const QString values[]{proxy,bypass};
+    for (int i=1; i<3; ++i) {
         const auto &value = values[i-1];
         auto *text = static_cast<wchar_t *>(GlobalAlloc(GMEM_FIXED, (value.size()+1)*sizeof(wchar_t)));
         check(text != nullptr,"allocate query strings"); value.toWCharArray(text); text[value.size()] = 0;
@@ -43,11 +43,12 @@ BOOL WINAPI set(HINTERNET, DWORD option, LPVOID buffer, DWORD) {
     if (denySet || writes == failAt) { SetLastError(ERROR_CANCELLED); return FALSE; }
     if (ignoreSet) return TRUE;
     auto *list = static_cast<INTERNET_PER_CONN_OPTION_LISTW *>(buffer);
+    check(list->dwOptionCount == 1 || list->dwOptionCount == 3, "manual proxy must not overwrite stored PAC URL");
     flags = list->pOptions[0].Value.dwValue;
     if (list->dwOptionCount > 1) {
         proxy = QString::fromWCharArray(list->pOptions[1].Value.pszValue);
         bypass = QString::fromWCharArray(list->pOptions[2].Value.pszValue);
-        pac = QString::fromWCharArray(list->pOptions[3].Value.pszValue);
+
     }
     return TRUE;
 }
@@ -79,7 +80,10 @@ static void backendTests() {
     ignoreSet = true;
     check(!backend.apply(config).succeeded(),"successful API without actual change fails readback");
     ignoreSet = false;
+    pac = "https://pac.example.invalid/proxy.pac";
     check(backend.apply(config).succeeded() && !backend.check(config).conflict,"all endpoints and bypass verified");
+    check(pac == "https://pac.example.invalid/proxy.pac", "manual mode preserves inactive PAC address");
+    check(proxy == "http=127.0.0.1:11081;https=127.0.0.1:11081;ftp=127.0.0.1:11081;socks=127.0.0.1:11080", "WinINet protocol endpoints encoded independently");
     denyNotify = true;
     check(!backend.clear().succeeded(),"notification failure propagated");
     denyNotify = false;
@@ -89,7 +93,7 @@ static void backendTests() {
 struct Fixture {
     QMap<QString, QString> values;
     int mutations = 0, failAt = 0;
-    bool failRead = false, failWrite = false, ignoreWrite = false, malformed = false;
+    bool failRead = false, failWrite = false, ignoreWrite = false, malformed = false, emptyBypass = false;
     PlatformCommandResult run(const QString &program, const QStringList &args) {
 #ifdef Q_OS_MACOS
         Q_UNUSED(program)
@@ -101,7 +105,10 @@ struct Fixture {
                 if (operation == "-setproxybypassdomains") values["bypass"] = args.mid(2).join('\n');
                 else if (operation.endsWith("state")) values[operation.mid(4, operation.size()-9)] = args[2];
                 else if (operation == "-setproxyautodiscovery") values["discovery"] = args[2];
-                else values[operation.mid(4)+"port"] = args[3];
+                else {
+                    check(args.size()==5 && args.last()=="off", "manual endpoint disables stale proxy authentication");
+                    values[operation.mid(4)+"port"] = args[3];
+                }
             }
             return {};
         }
@@ -110,9 +117,9 @@ struct Fixture {
         if (operation == "-listallnetworkservices") return {{},"An asterisk (*) denotes that a network service is disabled.\nWi-Fi\n*Disabled"};
         if (operation == "-getautoproxyurl") return {{},"Enabled: No\nURL: "};
         if (operation == "-getproxyautodiscovery") return {{},"Auto Proxy Discovery: Off"};
-        if (operation == "-getproxybypassdomains") return {{},values.value("bypass")};
+        if (operation == "-getproxybypassdomains") return {{},emptyBypass ? QString() : values.value("bypass")=="Empty" ? QString("There aren't any bypass domains set on Wi-Fi.") : values.value("bypass")};
         const auto type = operation.mid(4);
-        return {{},"Enabled: " + QString(values.value(type)=="on" ? "Yes" : "No") + "\nServer: 127.0.0.1\nPort: " + values.value(type+"port")};
+        return {{},"Enabled: " + QString(values.value(type)=="on" ? "Yes" : "No") + "\nAuthenticated Proxy Enabled: 0\nServer: 127.0.0.1\nPort: " + values.value(type+"port")};
 #else
         if (program == "dbus-send") return {};
         const bool write = program.startsWith("kwriteconfig") || args.value(0)=="set";
@@ -129,6 +136,7 @@ struct Fixture {
             return {};
         }
         if (failRead) return {{Status::Failed,"query failed"},{}};
+        if (emptyBypass && key.endsWith(":ignore-hosts")) return {{}, {}};
         return {{}, malformed ? QString("invalid") : values.value(key, kde ? "0" : "'none'")};
 #endif
     }
@@ -155,6 +163,17 @@ static void backendTests() {
     fixture.ignoreWrite = false;
     check(backend.apply(config).succeeded(),"endpoints and bypass roundtrip");
     check(!backend.check(config).conflict && backend.check(config).active,"configured proxy verified active");
+    fixture.emptyBypass = true;
+    auto noBypass = config; noBypass.bypass.clear();
+    check(!backend.apply(noBypass).succeeded(), "missing bypass output is not a verified empty bypass list");
+    fixture.emptyBypass = false;
+    check(backend.apply(noBypass).succeeded(), "valid empty bypass representation accepted");
+#ifndef Q_OS_MACOS
+    check(fixture.values.value("org.gnome.system.proxy.http:use-authentication") == "false", "GNOME HTTP auth disabled without clearing stored credentials");
+    fixture.values["org.gnome.system.proxy:mode"] = "['manual']";
+    check(!backend.check(config).result.succeeded(), "wrong GVariant value type is not a proxy mode");
+    fixture.values["org.gnome.system.proxy:mode"] = "'manual'";
+#endif
     check(backend.clear().succeeded() && !backend.check(config).active,"disable readback verified");
 #ifdef Q_OS_LINUX
     qputenv("XDG_CURRENT_DESKTOP","KDE"); qputenv("KDE_SESSION_VERSION","6");
@@ -193,9 +212,16 @@ int main(int argc, char **argv) {
         qputenv("XDG_CURRENT_DESKTOP", "GNOME"); qputenv("GSETTINGS_BACKEND", "keyfile");
         qputenv("XDG_CONFIG_HOME", directory.path().toUtf8());
         PlatformSystemProxyBackend backend;
+        for (const auto &pair : {qMakePair(QString("authentication-user"),QString("retained-user")), qMakePair(QString("authentication-password"),QString("retained-secret"))})
+            check(runPlatformCommand("gsettings", {"set","org.gnome.system.proxy.http",pair.first,"'"+pair.second+"'"}).result.succeeded(), "isolated existing credential fixture");
+        check(runPlatformCommand("gsettings", {"set","org.gnome.system.proxy.http","use-authentication","true"}).result.succeeded(), "isolated previous auth flag");
         const auto applied = backend.apply(config);
         check(applied.succeeded(), qPrintable("isolated actual GSettings write/readback: " + applied.detail));
         check(backend.check(config).active && !backend.check(config).conflict, "isolated actual endpoints");
+        check(runPlatformCommand("gsettings", {"get","org.gnome.system.proxy.socks","port"}).output == "11080", "actual SOCKS port independently verified");
+        check(runPlatformCommand("gsettings", {"get","org.gnome.system.proxy.http","use-authentication"}).output == "false", "actual HTTP auth flag independently verified");
+        check(runPlatformCommand("gsettings", {"get","org.gnome.system.proxy.http","authentication-user"}).output == "'retained-user'", "stored proxy username preserved");
+        check(runPlatformCommand("gsettings", {"get","org.gnome.system.proxy.http","authentication-password"}).output == "'retained-secret'", "stored proxy secret preserved");
         check(backend.clear().succeeded() && !backend.check(config).active, "isolated actual disable/readback");
         std::cout << "PASS: actual GSettings writes/readback in disposable keyfile backend; no session settings changed\n";
         return 0;

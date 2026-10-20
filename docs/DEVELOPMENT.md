@@ -50,6 +50,26 @@ ctest --test-dir build/coreabi -C Release -R coreabi_performance_test --output-o
 
 六组安装包自检 JSON 另外记录 `size_bytes`（归档、去除符号链接的安装文件、宿主、Windows DLL）及 `offline_self_test_wall_ms`。后者是实际已安装应用的离线 ABI 自检耗时，包含进程启动和自检，不等同于主窗口／WebEngine 首屏时间。运行报告保留源码、工具链、Qt、平台／架构和逻辑 CPU 数；不同 CI 机器的数据只作为各自基线，不能直接归因于操作系统或库化。真实校园／生产 TLS、设备透明访问和长时间负载仍按计划单独验收。没有定位到可复现热点时，保留现有协议栈和依赖，不做推测性优化。
 
+## 平台结果契约与隔离验证
+
+`application/platformoperationresult.h` 定义成功、失败、用户取消、权限拒绝、不支持和超时；`mayHaveChanged` 单独记录可能已有修改，不能用一个失败布尔值推断系统保持原样。`SystemProxyCheck` 将查询结果、冲突及启用状态分开；查询失败不进入覆盖确认或设置。会话只确认验证成功的启用状态，部分清除失败保留清理标记，退出清理失败不会清零。
+
+[Platform.cmake](../cmake/Platform.cmake) 为代理和自启动分别选择 Windows／macOS／Linux／不支持平台源文件，基础设施只依赖 Qt Core，弹窗及结果文案在界面层。WinINet／RAS 每次检查原生返回值，模式、各协议端点、绕过项及通知均检查；手动模式不改写原有 PAC 地址。查询返回的字符串按 [Microsoft WinINet 文档](https://learn.microsoft.com/en-us/windows/win32/wininet/setting-and-retrieving-internet-options) 用 GlobalFree 释放。Unix 工具每条命令共享 5 秒启动／完成期限，检查正常退出和退出码，超时杀死并等待回收；这不是整个多步骤操作或退出流程的 5 秒保证。GNOME 与 KDE 分开处理，macOS 检查各网络服务；端点、认证模式及绕过项必须回读匹配，空输出不是有效空列表。
+
+自启动成功后才保存偏好；系统项已改变而偏好保存失败时明确提示部分完成，迁移保存失败保留旧版本供重试。设置保存失败不关闭窗口或提前清除认证材料。Linux .desktop 使用 QSaveFile 原子替换；路径按照 [Desktop Entry 规范](https://specifications.freedesktop.org/desktop-entry/latest-single/) 转义。实际 gio 回归发现含百分号的首个可执行路径在字段展开前被判为不存在，因此用固定脚本 exec "$0" 与独立路径参数启动，不把文件路径拼进脚本；测试实际启动含空格、引号、美元／反引号、百分号和反斜杠的文件。
+
+根应用 CTest 与六组原生项目共用测试源：
+
+```sh
+ctest --test-dir build -C Release -R 'platformbackend_test|autostart_test|systemproxysession_test|settingwindow_test' --output-on-failure
+```
+
+`platformbackend_test` 用真实子进程验证退出、崩溃、超时、取消和权限错误，并在 OS API／命令边界注入失败、部分修改、缺少数据及回读错配；Qt 界面／会话回归检查失败不写、晚到查询不操作、待清理状态和退出失败。Windows／macOS readonly 用例只读取当前系统代理；Linux readonly 用真实 gsettings 的 memory 后端读默认值，isolated 用临时 XDG_CONFIG_HOME 的 keyfile 后端执行写入／回读／清除，不连接会话 dconf。
+
+Windows 自启动测试只操作预先确认不存在的唯一测试 Run 值，并注册退出清理；Linux 只写临时目录。macOS 测试用真实 osacompile 编译脚本，并注入命令结果检查登录项的取消、失败及回读；没有冒充真实 System Events 授权／登录项成功。Linux 设置窗口回归验证实际失败时配置／缓存保留，偏好测试在三平台验证真实存储失败。
+
+S2-01 不替代 S2-06 的系统快照／按所有权恢复，也不授予覆盖已有代理的测试权限；真实会话代理写入、dconf／KDE 会话和 macOS 交互授权仍须相应环境与恢复路径后验收。现有 clear 仍是关闭代理模式，不能当成恢复用户原有 PAC／代理／绕过项；完整退出与强杀恢复按 S3／S4／S7 验收。
+
 ## 分支与 Actions
 
 - 日常开发使用 `develop`。每次推送到该分支，`Tests` 工作流在 Windows、macOS、Linux 上构建并验证固定核心、编译应用并运行 CTest，不打包、不发布。
