@@ -218,6 +218,7 @@ func (r Response) valid(c Challenge) bool {
 	switch c.Kind {
 	case "sms", "totp", "radius", "text_captcha":
 		return (strings.TrimSpace(r.Code) != "" || (r.SkipSecondaryAuth && c.CanSkipSecondaryAuth)) &&
+			(!r.SkipSecondaryAuth || r.Code == "") &&
 			len(r.Code) <= MaxAuthCode && (!r.SkipSecondaryAuth || c.CanSkipSecondaryAuth) &&
 			len(r.Points) == 0 && r.Width == 0 && r.Height == 0 && r.CallbackURL == ""
 	case "click_captcha":

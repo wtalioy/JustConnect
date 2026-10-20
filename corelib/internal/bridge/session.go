@@ -48,6 +48,7 @@ type queued struct {
 
 type pending struct {
 	id        uint64
+	ctx       context.Context
 	challenge Challenge
 	delivered bool
 	response  chan Response
@@ -228,7 +229,7 @@ func (s *Session) Authenticate(ctx context.Context, challenge Challenge) (Respon
 		return Response{}, Limit
 	}
 	s.nextRequest++
-	p := &pending{id: s.nextRequest, challenge: challenge, response: make(chan Response, 1)}
+	p := &pending{id: s.nextRequest, ctx: ctx, challenge: challenge, response: make(chan Response, 1)}
 	// The serialized event owns the image; no caller slice is retained.
 	s.push(event{Type: "authentication", RequestID: p.id, Challenge: &challenge})
 	p.challenge.Image = nil
@@ -270,7 +271,7 @@ func (e *Engine) Respond(handle uint64, input []byte) Status {
 		return InvalidHandle
 	}
 	p := s.auth
-	if !s.running || s.stopping || p == nil || !p.delivered ||
+	if !s.running || s.stopping || p == nil || p.ctx.Err() != nil || !p.delivered ||
 		response.Generation != s.generation || response.RequestID != p.id {
 		return StaleRequest
 	}
