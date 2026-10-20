@@ -42,7 +42,7 @@ public:
 
 };
 
-bool delegatesProcessLifecycleThroughPort()
+bool delegatesSessionLifecycleThroughPort()
 {
     auto *engine = new FakeCoreEngine();
     ConnectionSession session(engine);
@@ -154,7 +154,7 @@ bool authenticatesOnlyTheCurrentRequest()
 int main(int argc, char *argv[])
 {
     QCoreApplication application(argc, argv);
-    return delegatesProcessLifecycleThroughPort()
+    return delegatesSessionLifecycleThroughPort()
         && distinguishesInterruptedConnectionFromStartupFailure()
         && authenticatesOnlyTheCurrentRequest() ? 0 : 1;
 }

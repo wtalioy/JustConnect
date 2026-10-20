@@ -33,7 +33,7 @@ Windows 静态路径的已知线索：固定 Go 的 [PE 链接器 `addInitArray`
 
 以下权限分析针对 S1-06 当时的上游候选源码。S1-07 已删除集成模块中没有产品调用方、直接修改宿主网络的旧系统 TUN 栈；这不会改变下面的历史权限证据，也不替代 D2／S4 的入口和助手选型。
 
-核对对象为 manifest 的上游 `c19eb4ed34b9cf6e8e8ea3315fe9973c8411eb63` 及其锁定依赖：Unix 使用 `github.com/mythologyli/sing-tun@c04d9db95dc7`；Windows 实际走 `golang.zx2c4.com/wireguard@ecfc5a8d5446/tun` 与 `golang.zx2c4.com/wintun@0fa3db229ce2`，并非 sing-tun 的 Windows 路径。
+核对对象为 [导入基线](../corelib/UPSTREAM.md#导入基线)的上游 `c19eb4ed34b9cf6e8e8ea3315fe9973c8411eb63` 及其锁定依赖：Unix 使用 `github.com/mythologyli/sing-tun@c04d9db95dc7`；Windows 实际走 `golang.zx2c4.com/wireguard@ecfc5a8d5446/tun` 与 `golang.zx2c4.com/wintun@0fa3db229ce2`，并非 sing-tun 的 Windows 路径。
 
 | 平台 | 源码核对与候选边界 | 当前证据／缺口 |
 | --- | --- | --- |

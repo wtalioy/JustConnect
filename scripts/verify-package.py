@@ -204,7 +204,7 @@ def verify(root, executable, revision, application_version, output, signed=False
             raise RuntimeError(f'Missing license/source notice: {name}')
     files = []
     for path in root.rglob('*'):
-        if path.name in ('zju-connect', 'zju-connect.exe', 'core-provenance', 'wintun.dll'):
+        if path.name.casefold() in ('zju-connect', 'zju-connect.exe', 'core-provenance', 'wintun.dll'):
             raise RuntimeError(f'Obsolete runtime in package: {path}')
         if path.is_file() and not path.is_symlink():
             with path.open('rb') as stream:
