@@ -137,7 +137,13 @@ struct Fixture {
         }
         if (failRead) return {{Status::Failed,"query failed"},{}};
         if (emptyBypass && key.endsWith(":ignore-hosts")) return {{}, {}};
-        return {{}, malformed ? QString("invalid") : values.value(key, kde ? "0" : "'none'")};
+        QString fallback;
+        if(kde) fallback=key=="ProxyType"?"0":key=="ReversedException"?"false":QString();
+        else if(key.endsWith(":port"))fallback="0";
+        else if(key.endsWith(":use-same-proxy") || key.endsWith(":use-authentication"))fallback="false";
+        else if(key.endsWith(":ignore-hosts"))fallback="@as []";
+        else fallback=key.endsWith(":mode")?"'none'":"''";
+        return {{}, malformed ? QString("invalid") : values.value(key,fallback)};
 #endif
     }
 };
@@ -154,22 +160,33 @@ static void backendTests() {
     check(!backend.check(config).result.succeeded(),"malformed read rejected");
     fixture.malformed = false; fixture.failWrite = true;
     auto result = backend.apply(config);
+#ifdef Q_OS_LINUX
+    check(result.status==Status::PermissionDenied && !result.mayHaveChanged,"failed first write leaves the original settings intact");
+#else
     check(result.status==Status::PermissionDenied && result.mayHaveChanged,"partial mutation reported");
+#endif
     fixture.failWrite = false; fixture.mutations = 0; fixture.failAt = 3;
     result = backend.apply(config);
+#ifdef Q_OS_LINUX
+    check(!result.succeeded() && !result.mayHaveChanged && !backend.check(config).active,"partial application is rolled back and verified");
+#else
     check(!result.succeeded() && result.mayHaveChanged && fixture.mutations == 3 && !fixture.values.isEmpty(), "earlier writes retained as partial failure");
+#endif
     fixture.failAt = 0; fixture.values.clear(); fixture.ignoreWrite = true;
     check(!backend.apply(config).succeeded(),"zero exit without state change rejected");
     fixture.ignoreWrite = false;
     check(backend.apply(config).succeeded(),"endpoints and bypass roundtrip");
     check(!backend.check(config).conflict && backend.check(config).active,"configured proxy verified active");
+#ifdef Q_OS_LINUX
+    check(backend.clear().succeeded(),"restore before selecting another proxy configuration");
+#endif
     fixture.emptyBypass = true;
     auto noBypass = config; noBypass.bypass.clear();
     check(!backend.apply(noBypass).succeeded(), "missing bypass output is not a verified empty bypass list");
     fixture.emptyBypass = false;
     check(backend.apply(noBypass).succeeded(), "valid empty bypass representation accepted");
 #ifndef Q_OS_MACOS
-    check(fixture.values.value("org.gnome.system.proxy.http:use-authentication") == "false", "GNOME HTTP auth disabled without clearing stored credentials");
+    check(fixture.run("gsettings",{"get","org.gnome.system.proxy.http","use-authentication"}).output == "false", "GNOME HTTP auth disabled without clearing stored credentials");
     fixture.values["org.gnome.system.proxy:mode"] = "['manual']";
     check(!backend.check(config).result.succeeded(), "wrong GVariant value type is not a proxy mode");
     fixture.values["org.gnome.system.proxy:mode"] = "'manual'";
@@ -182,6 +199,41 @@ static void backendTests() {
     qputenv("XDG_CURRENT_DESKTOP","unknown");
     check(backend.apply(config).status==Status::Unsupported,"unknown desktop explicit unsupported");
 #endif
+}
+#endif
+
+#ifdef Q_OS_LINUX
+static void isolatedKde() {
+    QTemporaryDir directory;
+    check(directory.isValid(),"isolated KDE configuration directory");
+    qputenv("XDG_CURRENT_DESKTOP","KDE");qputenv("KDE_SESSION_VERSION","6");
+    qputenv("XDG_CONFIG_HOME",directory.path().toUtf8());
+    const auto arguments=[&](const QString &key){return QStringList{"--file",directory.filePath("kioslaverc"),"--group","Proxy Settings","--key",key};};
+    const auto get=[&](const QString &key){const auto result=runPlatformCommand("kreadconfig6",arguments(key));check(result.result.succeeded(),"native KConfig read");return result.output;};
+    const auto set=[&](const QString &key,const QString &value){auto args=arguments(key);args << "--" << value;check(runPlatformCommand("kwriteconfig6",args).result.succeeded(),"native KConfig write");};
+    set("ProxyType","2");set("Proxy Config Script","https://pac.example.invalid/original.pac");
+    set("httpProxy","http://prior.example.invalid 3128");set("NoProxyFor","old.example.invalid");set("ReversedException","true");
+    PlatformSystemProxyBackend backend;
+    check(backend.clear().succeeded() && get("ProxyType")=="2","unknown KDE PAC mode remains untouched");
+    check(backend.apply(config).succeeded(),"native KDE apply and readback");
+    check(get("httpProxy")=="http://127.0.0.1 11081" && get("socksProxy")=="socks://127.0.0.1 11080","native KDE protocol endpoints");
+    check(get("ReversedException")=="false","native KDE bypass must retain ordinary exclusion semantics");
+    check(backend.clear().succeeded(),"native KDE restore");
+    check(get("ProxyType")=="2" && get("Proxy Config Script")=="https://pac.example.invalid/original.pac","native KDE PAC mode and URL restored");
+    check(get("httpProxy")=="http://prior.example.invalid 3128" && get("NoProxyFor")=="old.example.invalid" && get("ReversedException")=="true","native KDE original proxy and bypass semantics restored");
+    check(backend.apply(config).succeeded(),"native KDE reapply after restore");
+    set("httpProxy","http://external.example.invalid 8899");set("NoProxyFor","external.example.invalid");
+    check(backend.clear().succeeded(),"native KDE owned fields restored around external settings");
+    check(get("httpProxy")=="http://external.example.invalid 8899" && get("NoProxyFor")=="external.example.invalid" && get("ProxyType")=="1","native KDE external endpoint/bypass and dependent mode preserved");
+    check(get("ReversedException")=="false","old reverse flag cannot invert external bypass entries");
+    set("httpProxy","--delete");
+    check(backend.apply(config).succeeded(),"native KDE capture of an option-like original string");
+    check(backend.clear().succeeded() && get("httpProxy")=="--delete","original strings must not be interpreted as writer options");
+    const auto credentialed=QString("http://fixture-user:fixture-secret@prior.example.invalid 3128");
+    set("httpProxy",credentialed);
+    check(backend.apply(config).status==Status::Unsupported,"credentialed KDE endpoints must not be passed through writer argv");
+    check(get("httpProxy")==credentialed && get("ProxyType")=="1","unsupported credentialed KDE settings remain unchanged");
+    std::cout<<"PASS: native KConfig apply, restoration and external ownership in a private directory/bus\n";
 }
 #endif
 
@@ -212,6 +264,7 @@ int main(int argc, char **argv) {
         std::cout << "PASS: actual platform query, no system writes\n"; return 0;
     }
 #ifdef Q_OS_LINUX
+    if(args.contains("--isolated-kde")){isolatedKde();return 0;}
     if (args.contains("--isolated")) {
         QTemporaryDir directory;
         check(directory.isValid(), "isolated GSettings directory");
@@ -221,6 +274,13 @@ int main(int argc, char **argv) {
         for (const auto &pair : {qMakePair(QString("authentication-user"),QString("retained-user")), qMakePair(QString("authentication-password"),QString("retained-secret"))})
             check(runPlatformCommand("gsettings", {"set","org.gnome.system.proxy.http",pair.first,"'"+pair.second+"'"}).result.succeeded(), "isolated existing credential fixture");
         check(runPlatformCommand("gsettings", {"set","org.gnome.system.proxy.http","use-authentication","true"}).result.succeeded(), "isolated previous auth flag");
+        check(runPlatformCommand("gsettings", {"set","org.gnome.system.proxy","mode","'auto'"}).result.succeeded(), "isolated original PAC mode");
+        check(runPlatformCommand("gsettings", {"set","org.gnome.system.proxy","autoconfig-url","'https://pac.example.invalid/original.pac'"}).result.succeeded(), "isolated original PAC URL");
+        check(runPlatformCommand("gsettings", {"set","org.gnome.system.proxy.http","host","'prior.example.invalid'"}).result.succeeded(), "isolated original HTTP host");
+        check(runPlatformCommand("gsettings", {"set","org.gnome.system.proxy.http","port","3128"}).result.succeeded(), "isolated original HTTP port");
+        check(runPlatformCommand("gsettings", {"set","org.gnome.system.proxy","ignore-hosts","['old.example.invalid']"}).result.succeeded(), "isolated original bypass");
+        check(backend.clear().succeeded(), "clear without an owned snapshot is a no-op");
+        check(runPlatformCommand("gsettings", {"get","org.gnome.system.proxy","mode"}).output=="'auto'", "unknown PAC settings must not be disabled");
         const auto applied = backend.apply(config);
         check(applied.succeeded(), qPrintable("isolated actual GSettings write/readback: " + applied.detail));
         check(backend.check(config).active && !backend.check(config).conflict, "isolated actual endpoints");
@@ -229,6 +289,52 @@ int main(int argc, char **argv) {
         check(runPlatformCommand("gsettings", {"get","org.gnome.system.proxy.http","authentication-user"}).output == "'retained-user'", "stored proxy username preserved");
         check(runPlatformCommand("gsettings", {"get","org.gnome.system.proxy.http","authentication-password"}).output == "'retained-secret'", "stored proxy secret preserved");
         check(backend.clear().succeeded() && !backend.check(config).active, "isolated actual disable/readback");
+        check(runPlatformCommand("gsettings", {"get","org.gnome.system.proxy","mode"}).output=="'auto'", "original PAC mode restored");
+        check(runPlatformCommand("gsettings", {"get","org.gnome.system.proxy","autoconfig-url"}).output=="'https://pac.example.invalid/original.pac'", "PAC URL preserved");
+        check(runPlatformCommand("gsettings", {"get","org.gnome.system.proxy.http","host"}).output=="'prior.example.invalid'", "original HTTP host restored");
+        check(runPlatformCommand("gsettings", {"get","org.gnome.system.proxy.http","port"}).output=="3128", "original HTTP port restored");
+        check(runPlatformCommand("gsettings", {"get","org.gnome.system.proxy.http","use-authentication"}).output=="true", "original HTTP auth flag restored");
+        check(runPlatformCommand("gsettings", {"get","org.gnome.system.proxy","ignore-hosts"}).output=="['old.example.invalid']", "original bypass restored");
+        auto escapedConfig=config;
+        escapedConfig.bypass=QString("inside\ttab;")+QChar(0x200c)+"example.invalid";
+        PlatformSystemProxyBackend escaping;
+        check(escaping.apply(escapedConfig).succeeded(),"native GVariant escape roundtrip does not strand a partial apply");
+        check(escaping.clear().succeeded(),"native escaped bypass restores the original settings");
+        for(bool failRestore:{false,true}) {
+            int writes=0,failAt=failRestore?0:4;
+            PlatformSystemProxyBackend failing([&](const QString &program,const QStringList &arguments){
+                if(arguments.value(0)=="set" && ++writes==failAt)return PlatformCommandResult{{Status::PermissionDenied,"injected native write denial"},{}};
+                return runPlatformCommand(program,arguments);
+            });
+            const auto result=failing.apply(config);
+            if(failRestore) {
+                check(result.succeeded(),"native apply before a restore failure");
+                failAt=writes+2;
+                const auto incomplete=failing.clear();
+                check(!incomplete.succeeded() && incomplete.mayHaveChanged,"failed native restore retains cleanup responsibility");
+                check(runPlatformCommand("gsettings",{"get","org.gnome.system.proxy.http","use-authentication"}).output=="false","failed endpoint restore cannot re-enable old proxy credentials");
+                failAt=0;check(failing.clear().succeeded(),"native restore can resume after a write denial");
+            } else check(!result.succeeded() && !result.mayHaveChanged,"native partial apply is rolled back and verified");
+            check(runPlatformCommand("gsettings",{"get","org.gnome.system.proxy.http","host"}).output=="'prior.example.invalid'","native failure preserves the original host");
+            check(runPlatformCommand("gsettings",{"get","org.gnome.system.proxy.http","port"}).output=="3128","native failure preserves the original port");
+            check(runPlatformCommand("gsettings",{"get","org.gnome.system.proxy.http","use-authentication"}).output=="true","native failure restores the original auth flag");
+            check(runPlatformCommand("gsettings",{"get","org.gnome.system.proxy","mode"}).output=="'auto'","native failure restores original PAC mode");
+        }
+        bool replaceEndpoint=false;
+        PlatformSystemProxyBackend changing([&](const QString &program,const QStringList &arguments){
+            const auto result=runPlatformCommand(program,arguments);
+            if(replaceEndpoint && arguments==QStringList{"set","org.gnome.system.proxy.http","port","3128"}) {
+                replaceEndpoint=false;
+                check(runPlatformCommand("gsettings",{"set","org.gnome.system.proxy.http","host","'external.example.invalid'"}).result.succeeded(),"external endpoint change during restoration");
+            }
+            return result;
+        });
+        check(changing.apply(config).succeeded(),"apply before an external mid-restore change");
+        replaceEndpoint=true;
+        check(changing.clear().succeeded(),"restore while retaining a new external endpoint");
+        check(runPlatformCommand("gsettings",{"get","org.gnome.system.proxy.http","host"}).output=="'external.example.invalid'","external endpoint was retained");
+        check(runPlatformCommand("gsettings",{"get","org.gnome.system.proxy.http","use-authentication"}).output=="false","old proxy credentials must not be enabled for a new external endpoint");
+        check(runPlatformCommand("gsettings",{"get","org.gnome.system.proxy","mode"}).output=="'manual'","old mode must not override a new endpoint during restoration");
         std::cout << "PASS: actual GSettings writes/readback in disposable keyfile backend; no session settings changed\n";
         return 0;
     }

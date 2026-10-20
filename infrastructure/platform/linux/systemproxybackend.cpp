@@ -1,6 +1,7 @@
 #include "infrastructure/platform/platformsystemproxybackend.h"
 #include "infrastructure/platform/proxyvalidation.h"
 #include <QStandardPaths>
+#include <QVariant>
 
 namespace {
 using Result = PlatformOperationResult;
@@ -11,11 +12,6 @@ bool gnome() {
     const auto desktop = qEnvironmentVariable("XDG_CURRENT_DESKTOP") + ':' + qEnvironmentVariable("XDG_SESSION_DESKTOP");
     return desktop.contains("GNOME", Qt::CaseInsensitive) || desktop.contains("Unity", Qt::CaseInsensitive)
         || desktop.contains("Cinnamon", Qt::CaseInsensitive);
-}
-QString kdeTool(const char *prefix) { return QString::fromLatin1(prefix) + qEnvironmentVariable("KDE_SESSION_VERSION"); }
-QStringList kdeArgs(const QString &key) {
-    return {"--file", QStandardPaths::writableLocation(QStandardPaths::ConfigLocation) + "/kioslaverc",
-            "--group", "Proxy Settings", "--key", key};
 }
 // gsettings prints GVariant strings, which may use either quote style.
 QStringList strings(const QString &value, bool &ok, bool array) {
@@ -40,7 +36,19 @@ QStringList strings(const QString &value, bool &ok, bool array) {
             if (ch == '\\') {
                 if (i == input.size()) return {};
                 ch = input[i++];
-                if (ch != '\\' && ch != '\'' && ch != '"') return {};
+                if (ch == 'u' || ch == 'U') {
+                    const int count=ch=='u'?4:8;
+                    if(input.size()-i<count)return {};
+                    const auto digits=input.mid(i,count);
+                    for(const auto digit:digits)if(!((digit>='0' && digit<='9') || (digit>='a' && digit<='f') || (digit>='A' && digit<='F')))return {};
+                    bool valid=false;const char32_t point=digits.toUInt(&valid,16);
+                    if(!valid || point==0 || point>0x10ffff || (point>=0xd800 && point<=0xdfff))return {};
+                    item+=QString::fromUcs4(&point,1);i+=count;continue;
+                }
+                const auto control=QStringLiteral("abfnrtv").indexOf(ch);
+                if(control>=0)ch=QStringLiteral("\a\b\f\n\r\t\v")[control];
+                else if(ch=='\n')continue;
+                else if (ch != '\\' && ch != '\'' && ch != '"') return {};
             }
             item += ch;
         }
@@ -62,104 +70,203 @@ Result available() {
 }
 }
 
-SystemProxyCheck PlatformSystemProxyBackend::check(const SystemProxyConfig &config) {
-    if (auto valid = ProxyValidation::config(config); !valid.succeeded()) return {valid};
-    if (auto support = available(); !support.succeeded()) return {support};
-    if (kde()) {
-        auto modeArgs = kdeArgs("ProxyType"); modeArgs << "--default" << "0";
-        auto mode = runner(kdeTool("kreadconfig"), modeArgs);
-        if (!mode.result.succeeded()) return {mode.result};
-        if (mode.output == "0" || mode.output.isEmpty()) return {{}, false};
-        if (mode.output != "1") return {{}, true};
-        for (const auto &protocol : {QString("http"), QString("https"), QString("ftp"), QString("socks")}) {
-            auto current = runner(kdeTool("kreadconfig"), kdeArgs(protocol + "Proxy"));
-            if (!current.result.succeeded()) return {current.result};
-            const auto expected = (protocol == "socks" ? "socks://127.0.0.1 " : "http://127.0.0.1 ")
-                + QString::number(protocol == "socks" ? config.socksPort : config.httpPort);
-            if (current.output != expected) return {{}, true};
+namespace {
+const QStringList protocols{"http", "https", "ftp", "socks"};
+struct Target {
+    QString reader, writer, file;
+    bool isKde() const { return !file.isEmpty(); }
+    QStringList arguments(const QString &key, bool write) const {
+        if (isKde()) {
+            QStringList args{"--file",file,"--group","Proxy Settings","--key",key};
+            if (!write && key=="ProxyType") args << "--default" << "0";
+            if (!write && key=="ReversedException") args << "--default" << "false";
+            return args;
         }
-        return {{}, false, true};
+        const auto parts=key.split('/');
+        return {write?"set":"get", "org.gnome.system.proxy"+(parts.size()==2?"."+parts[0]:QString()),parts.last()};
     }
-    auto mode = runner("gsettings", {"get", "org.gnome.system.proxy", "mode"});
-    if (!mode.result.succeeded()) return {mode.result};
-    bool ok = false; const auto values = strings(mode.output, ok, false);
-    if (!ok || values.size() != 1 || !QStringList{"none", "manual", "auto"}.contains(values[0]))
-        return {{Status::Failed, "Invalid GNOME proxy mode"}};
-    if (values[0] != "manual") return {{}, values[0] == "auto"};
-    auto same = runner("gsettings", {"get", "org.gnome.system.proxy", "use-same-proxy"});
-    if (!same.result.succeeded()) return {same.result};
-    if (same.output == "true") return {{}, true, true};
-    if (same.output != "false") return {{Status::Failed, "Invalid shared proxy flag"}};
-    auto authenticated = runner("gsettings", {"get", "org.gnome.system.proxy.http", "use-authentication"});
-    if (!authenticated.result.succeeded()) return {authenticated.result};
-    if (authenticated.output == "true") return {{}, true, true};
-    if (authenticated.output != "false") return {{Status::Failed, "Invalid HTTP proxy authentication flag"}};
-    for (const auto &protocol : {QString("http"), QString("https"), QString("ftp"), QString("socks")}) {
-        auto host = runner("gsettings", {"get", "org.gnome.system.proxy." + protocol, "host"});
-        if (!host.result.succeeded()) return {host.result};
-        auto port = runner("gsettings", {"get", "org.gnome.system.proxy." + protocol, "port"});
-        if (!port.result.succeeded()) return {port.result};
-        const auto hosts = strings(host.output, ok, false);
-        if (!ok || hosts.size() != 1) return {{Status::Failed, "Invalid GNOME proxy host"}};
-        const int number = port.output.toInt(&ok);
-        if (!ok || number < 0 || number > 65535) return {{Status::Failed, "Invalid GNOME proxy port"}};
-        if (hosts[0] != "127.0.0.1" || number != (protocol == "socks" ? config.socksPort : config.httpPort)) return {{}, true};
+    QString modeKey() const { return isKde()?"ProxyType":"mode"; }
+    QString bypassKey() const { return isKde()?"NoProxyFor":"ignore-hosts"; }
+    QString pacKey() const { return isKde()?"Proxy Config Script":"autoconfig-url"; }
+    QStringList endpointKeys(const QString &protocol) const {
+        if (isKde()) return {protocol+"Proxy"};
+        QStringList keys{protocol+"/host",protocol+"/port"};
+        if(protocol=="http")keys << "http/use-authentication";
+        return keys;
     }
-    return {{}, false, true};
+    QStringList keys() const {
+        QStringList result;
+        for(const auto &protocol:protocols) result.append(endpointKeys(protocol));
+        result << bypassKey();
+        result << (isKde()?"ReversedException":"use-same-proxy");
+        result << modeKey() << pacKey();
+        return result;
+    }
+};
+Target currentTarget() {
+    if(!kde())return {"gsettings","gsettings",{}};
+    const auto version=qEnvironmentVariable("KDE_SESSION_VERSION");
+    return {"kreadconfig"+version,"kwriteconfig"+version,QStandardPaths::writableLocation(QStandardPaths::ConfigLocation)+"/kioslaverc"};
+}
+Result readValue(const PlatformCommandRunner &run,const Target &target,const QString &key,QVariant &value) {
+    const auto command=run(target.reader,target.arguments(key,false));
+    if(!command.result.succeeded())return command.result;
+    if(target.isKde()) {
+        value=command.output;
+        if(key=="ProxyType") {bool ok=false;const auto mode=command.output.toUInt(&ok);if(!ok || mode>4)return {Status::Failed,"Invalid KDE proxy mode"};value=int(mode);}
+        if(key=="ReversedException") {
+            const auto raw=command.output.toLower();
+            if(!QStringList{"true","false","yes","no","on","off","1","0"}.contains(raw))return {Status::Failed,"Invalid KDE bypass direction"};
+            value=QStringList{"true","yes","on","1"}.contains(raw);
+        }
+        return {};
+    }
+    const auto raw=command.output;
+    bool ok=false;
+    if(key.endsWith("/port")) {const int port=raw.toInt(&ok);if(ok && port>=0 && port<=65535){value=port;return {};}}
+    else if(key=="use-same-proxy" || key=="http/use-authentication") {if(raw=="true" || raw=="false"){value=raw=="true";return {};}}
+    else {
+        const bool array=key==target.bypassKey();const auto values=strings(raw,ok,array);
+        if(ok && (array || values.size()==1)) {
+            if(array)value=values;
+            else {value=values[0];if(key=="mode" && !QStringList{"none","manual","auto"}.contains(values[0]))return {Status::Failed,"Invalid GNOME proxy mode"};}
+            return {};
+        }
+    }
+    return {Status::Failed,"Invalid proxy setting readback"};
+}
+Result readState(const PlatformCommandRunner &run,const Target &target,QVariantMap &values) {
+    for(const auto &key:target.keys()) {
+        QVariant value;auto result=readValue(run,target,key,value);
+        if(!result.succeeded())return result;
+        values.insert(key,value);
+    }
+    return {};
+}
+QString argumentValue(const QVariant &value) {
+    if(value.metaType().id()==QMetaType::QStringList)return ProxyValidation::listValue(value.toStringList());
+    if(value.metaType().id()==QMetaType::QString) {
+        const auto array=ProxyValidation::listValue({value.toString()});return array.mid(1,array.size()-2);
+    }
+    return value.toString();
+}
+Result writeValue(const PlatformCommandRunner &run,const Target &target,const QString &key,const QVariant &value) {
+    auto args=target.arguments(key,true);
+    if(target.isKde())args << "--";
+    args.append(target.isKde()?value.toString():argumentValue(value));
+    auto result=run(target.writer,args).result;
+    if(result.succeeded()) {
+        QVariant actual;result=readValue(run,target,key,actual);
+        if(result.succeeded() && actual!=value)result={Status::Failed,"Proxy setting readback mismatch"};
+    }
+    result.mayHaveChanged=true;
+    return result;
+}
+Result notify(const PlatformCommandRunner &run,const Target &target) {
+    if(!target.isKde())return {};
+    return run("dbus-send",{"--session","--type=signal","/KIO/Scheduler","org.kde.KIO.Scheduler.reparseSlaveConfiguration","string:"}).result;
+}
+QVariantMap requested(const Target &target,const QVariantMap &before,const SystemProxyConfig &config) {
+    auto values=before;
+    for(const auto &protocol:protocols) {
+        const int port=protocol=="socks"?config.socksPort:config.httpPort;
+        if(target.isKde())values[protocol+"Proxy"]=(protocol=="socks"?"socks://127.0.0.1 ":"http://127.0.0.1 ")+QString::number(port);
+        else {values[protocol+"/host"]="127.0.0.1";values[protocol+"/port"]=port;}
+    }
+    if(target.isKde()){values[target.modeKey()]=1;values["ReversedException"]=false;values[target.bypassKey()]=ProxyValidation::bypass(config.bypass).join(',');}
+    else {values[target.modeKey()]="manual";values[target.bypassKey()]=ProxyValidation::bypass(config.bypass);values["use-same-proxy"]=false;values["http/use-authentication"]=false;}
+    return values;
+}
+}
+
+struct PlatformSystemProxyBackend::Snapshot {
+    Target target;
+    QVariantMap before, installed;
+};
+
+SystemProxyCheck PlatformSystemProxyBackend::check(const SystemProxyConfig &config) {
+    if(auto valid=ProxyValidation::config(config);!valid.succeeded())return {valid};
+    if(auto support=available();!support.succeeded())return {support};
+    const auto target=currentTarget();QVariantMap values;
+    if(auto result=readState(runner,target,values);!result.succeeded())return {result};
+    const auto mode=values[target.modeKey()].toString();
+    if(mode!=(target.isKde()?"1":"manual"))return {{},mode!=(target.isKde()?"0":"none")};
+    const auto expected=requested(target,values,config);
+    bool conflict=false;
+    for(const auto &protocol:protocols)for(const auto &key:target.endpointKeys(protocol))conflict|=values[key]!=expected[key];
+    conflict|=values[target.isKde()?"ReversedException":"use-same-proxy"].toBool();
+    return {{},conflict,true};
 }
 
 PlatformOperationResult PlatformSystemProxyBackend::apply(const SystemProxyConfig &config) {
-    if (auto valid = ProxyValidation::config(config); !valid.succeeded()) return valid;
-    if (auto support = available(); !support.succeeded()) return support;
-    // Verify the query path before the first mutation; an error is not permission to overwrite.
-    if (auto before = check(config); !before.result.succeeded()) return before.result;
-    QList<QPair<QString, QStringList>> commands;
-    const auto add = [&](const QString &schema, const QString &key, const QString &value) {
-        if (kde()) { auto args = kdeArgs(key); args.append(value); commands.append({kdeTool("kwriteconfig"), args}); }
-        else commands.append({"gsettings", {"set", schema, key, value}});
-    };
-    for (const auto &protocol : {QString("http"), QString("https"), QString("ftp"), QString("socks")}) {
-        const QString port = QString::number(protocol == "socks" ? config.socksPort : config.httpPort);
-        if (kde()) add({}, protocol + "Proxy", (protocol == "socks" ? "socks://127.0.0.1 " : "http://127.0.0.1 ") + port);
-        else { add("org.gnome.system.proxy." + protocol, "host", "'127.0.0.1'"); add("org.gnome.system.proxy." + protocol, "port", port); }
+    if(auto valid=ProxyValidation::config(config);!valid.succeeded())return valid;
+    if(snapshot)return {Status::Failed,"Restore the current proxy settings before applying another configuration",true};
+    if(auto support=available();!support.succeeded())return support;
+    auto pending=std::make_shared<Snapshot>();pending->target=currentTarget();
+    if(auto result=readState(runner,pending->target,pending->before);!result.succeeded())return result;
+    // shortcut: KConfig CLI values use argv; credentialed URLs require a native KConfig writer.
+    if(pending->target.isKde())for(const auto &protocol:protocols)
+        if(pending->before[protocol+"Proxy"].toString().contains('@'))return {Status::Unsupported,"Credentialed KDE proxy URLs cannot be changed safely by the command-line backend"};
+    pending->installed=requested(pending->target,pending->before,config);snapshot=pending;
+    auto order=pending->target.keys();order.removeAll(pending->target.pacKey());
+    // Disable authentication before changing the HTTP endpoint; restore it only after the original endpoint.
+    if(!pending->target.isKde()){order.removeAll("http/use-authentication");order.prepend("http/use-authentication");}
+    const auto fail=[this](Result result){const auto restored=clear();result.mayHaveChanged=!restored.succeeded();return result;};
+    for(const auto &key:order)if(pending->before[key]!=pending->installed[key]) {
+        auto result=writeValue(runner,pending->target,key,pending->installed[key]);
+        if(!result.succeeded())return fail(result);
     }
-    if (!kde()) {
-        add("org.gnome.system.proxy", "use-same-proxy", "false");
-        add("org.gnome.system.proxy.http", "use-authentication", "false");
-    }
-    const auto bypass = ProxyValidation::bypass(config.bypass);
-    add("org.gnome.system.proxy", kde() ? "NoProxyFor" : "ignore-hosts", kde() ? bypass.join(',') : ProxyValidation::listValue(bypass));
-    add("org.gnome.system.proxy", kde() ? "ProxyType" : "mode", kde() ? "1" : "'manual'");
-    if (kde()) commands.append({"dbus-send", {"--session", "--type=signal", "/KIO/Scheduler", "org.kde.KIO.Scheduler.reparseSlaveConfiguration", "string:"}});
-    for (const auto &command : commands) {
-        auto result = runner(command.first, command.second).result;
-        if (!result.succeeded()) { result.mayHaveChanged = true; return result; }
-    }
-    auto verified = check(config);
-    if (!verified.result.succeeded()) { verified.result.mayHaveChanged = true; return verified.result; }
-    if (verified.conflict || !verified.active) return {Status::Failed, "Proxy readback does not match requested endpoints", true};
-    auto bypassResult = kde() ? runner(kdeTool("kreadconfig"), kdeArgs("NoProxyFor"))
-        : runner("gsettings", {"get", "org.gnome.system.proxy", "ignore-hosts"});
-    if (!bypassResult.result.succeeded()) { bypassResult.result.mayHaveChanged = true; return bypassResult.result; }
-    bool ok = true;
-    const auto actual = kde() ? bypassResult.output.split(',', Qt::SkipEmptyParts) : strings(bypassResult.output, ok, true);
-    if (!ok || actual != bypass) return {Status::Failed, "Proxy bypass readback does not match", true};
-    return {Status::Success, {}, true};
+    if(auto result=notify(runner,pending->target);!result.succeeded())return fail(result);
+    return {Status::Success,{},true};
 }
 
 PlatformOperationResult PlatformSystemProxyBackend::clear() {
-    if (auto support = available(); !support.succeeded()) return support;
-    auto args = kdeArgs("ProxyType"); args.append("0");
-    auto result = kde() ? runner(kdeTool("kwriteconfig"), args)
-        : runner("gsettings", {"set", "org.gnome.system.proxy", "mode", "'none'"});
-    if (!result.result.succeeded()) { result.result.mayHaveChanged = true; return result.result; }
-    if (kde()) {
-        result = runner("dbus-send", {"--session", "--type=signal", "/KIO/Scheduler", "org.kde.KIO.Scheduler.reparseSlaveConfiguration", "string:"});
-        if (!result.result.succeeded()) { result.result.mayHaveChanged = true; return result.result; }
+    if(!snapshot)return {};
+    auto &saved=*snapshot;QVariantMap current;
+    if(auto result=readState(runner,saved.target,current);!result.succeeded()){result.mayHaveChanged=true;return result;}
+    const auto known=[&](const QString &key){return current[key]==saved.installed[key] || current[key]==saved.before[key];};
+    const auto refresh=[&](const QStringList &keys) {
+        for(const auto &key:keys) {
+            QVariant value;auto result=readValue(runner,saved.target,key,value);
+            if(!result.succeeded()){result.mayHaveChanged=true;return result;}
+            current[key]=value;
+        }
+        return Result{};
+    };
+    bool changed=false;
+    const auto restoreGroup=[&](const QStringList &keys) {
+        for(const auto &key:keys) {
+            auto result=refresh(keys);if(!result.succeeded())return result;
+            for(const auto &part:keys)if(!known(part))return Result{};
+            // Credentials are valid only for the original endpoint, including during restoration.
+            if(key=="http/use-authentication" && saved.before[key].toBool()
+                && (current["http/host"]!=saved.before["http/host"] || current["http/port"]!=saved.before["http/port"]))return Result{};
+            if(current[key]!=saved.before[key]) {
+                result=writeValue(runner,saved.target,key,saved.before[key]);
+                if(!result.succeeded()){result.mayHaveChanged=true;return result;}
+                current[key]=saved.before[key];changed=true;
+            }
+        }
+        return Result{};
+    };
+    for(const auto &protocol:protocols) {
+        if(auto result=restoreGroup(saved.target.endpointKeys(protocol));!result.succeeded())return result;
     }
-    result = kde() ? runner(kdeTool("kreadconfig"), kdeArgs("ProxyType"))
-        : runner("gsettings", {"get", "org.gnome.system.proxy", "mode"});
-    if (!result.result.succeeded()) { result.result.mayHaveChanged = true; return result.result; }
-    if (result.output != (kde() ? "0" : "'none'")) return {Status::Failed, "Proxy disable readback failed", true};
-    return {Status::Success, {}, true};
+    if(auto result=restoreGroup({saved.target.bypassKey()});!result.succeeded())return result;
+    if(saved.target.isKde()) {
+        if(auto result=refresh({saved.target.bypassKey()});!result.succeeded())return result;
+        if(current[saved.target.bypassKey()]==saved.before[saved.target.bypassKey()])
+            if(auto result=restoreGroup({"ReversedException"});!result.succeeded())return result;
+    }
+    // Recheck endpoints after restoring them; external changes must not inherit old mode/auth flags.
+    if(auto result=readState(runner,saved.target,current);!result.succeeded()){result.mayHaveChanged=true;return result;}
+    bool endpointsRestored=true;
+    for(const auto &protocol:protocols)for(const auto &key:saved.target.endpointKeys(protocol))endpointsRestored &= current[key]==saved.before[key];
+    if(endpointsRestored && current[saved.target.pacKey()]==saved.before[saved.target.pacKey()]) {
+        QStringList flags;if(!saved.target.isKde())flags << "use-same-proxy";
+        flags << saved.target.modeKey();
+        if(auto result=restoreGroup(flags);!result.succeeded())return result;
+    }
+    if(auto result=notify(runner,saved.target);!result.succeeded()){result.mayHaveChanged=true;return result;}
+    snapshot.reset();return {Status::Success,{},changed};
 }
