@@ -73,3 +73,20 @@ bool PresentationHelpers::confirmCredentials(
     }
     return true;
 }
+
+QString PresentationHelpers::platformOperationMessage(const PlatformOperationResult &result)
+{
+    using Status = PlatformOperationResult::Status;
+    QString text;
+    switch (result.status) {
+    case Status::Success: text = "操作成功"; break;
+    case Status::Failed: text = "操作失败"; break;
+    case Status::Cancelled: text = "用户已取消授权"; break;
+    case Status::PermissionDenied: text = "权限被拒绝"; break;
+    case Status::Unsupported: text = "当前平台或桌面不支持此操作"; break;
+    case Status::TimedOut: text = "操作超时"; break;
+    }
+    if (!result.detail.isEmpty()) text += "\n" + result.detail;
+    if (result.mayHaveChanged && !result.succeeded()) text += "\n部分设置可能已修改，请检查残留设置。";
+    return text;
+}

@@ -33,6 +33,8 @@ find_package(Qt6 6.5 COMPONENTS
 include(cmake/CoreLibrary.cmake)
 justconnect_core_library(justconnect_core)
 justconnect_core_engine(justconnect_engine justconnect_core)
+include(cmake/Platform.cmake)
+justconnect_platform(justconnect_platform)
 if(WIN32)
     install(FILES "$<TARGET_PROPERTY:justconnect_core,JC_RUNTIME_LIBRARY>" DESTINATION . COMPONENT CoreRuntime)
 endif()
@@ -69,8 +71,6 @@ set(SOURCE_FILES
     infrastructure/settings/settingsprofileloader.cpp
     infrastructure/storage/applicationpaths.cpp
     infrastructure/update/updatechecker.cpp
-    infrastructure/platform/platformsystemproxybackend.cpp
-    infrastructure/platform/systemproxyfunctions.cpp
     presentation/presentationhelpers.cpp
     presentation/dialogs/extrasettingwindow/extrasettingwindow.cpp
     presentation/dialogs/settingwindow/settingwindow.cpp
@@ -93,7 +93,7 @@ if (WIN32)
         ${SOURCE_FILES}
     )
 
-    set(PLATFORM_LIBS wininet rasapi32 shell32)
+    set(PLATFORM_LIBS shell32)
 elseif(APPLE)
     message("Building for MacOS")
     
@@ -127,6 +127,7 @@ target_link_libraries(${PROJECT_NAME}
         Qt::Svg
         Qt::WebEngineWidgets
         justconnect_engine
+        justconnect_platform
         SingleApplication::SingleApplication
         ${PLATFORM_LIBS}
 )
@@ -136,6 +137,7 @@ justconnect_core_runtime(${PROJECT_NAME} justconnect_core)
 include(CTest)
 
 if(BUILD_TESTING)
+    justconnect_platform_tests(platformbackend_test justconnect_platform)
     add_test(NAME core_self_test COMMAND ${PROJECT_NAME} --core-self-test)
     set_tests_properties(core_self_test PROPERTIES TIMEOUT 30 PASS_REGULAR_EXPRESSION "\"ok\":true")
     include(tests/CoreEngineTests.cmake)

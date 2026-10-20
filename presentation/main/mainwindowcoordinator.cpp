@@ -45,9 +45,9 @@ MainWindowCoordinator::MainWindowCoordinator(
         systemProxySession,
         &SystemProxySession::operationFinished,
         this,
-        [this](bool enabled)
+        [this](bool enabled, const PlatformOperationResult &result)
         {
-            if (enabled && !connectionSession->isActive())
+            if (result.succeeded() && enabled && !connectionSession->isActive())
             {
                 systemProxySession->disable();
             }
@@ -59,7 +59,7 @@ MainWindowCoordinator::MainWindowCoordinator(
         this,
         [this](ConnectionError)
         {
-            if (systemProxySession->isEnabled())
+            if (systemProxySession->needsCleanup())
             {
                 systemProxySession->disable();
             }
@@ -97,5 +97,6 @@ void MainWindowCoordinator::prepareForShutdown()
 {
     authenticationCoordinator->closeAuthentication();
     connectionSession->stop();
-    systemProxySession->clearBeforeShutdown();
+    const auto result = systemProxySession->clearBeforeShutdown();
+    if (!result.succeeded()) qWarning() << "System proxy cleanup failed:" << result.detail << "partial:" << result.mayHaveChanged;
 }

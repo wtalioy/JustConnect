@@ -35,7 +35,7 @@ bool SystemProxySession::disable()
 
 bool SystemProxySession::isEnabled() const
 {
-    return enabled;
+    return enabled && !uncertain;
 }
 
 bool SystemProxySession::isBusy() const
@@ -43,20 +43,33 @@ bool SystemProxySession::isBusy() const
     return currentOperation != Operation::None;
 }
 
-void SystemProxySession::clearBeforeShutdown()
+bool SystemProxySession::needsCleanup() const { return enabled || uncertain; }
+
+PlatformOperationResult SystemProxySession::clearBeforeShutdown()
 {
     const Operation operation = currentOperation;
     disconnect(&operationWatcher, nullptr, this, nullptr);
     operationWatcher.waitForFinished();
-
-    if (operation != Operation::Disable
-        && (enabled || operation == Operation::Enable))
-    {
-        backend->clear();
+    PlatformOperationResult result;
+    if (operation != Operation::None) {
+        result = operationWatcher.result().result;
+        updateState(operation, result);
     }
-
+    if (operation != Operation::Disable && needsCleanup()) {
+        result = backend->clear();
+        updateState(Operation::Disable, result);
+    }
     currentOperation = Operation::None;
-    enabled = false;
+    return result;
+}
+
+void SystemProxySession::updateState(Operation operation, const PlatformOperationResult &result)
+{
+    if (operation == Operation::CheckConflict) return;
+    if (result.succeeded()) {
+        enabled = operation == Operation::Enable;
+        uncertain = false;
+    } else if (result.mayHaveChanged) uncertain = true;
 }
 
 bool SystemProxySession::startOperation(Operation operation, const SystemProxyConfig &config)
@@ -77,13 +90,14 @@ bool SystemProxySession::startOperation(Operation operation, const SystemProxyCo
             switch (operation)
             {
             case Operation::CheckConflict:
-                result.conflict = proxyBackend->hasConflict(config);
+                result.check = proxyBackend->check(config);
+                result.result = result.check.result;
                 break;
             case Operation::Enable:
-                result.succeeded = proxyBackend->apply(config);
+                result.result = proxyBackend->apply(config);
                 break;
             case Operation::Disable:
-                result.succeeded = proxyBackend->clear();
+                result.result = proxyBackend->clear();
                 break;
             case Operation::None:
                 break;
@@ -99,31 +113,23 @@ void SystemProxySession::handleOperationFinished()
     const OperationResult result = operationWatcher.result();
     currentOperation = Operation::None;
 
-    bool stateChanged = false;
-    if (result.succeeded && result.operation == Operation::Enable && !enabled)
-    {
-        enabled = true;
-        stateChanged = true;
-    }
-    else if (result.succeeded && result.operation == Operation::Disable && enabled)
-    {
-        enabled = false;
-        stateChanged = true;
-    }
+    const bool wasEnabled = enabled, wasUncertain = uncertain;
+    updateState(result.operation, result.result);
+    const bool stateChanged = enabled != wasEnabled || uncertain != wasUncertain;
 
     emit busyChanged(false);
 
     if (stateChanged)
     {
-        emit enabledChanged(enabled);
+        emit enabledChanged(isEnabled());
     }
 
     if (result.operation == Operation::CheckConflict)
     {
-        emit conflictCheckFinished(result.conflict);
+        emit conflictCheckFinished(result.check);
     }
     else
     {
-        emit operationFinished(enabled);
+        emit operationFinished(isEnabled(), result.result);
     }
 }

@@ -3,10 +3,10 @@ name: Core ABI
 on:
   push:
     branches: [develop]
-    paths: ['tests/coreabi/**', 'tests/embeddedcoreengine_test.cpp', 'infrastructure/coreengine/**', 'application/**', 'presentation/**', 'core/connectionsession*', 'core/connectionprofile.h', 'core/connectionerror.h', 'tests/coreengineui_test.cpp', 'tests/CoreEngineTests.cmake', 'cmake/**', '.github/actions/setup-core-toolchain/**', 'corelib/**', 'scripts/generate-core-abi.py', 'tests/platform/**', '.github/workflows/coreabi.yml', '.github/actions/setup-qt/**']
+    paths: ['tests/coreabi/**', 'tests/embeddedcoreengine_test.cpp', 'infrastructure/coreengine/**', 'infrastructure/platform/**', 'application/**', 'presentation/**', 'core/connectionsession*', 'core/connectionprofile.h', 'core/connectionerror.h', 'tests/coreengineui_test.cpp', 'tests/CoreEngineTests.cmake', 'cmake/**', '.github/actions/setup-core-toolchain/**', 'corelib/**', 'scripts/generate-core-abi.py', 'tests/platform/**', '.github/workflows/coreabi.yml', '.github/actions/setup-qt/**']
   pull_request:
     branches: [main, develop]
-    paths: ['tests/coreabi/**', 'tests/embeddedcoreengine_test.cpp', 'infrastructure/coreengine/**', 'application/**', 'presentation/**', 'core/connectionsession*', 'core/connectionprofile.h', 'core/connectionerror.h', 'tests/coreengineui_test.cpp', 'tests/CoreEngineTests.cmake', 'cmake/**', '.github/actions/setup-core-toolchain/**', 'corelib/**', 'scripts/generate-core-abi.py', 'tests/platform/**', '.github/workflows/coreabi.yml', '.github/actions/setup-qt/**']
+    paths: ['tests/coreabi/**', 'tests/embeddedcoreengine_test.cpp', 'infrastructure/coreengine/**', 'infrastructure/platform/**', 'application/**', 'presentation/**', 'core/connectionsession*', 'core/connectionprofile.h', 'core/connectionerror.h', 'tests/coreengineui_test.cpp', 'tests/CoreEngineTests.cmake', 'cmake/**', '.github/actions/setup-core-toolchain/**', 'corelib/**', 'scripts/generate-core-abi.py', 'tests/platform/**', '.github/workflows/coreabi.yml', '.github/actions/setup-qt/**']
   workflow_dispatch:
 
 permissions:
@@ -37,7 +37,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgl1 libegl1 libxkbcommon-x11-0 libxcb-cursor0 libnss3 libevent-dev libminizip-dev
+          sudo apt-get install -y libgl1 libegl1 libxkbcommon-x11-0 libxcb-cursor0 libnss3 libevent-dev libminizip-dev gsettings-desktop-schemas
 
       - uses: ./.github/actions/setup-qt
         with:

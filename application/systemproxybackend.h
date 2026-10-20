@@ -1,7 +1,5 @@
-#ifndef SYSTEMPROXYBACKEND_H
-#define SYSTEMPROXYBACKEND_H
-
-#include <QString>
+#pragma once
+#include "platformoperationresult.h"
 
 struct SystemProxyConfig
 {
@@ -10,14 +8,18 @@ struct SystemProxyConfig
     QString bypass;
 };
 
+struct SystemProxyCheck
+{
+    PlatformOperationResult result;
+    bool conflict = false;
+    bool active = false;
+};
+
 class SystemProxyBackend
 {
 public:
     virtual ~SystemProxyBackend() = default;
-
-    virtual bool hasConflict(const SystemProxyConfig &config) = 0;
-    virtual bool apply(const SystemProxyConfig &config) = 0;
-    virtual bool clear() = 0;
+    virtual SystemProxyCheck check(const SystemProxyConfig &config) = 0;
+    virtual PlatformOperationResult apply(const SystemProxyConfig &config) = 0;
+    virtual PlatformOperationResult clear() = 0;
 };
-
-#endif // SYSTEMPROXYBACKEND_H

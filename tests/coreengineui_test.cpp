@@ -17,6 +17,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QMessageBox>
 #include <QPointer>
 #include <QPushButton>
 #include <QSettings>
@@ -59,14 +60,15 @@ class ProxyBackend : public SystemProxyBackend {
 public:
     std::atomic<int> checks = 0, applied = 0;
     bool block = false;
+    SystemProxyCheck checkResult;
     QSemaphore entered, proceed;
-    bool hasConflict(const SystemProxyConfig &) override {
+    SystemProxyCheck check(const SystemProxyConfig &) override {
         ++checks;
         if (block) { entered.release(); proceed.acquire(); }
-        return false;
+        return checkResult;
     }
-    bool apply(const SystemProxyConfig &) override { ++applied; return true; }
-    bool clear() override { return true; }
+    PlatformOperationResult apply(const SystemProxyConfig &) override { ++applied; return {}; }
+    PlatformOperationResult clear() override { return {}; }
 };
 static void proxyWaitsForReady() {
     QTemporaryDir directory;
@@ -111,6 +113,23 @@ static void proxyWaitsForReady() {
     until([&] { return !systemProxy.isBusy(); });
     check(proxy->applied == 1, "late conflict result cannot apply a proxy to a stopping connection");
     emit engine->finished(ConnectionError::NONE);
+    proxy->block = false;
+    proxy->checkResult.result = {PlatformOperationResult::Status::PermissionDenied, "fixture query denial"};
+    bool shown = false;
+    QTimer dismiss;
+    QObject::connect(&dismiss, &QTimer::timeout, [&] {
+        for (auto *widget : QApplication::topLevelWidgets()) {
+            if (auto *message = qobject_cast<QMessageBox *>(widget)) {
+                check(message->text().contains("权限被拒绝"), "UI displays structured query failure");
+                shown = true; message->accept();
+            }
+        }
+    });
+    dismiss.start(1);
+    connectButton.click(); emit engine->connectionEstablished();
+    until([&] { return shown && !systemProxy.isBusy(); });
+    check(proxy->applied == 1, "failed conflict query cannot write system proxy");
+    dismiss.stop(); session.stop(); emit engine->finished(ConnectionError::NONE);
 }
 static void uiContracts() {
     QWidget parent;

@@ -1,14 +1,28 @@
-#ifndef PLATFORMSYSTEMPROXYBACKEND_H
-#define PLATFORMSYSTEMPROXYBACKEND_H
-
+#pragma once
 #include "application/systemproxybackend.h"
+#ifdef Q_OS_WIN
+#include "windowsproxyapi.h"
+#else
+#include "platformcommand.h"
+#endif
 
 class PlatformSystemProxyBackend : public SystemProxyBackend
 {
 public:
-    bool hasConflict(const SystemProxyConfig &config) override;
-    bool apply(const SystemProxyConfig &config) override;
-    bool clear() override;
+#ifdef Q_OS_WIN
+    explicit PlatformSystemProxyBackend(WindowsProxyApi api = {}) : api(api) {}
+#else
+    explicit PlatformSystemProxyBackend(PlatformCommandRunner runner = [](const QString &p, const QStringList &a) {
+        return runPlatformCommand(p, a);
+    }) : runner(std::move(runner)) {}
+#endif
+    SystemProxyCheck check(const SystemProxyConfig &config) override;
+    PlatformOperationResult apply(const SystemProxyConfig &config) override;
+    PlatformOperationResult clear() override;
+private:
+#ifdef Q_OS_WIN
+    WindowsProxyApi api;
+#else
+    PlatformCommandRunner runner;
+#endif
 };
-
-#endif // PLATFORMSYSTEMPROXYBACKEND_H

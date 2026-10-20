@@ -1,4 +1,5 @@
 #include "connectionuicontroller.h"
+#include "presentation/presentationhelpers.h"
 
 #include <QAction>
 #include <QApplication>
@@ -214,7 +215,7 @@ void ConnectionUiController::handleProxyClicked()
     {
         return;
     }
-    if (systemProxySession->isEnabled())
+    if (systemProxySession->needsCleanup())
     {
         systemProxySession->disable();
         return;
@@ -231,13 +232,18 @@ void ConnectionUiController::handleProxyClicked()
         systemProxySession,
         &SystemProxySession::conflictCheckFinished,
         this,
-        [this, proxyConfig, httpPort, socksPort](bool conflict)
+        [this, proxyConfig, httpPort, socksPort](const SystemProxyCheck &check)
         {
             if (connectionSession->state() != ConnectionState::Running)
             {
                 return;
             }
 
+            if (!check.result.succeeded()) {
+                QMessageBox::warning(parentWidget, "无法检查系统代理", PresentationHelpers::platformOperationMessage(check.result));
+                return;
+            }
+            const bool conflict = check.conflict;
             if (conflict &&
                 !settings()->value(
                     "Common/SuppressProxyOverrideWarning",
