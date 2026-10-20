@@ -85,33 +85,18 @@ ctest --test-dir build --build-config Release --output-on-failure
 ```
 
 无显示服务器的 Linux 环境可设置 `QT_QPA_PLATFORM=offscreen` 运行界面测试。
-核心依赖为 [Mythologyli/zju-connect](https://github.com/Mythologyli/zju-connect)。开发运行时将 `zju-connect`（Windows 为 `zju-connect.exe`）放在应用旁或加入 PATH。
+核心源码维护在 `corelib/`，应用与测试通过 `cmake/CoreLibrary.cmake` 构建同一份库。使用 `corelib/go.mod` 指定的 Go、Python、原生 C／C++ 工具链；Windows 的 cgo 使用 setup-core-toolchain 中固定校验和的 LLVM-MinGW UCRT，Qt 宿主仍用 MSVC。Unix 链接 Go 静态归档，Windows 从应用目录加载固定 DLL，不搜索外部核心。
 
-### 当前独立核心构建（迁移前基线）
-
-[构建清单](../core/manifest.json)固定上游提交、源码归档 SHA-256、AGPL-3.0 许可证、Go 版本、模块锁校验和，以及按数组顺序应用的补丁。当前补丁数组为空，直接构建上游源码；会话恢复等功能补丁另按计划审查。
-
-使用清单指定的 Go 1.27.2、Python 3.12 或更新版本及 Git，在本机执行：
+CMake 从 ABI 契约生成 C／Go 常量，显式启用 `CGO_ENABLED=1` 和 `cgocheck2`；Go 源码、模块锁、契约、头文件缺失和构建选项变化都会重建。版本取当前 Git 提交及工作树状态，工具链写入 `build/core-toolchain.txt`。连续无变化构建不重新编译核心。CI 缓存使用平台、架构、Go 版本和 `corelib/go.sum`。
 
 ```sh
-python -m unittest discover -s tests -p build_core_test.py
-python scripts/build-core.py
+python scripts/test-corelib.py
+./build/JustConnect --core-self-test
 ```
 
-脚本先校验源码与补丁，再校验 Go 模块，以 `CGO_ENABLED=0`、`-trimpath` 和固定版本信息编译本机核心，并实际执行 `-version` 检查输出。它不修改 shell 配置，也不接受浮动分支或预编译核心；Go 版本不符会在下载前失败。输出在 `build/core`：可执行文件与 `core-provenance/`，后者包含原始源码、补丁、许可证、清单和构建记录。构建记录保存签名前二进制校验和；macOS 后续签名会改变 Mach-O 文件。
+前者校验固定 Go、单模块／依赖锁、生成文件、gofmt、vet 和全部 cgo 包测试。后者直接运行正式应用，通过与界面相同的库入口验证版本／ABI、生产能力、无效输入拒绝和句柄释放，输出 JSON 并以退出码表示结果；无需显示服务器、账号、TUN 或网络，不创建应用日志／配置。Windows 路径为 `build/Release/JustConnect.exe`，macOS 为 `build/JustConnect.app/Contents/MacOS/JustConnect`。
 
-测试与打包共用 [build-core](../.github/actions/build-core/action.yml)，本机也可独立运行脚本。构建脚本现有 10 项测试，覆盖损坏的源码／模块锁／许可证／补丁、补丁顺序、越界路径、错误的 Go 版本及打包后二进制／清单／版本不匹配。上游完整测试并非当前通过项：`session_context_test.go` 调用了不存在的旧方法 `Session.do`；临时纠正该调用后，还发现 `TestRefreshCancellation` 失败，`Session.request` 覆盖了调用者的取消上下文。已撤销临时纠正，不删除上游测试、不携带测试修补；这些问题记入计划，相关行为修复时再恢复完整验证。
-
-六组安装包在各自平台和架构上编译核心。部署脚本只复制 `build/core` 产物，验证源码、许可证、清单与签名前二进制校验和，并实际执行核心检查版本；可单独运行 `python scripts/build-core.py --verify build/core`。Linux 先完成 Qt 部署，再加入核心，避免打包工具再次 strip 导致校验和改变。工作流最终重新解压 Windows ZIP、提取 AppImage 中的核心、挂载 macOS DMG 后验证实际内容。macOS 因签名改变二进制，最终检查完整应用签名、核心版本与全部来源文件；构建记录中的二进制校验和对应签名前文件。
-
-核心构建基线为 `81b85f8`：[三平台 CI](https://github.com/wtalioy/JustConnect/actions/runs/39263157320)与[六组开发预览](https://github.com/wtalioy/JustConnect/actions/runs/39263164818)全部通过，六份预览产物可在后者的 Artifacts 下载。该记录验证固定源码构建、应用回归和实际打包内容，不代表校园登录通过。
-
-本机通过已有 Go 的工具链机制缓存了 Go 1.27.2（约 253 MiB），未替换系统 Go 或修改全局 PATH。本机运行核心构建可使用：
-
-```sh
-env PATH="/home/lioy/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.2.linux-amd64/bin:$PATH" \
-    python scripts/build-core.py
-```
+六平台原生 C／Qt 契约及协议测试使用同一 CMake 核心 target，支持的平台执行完整 race；Windows ARM64 的 Go race 不受工具链支持，普通 Go、FFI 和 Qt 回归仍必须通过。旧 CLI 下载构建只暂留作打包迁移基线，S1-09 实际包验收后由 S1-10 删除，不是应用后端。
 
 ### 当前 Linux／WSL2 开发环境
 

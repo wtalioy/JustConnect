@@ -45,7 +45,7 @@ def main():
         if args.check:
             if not path.exists() or path.read_text() != contents:
                 raise SystemExit(f'{name} differs from contract.json; run {Path(__file__).name}')
-        else:
+        elif not path.exists() or path.read_text() != contents:
             path.write_text(contents)
     print('PASS: C/Go ABI constants match contract.json')
 

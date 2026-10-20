@@ -40,8 +40,8 @@ jobs:
           host: ${{ matrix.qt_host }}
           arch: ${{ matrix.qt_arch }}
 
-      - name: Build and verify core
-        uses: ./.github/actions/build-core
+      - name: Prepare Go and cgo toolchain
+        uses: ./.github/actions/setup-core-toolchain
 
       - name: Verify integrated Go module and complete tests
         run: python scripts/test-corelib.py
