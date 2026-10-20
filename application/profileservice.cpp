@@ -175,7 +175,7 @@ bool ProfileService::silentStartEnabled() const
     return profileBackend->silentStartEnabled();
 }
 
-void ProfileService::migrateAutoStartSetting(bool enabled)
+bool ProfileService::migrateAutoStartSetting(bool enabled)
 {
-    profileBackend->setAutoStartEnabled(enabled);
+    return profileBackend->setAutoStartEnabled(enabled);
 }

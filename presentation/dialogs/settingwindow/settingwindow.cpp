@@ -67,9 +67,9 @@ SettingWindow::SettingWindow(QWidget *parent, QSettings *inputSettings, const QS
                 ui->passwordLineEdit->text()
             ))
             return;
-        if (isAuthSettingChanged())
-            ApplicationPaths::clearClientData(this->profileId);
-        applySettings();
+        const bool changed = isAuthSettingChanged();
+        if (!applySettings()) return;
+        if (changed) ApplicationPaths::clearClientData(this->profileId);
         accept();
     });
 
@@ -79,9 +79,9 @@ SettingWindow::SettingWindow(QWidget *parent, QSettings *inputSettings, const QS
                 ui->passwordLineEdit->text()
             ))
             return;
-        if (isAuthSettingChanged())
-            ApplicationPaths::clearClientData(this->profileId);
-        applySettings();
+        const bool changed = isAuthSettingChanged();
+        if (!applySettings()) return;
+        if (changed) ApplicationPaths::clearClientData(this->profileId);
         loadSettings();
     });
 
@@ -310,14 +310,22 @@ void SettingWindow::loadSettings()
 	ui->dnsLineEdit->setDisabled(ui->dnsAutoCheckBox->isChecked());
 }
 
-void SettingWindow::applySettings()
+bool SettingWindow::applySettings()
 {
     ProfileManager profileManager;
     bool oldAutoStart = profileManager.autoStartEnabled();
     bool newAutoStart = ui->autoStartCheckBox->isChecked();
-    if (oldAutoStart != newAutoStart)
-        AutoStart::setEnabled(ui->autoStartCheckBox->isChecked());
-    profileManager.setAutoStartEnabled(newAutoStart);
+    if (oldAutoStart != newAutoStart) {
+        const auto result = AutoStart::setEnabled(newAutoStart);
+        if (!result.succeeded()) {
+            QMessageBox::warning(this, "自启动操作未完成", PresentationHelpers::platformOperationMessage(result));
+            return false;
+        }
+        if (!profileManager.setAutoStartEnabled(newAutoStart)) {
+            QMessageBox::warning(this, "自启动偏好未保存", "系统自启动项已修改，但偏好保存失败，请检查系统项后重试。");
+            return false;
+        }
+    }
     profileManager.setSilentStartEnabled(ui->silentStartCheckBox->isChecked());
 
     settings->setValue("Credential/Username", ui->usernameLineEdit->text());
@@ -410,6 +418,11 @@ void SettingWindow::applySettings()
     );
 
     settings->sync();
+    if (settings->status() != QSettings::NoError) {
+        QMessageBox::warning(this, "保存设置失败", "部分设置可能已保存，请检查后重试。");
+        return false;
+    }
+    return true;
 }
 
 bool SettingWindow::isAuthSettingChanged()

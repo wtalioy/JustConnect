@@ -33,7 +33,7 @@ public:
 
     QString normalizeProfileId(const QString &name) const;
     bool silentStartEnabled() const;
-    void migrateAutoStartSetting(bool enabled);
+    bool migrateAutoStartSetting(bool enabled);
 
 private:
     std::unique_ptr<ProfileBackend> profileBackend;

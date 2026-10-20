@@ -32,7 +32,7 @@ public:
 
     bool autoStartEnabled() const;
 
-    void setAutoStartEnabled(bool enabled) const override;
+    bool setAutoStartEnabled(bool enabled) const override;
 
     bool silentStartEnabled() const override;
 

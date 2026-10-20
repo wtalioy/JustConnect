@@ -1,9 +1,11 @@
-#ifndef AUTOSTART_H
-#define AUTOSTART_H
-
-namespace AutoStart
-{
-void setEnabled(bool enabled);
+#pragma once
+#include "application/platformoperationresult.h"
+#ifdef Q_OS_MACOS
+#include "platformcommand.h"
+#endif
+namespace AutoStart {
+PlatformOperationResult setEnabled(bool enabled);
+#ifdef Q_OS_MACOS
+PlatformOperationResult setEnabled(bool enabled, const PlatformCommandRunner &runner);
+#endif
 }
-
-#endif // AUTOSTART_H

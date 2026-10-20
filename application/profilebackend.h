@@ -24,7 +24,7 @@ public:
     virtual bool removeProfile(const QString &profileId) const = 0;
     virtual QString normalizeProfileId(const QString &name) const = 0;
     virtual bool silentStartEnabled() const = 0;
-    virtual void setAutoStartEnabled(bool enabled) const = 0;
+    virtual bool setAutoStartEnabled(bool enabled) const = 0;
 };
 
 #endif // PROFILEBACKEND_H
