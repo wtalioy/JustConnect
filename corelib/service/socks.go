@@ -33,13 +33,14 @@ func (p *Listeners) socksServer(resolver *resolve.Resolver) *socks5.Server {
 			if err := socks5.SendReply(writer, statute.RepSuccess, target.LocalAddr()); err != nil {
 				return err
 			}
-			relayDone := make(chan struct{}, 2)
+			relayDone := make(chan error, 2)
 			go relayHTTPConnect(target, request.Reader, relayDone, p.fail)
 			go relayHTTPConnect(writer, target, relayDone, p.fail)
-			<-relayDone
-			_ = target.Close()
-			if closer, ok := writer.(io.Closer); ok {
-				_ = closer.Close()
+			if err := <-relayDone; err != nil {
+				_ = target.Close()
+				if closer, ok := writer.(io.Closer); ok {
+					_ = closer.Close()
+				}
 			}
 			<-relayDone
 			return nil
