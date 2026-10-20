@@ -1,11 +1,16 @@
 #include "justconnect.h"
-#include <QCoreApplication>
+#include <QApplication>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLibrary>
+#include <QThread>
+#include <QTimer>
+#include <QWebEnginePage>
+#include <QWebEngineView>
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
@@ -116,7 +121,7 @@ static void authentication(API &api) {
 }
 
 int main(int argc, char **argv) {
-    QCoreApplication application(argc, argv);
+    QApplication application(argc, argv);
     API api;
     check(api.jc_abi_version() == JC_ABI_VERSION && jc_c_header_smoke(api.jc_abi_version) == JC_OK, "C and C++ ABI");
     uint32_t length = 7;
@@ -174,15 +179,45 @@ int main(int argc, char **argv) {
         check(api.jc_session_read(handle, 0, nullptr, 0, &length) == JC_INVALID_HANDLE, "stale handle");
     }
     check(api.jc_session_destroy(0, 0) == JC_INVALID_HANDLE, "invalid zero handle");
-    std::vector<std::thread> workers;
-    for (int i = 0; i < 4; ++i) workers.emplace_back([&api] {
-        for (int round = 0; round < 64; ++round) {
-            uint64_t h = 0;
-            check(api.jc_session_create(JC_ABI_VERSION, &h) == JC_OK, "concurrent create");
-            check(api.jc_session_stop(h, 1000) == JC_OK, "concurrent idle stop");
-            check(api.jc_session_destroy(h, 1000) == JC_OK, "concurrent destroy");
+    int finished = 0, ticks = 0;
+    bool pageLoaded = false;
+    std::vector<std::unique_ptr<QThread>> workers;
+    const auto finish = [&] {
+        if (finished == 4 && pageLoaded) {
+            check(ticks > 0, "GUI event loop heartbeat");
+            application.quit();
         }
+    };
+    QTimer heartbeat;
+    QObject::connect(&heartbeat, &QTimer::timeout, &application, [&] { ++ticks; });
+    heartbeat.start(1);
+    QTimer::singleShot(45000, &application, [] { check(false, "ABI/GUI coexistence timed out"); });
+    for (int i = 0; i < 4; ++i) {
+        workers.emplace_back(QThread::create([&] {
+            check(QThread::currentThread() != application.thread(), "ABI worker is not GUI thread");
+            for (int round = 0; round < 64; ++round) {
+                uint64_t h = 0;
+                check(api.jc_session_create(JC_ABI_VERSION, &h) == JC_OK, "concurrent create");
+                check(api.jc_session_stop(h, 1000) == JC_OK, "concurrent idle stop");
+                check(api.jc_session_destroy(h, 1000) == JC_OK, "concurrent destroy");
+            }
+        }));
+        QObject::connect(workers.back().get(), &QThread::finished, &application, [&] { ++finished; finish(); });
+        workers.back()->start();
+    }
+    QWebEngineView view;
+    QObject::connect(&view, &QWebEngineView::loadFinished, &application, [&](bool ok) {
+        check(ok, "WebEngine page load");
+        view.page()->runJavaScript("document.title", [&](const QVariant &value) {
+            check(value.toString() == "JustConnect 42", "WebEngine JavaScript");
+            pageLoaded = true;
+            finish();
+        });
     });
-    for (auto &worker : workers) worker.join();
-    std::cout << "PASS: production C ABI v1, provenance, 257 lifecycles, buffers, four native threads\n";
+    view.setHtml("<!doctype html><title>JustConnect</title><script>document.title += ' ' + (6 * 7);</script>");
+    const int result = application.exec();
+    for (auto &worker : workers) worker->wait();
+    std::cout << "PASS: production C ABI v1, provenance, 257 lifecycles, buffers, four QThreads, "
+                 "WebEngine JavaScript, heartbeat=" << ticks << '\n';
+    return result;
 }

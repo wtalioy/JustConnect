@@ -29,6 +29,8 @@
 
 本次收尾分为独立单元：先固化 `AGENTS.md` 清理规则；再将旧链接原型独有的 QThread／WebEngine 检查迁入正式 ABI 宿主，删除模拟 ABI 和重复构建。预期保留正式接口的边界、认证、并发与 GUI 共存覆盖，以及独立的 Linux fd 权限检查；本地实际运行宿主与应用回归，提交后检查六组原生 ABI 和三平台应用 CI。另按依赖闭包检查旧 Go CLI 初始化与 EasyConnect 代码，确认可独立删除的部分后再实施、验证和提交。当前 Qt 仍使用 QProcess，其必要代码与测试保留到 S1-10。
 
+- 清理规则已写入 `AGENTS.md`（`25c9b55`）。旧模拟 ABI 的 Go 模块、导出、宿主和 CMake 已删除；独有 GUI 检查迁入正式 ABI，Linux 设备脚本移至 `tests/platform/`。`Core ABI` 工作流直接按 D5 选择链接方式，Go 版本从集成模块读取。本地 Release 两个正式宿主（含 QThread／WebEngine／认证）、16 项应用 CTest 和隔离 Linux 普通用户 fd 双向收发／正常与 SIGKILL 清理通过；actionlint 与差异检查通过。六组原生 ABI、三平台应用 CI 待本次提交后验收。
+
 | 阶段 | 交付目标 | 前置依赖 | 状态 |
 | --- | --- | --- | --- |
 | [S0](#s0) | 仓库、命名、工作流与文档基线 | 无 | 已完成 |

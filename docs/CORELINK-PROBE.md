@@ -1,34 +1,16 @@
 # S1-06：Go／Qt 链接与权限原型
 
-本原型仅验证工具链与边界，不连接 VPN，不修改路由、DNS 或系统代理，不替换当前 `QProcess` 后端。正式会话 ABI 留给 S1-03；上游源码导入留给 S1-05。
+本文件保留 S1-06 的工具链结论与设备权限证据。S1-03 已交付正式 ABI，旧模拟 ABI 原型已被替代并删除；后续链接回归统一测试真实库。当前应用仍使用 `QProcess`，校园会话和安装包尚未切换。
 
 ## 链接与回归
 
-入口为 [tests/corelink](../tests/corelink/CMakeLists.txt)，独立 CMake 工程避免把 Go 编译器提前变成现有应用的必需依赖。Go 版本沿用 [manifest](../core/manifest.json) 的 1.27.2，原型无第三方 Go 模块，因而没有 `go.sum`。Qt 沿用当前 6.12.0／WebEngine 6.140.0 候选 SDK。
+唯一宿主入口为 [tests/coreabi](../tests/coreabi/CMakeLists.txt)，构建命令和契约检查见 [CORE-ABI.md](CORE-ABI.md)。Go 版本从 `corelib/go.mod` 读取，Qt 复用应用 SDK。正式库检查头文件、版本、来源、缓冲区所有权、257 轮生命周期及四个 QThread 并发调用，同时执行 GUI 定时器和 WebEngine HTML／JavaScript。认证驱动复用相同导出与传输，验证输入覆盖／Go GC、回应、取消与重启。Release 中检查仍生效，构建启用 `GOEXPERIMENT=cgocheck2`。
 
-原型使用整数句柄、固定宽度整数及带长度的字节缓冲区。输入在返回前复制到 Go 内存；Go goroutine 在调用者覆盖输入后执行 GC；输出复制到 C++ 分配的缓冲区，不跨堆分配／释放。四个 QThread 并发进入 Go，事件循环的定时器和 WebEngine HTML／JavaScript 同时工作。检查空输入、内嵌 NUL、64 KiB 边界、空指针、容量不足及缓冲区护栏、无效／过期句柄、重复销毁、未读取即销毁、257 轮创建／读取／销毁和最终句柄数。所有检查在 Release 中同样生效。构建启用 `GOEXPERIMENT=cgocheck2`，没有关闭指针检查。
+[Core ABI](../.github/workflows/coreabi.yml) 在六组原生 runner 上执行宿主和 Go 回归；支持 race 的五组平台运行 race，Windows ARM64 的限制单独记录。Unix 固定 `c-archive`，Windows 固定随包 `c-shared` DLL，不再每次重试已经确认会超时的 Windows archive。Windows cgo 沿用 SHA-256 固定的 LLVM-MinGW UCRT，C++ 仍用 Qt 对应的 MSVC／Visual Studio 链接器；DLL 从可执行目录加载并保持到进程退出，不跨 CRT 分配／释放。工具链、构建、宿主与 Linux 设备日志统一上传为 `coreabi-平台-架构` artifact。
 
-原型的全局锁只用于这一小型测试，不作为正式会话的并发／取消设计。没有 Go → Qt 回调，后续采用 S1-03 的事件读取与 Qt 排队交付；不得从 Go 线程直接访问 Widgets。DLL 路径由可执行文件目录确定，设置 `PreventUnloadHint`，随宿主退出释放运行时，不尝试卸载 Go。
+### 历史链接选型证据
 
-```sh
-# PATH 中须为 manifest 固定的 Go，CMAKE_PREFIX_PATH 指向当前 Qt SDK。
-cmake -S tests/corelink -B build/corelink -DCMAKE_BUILD_TYPE=Release
-cmake --build build/corelink --config Release --parallel 3
-ctest --test-dir build/corelink -C Release -V --output-on-failure
-```
-
-Windows 手工复现使用配置参数 `-DPROBE_MODE=c-shared`，并将 `CC` 设为工作流固定的 LLVM-MinGW 本机目标编译器；C++ 仍由 Visual Studio 生成器构建，ARM64 增加 `-A ARM64`。完整的 SDK／编译器安装与两种模式尝试步骤保留在工作流中。
-
-本机额外使用 DEVELOPMENT 中的 Qt 运行依赖环境；相同环境也须用于链接：
-
-```sh
-export PATH="/home/lioy/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.2.linux-amd64/bin:$PATH"
-export CMAKE_PREFIX_PATH=/home/lioy/.local/share/JustConnect/Qt/6.12.0/gcc_64
-export LD_LIBRARY_PATH=/home/lioy/.local/share/JustConnect/sysroot/usr/lib:$CMAKE_PREFIX_PATH/lib
-export FONTCONFIG_PATH=/home/lioy/.local/share/JustConnect/sysroot/etc/fonts
-```
-
-[Core library probe](../.github/workflows/corelink.yml) 在六组原生 runner 上分别编译并实际执行同一宿主。优先 `c-archive`；Windows 用 SHA-256 固定的 [llvm-mingw 20261006 UCRT](https://github.com/mstorsjo/llvm-mingw/releases/tag/20261006) 编译 cgo，C++ 宿主仍用 Qt 对应的 MSVC／Visual Studio 链接器及默认动态 CRT。Windows 静态宿主构建失败，或明确超时在首次 Go ABI 初始化调用时，才允许尝试 `c-shared`；Go 编译失败、初始化返回后的功能失败或其他运行失败均使 CI 失败。构建日志包含实际工具链、链接错误和运行定位，`selected-mode.txt`／`fallback-reason.txt` 记录选择和回退原因，作为 14 天 artifact 上传；长期结论在本文件和 plan 中保存。Windows DLL 用 QLibrary 直接解析固定 C 导出，不要求 MSVC 读取 MinGW import library，也没有跨 CRT 释放内存。
+以下是旧原型在删除前的原始验证记录，保留用于解释 D5 的选择；源码可从对应提交读取。
 
 | 目标 | 链接结论 | 证据 |
 | --- | --- | --- |
@@ -43,7 +25,7 @@ export FONTCONFIG_PATH=/home/lioy/.local/share/JustConnect/sysroot/etc/fonts
 
 Windows 静态路径的已知线索：固定 Go 的 [PE 链接器 `addInitArray`](https://go.dev/src/cmd/link/internal/ld/pe.go) 生成 `.ctors`，而 [MSVC CRT 初始化](https://learn.microsoft.com/en-us/cpp/c-runtime-library/crt-initialization?view=msvc-170) 使用 `.CRT$XCU`。两组定位日志均已确认静态宿主完成 Qt 初始化后，卡在首次 Go ABI 调用且不返回；构造段约定的归因仍属源码推断。不调用 Go 的私有启动符号或改写 archive 的节区来作为正式方案。DLL 初始化及同一份回归在两组均通过，故 D5 的原型选择为 Unix 静态、Windows 固定随包 DLL；正式核心及打包仍由 S1-05—09 复验。
 
-构建原型通过不代表正式 aTrust 核心、取消／超时、事件积压、网络吞吐或安装包已验收。这里没有执行 race detector；指针检查、并发调用和 GC 压力不等于数据竞争检测。正式 Go／FFI 回归与工具链支持范围在 S1-04／09 落实。
+上述历史原型没有执行 race detector。当前契约与 FFI 的覆盖、race 支持范围统一记录在 [CORE-ABI.md](CORE-ABI.md)；它们仍不能代替正式协议、网络吞吐、权限或安装包验收。
 
 ## 设备与权限边界
 
@@ -61,17 +43,17 @@ Unix 的上游 `stack/tun/NewStack` 目前没有传入 `FileDescriptor`，后续
 
 ### Linux 设备／fd 原型复现
 
-[linux_device_probe.py](../tests/corelink/linux_device_probe.py) 使用 Python 标准库与现有 `ip` 命令，测试内核权限与 fd 所有权，不把结果写成 Go／Qt 数据面已经接入。脚本拒绝在宿主网络命名空间运行；隔离命名空间内只创建测试 TUN 及其直连测试网段，不配置 DNS 或外部出口。
+[linux_device_probe.py](../tests/platform/linux_device_probe.py) 使用 Python 标准库与现有 `ip` 命令，测试内核权限与 fd 所有权，不把结果写成 Go／Qt 数据面已经接入。脚本拒绝在宿主网络命名空间运行；隔离命名空间内只创建测试 TUN 及其直连测试网段，不配置 DNS 或外部出口。
 
 ```sh
-sudo unshare --net -- "$(command -v python)" tests/corelink/linux_device_probe.py --uid "$(id -u)"
+sudo unshare --net -- "$(command -v python)" tests/platform/linux_device_probe.py --uid "$(id -u)"
 ```
 
 当前 WSL 本机不依赖 sudo，可从普通用户 shell 使用 WSL 自带的 root 启动入口执行同一测试：
 
 ```sh
 wsl.exe --distribution archlinux --user root --exec unshare --net -- \
-    python /home/lioy/JustConnect/tests/corelink/linux_device_probe.py --uid 1000
+    python /home/lioy/JustConnect/tests/platform/linux_device_probe.py --uid 1000
 ```
 
 父进程创建 TUN 并配置隔离地址后，接收进程先清空补充组并降为普通 uid／gid，再接收 fd；父进程关闭原 fd。接收进程读取内核发出的 UDP 包，再经 TUN 注入合法 IPv4／UDP 回包，由普通 UDP socket 验证收到预期数据。分别验证主动关闭与持有 fd 时被 SIGKILL 后的设备／自动路由清理。本地另验证了宿主命名空间／非 root 调用及测试设备名已存在时会被拒绝，以及测试前后宿主接口、全表路由和 `/etc/resolv.conf` 一致。代码 `7a910de` 的 [Linux x64／ARM64 CI](https://github.com/wtalioy/JustConnect/actions/runs/39275742177) 两组均通过同一隔离测试，日志保存在各组 artifact 的 `linux-device.log`。
