@@ -69,6 +69,7 @@ set(SOURCE_FILES
     core/connectionsessionstate.cpp
     infrastructure/logging/applicationlogfile.cpp
     infrastructure/settings/settingsprofileloader.cpp
+    infrastructure/settings/credentialaccess.cpp
     infrastructure/storage/applicationpaths.cpp
     infrastructure/update/updatechecker.cpp
     presentation/presentationhelpers.cpp
@@ -184,6 +185,12 @@ if(BUILD_TESTING)
     target_include_directories(applicationlogfile_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(applicationlogfile_test Qt::Core)
     add_test(NAME applicationlogfile_test COMMAND applicationlogfile_test)
+
+    add_executable(credentialaccess_test tests/credentialaccess_test.cpp infrastructure/settings/credentialaccess.cpp
+        infrastructure/settings/settingsprofileloader.cpp application/profilecredentials.cpp)
+    target_link_libraries(credentialaccess_test PRIVATE Qt6::Core Qt6::Concurrent)
+    add_test(NAME credentialaccess_test COMMAND credentialaccess_test)
+    set_tests_properties(credentialaccess_test PROPERTIES TIMEOUT 20)
 
     add_executable(profilecredentials_test tests/profilecredentials_test.cpp application/profilecredentials.cpp)
     target_link_libraries(profilecredentials_test PRIVATE Qt6::Core)
