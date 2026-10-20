@@ -22,7 +22,7 @@ env PATH="/home/lioy/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.2.linux-amd64
     python scripts/test-corelib.py
 ```
 
-入口显式关闭 workspace 和自动工具链切换，要求 Go 版本与模块声明一致；外部依赖使用 Go 缓存和 `go.sum`，不带 vendor。当前使用 `CGO_ENABLED=0` 验证协议源码与离线逻辑，六组 cgo 链接由正式 ABI 宿主验证，正式库与 Qt 适配器构建已接入共享 CMake，S1-09 接续安装包验收。`Tests` 三平台工作流增加同一入口，并将 `corelib/go.sum` 纳入 Go 缓存键。
+入口显式关闭 workspace 和自动工具链切换，要求 Go 版本与模块声明一致；外部依赖使用 Go 缓存和 `go.sum`，不带 vendor。当前使用 `CGO_ENABLED=0` 验证协议源码与离线逻辑，六组 cgo 链接由正式 ABI 宿主验证，正式库与 Qt 适配器构建已接入共享 CMake，S1-09 接续安装包验收。`Tests` 三平台工作流运行同一入口；当前共用工具链步骤关闭 Go 缓存，按源码及 `go.sum` 构建验证，缓存收敛由 S1-09 接续。
 
 该入口构建全部源码，并按 `go list` 的实际包集合运行完整套件（含无测试包），数量由验证输出记录。S1-07 已恢复认证包，删除原 `session.do` 已知失败例外；回环 TLS／隧道网关覆盖实际认证、代理收发、查询、阶段取消与失败回滚。Windows 继续运行真实调试文件 ACL 回归，覆盖新建、已有宽权限收紧及拒绝访问后不截断；Unix 验证 `0600`。这些测试不访问校园、创建设备或修改系统网络。
 
