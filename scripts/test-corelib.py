@@ -1,4 +1,4 @@
-"""Verify the integrated Go module and its explicitly limited offline baseline."""
+"""Verify the integrated Go module and its complete offline test suite."""
 
 import json
 import os
@@ -37,29 +37,12 @@ def main():
         raise RuntimeError('Integrated sources must not depend on the remote upstream module')
     go('build', './...')
 
-    # shortcut: upstream auth tests do not compile; remove this gate when S1-07 repairs them.
-    blocked = module + '/client/atrust/auth'
-    result = subprocess.run(['go', 'test', '-timeout', '60s', blocked], cwd=CORE,
-                            env=ENV, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    diagnostics = [line.replace('\\', '/') for line in result.stdout.splitlines()
-                   if line.strip() and not line.startswith(('# ', 'FAIL'))]
-    expected = ('client/atrust/auth/session_context_test.go:28:21: session.do undefined '
-                '(type *Session has no field or method do)')
-    if result.returncode != 1 or diagnostics != [expected]:
-        print(result.stdout, flush=True)
-        raise RuntimeError('Auth baseline changed: repair new failures or remove the S1-07 exception')
-    print(f'BLOCKED (not passed): {blocked}: {expected}; tracked by S1-07', flush=True)
-    if os.environ.get('GITHUB_ACTIONS') == 'true':
-        print('::warning file=corelib/client/atrust/auth/session_context_test.go,line=28::'
-              'Upstream auth tests remain blocked, not passed; repair in S1-07.', flush=True)
     packages = go('list', './...', capture=True).splitlines()
-    packages.remove(blocked)
     go('test', '-timeout', '60s', *packages)
     for name, before in locks.items():
         if (CORE / name).read_bytes() != before:
             raise RuntimeError(f'Go verification modified the lock file: {name}')
-    print(f'PASS: {version}, integrated module build, {len(packages)} package baselines; '
-          '1 upstream auth test package remains BLOCKED', flush=True)
+    print(f'PASS: {version}, integrated module build, {len(packages)} package test suites', flush=True)
 
 
 if __name__ == '__main__':

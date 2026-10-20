@@ -43,7 +43,7 @@ jobs:
       - name: Build and verify core
         uses: ./.github/actions/build-core
 
-      - name: Verify integrated Go module (known upstream auth blocker reported)
+      - name: Verify integrated Go module and complete tests
         run: python scripts/test-corelib.py
 
       - name: Configure
