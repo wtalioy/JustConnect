@@ -25,8 +25,8 @@ class VerifyPackageTest(unittest.TestCase):
             archive.write_bytes(b"archive fixture")
             host = root / 'JustConnect'
             host.touch()
-            (root / 'source-revision.txt').write_text('revision\n')
-            (root / 'core-toolchain.txt').write_text('CGO_ENABLED=1\n')
+            (root / 'source-revision.txt').write_bytes(b'revision\r\n')
+            (root / 'core-toolchain.txt').write_bytes(b'CGO_ENABLED=1\r\n')
             notices = root / 'licenses'
             notices.mkdir()
             for name in ('LICENSE', 'LICENSE.zju-connect', 'LICENSE.ping', 'UPSTREAM.md'):
@@ -42,7 +42,7 @@ class VerifyPackageTest(unittest.TestCase):
                 package.verify(root, host, 'revision', 'preview', output, archive)
                 report = json.loads(output.read_text())
                 self.assertEqual(report['size_bytes']['archive'], archive.stat().st_size)
-                self.assertEqual(report['size_bytes']['installed'], len('revision\nCGO_ENABLED=1\n'))
+                self.assertEqual(report['size_bytes']['installed'], len(b'revision\r\nCGO_ENABLED=1\r\n'))
                 self.assertGreater(report['offline_self_test_wall_ms'], 0)
                 archive.rename(archive.with_suffix('.hidden'))
                 with self.assertRaises(FileNotFoundError):
