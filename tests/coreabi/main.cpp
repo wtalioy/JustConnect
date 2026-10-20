@@ -1,0 +1,188 @@
+#include "justconnect.h"
+#include <QCoreApplication>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QLibrary>
+#include <algorithm>
+#include <cstdlib>
+#include <iostream>
+#include <string>
+#include <thread>
+#include <vector>
+
+extern "C" int32_t jc_c_header_smoke(uint32_t (*query)(void));
+static void check(bool ok, const char *message) {
+    if (!ok) { std::cerr << "FAIL: " << message << '\n'; std::exit(1); }
+}
+#define ABI_FUNCTIONS(X) X(jc_abi_version) X(jc_build_info) X(jc_session_create) X(jc_session_start) \
+    X(jc_session_read) X(jc_session_respond) X(jc_session_stop) X(jc_session_destroy)
+struct API {
+#define MEMBER(name) decltype(&::name) name;
+    ABI_FUNCTIONS(MEMBER)
+#undef MEMBER
+    QLibrary library;
+    API() {
+#ifdef ABI_SHARED
+        library.setFileName(QCoreApplication::applicationDirPath() + "/" + QString::fromUtf8(ABI_LIBRARY_NAME));
+        library.setLoadHints(QLibrary::PreventUnloadHint);
+        check(library.load(), "load executable-directory ABI library");
+#define LOAD(name) name = reinterpret_cast<decltype(name)>(library.resolve(#name)); check(name != nullptr, #name);
+#else
+#define LOAD(name) name = &::name;
+#endif
+        ABI_FUNCTIONS(LOAD)
+#undef LOAD
+    }
+};
+
+static QJsonObject json(const std::vector<uint8_t> &bytes, uint32_t length) {
+    QJsonParseError error;
+    auto doc = QJsonDocument::fromJson(QByteArray(reinterpret_cast<const char *>(bytes.data() + 1), length), &error);
+    check(error.error == QJsonParseError::NoError && doc.isObject(), "valid UTF-8 JSON output");
+    check(!doc.toJson().contains("private-password"), "password redaction");
+    return doc.object();
+}
+
+static QJsonObject read(API &api, uint64_t handle) {
+    uint32_t length = 0;
+    check(api.jc_session_read(handle, 1000, nullptr, 0, &length) == JC_BUFFER_TOO_SMALL && length > 0,
+          "query event without consuming");
+    std::vector<uint8_t> output(length + 2, 0x5a);
+    uint32_t required = 0;
+    check(api.jc_session_read(handle, 0, output.data() + 1, length - 1, &required) == JC_BUFFER_TOO_SMALL &&
+          required == length, "short buffer preserves event");
+    for (auto byte : output) check(byte == 0x5a, "short buffer did not write");
+    check(api.jc_session_read(handle, 0, nullptr, 1, &required) == JC_INVALID_ARGUMENT && required == 0,
+          "null output does not consume");
+    check(api.jc_session_read(handle, 1000, output.data() + 1, length, &required) == JC_OK &&
+          required == length && output.front() == 0x5a && output.back() == 0x5a, "output bounds");
+    return json(output, length);
+}
+
+static void authentication(API &api) {
+    uint64_t h = 0, other = 0, generation = 0;
+    QString requestID;
+    check(api.jc_session_create(JC_ABI_VERSION, &h) == JC_OK &&
+          api.jc_session_create(JC_ABI_VERSION, &other) == JC_OK, "fixture handles");
+    const std::string config = R"({"schema_version":1,"server":{"host":"vpn.example.invalid","port":443},"auth":{"password":"private-password"}})";
+    auto start = [&] {
+        std::vector<uint8_t> input(config.begin(), config.end());
+        check(api.jc_session_start(h, input.data(), static_cast<uint32_t>(input.size()), &generation) == JC_OK, "fixture start");
+        std::fill(input.begin(), input.end(), 0);
+    };
+    auto respond = [&](uint64_t gen, const char *action, const char *code) {
+        auto bytes = QJsonDocument(QJsonObject{
+            {"schema_version", 1}, {"generation", QString::number(gen)}, {"request_id", requestID},
+            {"action", action}, {"code", code}}).toJson(QJsonDocument::Compact);
+        auto status = api.jc_session_respond(h, reinterpret_cast<const uint8_t *>(bytes.data()),
+                                           static_cast<uint32_t>(bytes.size()));
+        bytes.fill('\0');
+        return status;
+    };
+    start();
+    check(read(api, h)["state"] == "starting", "fixture starting");
+    auto challenge = read(api, h);
+    check(challenge["type"] == "authentication" && challenge["request_id"] == "1" &&
+          challenge["challenge"].toObject()["kind"] == "sms", "real ABI authentication event");
+    requestID = challenge["request_id"].toString();
+    uint64_t unused = 0;
+    check(api.jc_session_start(other, reinterpret_cast<const uint8_t *>(config.data()),
+          static_cast<uint32_t>(config.size()), &unused) == JC_BUSY && unused == 0, "one active VPN slot across handles");
+    check(respond(generation + 1, "submit", "private-password") == JC_STALE_REQUEST, "late generation rejected");
+    check(respond(generation, "submit", "") == JC_INVALID_ARGUMENT, "empty code rejected");
+    check(respond(generation, "submit", "private-password") == JC_OK, "authentication response copied");
+    check(respond(generation, "submit", "private-password") == JC_STALE_REQUEST, "duplicate response rejected");
+    check(read(api, h)["state"] == "ready", "test driver used both copied credentials");
+    int32_t blockedStatus = JC_INTERNAL;
+    std::thread reader([&] {
+        uint32_t required = 0;
+        blockedStatus = api.jc_session_read(h, JC_MAX_WAIT_MS, nullptr, 0, &required);
+    });
+    check(api.jc_session_stop(h, 1000) == JC_OK, "stop fixture waiting on host");
+    reader.join();
+    check(blockedStatus == JC_CANCELLED || blockedStatus == JC_BUFFER_TOO_SMALL, "blocked host reader woke");
+    check(read(api, h)["status"].toInt() == JC_CANCELLED, "single cancellation terminal");
+    start();
+    check(generation == 2, "restart generation increment");
+    read(api, h);
+    challenge = read(api, h);
+    check(challenge["generation"] == "2" && challenge["request_id"] == "2", "new authentication identity");
+    requestID = challenge["request_id"].toString();
+    check(respond(generation - 1, "cancel", "") == JC_STALE_REQUEST, "old response cannot affect new session");
+    check(respond(generation, "cancel", "") == JC_OK, "host authentication cancellation");
+    check(read(api, h)["status"].toInt() == JC_CANCELLED, "cancelled authentication terminal");
+    check(api.jc_session_destroy(h, 1000) == JC_OK && api.jc_session_destroy(other, 1000) == JC_OK, "fixture cleanup");
+    std::cout << "PASS: real C ABI authentication, owned buffers, busy, stale/duplicate replies, cancel and restart\n";
+}
+
+int main(int argc, char **argv) {
+    QCoreApplication application(argc, argv);
+    API api;
+    check(api.jc_abi_version() == JC_ABI_VERSION && jc_c_header_smoke(api.jc_abi_version) == JC_OK, "C and C++ ABI");
+    uint32_t length = 7;
+    check(api.jc_build_info(JC_ABI_VERSION + 1, nullptr, 0, &length) == JC_ABI_MISMATCH && length == 0, "ABI mismatch");
+    check(api.jc_build_info(JC_ABI_VERSION, nullptr, 0, nullptr) == JC_INVALID_ARGUMENT, "missing length pointer");
+    check(api.jc_build_info(JC_ABI_VERSION, nullptr, JC_MAX_OUTPUT + 1, &length) == JC_INVALID_ARGUMENT && length == 0, "output limit");
+    check(api.jc_build_info(JC_ABI_VERSION, nullptr, 0, &length) == JC_BUFFER_TOO_SMALL, "metadata length");
+    std::vector<uint8_t> metadata(length + 2, 0x5a);
+    check(api.jc_build_info(JC_ABI_VERSION, metadata.data() + 1, length, &length) == JC_OK, "metadata copy");
+    auto info = json(metadata, length);
+    check(info["abi_version"].toInt() == JC_ABI_VERSION, "metadata ABI version");
+    auto build = info["build"].toObject();
+    check(build["revision"].toString().size() == 40 && build["upstream_commit"].toString().size() == 40 &&
+          !build["local_version"].toString().isEmpty(), "source provenance");
+    check(build["source_state"] == "clean" || build["source_state"] == "dirty", "actual source state");
+    check(!info["capabilities"].toObject()["embedded_vpn"].toBool(true), "no simulated VPN capability");
+    check(metadata.front() == 0x5a && metadata.back() == 0x5a, "metadata bounds");
+#ifdef ABI_FIXTURE
+    check(info["test_driver"].toBool(), "fixture build must identify itself");
+    authentication(api);
+    return 0;
+#else
+    check(!info["test_driver"].toBool(true), "production library must exclude the fixture driver");
+#endif
+    uint64_t invalid = 99;
+    check(api.jc_session_create(JC_ABI_VERSION + 1, &invalid) == JC_ABI_MISMATCH && invalid == 0, "create ABI mismatch");
+    check(api.jc_session_create(JC_ABI_VERSION, nullptr) == JC_INVALID_ARGUMENT, "missing handle pointer");
+    const std::string config = R"({"schema_version":1,"server":{"host":"vpn.example.invalid","port":443},"auth":{"password":"private-password"}})";
+    for (int round = 0; round < 257; ++round) {
+        uint64_t handle = 0, generation = 99;
+        check(api.jc_session_create(JC_ABI_VERSION, &handle) == JC_OK && handle != 0, "create");
+        check(api.jc_session_read(handle, 0, nullptr, 0, &length) == JC_TIMEOUT && length == 0, "idle poll");
+        check(api.jc_session_start(handle, nullptr, 1, &generation) == JC_INVALID_ARGUMENT && generation == 0, "null input");
+        check(api.jc_session_start(handle, reinterpret_cast<const uint8_t *>(config.data()), JC_MAX_INPUT + 1, &generation) ==
+              JC_INVALID_ARGUMENT && generation == 0, "input size bound");
+        std::vector<uint8_t> input(config.begin(), config.end());
+        check(api.jc_session_start(handle, input.data(), static_cast<uint32_t>(input.size()), &generation) == JC_OK &&
+              generation == 1, "async start accepted");
+        std::fill(input.begin(), input.end(), 0);
+        uint64_t busyGeneration = 99;
+        check(api.jc_session_start(handle, reinterpret_cast<const uint8_t *>(config.data()), static_cast<uint32_t>(config.size()),
+              &busyGeneration) == JC_BUSY && busyGeneration == 0, "unread events prevent restart");
+        auto starting = read(api, handle);
+        check(starting["type"] == "state" && starting["state"] == "starting" &&
+              starting["generation"] == "1" && starting["sequence"] == "1", "starting event");
+        auto terminal = read(api, handle);
+        check(terminal["type"] == "terminal" && terminal["status"].toInt() == JC_UNSUPPORTED &&
+              terminal["generation"] == "1" && terminal["sequence"] == "2", "honest unavailable terminal");
+        check(api.jc_session_read(handle, 0, nullptr, 0, &length) == JC_END && length == 0, "end of event stream");
+        const std::string response = R"({"schema_version":1,"generation":"1","request_id":"1","action":"cancel"})";
+        check(api.jc_session_respond(handle, reinterpret_cast<const uint8_t *>(response.data()),
+              static_cast<uint32_t>(response.size())) == JC_STALE_REQUEST, "no invented authentication request");
+        check(api.jc_session_stop(handle, 1000) == JC_OK && api.jc_session_stop(handle, 1000) == JC_OK, "idempotent stop");
+        check(api.jc_session_destroy(handle, 1000) == JC_OK && api.jc_session_destroy(handle, 1000) == JC_OK, "idempotent destroy");
+        check(api.jc_session_read(handle, 0, nullptr, 0, &length) == JC_INVALID_HANDLE, "stale handle");
+    }
+    check(api.jc_session_destroy(0, 0) == JC_INVALID_HANDLE, "invalid zero handle");
+    std::vector<std::thread> workers;
+    for (int i = 0; i < 4; ++i) workers.emplace_back([&api] {
+        for (int round = 0; round < 64; ++round) {
+            uint64_t h = 0;
+            check(api.jc_session_create(JC_ABI_VERSION, &h) == JC_OK, "concurrent create");
+            check(api.jc_session_stop(h, 1000) == JC_OK, "concurrent idle stop");
+            check(api.jc_session_destroy(h, 1000) == JC_OK, "concurrent destroy");
+        }
+    });
+    for (auto &worker : workers) worker.join();
+    std::cout << "PASS: production C ABI v1, provenance, 257 lifecycles, buffers, four native threads\n";
+}
