@@ -22,6 +22,7 @@ public:
 
     ConnectionState state() const;
     bool isActive() const;
+    ProxyOptions proxyOptions() const { return currentProfile.proxy; }
 
 signals:
     void stateChanged(ConnectionState state);
