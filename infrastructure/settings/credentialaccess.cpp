@@ -64,18 +64,13 @@ QFuture<CredentialResult> CredentialAccess::save(const CredentialSource &source,
         ProfileCredentials credentials(*store);
         auto result=checkSource(source,settings,true);
         if (!result.succeeded()) return result;
-        if (updateCredentials && profile.credentials.password.isEmpty() && profile.credentials.totpSecret.isEmpty()
-            && profile.authenticationIdentity()==source.profile.authenticationIdentity()) {
-            result=credentials.clear(settings,source.scope,source.profile);
-        } else {
-            result=prepare(source,settings,credentials,true);
-            if (!result.succeeded() && result.status!=CredentialStatus::Cancelled && !updateCredentials && settings.status()==QSettings::NoError) {
-                const bool pendingLegacy=ProfileCredentials::hasLegacyCredentials(settings);
-                if (!pendingLegacy || profile.authenticationIdentity()==source.profile.authenticationIdentity())
-                    result={CredentialStatus::Success,{}};
-            }
-            if (result.succeeded() && updateCredentials) result=credentials.save(source.scope,profile);
+        result=prepare(source,settings,credentials,true);
+        if (!result.succeeded() && result.status!=CredentialStatus::Cancelled && !updateCredentials && settings.status()==QSettings::NoError) {
+            const bool pendingLegacy=ProfileCredentials::hasLegacyCredentials(settings);
+            if (!pendingLegacy || profile.authenticationIdentity()==source.profile.authenticationIdentity())
+                result={CredentialStatus::Success,{}};
         }
+        if (result.succeeded() && updateCredentials) result=credentials.save(source.scope,profile);
         if (!result.succeeded()) return result;
         result=checkSource(source,settings,true);
         if (!result.succeeded()) return result;

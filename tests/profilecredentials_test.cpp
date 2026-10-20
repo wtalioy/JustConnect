@@ -85,7 +85,9 @@ void isolatedIdentities() {
     const auto originalKey=ProfileCredentials::key(scope,p);
     p.credentials.password="replacement";expect(vault.save(scope,p),Status::Success,"replace current password");
     require(ProfileCredentials::key(scope,p)==originalKey,"password changes do not orphan credentials");
-    expect(vault.remove(scope,p),Status::Success,"verified scoped removal");
+    QTemporaryDir folder;QSettings settings(folder.filePath("clear.ini"),QSettings::IniFormat);
+    settings.setValue("Credential/Username",p.credentials.username);
+    expect(vault.clear(settings,scope,p),Status::Success,"verified scoped removal");
     expect(vault.load(scope,p,loaded),Status::NotFound,"deleted identity remains absent");
     for (const auto &identity:others) expect(vault.load(scope,identity,loaded),Status::Success,"deletion preserves other identities");
     expect(vault.save({},p),Status::InvalidArgument,"empty namespace rejected");
@@ -165,9 +167,14 @@ void migrationSaveFailure() {
 void corruptAndFailedOperations() {
     Store store;ProfileCredentials vault(store);const auto scope=newScope();auto p=profile();
     expect(vault.save(scope,p),Status::Success,"initial credentials");const auto key=ProfileCredentials::key(scope,p);const auto saved=store.values.value(key);
+    auto blank=p;blank.credentials.password.clear();blank.credentials.totpSecret.clear();
+    expect(vault.save(scope,blank),Status::InvalidArgument,"empty save cannot implicitly delete an existing credential");
+    require(store.values.value(key)==saved,"only the explicit deletion operation can remove a credential");
     store.loseWrite=true;p.credentials.password="new";
     expect(vault.save(scope,p),Status::Failed,"mismatched write readback rejected");store.loseWrite=false;
-    store.loseRemoval=true;expect(vault.remove(scope,p),Status::Failed,"unconfirmed deletion rejected");store.loseRemoval=false;
+    QTemporaryDir folder;QSettings settings(folder.filePath("clear.ini"),QSettings::IniFormat);
+    settings.setValue("Credential/Username",p.credentials.username);
+    store.loseRemoval=true;expect(vault.clear(settings,scope,p),Status::Failed,"unconfirmed deletion rejected");store.loseRemoval=false;
     p.credentials.password=QString(CredentialStore::MaxBytes,'x');
     expect(vault.save(scope,p),Status::Limit,"oversized password cannot replace saved credentials");
     require(store.values.value(key)==saved,"failed save and remove retain original value");

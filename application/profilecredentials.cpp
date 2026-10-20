@@ -101,8 +101,8 @@ CredentialResult ProfileCredentials::load(const QString &scope,const ConnectionP
     return {Status::Success,{}};
 }
 CredentialResult ProfileCredentials::save(const QString &scope,const ConnectionProfile &p) {
-    if (p.credentials.username.isEmpty() && p.endpoint.phone.isEmpty() && (!p.credentials.password.isEmpty() || !p.credentials.totpSecret.isEmpty())) return {Status::InvalidArgument,{}};
-    if (p.credentials.password.isEmpty() && p.credentials.totpSecret.isEmpty()) return remove(scope,p);
+    if (p.credentials.username.isEmpty() && p.endpoint.phone.isEmpty()) return {Status::InvalidArgument,{}};
+    if (p.credentials.password.isEmpty() && p.credentials.totpSecret.isEmpty()) return {Status::InvalidArgument,{}};
     return writeVerified(key(scope,p),encode(p.credentials));
 }
 CredentialResult ProfileCredentials::removeVerified(const QString &id) {
@@ -113,9 +113,6 @@ CredentialResult ProfileCredentials::removeVerified(const QString &id) {
     if (result.status==Status::NotFound) return {Status::Success,{}};
     if (result.succeeded()) return {Status::Failed,{}};
     result.value.clear();return result;
-}
-CredentialResult ProfileCredentials::remove(const QString &scope,const ConnectionProfile &p) {
-    return removeVerified(key(scope,p));
 }
 CredentialResult ProfileCredentials::preserveVerified(const QString &id,const QByteArray &value) {
     if (!CredentialStore::validKey(id)) return {Status::InvalidArgument,{}};

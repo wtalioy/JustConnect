@@ -65,6 +65,9 @@ void readsAndSavesOutsideGui() {
         && loaded.credentials.totpSecret=="legacy TOTP" && store->lastThread!=QCoreApplication::instance()->thread()
         && store->peak==1,"native operations are serialized off the GUI thread");
     require(!settings.contains("Credential/Password") && !settings.contains("Credential/TOTPSecret"),"async migration removes verified legacy values");
+    require(finish(access.save(source,source.profile,true,{})).status==CredentialStatus::InvalidArgument,
+        "blank save cannot implicitly clear the saved account");
+    require(finish(access.load(source)).credentials.password=="legacy password","blank save preserves the existing native credential");
     auto replacement=source.profile;replacement.credentials={"bob","manual password",""};
     require(finish(access.save(source,replacement,true,{})).succeeded(),"save explicitly entered different account");
     require(settings.value("Credential/Username")=="alice","credential I/O does not commit another account's public profile");
@@ -73,6 +76,7 @@ void readsAndSavesOutsideGui() {
     replacement.credentials.password.clear();
     require(finish(access.save(source,replacement,false,{})).succeeded() && vault.load(source.scope,replacement,saved).succeeded()
         && saved.password=="manual password","unchanged credential fields do not erase a stored password");
+    replacement.credentials.password="must not store";
     store->failure=CredentialStatus::PermissionDenied;
     require(finish(access.save(source,replacement,true,{})).status==CredentialStatus::PermissionDenied
         && !settings.contains("Credential/Password"),"save failure does not write plaintext fallback");
