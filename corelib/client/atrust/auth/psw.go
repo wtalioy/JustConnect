@@ -14,10 +14,9 @@ import (
 )
 
 type PasswordLogin struct {
-	Username      string
-	Password      string
-	Domain        string
-	GraphCodeFile string
+	Username string
+	Password string
+	Domain   string
 }
 
 func (m PasswordLogin) AuthType() string {
@@ -29,14 +28,14 @@ func (m PasswordLogin) LoginDomain() string {
 }
 
 func (m PasswordLogin) login(s *Session, _ AuthInfo) error {
-	return s.loginAuthPsw(m.Username, m.Password, m.Domain, m.GraphCodeFile)
+	return s.loginAuthPsw(m.Username, m.Password, m.Domain)
 }
 
-func (s *Session) loginAuthPsw(username, password, loginDomain, graphCodeFile string) error {
+func (s *Session) loginAuthPsw(username, password, loginDomain string) error {
 	process := func(graphCheckCode string) (int, error) {
 		return s.pswImpl(username, password, loginDomain, graphCheckCode)
 	}
-	return s.withGraphCheckCode(process, graphCodeFile)
+	return s.withGraphCheckCode(process)
 }
 
 func (s *Session) pswImpl(username, password, loginDomain, graphCheckCode string) (int, error) {

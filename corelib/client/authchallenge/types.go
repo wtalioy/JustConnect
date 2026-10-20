@@ -22,9 +22,8 @@ type CodeResponse struct {
 }
 
 type TextCaptchaChallenge struct {
-	Image      []byte
-	OutputPath string
-	Message    string
+	Image   []byte
+	Message string
 }
 
 type TextCaptchaResponse struct {
@@ -37,9 +36,8 @@ type Point struct {
 }
 
 type ClickCaptchaChallenge struct {
-	Image      []byte
-	OutputPath string
-	Message    string
+	Image   []byte
+	Message string
 }
 
 type ClickCaptchaResponse struct {

@@ -224,7 +224,7 @@ func (s *Session) randSdpId(n ...int) string {
 	return string(hexes)
 }
 
-func (s *Session) withGraphCheckCode(process func(string) (int, error), graphCodeFile string) error {
+func (s *Session) withGraphCheckCode(process func(string) (int, error)) error {
 	graphCheckCodeEnable, err := process("")
 	if err != nil {
 		return err
@@ -243,9 +243,8 @@ func (s *Session) withGraphCheckCode(process func(string) (int, error), graphCod
 		}
 
 		captchaResponse, err := s.challengeHandler.HandleClickCaptcha(authchallenge.ClickCaptchaChallenge{
-			Image:      imgData,
-			OutputPath: graphCodeFile,
-			Message:    "Please enter the graph check code JSON:",
+			Image:   imgData,
+			Message: "Please enter the graph check code JSON:",
 		})
 		if err != nil {
 			return fmt.Errorf("complete aTrust captcha challenge: %w", err)

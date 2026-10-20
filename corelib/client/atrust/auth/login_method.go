@@ -3,14 +3,13 @@ package auth
 import "fmt"
 
 type LoginMethodOptions struct {
-	AuthType      string
-	Username      string
-	Password      string
-	Phone         string
-	Domain        string
-	GraphCodeFile string
-	CASTicket     string
-	OAuth2Code    string
+	AuthType   string
+	Username   string
+	Password   string
+	Phone      string
+	Domain     string
+	CASTicket  string
+	OAuth2Code string
 }
 
 func NewLoginMethod(options LoginMethodOptions) (LoginMethod, error) {
@@ -27,10 +26,9 @@ func NewLoginMethod(options LoginMethodOptions) (LoginMethod, error) {
 	switch authType {
 	case "auth/psw":
 		return PasswordLogin{
-			Username:      options.Username,
-			Password:      options.Password,
-			Domain:        options.Domain,
-			GraphCodeFile: options.GraphCodeFile,
+			Username: options.Username,
+			Password: options.Password,
+			Domain:   options.Domain,
 		}, nil
 	case "auth/cas":
 		return CASLogin{
@@ -44,9 +42,8 @@ func NewLoginMethod(options LoginMethodOptions) (LoginMethod, error) {
 		}, nil
 	case "auth/smsCheckCode":
 		return SMSLogin{
-			Phone:         options.Phone,
-			Domain:        options.Domain,
-			GraphCodeFile: options.GraphCodeFile,
+			Phone:  options.Phone,
+			Domain: options.Domain,
 		}, nil
 	case "":
 		return nil, nil
