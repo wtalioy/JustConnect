@@ -227,7 +227,7 @@ Linux x64／ARM64 AppImage 分别减少约 2.07%／1.90%；macOS 安装体积基
 
 当前证据与保留结论：
 
-- D2：[源码 `3488842`](https://github.com/wtalioy/JustConnect/actions/runs/39667618790)六组 Core ABI／设备及[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/39667618753)全部通过：显式路由回读、普通权限回包、帧拒绝及正常／强杀后的原始 PnP 实例／路由清理已验，报告保留在 `build/reports/device-kernel-3488842.json`。入口子方案、L3 单读取者／原出口约束与脚手架替代条件见[设备记录](docs/CORELINK-PROBE.md#设备与权限边界)。本机只读快照含两条既有 NRPT，未接管日常网络；已删过时程序／重复日志，保留 SDK、当前报告及尚需合并回归的自动路由旧基线。
+- D2：[源码 `3488842`](https://github.com/wtalioy/JustConnect/actions/runs/39667618790)六组 Core ABI／设备及[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/39667618753)全部通过：显式路由回读、普通权限回包、帧拒绝及正常／强杀后的原始 PnP 实例／路由清理已验，报告保留在 `build/reports/device-kernel-3488842.json`。入口子方案、L3 单读取者／原出口约束与脚手架替代条件见[设备记录](docs/CORELINK-PROBE.md#设备与权限边界)。本机只读快照含两条既有 NRPT，未接管日常网络；已删过时程序／重复日志，保留 SDK、当前报告及尚需合并回归的自动路由旧基线；直连／显式路由已共用交换逻辑保留，Linux 隔离正常／强杀重验通过，双路径跨平台增量待 CI。
 - 出口清理：已移除无产品调用的旧上游 HTTP／SOCKS 参数、实现与专属测试，净减约 400 行；调用、配置、依赖、构建／CI 和文档已核对，正式代理与校园授权／信任／取消／TCP／UDP 回归保留，`3488842` 跨平台检查已通过。
 - 失败边界：必须走校园的拨号，以及普通代理中的校园域名，均禁止解析失败／IPv6 回落原网络；校园查询仅复用带隧道来源标记的缓存并拒绝公共 DNS，保留授权 IPv4／域名资源；目的端口在共用入口限定为 1—65535，含合法边界与越界不进栈回归；真实 DNS 包计数覆盖可信缓存复用和未知来源重查。两个修复单元分别通过 Go 19 包／vet、race、Release／Qt 六项，待 CI；出口绑定另补 Linux／实际 Windows x64 的 IPv4／IPv6 TCP／UDP 回环收发及错误接口拒绝回落回归，其余原生组待 CI；尚不代表透明策略交付。
 - 保护模型：新增只描述实际保护范围与明确 IPv4 地址选择的不可变规则，保留最具体保护范围供解释；拒绝把默认／分割默认出口当保护目标，IPv4 映射与 IPv6 zone 不绕过保护。Go 19 包／vet、race 和实际 Windows 逻辑回归通过，待 CI；尚未接入生产拨号、网络发现或核心策略 API，S4-01／02 保持未完成。

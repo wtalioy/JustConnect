@@ -15,13 +15,13 @@ import sys
 import time
 
 
-def exchange(fd):
+def exchange(fd, destination):
     prefix = struct.pack('!I', socket.AF_INET) if sys.platform == 'darwin' else b''
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
         udp.settimeout(3)
         udp.bind(('198.18.0.1', 0))
         local_port = udp.getsockname()[1]
-        udp.sendto(b'justconnect-out', ('198.18.0.6', 54321))
+        udp.sendto(b'justconnect-out', (destination, 54321))
         deadline = time.monotonic() + 3
         while True:
             ready, _, _ = select.select([fd], [], [], max(0, deadline - time.monotonic()))
@@ -36,14 +36,14 @@ def exchange(fd):
             offset = (packet[0] & 15) * 4
             if packet[offset + 8:] != b'justconnect-out':
                 continue
-            assert packet[12:20] == socket.inet_aton('198.18.0.1') + socket.inet_aton('198.18.0.6')
+            assert packet[12:20] == socket.inet_aton('198.18.0.1') + socket.inet_aton(destination)
             assert struct.unpack('!HH', packet[offset:offset + 4]) == (local_port, 54321)
             break
 
         payload = b'justconnect-in'
         reply_udp = struct.pack('!HHHH', 54321, local_port, 8 + len(payload), 0) + payload
         header = struct.pack('!BBHHHBBH4s4s', 0x45, 0, 20 + len(reply_udp), 1, 0, 64,
-                             socket.IPPROTO_UDP, 0, socket.inet_aton('198.18.0.6'),
+                             socket.IPPROTO_UDP, 0, socket.inet_aton(destination),
                              socket.inet_aton('198.18.0.1'))
         checksum = sum(struct.unpack('!10H', header))
         while checksum >> 16:
@@ -51,14 +51,15 @@ def exchange(fd):
         header = header[:10] + struct.pack('!H', (~checksum) & 0xffff) + header[12:]
         packet = prefix + header + reply_udp
         assert os.write(fd, packet) == len(packet)
-        assert udp.recvfrom(65536) == (payload, ('198.18.0.6', 54321))
+        assert udp.recvfrom(65536) == (payload, (destination, 54321))
 
 
 def probe(uid, gid, crash):
     name = 'jcprobe0'
     if sys.platform == 'darwin':
-        route = subprocess.check_output(['/sbin/route', '-n', 'get', '198.18.0.6'], text=True, timeout=5)
-        assert any(line.split() == ['destination:', 'default'] for line in route.splitlines()), 'test destination already has a specific route'
+        for destination in ('198.18.0.2', '198.18.0.6'):
+            route = subprocess.check_output(['/sbin/route', '-n', 'get', destination], text=True, timeout=5)
+            assert any(line.split() == ['destination:', 'default'] for line in route.splitlines()), 'test destination already has a specific route'
     try:
         socket.if_nametoindex(name)
     except OSError:
@@ -126,7 +127,8 @@ def probe(uid, gid, crash):
                 message, fds, _, _ = socket.recv_fds(child, 1, 1)
                 assert message == b'F' and len(fds) == 1
                 received = fds[0]
-                exchange(received)
+                for destination in ('198.18.0.2', '198.18.0.6'):
+                    exchange(received, destination)
                 if crash:
                     child.sendall(b'K')
                     child.recv(1)  # Parent kills this process with its fd still open.
@@ -165,7 +167,7 @@ def probe(uid, gid, crash):
         routes = subprocess.check_output(command, text=True, timeout=5)
         remaining = routes.split() if sys.platform == 'darwin' else routes
         assert name not in remaining, 'TUN route survived device removal'
-        print(f'PASS: SCM_RIGHTS -> uid={uid}, unprivileged, UDP both ways, '
+        print(f'PASS: SCM_RIGHTS -> uid={uid}, unprivileged, UDP connected/explicit routes both ways, '
               f'{"SIGKILL" if crash else "normal close"}, device/route removed', flush=True)
     finally:
         if fd is not None:

@@ -69,7 +69,7 @@ func run() error {
 			return err
 		}
 		switch os.Args[4] {
-		case "roundtrip", "oversized", "crash":
+		case "connected", "roundtrip", "oversized", "crash":
 		default:
 			return errors.New("invalid probe mode")
 		}
@@ -94,7 +94,7 @@ func run() error {
 			}
 		}
 	}
-	for _, mode := range []string{"roundtrip", "oversized", "crash"} {
+	for _, mode := range []string{"connected", "roundtrip", "oversized", "crash"} {
 		if err := runBroker(os.Args[1], mode); err != nil {
 			return fmt.Errorf("%s: %w", mode, err)
 		}
@@ -457,10 +457,12 @@ func broker(path, name, mode string) error {
 	}
 	idx := strconv.FormatUint(uint64(index), 10)
 	script := "Set-NetIPInterface -InterfaceIndex " + idx + " -AddressFamily IPv4 -DadTransmits 0;" +
-		"New-NetIPAddress -InterfaceIndex " + idx + " -IPAddress 192.0.2.1 -PrefixLength 30 -AddressFamily IPv4 -PolicyStore ActiveStore | Out-Null;" +
-		"New-NetRoute -InterfaceIndex " + idx + " -DestinationPrefix 192.0.2.2/32 -NextHop 0.0.0.0 -PolicyStore ActiveStore | Out-Null;" +
-		"$r=@(Get-NetRoute -InterfaceIndex " + idx + " -DestinationPrefix 192.0.2.2/32 -PolicyStore ActiveStore);" +
-		"if($r.Count -ne 1 -or $r[0].NextHop -ne '0.0.0.0'){throw 'owned host route was not applied'}"
+		"New-NetIPAddress -InterfaceIndex " + idx + " -IPAddress 192.0.2.1 -PrefixLength 30 -AddressFamily IPv4 -PolicyStore ActiveStore | Out-Null;"
+	if mode != "connected" {
+		script += "New-NetRoute -InterfaceIndex " + idx + " -DestinationPrefix 192.0.2.2/32 -NextHop 0.0.0.0 -PolicyStore ActiveStore | Out-Null;" +
+			"$r=@(Get-NetRoute -InterfaceIndex " + idx + " -DestinationPrefix 192.0.2.2/32 -PolicyStore ActiveStore);" +
+			"if($r.Count -ne 1 -or $r[0].NextHop -ne '0.0.0.0'){throw 'owned host route was not applied'}"
+	}
 	if _, err = powershell(script); err != nil {
 		return err
 	}
@@ -486,7 +488,11 @@ func broker(path, name, mode string) error {
 	defer token.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, executable(), "--client", mode)
+	clientMode := mode
+	if clientMode == "connected" {
+		clientMode = "roundtrip"
+	}
+	cmd := exec.CommandContext(ctx, executable(), "--client", clientMode)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Token: syscall.Token(token)}
 	cmd.Env = os.Environ()
 	input, err := cmd.StdinPipe()
