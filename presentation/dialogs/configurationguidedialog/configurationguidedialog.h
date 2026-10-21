@@ -2,6 +2,7 @@
 #define CONFIGURATIONGUIDEDIALOG_H
 
 #include <QDialog>
+#include <QSettings>
 #include <QString>
 #include <QJsonObject>
 #include "infrastructure/settings/credentialaccess.h"
@@ -9,7 +10,6 @@
 class QLabel;
 class QLineEdit;
 class QPushButton;
-class QSettings;
 class ServerSettingsWidget;
 class QStackedWidget;
 class QWidget;
@@ -21,7 +21,6 @@ class ConfigurationGuideDialog : public QDialog
 public:
     explicit ConfigurationGuideDialog(
         QWidget *parent,
-        QSettings *settings,
         CredentialAccess *credentials,
         const CredentialSource &source
     );
@@ -57,7 +56,7 @@ private:
 
     QString authenticationMethodName(const QString &authType) const;
 
-    QSettings *sourceSettings;
+    QSettings sourceSettings;
     CredentialAccess *credentials;
     CredentialSource credentialSource;
     ConnectionCredentials loadedCredentials;

@@ -24,8 +24,8 @@
 #include "presentation/presentationhelpers.h"
 #include "presentation/widgets/serversettingswidget.h"
 
-SettingWindow::SettingWindow(QWidget *parent,QSettings *inputSettings,CredentialAccess *credentials,const CredentialSource &source)
-    : QDialog(parent),ui(new Ui::SettingWindow),settings(inputSettings),credentials(credentials),credentialSource(source) {
+SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const CredentialSource &source)
+    : QDialog(parent),ui(new Ui::SettingWindow),settings(source.path,QSettings::IniFormat),credentials(credentials),credentialSource(source) {
     ui->setupUi(this);
     setWindowModality(Qt::WindowModal); setAttribute(Qt::WA_DeleteOnClose);
     serverEditor = new ServerSettingsWidget(ui->serverSettingsContainer);
@@ -42,7 +42,7 @@ SettingWindow::SettingWindow(QWidget *parent,QSettings *inputSettings,Credential
     ui->credentialsForm->addRow(clearCredentialButton);
     connect(clearCredentialButton,&QPushButton::clicked,this,&SettingWindow::clearCredentials);
     connect(this,&QDialog::finished,this,[this]{closed=true;++loadGeneration;});
-    loadSettings(*settings);
+    loadSettings(settings);
     connect(serverEditor,&ServerSettingsWidget::serverChanged,this,[this] {
         clearDraftCredentials();
         selectedAuthId.clear(); selectedAuthSubType.clear();
@@ -108,8 +108,8 @@ SettingWindow::SettingWindow(QWidget *parent,QSettings *inputSettings,Credential
     connect(ui->exportPushButton,&QPushButton::clicked,this,[this] {
         const auto path=QFileDialog::getSaveFileName(this,"导出已保存配置",{},"Config Ini (*.ini)");
         if (path.isEmpty()) return;
-        settings->sync();
-        if (settings->status()!=QSettings::NoError || !DefaultSettings::exportTo(*settings,path))
+        settings.sync();
+        if (settings.status()!=QSettings::NoError || !DefaultSettings::exportTo(settings,path))
             QMessageBox::warning(this,"导出失败","无法提交导出文件；不能覆盖当前配置。");
     });
     readCredentials();
@@ -192,7 +192,7 @@ void SettingWindow::readCredentials() {
     credentials->load(source).then(this,[this,source,generation](const CredentialLoadResult &loaded) {
         if (closed || generation!=loadGeneration) return;
         loading=false;updateBusy();
-        if (!CredentialAccess::matches(source,*settings)) {credentialStatus->setText("已保存配置已变化，请重新打开设置。");return;}
+        if (!CredentialAccess::matches(source,settings)) {credentialStatus->setText("已保存配置已变化，请重新打开设置。");return;}
         credentialStatus->setText(PresentationHelpers::credentialOperationMessage(loaded.result.status));
         if (loaded.result.succeeded() && currentProfile().authenticationIdentity()==source.profile.authenticationIdentity()) {
             const bool passwordUntouched=ui->passwordLineEdit->text()==loadedCredentials.password;
@@ -205,7 +205,7 @@ void SettingWindow::readCredentials() {
 }
 void SettingWindow::clearCredentials() {
     if (closed || loading || saving) return;
-    if (!CredentialAccess::matches(credentialSource,*settings)) {
+    if (!CredentialAccess::matches(credentialSource,settings)) {
         QMessageBox::warning(this,"配置已变化","请重新打开设置后再清除凭据。");return;
     }
     auto account=credentialSource.profile.credentials.username;
@@ -221,12 +221,12 @@ void SettingWindow::clearCredentials() {
         if (ui->totpSecretLineEdit->text()==loadedCredentials.totpSecret) ui->totpSecretLineEdit->setText({});
         loadedCredentials={};
         credentialStatus->setText("已清除保存的密码和 TOTP，未应用的输入保持不变。");
-        credentialSource=CredentialAccess::source(*settings,credentialSource.legacyCachePath);
+        credentialSource=CredentialAccess::source(settings,credentialSource.legacyCachePath);
     });
 }
 void SettingWindow::applySettings(bool closeAfter) {
     if (closed || loading || saving) return;
-    if (!CredentialAccess::matches(credentialSource,*settings) || credentialSource.publicValues!=DefaultSettings::publicValues(*settings)) {
+    if (!CredentialAccess::matches(credentialSource,settings) || credentialSource.publicValues!=DefaultSettings::publicValues(settings)) {
         QMessageBox::warning(this,"配置已变化","请重新打开设置后再应用修改。");return;
     }
     auto profile=currentProfile();
@@ -260,9 +260,9 @@ void SettingWindow::applySettings(bool closeAfter) {
         if (closed) return;
         saving=false;updateBusy();
         if (!result.succeeded()) {QMessageBox::warning(this,"保存设置未完成",PresentationHelpers::credentialOperationMessage(result.status));return;}
-        if (settings->fileName()!=source.path || settings->value(ProfileCredentials::ScopeSetting)!=source.scope) return;
-        credentialSource=CredentialAccess::source(*settings,source.legacyCachePath);
+        if (settings.fileName()!=source.path || settings.value(ProfileCredentials::ScopeSetting)!=source.scope) return;
+        credentialSource=CredentialAccess::source(settings,source.legacyCachePath);
         if (closeAfter) accept();
-        else {loadSettings(*settings);readCredentials();}
+        else {loadSettings(settings);readCredentials();}
     });
 }
