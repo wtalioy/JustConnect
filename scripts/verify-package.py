@@ -8,6 +8,7 @@ from pathlib import Path
 import platform
 import plistlib
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -16,8 +17,8 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def run(*args, env=None):
-    result = subprocess.run(list(map(str, args)), env=env, check=False,
+def run(*args, env=None, cwd=None):
+    result = subprocess.run(list(map(str, args)), env=env, cwd=cwd, check=False,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
     if result.returncode:
         raise RuntimeError(f'{args[0]} exited {result.returncode}: '
@@ -182,7 +183,31 @@ def windows_signature(path):
     return run('pwsh', '-NoProfile', '-Command', command).strip()
 
 
-def verify(root, executable, revision, application_version, output, archive, signed=False):
+def check_windows_webengine(root, probe, env):
+    locales = root / 'translations/qtwebengine_locales'
+    languages = ('en-US', 'zh-CN')
+    for language in languages:
+        if not (locales / f'{language}.pak').is_file():
+            raise RuntimeError(f'Missing WebEngine locale: {language}')
+    descriptor, name = tempfile.mkstemp(prefix='webengine-check-', suffix='.exe', dir=root)
+    os.close(descriptor)
+    installed_probe = Path(name)
+    try:
+        shutil.copyfile(probe, installed_probe)
+        with tempfile.TemporaryDirectory() as working:
+            for language in languages:
+                probe_env = dict(env, QTWEBENGINEPROCESS_PATH=str(root / 'QtWebEngineProcess.exe'),
+                                 QTWEBENGINE_RESOURCES_PATH=str(root / 'resources'),
+                                 QTWEBENGINE_LOCALES_PATH=str(locales),
+                                 QT_QPA_PLATFORM_PLUGIN_PATH=str(root / 'platforms'),
+                                 QTWEBENGINE_CHROMIUM_FLAGS=f'--disable-gpu --lang={language}')
+                run(installed_probe, cwd=working, env=probe_env)
+    finally:
+        installed_probe.unlink()
+    return list(languages)
+
+
+def verify(root, executable, revision, application_version, output, archive, signed=False, webengine_probe=None):
     root, executable = root.resolve(), executable.resolve()
     if not inside(executable, root):
         raise RuntimeError('Executable must be inside extracted package')
@@ -228,6 +253,9 @@ def verify(root, executable, revision, application_version, output, archive, sig
                 raise RuntimeError('Missing runtime unexpectedly succeeded')
         finally:
             hidden.rename(runtime)
+        if webengine_probe is None:
+            raise RuntimeError('Windows package verification requires the WebEngine probe')
+        report['webengine_locales'] = check_windows_webengine(root, webengine_probe, env)
         report['audit'] = windows_audit(files, root, arch)
     elif report['runtime'] != 'static':
         raise RuntimeError('Unix packages must link the static core')
@@ -264,5 +292,6 @@ if __name__ == '__main__':
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--archive', required=True, type=Path)
     parser.add_argument('--signed', action='store_true')
+    parser.add_argument('--webengine-probe', type=Path)
     args = parser.parse_args()
-    verify(args.package, args.executable, args.revision, args.version, args.output, args.archive, args.signed)
+    verify(args.package, args.executable, args.revision, args.version, args.output, args.archive, args.signed, args.webengine_probe)

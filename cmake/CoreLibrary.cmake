@@ -84,18 +84,19 @@ function(justconnect_core_library KIND)
     else()
         set(LIBRARY_NAME "${KIND}.a")
     endif()
-    set(LIBRARY "${CMAKE_CURRENT_BINARY_DIR}/${LIBRARY_NAME}")
-    file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${KIND}-options.txt"
-        CONTENT "${REVISION}\n${SOURCE_STATE}\n${TAGS}\n${ABI_MODE}\n${GO_EXECUTABLE}\n$ENV{CC}\n$ENV{CGO_CFLAGS}\n$ENV{CGO_LDFLAGS}\n${CMAKE_OSX_DEPLOYMENT_TARGET}\n")
-    add_custom_command(OUTPUT "${LIBRARY}" "${CMAKE_CURRENT_BINARY_DIR}/${KIND}.h"
+    set(CORE_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>")
+    set(LIBRARY "${CORE_OUTPUT}/${LIBRARY_NAME}")
+    file(GENERATE OUTPUT "${CORE_OUTPUT}/${KIND}-options.txt"
+        CONTENT "${REVISION}\n${SOURCE_STATE}\n${TAGS}\n${ABI_MODE}\n${GO_EXECUTABLE}\n$<CONFIG>\n$ENV{CC}\n$ENV{CGO_CFLAGS}\n$ENV{CGO_LDFLAGS}\n${CMAKE_OSX_DEPLOYMENT_TARGET}\n")
+    add_custom_command(OUTPUT "${LIBRARY}" "${CORE_OUTPUT}/${KIND}.h"
         COMMAND "${CMAKE_COMMAND}" -E env CGO_ENABLED=1 GOTOOLCHAIN=local GOWORK=off GOENV=off
             GOEXPERIMENT=cgocheck2 ${CGO_PLATFORM_ENV} "${GO_EXECUTABLE}" build -mod=readonly -trimpath -buildvcs=false ${TAGS}
-            "-ldflags=-X main.revision=${REVISION} -X main.sourceState=${SOURCE_STATE}"
+            "-ldflags=$<$<CONFIG:Release>:-w> -X main.revision=${REVISION} -X main.sourceState=${SOURCE_STATE}"
             "-buildmode=${ABI_MODE}" -o "${LIBRARY}" ./abi
         WORKING_DIRECTORY "${CORE}"
-        DEPENDS ${ABI_SOURCES} "${CORE}/go.mod" "${CORE}/go.sum" "${CMAKE_CURRENT_BINARY_DIR}/${KIND}-options.txt" "${CMAKE_BINARY_DIR}/CMakeCache.txt"
+        DEPENDS ${ABI_SOURCES} "${CORE}/go.mod" "${CORE}/go.sum" "${CORE_OUTPUT}/${KIND}-options.txt" "${CMAKE_BINARY_DIR}/CMakeCache.txt"
         VERBATIM)
-    add_custom_target(${KIND}_build DEPENDS "${LIBRARY}" "${CMAKE_CURRENT_BINARY_DIR}/${KIND}.h")
+    add_custom_target(${KIND}_build DEPENDS "${LIBRARY}" "${CORE_OUTPUT}/${KIND}.h")
     add_library(${KIND} INTERFACE)
     add_dependencies(${KIND} ${KIND}_build)
     target_include_directories(${KIND} INTERFACE "${CORE}/abi")
