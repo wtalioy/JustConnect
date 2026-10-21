@@ -62,13 +62,13 @@ set(SOURCE_FILES
     application/commandlineoptions.cpp
     application/connectionsession.cpp
     application/profileservice.cpp
+    application/profileconfiguration.cpp
     application/profilecredentials.cpp
     application/settingsmigrator.cpp
     application/systemproxysession.cpp
     application/defaultsettings.cpp
     core/connectionsessionstate.cpp
     infrastructure/logging/applicationlogfile.cpp
-    infrastructure/settings/settingsprofileloader.cpp
     infrastructure/settings/credentialaccess.cpp
     infrastructure/storage/applicationpaths.cpp
     infrastructure/update/updatechecker.cpp
@@ -153,7 +153,7 @@ if(BUILD_TESTING)
             presentation/dialogs/settingwindow/settingwindow.cpp
             presentation/dialogs/authinfowindow/authinfowindow.cpp
             presentation/presentationhelpers.cpp
-            application/defaultsettings.cpp application/settingsmigrator.cpp infrastructure/settings/settingsprofileloader.cpp infrastructure/settings/profilemanager.cpp
+            application/defaultsettings.cpp application/settingsmigrator.cpp application/profileconfiguration.cpp infrastructure/settings/profilemanager.cpp
             infrastructure/storage/applicationpaths.cpp infrastructure/settings/credentialaccess.cpp
             application/profilecredentials.cpp application/profileservice.cpp)
         target_link_libraries(settingwindow_test PRIVATE justconnect_engine justconnect_platform Qt6::WebEngineWidgets Qt6::Concurrent)
@@ -189,7 +189,7 @@ if(BUILD_TESTING)
     add_test(NAME applicationlogfile_test COMMAND applicationlogfile_test)
 
     add_executable(credentialaccess_test tests/credentialaccess_test.cpp infrastructure/settings/credentialaccess.cpp
-        infrastructure/settings/settingsprofileloader.cpp application/profilecredentials.cpp
+        application/profileconfiguration.cpp application/profilecredentials.cpp
         application/profileservice.cpp application/defaultsettings.cpp application/settingsmigrator.cpp)
     target_link_libraries(credentialaccess_test PRIVATE Qt6::Core Qt6::Concurrent)
     add_test(NAME credentialaccess_test COMMAND credentialaccess_test)
@@ -201,7 +201,7 @@ if(BUILD_TESTING)
 
     add_executable(settingsprofileloader_test
         tests/settingsprofileloader_test.cpp
-        infrastructure/settings/settingsprofileloader.cpp
+        application/profileconfiguration.cpp application/defaultsettings.cpp
     )
     target_include_directories(settingsprofileloader_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(settingsprofileloader_test Qt::Core)
@@ -273,7 +273,7 @@ if(BUILD_TESTING)
         infrastructure/settings/credentialaccess.cpp application/profilecredentials.cpp application/profileservice.cpp
         presentation/presentationhelpers.cpp
         presentation/widgets/serversettingswidget.cpp
-        application/settingsmigrator.cpp application/defaultsettings.cpp infrastructure/settings/settingsprofileloader.cpp
+        application/settingsmigrator.cpp application/defaultsettings.cpp application/profileconfiguration.cpp
         presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp
         presentation/dialogs/authinfowindow/authinfowindow.cpp
     )

@@ -16,7 +16,7 @@
 #include <QTimer>
 #include <QElapsedTimer>
 #include <QComboBox>
-#include "infrastructure/settings/settingsprofileloader.h"
+#include "application/profileservice.h"
 #include "tests/credentialstorefixture.h"
 #include <iostream>
 #include "presentation/dialogs/settingwindow/settingwindow.h"
@@ -49,9 +49,15 @@ int main(int argc,char **argv) {
     // Saving an unrelated change must preserve the selected opaque identity.
     { auto *initial=new SettingWindow(nullptr,&settings,&access,CredentialAccess::source(settings,ApplicationPaths::clientDataFile("fixture"))); initial->show();ready();
       initial->findChild<QCheckBox *>("tlsVerifyCheckBox")->setChecked(false);
+      initial->findChild<QSpinBox *>("socks5PortSpinBox")->setValue(0);
+      initial->findChild<QSpinBox *>("httpPortSpinBox")->setValue(19443);
+      initial->findChild<QSpinBox *>("dnsTTLSpinBox")->setValue(61);
       initial->findChild<QDialogButtonBox *>("buttonBox")->button(QDialogButtonBox::Ok)->click(); ready();
       check(settings.value("JustConnect/AuthID")=="persisted-id" && settings.value("JustConnect/AuthSubType")=="password","selected authentication identity survives settings reload/apply");
-      check(!settings.value("JustConnect/TLSVerify").toBool(),"explicit TLS policy saved through the shared server editor"); }
+      const auto reloaded=ProfileService::load(settings);
+      check(!reloaded.tls.verify && reloaded.proxy.socksBind.isEmpty()
+          && reloaded.proxy.httpBind=="127.0.0.1:19443" && reloaded.dns.ttl==61,
+          "validated settings draft and reloaded connection share TLS, disabled listener, port and DNS values"); }
     const auto cache=ApplicationPaths::clientDataFile("fixture"),otherCache=ApplicationPaths::clientDataFile("other");
     check(!QFileInfo::exists(cache) && !QFileInfo::exists(otherCache),"locating legacy cache creates no plaintext files");
     write(cache,"current authentication"); write(otherCache,"other authentication");

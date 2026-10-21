@@ -29,7 +29,7 @@ int main(int argc,char **argv) {
     auto *verify=editor.findChild<QCheckBox *>("tlsVerifyCheckBox");
     auto *ca=editor.findChild<QPlainTextEdit *>("tlsCaPemEdit");
     auto *warning=editor.findChild<QLabel *>("tlsWarningLabel");
-    check(editor.tlsOptions().verify && warning->isHidden(),"legacy server settings enable certificate verification");
+    check(editor.settingsValues().value("JustConnect/TLSVerify").toBool() && warning->isHidden(),"legacy server settings enable certificate verification");
     verify->setChecked(false); ca->setPlainText("explicit private CA");
     check(!warning->isHidden(),"explicit unsafe choice shows an identity-protection warning");
     address->setText("draft.example.edu"); port->setValue(9443);
@@ -43,7 +43,7 @@ int main(int argc,char **argv) {
     if (!ProfileService::writePublic(settings,editor.settingsValues())) return 1;
     QSettings saved(path,QSettings::IniFormat);
     editor.load(saved);
-    check(!editor.tlsOptions().verify && editor.tlsOptions().caPem=="explicit private CA" && !warning->isHidden(),"explicit TLS policy survives save and reload");
+    check(!editor.settingsValues().value("JustConnect/TLSVerify").toBool() && editor.settingsValues().value("JustConnect/TLSCAPEM").toString()=="explicit private CA" && !warning->isHidden(),"explicit TLS policy survives save and reload");
     check(saved.value("JustConnect/ServerAddress")=="draft.example.edu" && saved.value("JustConnect/ProfileKind")=="Custom","explicit apply saves selected endpoint");
     settings.setValue("Common/NeedsConfiguration",true);
     editor.load(settings);

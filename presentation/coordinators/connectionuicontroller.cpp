@@ -17,7 +17,7 @@
 #include "application/applicationlogger.h"
 #include "application/connectionsession.h"
 #include "application/systemproxysession.h"
-#include "infrastructure/settings/settingsprofileloader.h"
+#include "application/profileservice.h"
 #include "infrastructure/coreengine/embeddedcoreengine.h"
 #include "presentation/coordinators/authdialogcoordinator.h"
 
@@ -122,7 +122,7 @@ QSettings *ConnectionUiController::settings() const
 bool ConnectionUiController::sourceStillCurrent(const CredentialSource &source) const
 {
     return settings()->fileName()==source.path
-        && SettingsProfileLoader::load(*settings()).authenticationIdentity()==source.profile.authenticationIdentity();
+        && ProfileService::load(*settings()).authenticationIdentity()==source.profile.authenticationIdentity();
 }
 
 void ConnectionUiController::cancelPendingCredentials()
@@ -142,7 +142,7 @@ void ConnectionUiController::handleConnectClicked()
         QMessageBox::warning(parentWidget,"配置需要更新","请选择 Fudan 或确认 Custom 的 aTrust 服务器后保存配置。");return;
     }
     if (settings()->value("JustConnect/ServerAddress").toString().isEmpty()) {QMessageBox::critical(parentWidget,"错误","服务器地址不能为空");return;}
-    if (SettingsProfileLoader::load(*settings()).endpoint.authType.isEmpty()) {
+    if (ProfileService::load(*settings()).endpoint.authType.isEmpty()) {
         QMessageBox::warning(parentWidget,"请选择认证方式","请在设置中确认认证方式；可从当前服务器获取可用列表。");return;
     }
     const auto source=credentialSourceProvider();const auto generation=credentialGeneration;
@@ -155,7 +155,7 @@ void ConnectionUiController::handleConnectClicked()
             QMessageBox::warning(parentWidget,"无法读取已保存凭据",PresentationHelpers::credentialOperationMessage(loaded.result.status)+"\n本次仍可手动登录。");
         }
         if (generation!=credentialGeneration || !sourceStillCurrent(source)) return;
-        auto profile=SettingsProfileLoader::load(*settings());
+        auto profile=ProfileService::load(*settings());
         if (loaded.result.succeeded()) profile.credentials=loaded.credentials;
         connectButton->setText("连接服务器");trayConnectAction->setText("连接服务器");
         requestConnection(source,profile);
@@ -178,7 +178,7 @@ void ConnectionUiController::requestConnection(const CredentialSource &source,Co
 void ConnectionUiController::submitLogin(const QString &username,const QString &password,bool save)
 {
     if (!promptSource || !sourceStillCurrent(*promptSource)) return;
-    const auto source=*promptSource;auto profile=SettingsProfileLoader::load(*settings());
+    const auto source=*promptSource;auto profile=ProfileService::load(*settings());
     const auto totp=username.trimmed()==source.profile.credentials.username && CredentialAccess::matches(source,*settings())
         ? promptCredentials.totpSecret : QString();
     profile.credentials={username.trimmed(),password,totp};promptSource.reset();promptCredentials={};
@@ -188,7 +188,7 @@ void ConnectionUiController::submitLogin(const QString &username,const QString &
 void ConnectionUiController::submitPhone(const QString &country,const QString &phone,bool save)
 {
     if (!promptSource || !sourceStillCurrent(*promptSource)) return;
-    const auto source=*promptSource;auto profile=SettingsProfileLoader::load(*settings());
+    const auto source=*promptSource;auto profile=ProfileService::load(*settings());
     profile.endpoint.phone=country+"-"+phone;promptSource.reset();promptCredentials={};
     submitManual(source,profile,save,{{"JustConnect/PhoneCountryCode",country},{"JustConnect/PhoneNumber",phone}},false);
 }
@@ -206,7 +206,7 @@ void ConnectionUiController::submitManual(const CredentialSource &source,const C
         if (!sameFile) {cancelPendingCredentials();return;}
         if (!result.succeeded()) QMessageBox::warning(parentWidget,"未能记住登录信息",PresentationHelpers::credentialOperationMessage(result.status)+"\n本次仍可手动登录。");
         if (generation!=credentialGeneration) return;
-        const auto current=SettingsProfileLoader::load(*settings());
+        const auto current=ProfileService::load(*settings());
         const auto expected=result.succeeded() ? profile.authenticationIdentity() : source.profile.authenticationIdentity();
         if (current.authenticationIdentity()!=expected) {cancelPendingCredentials();return;}
         startConnection(profile);

@@ -8,7 +8,7 @@
 #include <QElapsedTimer>
 #include <QFile>
 #include "tests/credentialstorefixture.h"
-#include "infrastructure/settings/settingsprofileloader.h"
+#include "application/profileservice.h"
 #include <cstdlib>
 #include "application/defaultsettings.h"
 #include <QSettings>
@@ -64,6 +64,10 @@ bool savesPasswordCredentials(const QString &settingsPath)
     settings.setValue("Credential/TOTPSecret", "old-totp");
     settings.setValue("JustConnect/AuthID","opaque-selection");
     settings.setValue("JustConnect/AuthSubType","password");
+    settings.setValue("JustConnect/SOCKS5Port",0);
+    settings.setValue("JustConnect/HTTPPort",19443);
+    settings.setValue("JustConnect/DNSTTL",61);
+    settings.setValue("JustConnect/SecondaryDNS","10.0.0.2");
 
     auto backend=std::make_unique<MemoryCredentialStore>();auto *store=backend.get();
     CredentialAccess access(std::move(backend));
@@ -93,8 +97,11 @@ bool savesPasswordCredentials(const QString &settingsPath)
     until([&]{return dialog.result()==QDialog::Accepted;});
 
     ConnectionCredentials saved;ProfileCredentials vault(*store);
-    if (!vault.load(source.scope,SettingsProfileLoader::load(settings),saved).succeeded()) return false;
-    const bool passed = settings.value("Credential/Username") == "alice"
+    if (!vault.load(source.scope,ProfileService::load(settings),saved).succeeded()) return false;
+    const auto reloaded=ProfileService::load(settings);
+    const bool passed = reloaded.proxy.socksBind.isEmpty() && reloaded.proxy.httpBind=="127.0.0.1:19443"
+        && reloaded.dns.ttl==61 && reloaded.dns.secondary=="10.0.0.2"
+        && settings.value("Credential/Username") == "alice"
         && saved.password == "secret" && saved.totpSecret == "totp-key"
         && !settings.contains("Credential/Password") && !settings.contains("Credential/TOTPSecret")
         && settings.value("JustConnect/AuthID")=="opaque-selection"

@@ -1,7 +1,6 @@
 #include "credentialaccess.h"
-#include "settingsprofileloader.h"
-#include "application/defaultsettings.h"
 #include "application/profileservice.h"
+#include "application/defaultsettings.h"
 #include <QSettings>
 #include <QtConcurrent>
 
@@ -10,12 +9,12 @@ CredentialAccess::CredentialAccess(std::unique_ptr<CredentialStore> store,QObjec
 CredentialAccess::~CredentialAccess() {pool.waitForDone();}
 CredentialSource CredentialAccess::source(QSettings &settings,const QString &legacyCachePath) {
     settings.sync();
-    return {settings.fileName(),ProfileCredentials::ensureScope(settings),legacyCachePath,SettingsProfileLoader::load(settings),DefaultSettings::publicValues(settings)};
+    return {settings.fileName(),ProfileCredentials::ensureScope(settings),legacyCachePath,ProfileService::load(settings),DefaultSettings::publicValues(settings)};
 }
 bool CredentialAccess::matches(const CredentialSource &source,const QSettings &settings) {
     return !source.scope.isEmpty() && settings.status()==QSettings::NoError && source.path==settings.fileName()
         && source.scope==settings.value(ProfileCredentials::ScopeSetting).toString()
-        && source.profile.authenticationIdentity()==SettingsProfileLoader::load(settings).authenticationIdentity();
+        && source.profile.authenticationIdentity()==ProfileService::load(settings).authenticationIdentity();
 }
 bool CredentialAccess::isBusy(const QString &path) const {return pending.value(path)>0;}
 bool CredentialAccess::isSaving(const QString &path) const {return pendingSaves.value(path)>0;}
