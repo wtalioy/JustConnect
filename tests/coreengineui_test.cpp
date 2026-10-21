@@ -872,6 +872,22 @@ static void gateway(const QJsonObject &config) {
     check(selected, "actual query selection supplies authentication settings");
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     int responses = 0, completed = 0, ticks = 0;
+    QString generation;
+    int networkSnapshots=0, resourceSnapshots=0;
+    CoreEngine::RequestStatus resourceStatus=CoreEngine::RequestStatus::Unavailable;
+    QObject::connect(engine,&CoreEngine::sessionStarted,[&](const QString &value){generation=value;});
+    QObject::connect(engine,&CoreEngine::snapshotReady,[&](CoreEngine::Snapshot kind,const QString &value,const QJsonObject &snapshot,CoreEngine::RequestStatus status){
+        check(QThread::currentThread()==QApplication::instance()->thread() && value==generation,"real snapshots reach their GUI session generation");
+        if(status!=CoreEngine::RequestStatus::Success) check(snapshot.isEmpty(),"pending or failed snapshot cannot expose old data");
+        if(kind==CoreEngine::Snapshot::Resources) {
+            resourceStatus=status;++resourceSnapshots;
+            if(status==CoreEngine::RequestStatus::Success)
+                check(snapshot["resources"].toObject()["domain_resources"].toObject().contains("campus.test"),"Qt receives actual parsed campus permissions");
+        } else {
+            check(status==CoreEngine::RequestStatus::Success && !snapshot["network"].toObject()["interfaces"].toArray().isEmpty(),"Qt receives the actual native network snapshot");
+            ++networkSnapshots;
+        }
+    });
     AuthenticationCache savedCache;
     QObject::connect(engine,&CoreEngine::authenticationCacheUpdated,[&](const AuthenticationCache &cache) {
         check(QThread::currentThread()==QApplication::instance()->thread(),"cache arrives on the GUI thread");savedCache=cache;
@@ -910,11 +926,18 @@ static void gateway(const QJsonObject &config) {
     until([&] { return parent.findChild<QLineEdit *>("authCodeEdit") != nullptr; });
     until([&] { return ticks > 5; });
     check(session.state() == ConnectionState::Starting, "authentication wait leaves GUI responsive");
+    engine->readSnapshot(CoreEngine::Snapshot::Resources,generation);
+    until([&]{return resourceSnapshots==1;});
+    check(resourceStatus==CoreEngine::RequestStatus::Pending,"Qt distinguishes resources pending authentication from missing capability");
     enterCode(parent, "fixture-code");
     until([&] {for (auto *dialog:parent.findChildren<QDialog *>()) if(dialog->isVisible() && dialog->findChild<QDialogButtonBox *>() && !dialog->findChild<QLineEdit *>("authCodeEdit"))return true;return false;});
     check(responses==1 && session.state()==ConnectionState::Starting,"device registration waits for a second explicit UI action");
     challenge(parent)->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
     until([&] { return session.state() == ConnectionState::Running; });
+    engine->readSnapshot(CoreEngine::Snapshot::Resources,generation);
+    engine->readSnapshot(CoreEngine::Snapshot::Network,generation);
+    until([&]{return resourceSnapshots==2 && networkSnapshots==1;});
+    check(resourceStatus==CoreEngine::RequestStatus::Success,"Qt receives ready resources without another authentication");
     check(responses == 2, "SMS and explicit device confirmation each reach the production protocol once");
     check(session.phase()==ConnectionPhase::TransportReady
         && session.observation("authentication").result=="succeeded"

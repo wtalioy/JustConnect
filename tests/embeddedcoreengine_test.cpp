@@ -38,7 +38,9 @@ int main(int argc, char **argv) {
     EmbeddedCoreEngine engine;
     QJsonObject request;
     QString generation;
-    QList<CoreEngine::PolicyUpdateStatus> policyReplies;
+    QList<CoreEngine::RequestStatus> policyReplies;
+    QList<CoreEngine::RequestStatus> snapshotReplies;
+    QJsonObject lastSnapshot;
     int finished = 0, ready = 0, rejected = 0, ticks = 0;
     ConnectionError lastError = ConnectionError::NONE;
     QObject::connect(&engine, &CoreEngine::authenticationRequired, &app, [&](const QJsonObject &event) {
@@ -49,9 +51,15 @@ int main(int argc, char **argv) {
     QObject::connect(&engine, &CoreEngine::responseRejected, [&] { ++rejected; });
     QObject::connect(&engine, &CoreEngine::finished, [&](ConnectionError error) { lastError = error; ++finished; });
     QObject::connect(&engine, &CoreEngine::sessionStarted, [&](const QString &value) { generation = value; });
-    QObject::connect(&engine, &CoreEngine::policyUpdated, [&](const QString &applied, const QString &revision, CoreEngine::PolicyUpdateStatus status) {
+    QObject::connect(&engine, &CoreEngine::policyUpdated, [&](const QString &applied, const QString &revision, CoreEngine::RequestStatus status) {
         check(QThread::currentThread() == app.thread() && !applied.isEmpty() && !revision.isEmpty(), "policy acknowledgement reaches the GUI with its identity");
         policyReplies.append(status);
+    });
+    QObject::connect(&engine, &CoreEngine::snapshotReady, [&](CoreEngine::Snapshot, const QString &value, const QJsonObject &snapshot, CoreEngine::RequestStatus status) {
+        check(QThread::currentThread() == app.thread() && !value.isEmpty(), "snapshot result reaches the GUI with its generation");
+        if (status != CoreEngine::RequestStatus::Success) check(snapshot.isEmpty(), "unsuccessful snapshot cannot carry old data");
+        lastSnapshot = snapshot;
+        snapshotReplies.append(status);
     });
     QObject::connect(&engine, &CoreEngine::diagnostic, [&](const QString &code) {
         check(!code.contains("private-"), "diagnostics do not disclose credentials");
@@ -63,23 +71,35 @@ int main(int argc, char **argv) {
     check(info["test_driver"].toBool(), "explicit test driver");
     check(info["capabilities"].toObject()["policy_update"].toBool(), "policy capability advertised");
     engine.updatePolicy(policy("1","1"));
-    check(policyReplies.last() == CoreEngine::PolicyUpdateStatus::Stale, "idle adapter rejects policy without starting a core");
+    check(policyReplies.last() == CoreEngine::RequestStatus::Stale, "idle adapter rejects policy without starting a core");
+    engine.readSnapshot(CoreEngine::Snapshot::Network,"1");
+    check(snapshotReplies.last() == CoreEngine::RequestStatus::Stale, "idle adapter rejects an unscoped snapshot");
     check(engine.start(profile) && !engine.start(profile), "one active operation per adapter");
     until([&] { return !request.isEmpty() && ticks > 5; });
     check(generation == request["generation"].toString(), "authoritative generation is available without an authentication response");
-    auto update = [&](QJsonObject fields, CoreEngine::PolicyUpdateStatus expected) {
+    auto readSnapshot = [&](CoreEngine::Snapshot kind, const QString &value, CoreEngine::RequestStatus expected) {
+        const auto before = snapshotReplies.size();
+        engine.readSnapshot(kind,value);
+        until([&] { return snapshotReplies.size() == before+1; });
+        check(snapshotReplies.last() == expected, "Qt snapshot classification");
+    };
+    readSnapshot(CoreEngine::Snapshot::Network,generation,CoreEngine::RequestStatus::Success);
+    check(!lastSnapshot["network"].toObject()["interfaces"].toArray().isEmpty(), "native network snapshot reaches the Qt consumer");
+    readSnapshot(CoreEngine::Snapshot::Resources,generation,CoreEngine::RequestStatus::Unavailable);
+    readSnapshot(CoreEngine::Snapshot::Network,"2",CoreEngine::RequestStatus::Stale);
+    auto update = [&](QJsonObject fields, CoreEngine::RequestStatus expected) {
         const auto before = policyReplies.size();
         engine.updatePolicy(fields);
         until([&] { return policyReplies.size() == before + 1; });
         check(policyReplies.last() == expected, "Qt policy acknowledgement classification");
     };
-    update(policy(generation,"2"), CoreEngine::PolicyUpdateStatus::Applied);
-    update(policy(generation,"1"), CoreEngine::PolicyUpdateStatus::Stale);
+    update(policy(generation,"2"), CoreEngine::RequestStatus::Success);
+    update(policy(generation,"1"), CoreEngine::RequestStatus::Stale);
     auto invalid = policy(generation,"3"); invalid["protected"] = QJsonArray{"192.168.50.1/24"};
-    update(invalid, CoreEngine::PolicyUpdateStatus::Invalid);
-    update(policy(generation,"3"), CoreEngine::PolicyUpdateStatus::Applied);
-    update(policy("0","4"), CoreEngine::PolicyUpdateStatus::Invalid);
-    update(policy("2","4"), CoreEngine::PolicyUpdateStatus::Stale);
+    update(invalid, CoreEngine::RequestStatus::Invalid);
+    update(policy(generation,"3"), CoreEngine::RequestStatus::Success);
+    update(policy("0","4"), CoreEngine::RequestStatus::Invalid);
+    update(policy("2","4"), CoreEngine::RequestStatus::Stale);
     auto answer = response(request);
     answer["code"] = profile.credentials.password;
     auto stale = answer;
@@ -91,17 +111,21 @@ int main(int argc, char **argv) {
     engine.respond(answer);
     until([&] { return rejected == 2; });
     const auto beforeStop = policyReplies.size();
+    const auto snapshotsBeforeStop = snapshotReplies.size();
+    engine.readSnapshot(CoreEngine::Snapshot::Network,generation);
     engine.updatePolicy(policy(generation,"4"));
     engine.stop();
     until([&] { return finished == 1; });
     until([&] { return policyReplies.size() == beforeStop + 1; });
-    check(policyReplies.last() == CoreEngine::PolicyUpdateStatus::Stale, "queued success cannot claim active policy after stop");
+    check(policyReplies.last() == CoreEngine::RequestStatus::Stale, "queued success cannot claim active policy after stop");
+    until([&] { return snapshotReplies.size() == snapshotsBeforeStop+1; });
+    check(snapshotReplies.last() == CoreEngine::RequestStatus::Stale && lastSnapshot.isEmpty(), "queued snapshot is discarded after stop");
     request = {};
     check(engine.start(profile), "restart accepted after cleanup");
     until([&] { return !request.isEmpty(); });
     check(request["generation"] == "2" && request["request_id"] == "2", "restart identity preserved as strings");
-    update(policy("1","5"), CoreEngine::PolicyUpdateStatus::Stale);
-    update(policy(generation,"1"), CoreEngine::PolicyUpdateStatus::Applied);
+    update(policy("1","5"), CoreEngine::RequestStatus::Stale);
+    update(policy(generation,"1"), CoreEngine::RequestStatus::Success);
     engine.respond(answer);
     until([&] { return rejected == 3; });
     engine.respond(response(request, "cancel"));
@@ -111,6 +135,7 @@ int main(int argc, char **argv) {
         auto *dying = new EmbeddedCoreEngine;
         bool destroyed = false;
         QObject::connect(dying, &CoreEngine::authenticationRequired, &app, [&](const QJsonObject &event) {
+            dying->readSnapshot(CoreEngine::Snapshot::Network,event["generation"].toString());
             dying->updatePolicy(policy(event["generation"].toString(),"1"));
             dying->respond(response(event, "cancel"));
             delete dying;

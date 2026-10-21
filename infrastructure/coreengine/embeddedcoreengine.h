@@ -15,6 +15,7 @@ public:
     void stop() override;
     void respond(const QJsonObject &response) override;
     void updatePolicy(const QJsonObject &policy) override;
+    void readSnapshot(Snapshot kind, const QString &generation) override;
     static ConnectionError validateConfiguration(const ConnectionProfile &profile);
     static QJsonObject buildInfo();
     static QJsonObject selfTest();
