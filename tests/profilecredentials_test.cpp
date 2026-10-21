@@ -126,7 +126,11 @@ void authenticationCacheIsSeparateAndScoped() {
     expect(vault.clear(settings,scope,p),Status::Success,"clear password independently");
     expect(vault.loadAuthenticationCache(scope,p,loaded),Status::Success,"password clear preserves authentication cache");
     expect(vault.saveAuthenticationCache({},p,original),Status::InvalidArgument,"invalid profile namespace rejected");
-    p.credentials.username.clear();p.endpoint.phone.clear();
+    p.credentials.username.clear();p.endpoint.authType="httpsOauth2";p.endpoint.phone="86-123456";
+    expect(vault.saveAuthenticationCache(scope,p,original),Status::InvalidArgument,"leftover SMS phone cannot bind an anonymous SSO account");
+    p.endpoint.authType="smsCheckCode";
+    expect(vault.saveAuthenticationCache(scope,p,original),Status::Success,"SMS account may bind its configured phone before a canonical username is known");
+    p.endpoint.phone.clear();
     expect(vault.saveAuthenticationCache(scope,p,original),Status::InvalidArgument,"anonymous cache cannot be persisted");
 }
 void authenticationCacheFailuresAndCorruption() {

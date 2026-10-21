@@ -79,7 +79,7 @@ QString ProfileCredentials::key(const QString &scope,const ConnectionProfile &p)
     return profileKey(scope,p,"credentials-v1");
 }
 QString ProfileCredentials::authenticationCacheKey(const QString &scope,const ConnectionProfile &p) {
-    if (p.credentials.username.isEmpty() && p.endpoint.phone.isEmpty()) return {};
+    if (p.credentials.username.isEmpty() && (p.endpoint.authType!="smsCheckCode" || p.endpoint.phone.isEmpty())) return {};
     return profileKey(scope,p,"authentication-cache-v1");
 }
 QString ProfileCredentials::legacyCacheKey(const QString &scope) {
