@@ -27,8 +27,8 @@ bool ConnectionSessionState::wantsConnection() const
 
 int ConnectionSessionState::reconnectDelayMs() const
 {
-    const int base = std::clamp(reconnectPolicy.delayMs, 1, 30000);
-    return std::min(30000, base * (1 << std::max(0, retryCount - 1)));
+    const int base = std::clamp(reconnectPolicy.delayMs, 1, MaxReconnectDelayMs);
+    return std::min(MaxReconnectDelayMs, base * (1 << std::max(0, retryCount - 1)));
 }
 
 bool ConnectionSessionState::requestStart(const ReconnectPolicy &policy)

@@ -17,6 +17,7 @@
 #include "application/defaultsettings.h"
 #include "infrastructure/coreengine/embeddedcoreengine.h"
 #include "application/settingsmigrator.h"
+#include "core/connectionsessionstate.h"
 #include "infrastructure/platform/autostart.h"
 #include "infrastructure/settings/profilemanager.h"
 #include "application/profileservice.h"
@@ -28,6 +29,8 @@
 SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const CredentialSource &source)
     : QDialog(parent),ui(new Ui::SettingWindow),settings(source.path,QSettings::IniFormat),credentials(credentials),credentialSource(source) {
     ui->setupUi(this);
+    ui->reconnectTimeSpinBox->setMaximum(ConnectionSessionState::MaxReconnectDelayMs / 1000);
+    ui->commonFormLabel5->setText(QString("初始重连间隔（秒，最多 %1 次）").arg(ConnectionSessionState::MaxReconnectAttempts));
     const int currentTab=ui->tabWidget->currentIndex();
     for (int i=0;i<ui->tabWidget->count();++i) {
         auto *page=ui->tabWidget->widget(i);

@@ -383,7 +383,7 @@ void ConnectionUiController::startConnection(ConnectionProfile profile,const Cre
     cacheCredentialsRequired=profile.endpoint.authType=="psw" && profile.credentials.password.isEmpty() && !profile.authenticationCache.data.isEmpty();
     const ReconnectPolicy reconnectPolicy{
         settings()->value("Common/AutoReconnect", false).toBool(),
-        settings()->value("Common/ReconnectTime", 1).toInt() * 1000
+        qBound(1, settings()->value("Common/ReconnectTime", 1).toInt(), ConnectionSessionState::MaxReconnectDelayMs / 1000) * 1000
     };
     if (!connectionSession->start(profile, reconnectPolicy)
         || !connectionSession->isActive())
