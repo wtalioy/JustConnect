@@ -78,7 +78,12 @@ jobs:
       - name: Check Linux TUN fd transfer and cleanup in an isolated network
         if: runner.os == 'Linux'
         shell: bash
-        run: sudo unshare --net -- "$(command -v python)" tests/platform/linux_device_probe.py --uid "$(id -u)" | tee build/coreabi/linux-device.log
+        run: sudo unshare --net -- "$(command -v python)" tests/platform/unix_device_probe.py --uid "$(id -u)" | tee build/coreabi/linux-device.log
+
+      - name: Check macOS utun fd transfer and cleanup in the disposable runner
+        if: runner.os == 'macOS'
+        shell: bash
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_OS="$RUNNER_OS" "$(command -v python)" tests/platform/unix_device_probe.py --uid "$(id -u)" | tee build/coreabi/macos-device.log
 
       - name: Probe Windows device broker in the disposable runner
         if: runner.os == 'Windows'
