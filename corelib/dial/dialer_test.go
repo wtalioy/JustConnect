@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"strconv"
 	"sync/atomic"
 	"testing"
 
@@ -11,6 +12,31 @@ import (
 	"github.com/wtalioy/JustConnect/corelib/internal/ipresource"
 	"github.com/wtalioy/JustConnect/corelib/resolve"
 )
+
+func TestDestinationPortCannotWrapIntoAnotherTunnelPort(t *testing.T) {
+	for _, network := range []string{"tcp", "udp"} {
+		for _, test := range []struct {
+			port  int
+			valid bool
+		}{{-1, false}, {0, false}, {1, true}, {65535, true}, {65536, false}, {70000, false}} {
+			port := test.port
+			stack := &capturingStack{}
+			dialer := &Dialer{stack: stack, alwaysUseVPN: true}
+			ctx := context.WithValue(t.Context(), resolve.ContextKeyDomainResource, client.DomainResource{Protocol: network, PortMin: port, PortMax: port})
+			conn, err := dialer.DialIPPort(ctx, network, net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+			if conn != nil {
+				conn.Close()
+			}
+			if test.valid {
+				if err != nil || stack.tcpCalls+stack.udpCalls != 1 {
+					t.Fatalf("valid %s destination port %d was rejected: %v", network, port, err)
+				}
+			} else if err == nil || conn != nil || stack.tcpCalls != 0 || stack.udpCalls != 0 {
+				t.Fatalf("invalid %s destination port %d reached tunnel: %v", network, port, err)
+			}
+		}
+	}
+}
 
 func TestRequiredCampusPathNeverFallsBack(t *testing.T) {
 	for _, call := range []struct {
@@ -198,9 +224,11 @@ type capturingStack struct {
 	domainResource client.DomainResource
 	ipResource     client.IPResource
 	udpCalls       int
+	tcpCalls       int
 }
 
 func (s *capturingStack) DialTCP(ctx context.Context, _ *net.TCPAddr) (net.Conn, error) {
+	s.tcpCalls++
 	if resource, ok := ctx.Value(resolve.ContextKeyDomainResource).(client.DomainResource); ok {
 		s.domainResource = resource
 	}
