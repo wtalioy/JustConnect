@@ -67,6 +67,7 @@ ConnectionError connectionError(int status) {
     if (status == JC_NETWORK_FAILURE) return ConnectionError::NETWORK_FAILED;
     if (status == JC_TIMEOUT) return ConnectionError::TIMED_OUT;
     if (status == JC_AUTH_UNSUPPORTED) return ConnectionError::AUTHENTICATION_UNSUPPORTED;
+    if (status == JC_PERMISSION_DENIED) return ConnectionError::PERMISSION_DENIED;
     if (status == JC_SESSION_INVALID) return ConnectionError::SESSION_INVALID;
     if (status == JC_CREDENTIALS_REQUIRED) return ConnectionError::CREDENTIALS_REQUIRED;
     if (status == JC_AUTH_METHOD_CHANGED) return ConnectionError::AUTHENTICATION_CHANGED;

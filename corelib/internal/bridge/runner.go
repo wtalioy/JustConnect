@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"net"
 	"net/http"
 
@@ -111,6 +112,9 @@ func RunProtocol(ctx context.Context, config Config, host *Session) Status {
 		}
 		return TLSTrust
 	}
+	if errors.Is(err, fs.ErrPermission) {
+		return PermissionDenied
+	}
 	// Joined node failures may contain both a certificate rejection and a timeout.
 	if errors.Is(err, context.DeadlineExceeded) {
 		return Timeout
@@ -119,8 +123,7 @@ func RunProtocol(ctx context.Context, config Config, host *Session) Status {
 	if errors.As(err, &networkError) && networkError.Timeout() {
 		return Timeout
 	}
-	var socket *net.OpError
-	if errors.As(err, &socket) && socket.Op != "listen" {
+	if client.RetryableTransportError(err) {
 		return NetworkFailure
 	}
 	var handshake *client.TLSHandshakeError

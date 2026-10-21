@@ -137,7 +137,7 @@
           <item row="5" column="0">
            <widget class="QLabel" name="commonFormLabel5">
             <property name="text">
-             <string>重连间隔（秒）</string>
+             <string>初始重连间隔（秒，最多 5 次）</string>
             </property>
             <property name="buddy">
              <cstring>reconnectTimeSpinBox</cstring>
@@ -150,7 +150,7 @@
              <number>1</number>
             </property>
             <property name="maximum">
-             <number>3600</number>
+             <number>30</number>
             </property>
            </widget>
           </item>

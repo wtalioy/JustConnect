@@ -57,6 +57,7 @@ AuthInfoWindow::AuthInfoWindow(QWidget *parent, CoreEngine *inputEngine)
         ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(false);
         QString message;
         switch(error) {
+        case ConnectionError::PERMISSION_DENIED: message="网络操作权限不足，请检查接口绑定或授权结果。"; break;
         case ConnectionError::TLS_TRUST: message="服务器证书不受信任或地址不匹配。请检查地址、系统时间和学校 CA。"; break;
         case ConnectionError::TLS_PROTOCOL: message="TLS 协议协商失败，请检查服务器端口与 TLS 兼容性。"; break;
         case ConnectionError::NETWORK_FAILED: message="网络连接失败，请检查 DNS、网络和服务器地址。"; break;

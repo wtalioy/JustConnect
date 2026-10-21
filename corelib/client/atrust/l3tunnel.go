@@ -294,7 +294,7 @@ func (t *L3Tunnel) forwardFromConn(nodeGroupID string, conn *l3TunnelConn) {
 }
 
 func (t *L3Tunnel) startReconnect(nodeGroupID string) {
-	if t.client == nil || t.connect == nil {
+	if t.client == nil || t.connect == nil || t.client.lifecycleCtx.Err() != nil {
 		return
 	}
 	select {
@@ -322,11 +322,16 @@ func (t *L3Tunnel) connectWithRetry(nodeGroupID string, call *l3TunnelConnectCal
 	if interval <= 0 {
 		interval = defaultReconnectInterval
 	}
-	for attempt := 0; ; attempt++ {
+	interval = min(interval, 30*time.Second)
+	for attempt := 0; attempt < 5; attempt++ {
 		if !immediate || attempt > 0 {
-			timer := time.NewTimer(interval)
+			timer := time.NewTimer(min(30*time.Second, interval*time.Duration(1<<attempt)))
 			select {
 			case <-timer.C:
+			case <-t.client.lifecycleCtx.Done():
+				timer.Stop()
+				t.finishConnect(nodeGroupID, call, nil, context.Canceled)
+				return
 			case <-t.closeCh:
 				if !timer.Stop() {
 					select {
@@ -338,6 +343,7 @@ func (t *L3Tunnel) connectWithRetry(nodeGroupID string, call *l3TunnelConnectCal
 				return
 			}
 		}
+		t.client.report("tunnel", "running")
 		conn, err := t.connectConn(nodeGroupID)
 		if errors.Is(err, auth.ErrSessionInvalid) {
 			t.client.fail(err)
@@ -345,10 +351,21 @@ func (t *L3Tunnel) connectWithRetry(nodeGroupID string, call *l3TunnelConnectCal
 			return
 		}
 		if err == nil {
+			t.client.report("tunnel", "succeeded")
 			t.finishConnect(nodeGroupID, call, conn, nil)
 			return
 		}
 
+		if t.client.lifecycleCtx.Err() != nil {
+			t.finishConnect(nodeGroupID, call, nil, context.Canceled)
+			return
+		}
+		t.client.report("tunnel", "failed")
+		if attempt == 4 || !client.RetryableTransportError(err) {
+			t.client.fail(err)
+			t.finishConnect(nodeGroupID, call, nil, err)
+			return
+		}
 	}
 }
 

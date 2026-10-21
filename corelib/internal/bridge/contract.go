@@ -25,6 +25,8 @@ func (s Status) Message() string {
 		return "Session ended"
 	case AuthUnsupported:
 		return "Server requires an unsupported authentication step"
+	case PermissionDenied:
+		return "Network operation requires permission"
 	case SessionInvalid:
 		return "Session expired; reconnect to authenticate"
 	case CredentialsRequired:

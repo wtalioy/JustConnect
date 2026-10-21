@@ -50,4 +50,5 @@ const (
 	AuthUnsupported     Status = -14
 	CredentialsRequired Status = -15
 	SessionInvalid      Status = -16
+	PermissionDenied    Status = -17
 )
