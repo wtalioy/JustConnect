@@ -96,7 +96,7 @@ func trafficProbe(ctx context.Context, mode, target, remoteDNS string, network s
 			if ip.To4() == nil {
 				return nil, dial.ErrACLDenied
 			}
-			return dial.NewDialer(network, resolver, ips, true, "").DialIPPort(ctx, protocol, net.JoinHostPort(ip.String(), port))
+			return dial.NewDialer(network, resolver, ips, true).DialIPPort(ctx, protocol, net.JoinHostPort(ip.String(), port))
 		},
 	}
 	if tlsPolicy != nil {

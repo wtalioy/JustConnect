@@ -71,7 +71,7 @@ func TestSOCKSUDPDatagramsAndActiveAssociationStop(t *testing.T) {
 		}
 	}()
 	defer func() { _ = target.Close(); <-served }()
-	p, err := NewListeners(context.Background(), "127.0.0.1:0", "", dial.NewDialer(nil, nil, nil, false, ""), nil)
+	p, err := NewListeners(context.Background(), "127.0.0.1:0", "", dial.NewDialer(nil, nil, nil, false), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

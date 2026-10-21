@@ -1,6 +1,8 @@
 package dial
 
 import (
+	"context"
+	"errors"
 	"net"
 	"strconv"
 	"strings"
@@ -12,13 +14,8 @@ import (
 	"github.com/wtalioy/JustConnect/corelib/stack"
 )
 
-import (
-	"context"
-	"errors"
-)
-
 // ErrACLDenied is returned by DialIPPort when the caller forced VPN routing
-// (via alwaysUseVPN / proxy_all) for a destination that the sangfor server
+// for a destination that the sangfor server
 // would not accept. Sending it through the L3 tunnel would cause the server
 // to terminate the entire session with cmd 0x08 SHUTDOWN, killing all other
 // in-flight connections. Refusing here mirrors what the official EasyConnect
@@ -26,63 +23,23 @@ import (
 var ErrACLDenied = errors.New("destination not in sangfor IPResources whitelist (would trigger tunnel SHUTDOWN)")
 
 type Dialer struct {
-	stack                stack.Stack
-	resolver             *resolve.Resolver
-	ipResources          []client.IPResource
-	resourceIndex        *ipresource.Index
-	alwaysUseVPN         bool
-	dialDirectHTTPProxy  string // format: "ip:port"
-	dialDirectSocksProxy string // WORKING IN PROCESS
+	stack         stack.Stack
+	resolver      *resolve.Resolver
+	ipResources   []client.IPResource
+	resourceIndex *ipresource.Index
+	alwaysUseVPN  bool
 }
 
-// dialDirectIP need have a `hostAddr` parameter, which will be passed to PROXY. But `hostAddr` maybe empty, ipAddr never be empty.
-func (d *Dialer) dialDirectIP(ctx context.Context, network, ipAddr string, hostAddr string) (net.Conn, error) {
-	// only support http proxy now and tcp network type
-	if d.dialDirectHTTPProxy != "" && network == "tcp" {
-		usedAddr := ipAddr
-		if hostAddr != "" {
-			usedAddr = hostAddr
-		}
-		return d.dialDirectWithHTTPProxy(ctx, usedAddr)
-		// only support tcp for socks proxy
-	} else if d.dialDirectSocksProxy != "" && network == "tcp" {
-		if hostAddr != "" {
-			return d.dialDirectWithSocksProxy(ctx, network, hostAddr, false)
-		} else {
-			return d.dialDirectWithSocksProxy(ctx, network, ipAddr, true)
-		}
-	} else {
-		return d.dialDirectWithoutProxy(ctx, network, ipAddr)
-	}
-}
-
-func (d *Dialer) dialDirectHost(ctx context.Context, network, hostAddr string) (net.Conn, error) {
-	// only support http proxy now and tcp network type
-	if d.dialDirectHTTPProxy != "" && network == "tcp" {
-		return d.dialDirectWithHTTPProxy(ctx, hostAddr)
-		// only support tcp for socks proxy
-	} else if d.dialDirectSocksProxy != "" && network == "tcp" {
-		return d.dialDirectWithSocksProxy(ctx, network, hostAddr, false)
-	} else {
-		return d.dialDirectWithoutProxy(ctx, network, hostAddr)
-	}
+func dialDirect(ctx context.Context, network, address string) (net.Conn, error) {
+	return (&net.Dialer{}).DialContext(ctx, network, address)
 }
 
 func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Conn, error) {
-	hostAddr := ""
-	if _, hostAddrOK := ctx.Value(resolve.ContextKeyResolveHost).(string); hostAddrOK {
-		// hostAddr doesn't have port field at now
-		hostAddr = ctx.Value(resolve.ContextKeyResolveHost).(string)
-	}
 	parts := strings.Split(ipAddr, ":")
-	if len(parts) >= 2 {
-		// maybe need extra check for parts[len(parts)-1] is port or not?
-		hostAddr += ":" + parts[len(parts)-1]
-	}
 
 	// If addr is IPv6, use direct connection
 	if len(parts) > 2 {
-		return d.dialDirectIP(ctx, network, ipAddr, hostAddr)
+		return dialDirect(ctx, network, ipAddr)
 	}
 
 	ip, portStr, err := net.SplitHostPort(ipAddr)
@@ -102,7 +59,7 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 		target = &net.IPAddr{IP: pureIp}
 	} else {
 
-		return d.dialDirectIP(ctx, network, ipAddr, hostAddr)
+		return dialDirect(ctx, network, ipAddr)
 	}
 
 	if d.alwaysUseVPN {
@@ -166,10 +123,10 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 			})
 		} else {
 
-			return d.dialDirectIP(ctx, network, ipAddr, hostAddr)
+			return dialDirect(ctx, network, ipAddr)
 		}
 	} else {
-		return d.dialDirectIP(ctx, network, ipAddr, hostAddr)
+		return dialDirect(ctx, network, ipAddr)
 	}
 }
 
@@ -198,44 +155,35 @@ func matchIPResourceForTunnel(index *ipresource.Index, target net.IP, network st
 func (d *Dialer) Dial(ctx context.Context, network string, addr string) (net.Conn, error) {
 	// If addr is IPv6, use direct connection
 	if strings.Count(addr, ":") > 1 {
-		return d.dialDirectIP(ctx, network, addr, "")
+		return dialDirect(ctx, network, addr)
 	}
 
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
-		return d.dialDirectHost(ctx, network, addr)
+		return dialDirect(ctx, network, addr)
 	}
 
 	var ip net.IP
 	if ip = net.ParseIP(host); ip == nil {
 		ctx, ip, err = d.resolver.Resolve(ctx, host)
 		if err != nil {
-			return d.dialDirectHost(ctx, network, addr)
+			return dialDirect(ctx, network, addr)
 		}
 
 		if strings.Count(ip.String(), ":") > 0 {
-			return d.dialDirectIP(ctx, network, ip.String()+":"+port, addr)
+			return dialDirect(ctx, network, ip.String()+":"+port)
 		}
 	}
 
 	return d.DialIPPort(ctx, network, ip.String()+":"+port)
 }
 
-func NewDialer(stack stack.Stack, resolver *resolve.Resolver, ipResources []client.IPResource, alwaysUseVPN bool, dialDirectProxy string) *Dialer {
-	dialHttpProxy := ""
-	dialSocksProxy := ""
-	if strings.HasPrefix(dialDirectProxy, "http://") {
-		dialHttpProxy = strings.TrimPrefix(dialDirectProxy, "http://")
-	} else if strings.HasPrefix(dialDirectProxy, "socks://") {
-		dialSocksProxy = strings.TrimPrefix(dialDirectProxy, "socks://")
-	}
+func NewDialer(stack stack.Stack, resolver *resolve.Resolver, ipResources []client.IPResource, alwaysUseVPN bool) *Dialer {
 	return &Dialer{
-		stack:                stack,
-		resolver:             resolver,
-		ipResources:          ipResources,
-		resourceIndex:        ipresource.New(ipResources),
-		alwaysUseVPN:         alwaysUseVPN,
-		dialDirectHTTPProxy:  dialHttpProxy,
-		dialDirectSocksProxy: dialSocksProxy,
+		stack:         stack,
+		resolver:      resolver,
+		ipResources:   ipResources,
+		resourceIndex: ipresource.New(ipResources),
+		alwaysUseVPN:  alwaysUseVPN,
 	}
 }

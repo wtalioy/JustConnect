@@ -32,7 +32,7 @@ func (b *trackingBody) Close() error {
 
 func TestHTTPProxyClosesUpstreamResponseBody(t *testing.T) {
 	body := &trackingBody{Reader: bytes.NewBufferString("response")}
-	proxy := newHTTPProxy(dial.NewDialer(nil, nil, nil, false, ""))
+	proxy := newHTTPProxy(dial.NewDialer(nil, nil, nil, false))
 	proxy.client.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return &http.Response{
 			StatusCode: http.StatusOK,
@@ -51,7 +51,7 @@ func TestHTTPProxyClosesUpstreamResponseBody(t *testing.T) {
 }
 
 func TestHTTPProxyTransportHasBoundedPool(t *testing.T) {
-	proxy := newHTTPProxy(dial.NewDialer(nil, nil, nil, false, ""))
+	proxy := newHTTPProxy(dial.NewDialer(nil, nil, nil, false))
 	transport, ok := proxy.client.Transport.(*http.Transport)
 	if !ok {
 		t.Fatalf("transport type = %T, want *http.Transport", proxy.client.Transport)
@@ -95,7 +95,7 @@ func TestHTTPConnectClosesTargetWhenClientDisconnects(t *testing.T) {
 		}
 	}()
 
-	proxy := httptest.NewServer(newHTTPProxy(dial.NewDialer(nil, nil, nil, false, "")))
+	proxy := httptest.NewServer(newHTTPProxy(dial.NewDialer(nil, nil, nil, false)))
 	defer proxy.Close()
 
 	clientConn, err := net.Dial("tcp", proxy.Listener.Addr().String())

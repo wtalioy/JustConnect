@@ -11,7 +11,7 @@ import (
 )
 
 func TestCloseInterruptsIdleProxyClientsAndAllowsRebind(t *testing.T) {
-	listeners, err := NewListeners(context.Background(), "127.0.0.1:0", "127.0.0.1:0", dial.NewDialer(nil, nil, nil, false, ""), nil)
+	listeners, err := NewListeners(context.Background(), "127.0.0.1:0", "127.0.0.1:0", dial.NewDialer(nil, nil, nil, false), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestSOCKSClientHalfClosePreservesDownstreamResponse(t *testing.T) {
 		}
 		served <- err
 	}()
-	p, err := NewListeners(context.Background(), "127.0.0.1:0", "", dial.NewDialer(nil, nil, nil, false, ""), nil)
+	p, err := NewListeners(context.Background(), "127.0.0.1:0", "", dial.NewDialer(nil, nil, nil, false), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
