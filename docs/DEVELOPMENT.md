@@ -76,7 +76,7 @@ ctest --test-dir build -C Release -R 'platformbackend_test|autostart_test|system
 
 Windows 自启动测试只操作预先确认不存在的唯一测试 Run 值，并注册退出清理；Linux 只写临时目录。macOS 测试用真实 osacompile 编译脚本，并注入命令结果检查登录项的取消、失败及回读；没有冒充真实 System Events 授权／登录项成功。Linux 设置窗口回归验证实际失败时配置／缓存保留，偏好测试在三平台验证真实存储失败。
 
-S2-01 不替代 S2-06 的系统快照／按所有权恢复，也不授予覆盖已有代理的测试权限；真实会话代理写入、dconf／KDE 会话和 macOS 交互授权仍须相应环境与恢复路径后验收。现有 clear 仍是关闭代理模式，不能当成恢复用户原有 PAC／代理／绕过项；完整退出与强杀恢复按 S3／S4／S7 验收。
+S2-06 当前正式后端已按快照及所有权恢复原有代理／PAC／绕过项，隔离验证范围见本节前文。真实桌面授权、校园／Clash 共存、完整有界退出与强杀恢复仍按对应 S3／S4／S7 任务验收。
 
 ## aTrust 配置与升级
 
@@ -84,11 +84,13 @@ S2-01 不替代 S2-06 的系统快照／按所有权恢复，也不授予覆盖�
 
 `ConnectionProfile` 只表示当前 ABI 可用的字段；没有协议选择器、任意附加参数或未实现的 TUN／旧转发开关。保存前由 `EmbeddedCoreEngine::validateConfiguration` 调用 `jc_config_validate`，不占用会话、不查询 DNS 或联网。向导保存失败停留原窗口；导入与恢复默认值先写窗口草稿，取消保留源文件和当前配置；导出用 QSaveFile 原子提交当前配置的公开字段；字段清单从默认配置派生，不复制密码、TOTP、其他账户／未知私有键或可能带会话参数的登录 URL。导出不允许覆盖正在使用的配置（包括指向它的符号链接）。
 
+ProfileService 的同一字段映射服务公开 INI、设置／引导草稿及连接入口；窗口从来源快照持有自己的读取对象，取消编辑不改源文件，旧窗口关闭或销毁后的凭据结果不覆盖新窗口输入。状态文件写入失败会保留当前选择；静默启动偏好保存失败会提示并保留草稿。INI 原文在私有临时目录重新解析并随检查清理，避免 Qt 缓存吞掉格式错误后重复尝试改写坏文件；该检查也用于迁移及凭据来源验证。副本用显式权限新建后仅写入内容，不复制源文件元数据，且只读来源保持原样；目录创建和自动清理复用 [Qt 实现](https://raw.githubusercontent.com/qt/qtbase/6.12/src/corelib/io/qtemporarydir.cpp)，不另加平台封装。
+
 配置版本 9 只补齐缺失默认值，保留现有端点、认证、监听禁用值、未知键及其他账户／配置文件。`SettingsMigrator` 集中复制旧分组、标记旧协议待人工确认、移除明确废弃字段和提交版本；失败保留旧版本，退出不抢先写入升级完成。版本高于当前值时不降级或清理未知的新格式。仍需支持旧分组的已发布配置，在验证不再支持这些版本后才能删除这条迁移路径。
 
 配置加载不再读取 INI 密码／TOTP，默认字段也不创建私有占位。访问安全凭据时先迁移旧值并回读确认，再删除旧值；未确认身份的材料只隔离归档。旧缓存文件不自动绑定账号，清理废弃字段不代替迁移；登录 URL 只作内存预览。S2-08 的核心票据恢复尚未接入，现有“清理旧版缓存”菜单只删除当前托管配置尚未迁移的旧文件。
 
-针对性回归可运行 `ctest --test-dir build -R 'serversettingswidget|settingwindow|configurationguidedialog|settingsmigrator|settingsprofileloader|coreengine' --output-on-failure`；根测试与包构建还运行完整套件，原生宿主检查实际纯校验导出及资源边界。Linux 设置窗口用临时目录操作真实 Qt 按钮／文件对话框，覆盖库校验失败、自启动失败、取消导入／重置、导出、废弃字段清理及缓存保留；这些检查不访问校园账号。
+针对性回归可运行 `ctest --test-dir build -R 'profileservice|profilemanager|credentialaccess|serversettingswidget|settingwindow|configurationguidedialog|settingsmigrator|settingsprofileloader|coreengine' --output-on-failure`；根测试与包构建还运行完整套件，原生宿主检查实际纯校验导出及资源边界。Linux 设置窗口用临时目录操作真实 Qt 按钮／文件对话框，覆盖库校验失败、启动偏好失败、取消导入／重置、导出、废弃字段清理、旧窗口晚到结果及缓存保留；配置／后台回归另验证损坏文件的重复拒绝和修复重试；这些检查不访问校园账号。
 
 ## 分支与 Actions
 

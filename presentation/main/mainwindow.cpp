@@ -749,7 +749,6 @@ void MainWindow::createProfile()
     settings = profileService->settings();
     currentProfileId = profileService->currentProfileId();
     upgradeSettings();
-    updateVersionInfo();
     resetConnectionUi();
     updateVersionInfo();
     clearLog();

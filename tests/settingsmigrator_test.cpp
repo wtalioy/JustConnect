@@ -2,6 +2,7 @@
 #include <QDebug>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include "application/applicationconstants.h"
 #include <QSettings>
 #include <QTemporaryDir>
@@ -11,6 +12,22 @@
 
 namespace
 {
+bool validatesReadOnlySourcesWithoutChangingThem()
+{
+    QTemporaryDir folder;const auto path=folder.filePath("readonly.ini");
+    const QByteArray bytes="[Credential]\nUsername=alice\nPassword=legacy-value\n[OtherAccount]\nTicket=retained\n";
+    {QFile file(path);if (!file.open(QIODevice::WriteOnly) || file.write(bytes)!=bytes.size()) return false;}
+    if (!QFile::setPermissions(path,QFile::ReadOwner)) return false;
+    const auto temporaryDirectories=[] {
+        return QDir(QDir::tempPath()).entryList({QCoreApplication::applicationName()+"-*"},QDir::Dirs|QDir::NoDotAndDotDot,QDir::Name);
+    };
+    const auto before=temporaryDirectories();
+    const bool valid=SettingsMigrator::readableFile(path) && SettingsMigrator::readableFile(path)
+        && !QFileInfo(path).permission(QFile::WriteOwner) && temporaryDirectories()==before;
+    QFile source(path);const bool retained=source.open(QIODevice::ReadOnly) && source.readAll()==bytes;source.close();
+    return QFile::setPermissions(path,QFile::ReadOwner|QFile::WriteOwner) && valid && retained;
+}
+
 bool exportsOnlyPublicConfiguration()
 {
     QTemporaryDir folder;
@@ -205,7 +222,8 @@ bool failedSaveRemainsRetryable()
 int main(int argc, char *argv[])
 {
     QCoreApplication app(argc, argv);
-    return preparesPublicDraftWithoutCopyingSecrets()
+    return validatesReadOnlySourcesWithoutChangingThem()
+        && preparesPublicDraftWithoutCopyingSecrets()
         && exportsOnlyPublicConfiguration()
         && renamesPreviewSettingsWithoutLosingValues()
         && preservesAlreadyRenamedSettings()
