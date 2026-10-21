@@ -21,6 +21,8 @@ extern "C" {
  */
 JC_API uint32_t jc_abi_version(void);
 JC_API int32_t jc_build_info(uint32_t abi, uint8_t *output, uint32_t capacity, uint32_t *length);
+/* Read current interfaces and IP routes, without modifying network state. */
+JC_API int32_t jc_network_snapshot(uint32_t abi, uint8_t *output, uint32_t capacity, uint32_t *length);
 /* Pure validation: no session, listeners, DNS or network operations. */
 JC_API int32_t jc_config_validate(uint32_t abi, const uint8_t *config, uint32_t length);
 JC_API int32_t jc_session_create(uint32_t abi, uint64_t *handle);
