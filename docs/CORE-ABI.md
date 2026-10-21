@@ -8,7 +8,7 @@
 
 构建提交与工作树状态由 Git 查询注入，不填写开发机目录、学校地址或账户。`jc_build_info` 返回当前 Go 版本、目标 OS／架构、JustConnect 完整提交、上游基线和由提交／工作树状态组成的本地版本。直接手动构建而没有 VCS 信息时明确返回 `unversioned/unknown`，不能作为可追溯发布产物。
 
-正式库返回 `embedded_vpn:true`、`auth_method_query:true`、`authentication_cache:true`、`policy_update:true`。Start 使用真实会话：认证、资源、选线、IP 握手、解析、gVisor 和监听均成功后才产生 `ready`，失败或取消在清理完成后产生终态。该事件仅表示核心通道／本地代理就绪；系统接管与系统 DNS 不在其契约内，产品“已连接”须由应用层按 [R11／S7-02](../plan.md) 汇总完整就绪条件。只有测试驱动和未安装 Runner 的纯传输引擎没有 VPN 能力；测试驱动始终标记 `test_driver:true`。
+正式库返回 `embedded_vpn:true`、`auth_method_query:true`、`authentication_cache:true`、`policy_update:true`、`network_snapshot:true`。Start 使用真实会话：认证、资源、选线、IP 握手、解析、gVisor 和监听均成功后才产生 `ready`，失败或取消在清理完成后产生终态。该事件仅表示核心通道／本地代理就绪；系统接管与系统 DNS 不在其契约内，产品“已连接”须由应用层按 [R11／S7-02](../plan.md) 汇总完整就绪条件。只有测试驱动和未安装 Runner 的纯传输引擎没有 VPN 能力；测试驱动始终标记 `test_driver:true`。
 
 ## C 边界与生命周期
 
@@ -22,6 +22,7 @@ UTF-8 JSON 不带结尾 NUL。输入仅借用至调用返回，库在返回前�
 | --- | --- |
 | `jc_abi_version()` | 返回 ABI 版本 |
 | `jc_build_info(abi, output, capacity, length)` | 校验版本，返回构建来源和实际能力 JSON |
+| `jc_network_snapshot(abi, output, capacity, length)` | 只读返回当前接口／IP 路由及观察时间，不创建会话或改网络 |
 | `jc_config_validate(abi, config, length)` | 使用启动时同一解析器作纯配置校验，不创建会话、不监听或联网；同样限制输入长度／未知字段 |
 | `jc_session_create(abi, handle)` | 校验版本，创建空闲句柄；保留数量受契约限制 |
 | `jc_session_start(handle, config, length, generation)` | 同步严格校验并复制配置，异步启动；返回代次 |
@@ -59,6 +60,14 @@ ABI v1 与 JSON schema 版本同步。S2-02 以兼容增补导出 `jc_config_val
 `network` 支持 `interface/auto_detect/local_dns/secondary_dns/dns_cache_ttl/disable_remote_dns/language`。接口、DNS 和语言显式传入；local DNS 允许 IP 或 IP:port，secondary DNS 为 IP。接口名优先于自动选择；自动选择默认关闭，避免悄悄改变宿主的网络策略。DNS 缓存寿命与维护间隔的默认值集中在 `corelib/session.go`，缓存不启动游离 janitor，且有容量上限。代理出口不读取系统 HTTP_PROXY 等环境配置；本阶段不修改路由、系统代理或系统 DNS，不创建自己的 TUN。Clash 共存仍由后续阶段验证。
 
 拒绝重复键、未知字段、非规范字段大小写、尾随 JSON、null、超深结构、无效 UTF-8、NUL 和 Unicode 替代字符。超限值不截断、不静默回退。无效输入只返回 `JC_INVALID_ARGUMENT`，不把账户、密码或输入片段写入错误。
+
+## 原网络只读快照
+
+核对 `network_snapshot` 能力与对应导出后调用 `jc_network_snapshot`，返回 `{schema_version,observed_at,network:{os,interfaces,routes}}`。接口包含原生索引、名称、状态、回环标记与实际地址／前缀；Windows 另返回原生硬件描述，不能仅凭用户可改的接口别名判断官方 VPN。路由保留目的前缀、接口及网关，平台可用时附带表、指标、协议、类型、标志及多下一跳；这些原生枚举按返回的 OS 解释。
+
+Linux 使用独立限时 netlink 句柄读取所有 IP 路由表，包含 Tailscale 等非 main 表及多下一跳；Windows 使用 IP Helper 原生表与接口元数据；macOS 使用原生 RIB，保留 IPv4／IPv6 掩码和接口作用域标志。不会把默认／分割默认出口转换成保护目标。此投影尚不包含系统 DNS、Linux 策略路由规则或所有网络管理器状态，不能替代 S4-03 的操作所有权／恢复记录，也不能据此宣称出口选择已验收。
+
+输出仍受 `MaxOutput` 限制，超限返回 `JC_LIMIT` 并保持长度为零，不交付截断快照。接口变化或读取失败只返回固定状态，不输出含地址的系统错误。可直接提供 `MaxOutput` 缓冲；查询容量与随后读取是两次独立观测，网络变化时所需长度可变。操作只读，但本身不是内核事务；应用网络变更前仍须重新核对原值与所有权。快照内容留在调用方，不自动写日志。
 
 ## 保护策略更新
 

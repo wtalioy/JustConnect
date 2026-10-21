@@ -7,11 +7,14 @@ import "C"
 
 import (
 	"encoding/json"
+	"errors"
 	"runtime"
 	"runtime/debug"
+	"time"
 	"unsafe"
 
 	"github.com/wtalioy/JustConnect/corelib/internal/bridge"
+	"github.com/wtalioy/JustConnect/corelib/internal/networkstate"
 )
 
 var revision string
@@ -45,7 +48,8 @@ func buildInfo() []byte {
 			"upstream_commit": bridge.UpstreamCommit, "local_version": rev + "+" + state,
 			"go_version": runtime.Version(), "os": runtime.GOOS, "arch": runtime.GOARCH},
 		"capabilities": map[string]any{"embedded_vpn": !testDriver, "auth_method_query": !testDriver, "authentication_cache": !testDriver, "policy_update": true,
-			"async_start": true, "authentication_response": true, "bounded_events": true,
+			"network_snapshot": networkstate.Supported(),
+			"async_start":      true, "authentication_response": true, "bounded_events": true,
 			"max_sessions": 1, "max_handles": bridge.MaxHandles, "max_input_bytes": bridge.MaxInput,
 			"max_output_bytes": bridge.MaxOutput, "max_wait_ms": bridge.MaxWaitMS, "max_auth_wait_ms": bridge.MaxAuthWaitMS,
 			"max_diagnostics": bridge.MaxDiagnostics},
@@ -91,6 +95,31 @@ func jc_go_build_info(abi C.uint32_t, output *C.uint8_t, capacity C.uint32_t, le
 		return C.int32_t(bridge.ABIMismatch)
 	}
 	return writeOutput(buildInfo(), output, capacity, length)
+}
+
+//export jc_go_network_snapshot
+func jc_go_network_snapshot(abi C.uint32_t, output *C.uint8_t, capacity C.uint32_t, length *C.uint32_t) C.int32_t {
+	if !outputValid(output, capacity, length) {
+		return C.int32_t(bridge.InvalidArgument)
+	}
+	if abi != bridge.ABIVersion {
+		return C.int32_t(bridge.ABIMismatch)
+	}
+	snapshot, err := networkstate.Read()
+	if errors.Is(err, networkstate.ErrUnsupported) {
+		return C.int32_t(bridge.Unsupported)
+	}
+	if err != nil {
+		return C.int32_t(bridge.Internal)
+	}
+	data, err := json.Marshal(map[string]any{"schema_version": bridge.ABIVersion, "observed_at": time.Now().UTC().Format(time.RFC3339Nano), "network": snapshot})
+	if err != nil {
+		return C.int32_t(bridge.Internal)
+	}
+	if len(data) > bridge.MaxOutput {
+		return C.int32_t(bridge.Limit)
+	}
+	return writeOutput(data, output, capacity, length)
 }
 
 //export jc_go_config_validate

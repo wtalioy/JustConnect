@@ -1,6 +1,7 @@
 #include "justconnect.h"
 #include "proxycheck.h"
 #include <QApplication>
+#include <QDateTime>
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -24,7 +25,7 @@ extern "C" int32_t jc_c_header_smoke(uint32_t (*query)(void));
 static void check(bool ok, const char *message) {
     if (!ok) { std::cerr << "FAIL: " << message << '\n'; std::exit(1); }
 }
-#define ABI_FUNCTIONS(X) X(jc_abi_version) X(jc_build_info) X(jc_config_validate) X(jc_session_create) X(jc_session_start) \
+#define ABI_FUNCTIONS(X) X(jc_abi_version) X(jc_build_info) X(jc_network_snapshot) X(jc_config_validate) X(jc_session_create) X(jc_session_start) \
     X(jc_session_read) X(jc_session_respond) X(jc_session_update_policy) X(jc_session_stop) X(jc_session_destroy)
 struct API {
 #define MEMBER(name) decltype(&::name) name;
@@ -67,6 +68,20 @@ static QJsonObject read(API &api, uint64_t handle) {
     check(api.jc_session_read(handle, 1000, output.data() + 1, length, &required) == JC_OK &&
           required == length && output.front() == 0x5a && output.back() == 0x5a, "output bounds");
     return json(output, length);
+}
+
+static void networkSnapshot(API &api) {
+    uint32_t length = 99;
+    check(api.jc_network_snapshot(99, nullptr, 0, &length) == JC_ABI_MISMATCH && length == 0, "network snapshot version boundary");
+    std::vector<uint8_t> bytes(JC_MAX_OUTPUT + 2, 0x5a);
+    check(api.jc_network_snapshot(JC_ABI_VERSION, bytes.data() + 1, JC_MAX_OUTPUT, &length) == JC_OK,
+        "native read-only network snapshot through real C ABI");
+    const auto snapshot = json(bytes,length);
+    const auto network = snapshot["network"].toObject();
+    check(!network["interfaces"].toArray().isEmpty() && !network["routes"].toArray().isEmpty()
+        && QDateTime::fromString(snapshot["observed_at"].toString(),Qt::ISODateWithMs).isValid(), "actual interfaces, routes and observation time");
+    check(bytes.front() == 0x5a && bytes.back() == 0x5a, "network snapshot output bounds");
+    std::cout << "PASS: native read-only interface and route snapshot through C ABI\n";
 }
 
 static void authentication(API &api) {
@@ -236,6 +251,8 @@ int main(int argc, char **argv) {
     check(info["capabilities"].toObject()["embedded_vpn"].toBool() == !info["test_driver"].toBool(),
           "protocol capability identifies production and fixture drivers");
     check(info["capabilities"].toObject()["policy_update"].toBool(), "policy update capability matches the loaded export");
+    check(info["capabilities"].toObject()["network_snapshot"].toBool(), "native network snapshot capability");
+    networkSnapshot(api);
     check(metadata.front() == 0x5a && metadata.back() == 0x5a, "metadata bounds");
 #ifdef ABI_FIXTURE
     check(info["test_driver"].toBool(), "fixture build must identify itself");
