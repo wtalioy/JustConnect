@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"io"
@@ -48,8 +49,27 @@ func TestProtocolQueryProxyStopAndRestart(t *testing.T) {
 	c.Listeners.SOCKS, c.Listeners.HTTP = freeAddress(t), freeAddress(t)
 	for round := 0; round < 2; round++ {
 		startProtocol(t, e, h, c)
-		if ev := next(t, e, h); ev.State != "ready" {
-			t.Fatalf("ready = %+v", ev)
+		ready := next(t, e, h)
+		if ready.State != "ready" {
+			t.Fatalf("ready = %+v", ready)
+		}
+		data, status := e.Resources(h, ready.Generation)
+		if status != OK {
+			t.Fatal(status)
+		}
+		var snapshot struct {
+			Resources resourceSnapshot `json:"resources"`
+		}
+		if err := json.Unmarshal(data, &snapshot); err != nil {
+			t.Fatal(err)
+		}
+		if len(snapshot.Resources.IPs) < 2 || len(snapshot.Resources.Domains["campus.test"]) != 1 || len(snapshot.Resources.DNSRecords["campus.test"]) != 1 {
+			t.Fatal("actual parsed resource data missing")
+		}
+		for _, row := range snapshot.Resources.IPs {
+			if row.IPMin != "192.0.2.10" || row.IPMax != "192.0.2.10" || row.PortMin != 1 || row.PortMax != 65535 {
+				t.Fatal("unexpected resource scope")
+			}
 		}
 		socks, err := proxy.SOCKS5("tcp", c.Listeners.SOCKS, nil, &net.Dialer{})
 		if err != nil {

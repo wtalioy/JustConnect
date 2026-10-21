@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"time"
 
+	"github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/wtalioy/JustConnect/corelib/client/atrust"
 	"github.com/wtalioy/JustConnect/corelib/client/atrust/auth"
 	"github.com/wtalioy/JustConnect/corelib/dial"
@@ -42,6 +44,16 @@ type Options struct {
 type Observer struct {
 	Ready       func() error
 	AuthMethods func([]auth.AuthInfo) error
+	Resources   func(Resources)
+}
+
+// Resources borrows the session's parsed data read-only for the observer call.
+type Resources struct {
+	IPs              []client.IPResource
+	Domains          client.DomainResources
+	DNSRecords       map[string][]net.IP
+	CampusDNS        string
+	CampusDNSEnabled bool
 }
 
 // Session owns one protocol invocation; the ABI serializes starts and joins Run on stop.
@@ -188,6 +200,9 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 		return err
 	}
 	remoteDNS, _ := vpn.DNSServer()
+	if observer.Resources != nil {
+		observer.Resources(Resources{ips, domains, dnsResource, remoteDNS, !options.DisableRemoteDNS && remoteDNS != ""})
+	}
 	ttl := options.DNSCacheTTL
 	if ttl == 0 {
 		ttl = DefaultDNSCacheTTL
