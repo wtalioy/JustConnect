@@ -197,6 +197,18 @@ bool ProfileManager::setSilentStartEnabled(bool enabled) const
     return writeState(statePath,"Global/SilentStart",enabled);
 }
 
+bool ProfileManager::closeToTray() const
+{
+    QSettings state(statePath,QSettings::IniFormat);
+    const auto value=state.value("Global/CloseToTray",true).toString().toLower();
+    return value!="false" && value!="0";
+}
+
+bool ProfileManager::setCloseToTray(bool enabled) const
+{
+    return writeState(statePath,"Global/CloseToTray",enabled);
+}
+
 QString ProfileManager::ensureUniqueProfileId(const QString &baseId) const
 {
     QString candidate = baseId;

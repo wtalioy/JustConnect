@@ -9,6 +9,11 @@
 #include <QAction>
 #include <QDir>
 #include <QEvent>
+#include <QComboBox>
+#include <QDialogButtonBox>
+#include <QPushButton>
+#include <QMessageBox>
+#include <QTcpServer>
 #include <QLabel>
 #include <QStandardPaths>
 #include <QTemporaryDir>
@@ -58,6 +63,51 @@ int main(int argc,char **argv) {
         const bool tray=QSystemTrayIcon::isSystemTrayAvailable();
         check(tray ? window.isHidden() : window.isVisible(),"default close must use an available tray or keep the window reachable");
         window.show();
+        QTcpServer stalledGateway;
+        auto *connection=window.findChild<ConnectionSession *>();
+        const bool activePreferences=app.arguments().contains("--active-preferences");
+        if (activePreferences) {
+            check(stalledGateway.listen(QHostAddress::LocalHost),"isolated active preference gateway");
+            ConnectionProfile profile;profile.endpoint.server="127.0.0.1";profile.endpoint.port=stalledGateway.serverPort();
+            check(connection && connection->start(profile,{}),"start a cancellable real core operation before editing preferences");
+        }
+        auto *preferencesAction=window.findChild<QAction *>("preferencesAction");
+        check(preferencesAction,"application preferences must be discoverable without a school configuration");
+        const auto openPreferences=[&] {
+            preferencesAction->trigger();
+            auto *dialog=window.findChild<QDialog *>("applicationPreferencesDialog");
+            check(dialog && dialog->isVisible(),"application preferences open independently of school settings");
+            return dialog;
+        };
+        auto *preferences=openPreferences();
+        preferences->findChild<QComboBox *>("closeBehaviorComboBox")->setCurrentIndex(1);
+        preferences->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Cancel)->click();
+        QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+        check(ProfileManager().closeToTray(),"cancelling preferences cannot change close behavior");
+        preferences=openPreferences();
+        preferences->findChild<QComboBox *>("closeBehaviorComboBox")->setCurrentIndex(1);
+        if (app.arguments().contains("--preferences-failure")) {
+            check(ProfileManager().setCloseToTray(true),"prepare previous global preference");
+            const auto state=QDir(configRoot).filePath("state.ini");
+            QFile input(state);check(input.open(QIODevice::ReadOnly),"read original preference");const auto original=input.readAll();input.close();
+            check(QFile::remove(state) && QDir().mkdir(state),"inject isolated preference storage failure");
+            QTimer::singleShot(0,&app,[&]{for(auto *widget:app.topLevelWidgets()) if(auto *message=qobject_cast<QMessageBox *>(widget))message->accept();});
+            preferences->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->click();
+            check(preferences->isVisible(),"failed preference save must keep the dialog open");
+            check(QDir().rmdir(state),"remove isolated failure fixture");
+            QFile restore(state);check(restore.open(QIODevice::WriteOnly) && restore.write(original)==original.size(),"restore original preference fixture");restore.close();
+            preferences->reject();
+            check(ProfileManager().closeToTray(),"failed save cannot replace the previous preference");
+        } else {
+            preferences->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->click();
+            check(window.isVisible() && !ProfileManager().closeToTray(),"saving close behavior must persist without immediately closing the window");
+            if (!app.arguments().contains("--close-exits")) check(ProfileManager().setCloseToTray(true),"restore default preference for explicit exit tests");
+        }
+        QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+        if (activePreferences) {
+            check(connection->isActive() && connection->state()==ConnectionState::Starting,"preference saves must not stop or restart the active session");
+            connection->stop();
+        }
         bool quitIntercepted=false;
         TerminationRequests termination;
         QObject::connect(&termination,&TerminationRequests::requested,&window,[&] {
@@ -65,6 +115,7 @@ int main(int argc,char **argv) {
             quitIntercepted=true;window.gracefullyQuit();
         });
         QTimer::singleShot(0,&app,[&] {
+            if (app.arguments().contains("--close-exits")) {quitIntercepted=true;window.close();return;}
             if (app.arguments().contains("--wait-for-signal")) {
                 QFile output;check(output.open(stdout,QIODevice::WriteOnly),"signal child output");
                 output.write("READY\n");output.flush();return;

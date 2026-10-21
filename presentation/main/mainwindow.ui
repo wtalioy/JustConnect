@@ -464,6 +464,7 @@
     <addaction name="separator"/>
     <addaction name="separator"/>
     <addaction name="openLogAction"/>
+    <addaction name="preferencesAction"/>
     <addaction name="settingAction"/>
     <addaction name="exitAction"/>
    </widget>
@@ -492,6 +493,10 @@
    <property name="menuRole">
     <enum>QAction::MenuRole::AboutRole</enum>
    </property>
+  </action>
+  <action name="preferencesAction">
+   <property name="text"><string>应用偏好设置…</string></property>
+   <property name="menuRole"><enum>QAction::MenuRole::PreferencesRole</enum></property>
   </action>
   <action name="exitAction">
    <property name="text">

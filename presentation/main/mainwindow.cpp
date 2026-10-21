@@ -15,6 +15,11 @@
 #include <QStyle>
 #include <QStyleHints>
 #include <QTimer>
+#include <QFormLayout>
+#include <QComboBox>
+#include <QDialogButtonBox>
+#include <QLabel>
+#include "infrastructure/settings/profilemanager.h"
 
 #include "mainwindow.h"
 
@@ -161,6 +166,8 @@ MainWindow::MainWindow(
 
     // 文件-退出
     connect(ui->exitAction, &QAction::triggered, this, &MainWindow::gracefullyQuit);
+
+    connect(ui->preferencesAction,&QAction::triggered,this,&MainWindow::showApplicationPreferences);
 
     // 文件-设置
     connect(ui->settingAction, &QAction::triggered, this,
@@ -379,6 +386,7 @@ void MainWindow::closeEvent(QCloseEvent *event)
 {
     if (exitReady) { event->accept();return; }
     event->ignore();
+    if (!ProfileManager().closeToTray()) { gracefullyQuit();return; }
     if (trayIcon && trayIcon->isVisible() && QSystemTrayIcon::isSystemTrayAvailable()) {
         hide();
         showNotification("JustConnect", "程序继续在系统托盘运行，单击图标可恢复窗口；退出请使用菜单。", QSystemTrayIcon::Information);
@@ -388,6 +396,37 @@ void MainWindow::closeEvent(QCloseEvent *event)
     }
 }
 
+
+void MainWindow::showApplicationPreferences()
+{
+    if (auto *existing=findChild<QDialog *>("applicationPreferencesDialog")) {existing->show();existing->raise();existing->activateWindow();return;}
+    auto *dialog=new QDialog(this);
+    dialog->setObjectName("applicationPreferencesDialog");
+    dialog->setWindowTitle("应用偏好设置");
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setWindowModality(Qt::WindowModal);
+    auto *layout=new QFormLayout(dialog);
+    auto *behavior=new QComboBox(dialog);behavior->setObjectName("closeBehaviorComboBox");
+    behavior->addItem("隐藏到系统托盘，保持当前连接",true);
+    behavior->addItem("有序退出应用，断开当前连接",false);
+    behavior->setCurrentIndex(ProfileManager().closeToTray() ? 0 : 1);
+    layout->addRow("关闭主窗口时",behavior);
+    auto *hint=new QLabel(QSystemTrayIcon::isSystemTrayAvailable()
+        ? "保存后在下次关闭主窗口时生效；菜单中的退出始终有序退出。"
+        : "系统托盘不可用。选择隐藏时将保留可访问窗口；仍可通过菜单退出。",dialog);
+    hint->setWordWrap(true);layout->addRow(hint);
+    auto *buttons=new QDialogButtonBox(QDialogButtonBox::Save|QDialogButtonBox::Cancel,dialog);
+    layout->addRow(buttons);
+    connect(buttons,&QDialogButtonBox::rejected,dialog,&QDialog::reject);
+    connect(buttons,&QDialogButtonBox::accepted,dialog,[dialog,behavior] {
+        if (!ProfileManager().setCloseToTray(behavior->currentData().toBool())) {
+            QMessageBox::warning(dialog,"偏好未保存","无法保存关闭行为。原有效偏好保持不变，请检查配置目录后重试。");
+            return;
+        }
+        dialog->accept();
+    });
+    dialog->show();
+}
 
 void MainWindow::clearLog()
 {
