@@ -81,6 +81,14 @@ static void networkSnapshot(API &api) {
     check(!network["interfaces"].toArray().isEmpty() && !network["routes"].toArray().isEmpty()
         && QDateTime::fromString(snapshot["observed_at"].toString(),Qt::ISODateWithMs).isValid(), "actual interfaces, routes and observation time");
     check(bytes.front() == 0x5a && bytes.back() == 0x5a, "network snapshot output bounds");
+    if (network["os"] == "linux") {
+        bool local = false;
+        for (const auto &value : network["policy_rules"].toArray()) {
+            const auto rule = value.toObject();
+            local |= rule["family"] == 2 && rule["table"] == 255 && rule["action"] == 1 && rule["attributes"].isArray();
+        }
+        check(local, "native Linux policy rules through actual C ABI");
+    } else check(network["policy_rules"].isNull(), "unavailable native policy rules remain explicit");
     std::cout << "PASS: native read-only interface and route snapshot through C ABI\n";
 }
 
