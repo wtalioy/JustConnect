@@ -234,7 +234,9 @@ func (s *Session) cacheEvent(e event) Status {
 // Diagnostic accepts stable codes, never arbitrary server responses or credentials.
 func (s *Session) Diagnostic(code string) Status {
 	switch code {
-	case "transport_connected", "authentication_started", "keepalive_retry", "anti_mitm_failed", "persistence_failed", "manifest_cached", "auth_detail_unavailable":
+	case "transport_connected", "authentication_started", "keepalive_retry", "anti_mitm_failed", "persistence_failed", "manifest_cached", "auth_detail_unavailable",
+		"tls_authentication_failed", "tls_resources_failed", "tls_node_probe_failed", "tls_ip_tunnel_failed",
+		"tls_unknown_authority", "tls_hostname_mismatch", "tls_certificate_time_invalid", "tls_certificate_invalid":
 	default:
 		return InvalidArgument
 	}

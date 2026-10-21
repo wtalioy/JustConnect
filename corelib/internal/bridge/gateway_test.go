@@ -51,6 +51,11 @@ type gateway struct {
 
 func newGateway(t *testing.T) *gateway {
 	t.Helper()
+	return newGatewayWithNodeTLS(t, nil)
+}
+
+func newGatewayWithNodeTLS(t *testing.T, nodeTLS *tls.Config) *gateway {
+	t.Helper()
 	g := &gateway{accepted: make(chan struct{}), conns: make(map[net.Conn]bool), ipStarted: make(chan struct{}, 8)}
 	g.HTTP = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -145,7 +150,10 @@ func newGateway(t *testing.T) *gateway {
 		}
 	}))
 	var err error
-	g.node, err = tls.Listen("tcp", "127.0.0.1:0", g.HTTP.TLS.Clone())
+	if nodeTLS == nil {
+		nodeTLS = g.HTTP.TLS.Clone()
+	}
+	g.node, err = tls.Listen("tcp", "127.0.0.1:0", nodeTLS)
 	if err != nil {
 		g.HTTP.Close()
 		t.Fatal(err)

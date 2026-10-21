@@ -284,6 +284,13 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) (_ []by
 		return nil, errors.New("underlay dialer is required")
 	}
 	c.serverAddress = options.ServerAddress
+	tlsFailureStage := "tls_authentication_failed"
+	defer func() {
+		var certificate *tls.CertificateVerificationError
+		if c.diagnostic != nil && errors.As(err, &certificate) {
+			c.diagnostic(tlsFailureStage)
+		}
+	}()
 
 	authServerHost := net.JoinHostPort(options.ServerAddress, fmt.Sprint(options.ServerPort))
 	expectedAccount := c.Username
@@ -395,6 +402,7 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) (_ []by
 		c.SignKey = randHex(64)
 		c.Username = loginResult.Username
 
+		tlsFailureStage = "tls_resources_failed"
 		resourceData, err = sess.ClientResource()
 		if err != nil {
 
@@ -420,6 +428,7 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) (_ []by
 		return nil, err
 	}
 
+	tlsFailureStage = "tls_node_probe_failed"
 	c.BestNodes, err = getBestNodes(setupCtx, c.NodeGroups, c.underlayDialer.DialContext, c.tlsPolicy)
 	if err != nil {
 		return nil, err
@@ -428,6 +437,7 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) (_ []by
 		return nil, err
 	}
 
+	tlsFailureStage = "tls_ip_tunnel_failed"
 	err = c.getIP(setupCtx)
 	if err != nil {
 		return nil, err
