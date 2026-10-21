@@ -48,6 +48,7 @@ type gateway struct {
 	sessions         sync.Map
 	passwordMethod   atomic.Bool
 	rotateSID        atomic.Bool
+	extraWANNode     atomic.Value
 }
 
 func newGateway(t *testing.T) *gateway {
@@ -148,7 +149,11 @@ func newGatewayWithNodeTLS(t *testing.T, nodeTLS *tls.Config) *gateway {
 				http.SetCookie(w, &http.Cookie{Name: "sid", Value: "private-resource-sid", Path: "/"})
 				g.sessions.Store("private-resource-sid", "fixture-user")
 			}
-			fmt.Fprintf(w, `{"data":{"appList":{"data":{"appInfo":[{"apps":[{"ID":"fixture-app","nodeGroupID":"fixture-group","accessModel":"L3VPN","addressList":[{"protocol":"udp","port":"1-65535","host":"192.0.2.10"},{"protocol":"tcp","port":"1-65535","host":"192.0.2.10"},{"protocol":"tcp","port":"1-65535","host":"campus.test","IP":["192.0.2.10"]}]}]}],"config":{"nodeGroupConf":{"majorNodeGroup":{"ID":"fixture-group"},"nodeGroupList":[{"ID":"fixture-group","addressInfo":[{"type":"wan","address":%q}]}]}}}}}}`, g.node.Addr().String())
+			extraNode := ""
+			if address, _ := g.extraWANNode.Load().(string); address != "" {
+				extraNode = fmt.Sprintf(`,{"type":"wan","address":%q}`, address)
+			}
+			fmt.Fprintf(w, `{"data":{"appList":{"data":{"appInfo":[{"apps":[{"ID":"fixture-app","nodeGroupID":"fixture-group","accessModel":"L3VPN","addressList":[{"protocol":"udp","port":"1-65535","host":"192.0.2.10"},{"protocol":"tcp","port":"1-65535","host":"192.0.2.10"},{"protocol":"tcp","port":"1-65535","host":"campus.test","IP":["192.0.2.10"]}]}]}],"config":{"nodeGroupConf":{"majorNodeGroup":{"ID":"fixture-group"},"nodeGroupList":[{"ID":"fixture-group","addressInfo":[{"type":"wan","address":%q}%s]}]}}}}}}`, g.node.Addr().String(), extraNode)
 		default:
 			t.Errorf("unexpected gateway route %s", r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)

@@ -17,8 +17,12 @@ import (
 )
 
 func TestTLSFailureDiagnosticsAfterAuthentication(t *testing.T) {
-	for _, reason := range []string{"tls_unknown_authority", "tls_hostname_mismatch", "tls_certificate_time_invalid", "trusted"} {
-		t.Run(reason, func(t *testing.T) {
+	for _, scenario := range []string{"tls_unknown_authority", "tls_hostname_mismatch", "tls_certificate_time_invalid", "trusted", "unknown_authority_and_timeout", "untrusted_issuer_leaf_only", "untrusted_issuer_with_chain"} {
+		t.Run(scenario, func(t *testing.T) {
+			reason := scenario
+			if scenario == "unknown_authority_and_timeout" || strings.HasPrefix(scenario, "untrusted_issuer_") {
+				reason = "tls_unknown_authority"
+			}
 			key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 			if err != nil {
 				t.Fatal(err)
@@ -38,7 +42,41 @@ func TestTLSFailureDiagnosticsAfterAuthentication(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			g := newGatewayWithNodeTLS(t, &tls.Config{Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key}}})
+			chain := [][]byte{der}
+			selfSigned := true
+			if strings.HasPrefix(scenario, "untrusted_issuer_") {
+				issuerKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+				if err != nil {
+					t.Fatal(err)
+				}
+				issuer := *certificate
+				issuer.SerialNumber = big.NewInt(2)
+				issuer.Subject.CommonName = "private-untrusted-issuer"
+				issuerDER, err := x509.CreateCertificate(rand.Reader, &issuer, &issuer, &issuerKey.PublicKey, issuerKey)
+				if err != nil {
+					t.Fatal(err)
+				}
+				certificate.IsCA = false
+				der, err = x509.CreateCertificate(rand.Reader, certificate, &issuer, &key.PublicKey, issuerKey)
+				if err != nil {
+					t.Fatal(err)
+				}
+				chain = [][]byte{der}
+				if scenario == "untrusted_issuer_with_chain" {
+					chain = append(chain, issuerDER)
+				}
+				selfSigned = false
+			}
+			g := newGatewayWithNodeTLS(t, &tls.Config{Certificates: []tls.Certificate{{Certificate: chain, PrivateKey: key}}})
+			if scenario == "unknown_authority_and_timeout" {
+				// A TCP listener that never accepts stalls each TLS probe until its deadline.
+				silent, err := net.Listen("tcp", "127.0.0.1:0")
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { _ = silent.Close() })
+				g.extraWANNode.Store(silent.Addr().String())
+			}
 			c := g.config(t)
 			if reason != "tls_unknown_authority" {
 				c.TLS.CAPEM += string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
@@ -71,7 +109,14 @@ func TestTLSFailureDiagnosticsAfterAuthentication(t *testing.T) {
 					next(t, e, h)
 					return
 				}
-				if event.Type != "terminal" || event.Status != TLSTrust || len(codes) != 2 || !codes["tls_node_probe_failed"] || !codes[reason] || g.authCount.Load() != 1 {
+				codeCount := 2
+				if len(chain) == 1 {
+					codeCount++
+				}
+				if selfSigned {
+					codeCount++
+				}
+				if event.Type != "terminal" || event.Status != TLSTrust || len(codes) != codeCount || !codes["tls_node_probe_failed"] || !codes[reason] || codes["tls_peer_chain_leaf_only"] != (len(chain) == 1) || codes["tls_peer_self_signed"] != selfSigned || g.authCount.Load() != 1 {
 					t.Fatalf("event = %+v, diagnostics = %v, authentications = %d", event, codes, g.authCount.Load())
 				}
 				return
@@ -92,7 +137,7 @@ func TestAuthenticationQueryTLSFailureDiagnostics(t *testing.T) {
 	}
 	next(t, e, h)
 	codes := map[string]bool{}
-	for count := 0; count < 4; count++ {
+	for count := 0; count < 6; count++ {
 		data, _, status := e.Read(h, MaxOutput, 5000)
 		if status != OK {
 			t.Fatal(status)
@@ -105,7 +150,7 @@ func TestAuthenticationQueryTLSFailureDiagnostics(t *testing.T) {
 			codes[event.Code] = true
 			continue
 		}
-		if event.Type != "terminal" || event.Status != TLSTrust || len(codes) != 2 || !codes["tls_authentication_failed"] || !codes["tls_unknown_authority"] || g.authCount.Load() != 0 {
+		if event.Type != "terminal" || event.Status != TLSTrust || len(codes) != 4 || !codes["tls_authentication_failed"] || !codes["tls_unknown_authority"] || !codes["tls_peer_chain_leaf_only"] || !codes["tls_peer_self_signed"] || g.authCount.Load() != 0 {
 			t.Fatalf("event = %+v, diagnostics = %v, authentications = %d", event, codes, g.authCount.Load())
 		}
 		return
