@@ -35,7 +35,7 @@ public:
         if (failure!=CredentialStatus::Success) return {failure,{}};
         values.insert(key,value);return {CredentialStatus::Success,{}};
     }
-    CredentialResult remove(const QString &key) override {values.remove(key);return {CredentialStatus::Success,{}};}
+    CredentialResult remove(const QString &key) override {if (failure!=CredentialStatus::Success) return {failure,{}};values.remove(key);return {CredentialStatus::Success,{}};}
 };
 template<class T> T finish(QFuture<T> future) {
     QDeadlineTimer deadline(6000);
@@ -122,6 +122,94 @@ void sealsCacheBeforeDelivery()
         && store->values.value(ProfileCredentials::legacyCacheKey(source.scope))==original,"retry seals unbound cache before delivering account credentials");
 }
 
+void authenticationCacheOperations() {
+    QTemporaryDir folder;QSettings settings(folder.filePath("profile.ini"),QSettings::IniFormat);setup(settings);
+    auto backend=std::make_unique<Store>();auto *store=backend.get();CredentialAccess access(std::move(backend));
+    const auto source=CredentialAccess::source(settings,{});
+    require(finish(access.migrate(source)).succeeded(),"migrate password before cache lifecycle");
+    const AuthenticationCache cache{"server-canonical-account",QByteArray("private-cookie")+QByteArray(1,'\0')+"device"};
+    const auto revision=access.authenticationCacheRevision(source);
+    require(finish(access.saveAuthenticationCache(source,cache,revision)).succeeded(),"asynchronous verified cache write");
+    settings.setValue("Credential/Username","bob");settings.sync();
+    const auto bob=CredentialAccess::source(settings,{});
+    require(finish(access.saveAuthenticationCache(bob,{"other-account","other-cookie"},access.authenticationCacheRevision(bob))).succeeded(),"save independent account cache");
+    settings.setValue("Credential/Username","alice");settings.sync();
+    store->blockNextRead=true;auto pending=access.loadAuthenticationCache(source);
+    require(store->entered.tryAcquire(1,1000),"cache read reached native worker");
+    bool responsive=false;QMetaObject::invokeMethod(&access,[&]{responsive=true;},Qt::QueuedConnection);QCoreApplication::processEvents();
+    require(responsive && !pending.isFinished() && access.isBusy(source.path),"cache I/O leaves the GUI responsive");
+    auto second=access.loadAuthenticationCache(source);store->resume.release();
+    const auto loaded=finish(pending),again=finish(second);
+    require(loaded.result.succeeded() && again.result.succeeded() && loaded.cache.account==cache.account && loaded.cache.data==cache.data
+        && loaded.revision==revision && store->peak==1 && store->lastThread!=QCoreApplication::instance()->thread(),"cache reads preserve account binding on the serialized worker");
+    require(finish(access.clearAuthenticationCache(source)).succeeded(),"current cache cleared and verified");
+    const auto absent=finish(access.loadAuthenticationCache(source));
+    require(absent.result.status==CredentialStatus::NotFound && absent.cache.data.isEmpty() && absent.revision!=revision,"explicit clear advances the cache revision");
+    require(finish(access.saveAuthenticationCache(source,cache,revision)).status==CredentialStatus::Cancelled,"late refresh cannot recreate explicitly cleared cache");
+    ProfileCredentials vault(*store);ConnectionCredentials password;AuthenticationCache other;
+    require(vault.load(source.scope,source.profile,password).succeeded() && password.password=="legacy password" && password.totpSecret=="legacy TOTP"
+        && vault.loadAuthenticationCache(bob.scope,bob.profile,other).succeeded() && other.data=="other-cookie","cache clear preserves password, TOTP and other accounts");
+    require(finish(access.saveAuthenticationCache(source,cache,absent.revision)).succeeded(),"new authentication may save after explicit clear");
+    store->failure=CredentialStatus::Locked;
+    require(finish(access.clearAuthenticationCache(source)).status==CredentialStatus::Locked,"failed native clear is reported");
+    const auto locked=finish(access.loadAuthenticationCache(source));
+    require(locked.result.status==CredentialStatus::Locked && locked.cache.data.isEmpty(),"locked cache is not delivered");
+    store->failure=CredentialStatus::Success;
+    require(finish(access.loadAuthenticationCache(source)).cache.data==cache.data,"failed removal retains native cache");
+    require(finish(access.saveAuthenticationCache(source,cache,absent.revision)).status==CredentialStatus::Cancelled,"failed clear still invalidates callbacks already holding material");
+}
+
+void cacheClearRejectsInFlightReadsAndWrites() {
+    QTemporaryDir folder;QSettings settings(folder.filePath("profile.ini"),QSettings::IniFormat);setup(settings);
+    auto backend=std::make_unique<Store>();auto *store=backend.get();CredentialAccess access(std::move(backend));
+    const auto source=CredentialAccess::source(settings,{});
+    const AuthenticationCache cache{"canonical-account","authentication data"};
+    auto revision=access.authenticationCacheRevision(source);
+    require(finish(access.saveAuthenticationCache(source,cache,revision)).succeeded(),"cache race fixture");
+    store->blockNextRead=true;auto loading=access.loadAuthenticationCache(source);
+    require(store->entered.tryAcquire(1,1000),"cache load is in flight");
+    auto clearing=access.clearAuthenticationCache(source);store->resume.release();
+    const auto late=finish(loading);
+    require(late.result.status==CredentialStatus::Cancelled && late.cache.data.isEmpty() && late.cache.account.isEmpty(),"in-flight cache read cannot deliver after explicit clear");
+    require(finish(clearing).succeeded(),"clear follows the cancelled read");
+    revision=access.authenticationCacheRevision(source);
+    store->blockNextRead=true;auto saving=access.saveAuthenticationCache(source,cache,revision);
+    require(store->entered.tryAcquire(1,1000),"cache save readback is in flight");
+    clearing=access.clearAuthenticationCache(source);store->resume.release();
+    require(finish(saving).status==CredentialStatus::Cancelled && finish(clearing).succeeded(),"in-flight save cannot defeat queued explicit clear");
+    require(finish(access.saveAuthenticationCache(source,cache,revision)).status==CredentialStatus::Cancelled
+        && finish(access.loadAuthenticationCache(source)).result.status==CredentialStatus::NotFound,"old callbacks cannot repopulate cleared native storage");
+}
+
+void cacheRejectsStaleSources() {
+    QTemporaryDir folder;QSettings settings(folder.filePath("profile.ini"),QSettings::IniFormat);setup(settings);
+    auto backend=std::make_unique<Store>();auto *store=backend.get();CredentialAccess access(std::move(backend));
+    const auto source=CredentialAccess::source(settings,{});const auto revision=access.authenticationCacheRevision(source);
+    const AuthenticationCache cache{"canonical-account","private authentication"};
+    require(finish(access.saveAuthenticationCache(source,cache,revision)).succeeded(),"cache source fixture");
+    const auto saved=store->values;
+    store->blockNextRead=true;auto loading=access.loadAuthenticationCache(source);
+    require(store->entered.tryAcquire(1,1000),"stale cache read is in flight");
+    settings.setValue("Credential/Username","bob");settings.sync();store->resume.release();
+    const auto late=finish(loading);
+    require(late.result.status==CredentialStatus::Cancelled && late.cache.data.isEmpty(),"late cache read cannot cross an account switch");
+    require(finish(access.saveAuthenticationCache(source,cache,revision)).status==CredentialStatus::Cancelled
+        && finish(access.clearAuthenticationCache(source)).status==CredentialStatus::Cancelled && store->values==saved,"stale callbacks cannot mutate either account's cache");
+    settings.setValue("Credential/Username","alice");settings.sync();
+    auto current=CredentialAccess::source(settings,{});
+    settings.setValue("JustConnect/DNSTTL",123);settings.sync();
+    require(finish(access.saveAuthenticationCache(current,cache,access.authenticationCacheRevision(current))).status==CredentialStatus::Cancelled,"changed public choices reject old cache write permission");
+    current=CredentialAccess::source(settings,{});
+    require(finish(access.loadAuthenticationCache(current)).cache.data==cache.data,"network changes preserve the existing account cache");
+    {QFile file(source.path);require(file.open(QIODevice::Append) && file.write("[malformed section\n")>0,"malformed cache source fixture");}
+    const auto before=store->values;
+    for (int i=0;i<2;++i) {
+        require(finish(access.loadAuthenticationCache(current)).result.status==CredentialStatus::Failed
+            && finish(access.saveAuthenticationCache(current,cache,access.authenticationCacheRevision(current))).status==CredentialStatus::Failed
+            && finish(access.clearAuthenticationCache(current)).status==CredentialStatus::Failed && store->values==before,"malformed source cannot read, write or delete cached authentication");
+    }
+}
+
 void acceptsUnconfiguredFirstLaunch()
 {
     QTemporaryDir folder;require(folder.isValid(),"first launch directory");
@@ -187,6 +275,6 @@ void rejectsChangedIdentity() {
 }
 int main(int argc,char **argv) {
     QCoreApplication app(argc,argv);
-    try {rejectsRepeatedMalformedSources();readsAndSavesOutsideGui();sealsCacheBeforeDelivery();acceptsUnconfiguredFirstLaunch();publicSaveFailureAndStaleness();rejectsChangedIdentity();std::cout<<"PASS: asynchronous serialized credentials, migration, save failure and stale identity rejection\n";return 0;}
+    try {rejectsRepeatedMalformedSources();readsAndSavesOutsideGui();sealsCacheBeforeDelivery();authenticationCacheOperations();cacheClearRejectsInFlightReadsAndWrites();cacheRejectsStaleSources();acceptsUnconfiguredFirstLaunch();publicSaveFailureAndStaleness();rejectsChangedIdentity();std::cout<<"PASS: asynchronous serialized credentials, migration, save failure and stale identity rejection\n";return 0;}
     catch(const std::exception &error) {std::cerr<<error.what()<<'\n';return 1;}
 }

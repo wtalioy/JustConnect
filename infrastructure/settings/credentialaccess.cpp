@@ -104,3 +104,56 @@ QFuture<CredentialResult> CredentialAccess::clear(const CredentialSource &source
         return result.succeeded() ? checkSource(source,settings,true) : result;
     }).then(this,[this,path=source.path](const CredentialResult &result){end(path,false);return result;});
 }
+
+quint64 CredentialAccess::authenticationCacheRevision(const CredentialSource &source) const {
+    QMutexLocker lock(&cacheMutex);
+    return cacheRevisions.value(ProfileCredentials::authenticationCacheKey(source.scope,source.profile));
+}
+QFuture<AuthenticationCacheLoadResult> CredentialAccess::loadAuthenticationCache(const CredentialSource &source) {
+    const auto revision=authenticationCacheRevision(source);
+    begin(source.path,false);
+    return QtConcurrent::run(&pool,[this,source,revision] {
+        QSettings settings(source.path,QSettings::IniFormat);
+        AuthenticationCacheLoadResult loaded;loaded.revision=revision;
+        loaded.result=checkSource(source,settings,true);
+        if (!loaded.result.succeeded()) return loaded;
+        if (authenticationCacheRevision(source)!=revision) return AuthenticationCacheLoadResult{{CredentialStatus::Cancelled,{}},{},revision};
+        if (ProfileCredentials::authenticationCacheKey(source.scope,source.profile).isEmpty()) return AuthenticationCacheLoadResult{{CredentialStatus::NotFound,{}},{},revision};
+        ProfileCredentials credentials(*store);
+        loaded.result=credentials.loadAuthenticationCache(source.scope,source.profile,loaded.cache);
+        const auto current=checkSource(source,settings,true);
+        if (!current.succeeded()) return AuthenticationCacheLoadResult{current,{},revision};
+        if (authenticationCacheRevision(source)!=revision) return AuthenticationCacheLoadResult{{CredentialStatus::Cancelled,{}},{},revision};
+        return loaded;
+    }).then(this,[this,path=source.path](const AuthenticationCacheLoadResult &result){end(path,false);return result;});
+}
+QFuture<CredentialResult> CredentialAccess::saveAuthenticationCache(const CredentialSource &source,const AuthenticationCache &cache,quint64 revision) {
+    begin(source.path,false);
+    return QtConcurrent::run(&pool,[this,source,cache,revision] {
+        QSettings settings(source.path,QSettings::IniFormat);
+        auto current=checkSource(source,settings,true);
+        if (!current.succeeded()) return current;
+        if (authenticationCacheRevision(source)!=revision) return CredentialResult{CredentialStatus::Cancelled,{}};
+        ProfileCredentials credentials(*store);
+        const auto saved=credentials.saveAuthenticationCache(source.scope,source.profile,cache);
+        if (authenticationCacheRevision(source)!=revision) return CredentialResult{CredentialStatus::Cancelled,{}};
+        current=checkSource(source,settings,true);
+        return current.succeeded() ? saved : current;
+    }).then(this,[this,path=source.path](const CredentialResult &result){end(path,false);return result;});
+}
+QFuture<CredentialResult> CredentialAccess::clearAuthenticationCache(const CredentialSource &source) {
+    const auto key=ProfileCredentials::authenticationCacheKey(source.scope,source.profile);
+    if (!key.isEmpty()) {
+        QMutexLocker lock(&cacheMutex);
+        ++cacheRevisions[key]; // Invalidate old callbacks before queued native I/O completes.
+    }
+    begin(source.path,false);
+    return QtConcurrent::run(&pool,[this,source] {
+        QSettings settings(source.path,QSettings::IniFormat);
+        const auto current=checkSource(source,settings,true);
+        if (!current.succeeded()) return current;
+        ProfileCredentials credentials(*store);
+        const auto cleared=credentials.clearAuthenticationCache(source.scope,source.profile);
+        return cleared.succeeded() ? checkSource(source,settings,true) : cleared;
+    }).then(this,[this,path=source.path](const CredentialResult &result){end(path,false);return result;});
+}

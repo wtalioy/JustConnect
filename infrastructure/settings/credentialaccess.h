@@ -3,6 +3,7 @@
 #include <QFuture>
 #include <QHash>
 #include <QObject>
+#include <QMutex>
 #include <QThreadPool>
 #include <QVariantMap>
 #include <memory>
@@ -15,6 +16,11 @@ struct CredentialSource {
 struct CredentialLoadResult {
     CredentialResult result;
     ConnectionCredentials credentials;
+};
+struct AuthenticationCacheLoadResult {
+    CredentialResult result;
+    AuthenticationCache cache;
+    quint64 revision=0;
 };
 class CredentialAccess : public QObject {
     Q_OBJECT
@@ -29,12 +35,18 @@ public:
     QFuture<CredentialResult> save(const CredentialSource &source,const ConnectionProfile &profile,bool updateCredentials,const QVariantMap &publicChanges);
     QFuture<CredentialResult> migrate(const CredentialSource &source);
     QFuture<CredentialResult> clear(const CredentialSource &source);
+    quint64 authenticationCacheRevision(const CredentialSource &source) const;
+    QFuture<AuthenticationCacheLoadResult> loadAuthenticationCache(const CredentialSource &source);
+    QFuture<CredentialResult> saveAuthenticationCache(const CredentialSource &source,const AuthenticationCache &cache,quint64 revision);
+    QFuture<CredentialResult> clearAuthenticationCache(const CredentialSource &source);
 signals:
     void configurationSaved(const QString &path);
 private:
     std::unique_ptr<CredentialStore> store;
     QThreadPool pool;
     QHash<QString,int> pending,pendingSaves;
+    mutable QMutex cacheMutex;
+    QHash<QString,quint64> cacheRevisions;
     void begin(const QString &path,bool saving);
     void end(const QString &path,bool saving);
     static CredentialResult checkSource(const CredentialSource &source,QSettings &settings,bool unchangedPublic=false);
