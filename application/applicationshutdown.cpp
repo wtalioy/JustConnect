@@ -10,6 +10,9 @@ ApplicationShutdown::ApplicationShutdown(ConnectionSession *connection, SystemPr
     connect(connection,&ConnectionSession::finished,this,[this] {
         if (!active && !complete) this->proxy->disable();
     });
+    connect(connection,&ConnectionSession::stateChanged,this,[this](ConnectionState state) {
+        if (state==ConnectionState::Reconnecting && !active && !complete) this->proxy->disable();
+    });
     poll.setInterval(10);
     connect(&poll, &QTimer::timeout, this, &ApplicationShutdown::advance);
 }

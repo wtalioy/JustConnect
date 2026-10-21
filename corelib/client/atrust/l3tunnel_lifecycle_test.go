@@ -9,7 +9,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/wtalioy/JustConnect/corelib/client/atrust/auth"
 	"io"
+	"io/fs"
 	"net"
 	"strings"
 	"sync"
@@ -150,7 +152,7 @@ func TestTunnelAuthUsesContextDeadline(t *testing.T) {
 	}
 }
 
-func TestTunnelReconnectUsesFixedIntervalUntilSuccessAndSharesResult(t *testing.T) {
+func TestTunnelReconnectUsesExponentialDelayAndSharesResult(t *testing.T) {
 	client := newSessionTestClient()
 	client.BestNodes = map[string]string{"group": "node:443"}
 	tunnel := &L3Tunnel{
@@ -176,7 +178,7 @@ func TestTunnelReconnectUsesFixedIntervalUntilSuccessAndSharesResult(t *testing.
 		attemptTimesMu.Lock()
 		attemptTimes = append(attemptTimes, time.Now())
 		attemptTimesMu.Unlock()
-		if call <= 6 {
+		if call <= 2 {
 			return nil, fmt.Errorf("dial failed: %w", net.ErrClosed)
 		}
 		return want, nil
@@ -190,15 +192,15 @@ func TestTunnelReconnectUsesFixedIntervalUntilSuccessAndSharesResult(t *testing.
 	if got != want {
 		t.Fatalf("getConn() = %p, want %p", got, want)
 	}
-	if calls.Load() != 7 {
-		t.Fatalf("connect calls = %d, want 7", calls.Load())
+	if calls.Load() != 3 {
+		t.Fatalf("connect calls = %d, want 3", calls.Load())
 	}
 	attemptTimesMu.Lock()
 	defer attemptTimesMu.Unlock()
 	for i := 1; i < len(attemptTimes); i++ {
 		elapsed := attemptTimes[i].Sub(attemptTimes[i-1])
-		if elapsed < 8*time.Millisecond || elapsed > 100*time.Millisecond {
-			t.Fatalf("retry delay %d = %s, want fixed 10ms interval", i, elapsed)
+		if elapsed < time.Duration(1<<i)*8*time.Millisecond {
+			t.Fatalf("retry delay %d = %s, exponential backoff was skipped", i, elapsed)
 		}
 	}
 	tunnel.Close()
@@ -1916,4 +1918,65 @@ func parseDataPayload(payload []byte) ([][]byte, error) {
 		packets = append(packets, pkt)
 	}
 	return packets, nil
+}
+
+func TestTunnelRecoveryBudgetAndPermanentFailures(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		err      error
+		attempts int
+	}{
+		{"network", &net.OpError{Op: "dial", Err: io.EOF}, 5},
+		{"permission", &net.OpError{Op: "dial", Err: fs.ErrPermission}, 1},
+		{"certificate", &tls.CertificateVerificationError{Err: errors.New("untrusted")}, 1},
+		{"protocol", &client.TLSHandshakeError{Err: io.EOF}, 1},
+		{"expired", auth.ErrSessionInvalid, 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				c := newSessionTestClient()
+				defer c.Close()
+				c.BestNodes = map[string]string{"group": "node:443"}
+				tunnel := &L3Tunnel{client: c, conns: make(map[string]*l3TunnelConn), connecting: make(map[string]*l3TunnelConnectCall), closeCh: make(chan struct{})}
+				defer tunnel.Close()
+				started := time.Now()
+				var attempts []time.Duration
+				tunnel.connect = func(context.Context, string, *conntrackMgr) (*l3TunnelConn, error) {
+					attempts = append(attempts, time.Since(started))
+					return nil, test.err
+				}
+				tunnel.startReconnect("group")
+				if _, err := tunnel.getConn("group"); !errors.Is(err, test.err) {
+					t.Fatal("recovery lost terminal cause", err)
+				}
+				if len(attempts) != test.attempts {
+					t.Fatal("wrong retry budget", attempts)
+				}
+				want := []time.Duration{5 * time.Second, 15 * time.Second, 35 * time.Second, 65 * time.Second, 95 * time.Second}
+				for i, elapsed := range attempts {
+					if elapsed != want[i] {
+						t.Fatal("backoff or interval cap was violated", attempts)
+					}
+				}
+				select {
+				case err := <-c.Errors():
+					if !errors.Is(err, test.err) {
+						t.Fatal(err)
+					}
+				default:
+					t.Fatal("terminal failure did not reach the session")
+				}
+				select {
+				case <-c.Errors():
+					t.Fatal("duplicate terminal failure")
+				default:
+				}
+				tunnel.startReconnect("group")
+				synctest.Wait()
+				if len(attempts) != test.attempts {
+					t.Fatal("failed client restarted maintenance")
+				}
+			})
+		})
+	}
 }

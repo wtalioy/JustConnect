@@ -111,8 +111,23 @@ static void pendingPlatformAndCredentialTimeoutsKeepEventLoopAlive() {
         }
     }
 }
+static void networkFailureRestoresProxyDuringBackoff() {
+    auto *engine=new Engine;ConnectionSession connection(engine);
+    auto backend=std::make_unique<Proxy>();auto *native=backend.get();SystemProxySession proxy(std::move(backend));
+    ApplicationShutdown shutdown(&connection,&proxy,[]{return false;});
+    proxy.enable({1081,1080,{}});until([&]{return !proxy.isBusy();});
+    connection.start({},{true,1000});emit engine->connectionEstablished();emit engine->finished(ConnectionError::NETWORK_FAILED);
+    check(connection.state()==ConnectionState::Reconnecting,"network failure should enter bounded backoff");
+    until([&]{return !proxy.isBusy();});
+    check(!proxy.needsCleanup() && native->clears==1,"backoff must not leave applications pointing to a stopped local proxy");
+    ConnectionError result=ConnectionError::OTHER;QObject::connect(&connection,&ConnectionSession::finished,[&](ConnectionError error){result=error;});
+    connection.stop();
+    check(!connection.isActive() && result==ConnectionError::NONE && engine->starts==1 && native->clears==1,
+        "cancelling backoff must stop retries without another restoration or stale failure");
+}
 int main(int argc,char **argv) {
     QCoreApplication app(argc,argv);
+    networkFailureRestoresProxyDuringBackoff();
     pendingPlatformAndCredentialTimeoutsKeepEventLoopAlive();
     restoresBeforeStoppingAndWaitsForWrites();
     timeoutRetainsLiveObjectsAndBlocksReconnect();

@@ -47,6 +47,7 @@
     "NetworkFailure": -13,
     "AuthUnsupported": -14,
     "CredentialsRequired": -15,
-    "SessionInvalid": -16
+    "SessionInvalid": -16,
+    "PermissionDenied": -17
   }
 }

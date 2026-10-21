@@ -438,6 +438,9 @@ void ConnectionUiController::showConnectionError(ConnectionError error)
     QString message;
     switch (error)
     {
+    case ConnectionError::PERMISSION_DENIED:
+        message="网络操作权限不足，请检查接口访问或授权结果后重试。";
+        break;
     case ConnectionError::SESSION_INVALID:
         message="服务器已明确终止会话。请点击连接完成一次重新认证。";
         break;

@@ -172,7 +172,7 @@ func (e *Engine) execute(ctx context.Context, config Config, s *Session) {
 			status = Cancelled
 		}
 		switch status {
-		case OK, Timeout, Unsupported, Cancelled, Limit, Internal, AuthMethodChanged, TLSTrust, TLSProtocol, NetworkFailure, AuthUnsupported, CredentialsRequired, SessionInvalid:
+		case OK, Timeout, Unsupported, Cancelled, Limit, Internal, AuthMethodChanged, TLSTrust, TLSProtocol, NetworkFailure, AuthUnsupported, CredentialsRequired, SessionInvalid, PermissionDenied:
 		default:
 			status = Internal
 		}

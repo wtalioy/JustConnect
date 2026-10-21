@@ -52,6 +52,7 @@ void ConnectionSessionState::connectionEstablished()
     if (currentState == ConnectionState::Starting)
     {
         currentState = ConnectionState::Running;
+        interactiveAuthentication = false;
     }
 }
 
@@ -74,6 +75,7 @@ bool ConnectionSessionState::requestStop()
     if (currentState == ConnectionState::Reconnecting)
     {
         currentState = ConnectionState::Disconnected;
+        currentError = ConnectionError::NONE;
         return false;
     }
     if (currentState == ConnectionState::Starting || currentState == ConnectionState::Running)

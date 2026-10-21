@@ -87,7 +87,7 @@ bool keepsFirstErrorAndCancelsPendingReconnect()
     session.engineFinished();
     if (session.requestStop()
         || session.state() != ConnectionState::Disconnected
-        || session.wantsConnection())
+        || session.wantsConnection() || session.error()!=ConnectionError::NONE)
     {
         qCritical() << "keepsFirstErrorAndCancelsPendingReconnect failed to cancel reconnect";
         return false;
@@ -135,7 +135,7 @@ bool boundedBackoffAndStableRecovery()
 
 bool rejectsUnsafeRetriesAndDuplicateStop()
 {
-    for (auto error : {ConnectionError::OTHER, ConnectionError::CLIENT_FAILED, ConnectionError::TLS_TRUST,
+    for (auto error : {ConnectionError::OTHER, ConnectionError::CLIENT_FAILED, ConnectionError::SESSION_INVALID, ConnectionError::PERMISSION_DENIED, ConnectionError::TLS_TRUST,
         ConnectionError::TLS_PROTOCOL, ConnectionError::CORE_UNAVAILABLE, ConnectionError::CREDENTIALS_REQUIRED,
         ConnectionError::AUTHENTICATION_CHANGED, ConnectionError::AUTHENTICATION_UNSUPPORTED, ConnectionError::INVALID_CONFIGURATION}) {
         ConnectionSessionState session;
@@ -150,12 +150,24 @@ bool rejectsUnsafeRetriesAndDuplicateStop()
         && session.engineFinished()==SessionFinishAction::Complete && !session.wantsConnection();
 }
 
+bool completedAuthenticationDoesNotDisableNetworkRecovery()
+{
+    ConnectionSessionState session;
+    session.requestStart({true,1});session.authenticationRequested();session.connectionEstablished();
+    session.recordError(ConnectionError::NETWORK_FAILED);
+    if (session.engineFinished()!=SessionFinishAction::Reconnect || session.reconnectAttempt()!=1) return false;
+    session.beginReconnect();session.authenticationRequested();session.connectionEstablished();
+    session.recordError(ConnectionError::NETWORK_FAILED);
+    return session.engineFinished()==SessionFinishAction::Reconnect && session.reconnectAttempt()==2;
+}
+
 }
 
 int main(int argc, char *argv[])
 {
     QCoreApplication app(argc, argv);
-    return boundedBackoffAndStableRecovery()
+    return completedAuthenticationDoesNotDisableNetworkRecovery()
+        && boundedBackoffAndStableRecovery()
         && rejectsUnsafeRetriesAndDuplicateStop()
         && normalLifecycle()
         && reconnectsOnlyEligibleFailures()
