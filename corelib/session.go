@@ -46,7 +46,6 @@ type Session struct{ options Options }
 
 func NewSession(options Options) *Session {
 	options.Setup.ClientData = bytes.Clone(options.Setup.ClientData)
-	options.Setup.ResourceData = bytes.Clone(options.Setup.ResourceData)
 	return &Session{options: options}
 }
 
