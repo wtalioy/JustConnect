@@ -6,14 +6,60 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/miekg/dns"
 	"github.com/patrickmn/go-cache"
 	"github.com/wtalioy/JustConnect/corelib/client"
 )
 
 var domainResourceMatchSink bool
+
+func TestCampusResolutionReusesOnlyTunnelDNSAnswers(t *testing.T) {
+	listener, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var queries atomic.Int32
+	server := &dns.Server{PacketConn: listener, Handler: dns.HandlerFunc(func(w dns.ResponseWriter, request *dns.Msg) {
+		queries.Add(1)
+		reply := new(dns.Msg)
+		reply.SetReply(request)
+		reply.Answer = []dns.RR{&dns.A{Hdr: dns.RR_Header{Name: request.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60}, A: net.IPv4(192, 0, 2, 10)}}
+		w.WriteMsg(reply)
+	})}
+	go server.ActivateAndServe()
+	t.Cleanup(func() { server.Shutdown(); listener.Close() })
+	r := NewResolver(nil, "", "", 60, client.DomainResources{".campus.test": {{Protocol: "tcp", PortMin: 443, PortMax: 443}}}, nil, true)
+	defer r.Close()
+	remote := &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, network, listener.LocalAddr().String())
+	}}
+	r.remoteUDPResolver, r.remoteTCPResolver = remote, remote
+	host := "www.campus.test"
+	_, ip, err := r.Resolve(t.Context(), host)
+	if err != nil || !ip.Equal(net.IPv4(192, 0, 2, 10)) {
+		t.Fatal("campus DNS baseline failed", ip, err)
+	}
+	first := queries.Load()
+	for i := range 3 {
+		if i%2 == 0 {
+			_, ip, err = r.ResolveCampus(t.Context(), host, true)
+		} else {
+			_, ip, err = r.Resolve(t.Context(), host)
+		}
+		if err != nil || !ip.Equal(net.IPv4(192, 0, 2, 10)) || queries.Load() != first {
+			t.Fatalf("trusted campus DNS answer was not reused: queries=%d -> %d, IP=%v, error=%v", first, queries.Load(), ip, err)
+		}
+	}
+	r.setDNSCache(host, net.IPv4(203, 0, 113, 10), false)
+	_, ip, err = r.ResolveCampus(t.Context(), host, true)
+	if err != nil || !ip.Equal(net.IPv4(192, 0, 2, 10)) || queries.Load() <= first {
+		t.Fatal("unknown cache origin did not trigger a fresh campus query", ip, err, queries.Load())
+	}
+}
 
 func TestTCPPrefersL3UsesSelectedResource(t *testing.T) {
 	if TCPPrefersL3(context.Background()) {
@@ -398,29 +444,29 @@ func TestDNSCacheRemainsBoundedAndReusesExpiredSlots(t *testing.T) {
 	defer r.Close()
 	ip := net.IPv4(192, 0, 2, 1)
 	for i := 0; i < maxDNSCacheEntries; i++ {
-		r.setDNSCache(fmt.Sprint(i), ip)
+		r.setDNSCache(fmt.Sprint(i), ip, false)
 	}
-	r.setDNSCache("overflow", ip)
+	r.setDNSCache("overflow", ip, false)
 	if r.dnsCache.ItemCount() != maxDNSCacheEntries {
 		t.Fatal("DNS cache exceeded its capacity")
 	}
-	if _, found := r.getDNSCache("overflow"); found {
+	if _, found := r.getDNSCache("overflow", false); found {
 		t.Fatal("overflow entry displaced a live record")
 	}
 	items := r.dnsCache.Items()
 	items["0"] = cache.Item{Object: ip, Expiration: time.Now().Add(-time.Second).UnixNano()}
 	r.dnsCache = cache.NewFrom(time.Minute, 0, items)
-	r.setDNSCache("new", ip)
-	if _, found := r.getDNSCache("new"); !found {
+	r.setDNSCache("new", ip, false)
+	if _, found := r.getDNSCache("new", false); !found {
 		t.Fatal("expired slot was not reclaimed")
 	}
 }
 
-func TestCampusResolutionDoesNotUseSharedCacheOrPublicFallback(t *testing.T) {
+func TestCampusResolutionRejectsUnknownCacheAndPublicFallback(t *testing.T) {
 	campus := net.ParseIP("192.0.2.10")
 	r := NewResolver(nil, "", "", 60, nil, map[string][]net.IP{"campus.test": {campus}}, false)
 	defer r.Close()
-	r.setDNSCache("campus.test", net.ParseIP("203.0.113.10"))
+	r.setDNSCache("campus.test", net.ParseIP("203.0.113.10"), false)
 	_, ip, err := r.ResolveCampus(t.Context(), "campus.test", false)
 	if err != nil || !ip.Equal(campus) {
 		t.Fatal("campus lookup used a cache of unknown origin", ip, err)
@@ -444,7 +490,7 @@ func TestAuthorizedDomainResolutionDoesNotFallBackToSecondaryDNS(t *testing.T) {
 		calls++
 		return nil, errors.New("public DNS must not receive campus names")
 	}}
-	r.setDNSCache("campus.test", net.ParseIP("203.0.113.10"))
+	r.setDNSCache("campus.test", net.ParseIP("203.0.113.10"), false)
 	ctx, ip, err := r.Resolve(t.Context(), "campus.test")
 	if !errors.Is(err, ErrCampusDNSUnavailable) || ip != nil || calls != 0 || ctx.Value(ContextKeyDomainResource) == nil {
 		t.Fatalf("campus domain used unknown cache/public DNS: IP=%v, calls=%d, error=%v", ip, calls, err)
