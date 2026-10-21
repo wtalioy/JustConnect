@@ -61,7 +61,7 @@ ABI v1 与 JSON schema 版本同步。S2-02 以兼容增补导出 `jc_config_val
 
 ## 事件与认证回应
 
-事件包含 `schema_version/type/generation/sequence/status`。代次、序列号与请求标识为十进制字符串，避免 Qt JSON 数值精度损失。状态事件为 `state:starting/ready`；终态为 `type:terminal`，携带安全消息。`ready` 在认证未完成／未读时不能产生，每代最多一次。诊断只接受已登记 `code`，没有任意文本／服务端响应字段：`authentication_started/transport_connected/keepalive_retry/anti_mitm_failed/persistence_failed/manifest_cached/auth_detail_unavailable`。证书校验失败另发送阶段码 `tls_authentication_failed/tls_resources_failed/tls_node_probe_failed/tls_ip_tunnel_failed` 及原因码 `tls_unknown_authority/tls_hostname_mismatch/tls_certificate_time_invalid/tls_certificate_invalid`，终态仍为 `JC_TLS_TRUST`；时间错误包括过期及尚未生效。只记录固定代码，不输出证书正文、服务器原始错误或请求 URL。宿主日志目标保持不变，SID、票据、签名、凭据、原始响应和报文不进入诊断。
+事件包含 `schema_version/type/generation/sequence/status`。代次、序列号与请求标识为十进制字符串，避免 Qt JSON 数值精度损失。状态事件为 `state:starting/ready`；终态为 `type:terminal`，携带安全消息。`ready` 在认证未完成／未读时不能产生，每代最多一次。诊断只接受已登记 `code`，没有任意文本／服务端响应字段：`authentication_started/transport_connected/keepalive_retry/anti_mitm_failed/persistence_failed/manifest_cached/auth_detail_unavailable`。初始化／认证方式查询中的证书校验失败另发送阶段码 `tls_authentication_failed/tls_resources_failed/tls_node_probe_failed/tls_ip_tunnel_failed` 及原因码 `tls_unknown_authority/tls_hostname_mismatch/tls_certificate_time_invalid/tls_certificate_invalid`，终态仍为 `JC_TLS_TRUST`；时间错误包括过期及尚未生效。只记录固定代码，不输出证书正文、服务器原始错误或请求 URL。宿主日志目标保持不变，SID、票据、签名、凭据、原始响应和报文不进入诊断。
 
 队列最多保留 `MaxDiagnostics` 条诊断；超限立即返回 `JC_LIMIT`，不阻塞数据面或退出。另外保留两条状态、一个未读认证请求和一个终态的位置（查询结果占用该代的结果位置，不与 ready／认证并存），缓存另保留两个位置（见下文），总数最多 `MaxDiagnostics + 6`；单个事件和图片受大小限制。未读认证不能回应；过期但未读的请求仍占据位置，避免重试积压图片。终态和清理均不依赖宿主消费诊断。
 
