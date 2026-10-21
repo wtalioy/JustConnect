@@ -253,10 +253,12 @@ bool progressUsesObservedEventsAndRejectsLateResults()
     engine->establishConnection();
     if (session.phase()!=ConnectionPhase::TransportReady) return false;
     emit engine->observation("renewal","succeeded",now);
-    emit engine->observation("renewal","failed",now.addMSecs(-1));
-    if (session.observation("renewal").result!="succeeded") return false;
+    emit engine->observation("renewal","failed",now.addSecs(-3600));
+    if (session.observation("renewal").result!="failed" || session.observation("renewal").observedAt!=now.addSecs(-3600)) return false;
+    emit engine->observation("renewal","running",now.addSecs(-3600));
+    if (session.observation("renewal").result!="running") return false;
     session.stop();emit engine->observation("renewal","failed",now.addMSecs(2));engine->complete();
-    if (session.observation("renewal").result!="succeeded") return false;
+    if (session.observation("renewal").result!="running") return false;
     session.start({},{});
     if (session.observation("renewal").observedAt.isValid()) return false;
     emit engine->observation("authentication","required",now);

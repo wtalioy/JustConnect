@@ -11,8 +11,8 @@ ConnectionSession::ConnectionSession(CoreEngine *coreEngine, QObject *parent)
     connect(&stableTimer, &QTimer::timeout, this, [this] { sessionState.connectionStable(); });
     connect(coreEngine, &CoreEngine::diagnostic, this, &ConnectionSession::diagnostic);
     connect(coreEngine, &CoreEngine::observation, this, [this](const QString &stage,const QString &result,const QDateTime &observedAt) {
-        if ((state()!=ConnectionState::Starting && state()!=ConnectionState::Running) || !observedAt.isValid()
-            || (observations.contains(stage) && observedAt<observations[stage].observedAt)) return;
+        // The adapter delivers generation-checked events in ABI order; wall time can move backwards.
+        if ((state()!=ConnectionState::Starting && state()!=ConnectionState::Running) || !observedAt.isValid()) return;
         observations[stage]={result,observedAt};
         if (stage=="library" && state()==ConnectionState::Starting) currentPhase=ConnectionPhase::Starting;
         else if (stage=="authentication" && result=="required") currentPhase=ConnectionPhase::ReauthenticationRequired;
