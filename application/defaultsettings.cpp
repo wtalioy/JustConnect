@@ -30,6 +30,7 @@ const QVariantMap &defaults()
         {"JustConnect/ServerPort", 443},
         {"JustConnect/TLSVerify", true},
         {"JustConnect/TLSCAPEM", ""},
+        {"JustConnect/AllowUnverifiedNodes", false},
         {"JustConnect/SecondaryDNS", ""},
         {"JustConnect/LocalDNSServer", ""},
         {"JustConnect/DNSTTL", 3600},

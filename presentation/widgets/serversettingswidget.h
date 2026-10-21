@@ -25,6 +25,7 @@ private:
     QLineEdit *address;
     QSpinBox *port;
     QCheckBox *verify;
+    QCheckBox *allowUnverifiedNodes;
     QPlainTextEdit *caPem;
     QString previousPreset, customAddress;
     int customPort = 443;

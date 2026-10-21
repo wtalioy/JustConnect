@@ -55,8 +55,9 @@ type Config struct {
 		Port uint16 `json:"port"`
 	} `json:"server"`
 	TLS struct {
-		SkipVerify bool   `json:"skip_verify"`
-		CAPEM      string `json:"ca_pem"`
+		SkipVerify           bool   `json:"skip_verify"`
+		CAPEM                string `json:"ca_pem"`
+		AllowUnverifiedNodes bool   `json:"allow_unverified_nodes"`
 	} `json:"tls"`
 	Auth struct {
 		AuthID     string `json:"auth_id"`

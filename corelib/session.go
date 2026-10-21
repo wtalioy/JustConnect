@@ -134,6 +134,9 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 		return nil
 	}
 	if clientOptions.Diagnostic != nil {
+		if clientOptions.AllowUnverifiedNodes {
+			clientOptions.Diagnostic("tls_node_verification_disabled")
+		}
 		clientOptions.Diagnostic("authentication_started")
 	}
 	if options.Setup.SessionRefreshInterval == 0 {

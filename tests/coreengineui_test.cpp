@@ -701,7 +701,7 @@ static void uiContracts() {
 static void browserTlsPolicy(const ConnectionProfile &gatewayProfile) {
     QUrl target;target.setScheme("https");target.setHost(gatewayProfile.endpoint.server);target.setPort(gatewayProfile.endpoint.port);target.setPath("/browser");
     QString foreignUrl;
-    for (const auto &policy:QList<TlsOptions>{{},{true,gatewayProfile.tls.caPem},{},{false,{}}}) {
+    for (const auto &policy:QList<TlsOptions>{{},{true,gatewayProfile.tls.caPem},{true,{},true},{false,{}}}) {
         QWidget parent;auto *engine=new QueryEngine;ConnectionSession session(engine);AuthDialogCoordinator dialogs(&parent);
         QObject::connect(&session,&ConnectionSession::authenticationRequired,&dialogs,&AuthDialogCoordinator::requestAuthentication);
         auto profile=gatewayProfile;profile.tls=policy;check(session.start(profile,{}),"start immutable browser TLS policy context");profile.tls={};
@@ -760,6 +760,7 @@ static void gateway(const QJsonObject &config) {
     QObject::connect(untrustedEngine,&CoreEngine::diagnostic,[&](const QString &code){trustDiagnostics.append(code);});
     QObject::connect(untrustedEngine,&CoreEngine::finished,[&](ConnectionError error){trustFailure=error==ConnectionError::TLS_TRUST;});
     auto untrustedProfile=p; untrustedProfile.tls.caPem.clear();
+    untrustedProfile.tls.allowUnverifiedNodes=true;
     untrustedQuery->fetchAuthInfo(untrustedProfile);
     until([&]{return trustFailure;});
     check(untrustedQuery->findChild<QLabel *>("label")->text().contains("证书")

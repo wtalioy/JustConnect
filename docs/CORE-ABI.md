@@ -134,6 +134,6 @@ S1-09 已验收：`a729296` 的[三平台应用回归](https://github.com/wtalio
 
 S2-03 为认证配置与查询事件兼容增补 `auth_id`／`sub_type` 字段；原始登录域与 URL 仍由服务器提供。新选择按完整身份匹配，旧配置只有唯一类型／登录域匹配时才继续；过期或歧义身份以 `JC_AUTH_METHOD_CHANGED` 结束，要求重新查询，不能退回列表第一项。
 
-S2-03 的 `tls` 可省略（默认验证系统信任链及目标主机名）；`skip_verify:true` 仅接受调用者显式选择，不会因证书失败自动重试为不验证。可用 `ca_pem` 附加学校 CA，最多 16384 字节，非法证书在纯配置校验时拒绝。查询、认证 HTTP、节点探测、IP 与 TCP／L3 隧道共用此会话策略；隧道仍禁用 TLS session tickets，未固定 TLS 版本。Go 的 `atrust.ClientOptions.TLSConfig` 与 `auth.NewSessionContext` 接受标准 `*tls.Config`，克隆后使用；调用者须按 Go 的 Config 约定保持证书池等引用只读。
+S2-03 的 `tls` 可省略（默认验证系统信任链及目标主机名）；`skip_verify:true` 仅接受调用者显式选择，不会因证书失败自动重试为不验证。可用 `ca_pem` 附加学校 CA，最多 16384 字节，非法证书在纯配置校验时拒绝。查询、认证 HTTP 和资源请求使用此会话策略；`allow_unverified_nodes:true` 可由当前配置显式允许节点探测、IP 与 TCP／L3 隧道跳过证书链和地址校验，默认 false，不影响认证／资源 HTTPS 或浏览器。连接开始发送固定诊断 `tls_node_verification_disabled`，认证方式查询不发送。Go 的 `atrust.ClientOptions.AllowUnverifiedNodes` 只派生节点策略，不修改调用者或认证策略；隧道仍禁用 TLS session tickets，未固定 TLS 版本。Go 的 `atrust.ClientOptions.TLSConfig` 与 `auth.NewSessionContext` 接受标准 `*tls.Config`，克隆后使用；调用者须按 Go 的 Config 约定保持证书池等引用只读。
 
 终态 `JC_TLS_TRUST` 表示证书链／主机名失败，`JC_TLS_PROTOCOL` 表示握手协议失败，`JC_NETWORK_FAILURE` 表示网络连接／读写失败；超时继续使用 `JC_TIMEOUT`。Qt 查询及连接分别显示对应原因，事件不交付原始 TLS／URL／服务器错误文本。错误分类直接使用 Go 的证书错误、握手边界与网络错误类型，未匹配终端文字。规范依据：[Go TLS](https://pkg.go.dev/crypto/tls@go1.27.2)、[HTTP Transport](https://pkg.go.dev/net/http@go1.27.2#Transport)。

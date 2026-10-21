@@ -141,7 +141,7 @@ include(CTest)
 if(BUILD_TESTING)
     add_executable(serversettingswidget_test tests/serversettingswidget_test.cpp
         presentation/widgets/serversettingswidget.cpp application/profileservice.cpp
-        application/defaultsettings.cpp application/settingsmigrator.cpp)
+        application/defaultsettings.cpp application/settingsmigrator.cpp application/profileconfiguration.cpp)
     target_link_libraries(serversettingswidget_test PRIVATE Qt6::Widgets)
     add_test(NAME serversettingswidget_test COMMAND serversettingswidget_test)
     set_tests_properties(serversettingswidget_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)

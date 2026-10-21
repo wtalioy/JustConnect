@@ -18,6 +18,7 @@ int main(int argc,char **argv) {
         settings.setValue("JustConnect/ServerAddress","vpn.example.edu");
         settings.setValue("JustConnect/ServerPort",8443);
         settings.setValue("JustConnect/TLSVerify",false); settings.setValue("JustConnect/TLSCAPEM","stored CA");
+        settings.setValue("JustConnect/AllowUnverifiedNodes",true);
         settings.setValue("JustConnect/AuthType","smsCheckCode");
         settings.setValue("JustConnect/AuthID","returned-id"); settings.setValue("JustConnect/AuthSubType","sms");
         settings.setValue("JustConnect/LoginDomain","selected-domain");
@@ -38,9 +39,11 @@ int main(int argc,char **argv) {
     const auto profile=ProfileService::load(saved);
     check(profile.credentials.username=="saved-user" && profile.credentials.password.isEmpty() && profile.credentials.totpSecret.isEmpty(),"public profile loading never reads legacy secrets");
     check(profile.endpoint.server=="vpn.example.edu" && profile.endpoint.port==8443 && profile.endpoint.authType=="smsCheckCode" && profile.endpoint.authId=="returned-id" && profile.endpoint.authSubType=="sms" && profile.endpoint.loginDomain=="selected-domain" && profile.endpoint.phone=="86-123456","selected endpoint and authentication survive reload");
-    check(!profile.tls.verify && profile.tls.caPem=="stored CA","explicit session TLS policy survives disk reload");
+    check(!profile.tls.verify && profile.tls.caPem=="stored CA" && profile.tls.allowUnverifiedNodes,"explicit session TLS policy survives disk reload");
     saved.remove("JustConnect/TLSVerify"); saved.remove("JustConnect/TLSCAPEM");
-    check(ProfileService::load(saved).tls.verify,"legacy profiles default to certificate validation");
+    saved.remove("JustConnect/AllowUnverifiedNodes");
+    const auto strict=ProfileService::load(saved).tls;
+    check(strict.verify && !strict.allowUnverifiedNodes,"legacy profiles default to authentication and node certificate validation");
     check(profile.proxy.socksBind.isEmpty() && profile.proxy.httpBind=="127.0.0.1:11081","zero disables listener; legacy outside-access option never exposes it");
     check(profile.dns.secondary=="10.0.0.2" && profile.dns.localDnsServer=="127.0.0.1:5353" && profile.dns.ttl==60 && profile.dns.disableRemoteDns && profile.behavior.bindInterface=="fixture0" && profile.behavior.autoDetectInterface,"supported network settings survive reload");
     saved.setValue("Common/NeedsConfiguration",true);

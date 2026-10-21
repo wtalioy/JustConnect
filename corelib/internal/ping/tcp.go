@@ -32,7 +32,7 @@ func (tcping *TCPing) SetDialContext(dial client.DialContextFunc) {
 	tcping.dial = dial
 }
 
-// SetTLSConfig uses the same trust policy as the session's authenticated traffic.
+// SetTLSConfig clones the caller's trust policy for reachability probes.
 func (tcping *TCPing) SetTLSConfig(config *tls.Config) {
 	if config != nil {
 		tcping.tlsPolicy = config.Clone()
