@@ -414,6 +414,58 @@ static void authenticationCacheLifecycle() {
         && !logs.contains("private-sso-cookie"),"authentication cache and credentials do not enter application logs");
 }
 
+static void onlineExpiryOffersOneReauthentication() {
+    QTemporaryDir folder;QSettings settings(folder.filePath("online-expiry.ini"),QSettings::IniFormat);
+    settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");settings.setValue("JustConnect/ServerPort",443);
+    settings.setValue("JustConnect/AuthType","psw");settings.setValue("Credential/Username","alice");
+    settings.setValue(DefaultSettings::RememberAuthentication,true);settings.setValue("Common/AutoReconnect",true);settings.sync();
+    class ReauthEngine final:public QueryEngine {
+    public:
+        int responses=0;
+        void respond(const QJsonObject &response) override {
+            check(response["code"]=="123456" && response["generation"]=="2","new MFA response belongs to the new session");
+            ++responses;emit responseAccepted();emit connectionEstablished();
+        }
+    };
+    QWidget parent;QPushButton connectButton(&parent),proxyButton(&parent);QAction trayAction(&parent);
+    auto *engine=new ReauthEngine;ConnectionSession session(engine);SystemProxySession proxy(std::make_unique<ProxyBackend>());
+    AuthDialogCoordinator dialogs(&parent);ApplicationLogger logger;
+    QObject::connect(&session,&ConnectionSession::authenticationRequired,&dialogs,&AuthDialogCoordinator::requestAuthentication);
+    QObject::connect(&dialogs,&AuthDialogCoordinator::responseSubmitted,&session,&ConnectionSession::submitResponse);
+    auto backend=std::make_unique<MemoryCredentialStore>();auto *store=backend.get();CredentialAccess access(std::move(backend));
+    int notices=0,finishes=0;
+    ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,&dialogs,&logger,
+        &access,[&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
+        [&](const QString &,const QString &,QSystemTrayIcon::MessageIcon){++notices;});
+    QObject::connect(&session,&ConnectionSession::finished,[&](ConnectionError){++finishes;});
+    const auto source=CredentialAccess::source(settings,{});ProfileCredentials vault(*store);
+    check(vault.saveAuthenticationCache(source.scope,source.profile,{"alice","expired-cookie"}).succeeded(),"seed online session authentication");
+    connectButton.click();until([&]{return engine->starts==1;});emit engine->connectionEstablished();
+    int errors=0;QTimer dismiss;
+    QObject::connect(&dismiss,&QTimer::timeout,[&] {
+        for (auto *widget:QApplication::topLevelWidgets()) if (auto *box=qobject_cast<QMessageBox *>(widget);box && box->isVisible()) {
+            check(box->text().contains("重新认证"),"online expiry explains the manual reauthentication action");++errors;box->accept();
+        }
+    });dismiss.start(1);
+    emit engine->authenticationCacheInvalidated();emit engine->finished(ConnectionError::SESSION_INVALID);
+    emit engine->authenticationCacheInvalidated();emit engine->finished(ConnectionError::SESSION_INVALID);
+    dismiss.stop();until([&]{return !access.isBusy();});
+    AuthenticationCache cached;
+    check(session.state()==ConnectionState::Failed && session.phase()==ConnectionPhase::ReauthenticationRequired
+        && engine->starts==1 && engine->stops==0 && finishes==1 && errors==1 && notices==1
+        && vault.loadAuthenticationCache(source.scope,source.profile,cached).status==CredentialStatus::NotFound,
+        "online expiry completes once, clears authentication and never silently relogs in");
+    connectButton.click();until([&]{auto *edit=parent.findChild<QLineEdit *>("usernameLineEdit");return edit && edit->isVisible();});
+    auto *login=challenge(parent);login->findChild<QLineEdit *>("passwordLineEdit")->setText("manual-after-expiry");
+    login->findChild<QCheckBox *>("saveLoginDetailCheckBox")->setChecked(false);
+    login->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();until([&]{return engine->starts==2;});
+    check(engine->profile.authenticationCache.data.isEmpty(),"manual reauthentication cannot restore the expired cache");
+    emit engine->authenticationRequired({{"schema_version",1},{"generation","2"},{"request_id","2"},{"challenge",QJsonObject{{"kind","sms"}}}});
+    enterCode(parent,"123456");
+    check(engine->responses==1 && session.state()==ConnectionState::Running,"one manual MFA flow restores transport readiness");
+    session.stop();emit engine->finished(ConnectionError::NONE);
+}
+
 static void authenticationSurvivesTunnelFailure() {
     QTemporaryDir folder;QSettings settings(folder.filePath("failed-tunnel-cache.ini"),QSettings::IniFormat);
     settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");settings.setValue("JustConnect/ServerPort",443);
@@ -895,5 +947,5 @@ static void gateway(const QJsonObject &config) {
 int main(int argc, char **argv) {
     QApplication app(argc, argv);
     if (argc == 3 && QByteArray(argv[1]) == "--gateway") gateway(QJsonDocument::fromJson(argv[2]).object());
-    else { browserCookiesStayInLoginDialog(); browserValidatesCallbackNavigation(); uiContracts(); proxyWaitsForReady(); manualCredentialsAndLateResults(); authenticationCacheLifecycle(); authenticationSurvivesTunnelFailure(); quitWaitsForInitialSsoCache(); quitWaitsForAuthenticationQueryWithoutBlockingTheGui(); }
+    else { browserCookiesStayInLoginDialog(); browserValidatesCallbackNavigation(); uiContracts(); proxyWaitsForReady(); manualCredentialsAndLateResults(); authenticationCacheLifecycle(); onlineExpiryOffersOneReauthentication(); authenticationSurvivesTunnelFailure(); quitWaitsForInitialSsoCache(); quitWaitsForAuthenticationQueryWithoutBlockingTheGui(); }
 }

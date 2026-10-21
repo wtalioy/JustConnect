@@ -261,6 +261,7 @@ bool progressUsesObservedEventsAndRejectsLateResults()
     if (session.observation("renewal").result!="running") return false;
     session.start({},{});
     if (session.observation("renewal").observedAt.isValid()) return false;
+    engine->establishConnection();
     emit engine->observation("authentication","required",now);
     engine->complete(ConnectionError::SESSION_INVALID);
     return session.phase()==ConnectionPhase::ReauthenticationRequired && session.state()==ConnectionState::Failed;

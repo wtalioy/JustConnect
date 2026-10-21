@@ -101,7 +101,7 @@ SessionFinishAction ConnectionSessionState::engineFinished()
     }
 
     desiredConnected = false;
-    if (connectionWasEstablished)
+    if (connectionWasEstablished && currentError != ConnectionError::SESSION_INVALID)
     {
         currentState = ConnectionState::Interrupted;
     }
