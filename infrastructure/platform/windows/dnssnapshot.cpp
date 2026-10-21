@@ -16,7 +16,7 @@ foreach($row in $policies) {
     $row.NameServers=@($row.NameServers | Where-Object {$null -ne $_} | ForEach-Object {$_.ToString()})
     $row.DirectAccessDnsServers=@($row.DirectAccessDnsServers | Where-Object {$null -ne $_} | ForEach-Object {$_.ToString()})
 }
-$dohSupported=$null -ne (Get-Command Get-DnsClientDohServerAddress -ErrorAction SilentlyContinue)
+$dohSupported=$null -ne (Get-Command Get-DnsClientDohServerAddress -ListImported -Module DnsClient -ErrorAction SilentlyContinue)
 $doh=@()
 if($dohSupported) { $doh=@(Get-DnsClientDohServerAddress | Select-Object ServerAddress,DohTemplate,AllowFallbackToUdp,AutoUpgrade) }
 $interfaces=@(Get-DnsClientServerAddress | Select-Object InterfaceIndex,AddressFamily,ServerAddresses)

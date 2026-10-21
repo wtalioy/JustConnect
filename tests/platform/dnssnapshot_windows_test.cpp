@@ -2,25 +2,57 @@
 #include <QCoreApplication>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QTemporaryDir>
+#include <QDir>
+#include <QFile>
 #include <iostream>
-#include <cstdlib>
+#include <stdexcept>
 
 static void check(bool ok, const char *message) {
-    if (!ok) { std::cerr << message << '\n'; std::exit(1); }
+    if (!ok) throw std::runtime_error(message);
 }
 
-int main(int argc, char **argv)
+int main(int argc, char **argv) try
 {
     QCoreApplication app(argc, argv);
-    if (app.arguments().contains("--native")) {
+    if (app.arguments().contains("--native") || app.arguments().contains("--module-scope")) {
+        const bool scope = app.arguments().contains("--module-scope");
+        QTemporaryDir directory;
+        QString moduleRoot;
+        if (scope) {
+            check(directory.isValid() && QDir(directory.path()).mkdir("JustConnectDnsFixture"), "Create private module fixture");
+            for (const auto &file : {QString("JustConnectDnsFixture.psd1"), QString("fixture.psm1")}) {
+                QFile output(directory.filePath("JustConnectDnsFixture/" + file));
+                const auto content = file.endsWith("psd1")
+                    ? QByteArray("@{RootModule='fixture.psm1';ModuleVersion='1.0';FunctionsToExport=@('Get-JustConnectUnimportedDnsFeature')}")
+                    : QByteArray("function Get-JustConnectUnimportedDnsFeature {}\n");
+                check(output.open(QIODevice::WriteOnly) && output.write(content) == content.size(), "Write private module fixture");
+            }
+            moduleRoot = directory.path();
+#ifndef Q_OS_WIN
+            const auto path = runPlatformCommand("wslpath", {"-w", moduleRoot});
+            check(path.result.succeeded(), "Map private module fixture for Windows interop");
+            moduleRoot = path.output;
+#endif
+        }
         PlatformCommandRunner runner;
         const auto program = qEnvironmentVariable("JC_TEST_WINDOWS_POWERSHELL");
-        if (!program.isEmpty()) runner = [&](const QString &, const QStringList &arguments) {
-            return runPlatformCommand(program, arguments, 10000);
+        if (!program.isEmpty() || scope) runner = [&](const QString &nativeProgram, const QStringList &arguments) {
+            auto modified = arguments;
+            if (scope) {
+                // Permit this test process to load its private unsigned fixture module.
+                modified = QStringList{"-ExecutionPolicy", "Bypass"} + modified;
+                modified.last().replace("Get-Command Get-DnsClientDohServerAddress", "Get-Command Get-JustConnectUnimportedDnsFeature");
+                modified.last().prepend("$env:PSModulePath='" + QString(moduleRoot).replace("'", "''")
+                    + "'+[IO.Path]::PathSeparator+$env:PSModulePath\n");
+            }
+            return runPlatformCommand(program.isEmpty() ? nativeProgram : program, modified, 10000);
         };
         const auto snapshot = readWindowsDnsSnapshot(runner);
         check(snapshot.result.succeeded(), qPrintable(snapshot.result.detail));
         check(!snapshot.data["interfaces"].toArray().isEmpty(), "Native DNS interface facts missing");
+        if (scope) check(snapshot.data["doh_supported"] == false && snapshot.data["doh"].toArray().isEmpty(),
+                         "Optional DNS discovery imported a foreign module");
         std::cout << "Native resolver interfaces, effective NRPT and DoH registrations inspected without writes\n";
         return 0;
     }
@@ -61,4 +93,8 @@ int main(int argc, char **argv)
     output = QString::fromUtf8(QJsonDocument(data).toJson());
     check(!readWindowsDnsSnapshot(runner).result.succeeded(), "Collapsed PowerShell singleton array accepted");
     std::cout << "Resolver facts, NRPT policy preservation and failure boundaries passed\n";
+    return 0;
+} catch (const std::exception &error) {
+    std::cerr << error.what() << '\n';
+    return 1;
 }
