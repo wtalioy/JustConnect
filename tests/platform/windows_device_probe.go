@@ -366,7 +366,12 @@ func broker(path, name, mode string) error {
 		return fmt.Errorf("adapter index status %d", status)
 	}
 	idx := strconv.FormatUint(uint64(index), 10)
-	if _, err = powershell("Set-NetIPInterface -InterfaceIndex " + idx + " -AddressFamily IPv4 -DadTransmits 0; New-NetIPAddress -InterfaceIndex " + idx + " -IPAddress 192.0.2.1 -PrefixLength 30 -AddressFamily IPv4 -PolicyStore ActiveStore | Out-Null"); err != nil {
+	script := "Set-NetIPInterface -InterfaceIndex " + idx + " -AddressFamily IPv4 -DadTransmits 0;" +
+		"New-NetIPAddress -InterfaceIndex " + idx + " -IPAddress 192.0.2.1 -PrefixLength 30 -AddressFamily IPv4 -PolicyStore ActiveStore | Out-Null;" +
+		"New-NetRoute -InterfaceIndex " + idx + " -DestinationPrefix 192.0.2.2/32 -NextHop 0.0.0.0 -PolicyStore ActiveStore | Out-Null;" +
+		"$r=@(Get-NetRoute -InterfaceIndex " + idx + " -DestinationPrefix 192.0.2.2/32 -PolicyStore ActiveStore);" +
+		"if($r.Count -ne 1 -or $r[0].NextHop -ne '0.0.0.0'){throw 'owned host route was not applied'}"
+	if _, err = powershell(script); err != nil {
 		return err
 	}
 	if err = json.NewEncoder(os.Stdout).Encode(struct {

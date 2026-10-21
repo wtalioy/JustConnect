@@ -2,6 +2,7 @@
 
 import argparse
 import fcntl
+import json
 import os
 from pathlib import Path
 import pwd
@@ -20,7 +21,7 @@ def exchange(fd):
         udp.settimeout(3)
         udp.bind(('198.18.0.1', 0))
         local_port = udp.getsockname()[1]
-        udp.sendto(b'justconnect-out', ('198.18.0.2', 54321))
+        udp.sendto(b'justconnect-out', ('198.18.0.6', 54321))
         deadline = time.monotonic() + 3
         while True:
             ready, _, _ = select.select([fd], [], [], max(0, deadline - time.monotonic()))
@@ -35,14 +36,14 @@ def exchange(fd):
             offset = (packet[0] & 15) * 4
             if packet[offset + 8:] != b'justconnect-out':
                 continue
-            assert packet[12:20] == socket.inet_aton('198.18.0.1') + socket.inet_aton('198.18.0.2')
+            assert packet[12:20] == socket.inet_aton('198.18.0.1') + socket.inet_aton('198.18.0.6')
             assert struct.unpack('!HH', packet[offset:offset + 4]) == (local_port, 54321)
             break
 
         payload = b'justconnect-in'
         reply_udp = struct.pack('!HHHH', 54321, local_port, 8 + len(payload), 0) + payload
         header = struct.pack('!BBHHHBBH4s4s', 0x45, 0, 20 + len(reply_udp), 1, 0, 64,
-                             socket.IPPROTO_UDP, 0, socket.inet_aton('198.18.0.2'),
+                             socket.IPPROTO_UDP, 0, socket.inet_aton('198.18.0.6'),
                              socket.inet_aton('198.18.0.1'))
         checksum = sum(struct.unpack('!10H', header))
         while checksum >> 16:
@@ -50,13 +51,13 @@ def exchange(fd):
         header = header[:10] + struct.pack('!H', (~checksum) & 0xffff) + header[12:]
         packet = prefix + header + reply_udp
         assert os.write(fd, packet) == len(packet)
-        assert udp.recvfrom(65536) == (payload, ('198.18.0.2', 54321))
+        assert udp.recvfrom(65536) == (payload, ('198.18.0.6', 54321))
 
 
 def probe(uid, gid, crash):
     name = 'jcprobe0'
     if sys.platform == 'darwin':
-        route = subprocess.check_output(['/sbin/route', '-n', 'get', '198.18.0.2'], text=True)
+        route = subprocess.check_output(['/sbin/route', '-n', 'get', '198.18.0.6'], text=True, timeout=5)
         assert any(line.split() == ['destination:', 'default'] for line in route.splitlines()), 'test destination already has a specific route'
     try:
         socket.if_nametoindex(name)
@@ -79,10 +80,16 @@ def probe(uid, gid, crash):
     try:
         if sys.platform == 'darwin':
             subprocess.run(['/sbin/ifconfig', name, 'inet', '198.18.0.1', '198.18.0.2', 'netmask', '255.255.255.252', 'up'], check=True, timeout=5)
+            subprocess.run(['/sbin/route', '-n', 'add', '-host', '198.18.0.6', '-interface', name], check=True, timeout=5)
+            route = subprocess.check_output(['/sbin/route', '-n', 'get', '198.18.0.6'], text=True, timeout=5)
+            assert any(line.split() == ['interface:', name] for line in route.splitlines()), 'owned host route was not applied'
         else:
             fcntl.ioctl(fd, 0x400454ca, struct.pack('16sH22x', name.encode(), 0x1001))
             subprocess.run(['ip', 'address', 'add', '198.18.0.1/30', 'dev', name], check=True)
             subprocess.run(['ip', 'link', 'set', name, 'up'], check=True)
+            subprocess.run(['ip', 'route', 'add', '198.18.0.6/32', 'dev', name], check=True)
+            route = json.loads(subprocess.check_output(['ip', '-j', 'route', 'get', '198.18.0.6'], text=True))
+            assert route[0]['dev'] == name, 'owned host route was not applied'
         pid = os.fork()
         if pid == 0:
             try:

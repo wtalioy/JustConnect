@@ -227,7 +227,7 @@ Linux x64／ARM64 AppImage 分别减少约 2.07%／1.90%；macOS 安装体积基
 
 当前证据与保留结论：
 
-- D2：[源码 `a758b4c`](https://github.com/wtalioy/JustConnect/actions/runs/39661075147)的两组 Linux、两组 macOS 和 Windows x64 已验设备回包与正常／强杀清理，五组提炼证据保留在 `build/reports/device-kernel-a758b4c.json`。ARM64 设备流程仍超时；已改原生接口／路由读取，实际 Windows 四项检查与超时日志保留验证通过，待重验。范围、L3 单读取者／原出口约束及脚手架替代条件见[设备记录](docs/CORELINK-PROBE.md#windows-device-probe)。本机网络只读快照含两条既有 NRPT；未接管日常网络。已清理约 15 MB 过时探测程序／日志，保留 SDK、原生检查和关键报告。
+- D2：[源码 `a758b4c`](https://github.com/wtalioy/JustConnect/actions/runs/39661075147)的两组 Linux、两组 macOS 和 Windows x64 已验设备回包与正常／强杀清理，五组提炼证据保留在 `build/reports/device-kernel-a758b4c.json`。ARM64 设备流程仍超时；已改原生接口／路由读取，实际 Windows 四项检查与超时日志保留验证通过，待重验。显式自有主机路由的回读／数据／撤销已补入三平台探测，Linux 隔离验证通过，Windows／macOS 新增项待 CI。范围、L3 单读取者／原出口约束及脚手架替代条件见[设备记录](docs/CORELINK-PROBE.md#windows-device-probe)。本机网络只读快照含两条既有 NRPT；未接管日常网络。已清理约 15 MB 过时探测程序／日志，保留 SDK、原生检查和关键报告。
 - 出口清理：已移除无产品调用的旧上游 HTTP／SOCKS 参数、实现与专属测试，净减约 400 行；调用、配置、依赖、构建／CI 和文档已核对，正式代理与校园授权／信任／取消／TCP／UDP 回归保留。
 - 失败边界：必须走校园的拨号，以及普通代理中的校园域名，均禁止解析失败／IPv6 回落原网络；校园查询仅复用带隧道来源标记的缓存并拒绝公共 DNS，保留授权 IPv4／域名资源；真实 DNS 包计数覆盖可信缓存复用和未知来源重查。两个修复单元分别通过 Go 19 包／vet、race、Release／Qt 六项，待 CI；出口绑定另补 Linux／实际 Windows x64 的 IPv4／IPv6 TCP／UDP 回环收发及错误接口拒绝回落回归，其余原生组待 CI；尚不代表透明策略交付。
 - D3：本机 Mihomo 1.19.32 自有临时实例已证明规则／DNS 不能靠 PATCH 生效，完整 PUT、无效更新保留及恢复回读通过；关闭状态的 TUN 排除字段可回读；实际 DNS Fake-IP 与 API 真实地址分别通过回包验证。目标版本、二进制哈希、范围和限制见[接口记录](docs/CORELINK-PROBE.md#mihomo-api-probe)；运行中 TUN／真实配置所有权及其余平台仍待验收。
