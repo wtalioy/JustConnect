@@ -148,6 +148,11 @@ int main(int argc, char **argv) try
     file.close();
     const auto escaped = readLinuxDnsSnapshot(bus, source);
     check(!escaped.result.succeeded() && escaped.data.isEmpty(), "Output bound also applies when resolver service is absent");
+    const auto invalidText = QByteArray("nameserver 192.0.2.53\n#\xff\n");
+    check(file.open(QIODevice::WriteOnly | QIODevice::Truncate) && file.write(invalidText) == invalidText.size(), "Invalid encoding fixture");
+    file.close();
+    const auto invalidEncoding = readLinuxDnsSnapshot(bus, source);
+    check(!invalidEncoding.result.succeeded() && invalidEncoding.data.isEmpty(), "Resolver bytes silently replaced during text decoding");
     check(!readLinuxDnsSnapshot(bus, directory.filePath("missing")).result.succeeded(), "Missing resolver file must fail");
     std::cout << "Resolver source, split DNS, legacy protocol and failure boundaries passed\n";
     return 0;
