@@ -44,7 +44,7 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 		return nil, errors.New("Invalid address: " + ipAddr)
 	}
 	port, err := strconv.Atoi(portStr)
-	if err != nil {
+	if err != nil || port < 1 || port > 65535 {
 		return nil, errors.New("Invalid port in address: " + ipAddr)
 	}
 
