@@ -13,6 +13,7 @@
 class QAction;
 class ApplicationLogger;
 class AuthDialogCoordinator;
+class AuthenticationCacheCoordinator;
 class ConnectionSession;
 class QPushButton;
 class QSettings;
@@ -62,9 +63,6 @@ private:
     void startConnection(ConnectionProfile profile,const CredentialSource &source,quint64 cacheRevision);
     void requestConnection(const CredentialSource &source,ConnectionProfile profile,quint64 cacheRevision);
     void loadAuthenticationCache(const CredentialSource &source,ConnectionProfile profile,quint64 generation);
-    void rememberAuthentication(const AuthenticationCache &cache);
-    void invalidateAuthenticationCache();
-    void reportCacheFailure(CredentialStatus status);
     void submitLogin(const QString &username,const QString &password,bool save);
     void submitPhone(const QString &country,const QString &phone,bool save);
     void submitManual(const CredentialSource &source,const ConnectionProfile &profile,bool save,const QVariantMap &changes,bool updateCredentials);
@@ -84,11 +82,9 @@ private:
     CredentialSourceProvider credentialSourceProvider;
     std::optional<CredentialSource> promptSource;
     ConnectionCredentials promptCredentials;
-    std::optional<CredentialSource> cacheSource;
-    quint64 cacheRevision=0,cacheGeneration=0;
-    bool cacheWarningShown=false,cacheCredentialsRequired=false,bindingCacheAccount=false;
+    AuthenticationCacheCoordinator *authenticationCache;
+    bool cacheCredentialsRequired=false;
     bool quitting=false;
-    AuthenticationCache pendingCache;
     quint64 credentialGeneration=0;
     quint64 proxyGeneration=0;
     bool autoProxyPending=false;

@@ -57,6 +57,7 @@ set(SOURCE_FILES
     presentation/main/mainwindow.cpp
     presentation/main/mainwindowcoordinator.cpp
     presentation/coordinators/authdialogcoordinator.cpp
+    presentation/coordinators/authenticationcachecoordinator.cpp
     presentation/coordinators/connectionuicontroller.cpp
     application/applicationlogger.cpp
     application/commandlineoptions.cpp
