@@ -25,14 +25,16 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 )
 
 const probePort = 43877
 
 type brokerDevice struct {
-	Name  string
-	Index uint32
-	LUID  uint64
+	Name       string
+	Index      uint32
+	LUID       uint64
+	InstanceID string
 }
 
 var errRejectedFrame = errors.New("rejected device frame")
@@ -167,6 +169,62 @@ func ownedInterfacePresent(luid uint64) (bool, error) {
 	return row.OperStatus != windows.IfOperStatusNotPresent, nil
 }
 
+func deviceInstanceID(luid uint64) (string, error) {
+	row := windows.MibIfRow2{InterfaceLuid: luid}
+	if err := windows.GetIfEntry2Ex(windows.MibIfTableNormalWithoutStatistics, &row); err != nil {
+		return "", err
+	}
+	class, err := windows.GUIDFromString("{4d36e972-e325-11ce-bfc1-08002be10318}")
+	if err != nil {
+		return "", err
+	}
+	devices, err := windows.SetupDiGetClassDevsEx(&class, "", 0, windows.DIGCF_PRESENT, 0, "")
+	if err != nil {
+		return "", err
+	}
+	defer devices.Close()
+	for i := 0; ; i++ {
+		device, err := devices.EnumDeviceInfo(i)
+		if errors.Is(err, windows.ERROR_NO_MORE_ITEMS) {
+			return "", windows.ERROR_NOT_FOUND
+		}
+		if err != nil {
+			return "", err
+		}
+		handle, err := devices.OpenDevRegKey(device, windows.DICS_FLAG_GLOBAL, 0, windows.DIREG_DRV, windows.KEY_QUERY_VALUE)
+		if err != nil {
+			continue
+		}
+		key := registry.Key(handle)
+		value, _, readErr := key.GetStringValue("NetCfgInstanceId")
+		key.Close()
+		if readErr != nil {
+			continue
+		}
+		guid, err := windows.GUIDFromString(value)
+		if err == nil && guid == row.InterfaceGuid {
+			return devices.DeviceInstanceID(device)
+		}
+	}
+}
+
+func devicePresent(instanceID string) (bool, error) {
+	id, err := windows.UTF16PtrFromString(instanceID)
+	if err != nil || instanceID == "" {
+		return false, errors.New("invalid test device identity")
+	}
+	var node windows.DEVINST
+	locate := windows.NewLazySystemDLL("cfgmgr32.dll").NewProc("CM_Locate_DevNodeW")
+	status, _, _ := locate.Call(uintptr(unsafe.Pointer(&node)), uintptr(unsafe.Pointer(id)), 0)
+	if windows.CONFIGRET(status) == windows.CR_NO_SUCH_DEVNODE {
+		return false, nil
+	}
+	if windows.CONFIGRET(status) != windows.CR_SUCCESS {
+		return false, fmt.Errorf("locate original test device: status %d", status)
+	}
+	return true, nil
+}
+
 func runBroker(dll, mode string) (result error) {
 	fmt.Fprintln(os.Stderr, "START: device case", mode)
 	var nonce [8]byte
@@ -213,7 +271,9 @@ func runBroker(dll, mode string) (result error) {
 		// Independent safety cleanup is limited to this nonce's newly created device.
 		var remaining bool
 		var lookupErr error
-		if ready.LUID != 0 {
+		if ready.InstanceID != "" {
+			remaining, lookupErr = devicePresent(ready.InstanceID)
+		} else if ready.LUID != 0 {
 			remaining, lookupErr = ownedInterfacePresent(ready.LUID)
 		} else {
 			remaining, lookupErr = adapterPresent(name)
@@ -226,12 +286,15 @@ func runBroker(dll, mode string) (result error) {
 			return
 		}
 		result = errors.Join(result, errors.New("adapter survived its owner; independent cleanup required"))
-		output, lookupErr := powershell("Get-NetAdapter -IncludeHidden | Where-Object {$_.Name -eq '" + name + "'} | Select-Object -ExpandProperty PnPDeviceID")
-		if lookupErr != nil {
-			result = errors.Join(result, lookupErr)
-			return
+		deviceID := ready.InstanceID
+		if deviceID == "" {
+			output, lookupErr := powershell("Get-NetAdapter -IncludeHidden | Where-Object {$_.Name -eq '" + name + "'} | Select-Object -ExpandProperty PnPDeviceID")
+			if lookupErr != nil {
+				result = errors.Join(result, lookupErr)
+				return
+			}
+			deviceID = strings.TrimSpace(string(output))
 		}
-		deviceID := strings.TrimSpace(string(output))
 		if !strings.HasPrefix(strings.ToUpper(deviceID), "SWD\\WINTUN\\") {
 			result = errors.Join(result, fmt.Errorf("unexpected device identity %q; refusing removal", deviceID))
 			return
@@ -251,7 +314,7 @@ func runBroker(dll, mode string) (result error) {
 	if err = json.NewDecoder(bufio.NewReader(io.LimitReader(output, 4096))).Decode(&ready); err != nil {
 		return fmt.Errorf("broker did not confirm its device: %w", err)
 	}
-	if ready.Name != name || ready.Index == 0 || ready.LUID == 0 {
+	if ready.Name != name || ready.Index == 0 || ready.LUID == 0 || !strings.HasPrefix(strings.ToUpper(ready.InstanceID), "SWD\\WINTUN\\") {
 		return errors.New("broker confirmed another device")
 	}
 	if mode == "crash" {
@@ -270,7 +333,7 @@ func runBroker(dll, mode string) (result error) {
 	}
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		present, err = ownedInterfacePresent(ready.LUID)
+		present, err = devicePresent(ready.InstanceID)
 		if err != nil {
 			return err
 		}
@@ -401,7 +464,14 @@ func broker(path, name, mode string) error {
 	if _, err = powershell(script); err != nil {
 		return err
 	}
-	if err = json.NewEncoder(os.Stdout).Encode(brokerDevice{name, index, luid}); err != nil {
+	instanceID, err := deviceInstanceID(luid)
+	if err != nil {
+		return fmt.Errorf("identify created test device: %w", err)
+	}
+	if present, err := devicePresent(instanceID); err != nil || !present {
+		return fmt.Errorf("created test device is not present: %v", err)
+	}
+	if err = json.NewEncoder(os.Stdout).Encode(brokerDevice{name, index, luid, instanceID}); err != nil {
 		return err
 	}
 	if mode == "crash" {
