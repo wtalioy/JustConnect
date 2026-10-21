@@ -338,7 +338,7 @@ func next(t *testing.T, e *Engine, h uint64) event {
 		if err := json.Unmarshal(data, &ev); err != nil {
 			t.Fatal(err)
 		}
-		if ev.Type != "diagnostic" {
+		if ev.Type != "diagnostic" && ev.Type != "observation" {
 			return ev
 		}
 	}

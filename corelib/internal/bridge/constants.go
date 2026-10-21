@@ -49,4 +49,5 @@ const (
 	NetworkFailure      Status = -13
 	AuthUnsupported     Status = -14
 	CredentialsRequired Status = -15
+	SessionInvalid      Status = -16
 )

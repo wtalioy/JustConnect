@@ -427,6 +427,9 @@ void ConnectionUiController::showConnectionError(ConnectionError error)
     QString message;
     switch (error)
     {
+    case ConnectionError::SESSION_INVALID:
+        message="服务器已明确终止会话。请点击连接完成一次重新认证。";
+        break;
     case ConnectionError::CREDENTIALS_REQUIRED:
         message="认证已失效或无法恢复，请输入登录凭据后重试。";
         break;

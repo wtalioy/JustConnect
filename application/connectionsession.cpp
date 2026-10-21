@@ -10,6 +10,18 @@ ConnectionSession::ConnectionSession(CoreEngine *coreEngine, QObject *parent)
     stableTimer.setInterval(60000);
     connect(&stableTimer, &QTimer::timeout, this, [this] { sessionState.connectionStable(); });
     connect(coreEngine, &CoreEngine::diagnostic, this, &ConnectionSession::diagnostic);
+    connect(coreEngine, &CoreEngine::observation, this, [this](const QString &stage,const QString &result,const QDateTime &observedAt) {
+        if ((state()!=ConnectionState::Starting && state()!=ConnectionState::Running) || !observedAt.isValid()
+            || (observations.contains(stage) && observedAt<observations[stage].observedAt)) return;
+        observations[stage]={result,observedAt};
+        if (stage=="library" && state()==ConnectionState::Starting) currentPhase=ConnectionPhase::Starting;
+        else if (stage=="authentication" && result=="required") currentPhase=ConnectionPhase::ReauthenticationRequired;
+        else if (state()==ConnectionState::Starting) {
+            if (stage=="restore") currentPhase=result=="succeeded" ? ConnectionPhase::AuthenticationSucceeded : ConnectionPhase::Restoring;
+            else if (stage=="authentication") currentPhase=result=="succeeded" ? ConnectionPhase::AuthenticationSucceeded : ConnectionPhase::Authenticating;
+        }
+        emit progressChanged();
+    });
     connect(coreEngine,&CoreEngine::authenticationCacheUpdated,this,[this](const AuthenticationCache &cache) {
         if (!currentProfile.behavior.rememberAuthentication
             || (state()!=ConnectionState::Starting && state()!=ConnectionState::Running)) return;
@@ -24,6 +36,8 @@ ConnectionSession::ConnectionSession(CoreEngine *coreEngine, QObject *parent)
     });
     connect(coreEngine, &CoreEngine::authenticationRequired, this, [this](const QJsonObject &request) {
         if (sessionState.state() != ConnectionState::Starting) return;
+        currentPhase=ConnectionPhase::Authenticating;
+        emit progressChanged();
         sessionState.authenticationRequested();
         pendingAuthentication = request;
         responseAction.clear();
@@ -41,6 +55,7 @@ ConnectionSession::ConnectionSession(CoreEngine *coreEngine, QObject *parent)
     connect(coreEngine, &CoreEngine::connectionEstablished, this, [this] {
         clearAuthentication();
         if (sessionState.state() != ConnectionState::Starting) return;
+        currentPhase=ConnectionPhase::TransportReady;
         sessionState.connectionEstablished();
         stableTimer.start();
         emit stateChanged(sessionState.state());
@@ -48,6 +63,7 @@ ConnectionSession::ConnectionSession(CoreEngine *coreEngine, QObject *parent)
     connect(coreEngine, &CoreEngine::finished, this, [this](ConnectionError error) {
         if (!sessionState.isActive()) return;
         clearAuthentication();
+        if (error==ConnectionError::SESSION_INVALID) currentPhase=ConnectionPhase::ReauthenticationRequired;
         sessionState.recordError(error);
         handleCoreFinished();
     });
@@ -135,6 +151,9 @@ bool ConnectionSession::isActive() const
 
 void ConnectionSession::startCore()
 {
+    currentPhase=ConnectionPhase::Initializing;
+    observations.clear();
+    emit progressChanged();
     clearAuthentication();
     if (!coreEngine->start(currentProfile)) {
         sessionState.recordError(ConnectionError::OTHER);

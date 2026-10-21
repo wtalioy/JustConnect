@@ -46,7 +46,7 @@ func RunProtocol(ctx context.Context, config Config, host *Session) Status {
 		tlsPolicy.RootCAs = roots
 	}
 	options := corelib.Options{
-		Client:   atrust.ClientOptions{TLSConfig: tlsPolicy, AllowUnverifiedNodes: config.TLS.AllowUnverifiedNodes, Language: config.Network.Language, Diagnostic: func(code string) { host.Diagnostic(code) }},
+		Client:   atrust.ClientOptions{TLSConfig: tlsPolicy, AllowUnverifiedNodes: config.TLS.AllowUnverifiedNodes, Language: config.Network.Language, Diagnostic: func(code string) { host.Diagnostic(code) }, Observe: func(stage, result string) { host.Observe(stage, result) }},
 		Setup:    atrust.SetupOptions{AuthID: config.Auth.AuthID, AuthSubType: config.Auth.SubType, ServerAddress: config.Server.Host, ServerPort: int(config.Server.Port), LoginMethod: method, TOTPSecret: config.Auth.TOTPSecret, ChallengeHandler: challengeHandler(ctx, host)},
 		Underlay: underlay.Options{InterfaceName: config.Network.Interface, AutoDetect: config.Network.AutoDetect, LocalDNSServer: config.Network.LocalDNS},
 		SOCKS:    config.Listeners.SOCKS, HTTP: config.Listeners.HTTP, SecondaryDNS: config.Network.SecondaryDNS, DNSCacheTTL: uint64(config.Network.DNSCacheTTL), DisableRemoteDNS: config.Network.DisableRemoteDNS,
@@ -89,6 +89,9 @@ func RunProtocol(ctx context.Context, config Config, host *Session) Status {
 	}
 	if errors.Is(err, auth.ErrAuthMethodChanged) {
 		return AuthMethodChanged
+	}
+	if errors.Is(err, auth.ErrSessionInvalid) {
+		return SessionInvalid
 	}
 	if errors.Is(err, auth.ErrCredentialsRequired) {
 		return CredentialsRequired

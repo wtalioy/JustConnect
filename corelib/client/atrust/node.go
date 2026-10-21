@@ -149,11 +149,17 @@ func (c *Client) updateBestNodes(ctx context.Context, interval time.Duration) {
 		case <-ticker.C:
 		}
 
+		c.report("nodes", "running")
 		bestNodes, err := getBestNodes(ctx, c.NodeGroups, c.underlayDialer.DialContext, c.nodeTLSPolicy)
+		if ctx.Err() != nil {
+			return
+		}
 		if err != nil {
+			c.report("nodes", "failed")
 			c.fail(err)
 			return
 		}
+		c.report("nodes", "succeeded")
 		c.BestNodesRWMutex.Lock()
 		c.BestNodes = bestNodes
 		c.BestNodesRWMutex.Unlock()

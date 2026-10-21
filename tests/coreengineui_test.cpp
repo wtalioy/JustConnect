@@ -833,6 +833,12 @@ static void gateway(const QJsonObject &config) {
     challenge(parent)->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
     until([&] { return session.state() == ConnectionState::Running; });
     check(responses == 2, "SMS and explicit device confirmation each reach the production protocol once");
+    check(session.phase()==ConnectionPhase::TransportReady
+        && session.observation("authentication").result=="succeeded"
+        && session.observation("authentication").observedAt.isValid()
+        && session.observation("library").result=="succeeded"
+        && !session.observation("renewal").observedAt.isValid(),
+        "formal ABI observations distinguish authentication, transport and unknown renewal");
     until([&]{return !access.isBusy(settings.fileName());});
     ProxyCheck::exercise(listeners, [&] {
         session.stop();

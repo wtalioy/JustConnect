@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -200,4 +201,39 @@ func TestWorkerPanicIsReturnedAndJoined(t *testing.T) {
 		t.Fatal("worker panic was not returned")
 	}
 	c.Close()
+}
+
+func TestRefreshObservationsDistinguishTransientFailureAndExpiry(t *testing.T) {
+	observations := make(chan [2]string, 16)
+	c := NewClient(ClientOptions{Session: SessionOptions{SID: "old"}, Observe: func(stage, result string) { observations <- [2]string{stage, result} }})
+	defer c.Close()
+	calls := 0
+	c.startSessionRefresh(func(context.Context) (auth.LoginResult, error) {
+		calls++
+		switch calls {
+		case 1:
+			return auth.LoginResult{}, errors.New("temporary network failure")
+		case 2:
+			return auth.LoginResult{SID: "new"}, nil
+		default:
+			return auth.LoginResult{}, auth.ErrSessionInvalid
+		}
+	}, auth.ClientAuthData{}, nil, time.Millisecond)
+	select {
+	case err := <-c.Errors():
+		if !errors.Is(err, auth.ErrSessionInvalid) {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expiry did not stop session")
+	}
+	c.Close()
+	var results [][2]string
+	for len(observations) > 0 {
+		results = append(results, <-observations)
+	}
+	want := [][2]string{{"renewal", "running"}, {"renewal", "failed"}, {"renewal", "running"}, {"renewal", "succeeded"}, {"renewal", "running"}, {"authentication", "required"}}
+	if !reflect.DeepEqual(results, want) || calls != 3 {
+		t.Fatalf("observations=%v calls=%d", results, calls)
+	}
 }

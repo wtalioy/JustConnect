@@ -176,7 +176,7 @@ func TestProtocolListenerFailureRollsBackAndInvalidSessionStops(t *testing.T) {
 		_ = conn.Close()
 		t.Fatal("invalid session accepted")
 	}
-	if ev := next(t, e, h); ev.Type != "terminal" || ev.Status != Internal {
+	if ev := next(t, e, h); ev.Type != "terminal" || ev.Status != SessionInvalid {
 		t.Fatalf("runtime failure = %+v", ev)
 	}
 	if e.Stop(h, 1000) != OK || e.Destroy(h, 1000) != OK {
