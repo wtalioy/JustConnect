@@ -2,6 +2,9 @@
 
 #include <QDebug>
 #include <QSettings>
+#include <QFile>
+#include <QFileInfo>
+#include <QTemporaryDir>
 
 #include "application/applicationconstants.h"
 #include "application/defaultsettings.h"
@@ -13,8 +16,23 @@ QString legacyTarget(const QString &key)
 }
 }
 
+bool SettingsMigrator::readableFile(const QString &path)
+{
+    // QSettings caches parsed INI data without retaining its format error for later instances.
+    if (!QFileInfo(path).isFile()) return false;
+    QTemporaryDir snapshot;
+    if (!snapshot.isValid()) return false;
+    const auto copy=snapshot.filePath("input.ini");
+    if (!QFile::copy(path,copy) || !QFile::setPermissions(copy,QFile::ReadOwner|QFile::WriteOwner)) return false;
+    QSettings original(copy,QSettings::IniFormat);
+    original.allKeys();
+    return original.status()==QSettings::NoError;
+}
+
 SettingsMigrationAction SettingsMigrator::prepare(QSettings &settings)
 {
+    if (settings.status()!=QSettings::NoError
+        || (QFileInfo::exists(settings.fileName()) && !readableFile(settings.fileName()))) return SettingsMigrationAction::Failed;
     settings.beginGroup("ZJUConnect");
     const QStringList previousKeys = settings.allKeys();
     settings.endGroup();
@@ -65,6 +83,8 @@ SettingsMigrationAction SettingsMigrator::prepare(QSettings &settings)
 
 bool SettingsMigrator::finish(QSettings &settings)
 {
+    if (settings.status()!=QSettings::NoError
+        || (QFileInfo::exists(settings.fileName()) && !readableFile(settings.fileName()))) return false;
     const auto previous = settings.value("Common/ConfigVersion");
     QVariantMap removed;
     if (previous.toInt() <= ApplicationConstants::ConfigVersion) {
@@ -118,7 +138,8 @@ bool SettingsMigrator::finish(QSettings &settings)
 
 bool SettingsMigrator::publicDraft(const QSettings &source,QSettings &draft)
 {
-    if (source.status()!=QSettings::NoError || draft.status()!=QSettings::NoError || !draft.allKeys().isEmpty()) return false;
+    if (source.status()!=QSettings::NoError || draft.status()!=QSettings::NoError || !draft.allKeys().isEmpty()
+        || (QFileInfo::exists(source.fileName()) && !readableFile(source.fileName()))) return false;
     for (const auto &key:source.allKeys()) {
         const auto current=key.startsWith("ZJUConnect/") ? legacyTarget(key.mid(11)) : key;
         // Protocol is migration input, then removed at the public-data boundary.

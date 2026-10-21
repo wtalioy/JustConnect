@@ -18,6 +18,7 @@
 #include "application/connectionsession.h"
 #include "application/systemproxysession.h"
 #include "application/profileservice.h"
+#include "application/settingsmigrator.h"
 #include "infrastructure/coreengine/embeddedcoreengine.h"
 #include "presentation/coordinators/authdialogcoordinator.h"
 
@@ -146,6 +147,9 @@ void ConnectionUiController::handleConnectClicked()
         QMessageBox::warning(parentWidget,"请选择认证方式","请在设置中确认认证方式；可从当前服务器获取可用列表。");return;
     }
     const auto source=credentialSourceProvider();const auto generation=credentialGeneration;
+    if (!SettingsMigrator::readableFile(source.path)) {
+        QMessageBox::warning(parentWidget,"配置不可用","无法读取当前配置，请检查文件权限与内容后重新打开配置。");return;
+    }
     credentialsPending=true;connectButton->setText("取消连接");trayConnectAction->setText("取消连接");
     credentials->load(source).then(this,[this,source,generation](const CredentialLoadResult &loaded) {
         if (generation!=credentialGeneration) return;

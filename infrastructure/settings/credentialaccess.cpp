@@ -2,6 +2,8 @@
 #include "application/profileservice.h"
 #include "application/defaultsettings.h"
 #include <QSettings>
+#include <QFileInfo>
+#include "application/settingsmigrator.h"
 #include <QtConcurrent>
 
 CredentialAccess::CredentialAccess(std::unique_ptr<CredentialStore> store,QObject *parent)
@@ -9,7 +11,9 @@ CredentialAccess::CredentialAccess(std::unique_ptr<CredentialStore> store,QObjec
 CredentialAccess::~CredentialAccess() {pool.waitForDone();}
 CredentialSource CredentialAccess::source(QSettings &settings,const QString &legacyCachePath) {
     settings.sync();
-    return {settings.fileName(),ProfileCredentials::ensureScope(settings),legacyCachePath,ProfileService::load(settings),DefaultSettings::publicValues(settings)};
+    const bool valid=settings.status()==QSettings::NoError
+        && (!QFileInfo::exists(settings.fileName()) || SettingsMigrator::readableFile(settings.fileName()));
+    return {settings.fileName(),valid ? ProfileCredentials::ensureScope(settings) : QString(),legacyCachePath,ProfileService::load(settings),DefaultSettings::publicValues(settings)};
 }
 bool CredentialAccess::matches(const CredentialSource &source,const QSettings &settings) {
     return !source.scope.isEmpty() && settings.status()==QSettings::NoError && source.path==settings.fileName()
@@ -25,7 +29,8 @@ void CredentialAccess::end(const QString &path,bool saving) {
 }
 CredentialResult CredentialAccess::checkSource(const CredentialSource &source,QSettings &settings,bool unchangedPublic) {
     settings.sync();
-    if (settings.status()!=QSettings::NoError) return {CredentialStatus::Failed,{}};
+    if (settings.status()!=QSettings::NoError
+        || (QFileInfo::exists(settings.fileName()) && !SettingsMigrator::readableFile(settings.fileName()))) return {CredentialStatus::Failed,{}};
     const bool current=matches(source,settings) && (!unchangedPublic || source.publicValues==DefaultSettings::publicValues(settings));
     return {current ? CredentialStatus::Success : CredentialStatus::Cancelled,{}};
 }

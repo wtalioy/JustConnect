@@ -48,6 +48,24 @@ void setup(QSettings &settings) {
     settings.setValue("Credential/Password",QString::fromLatin1(QByteArray("legacy password").toBase64()));
     settings.setValue("Credential/TOTPSecret","legacy TOTP");settings.sync();
 }
+void rejectsRepeatedMalformedSources() {
+    QTemporaryDir folder;QSettings settings(folder.filePath("malformed.ini"),QSettings::IniFormat);setup(settings);
+    auto backend=std::make_unique<Store>();auto *store=backend.get();CredentialAccess access(std::move(backend));
+    const auto source=CredentialAccess::source(settings,{});
+    const QByteArray malformed="[unclosed section\n";
+    {QFile file(source.path);require(file.open(QIODevice::Append) && file.write(malformed)==malformed.size(),"append malformed INI section");}
+    const auto read=[&] {QFile file(source.path);require(file.open(QIODevice::ReadOnly),"read malformed source");return file.readAll();};
+    const auto original=read();
+    auto replacement=source.profile;replacement.credentials.password="must not save";
+    for (int attempt=0;attempt<2;++attempt) {
+        const auto loaded=finish(access.load(source));
+        require(loaded.result.status==CredentialStatus::Failed && loaded.credentials.password.isEmpty(),"malformed source never delivers legacy credentials");
+        require(finish(access.save(source,replacement,true,{{"Credential/Username","bob"}})).status==CredentialStatus::Failed,
+            "repeated malformed source cannot start native or public writes");
+        require(CredentialAccess::source(settings,{}).scope.isEmpty() && read()==original && store->values.isEmpty(),
+            "malformed source retains its exact bytes and cannot obtain a new credential scope");
+    }
+}
 void readsAndSavesOutsideGui() {
     QTemporaryDir folder;require(folder.isValid(),"isolated settings");
     QSettings settings(folder.filePath("profile.ini"),QSettings::IniFormat);setup(settings);
@@ -169,6 +187,6 @@ void rejectsChangedIdentity() {
 }
 int main(int argc,char **argv) {
     QCoreApplication app(argc,argv);
-    try {readsAndSavesOutsideGui();sealsCacheBeforeDelivery();acceptsUnconfiguredFirstLaunch();publicSaveFailureAndStaleness();rejectsChangedIdentity();std::cout<<"PASS: asynchronous serialized credentials, migration, save failure and stale identity rejection\n";return 0;}
+    try {rejectsRepeatedMalformedSources();readsAndSavesOutsideGui();sealsCacheBeforeDelivery();acceptsUnconfiguredFirstLaunch();publicSaveFailureAndStaleness();rejectsChangedIdentity();std::cout<<"PASS: asynchronous serialized credentials, migration, save failure and stale identity rejection\n";return 0;}
     catch(const std::exception &error) {std::cerr<<error.what()<<'\n';return 1;}
 }

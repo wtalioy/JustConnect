@@ -109,7 +109,7 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
         const auto path=QFileDialog::getSaveFileName(this,"导出已保存配置",{},"Config Ini (*.ini)");
         if (path.isEmpty()) return;
         settings.sync();
-        if (settings.status()!=QSettings::NoError || !DefaultSettings::exportTo(settings,path))
+        if (settings.status()!=QSettings::NoError || !SettingsMigrator::readableFile(settings.fileName()) || !DefaultSettings::exportTo(settings,path))
             QMessageBox::warning(this,"导出失败","无法提交导出文件；不能覆盖当前配置。");
     });
     readCredentials();
@@ -251,7 +251,9 @@ void SettingWindow::applySettings(bool closeAfter) {
         if (!result.succeeded()) {saving=false;updateBusy();QMessageBox::warning(this,"自启动操作未完成",PresentationHelpers::platformOperationMessage(result));return;}
         if (!manager.setAutoStartEnabled(autoStart)) {saving=false;updateBusy();QMessageBox::warning(this,"自启动偏好未保存","系统项已修改，但偏好保存失败，请检查后重试。");return;}
     }
-    manager.setSilentStartEnabled(ui->silentStartCheckBox->isChecked());
+    if (!manager.setSilentStartEnabled(ui->silentStartCheckBox->isChecked())) {
+        saving=false;updateBusy();QMessageBox::warning(this,"启动偏好未保存","无法保存静默启动偏好，请检查配置目录后重试。当前窗口修改尚未应用。");return;
+    }
     const auto changes=publicChanges();
     const bool edited=(!ui->passwordLineEdit->text().isEmpty() && ui->passwordLineEdit->text()!=loadedCredentials.password)
         || (!ui->totpSecretLineEdit->text().isEmpty() && ui->totpSecretLineEdit->text()!=loadedCredentials.totpSecret);

@@ -50,7 +50,27 @@ bool copiesOnlyPublicConfiguration()
     const QByteArray malformed="[unclosed group\nprivate=value\n";
     {QFile file(invalid);if (!file.open(QIODevice::WriteOnly) || file.write(malformed)!=malformed.size()) return false;}
     if (!manager.createProfile("corrupt",invalid).isEmpty() || QFileInfo::exists(manager.profilePath("corrupt")) || read(invalid)!=malformed) return false;
+    if (!manager.createProfile("corrupt-again",invalid).isEmpty() || read(invalid)!=malformed) return false;
     return read(source.fileName())==original;
+}
+
+bool rejectsMalformedStateAndRecovers()
+{
+    QTemporaryDir directory;
+    ProfileManager manager(directory.path());
+    const auto target=manager.createProfile("target");
+    const auto path=directory.filePath("state.ini");
+    const QByteArray malformed="[unclosed group\nGlobal/SilentStart=false\n";
+    {QFile file(path);if (!file.open(QIODevice::WriteOnly) || file.write(malformed)!=malformed.size()) return false;}
+    const bool selected=manager.setActiveProfile(target),autoStart=manager.setAutoStartEnabled(true),silentStart=manager.setSilentStartEnabled(true);
+    if (target.isEmpty() || selected || autoStart || silentStart || read(path)!=malformed) {
+        qCritical()<<"malformed state must not be rewritten by selection or preference saves"<<selected<<autoStart<<silentStart<<read(path);return false;
+    }
+    const QByteArray repaired="[Global]\nSilentStart=false\nAutoStart=false\n[Profile]\nActive=\n";
+    {QFile file(path);if (!file.open(QIODevice::WriteOnly|QIODevice::Truncate) || file.write(repaired)!=repaired.size()) return false;}
+    if (!manager.setSilentStartEnabled(true) || !manager.setAutoStartEnabled(true) || !manager.setActiveProfile(target)) return false;
+    ProfileManager reopened(directory.path());
+    return reopened.silentStartEnabled() && reopened.autoStartEnabled() && reopened.activeProfile()==target;
 }
 
 bool createsPhysicalFilesForEmptyProfiles()
@@ -75,10 +95,11 @@ bool createsPhysicalFilesForEmptyProfiles()
         qCritical() << "empty named profile file was not created";
         return false;
     }
-    if (!manager.setAutoStartEnabled(true) || !ProfileManager(directory.path()).autoStartEnabled()) return false;
+    if (!manager.setAutoStartEnabled(true) || !ProfileManager(directory.path()).autoStartEnabled()
+        || !manager.setSilentStartEnabled(true) || !ProfileManager(directory.path()).silentStartEnabled()) return false;
     // A directory in place of the state file is a real storage failure on every platform.
     if (!QFile::remove(directory.filePath("state.ini")) || !QDir().mkdir(directory.filePath("state.ini"))) return false;
-    if (manager.setAutoStartEnabled(false)) {
+    if (manager.setAutoStartEnabled(false) || manager.setSilentStartEnabled(false)) {
         qCritical() << "autostart preference storage failure was reported as success";
         return false;
     }
@@ -89,5 +110,5 @@ bool createsPhysicalFilesForEmptyProfiles()
 int main(int argc, char *argv[])
 {
     QCoreApplication application(argc, argv);
-    return copiesOnlyPublicConfiguration() && createsPhysicalFilesForEmptyProfiles() ? 0 : 1;
+    return copiesOnlyPublicConfiguration() && createsPhysicalFilesForEmptyProfiles() && rejectsMalformedStateAndRecovers() ? 0 : 1;
 }

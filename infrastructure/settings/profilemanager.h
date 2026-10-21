@@ -36,7 +36,7 @@ public:
 
     bool silentStartEnabled() const override;
 
-    void setSilentStartEnabled(bool enabled) const;
+    bool setSilentStartEnabled(bool enabled) const;
 
 private:
     QString configRootPath;

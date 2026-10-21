@@ -2,6 +2,7 @@
 #define SETTINGSMIGRATOR_H
 
 class QSettings;
+class QString;
 
 enum class SettingsMigrationAction
 {
@@ -13,6 +14,7 @@ enum class SettingsMigrationAction
 class SettingsMigrator
 {
 public:
+    static bool readableFile(const QString &path);
     static SettingsMigrationAction prepare(QSettings &settings);
     static bool finish(QSettings &settings);
     static bool publicDraft(const QSettings &source,QSettings &draft);
