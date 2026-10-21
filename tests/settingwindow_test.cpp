@@ -77,11 +77,18 @@ int main(int argc,char **argv) {
       initial->findChild<QSpinBox *>("socks5PortSpinBox")->setValue(0);
       initial->findChild<QSpinBox *>("httpPortSpinBox")->setValue(19443);
       initial->findChild<QSpinBox *>("dnsTTLSpinBox")->setValue(61);
+      auto *keepAlive=initial->findChild<QComboBox *>("keepAliveModeComboBox");
+      auto *target=initial->findChild<QLineEdit *>("keepAliveUrlLineEdit");
+      check(keepAlive->currentData()=="auto" && !target->isEnabled(),"new profiles use automatic traffic keepalive without a manual target");
+      keepAlive->setCurrentIndex(keepAlive->findData("target"));
+      check(target->isEnabled(),"target mode enables the URL draft");
+      target->setText("https://campus.example.invalid/status");
       initial->findChild<QDialogButtonBox *>("buttonBox")->button(QDialogButtonBox::Ok)->click(); ready();
       check(settings.value("JustConnect/AuthID")=="persisted-id" && settings.value("JustConnect/AuthSubType")=="password","selected authentication identity survives settings reload/apply");
       const auto reloaded=ProfileService::load(settings);
       check(!reloaded.tls.verify && reloaded.proxy.socksBind.isEmpty()
-          && reloaded.proxy.httpBind=="127.0.0.1:19443" && reloaded.dns.ttl==61 && reloaded.behavior.rememberAuthentication,
+          && reloaded.proxy.httpBind=="127.0.0.1:19443" && reloaded.dns.ttl==61 && reloaded.behavior.rememberAuthentication
+          && reloaded.keepAlive.mode=="target" && reloaded.keepAlive.url=="https://campus.example.invalid/status",
           "validated settings draft and reloaded connection share TLS, disabled listener, port and DNS values"); }
     const auto cache=ApplicationPaths::clientDataFile("fixture"),otherCache=ApplicationPaths::clientDataFile("other");
     check(!QFileInfo::exists(cache) && !QFileInfo::exists(otherCache),"locating legacy cache creates no plaintext files");
@@ -105,6 +112,21 @@ int main(int argc,char **argv) {
     auto open=[&] { auto *window=new SettingWindow(nullptr,&access,CredentialAccess::source(settings,ApplicationPaths::clientDataFile("fixture"))); window->show();ready(); return window; };
     auto buttons=[](SettingWindow *w) { return w->findChild<QDialogButtonBox *>("buttonBox"); };
     QPointer<SettingWindow> window=open();
+    auto *keepAlive=window->findChild<QComboBox *>("keepAliveModeComboBox");
+    auto *target=window->findChild<QLineEdit *>("keepAliveUrlLineEdit");
+    target->setText("ssh://campus.example.invalid:22");
+    expectedMessage="配置无效";shown=false;buttons(window)->button(QDialogButtonBox::Apply)->click();ready();
+    check(shown && window && settings.value("JustConnect/KeepAliveURL")=="https://campus.example.invalid/status",
+        "unsafe traffic targets are rejected before saving");
+    target->setText("https://campus.example.invalid/status");
+    keepAlive->setCurrentIndex(keepAlive->findData("off"));
+    check(!target->isEnabled() && !target->text().isEmpty(),"disabling traffic keepalive retains the target draft");
+    expectedMessage.clear();buttons(window)->button(QDialogButtonBox::Apply)->click();ready();
+    check(settings.value("JustConnect/KeepAliveMode")=="off" && settings.value("JustConnect/KeepAliveURL")==target->text(),
+        "disabled traffic mode and retained target survive apply");
+    keepAlive->setCurrentIndex(keepAlive->findData("auto"));window->reject();ready();
+    check(settings.value("JustConnect/KeepAliveMode")=="off","cancel does not enable traffic keepalive");
+    window=open();
     const auto statePath=QDir(QFileInfo(ProfileManager().profilePath("")).absolutePath()).filePath("state.ini");
     const auto retainedTTL=settings.value("JustConnect/DNSTTL");
     check(QFile::rename(statePath,statePath+".backup") && QDir().mkdir(statePath),"simulate global preference write failure");
@@ -144,10 +166,14 @@ int main(int argc,char **argv) {
     check(settings.value("JustConnect/ServerAddress")=="changed.example.invalid" && read(cache)=="preserved authentication"
         && ProfileService::load(settings).behavior.rememberAuthentication,"cancelled reset preserves configuration, cache consent and pending legacy archive");
     const auto imported=directory.filePath("import.ini");
-    { QSettings source(imported,QSettings::IniFormat); DefaultSettings::reset(source); source.setValue("Credential/Username","imported-user"); source.setValue("JustConnect/ServerAddress","imported.example.invalid"); source.sync(); }
+    { QSettings source(imported,QSettings::IniFormat); DefaultSettings::reset(source); source.setValue("Credential/Username","imported-user"); source.setValue("JustConnect/ServerAddress","imported.example.invalid");
+      source.remove("JustConnect/KeepAliveMode");source.setValue("JustConnect/KeepAlive",false);source.setValue("JustConnect/KeepAliveURL","https://imported.example.invalid/status");source.sync(); }
     const auto originalImport=read(imported);
     window=open(); fileSelection=imported; window->findChild<QPushButton *>("importPushButton")->click();
     check(fileSelection.isEmpty() && window->findChild<QLineEdit *>("usernameLineEdit")->text()=="imported-user","file import populates the window draft");
+    check(window->findChild<QComboBox *>("keepAliveModeComboBox")->currentData()=="off"
+        && window->findChild<QLineEdit *>("keepAliveUrlLineEdit")->text()=="https://imported.example.invalid/status",
+        "import preserves a legacy disabled choice and its target");
     buttons(window)->button(QDialogButtonBox::Cancel)->click(); ready();
     check(settings.value("Credential/Username")=="fixture-user" && read(imported)==originalImport && read(cache)=="preserved authentication","cancelled import changes neither source file nor saved profile/cache");
     window=open(); const auto exported=directory.filePath("export.ini"); fileSelection=exported;

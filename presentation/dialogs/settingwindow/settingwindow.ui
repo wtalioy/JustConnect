@@ -573,6 +573,32 @@
            </property>
           </widget>
          </item>
+         <item row="8" column="0">
+          <widget class="QLabel" name="keepAliveModeLabel">
+           <property name="text"><string>流量保活</string></property>
+           <property name="buddy"><cstring>keepAliveModeComboBox</cstring></property>
+          </widget>
+         </item>
+         <item row="8" column="1">
+          <widget class="QComboBox" name="keepAliveModeComboBox">
+           <property name="toolTip"><string>自动模式探测获授权的校园 DNS；关闭只停止流量探测，会话续期与节点维护继续运行。</string></property>
+           <item><property name="text"><string>自动（校园 DNS）</string></property></item>
+           <item><property name="text"><string>指定目标（HTTP GET）</string></property></item>
+           <item><property name="text"><string>关闭</string></property></item>
+          </widget>
+         </item>
+         <item row="9" column="0">
+          <widget class="QLabel" name="keepAliveUrlLabel">
+           <property name="text"><string>保活目标</string></property>
+           <property name="buddy"><cstring>keepAliveUrlLineEdit</cstring></property>
+          </widget>
+         </item>
+         <item row="9" column="1">
+          <widget class="QLineEdit" name="keepAliveUrlLineEdit">
+           <property name="placeholderText"><string>https://校园服务/status</string></property>
+           <property name="toolTip"><string>仅填写获授权、允许重复 GET 的 HTTP(80)／HTTPS(443) 资源。不要使用登录、退出、操作接口或 SSH 服务；不允许账号、查询参数、片段及重定向。</string></property>
+          </widget>
+         </item>
         </layout>
        </item>
        <item>
