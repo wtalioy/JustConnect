@@ -29,23 +29,19 @@ Windows 静态路径的已知线索：固定 Go 的 [PE 链接器 `addInitArray`
 
 ## 设备与权限边界
 
-这里核对的是现有上游的 **TUN 候选路径**，不预先决定 JustConnect 必须创建 TUN。Clash 的 TUN／系统代理开关是独立的兼容场景，不能拿它们作为 JustConnect 流量入口的前提；JustConnect 自身采用何种透明入口仍由 D2／S5 原型决定。以下 `EPERM` 或 Wintun 交付缺口只约束对应候选路径，不代表整个透明访问方案不可行。无 Clash 时仍须证明网页与终端流量如何进入同进程核心，不能用 HTTP 代理测试替代这一验证。
+D2 的设备入口子方案已收敛：Linux／macOS 使用最小授权助手创建 TUN／utun，再将 fd 交给普通宿主；Windows 使用 Wintun 设备助手持有 ring，仅传递受限 IP 包。认证、aTrust、资源分流与核心仍留在 Qt 进程。Clash 的 TUN／系统代理开关不作为此入口的前提。路由优先级、系统 DNS、回环排除及正式助手尚需 S4／S5／S6 验证；原型回包不代表浏览器／终端已自动接管。
 
-以下权限分析针对 S1-06 当时的上游候选源码。S1-07 已删除集成模块中没有产品调用方、直接修改宿主网络的旧系统 TUN 栈；这不会改变下面的历史权限证据，也不替代 D2／S4 的入口和助手选型。
-
-核对对象为 [导入基线](../corelib/UPSTREAM.md#导入基线)的上游 `c19eb4ed34b9cf6e8e8ea3315fe9973c8411eb63` 及其锁定依赖：Unix 使用 `github.com/mythologyli/sing-tun@c04d9db95dc7`；Windows 实际走 `golang.zx2c4.com/wireguard@ecfc5a8d5446/tun` 与 `golang.zx2c4.com/wintun@0fa3db229ce2`，并非 sing-tun 的 Windows 路径。
-
-| 平台 | 源码核对与候选边界 | 当前证据／缺口 |
+| 平台 | 选定的设备与权限边界 | 已验证与剩余缺口 |
 | --- | --- | --- |
-| Linux | `sing-tun.New` 可通过 `Options.FileDescriptor` 接收已创建 fd，跳过设备创建／配置；Go 关闭 `os.File`，最终 fd 关闭后非持久 TUN 自动消失。候选：小助手创建／配置设备，验证对端后通过 Unix socket `SCM_RIGHTS` 交付，Go 独占接收的 fd；助手另负责路由／DNS 和恢复。 | **WSL2 与原生 Linux x64／ARM64 内核／fd 原型通过**：root 在隔离网络创建设备，通过 `SCM_RIGHTS` 交给普通用户（本地 uid=1000，CI uid=1001）、有效 capabilities 为零的进程；实际 UDP 双向收发、正常关闭、SIGKILL 后设备及自动路由清理均通过。普通用户直接创建仍返回 `EPERM`。本机没有免密 sudo，但可经 WSL `--user root` 启动隔离测试，并非完全缺少提权测试入口。正式 Go／Qt 接入、授权助手、AppImage 路径、真实路由／DNS 恢复仍未验证。 |
-| macOS | `sing-tun.New` 同样可接收外部 utun fd；创建 utun 的 kernel control 要求权限。候选：授权助手创建／配置，`SCM_RIGHTS` 交付已连接 socket；最后关闭 fd 结束 utun。utun 数据还带地址族头，不能按 Linux 包格式直接套用。 | 仅源码可行性核对，无 macOS 实机授权／传递／数据面证据。`sing-tun.Close` 还会刷新 DNS 缓存，库化时须将需权限的系统操作移到助手，不能只接收 fd 就认为完全非提权。 |
-| Windows | `CreateTUNWithRequestedGUID` 在宿主内创建／打开适配器，并调用 `StartSession` 注册 ring；session 包含进程虚拟内存、锁和事件，`End` 与适配器 `Close` 分别清理。单独 `DuplicateHandle` 不能转移这个指针与内存集合，不能把助手创建的 `WINTUN_SESSION_HANDLE` 强转给宿主。 | **现有 Wintun 候选路径的非提权交付尚未证明**：当前公开封装没有接收预创建会话的接口，尚无非提权宿主启动 ring 的实测方案。若采用此入口，需要 Windows x64／ARM64 设备、正常用户及受 UAC 授权的小助手，验证驱动 ACL／ring 注册权限和支持的安全交付办法。不得据此给整套 GUI 提权或把核心放到助手。 |
+| Linux | 非持久 TUN，助手创建／配置，通过 `SCM_RIGHTS` 交付 fd；普通宿主拥有数据 I/O，最后关闭 fd 结束设备。 | x64／ARM64 隔离内核原型及本机 WSL 通过普通 uid、零 capabilities、UDP 双向和正常／强杀后的设备及显式路由清理。直接创建仍需权限；正式 Go／Qt、授权与 AppImage 路径、完整路由／DNS 恢复待验收。 |
+| macOS | utun kernel control，助手创建／配置，`SCM_RIGHTS` 交付已连接 fd；数据含四字节地址族头。 | x64／ARM64 一次性 runner 通过普通 uid／gid、原生组核对、无法恢复 root、实际 UDP 及正常／强杀清理。正式宿主、签名／桌面授权与系统 DNS 仍待验收。 |
+| Windows | 官方固定哈希／签名 Wintun 0.14.1；助手拥有适配器和 ring，同账户普通权限宿主通过私有 IPC 处理 IP 包，不跨进程强转会话指针。 | x64／ARM64 设备步骤通过真实普通权限回包、超大帧拒绝和按原始 PnP 实例／路由确认清理；源码 `3488842` 的完整六组 ABI 检查通过。正式 Qt IPC 身份验证、性能、助手授权与驱动分发待验收，应用尚未带入此运行库。 |
 
-Unix 的上游 `stack/tun/NewStack` 目前没有传入 `FileDescriptor`，后续必须显式接入设备所有权，并拆开它直接执行的 `ip`／`route`／`ifconfig`／DNS 修改。Windows 的地址、MTU、路由和 DNS 也直接在核心内执行；移到助手后仍需回读结果与按所有权恢复。这些是 S4 的实现范围，本原型不新增任意命令提权入口。
+权限分析起于[导入基线](../corelib/UPSTREAM.md#导入基线)及其锁定依赖；S1-07 已删除无产品调用、直接修改宿主网络的旧系统 TUN 栈，不再恢复该实现或由核心直接改路由／DNS。新助手只承载实际需要的设备／网络操作，不能成为任意命令提权入口；具体操作必须回读并按所有权恢复。
 
-2026-10-22 只读复查确认：当前 [Wintun 驱动](https://git.zx2c4.com/wintun/tree/driver/wintun.c) 在注册 ring 的 IOCTL 内再次按调用者执行 `SeAccessCheck`，使用只授予 SYSTEM／Administrators 的固定描述符；[StartSession](https://git.zx2c4.com/wintun/tree/api/session.c) 还在本进程分配 ring 内存。因而只传递设备 HANDLE 不能证明普通宿主能注册 ring。隔离实验验证最小设备助手拥有 ring、仅交付受限 IP 包 I/O 的路径；认证、aTrust 与分流继续留在 Qt 宿主。此项仍为候选，数据面／性能／授权未验收，不恢复已删除的旧 TUN 栈。当前 Windows 只读发现 Sangfor 虚拟接口处于 Up，另有 Meta、Tailscale、WSL 和其他覆盖接口；未修改日常网络，接口存在不作为认证有效的证据。
+2026-10-22 只读复查确认：当前 [Wintun 驱动](https://git.zx2c4.com/wintun/tree/driver/wintun.c) 在注册 ring 的 IOCTL 内再次按调用者执行 `SeAccessCheck`，使用只授予 SYSTEM／Administrators 的固定描述符；[StartSession](https://git.zx2c4.com/wintun/tree/api/session.c) 还在本进程分配 ring 内存。因而只传递设备 HANDLE 不能证明普通宿主能注册 ring。隔离实验验证最小设备助手拥有 ring、仅交付受限 IP 包 I/O 的路径；认证、aTrust 与分流继续留在 Qt 宿主。已选择该设备 I/O 路径，正式 Qt 数据面／性能／授权未验收，不恢复已删除的旧 TUN 栈。当前 Windows 只读发现 Sangfor 虚拟接口处于 Up，另有 Meta、Tailscale、WSL 和其他覆盖接口；未修改日常网络，接口存在不作为认证有效的证据。
 
-数据接入须复用现有分流语义：[gVisor 拨号](../corelib/stack/gvisor/dial.go)分别保留 aTrust TCP 与 L3 路径，授权规则由[共用拨号层](../corelib/dial/dialer.go)按域名、IP、协议和端口匹配。现有 gVisor 已独占读取 [L3Conn](../corelib/client/atrust/l3conn.go) 的共享入站队列，不能另开一个连接给 TUN 竞争同一队列。系统 IP 路由本身不能区分端口；透明前端还须处理捕获范围内不走校园的流量，并保持其实际原出口及保护范围，不能全部绑定物理网卡或直接将每个包写入校园 L3。设备探测通过只解决入口权限／生命周期，这些接入与策略仍须另验。原型进一步加入只绑定新设备的显式主机路由，回读后才发送测试数据，并沿用关闭／强杀后的全路由清理断言；源码 `f470765` 的两组 Linux／macOS 及 Windows 正常关闭已通过；Windows 强杀后的新查询仍待修复验收，不能以“接口 down”代替清理。
+数据接入须复用现有分流语义：[gVisor 拨号](../corelib/stack/gvisor/dial.go)分别保留 aTrust TCP 与 L3 路径，授权规则由[共用拨号层](../corelib/dial/dialer.go)按域名、IP、协议和端口匹配。现有 gVisor 已独占读取 [L3Conn](../corelib/client/atrust/l3conn.go) 的共享入站队列，不能另开一个连接给 TUN 竞争同一队列。系统 IP 路由本身不能区分端口；透明前端还须处理捕获范围内不走校园的流量，并保持其实际原出口及保护范围，不能全部绑定物理网卡或直接将每个包写入校园 L3。设备探测通过只解决入口权限／生命周期，这些接入与策略仍须另验。原型进一步加入只绑定新设备的显式主机路由，回读后才发送测试数据，并沿用关闭／强杀后的全路由清理断言；清理同时要求实际设备消失和原接口零路由，不能以“接口 down”代替清理。
 
 本机只读快照 `build/reports/windows-original-network.json` 保留实际接口／地址、路由与 DNS，含 26 条接口／地址族记录、608 条路由和两条既有 NRPT 规则。Tailscale、WSL 和 Meta 均有 IPv4／IPv6 路径；Meta 包含两条分割默认路由，不能把它们当成目标保护范围。Sangfor 接口处于 Up，关联 518 条活动路由，接口别名并不包含厂商名，须结合接口索引与硬件描述核对。此快照只作调查证据，正式应用前仍需重新读取并校验；既有规则／接口不得被猜测归属或自动清空，接口存在不证明认证有效。
 
@@ -56,7 +52,9 @@ Unix 的上游 `stack/tun/NewStack` 目前没有传入 `FileDescriptor`，后续
 
 助手只持有 ring 和新设备；同账户的普通权限／medium integrity 子进程通过继承的匿名管道处理一组限定测试 IP／UDP 端口的数据包，不加载 Qt 或 aTrust。根据 [CreateRestrictedToken](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-createrestrictedtoken) 的句柄权限继承语义，显式取得创建进程和降低完整性所需权限；使用 `LUA_TOKEN` 降为普通用户令牌，取消管理员 SID 的允许权限并移除可删除特权；仅手动降低完整性和移除特权不足以证明 UAC 降权。验证原始 UDP socket 经设备、普通进程及助手回注收到回包，拒绝超大 IPC 帧，检查正常关闭和助手被终止后的设备／路由消失。
 
-独立测试控制进程先安装只约束设备助手的 Job 生命周期，再恢复其主线程；异常时仅清理本次随机名称对应的 Wintun PnP 设备。此 Job 不管理 VPN 核心，原型也不修改既有接口、DNS 或默认路由。本机只运行令牌／帧边界单测和拒绝本机设备操作的入口检查；实际设备由 Core ABI 的 Windows x64／ARM64 两组验收，日志／SDK 来源元数据随 CI artifact 保存。[源码 `448e137` 的 Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/39658422157/job/119427314667)已通过真实设备回包、超大帧拒绝及正常／强杀后的设备和路由清理。两组 Windows 已通过普通权限回包和超大帧拒绝，强杀后的清理查询仍待验收。适配器与路由读取已改用现有 x/sys 的 IP Helper API，本机实际 Windows 五项原生只读／边界检查通过；创建时按主接口 LUID／GUID 捕获实际 PnP 实例，清理用原生 Configuration Manager 查询该实例是否仍存在，并要求原接口的全部路由消失；接口表可保留 Down 元数据，不能以名称或一般 Down 状态代替设备生命周期。PowerShell 仅用于配置和必要的 PnP 安全恢复，设置操作期限及管道等待期限；CI 直接写证据文件，已用真实超时子进程验证日志保留，不再因异常而丢失部分输出。该结果不代替校园隧道、TCP、性能、授权界面、Qt IPC 身份校验或生产路由／DNS 恢复；正式设备实现接入后保留独有内核故障回归，删除被替代的设备调用脚手架。
+独立控制进程先安装只约束设备助手的 Job 生命周期，再恢复其主线程；异常时仅清理本次随机名称及创建时捕获的 Wintun PnP 实例。此 Job 不管理 VPN 核心，原型不修改既有接口、DNS 或默认路由。本机只运行五项原生只读／令牌／帧边界检查及拒绝本机设备操作的入口检查。[源码 `3488842`](https://github.com/wtalioy/JustConnect/actions/runs/39667618790)的 Windows x64／ARM64 设备步骤已通过普通权限真实回包、超大帧拒绝，以及正常／强杀后的原始 PnP 实例和显式路由清理；六组完整 ABI 与三平台 Tests 同样通过，日志／SDK 来源元数据随各组 artifact 保存。
+
+适配器／路由读取使用 x/sys 的 IP Helper API；创建时按 LUID／GUID 捕获原始 PnP 实例，删除后用 Configuration Manager 查询同一实例。接口表可保留 Down 元数据，不能按名称或一般 Down 状态猜测实体设备已删除。固定 PowerShell 配置操作及安全恢复均有操作／管道等待期限；证据直接写入文件，真实超时子进程已验证部分输出仍保留。设备结果不代替校园 TCP、性能、授权界面、Qt IPC 身份校验或生产路由／DNS 恢复；正式实现接入后保留独有内核故障回归，删除被替代脚手架。
 
 <a id="mihomo-api-probe"></a>
 ### Mihomo 控制接口隔离核对（D3 前置）
