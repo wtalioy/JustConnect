@@ -28,6 +28,9 @@ func (m PasswordLogin) LoginDomain() string {
 }
 
 func (m PasswordLogin) login(s *Session, _ AuthInfo) error {
+	if m.Username == "" || m.Password == "" {
+		return ErrCredentialsRequired
+	}
 	return s.loginAuthPsw(m.Username, m.Password, m.Domain)
 }
 

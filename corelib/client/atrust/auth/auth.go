@@ -56,7 +56,19 @@ type Cookie struct {
 	Value  string `json:"value"`
 }
 
+type ClientIdentity struct {
+	ServerHost    string `json:"server_host"`
+	Username      string `json:"username"`
+	LoginUsername string `json:"login_username"`
+	AuthID        string `json:"auth_id"`
+	AuthSubType   string `json:"auth_sub_type"`
+	AuthType      string `json:"auth_type"`
+	LoginDomain   string `json:"login_domain"`
+	Phone         string `json:"phone"`
+}
+
 type ClientAuthData struct {
+	Identity          ClientIdentity  `json:"identity"`
 	Cookies           []Cookie        `json:"cookies"`
 	DeviceID          string          `json:"device_id"`
 	ServerVersionInfo json.RawMessage `json:"server_version_info,omitempty"`
@@ -194,6 +206,7 @@ func (b *responseBody) Close() error {
 }
 
 var ErrAuthMethodChanged = errors.New("authentication identity is stale or ambiguous")
+var ErrCredentialsRequired = errors.New("password credentials are required")
 
 type AuthInfo struct {
 	AuthID      string `json:"authId"`
@@ -373,7 +386,8 @@ func (s *Session) Login(method LoginMethod, opts LoginOptions) (LoginResult, err
 	if s.challengeHandler == nil {
 		s.challengeHandler = authchallenge.UnsupportedHandler{}
 	}
-	s.env = base64.StdEncoding.EncodeToString([]byte(`{"deviceId":"` + opts.DeviceID + `"}`))
+	environment, _ := json.Marshal(map[string]string{"deviceId": opts.DeviceID})
+	s.env = base64.StdEncoding.EncodeToString(environment)
 
 	isLogin, authInfoList, err := s.authConfig(false, true)
 	if err != nil {
@@ -394,7 +408,7 @@ func (s *Session) Login(method LoginMethod, opts LoginOptions) (LoginResult, err
 	}
 
 	if method == nil {
-		return LoginResult{}, fmt.Errorf("login method is nil, but user is not logged in")
+		return LoginResult{}, ErrSessionInvalid
 	}
 	var foundAuthInfo *AuthInfo
 	for _, info := range authInfoList {

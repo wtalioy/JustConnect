@@ -1,6 +1,9 @@
 package auth
 
 import (
+	"encoding/base64"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +12,7 @@ import (
 )
 
 func TestLoginReturnsRefreshedCookiesForExistingSession(t *testing.T) {
+	const deviceID = "saved-\"device\n"
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/passport/v1/public/authConfig":
@@ -29,7 +33,7 @@ func TestLoginReturnsRefreshedCookiesForExistingSession(t *testing.T) {
 	host := strings.TrimPrefix(server.URL, "https://")
 	session := newTLSTestSession(server)
 	result, err := session.Login(nil, LoginOptions{
-		DeviceID: "0123456789abcdef0123456789abcdef",
+		DeviceID: deviceID,
 		Cookies: []Cookie{{
 			Host:   host,
 			Scheme: "https",
@@ -39,6 +43,13 @@ func TestLoginReturnsRefreshedCookiesForExistingSession(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("Login() error = %v", err)
+	}
+	environment, decodeErr := base64.StdEncoding.DecodeString(session.env)
+	var device struct {
+		DeviceID string `json:"deviceId"`
+	}
+	if decodeErr != nil || json.Unmarshal(environment, &device) != nil || device.DeviceID != deviceID {
+		t.Fatal("restored device identity does not produce a valid authentication environment")
 	}
 	if result.Username != "student" {
 		t.Fatalf("Username = %q, want student", result.Username)
@@ -56,5 +67,26 @@ func TestLoginReturnsRefreshedCookiesForExistingSession(t *testing.T) {
 	}
 	if sid != "refreshed-session-cookie" {
 		t.Fatalf("returned sid cookie = %q, want refreshed-session-cookie", sid)
+	}
+}
+
+func TestPasswordLoginRequestsMissingCredentialsBeforePosting(t *testing.T) {
+	for _, method := range []PasswordLogin{{Username: "alice"}, {Password: "secret"}} {
+		t.Run(method.Username, func(t *testing.T) {
+			posts := 0
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodPost {
+					posts++
+					t.Error("missing credentials were posted")
+				}
+				fmt.Fprint(w, `{"code":0,"data":{"isLogin":0,"authServerInfoList":[{"authType":"auth/psw","loginDomain":""}]}}`)
+			}))
+			defer server.Close()
+			session := newTLSTestSession(server)
+			_, err := session.Login(method, LoginOptions{DeviceID: "device"})
+			if !errors.Is(err, ErrCredentialsRequired) || posts != 0 {
+				t.Fatalf("missing credentials: posts=%d err=%v", posts, err)
+			}
+		})
 	}
 }
