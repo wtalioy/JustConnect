@@ -50,24 +50,23 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 	if err != nil || port < 1 || port > 65535 {
 		return nil, errors.New("Invalid port in address: " + ipAddr)
 	}
+	useVPN := d.alwaysUseVPN
 	if d.ProtectionPolicy != nil {
 		if snapshot := d.ProtectionPolicy(); snapshot != nil {
 			if address, err := netip.ParseAddr(ip); err == nil {
-				if allowed, _ := snapshot.CampusAllowed(address); !allowed {
+				if allowed, scope := snapshot.CampusAllowed(address); !allowed {
 					if d.alwaysUseVPN {
 						return nil, policy.ErrProtectedTarget
 					}
 					return dialDirect(ctx, network, ipAddr)
+				} else if scope.IsValid() {
+					useVPN = true
 				}
 			}
 		}
 	}
 
-	useVPN := d.alwaysUseVPN
-
-	// Track whether dst:port matches any sangfor-issued resource. We always
-	// run both resource lookups (even if useVPN was already forced true by
-	// alwaysUseVPN) so we can enforce the server-side ACL client-side.
+	// Every campus path, including an explicit choice, still requires server authorization.
 	matchedResource := false
 
 	if res := ctx.Value(resolve.ContextKeyDomainResource); res != nil {
@@ -103,11 +102,7 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 		}
 	}
 
-	// Client-side ACL enforcement: if alwaysUseVPN forced VPN routing for a
-	// dst:port that isn't in the server-issued resource list, sending it
-	// upstream causes sangfor to terminate the L3 tunnel (cmd 0x08 SHUTDOWN
-	// on the next handshake). The official EasyConnect client filters here
-	// via CSClient before traffic ever reaches the tunnel; we do the same.
+	// Refuse before an ungranted flow can terminate the shared tunnel.
 	if useVPN && !matchedResource {
 
 		return nil, ErrACLDenied
