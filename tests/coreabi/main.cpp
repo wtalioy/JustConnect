@@ -26,7 +26,7 @@ static void check(bool ok, const char *message) {
     if (!ok) { std::cerr << "FAIL: " << message << '\n'; std::exit(1); }
 }
 #define ABI_FUNCTIONS(X) X(jc_abi_version) X(jc_build_info) X(jc_network_snapshot) X(jc_config_validate) X(jc_session_create) X(jc_session_start) \
-    X(jc_session_read) X(jc_session_respond) X(jc_session_update_policy) X(jc_session_stop) X(jc_session_destroy)
+    X(jc_session_read) X(jc_session_respond) X(jc_session_update_policy) X(jc_session_resources) X(jc_session_stop) X(jc_session_destroy)
 struct API {
 #define MEMBER(name) decltype(&::name) name;
     ABI_FUNCTIONS(MEMBER)
@@ -179,6 +179,9 @@ static void nativeProtocol(API &api, const QByteArray &input) {
     start();
     auto challenge = protocolEvent(api, handle);
     check(challenge["type"] == "authentication" && challenge["challenge"].toObject()["kind"] == "sms", "gateway SMS challenge");
+    uint32_t pendingResourceLength=99;
+    check(api.jc_session_resources(handle,generation,nullptr,0,&pendingResourceLength)==JC_BUSY && pendingResourceLength==0,
+        "campus resources remain unavailable while authentication is pending");
     auto response = QJsonDocument(QJsonObject{{"schema_version", 1}, {"generation", QString::number(generation)},
         {"request_id", challenge["request_id"]}, {"action", "submit"}, {"code", "fixture-code"}}).toJson(QJsonDocument::Compact);
     check(api.jc_session_respond(handle, reinterpret_cast<const uint8_t *>(response.constData()),
@@ -195,6 +198,18 @@ static void nativeProtocol(API &api, const QByteArray &input) {
     check(cacheEvent["type"]=="authentication_cache" && cacheEvent["action"]=="save"
         && cache["account"]=="fixture-user" && !cache["data"].toString().isEmpty(),"real C ABI bound cache output");
     check(protocolEvent(api, handle)["state"] == "ready", "real protocol ready");
+    std::vector<uint8_t> resourceBytes(JC_MAX_OUTPUT+2,0x5a);
+    uint32_t resourceLength=0;
+    check(api.jc_session_resources(handle,generation,nullptr,0,&resourceLength)==JC_BUFFER_TOO_SMALL && resourceLength>0,
+        "campus resource size query is non-destructive");
+    check(api.jc_session_resources(handle,generation+1,resourceBytes.data()+1,JC_MAX_OUTPUT,&resourceLength)==JC_STALE_REQUEST
+        && resourceLength==0,"real C ABI rejects resource reads for another session generation");
+    check(api.jc_session_resources(handle,generation,resourceBytes.data()+1,JC_MAX_OUTPUT,&resourceLength)==JC_OK
+        && resourceBytes.front()==0x5a && resourceBytes.back()==0x5a,"real C ABI bounded campus resource snapshot");
+    const auto resources=json(resourceBytes,resourceLength);
+    check(resources["generation"]==QString::number(generation)
+        && !resources["resources"].toObject()["ip_resources"].toArray().isEmpty()
+        && resources["resources"].toObject()["domain_resources"].toObject().contains("campus.test"),"actual protocol resources retain their generation and domain permissions");
     auto policy = QJsonDocument(QJsonObject{{"schema_version",1},{"generation",QString::number(generation)},
         {"revision","1"},{"protected",QJsonArray{"192.0.2.0/24"}},{"campus",QJsonArray{"192.0.2.10"}}}).toJson(QJsonDocument::Compact);
     uint64_t applied = 0;
@@ -202,6 +217,9 @@ static void nativeProtocol(API &api, const QByteArray &input) {
         && applied==generation,"formal session accepts explicit campus choice before real SOCKS/HTTP traffic");
     ProxyCheck::exercise(config["listeners"].toObject(), [&] {
     check(api.jc_session_stop(handle, 5000) == JC_OK && api.jc_session_stop(handle, 1000) == JC_OK, "native protocol idempotent stop");
+    resourceLength=99;
+    check(api.jc_session_resources(handle,generation,nullptr,0,&resourceLength)==JC_STALE_REQUEST && resourceLength==0,
+        "stopped native protocol cannot expose its previous resources");
     auto terminal = protocolEvent(api, handle);
     check(terminal["type"] == "terminal" && terminal["status"].toInt() == JC_CANCELLED, "native protocol stopped terminal");
     });
@@ -252,6 +270,7 @@ int main(int argc, char **argv) {
           "protocol capability identifies production and fixture drivers");
     check(info["capabilities"].toObject()["policy_update"].toBool(), "policy update capability matches the loaded export");
     check(info["capabilities"].toObject()["network_snapshot"].toBool(), "native network snapshot capability");
+    check(info["capabilities"].toObject()["resource_snapshot"].toBool() == !info["test_driver"].toBool(), "campus resource capability requires the protocol backend");
     networkSnapshot(api);
     check(metadata.front() == 0x5a && metadata.back() == 0x5a, "metadata bounds");
 #ifdef ABI_FIXTURE

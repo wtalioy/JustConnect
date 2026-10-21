@@ -8,7 +8,7 @@
 
 构建提交与工作树状态由 Git 查询注入，不填写开发机目录、学校地址或账户。`jc_build_info` 返回当前 Go 版本、目标 OS／架构、JustConnect 完整提交、上游基线和由提交／工作树状态组成的本地版本。直接手动构建而没有 VCS 信息时明确返回 `unversioned/unknown`，不能作为可追溯发布产物。
 
-正式库返回 `embedded_vpn:true`、`auth_method_query:true`、`authentication_cache:true`、`policy_update:true`、`network_snapshot:true`。Start 使用真实会话：认证、资源、选线、IP 握手、解析、gVisor 和监听均成功后才产生 `ready`，失败或取消在清理完成后产生终态。该事件仅表示核心通道／本地代理就绪；系统接管与系统 DNS 不在其契约内，产品“已连接”须由应用层按 [R11／S7-02](../plan.md) 汇总完整就绪条件。只有测试驱动和未安装 Runner 的纯传输引擎没有 VPN 能力；测试驱动始终标记 `test_driver:true`。
+正式库返回 `embedded_vpn:true`、`auth_method_query:true`、`authentication_cache:true`、`policy_update:true`、`network_snapshot:true`、`resource_snapshot:true`。Start 使用真实会话：认证、资源、选线、IP 握手、解析、gVisor 和监听均成功后才产生 `ready`，失败或取消在清理完成后产生终态。该事件仅表示核心通道／本地代理就绪；系统接管与系统 DNS 不在其契约内，产品“已连接”须由应用层按 [R11／S7-02](../plan.md) 汇总完整就绪条件。只有测试驱动和未安装 Runner 的纯传输引擎没有 VPN 能力；测试驱动始终标记 `test_driver:true`。
 
 ## C 边界与生命周期
 
@@ -29,6 +29,7 @@ UTF-8 JSON 不带结尾 NUL。输入仅借用至调用返回，库在返回前�
 | `jc_session_read(handle, wait_ms, output, capacity, length)` | 有界等待一个 FIFO 事件；容量不足可重试 |
 | `jc_session_respond(handle, response, length)` | 仅接受匹配、已读取且尚未消费的认证请求 |
 | `jc_session_update_policy(handle, policy, length, generation)` | 完整校验后原子替换本代保护规则，成功返回生效代次，失败输出零 |
+| `jc_session_resources(handle, generation, output, capacity, length)` | 只读返回本代实际解析的校园资源，未就绪时返回 Busy，旧代次或停止后拒绝 |
 | `jc_session_stop(handle, wait_ms)` | 先取消，再有界等待清理；重复停止有效句柄成功 |
 | `jc_session_destroy(handle, wait_ms)` | 清理完成后失效、释放句柄；重复销毁已签发句柄成功 |
 
@@ -68,6 +69,14 @@ ABI v1 与 JSON schema 版本同步。S2-02 以兼容增补导出 `jc_config_val
 Linux 使用独立限时 netlink 句柄读取所有 IP 路由表，包含 Tailscale 等非 main 表及多下一跳；Windows 使用 IP Helper 原生表与接口元数据；macOS 使用原生 RIB，保留 IPv4／IPv6 掩码和接口作用域标志。不会把默认／分割默认出口转换成保护目标。此投影尚不包含系统 DNS、Linux 策略路由规则或所有网络管理器状态，不能替代 S4-03 的操作所有权／恢复记录，也不能据此宣称出口选择已验收。
 
 输出仍受 `MaxOutput` 限制，超限返回 `JC_LIMIT` 并保持长度为零，不交付截断快照。接口变化或读取失败只返回固定状态，不输出含地址的系统错误。可直接提供 `MaxOutput` 缓冲；查询容量与随后读取是两次独立观测，网络变化时所需长度可变。操作只读，但本身不是内核事务；应用网络变更前仍须重新核对原值与所有权。快照内容留在调用方，不自动写日志。
+
+## 校园资源只读快照
+
+`resource_snapshot` 由正式协议后端提供。`jc_session_resources` 需要活动句柄及 Start 返回的代次，返回 `{schema_version,generation,resources}`，代次为字符串。`resources` 包含 `ip_resources:[{ip_min,ip_max,protocol,port_min,port_max}]`、`domain_resources:{域名:[{protocol,port_min,port_max}]}`、`dns_records:{域名:[地址]}`、`campus_dns` 与 `campus_dns_enabled`。数据直接取自该代实际交给拨号／解析层的解析结果，不重新登录、不重复请求服务器、读取代理文件或重写授权匹配器；应用／节点标识、认证材料及服务器原始响应不导出。
+
+资源尚未发布时返回 `JC_BUSY`，应用在核心 ready 后读取，无需文件轮询。零代次返回 `JC_INVALID_ARGUMENT`；其他代次、停止期间及已结束会话返回 `JC_STALE_REQUEST`，已销毁句柄返回 `JC_INVALID_HANDLE`；认证方式查询不提供该数据。输入和返回缓冲区均不被保留；同代数据不因调用方修改而改变，下一代清空，结束后释放。无效或超限结果只报告状态；超过 `MaxOutput` 返回 `JC_LIMIT`，不截断，当前本地代理会话仍可运行，透明入口不得据缺失数据应用规则。
+
+DNS 内置记录只解释服务器提供的解析数据，不单独授予业务端口访问；校园 DNS 开关表示配置允许使用，不代表已探测可达。协议／端口与保护规则仍以共用拨号／解析层为准。该快照用于解释资源与原路由的冲突，读取本身不启用透明访问，也不写本地日志。
 
 ## 保护策略更新
 

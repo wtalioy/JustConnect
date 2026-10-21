@@ -38,7 +38,7 @@ func (e *Engine) UpdatePolicy(handle uint64, input []byte) (uint64, Status) {
 	if !s.running || s.stopping || update.Generation != s.generation || update.Revision <= s.policyRevision {
 		return 0, StaleRequest
 	}
-	if !s.policyEnabled {
+	if !s.connectOperation {
 		return 0, Unsupported
 	}
 	s.policy, s.policyRevision = &policy, update.Revision
