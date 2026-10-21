@@ -34,7 +34,7 @@ func TestSessionRefreshPublishesAndPersists(t *testing.T) {
 		}
 		persisted <- data
 		return nil
-	}, time.Millisecond)
+	}, time.Millisecond, nil)
 	select {
 	case <-retried:
 	case <-c.refreshDone:
@@ -78,7 +78,7 @@ func TestSessionRefreshPreservesSIDOnTransientFailureAndCancels(t *testing.T) {
 		close(second)
 		<-ctx.Done()
 		return auth.LoginResult{}, ctx.Err()
-	}, auth.ClientAuthData{}, nil, time.Millisecond)
+	}, auth.ClientAuthData{}, nil, time.Millisecond, nil)
 	select {
 	case <-second:
 	case <-time.After(time.Second):
@@ -173,7 +173,7 @@ func TestSessionInvalidReturnsToOwner(t *testing.T) {
 	c := NewClient(ClientOptions{Session: SessionOptions{SID: "old"}})
 	c.startSessionRefresh(func(context.Context) (auth.LoginResult, error) {
 		return auth.LoginResult{}, auth.ErrSessionInvalid
-	}, auth.ClientAuthData{}, nil, time.Millisecond)
+	}, auth.ClientAuthData{}, nil, time.Millisecond, nil)
 	select {
 	case err := <-c.Errors():
 		if !errors.Is(err, auth.ErrSessionInvalid) {
@@ -218,7 +218,7 @@ func TestRefreshObservationsDistinguishTransientFailureAndExpiry(t *testing.T) {
 		default:
 			return auth.LoginResult{}, auth.ErrSessionInvalid
 		}
-	}, auth.ClientAuthData{}, nil, time.Millisecond)
+	}, auth.ClientAuthData{}, nil, time.Millisecond, nil)
 	select {
 	case err := <-c.Errors():
 		if !errors.Is(err, auth.ErrSessionInvalid) {
@@ -232,7 +232,7 @@ func TestRefreshObservationsDistinguishTransientFailureAndExpiry(t *testing.T) {
 	for len(observations) > 0 {
 		results = append(results, <-observations)
 	}
-	want := [][2]string{{"renewal", "running"}, {"renewal", "failed"}, {"renewal", "running"}, {"renewal", "succeeded"}, {"renewal", "running"}, {"authentication", "required"}}
+	want := [][2]string{{"renewal", "running"}, {"renewal", "failed"}, {"renewal", "running"}, {"renewal", "succeeded"}, {"renewal", "running"}, {"renewal", "required"}, {"authentication", "required"}}
 	if !reflect.DeepEqual(results, want) || calls != 3 {
 		t.Fatalf("observations=%v calls=%d", results, calls)
 	}

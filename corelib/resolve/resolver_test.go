@@ -415,3 +415,23 @@ func TestDNSCacheRemainsBoundedAndReusesExpiredSlots(t *testing.T) {
 		t.Fatal("expired slot was not reclaimed")
 	}
 }
+
+func TestCampusResolutionDoesNotUseSharedCacheOrPublicFallback(t *testing.T) {
+	campus := net.ParseIP("192.0.2.10")
+	r := NewResolver(nil, "", "", 60, nil, map[string][]net.IP{"campus.test": {campus}}, false)
+	defer r.Close()
+	r.setDNSCache("campus.test", net.ParseIP("203.0.113.10"))
+	_, ip, err := r.ResolveCampus(t.Context(), "campus.test", false)
+	if err != nil || !ip.Equal(campus) {
+		t.Fatal("campus lookup used a cache of unknown origin", ip, err)
+	}
+	calls := 0
+	r.secondaryResolver = &net.Resolver{PreferGo: true, Dial: func(context.Context, string, string) (net.Conn, error) {
+		calls++
+		return nil, errors.New("unexpected fallback")
+	}}
+	_, _, err = r.ResolveCampus(t.Context(), "unavailable.campus.test", false)
+	if !errors.Is(err, ErrCampusDNSUnavailable) || calls != 0 {
+		t.Fatal("campus lookup attempted public fallback", err, calls)
+	}
+}

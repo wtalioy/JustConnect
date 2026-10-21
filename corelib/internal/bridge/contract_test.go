@@ -203,3 +203,27 @@ func TestAuthenticationImageResourcesAreBounded(t *testing.T) {
 		t.Fatal("oversized response canvas accepted")
 	}
 }
+
+func TestKeepAliveConfigurationBoundary(t *testing.T) {
+	var c Config
+	if json.Unmarshal([]byte(configJSON), &c) != nil {
+		t.Fatal("fixture")
+	}
+	for _, mode := range []string{"auto", "off", "target"} {
+		c.KeepAlive.Mode = mode
+		c.KeepAlive.URL = "https://campus.test/repeatable"
+		if _, status := ParseConfig(configBytes(t, c)); status != OK {
+			t.Fatal(mode, status)
+		}
+	}
+	for _, target := range []string{"http://campus.test:22/", "https://campus.test/?token=private", "https://u:p@campus.test/"} {
+		c.KeepAlive.URL = target
+		if _, status := ParseConfig(configBytes(t, c)); status != InvalidArgument {
+			t.Fatal("unsafe probe target accepted")
+		}
+	}
+	c.KeepAlive.Mode = "unknown"
+	if _, status := ParseConfig(configBytes(t, c)); status != InvalidArgument {
+		t.Fatal("unknown probe mode accepted")
+	}
+}

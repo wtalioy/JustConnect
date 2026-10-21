@@ -143,3 +143,9 @@ S2-03 的 `tls` 可省略（默认验证系统信任链及目标主机名）；`
 `observation` 是带当前 `generation`／`sequence` 的结构化事件，包含 `stage`、`result` 和 UTC RFC3339 `observed_at`。阶段为 `authentication`、`restore`、`renewal`、`traffic`、`nodes`、`tunnel`；结果为 `running`、`succeeded`、`failed`、`required`、`disabled`、`unavailable`、`unknown`。时间表示该项实际观测时间，不能推断后续持续在线；没有事件时保持未知。事件不携带目标 URL、账户、票据或原始服务器响应。
 
 每阶段最多保留一个未读观测，与诊断限额分开；慢读者取得最新值，序号可能有间隔。认证请求、缓存失效、终态仍保留原有交付保证。`JC_SESSION_INVALID` 表示服务器明确拒绝现有会话，须停止并由用户重新认证，不自动重放密码。`state:ready` 仅为通道／本地代理就绪，不能表示校园 DNS、分流与透明接管就绪。
+
+### 流量保活配置
+
+可选 `keepalive:{mode,url}` 支持 `auto`（省略时默认）、`target`、`off`。只关闭应用流量探测；认证续期和节点维护继续运行，普通断开则取消全部维护。探测复用现有续期循环，不另建维护线程。`auto` 仅向学校下发且有 UDP/53 授权的 DNS 发送根域 NS 查询；缺少能力报告 `traffic:unavailable`。`target` 仅接受标准 80/443 端口的 HTTP/HTTPS GET 目标，禁止用户信息、查询参数和片段，不跟随重定向，也不发送 Cookie／Authorization。URL 最大 8192 字节；自动／关闭模式可保留未启用的目标草稿。
+
+目标解析仅使用学校资源内置映射或获授权的校园 DNS，不使用来源未知的共享缓存或公共 DNS 回退。连接必须命中校园 IP／域名、协议和端口授权，不走原网络。HTTPS 默认校验证书并复用显式学校 CA 策略。单次探测总预算 10 秒且随会话取消。`traffic` 与 `renewal` 结果独立：网页／DNS 探测成功不代表票据续期，临时续期失败保留有效缓存；明确失效报告 `renewal:required`／`authentication:required`，停止一次并交付 `JC_SESSION_INVALID`，不自动登录。

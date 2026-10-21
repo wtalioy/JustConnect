@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"crypto/x509"
 	"encoding/json"
+	"github.com/wtalioy/JustConnect/corelib"
 	"image"
 	_ "image/gif"
 	_ "image/jpeg"
@@ -85,6 +86,10 @@ type Config struct {
 		DisableRemoteDNS bool   `json:"disable_remote_dns"`
 		Language         string `json:"language"`
 	} `json:"network"`
+	KeepAlive struct {
+		Mode string `json:"mode"`
+		URL  string `json:"url"`
+	} `json:"keepalive"`
 	Listeners struct {
 		SOCKS string `json:"socks"`
 		HTTP  string `json:"http"`
@@ -160,6 +165,9 @@ func ParseConfig(data []byte) (Config, Status) {
 		return Config{}, InvalidArgument
 	}
 	if len(c.TLS.CAPEM) > MaxCAPEM || (c.TLS.CAPEM != "" && !x509.NewCertPool().AppendCertsFromPEM([]byte(c.TLS.CAPEM))) {
+		return Config{}, InvalidArgument
+	}
+	if corelib.ValidateKeepAlive(c.KeepAlive.Mode, c.KeepAlive.URL) != nil {
 		return Config{}, InvalidArgument
 	}
 	cache := c.AuthenticationCache

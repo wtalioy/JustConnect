@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/miekg/dns"
 	"github.com/wtalioy/JustConnect/corelib/internal/zctcpip"
 )
 
@@ -48,6 +49,8 @@ type gateway struct {
 	sessions         sync.Map
 	passwordMethod   atomic.Bool
 	rotateSID        atomic.Bool
+	probeDNS         atomic.Bool
+	renewals         atomic.Int32
 	extraWANNode     atomic.Value
 }
 
@@ -82,6 +85,9 @@ func newGatewayWithNodeTLS(t *testing.T, nodeTLS *tls.Config) *gateway {
 		case "/public/manifest":
 			fmt.Fprint(w, `{"code":0,"data":{}}`)
 		case "/passport/v1/public/authConfig":
+			if r.URL.Query().Get("needTicket") == "0" {
+				g.renewals.Add(1)
+			}
 			if g.authConfigFails.Load() {
 				w.WriteHeader(http.StatusServiceUnavailable)
 				return
@@ -153,7 +159,11 @@ func newGatewayWithNodeTLS(t *testing.T, nodeTLS *tls.Config) *gateway {
 			if address, _ := g.extraWANNode.Load().(string); address != "" {
 				extraNode = fmt.Sprintf(`,{"type":"wan","address":%q}`, address)
 			}
-			fmt.Fprintf(w, `{"data":{"appList":{"data":{"appInfo":[{"apps":[{"ID":"fixture-app","nodeGroupID":"fixture-group","accessModel":"L3VPN","addressList":[{"protocol":"udp","port":"1-65535","host":"192.0.2.10"},{"protocol":"tcp","port":"1-65535","host":"192.0.2.10"},{"protocol":"tcp","port":"1-65535","host":"campus.test","IP":["192.0.2.10"]}]}]}],"config":{"nodeGroupConf":{"majorNodeGroup":{"ID":"fixture-group"},"nodeGroupList":[{"ID":"fixture-group","addressInfo":[{"type":"wan","address":%q}%s]}]}}}}}}`, g.node.Addr().String(), extraNode)
+			dnsPolicy := ""
+			if g.probeDNS.Load() {
+				dnsPolicy = `"sdpPolicy":{"data":{"clientOption":{"dnsOption":{"firstDns":"192.0.2.10"}}}},`
+			}
+			fmt.Fprintf(w, `{"data":{%s"appList":{"data":{"appInfo":[{"apps":[{"ID":"fixture-app","nodeGroupID":"fixture-group","accessModel":"L3VPN","addressList":[{"protocol":"udp","port":"1-65535","host":"192.0.2.10"},{"protocol":"tcp","port":"1-65535","host":"192.0.2.10"},{"protocol":"tcp","port":"1-65535","host":"campus.test","IP":["192.0.2.10"]}]}]}],"config":{"nodeGroupConf":{"majorNodeGroup":{"ID":"fixture-group"},"nodeGroupList":[{"ID":"fixture-group","addressInfo":[{"type":"wan","address":%q}%s]}]}}}}}}`, dnsPolicy, g.node.Addr().String(), extraNode)
 		default:
 			t.Errorf("unexpected gateway route %s", r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
@@ -456,6 +466,18 @@ func (g *gateway) serveL3(conn net.Conn) {
 				udp := zctcpip.UDPPacket(ip.Payload())
 				if !udp.Valid() || udp.Length() < 8 {
 					return
+				}
+				if g.probeDNS.Load() && udp.DestinationPort() == 53 {
+					request := new(dns.Msg)
+					if request.Unpack(udp.Payload()) == nil {
+						reply := new(dns.Msg)
+						reply.SetReply(request)
+						encoded, err := reply.Pack()
+						if err != nil || len(encoded) != len(udp.Payload()) {
+							return
+						}
+						copy(udp.Payload(), encoded)
+					}
 				}
 				source, destination := ip.SourceIP(), ip.DestinationIP()
 				ip.SetSourceIP(destination)
