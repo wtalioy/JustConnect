@@ -1115,7 +1115,6 @@ func TestConntrackCapacityIsBounded(t *testing.T) {
 func TestConntrackExpiryRemovesBothIndexes(t *testing.T) {
 	now := time.Unix(1000, 0)
 	manager := newConntrackMgr()
-	manager.ttl = time.Minute
 	manager.now = func() time.Time { return now }
 	first := manager.getOrCreate("first", "app", "group")
 	now = now.Add(30 * time.Second)
@@ -1129,6 +1128,51 @@ func TestConntrackExpiryRemovesBothIndexes(t *testing.T) {
 	}
 	if manager.getByKey(second.key) != second || manager.getByID(second.authID) != second {
 		t.Fatal("active conntrack was removed")
+	}
+}
+
+func TestConntrackExpiryCacheTracksExtendedAndShortenedTCPDeadlines(t *testing.T) {
+	now := time.Unix(1000, 0)
+	manager := newConntrackMgr()
+	manager.now = func() time.Time { return now }
+	ct := manager.getOrCreate("tcp", "app", "group")
+	manager.observePacket(ct.key, makeTCPPacketWithSeq(zctcpip.TCPSyn, 100, 0), false)
+	manager.observePacket(ct.key, makeTCPPacketWithSeq(zctcpip.TCPSyn|zctcpip.TCPAck, 200, 101), true)
+	manager.observePacket(ct.key, makeTCPPacketWithSeq(zctcpip.TCPAck, 101, 201), false)
+	now = now.Add(defaultConntrackTTL + time.Second)
+	manager.removeExpired()
+	if manager.getByKey(ct.key) != ct {
+		t.Fatal("extended established flow was expired at its old deadline")
+	}
+	manager.observePacket(ct.key, makeTCPPacket(zctcpip.TCPFin|zctcpip.TCPAck), false)
+	manager.observePacket(ct.key, makeTCPPacket(zctcpip.TCPFin|zctcpip.TCPAck), true)
+	now = now.Add(tcpOutboundFirstClosedTTL)
+	replacement := manager.getOrCreate(ct.key, "app", "group")
+	if replacement == ct || manager.getByID(ct.authID) != nil {
+		t.Fatal("shortened TCP deadline did not remove both old indexes before reuse")
+	}
+	select {
+	case <-ct.authCh:
+	default:
+		t.Fatal("expiry left old authentication pending")
+	}
+}
+
+func TestConntrackCapacityReclaimsExpiredFlowBeforeAnOlderLiveFlow(t *testing.T) {
+	now := time.Unix(1000, 0)
+	manager := newConntrackMgr()
+	manager.now = func() time.Time { return now }
+	manager.maxEntries = 2
+	live := manager.getOrCreate("live", "app", "group")
+	manager.observePacket(live.key, makeUDPPacket(12345, 53), false)
+	expired := manager.getOrCreate("expired", "app", "group")
+	now = now.Add(defaultConntrackTTL)
+	manager.getOrCreate("new", "app", "group")
+	if manager.getByKey(live.key) != live || manager.getByID(live.authID) != live {
+		t.Fatal("capacity evicted an older live UDP flow instead of an expired flow")
+	}
+	if manager.getByKey(expired.key) != nil || manager.getByID(expired.authID) != nil {
+		t.Fatal("expired recent flow retained an index")
 	}
 }
 
@@ -1679,6 +1723,7 @@ func TestIncomingPacketRefreshesReverseConntrack(t *testing.T) {
 	}
 	meta.key = connTrackKey(meta)
 	ct := manager.getOrCreate(meta.key, "app", "group")
+	manager.observePacket(meta.key, outgoing, false)
 	now = now.Add(time.Minute)
 
 	incoming := zctcpip.IPv4Packet(makeUDPPacket(53, 12345))
@@ -1688,10 +1733,10 @@ func TestIncomingPacketRefreshesReverseConntrack(t *testing.T) {
 	conn.refreshIncomingConntrack(incoming)
 
 	manager.mu.Lock()
-	lastSeen := ct.lastSeen
+	expiresAt := ct.expiresAt
 	manager.mu.Unlock()
-	if !lastSeen.Equal(now) {
-		t.Fatalf("lastSeen = %v, want %v", lastSeen, now)
+	if !expiresAt.Equal(now.Add(udpConntrackTTL)) {
+		t.Fatalf("inbound packet expiry = %v, want %v", expiresAt, now.Add(udpConntrackTTL))
 	}
 }
 

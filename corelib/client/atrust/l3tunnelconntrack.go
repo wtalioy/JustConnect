@@ -61,7 +61,6 @@ type conntrack struct {
 	authRetryAt  time.Time
 	sendMu       sync.Mutex
 	pending      [][]byte
-	lastSeen     time.Time
 	expiresAt    time.Time
 	tcpState     uint8
 	tcpSeq       uint32
@@ -75,7 +74,7 @@ type conntrackMgr struct {
 	byKey      map[string]*conntrack
 	byID       map[uint64]*conntrack
 	lru        list.List
-	ttl        time.Duration
+	nextExpiry time.Time
 	maxEntries int
 	now        func() time.Time
 	closed     bool
@@ -115,7 +114,6 @@ func (m *conntrackMgr) getOrCreate(key, appID, nodeGroupID string) *conntrack {
 	now := m.now()
 	m.removeExpiredLocked(now)
 	if ct := m.byKey[key]; ct != nil {
-		ct.lastSeen = now
 		m.lru.MoveToBack(ct.lruElement)
 		return ct
 	}
@@ -126,7 +124,6 @@ func (m *conntrackMgr) getOrCreate(key, appID, nodeGroupID string) *conntrack {
 		appID:       appID,
 		nodeGroupID: nodeGroupID,
 		authCh:      make(chan struct{}),
-		lastSeen:    now,
 		expiresAt:   now.Add(defaultConntrackTTL),
 	}
 	if m.closed {
@@ -140,6 +137,7 @@ func (m *conntrackMgr) getOrCreate(key, appID, nodeGroupID string) *conntrack {
 	ct.lruElement = m.lru.PushBack(ct)
 	m.byKey[key] = ct
 	m.byID[ct.authID] = ct
+	m.setExpiryLocked(ct, ct.expiresAt)
 	return ct
 }
 
@@ -151,11 +149,10 @@ func (m *conntrackMgr) observePacket(key string, packet []byte, incoming bool) b
 		return false
 	}
 	now := m.now()
-	ct.lastSeen = now
 	m.lru.MoveToBack(ct.lruElement)
 	ipPacket := zctcpip.IPv4Packet(packet)
 	if !ipPacket.Valid() {
-		ct.expiresAt = now.Add(defaultConntrackTTL)
+		m.setExpiryLocked(ct, now.Add(defaultConntrackTTL))
 		return true
 	}
 	ct.authMeta.proto = int(ipPacket.Protocol())
@@ -163,7 +160,7 @@ func (m *conntrackMgr) observePacket(key string, packet []byte, incoming bool) b
 	case zctcpip.TCP:
 		tcpPacket := zctcpip.TCPPacket(ipPacket.Payload())
 		if !tcpPacket.Valid() {
-			ct.expiresAt = now.Add(defaultConntrackTTL)
+			m.setExpiryLocked(ct, now.Add(defaultConntrackTTL))
 			return true
 		}
 		direction := 0
@@ -171,13 +168,13 @@ func (m *conntrackMgr) observePacket(key string, packet []byte, incoming bool) b
 			direction = 1
 		}
 		ct.observeTCP(tcpPacket, direction)
-		ct.expiresAt = now.Add(ct.tcpTTL)
+		m.setExpiryLocked(ct, now.Add(ct.tcpTTL))
 	case zctcpip.UDP:
-		ct.expiresAt = now.Add(udpConntrackTTL)
+		m.setExpiryLocked(ct, now.Add(udpConntrackTTL))
 	case zctcpip.ICMP:
-		ct.expiresAt = now.Add(icmpConntrackTTL)
+		m.setExpiryLocked(ct, now.Add(icmpConntrackTTL))
 	default:
-		ct.expiresAt = now.Add(defaultConntrackTTL)
+		m.setExpiryLocked(ct, now.Add(defaultConntrackTTL))
 	}
 	return true
 }
@@ -404,16 +401,26 @@ func (m *conntrackMgr) removeExpired() {
 	m.mu.Unlock()
 }
 
+func (m *conntrackMgr) setExpiryLocked(ct *conntrack, deadline time.Time) {
+	ct.expiresAt = deadline
+	if m.nextExpiry.IsZero() || deadline.Before(m.nextExpiry) {
+		m.nextExpiry = deadline
+	}
+}
+
 func (m *conntrackMgr) removeExpiredLocked(now time.Time) {
+	// A stale earlier bound only causes an extra sweep after a flow is refreshed or removed.
+	if m.nextExpiry.IsZero() || now.Before(m.nextExpiry) {
+		return
+	}
+	m.nextExpiry = time.Time{}
 	for element := m.lru.Front(); element != nil; {
 		next := element.Next()
 		ct := element.Value.(*conntrack)
-		expiresAt := ct.expiresAt
-		if m.ttl > 0 {
-			expiresAt = ct.lastSeen.Add(m.ttl)
-		}
-		if !now.Before(expiresAt) {
+		if !now.Before(ct.expiresAt) {
 			m.removeLocked(ct, errConntrackEvicted)
+		} else {
+			m.setExpiryLocked(ct, ct.expiresAt)
 		}
 		element = next
 	}
