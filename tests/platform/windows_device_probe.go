@@ -103,14 +103,14 @@ func executable() string {
 }
 
 func powershell(script string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	path := filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
 	cmd := exec.CommandContext(ctx, path, "-NoProfile", "-NonInteractive", "-Command", "-")
 	cmd.Stdin = strings.NewReader("$ErrorActionPreference='Stop';" + script)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("test adapter operation: %w: %s", err, output)
+		return nil, errors.Join(ctx.Err(), fmt.Errorf("test adapter operation: %w: %s", err, output))
 	}
 	return bytes.TrimSpace(output), nil
 }

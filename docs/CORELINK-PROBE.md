@@ -54,7 +54,7 @@ Unix 的上游 `stack/tun/NewStack` 目前没有传入 `FileDescriptor`，后续
 
 助手只持有 ring 和新设备；同账户的普通权限／medium integrity 子进程通过继承的匿名管道处理一组限定测试 IP／UDP 端口的数据包，不加载 Qt 或 aTrust。根据 [CreateRestrictedToken](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-createrestrictedtoken) 的句柄权限继承语义，显式取得创建进程和降低完整性所需权限；使用 `LUA_TOKEN` 降为普通用户令牌，取消管理员 SID 的允许权限并移除可删除特权；仅手动降低完整性和移除特权不足以证明 UAC 降权。验证原始 UDP socket 经设备、普通进程及助手回注收到回包，拒绝超大 IPC 帧，检查正常关闭和助手被终止后的设备／路由消失。
 
-独立测试控制进程先安装只约束设备助手的 Job 生命周期，再恢复其主线程；异常时仅清理本次随机名称对应的 Wintun PnP 设备。此 Job 不管理 VPN 核心，原型也不修改既有接口、DNS 或默认路由。本机只运行令牌／帧边界单测和拒绝本机设备操作的入口检查；实际设备由 Core ABI 的 Windows x64／ARM64 两组验收，日志／SDK 来源元数据随 CI artifact 保存，当前待验收。该结果不代替校园隧道、TCP、性能、授权界面、Qt IPC 身份校验或生产路由／DNS 恢复；正式设备实现接入后保留独有内核故障回归，删除被替代的设备调用脚手架。
+独立测试控制进程先安装只约束设备助手的 Job 生命周期，再恢复其主线程；异常时仅清理本次随机名称对应的 Wintun PnP 设备。此 Job 不管理 VPN 核心，原型也不修改既有接口、DNS 或默认路由。本机只运行令牌／帧边界单测和拒绝本机设备操作的入口检查；实际设备由 Core ABI 的 Windows x64／ARM64 两组验收，日志／SDK 来源元数据随 CI artifact 保存。[源码 `448e137` 的 Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/39658422157/job/119427314667)已通过真实设备回包、超大帧拒绝及正常／强杀后的设备和路由清理。ARM64 已通过三项边界检查，首次适配器只读查询在 12 秒边界被终止；已将 PowerShell 操作期限校准为 30 秒并保留上下文超时诊断，数据收发期限与清理断言不变，设备结果待重验。该结果不代替校园隧道、TCP、性能、授权界面、Qt IPC 身份校验或生产路由／DNS 恢复；正式设备实现接入后保留独有内核故障回归，删除被替代的设备调用脚手架。
 
 <a id="mihomo-api-probe"></a>
 ### Mihomo 控制接口隔离核对（D3 前置）
