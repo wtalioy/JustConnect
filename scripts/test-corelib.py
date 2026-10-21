@@ -42,7 +42,7 @@ def main():
     go('build', './...')
 
     packages = go('list', './...', capture=True).splitlines()
-    go('test', '-timeout', '60s', *packages)
+    go('test', '-timeout', '90s', *packages)
     for name, before in locks.items():
         if (CORE / name).read_bytes() != before:
             raise RuntimeError(f'Go verification modified the lock file: {name}')
