@@ -56,7 +56,7 @@ Unix 的上游 `stack/tun/NewStack` 目前没有传入 `FileDescriptor`，后续
 
 助手只持有 ring 和新设备；同账户的普通权限／medium integrity 子进程通过继承的匿名管道处理一组限定测试 IP／UDP 端口的数据包，不加载 Qt 或 aTrust。根据 [CreateRestrictedToken](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-createrestrictedtoken) 的句柄权限继承语义，显式取得创建进程和降低完整性所需权限；使用 `LUA_TOKEN` 降为普通用户令牌，取消管理员 SID 的允许权限并移除可删除特权；仅手动降低完整性和移除特权不足以证明 UAC 降权。验证原始 UDP socket 经设备、普通进程及助手回注收到回包，拒绝超大 IPC 帧，检查正常关闭和助手被终止后的设备／路由消失。
 
-独立测试控制进程先安装只约束设备助手的 Job 生命周期，再恢复其主线程；异常时仅清理本次随机名称对应的 Wintun PnP 设备。此 Job 不管理 VPN 核心，原型也不修改既有接口、DNS 或默认路由。本机只运行令牌／帧边界单测和拒绝本机设备操作的入口检查；实际设备由 Core ABI 的 Windows x64／ARM64 两组验收，日志／SDK 来源元数据随 CI artifact 保存。[源码 `448e137` 的 Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/39658422157/job/119427314667)已通过真实设备回包、超大帧拒绝及正常／强杀后的设备和路由清理。ARM64 已通过三项边界检查，首次适配器只读查询在 12 秒边界被终止；已将 PowerShell 操作期限校准为 30 秒并保留上下文超时诊断，数据收发期限与清理断言不变，设备结果待重验。该结果不代替校园隧道、TCP、性能、授权界面、Qt IPC 身份校验或生产路由／DNS 恢复；正式设备实现接入后保留独有内核故障回归，删除被替代的设备调用脚手架。
+独立测试控制进程先安装只约束设备助手的 Job 生命周期，再恢复其主线程；异常时仅清理本次随机名称对应的 Wintun PnP 设备。此 Job 不管理 VPN 核心，原型也不修改既有接口、DNS 或默认路由。本机只运行令牌／帧边界单测和拒绝本机设备操作的入口检查；实际设备由 Core ABI 的 Windows x64／ARM64 两组验收，日志／SDK 来源元数据随 CI artifact 保存。[源码 `448e137` 的 Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/39658422157/job/119427314667)已通过真实设备回包、超大帧拒绝及正常／强杀后的设备和路由清理。ARM64 已通过三项边界检查，设备流程仍超时待验收。适配器与路由读取已改用现有 x/sys 的 IP Helper API，本机实际 Windows 四项原生只读／边界检查通过；保留严格的清理断言。PowerShell 仅用于配置和必要的 PnP 安全恢复，设置操作期限及管道等待期限；CI 直接写证据文件，已用真实超时子进程验证日志保留，不再因异常而丢失部分输出。该结果不代替校园隧道、TCP、性能、授权界面、Qt IPC 身份校验或生产路由／DNS 恢复；正式设备实现接入后保留独有内核故障回归，删除被替代的设备调用脚手架。
 
 <a id="mihomo-api-probe"></a>
 ### Mihomo 控制接口隔离核对（D3 前置）
@@ -99,7 +99,7 @@ wsl.exe --distribution archlinux --user root --exec unshare --net -- \
 
 同一 [Unix 原型](../tests/platform/unix_device_probe.py) 在 macOS 使用 kernel control 分配全新 utun，按 [Apple 公开定义](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/net/if_utun.h)取得接口名并处理四字节地址族头。仅允许一次性 GitHub macOS runner，以 root 创建／配置测试点对点地址，再经 `SCM_RIGHTS` 将 fd 交给清空附加组、降为普通 uid／gid 的子进程；复用 Linux 的实际 UDP 双向、主动关闭及持有 fd 时 SIGKILL 检查。测试目的已有非默认路由时拒绝运行，结束后检查接口和其全部路由消失，不改系统 DNS／默认路由。
 
-Core ABI 两组 macOS 已接入 `macos-device.log`；本机仅静态核对 Darwin 分支，Linux 共享路径已在隔离命名空间重验正常／强杀及宿主接口、路由、DNS 不变。降权验证使用原生 `getgroups` 读取进程组，仅保留目标主组，并检查真实／有效 uid、gid 和无法恢复 root；[Python 的 macOS 组查询](https://docs.python.org/3/library/os.html#os.getgroups)可能返回目录成员列表，不能据此判断 `setgroups` 的结果。macOS 真实 fd 读写、清理及签名助手授权仍待验收，不依据源码或 Linux 结果宣称可用。原 `linux_device_probe.py` 已由共享脚本替代并删除，原 Linux 能力及独有权限断言保留。
+[源码 `a758b4c` 的两组 macOS 及 Linux](https://github.com/wtalioy/JustConnect/actions/runs/39661075147)均通过真实设备／fd 读写、正常关闭及强杀后的设备／路由清理，日志分别为 `macos-device.log`／`linux-device.log`；本机 Linux 另验宿主接口、路由、DNS 不变。降权验证使用原生 `getgroups` 读取进程组，仅保留目标主组，并检查真实／有效 uid、gid 和无法恢复 root；[Python 的 macOS 组查询](https://docs.python.org/3/library/os.html#os.getgroups)可能返回目录成员列表，不能据此判断 `setgroups` 的结果。签名助手与真实桌面授权仍待验收，不依据源码或 Linux 结果宣称可用。原 `linux_device_probe.py` 已由共享脚本替代并删除，原 Linux 能力及独有权限断言保留。
 
 Qt／WebEngine 宿主保持普通用户权限。CI 的网页加载验证只覆盖同进程 Go 运行时和浏览器子进程共存，不能替代真实桌面沙箱／UAC／授权取消验证；不通过禁用 WebEngine sandbox 解决权限问题。真实设备验收至少记录：设备创建、非提权宿主收发、重复关闭、宿主崩溃后的设备／路由／DNS 残留、拒绝／取消授权，以及 Windows ARM64 原生驱动行为。任一平台未证明数据路径交付前，不继续依赖该路径的网络接管。
 

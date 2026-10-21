@@ -103,10 +103,13 @@ func executable() string {
 }
 
 func powershell(script string) ([]byte, error) {
+	operation, _, _ := strings.Cut(script, " ")
+	fmt.Fprintln(os.Stderr, "START: adapter operation", operation)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	path := filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
 	cmd := exec.CommandContext(ctx, path, "-NoProfile", "-NonInteractive", "-Command", "-")
+	cmd.WaitDelay = time.Second
 	cmd.Stdin = strings.NewReader("$ErrorActionPreference='Stop';" + script)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -115,22 +118,46 @@ func powershell(script string) ([]byte, error) {
 	return bytes.TrimSpace(output), nil
 }
 
-func adapterID(name string) (string, error) {
-	output, err := powershell("Get-NetAdapter -IncludeHidden | Where-Object {$_.Name -eq '" + name + "'} | Select-Object -ExpandProperty PnPDeviceID")
-	return strings.TrimSpace(string(output)), err
+func adapterPresent(name string) (bool, error) {
+	var table *windows.MibIfTable2
+	if err := windows.GetIfTable2Ex(windows.MibIfTableNormalWithoutStatistics, &table); err != nil {
+		return false, err
+	}
+	defer windows.FreeMibTable(unsafe.Pointer(table))
+	for _, row := range unsafe.Slice(&table.Table[0], table.NumEntries) {
+		if windows.UTF16ToString(row.Alias[:]) == name {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func interfaceHasRoutes(index uint32) (bool, error) {
+	var table *windows.MibIpForwardTable2
+	if err := windows.GetIpForwardTable2(windows.AF_INET, &table); err != nil {
+		return false, err
+	}
+	defer windows.FreeMibTable(unsafe.Pointer(table))
+	for _, row := range table.Rows() {
+		if row.InterfaceIndex == index {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func runBroker(dll, mode string) (result error) {
+	fmt.Fprintln(os.Stderr, "START: device case", mode)
 	var nonce [8]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return err
 	}
 	name := "JCProbe" + hex.EncodeToString(nonce[:])
-	id, err := adapterID(name)
+	present, err := adapterPresent(name)
 	if err != nil {
 		return err
 	}
-	if id != "" {
+	if present {
 		return errors.New("test adapter already exists")
 	}
 	job, err := windows.CreateJobObject(nil, nil)
@@ -162,23 +189,31 @@ func runBroker(dll, mode string) (result error) {
 			_ = cmd.Wait()
 		}
 		// Independent safety cleanup is limited to this nonce's newly created device.
-		remaining, lookupErr := adapterID(name)
+		remaining, lookupErr := adapterPresent(name)
 		if lookupErr != nil {
 			result = errors.Join(result, lookupErr)
 			return
 		}
-		if remaining == "" {
+		if !remaining {
 			return
 		}
 		result = errors.Join(result, errors.New("adapter survived its owner; independent cleanup required"))
-		if !strings.HasPrefix(strings.ToUpper(remaining), "SWD\\WINTUN\\") {
+		output, lookupErr := powershell("Get-NetAdapter -IncludeHidden | Where-Object {$_.Name -eq '" + name + "'} | Select-Object -ExpandProperty PnPDeviceID")
+		if lookupErr != nil {
+			result = errors.Join(result, lookupErr)
+			return
+		}
+		deviceID := strings.TrimSpace(string(output))
+		if !strings.HasPrefix(strings.ToUpper(deviceID), "SWD\\WINTUN\\") {
 			result = errors.Join(result, errors.New("unexpected device identity; refusing removal"))
 			return
 		}
 		cleanup, stop := context.WithTimeout(context.Background(), 12*time.Second)
 		defer stop()
 		path := filepath.Join(os.Getenv("SystemRoot"), "System32", "pnputil.exe")
-		if output, err := exec.CommandContext(cleanup, path, "/remove-device", remaining).CombinedOutput(); err != nil {
+		cmd := exec.CommandContext(cleanup, path, "/remove-device", deviceID)
+		cmd.WaitDelay = time.Second
+		if output, err := cmd.CombinedOutput(); err != nil {
 			result = errors.Join(result, fmt.Errorf("owned device cleanup: %w: %s", err, output))
 		}
 	}()
@@ -211,16 +246,16 @@ func runBroker(dll, mode string) (result error) {
 	}
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		id, err = adapterID(name)
+		present, err = adapterPresent(name)
 		if err != nil {
 			return err
 		}
-		if id == "" {
-			routes, err := powershell("(Get-NetRoute -AddressFamily IPv4 | Where-Object {$_.InterfaceIndex -eq " + strconv.FormatUint(uint64(ready.Index), 10) + "} | Measure-Object).Count")
+		if !present {
+			routes, err := interfaceHasRoutes(ready.Index)
 			if err != nil {
 				return err
 			}
-			if string(routes) == "0" {
+			if !routes {
 				fmt.Printf("PASS: %s, owned adapter and routes removed (%s)\n", mode, name)
 				return nil
 			}

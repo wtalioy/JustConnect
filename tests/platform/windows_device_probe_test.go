@@ -7,11 +7,35 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"net"
 	"testing"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
+
+func TestDeviceReadbackUsesNativeInterfaceAndRouteTables(t *testing.T) {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, iface := range interfaces {
+		if iface.Flags&net.FlagLoopback == 0 {
+			continue
+		}
+		if present, err := adapterPresent(iface.Name); err != nil || !present {
+			t.Fatal("native interface lookup missed loopback", err)
+		}
+		if routes, err := interfaceHasRoutes(uint32(iface.Index)); err != nil || !routes {
+			t.Fatal("native route lookup missed loopback routes", err)
+		}
+		if routes, err := interfaceHasRoutes(^uint32(0)); err != nil || routes {
+			t.Fatal("native route lookup returned an unrelated interface", err)
+		}
+		return
+	}
+	t.Fatal("no loopback interface for native readback")
+}
 
 func TestDeviceClientTokenKeepsIdentityWithoutElevation(t *testing.T) {
 	token, err := restrictedToken()
