@@ -1,10 +1,13 @@
-package dial
+package policy
 
 import (
+	"errors"
 	"fmt"
 	"net/netip"
 	"slices"
 )
+
+var ErrProtectedTarget = errors.New("destination belongs to a protected original network")
 
 // ProtectionPolicy records original-network targets and explicit campus choices.
 // Server authorization remains the dialer's separate responsibility.

@@ -8,7 +8,7 @@
 
 构建提交与工作树状态由 Git 查询注入，不填写开发机目录、学校地址或账户。`jc_build_info` 返回当前 Go 版本、目标 OS／架构、JustConnect 完整提交、上游基线和由提交／工作树状态组成的本地版本。直接手动构建而没有 VCS 信息时明确返回 `unversioned/unknown`，不能作为可追溯发布产物。
 
-正式库返回 `embedded_vpn:true`、`auth_method_query:true`、`authentication_cache:true`、`policy_update:false`。Start 使用真实会话：认证、资源、选线、IP 握手、解析、gVisor 和监听均成功后才产生 `ready`，失败或取消在清理完成后产生终态。该事件仅表示核心通道／本地代理就绪；系统接管与系统 DNS 不在其契约内，产品“已连接”须由应用层按 [R11／S7-02](../plan.md) 汇总完整就绪条件。只有测试驱动和未安装 Runner 的纯传输引擎没有 VPN 能力；测试驱动始终标记 `test_driver:true`。
+正式库返回 `embedded_vpn:true`、`auth_method_query:true`、`authentication_cache:true`、`policy_update:true`。Start 使用真实会话：认证、资源、选线、IP 握手、解析、gVisor 和监听均成功后才产生 `ready`，失败或取消在清理完成后产生终态。该事件仅表示核心通道／本地代理就绪；系统接管与系统 DNS 不在其契约内，产品“已连接”须由应用层按 [R11／S7-02](../plan.md) 汇总完整就绪条件。只有测试驱动和未安装 Runner 的纯传输引擎没有 VPN 能力；测试驱动始终标记 `test_driver:true`。
 
 ## C 边界与生命周期
 
@@ -27,6 +27,7 @@ UTF-8 JSON 不带结尾 NUL。输入仅借用至调用返回，库在返回前�
 | `jc_session_start(handle, config, length, generation)` | 同步严格校验并复制配置，异步启动；返回代次 |
 | `jc_session_read(handle, wait_ms, output, capacity, length)` | 有界等待一个 FIFO 事件；容量不足可重试 |
 | `jc_session_respond(handle, response, length)` | 仅接受匹配、已读取且尚未消费的认证请求 |
+| `jc_session_update_policy(handle, policy, length, generation)` | 完整校验后原子替换本代保护规则，成功返回生效代次，失败输出零 |
 | `jc_session_stop(handle, wait_ms)` | 先取消，再有界等待清理；重复停止有效句柄成功 |
 | `jc_session_destroy(handle, wait_ms)` | 清理完成后失效、释放句柄；重复销毁已签发句柄成功 |
 
@@ -58,6 +59,22 @@ ABI v1 与 JSON schema 版本同步。S2-02 以兼容增补导出 `jc_config_val
 `network` 支持 `interface/auto_detect/local_dns/secondary_dns/dns_cache_ttl/disable_remote_dns/language`。接口、DNS 和语言显式传入；local DNS 允许 IP 或 IP:port，secondary DNS 为 IP。接口名优先于自动选择；自动选择默认关闭，避免悄悄改变宿主的网络策略。DNS 缓存寿命与维护间隔的默认值集中在 `corelib/session.go`，缓存不启动游离 janitor，且有容量上限。代理出口不读取系统 HTTP_PROXY 等环境配置；本阶段不修改路由、系统代理或系统 DNS，不创建自己的 TUN。Clash 共存仍由后续阶段验证。
 
 拒绝重复键、未知字段、非规范字段大小写、尾随 JSON、null、超深结构、无效 UTF-8、NUL 和 Unicode 替代字符。超限值不截断、不静默回退。无效输入只返回 `JC_INVALID_ARGUMENT`，不把账户、密码或输入片段写入错误。
+
+## 保护策略更新
+
+调用方须核对 `policy_update:true` 和 `jc_session_update_policy` 导出；ABI v1 兼容增补，不改变已有认证回应。连接代次由 Start 返回，修订在该代中严格递增，均使用十进制字符串。完整快照示例：
+
+~~~json
+{"schema_version":1,"generation":"1","revision":"1","protected":["192.168.50.0/24","fd7a:115c:a1e0::/48"],"campus":["192.168.50.17"]}
+~~~
+
+五个字段必填；空数组明确清除相应范围／选择，缺失、null、未知或重复字段、无效前缀／地址均返回 `JC_INVALID_ARGUMENT`，保留最后有效规则。保护前缀必须规范，不能用默认或分割默认路由充当保护范围；校园选择只接受具体 IPv4 地址，不接受前缀或 IPv6 校园访问。模型按最具体范围解释匹配，不把全部 RFC1918 地址当作实际局域网。
+
+完整解析在会话锁外完成，提交时重新核对活动、停止状态、代次与修订，再一次替换不可变快照。旧代次、重复／倒序修订、停止期间及已结束会话返回 `JC_STALE_REQUEST`；销毁后的句柄返回 `JC_INVALID_HANDLE`；认证方式查询不接受规则，返回 `JC_UNSUPPORTED`。成功同步返回输入的生效代次，并确认该修订已提交，无需等待事件或轮询文件。下一代清空旧规则与修订，不继承其他配置的手动选择。
+
+生产 SOCKS／HTTP 新拨号先应用保护，再进行服务器 IP／域名、协议与端口授权。命中保护且未明确选择校园时保留实际原网络出口；强制校园拨号、校园 DNS 与保活拒绝跨越该保护，不借机回退公共 DNS。明确选择只取消相应地址的保护优先级，不授予服务器未授权的访问。IPv4 映射与 IPv6 zone 不能绕过保护。
+
+本接口只确认核心后续连接使用的规则，不关闭已建立连接、不改系统路由／DNS，也不确认透明入口就绪。原网络发现、Qt 策略协调与透明前端仍待 S4／S5 接入；当前 UI 不据此展示保护或透明接管已经生效。会话控制连接与网关出口由 S4-05 单独验证。
 
 ## 事件与认证回应
 

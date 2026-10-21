@@ -52,6 +52,7 @@ type gateway struct {
 	probeDNS         atomic.Bool
 	renewals         atomic.Int32
 	extraWANNode     atomic.Value
+	resourceIP       atomic.Value
 }
 
 func newGateway(t *testing.T) *gateway {
@@ -163,7 +164,11 @@ func newGatewayWithNodeTLS(t *testing.T, nodeTLS *tls.Config) *gateway {
 			if g.probeDNS.Load() {
 				dnsPolicy = `"sdpPolicy":{"data":{"clientOption":{"dnsOption":{"firstDns":"192.0.2.10"}}}},`
 			}
-			fmt.Fprintf(w, `{"data":{%s"appList":{"data":{"appInfo":[{"apps":[{"ID":"fixture-app","nodeGroupID":"fixture-group","accessModel":"L3VPN","addressList":[{"protocol":"udp","port":"1-65535","host":"192.0.2.10"},{"protocol":"tcp","port":"1-65535","host":"192.0.2.10"},{"protocol":"tcp","port":"1-65535","host":"campus.test","IP":["192.0.2.10"]}]}]}],"config":{"nodeGroupConf":{"majorNodeGroup":{"ID":"fixture-group"},"nodeGroupList":[{"ID":"fixture-group","addressInfo":[{"type":"wan","address":%q}%s]}]}}}}}}`, dnsPolicy, g.node.Addr().String(), extraNode)
+			resourceIP, _ := g.resourceIP.Load().(string)
+			if resourceIP == "" {
+				resourceIP = "192.0.2.10"
+			}
+			fmt.Fprintf(w, `{"data":{%s"appList":{"data":{"appInfo":[{"apps":[{"ID":"fixture-app","nodeGroupID":"fixture-group","accessModel":"L3VPN","addressList":[{"protocol":"udp","port":"1-65535","host":%q},{"protocol":"tcp","port":"1-65535","host":%q},{"protocol":"tcp","port":"1-65535","host":"campus.test","IP":[%q]}]}]}],"config":{"nodeGroupConf":{"majorNodeGroup":{"ID":"fixture-group"},"nodeGroupList":[{"ID":"fixture-group","addressInfo":[{"type":"wan","address":%q}%s]}]}}}}}}`, dnsPolicy, resourceIP, resourceIP, resourceIP, g.node.Addr().String(), extraNode)
 		default:
 			t.Errorf("unexpected gateway route %s", r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)

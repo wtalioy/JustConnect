@@ -6,6 +6,8 @@ import (
 	"math"
 	"sync"
 	"time"
+
+	"github.com/wtalioy/JustConnect/corelib/policy"
 )
 
 // Runner returns only after its resources and goroutines have stopped.
@@ -68,23 +70,26 @@ type pending struct {
 }
 
 type Session struct {
-	mu          sync.Mutex
-	generation  uint64
-	sequence    uint64
-	nextRequest uint64
-	running     bool
-	ctx         context.Context
-	unreadAuth  bool
-	ready       bool
-	stopping    bool
-	destroying  bool
-	destroyed   bool
-	cancel      context.CancelFunc
-	done        chan struct{}
-	changed     chan struct{}
-	queue       []queued
-	diagnostics int
-	auth        *pending
+	mu             sync.Mutex
+	generation     uint64
+	sequence       uint64
+	nextRequest    uint64
+	running        bool
+	ctx            context.Context
+	unreadAuth     bool
+	ready          bool
+	stopping       bool
+	destroying     bool
+	destroyed      bool
+	cancel         context.CancelFunc
+	done           chan struct{}
+	changed        chan struct{}
+	queue          []queued
+	diagnostics    int
+	auth           *pending
+	policy         *policy.ProtectionPolicy
+	policyRevision uint64
+	policyEnabled  bool
 }
 
 func (s *Session) notify() {
@@ -151,6 +156,7 @@ func (e *Engine) Start(handle uint64, input []byte) (uint64, Status) {
 	s.running, s.ready, s.stopping = true, false, false
 	s.ctx, s.cancel, s.done = ctx, cancel, make(chan struct{})
 	s.auth = nil
+	s.policy, s.policyRevision, s.policyEnabled = nil, 0, config.Operation != "auth_methods"
 	s.push(event{Type: "state", State: "starting"})
 	e.active = s
 	go e.execute(ctx, config, s)

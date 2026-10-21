@@ -7,11 +7,79 @@ import (
 	"strconv"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/wtalioy/JustConnect/corelib/internal/ipresource"
+	"github.com/wtalioy/JustConnect/corelib/policy"
 	"github.com/wtalioy/JustConnect/corelib/resolve"
 )
+
+func TestLiveProtectionOverridesCampusResourcesButNeverGrantsAuthorization(t *testing.T) {
+	listener, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	go func() {
+		buffer := make([]byte, 16)
+		n, peer, err := listener.ReadFrom(buffer)
+		if err == nil {
+			_, _ = listener.WriteTo(buffer[:n], peer)
+		}
+	}()
+	current, err := policy.NewProtectionPolicy([]string{"127.0.0.0/8", "::1/128"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &capturingStack{}
+	ip := net.ParseIP("127.0.0.1")
+	d := NewDialer(s, nil, []client.IPResource{{IPMin: ip, IPMax: ip, PortMin: 1, PortMax: 65535, Protocol: "all"}}, false)
+	d.ProtectionPolicy = func() *policy.ProtectionPolicy { return &current }
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	conn, err := d.DialIPPort(ctx, "udp", listener.LocalAddr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(2 * time.Second))
+	if _, err := conn.Write([]byte("original")); err != nil {
+		t.Fatal(err)
+	}
+	buffer := make([]byte, 16)
+	if n, err := conn.Read(buffer); err != nil || string(buffer[:n]) != "original" {
+		t.Fatal("protected traffic did not retain original route", n, err)
+	}
+	if s.tcpCalls+s.udpCalls != 0 {
+		t.Fatal("protected traffic entered campus")
+	}
+	d.alwaysUseVPN = true
+	for _, network := range []string{"tcp", "udp"} {
+		for _, host := range []string{"127.0.0.1", "::ffff:127.0.0.1", "::1"} {
+			if _, err := d.DialIPPort(ctx, network, net.JoinHostPort(host, "80")); !errors.Is(err, policy.ErrProtectedTarget) {
+				t.Fatal(network, host, err)
+			}
+		}
+	}
+	current, _ = policy.NewProtectionPolicy([]string{"127.0.0.0/8"}, []string{"127.0.0.1"})
+	for _, network := range []string{"tcp", "udp"} {
+		if _, err := d.DialIPPort(ctx, network, "127.0.0.1:80"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if s.tcpCalls != 1 || s.udpCalls != 1 {
+		t.Fatal("explicit campus choice was not applied")
+	}
+	d.ipResources, d.resourceIndex = nil, nil
+	if _, err := d.DialIPPort(ctx, "tcp", "127.0.0.1:80"); !errors.Is(err, ErrACLDenied) {
+		t.Fatal("campus choice granted authorization", err)
+	}
+	current, _ = policy.NewProtectionPolicy([]string{"127.0.0.0/8"}, nil)
+	if _, err := d.DialIPPort(ctx, "tcp", "127.0.0.1:80"); !errors.Is(err, policy.ErrProtectedTarget) {
+		t.Fatal("removed choice remained active", err)
+	}
+}
 
 func TestDestinationPortCannotWrapIntoAnotherTunnelPort(t *testing.T) {
 	for _, network := range []string{"tcp", "udp"} {
