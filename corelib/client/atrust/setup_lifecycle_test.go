@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -45,6 +46,7 @@ func TestSetupOwnsAuthenticationLifetimeAndRollsBack(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			var connections atomic.Int32
 			var workers sync.WaitGroup
 			accepted := make(chan struct{})
 			go func() {
@@ -54,6 +56,7 @@ func TestSetupOwnsAuthenticationLifetimeAndRollsBack(t *testing.T) {
 					if err != nil {
 						return
 					}
+					connections.Add(1)
 					workers.Add(1)
 					go func() {
 						defer workers.Done()
@@ -94,10 +97,8 @@ func TestSetupOwnsAuthenticationLifetimeAndRollsBack(t *testing.T) {
 				if !errors.Is(err, saveErr) {
 					t.Fatalf("setup = %v", err)
 				}
-				select {
-				case <-c.l3Tunnel.closeCh:
-				default:
-					t.Fatal("partial L3 initialization not rolled back")
+				if c.l3Tunnel != nil || connections.Load() != 0 {
+					t.Fatal("rejected authentication persistence must fail before allocating or dialing tunnels")
 				}
 				c.Close()
 				if _, err := c.SetupContext(context.Background(), options); !errors.Is(err, context.Canceled) {

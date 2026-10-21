@@ -1,6 +1,7 @@
 package atrust
 
 import (
+	"bytes"
 	"context"
 	"crypto/md5"
 	"crypto/rand"
@@ -358,7 +359,8 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) (_ []by
 	c.tcpTunnelZeroRTT = parsedServerVersion.TCPTunnelZeroRTT()
 
 	resourceData := options.ResourceData
-	if c.canResume(resourceData) {
+	resumeResources := c.canResume(resourceData)
+	if resumeResources {
 
 		c.ConnectionID = buildConnectionID(c.DeviceID)
 		if c.SignKey == "" {
@@ -401,26 +403,49 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) (_ []by
 		c.ConnectionID = buildConnectionID(c.DeviceID)
 		c.SignKey = randHex(64)
 		c.Username = loginResult.Username
-
+	}
+	clientAuthData.Identity = cacheIdentity(options, authServerHost, c.Username)
+	clientAuthData.DeviceID = c.DeviceID
+	var authData []byte
+	publishAuthentication := func() error {
+		snapshot, err := sess.Snapshot()
+		if err != nil {
+			return err
+		}
+		c.setSessionSID(snapshot.SID, nil)
+		clientAuthData.Cookies = snapshot.Cookies
+		data, err := json.Marshal(clientAuthData)
+		if err != nil {
+			return fmt.Errorf("failed to marshal client data: %w", err)
+		}
+		if bytes.Equal(authData, data) {
+			return nil
+		}
+		authData = data
+		if options.SaveClientData != nil {
+			if err := options.SaveClientData(authData); err != nil {
+				return fmt.Errorf("failed to save client data: %w", err)
+			}
+		}
+		return nil
+	}
+	if err := setupCtx.Err(); err != nil {
+		return nil, err
+	}
+	// Verified authentication survives resource or tunnel setup failures.
+	if err := publishAuthentication(); err != nil {
+		return nil, err
+	}
+	if !resumeResources {
 		tlsFailureStage = "tls_resources_failed"
 		resourceData, err = sess.ClientResource()
 		if err != nil {
-
 			return nil, err
 		}
-
-	}
-	snapshot, err := sess.Snapshot()
-	if err != nil {
-		return nil, err
-	}
-	c.setSessionSID(snapshot.SID, nil)
-	clientAuthData.Identity = cacheIdentity(options, authServerHost, c.Username)
-	clientAuthData.DeviceID = c.DeviceID
-	clientAuthData.Cookies = snapshot.Cookies
-	authData, err := json.Marshal(clientAuthData)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal client data: %w", err)
+		// Resource responses may replace cookies needed by the tunnels.
+		if err := publishAuthentication(); err != nil {
+			return nil, err
+		}
 	}
 
 	err = c.parseResource(resourceData)
@@ -454,11 +479,6 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) (_ []by
 	c.l3TunnelMu.Lock()
 	c.l3Tunnel = l3Tunnel
 	c.l3TunnelMu.Unlock()
-	if options.SaveClientData != nil {
-		if err := options.SaveClientData(authData); err != nil {
-			return nil, fmt.Errorf("failed to save client data: %w", err)
-		}
-	}
 	sess.SetContext(c.lifecycleCtx)
 	if options.SessionRefreshInterval > 0 {
 		c.startSessionRefresh(sess.Refresh, clientAuthData, options.SaveClientData, options.SessionRefreshInterval)

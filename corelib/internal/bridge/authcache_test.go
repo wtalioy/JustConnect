@@ -3,6 +3,8 @@ package bridge
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"net"
@@ -53,6 +55,58 @@ func setupWithCache(t *testing.T, g *gateway, cache []byte) ([]byte, int, int, e
 	return data, challenges, invalidations, err
 }
 
+type rejectedNodeDialer struct {
+	cacheDialer
+	address string
+}
+
+func (d *rejectedNodeDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	if address == d.address {
+		return nil, &tls.CertificateVerificationError{Err: x509.UnknownAuthorityError{}}
+	}
+	return d.cacheDialer.DialContext(ctx, network, address)
+}
+
+func TestAuthenticationSurvivesFailedTunnelSetup(t *testing.T) {
+	g := newGateway(t)
+	g.resumeCookies.Store(true)
+	host, port, _ := net.SplitHostPort(strings.TrimPrefix(g.HTTP.URL, "https://"))
+	portNumber, _ := strconv.Atoi(port)
+	dialer := &rejectedNodeDialer{address: g.node.Addr().String()}
+	var saved []byte
+	challenges, invalidations := 0, 0
+	attempt := func(cache []byte) error {
+		c := atrust.NewClient(atrust.ClientOptions{Session: atrust.SessionOptions{Username: "fixture-user"},
+			TLSConfig: g.HTTP.Client().Transport.(*http.Transport).TLSClientConfig, UnderlayDialer: dialer})
+		defer c.Close()
+		_, err := c.SetupContext(t.Context(), atrust.SetupOptions{ServerAddress: host, ServerPort: portNumber,
+			AuthID: "fixture-primary", AuthSubType: "sms", LoginMethod: auth.SMSLogin{Phone: "86-123456", Domain: "fixture"},
+			ClientData: cache, SaveClientData: func(data []byte) error { saved = bytes.Clone(data); return nil },
+			ClientDataInvalidated: func() { invalidations++ },
+			ChallengeHandler: authchallenge.HandlerFuncs{Code: func(authchallenge.CodeChallenge) (authchallenge.CodeResponse, error) {
+				challenges++
+				return authchallenge.CodeResponse{Code: "fixture-code"}, nil
+			}}})
+		return err
+	}
+	var certificate *tls.CertificateVerificationError
+	if err := attempt(nil); !errors.As(err, &certificate) || len(saved) == 0 || invalidations != 0 || challenges != 1 {
+		t.Fatalf("failed tunnel must preserve verified authentication: saved=%d challenges=%d invalidations=%d err=%v", len(saved), challenges, invalidations, err)
+	}
+	var original auth.ClientAuthData
+	if err := json.Unmarshal(saved, &original); err != nil {
+		t.Fatal(err)
+	}
+	dialer.address = ""
+	if err := attempt(saved); err != nil || challenges != 1 || invalidations != 0 || g.authCount.Load() != 1 || g.cacheProbes.Load() != 1 {
+		t.Fatalf("retry must restore authentication: challenges=%d invalidations=%d authentications=%d probes=%d err=%v", challenges, invalidations, g.authCount.Load(), g.cacheProbes.Load(), err)
+	}
+	var restored auth.ClientAuthData
+	if err := json.Unmarshal(saved, &restored); err != nil || restored.DeviceID != original.DeviceID || restored.Identity != original.Identity {
+		t.Fatal("retry changed the authenticated account or device")
+	}
+}
+
 func TestClientDataRestoresAfterOrdinaryClose(t *testing.T) {
 	g := newGateway(t)
 	g.resumeCookies.Store(true)
@@ -67,6 +121,29 @@ func TestClientDataRestoresAfterOrdinaryClose(t *testing.T) {
 	var a, b auth.ClientAuthData
 	if json.Unmarshal(first, &a) != nil || json.Unmarshal(second, &b) != nil || a.DeviceID != b.DeviceID || a.Identity != b.Identity || a.Identity.Username != "fixture-user" || a.Identity.AuthID != "fixture-primary" || a.Identity.AuthSubType != "sms" || a.Identity.AuthType != "auth/smsCheckCode" || a.Identity.LoginDomain != "fixture" || a.Identity.Phone != "86-123456" {
 		t.Fatal("restore did not preserve the server-confirmed account and device")
+	}
+}
+
+func TestAuthenticationCheckpointKeepsResourceCookieRefresh(t *testing.T) {
+	g := newGateway(t)
+	g.resumeCookies.Store(true)
+	g.rotateSID.Store(true)
+	encoded, _, _, err := setupWithCache(t, g, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved auth.ClientAuthData
+	if err := json.Unmarshal(encoded, &saved); err != nil || len(saved.Cookies) == 0 {
+		t.Fatal("missing authentication snapshot")
+	}
+	for _, cookie := range saved.Cookies {
+		if cookie.Name == "sid" && cookie.Value != "private-resource-sid" {
+			t.Fatal("early checkpoint lost the resource response's new session cookie")
+		}
+	}
+	_, challenges, invalidations, err := setupWithCache(t, g, encoded)
+	if err != nil || challenges != 0 || invalidations != 0 || g.authCount.Load() != 1 {
+		t.Fatalf("refreshed authentication could not resume: challenges=%d invalidations=%d authentications=%d err=%v", challenges, invalidations, g.authCount.Load(), err)
 	}
 }
 
@@ -285,5 +362,23 @@ func TestBridgeReportsRequiredCredentialsWithoutPostingPassword(t *testing.T) {
 	}
 	if ev := next(t, e, h); ev.Type != "terminal" || ev.Status != CredentialsRequired {
 		t.Fatal("missing credentials were not reported safely", ev.Status)
+	}
+}
+
+func TestBridgeSavesAuthenticationBeforeFailedNodeSetup(t *testing.T) {
+	g := newGateway(t)
+	g.node.Close()
+	c := g.config(t)
+	c.AuthenticationCache.Enabled = true
+	e := New(RunProtocol)
+	h := create(t, e)
+	startProtocol(t, e, h, c)
+	cached := next(t, e, h)
+	if cached.Type != "authentication_cache" || cached.Action != "save" || cached.Cache == nil || cached.Cache.Account != "fixture-user" || len(cached.Cache.Data) == 0 {
+		t.Fatalf("authentication was not delivered before transport failure: %+v", cached)
+	}
+	terminal := next(t, e, h)
+	if terminal.Type != "terminal" || terminal.Status != NetworkFailure || g.authCount.Load() != 1 {
+		t.Fatalf("event = %+v, authentications = %d", terminal, g.authCount.Load())
 	}
 }
