@@ -50,6 +50,7 @@ type SetupOptions struct {
 	ChallengeHandler         authchallenge.Handler
 	SessionRefreshInterval   time.Duration
 	SaveClientData           func([]byte) error
+	ClientDataInvalidated    func()
 }
 
 type Client struct {
@@ -96,12 +97,13 @@ type Client struct {
 	tcpMu      sync.Mutex
 	tcpConns   map[*tcpTunnelConn]struct{}
 
-	lifecycleCtx     context.Context
-	lifecycleCancel  context.CancelFunc
-	closeOnce        sync.Once
-	underlayDialer   client.UnderlayDialer
-	tlsPolicy        *tls.Config
-	tcpTunnelZeroRTT bool
+	lifecycleCtx         context.Context
+	lifecycleCancel      context.CancelFunc
+	closeOnce            sync.Once
+	underlayDialer       client.UnderlayDialer
+	tlsPolicy            *tls.Config
+	tcpTunnelZeroRTT     bool
+	invalidateClientData func()
 }
 
 func NewClient(options ClientOptions) *Client {
@@ -261,7 +263,7 @@ func (c *Client) NewL3Conn() (io.ReadWriteCloser, error) {
 	return tunnel.NewL3Conn()
 }
 
-func (c *Client) SetupContext(ctx context.Context, options SetupOptions) ([]byte, error) {
+func (c *Client) SetupContext(ctx context.Context, options SetupOptions) (_ []byte, err error) {
 	c.setupMu.Lock()
 	defer c.setupMu.Unlock()
 	if c.lifecycleCtx.Err() != nil {
@@ -283,19 +285,37 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) ([]byte
 	}
 	c.serverAddress = options.ServerAddress
 
-	var clientAuthData auth.ClientAuthData
-	if options.ClientData != nil {
-		if err := json.Unmarshal(options.ClientData, &clientAuthData); err != nil {
-
-			return nil, err
+	authServerHost := net.JoinHostPort(options.ServerAddress, fmt.Sprint(options.ServerPort))
+	expectedAccount := c.Username
+	if expectedAccount == "" {
+		switch method := options.LoginMethod.(type) {
+		case auth.PasswordLogin:
+			expectedAccount = method.Username
+		case *auth.PasswordLogin:
+			expectedAccount = method.Username
 		}
 	}
-
-	if clientAuthData.DeviceID == "" && c.DeviceID != "" {
-		clientAuthData.DeviceID = c.DeviceID
+	clientAuthData, restore := cachedClientData(options.ClientData, cacheIdentity(options, authServerHost, expectedAccount))
+	c.invalidateClientData = options.ClientDataInvalidated
+	invalidated := false
+	invalidate := func() {
+		if !invalidated {
+			invalidated = true
+			if c.invalidateClientData != nil {
+				c.invalidateClientData()
+			}
+		}
 	}
+	defer func() {
+		if errors.Is(err, auth.ErrSessionInvalid) {
+			invalidate()
+		}
+	}()
+	if len(options.ClientData) != 0 && !restore {
+		invalidate()
+	}
+	initialDeviceID := c.DeviceID
 
-	authServerHost := net.JoinHostPort(options.ServerAddress, fmt.Sprint(options.ServerPort))
 	sess := auth.NewSessionContext(setupCtx, authServerHost, c.tlsPolicy, c.underlayDialer.DialContext)
 	c.authSession = sess
 	sess.Diagnostic = c.diagnostic
@@ -313,15 +333,18 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) ([]byte
 	if err := setupCtx.Err(); err != nil {
 		return nil, err
 	}
-	serverVersionInfo, err := resolveServerVersionInfo(clientAuthData.ServerVersionInfo, serverVersionInfo, manifestErr)
+	serverVersionInfo, err = resolveServerVersionInfo(clientAuthData.ServerVersionInfo, serverVersionInfo, manifestErr)
 	if err != nil {
 		return nil, err
 	}
 	if manifestErr != nil && c.diagnostic != nil {
 		c.diagnostic("manifest_cached")
 	}
-	clientAuthData.ServerVersionInfo = serverVersionInfo
 	parsedServerVersion, err := auth.ParseServerVersionInfo(serverVersionInfo)
+	if err != nil {
+		return nil, err
+	}
+	clientAuthData.ServerVersionInfo, err = json.Marshal(parsedServerVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -336,24 +359,40 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) ([]byte
 		}
 		sess.Restore(c.DeviceID, c.SID, clientAuthData.Cookies)
 	} else {
-		if clientAuthData.DeviceID == "" {
-			clientAuthData.DeviceID = strings.ToLower(randHex(32))
+		var loginResult auth.LoginResult
+		if restore {
+			c.DeviceID = clientAuthData.DeviceID
+			loginResult, err = sess.Login(nil, auth.LoginOptions{DeviceID: c.DeviceID, Cookies: clientAuthData.Cookies})
+			if err == nil && (loginResult.Username != expectedAccount || loginResult.SID == "") {
+				err = auth.ErrSessionInvalid
+			}
+			if err != nil {
+				if !errors.Is(err, auth.ErrSessionInvalid) {
+					return nil, err
+				}
+				invalidate()
+				restore = false
+				sess.Close()
+				sess = auth.NewSessionContext(setupCtx, authServerHost, c.tlsPolicy, c.underlayDialer.DialContext)
+				c.authSession = sess
+				sess.Diagnostic, sess.Language = c.diagnostic, c.language
+			}
 		}
-		c.DeviceID = clientAuthData.DeviceID
+		if !restore {
+			c.DeviceID = initialDeviceID
+			if c.DeviceID == "" {
+				c.DeviceID = strings.ToLower(randHex(32))
+			}
+			loginResult, err = sess.Login(options.LoginMethod, auth.LoginOptions{
+				AuthID: options.AuthID, SubType: options.AuthSubType, DeviceID: c.DeviceID,
+				TOTPSecret: options.TOTPSecret, ChallengeHandler: options.ChallengeHandler,
+			})
+			if err != nil {
+				return nil, err
+			}
+		}
 		c.ConnectionID = buildConnectionID(c.DeviceID)
 		c.SignKey = randHex(64)
-
-		loginResult, err := sess.Login(options.LoginMethod, auth.LoginOptions{
-			AuthID: options.AuthID, SubType: options.AuthSubType,
-			DeviceID:         c.DeviceID,
-			Cookies:          clientAuthData.Cookies,
-			TOTPSecret:       options.TOTPSecret,
-			ChallengeHandler: options.ChallengeHandler,
-		})
-		if err != nil {
-
-			return nil, err
-		}
 		c.Username = loginResult.Username
 
 		resourceData, err = sess.ClientResource()
@@ -368,6 +407,7 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) ([]byte
 		return nil, err
 	}
 	c.setSessionSID(snapshot.SID, nil)
+	clientAuthData.Identity = cacheIdentity(options, authServerHost, c.Username)
 	clientAuthData.DeviceID = c.DeviceID
 	clientAuthData.Cookies = snapshot.Cookies
 	authData, err := json.Marshal(clientAuthData)

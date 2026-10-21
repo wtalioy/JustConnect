@@ -40,6 +40,12 @@ type gateway struct {
 	invalid          atomic.Bool
 	pauseIP          atomic.Bool
 	ipStarted        chan struct{}
+	resumeCookies    atomic.Bool
+	expireCookies    atomic.Bool
+	authConfigFails  atomic.Bool
+	invalidIP        atomic.Bool
+	cacheProbes      atomic.Int32
+	sessions         sync.Map
 }
 
 func newGateway(t *testing.T) *gateway {
@@ -68,6 +74,19 @@ func newGateway(t *testing.T) *gateway {
 		case "/public/manifest":
 			fmt.Fprint(w, `{"code":0,"data":{}}`)
 		case "/passport/v1/public/authConfig":
+			if g.authConfigFails.Load() {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
+			if g.resumeCookies.Load() {
+				if cookie, err := r.Cookie("sid"); err == nil {
+					g.cacheProbes.Add(1)
+					if _, exists := g.sessions.Load(cookie.Value); exists && !g.expireCookies.Load() {
+						fmt.Fprint(w, `{"code":0,"data":{"isLogin":1}}`)
+						return
+					}
+				}
+			}
 			if g.invalid.Load() {
 				fmt.Fprint(w, `{"code":10000004}`)
 				return
@@ -84,8 +103,13 @@ func newGateway(t *testing.T) *gateway {
 				w.WriteHeader(http.StatusForbidden)
 				return
 			}
-			g.authCount.Add(1)
-			http.SetCookie(w, &http.Cookie{Name: "sid", Value: "private-gateway-sid", Path: "/"})
+			count := g.authCount.Add(1)
+			sid := "private-gateway-sid"
+			if g.resumeCookies.Load() {
+				sid = fmt.Sprintf("private-gateway-sid-%d", count)
+				g.sessions.Store(sid, "fixture-user")
+			}
+			http.SetCookie(w, &http.Cookie{Name: "sid", Value: sid, Path: "/"})
 			fmt.Fprint(w, `{"code":0,"data":{"ticket":"private-ticket"}}`)
 		case "/passport/v1/auth/authCheck":
 			service, _ := g.nextService.Load().(string)
@@ -99,7 +123,15 @@ func newGateway(t *testing.T) *gateway {
 		case "/controller/v1/public/reportEnv":
 			fmt.Fprint(w, `{"code":0,"data":{}}`)
 		case "/passport/v1/user/onlineInfo":
-			fmt.Fprint(w, `{"code":0,"data":{"username":"fixture-user"}}`)
+			username := "fixture-user"
+			if g.resumeCookies.Load() {
+				if cookie, err := r.Cookie("sid"); err == nil {
+					if owner, exists := g.sessions.Load(cookie.Value); exists {
+						username = owner.(string)
+					}
+				}
+			}
+			fmt.Fprintf(w, `{"code":0,"data":{"username":%q}}`, username)
 		case "/controller/v1/user/clientResource":
 			fmt.Fprintf(w, `{"data":{"appList":{"data":{"appInfo":[{"apps":[{"ID":"fixture-app","nodeGroupID":"fixture-group","accessModel":"L3VPN","addressList":[{"protocol":"udp","port":"1-65535","host":"192.0.2.10"},{"protocol":"tcp","port":"1-65535","host":"192.0.2.10"},{"protocol":"tcp","port":"1-65535","host":"campus.test","IP":["192.0.2.10"]}]}]}],"config":{"nodeGroupConf":{"majorNodeGroup":{"ID":"fixture-group"},"nodeGroupList":[{"ID":"fixture-group","addressInfo":[{"type":"wan","address":%q}]}]}}}}}}`, g.node.Addr().String())
 		default:
@@ -193,6 +225,9 @@ func (g *gateway) serveTunnel(conn net.Conn) {
 			return
 		}
 		payload := []byte(`{"code":0}`)
+		if g.invalidIP.Load() {
+			payload = []byte(`{"code":10000004}`)
+		}
 		response := append([]byte{5, 0xd0, 0x53, 0, 0, byte(len(payload))}, payload...)
 		response = append(response, 5, 0, 0x7f, 1, 10, 0, 0, 2, 0, 0)
 		time.Sleep(time.Duration(g.delay.Load()))

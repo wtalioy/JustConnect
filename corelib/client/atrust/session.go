@@ -73,6 +73,9 @@ func (c *Client) fail(err error) {
 		c.setSessionSID("", err)
 		c.failures <- err
 		c.lifecycleCancel()
+		if errors.Is(err, auth.ErrSessionInvalid) && c.invalidateClientData != nil {
+			c.invalidateClientData()
+		}
 	})
 }
 
