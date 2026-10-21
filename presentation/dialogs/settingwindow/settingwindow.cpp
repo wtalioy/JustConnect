@@ -11,6 +11,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSettings>
+#include <QScrollArea>
 #include <QTemporaryDir>
 #include <QVBoxLayout>
 #include "application/defaultsettings.h"
@@ -27,6 +28,17 @@
 SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const CredentialSource &source)
     : QDialog(parent),ui(new Ui::SettingWindow),settings(source.path,QSettings::IniFormat),credentials(credentials),credentialSource(source) {
     ui->setupUi(this);
+    const int currentTab=ui->tabWidget->currentIndex();
+    for (int i=0;i<ui->tabWidget->count();++i) {
+        auto *page=ui->tabWidget->widget(i);
+        const auto title=ui->tabWidget->tabText(i);
+        ui->tabWidget->removeTab(i);
+        auto *scroll=new QScrollArea;
+        scroll->setFrameShape(QFrame::NoFrame); scroll->setWidgetResizable(true);
+        scroll->setWidget(page);
+        ui->tabWidget->insertTab(i,scroll,title);
+    }
+    ui->tabWidget->setCurrentIndex(currentTab);
     setWindowModality(Qt::WindowModal); setAttribute(Qt::WA_DeleteOnClose);
     serverEditor = new ServerSettingsWidget(ui->serverSettingsContainer);
     auto *layout = new QVBoxLayout(ui->serverSettingsContainer);

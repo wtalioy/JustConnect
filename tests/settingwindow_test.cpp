@@ -7,11 +7,15 @@
 #include <cstdlib>
 #include <QFileDialog>
 #include <QLineEdit>
+#include <QKeyEvent>
 #include <QMessageBox>
 #include <QPointer>
 #include <QPushButton>
 #include <QSettings>
 #include <QSpinBox>
+#include <QScrollArea>
+#include <QScrollBar>
+#include <QTabWidget>
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QElapsedTimer>
@@ -50,6 +54,22 @@ int main(int argc,char **argv) {
     auto ready=[&] {until([&]{return !access.isBusy(settings.fileName());});app.processEvents();};
     // Saving an unrelated change must preserve the selected opaque identity.
     { auto *initial=new SettingWindow(nullptr,&access,CredentialAccess::source(settings,ApplicationPaths::clientDataFile("fixture"))); initial->show();ready();
+      initial->resize(640,480); app.processEvents();
+      check(initial->height()<=480,"settings fit a short screen without forcing the dialog beyond its bounds");
+      auto *tabs=initial->findChild<QTabWidget *>("tabWidget");
+      check(tabs->currentWidget()->isAncestorOf(initial->findChild<QPushButton *>("importPushButton")),"settings retain the initial general tab");
+      tabs->setCurrentIndex(1);
+      initial->findChild<QCheckBox *>("tlsVerifyCheckBox")->setChecked(false);
+      initial->findChild<QCheckBox *>("allowUnverifiedNodesCheckBox")->setChecked(true);
+      app.processEvents();
+      auto *scroll=qobject_cast<QScrollArea *>(tabs->currentWidget());
+      check(scroll && scroll->verticalScrollBar()->maximum()>0 && initial->height()<=480,"long settings and TLS warnings scroll within the dialog");
+      auto *username=initial->findChild<QLineEdit *>("usernameLineEdit"); username->setFocus();
+      QKeyEvent tab(QEvent::KeyPress,Qt::Key_Tab,Qt::NoModifier); QApplication::sendEvent(username,&tab);app.processEvents();
+      auto *password=initial->findChild<QLineEdit *>("passwordLineEdit");
+      check(QApplication::focusWidget()==password && scroll->viewport()->rect().contains(password->mapTo(scroll->viewport(),QPoint(0,0))),"keyboard focus brings lower settings into view");
+      auto *footer=initial->findChild<QDialogButtonBox *>("buttonBox");
+      check(initial->rect().contains(footer->geometry()),"apply and cancel remain visible outside the scrolling settings");
       auto *remember=initial->findChild<QCheckBox *>("rememberAuthenticationCheckBox");
       check(remember && !remember->isChecked(),"new profiles do not persist authentication without consent");
       remember->setChecked(true);
