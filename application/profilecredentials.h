@@ -26,6 +26,7 @@ public:
     CredentialResult migrate(QSettings &settings,const QString &scope,const ConnectionProfile &profile);
     // Old cache has no reliable account binding; seal it without using it for login.
     CredentialResult quarantine(const QString &path,const QString &scope);
+    CredentialResult clearLegacyCache(const QString &path,const QString &scope);
 private:
     CredentialStore &store;
     CredentialResult removeVerified(const QString &key);

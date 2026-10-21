@@ -246,6 +246,20 @@ void publicSaveFailureAndStaleness() {
     store->failure=CredentialStatus::Unavailable;source=CredentialAccess::source(settings,{});draft=source.profile;draft.credentials={};draft.credentials.username="bob";
     require(finish(access.save(source,draft,false,{{"Credential/Username","bob"}})).succeeded(),"public account setup remains possible without a native store once legacy secrets are sealed");
 }
+void clearsLegacyCacheOutsideGui() {
+    QTemporaryDir folder;QSettings settings(folder.filePath("legacy-clear.ini"),QSettings::IniFormat);setup(settings);
+    auto backend=std::make_unique<Store>();auto *store=backend.get();CredentialAccess access(std::move(backend));
+    const auto source=CredentialAccess::source(settings,{});const auto id=ProfileCredentials::legacyCacheKey(source.scope);
+    store->values[id]="sealed archive";store->failure=CredentialStatus::Locked;
+    require(finish(access.clearLegacyCache(source)).status==CredentialStatus::Locked && store->values.contains(id),"locked legacy deletion retains the archive");
+    store->failure=CredentialStatus::Success;
+    settings.setValue("Credential/Username","bob");settings.sync();
+    require(finish(access.clearLegacyCache(source)).status==CredentialStatus::Cancelled && store->values.contains(id),"stale cleanup cannot erase a profile archive");
+    settings.setValue("Credential/Username","alice");settings.sync();
+    require(finish(access.clearLegacyCache(source)).succeeded() && !store->values.contains(id)
+        && store->lastThread!=QCoreApplication::instance()->thread() && !access.isBusy(source.path),"legacy deletion and verification run on the serial worker");
+    require(settings.contains("Credential/Password"),"legacy cache deletion does not migrate or clear independent passwords");
+}
 void rejectsChangedIdentity() {
     QTemporaryDir folder;require(folder.isValid(),"isolated switch");
     QSettings settings(folder.filePath("profile.ini"),QSettings::IniFormat);setup(settings);
@@ -275,6 +289,6 @@ void rejectsChangedIdentity() {
 }
 int main(int argc,char **argv) {
     QCoreApplication app(argc,argv);
-    try {rejectsRepeatedMalformedSources();readsAndSavesOutsideGui();sealsCacheBeforeDelivery();authenticationCacheOperations();cacheClearRejectsInFlightReadsAndWrites();cacheRejectsStaleSources();acceptsUnconfiguredFirstLaunch();publicSaveFailureAndStaleness();rejectsChangedIdentity();std::cout<<"PASS: asynchronous serialized credentials, migration, save failure and stale identity rejection\n";return 0;}
+    try {rejectsRepeatedMalformedSources();readsAndSavesOutsideGui();sealsCacheBeforeDelivery();authenticationCacheOperations();cacheClearRejectsInFlightReadsAndWrites();cacheRejectsStaleSources();acceptsUnconfiguredFirstLaunch();publicSaveFailureAndStaleness();rejectsChangedIdentity();clearsLegacyCacheOutsideGui();std::cout<<"PASS: asynchronous serialized credentials, migration, save failure and stale identity rejection\n";return 0;}
     catch(const std::exception &error) {std::cerr<<error.what()<<'\n';return 1;}
 }

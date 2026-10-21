@@ -233,34 +233,21 @@ MainWindow::MainWindow(
         connectionUiController->clearAuthenticationCache();
     });
 
-    // 文件-清理旧版缓存
-    connect(ui->clearClientDataAction, &QAction::triggered, this,
-            [&]()
-            {
-                QMessageBox messageBox(this);
-                messageBox.setWindowTitle("清理旧版缓存");
-                messageBox.setText("是否删除当前配置尚未迁移的旧版缓存文件？");
-
-                messageBox.addButton(QMessageBox::Yes)->setText("是");
-                messageBox.addButton(QMessageBox::No)->setText("否");
-                messageBox.setDefaultButton(QMessageBox::Yes);
-
-                if (messageBox.exec() == QMessageBox::No)
-                {
-                    return;
-                }
-
-                const auto path=coordinator->credentialSource().legacyCachePath;
-                if (path.isEmpty() || coordinator->credentials()->isBusy(settings->fileName()) || connectionUiController->isConfigurationSaving()) {
-                    QMessageBox::warning(this,"无法清理旧版缓存","当前配置没有所属的旧版缓存路径，或凭据操作尚未完成。");
-                    return;
-                }
-                if (QFileInfo::exists(path) && !QFile::remove(path)) {
-                    QMessageBox::warning(this,"清理失败","旧版缓存未能删除，请检查文件权限。");
-                    return;
-                }
-                qInfo().noquote() << "已清理当前配置的旧版缓存";
-            });
+    connect(ui->clearClientDataAction,&QAction::triggered,this,[this] {
+        if (coordinator->credentials()->isBusy(settings->fileName()) || connectionUiController->isConfigurationSaving()) {
+            QMessageBox::information(this,"安全存储操作进行中","请等待操作完成后再清理旧版缓存。");return;
+        }
+        const auto source=coordinator->credentialSource();
+        QMessageBox confirm(QMessageBox::Question,"清理旧版缓存",
+            "删除当前配置的旧版缓存文件及其系统凭据库隔离副本？这些材料未绑定账户，不用于登录。当前账户认证缓存、密码、TOTP 和其他配置保持不变。",
+            QMessageBox::Yes|QMessageBox::No,this);
+        confirm.setDefaultButton(QMessageBox::No);
+        if (confirm.exec()!=QMessageBox::Yes) return;
+        coordinator->credentials()->clearLegacyCache(source).then(this,[this](const CredentialResult &result) {
+            if (!result.succeeded()) QMessageBox::warning(this,"旧版缓存清理未完成",PresentationHelpers::credentialOperationMessage(result.status));
+            else qInfo().noquote()<<"已清理当前配置的旧版缓存";
+        });
+    });
 
     // 帮助-检查更新
     connect(ui->checkUpdateAction, &QAction::triggered,
@@ -888,7 +875,7 @@ void MainWindow::deleteCurrentProfile()
 
     QMessageBox messageBox(this);
     messageBox.setWindowTitle("删除配置");
-    messageBox.setInformativeText("将删除配置文件及其旧版缓存。系统安全存储中的凭据保留；如需清除，可先在设置中删除已保存凭据。");
+    messageBox.setInformativeText("将删除配置文件及其旧版缓存。系统凭据库中的密码、TOTP、认证缓存及隔离副本保留；如需清除，请先在设置中删除密码／TOTP，并用文件菜单清除当前账户认证缓存及旧版缓存。");
     messageBox.setText("确认删除当前配置 \"" + currentProfileId + "\" 吗？");
     messageBox.addButton(QMessageBox::Yes)->setText("是");
     messageBox.addButton(QMessageBox::No)->setText("否");

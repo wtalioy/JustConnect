@@ -223,3 +223,12 @@ CredentialResult ProfileCredentials::quarantine(const QString &path,const QStrin
     source.close();
     return {source.remove() ? Status::Success : Status::Failed,{}};
 }
+
+CredentialResult ProfileCredentials::clearLegacyCache(const QString &path,const QString &scope) {
+    const QFileInfo info(path);
+    if (!path.isEmpty() && (info.isSymLink() || (info.exists() && !info.isFile()))) return {Status::InvalidArgument,{}};
+    const auto removed=removeVerified(legacyCacheKey(scope));
+    if (!removed.succeeded()) return removed;
+    if (!path.isEmpty() && QFileInfo::exists(path) && !QFile::remove(path)) return {Status::Failed,{}};
+    return {Status::Success,{}};
+}

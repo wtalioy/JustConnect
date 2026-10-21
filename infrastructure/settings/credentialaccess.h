@@ -36,6 +36,7 @@ public:
     QFuture<CredentialResult> save(const CredentialSource &source,const ConnectionProfile &profile,bool updateCredentials,const QVariantMap &publicChanges);
     QFuture<CredentialResult> migrate(const CredentialSource &source);
     QFuture<CredentialResult> clear(const CredentialSource &source);
+    QFuture<CredentialResult> clearLegacyCache(const CredentialSource &source);
     quint64 authenticationCacheRevision(const CredentialSource &source) const;
     QFuture<AuthenticationCacheLoadResult> loadAuthenticationCache(const CredentialSource &source);
     QFuture<CredentialResult> saveAuthenticationCache(const CredentialSource &source,const AuthenticationCache &cache,quint64 revision);

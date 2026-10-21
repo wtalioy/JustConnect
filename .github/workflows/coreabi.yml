@@ -3,10 +3,10 @@ name: Core ABI
 on:
   push:
     branches: [develop]
-    paths: ['tests/coreabi/**', 'tests/embeddedcoreengine_test.cpp', 'infrastructure/coreengine/**', 'infrastructure/settings/**', 'infrastructure/platform/**', 'application/**', 'presentation/**', 'core/connectionsession*', 'core/connectionprofile.h', 'core/connectionerror.h', 'tests/coreengineui_test.cpp', 'tests/credentialstorefixture.h', 'tests/CoreEngineTests.cmake', 'cmake/**', '.github/actions/setup-core-toolchain/**', 'corelib/**', 'scripts/generate-core-abi.py', 'tests/platform/**', '.github/workflows/coreabi.yml', '.github/actions/setup-qt/**']
+    paths: ['tests/coreabi/**', 'tests/embeddedcoreengine_test.cpp', 'infrastructure/coreengine/**', 'infrastructure/settings/**', 'infrastructure/platform/**', 'application/**', 'presentation/**', 'core/**', 'tests/coreengineui_test.cpp', 'tests/credentialstorefixture.h', 'tests/CoreEngineTests.cmake', 'cmake/**', '.github/actions/setup-core-toolchain/**', 'corelib/**', 'scripts/generate-core-abi.py', 'tests/platform/**', '.github/workflows/coreabi.yml', '.github/actions/setup-qt/**']
   pull_request:
     branches: [main, develop]
-    paths: ['tests/coreabi/**', 'tests/embeddedcoreengine_test.cpp', 'infrastructure/coreengine/**', 'infrastructure/settings/**', 'infrastructure/platform/**', 'application/**', 'presentation/**', 'core/connectionsession*', 'core/connectionprofile.h', 'core/connectionerror.h', 'tests/coreengineui_test.cpp', 'tests/credentialstorefixture.h', 'tests/CoreEngineTests.cmake', 'cmake/**', '.github/actions/setup-core-toolchain/**', 'corelib/**', 'scripts/generate-core-abi.py', 'tests/platform/**', '.github/workflows/coreabi.yml', '.github/actions/setup-qt/**']
+    paths: ['tests/coreabi/**', 'tests/embeddedcoreengine_test.cpp', 'infrastructure/coreengine/**', 'infrastructure/settings/**', 'infrastructure/platform/**', 'application/**', 'presentation/**', 'core/**', 'tests/coreengineui_test.cpp', 'tests/credentialstorefixture.h', 'tests/CoreEngineTests.cmake', 'cmake/**', '.github/actions/setup-core-toolchain/**', 'corelib/**', 'scripts/generate-core-abi.py', 'tests/platform/**', '.github/workflows/coreabi.yml', '.github/actions/setup-qt/**']
   workflow_dispatch:
 
 permissions:
