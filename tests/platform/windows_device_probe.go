@@ -354,6 +354,7 @@ func broker(path, name, mode string) error {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, executable(), "--client", mode)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Token: syscall.Token(token)}
+	cmd.Env = os.Environ()
 	input, err := cmd.StdinPipe()
 	if err != nil {
 		return err
