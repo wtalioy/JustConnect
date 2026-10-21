@@ -43,6 +43,8 @@ Windows 静态路径的已知线索：固定 Go 的 [PE 链接器 `addInitArray`
 
 Unix 的上游 `stack/tun/NewStack` 目前没有传入 `FileDescriptor`，后续必须显式接入设备所有权，并拆开它直接执行的 `ip`／`route`／`ifconfig`／DNS 修改。Windows 的地址、MTU、路由和 DNS 也直接在核心内执行；移到助手后仍需回读结果与按所有权恢复。这些是 S4 的实现范围，本原型不新增任意命令提权入口。
 
+2026-10-22 只读复查确认：当前 [Wintun 驱动](https://git.zx2c4.com/wintun/tree/driver/wintun.c) 在注册 ring 的 IOCTL 内再次按调用者执行 `SeAccessCheck`，使用只授予 SYSTEM／Administrators 的固定描述符；[StartSession](https://git.zx2c4.com/wintun/tree/api/session.c) 还在本进程分配 ring 内存。因而只传递设备 HANDLE 不能证明普通宿主能注册 ring。下一步隔离实验应验证最小设备助手拥有 ring、仅交付受限 IP 包 I/O 的路径；认证、aTrust 与分流继续留在 Qt 宿主。此项仍为候选，尚无数据面／性能／授权实证，不恢复已删除的旧 TUN 栈。当前 Windows 只读发现 Sangfor 虚拟接口处于 Up，另有 Meta、Tailscale、WSL 和其他覆盖接口；未修改日常网络，接口存在不作为认证有效的证据。
+
 ### Linux 设备／fd 原型复现
 
 [linux_device_probe.py](../tests/platform/linux_device_probe.py) 使用 Python 标准库与现有 `ip` 命令，测试内核权限与 fd 所有权，不把结果写成 Go／Qt 数据面已经接入。脚本拒绝在宿主网络命名空间运行；隔离命名空间内只创建测试 TUN 及其直连测试网段，不配置 DNS 或外部出口。
