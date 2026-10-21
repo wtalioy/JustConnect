@@ -147,7 +147,17 @@ Windows 系统凭据的单条容量有限，超限会明确提示保存未完成
 
 连接初始化报证书错误时，保留 `[core] tls_...` 固定诊断码即可定位：`tls_authentication_failed` 为认证 HTTPS／方式查询，`tls_resources_failed` 为资源请求，`tls_node_probe_failed` 为数据节点探测，`tls_ip_tunnel_failed` 为 IP 隧道。原因分别为 `tls_unknown_authority`（未知 CA）、`tls_hostname_mismatch`（地址不匹配）、`tls_certificate_time_invalid`（过期或尚未生效）及 `tls_certificate_invalid`（其他证书校验失败）。`tls_peer_chain_leaf_only` 表示对端仅发送叶证书，`tls_peer_self_signed` 表示叶证书自签名验证通过；它们描述收到的链，不能单凭前者认定缺少中间证书，也不会据此自动信任。多个节点同时发生证书失败和超时时保留证书原因；显式取消优先。这些代码不含请求 URL、Cookie、票据或证书原文。记住认证开启时，已验证材料在资源／隧道就绪前即可安全保存；后续 TLS／网络失败不等于认证失效，明确失效仍须清除。服务端 online 记录不能证明本地仍在转发；当前 Ubuntu x64 是继承的固定客户端标识，不能据此判断宿主系统。
 
-针对性回归可运行 `ctest --test-dir build -R 'profileservice|profilemanager|credentialaccess|serversettingswidget|settingwindow|configurationguidedialog|settingsmigrator|settingsprofileloader|coreengine' --output-on-failure`；根测试与包构建还运行完整套件，原生宿主检查实际纯校验导出及资源边界。Linux 设置窗口用临时目录操作真实 Qt 按钮／文件对话框，覆盖库校验失败、启动偏好失败、取消导入／重置、导出、废弃字段清理、旧窗口晚到结果及缓存保留；配置／后台回归另验证损坏文件的重复拒绝和修复重试；这些检查不访问校园账号。
+当前 `transport_connected` 表示隧道和已配置的本地代理完成初始化，尚未实现 S4—S6 的透明接管与 Clash 联动。连接后使用主窗口“设置系统代理”，或明确开启连接后自动设置系统代理，才能让遵循该设置的浏览器使用 JustConnect；其他代理客户端的 TUN 不会自动把校园流量交给本地代理。Windows OpenSSH 不使用这一系统代理入口，需单独指定代理；校内 SSH 别名先由本机 SSH 配置展开，不能把别名当作学校 DNS 域名。
+
+临时验证 Windows SSH 可复用已安装的 Git for Windows `connect.exe`，在 PowerShell 中执行下列命令；将 `school-host` 替换为现有 SSH 主机或别名。示例使用默认 HTTP 端口，改过端口或安装路径时相应替换；不写入 SSH 配置，仍保留 SSH 自己的主机信任检查。
+
+```powershell
+ssh -o 'ProxyCommand="C:/Program Files/Git/mingw64/bin/connect.exe" -H 127.0.0.1:11081 %h %p' school-host
+```
+
+Windows Fudan 在 Clash Verge TUN 开启时已验证 SOCKS／HTTP 返回校内 SSH 标识，并通过 HTTP 代理完成实际 SSH 密钥交换；测试在隔离的严格主机信任检查处停止，未登录、未写入主机记录或修改系统／Clash 配置。这证明显式代理 TCP 数据路径，不代替网页／DNS、UDP、透明接管及认证恢复验收。
+
+针对性回归可运行 `ctest --test-dir build -R 'profileservice|profilemanager|credentialaccess|serversettingswidget|settingwindow|configurationguidedialog|settingsmigrator|settingsprofileloader|coreengine' --output-on-failure`；根测试与包构建还运行完整套件，原生宿主检查实际纯校验导出及资源边界。Linux 设置窗口用临时目录操作真实 Qt 按钮／文件对话框，覆盖小高度滚动／操作按钮可见、键盘跳转、库校验失败、启动偏好失败、取消导入／重置、导出、废弃字段清理、旧窗口晚到结果及缓存保留；配置／后台回归另验证损坏文件的重复拒绝和修复重试；这些检查不访问校园账号。
 
 ## 分支与 Actions
 
