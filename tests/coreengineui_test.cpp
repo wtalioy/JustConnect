@@ -756,12 +756,16 @@ static void gateway(const QJsonObject &config) {
     auto *untrustedEngine=new EmbeddedCoreEngine;
     auto *untrustedQuery=new AuthInfoWindow(&parent,untrustedEngine);
     bool trustFailure=false;
+    QStringList trustDiagnostics;
+    QObject::connect(untrustedEngine,&CoreEngine::diagnostic,[&](const QString &code){trustDiagnostics.append(code);});
     QObject::connect(untrustedEngine,&CoreEngine::finished,[&](ConnectionError error){trustFailure=error==ConnectionError::TLS_TRUST;});
     auto untrustedProfile=p; untrustedProfile.tls.caPem.clear();
     untrustedQuery->fetchAuthInfo(untrustedProfile);
     until([&]{return trustFailure;});
     check(untrustedQuery->findChild<QLabel *>("label")->text().contains("证书")
         && untrustedQuery->findChild<QListWidget *>()->count()==0,"real query reports certificate failure without delivering methods");
+    check(trustDiagnostics==QStringList{"tls_authentication_failed","tls_unknown_authority","tls_peer_chain_leaf_only","tls_peer_self_signed"},
+        "real ABI delivers bounded certificate diagnostics before the trust failure");
     untrustedQuery->close(); QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     auto *queryWindow = new AuthInfoWindow(&parent);
     bool selected = false;

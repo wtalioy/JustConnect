@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -83,9 +84,6 @@ func RunProtocol(ctx context.Context, config Config, host *Session) Status {
 	if errors.Is(err, context.Canceled) {
 		return Cancelled
 	}
-	if errors.Is(err, context.DeadlineExceeded) {
-		return Timeout
-	}
 	if errors.Is(err, authchallenge.ErrUnsupported) {
 		return AuthUnsupported
 	}
@@ -104,8 +102,14 @@ func RunProtocol(ctx context.Context, config Config, host *Session) Status {
 		if config.Operation == "auth_methods" {
 			host.Diagnostic("tls_authentication_failed")
 		}
-		host.Diagnostic(certificateDiagnostic(certificate.Err))
+		for _, code := range certificateDiagnostics(certificate) {
+			host.Diagnostic(code)
+		}
 		return TLSTrust
+	}
+	// Joined node failures may contain both a certificate rejection and a timeout.
+	if errors.Is(err, context.DeadlineExceeded) {
+		return Timeout
 	}
 	var networkError net.Error
 	if errors.As(err, &networkError) && networkError.Timeout() {
@@ -120,6 +124,21 @@ func RunProtocol(ctx context.Context, config Config, host *Session) Status {
 		return TLSProtocol
 	}
 	return Internal
+}
+
+func certificateDiagnostics(failure *tls.CertificateVerificationError) []string {
+	codes := []string{certificateDiagnostic(failure.Err)}
+	if len(failure.UnverifiedCertificates) == 0 {
+		return codes
+	}
+	if len(failure.UnverifiedCertificates) == 1 {
+		codes = append(codes, "tls_peer_chain_leaf_only")
+	}
+	leaf := failure.UnverifiedCertificates[0]
+	if bytes.Equal(leaf.RawSubject, leaf.RawIssuer) && leaf.CheckSignature(leaf.SignatureAlgorithm, leaf.RawTBSCertificate, leaf.Signature) == nil {
+		codes = append(codes, "tls_peer_self_signed")
+	}
+	return codes
 }
 
 func certificateDiagnostic(err error) string {
