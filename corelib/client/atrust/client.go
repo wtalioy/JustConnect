@@ -30,12 +30,13 @@ type SessionOptions struct {
 }
 
 type ClientOptions struct {
-	Session         SessionOptions
-	UnderlayDialer  client.UnderlayDialer
-	TLSConfig       *tls.Config
-	TLSKeyLogWriter io.Writer
-	Language        string
-	Diagnostic      func(string)
+	Session              SessionOptions
+	UnderlayDialer       client.UnderlayDialer
+	TLSConfig            *tls.Config
+	TLSKeyLogWriter      io.Writer
+	AllowUnverifiedNodes bool
+	Language             string
+	Diagnostic           func(string)
 }
 
 type SetupOptions struct {
@@ -102,19 +103,24 @@ type Client struct {
 	closeOnce            sync.Once
 	underlayDialer       client.UnderlayDialer
 	tlsPolicy            *tls.Config
+	nodeTLSPolicy        *tls.Config
 	tcpTunnelZeroRTT     bool
 	invalidateClientData func()
 }
 
 func NewClient(options ClientOptions) *Client {
 	lifecycleCtx, lifecycleCancel := context.WithCancel(context.Background())
+	policy := tlsConfig(options.TLSConfig, options.TLSKeyLogWriter)
+	nodePolicy := policy.Clone()
+	nodePolicy.InsecureSkipVerify = policy.InsecureSkipVerify || options.AllowUnverifiedNodes
 	return &Client{
 		Username:        options.Session.Username,
 		SID:             options.Session.SID,
 		DeviceID:        options.Session.DeviceID,
 		SignKey:         options.Session.SignKey,
 		underlayDialer:  options.UnderlayDialer,
-		tlsPolicy:       tlsConfig(options.TLSConfig, options.TLSKeyLogWriter),
+		tlsPolicy:       policy,
+		nodeTLSPolicy:   nodePolicy,
 		language:        options.Language,
 		diagnostic:      options.Diagnostic,
 		failures:        make(chan error, 1),
@@ -436,7 +442,7 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) (_ []by
 	}
 
 	tlsFailureStage = "tls_node_probe_failed"
-	c.BestNodes, err = getBestNodes(setupCtx, c.NodeGroups, c.underlayDialer.DialContext, c.tlsPolicy)
+	c.BestNodes, err = getBestNodes(setupCtx, c.NodeGroups, c.underlayDialer.DialContext, c.nodeTLSPolicy)
 	if err != nil {
 		return nil, err
 	}

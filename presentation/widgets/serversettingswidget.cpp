@@ -33,7 +33,13 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     auto *warning=new QLabel("关闭验证会失去服务器身份保护；不会因连接失败自动关闭。",this);
     warning->setObjectName("tlsWarningLabel"); warning->setWordWrap(true); warning->setVisible(false);
     form->addRow("TLS",verify); form->addRow(warning); form->addRow("附加 CA",caPem);
+    allowUnverifiedNodes=new QCheckBox("跳过隧道证书校验",this);
+    allowUnverifiedNodes->setObjectName("allowUnverifiedNodesCheckBox");
+    auto *nodeWarning=new QLabel("隧道仍加密，但不验证对端身份。登录与资源请求的校验设置保持不变。",this);
+    nodeWarning->setObjectName("nodeTlsWarningLabel"); nodeWarning->setWordWrap(true); nodeWarning->hide();
+    form->addRow(allowUnverifiedNodes); form->addRow(nodeWarning);
     connect(verify,&QCheckBox::toggled,warning,[warning](bool checked){warning->setVisible(!checked);});
+    connect(allowUnverifiedNodes,&QCheckBox::toggled,nodeWarning,&QLabel::setVisible);
     connect(preset,&QComboBox::currentIndexChanged,this,&ServerSettingsWidget::selectPreset);
     connect(address,&QLineEdit::textChanged,this,&ServerSettingsWidget::serverChanged);
     connect(port,&QSpinBox::valueChanged,this,&ServerSettingsWidget::serverChanged);
@@ -43,6 +49,7 @@ void ServerSettingsWidget::load(const QSettings &settings) {
     QSignalBlocker blocker(this), presetBlocker(preset);
     verify->setChecked(settings.value("JustConnect/TLSVerify",true).toBool());
     caPem->setPlainText(settings.value("JustConnect/TLSCAPEM").toString());
+    allowUnverifiedNodes->setChecked(settings.value("JustConnect/AllowUnverifiedNodes",false).toBool());
     customAddress = settings.value("JustConnect/ServerAddress").toString();
     customPort = settings.value("JustConnect/ServerPort",443).toInt();
     QString kind = settings.value("JustConnect/ProfileKind","Custom").toString();
@@ -66,6 +73,7 @@ int ServerSettingsWidget::serverPort() const { return port->value(); }
 bool ServerSettingsWidget::isFudan() const { return preset->currentData() == "Fudan"; }
 QVariantMap ServerSettingsWidget::settingsValues() const {
     return {{"JustConnect/TLSVerify",verify->isChecked()},{"JustConnect/TLSCAPEM",caPem->toPlainText()},
+        {"JustConnect/AllowUnverifiedNodes",allowUnverifiedNodes->isChecked()},
         {"JustConnect/ProfileKind",preset->currentData()},{"JustConnect/ServerAddress",serverAddress()},
         {"JustConnect/ServerPort",serverPort()},{"Common/NeedsConfiguration",false}};
 }

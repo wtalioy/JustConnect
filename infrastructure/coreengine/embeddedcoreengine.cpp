@@ -36,7 +36,7 @@ Library &library() {
 QJsonObject configuration(const ConnectionProfile &p, CoreEngine::Operation operation) {
     QJsonObject config{{"schema_version", int(JC_ABI_VERSION)},
         {"operation", operation == CoreEngine::Operation::AuthMethods ? "auth_methods" : "connect"},
-        {"tls",QJsonObject{{"skip_verify",!p.tls.verify},{"ca_pem",p.tls.caPem}}},
+        {"tls",QJsonObject{{"skip_verify",!p.tls.verify},{"ca_pem",p.tls.caPem},{"allow_unverified_nodes",p.tls.allowUnverifiedNodes}}},
         {"server", QJsonObject{{"host", p.endpoint.server}, {"port", p.endpoint.port}}},
         {"auth", QJsonObject{{"auth_id",p.endpoint.authId},{"sub_type",p.endpoint.authSubType},{"method", p.endpoint.authType.isEmpty() ? QString() : "auth/" + p.endpoint.authType},
             {"username", p.credentials.username}, {"password", p.credentials.password},

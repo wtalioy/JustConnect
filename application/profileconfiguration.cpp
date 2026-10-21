@@ -10,6 +10,7 @@ ConnectionProfile ProfileService::load(const QVariantMap &settings) {
     ConnectionProfile p;
     p.tls.verify=settings.value("JustConnect/TLSVerify",true).toBool();
     p.tls.caPem=settings.value("JustConnect/TLSCAPEM").toString();
+    p.tls.allowUnverifiedNodes=settings.value("JustConnect/AllowUnverifiedNodes",false).toBool();
     p.credentials.username=settings.value("Credential/Username").toString();
     p.endpoint.authId=settings.value("JustConnect/AuthID").toString();
     p.endpoint.authSubType=settings.value("JustConnect/AuthSubType").toString();

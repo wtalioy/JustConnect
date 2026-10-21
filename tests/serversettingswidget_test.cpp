@@ -29,7 +29,13 @@ int main(int argc,char **argv) {
     auto *verify=editor.findChild<QCheckBox *>("tlsVerifyCheckBox");
     auto *ca=editor.findChild<QPlainTextEdit *>("tlsCaPemEdit");
     auto *warning=editor.findChild<QLabel *>("tlsWarningLabel");
+    auto *allowNodes=editor.findChild<QCheckBox *>("allowUnverifiedNodesCheckBox");
+    auto *nodeWarning=editor.findChild<QLabel *>("nodeTlsWarningLabel");
     check(editor.settingsValues().value("JustConnect/TLSVerify").toBool() && warning->isHidden(),"legacy server settings enable certificate verification");
+    check(!allowNodes->isChecked() && nodeWarning->isHidden(),"node verification remains enabled by default");
+    allowNodes->setChecked(true);
+    const auto nodePolicy=ProfileService::load(editor.settingsValues());
+    check(nodePolicy.tls.verify && nodePolicy.tls.allowUnverifiedNodes && !nodeWarning->isHidden() && warning->isHidden(),"node exception is explicit and leaves authentication verification enabled");
     verify->setChecked(false); ca->setPlainText("explicit private CA");
     check(!warning->isHidden(),"explicit unsafe choice shows an identity-protection warning");
     address->setText("draft.example.edu"); port->setValue(9443);
@@ -43,6 +49,7 @@ int main(int argc,char **argv) {
     if (!ProfileService::writePublic(settings,editor.settingsValues())) return 1;
     QSettings saved(path,QSettings::IniFormat);
     editor.load(saved);
+    check(allowNodes->isChecked() && !nodeWarning->isHidden(),"explicit node policy and warning survive save and reload");
     check(!editor.settingsValues().value("JustConnect/TLSVerify").toBool() && editor.settingsValues().value("JustConnect/TLSCAPEM").toString()=="explicit private CA" && !warning->isHidden(),"explicit TLS policy survives save and reload");
     check(saved.value("JustConnect/ServerAddress")=="draft.example.edu" && saved.value("JustConnect/ProfileKind")=="Custom","explicit apply saves selected endpoint");
     settings.setValue("Common/NeedsConfiguration",true);

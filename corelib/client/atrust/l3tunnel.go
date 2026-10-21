@@ -70,7 +70,7 @@ func NewL3Tunnel(aTrustClient *Client) (*L3Tunnel, error) {
 			username:     aTrustClient.Username,
 		}
 		dialTLS := func(ctx context.Context, network, address string) (*tls.Conn, error) {
-			return client.DialTLSContext(ctx, aTrustClient.underlayDialer.DialContext, network, address, tunnelTLSConfig(aTrustClient.tlsPolicy))
+			return client.DialTLSContext(ctx, aTrustClient.underlayDialer.DialContext, network, address, tunnelTLSConfig(aTrustClient.nodeTLSPolicy))
 		}
 		return newL3TunnelConn(ctx, dialTLS, addr, info, aTrustClient.SignKey, conntrackMgr, t.updateVIP)
 	}

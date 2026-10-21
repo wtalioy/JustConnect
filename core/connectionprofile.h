@@ -17,7 +17,7 @@ struct DnsOptions {
 };
 struct ProxyOptions { QString socksBind, httpBind; };
 struct ConnectionBehavior { QString bindInterface; bool autoDetectInterface = false; bool rememberAuthentication = false; };
-struct TlsOptions { bool verify = true; QString caPem; };
+struct TlsOptions { bool verify = true; QString caPem; bool allowUnverifiedNodes = false; };
 struct ConnectionProfile {
     TlsOptions tls;
     ConnectionCredentials credentials;
