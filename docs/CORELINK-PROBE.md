@@ -54,6 +54,21 @@ Unix 的上游 `stack/tun/NewStack` 目前没有传入 `FileDescriptor`，后续
 
 独立测试控制进程先安装只约束设备助手的 Job 生命周期，再恢复其主线程；异常时仅清理本次随机名称对应的 Wintun PnP 设备。此 Job 不管理 VPN 核心，原型也不修改既有接口、DNS 或默认路由。本机只运行令牌／帧边界单测和拒绝本机设备操作的入口检查；实际设备由 Core ABI 的 Windows x64／ARM64 两组验收，日志／SDK 来源元数据随 CI artifact 保存，当前待验收。该结果不代替校园隧道、TCP、性能、授权界面、Qt IPC 身份校验或生产路由／DNS 恢复；正式设备实现接入后保留独有内核故障回归，删除被替代的设备调用脚手架。
 
+<a id="mihomo-api-probe"></a>
+### Mihomo 控制接口隔离核对（D3 前置）
+
+2026-10-22 使用本机 Clash Verge 所带的 Mihomo `v1.19.32 windows amd64`（Go 1.26.8，`with_gvisor`），二进制 SHA-256 为 `3c107d54ef1b895e4980b53f517d52f3c1137101fa2637347c9ce343fc50d7b2`。[探测脚本](../tests/platform/mihomo_api_probe.py) 只启动并管理自己的临时实例：随机回环控制端口及密钥、关闭 TUN 和代理入口、两个自有回环 DNS 替身，不读取用户配置、订阅或控制密钥，不修改系统路由／DNS。控制端口即使碰撞，也须先通过随机规则标记核对所属实例后才允许写入。
+
+| 操作 | 实际回读 |
+| --- | --- |
+| 无密钥访问 | HTTP 401 |
+| `PATCH /configs` 修改 mode | 生效 |
+| 同一 PATCH 传入 rules／dns | 返回成功但均未生效；分别用规则列表和不同 DNS 替身的真实回答核对 |
+| TUN 关闭时 PATCH 排除测试网段 | 回读包含指定范围，TUN 仍关闭；不代表开启时的实际绕行已验证 |
+| `PUT /configs?force=true` 提交完整 payload | 规则、mode 和 DNS 回答均切换；无效规则返回 400，保留上次有效版本；恢复初始完整配置后回读一致 |
+
+复现：在目标平台使用 Python 运行 `python tests/platform/mihomo_api_probe.py <mihomo可执行文件>`；当前本机结果保存在 `build/reports/mihomo-api-windows-v1.19.32.json`，进程、监听、临时配置和日志随测试结束清理。请求使用[官方 API](https://wiki.metacubex.one/api/)公开路径，不依据 HTTP 成功码推断所有字段可增量修改。`GET /configs` 没有完整规则／DNS／代理定义，因此不能用该响应拼出用户全量配置后盲目 PUT；正式联动仍须验证配置来源、外部改写与所有权恢复、运行中 TUN 实际流量，以及其余平台／目标版本。D3 保持待验收，不据此修改运行中的 Clash。
+
 ### Linux 设备／fd 原型复现
 
 [linux_device_probe.py](../tests/platform/linux_device_probe.py) 使用 Python 标准库与现有 `ip` 命令，测试内核权限与 fd 所有权，不把结果写成 Go／Qt 数据面已经接入。脚本拒绝在宿主网络命名空间运行；隔离命名空间内只创建测试 TUN 及其直连测试网段，不配置 DNS 或外部出口。
