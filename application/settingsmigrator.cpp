@@ -22,9 +22,15 @@ bool SettingsMigrator::readableFile(const QString &path)
     if (!QFileInfo(path).isFile()) return false;
     QTemporaryDir snapshot;
     if (!snapshot.isValid()) return false;
-    const auto copy=snapshot.filePath("input.ini");
-    if (!QFile::copy(path,copy) || !QFile::setPermissions(copy,QFile::ReadOwner|QFile::WriteOwner)) return false;
-    QSettings original(copy,QSettings::IniFormat);
+    QFile input(path);
+    if (!input.open(QIODevice::ReadOnly)) return false;
+    const auto bytes=input.readAll();
+    if (input.error()!=QFileDevice::NoError) return false;
+    QFile copy(snapshot.filePath("input.ini"));
+    if (!copy.open(QIODevice::WriteOnly|QIODevice::NewOnly,QFile::ReadOwner|QFile::WriteOwner)
+        || copy.write(bytes)!=bytes.size() || !copy.flush()) return false;
+    copy.close();
+    QSettings original(copy.fileName(),QSettings::IniFormat);
     original.allKeys();
     return original.status()==QSettings::NoError;
 }
