@@ -3,6 +3,7 @@
 #include <QSettings>
 #include "infrastructure/settings/credentialaccess.h"
 class QLabel;
+class QCheckBox;
 class QPushButton;
 class ServerSettingsWidget;
 namespace Ui { class SettingWindow; }
@@ -29,6 +30,7 @@ private:
     ConnectionCredentials loadedCredentials;
     QLabel *credentialStatus;
     QPushButton *clearCredentialButton;
+    QCheckBox *rememberAuthentication;
     bool loading=false,saving=false,closed=false;
     quint64 loadGeneration=0;
     ServerSettingsWidget *serverEditor;

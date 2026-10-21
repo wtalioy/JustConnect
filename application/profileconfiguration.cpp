@@ -28,5 +28,6 @@ ConnectionProfile ProfileService::load(const QVariantMap &settings) {
     p.proxy.httpBind=bind(settings.value("JustConnect/HTTPPort").toInt());
     p.behavior.bindInterface=settings.value("JustConnect/BindInterface").toString();
     p.behavior.autoDetectInterface=settings.value("JustConnect/AutoDetectInterface").toBool();
+    p.behavior.rememberAuthentication=settings.value(DefaultSettings::RememberAuthentication,false).toBool();
     return p;
 }

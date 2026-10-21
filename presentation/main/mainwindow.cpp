@@ -168,7 +168,7 @@ MainWindow::MainWindow(
                 if (connectionSession->isActive()) {QMessageBox::warning(this,"无法修改配置","请先断开连接，再修改学校配置。");return;}
                 if (settingWindow) {settingWindow->raise();settingWindow->activateWindow();return;}
                 if (guideWindow) {guideWindow->raise();guideWindow->activateWindow();return;}
-                if (coordinator->credentials()->isSaving(settings->fileName())) {QMessageBox::information(this,"正在保存配置","请等待保存完成。");return;}
+                if (connectionUiController->isConfigurationSaving()) {QMessageBox::information(this,"正在保存配置","请等待保存完成。");return;}
                 connectionUiController->cancelPendingCredentials();
                 settingWindow = new SettingWindow(this,coordinator->credentials(),coordinator->credentialSource());
                 settingWindow->show();
@@ -229,7 +229,11 @@ MainWindow::MainWindow(
                 systemProxySession->disable();
             });
 
-    // 文件-清理登录数据
+    connect(ui->clearAuthenticationCacheAction,&QAction::triggered,this,[this] {
+        connectionUiController->clearAuthenticationCache();
+    });
+
+    // 文件-清理旧版缓存
     connect(ui->clearClientDataAction, &QAction::triggered, this,
             [&]()
             {
@@ -247,7 +251,7 @@ MainWindow::MainWindow(
                 }
 
                 const auto path=coordinator->credentialSource().legacyCachePath;
-                if (path.isEmpty() || coordinator->credentials()->isBusy(settings->fileName())) {
+                if (path.isEmpty() || coordinator->credentials()->isBusy(settings->fileName()) || connectionUiController->isConfigurationSaving()) {
                     QMessageBox::warning(this,"无法清理旧版缓存","当前配置没有所属的旧版缓存路径，或凭据操作尚未完成。");
                     return;
                 }
@@ -318,6 +322,7 @@ MainWindow::MainWindow(
         },
         this
     );
+    connect(connectionUiController,&ConnectionUiController::readyToQuit,qApp,&QApplication::quit);
 
     bool shouldConnect =
         settings->value("Common/ConnectAfterStart", false).toBool();
@@ -680,7 +685,7 @@ bool MainWindow::switchProfile(const QString &profileId)
         return false;
     }
 
-    if (coordinator->credentials()->isSaving(settings->fileName()) || (settingWindow && settingWindow->isSaving()) || (guideWindow && guideWindow->isSaving())) {
+    if (connectionUiController->isConfigurationSaving() || (settingWindow && settingWindow->isSaving()) || (guideWindow && guideWindow->isSaving())) {
         QMessageBox::information(this,"正在保存配置","请等待保存完成后再切换。");refreshProfileMenu();return false;
     }
     if (guideWindow) guideWindow->close();
@@ -710,7 +715,7 @@ bool MainWindow::switchProfile(const QString &profileId)
 
 void MainWindow::createProfile()
 {
-    if (coordinator->credentials()->isSaving(settings->fileName()) || (settingWindow && settingWindow->isSaving()) || (guideWindow && guideWindow->isSaving())) {
+    if (connectionUiController->isConfigurationSaving() || (settingWindow && settingWindow->isSaving()) || (guideWindow && guideWindow->isSaving())) {
         QMessageBox::information(this,"正在保存配置","请等待保存完成后再创建配置。");return;
     }
     if (guideWindow) guideWindow->close();
@@ -772,7 +777,7 @@ void MainWindow::openConfigurationGuide()
         return;
     }
 
-    if (coordinator->credentials()->isSaving(settings->fileName()) || (settingWindow && settingWindow->isSaving())) {QMessageBox::information(this,"正在保存配置","请等待保存完成。");return;}
+    if (connectionUiController->isConfigurationSaving() || (settingWindow && settingWindow->isSaving())) {QMessageBox::information(this,"正在保存配置","请等待保存完成。");return;}
 
     if (settingWindow != nullptr)
     {
@@ -827,7 +832,7 @@ void MainWindow::promptConfigurationGuide(
 
 void MainWindow::renameCurrentProfile()
 {
-    if (coordinator->credentials()->isBusy(settings->fileName()) || (settingWindow && settingWindow->isSaving()) || (guideWindow && guideWindow->isSaving())) {
+    if (coordinator->credentials()->isBusy(settings->fileName()) || connectionUiController->isConfigurationSaving() || (settingWindow && settingWindow->isSaving()) || (guideWindow && guideWindow->isSaving())) {
         QMessageBox::information(this,"安全存储操作进行中","请等待操作完成后再重命名。");return;
     }
     bool ok = false;
@@ -872,7 +877,7 @@ void MainWindow::renameCurrentProfile()
 void MainWindow::deleteCurrentProfile()
 {
     if (profileService->usesOverrideConfiguration()) {QMessageBox::warning(this,"删除失败","外部配置不能在此删除。");return;}
-    if (coordinator->credentials()->isBusy(settings->fileName()) || (settingWindow && settingWindow->isSaving()) || (guideWindow && guideWindow->isSaving())) {
+    if (coordinator->credentials()->isBusy(settings->fileName()) || connectionUiController->isConfigurationSaving() || (settingWindow && settingWindow->isSaving()) || (guideWindow && guideWindow->isSaving())) {
         QMessageBox::information(this,"安全存储操作进行中","请等待操作完成后再删除配置。");return;
     }
     if (currentProfileId.isEmpty())
@@ -981,17 +986,7 @@ void MainWindow::cleanUpWhenQuit()
 
 void MainWindow::gracefullyQuit()
 {
-    connectionUiController->cancelPendingCredentials();
-    if (connectionSession != nullptr && connectionSession->isActive())
-    {
-        connect(connectionSession, &ConnectionSession::finished, qApp,
-                [](ConnectionError) { QApplication::quit(); });
-        ui->pushButton1->click();
-    }
-    else
-    {
-        qApp->quit();
-    }
+    connectionUiController->prepareForQuit();
 }
 
 MainWindow::~MainWindow()

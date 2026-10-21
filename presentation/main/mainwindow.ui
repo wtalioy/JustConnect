@@ -459,6 +459,7 @@
      <string>文件</string>
     </property>
     <addaction name="disableProxyAction"/>
+    <addaction name="clearAuthenticationCacheAction"/>
     <addaction name="clearClientDataAction"/>
     <addaction name="separator"/>
     <addaction name="separator"/>
@@ -537,6 +538,11 @@
    </property>
    <property name="toolTip">
     <string>打开应用日志文件</string>
+   </property>
+  </action>
+  <action name="clearAuthenticationCacheAction">
+   <property name="text">
+    <string>清除当前账户认证缓存</string>
    </property>
   </action>
   <action name="clearClientDataAction">

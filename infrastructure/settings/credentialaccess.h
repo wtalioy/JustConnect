@@ -30,6 +30,7 @@ public:
     static CredentialSource source(QSettings &settings,const QString &legacyCachePath);
     static bool matches(const CredentialSource &source,const QSettings &settings);
     bool isBusy(const QString &path) const;
+    bool isBusy() const {return !pending.isEmpty();}
     bool isSaving(const QString &path) const;
     QFuture<CredentialLoadResult> load(const CredentialSource &source);
     QFuture<CredentialResult> save(const CredentialSource &source,const ConnectionProfile &profile,bool updateCredentials,const QVariantMap &publicChanges);

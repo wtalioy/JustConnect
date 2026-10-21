@@ -50,6 +50,9 @@ int main(int argc,char **argv) {
     auto ready=[&] {until([&]{return !access.isBusy(settings.fileName());});app.processEvents();};
     // Saving an unrelated change must preserve the selected opaque identity.
     { auto *initial=new SettingWindow(nullptr,&access,CredentialAccess::source(settings,ApplicationPaths::clientDataFile("fixture"))); initial->show();ready();
+      auto *remember=initial->findChild<QCheckBox *>("rememberAuthenticationCheckBox");
+      check(remember && !remember->isChecked(),"new profiles do not persist authentication without consent");
+      remember->setChecked(true);
       initial->findChild<QCheckBox *>("tlsVerifyCheckBox")->setChecked(false);
       initial->findChild<QSpinBox *>("socks5PortSpinBox")->setValue(0);
       initial->findChild<QSpinBox *>("httpPortSpinBox")->setValue(19443);
@@ -58,7 +61,7 @@ int main(int argc,char **argv) {
       check(settings.value("JustConnect/AuthID")=="persisted-id" && settings.value("JustConnect/AuthSubType")=="password","selected authentication identity survives settings reload/apply");
       const auto reloaded=ProfileService::load(settings);
       check(!reloaded.tls.verify && reloaded.proxy.socksBind.isEmpty()
-          && reloaded.proxy.httpBind=="127.0.0.1:19443" && reloaded.dns.ttl==61,
+          && reloaded.proxy.httpBind=="127.0.0.1:19443" && reloaded.dns.ttl==61 && reloaded.behavior.rememberAuthentication,
           "validated settings draft and reloaded connection share TLS, disabled listener, port and DNS values"); }
     const auto cache=ApplicationPaths::clientDataFile("fixture"),otherCache=ApplicationPaths::clientDataFile("other");
     check(!QFileInfo::exists(cache) && !QFileInfo::exists(otherCache),"locating legacy cache creates no plaintext files");
@@ -115,9 +118,11 @@ int main(int argc,char **argv) {
     check(!settings.contains("JustConnect/ExtraArguments") && settings.value("JustConnect/DNSTTL")==123 && read(cache)=="preserved authentication","obsolete-field cleanup, network edits and refreshed URL previews retain valid authentication");
     window=open(); expectedMessage="恢复默认值"; messageResult=QMessageBox::Yes;
     window->findChild<QPushButton *>("resetDefaultPushButton")->click(); expectedMessage.clear(); messageResult=QMessageBox::Ok;
-    check(window->findChild<QLineEdit *>("serverAddressLineEdit")->text().isEmpty(),"reset changes the window draft");
+    check(window->findChild<QLineEdit *>("serverAddressLineEdit")->text().isEmpty()
+        && !window->findChild<QCheckBox *>("rememberAuthenticationCheckBox")->isChecked(),"reset changes the window draft and clears cache consent in the draft");
     buttons(window)->button(QDialogButtonBox::Cancel)->click(); ready();
-    check(settings.value("JustConnect/ServerAddress")=="changed.example.invalid" && read(cache)=="preserved authentication","cancelled reset preserves configuration and pending legacy archive");
+    check(settings.value("JustConnect/ServerAddress")=="changed.example.invalid" && read(cache)=="preserved authentication"
+        && ProfileService::load(settings).behavior.rememberAuthentication,"cancelled reset preserves configuration, cache consent and pending legacy archive");
     const auto imported=directory.filePath("import.ini");
     { QSettings source(imported,QSettings::IniFormat); DefaultSettings::reset(source); source.setValue("Credential/Username","imported-user"); source.setValue("JustConnect/ServerAddress","imported.example.invalid"); source.sync(); }
     const auto originalImport=read(imported);

@@ -1,6 +1,7 @@
 #include "application/connectionsession.h"
 #include "tests/credentialstorefixture.h"
 #include "application/applicationlogger.h"
+#include "application/defaultsettings.h"
 #include "application/systemproxysession.h"
 #include "infrastructure/coreengine/embeddedcoreengine.h"
 #include "presentation/coordinators/authdialogcoordinator.h"
@@ -309,6 +310,143 @@ static void manualCredentialsAndLateResults() {
         "repeated malformed configuration attempts cannot start authentication or change native credentials");
     check(!logs.contains("manual-secret") && !logs.contains("fixture-password") && !logs.contains("JBSWY3DPEHPK3PXP"),"credential values never appear in UI logs");
 }
+static void authenticationCacheLifecycle() {
+    QTemporaryDir folder;QSettings settings(folder.filePath("cache.ini"),QSettings::IniFormat);
+    settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");settings.setValue("JustConnect/ServerPort",443);
+    settings.setValue("JustConnect/AuthType","psw");settings.setValue("Credential/Username","login-alias");
+    settings.setValue(DefaultSettings::RememberAuthentication,true);settings.sync();
+    QWidget parent;QPushButton connectButton(&parent),proxyButton(&parent);QAction trayAction(&parent);
+    auto *engine=new QueryEngine;ConnectionSession session(engine);SystemProxySession proxy(std::make_unique<ProxyBackend>());
+    AuthDialogCoordinator dialogs(&parent);ApplicationLogger logger;QString logs;QStringList notices;
+    QObject::connect(&logger,&ApplicationLogger::entryAdded,[&](const QString &entry){logs+=entry;});
+    auto backend=std::make_unique<MemoryCredentialStore>();auto *store=backend.get();CredentialAccess access(std::move(backend));
+    ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,&dialogs,&logger,
+        &access,[&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
+        [&](const QString &title,const QString &body,QSystemTrayIcon::MessageIcon){notices.append(title+body);});
+    auto source=CredentialAccess::source(settings,{});ProfileCredentials vault(*store);
+    auto totp=source.profile;totp.credentials.totpSecret="private-totp";
+    check(vault.save(source.scope,totp).succeeded(),"cache fixture keeps TOTP without storing a password");
+    AuthenticationCache cached{"canonical-account","private-cookie"};
+    check(vault.saveAuthenticationCache(source.scope,source.profile,cached).succeeded(),"seed bound authentication");
+    auto bob=source.profile;bob.credentials.username="bob";
+    check(vault.saveAuthenticationCache(source.scope,bob,{"bob-account","bob-cookie"}).succeeded(),"seed other account cache");
+    const auto ready=[&]{until([&]{return !access.isBusy(settings.fileName());});};
+    const auto finish=[&]{session.stop();emit engine->finished(ConnectionError::NONE);};
+    connectButton.click();until([&]{return engine->starts==1;});
+    check(engine->profile.authenticationCache.data==cached.data && engine->profile.credentials.password.isEmpty()
+        && engine->profile.credentials.totpSecret=="private-totp" && !parent.findChild<QLineEdit *>("usernameLineEdit"),
+        "valid authentication is attempted before asking for a missing password");
+    emit engine->authenticationCacheUpdated({cached.account,"refreshed-cookie"});ready();
+    AuthenticationCache loaded;
+    check(vault.loadAuthenticationCache(source.scope,source.profile,loaded).succeeded() && loaded.data=="refreshed-cookie","server refresh reaches the scoped native record");
+    store->failure=CredentialStatus::Locked;
+    emit engine->authenticationCacheUpdated({cached.account,"unsaved-refresh"});
+    emit engine->authenticationCacheUpdated({cached.account,"another-unsaved-refresh"});ready();
+    store->failure=CredentialStatus::Success;
+    check(session.isActive() && notices.size()==1 && vault.loadAuthenticationCache(source.scope,source.profile,loaded).succeeded()
+        && loaded.data=="refreshed-cookie","native save failure keeps the connection and previous record, with one warning");
+    finish();
+    connectButton.click();until([&]{return engine->starts==2;});
+    check(engine->profile.authenticationCache.data=="refreshed-cookie","ordinary disconnect preserves and reloads saved authentication");
+    emit engine->authenticationCacheInvalidated();emit engine->finished(ConnectionError::CREDENTIALS_REQUIRED);
+    until([&]{auto *edit=parent.findChild<QLineEdit *>("usernameLineEdit");return edit && edit->isVisible();});
+    auto *login=challenge(parent);login->findChild<QLineEdit *>("passwordLineEdit")->setText("manual-private-password");
+    login->findChild<QCheckBox *>("saveLoginDetailCheckBox")->setChecked(false);
+    login->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+    until([&]{return engine->starts==3;});ready();
+    check(engine->profile.authenticationCache.data.isEmpty() && engine->profile.credentials.password=="manual-private-password"
+        && engine->profile.credentials.totpSecret=="private-totp" && vault.loadAuthenticationCache(source.scope,source.profile,loaded).status==CredentialStatus::NotFound,
+        "definitive rejection clears old cache and asks for one necessary password while preserving scoped TOTP");
+    emit engine->authenticationCacheUpdated({cached.account,"fresh-authentication"});ready();
+    emit engine->connectionEstablished();
+    bool confirmed=false;QTimer confirm;
+    QObject::connect(&confirm,&QTimer::timeout,[&]{
+        for(auto *widget:QApplication::topLevelWidgets()) if(auto *box=qobject_cast<QMessageBox *>(widget);box && box->isVisible()) {
+            check(box->icon()==QMessageBox::Question && box->text().contains("login-alias")
+                && box->defaultButton()==box->button(QMessageBox::No),"cache clear identifies the selected account and defaults to cancel");
+            confirmed=true;box->button(QMessageBox::Yes)->click();
+        }
+    });confirm.start(1);controller.clearAuthenticationCache();confirm.stop();
+    emit engine->authenticationCacheUpdated({cached.account,"late-authentication"});ready();
+    ConnectionCredentials credentials;
+    check(confirmed && vault.loadAuthenticationCache(source.scope,source.profile,loaded).status==CredentialStatus::NotFound
+        && vault.loadAuthenticationCache(source.scope,bob,loaded).succeeded() && loaded.data=="bob-cookie"
+        && vault.load(source.scope,source.profile,credentials).succeeded() && credentials.totpSecret=="private-totp" && credentials.password.isEmpty(),
+        "explicit clear rejects late refresh while retaining other accounts and independent secrets");
+    finish();
+    auto password=source.profile;password.credentials.password="saved-private-password";
+    check(vault.save(source.scope,password).succeeded() && vault.saveAuthenticationCache(source.scope,source.profile,cached).succeeded(),"seed opted-out account");
+    settings.setValue(DefaultSettings::RememberAuthentication,false);settings.sync();
+    connectButton.click();until([&]{return engine->starts==4;});
+    emit engine->authenticationCacheUpdated({cached.account,"not-allowed"});ready();
+    check(!engine->profile.behavior.rememberAuthentication && engine->profile.authenticationCache.data.isEmpty()
+        && vault.loadAuthenticationCache(source.scope,source.profile,loaded).succeeded() && loaded.data==cached.data,
+        "disabled consent neither restores nor updates existing authentication");finish();
+    settings.setValue(DefaultSettings::RememberAuthentication,true);settings.setValue("JustConnect/AuthType","httpsOauth2");
+    settings.setValue("Credential/Username","");settings.sync();
+    connectButton.click();until([&]{return engine->starts==5;});
+    bool deferredClear=false;QTimer bindingNotice;
+    QObject::connect(&bindingNotice,&QTimer::timeout,[&]{
+        for(auto *widget:QApplication::topLevelWidgets()) if(auto *box=qobject_cast<QMessageBox *>(widget);box && box->isVisible()) {
+            check(box->icon()==QMessageBox::Information && box->text()=="请等待保存完成后再清除认证缓存。",
+                "unfinished account binding reports clear as deferred");box->button(QMessageBox::Ok)->click();
+        }
+    });bindingNotice.start(1);
+    const auto bindingObserver=QObject::connect(&access,&CredentialAccess::configurationSaved,[&](const QString &){
+        check(controller.isConfigurationSaving(),"configuration remains busy until the initial SSO cache continuation finishes");
+        controller.clearAuthenticationCache();deferredClear=true;
+    });
+    emit engine->authenticationCacheUpdated({"server-confirmed-user","private-sso-cookie"});
+    until([&]{
+        if (settings.value("Credential/Username")!="server-confirmed-user" || access.isBusy(settings.fileName())) return false;
+        const auto current=CredentialAccess::source(settings,{});
+        return vault.loadAuthenticationCache(current.scope,current.profile,loaded).succeeded();
+    });
+    QObject::disconnect(bindingObserver);bindingNotice.stop();
+    check(!controller.isConfigurationSaving(),"completed SSO binding releases configuration operations");
+    source=CredentialAccess::source(settings,{});
+    check(deferredClear && vault.loadAuthenticationCache(source.scope,source.profile,loaded).succeeded() && loaded.account=="server-confirmed-user"
+        && loaded.data=="private-sso-cookie","first SSO binds the server-confirmed public account before storing authentication");
+    const auto noticesBeforeMismatch=notices.size();
+    emit engine->authenticationCacheUpdated({"different-user","must-not-reassign"});ready();
+    check(vault.loadAuthenticationCache(source.scope,source.profile,loaded).succeeded() && loaded.account=="server-confirmed-user"
+        && loaded.data=="private-sso-cookie" && notices.size()==noticesBeforeMismatch+1,"different SSO account cannot replace the selected account's cache");finish();
+    check(!logs.contains("private-cookie") && !logs.contains("manual-private-password") && !logs.contains("private-totp")
+        && !logs.contains("private-sso-cookie"),"authentication cache and credentials do not enter application logs");
+}
+
+static void quitWaitsForInitialSsoCache() {
+    QTemporaryDir folder;QSettings settings(folder.filePath("quit-cache.ini"),QSettings::IniFormat);
+    settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");settings.setValue("JustConnect/ServerPort",443);
+    settings.setValue("JustConnect/AuthType","httpsOauth2");settings.setValue(DefaultSettings::RememberAuthentication,true);settings.sync();
+    QWidget parent;QPushButton connectButton(&parent),proxyButton(&parent);QAction trayAction(&parent);
+    auto *engine=new QueryEngine;ConnectionSession session(engine);SystemProxySession proxy(std::make_unique<ProxyBackend>());
+    AuthDialogCoordinator dialogs(&parent);ApplicationLogger logger;
+    auto backend=std::make_unique<MemoryCredentialStore>();auto *store=backend.get();CredentialAccess access(std::move(backend));
+    ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,&dialogs,&logger,
+        &access,[&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
+        [](const QString &,const QString &,QSystemTrayIcon::MessageIcon){check(false,"exit preserves authorized SSO cache persistence");});
+    int ready=0;
+    QObject::connect(&controller,&ConnectionUiController::readyToQuit,[&]{
+        const auto source=CredentialAccess::source(settings,{});AuthenticationCache saved;ProfileCredentials vault(*store);
+        check(!access.isBusy() && vault.loadAuthenticationCache(source.scope,source.profile,saved).succeeded()
+            && saved.account=="exit-account" && saved.data=="private-exit-cookie","quit becomes ready only after the chained native cache write is verified");
+        ++ready;
+    });
+    bool requested=false;
+    QObject::connect(&access,&CredentialAccess::configurationSaved,[&](const QString &){
+        check(!access.isBusy(),"account binding exposes the completed public batch before its continuation");
+        controller.prepareForQuit();controller.prepareForQuit();
+        check(!ready && engine->stops==1,"repeated exit stops once and waits for the active core");
+        emit engine->finished(ConnectionError::NONE);
+        check(!ready,"core cleanup alone cannot finish before the SSO cache continuation");requested=true;
+    });
+    connectButton.click();until([&]{return engine->starts==1;});
+    emit engine->authenticationCacheUpdated({"exit-account","private-exit-cookie"});
+    until([&]{return ready==1;});connectButton.click();QApplication::processEvents();
+    check(requested && ready==1 && engine->starts==1,"shutdown cannot start another connection or signal readiness twice");
+}
+
 static void browserCookiesStayInLoginDialog() {
     QList<bool> cookies;
     QTcpServer server;
@@ -628,10 +766,25 @@ static void gateway(const QJsonObject &config) {
     QObject::connect(&session, &ConnectionSession::stateChanged, &dialogs, [&](ConnectionState state) {
         if (state != ConnectionState::Starting) dialogs.closeAuthentication();
     });
+    QTemporaryDir profileFolder;QSettings settings(profileFolder.filePath("gateway.ini"),QSettings::IniFormat);
+    DefaultSettings::reset(settings);
+    settings.setValue("JustConnect/ServerAddress",p.endpoint.server);settings.setValue("JustConnect/ServerPort",p.endpoint.port);
+    settings.setValue("JustConnect/AuthType",p.endpoint.authType);settings.setValue("JustConnect/AuthID",p.endpoint.authId);
+    settings.setValue("JustConnect/AuthSubType",p.endpoint.authSubType);settings.setValue("JustConnect/LoginDomain",p.endpoint.loginDomain);
+    settings.setValue("JustConnect/PhoneCountryCode",p.endpoint.phone.section('-',0,0));settings.setValue("JustConnect/PhoneNumber",p.endpoint.phone.section('-',1));
+    settings.setValue("JustConnect/TLSCAPEM",p.tls.caPem);settings.setValue(DefaultSettings::RememberAuthentication,true);
+    settings.setValue("JustConnect/SOCKS5Port",QUrl("http://"+p.proxy.socksBind).port());
+    settings.setValue("JustConnect/HTTPPort",QUrl("http://"+p.proxy.httpBind).port());settings.sync();
+    auto backend=std::make_unique<MemoryCredentialStore>();auto *store=backend.get();CredentialAccess access(std::move(backend));
+    QPushButton connectButton(&parent),proxyButton(&parent);QAction trayAction(&parent);ApplicationLogger logger;
+    SystemProxySession systemProxy(std::make_unique<ProxyBackend>());
+    ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&systemProxy,&dialogs,&logger,
+        &access,[&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
+        [](const QString &,const QString &,QSystemTrayIcon::MessageIcon){check(false,"real gateway authentication cache must save successfully");});
     QTimer heartbeat;
     QObject::connect(&heartbeat, &QTimer::timeout, [&] { ++ticks; });
     heartbeat.start(1);
-    check(session.start(p, {}), "Qt connection start");
+    connectButton.click();
     until([&] { return parent.findChild<QLineEdit *>("authCodeEdit") != nullptr; });
     until([&] { return ticks > 5; });
     check(session.state() == ConnectionState::Starting, "authentication wait leaves GUI responsive");
@@ -641,22 +794,27 @@ static void gateway(const QJsonObject &config) {
     challenge(parent)->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
     until([&] { return session.state() == ConnectionState::Running; });
     check(responses == 2, "SMS and explicit device confirmation each reach the production protocol once");
+    until([&]{return !access.isBusy(settings.fileName());});
     ProxyCheck::exercise(listeners, [&] {
         session.stop();
         until([&] { return completed == 1; });
     });
     check(savedCache.account=="fixture-user" && !savedCache.data.isEmpty(),"Qt receives server-confirmed cache after authentication");
+    const auto source=CredentialAccess::source(settings,{});ProfileCredentials vault(*store);AuthenticationCache nativeCache;
+    check(vault.loadAuthenticationCache(source.scope,source.profile,nativeCache).succeeded() && nativeCache.data==savedCache.data,
+        "production Qt workflow verifies its scoped native record");
     {
-        EmbeddedCoreEngine restarted;
-        auto restoredProfile=p;restoredProfile.authenticationCache=savedCache;
-        bool ready=false,done=false,saved=false;
-        QObject::connect(&restarted,&CoreEngine::authenticationRequired,[&](const QJsonObject &){check(false,"valid cache must avoid another authentication prompt");});
-        QObject::connect(&restarted,&CoreEngine::authenticationCacheInvalidated,[&]{check(false,"valid restored cache must remain valid");});
-        QObject::connect(&restarted,&CoreEngine::authenticationCacheUpdated,[&](const AuthenticationCache &cache){saved=cache.account==savedCache.account && !cache.data.isEmpty();});
-        QObject::connect(&restarted,&CoreEngine::connectionEstablished,[&]{ready=true;});
-        QObject::connect(&restarted,&CoreEngine::finished,[&](ConnectionError error){check(error==ConnectionError::NONE,"restored Qt connection stops normally");done=true;});
-        check(restarted.start(restoredProfile),"fresh Qt engine accepts bound cache");
-        until([&]{return ready && saved;});
+        QSettings restartedSettings(settings.fileName(),QSettings::IniFormat);
+        ConnectionSession restarted(new EmbeddedCoreEngine);AuthDialogCoordinator restoredDialogs(&parent);
+        SystemProxySession restoredProxy(std::make_unique<ProxyBackend>());
+        QPushButton restoredConnect(&parent),restoredProxyButton(&parent);QAction restoredTray(&parent);
+        ConnectionUiController restoredController(&parent,&restoredConnect,&restoredProxyButton,&restoredTray,&restarted,&restoredProxy,
+            &restoredDialogs,&logger,&access,[&]{return &restartedSettings;},[&]{return CredentialAccess::source(restartedSettings,{});},
+            [](const QString &,const QString &,QSystemTrayIcon::MessageIcon){check(false,"restored native cache remains usable");});
+        bool done=false;
+        QObject::connect(&restarted,&ConnectionSession::authenticationRequired,[&](const QJsonObject &,const QUrl &,const TlsOptions &){check(false,"native cache must avoid another authentication prompt");});
+        QObject::connect(&restarted,&ConnectionSession::finished,[&](ConnectionError error){check(error==ConnectionError::NONE,"restored Qt connection stops normally");done=true;});
+        restoredConnect.click();until([&]{return restarted.state()==ConnectionState::Running && !access.isBusy(settings.fileName());});
         restarted.stop();until([&]{return done;});
     }
     std::cout<<"PASS: native cache restoration\n";
@@ -673,5 +831,5 @@ static void gateway(const QJsonObject &config) {
 int main(int argc, char **argv) {
     QApplication app(argc, argv);
     if (argc == 3 && QByteArray(argv[1]) == "--gateway") gateway(QJsonDocument::fromJson(argv[2]).object());
-    else { browserCookiesStayInLoginDialog(); browserValidatesCallbackNavigation(); uiContracts(); proxyWaitsForReady(); manualCredentialsAndLateResults(); }
+    else { browserCookiesStayInLoginDialog(); browserValidatesCallbackNavigation(); uiContracts(); proxyWaitsForReady(); manualCredentialsAndLateResults(); authenticationCacheLifecycle(); quitWaitsForInitialSsoCache(); }
 }

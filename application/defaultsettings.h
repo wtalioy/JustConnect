@@ -7,6 +7,7 @@ class QString;
 
 namespace DefaultSettings
 {
+inline constexpr const char *RememberAuthentication="JustConnect/RememberAuthentication";
 void reset(QSettings &settings);
 void initialize(QSettings &settings);
 QVariantMap publicValues(const QSettings &settings);

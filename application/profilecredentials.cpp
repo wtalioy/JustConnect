@@ -124,7 +124,7 @@ CredentialResult ProfileCredentials::loadAuthenticationCache(const QString &scop
     const auto object=document.object();
     if (object.value("version").isDouble() && object.value("version").toDouble()>1) return {Status::Conflict,{}};
     if (object.size()!=4 || object.value("version")!=QJsonValue(1) || object.value("binding")!=id
-        || !object.value("account").isString() || object.value("account").toString().isEmpty() || !object.value("data").isString()) return {Status::InvalidArgument,{}};
+        || !object.value("account").isString() || !p.matchesCacheAccount(object.value("account").toString()) || !object.value("data").isString()) return {Status::InvalidArgument,{}};
     const auto decoded=QByteArray::fromBase64Encoding(object.value("data").toString().toLatin1(),QByteArray::AbortOnBase64DecodingErrors);
     if (!decoded || decoded.decoded.isEmpty()) return {Status::InvalidArgument,{}};
     cache={object.value("account").toString(),decoded.decoded};
@@ -132,7 +132,7 @@ CredentialResult ProfileCredentials::loadAuthenticationCache(const QString &scop
 }
 CredentialResult ProfileCredentials::saveAuthenticationCache(const QString &scope,const ConnectionProfile &p,const AuthenticationCache &cache) {
     const auto id=authenticationCacheKey(scope,p);
-    if (id.isEmpty() || cache.account.isEmpty() || cache.data.isEmpty()) return {Status::InvalidArgument,{}};
+    if (id.isEmpty() || !p.matchesCacheAccount(cache.account) || cache.data.isEmpty()) return {Status::InvalidArgument,{}};
     if (cache.data.size()>CredentialStore::MaxBytes) return {Status::Limit,{}};
     const auto encoded=QJsonDocument(QJsonObject{{"version",1},{"binding",id},{"account",cache.account},{"data",QString::fromLatin1(cache.data.toBase64())}}).toJson(QJsonDocument::Compact);
     return writeVerified(id,encoded);

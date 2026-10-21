@@ -37,6 +37,10 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
     ui->loginUrlLineEdit->setToolTip("认证查询结果预览；连接时使用当前会话返回的地址。");
     credentialStatus=new QLabel(ui->credentialsGroup);credentialStatus->setObjectName("credentialStatusLabel");credentialStatus->setWordWrap(true);
     ui->credentialsForm->addRow(credentialStatus);
+    rememberAuthentication=new QCheckBox("使用系统凭据库记住认证",ui->credentialsGroup);
+    rememberAuthentication->setObjectName("rememberAuthenticationCheckBox");
+    rememberAuthentication->setToolTip("允许断开和重启后恢复认证，有效期由服务器决定。关闭后停止恢复与保存；删除已有材料请使用文件菜单的“清除当前账户认证缓存”。");
+    ui->credentialsForm->addRow(rememberAuthentication);
     auto *hint=new QLabel("留空保留已保存凭据；删除请使用下方按钮。",ui->credentialsGroup);hint->setWordWrap(true);ui->credentialsForm->addRow(hint);
     clearCredentialButton=new QPushButton("清除已保存的密码和 TOTP",ui->credentialsGroup);clearCredentialButton->setObjectName("clearCredentialButton");
     ui->credentialsForm->addRow(clearCredentialButton);
@@ -124,6 +128,7 @@ void SettingWindow::loadSettings(const QSettings &source) {
     ui->silentStartCheckBox->setChecked(manager.silentStartEnabled());
     serverEditor->load(source);
     ui->usernameLineEdit->setText(source.value("Credential/Username").toString());
+    rememberAuthentication->setChecked(source.value(DefaultSettings::RememberAuthentication,false).toBool());
     clearDraftCredentials();
     const auto method=source.value("JustConnect/AuthType","psw").toString();
     int index=ui->authTypeComboBox->findData(method);
@@ -154,6 +159,7 @@ void SettingWindow::loadSettings(const QSettings &source) {
 QVariantMap SettingWindow::publicChanges() const {
     auto changes=serverEditor->settingsValues();
     changes.insert("Credential/Username",ui->usernameLineEdit->text().trimmed());
+    changes.insert(DefaultSettings::RememberAuthentication,rememberAuthentication->isChecked());
     changes.insert("JustConnect/AuthType",ui->authTypeComboBox->currentData().toString());changes.insert("JustConnect/AuthID",selectedAuthId);
     changes.insert("JustConnect/AuthSubType",selectedAuthSubType);changes.insert("JustConnect/LoginDomain",ui->loginDomainLineEdit->text().trimmed());
     changes.insert("JustConnect/PhoneCountryCode",ui->countryCodeLineEdit->text().trimmed());changes.insert("JustConnect/PhoneNumber",ui->phoneNumberLineEdit->text().trimmed());

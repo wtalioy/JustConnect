@@ -7,6 +7,18 @@ ConnectionSession::ConnectionSession(CoreEngine *coreEngine, QObject *parent)
     coreEngine->setParent(this);
     reconnectTimer.setSingleShot(true);
     connect(coreEngine, &CoreEngine::diagnostic, this, &ConnectionSession::diagnostic);
+    connect(coreEngine,&CoreEngine::authenticationCacheUpdated,this,[this](const AuthenticationCache &cache) {
+        if (!currentProfile.behavior.rememberAuthentication
+            || (state()!=ConnectionState::Starting && state()!=ConnectionState::Running)) return;
+        currentProfile.authenticationCache=cache;
+        emit authenticationCacheUpdated(cache);
+    });
+    connect(coreEngine,&CoreEngine::authenticationCacheInvalidated,this,[this] {
+        if (!currentProfile.behavior.rememberAuthentication
+            || (state()!=ConnectionState::Starting && state()!=ConnectionState::Running)) return;
+        currentProfile.authenticationCache={};
+        emit authenticationCacheInvalidated();
+    });
     connect(coreEngine, &CoreEngine::authenticationRequired, this, [this](const QJsonObject &request) {
         if (sessionState.state() != ConnectionState::Starting) return;
         pendingAuthentication = request;
@@ -53,6 +65,7 @@ bool ConnectionSession::start(const ConnectionProfile &profile, const ReconnectP
     }
 
     currentProfile = profile;
+    if (!currentProfile.behavior.rememberAuthentication) currentProfile.authenticationCache={};
     emit stateChanged(sessionState.state());
     startCore();
     return true;
@@ -76,6 +89,12 @@ void ConnectionSession::stop()
         emit stateChanged(sessionState.state());
         coreEngine->stop();
     }
+}
+
+void ConnectionSession::forgetAuthenticationCache()
+{
+    currentProfile.authenticationCache={};
+    currentProfile.behavior.rememberAuthentication=false;
 }
 
 void ConnectionSession::submitResponse(const QJsonObject &response)
