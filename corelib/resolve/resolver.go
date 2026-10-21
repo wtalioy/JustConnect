@@ -106,7 +106,7 @@ func (r *Resolver) resolve(ctx context.Context, host string, campusOnly, allowDN
 	}()
 	if _, resources, found := matchDomainResource(r.domainIndex, host); found {
 		ctx = context.WithValue(ctx, ContextKeyDomainResource, resources)
-
+		campusOnly = true
 	}
 
 	if cachedIP, found := r.getDNSCache(host); found && !campusOnly {

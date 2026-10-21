@@ -63,6 +63,33 @@ func TestRequiredCampusResolutionFailureNeverUsesPublicResolver(t *testing.T) {
 	}
 }
 
+func TestCampusDomainNeverFallsBackThroughOrdinaryProxyDialer(t *testing.T) {
+	original := net.DefaultResolver
+	t.Cleanup(func() { net.DefaultResolver = original })
+	var public atomic.Int32
+	net.DefaultResolver = &net.Resolver{PreferGo: true, Dial: func(context.Context, string, string) (net.Conn, error) {
+		public.Add(1)
+		return nil, errors.New("unexpected original-network DNS")
+	}}
+	domains := client.DomainResources{"localhost": {{Protocol: "udp", PortMin: 9, PortMax: 9}}}
+	for _, ip := range []net.IP{nil, net.IPv6loopback} {
+		var records map[string][]net.IP
+		if ip != nil {
+			records = map[string][]net.IP{"localhost": {ip}}
+		}
+		resolver := resolve.NewResolver(nil, "", "", 1, domains, records, false)
+		dialer := NewDialer(&capturingStack{}, resolver, nil, false)
+		conn, err := dialer.Dial(t.Context(), "udp", "localhost:9")
+		resolver.Close()
+		if conn != nil {
+			conn.Close()
+		}
+		if err == nil || conn != nil || public.Load() != 0 {
+			t.Fatalf("campus domain escaped through ordinary dialer: IPv6=%t, queries=%d, connection=%t, error=%v", ip != nil, public.Load(), conn != nil, err)
+		}
+	}
+}
+
 func TestRequiredCampusPathPreservesAuthorizedResources(t *testing.T) {
 	resource := client.IPResource{IPMin: net.IPv4(127, 0, 0, 1), IPMax: net.IPv4(127, 0, 0, 1),
 		Protocol: "udp", PortMin: 9, PortMax: 9, AppID: "authorized-udp"}
