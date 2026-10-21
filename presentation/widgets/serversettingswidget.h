@@ -1,7 +1,6 @@
 #pragma once
 #include <QWidget>
 #include <QVariantMap>
-#include "core/connectionprofile.h"
 class QComboBox;
 class QCheckBox;
 class QPlainTextEdit;
@@ -18,7 +17,6 @@ public:
     QString serverAddress() const;
     int serverPort() const;
     bool isFudan() const;
-    TlsOptions tlsOptions() const;
 signals:
     void serverChanged();
 private:

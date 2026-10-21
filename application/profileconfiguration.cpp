@@ -1,6 +1,12 @@
-#include "settingsprofileloader.h"
+#include "application/profileservice.h"
+#include "application/defaultsettings.h"
+#include <QSettings>
 
-ConnectionProfile SettingsProfileLoader::load(const QSettings &settings) {
+ConnectionProfile ProfileService::load(const QSettings &settings) {
+    return load(DefaultSettings::publicValues(settings));
+}
+
+ConnectionProfile ProfileService::load(const QVariantMap &settings) {
     ConnectionProfile p;
     p.tls.verify=settings.value("JustConnect/TLSVerify",true).toBool();
     p.tls.caPem=settings.value("JustConnect/TLSCAPEM").toString();

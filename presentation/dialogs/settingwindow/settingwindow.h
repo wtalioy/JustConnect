@@ -20,6 +20,7 @@ private:
     void updateBusy();
     void clearDraftCredentials();
     void applySettings(bool closeAfter);
+    QVariantMap publicChanges() const;
     ConnectionProfile currentProfile() const;
     Ui::SettingWindow *ui;
     QSettings *settings;

@@ -18,7 +18,7 @@
 #include "application/settingsmigrator.h"
 #include "infrastructure/platform/autostart.h"
 #include "infrastructure/settings/profilemanager.h"
-#include "infrastructure/settings/settingsprofileloader.h"
+#include "application/profileservice.h"
 #include "infrastructure/storage/applicationpaths.h"
 #include "presentation/dialogs/authinfowindow/authinfowindow.h"
 #include "presentation/presentationhelpers.h"
@@ -151,23 +151,27 @@ void SettingWindow::loadSettings(const QSettings &source) {
     ui->disableDNSCheckBox->setChecked(source.value("JustConnect/DisableRemoteDNS").toBool());
 }
 
+QVariantMap SettingWindow::publicChanges() const {
+    auto changes=serverEditor->settingsValues();
+    changes.insert("Credential/Username",ui->usernameLineEdit->text().trimmed());
+    changes.insert("JustConnect/AuthType",ui->authTypeComboBox->currentData().toString());changes.insert("JustConnect/AuthID",selectedAuthId);
+    changes.insert("JustConnect/AuthSubType",selectedAuthSubType);changes.insert("JustConnect/LoginDomain",ui->loginDomainLineEdit->text().trimmed());
+    changes.insert("JustConnect/PhoneCountryCode",ui->countryCodeLineEdit->text().trimmed());changes.insert("JustConnect/PhoneNumber",ui->phoneNumberLineEdit->text().trimmed());
+    changes.insert("Common/ConnectAfterStart",ui->connectAfterStartCheckBox->isChecked());changes.insert("Common/CheckUpdateAfterStart",ui->checkUpdateAfterStartCheckBox->isChecked());
+    changes.insert("Common/AutoReconnect",ui->autoReconnectCheckBox->isChecked());changes.insert("Common/ReconnectTime",ui->reconnectTimeSpinBox->value());
+    changes.insert("Common/AutoSetProxy",ui->autoSetProxyCheckBox->isChecked());changes.insert("Common/SystemProxyBypass",ui->systemProxyBypassLineEdit->text());
+    changes.insert("Common/SuppressProxyOverrideWarning",ui->suppressProxyOverrideWarningCheckBox->isChecked());
+    changes.insert("JustConnect/SOCKS5Port",ui->socks5PortSpinBox->value());changes.insert("JustConnect/HTTPPort",ui->httpPortSpinBox->value());
+    changes.insert("JustConnect/LocalDNSServer",ui->localDnsServerLineEdit->text().trimmed());changes.insert("JustConnect/SecondaryDNS",ui->secondaryDnsLineEdit->text().trimmed());changes.insert("JustConnect/DNSTTL",ui->dnsTTLSpinBox->value());
+    changes.insert("JustConnect/DisableRemoteDNS",ui->disableDNSCheckBox->isChecked());changes.insert("JustConnect/BindInterface",ui->bindInterfaceLineEdit->text().trimmed());
+    changes.insert("JustConnect/AutoDetectInterface",ui->autoDetectInterfaceCheckBox->isChecked());
+    return changes;
+}
+
 ConnectionProfile SettingWindow::currentProfile() const {
-    ConnectionProfile profile;
-    profile.credentials = {ui->usernameLineEdit->text().trimmed(), ui->passwordLineEdit->text(), ui->totpSecretLineEdit->text().trimmed()};
-    profile.tls=serverEditor->tlsOptions();
-    profile.endpoint.server = serverEditor->serverAddress(); profile.endpoint.port = serverEditor->serverPort();
-    profile.endpoint.authId=selectedAuthId; profile.endpoint.authSubType=selectedAuthSubType;
-    profile.endpoint.authType = ui->authTypeComboBox->currentData().toString();
-    profile.endpoint.loginDomain = ui->loginDomainLineEdit->text().trimmed();
-    const auto country=ui->countryCodeLineEdit->text().trimmed(), phone=ui->phoneNumberLineEdit->text().trimmed();
-    if (!country.isEmpty() && !phone.isEmpty()) profile.endpoint.phone=country+'-'+phone;
-    const auto bind = [](int port) { return port ? "127.0.0.1:"+QString::number(port) : QString(); };
-    profile.proxy.socksBind=bind(ui->socks5PortSpinBox->value()); profile.proxy.httpBind=bind(ui->httpPortSpinBox->value());
-    profile.dns.localDnsServer=ui->localDnsServerLineEdit->text().trimmed();
-    profile.dns.secondary=ui->secondaryDnsLineEdit->text().trimmed(); profile.dns.ttl=ui->dnsTTLSpinBox->value();
-    profile.dns.disableRemoteDns=ui->disableDNSCheckBox->isChecked();
-    profile.behavior.bindInterface=ui->bindInterfaceLineEdit->text().trimmed();
-    profile.behavior.autoDetectInterface=ui->autoDetectInterfaceCheckBox->isChecked();
+    auto profile=ProfileService::load(publicChanges());
+    profile.credentials.password=ui->passwordLineEdit->text();
+    profile.credentials.totpSecret=ui->totpSecretLineEdit->text().trimmed();
     return profile;
 }
 
@@ -248,19 +252,7 @@ void SettingWindow::applySettings(bool closeAfter) {
         if (!manager.setAutoStartEnabled(autoStart)) {saving=false;updateBusy();QMessageBox::warning(this,"自启动偏好未保存","系统项已修改，但偏好保存失败，请检查后重试。");return;}
     }
     manager.setSilentStartEnabled(ui->silentStartCheckBox->isChecked());
-    auto changes=serverEditor->settingsValues();
-    changes.insert("Credential/Username",profile.credentials.username);
-    changes.insert("JustConnect/AuthType",profile.endpoint.authType);changes.insert("JustConnect/AuthID",profile.endpoint.authId);
-    changes.insert("JustConnect/AuthSubType",profile.endpoint.authSubType);changes.insert("JustConnect/LoginDomain",profile.endpoint.loginDomain);
-    changes.insert("JustConnect/PhoneCountryCode",ui->countryCodeLineEdit->text().trimmed());changes.insert("JustConnect/PhoneNumber",ui->phoneNumberLineEdit->text().trimmed());
-    changes.insert("Common/ConnectAfterStart",ui->connectAfterStartCheckBox->isChecked());changes.insert("Common/CheckUpdateAfterStart",ui->checkUpdateAfterStartCheckBox->isChecked());
-    changes.insert("Common/AutoReconnect",ui->autoReconnectCheckBox->isChecked());changes.insert("Common/ReconnectTime",ui->reconnectTimeSpinBox->value());
-    changes.insert("Common/AutoSetProxy",ui->autoSetProxyCheckBox->isChecked());changes.insert("Common/SystemProxyBypass",ui->systemProxyBypassLineEdit->text());
-    changes.insert("Common/SuppressProxyOverrideWarning",ui->suppressProxyOverrideWarningCheckBox->isChecked());
-    changes.insert("JustConnect/SOCKS5Port",ui->socks5PortSpinBox->value());changes.insert("JustConnect/HTTPPort",ui->httpPortSpinBox->value());
-    changes.insert("JustConnect/LocalDNSServer",profile.dns.localDnsServer);changes.insert("JustConnect/SecondaryDNS",profile.dns.secondary);changes.insert("JustConnect/DNSTTL",profile.dns.ttl);
-    changes.insert("JustConnect/DisableRemoteDNS",profile.dns.disableRemoteDns);changes.insert("JustConnect/BindInterface",profile.behavior.bindInterface);
-    changes.insert("JustConnect/AutoDetectInterface",profile.behavior.autoDetectInterface);
+    const auto changes=publicChanges();
     const bool edited=(!ui->passwordLineEdit->text().isEmpty() && ui->passwordLineEdit->text()!=loadedCredentials.password)
         || (!ui->totpSecretLineEdit->text().isEmpty() && ui->totpSecretLineEdit->text()!=loadedCredentials.totpSecret);
     saving=true;updateBusy();const auto source=credentialSource;

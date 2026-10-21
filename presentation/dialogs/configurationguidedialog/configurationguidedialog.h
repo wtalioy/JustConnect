@@ -37,6 +37,7 @@ private slots:
     void fetchAuthenticationMethods();
 
 private:
+    QVariantMap publicChanges() const;
     ConnectionProfile currentProfile() const;
     void readCredentials();
     void clearDraftCredentials();

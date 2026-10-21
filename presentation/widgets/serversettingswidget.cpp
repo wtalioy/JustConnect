@@ -64,7 +64,6 @@ void ServerSettingsWidget::selectPreset() {
 QString ServerSettingsWidget::serverAddress() const { return preset->currentData().toString().isEmpty() ? QString() : address->text().trimmed(); }
 int ServerSettingsWidget::serverPort() const { return port->value(); }
 bool ServerSettingsWidget::isFudan() const { return preset->currentData() == "Fudan"; }
-TlsOptions ServerSettingsWidget::tlsOptions() const { return {verify->isChecked(),caPem->toPlainText()}; }
 QVariantMap ServerSettingsWidget::settingsValues() const {
     return {{"JustConnect/TLSVerify",verify->isChecked()},{"JustConnect/TLSCAPEM",caPem->toPlainText()},
         {"JustConnect/ProfileKind",preset->currentData()},{"JustConnect/ServerAddress",serverAddress()},

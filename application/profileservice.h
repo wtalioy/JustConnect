@@ -6,6 +6,7 @@
 #include <QVariantMap>
 
 #include <memory>
+#include "core/connectionprofile.h"
 
 class ProfileBackend;
 class QSettings;
@@ -22,6 +23,8 @@ public:
     );
     ~ProfileService() override;
 
+    static ConnectionProfile load(const QSettings &settings);
+    static ConnectionProfile load(const QVariantMap &settings);
     static bool validPublicChanges(const QVariantMap &changes);
     static bool writePublic(QSettings &settings,const QVariantMap &changes);
     QSettings *settings() const;

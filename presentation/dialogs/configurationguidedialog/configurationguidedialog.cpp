@@ -18,8 +18,7 @@
 #include "presentation/dialogs/authinfowindow/authinfowindow.h"
 #include "presentation/widgets/serversettingswidget.h"
 #include "infrastructure/coreengine/embeddedcoreengine.h"
-#include "infrastructure/settings/settingsprofileloader.h"
-#include "application/settingsmigrator.h"
+#include "application/profileservice.h"
 #include "application/defaultsettings.h"
 #include "presentation/presentationhelpers.h"
 
@@ -113,15 +112,20 @@ ConfigurationGuideDialog::ConfigurationGuideDialog(
     readCredentials();
 }
 
+QVariantMap ConfigurationGuideDialog::publicChanges() const {
+    auto changes=serverEditor->settingsValues();
+    changes.insert("Credential/Username",usernameLineEdit->text().trimmed());
+    changes.insert("JustConnect/PhoneCountryCode",countryCodeLineEdit->text().trimmed());changes.insert("JustConnect/PhoneNumber",phoneNumberLineEdit->text().trimmed());
+    changes.insert("JustConnect/AuthType",selectedAuthType);changes.insert("JustConnect/AuthID",selectedAuthId);
+    changes.insert("JustConnect/AuthSubType",selectedAuthSubType);changes.insert("JustConnect/LoginDomain",selectedLoginDomain);
+    return changes;
+}
 ConnectionProfile ConfigurationGuideDialog::currentProfile() const {
-    auto profile=SettingsProfileLoader::load(*sourceSettings);
-    profile.tls=serverEditor->tlsOptions();
-    profile.endpoint.server=serverEditor->serverAddress(); profile.endpoint.port=serverEditor->serverPort();
-    profile.endpoint.authId=selectedAuthId; profile.endpoint.authSubType=selectedAuthSubType;
-    profile.endpoint.authType=selectedAuthType; profile.endpoint.loginDomain=selectedLoginDomain;
-    profile.credentials={usernameLineEdit->text().trimmed(),passwordLineEdit->text(),totpSecretLineEdit->text().trimmed()};
-    const auto country=countryCodeLineEdit->text().trimmed(),phone=phoneNumberLineEdit->text().trimmed();
-    profile.endpoint.phone=!country.isEmpty() && !phone.isEmpty() ? country+'-'+phone : QString();
+    auto values=credentialSource.publicValues;
+    values.insert(publicChanges());
+    auto profile=ProfileService::load(values);
+    profile.credentials.password=passwordLineEdit->text();
+    profile.credentials.totpSecret=totpSecretLineEdit->text().trimmed();
     return profile;
 }
 void ConfigurationGuideDialog::clearDraftCredentials() {
@@ -164,11 +168,7 @@ bool ConfigurationGuideDialog::applyTo() {
             unavailable ? "无法校验配置，请检查应用安装是否完整。配置未保存。" : "请检查服务器、认证方式及连接设置。配置未保存。");
         return false;
     }
-    auto changes=serverEditor->settingsValues();
-    changes.insert("Credential/Username",profile.credentials.username);
-    changes.insert("JustConnect/PhoneCountryCode",countryCodeLineEdit->text().trimmed());changes.insert("JustConnect/PhoneNumber",phoneNumberLineEdit->text().trimmed());
-    changes.insert("JustConnect/AuthType",selectedAuthType);changes.insert("JustConnect/AuthID",selectedAuthId);
-    changes.insert("JustConnect/AuthSubType",selectedAuthSubType);changes.insert("JustConnect/LoginDomain",selectedLoginDomain);
+    const auto changes=publicChanges();
     const bool edited=(!passwordLineEdit->text().isEmpty() && passwordLineEdit->text()!=loadedCredentials.password)
         || (!totpSecretLineEdit->text().isEmpty() && totpSecretLineEdit->text()!=loadedCredentials.totpSecret);
     saving=true;pages->setEnabled(false);updateNavigation();const auto source=credentialSource;
@@ -375,10 +375,7 @@ void ConfigurationGuideDialog::fetchAuthenticationMethods()
         if (!closed && host==serverEditor->serverAddress() && port==serverEditor->serverPort())
             selectAuthenticationMethod(method);
     });
-    auto profile=SettingsProfileLoader::load(*sourceSettings);
-    profile.tls=serverEditor->tlsOptions();
-    profile.endpoint.server=host; profile.endpoint.port=port;
-    authInfoWindow->fetchAuthInfo(profile,serverEditor->isFudan());
+    authInfoWindow->fetchAuthInfo(currentProfile(),serverEditor->isFudan());
     authInfoWindow->show();
 }
 

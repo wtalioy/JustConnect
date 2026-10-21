@@ -9,7 +9,7 @@ function(justconnect_core_ui_tests TARGET ENGINE LIBRARY)
         "${REPO}/application/defaultsettings.cpp"
         "${REPO}/application/settingsmigrator.cpp"
         "${REPO}/infrastructure/settings/credentialaccess.cpp"
-        "${REPO}/infrastructure/settings/settingsprofileloader.cpp"
+        "${REPO}/application/profileconfiguration.cpp"
         "${REPO}/core/connectionsessionstate.cpp"
         "${REPO}/presentation/coordinators/authdialogcoordinator.cpp"
         "${REPO}/presentation/coordinators/connectionuicontroller.cpp"
