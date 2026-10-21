@@ -3,6 +3,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QObject>
+#include <QDateTime>
 
 #include "core/connectionerror.h"
 #include "core/connectionprofile.h"
@@ -29,6 +30,7 @@ signals:
     void authenticationRequired(const QJsonObject &request);
     void authMethodsReady(const QJsonArray &methods);
     void diagnostic(const QString &code);
+    void observation(const QString &stage, const QString &result, const QDateTime &observedAt);
     void authenticationCacheUpdated(const AuthenticationCache &cache);
     void authenticationCacheInvalidated();
     void connectionEstablished();

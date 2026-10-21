@@ -67,6 +67,7 @@ ConnectionError connectionError(int status) {
     if (status == JC_NETWORK_FAILURE) return ConnectionError::NETWORK_FAILED;
     if (status == JC_TIMEOUT) return ConnectionError::TIMED_OUT;
     if (status == JC_AUTH_UNSUPPORTED) return ConnectionError::AUTHENTICATION_UNSUPPORTED;
+    if (status == JC_SESSION_INVALID) return ConnectionError::SESSION_INVALID;
     if (status == JC_CREDENTIALS_REQUIRED) return ConnectionError::CREDENTIALS_REQUIRED;
     if (status == JC_AUTH_METHOD_CHANGED) return ConnectionError::AUTHENTICATION_CHANGED;
     if (status == JC_INVALID_ARGUMENT) return ConnectionError::INVALID_CONFIGURATION;
@@ -225,8 +226,16 @@ void EmbeddedCoreEngine::deliver(quint64 id, const QJsonObject &event) {
         }
         emit authenticationCacheUpdated({account,decoded.decoded});
     }
+    else if (type == "observation") {
+        const auto stage=event["stage"].toString(), result=event["result"].toString();
+        const auto observed=QDateTime::fromString(event["observed_at"].toString(),Qt::ISODateWithMs);
+        if (QStringList{"authentication","restore","renewal","traffic","nodes","tunnel"}.contains(stage)
+            && QStringList{"running","succeeded","failed","required","disabled","unavailable","unknown"}.contains(result) && observed.isValid())
+            emit observation(stage,result,observed);
+    }
     else if (type == "auth_methods") emit authMethodsReady(event["methods"].toArray());
     else if (type == "diagnostic") emit diagnostic(event["code"].toString());
+    else if (type == "state" && event["state"] == "starting") emit observation("library","succeeded",QDateTime::currentDateTimeUtc());
     else if (type == "state" && event["state"] == "ready") { emit connectionEstablished(); }
 }
 QJsonObject EmbeddedCoreEngine::buildInfo() {

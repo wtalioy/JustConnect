@@ -37,6 +37,7 @@ type ClientOptions struct {
 	AllowUnverifiedNodes bool
 	Language             string
 	Diagnostic           func(string)
+	Observe              func(stage, result string)
 }
 
 type SetupOptions struct {
@@ -69,6 +70,7 @@ type Client struct {
 	failureOnce  sync.Once
 	language     string
 	diagnostic   func(string)
+	observe      func(string, string)
 	sessionMu    sync.RWMutex
 	sessionErr   error
 	refreshDone  chan struct{}
@@ -123,6 +125,7 @@ func NewClient(options ClientOptions) *Client {
 		nodeTLSPolicy:   nodePolicy,
 		language:        options.Language,
 		diagnostic:      options.Diagnostic,
+		observe:         options.Observe,
 		failures:        make(chan error, 1),
 		lifecycleCtx:    lifecycleCtx,
 		lifecycleCancel: lifecycleCancel,
@@ -361,6 +364,7 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) (_ []by
 
 	var loginResult auth.LoginResult
 	if restore {
+		c.report("restore", "running")
 		c.DeviceID = clientAuthData.DeviceID
 		loginResult, err = sess.Login(nil, auth.LoginOptions{DeviceID: c.DeviceID, Cookies: clientAuthData.Cookies})
 		if err == nil && (loginResult.Username != expectedAccount || loginResult.SID == "") {
@@ -379,6 +383,7 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) (_ []by
 		}
 	}
 	if !restore {
+		c.report("authentication", "running")
 		c.DeviceID = initialDeviceID
 		if c.DeviceID == "" {
 			c.DeviceID = strings.ToLower(randHex(32))
@@ -421,6 +426,11 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) (_ []by
 	}
 	if err := setupCtx.Err(); err != nil {
 		return nil, err
+	}
+	if restore {
+		c.report("restore", "succeeded")
+	} else {
+		c.report("authentication", "succeeded")
 	}
 	// Verified authentication survives resource or tunnel setup failures.
 	if err := publishAuthentication(); err != nil {

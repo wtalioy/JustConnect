@@ -156,6 +156,7 @@ MainWindow::MainWindow(
 
     connect(connectionSession, &ConnectionSession::stateChanged, this,
             &MainWindow::updateConnectionState);
+    connect(connectionSession, &ConnectionSession::progressChanged, this, [this] { updateConnectionState(connectionSession->state()); });
 
 
     // 文件-退出
@@ -430,17 +431,25 @@ void MainWindow::updateConnectionState(ConnectionState state)
         break;
     case ConnectionState::Starting:
         propertyValue = "starting";
-        title = "正在连接";
-        detail = "正在启动核心并建立安全通道。";
+        switch (connectionSession->phase()) {
+        case ConnectionPhase::Initializing: title="正在初始化核心库";break;
+        case ConnectionPhase::Starting: title="正在启动会话";break;
+        case ConnectionPhase::Restoring: title="正在恢复认证";break;
+        case ConnectionPhase::Authenticating: title="等待认证";break;
+        case ConnectionPhase::AuthenticationSucceeded: title="认证成功，正在建立通道";break;
+        case ConnectionPhase::ReauthenticationRequired: title="需要重新认证";break;
+        case ConnectionPhase::TransportReady: title="通道就绪";break;
+        }
+        detail = "校园访问接管尚未就绪。";
         break;
     case ConnectionState::Running:
-        propertyValue = "running";
-        title = "已连接";
+        propertyValue = "starting";
+        title = "通道就绪";
         detail = systemProxySession->needsCleanup() && !systemProxySession->isEnabled()
             ? "系统代理状态未确认，请检查残留设置。"
             : systemProxySession->isEnabled()
-            ? "VPN 通道与系统代理均已启用。"
-            : "VPN 通道运行中，可按需启用系统代理。";
+            ? "通道与系统代理已启用；校园访问接管尚未就绪。"
+            : "通道与本地代理可用；校园访问接管尚未就绪。";
         break;
     case ConnectionState::Stopping:
         propertyValue = "stopping";
@@ -450,7 +459,7 @@ void MainWindow::updateConnectionState(ConnectionState state)
     case ConnectionState::Reconnecting:
         propertyValue = "reconnecting";
         title = "正在重连";
-        detail = "连接中断，正在按当前策略重新尝试。";
+        detail = QString("重连 %1/%2，等待下一次尝试。").arg(connectionSession->reconnectAttempt()).arg(ConnectionSessionState::MaxReconnectAttempts);
         break;
     case ConnectionState::Interrupted:
         propertyValue = "failed";
@@ -459,12 +468,20 @@ void MainWindow::updateConnectionState(ConnectionState state)
         break;
     case ConnectionState::Failed:
         propertyValue = "failed";
-        title = "连接失败";
+        title = connectionSession->phase()==ConnectionPhase::ReauthenticationRequired ? "需要重新认证" : "连接失败";
         detail = "请查看右侧日志，确认网络与账户配置。";
         break;
     }
 
+    const auto renewal=connectionSession->observation("renewal");
+    const QMap<QString,QString> results{{"running","进行中"},{"succeeded","成功"},{"failed","失败"},{"required","需要重新认证"},{"disabled","已关闭"},{"unavailable","不可用"}};
+    detail += "\n最近会话续期：" + results.value(renewal.result,"未知");
+    if (renewal.observedAt.isValid()) detail += " · " + renewal.observedAt.toLocalTime().toString(Qt::ISODate);
     ui->statusTitleLabel->setText(title);
+    if (trayIcon) {
+        trayIcon->setToolTip(QApplication::applicationName()+" · "+title+"\n"+detail);
+        trayIcon->setIcon(style()->standardIcon(state==ConnectionState::Running ? QStyle::SP_MediaPlay : QStyle::SP_MediaStop));
+    }
     ui->statusDetailLabel->setText(detail);
 
     const QList<QWidget *> styledWidgets{

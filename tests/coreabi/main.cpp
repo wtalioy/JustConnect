@@ -127,7 +127,7 @@ static void authentication(API &api) {
 
 static QJsonObject protocolEvent(API &api, uint64_t handle) {
     auto event = read(api, handle);
-    while (event["type"] == "diagnostic") event = read(api, handle);
+    while (event["type"] == "diagnostic" || event["type"] == "observation") event = read(api, handle);
     return event;
 }
 
@@ -260,7 +260,7 @@ int main(int argc, char **argv) {
         check(starting["type"] == "state" && starting["state"] == "starting" &&
               starting["generation"] == "1" && starting["sequence"] == "1", "starting event");
         auto terminal = read(api, handle);
-        while (terminal["type"] == "diagnostic") terminal = read(api, handle);
+        while (terminal["type"] == "diagnostic" || terminal["type"] == "observation") terminal = read(api, handle);
         check(terminal["type"] == "terminal" &&
               terminal["status"].toInt() == JC_CANCELLED &&
               terminal["generation"] == "1", "cancelled production invocation completes cleanup");
@@ -279,7 +279,7 @@ int main(int argc, char **argv) {
     check(api.jc_session_start(failedHandle, configInput, uint32_t(config.size()), &failedGeneration) == JC_OK, "start connection failure");
     auto failure = read(api, failedHandle);
     check(failure["type"] == "state" && failure["state"] == "starting", "network failure starts asynchronously");
-    do { failure = read(api, failedHandle); } while (failure["type"] == "diagnostic");
+    do { failure = read(api, failedHandle); } while (failure["type"] == "diagnostic" || failure["type"] == "observation");
     check(failure["type"] == "terminal" && failure["status"].toInt() == JC_NETWORK_FAILURE
           && failure["generation"].toString() == QString::number(failedGeneration), "connection refusal has its precise network failure status");
     check(api.jc_session_read(failedHandle, 0, nullptr, 0, &length) == JC_END, "network failure releases the event stream");

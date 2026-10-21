@@ -235,12 +235,42 @@ bool cancellingBackoffPreventsLateRestart()
     return engine->startCalls==2 && engine->stopCalls==1 && finishes==2 && session.state()==ConnectionState::Disconnected;
 }
 
+bool progressUsesObservedEventsAndRejectsLateResults()
+{
+    auto *engine=new FakeCoreEngine;
+    ConnectionSession session(engine);
+    const auto now=QDateTime::currentDateTimeUtc();
+    session.start({},{});
+    if (session.phase()!=ConnectionPhase::Initializing || session.observation("renewal").observedAt.isValid()) return false;
+    emit engine->diagnostic("transport_connected");
+    if (session.state()!=ConnectionState::Starting) return false;
+    emit engine->observation("library","succeeded",now);
+    if (session.phase()!=ConnectionPhase::Starting) return false;
+    emit engine->observation("restore","running",now);
+    if (session.phase()!=ConnectionPhase::Restoring) return false;
+    emit engine->observation("restore","succeeded",now.addMSecs(1));
+    if (session.phase()!=ConnectionPhase::AuthenticationSucceeded) return false;
+    engine->establishConnection();
+    if (session.phase()!=ConnectionPhase::TransportReady) return false;
+    emit engine->observation("renewal","succeeded",now);
+    emit engine->observation("renewal","failed",now.addMSecs(-1));
+    if (session.observation("renewal").result!="succeeded") return false;
+    session.stop();emit engine->observation("renewal","failed",now.addMSecs(2));engine->complete();
+    if (session.observation("renewal").result!="succeeded") return false;
+    session.start({},{});
+    if (session.observation("renewal").observedAt.isValid()) return false;
+    emit engine->observation("authentication","required",now);
+    engine->complete(ConnectionError::SESSION_INVALID);
+    return session.phase()==ConnectionPhase::ReauthenticationRequired && session.state()==ConnectionState::Failed;
+}
+
 }
 
 int main(int argc, char *argv[])
 {
     QCoreApplication application(argc, argv);
-    return cancellingBackoffPreventsLateRestart()
+    return progressUsesObservedEventsAndRejectsLateResults()
+        && cancellingBackoffPreventsLateRestart()
         && delegatesSessionLifecycleThroughPort()
         && distinguishesInterruptedConnectionFromStartupFailure()
         && authenticatesOnlyTheCurrentRequest()

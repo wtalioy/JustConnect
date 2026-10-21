@@ -46,6 +46,7 @@
     "TLSProtocol": -12,
     "NetworkFailure": -13,
     "AuthUnsupported": -14,
-    "CredentialsRequired": -15
+    "CredentialsRequired": -15,
+    "SessionInvalid": -16
   }
 }

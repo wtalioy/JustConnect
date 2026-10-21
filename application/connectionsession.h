@@ -4,10 +4,15 @@
 #include <QObject>
 #include <QTimer>
 #include <QUrl>
+#include <QMap>
+#include <QDateTime>
 
 #include "application/coreengine.h"
 #include "core/connectionprofile.h"
 #include "core/connectionsessionstate.h"
+
+struct SessionObservation { QString result; QDateTime observedAt; };
+enum class ConnectionPhase { Initializing, Starting, Authenticating, AuthenticationSucceeded, Restoring, ReauthenticationRequired, TransportReady };
 
 class ConnectionSession : public QObject
 {
@@ -22,6 +27,8 @@ public:
     void forgetAuthenticationCache();
 
     ConnectionState state() const;
+    ConnectionPhase phase() const { return currentPhase; }
+    SessionObservation observation(const QString &stage) const { return observations.value(stage); }
     bool isActive() const;
     int reconnectAttempt() const { return sessionState.reconnectAttempt(); }
     ProxyOptions proxyOptions() const { return currentProfile.proxy; }
@@ -29,6 +36,7 @@ public:
 signals:
     void stateChanged(ConnectionState state);
     void diagnostic(const QString &code);
+    void progressChanged();
     void authenticationCacheUpdated(const AuthenticationCache &cache);
     void authenticationCacheInvalidated();
     void authenticationRequired(const QJsonObject &request, const QUrl &callbackServer,const TlsOptions &tls);
@@ -46,6 +54,8 @@ private:
     QTimer stableTimer;
     ConnectionSessionState sessionState;
     ConnectionProfile currentProfile;
+    ConnectionPhase currentPhase = ConnectionPhase::Initializing;
+    QMap<QString,SessionObservation> observations;
     QJsonObject pendingAuthentication;
     QString responseAction;
 };

@@ -33,6 +33,7 @@ func (c *Client) startSessionRefresh(refresh func(context.Context) (auth.LoginRe
 				return
 			case <-timer.C:
 			}
+			c.report("renewal", "running")
 			snapshot, err := refresh(c.lifecycleCtx)
 			if c.lifecycleCtx.Err() != nil {
 				return
@@ -42,6 +43,7 @@ func (c *Client) startSessionRefresh(refresh func(context.Context) (auth.LoginRe
 				return
 			}
 			if err != nil {
+				c.report("renewal", "failed")
 				if c.diagnostic != nil {
 					c.diagnostic("keepalive_retry")
 				}
@@ -49,6 +51,7 @@ func (c *Client) startSessionRefresh(refresh func(context.Context) (auth.LoginRe
 				continue
 			}
 			c.setSessionSID(snapshot.SID, nil)
+			c.report("renewal", "succeeded")
 
 			data.Cookies = snapshot.Cookies
 			if save != nil {
@@ -70,6 +73,9 @@ func (c *Client) Errors() <-chan error { return c.failures }
 
 func (c *Client) fail(err error) {
 	c.failureOnce.Do(func() {
+		if errors.Is(err, auth.ErrSessionInvalid) {
+			c.report("authentication", "required")
+		}
 		c.setSessionSID("", err)
 		c.failures <- err
 		c.lifecycleCancel()
@@ -90,4 +96,10 @@ func (c *Client) startWorker(work func()) {
 		}()
 		work()
 	}()
+}
+
+func (c *Client) report(stage, result string) {
+	if c.observe != nil {
+		c.observe(stage, result)
+	}
 }

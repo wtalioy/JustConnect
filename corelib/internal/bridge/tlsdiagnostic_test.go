@@ -122,6 +122,9 @@ func TestTLSFailureDiagnosticsAfterAuthentication(t *testing.T) {
 				if err := json.Unmarshal(data, &event); err != nil {
 					t.Fatal(err)
 				}
+				if event.Type == "observation" {
+					continue
+				}
 				if event.Type == "diagnostic" {
 					codes[event.Code] = true
 					continue
@@ -179,6 +182,9 @@ func TestUnverifiedNodesDoNotBypassAuthenticationTLS(t *testing.T) {
 				var event event
 				if err := json.Unmarshal(data, &event); err != nil {
 					t.Fatal(err)
+				}
+				if event.Type == "observation" {
+					continue
 				}
 				if event.Type == "diagnostic" {
 					codes[event.Code] = true

@@ -41,6 +41,9 @@ type event struct {
 	Methods       []AuthMethod         `json:"methods,omitempty"`
 	Action        string               `json:"action,omitempty"`
 	Cache         *AuthenticationCache `json:"cache,omitempty"`
+	Stage         string               `json:"stage,omitempty"`
+	Result        string               `json:"result,omitempty"`
+	ObservedAt    string               `json:"observed_at,omitempty"`
 }
 
 type AuthenticationCache struct {
@@ -53,6 +56,7 @@ type queued struct {
 	request     uint64
 	diagnostic  bool
 	cacheAction string
+	stage       string
 }
 
 type pending struct {
@@ -97,7 +101,7 @@ func (s *Session) push(e event) Status {
 		s.sequence--
 		return Limit
 	}
-	s.queue = append(s.queue, queued{data: data, request: e.RequestID, diagnostic: e.Type == "diagnostic", cacheAction: e.Action})
+	s.queue = append(s.queue, queued{data: data, request: e.RequestID, diagnostic: e.Type == "diagnostic", cacheAction: e.Action, stage: e.Stage})
 	s.notify()
 	return OK
 }
@@ -168,7 +172,7 @@ func (e *Engine) execute(ctx context.Context, config Config, s *Session) {
 			status = Cancelled
 		}
 		switch status {
-		case OK, Timeout, Unsupported, Cancelled, Limit, Internal, AuthMethodChanged, TLSTrust, TLSProtocol, NetworkFailure, AuthUnsupported, CredentialsRequired:
+		case OK, Timeout, Unsupported, Cancelled, Limit, Internal, AuthMethodChanged, TLSTrust, TLSProtocol, NetworkFailure, AuthUnsupported, CredentialsRequired, SessionInvalid:
 		default:
 			status = Internal
 		}
@@ -229,6 +233,37 @@ func (s *Session) cacheEvent(e event) Status {
 	clear(s.queue[len(kept):])
 	s.queue = kept
 	return s.push(e)
+}
+
+// Observe coalesces each maintenance stage, independently of the diagnostic budget.
+func (s *Session) Observe(stage, result string) Status {
+	switch stage {
+	case "authentication", "restore", "renewal", "traffic", "nodes", "tunnel":
+	default:
+		return InvalidArgument
+	}
+	switch result {
+	case "running", "succeeded", "failed", "required", "disabled", "unavailable", "unknown":
+	default:
+		return InvalidArgument
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.running || s.stopping {
+		return Cancelled
+	}
+	if s.sequence >= math.MaxUint64-1 {
+		return Limit
+	}
+	kept := s.queue[:0]
+	for _, item := range s.queue {
+		if item.stage != stage {
+			kept = append(kept, item)
+		}
+	}
+	clear(s.queue[len(kept):])
+	s.queue = kept
+	return s.push(event{Type: "observation", Stage: stage, Result: result, ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)})
 }
 
 // Diagnostic accepts stable codes, never arbitrary server responses or credentials.

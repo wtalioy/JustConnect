@@ -63,13 +63,13 @@ ABI v1 与 JSON schema 版本同步。S2-02 以兼容增补导出 `jc_config_val
 
 事件包含 `schema_version/type/generation/sequence/status`。代次、序列号与请求标识为十进制字符串，避免 Qt JSON 数值精度损失。状态事件为 `state:starting/ready`；终态为 `type:terminal`，携带安全消息。`ready` 在认证未完成／未读时不能产生，每代最多一次。诊断只接受已登记 `code`，没有任意文本／服务端响应字段：`authentication_started/transport_connected/keepalive_retry/anti_mitm_failed/persistence_failed/manifest_cached/auth_detail_unavailable`。初始化／认证方式查询中的证书校验失败另发送阶段码 `tls_authentication_failed/tls_resources_failed/tls_node_probe_failed/tls_ip_tunnel_failed` 及原因码 `tls_unknown_authority/tls_hostname_mismatch/tls_certificate_time_invalid/tls_certificate_invalid`，终态仍为 `JC_TLS_TRUST`；时间错误包括过期及尚未生效。证书失败还按实际握手链发送 `tls_peer_chain_leaf_only`（对端仅发送叶证书）和 `tls_peer_self_signed`（叶证书的自签名验证通过），均只描述未受信证书，不作为接受依据；仅发送叶证书本身不能证明缺少中间证书。多节点证书失败与探测超时并存时，保留证书原因并返回 `JC_TLS_TRUST`，显式取消仍优先。只记录固定代码，不输出证书正文、服务器原始错误或请求 URL。宿主日志目标保持不变，SID、票据、签名、凭据、原始响应和报文不进入诊断。
 
-队列最多保留 `MaxDiagnostics` 条诊断；超限立即返回 `JC_LIMIT`，不阻塞数据面或退出。另外保留两条状态、一个未读认证请求和一个终态的位置（查询结果占用该代的结果位置，不与 ready／认证并存），缓存另保留两个位置（见下文），总数最多 `MaxDiagnostics + 6`；单个事件和图片受大小限制。未读认证不能回应；过期但未读的请求仍占据位置，避免重试积压图片。终态和清理均不依赖宿主消费诊断。
+队列最多保留 `MaxDiagnostics` 条诊断；超限立即返回 `JC_LIMIT`，不阻塞数据面或退出。另外保留两条状态、一个未读认证请求和一个终态的位置（查询结果占用该代的结果位置，不与 ready／认证并存），缓存另保留两个位置（见下文），六类会话观测各保留一个最新值，总数最多 `MaxDiagnostics + 12`；单个事件和图片受大小限制。未读认证不能回应；过期但未读的请求仍占据位置，避免重试积压图片。终态和清理均不依赖宿主消费诊断。
 
 `authentication_cache` 是版本 1 的可选扩展；省略或 `enabled:false` 时不恢复或交付缓存。启用使用 `{enabled:true,account:"服务器确认账户",data:"Base64 的不透明核心材料"}`；首次认证只传 `enabled:true`。`account/data` 必须同时提供，账户不替代 `auth.username` 登录别名；解码后最多 `MaxAuthCache`（16 KiB）。查询认证方式不接受启用缓存。宿主只从系统安全存储提供这份材料，Base64 仅是 ABI 传输编码。
 
 启用后接收 `type:authentication_cache,action:save,cache:{account,data}` 或 `action:invalidate` 事件；`data` 同样是 Base64。保存事件来自服务器确认后的快照，在资源获取／数据隧道建立之前即可交付；资源响应改变 Cookie 时再交付新快照，相同材料不重复交付。后续连接失败可在保存后产生非成功终态，保存事件不代表 ready。刷新会更新 Cookie；明确拒绝才产生失效事件，普通 Stop 不注销。宿主按活动配置作用域保存／移除，不把数据输出到诊断或日志。待交付的连续保存只保留最新一份，失效会丢弃旧保存，后续新认证的保存排在失效之后；最多占两个队列位置，停止不依赖存储或宿主消费。超过缓存上限只交付 `persistence_failed` 诊断，不中断已有效的连接。原生存储更小的实际上限仍须由宿主报告，不能回退到明文。
 
-恢复不成功且缺少密码时终态为 `JC_CREDENTIALS_REQUIRED`，宿主提供一次必要凭据输入，不提交空密码。旧调用方没有启用扩展时仍使用原事件集合。
+恢复不成功且缺少密码时终态为 `JC_CREDENTIALS_REQUIRED`，宿主提供一次必要凭据输入，不提交空密码。未启用认证缓存时不发送缓存保存／失效事件；会话观测是可忽略的增量事件。
 
 ~~~json
 {
@@ -137,3 +137,9 @@ S2-03 为认证配置与查询事件兼容增补 `auth_id`／`sub_type` 字段�
 S2-03 的 `tls` 可省略（默认验证系统信任链及目标主机名）；`skip_verify:true` 仅接受调用者显式选择，不会因证书失败自动重试为不验证。可用 `ca_pem` 附加学校 CA，最多 16384 字节，非法证书在纯配置校验时拒绝。查询、认证 HTTP 和资源请求使用此会话策略；`allow_unverified_nodes:true` 可由当前配置显式允许节点探测、IP 与 TCP／L3 隧道跳过证书链和地址校验，默认 false，不影响认证／资源 HTTPS 或浏览器。连接开始发送固定诊断 `tls_node_verification_disabled`，认证方式查询不发送。Go 的 `atrust.ClientOptions.AllowUnverifiedNodes` 只派生节点策略，不修改调用者或认证策略；隧道仍禁用 TLS session tickets，未固定 TLS 版本。Go 的 `atrust.ClientOptions.TLSConfig` 与 `auth.NewSessionContext` 接受标准 `*tls.Config`，克隆后使用；调用者须按 Go 的 Config 约定保持证书池等引用只读。
 
 终态 `JC_TLS_TRUST` 表示证书链／主机名失败，`JC_TLS_PROTOCOL` 表示握手协议失败，`JC_NETWORK_FAILURE` 表示网络连接／读写失败；超时继续使用 `JC_TIMEOUT`。Qt 查询及连接分别显示对应原因，事件不交付原始 TLS／URL／服务器错误文本。错误分类直接使用 Go 的证书错误、握手边界与网络错误类型，未匹配终端文字。规范依据：[Go TLS](https://pkg.go.dev/crypto/tls@go1.27.2)、[HTTP Transport](https://pkg.go.dev/net/http@go1.27.2#Transport)。
+
+### 会话观测
+
+`observation` 是带当前 `generation`／`sequence` 的结构化事件，包含 `stage`、`result` 和 UTC RFC3339 `observed_at`。阶段为 `authentication`、`restore`、`renewal`、`traffic`、`nodes`、`tunnel`；结果为 `running`、`succeeded`、`failed`、`required`、`disabled`、`unavailable`、`unknown`。时间表示该项实际观测时间，不能推断后续持续在线；没有事件时保持未知。事件不携带目标 URL、账户、票据或原始服务器响应。
+
+每阶段最多保留一个未读观测，与诊断限额分开；慢读者取得最新值，序号可能有间隔。认证请求、缓存失效、终态仍保留原有交付保证。`JC_SESSION_INVALID` 表示服务器明确拒绝现有会话，须停止并由用户重新认证，不自动重放密码。`state:ready` 仅为通道／本地代理就绪，不能表示校园 DNS、分流与透明接管就绪。
