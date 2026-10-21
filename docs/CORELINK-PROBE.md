@@ -47,6 +47,8 @@ Unix 的上游 `stack/tun/NewStack` 目前没有传入 `FileDescriptor`，后续
 
 数据接入须复用现有分流语义：[gVisor 拨号](../corelib/stack/gvisor/dial.go)分别保留 aTrust TCP 与 L3 路径，授权规则由[共用拨号层](../corelib/dial/dialer.go)按域名、IP、协议和端口匹配。现有 gVisor 已独占读取 [L3Conn](../corelib/client/atrust/l3conn.go) 的共享入站队列，不能另开一个连接给 TUN 竞争同一队列。系统 IP 路由本身不能区分端口；透明前端还须处理捕获范围内不走校园的流量，并保持其实际原出口及保护范围，不能全部绑定物理网卡或直接将每个包写入校园 L3。设备探测通过只解决入口权限／生命周期，这些接入与策略仍须另验。
 
+本机只读快照 `build/reports/windows-original-network.json` 保留实际接口／地址、路由与 DNS，含 26 条接口／地址族记录、608 条路由和两条既有 NRPT 规则。Tailscale、WSL 和 Meta 均有 IPv4／IPv6 路径；Meta 包含两条分割默认路由，不能把它们当成目标保护范围。Sangfor 接口处于 Up，关联 518 条活动路由，接口别名并不包含厂商名，须结合接口索引与硬件描述核对。此快照只作调查证据，正式应用前仍需重新读取并校验；既有规则／接口不得被猜测归属或自动清空，接口存在不证明认证有效。
+
 <a id="windows-device-probe"></a>
 ### Windows 设备助手隔离实验（S4-01／D2）
 
@@ -64,6 +66,7 @@ Unix 的上游 `stack/tun/NewStack` 目前没有传入 `FileDescriptor`，后续
 | 操作 | 实际回读 |
 | --- | --- |
 | 无密钥访问 | HTTP 401 |
+| Fake-IP DNS 监听与 `/dns/query` | 同一实例的实际 DNS 包返回测试 Fake-IP 范围，API 返回自有上游的真实 A 地址；可作为控制连接解析的候选，尚未接入产品 |
 | `PATCH /configs` 修改 mode | 生效 |
 | 同一 PATCH 传入 rules／dns | 返回成功但均未生效；分别用规则列表和不同 DNS 替身的真实回答核对 |
 | TUN 关闭时 PATCH 排除测试网段 | 回读包含指定范围，TUN 仍关闭；不代表开启时的实际绕行已验证 |
