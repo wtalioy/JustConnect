@@ -691,6 +691,7 @@ bool MainWindow::switchProfile(const QString &profileId)
 
     if (!profileService->switchTo(profileId))
     {
+        QMessageBox::warning(this,"切换失败","无法保存当前配置或读取目标配置，请检查文件权限及内容后重试。当前选择未改变。");
         refreshProfileMenu();
         return false;
     }

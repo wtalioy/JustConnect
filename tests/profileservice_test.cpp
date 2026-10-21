@@ -47,6 +47,7 @@ public:
 
     bool setActiveProfile(const QString &profileId) const override
     {
+        ++activeWrites;
         if (!allowActiveProfileChange)
         {
             return false;
@@ -67,6 +68,7 @@ public:
         const QString &sourcePath
     ) const override
     {
+        ++creates;
         const QString id = normalizeProfileId(requestedName);
         return !id.isEmpty() && QFile::copy(sourcePath, profilePath(id)) ? id : QString();
     }
@@ -76,11 +78,13 @@ public:
         const QString &newId
     ) const override
     {
+        ++renames;
         return QFile::rename(profilePath(oldId), profilePath(newId));
     }
 
     bool removeProfile(const QString &profileId) const override
     {
+        ++removals;
         return allowProfileRemoval && QFile::remove(profilePath(profileId));
     }
 
@@ -102,6 +106,7 @@ public:
     }
 
     mutable QString activeId;
+    mutable int activeWrites=0,creates=0,renames=0,removals=0;
     bool allowAutoStartSave = true;
     mutable bool migratedAutoStart = false;
     bool allowActiveProfileChange = true;
@@ -110,6 +115,57 @@ public:
 private:
     QString rootPath;
 };
+
+bool rejectsUnsavedSourceBeforeChangingProfiles()
+{
+    QTemporaryDir directory;
+    for(const auto &id:QStringList{"work","target","default"}) {
+        QSettings seed(directory.filePath(id+".ini"),QSettings::IniFormat);
+        seed.setValue("Credential/Username",id);seed.setValue("OtherAccount/Ticket","retained");seed.sync();
+    }
+    const auto path=directory.filePath("work.ini");
+    bool blocked=false;
+    {
+        auto backend=std::make_unique<FakeProfileBackend>(directory.path());auto *fake=backend.get();fake->activeId="work";
+        ProfileService service(std::move(backend));auto *source=service.settings();
+        source->setValue("Credential/Username","edited");
+        if(!QFile::rename(path,path+".backup") || !QDir().mkdir(path))return false;
+        blocked=!service.switchTo("target") && service.createAndSwitch("copy").isEmpty()
+            && !service.renameCurrent("renamed") && !service.removeCurrentAndSwitchToDefault()
+            && service.settings()==source && service.currentProfileId()=="work" && fake->activeId=="work"
+            && source->value("Credential/Username")=="edited" && fake->activeWrites==0
+            && fake->creates==0 && fake->renames==0 && fake->removals==0;
+        if(!QDir().rmdir(path) || !QFile::rename(path+".backup",path))return false;
+    }
+    QFile persisted(path);
+    if (!persisted.open(QIODevice::ReadOnly)) return false;
+    const auto contents = persisted.readAll();
+    QSettings reopened(path,QSettings::IniFormat);
+    if(!contents.contains("Username=edited") || !contents.contains("Ticket=retained") || !blocked || reopened.value("Credential/Username")!="edited" || reopened.value("OtherAccount/Ticket")!="retained") {
+        qCritical()<<"source sync failure must preserve the selected profile and pending values before any backend mutation";return false;
+    }
+    return true;
+}
+
+bool rejectsMalformedAndNonFileTargets()
+{
+    QTemporaryDir directory;
+    QSettings work(directory.filePath("work.ini"),QSettings::IniFormat);work.setValue("Credential/Username","alice");work.sync();
+    auto backend=std::make_unique<FakeProfileBackend>(directory.path());auto *fake=backend.get();fake->activeId="work";
+    ProfileService service(std::move(backend));auto *source=service.settings();
+    QFile broken(directory.filePath("broken.ini"));if(!broken.open(QIODevice::WriteOnly))return false;
+    broken.write("[broken section\nCredential/Username=unexpected\n");broken.close();
+    if(!QDir().mkdir(directory.filePath("folder.ini")))return false;
+    const bool targetsRejected=!service.switchTo("broken") && !service.switchTo("folder");
+    QFile defaults(directory.filePath("default.ini"));if(!defaults.open(QIODevice::WriteOnly|QIODevice::Truncate))return false;
+    defaults.write("[broken section\n");defaults.close();
+    if(!targetsRejected || service.removeCurrentAndSwitchToDefault() || service.settings()!=source
+        || service.currentProfileId()!="work" || fake->activeId!="work" || fake->activeWrites!=0 || fake->removals!=0
+        || !QFileInfo::exists(directory.filePath("work.ini")) || source->value("Credential/Username")!="alice") {
+        qCritical()<<"invalid target must not change selection or delete the current profile";return false;
+    }
+    return true;
+}
 
 bool managesCurrentProfileAsOneUnit()
 {
@@ -290,7 +346,8 @@ bool switchesAwayFromAnOverrideNamedCustom()
 int main(int argc, char *argv[])
 {
     QCoreApplication application(argc, argv);
-    return savesOnlyPublicBatchesAndRollsBackFailures()
+    return rejectsUnsavedSourceBeforeChangingProfiles() && rejectsMalformedAndNonFileTargets()
+        && savesOnlyPublicBatchesAndRollsBackFailures()
         && managesCurrentProfileAsOneUnit()
         && acceptsCustomAsARegularProfileId()
         && switchesAwayFromAnOverrideNamedCustom() ? 0 : 1;

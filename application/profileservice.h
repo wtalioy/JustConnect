@@ -39,6 +39,7 @@ public:
     bool migrateAutoStartSetting(bool enabled);
 
 private:
+    bool syncCurrent();
     std::unique_ptr<ProfileBackend> profileBackend;
     QSettings *currentSettings;
     QString currentId;
