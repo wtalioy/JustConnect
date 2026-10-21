@@ -35,16 +35,20 @@ func dialDirect(ctx context.Context, network, address string) (net.Conn, error) 
 }
 
 func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Conn, error) {
-	parts := strings.Split(ipAddr, ":")
-
-	// If addr is IPv6, use direct connection
-	if len(parts) > 2 {
-		return dialDirect(ctx, network, ipAddr)
+	if d.alwaysUseVPN && network != "tcp" && network != "udp" {
+		return nil, ErrACLDenied
 	}
 
 	ip, portStr, err := net.SplitHostPort(ipAddr)
 	if err != nil {
 		return nil, errors.New("Invalid address: " + ipAddr)
+	}
+	address := net.ParseIP(ip).To4()
+	if address == nil {
+		if d.alwaysUseVPN {
+			return nil, ErrACLDenied
+		}
+		return dialDirect(ctx, network, ipAddr)
 	}
 
 	port, err := strconv.Atoi(portStr)
@@ -53,14 +57,7 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 	}
 
 	var useVPN = false
-	var target *net.IPAddr
-
-	if pureIp := net.ParseIP(ip); pureIp != nil {
-		target = &net.IPAddr{IP: pureIp}
-	} else {
-
-		return dialDirect(ctx, network, ipAddr)
-	}
+	target := &net.IPAddr{IP: address}
 
 	if d.alwaysUseVPN {
 		useVPN = true
@@ -100,10 +97,7 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 	// upstream causes sangfor to terminate the L3 tunnel (cmd 0x08 SHUTDOWN
 	// on the next handshake). The official EasyConnect client filters here
 	// via CSClient before traffic ever reaches the tunnel; we do the same.
-	// Skipped when IPResources are unavailable (parse_resource=false), since
-	// we have no whitelist to enforce. An empty but non-nil slice still means
-	// resources were parsed and no IP destinations are allowed.
-	if useVPN && !matchedResource && d.ipResources != nil {
+	if useVPN && !matchedResource {
 
 		return nil, ErrACLDenied
 	}
@@ -123,7 +117,7 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 			})
 		} else {
 
-			return dialDirect(ctx, network, ipAddr)
+			return nil, ErrACLDenied
 		}
 	} else {
 		return dialDirect(ctx, network, ipAddr)
@@ -153,29 +147,36 @@ func matchIPResourceForTunnel(index *ipresource.Index, target net.IP, network st
 }
 
 func (d *Dialer) Dial(ctx context.Context, network string, addr string) (net.Conn, error) {
-	// If addr is IPv6, use direct connection
-	if strings.Count(addr, ":") > 1 {
-		return dialDirect(ctx, network, addr)
-	}
-
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
+		if d.alwaysUseVPN {
+			return nil, ErrACLDenied
+		}
 		return dialDirect(ctx, network, addr)
 	}
 
 	var ip net.IP
 	if ip = net.ParseIP(host); ip == nil {
-		ctx, ip, err = d.resolver.Resolve(ctx, host)
-		if err != nil {
+		if d.resolver == nil || strings.Contains(host, ":") {
+			if d.alwaysUseVPN {
+				return nil, ErrACLDenied
+			}
 			return dialDirect(ctx, network, addr)
 		}
-
-		if strings.Count(ip.String(), ":") > 0 {
-			return dialDirect(ctx, network, ip.String()+":"+port)
+		if d.alwaysUseVPN {
+			ctx, ip, err = d.resolver.ResolveCampus(ctx, host, true)
+		} else {
+			ctx, ip, err = d.resolver.Resolve(ctx, host)
+		}
+		if err != nil {
+			if d.alwaysUseVPN {
+				return nil, err
+			}
+			return dialDirect(ctx, network, addr)
 		}
 	}
 
-	return d.DialIPPort(ctx, network, ip.String()+":"+port)
+	return d.DialIPPort(ctx, network, net.JoinHostPort(ip.String(), port))
 }
 
 func NewDialer(stack stack.Stack, resolver *resolve.Resolver, ipResources []client.IPResource, alwaysUseVPN bool) *Dialer {
