@@ -14,14 +14,19 @@ class CoreEngine : public QObject
     Q_OBJECT
 public:
     enum class Operation { Connect, AuthMethods };
-    enum class PolicyUpdateStatus { Applied, Stale, Invalid, Unavailable, Failed };
-    Q_ENUM(PolicyUpdateStatus)
+    enum class RequestStatus { Success, Pending, Stale, Invalid, Unavailable, Limit, Failed };
+    Q_ENUM(RequestStatus)
+    enum class Snapshot { Network, Resources };
+    Q_ENUM(Snapshot)
     using QObject::QObject;
     virtual bool start(const ConnectionProfile &profile, Operation operation = Operation::Connect) = 0;
     virtual void stop() = 0;
     virtual void respond(const QJsonObject &response) = 0;
     virtual void updatePolicy(const QJsonObject &policy) {
-        emit policyUpdated(policy["generation"].toString(), policy["revision"].toString(), PolicyUpdateStatus::Unavailable);
+        emit policyUpdated(policy["generation"].toString(), policy["revision"].toString(), RequestStatus::Unavailable);
+    }
+    virtual void readSnapshot(Snapshot kind, const QString &generation) {
+        emit snapshotReady(kind, generation, {}, RequestStatus::Unavailable);
     }
 
     static QJsonObject responseFor(const QJsonObject &request, QJsonObject fields) {
@@ -33,7 +38,8 @@ public:
 
 signals:
     void sessionStarted(const QString &generation);
-    void policyUpdated(const QString &generation, const QString &revision, CoreEngine::PolicyUpdateStatus status);
+    void policyUpdated(const QString &generation, const QString &revision, CoreEngine::RequestStatus status);
+    void snapshotReady(CoreEngine::Snapshot kind, const QString &generation, const QJsonObject &snapshot, CoreEngine::RequestStatus status);
     void authenticationRequired(const QJsonObject &request);
     void authMethodsReady(const QJsonArray &methods);
     void diagnostic(const QString &code);

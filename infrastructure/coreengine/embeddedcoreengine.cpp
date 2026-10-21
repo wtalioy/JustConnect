@@ -9,10 +9,11 @@
 namespace {
 #define CORE_FUNCTIONS(X) X(jc_abi_version) X(jc_build_info) X(jc_config_validate) X(jc_session_create) X(jc_session_start) \
     X(jc_session_read) X(jc_session_respond) X(jc_session_stop) X(jc_session_destroy)
+#define CORE_EXTENSIONS(X) X(jc_session_update_policy) X(jc_network_snapshot) X(jc_session_resources)
 struct Library {
 #define MEMBER(name) decltype(&::name) name = nullptr;
     CORE_FUNCTIONS(MEMBER)
-    MEMBER(jc_session_update_policy)
+    CORE_EXTENSIONS(MEMBER)
 #undef MEMBER
     QLibrary library;
     bool available = false;
@@ -28,10 +29,12 @@ struct Library {
         CORE_FUNCTIONS(LOAD)
 #undef LOAD
 #ifdef JC_SHARED_LIBRARY
-        jc_session_update_policy = reinterpret_cast<decltype(jc_session_update_policy)>(library.resolve("jc_session_update_policy"));
+#define LOAD_OPTIONAL(name) name = reinterpret_cast<decltype(name)>(library.resolve(#name));
 #else
-        jc_session_update_policy = &::jc_session_update_policy;
+#define LOAD_OPTIONAL(name) name = &::name;
 #endif
+        CORE_EXTENSIONS(LOAD_OPTIONAL)
+#undef LOAD_OPTIONAL
         available = jc_abi_version() == JC_ABI_VERSION;
     }
 };
@@ -83,13 +86,15 @@ ConnectionError connectionError(int status) {
     if (status == JC_UNSUPPORTED || status == JC_ABI_MISMATCH) return ConnectionError::CORE_UNAVAILABLE;
     return ConnectionError::CLIENT_FAILED;
 }
-CoreEngine::PolicyUpdateStatus policyStatus(int status) {
+CoreEngine::RequestStatus requestStatus(int status) {
     switch (status) {
-    case JC_OK: return CoreEngine::PolicyUpdateStatus::Applied;
-    case JC_STALE_REQUEST: return CoreEngine::PolicyUpdateStatus::Stale;
-    case JC_INVALID_ARGUMENT: case JC_LIMIT: return CoreEngine::PolicyUpdateStatus::Invalid;
-    case JC_UNSUPPORTED: case JC_ABI_MISMATCH: return CoreEngine::PolicyUpdateStatus::Unavailable;
-    default: return CoreEngine::PolicyUpdateStatus::Failed;
+    case JC_OK: return CoreEngine::RequestStatus::Success;
+    case JC_BUSY: return CoreEngine::RequestStatus::Pending;
+    case JC_STALE_REQUEST: return CoreEngine::RequestStatus::Stale;
+    case JC_INVALID_ARGUMENT: return CoreEngine::RequestStatus::Invalid;
+    case JC_LIMIT: return CoreEngine::RequestStatus::Limit;
+    case JC_UNSUPPORTED: case JC_ABI_MISMATCH: return CoreEngine::RequestStatus::Unavailable;
+    default: return CoreEngine::RequestStatus::Failed;
     }
 }
 }
@@ -148,6 +153,35 @@ public:
         bytes.fill('\0');
         emit policyResult(id, status == JC_OK ? QString::number(applied) : requestedGeneration, revision, status);
     }
+    void readSnapshot(quint64 id, CoreEngine::Snapshot kind, const QString &requestedGeneration) {
+        int status = JC_STALE_REQUEST;
+        QJsonObject snapshot;
+        if (id == serial && active && requestedGeneration == QString::number(generation)) {
+            auto &api = library();
+            const bool resources = kind == CoreEngine::Snapshot::Resources;
+            const auto capabilities = EmbeddedCoreEngine::buildInfo()["capabilities"].toObject();
+            status = JC_UNSUPPORTED;
+            if (resources ? api.jc_session_resources && capabilities["resource_snapshot"].toBool()
+                          : api.jc_network_snapshot && capabilities["network_snapshot"].toBool()) {
+                QByteArray bytes(JC_MAX_OUTPUT, Qt::Uninitialized);
+                uint32_t length = 0;
+                status = resources ? api.jc_session_resources(handle, generation, reinterpret_cast<uint8_t *>(bytes.data()), uint32_t(bytes.size()), &length)
+                                   : api.jc_network_snapshot(JC_ABI_VERSION, reinterpret_cast<uint8_t *>(bytes.data()), uint32_t(bytes.size()), &length);
+                if (status == JC_OK) {
+                    QJsonParseError error{};
+                    const auto doc = length <= uint32_t(bytes.size()) ? QJsonDocument::fromJson(bytes.first(length), &error) : QJsonDocument();
+                    snapshot = doc.object();
+                    if (error.error != QJsonParseError::NoError || !doc.isObject() || snapshot["schema_version"].toInt() != JC_ABI_VERSION
+                        || !snapshot[resources ? "resources" : "network"].isObject()
+                        || (resources && snapshot["generation"].toString() != requestedGeneration)) {
+                        status = JC_INTERNAL;
+                        snapshot = {};
+                    }
+                }
+            }
+        }
+        emit snapshotResult(id, kind, requestedGeneration, snapshot, status);
+    }
     void poll() {
         if (!active || QThread::currentThread()->isInterruptionRequested()) return;
         QByteArray buffer(JC_MAX_OUTPUT, Qt::Uninitialized);
@@ -158,7 +192,7 @@ public:
             QTimer::singleShot(status == JC_CANCELLED ? 10 : 0, this, &CoreEventPump::poll);
             return;
         }
-        QJsonParseError error;
+        QJsonParseError error{};
         const auto doc = length <= uint32_t(buffer.size())
             ? QJsonDocument::fromJson(buffer.first(length), &error) : QJsonDocument();
         if (status != JC_OK || error.error != QJsonParseError::NoError || !doc.isObject()
@@ -180,6 +214,7 @@ signals:
     void accepted(quint64 serial);
     void rejected(quint64 serial);
     void policyResult(quint64 serial, const QString &generation, const QString &revision, int status);
+    void snapshotResult(quint64 serial, CoreEngine::Snapshot kind, const QString &generation, const QJsonObject &snapshot, int status);
 };
 
 EmbeddedCoreEngine::EmbeddedCoreEngine(QObject *parent) : CoreEngine(parent), pump(new CoreEventPump) {
@@ -199,7 +234,12 @@ EmbeddedCoreEngine::EmbeddedCoreEngine(QObject *parent) : CoreEngine(parent), pu
     }, Qt::QueuedConnection);
     connect(pump, &CoreEventPump::policyResult, this, [this](quint64 id, const QString &generation, const QString &revision, int status) {
         if (id != serial) return;
-        emit policyUpdated(generation, revision, !active || stopping ? PolicyUpdateStatus::Stale : policyStatus(status));
+        emit policyUpdated(generation, revision, !active || stopping ? RequestStatus::Stale : requestStatus(status));
+    }, Qt::QueuedConnection);
+    connect(pump, &CoreEventPump::snapshotResult, this, [this](quint64 id, Snapshot kind, const QString &generation, const QJsonObject &snapshot, int status) {
+        if (id != serial) return;
+        const bool stale = !active || stopping;
+        emit snapshotReady(kind, generation, stale ? QJsonObject{} : snapshot, stale ? RequestStatus::Stale : requestStatus(status));
     }, Qt::QueuedConnection);
     thread.start();
 }
@@ -239,11 +279,16 @@ void EmbeddedCoreEngine::respond(const QJsonObject &response) {
 }
 void EmbeddedCoreEngine::updatePolicy(const QJsonObject &policy) {
     const auto generation = policy["generation"].toString(), revision = policy["revision"].toString();
-    if (!active || stopping) { emit policyUpdated(generation, revision, PolicyUpdateStatus::Stale); return; }
+    if (!active || stopping) { emit policyUpdated(generation, revision, RequestStatus::Stale); return; }
     auto bytes = QJsonDocument(policy).toJson(QJsonDocument::Compact);
     if (bytes.size() > JC_MAX_INPUT) bytes.clear();
     const auto id = serial;
     QMetaObject::invokeMethod(pump, [this, id, bytes, generation, revision] { pump->updatePolicy(id, bytes, generation, revision); }, Qt::QueuedConnection);
+}
+void EmbeddedCoreEngine::readSnapshot(Snapshot kind, const QString &generation) {
+    if (!active || stopping) { emit snapshotReady(kind, generation, {}, RequestStatus::Stale); return; }
+    const auto id = serial;
+    QMetaObject::invokeMethod(pump, [this, id, kind, generation] { pump->readSnapshot(id, kind, generation); }, Qt::QueuedConnection);
 }
 void EmbeddedCoreEngine::deliver(quint64 id, const QJsonObject &event) {
     if (!active || id != serial) return;
