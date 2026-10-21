@@ -29,6 +29,12 @@ import (
 
 const probePort = 43877
 
+type brokerDevice struct {
+	Name  string
+	Index uint32
+	LUID  uint64
+}
+
 var errRejectedFrame = errors.New("rejected device frame")
 
 func main() {
@@ -146,6 +152,21 @@ func interfaceHasRoutes(index uint32) (bool, error) {
 	return false, nil
 }
 
+func ownedInterfacePresent(luid uint64) (bool, error) {
+	if luid == 0 {
+		return false, errors.New("invalid test interface LUID")
+	}
+	row := windows.MibIfRow2{InterfaceLuid: luid}
+	err := windows.GetIfEntry2Ex(windows.MibIfTableNormalWithoutStatistics, &row)
+	if errors.Is(err, windows.ERROR_FILE_NOT_FOUND) || errors.Is(err, windows.ERROR_NOT_FOUND) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return row.OperStatus != windows.IfOperStatusNotPresent, nil
+}
+
 func runBroker(dll, mode string) (result error) {
 	fmt.Fprintln(os.Stderr, "START: device case", mode)
 	var nonce [8]byte
@@ -183,13 +204,20 @@ func runBroker(dll, mode string) (result error) {
 	if err = cmd.Start(); err != nil {
 		return err
 	}
+	var ready brokerDevice
 	defer func() {
 		if cmd.ProcessState == nil {
 			_ = cmd.Process.Kill()
 			_ = cmd.Wait()
 		}
 		// Independent safety cleanup is limited to this nonce's newly created device.
-		remaining, lookupErr := adapterPresent(name)
+		var remaining bool
+		var lookupErr error
+		if ready.LUID != 0 {
+			remaining, lookupErr = ownedInterfacePresent(ready.LUID)
+		} else {
+			remaining, lookupErr = adapterPresent(name)
+		}
 		if lookupErr != nil {
 			result = errors.Join(result, lookupErr)
 			return
@@ -205,7 +233,7 @@ func runBroker(dll, mode string) (result error) {
 		}
 		deviceID := strings.TrimSpace(string(output))
 		if !strings.HasPrefix(strings.ToUpper(deviceID), "SWD\\WINTUN\\") {
-			result = errors.Join(result, errors.New("unexpected device identity; refusing removal"))
+			result = errors.Join(result, fmt.Errorf("unexpected device identity %q; refusing removal", deviceID))
 			return
 		}
 		cleanup, stop := context.WithTimeout(context.Background(), 12*time.Second)
@@ -220,14 +248,10 @@ func runBroker(dll, mode string) (result error) {
 	if err = assignAndResume(job, uint32(cmd.Process.Pid)); err != nil {
 		return err
 	}
-	var ready struct {
-		Name  string
-		Index uint32
-	}
 	if err = json.NewDecoder(bufio.NewReader(io.LimitReader(output, 4096))).Decode(&ready); err != nil {
 		return fmt.Errorf("broker did not confirm its device: %w", err)
 	}
-	if ready.Name != name || ready.Index == 0 {
+	if ready.Name != name || ready.Index == 0 || ready.LUID == 0 {
 		return errors.New("broker confirmed another device")
 	}
 	if mode == "crash" {
@@ -246,7 +270,7 @@ func runBroker(dll, mode string) (result error) {
 	}
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		present, err = adapterPresent(name)
+		present, err = ownedInterfacePresent(ready.LUID)
 		if err != nil {
 			return err
 		}
@@ -262,7 +286,10 @@ func runBroker(dll, mode string) (result error) {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	return errors.New("owned adapter did not disappear after broker exit")
+	row := windows.MibIfRow2{InterfaceLuid: ready.LUID}
+	readErr := windows.GetIfEntry2Ex(windows.MibIfTableNormalWithoutStatistics, &row)
+	routes, routeErr := interfaceHasRoutes(ready.Index)
+	return fmt.Errorf("owned adapter did not disappear after broker exit: state=%d admin=%d lookup=%v routes=%t route_error=%v", row.OperStatus, row.AdminStatus, readErr, routes, routeErr)
 }
 
 func assignAndResume(job windows.Handle, processID uint32) error {
@@ -374,10 +401,7 @@ func broker(path, name, mode string) error {
 	if _, err = powershell(script); err != nil {
 		return err
 	}
-	if err = json.NewEncoder(os.Stdout).Encode(struct {
-		Name  string
-		Index uint32
-	}{name, index}); err != nil {
+	if err = json.NewEncoder(os.Stdout).Encode(brokerDevice{name, index, luid}); err != nil {
 		return err
 	}
 	if mode == "crash" {
