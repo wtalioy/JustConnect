@@ -32,6 +32,8 @@ type Options struct {
 	SecondaryDNS     string
 	DNSCacheTTL      uint64
 	DisableRemoteDNS bool
+	KeepAliveMode    string
+	KeepAliveURL     string
 	QueryAuthMethods bool
 }
 
@@ -104,6 +106,9 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 	if options.Setup.ServerAddress == "" || options.Setup.ServerPort < 1 || options.Setup.ServerPort > 65535 || options.Setup.SessionRefreshInterval < 0 || options.Setup.BestNodesRefreshInterval < 0 || options.DNSCacheTTL > uint64((1<<63-1)/int64(time.Second)) {
 		return errors.New("invalid_session_options")
 	}
+	if err := ValidateKeepAlive(options.KeepAliveMode, options.KeepAliveURL); err != nil {
+		return err
+	}
 	clientOptions := options.Client
 	if clientOptions.UnderlayDialer == nil {
 		ownedUnderlay, err = underlay.New(options.Underlay)
@@ -145,6 +150,19 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 	if options.Setup.BestNodesRefreshInterval == 0 {
 		options.Setup.BestNodesRefreshInterval = DefaultNodeRefreshInterval
 	}
+	trafficReady := make(chan struct{})
+	var probe func(context.Context) string
+	options.Setup.MaintainTraffic = func(ctx context.Context) {
+		select {
+		case <-ctx.Done():
+			return
+		case <-trafficReady:
+		}
+		result := probe(ctx)
+		if ctx.Err() == nil && clientOptions.Observe != nil {
+			clientOptions.Observe("traffic", result)
+		}
+	}
 	if _, err = vpn.SetupContext(ctx, options.Setup); err != nil {
 		return fmt.Errorf("setup_failed: %w", err)
 	}
@@ -177,6 +195,19 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 	listeners, err = service.NewListeners(ctx, options.SOCKS, options.HTTP, dialer, resolver)
 	if err != nil {
 		return fmt.Errorf("listeners_failed: %w", err)
+	}
+	probe = func(ctx context.Context) string {
+		return trafficProbe(ctx, options.KeepAliveMode, options.KeepAliveURL, remoteDNS, network, resolver, ips, clientOptions.TLSConfig)
+	}
+	close(trafficReady)
+	if clientOptions.Observe != nil {
+		result := "unknown"
+		if options.KeepAliveMode == "off" {
+			result = "disabled"
+		} else if options.KeepAliveMode != "target" && authorizedDNS(remoteDNS, ips) == nil {
+			result = "unavailable"
+		}
+		clientOptions.Observe("traffic", result)
 	}
 	select {
 	case err = <-vpn.Errors():

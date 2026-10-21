@@ -77,7 +77,18 @@ func TCPPrefersL3(ctx context.Context) bool {
 }
 
 // Resolve ip address. If the host could be visited via VPN, this function set a DOMAIN_RESOURCE value in context. If resolve success, this function set a RESOLVE_HOST value in context.
-func (r *Resolver) Resolve(ctx context.Context, host string) (resCtx context.Context, resIP net.IP, resErr error) {
+func (r *Resolver) Resolve(ctx context.Context, host string) (context.Context, net.IP, error) {
+	return r.resolve(ctx, host, false, true)
+}
+
+var ErrCampusDNSUnavailable = errors.New("campus DNS unavailable")
+
+// ResolveCampus excludes public fallback and shared cache entries of unknown origin.
+func (r *Resolver) ResolveCampus(ctx context.Context, host string, allowDNS bool) (context.Context, net.IP, error) {
+	return r.resolve(ctx, host, true, allowDNS)
+}
+
+func (r *Resolver) resolve(ctx context.Context, host string, campusOnly, allowDNS bool) (resCtx context.Context, resIP net.IP, resErr error) {
 	if err := ctx.Err(); err != nil {
 		return ctx, nil, err
 	}
@@ -98,7 +109,7 @@ func (r *Resolver) Resolve(ctx context.Context, host string) (resCtx context.Con
 
 	}
 
-	if cachedIP, found := r.getDNSCache(host); found {
+	if cachedIP, found := r.getDNSCache(host); found && !campusOnly {
 
 		return ctx, cachedIP, nil
 	}
@@ -114,11 +125,14 @@ func (r *Resolver) Resolve(ctx context.Context, host string) (resCtx context.Con
 
 	}
 
-	if r.useRemoteDNS {
+	if r.useRemoteDNS && (!campusOnly || allowDNS) {
 		ip, err := r.resolveCoordinated(ctx, host, func(lookupCtx context.Context) (net.IP, error) {
 			return r.resolveRemote(lookupCtx, host)
 		})
 		if err != nil {
+			if campusOnly {
+				return ctx, nil, err
+			}
 			if ctx.Err() != nil {
 				return ctx, nil, ctx.Err()
 			}
@@ -128,6 +142,9 @@ func (r *Resolver) Resolve(ctx context.Context, host string) (resCtx context.Con
 
 		return ctx, ip, nil
 	} else {
+		if campusOnly {
+			return ctx, nil, ErrCampusDNSUnavailable
+		}
 		return r.ResolveWithSecondaryDNS(ctx, host)
 	}
 }

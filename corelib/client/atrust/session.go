@@ -21,7 +21,7 @@ func (c *Client) setSessionSID(sid string, err error) {
 	c.sessionMu.Unlock()
 }
 
-func (c *Client) startSessionRefresh(refresh func(context.Context) (auth.LoginResult, error), data auth.ClientAuthData, save func([]byte) error, interval time.Duration) {
+func (c *Client) startSessionRefresh(refresh func(context.Context) (auth.LoginResult, error), data auth.ClientAuthData, save func([]byte) error, interval time.Duration, maintain func(context.Context)) {
 	c.refreshDone = make(chan struct{})
 	c.startWorker(func() {
 		defer close(c.refreshDone)
@@ -39,6 +39,7 @@ func (c *Client) startSessionRefresh(refresh func(context.Context) (auth.LoginRe
 				return
 			}
 			if errors.Is(err, auth.ErrSessionInvalid) {
+				c.report("renewal", "required")
 				c.fail(err)
 				return
 			}
@@ -46,6 +47,9 @@ func (c *Client) startSessionRefresh(refresh func(context.Context) (auth.LoginRe
 				c.report("renewal", "failed")
 				if c.diagnostic != nil {
 					c.diagnostic("keepalive_retry")
+				}
+				if maintain != nil {
+					maintain(c.lifecycleCtx)
 				}
 				timer.Reset(min(interval, time.Minute))
 				continue
@@ -62,6 +66,9 @@ func (c *Client) startSessionRefresh(refresh func(context.Context) (auth.LoginRe
 				if err != nil && c.diagnostic != nil {
 					c.diagnostic("persistence_failed")
 				}
+			}
+			if maintain != nil {
+				maintain(c.lifecycleCtx)
 			}
 			timer.Reset(interval)
 		}

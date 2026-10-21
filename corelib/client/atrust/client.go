@@ -53,6 +53,7 @@ type SetupOptions struct {
 	SessionRefreshInterval   time.Duration
 	SaveClientData           func([]byte) error
 	ClientDataInvalidated    func()
+	MaintainTraffic          func(context.Context)
 }
 
 type Client struct {
@@ -479,7 +480,7 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) (_ []by
 	c.l3TunnelMu.Unlock()
 	sess.SetContext(c.lifecycleCtx)
 	if options.SessionRefreshInterval > 0 {
-		c.startSessionRefresh(sess.Refresh, clientAuthData, options.SaveClientData, options.SessionRefreshInterval)
+		c.startSessionRefresh(sess.Refresh, clientAuthData, options.SaveClientData, options.SessionRefreshInterval, options.MaintainTraffic)
 	}
 
 	if options.BestNodesRefreshInterval > 0 {
