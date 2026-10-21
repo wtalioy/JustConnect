@@ -80,6 +80,47 @@ jobs:
         shell: bash
         run: sudo unshare --net -- "$(command -v python)" tests/platform/linux_device_probe.py --uid "$(id -u)" | tee build/coreabi/linux-device.log
 
+      - name: Probe Windows device broker in the disposable runner
+        if: runner.os == 'Windows'
+        shell: python
+        run: |
+          import hashlib, io, json, os, pathlib, subprocess, urllib.request, zipfile
+          output = pathlib.Path('build/coreabi').resolve()
+          sdk = output / 'wintun-probe'
+          sdk.mkdir(parents=True, exist_ok=True)
+          with urllib.request.urlopen('https://www.wintun.net/builds/wintun-0.14.1.zip', timeout=30) as response:
+              data = response.read(16 * 1024 * 1024 + 1)
+          digest = hashlib.sha256(data).hexdigest()
+          if len(data) > 16 * 1024 * 1024 or digest != '07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51':
+              raise RuntimeError('Unexpected Wintun archive')
+          arch = {'X64': 'amd64', 'ARM64': 'arm64'}[os.environ['RUNNER_ARCH']]
+          with zipfile.ZipFile(io.BytesIO(data)) as archive:
+              dll = sdk / 'wintun.dll'
+              dll.write_bytes(archive.read(f'wintun/bin/{arch}/wintun.dll'))
+              (output / 'windows-device-license.txt').write_bytes(archive.read('wintun/LICENSE.txt'))
+          env = dict(os.environ, JC_TEST_WINTUN_DLL=str(dll), CGO_ENABLED='0', GOTOOLCHAIN='local', GOWORK='off', GOENV='off')
+          signature = json.loads(subprocess.check_output(['powershell', '-NoProfile', '-NonInteractive', '-Command',
+              '$s=Get-AuthenticodeSignature -LiteralPath $env:JC_TEST_WINTUN_DLL; @{status=$s.Status.ToString(); signer=$s.SignerCertificate.Thumbprint} | ConvertTo-Json -Compress'], env=env, text=True, timeout=60))
+          if signature != {'status': 'Valid', 'signer': 'DF98E075A012ED8C86FBCF14854B8F9555CB3D45'}:
+              raise RuntimeError(f'Untrusted Wintun signature: {signature}')
+          metadata = {'archive_sha256': digest, 'version': '0.14.1', 'arch': arch, 'signature': signature, 'source': os.environ['GITHUB_SHA']}
+          (output / 'windows-device.json').write_text(json.dumps(metadata, indent=2), encoding='utf-8')
+          source = pathlib.Path('tests/platform/windows_device_probe.go').resolve()
+          tests = pathlib.Path('tests/platform/windows_device_probe_test.go').resolve()
+          if subprocess.check_output(['gofmt', '-l', str(source), str(tests)], env=env).strip():
+              raise RuntimeError('Unformatted device probe')
+          subprocess.run(['go', '-C', 'corelib', 'vet', str(source), str(tests)], env=env, check=True, timeout=120)
+          probe, unit = output / 'windows-device-probe.exe', output / 'windows-device-unit.exe'
+          subprocess.run(['go', '-C', 'corelib', 'build', '-mod=readonly', '-o', str(probe), str(source)], env=env, check=True, timeout=120)
+          subprocess.run(['go', '-C', 'corelib', 'test', '-mod=readonly', '-c', '-o', str(unit), str(source), str(tests)], env=env, check=True, timeout=120)
+          with (output / 'windows-device.log').open('w', encoding='utf-8') as log:
+              for args in ([str(unit), '-test.v'], [str(probe), str(dll)]):
+                  result = subprocess.run(args, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=180)
+                  print(result.stdout, flush=True)
+                  log.write(result.stdout); log.flush()
+                  if result.returncode:
+                      raise RuntimeError(f'Device probe failed: {result.returncode}')
+
       - name: Upload toolchain and runtime evidence
         if: always()
         uses: actions/upload-artifact@v7.0.2
