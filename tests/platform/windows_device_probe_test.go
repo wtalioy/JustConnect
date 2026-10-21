@@ -14,6 +14,37 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+func TestDeviceIdentityTracksAnActualPresentPnPNode(t *testing.T) {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, iface := range interfaces {
+		if iface.Flags&net.FlagLoopback != 0 || iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+		row := windows.MibIfRow2{InterfaceIndex: uint32(iface.Index)}
+		if err := windows.GetIfEntry2Ex(windows.MibIfTableNormalWithoutStatistics, &row); err != nil {
+			t.Fatal(err)
+		}
+		identity, err := deviceInstanceID(row.InterfaceLuid)
+		if errors.Is(err, windows.ERROR_NOT_FOUND) {
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if present, err := devicePresent(identity); err != nil || !present {
+			t.Fatal("native identity lookup missed its original PnP device", err)
+		}
+		if present, err := devicePresent(`SWD\WINTUN\{00000000-0000-0000-0000-000000000000}`); err != nil || present {
+			t.Fatal("missing PnP node selected another device", err)
+		}
+		return
+	}
+	t.Fatal("no present PnP network device for identity verification")
+}
+
 func TestDeviceReadbackUsesNativeInterfaceAndRouteTables(t *testing.T) {
 	interfaces, err := net.Interfaces()
 	if err != nil {
