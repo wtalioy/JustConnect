@@ -54,6 +54,48 @@ def exchange(fd, destination):
         assert udp.recvfrom(65536) == (payload, (destination, 54321))
 
 
+def receive(control_fd, uid, gid, crash):
+    assert os.getuid() == os.geteuid() == uid and uid != 0
+    assert os.getgid() == os.getegid() == gid and gid != 0
+    if sys.platform == 'darwin':
+        import ctypes
+        # Python's macOS getgroups reports directory membership, not native process groups.
+        getgroups = ctypes.CDLL(None, use_errno=True).getgroups
+        getgroups.argtypes = [ctypes.c_int, ctypes.POINTER(ctypes.c_uint32)]
+        getgroups.restype = ctypes.c_int
+        groups = (ctypes.c_uint32 * 16)()
+        count = getgroups(len(groups), groups)
+        assert 0 <= count <= len(groups), 'cannot read native process groups'
+        assert set(groups[:count]) == {gid}, f'receiver retained native groups: {list(groups[:count])}'
+    else:
+        assert os.getgroups() == [], 'receiver retained supplementary groups'
+    try:
+        os.setuid(0)
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError('receiver could restore root privileges')
+    if sys.platform == 'linux':
+        status = Path('/proc/self/status').read_text()
+        caps = next(line.split()[1] for line in status.splitlines() if line.startswith('CapEff:'))
+        assert int(caps, 16) == 0, 'receiver retained capabilities'
+    with socket.socket(fileno=control_fd) as control:
+        control.settimeout(5)
+        control.sendall(b'R')
+        message, fds, _, _ = socket.recv_fds(control, 1, 1)
+        assert message == b'F' and len(fds) == 1
+        received = fds[0]
+        for destination, confirmation in [('198.18.0.2', b'C'), ('198.18.0.6', b'E')]:
+            exchange(received, destination)
+            control.sendall(confirmation)
+        if crash:
+            control.sendall(b'K')
+            control.recv(1)  # Parent kills this process with its fd still open.
+            raise AssertionError('crash receiver unexpectedly resumed')
+        os.close(received)
+        control.sendall(b'K')
+
+
 def probe(uid, gid, crash):
     name = 'jcprobe0'
     if sys.platform == 'darwin':
@@ -76,8 +118,7 @@ def probe(uid, gid, crash):
     else:
         fd = os.open('/dev/net/tun', os.O_RDWR | os.O_CLOEXEC)
     parent, child = socket.socketpair()
-    pid = None
-    reaped = False
+    receiver = None
     try:
         if sys.platform == 'darwin':
             subprocess.run(['/sbin/ifconfig', name, 'inet', '198.18.0.1', '198.18.0.2', 'netmask', '255.255.255.252', 'up'], check=True, timeout=5)
@@ -91,70 +132,37 @@ def probe(uid, gid, crash):
             subprocess.run(['ip', 'route', 'add', '198.18.0.6/32', 'dev', name], check=True)
             route = json.loads(subprocess.check_output(['ip', '-j', 'route', 'get', '198.18.0.6'], text=True))
             assert route[0]['dev'] == name, 'owned host route was not applied'
-        pid = os.fork()
-        if pid == 0:
-            try:
-                parent.close()
-                os.close(fd)
-                os.setgroups([gid] if sys.platform == 'darwin' else [])
-                os.setgid(gid)
-                os.setuid(uid)
-                assert os.getuid() == os.geteuid() == uid and uid != 0
-                assert os.getgid() == os.getegid() == gid and gid != 0
-                if sys.platform == 'darwin':
-                    import ctypes
-                    # Python's macOS getgroups reports directory membership, not setgroups state.
-                    getgroups = ctypes.CDLL(None, use_errno=True).getgroups
-                    getgroups.argtypes = [ctypes.c_int, ctypes.POINTER(ctypes.c_uint32)]
-                    getgroups.restype = ctypes.c_int
-                    groups = (ctypes.c_uint32 * 16)()
-                    count = getgroups(len(groups), groups)
-                    assert 0 <= count <= len(groups), 'cannot read native process groups'
-                    assert set(groups[:count]) == {gid}, f'receiver retained native groups: {list(groups[:count])}'
-                else:
-                    assert os.getgroups() == [], 'receiver retained supplementary groups'
-                try:
-                    os.setuid(0)
-                except PermissionError:
-                    pass
-                else:
-                    raise AssertionError('receiver could restore root privileges')
-                if sys.platform == 'linux':
-                    status = Path('/proc/self/status').read_text()
-                    caps = next(line.split()[1] for line in status.splitlines() if line.startswith('CapEff:'))
-                    assert int(caps, 16) == 0, 'receiver retained capabilities'
-                child.settimeout(5)
-                message, fds, _, _ = socket.recv_fds(child, 1, 1)
-                assert message == b'F' and len(fds) == 1
-                received = fds[0]
-                for destination in ('198.18.0.2', '198.18.0.6'):
-                    exchange(received, destination)
-                if crash:
-                    child.sendall(b'K')
-                    child.recv(1)  # Parent kills this process with its fd still open.
-                    raise AssertionError('crash receiver unexpectedly resumed')
-                os.close(received)
-                child.sendall(b'K')
-                os._exit(0)
-            except BaseException:
-                import traceback
-                traceback.print_exc()
-                os._exit(1)
-
+        command = [sys.executable, str(Path(__file__).resolve()), '--uid', str(uid),
+                   '--receive-fd', str(child.fileno())]
+        if crash:
+            command.append('--crash')
+        # Exec after dropping privileges: Python/native runtime state cannot cross fork safely on macOS.
+        receiver = subprocess.Popen(command, pass_fds=(child.fileno(),), user=uid, group=gid,
+                                    extra_groups=[gid] if sys.platform == 'darwin' else [])
         child.close()
-        parent.settimeout(8)
+        deadline = time.monotonic() + 8
+
+        def acknowledge(expected, stage):
+            remaining = deadline - time.monotonic()
+            assert remaining > 0, f'receiver budget exhausted at {stage}'
+            parent.settimeout(remaining)
+            try:
+                actual = parent.recv(1)
+            except TimeoutError as error:
+                raise TimeoutError(f'unprivileged receiver stalled at {stage}') from error
+            assert actual == expected, f'unprivileged receiver failed at {stage}: {actual!r}'
+
+        acknowledge(b'R', 'privilege verification')
         socket.send_fds(parent, [b'F'], [fd])
         os.close(fd)
         fd = None
-        assert parent.recv(1) == b'K', 'unprivileged receiver failed'
+        acknowledge(b'C', 'connected route exchange')
+        acknowledge(b'E', 'explicit route exchange')
+        acknowledge(b'K', 'final fd ownership')
         if crash:
-            os.kill(pid, signal.SIGKILL)
-        _, status = os.waitpid(pid, 0)
-        reaped = True
-        if crash:
-            assert os.WIFSIGNALED(status) and os.WTERMSIG(status) == signal.SIGKILL
-        else:
-            assert os.waitstatus_to_exitcode(status) == 0
+            receiver.kill()
+        status = receiver.wait(timeout=5)
+        assert status == (-signal.SIGKILL if crash else 0), f'unexpected receiver exit: {status}'
         deadline = time.monotonic() + 5
         while True:
             try:
@@ -174,18 +182,20 @@ def probe(uid, gid, crash):
             os.close(fd)
         parent.close()
         child.close()
-        if pid is not None and not reaped:
-            try:
-                os.kill(pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            os.waitpid(pid, 0)
+        if receiver is not None and receiver.poll() is None:
+            receiver.kill()
+            receiver.wait(timeout=5)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--uid', type=int, required=True, help='ordinary receiving user')
+    parser.add_argument('--receive-fd', type=int, help=argparse.SUPPRESS)
+    parser.add_argument('--crash', action='store_true', help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.receive_fd is not None:
+        receive(args.receive_fd, args.uid, pwd.getpwuid(args.uid).pw_gid, args.crash)
+        sys.exit(0)
     if os.geteuid() != 0 or args.uid <= 0:
         parser.error('requires root and a non-root receiving uid')
     if sys.platform == 'linux':
