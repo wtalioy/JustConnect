@@ -1,4 +1,4 @@
-// Package networkstate reads original interfaces and routes without changing them.
+// Package networkstate reads original interfaces, routes and policy rules without changing them.
 package networkstate
 
 import (
@@ -45,9 +45,28 @@ type Route struct {
 }
 
 type Snapshot struct {
-	OS         string      `json:"os"`
-	Interfaces []Interface `json:"interfaces"`
-	Routes     []Route     `json:"routes"`
+	OS          string       `json:"os"`
+	Interfaces  []Interface  `json:"interfaces"`
+	Routes      []Route      `json:"routes"`
+	PolicyRules []PolicyRule `json:"policy_rules"`
+}
+
+// Attributes retain native Linux selectors, including ones this version does not interpret.
+type RuleAttribute struct {
+	Type  uint16 `json:"type"`
+	Value string `json:"value_hex"`
+}
+
+type PolicyRule struct {
+	Family      int             `json:"family"`
+	Priority    uint32          `json:"priority"`
+	Table       uint32          `json:"table"`
+	Action      uint8           `json:"action"`
+	Flags       uint32          `json:"flags"`
+	TOS         uint8           `json:"tos"`
+	Source      string          `json:"source,omitempty"`
+	Destination string          `json:"destination,omitempty"`
+	Attributes  []RuleAttribute `json:"attributes"`
 }
 
 func Read() (Snapshot, error) {
@@ -76,6 +95,10 @@ func Read() (Snapshot, error) {
 		snapshot.Interfaces = append(snapshot.Interfaces, item)
 	}
 	snapshot.Routes, err = readRoutes(snapshot.Interfaces)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	snapshot.PolicyRules, err = readPolicyRules()
 	if err != nil {
 		return Snapshot{}, err
 	}
