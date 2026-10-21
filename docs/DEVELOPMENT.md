@@ -142,7 +142,7 @@ Windows 当前未配置代码签名；未维护额外的软件源包。
 
 ## 本地构建
 
-需要模块固定版本的 Go、原生 cgo C 编译器、C++17 编译器、CMake 3.19 或更新版本、Qt 6.10 或更新版本（SSO 内存 Profile 的独立 CA 数据库需要此版本），以及 Qt Core、Concurrent、Gui、Widgets、Network、Svg、WebEngineWidgets。
+需要模块固定版本的 Go、原生 cgo C 编译器、C++17 编译器、CMake 3.20 或更新版本、Qt 6.10 或更新版本（SSO 内存 Profile 的独立 CA 数据库需要此版本），以及 Qt Core、Concurrent、Gui、Widgets、Network、Svg、WebEngineWidgets。
 
 当前本地与 CI 使用 [Qt 6.12.0](https://www.qt.io/blog/qt-6.12-released)，搭配官方为它构建的 [WebEngine 6.140.0 候选版](https://download.qt.io/development_releases/qtwebengine/6.140.0-rc/)，固定二进制构建编号 `6.12.0-0-202609281005`。已确认允许使用这一候选组件以保持三平台统一 Qt 6.12；它尚不能标作 WebEngine 正式版。[WebEngine 从 Qt 6.12 起独立发布](https://www.qt.io/blog/qt-webengine-will-release-separate)，已排除在 Windows 上出现 DLL 接口不兼容的 Qt 6.12／WebEngine 6.11.2 组合。
 
@@ -171,6 +171,8 @@ python scripts/test-corelib.py
 六平台原生 C／Qt 契约及协议测试使用同一 CMake 核心 target，支持的平台执行完整 race；Windows ARM64 的 Go race 不受工具链支持，普通 Go、FFI 和 Qt 回归仍必须通过。部署脚本统一通过 CMake 的 `CoreRuntime` 组件安装运行库、来源提交、Go／C／C++ 工具链记录、许可证和维护说明。包内不再附带旧 CLI、原始源码归档或 Wintun。Linux 的 linuxdeploy 工具以 `scripts/linuxdeploy.json` 固定内容校验和，使用免 FUSE 的提取运行方式。
 
 `Build packages` 保留 main 推送／Release、develop 手动六组预览的触发方式；预览不使用发布签名凭据。工作流解压 ZIP／AppImage、挂载 DMG 后，用 `scripts/verify-package.py` 从临时工作目录、清除 Qt SDK 和库搜索环境后运行正式程序。它检查 ABI／来源／版本、无网络生命周期、全部原生文件架构与依赖来源，拒绝缺失依赖和外部 Qt；Windows 还验证移走包内 DLL 后启动自检失败。报告拒绝 macOS 的绝对 SDK RPATH 并记录实际搜索路径；同时记录程序和 DLL 的 SHA-256、PE 系统版本字段／ELF 所需 GLIBC 和 GLIBCXX／Mach-O 最低版本，以及真实签名状态。macOS 的部署目标由共享 CMake 统一设置，当前跟随 [Qt 6.12 的 14.4 下限](https://doc.qt.io/qt-6.12/supported-platforms.html)，要求所有包内二进制不高于 Info.plist 声明，并严格验签；预览为 ad-hoc，Developer ID 与公证仅在发布凭据齐全时执行。Windows 部署与签名查询使用 PowerShell 7；预览允许明确记录的 NotSigned，损坏签名失败。
+
+Release 核心通过 Go 链接器 `-w` 省略 DWARF 调试信息，保留静态链接所需符号及来源元数据；Debug／RelWithDebInfo 不使用该选项。Windows 部署仅保留产品所需的 English／简体中文 Qt 翻译、WebEngine `en-US`／`zh-CN` 语言包，跳过 QML 调试插件；继续使用完整 WebEngine 运行库、ICU、快照及资源。Windows ZIP 解压后，把已有 WebEngine 测试宿主临时放到包内，在清除 SDK 环境后强制使用包内进程／资源／插件，分别以两种语言加载页面并执行 JavaScript；结束后删除临时宿主，报告记录 `webengine_locales`，发行包不包含测试程序。新增语言时须同步部署范围和包验证；此处不代表 S7-11 的应用翻译已完成。
 
 Linux 最低 glibc 来自实际包内 ELF 的版本需求，不能由 Qt 的理论平台下限推断本项目在旧发行版可运行；GLIBCXX 需求也写入报告。Windows PE 字段同样不能替代 Qt 的 Windows 10 1809／ARM64 Windows 支持要求。旧系统的实际桌面兼容性按后续平台验收执行，不将这些静态检查写成旧系统实机通过。
 

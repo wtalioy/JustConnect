@@ -113,7 +113,7 @@ jobs:
           Compress-Archive -Path $env:DISPLAY_NAME -DestinationPath "$env:ARCHIVE_NAME.zip"
           Expand-Archive -Path "$env:ARCHIVE_NAME.zip" -DestinationPath "$env:RUNNER_TEMP/package-check"
           $package = "$env:RUNNER_TEMP/package-check/$env:DISPLAY_NAME"
-          python scripts/verify-package.py $package "$package/$env:TARGET_NAME.exe" --revision $env:GITHUB_SHA --version $env:APP_VERSION --archive "$env:ARCHIVE_NAME.zip" --output "build/$env:ARCHIVE_NAME.json"
+          python scripts/verify-package.py $package "$package/$env:TARGET_NAME.exe" --revision $env:GITHUB_SHA --version $env:APP_VERSION --archive "$env:ARCHIVE_NAME.zip" --output "build/$env:ARCHIVE_NAME.json" --webengine-probe "build/Release/webengine_test.exe"
           if ($LASTEXITCODE -ne 0) { throw 'Packaged application verification failed' }
 
       - name: Package Linux

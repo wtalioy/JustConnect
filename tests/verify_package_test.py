@@ -64,6 +64,36 @@ class VerifyPackageTest(unittest.TestCase):
                         else:
                             obsolete.unlink()
 
+    def test_webengine_probe_uses_bundled_resources_and_cleans_up_on_failure(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            locales = root / 'translations/qtwebengine_locales'
+            locales.mkdir(parents=True)
+            probe = root / 'source-probe.exe'
+            probe.write_bytes(b'probe fixture')
+            with self.assertRaisesRegex(RuntimeError, 'Missing WebEngine locale'):
+                package.check_windows_webengine(root, probe, {})
+            for language in ('en-US', 'zh-CN'):
+                (locales / f'{language}.pak').touch()
+            def run(args, **kwargs):
+                self.assertEqual(Path(args[0]).parent, root)
+                self.assertEqual(Path(args[0]).read_bytes(), probe.read_bytes())
+                self.assertNotEqual(Path(kwargs['cwd']), root)
+                env = kwargs['env']
+                for key in ('QTWEBENGINEPROCESS_PATH', 'QTWEBENGINE_RESOURCES_PATH',
+                            'QTWEBENGINE_LOCALES_PATH', 'QT_QPA_PLATFORM_PLUGIN_PATH'):
+                    self.assertTrue(Path(env[key]).is_relative_to(root))
+                self.assertNotIn('QT_PLUGIN_PATH', env)
+                return SimpleNamespace(returncode=0, stdout=b'', stderr=b'')
+            with patch.object(package.subprocess, 'run', side_effect=run) as called:
+                self.assertEqual(package.check_windows_webengine(root, probe, {}), ['en-US', 'zh-CN'])
+                self.assertEqual([call.kwargs['env']['QTWEBENGINE_CHROMIUM_FLAGS'] for call in called.call_args_list],
+                                 ['--disable-gpu --lang=en-US', '--disable-gpu --lang=zh-CN'])
+            with patch.object(package.subprocess, 'run', side_effect=RuntimeError('probe failed')):
+                with self.assertRaisesRegex(RuntimeError, 'probe failed'):
+                    package.check_windows_webengine(root, probe, {})
+            self.assertEqual(list(root.glob('*.exe')), [probe])
+
     def test_failed_native_command_preserves_utf8_diagnostics(self):
         with self.assertRaisesRegex(RuntimeError, '签名失败'):
             package.run(sys.executable, '-c',
