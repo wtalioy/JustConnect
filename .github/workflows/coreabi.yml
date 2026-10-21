@@ -118,13 +118,16 @@ jobs:
           probe, unit = output / 'windows-device-probe.exe', output / 'windows-device-unit.exe'
           subprocess.run(['go', '-C', 'corelib', 'build', '-mod=readonly', '-o', str(probe), str(source)], env=env, check=True, timeout=120)
           subprocess.run(['go', '-C', 'corelib', 'test', '-mod=readonly', '-c', '-o', str(unit), str(source), str(tests)], env=env, check=True, timeout=120)
-          with (output / 'windows-device.log').open('w', encoding='utf-8') as log:
-              for args in ([str(unit), '-test.v'], [str(probe), str(dll)]):
-                  result = subprocess.run(args, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=300)
-                  print(result.stdout, flush=True)
-                  log.write(result.stdout); log.flush()
-                  if result.returncode:
-                      raise RuntimeError(f'Device probe failed: {result.returncode}')
+          log_path = output / 'windows-device.log'
+          with log_path.open('w', encoding='utf-8') as log:
+              try:
+                  for args in ([str(unit), '-test.v'], [str(probe), str(dll)]):
+                      result = subprocess.run(args, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=300)
+                      if result.returncode:
+                          raise RuntimeError(f'Device probe failed: {result.returncode}')
+              finally:
+                  log.flush()
+                  print(log_path.read_text(encoding='utf-8', errors='replace'), flush=True)
 
       - name: Upload toolchain and runtime evidence
         if: always()
