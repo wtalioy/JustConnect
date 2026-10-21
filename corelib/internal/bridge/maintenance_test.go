@@ -15,8 +15,12 @@ import (
 )
 
 func TestOnlineMaintenanceAndIdleTrafficControls(t *testing.T) {
-	for _, mode := range []string{"off", "auto", "target"} {
-		t.Run(mode, func(t *testing.T) {
+	for _, test := range []struct {
+		name, mode string
+		disableDNS bool
+	}{{"off", "off", false}, {"auto", "auto", false}, {"target", "target", false}, {"disabled_dns", "auto", true}} {
+		t.Run(test.name, func(t *testing.T) {
+			mode := test.mode
 			g := newGateway(t)
 			g.resumeCookies.Store(true)
 			g.probeDNS.Store(true)
@@ -32,7 +36,7 @@ func TestOnlineMaintenanceAndIdleTrafficControls(t *testing.T) {
 						return authchallenge.CodeResponse{Code: "fixture-code"}, nil
 					}},
 					SaveClientData: func([]byte) error { saves.Add(1); return nil }, ClientDataInvalidated: func() { invalidations.Add(1) }},
-				KeepAliveMode: mode, KeepAliveURL: "http://campus.test/repeatable",
+				KeepAliveMode: mode, KeepAliveURL: "http://campus.test/repeatable", DisableRemoteDNS: test.disableDNS,
 			}
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
@@ -67,9 +71,12 @@ func TestOnlineMaintenanceAndIdleTrafficControls(t *testing.T) {
 			}
 			wait("renewal", "succeeded")
 			wait("renewal", "succeeded")
-			if mode == "off" {
+			if mode == "off" || test.disableDNS {
 				if g.tcpCount.Load() != 0 || g.udpCount.Load() != 0 {
-					t.Fatal("disabled traffic probes sent application traffic")
+					t.Fatal("disabled traffic probes or DNS sent application traffic")
+				}
+				if test.disableDNS {
+					wait("traffic", "unavailable")
 				}
 			} else {
 				wait("traffic", "succeeded")

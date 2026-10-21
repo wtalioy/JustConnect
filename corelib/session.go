@@ -196,15 +196,19 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 	if err != nil {
 		return fmt.Errorf("listeners_failed: %w", err)
 	}
+	probeDNS := remoteDNS
+	if options.DisableRemoteDNS {
+		probeDNS = ""
+	}
 	probe = func(ctx context.Context) string {
-		return trafficProbe(ctx, options.KeepAliveMode, options.KeepAliveURL, remoteDNS, network, resolver, ips, clientOptions.TLSConfig)
+		return trafficProbe(ctx, options.KeepAliveMode, options.KeepAliveURL, probeDNS, network, resolver, ips, clientOptions.TLSConfig)
 	}
 	close(trafficReady)
 	if clientOptions.Observe != nil {
 		result := "unknown"
 		if options.KeepAliveMode == "off" {
 			result = "disabled"
-		} else if options.KeepAliveMode != "target" && authorizedDNS(remoteDNS, ips) == nil {
+		} else if options.KeepAliveMode != "target" && authorizedDNS(probeDNS, ips) == nil {
 			result = "unavailable"
 		}
 		clientOptions.Observe("traffic", result)
