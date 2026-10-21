@@ -101,6 +101,10 @@ func RunProtocol(ctx context.Context, config Config, host *Session) Status {
 	}
 	var certificate *tls.CertificateVerificationError
 	if errors.As(err, &certificate) {
+		if config.Operation == "auth_methods" {
+			host.Diagnostic("tls_authentication_failed")
+		}
+		host.Diagnostic(certificateDiagnostic(certificate.Err))
 		return TLSTrust
 	}
 	var networkError net.Error
@@ -116,6 +120,22 @@ func RunProtocol(ctx context.Context, config Config, host *Session) Status {
 		return TLSProtocol
 	}
 	return Internal
+}
+
+func certificateDiagnostic(err error) string {
+	var authority x509.UnknownAuthorityError
+	var hostname x509.HostnameError
+	var invalid x509.CertificateInvalidError
+	switch {
+	case errors.As(err, &authority):
+		return "tls_unknown_authority"
+	case errors.As(err, &hostname):
+		return "tls_hostname_mismatch"
+	case errors.As(err, &invalid) && invalid.Reason == x509.Expired:
+		return "tls_certificate_time_invalid"
+	default:
+		return "tls_certificate_invalid"
+	}
 }
 
 func challengeHandler(ctx context.Context, host *Session) authchallenge.Handler {
