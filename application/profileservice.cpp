@@ -9,6 +9,17 @@
 #include "application/defaultsettings.h"
 #include "application/settingsmigrator.h"
 
+namespace {
+std::unique_ptr<QSettings> readableProfile(const QString &path)
+{
+    if (!QFileInfo(path).isFile()) return {};
+    auto settings = std::make_unique<QSettings>(path, QSettings::IniFormat);
+    settings->sync();
+    if (settings->status() != QSettings::NoError) return {};
+    return settings;
+}
+}
+
 ProfileService::ProfileService(
     std::unique_ptr<ProfileBackend> backend,
     const QString &overrideConfigPath,
@@ -67,22 +78,15 @@ bool ProfileService::switchTo(const QString &profileId)
         return true;
     }
 
-    if (!QFileInfo::exists(profileBackend->profilePath(profileId)))
-    {
-        return false;
-    }
-
-    currentSettings->sync();
+    auto next = readableProfile(profileBackend->profilePath(profileId));
+    if (!next || !syncCurrent()) return false;
     if (!profileBackend->setActiveProfile(profileId))
     {
         return false;
     }
 
     delete currentSettings;
-    currentSettings = new QSettings(
-        profileBackend->profilePath(profileId),
-        QSettings::IniFormat
-    );
+    currentSettings = next.release();
     currentId = profileId;
     overrideConfiguration = false;
     return true;
@@ -90,7 +94,7 @@ bool ProfileService::switchTo(const QString &profileId)
 
 QString ProfileService::createAndSwitch(const QString &requestedName)
 {
-    currentSettings->sync();
+    if (!syncCurrent()) return {};
     const QString profileId = profileBackend->createProfile(
         requestedName,
         currentSettings->fileName()
@@ -113,7 +117,7 @@ bool ProfileService::renameCurrent(const QString &newProfileId)
         return false;
     }
 
-    currentSettings->sync();
+    if (!syncCurrent()) return false;
     if (!profileBackend->renameProfile(currentId, newProfileId))
     {
         return false;
@@ -143,13 +147,8 @@ bool ProfileService::removeCurrentAndSwitchToDefault()
     }
 
     const QString removedProfileId = currentId;
-    const QString defaultProfilePath = profileBackend->profilePath("");
-    if (!QFileInfo::exists(defaultProfilePath))
-    {
-        return false;
-    }
-
-    currentSettings->sync();
+    auto next = readableProfile(profileBackend->profilePath(""));
+    if (!next || !syncCurrent()) return false;
     if (!profileBackend->setActiveProfile(""))
     {
         return false;
@@ -162,7 +161,7 @@ bool ProfileService::removeCurrentAndSwitchToDefault()
     }
 
     delete currentSettings;
-    currentSettings = new QSettings(defaultProfilePath, QSettings::IniFormat);
+    currentSettings = next.release();
     currentId.clear();
     return true;
 }
@@ -180,6 +179,12 @@ bool ProfileService::silentStartEnabled() const
 bool ProfileService::migrateAutoStartSetting(bool enabled)
 {
     return profileBackend->setAutoStartEnabled(enabled);
+}
+
+bool ProfileService::syncCurrent()
+{
+    currentSettings->sync();
+    return currentSettings->status() == QSettings::NoError;
 }
 
 bool ProfileService::validPublicChanges(const QVariantMap &changes)
