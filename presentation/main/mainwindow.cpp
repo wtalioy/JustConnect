@@ -170,7 +170,7 @@ MainWindow::MainWindow(
                 if (guideWindow) {guideWindow->raise();guideWindow->activateWindow();return;}
                 if (coordinator->credentials()->isSaving(settings->fileName())) {QMessageBox::information(this,"正在保存配置","请等待保存完成。");return;}
                 connectionUiController->cancelPendingCredentials();
-                settingWindow = new SettingWindow(this,settings,coordinator->credentials(),coordinator->credentialSource());
+                settingWindow = new SettingWindow(this,coordinator->credentials(),coordinator->credentialSource());
                 settingWindow->show();
             });
 
@@ -783,7 +783,7 @@ void MainWindow::openConfigurationGuide()
     if (guideWindow) {guideWindow->raise();guideWindow->activateWindow();return;}
     connectionUiController->cancelPendingCredentials();
     const auto path=settings->fileName();
-    guideWindow=new ConfigurationGuideDialog(this,settings,coordinator->credentials(),coordinator->credentialSource());
+    guideWindow=new ConfigurationGuideDialog(this,coordinator->credentials(),coordinator->credentialSource());
     guideWindow->setAttribute(Qt::WA_DeleteOnClose);
     connect(guideWindow,&QDialog::accepted,this,[this,path] {
         if (settings->fileName()!=path) return;

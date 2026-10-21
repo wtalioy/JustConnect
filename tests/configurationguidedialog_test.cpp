@@ -7,6 +7,8 @@
 #include <QTimer>
 #include <QElapsedTimer>
 #include <QFile>
+#include <QSemaphore>
+#include <atomic>
 #include "tests/credentialstorefixture.h"
 #include "application/profileservice.h"
 #include <cstdlib>
@@ -72,7 +74,7 @@ bool savesPasswordCredentials(const QString &settingsPath)
     auto backend=std::make_unique<MemoryCredentialStore>();auto *store=backend.get();
     CredentialAccess access(std::move(backend));
     const auto source=CredentialAccess::source(settings,{});
-    ConfigurationGuideDialog dialog(nullptr, &settings,&access,source);
+    ConfigurationGuideDialog dialog(nullptr,&access,source);
     ready(access,settings);
     QStackedWidget *pages = credentialPages(dialog);
     QLineEdit *username = lineEdit(dialog, "guideUsernameLineEdit");
@@ -127,7 +129,7 @@ bool savesSmsCredentials(const QString &settingsPath)
     auto backend=std::make_unique<MemoryCredentialStore>();auto *store=backend.get();
     CredentialAccess access(std::move(backend));
     const auto source=CredentialAccess::source(settings,{});
-    ConfigurationGuideDialog dialog(nullptr, &settings,&access,source);
+    ConfigurationGuideDialog dialog(nullptr,&access,source);
     ready(access,settings);
     QStackedWidget *pages = credentialPages(dialog);
     QLineEdit *countryCode = lineEdit(dialog, "guideCountryCodeLineEdit");
@@ -167,7 +169,7 @@ bool showsSsoWithoutCredentialFields(const QString &settingsPath)
     auto backend=std::make_unique<MemoryCredentialStore>();auto *store=backend.get();
     CredentialAccess access(std::move(backend));
     const auto source=CredentialAccess::source(settings,{});
-    ConfigurationGuideDialog dialog(nullptr, &settings,&access,source);
+    ConfigurationGuideDialog dialog(nullptr,&access,source);
     ready(access,settings);
     QStackedWidget *pages = credentialPages(dialog);
     const bool passed = pages != nullptr && pages->currentIndex() == 2;
@@ -177,6 +179,48 @@ bool showsSsoWithoutCredentialFields(const QString &settingsPath)
     }
     return passed;
 }
+bool ownsConfigurationAndRejectsClosedResults(const QString &root)
+{
+    auto backend=std::make_unique<MemoryCredentialStore>();auto *store=backend.get();
+    CredentialAccess access(std::move(backend));ProfileCredentials vault(*store);
+    const auto seed=[&](const QString &name,const QString &password) {
+        QSettings origin(root+"/late-"+name+".ini",QSettings::IniFormat);
+        DefaultSettings::reset(origin);
+        origin.setValue("JustConnect/ServerAddress","vpn.example.edu");
+        origin.setValue("Credential/Username",name);
+        const auto source=CredentialAccess::source(origin,{});
+        auto secured=source.profile;secured.credentials.password=password;
+        if (!vault.save(source.scope,secured).succeeded()) std::exit(1);
+        return source;
+    };
+    const auto alice=seed("alice","alice-secret"),bob=seed("bob","bob-secret");
+    QSemaphore entered,resume;std::atomic_bool gated=false;
+    store->beforeRead=[&] {
+        if (!gated.exchange(true)) {
+            entered.release();
+            if (!resume.tryAcquire(1,6000)) std::exit(1);
+        }
+    };
+    ConfigurationGuideDialog old(nullptr,&access,alice);
+    if (!entered.tryAcquire(1,1000)) {qCritical()<<"Delayed guide read did not start";std::exit(1);}
+    old.reject();
+    ConfigurationGuideDialog current(nullptr,&access,bob);
+    lineEdit(current,"guidePasswordLineEdit")->setText("manual-draft");
+    resume.release();
+    until([&]{return !access.isBusy(alice.path) && !access.isBusy(bob.path);});
+    QApplication::processEvents();store->beforeRead={};
+    if (!lineEdit(old,"guidePasswordLineEdit")->text().isEmpty() || old.applyTo()
+        || lineEdit(current,"guideUsernameLineEdit")->text()!="bob"
+        || lineEdit(current,"guidePasswordLineEdit")->text()!="manual-draft") return false;
+    if (!current.applyTo()) return false;
+    until([&]{return current.result()==QDialog::Accepted;});
+    ConnectionCredentials saved;
+    if (!vault.load(alice.scope,alice.profile,saved).succeeded() || saved.password!="alice-secret"
+        || !vault.load(bob.scope,bob.profile,saved).succeeded() || saved.password!="manual-draft") return false;
+    QSettings reopened(alice.path,QSettings::IniFormat);
+    return reopened.value("Credential/Username")=="alice" && !reopened.contains("Credential/Password");
+}
+
 bool rejectsInvalidCoreSettingsAndFailedSaves(const QString &root)
 {
     QSettings settings(root+"/invalid.ini",QSettings::IniFormat);
@@ -186,7 +230,7 @@ bool rejectsInvalidCoreSettingsAndFailedSaves(const QString &root)
     settings.setValue("Credential/Username","retained-user");
     settings.setValue("OtherAccount/Ticket","retained-ticket");
     CredentialAccess access(std::make_unique<MemoryCredentialStore>());
-    ConfigurationGuideDialog invalid(nullptr,&settings,&access,CredentialAccess::source(settings,{}));
+    ConfigurationGuideDialog invalid(nullptr,&access,CredentialAccess::source(settings,{}));
     ready(access,settings);
     lineEdit(invalid,"guideUsernameLineEdit")->setText("draft-user");
     expectedMessage="请检查服务器、认证方式及连接设置。配置未保存。"; messageShown=false;
@@ -195,7 +239,7 @@ bool rejectsInvalidCoreSettingsAndFailedSaves(const QString &root)
     const auto path=root+"/write-failure.ini";
     QSettings failed(path,QSettings::IniFormat);DefaultSettings::reset(failed);
     failed.setValue("JustConnect/ServerAddress","vpn.example.edu");failed.setValue("Credential/Username","fixture-user");
-    ConfigurationGuideDialog dialog(nullptr,&failed,&access,CredentialAccess::source(failed,{}));dialog.show();ready(access,failed);
+    ConfigurationGuideDialog dialog(nullptr,&access,CredentialAccess::source(failed,{}));dialog.show();ready(access,failed);
     if (!QFile::rename(path,path+".backup") || !QDir().mkdir(path)) return false;
     QMetaObject::invokeMethod(&dialog,"goNext");QMetaObject::invokeMethod(&dialog,"goNext");
     expectedMessage="安全存储或配置操作未完成，请检查后重试。";messageShown=false;
@@ -232,6 +276,7 @@ int main(int argc, char *argv[])
         savesPasswordCredentials(directory.filePath("password.ini"))
         && savesSmsCredentials(directory.filePath("sms.ini"))
         && showsSsoWithoutCredentialFields(directory.filePath("sso.ini"))
-        && rejectsInvalidCoreSettingsAndFailedSaves(directory.path());
+        && rejectsInvalidCoreSettingsAndFailedSaves(directory.path())
+        && ownsConfigurationAndRejectsClosedResults(directory.path());
     return passed ? 0 : 1;
 }

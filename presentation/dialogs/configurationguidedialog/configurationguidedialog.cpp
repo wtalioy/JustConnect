@@ -37,12 +37,11 @@ QString normalizedAuthType(const QString &authType)
 
 ConfigurationGuideDialog::ConfigurationGuideDialog(
     QWidget *parent,
-    QSettings *settings,
     CredentialAccess *credentials,
     const CredentialSource &source
 )
     : QDialog(parent),
-      sourceSettings(settings),credentials(credentials),credentialSource(source)
+      sourceSettings(source.path,QSettings::IniFormat),credentials(credentials),credentialSource(source)
 {
     setWindowTitle("配置引导");
     setWindowModality(Qt::WindowModal);
@@ -88,20 +87,20 @@ ConfigurationGuideDialog::ConfigurationGuideDialog(
     );
 
     selectAuthenticationMethod({
-        {"type",sourceSettings->value("JustConnect/AuthType","psw").toString()},
-        {"domain",sourceSettings->value("JustConnect/LoginDomain").toString()},
-        {"auth_id",sourceSettings->value("JustConnect/AuthID").toString()},
-        {"sub_type",sourceSettings->value("JustConnect/AuthSubType").toString()}
+        {"type",sourceSettings.value("JustConnect/AuthType","psw").toString()},
+        {"domain",sourceSettings.value("JustConnect/LoginDomain").toString()},
+        {"auth_id",sourceSettings.value("JustConnect/AuthID").toString()},
+        {"sub_type",sourceSettings.value("JustConnect/AuthSubType").toString()}
     });
 
     usernameLineEdit->setText(
-        sourceSettings->value("Credential/Username").toString()
+        sourceSettings.value("Credential/Username").toString()
     );
     countryCodeLineEdit->setText(
-        sourceSettings->value("JustConnect/PhoneCountryCode", "86").toString()
+        sourceSettings.value("JustConnect/PhoneCountryCode", "86").toString()
     );
     phoneNumberLineEdit->setText(
-        sourceSettings->value("JustConnect/PhoneNumber").toString()
+        sourceSettings.value("JustConnect/PhoneNumber").toString()
     );
     updateCredentialsPage();
     updateNavigation();
@@ -137,7 +136,7 @@ void ConfigurationGuideDialog::readCredentials() {
     credentials->load(source).then(this,[this,source,generation](const CredentialLoadResult &loaded) {
         if (closed || generation!=loadGeneration) return;
         loading=false;updateNavigation();
-        if (!CredentialAccess::matches(source,*sourceSettings)) {credentialStatus->setText("已保存配置已变化，请重新打开引导。");return;}
+        if (!CredentialAccess::matches(source,sourceSettings)) {credentialStatus->setText("已保存配置已变化，请重新打开引导。");return;}
         credentialStatus->setText(PresentationHelpers::credentialOperationMessage(loaded.result.status));
         if (loaded.result.succeeded() && currentProfile().authenticationIdentity()==source.profile.authenticationIdentity()) {
             const bool passwordUntouched=passwordLineEdit->text()==loadedCredentials.password;
@@ -150,7 +149,7 @@ void ConfigurationGuideDialog::readCredentials() {
 }
 bool ConfigurationGuideDialog::applyTo() {
     if (closed || loading || saving) return false;
-    if (!CredentialAccess::matches(credentialSource,*sourceSettings) || credentialSource.publicValues!=DefaultSettings::publicValues(*sourceSettings)) {
+    if (!CredentialAccess::matches(credentialSource,sourceSettings) || credentialSource.publicValues!=DefaultSettings::publicValues(sourceSettings)) {
         QMessageBox::warning(this,"配置已变化","请重新打开引导后再保存。");return false;
     }
     auto profile=currentProfile();
@@ -176,7 +175,7 @@ bool ConfigurationGuideDialog::applyTo() {
         if (closed) return;
         saving=false;pages->setEnabled(true);updateNavigation();
         if (!result.succeeded()) {QMessageBox::warning(this,"保存设置未完成",PresentationHelpers::credentialOperationMessage(result.status));return;}
-        if (sourceSettings->fileName()==source.path && sourceSettings->value(ProfileCredentials::ScopeSetting)==source.scope) accept();
+        if (sourceSettings.fileName()==source.path && sourceSettings.value(ProfileCredentials::ScopeSetting)==source.scope) accept();
     });
     return true;
 }
@@ -184,7 +183,7 @@ bool ConfigurationGuideDialog::applyTo() {
 QWidget *ConfigurationGuideDialog::createServerPage()
 {
     serverEditor = new ServerSettingsWidget(this);
-    serverEditor->load(*sourceSettings);
+    serverEditor->load(sourceSettings);
     return serverEditor;
 }
 

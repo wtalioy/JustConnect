@@ -16,6 +16,8 @@
 #include <QTimer>
 #include <QElapsedTimer>
 #include <QComboBox>
+#include <QSemaphore>
+#include <atomic>
 #include "application/profileservice.h"
 #include "tests/credentialstorefixture.h"
 #include <iostream>
@@ -47,7 +49,7 @@ int main(int argc,char **argv) {
     auto backend=std::make_unique<MemoryCredentialStore>();auto *store=backend.get();CredentialAccess access(std::move(backend));
     auto ready=[&] {until([&]{return !access.isBusy(settings.fileName());});app.processEvents();};
     // Saving an unrelated change must preserve the selected opaque identity.
-    { auto *initial=new SettingWindow(nullptr,&settings,&access,CredentialAccess::source(settings,ApplicationPaths::clientDataFile("fixture"))); initial->show();ready();
+    { auto *initial=new SettingWindow(nullptr,&access,CredentialAccess::source(settings,ApplicationPaths::clientDataFile("fixture"))); initial->show();ready();
       initial->findChild<QCheckBox *>("tlsVerifyCheckBox")->setChecked(false);
       initial->findChild<QSpinBox *>("socks5PortSpinBox")->setValue(0);
       initial->findChild<QSpinBox *>("httpPortSpinBox")->setValue(19443);
@@ -77,7 +79,7 @@ int main(int argc,char **argv) {
             }
         }
     }); dismiss.start(1);
-    auto open=[&] { auto *window=new SettingWindow(nullptr,&settings,&access,CredentialAccess::source(settings,ApplicationPaths::clientDataFile("fixture"))); window->show();ready(); return window; };
+    auto open=[&] { auto *window=new SettingWindow(nullptr,&access,CredentialAccess::source(settings,ApplicationPaths::clientDataFile("fixture"))); window->show();ready(); return window; };
     auto buttons=[](SettingWindow *w) { return w->findChild<QDialogButtonBox *>("buttonBox"); };
     QPointer<SettingWindow> window=open();
     window->findChild<QLineEdit *>("secondaryDnsLineEdit")->setText("not-an-address");
@@ -143,5 +145,34 @@ int main(int argc,char **argv) {
         && vault.load(source.scope,other,loaded).succeeded() && loaded.password=="saved-password"
         && !settings.contains("Credential/Password") && window->findChild<QLineEdit *>("passwordLineEdit")->text().isEmpty(),"explicit settings deletion clears only the saved account and its displayed secrets");
     window->reject();ready();
+    // Only the source value survives; neither window borrows the originating QSettings.
+    const auto seed=[&](const QString &name,const QString &password) {
+        QSettings origin(directory.filePath("late-"+name+".ini"),QSettings::IniFormat);
+        DefaultSettings::reset(origin);origin.setValue("JustConnect/ServerAddress","vpn.example.invalid");
+        origin.setValue("Credential/Username",name);
+        const auto snapshot=CredentialAccess::source(origin,{});
+        auto secured=snapshot.profile;secured.credentials.password=password;
+        check(vault.save(snapshot.scope,secured).succeeded(),"seed isolated late-result account");
+        return snapshot;
+    };
+    const auto alice=seed("alice","alice-secret"),bob=seed("bob","bob-secret");
+    QSemaphore entered,resume;std::atomic_bool gated=false;
+    store->beforeRead=[&] {
+        if (!gated.exchange(true)) {entered.release();check(resume.tryAcquire(1,6000),"release delayed settings read");}
+    };
+    QPointer<SettingWindow> old=new SettingWindow(nullptr,&access,alice);old->show();
+    check(entered.tryAcquire(1,1000),"old settings credential read started");old->reject();delete old.data();
+    auto *current=new SettingWindow(nullptr,&access,bob);current->show();
+    current->findChild<QLineEdit *>("passwordLineEdit")->setText("manual-draft");resume.release();
+    until([&]{return !access.isBusy(alice.path) && !access.isBusy(bob.path);});
+    app.processEvents();store->beforeRead={};
+    check(current->findChild<QLineEdit *>("usernameLineEdit")->text()=="bob"
+        && current->findChild<QLineEdit *>("passwordLineEdit")->text()=="manual-draft",
+        "closed settings result cannot replace another profile or an edited secret");
+    buttons(current)->button(QDialogButtonBox::Ok)->click();
+    until([&]{return !access.isBusy(bob.path);});app.processEvents();
+    check(vault.load(alice.scope,alice.profile,loaded).succeeded() && loaded.password=="alice-secret"
+        && vault.load(bob.scope,bob.profile,loaded).succeeded() && loaded.password=="manual-draft",
+        "settings save remains scoped after the source object and old window are released");
     std::cout<<"PASS: real settings validation, failures, verified legacy quarantine, import/reset cancellation and export\n";
 }

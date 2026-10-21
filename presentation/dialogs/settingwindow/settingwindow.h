@@ -1,7 +1,7 @@
 #pragma once
 #include <QDialog>
+#include <QSettings>
 #include "infrastructure/settings/credentialaccess.h"
-class QSettings;
 class QLabel;
 class QPushButton;
 class ServerSettingsWidget;
@@ -10,7 +10,7 @@ namespace Ui { class SettingWindow; }
 class SettingWindow : public QDialog {
     Q_OBJECT
 public:
-    SettingWindow(QWidget *parent,QSettings *settings,CredentialAccess *credentials,const CredentialSource &source);
+    SettingWindow(QWidget *parent,CredentialAccess *credentials,const CredentialSource &source);
     ~SettingWindow() override;
     bool isSaving() const {return saving;}
 private:
@@ -23,7 +23,7 @@ private:
     QVariantMap publicChanges() const;
     ConnectionProfile currentProfile() const;
     Ui::SettingWindow *ui;
-    QSettings *settings;
+    QSettings settings;
     CredentialAccess *credentials;
     CredentialSource credentialSource;
     ConnectionCredentials loadedCredentials;
