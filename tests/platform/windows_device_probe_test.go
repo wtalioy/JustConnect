@@ -26,6 +26,16 @@ func TestDeviceReadbackUsesNativeInterfaceAndRouteTables(t *testing.T) {
 		if present, err := adapterPresent(iface.Name); err != nil || !present {
 			t.Fatal("native interface lookup missed loopback", err)
 		}
+		row := windows.MibIfRow2{InterfaceIndex: uint32(iface.Index)}
+		if err := windows.GetIfEntry2Ex(windows.MibIfTableNormalWithoutStatistics, &row); err != nil {
+			t.Fatal(err)
+		}
+		if present, err := ownedInterfacePresent(row.InterfaceLuid); err != nil || !present {
+			t.Fatal("LUID lookup missed the original loopback interface", err)
+		}
+		if _, err := ownedInterfacePresent(0); err == nil {
+			t.Fatal("zero LUID could select another interface")
+		}
 		if routes, err := interfaceHasRoutes(uint32(iface.Index)); err != nil || !routes {
 			t.Fatal("native route lookup missed loopback routes", err)
 		}
