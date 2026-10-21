@@ -96,7 +96,7 @@ wsl.exe --distribution archlinux --user root --exec unshare --net -- \
 
 同一 [Unix 原型](../tests/platform/unix_device_probe.py) 在 macOS 使用 kernel control 分配全新 utun，按 [Apple 公开定义](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/net/if_utun.h)取得接口名并处理四字节地址族头。仅允许一次性 GitHub macOS runner，以 root 创建／配置测试点对点地址，再经 `SCM_RIGHTS` 将 fd 交给清空附加组、降为普通 uid／gid 的子进程；复用 Linux 的实际 UDP 双向、主动关闭及持有 fd 时 SIGKILL 检查。测试目的已有非默认路由时拒绝运行，结束后检查接口和其全部路由消失，不改系统 DNS／默认路由。
 
-Core ABI 两组 macOS 已接入 `macos-device.log`；本机仅静态核对 Darwin 分支，Linux 共享路径已在隔离命名空间重验正常／强杀及宿主接口、路由、DNS 不变。macOS 真实权限／fd 读写、清理及签名助手授权仍待验收，不依据源码或 Linux 结果宣称可用。原 `linux_device_probe.py` 已由共享脚本替代并删除，原 Linux 能力及独有权限断言保留。
+Core ABI 两组 macOS 已接入 `macos-device.log`；本机仅静态核对 Darwin 分支，Linux 共享路径已在隔离命名空间重验正常／强杀及宿主接口、路由、DNS 不变。降权验证使用原生 `getgroups` 读取进程组，仅保留目标主组，并检查真实／有效 uid、gid 和无法恢复 root；[Python 的 macOS 组查询](https://docs.python.org/3/library/os.html#os.getgroups)可能返回目录成员列表，不能据此判断 `setgroups` 的结果。macOS 真实 fd 读写、清理及签名助手授权仍待验收，不依据源码或 Linux 结果宣称可用。原 `linux_device_probe.py` 已由共享脚本替代并删除，原 Linux 能力及独有权限断言保留。
 
 Qt／WebEngine 宿主保持普通用户权限。CI 的网页加载验证只覆盖同进程 Go 运行时和浏览器子进程共存，不能替代真实桌面沙箱／UAC／授权取消验证；不通过禁用 WebEngine sandbox 解决权限问题。真实设备验收至少记录：设备创建、非提权宿主收发、重复关闭、宿主崩溃后的设备／路由／DNS 残留、拒绝／取消授权，以及 Windows ARM64 原生驱动行为。任一平台未证明数据路径交付前，不继续依赖该路径的网络接管。
 

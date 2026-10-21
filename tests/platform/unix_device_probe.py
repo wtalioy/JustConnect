@@ -88,11 +88,29 @@ def probe(uid, gid, crash):
             try:
                 parent.close()
                 os.close(fd)
-                os.setgroups([])
+                os.setgroups([gid] if sys.platform == 'darwin' else [])
                 os.setgid(gid)
                 os.setuid(uid)
-                assert os.geteuid() == uid and uid != 0
-                assert os.getgroups() == [], 'receiver retained supplementary groups'
+                assert os.getuid() == os.geteuid() == uid and uid != 0
+                assert os.getgid() == os.getegid() == gid and gid != 0
+                if sys.platform == 'darwin':
+                    import ctypes
+                    # Python's macOS getgroups reports directory membership, not setgroups state.
+                    getgroups = ctypes.CDLL(None, use_errno=True).getgroups
+                    getgroups.argtypes = [ctypes.c_int, ctypes.POINTER(ctypes.c_uint32)]
+                    getgroups.restype = ctypes.c_int
+                    groups = (ctypes.c_uint32 * 16)()
+                    count = getgroups(len(groups), groups)
+                    assert 0 <= count <= len(groups), 'cannot read native process groups'
+                    assert set(groups[:count]) == {gid}, f'receiver retained native groups: {list(groups[:count])}'
+                else:
+                    assert os.getgroups() == [], 'receiver retained supplementary groups'
+                try:
+                    os.setuid(0)
+                except PermissionError:
+                    pass
+                else:
+                    raise AssertionError('receiver could restore root privileges')
                 if sys.platform == 'linux':
                     status = Path('/proc/self/status').read_text()
                     caps = next(line.split()[1] for line in status.splitlines() if line.startswith('CapEff:'))
