@@ -3,10 +3,12 @@
 import argparse
 from contextlib import contextmanager
 import hashlib
+import ipaddress
 import json
 from pathlib import Path
 import secrets
 import socket
+import struct
 import subprocess
 import tempfile
 import threading
@@ -55,13 +57,18 @@ def probe(binary, first_dns, second_dns):
     with socket.socket() as reservation:
         reservation.bind(('127.0.0.1', 0))
         port = reservation.getsockname()[1]
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as reservation:
+        reservation.bind(('127.0.0.1', 0))
+        dns_port = reservation.getsockname()[1]
     config = {
         'external-controller': f'127.0.0.1:{port}', 'secret': secrets.token_urlsafe(32),
         'allow-lan': False, 'bind-address': '127.0.0.1', 'mode': 'rule',
         'port': 0, 'socks-port': 0, 'mixed-port': 0, 'redir-port': 0, 'tproxy-port': 0,
         'log-level': 'silent', 'tun': {'enable': False}, 'ipv6': False,
         'profile': {'store-selected': False, 'store-fake-ip': False},
-        'dns': {'enable': True, 'listen': '127.0.0.1:0', 'use-hosts': True,
+        'dns': {'enable': True, 'listen': f'127.0.0.1:{dns_port}', 'use-hosts': True,
+                'enhanced-mode': 'fake-ip', 'fake-ip-range': '198.18.0.1/16',
+                'fake-ip-filter': [], 'fake-ip-filter-mode': 'blacklist',
                 'nameserver': [first_dns], 'default-nameserver': ['127.0.0.1'],
                 'fallback': []},
         'rules': [f'DOMAIN,{marker},DIRECT', 'MATCH,REJECT'],
@@ -84,6 +91,21 @@ def probe(binary, first_dns, second_dns):
         name = secrets.token_hex(4) + '.' + marker
         reply = request('GET', f'/dns/query?name={name}&type=A')
         return [entry['data'] for entry in reply.get('Answer', []) if entry['type'] == 1]
+
+    def listener_answer():
+        name = secrets.token_hex(4) + '.' + marker
+        labels = b''.join(bytes([len(label)]) + label.encode() for label in name.split('.')) + b'\0'
+        identity = secrets.randbelow(65536)
+        query = struct.pack('!6H', identity, 0x100, 1, 0, 0, 0) + labels + b'\0\1\0\1'
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as client:
+            client.settimeout(3)
+            client.connect(('127.0.0.1', dns_port))
+            client.send(query)
+            reply = client.recv(4096)
+        header = struct.unpack('!6H', reply[:12])
+        assert header[0] == identity and header[1] & 15 == 0 and header[2:] == (1, 1, 0, 0)
+        assert reply[-14:-10] == b'\0\1\0\1' and reply[-6:-4] == b'\0\4', 'unexpected owned DNS answer'
+        return ipaddress.ip_address(reply[-4:])
 
     with tempfile.TemporaryDirectory(prefix='justconnect-mihomo-api-') as directory:
         root = Path(directory)
@@ -114,6 +136,7 @@ def probe(binary, first_dns, second_dns):
                 initial = request('GET', '/configs')
                 assert initial['mode'] == 'rule' and not initial['tun']['enable']
                 assert answer() == ['192.0.2.10'], 'owned DNS baseline failed'
+                assert listener_answer() in ipaddress.ip_network('198.18.0.0/16'), 'owned DNS listener did not use Fake-IP'
                 request('PATCH', '/configs', {'mode': 'direct'})
                 assert request('GET', '/configs')['mode'] == 'direct', 'mode PATCH was not applied'
                 exclusion = ['192.0.2.0/30']
@@ -146,6 +169,7 @@ def probe(binary, first_dns, second_dns):
                 report = {'binary_sha256': hashlib.sha256(binary.read_bytes()).hexdigest(),
                           'version': version, 'api_version': api_version,
                           'mode_patch_readback': True, 'rules_patch_applied': patched_rules != rules,
+                          'dns_query_api_returns_real_ip_in_fake_ip_mode': True,
                           'dns_patch_applied': patched_answer != ['192.0.2.10'],
                           'disabled_tun_exclusion_patch_readback': patched_tun.get('route-exclude-address') == exclusion,
                           'put_rules_dns_readback': True, 'invalid_update_keeps_previous': True,
