@@ -1,4 +1,4 @@
-"""S1-06 kernel/fd probe; run as root in a disposable network namespace."""
+"""S1-06 kernel/fd probe; isolated Linux namespace or disposable macOS runner only."""
 
 import argparse
 import fcntl
@@ -10,10 +10,12 @@ import signal
 import socket
 import struct
 import subprocess
+import sys
 import time
 
 
 def exchange(fd):
+    prefix = struct.pack('!I', socket.AF_INET) if sys.platform == 'darwin' else b''
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
         udp.settimeout(3)
         udp.bind(('198.18.0.1', 0))
@@ -24,7 +26,11 @@ def exchange(fd):
             ready, _, _ = select.select([fd], [], [], max(0, deadline - time.monotonic()))
             assert ready, 'no outbound packet on transferred TUN fd'
             packet = os.read(fd, 65536)
-            if packet[0] >> 4 != 4 or packet[9] != socket.IPPROTO_UDP:
+            if prefix:
+                if not packet.startswith(prefix):
+                    continue
+                packet = packet[len(prefix):]
+            if len(packet) < 20 or packet[0] >> 4 != 4 or packet[9] != socket.IPPROTO_UDP:
                 continue
             offset = (packet[0] & 15) * 4
             if packet[offset + 8:] != b'justconnect-out':
@@ -42,27 +48,41 @@ def exchange(fd):
         while checksum >> 16:
             checksum = (checksum & 0xffff) + (checksum >> 16)
         header = header[:10] + struct.pack('!H', (~checksum) & 0xffff) + header[12:]
-        packet = header + reply_udp
+        packet = prefix + header + reply_udp
         assert os.write(fd, packet) == len(packet)
         assert udp.recvfrom(65536) == (payload, ('198.18.0.2', 54321))
 
 
 def probe(uid, gid, crash):
     name = 'jcprobe0'
+    if sys.platform == 'darwin':
+        route = subprocess.check_output(['/sbin/route', '-n', 'get', '198.18.0.2'], text=True)
+        assert any(line.split() == ['destination:', 'default'] for line in route.splitlines()), 'test destination already has a specific route'
     try:
         socket.if_nametoindex(name)
     except OSError:
         pass
     else:
         raise AssertionError('test interface already exists')
-    fd = os.open('/dev/net/tun', os.O_RDWR | os.O_CLOEXEC)
+    if sys.platform == 'darwin':
+        with socket.socket(socket.AF_SYSTEM, socket.SOCK_DGRAM, socket.SYSPROTO_CONTROL) as control:
+            info = fcntl.ioctl(control.fileno(), 0xc0644e03, struct.pack('I96s', 0, b'com.apple.net.utun_control'))
+            control.connect((struct.unpack_from('I', info)[0], 0))
+            name = control.getsockopt(socket.SYSPROTO_CONTROL, 2, 16).split(b'\0', 1)[0].decode('ascii')
+            assert name.startswith('utun') and name[4:].isdigit()
+            fd = control.detach()
+    else:
+        fd = os.open('/dev/net/tun', os.O_RDWR | os.O_CLOEXEC)
     parent, child = socket.socketpair()
     pid = None
     reaped = False
     try:
-        fcntl.ioctl(fd, 0x400454ca, struct.pack('16sH22x', name.encode(), 0x1001))
-        subprocess.run(['ip', 'address', 'add', '198.18.0.1/30', 'dev', name], check=True)
-        subprocess.run(['ip', 'link', 'set', name, 'up'], check=True)
+        if sys.platform == 'darwin':
+            subprocess.run(['/sbin/ifconfig', name, 'inet', '198.18.0.1', '198.18.0.2', 'netmask', '255.255.255.252', 'up'], check=True, timeout=5)
+        else:
+            fcntl.ioctl(fd, 0x400454ca, struct.pack('16sH22x', name.encode(), 0x1001))
+            subprocess.run(['ip', 'address', 'add', '198.18.0.1/30', 'dev', name], check=True)
+            subprocess.run(['ip', 'link', 'set', name, 'up'], check=True)
         pid = os.fork()
         if pid == 0:
             try:
@@ -72,9 +92,11 @@ def probe(uid, gid, crash):
                 os.setgid(gid)
                 os.setuid(uid)
                 assert os.geteuid() == uid and uid != 0
-                status = Path('/proc/self/status').read_text()
-                caps = next(line.split()[1] for line in status.splitlines() if line.startswith('CapEff:'))
-                assert int(caps, 16) == 0, 'receiver retained capabilities'
+                assert os.getgroups() == [], 'receiver retained supplementary groups'
+                if sys.platform == 'linux':
+                    status = Path('/proc/self/status').read_text()
+                    caps = next(line.split()[1] for line in status.splitlines() if line.startswith('CapEff:'))
+                    assert int(caps, 16) == 0, 'receiver retained capabilities'
                 child.settimeout(5)
                 message, fds, _, _ = socket.recv_fds(child, 1, 1)
                 assert message == b'F' and len(fds) == 1
@@ -106,15 +128,19 @@ def probe(uid, gid, crash):
             assert os.WIFSIGNALED(status) and os.WTERMSIG(status) == signal.SIGKILL
         else:
             assert os.waitstatus_to_exitcode(status) == 0
-        try:
-            socket.if_nametoindex(name)
-        except OSError:
-            pass
-        else:
-            raise AssertionError('TUN survived its final fd')
-        routes = subprocess.check_output(['ip', '-j', 'route', 'show'], text=True)
-        assert name not in routes, 'TUN route survived device removal'
-        print(f'PASS: SCM_RIGHTS -> uid={uid}, capabilities=0, UDP both ways, '
+        deadline = time.monotonic() + 5
+        while True:
+            try:
+                socket.if_nametoindex(name)
+            except OSError:
+                break
+            assert time.monotonic() < deadline, 'TUN survived its final fd'
+            time.sleep(0.05)
+        command = ['/usr/sbin/netstat', '-rn'] if sys.platform == 'darwin' else ['ip', '-j', 'route', 'show']
+        routes = subprocess.check_output(command, text=True, timeout=5)
+        remaining = routes.split() if sys.platform == 'darwin' else routes
+        assert name not in remaining, 'TUN route survived device removal'
+        print(f'PASS: SCM_RIGHTS -> uid={uid}, unprivileged, UDP both ways, '
               f'{"SIGKILL" if crash else "normal close"}, device/route removed', flush=True)
     finally:
         if fd is not None:
@@ -135,8 +161,14 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if os.geteuid() != 0 or args.uid <= 0:
         parser.error('requires root and a non-root receiving uid')
-    if os.stat('/proc/self/ns/net').st_ino == os.stat('/proc/1/ns/net').st_ino:
-        parser.error('refusing to run in the host network namespace; use unshare --net')
+    if sys.platform == 'linux':
+        if os.stat('/proc/self/ns/net').st_ino == os.stat('/proc/1/ns/net').st_ino:
+            parser.error('refusing to run in the host network namespace; use unshare --net')
+    elif sys.platform == 'darwin':
+        if os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('RUNNER_OS') != 'macOS':
+            parser.error('macOS device probe requires a disposable GitHub runner')
+    else:
+        parser.error('unsupported device probe platform')
     user = pwd.getpwuid(args.uid)
     for crash in (False, True):
         probe(user.pw_uid, user.pw_gid, crash)

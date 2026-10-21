@@ -71,17 +71,17 @@ Unix 的上游 `stack/tun/NewStack` 目前没有传入 `FileDescriptor`，后续
 
 ### Linux 设备／fd 原型复现
 
-[linux_device_probe.py](../tests/platform/linux_device_probe.py) 使用 Python 标准库与现有 `ip` 命令，测试内核权限与 fd 所有权，不把结果写成 Go／Qt 数据面已经接入。脚本拒绝在宿主网络命名空间运行；隔离命名空间内只创建测试 TUN 及其直连测试网段，不配置 DNS 或外部出口。
+[unix_device_probe.py](../tests/platform/unix_device_probe.py) 使用 Python 标准库与现有 `ip` 命令，测试内核权限与 fd 所有权，不把结果写成 Go／Qt 数据面已经接入。脚本拒绝在宿主网络命名空间运行；隔离命名空间内只创建测试 TUN 及其直连测试网段，不配置 DNS 或外部出口。
 
 ```sh
-sudo unshare --net -- "$(command -v python)" tests/platform/linux_device_probe.py --uid "$(id -u)"
+sudo unshare --net -- "$(command -v python)" tests/platform/unix_device_probe.py --uid "$(id -u)"
 ```
 
 当前 WSL 本机不依赖 sudo，可从普通用户 shell 使用 WSL 自带的 root 启动入口执行同一测试：
 
 ```sh
 wsl.exe --distribution archlinux --user root --exec unshare --net -- \
-    python /home/lioy/JustConnect/tests/platform/linux_device_probe.py --uid 1000
+    python /home/lioy/JustConnect/tests/platform/unix_device_probe.py --uid 1000
 ```
 
 父进程创建 TUN 并配置隔离地址后，接收进程先清空补充组并降为普通 uid／gid，再接收 fd；父进程关闭原 fd。接收进程读取内核发出的 UDP 包，再经 TUN 注入合法 IPv4／UDP 回包，由普通 UDP socket 验证收到预期数据。分别验证主动关闭与持有 fd 时被 SIGKILL 后的设备／自动路由清理。本地另验证了宿主命名空间／非 root 调用及测试设备名已存在时会被拒绝，以及测试前后宿主接口、全表路由和 `/etc/resolv.conf` 一致。代码 `7a910de` 的 [Linux x64／ARM64 CI](https://github.com/wtalioy/JustConnect/actions/runs/39275742177) 两组均通过同一隔离测试，日志保存在各组 artifact 的 `linux-device.log`。
@@ -89,6 +89,12 @@ wsl.exe --distribution archlinux --user root --exec unshare --net -- \
 同提交的[六组库链接／宿主检查](https://github.com/wtalioy/JustConnect/actions/runs/39275742177)和[三平台应用回归](https://github.com/wtalioy/JustConnect/actions/runs/39275741690)均通过；Windows／macOS 在本次仅重跑链接与宿主回归，没有执行设备权限测试。
 
 该测试只覆盖内核设备与 fd 生命周期；直连路由随设备删除不等于已经实现任意路由／DNS 的所有权恢复。它没有验证提权界面、助手身份认证、Go fd 接收、TCP 转发、校园隧道或 Clash 共存。Windows 本机为 x64 普通用户，WSL root 不代表 Windows 管理员权限；没有据此进行 Windows 驱动安装或 UAC 提权。
+
+### macOS utun／fd 隔离实验（待原生 CI）
+
+同一 [Unix 原型](../tests/platform/unix_device_probe.py) 在 macOS 使用 kernel control 分配全新 utun，按 [Apple 公开定义](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/net/if_utun.h)取得接口名并处理四字节地址族头。仅允许一次性 GitHub macOS runner，以 root 创建／配置测试点对点地址，再经 `SCM_RIGHTS` 将 fd 交给清空附加组、降为普通 uid／gid 的子进程；复用 Linux 的实际 UDP 双向、主动关闭及持有 fd 时 SIGKILL 检查。测试目的已有非默认路由时拒绝运行，结束后检查接口和其全部路由消失，不改系统 DNS／默认路由。
+
+Core ABI 两组 macOS 已接入 `macos-device.log`；本机仅静态核对 Darwin 分支，Linux 共享路径已在隔离命名空间重验正常／强杀及宿主接口、路由、DNS 不变。macOS 真实权限／fd 读写、清理及签名助手授权仍待验收，不依据源码或 Linux 结果宣称可用。原 `linux_device_probe.py` 已由共享脚本替代并删除，原 Linux 能力及独有权限断言保留。
 
 Qt／WebEngine 宿主保持普通用户权限。CI 的网页加载验证只覆盖同进程 Go 运行时和浏览器子进程共存，不能替代真实桌面沙箱／UAC／授权取消验证；不通过禁用 WebEngine sandbox 解决权限问题。真实设备验收至少记录：设备创建、非提权宿主收发、重复关闭、宿主崩溃后的设备／路由／DNS 残留、拒绝／取消授权，以及 Windows ARM64 原生驱动行为。任一平台未证明数据路径交付前，不继续依赖该路径的网络接管。
 
