@@ -4,6 +4,7 @@
 #include <QCoreApplication>
 #include <QElapsedTimer>
 #include <QEventLoop>
+#include <QList>
 #include <QTimer>
 #include <cstdlib>
 #include <iostream>
@@ -22,6 +23,10 @@ static QJsonObject response(const QJsonObject &request, const QString &action = 
     return {{"schema_version", int(JC_ABI_VERSION)}, {"generation", request["generation"]},
         {"request_id", request["request_id"]}, {"action", action}};
 }
+static QJsonObject policy(const QString &generation, const QString &revision) {
+    return {{"schema_version",int(JC_ABI_VERSION)},{"generation",generation},{"revision",revision},
+        {"protected",QJsonArray{"192.168.50.0/24"}},{"campus",QJsonArray{}}};
+}
 int main(int argc, char **argv) {
     QCoreApplication app(argc, argv);
     const auto info = EmbeddedCoreEngine::buildInfo();
@@ -32,6 +37,8 @@ int main(int argc, char **argv) {
     profile.credentials.password = QString::fromUtf8("private-验证");
     EmbeddedCoreEngine engine;
     QJsonObject request;
+    QString generation;
+    QList<CoreEngine::PolicyUpdateStatus> policyReplies;
     int finished = 0, ready = 0, rejected = 0, ticks = 0;
     ConnectionError lastError = ConnectionError::NONE;
     QObject::connect(&engine, &CoreEngine::authenticationRequired, &app, [&](const QJsonObject &event) {
@@ -41,6 +48,11 @@ int main(int argc, char **argv) {
     QObject::connect(&engine, &CoreEngine::connectionEstablished, [&] { ++ready; });
     QObject::connect(&engine, &CoreEngine::responseRejected, [&] { ++rejected; });
     QObject::connect(&engine, &CoreEngine::finished, [&](ConnectionError error) { lastError = error; ++finished; });
+    QObject::connect(&engine, &CoreEngine::sessionStarted, [&](const QString &value) { generation = value; });
+    QObject::connect(&engine, &CoreEngine::policyUpdated, [&](const QString &applied, const QString &revision, CoreEngine::PolicyUpdateStatus status) {
+        check(QThread::currentThread() == app.thread() && !applied.isEmpty() && !revision.isEmpty(), "policy acknowledgement reaches the GUI with its identity");
+        policyReplies.append(status);
+    });
     QObject::connect(&engine, &CoreEngine::diagnostic, [&](const QString &code) {
         check(!code.contains("private-"), "diagnostics do not disclose credentials");
     });
@@ -49,8 +61,25 @@ int main(int argc, char **argv) {
     heartbeat.start(1);
 #ifdef ABI_FIXTURE
     check(info["test_driver"].toBool(), "explicit test driver");
+    check(info["capabilities"].toObject()["policy_update"].toBool(), "policy capability advertised");
+    engine.updatePolicy(policy("1","1"));
+    check(policyReplies.last() == CoreEngine::PolicyUpdateStatus::Stale, "idle adapter rejects policy without starting a core");
     check(engine.start(profile) && !engine.start(profile), "one active operation per adapter");
     until([&] { return !request.isEmpty() && ticks > 5; });
+    check(generation == request["generation"].toString(), "authoritative generation is available without an authentication response");
+    auto update = [&](QJsonObject fields, CoreEngine::PolicyUpdateStatus expected) {
+        const auto before = policyReplies.size();
+        engine.updatePolicy(fields);
+        until([&] { return policyReplies.size() == before + 1; });
+        check(policyReplies.last() == expected, "Qt policy acknowledgement classification");
+    };
+    update(policy(generation,"2"), CoreEngine::PolicyUpdateStatus::Applied);
+    update(policy(generation,"1"), CoreEngine::PolicyUpdateStatus::Stale);
+    auto invalid = policy(generation,"3"); invalid["protected"] = QJsonArray{"192.168.50.1/24"};
+    update(invalid, CoreEngine::PolicyUpdateStatus::Invalid);
+    update(policy(generation,"3"), CoreEngine::PolicyUpdateStatus::Applied);
+    update(policy("0","4"), CoreEngine::PolicyUpdateStatus::Invalid);
+    update(policy("2","4"), CoreEngine::PolicyUpdateStatus::Stale);
     auto answer = response(request);
     answer["code"] = profile.credentials.password;
     auto stale = answer;
@@ -61,12 +90,18 @@ int main(int argc, char **argv) {
     until([&] { return ready == 1; });
     engine.respond(answer);
     until([&] { return rejected == 2; });
+    const auto beforeStop = policyReplies.size();
+    engine.updatePolicy(policy(generation,"4"));
     engine.stop();
     until([&] { return finished == 1; });
+    until([&] { return policyReplies.size() == beforeStop + 1; });
+    check(policyReplies.last() == CoreEngine::PolicyUpdateStatus::Stale, "queued success cannot claim active policy after stop");
     request = {};
     check(engine.start(profile), "restart accepted after cleanup");
     until([&] { return !request.isEmpty(); });
     check(request["generation"] == "2" && request["request_id"] == "2", "restart identity preserved as strings");
+    update(policy("1","5"), CoreEngine::PolicyUpdateStatus::Stale);
+    update(policy(generation,"1"), CoreEngine::PolicyUpdateStatus::Applied);
     engine.respond(answer);
     until([&] { return rejected == 3; });
     engine.respond(response(request, "cancel"));
@@ -76,6 +111,7 @@ int main(int argc, char **argv) {
         auto *dying = new EmbeddedCoreEngine;
         bool destroyed = false;
         QObject::connect(dying, &CoreEngine::authenticationRequired, &app, [&](const QJsonObject &event) {
+            dying->updatePolicy(policy(event["generation"].toString(),"1"));
             dying->respond(response(event, "cancel"));
             delete dying;
             destroyed = true;
