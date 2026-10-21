@@ -310,7 +310,24 @@ MainWindow::MainWindow(
         },
         this
     );
-    connect(connectionUiController,&ConnectionUiController::readyToQuit,qApp,&QApplication::quit);
+    qApp->installEventFilter(this);
+    QApplication::setQuitOnLastWindowClosed(false);
+    connect(connectionUiController,&ConnectionUiController::readyToQuit,this,[this] {
+        exitReady=true;
+        QApplication::quit();
+    });
+    connect(connectionUiController,&ConnectionUiController::quitFailed,this,[this](const QString &code) {
+        qWarning() << code << "core_active" << connectionSession->isActive()
+            << "proxy_busy" << systemProxySession->isBusy() << "proxy_unrestored" << systemProxySession->needsCleanup()
+            << "credential_work" << coordinator->credentials()->isBusy();
+        show();raise();activateWindow();
+        auto *message=new QMessageBox(QMessageBox::Warning,"退出未完成",
+            "清理失败或超时。已停止重连及新连接；请检查代理残留，完成清理后重试退出或重启系统。程序将保留事件循环，不强制销毁仍在运行的核心或存储线程。",
+            QMessageBox::Retry|QMessageBox::Cancel,this);
+        message->setAttribute(Qt::WA_DeleteOnClose);
+        connect(message,&QMessageBox::finished,this,[this](int result){if(result==QMessageBox::Retry) gracefullyQuit();});
+        message->open();
+    });
 
     bool shouldConnect =
         settings->value("Common/ConnectAfterStart", false).toBool();
@@ -332,7 +349,7 @@ MainWindow::MainWindow(
         updateChecker->markDisabled();
     }
 
-    if (!profileService->silentStartEnabled())
+    if (!profileService->silentStartEnabled() || !QSystemTrayIcon::isSystemTrayAvailable())
     {
         show();
         if (isFirstLaunch)
@@ -346,37 +363,28 @@ MainWindow::MainWindow(
     }
 }
 
+bool MainWindow::eventFilter(QObject *watched,QEvent *event)
+{
+    if (watched==qApp && event->type()==QEvent::Quit && !exitReady) {
+        gracefullyQuit();
+        return true;
+    }
+    return QMainWindow::eventFilter(watched,event);
+}
+
 void MainWindow::closeEvent(QCloseEvent *event)
 {
-    if (connectionSession != nullptr && connectionSession->isActive())
-    {
-        event->ignore();
+    if (exitReady) { event->accept();return; }
+    event->ignore();
+    if (trayIcon && trayIcon->isVisible() && QSystemTrayIcon::isSystemTrayAvailable()) {
         hide();
-        showNotification("JustConnect", "程序已最小化到系统托盘，单击图标可恢复窗口。", QSystemTrayIcon::MessageIcon::Information);
-    }
-    else
-    {
-        event->accept();
+        showNotification("JustConnect", "程序继续在系统托盘运行，单击图标可恢复窗口；退出请使用菜单。", QSystemTrayIcon::Information);
+    } else {
+        show();
+        ui->statusDetailLabel->setText("系统托盘不可用，已保留窗口。退出请使用文件菜单中的退出。");
     }
 }
 
-void MainWindow::changeEvent(QEvent *event)
-{
-    if (event->type() == QEvent::WindowStateChange)
-    {
-        QWindowStateChangeEvent *stateChangeEvent = static_cast<QWindowStateChangeEvent *>(event);
-        if (windowState().testFlag(Qt::WindowMinimized) == true && !(stateChangeEvent->oldState() & Qt::WindowMinimized))
-        {
-            event->ignore();
-            hide();
-            showNotification("JustConnect", "程序已最小化到系统托盘，单击图标可恢复窗口。", QSystemTrayIcon::MessageIcon::Information);
-        }
-    }
-    else
-    {
-        event->accept();
-    }
-}
 
 void MainWindow::clearLog()
 {
@@ -984,8 +992,8 @@ void MainWindow::cleanUpWhenQuit()
 {
     settings->sync();
 
-    // 清除系统代理
-    coordinator->prepareForShutdown();
+    if (connectionSession->isActive() || systemProxySession->isBusy() || systemProxySession->needsCleanup() || coordinator->credentials()->isBusy())
+        qWarning() << "Application exited before ordered cleanup completed";
 }
 
 void MainWindow::gracefullyQuit()

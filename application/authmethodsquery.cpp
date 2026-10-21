@@ -10,6 +10,7 @@ AuthMethodsQuery::AuthMethodsQuery(CoreEngine *engine,QObject *parent) : QObject
         if (!active) return;
         active=false;
         const auto result=methods; methods={};
+        emit settled();
         if (cancelled) return;
         if (error==ConnectionError::NONE && received) emit ready(result);
         else emit failed(error==ConnectionError::NONE ? ConnectionError::INVALID_CONFIGURATION : error);

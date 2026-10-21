@@ -144,18 +144,18 @@ bool delegatesPlatformOperationsAsynchronouslyAndTracksOwnedState()
     if (!session.enable(config)
         || !fake->operationStarted.tryAcquire(1, 1000))
     {
-        qCritical() << "clearBeforeShutdown failed to start enable";
+        qCritical() << "asynchronous restoration failed to start enable";
         return false;
     }
     if(!session.disable()) {fake->allowOperationToFinish.release();return false;}
     fake->allowOperationToFinish.release();
-    session.clearBeforeShutdown();
+    if (!waitUntil([&]{return !session.isBusy();})) return false;
     if (session.isBusy()
         || session.isEnabled()
         || fake->applyCalls != 3
         || fake->clearCalls != 2)
     {
-        qCritical() << "clearBeforeShutdown must clear an in-flight enable";
+        qCritical() << "asynchronous restoration must clear an in-flight enable";
         return false;
     }
     return true;
@@ -231,7 +231,10 @@ bool reportsFailuresAndRetainsCleanupState()
     fake->applySucceeds = true; session.enable({1081,1080,{}}); fake->allowOperationToFinish.release();
     if (!waitUntil([&] { return !session.isBusy(); }) || !session.isEnabled()) return false;
     fake->clearSucceeds = false; fake->failure = {Status::PermissionDenied,"shutdown denied",true};
-    auto result = session.clearBeforeShutdown();
+    PlatformOperationResult result;
+    QObject::connect(&session,&SystemProxySession::operationFinished,[&](bool,const PlatformOperationResult &r){result=r;});
+    session.disable();
+    if (!waitUntil([&]{return !session.isBusy();})) return false;
     return result.status == Status::PermissionDenied && session.needsCleanup() && !session.isEnabled();
 }
 }

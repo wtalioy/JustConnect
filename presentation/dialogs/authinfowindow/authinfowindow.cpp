@@ -85,3 +85,12 @@ void AuthInfoWindow::fetchAuthInfo(const ConnectionProfile &profile, bool prefer
     if (!query->start(profile))
         ui->label->setText("正在查询，请稍候或关闭窗口后重试。");
 }
+
+void AuthInfoWindow::done(int result)
+{
+    if (query->isActive()) {
+        setAttribute(Qt::WA_DeleteOnClose,false);
+        connect(query,&AuthMethodsQuery::settled,this,&QObject::deleteLater,Qt::SingleShotConnection);
+    }
+    QDialog::done(result);
+}

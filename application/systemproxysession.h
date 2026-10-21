@@ -21,7 +21,6 @@ public:
     bool disable();
     bool isEnabled() const;
     bool isBusy() const;
-    PlatformOperationResult clearBeforeShutdown();
     bool needsCleanup() const;
 
 signals:

@@ -33,7 +33,6 @@ public:
     UpdateChecker *updates() const;
     AuthDialogCoordinator *authenticationDialogs() const;
 
-    void prepareForShutdown();
 
 private:
     ProfileService *profileService;

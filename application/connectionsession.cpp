@@ -81,7 +81,7 @@ ConnectionSession::ConnectionSession(CoreEngine *coreEngine, QObject *parent)
 
 bool ConnectionSession::start(const ConnectionProfile &profile, const ReconnectPolicy &policy)
 {
-    if (!sessionState.requestStart(policy))
+    if (blocked || !sessionState.requestStart(policy))
     {
         return false;
     }
@@ -91,6 +91,14 @@ bool ConnectionSession::start(const ConnectionProfile &profile, const ReconnectP
     emit stateChanged(sessionState.state());
     startCore();
     return true;
+}
+
+void ConnectionSession::blockNewConnections()
+{
+    blocked=true;
+    reconnectTimer.stop();
+    stableTimer.stop();
+    sessionState.cancelReconnect();
 }
 
 void ConnectionSession::stop()

@@ -33,6 +33,7 @@ public:
     ConnectionError error() const;
     bool isActive() const;
     bool wantsConnection() const;
+    void cancelReconnect() { desiredConnected = false; }
     int reconnectDelayMs() const;
     int reconnectAttempt() const { return retryCount; }
     static constexpr int MaxReconnectAttempts = 5;

@@ -10,6 +10,7 @@
 
 #include "core/connectionerror.h"
 
+class ApplicationShutdown;
 class QAction;
 class ApplicationLogger;
 class AuthDialogCoordinator;
@@ -55,8 +56,8 @@ public:
     void prepareForQuit();
 signals:
     void readyToQuit();
+    void quitFailed(const QString &code);
 private:
-    void finishQuitWhenReady();
     void handleConnectClicked();
     void handleProxyClicked();
     void applyPendingAutomaticProxy();
@@ -85,6 +86,7 @@ private:
     AuthenticationCacheCoordinator *authenticationCache;
     bool cacheCredentialsRequired=false;
     bool quitting=false;
+    ApplicationShutdown *shutdown;
     quint64 credentialGeneration=0;
     quint64 proxyGeneration=0;
     bool autoProxyPending=false;

@@ -103,7 +103,6 @@ static void proxyWaitsForReady() {
     auto backend = std::make_unique<ProxyBackend>();
     auto *proxy = backend.get();
     SystemProxySession systemProxy(std::move(backend));
-    QObject::connect(&session,&ConnectionSession::finished,&systemProxy,&SystemProxySession::disable);
     QObject::connect(&systemProxy,&SystemProxySession::operationFinished,&parent,[&](bool,const PlatformOperationResult &result) {
         if(result.succeeded())return;
         QMessageBox message(QMessageBox::Warning,"proxy failure","fixture failure",QMessageBox::Ok,&parent);
@@ -447,6 +446,25 @@ static void authenticationSurvivesTunnelFailure() {
     check(engine->profile.authenticationCache.account==saved.account && engine->profile.authenticationCache.data==saved.data,
         "retry restores the authenticated account instead of starting with an empty cache");
     emit engine->finished(ConnectionError::NONE);
+}
+
+static void quitWaitsForAuthenticationQueryWithoutBlockingTheGui() {
+    QTemporaryDir folder;QSettings settings(folder.filePath("query-quit.ini"),QSettings::IniFormat);DefaultSettings::reset(settings);settings.sync();
+    QWidget parent;QPushButton connectButton(&parent),proxyButton(&parent);QAction trayAction(&parent);
+    auto *engine=new QueryEngine;ConnectionSession session(engine);SystemProxySession proxy(std::make_unique<ProxyBackend>());
+    AuthDialogCoordinator dialogs(&parent);ApplicationLogger logger;CredentialAccess access(std::make_unique<MemoryCredentialStore>());
+    ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,&dialogs,&logger,&access,
+        [&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},[](const QString &,const QString &,QSystemTrayIcon::MessageIcon){});
+    auto *queryEngine=new QueryEngine;QPointer<QueryEngine> guarded=queryEngine;
+    auto *window=new AuthInfoWindow(&parent,queryEngine);window->fetchAuthInfo({});window->show();window->close();
+    QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    check(guarded && guarded->stops==1,"closing a query cancels it without destroying its running thread");
+    int ready=0;QObject::connect(&controller,&ConnectionUiController::readyToQuit,[&]{++ready;});
+    controller.prepareForQuit();controller.prepareForQuit();QApplication::processEvents();
+    check(!ready && guarded->stops==1,"exit waits for an already cancelled query without repeated stop");
+    emit queryEngine->finished(ConnectionError::NONE);until([&]{return ready==1;});
+    QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    check(!guarded,"query owner is destroyed only after its cleanup completes");
 }
 
 static void quitWaitsForInitialSsoCache() {
@@ -876,5 +894,5 @@ static void gateway(const QJsonObject &config) {
 int main(int argc, char **argv) {
     QApplication app(argc, argv);
     if (argc == 3 && QByteArray(argv[1]) == "--gateway") gateway(QJsonDocument::fromJson(argv[2]).object());
-    else { browserCookiesStayInLoginDialog(); browserValidatesCallbackNavigation(); uiContracts(); proxyWaitsForReady(); manualCredentialsAndLateResults(); authenticationCacheLifecycle(); authenticationSurvivesTunnelFailure(); quitWaitsForInitialSsoCache(); }
+    else { browserCookiesStayInLoginDialog(); browserValidatesCallbackNavigation(); uiContracts(); proxyWaitsForReady(); manualCredentialsAndLateResults(); authenticationCacheLifecycle(); authenticationSurvivesTunnelFailure(); quitWaitsForInitialSsoCache(); quitWaitsForAuthenticationQueryWithoutBlockingTheGui(); }
 }

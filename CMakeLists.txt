@@ -61,6 +61,7 @@ set(SOURCE_FILES
     presentation/coordinators/connectionuicontroller.cpp
     application/applicationlogger.cpp
     application/commandlineoptions.cpp
+    application/applicationshutdown.cpp
     application/connectionsession.cpp
     application/profileservice.cpp
     application/profileconfiguration.cpp
@@ -165,6 +166,14 @@ if(BUILD_TESTING)
     set_tests_properties(core_self_test PROPERTIES TIMEOUT 30 PASS_REGULAR_EXPRESSION "\"ok\":true")
     include(tests/CoreEngineTests.cmake)
     justconnect_core_ui_tests(coreengineui_test justconnect_engine justconnect_core)
+    set(MAINWINDOW_TEST_SOURCES ${SOURCE_FILES})
+    list(REMOVE_ITEM MAINWINDOW_TEST_SOURCES main.cpp)
+    add_executable(mainwindow_test tests/mainwindow_test.cpp ${MAINWINDOW_TEST_SOURCES})
+    target_link_libraries(mainwindow_test PRIVATE justconnect_engine justconnect_platform
+        Qt6::WebEngineWidgets Qt6::Concurrent Qt6::Svg SingleApplication::SingleApplication ${PLATFORM_LIBS})
+    justconnect_core_runtime(mainwindow_test justconnect_core)
+    add_test(NAME mainwindow_test COMMAND mainwindow_test)
+    set_tests_properties(mainwindow_test PROPERTIES TIMEOUT 30 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_executable(webengine_test tests/webengine_test.cpp)
     target_link_libraries(webengine_test Qt::WebEngineWidgets)
     add_test(NAME webengine_test COMMAND webengine_test)
@@ -225,6 +234,13 @@ if(BUILD_TESTING)
     target_include_directories(connectionsession_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(connectionsession_test Qt::Core)
     add_test(NAME connectionsession_test COMMAND connectionsession_test)
+
+    add_executable(applicationshutdown_test tests/applicationshutdown_test.cpp
+        application/applicationshutdown.cpp application/connectionsession.cpp
+        core/connectionsessionstate.cpp application/systemproxysession.cpp application/coreengine.h)
+    target_link_libraries(applicationshutdown_test PRIVATE Qt6::Core Qt6::Concurrent)
+    add_test(NAME applicationshutdown_test COMMAND applicationshutdown_test)
+    set_tests_properties(applicationshutdown_test PROPERTIES TIMEOUT 15)
 
     add_executable(systemproxysession_test
         tests/systemproxysession_test.cpp
