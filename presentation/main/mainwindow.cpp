@@ -314,12 +314,15 @@ MainWindow::MainWindow(
     QApplication::setQuitOnLastWindowClosed(false);
     connect(connectionUiController,&ConnectionUiController::readyToQuit,this,[this] {
         exitReady=true;
+        emit shutdownSettled(true);
         QApplication::quit();
     });
     connect(connectionUiController,&ConnectionUiController::quitFailed,this,[this](const QString &code) {
+        emit shutdownSettled(false);
         qWarning() << code << "core_active" << connectionSession->isActive()
             << "proxy_busy" << systemProxySession->isBusy() << "proxy_unrestored" << systemProxySession->needsCleanup()
             << "credential_work" << coordinator->credentials()->isBusy();
+        if (property("systemShutdown").toBool()) return;
         show();raise();activateWindow();
         auto *message=new QMessageBox(QMessageBox::Warning,"退出未完成",
             "清理失败或超时。已停止重连及新连接；请检查代理残留，完成清理后重试退出或重启系统。程序将保留事件循环，不强制销毁仍在运行的核心或存储线程。",
@@ -1009,4 +1012,18 @@ MainWindow::~MainWindow()
     QObject::disconnect(applicationLogger, nullptr, this, nullptr);
     delete ui;
     ui = nullptr;
+}
+
+void MainWindow::endSystemSession()
+{
+    QEventLoop cleanup;
+    bool settled=false;
+    const auto finished=connect(this,&MainWindow::shutdownSettled,&cleanup,[&](bool) {settled=true;cleanup.quit();});
+    QTimer deadline;deadline.setSingleShot(true);deadline.setInterval(16000);
+    connect(&deadline,&QTimer::timeout,&cleanup,&QEventLoop::quit);
+    setProperty("systemShutdown",true);
+    gracefullyQuit();
+    if (!settled) {deadline.start();cleanup.exec();}
+    setProperty("systemShutdown",false);
+    disconnect(finished);
 }

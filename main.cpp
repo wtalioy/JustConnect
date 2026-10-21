@@ -7,6 +7,8 @@
 #include <QLibraryInfo>
 #include <QLocale>
 #include <QTranslator>
+#include <QSessionManager>
+#include "infrastructure/platform/terminationrequests.h"
 
 #include "SingleApplication"
 
@@ -66,6 +68,13 @@ int main(int argc, char *argv[])
         qDebug() << "Failed to load transaction file for" << translateModule;
 
     MainWindow mainWindow(&applicationLogger, &applicationLogFile);
+
+    TerminationRequests termination;
+    QObject::connect(&termination,&TerminationRequests::requested,&mainWindow,&MainWindow::gracefullyQuit);
+    QObject::connect(&app,&QGuiApplication::commitDataRequest,&mainWindow,[&](QSessionManager &manager) {
+        manager.setRestartHint(QSessionManager::RestartNever);
+        mainWindow.endSystemSession();
+    },Qt::DirectConnection);
 
     QObject::connect(&app, &SingleApplication::aboutToQuit, &mainWindow, &MainWindow::cleanUpWhenQuit);
 

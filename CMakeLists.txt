@@ -54,6 +54,7 @@ install(FILES "${CORE}/internal/ping/LICENSE"
 
 set(SOURCE_FILES
     main.cpp
+    infrastructure/platform/terminationrequests.cpp
     presentation/main/mainwindow.cpp
     presentation/main/mainwindowcoordinator.cpp
     presentation/coordinators/authdialogcoordinator.cpp
@@ -173,7 +174,15 @@ if(BUILD_TESTING)
         Qt6::WebEngineWidgets Qt6::Concurrent Qt6::Svg SingleApplication::SingleApplication ${PLATFORM_LIBS})
     justconnect_core_runtime(mainwindow_test justconnect_core)
     add_test(NAME mainwindow_test COMMAND mainwindow_test)
-    set_tests_properties(mainwindow_test PROPERTIES TIMEOUT 30 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    add_test(NAME mainwindow_termination_test COMMAND mainwindow_test --termination)
+    add_test(NAME mainwindow_system_session_test COMMAND mainwindow_test --system-session)
+    if(UNIX)
+        add_test(NAME mainwindow_external_signal_test COMMAND mainwindow_test --external-signal)
+        add_test(NAME mainwindow_interrupt_test COMMAND mainwindow_test --interrupt)
+        add_test(NAME mainwindow_hangup_test COMMAND mainwindow_test --hangup)
+        set_tests_properties(mainwindow_interrupt_test mainwindow_hangup_test mainwindow_external_signal_test PROPERTIES TIMEOUT 30 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    endif()
+    set_tests_properties(mainwindow_test mainwindow_termination_test mainwindow_system_session_test PROPERTIES TIMEOUT 30 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_executable(webengine_test tests/webengine_test.cpp)
     target_link_libraries(webengine_test Qt::WebEngineWidgets)
     add_test(NAME webengine_test COMMAND webengine_test)

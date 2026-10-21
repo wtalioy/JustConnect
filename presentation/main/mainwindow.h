@@ -41,6 +41,11 @@ public:
 public slots:
 
     void cleanUpWhenQuit();
+    void gracefullyQuit();
+    void endSystemSession();
+
+signals:
+    void shutdownSettled(bool success);
 
 protected:
     void closeEvent(QCloseEvent *e) override;
@@ -91,8 +96,6 @@ private:
     void renameCurrentProfile();
 
     void deleteCurrentProfile();
-
-    void gracefullyQuit();
 
     Ui::MainWindow *ui;
     QSystemTrayIcon *trayIcon;
