@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/wtalioy/JustConnect/corelib/client/atrust"
 	"github.com/wtalioy/JustConnect/corelib/client/atrust/auth"
@@ -148,5 +149,141 @@ func TestClientDataInvalidatesWhenTunnelRejectsSession(t *testing.T) {
 	_, challenges, invalidated, err := setupWithCache(t, g, encoded)
 	if !errors.Is(err, auth.ErrSessionInvalid) || challenges != 0 || invalidated != 1 || g.authCount.Load() != 1 {
 		t.Fatalf("tunnel rejection: challenges=%d invalidations=%d authentications=%d err=%v", challenges, invalidated, g.authCount.Load(), err)
+	}
+}
+
+func TestBridgeAuthenticationCacheEventsRestoreAndInvalidate(t *testing.T) {
+	g := newGateway(t)
+	g.resumeCookies.Store(true)
+	e := New(RunProtocol)
+	h := create(t, e)
+	c := g.config(t)
+	c.Auth.AuthID, c.Auth.SubType = "fixture-primary", "sms"
+	c.AuthenticationCache.Enabled = true
+	for round := 0; round < 3; round++ {
+		if round == 2 {
+			g.expireCookies.Store(true)
+		}
+		if _, status := e.Start(h, configBytes(t, c)); status != OK {
+			t.Fatal(status)
+		}
+		challenges, invalidations, saves := 0, 0, 0
+		ready := false
+		for !ready {
+			ev := next(t, e, h)
+			switch ev.Type {
+			case "authentication":
+				challenges++
+				response, _ := json.Marshal(Response{SchemaVersion: ABIVersion, Generation: ev.Generation, RequestID: ev.RequestID, Action: "submit", Code: "fixture-code"})
+				if status := e.Respond(h, response); status != OK {
+					t.Fatal(status)
+				}
+			case "authentication_cache":
+				if ev.Action == "invalidate" {
+					invalidations++
+					continue
+				}
+				if ev.Action != "save" || ev.Cache == nil || ev.Cache.Account != "fixture-user" || len(ev.Cache.Data) == 0 {
+					t.Fatal("missing bound cache output")
+				}
+				saves++
+				c.AuthenticationCache.Account = ev.Cache.Account
+				c.AuthenticationCache.Data = ev.Cache.Data
+			case "state":
+				ready = ev.State == "ready"
+			case "terminal":
+				t.Fatal("cache connection failed", ev.Status)
+			}
+		}
+		expectedChallenges, expectedInvalidations := 1, 0
+		if round == 1 {
+			expectedChallenges = 0
+		}
+		if round == 2 {
+			expectedInvalidations = 1
+		}
+		if challenges != expectedChallenges || invalidations != expectedInvalidations || saves != 1 {
+			t.Fatalf("round %d: challenges=%d invalidations=%d saves=%d", round, challenges, invalidations, saves)
+		}
+		if e.Stop(h, 3000) != OK {
+			t.Fatal("stop")
+		}
+		if ev := next(t, e, h); ev.Type != "terminal" || ev.Status != Cancelled {
+			t.Fatal("ordinary stop did not finish")
+		}
+	}
+	if g.authCount.Load() != 2 || g.cacheProbes.Load() != 2 {
+		t.Fatal("bridge did not restore existing protocol cookies")
+	}
+}
+
+func TestAuthenticationCacheQueueIsBoundedAndOrdered(t *testing.T) {
+	produced := make(chan struct{})
+	e := New(func(ctx context.Context, _ Config, host *Session) Status {
+		for i := 0; i < 1000; i++ {
+			if host.SaveAuthenticationCache("alice", []byte(strconv.Itoa(i))) != OK {
+				return Internal
+			}
+		}
+		if host.InvalidateAuthenticationCache() != OK {
+			return Internal
+		}
+		for i := 0; i < 1000; i++ {
+			if host.SaveAuthenticationCache("alice", []byte(strconv.Itoa(i))) != OK {
+				return Internal
+			}
+		}
+		if host.SaveAuthenticationCache("alice", make([]byte, MaxAuthCache+1)) != Limit {
+			return Internal
+		}
+		close(produced)
+		<-ctx.Done()
+		return Cancelled
+	})
+	h := create(t, e)
+	if _, status := e.Start(h, []byte(configJSON)); status != OK {
+		t.Fatal(status)
+	}
+	select {
+	case <-produced:
+	case <-time.After(3 * time.Second):
+		t.Fatal("cache producer blocked on reader")
+	}
+	if ev := read(t, e, h); ev.State != "starting" {
+		t.Fatal("lost starting event")
+	}
+	if ev := read(t, e, h); ev.Action != "invalidate" {
+		t.Fatal("old save survived definitive invalidation")
+	}
+	if ev := read(t, e, h); ev.Action != "save" || ev.Cache == nil || string(ev.Cache.Data) != "999" {
+		t.Fatal("latest save missing after invalidation")
+	}
+	if _, _, status := e.Read(h, MaxOutput, 0); status != Timeout {
+		t.Fatal("unbounded cache notifications")
+	}
+	if e.Stop(h, 1000) != OK {
+		t.Fatal("stop waited for a cache reader")
+	}
+	if ev := read(t, e, h); ev.Type != "terminal" {
+		t.Fatal("lost terminal")
+	}
+}
+
+func TestBridgeReportsRequiredCredentialsWithoutPostingPassword(t *testing.T) {
+	g := newGateway(t)
+	g.passwordMethod.Store(true)
+	c := g.config(t)
+	c.Auth.Method, c.Auth.AuthID, c.Auth.SubType = "auth/psw", "fixture-primary", "password"
+	c.Auth.Username = "login-alias"
+	e := New(RunProtocol)
+	h := create(t, e)
+	if _, status := e.Start(h, configBytes(t, c)); status != OK {
+		t.Fatal(status)
+	}
+	if ev := next(t, e, h); ev.State != "starting" {
+		t.Fatal("missing starting event")
+	}
+	if ev := next(t, e, h); ev.Type != "terminal" || ev.Status != CredentialsRequired {
+		t.Fatal("missing credentials were not reported safely", ev.Status)
 	}
 }

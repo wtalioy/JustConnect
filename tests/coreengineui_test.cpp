@@ -472,8 +472,11 @@ static void uiContracts() {
     auto *query = new AuthInfoWindow(&parent, fake);
     ConnectionProfile queryProfile; queryProfile.endpoint.server="vpn.example.invalid"; queryProfile.endpoint.port=8443;
     queryProfile.credentials.password="must-not-be-queried"; queryProfile.tls={false,"query CA"};
+    queryProfile.behavior.rememberAuthentication=true;queryProfile.authenticationCache={"private-account","private-cache"};
     query->fetchAuthInfo(queryProfile);
-    check(fake->operation == CoreEngine::Operation::AuthMethods && fake->profile.endpoint.port == 8443 && fake->profile.credentials.password.isEmpty() && !fake->profile.tls.verify && fake->profile.tls.caPem=="query CA",
+    check(fake->operation == CoreEngine::Operation::AuthMethods && fake->profile.endpoint.port == 8443 && fake->profile.credentials.password.isEmpty()
+        && fake->profile.authenticationCache.data.isEmpty() && fake->profile.authenticationCache.account.isEmpty() && !fake->profile.behavior.rememberAuthentication
+        && !fake->profile.tls.verify && fake->profile.tls.caPem=="query CA",
         "query uses the engine port and configured server");
     emit fake->authMethodsReady({QJsonObject{{"type", "auth/cas"}, {"domain", "campus"}, {"name", "校园登录"}, {"login_url", "https://vpn.example.invalid/login"}}});
     auto *list = query->findChild<QListWidget *>();
@@ -575,6 +578,7 @@ static void gateway(const QJsonObject &config) {
     p.endpoint.authType = auth["method"].toString().mid(QString("auth/").size());
     p.endpoint.phone = auth["phone"].toString();
     p.endpoint.loginDomain = auth["domain"].toString();
+    p.behavior.rememberAuthentication=true;
     p.proxy.socksBind = listeners["socks"].toString();
     p.proxy.httpBind = listeners["http"].toString();
     auto *untrustedEngine=new EmbeddedCoreEngine;
@@ -608,6 +612,11 @@ static void gateway(const QJsonObject &config) {
     check(selected, "actual query selection supplies authentication settings");
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     int responses = 0, completed = 0, ticks = 0;
+    AuthenticationCache savedCache;
+    QObject::connect(engine,&CoreEngine::authenticationCacheUpdated,[&](const AuthenticationCache &cache) {
+        check(QThread::currentThread()==QApplication::instance()->thread(),"cache arrives on the GUI thread");savedCache=cache;
+    });
+    QObject::connect(engine,&CoreEngine::authenticationCacheInvalidated,[&]{check(false,"fresh authentication is not invalidated");});
     QObject::connect(&session, &ConnectionSession::authenticationRequired, &dialogs,
         &AuthDialogCoordinator::requestAuthentication);
     QObject::connect(&dialogs, &AuthDialogCoordinator::responseSubmitted, &session, [&](const QJsonObject &response) {
@@ -636,6 +645,21 @@ static void gateway(const QJsonObject &config) {
         session.stop();
         until([&] { return completed == 1; });
     });
+    check(savedCache.account=="fixture-user" && !savedCache.data.isEmpty(),"Qt receives server-confirmed cache after authentication");
+    {
+        EmbeddedCoreEngine restarted;
+        auto restoredProfile=p;restoredProfile.authenticationCache=savedCache;
+        bool ready=false,done=false,saved=false;
+        QObject::connect(&restarted,&CoreEngine::authenticationRequired,[&](const QJsonObject &){check(false,"valid cache must avoid another authentication prompt");});
+        QObject::connect(&restarted,&CoreEngine::authenticationCacheInvalidated,[&]{check(false,"valid restored cache must remain valid");});
+        QObject::connect(&restarted,&CoreEngine::authenticationCacheUpdated,[&](const AuthenticationCache &cache){saved=cache.account==savedCache.account && !cache.data.isEmpty();});
+        QObject::connect(&restarted,&CoreEngine::connectionEstablished,[&]{ready=true;});
+        QObject::connect(&restarted,&CoreEngine::finished,[&](ConnectionError error){check(error==ConnectionError::NONE,"restored Qt connection stops normally");done=true;});
+        check(restarted.start(restoredProfile),"fresh Qt engine accepts bound cache");
+        until([&]{return ready && saved;});
+        restarted.stop();until([&]{return done;});
+    }
+    std::cout<<"PASS: native cache restoration\n";
     bool methods = false, queryDone = false;
     QObject::connect(engine, &CoreEngine::authMethodsReady, [&](const QJsonArray &list) { methods = !list.isEmpty(); });
     QObject::connect(engine, &CoreEngine::finished, [&](ConnectionError error) {

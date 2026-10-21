@@ -341,6 +341,9 @@ void ConnectionUiController::showConnectionError(ConnectionError error)
     QString message;
     switch (error)
     {
+    case ConnectionError::CREDENTIALS_REQUIRED:
+        message="认证已失效或无法恢复，请输入登录凭据后重试。";
+        break;
     case ConnectionError::AUTHENTICATION_UNSUPPORTED:
         message="服务器要求的后续认证步骤暂不支持，请联系管理员确认认证策略。";
         break;

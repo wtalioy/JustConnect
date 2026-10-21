@@ -8,7 +8,7 @@
 
 构建提交与工作树状态由 Git 查询注入，不填写开发机目录、学校地址或账户。`jc_build_info` 返回当前 Go 版本、目标 OS／架构、JustConnect 完整提交、上游基线和由提交／工作树状态组成的本地版本。直接手动构建而没有 VCS 信息时明确返回 `unversioned/unknown`，不能作为可追溯发布产物。
 
-正式库返回 `embedded_vpn:true`、`auth_method_query:true`、`policy_update:false`。Start 使用真实会话：认证、资源、选线、IP 握手、解析、gVisor 和监听均成功后才产生 `ready`，失败或取消在清理完成后产生终态。只有测试驱动和未安装 Runner 的纯传输引擎没有 VPN 能力；测试驱动始终标记 `test_driver:true`。
+正式库返回 `embedded_vpn:true`、`auth_method_query:true`、`authentication_cache:true`、`policy_update:false`。Start 使用真实会话：认证、资源、选线、IP 握手、解析、gVisor 和监听均成功后才产生 `ready`，失败或取消在清理完成后产生终态。只有测试驱动和未安装 Runner 的纯传输引擎没有 VPN 能力；测试驱动始终标记 `test_driver:true`。
 
 ## C 边界与生命周期
 
@@ -63,7 +63,13 @@ ABI v1 与 JSON schema 版本同步。S2-02 以兼容增补导出 `jc_config_val
 
 事件包含 `schema_version/type/generation/sequence/status`。代次、序列号与请求标识为十进制字符串，避免 Qt JSON 数值精度损失。状态事件为 `state:starting/ready`；终态为 `type:terminal`，携带安全消息。`ready` 在认证未完成／未读时不能产生，每代最多一次。诊断只接受已登记 `code`，没有任意文本／服务端响应字段：`authentication_started/transport_connected/keepalive_retry/anti_mitm_failed/persistence_failed/manifest_cached/auth_detail_unavailable`。宿主日志目标保持不变，SID、票据、签名、凭据、原始响应和报文不进入诊断。
 
-队列最多保留 `MaxDiagnostics` 条诊断；超限立即返回 `JC_LIMIT`，不阻塞数据面或退出。另外保留两条状态、一个未读认证请求和一个终态的位置（查询结果占用该代的结果位置，不与 ready／认证并存），总数最多 `MaxDiagnostics + 4`；单个事件和图片受大小限制。未读认证不能回应；过期但未读的请求仍占据位置，避免重试积压图片。终态和清理均不依赖宿主消费诊断。
+队列最多保留 `MaxDiagnostics` 条诊断；超限立即返回 `JC_LIMIT`，不阻塞数据面或退出。另外保留两条状态、一个未读认证请求和一个终态的位置（查询结果占用该代的结果位置，不与 ready／认证并存），缓存另保留两个位置（见下文），总数最多 `MaxDiagnostics + 6`；单个事件和图片受大小限制。未读认证不能回应；过期但未读的请求仍占据位置，避免重试积压图片。终态和清理均不依赖宿主消费诊断。
+
+`authentication_cache` 是版本 1 的可选扩展；省略或 `enabled:false` 时不恢复或交付缓存。启用使用 `{enabled:true,account:"服务器确认账户",data:"Base64 的不透明核心材料"}`；首次认证只传 `enabled:true`。`account/data` 必须同时提供，账户不替代 `auth.username` 登录别名；解码后最多 `MaxAuthCache`（16 KiB）。查询认证方式不接受启用缓存。宿主只从系统安全存储提供这份材料，Base64 仅是 ABI 传输编码。
+
+启用后接收 `type:authentication_cache,action:save,cache:{account,data}` 或 `action:invalidate` 事件；`data` 同样是 Base64。保存事件来自服务器确认后的快照，刷新会更新 Cookie；明确拒绝才产生失效事件，普通 Stop 不注销。宿主按活动配置作用域保存／移除，不把数据输出到诊断或日志。待交付的连续保存只保留最新一份，失效会丢弃旧保存，后续新认证的保存排在失效之后；最多占两个队列位置，停止不依赖存储或宿主消费。超过缓存上限只交付 `persistence_failed` 诊断，不中断已有效的连接。原生存储更小的实际上限仍须由宿主报告，不能回退到明文。
+
+恢复不成功且缺少密码时终态为 `JC_CREDENTIALS_REQUIRED`，宿主提供一次必要凭据输入，不提交空密码。旧调用方没有启用扩展时仍使用原事件集合。
 
 ~~~json
 {
@@ -120,7 +126,7 @@ S1-07 与 S1-08 的受控网关及六平台宿主已验证正式会话、Qt 认�
 
 ## Qt 应用端口
 
-`CoreEngine` 表达连接、认证方式查询、结构化认证回应与停止能力；`EmbeddedCoreEngine` 负责 JSON／C ABI 边界。专属工作线程读取有界队列，并以一次一个事件的确认方式排队交付给应用线程。停止立即请求取消，随后等待清理终态；销毁中断泵并等待会话销毁，不卸载 Go runtime。认证和回应保留原始字符串代次／请求 ID，旧回应及取消均不会作用于新会话。图片从事件内存解码，不落临时文件；SSO 使用事件给出的登录 URL 和会话保存的回调服务器。
+`CoreEngine` 表达连接、认证方式查询、结构化认证回应、认证缓存更新／失效与停止能力；`EmbeddedCoreEngine` 负责 JSON／C ABI 边界。专属工作线程读取有界队列，并以一次一个事件的确认方式排队交付给应用线程。停止立即请求取消，随后等待清理终态；销毁中断泵并等待会话销毁，不卸载 Go runtime。认证和回应保留原始字符串代次／请求 ID，旧回应及取消均不会作用于新会话。缓存只在连接且显式启用的配置中传递，Qt 校验账户、规范 Base64 及长度后交付独立信号；查询端口新建不含凭据或缓存的配置。图片从事件内存解码，不落临时文件；SSO 使用事件给出的登录 URL 和会话保存的回调服务器。
 
 配置模型仅保留 aTrust 与 ABI 支持字段，端口零关闭对应监听、监听固定在回环。S2-02 已删除 EasyConnect、TUN／路由、额外 CLI 参数及旧转发等控件／运行字段；旧协议要求显式确认 aTrust 入口。设置页与向导保存前调用 `jc_config_validate`，与启动复用同一 JSON 映射与 Go 严格解析；非法地址／认证／非回环监听、超限值及未知 JSON 字段仍被拒绝，不自动退回进程。构建显示使用实际已加载库的来源信息。共享 CMake 入口见 `cmake/CoreLibrary.cmake`；真实窗口／正式网关回归在根 CTest 和六平台原生宿主中使用同一 `tests/CoreEngineTests.cmake`。
 

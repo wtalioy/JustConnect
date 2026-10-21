@@ -133,6 +133,7 @@ static QJsonObject protocolEvent(API &api, uint64_t handle) {
 
 static void nativeProtocol(API &api, const QByteArray &input) {
     auto config = QJsonDocument::fromJson(input).object();
+    config["authentication_cache"] = QJsonObject{{"enabled",true}};
     uint64_t handle = 0, generation = 0;
     check(api.jc_session_create(JC_ABI_VERSION, &handle) == JC_OK, "native protocol create");
     const auto start = [&] {
@@ -156,15 +157,29 @@ static void nativeProtocol(API &api, const QByteArray &input) {
         {"request_id",challenge["request_id"]},{"action","confirm"}}).toJson(QJsonDocument::Compact);
     check(api.jc_session_respond(handle,reinterpret_cast<const uint8_t *>(response.constData()),static_cast<uint32_t>(response.size()))==JC_OK,"explicit ABI device confirmation");
     response.fill('\0');
+    const auto cacheEvent=protocolEvent(api,handle);
+    const auto cache=cacheEvent["cache"].toObject();
+    check(cacheEvent["type"]=="authentication_cache" && cacheEvent["action"]=="save"
+        && cache["account"]=="fixture-user" && !cache["data"].toString().isEmpty(),"real C ABI bound cache output");
     check(protocolEvent(api, handle)["state"] == "ready", "real protocol ready");
     ProxyCheck::exercise(config["listeners"].toObject(), [&] {
     check(api.jc_session_stop(handle, 5000) == JC_OK && api.jc_session_stop(handle, 1000) == JC_OK, "native protocol idempotent stop");
     auto terminal = protocolEvent(api, handle);
     check(terminal["type"] == "terminal" && terminal["status"].toInt() == JC_CANCELLED, "native protocol stopped terminal");
     });
+    config["authentication_cache"]=QJsonObject{{"enabled",true},{"account",cache["account"]},{"data",cache["data"]}};
+    start();
+    const auto restored=protocolEvent(api,handle);
+    check(restored["type"]=="authentication_cache" && restored["action"]=="save"
+        && restored["cache"].toObject()["account"]=="fixture-user","real C ABI restores cache without a second challenge");
+    check(protocolEvent(api,handle)["state"]=="ready","restored protocol ready");
+    check(api.jc_session_stop(handle,5000)==JC_OK,"restored native protocol stop");
+    check(protocolEvent(api,handle)["status"].toInt()==JC_CANCELLED,"restored protocol terminal");
+    std::cout<<"PASS: native cache restoration\n";
+    config.remove("authentication_cache");
     config["operation"] = "auth_methods";
     start();
-    check(generation == 2, "native restart generation");
+    check(generation == 3, "native restart generation");
     auto methods = protocolEvent(api, handle);
     check(methods["type"] == "auth_methods" && !methods["methods"].toArray().isEmpty(), "real authentication method query");
     const auto selected=methods["methods"].toArray().first().toObject();

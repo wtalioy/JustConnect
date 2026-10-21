@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
@@ -50,6 +51,18 @@ func RunProtocol(ctx context.Context, config Config, host *Session) Status {
 		SOCKS:    config.Listeners.SOCKS, HTTP: config.Listeners.HTTP, SecondaryDNS: config.Network.SecondaryDNS, DNSCacheTTL: uint64(config.Network.DNSCacheTTL), DisableRemoteDNS: config.Network.DisableRemoteDNS,
 		QueryAuthMethods: config.Operation == "auth_methods",
 	}
+	if config.AuthenticationCache.Enabled {
+		options.Client.Session.Username = config.AuthenticationCache.Account
+		options.Setup.ClientData = config.AuthenticationCache.Data
+		options.Setup.SaveClientData = func(data []byte) error {
+			var snapshot auth.ClientAuthData
+			if json.Unmarshal(data, &snapshot) != nil || host.SaveAuthenticationCache(snapshot.Identity.Username, data) != OK {
+				host.Diagnostic("persistence_failed")
+			}
+			return nil // Persistence is optional; a valid live session remains usable.
+		}
+		options.Setup.ClientDataInvalidated = func() { host.InvalidateAuthenticationCache() }
+	}
 	err = corelib.NewSession(options).Run(ctx, corelib.Observer{
 		Ready: func() error { return checkStatus(host.Ready()) },
 		AuthMethods: func(list []auth.AuthInfo) error {
@@ -78,6 +91,9 @@ func RunProtocol(ctx context.Context, config Config, host *Session) Status {
 	}
 	if errors.Is(err, auth.ErrAuthMethodChanged) {
 		return AuthMethodChanged
+	}
+	if errors.Is(err, auth.ErrCredentialsRequired) {
+		return CredentialsRequired
 	}
 	var oversized *http.MaxBytesError
 	if errors.As(err, &oversized) {
