@@ -227,7 +227,7 @@ Linux x64／ARM64 AppImage 分别减少约 2.07%／1.90%；macOS 安装体积基
 
 当前证据与保留结论：
 
-- D2：官方 Wintun SDK 两架构签名／固定哈希、本机实际 Windows x64 的三项边界及本机设备拒绝检查通过；x64／ARM64 编译／vet、workflow 与真实 Git LF 检出回归通过。Windows 两架构 `LUA_TOKEN` 降权与三项边界已在原生 CI 通过；已修复普通子进程丢失 CI 标记而被安全检查拒绝的问题，设备 UDP 与异常清理待重验，尚未修改本机网络或接入产品；范围与脚手架替代条件见[设备记录](docs/CORELINK-PROBE.md#windows-device-probe)。Unix fd 原型已合并并接入两组 macOS utun 检查；Linux 实际正常／强杀及宿主拒绝／网络不变重验通过，Darwin 分支待原生 CI。
+- D2：官方 Wintun SDK 两架构签名／固定哈希、本机实际 Windows x64 的三项边界及本机设备拒绝检查通过；x64／ARM64 编译／vet、workflow 与真实 Git LF 检出回归通过。Windows 两架构 `LUA_TOKEN` 降权与三项边界已在原生 CI 通过；已修复普通子进程丢失 CI 标记而被安全检查拒绝的问题，设备 UDP 与异常清理待重验，尚未修改本机网络或接入产品；范围与脚手架替代条件见[设备记录](docs/CORELINK-PROBE.md#windows-device-probe)。Unix fd 原型已合并并接入两组 macOS utun 检查；Linux 实际正常／强杀及宿主拒绝／网络不变重验通过，Darwin 分支待原生 CI。已清理约 15 MB 过时探测程序及重复失败日志，保留当前 SDK、原生检查和关键报告；L3 单读取者与原出口／端口分流约束记入设备记录。
 - 出口清理：已移除无产品调用的旧上游 HTTP／SOCKS 参数、实现与专属测试，净减约 400 行；调用、配置、依赖、构建／CI 和文档已核对，正式代理与校园授权／信任／取消／TCP／UDP 回归保留。
 - 失败边界：必须走校园的拨号，以及普通代理中的校园域名，均禁止解析失败／IPv6 回落原网络；校园查询拒绝未知缓存／公共 DNS，保留授权 IPv4／域名资源。两个修复单元分别通过 Go 19 包／vet、race、Release／Qt 六项，待 CI；出口绑定另补 Linux／实际 Windows x64 的 IPv4／IPv6 TCP／UDP 回环收发及错误接口拒绝回落回归，其余原生组待 CI；尚不代表透明策略交付。
 - D3：本机 Mihomo 1.19.32 自有临时实例已证明规则／DNS 不能靠 PATCH 生效，完整 PUT、无效更新保留及恢复回读通过；关闭状态的 TUN 排除字段可回读。目标版本、源码哈希、范围和限制见[接口记录](docs/CORELINK-PROBE.md#mihomo-api-probe)；运行中 TUN／真实配置所有权及其余平台仍待验收。
