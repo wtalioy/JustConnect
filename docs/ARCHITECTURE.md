@@ -20,6 +20,8 @@ tests/            领域、端口、界面、真实 C ABI 与受控网关回归
 
 `ConnectionSession` 持有连接意图、重连计时器及当前配置，使用 `ConnectionSessionState` 管理状态。`EmbeddedCoreEngine` 将配置序列化后提交专属 Qt 工作线程；创建、异步启动、认证回应、读取、停止和销毁都在该线程调用 C ABI。每次最多一个 Qt 事件在途，应用线程确认交付后继续读取，避免另造无界日志队列。诊断字符串只供记录，状态仅由结构化状态／终态事件改变。
 
+`AuthenticationCacheCoordinator` 统一编排认证缓存的保存、失效、首次 SSO 账户绑定与清除代次，使用现有 CredentialAccess 串行存储入口；界面控制器只处理连接意图、输入和提示，并在退出时等待协调器的绑定续接。账户键和有效性规则仍归连接模型／ProfileCredentials，存储来源与修订校验归 CredentialAccess，避免界面重排或后续重连重复维护这些规则。Go 仅通过绑定身份的 ClientData 恢复并由服务器确认账户、取得当前资源；不再保留直接注入旧资源并跳过认证的旁路。
+
 Go 的会话代次和请求 ID 全程保留为十进制字符串。`AuthDialogCoordinator` 异步展示短信、TOTP、RADIUS、内存图片验证码和 SSO；回应带原始身份。应用及 Go 都检查当前请求，旧窗口提交／取消不能影响新会话。停止不等待认证 UI；销毁先中断读取，再等待句柄与借用缓冲区结束。Unix 静态链接；Windows 从可执行文件目录固定加载随包 DLL，并保持 Go runtime 到宿主退出。
 
 `Session.Run` 拥有 underlay、认证／隧道、gVisor、解析器及 SOCKS／HTTP（含 UDP association），所有清理结束后才释放活动会话名额。进程只允许一个活动连接或认证方式查询。查询界面等待清理终态后才允许确认选择。系统代理由单独用例拥有，通道就绪后才自动设置；当前库不创建系统 TUN、不改变系统路由／DNS，GUI 无需为连接整体提权。

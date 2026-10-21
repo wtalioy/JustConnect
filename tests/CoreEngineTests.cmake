@@ -12,6 +12,7 @@ function(justconnect_core_ui_tests TARGET ENGINE LIBRARY)
         "${REPO}/application/profileconfiguration.cpp"
         "${REPO}/core/connectionsessionstate.cpp"
         "${REPO}/presentation/coordinators/authdialogcoordinator.cpp"
+        "${REPO}/presentation/coordinators/authenticationcachecoordinator.cpp"
         "${REPO}/presentation/coordinators/connectionuicontroller.cpp"
         "${REPO}/presentation/dialogs/authinfowindow/authinfowindow.cpp"
         "${REPO}/presentation/dialogs/graphcaptchawindow/graphcaptchawindow.cpp"

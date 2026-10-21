@@ -1,4 +1,5 @@
 #include "connectionuicontroller.h"
+#include "authenticationcachecoordinator.h"
 #include "presentation/presentationhelpers.h"
 
 #include <QAction>
@@ -56,14 +57,11 @@ ConnectionUiController::ConnectionUiController(
 
     connect(connectionSession, &ConnectionSession::diagnostic, applicationLogger,
         [applicationLogger](const QString &code) { applicationLogger->appendCoreOutput("[core] " + code + "\n"); });
-    connect(connectionSession,&ConnectionSession::authenticationCacheUpdated,this,&ConnectionUiController::rememberAuthentication);
-    connect(connectionSession,&ConnectionSession::authenticationCacheInvalidated,this,&ConnectionUiController::invalidateAuthenticationCache);
-    connect(connectionSession,&ConnectionSession::diagnostic,this,[this](const QString &code) {
-        if (code=="persistence_failed" && cacheSource && !cacheWarningShown) {
-            cacheWarningShown=true;
-            this->notificationHandler("认证缓存未保存","核心未能提供可安全保存的认证材料，后续可能需要重新认证。",QSystemTrayIcon::Warning);
-        }
+    authenticationCache=new AuthenticationCacheCoordinator(connectionSession,credentials,this->credentialSourceProvider,this);
+    connect(authenticationCache,&AuthenticationCacheCoordinator::warning,this,[this](const QString &message) {
+        this->notificationHandler("认证缓存未保存",message,QSystemTrayIcon::Warning);
     });
+    connect(authenticationCache,&AuthenticationCacheCoordinator::forgotten,this,[this] { cacheCredentialsRequired=false; });
     connect(authenticationDialogs,&AuthDialogCoordinator::loginSubmitted,this,&ConnectionUiController::submitLogin);
     connect(authenticationDialogs,&AuthDialogCoordinator::phoneNumberSubmitted,this,&ConnectionUiController::submitPhone);
     connect(authenticationDialogs,&AuthDialogCoordinator::credentialInputCancelled,this,&ConnectionUiController::cancelPendingCredentials);
@@ -80,8 +78,8 @@ ConnectionUiController::ConnectionUiController(
         [this](ConnectionError error)
         {
             qInfo().noquote() << "VPN 断开！";
-            if (error==ConnectionError::CREDENTIALS_REQUIRED && cacheCredentialsRequired && cacheSource
-                && sourceStillCurrent(*cacheSource) && CredentialAccess::matches(*cacheSource,*settings())) {
+            if (error==ConnectionError::CREDENTIALS_REQUIRED && cacheCredentialsRequired && authenticationCache->source()
+                && sourceStillCurrent(*authenticationCache->source()) && CredentialAccess::matches(*authenticationCache->source(),*settings())) {
                 cacheCredentialsRequired=false;
                 promptSource=this->credentialSourceProvider();
                 this->connectButton->setText("连接服务器");this->trayConnectAction->setText("连接服务器");
@@ -148,7 +146,7 @@ bool ConnectionUiController::sourceStillCurrent(const CredentialSource &source) 
 bool ConnectionUiController::isConfigurationSaving() const
 {
     return credentials->isSaving(settings()->fileName())
-        || (bindingCacheAccount && cacheSource && cacheSource->path==settings()->fileName());
+        || authenticationCache->isBindingFor(settings()->fileName());
 }
 
 void ConnectionUiController::cancelPendingCredentials()
@@ -368,12 +366,7 @@ void ConnectionUiController::handleProxyClicked()
 void ConnectionUiController::startConnection(ConnectionProfile profile,const CredentialSource &source,quint64 revision)
 {
     promptSource.reset();promptCredentials=profile.credentials;
-    ++cacheGeneration;bindingCacheAccount=false;pendingCache={};cacheWarningShown=false;cacheSource.reset();
-    if (profile.behavior.rememberAuthentication && !source.scope.isEmpty()
-        && profile.authenticationIdentity()==source.profile.authenticationIdentity()) {
-        cacheSource=source;cacheRevision=revision;
-        if (revision!=credentials->authenticationCacheRevision(source)) profile.authenticationCache={};
-    } else {profile.behavior.rememberAuthentication=false;profile.authenticationCache={};}
+    profile=authenticationCache->prepare(std::move(profile),source,revision);
     cacheCredentialsRequired=profile.endpoint.authType=="psw" && profile.credentials.password.isEmpty() && !profile.authenticationCache.data.isEmpty();
     const ReconnectPolicy reconnectPolicy{
         settings()->value("Common/AutoReconnect", false).toBool(),
@@ -390,51 +383,6 @@ void ConnectionUiController::startConnection(ConnectionProfile profile,const Cre
 
 }
 
-void ConnectionUiController::reportCacheFailure(CredentialStatus status)
-{
-    if (cacheWarningShown || status==CredentialStatus::Success || status==CredentialStatus::Cancelled) return;
-    cacheWarningShown=true;
-    notificationHandler("认证缓存未保存",PresentationHelpers::credentialOperationMessage(status)+"\n本次连接仍可使用，后续可能需要重新认证。",QSystemTrayIcon::Warning);
-}
-void ConnectionUiController::rememberAuthentication(const AuthenticationCache &cache)
-{
-    if (!cacheSource) return;
-    const auto source=*cacheSource;const auto generation=cacheGeneration;
-    const bool external=source.profile.endpoint.authType=="cas" || source.profile.endpoint.authType=="httpsOauth2";
-    if (external && !source.profile.credentials.username.isEmpty() && !source.profile.matchesCacheAccount(cache.account)) {
-        connectionSession->forgetAuthenticationCache();cacheSource.reset();++cacheGeneration;
-        notificationHandler("认证缓存未保存","本次登录账户与配置中选定的账户不同，请确认账户后重新连接。",QSystemTrayIcon::Warning);return;
-    }
-    if (external && source.profile.credentials.username.isEmpty()) {
-        pendingCache=cache;
-        if (bindingCacheAccount) return;
-        bindingCacheAccount=true;
-        auto profile=source.profile;profile.credentials.username=cache.account;
-        credentials->save(source,profile,false,{{"Credential/Username",cache.account}}).then(this,[this,source,profile,generation](const CredentialResult &result) {
-            if (generation!=cacheGeneration || !cacheSource) return;
-            bindingCacheAccount=false;
-            if (!result.succeeded()) {pendingCache={};reportCacheFailure(result.status);return;}
-            const auto current=credentialSourceProvider();
-            if (current.path!=source.path || current.scope!=source.scope || current.profile.authenticationIdentity()!=profile.authenticationIdentity()) {pendingCache={};return;}
-            cacheSource=current;cacheRevision=credentials->authenticationCacheRevision(current);
-            const auto latest=std::exchange(pendingCache,{});
-            rememberAuthentication(latest);
-        });return;
-    }
-    credentials->saveAuthenticationCache(source,cache,cacheRevision).then(this,[this,generation](const CredentialResult &result) {
-        if (generation==cacheGeneration) reportCacheFailure(result.status);
-    });
-}
-void ConnectionUiController::invalidateAuthenticationCache()
-{
-    ++cacheGeneration;bindingCacheAccount=false;pendingCache={};
-    if (!cacheSource || ProfileCredentials::authenticationCacheKey(cacheSource->scope,cacheSource->profile).isEmpty()) return;
-    const auto generation=cacheGeneration;
-    credentials->clearAuthenticationCache(*cacheSource).then(this,[this,generation](const CredentialResult &result) {
-        if (generation==cacheGeneration) reportCacheFailure(result.status);
-    });
-    cacheRevision=credentials->authenticationCacheRevision(*cacheSource);
-}
 void ConnectionUiController::clearAuthenticationCache()
 {
     if (quitting) return;
@@ -450,10 +398,7 @@ void ConnectionUiController::clearAuthenticationCache()
     confirm.setTextFormat(Qt::PlainText);confirm.setDefaultButton(QMessageBox::No);
     if (confirm.exec()!=QMessageBox::Yes) return;
     if (credentialsPending) cancelPendingCredentials();
-    if (cacheSource && ProfileCredentials::authenticationCacheKey(cacheSource->scope,cacheSource->profile)==ProfileCredentials::authenticationCacheKey(source.scope,source.profile)) {
-        connectionSession->forgetAuthenticationCache();cacheSource.reset();++cacheGeneration;bindingCacheAccount=false;pendingCache={};cacheCredentialsRequired=false;
-    }
-    credentials->clearAuthenticationCache(source).then(this,[this](const CredentialResult &result) {
+    authenticationCache->clear(source).then(this,[this](const CredentialResult &result) {
         if (!result.succeeded()) QMessageBox::warning(parentWidget,"认证缓存清除未完成",PresentationHelpers::credentialOperationMessage(result.status));
     });
 }
@@ -468,7 +413,7 @@ void ConnectionUiController::prepareForQuit()
 }
 void ConnectionUiController::finishQuitWhenReady()
 {
-    if (connectionSession->isActive() || credentials->isBusy() || bindingCacheAccount) {
+    if (connectionSession->isActive() || credentials->isBusy() || authenticationCache->isBinding()) {
         QTimer::singleShot(10,this,&ConnectionUiController::finishQuitWhenReady);return;
     }
     emit readyToQuit();
