@@ -80,9 +80,11 @@ DnsSnapshot readLinuxDnsSnapshot(const QDBusConnection &bus, const QString &reso
     const auto content = file.read(maxFile + 1);
     if (file.error() != QFileDevice::NoError || content.size() > maxFile)
         return failure(Status::Failed, "System resolver file unreadable or too large");
+    const auto text = QString::fromUtf8(content);
+    if (text.toUtf8() != content) return failure(Status::Failed, "System resolver file is not valid UTF-8");
     QJsonObject data{{"resolv_conf", QJsonObject{{"path", resolvConf},
                                                {"target", QFileInfo(file).canonicalFilePath()},
-                                               {"contents", QString::fromUtf8(content)}}}};
+                                               {"contents", text}}}};
     if (!bus.isConnected()) return failure(Status::Failed, "Cannot inspect system resolver bus");
     QDeadlineTimer deadline(5000);
     auto call = [&](const QString &destination, const QString &path, const QString &interface,
