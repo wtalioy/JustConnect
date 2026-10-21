@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strings"
+	"net/url"
 	"testing"
 	"time"
 )
@@ -30,7 +30,7 @@ func TestRefreshUsesLatestCookiesAndCSRF(t *testing.T) {
 	}))
 	defer server.Close()
 	s := newTLSTestSession(server)
-	s.Restore("device", "sid-0", nil)
+	seedSessionCookie(s, "sid-0")
 	s.csrfToken = "csrf-0"
 	for i := 1; i <= 2; i++ {
 		result, err := s.Refresh(context.Background())
@@ -73,7 +73,7 @@ func TestRefreshRejectsInvalidResponses(t *testing.T) {
 			}))
 			defer server.Close()
 			s := newTLSTestSession(server)
-			s.Restore("device", "old", nil)
+			seedSessionCookie(s, "old")
 			result, err := s.Refresh(context.Background())
 			if err == nil || result.SID != "" || errors.Is(err, ErrSessionInvalid) != tt.invalid {
 				t.Fatalf("refresh = %+v, %v", result, err)
@@ -82,7 +82,7 @@ func TestRefreshRejectsInvalidResponses(t *testing.T) {
 	}
 }
 
-func TestSnapshotAfterResourceResponseAndRestorePrecedence(t *testing.T) {
+func TestSnapshotAfterResourceResponse(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie("sid")
 		if err != nil || cookie.Value != "explicit" {
@@ -92,9 +92,8 @@ func TestSnapshotAfterResourceResponseAndRestorePrecedence(t *testing.T) {
 		fmt.Fprint(w, `{"code":0,"data":{}}`)
 	}))
 	defer server.Close()
-	host := strings.TrimPrefix(server.URL, "https://")
 	s := newTLSTestSession(server)
-	s.Restore("device", "explicit", []Cookie{{Host: host, Scheme: "https", Name: "sid", Value: "stale"}})
+	seedSessionCookie(s, "explicit")
 	if _, err := s.ClientResource(); err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +111,7 @@ func TestRefreshCancellation(t *testing.T) {
 	}))
 	defer server.Close()
 	s := newTLSTestSession(server)
-	s.Restore("device", "sid", nil)
+	seedSessionCookie(s, "sid")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
@@ -131,4 +130,8 @@ func TestRefreshCancellation(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("refresh did not cancel")
 	}
+}
+
+func seedSessionCookie(s *Session, sid string) {
+	s.client.Jar.SetCookies(&url.URL{Host: s.baseHost, Scheme: "https"}, []*http.Cookie{{Name: "sid", Value: sid, Path: "/"}})
 }

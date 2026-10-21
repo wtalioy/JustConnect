@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/wtalioy/JustConnect/corelib/client/atrust/auth"
 )
 
 type localUnderlay struct{ net.Dialer }
@@ -25,6 +28,8 @@ func (*localUnderlay) ExcludeIP(net.IP) {}
 func TestSetupOwnsAuthenticationLifetimeAndRollsBack(t *testing.T) {
 	for _, saveFails := range []bool{false, true} {
 		t.Run(fmt.Sprint(saveFails), func(t *testing.T) {
+			var resource atomic.Value
+			var setupCancelled atomic.Bool
 			refreshed := make(chan struct{}, 1)
 			gateway := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
@@ -32,10 +37,16 @@ func TestSetupOwnsAuthenticationLifetimeAndRollsBack(t *testing.T) {
 					fmt.Fprint(w, `{"code":0,"data":{}}`)
 				case "/passport/v1/public/authConfig":
 					fmt.Fprint(w, `{"code":0,"data":{"isLogin":1}}`)
-					select {
-					case refreshed <- struct{}{}:
-					default:
+					if setupCancelled.Load() && r.URL.Query().Get("needTicket") == "0" {
+						select {
+						case refreshed <- struct{}{}:
+						default:
+						}
 					}
+				case "/passport/v1/user/onlineInfo":
+					fmt.Fprint(w, `{"code":0,"data":{"username":"fixture-user"}}`)
+				case "/controller/v1/user/clientResource":
+					fmt.Fprint(w, resource.Load().(string))
 				default:
 					t.Errorf("unexpected request: %s", r.URL.Path)
 					w.WriteHeader(http.StatusNotFound)
@@ -79,20 +90,30 @@ func TestSetupOwnsAuthenticationLifetimeAndRollsBack(t *testing.T) {
 				}
 			}()
 			defer func() { _ = listener.Close(); <-accepted; workers.Wait() }()
-			resource := fmt.Sprintf(`{"data":{"appList":{"data":{"config":{"nodeGroupConf":{"majorNodeGroup":{"ID":"test"},"nodeGroupList":[{"ID":"test","addressInfo":[{"type":"wan","address":%q}]}]}}}}}}`, listener.Addr().String())
+			resource.Store(fmt.Sprintf(`{"data":{"appList":{"data":{"config":{"nodeGroupConf":{"majorNodeGroup":{"ID":"test"},"nodeGroupList":[{"ID":"test","addressInfo":[{"type":"wan","address":%q}]}]}}}}}}`, listener.Addr().String()))
 			host, port, _ := net.SplitHostPort(strings.TrimPrefix(gateway.URL, "https://"))
 			portNumber, _ := strconv.Atoi(port)
-			c := NewClient(ClientOptions{TLSConfig: gateway.Client().Transport.(*http.Transport).TLSClientConfig, UnderlayDialer: &localUnderlay{}, Session: SessionOptions{SID: "sid", DeviceID: "device"}})
+			c := NewClient(ClientOptions{TLSConfig: gateway.Client().Transport.(*http.Transport).TLSClientConfig, UnderlayDialer: &localUnderlay{}, Session: SessionOptions{Username: "fixture-user"}})
 			defer c.Close()
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			saveErr := errors.New("save rejected")
-			options := SetupOptions{ServerAddress: host, ServerPort: portNumber, ResourceData: []byte(resource), SessionRefreshInterval: time.Millisecond}
+			options := SetupOptions{ServerAddress: host, ServerPort: portNumber, SessionRefreshInterval: time.Millisecond}
+			server := net.JoinHostPort(host, port)
+			options.ClientData, err = json.Marshal(auth.ClientAuthData{
+				Identity: cacheIdentity(options, server, "fixture-user"), DeviceID: "device",
+				Cookies:           []auth.Cookie{{Host: server, Scheme: "https", Name: "sid", Value: "sid"}},
+				ServerVersionInfo: json.RawMessage(`{"code":0}`),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
 			if saveFails {
 				options.SaveClientData = func([]byte) error { return saveErr }
 			}
 			_, err = c.SetupContext(ctx, options)
 			cancel()
+			setupCancelled.Store(true)
 			if saveFails {
 				if !errors.Is(err, saveErr) {
 					t.Fatalf("setup = %v", err)

@@ -2,28 +2,10 @@ package auth
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
-	"net/http"
-	"net/url"
 )
 
 var ErrSessionInvalid = errors.New("aTrust session is invalid; reauthentication required")
-
-// Restore initializes the control-plane session when tunnel credentials were
-// supplied directly. A supplied SID takes precedence over persisted cookies.
-func (s *Session) Restore(deviceID, sid string, cookies []Cookie) {
-	s.deviceID = deviceID
-	env, _ := json.Marshal(map[string]string{"deviceId": deviceID})
-	s.env = base64.StdEncoding.EncodeToString(env)
-	for _, cookie := range cookies {
-		s.client.Jar.SetCookies(&url.URL{Host: cookie.Host, Scheme: cookie.Scheme}, []*http.Cookie{{Name: cookie.Name, Value: cookie.Value, Path: "/"}})
-	}
-	if sid != "" {
-		s.client.Jar.SetCookies(&url.URL{Host: s.baseHost, Scheme: "https"}, []*http.Cookie{{Name: "sid", Value: sid, Path: "/"}})
-	}
-}
 
 // Snapshot must be taken after the last HTTP response, which may replace sid.
 func (s *Session) Snapshot() (LoginResult, error) {

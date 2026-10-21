@@ -46,7 +46,6 @@ type SetupOptions struct {
 	LoginMethod              auth.LoginMethod
 	TOTPSecret               string
 	ClientData               []byte
-	ResourceData             []byte
 	BestNodesRefreshInterval time.Duration
 	ChallengeHandler         authchallenge.Handler
 	SessionRefreshInterval   time.Duration
@@ -122,10 +121,6 @@ func NewClient(options ClientOptions) *Client {
 		lifecycleCtx:    lifecycleCtx,
 		lifecycleCancel: lifecycleCancel,
 	}
-}
-
-func (c *Client) canResume(resourceData []byte) bool {
-	return c.SID != "" && c.DeviceID != "" && resourceData != nil
 }
 
 func (c *Client) Close() {
@@ -358,52 +353,41 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) (_ []by
 	}
 	c.tcpTunnelZeroRTT = parsedServerVersion.TCPTunnelZeroRTT()
 
-	resourceData := options.ResourceData
-	resumeResources := c.canResume(resourceData)
-	if resumeResources {
-
-		c.ConnectionID = buildConnectionID(c.DeviceID)
-		if c.SignKey == "" {
-			c.SignKey = randHex(64)
+	var loginResult auth.LoginResult
+	if restore {
+		c.DeviceID = clientAuthData.DeviceID
+		loginResult, err = sess.Login(nil, auth.LoginOptions{DeviceID: c.DeviceID, Cookies: clientAuthData.Cookies})
+		if err == nil && (loginResult.Username != expectedAccount || loginResult.SID == "") {
+			err = auth.ErrSessionInvalid
 		}
-		sess.Restore(c.DeviceID, c.SID, clientAuthData.Cookies)
-	} else {
-		var loginResult auth.LoginResult
-		if restore {
-			c.DeviceID = clientAuthData.DeviceID
-			loginResult, err = sess.Login(nil, auth.LoginOptions{DeviceID: c.DeviceID, Cookies: clientAuthData.Cookies})
-			if err == nil && (loginResult.Username != expectedAccount || loginResult.SID == "") {
-				err = auth.ErrSessionInvalid
-			}
-			if err != nil {
-				if !errors.Is(err, auth.ErrSessionInvalid) {
-					return nil, err
-				}
-				invalidate()
-				restore = false
-				sess.Close()
-				sess = auth.NewSessionContext(setupCtx, authServerHost, c.tlsPolicy, c.underlayDialer.DialContext)
-				c.authSession = sess
-				sess.Diagnostic, sess.Language = c.diagnostic, c.language
-			}
-		}
-		if !restore {
-			c.DeviceID = initialDeviceID
-			if c.DeviceID == "" {
-				c.DeviceID = strings.ToLower(randHex(32))
-			}
-			loginResult, err = sess.Login(options.LoginMethod, auth.LoginOptions{
-				AuthID: options.AuthID, SubType: options.AuthSubType, DeviceID: c.DeviceID,
-				TOTPSecret: options.TOTPSecret, ChallengeHandler: options.ChallengeHandler,
-			})
-			if err != nil {
+		if err != nil {
+			if !errors.Is(err, auth.ErrSessionInvalid) {
 				return nil, err
 			}
+			invalidate()
+			restore = false
+			sess.Close()
+			sess = auth.NewSessionContext(setupCtx, authServerHost, c.tlsPolicy, c.underlayDialer.DialContext)
+			c.authSession = sess
+			sess.Diagnostic, sess.Language = c.diagnostic, c.language
 		}
-		c.ConnectionID = buildConnectionID(c.DeviceID)
-		c.SignKey = randHex(64)
-		c.Username = loginResult.Username
 	}
+	if !restore {
+		c.DeviceID = initialDeviceID
+		if c.DeviceID == "" {
+			c.DeviceID = strings.ToLower(randHex(32))
+		}
+		loginResult, err = sess.Login(options.LoginMethod, auth.LoginOptions{
+			AuthID: options.AuthID, SubType: options.AuthSubType, DeviceID: c.DeviceID,
+			TOTPSecret: options.TOTPSecret, ChallengeHandler: options.ChallengeHandler,
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	c.ConnectionID = buildConnectionID(c.DeviceID)
+	c.SignKey = randHex(64)
+	c.Username = loginResult.Username
 	clientAuthData.Identity = cacheIdentity(options, authServerHost, c.Username)
 	clientAuthData.DeviceID = c.DeviceID
 	var authData []byte
@@ -436,16 +420,14 @@ func (c *Client) SetupContext(ctx context.Context, options SetupOptions) (_ []by
 	if err := publishAuthentication(); err != nil {
 		return nil, err
 	}
-	if !resumeResources {
-		tlsFailureStage = "tls_resources_failed"
-		resourceData, err = sess.ClientResource()
-		if err != nil {
-			return nil, err
-		}
-		// Resource responses may replace cookies needed by the tunnels.
-		if err := publishAuthentication(); err != nil {
-			return nil, err
-		}
+	tlsFailureStage = "tls_resources_failed"
+	resourceData, err := sess.ClientResource()
+	if err != nil {
+		return nil, err
+	}
+	// Resource responses may replace cookies needed by the tunnels.
+	if err := publishAuthentication(); err != nil {
+		return nil, err
 	}
 
 	err = c.parseResource(resourceData)
