@@ -24,8 +24,11 @@ func TestDeviceClientTokenKeepsIdentityWithoutElevation(t *testing.T) {
 		t.Fatal(err)
 	}
 	original, err := windows.GetCurrentProcessToken().GetTokenUser()
-	if err != nil || !windows.EqualSid(user.User.Sid, original.User.Sid) || token.IsElevated() {
-		t.Fatal("client identity or elevation changed unexpectedly", err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !windows.EqualSid(user.User.Sid, original.User.Sid) || token.IsElevated() {
+		t.Fatalf("client identity/elevation: same user=%t elevated=%t", windows.EqualSid(user.User.Sid, original.User.Sid), token.IsElevated())
 	}
 	var size uint32
 	windows.GetTokenInformation(token, windows.TokenIntegrityLevel, nil, 0, &size)

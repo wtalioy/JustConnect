@@ -279,7 +279,8 @@ func restrictedToken() (windows.Token, error) {
 	}
 	denied := windows.SIDAndAttributes{Sid: admin}
 	create := windows.NewLazySystemDLL("advapi32.dll").NewProc("CreateRestrictedToken")
-	ok, _, err := create.Call(uintptr(original), 1, 1, uintptr(unsafe.Pointer(&denied)), 0, 0, 0, 0, uintptr(unsafe.Pointer(&restricted)))
+	const disableMaxPrivilege, luaToken = 0x1, 0x4
+	ok, _, err := create.Call(uintptr(original), disableMaxPrivilege|luaToken, 1, uintptr(unsafe.Pointer(&denied)), 0, 0, 0, 0, uintptr(unsafe.Pointer(&restricted)))
 	if ok == 0 {
 		return 0, fmt.Errorf("restrict caller token: %w", err)
 	}
