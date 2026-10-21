@@ -157,3 +157,15 @@ QFuture<CredentialResult> CredentialAccess::clearAuthenticationCache(const Crede
         return cleared.succeeded() ? checkSource(source,settings,true) : cleared;
     }).then(this,[this,path=source.path](const CredentialResult &result){end(path,false);return result;});
 }
+
+QFuture<CredentialResult> CredentialAccess::clearLegacyCache(const CredentialSource &source) {
+    begin(source.path,false);
+    return QtConcurrent::run(&pool,[this,source] {
+        QSettings settings(source.path,QSettings::IniFormat);
+        const auto current=checkSource(source,settings,true);
+        if (!current.succeeded()) return current;
+        ProfileCredentials credentials(*store);
+        const auto result=credentials.clearLegacyCache(source.legacyCachePath,source.scope);
+        return result.succeeded() ? checkSource(source,settings,true) : result;
+    }).then(this,[this,path=source.path](const CredentialResult &result){end(path,false);return result;});
+}

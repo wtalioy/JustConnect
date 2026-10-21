@@ -304,6 +304,35 @@ void unboundAndFutureLegacy() {
     expect(vault.load(scope,other,loaded),Status::Success,"clear leaves other account intact");
     require(!settings.contains("Credential/Password") && !settings.contains("Credential/TOTPSecret") && settings.value("Unknown/Value")=="retained configuration","clear preserves public and unknown fields");
 }
+void clearsOnlySelectedLegacyCache() {
+    QTemporaryDir folder;Store store;ProfileCredentials vault(store);const auto scope=newScope(),other=newScope();
+    const auto path=folder.filePath("old-cache.json");const auto id=ProfileCredentials::legacyCacheKey(scope);
+    write(path,"unmigrated cookie");store.values[id]="sealed cookie";
+    store.values[ProfileCredentials::legacyCacheKey(other)]="other profile";
+    const auto p=profile();expect(vault.save(scope,p),Status::Success,"seed independent credentials");
+    expect(vault.saveAuthenticationCache(scope,p,{"canonical-account","current cookie"}),Status::Success,"seed bound authentication");
+    const auto original=store.values;
+    for (const auto status:{Status::Locked,Status::PermissionDenied,Status::Unavailable,Status::Cancelled,Status::Failed}) {
+        store.removeStatus=status;expect(vault.clearLegacyCache(path,scope),status,"archive removal failure is reported");
+        require(bytes(path)=="unmigrated cookie" && store.values==original,"failed archive deletion preserves the raw file and all records");
+    }
+    store.removeStatus=Status::Success;store.loseRemoval=true;
+    expect(vault.clearLegacyCache(path,scope),Status::Failed,"unverified archive removal is not success");
+    require(QFileInfo::exists(path),"unverified archive removal retains raw cache");store.loseRemoval=false;
+    expect(vault.clearLegacyCache(folder.path(),scope),Status::InvalidArgument,"directory is not a legacy cache");
+#ifdef Q_OS_UNIX
+    const auto alias=folder.filePath("link");require(QFile::link(path,alias),"legacy cleanup symlink fixture");
+    expect(vault.clearLegacyCache(alias,scope),Status::InvalidArgument,"cleanup refuses a symbolic link");
+    require(store.values==original && QFileInfo::exists(path),"invalid paths do not erase archive or target");
+#endif
+    expect(vault.clearLegacyCache(path,scope),Status::Success,"explicit legacy cleanup removes both forms");
+    auto remaining=original;remaining.remove(id);
+    require(!QFileInfo::exists(path) && store.values==remaining,"legacy cleanup preserves credentials, bound cache and other profiles");
+    expect(vault.clearLegacyCache(path,scope),Status::Success,"legacy cleanup is idempotent");
+    store.values[id]="archive without raw path";
+    expect(vault.clearLegacyCache({},scope),Status::Success,"archive cleanup does not require a raw path");
+    expect(vault.clearLegacyCache(path,{}),Status::InvalidArgument,"cleanup requires a valid scope");
+}
 void sealedLegacyCache() {
     QTemporaryDir folder;require(folder.isValid(),"cache directory");
     Store store;ProfileCredentials vault(store);const auto scope=newScope();const auto path=folder.filePath("client-data.json");
@@ -329,7 +358,7 @@ void sealedLegacyCache() {
 int main(int argc,char **argv) {
     QCoreApplication app(argc,argv);
     try {
-        isolatedIdentities();authenticationCacheIsSeparateAndScoped();authenticationCacheFailuresAndCorruption();verifiedMigration();interruptedMigration();migrationSaveFailure();corruptAndFailedOperations();unboundAndFutureLegacy();sealedLegacyCache();
+        isolatedIdentities();authenticationCacheIsSeparateAndScoped();authenticationCacheFailuresAndCorruption();verifiedMigration();interruptedMigration();migrationSaveFailure();corruptAndFailedOperations();unboundAndFutureLegacy();sealedLegacyCache();clearsOnlySelectedLegacyCache();
         std::cout<<"PASS: scoped credentials, verified migration, real file failure/retry and unbound cache quarantine\n";
         return 0;
     } catch(const std::exception &error) {std::cerr<<error.what()<<'\n';return 1;}
