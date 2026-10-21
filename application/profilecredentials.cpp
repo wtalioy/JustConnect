@@ -18,6 +18,11 @@ bool validScope(const QString &scope) {
 QString digest(const QJsonArray &values) {
     return QString::fromLatin1(QCryptographicHash::hash(QJsonDocument(values).toJson(QJsonDocument::Compact),QCryptographicHash::Sha256).toHex());
 }
+QString profileKey(const QString &scope,const ConnectionProfile &p,const QString &kind) {
+    if (!validScope(scope) || p.endpoint.server.isEmpty() || p.endpoint.port<1 || p.endpoint.port>65535 || p.endpoint.authType.isEmpty()) return {};
+    auto identity=p.authenticationIdentity();identity.prepend(scope);identity.prepend(kind);
+    return digest(identity);
+}
 QByteArray encode(const ConnectionCredentials &credentials) {
     return QJsonDocument(QJsonObject{{"version",1},{"password",credentials.password},{"totp_secret",credentials.totpSecret}}).toJson(QJsonDocument::Compact);
 }
@@ -71,9 +76,11 @@ QString ProfileCredentials::ensureScope(QSettings &settings) {
     return settings.status()==QSettings::NoError ? scope : QString();
 }
 QString ProfileCredentials::key(const QString &scope,const ConnectionProfile &p) {
-    if (!validScope(scope) || p.endpoint.server.isEmpty() || p.endpoint.port<1 || p.endpoint.port>65535 || p.endpoint.authType.isEmpty()) return {};
-    auto identity=p.authenticationIdentity();identity.prepend(scope);identity.prepend("credentials-v1");
-    return digest(identity);
+    return profileKey(scope,p,"credentials-v1");
+}
+QString ProfileCredentials::authenticationCacheKey(const QString &scope,const ConnectionProfile &p) {
+    if (p.credentials.username.isEmpty() && p.endpoint.phone.isEmpty()) return {};
+    return profileKey(scope,p,"authentication-cache-v1");
 }
 QString ProfileCredentials::legacyCacheKey(const QString &scope) {
     return validScope(scope) ? digest({"legacy-cache-v1",scope}) : QString();
@@ -104,6 +111,34 @@ CredentialResult ProfileCredentials::save(const QString &scope,const ConnectionP
     if (p.credentials.username.isEmpty() && p.endpoint.phone.isEmpty()) return {Status::InvalidArgument,{}};
     if (p.credentials.password.isEmpty() && p.credentials.totpSecret.isEmpty()) return {Status::InvalidArgument,{}};
     return writeVerified(key(scope,p),encode(p.credentials));
+}
+CredentialResult ProfileCredentials::loadAuthenticationCache(const QString &scope,const ConnectionProfile &p,AuthenticationCache &cache) {
+    cache={};
+    const auto id=authenticationCacheKey(scope,p);
+    if (id.isEmpty()) return {Status::InvalidArgument,{}};
+    auto result=store.read(id);
+    if (!result.succeeded()) {result.value.clear();return result;}
+    if (result.value.size()>CredentialStore::MaxBytes) return {Status::Limit,{}};
+    const auto document=QJsonDocument::fromJson(result.value);
+    if (!document.isObject()) return {Status::InvalidArgument,{}};
+    const auto object=document.object();
+    if (object.value("version").isDouble() && object.value("version").toDouble()>1) return {Status::Conflict,{}};
+    if (object.size()!=4 || object.value("version")!=QJsonValue(1) || object.value("binding")!=id
+        || !object.value("account").isString() || object.value("account").toString().isEmpty() || !object.value("data").isString()) return {Status::InvalidArgument,{}};
+    const auto decoded=QByteArray::fromBase64Encoding(object.value("data").toString().toLatin1(),QByteArray::AbortOnBase64DecodingErrors);
+    if (!decoded || decoded.decoded.isEmpty()) return {Status::InvalidArgument,{}};
+    cache={object.value("account").toString(),decoded.decoded};
+    return {Status::Success,{}};
+}
+CredentialResult ProfileCredentials::saveAuthenticationCache(const QString &scope,const ConnectionProfile &p,const AuthenticationCache &cache) {
+    const auto id=authenticationCacheKey(scope,p);
+    if (id.isEmpty() || cache.account.isEmpty() || cache.data.isEmpty()) return {Status::InvalidArgument,{}};
+    if (cache.data.size()>CredentialStore::MaxBytes) return {Status::Limit,{}};
+    const auto encoded=QJsonDocument(QJsonObject{{"version",1},{"binding",id},{"account",cache.account},{"data",QString::fromLatin1(cache.data.toBase64())}}).toJson(QJsonDocument::Compact);
+    return writeVerified(id,encoded);
+}
+CredentialResult ProfileCredentials::clearAuthenticationCache(const QString &scope,const ConnectionProfile &p) {
+    return removeVerified(authenticationCacheKey(scope,p));
 }
 CredentialResult ProfileCredentials::removeVerified(const QString &id) {
     if (!CredentialStore::validKey(id)) return {Status::InvalidArgument,{}};

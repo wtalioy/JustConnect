@@ -4,6 +4,8 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QHash>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QUuid>
@@ -93,6 +95,82 @@ void isolatedIdentities() {
     expect(vault.save({},p),Status::InvalidArgument,"empty namespace rejected");
     p.credentials.username.clear();expect(vault.save(scope,p),Status::InvalidArgument,"unbound password rejected");
 }
+void authenticationCacheIsSeparateAndScoped() {
+    Store store;ProfileCredentials vault(store);const auto scope=newScope();auto p=profile();
+    const AuthenticationCache original{"canonical-account",QByteArray("opaque cookie")+QByteArray(1,'\0')+"device"};
+    expect(vault.save(scope,p),Status::Success,"save independent password");
+    expect(vault.saveAuthenticationCache(scope,p,original),Status::Success,"save authentication cache and verify");
+    AuthenticationCache loaded;ProfileCredentials reopened(store);
+    expect(reopened.loadAuthenticationCache(scope,p,loaded),Status::Success,"read authentication cache through a fresh service");
+    require(loaded.account==original.account && loaded.data==original.data,"canonical account and opaque cache round trip");
+    auto other=p;other.credentials.username="bob";
+    expect(vault.loadAuthenticationCache(scope,other,loaded),Status::NotFound,"other account cannot use cache");
+    require(loaded.account.isEmpty() && loaded.data.isEmpty(),"missing cache exposes no previous material");
+    expect(vault.saveAuthenticationCache(scope,other,{"other-account","other authentication"}),Status::Success,"save other account cache");
+    const auto otherScope=newScope();expect(vault.saveAuthenticationCache(otherScope,p,original),Status::Success,"save other namespace cache");
+    const auto id=ProfileCredentials::authenticationCacheKey(scope,p),otherId=ProfileCredentials::authenticationCacheKey(scope,other);
+    const auto another=store.values.value(otherId),saved=store.values.value(id);
+    store.values[id]=another;
+    expect(vault.loadAuthenticationCache(scope,p,loaded),Status::InvalidArgument,"foreign binding cannot be delivered under a different key");
+    require(loaded.data.isEmpty() && loaded.account.isEmpty(),"foreign cache result has no data");store.values[id]=saved;
+    auto network=p;network.endpoint.server=network.endpoint.server.toUpper();network.tls.verify=false;network.proxy.httpBind="127.0.0.1:23456";
+    expect(vault.loadAuthenticationCache(scope,network,loaded),Status::Success,"network and TLS choices preserve account cache");
+    expect(vault.clearAuthenticationCache(scope,p),Status::Success,"explicit cache removal verified");
+    expect(vault.loadAuthenticationCache(scope,p,loaded),Status::NotFound,"cleared cache stays absent");
+    ConnectionCredentials credentials;expect(vault.load(scope,p,credentials),Status::Success,"cache clear preserves password and TOTP");
+    require(credentials.password==p.credentials.password && credentials.totpSecret==p.credentials.totpSecret,"independent secrets retained");
+    expect(vault.loadAuthenticationCache(scope,other,loaded),Status::Success,"cache clear preserves other account");
+    expect(vault.loadAuthenticationCache(otherScope,p,loaded),Status::Success,"cache clear preserves other profile namespace");
+    expect(vault.saveAuthenticationCache(scope,p,original),Status::Success,"restore original cache");
+    QTemporaryDir folder;QSettings settings(folder.filePath("clear-password.ini"),QSettings::IniFormat);settings.setValue("Credential/Username",p.credentials.username);
+    expect(vault.clear(settings,scope,p),Status::Success,"clear password independently");
+    expect(vault.loadAuthenticationCache(scope,p,loaded),Status::Success,"password clear preserves authentication cache");
+    expect(vault.saveAuthenticationCache({},p,original),Status::InvalidArgument,"invalid profile namespace rejected");
+    p.credentials.username.clear();p.endpoint.phone.clear();
+    expect(vault.saveAuthenticationCache(scope,p,original),Status::InvalidArgument,"anonymous cache cannot be persisted");
+}
+void authenticationCacheFailuresAndCorruption() {
+    Store store;ProfileCredentials vault(store);const auto scope=newScope();const auto p=profile();
+    const AuthenticationCache original{"canonical-account","old authentication"},replacement{"canonical-account","new authentication"};
+    expect(vault.saveAuthenticationCache(scope,p,original),Status::Success,"cache fixture");
+    const auto id=ProfileCredentials::authenticationCacheKey(scope,p);
+    const auto saved=store.values.value(id);
+    AuthenticationCache loaded;
+    for (const auto status:{Status::Locked,Status::Unavailable,Status::PermissionDenied,Status::Cancelled,Status::Limit,Status::Failed}) {
+        store.readStatus=status;loaded=original;
+        expect(vault.loadAuthenticationCache(scope,p,loaded),status,"native read failure reported");
+        require(loaded.account.isEmpty() && loaded.data.isEmpty() && store.values.value(id)==saved,"failed cache load retains native value and exposes no data");
+        store.readStatus=Status::Success;store.writeStatus=status;
+        expect(vault.saveAuthenticationCache(scope,p,replacement),status,"native cache write failure reported");
+        require(store.values.value(id)==saved,"rejected cache write preserves existing material");store.writeStatus=Status::Success;
+        store.removeStatus=status;expect(vault.clearAuthenticationCache(scope,p),status,"native cache clear failure reported");
+        require(store.values.value(id)==saved,"rejected cache removal retains current material");store.removeStatus=Status::Success;
+    }
+    store.loseWrite=true;expect(vault.saveAuthenticationCache(scope,p,replacement),Status::Failed,"unverified write cannot report success");
+    require(store.values.value(id)==saved,"lost write preserves old cache");store.loseWrite=false;
+    store.loseRemoval=true;expect(vault.clearAuthenticationCache(scope,p),Status::Failed,"unverified removal cannot report success");store.loseRemoval=false;
+    store.afterWrite=[&]{store.readStatus=Status::Locked;};
+    expect(vault.saveAuthenticationCache(scope,p,replacement),Status::Locked,"successful native write with failed verification is not confirmed");
+    store.afterWrite={};store.readStatus=Status::Success;
+    expect(vault.loadAuthenticationCache(scope,p,loaded),Status::Success,"native write may already have completed despite failed verification");
+    require(loaded.data==replacement.data,"verification failure does not claim an atomic rollback");
+    expect(vault.saveAuthenticationCache(scope,p,original),Status::Success,"restore cache after verification failure");
+    expect(vault.saveAuthenticationCache(scope,p,{"",original.data}),Status::InvalidArgument,"unconfirmed account rejected");
+    expect(vault.saveAuthenticationCache(scope,p,{original.account,{}}),Status::InvalidArgument,"empty authentication rejected");
+    expect(vault.saveAuthenticationCache(scope,p,{original.account,QByteArray(CredentialStore::MaxBytes+1,'x')}),Status::Limit,"oversized cache rejected");
+    require(store.values.value(id)==saved,"invalid cache save retains valid material");
+    for (const auto &bad:QList<QByteArray>{"invalid JSON","{}",R"({"version":1,"binding":"wrong","account":"canonical-account","data":"YQ=="})"}) {
+        store.values[id]=bad;loaded=original;
+        expect(vault.loadAuthenticationCache(scope,p,loaded),Status::InvalidArgument,"corrupt cache envelope rejected");
+        require(loaded.account.isEmpty() && loaded.data.isEmpty() && store.values.value(id)==bad,"corrupt cache is not delivered or silently deleted");
+    }
+    auto object=QJsonDocument::fromJson(saved).object();object["version"]=2;const auto future=QJsonDocument(object).toJson(QJsonDocument::Compact);store.values[id]=future;
+    expect(vault.loadAuthenticationCache(scope,p,loaded),Status::Conflict,"unknown future cache format retained");require(store.values.value(id)==future,"future cache format not erased");
+    object["version"]=1;object["data"]="not base64?";store.values[id]=QJsonDocument(object).toJson(QJsonDocument::Compact);
+    expect(vault.loadAuthenticationCache(scope,p,loaded),Status::InvalidArgument,"corrupt encoded data rejected");
+    require(loaded.account.isEmpty() && loaded.data.isEmpty(),"corrupt bytes never escape");
+}
+
 void verifiedMigration() {
     QTemporaryDir folder;require(folder.isValid(),"migration directory");
     Store store;ProfileCredentials vault(store);const auto p=profile();const auto path=folder.filePath("legacy.ini");
@@ -239,7 +317,7 @@ void sealedLegacyCache() {
 int main(int argc,char **argv) {
     QCoreApplication app(argc,argv);
     try {
-        isolatedIdentities();verifiedMigration();interruptedMigration();migrationSaveFailure();corruptAndFailedOperations();unboundAndFutureLegacy();sealedLegacyCache();
+        isolatedIdentities();authenticationCacheIsSeparateAndScoped();authenticationCacheFailuresAndCorruption();verifiedMigration();interruptedMigration();migrationSaveFailure();corruptAndFailedOperations();unboundAndFutureLegacy();sealedLegacyCache();
         std::cout<<"PASS: scoped credentials, verified migration, real file failure/retry and unbound cache quarantine\n";
         return 0;
     } catch(const std::exception &error) {std::cerr<<error.what()<<'\n';return 1;}
