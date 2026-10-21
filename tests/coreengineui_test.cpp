@@ -27,6 +27,7 @@
 #include <QSemaphore>
 #include <QTemporaryDir>
 #include <QTimer>
+#include <limits>
 #include <QUuid>
 #include <QTcpServer>
 #include <QTcpSocket>
@@ -215,6 +216,18 @@ static void proxyWaitsForReady() {
         check(!systemProxy.needsCleanup() && proxy->clears==priorClears+1,
             "finished connection restores successful or partial in-flight proxy changes exactly once");
     }
+    settings.setValue("Common/AutoSetProxy",false);settings.setValue("Common/AutoReconnect",true);
+    int scheduled=0;
+    const auto observer=QObject::connect(&session,&ConnectionSession::reconnectScheduled,&parent,[&](int delay){scheduled=delay;});
+    for (const auto &[seconds,expected]:QList<QPair<int,int>>{{std::numeric_limits<int>::max(),30000},{3600,30000},{0,1000},{-1,1000}}) {
+        settings.setValue("Common/ReconnectTime",seconds);scheduled=0;
+        connectButton.click();until([&]{return session.state()==ConnectionState::Starting;});
+        emit engine->finished(ConnectionError::NETWORK_FAILED);
+        check(session.state()==ConnectionState::Reconnecting && scheduled==expected,
+            "legacy or invalid seconds are bounded before millisecond conversion without overflow");
+        session.stop();
+    }
+    QObject::disconnect(observer);
 }
 static void manualCredentialsAndLateResults() {
     QTemporaryDir folder;QSettings settings(folder.filePath("manual.ini"),QSettings::IniFormat);

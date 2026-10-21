@@ -37,6 +37,7 @@ public:
     int reconnectDelayMs() const;
     int reconnectAttempt() const { return retryCount; }
     static constexpr int MaxReconnectAttempts = 5;
+    static constexpr int MaxReconnectDelayMs = 30000;
     void connectionStable();
     void authenticationRequested() { interactiveAuthentication = true; }
 
