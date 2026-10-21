@@ -156,7 +156,7 @@ bool rejectsMalformedAndNonFileTargets()
     QFile broken(directory.filePath("broken.ini"));if(!broken.open(QIODevice::WriteOnly))return false;
     broken.write("[broken section\nCredential/Username=unexpected\n");broken.close();
     if(!QDir().mkdir(directory.filePath("folder.ini")))return false;
-    const bool targetsRejected=!service.switchTo("broken") && !service.switchTo("folder");
+    const bool targetsRejected=!service.switchTo("broken") && !service.switchTo("broken") && !service.switchTo("folder");
     QFile defaults(directory.filePath("default.ini"));if(!defaults.open(QIODevice::WriteOnly|QIODevice::Truncate))return false;
     defaults.write("[broken section\n");defaults.close();
     if(!targetsRejected || service.removeCurrentAndSwitchToDefault() || service.settings()!=source

@@ -12,7 +12,7 @@
 namespace {
 std::unique_ptr<QSettings> readableProfile(const QString &path)
 {
-    if (!QFileInfo(path).isFile()) return {};
+    if (!SettingsMigrator::readableFile(path)) return {};
     auto settings = std::make_unique<QSettings>(path, QSettings::IniFormat);
     settings->sync();
     if (settings->status() != QSettings::NoError) return {};
@@ -183,6 +183,7 @@ bool ProfileService::migrateAutoStartSetting(bool enabled)
 
 bool ProfileService::syncCurrent()
 {
+    if (QFileInfo::exists(currentSettings->fileName()) && !SettingsMigrator::readableFile(currentSettings->fileName())) return false;
     currentSettings->sync();
     return currentSettings->status() == QSettings::NoError;
 }
@@ -196,6 +197,7 @@ bool ProfileService::validPublicChanges(const QVariantMap &changes)
 bool ProfileService::writePublic(QSettings &settings,const QVariantMap &changes)
 {
     if (settings.status()!=QSettings::NoError || !validPublicChanges(changes)) return false;
+    if (QFileInfo::exists(settings.fileName()) && !SettingsMigrator::readableFile(settings.fileName())) return false;
     if (changes.isEmpty()) return true;
     QVariantMap previous;
     for (auto it=changes.cbegin();it!=changes.cend();++it) previous.insert(it.key(),settings.value(it.key()));

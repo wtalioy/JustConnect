@@ -11,6 +11,22 @@
 
 namespace
 {
+bool writeState(const QString &path,const QString &key,const QVariant &value)
+{
+    if (QFileInfo::exists(path) && !SettingsMigrator::readableFile(path)) return false;
+    QSettings state(path,QSettings::IniFormat);
+    state.sync();
+    const auto previous=state.value(key);
+    if (state.status()!=QSettings::NoError) return false;
+    state.setValue(key,value);
+    state.sync();
+    if (state.status()==QSettings::NoError && state.value(key)==value) return true;
+    if (previous.isValid()) state.setValue(key,previous);
+    else state.remove(key);
+    state.sync();
+    return false;
+}
+
 bool createEmptyFile(const QString &path)
 {
     const QFileInfo fileInfo(path);
@@ -63,8 +79,7 @@ QString ProfileManager::activeProfile() const
         {
             createEmptyFile(profilePath(profileId));
         }
-        state.setValue("Profile/Active", profileId);
-        state.sync();
+        writeState(statePath,"Profile/Active",profileId);
     }
     return profileId;
 }
@@ -72,15 +87,12 @@ QString ProfileManager::activeProfile() const
 bool ProfileManager::setActiveProfile(const QString &profileId) const
 {
     const QString normalizedId = normalizeProfileId(profileId);
-    if (!QFileInfo::exists(profilePath(normalizedId)))
+    if (!QFileInfo(profilePath(normalizedId)).isFile())
     {
         return false;
     }
 
-    QSettings state(statePath, QSettings::IniFormat);
-    state.setValue("Profile/Active", normalizedId);
-    state.sync();
-    return state.status() == QSettings::NoError;
+    return writeState(statePath,"Profile/Active",normalizedId);
 }
 
 QString ProfileManager::profilePath(const QString &profileId) const
@@ -171,10 +183,7 @@ bool ProfileManager::autoStartEnabled() const
 
 bool ProfileManager::setAutoStartEnabled(bool enabled) const
 {
-    QSettings state(statePath, QSettings::IniFormat);
-    state.setValue("Global/AutoStart", enabled);
-    state.sync();
-    return state.status() == QSettings::NoError && state.value("Global/AutoStart").toBool() == enabled;
+    return writeState(statePath,"Global/AutoStart",enabled);
 }
 
 bool ProfileManager::silentStartEnabled() const
@@ -183,11 +192,9 @@ bool ProfileManager::silentStartEnabled() const
     return state.value("Global/SilentStart", false).toBool();
 }
 
-void ProfileManager::setSilentStartEnabled(bool enabled) const
+bool ProfileManager::setSilentStartEnabled(bool enabled) const
 {
-    QSettings state(statePath, QSettings::IniFormat);
-    state.setValue("Global/SilentStart", enabled);
-    state.sync();
+    return writeState(statePath,"Global/SilentStart",enabled);
 }
 
 QString ProfileManager::ensureUniqueProfileId(const QString &baseId) const

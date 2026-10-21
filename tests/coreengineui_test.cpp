@@ -22,6 +22,7 @@
 #include <QPointer>
 #include <QPushButton>
 #include <QSettings>
+#include <QFile>
 #include <QSemaphore>
 #include <QTemporaryDir>
 #include <QTimer>
@@ -299,6 +300,13 @@ static void manualCredentialsAndLateResults() {
     check(engine->profile.credentials.totpSecret.isEmpty() && engine->profile.credentials.password=="manual-secret",
         "explicit manual login does not reuse native TOTP after the storage namespace changes");finish();
     check(vault.load(source.scope,totpOnly,loaded).succeeded() && loaded.totpSecret=="JBSWY3DPEHPK3PXP","manual input never deletes another namespace's native credentials");
+    const auto startsBeforeMalformed=engine->starts;const auto nativeBeforeMalformed=store->values;
+    const QByteArray malformed="[unclosed section\n";
+    {QFile file(settings.fileName());check(file.open(QIODevice::Append) && file.write(malformed)==malformed.size(),"malformed active configuration");}
+    warnings=0;expectedWarnings={"无法读取当前配置，请检查文件权限与内容后重新打开配置。","无法读取当前配置，请检查文件权限与内容后重新打开配置。"};
+    dismiss.start(1);connectButton.click();connectButton.click();dismiss.stop();
+    check(warnings==2 && engine->starts==startsBeforeMalformed && !session.isActive() && store->values==nativeBeforeMalformed,
+        "repeated malformed configuration attempts cannot start authentication or change native credentials");
     check(!logs.contains("manual-secret") && !logs.contains("fixture-password") && !logs.contains("JBSWY3DPEHPK3PXP"),"credential values never appear in UI logs");
 }
 static void browserCookiesStayInLoginDialog() {

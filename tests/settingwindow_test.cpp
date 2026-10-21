@@ -82,6 +82,19 @@ int main(int argc,char **argv) {
     auto open=[&] { auto *window=new SettingWindow(nullptr,&access,CredentialAccess::source(settings,ApplicationPaths::clientDataFile("fixture"))); window->show();ready(); return window; };
     auto buttons=[](SettingWindow *w) { return w->findChild<QDialogButtonBox *>("buttonBox"); };
     QPointer<SettingWindow> window=open();
+    const auto statePath=QDir(QFileInfo(ProfileManager().profilePath("")).absolutePath()).filePath("state.ini");
+    const auto retainedTTL=settings.value("JustConnect/DNSTTL");
+    check(QFile::rename(statePath,statePath+".backup") && QDir().mkdir(statePath),"simulate global preference write failure");
+    window->findChild<QCheckBox *>("silentStartCheckBox")->setChecked(true);
+    window->findChild<QSpinBox *>("dnsTTLSpinBox")->setValue(77);
+    expectedMessage="启动偏好未保存";shown=false;
+    buttons(window)->button(QDialogButtonBox::Ok)->click();ready();
+    check(shown && window && window->isVisible() && settings.value("JustConnect/DNSTTL")==retainedTTL
+        && window->findChild<QCheckBox *>("silentStartCheckBox")->isChecked(),
+        "global preference failure preserves the window, draft and saved configuration");
+    check(QDir().rmdir(statePath) && QFile::rename(statePath+".backup",statePath),"repair global preference storage");
+    check(!ProfileManager().silentStartEnabled(),"failed preference write preserves the previous choice");
+    expectedMessage.clear();window->reject();ready();window=open();
     window->findChild<QLineEdit *>("secondaryDnsLineEdit")->setText("not-an-address");
     expectedMessage="配置无效"; buttons(window)->button(QDialogButtonBox::Ok)->click();
     check(shown && window->isVisible() && settings.value("JustConnect/SecondaryDNS").toString().isEmpty() && !QFileInfo::exists(cache) && store->values.value(ProfileCredentials::legacyCacheKey(settings.value(ProfileCredentials::ScopeSetting).toString()))=="current authentication","core validation rejects bad DNS before persistence or cache changes");
