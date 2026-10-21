@@ -435,3 +435,18 @@ func TestCampusResolutionDoesNotUseSharedCacheOrPublicFallback(t *testing.T) {
 		t.Fatal("campus lookup attempted public fallback", err, calls)
 	}
 }
+
+func TestAuthorizedDomainResolutionDoesNotFallBackToSecondaryDNS(t *testing.T) {
+	r := NewResolver(nil, "", "", 60, client.DomainResources{"campus.test": {{Protocol: "tcp", PortMin: 443, PortMax: 443}}}, nil, false)
+	defer r.Close()
+	calls := 0
+	r.secondaryResolver = &net.Resolver{PreferGo: true, Dial: func(context.Context, string, string) (net.Conn, error) {
+		calls++
+		return nil, errors.New("public DNS must not receive campus names")
+	}}
+	r.setDNSCache("campus.test", net.ParseIP("203.0.113.10"))
+	ctx, ip, err := r.Resolve(t.Context(), "campus.test")
+	if !errors.Is(err, ErrCampusDNSUnavailable) || ip != nil || calls != 0 || ctx.Value(ContextKeyDomainResource) == nil {
+		t.Fatalf("campus domain used unknown cache/public DNS: IP=%v, calls=%d, error=%v", ip, calls, err)
+	}
+}

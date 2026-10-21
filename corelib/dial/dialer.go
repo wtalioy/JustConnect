@@ -43,25 +43,12 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 	if err != nil {
 		return nil, errors.New("Invalid address: " + ipAddr)
 	}
-	address := net.ParseIP(ip).To4()
-	if address == nil {
-		if d.alwaysUseVPN {
-			return nil, ErrACLDenied
-		}
-		return dialDirect(ctx, network, ipAddr)
-	}
-
 	port, err := strconv.Atoi(portStr)
 	if err != nil {
 		return nil, errors.New("Invalid port in address: " + ipAddr)
 	}
 
-	var useVPN = false
-	target := &net.IPAddr{IP: address}
-
-	if d.alwaysUseVPN {
-		useVPN = true
-	}
+	useVPN := d.alwaysUseVPN
 
 	// Track whether dst:port matches any sangfor-issued resource. We always
 	// run both resource lookups (even if useVPN was already forced true by
@@ -83,6 +70,15 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 			matchedResource = true
 		}
 	}
+
+	address := net.ParseIP(ip).To4()
+	if address == nil {
+		if useVPN {
+			return nil, ErrACLDenied
+		}
+		return dialDirect(ctx, network, ipAddr)
+	}
+	target := &net.IPAddr{IP: address}
 
 	if !matchedResource && d.ipResources != nil {
 		if resource, matched := matchIPResourceForTunnel(d.resourceIndex, target.IP, network, port); matched {
@@ -169,7 +165,7 @@ func (d *Dialer) Dial(ctx context.Context, network string, addr string) (net.Con
 			ctx, ip, err = d.resolver.Resolve(ctx, host)
 		}
 		if err != nil {
-			if d.alwaysUseVPN {
+			if d.alwaysUseVPN || ctx.Value(resolve.ContextKeyDomainResource) != nil || errors.Is(err, net.ErrClosed) || ctx.Err() != nil {
 				return nil, err
 			}
 			return dialDirect(ctx, network, addr)
