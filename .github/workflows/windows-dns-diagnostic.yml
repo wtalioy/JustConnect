@@ -1,7 +1,9 @@
 name: Windows DNS diagnostic
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [develop]
+    paths: ['.github/workflows/windows-dns-diagnostic.yml', 'infrastructure/platform/windows/dnssnapshot.cpp']
 
 permissions:
   contents: read
