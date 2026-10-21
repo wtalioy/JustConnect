@@ -1,0 +1,58 @@
+name: Windows DNS diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  query:
+    runs-on: windows-11-vs2026-arm
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Time the production read-only query without Qt or Go
+        shell: python
+        run: |
+          import json, os, pathlib, re, subprocess, tempfile, time
+          source = pathlib.Path('infrastructure/platform/windows/dnssnapshot.cpp').read_text(encoding='utf-8')
+          query = re.search(r'R"PS\((.*?)\)PS"', source, re.S).group(1)
+          program = str(pathlib.Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/powershell.exe')
+          phases = [('Import-Module', 'import'), ('$policies=@(', 'nrpt'),
+                    ('$dohSupported=', 'doh_discovery'), ('$doh=@()', 'doh_query'),
+                    ('$interfaces=@(', 'interfaces'), ('$clients=@(', 'clients'),
+                    ('$global=Get-', 'global'), ('ConvertTo-Json', 'serialize')]
+          failed = False
+          for mode, flags in [('console', 0), ('no_window', subprocess.CREATE_NO_WINDOW)]:
+              with tempfile.TemporaryDirectory(prefix='JustConnect-dns-phase-') as folder:
+                  trace = pathlib.Path(folder) / 'phases.txt'
+                  destination = str(trace).replace("'", "''")
+                  def mark(phase):
+                      return "[IO.File]::AppendAllText('" + destination + "','" + phase + ":'+$jcDnsPhaseClock.ElapsedMilliseconds+[Environment]::NewLine)\n"
+                  script = query
+                  for anchor, phase in phases:
+                      script = script.replace(anchor, mark(phase) + anchor, 1)
+                  script = '$jcDnsPhaseClock=[Diagnostics.Stopwatch]::StartNew()\n' + mark('script') + script + '\n' + mark('complete')
+                  started = time.monotonic()
+                  try:
+                      result = subprocess.run([program, '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script],
+                                              stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                              timeout=10, creationflags=flags, env=dict(os.environ, LC_ALL='C'))
+                      status = f'exit:{result.returncode}'
+                  except subprocess.TimeoutExpired:
+                      status = 'timeout'
+                  observed = trace.read_text(encoding='utf-8-sig').splitlines() if trace.exists() else []
+                  allowed = {name for _, name in phases} | {'script', 'complete'}
+                  for line in observed:
+                      name, separator, elapsed = line.partition(':')
+                      assert separator and name in allowed and elapsed.isdigit()
+                  failed |= status != 'exit:0'
+                  print(json.dumps({'mode': mode, 'seconds': round(time.monotonic() - started, 3),
+                                    'status': status, 'phases_ms': observed}), flush=True)
+          if failed:
+              raise SystemExit('DNS query failed or exceeded the unchanged ten-second budget')
