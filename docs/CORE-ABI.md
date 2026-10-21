@@ -67,7 +67,7 @@ ABI v1 与 JSON schema 版本同步。S2-02 以兼容增补导出 `jc_config_val
 
 `authentication_cache` 是版本 1 的可选扩展；省略或 `enabled:false` 时不恢复或交付缓存。启用使用 `{enabled:true,account:"服务器确认账户",data:"Base64 的不透明核心材料"}`；首次认证只传 `enabled:true`。`account/data` 必须同时提供，账户不替代 `auth.username` 登录别名；解码后最多 `MaxAuthCache`（16 KiB）。查询认证方式不接受启用缓存。宿主只从系统安全存储提供这份材料，Base64 仅是 ABI 传输编码。
 
-启用后接收 `type:authentication_cache,action:save,cache:{account,data}` 或 `action:invalidate` 事件；`data` 同样是 Base64。保存事件来自服务器确认后的快照，刷新会更新 Cookie；明确拒绝才产生失效事件，普通 Stop 不注销。宿主按活动配置作用域保存／移除，不把数据输出到诊断或日志。待交付的连续保存只保留最新一份，失效会丢弃旧保存，后续新认证的保存排在失效之后；最多占两个队列位置，停止不依赖存储或宿主消费。超过缓存上限只交付 `persistence_failed` 诊断，不中断已有效的连接。原生存储更小的实际上限仍须由宿主报告，不能回退到明文。
+启用后接收 `type:authentication_cache,action:save,cache:{account,data}` 或 `action:invalidate` 事件；`data` 同样是 Base64。保存事件来自服务器确认后的快照，在资源获取／数据隧道建立之前即可交付；资源响应改变 Cookie 时再交付新快照，相同材料不重复交付。后续连接失败可在保存后产生非成功终态，保存事件不代表 ready。刷新会更新 Cookie；明确拒绝才产生失效事件，普通 Stop 不注销。宿主按活动配置作用域保存／移除，不把数据输出到诊断或日志。待交付的连续保存只保留最新一份，失效会丢弃旧保存，后续新认证的保存排在失效之后；最多占两个队列位置，停止不依赖存储或宿主消费。超过缓存上限只交付 `persistence_failed` 诊断，不中断已有效的连接。原生存储更小的实际上限仍须由宿主报告，不能回退到明文。
 
 恢复不成功且缺少密码时终态为 `JC_CREDENTIALS_REQUIRED`，宿主提供一次必要凭据输入，不提交空密码。旧调用方没有启用扩展时仍使用原事件集合。
 

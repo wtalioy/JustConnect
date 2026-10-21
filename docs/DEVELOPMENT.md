@@ -100,6 +100,8 @@ Windows 的 Fudan 人工验收使用最终提交对应的预览 ZIP，完整解�
 
 Windows 系统凭据的单条容量有限，超限会明确提示保存未完成，本次连接可继续；出现该提示时重启后重新认证属于当前保存限制，不能记录为恢复通过。Fudan 的学校策略及人工 MFA 须保留真实结果，离线网关回归不能代替。按用户确认的验收范围，不再要求另一台 aTrust 服务器实测；Fudan 由用户自行测试后反馈，本轮实现工作可先结束。
 
+认证后仍有证书错误时，保留 `[core] tls_...` 固定诊断码即可定位：`tls_authentication_failed` 为认证 HTTPS／方式查询，`tls_resources_failed` 为资源请求，`tls_node_probe_failed` 为数据节点探测，`tls_ip_tunnel_failed` 为 IP 隧道。原因分别为 `tls_unknown_authority`（未知 CA）、`tls_hostname_mismatch`（地址不匹配）、`tls_certificate_time_invalid`（过期或尚未生效）及 `tls_certificate_invalid`（其他证书校验失败）。这些代码不含请求 URL、Cookie、票据或证书原文。记住认证开启时，已验证材料在资源／隧道就绪前即可安全保存；后续 TLS／网络失败不等于认证失效，明确失效仍须清除。服务端 online 记录不能证明本地仍在转发；当前 Ubuntu x64 是继承的固定客户端标识，不能据此判断宿主系统。
+
 针对性回归可运行 `ctest --test-dir build -R 'profileservice|profilemanager|credentialaccess|serversettingswidget|settingwindow|configurationguidedialog|settingsmigrator|settingsprofileloader|coreengine' --output-on-failure`；根测试与包构建还运行完整套件，原生宿主检查实际纯校验导出及资源边界。Linux 设置窗口用临时目录操作真实 Qt 按钮／文件对话框，覆盖库校验失败、启动偏好失败、取消导入／重置、导出、废弃字段清理、旧窗口晚到结果及缓存保留；配置／后台回归另验证损坏文件的重复拒绝和修复重试；这些检查不访问校园账号。
 
 ## 分支与 Actions

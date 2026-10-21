@@ -47,6 +47,7 @@ type gateway struct {
 	cacheProbes      atomic.Int32
 	sessions         sync.Map
 	passwordMethod   atomic.Bool
+	rotateSID        atomic.Bool
 }
 
 func newGateway(t *testing.T) *gateway {
@@ -143,6 +144,10 @@ func newGatewayWithNodeTLS(t *testing.T, nodeTLS *tls.Config) *gateway {
 			}
 			fmt.Fprintf(w, `{"code":0,"data":{"username":%q}}`, username)
 		case "/controller/v1/user/clientResource":
+			if g.rotateSID.Load() {
+				http.SetCookie(w, &http.Cookie{Name: "sid", Value: "private-resource-sid", Path: "/"})
+				g.sessions.Store("private-resource-sid", "fixture-user")
+			}
 			fmt.Fprintf(w, `{"data":{"appList":{"data":{"appInfo":[{"apps":[{"ID":"fixture-app","nodeGroupID":"fixture-group","accessModel":"L3VPN","addressList":[{"protocol":"udp","port":"1-65535","host":"192.0.2.10"},{"protocol":"tcp","port":"1-65535","host":"192.0.2.10"},{"protocol":"tcp","port":"1-65535","host":"campus.test","IP":["192.0.2.10"]}]}]}],"config":{"nodeGroupConf":{"majorNodeGroup":{"ID":"fixture-group"},"nodeGroupList":[{"ID":"fixture-group","addressInfo":[{"type":"wan","address":%q}]}]}}}}}}`, g.node.Addr().String())
 		default:
 			t.Errorf("unexpected gateway route %s", r.URL.Path)

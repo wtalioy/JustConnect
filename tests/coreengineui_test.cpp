@@ -415,6 +415,40 @@ static void authenticationCacheLifecycle() {
         && !logs.contains("private-sso-cookie"),"authentication cache and credentials do not enter application logs");
 }
 
+static void authenticationSurvivesTunnelFailure() {
+    QTemporaryDir folder;QSettings settings(folder.filePath("failed-tunnel-cache.ini"),QSettings::IniFormat);
+    settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");settings.setValue("JustConnect/ServerPort",443);
+    settings.setValue("JustConnect/AuthType","httpsOauth2");settings.setValue(DefaultSettings::RememberAuthentication,true);settings.sync();
+    QWidget parent;QPushButton connectButton(&parent),proxyButton(&parent);QAction trayAction(&parent);
+    auto *engine=new QueryEngine;ConnectionSession session(engine);SystemProxySession proxy(std::make_unique<ProxyBackend>());
+    AuthDialogCoordinator dialogs(&parent);ApplicationLogger logger;
+    auto backend=std::make_unique<MemoryCredentialStore>();auto *store=backend.get();CredentialAccess access(std::move(backend));
+    ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,&dialogs,&logger,
+        &access,[&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
+        [](const QString &,const QString &,QSystemTrayIcon::MessageIcon){});
+    connectButton.click();until([&]{return engine->starts==1;});
+    bool errorShown=false;QTimer closeError;
+    QObject::connect(&closeError,&QTimer::timeout,[&]{
+        for(auto *widget:QApplication::topLevelWidgets()) if(auto *box=qobject_cast<QMessageBox *>(widget);box && box->isVisible()) {
+            check(box->text().contains("服务器证书"),"tunnel certificate rejection remains visible");
+            errorShown=true;box->accept();
+        }
+    });closeError.start(1);
+    emit engine->authenticationCacheUpdated({"authenticated-user","private-before-tunnel"});
+    emit engine->finished(ConnectionError::TLS_TRUST);closeError.stop();
+    AuthenticationCache saved;ProfileCredentials vault(*store);
+    until([&]{
+        const auto source=CredentialAccess::source(settings,{});
+        return !access.isBusy() && !controller.isConfigurationSaving() && vault.loadAuthenticationCache(source.scope,source.profile,saved).succeeded();
+    });
+    check(errorShown && saved.account=="authenticated-user" && saved.data=="private-before-tunnel",
+        "terminal tunnel failure retains authorized first SSO account binding and native authentication");
+    connectButton.click();until([&]{return engine->starts==2;});
+    check(engine->profile.authenticationCache.account==saved.account && engine->profile.authenticationCache.data==saved.data,
+        "retry restores the authenticated account instead of starting with an empty cache");
+    emit engine->finished(ConnectionError::NONE);
+}
+
 static void quitWaitsForInitialSsoCache() {
     QTemporaryDir folder;QSettings settings(folder.filePath("quit-cache.ini"),QSettings::IniFormat);
     settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");settings.setValue("JustConnect/ServerPort",443);
@@ -831,5 +865,5 @@ static void gateway(const QJsonObject &config) {
 int main(int argc, char **argv) {
     QApplication app(argc, argv);
     if (argc == 3 && QByteArray(argv[1]) == "--gateway") gateway(QJsonDocument::fromJson(argv[2]).object());
-    else { browserCookiesStayInLoginDialog(); browserValidatesCallbackNavigation(); uiContracts(); proxyWaitsForReady(); manualCredentialsAndLateResults(); authenticationCacheLifecycle(); quitWaitsForInitialSsoCache(); }
+    else { browserCookiesStayInLoginDialog(); browserValidatesCallbackNavigation(); uiContracts(); proxyWaitsForReady(); manualCredentialsAndLateResults(); authenticationCacheLifecycle(); authenticationSurvivesTunnelFailure(); quitWaitsForInitialSsoCache(); }
 }
