@@ -18,10 +18,10 @@
 | 项目 | 当前记录 |
 | --- | --- |
 | 当前任务 | S2-09 已完成；S2-08 等待 Windows Fudan 复测，系统浏览器方向由 S7-13 先验证自动交接 |
-| 实测状态 | 用户已启用记住认证，Fudan 认证交互成功；核心在节点探测确认只收到自签名叶证书，报未知 CA，隧道尚未就绪。另一设备看到的在线 endpoint 不证明本地隧道可用；继承的 Ubuntu x64 标识不代表 Windows 宿主类型 |
+| 实测状态 | Windows Fudan 启用隧道证书例外后已建立通道；Clash Verge TUN 开启时，经本地 SOCKS／HTTP 收到校内 SSH 标识，HTTP 代理下完成密钥交换并于严格主机信任检查停止，未登录。用户未启用系统代理；浏览器／终端透明接管尚未实现 |
 | 验收范围 | 仅要求 Fudan 实测；按用户决定取消另一台 aTrust 服务器的硬性要求，保留 Custom 实现与服务器／账户隔离回归 |
-| 剩余缺口 | S1-04 真实样本、S1-06 其余设备权限、Fudan TLS／认证恢复、透明访问、Clash 共存、真实桌面／旧系统、正式签名／公证仍未验收；D2 尚未选型 |
-| 最新交付 | 通用隧道证书选项预览 `8fefd1c`：[Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/39595437026/artifacts/12343204224)／[ARM64](https://github.com/wtalioy/JustConnect/actions/runs/39595437026/artifacts/12343943637)；Fudan 连通及认证恢复待复测，完整验证见[验证与收尾](#implementation-history) |
+| 剩余缺口 | S1-04 真实样本、S1-06 其余设备权限、Fudan 认证恢复、透明访问、Clash 共存、真实桌面／旧系统、正式签名／公证仍未验收；D2 尚未选型 |
+| 最新交付 | 通用隧道证书选项预览 `8fefd1c`：[Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/39595437026/artifacts/12343204224)／[ARM64](https://github.com/wtalioy/JustConnect/actions/runs/39595437026/artifacts/12343943637)；显式代理 SSH 已验证，认证恢复及透明访问仍待验收，完整验证见[验证与收尾](#implementation-history) |
 
 ## 阶段总览
 
@@ -156,8 +156,8 @@ README 暂留空，文件图标暂用系统默认；正式签名／公证及用�
 
 - [ ] **S2-08**（实现与任务收尾完成，待 Fudan 人工验收）：建立与活动隧道分离的认证缓存生命周期，复用实际核心支持的票据／Cookie／设备身份恢复路径；若 C ABI 缺少必要输入／输出，按现有版本化契约补齐并验证真实 Qt／Go 调用，不另起登录后端。按学校／服务器／账户隔离，窗口隐藏、普通断开或退出不主动注销／清除仍有效且允许保存的材料；切换账户只使用该账户的缓存，显式清除或服务器明确失效时按作用域处理，不误删其他账户。有效期及恢复结果遵循协议与服务器，不硬编码免登录时长；不可恢复时进入一次必要认证，瞬时网络失败不直接抹掉有效缓存。覆盖安全存储失败、缓存损坏／过期、同账户断开重连、账户隔离、显式清除及重启恢复，记录目标学校的实际支持范围。
   - **实现与回归已完成**：ABI／Qt 支持有界认证缓存输入／更新／明确失效；授权保存的认证在普通停止及重启时按账户恢复，明确清除推进代次，旧回调不能重建。首次 SSO 先绑定服务器确认账户，正常退出等待核心／后台存储／绑定续接。
-  - **Fudan 待复测**：Windows 已确认节点只发送自签名叶证书。按用户选择保留默认校验，为所有 aTrust 配置提供“跳过隧道证书校验”的显式选项；共享节点策略覆盖探测及 IP／TCP／L3，认证／资源 HTTPS 与浏览器校验独立，界面及固定日志说明身份保护缺失。资源／隧道失败继续保留已授权的有效认证，真实连通及认证恢复仍待复测。默认拒绝／显式允许自签名隧道、TCP／UDP 实际转发及登录 HTTPS 仍拒绝未知 CA 的回归通过；本地及六组 CI／预览验证见[验证与收尾](#implementation-history)。
-  - **剩余验收**：用户 Windows Fudan 首次 OAuth2、普通断开重连、退出重启恢复、明确清除后重新认证及过期／MFA 行为；记录实际认证次数和学校策略。另一台 aTrust 实测已取消，不据此提前勾选本项。
+  - **Fudan 实测与边界**：Windows `8fefd1c` 在显式开启“跳过隧道证书校验”后认证／隧道成功；Clash Verge TUN 保持开启，SOCKS／HTTP 校内 SSH 标识及 HTTP 代理密钥交换通过，未登录或修改主机信任记录。例外为所有 aTrust 配置共用，仅影响探测及 IP／TCP／L3；默认拒绝自签名隧道、登录 HTTPS 保持校验的回归通过。认证恢复仍待下项实测；当前仅本地代理，系统代理未启用时浏览器／SSH 不自动接管，透明与 Clash 联动继续按 S4—S6 验收，临时操作见[开发说明](docs/DEVELOPMENT.md)。
+  - **剩余验收**：用户 Windows Fudan 普通断开重连、退出重启恢复、明确清除后重新认证及过期／MFA 行为；记录实际认证次数和学校策略。另一台 aTrust 实测已取消，不据此提前勾选本项。
 
 <a id="s2-09-closeout"></a>
 - [x] **S2-09**：复测前完成职责收拢、旧路径清理和包瘦身（`c72c68b`、`7cbb82a`、`0c4cd2a`、`e1853a4`）。AuthenticationCacheCoordinator 维护保存／失效／SSO 绑定，UI 处理意图与提示；删除 ResourceData／canResume／直接 Restore 旁路及专属测试，生命周期夹具改走正式恢复。Release 省略 Go DWARF、按配置隔离产物；Windows 移除非英语／简中语言包及 QML 调试插件，并验证实际安装和包内双语言页面／JavaScript。全仓收尾与最终六组包通过，保留条件和证据见[验证与收尾](#implementation-history)。
@@ -169,7 +169,7 @@ README 暂留空，文件图标暂用系统默认；正式签名／公证及用�
 
 Linux x64／ARM64 AppImage 分别减少约 2.07%／1.90%；macOS 安装体积基本不变，不把压缩波动计为运行时收益。Windows 原生文件由各 47 减至 35；WebEngine 主库及必需资源仍保留，替代方案由 S7-13 验证。
 
-完成条件：三平台后端／凭据与真实 FFI 自动回归已通过；S2-08 的 Fudan OAuth2、TLS 和认证保留仍待人工结果。保留 Custom 与服务器／账户隔离，不再要求另一台 aTrust 实测。
+完成条件：三平台后端／凭据与真实 FFI 自动回归已通过；S2-08 的 Fudan 认证保留仍待人工结果，OAuth2／隧道及显式代理 SSH 已通过实测。保留 Custom 与服务器／账户隔离，不再要求另一台 aTrust 实测。
 
 <a id="s3"></a>
 ## S3 会话、保活、重连与正常退出
@@ -331,7 +331,7 @@ V7 逐项记录日常使用要求，包含首次确认服务器、窗口／托�
 
 最近完整跨平台验证基线为 `8fefd1c3af010027b042ec51595df9e28bd47524`：[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/39595406871)、[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/39595406808)、[六组预览包及源码](https://github.com/wtalioy/JustConnect/actions/runs/39595437026)通过。Windows ARM64 不支持 Go race，普通 Go、FFI、Qt 与协议检查仍全部执行。 当前界面增量（证书选项分组、设置页滚动）通过本地构建、3 项界面回归及 150% 缩放／键盘检查；小高度下操作按钮保持可见。未重跑 CI／打包，以上预览尚未包含这些布局，Windows 高 DPI 实机待复测。
 
-本轮本地 Go 19 包／格式／vet／构建、bridge race、Linux 应用 26 项／原生 13 项 CTest 及 Python 13 项通过（1 项 Windows 专属不适用）；原生性能检查由六组 CI 执行。六份包报告核对正式核心／认证缓存能力、干净来源、版本／架构、依赖、系统约束、哈希及体积，Windows 两组包内 en-US／zh-CN 页面／JavaScript 检查通过。Windows 为 NotSigned，macOS 为 ad-hoc、最低 14.4，Linux 实际 glibc 下限为 2.43；真实 Fudan、正式签名／公证及旧系统桌面仍未验收。
+本轮本地 Go 19 包／格式／vet／构建、bridge race、Linux 应用 26 项／原生 13 项 CTest 及 Python 13 项通过（1 项 Windows 专属不适用）；原生性能检查由六组 CI 执行。六份包报告核对正式核心／认证缓存能力、干净来源、版本／架构、依赖、系统约束、哈希及体积，Windows 两组包内 en-US／zh-CN 页面／JavaScript 检查通过。Windows 为 NotSigned，macOS 为 ad-hoc、最低 14.4，Linux 实际 glibc 下限为 2.43；Fudan 认证恢复、网页／DNS／UDP、正式签名／公证及旧系统桌面仍未验收。
 
 维护源码 SHA-256：`b0beffcfa13fe65a1fff1e84eaa4c4b020f6cffffccbe34eb86e075c03b21f76`。CI／本地归档一致，311 份受管文件逐字节核对通过；本轮未重复无 Git 的应用独立重建，其既有基线及早期实现／清理记录见[历史计划](https://github.com/wtalioy/JustConnect/blob/215f30e/plan.md#implementation-history)和 Git，不在主计划复制流水。
 
