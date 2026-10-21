@@ -1,4 +1,5 @@
 /core/** text eol=lf
 
 # Generated C/Go contracts and gofmt require identical bytes on every host.
+*.go text eol=lf
 /corelib/** text eol=lf

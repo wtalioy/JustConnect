@@ -12,6 +12,25 @@ spec.loader.exec_module(source)
 
 
 class ArchiveSourceTest(unittest.TestCase):
+    def test_native_go_probe_checkout_keeps_lf_on_windows(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            def git(*args):
+                subprocess.run(['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+                                *args], cwd=root, check=True)
+            git('init', '-q')
+            git('config', 'core.autocrlf', 'true')
+            (root / '.gitattributes').write_bytes((source.ROOT / '.gitattributes').read_bytes())
+            probe = root / 'tests/platform/probe.go'
+            probe.parent.mkdir(parents=True)
+            expected = b'package main\n\nfunc main() {}\n'
+            probe.write_bytes(expected)
+            git('add', '.')
+            git('commit', '-qm', 'Add native Go probe')
+            probe.unlink()
+            git('checkout', '--', 'tests/platform/probe.go')
+            self.assertEqual(probe.read_bytes(), expected)
+
     def test_exports_actual_modifications_and_rejects_uncommitted_changes(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder) / 'repo'
