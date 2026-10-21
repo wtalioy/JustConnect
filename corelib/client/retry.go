@@ -7,13 +7,20 @@ import (
 	"io"
 	"io/fs"
 	"net"
+	"runtime"
+	"syscall"
 )
+
+// IsPermissionError also recognizes Winsock WSAEACCES, which Go does not map to fs.ErrPermission.
+func IsPermissionError(err error) bool {
+	return errors.Is(err, fs.ErrPermission) || (runtime.GOOS == "windows" && errors.Is(err, syscall.Errno(10013)))
+}
 
 // RetryableTransportError excludes local policy, trust and protocol failures before unwrapping sockets.
 func RetryableTransportError(err error) bool {
 	var certificate *tls.CertificateVerificationError
 	var handshake *TLSHandshakeError
-	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, fs.ErrPermission) || errors.As(err, &certificate) {
+	if err == nil || errors.Is(err, context.Canceled) || IsPermissionError(err) || errors.As(err, &certificate) {
 		return false
 	}
 	var networkError net.Error
