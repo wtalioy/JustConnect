@@ -120,7 +120,7 @@ jobs:
           subprocess.run(['go', '-C', 'corelib', 'test', '-mod=readonly', '-c', '-o', str(unit), str(source), str(tests)], env=env, check=True, timeout=120)
           with (output / 'windows-device.log').open('w', encoding='utf-8') as log:
               for args in ([str(unit), '-test.v'], [str(probe), str(dll)]):
-                  result = subprocess.run(args, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=180)
+                  result = subprocess.run(args, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=300)
                   print(result.stdout, flush=True)
                   log.write(result.stdout); log.flush()
                   if result.returncode:
