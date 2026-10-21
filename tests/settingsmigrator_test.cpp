@@ -12,6 +12,43 @@
 
 namespace
 {
+bool preservesKeepAliveChoices()
+{
+    QTemporaryDir folder;
+    struct Case { QVariant enabled; QString url, mode, expected; };
+    const Case cases[]{{{}, {}, {}, "auto"}, {false, {}, {}, "off"},
+        {false, "https://campus.example.invalid/status", {}, "off"}, {true, {}, {}, "auto"},
+        {true, "https://campus.example.invalid/status", {}, "target"},
+        {{}, "http://campus.example.invalid/status", {}, "target"},
+        {false, "https://campus.example.invalid/status", "target", "target"}};
+    int index=0;
+    for (const auto &test:cases) for (const auto &group:QStringList{"JustConnect/","ZJUConnect/"}) {
+        const auto stem=QString::number(index++);
+        QSettings source(folder.filePath(stem+"-source.ini"),QSettings::IniFormat);
+        source.setValue("Common/ConfigVersion",8);
+        if (test.enabled.isValid()) source.setValue(group+"KeepAlive",test.enabled);
+        source.setValue(group+"KeepAliveURL",test.url);
+        if (!test.mode.isEmpty()) source.setValue(group+"KeepAliveMode",test.mode);
+        source.sync();
+        QSettings draft(folder.filePath(stem+"-draft.ini"),QSettings::IniFormat);
+        if (!SettingsMigrator::publicDraft(source,draft)
+            || draft.value("JustConnect/KeepAliveMode")!=test.expected
+            || draft.value("JustConnect/KeepAliveURL")!=test.url
+            || draft.contains("JustConnect/KeepAlive") || draft.childGroups().contains("ZJUConnect")) return false;
+        if (test.enabled.isValid() && source.value(group+"KeepAlive")!=test.enabled) return false;
+        for (int repeat=0;repeat<2;++repeat) {
+            if (SettingsMigrator::prepare(source)==SettingsMigrationAction::Failed || !SettingsMigrator::finish(source)
+                || source.value("JustConnect/KeepAliveMode")!=test.expected || source.value("JustConnect/KeepAliveURL")!=test.url
+                || source.contains("JustConnect/KeepAlive")) return false;
+        }
+        const auto exported=folder.filePath(stem+"-export.ini");
+        if (!DefaultSettings::exportTo(source,exported)) return false;
+        QSettings saved(exported,QSettings::IniFormat);
+        if (saved.value("JustConnect/KeepAliveMode")!=test.expected || saved.value("JustConnect/KeepAliveURL")!=test.url) return false;
+    }
+    return true;
+}
+
 bool validatesReadOnlySourcesWithoutChangingThem()
 {
     QTemporaryDir folder;const auto path=folder.filePath("readonly.ini");
@@ -222,7 +259,8 @@ bool failedSaveRemainsRetryable()
 int main(int argc, char *argv[])
 {
     QCoreApplication app(argc, argv);
-    return validatesReadOnlySourcesWithoutChangingThem()
+    return preservesKeepAliveChoices()
+        && validatesReadOnlySourcesWithoutChangingThem()
         && preparesPublicDraftWithoutCopyingSecrets()
         && exportsOnlyPublicConfiguration()
         && renamesPreviewSettingsWithoutLosingValues()

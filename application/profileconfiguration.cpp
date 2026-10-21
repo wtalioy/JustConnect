@@ -27,6 +27,8 @@ ConnectionProfile ProfileService::load(const QVariantMap &settings) {
     const auto bind=[](int port) { return port ? "127.0.0.1:"+QString::number(port) : QString(); };
     p.proxy.socksBind=bind(settings.value("JustConnect/SOCKS5Port").toInt());
     p.proxy.httpBind=bind(settings.value("JustConnect/HTTPPort").toInt());
+    p.keepAlive.mode=settings.value("JustConnect/KeepAliveMode","auto").toString();
+    p.keepAlive.url=settings.value("JustConnect/KeepAliveURL").toString();
     p.behavior.bindInterface=settings.value("JustConnect/BindInterface").toString();
     p.behavior.autoDetectInterface=settings.value("JustConnect/AutoDetectInterface").toBool();
     p.behavior.rememberAuthentication=settings.value(DefaultSettings::RememberAuthentication,false).toBool();

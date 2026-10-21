@@ -148,4 +148,6 @@ S2-03 的 `tls` 可省略（默认验证系统信任链及目标主机名）；`
 
 可选 `keepalive:{mode,url}` 支持 `auto`（省略时默认）、`target`、`off`。只关闭应用流量探测；认证续期和节点维护继续运行，普通断开则取消全部维护。探测复用现有续期循环，不另建维护线程。`auto` 仅向学校下发且有 UDP/53 授权的 DNS 发送根域 NS 查询；缺少能力报告 `traffic:unavailable`。`target` 仅接受标准 80/443 端口的 HTTP/HTTPS GET 目标，禁止用户信息、查询参数和片段，不跟随重定向，也不发送 Cookie／Authorization。URL 最大 8192 字节；自动／关闭模式可保留未启用的目标草稿。
 
+学校配置使用 `JustConnect/KeepAliveMode` 与 `KeepAliveURL`，由 ProfileService 映射到连接配置；认证方式查询不传流量保活。缺少新模式时迁移旧 `KeepAlive:false` 为关闭，否则非空目标为指定目标，其余为自动；已有新模式优先，目标不因关闭而删除。导入复用同一迁移，导出保留模式及目标，旧布尔开关迁移后移除。早先版本已经删除的值无法还原，不猜测用户原选择。
+
 目标解析仅使用学校资源内置映射或获授权的校园 DNS，不使用来源未知的共享缓存或公共 DNS 回退。连接必须命中校园 IP／域名、协议和端口授权，不走原网络。HTTPS 默认校验证书并复用显式学校 CA 策略。单次探测总预算 10 秒且随会话取消。`traffic` 与 `renewal` 结果独立：网页／DNS 探测成功不代表票据续期，临时续期失败保留有效缓存；明确失效报告 `renewal:required`／`authentication:required`，停止一次并交付 `JC_SESSION_INVALID`，不自动登录。
