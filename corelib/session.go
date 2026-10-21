@@ -191,7 +191,7 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 		ttl = DefaultDNSCacheTTL
 	}
 	resolver = resolve.NewResolver(network, remoteDNS, options.SecondaryDNS, ttl, domains, dnsResource, !options.DisableRemoteDNS && remoteDNS != "")
-	dialer := dial.NewDialer(network, resolver, ips, false, "")
+	dialer := dial.NewDialer(network, resolver, ips, false)
 	listeners, err = service.NewListeners(ctx, options.SOCKS, options.HTTP, dialer, resolver)
 	if err != nil {
 		return fmt.Errorf("listeners_failed: %w", err)
