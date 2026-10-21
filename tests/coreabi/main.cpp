@@ -25,7 +25,7 @@ static void check(bool ok, const char *message) {
     if (!ok) { std::cerr << "FAIL: " << message << '\n'; std::exit(1); }
 }
 #define ABI_FUNCTIONS(X) X(jc_abi_version) X(jc_build_info) X(jc_config_validate) X(jc_session_create) X(jc_session_start) \
-    X(jc_session_read) X(jc_session_respond) X(jc_session_stop) X(jc_session_destroy)
+    X(jc_session_read) X(jc_session_respond) X(jc_session_update_policy) X(jc_session_stop) X(jc_session_destroy)
 struct API {
 #define MEMBER(name) decltype(&::name) name;
     ABI_FUNCTIONS(MEMBER)
@@ -95,6 +95,21 @@ static void authentication(API &api) {
     check(challenge["type"] == "authentication" && challenge["request_id"] == "1" &&
           challenge["challenge"].toObject()["kind"] == "sms", "real ABI authentication event");
     requestID = challenge["request_id"].toString();
+    auto updatePolicy = [&](uint64_t gen, const char *revision) {
+        auto bytes = QJsonDocument(QJsonObject{{"schema_version",1},{"generation",QString::number(gen)},
+            {"revision",revision},{"protected",QJsonArray{"192.0.2.0/24"}},{"campus",QJsonArray{"192.0.2.10"}}}).toJson(QJsonDocument::Compact);
+        uint64_t applied = 99;
+        const auto status = api.jc_session_update_policy(h, reinterpret_cast<const uint8_t *>(bytes.constData()), uint32_t(bytes.size()), &applied);
+        check(applied == (status == JC_OK ? gen : 0), "policy generation output zeroed on error");
+        bytes.fill('\0');
+        return status;
+    };
+    uint64_t applied = 99;
+    check(api.jc_session_update_policy(h, nullptr, 1, &applied) == JC_INVALID_ARGUMENT && applied == 0, "policy input pointer boundary");
+    check(api.jc_session_update_policy(h, nullptr, 0, nullptr) == JC_INVALID_ARGUMENT, "policy output pointer boundary");
+    check(updatePolicy(generation, "18446744073709551615") == JC_OK, "full-width string policy revision");
+    check(updatePolicy(generation, "18446744073709551615") == JC_STALE_REQUEST, "duplicate policy revision rejected");
+    check(updatePolicy(generation, "1") == JC_STALE_REQUEST, "out-of-order policy rejected");
     uint64_t unused = 0;
     check(api.jc_session_start(other, reinterpret_cast<const uint8_t *>(config.data()),
           static_cast<uint32_t>(config.size()), &unused) == JC_BUSY && unused == 0, "one active VPN slot across handles");
@@ -109,11 +124,14 @@ static void authentication(API &api) {
         blockedStatus = api.jc_session_read(h, JC_MAX_WAIT_MS, nullptr, 0, &required);
     });
     check(api.jc_session_stop(h, 1000) == JC_OK, "stop fixture waiting on host");
+    check(updatePolicy(generation, "18446744073709551615") == JC_STALE_REQUEST, "stopped session rejects policy updates");
     reader.join();
     check(blockedStatus == JC_CANCELLED || blockedStatus == JC_BUFFER_TOO_SMALL, "blocked host reader woke");
     check(read(api, h)["status"].toInt() == JC_CANCELLED, "single cancellation terminal");
     start();
     check(generation == 2, "restart generation increment");
+    check(updatePolicy(generation - 1, "2") == JC_STALE_REQUEST, "old policy generation rejected after restart");
+    check(updatePolicy(generation, "1") == JC_OK, "policy revision resets only for a new session");
     read(api, h);
     challenge = read(api, h);
     check(challenge["generation"] == "2" && challenge["request_id"] == "2", "new authentication identity");
@@ -162,6 +180,11 @@ static void nativeProtocol(API &api, const QByteArray &input) {
     check(cacheEvent["type"]=="authentication_cache" && cacheEvent["action"]=="save"
         && cache["account"]=="fixture-user" && !cache["data"].toString().isEmpty(),"real C ABI bound cache output");
     check(protocolEvent(api, handle)["state"] == "ready", "real protocol ready");
+    auto policy = QJsonDocument(QJsonObject{{"schema_version",1},{"generation",QString::number(generation)},
+        {"revision","1"},{"protected",QJsonArray{"192.0.2.0/24"}},{"campus",QJsonArray{"192.0.2.10"}}}).toJson(QJsonDocument::Compact);
+    uint64_t applied = 0;
+    check(api.jc_session_update_policy(handle,reinterpret_cast<const uint8_t *>(policy.constData()),uint32_t(policy.size()),&applied)==JC_OK
+        && applied==generation,"formal session accepts explicit campus choice before real SOCKS/HTTP traffic");
     ProxyCheck::exercise(config["listeners"].toObject(), [&] {
     check(api.jc_session_stop(handle, 5000) == JC_OK && api.jc_session_stop(handle, 1000) == JC_OK, "native protocol idempotent stop");
     auto terminal = protocolEvent(api, handle);
@@ -212,6 +235,7 @@ int main(int argc, char **argv) {
     check(build["source_state"] == "clean" || build["source_state"] == "dirty", "actual source state");
     check(info["capabilities"].toObject()["embedded_vpn"].toBool() == !info["test_driver"].toBool(),
           "protocol capability identifies production and fixture drivers");
+    check(info["capabilities"].toObject()["policy_update"].toBool(), "policy update capability matches the loaded export");
     check(metadata.front() == 0x5a && metadata.back() == 0x5a, "metadata bounds");
 #ifdef ABI_FIXTURE
     check(info["test_driver"].toBool(), "fixture build must identify itself");

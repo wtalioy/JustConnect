@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/netip"
 	"strconv"
 	"strings"
 
 	"github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/wtalioy/JustConnect/corelib/internal/ipresource"
+	"github.com/wtalioy/JustConnect/corelib/policy"
 
 	"github.com/wtalioy/JustConnect/corelib/resolve"
 	"github.com/wtalioy/JustConnect/corelib/stack"
@@ -23,11 +25,12 @@ import (
 var ErrACLDenied = errors.New("destination not in sangfor IPResources whitelist (would trigger tunnel SHUTDOWN)")
 
 type Dialer struct {
-	stack         stack.Stack
-	resolver      *resolve.Resolver
-	ipResources   []client.IPResource
-	resourceIndex *ipresource.Index
-	alwaysUseVPN  bool
+	ProtectionPolicy func() *policy.ProtectionPolicy
+	stack            stack.Stack
+	resolver         *resolve.Resolver
+	ipResources      []client.IPResource
+	resourceIndex    *ipresource.Index
+	alwaysUseVPN     bool
 }
 
 func dialDirect(ctx context.Context, network, address string) (net.Conn, error) {
@@ -46,6 +49,18 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 	port, err := strconv.Atoi(portStr)
 	if err != nil || port < 1 || port > 65535 {
 		return nil, errors.New("Invalid port in address: " + ipAddr)
+	}
+	if d.ProtectionPolicy != nil {
+		if snapshot := d.ProtectionPolicy(); snapshot != nil {
+			if address, err := netip.ParseAddr(ip); err == nil {
+				if allowed, _ := snapshot.CampusAllowed(address); !allowed {
+					if d.alwaysUseVPN {
+						return nil, policy.ErrProtectedTarget
+					}
+					return dialDirect(ctx, network, ipAddr)
+				}
+			}
+		}
 	}
 
 	useVPN := d.alwaysUseVPN

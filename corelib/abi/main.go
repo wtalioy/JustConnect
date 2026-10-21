@@ -44,7 +44,7 @@ func buildInfo() []byte {
 		"build": map[string]any{"revision": rev, "source_state": state,
 			"upstream_commit": bridge.UpstreamCommit, "local_version": rev + "+" + state,
 			"go_version": runtime.Version(), "os": runtime.GOOS, "arch": runtime.GOARCH},
-		"capabilities": map[string]any{"embedded_vpn": !testDriver, "auth_method_query": !testDriver, "authentication_cache": !testDriver, "policy_update": false,
+		"capabilities": map[string]any{"embedded_vpn": !testDriver, "auth_method_query": !testDriver, "authentication_cache": !testDriver, "policy_update": true,
 			"async_start": true, "authentication_response": true, "bounded_events": true,
 			"max_sessions": 1, "max_handles": bridge.MaxHandles, "max_input_bytes": bridge.MaxInput,
 			"max_output_bytes": bridge.MaxOutput, "max_wait_ms": bridge.MaxWaitMS, "max_auth_wait_ms": bridge.MaxAuthWaitMS,
@@ -153,6 +153,21 @@ func jc_go_session_respond(handle C.uint64_t, input *C.uint8_t, length C.uint32_
 		return C.int32_t(bridge.InvalidArgument)
 	}
 	return C.int32_t(engine.Respond(uint64(handle), data))
+}
+
+//export jc_go_session_update_policy
+func jc_go_session_update_policy(handle C.uint64_t, input *C.uint8_t, length C.uint32_t, generation *C.uint64_t) C.int32_t {
+	if generation == nil {
+		return C.int32_t(bridge.InvalidArgument)
+	}
+	*generation = 0
+	data, ok := inputBytes(input, length)
+	if !ok {
+		return C.int32_t(bridge.InvalidArgument)
+	}
+	value, status := engine.UpdatePolicy(uint64(handle), data)
+	*generation = C.uint64_t(value)
+	return C.int32_t(status)
 }
 
 //export jc_go_session_stop

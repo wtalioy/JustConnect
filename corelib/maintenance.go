@@ -14,6 +14,7 @@ import (
 	"github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/wtalioy/JustConnect/corelib/dial"
 	"github.com/wtalioy/JustConnect/corelib/internal/ipresource"
+	"github.com/wtalioy/JustConnect/corelib/policy"
 	"github.com/wtalioy/JustConnect/corelib/resolve"
 	"github.com/wtalioy/JustConnect/corelib/stack"
 )
@@ -48,7 +49,7 @@ func authorizedDNS(address string, ips []client.IPResource) net.IP {
 }
 
 // trafficProbe uses only campus resources and never falls back to the original network.
-func trafficProbe(ctx context.Context, mode, target, remoteDNS string, network stack.Stack, resolver *resolve.Resolver, ips []client.IPResource, tlsPolicy *tls.Config) string {
+func trafficProbe(ctx context.Context, mode, target, remoteDNS string, network stack.Stack, resolver *resolve.Resolver, ips []client.IPResource, tlsPolicy *tls.Config, protection func() *policy.ProtectionPolicy) string {
 	if ips == nil {
 		ips = []client.IPResource{}
 	}
@@ -62,8 +63,13 @@ func trafficProbe(ctx context.Context, mode, target, remoteDNS string, network s
 		if dnsIP == nil {
 			return "unavailable"
 		}
-		conn, err := network.DialUDP(ctx, &net.UDPAddr{IP: dnsIP, Port: 53})
+		dialer := dial.NewDialer(network, resolver, ips, true)
+		dialer.ProtectionPolicy = protection
+		conn, err := dialer.DialIPPort(ctx, "udp", net.JoinHostPort(dnsIP.String(), "53"))
 		if err != nil {
+			if errors.Is(err, policy.ErrProtectedTarget) {
+				return "unavailable"
+			}
 			return "failed"
 		}
 		defer conn.Close()
@@ -96,7 +102,9 @@ func trafficProbe(ctx context.Context, mode, target, remoteDNS string, network s
 			if ip.To4() == nil {
 				return nil, dial.ErrACLDenied
 			}
-			return dial.NewDialer(network, resolver, ips, true).DialIPPort(ctx, protocol, net.JoinHostPort(ip.String(), port))
+			dialer := dial.NewDialer(network, resolver, ips, true)
+			dialer.ProtectionPolicy = protection
+			return dialer.DialIPPort(ctx, protocol, net.JoinHostPort(ip.String(), port))
 		},
 	}
 	if tlsPolicy != nil {
@@ -110,7 +118,7 @@ func trafficProbe(ctx context.Context, mode, target, remoteDNS string, network s
 	}
 	reply, err := httpClient.Do(request)
 	if err != nil {
-		if errors.Is(err, dial.ErrACLDenied) || errors.Is(err, resolve.ErrCampusDNSUnavailable) {
+		if errors.Is(err, policy.ErrProtectedTarget) || errors.Is(err, dial.ErrACLDenied) || errors.Is(err, resolve.ErrCampusDNSUnavailable) {
 			return "unavailable"
 		}
 		return "failed"

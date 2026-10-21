@@ -13,7 +13,31 @@ import (
 	"github.com/miekg/dns"
 	"github.com/patrickmn/go-cache"
 	"github.com/wtalioy/JustConnect/corelib/client"
+	"github.com/wtalioy/JustConnect/corelib/policy"
 )
+
+func TestProtectedCampusDNSCannotReachTunnelOrPublicResolver(t *testing.T) {
+	snapshot, err := policy.NewProtectionPolicy([]string{"192.0.2.0/24"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := NewResolver(nil, "192.0.2.53", "", 60, client.DomainResources{".campus.test": {{Protocol: "tcp", PortMin: 443, PortMax: 443}}}, nil, true)
+	defer r.Close()
+	r.ProtectionPolicy = func() *policy.ProtectionPolicy { return &snapshot }
+	for _, resolver := range []*net.Resolver{r.remoteUDPResolver, r.remoteTCPResolver} {
+		if _, err := resolver.Dial(t.Context(), "udp", "unused"); !errors.Is(err, policy.ErrProtectedTarget) {
+			t.Fatal(err)
+		}
+	}
+	var public atomic.Int32
+	r.secondaryResolver.Dial = func(context.Context, string, string) (net.Conn, error) {
+		public.Add(1)
+		return nil, errors.New("public escape")
+	}
+	if _, ip, err := r.Resolve(t.Context(), "www.campus.test"); err == nil || ip != nil || public.Load() != 0 {
+		t.Fatal("protected DNS escaped", ip, err, public.Load())
+	}
+}
 
 var domainResourceMatchSink bool
 

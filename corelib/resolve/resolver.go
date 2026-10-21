@@ -4,18 +4,21 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/netip"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/wtalioy/JustConnect/corelib/client"
+	"github.com/wtalioy/JustConnect/corelib/policy"
 
 	"github.com/patrickmn/go-cache"
 	"github.com/wtalioy/JustConnect/corelib/stack"
 )
 
 type Resolver struct {
+	ProtectionPolicy  func() *policy.ProtectionPolicy
 	remoteUDPResolver *net.Resolver
 	remoteTCPResolver *net.Resolver
 	secondaryResolver *net.Resolver
@@ -356,10 +359,24 @@ func (r *Resolver) Close() {
 }
 
 func NewResolver(stack stack.Stack, remoteDNSServer, secondaryDNSServer string, ttl uint64, domainResources client.DomainResources, dnsResource map[string][]net.IP, useRemoteDNS bool) *Resolver {
-	resolver := &Resolver{
+	var resolver *Resolver
+	allowed := func() bool {
+		if resolver.ProtectionPolicy != nil {
+			if snapshot := resolver.ProtectionPolicy(); snapshot != nil {
+				address, err := netip.ParseAddr(remoteDNSServer)
+				permit, _ := snapshot.CampusAllowed(address)
+				return err == nil && permit
+			}
+		}
+		return true
+	}
+	resolver = &Resolver{
 		remoteUDPResolver: &net.Resolver{
 			PreferGo: true,
 			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+				if !allowed() {
+					return nil, policy.ErrProtectedTarget
+				}
 				return stack.DialUDP(ctx, &net.UDPAddr{
 					IP:   net.ParseIP(remoteDNSServer),
 					Port: 53,
@@ -369,6 +386,9 @@ func NewResolver(stack stack.Stack, remoteDNSServer, secondaryDNSServer string, 
 		remoteTCPResolver: &net.Resolver{
 			PreferGo: true,
 			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+				if !allowed() {
+					return nil, policy.ErrProtectedTarget
+				}
 				return stack.DialTCP(ctx, &net.TCPAddr{
 					IP:   net.ParseIP(remoteDNSServer),
 					Port: 53,

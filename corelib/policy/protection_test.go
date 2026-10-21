@@ -1,4 +1,4 @@
-package dial
+package policy
 
 import (
 	"net/netip"

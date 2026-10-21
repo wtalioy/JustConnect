@@ -16,8 +16,27 @@ import (
 
 	"github.com/miekg/dns"
 	"github.com/wtalioy/JustConnect/corelib/client"
+	"github.com/wtalioy/JustConnect/corelib/policy"
 	"github.com/wtalioy/JustConnect/corelib/resolve"
 )
+
+func TestKeepAliveDoesNotProbeProtectedOriginalTargets(t *testing.T) {
+	s := &probeStack{serve: func(net.Conn) { t.Error("probe crossed protected network") }}
+	snapshot, err := policy.NewProtectionPolicy([]string{"192.0.2.0/24"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ip := net.ParseIP("192.0.2.53")
+	ips := []client.IPResource{{IPMin: ip, IPMax: ip, PortMin: 1, PortMax: 65535, Protocol: "all"}}
+	for _, mode := range []string{"auto", "target"} {
+		if result := trafficProbe(t.Context(), mode, "http://192.0.2.53/", ip.String(), s, nil, ips, nil, func() *policy.ProtectionPolicy { return &snapshot }); result != "unavailable" {
+			t.Fatal(mode, result)
+		}
+	}
+	if s.calls.Load() != 0 {
+		t.Fatal("protected probe entered tunnel")
+	}
+}
 
 type probeStack struct {
 	calls atomic.Int32
@@ -56,7 +75,7 @@ func TestKeepAliveRejectsUnsafeTargetsAndNeverEscapesResources(t *testing.T) {
 	}
 	s := &probeStack{serve: func(net.Conn) { t.Error("probe escaped campus authorization") }}
 	for _, mode := range []string{"off", "auto", "target"} {
-		got := trafficProbe(t.Context(), mode, "http://192.0.2.10/", "192.0.2.53", s, nil, nil, nil)
+		got := trafficProbe(t.Context(), mode, "http://192.0.2.10/", "192.0.2.53", s, nil, nil, nil, nil)
 		if got != "disabled" && got != "unavailable" {
 			t.Fatal(mode, got)
 		}
@@ -83,7 +102,7 @@ func TestTrafficProbeDistinguishesDNSFromHTTPAndRefusesRedirects(t *testing.T) {
 			reply.Rcode = rcode
 			_ = server.WriteMsg(reply)
 		}}
-		got := trafficProbe(t.Context(), "auto", "", ip.String(), s, nil, ips, nil)
+		got := trafficProbe(t.Context(), "auto", "", ip.String(), s, nil, ips, nil, nil)
 		if (got == "succeeded") != (rcode == dns.RcodeSuccess) || s.calls.Load() != 1 {
 			t.Fatal(got, rcode, s.calls.Load())
 		}
@@ -101,7 +120,7 @@ func TestTrafficProbeDistinguishesDNSFromHTTPAndRefusesRedirects(t *testing.T) {
 			_ = response.Write(conn)
 		}}
 		resolver := resolve.NewResolver(s, "", "", 60, nil, map[string][]net.IP{"campus.test": {ip}}, false)
-		got := trafficProbe(t.Context(), "target", "http://campus.test/repeatable", "", s, resolver, ips, nil)
+		got := trafficProbe(t.Context(), "target", "http://campus.test/repeatable", "", s, resolver, ips, nil, nil)
 		resolver.Close()
 		if (got == "succeeded") != (status == 200) || s.calls.Load() != 1 {
 			t.Fatal(got, status, s.calls.Load())
@@ -114,7 +133,7 @@ func TestTrafficProbeCancellationClosesOwnedSocket(t *testing.T) {
 	closed := make(chan struct{})
 	s := &probeStack{serve: func(conn net.Conn) { defer close(closed); cancel(); _, _ = io.Copy(io.Discard, conn) }}
 	ip := net.ParseIP("192.0.2.53")
-	got := trafficProbe(ctx, "auto", "", ip.String(), s, nil, []client.IPResource{{IPMin: ip, IPMax: ip, PortMin: 53, PortMax: 53, Protocol: "udp"}}, nil)
+	got := trafficProbe(ctx, "auto", "", ip.String(), s, nil, []client.IPResource{{IPMin: ip, IPMax: ip, PortMin: 53, PortMax: 53, Protocol: "udp"}}, nil, nil)
 	select {
 	case <-closed:
 	case <-time.After(time.Second):
@@ -145,7 +164,7 @@ func TestHTTPSProbeRequiresTrustAndUsesTheCampusStack(t *testing.T) {
 		if trusted {
 			policy = &tls.Config{RootCAs: roots}
 		}
-		got := trafficProbe(t.Context(), "target", "https://127.0.0.1/repeatable", "", s, nil, ips, policy)
+		got := trafficProbe(t.Context(), "target", "https://127.0.0.1/repeatable", "", s, nil, ips, policy, nil)
 		if (got == "succeeded") != trusted || s.calls.Load() != 1 {
 			t.Fatal("HTTPS trust or campus routing bypassed", trusted, got, s.calls.Load())
 		}
