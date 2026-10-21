@@ -72,8 +72,17 @@ func TestLiveProtectionOverridesCampusResourcesButNeverGrantsAuthorization(t *te
 		t.Fatal("explicit campus choice was not applied")
 	}
 	d.ipResources, d.resourceIndex = nil, nil
-	if _, err := d.DialIPPort(ctx, "tcp", "127.0.0.1:80"); !errors.Is(err, ErrACLDenied) {
-		t.Fatal("campus choice granted authorization", err)
+	for _, forced := range []bool{false, true} {
+		d.alwaysUseVPN = forced
+		for _, network := range []string{"tcp", "udp"} {
+			conn, err := d.DialIPPort(ctx, network, listener.LocalAddr().String())
+			if conn != nil {
+				_ = conn.Close()
+			}
+			if !errors.Is(err, ErrACLDenied) {
+				t.Fatalf("campus choice bypassed authorization or fell back to original network (forced=%t network=%s): %v", forced, network, err)
+			}
+		}
 	}
 	current, _ = policy.NewProtectionPolicy([]string{"127.0.0.0/8"}, nil)
 	if _, err := d.DialIPPort(ctx, "tcp", "127.0.0.1:80"); !errors.Is(err, policy.ErrProtectedTarget) {
