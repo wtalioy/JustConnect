@@ -47,6 +47,43 @@ func TestConfigBoundary(t *testing.T) {
 	}
 }
 
+func TestAuthenticationCacheInputBoundary(t *testing.T) {
+	var original Config
+	if json.Unmarshal([]byte(configJSON), &original) != nil {
+		t.Fatal("fixture")
+	}
+	original.AuthenticationCache.Enabled = true
+	original.AuthenticationCache.Account = "canonical-account"
+	original.AuthenticationCache.Data = []byte("opaque\x00bytes")
+	encoded := configBytes(t, original)
+	restored, status := ParseConfig(encoded)
+	if status != OK || restored.AuthenticationCache.Account != "canonical-account" || !bytes.Equal(restored.AuthenticationCache.Data, original.AuthenticationCache.Data) {
+		t.Fatal("cache input did not round trip")
+	}
+	for _, mutate := range []func(*Config){
+		func(c *Config) { c.AuthenticationCache.Enabled = false },
+		func(c *Config) { c.AuthenticationCache.Account = "" },
+		func(c *Config) { c.AuthenticationCache.Data = nil },
+		func(c *Config) { c.AuthenticationCache.Data = bytes.Repeat([]byte("x"), MaxAuthCache+1) },
+		func(c *Config) { c.AuthenticationCache.Account = strings.Repeat("x", MaxUsername+1) },
+		func(c *Config) { c.Operation = "auth_methods" },
+	} {
+		bad := original
+		mutate(&bad)
+		parsed, status := ParseConfig(configBytes(t, bad))
+		if status != InvalidArgument || len(parsed.AuthenticationCache.Data) != 0 {
+			t.Fatal("invalid cache input accepted or retained")
+		}
+	}
+	broken := bytes.Replace(encoded, []byte(`"data":"b3BhcXVlAGJ5dGVz"`), []byte(`"data":"invalid?"`), 1)
+	if bytes.Equal(encoded, broken) {
+		t.Fatal("base64 fixture did not change")
+	}
+	if _, status := ParseConfig(broken); status != InvalidArgument {
+		t.Fatal("invalid base64 accepted")
+	}
+}
+
 func TestAuthenticationValidation(t *testing.T) {
 	for _, kind := range []string{"sms", "totp", "radius", "text_captcha", "click_captcha", "cas", "oauth2", "trusted_device"} {
 		t.Run(kind, func(t *testing.T) {

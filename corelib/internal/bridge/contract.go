@@ -24,6 +24,8 @@ func (s Status) Message() string {
 		return "Session ended"
 	case AuthUnsupported:
 		return "Server requires an unsupported authentication step"
+	case CredentialsRequired:
+		return "Login credentials are required"
 	case AuthMethodChanged:
 		return "Authentication identity changed; query methods again"
 	case TLSTrust:
@@ -66,6 +68,11 @@ type Config struct {
 		Domain     string `json:"domain"`
 		TOTPSecret string `json:"totp_secret"`
 	} `json:"auth"`
+	AuthenticationCache struct {
+		Enabled bool   `json:"enabled"`
+		Account string `json:"account"`
+		Data    []byte `json:"data,omitempty"`
+	} `json:"authentication_cache"`
 	Network struct {
 		Interface        string `json:"interface"`
 		AutoDetect       bool   `json:"auto_detect"`
@@ -150,6 +157,12 @@ func ParseConfig(data []byte) (Config, Status) {
 		return Config{}, InvalidArgument
 	}
 	if len(c.TLS.CAPEM) > MaxCAPEM || (c.TLS.CAPEM != "" && !x509.NewCertPool().AppendCertsFromPEM([]byte(c.TLS.CAPEM))) {
+		return Config{}, InvalidArgument
+	}
+	cache := c.AuthenticationCache
+	if len(cache.Account) > MaxUsername || len(cache.Data) > MaxAuthCache ||
+		(cache.Account == "") != (len(cache.Data) == 0) || (!cache.Enabled && len(cache.Data) != 0) ||
+		(c.Operation == "auth_methods" && cache.Enabled) {
 		return Config{}, InvalidArgument
 	}
 	if c.Operation != "" && c.Operation != "connect" && c.Operation != "auth_methods" {

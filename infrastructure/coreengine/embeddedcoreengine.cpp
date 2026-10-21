@@ -34,7 +34,7 @@ Library &library() {
     return instance;
 }
 QJsonObject configuration(const ConnectionProfile &p, CoreEngine::Operation operation) {
-    return {{"schema_version", int(JC_ABI_VERSION)},
+    QJsonObject config{{"schema_version", int(JC_ABI_VERSION)},
         {"operation", operation == CoreEngine::Operation::AuthMethods ? "auth_methods" : "connect"},
         {"tls",QJsonObject{{"skip_verify",!p.tls.verify},{"ca_pem",p.tls.caPem}}},
         {"server", QJsonObject{{"host", p.endpoint.server}, {"port", p.endpoint.port}}},
@@ -45,6 +45,15 @@ QJsonObject configuration(const ConnectionProfile &p, CoreEngine::Operation oper
         {"network", QJsonObject{{"interface", p.behavior.bindInterface}, {"auto_detect", p.behavior.autoDetectInterface},
             {"local_dns", p.dns.localDnsServer}, {"secondary_dns", p.dns.secondary},
             {"dns_cache_ttl", p.dns.ttl}, {"disable_remote_dns", p.dns.disableRemoteDns}}}};
+    if (operation==CoreEngine::Operation::Connect && p.behavior.rememberAuthentication) {
+        QJsonObject cache{{"enabled",true}};
+        if (!p.authenticationCache.data.isEmpty() || !p.authenticationCache.account.isEmpty()) {
+            cache["account"]=p.authenticationCache.account;
+            cache["data"]=QString::fromLatin1(p.authenticationCache.data.toBase64());
+        }
+        config["authentication_cache"]=cache;
+    }
+    return config;
 }
 QByteArray configurationBytes(const ConnectionProfile &profile, CoreEngine::Operation operation) {
     auto config = QJsonDocument(configuration(profile, operation)).toJson(QJsonDocument::Compact);
@@ -58,6 +67,7 @@ ConnectionError connectionError(int status) {
     if (status == JC_NETWORK_FAILURE) return ConnectionError::NETWORK_FAILED;
     if (status == JC_TIMEOUT) return ConnectionError::TIMED_OUT;
     if (status == JC_AUTH_UNSUPPORTED) return ConnectionError::AUTHENTICATION_UNSUPPORTED;
+    if (status == JC_CREDENTIALS_REQUIRED) return ConnectionError::CREDENTIALS_REQUIRED;
     if (status == JC_AUTH_METHOD_CHANGED) return ConnectionError::AUTHENTICATION_CHANGED;
     if (status == JC_INVALID_ARGUMENT) return ConnectionError::INVALID_CONFIGURATION;
     if (status == JC_UNSUPPORTED || status == JC_ABI_MISMATCH) return ConnectionError::CORE_UNAVAILABLE;
@@ -200,6 +210,22 @@ void EmbeddedCoreEngine::deliver(quint64 id, const QJsonObject &event) {
     QMetaObject::invokeMethod(pump, &CoreEventPump::poll, Qt::QueuedConnection);
     if (stopping) return;
     if (type == "authentication") emit authenticationRequired(event);
+    else if (type=="authentication_cache") {
+        if (event["action"]=="invalidate" && !event.contains("cache")) {
+            emit authenticationCacheInvalidated();return;
+        }
+        const auto cache=event["cache"].toObject();
+        const auto account=cache["account"].toString();
+        const auto encoded=cache["data"].toString().toLatin1();
+        if (event["action"]!="save" || cache.size()!=2 || !cache["account"].isString() || !cache["data"].isString()
+            || account.isEmpty() || account.toUtf8().size()>JC_MAX_USERNAME || account.contains(QChar(0)) || account.contains(QChar(0xfffd))
+            || encoded.size()>4*((JC_MAX_AUTH_CACHE+2)/3)) {emit diagnostic("persistence_failed");return;}
+        const auto decoded=QByteArray::fromBase64Encoding(encoded,QByteArray::AbortOnBase64DecodingErrors);
+        if (!decoded || decoded.decoded.isEmpty() || decoded.decoded.size()>JC_MAX_AUTH_CACHE || decoded.decoded.toBase64()!=encoded) {
+            emit diagnostic("persistence_failed");return;
+        }
+        emit authenticationCacheUpdated({account,decoded.decoded});
+    }
     else if (type == "auth_methods") emit authMethodsReady(event["methods"].toArray());
     else if (type == "diagnostic") emit diagnostic(event["code"].toString());
     else if (type == "state" && event["state"] == "ready") { established = true; emit connectionEstablished(); }

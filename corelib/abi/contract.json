@@ -24,7 +24,8 @@
     "MaxLanguage": 64,
     "MaxCAPEM": 16384,
     "MaxAuthWaitMS": 300000,
-    "MaxAuthPixels": 4194304
+    "MaxAuthPixels": 4194304,
+    "MaxAuthCache": 16384
   },
   "statuses": {
     "OK": 0,
@@ -44,6 +45,7 @@
     "TLSTrust": -11,
     "TLSProtocol": -12,
     "NetworkFailure": -13,
-    "AuthUnsupported": -14
+    "AuthUnsupported": -14,
+    "CredentialsRequired": -15
   }
 }

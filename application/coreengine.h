@@ -29,6 +29,8 @@ signals:
     void authenticationRequired(const QJsonObject &request);
     void authMethodsReady(const QJsonArray &methods);
     void diagnostic(const QString &code);
+    void authenticationCacheUpdated(const AuthenticationCache &cache);
+    void authenticationCacheInvalidated();
     void connectionEstablished();
     void finished(ConnectionError error);
     void responseAccepted();

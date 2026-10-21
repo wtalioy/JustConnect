@@ -28,23 +28,31 @@ func New(run Runner) *Engine {
 }
 
 type event struct {
-	SchemaVersion int          `json:"schema_version"`
-	Generation    uint64       `json:"generation,string"`
-	Sequence      uint64       `json:"sequence,string"`
-	Type          string       `json:"type"`
-	State         string       `json:"state,omitempty"`
-	Status        Status       `json:"status"`
-	Message       string       `json:"message,omitempty"`
-	Code          string       `json:"code,omitempty"`
-	RequestID     uint64       `json:"request_id,omitempty,string"`
-	Challenge     *Challenge   `json:"challenge,omitempty"`
-	Methods       []AuthMethod `json:"methods,omitempty"`
+	SchemaVersion int                  `json:"schema_version"`
+	Generation    uint64               `json:"generation,string"`
+	Sequence      uint64               `json:"sequence,string"`
+	Type          string               `json:"type"`
+	State         string               `json:"state,omitempty"`
+	Status        Status               `json:"status"`
+	Message       string               `json:"message,omitempty"`
+	Code          string               `json:"code,omitempty"`
+	RequestID     uint64               `json:"request_id,omitempty,string"`
+	Challenge     *Challenge           `json:"challenge,omitempty"`
+	Methods       []AuthMethod         `json:"methods,omitempty"`
+	Action        string               `json:"action,omitempty"`
+	Cache         *AuthenticationCache `json:"cache,omitempty"`
+}
+
+type AuthenticationCache struct {
+	Account string `json:"account"`
+	Data    []byte `json:"data"`
 }
 
 type queued struct {
-	data       []byte
-	request    uint64
-	diagnostic bool
+	data        []byte
+	request     uint64
+	diagnostic  bool
+	cacheAction string
 }
 
 type pending struct {
@@ -80,7 +88,7 @@ func (s *Session) notify() {
 	s.changed = make(chan struct{})
 }
 
-// At most two state events, one unread challenge and one terminal use reserved slots.
+// State, authentication, terminal and at most two cache events use reserved slots.
 func (s *Session) push(e event) Status {
 	s.sequence++
 	e.SchemaVersion, e.Generation, e.Sequence = ABIVersion, s.generation, s.sequence
@@ -89,7 +97,7 @@ func (s *Session) push(e event) Status {
 		s.sequence--
 		return Limit
 	}
-	s.queue = append(s.queue, queued{data: data, request: e.RequestID, diagnostic: e.Type == "diagnostic"})
+	s.queue = append(s.queue, queued{data: data, request: e.RequestID, diagnostic: e.Type == "diagnostic", cacheAction: e.Action})
 	s.notify()
 	return OK
 }
@@ -160,7 +168,7 @@ func (e *Engine) execute(ctx context.Context, config Config, s *Session) {
 			status = Cancelled
 		}
 		switch status {
-		case OK, Timeout, Unsupported, Cancelled, Limit, Internal, AuthMethodChanged, TLSTrust, TLSProtocol, NetworkFailure, AuthUnsupported:
+		case OK, Timeout, Unsupported, Cancelled, Limit, Internal, AuthMethodChanged, TLSTrust, TLSProtocol, NetworkFailure, AuthUnsupported, CredentialsRequired:
 		default:
 			status = Internal
 		}
@@ -189,6 +197,38 @@ func (s *Session) Ready() Status {
 	s.ready = true
 	s.push(event{Type: "state", State: "ready"})
 	return OK
+}
+
+func (s *Session) SaveAuthenticationCache(account string, data []byte) Status {
+	if account == "" || len(account) > MaxUsername || len(data) == 0 || len(data) > MaxAuthCache {
+		return Limit
+	}
+	return s.cacheEvent(event{Type: "authentication_cache", Action: "save", Cache: &AuthenticationCache{Account: account, Data: data}})
+}
+
+func (s *Session) InvalidateAuthenticationCache() Status {
+	return s.cacheEvent(event{Type: "authentication_cache", Action: "invalidate"})
+}
+
+func (s *Session) cacheEvent(e event) Status {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.running || s.stopping {
+		return Cancelled
+	}
+	if s.sequence >= math.MaxUint64-1 {
+		return Limit
+	}
+	// A rejected session discards pending old saves; later saves follow invalidation.
+	kept := s.queue[:0]
+	for _, item := range s.queue {
+		if item.cacheAction == "" || (e.Action == "save" && item.cacheAction == "invalidate") {
+			kept = append(kept, item)
+		}
+	}
+	clear(s.queue[len(kept):])
+	s.queue = kept
+	return s.push(e)
 }
 
 // Diagnostic accepts stable codes, never arbitrary server responses or credentials.

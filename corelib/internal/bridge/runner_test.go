@@ -231,6 +231,7 @@ func TestNativeProtocolHost(t *testing.T) {
 		t.Skip("native host is exercised by the Core ABI CTest target")
 	}
 	g := newGateway(t)
+	g.resumeCookies.Store(true)
 	var foreignRequests atomic.Int32
 	other := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		foreignRequests.Add(1)
@@ -254,6 +255,9 @@ func TestNativeProtocolHost(t *testing.T) {
 	}
 	if strings.Contains(string(output), "PASS: browser TLS policy") && g.browserRedirects.Load() != 1 {
 		t.Fatal("browser did not exercise the same-origin resource redirect")
+	}
+	if strings.Contains(string(output), "PASS: native cache restoration") && g.cacheProbes.Load() != 1 {
+		t.Fatal("native host did not verify restored cookies with the server")
 	}
 	if foreignRequests.Load() != 0 {
 		t.Fatal("browser TLS bypass escaped the configured gateway origin")

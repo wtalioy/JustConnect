@@ -27,24 +27,26 @@ const (
 	MaxCAPEM          = 16384
 	MaxAuthWaitMS     = 300000
 	MaxAuthPixels     = 4194304
+	MaxAuthCache      = 16384
 )
 const (
-	OK                Status = 0
-	BufferTooSmall    Status = 1
-	Timeout           Status = 2
-	End               Status = 3
-	InvalidArgument   Status = -1
-	ABIMismatch       Status = -2
-	InvalidHandle     Status = -3
-	Busy              Status = -4
-	Unsupported       Status = -5
-	StaleRequest      Status = -6
-	Cancelled         Status = -7
-	Limit             Status = -8
-	Internal          Status = -9
-	AuthMethodChanged Status = -10
-	TLSTrust          Status = -11
-	TLSProtocol       Status = -12
-	NetworkFailure    Status = -13
-	AuthUnsupported   Status = -14
+	OK                  Status = 0
+	BufferTooSmall      Status = 1
+	Timeout             Status = 2
+	End                 Status = 3
+	InvalidArgument     Status = -1
+	ABIMismatch         Status = -2
+	InvalidHandle       Status = -3
+	Busy                Status = -4
+	Unsupported         Status = -5
+	StaleRequest        Status = -6
+	Cancelled           Status = -7
+	Limit               Status = -8
+	Internal            Status = -9
+	AuthMethodChanged   Status = -10
+	TLSTrust            Status = -11
+	TLSProtocol         Status = -12
+	NetworkFailure      Status = -13
+	AuthUnsupported     Status = -14
+	CredentialsRequired Status = -15
 )

@@ -2,6 +2,7 @@
 #include <QString>
 #include <QJsonArray>
 #include <QMetaType>
+#include "core/authenticationcache.h"
 
 struct ConnectionCredentials { QString username, password, totpSecret; };
 struct ConnectionEndpoint {
@@ -15,7 +16,7 @@ struct DnsOptions {
     QString localDnsServer;
 };
 struct ProxyOptions { QString socksBind, httpBind; };
-struct ConnectionBehavior { QString bindInterface; bool autoDetectInterface = false; };
+struct ConnectionBehavior { QString bindInterface; bool autoDetectInterface = false; bool rememberAuthentication = false; };
 struct TlsOptions { bool verify = true; QString caPem; };
 struct ConnectionProfile {
     TlsOptions tls;
@@ -24,6 +25,7 @@ struct ConnectionProfile {
     DnsOptions dns;
     ProxyOptions proxy;
     ConnectionBehavior behavior;
+    AuthenticationCache authenticationCache;
     QJsonArray authenticationIdentity() const {
         return {endpoint.server.toLower(),endpoint.port,endpoint.authType,endpoint.loginDomain,
             endpoint.authId,endpoint.authSubType,endpoint.phone,credentials.username};
