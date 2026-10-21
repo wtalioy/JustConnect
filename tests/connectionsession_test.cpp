@@ -101,7 +101,7 @@ bool distinguishesInterruptedConnectionFromStartupFailure()
 
     session.start(profile, {});
     engine->establishConnection();
-    engine->complete(ConnectionError::OTHER);
+    engine->complete(ConnectionError::NETWORK_FAILED);
 
     if (session.state() != ConnectionState::Interrupted)
     {
@@ -189,7 +189,7 @@ bool cacheFollowsSessionPolicyAndExplicitClear()
     QObject::connect(&session,&ConnectionSession::authenticationCacheInvalidated,[&]{++invalidations;});
     const auto reconnect=[&] {
         const auto before=engine->startCalls;
-        engine->establishConnection();engine->complete(ConnectionError::OTHER);
+        engine->establishConnection();engine->complete(ConnectionError::NETWORK_FAILED);
         QElapsedTimer timer;timer.start();
         while(engine->startCalls==before && timer.elapsed()<3000) QCoreApplication::processEvents();
         return engine->startCalls==before+1;
@@ -219,12 +219,29 @@ bool cacheFollowsSessionPolicyAndExplicitClear()
     return updates==2;
 }
 
+bool cancellingBackoffPreventsLateRestart()
+{
+    auto *engine=new FakeCoreEngine;
+    ConnectionSession session(engine);
+    int finishes=0;
+    QObject::connect(&session,&ConnectionSession::finished,[&](ConnectionError){++finishes;});
+    session.start({}, {true,1});engine->complete(ConnectionError::NETWORK_FAILED);
+    if (session.state()!=ConnectionState::Reconnecting) return false;
+    session.stop();session.stop();
+    QElapsedTimer timer;timer.start();
+    while(timer.elapsed()<30) QCoreApplication::processEvents();
+    if (engine->startCalls!=1 || engine->stopCalls || finishes!=1 || session.isActive()) return false;
+    session.start({},{});session.stop();session.stop();engine->establishConnection();engine->complete();
+    return engine->startCalls==2 && engine->stopCalls==1 && finishes==2 && session.state()==ConnectionState::Disconnected;
+}
+
 }
 
 int main(int argc, char *argv[])
 {
     QCoreApplication application(argc, argv);
-    return delegatesSessionLifecycleThroughPort()
+    return cancellingBackoffPreventsLateRestart()
+        && delegatesSessionLifecycleThroughPort()
         && distinguishesInterruptedConnectionFromStartupFailure()
         && authenticatesOnlyTheCurrentRequest()
         && cacheFollowsSessionPolicyAndExplicitClear()

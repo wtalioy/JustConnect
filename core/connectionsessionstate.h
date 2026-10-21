@@ -34,6 +34,10 @@ public:
     bool isActive() const;
     bool wantsConnection() const;
     int reconnectDelayMs() const;
+    int reconnectAttempt() const { return retryCount; }
+    static constexpr int MaxReconnectAttempts = 5;
+    void connectionStable();
+    void authenticationRequested() { interactiveAuthentication = true; }
 
     bool requestStart(const ReconnectPolicy &policy);
     void connectionEstablished();
@@ -47,6 +51,8 @@ private:
     ConnectionError currentError = ConnectionError::NONE;
     ReconnectPolicy reconnectPolicy;
     bool desiredConnected = false;
+    bool interactiveAuthentication = false;
+    int retryCount = 0;
 };
 
 #endif // CONNECTIONSESSIONSTATE_H

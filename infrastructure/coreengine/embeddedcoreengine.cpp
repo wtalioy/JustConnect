@@ -171,7 +171,7 @@ EmbeddedCoreEngine::~EmbeddedCoreEngine() {
 }
 bool EmbeddedCoreEngine::start(const ConnectionProfile &profile, Operation operation) {
     if (active) return false;
-    active = true; stopping = false; established = false;
+    active = true; stopping = false;
     const auto id = ++serial;
     auto config = configurationBytes(profile, operation);
     QMetaObject::invokeMethod(pump, [this, id, config] { pump->start(id, config); }, Qt::QueuedConnection);
@@ -203,8 +203,7 @@ void EmbeddedCoreEngine::deliver(quint64 id, const QJsonObject &event) {
     if (type == "terminal") {
         active = false;
         const auto status = event["status"].toInt(JC_INTERNAL);
-        emit finished(established && status != JC_OK && status != JC_CANCELLED
-            ? ConnectionError::OTHER : connectionError(status));
+        emit finished(connectionError(status));
         return;
     }
     QMetaObject::invokeMethod(pump, &CoreEventPump::poll, Qt::QueuedConnection);
@@ -228,7 +227,7 @@ void EmbeddedCoreEngine::deliver(quint64 id, const QJsonObject &event) {
     }
     else if (type == "auth_methods") emit authMethodsReady(event["methods"].toArray());
     else if (type == "diagnostic") emit diagnostic(event["code"].toString());
-    else if (type == "state" && event["state"] == "ready") { established = true; emit connectionEstablished(); }
+    else if (type == "state" && event["state"] == "ready") { emit connectionEstablished(); }
 }
 QJsonObject EmbeddedCoreEngine::buildInfo() {
     auto &api = library();

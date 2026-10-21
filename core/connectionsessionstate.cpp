@@ -1,5 +1,7 @@
 #include "connectionsessionstate.h"
 
+#include <algorithm>
+
 ConnectionState ConnectionSessionState::state() const
 {
     return currentState;
@@ -25,7 +27,8 @@ bool ConnectionSessionState::wantsConnection() const
 
 int ConnectionSessionState::reconnectDelayMs() const
 {
-    return reconnectPolicy.delayMs;
+    const int base = std::clamp(reconnectPolicy.delayMs, 1, 30000);
+    return std::min(30000, base * (1 << std::max(0, retryCount - 1)));
 }
 
 bool ConnectionSessionState::requestStart(const ReconnectPolicy &policy)
@@ -36,6 +39,8 @@ bool ConnectionSessionState::requestStart(const ReconnectPolicy &policy)
     }
 
     reconnectPolicy = policy;
+    retryCount = 0;
+    interactiveAuthentication = false;
     desiredConnected = true;
     currentError = ConnectionError::NONE;
     currentState = ConnectionState::Starting;
@@ -48,6 +53,11 @@ void ConnectionSessionState::connectionEstablished()
     {
         currentState = ConnectionState::Running;
     }
+}
+
+void ConnectionSessionState::connectionStable()
+{
+    if (currentState == ConnectionState::Running) retryCount = 0;
 }
 
 void ConnectionSessionState::recordError(ConnectionError error)
@@ -71,7 +81,7 @@ bool ConnectionSessionState::requestStop()
         currentState = ConnectionState::Stopping;
         return true;
     }
-    return currentState == ConnectionState::Stopping;
+    return false;
 }
 
 SessionFinishAction ConnectionSessionState::engineFinished()
@@ -79,8 +89,11 @@ SessionFinishAction ConnectionSessionState::engineFinished()
     const bool connectionWasEstablished = currentState == ConnectionState::Running;
     if (desiredConnected
         && reconnectPolicy.enabled
-        && currentError == ConnectionError::OTHER)
+        && !interactiveAuthentication
+        && retryCount < MaxReconnectAttempts
+        && (currentError == ConnectionError::NETWORK_FAILED || currentError == ConnectionError::TIMED_OUT))
     {
+        ++retryCount;
         currentState = ConnectionState::Reconnecting;
         return SessionFinishAction::Reconnect;
     }
@@ -104,6 +117,7 @@ void ConnectionSessionState::beginReconnect()
     if (currentState == ConnectionState::Reconnecting && desiredConnected)
     {
         currentError = ConnectionError::NONE;
+        interactiveAuthentication = false;
         currentState = ConnectionState::Starting;
     }
 }
