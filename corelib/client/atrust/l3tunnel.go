@@ -24,6 +24,7 @@ type L3Tunnel struct {
 	conns             map[string]*l3TunnelConn
 	connsMu           sync.Mutex
 	connecting        map[string]*l3TunnelConnectCall
+	recovery          map[string]*l3TunnelRecovery
 	conntrackMgrs     map[string]*conntrackMgr
 	connect           func(context.Context, string, *conntrackMgr) (*l3TunnelConn, error)
 	reconnectInterval time.Duration
@@ -44,6 +45,11 @@ type l3TunnelConnectCall struct {
 	done chan struct{}
 	conn *l3TunnelConn
 	err  error
+}
+
+type l3TunnelRecovery struct {
+	attempts int
+	readyAt  time.Time
 }
 
 const (
@@ -318,12 +324,31 @@ func (t *L3Tunnel) startReconnect(nodeGroupID string) {
 }
 
 func (t *L3Tunnel) connectWithRetry(nodeGroupID string, call *l3TunnelConnectCall, immediate bool) {
+	t.connsMu.Lock()
+	if t.recovery == nil {
+		t.recovery = make(map[string]*l3TunnelRecovery)
+	}
+	budget := t.recovery[nodeGroupID]
+	if budget == nil {
+		budget = &l3TunnelRecovery{}
+		t.recovery[nodeGroupID] = budget
+	}
+	// One connecting call owns this group's budget until finishConnect releases it.
+	if !budget.readyAt.IsZero() && time.Since(budget.readyAt) >= time.Minute {
+		budget.attempts = 0
+	}
+	t.connsMu.Unlock()
+	if budget.attempts == 5 {
+		t.client.fail(net.ErrClosed)
+		t.finishConnect(nodeGroupID, call, nil, net.ErrClosed)
+		return
+	}
 	interval := t.reconnectInterval
 	if interval <= 0 {
 		interval = defaultReconnectInterval
 	}
 	interval = min(interval, 30*time.Second)
-	for attempt := 0; attempt < 5; attempt++ {
+	for attempt := budget.attempts; attempt < 5; attempt++ {
 		if !immediate || attempt > 0 {
 			timer := time.NewTimer(min(30*time.Second, interval*time.Duration(1<<attempt)))
 			select {
@@ -343,6 +368,7 @@ func (t *L3Tunnel) connectWithRetry(nodeGroupID string, call *l3TunnelConnectCal
 				return
 			}
 		}
+		budget.attempts = attempt + 1
 		t.client.report("tunnel", "running")
 		conn, err := t.connectConn(nodeGroupID)
 		if errors.Is(err, auth.ErrSessionInvalid) {
@@ -351,6 +377,7 @@ func (t *L3Tunnel) connectWithRetry(nodeGroupID string, call *l3TunnelConnectCal
 			return
 		}
 		if err == nil {
+			budget.readyAt = time.Now()
 			t.client.report("tunnel", "succeeded")
 			t.finishConnect(nodeGroupID, call, conn, nil)
 			return

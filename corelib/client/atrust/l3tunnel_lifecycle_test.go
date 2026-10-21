@@ -1980,3 +1980,45 @@ func TestTunnelRecoveryBudgetAndPermanentFailures(t *testing.T) {
 		})
 	}
 }
+
+func TestTunnelRecoveryBudgetSurvivesShortLivedConnections(t *testing.T) {
+	for _, lifetime := range []time.Duration{time.Second, time.Minute} {
+		t.Run(lifetime.String(), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				c := newSessionTestClient()
+				defer c.Close()
+				c.BestNodes = map[string]string{"group": "node:443"}
+				tunnel := &L3Tunnel{client: c, conns: make(map[string]*l3TunnelConn), closeCh: make(chan struct{})}
+				defer tunnel.Close()
+				calls := 0
+				tunnel.connect = func(_ context.Context, _ string, manager *conntrackMgr) (*l3TunnelConn, error) {
+					calls++
+					return &l3TunnelConn{
+						tlsConn:  tls.Client(&trackingNetConn{closed: make(chan struct{})}, &tls.Config{InsecureSkipVerify: true}),
+						incoming: make(chan []byte), closeCh: make(chan struct{}), conntrackMgr: manager,
+					}, nil
+				}
+				for i := 0; i < 6; i++ {
+					conn, err := tunnel.getConn("group")
+					if lifetime == time.Second && i == 5 {
+						if !errors.Is(err, net.ErrClosed) || calls != 5 {
+							t.Fatal("short connections reset the recovery budget", calls, err)
+						}
+						select {
+						case <-c.Errors():
+						default:
+							t.Fatal("exhausted recovery did not terminate the session")
+						}
+						return
+					}
+					if err != nil {
+						t.Fatal("stable recovery lost its renewed budget", calls, err)
+					}
+					time.Sleep(lifetime)
+					_ = conn.Close()
+					synctest.Wait()
+				}
+			})
+		})
+	}
+}
