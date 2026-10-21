@@ -8,16 +8,22 @@ import (
 
 const maxDNSCacheEntries = 4096
 
-func (r *Resolver) getDNSCache(host string) (net.IP, bool) {
-	host = normalizeHostname(host)
-	if item, found := r.dnsCache.Get(host); found {
-		return item.(net.IP), found
-	} else {
-		return nil, found
-	}
+type cachedDNSAnswer struct {
+	ip     net.IP
+	campus bool
 }
 
-func (r *Resolver) setDNSCache(host string, ip net.IP) {
+func (r *Resolver) getDNSCache(host string, campusOnly bool) (net.IP, bool) {
+	host = normalizeHostname(host)
+	if item, found := r.dnsCache.Get(host); found {
+		if answer, ok := item.(cachedDNSAnswer); ok && (!campusOnly || answer.campus) {
+			return answer.ip, true
+		}
+	}
+	return nil, false
+}
+
+func (r *Resolver) setDNSCache(host string, ip net.IP, campus bool) {
 	host = normalizeHostname(host)
 	r.cacheMu.Lock()
 	defer r.cacheMu.Unlock()
@@ -28,5 +34,5 @@ func (r *Resolver) setDNSCache(host string, ip net.IP) {
 			return
 		}
 	}
-	r.dnsCache.Set(host, ip, cache.DefaultExpiration)
+	r.dnsCache.Set(host, cachedDNSAnswer{ip: ip, campus: campus}, cache.DefaultExpiration)
 }

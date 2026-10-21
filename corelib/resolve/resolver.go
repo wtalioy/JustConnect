@@ -109,7 +109,7 @@ func (r *Resolver) resolve(ctx context.Context, host string, campusOnly, allowDN
 		campusOnly = true
 	}
 
-	if cachedIP, found := r.getDNSCache(host); found && !campusOnly {
+	if cachedIP, found := r.getDNSCache(host, campusOnly); found {
 
 		return ctx, cachedIP, nil
 	}
@@ -317,7 +317,7 @@ func (r *Resolver) cacheFirstIP(host string, ips []net.IP, err error) (net.IP, e
 	if len(ips) == 0 {
 		return nil, errors.New("DNS lookup returned no addresses")
 	}
-	r.setDNSCache(host, ips[0])
+	r.setDNSCache(host, ips[0], true)
 	return ips[0], nil
 }
 
