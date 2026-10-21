@@ -329,7 +329,7 @@ V7 逐项记录日常使用要求，包含首次确认服务器、窗口／托�
 <a id="implementation-history"></a>
 ## 验证与收尾
 
-当前代码基线为 `8fefd1c3af010027b042ec51595df9e28bd47524`：[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/39595406871)、[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/39595406808)、[六组预览包及源码](https://github.com/wtalioy/JustConnect/actions/runs/39595437026)通过。Windows ARM64 不支持 Go race，普通 Go、FFI、Qt 与协议检查仍全部执行。
+最近完整跨平台验证基线为 `8fefd1c3af010027b042ec51595df9e28bd47524`：[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/39595406871)、[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/39595406808)、[六组预览包及源码](https://github.com/wtalioy/JustConnect/actions/runs/39595437026)通过。Windows ARM64 不支持 Go race，普通 Go、FFI、Qt 与协议检查仍全部执行。 当前证书选项按主校验／隧道例外缩进分组，布局小改通过本地构建、3 项界面回归及离屏渲染／键盘检查；按用户要求跳过 CI，以上预览尚未包含此布局。
 
 本轮本地 Go 19 包／格式／vet／构建、bridge race、Linux 应用 26 项／原生 13 项 CTest 及 Python 13 项通过（1 项 Windows 专属不适用）；原生性能检查由六组 CI 执行。六份包报告核对正式核心／认证缓存能力、干净来源、版本／架构、依赖、系统约束、哈希及体积，Windows 两组包内 en-US／zh-CN 页面／JavaScript 检查通过。Windows 为 NotSigned，macOS 为 ad-hoc、最低 14.4，Linux 实际 glibc 下限为 2.43；真实 Fudan、正式签名／公证及旧系统桌面仍未验收。
 

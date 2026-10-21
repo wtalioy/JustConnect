@@ -8,6 +8,7 @@
 #include <QSettings>
 #include <QSignalBlocker>
 #include <QSpinBox>
+#include <QVBoxLayout>
 #include "application/applicationconstants.h"
 
 ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
@@ -28,16 +29,24 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     form->addRow("入口",preset); form->addRow("服务器地址",address); form->addRow("服务器端口",port);
     verify=new QCheckBox("验证服务器证书（推荐）",this);
     verify->setObjectName("tlsVerifyCheckBox"); verify->setChecked(true);
-    caPem=new QPlainTextEdit(this); caPem->setObjectName("tlsCaPemEdit"); caPem->setMaximumHeight(72);
-    caPem->setPlaceholderText("可选：学校提供的 PEM 格式 CA 证书；留空使用系统信任。");
     auto *warning=new QLabel("关闭验证会失去服务器身份保护；不会因连接失败自动关闭。",this);
     warning->setObjectName("tlsWarningLabel"); warning->setWordWrap(true); warning->setVisible(false);
-    form->addRow("TLS",verify); form->addRow(warning); form->addRow("附加 CA",caPem);
     allowUnverifiedNodes=new QCheckBox("跳过隧道证书校验",this);
     allowUnverifiedNodes->setObjectName("allowUnverifiedNodesCheckBox");
     auto *nodeWarning=new QLabel("隧道仍加密，但不验证对端身份。登录与资源请求的校验设置保持不变。",this);
     nodeWarning->setObjectName("nodeTlsWarningLabel"); nodeWarning->setWordWrap(true); nodeWarning->hide();
-    form->addRow(allowUnverifiedNodes); form->addRow(nodeWarning);
+    auto *tlsOptions=new QVBoxLayout;
+    tlsOptions->setAlignment(Qt::AlignTop);
+    tlsOptions->addWidget(verify); tlsOptions->addWidget(warning);
+    auto *nodeException=new QVBoxLayout;
+    nodeException->setAlignment(Qt::AlignTop);
+    nodeException->setContentsMargins(20,0,0,0);
+    nodeException->addWidget(allowUnverifiedNodes); nodeException->addWidget(nodeWarning);
+    tlsOptions->addLayout(nodeException);
+    form->addRow("TLS",tlsOptions);
+    caPem=new QPlainTextEdit(this); caPem->setObjectName("tlsCaPemEdit"); caPem->setMaximumHeight(72);
+    caPem->setPlaceholderText("可选：学校提供的 PEM 格式 CA 证书；留空使用系统信任。");
+    form->addRow("附加 CA",caPem);
     connect(verify,&QCheckBox::toggled,warning,[warning](bool checked){warning->setVisible(!checked);});
     connect(allowUnverifiedNodes,&QCheckBox::toggled,nodeWarning,&QLabel::setVisible);
     connect(preset,&QComboBox::currentIndexChanged,this,&ServerSettingsWidget::selectPreset);
