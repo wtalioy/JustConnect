@@ -21,7 +21,7 @@
 | 实测状态 | 用户已启用记住认证，Fudan 认证交互成功；核心在节点探测确认只收到自签名叶证书，报未知 CA，隧道尚未就绪。另一设备看到的在线 endpoint 不证明本地隧道可用；继承的 Ubuntu x64 标识不代表 Windows 宿主类型 |
 | 验收范围 | 仅要求 Fudan 实测；按用户决定取消另一台 aTrust 服务器的硬性要求，保留 Custom 实现与服务器／账户隔离回归 |
 | 剩余缺口 | S1-04 真实样本、S1-06 其余设备权限、Fudan TLS／认证恢复、透明访问、Clash 共存、真实桌面／旧系统、正式签名／公证仍未验收；D2 尚未选型 |
-| 最新交付 | TLS 诊断包 `3586103`：[Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/39574068891/artifacts/12334092282)／[ARM64](https://github.com/wtalioy/JustConnect/actions/runs/39574068891/artifacts/12333322993)；证书原因仍待实测，完整验证见[验证与收尾](#implementation-history) |
+| 最新交付 | 通用隧道证书选项预览 `8fefd1c`：[Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/39595437026/artifacts/12343204224)／[ARM64](https://github.com/wtalioy/JustConnect/actions/runs/39595437026/artifacts/12343943637)；Fudan 连通及认证恢复待复测，完整验证见[验证与收尾](#implementation-history) |
 
 ## 阶段总览
 
@@ -156,7 +156,7 @@ README 暂留空，文件图标暂用系统默认；正式签名／公证及用�
 
 - [ ] **S2-08**（实现与任务收尾完成，待 Fudan 人工验收）：建立与活动隧道分离的认证缓存生命周期，复用实际核心支持的票据／Cookie／设备身份恢复路径；若 C ABI 缺少必要输入／输出，按现有版本化契约补齐并验证真实 Qt／Go 调用，不另起登录后端。按学校／服务器／账户隔离，窗口隐藏、普通断开或退出不主动注销／清除仍有效且允许保存的材料；切换账户只使用该账户的缓存，显式清除或服务器明确失效时按作用域处理，不误删其他账户。有效期及恢复结果遵循协议与服务器，不硬编码免登录时长；不可恢复时进入一次必要认证，瞬时网络失败不直接抹掉有效缓存。覆盖安全存储失败、缓存损坏／过期、同账户断开重连、账户隔离、显式清除及重启恢复，记录目标学校的实际支持范围。
   - **实现与回归已完成**：ABI／Qt 支持有界认证缓存输入／更新／明确失效；授权保存的认证在普通停止及重启时按账户恢复，明确清除推进代次，旧回调不能重建。首次 SSO 先绑定服务器确认账户，正常退出等待核心／后台存储／绑定续接。
-  - **Fudan 待复测**：Windows 已确认节点只发送自签名叶证书。按用户选择保留默认校验，为所有 aTrust 配置提供“跳过隧道证书校验”的显式选项；共享节点策略覆盖探测及 IP／TCP／L3，认证／资源 HTTPS 与浏览器校验独立，界面及固定日志说明身份保护缺失。资源／隧道失败继续保留已授权的有效认证，真实连通及认证恢复仍待复测。本地 Go 19 包／bridge race、应用 26 项／原生 13 项及 Python 13 项通过（1 项 Windows 专属不适用）；跨平台 CI／六组预览待验证。
+  - **Fudan 待复测**：Windows 已确认节点只发送自签名叶证书。按用户选择保留默认校验，为所有 aTrust 配置提供“跳过隧道证书校验”的显式选项；共享节点策略覆盖探测及 IP／TCP／L3，认证／资源 HTTPS 与浏览器校验独立，界面及固定日志说明身份保护缺失。资源／隧道失败继续保留已授权的有效认证，真实连通及认证恢复仍待复测。默认拒绝／显式允许自签名隧道、TCP／UDP 实际转发及登录 HTTPS 仍拒绝未知 CA 的回归通过；本地及六组 CI／预览验证见[验证与收尾](#implementation-history)。
   - **剩余验收**：用户 Windows Fudan 首次 OAuth2、普通断开重连、退出重启恢复、明确清除后重新认证及过期／MFA 行为；记录实际认证次数和学校策略。另一台 aTrust 实测已取消，不据此提前勾选本项。
 
 <a id="s2-09-closeout"></a>
@@ -329,11 +329,11 @@ V7 逐项记录日常使用要求，包含首次确认服务器、窗口／托�
 <a id="implementation-history"></a>
 ## 验证与收尾
 
-当前代码基线为 `358610377701fb680ce45843b9e87792ed4a0a7b`：[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/39573777873)、[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/39573777990)、[六组预览包及源码](https://github.com/wtalioy/JustConnect/actions/runs/39574068891)通过。Windows ARM64 不支持 Go race，普通 Go、FFI、Qt 与协议检查仍全部执行。
+当前代码基线为 `8fefd1c3af010027b042ec51595df9e28bd47524`：[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/39595406871)、[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/39595406808)、[六组预览包及源码](https://github.com/wtalioy/JustConnect/actions/runs/39595437026)通过。Windows ARM64 不支持 Go race，普通 Go、FFI、Qt 与协议检查仍全部执行。
 
-本轮本地 Go 19 包／格式／vet／构建、bridge race、Linux 应用 26 项／原生 13 项 CTest 通过；原生性能检查由六组 CI 执行。六份包报告核对正式核心／认证缓存能力、干净来源、版本／架构、依赖、系统约束、哈希及体积，Windows 两组包内 en-US／zh-CN 页面／JavaScript 检查通过。Windows 为 NotSigned，macOS 为 ad-hoc、最低 14.4，Linux 实际 glibc 下限为 2.43；真实 Fudan、正式签名／公证及旧系统桌面仍未验收。
+本轮本地 Go 19 包／格式／vet／构建、bridge race、Linux 应用 26 项／原生 13 项 CTest 及 Python 13 项通过（1 项 Windows 专属不适用）；原生性能检查由六组 CI 执行。六份包报告核对正式核心／认证缓存能力、干净来源、版本／架构、依赖、系统约束、哈希及体积，Windows 两组包内 en-US／zh-CN 页面／JavaScript 检查通过。Windows 为 NotSigned，macOS 为 ad-hoc、最低 14.4，Linux 实际 glibc 下限为 2.43；真实 Fudan、正式签名／公证及旧系统桌面仍未验收。
 
-维护源码 SHA-256：`aa7ec214c8f93be35ca39e66f530863a7fc0db06d053dabca832d09ea2309960`。CI／本地归档一致，311 份受管文件逐字节核对通过；本轮未重复无 Git 的应用独立重建，其既有基线及早期实现／清理记录见[历史计划](https://github.com/wtalioy/JustConnect/blob/215f30e/plan.md#implementation-history)和 Git，不在主计划复制流水。
+维护源码 SHA-256：`b0beffcfa13fe65a1fff1e84eaa4c4b020f6cffffccbe34eb86e075c03b21f76`。CI／本地归档一致，311 份受管文件逐字节核对通过；本轮未重复无 Git 的应用独立重建，其既有基线及早期实现／清理记录见[历史计划](https://github.com/wtalioy/JustConnect/blob/215f30e/plan.md#implementation-history)和 Git，不在主计划复制流水。
 
 全仓复查已覆盖生产调用、隐式框架接口、测试／夹具、配置／资源、依赖／许可证、CMake、三个 workflow 和部署／源码脚本。当前保留条件统一如下：
 
@@ -345,7 +345,7 @@ V7 逐项记录日常使用要求，包含首次确认服务器、窗口／托�
 | 系统代理与凭据入口 | 代理所有权归 SystemProxySession，公开映射归 ProfileService，账户键归连接模型／ProfileCredentials，串行来源／修订校验归 CredentialAccess，保存编排归认证缓存协调器；UI／重连复用这些职责 |
 | 平台设备与 KDE 限制 | Linux fd 原型仍由原生 CI 使用，正式权限接入验收后再评估替代；KConfig 含凭据 URL 的 CLI 限制保留现有 shortcut，需原生 writer 时再升级 |
 
-本地维护：[清理基线](https://github.com/wtalioy/JustConnect/commit/4194552)净释放约 1.50 GiB；当前仅保留应用／原生构建、必要工具／测试依赖和最新包／源码验证报告。本轮旧包报告在新报告验证后删除，临时归档／校验目录随用随删；历史测量基线由开发说明维护，计划不累计流水。
+本地维护：[清理基线](https://github.com/wtalioy/JustConnect/commit/4194552)净释放约 1.50 GiB；当前仅保留应用／原生构建、必要工具／测试依赖和最新包／源码验证报告。本轮旧包报告已在新报告验证后删除，临时归档／校验目录随用随删；历史测量基线由开发说明维护，计划不累计流水。
 
 ## 参考索引
 
