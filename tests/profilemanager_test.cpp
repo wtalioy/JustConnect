@@ -73,6 +73,25 @@ bool rejectsMalformedStateAndRecovers()
     return reopened.silentStartEnabled() && reopened.autoStartEnabled() && reopened.activeProfile()==target;
 }
 
+bool closeBehaviorIsGlobalAndFailedWritesRetainThePreference()
+{
+    QTemporaryDir directory;ProfileManager manager(directory.path());
+    if (!manager.closeToTray()) return false;
+    {QSettings state(directory.filePath("state.ini"),QSettings::IniFormat);state.setValue("Global/CloseToTray",QString());state.sync();}
+    if (!manager.closeToTray() || !manager.setCloseToTray(false)) return false;
+    const auto profile=manager.createProfile("school");
+    if (profile.isEmpty() || !manager.setActiveProfile(profile) || ProfileManager(directory.path()).closeToTray()) return false;
+    QSettings school(manager.profilePath(profile),QSettings::IniFormat);
+    if (school.contains("Global/CloseToTray") || school.contains("Common/CloseToTray")) return false;
+    const auto state=directory.filePath("state.ini");
+    const QByteArray malformed="[unclosed group\nGlobal/CloseToTray=false\n";
+    {QFile file(state);if (!file.open(QIODevice::WriteOnly|QIODevice::Truncate) || file.write(malformed)!=malformed.size()) return false;}
+    if (manager.setCloseToTray(true) || read(state)!=malformed) return false;
+    const QByteArray repaired="[Global]\nCloseToTray=false\n";
+    {QFile file(state);if (!file.open(QIODevice::WriteOnly|QIODevice::Truncate) || file.write(repaired)!=repaired.size()) return false;}
+    return !ProfileManager(directory.path()).closeToTray() && manager.setCloseToTray(true) && ProfileManager(directory.path()).closeToTray();
+}
+
 bool createsPhysicalFilesForEmptyProfiles()
 {
     QTemporaryDir directory;
@@ -110,5 +129,5 @@ bool createsPhysicalFilesForEmptyProfiles()
 int main(int argc, char *argv[])
 {
     QCoreApplication application(argc, argv);
-    return copiesOnlyPublicConfiguration() && createsPhysicalFilesForEmptyProfiles() && rejectsMalformedStateAndRecovers() ? 0 : 1;
+    return closeBehaviorIsGlobalAndFailedWritesRetainThePreference() && copiesOnlyPublicConfiguration() && createsPhysicalFilesForEmptyProfiles() && rejectsMalformedStateAndRecovers() ? 0 : 1;
 }

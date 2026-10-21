@@ -37,6 +37,8 @@ public:
     bool silentStartEnabled() const override;
 
     bool setSilentStartEnabled(bool enabled) const;
+    bool closeToTray() const;
+    bool setCloseToTray(bool enabled) const;
 
 private:
     QString configRootPath;

@@ -55,6 +55,7 @@ protected:
 private:
     bool exitReady=false;
     void upgradeSettings();
+    void showApplicationPreferences();
 
     void clearLog();
 
