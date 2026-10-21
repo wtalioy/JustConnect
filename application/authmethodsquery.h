@@ -7,7 +7,9 @@ public:
     explicit AuthMethodsQuery(CoreEngine *engine,QObject *parent=nullptr);
     bool start(const ConnectionProfile &profile);
     void stop();
+    bool isActive() const { return active; }
 signals:
+    void settled();
     void ready(const QJsonArray &methods);
     void failed(ConnectionError error);
 private:

@@ -51,25 +51,6 @@ bool SystemProxySession::isBusy() const
 
 bool SystemProxySession::needsCleanup() const { return enabled || uncertain; }
 
-PlatformOperationResult SystemProxySession::clearBeforeShutdown()
-{
-    const Operation operation = currentOperation;
-    restoreRequested=false;
-    disconnect(&operationWatcher, nullptr, this, nullptr);
-    operationWatcher.waitForFinished();
-    PlatformOperationResult result;
-    if (operation != Operation::None) {
-        result = operationWatcher.result().result;
-        updateState(operation, result);
-    }
-    if (operation != Operation::Disable && needsCleanup()) {
-        result = backend->clear();
-        updateState(Operation::Disable, result);
-    }
-    currentOperation = Operation::None;
-    return result;
-}
-
 void SystemProxySession::updateState(Operation operation, const PlatformOperationResult &result)
 {
     if (operation == Operation::CheckConflict) return;

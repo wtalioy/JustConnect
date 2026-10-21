@@ -45,7 +45,6 @@ MainWindowCoordinator::MainWindowCoordinator(
         if (state != ConnectionState::Starting) authenticationCoordinator->closeAuthentication();
     });
 
-    connect(connectionSession,&ConnectionSession::finished,systemProxySession,&SystemProxySession::disable);
 }
 
 MainWindowCoordinator::~MainWindowCoordinator()
@@ -84,13 +83,4 @@ AuthDialogCoordinator *
 MainWindowCoordinator::authenticationDialogs() const
 {
     return authenticationCoordinator;
-}
-
-void MainWindowCoordinator::prepareForShutdown()
-{
-    authenticationCoordinator->closeAuthentication();
-    authenticationCoordinator->closeCredentialPrompts();
-    connectionSession->stop();
-    const auto result = systemProxySession->clearBeforeShutdown();
-    if (!result.succeeded()) qWarning() << "System proxy cleanup failed:" << result.detail << "partial:" << result.mayHaveChanged;
 }

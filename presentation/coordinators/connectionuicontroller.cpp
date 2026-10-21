@@ -17,6 +17,8 @@
 
 #include "application/applicationlogger.h"
 #include "application/connectionsession.h"
+#include "application/applicationshutdown.h"
+#include "application/authmethodsquery.h"
 #include "application/systemproxysession.h"
 #include "application/profileservice.h"
 #include "application/settingsmigrator.h"
@@ -58,6 +60,13 @@ ConnectionUiController::ConnectionUiController(
     connect(connectionSession, &ConnectionSession::diagnostic, applicationLogger,
         [applicationLogger](const QString &code) { applicationLogger->appendCoreOutput("[core] " + code + "\n"); });
     authenticationCache=new AuthenticationCacheCoordinator(connectionSession,credentials,this->credentialSourceProvider,this);
+    shutdown=new ApplicationShutdown(connectionSession,systemProxySession, [this] {
+        if (this->credentials->isBusy() || authenticationCache->isBinding()) return true;
+        for (auto *query:this->parentWidget->findChildren<AuthMethodsQuery *>()) if (query->isActive()) return true;
+        return false;
+    },this);
+    connect(shutdown,&ApplicationShutdown::ready,this,&ConnectionUiController::readyToQuit);
+    connect(shutdown,&ApplicationShutdown::failed,this,&ConnectionUiController::quitFailed);
     connect(authenticationCache,&AuthenticationCacheCoordinator::warning,this,[this](const QString &message) {
         this->notificationHandler("认证缓存未保存",message,QSystemTrayIcon::Warning);
     });
@@ -81,6 +90,7 @@ ConnectionUiController::ConnectionUiController(
         [this](ConnectionError error)
         {
             qInfo().noquote() << "VPN 断开！";
+            if (quitting) return;
             if (error==ConnectionError::CREDENTIALS_REQUIRED && cacheCredentialsRequired && authenticationCache->source()
                 && sourceStillCurrent(*authenticationCache->source()) && CredentialAccess::matches(*authenticationCache->source(),*settings())) {
                 cacheCredentialsRequired=false;
@@ -408,18 +418,19 @@ void ConnectionUiController::clearAuthenticationCache()
 
 void ConnectionUiController::prepareForQuit()
 {
-    if (quitting) return;
-    quitting=true;
-    cancelPendingCredentials();
-    connectionSession->stop();
-    finishQuitWhenReady();
-}
-void ConnectionUiController::finishQuitWhenReady()
-{
-    if (connectionSession->isActive() || credentials->isBusy() || authenticationCache->isBinding()) {
-        QTimer::singleShot(10,this,&ConnectionUiController::finishQuitWhenReady);return;
+    if (!quitting) {
+        quitting=true;
+        cancelPendingCredentials();
+        autoProxyPending=false;
+        ++proxyGeneration;
+        for (auto *query:parentWidget->findChildren<AuthMethodsQuery *>()) query->stop();
+        authenticationDialogs->closeAuthentication();
+        authenticationDialogs->closeCredentialPrompts();
+        connectButton->setEnabled(false);
+        trayConnectAction->setEnabled(false);
+        proxyButton->setEnabled(false);
     }
-    emit readyToQuit();
+    shutdown->request();
 }
 
 void ConnectionUiController::showConnectionError(ConnectionError error)

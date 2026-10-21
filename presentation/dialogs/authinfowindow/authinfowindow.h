@@ -22,6 +22,9 @@ public:
 signals:
 	void finishAuthInfo(const QJsonObject &method);
 
+protected:
+    void done(int result) override;
+
 private:
 	Ui::AuthInfoWindow *ui;
     AuthMethodsQuery *query;

@@ -23,6 +23,7 @@ public:
 
     bool start(const ConnectionProfile &profile, const ReconnectPolicy &policy);
     void stop();
+    void blockNewConnections();
     void submitResponse(const QJsonObject &response);
     void forgetAuthenticationCache();
 
@@ -58,6 +59,7 @@ private:
     QMap<QString,SessionObservation> observations;
     QJsonObject pendingAuthentication;
     QString responseAction;
+    bool blocked = false;
 };
 
 #endif // CONNECTIONSESSION_H
