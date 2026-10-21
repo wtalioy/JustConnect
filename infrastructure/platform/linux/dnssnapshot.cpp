@@ -64,16 +64,16 @@ bool domains(const QVariant &value, QJsonArray &output)
 }
 }
 
-LinuxDnsSnapshot readLinuxDnsSnapshot(const QDBusConnection &bus, const QString &resolvConf)
+DnsSnapshot readLinuxDnsSnapshot(const QDBusConnection &bus, const QString &resolvConf)
 {
     using Status = PlatformOperationResult::Status;
     auto failure = [](Status status, const QString &detail) {
-        return LinuxDnsSnapshot{{status, detail}, {}};
+        return DnsSnapshot{{status, detail}, {}};
     };
     auto complete = [&](const QJsonObject &data) {
         if (QJsonDocument(data).toJson(QJsonDocument::Compact).size() > maxSnapshot)
             return failure(Status::Failed, "System resolver snapshot too large");
-        return LinuxDnsSnapshot{{}, data};
+        return DnsSnapshot{{}, data};
     };
     QFile file(resolvConf);
     if (!file.open(QIODevice::ReadOnly)) return failure(Status::Failed, "Cannot read system resolver file");
