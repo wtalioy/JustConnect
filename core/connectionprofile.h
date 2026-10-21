@@ -16,6 +16,7 @@ struct DnsOptions {
     QString localDnsServer;
 };
 struct ProxyOptions { QString socksBind, httpBind; };
+struct KeepAliveOptions { QString mode = "auto", url; };
 struct ConnectionBehavior { QString bindInterface; bool autoDetectInterface = false; bool rememberAuthentication = false; };
 struct TlsOptions { bool verify = true; QString caPem; bool allowUnverifiedNodes = false; };
 struct ConnectionProfile {
@@ -24,6 +25,7 @@ struct ConnectionProfile {
     ConnectionEndpoint endpoint;
     DnsOptions dns;
     ProxyOptions proxy;
+    KeepAliveOptions keepAlive;
     ConnectionBehavior behavior;
     AuthenticationCache authenticationCache;
     bool matchesCacheAccount(const QString &account) const {

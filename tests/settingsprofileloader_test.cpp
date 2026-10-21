@@ -33,10 +33,15 @@ int main(int argc,char **argv) {
         settings.setValue("JustConnect/DisableRemoteDNS",true);
         settings.setValue("JustConnect/BindInterface","fixture0");
         settings.setValue("JustConnect/AutoDetectInterface",true);
+        settings.setValue("JustConnect/KeepAliveMode","off");
+        settings.setValue("JustConnect/KeepAliveURL","https://campus.example.invalid/status");
         settings.sync(); check(settings.status()==QSettings::NoError,"persist profile fixture");
     }
     QSettings saved(path,QSettings::IniFormat);
     const auto profile=ProfileService::load(saved);
+    check(profile.keepAlive.mode=="off" && profile.keepAlive.url=="https://campus.example.invalid/status","disabled traffic keepalive retains its target for later use");
+    saved.remove("JustConnect/KeepAliveMode");
+    check(ProfileService::load(saved).keepAlive.mode=="auto","missing mode defaults to automatic traffic keepalive");
     check(profile.credentials.username=="saved-user" && profile.credentials.password.isEmpty() && profile.credentials.totpSecret.isEmpty(),"public profile loading never reads legacy secrets");
     check(profile.endpoint.server=="vpn.example.edu" && profile.endpoint.port==8443 && profile.endpoint.authType=="smsCheckCode" && profile.endpoint.authId=="returned-id" && profile.endpoint.authSubType=="sms" && profile.endpoint.loginDomain=="selected-domain" && profile.endpoint.phone=="86-123456","selected endpoint and authentication survive reload");
     check(!profile.tls.verify && profile.tls.caPem=="stored CA" && profile.tls.allowUnverifiedNodes,"explicit session TLS policy survives disk reload");

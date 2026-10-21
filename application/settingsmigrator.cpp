@@ -79,6 +79,11 @@ SettingsMigrationAction SettingsMigrator::prepare(QSettings &settings)
         settings.setValue("JustConnect/ProfileKind",
             settings.value("JustConnect/ServerAddress").toString() == ApplicationConstants::FudanServer
             && settings.value("JustConnect/ServerPort",443).toInt() == ApplicationConstants::FudanPort ? "Fudan" : "Custom");
+    if (!settings.contains("JustConnect/KeepAliveMode")) {
+        const bool disabled=settings.contains("JustConnect/KeepAlive") && !settings.value("JustConnect/KeepAlive").toBool();
+        settings.setValue("JustConnect/KeepAliveMode", disabled ? "off"
+            : settings.value("JustConnect/KeepAliveURL").toString().isEmpty() ? "auto" : "target");
+    }
     DefaultSettings::initialize(settings);
     if (configVersion == 6)
     {
@@ -106,7 +111,6 @@ bool SettingsMigrator::finish(QSettings &settings)
             "JustConnect/EasyConnectAuthType",
             "JustConnect/MultiLine",
             "JustConnect/KeepAlive",
-            "JustConnect/KeepAliveURL",
             "JustConnect/OutsideAccess",
             "JustConnect/SkipDomainResource",
             "JustConnect/DisableServerConfig",
@@ -148,8 +152,9 @@ bool SettingsMigrator::publicDraft(const QSettings &source,QSettings &draft)
         || (QFileInfo::exists(source.fileName()) && !readableFile(source.fileName()))) return false;
     for (const auto &key:source.allKeys()) {
         const auto current=key.startsWith("ZJUConnect/") ? legacyTarget(key.mid(11)) : key;
-        // Protocol is migration input, then removed at the public-data boundary.
-        if (DefaultSettings::isPublicKey(current) || current=="JustConnect/Protocol") draft.setValue(key,source.value(key));
+        // Legacy switches are migration input, then removed at the public-data boundary.
+        if (DefaultSettings::isPublicKey(current) || current=="JustConnect/Protocol" || current=="JustConnect/KeepAlive")
+            draft.setValue(key,source.value(key));
     }
     if (source.status()!=QSettings::NoError || prepare(draft)==SettingsMigrationAction::Failed || !finish(draft)) return false;
     for (const auto &key:draft.allKeys()) if (!DefaultSettings::isPublicKey(key)) draft.remove(key);

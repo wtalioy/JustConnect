@@ -36,6 +36,8 @@ const QVariantMap &defaults()
         {"JustConnect/DNSTTL", 3600},
         {"JustConnect/SOCKS5Port", 11080},
         {"JustConnect/HTTPPort", 11081},
+        {"JustConnect/KeepAliveMode", "auto"},
+        {"JustConnect/KeepAliveURL", ""},
 
         {"JustConnect/LoginDomain", ""},
         {"JustConnect/AuthType", "psw"},

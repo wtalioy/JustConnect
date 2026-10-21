@@ -886,7 +886,8 @@ static void gateway(const QJsonObject &config) {
     QObject::connect(engine, &CoreEngine::finished, [&](ConnectionError error) {
         check(error == ConnectionError::NONE, "query restart succeeds"); queryDone = true;
     });
-    check(engine->start(p, CoreEngine::Operation::AuthMethods), "query restarts same engine after connection cleanup");
+    auto queryProfile=p;queryProfile.keepAlive={"target","ssh://invalid-for-traffic.example.invalid:22"};
+    check(engine->start(queryProfile, CoreEngine::Operation::AuthMethods), "authentication queries omit unrelated traffic keepalive configuration");
     until([&] { return methods && queryDone; });
     browserTlsPolicy(p);
     std::cout << "PASS: native protocol session through Qt UI, SMS, SOCKS/HTTP, active stop and query restart\n";

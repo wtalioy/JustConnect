@@ -92,7 +92,7 @@ int main(int argc, char **argv) {
     }
 #endif
     check(EmbeddedCoreEngine::validateConfiguration(profile) == ConnectionError::NONE, "pure Qt configuration validation");
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < 13; ++i) {
         auto invalid = profile;
         switch (i) {
         case 0: invalid.endpoint.server = "https://invalid.example.edu"; break;
@@ -105,12 +105,19 @@ int main(int argc, char **argv) {
         case 7: invalid.behavior.rememberAuthentication=true;invalid.authenticationCache.account="owner";break;
         case 8: invalid.behavior.rememberAuthentication=true;invalid.authenticationCache.data="unbound";break;
         case 9: invalid.behavior.rememberAuthentication=true;invalid.authenticationCache={"owner",QByteArray(JC_MAX_AUTH_CACHE+1,'x')};break;
+        case 10: invalid.keepAlive.mode="unsupported";break;
+        case 11: invalid.keepAlive={"target","ssh://campus.example.invalid:22"};break;
+        case 12: invalid.keepAlive={"target","https://campus.example.invalid/logout?token=private-value"};break;
         }
         check(EmbeddedCoreEngine::validateConfiguration(invalid) == ConnectionError::INVALID_CONFIGURATION, "saving and starting share strict configuration rules");
         const int before = finished;
         check(engine.start(invalid), "invalid configuration is reported asynchronously");
         until([&] { return finished == before + 1; });
         check(lastError == ConnectionError::INVALID_CONFIGURATION, "unsafe or unsupported configuration is rejected");
+    }
+    for (const auto &mode:QStringList{"auto","off","target"}) {
+        auto keepAlive=profile;keepAlive.keepAlive={mode,"https://campus.example.invalid/status"};
+        check(EmbeddedCoreEngine::validateConfiguration(keepAlive)==ConnectionError::NONE,"safe traffic keepalive settings reach the formal core validator");
     }
     // Destroy immediately while start/read may still be queued; then reuse the global slot.
     for (int i = 0; i < 32; ++i) {
