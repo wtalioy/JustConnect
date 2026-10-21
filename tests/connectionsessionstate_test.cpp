@@ -44,7 +44,7 @@ bool reconnectsOnlyEligibleFailures()
     ConnectionSessionState session;
     session.requestStart({true, 2500});
     session.connectionEstablished();
-    session.recordError(ConnectionError::OTHER);
+    session.recordError(ConnectionError::NETWORK_FAILED);
 
     if (session.engineFinished() != SessionFinishAction::Reconnect
         || session.state() != ConnectionState::Reconnecting
@@ -76,9 +76,9 @@ bool keepsFirstErrorAndCancelsPendingReconnect()
     ConnectionSessionState session;
     session.requestStart({true, 1000});
     session.connectionEstablished();
-    session.recordError(ConnectionError::OTHER);
+    session.recordError(ConnectionError::NETWORK_FAILED);
     session.recordError(ConnectionError::CLIENT_FAILED);
-    if (session.error() != ConnectionError::OTHER)
+    if (session.error() != ConnectionError::NETWORK_FAILED)
     {
         qCritical() << "keepsFirstErrorAndCancelsPendingReconnect did not keep first error";
         return false;
@@ -100,7 +100,7 @@ bool establishedConnectionEndsAsInterrupted()
     ConnectionSessionState session;
     session.requestStart({false, 1000});
     session.connectionEstablished();
-    session.recordError(ConnectionError::OTHER);
+    session.recordError(ConnectionError::NETWORK_FAILED);
 
     if (session.engineFinished() != SessionFinishAction::Complete
         || session.state() != ConnectionState::Interrupted)
@@ -110,12 +110,54 @@ bool establishedConnectionEndsAsInterrupted()
     }
     return true;
 }
+bool boundedBackoffAndStableRecovery()
+{
+    ConnectionSessionState session;
+    session.requestStart({true, 5000});
+    const int delays[]{5000,10000,20000,30000,30000};
+    for (int attempt=0;attempt<5;++attempt) {
+        session.connectionEstablished();
+        session.recordError(ConnectionError::NETWORK_FAILED);
+        if (session.engineFinished()!=SessionFinishAction::Reconnect
+            || session.reconnectAttempt()!=attempt+1 || session.reconnectDelayMs()!=delays[attempt]) return false;
+        session.beginReconnect();
+    }
+    session.connectionEstablished();
+    session.recordError(ConnectionError::TIMED_OUT);
+    if (session.engineFinished()!=SessionFinishAction::Complete || session.isActive()) return false;
+    session.requestStart({true,5000});
+    session.recordError(ConnectionError::TIMED_OUT);
+    session.engineFinished();session.beginReconnect();session.connectionEstablished();
+    session.connectionStable();
+    session.recordError(ConnectionError::NETWORK_FAILED);
+    return session.engineFinished()==SessionFinishAction::Reconnect && session.reconnectAttempt()==1;
+}
+
+bool rejectsUnsafeRetriesAndDuplicateStop()
+{
+    for (auto error : {ConnectionError::OTHER, ConnectionError::CLIENT_FAILED, ConnectionError::TLS_TRUST,
+        ConnectionError::TLS_PROTOCOL, ConnectionError::CORE_UNAVAILABLE, ConnectionError::CREDENTIALS_REQUIRED,
+        ConnectionError::AUTHENTICATION_CHANGED, ConnectionError::AUTHENTICATION_UNSUPPORTED, ConnectionError::INVALID_CONFIGURATION}) {
+        ConnectionSessionState session;
+        session.requestStart({true,1});session.recordError(error);
+        if (session.engineFinished()!=SessionFinishAction::Complete || session.isActive()) return false;
+    }
+    ConnectionSessionState session;
+    session.requestStart({true,1});session.authenticationRequested();session.recordError(ConnectionError::TIMED_OUT);
+    if (session.engineFinished()!=SessionFinishAction::Complete) return false;
+    session.requestStart({true,1});
+    return session.requestStop() && !session.requestStop()
+        && session.engineFinished()==SessionFinishAction::Complete && !session.wantsConnection();
+}
+
 }
 
 int main(int argc, char *argv[])
 {
     QCoreApplication app(argc, argv);
-    return normalLifecycle()
+    return boundedBackoffAndStableRecovery()
+        && rejectsUnsafeRetriesAndDuplicateStop()
+        && normalLifecycle()
         && reconnectsOnlyEligibleFailures()
         && keepsFirstErrorAndCancelsPendingReconnect()
         && establishedConnectionEndsAsInterrupted()

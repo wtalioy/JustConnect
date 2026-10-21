@@ -23,6 +23,7 @@ public:
 
     ConnectionState state() const;
     bool isActive() const;
+    int reconnectAttempt() const { return sessionState.reconnectAttempt(); }
     ProxyOptions proxyOptions() const { return currentProfile.proxy; }
 
 signals:
@@ -42,6 +43,7 @@ private:
 
     CoreEngine *coreEngine;
     QTimer reconnectTimer;
+    QTimer stableTimer;
     ConnectionSessionState sessionState;
     ConnectionProfile currentProfile;
     QJsonObject pendingAuthentication;

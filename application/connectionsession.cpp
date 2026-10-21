@@ -6,6 +6,9 @@ ConnectionSession::ConnectionSession(CoreEngine *coreEngine, QObject *parent)
 {
     coreEngine->setParent(this);
     reconnectTimer.setSingleShot(true);
+    stableTimer.setSingleShot(true);
+    stableTimer.setInterval(60000);
+    connect(&stableTimer, &QTimer::timeout, this, [this] { sessionState.connectionStable(); });
     connect(coreEngine, &CoreEngine::diagnostic, this, &ConnectionSession::diagnostic);
     connect(coreEngine,&CoreEngine::authenticationCacheUpdated,this,[this](const AuthenticationCache &cache) {
         if (!currentProfile.behavior.rememberAuthentication
@@ -21,6 +24,7 @@ ConnectionSession::ConnectionSession(CoreEngine *coreEngine, QObject *parent)
     });
     connect(coreEngine, &CoreEngine::authenticationRequired, this, [this](const QJsonObject &request) {
         if (sessionState.state() != ConnectionState::Starting) return;
+        sessionState.authenticationRequested();
         pendingAuthentication = request;
         responseAction.clear();
         emit authenticationRequired(request, serverUrl(),currentProfile.tls);
@@ -36,7 +40,9 @@ ConnectionSession::ConnectionSession(CoreEngine *coreEngine, QObject *parent)
     });
     connect(coreEngine, &CoreEngine::connectionEstablished, this, [this] {
         clearAuthentication();
+        if (sessionState.state() != ConnectionState::Starting) return;
         sessionState.connectionEstablished();
+        stableTimer.start();
         emit stateChanged(sessionState.state());
     });
     connect(coreEngine, &CoreEngine::finished, this, [this](ConnectionError error) {
@@ -73,6 +79,7 @@ bool ConnectionSession::start(const ConnectionProfile &profile, const ReconnectP
 
 void ConnectionSession::stop()
 {
+    stableTimer.stop();
     clearAuthentication();
     const ConnectionState previousState = sessionState.state();
     const bool engineNeedsStop = sessionState.requestStop();
@@ -137,6 +144,7 @@ void ConnectionSession::startCore()
 
 void ConnectionSession::handleCoreFinished()
 {
+    stableTimer.stop();
     if (sessionState.engineFinished() == SessionFinishAction::Reconnect)
     {
         emit stateChanged(sessionState.state());

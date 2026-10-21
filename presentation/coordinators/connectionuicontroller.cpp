@@ -69,7 +69,10 @@ ConnectionUiController::ConnectionUiController(
         connectionSession,
         &ConnectionSession::reconnectScheduled,
         this,
-        [](int) { qInfo().noquote() << "正在尝试重新连接..."; }
+        [this](int delayMs) {
+            qInfo().noquote() << QString("重连 %1/%2，将在 %3 秒后尝试")
+                .arg(this->connectionSession->reconnectAttempt()).arg(ConnectionSessionState::MaxReconnectAttempts).arg(delayMs / 1000.0);
+        }
     );
     connect(
         connectionSession,
