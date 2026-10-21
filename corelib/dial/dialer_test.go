@@ -2,13 +2,90 @@ package dial
 
 import (
 	"context"
+	"errors"
 	"net"
+	"sync/atomic"
 	"testing"
 
 	"github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/wtalioy/JustConnect/corelib/internal/ipresource"
 	"github.com/wtalioy/JustConnect/corelib/resolve"
 )
+
+func TestRequiredCampusPathNeverFallsBack(t *testing.T) {
+	for _, call := range []struct {
+		name, network, address string
+		resolve                bool
+	}{
+		{"unknown resources", "tcp", "127.0.0.1:9", false},
+		{"IPv6", "udp", "[::1]:9", false},
+		{"mapped IPv4", "udp", "[::ffff:127.0.0.1]:9", false},
+		{"unresolved host", "udp", "localhost:9", false},
+		{"unsupported protocol", "unix", "127.0.0.1:9", false},
+		{"resolved entry IPv6", "udp", "[::1]:9", true},
+	} {
+		t.Run(call.name, func(t *testing.T) {
+			dialer := &Dialer{stack: &capturingStack{}, alwaysUseVPN: true}
+			var conn net.Conn
+			var err error
+			if call.resolve {
+				conn, err = dialer.Dial(t.Context(), call.network, call.address)
+			} else {
+				conn, err = dialer.DialIPPort(t.Context(), call.network, call.address)
+			}
+			if conn != nil {
+				conn.Close()
+			}
+			if !errors.Is(err, ErrACLDenied) || conn != nil {
+				t.Fatalf("required campus path escaped: connection=%t, error=%v", conn != nil, err)
+			}
+		})
+	}
+}
+
+func TestRequiredCampusResolutionFailureNeverUsesPublicResolver(t *testing.T) {
+	original := net.DefaultResolver
+	t.Cleanup(func() { net.DefaultResolver = original })
+	var public atomic.Int32
+	net.DefaultResolver = &net.Resolver{PreferGo: true, Dial: func(context.Context, string, string) (net.Conn, error) {
+		public.Add(1)
+		return nil, errors.New("public DNS is outside the required campus path")
+	}}
+	resolver := resolve.NewResolver(nil, "", "", 1, nil, nil, false)
+	resolver.Close()
+	dialer := &Dialer{resolver: resolver, alwaysUseVPN: true}
+	conn, err := dialer.Dial(t.Context(), "udp", "unavailable.invalid:9")
+	if conn != nil {
+		conn.Close()
+	}
+	if !errors.Is(err, net.ErrClosed) || conn != nil || public.Load() != 0 {
+		t.Fatalf("campus DNS failure escaped: public queries=%d, connection=%t, error=%v", public.Load(), conn != nil, err)
+	}
+}
+
+func TestRequiredCampusPathPreservesAuthorizedResources(t *testing.T) {
+	resource := client.IPResource{IPMin: net.IPv4(127, 0, 0, 1), IPMax: net.IPv4(127, 0, 0, 1),
+		Protocol: "udp", PortMin: 9, PortMax: 9, AppID: "authorized-udp"}
+	for _, address := range []string{"127.0.0.1:9", "[::ffff:127.0.0.1]:9"} {
+		stack := &capturingStack{}
+		dialer := &Dialer{stack: stack, alwaysUseVPN: true, ipResources: []client.IPResource{resource}, resourceIndex: ipresource.New([]client.IPResource{resource})}
+		conn, err := dialer.DialIPPort(t.Context(), "udp", address)
+		if conn != nil {
+			conn.Close()
+		}
+		if err != nil || conn != nil || stack.udpCalls != 1 || stack.ipResource.AppID != resource.AppID {
+			t.Fatalf("authorized mapped/IPv4 traffic did not use the tunnel: %v", err)
+		}
+	}
+	domains := client.DomainResources{"campus.test": {{Protocol: "tcp", PortMin: 443, PortMax: 443, AppID: "authorized-domain"}}}
+	resolver := resolve.NewResolver(nil, "", "", 1, domains, map[string][]net.IP{"campus.test": {net.IPv4(127, 0, 0, 1)}}, false)
+	defer resolver.Close()
+	stack := &capturingStack{}
+	dialer := &Dialer{stack: stack, resolver: resolver, alwaysUseVPN: true}
+	if _, err := dialer.Dial(t.Context(), "tcp", "campus.test:443"); err != nil || stack.domainResource.AppID != "authorized-domain" {
+		t.Fatal("domain-only authorization or built-in campus resolution was lost", err)
+	}
+}
 
 func TestMatchesIPResourcePreservesRangePortAndProtocolRules(t *testing.T) {
 	resources := []client.IPResource{{
@@ -93,6 +170,7 @@ func TestDialIPPortCarriesTCPPrefL3IPResource(t *testing.T) {
 type capturingStack struct {
 	domainResource client.DomainResource
 	ipResource     client.IPResource
+	udpCalls       int
 }
 
 func (s *capturingStack) DialTCP(ctx context.Context, _ *net.TCPAddr) (net.Conn, error) {
@@ -104,6 +182,10 @@ func (s *capturingStack) DialTCP(ctx context.Context, _ *net.TCPAddr) (net.Conn,
 	}
 	return nil, nil
 }
-func (s *capturingStack) DialUDP(context.Context, *net.UDPAddr) (net.Conn, error) {
+func (s *capturingStack) DialUDP(ctx context.Context, _ *net.UDPAddr) (net.Conn, error) {
+	s.udpCalls++
+	if resource, ok := ctx.Value(resolve.ContextKeyIPResource).(client.IPResource); ok {
+		s.ipResource = resource
+	}
 	return nil, nil
 }
