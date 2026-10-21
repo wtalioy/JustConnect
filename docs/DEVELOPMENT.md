@@ -139,7 +139,7 @@ ProfileService 的同一字段映射服务公开 INI、设置／引导草稿及�
 Windows 的 Fudan 人工验收使用最终提交对应的预览 ZIP，完整解压后运行 `JustConnect.exe`，保留同目录核心 DLL；普通 Intel／AMD 电脑选择 x64，Windows on ARM 选择 arm64。记录提交号、Windows 版本、架构及下列结果，无需提供密码、Cookie、票据、验证码或系统凭据导出。
 
 1. 在设置中选 Fudan，查询并确认服务器返回的 OAuth2 认证项，启用“使用系统凭据库记住认证”后保存。首次连接完成学校认证，记录是否成功及是否出现“认证缓存未保存”。
-2. 普通断开后再次连接，记录是否重新出现学校认证。随后从菜单退出，确认程序结束，再运行同一解压目录中的程序并连接，记录重启恢复结果；隐藏窗口不等于退出。
+2. 普通断开重连无需重新认证已由用户确认通过。仍需从菜单退出，确认程序结束，再运行同一解压目录中的程序并连接，记录重启恢复结果；隐藏窗口不等于退出。
 3. 从文件菜单“清除当前账户认证缓存”明确确认，再断开重连，确认需要重新认证。该动作保留密码／TOTP；“清理旧版缓存”只处理未绑定旧材料，不能代替当前账户清除。
 4. 如能切换另一账户，分别选择对应公开账户后验证不能复用前一账户的材料；无法测试时记录缺口。有效期不做固定承诺，等待学校自然失效后再记录一次必要认证，不能用手改缓存假冒学校过期结果。
 
@@ -147,7 +147,9 @@ Windows 系统凭据的单条容量有限，超限会明确提示保存未完成
 
 连接初始化报证书错误时，保留 `[core] tls_...` 固定诊断码即可定位：`tls_authentication_failed` 为认证 HTTPS／方式查询，`tls_resources_failed` 为资源请求，`tls_node_probe_failed` 为数据节点探测，`tls_ip_tunnel_failed` 为 IP 隧道。原因分别为 `tls_unknown_authority`（未知 CA）、`tls_hostname_mismatch`（地址不匹配）、`tls_certificate_time_invalid`（过期或尚未生效）及 `tls_certificate_invalid`（其他证书校验失败）。`tls_peer_chain_leaf_only` 表示对端仅发送叶证书，`tls_peer_self_signed` 表示叶证书自签名验证通过；它们描述收到的链，不能单凭前者认定缺少中间证书，也不会据此自动信任。多个节点同时发生证书失败和超时时保留证书原因；显式取消优先。这些代码不含请求 URL、Cookie、票据或证书原文。记住认证开启时，已验证材料在资源／隧道就绪前即可安全保存；后续 TLS／网络失败不等于认证失效，明确失效仍须清除。服务端 online 记录不能证明本地仍在转发；当前 Ubuntu x64 是继承的固定客户端标识，不能据此判断宿主系统。
 
-当前 `transport_connected` 表示隧道和已配置的本地代理完成初始化，尚未实现 S4—S6 的透明接管与 Clash 联动。连接后使用主窗口“设置系统代理”，或明确开启连接后自动设置系统代理，才能让遵循该设置的浏览器使用 JustConnect；其他代理客户端的 TUN 不会自动把校园流量交给本地代理。Windows OpenSSH 不使用这一系统代理入口，需单独指定代理；校内 SSH 别名先由本机 SSH 配置展开，不能把别名当作学校 DNS 域名。
+当前 `transport_connected` 表示隧道和已配置的本地代理完成初始化，尚未实现 S4—S6 的透明接管与 Clash 联动。以下手工系统代理／SSH 命令仅用于当前开发版的数据路径测试。最终交付遵守 [plan.md 的 R11](../plan.md)：一次连接完成分流、DNS 与应用接管，已有浏览器和终端直接可用；不要求另设系统代理、修改终端配置或重开应用，不能只把自动设置系统代理作为完成条件。
+
+当前开发版连接后使用主窗口“设置系统代理”，或明确开启连接后自动设置系统代理，才能让遵循该设置的浏览器使用 JustConnect；其他代理客户端的 TUN 不会自动把校园流量交给本地代理。Windows OpenSSH 不使用这一系统代理入口，需单独指定代理；校内 SSH 别名先由本机 SSH 配置展开，不能把别名当作学校 DNS 域名。
 
 临时验证 Windows SSH 可复用已安装的 Git for Windows `connect.exe`，在 PowerShell 中执行下列命令；将 `school-host` 替换为现有 SSH 主机或别名。示例使用默认 HTTP 端口，改过端口或安装路径时相应替换；不写入 SSH 配置，仍保留 SSH 自己的主机信任检查。
 
@@ -155,7 +157,7 @@ Windows 系统凭据的单条容量有限，超限会明确提示保存未完成
 ssh -o 'ProxyCommand="C:/Program Files/Git/mingw64/bin/connect.exe" -H 127.0.0.1:11081 %h %p' school-host
 ```
 
-Windows Fudan 在 Clash Verge TUN 开启时已验证 SOCKS／HTTP 返回校内 SSH 标识，并通过 HTTP 代理完成实际 SSH 密钥交换；测试在隔离的严格主机信任检查处停止，未登录、未写入主机记录或修改系统／Clash 配置。这证明显式代理 TCP 数据路径，不代替网页／DNS、UDP、透明接管及认证恢复验收。
+Windows Fudan 在 Clash Verge TUN 开启时，用户已确认手动设置系统代理后的网页访问及普通断开重连免重复认证通过；另经 SOCKS／HTTP 收到校内 SSH 标识，通过 HTTP 代理完成 SSH 密钥交换，测试于隔离的严格主机信任检查处停止，未登录或写入主机记录。这些是当前代理路径与普通重连的验证结果，系统 DNS、UDP、自动接管及退出重启／清除／过期认证行为仍按计划验收。
 
 针对性回归可运行 `ctest --test-dir build -R 'profileservice|profilemanager|credentialaccess|serversettingswidget|settingwindow|configurationguidedialog|settingsmigrator|settingsprofileloader|coreengine' --output-on-failure`；根测试与包构建还运行完整套件，原生宿主检查实际纯校验导出及资源边界。Linux 设置窗口用临时目录操作真实 Qt 按钮／文件对话框，覆盖小高度滚动／操作按钮可见、键盘跳转、库校验失败、启动偏好失败、取消导入／重置、导出、废弃字段清理、旧窗口晚到结果及缓存保留；配置／后台回归另验证损坏文件的重复拒绝和修复重试；这些检查不访问校园账号。
 
