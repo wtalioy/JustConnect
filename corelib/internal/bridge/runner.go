@@ -7,7 +7,6 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"errors"
-	"io/fs"
 	"net"
 	"net/http"
 
@@ -112,7 +111,7 @@ func RunProtocol(ctx context.Context, config Config, host *Session) Status {
 		}
 		return TLSTrust
 	}
-	if errors.Is(err, fs.ErrPermission) {
+	if client.IsPermissionError(err) {
 		return PermissionDenied
 	}
 	// Joined node failures may contain both a certificate rejection and a timeout.
