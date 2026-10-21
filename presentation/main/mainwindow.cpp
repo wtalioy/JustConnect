@@ -523,10 +523,18 @@ void MainWindow::updateConnectionState(ConnectionState state)
         break;
     }
 
-    const auto renewal=connectionSession->observation("renewal");
     const QMap<QString,QString> results{{"running","进行中"},{"succeeded","成功"},{"failed","失败"},{"required","需要重新认证"},{"disabled","已关闭"},{"unavailable","不可用"}};
-    detail += "\n最近会话续期：" + results.value(renewal.result,"未知");
-    if (renewal.observedAt.isValid()) detail += " · " + renewal.observedAt.toLocalTime().toString(Qt::ISODate);
+    const auto traffic=connectionSession->observation("traffic");
+    const auto mode=connectionSession->keepAliveOptions().mode;
+    const QList<QPair<QString,QString>> maintenance{{"renewal","会话续期"},
+        {"traffic",mode=="target" ? "流量保活（HTTP GET）" : mode=="off" ? "流量保活" : "流量保活（校园 DNS）"},
+        {"nodes","节点维护"},{"tunnel","隧道维护"}};
+    for (const auto &[stage,label]:maintenance) {
+        const auto observed=connectionSession->observation(stage);
+        detail += "\n最近"+label+"："+results.value(observed.result,"未知");
+        if (observed.observedAt.isValid()) detail += " · "+observed.observedAt.toLocalTime().toString(Qt::ISODate);
+    }
+    if (traffic.result=="unavailable") detail += "\n缺少获授权的探测资源或校园解析能力，请检查目标与学校授权。";
     ui->statusTitleLabel->setText(title);
     if (trayIcon) {
         trayIcon->setToolTip(QApplication::applicationName()+" · "+title+"\n"+detail);

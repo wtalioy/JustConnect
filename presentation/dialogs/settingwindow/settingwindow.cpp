@@ -45,6 +45,11 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
     layout->setContentsMargins(0,0,0,0); layout->addWidget(serverEditor);
     const QStringList methods{"","psw","smsCheckCode","cas","httpsOauth2"};
     for (int i=0;i<methods.size();++i) ui->authTypeComboBox->setItemData(i,methods[i]);
+    const QStringList keepAliveModes{"auto","target","off"};
+    for (int i=0;i<keepAliveModes.size();++i) ui->keepAliveModeComboBox->setItemData(i,keepAliveModes[i]);
+    connect(ui->keepAliveModeComboBox,&QComboBox::currentIndexChanged,this,[this] {
+        ui->keepAliveUrlLineEdit->setEnabled(ui->keepAliveModeComboBox->currentData()=="target");
+    });
     ui->loginUrlLineEdit->setReadOnly(true);
     ui->loginUrlLineEdit->setToolTip("认证查询结果预览；连接时使用当前会话返回的地址。");
     credentialStatus=new QLabel(ui->credentialsGroup);credentialStatus->setObjectName("credentialStatusLabel");credentialStatus->setWordWrap(true);
@@ -166,6 +171,15 @@ void SettingWindow::loadSettings(const QSettings &source) {
     ui->bindInterfaceLineEdit->setText(source.value("JustConnect/BindInterface").toString());
     ui->autoDetectInterfaceCheckBox->setChecked(source.value("JustConnect/AutoDetectInterface").toBool());
     ui->disableDNSCheckBox->setChecked(source.value("JustConnect/DisableRemoteDNS").toBool());
+    const auto mode=source.value("JustConnect/KeepAliveMode","auto").toString();
+    int keepAliveIndex=ui->keepAliveModeComboBox->findData(mode);
+    if (keepAliveIndex<0) {
+        ui->keepAliveModeComboBox->addItem("无效模式（请选择）",mode);
+        keepAliveIndex=ui->keepAliveModeComboBox->count()-1;
+    }
+    ui->keepAliveModeComboBox->setCurrentIndex(keepAliveIndex);
+    ui->keepAliveUrlLineEdit->setText(source.value("JustConnect/KeepAliveURL").toString());
+    ui->keepAliveUrlLineEdit->setEnabled(mode=="target");
 }
 
 QVariantMap SettingWindow::publicChanges() const {
@@ -183,6 +197,8 @@ QVariantMap SettingWindow::publicChanges() const {
     changes.insert("JustConnect/LocalDNSServer",ui->localDnsServerLineEdit->text().trimmed());changes.insert("JustConnect/SecondaryDNS",ui->secondaryDnsLineEdit->text().trimmed());changes.insert("JustConnect/DNSTTL",ui->dnsTTLSpinBox->value());
     changes.insert("JustConnect/DisableRemoteDNS",ui->disableDNSCheckBox->isChecked());changes.insert("JustConnect/BindInterface",ui->bindInterfaceLineEdit->text().trimmed());
     changes.insert("JustConnect/AutoDetectInterface",ui->autoDetectInterfaceCheckBox->isChecked());
+    changes.insert("JustConnect/KeepAliveMode",ui->keepAliveModeComboBox->currentData().toString());
+    changes.insert("JustConnect/KeepAliveURL",ui->keepAliveUrlLineEdit->text().trimmed());
     return changes;
 }
 
@@ -259,7 +275,7 @@ void SettingWindow::applySettings(bool closeAfter) {
     if (validation!=ConnectionError::NONE) {
         const bool unavailable=validation==ConnectionError::CORE_UNAVAILABLE;
         QMessageBox::warning(this,unavailable ? "核心不可用" : "配置无效",
-            unavailable ? "无法校验配置，请检查应用安装是否完整。配置未保存。" : "请检查服务器、认证方式、本地端口及 DNS 地址。配置未保存。");return;
+            unavailable ? "无法校验配置，请检查应用安装是否完整。配置未保存。" : "请检查服务器、认证方式、本地端口、DNS 地址及保活目标。配置未保存。");return;
     }
     saving=true;updateBusy();
     ProfileManager manager;

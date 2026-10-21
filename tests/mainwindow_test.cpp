@@ -70,6 +70,16 @@ int main(int argc,char **argv) {
             check(stalledGateway.listen(QHostAddress::LocalHost),"isolated active preference gateway");
             ConnectionProfile profile;profile.endpoint.server="127.0.0.1";profile.endpoint.port=stalledGateway.serverPort();
             check(connection && connection->start(profile,{}),"start a cancellable real core operation before editing preferences");
+            auto *core=connection->findChild<CoreEngine *>();
+            check(core,"session owns its core event source");
+            const auto observedAt=QDateTime::currentDateTimeUtc();
+            emit core->observation("renewal","succeeded",observedAt);
+            emit core->observation("traffic","unavailable",observedAt);
+            const auto detail=window.findChild<QLabel *>("statusDetailLabel")->text();
+            check(detail.contains("最近会话续期：成功") && detail.contains("最近流量保活（校园 DNS）：不可用")
+                && detail.contains("获授权") && detail.contains(observedAt.toLocalTime().toString(Qt::ISODate))
+                && window.findChild<QSystemTrayIcon *>()->toolTip().contains(detail),
+                "window and tray distinguish observed renewal from unavailable traffic probing and show its time");
         }
         auto *preferencesAction=window.findChild<QAction *>("preferencesAction");
         check(preferencesAction,"application preferences must be discoverable without a school configuration");

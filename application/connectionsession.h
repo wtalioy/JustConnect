@@ -33,6 +33,7 @@ public:
     bool isActive() const;
     int reconnectAttempt() const { return sessionState.reconnectAttempt(); }
     ProxyOptions proxyOptions() const { return currentProfile.proxy; }
+    KeepAliveOptions keepAliveOptions() const { return currentProfile.keepAlive; }
 
 signals:
     void stateChanged(ConnectionState state);
