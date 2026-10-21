@@ -126,6 +126,14 @@ void authenticationCacheIsSeparateAndScoped() {
     expect(vault.clear(settings,scope,p),Status::Success,"clear password independently");
     expect(vault.loadAuthenticationCache(scope,p,loaded),Status::Success,"password clear preserves authentication cache");
     expect(vault.saveAuthenticationCache({},p,original),Status::InvalidArgument,"invalid profile namespace rejected");
+    auto sso=p;sso.endpoint.authType="httpsOauth2";sso.credentials.username=original.account;
+    expect(vault.saveAuthenticationCache(scope,sso,original),Status::Success,"SSO cache binds the selected canonical account");
+    expect(vault.saveAuthenticationCache(scope,sso,{"other-account","other cookies"}),Status::InvalidArgument,"SSO cache cannot be saved under another selected account");
+    const auto ssoId=ProfileCredentials::authenticationCacheKey(scope,sso);
+    auto transplanted=QJsonDocument::fromJson(store.values.value(ssoId)).object();transplanted["account"]="other-account";
+    store.values[ssoId]=QJsonDocument(transplanted).toJson(QJsonDocument::Compact);
+    expect(vault.loadAuthenticationCache(scope,sso,loaded),Status::InvalidArgument,"mismatched SSO owner is rejected before reaching the core");
+    require(loaded.account.isEmpty() && loaded.data.isEmpty(),"foreign SSO owner exposes no cookies");
     p.credentials.username.clear();p.endpoint.authType="httpsOauth2";p.endpoint.phone="86-123456";
     expect(vault.saveAuthenticationCache(scope,p,original),Status::InvalidArgument,"leftover SMS phone cannot bind an anonymous SSO account");
     p.endpoint.authType="smsCheckCode";

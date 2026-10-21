@@ -19,6 +19,7 @@ public:
     bool start(const ConnectionProfile &profile, const ReconnectPolicy &policy);
     void stop();
     void submitResponse(const QJsonObject &response);
+    void forgetAuthenticationCache();
 
     ConnectionState state() const;
     bool isActive() const;
@@ -27,6 +28,8 @@ public:
 signals:
     void stateChanged(ConnectionState state);
     void diagnostic(const QString &code);
+    void authenticationCacheUpdated(const AuthenticationCache &cache);
+    void authenticationCacheInvalidated();
     void authenticationRequired(const QJsonObject &request, const QUrl &callbackServer,const TlsOptions &tls);
     void reconnectScheduled(int delayMs);
     void finished(ConnectionError error);

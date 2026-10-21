@@ -26,6 +26,9 @@ struct ConnectionProfile {
     ProxyOptions proxy;
     ConnectionBehavior behavior;
     AuthenticationCache authenticationCache;
+    bool matchesCacheAccount(const QString &account) const {
+        return !account.isEmpty() && ((endpoint.authType!="cas" && endpoint.authType!="httpsOauth2") || credentials.username==account);
+    }
     QJsonArray authenticationIdentity() const {
         return {endpoint.server.toLower(),endpoint.port,endpoint.authType,endpoint.loginDomain,
             endpoint.authId,endpoint.authSubType,endpoint.phone,credentials.username};

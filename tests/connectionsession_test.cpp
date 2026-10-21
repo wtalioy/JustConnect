@@ -1,5 +1,6 @@
 #include <QCoreApplication>
 #include <QDebug>
+#include <QElapsedTimer>
 
 #include "application/connectionsession.h"
 
@@ -12,9 +13,11 @@ public:
     int stopCalls = 0;
     QJsonObject lastResponse;
     bool acceptResponse = true;
+    ConnectionProfile lastProfile;
 
-    bool start(const ConnectionProfile &, Operation = Operation::Connect) override
+    bool start(const ConnectionProfile &profile, Operation = Operation::Connect) override
     {
+        lastProfile=profile;
         ++startCalls;
         return true;
     }
@@ -173,6 +176,49 @@ bool authenticationTimeoutEndsWaitAndAllowsManualRetry()
     return engine->lastResponse==current && engine->startCalls==2;
 }
 
+bool cacheFollowsSessionPolicyAndExplicitClear()
+{
+    auto *engine=new FakeCoreEngine;
+    ConnectionSession session(engine);
+    ConnectionProfile profile;
+    profile.behavior.rememberAuthentication=true;
+    profile.credentials.username="login-alias";
+    profile.authenticationCache={"canonical-account","original"};
+    int updates=0,invalidations=0;
+    QObject::connect(&session,&ConnectionSession::authenticationCacheUpdated,[&](const AuthenticationCache &){++updates;});
+    QObject::connect(&session,&ConnectionSession::authenticationCacheInvalidated,[&]{++invalidations;});
+    const auto reconnect=[&] {
+        const auto before=engine->startCalls;
+        engine->establishConnection();engine->complete(ConnectionError::OTHER);
+        QElapsedTimer timer;timer.start();
+        while(engine->startCalls==before && timer.elapsed()<3000) QCoreApplication::processEvents();
+        return engine->startCalls==before+1;
+    };
+    if (!session.start(profile,{true,1})) return false;
+    emit engine->authenticationCacheUpdated({"canonical-account","refreshed"});
+    if (!reconnect() || engine->lastProfile.authenticationCache.data!="refreshed"
+        || engine->lastProfile.credentials.username!="login-alias" || updates!=1) return false;
+    emit engine->authenticationCacheInvalidated();
+    if (!reconnect() || !engine->lastProfile.authenticationCache.data.isEmpty() || invalidations!=1) return false;
+    emit engine->authenticationCacheUpdated({"canonical-account","new authentication"});
+    if (!reconnect() || engine->lastProfile.authenticationCache.data!="new authentication") return false;
+    session.forgetAuthenticationCache();
+    emit engine->authenticationCacheUpdated({"canonical-account","late refresh"});
+    emit engine->authenticationCacheInvalidated();
+    if (!reconnect() || !engine->lastProfile.authenticationCache.data.isEmpty()
+        || engine->lastProfile.behavior.rememberAuthentication || updates!=2 || invalidations!=1) return false;
+    session.stop();
+    emit engine->authenticationCacheUpdated({"canonical-account","during stop"});
+    engine->complete();
+    emit engine->authenticationCacheUpdated({"canonical-account","after stop"});
+    if (updates!=2) return false;
+    profile.behavior.rememberAuthentication=false;
+    if (!session.start(profile,{}) || !engine->lastProfile.authenticationCache.data.isEmpty()) return false;
+    emit engine->authenticationCacheUpdated({"canonical-account","not allowed"});
+    engine->complete();
+    return updates==2;
+}
+
 }
 
 int main(int argc, char *argv[])
@@ -181,5 +227,6 @@ int main(int argc, char *argv[])
     return delegatesSessionLifecycleThroughPort()
         && distinguishesInterruptedConnectionFromStartupFailure()
         && authenticatesOnlyTheCurrentRequest()
+        && cacheFollowsSessionPolicyAndExplicitClear()
         && authenticationTimeoutEndsWaitAndAllowsManualRetry() ? 0 : 1;
 }

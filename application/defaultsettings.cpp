@@ -14,6 +14,7 @@ const QVariantMap &defaults()
 {
     static const QVariantMap values{
         {"Credential/Username", ""},
+        {DefaultSettings::RememberAuthentication, false},
 
         {"Common/ConnectAfterStart", false},
         {"Common/CheckUpdateAfterStart", false},
