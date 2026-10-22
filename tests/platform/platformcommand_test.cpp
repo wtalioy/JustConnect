@@ -1,6 +1,8 @@
 #include "infrastructure/platform/platformcommand.h"
 #include <QCoreApplication>
+#include <QFile>
 #include <QThread>
+#include <cstdio>
 #include <iostream>
 #include <stdexcept>
 
@@ -8,13 +10,24 @@ static void check(bool ok, const char *message) { if (!ok) throw std::runtime_er
 int main(int argc, char **argv) try
 {
     QCoreApplication app(argc, argv);
+    if (app.arguments().contains("--input")) {
+        QFile input;
+        check(input.open(stdin, QIODevice::ReadOnly), "Read child command input");
+        check(input.readAll() == QByteArray(128 * 1024, 'x'), "Queued command input was truncated or changed before EOF");
+        return 0;
+    }
     if (app.arguments().size()>1) {
+        if (app.arguments()[1]=="--denied") { std::cerr << "Operation not permitted\n"; return 1; }
         std::cerr << "private diagnostic\nJCDNS phase=nrpt elapsed_ms=123\n" << std::flush;
         std::cout << "partial" << std::flush;
         if (app.arguments()[1]=="--hang") QThread::sleep(5);
         return 7;
     }
     using Status = PlatformOperationResult::Status;
+    check(runPlatformCommand(app.applicationFilePath(), {"--input"}, 2000, QByteArray(128 * 1024, 'x')).result.succeeded(),
+          "Command input larger than a pipe buffer failed to reach EOF");
+    check(runPlatformCommand(app.applicationFilePath(), {"--denied"}).result.status == Status::PermissionDenied,
+          "Kernel operation permission denial lost its classification");
     const auto failed = runPlatformCommand(app.applicationFilePath(), {"--fail"});
     check(failed.result.status==Status::Failed && failed.standardError.contains("JCDNS phase=nrpt")
           && !failed.result.detail.contains("private diagnostic"), "Failed command lost stderr or exposed it as a public error");

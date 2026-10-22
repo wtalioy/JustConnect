@@ -112,7 +112,20 @@ Linux 路由恢复另在私有命名空间核对了内核删除匹配：`ip rout
 sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_OS="$RUNNER_OS" "$(command -v python)" tests/platform/unix_device_probe.py --uid "$(id -u)" --allocator build/coreabi/macos_tundevice_test
 ```
 
-该正式分配后端增量在本机无 macOS SDK；macOS 应用 41/41、正式 ABI 20/20 及 `63aa80e` 的 x64 实际设备检查已通过。`c77c3bd` 的两架构均在普通用户首条路由收发失败，根因未确认，仍未验收；保留失败证据。接收 fd 使用非阻塞读写并限制匹配循环，原八秒总预算、双向载荷和正常／强杀清理断言不变；阶段信息只含固定检查名及地址族头，不记录网络地址或包内容。原生创建方等接收方核对 fd／身份并确认后才释放引用，创建方进程退出后才配置和执行流量测试；拒绝确认的隔离检查验证无设备泄漏。接收错误在关闭通道前明确输出，避免父进程清理截断；本地 Linux 两构建及原出口通过，macOS 增量待原生复验，不以 Linux 结果代替。
+[`a14ecba` 的六组 Core ABI／设备](https://github.com/wtalioy/JustConnect/actions/runs/39769154866)及[三平台应用测试](https://github.com/wtalioy/JustConnect/actions/runs/39769154825)全部通过。Unix 原生创建方等接收方核对 fd／身份并确认后才释放引用，创建方进程退出后才配置和执行流量测试；两平台均通过普通用户双向 UDP、正常／强杀后最终引用清理，原八秒总预算不变。本地拒绝确认的隔离检查无设备泄漏。早期未确认移交时序下的失败未作底层归因，独有失败片段保留在 `build/reports/unix-tun-backends.json` 的引用中；不将后续通过宣称为已证明某个 macOS 内核缺陷。普通权限设备创建拒绝、CLOEXEC、身份／帧模式、降权和来源检查保留；正式授权助手及完整网络恢复仍待。
+
+<a id="linux-owned-routes"></a>
+### Linux 捕获路由后端
+
+[`LinuxTunRoutes`](../infrastructure/platform/linux/tunroutes.cpp) 只为已拥有且配置非零点对点地址的 TUN 新增 main 表 IPv4 `/2`—`/32` 路由，不覆盖已有目标。创建及删除都带连接派生的 metric、设备、数字协议／作用域／表、本地源地址和对端下一跳；回读保留内核完整值，裸 IP 的主机路由与 `/32` 规范前缀等价匹配。命令按已验证字段批量输入，无 shell 或任意命令接口；内核快照最多 4096 行／1 MiB，预先核对应用后容量，不能写入后才发现无法完整回读。
+
+```sh
+sudo unshare --net -- build/coreabi/linux_tunroutes_test --isolated
+```
+
+原生检查验证实际 UDP 进入 TUN 并在严格 `rp_filter=1` 下回到原 socket、原有默认／分割默认／主机路由不变、重复前缀合并、不同连接拒绝、部分批次失败回滚、回读失败与恢复重试、首次无法确认的值保留记录，以及读回前后改写设备／源地址／下一跳和接口重命名。最后永久降权并清空 capabilities，验证真实内核拒绝写入且未留下路由。恢复批次允许单项保护条件失败后继续清理其他所属项，再回读确认结果；不凭命令退出码推断已恢复。
+
+当前增量仍待 Linux 双架构原生 CI，主应用／正式授权／持久恢复日志、原出口专用表和源规则、DNS 及任意属性的读写竞争尚未交付；S4-06 之前不用于日常网络。原出口隔离脚本的 route／rule 夹具仍用于独有源选路与严格反向路径回归，待同一正式后端覆盖这些操作并接入助手后替换，不另做一套产品实现。
 
 [源码 `1105671` 的两组 macOS 及 Linux](https://github.com/wtalioy/JustConnect/actions/runs/39681929870)均通过直连／显式路由的真实设备／fd 读写、正常关闭及强杀后的设备／路由清理，日志分别为 `macos-device.log`／`linux-device.log`；本机 Linux 另验宿主接口、路由、DNS 不变。降权验证使用原生 `getgroups` 读取进程组，仅保留目标主组，并检查真实／有效 uid、gid 和无法恢复 root；[Python 的 macOS 组查询](https://docs.python.org/3/library/os.html#os.getgroups)可能返回目录成员列表，不能据此判断 `setgroups` 的结果。签名助手与真实桌面授权仍待验收，不依据源码或 Linux 结果宣称可用。原 `linux_device_probe.py` 已由共享脚本替代并删除，原 Linux 能力及独有权限断言保留。
 
