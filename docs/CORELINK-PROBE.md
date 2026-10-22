@@ -95,9 +95,9 @@ wsl.exe --distribution archlinux --user root --exec unshare --net -- \
 
 ### Linux 原出口与更具体的捕获路由
 
-[隔离检查](../tests/platform/original_route_linux.py)只在新的网络命名空间中创建 veth 原网络、独立 TCP／UDP 回显端点及非持久 TUN。目标的 `/32` 捕获路由优先于原网络 `/24`，先实际读取 TUN 包证明未绑定流量被捕获，再由零 capabilities 的普通用户运行[生产 underlay 探针](../tests/platform/original_route_probe.go)，验证指定原接口的 TCP／UDP 双向通信及原地址，接口缺失必须报错。两端命名空间退出即释放设备；宿主接口、全表路由和 DNS 保持不变。
+[隔离检查](../tests/platform/original_route_linux.py)只在新的网络命名空间中创建 veth 原网络、独立 TCP／UDP 回显端点及非持久 TUN。目标的 `/32` 捕获路由优先于原网络 `/24`；接口绑定单独使用在严格反向路径检查下已复现超时，因此测试保留 `rp_filter=1`，仅为所选原地址增加源规则与专用目标路由表。先回读两类选路并实际读取 TUN 包及捕获源地址，再由零 capabilities 的普通用户运行[生产 underlay 探针](../tests/platform/original_route_probe.go)，验证指定原接口的 TCP／UDP 往返及原地址，接口缺失必须报错。两端命名空间退出即释放设备和规则；宿主接口、全表路由、规则、DNS 及反向路径设置保持不变。
 
-本地 WSL 隔离内核已通过，Linux 双架构 CI 待验，日志为 `linux-original-route.log`。该结果只验证已有出口绑定机制，未覆盖策略路由选择器、自动选择、IPv6、Windows／macOS 的竞争路由或正式助手恢复，不能据此接管日常网络。
+本地 WSL 隔离内核已通过，Linux 双架构 CI 待验，日志为 `linux-original-route.log`。该结果验证出口绑定与定向源规则的组合，正式后端尚未应用这组操作；未覆盖其他策略路由选择器、自动选择、IPv6、Windows／macOS 的竞争路由或正式助手恢复，不能据此接管日常网络。
 
 ### macOS utun／fd 隔离实验
 
