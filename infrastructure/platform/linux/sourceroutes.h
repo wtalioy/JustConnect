@@ -13,6 +13,7 @@ class LinuxSourceRoutes
 {
 public:
     static constexpr qsizetype MaxSnapshotBytes = 2*1024*1024;
+    // An empty record requests durable removal after all owned kernel state is gone.
     using CheckpointWriter = std::function<PlatformOperationResult(const QJsonObject &)>;
     explicit LinuxSourceRoutes(PlatformCommandRunner read = {}) : reader(std::move(read)) {}
     LinuxSourceRoutes(const LinuxSourceRoutes &) = delete;
@@ -20,12 +21,12 @@ public:
     PlatformOperationResult apply(const QUuid &owner, const QString &interface, const QString &source,
                                   const QString &gateway, const QStringList &prefixes,
                                   const CheckpointWriter &writeAhead = {});
-    PlatformOperationResult restore(const QUuid &owner);
+    PlatformOperationResult restore(const QUuid &owner, const CheckpointWriter &checkpoint = {});
     // The caller must authenticate the privileged owner's saved record before recovery.
-    PlatformOperationResult recover(const QUuid &owner, const QJsonObject &saved);
+    PlatformOperationResult recover(const QUuid &owner, const QJsonObject &saved, const CheckpointWriter &checkpoint = {});
     QJsonObject snapshot() const;
 private:
-    struct Entry { QString prefix; QJsonObject applied; };
+    struct Entry { QString prefix; QJsonObject applied; bool deleting = false; };
     struct ReadResult { PlatformOperationResult result; QJsonArray routes, rules; QHash<QString,QJsonObject> ownedRoutes; };
     ReadResult read(const QString &utility, const QDeadlineTimer &deadline) const;
     bool identity() const;
@@ -36,6 +37,7 @@ private:
     QJsonObject findRule(const QJsonArray &rows) const;
     QByteArray routeCommand(const QString &operation, const QString &prefix) const;
     QByteArray ruleCommand(const QString &operation) const;
+    PlatformOperationResult saveCheckpoint(const CheckpointWriter &writer) const;
     void clear();
     PlatformCommandRunner reader;
     QUuid owner;
@@ -43,5 +45,6 @@ private:
     quint32 interfaceIndex = 0, table = 0, metric = 0;
     QList<Entry> entries;
     bool rulePending = false;
+    bool ruleDeleting = false;
     QJsonObject appliedRule;
 };
