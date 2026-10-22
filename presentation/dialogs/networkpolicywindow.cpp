@@ -104,7 +104,7 @@ NetworkPolicyWindow::NetworkPolicyWindow(NetworkPolicySession *input, QWidget *p
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     connect(refresh, &QPushButton::clicked, this, [this] { if (session) session->refresh(); });
     connect(input, &NetworkPolicySession::changed, this, &NetworkPolicyWindow::updateModel);
-    connect(input, &QObject::destroyed, this, &QDialog::reject);
+    connect(input, &QObject::destroyed, this, [this] { updateModel(); reject(); });
     updateModel();
 }
 
@@ -112,7 +112,7 @@ void NetworkPolicyWindow::updateModel()
 {
     targets->clear();
     refresh->setEnabled(false);
-    if (!session) return;
+    if (!session) { status->setText(QStringLiteral("连接已结束。")); return; }
     using Status = CoreEngine::RequestStatus;
     const auto result = session->status();
     if (result == Status::Stale) { status->setText(QStringLiteral("连接已结束。")); return; }

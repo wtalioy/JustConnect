@@ -9,6 +9,7 @@
 #include <QTreeWidget>
 #include <atomic>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 
 static void check(bool ok, const char *message) { if (!ok) throw std::runtime_error(message); }
@@ -90,6 +91,18 @@ int main(int argc, char **argv) try
     engine.stop();
     check(tree->topLevelItemCount() == 0 && !refresh->isEnabled() && engine.policies == 0,
           "Inspection changed routing preference or retained disconnected facts");
+    Engine detachedEngine;
+    auto owned = std::make_unique<NetworkPolicySession>(&detachedEngine,
+        [] { return DnsSnapshot{{}, {{"resolver", "fixture"}}}; });
+    NetworkPolicyWindow detached(owned.get());
+    detached.show();
+    emit detachedEngine.sessionStarted("1");
+    emit detachedEngine.connectionEstablished();
+    until([&] { return owned->status() == CoreEngine::RequestStatus::Success; });
+    owned.reset();
+    check(!detached.isVisible() && detached.findChild<QTreeWidget *>("networkPolicyTargets")->topLevelItemCount() == 0
+          && !detached.findChild<QPushButton *>("refreshNetworkPolicy")->isEnabled(),
+          "Destroyed model retained stale network details in its window");
     std::cout << "PASS: network inspection sources, resource roles, refresh recovery, stale clearing and no policy writes\n";
     return 0;
 } catch (const std::exception &error) {
