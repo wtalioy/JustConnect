@@ -12,3 +12,4 @@ std::optional<QJsonArray> campusProtectionConflicts(const QJsonArray &targets, c
 std::optional<QJsonArray> originalDnsNamespaces(const QJsonObject &dns);
 // Rules retain native namespace references; this model does not apply a policy.
 std::optional<QJsonObject> originalDnsProtection(const QJsonObject &dns);
+QJsonObject protectionConfiguration(const QJsonArray &targets, const QJsonArray &names);

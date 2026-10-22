@@ -922,9 +922,14 @@ static void gateway(const QJsonObject &config) {
     QString generation;
     int networkSnapshots=0, resourceSnapshots=0;
 
-    QJsonObject readyResources;
+    QJsonObject initialProtection, readyResources;
     CoreEngine::RequestStatus resourceStatus=CoreEngine::RequestStatus::Unavailable;
     QObject::connect(engine,&CoreEngine::sessionStarted,[&](const QString &value){generation=value;});
+    QObject::connect(engine,&CoreEngine::initialProtectionApplied,[&](const QJsonObject &policy) {
+        check(QThread::currentThread()==QApplication::instance()->thread() && policy["generation"]==generation
+            && policy["revision"]=="0", "initial protection belongs to the GUI session generation");
+        initialProtection=policy;
+    });
     const auto snapshotObserver=QObject::connect(engine,&CoreEngine::snapshotReady,[&](CoreEngine::Snapshot kind,const QString &value,const QJsonObject &snapshot,CoreEngine::RequestStatus status){
         check(QThread::currentThread()==QApplication::instance()->thread() && value==generation,"real snapshots reach their GUI session generation");
         if(status!=CoreEngine::RequestStatus::Success) check(snapshot.isEmpty(),"pending or failed snapshot cannot expose old data");
@@ -1037,7 +1042,10 @@ static void gateway(const QJsonObject &config) {
         const auto resource = value.toObject();
         loopbackAuthorized |= resource["ip_min"] == "127.0.0.1" && resource["ip_max"] == "127.0.0.1";
     }
-    check(loopbackAuthorized, "controlled campus permissions overlap the native loopback target");
+    check(loopbackAuthorized && readyResources["domain_resources"].toObject().contains("localhost"),
+        "controlled campus permissions overlap the native address and name");
+    check(initialProtection["protected_names"].toArray().contains(QJsonObject{{"kind", "suffix"}, {"value", "localhost"}}),
+        "initial native name protection is confirmed before traffic");
     QSemaphore nativeListening;
     quint16 nativePort = 0;
     const QByteArray nativeReply("original-network");
@@ -1046,7 +1054,7 @@ static void gateway(const QJsonObject &config) {
         check(server.listen(QHostAddress::LocalHost, 0), "owned native protection server");
         nativePort = server.serverPort();
         nativeListening.release();
-        for (int i = 0; i < 2; ++i) {
+        for (int i = 0; i < 4; ++i) {
             check(server.waitForNewConnection(5000), "protected request reaches its original native server");
             auto *socket = server.nextPendingConnection();
             check(socket->write(nativeReply) == nativeReply.size()
@@ -1056,6 +1064,17 @@ static void gateway(const QJsonObject &config) {
         }
     });
     check(nativeListening.tryAcquire(1, 5000), "native protection server became ready");
+    auto connectProtected = [&](QTcpSocket &socket, bool name) {
+        ProxyCheck::connectProxy(socket, listeners["socks"].toString());
+        check(socket.write(QByteArray::fromHex("050100")) == 3
+            && (socket.bytesToWrite() == 0 || socket.waitForBytesWritten(5000)), "protected SOCKS greeting");
+        check(ProxyCheck::receive(socket, 2) == QByteArray::fromHex("0500"), "protected SOCKS authentication");
+        auto destination = name ? QByteArray::fromHex("0501000309") + "localhost" : QByteArray::fromHex("050100017f000001");
+        destination.append(char(nativePort >> 8)); destination.append(char(nativePort & 0xff));
+        check(socket.write(destination) == destination.size()
+            && (socket.bytesToWrite() == 0 || socket.waitForBytesWritten(5000)), "protected SOCKS destination");
+        check(ProxyCheck::receive(socket, 10).startsWith(QByteArray::fromHex("05000001")), "protected SOCKS connection");
+    };
     int preference = 0;
     for (const bool campus : {false, true, false}) {
         if (preference++ != 0) {
@@ -1063,14 +1082,15 @@ static void gateway(const QJsonObject &config) {
             until([&] { return !networkPolicy.isBusy(); });
             check(networkPolicy.policyStatus() == CoreEngine::RequestStatus::Success, "Real core confirms the requested preference");
         }
+        if (preference <= 2) {
+            QTcpSocket nativeName;
+            connectProtected(nativeName, true);
+            check(ProxyCheck::receive(nativeName, nativeReply.size()) == nativeReply,
+                "Initial name protection survives address updates and overrides hostile campus DNS");
+            nativeName.close();
+        }
         QTcpSocket protectedSocket;
-        ProxyCheck::connectProxy(protectedSocket, listeners["socks"].toString());
-        check(protectedSocket.write(QByteArray::fromHex("050100")) == 3 && (protectedSocket.bytesToWrite() == 0 || protectedSocket.waitForBytesWritten(5000)), "protected SOCKS greeting");
-        check(ProxyCheck::receive(protectedSocket, 2) == QByteArray::fromHex("0500"), "protected SOCKS authentication");
-        auto destination = QByteArray::fromHex("050100017f000001");
-        destination.append(char(nativePort >> 8)); destination.append(char(nativePort & 0xff));
-        check(protectedSocket.write(destination) == destination.size() && (protectedSocket.bytesToWrite() == 0 || protectedSocket.waitForBytesWritten(5000)), "protected SOCKS destination");
-        check(ProxyCheck::receive(protectedSocket, 10).startsWith(QByteArray::fromHex("05000001")), "protected SOCKS connection");
+        connectProtected(protectedSocket, false);
         if (campus) {
             const QByteArray campusPayload("campus-echo");
             check(protectedSocket.write(campusPayload) == campusPayload.size()
@@ -1082,7 +1102,7 @@ static void gateway(const QJsonObject &config) {
     }
     nativeServer.waitForFinished();
     check(networkPolicy.campusAddresses().isEmpty(), "Returning to original removed the confirmed campus exception");
-    std::cout << "PASS: initial native protection and live exact campus/original choices\n";
+    std::cout << "PASS: initial native address/name protection and live exact campus/original choices\n";
     until([&]{return !access.isBusy(settings.fileName());});
     ProxyCheck::exercise(listeners, [&] {
         session.stop();

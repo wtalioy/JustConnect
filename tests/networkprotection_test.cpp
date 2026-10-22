@@ -50,6 +50,12 @@ int main(int argc, char **argv) try
         }
     }
     check(explained, "Merged scope lost native interface or route provenance");
+    const auto config = protectionConfiguration(*targets, QJsonArray{QJsonObject{
+        {"kind", "suffix"}, {"value", "lan.test"}, {"sources", QJsonArray{0}}}});
+    check(config["protected"].toArray().contains("192.168.24.0/24")
+          && config["protected_names"].toArray() == QJsonArray{QJsonObject{{"kind", "suffix"}, {"value", "lan.test"}}}
+          && config["campus"].toArray().isEmpty() && config["campus_names"].toArray().isEmpty(),
+          "Core configuration lost native scopes or leaked inspection metadata");
     auto resources = QJsonDocument::fromJson(R"({
         "ip_resources":[
             {"ip_min":"192.168.24.250","ip_max":"192.168.25.8","protocol":"tcp","port_min":22,"port_max":22},

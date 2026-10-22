@@ -172,7 +172,7 @@ NetworkPolicyWindow::NetworkPolicyWindow(NetworkPolicySession *input, QWidget *p
     refresh = buttons->addButton(QStringLiteral("刷新"), QDialogButtonBox::ActionRole);
     refresh->setObjectName("refreshNetworkPolicy");
     buttons->addButton(QStringLiteral("关闭"), QDialogButtonBox::RejectRole);
-    auto *explanation = new QLabel(QStringLiteral("名称规则模型尚未应用；业务访问仍按学校授权的协议和端口判断。"), this);
+    auto *explanation = new QLabel(QStringLiteral("这里展示最近读取的模型，刷新不自动应用；实际访问按核心已确认策略及学校授权判断。"), this);
     explanation->setWordWrap(true);
     auto *layout = new QVBoxLayout(this);
     layout->addWidget(status);
