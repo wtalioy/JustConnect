@@ -17,6 +17,25 @@ spec.loader.exec_module(package)
 
 
 class VerifyPackageTest(unittest.TestCase):
+    def test_installed_dns_reader_is_required_bounded_and_complete(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            with self.assertRaisesRegex(RuntimeError, 'Missing packaged native DNS reader'):
+                package.check_windows_dns_reader(root, {})
+            reader = root / 'JustConnectDnsReader.exe'
+            reader.touch()
+            facts = {'interfaces': [], 'clients': [], 'global': {}, 'nrpt': [], 'doh_supported': False, 'doh': []}
+            with patch.object(package, 'run', return_value=json.dumps(facts)) as run:
+                self.assertEqual(package.check_windows_dns_reader(root, {}), {'interfaces': 0, 'effective_nrpt': 0})
+                run.assert_called_once_with(reader, env={}, timeout=10)
+            for invalid in ({'interfaces': [], 'nrpt': []}, dict(facts, doh_supported='false')):
+                with patch.object(package, 'run', return_value=json.dumps(invalid)), \
+                        self.assertRaisesRegex(RuntimeError, 'complete native facts'):
+                    package.check_windows_dns_reader(root, {})
+            with patch.object(package, 'run', side_effect=TimeoutError('native read budget')), \
+                    self.assertRaises(TimeoutError):
+                package.check_windows_dns_reader(root, {})
+
     def test_rejects_obsolete_runtime_anywhere_in_package(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder) / "package"

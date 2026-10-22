@@ -11,55 +11,49 @@
 static void check(bool ok, const char *message) {
     if (!ok) throw std::runtime_error(message);
 }
-const QString nrptInvocation = QStringLiteral("$session.InvokeMethod('ROOT\\Microsoft\\Windows\\DNS','PS_DnsClientNrptPolicy','Get',$parameters)");
 
 int main(int argc, char **argv) try
 {
     QCoreApplication app(argc, argv);
-    if (app.arguments().contains("--native") || app.arguments().contains("--module-scope")
+    if (app.arguments().contains("--native") || app.arguments().contains("--system-library")
         || app.arguments().contains("--missing-doh") || app.arguments().contains("--missing-nrpt")
-        || app.arguments().contains("--empty-nrpt")) {
-        const bool scope = app.arguments().contains("--module-scope");
+        || app.arguments().contains("--empty-nrpt") || app.arguments().contains("--timeout")) {
+        const bool scope = app.arguments().contains("--system-library");
         const bool missing = app.arguments().contains("--missing-doh");
         const bool missingNrpt = app.arguments().contains("--missing-nrpt");
         const bool emptyNrpt = app.arguments().contains("--empty-nrpt");
+        const bool timeout = app.arguments().contains("--timeout");
         QTemporaryDir directory;
-        QString moduleRoot;
-        if (scope) {
-            check(directory.isValid() && QDir(directory.path()).mkdir("JustConnectDnsFixture"), "Create private module fixture");
-            for (const auto &file : {QString("JustConnectDnsFixture.psd1"), QString("fixture.psm1")}) {
-                QFile output(directory.filePath("JustConnectDnsFixture/" + file));
-                const auto content = file.endsWith("psd1")
-                    ? QByteArray("@{RootModule='fixture.psm1';ModuleVersion='1.0';FunctionsToExport=@('Get-DnsClientDohServerAddress')}")
-                    : QByteArray("throw 'Foreign DNS module imported'\nfunction Get-DnsClientDohServerAddress {}\n");
-                check(output.open(QIODevice::WriteOnly) && output.write(content) == content.size(), "Write private module fixture");
-            }
-            moduleRoot = directory.path();
-#ifndef Q_OS_WIN
-            const auto path = runPlatformCommand("wslpath", {"-w", moduleRoot});
-            check(path.result.succeeded(), "Map private module fixture for Windows interop");
-            moduleRoot = path.output;
-#endif
-        }
         PlatformCommandRunner runner;
-        const auto program = qEnvironmentVariable("JC_TEST_WINDOWS_POWERSHELL");
-        if (!program.isEmpty() || scope || missing || missingNrpt || emptyNrpt) runner = [&](const QString &nativeProgram, const QStringList &arguments) {
+        const auto program = qEnvironmentVariable("JC_TEST_WINDOWS_DNS_READER");
+        if (!program.isEmpty() || scope || missing || missingNrpt || emptyNrpt || timeout) runner = [&](const QString &nativeProgram, const QStringList &arguments) {
             auto modified = arguments;
-            if (missing) modified.last().replace("MSFT_DNSClientDohServerAddress", "JustConnectMissingDnsClass");
-            if (missingNrpt) modified.last().replace("PS_DnsClientNrptPolicy", "JustConnectMissingDnsClass");
-            if (emptyNrpt) {
-                check(modified.last().contains("$result=" + nrptInvocation), "Empty provider fixture did not reach native method result");
-                modified.last().replace("$result=" + nrptInvocation, "$result=$null");
-            }
+            if (missing) modified.append("--missing-doh");
+            if (missingNrpt) modified.append("--missing-nrpt");
+            if (emptyNrpt) modified.append("--empty-nrpt");
+            if (timeout) modified.append("--stall");
+            const bool fixture = missing || missingNrpt || emptyNrpt || timeout;
+            const auto executable = !program.isEmpty() ? program : fixture
+                ? QDir(QCoreApplication::applicationDirPath()).filePath("windows_dnsreader_test.exe") : nativeProgram;
             if (scope) {
-                // Permit this test process to load its private unsigned fixture module.
-                modified = QStringList{"-ExecutionPolicy", "Bypass"} + modified;
-                modified.last().prepend("$env:PSModulePath='" + QString(moduleRoot).replace("'", "''")
-                    + "'+[IO.Path]::PathSeparator+$env:PSModulePath\n");
+                const auto copy = directory.filePath("JustConnectDnsReader.exe");
+                check(directory.isValid() && QFile::copy(executable, copy), "Copy the native reader into a private library fixture");
+                check(QFile::setPermissions(copy, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner), "Set private reader permissions");
+                QFile foreign(directory.filePath("mi.dll"));
+                const QByteArray poison("Invalid foreign MI library; must never be loaded.");
+                check(foreign.open(QIODevice::WriteOnly) && foreign.write(poison) == poison.size(), "Write the foreign MI library fixture");
+                foreign.close();
+                return runPlatformCommand(copy, modified, 10000);
             }
-            return runPlatformCommand(program.isEmpty() ? nativeProgram : program, modified, 10000);
+            return runPlatformCommand(executable, modified, timeout ? 1000 : 10000);
         };
         const auto snapshot = runner ? readWindowsDnsSnapshot(runner) : readSystemDnsSnapshot();
+        if (timeout) {
+            check(snapshot.result.status == PlatformOperationResult::Status::TimedOut && snapshot.data.isEmpty(),
+                  "Stalled native DNS reader escaped the deadline or published partial facts");
+            std::cout << "Stalled native DNS process stopped without a partial snapshot\n";
+            return 0;
+        }
         if (missingNrpt) {
             check(!snapshot.result.succeeded() && snapshot.data.isEmpty(), "Missing required provider published partial DNS facts");
             std::cout << "Required native resolver provider failure rejected without partial data\n";
@@ -83,12 +77,7 @@ int main(int argc, char **argv) try
     PlatformOperationResult result;
     QString output;
     auto runner = [&](const QString &, const QStringList &arguments) {
-        check(arguments.size() == 5 && arguments[0] == "-NoLogo" && arguments[1] == "-NoProfile"
-              && arguments[2] == "-NonInteractive" && arguments[3] == "-Command"
-              && arguments[4].contains(nrptInvocation)
-              && arguments[4].contains("$parameters.Add(") && arguments[4].contains("'Effective',$true")
-              && arguments[4].contains("[cimsession]::Create([NullString]::Value)")
-              && !arguments[4].contains("Set-DnsClient"), "Fixed read-only system query changed");
+        check(arguments.isEmpty(), "Native read-only DNS reader gained arbitrary query arguments");
         return PlatformCommandResult{result, output};
     };
     output = QString::fromUtf8(QJsonDocument(data).toJson());
@@ -101,7 +90,7 @@ int main(int argc, char **argv) try
     }
     result = {};
     result.status = PlatformOperationResult::Status::TimedOut;
-    for (const auto &stage : {QString("nrpt"), QString("script")}) {
+    for (const auto &stage : {QString("nrpt"), QString("native")}) {
         auto traced = [&](const QString &p, const QStringList &a) {
             auto command = runner(p,a);
             command.standardError = "private.campus.test\nJCDNS phase=" + stage + " elapsed_ms=321\nJCDNS phase=privatecorp elapsed_ms=999\n";
@@ -109,7 +98,7 @@ int main(int argc, char **argv) try
         };
         const auto timed = readWindowsDnsSnapshot(traced);
         check(timed.result.status==result.status && timed.data.isEmpty() && timed.result.detail.contains(stage+" at 321 ms")
-              && !timed.result.detail.contains("private"), "Timeout lost its safe entry/CIM phase or exposed raw diagnostics");
+              && !timed.result.detail.contains("private"), "Timeout lost its safe native/CIM phase or exposed raw diagnostics");
     }
     result = {};
     for (const auto &invalid : {QString("{}"), QString("warning\n") + output, QString(262145, 'x')}) {
@@ -122,7 +111,7 @@ int main(int argc, char **argv) try
     policy["NameServers"] = "192.0.2.53";
     policies[0] = policy; data["nrpt"] = policies;
     output = QString::fromUtf8(QJsonDocument(data).toJson());
-    check(!readWindowsDnsSnapshot(runner).result.succeeded(), "Collapsed PowerShell singleton array accepted");
+    check(!readWindowsDnsSnapshot(runner).result.succeeded(), "Collapsed native singleton array accepted");
     std::cout << "Resolver facts, NRPT policy preservation and failure boundaries passed\n";
     return 0;
 } catch (const std::exception &error) {
