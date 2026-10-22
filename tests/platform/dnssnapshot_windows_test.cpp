@@ -48,7 +48,7 @@ int main(int argc, char **argv) try
             }
             return runPlatformCommand(program.isEmpty() ? nativeProgram : program, modified, 10000);
         };
-        const auto snapshot = readWindowsDnsSnapshot(runner);
+        const auto snapshot = runner ? readWindowsDnsSnapshot(runner) : readSystemDnsSnapshot();
         check(snapshot.result.succeeded(), qPrintable(snapshot.result.detail));
         check(!snapshot.data["interfaces"].toArray().isEmpty(), "Native DNS interface facts missing");
         if (scope) check(snapshot.data["doh_supported"] == false && snapshot.data["doh"].toArray().isEmpty(),

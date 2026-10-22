@@ -89,7 +89,7 @@ int main(int argc, char **argv) try
     qDBusRegisterMetaType<ServerEx>(); qDBusRegisterMetaType<QList<ServerEx>>();
     qDBusRegisterMetaType<Domain>(); qDBusRegisterMetaType<QList<Domain>>();
     if (app.arguments().contains("--native")) {
-        const auto snapshot = readLinuxDnsSnapshot();
+        const auto snapshot = readSystemDnsSnapshot();
         check(snapshot.result.succeeded(), qPrintable(snapshot.result.detail));
         check(!snapshot.data["resolv_conf"].toObject()["target"].toString().isEmpty(), "Native resolver source missing");
         std::cout << "Native resolver file and service inspected without writes\n";

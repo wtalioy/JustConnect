@@ -11,6 +11,7 @@ function(justconnect_platform TARGET)
     add_library(${TARGET} STATIC "${REPO}/infrastructure/platform/${PLATFORM}/systemproxybackend.cpp"
         "${REPO}/infrastructure/platform/${PLATFORM}/credentialstore.cpp"
         "${REPO}/infrastructure/platform/platformcommand.cpp"
+        "${REPO}/infrastructure/platform/dnssnapshot.cpp"
         "${REPO}/infrastructure/platform/${PLATFORM}/autostart.cpp")
     target_include_directories(${TARGET} PUBLIC "${REPO}")
     target_link_libraries(${TARGET} PUBLIC Qt6::Core)

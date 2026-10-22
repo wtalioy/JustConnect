@@ -20,7 +20,7 @@ int main(int argc, char **argv)
 {
     QCoreApplication app(argc, argv);
     if (app.arguments().contains("--native")) {
-        const auto snapshot = readMacDnsSnapshot();
+        const auto snapshot = readSystemDnsSnapshot();
         check(snapshot.result.succeeded(), qPrintable(snapshot.result.detail));
         check(!snapshot.data["dynamic_store"].toObject().isEmpty(), "Native resolver store unexpectedly empty");
         std::cout << "Native global and scoped resolver store inspected without writes\n";
