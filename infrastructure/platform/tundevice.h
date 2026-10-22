@@ -3,13 +3,13 @@
 #include "application/platformoperationresult.h"
 #include <QUuid>
 
-class LinuxTunDevice
+class UnixTunDevice
 {
 public:
-    LinuxTunDevice() = default;
-    ~LinuxTunDevice();
-    LinuxTunDevice(const LinuxTunDevice &) = delete;
-    LinuxTunDevice &operator=(const LinuxTunDevice &) = delete;
+    UnixTunDevice() = default;
+    ~UnixTunDevice();
+    UnixTunDevice(const UnixTunDevice &) = delete;
+    UnixTunDevice &operator=(const UnixTunDevice &) = delete;
 
     PlatformOperationResult create(const QUuid &owner);
     void close();

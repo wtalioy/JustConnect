@@ -10,7 +10,7 @@ import subprocess
 import sys
 import threading
 import time
-from unix_device_probe import allocate_linux
+from unix_device_probe import allocate_unix
 
 
 def peer():
@@ -79,7 +79,7 @@ def probe(binary, uid, allocator):
         remote('link', 'set', 'peer0', 'up')
         remote('addr', 'add', '198.18.0.6/32', 'dev', 'lo')
         ip('route', 'add', '198.18.0.0/24', 'via', '192.0.2.2', 'dev', 'original0')
-        tun, capture = allocate_linux(allocator)
+        tun, capture = allocate_unix(allocator)
         ip('addr', 'add', '198.18.0.1/30', 'dev', capture)
         ip('link', 'set', capture, 'up')
         ip('route', 'add', '198.18.0.6/32', 'dev', capture)
