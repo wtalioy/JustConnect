@@ -150,6 +150,13 @@ def allocate_unix(allocator):
         else:
             link = json.loads(subprocess.check_output(['ip', '-j', 'link', 'show', 'dev', name], text=True, timeout=3))
             assert len(link) == 1 and link[0]['mtu'] == 1400, 'actual TUN MTU differs from the ownership record'
+            capture = metadata['capture_routes']
+            assert capture['owner'] == str(owner) and capture['interface'] == name and capture['index'] == index
+            assert capture['source'] == '198.18.0.1' and capture['peer'] == '198.18.0.2'
+            assert len(capture['routes']) == 1 and capture['routes'][0]['prefix'] == '198.18.0.6/32'
+            assert capture['routes'][0]['before'] == []
+            actual = json.loads(subprocess.check_output(['ip', '-N', '-j', '-4', 'route', 'show', 'table', 'all'], text=True, timeout=3))
+            assert capture['routes'][0]['applied'] in actual, 'capture route differs from the native ownership record'
         if sys.platform == 'darwin':
             os.set_inheritable(fds[0], False)
             with socket.socket(socket.AF_SYSTEM, socket.SOCK_DGRAM, socket.SYSPROTO_CONTROL,
@@ -188,7 +195,6 @@ def probe(uid, gid, crash, allocator):
             route = subprocess.check_output(['/sbin/route', '-n', 'get', '198.18.0.6'], text=True, timeout=5)
             assert any(line.split() == ['interface:', name] for line in route.splitlines()), 'owned host route was not applied'
         else:
-            subprocess.run(['ip', 'route', 'add', '198.18.0.6/32', 'dev', name], check=True)
             route = json.loads(subprocess.check_output(['ip', '-j', 'route', 'get', '198.18.0.6'], text=True))
             assert route[0]['dev'] == name, 'owned host route was not applied'
         command = [sys.executable, str(Path(__file__).resolve()), '--uid', str(uid),
