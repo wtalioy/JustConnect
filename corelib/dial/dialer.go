@@ -175,10 +175,8 @@ func (d *Dialer) Dial(ctx context.Context, network string, addr string) (net.Con
 			ctx, ip, err = d.resolver.Resolve(ctx, host)
 		}
 		if err != nil {
-			if d.alwaysUseVPN || ctx.Value(resolve.ContextKeyDomainResource) != nil || errors.Is(err, net.ErrClosed) || ctx.Err() != nil {
-				return nil, err
-			}
-			return dialDirect(ctx, network, addr)
+			// The resolver owns DNS fallback; a native hostname dial bypasses IP policy.
+			return nil, err
 		}
 	}
 
