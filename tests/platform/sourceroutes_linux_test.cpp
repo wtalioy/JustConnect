@@ -45,6 +45,17 @@ static QJsonObject lookup(const QString &source = {})
     check(rows.size()==1,"Read actual route selection");
     return rows.first().toObject();
 }
+static void pauseAt(const QJsonObject &record)
+{
+    std::cout << QJsonDocument(record).toJson(QJsonDocument::Compact).constData() << std::endl;
+    std::cin.get();
+    throw std::runtime_error("Crash-boundary fixture resumed without owner termination");
+}
+static bool deletingRoutes(const QJsonObject &record)
+{
+    for (const auto &value : record["routes"].toArray()) if (value.toObject()["delete_started"].toBool()) return true;
+    return false;
+}
 
 int main(int argc, char **argv) try
 {
@@ -79,15 +90,10 @@ int main(int argc, char **argv) try
         LinuxSourceJournal journal;
         const auto opened = journal.open(directory,owner);::close(directory);
         check(opened.succeeded(),qPrintable(opened.detail));
-        const auto pause = [](const QJsonObject &record) {
-            std::cout << QJsonDocument(record).toJson(QJsonDocument::Compact).constData() << std::endl;
-            std::cin.get();
-            throw std::runtime_error("Crash-boundary fixture resumed without owner termination");
-        };
         QJsonObject intent;
         int routeReads = 0, ruleReads = 0;
         LinuxSourceRoutes routes([&](const QString &program,const QStringList &args) {
-            if (args.contains("route") && ++routeReads==3 && (stage=="applied" || stage=="partial")) pause(intent);
+            if (args.contains("route") && ++routeReads==3 && (stage=="applied" || stage=="partial")) pauseAt(intent);
             const auto result = runPlatformCommand(program,args);
             if (args.contains("rule") && ++ruleReads==2 && stage=="partial")
                 ip({"route","add",target,"dev","original0","src",source,"proto","99",
@@ -95,18 +101,20 @@ int main(int argc, char **argv) try
             return result;
         });
         const auto result = routes.apply(owner,"original0",source,gateway,{target},[&](const QJsonObject &record) {
+            if (record.isEmpty()) return journal.remove();
             intent = record;
             const auto saved = journal.store(record);
-            if (saved.succeeded() && stage=="prepared") pause(record);
+            if (saved.succeeded() && stage=="prepared") pauseAt(record);
             return saved;
         });
         check(result.succeeded(),qPrintable(result.detail));
-        const auto confirmed = journal.store(routes.snapshot());
-        check(confirmed.succeeded(),qPrintable(confirmed.detail));
-        pause(routes.snapshot());
+        pauseAt(routes.snapshot());
     }
-    if (argc==4 && app.arguments()[1]=="--recover-journal") {
+    if ((argc==4 || argc==5) && app.arguments()[1]=="--recover-journal") {
         const auto id = QUuid(app.arguments()[2]);
+        const auto stage = argc==5 ? app.arguments()[4] : QString{};
+        check(stage.isEmpty() || stage=="rule-pre" || stage=="rule-post" || stage=="routes-pre" || stage=="routes-post",
+              "Unknown source recovery crash boundary");
         const int directory = ::open(QFile::encodeName(app.arguments()[3]).constData(),O_RDONLY|O_DIRECTORY|O_CLOEXEC|O_NOFOLLOW);
         check(directory>=0,"Open the trusted source checkpoint directory");
         LinuxSourceJournal journal;
@@ -114,13 +122,26 @@ int main(int argc, char **argv) try
         check(opened.succeeded(),qPrintable(opened.detail));
         QJsonObject saved;
         auto result = journal.load(saved);
-        LinuxSourceRoutes routes;
-        if (result.succeeded()) result = routes.recover(id,saved);
-        if (result.succeeded()) result = journal.remove();
-        else if (!routes.snapshot().isEmpty()) {
-            const auto checkpointed = journal.store(routes.snapshot());
-            if (!checkpointed.succeeded()) result.detail += " Updated recovery record could not be persisted.";
-        }
+        LinuxSourceRoutes routes([&](const QString &program,const QStringList &args) {
+            const auto result = runPlatformCommand(program,args);
+            if (stage=="routes-post" && deletingRoutes(saved) && args.contains("route") && result.result.succeeded()) {
+                bool present = false;
+                for (const auto &value : QJsonDocument::fromJson(result.output.toUtf8()).array())
+                    present |= value.toObject()["table"]==QString::number(saved["table"].toInteger());
+                if (!present) pauseAt(saved);
+            }
+            return result;
+        });
+        if (result.succeeded()) result = routes.recover(id,saved,[&](const QJsonObject &record) {
+            if (stage=="rule-post" && saved["rule_delete_started"]==true && record["rule_pending"]==false) pauseAt(saved);
+            const auto result = record.isEmpty() ? journal.remove() : journal.store(record);
+            if (result.succeeded()) {
+                saved = record;
+                if ((stage=="rule-pre" && record["rule_delete_started"]==true)
+                    || (stage=="routes-pre" && deletingRoutes(record))) pauseAt(record);
+            }
+            return result;
+        });
         check(result.succeeded() && routes.snapshot().isEmpty(),qPrintable(result.detail));
         std::cout << "PASS: fresh process loaded protected source ownership and synchronized its removal after recovery\n";
         return 0;
@@ -225,6 +246,87 @@ int main(int argc, char **argv) try
         check(routes.restore(owner).succeeded() && journal.remove().succeeded() && inventory()==baseline,
               "Interface replacement fixture lost original state or intent cleanup");
     }
+    for (const auto &boundary : {QString("applied"),QString("rule"),QString("routes"),QString("remove")}) {
+        QTemporaryDir checkpoint;
+        const int directory = ::open(QFile::encodeName(checkpoint.path()).constData(),O_RDONLY|O_DIRECTORY|O_CLOEXEC);
+        LinuxSourceJournal journal;
+        check(checkpoint.isValid() && directory>=0 && journal.open(directory,owner).succeeded(),"Open recovery checkpoint refusal fixture");
+        ::close(directory);
+        bool rejected = false;
+        const auto persist = [&](const QJsonObject &record) {
+            const bool reject = boundary=="applied" ? !record["rule_applied"].toObject().isEmpty() && record["rule_delete_started"]==false
+                : boundary=="rule" ? record["rule_delete_started"]==true
+                : boundary=="routes" ? deletingRoutes(record) : record.isEmpty();
+            if (!rejected && reject) {
+                rejected = true;
+                return PlatformOperationResult{Status::Failed,"Injected recovery checkpoint refusal"};
+            }
+            return record.isEmpty() ? journal.remove() : journal.store(record);
+        };
+        const auto applied = routes.apply(owner,"original0",source,gateway,{target},persist);
+        if (boundary=="applied") {
+            check(!applied.succeeded() && rejected && routes.snapshot().isEmpty() && inventory()==baseline
+                  && !QFile::exists(checkpoint.filePath("source.json")),"Applied-value checkpoint failure did not durably roll back its kernel writes");
+            continue;
+        }
+        check(applied.succeeded(),"Apply recovery checkpoint refusal fixture");
+        const auto active = inventory();
+        const auto stopped = routes.restore(owner,persist);
+        check(!stopped.succeeded() && stopped.mayHaveChanged && rejected && !routes.snapshot().isEmpty()
+              && QFile::exists(checkpoint.filePath("source.json")),"Failed recovery checkpoint discarded pending duties or its protected record");
+        if (boundary=="rule") check(inventory()==active,"Rule deletion preceded its durable checkpoint");
+        else if (boundary=="routes") {
+            check(read({"rule","show"}).size()==3 && routes.snapshot()["routes"].toArray().size()==2
+                  && !deletingRoutes(routes.snapshot()),"Route deletion preceded its checkpoint or retained an unattempted marker");
+        } else {
+            check(inventory()==baseline && routes.snapshot()["routes"].toArray().isEmpty(),"Journal removal failed before kernel recovery completed");
+            ip({"rule","add","priority","100","table",QString::number(routes.snapshot()["table"].toInteger()),"protocol","99"});
+        }
+        const auto beforeRetry = inventory();
+        const auto savedTable = QString::number(routes.snapshot()["table"].toInteger());
+        check(routes.restore(owner,persist).succeeded() && routes.snapshot().isEmpty()
+              && !QFile::exists(checkpoint.filePath("source.json")),"Recovery checkpoint failure could not be retried");
+        if (boundary=="remove") {
+            check(inventory()==beforeRetry,"Journal-removal retry adopted a new external table reference");
+            ip({"rule","del","priority","100","table",savedTable,"protocol","99"});
+        }
+        check(inventory()==baseline,"Checkpoint refusal recovery changed original network state");
+    }
+    for (const bool changeRule : {true,false}) {
+        QTemporaryDir checkpoint;
+        const int directory = ::open(QFile::encodeName(checkpoint.path()).constData(),O_RDONLY|O_DIRECTORY|O_CLOEXEC);
+        LinuxSourceJournal journal;
+        check(checkpoint.isValid() && directory>=0 && journal.open(directory,owner).succeeded(),"Open checkpoint interference fixture");
+        ::close(directory);
+        bool interfere = false;
+        QStringList changed;
+        QString privateTable, privateMetric;
+        const auto persist = [&](const QJsonObject &record) {
+            const auto result = record.isEmpty() ? journal.remove() : journal.store(record);
+            if (interfere && result.succeeded() && (changeRule ? record["rule_delete_started"]==true : deletingRoutes(record))) {
+                interfere = false;
+                if (changeRule) ip({"rule","add","priority","100","table",privateTable,"protocol","99"});
+                else ip({"route","replace",target,"dev","original0","via","192.0.2.3","src",source,
+                         "proto","4","metric",privateMetric,"table",privateTable});
+                changed = inventory();
+            }
+            return result;
+        };
+        check(routes.apply(owner,"original0",source,gateway,{target},persist).succeeded(),"Apply checkpoint interference fixture");
+        privateTable = QString::number(routes.snapshot()["table"].toInteger());
+        privateMetric = QString::number(routes.snapshot()["metric"].toInteger());
+        interfere = true;
+        check(!routes.restore(owner,persist).succeeded() && !interfere && inventory()==changed,
+              "A concurrent checkpoint change reached subsequent kernel deletions");
+        if (changeRule) ip({"rule","del","priority","100","table",privateTable,"protocol","99"});
+        check(routes.restore(owner,persist).succeeded(),"Retry after checkpoint interference failed");
+        if (!changeRule) {
+            check(read({"route","show","table",privateTable}).size()==1,"Recovery removed the foreign next-hop route");
+            ip({"route","del",target,"dev","original0","via","192.0.2.3","src",source,
+                "proto","4","metric",privateMetric,"table",privateTable});
+        }
+        check(inventory()==baseline && !QFile::exists(checkpoint.filePath("source.json")),"Checkpoint interference lost state or durable cleanup");
+    }
     check(routes.apply(owner,"original0",source,gateway,{target,target}).succeeded(),"Apply real source route table and rule");
     const auto snapshot = routes.snapshot();
     const auto table = QString::number(snapshot["table"].toInteger());
@@ -241,11 +343,19 @@ int main(int argc, char **argv) try
     invalid = snapshot;invalid["index"] = 0;invalidRecords.append(invalid);
     invalid = snapshot;invalid["namespace"] = "another boot or network namespace";invalidRecords.append(invalid);
     invalid = snapshot;invalid["rule_pending"] = "false";invalidRecords.append(invalid);
+    invalid = snapshot;invalid["rule_delete_started"] = "false";invalidRecords.append(invalid);
+    invalid = snapshot;invalid["rule_pending"] = false;invalid["rule_delete_started"] = true;invalidRecords.append(invalid);
     invalid = snapshot;invalid["extra"] = true;invalidRecords.append(invalid);
     auto savedRoutes = snapshot["routes"].toArray();
     invalid = snapshot;savedRoutes.append(savedRoutes.first());invalid["routes"] = savedRoutes;invalidRecords.append(invalid);
     savedRoutes = snapshot["routes"].toArray();
-    auto changedEntry = savedRoutes.last().toObject();auto changedRow = changedEntry["applied"].toObject();
+    auto changedEntry = savedRoutes.last().toObject();
+    for (const QJsonValue marker : {QJsonValue("false"),QJsonValue(true)}) {
+        changedEntry["delete_started"] = marker;savedRoutes[savedRoutes.size()-1] = changedEntry;
+        invalid = snapshot;invalid["routes"] = savedRoutes;invalidRecords.append(invalid);
+    }
+    savedRoutes = snapshot["routes"].toArray();changedEntry = savedRoutes.last().toObject();
+    auto changedRow = changedEntry["applied"].toObject();
     changedRow["gateway"] = "192.0.2.99";changedEntry["applied"] = changedRow;savedRoutes[savedRoutes.size()-1] = changedEntry;
     invalid = snapshot;invalid["routes"] = savedRoutes;invalidRecords.append(invalid);
     for (const auto &saved : invalidRecords)
@@ -318,6 +428,64 @@ int main(int argc, char **argv) try
         std::cout << "PASS: source owner SIGKILL at " << stage.toStdString()
                   << ", fresh protected-journal recovery restored the exact kernel inventory\n";
     }
+
+    for (const auto &stage : {QString("rule-pre"),QString("rule-post"),QString("routes-pre"),QString("routes-post")}) {
+        for (const bool recreate : {false,true}) {
+            if (recreate && !stage.endsWith("-pre")) continue;
+            QTemporaryDir checkpoint;
+            LinuxSourceJournal journal;
+            const int directory = ::open(QFile::encodeName(checkpoint.path()).constData(),O_RDONLY|O_DIRECTORY|O_CLOEXEC);
+            check(checkpoint.isValid() && directory>=0 && journal.open(directory,owner).succeeded(),"Open recovery crash fixture");
+            ::close(directory);
+            check(routes.apply(owner,"original0",source,gateway,{target},[&](const QJsonObject &record) {
+                return record.isEmpty() ? journal.remove() : journal.store(record);
+            }).succeeded(),"Apply durable recovery crash fixture");
+            journal.close();
+            QProcess recovery;
+            recovery.start(QCoreApplication::applicationFilePath(),{"--recover-journal",owner.toString(QUuid::WithoutBraces),checkpoint.path(),stage});
+            check(recovery.waitForStarted(5000) && recovery.waitForReadyRead(5000),"Reach independent source recovery crash boundary");
+            const auto interrupted = QJsonDocument::fromJson(recovery.readLine()).object();
+            QFile savedFile(checkpoint.filePath("source.json"));
+            check(!interrupted.isEmpty() && savedFile.open(QIODevice::ReadOnly)
+                  && QJsonDocument::fromJson(savedFile.readAll()).object()==interrupted,"Recovery readiness preceded its durable checkpoint");
+            savedFile.close();
+            recovery.kill();
+            check(recovery.waitForFinished(5000) && recovery.exitStatus()==QProcess::CrashExit,"Terminate the isolated recovery fixture");
+            const auto rule = QStringList{"priority","1","from",source+"/32","table",table,"protocol","4"};
+            const auto route = QStringList{target,"dev","original0","via",gateway,"src",source,"proto","4","metric",metric,"table",table};
+            if (recreate) {
+                const auto row = stage=="rule-pre" ? rule : route;
+                const auto kind = stage=="rule-pre" ? QString("rule") : QString("route");
+                const auto original = inventory();
+                ip(QStringList{kind,"del"}+row);ip(QStringList{kind,"add"}+row);
+                check(inventory()==original,"Same-value recreation changed the crash fixture");
+            }
+            const auto beforeRestart = inventory();
+            QProcess restarted;
+            const auto retry = [&] {
+                restarted.start(QCoreApplication::applicationFilePath(),{"--recover-journal",owner.toString(QUuid::WithoutBraces),checkpoint.path()});
+                check(restarted.waitForStarted(5000) && restarted.waitForFinished(12000),"Restarted recovery exceeded its budget");
+            };
+            retry();
+            if (stage.endsWith("-pre")) {
+                check(restarted.exitCode()==1 && inventory()==beforeRestart
+                      && QString::fromUtf8(restarted.readAllStandardError()).contains("unresolved")
+                      && savedFile.open(QIODevice::ReadOnly) && QJsonDocument::fromJson(savedFile.readAll()).object()==interrupted,
+                      "Cold recovery guessed ownership after an interrupted deletion or lost the recovery record");
+                savedFile.close();
+                if (recreate) ip(QStringList{stage=="rule-pre" ? "rule" : "route","del"}+(stage=="rule-pre" ? rule : route));
+                // The original creating instance still knows it never attempted these deletions.
+                check(routes.restore(owner).succeeded(),"The authoritative fixture owner failed to clean its original state");
+                retry();
+            }
+            check(restarted.exitStatus()==QProcess::NormalExit && restarted.exitCode()==0
+                  && !QFile::exists(checkpoint.filePath("source.json")) && routes.restore(owner).succeeded() && inventory()==baseline,
+                  "Restarted recovery failed to finish after interrupted objects were confirmed absent");
+            std::cout << "PASS: recovery SIGKILL at " << stage.toStdString() << (recreate ? " with same-value foreign recreation" : "")
+                      << ", protected duties preserved or durably completed\n";
+        }
+    }
+    std::cout << "PASS: recovery checkpoints reject storage failures and concurrent kernel changes; durable removal retries preserve new foreign references\n";
 
     check(routes.apply(owner,"original0",source,gateway,{target}).succeeded(),"Apply saved ownership external-reference fixture");
     const auto savedReference = routes.snapshot();
