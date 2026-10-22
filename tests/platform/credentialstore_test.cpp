@@ -1,4 +1,5 @@
 #include "infrastructure/platform/systemcredentialstore.h"
+#include "infrastructure/platform/proxyjournal.h"
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QScopeGuard>
@@ -20,6 +21,8 @@ void expect(const CredentialResult &r,CredentialStatus status,const char *operat
 QString digest(const QByteArray &value) {return QString::fromLatin1(QCryptographicHash::hash(value,QCryptographicHash::Sha256).toHex());}
 QByteArray original() {QByteArray value("fixture password");value.append('\0');value.append("fixture Cookie=sid");return value;}
 const QByteArray updated="updated fixture password", other="other fixture cookie";
+QByteArray proxyRecord() {QByteArray value="proxy recovery snapshot";value.append('\0');value.append("PAC token=fixture");return value;}
+QString proxyKey(const QString &scope) {return digest(scope.toUtf8()+"proxy-recovery");}
 void prepare(CredentialStore &store,const QString &a,const QString &b) {
     expect(store.read(a),CredentialStatus::NotFound,"new scope");
     expect(store.read(b),CredentialStatus::NotFound,"other new scope");
@@ -35,16 +38,33 @@ void prepare(CredentialStore &store,const QString &a,const QString &b) {
     expect(store.write(a,QByteArray(3000,'x')),CredentialStatus::Limit,"Credential Manager blob limit");
 #endif
     require(store.read(a).value==updated && store.read(b).value==other,"failed writes damaged stored values or another scope");
+    ProxyRecoveryJournal journal(store,proxyKey(a));
+    expect(journal.load(),CredentialStatus::NotFound,"new proxy recovery journal");
+    expect(journal.checkpoint(proxyRecord()),CredentialStatus::Success,"publish protected proxy snapshot");
+    require(store.read(a).value==updated && store.read(b).value==other,"proxy journal damaged authentication credentials");
 }
 void locked(CredentialStore &store,const QString &a) {
     expect(store.read(a),CredentialStatus::Locked,"read locked store");
     expect(store.write(a,"must not overwrite"),CredentialStatus::Locked,"write locked store");
     expect(store.remove(a),CredentialStatus::Locked,"remove from locked store");
+    ProxyRecoveryJournal journal(store,proxyKey(a));
+    expect(journal.load(),CredentialStatus::Locked,"read locked proxy journal");
+    expect(journal.checkpoint({}),CredentialStatus::Conflict,"unknown locked proxy journal cannot be removed");
 }
 void finish(CredentialStore &store,const QString &a,const QString &b) {
     const auto first=store.read(a),second=store.read(b);
     expect(first,CredentialStatus::Success,"read own scope after unlock");expect(second,CredentialStatus::Success,"read other scope after unlock");
     require(first.value==updated && second.value==other,"unavailable or locked operations changed protected values");
+    ProxyRecoveryJournal journal(store,proxyKey(a));
+    const auto record=journal.load();expect(record,CredentialStatus::Success,"fresh protected proxy journal");
+    require(record.value==proxyRecord(),"proxy snapshot did not survive fresh process/provider startup");
+    expect(journal.checkpoint("confirmed restored proxy record"),CredentialStatus::Success,"checkpoint protected restoration progress");
+    ProxyRecoveryJournal fresh(store,proxyKey(a));
+    const auto restored=fresh.load();expect(restored,CredentialStatus::Success,"read confirmed proxy progress");
+    require(restored.value=="confirmed restored proxy record","new journal did not read confirmed progress");
+    expect(fresh.checkpoint({}),CredentialStatus::Success,"remove confirmed proxy journal");
+    expect(store.read(proxyKey(a)),CredentialStatus::NotFound,"proxy journal removal readback");
+    require(store.read(a).value==updated && store.read(b).value==other,"proxy recovery deletion damaged authentication credentials");
     expect(store.remove(a),CredentialStatus::Success,"delete own scope");
     expect(store.read(a),CredentialStatus::NotFound,"deleted scope");
     require(store.read(b).value==other,"deletion affected another scope");
@@ -90,7 +110,7 @@ int main(int argc,char **argv) {
         else {
             expect(store->read(a),CredentialStatus::NotFound,"unique fixture key");
             expect(store->read(b),CredentialStatus::NotFound,"unique second fixture key");
-            const auto cleanup=qScopeGuard([&]{store->remove(a);store->remove(b);});
+            const auto cleanup=qScopeGuard([&]{store->remove(a);store->remove(b);store->remove(proxyKey(a));});
             prepare(*store,a,b);
 #ifdef Q_OS_MACOS
             require(SecKeychainLock(keychain)==errSecSuccess,"lock isolated keychain");locked(*store,a);
@@ -102,6 +122,8 @@ int main(int argc,char **argv) {
                 const auto read=store->read(a),write=store->write(a,"must not overwrite"),remove=store->remove(a);
                 const auto inaccessible=[](CredentialStatus s){return s==CredentialStatus::Unavailable || s==CredentialStatus::PermissionDenied;};
                 require(inaccessible(read.status) && read.value.isEmpty() && inaccessible(write.status) && inaccessible(remove.status),"anonymous logon accessed credentials");
+                ProxyRecoveryJournal journal(*store,proxyKey(a));
+                const auto record=journal.load();require(inaccessible(record.status) && record.value.isEmpty(),"anonymous logon accessed proxy recovery material");
             }
 #endif
             finish(*store,a,b);

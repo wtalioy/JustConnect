@@ -13,6 +13,7 @@ function(justconnect_platform TARGET)
         "${REPO}/infrastructure/platform/${PLATFORM}/credentialstore.cpp"
         "${REPO}/infrastructure/platform/platformcommand.cpp"
         "${REPO}/infrastructure/platform/proxyrecovery.cpp"
+        "${REPO}/infrastructure/platform/proxyjournal.cpp"
         "${REPO}/infrastructure/platform/dnssnapshot.cpp"
         "${REPO}/infrastructure/platform/${PLATFORM}/autostart.cpp")
     target_include_directories(${TARGET} PUBLIC "${REPO}")
@@ -67,6 +68,10 @@ function(justconnect_credential_tests TARGET LIBRARY)
 endfunction()
 
 function(justconnect_platform_tests TARGET LIBRARY)
+    add_executable(proxyjournal_test "${REPO}/tests/platform/proxyjournal_test.cpp")
+    target_link_libraries(proxyjournal_test PRIVATE ${LIBRARY})
+    add_test(NAME proxyjournal_test COMMAND proxyjournal_test)
+    set_tests_properties(proxyjournal_test PROPERTIES TIMEOUT 10)
     add_executable(proxyrecovery_test "${REPO}/tests/platform/proxyrecovery_test.cpp")
     target_link_libraries(proxyrecovery_test PRIVATE ${LIBRARY})
     if(APPLE)

@@ -53,7 +53,8 @@ def session(root, native, denied):
     for keyring in keyrings:
         contents = keyring.read_bytes()
         if keyring.stat().st_mode & 0o077 or any(value in contents for value in
-                [b'fixture password', b'updated fixture password', b'other fixture cookie']):
+                [b'fixture password', b'updated fixture password', b'other fixture cookie',
+                 b'proxy recovery snapshot', b'PAC token=fixture']):
             raise RuntimeError('Provider exposed fixture credential data')
     print(run(native, 'finish', scope, env=env), end='')
 
