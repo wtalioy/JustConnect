@@ -187,6 +187,9 @@ PlatformOperationResult PlatformSystemProxyBackend::clear() {
     for (auto it = saved.before.begin(); it != saved.before.end();) {
         const auto &before = it.value(); State current;
         if (auto result = query(api, it.key(), current); !result.succeeded()) return failed(result);
+        if (current.flags==before.flags && current.server==before.server && current.bypass==before.bypass && current.pac==before.pac) {
+            it=saved.before.erase(it);continue;
+        }
         const bool proxy = current.server == saved.installed.server;
         const bool bypass = current.bypass == saved.installed.bypass;
         // PAC and proxy endpoint changes belong to the external writer, including their mode.
