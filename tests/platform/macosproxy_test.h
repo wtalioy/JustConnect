@@ -109,6 +109,7 @@ static void backendTests() {
     check(recreated && CFGetTypeID(recreated)==CFDictionaryGetTypeID(),"save installed native fixture dictionary");
     const auto releaseRecreated=qScopeGuard([&]{CFRelease(recreated);});
     failApply=true;check(!backend.clear().succeeded(),"retain notification after committed restoration");failApply=false;
+    SCPreferencesSynchronize(prefs);
     check(SCPreferencesPathSetValue(prefs,firstPath,recreated) && nativeCommit(prefs),"externally recreate a formerly installed native value");
     changes=0;check(backend.clear().succeeded() && changes==0 && CFEqual(value(firstPath),recreated),
                     "Notification retry rewrote a confirmed native restoration");
