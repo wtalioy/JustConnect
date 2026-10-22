@@ -40,6 +40,9 @@
 #include <QWebEngineView>
 #include <QWebEnginePage>
 #include <QWebEngineProfile>
+#include <QWebEngineCookieStore>
+#include <QWebEngineLoadingInfo>
+#include <QNetworkCookie>
 #include <atomic>
 
 using ProxyCheck::check;
@@ -645,7 +648,20 @@ static void browserCookiesStayInLoginDialog() {
         dialog->setInitialUrl(QUrl(base+path));until([&]{return done;});QObject::disconnect(connection);
         check(okay,"actual SSO page loads from controlled HTTP server");
     };
-    auto *first=new SsoLoginWebView(nullptr,QUrl(base+"/passport/v1/auth/cas"));first->show();visit(first,"/first");visit(first,"/echo");
+    QWidget parent;
+    AuthDialogCoordinator dialogs(&parent);
+    dialogs.requestAuthentication({{"schema_version",1},{"generation","1"},{"request_id","1"},
+        {"challenge",QJsonObject{{"kind","cas"},{"login_url",base+"/first"}}}},QUrl(base));
+    auto *first=qobject_cast<SsoLoginWebView *>(challenge(parent));
+    check(first!=nullptr,"coordinator opens the initial SSO page");
+    auto *store=first->findChild<QWebEngineView *>()->page()->profile()->cookieStore();
+    bool initialCookie=false;
+    const auto observed=QObject::connect(store,&QWebEngineCookieStore::cookieAdded,[&](const QNetworkCookie &cookie) {
+        initialCookie |= cookie.name()=="jc_scope" && cookie.value()=="first";
+    });
+    store->loadAllCookies();
+    until([&]{return initialCookie;});QObject::disconnect(observed);
+    visit(first,"/echo");
     check(cookies.size()==1 && cookies[0],"cookie works within the current login dialog");
     auto *second=new SsoLoginWebView(nullptr,QUrl(base+"/passport/v1/auth/cas"));second->show();visit(second,"/echo");
     check(cookies.size()==2 && !cookies[1],"another SSO dialog cannot reuse the first login's cookie");
@@ -837,11 +853,22 @@ static void browserTlsPolicy(const ConnectionProfile &gatewayProfile) {
         auto profile=gatewayProfile;profile.tls=policy;check(session.start(profile,{}),"start immutable browser TLS policy context");profile.tls={};
         auto loginTarget=target;if(!policy.verify)loginTarget.setQuery("scope=unsafe");
         const QJsonObject request{{"schema_version",1},{"generation","1"},{"request_id","1"},
-            {"challenge",QJsonObject{{"kind","oauth2"},{"login_url",loginTarget.toString()}}}};
+            {"challenge",QJsonObject{{"kind","oauth2"},{"login_url",""}}}};
         emit engine->authenticationRequired(request);
         auto *dialog=qobject_cast<SsoLoginWebView *>(challenge(parent));check(dialog!=nullptr,"SSO uses the active session browser");
         auto *view=dialog->findChild<QWebEngineView *>();bool done=false,okay=false;
         auto connection=QObject::connect(view,&QWebEngineView::loadFinished,[&](bool success){done=true;okay=success;});
+        QElapsedTimer loadElapsed;loadElapsed.start();
+        QObject::connect(view->page(),&QWebEnginePage::loadingChanged,view,[&](const QWebEngineLoadingInfo &info) {
+            std::cout << "CHECK: browser load status=" << info.status() << ", error domain=" << info.errorDomain()
+                      << ", error code=" << info.errorCode() << ", elapsed_ms=" << loadElapsed.elapsed() << std::endl;
+        });
+        QObject::connect(view->page(),&QWebEnginePage::renderProcessTerminated,view,
+            [](QWebEnginePage::RenderProcessTerminationStatus status,int code) {
+                std::cout << "CHECK: browser renderer status=" << status << ", exit=" << code << std::endl;
+            });
+        // Subscribe before navigation; a rejected certificate can finish while the dialog opens.
+        dialog->setInitialUrl(loginTarget);
         until([&]{return done;});QObject::disconnect(connection);
         const bool trusted=!policy.verify || !policy.caPem.isEmpty();
         check(okay==trusted,"browser honors the active session CA and verification policy without changing another profile");
