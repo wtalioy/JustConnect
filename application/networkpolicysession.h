@@ -5,6 +5,7 @@
 #include <QFutureWatcher>
 #include <QPointer>
 #include <functional>
+#include <optional>
 
 class NetworkPolicySession : public QObject
 {
@@ -16,9 +17,10 @@ public:
     void clear();
     bool refresh();
     bool setCampusAddress(const QString &address, bool campus);
+    QString currentGeneration() const { return generation; }
     QJsonArray campusAddresses() const { return confirmedPolicy["campus"].toArray(); }
     bool isPolicyUpdating() const { return !pendingPolicy.isEmpty(); }
-    CoreEngine::RequestStatus policyStatus() const { return lastPolicyStatus; }
+    std::optional<CoreEngine::RequestStatus> policyStatus() const { return lastPolicyStatus; }
     bool isBusy() const { return workerBusy || networkPending || resourcesPending || isPolicyUpdating(); }
     CoreEngine::RequestStatus status() const { return currentStatus; }
     QJsonObject model() const { return currentModel; }
@@ -44,5 +46,5 @@ private:
     QJsonValue networkVersion;
     QJsonObject confirmedPolicy, pendingPolicy;
     quint64 revision = 0;
-    CoreEngine::RequestStatus lastPolicyStatus = CoreEngine::RequestStatus::Unavailable;
+    std::optional<CoreEngine::RequestStatus> lastPolicyStatus;
 };
