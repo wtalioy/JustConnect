@@ -102,6 +102,8 @@ wsl.exe --distribution archlinux --user root --exec unshare --net -- \
 
 本地 WSL 隔离内核及 [Linux 双架构 CI](https://github.com/wtalioy/JustConnect/actions/runs/39732640460) 已通过，日志为 `linux-original-route.log`，关键结果归并至计划引用的当前报告。该结果验证出口绑定与定向源规则的组合，正式后端尚未应用这组操作；未覆盖其他策略路由选择器、自动选择、IPv6、Windows／macOS 的竞争路由或正式助手恢复，不能据此接管日常网络。
 
+Linux 路由恢复另在私有命名空间核对了内核删除匹配：`ip route del <prefix> dev <owned> proto <owned> scope link` 拒绝删除设备或协议已变化的路由，但首选源地址被改写时仍会删除，不能视为完整快照的原子比较。正式后端须记录所属资源身份和实际应用结果，恢复前核对完整回读，遇到外部改写保留并报告；回读与删除间的竞争仍需故障验证，不以命令成功代替所有权证明。实验结果已归并至计划引用的当前基线报告。
+
 ### macOS utun／fd 隔离实验
 
 同一 [Unix 检查脚本](../tests/platform/unix_device_probe.py) 在 macOS 复用 [utun 平台实现](../infrastructure/platform/macos/tundevice.cpp)，由内核自动分配新接口，按 [Apple 公开定义](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/net/if_utun.h)回读名称／索引及零外部标志，使用四字节地址族头。Unix 后端共用所有权声明与原生测试，已删除 Python 的 macOS 分配副本；普通权限创建须拒绝，重复创建保留原 fd／身份。仅允许一次性 GitHub macOS runner，以 root 创建／配置测试点对点地址，再经 `SCM_RIGHTS` 将 fd 交给已设置普通 uid／gid 和明确附加组后 exec 的全新 Python 进程；复用 Linux 的实际 UDP 双向、主动关闭及持有 fd 时 SIGKILL 检查。macOS 控制通道使用 Unix 数据报；单线程测试接收后立即设置 CLOEXEC，Linux 仍使用原子接收，不将前者宣称为原子保证。测试目的已有非默认路由时拒绝运行，结束后检查接口和其全部路由消失，不改系统 DNS／默认路由。接收方逐阶段确认权限、两条路由通信及最终 fd 所有权，共用原八秒预算；避免 [macOS 上不安全的 fork 后原生调用](https://docs.python.org/3/library/os.html#os.fork)，不延长等待或跳过数据与清理检查。
