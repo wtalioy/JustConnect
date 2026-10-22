@@ -58,7 +58,9 @@ class VerifyPackageTest(unittest.TestCase):
 
     def test_rejects_obsolete_runtime_anywhere_in_package(self):
         with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder) / "package"
+            # Exercise canonical paths even when the host's temporary directory is not a symlink.
+            (Path(folder) / 'prefix').mkdir()
+            root = Path(folder) / 'prefix' / '..' / 'package'
             root.mkdir()
             archive = Path(folder) / "package.zip"
             archive.write_bytes(b"archive fixture")
@@ -77,7 +79,7 @@ class VerifyPackageTest(unittest.TestCase):
             output = Path(folder) / "report.json"
             def run(args, **kwargs):
                 payload = ({'worker': 'system-proxy-recovery', 'protocol': 1, 'qt': '6.12.0'}
-                           if Path(args[0]) == worker else {'runtime': 'static'})
+                           if Path(args[0]).resolve() == worker.resolve() else {'runtime': 'static'})
                 return SimpleNamespace(returncode=0, stderr=b'', stdout=json.dumps(payload).encode())
             with patch.object(package.subprocess, 'run', side_effect=run), \
                     patch.object(package, 'validate_report'), \
