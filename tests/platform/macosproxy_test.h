@@ -31,8 +31,8 @@ static void backendTests() {
     const auto filename=directory.filePath("preferences.plist");
     auto file=CFStringCreateWithCharacters(nullptr,reinterpret_cast<const UniChar *>(filename.utf16()),filename.size());
     const auto releaseFile=qScopeGuard([&]{CFRelease(file);});
-    MacProxyApi api;
-    api.open=[&](AuthorizationRef *authorization){*authorization=nullptr;return SCPreferencesCreate(nullptr,CFSTR("JustConnect tests"),file);};
+    MacProxyApi api;int opens=0;
+    api.open=[&](AuthorizationRef *authorization){++opens;*authorization=nullptr;return SCPreferencesCreate(nullptr,CFSTR("JustConnect tests"),file);};
     api.set=set;api.commit=commit;api.apply=apply;
     AuthorizationRef unused=nullptr;auto prefs=api.open(&unused);check(prefs,"open private native preferences");
     const auto releasePrefs=qScopeGuard([&]{CFRelease(prefs);});
@@ -56,6 +56,10 @@ static void backendTests() {
     number(original,kSCPropNetProxiesHTTPEnable,1);number(original,kSCPropNetProxiesHTTPPort,3128);
     CFDictionarySetValue(original,kSCPropNetProxiesHTTPProxy,CFSTR("prior.invalid"));
     number(original,CFSTR("HTTPProxyAuthenticated"),1);CFDictionarySetValue(original,CFSTR("HTTPProxyUsername"),CFSTR("fixture-user"));
+    CFDictionarySetValue(original,CFSTR("HTTPProxyPassword"),CFSTR("fixture-secret"));
+    CFDictionarySetValue(original,CFSTR("FixtureBoolean"),kCFBooleanTrue);
+    const UInt8 opaque[]{0,1,0xfe,0xff};auto binary=CFDataCreate(nullptr,opaque,sizeof(opaque));
+    check(binary,"create opaque native fixture value");CFDictionarySetValue(original,CFSTR("FixtureBinary"),binary);CFRelease(binary);
     number(original,kSCPropNetProxiesProxyAutoConfigEnable,1);number(original,kSCPropNetProxiesProxyAutoDiscoveryEnable,1);
     CFDictionarySetValue(original,kSCPropNetProxiesProxyAutoConfigURLString,CFSTR("https://pac.invalid/original.pac"));
     const void *domain[]{CFSTR("old.invalid")};auto domains=CFArrayCreate(nullptr,domain,1,&kCFTypeArrayCallBacks);
@@ -93,6 +97,42 @@ static void backendTests() {
     check(!CFDictionaryContainsKey(active,CFSTR("HTTPProxyUsername")),"old authentication identity is absent from the local endpoint");
     check(backend.clear().succeeded(),"native private preferences restoration");restored();
     check(backend.clear().succeeded(),"repeated clear is a no-op");
+    QJsonObject record;
+    {
+        PlatformSystemProxyBackend owner(api);check(owner.apply(config).succeeded(),"Apply private native snapshot owner");
+        record=QJsonDocument::fromJson(QJsonDocument(owner.recoverySnapshot()).toJson()).object();
+    }
+    const auto reject=[&](const QJsonObject &invalid) {
+        const auto beforeChanges=changes,beforeOpens=opens;PlatformSystemProxyBackend fresh(api);
+        check(!fresh.recover(invalid).succeeded() && changes==beforeChanges && opens==beforeOpens,
+              "Invalid macOS recovery record opened or changed native preferences");
+    };
+    reject({});
+    for (const auto *field:{"schema_version","platform","machine","uid","owner","config","services","restoration_committed"}) {
+        auto invalid=record;invalid.remove(field);reject(invalid);
+    }
+    for (const auto *field:{"platform","machine","uid","owner"}) {auto invalid=record;invalid[field]="foreign";reject(invalid);}
+    auto invalid=record;invalid["machine"]=QString(65536,'x');reject(invalid);
+    invalid=record;invalid["extra"]=true;reject(invalid);
+    invalid=record;invalid["restoration_committed"]="true";reject(invalid);
+    auto services=record["services"].toArray();services.append(services[0]);invalid=record;invalid["services"]=services;reject(invalid);
+    for (const auto *id:{"../foreign",".","..",""}) {
+        services=record["services"].toArray();auto service=services[0].toObject();service["id"]=id;services[0]=service;
+        invalid=record;invalid["services"]=services;reject(invalid);
+    }
+    services=record["services"].toArray();auto service=services[0].toObject();service["before"]="not-base64";services[0]=service;
+    invalid=record;invalid["services"]=services;reject(invalid);
+    auto array=CFArrayCreate(nullptr,nullptr,0,&kCFTypeArrayCallBacks);
+    auto arrayData=CFPropertyListCreateData(nullptr,array,kCFPropertyListBinaryFormat_v1_0,0,nullptr);CFRelease(array);
+    check(arrayData,"Create a valid non-dictionary native recovery payload");
+    service["before"]=QString::fromLatin1(QByteArray(reinterpret_cast<const char *>(CFDataGetBytePtr(arrayData)),CFDataGetLength(arrayData)).toBase64());CFRelease(arrayData);
+    services[0]=service;invalid=record;invalid["services"]=services;reject(invalid);
+    PlatformSystemProxyBackend recovered(api);
+    check(recovered.recover(record).succeeded() && recovered.recoverySnapshot().isEmpty(),"Fresh native snapshot restoration");restored();
+    check(recovered.apply(config).succeeded(),"Apply before active ownership import rejection");
+    const auto beforeImport=changes,beforeImportOpens=opens;
+    check(!recovered.recover(record).succeeded() && changes==beforeImport && opens==beforeImportOpens,"Import replaced active macOS ownership");
+    check(recovered.clear().succeeded(),"Release imported fixture test owner");restored();
     changes=0;failAt=2;
     auto partial=backend.apply(config);check(!partial.succeeded() && !partial.mayHaveChanged,"uncommitted partial native edits are discarded");
     failAt=0;restored();
@@ -114,10 +154,22 @@ static void backendTests() {
     changes=0;check(backend.clear().succeeded() && changes==0 && CFEqual(value(firstPath),recreated),
                     "Notification retry rewrote a confirmed native restoration");
     check(SCPreferencesPathSetValue(prefs,firstPath,original) && nativeCommit(prefs),"clean only the explicitly recreated fixture");restored();
+    {
+        PlatformSystemProxyBackend owner(api);check(owner.apply(config).succeeded(),"Apply before committed-restoration handoff");
+        failApply=true;check(!owner.clear().succeeded(),"Keep native committed restoration responsibility");record=owner.recoverySnapshot();failApply=false;
+    }
+    SCPreferencesSynchronize(prefs);
+    check(SCPreferencesPathSetValue(prefs,firstPath,recreated) && nativeCommit(prefs),"Recreate an external value after committed restoration handoff");
+    changes=0;PlatformSystemProxyBackend notifyOnly(api);
+    check(notifyOnly.recover(record).succeeded() && changes==0 && CFEqual(value(firstPath),recreated),
+          "Fresh macOS recovery rewrote already committed restoration");
+    SCPreferencesSynchronize(prefs);check(SCPreferencesPathSetValue(prefs,firstPath,original) && nativeCommit(prefs),"Clean the owned handoff fixture");restored();
+    std::cout<<"PASS: native macOS snapshot handoff, typed sensitive values, strict scope rejection and committed restoration\n";
     check(SCNetworkServiceSetEnabled(first,false) && SCNetworkServiceSetEnabled(second,false) && nativeCommit(prefs),"disable private fixture services");
     check(backend.apply(config).status==PlatformOperationResult::Status::Unsupported,"no enabled services is explicitly unsupported");
     check(SCNetworkServiceSetEnabled(first,true) && SCNetworkServiceSetEnabled(second,true) && nativeCommit(prefs),"reenable private fixture services");
     check(backend.apply(config).succeeded(),"apply before external changes");
+    const auto externalRecord=QJsonDocument::fromJson(QJsonDocument(backend.recoverySnapshot()).toJson()).object();
     auto external=CFDictionaryCreateMutableCopy(nullptr,0,static_cast<CFDictionaryRef>(value(firstPath)));
     const auto releaseExternal=qScopeGuard([&]{CFRelease(external);});
     CFDictionarySetValue(external,kSCPropNetProxiesHTTPProxy,CFSTR("external.invalid"));
@@ -129,7 +181,8 @@ static void backendTests() {
     const auto releaseAdded=qScopeGuard([&]{CFRelease(added);});
     auto addedPath=path(added);const auto releaseAddedPath=qScopeGuard([&]{CFRelease(addedPath);});
     check(SCPreferencesPathSetValue(prefs,addedPath,original) && SCNetworkServiceRemove(second) && nativeCommit(prefs),"external service addition and deletion");
-    check(backend.clear().succeeded(),"native restoration respects external changes");
+    PlatformSystemProxyBackend externalRecovery(api);
+    check(externalRecovery.recover(externalRecord).succeeded(),"fresh native restoration respects external changes");
     check(value(addedPath) && CFEqual(value(addedPath),original),"new service is not changed by restoration");
     auto secondParent=CFStringCreateWithFormat(nullptr,nullptr,CFSTR("/%@/%@"),kSCPrefNetworkServices,SCNetworkServiceGetServiceID(second));
     check(!SCPreferencesPathGetValue(prefs,secondParent),"deleted service must not be recreated by restoration");CFRelease(secondParent);

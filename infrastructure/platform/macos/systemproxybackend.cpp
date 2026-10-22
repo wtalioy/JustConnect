@@ -1,6 +1,11 @@
 #include "infrastructure/platform/platformsystemproxybackend.h"
 #include "infrastructure/platform/proxyvalidation.h"
+#include "application/credentialstore.h"
 #include <QScopeGuard>
+#include <QSysInfo>
+#include <QUuid>
+#include <QSet>
+#include <unistd.h>
 #include <vector>
 
 SCPreferencesRef createMacProxyPreferences(AuthorizationRef *authorization) {
@@ -93,12 +98,74 @@ struct PlatformSystemProxyBackend::Snapshot {
     SCPreferencesRef preferences = nullptr;
     std::vector<Service> services;
     bool restorationCommitted = false;
+    SystemProxyConfig config;
+    QUuid owner = QUuid::createUuid();
     ~Snapshot() {
         for (const auto &service : services) { CFRelease(service.path); if (service.before) CFRelease(service.before); CFRelease(service.installed); }
         if (preferences) CFRelease(preferences);
         if (authorization) AuthorizationFree(authorization, kAuthorizationFlagDefaults);
     }
 };
+
+QJsonObject PlatformSystemProxyBackend::recoverySnapshot() const {
+    if (!snapshot) return {};
+    QJsonArray services;
+    for (const auto &service:snapshot->services) {
+        QJsonValue before(QJsonValue::Null);
+        if (service.before) {
+            const auto data=CFPropertyListCreateData(nullptr,service.before,kCFPropertyListBinaryFormat_v1_0,0,nullptr);
+            if (!data) return {{"serialization_error",true}};
+            before=QString::fromLatin1(QByteArray(reinterpret_cast<const char *>(CFDataGetBytePtr(data)),CFDataGetLength(data)).toBase64());CFRelease(data);
+        }
+        services.append(QJsonObject{{"id",QString::fromCFString(service.path).section('/',2,2)},{"before",before}});
+    }
+    return {{"schema_version",1},{"platform","macos"},{"machine",QString::fromLatin1(QSysInfo::machineUniqueId().toHex())},
+        {"uid",qint64(geteuid())},{"owner",snapshot->owner.toString(QUuid::WithoutBraces)},
+        {"config",QJsonObject{{"http_port",snapshot->config.httpPort},{"socks_port",snapshot->config.socksPort},{"bypass",snapshot->config.bypass}}},
+        {"services",services},{"restoration_committed",snapshot->restorationCommitted}};
+}
+
+PlatformOperationResult PlatformSystemProxyBackend::recover(const QJsonObject &record) {
+    if (snapshot) return {Status::Failed,"Existing system proxy ownership must be restored first",true};
+    const auto invalid=[] { return Result{Status::Failed,"Invalid or foreign macOS proxy recovery record"}; };
+    const auto bytes=QJsonDocument(record).toJson(QJsonDocument::Compact);
+    const auto machine=QString::fromLatin1(QSysInfo::machineUniqueId().toHex());
+    const auto ownerText=record["owner"].toString();const QUuid owner(ownerText);
+    if (bytes.size()>CredentialStore::MaxBytes || QJsonDocument::fromJson(bytes).object()!=record || record.size()!=8
+        || record["schema_version"]!=1 || record["platform"]!="macos" || machine.isEmpty() || record["machine"]!=machine
+        || record["uid"].toInteger(-1)!=qint64(geteuid()) || owner.isNull() || owner.toString(QUuid::WithoutBraces)!=ownerText
+        || !record["config"].isObject() || !record["services"].isArray() || !record["restoration_committed"].isBool()) return invalid();
+    const auto config=record["config"].toObject();
+    const auto http=config["http_port"].toInteger(-1),socks=config["socks_port"].toInteger(-1);
+    if (config.size()!=3 || http<1 || http>65535 || socks<1 || socks>65535 || !config["bypass"].isString()) return invalid();
+    auto pending=std::make_shared<Snapshot>();pending->owner=owner;pending->config={int(http),int(socks),config["bypass"].toString()};
+    if (!ProxyValidation::config(pending->config).succeeded()) return invalid();
+    pending->restorationCommitted=record["restoration_committed"].toBool();QSet<QString> ids;
+    for (const auto &value:record["services"].toArray()) {
+        if (!value.isObject()) return invalid();
+        const auto service=value.toObject();const auto id=service["id"].toString();
+        if (service.size()!=2 || id.isEmpty() || id=="." || id==".." || id.contains('/') || id.contains(QChar(0)) || ids.contains(id)) return invalid();
+        ids.insert(id);CFDictionaryRef before=nullptr;
+        if (!service["before"].isNull()) {
+            if (!service["before"].isString()) return invalid();
+            const auto encoded=service["before"].toString().toLatin1();const auto data=QByteArray::fromBase64(encoded);
+            if (data.toBase64()!=encoded || !data.startsWith("bplist00")) return invalid();
+            const auto native=CFDataCreate(nullptr,reinterpret_cast<const UInt8 *>(data.constData()),data.size());
+            if (!native) return invalid();
+            const auto decoded=CFPropertyListCreateWithData(nullptr,native,kCFPropertyListImmutable,nullptr,nullptr);CFRelease(native);
+            if (!decoded) return invalid();
+            if (CFGetTypeID(decoded)!=CFDictionaryGetTypeID()) {CFRelease(decoded);return invalid();}
+            before=static_cast<CFDictionaryRef>(decoded);
+        }
+        const auto location=QString("/NetworkServices/")+id+"/Proxies";
+        auto path=CFStringCreateWithCharacters(nullptr,reinterpret_cast<const UniChar *>(location.utf16()),location.size());
+        pending->services.push_back({path,before,requested(before,pending->config)});
+    }
+    if (pending->services.empty()) return invalid();
+    pending->preferences=api.open(&pending->authorization);
+    if (!pending->preferences) return error("Open proxy recovery preferences");
+    snapshot=pending;return clear();
+}
 
 SystemProxyCheck PlatformSystemProxyBackend::check(const SystemProxyConfig &config) {
     if (auto valid = ProxyValidation::config(config); !valid.succeeded()) return {valid};
@@ -131,6 +198,7 @@ PlatformOperationResult PlatformSystemProxyBackend::apply(const SystemProxyConfi
     if (auto valid = ProxyValidation::config(config); !valid.succeeded()) return valid;
     if (snapshot) return {Status::Failed, "Restore the current proxy settings before applying another configuration", true};
     auto pending = std::make_shared<Snapshot>(); pending->preferences = api.open(&pending->authorization);
+    pending->config = config;
     if (!pending->preferences) return error("Open proxy preferences");
     auto prefs = pending->preferences;
     SCPreferencesSynchronize(prefs);

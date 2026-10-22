@@ -213,6 +213,16 @@ static void nativeRoundtrip() {
     check(backend.apply(config).succeeded(),"native WinINet apply/readback");
     check(backend.clear().succeeded(),"native WinINet restoration");
     check(nativeRead(current) && current.flags==original.flags && current.proxy==original.proxy && current.bypass==original.bypass && current.pac==original.pac,"native original settings restored exactly");
+    QJsonObject record;
+    {
+        PlatformSystemProxyBackend owner(WindowsProxyApi{InternetQueryOptionW,InternetSetOptionW,entries});
+        check(owner.apply(config).succeeded(),"Apply real WinINet snapshot owner");
+        record=QJsonDocument::fromJson(QJsonDocument(owner.recoverySnapshot()).toJson()).object();
+    }
+    PlatformSystemProxyBackend recovered(WindowsProxyApi{InternetQueryOptionW,InternetSetOptionW,entries});
+    check(recovered.recover(record).succeeded() && nativeRead(current) && current.flags==original.flags && current.proxy==original.proxy
+          && current.bypass==original.bypass && current.pac==original.pac,"Fresh WinINet backend lost native original values");
+    std::cout<<"PASS: fresh backend restored the native disposable WinINet snapshot\n";
     check(backend.apply(config).succeeded(),"native reapply");
     current={PROXY_TYPE_DIRECT|PROXY_TYPE_PROXY,"http=external.invalid:8899","external.invalid","https://pac.invalid/new.pac"};
     check(nativeWrite(current) && backend.clear().succeeded(),"native external changes during ownership");
