@@ -12,12 +12,17 @@ var ErrProtectedTarget = errors.New("destination belongs to a protected original
 // ProtectionPolicy records original-network targets and explicit campus choices.
 // Server authorization remains the dialer's separate responsibility.
 type ProtectionPolicy struct {
-	protected []netip.Prefix
-	campus    map[netip.Addr]struct{}
+	protected   []netip.Prefix
+	campus      map[netip.Addr]struct{}
+	names       []NameRule
+	campusNames map[string]struct{}
 }
 
-func NewProtectionPolicy(protected, campus []string) (ProtectionPolicy, error) {
+func NewProtectionPolicy(protected, campus []string, names []NameRule, campusNames []string) (ProtectionPolicy, error) {
 	policy := ProtectionPolicy{campus: make(map[netip.Addr]struct{}, len(campus))}
+	if err := policy.setNames(names, campusNames); err != nil {
+		return ProtectionPolicy{}, err
+	}
 	for i, value := range protected {
 		prefix, err := netip.ParsePrefix(value)
 		if err != nil || prefix.Addr().Is4In6() || prefix.Bits() <= 1 || prefix != prefix.Masked() {

@@ -8,7 +8,7 @@
 
 构建提交与工作树状态由 Git 查询注入，不填写开发机目录、学校地址或账户。`jc_build_info` 返回当前 Go 版本、目标 OS／架构、JustConnect 完整提交、上游基线和由提交／工作树状态组成的本地版本。直接手动构建而没有 VCS 信息时明确返回 `unversioned/unknown`，不能作为可追溯发布产物。
 
-正式库返回 `embedded_vpn:true`、`auth_method_query:true`、`authentication_cache:true`、`policy_update:true`、`initial_protection:true`、`network_snapshot:true`、`resource_snapshot:true`。Start 使用真实会话：认证、资源、选线、IP 握手、解析、gVisor 和监听均成功后才产生 `ready`，失败或取消在清理完成后产生终态。该事件仅表示核心通道／本地代理就绪；系统接管与系统 DNS 不在其契约内，产品“已连接”须由应用层按 [R11／S7-02](../plan.md) 汇总完整就绪条件。只有测试驱动和未安装 Runner 的纯传输引擎没有 VPN 能力；测试驱动始终标记 `test_driver:true`。
+正式库返回 `embedded_vpn:true`、`auth_method_query:true`、`authentication_cache:true`、`policy_update:true`、`initial_protection:true`、`name_protection:true`、`network_snapshot:true`、`resource_snapshot:true`。Start 使用真实会话：认证、资源、选线、IP 握手、解析、gVisor 和监听均成功后才产生 `ready`，失败或取消在清理完成后产生终态。该事件仅表示核心通道／本地代理就绪；系统接管与系统 DNS 不在其契约内，产品“已连接”须由应用层按 [R11／S7-02](../plan.md) 汇总完整就绪条件。只有测试驱动和未安装 Runner 的纯传输引擎没有 VPN 能力；测试驱动始终标记 `test_driver:true`。
 
 ## C 边界与生命周期
 
@@ -56,7 +56,7 @@ ABI v1 与 JSON schema 版本同步。S2-02 以兼容增补导出 `jc_config_val
 
 `schema_version/server.host/server.port` 必填。host 是 ASCII DNS 名或 IP，不是 URL／带端口地址，端口显式指定。其他字段可省略；`auth` 还接受 `phone/domain/totp_secret/auth_id/sub_type`，method 支持空值（按用户名／密码或手机号推导）、`auth/psw`、`auth/smsCheckCode`、`auth/cas`、`auth/httpsOauth2`。listener 空值不启用；非空必须是回环 IP:port。没有 CLI 附加参数、默认学校、TUN、路由／DNS 修改或原始调试输出开关。
 
-核对 `initial_protection` 能力后，connect 配置可附 `protection:{protected:[规范前缀],campus:[IPv4 地址]}`；两数组必填，使用与实时更新相同的完整校验。Start 在启动协议 Runner、保活和代理监听之前原子安装不可变规则，初始修订为 0，之后更新从 1 递增。无效配置不创建连接或消耗代次，省略字段维持原契约；每次新会话重新取本次配置，auth_methods 拒绝此字段。Qt 适配器在每次 connect（含重连）的工作线程中读取原网络快照，复用应用范围推导并生成该初始配置；默认不含校园例外。缺少能力、读取／推导失败或超限时不启动会话，取消会在读取返回后再次检查；auth_methods 不读保护快照。此处只启用地址保护，DNS 命名空间、运行中更新与明确校园选择仍待接入，不代表系统接管已就绪。
+核对 `initial_protection` 能力后，connect 配置可附 `protection:{protected:[规范前缀],campus:[IPv4 地址]}`；两数组必填，使用与实时更新相同的完整校验。Start 在启动协议 Runner、保活和代理监听之前原子安装不可变规则，初始修订为 0，之后更新从 1 递增。无效配置不创建连接或消耗代次，省略字段维持原契约；每次新会话重新取本次配置，auth_methods 拒绝此字段。Qt 适配器在每次 connect（含重连）的工作线程中读取原网络快照，复用应用范围推导并生成该初始配置；默认不含校园例外。缺少能力、读取／推导失败或超限时不启动会话，取消会在读取返回后再次检查；auth_methods 不读保护快照。Qt 当前启用地址保护，并通过应用协调及查看窗口接入明确 IPv4 选择／撤回；系统 DNS 命名空间保护的自动安装与网络变化自动更新仍待接入，不代表系统接管已就绪。
 
 `operation` 缺省为 `connect`；`auth_methods` 只查询认证方式，产生 `auth_methods` 结果（`methods:[{type,domain,name,login_url,auth_id,sub_type}]`）及终态，不建立数据栈或代理。结果数量、字段和整体事件大小均有界，超限返回 `JC_LIMIT`。
 
@@ -90,11 +90,15 @@ DNS 内置记录只解释服务器提供的解析数据，不单独授予业务�
 
 五个字段必填；空数组明确清除相应范围／选择，缺失、null、未知或重复字段、无效前缀／地址均返回 `JC_INVALID_ARGUMENT`，保留最后有效规则。保护前缀必须规范，不能用默认或分割默认路由充当保护范围；校园选择只接受具体 IPv4 地址，不接受前缀或 IPv6 校园访问。模型按最具体范围解释匹配，不把全部 RFC1918 地址当作实际局域网。
 
+核对 `name_protection:true` 后，初始 `protection` 及实时更新还可携带 `protected_names` 和 `campus_names`；省略或空数组表示没有名称保护／例外，不继承旧值。名称规则示例为 `[{"kind":"suffix","value":"mesh.test"}]`，每个数组最多 4096 项。`suffix` 匹配该名称及以点分隔的子域，`exact` 只匹配完整名称，`prefix` 只接受无点的名称前缀，`single_label` 使用空值匹配不含点的名称。规则值使用规范小写 ASCII／ACE，拒绝根域、通配符、IP、空标签及畸形名称；原生 DNS 表达式须先按其实际语义推导，不直接复制成后缀规则。`campus_names` 只接受保护范围内的精确名称，不接受通配符或子域范围；无效完整更新保留最后有效规则。
+
+受保护名称先于校园资源、静态解析和缓存判断，普通请求使用系统默认解析及原生拨号，保留绝对查询末尾的点和原生 IPv4／IPv6 连接选择；原生查询失败不尝试校园或备用公共解析。强制校园查询／保活直接拒绝，取消及关闭沿用所属解析任务的生命周期。非 ASCII 或畸形查询不跨越已安装的名称保护。精确校园名称例外只为该名称的连接选择校园路径，可覆盖该连接的重叠地址保护；其他名称和直接 IP 请求保留原保护。例外仍须学校 IP／域名、协议和端口授权，不以原出口回落掩盖失败。本扩展不配置系统 DNS，系统实际 NSS／分域提供者的覆盖限制见[架构说明](ARCHITECTURE.md)。
+
 完整解析在会话锁外完成，提交时重新核对活动、停止状态、代次与修订，再一次替换不可变快照。旧代次、重复／倒序修订、停止期间及已结束会话返回 `JC_STALE_REQUEST`；销毁后的句柄返回 `JC_INVALID_HANDLE`；认证方式查询不接受规则，返回 `JC_UNSUPPORTED`。成功同步返回输入的生效代次，并确认该修订已提交，无需等待事件或轮询文件。下一代清空旧规则与修订，不继承其他配置的手动选择。
 
-生产 SOCKS／HTTP 新拨号先应用保护，再进行服务器 IP／域名、协议与端口授权。命中保护且未明确选择校园时保留实际原网络出口；强制校园拨号、校园 DNS 与保活拒绝跨越该保护，不借机回退公共 DNS。明确选择同时要求该保护地址使用校园路径；普通代理与强制校园模式均继续核对服务器授权，未授权时返回错误，不改走原网络，也不授予额外权限。IPv4 映射与 IPv6 zone 统一进入保护／授权判断，带 zone 的映射 IPv4 先规范化再匹配；IP 入口拒绝未解析名称，域名先解析再判断。域名解析及 DNS 回退统一由解析器处理；最终解析失败即返回错误，不交给原生域名拨号再次解析并绕过目标 IP 策略。
+生产 SOCKS／HTTP 新拨号先应用保护，再进行服务器 IP／域名、协议与端口授权。命中保护且未明确选择校园时保留实际原网络出口；强制校园拨号、校园 DNS 与保活拒绝跨越该保护，不借机回退公共 DNS。明确选择同时要求该保护地址使用校园路径；普通代理与强制校园模式均继续核对服务器授权，未授权时返回错误，不改走原网络，也不授予额外权限。IPv4 映射与 IPv6 zone 统一进入保护／授权判断，带 zone 的映射 IPv4 先规范化再匹配；IP 入口拒绝未解析名称，名称保护先于解析判断，其余域名解析后继续检查地址保护。域名解析及 DNS 回退统一由解析器处理；最终解析失败即返回错误。只有已明确属于原网络的受保护名称使用原生名称拨号，不能借原生再次解析绕过其余地址策略。
 
-本接口只确认核心后续连接使用的规则，不关闭已建立连接、不改系统路由／DNS，也不确认透明入口就绪。Qt `sessionStarted` 交付该代的字符串标识；`updatePolicy` 与 `readSnapshot(Network/Resources,generation)` 均在专属工作线程核对能力和可选导出后执行。`policyUpdated`／`snapshotReady` 共用 `RequestStatus` 分类，区分成功、待就绪、过期、无效、不支持、超限与失败；资源回应还核对库返回的代次。关闭期间的晚到结果按过期处理并清空快照内容，新会话丢弃旧操作的确认。缺少扩展时只报告该能力不可用，保留原有会话入口。原网络发现、Qt 策略协调与透明前端仍待 S4／S5 接入；当前 UI 不据此展示保护或透明接管已经生效。会话控制连接与网关出口由 S4-05 单独验证。
+本接口只确认核心后续连接使用的规则，不关闭已建立连接、不改系统路由／DNS，也不确认透明入口就绪。Qt `sessionStarted` 交付该代的字符串标识；`updatePolicy` 与 `readSnapshot(Network/Resources,generation)` 均在专属工作线程核对能力和可选导出后执行。`policyUpdated`／`snapshotReady` 共用 `RequestStatus` 分类，区分成功、待就绪、过期、无效、不支持、超限与失败；资源回应还核对库返回的代次。关闭期间的晚到结果按过期处理并清空快照内容，新会话丢弃旧操作的确认。缺少扩展时只报告该能力不可用，保留原有会话入口。Qt 已接入原网络模型及明确 IPv4 选择／撤回；名称保护自动安装、网络变化自动协调和透明前端仍待接入，当前界面不宣称系统透明接管已经生效。会话控制连接与网关出口由 S4-05 单独验证。
 
 ## 事件与认证回应
 

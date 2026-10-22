@@ -8,7 +8,7 @@ import (
 func TestProtectionPreservesActualScopesAndExplicitCampusChoices(t *testing.T) {
 	policy, err := NewProtectionPolicy([]string{
 		"192.168.0.0/16", "192.168.50.0/24", "172.22.8.0/22", "100.100.0.0/24", "fd7a:115c:a1e0::/48", "fe80::/64",
-	}, []string{"192.168.50.17", "::ffff:192.168.50.18"})
+	}, []string{"192.168.50.17", "::ffff:192.168.50.18"}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,12 +43,12 @@ func TestProtectionPreservesActualScopesAndExplicitCampusChoices(t *testing.T) {
 
 func TestProtectionRejectsGlobalExitsAndInvalidOrBroadenedScopes(t *testing.T) {
 	for _, prefix := range []string{"invalid", "0.0.0.0/0", "0.0.0.0/1", "128.0.0.0/1", "::/0", "192.168.50.1/24", "::ffff:192.168.50.0/120"} {
-		if _, err := NewProtectionPolicy([]string{prefix}, nil); err == nil {
+		if _, err := NewProtectionPolicy([]string{prefix}, nil, nil, nil); err == nil {
 			t.Fatalf("ambiguous/global protection %q accepted", prefix)
 		}
 	}
 	for _, choice := range []string{"invalid", "192.168.50.0/24", "fd7a:115c:a1e0::1", "::ffff:192.168.50.17%interface"} {
-		if _, err := NewProtectionPolicy(nil, []string{choice}); err == nil {
+		if _, err := NewProtectionPolicy(nil, []string{choice}, nil, nil); err == nil {
 			t.Fatalf("unsupported campus choice %q accepted", choice)
 		}
 	}
@@ -57,7 +57,7 @@ func TestProtectionRejectsGlobalExitsAndInvalidOrBroadenedScopes(t *testing.T) {
 func TestProtectionOwnsItsInputAndCampusChoiceCanBeRemoved(t *testing.T) {
 	protected := []string{"192.168.50.0/24"}
 	campus := []string{"192.168.50.17"}
-	old, err := NewProtectionPolicy(protected, campus)
+	old, err := NewProtectionPolicy(protected, campus, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestProtectionOwnsItsInputAndCampusChoiceCanBeRemoved(t *testing.T) {
 	if allowed, scope := old.CampusAllowed(address); !allowed || scope.String() != "192.168.50.0/24" {
 		t.Fatal("caller changed an existing policy through its input slices")
 	}
-	restored, err := NewProtectionPolicy([]string{"192.168.50.0/24"}, nil)
+	restored, err := NewProtectionPolicy([]string{"192.168.50.0/24"}, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

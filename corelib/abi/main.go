@@ -49,6 +49,7 @@ func buildInfo() []byte {
 			"go_version": runtime.Version(), "os": runtime.GOOS, "arch": runtime.GOARCH},
 		"capabilities": map[string]any{"embedded_vpn": !testDriver, "auth_method_query": !testDriver, "authentication_cache": !testDriver, "policy_update": true,
 			"initial_protection": true,
+			"name_protection":    true,
 			"network_snapshot":   networkstate.Supported(),
 			"resource_snapshot":  !testDriver,
 			"async_start":        true, "authentication_response": true, "bounded_events": true,

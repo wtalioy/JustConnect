@@ -92,6 +92,8 @@ SSO 浏览器从当前连接会话接收 TLS 策略，回调来源与策略在�
 
 原网络保护范围由 `application/networkprotection.*` 从原生网络快照推导，保留接口地址与所有路由表的来源索引，相同前缀合并来源。回环始终保护；默认和分割默认路由仅描述出口，不成为保护范围，也不把所有私网当作实际网络。结果是目标范围及来源，不推测策略路由优先级、不重新绑定物理网卡；原快照须与来源引用一起保留。同一模块计算校园 IP 区间、内置 DNS 记录与校园 DNS 的已知地址重叠，保留目标及资源来源索引；IP 区间可跨越或包含整个保护前缀。解析记录不是业务授权，缺少已知重叠也不证明动态域名无冲突；协议／端口授权仍归核心。冲突结果上限 4096 条，畸形／超限使整次推导失败，不交付部分说明。启动前地址保护与应用模型复用同一推导，明确校园选择经完整策略提交；运行中网络变化的自动提交仍待实现。
 
+核心的同一不可变保护策略还接收原网络名称规则及精确校园名称例外。名称保护先于校园资源、内置解析和缓存；默认使用系统默认解析与原生名称拨号，保留绝对查询及原生 IPv4／IPv6 连接选择，强制校园查询直接拒绝。校园名称例外仅影响该名称的连接，仍核对学校协议／端口授权；直接 IP 及其他名称的保护不变。原生查询失败不尝试校园或公共解析，关闭取消所属原生解析；更新与初始配置共用 `ProtectionConfig`，不维护两套字段。格式及边界见[核心 API](CORE-ABI.md#保护策略更新)。Qt 当前仍只自动安装地址保护；原生 DNS 表达式的规则推导、名称保护自动安装及选择界面尚待接入，系统解析提供者限制仍适用。
+
 系统 DNS 结果类型归 `application/dnssnapshot.h`，平台适配由 `readSystemDnsSnapshot()` 统一选择既有原生读取实现；调用者在工作线程运行，返回值沿用状态、完整事实和失败时空数据。各平台的原生回归经过统一入口，私有总线与故障夹具仍直接注入平台读取器。
 
 同一模型模块从 DNS 快照提取 `dns_namespaces`，每项保留原始表达式、角色及原快照来源（字段／行／数组项或动态存储键）。resolved 的路由域与搜索路由域分开，Windows 生效 NRPT 保留原始命名空间，不能统一解释成后缀；macOS State／Setup 的匹配域、搜索域和主域作为配置输入分别保留，不冒充最终作用域或搜索顺序。`resolv.conf` 仅提取文件内最后一个非空 search／domain 指令，保留 glibc 的列首及空白语法，不代替 NSS、LOCALDOMAIN 或其他解析提供者。畸形、NUL 与超过 4096 项均使整次模型失败；表达式不直接成为授权或已生效保护。依据：[resolved 域路由](https://www.freedesktop.org/software/systemd/man/latest/systemd-resolved.service.html)、[Windows NRPT 命名空间](https://learn.microsoft.com/en-us/windows-server/networking/dns/name-resolution-policy-table)、[Apple DNS 配置处理](https://github.com/apple-oss-distributions/configd/blob/main/Plugins/IPMonitor/dns-configuration.c)、[glibc 文件解析](https://github.com/bminor/glibc/blob/master/resolv/res_init.c)。

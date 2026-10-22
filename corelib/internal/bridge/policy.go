@@ -3,16 +3,17 @@ package bridge
 import "github.com/wtalioy/JustConnect/corelib/policy"
 
 type ProtectionConfig struct {
-	Protected []string `json:"protected"`
-	Campus    []string `json:"campus"`
+	Protected      []string          `json:"protected"`
+	Campus         []string          `json:"campus"`
+	ProtectedNames []policy.NameRule `json:"protected_names,omitempty"`
+	CampusNames    []string          `json:"campus_names,omitempty"`
 }
 
 type PolicyUpdate struct {
-	SchemaVersion int      `json:"schema_version"`
-	Generation    uint64   `json:"generation,string"`
-	Revision      uint64   `json:"revision,string"`
-	Protected     []string `json:"protected"`
-	Campus        []string `json:"campus"`
+	SchemaVersion int    `json:"schema_version"`
+	Generation    uint64 `json:"generation,string"`
+	Revision      uint64 `json:"revision,string"`
+	ProtectionConfig
 }
 
 // ProtectionPolicy returns an immutable snapshot for one new connection.
@@ -27,7 +28,7 @@ func (e *Engine) UpdatePolicy(handle uint64, input []byte) (uint64, Status) {
 	if !decode(input, &update) || update.SchemaVersion != ABIVersion || update.Generation == 0 || update.Revision == 0 || update.Protected == nil || update.Campus == nil {
 		return 0, InvalidArgument
 	}
-	policy, err := policy.NewProtectionPolicy(update.Protected, update.Campus)
+	policy, err := policy.NewProtectionPolicy(update.Protected, update.Campus, update.ProtectedNames, update.CampusNames)
 	if err != nil {
 		return 0, InvalidArgument
 	}

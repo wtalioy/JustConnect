@@ -12,8 +12,60 @@ import (
 )
 
 func policyInput(generation, revision uint64, protected, campus []string) []byte {
-	data, _ := json.Marshal(PolicyUpdate{ABIVersion, generation, revision, protected, campus})
+	data, _ := json.Marshal(PolicyUpdate{SchemaVersion: ABIVersion, Generation: generation, Revision: revision,
+		ProtectionConfig: ProtectionConfig{Protected: protected, Campus: campus}})
 	return data
+}
+
+func TestNamePolicyRejectsPartialInvalidReplacementAndRetainsReaders(t *testing.T) {
+	entered := make(chan *Session, 1)
+	e := New(func(ctx context.Context, _ Config, s *Session) Status { entered <- s; <-ctx.Done(); return Cancelled })
+	h := create(t, e)
+	config := strings.Replace(configJSON, `"schema_version":1`, `"schema_version":1,"protection":{"protected":[],"campus":[],"protected_names":[{"kind":"suffix","value":"mesh.test"}]}`, 1)
+	generation, status := e.Start(h, []byte(config))
+	if status != OK {
+		t.Fatal(status)
+	}
+	defer e.Stop(h, 1000)
+	s := <-entered
+	initial := s.ProtectionPolicy()
+	if allowed, protected := initial.CampusNameAllowed("host.mesh.test"); allowed || !protected {
+		t.Fatal("initial namespace omitted")
+	}
+	update := PolicyUpdate{SchemaVersion: ABIVersion, Generation: generation, Revision: 1,
+		ProtectionConfig: ProtectionConfig{Protected: []string{}, Campus: []string{},
+			ProtectedNames: []policy.NameRule{{Kind: "suffix", Value: "mesh.test"}}, CampusNames: []string{"host.mesh.test"}}}
+	data, _ := json.Marshal(update)
+	if _, status := e.UpdatePolicy(h, data); status != OK {
+		t.Fatal(status)
+	}
+	confirmed := s.ProtectionPolicy()
+	if allowed, protected := confirmed.CampusNameAllowed("host.mesh.test"); !allowed || !protected {
+		t.Fatal("exact name choice omitted")
+	}
+	update.Revision = 2
+	for _, rules := range [][]policy.NameRule{{{Kind: "suffix", Value: "."}}, {{Kind: "all", Value: "mesh.test"}}, {{Kind: "suffix", Value: "outside.test"}}} {
+		update.ProtectedNames = rules
+		data, _ = json.Marshal(update)
+		if _, status := e.UpdatePolicy(h, data); status != InvalidArgument || s.ProtectionPolicy() != confirmed {
+			t.Fatal("invalid names changed active policy", status)
+		}
+	}
+	update.ProtectedNames = []policy.NameRule{{Kind: "suffix", Value: "mesh.test"}}
+	update.CampusNames = nil
+	data, _ = json.Marshal(update)
+	if _, status := e.UpdatePolicy(h, data); status != OK {
+		t.Fatal(status)
+	}
+	if allowed, _ := s.ProtectionPolicy().CampusNameAllowed("host.mesh.test"); allowed {
+		t.Fatal("removed name exception remained active")
+	}
+	if allowed, _ := confirmed.CampusNameAllowed("host.mesh.test"); !allowed {
+		t.Fatal("reader snapshot mutated")
+	}
+	if allowed, _ := initial.CampusNameAllowed("host.mesh.test"); allowed {
+		t.Fatal("initial snapshot mutated")
+	}
 }
 
 func TestPolicyUpdatesValidateBeforeReplacingAndRejectOldIdentities(t *testing.T) {

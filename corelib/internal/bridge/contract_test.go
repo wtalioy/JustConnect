@@ -9,6 +9,8 @@ import (
 	"image/png"
 	"strings"
 	"testing"
+
+	"github.com/wtalioy/JustConnect/corelib/policy"
 )
 
 const configJSON = "{\"schema_version\":1,\"server\":{\"host\":\"vpn.example.invalid\",\"port\":443},\"auth\":{\"method\":\"auth/psw\",\"username\":\"alice\",\"password\":\"private-password\"},\"listeners\":{\"socks\":\"127.0.0.1:1080\",\"http\":\"[::1]:1081\"}}"
@@ -99,6 +101,7 @@ func TestInitialProtectionInputBoundary(t *testing.T) {
 		{Protected: []string{"192.168.50.1/24"}, Campus: []string{}},
 		{Protected: []string{"0.0.0.0/0"}, Campus: []string{}},
 		{Protected: []string{}, Campus: []string{"::1"}},
+		{Protected: []string{}, Campus: []string{}, ProtectedNames: []policy.NameRule{{Kind: "suffix", Value: "."}}},
 	} {
 		config.Protection = protection
 		if parsed, status := ParseConfig(configBytes(t, config)); status != InvalidArgument || parsed.initialPolicy != nil {

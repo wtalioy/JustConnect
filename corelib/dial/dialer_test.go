@@ -28,7 +28,7 @@ func TestLiveProtectionOverridesCampusResourcesButNeverGrantsAuthorization(t *te
 			_, _ = listener.WriteTo(buffer[:n], peer)
 		}
 	}()
-	current, err := policy.NewProtectionPolicy([]string{"127.0.0.0/8", "::1/128"}, nil)
+	current, err := policy.NewProtectionPolicy([]string{"127.0.0.0/8", "::1/128"}, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestLiveProtectionOverridesCampusResourcesButNeverGrantsAuthorization(t *te
 			}
 		}
 	}
-	current, _ = policy.NewProtectionPolicy([]string{"127.0.0.0/8"}, []string{"127.0.0.1"})
+	current, _ = policy.NewProtectionPolicy([]string{"127.0.0.0/8"}, []string{"127.0.0.1"}, nil, nil)
 	for _, network := range []string{"tcp", "udp"} {
 		if _, err := d.DialIPPort(ctx, network, "127.0.0.1:80"); err != nil {
 			t.Fatal(err)
@@ -105,7 +105,7 @@ func TestLiveProtectionOverridesCampusResourcesButNeverGrantsAuthorization(t *te
 			}
 		}
 	}
-	current, _ = policy.NewProtectionPolicy([]string{"127.0.0.0/8"}, nil)
+	current, _ = policy.NewProtectionPolicy([]string{"127.0.0.0/8"}, nil, nil, nil)
 	if _, err := d.DialIPPort(ctx, "tcp", "127.0.0.1:80"); !errors.Is(err, policy.ErrProtectedTarget) {
 		t.Fatal("removed choice remained active", err)
 	}
@@ -236,7 +236,7 @@ func TestResolutionFailureCannotBypassDestinationPolicy(t *testing.T) {
 	// An unusable configured DNS address deterministically fails before a query is sent.
 	resolver := resolve.NewResolver(nil, "", "::invalid", 1, nil, nil, false)
 	defer resolver.Close()
-	current, err := policy.NewProtectionPolicy([]string{"127.0.0.0/8"}, []string{"127.0.0.1"})
+	current, err := policy.NewProtectionPolicy([]string{"127.0.0.0/8"}, []string{"127.0.0.1"}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
