@@ -52,7 +52,10 @@ D2 的设备入口子方案已收敛：Linux／macOS 使用最小授权助手创
 
 助手只持有 ring 和新设备；同账户的普通权限／medium integrity 子进程通过继承的匿名管道处理一组限定测试 IP／UDP 端口的数据包，不加载 Qt 或 aTrust。根据 [CreateRestrictedToken](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-createrestrictedtoken) 的句柄权限继承语义，显式取得创建进程和降低完整性所需权限；使用 `LUA_TOKEN` 降为普通用户令牌，取消管理员 SID 的允许权限并移除可删除特权；仅手动降低完整性和移除特权不足以证明 UAC 降权。验证原始 UDP socket 经设备、普通进程及助手回注收到回包，拒绝超大 IPC 帧，检查正常关闭和助手被终止后的设备／路由消失。
 
-独立控制进程先安装只约束设备助手的 Job 生命周期，再恢复其主线程；异常时仅清理本次随机名称及创建时捕获的 Wintun PnP 实例。此 Job 不管理 VPN 核心，原型不修改既有接口、DNS 或默认路由。本机只运行五项原生只读／令牌／帧边界检查及拒绝本机设备操作的入口检查。[源码 `1105671`](https://github.com/wtalioy/JustConnect/actions/runs/39681929870)的 Windows x64／ARM64 设备步骤已通过普通权限真实回包、超大帧拒绝，以及正常／强杀后的原始 PnP 实例和显式路由清理；六组完整 ABI 与三平台 Tests 同样通过，日志／SDK 来源元数据随各组 artifact 保存。
+独立控制进程先安装只约束设备助手的 Job 生命周期，再恢复其主线程；异常时仅清理本次随机名称及创建时捕获的 Wintun PnP 实例。此 Job 不管理 VPN 核心，原型不修改既有接口、DNS 或默认路由。本机只运行七项原生只读／令牌／帧／协议边界检查及拒绝本机设备操作的入口检查。[源码 `1105671`](https://github.com/wtalioy/JustConnect/actions/runs/39681929870)的 Windows x64／ARM64 设备步骤已通过普通权限真实回包、超大帧拒绝，以及正常／强杀后的原始 PnP 实例和显式路由清理；六组完整 ABI 与三平台 Tests 同样通过，日志／SDK 来源元数据随各组 artifact 保存。
+
+Windows 设备探针由 CI 选择一个绝对 pwsh 路径，签名检查与设备配置共用该宿主，原 60／30 秒预算不变；配置脚本通过完整 `-Command` 参数执行，不使用交互式标准输入。新设备创建后先通过原生 IP Helper／SetupAPI 核对 LUID／PnP 身份，发送 `allocated`；配置后再次核对同一身份并发送 `configured`，父进程收到第二阶段前不将其视为就绪。配置失败仍保留第一阶段的清理身份，未知／变化／重复阶段不发布就绪；身份补查使用已有原生入口，删除 PowerShell 的设备查找副本。新增受控配置后失败场景，在真实 IPv4 路由出现后退出，仍须验证原 PnP 节点与路由消失；原普通权限收发、超大帧、正常／强杀清理断言及预算保留。本机七项只读／协议回归和 ARM64 交叉编译通过，真实设备场景只在一次性原生 CI 执行，当前增量待两架构验收。
+
 
 适配器／路由读取使用 x/sys 的 IP Helper API；创建时按 LUID／GUID 捕获原始 PnP 实例，删除后用 Configuration Manager 查询同一实例。接口表可保留 Down 元数据，不能按名称或一般 Down 状态猜测实体设备已删除。固定 PowerShell 配置操作及安全恢复均有操作／管道等待期限；证据直接写入文件，真实超时子进程已验证部分输出仍保留。设备结果不代替校园 TCP、性能、授权界面、Qt IPC 身份校验或生产路由／DNS 恢复；正式实现接入后保留独有内核故障回归，删除被替代脚手架。
 

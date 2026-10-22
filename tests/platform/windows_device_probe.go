@@ -37,7 +37,13 @@ type brokerDevice struct {
 	InstanceID string
 }
 
+type brokerNotice struct {
+	Stage  string
+	Device brokerDevice
+}
+
 var errRejectedFrame = errors.New("rejected device frame")
+var errSetupFailure = errors.New("controlled failure after owned device configuration")
 
 func main() {
 	err := run()
@@ -45,6 +51,9 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		if errors.Is(err, errRejectedFrame) {
 			os.Exit(23)
+		}
+		if errors.Is(err, errSetupFailure) {
+			os.Exit(24)
 		}
 		os.Exit(1)
 	}
@@ -60,6 +69,9 @@ func run() error {
 	if !windows.GetCurrentProcessToken().IsElevated() {
 		return errors.New("device broker requires an elevated disposable runner")
 	}
+	if _, err := ciPowerShellHost(); err != nil {
+		return err
+	}
 	if len(os.Args) == 5 && os.Args[1] == "--broker" {
 		name := os.Args[3]
 		if !strings.HasPrefix(name, "JCProbe") || len(name) != 23 {
@@ -69,7 +81,7 @@ func run() error {
 			return err
 		}
 		switch os.Args[4] {
-		case "connected", "roundtrip", "oversized", "crash":
+		case "connected", "roundtrip", "oversized", "crash", "setup-failure":
 		default:
 			return errors.New("invalid probe mode")
 		}
@@ -94,7 +106,7 @@ func run() error {
 			}
 		}
 	}
-	for _, mode := range []string{"connected", "roundtrip", "oversized", "crash"} {
+	for _, mode := range []string{"connected", "roundtrip", "oversized", "crash", "setup-failure"} {
 		if err := runBroker(os.Args[1], mode); err != nil {
 			return fmt.Errorf("%s: %w", mode, err)
 		}
@@ -110,15 +122,29 @@ func executable() string {
 	return path
 }
 
+func ciPowerShellHost() (string, error) {
+	path := os.Getenv("JC_TEST_PWSH")
+	if !filepath.IsAbs(path) || !strings.EqualFold(filepath.Base(path), "pwsh.exe") {
+		return "", errors.New("device probe requires the CI-selected PowerShell host")
+	}
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return "", errors.New("CI-selected PowerShell host is unavailable")
+	}
+	return path, nil
+}
+
 func powershell(script string) ([]byte, error) {
 	operation, _, _ := strings.Cut(script, " ")
 	fmt.Fprintln(os.Stderr, "START: adapter operation", operation)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	path := filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
-	cmd := exec.CommandContext(ctx, path, "-NoProfile", "-NonInteractive", "-Command", "-")
+	path, err := ciPowerShellHost()
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.CommandContext(ctx, path, "-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference='Stop';"+script)
 	cmd.WaitDelay = time.Second
-	cmd.Stdin = strings.NewReader("$ErrorActionPreference='Stop';" + script)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, errors.Join(ctx.Err(), fmt.Errorf("test adapter operation: %w: %s", err, output))
@@ -126,18 +152,26 @@ func powershell(script string) ([]byte, error) {
 	return bytes.TrimSpace(output), nil
 }
 
-func adapterPresent(name string) (bool, error) {
+func adapterLUID(name string) (uint64, error) {
 	var table *windows.MibIfTable2
 	if err := windows.GetIfTable2Ex(windows.MibIfTableNormalWithoutStatistics, &table); err != nil {
-		return false, err
+		return 0, err
 	}
 	defer windows.FreeMibTable(unsafe.Pointer(table))
 	for _, row := range unsafe.Slice(&table.Table[0], table.NumEntries) {
 		if windows.UTF16ToString(row.Alias[:]) == name {
-			return true, nil
+			return row.InterfaceLuid, nil
 		}
 	}
-	return false, nil
+	return 0, windows.ERROR_NOT_FOUND
+}
+
+func adapterPresent(name string) (bool, error) {
+	_, err := adapterLUID(name)
+	if errors.Is(err, windows.ERROR_NOT_FOUND) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 func interfaceHasRoutes(index uint32) (bool, error) {
@@ -225,6 +259,28 @@ func devicePresent(instanceID string) (bool, error) {
 	return true, nil
 }
 
+func confirmDevice(input io.Reader, name string, owned *brokerDevice) error {
+	decoder := json.NewDecoder(bufio.NewReader(io.LimitReader(input, 4096)))
+	var allocated brokerNotice
+	if err := decoder.Decode(&allocated); err != nil {
+		return err
+	}
+	device := allocated.Device
+	if allocated.Stage != "allocated" || device.Name != name || device.Index == 0 || device.LUID == 0 ||
+		!strings.HasPrefix(strings.ToUpper(device.InstanceID), "SWD\\WINTUN\\") {
+		return errors.New("broker did not confirm its newly allocated device")
+	}
+	*owned = device
+	var configured brokerNotice
+	if err := decoder.Decode(&configured); err != nil {
+		return err
+	}
+	if configured.Stage != "configured" || configured.Device != device {
+		return errors.New("broker configuration changed device ownership")
+	}
+	return nil
+}
+
 func runBroker(dll, mode string) (result error) {
 	fmt.Fprintln(os.Stderr, "START: device case", mode)
 	var nonce [8]byte
@@ -288,12 +344,16 @@ func runBroker(dll, mode string) (result error) {
 		result = errors.Join(result, errors.New("adapter survived its owner; independent cleanup required"))
 		deviceID := ready.InstanceID
 		if deviceID == "" {
-			output, lookupErr := powershell("Get-NetAdapter -IncludeHidden | Where-Object {$_.Name -eq '" + name + "'} | Select-Object -ExpandProperty PnPDeviceID")
+			luid, lookupErr := adapterLUID(name)
 			if lookupErr != nil {
 				result = errors.Join(result, lookupErr)
 				return
 			}
-			deviceID = strings.TrimSpace(string(output))
+			deviceID, lookupErr = deviceInstanceID(luid)
+			if lookupErr != nil {
+				result = errors.Join(result, lookupErr)
+				return
+			}
 		}
 		if !strings.HasPrefix(strings.ToUpper(deviceID), "SWD\\WINTUN\\") {
 			result = errors.Join(result, fmt.Errorf("unexpected device identity %q; refusing removal", deviceID))
@@ -311,11 +371,13 @@ func runBroker(dll, mode string) (result error) {
 	if err = assignAndResume(job, uint32(cmd.Process.Pid)); err != nil {
 		return err
 	}
-	if err = json.NewDecoder(bufio.NewReader(io.LimitReader(output, 4096))).Decode(&ready); err != nil {
-		return fmt.Errorf("broker did not confirm its device: %w", err)
-	}
-	if ready.Name != name || ready.Index == 0 || ready.LUID == 0 || !strings.HasPrefix(strings.ToUpper(ready.InstanceID), "SWD\\WINTUN\\") {
-		return errors.New("broker confirmed another device")
+	confirmation := confirmDevice(output, name, &ready)
+	if mode == "setup-failure" {
+		if confirmation == nil || ready.InstanceID == "" {
+			return errors.New("controlled setup failure did not retain original ownership")
+		}
+	} else if confirmation != nil {
+		return fmt.Errorf("broker did not confirm its configuration: %w", confirmation)
 	}
 	if mode == "crash" {
 		if err = cmd.Process.Kill(); err != nil {
@@ -323,7 +385,12 @@ func runBroker(dll, mode string) (result error) {
 		}
 	}
 	err = cmd.Wait()
-	if mode == "oversized" {
+	if mode == "setup-failure" {
+		var failure *exec.ExitError
+		if !errors.As(err, &failure) || failure.ExitCode() != 24 {
+			return fmt.Errorf("unexpected device setup failure: %w", err)
+		}
+	} else if mode == "oversized" {
 		var failure *exec.ExitError
 		if !errors.As(err, &failure) || failure.ExitCode() != 23 {
 			return fmt.Errorf("invalid frame was not rejected: %w", err)
@@ -455,6 +522,18 @@ func broker(path, name, mode string) error {
 	if status, _, _ := convert.Call(uintptr(unsafe.Pointer(&luid)), uintptr(unsafe.Pointer(&index))); status != 0 || index == 0 {
 		return fmt.Errorf("adapter index status %d", status)
 	}
+	instanceID, err := deviceInstanceID(luid)
+	if err != nil {
+		return fmt.Errorf("identify created test device: %w", err)
+	}
+	if present, err := devicePresent(instanceID); err != nil || !present {
+		return fmt.Errorf("created test device is not present: %v", err)
+	}
+	device := brokerDevice{name, index, luid, instanceID}
+	encoder := json.NewEncoder(os.Stdout)
+	if err = encoder.Encode(brokerNotice{"allocated", device}); err != nil {
+		return err
+	}
 	idx := strconv.FormatUint(uint64(index), 10)
 	script := "Set-NetIPInterface -InterfaceIndex " + idx + " -AddressFamily IPv4 -DadTransmits 0;" +
 		"New-NetIPAddress -InterfaceIndex " + idx + " -IPAddress 192.0.2.1 -PrefixLength 30 -AddressFamily IPv4 -PolicyStore ActiveStore | Out-Null;"
@@ -466,14 +545,20 @@ func broker(path, name, mode string) error {
 	if _, err = powershell(script); err != nil {
 		return err
 	}
-	instanceID, err := deviceInstanceID(luid)
-	if err != nil {
-		return fmt.Errorf("identify created test device: %w", err)
+	confirmedID, err := deviceInstanceID(luid)
+	if err != nil || confirmedID != instanceID {
+		return fmt.Errorf("device identity changed during configuration: %v", err)
 	}
 	if present, err := devicePresent(instanceID); err != nil || !present {
-		return fmt.Errorf("created test device is not present: %v", err)
+		return fmt.Errorf("configured test device is not present: %v", err)
 	}
-	if err = json.NewEncoder(os.Stdout).Encode(brokerDevice{name, index, luid, instanceID}); err != nil {
+	if mode == "setup-failure" {
+		if present, err := interfaceHasRoutes(index); err != nil || !present {
+			return fmt.Errorf("controlled setup failure lacked actual IPv4 routes: %v", err)
+		}
+		return errSetupFailure
+	}
+	if err = encoder.Encode(brokerNotice{"configured", device}); err != nil {
 		return err
 	}
 	if mode == "crash" {
