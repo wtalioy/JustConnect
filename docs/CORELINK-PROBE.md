@@ -107,45 +107,36 @@ IPv4 配置增量复用 [`UnixTunDevice::createIpv4`](../infrastructure/platform
 
 [隔离检查](../tests/platform/original_route_linux.py)只在新的网络命名空间中创建 veth 原网络、独立 TCP／UDP 回显端点，并通过同一原生分配后端取得非持久 TUN。目标的 `/32` 捕获路由优先于原网络 `/24`；接口绑定单独使用在严格反向路径检查下已复现超时，因此测试保留 `rp_filter=1`，仅为所选原地址增加源规则与专用目标路由表。先回读两类选路并实际读取 TUN 包及捕获源地址，再由零 capabilities 的普通用户运行[生产 underlay 探针](../tests/platform/original_route_probe.go)，验证指定原接口的 TCP／UDP 往返及原地址，接口缺失必须报错。两端命名空间退出即释放设备和规则；宿主接口、全表路由、规则、DNS 及反向路径设置保持不变。
 
-本地 WSL 隔离内核及 [Linux 双架构 CI](https://github.com/wtalioy/JustConnect/actions/runs/39732640460) 已通过，日志为 `linux-original-route.log`，关键结果归并至计划引用的当前报告。该结果验证出口绑定与定向源规则的组合，这组操作现由下述正式原出口后端接管，其增量仍待原生验收；未覆盖其他策略路由选择器、自动选择、IPv6、Windows／macOS 的竞争路由或正式助手恢复，不能据此接管日常网络。
+本地 WSL 隔离内核及 [Linux 双架构 CI](https://github.com/wtalioy/JustConnect/actions/runs/39732640460) 已通过，日志为 `linux-original-route.log`，关键结果归并至计划引用的当前报告。该结果验证出口绑定与定向源规则的组合，这组操作已由下述正式原出口后端接管，并通过当前双架构原生检查；未覆盖其他策略路由选择器、自动选择、IPv6、Windows／macOS 的竞争路由或正式助手恢复，不能据此接管日常网络。
 
 Linux 路由恢复另在私有命名空间核对了内核删除匹配：`ip route del <prefix> dev <owned> proto <owned> scope link` 拒绝删除设备或协议已变化的路由，但首选源地址被改写时仍会删除，不能视为完整快照的原子比较。正式后端须记录所属资源身份和实际应用结果，恢复前核对完整回读，遇到外部改写保留并报告；回读与删除间的竞争仍需故障验证，不以命令成功代替所有权证明。实验结果已归并至计划引用的当前基线报告。
 
 <a id="linux-source-routes"></a>
 ### Linux 原出口表／规则后端
 
-[`LinuxSourceRoutes`](../infrastructure/platform/linux/sourceroutes.cpp) 在新建的连接专用 IPv4 表中配置明确目标，源地址必须属于所选原接口；空网关表示直连，非零网关另有所属 `/32` 链路路由。只接受规范 `/2`—`/32`，不提供默认出口或全局私网规则。保留实际原接口／索引、源地址／网关、连接 UUID、表、metric、原先不存在和完整路由／源规则；不改接口地址、MTU、原有路由或 DNS。priority 1 已占用、非标准更早规则或候选表已有路由／引用时拒绝，未知策略不猜测。接口名限安全 ASCII token；自动拓扑选择和其他命名方式仍待接入。
+[`LinuxSourceRoutes`](../infrastructure/platform/linux/sourceroutes.cpp) 为明确原接口及实际所属 IPv4 源地址新建连接专用表和精确源规则；空网关表示直连，非零网关另建所属 `/32` 链路路由。只接受规范 `/2`—`/32`，不改原接口、既有路由或 DNS。记录连接 UUID、接口名／索引、源／网关、派生表／metric、原先不存在及完整应用值。priority 1 冲突、未知更早规则或候选表已有路由／引用时拒绝；接口名限安全 ASCII token，支持实际地址别名。
+
+后端与捕获路由共用规范前缀和受信 iproute2 检查；数字全表／规则各限 4096 行、1 MiB，写前检查容量，索引所属路由。接受原生省略 main 表和合法 blackhole／goto，所属项缺少表身份则拒绝。应用／恢复各有十秒命令预算，失败回滚独立计时。恢复先删除源规则并确认没有表引用，再按设备、协议、scope、metric、源和适用下一跳删除路由；外部引用／改写、重复身份或未确认值保留并报告，只忽略派生 linkdown／默认 unicast 差异。
+
+`recover` 仅接受同一启动 UUID／调用线程网络命名空间的完整可信记录；严格校验结构、规范所有者、派生表／metric、实际接口身份和路由／规则值，拒绝畸形、重复、跨启动／命名空间或超过 2 MiB 的记录，不替换活动实例。**调用方必须先认证权限所有者的受保护记录；用户 JSON 不授予恢复权限。**
+
+[`LinuxSourceJournal`](../infrastructure/platform/linux/sourcejournal.cpp) 只接受已打开的 root 0700 私有目录 fd，以独立打开描述持有非阻塞独占锁，操作固定 `source.json`。文件须为 root 0600 单链接普通文件，完整 UTF-8 JSON 最多 2 MiB；符号／硬链接、错连接、超限及已知外部改写拒绝。私有临时文件完整写入并 fsync 后原子发布，再同步目录；首次发布不替换，更新／删除比对文件身份及完整原字节，同值替换或确认删除后重建不接管。删除目录同步失败保留已删除事实供重试，关闭／进程结束只释放锁。
+
+`apply`、`restore` 和 `recover` 共用同步 `CheckpointWriter`：非空对象提交完整状态，空对象持久移除记录。首次内核写入前同步完整意图，拒绝且确认未发布则清空内存，可能已发布则保留责任；存储后重验容量、表／早期规则及接口／源身份。成功应用值确认、规则删除前、规则释放后和路由批次删除前均由后端提交，失败回滚沿用同一端口，调用方不重复维护状态机；每次删除前重验存储等待期间的完整值、表引用及接口身份。存储失败不继续下一次内核修改，最后同步移除失败可重试而不接管新引用。删除标记与内核操作不具备跨资源原子性：新进程看到标记且匹配对象仍在时保留并报告未决，不猜测它是否被外部同值重建；对象缺失或完整值已改变时可解除该项责任。已确认释放的规则不重新接管。
 
 ```sh
 sudo unshare --net -- build/coreabi/linux_sourceroutes_test --isolated
+sudo unshare --net -- build/coreabi/linux_sourcejournal_test --isolated
 sudo unshare --net -- python tests/platform/original_route_linux.py --uid "$(id -u)" \
     --probe build/coreabi/original-route-probe --allocator build/coreabi/linux_tundevice_test \
     --routes build/coreabi/linux_sourceroutes_test
 ```
 
-后端与捕获路由共用规范前缀／主机路由解释及受信 iproute2 检查。全表／规则各限 4096 行、1 MiB，写入前检查新增容量；所属路由建立索引。接受 iproute2 省略 main 表的原生表示，所属专用路由／规则缺少表身份时拒绝恢复且保留记录；合法 blackhole／goto 规则保留。每次应用／恢复各有十秒命令预算，失败回滚独立计时。恢复先按 priority／源前缀／表／协议删除源规则并回读；删除失败、外部新引用或重复身份均保留表和记录。确认删除后重建的同值规则视为外部项；路由删除带设备、协议、scope、metric、非零源地址及适用的下一跳。只忽略已知派生 linkdown／默认 unicast 表示差异，其他已确认外部改写保留，未确认值不猜测删除。
+已验基础覆盖直连／网关、别名、所有者／接口身份、已有表／外部引用、部分批次、读回故障／重试、同值重建、linkdown、4096 行完整记录、永久降权拒绝，以及记录锁／权限／文件身份／同步故障。实际持有者在准备、部分写入、应用后未读回和应用确认四个边界被 SIGKILL，新进程从保护文件恢复；跨命名空间拒绝，实际外部路由保留。原出口脚本复用同一后端，实际普通 Go TCP／UDP 保持严格 rp_filter，控制管道 EOF 后核对完整原始表／规则。证据 `build/reports/linux-source-routes.json`、`linux-source-journal.json`、`linux-source-checkpoints.json`，本地双构建及 [`fb8fd38` 六组原生](https://github.com/wtalioy/JustConnect/actions/runs/39833344656)／[三平台应用](https://github.com/wtalioy/JustConnect/actions/runs/39833344469)通过。
 
-本地双构建验证直连／网关、地址别名、错误所有者／重命名、已有表／规则／外部引用、真实部分批次失败、读回故障、恢复重试、读后源规则改写／同值重建、linkdown、4096 行完整容量及永久降权拒绝。原出口脚本已删除专用表／源规则命令，由独立原生持有进程调用同一后端，原预算／严格反向路径及普通 Go TCP／UDP 断言保留；关闭控制管道后检查原始表／规则完全恢复。Linux 分配方已用同一正式捕获后端替换手写目标路由，详见下节交付检查。当前不证明安装助手、持久恢复、控制器崩溃／断电恢复、IPv6 或任意属性的跨对象原子比较；S4-06 前不应用于日常网络。证据 `build/reports/linux-source-routes.json`；[`1aedf70` 六组原生](https://github.com/wtalioy/JustConnect/actions/runs/39814716256)及[三平台应用](https://github.com/wtalioy/JustConnect/actions/runs/39814716577)均通过。
+恢复检查点增量 `c2d3570` 覆盖规则／路由删除前后恢复进程强杀、匹配原项及外部同值重建保留、对象消失后完成、各阶段存储拒绝、写记录期间改写及最终移除重试。双构建隔离内核／实际 Go 流量和应用 48/48、正式 ABI 26/26 通过；[六组原生](https://github.com/wtalioy/JustConnect/actions/runs/39839399033)／[三平台应用 CI](https://github.com/wtalioy/JustConnect/actions/runs/39839399050)均通过，证据 `build/reports/linux-source-checkpoints.json`。
 
-新实例可通过 `LinuxSourceRoutes::recover` 载入同一启动／网络命名空间的可信所有权记录，再调用既有恢复；快照含启动 UUID、命名空间设备／inode，身份检查使用 `/proc/thread-self/ns/net`。完整结构、规范所有者、派生表／metric、实际设备身份、原先不存在及已确认路由／规则均严格核对；畸形、重复、跨启动／命名空间或超过 2 MiB 的记录不取得部分所有权，不能替换活动实例。失败恢复保留载入记录供重试，已删除后同值重建的外部规则仍拒绝接管。**调用方须先认证权限所有者的受保护记录；不能把用户提供的 JSON 当作授权。** 受保护检查点及应用／恢复边界见下文；正式助手及自动恢复服务重启仍待，因此不宣称完整产品恢复已交付。
-
-隔离检查在实际持有进程应用源表／规则后将其 SIGKILL，由另一个全新进程读取已交付记录并恢复；先在另一真实网络命名空间验证拒绝载入，再恢复原命名空间的实际内核状态。直连、外部表引用拒绝／移除后重试、未确认应用值、同值重建和 4096 路由完整序列化回读均覆盖。恢复测试统一使用 `--recover-journal` 在 root 私有命名空间读取受保护文件，不安装为助手；旧标准输入恢复模式及重复父进程快照写入夹具已删除。记录验证与存储证据归 `build/reports/linux-source-journal.json`，[`24bb9be` 的六组原生](https://github.com/wtalioy/JustConnect/actions/runs/39826902766)及[三平台应用](https://github.com/wtalioy/JustConnect/actions/runs/39826902837)均通过。
-
-[`LinuxSourceJournal`](../infrastructure/platform/linux/sourcejournal.cpp) 只从已打开的 root 私有目录描述符操作固定 `source.json`，不接受任意输出路径；目录须为 root 0700，文件须为 root 0600 单链接普通文件，读取／替换／删除拒绝符号链接、硬链接、超限、错连接及已知外部改写。目录独占锁按独立打开描述持有；关闭／进程结束释放锁，不自动删除未恢复记录。完整 UTF-8 JSON 检查点最多 2 MiB，临时文件 fsync 后原子重命名并 fsync 目录；首次发布使用不替换语义，更新／删除前比对文件身份及完整旧字节，已确认删除后重建的同值记录不接管。删除目录同步失败保留已删除事实，重试不误认新文件。
-
-```sh
-sudo unshare --net -- build/coreabi/linux_sourcejournal_test --isolated
-```
-
-真实文件系统检查覆盖不安全目录、隐式当前目录、并发锁／首次发布、其他连接、文件同步／目录同步故障、删除同步重试、原字节／同值 inode 替换、非私有权限、符号／硬链接及超限保留。源路由检查由实际持有者在应用前及确认后同步保护记录，持有进程 SIGKILL 后由全新 `--recover-journal` 进程读取、复用同一后端恢复并同步删除记录；临时目录在永久降权前销毁，预算和权限断言不变。证据 `build/reports/linux-source-journal.json`，本地双构建及完整九项原生／应用矩阵通过。正式权限助手及自动恢复进程重启仍未完成。 系统代理的宿主强杀恢复也仍待 S2-06／S3-05／S4-06／S7-03 实现，不以此替代。
-
-应用前写前增量通过 `LinuxSourceRoutes::apply` 的同步 `writeAhead` 端口复用同一受保护存储；端口收到已记录连接／命名空间、原接口身份、源／网关、派生表／metric 及全部未确认路由／规则的完整意图。校验／预检失败不调用存储；存储拒绝时不写内核，确认未发布则清空内存，可能已发布则保留意图。存储完成后再复用同一容量／表／早期规则检查并重新核对接口／源地址，避免记录期间出现的策略冲突或同名新接口收到修改。未配置存储的底层调用继续用于既有原出口流量回归；正式权限调用方须接入可靠写前端口，不把空端口当作持久恢复。
-
-新的独立持有者在准备完成、实际部分批次成功、内核应用完成但尚未读回、应用值确认并再次同步四个边界暂停后被 SIGKILL。新进程直接读取保护文件，恢复原始完整表／规则；部分成功保留实际插入的外部协议路由，再由夹具独立清理它。还覆盖存储拒绝、提交后报错、已有记录、记录期间新增早期规则及同名接口替换，核对没有源后端内核修改。旧的父进程事后写快照方式由实际写前持有者替代，跨命名空间拒绝同样经保护文件执行。证据 `build/reports/linux-source-intent.json`，本地双构建及 [`fb8fd38` 六组原生](https://github.com/wtalioy/JustConnect/actions/runs/39833344656)／[三平台应用](https://github.com/wtalioy/JustConnect/actions/runs/39833344469)均通过。
-
-`apply`、`restore` 和 `recover` 共享同步 `CheckpointWriter`；非空对象同步完整记录，空对象同步移除记录。后端在成功应用值确认后、规则删除前、规则释放后和路由批次删除前维护检查点，最后才移除记录；失败回滚沿用同一端口，调用方不重复维护状态机。存储等待后重新检查完整路由／规则引用及接口身份，拒绝期间出现的外部改写。删除开始标记与内核操作之间不具备跨资源原子性：新进程看到标记后若匹配对象仍存在，保留并报告未决，不重试删除可能由外部重建的对象；对象缺失或完整值已改变时可解除该项责任。已确认释放的规则不重新接管；最终记录删除失败可以重试而不接管后来出现的表引用。
-
-隔离测试使用同一保护文件，在规则／路由删除前后强杀恢复进程，再由新进程检查；覆盖匹配原项、外部同值重建保留、对象已消失后完成、应用值／删除前／最终移除存储拒绝和写记录期间的新规则／路由改写。清理未知对象只由创建它的夹具显式完成，不提供强制接管模式。证据 `build/reports/linux-source-checkpoints.json`，本地双构建通过，原生增量待验；正式权限助手、自动守护重启和控制器接入仍待。
+测试统一使用受保护文件和 `--recover-journal`，旧标准输入恢复、父进程事后写快照及 Python 专用表／源规则命令已删除；root 临时目录在永久降权前销毁。未知对象由创建它的夹具显式清理，无强制接管模式；未配置存储的底层调用仅保留独有流量回归。当前没有安装这些测试为助手，也未完成正式授权、自动恢复服务重启、出口自动选择、其他策略选择器、IPv6、任意属性原子比较或系统代理宿主强杀恢复。S2-06／S3-05／S4-03／04／06／S7-03 的相应要求保持未完成，S4-06 前不应用于日常网络。
 
 ### macOS utun／fd 隔离实验
 
