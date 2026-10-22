@@ -17,6 +17,26 @@ spec.loader.exec_module(package)
 
 
 class VerifyPackageTest(unittest.TestCase):
+    def test_installed_proxy_recovery_worker_is_required_and_runs_with_a_budget(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            facts = {'worker': 'system-proxy-recovery', 'protocol': 1, 'qt': '6.12.0'}
+            for platform_name in ('win32', 'darwin', 'linux'):
+                with self.subTest(platform=platform_name), patch.object(package.sys, 'platform', platform_name):
+                    worker = root / ('JustConnectProxyRecovery.exe' if platform_name == 'win32' else 'JustConnectProxyRecovery')
+                    with self.assertRaisesRegex(RuntimeError, 'Missing packaged system proxy recovery worker'):
+                        package.check_proxy_recovery(root, {})
+                    worker.touch()
+                    with patch.object(package, 'run', return_value=json.dumps(facts)) as run:
+                        self.assertEqual(package.check_proxy_recovery(root, {}), facts)
+                        run.assert_called_once_with(worker, '--version', env={}, timeout=5)
+                    for invalid in ([], {}, dict(facts, protocol=True), dict(facts, protocol=2), dict(facts, qt=6)):
+                        with patch.object(package, 'run', return_value=json.dumps(invalid)), self.assertRaisesRegex(RuntimeError, 'runtime check'):
+                            package.check_proxy_recovery(root, {})
+                    with patch.object(package, 'run', side_effect=TimeoutError('worker startup budget')), self.assertRaises(TimeoutError):
+                        package.check_proxy_recovery(root, {})
+                    worker.unlink()
+
     def test_installed_dns_reader_is_required_bounded_and_complete(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
@@ -44,6 +64,8 @@ class VerifyPackageTest(unittest.TestCase):
             archive.write_bytes(b"archive fixture")
             host = root / 'JustConnect'
             host.touch()
+            worker = root / 'JustConnectProxyRecovery'
+            worker.touch()
             (root / 'source-revision.txt').write_bytes(b'revision\r\n')
             (root / 'core-toolchain.txt').write_bytes(b'CGO_ENABLED=1\r\n')
             notices = root / 'licenses'
@@ -53,7 +75,11 @@ class VerifyPackageTest(unittest.TestCase):
             nested = root / 'nested'
             nested.mkdir()
             output = Path(folder) / "report.json"
-            with patch.object(package.subprocess, 'run', return_value=SimpleNamespace(stdout=b'{"runtime":"static"}')), \
+            def run(args, **kwargs):
+                payload = ({'worker': 'system-proxy-recovery', 'protocol': 1, 'qt': '6.12.0'}
+                           if Path(args[0]) == worker else {'runtime': 'static'})
+                return SimpleNamespace(returncode=0, stderr=b'', stdout=json.dumps(payload).encode())
+            with patch.object(package.subprocess, 'run', side_effect=run), \
                     patch.object(package, 'validate_report'), \
                     patch.object(package, 'linux_audit', return_value={}), \
                     patch.object(package.platform, 'machine', return_value='x86_64'), \

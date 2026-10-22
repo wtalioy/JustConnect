@@ -1,10 +1,13 @@
 #include "infrastructure/platform/platformsystemproxybackend.h"
 #include "infrastructure/platform/platformcommand.h"
+#include "infrastructure/platform/proxyrecovery.h"
 #include <QCoreApplication>
 #include <QTemporaryDir>
 #include <QFile>
 #include <QMap>
 #include <QThread>
+#include <QProcess>
+#include <QElapsedTimer>
 #include <iostream>
 #include <cstdlib>
 #ifdef Q_OS_WIN
@@ -88,6 +91,13 @@ static void backendTests() {
     denyNotify=true;check(!backend.clear().succeeded(),"notification failure propagated");denyNotify=false;
     check(backend.clear().succeeded() && states[""].flags==original.flags && states[""].proxy==original.proxy && states[""].bypass==original.bypass,"original PAC/proxy/bypass restored");
     const int restoredWrites=writes;check(backend.clear().succeeded() && writes==restoredWrites,"restored backend cannot clear unknown changes");
+    check(backend.apply(config).succeeded(),"apply notification retry fixture");
+    const auto recreated = states[""];
+    denyNotify=true;check(!backend.clear().succeeded(),"retain pending notification after confirmed native restoration");
+    states[""] = recreated;writes=0;denyNotify=false;
+    check(backend.clear().succeeded() && writes==0 && states[""].proxy==recreated.proxy && states[""].flags==recreated.flags,
+          "Notification retry reacquired a connection whose restoration was already confirmed");
+    states[""] = original;
     check(backend.apply(config).succeeded(),"apply before external changes");
     states[""].proxy="http=external.invalid:8899";states[""].bypass="external.invalid";states[""].pac="https://pac.invalid/external.pac";
     states["new connection"]={PROXY_TYPE_PROXY,"new.invalid:1234","new.invalid",{}};rasNames<<"new connection";
@@ -145,6 +155,33 @@ static void nativeRoundtrip() {
     WinState actual;check(nativeRead(actual) && actual.flags==current.flags && actual.proxy==current.proxy && actual.bypass==current.bypass && actual.pac==current.pac,"native external proxy/PAC/bypass retained");
     std::cout<<"PASS: native WinINet apply, restore and external ownership on disposable CI runner\n";
 }
+static void nativeRecoveryOwner()
+{
+    check(qEnvironmentVariable("GITHUB_ACTIONS")=="true","native recovery requires a disposable CI runner");
+    ProxyRecoveryBackend backend;
+    check(backend.check(config).result.succeeded() && backend.apply(config).succeeded(),"Apply through the packaged native recovery worker");
+    std::cout << "READY\n" << std::flush;
+    std::cin.get();
+}
+static void nativeRecovery()
+{
+    check(qEnvironmentVariable("GITHUB_ACTIONS")=="true","native recovery requires a disposable CI runner");
+    check(nativeRead(nativeOriginal),"Read native recovery baseline");nativeSaved=true;std::atexit(nativeRestore);
+    const WinState original{PROXY_TYPE_DIRECT|PROXY_TYPE_AUTO_PROXY_URL,"http=prior.invalid:3128","old.invalid","https://pac.invalid/original.pac"};
+    check(nativeWrite(original),"Seed disposable native recovery baseline");
+    QProcess holder;holder.start(QCoreApplication::applicationFilePath(),{"--native-recovery-owner"});
+    check(holder.waitForStarted(5000) && holder.waitForReadyRead(10000) && holder.readLine()=="READY\n","Start native recovery host fixture");
+    WinState current;
+    check(nativeRead(current) && current.proxy.contains("127.0.0.1:11081"),"Independent worker did not apply native WinINet");
+    holder.kill();check(holder.waitForFinished(5000),"Kill only the disposable native host fixture");
+    QElapsedTimer timer;timer.start();
+    for (;;) {
+        check(nativeRead(current),"Read actual native recovery outcome");
+        if (current.flags==original.flags && current.proxy==original.proxy && current.bypass==original.bypass && current.pac==original.pac) break;
+        check(timer.elapsed()<5000,"Independent native recovery exceeded its budget");QThread::msleep(10);
+    }
+    std::cout << "PASS: native WinINet restored exactly by independent worker after Qt host SIGKILL\n";
+}
 
 #elif defined(Q_OS_MACOS)
 #include "macosproxy_test.h"
@@ -152,9 +189,9 @@ static void nativeRoundtrip() {
 struct Fixture {
     QMap<QString, QString> values;
     int mutations = 0, failAt = 0;
-    bool failRead = false, failWrite = false, ignoreWrite = false, malformed = false, emptyBypass = false;
+    bool failRead = false, failWrite = false, ignoreWrite = false, malformed = false, emptyBypass = false, failNotify = false;
     PlatformCommandResult run(const QString &program, const QStringList &args) {
-        if (program == "dbus-send") return {};
+        if (program == "dbus-send") return {failNotify ? PlatformOperationResult{Status::Failed,"Injected notification failure"} : PlatformOperationResult{},{}};
         const bool write = program.startsWith("kwriteconfig") || args.value(0)=="set";
         const bool kde = program.contains("config");
         const auto key = kde ? args.value(5) : args.value(1)+":"+args.value(2);
@@ -218,6 +255,12 @@ static void backendTests() {
     qputenv("XDG_CURRENT_DESKTOP","KDE"); qputenv("KDE_SESSION_VERSION","6");
     fixture.values.clear();
     check(backend.apply(config).succeeded() && backend.clear().succeeded(),"KDE selected without GNOME writes");
+    check(backend.apply(config).succeeded(),"apply KDE notification retry fixture");
+    const auto recreated = fixture.values;
+    fixture.failNotify=true;check(!backend.clear().succeeded(),"retain pending KDE notification after restoration");
+    fixture.values=recreated;fixture.mutations=0;fixture.failNotify=false;
+    check(backend.clear().succeeded() && fixture.mutations==0 && fixture.values==recreated,
+          "Notification retry reacquired already restored KDE settings");
     qputenv("XDG_CURRENT_DESKTOP","unknown");
     check(backend.apply(config).status==Status::Unsupported,"unknown desktop explicit unsupported");
 #endif
@@ -264,6 +307,8 @@ int main(int argc, char **argv) {
     const auto args = app.arguments();
 #ifdef Q_OS_WIN
     if(args.contains("--native-roundtrip")){nativeRoundtrip();return 0;}
+    if(args.contains("--native-recovery-owner")){nativeRecoveryOwner();return 0;}
+    if(args.contains("--native-recovery")){nativeRecovery();return 0;}
 #endif
     if (args.size()==3 && args[1]=="--child") {
         if (args[2]=="hang") QThread::sleep(10);

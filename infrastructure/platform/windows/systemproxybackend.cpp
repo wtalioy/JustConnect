@@ -125,9 +125,9 @@ PlatformOperationResult PlatformSystemProxyBackend::apply(const SystemProxyConfi
 }
 PlatformOperationResult PlatformSystemProxyBackend::clear() {
     if (!snapshot) return {};
-    const auto &saved = *snapshot;
+    auto &saved = *snapshot;
     const auto failed = [](Result result) { result.mayHaveChanged = true; return result; };
-    for (auto it = saved.before.cbegin(); it != saved.before.cend(); ++it) {
+    for (auto it = saved.before.begin(); it != saved.before.end();) {
         const auto &before = it.value(); State current;
         if (auto result = query(api, it.key(), current); !result.succeeded()) return failed(result);
         const bool proxy = current.server == saved.installed.server;
@@ -135,12 +135,13 @@ PlatformOperationResult PlatformSystemProxyBackend::clear() {
         // PAC and proxy endpoint changes belong to the external writer, including their mode.
         const bool flags = (current.flags == saved.installed.flags || current.flags == before.flags)
             && (proxy || current.server == before.server) && current.pac == before.pac;
-        if (!proxy && !bypass && !flags) continue;
+        if (!proxy && !bypass && !flags) { it=saved.before.erase(it);continue; }
         if (auto result = set(api, it.key(), before, flags, proxy, bypass); !result.succeeded()) return failed(result);
         State actual;
         if (auto result = query(api, it.key(), actual); !result.succeeded()) return failed(result);
         if ((proxy && actual.server != before.server) || (bypass && actual.bypass != before.bypass)
             || (flags && actual.flags != before.flags)) return {Status::Failed, "WinINet restoration readback mismatch", true};
+        it=saved.before.erase(it);
     }
     if (auto result = notify(api); !result.succeeded()) return result;
     snapshot.reset(); return {};

@@ -104,6 +104,14 @@ static void backendTests() {
     check(backend.apply(config).succeeded(),"apply before restore failure");changes=0;failAt=1;
     check(!backend.clear().succeeded(),"native restore failure retains its original snapshot");failAt=0;
     check(backend.clear().succeeded(),"native restore resumes after failure");restored();
+    check(backend.apply(config).succeeded(),"apply private notification retry fixture");
+    auto recreated=CFPropertyListCreateDeepCopy(nullptr,value(firstPath),kCFPropertyListImmutable);
+    check(recreated,"save installed native fixture");const auto releaseRecreated=qScopeGuard([&]{CFRelease(recreated);});
+    failApply=true;check(!backend.clear().succeeded(),"retain notification after committed restoration");failApply=false;
+    check(SCPreferencesPathSetValue(prefs,firstPath,recreated) && nativeCommit(prefs),"externally recreate a formerly installed native value");
+    changes=0;check(backend.clear().succeeded() && changes==0 && CFEqual(value(firstPath),recreated),
+                    "Notification retry rewrote a confirmed native restoration");
+    check(SCPreferencesPathSetValue(prefs,firstPath,original) && nativeCommit(prefs),"clean only the explicitly recreated fixture");restored();
     check(SCNetworkServiceSetEnabled(first,false) && SCNetworkServiceSetEnabled(second,false) && nativeCommit(prefs),"disable private fixture services");
     check(backend.apply(config).status==PlatformOperationResult::Status::Unsupported,"no enabled services is explicitly unsupported");
     check(SCNetworkServiceSetEnabled(first,true) && SCNetworkServiceSetEnabled(second,true) && nativeCommit(prefs),"reenable private fixture services");

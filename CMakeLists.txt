@@ -139,6 +139,11 @@ target_link_libraries(${PROJECT_NAME}
 )
 
 justconnect_core_runtime(${PROJECT_NAME} justconnect_core)
+add_dependencies(${PROJECT_NAME} JustConnectProxyRecovery)
+if(APPLE)
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:JustConnectProxyRecovery>" "$<TARGET_FILE_DIR:${PROJECT_NAME}>/")
+endif()
 
 include(CTest)
 
@@ -172,6 +177,7 @@ if(BUILD_TESTING)
     set(MAINWINDOW_TEST_SOURCES ${SOURCE_FILES})
     list(REMOVE_ITEM MAINWINDOW_TEST_SOURCES main.cpp)
     add_executable(mainwindow_test tests/mainwindow_test.cpp ${MAINWINDOW_TEST_SOURCES})
+    add_dependencies(mainwindow_test JustConnectProxyRecovery)
     target_link_libraries(mainwindow_test PRIVATE justconnect_engine justconnect_platform
         Qt6::WebEngineWidgets Qt6::Concurrent Qt6::Svg SingleApplication::SingleApplication ${PLATFORM_LIBS})
     justconnect_core_runtime(mainwindow_test justconnect_core)

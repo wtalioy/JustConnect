@@ -2,6 +2,7 @@
 #include "infrastructure/platform/proxyvalidation.h"
 #include <QStandardPaths>
 #include <QVariant>
+#include <QSet>
 
 namespace {
 using Result = PlatformOperationResult;
@@ -182,6 +183,7 @@ QVariantMap requested(const Target &target,const QVariantMap &before,const Syste
 struct PlatformSystemProxyBackend::Snapshot {
     Target target;
     QVariantMap before, installed;
+    QSet<QString> released;
 };
 
 SystemProxyCheck PlatformSystemProxyBackend::check(const SystemProxyConfig &config) {
@@ -224,7 +226,8 @@ PlatformOperationResult PlatformSystemProxyBackend::clear() {
     if(!snapshot)return {};
     auto &saved=*snapshot;QVariantMap current;
     if(auto result=readState(runner,saved.target,current);!result.succeeded()){result.mayHaveChanged=true;return result;}
-    const auto known=[&](const QString &key){return current[key]==saved.installed[key] || current[key]==saved.before[key];};
+    const auto known=[&](const QString &key){return current[key]==saved.before[key]
+        || (!saved.released.contains(key) && current[key]==saved.installed[key]);};
     const auto refresh=[&](const QStringList &keys) {
         for(const auto &key:keys) {
             QVariant value;auto result=readValue(runner,saved.target,key,value);
@@ -236,16 +239,23 @@ PlatformOperationResult PlatformSystemProxyBackend::clear() {
     bool changed=false;
     const auto restoreGroup=[&](const QStringList &keys) {
         for(const auto &key:keys) {
+            if(saved.released.contains(key))continue;
             auto result=refresh(keys);if(!result.succeeded())return result;
-            for(const auto &part:keys)if(!known(part))return Result{};
+            for(const auto &part:keys)if(!known(part)) {
+                for(const auto &part:keys)saved.released.insert(part);
+                return Result{};
+            }
             // Credentials are valid only for the original endpoint, including during restoration.
             if(key=="http/use-authentication" && saved.before[key].toBool()
-                && (current["http/host"]!=saved.before["http/host"] || current["http/port"]!=saved.before["http/port"]))return Result{};
+                && (current["http/host"]!=saved.before["http/host"] || current["http/port"]!=saved.before["http/port"])) {
+                saved.released.insert(key);return Result{};
+            }
             if(current[key]!=saved.before[key]) {
                 result=writeValue(runner,saved.target,key,saved.before[key]);
                 if(!result.succeeded()){result.mayHaveChanged=true;return result;}
                 current[key]=saved.before[key];changed=true;
             }
+            saved.released.insert(key);
         }
         return Result{};
     };
