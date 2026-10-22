@@ -3,6 +3,7 @@
 #include "infrastructure/platform/platformcommand.h"
 #include <QCoreApplication>
 #include <QDir>
+#include <QDeadlineTimer>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QJsonDocument>
@@ -18,6 +19,9 @@
 #include <iostream>
 #include <stdexcept>
 #include <thread>
+#ifdef Q_OS_UNIX
+#include <sys/socket.h>
+#endif
 
 using Result = PlatformOperationResult;
 using Status = Result::Status;
@@ -41,6 +45,29 @@ static void store(const QJsonObject &object)
 static void touch(const QString &name)
 {
     QFile file(root+'/'+name);check(file.open(QIODevice::WriteOnly),"Create private fixture gate");
+}
+static void deliver(QLocalSocket &socket, const QByteArray &bytes)
+{
+    check(socket.write(bytes)==bytes.size(),"Queue complete fixture frame");
+    QDeadlineTimer deadline(5000);
+    while (socket.bytesToWrite() && socket.state()==QLocalSocket::ConnectedState) {
+        check(!deadline.hasExpired(),"Fixture frame delivery exceeded its budget");
+        if (!socket.waitForBytesWritten(int(deadline.remainingTime()))) {
+            check(socket.state()!=QLocalSocket::ConnectedState || socket.error()==QLocalSocket::PeerClosedError,
+                  "Fixture frame stopped before delivery or peer rejection");
+            break;
+        }
+    }
+}
+static QByteArray frame(QLocalSocket &socket)
+{
+    QDeadlineTimer deadline(5000);
+    while (!socket.canReadLine())
+        check(socket.bytesAvailable()<64*1024 && !deadline.hasExpired()
+              && socket.waitForReadyRead(int(deadline.remainingTime())),"Read a complete bounded fixture frame");
+    const auto line = socket.readLine(64*1024+1);
+    check(line.size()<=64*1024 && line.endsWith('\n'),"Fixture response frame exceeded its bound");
+    return line;
 }
 #ifdef Q_OS_MACOS
 static SCPreferencesRef privatePreferences()
@@ -103,11 +130,11 @@ int main(int argc, char **argv) try
             QLocalSocket socket;
             socket.connectToServer(application.arguments()[1]);check(socket.waitForConnected(5000),"Connect invalid-reply fixture");
             QLockFile ownership(root+"/owner.lock");ownership.setStaleLockTime(0);check(ownership.tryLock(),"Acquire invalid-reply fixture");
-            socket.write("{\"protocol\":1,\"ready\":true}\n");socket.waitForBytesWritten(5000);
-            check(socket.waitForReadyRead(5000) && QJsonDocument::fromJson(socket.readLine()).object()["operation"]=="apply",
+            deliver(socket,"{\"protocol\":1,\"ready\":true}\n");
+            check(QJsonDocument::fromJson(frame(socket)).object()["operation"]=="apply",
                   "Invalid-reply fixture requires its owned apply");
             check(backend.apply(config).succeeded(),"Apply before unconfirmed reply");
-            if (mode=="bad-reply") { socket.write("{\"status\":999}\n");socket.waitForBytesWritten(5000); }
+            if (mode=="bad-reply") deliver(socket,"{\"status\":999}\n");
             while (socket.state()==QLocalSocket::ConnectedState) socket.waitForReadyRead(20000);
             check(backend.clear().succeeded(),"Recover after a lost response");return 0;
         }
@@ -229,13 +256,20 @@ int main(int argc, char **argv) try
         QProcess worker;worker.start(QCoreApplication::applicationFilePath(),{endpoint});
         check(worker.waitForStarted(5000) && server.waitForNewConnection(5000),"Start owned protocol worker");
         auto *socket = server.nextPendingConnection();
-        check(socket->waitForReadyRead(5000) && QJsonDocument::fromJson(socket->readLine()).object()["ready"]==true,"Protocol worker handshake");
+#ifdef Q_OS_UNIX
+        const int sendBuffer = 4096;
+        check(::setsockopt(int(socket->socketDescriptor()),SOL_SOCKET,SO_SNDBUF,&sendBuffer,sizeof(sendBuffer))==0,
+              "Constrain only the owned fixture socket write buffer");
+#endif
+        check(QJsonDocument::fromJson(frame(*socket)).object()["ready"]==true,"Protocol worker handshake");
         const auto command = QByteArray("{\"operation\":\"apply\",\"config\":{\"http_port\":11081,\"socks_port\":11080,\"bypass\":\"localhost\"}}\n");
-        socket->write(command);socket->waitForBytesWritten(5000);
-        check(socket->waitForReadyRead(5000) && QJsonDocument::fromJson(socket->readLine()).object()["status"]==0,"Protocol fixture applies actual owned state");
-        socket->write(invalid);socket->waitForBytesWritten(5000);
-        check(worker.waitForFinished(5000) && worker.exitCode()==0 && state()["current"]==17,
-              "Malformed, oversized or unrecognized commands retained proxy state or performed an arbitrary operation");
+        deliver(*socket,command);
+        check(QJsonDocument::fromJson(frame(*socket)).object()["status"]==0,"Protocol fixture applies actual owned state");
+        deliver(*socket,invalid);
+        const bool finished = worker.waitForFinished(5000);
+        check(finished && worker.exitCode()==0 && state()["current"]==17,
+              qPrintable(QString("Invalid frame (%1 bytes), pending output=%2, worker error: %3")
+                  .arg(invalid.size()).arg(socket->bytesToWrite()).arg(QString::fromUtf8(worker.readAllStandardError()))));
     }
 #ifdef Q_OS_MACOS
     reset("native");
