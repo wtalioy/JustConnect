@@ -17,5 +17,6 @@ private:
     QPointer<NetworkPolicySession> session;
     QLabel *status;
     QTreeWidget *targets;
+    QTreeWidget *namespaces;
     QPushButton *refresh;
 };
