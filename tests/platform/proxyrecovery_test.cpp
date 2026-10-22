@@ -135,7 +135,11 @@ int main(int argc, char **argv) try
         qputenv("JC_PROXY_RECOVERY_FIXTURE_MODE",application.arguments()[2].toUtf8());
         ProxyRecoveryBackend backend(QCoreApplication::applicationFilePath());
         check(backend.check(config).result.succeeded() && backend.apply(config).succeeded(),"Owned host failed to apply through its recovery worker");
-        std::cout << "READY\n" << std::flush;
+        std::cout << "READY";
+#ifndef Q_OS_WIN
+        if (application.arguments()[2]=="crlf-ready") std::cout << '\r';
+#endif
+        std::cout << '\n' << std::flush;
         std::cin.get();return 0;
     }
     check(argc==1,"Unknown fixture mode");
@@ -179,11 +183,11 @@ int main(int argc, char **argv) try
         check(!partial.succeeded() && partial.mayHaveChanged && state()["current"]==111 && backend.clear().succeeded()
               && state()["current"]==17,"Partial failure lost its independent recovery owner");
     }
-    for (const auto &mode : {QString("normal"),QString("blocked-apply"),QString("denied-clear")}) {
+    for (const auto &mode : {QString("normal"),QString("crlf-ready"),QString("blocked-apply"),QString("denied-clear")}) {
         reset();
         if (mode=="denied-clear") touch("deny-clear");
         QProcess holder;
-        holder.start(QCoreApplication::applicationFilePath(),{"--hold",mode,root});
+        holder.start(QCoreApplication::applicationFilePath(),{"--hold",mode,root},QIODevice::ReadWrite|QIODevice::Text);
         check(holder.waitForStarted(5000),"Start owned proxy host fixture");
         if (mode=="blocked-apply") until([] { return state()["current"]==111; });
         else check(holder.waitForReadyRead(5000) && holder.readLine()=="READY\n","Independent owner readiness");
@@ -260,7 +264,7 @@ int main(int argc, char **argv) try
     check(SCPreferencesPathSetValue(prefs,path,initial) && SCPreferencesCommitChanges(prefs),"Commit only the private service fixture");
     auto original = CFPropertyListCreateDeepCopy(nullptr,SCPreferencesPathGetValue(prefs,CFSTR("/NetworkServices")),kCFPropertyListImmutable);
     check(original,"Save the complete private native baseline");const auto releaseOriginal = qScopeGuard([&] { CFRelease(original); });
-    QProcess holder;holder.start(QCoreApplication::applicationFilePath(),{"--hold","native",root});
+    QProcess holder;holder.start(QCoreApplication::applicationFilePath(),{"--hold","native",root},QIODevice::ReadWrite|QIODevice::Text);
     check(holder.waitForStarted(5000) && holder.waitForReadyRead(5000) && holder.readLine()=="READY\n","Start private SystemConfiguration owner");
     SCPreferencesSynchronize(prefs);
     auto installed = static_cast<CFDictionaryRef>(SCPreferencesPathGetValue(prefs,path));
@@ -286,7 +290,7 @@ int main(int argc, char **argv) try
     get({"set","org.gnome.system.proxy.http","host","'prior.invalid'"});
     get({"set","org.gnome.system.proxy.http","port","3128"});
     const auto original = get({"list-recursively","org.gnome.system.proxy"});
-    QProcess holder;holder.start(QCoreApplication::applicationFilePath(),{"--hold","native",root});
+    QProcess holder;holder.start(QCoreApplication::applicationFilePath(),{"--hold","native",root},QIODevice::ReadWrite|QIODevice::Text);
     check(holder.waitForStarted(5000) && holder.waitForReadyRead(5000) && holder.readLine()=="READY\n","Start native private proxy owner");
     check(get({"get","org.gnome.system.proxy","mode"})=="'manual'","Native worker did not apply actual GSettings");
     holder.kill();check(holder.waitForFinished(5000),"Kill only the native private fixture host");
