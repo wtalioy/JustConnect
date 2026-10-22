@@ -1,4 +1,4 @@
-#include "tundevice.h"
+#include "infrastructure/platform/tundevice.h"
 #include "infrastructure/platform/platformcommand.h"
 #include <QFileInfo>
 #include <QJsonArray>
@@ -22,9 +22,9 @@ PlatformOperationResult failed(int error)
 }
 }
 
-LinuxTunDevice::~LinuxTunDevice() { close(); }
+UnixTunDevice::~UnixTunDevice() { close(); }
 
-PlatformOperationResult LinuxTunDevice::create(const QUuid &owner)
+PlatformOperationResult UnixTunDevice::create(const QUuid &owner)
 {
     using Status = PlatformOperationResult::Status;
     if (fd >= 0 || owner.isNull()) return {Status::Failed, QStringLiteral("TUN ownership is missing or already active.")};
@@ -73,7 +73,7 @@ PlatformOperationResult LinuxTunDevice::create(const QUuid &owner)
     return {};
 }
 
-void LinuxTunDevice::close()
+void UnixTunDevice::close()
 {
     if (fd >= 0) ::close(fd);
     fd = -1;
