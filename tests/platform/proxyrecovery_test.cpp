@@ -78,11 +78,16 @@ static SCPreferencesRef privatePreferences()
     check(prefs,"Open private SystemConfiguration preferences");return prefs;
 }
 #endif
-template<class Predicate> static void until(Predicate ready)
+template<class Predicate> static void until(Predicate ready, const char *phase)
 {
     QElapsedTimer timer;timer.start();
     while (!ready()) {
-        check(timer.elapsed()<5000,"Independent recovery exceeded the fixture budget");
+        if (timer.elapsed()>=5000) {
+            const auto data = state();
+            check(false,qPrintable(QString("%1: current=%2, applies=%3, clears=%4, owner-lock=%5")
+                .arg(phase).arg(data["current"].toInt()).arg(data["applies"].toInt()).arg(data["clears"].toInt())
+                .arg(QFile::exists(root+"/owner.lock"))));
+        }
         QCoreApplication::processEvents();QThread::msleep(5);
     }
 }
@@ -103,6 +108,8 @@ public:
         auto values = state();before = values["current"].toInt();owned = true;
         values["current"] = 111;values["applies"] = values["applies"].toInt()+1;store(values);
         if (mode=="blocked-apply") {
+            // Observers wait for publication so their Windows read handles cannot block replacement.
+            touch("apply-published");
             QElapsedTimer timer;timer.start();
             while (!QFile::exists(root+"/release") && timer.elapsed()<2000) QThread::msleep(5);
         }
@@ -112,7 +119,9 @@ public:
     {
         if (!owned) return {};
         auto values = state();values["clears"] = values["clears"].toInt()+1;
-        if (QFile::exists(root+"/deny-clear")) { store(values);return {Status::PermissionDenied,"Injected cleanup denial",true}; }
+        if (QFile::exists(root+"/deny-clear")) {
+            store(values);touch("clear-denied");return {Status::PermissionDenied,"Injected cleanup denial",true};
+        }
         if (values["current"]==111) values["current"] = before;
         values["recovered"] = true;store(values);owned = false;return {};
     }
@@ -179,8 +188,9 @@ int main(int argc, char **argv) try
         while (QFile::exists(root+"/owner.lock") && timer.elapsed()<5000) QThread::msleep(5);
     });
     const auto reset = [&](const char *mode = "normal") {
-        until([] { return !QFile::exists(root+"/owner.lock"); });
+        until([] { return !QFile::exists(root+"/owner.lock"); },"Previous worker did not release fixture ownership");
         store({{"current",17},{"applies",0},{"clears",0}});
+        QFile::remove(root+"/apply-published");QFile::remove(root+"/clear-denied");
         QFile::remove(root+"/release");qputenv("JC_PROXY_RECOVERY_FIXTURE_MODE",mode);
     };
     reset();
@@ -216,17 +226,21 @@ int main(int argc, char **argv) try
         QProcess holder;
         holder.start(QCoreApplication::applicationFilePath(),{"--hold",mode,root},QIODevice::ReadWrite|QIODevice::Text);
         check(holder.waitForStarted(5000),"Start owned proxy host fixture");
-        if (mode=="blocked-apply") until([] { return state()["current"]==111; });
+        if (mode=="blocked-apply") {
+            until([] { return QFile::exists(root+"/apply-published"); },"Blocked apply did not publish fixture state");
+            check(state()["current"]==111,"Published application gate preceded the actual fixture mutation");
+        }
         else check(holder.waitForReadyRead(5000) && holder.readLine()=="READY\n","Independent owner readiness");
         holder.kill();check(holder.waitForFinished(5000) && holder.exitStatus()==QProcess::CrashExit,"Kill only the owned test host");
         if (mode=="denied-clear") {
-            until([] { return state()["clears"].toInt()>0; });
+            until([] { return QFile::exists(root+"/clear-denied"); },"Orphan recovery did not attempt its first denied restore");
             ProxyRecoveryBackend concurrent(QCoreApplication::applicationFilePath());
-            check(!concurrent.apply(config).succeeded() && state()["current"]==111,"Restart stole ownership from unresolved orphan recovery");
+            check(!concurrent.apply(config).succeeded(),"Restart stole ownership from unresolved orphan recovery");
             QFile::remove(root+"/deny-clear");
         }
         touch("release");
-        until([] { return state()["current"]==17 && !QFile::exists(root+"/owner.lock"); });
+        until([] { return !QFile::exists(root+"/owner.lock") && state()["current"]==17; },"Host SIGKILL did not complete owned recovery");
+        check(state()["applies"]==1,"A second owner modified the orphan recovery fixture");
         std::cout << "PASS: proxy host SIGKILL at " << mode.toStdString() << ", independent recovery restored its original state\n";
     }
     for (const auto *mode : {"bad-reply","withheld-reply"}) {
@@ -236,7 +250,7 @@ int main(int argc, char **argv) try
         check(!result.succeeded() && result.mayHaveChanged
               && (QString::fromLatin1(mode)!="withheld-reply" || result.status==Status::TimedOut),
               "Invalid or timed-out acknowledgement published successful application");
-        until([] { return state()["current"]==17 && !QFile::exists(root+"/owner.lock"); });
+        until([] { return !QFile::exists(root+"/owner.lock") && state()["current"]==17; },"Lost acknowledgement did not complete independent recovery");
         check(!backend.clear().succeeded() && !backend.apply(config).succeeded() && state()["applies"]==1,
               "Lost acknowledgement invented confirmed recovery or started another owner");
         std::cout << "PASS: " << mode << ", no false acknowledgement or second owner after actual worker recovery\n";
@@ -309,7 +323,7 @@ int main(int argc, char **argv) try
         SCPreferencesSynchronize(prefs);
         const auto current = SCPreferencesPathGetValue(prefs,CFSTR("/NetworkServices"));
         return !QFile::exists(root+"/owner.lock") && current && CFEqual(current,original);
-    });
+    },"Private SystemConfiguration was not restored after host SIGKILL");
     std::cout << "PASS: native private SystemConfiguration restored exactly after Qt host SIGKILL\n";
 #endif
 #ifdef Q_OS_LINUX
@@ -328,7 +342,8 @@ int main(int argc, char **argv) try
     check(holder.waitForStarted(5000) && holder.waitForReadyRead(5000) && holder.readLine()=="READY\n","Start native private proxy owner");
     check(get({"get","org.gnome.system.proxy","mode"})=="'manual'","Native worker did not apply actual GSettings");
     holder.kill();check(holder.waitForFinished(5000),"Kill only the native private fixture host");
-    until([&] { return !QFile::exists(root+"/owner.lock") && get({"list-recursively","org.gnome.system.proxy"})==original; });
+    until([&] { return !QFile::exists(root+"/owner.lock") && get({"list-recursively","org.gnome.system.proxy"})==original; },
+          "Private GSettings was not restored after host SIGKILL");
     std::cout << "PASS: native private GSettings restored exactly after Qt host SIGKILL\n";
 #endif
     std::cout << "PASS: independent proxy ownership, normal/partial recovery, external preservation, single owner and bounded command validation\n";
