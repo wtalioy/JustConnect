@@ -7,6 +7,7 @@
 #include <QPixmap>
 #include <QThread>
 #include <QTreeWidget>
+#include <QTabWidget>
 #include <atomic>
 #include <iostream>
 #include <memory>
@@ -55,13 +56,22 @@ int main(int argc, char **argv) try
     std::atomic_bool fail = false;
     NetworkPolicySession session(&engine, [&] {
         return fail ? DnsSnapshot{{PlatformOperationResult::Status::TimedOut, {}}, {}}
-                    : DnsSnapshot{{}, {{"resolver", "fixture"}}};
+                    : DnsSnapshot{{}, {
+                        {"resolved", QJsonObject{{"status", "available"}, {"Domains", QJsonArray{
+                            QJsonObject{{"domain", "."}, {"interface_index", 0}, {"route_only", true}},
+                            QJsonObject{{"domain", "mesh.test"}, {"interface_index", qint64(2147483649LL)}, {"route_only", false}}}}}},
+                        {"nrpt", QJsonArray{QJsonObject{{"Namespace", QJsonArray{"host", ".mesh.test"}}}}},
+                        {"dynamic_store", QJsonObject{
+                            {"State:/Network/Service/a/DNS", QJsonObject{{"SupplementalMatchDomains", QJsonArray{""}}}},
+                            {"Setup:/Network/Service/a/DNS", QJsonObject{{"SearchDomains", QJsonArray{"saved.test"}}}}}}}};
     });
     NetworkPolicyWindow window(&session);
     window.show();
     auto *tree = window.findChild<QTreeWidget *>("networkPolicyTargets");
     auto *refresh = window.findChild<QPushButton *>("refreshNetworkPolicy");
     auto *status = window.findChild<QLabel *>("networkPolicyStatus");
+    auto *dns = window.findChild<QTreeWidget *>("networkPolicyDnsNamespaces");
+    auto *tabs = window.findChild<QTabWidget *>();
     check(tree && refresh && status && tree->topLevelItemCount() == 0 && !refresh->isEnabled(), "Inactive model became actionable");
     emit engine.sessionStarted("1");
     check(tree->topLevelItemCount() == 0, "Pending model retained rows");
@@ -77,6 +87,21 @@ int main(int argc, char **argv) try
           && lan->text(2).contains("TCP") && lan->text(2).contains("22")
           && lan->text(2).contains("ssh.campus.test") && lan->text(2).contains("192.168.24.53"),
           "Native source, protocol/port or DNS role lost in explanation");
+    check(dns && tabs && dns->topLevelItemCount() == 6, "DNS namespace sources are reachable in a separate tab");
+    tabs->setCurrentWidget(dns);
+    check(dns->isVisible() && dns->topLevelItem(0)->text(0).contains("根域")
+          && dns->topLevelItem(1)->text(1).contains("搜索后缀及路由域")
+          && dns->topLevelItem(1)->text(2).contains("LAN <bridge>&")
+          && dns->topLevelItem(2)->text(0) == "host" && dns->topLevelItem(2)->text(1).contains("原生表达式"),
+          "DNS root, native NRPT expression or original interface source misrepresented");
+    bool saved=false, current=false;
+    for(int i=0;i<dns->topLevelItemCount();++i) {
+        auto *item=dns->topLevelItem(i);
+        if(item->text(0)=="saved.test") saved=item->text(2).startsWith("已保存 DNS 配置");
+        if(item->text(0).contains("根域") && item->text(2).contains("State:")) current=item->text(2).startsWith("当前 DNS 配置");
+    }
+    check(saved && current,"Stored and current macOS resolver inputs collapsed into one active claim");
+    tabs->setCurrentWidget(tree);
     if (app.arguments().size() == 2) {
         QCoreApplication::processEvents();
         check(window.grab().save(app.arguments()[1]), "Save controlled UI preview");
@@ -84,13 +109,13 @@ int main(int argc, char **argv) try
     fail = true;
     refresh->click();
     until([&] { return session.status() == CoreEngine::RequestStatus::Failed; });
-    check(tree->topLevelItemCount() == 0 && refresh->isEnabled(), "Failed refresh retained stale network details");
+    check(tree->topLevelItemCount() == 0 && dns->topLevelItemCount() == 0 && refresh->isEnabled(), "Failed refresh retained stale network details");
     fail = false;
     refresh->click();
     until([&] { return session.status() == CoreEngine::RequestStatus::Success; });
     check(tree->topLevelItemCount() == 3, "Retry did not restore complete inspection");
     engine.stop();
-    check(tree->topLevelItemCount() == 0 && !refresh->isEnabled() && engine.policies == 0,
+    check(tree->topLevelItemCount() == 0 && dns->topLevelItemCount() == 0 && !refresh->isEnabled() && engine.policies == 0,
           "Inspection changed routing preference or retained disconnected facts");
     Engine detachedEngine;
     auto owned = std::make_unique<NetworkPolicySession>(&detachedEngine,

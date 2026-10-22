@@ -5,6 +5,7 @@
 #include <QLabel>
 #include <QMap>
 #include <QPushButton>
+#include <QTabWidget>
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
@@ -73,10 +74,45 @@ QString campusSource(const QJsonObject &resources, const QJsonObject &conflict)
     }
     return QStringLiteral("资源信息不可用");
 }
+QString dnsSource(const QJsonObject &model, const QJsonObject &source)
+{
+    const auto provider = source["provider"].toString();
+    const auto network = model["network"].toObject(), dns = model["dns"].toObject();
+    if (provider == "resolv_conf") return QStringLiteral("解析器文件：%1，第 %2 行")
+        .arg(dns["resolv_conf"].toObject()["path"].toString()).arg(source["line"].toInteger() + 1);
+    if (provider == "resolved") {
+        const auto index = source["interface_index"].toInteger();
+        return index == 0 ? QStringLiteral("系统解析服务：全局")
+            : QStringLiteral("系统解析服务：%1（%2）").arg(interfaceName(network, index)).arg(index);
+    }
+    if (provider == "nrpt") return QStringLiteral("生效的系统名称规则 %1").arg(source["row"].toInteger() + 1);
+    if (provider == "global") return QStringLiteral("系统搜索列表");
+    if (provider == "clients") {
+        const auto row = at(dns["clients"].toArray(), source["row"]);
+        const auto index = row["InterfaceIndex"].toInteger();
+        return QStringLiteral("接口：%1（%2）").arg(interfaceName(network, index)).arg(index);
+    }
+    if (provider == "dynamic_store") {
+        const auto key = source["key"].toString();
+        return (key.startsWith("State:") ? QStringLiteral("当前 DNS 配置：") : QStringLiteral("已保存 DNS 配置：")) + key;
+    }
+    return QStringLiteral("来源信息不可用");
+}
+QString dnsRole(const QString &role)
+{
+    if (role == "search") return QStringLiteral("搜索后缀");
+    if (role == "route") return QStringLiteral("路由域");
+    if (role == "search_route") return QStringLiteral("搜索后缀及路由域");
+    if (role == "nrpt") return QStringLiteral("系统名称规则（原生表达式）");
+    if (role == "search_configuration") return QStringLiteral("搜索后缀配置");
+    if (role == "match_configuration") return QStringLiteral("名称匹配配置");
+    if (role == "domain_configuration") return QStringLiteral("主域配置");
+    return QStringLiteral("用途未知");
+}
 }
 
 NetworkPolicyWindow::NetworkPolicyWindow(NetworkPolicySession *input, QWidget *parent)
-    : QDialog(parent), session(input), status(new QLabel(this)), targets(new QTreeWidget(this))
+    : QDialog(parent), session(input), status(new QLabel(this)), targets(new QTreeWidget(this)), namespaces(new QTreeWidget(this))
 {
     setWindowTitle(QStringLiteral("网络范围与校园地址重叠"));
     resize(920, 560);
@@ -90,6 +126,16 @@ NetworkPolicyWindow::NetworkPolicyWindow(NetworkPolicySession *input, QWidget *p
     targets->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     targets->header()->setSectionResizeMode(1, QHeaderView::Stretch);
     targets->header()->setSectionResizeMode(2, QHeaderView::Stretch);
+    namespaces->setObjectName("networkPolicyDnsNamespaces");
+    namespaces->setRootIsDecorated(false);
+    namespaces->setHeaderLabels({QStringLiteral("名称／表达式"), QStringLiteral("用途"), QStringLiteral("来源")});
+    namespaces->setWordWrap(true);
+    namespaces->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    namespaces->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    namespaces->header()->setSectionResizeMode(2, QHeaderView::Stretch);
+    auto *tabs = new QTabWidget(this);
+    tabs->addTab(targets, QStringLiteral("地址范围"));
+    tabs->addTab(namespaces, QStringLiteral("DNS 名称与来源"));
     auto *buttons = new QDialogButtonBox(this);
     refresh = buttons->addButton(QStringLiteral("刷新"), QDialogButtonBox::ActionRole);
     refresh->setObjectName("refreshNetworkPolicy");
@@ -98,7 +144,7 @@ NetworkPolicyWindow::NetworkPolicyWindow(NetworkPolicySession *input, QWidget *p
     explanation->setWordWrap(true);
     auto *layout = new QVBoxLayout(this);
     layout->addWidget(status);
-    layout->addWidget(targets);
+    layout->addWidget(tabs);
     layout->addWidget(explanation);
     layout->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
@@ -111,6 +157,7 @@ NetworkPolicyWindow::NetworkPolicyWindow(NetworkPolicySession *input, QWidget *p
 void NetworkPolicyWindow::updateModel()
 {
     targets->clear();
+    namespaces->clear();
     refresh->setEnabled(false);
     if (!session) { status->setText(QStringLiteral("连接已结束。")); return; }
     using Status = CoreEngine::RequestStatus;
@@ -138,5 +185,13 @@ void NetworkPolicyWindow::updateModel()
         overlaps.removeDuplicates();
         new QTreeWidgetItem(targets, {scope["prefix"].toString(), origins.join('\n'), overlaps.join('\n')});
     }
-    status->setText(QStringLiteral("检测到 %1 个原网络范围、%2 项校园地址重叠。").arg(scopes.size()).arg(conflicts.size()));
+    const auto domains = model["dns_namespaces"].toArray();
+    for (const auto &value : domains) {
+        const auto item = value.toObject();
+        auto name = item["name"].toString();
+        if (name.isEmpty() || name == ".") name = QStringLiteral("默认查询范围（根域）");
+        new QTreeWidgetItem(namespaces, {name, dnsRole(item["role"].toString()), dnsSource(model, item["source"].toObject())});
+    }
+    status->setText(QStringLiteral("检测到 %1 个原网络范围、%2 项校园地址重叠、%3 项 DNS 名称来源。")
+        .arg(scopes.size()).arg(conflicts.size()).arg(domains.size()));
 }
