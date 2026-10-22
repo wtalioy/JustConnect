@@ -101,14 +101,16 @@ int main(int argc, char **argv) try
     }
     result = {};
     result.status = PlatformOperationResult::Status::TimedOut;
-    auto traced = [&](const QString &p, const QStringList &a) {
-        auto command = runner(p,a);
-        command.standardError = "private.campus.test\nJCDNS phase=nrpt elapsed_ms=321\nJCDNS phase=privatecorp elapsed_ms=999\n";
-        return command;
-    };
-    const auto timed = readWindowsDnsSnapshot(traced);
-    check(timed.result.status==result.status && timed.data.isEmpty() && timed.result.detail.contains("nrpt at 321 ms")
-          && !timed.result.detail.contains("private"), "Timeout lost its safe phase or exposed raw diagnostics");
+    for (const auto &stage : {QString("nrpt"), QString("script")}) {
+        auto traced = [&](const QString &p, const QStringList &a) {
+            auto command = runner(p,a);
+            command.standardError = "private.campus.test\nJCDNS phase=" + stage + " elapsed_ms=321\nJCDNS phase=privatecorp elapsed_ms=999\n";
+            return command;
+        };
+        const auto timed = readWindowsDnsSnapshot(traced);
+        check(timed.result.status==result.status && timed.data.isEmpty() && timed.result.detail.contains(stage+" at 321 ms")
+              && !timed.result.detail.contains("private"), "Timeout lost its safe entry/CIM phase or exposed raw diagnostics");
+    }
     result = {};
     for (const auto &invalid : {QString("{}"), QString("warning\n") + output, QString(262145, 'x')}) {
         output = invalid;
