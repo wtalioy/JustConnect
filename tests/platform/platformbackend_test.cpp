@@ -169,7 +169,7 @@ static void nativeRecovery()
     check(nativeRead(nativeOriginal),"Read native recovery baseline");nativeSaved=true;std::atexit(nativeRestore);
     const WinState original{PROXY_TYPE_DIRECT|PROXY_TYPE_AUTO_PROXY_URL,"http=prior.invalid:3128","old.invalid","https://pac.invalid/original.pac"};
     check(nativeWrite(original),"Seed disposable native recovery baseline");
-    QProcess holder;holder.start(QCoreApplication::applicationFilePath(),{"--native-recovery-owner"});
+    QProcess holder;holder.start(QCoreApplication::applicationFilePath(),{"--native-recovery-owner"},QIODevice::ReadWrite|QIODevice::Text);
     check(holder.waitForStarted(5000) && holder.waitForReadyRead(10000) && holder.readLine()=="READY\n","Start native recovery host fixture");
     WinState current;
     check(nativeRead(current) && current.proxy.contains("127.0.0.1:11081"),"Independent worker did not apply native WinINet");
