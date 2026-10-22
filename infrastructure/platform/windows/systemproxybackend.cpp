@@ -1,8 +1,14 @@
 #include "infrastructure/platform/platformsystemproxybackend.h"
 #include "infrastructure/platform/proxyvalidation.h"
+#include "application/credentialstore.h"
 #include <raserror.h>
 #include <vector>
 #include <QMap>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QSysInfo>
+#include <QUuid>
+#include <limits>
 
 namespace {
 using Result = PlatformOperationResult;
@@ -80,7 +86,57 @@ Result notify(const WindowsProxyApi &api) {
 struct PlatformSystemProxyBackend::Snapshot {
     QMap<QString, State> before;
     State installed;
+    SystemProxyConfig config;
+    QUuid owner = QUuid::createUuid();
 };
+
+QJsonObject PlatformSystemProxyBackend::recoverySnapshot() const {
+    if (!snapshot) return {};
+    QJsonArray connections;
+    for (auto it=snapshot->before.cbegin();it!=snapshot->before.cend();++it) {
+        const auto &state=it.value();
+        connections.append(QJsonObject{{"name",it.key()},{"flags",qint64(state.flags)},
+            {"server",state.server},{"bypass",state.bypass},{"pac",state.pac}});
+    }
+    return {{"schema_version",1},{"platform","windows"},
+        {"machine",QString::fromLatin1(QSysInfo::machineUniqueId().toHex())},
+        {"owner",snapshot->owner.toString(QUuid::WithoutBraces)},
+        {"config",QJsonObject{{"http_port",snapshot->config.httpPort},
+            {"socks_port",snapshot->config.socksPort},{"bypass",snapshot->config.bypass}}},
+        {"connections",connections}};
+}
+
+PlatformOperationResult PlatformSystemProxyBackend::recover(const QJsonObject &record) {
+    if (snapshot) return {Status::Failed,"Existing system proxy ownership must be restored first",true};
+    const auto invalid=[] { return Result{Status::Failed,"Invalid or foreign Windows proxy recovery record"}; };
+    const auto bytes=QJsonDocument(record).toJson(QJsonDocument::Compact);
+    const auto machine=QString::fromLatin1(QSysInfo::machineUniqueId().toHex());
+    const auto ownerText=record["owner"].toString();const QUuid owner(ownerText);
+    if (bytes.size()>CredentialStore::MaxBytes || QJsonDocument::fromJson(bytes).object()!=record || record.size()!=6
+        || record["schema_version"]!=1 || record["platform"]!="windows" || machine.isEmpty()
+        || record["machine"]!=machine || owner.isNull() || owner.toString(QUuid::WithoutBraces)!=ownerText
+        || !record["config"].isObject() || !record["connections"].isArray()) return invalid();
+    const auto config=record["config"].toObject();
+    const auto http=config["http_port"].toInteger(-1),socks=config["socks_port"].toInteger(-1);
+    if (config.size()!=3 || http<1 || http>65535 || socks<1 || socks>65535 || !config["bypass"].isString()) return invalid();
+    auto pending=std::make_shared<Snapshot>();pending->owner=owner;
+    pending->config={int(http),int(socks),config["bypass"].toString()};
+    if (!ProxyValidation::config(pending->config).succeeded()) return invalid();
+    pending->installed={PROXY_TYPE_DIRECT|PROXY_TYPE_PROXY,server(pending->config),ProxyValidation::bypass(pending->config.bypass).join(';'),{}};
+    const auto connections=record["connections"].toArray();
+    for (const auto &value:connections) {
+        if (!value.isObject()) return invalid();
+        const auto connection=value.toObject();const auto flags=connection["flags"].toInteger(-1);
+        if (connection.size()!=5 || flags<0 || quint64(flags)>(std::numeric_limits<DWORD>::max)()) return invalid();
+        for (const auto *key:{"name","server","bypass","pac"})
+            if (!connection[key].isString() || connection[key].toString().contains(QChar(0))) return invalid();
+        const auto name=connection["name"].toString();
+        if (name.size()>RAS_MaxEntryName || pending->before.contains(name)) return invalid();
+        pending->before.insert(name,{DWORD(flags),connection["server"].toString(),connection["bypass"].toString(),connection["pac"].toString()});
+    }
+    snapshot=pending;
+    return clear();
+}
 
 SystemProxyCheck PlatformSystemProxyBackend::check(const SystemProxyConfig &config) {
     if (auto valid = ProxyValidation::config(config); !valid.succeeded()) return {valid};
@@ -102,6 +158,7 @@ PlatformOperationResult PlatformSystemProxyBackend::apply(const SystemProxyConfi
     QStringList names;
     if (auto result = connections(api, names); !result.succeeded()) return result;
     auto pending = std::make_shared<Snapshot>();
+    pending->config = config;
     for (const auto &name : names) {
         State state;
         if (auto result = query(api, name, state); !result.succeeded()) return result;

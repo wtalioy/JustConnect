@@ -12,6 +12,8 @@
 #include <cstdlib>
 #ifdef Q_OS_WIN
 #include <raserror.h>
+#include <QJsonArray>
+#include <QJsonDocument>
 #endif
 
 static void check(bool ok, const char *message) { if (!ok) { std::cerr << message << '\n'; std::exit(1); } }
@@ -24,9 +26,10 @@ struct WinState { DWORD flags=PROXY_TYPE_DIRECT; QString proxy,bypass,pac; };
 QMap<QString,WinState> states;
 QStringList rasNames{"fixture connection"};
 bool denyQuery=false,denySet=false,ignoreSet=false,denyNotify=false,denyRas=false;
-int writes=0,failAt=0;
+int writes=0,failAt=0,queries=0;
 DWORD queryError=ERROR_ACCESS_DENIED;
 BOOL WINAPI query(HINTERNET, DWORD, LPVOID buffer, LPDWORD) {
+    ++queries;
     if(denyQuery){SetLastError(queryError);return FALSE;}
     auto *list=static_cast<INTERNET_PER_CONN_OPTION_LISTW *>(buffer);
     const auto &state=states[QString::fromWCharArray(list->pszConnection?list->pszConnection:L"")];
@@ -104,6 +107,67 @@ static void backendTests() {
     check(backend.clear().succeeded(),"restore owned fields around external changes");
     check(states[""].proxy=="http=external.invalid:8899" && states[""].bypass=="external.invalid" && states[""].flags==(PROXY_TYPE_DIRECT|PROXY_TYPE_PROXY),"external fields and dependent mode retained");
     check(states["new connection"].proxy=="new.invalid:1234" && states["fixture connection"].proxy=="socks=old.invalid:1080","new connections untouched and original RAS restored");
+}
+
+static void recoveryRecordTests() {
+    rasNames={QStringLiteral("fixture \u6821\u56ed")};states.clear();
+    const WinState original{PROXY_TYPE_DIRECT|PROXY_TYPE_AUTO_PROXY_URL,"http=user:secret@prior.invalid:3128","old.invalid","https://pac.invalid/original?token=private"};
+    states[""]=original;states[rasNames[0]]={PROXY_TYPE_DIRECT,"socks=old.invalid:1080","ras.invalid",{}};
+    QJsonObject record;
+    {
+        PlatformSystemProxyBackend owner(WindowsProxyApi{query,set,entries});
+        check(owner.apply(config).succeeded(),"Apply owned proxy before snapshot handoff");
+        record=QJsonDocument::fromJson(QJsonDocument(owner.recoverySnapshot()).toJson()).object();
+    }
+    const auto reject=[&](const QJsonObject &invalid) {
+        writes=queries=0;PlatformSystemProxyBackend fresh(WindowsProxyApi{query,set,entries});
+        check(!fresh.recover(invalid).succeeded() && writes==0 && queries==0,
+              "Invalid recovery record reached a native API or reported restored ownership");
+    };
+    reject({});
+    for (const auto *field:{"schema_version","platform","machine","owner","config","connections"}) {
+        auto invalid=record;invalid.remove(field);reject(invalid);
+    }
+    for (const auto *field:{"platform","machine","owner"}) {
+        auto invalid=record;invalid[field]="foreign";reject(invalid);
+    }
+    auto invalid=record;invalid["schema_version"]=2;reject(invalid);
+    invalid=record;invalid["extra"]=true;reject(invalid);
+    auto connections=record["connections"].toArray();connections.append(connections[0]);
+    invalid=record;invalid["connections"]=connections;reject(invalid);
+    for (const auto &flags:QJsonArray{-1,0.5,4294967296.0,"3",true}) {
+        connections=record["connections"].toArray();auto connection=connections[0].toObject();connection["flags"]=flags;connections[0]=connection;
+        invalid=record;invalid["connections"]=connections;reject(invalid);
+    }
+    for (const auto *field:{"name","server","bypass","pac"}) {
+        connections=record["connections"].toArray();auto connection=connections[0].toObject();connection[field]=QString("bad")+QChar(0);connections[0]=connection;
+        invalid=record;invalid["connections"]=connections;reject(invalid);
+    }
+    connections=record["connections"].toArray();auto connection=connections[0].toObject();connection["name"]=QString(RAS_MaxEntryName+1,'x');connections[0]=connection;
+    invalid=record;invalid["connections"]=connections;reject(invalid);
+    invalid=record;auto badConfig=invalid["config"].toObject();badConfig["http_port"]=0;invalid["config"]=badConfig;reject(invalid);
+    invalid=record;invalid["machine"]=QString(65536,'x');reject(invalid);
+    PlatformSystemProxyBackend fresh(WindowsProxyApi{query,set,entries});
+    check(fresh.recover(record).succeeded() && fresh.recoverySnapshot().isEmpty(),"Fresh backend did not release restored snapshot ownership");
+    check(states[""].flags==original.flags && states[""].proxy==original.proxy && states[""].bypass==original.bypass && states[""].pac==original.pac
+          && states[rasNames[0]].proxy=="socks=old.invalid:1080","Serialized recovery lost distinct connection values or sensitive PAC/proxy material");
+    {
+        PlatformSystemProxyBackend owner(WindowsProxyApi{query,set,entries});
+        check(owner.apply(config).succeeded(),"Apply before external change and fresh recovery");record=owner.recoverySnapshot();
+    }
+    states[""].proxy="http=external.invalid:8899";states[""].pac="https://pac.invalid/external";
+    PlatformSystemProxyBackend external(WindowsProxyApi{query,set,entries});
+    check(external.recover(record).succeeded() && states[""].proxy=="http=external.invalid:8899" && states[""].pac=="https://pac.invalid/external"
+          && states[""].flags==(PROXY_TYPE_DIRECT|PROXY_TYPE_PROXY),"Fresh recovery overwrote external endpoints, PAC or their dependent mode");
+    check(fresh.apply(config).succeeded(),"Apply before notification-only recovery handoff");
+    writes=queries=0;
+    check(!fresh.recover(record).succeeded() && writes==0 && queries==0,"Import replaced an active backend ownership snapshot");
+    const auto recreated=states[""];denyNotify=true;check(!fresh.clear().succeeded(),"Keep unacknowledged notification state");
+    record=fresh.recoverySnapshot();denyNotify=false;states[""]=recreated;writes=0;
+    PlatformSystemProxyBackend notifyOnly(WindowsProxyApi{query,set,entries});
+    check(notifyOnly.recover(record).succeeded() && writes==0 && states[""].proxy==recreated.proxy,
+          "Fresh recovery reacquired an already released external same-value recreation");
+    std::cout<<"PASS: bounded machine-bound Windows snapshot handoff, strict rejection, sensitive values and released ownership\n";
 }
 
 namespace {
@@ -420,5 +484,8 @@ int main(int argc, char **argv) {
     check(runPlatformCommand(self,{"--child","denied"}).result.status==Status::PermissionDenied,"permission denial classified");
     check(!runPlatformCommand(self+".missing",{}).result.succeeded(),"failed process start rejected");
     backendTests();
+#ifdef Q_OS_WIN
+    recoveryRecordTests();
+#endif
     std::cout << "PASS: process statuses, backend failures, partial changes and readback\n";
 }
