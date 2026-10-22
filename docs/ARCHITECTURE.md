@@ -36,7 +36,7 @@ S4 的 `policy.ProtectionPolicy` 由生产拨号、校园 DNS 与保活共用，
 
 Linux 平台另提供工作线程使用的 `readLinuxDnsSnapshot`：保留实际 `resolv.conf` 的路径、符号链接目标和内容，再从已经运行的 systemd-resolved 读取全局／接口 DNS、IPv4／IPv6、扩展端口／TLS 名称、路由域与搜索域、接口默认解析路径和安全模式。调用使用现有 Qt DBus，禁止自动启动服务，整次 D-Bus 读取限时五秒；文件及序列化结果有上限，仅在 UTF-8 可无损往返时发布文件文本，失败不交付部分结果。服务缺失单独标记，不把空列表解释为无保护域。该数据目前仅接入原生及私有总线回归，尚未进入应用策略协调；这也不是 NSS、NetworkManager 或加密 DNS 提供者的完整恢复记录。接口来源见 [systemd-resolved D-Bus 契约](https://www.freedesktop.org/software/systemd/man/258/org.freedesktop.resolve1.html)。
 
-Windows 的 `readWindowsDnsSnapshot` 使用固定系统 PowerShell 路径与系统 DnsClient 模块，读取接口服务器、连接／全局后缀、[生效 NRPT](https://learn.microsoft.com/en-us/powershell/module/dnsclient/get-dnsclientnrptpolicy)及可用时的 DoH 注册信息。可选能力仅查已导入的系统 DnsClient 模块，不触发外部模块搜索／导入。命名空间／服务器统一为数组，保留查询、回退、DirectAccess 与 DNSSEC 约束，不将空值改成允许回落；DoH 注册不代表当前连接已启用 DoH。命令限时十秒、结果限 256 KiB，命令失败或无效结构不交付部分数据。三平台共用 `DnsSnapshot` 结果，读取尚未进入应用会话，完整系统恢复记录仍待补齐。
+Windows 的 `readWindowsDnsSnapshot` 使用固定系统 PowerShell 路径与系统 DnsClient 的必要 CIM 组件及 NRPT 类型映射，读取接口服务器、连接／全局后缀、[生效 NRPT](https://learn.microsoft.com/en-us/powershell/module/dnsclient/get-dnsclientnrptpolicy)及可用时的 DoH 注册信息。可选能力仅查已导入的系统 CIM 组件，不触发外部模块搜索／导入。命名空间／服务器统一为数组，保留查询、回退、DirectAccess 与 DNSSEC 约束，不将空值改成允许回落；DoH 注册不代表当前连接已启用 DoH。命令限时十秒、结果限 256 KiB，命令失败或无效结构不交付部分数据。三平台共用 `DnsSnapshot` 结果，读取尚未进入应用会话，完整系统恢复记录仍待补齐。
 
 macOS 的 `readMacDnsSnapshot` 通过公开的 [SCDynamicStoreCopyMultiple](https://developer.apple.com/documentation/systemconfiguration/scdynamicstorecopymultiple(_:_:_:)) 一次读取 State／Setup 下的网络 DNS 字典，分别保留当前及配置来源的完整键名、服务器／搜索域／补充分域、端口和排序字段。仅复制原生文本、布尔、无损整数与容器；不支持的值、过深／过大数据或读取失败不交付部分结果。沿用 SystemConfiguration／CoreFoundation，没有私有 DNS API 或 scutil 文本解析。该视图不保证覆盖 Network Extension 等解析提供者，也尚未进入应用会话的超时／取消及恢复记录。
 

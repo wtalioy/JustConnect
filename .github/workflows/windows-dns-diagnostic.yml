@@ -25,7 +25,7 @@ jobs:
           source = pathlib.Path('infrastructure/platform/windows/dnssnapshot.cpp').read_text(encoding='utf-8')
           query = re.search(r'R"PS\((.*?)\)PS"', source, re.S).group(1)
           system = pathlib.Path(os.environ['SystemRoot'])
-          phases = [('Import-Module', 'import'), ('$policies=@(', 'nrpt'),
+          phases = [('Import-Module', 'import'), ('Update-TypeData', 'types'), ('$policies=@(', 'nrpt'),
                     ('$dohSupported=', 'doh_discovery'), ('$doh=@()', 'doh_query'),
                     ('$interfaces=@(', 'interfaces'), ('$clients=@(', 'clients'),
                     ('$global=Get-', 'global'), ('ConvertTo-Json', 'serialize')]
