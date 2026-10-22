@@ -17,7 +17,7 @@ import (
 )
 
 func TestProtectedCampusDNSCannotReachTunnelOrPublicResolver(t *testing.T) {
-	snapshot, err := policy.NewProtectionPolicy([]string{"192.0.2.0/24"}, nil)
+	snapshot, err := policy.NewProtectionPolicy([]string{"192.0.2.0/24"}, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,6 +40,98 @@ func TestProtectedCampusDNSCannotReachTunnelOrPublicResolver(t *testing.T) {
 }
 
 var domainResourceMatchSink bool
+
+func TestNativeNamespaceIgnoresCampusRecordsCacheAndDNSFallback(t *testing.T) {
+	listener, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var original, escaped atomic.Int32
+	server := &dns.Server{PacketConn: listener, Handler: dns.HandlerFunc(func(w dns.ResponseWriter, q *dns.Msg) {
+		original.Add(1)
+		reply := new(dns.Msg)
+		reply.SetReply(q)
+		if strings.HasPrefix(q.Question[0].Name, "missing.") {
+			reply.Rcode = dns.RcodeNameError
+		} else if q.Question[0].Qtype == dns.TypeA {
+			reply.Answer = []dns.RR{&dns.A{Hdr: dns.RR_Header{Name: q.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60}, A: net.IPv4(127, 0, 0, 1)}}
+		}
+		w.WriteMsg(reply)
+	})}
+	go server.ActivateAndServe()
+	previous := net.DefaultResolver
+	net.DefaultResolver = &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, network, listener.LocalAddr().String())
+	}}
+	t.Cleanup(func() { net.DefaultResolver = previous; server.Shutdown(); listener.Close() })
+	p, err := policy.NewProtectionPolicy(nil, nil, []policy.NameRule{{Kind: "suffix", Value: "mesh.test"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := NewResolver(nil, "", "", 60, client.DomainResources{".mesh.test": {{Protocol: "tcp", PortMin: 1, PortMax: 65535}}},
+		map[string][]net.IP{"host.mesh.test": {net.IPv4(198, 51, 100, 1)}}, true)
+	defer r.Close()
+	r.ProtectionPolicy = func() *policy.ProtectionPolicy { return &p }
+	forbidden := &net.Resolver{PreferGo: true, Dial: func(context.Context, string, string) (net.Conn, error) {
+		escaped.Add(1)
+		return nil, errors.New("campus/public escape")
+	}}
+	r.remoteUDPResolver, r.remoteTCPResolver, r.secondaryResolver = forbidden, forbidden, forbidden
+	r.setDNSCache("host.mesh.test", net.IPv4(203, 0, 113, 1), true)
+	ctx, ip, err := r.Resolve(t.Context(), "HOST.MESH.TEST.")
+	if err != nil || !ip.Equal(net.IPv4(127, 0, 0, 1)) || original.Load() == 0 || escaped.Load() != 0 || ctx.Value(ContextKeyDomainResource) != nil {
+		t.Fatal("protected namespace used campus data", ip, err, original.Load(), escaped.Load())
+	}
+	if ctx.Value(ContextKeyResolveHost) != "HOST.MESH.TEST." {
+		t.Fatal("native absolute query lost its trailing dot")
+	}
+	if _, ip, err = r.Resolve(t.Context(), "missing.mesh.test"); err == nil || ip != nil || escaped.Load() != 0 {
+		t.Fatal("native lookup failure escaped", ip, err)
+	}
+	queries := original.Load()
+	if _, _, err = r.ResolveCampus(t.Context(), "host.mesh.test", true); !errors.Is(err, policy.ErrProtectedTarget) || original.Load() != queries || escaped.Load() != 0 {
+		t.Fatal("forced campus path queried a protected namespace", err)
+	}
+	p, err = policy.NewProtectionPolicy(nil, nil, []policy.NameRule{{Kind: "suffix", Value: "mesh.test"}}, []string{"host.mesh.test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.dnsCache.Flush()
+	ctx, ip, err = r.Resolve(t.Context(), "host.mesh.test")
+	if err != nil || !ip.Equal(net.IPv4(198, 51, 100, 1)) || ctx.Value(ContextKeyDomainResource) == nil || original.Load() != queries {
+		t.Fatal("exact campus choice did not use authorized campus resolution", ip, err)
+	}
+	p, _ = policy.NewProtectionPolicy(nil, nil, []policy.NameRule{{Kind: "suffix", Value: "mesh.test"}}, nil)
+	r.setDNSCache("host.mesh.test", net.IPv4(198, 51, 100, 1), true)
+	if _, ip, err := r.Resolve(t.Context(), "host.mesh.test"); err != nil || !ip.Equal(net.IPv4(127, 0, 0, 1)) {
+		t.Fatal("removed name exception retained a campus cache answer", ip, err)
+	}
+	entered := make(chan struct{}, 2)
+	net.DefaultResolver = &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		select {
+		case entered <- struct{}{}:
+		default:
+		}
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}}
+	done := make(chan error, 1)
+	go func() { _, _, err := r.Resolve(t.Context(), "slow.mesh.test"); done <- err }()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("native lookup did not start")
+	}
+	r.Close()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("closed native lookup succeeded")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("native lookup survived resolver close")
+	}
+}
 
 func TestCampusResolutionReusesOnlyTunnelDNSAnswers(t *testing.T) {
 	listener, err := net.ListenPacket("udp4", "127.0.0.1:0")

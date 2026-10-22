@@ -22,7 +22,7 @@ import (
 
 func TestKeepAliveDoesNotProbeProtectedOriginalTargets(t *testing.T) {
 	s := &probeStack{serve: func(net.Conn) { t.Error("probe crossed protected network") }}
-	snapshot, err := policy.NewProtectionPolicy([]string{"192.0.2.0/24"}, nil)
+	snapshot, err := policy.NewProtectionPolicy([]string{"192.0.2.0/24"}, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

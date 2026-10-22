@@ -188,7 +188,7 @@ func ParseConfig(data []byte) (Config, Status) {
 		if c.Operation == "auth_methods" || c.Protection.Protected == nil || c.Protection.Campus == nil {
 			return Config{}, InvalidArgument
 		}
-		initial, err := policy.NewProtectionPolicy(c.Protection.Protected, c.Protection.Campus)
+		initial, err := policy.NewProtectionPolicy(c.Protection.Protected, c.Protection.Campus, c.Protection.ProtectedNames, c.Protection.CampusNames)
 		if err != nil {
 			return Config{}, InvalidArgument
 		}

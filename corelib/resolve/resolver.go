@@ -64,9 +64,10 @@ type sharedResolution struct {
 type contextKey string
 
 var (
-	ContextKeyResolveHost    = contextKey("RESOLVE_HOST")
-	ContextKeyDomainResource = contextKey("DOMAIN_RESOURCE")
-	ContextKeyIPResource     = contextKey("IP_RESOURCE")
+	ContextKeyResolveHost      = contextKey("RESOLVE_HOST")
+	ContextKeyDomainResource   = contextKey("DOMAIN_RESOURCE")
+	ContextKeyIPResource       = contextKey("IP_RESOURCE")
+	ContextKeyProtectionPolicy = contextKey("PROTECTION_POLICY")
 )
 
 func TCPPrefersL3(ctx context.Context) bool {
@@ -101,12 +102,39 @@ func (r *Resolver) resolve(ctx context.Context, host string, campusOnly, allowDN
 	if closed {
 		return ctx, nil, net.ErrClosed
 	}
+	nativeHost := strings.TrimSpace(host)
 	host = normalizeHostname(host)
 	defer func() {
 		if resErr == nil {
 			resCtx = context.WithValue(resCtx, ContextKeyResolveHost, host)
 		}
 	}()
+	if r.ProtectionPolicy != nil {
+		snapshot := r.ProtectionPolicy()
+		ctx = context.WithValue(ctx, ContextKeyProtectionPolicy, snapshot)
+		if snapshot != nil {
+			if allowed, protected := snapshot.CampusNameAllowed(host); protected {
+				if !allowed {
+					if campusOnly {
+						return ctx, nil, policy.ErrProtectedTarget
+					}
+					host = nativeHost
+					ip, err := r.resolveCoordinated(ctx, "original:"+host, func(ctx context.Context) (net.IP, error) {
+						ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
+						if err != nil {
+							return nil, err
+						}
+						if len(ips) == 0 {
+							return nil, errors.New("native DNS lookup returned no addresses")
+						}
+						return ips[0], nil
+					})
+					return ctx, ip, err
+				}
+				campusOnly = true
+			}
+		}
+	}
 	if _, resources, found := matchDomainResource(r.domainIndex, host); found {
 		ctx = context.WithValue(ctx, ContextKeyDomainResource, resources)
 		campusOnly = true

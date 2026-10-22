@@ -58,16 +58,30 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 	}
 	address = address.Unmap()
 	useVPN := d.alwaysUseVPN
-	if d.ProtectionPolicy != nil {
-		if snapshot := d.ProtectionPolicy(); snapshot != nil {
-			if allowed, scope := snapshot.CampusAllowed(address); !allowed {
-				if d.alwaysUseVPN {
-					return nil, policy.ErrProtectedTarget
+	snapshot, captured := ctx.Value(resolve.ContextKeyProtectionPolicy).(*policy.ProtectionPolicy)
+	if !captured && d.ProtectionPolicy != nil {
+		snapshot = d.ProtectionPolicy()
+	}
+	if snapshot != nil {
+		namedCampus := false
+		if host, ok := ctx.Value(resolve.ContextKeyResolveHost).(string); ok {
+			if allowed, protected := snapshot.CampusNameAllowed(host); protected {
+				if !allowed {
+					if d.alwaysUseVPN {
+						return nil, policy.ErrProtectedTarget
+					}
+					return dialDirect(ctx, network, net.JoinHostPort(host, portStr))
 				}
-				return dialDirect(ctx, network, ipAddr)
-			} else if scope.IsValid() {
-				useVPN = true
+				namedCampus, useVPN = true, true
 			}
+		}
+		if allowed, scope := snapshot.CampusAllowed(address); !allowed && !namedCampus {
+			if d.alwaysUseVPN {
+				return nil, policy.ErrProtectedTarget
+			}
+			return dialDirect(ctx, network, ipAddr)
+		} else if scope.IsValid() {
+			useVPN = true
 		}
 	}
 
@@ -171,6 +185,13 @@ func (d *Dialer) Dial(ctx context.Context, network string, addr string) (net.Con
 	if d.resolver == nil {
 		if d.alwaysUseVPN {
 			return nil, ErrACLDenied
+		}
+		if d.ProtectionPolicy != nil {
+			if snapshot := d.ProtectionPolicy(); snapshot != nil {
+				if allowed, protected := snapshot.CampusNameAllowed(host); protected && allowed {
+					return nil, ErrACLDenied
+				}
+			}
 		}
 		return dialDirect(ctx, network, addr)
 	}

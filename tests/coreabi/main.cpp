@@ -120,7 +120,9 @@ static void authentication(API &api) {
     requestID = challenge["request_id"].toString();
     auto updatePolicy = [&](uint64_t gen, const char *revision) {
         auto bytes = QJsonDocument(QJsonObject{{"schema_version",1},{"generation",QString::number(gen)},
-            {"revision",revision},{"protected",QJsonArray{"192.0.2.0/24"}},{"campus",QJsonArray{"192.0.2.10"}}}).toJson(QJsonDocument::Compact);
+            {"revision",revision},{"protected",QJsonArray{"192.0.2.0/24"}},{"campus",QJsonArray{"192.0.2.10"}},
+            {"protected_names",QJsonArray{QJsonObject{{"kind","suffix"},{"value","mesh.test"}}}},
+            {"campus_names",QJsonArray{"vpn.mesh.test"}}}).toJson(QJsonDocument::Compact);
         uint64_t applied = 99;
         const auto status = api.jc_session_update_policy(h, reinterpret_cast<const uint8_t *>(bytes.constData()), uint32_t(bytes.size()), &applied);
         check(applied == (status == JC_OK ? gen : 0), "policy generation output zeroed on error");
@@ -280,6 +282,7 @@ int main(int argc, char **argv) {
           "protocol capability identifies production and fixture drivers");
     check(info["capabilities"].toObject()["policy_update"].toBool(), "policy update capability matches the loaded export");
     check(info["capabilities"].toObject()["initial_protection"].toBool(), "initial protection capability matches validated start input");
+    check(info["capabilities"].toObject()["name_protection"].toBool(), "name protection capability matches validated policy input");
     check(info["capabilities"].toObject()["network_snapshot"].toBool(), "native network snapshot capability");
     check(info["capabilities"].toObject()["resource_snapshot"].toBool() == !info["test_driver"].toBool(), "campus resource capability requires the protocol backend");
     networkSnapshot(api);
@@ -308,10 +311,17 @@ int main(int argc, char **argv) {
     const std::string invalidConfig = R"({"schema_version":1,"server":{"host":"localhost","port":443},"extra_arguments":"-foo"})";
     check(api.jc_config_validate(JC_ABI_VERSION, reinterpret_cast<const uint8_t *>(invalidConfig.data()), uint32_t(invalidConfig.size())) == JC_INVALID_ARGUMENT, "validate rejects unknown fields");
     auto protectedConfig = QJsonDocument::fromJson(QByteArray::fromStdString(config)).object();
-    protectedConfig["protection"] = QJsonObject{{"protected", QJsonArray{"192.0.2.0/24"}}, {"campus", QJsonArray{}}};
+    const QJsonArray originalNames{QJsonObject{{"kind", "suffix"}, {"value", "mesh.test"}}};
+    protectedConfig["protection"] = QJsonObject{{"protected", QJsonArray{"192.0.2.0/24"}}, {"campus", QJsonArray{}},
+        {"protected_names", originalNames}, {"campus_names", QJsonArray{"vpn.mesh.test"}}};
     auto protectedBytes = QJsonDocument(protectedConfig).toJson(QJsonDocument::Compact);
     check(api.jc_config_validate(JC_ABI_VERSION, reinterpret_cast<const uint8_t *>(protectedBytes.constData()), uint32_t(protectedBytes.size())) == JC_OK,
         "native validation supports initial protection advertised by the loaded library");
+    protectedConfig["protection"] = QJsonObject{{"protected", QJsonArray{}}, {"campus", QJsonArray{}},
+        {"protected_names", QJsonArray{QJsonObject{{"kind", "suffix"}, {"value", "."}}}}};
+    protectedBytes = QJsonDocument(protectedConfig).toJson(QJsonDocument::Compact);
+    check(api.jc_config_validate(JC_ABI_VERSION, reinterpret_cast<const uint8_t *>(protectedBytes.constData()), uint32_t(protectedBytes.size())) == JC_INVALID_ARGUMENT,
+        "native name protection rejects a root namespace before networking");
     protectedConfig["protection"] = QJsonObject{{"protected", QJsonArray{"192.0.2.1/24"}}, {"campus", QJsonArray{}}};
     protectedBytes = QJsonDocument(protectedConfig).toJson(QJsonDocument::Compact);
     check(api.jc_config_validate(JC_ABI_VERSION, reinterpret_cast<const uint8_t *>(protectedBytes.constData()), uint32_t(protectedBytes.size())) == JC_INVALID_ARGUMENT,
