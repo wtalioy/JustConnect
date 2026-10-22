@@ -1,8 +1,13 @@
 #include "infrastructure/platform/platformsystemproxybackend.h"
 #include "infrastructure/platform/proxyvalidation.h"
+#include "application/credentialstore.h"
 #include <QStandardPaths>
 #include <QVariant>
 #include <QSet>
+#include <QSysInfo>
+#include <QUuid>
+#include <algorithm>
+#include <unistd.h>
 
 namespace {
 using Result = PlatformOperationResult;
@@ -109,6 +114,11 @@ Target currentTarget() {
     const auto version=qEnvironmentVariable("KDE_SESSION_VERSION");
     return {"kreadconfig"+version,"kwriteconfig"+version,QStandardPaths::writableLocation(QStandardPaths::ConfigLocation)+"/kioslaverc"};
 }
+QJsonObject currentContext() {
+    return {{"uid",qint64(geteuid())},{"config_root",QStandardPaths::writableLocation(QStandardPaths::ConfigLocation)},
+        {"desktop",kde()?"kde"+qEnvironmentVariable("KDE_SESSION_VERSION"):QString("gnome")},
+        {"settings_backend",qEnvironmentVariable("GSETTINGS_BACKEND")},{"dconf_profile",qEnvironmentVariable("DCONF_PROFILE")}};
+}
 Result readValue(const PlatformCommandRunner &run,const Target &target,const QString &key,QVariant &value) {
     const auto command=run(target.reader,target.arguments(key,false));
     if(!command.result.succeeded())return command.result;
@@ -184,7 +194,72 @@ struct PlatformSystemProxyBackend::Snapshot {
     Target target;
     QVariantMap before, installed;
     QSet<QString> released;
+    SystemProxyConfig config;
+    QJsonObject context;
+    QUuid owner = QUuid::createUuid();
 };
+
+QJsonObject PlatformSystemProxyBackend::recoverySnapshot() const {
+    if (!snapshot) return {};
+    auto released=snapshot->released.values();std::sort(released.begin(),released.end());
+    return {{"schema_version",1},{"platform","linux"},
+        {"machine",QString::fromLatin1(QSysInfo::machineUniqueId().toHex())},
+        {"owner",snapshot->owner.toString(QUuid::WithoutBraces)},{"context",snapshot->context},
+        {"config",QJsonObject{{"http_port",snapshot->config.httpPort},{"socks_port",snapshot->config.socksPort},{"bypass",snapshot->config.bypass}}},
+        {"before",QJsonObject::fromVariantMap(snapshot->before)},{"released",QJsonArray::fromStringList(released)}};
+}
+
+PlatformOperationResult PlatformSystemProxyBackend::recover(const QJsonObject &record) {
+    if (snapshot) return {Status::Failed,"Existing system proxy ownership must be restored first",true};
+    const auto invalid=[] { return Result{Status::Failed,"Invalid or foreign Linux proxy recovery record"}; };
+    const auto bytes=QJsonDocument(record).toJson(QJsonDocument::Compact);
+    const auto machine=QString::fromLatin1(QSysInfo::machineUniqueId().toHex());
+    const auto ownerText=record["owner"].toString();const QUuid owner(ownerText);
+    if (bytes.size()>CredentialStore::MaxBytes || QJsonDocument::fromJson(bytes).object()!=record || record.size()!=8
+        || record["schema_version"]!=1 || record["platform"]!="linux" || machine.isEmpty() || record["machine"]!=machine
+        || owner.isNull() || owner.toString(QUuid::WithoutBraces)!=ownerText || record["context"]!=currentContext()
+        || !record["config"].isObject() || !record["before"].isObject() || !record["released"].isArray()) return invalid();
+    const auto config=record["config"].toObject();
+    const auto http=config["http_port"].toInteger(-1),socks=config["socks_port"].toInteger(-1);
+    if (config.size()!=3 || http<1 || http>65535 || socks<1 || socks>65535 || !config["bypass"].isString()) return invalid();
+    auto pending=std::make_shared<Snapshot>();pending->owner=owner;pending->context=record["context"].toObject();
+    pending->config={int(http),int(socks),config["bypass"].toString()};
+    if (!ProxyValidation::config(pending->config).succeeded()) return invalid();
+    if (auto support=available();!support.succeeded()) return support;
+    pending->target=currentTarget();const auto &target=pending->target;
+    const auto before=record["before"].toObject();const auto keys=target.keys();
+    if (before.size()!=keys.size()) return invalid();
+    for (const auto &key:keys) {
+        const auto value=before[key];
+        if ((target.isKde() && key=="ProxyType") || (!target.isKde() && key.endsWith("/port"))) {
+            const auto number=value.toInteger(-1);
+            if (number<0 || number>(target.isKde()?4:65535)) return invalid();
+            pending->before[key]=int(number);
+        } else if (key=="ReversedException" || key=="use-same-proxy" || key=="http/use-authentication") {
+            if (!value.isBool()) return invalid();
+            pending->before[key]=value.toBool();
+        } else if (!target.isKde() && key==target.bypassKey()) {
+            if (!value.isArray()) return invalid();
+            QStringList list;
+            for (const auto &entry:value.toArray()) {
+                if (!entry.isString() || entry.toString().contains(QChar(0))) return invalid();
+                list.append(entry.toString());
+            }
+            pending->before[key]=list;
+        } else {
+            if (!value.isString() || value.toString().contains(QChar(0))) return invalid();
+            if (!target.isKde() && key=="mode" && !QStringList{"none","manual","auto"}.contains(value.toString())) return invalid();
+            if (target.isKde() && key.endsWith("Proxy") && value.toString().contains('@')) return invalid();
+            pending->before[key]=value.toString();
+        }
+    }
+    for (const auto &entry:record["released"].toArray()) {
+        if (!entry.isString() || !keys.contains(entry.toString()) || pending->released.contains(entry.toString())) return invalid();
+        pending->released.insert(entry.toString());
+    }
+    pending->installed=requested(target,pending->before,pending->config);snapshot=pending;
+    return clear();
+}
 
 SystemProxyCheck PlatformSystemProxyBackend::check(const SystemProxyConfig &config) {
     if(auto valid=ProxyValidation::config(config);!valid.succeeded())return {valid};
@@ -205,6 +280,7 @@ PlatformOperationResult PlatformSystemProxyBackend::apply(const SystemProxyConfi
     if(snapshot)return {Status::Failed,"Restore the current proxy settings before applying another configuration",true};
     if(auto support=available();!support.succeeded())return support;
     auto pending=std::make_shared<Snapshot>();pending->target=currentTarget();
+    pending->config=config;pending->context=currentContext();
     if(auto result=readState(runner,pending->target,pending->before);!result.succeeded())return result;
     // shortcut: KConfig CLI values use argv; credentialed URLs require a native KConfig writer.
     if(pending->target.isKde())for(const auto &protocol:protocols)
