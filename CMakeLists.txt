@@ -69,6 +69,7 @@ set(SOURCE_FILES
     application/profilecredentials.cpp
     application/settingsmigrator.cpp
     application/systemproxysession.cpp
+    application/networkprotection.cpp
     application/defaultsettings.cpp
     core/connectionsessionstate.cpp
     infrastructure/logging/applicationlogfile.cpp
@@ -236,6 +237,10 @@ if(BUILD_TESTING)
     target_include_directories(connectionsessionstate_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(connectionsessionstate_test Qt::Core)
     add_test(NAME connectionsessionstate_test COMMAND connectionsessionstate_test)
+
+    add_executable(networkprotection_test tests/networkprotection_test.cpp application/networkprotection.cpp)
+    target_link_libraries(networkprotection_test PRIVATE Qt6::Core Qt6::Network)
+    add_test(NAME networkprotection_test COMMAND networkprotection_test)
 
     add_executable(connectionsession_test
         application/coreengine.h
