@@ -10,6 +10,15 @@ NetworkPolicySession::NetworkPolicySession(CoreEngine *engine, DnsReader reader,
     : QObject(parent), engine(engine), reader(std::move(reader))
 {
     connect(engine, &CoreEngine::sessionStarted, this, &NetworkPolicySession::begin);
+    connect(engine, &CoreEngine::initialProtectionApplied, this, [this](const QJsonObject &policy) {
+        if (generation.isEmpty() || policy["generation"] != generation || !confirmedPolicy.isEmpty() || isPolicyUpdating()
+            || policy["schema_version"].toInteger() <= 0 || policy["revision"] != "0"
+            || !policy["protected"].isArray() || !policy["protected_names"].isArray()
+            || !policy["campus"].isArray() || !policy["campus"].toArray().isEmpty()
+            || !policy["campus_names"].isArray() || !policy["campus_names"].toArray().isEmpty()) return;
+        confirmedPolicy = policy;
+        emit changed();
+    });
     connect(engine, &CoreEngine::finished, this, &NetworkPolicySession::clear);
     connect(engine, &QObject::destroyed, this, &NetworkPolicySession::clear);
     connect(engine, &CoreEngine::connectionEstablished, this, [this] {
@@ -118,11 +127,9 @@ bool NetworkPolicySession::setCampusAddress(const QString &text, bool campus)
     }
     QJsonObject policy;
     if (currentStatus == Status::Success && networkVersion.toInteger() > 0) {
-        QJsonArray prefixes;
         bool protectedAddress = false;
         for (const auto &value : currentModel["targets"].toArray()) {
             const auto prefix = value.toObject()["prefix"].toString();
-            prefixes.append(prefix);
             protectedAddress |= address.isInSubnet(QHostAddress::parseSubnet(prefix));
         }
         if (!protectedAddress && (campus || !owned)) {
@@ -130,7 +137,13 @@ bool NetworkPolicySession::setCampusAddress(const QString &text, bool campus)
             emit changed();
             return false;
         }
-        policy = {{"schema_version", networkVersion}, {"generation", generation}, {"protected", prefixes}};
+        policy = protectionConfiguration(currentModel["targets"].toArray(), currentModel["name_targets"].toArray());
+        policy["schema_version"] = networkVersion;
+        policy["generation"] = generation;
+        if (confirmedPolicy.contains("protected_names")) {
+            policy["protected_names"] = confirmedPolicy["protected_names"];
+            policy["campus_names"] = confirmedPolicy["campus_names"];
+        }
     } else if (!campus && owned) policy = confirmedPolicy;
     else {
         lastPolicyStatus = Status::Unavailable;

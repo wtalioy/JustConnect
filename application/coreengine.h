@@ -38,6 +38,7 @@ public:
 
 signals:
     void sessionStarted(const QString &generation);
+    void initialProtectionApplied(const QJsonObject &policy);
     void policyUpdated(const QString &generation, const QString &revision, CoreEngine::RequestStatus status);
     void snapshotReady(CoreEngine::Snapshot kind, const QString &generation, const QJsonObject &snapshot, CoreEngine::RequestStatus status);
     void authenticationRequired(const QJsonObject &request);

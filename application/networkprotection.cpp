@@ -276,3 +276,14 @@ std::optional<QJsonObject> originalDnsProtection(const QJsonObject &dns)
         targets.append(QJsonObject{{"kind", it.key().first}, {"value", it.key().second}, {"sources", it.value()}});
     return QJsonObject{{"namespaces", *namespaces}, {"targets", targets}};
 }
+
+QJsonObject protectionConfiguration(const QJsonArray &targets, const QJsonArray &names)
+{
+    QJsonArray prefixes, rules;
+    for (const auto &target : targets) prefixes.append(target.toObject()["prefix"]);
+    for (const auto &value : names) {
+        const auto target = value.toObject();
+        rules.append(QJsonObject{{"kind", target["kind"]}, {"value", target["value"]}});
+    }
+    return {{"protected", prefixes}, {"campus", QJsonArray{}}, {"protected_names", rules}, {"campus_names", QJsonArray{}}};
+}

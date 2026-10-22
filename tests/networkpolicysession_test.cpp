@@ -84,6 +84,15 @@ int main(int argc, char **argv) try
     session.clear();
     check(session.model().isEmpty() && session.status() == Status::Stale, "Clear retained old model");
     emit engine.sessionStarted("2");
+    const QJsonArray initialNames{QJsonObject{{"kind", "suffix"}, {"value", "confirmed.native.test"}}};
+    const QJsonObject initialPolicy{{"schema_version", 1}, {"generation", "2"}, {"revision", "0"},
+        {"protected", QJsonArray{"127.0.0.0/8"}}, {"campus", QJsonArray{}},
+        {"protected_names", initialNames}, {"campus_names", QJsonArray{}}};
+    emit engine.initialProtectionApplied(initialPolicy);
+    auto staleInitial = initialPolicy;
+    staleInitial["generation"] = "1";
+    staleInitial["protected_names"] = QJsonArray{};
+    emit engine.initialProtectionApplied(staleInitial);
     reply(engine, "2", "192.168.2.19");
     emit engine.snapshotReady(Kind::Network, "1", network("10.1.1.1"), Status::Success);
     emit engine.snapshotReady(Kind::Resources, "1", resources("10.1.1.1"), Status::Success);
@@ -107,6 +116,8 @@ int main(int argc, char **argv) try
     for (const auto &value : session.model()["targets"].toArray()) originalPrefixes.append(value.toObject()["prefix"]);
     check(firstPolicy["schema_version"] == 1 && firstPolicy["generation"] == "2" && firstPolicy["revision"] == "1"
           && firstPolicy["protected"].toArray() == originalPrefixes
+          && firstPolicy["protected_names"].toArray() == initialNames
+          && firstPolicy["campus_names"].toArray().isEmpty()
           && firstPolicy["campus"].toArray() == QJsonArray{"192.168.2.20"}, "Choice lost its complete native scopes or wire identity");
     emit engine.policyUpdated("1", "1", Status::Success);
     emit engine.policyUpdated("2", "99", Status::Success);
@@ -130,7 +141,9 @@ int main(int argc, char **argv) try
     emit engine.policyUpdated("2", "3", Status::Success);
     check(session.campusAddresses().isEmpty() && !session.isBusy(), "Confirmed original preference retained an exception");
     check(session.setCampusAddress("192.168.3.20", true), "Choice after refresh rejected");
-    check(engine.policies.last()["revision"] == "4", "Refresh reset the revision within its generation");
+    check(engine.policies.last()["revision"] == "4"
+          && engine.policies.last()["protected_names"].toArray() == initialNames,
+          "Refresh reset the revision or implicitly replaced confirmed name protection");
     emit engine.sessionStarted("3");
     emit engine.policyUpdated("2", "4", Status::Success);
     check(session.campusAddresses().isEmpty(), "Old generation choice survived a new session");
@@ -184,6 +197,9 @@ int main(int argc, char **argv) try
         return DnsSnapshot{{PlatformOperationResult::Status::TimedOut, {}}, {}};
     });
     emit recoveryEngine.sessionStarted("6");
+    auto recoveryInitial = initialPolicy;
+    recoveryInitial["generation"] = "6";
+    emit recoveryEngine.initialProtectionApplied(recoveryInitial);
     reply(recoveryEngine, "6", "192.168.7.19");
     until([&] { return !recovery.isBusy(); });
     check(recovery.setCampusAddress("192.168.7.20", true), "Recovery fixture could not choose campus");
@@ -198,6 +214,9 @@ int main(int argc, char **argv) try
     check(recovery.setCampusAddress("192.168.7.20", false), "Failed DNS refresh prevented removing an owned campus choice");
     const auto restoration = recoveryEngine.policies.last();
     check(restoration["protected"] == confirmedPolicy["protected"] && restoration["schema_version"] == confirmedPolicy["schema_version"]
+          && restoration["protected_names"] == confirmedPolicy["protected_names"]
+          && restoration["protected_names"].toArray() == initialNames
+          && restoration["campus_names"] == confirmedPolicy["campus_names"]
           && restoration["generation"] == "6" && restoration["revision"] == "2" && restoration["campus"].toArray().isEmpty(),
           "Recovery guessed new scopes or discarded the last confirmed policy identity");
     emit recoveryEngine.policyUpdated("6", "2", Status::Failed);

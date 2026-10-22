@@ -32,7 +32,7 @@ find_package(Qt6 6.10 COMPONENTS
 
 include(cmake/CoreLibrary.cmake)
 justconnect_core_library(justconnect_core)
-justconnect_core_engine(justconnect_engine justconnect_core)
+justconnect_core_engine(justconnect_engine justconnect_core justconnect_platform)
 include(cmake/Platform.cmake)
 justconnect_platform(justconnect_platform)
 if(WIN32)

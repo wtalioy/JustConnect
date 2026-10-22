@@ -1,6 +1,7 @@
 #include "embeddedcoreengine.h"
 #include "justconnect.h"
 #include "application/networkprotection.h"
+#include "infrastructure/platform/dnssnapshot.h"
 #include <atomic>
 
 #include <QCoreApplication>
@@ -123,17 +124,32 @@ NativeSnapshot readNativeSnapshot(CoreEngine::Snapshot kind, uint64_t handle = 0
         || (resources && snapshot["generation"].toString() != QString::number(generation))) return {JC_INTERNAL, {}};
     return {JC_OK, snapshot};
 }
-int installInitialProtection(QByteArray &config) {
+int installInitialProtection(QByteArray &config, QJsonObject &initialPolicy) {
     auto fields = QJsonDocument::fromJson(config).object();
     if (fields["operation"] != "connect") return JC_OK;
-    if (!EmbeddedCoreEngine::buildInfo()["capabilities"].toObject()["initial_protection"].toBool()) return JC_UNSUPPORTED;
+    const auto capabilities = EmbeddedCoreEngine::buildInfo()["capabilities"].toObject();
+    if (!capabilities["initial_protection"].toBool() || !capabilities["name_protection"].toBool()) return JC_UNSUPPORTED;
     const auto snapshot = readNativeSnapshot(CoreEngine::Snapshot::Network);
     if (snapshot.status != JC_OK) return snapshot.status;
     const auto targets = originalNetworkProtection(snapshot.data["network"].toObject());
     if (!targets) return JC_INTERNAL;
-    QJsonArray prefixes;
-    for (const auto &target : *targets) prefixes.append(target.toObject()["prefix"]);
-    fields["protection"] = QJsonObject{{"protected", prefixes}, {"campus", QJsonArray{}}};
+    const auto dns = readSystemDnsSnapshot();
+    if (!dns.result.succeeded()) {
+        using Status = PlatformOperationResult::Status;
+        switch (dns.result.status) {
+        case Status::TimedOut: return JC_TIMEOUT;
+        case Status::PermissionDenied: return JC_PERMISSION_DENIED;
+        case Status::Unsupported: return JC_UNSUPPORTED;
+        case Status::Cancelled: return JC_CANCELLED;
+        default: return JC_INTERNAL;
+        }
+    }
+    const auto names = originalDnsProtection(dns.data);
+    if (!names) return JC_UNSUPPORTED;
+    const auto protection = protectionConfiguration(*targets, (*names)["targets"].toArray());
+    fields["protection"] = protection;
+    initialPolicy = protection;
+    initialPolicy["schema_version"] = snapshot.data["schema_version"];
     config.fill('\0');
     config = QJsonDocument(fields).toJson(QJsonDocument::Compact);
     return config.size() > JC_MAX_INPUT ? JC_LIMIT : JC_OK;
@@ -148,6 +164,7 @@ public:
     uint64_t generation = 0;
     quint64 serial = 0;
     bool active = false;
+    QJsonObject initialPolicy;
     std::atomic_bool cancelled{false};
     ~CoreEventPump() override {
         if (!handle) return;
@@ -156,12 +173,13 @@ public:
     }
     void start(quint64 nextSerial, QByteArray config) {
         serial = nextSerial;
+        initialPolicy = {};
         auto &api = library();
         int status = JC_UNSUPPORTED;
         if (api.available) {
             status = api.jc_config_validate(JC_ABI_VERSION, reinterpret_cast<const uint8_t *>(config.constData()), uint32_t(config.size()));
             if (status == JC_OK && !cancelled.load() && !QThread::currentThread()->isInterruptionRequested())
-                status = installInitialProtection(config);
+                status = installInitialProtection(config, initialPolicy);
             // Stop can arrive while the native read is blocking this worker's event loop.
             if (cancelled.load() || QThread::currentThread()->isInterruptionRequested()) status = JC_CANCELLED;
             if (status == JC_OK) {
@@ -172,7 +190,11 @@ public:
             }
         }
         config.fill('\0');
-        if (status != JC_OK) { emit failed(serial, status); return; }
+        if (status != JC_OK) { initialPolicy = {}; emit failed(serial, status); return; }
+        if (!initialPolicy.isEmpty()) {
+            initialPolicy["generation"] = QString::number(generation);
+            initialPolicy["revision"] = "0";
+        }
         active = true;
         poll();
     }
@@ -192,7 +214,8 @@ public:
         if (id == serial && active) {
             auto &api = library();
             status = JC_UNSUPPORTED;
-            if (api.jc_session_update_policy && EmbeddedCoreEngine::buildInfo()["capabilities"].toObject()["policy_update"].toBool()) {
+            const auto capabilities = EmbeddedCoreEngine::buildInfo()["capabilities"].toObject();
+            if (api.jc_session_update_policy && capabilities["policy_update"].toBool() && capabilities["name_protection"].toBool()) {
                 status = api.jc_session_update_policy(handle, reinterpret_cast<const uint8_t *>(bytes.constData()), uint32_t(bytes.size()), &applied);
                 bool valid = false;
                 const auto requested = requestedGeneration.toULongLong(&valid);
@@ -236,10 +259,13 @@ public:
         const auto event = doc.object();
         if (event["type"] == "terminal") active = false;
         // The receiver acknowledges each event: at most one Qt event is in flight.
-        emit received(serial, event);
+        const bool starting = event["type"] == "state" && event["state"] == "starting";
+        const auto protection = starting ? initialPolicy : QJsonObject{};
+        if (starting) initialPolicy = {};
+        emit received(serial, event, protection);
     }
 signals:
-    void received(quint64 serial, const QJsonObject &event);
+    void received(quint64 serial, const QJsonObject &event, const QJsonObject &initialPolicy);
     void failed(quint64 serial, int status);
     void accepted(quint64 serial);
     void rejected(quint64 serial);
@@ -323,7 +349,7 @@ void EmbeddedCoreEngine::readSnapshot(Snapshot kind, const QString &generation) 
     const auto id = serial;
     QMetaObject::invokeMethod(pump, [this, id, kind, generation] { pump->readSnapshot(id, kind, generation); }, Qt::QueuedConnection);
 }
-void EmbeddedCoreEngine::deliver(quint64 id, const QJsonObject &event) {
+void EmbeddedCoreEngine::deliver(quint64 id, const QJsonObject &event, const QJsonObject &initialPolicy) {
     if (!active || id != serial) return;
     const auto type = event["type"].toString();
     if (type == "terminal") {
@@ -363,6 +389,7 @@ void EmbeddedCoreEngine::deliver(quint64 id, const QJsonObject &event) {
     else if (type == "state" && event["state"] == "starting") {
         emit observation("library","succeeded",QDateTime::currentDateTimeUtc());
         emit sessionStarted(event["generation"].toString());
+        if (!initialPolicy.isEmpty()) emit initialProtectionApplied(initialPolicy);
     }
     else if (type == "state" && event["state"] == "ready") { emit connectionEstablished(); }
 }
@@ -383,7 +410,7 @@ QJsonObject EmbeddedCoreEngine::selfTest() {
     bool ok = api.available && info["abi_version"].toInt() == JC_ABI_VERSION
         && info["test_driver"].isBool() && !info["test_driver"].toBool()
         && capabilities["embedded_vpn"].toBool() && api.jc_network_snapshot
-        && capabilities["network_snapshot"].toBool() && capabilities["initial_protection"].toBool();
+        && capabilities["network_snapshot"].toBool() && capabilities["initial_protection"].toBool() && capabilities["name_protection"].toBool();
     uint64_t handle = 0;
     if (ok) {
         ok = api.jc_session_create(JC_ABI_VERSION, &handle) == JC_OK && handle != 0;

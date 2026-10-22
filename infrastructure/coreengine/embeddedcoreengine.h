@@ -21,7 +21,7 @@ public:
     static QJsonObject selfTest();
 
 private:
-    void deliver(quint64 serial, const QJsonObject &event);
+    void deliver(quint64 serial, const QJsonObject &event, const QJsonObject &initialPolicy);
     QThread thread;
     CoreEventPump *pump;
     quint64 serial = 0;

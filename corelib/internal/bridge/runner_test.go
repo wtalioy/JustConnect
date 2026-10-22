@@ -272,7 +272,7 @@ func TestNativeProtocolHost(t *testing.T) {
 		t.Fatalf("native protocol host: %v\n%s", err, output)
 	}
 	expectedTCP := int32(2)
-	if strings.Contains(string(output), "PASS: initial native protection and live exact campus/original choices") {
+	if strings.Contains(string(output), "PASS: initial native address/name protection and live exact campus/original choices") {
 		expectedTCP++
 	}
 	if !strings.Contains(string(output), "PASS: native protocol session") || g.authCount.Load() != 1 || g.deviceBinds.Load() != 1 || g.tcpCount.Load() != expectedTCP {
