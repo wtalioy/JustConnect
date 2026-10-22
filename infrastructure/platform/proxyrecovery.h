@@ -16,4 +16,5 @@ private:
     std::unique_ptr<Worker> worker;
 };
 
-int runProxyRecoveryWorker(SystemProxyBackend &backend, const QString &endpoint, const QString &lockFile);
+int runProxyRecoveryWorker(SystemProxyBackend &backend, const QString &endpoint, const QString &lockFile,
+                           const QString &legacyLockFile = {});

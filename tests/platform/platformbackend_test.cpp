@@ -639,7 +639,39 @@ static void protectedProxyPhase(const QString &phase,const QString &key) {
         set("org.gnome.system.proxy.http","authentication-password","'fixture password'");
         set("org.gnome.system.proxy","autoconfig-url","'https://sensitive-proxy-fixture.invalid/token'");
         set("org.gnome.system.proxy","mode","'auto'");
-        const auto before=all();const auto result=backend.apply(config);
+        const auto before=all();
+        if(phase=="prepare") {
+            bool legacyExcluded=false;
+            {
+                const auto directory=QDir(qEnvironmentVariable("XDG_DATA_HOME")).filePath("JustConnect");
+                check(QDir().mkpath(directory),"Create private legacy recovery directory");
+                QLockFile legacy(directory+"/proxy-recovery.lock");legacy.setStaleLockTime(0);
+                check(legacy.tryLock(),"Represent a live pre-upgrade recovery owner");
+                {
+                    ProxyRecoveryBackend candidate;const auto result=candidate.check(config).result;
+                    legacyExcluded=result.status==Status::Failed && result.detail.contains("ownership lock");
+                }
+            }
+            check(legacyExcluded && all()==before,"New worker bypassed a live pre-upgrade recovery owner");
+            bool excluded=false;
+            {
+                ProxyRecoveryBackend first;
+                check(first.check(config).result.succeeded(),"Start read-only proxy owner");
+                const auto data=qgetenv("XDG_DATA_HOME"),temporary=qgetenv("TMPDIR");
+                const auto otherTemporary=root.filePath("other-tmp");
+                check(QDir().mkpath(otherTemporary),"Create private alternate temporary directory");
+                qputenv("XDG_DATA_HOME",root.filePath("other-data").toUtf8());qputenv("TMPDIR",otherTemporary.toUtf8());
+                {
+                    ProxyRecoveryBackend second;const auto result=second.check(config).result;
+                    excluded=result.status==Status::Failed && result.detail.contains("ownership lock");
+                }
+                qputenv("XDG_DATA_HOME",data);
+                if(temporary.isNull())qunsetenv("TMPDIR");else qputenv("TMPDIR",temporary);
+            }
+            check(excluded && all()==before,"Different data/temp roots admitted concurrent proxy owners");
+            std::cout<<"PASS: one user proxy owner across different data and temporary roots\n";
+        }
+        const auto result=backend.apply(config);
         if(phase=="denied") {
             check(!result.succeeded() && mutations==0 && all()==before && backend.clear().succeeded()
                   && credentials->read(key).status==CredentialStatus::NotFound,"Denied protected checkpoint changed native settings");

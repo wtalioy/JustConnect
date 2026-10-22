@@ -173,7 +173,8 @@ SystemProxyCheck ProxyRecoveryBackend::check(const SystemProxyConfig &config) { 
 PlatformOperationResult ProxyRecoveryBackend::apply(const SystemProxyConfig &config) { return worker->call("apply",config).result; }
 PlatformOperationResult ProxyRecoveryBackend::clear() { return worker->call("clear").result; }
 
-int runProxyRecoveryWorker(SystemProxyBackend &backend, const QString &endpoint, const QString &lockFile)
+int runProxyRecoveryWorker(SystemProxyBackend &backend, const QString &endpoint, const QString &lockFile,
+                           const QString &legacyLockFile)
 {
     // shortcut: automatic worker restart still needs persistent backends and an ownership-safe reconnect handshake.
     QLocalSocket channel;
@@ -182,7 +183,11 @@ int runProxyRecoveryWorker(SystemProxyBackend &backend, const QString &endpoint,
     if (!channel.waitForConnected(5000)) return 1;
     QLockFile ownership(lockFile);
     ownership.setStaleLockTime(0);
-    const bool locked = ownership.tryLock();
+    bool locked = ownership.tryLock();
+    std::optional<QLockFile> legacy;
+    if (locked && !legacyLockFile.isEmpty()) {
+        legacy.emplace(legacyLockFile);legacy->setStaleLockTime(0);locked=legacy->tryLock();
+    }
     if (!send(channel,{{"protocol",1},{"ready",locked}},QDeadlineTimer(5000)) || !locked) return 1;
     while (const auto object = receive(channel,QDeadlineTimer(QDeadlineTimer::Forever))) {
         const auto operation = (*object)["operation"].toString();
