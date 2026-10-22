@@ -18,6 +18,7 @@ func TestProtocolPolicySwitchesProtectedFlowsBetweenOriginalAndCampus(t *testing
 	c := g.config(t)
 	c.KeepAlive.Mode = "off"
 	c.Listeners.SOCKS = freeAddress(t)
+	c.Protection = &ProtectionConfig{Protected: []string{"127.0.0.0/8"}, Campus: []string{}}
 	startProtocol(t, e, h, c)
 	ready := next(t, e, h)
 	if ready.State != "ready" {
@@ -47,8 +48,10 @@ func TestProtocolPolicySwitchesProtectedFlowsBetweenOriginalAndCampus(t *testing
 		if campus {
 			choices = append(choices, "127.0.0.1")
 		}
-		if applied, status := e.UpdatePolicy(h, policyInput(ready.Generation, uint64(i+1), []string{"127.0.0.0/8"}, choices)); applied != ready.Generation || status != OK {
-			t.Fatal(applied, status)
+		if i != 0 {
+			if applied, status := e.UpdatePolicy(h, policyInput(ready.Generation, uint64(i), []string{"127.0.0.0/8"}, choices)); applied != ready.Generation || status != OK {
+				t.Fatal(applied, status)
+			}
 		}
 		destination := native.Addr().String()
 		if i < 2 {

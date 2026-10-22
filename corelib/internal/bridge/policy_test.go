@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/wtalioy/JustConnect/corelib/policy"
 )
 
 func policyInput(generation, revision uint64, protected, campus []string) []byte {
@@ -16,17 +18,29 @@ func policyInput(generation, revision uint64, protected, campus []string) []byte
 
 func TestPolicyUpdatesValidateBeforeReplacingAndRejectOldIdentities(t *testing.T) {
 	entered := make(chan *Session, 2)
+	initial := make(chan *policy.ProtectionPolicy, 2)
 	e := New(func(ctx context.Context, _ Config, s *Session) Status {
+		initial <- s.ProtectionPolicy()
 		entered <- s
 		<-ctx.Done()
 		return Cancelled
 	})
 	h := create(t, e)
-	g, status := e.Start(h, []byte(configJSON))
+	inputConfig := strings.Replace(configJSON, `"schema_version":1`, `"schema_version":1,"protection":{"protected":["192.168.50.0/24"],"campus":[]}`, 1)
+	initialInput := []byte(inputConfig)
+	g, status := e.Start(h, initialInput)
+	clear(initialInput)
 	if status != OK {
 		t.Fatal(status)
 	}
 	s := <-entered
+	first := <-initial
+	if first == nil {
+		t.Fatal("runner entered before initial protection")
+	}
+	if allowed, prefix := first.CampusAllowed(netip.MustParseAddr("192.168.50.17")); allowed || !prefix.IsValid() {
+		t.Fatal("initial original-network protection not enforced")
+	}
 	input := policyInput(g, 2, []string{"192.168.50.0/24"}, []string{"192.168.50.17"})
 	if applied, status := e.UpdatePolicy(h, input); applied != g || status != OK {
 		t.Fatal(applied, status)
@@ -80,7 +94,7 @@ func TestPolicyUpdatesValidateBeforeReplacingAndRejectOldIdentities(t *testing.T
 		t.Fatal(status)
 	}
 	<-entered
-	if s.ProtectionPolicy() != nil {
+	if s.ProtectionPolicy() != nil || <-initial != nil {
 		t.Fatal("old policy leaked into a new session")
 	}
 	if _, status := e.UpdatePolicy(h, policyInput(g, 4, []string{}, []string{})); status != StaleRequest {

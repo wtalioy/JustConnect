@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"github.com/wtalioy/JustConnect/corelib"
+	"github.com/wtalioy/JustConnect/corelib/policy"
 	"image"
 	_ "image/gif"
 	_ "image/jpeg"
@@ -53,8 +54,10 @@ func (s Status) Message() string {
 }
 
 type Config struct {
-	SchemaVersion int    `json:"schema_version"`
-	Operation     string `json:"operation"`
+	SchemaVersion int               `json:"schema_version"`
+	Operation     string            `json:"operation"`
+	Protection    *ProtectionConfig `json:"protection,omitempty"`
+	initialPolicy *policy.ProtectionPolicy
 	Server        struct {
 		Host string `json:"host"`
 		Port uint16 `json:"port"`
@@ -180,6 +183,16 @@ func ParseConfig(data []byte) (Config, Status) {
 	}
 	if c.Operation != "" && c.Operation != "connect" && c.Operation != "auth_methods" {
 		return Config{}, InvalidArgument
+	}
+	if c.Protection != nil {
+		if c.Operation == "auth_methods" || c.Protection.Protected == nil || c.Protection.Campus == nil {
+			return Config{}, InvalidArgument
+		}
+		initial, err := policy.NewProtectionPolicy(c.Protection.Protected, c.Protection.Campus)
+		if err != nil {
+			return Config{}, InvalidArgument
+		}
+		c.initialPolicy = &initial
 	}
 	if len(c.Network.Interface) > MaxInterfaceName || len(c.Network.Language) > MaxLanguage || !validDNS(c.Network.LocalDNS) {
 		return Config{}, InvalidArgument
