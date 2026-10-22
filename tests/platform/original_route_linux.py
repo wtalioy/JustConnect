@@ -56,11 +56,13 @@ def ready(process, expected):
     assert process.stdout.readline() == expected
 
 
-def probe(binary, uid, allocator):
+def probe(binary, uid, allocator, route_backend):
     user = pwd.getpwuid(uid)
     server = subprocess.Popen(['unshare', '--net', '--', sys.executable, str(Path(__file__).resolve()), '--peer'],
                               stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
     tun = None
+    source_routes = None
+    source_snapshot = None
     try:
         ready(server, 'namespace\n')
         # These settings belong exclusively to the guarded private namespace.
@@ -81,17 +83,21 @@ def probe(binary, uid, allocator):
         ip('route', 'add', '198.18.0.0/24', 'via', '192.0.2.2', 'dev', 'original0')
         tun, capture = allocate_unix(allocator)
         ip('route', 'add', '198.18.0.6/32', 'dev', capture)
-        # Preserve the selected original source and its reverse path without relaxing rp_filter.
-        ip('route', 'add', '192.0.2.0/24', 'dev', 'original0', 'table', '42117')
-        ip('route', 'add', '198.18.0.6/32', 'via', '192.0.2.2', 'dev', 'original0', 'table', '42117')
-        ip('rule', 'add', 'priority', '100', 'from', '192.0.2.1/32', 'lookup', '42117')
+        original_routes = json.loads(subprocess.check_output(['ip', '-N', '-j', '-4', 'route', 'show', 'table', 'all'], text=True))
+        original_rules = json.loads(subprocess.check_output(['ip', '-N', '-j', '-4', 'rule', 'show'], text=True))
+        # The formal backend owns the source lookup; EOF restores it in another process.
+        source_routes = subprocess.Popen([str(route_backend), '--hold', 'original0', '192.0.2.1', '192.0.2.2', '198.18.0.6/32'],
+                                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        assert select.select([source_routes.stdout], [], [], 10)[0], 'native source backend did not confirm application'
+        source_snapshot = json.loads(source_routes.stdout.readline())
+        assert source_snapshot['source'] == '192.0.2.1' and source_snapshot['interface'] == 'original0'
         for name in ('all', 'original0'):
             assert Path('/proc/sys/net/ipv4/conf/' + name + '/rp_filter').read_text().strip() == '1'
         route = json.loads(subprocess.check_output(['ip', '-j', 'route', 'get', '198.18.0.6'], text=True))
         assert route[0]['dev'] == capture, 'competing capture route not selected'
         original_route = json.loads(subprocess.check_output(
             ['ip', '-j', 'route', 'get', '198.18.0.6', 'from', '192.0.2.1'], text=True))
-        assert original_route[0]['dev'] == 'original0' and str(original_route[0]['table']) == '42117', original_route
+        assert original_route[0]['dev'] == 'original0' and str(original_route[0]['table']) == str(source_snapshot['table']), original_route
         server.stdin.write('start\n')
         server.stdin.flush()
         ready(server, 'listening\n')
@@ -115,15 +121,33 @@ def probe(binary, uid, allocator):
         missing = ordinary('original', 'missing0')
         assert missing.returncode != 0, 'missing original interface silently fell back'
     finally:
-        if tun is not None:
-            os.close(tun)
-        if server.stdin:
-            server.stdin.close()
         try:
-            server.wait(timeout=3)
-        except subprocess.TimeoutExpired:
-            server.kill()
-            server.wait(timeout=3)
+            if source_routes is not None:
+                source_routes.stdin.close()
+                source_routes.stdin = None
+                try:
+                    output, error = source_routes.communicate(timeout=12)
+                except subprocess.TimeoutExpired:
+                    source_routes.kill()
+                    source_routes.wait(timeout=3)
+                    raise AssertionError('native source backend did not finish independent recovery')
+                assert source_routes.returncode == 0, error
+                print(output, end='', flush=True)
+                if source_snapshot is not None:
+                    after_routes = json.loads(subprocess.check_output(['ip', '-N', '-j', '-4', 'route', 'show', 'table', 'all'], text=True))
+                    after_rules = json.loads(subprocess.check_output(['ip', '-N', '-j', '-4', 'rule', 'show'], text=True))
+                    normalize = lambda rows: sorted(json.dumps(row, sort_keys=True) for row in rows)
+                    assert normalize(after_routes) == normalize(original_routes) and after_rules == original_rules, 'owned source recovery changed the original route/rule inventory'
+        finally:
+            if tun is not None:
+                os.close(tun)
+            if server.stdin:
+                server.stdin.close()
+            try:
+                server.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                server.kill()
+                server.wait(timeout=3)
 
 
 if __name__ == '__main__':
@@ -132,12 +156,14 @@ if __name__ == '__main__':
     parser.add_argument('--probe', type=Path)
     parser.add_argument('--uid', type=int)
     parser.add_argument('--allocator', type=Path)
+    parser.add_argument('--routes', type=Path)
     args = parser.parse_args()
     if sys.platform != 'linux' or os.geteuid() != 0 or os.stat('/proc/self/ns/net').st_ino == os.stat('/proc/1/ns/net').st_ino:
         parser.error('requires root inside a private Linux network namespace')
     if args.peer:
         peer()
     else:
-        if not args.probe or not args.probe.is_file() or not args.uid or args.uid <= 0 or not args.allocator or not args.allocator.is_file():
-            parser.error('requires compiled Go and native allocator probes and an ordinary uid')
-        probe(args.probe.resolve(), args.uid, args.allocator.resolve())
+        if (not args.probe or not args.probe.is_file() or not args.uid or args.uid <= 0 or not args.allocator
+                or not args.allocator.is_file() or not args.routes or not args.routes.is_file()):
+            parser.error('requires compiled Go, native allocator/source-route backends and an ordinary uid')
+        probe(args.probe.resolve(), args.uid, args.allocator.resolve(), args.routes.resolve())
