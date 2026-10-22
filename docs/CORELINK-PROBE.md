@@ -93,7 +93,13 @@ wsl.exe --distribution archlinux --user root --exec unshare --net -- \
 
 该测试只覆盖内核设备与 fd 生命周期；直连路由随设备删除不等于已经实现任意路由／DNS 的所有权恢复。它没有验证提权界面、助手身份认证、Go fd 接收、TCP 转发、校园隧道或 Clash 共存。Windows 本机为 x64 普通用户，WSL root 不代表 Windows 管理员权限；没有据此进行 Windows 驱动安装或 UAC 提权。
 
-### macOS utun／fd 隔离实验（待原生 CI）
+### Linux 原出口与更具体的捕获路由
+
+[隔离检查](../tests/platform/original_route_linux.py)只在新的网络命名空间中创建 veth 原网络、独立 TCP／UDP 回显端点及非持久 TUN。目标的 `/32` 捕获路由优先于原网络 `/24`，先实际读取 TUN 包证明未绑定流量被捕获，再由零 capabilities 的普通用户运行[生产 underlay 探针](../tests/platform/original_route_probe.go)，验证指定原接口的 TCP／UDP 双向通信及原地址，接口缺失必须报错。两端命名空间退出即释放设备；宿主接口、全表路由和 DNS 保持不变。
+
+本地 WSL 隔离内核已通过，Linux 双架构 CI 待验，日志为 `linux-original-route.log`。该结果只验证已有出口绑定机制，未覆盖策略路由选择器、自动选择、IPv6、Windows／macOS 的竞争路由或正式助手恢复，不能据此接管日常网络。
+
+### macOS utun／fd 隔离实验
 
 同一 [Unix 原型](../tests/platform/unix_device_probe.py) 在 macOS 使用 kernel control 分配全新 utun，按 [Apple 公开定义](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/net/if_utun.h)取得接口名并处理四字节地址族头。仅允许一次性 GitHub macOS runner，以 root 创建／配置测试点对点地址，再经 `SCM_RIGHTS` 将 fd 交给已设置普通 uid／gid 和明确附加组后 exec 的全新 Python 进程；复用 Linux 的实际 UDP 双向、主动关闭及持有 fd 时 SIGKILL 检查。测试目的已有非默认路由时拒绝运行，结束后检查接口和其全部路由消失，不改系统 DNS／默认路由。接收方逐阶段确认权限、两条路由通信及最终 fd 所有权，共用原八秒预算；避免 [macOS 上不安全的 fork 后原生调用](https://docs.python.org/3/library/os.html#os.fork)，不延长等待或跳过数据与清理检查。
 
