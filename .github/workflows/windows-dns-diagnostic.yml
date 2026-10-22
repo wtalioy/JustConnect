@@ -39,7 +39,7 @@ jobs:
                       return "[IO.File]::AppendAllText('" + destination + "','" + phase + ":'+$jcDnsPhaseClock.ElapsedMilliseconds+[Environment]::NewLine)\n"
                   script = query
                   for anchor, phase in phases:
-                      script = script.replace(anchor, mark(phase) + anchor, 1)
+                      script = script.replace(anchor, mark(phase) + anchor, -1 if phase == 'import' else 1)
                   script = '$jcDnsPhaseClock=[Diagnostics.Stopwatch]::StartNew()\n' + mark('script') + script + '\n' + mark('complete')
                   started = time.monotonic()
                   try:
