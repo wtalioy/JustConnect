@@ -2,8 +2,13 @@
 #include <QHostAddress>
 #include <QMap>
 #include <QRegularExpression>
+#include <QUrl>
+#include <limits>
+#include <utility>
 
 namespace {
+constexpr qsizetype MaxModelItems = 4096;
+
 bool mapped(const QHostAddress &address)
 {
     if (address.protocol() != QAbstractSocket::IPv6Protocol) return false;
@@ -88,7 +93,7 @@ std::optional<QJsonArray> campusProtectionConflicts(const QJsonArray &targets, c
             if (low.protocol() != subnet.first.protocol()) continue;
             if (low.isInSubnet(subnet) || high.isInSubnet(subnet)
                 || (compare(subnet.first, low) >= 0 && compare(subnet.first, high) <= 0)) {
-                if (conflicts.size() == 4096) return false;
+                if (conflicts.size() == MaxModelItems) return false;
                 auto conflict = source;
                 conflict["target"] = i;
                 conflicts.append(conflict);
@@ -120,7 +125,7 @@ std::optional<QJsonArray> originalDnsNamespaces(const QJsonObject &dns)
 {
     QJsonArray result;
     auto add = [&](const QJsonValue &name, const QString &role, const QJsonObject &source) {
-        if (!name.isString() || name.toString().contains(QChar::Null) || result.size() == 4096) return false;
+        if (!name.isString() || name.toString().contains(QChar::Null) || result.size() == MaxModelItems) return false;
         result.append(QJsonObject{{"name", name}, {"role", role}, {"source", source}});
         return true;
     };
@@ -204,4 +209,70 @@ std::optional<QJsonArray> originalDnsNamespaces(const QJsonObject &dns)
         }
     }
     return result;
+}
+
+std::optional<QJsonObject> originalDnsProtection(const QJsonObject &dns)
+{
+    const auto namespaces = originalDnsNamespaces(dns);
+    if (!namespaces) return std::nullopt;
+    QMap<std::pair<QString, QString>, QJsonArray> rules;
+    auto add = [&](const QString &kind, const QString &value, const QJsonObject &source) {
+        const auto key = std::make_pair(kind, value);
+        if (!rules.contains(key) && rules.size() == MaxModelItems) return false;
+        rules[key].append(source);
+        return true;
+    };
+    add("suffix", "localhost", {{"kind", "loopback"}});
+    for (int i = 0; i < namespaces->size(); ++i) {
+        const auto item = (*namespaces)[i].toObject(), origin = item["source"].toObject();
+        const auto role = item["role"].toString(), provider = origin["provider"].toString();
+        bool search = role == "search" || role == "search_route" || role == "search_configuration";
+        if (provider == "dynamic_store") {
+            if (!origin["key"].toString().startsWith("State:")) continue;
+            const auto row = dns["dynamic_store"].toObject()[origin["key"].toString()].toObject();
+            const auto noSearch = row["SupplementalMatchDomainsNoSearch"];
+            // SystemConfiguration uses a CFNumber, not a CFBoolean, for this flag.
+            if (!noSearch.isUndefined() && (!noSearch.isDouble() || noSearch != QJsonValue(noSearch.toInteger())
+                || noSearch.toInteger() < std::numeric_limits<int>::min() || noSearch.toInteger() > std::numeric_limits<int>::max())) return std::nullopt;
+            if (role == "match_configuration")
+                search = noSearch.toInteger() == 0 && !row["ServerAddresses"].toArray().isEmpty();
+            else if (role == "domain_configuration") search = !row.contains("SearchDomains");
+            if ((role == "match_configuration" || role == "domain_configuration")
+                && (row["Options"] == "pdns" || row["Options"].toString().contains("interface="))) search = false;
+        }
+        const QJsonObject source{{"kind", "namespace"}, {"index", i}};
+        auto text = item["name"].toString();
+        if (text.isEmpty()) continue;
+        if (text == ".") {
+            if (search && role != "match_configuration" && role != "domain_configuration"
+                && !add("single_label", "", source)) return std::nullopt;
+            continue;
+        }
+        QString kind = "suffix";
+        if (role == "nrpt") {
+            if (text.startsWith('.')) text.remove(0, 1);
+            else kind = text.contains('.') ? "exact" : "prefix";
+        }
+        if (text.endsWith('.')) text.chop(1);
+        if (text != text.trimmed()) return std::nullopt;
+        bool ascii = true;
+        for (const auto ch : text) ascii &= ch.unicode() < 128;
+        if ((!ascii && kind == "prefix") || text.contains(QChar::ReplacementCharacter)) return std::nullopt;
+        const auto name = ascii ? text.toLower() : QString::fromLatin1(QUrl::toAce(text)).toLower();
+        if (name.isEmpty() || name.size() > 253) return std::nullopt;
+        const QHostAddress literal(name);
+        if (!literal.isNull() && literal.toString() == name) return std::nullopt;
+        for (const auto &label : name.split('.')) {
+            if (label.isEmpty() || label.size() > 63 || label.startsWith('-') || label.endsWith('-')) return std::nullopt;
+            for (const auto ch : label)
+                if (!((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-' || ch == '_')) return std::nullopt;
+        }
+        if (provider == "dynamic_store" && role == "match_configuration"
+            && (name.endsWith(".in-addr.arpa") || name.endsWith(".ip6.arpa"))) search = false;
+        if (!add(kind, name, source) || (search && !add("single_label", "", source))) return std::nullopt;
+    }
+    QJsonArray targets;
+    for (auto it = rules.cbegin(); it != rules.cend(); ++it)
+        targets.append(QJsonObject{{"kind", it.key().first}, {"value", it.key().second}, {"sources", it.value()}});
+    return QJsonObject{{"namespaces", *namespaces}, {"targets", targets}};
 }

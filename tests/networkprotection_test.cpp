@@ -103,7 +103,7 @@ int main(int argc, char **argv) try
         "clients":[{"ConnectionSpecificSuffix":"lan.test","ConnectionSpecificSuffixSearchList":["other.test"]}],
         "global":{"SuffixSearchList":["global.test"]},
         "dynamic_store":{
-            "State:/Network/Service/a/DNS":{"SupplementalMatchDomains":["","mesh.test"],"SearchDomains":["mesh"],"DomainName":"mesh.test","SupplementalMatchDomainsNoSearch":true},
+            "State:/Network/Service/a/DNS":{"SupplementalMatchDomains":["","mesh.test"],"SearchDomains":["mesh"],"DomainName":"mesh.test","SupplementalMatchDomainsNoSearch":1},
             "Setup:/Network/Service/a/DNS":{"SearchDomains":["configured.test"]}}
     })").object();
     const auto unchangedDns = dnsFacts;
@@ -125,6 +125,83 @@ int main(int argc, char **argv) try
     }
     check(lastSearch && rootRoute && searchRoute && hostNrpt && configured && active,
           "DNS sources conflated search, routing, native NRPT or configured/current store data");
+    const auto nameModel=originalDnsProtection(dnsFacts);
+    check(nameModel && (*nameModel)["namespaces"].toArray()==*namespaces && dnsFacts==unchangedDns,
+          "Name rules changed native facts or lost their source identities");
+    const auto nameTargets=(*nameModel)["targets"].toArray();
+    auto rule=[&](const QString &kind,const QString &name) {
+        for(const auto &value:nameTargets) {
+            const auto target=value.toObject();
+            if(target["kind"]==kind && target["value"]==name) return target;
+        }
+        return QJsonObject{};
+    };
+    check(!rule("prefix","host").isEmpty() && rule("exact","host").isEmpty()
+          && !rule("exact","host.example.test").isEmpty() && rule("suffix","host.example.test").isEmpty(),
+          "NRPT prefix or FQDN was widened to a different matching scope");
+    check(rule("suffix","overlay.test")["sources"].toArray().size()==2
+          && !rule("suffix","0.10.in-addr.arpa").isEmpty()
+          && rule("suffix",".").isEmpty() && rule("suffix","configured.test").isEmpty(),
+          "Repeated sources, reverse scope, root exclusion or inactive Setup semantics changed");
+    check(rule("suffix","localhost")["sources"].toArray()==QJsonArray{QJsonObject{{"kind","loopback"}}},
+          "Reserved loopback names depend on configured DNS");
+    bool explicitSearch=false;
+    for(const auto &value:rule("single_label","")["sources"].toArray()) {
+        const auto index=value.toObject()["index"].toInt(-1);
+        check(index>=0 && index<namespaces->size(),"Name source escaped its original namespace array");
+        const auto fact=(*namespaces)[index].toObject();
+        check(fact["role"]!="route" && fact["role"]!="match_configuration" && fact["role"]!="domain_configuration",
+              "Route-only or NoSearch namespace invented a search scope");
+        explicitSearch|=fact["source"].toObject()["provider"]=="dynamic_store";
+    }
+    check(explicitSearch,"Explicit macOS search domains were suppressed by supplemental NoSearch");
+    auto namespaceRules=[](const QJsonArray &names) {
+        return originalDnsProtection({{"nrpt",QJsonArray{QJsonObject{{"Namespace",names}}}}});
+    };
+    const auto canonical=namespaceRules({".MESH.TEST.",QStringLiteral(".b\u00fccher.example"),"only.example.","_service"});
+    check(bool(canonical),"Valid case, absolute name, IDNA or underscore namespace rejected");
+    bool ace=false, absolute=false, folded=false;
+    for(const auto &value:(*canonical)["targets"].toArray()) {
+        const auto target=value.toObject();
+        ace|=target["value"]=="xn--bcher-kva.example";
+        absolute|=target["kind"]=="exact" && target["value"]=="only.example";
+        folded|=target["value"]=="mesh.test";
+    }
+    check(ace && absolute && folded,"Native name normalization lost IDNA, case or absolute FQDN meaning");
+    const auto emptySearch=originalDnsProtection({{"global",QJsonObject{{"SuffixSearchList",QJsonArray{""}}}}});
+    check(emptySearch && (*emptySearch)["targets"].toArray().size()==1,"Empty search suffix invented a scope for every bare name");
+    auto macRules=[](QJsonObject row) {
+        return originalDnsProtection({{"dynamic_store",QJsonObject{{"State:/Network/Service/a/DNS",row}}}});
+    };
+    QJsonObject supplemental{{"SupplementalMatchDomains",QJsonArray{"mesh.test"}}, {"ServerAddresses",QJsonArray{"192.0.2.53"}}};
+    const auto searchable=macRules(supplemental);
+    check(searchable && (*searchable)["targets"].toArray().size()==3,"Searchable macOS supplemental scope lost bare-name protection");
+    supplemental["SupplementalMatchDomainsNoSearch"]=2;
+    const auto noSearch=macRules(supplemental);
+    check(noSearch && (*noSearch)["targets"].toArray().size()==2,"Nonzero native NoSearch flag became a search domain");
+    supplemental["SupplementalMatchDomainsNoSearch"]=true;
+    check(!macRules(supplemental),"Boolean masquerading as a native numeric flag was accepted");
+    supplemental["SupplementalMatchDomainsNoSearch"]=0;
+    for(const auto &options:QStringList{"pdns","interface=utun7"}) {
+        supplemental["Options"]=options;
+        const auto scoped=macRules(supplemental);
+        check(scoped && (*scoped)["targets"].toArray().size()==2,"Private/scoped macOS resolver invented global search");
+    }
+    supplemental.remove("Options"); supplemental["SupplementalMatchDomains"]=QJsonArray{"0.10.in-addr.arpa"};
+    const auto reverse=macRules(supplemental);
+    check(reverse && (*reverse)["targets"].toArray().size()==2,"Reverse namespace became a bare-name search domain");
+    const QJsonObject primary{{"DomainName","primary.test"}};
+    const auto implicit=macRules(primary), overridden=macRules({{"DomainName","primary.test"},{"SearchDomains",QJsonArray{}}});
+    check(implicit && overridden && (*implicit)["targets"].toArray().size()==3 && (*overridden)["targets"].toArray().size()==2,
+          "Explicit empty search list did not override domain-name fallback");
+    for(const auto &name:QStringList{".bad..test","*.test","127.0.0.1","-bad.test","bad-.test","bad.test.."," bad.test",QStringLiteral(".\u00a0mesh.test"),QStringLiteral("\u6821\u56ed"),QStringLiteral("bad\ufffd.test")})
+        check(!namespaceRules({name}),"Unsupported namespace published a partial rule model");
+    QJsonArray uniqueNames;
+    for(int i=0;i<4095;++i) uniqueNames.append(QStringLiteral(".n%1.test").arg(i));
+    const auto boundary=namespaceRules(uniqueNames);
+    check(boundary && (*boundary)["targets"].toArray().size()==4096,"Reserved name counted outside the valid rule boundary");
+    uniqueNames.append(".overflow.test");
+    check(!namespaceRules(uniqueNames),"Normalized name rule capacity silently truncated a complete native snapshot");
     const auto fileSyntax=originalDnsNamespaces({{"resolv_conf",QJsonObject{
         {"contents","search kept.test # literal\n search ignored.test\ndomain \t\n; search ignored.test\n"}}}});
     check(fileSyntax && fileSyntax->size()==3 && fileSyntax->last().toObject()["name"]=="literal",
@@ -138,6 +215,11 @@ int main(int argc, char **argv) try
     for (int i=0;i<4096;++i) tooMany.append("same.test");
     dnsFacts={{"nrpt",QJsonArray{QJsonObject{{"Namespace",tooMany}}}}};
     check(originalDnsNamespaces(dnsFacts)->size()==4096,"DNS namespace capacity rejected exact boundary");
+    const auto repeated=originalDnsProtection(dnsFacts);
+    check(repeated && (*repeated)["targets"].toArray().size()==2,"Duplicate native expressions became duplicate policies");
+    for(const auto &value:(*repeated)["targets"].toArray())
+        if(value.toObject()["value"]=="same.test")
+            check(value.toObject()["sources"].toArray().size()==4096,"Merged name rule dropped independent source references");
     tooMany.append("overflow.test");dnsFacts["nrpt"]=QJsonArray{QJsonObject{{"Namespace",tooMany}}};
     check(!originalDnsNamespaces(dnsFacts),"DNS namespace capacity silently truncated sources");
     check(originalDnsNamespaces({{"resolved",QJsonObject{{"status","unavailable"}}}})->isEmpty(),
