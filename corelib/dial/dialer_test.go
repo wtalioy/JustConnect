@@ -61,17 +61,30 @@ func TestLiveProtectionOverridesCampusResourcesButNeverGrantsAuthorization(t *te
 				t.Fatal(network, host, err)
 			}
 		}
+		for _, host := range []string{"::ffff:127.0.0.1%1", "::1%1"} {
+			if _, err := d.Dial(ctx, network, net.JoinHostPort(host, "80")); !errors.Is(err, policy.ErrProtectedTarget) {
+				t.Fatal("scoped literal bypassed original-network protection", network, host, err)
+			}
+		}
 	}
 	current, _ = policy.NewProtectionPolicy([]string{"127.0.0.0/8"}, []string{"127.0.0.1"})
 	for _, network := range []string{"tcp", "udp"} {
 		if _, err := d.DialIPPort(ctx, network, "127.0.0.1:80"); err != nil {
 			t.Fatal(err)
 		}
+		if _, err := d.DialIPPort(ctx, network, "[::ffff:127.0.0.1%1]:80"); err != nil {
+			t.Fatal("authorized scoped IPv4 mapping rejected", network, err)
+		}
+		if _, err := d.Dial(ctx, network, "[::ffff:127.0.0.1%1]:80"); err != nil {
+			t.Fatal("proxy scoped IPv4 mapping rejected", network, err)
+		}
 	}
-	if s.tcpCalls != 1 || s.udpCalls != 1 {
+	if s.tcpCalls != 3 || s.udpCalls != 3 {
 		t.Fatal("explicit campus choice was not applied")
 	}
 	d.ipResources, d.resourceIndex = nil, nil
+	d.resolver = resolve.NewResolver(nil, "", "", 1, nil, nil, false)
+	defer d.resolver.Close()
 	for _, forced := range []bool{false, true} {
 		d.alwaysUseVPN = forced
 		for _, network := range []string{"tcp", "udp"} {
@@ -82,11 +95,30 @@ func TestLiveProtectionOverridesCampusResourcesButNeverGrantsAuthorization(t *te
 			if !errors.Is(err, ErrACLDenied) {
 				t.Fatalf("campus choice bypassed authorization or fell back to original network (forced=%t network=%s): %v", forced, network, err)
 			}
+			scoped := net.JoinHostPort("::ffff:127.0.0.1%1", strconv.Itoa(listener.LocalAddr().(*net.UDPAddr).Port))
+			conn, err = d.Dial(ctx, network, scoped)
+			if conn != nil {
+				_ = conn.Close()
+			}
+			if !errors.Is(err, ErrACLDenied) {
+				t.Fatalf("mapped IPv4 zone escaped campus choice (forced=%t network=%s): %v", forced, network, err)
+			}
 		}
 	}
 	current, _ = policy.NewProtectionPolicy([]string{"127.0.0.0/8"}, nil)
 	if _, err := d.DialIPPort(ctx, "tcp", "127.0.0.1:80"); !errors.Is(err, policy.ErrProtectedTarget) {
 		t.Fatal("removed choice remained active", err)
+	}
+}
+
+func TestIPPortEntryRejectsUnresolvedNames(t *testing.T) {
+	dialer := NewDialer(nil, nil, nil, false)
+	conn, err := dialer.DialIPPort(t.Context(), "udp", "localhost:9")
+	if conn != nil {
+		conn.Close()
+	}
+	if conn != nil || err == nil {
+		t.Fatal("IP-only entry delegated unresolved destination to native name dialing", err)
 	}
 }
 
