@@ -50,29 +50,36 @@ func TestProtocolPolicySwitchesProtectedFlowsBetweenOriginalAndCampus(t *testing
 		if applied, status := e.UpdatePolicy(h, policyInput(ready.Generation, uint64(i+1), []string{"127.0.0.0/8"}, choices)); applied != ready.Generation || status != OK {
 			t.Fatal(applied, status)
 		}
-		ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 		destination := native.Addr().String()
 		if i < 2 {
 			_, port, _ := net.SplitHostPort(destination)
 			destination = net.JoinHostPort("campus.test", port)
 		}
-		conn, err := socks.(proxy.ContextDialer).DialContext(ctx, "tcp", destination)
-		cancel()
-		if err != nil {
-			t.Fatal(err)
-		}
+		destinations := []string{destination}
 		if campus {
-			echo(t, conn)
-		} else {
-			conn.SetReadDeadline(time.Now().Add(3 * time.Second))
-			data := make([]byte, len("original-network"))
-			if _, err := io.ReadFull(conn, data); err != nil || string(data) != "original-network" {
-				t.Fatal("protected flow did not use its original network", string(data), err)
-			}
+			_, port, _ := net.SplitHostPort(native.Addr().String())
+			destinations = append(destinations, net.JoinHostPort("::ffff:127.0.0.1%1", port))
 		}
-		conn.Close()
+		for _, target := range destinations {
+			ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+			conn, err := socks.(proxy.ContextDialer).DialContext(ctx, "tcp", target)
+			cancel()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if campus {
+				echo(t, conn)
+			} else {
+				conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+				data := make([]byte, len("original-network"))
+				if _, err := io.ReadFull(conn, data); err != nil || string(data) != "original-network" {
+					t.Fatal("protected flow did not use its original network", string(data), err)
+				}
+			}
+			conn.Close()
+		}
 	}
-	if g.tcpCount.Load() != 1 {
+	if g.tcpCount.Load() != 2 {
 		t.Fatal("protection changes did not constrain actual campus connections", g.tcpCount.Load())
 	}
 }

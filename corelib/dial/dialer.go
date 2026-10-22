@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/netip"
 	"strconv"
-	"strings"
 
 	"github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/wtalioy/JustConnect/corelib/internal/ipresource"
@@ -50,18 +49,24 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 	if err != nil || port < 1 || port > 65535 {
 		return nil, errors.New("Invalid port in address: " + ipAddr)
 	}
+	address, err := netip.ParseAddr(ip)
+	if err != nil {
+		if d.alwaysUseVPN {
+			return nil, ErrACLDenied
+		}
+		return nil, errors.New("Invalid address: " + ipAddr)
+	}
+	address = address.Unmap()
 	useVPN := d.alwaysUseVPN
 	if d.ProtectionPolicy != nil {
 		if snapshot := d.ProtectionPolicy(); snapshot != nil {
-			if address, err := netip.ParseAddr(ip); err == nil {
-				if allowed, scope := snapshot.CampusAllowed(address); !allowed {
-					if d.alwaysUseVPN {
-						return nil, policy.ErrProtectedTarget
-					}
-					return dialDirect(ctx, network, ipAddr)
-				} else if scope.IsValid() {
-					useVPN = true
+			if allowed, scope := snapshot.CampusAllowed(address); !allowed {
+				if d.alwaysUseVPN {
+					return nil, policy.ErrProtectedTarget
 				}
+				return dialDirect(ctx, network, ipAddr)
+			} else if scope.IsValid() {
+				useVPN = true
 			}
 		}
 	}
@@ -85,14 +90,13 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 		}
 	}
 
-	address := net.ParseIP(ip).To4()
-	if address == nil {
+	if !address.Is4() {
 		if useVPN {
 			return nil, ErrACLDenied
 		}
 		return dialDirect(ctx, network, ipAddr)
 	}
-	target := &net.IPAddr{IP: address}
+	target := &net.IPAddr{IP: net.IP(address.AsSlice())}
 
 	if !matchedResource && d.ipResources != nil {
 		if resource, matched := matchIPResourceForTunnel(d.resourceIndex, target.IP, network, port); matched {
@@ -161,23 +165,24 @@ func (d *Dialer) Dial(ctx context.Context, network string, addr string) (net.Con
 		return dialDirect(ctx, network, addr)
 	}
 
-	var ip net.IP
-	if ip = net.ParseIP(host); ip == nil {
-		if d.resolver == nil || strings.Contains(host, ":") {
-			if d.alwaysUseVPN {
-				return nil, ErrACLDenied
-			}
-			return dialDirect(ctx, network, addr)
-		}
+	if _, err := netip.ParseAddr(host); err == nil {
+		return d.DialIPPort(ctx, network, addr)
+	}
+	if d.resolver == nil {
 		if d.alwaysUseVPN {
-			ctx, ip, err = d.resolver.ResolveCampus(ctx, host, true)
-		} else {
-			ctx, ip, err = d.resolver.Resolve(ctx, host)
+			return nil, ErrACLDenied
 		}
-		if err != nil {
-			// The resolver owns DNS fallback; a native hostname dial bypasses IP policy.
-			return nil, err
-		}
+		return dialDirect(ctx, network, addr)
+	}
+	var ip net.IP
+	if d.alwaysUseVPN {
+		ctx, ip, err = d.resolver.ResolveCampus(ctx, host, true)
+	} else {
+		ctx, ip, err = d.resolver.Resolve(ctx, host)
+	}
+	if err != nil {
+		// The resolver owns DNS fallback; a native hostname dial bypasses IP policy.
+		return nil, err
 	}
 
 	return d.DialIPPort(ctx, network, net.JoinHostPort(ip.String(), port))
