@@ -127,6 +127,10 @@ sudo unshare --net -- python tests/platform/original_route_linux.py --uid "$(id 
 
 本地双构建验证直连／网关、地址别名、错误所有者／重命名、已有表／规则／外部引用、真实部分批次失败、读回故障、恢复重试、读后源规则改写／同值重建、linkdown、4096 行完整容量及永久降权拒绝。原出口脚本已删除专用表／源规则命令，由独立原生持有进程调用同一后端，原预算／严格反向路径及普通 Go TCP／UDP 断言保留；关闭控制管道后检查原始表／规则完全恢复。Linux 分配方已用同一正式捕获后端替换手写目标路由，详见下节交付检查。当前不证明安装助手、持久恢复、控制器崩溃／断电恢复、IPv6 或任意属性的跨对象原子比较；S4-06 前不应用于日常网络。证据 `build/reports/linux-source-routes.json`；[`1aedf70` 六组原生](https://github.com/wtalioy/JustConnect/actions/runs/39814716256)及[三平台应用](https://github.com/wtalioy/JustConnect/actions/runs/39814716577)均通过。
 
+新实例可通过 `LinuxSourceRoutes::recover` 载入同一启动／网络命名空间的可信所有权记录，再调用既有恢复；快照含启动 UUID、命名空间设备／inode，身份检查使用 `/proc/thread-self/ns/net`。完整结构、规范所有者、派生表／metric、实际设备身份、原先不存在及已确认路由／规则均严格核对；畸形、重复、跨启动／命名空间或超过 2 MiB 的记录不取得部分所有权，不能替换活动实例。失败恢复保留载入记录供重试，已删除后同值重建的外部规则仍拒绝接管。**调用方须先认证权限所有者的受保护记录；不能把用户提供的 JSON 当作授权。** 当前未实现受保护文件写入、写前日志或服务重启机制，因此不宣称持久恢复已交付。
+
+隔离检查在实际持有进程应用源表／规则后将其 SIGKILL，由另一个全新进程读取已交付记录并恢复；先在另一真实网络命名空间验证拒绝载入，再恢复原命名空间的实际内核状态。直连、外部表引用拒绝／移除后重试、未确认应用值、同值重建和 4096 路由完整序列化回读均覆盖。测试模式 `--recover` 仅在 root 私有命名空间接受有界标准输入，不安装为助手；本地双构建及宿主不变证据见 `build/reports/linux-source-recovery.json`，原生增量待验。
+
 ### macOS utun／fd 隔离实验
 
 同一 [Unix 检查脚本](../tests/platform/unix_device_probe.py) 在 macOS 复用 [utun 平台实现](../infrastructure/platform/macos/tundevice.cpp)，由内核自动分配新接口，按 [Apple 公开定义](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/net/if_utun.h)回读名称／索引及零外部标志，使用四字节地址族头。Unix 后端共用所有权声明与原生测试，已删除 Python 的 macOS 分配副本；普通权限创建须拒绝，重复创建保留原 fd／身份。仅允许一次性 GitHub macOS runner，以 root 创建／配置测试点对点地址，再经 `SCM_RIGHTS` 将 fd 交给已设置普通 uid／gid 和明确附加组后 exec 的全新 Python 进程；复用 Linux 的实际 UDP 双向、主动关闭及持有 fd 时 SIGKILL 检查。macOS 控制通道使用 Unix 数据报；单线程测试接收后立即设置 CLOEXEC，Linux 仍使用原子接收，不将前者宣称为原子保证。测试目的已有非默认路由时拒绝运行，结束后检查接口和其全部路由消失，不改系统 DNS／默认路由。接收方逐阶段确认权限、两条路由通信及最终 fd 所有权，共用原八秒预算；避免 [macOS 上不安全的 fork 后原生调用](https://docs.python.org/3/library/os.html#os.fork)，不延长等待或跳过数据与清理检查。
