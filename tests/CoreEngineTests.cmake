@@ -1,4 +1,4 @@
-function(justconnect_core_ui_tests TARGET ENGINE LIBRARY)
+function(justconnect_core_ui_tests TARGET ENGINE LIBRARY PLATFORM)
     add_executable(${TARGET}
         "${REPO}/tests/coreengineui_test.cpp"
         "${REPO}/application/applicationshutdown.cpp"
@@ -25,7 +25,7 @@ function(justconnect_core_ui_tests TARGET ENGINE LIBRARY)
         "${REPO}/presentation/dialogs/loginwindow/loginwindow.cpp"
         "${REPO}/presentation/presentationhelpers.cpp")
     set_target_properties(${TARGET} PROPERTIES AUTOMOC ON AUTOUIC ON)
-    target_link_libraries(${TARGET} PRIVATE ${ENGINE} Qt6::WebEngineWidgets Qt6::Concurrent)
+    target_link_libraries(${TARGET} PRIVATE ${ENGINE} ${PLATFORM} Qt6::WebEngineWidgets Qt6::Concurrent)
     justconnect_core_runtime(${TARGET} ${LIBRARY})
     add_test(NAME ${TARGET} COMMAND ${TARGET})
     set_tests_properties(${TARGET} PROPERTIES TIMEOUT 60
