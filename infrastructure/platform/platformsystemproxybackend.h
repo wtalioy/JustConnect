@@ -27,7 +27,7 @@ public:
     SystemProxyCheck check(const SystemProxyConfig &config) override;
     PlatformOperationResult apply(const SystemProxyConfig &config) override;
     PlatformOperationResult clear() override;
-#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX) || defined(Q_OS_MACOS)
     // Original proxy/PAC values may contain secrets; persist only in protected credential storage.
     QJsonObject recoverySnapshot() const;
     PlatformOperationResult recover(const QJsonObject &record);
