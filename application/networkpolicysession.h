@@ -15,7 +15,10 @@ public:
     ~NetworkPolicySession() override;
     void clear();
     bool refresh();
-    bool isBusy() const { return workerBusy || networkPending || resourcesPending; }
+    bool setCampusAddress(const QString &address, bool campus);
+    QJsonArray campusAddresses() const { return chosenCampus; }
+    CoreEngine::RequestStatus policyStatus() const { return lastPolicyStatus; }
+    bool isBusy() const { return workerBusy || networkPending || resourcesPending || policyBusy; }
     CoreEngine::RequestStatus status() const { return currentStatus; }
     QJsonObject model() const { return currentModel; }
 signals:
@@ -37,4 +40,10 @@ private:
     CoreEngine::RequestStatus modelStatus = CoreEngine::RequestStatus::Pending;
     CoreEngine::RequestStatus currentStatus = CoreEngine::RequestStatus::Unavailable;
     QJsonObject network, resources, currentModel;
+    QJsonValue networkVersion;
+    QJsonArray chosenCampus, pendingCampus;
+    QString pendingRevision;
+    quint64 revision = 0;
+    bool policyBusy = false;
+    CoreEngine::RequestStatus lastPolicyStatus = CoreEngine::RequestStatus::Unavailable;
 };
