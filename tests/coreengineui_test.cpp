@@ -43,13 +43,17 @@
 #include <atomic>
 
 using ProxyCheck::check;
-template<class Predicate> static void until(Predicate done) {
+template<class Predicate> static void waitUntil(const char *file, int line, Predicate done) {
     QElapsedTimer elapsed;
     elapsed.start();
     while (!done() && elapsed.elapsed() < 10000)
         QApplication::processEvents(QEventLoop::AllEvents, 10);
-    check(done(), "Qt UI operation timed out");
+    if (!done()) {
+        std::cerr << file << ':' << line << ": ";
+        check(false, "Qt UI operation timed out");
+    }
 }
+#define until(...) waitUntil(__FILE__, __LINE__, __VA_ARGS__)
 static QDialog *challenge(QWidget &parent) {
     for (auto *dialog : parent.findChildren<QDialog *>())
         if (dialog->isVisible()) return dialog;
@@ -826,6 +830,8 @@ static void browserTlsPolicy(const ConnectionProfile &gatewayProfile) {
     QUrl target;target.setScheme("https");target.setHost(gatewayProfile.endpoint.server);target.setPort(gatewayProfile.endpoint.port);target.setPath("/browser");
     QString foreignUrl;
     for (const auto &policy:QList<TlsOptions>{{},{true,gatewayProfile.tls.caPem},{true,{},true},{false,{}}}) {
+        std::cout << "CHECK: browser TLS verify=" << policy.verify << ", custom CA=" << !policy.caPem.isEmpty()
+                  << ", unverified nodes=" << policy.allowUnverifiedNodes << '\n';
         QWidget parent;auto *engine=new QueryEngine;ConnectionSession session(engine);AuthDialogCoordinator dialogs(&parent);
         QObject::connect(&session,&ConnectionSession::authenticationRequired,&dialogs,&AuthDialogCoordinator::requestAuthentication);
         auto profile=gatewayProfile;profile.tls=policy;check(session.start(profile,{}),"start immutable browser TLS policy context");profile.tls={};
