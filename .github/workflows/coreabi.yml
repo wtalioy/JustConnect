@@ -124,6 +124,15 @@ jobs:
         shell: bash
         run: sudo unshare --net -- "$(command -v python)" tests/platform/unix_device_probe.py --uid "$(id -u)" 2>&1 | tee build/coreabi/linux-device.log
 
+      - name: Check original Go underlay beneath a competing Linux TUN route
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          test -z "$(gofmt -l tests/platform/original_route_probe.go)"
+          go -C corelib vet ../tests/platform/original_route_probe.go
+          go -C corelib build -mod=readonly -o ../build/coreabi/original-route-probe ../tests/platform/original_route_probe.go
+          sudo unshare --net -- "$(command -v python)" tests/platform/original_route_linux.py --uid "$(id -u)" --probe build/coreabi/original-route-probe 2>&1 | tee build/coreabi/linux-original-route.log
+
       - name: Check macOS utun fd transfer and cleanup in the disposable runner
         if: runner.os == 'macOS'
         shell: bash
