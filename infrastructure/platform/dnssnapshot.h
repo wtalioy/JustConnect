@@ -1,9 +1,5 @@
 #pragma once
-#include "application/platformoperationresult.h"
-#include <QJsonObject>
+#include "application/dnssnapshot.h"
 
-struct DnsSnapshot
-{
-    PlatformOperationResult result;
-    QJsonObject data;
-};
+// Blocking, read-only; invoke on a worker, never on the GUI thread.
+DnsSnapshot readSystemDnsSnapshot();
