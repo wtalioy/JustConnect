@@ -5,6 +5,8 @@
 
 class AuthDialogCoordinator;
 class ConnectionSession;
+class CoreEngine;
+class NetworkPolicySession;
 class CredentialAccess;
 struct CredentialSource;
 class ProfileService;
@@ -29,6 +31,7 @@ public:
     CredentialAccess *credentials() const;
     CredentialSource credentialSource();
     ConnectionSession *connection() const;
+    NetworkPolicySession *networkPolicy() const;
     SystemProxySession *systemProxy() const;
     UpdateChecker *updates() const;
     AuthDialogCoordinator *authenticationDialogs() const;
@@ -36,7 +39,9 @@ public:
 
 private:
     ProfileService *profileService;
+    CoreEngine *coreEngine; // Owned by ConnectionSession and shared with the collector.
     ConnectionSession *connectionSession;
+    NetworkPolicySession *networkPolicySession;
     SystemProxySession *systemProxySession;
     UpdateChecker *updateChecker;
     AuthDialogCoordinator *authenticationCoordinator;

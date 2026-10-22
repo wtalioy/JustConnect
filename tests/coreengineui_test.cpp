@@ -1,5 +1,8 @@
 #include "application/connectionsession.h"
 #include "application/networkprotection.h"
+#include "application/networkpolicysession.h"
+#include "presentation/dialogs/networkpolicywindow.h"
+#include <QTreeWidget>
 #include "tests/credentialstorefixture.h"
 #include "application/applicationlogger.h"
 #include "application/defaultsettings.h"
@@ -114,7 +117,7 @@ static void proxyWaitsForReady() {
     ApplicationLogger logger;
     CredentialAccess credentials(std::make_unique<MemoryCredentialStore>());
     ConnectionUiController controller(&parent, &connectButton, &proxyButton, &trayAction,
-        &session, &systemProxy, &dialogs, &logger, &credentials, [&] { return &settings; },
+        &session, &systemProxy, nullptr, &dialogs, &logger, &credentials, [&] { return &settings; },
         [&] {return CredentialAccess::source(settings,{});},
         [](const QString &, const QString &, QSystemTrayIcon::MessageIcon) {});
     connectButton.click();
@@ -239,7 +242,7 @@ static void manualCredentialsAndLateResults() {
     AuthDialogCoordinator dialogs(&parent);ApplicationLogger logger;QString logs;
     QObject::connect(&logger,&ApplicationLogger::entryAdded,[&](const QString &entry){logs+=entry;});
     auto backend=std::make_unique<MemoryCredentialStore>();auto *store=backend.get();CredentialAccess access(std::move(backend));
-    ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,&dialogs,&logger,
+    ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,
         &access,[&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
         [](const QString &,const QString &,QSystemTrayIcon::MessageIcon){});
     auto login=[&](bool save,const QString &name) {
@@ -333,7 +336,7 @@ static void authenticationCacheLifecycle() {
     AuthDialogCoordinator dialogs(&parent);ApplicationLogger logger;QString logs;QStringList notices;
     QObject::connect(&logger,&ApplicationLogger::entryAdded,[&](const QString &entry){logs+=entry;});
     auto backend=std::make_unique<MemoryCredentialStore>();auto *store=backend.get();CredentialAccess access(std::move(backend));
-    ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,&dialogs,&logger,
+    ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,
         &access,[&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
         [&](const QString &title,const QString &body,QSystemTrayIcon::MessageIcon){notices.append(title+body);});
     auto source=CredentialAccess::source(settings,{});ProfileCredentials vault(*store);
@@ -448,7 +451,7 @@ static void onlineExpiryOffersOneReauthentication() {
     QObject::connect(&dialogs,&AuthDialogCoordinator::responseSubmitted,&session,&ConnectionSession::submitResponse);
     auto backend=std::make_unique<MemoryCredentialStore>();auto *store=backend.get();CredentialAccess access(std::move(backend));
     int notices=0,finishes=0;
-    ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,&dialogs,&logger,
+    ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,
         &access,[&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
         [&](const QString &,const QString &,QSystemTrayIcon::MessageIcon){++notices;});
     QObject::connect(&session,&ConnectionSession::finished,[&](ConnectionError){++finishes;});
@@ -488,7 +491,7 @@ static void authenticationSurvivesTunnelFailure() {
     auto *engine=new QueryEngine;ConnectionSession session(engine);SystemProxySession proxy(std::make_unique<ProxyBackend>());
     AuthDialogCoordinator dialogs(&parent);ApplicationLogger logger;
     auto backend=std::make_unique<MemoryCredentialStore>();auto *store=backend.get();CredentialAccess access(std::move(backend));
-    ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,&dialogs,&logger,
+    ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,
         &access,[&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
         [](const QString &,const QString &,QSystemTrayIcon::MessageIcon){});
     connectButton.click();until([&]{return engine->starts==1;});
@@ -519,7 +522,7 @@ static void quitWaitsForAuthenticationQueryWithoutBlockingTheGui() {
     QWidget parent;QPushButton connectButton(&parent),proxyButton(&parent);QAction trayAction(&parent);
     auto *engine=new QueryEngine;ConnectionSession session(engine);SystemProxySession proxy(std::make_unique<ProxyBackend>());
     AuthDialogCoordinator dialogs(&parent);ApplicationLogger logger;CredentialAccess access(std::make_unique<MemoryCredentialStore>());
-    ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,&dialogs,&logger,&access,
+    ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,&access,
         [&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},[](const QString &,const QString &,QSystemTrayIcon::MessageIcon){});
     auto *queryEngine=new QueryEngine;QPointer<QueryEngine> guarded=queryEngine;
     auto *window=new AuthInfoWindow(&parent,queryEngine);window->fetchAuthInfo({});window->show();window->close();
@@ -533,6 +536,37 @@ static void quitWaitsForAuthenticationQueryWithoutBlockingTheGui() {
     check(!guarded,"query owner is destroyed only after its cleanup completes");
 }
 
+static void quitWaitsForNetworkInspectionWithoutBlockingTheGui() {
+    class SnapshotEngine : public QueryEngine {
+        void readSnapshot(Snapshot kind, const QString &generation) override {
+            const QJsonObject value=kind==Snapshot::Network
+                ? QJsonObject{{"interfaces",QJsonArray{}},{"routes",QJsonArray{}}}
+                : QJsonObject{{"ip_resources",QJsonArray{}},{"dns_records",QJsonObject{}},{"campus_dns",""}};
+            emit snapshotReady(kind,generation,{{kind==Snapshot::Network ? "network" : "resources",value}},RequestStatus::Success);
+        }
+    };
+    QTemporaryDir folder;QSettings settings(folder.filePath("network-quit.ini"),QSettings::IniFormat);DefaultSettings::reset(settings);
+    QWidget parent;QPushButton connectButton(&parent),proxyButton(&parent);QAction trayAction(&parent);
+    auto *engine=new SnapshotEngine;ConnectionSession session(engine);SystemProxySession proxy(std::make_unique<ProxyBackend>());
+    QSemaphore entered,resume;
+    NetworkPolicySession networkPolicy(engine,[&] {
+        entered.release();check(resume.tryAcquire(1,2000),"release owned network query before its deadline");return DnsSnapshot{{},{}};
+    });
+    AuthDialogCoordinator dialogs(&parent);ApplicationLogger logger;CredentialAccess access(std::make_unique<MemoryCredentialStore>());
+    ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,&networkPolicy,&dialogs,&logger,&access,
+        [&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},[](const QString &,const QString &,QSystemTrayIcon::MessageIcon){});
+    int ready=0;QObject::connect(&controller,&ConnectionUiController::readyToQuit,[&]{++ready;});
+    check(session.start({},{}),"start network inspection exit fixture");
+    emit engine->sessionStarted("1");emit engine->connectionEstablished();
+    check(entered.tryAcquire(1,1000),"network query runs outside the GUI thread");
+    controller.prepareForQuit();emit engine->finished(ConnectionError::NONE);
+    QElapsedTimer elapsed;elapsed.start();int ticks=0;
+    while(elapsed.elapsed()<30) {QApplication::processEvents(QEventLoop::AllEvents,5);++ticks;}
+    check(!ready && engine->stops==1 && ticks>1,"ordered exit remains responsive while its cancelled network query finishes");
+    resume.release();until([&]{return ready==1;});
+    check(!networkPolicy.isBusy() && networkPolicy.model().isEmpty(),"late network result cannot republish after ordered exit");
+}
+
 static void quitWaitsForInitialSsoCache() {
     QTemporaryDir folder;QSettings settings(folder.filePath("quit-cache.ini"),QSettings::IniFormat);
     settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");settings.setValue("JustConnect/ServerPort",443);
@@ -541,7 +575,7 @@ static void quitWaitsForInitialSsoCache() {
     auto *engine=new QueryEngine;ConnectionSession session(engine);SystemProxySession proxy(std::make_unique<ProxyBackend>());
     AuthDialogCoordinator dialogs(&parent);ApplicationLogger logger;
     auto backend=std::make_unique<MemoryCredentialStore>();auto *store=backend.get();CredentialAccess access(std::move(backend));
-    ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,&dialogs,&logger,
+    ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,
         &access,[&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
         [](const QString &,const QString &,QSystemTrayIcon::MessageIcon){check(false,"exit preserves authorized SSO cache persistence");});
     int ready=0;
@@ -875,11 +909,11 @@ static void gateway(const QJsonObject &config) {
     int responses = 0, completed = 0, ticks = 0;
     QString generation;
     int networkSnapshots=0, resourceSnapshots=0;
-    std::optional<QJsonArray> originalTargets;
+
     QJsonObject readyResources;
     CoreEngine::RequestStatus resourceStatus=CoreEngine::RequestStatus::Unavailable;
     QObject::connect(engine,&CoreEngine::sessionStarted,[&](const QString &value){generation=value;});
-    QObject::connect(engine,&CoreEngine::snapshotReady,[&](CoreEngine::Snapshot kind,const QString &value,const QJsonObject &snapshot,CoreEngine::RequestStatus status){
+    const auto snapshotObserver=QObject::connect(engine,&CoreEngine::snapshotReady,[&](CoreEngine::Snapshot kind,const QString &value,const QJsonObject &snapshot,CoreEngine::RequestStatus status){
         check(QThread::currentThread()==QApplication::instance()->thread() && value==generation,"real snapshots reach their GUI session generation");
         if(status!=CoreEngine::RequestStatus::Success) check(snapshot.isEmpty(),"pending or failed snapshot cannot expose old data");
         if(kind==CoreEngine::Snapshot::Resources) {
@@ -890,8 +924,6 @@ static void gateway(const QJsonObject &config) {
             }
         } else {
             check(status==CoreEngine::RequestStatus::Success && !snapshot["network"].toObject()["interfaces"].toArray().isEmpty(),"Qt receives the actual native network snapshot");
-            originalTargets=originalNetworkProtection(snapshot["network"].toObject());
-            check(originalTargets.has_value(),"actual native interfaces and routes produce a complete original-network model");
             ++networkSnapshots;
         }
     });
@@ -923,7 +955,8 @@ static void gateway(const QJsonObject &config) {
     auto backend=std::make_unique<MemoryCredentialStore>();auto *store=backend.get();CredentialAccess access(std::move(backend));
     QPushButton connectButton(&parent),proxyButton(&parent);QAction trayAction(&parent);ApplicationLogger logger;
     SystemProxySession systemProxy(std::make_unique<ProxyBackend>());
-    ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&systemProxy,&dialogs,&logger,
+    NetworkPolicySession networkPolicy(engine, [] { return DnsSnapshot{{}, QJsonObject{}}; });
+    ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&systemProxy,&networkPolicy,&dialogs,&logger,
         &access,[&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
         [](const QString &,const QString &,QSystemTrayIcon::MessageIcon){check(false,"real gateway authentication cache must save successfully");});
     QTimer heartbeat;
@@ -941,13 +974,12 @@ static void gateway(const QJsonObject &config) {
     check(responses==1 && session.state()==ConnectionState::Starting,"device registration waits for a second explicit UI action");
     challenge(parent)->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
     until([&] { return session.state() == ConnectionState::Running; });
-    engine->readSnapshot(CoreEngine::Snapshot::Resources,generation);
-    engine->readSnapshot(CoreEngine::Snapshot::Network,generation);
-    until([&]{return resourceSnapshots==2 && networkSnapshots==1;});
+    until([&]{return resourceSnapshots==2 && networkSnapshots==1 && networkPolicy.status()==CoreEngine::RequestStatus::Success;});
     check(resourceStatus==CoreEngine::RequestStatus::Success,"Qt receives ready resources without another authentication");
-    const auto conflicts=campusProtectionConflicts(*originalTargets,readyResources);
+    const auto originalTargets=networkPolicy.model()["targets"].toArray();
+    const auto conflicts=campusProtectionConflicts(originalTargets,readyResources);
     check(conflicts.has_value(),"actual parsed campus resources produce a complete conflict model");
-    auto overlappingTargets=*originalTargets;
+    auto overlappingTargets=originalTargets;
     const auto campusAddress=readyResources["dns_records"].toObject()["campus.test"].toArray().first().toString();
     overlappingTargets.append(QJsonObject{{"prefix",campusAddress+"/32"}});
     const auto overlapping=campusProtectionConflicts(overlappingTargets,readyResources);
@@ -966,11 +998,26 @@ static void gateway(const QJsonObject &config) {
         && session.observation("library").result=="succeeded"
         && !session.observation("renewal").observedAt.isValid(),
         "formal ABI observations distinguish authentication, transport and unknown renewal");
+    NetworkPolicyWindow inspection(&networkPolicy, &parent);
+    inspection.show();
+    auto *targets=inspection.findChild<QTreeWidget *>("networkPolicyTargets");
+    check(targets && targets->topLevelItemCount()==originalTargets.size(), "real Qt network inspection displays the collected native scopes");
+    bool nativeSourceShown=false;
+    for(const auto &value:networkPolicy.model()["network"].toObject()["interfaces"].toArray()) {
+        const auto interface=value.toObject();
+        if(interface["addresses"].toArray().isEmpty() || interface["name"].toString().isEmpty()) continue;
+        for(int row=0;row<targets->topLevelItemCount();++row)
+            nativeSourceShown |= targets->topLevelItem(row)->text(1).contains(interface["name"].toString());
+    }
+    check(nativeSourceShown,"real Qt inspection explains at least one actual native interface source");
     until([&]{return !access.isBusy(settings.fileName());});
     ProxyCheck::exercise(listeners, [&] {
         session.stop();
         until([&] { return completed == 1; });
     });
+    check(networkPolicy.model().isEmpty() && targets->topLevelItemCount()==0, "real stop clears collected scopes and their visible rows");
+    inspection.close();
+    QObject::disconnect(snapshotObserver);
     check(savedCache.account=="fixture-user" && !savedCache.data.isEmpty(),"Qt receives server-confirmed cache after authentication");
     const auto source=CredentialAccess::source(settings,{});ProfileCredentials vault(*store);AuthenticationCache nativeCache;
     check(vault.loadAuthenticationCache(source.scope,source.profile,nativeCache).succeeded() && nativeCache.data==savedCache.data,
@@ -980,7 +1027,7 @@ static void gateway(const QJsonObject &config) {
         ConnectionSession restarted(new EmbeddedCoreEngine);AuthDialogCoordinator restoredDialogs(&parent);
         SystemProxySession restoredProxy(std::make_unique<ProxyBackend>());
         QPushButton restoredConnect(&parent),restoredProxyButton(&parent);QAction restoredTray(&parent);
-        ConnectionUiController restoredController(&parent,&restoredConnect,&restoredProxyButton,&restoredTray,&restarted,&restoredProxy,
+        ConnectionUiController restoredController(&parent,&restoredConnect,&restoredProxyButton,&restoredTray,&restarted,&restoredProxy,nullptr,
             &restoredDialogs,&logger,&access,[&]{return &restartedSettings;},[&]{return CredentialAccess::source(restartedSettings,{});},
             [](const QString &,const QString &,QSystemTrayIcon::MessageIcon){check(false,"restored native cache remains usable");});
         bool done=false;
@@ -1004,5 +1051,5 @@ static void gateway(const QJsonObject &config) {
 int main(int argc, char **argv) {
     QApplication app(argc, argv);
     if (argc == 3 && QByteArray(argv[1]) == "--gateway") gateway(QJsonDocument::fromJson(argv[2]).object());
-    else { browserCookiesStayInLoginDialog(); browserValidatesCallbackNavigation(); uiContracts(); proxyWaitsForReady(); manualCredentialsAndLateResults(); authenticationCacheLifecycle(); onlineExpiryOffersOneReauthentication(); authenticationSurvivesTunnelFailure(); quitWaitsForInitialSsoCache(); quitWaitsForAuthenticationQueryWithoutBlockingTheGui(); }
+    else { browserCookiesStayInLoginDialog(); browserValidatesCallbackNavigation(); uiContracts(); proxyWaitsForReady(); manualCredentialsAndLateResults(); authenticationCacheLifecycle(); onlineExpiryOffersOneReauthentication(); authenticationSurvivesTunnelFailure(); quitWaitsForInitialSsoCache(); quitWaitsForAuthenticationQueryWithoutBlockingTheGui(); quitWaitsForNetworkInspectionWithoutBlockingTheGui(); }
 }
