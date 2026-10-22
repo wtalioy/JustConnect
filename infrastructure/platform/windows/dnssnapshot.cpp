@@ -16,8 +16,8 @@ function Read-DnsRows([string]$class,[string[]]$fields) {
         try { $row | Select-Object -Property $fields } finally { $row.Dispose() }
     }
 }
-$options=[Microsoft.Management.Infrastructure.Options.DComSessionOptions]::new()
-$session=[cimsession]::Create('.',$options)
+# NullString preserves a true local session; PowerShell binds $null as an empty string.
+$session=[cimsession]::Create([NullString]::Value)
 try {
     $parameters=[Microsoft.Management.Infrastructure.CimMethodParametersCollection]::new()
     $parameters.Add([Microsoft.Management.Infrastructure.CimMethodParameter]::Create('Effective',$true,[Microsoft.Management.Infrastructure.CimType]::Boolean,[Microsoft.Management.Infrastructure.CimFlags]::In))
@@ -57,7 +57,7 @@ try {
     $global.SuffixSearchList=@($global.SuffixSearchList | Where-Object {$null -ne $_} | ForEach-Object {[string]$_})
     $data=[ordered]@{interfaces=$interfaces;clients=$clients;global=$global;nrpt=$policies;doh_supported=$dohSupported;doh=$doh}
     ConvertTo-Json -InputObject $data -Depth 6 -Compress
-} finally { $session.Dispose();$options.Dispose() }
+} finally { $session.Dispose() }
 )PS");
 
 bool strings(const QJsonValue &value)
