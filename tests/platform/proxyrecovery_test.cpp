@@ -98,6 +98,7 @@ class FileBackend final : public SystemProxyBackend {
 public:
     SystemProxyCheck check(const SystemProxyConfig &config) override
     {
+        if (mode=="invalid-state") return {{Status::Failed,"Rejected unowned recovery data"}};
         auto values = state();values["checks"] = values["checks"].toInt()+1;
         values["config"] = QJsonObject{{"http",config.httpPort},{"socks",config.socksPort},{"bypass",config.bypass}};store(values);
         return {{},false,values["current"]==111};
@@ -117,6 +118,7 @@ public:
     }
     Result clear() override
     {
+        if (mode=="invalid-state") return {Status::Failed,"Rejected unowned recovery data"};
         if (!owned) return {};
         auto values = state();values["clears"] = values["clears"].toInt()+1;
         if (QFile::exists(root+"/deny-clear")) {
@@ -199,6 +201,14 @@ int main(int argc, char **argv) try
         check(missing.check(config).result.status==Status::Unsupported && missing.clear().succeeded()
               && state()["applies"]==0,"Missing worker fell back to a host mutation");
     }
+    reset("invalid-state");
+    {
+        ProxyRecoveryBackend backend(QCoreApplication::applicationFilePath());
+        check(!backend.check(config).result.succeeded(),"Rejected recovery data was reported as a successful query");
+    }
+    until([] {return !QFile::exists(root+"/owner.lock");},"Rejected unowned recovery kept an unrecoverable worker alive");
+    check(state()["current"]==17 && state()["applies"]==0,"Rejected unowned recovery changed native state");
+    reset();
     {
         ProxyRecoveryBackend backend(QCoreApplication::applicationFilePath());
         check(!backend.apply({0,11080,{}}).succeeded() && state()["applies"]==0,"Invalid ports reached the independent backend");
