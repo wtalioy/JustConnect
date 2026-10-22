@@ -66,7 +66,8 @@ jobs:
               dll.write_bytes(archive.read(f'wintun/bin/{arch}/wintun.dll'))
               (output / 'windows-device-license.txt').write_bytes(archive.read('wintun/LICENSE.txt'))
           env = dict(os.environ, JC_TEST_WINTUN_DLL=str(dll), CGO_ENABLED='0', GOTOOLCHAIN='local', GOWORK='off', GOENV='off')
-          signature = json.loads(subprocess.check_output(['powershell', '-NoProfile', '-NonInteractive', '-Command',
+          print('RUN: Wintun Authenticode via the CI pwsh host (60s)', flush=True)
+          signature = json.loads(subprocess.check_output(['pwsh', '-NoProfile', '-NonInteractive', '-Command',
               '$s=Get-AuthenticodeSignature -LiteralPath $env:JC_TEST_WINTUN_DLL; @{status=$s.Status.ToString(); signer=$s.SignerCertificate.Thumbprint} | ConvertTo-Json -Compress'], env=env, text=True, timeout=60))
           if signature != {'status': 'Valid', 'signer': 'DF98E075A012ED8C86FBCF14854B8F9555CB3D45'}:
               raise RuntimeError(f'Untrusted Wintun signature: {signature}')
