@@ -60,7 +60,7 @@ func run() error {
 			return fmt.Errorf("%s failed to retain original interface: %v", network, err)
 		}
 	}
-	fmt.Println("PASS: ordinary Go underlay TCP/UDP retained original interface beneath a more-specific capture route")
+	fmt.Println("PASS: ordinary Go underlay TCP/UDP retained original interface with source routing beneath a more-specific capture route and strict rp_filter")
 	return nil
 }
 

@@ -16,7 +16,10 @@ import time
 
 def peer():
     print('namespace', flush=True)
-    assert sys.stdin.readline() == 'start\n'
+    command = sys.stdin.readline()
+    if not command:
+        return
+    assert command == 'start\n'
     tcp = socket.socket()
     tcp.bind(('198.18.0.6', 54321))
     tcp.listen()
@@ -61,6 +64,9 @@ def probe(binary, uid):
     tun = None
     try:
         ready(server, 'namespace\n')
+        # These settings belong exclusively to the guarded private namespace.
+        for name in ('all', 'default'):
+            Path('/proc/sys/net/ipv4/conf/' + name + '/rp_filter').write_text('1')
         def ip(*args):
             subprocess.run(['ip', *args], check=True, timeout=5)
         def remote(*args):
@@ -79,8 +85,17 @@ def probe(binary, uid):
         ip('addr', 'add', '198.18.0.1/30', 'dev', 'capture0')
         ip('link', 'set', 'capture0', 'up')
         ip('route', 'add', '198.18.0.6/32', 'dev', 'capture0')
+        # Preserve the selected original source and its reverse path without relaxing rp_filter.
+        ip('route', 'add', '192.0.2.0/24', 'dev', 'original0', 'table', '42117')
+        ip('route', 'add', '198.18.0.6/32', 'via', '192.0.2.2', 'dev', 'original0', 'table', '42117')
+        ip('rule', 'add', 'priority', '100', 'from', '192.0.2.1/32', 'lookup', '42117')
+        for name in ('all', 'original0'):
+            assert Path('/proc/sys/net/ipv4/conf/' + name + '/rp_filter').read_text().strip() == '1'
         route = json.loads(subprocess.check_output(['ip', '-j', 'route', 'get', '198.18.0.6'], text=True))
         assert route[0]['dev'] == 'capture0', 'competing capture route not selected'
+        original_route = json.loads(subprocess.check_output(
+            ['ip', '-j', 'route', 'get', '198.18.0.6', 'from', '192.0.2.1'], text=True))
+        assert original_route[0]['dev'] == 'original0' and str(original_route[0]['table']) == '42117', original_route
         server.stdin.write('start\n')
         server.stdin.flush()
         ready(server, 'listening\n')
@@ -96,6 +111,7 @@ def probe(binary, uid):
             if len(packet) >= 28 and packet[0] >> 4 == 4 and packet[9] == socket.IPPROTO_UDP:
                 offset = (packet[0] & 15) * 4
                 if packet[offset + 8:] == b'capture-probe':
+                    assert packet[12:16] == socket.inet_aton('198.18.0.1'), 'unbound flow acquired original source'
                     break
         original = ordinary('original', 'original0')
         assert original.returncode == 0, original.stderr
