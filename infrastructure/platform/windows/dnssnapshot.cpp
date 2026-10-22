@@ -9,13 +9,14 @@ namespace {
 const QString query = QString::fromLatin1(R"PS(
 $ErrorActionPreference='Stop'
 [Console]::OutputEncoding=[Text.Encoding]::UTF8
-$dnsModuleRoot=Join-Path $PSHOME 'Modules/DnsClient'
+Import-Module ($PSHOME+'\Modules\Microsoft.PowerShell.Utility\Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop
+$dnsModuleRoot=$PSHOME+'\Modules\DnsClient'
 foreach($component in @('MSFT_DnsClient','MSFT_DnsClientGlobalSetting','MSFT_DnsClientServerAddress','PS_DnsClientNrptPolicy_v1.0.0')) {
-    Import-Module (Join-Path $dnsModuleRoot ($component+'.cdxml')) -ErrorAction Stop
+    Import-Module ($dnsModuleRoot+'\'+$component+'.cdxml') -ErrorAction Stop
 }
-Update-TypeData -PrependPath (Join-Path $dnsModuleRoot 'DnsClientPSProvider.Types.ps1xml') -ErrorAction Stop
-$dohModule=Join-Path $dnsModuleRoot 'MSFT_DnsClientDohServerAddress.cdxml'
-if(Test-Path -LiteralPath $dohModule -PathType Leaf) { Import-Module $dohModule -ErrorAction Stop }
+Update-TypeData -PrependPath ($dnsModuleRoot+'\DnsClientPSProvider.Types.ps1xml') -ErrorAction Stop
+$dohModule=$dnsModuleRoot+'\MSFT_DnsClientDohServerAddress.cdxml'
+if([IO.File]::Exists($dohModule)) { Import-Module $dohModule -ErrorAction Stop }
 $policies=@(Get-DnsClientNrptPolicy -Effective | Select-Object Namespace,NameServers,DirectAccessEnabled,DirectAccessDnsServers,DirectAccessIPsecCARestriction,DirectAccessProxyName,DirectAccessProxyType,DirectAccessQueryIPsecEncryption,DirectAccessQueryIPsecRequired,DnsSecIPsecCARestriction,DnsSecQueryIPsecEncryption,DnsSecQueryIPsecRequired,DnsSecValidationRequired,NameEncoding,QueryPolicy,SecureNameQueryFallback)
 foreach($row in $policies) {
     $row.Namespace=@($row.Namespace | Where-Object {$null -ne $_} | ForEach-Object {[string]$_})
