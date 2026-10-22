@@ -5,6 +5,7 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"io"
 	"net"
@@ -61,6 +62,9 @@ func TestDeviceReadbackUsesNativeInterfaceAndRouteTables(t *testing.T) {
 		if err := windows.GetIfEntry2Ex(windows.MibIfTableNormalWithoutStatistics, &row); err != nil {
 			t.Fatal(err)
 		}
+		if luid, err := adapterLUID(iface.Name); err != nil || luid != row.InterfaceLuid {
+			t.Fatal("native alias lookup changed the actual interface identity", err)
+		}
 		if present, err := ownedInterfacePresent(row.InterfaceLuid); err != nil || !present {
 			t.Fatal("LUID lookup missed the original loopback interface", err)
 		}
@@ -76,6 +80,63 @@ func TestDeviceReadbackUsesNativeInterfaceAndRouteTables(t *testing.T) {
 		return
 	}
 	t.Fatal("no loopback interface for native readback")
+}
+
+func TestDeviceConfirmationKeepsOwnershipBeforeConfiguration(t *testing.T) {
+	device := brokerDevice{"JCProbe0000000000000000", 7, 9, `SWD\WINTUN\{00000000-0000-0000-0000-000000000001}`}
+	allocated := brokerNotice{"allocated", device}
+	configured := brokerNotice{"configured", device}
+	for _, test := range []struct {
+		name    string
+		notices []brokerNotice
+		valid   bool
+		owned   bool
+	}{
+		{"confirmed", []brokerNotice{allocated, configured}, true, true},
+		{"setup-failed", []brokerNotice{allocated}, false, true},
+		{"duplicate-allocation", []brokerNotice{allocated, allocated}, false, true},
+		{"configuration-before-allocation", []brokerNotice{configured}, false, false},
+		{"wrong-owner", []brokerNotice{{"allocated", brokerDevice{"unrelated", device.Index, device.LUID, device.InstanceID}}}, false, false},
+		{"different-device", []brokerNotice{allocated, {"configured", brokerDevice{device.Name, 8, 10, device.InstanceID}}}, false, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var input bytes.Buffer
+			encoder := json.NewEncoder(&input)
+			for _, notice := range test.notices {
+				if err := encoder.Encode(notice); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var owned brokerDevice
+			err := confirmDevice(&input, device.Name, &owned)
+			var expected brokerDevice
+			if test.owned {
+				expected = device
+			}
+			if (err == nil) != test.valid || owned != expected {
+				t.Fatalf("confirmation=%v retained original owner=%t", err, owned == device)
+			}
+		})
+	}
+}
+
+func TestDeviceProbeUsesSelectedCIHost(t *testing.T) {
+	t.Run("missing-host", func(t *testing.T) {
+		t.Setenv("JC_TEST_PWSH", "")
+		if _, err := ciPowerShellHost(); err == nil {
+			t.Fatal("missing CI host accepted")
+		}
+	})
+	t.Run("legacy-host", func(t *testing.T) {
+		t.Setenv("JC_TEST_PWSH", `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`)
+		if _, err := ciPowerShellHost(); err == nil {
+			t.Fatal("legacy host accepted instead of the CI host")
+		}
+	})
+	output, err := powershell("Write-Output 'jc-device-host'")
+	if err != nil || string(output) != "jc-device-host" {
+		t.Fatalf("fixed command execution added interactive output or failed: %v %q", err, output)
+	}
 }
 
 func TestDeviceClientTokenKeepsIdentityWithoutElevation(t *testing.T) {

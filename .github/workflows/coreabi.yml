@@ -51,7 +51,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: python
         run: |
-          import hashlib, io, json, os, pathlib, subprocess, urllib.request, zipfile
+          import hashlib, io, json, os, pathlib, shutil, subprocess, urllib.request, zipfile
           output = pathlib.Path('build/coreabi').resolve()
           sdk = output / 'wintun-probe'
           sdk.mkdir(parents=True, exist_ok=True)
@@ -65,13 +65,16 @@ jobs:
               dll = sdk / 'wintun.dll'
               dll.write_bytes(archive.read(f'wintun/bin/{arch}/wintun.dll'))
               (output / 'windows-device-license.txt').write_bytes(archive.read('wintun/LICENSE.txt'))
-          env = dict(os.environ, JC_TEST_WINTUN_DLL=str(dll), CGO_ENABLED='0', GOTOOLCHAIN='local', GOWORK='off', GOENV='off')
+          host = shutil.which('pwsh')
+          if not host:
+              raise RuntimeError('CI PowerShell host unavailable')
+          env = dict(os.environ, JC_TEST_PWSH=host, JC_TEST_WINTUN_DLL=str(dll), CGO_ENABLED='0', GOTOOLCHAIN='local', GOWORK='off', GOENV='off')
           print('RUN: Wintun Authenticode via the CI pwsh host (60s)', flush=True)
-          signature = json.loads(subprocess.check_output(['pwsh', '-NoProfile', '-NonInteractive', '-Command',
+          signature = json.loads(subprocess.check_output([host, '-NoProfile', '-NonInteractive', '-Command',
               '$s=Get-AuthenticodeSignature -LiteralPath $env:JC_TEST_WINTUN_DLL; @{status=$s.Status.ToString(); signer=$s.SignerCertificate.Thumbprint} | ConvertTo-Json -Compress'], env=env, text=True, timeout=60))
           if signature != {'status': 'Valid', 'signer': 'DF98E075A012ED8C86FBCF14854B8F9555CB3D45'}:
               raise RuntimeError(f'Untrusted Wintun signature: {signature}')
-          metadata = {'archive_sha256': digest, 'version': '0.14.1', 'arch': arch, 'signature': signature, 'source': os.environ['GITHUB_SHA']}
+          metadata = {'archive_sha256': digest, 'version': '0.14.1', 'arch': arch, 'signature': signature, 'powershell_host': host, 'source': os.environ['GITHUB_SHA']}
           (output / 'windows-device.json').write_text(json.dumps(metadata, indent=2), encoding='utf-8')
           source = pathlib.Path('tests/platform/windows_device_probe.go').resolve()
           tests = pathlib.Path('tests/platform/windows_device_probe_test.go').resolve()
