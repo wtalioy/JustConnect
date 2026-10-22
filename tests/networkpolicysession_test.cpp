@@ -143,7 +143,9 @@ int main(int argc, char **argv) try
     check(session.model().isEmpty() && session.status() == Status::Stale, "Stopped session accepted late facts");
 
     Engine invalid;
-    NetworkPolicySession malformed(&invalid, [] {
+    std::atomic_bool unsupportedName = false;
+    NetworkPolicySession malformed(&invalid, [&] {
+        if (unsupportedName) return DnsSnapshot{{}, {{"nrpt", QJsonArray{QJsonObject{{"Namespace", QJsonArray{QStringLiteral("\u6821\u56ed")}}}}}}};
         return DnsSnapshot{{}, {{"nrpt", QJsonArray{QJsonObject{{"Namespace", "collapsed"}}}}}};
     });
     emit invalid.sessionStarted("1");
@@ -161,6 +163,12 @@ int main(int argc, char **argv) try
     reply(invalid, "1", "192.168.1.19");
     until([&] { return !malformed.isBusy(); });
     check(malformed.status() == Status::Failed && malformed.model().isEmpty(), "Malformed DNS source published usable network facts");
+    unsupportedName = true;
+    check(malformed.refresh(), "Unrepresentable namespace cannot be refreshed");
+    reply(invalid, "1", "192.168.1.19");
+    until([&] { return !malformed.isBusy(); });
+    check(malformed.status()==Status::Failed && malformed.model().isEmpty() && invalid.policies.isEmpty(),
+          "Readable but unrepresentable DNS published partial facts or changed the active policy");
     invalid.unsupported = true;
     check(malformed.refresh(), "Capability failure cannot be refreshed");
     until([&] { return !malformed.isBusy(); });

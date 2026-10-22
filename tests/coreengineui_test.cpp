@@ -1015,10 +1015,14 @@ static void gateway(const QJsonObject &config) {
     auto *targets=inspection.findChild<QTreeWidget *>("networkPolicyTargets");
     check(targets && targets->topLevelItemCount()==originalTargets.size(), "real Qt network inspection displays the collected native scopes");
     const auto namespaces=originalDnsNamespaces(networkPolicy.model()["dns"].toObject());
+    const auto nameModel=originalDnsProtection(networkPolicy.model()["dns"].toObject());
+    check(nameModel && networkPolicy.model()["name_targets"].toArray()==(*nameModel)["targets"].toArray(),
+          "Actual Qt session lost normalized name targets or their original sources");
     const auto *dnsTree=inspection.findChild<QTreeWidget *>("networkPolicyDnsNamespaces");
     check(!networkPolicy.model()["dns"].toObject().isEmpty() && namespaces
           && networkPolicy.model()["dns_namespaces"].toArray()==*namespaces
-          && dnsTree && dnsTree->topLevelItemCount()==namespaces->size(),
+          && dnsTree && dnsTree->topLevelItemCount()==namespaces->size()+1
+          && dnsTree->topLevelItem(dnsTree->topLevelItemCount()-1)->text(0)=="localhost",
           "real native DNS facts join the same Qt session model and inspection without another authentication");
     bool nativeSourceShown=false;
     for(const auto &value:networkPolicy.model()["network"].toObject()["interfaces"].toArray()) {

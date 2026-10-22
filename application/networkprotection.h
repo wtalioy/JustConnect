@@ -10,3 +10,5 @@ std::optional<QJsonArray> originalNetworkProtection(const QJsonObject &network);
 std::optional<QJsonArray> campusProtectionConflicts(const QJsonArray &targets, const QJsonObject &resources);
 // Native namespace expressions retain their role and source; they do not grant authorization.
 std::optional<QJsonArray> originalDnsNamespaces(const QJsonObject &dns);
+// Rules retain native namespace references; this model does not apply a policy.
+std::optional<QJsonObject> originalDnsProtection(const QJsonObject &dns);

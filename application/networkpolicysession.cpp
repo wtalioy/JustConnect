@@ -176,11 +176,12 @@ void NetworkPolicySession::buildModel()
             }
             const auto targets = originalNetworkProtection(original);
             const auto conflicts = targets ? campusProtectionConflicts(*targets, campus) : std::nullopt;
-            const auto namespaces = originalDnsNamespaces(snapshot.data);
-            if (!targets || !conflicts || !namespaces) return ModelResult{request, Status::Failed, {}};
+            const auto names = originalDnsProtection(snapshot.data);
+            if (!targets || !conflicts || !names) return ModelResult{request, Status::Failed, {}};
             return ModelResult{request, Status::Success,
                 {{"schema_version", version}, {"generation", id}, {"network", original}, {"resources", campus},
-                 {"dns", snapshot.data}, {"dns_namespaces", *namespaces}, {"targets", *targets}, {"conflicts", *conflicts}}};
+                 {"dns", snapshot.data}, {"dns_namespaces", (*names)["namespaces"]}, {"name_targets", (*names)["targets"]},
+                 {"targets", *targets}, {"conflicts", *conflicts}}};
         } catch (...) { return ModelResult{request, Status::Failed, {}}; }
     }));
 }
