@@ -1,0 +1,67 @@
+name: Windows DNS diagnostic
+
+on:
+  push:
+    branches: [develop]
+    paths: ['.github/workflows/windows-dns-diagnostic.yml', 'infrastructure/platform/windows/dnssnapshot.cpp']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cold-query:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, windows-11-vs2026-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Locate cold query phase without saving DNS data
+        shell: python
+        run: |
+          import os, pathlib, re, subprocess, time
+          source = pathlib.Path('infrastructure/platform/windows/dnssnapshot.cpp').read_text(encoding='utf-8')
+          query = re.search(r'R"PS\((.*?)\)PS"', source, re.S).group(1)
+          phases = [
+              ("Import-Module ($PSHOME", "utility"),
+              ("Import-Module ($dnsModuleRoot", "component"),
+              ("Update-TypeData", "types"),
+              ("Import-Module $dohModule", "doh_import"),
+              ("$policies=@(", "nrpt"),
+              ("foreach($row in $policies)", "nrpt_values"),
+              ("$dohSupported=", "doh_discovery"),
+              ("$doh=@()", "doh_query"),
+              ("$interfaces=@(", "interfaces"),
+              ("$clients=@(", "clients"),
+              ("$global=", "global"),
+              ("ConvertTo-Json -InputObject", "serialize"),
+          ]
+          for token, label in phases:
+              if token not in query:
+                  raise RuntimeError('Missing production query phase: ' + label)
+              query = query.replace(token, '[Console]::Error.WriteLine(("stage:' + label
+                  + ':"+$clock.ElapsedMilliseconds));' + token)
+          query = '$clock=[Diagnostics.Stopwatch]::StartNew();[Console]::Error.WriteLine("stage:entered:0")\n' + query
+          query += '\n[Console]::Error.WriteLine(("stage:complete:"+$clock.ElapsedMilliseconds))'
+          program = str(pathlib.Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/powershell.exe')
+          started = time.monotonic()
+          try:
+              result = subprocess.run([program, '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', query],
+                  capture_output=True, timeout=10, creationflags=subprocess.CREATE_NO_WINDOW)
+              stderr, code = result.stderr, result.returncode
+          except subprocess.TimeoutExpired as error:
+              stderr, code = error.stderr or b'', -1
+          print('elapsed_seconds=' + str(round(time.monotonic() - started, 3)), flush=True)
+          allowed = {'entered', 'complete'} | {label for _, label in phases}
+          for label, elapsed in re.findall(rb'stage:([a-z_]+):([0-9]+)', stderr):
+              if label.decode('ascii') in allowed:
+                  print(label.decode('ascii') + ':' + elapsed.decode('ascii'), flush=True)
+          print('exit_code=' + str(code), flush=True)
+          if code:
+              raise RuntimeError('Cold production DNS query failed; DNS output discarded')
