@@ -160,14 +160,31 @@ NetworkPolicyWindow::NetworkPolicyWindow(NetworkPolicySession *input, QWidget *p
     actions->addWidget(original);
     actions->addStretch();
     addressLayout->addLayout(actions);
-    policyMessage = new QLabel(addressPage);
+    policyMessage = new QLabel(this);
     policyMessage->setObjectName("networkPolicyPreferenceStatus");
     policyMessage->setTextFormat(Qt::PlainText);
     policyMessage->setWordWrap(true);
-    addressLayout->addWidget(policyMessage);
+    auto *namePage = new QWidget(this);
+    auto *nameLayout = new QVBoxLayout(namePage);
+    nameLayout->setContentsMargins(0, 0, 0, 0);
+    nameLayout->addWidget(namespaces);
+    nameChoices = new QLabel(namePage);
+    nameChoices->setObjectName("networkPolicyCampusNames");
+    nameChoices->setTextFormat(Qt::PlainText);
+    nameChoices->setWordWrap(true);
+    nameLayout->addWidget(nameChoices);
+    auto *nameActions = new QHBoxLayout;
+    campusName = new QPushButton(QStringLiteral("选择校园名称…"), namePage);
+    originalName = new QPushButton(QStringLiteral("恢复原网络名称…"), namePage);
+    campusName->setObjectName("chooseCampusName");
+    originalName->setObjectName("restoreOriginalName");
+    nameActions->addWidget(campusName);
+    nameActions->addWidget(originalName);
+    nameActions->addStretch();
+    nameLayout->addLayout(nameActions);
     auto *tabs = new QTabWidget(this);
     tabs->addTab(addressPage, QStringLiteral("地址范围"));
-    tabs->addTab(namespaces, QStringLiteral("DNS 名称与来源"));
+    tabs->addTab(namePage, QStringLiteral("DNS 名称与来源"));
     auto *buttons = new QDialogButtonBox(this);
     refresh = buttons->addButton(QStringLiteral("刷新"), QDialogButtonBox::ActionRole);
     refresh->setObjectName("refreshNetworkPolicy");
@@ -177,12 +194,15 @@ NetworkPolicyWindow::NetworkPolicyWindow(NetworkPolicySession *input, QWidget *p
     auto *layout = new QVBoxLayout(this);
     layout->addWidget(status);
     layout->addWidget(tabs);
+    layout->addWidget(policyMessage);
     layout->addWidget(explanation);
     layout->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     connect(refresh, &QPushButton::clicked, this, [this] { if (session) session->refresh(); });
     connect(campus, &QPushButton::clicked, this, &NetworkPolicyWindow::chooseCampusAddress);
     connect(original, &QPushButton::clicked, this, &NetworkPolicyWindow::restoreOriginalAddress);
+    connect(campusName, &QPushButton::clicked, this, [this] { editName(true); });
+    connect(originalName, &QPushButton::clicked, this, [this] { editName(false); });
     connect(targets, &QTreeWidget::currentItemChanged, this, &NetworkPolicyWindow::updateActions);
     connect(input, &NetworkPolicySession::changed, this, [this] {
         updateModel(); updateActions(); updatePolicyMessage();
@@ -203,20 +223,30 @@ void NetworkPolicyWindow::updateActions()
         && subnet.first.protocol() == QAbstractSocket::IPv4Protocol);
     original->setEnabled(session && !editor && !session->currentGeneration().isEmpty()
         && !session->isPolicyUpdating() && !session->campusAddresses().isEmpty());
+    campusName->setEnabled(session && !editor && session->status() == CoreEngine::RequestStatus::Success
+        && !session->isBusy() && session->model()["schema_version"].toInteger() > 0
+        && !session->model()["name_targets"].toArray().isEmpty());
+    originalName->setEnabled(session && !editor && !session->currentGeneration().isEmpty()
+        && !session->isPolicyUpdating() && !session->campusNames().isEmpty());
 }
 
 void NetworkPolicyWindow::updatePolicyMessage()
 {
     using Status = CoreEngine::RequestStatus;
+    nameChoices->clear();
     if (!session || session->currentGeneration().isEmpty()) { policyMessage->clear(); return; }
+    QStringList names;
+    for (const auto &value : session->campusNames()) names.append(value.toString());
+    nameChoices->setText(names.isEmpty() ? QStringLiteral("当前没有已确认的校园名称例外。")
+        : QStringLiteral("已确认的校园名称例外：%1").arg(names.join(QStringLiteral("、"))));
     const auto count = session->campusAddresses().size();
-    QString text = QStringLiteral("已确认 %1 个校园例外。仅对单个 IPv4 地址生效，仍需学校授权；相同地址不能同时访问两侧。").arg(count);
+    QString text = QStringLiteral("已确认 %1 个校园 IPv4 例外、%2 个名称例外。选择仅影响后续新连接，仍需学校授权；相同目标不能同时选择两侧。").arg(count).arg(names.size());
     const auto result = session->policyStatus();
-    if (session->isPolicyUpdating()) text = QStringLiteral("正在确认地址选择，原选择仍有效。") + text;
+    if (session->isPolicyUpdating()) text = QStringLiteral("正在确认校园选择，原选择仍有效。") + text;
     else if (result == Status::Pending) text = QStringLiteral("核心正忙，可以稍后重试。") + text;
-    else if (result == Status::Invalid) text = QStringLiteral("地址选择无效，请检查范围和完整 IPv4 地址。") + text;
-    else if (result == Status::Unavailable) text = QStringLiteral("当前核心无法更新地址选择。") + text;
-    else if (result && result != Status::Success) text = QStringLiteral("地址选择未能应用，仍保留最后确认的选择，可以重试。") + text;
+    else if (result == Status::Invalid) text = QStringLiteral("校园选择无效，请检查保护范围及具体 IPv4 地址／名称。") + text;
+    else if (result == Status::Unavailable) text = QStringLiteral("当前核心无法更新校园选择。") + text;
+    else if (result && result != Status::Success) text = QStringLiteral("校园选择未能应用，仍保留最后确认的选择，可以重试。") + text;
     policyMessage->setText(text);
 }
 
@@ -267,6 +297,36 @@ void NetworkPolicyWindow::restoreOriginalAddress()
         if (!session || session->currentGeneration() != id) return;
         if (!session->setCampusAddress(value, false))
             policyMessage->setText(QStringLiteral("当前无法恢复这个地址，请稍后重试。"));
+    });
+    connect(input, &QDialog::finished, this, [this, input] { if (editor == input) editor = nullptr; updateActions(); });
+    input->open();
+    updateActions();
+}
+
+void NetworkPolicyWindow::editName(bool campus)
+{
+    if (!session || !(campus ? campusName : originalName)->isEnabled()) return;
+    const auto id = session->currentGeneration();
+    auto *input = new QInputDialog(this);
+    editor = input;
+    input->setAttribute(Qt::WA_DeleteOnClose);
+    input->setWindowModality(Qt::WindowModal);
+    input->setWindowTitle(campus ? QStringLiteral("选择校园名称") : QStringLiteral("恢复原网络名称"));
+    if (campus) {
+        input->setLabelText(QStringLiteral("请输入需要改走校园的单个受保护名称：\n不接受通配符或整个范围，业务仍须学校授权。"));
+        input->setOkButtonText(QStringLiteral("选择校园侧"));
+    } else {
+        QStringList names;
+        for (const auto &value : session->campusNames()) names.append(value.toString());
+        input->setLabelText(QStringLiteral("请选择要撤回校园例外的名称："));
+        input->setComboBoxItems(names);
+        input->setComboBoxEditable(false);
+        input->setOkButtonText(QStringLiteral("恢复原网络"));
+    }
+    connect(input, &QInputDialog::textValueSelected, this, [this, id, campus](const QString &value) {
+        if (!session || session->currentGeneration() != id) return;
+        if (!session->setCampusName(value.trimmed(), campus))
+            policyMessage->setText(QStringLiteral("当前无法应用这个名称选择，请检查完整名称及网络结果后重试。"));
     });
     connect(input, &QDialog::finished, this, [this, input] { if (editor == input) editor = nullptr; updateActions(); });
     input->open();

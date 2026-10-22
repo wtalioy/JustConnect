@@ -155,16 +155,56 @@ bool NetworkPolicySession::setCampusAddress(const QString &text, bool campus)
         emit changed();
         return true;
     }
+    if (campus) choices.append(text);
+    else for (int i = choices.size() - 1; i >= 0; --i)
+        if (choices[i] == text) choices.removeAt(i);
+    policy["campus"] = choices;
+    return submitPolicy(policy);
+}
+
+bool NetworkPolicySession::setCampusName(const QString &text, bool campus)
+{
+    if (!engine || generation.isEmpty() || isPolicyUpdating()) return false;
+    const auto name = canonicalProtectionName(text);
+    if (!name) {
+        lastPolicyStatus = Status::Invalid;
+        emit changed();
+        return false;
+    }
+    auto choices = campusNames();
+    const bool owned = choices.contains(*name);
+    if ((currentStatus != Status::Success || isBusy()) && (campus || !owned)) return false;
+    auto policy = confirmedPolicy;
+    if (policy.isEmpty()) {
+        if (currentStatus != Status::Success || networkVersion.toInteger() <= 0) {
+            lastPolicyStatus = Status::Unavailable;
+            emit changed();
+            return false;
+        }
+        policy = protectionConfiguration(currentModel["targets"].toArray(), currentModel["name_targets"].toArray());
+        policy["schema_version"] = networkVersion;
+        policy["generation"] = generation;
+    }
+    if (owned == campus) {
+        lastPolicyStatus = Status::Success;
+        emit changed();
+        return true;
+    }
+    if (campus) choices.append(*name);
+    else for (int i = choices.size() - 1; i >= 0; --i)
+        if (choices[i] == *name) choices.removeAt(i);
+    policy["campus_names"] = choices;
+    return submitPolicy(policy);
+}
+
+bool NetworkPolicySession::submitPolicy(QJsonObject policy)
+{
     if (revision == std::numeric_limits<quint64>::max()) {
         lastPolicyStatus = Status::Limit;
         emit changed();
         return false;
     }
-    if (campus) choices.append(text);
-    else for (int i = choices.size() - 1; i >= 0; --i)
-        if (choices[i] == text) choices.removeAt(i);
     policy["revision"] = QString::number(++revision);
-    policy["campus"] = choices;
     pendingPolicy = policy;
     lastPolicyStatus = Status::Pending;
     engine->updatePolicy(policy);

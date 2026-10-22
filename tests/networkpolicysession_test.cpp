@@ -231,6 +231,65 @@ int main(int argc, char **argv) try
     check(recovery.campusAddresses().isEmpty() && recovery.status() == Status::Failed,
           "Recovery either retained the exception or misreported failed inspection as successful");
 
+    Engine nameEngine;
+    std::atomic_bool nameDnsFails = false;
+    NetworkPolicySession nameSession(&nameEngine, [&] {
+        return nameDnsFails ? DnsSnapshot{{PlatformOperationResult::Status::TimedOut, {}}, {}} : DnsSnapshot{};
+    });
+    emit nameEngine.sessionStarted("7");
+    auto nameInitial = initialPolicy;
+    nameInitial["generation"] = "7";
+    emit nameEngine.initialProtectionApplied(nameInitial);
+    reply(nameEngine, "7", "192.168.9.19");
+    until([&] { return !nameSession.isBusy(); });
+    check(nameSession.setCampusAddress("192.168.9.20", true), "Name fixture could not choose its address");
+    emit nameEngine.policyUpdated("7", "1", Status::Success);
+    for (const auto &bad : {".", "*.confirmed.native.test", "127.0.0.1", "bad..test"})
+        check(!nameSession.setCampusName(bad, true), "Malformed name choice was submitted");
+    check(nameEngine.policies.size()==1 && nameSession.setCampusName("HOST.Confirmed.Native.Test.", true)
+          && nameSession.campusNames().isEmpty() && !nameSession.setCampusAddress("192.168.9.21",true),
+          "Invalid or unconfirmed name published, or policy writes overlapped");
+    auto chosenNamePolicy = nameEngine.policies.last();
+    check(chosenNamePolicy["revision"]=="2" && chosenNamePolicy["protected_names"].toArray()==initialNames
+          && chosenNamePolicy["campus_names"].toArray()==QJsonArray{"host.confirmed.native.test"}
+          && chosenNamePolicy["campus"].toArray()==QJsonArray{"192.168.9.20"},
+          "Name update replaced confirmed address choices or expanded its concrete scope");
+    emit nameEngine.policyUpdated("6", "2", Status::Success);
+    check(nameSession.isPolicyUpdating() && nameSession.campusNames().isEmpty(), "Foreign name confirmation applied");
+    emit nameEngine.policyUpdated("7", "2", Status::Invalid);
+    check(nameSession.campusNames().isEmpty() && nameSession.campusAddresses()==QJsonArray{"192.168.9.20"},
+          "Invalid name update damaged the last effective full policy");
+    check(nameSession.setCampusName("host.confirmed.native.test", true), "Valid name retry rejected");
+    emit nameEngine.policyUpdated("7", "3", Status::Success);
+    check(nameSession.campusNames()==QJsonArray{"host.confirmed.native.test"}
+          && nameSession.setCampusName("HOST.confirmed.native.test.", true) && nameEngine.policies.size()==3,
+          "Confirmed concrete name was lost or repeated normalization wrote another policy");
+    check(nameSession.setCampusAddress("192.168.9.21", true)
+          && nameEngine.policies.last()["campus_names"].toArray()==nameSession.campusNames(),
+          "Address update cleared a confirmed name exception");
+    emit nameEngine.policyUpdated("7", "4", Status::Success);
+    chosenNamePolicy = nameEngine.policies.last();
+    nameDnsFails = true;
+    check(nameSession.refresh(), "Name recovery refresh failed");
+    reply(nameEngine, "7", "192.168.10.19");
+    until([&] { return !nameSession.isBusy(); });
+    check(nameSession.status()==Status::Failed && !nameSession.setCampusName("new.confirmed.native.test",true)
+          && nameSession.setCampusName("host.confirmed.native.test",false),
+          "Failed inspection enabled a new exception or prevented owned name recovery");
+    auto nameRecovery = nameEngine.policies.last();
+    check(nameRecovery["protected"]==chosenNamePolicy["protected"] && nameRecovery["campus"]==chosenNamePolicy["campus"]
+          && nameRecovery["protected_names"]==chosenNamePolicy["protected_names"] && nameRecovery["campus_names"].toArray().isEmpty(),
+          "Name recovery guessed refreshed scopes or discarded unrelated address state");
+    emit nameEngine.policyUpdated("7", "5", Status::Failed);
+    check(!nameSession.campusNames().isEmpty() && nameSession.setCampusName("host.confirmed.native.test",false),
+          "Failed recovery lost the effective name exception or prevented retry");
+    emit nameEngine.policyUpdated("7", "6", Status::Success);
+    check(nameSession.campusNames().isEmpty() && nameSession.campusAddresses()==QJsonArray({"192.168.9.20","192.168.9.21"})
+          && nameSession.status()==Status::Failed, "Name recovery changed unrelated choices or invented successful inspection");
+    emit nameEngine.sessionStarted("8");
+    emit nameEngine.policyUpdated("7", "3", Status::Success);
+    check(nameSession.campusNames().isEmpty() && nameSession.campusAddresses().isEmpty(), "New generation inherited old name policy");
+
     Engine unsignedEngine;
     NetworkPolicySession unsignedModel(&unsignedEngine, [] { return DnsSnapshot{}; });
     emit unsignedEngine.sessionStarted("4");

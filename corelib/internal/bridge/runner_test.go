@@ -273,7 +273,7 @@ func TestNativeProtocolHost(t *testing.T) {
 	}
 	expectedTCP := int32(2)
 	if strings.Contains(string(output), "PASS: initial native address/name protection and live exact campus/original choices") {
-		expectedTCP++
+		expectedTCP += 2
 	}
 	if !strings.Contains(string(output), "PASS: native protocol session") || g.authCount.Load() != 1 || g.deviceBinds.Load() != 1 || g.tcpCount.Load() != expectedTCP {
 		t.Fatalf("missing actual protocol exchanges: auth=%d TCP=%d\n%s", g.authCount.Load(), g.tcpCount.Load(), output)
