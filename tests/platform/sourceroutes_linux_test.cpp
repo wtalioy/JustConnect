@@ -58,7 +58,10 @@ int main(int argc, char **argv) try
     });
     if (argc == 1) {
         check(::geteuid()!=0,"Run ordinary source route checks without root");
-        check(!missing.apply({},"original0",source,gateway,{target}).succeeded() && reads==0 && missing.snapshot().isEmpty(),
+        int checkpoints = 0;
+        check(!missing.apply({},"original0",source,gateway,{target},[&](const QJsonObject &) {
+            ++checkpoints;return PlatformOperationResult{Status::Failed,"Unexpected checkpoint"};
+        }).succeeded() && reads==0 && checkpoints==0 && missing.snapshot().isEmpty(),
               "Missing ownership reached network operations");
         check(!missing.recover(owner,{}).succeeded() && reads==0 && missing.snapshot().isEmpty(),
               "An invalid saved owner reached network operations");
@@ -68,6 +71,40 @@ int main(int argc, char **argv) try
     struct stat current{}, initial{};
     check(::geteuid()==0 && ::stat("/proc/self/ns/net",&current)==0 && ::stat("/proc/1/ns/net",&initial)==0
           && (current.st_dev!=initial.st_dev || current.st_ino!=initial.st_ino),"Refusing the host network namespace");
+    if (argc==4 && app.arguments()[1]=="--journal-owner") {
+        const auto stage = app.arguments()[2];
+        check(stage=="prepared" || stage=="partial" || stage=="applied" || stage=="confirmed","Unknown source apply crash boundary");
+        const int directory = ::open(QFile::encodeName(app.arguments()[3]).constData(),O_RDONLY|O_DIRECTORY|O_CLOEXEC|O_NOFOLLOW);
+        check(directory>=0,"Open the source owner checkpoint directory");
+        LinuxSourceJournal journal;
+        const auto opened = journal.open(directory,owner);::close(directory);
+        check(opened.succeeded(),qPrintable(opened.detail));
+        const auto pause = [](const QJsonObject &record) {
+            std::cout << QJsonDocument(record).toJson(QJsonDocument::Compact).constData() << std::endl;
+            std::cin.get();
+            throw std::runtime_error("Crash-boundary fixture resumed without owner termination");
+        };
+        QJsonObject intent;
+        int routeReads = 0, ruleReads = 0;
+        LinuxSourceRoutes routes([&](const QString &program,const QStringList &args) {
+            if (args.contains("route") && ++routeReads==3 && (stage=="applied" || stage=="partial")) pause(intent);
+            const auto result = runPlatformCommand(program,args);
+            if (args.contains("rule") && ++ruleReads==2 && stage=="partial")
+                ip({"route","add",target,"dev","original0","src",source,"proto","99",
+                    "metric",QString::number(intent["metric"].toInteger()),"table",QString::number(intent["table"].toInteger())});
+            return result;
+        });
+        const auto result = routes.apply(owner,"original0",source,gateway,{target},[&](const QJsonObject &record) {
+            intent = record;
+            const auto saved = journal.store(record);
+            if (saved.succeeded() && stage=="prepared") pause(record);
+            return saved;
+        });
+        check(result.succeeded(),qPrintable(result.detail));
+        const auto confirmed = journal.store(routes.snapshot());
+        check(confirmed.succeeded(),qPrintable(confirmed.detail));
+        pause(routes.snapshot());
+    }
     if (argc==4 && app.arguments()[1]=="--recover-journal") {
         const auto id = QUuid(app.arguments()[2]);
         const int directory = ::open(QFile::encodeName(app.arguments()[3]).constData(),O_RDONLY|O_DIRECTORY|O_CLOEXEC|O_NOFOLLOW);
@@ -86,19 +123,6 @@ int main(int argc, char **argv) try
         }
         check(result.succeeded() && routes.snapshot().isEmpty(),qPrintable(result.detail));
         std::cout << "PASS: fresh process loaded protected source ownership and synchronized its removal after recovery\n";
-        return 0;
-    }
-    if (argc==3 && app.arguments()[1]=="--recover") {
-        QFile input;
-        check(input.open(stdin,QIODevice::ReadOnly),"Read trusted saved source record");
-        const auto encoded = input.read(LinuxSourceRoutes::MaxSnapshotBytes+1);
-        const auto saved = QJsonDocument::fromJson(encoded);
-        check(encoded.size()<=LinuxSourceRoutes::MaxSnapshotBytes && saved.isObject(),"Saved source record exceeds its bounded object format");
-        LinuxSourceRoutes routes;
-        const auto result = routes.recover(QUuid(app.arguments()[2]),saved.object());
-        std::cout << QJsonDocument(routes.snapshot()).toJson(QJsonDocument::Compact).constData() << std::endl;
-        check(result.succeeded() && routes.snapshot().isEmpty(),qPrintable(result.detail));
-        std::cout << "PASS: fresh process restored the trusted source ownership record\n";
         return 0;
     }
     if (argc==6 && app.arguments()[1]=="--hold") {
@@ -131,6 +155,76 @@ int main(int argc, char **argv) try
           && !missing.apply(owner,"original0","192.0.2.99",gateway,{target}).succeeded()
           && reads==0 && inventory()==baseline,"Invalid interface/source changed network state");
     LinuxSourceRoutes routes;
+    {
+        QTemporaryDir checkpoint;
+        const int directory = ::open(QFile::encodeName(checkpoint.path()).constData(),O_RDONLY|O_DIRECTORY|O_CLOEXEC);
+        LinuxSourceJournal journal;
+        check(checkpoint.isValid() && directory>=0 && journal.open(directory,owner).succeeded(),"Open protected write-ahead fixture");
+        ::close(directory);
+        bool checkpointed = false;
+        const auto refused = routes.apply(owner,"original0",source,gateway,{target},[&](const QJsonObject &intent) {
+            checkpointed = true;
+            check(inventory()==baseline && intent["rule_pending"]==true,"Checkpoint was invoked after source kernel changes");
+            return PlatformOperationResult{Status::Failed,"Injected checkpoint refusal"};
+        });
+        check(!refused.succeeded() && checkpointed && routes.snapshot().isEmpty() && inventory()==baseline,
+              "Checkpoint refusal reached source writes or retained uncommitted authority");
+        const auto uncertain = routes.apply(owner,"original0",source,gateway,{target},[&](const QJsonObject &intent) {
+            const auto stored = journal.store(intent);
+            check(stored.succeeded(),"Publish the uncertain checkpoint fixture");
+            return PlatformOperationResult{Status::Failed,"Injected failure after checkpoint publication",true};
+        });
+        check(!uncertain.succeeded() && uncertain.mayHaveChanged && !routes.snapshot().isEmpty() && inventory()==baseline,
+              "Unconfirmed checkpoint publication either changed the kernel or discarded recovery intent");
+        check(routes.restore(owner).succeeded() && journal.remove().succeeded() && inventory()==baseline,
+              "Unapplied intent could not be recovered and removed");
+
+        QFile foreign(checkpoint.filePath("source.json"));
+        const auto foreignBytes = QJsonDocument(QJsonObject{{"owner",QUuid::createUuid().toString(QUuid::WithoutBraces)}}).toJson(QJsonDocument::Compact);
+        check(foreign.open(QIODevice::WriteOnly) && foreign.write(foreignBytes)==foreignBytes.size(),"Create a previous connection's checkpoint fixture");
+        foreign.close();
+        check(QFile::setPermissions(foreign.fileName(),QFile::ReadOwner|QFile::WriteOwner),"Keep the foreign checkpoint private");
+        const auto existing = routes.apply(owner,"original0",source,gateway,{target},[&](const QJsonObject &intent) { return journal.store(intent); });
+        check(!existing.succeeded() && routes.snapshot().isEmpty() && inventory()==baseline
+              && foreign.open(QIODevice::ReadOnly) && foreign.readAll()==foreignBytes,
+              "An existing journal was replaced or allowed new source kernel writes");
+        foreign.close();check(foreign.remove(),"Remove the owned foreign-checkpoint fixture");
+
+        QString privateTable;
+        bool sawOwnedRoute = false;
+        LinuxSourceRoutes changedRules([&](const QString &program,const QStringList &args) {
+            const auto result = runPlatformCommand(program,args);
+            if (!privateTable.isEmpty() && args.contains("route"))
+                for (const auto &value : QJsonDocument::fromJson(result.output.toUtf8()).array())
+                    sawOwnedRoute |= value.toObject()["table"]==privateTable;
+            return result;
+        });
+        QStringList changed;
+        const auto conflict = changedRules.apply(owner,"original0",source,gateway,{target},[&](const QJsonObject &intent) {
+            privateTable = QString::number(intent["table"].toInteger());
+            const auto stored = journal.store(intent);
+            check(stored.succeeded(),"Persist intent before rule conflict");
+            ip({"rule","add","priority","1","table","254","protocol","99"});changed = inventory();
+            return stored;
+        });
+        check(!conflict.succeeded() && conflict.mayHaveChanged && !sawOwnedRoute && inventory()==changed,
+              "A rule created during checkpoint publication allowed source kernel changes");
+        check(changedRules.restore(owner).succeeded() && inventory()==changed,"Unapplied intent removed the concurrent foreign rule");
+        ip({"rule","del","priority","1","table","254","protocol","99"});
+        check(journal.remove().succeeded() && inventory()==baseline,"Rule-conflict fixture did not restore its original inventory");
+
+        const auto replaced = routes.apply(owner,"original0",source,gateway,{target},[&](const QJsonObject &intent) {
+            const auto stored = journal.store(intent);check(stored.succeeded(),"Persist intent before interface replacement");
+            ip({"link","set","original0","down"});ip({"link","set","original0","name","previous0"});
+            ip({"link","add","original0","type","dummy"});ip({"address","add",source+"/24","dev","original0"});
+            ip({"link","set","original0","up"});changed = inventory();return stored;
+        });
+        check(!replaced.succeeded() && replaced.mayHaveChanged && inventory()==changed,
+              "A same-name replacement interface received source writes after checkpoint publication");
+        ip({"link","del","original0"});ip({"link","set","previous0","name","original0"});ip({"link","set","original0","up"});
+        check(routes.restore(owner).succeeded() && journal.remove().succeeded() && inventory()==baseline,
+              "Interface replacement fixture lost original state or intent cleanup");
+    }
     check(routes.apply(owner,"original0",source,gateway,{target,target}).succeeded(),"Apply real source route table and rule");
     const auto snapshot = routes.snapshot();
     const auto table = QString::number(snapshot["table"].toInteger());
@@ -172,44 +266,57 @@ int main(int argc, char **argv) try
           && routes.restore(owner).succeeded() && inventory()==baseline,"Direct saved source recovery changed original state");
 
     // Root-owned checkpoint fixtures must be destroyed before the later permanent uid drop.
-    {
+    for (const auto &stage : {QString("prepared"),QString("partial"),QString("applied"),QString("confirmed")}) {
+        QTemporaryDir checkpoint;
+        check(checkpoint.isValid(),"Create private checkpoint fixture");
         QProcess holder;
-        holder.start(QCoreApplication::applicationFilePath(),{"--hold","original0",source,gateway,target});
-        check(holder.waitForStarted(5000) && holder.waitForReadyRead(5000),"Start independent source owner");
+        holder.start(QCoreApplication::applicationFilePath(),{"--journal-owner",stage,checkpoint.path()});
+        check(holder.waitForStarted(5000) && holder.waitForReadyRead(5000),"Start independent journaled source owner");
         const auto savedOwner = holder.readLine();
         const auto deadOwner = QJsonDocument::fromJson(savedOwner).object();
-        check(!deadOwner.isEmpty() && lookup(source)["table"]==QString::number(deadOwner["table"].toInteger()),
-              "Independent source owner did not confirm actual kernel state");
-        QTemporaryDir checkpoint;
-        std::cout << "CHECK: creating protected source checkpoint before owner SIGKILL\n" << std::flush;
-        check(checkpoint.isValid(),"Create private checkpoint fixture");
-        const int checkpointDirectory = ::open(QFile::encodeName(checkpoint.path()).constData(),O_RDONLY|O_DIRECTORY|O_CLOEXEC);
-        LinuxSourceJournal savedJournal;
-        check(checkpointDirectory>=0 && savedJournal.open(checkpointDirectory,QUuid(deadOwner["owner"].toString())).succeeded()
-              && savedJournal.store(deadOwner).succeeded(),"Persist actual source ownership before owner SIGKILL");
-        ::close(checkpointDirectory);savedJournal.close();
-        std::cout << "CHECK: protected source checkpoint synchronized\n" << std::flush;
+        QFile savedFile(checkpoint.filePath("source.json"));
+        check(savedFile.open(QIODevice::ReadOnly) && QJsonDocument::fromJson(savedFile.readAll()).object()==deadOwner,
+              "Crash-boundary readiness preceded the complete durable source record");
+        savedFile.close();
+        const auto savedTable = QString::number(deadOwner["table"].toInteger());
+        check(!deadOwner.isEmpty() && (stage=="prepared" ? inventory()==baseline
+              : stage=="partial" ? read({"route","show","table",savedTable}).size()==2
+              : lookup(source)["table"]==savedTable),
+              "Source owner applied kernel state before its checkpoint or failed to apply the recorded state");
+        for (const auto &entry : deadOwner["routes"].toArray())
+            check(entry.toObject()["applied"].toObject().isEmpty()==(stage!="confirmed"),
+                  "Crash boundary did not preserve the expected unconfirmed or confirmed route values");
+        LinuxSourceJournal competing;
+        const int directory = ::open(QFile::encodeName(checkpoint.path()).constData(),O_RDONLY|O_DIRECTORY|O_CLOEXEC);
+        check(directory>=0 && !competing.open(directory,QUuid(deadOwner["owner"].toString())).succeeded(),
+              "Another guardian acquired the live source owner's protected journal");
+        ::close(directory);
         holder.kill();
-        check(holder.waitForFinished(5000) && holder.exitStatus()==QProcess::CrashExit && inventory()!=baseline,
-              "Source owner SIGKILL did not leave the independently recoverable kernel state");
+        check(holder.waitForFinished(5000) && holder.exitStatus()==QProcess::CrashExit,
+              "Source owner was not killed at its actual checkpoint boundary");
         QProcess differentNamespace;
-        differentNamespace.start("/usr/bin/unshare",{"--net","--",QCoreApplication::applicationFilePath(),"--recover",deadOwner["owner"].toString()});
-        check(differentNamespace.waitForStarted(5000) && differentNamespace.write(savedOwner)==savedOwner.size(),
-              "Send saved state to a different real network namespace");
-        differentNamespace.closeWriteChannel();
-        check(differentNamespace.waitForFinished(12000) && differentNamespace.exitCode()==1
-              && differentNamespace.readAllStandardOutput().trimmed()=="{}" && inventory()!=baseline,
-              "A different network namespace adopted saved source ownership");
-        std::cout << "CHECK: another real network namespace rejected the saved source record\n" << std::flush;
+        differentNamespace.start("/usr/bin/unshare",{"--net","--",QCoreApplication::applicationFilePath(),"--recover-journal",deadOwner["owner"].toString(),checkpoint.path()});
+        check(differentNamespace.waitForStarted(5000) && differentNamespace.waitForFinished(12000)
+              && differentNamespace.exitCode()==1 && savedFile.open(QIODevice::ReadOnly)
+              && QJsonDocument::fromJson(savedFile.readAll()).object()==deadOwner,
+              "A different network namespace adopted or altered protected source ownership");
+        savedFile.close();
         QProcess recovery;
         recovery.start(QCoreApplication::applicationFilePath(),{"--recover-journal",deadOwner["owner"].toString(),checkpoint.path()});
-        check(recovery.waitForStarted(5000),"Start a fresh process using the root-private journal");
-        std::cout << "CHECK: fresh process started protected source recovery\n" << std::flush;
-        check(recovery.waitForFinished(12000),"Fresh source recovery did not finish within its budget");
-        check(recovery.exitStatus()==QProcess::NormalExit && recovery.exitCode()==0 && inventory()==baseline
+        check(recovery.waitForStarted(5000) && recovery.waitForFinished(12000),"Fresh protected source recovery exceeded its budget");
+        check(recovery.exitStatus()==QProcess::NormalExit && recovery.exitCode()==0
               && !QFile::exists(checkpoint.filePath("source.json")),
               qPrintable("Fresh process failed source recovery: "+QString::fromUtf8(recovery.readAllStandardError())));
-        std::cout << "PASS: fresh process recovered source routes/rule from root-private journal after owner SIGKILL\n";
+        if (stage=="partial") {
+            const auto preserved = read({"route","show","table",savedTable});
+            check(preserved.size()==1 && preserved.first().toObject()["protocol"]=="99"
+                  && ipv4RoutePrefix(preserved.first().toObject())==target,"Partial-write recovery removed the foreign row or retained an owned row");
+            ip({"route","del",target,"dev","original0","src",source,"proto","99",
+                "metric",QString::number(deadOwner["metric"].toInteger()),"table",savedTable});
+        }
+        check(inventory()==baseline,"Crash-boundary recovery changed the original kernel inventory");
+        std::cout << "PASS: source owner SIGKILL at " << stage.toStdString()
+                  << ", fresh protected-journal recovery restored the exact kernel inventory\n";
     }
 
     check(routes.apply(owner,"original0",source,gateway,{target}).succeeded(),"Apply saved ownership external-reference fixture");

@@ -6,17 +6,20 @@
 #include <QJsonObject>
 #include <QHash>
 #include <QUuid>
+#include <functional>
 #include <utility>
 
 class LinuxSourceRoutes
 {
 public:
     static constexpr qsizetype MaxSnapshotBytes = 2*1024*1024;
+    using CheckpointWriter = std::function<PlatformOperationResult(const QJsonObject &)>;
     explicit LinuxSourceRoutes(PlatformCommandRunner read = {}) : reader(std::move(read)) {}
     LinuxSourceRoutes(const LinuxSourceRoutes &) = delete;
     LinuxSourceRoutes &operator=(const LinuxSourceRoutes &) = delete;
     PlatformOperationResult apply(const QUuid &owner, const QString &interface, const QString &source,
-                                  const QString &gateway, const QStringList &prefixes);
+                                  const QString &gateway, const QStringList &prefixes,
+                                  const CheckpointWriter &writeAhead = {});
     PlatformOperationResult restore(const QUuid &owner);
     // The caller must authenticate the privileged owner's saved record before recovery.
     PlatformOperationResult recover(const QUuid &owner, const QJsonObject &saved);
