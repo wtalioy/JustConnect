@@ -76,7 +76,9 @@ Linux 的 `LinuxTunRoutes` 为所属 TUN 新增 main 表 IPv4 捕获路由，要
 
 三平台正式后端在首次修改前保存原值，恢复时保留外部新值；已确认恢复的项立即解除责任，通知失败的重试不接管后来出现的同值设置。Linux 记录已释放的键，Windows 移除已恢复连接，macOS 在提交并回读后只重试激活通知。Windows 按 LAN／RAS 连接记录 WinINet 状态，macOS 使用 SystemConfiguration 锁定并提交原生字典，Linux 分别处理 GNOME／KDE 的实际配置类型和依赖开关。PAC 地址等未管理字段保留；禁用服务保持原样，新增对象不被恢复流程接管；macOS 已删除服务不重建。KDE 命令行不能安全写回含用户信息的旧代理 URL 时在修改前返回不支持。原生写入回归使用临时 runner 或私有配置；桌面授权、Clash 和校园实测的缺口不由这些用例代替。
 
-系统凭据存储端口位于 `application/credentialstore.h`，提供有界不透明值的读／写／删和明确状态，平台工厂位于 `infrastructure/platform/systemcredentialstore.h`。`windows/credentialstore.cpp` 使用当前用户 Credential Manager，`macos/` 使用 Keychain，`linux/` 使用 Qt DBus 调用 Secret Service；锁定和权限状态不会被当作空凭据或成功。原生回归使用隔离条目／临时 Keychain／私有总线。主窗口协调器持有串行后台 CredentialAccess，连接、设置窗口和配置引导复用它；退出先等待后台写入，再销毁配置存储。
+`PlatformSystemProxyBackend::recoverySnapshot`／`recover` 是同一后端的新实例交接端口；记录绑定机器、连接 UUID 及平台范围，校验失败不触发原生操作。Linux 还绑定用户、配置目录、桌面及 GSettings／dconf 上下文；macOS 用二进制属性列表保留完整原生类型，Base64 只作编码；Windows 保留每个 LAN／RAS 的 flags、代理、绕过和 PAC 原值。记录含敏感数据，不可存入普通配置或日志。Linux 的同步检查点端口在原生写入前保存意图、回读成功后确认，恢复也在写回前保存状态；存储失败停止后续修改，并重验存储等待期间的外部变化。新实例遇到未确认写入或恢复后仍匹配的设置时保留并报告，不能区分的同值重建不重新接管。该端口尚未接入产品恢复进程，其他平台写前检查点仍待。
+
+系统凭据存储端口位于 `application/credentialstore.h`，提供有界不透明值的读／写／删和明确状态，平台工厂位于 `infrastructure/platform/systemcredentialstore.h`。`windows/credentialstore.cpp` 使用当前用户 Credential Manager，`macos/` 使用 Keychain，`linux/` 使用 Qt DBus 调用 Secret Service；锁定和权限状态不会被当作空凭据或成功。原生回归使用隔离条目／临时 Keychain／私有总线。`ProxyRecoveryJournal` 复用该端口存放代理恢复记录，要求先载入并比较已知完整字节，写／删后回读确认；拒绝外部改写、异常空值和超限值，保留发布后确认丢失的可能结果。系统凭据 API 没有原子比较替换，调用方必须持有独占恢复锁；记录校验、作用域和原生恢复由平台代理后端负责。主窗口协调器持有串行后台 CredentialAccess，连接、设置窗口和配置引导复用它；退出先等待后台写入，再销毁配置存储。
 
 `application/ProfileCredentials` 维护按配置命名空间、服务器／端口、完整认证身份、手机号和账户派生的存储键，以及有版本的密码／TOTP 记录。修改密码不改变键；网络／TLS 偏好不改变账户归属。迁移在来源身份改变之前运行，只有系统存储写入并回读一致后才能移除旧 INI 值；已有安全值与旧 INI 冲突时保留双方，不用旧值覆盖新值。旧 Cookie 文件缺少可靠账户绑定，只可验证后隔离保存，不自动投入登录。原生调用为同步边界，由 CredentialAccess 在工作线程串行执行；访问旧配置时先完成验证迁移，来源变化的结果不交付凭据。
 
