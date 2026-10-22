@@ -141,6 +141,11 @@ jobs:
           go -C corelib build -mod=readonly -o ../build/coreabi/original-route-probe ../tests/platform/original_route_probe.go
           sudo unshare --net -- "$(command -v python)" tests/platform/original_route_linux.py --uid "$(id -u)" --probe build/coreabi/original-route-probe --allocator build/coreabi/linux_tundevice_test 2>&1 | tee build/coreabi/linux-original-route.log
 
+      - name: Check owned Linux capture routes and partial recovery in an isolated network
+        if: runner.os == 'Linux'
+        shell: bash
+        run: sudo unshare --net -- build/coreabi/linux_tunroutes_test --isolated 2>&1 | tee build/coreabi/linux-owned-routes.log
+
       - name: Check macOS utun fd transfer and cleanup in the disposable runner
         if: runner.os == 'macOS'
         shell: bash

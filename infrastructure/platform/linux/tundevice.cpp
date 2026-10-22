@@ -1,10 +1,9 @@
 #include "infrastructure/platform/tundevice.h"
 #include "infrastructure/platform/platformcommand.h"
-#include <QFileInfo>
+#include "iprouteutility.h"
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QStandardPaths>
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
@@ -28,9 +27,8 @@ PlatformOperationResult UnixTunDevice::create(const QUuid &owner)
 {
     using Status = PlatformOperationResult::Status;
     if (fd >= 0 || owner.isNull()) return {Status::Failed, QStringLiteral("TUN ownership is missing or already active.")};
-    const QFileInfo utility(QStandardPaths::findExecutable("ip", {"/usr/sbin", "/usr/bin", "/sbin", "/bin"}));
-    if (!utility.isExecutable() || utility.ownerId() != 0
-        || (utility.permissions() & (QFileDevice::WriteGroup | QFileDevice::WriteOther)))
+    const auto utility = trustedIpRouteUtility();
+    if (utility.isEmpty())
         return {Status::Unsupported, QStringLiteral("A trusted system iproute2 executable is required.")};
     const int device = ::open("/dev/net/tun", O_RDWR | O_CLOEXEC);
     if (device < 0) return failed(errno);
@@ -52,7 +50,7 @@ PlatformOperationResult UnixTunDevice::create(const QUuid &owner)
         return {Status::Failed, QStringLiteral("Cannot verify the newly owned TUN device."), true};
     }
     // TUNGETIFF aliases NO_PI with NOFILTER; link details expose the actual framing state.
-    const auto link = runPlatformCommand(utility.canonicalFilePath(),
+    const auto link = runPlatformCommand(utility,
         {"-j", "-d", "link", "show", "dev", QString::fromLatin1(requestedName)}, 1000);
     const auto bytes = link.output.toUtf8();
     const auto rows = bytes.size() <= 65536 ? QJsonDocument::fromJson(bytes).array() : QJsonArray{};
