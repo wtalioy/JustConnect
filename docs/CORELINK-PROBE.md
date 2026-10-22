@@ -96,6 +96,10 @@ wsl.exe --distribution archlinux --user root --exec unshare --net -- \
 
 当前 Linux 分配入口由 `UnixTunDevice` 的平台实现单独维护：连接 UUID 派生设备名，排他创建非持久原始 IP TUN，回读名称／索引／帧模式；`TUNGETIFF` 的 NO_PI 与 NOFILTER 位复用，因此通过受信系统 `iproute2` 的链路详情核对真实 PI／virtio 头部状态，复用已有平台命令端口，固定参数且不经 shell；对象仅拥有自己的 fd，不接管已有同名设备。创建后的回读失败关闭 fd 并报告可能已修改；原生回读失败及错误 PI／virtio 帧模式注入验证实际接口回滚，活动及无队列持久设备冲突均保留原设备。`SCM_RIGHTS` 接收端使用原子 CLOEXEC，两种 Linux 隔离检查复用此入口，已删除 Python 分配副本。最后一个 fd 关闭的内核生命周期依据 [TUN/TAP 文档](https://docs.kernel.org/networking/tuntap.html)；本地普通 uid 的双向 UDP、正常／强杀清理与原网络不变及 [`a0aec56` 的 Linux 双架构](https://github.com/wtalioy/JustConnect/actions/runs/39761802978)均已通过，不代替完整路由／DNS 恢复或助手授权。
 
+IPv4 配置增量复用 [`UnixTunDevice::createIpv4`](../infrastructure/platform/tundevice.cpp)，只配置这次新建、尚未交付的设备：源／对端须是不同的规范单播 IPv4，使用 `/32` 点对点掩码，MTU 为 68—65535；配置前记录原 MTU／标志／空 IPv4，配置后独立回读完整预期及设备索引。macOS [utun 创建时即可为 UP](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/net/if_utun.c)，不把初始 down 当作共有契约；实际状态由原生 ioctl／getifaddrs 读取。失败关闭私有 fd，不交付部分配置；当前不支持更改已交付设备或恢复已有接口。共享设备／原出口脚本及捕获路由检查已移除重复地址／启用命令；目的路由及原出口规则仍保留至对应正式后端接管。
+
+本地 Linux 应用及正式 ABI 构建均通过配置后普通用户双向 UDP、正常／强杀最终 fd 清理；真实配置后的回读错误／MTU 不符故障注入验证设备及全部 IPv4 路由回滚，宿主接口、全表路由／规则、DNS 与 rp_filter 不变。完整应用 45/45、正式 ABI 23/23 通过，报告 `build/reports/unix-tun-configuration.json`；该增量仍待 Linux／macOS 两架构原生 CI，未验收平台不据此继续透明接管。
+
 ### Linux 原出口与更具体的捕获路由
 
 [隔离检查](../tests/platform/original_route_linux.py)只在新的网络命名空间中创建 veth 原网络、独立 TCP／UDP 回显端点，并通过同一原生分配后端取得非持久 TUN。目标的 `/32` 捕获路由优先于原网络 `/24`；接口绑定单独使用在严格反向路径检查下已复现超时，因此测试保留 `rp_filter=1`，仅为所选原地址增加源规则与专用目标路由表。先回读两类选路并实际读取 TUN 包及捕获源地址，再由零 capabilities 的普通用户运行[生产 underlay 探针](../tests/platform/original_route_probe.go)，验证指定原接口的 TCP／UDP 往返及原地址，接口缺失必须报错。两端命名空间退出即释放设备和规则；宿主接口、全表路由、规则、DNS 及反向路径设置保持不变。

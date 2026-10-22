@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import pwd
+import re
 import select
 import signal
 import socket
@@ -139,6 +140,16 @@ def allocate_unix(allocator):
         name, index = metadata['name'], metadata['index']
         owner = uuid.UUID(metadata['owner'])
         assert owner.int != 0 and name.startswith('utun' if sys.platform == 'darwin' else 'jc') and socket.if_nametoindex(name) == index
+        configuration = metadata['configuration']
+        assert configuration['before']['ipv4'] == []
+        assert configuration['applied']['mtu'] == 1400
+        assert configuration['applied']['ipv4'] == [{'source': '198.18.0.1', 'peer': '198.18.0.2', 'netmask': '255.255.255.255'}]
+        if sys.platform == 'darwin':
+            link = subprocess.check_output(['/sbin/ifconfig', name], text=True, timeout=3)
+            assert re.search(r'\bmtu 1400\b', link), 'actual utun MTU differs from the ownership record'
+        else:
+            link = json.loads(subprocess.check_output(['ip', '-j', 'link', 'show', 'dev', name], text=True, timeout=3))
+            assert len(link) == 1 and link[0]['mtu'] == 1400, 'actual TUN MTU differs from the ownership record'
         if sys.platform == 'darwin':
             os.set_inheritable(fds[0], False)
             with socket.socket(socket.AF_SYSTEM, socket.SOCK_DGRAM, socket.SYSPROTO_CONTROL,
@@ -173,13 +184,10 @@ def probe(uid, gid, crash, allocator):
     receiver = None
     try:
         if sys.platform == 'darwin':
-            subprocess.run(['/sbin/ifconfig', name, 'inet', '198.18.0.1', '198.18.0.2', 'netmask', '255.255.255.252', 'up'], check=True, timeout=5)
             subprocess.run(['/sbin/route', '-n', 'add', '-host', '198.18.0.6', '-interface', name], check=True, timeout=5)
             route = subprocess.check_output(['/sbin/route', '-n', 'get', '198.18.0.6'], text=True, timeout=5)
             assert any(line.split() == ['interface:', name] for line in route.splitlines()), 'owned host route was not applied'
         else:
-            subprocess.run(['ip', 'address', 'add', '198.18.0.1/30', 'dev', name], check=True)
-            subprocess.run(['ip', 'link', 'set', name, 'up'], check=True)
             subprocess.run(['ip', 'route', 'add', '198.18.0.6/32', 'dev', name], check=True)
             route = json.loads(subprocess.check_output(['ip', '-j', 'route', 'get', '198.18.0.6'], text=True))
             assert route[0]['dev'] == name, 'owned host route was not applied'
