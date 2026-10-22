@@ -15,7 +15,7 @@ cp -R "$BUILD_DIR/$TARGET_NAME.app" .
 cmake --install "$BUILD_DIR" --config Release --component CoreRuntime --prefix "$PWD"
 
 # Run macdeployqt
-macdeployqt "$APP_PATH"
+macdeployqt "$APP_PATH" "-executable=$APP_PATH/Contents/MacOS/JustConnectProxyRecovery"
 
 # Reduce bundle size by stripping unused slices from universal Mach-O binaries.
 while IFS= read -r -d '' binary; do

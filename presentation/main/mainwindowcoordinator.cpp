@@ -7,7 +7,7 @@
 #include "application/profileservice.h"
 #include "application/systemproxysession.h"
 #include "infrastructure/coreengine/embeddedcoreengine.h"
-#include "infrastructure/platform/platformsystemproxybackend.h"
+#include "infrastructure/platform/proxyrecovery.h"
 #include "infrastructure/platform/dnssnapshot.h"
 #include "infrastructure/settings/profilemanager.h"
 #include "infrastructure/settings/credentialaccess.h"
@@ -31,7 +31,7 @@ MainWindowCoordinator::MainWindowCoordinator(
       connectionSession(new ConnectionSession(coreEngine, this)),
       networkPolicySession(new NetworkPolicySession(coreEngine, readSystemDnsSnapshot, this)),
       systemProxySession(new SystemProxySession(
-          std::make_unique<PlatformSystemProxyBackend>(),
+          std::make_unique<ProxyRecoveryBackend>(),
           this
       )),
       updateChecker(new UpdateChecker(this)),

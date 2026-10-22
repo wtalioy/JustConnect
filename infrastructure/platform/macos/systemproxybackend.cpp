@@ -92,6 +92,7 @@ struct PlatformSystemProxyBackend::Snapshot {
     AuthorizationRef authorization = nullptr;
     SCPreferencesRef preferences = nullptr;
     std::vector<Service> services;
+    bool restorationCommitted = false;
     ~Snapshot() {
         for (const auto &service : services) { CFRelease(service.path); if (service.before) CFRelease(service.before); CFRelease(service.installed); }
         if (preferences) CFRelease(preferences);
@@ -175,6 +176,10 @@ PlatformOperationResult PlatformSystemProxyBackend::clear() {
     SCPreferencesSynchronize(prefs);
     if (!SCPreferencesLock(prefs, false)) return error("Lock proxy preferences for restoration", true);
     const auto unlock = qScopeGuard([&] { SCPreferencesUnlock(prefs); });
+    if (saved->restorationCommitted) {
+        if (!api.apply(prefs)) return error("Apply restored proxy preferences", true);
+        snapshot.reset();return {};
+    }
     auto expected = dictionary();
     const auto releaseExpected = qScopeGuard([&] { CFRelease(expected); });
     for (const auto &service : saved->services) {
@@ -205,7 +210,6 @@ PlatformOperationResult PlatformSystemProxyBackend::clear() {
         CFDictionarySetValue(expected, service.path, target ? static_cast<CFTypeRef>(target) : kCFNull);
     }
     if (!api.commit(prefs)) return error("Commit restored proxy preferences", true);
-    if (!api.apply(prefs)) return error("Apply restored proxy preferences", true);
     SCPreferencesSynchronize(prefs);
     for (const auto &service : saved->services) {
         auto target = CFDictionaryGetValue(expected, service.path);
@@ -214,5 +218,7 @@ PlatformOperationResult PlatformSystemProxyBackend::clear() {
         const bool verified = read(prefs, service.path, actual).succeeded() && (target == kCFNull ? actual == nullptr : actual && CFEqual(actual, target));
         if (!verified) return {Status::Failed, "Restored proxy preferences readback mismatch", true};
     }
+    saved->restorationCommitted = true;
+    if (!api.apply(prefs)) return error("Apply restored proxy preferences", true);
     snapshot.reset(); return {};
 }

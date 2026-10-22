@@ -14,7 +14,7 @@ cmake/            应用和原生宿主共享的 Go 库／Qt 适配构建入口
 tests/            领域、端口、界面、真实 C ABI 与受控网关回归
 ```
 
-`application` 依赖 `core`，不引用 Widgets 或具体基础设施。`MainWindowCoordinator` 组合 `CoreEngine → EmbeddedCoreEngine`、`SystemProxyBackend → PlatformSystemProxyBackend` 和 `ProfileBackend → ProfileManager`。认证方式窗口通过应用层 `AuthMethodsQuery` 使用 `CoreEngine`，允许注入测试端口；只在查询与清理均成功后交付完整方法身份，取消或失败不暴露部分结果。
+`application` 依赖 `core`，不引用 Widgets 或具体基础设施。`MainWindowCoordinator` 组合 `CoreEngine → EmbeddedCoreEngine`、`SystemProxyBackend → ProxyRecoveryBackend → JustConnectProxyRecovery → PlatformSystemProxyBackend` 和 `ProfileBackend → ProfileManager`。认证方式窗口通过应用层 `AuthMethodsQuery` 使用 `CoreEngine`，允许注入测试端口；只在查询与清理均成功后交付完整方法身份，取消或失败不暴露部分结果。
 
 ## 会话与线程
 
@@ -72,9 +72,9 @@ Linux 的 `LinuxSourceJournal` 存储源路由意图及恢复检查点：只接�
 
 Linux 的 `LinuxTunRoutes` 为所属 TUN 新增 main 表 IPv4 捕获路由，要求已有非零点对点本地／对端地址，拒绝接管已存在的目标前缀。保存连接 UUID、设备索引、派生 metric、原先不存在及实际回读；命令使用数字协议／表／作用域，以固定参数向受信系统 iproute2 输入批次，不经过 shell。应用失败撤销已完成项；恢复先核对完整记录，再按设备、协议、metric、非零源地址和下一跳删除，外部改写保留并报告，未确认的值与失败恢复保留责任。每次应用／恢复各有十秒命令预算，失败回滚有独立预算。当前只有隔离调用，原出口专用表／源规则另由 `LinuxSourceRoutes` 负责，尚无正式助手、持久恢复日志或 DNS 操作；不能将该增量视为完整透明接管或内核任意属性的原子比较。
 
-系统代理端口取 ConnectionSession 的活动监听快照，冲突检查和模态确认按连接代次隔离。SystemProxySession 在 QtConcurrent 工作线程串行执行查询、应用和恢复，平台代理快照仅存于同一 Qt 宿主的内存；当前没有在宿主崩溃／强杀后接手这些快照的独立恢复进程。S2-06／S3-05 的这项要求与 S4／S7-03 一同补齐，线程异步清理不算独立恢复；普通连接结束时由同一应用退出用例提交恢复请求，进行中的应用先返回实际结果，再恢复仍属本次操作的状态，过程中不暴露空闲窗口。确认没有改动的失败不触发清除，恢复失败保留责任供手动重试；界面不再维护另一条自动恢复路径。
+系统代理端口取 ConnectionSession 的活动监听快照，冲突检查和模态确认按连接代次隔离。SystemProxySession 继续在 QtConcurrent 工作线程串行执行用例，产品调用改由 `ProxyRecoveryBackend` 委托同包 `JustConnectProxyRecovery`：独立进程仅持有同一正式平台代理后端及其快照，不链接 Go／Widgets／WebEngine，不提供通用命令或提权入口。客户端的私有本地通道固定接受查询／应用／恢复，64 KiB 完整 UTF-8 帧、规范端口和完整回复校验；每次请求含启动最多十五秒，失败／超时关闭通道并保留未确认责任，不重启第二个所有者或伪报恢复成功。宿主退出／强杀使通道断开，恢复进程继续按原后端撤销自身修改，拒绝时保留快照并退避重试；账户级独占锁阻止尚未完成的旧恢复与新应用争抢。Unix 通道在私有临时目录内，Windows 限同一用户；[Qt 的权限说明](https://doc.qt.io/qt-6/qlocalserver.html#socketOptions-prop)明确 macOS 不依赖 socket 模式位，因此保留目录隔离。普通关闭仍须等待明确恢复确认，再停止核心；进行中的应用与已请求恢复保持同一忙区间。恢复进程自身强杀／重启、注销及实际桌面授权仍待，快照目前仅存该进程内存，不能据此勾选 S2-06／S3-05／S4-06／S7-03。
 
-三平台正式后端在首次修改前保存原值，恢复时保留外部新值。Windows 按 LAN／RAS 连接记录 WinINet 状态，macOS 使用 SystemConfiguration 锁定并提交原生字典，Linux 分别处理 GNOME／KDE 的实际配置类型和依赖开关。PAC 地址等未管理字段保留；禁用服务保持原样，新增对象不被恢复流程接管；macOS 已删除服务不重建。KDE 命令行不能安全写回含用户信息的旧代理 URL 时在修改前返回不支持。原生写入回归使用临时 runner 或私有配置；桌面授权、Clash 和校园实测的缺口不由这些用例代替。
+三平台正式后端在首次修改前保存原值，恢复时保留外部新值；已确认恢复的项立即解除责任，通知失败的重试不接管后来出现的同值设置。Linux 记录已释放的键，Windows 移除已恢复连接，macOS 在提交并回读后只重试激活通知。Windows 按 LAN／RAS 连接记录 WinINet 状态，macOS 使用 SystemConfiguration 锁定并提交原生字典，Linux 分别处理 GNOME／KDE 的实际配置类型和依赖开关。PAC 地址等未管理字段保留；禁用服务保持原样，新增对象不被恢复流程接管；macOS 已删除服务不重建。KDE 命令行不能安全写回含用户信息的旧代理 URL 时在修改前返回不支持。原生写入回归使用临时 runner 或私有配置；桌面授权、Clash 和校园实测的缺口不由这些用例代替。
 
 系统凭据存储端口位于 `application/credentialstore.h`，提供有界不透明值的读／写／删和明确状态，平台工厂位于 `infrastructure/platform/systemcredentialstore.h`。`windows/credentialstore.cpp` 使用当前用户 Credential Manager，`macos/` 使用 Keychain，`linux/` 使用 Qt DBus 调用 Secret Service；锁定和权限状态不会被当作空凭据或成功。原生回归使用隔离条目／临时 Keychain／私有总线。主窗口协调器持有串行后台 CredentialAccess，连接、设置窗口和配置引导复用它；退出先等待后台写入，再销毁配置存储。
 

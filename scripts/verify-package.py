@@ -39,6 +39,18 @@ def check_windows_dns_reader(root, env):
     return {'interfaces': len(facts['interfaces']), 'effective_nrpt': len(facts['nrpt'])}
 
 
+def check_proxy_recovery(root, env):
+    worker = root / ('JustConnectProxyRecovery.exe' if sys.platform == 'win32' else 'JustConnectProxyRecovery')
+    if not worker.is_file():
+        raise RuntimeError('Missing packaged system proxy recovery worker')
+    facts = json.loads(run(worker, '--version', env=env, timeout=5))
+    if (not isinstance(facts, dict) or set(facts) != {'worker', 'protocol', 'qt'} or facts['worker'] != 'system-proxy-recovery'
+            or type(facts['protocol']) is not int or facts['protocol'] != 1
+            or not isinstance(facts['qt'], str) or not facts['qt'].startswith('6.')):
+        raise RuntimeError('Packaged system proxy recovery worker failed its runtime check')
+    return facts
+
+
 def clean_environment():
     env = {k: v for k, v in os.environ.items() if not k.startswith(
         ('QT', 'QML', 'LD_', 'DYLD_'))}
@@ -234,6 +246,7 @@ def verify(root, executable, revision, application_version, output, archive, sig
     arch = {'AMD64': 'amd64', 'x86_64': 'amd64', 'aarch64': 'arm64', 'ARM64': 'arm64', 'arm64': 'arm64'}[platform.machine()]
     system = {'win32': 'windows', 'darwin': 'darwin', 'linux': 'linux'}[sys.platform]
     validate_report(report, revision, application_version, system, arch)
+    report['proxy_recovery_worker'] = check_proxy_recovery(executable.parent, env)
     revisions = list(root.rglob('source-revision.txt'))
     if len(revisions) != 1 or revisions[0].read_text().strip() != revision:
         raise RuntimeError('Missing/mismatched packaged source revision')
