@@ -8,12 +8,12 @@
 #include <QThread>
 #include <QProcess>
 #include <QElapsedTimer>
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <iostream>
 #include <cstdlib>
 #ifdef Q_OS_WIN
 #include <raserror.h>
-#include <QJsonArray>
-#include <QJsonDocument>
 #endif
 
 static void check(bool ok, const char *message) { if (!ok) { std::cerr << message << '\n'; std::exit(1); } }
@@ -332,6 +332,75 @@ static void backendTests() {
 #endif
 
 #ifdef Q_OS_LINUX
+static void recoveryRecordTests() {
+    QTemporaryDir directory;check(directory.isValid(),"Private proxy record context");
+    qputenv("XDG_CONFIG_HOME",directory.path().toUtf8());qputenv("GSETTINGS_BACKEND","keyfile");qputenv("KDE_SESSION_VERSION","6");
+    for (const bool kde:{false,true}) {
+        qputenv("XDG_CURRENT_DESKTOP",kde?"KDE":"GNOME");qputenv("XDG_SESSION_DESKTOP",kde?"plasma":"gnome");
+        Fixture fixture;int calls=0;
+        const PlatformCommandRunner runner=[&](const QString &p,const QStringList &a) { ++calls;return fixture.run(p,a); };
+        if (kde) {
+            fixture.values={{"ProxyType","2"},{"httpProxy","http://prior.invalid 3128"},{"NoProxyFor","old.invalid"},
+                {"ReversedException","true"},{"Proxy Config Script","https://pac.invalid/?token=private"}};
+        } else {
+            fixture.values={{"org.gnome.system.proxy:mode","'auto'"},{"org.gnome.system.proxy.http:host","'prior.invalid'"},
+                {"org.gnome.system.proxy.http:port","3128"},{"org.gnome.system.proxy.http:use-authentication","true"},
+                {"org.gnome.system.proxy:ignore-hosts","['old.invalid', '\\u6821\\u56ed.invalid']"},
+                {"org.gnome.system.proxy:autoconfig-url","'https://pac.invalid/?token=private'"}};
+        }
+        QJsonObject record;
+        {
+            PlatformSystemProxyBackend owner(runner);check(owner.apply(config).succeeded(),"Apply before Linux snapshot handoff");
+            record=QJsonDocument::fromJson(QJsonDocument(owner.recoverySnapshot()).toJson()).object();
+        }
+        const auto reject=[&](const QJsonObject &invalid) {
+            calls=0;PlatformSystemProxyBackend fresh(runner);
+            check(!fresh.recover(invalid).succeeded() && calls==0,"Invalid Linux recovery record reached a settings command");
+        };
+        reject({});
+        for (const auto *field:{"schema_version","platform","machine","owner","context","config","before","released"}) {
+            auto invalid=record;invalid.remove(field);reject(invalid);
+        }
+        auto invalid=record;invalid["platform"]="windows";reject(invalid);
+        invalid=record;invalid["machine"]="foreign";reject(invalid);
+        invalid=record;invalid["machine"]=QString(65536,'x');reject(invalid);
+        invalid=record;invalid["owner"]="foreign";reject(invalid);
+        invalid=record;invalid["extra"]=true;reject(invalid);
+        for (const auto *field:{"uid","config_root","desktop","settings_backend","dconf_profile"}) {
+            auto context=record["context"].toObject();context[field]="foreign";
+            invalid=record;invalid["context"]=context;reject(invalid);
+        }
+        auto before=record["before"].toObject();before["unknown"]="value";invalid=record;invalid["before"]=before;reject(invalid);
+        before=record["before"].toObject();before[kde?"ProxyType":"http/port"]="3";invalid=record;invalid["before"]=before;reject(invalid);
+        before=record["before"].toObject();before[kde?"ReversedException":"http/use-authentication"]="false";invalid=record;invalid["before"]=before;reject(invalid);
+        before=record["before"].toObject();before[kde?"httpProxy":"http/host"]=QString("bad")+QChar(0);invalid=record;invalid["before"]=before;reject(invalid);
+        for (const auto &released:QList<QJsonArray>{{"unknown"},{true},{kde?"httpProxy":"http/host",kde?"httpProxy":"http/host"}}) {
+            invalid=record;invalid["released"]=released;reject(invalid);
+        }
+        PlatformSystemProxyBackend fresh(runner);
+        check(fresh.recover(record).succeeded() && fresh.recoverySnapshot().isEmpty(),"Fresh Linux backend did not restore and release its record");
+        check(fresh.apply(config).succeeded() && fresh.recoverySnapshot()["before"]==record["before"],"Linux handoff lost original types, Unicode, authentication or PAC material");
+        calls=0;check(!fresh.recover(record).succeeded() && calls==0,"Import replaced active Linux ownership");
+        if (kde) {
+            const auto recreated=fixture.values;fixture.failNotify=true;check(!fresh.clear().succeeded(),"Keep pending KDE notification");
+            record=fresh.recoverySnapshot();fixture.values=recreated;fixture.mutations=0;fixture.failNotify=false;
+            PlatformSystemProxyBackend notifyOnly(runner);
+            check(notifyOnly.recover(record).succeeded() && fixture.mutations==0 && fixture.values==recreated,
+                  "Fresh KDE recovery reacquired released same-value settings");
+        } else {
+            fixture.failAt=fixture.mutations+2;check(!fresh.clear().succeeded(),"Inject partial GNOME restoration");
+            record=fresh.recoverySnapshot();check(record["released"].toArray().contains("http/host"),"Confirmed GNOME progress was not exported");
+            fixture.values["org.gnome.system.proxy.http:host"]="'127.0.0.1'";fixture.failAt=0;
+            PlatformSystemProxyBackend retry(runner);
+            check(retry.recover(record).succeeded()
+                  && fixture.run("gsettings",{"get","org.gnome.system.proxy.http","host"}).output=="'127.0.0.1'"
+                  && fixture.run("gsettings",{"get","org.gnome.system.proxy.http","use-authentication"}).output=="false",
+                  "Fresh GNOME recovery reacquired a released endpoint or enabled its old credentials");
+        }
+    }
+    std::cout<<"PASS: context-bound GNOME/KDE snapshot handoff, strict rejection, original types and released ownership\n";
+}
+
 static void isolatedKde() {
     QTemporaryDir directory;
     check(directory.isValid(),"isolated KDE configuration directory");
@@ -350,6 +419,16 @@ static void isolatedKde() {
     check(backend.clear().succeeded(),"native KDE restore");
     check(get("ProxyType")=="2" && get("Proxy Config Script")=="https://pac.example.invalid/original.pac","native KDE PAC mode and URL restored");
     check(get("httpProxy")=="http://prior.example.invalid 3128" && get("NoProxyFor")=="old.example.invalid" && get("ReversedException")=="true","native KDE original proxy and bypass semantics restored");
+    QJsonObject record;
+    {
+        PlatformSystemProxyBackend owner;check(owner.apply(config).succeeded(),"Apply native KDE snapshot owner");
+        record=QJsonDocument::fromJson(QJsonDocument(owner.recoverySnapshot()).toJson()).object();
+    }
+    PlatformSystemProxyBackend recovered;
+    check(recovered.recover(record).succeeded() && get("httpProxy")=="http://prior.example.invalid 3128" && get("NoProxyFor")=="old.example.invalid"
+          && get("ReversedException")=="true" && get("ProxyType")=="2" && get("Proxy Config Script")=="https://pac.example.invalid/original.pac",
+          "Fresh native KConfig backend lost original snapshot values");
+    std::cout<<"PASS: fresh backend restored the native private KConfig snapshot\n";
     check(backend.apply(config).succeeded(),"native KDE reapply after restore");
     set("httpProxy","http://external.example.invalid 8899");set("NoProxyFor","external.example.invalid");
     check(backend.clear().succeeded(),"native KDE owned fields restored around external settings");
@@ -429,6 +508,19 @@ int main(int argc, char **argv) {
         check(runPlatformCommand("gsettings", {"get","org.gnome.system.proxy.http","port"}).output=="3128", "original HTTP port restored");
         check(runPlatformCommand("gsettings", {"get","org.gnome.system.proxy.http","use-authentication"}).output=="true", "original HTTP auth flag restored");
         check(runPlatformCommand("gsettings", {"get","org.gnome.system.proxy","ignore-hosts"}).output=="['old.example.invalid']", "original bypass restored");
+        const auto originalSettings=runPlatformCommand("gsettings",{"list-recursively","org.gnome.system.proxy"});
+        check(originalSettings.result.succeeded(),"Read all private GSettings before snapshot handoff");
+        QJsonObject record;
+        {
+            PlatformSystemProxyBackend owner;check(owner.apply(config).succeeded(),"Apply native GSettings snapshot owner");
+            record=QJsonDocument::fromJson(QJsonDocument(owner.recoverySnapshot()).toJson()).object();
+        }
+        PlatformSystemProxyBackend recovered;
+        check(recovered.recover(record).succeeded(),"Fresh native GSettings snapshot restoration");
+        const auto restoredSettings=runPlatformCommand("gsettings",{"list-recursively","org.gnome.system.proxy"});
+        check(restoredSettings.result.succeeded() && restoredSettings.output==originalSettings.output,
+              "Fresh native GSettings backend lost values or changed retained authentication material");
+        std::cout<<"PASS: fresh backend restored the complete native private GSettings snapshot\n";
         auto escapedConfig=config;
         escapedConfig.bypass=QString("inside\ttab;")+QChar(0x200c)+"example.invalid";
         PlatformSystemProxyBackend escaping;
@@ -484,7 +576,7 @@ int main(int argc, char **argv) {
     check(runPlatformCommand(self,{"--child","denied"}).result.status==Status::PermissionDenied,"permission denial classified");
     check(!runPlatformCommand(self+".missing",{}).result.succeeded(),"failed process start rejected");
     backendTests();
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
     recoveryRecordTests();
 #endif
     std::cout << "PASS: process statuses, backend failures, partial changes and readback\n";
