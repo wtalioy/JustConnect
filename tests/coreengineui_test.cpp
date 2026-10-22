@@ -561,8 +561,12 @@ static void quitWaitsForNetworkInspectionWithoutBlockingTheGui() {
     emit engine->sessionStarted("1");emit engine->connectionEstablished();
     check(entered.tryAcquire(1,1000),"network query runs outside the GUI thread");
     controller.prepareForQuit();emit engine->finished(ConnectionError::NONE);
-    QElapsedTimer elapsed;elapsed.start();int ticks=0;
-    while(elapsed.elapsed()<30) {QApplication::processEvents(QEventLoop::AllEvents,5);++ticks;}
+    // Platform event dispatch can consume a full poll interval.
+    QTimer::singleShot(0,&parent,[]{QThread::msleep(40);});
+    int ticks=0;QTimer heartbeat;
+    QObject::connect(&heartbeat,&QTimer::timeout,&parent,[&]{++ticks;});heartbeat.start(1);
+    QElapsedTimer elapsed;elapsed.start();
+    until([&]{return ticks>1 && elapsed.elapsed()>=30;});
     check(!ready && engine->stops==1 && ticks>1,"ordered exit remains responsive while its cancelled network query finishes");
     resume.release();until([&]{return ready==1;});
     check(!networkPolicy.isBusy() && networkPolicy.model().isEmpty(),"late network result cannot republish after ordered exit");
