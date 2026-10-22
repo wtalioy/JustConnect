@@ -50,6 +50,41 @@ int main(int argc, char **argv) try
         }
     }
     check(explained, "Merged scope lost native interface or route provenance");
+    auto resources = QJsonDocument::fromJson(R"({
+        "ip_resources":[
+            {"ip_min":"192.168.24.250","ip_max":"192.168.25.8","protocol":"tcp","port_min":22,"port_max":22},
+            {"ip_min":"10.41.255.255","ip_max":"10.43.0.0","protocol":"udp","port_min":53,"port_max":53},
+            {"ip_min":"8.8.8.8","ip_max":"8.8.8.8","protocol":"all","port_min":1,"port_max":65535}
+        ],
+        "dns_records":{"mapped.campus.test":["fd7a:115c:a1e0::1234","192.168.25.1"]},
+        "campus_dns":"100.74.12.3"
+    })").object();
+    const auto conflicts = campusProtectionConflicts(*targets, resources);
+    check(conflicts && conflicts->size() == 4, "Partial, enclosing or IPv6/DNS overlaps incorrectly explained");
+    bool range = false, record = false, dns = false;
+    for (const auto &value : *conflicts) {
+        const auto conflict = value.toObject();
+        const auto prefix = (*targets)[conflict["target"].toInt()].toObject()["prefix"].toString();
+        if (conflict["kind"] == "ip_resource" && conflict["resource"] == 1) range = prefix == "10.42.0.0/16";
+        if (conflict["kind"] == "dns_record") record = prefix == "fd7a:115c:a1e0::1234/128"
+            && conflict["domain"] == "mapped.campus.test" && conflict["record"] == 0;
+        if (conflict["kind"] == "campus_dns") dns = prefix == "100.74.12.3/32";
+    }
+    check(range && record && dns, "Conflict lost original scope or resource role");
+    for (const auto &bad : {QJsonObject{{"ip_min", "10.42.1.1"}, {"ip_max", "10.41.1.1"}},
+                           QJsonObject{{"ip_min", "::1"}, {"ip_max", "127.0.0.1"}},
+                           QJsonObject{{"ip_min", "::ffff:127.0.0.1"}, {"ip_max", "::ffff:127.0.0.1"}}}) {
+        auto changed = resources;
+        changed["ip_resources"] = QJsonArray{bad};
+        check(!campusProtectionConflicts(*targets, changed), "Invalid resource published partial conflicts");
+    }
+    resources["dns_records"] = QJsonObject{{"broken.campus.test", "100.74.12.3"}};
+    check(!campusProtectionConflicts(*targets, resources), "Collapsed DNS array hid a conflict");
+    QJsonArray many;
+    for (int i = 0; i < 4097; ++i) many.append("100.74.12.3");
+    resources["dns_records"] = QJsonObject{{"large.campus.test", many}};
+    resources["ip_resources"] = QJsonArray{};
+    check(!campusProtectionConflicts(*targets, resources), "Excessive conflicts published a truncated explanation");
     for (const auto &bad : {QString("broken"), QString("::ffff:192.0.2.0/120"), QString("fe80::1%eth0/64")}) {
         auto changed = network;
         changed["routes"] = QJsonArray{QJsonObject{{"destination", bad}}};
