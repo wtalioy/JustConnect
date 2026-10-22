@@ -10,29 +10,9 @@
 
 namespace {
 using Status = PlatformOperationResult::Status;
-QString routePrefix(const QJsonObject &row)
-{
-    const auto value = row["dst"].toString();
-    if (value == "default") return "0.0.0.0/0";
-    return value.contains('/') ? value : value + "/32";
-}
-bool canonicalPrefix(const QString &value, int minimum = 2)
-{
-    const auto parts = value.split('/');
-    if (parts.size() != 2) return false;
-    bool valid = false;
-    const int bits = parts[1].toInt(&valid);
-    in_addr address{};
-    if (!valid || bits < minimum || bits > 32 || QString::number(bits) != parts[1]
-        || ::inet_pton(AF_INET, parts[0].toLatin1().constData(), &address) != 1) return false;
-    char canonical[INET_ADDRSTRLEN]{};
-    if (!::inet_ntop(AF_INET, &address, canonical, sizeof(canonical)) || parts[0] != QString::fromLatin1(canonical)) return false;
-    const quint32 host = ntohl(address.s_addr), mask = bits == 0 ? 0 : 0xffffffffu << (32 - bits);
-    return (host & mask) == host;
-}
 bool assignedPair(const UnixTunDevice &device, const QString &source, const QString &peer)
 {
-    if (!canonicalPrefix(source + "/32") || !canonicalPrefix(peer + "/32")
+    if (!canonicalIpv4Prefix(source + "/32") || !canonicalIpv4Prefix(peer + "/32")
         || source == "0.0.0.0" || peer == "0.0.0.0" || source == peer) return false;
     in_addr local{}, remote{};
     ::inet_pton(AF_INET, source.toLatin1().constData(), &local);
@@ -70,7 +50,7 @@ LinuxTunRoutes::ReadResult LinuxTunRoutes::read(const QString &utility, int time
     if (!document.isArray() || document.array().size() > 4096)
         return {{Status::Failed, "Cannot read a complete route snapshot."}, {}};
     for (const auto &row : document.array())
-        if (!row.isObject() || !row.toObject()["dst"].isString() || !canonicalPrefix(routePrefix(row.toObject()), 0))
+        if (!row.isObject() || !row.toObject()["dst"].isString() || !canonicalIpv4Prefix(ipv4RoutePrefix(row.toObject()), 0))
             return {{Status::Failed, "Invalid route snapshot."}, {}};
     return {{}, document.array()};
 }
@@ -86,7 +66,7 @@ QJsonObject LinuxTunRoutes::find(const QJsonArray &rows, const QString &prefix) 
 {
     for (const auto &value : rows) {
         const auto row = value.toObject();
-        if (routePrefix(row) == prefix && row["dev"] == interfaceName && row["protocol"] == QString::number(RTPROT_STATIC)
+        if (ipv4RoutePrefix(row) == prefix && row["dev"] == interfaceName && row["protocol"] == QString::number(RTPROT_STATIC)
             && row["metric"].toInteger(-1) == metric) return row;
     }
     return {};
@@ -138,7 +118,7 @@ PlatformOperationResult LinuxTunRoutes::apply(const UnixTunDevice &device, const
     if (requested.size() > 4096) return {Status::Failed, "Too many capture routes."};
     auto prefixes = requested;
     for (const auto &prefix : prefixes)
-        if (!canonicalPrefix(prefix)) return {Status::Failed, "Capture routes require canonical IPv4 prefixes of length 2 through 32."};
+        if (!canonicalIpv4Prefix(prefix)) return {Status::Failed, "Capture routes require canonical IPv4 prefixes of length 2 through 32."};
     prefixes.removeDuplicates();
     if (prefixes.isEmpty()) return {};
     if (device.descriptor() < 0 || device.owner().isNull()) return {Status::Failed, "Capture routes require an owned TUN device."};
@@ -160,7 +140,7 @@ PlatformOperationResult LinuxTunRoutes::apply(const UnixTunDevice &device, const
         return {Status::Failed, "Capture routes exceed the complete snapshot capacity."};
     }
     for (const auto &value : before.rows) {
-        if (prefixes.contains(routePrefix(value.toObject()))) {
+        if (prefixes.contains(ipv4RoutePrefix(value.toObject()))) {
             clear();
             return {Status::Failed, "An existing route cannot be adopted or replaced."};
         }
@@ -206,7 +186,7 @@ PlatformOperationResult LinuxTunRoutes::restore(const UnixTunDevice &device)
     for (auto it = entries.begin(); it != entries.end();) {
         const auto current = find(before.rows, it->prefix);
         if (current.isEmpty()) {
-            for (const auto &value : before.rows) external |= routePrefix(value.toObject()) == it->prefix;
+            for (const auto &value : before.rows) external |= ipv4RoutePrefix(value.toObject()) == it->prefix;
             it = entries.erase(it);
         }
         else if (it->applied.isEmpty() && !createdShape(current)) ++it;

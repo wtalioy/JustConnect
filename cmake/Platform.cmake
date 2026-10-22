@@ -34,6 +34,7 @@ function(justconnect_platform TARGET)
         find_package(Qt6 REQUIRED COMPONENTS DBus)
         target_sources(${TARGET} PRIVATE "${REPO}/infrastructure/platform/linux/dnssnapshot.cpp"
             "${REPO}/infrastructure/platform/linux/tundevice.cpp"
+            "${REPO}/infrastructure/platform/linux/sourceroutes.cpp"
             "${REPO}/infrastructure/platform/linux/tunroutes.cpp")
         target_link_libraries(${TARGET} PUBLIC Qt6::DBus)
     endif()
@@ -119,6 +120,10 @@ function(justconnect_platform_tests TARGET LIBRARY)
         set_tests_properties(${TARGET}_native_roundtrip PROPERTIES TIMEOUT 45)
     endif()
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_executable(linux_sourceroutes_test "${REPO}/tests/platform/sourceroutes_linux_test.cpp")
+        target_link_libraries(linux_sourceroutes_test PRIVATE ${LIBRARY} Qt6::Core)
+        add_test(NAME linux_sourceroutes_test COMMAND linux_sourceroutes_test)
+        set_tests_properties(linux_sourceroutes_test PROPERTIES TIMEOUT 10)
         add_executable(linux_tunroutes_test "${REPO}/tests/platform/tunroutes_linux_test.cpp")
         target_link_libraries(linux_tunroutes_test PRIVATE ${LIBRARY} Qt6::Core)
         add_test(NAME linux_tunroutes_test COMMAND linux_tunroutes_test)

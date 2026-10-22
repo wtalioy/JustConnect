@@ -107,9 +107,25 @@ IPv4 配置增量复用 [`UnixTunDevice::createIpv4`](../infrastructure/platform
 
 [隔离检查](../tests/platform/original_route_linux.py)只在新的网络命名空间中创建 veth 原网络、独立 TCP／UDP 回显端点，并通过同一原生分配后端取得非持久 TUN。目标的 `/32` 捕获路由优先于原网络 `/24`；接口绑定单独使用在严格反向路径检查下已复现超时，因此测试保留 `rp_filter=1`，仅为所选原地址增加源规则与专用目标路由表。先回读两类选路并实际读取 TUN 包及捕获源地址，再由零 capabilities 的普通用户运行[生产 underlay 探针](../tests/platform/original_route_probe.go)，验证指定原接口的 TCP／UDP 往返及原地址，接口缺失必须报错。两端命名空间退出即释放设备和规则；宿主接口、全表路由、规则、DNS 及反向路径设置保持不变。
 
-本地 WSL 隔离内核及 [Linux 双架构 CI](https://github.com/wtalioy/JustConnect/actions/runs/39732640460) 已通过，日志为 `linux-original-route.log`，关键结果归并至计划引用的当前报告。该结果验证出口绑定与定向源规则的组合，正式后端尚未应用这组操作；未覆盖其他策略路由选择器、自动选择、IPv6、Windows／macOS 的竞争路由或正式助手恢复，不能据此接管日常网络。
+本地 WSL 隔离内核及 [Linux 双架构 CI](https://github.com/wtalioy/JustConnect/actions/runs/39732640460) 已通过，日志为 `linux-original-route.log`，关键结果归并至计划引用的当前报告。该结果验证出口绑定与定向源规则的组合，这组操作现由下述正式原出口后端接管，其增量仍待原生验收；未覆盖其他策略路由选择器、自动选择、IPv6、Windows／macOS 的竞争路由或正式助手恢复，不能据此接管日常网络。
 
 Linux 路由恢复另在私有命名空间核对了内核删除匹配：`ip route del <prefix> dev <owned> proto <owned> scope link` 拒绝删除设备或协议已变化的路由，但首选源地址被改写时仍会删除，不能视为完整快照的原子比较。正式后端须记录所属资源身份和实际应用结果，恢复前核对完整回读，遇到外部改写保留并报告；回读与删除间的竞争仍需故障验证，不以命令成功代替所有权证明。实验结果已归并至计划引用的当前基线报告。
+
+<a id="linux-source-routes"></a>
+### Linux 原出口表／规则后端
+
+[`LinuxSourceRoutes`](../infrastructure/platform/linux/sourceroutes.cpp) 在新建的连接专用 IPv4 表中配置明确目标，源地址必须属于所选原接口；空网关表示直连，非零网关另有所属 `/32` 链路路由。只接受规范 `/2`—`/32`，不提供默认出口或全局私网规则。保留实际原接口／索引、源地址／网关、连接 UUID、表、metric、原先不存在和完整路由／源规则；不改接口地址、MTU、原有路由或 DNS。priority 1 已占用、非标准更早规则或候选表已有路由／引用时拒绝，未知策略不猜测。接口名限安全 ASCII token；自动拓扑选择和其他命名方式仍待接入。
+
+```sh
+sudo unshare --net -- build/coreabi/linux_sourceroutes_test --isolated
+sudo unshare --net -- python tests/platform/original_route_linux.py --uid "$(id -u)" \
+    --probe build/coreabi/original-route-probe --allocator build/coreabi/linux_tundevice_test \
+    --routes build/coreabi/linux_sourceroutes_test
+```
+
+后端与捕获路由共用规范前缀／主机路由解释及受信 iproute2 检查。全表／规则各限 4096 行、1 MiB，写入前检查新增容量；所属路由建立索引。接受 iproute2 省略 main 表的原生表示，所属专用路由／规则缺少表身份时拒绝恢复且保留记录；合法 blackhole／goto 规则保留。每次应用／恢复各有十秒命令预算，失败回滚独立计时。恢复先按 priority／源前缀／表／协议删除源规则并回读；删除失败、外部新引用或重复身份均保留表和记录。确认删除后重建的同值规则视为外部项；路由删除带设备、协议、scope、metric、非零源地址及适用的下一跳。只忽略已知派生 linkdown／默认 unicast 表示差异，其他已确认外部改写保留，未确认值不猜测删除。
+
+本地双构建验证直连／网关、地址别名、错误所有者／重命名、已有表／规则／外部引用、真实部分批次失败、读回故障、恢复重试、读后源规则改写／同值重建、linkdown、4096 行完整容量及永久降权拒绝。原出口脚本已删除专用表／源规则命令，由独立原生持有进程调用同一后端，原预算／严格反向路径及普通 Go TCP／UDP 断言保留；关闭控制管道后检查原始表／规则完全恢复。捕获路由夹具保留至移交后的设备身份与同一正式捕获后端接通。当前不证明安装助手、持久恢复、控制器崩溃／断电恢复、IPv6 或任意属性的跨对象原子比较；S4-06 前不应用于日常网络。证据 `build/reports/linux-source-routes.json`，原生双架构增量待 CI。
 
 ### macOS utun／fd 隔离实验
 
@@ -132,7 +148,7 @@ sudo unshare --net -- build/coreabi/linux_tunroutes_test --isolated
 
 原生检查验证实际 UDP 进入 TUN 并在严格 `rp_filter=1` 下回到原 socket、原有默认／分割默认／主机路由不变、重复前缀合并、不同连接拒绝、部分批次失败回滚、回读失败与恢复重试、首次无法确认的值保留记录，以及读回前后改写设备／源地址／下一跳和接口重命名。最后永久降权并清空 capabilities，验证真实内核拒绝写入且未留下路由。恢复批次允许单项保护条件失败后继续清理其他所属项，再回读确认结果；不凭命令退出码推断已恢复。
 
-[`5c57603` 的 Linux 双架构原生 CI](https://github.com/wtalioy/JustConnect/actions/runs/39782590189)均通过该检查，同轮其余四组 Core ABI／设备及[三平台应用测试](https://github.com/wtalioy/JustConnect/actions/runs/39782590442)也通过，证据归并至 `build/reports/linux-owned-routes.json`。主应用／正式授权／持久恢复日志、原出口专用表和源规则、DNS 及任意属性的读写竞争尚未交付；S4-06 之前不用于日常网络。原出口隔离脚本的 route／rule 夹具仍用于独有源选路与严格反向路径回归，待同一正式后端覆盖这些操作并接入助手后替换，不另做一套产品实现。
+[`5c57603` 的 Linux 双架构原生 CI](https://github.com/wtalioy/JustConnect/actions/runs/39782590189)均通过该检查，同轮其余四组 Core ABI／设备及[三平台应用测试](https://github.com/wtalioy/JustConnect/actions/runs/39782590442)也通过，证据归并至 `build/reports/linux-owned-routes.json`。主应用／正式授权／持久恢复日志、DNS 及任意属性的读写竞争尚未交付，原出口专用表／源规则增量仍待原生验收和主应用接入；S4-06 之前不用于日常网络。原出口隔离脚本的专用表／源规则已由正式后端接管；捕获路由夹具仍用于移交后设备的独有回归，待正式身份接收及捕获后端接通后替换，不另做产品副本。
 
 [源码 `1105671` 的两组 macOS 及 Linux](https://github.com/wtalioy/JustConnect/actions/runs/39681929870)均通过直连／显式路由的真实设备／fd 读写、正常关闭及强杀后的设备／路由清理，日志分别为 `macos-device.log`／`linux-device.log`；本机 Linux 另验宿主接口、路由、DNS 不变。降权验证使用原生 `getgroups` 读取进程组，仅保留目标主组，并检查真实／有效 uid、gid 和无法恢复 root；[Python 的 macOS 组查询](https://docs.python.org/3/library/os.html#os.getgroups)可能返回目录成员列表，不能据此判断 `setgroups` 的结果。签名助手与真实桌面授权仍待验收，不依据源码或 Linux 结果宣称可用。原 `linux_device_probe.py` 已由共享脚本替代并删除，原 Linux 能力及独有权限断言保留。
 

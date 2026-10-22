@@ -143,7 +143,12 @@ jobs:
           test -z "$(gofmt -l tests/platform/original_route_probe.go)"
           go -C corelib vet ../tests/platform/original_route_probe.go
           go -C corelib build -mod=readonly -o ../build/coreabi/original-route-probe ../tests/platform/original_route_probe.go
-          sudo unshare --net -- "$(command -v python)" tests/platform/original_route_linux.py --uid "$(id -u)" --probe build/coreabi/original-route-probe --allocator build/coreabi/linux_tundevice_test 2>&1 | tee build/coreabi/linux-original-route.log
+          sudo unshare --net -- "$(command -v python)" tests/platform/original_route_linux.py --uid "$(id -u)" --probe build/coreabi/original-route-probe --allocator build/coreabi/linux_tundevice_test --routes build/coreabi/linux_sourceroutes_test 2>&1 | tee build/coreabi/linux-original-route.log
+
+      - name: Check owned Linux source tables and rules in an isolated network
+        if: runner.os == 'Linux'
+        shell: bash
+        run: sudo unshare --net -- build/coreabi/linux_sourceroutes_test --isolated 2>&1 | tee build/coreabi/linux-source-routes.log
 
       - name: Check owned Linux capture routes and partial recovery in an isolated network
         if: runner.os == 'Linux'
