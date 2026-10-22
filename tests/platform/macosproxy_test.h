@@ -105,8 +105,9 @@ static void backendTests() {
     check(!backend.clear().succeeded(),"native restore failure retains its original snapshot");failAt=0;
     check(backend.clear().succeeded(),"native restore resumes after failure");restored();
     check(backend.apply(config).succeeded(),"apply private notification retry fixture");
-    auto recreated=CFPropertyListCreateDeepCopy(nullptr,value(firstPath),kCFPropertyListImmutable);
-    check(recreated,"save installed native fixture");const auto releaseRecreated=qScopeGuard([&]{CFRelease(recreated);});
+    auto recreated=static_cast<CFDictionaryRef>(CFPropertyListCreateDeepCopy(nullptr,value(firstPath),kCFPropertyListImmutable));
+    check(recreated && CFGetTypeID(recreated)==CFDictionaryGetTypeID(),"save installed native fixture dictionary");
+    const auto releaseRecreated=qScopeGuard([&]{CFRelease(recreated);});
     failApply=true;check(!backend.clear().succeeded(),"retain notification after committed restoration");failApply=false;
     check(SCPreferencesPathSetValue(prefs,firstPath,recreated) && nativeCommit(prefs),"externally recreate a formerly installed native value");
     changes=0;check(backend.clear().succeeded() && changes==0 && CFEqual(value(firstPath),recreated),
