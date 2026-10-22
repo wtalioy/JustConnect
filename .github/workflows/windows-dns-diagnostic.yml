@@ -18,30 +18,47 @@ jobs:
       fail-fast: false
       matrix:
         os: [windows-2025, windows-11-vs2026-arm]
+        query: [current, prior]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 3
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ matrix.query == 'prior' && 'c306e1a4471e17ec28508da384ceb5897f910880' || github.sha }}
       - name: Locate cold query phase without saving DNS data
-        shell: python
+        shell: pwsh
         run: |
+          @'
           import os, pathlib, re, subprocess, time
           source = pathlib.Path('infrastructure/platform/windows/dnssnapshot.cpp').read_text(encoding='utf-8')
           query = re.search(r'R"PS\((.*?)\)PS"', source, re.S).group(1)
           phases = [
               ("Import-Module ($PSHOME", "utility"),
-              ("Import-Module ($dnsModuleRoot", "component"),
-              ("Update-TypeData", "types"),
-              ("Import-Module $dohModule", "doh_import"),
-              ("$policies=@(", "nrpt"),
+              ("$policies=@(", "policy_copy"),
               ("foreach($row in $policies)", "nrpt_values"),
-              ("$dohSupported=", "doh_discovery"),
               ("$doh=@()", "doh_query"),
               ("$interfaces=@(", "interfaces"),
               ("$clients=@(", "clients"),
-              ("$global=", "global"),
               ("ConvertTo-Json -InputObject", "serialize"),
           ]
+          if "$dnsModuleRoot=" in query:
+              phases += [
+                  ("Import-Module ($dnsModuleRoot", "component"),
+                  ("Update-TypeData", "types"),
+                  ("Import-Module $dohModule", "doh_import"),
+                  ("$dohSupported=", "doh_discovery"),
+                  ("$global=", "global"),
+              ]
+          else:
+              phases += [
+                  ("$options=", "options"),
+                  ("$session=", "session"),
+                  ("$parameters=", "parameters"),
+                  ("$result=$session.InvokeMethod", "nrpt"),
+                  ("$dohClass=", "doh_class"),
+                  ("$settings=@(", "global"),
+                  ("$session.Dispose()", "session_dispose"),
+              ]
           for token, label in phases:
               if token not in query:
                   raise RuntimeError('Missing production query phase: ' + label)
@@ -65,3 +82,4 @@ jobs:
           print('exit_code=' + str(code), flush=True)
           if code:
               raise RuntimeError('Cold production DNS query failed; DNS output discarded')
+          '@ | python -

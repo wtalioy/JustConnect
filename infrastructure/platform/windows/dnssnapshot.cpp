@@ -10,40 +10,54 @@ const QString query = QString::fromLatin1(R"PS(
 $ErrorActionPreference='Stop'
 [Console]::OutputEncoding=[Text.Encoding]::UTF8
 Import-Module ($PSHOME+'\Modules\Microsoft.PowerShell.Utility\Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop
-$dnsModuleRoot=$PSHOME+'\Modules\DnsClient'
-foreach($component in @('MSFT_DnsClient','MSFT_DnsClientGlobalSetting','MSFT_DnsClientServerAddress','PS_DnsClientNrptPolicy_v1.0.0')) {
-    Import-Module ($dnsModuleRoot+'\'+$component+'.cdxml') -ErrorAction Stop
+function Read-DnsRows([string]$class,[string[]]$fields) {
+    # Select after reading so absent optional properties retain null on older providers.
+    foreach($row in $session.QueryInstances('ROOT\StandardCimv2','WQL',('SELECT * FROM '+$class))) {
+        try { $row | Select-Object -Property $fields } finally { $row.Dispose() }
+    }
 }
-Update-TypeData -PrependPath ($dnsModuleRoot+'\DnsClientPSProvider.Types.ps1xml') -ErrorAction Stop
-$dohModule=$dnsModuleRoot+'\MSFT_DnsClientDohServerAddress.cdxml'
-if([IO.File]::Exists($dohModule)) { Import-Module $dohModule -ErrorAction Stop }
-$policies=@(Get-DnsClientNrptPolicy -Effective | Select-Object Namespace,NameServers,DirectAccessEnabled,DirectAccessDnsServers,DirectAccessIPsecCARestriction,DirectAccessProxyName,DirectAccessProxyType,DirectAccessQueryIPsecEncryption,DirectAccessQueryIPsecRequired,DnsSecIPsecCARestriction,DnsSecQueryIPsecEncryption,DnsSecQueryIPsecRequired,DnsSecValidationRequired,NameEncoding,QueryPolicy,SecureNameQueryFallback)
-foreach($row in $policies) {
-    $row.Namespace=@($row.Namespace | Where-Object {$null -ne $_} | ForEach-Object {[string]$_})
-    $row.NameServers=@($row.NameServers | Where-Object {$null -ne $_} | ForEach-Object {$_.ToString()})
-    $row.DirectAccessDnsServers=@($row.DirectAccessDnsServers | Where-Object {$null -ne $_} | ForEach-Object {$_.ToString()})
-}
-$dohSupported=$null -ne (Get-Command Get-DnsClientDohServerAddress -ListImported -Module MSFT_DnsClientDohServerAddress -ErrorAction SilentlyContinue)
-$doh=@()
-if($dohSupported) { $doh=@(Get-DnsClientDohServerAddress | Select-Object ServerAddress,DohTemplate,AllowFallbackToUdp,AutoUpgrade) }
-$interfaces=@(Get-DnsClientServerAddress | Select-Object InterfaceIndex,AddressFamily,ServerAddresses)
-foreach($row in $interfaces) { $row.ServerAddresses=@($row.ServerAddresses | Where-Object {$null -ne $_} | ForEach-Object {[string]$_}) }
-$clients=@(Get-DnsClient | Select-Object InterfaceIndex,ConnectionSpecificSuffix,ConnectionSpecificSuffixSearchList,RegisterThisConnectionsAddress,UseSuffixWhenRegistering)
-foreach($row in $clients) {
-    $row.ConnectionSpecificSuffix=[string]$row.ConnectionSpecificSuffix
-    $row.ConnectionSpecificSuffixSearchList=@($row.ConnectionSpecificSuffixSearchList | Where-Object {$null -ne $_} | ForEach-Object {[string]$_})
-}
-$global=Get-DnsClientGlobalSetting | Select-Object SuffixSearchList,UseDevolution,DevolutionLevel,AppendParentSuffixes,AppendPrimarySuffixes
-$global.SuffixSearchList=@($global.SuffixSearchList | Where-Object {$null -ne $_} | ForEach-Object {[string]$_})
-$data=[ordered]@{
-    interfaces=$interfaces
-    clients=$clients
-    global=$global
-    nrpt=$policies
-    doh_supported=$dohSupported
-    doh=$doh
-}
-ConvertTo-Json -InputObject $data -Depth 6 -Compress
+$options=[Microsoft.Management.Infrastructure.Options.DComSessionOptions]::new()
+$session=[cimsession]::Create('.',$options)
+try {
+    $parameters=[Microsoft.Management.Infrastructure.CimMethodParametersCollection]::new()
+    $parameters.Add([Microsoft.Management.Infrastructure.CimMethodParameter]::Create('Effective',$true,[Microsoft.Management.Infrastructure.CimType]::Boolean,[Microsoft.Management.Infrastructure.CimFlags]::In))
+    $result=$session.InvokeMethod('ROOT\Microsoft\Windows\DNS','PS_DnsClientNrptPolicy','Get',$parameters)
+    try {
+        if($result.ReturnValue.Value -ne 0) { throw 'Cannot read effective NRPT' }
+        $policies=@(foreach($row in $result.OutParameters['CmdletOutput'].Value) {
+            try { $row | Select-Object -Property @('Namespace','NameServers','DirectAccessEnabled','DirectAccessDnsServers','DirectAccessIPsecCARestriction','DirectAccessProxyName','DirectAccessProxyType','DirectAccessQueryIPsecEncryption','DirectAccessQueryIPsecRequired','DnsSecIPsecCARestriction','DnsSecQueryIPsecEncryption','DnsSecQueryIPsecRequired','DnsSecValidationRequired','NameEncoding','QueryPolicy','SecureNameQueryFallback') }
+            finally { $row.Dispose() }
+        })
+    } finally { $result.Dispose() }
+    foreach($row in $policies) {
+        $row.Namespace=@($row.Namespace | Where-Object {$null -ne $_} | ForEach-Object {[string]$_})
+        $row.NameServers=@($row.NameServers | Where-Object {$null -ne $_} | ForEach-Object {([Net.IPAddress]$_).ToString()})
+        $row.DirectAccessDnsServers=@($row.DirectAccessDnsServers | Where-Object {$null -ne $_} | ForEach-Object {([Net.IPAddress]$_).ToString()})
+    }
+    try {
+        $dohClass=$session.GetClass('ROOT\StandardCimv2','MSFT_DNSClientDohServerAddress')
+        $dohClass.Dispose()
+        $dohSupported=$true
+    } catch [Microsoft.Management.Infrastructure.CimException] {
+        if($_.Exception.NativeErrorCode -notin @([Microsoft.Management.Infrastructure.NativeErrorCode]::InvalidClass,[Microsoft.Management.Infrastructure.NativeErrorCode]::NotFound)) { throw }
+        $dohSupported=$false
+    }
+    $doh=@()
+    if($dohSupported) { $doh=@(Read-DnsRows 'MSFT_DNSClientDohServerAddress' @('ServerAddress','DohTemplate','AllowFallbackToUdp','AutoUpgrade')) }
+    $interfaces=@(Read-DnsRows 'MSFT_DNSClientServerAddress' @('InterfaceIndex','AddressFamily','ServerAddresses'))
+    foreach($row in $interfaces) { $row.ServerAddresses=@($row.ServerAddresses | Where-Object {$null -ne $_} | ForEach-Object {[string]$_}) }
+    $clients=@(Read-DnsRows 'MSFT_DNSClient' @('InterfaceIndex','ConnectionSpecificSuffix','ConnectionSpecificSuffixSearchList','RegisterThisConnectionsAddress','UseSuffixWhenRegistering'))
+    foreach($row in $clients) {
+        $row.ConnectionSpecificSuffix=[string]$row.ConnectionSpecificSuffix
+        $row.ConnectionSpecificSuffixSearchList=@($row.ConnectionSpecificSuffixSearchList | Where-Object {$null -ne $_} | ForEach-Object {[string]$_})
+    }
+    $settings=@(Read-DnsRows 'MSFT_DNSClientGlobalSetting' @('SuffixSearchList','UseDevolution','DevolutionLevel','AppendParentSuffixes','AppendPrimarySuffixes'))
+    if($settings.Count -ne 1) { throw 'Invalid global DNS settings' }
+    $global=$settings[0]
+    $global.SuffixSearchList=@($global.SuffixSearchList | Where-Object {$null -ne $_} | ForEach-Object {[string]$_})
+    $data=[ordered]@{interfaces=$interfaces;clients=$clients;global=$global;nrpt=$policies;doh_supported=$dohSupported;doh=$doh}
+    ConvertTo-Json -InputObject $data -Depth 6 -Compress
+} finally { $session.Dispose();$options.Dispose() }
 )PS");
 
 bool strings(const QJsonValue &value)

@@ -15,8 +15,11 @@ static void check(bool ok, const char *message) {
 int main(int argc, char **argv) try
 {
     QCoreApplication app(argc, argv);
-    if (app.arguments().contains("--native") || app.arguments().contains("--module-scope")) {
+    if (app.arguments().contains("--native") || app.arguments().contains("--module-scope")
+        || app.arguments().contains("--missing-doh") || app.arguments().contains("--missing-nrpt")) {
         const bool scope = app.arguments().contains("--module-scope");
+        const bool missing = app.arguments().contains("--missing-doh");
+        const bool missingNrpt = app.arguments().contains("--missing-nrpt");
         QTemporaryDir directory;
         QString moduleRoot;
         if (scope) {
@@ -24,8 +27,8 @@ int main(int argc, char **argv) try
             for (const auto &file : {QString("JustConnectDnsFixture.psd1"), QString("fixture.psm1")}) {
                 QFile output(directory.filePath("JustConnectDnsFixture/" + file));
                 const auto content = file.endsWith("psd1")
-                    ? QByteArray("@{RootModule='fixture.psm1';ModuleVersion='1.0';FunctionsToExport=@('Get-JustConnectUnimportedDnsFeature')}")
-                    : QByteArray("function Get-JustConnectUnimportedDnsFeature {}\n");
+                    ? QByteArray("@{RootModule='fixture.psm1';ModuleVersion='1.0';FunctionsToExport=@('Get-DnsClientDohServerAddress')}")
+                    : QByteArray("throw 'Foreign DNS module imported'\nfunction Get-DnsClientDohServerAddress {}\n");
                 check(output.open(QIODevice::WriteOnly) && output.write(content) == content.size(), "Write private module fixture");
             }
             moduleRoot = directory.path();
@@ -37,22 +40,28 @@ int main(int argc, char **argv) try
         }
         PlatformCommandRunner runner;
         const auto program = qEnvironmentVariable("JC_TEST_WINDOWS_POWERSHELL");
-        if (!program.isEmpty() || scope) runner = [&](const QString &nativeProgram, const QStringList &arguments) {
+        if (!program.isEmpty() || scope || missing || missingNrpt) runner = [&](const QString &nativeProgram, const QStringList &arguments) {
             auto modified = arguments;
+            if (missing) modified.last().replace("MSFT_DNSClientDohServerAddress", "JustConnectMissingDnsClass");
+            if (missingNrpt) modified.last().replace("PS_DnsClientNrptPolicy", "JustConnectMissingDnsClass");
             if (scope) {
                 // Permit this test process to load its private unsigned fixture module.
                 modified = QStringList{"-ExecutionPolicy", "Bypass"} + modified;
-                modified.last().replace("Get-Command Get-DnsClientDohServerAddress", "Get-Command Get-JustConnectUnimportedDnsFeature");
                 modified.last().prepend("$env:PSModulePath='" + QString(moduleRoot).replace("'", "''")
                     + "'+[IO.Path]::PathSeparator+$env:PSModulePath\n");
             }
             return runPlatformCommand(program.isEmpty() ? nativeProgram : program, modified, 10000);
         };
         const auto snapshot = runner ? readWindowsDnsSnapshot(runner) : readSystemDnsSnapshot();
+        if (missingNrpt) {
+            check(!snapshot.result.succeeded() && snapshot.data.isEmpty(), "Missing required provider published partial DNS facts");
+            std::cout << "Required native resolver provider failure rejected without partial data\n";
+            return 0;
+        }
         check(snapshot.result.succeeded(), qPrintable(snapshot.result.detail));
         check(!snapshot.data["interfaces"].toArray().isEmpty(), "Native DNS interface facts missing");
-        if (scope) check(snapshot.data["doh_supported"] == false && snapshot.data["doh"].toArray().isEmpty(),
-                         "Optional DNS discovery imported a foreign module");
+        if (missing) check(snapshot.data["doh_supported"] == false && snapshot.data["doh"].toArray().isEmpty(),
+                           "Missing optional DNS provider did not remain unavailable");
         std::cout << "Native resolver interfaces, effective NRPT and DoH registrations inspected without writes\n";
         return 0;
     }
@@ -68,7 +77,9 @@ int main(int argc, char **argv) try
     auto runner = [&](const QString &, const QStringList &arguments) {
         check(arguments.size() == 5 && arguments[0] == "-NoLogo" && arguments[1] == "-NoProfile"
               && arguments[2] == "-NonInteractive" && arguments[3] == "-Command"
-              && arguments[4].contains("Get-DnsClientNrptPolicy -Effective")
+              && arguments[4].contains("$session.InvokeMethod('ROOT\\Microsoft\\Windows\\DNS','PS_DnsClientNrptPolicy','Get',$parameters)")
+              && arguments[4].contains("$parameters.Add(") && arguments[4].contains("'Effective',$true")
+              && arguments[4].contains("[cimsession]::Create('.',$options)")
               && !arguments[4].contains("Set-DnsClient"), "Fixed read-only system query changed");
         return PlatformCommandResult{result, output};
     };
