@@ -372,10 +372,13 @@ static void recoveryRecordTests() {
             check(!fresh.recover(invalid).succeeded() && calls==0,"Invalid Linux recovery record reached a settings command");
         };
         reject({});
-        for (const auto *field:{"schema_version","platform","machine","owner","context","config","before","released"}) {
+        for (const auto *field:{"schema_version","platform","machine","owner","context","config","before","released","intent","written","uncertain","pending_restore"}) {
             auto invalid=record;invalid.remove(field);reject(invalid);
         }
         auto invalid=record;invalid["platform"]="windows";reject(invalid);
+        invalid=record;invalid["schema_version"]=1;reject(invalid);
+        invalid=record;invalid["intent"]=QJsonArray{};reject(invalid);
+        invalid=record;invalid["pending_restore"]="unknown";reject(invalid);
         invalid=record;invalid["machine"]="foreign";reject(invalid);
         invalid=record;invalid["machine"]=QString(65536,'x');reject(invalid);
         invalid=record;invalid["owner"]="foreign";reject(invalid);
@@ -415,6 +418,122 @@ static void recoveryRecordTests() {
     std::cout<<"PASS: context-bound GNOME/KDE snapshot handoff, strict rejection, original types and released ownership\n";
 }
 
+static void checkpointTests() {
+    QTemporaryDir directory;check(directory.isValid(),"Private checkpoint context");
+    qputenv("XDG_CONFIG_HOME",directory.path().toUtf8());qputenv("XDG_CURRENT_DESKTOP","GNOME");
+    qputenv("XDG_SESSION_DESKTOP","gnome");qputenv("GSETTINGS_BACKEND","keyfile");
+    const auto seed=[] {
+        Fixture fixture;
+        fixture.values={{"org.gnome.system.proxy.http:host","'prior.invalid'"},{"org.gnome.system.proxy.http:port","3128"},
+            {"org.gnome.system.proxy.http:use-authentication","true"},{"org.gnome.system.proxy:mode","'auto'"}};
+        return fixture;
+    };
+    {
+        auto fixture=seed();
+        PlatformSystemProxyBackend backend([&](const QString &p,const QStringList &a){return fixture.run(p,a);},
+            [](const QJsonObject &){return PlatformOperationResult{Status::PermissionDenied,"Denied checkpoint"};});
+        const auto result=backend.apply(config);
+        check(!result.succeeded() && !result.mayHaveChanged && fixture.mutations==0 && backend.recoverySnapshot().isEmpty(),
+              "Initial checkpoint rejection reached a settings mutation or invented ownership");
+    }
+    {
+        auto fixture=seed();QJsonObject stored;bool first=true;
+        PlatformSystemProxyBackend backend([&](const QString &p,const QStringList &a){return fixture.run(p,a);},
+            [&](const QJsonObject &record){stored=record;if(first){first=false;return PlatformOperationResult{Status::Failed,"Lost publication acknowledgement",true};}return PlatformOperationResult{};});
+        check(!backend.apply(config).succeeded() && !stored.isEmpty() && fixture.mutations==0,"Unknown initial publication changed settings or lost its record");
+        check(backend.clear().succeeded() && stored.isEmpty() && fixture.mutations==0,"Unstarted application required native rollback or lost record removal");
+    }
+    {
+        auto fixture=seed();QJsonObject stored;bool denyRestore=false;int writes=0;
+        const PlatformCommandRunner run=[&](const QString &p,const QStringList &a) {
+            if(a.value(0)=="set") {
+                auto key=a[1].mid(QString("org.gnome.system.proxy").size());if(key.startsWith('.'))key=key.mid(1)+'/';key+=a[2];
+                check(stored["intent"].toArray().contains(key) && !stored["released"].toArray().contains(key),"Native mutation preceded durable ownership intent");
+                check(stored["pending_restore"].toString()==key || !stored["written"].toArray().contains(key),"Native restore preceded its checkpoint");++writes;
+            }
+            return fixture.run(p,a);
+        };
+        PlatformSystemProxyBackend backend(run,[&](const QJsonObject &record) {
+            if(denyRestore && !record["pending_restore"].toString().isEmpty())return PlatformOperationResult{Status::PermissionDenied,"Denied restore checkpoint"};
+            stored=record;return PlatformOperationResult{};
+        });
+        check(backend.apply(config).succeeded() && stored["written"].toArray().size()==writes,"Confirmed applied values were not checkpointed");
+        const auto appliedWrites=writes;denyRestore=true;
+        const auto result=backend.clear();
+        check(!result.succeeded() && result.mayHaveChanged && writes==appliedWrites,"Denied restore checkpoint allowed another native mutation");
+        denyRestore=false;check(backend.clear().succeeded() && stored.isEmpty(),"Confirmed checkpoint retry did not finish rollback");
+    }
+    {
+        auto fixture=seed();QJsonObject stored;bool injected=false;
+        PlatformSystemProxyBackend backend([&](const QString &p,const QStringList &a){return fixture.run(p,a);},
+            [&](const QJsonObject &record) {
+                stored=record;
+                if(!injected && record["intent"].toArray().contains("http/host")) {
+                    injected=true;fixture.values["org.gnome.system.proxy.http:host"]="'127.0.0.1'";
+                }
+                return PlatformOperationResult{};
+            });
+        check(!backend.apply(config).succeeded() && injected && fixture.mutations==1
+              && fixture.values["org.gnome.system.proxy.http:host"]=="'127.0.0.1'"
+              && fixture.values["org.gnome.system.proxy.http:use-authentication"]=="false",
+              "Checkpoint-time external endpoint was overwritten or inherited original credentials");
+    }
+    for (const bool external:{false,true}) {
+        auto fixture=seed();QJsonObject stored,intentRecord;QMap<QString,QString> atIntent;int hostWrites=0;
+        const PlatformCommandRunner run=[&](const QString &p,const QStringList &a) {
+            if(a.value(0)=="set" && a.value(1)=="org.gnome.system.proxy.http" && a.value(2)=="host")++hostWrites;
+            return fixture.run(p,a);
+        };
+        const auto persist=[&](const QJsonObject &record) {
+            stored=record;
+            if(intentRecord.isEmpty() && record["intent"].toArray().contains("http/host") && !record["written"].toArray().contains("http/host")) {
+                intentRecord=record;atIntent=fixture.values;
+            }
+            return PlatformOperationResult{};
+        };
+        {PlatformSystemProxyBackend owner(run,persist);check(owner.apply(config).succeeded(),"Capture application write-ahead boundary");}
+        check(!intentRecord.isEmpty(),"Application intent was not checkpointed before its native write");
+        fixture.values=atIntent;stored=intentRecord;hostWrites=0;
+        if(external)fixture.values["org.gnome.system.proxy.http:host"]="'127.0.0.1'";
+        PlatformSystemProxyBackend fresh(run,persist);const auto result=fresh.recover(intentRecord);
+        check(hostWrites==0 && result.succeeded()!=external,"Fresh application intent guessed an unconfirmed native write");
+        if(external) {
+            check(result.mayHaveChanged && stored["uncertain"].toArray().contains("http/host")
+                  && fixture.values["org.gnome.system.proxy.http:use-authentication"]=="false","Ambiguous application inherited original endpoint credentials");
+            fixture.values["org.gnome.system.proxy.http:host"]="'prior.invalid'";
+            check(fresh.clear().succeeded() && hostWrites==0 && stored.isEmpty(),"Resolved application intent did not finish recovery");
+        } else check(stored.isEmpty(),"Unexecuted intent retained a completed recovery record");
+    }
+    {
+        auto fixture=seed();QJsonObject stored;bool denyRelease=false;int hostWrites=0;
+        const PlatformCommandRunner run=[&](const QString &p,const QStringList &a) {
+            if(a.value(0)=="set" && a.value(1)=="org.gnome.system.proxy.http" && a.value(2)=="host")++hostWrites;
+            return fixture.run(p,a);
+        };
+        const auto persist=[&](const QJsonObject &record) {
+            if(denyRelease && record["released"].toArray().contains("http/host"))return PlatformOperationResult{Status::Failed,"Lost restored-value checkpoint"};
+            stored=record;return PlatformOperationResult{};
+        };
+        {
+            PlatformSystemProxyBackend owner(run,persist);check(owner.apply(config).succeeded(),"Apply before interrupted restoration checkpoint");
+            denyRelease=true;check(!owner.clear().succeeded(),"Restoration checkpoint failure was acknowledged");
+            check(stored["pending_restore"]=="http/host" && fixture.values["org.gnome.system.proxy.http:host"]=="\"prior.invalid\"",
+                  "Interrupted restoration did not retain its write-ahead marker");
+        }
+        fixture.values["org.gnome.system.proxy.http:host"]="'127.0.0.1'";hostWrites=0;denyRelease=false;
+        PlatformSystemProxyBackend fresh(run,persist);const auto result=fresh.recover(stored);
+        check(!result.succeeded() && result.mayHaveChanged && hostWrites==0 && stored["uncertain"].toArray().contains("http/host")
+              && fixture.values["org.gnome.system.proxy.http:use-authentication"]=="false",
+              "Fresh recovery reclaimed matching settings after an unconfirmed restore");
+        fixture.values["org.gnome.system.proxy.http:host"]="'prior.invalid'";
+        check(fresh.clear().succeeded() && hostWrites==0 && stored.isEmpty()
+              && fixture.values["org.gnome.system.proxy.http:port"]=="3128"
+              && fixture.values["org.gnome.system.proxy.http:use-authentication"]=="true",
+              "Resolved uncertainty did not finish owned recovery or exposed original credentials too early");
+    }
+    std::cout<<"PASS: proxy write-ahead intents, confirmed values, denied checkpoints, external races and fresh-backend uncertainty\n";
+}
+
 static void isolatedKde() {
     QTemporaryDir directory;
     check(directory.isValid(),"isolated KDE configuration directory");
@@ -434,12 +553,14 @@ static void isolatedKde() {
     check(get("ProxyType")=="2" && get("Proxy Config Script")=="https://pac.example.invalid/original.pac","native KDE PAC mode and URL restored");
     check(get("httpProxy")=="http://prior.example.invalid 3128" && get("NoProxyFor")=="old.example.invalid" && get("ReversedException")=="true","native KDE original proxy and bypass semantics restored");
     QJsonObject record;
+    const PlatformCommandRunner native=[](const QString &p,const QStringList &a){return runPlatformCommand(p,a);};
+    const PlatformSystemProxyBackend::CheckpointWriter persist=[&](const QJsonObject &value){record=value;return PlatformOperationResult{};};
     {
-        PlatformSystemProxyBackend owner;check(owner.apply(config).succeeded(),"Apply native KDE snapshot owner");
-        record=QJsonDocument::fromJson(QJsonDocument(owner.recoverySnapshot()).toJson()).object();
+        PlatformSystemProxyBackend owner(native,persist);check(owner.apply(config).succeeded(),"Apply native KDE snapshot owner");
+        check(record==owner.recoverySnapshot() && !record["written"].toArray().isEmpty(),"Native KConfig applied values were not checkpointed");
     }
-    PlatformSystemProxyBackend recovered;
-    check(recovered.recover(record).succeeded() && get("httpProxy")=="http://prior.example.invalid 3128" && get("NoProxyFor")=="old.example.invalid"
+    const auto savedRecord=record;PlatformSystemProxyBackend recovered(native,persist);
+    check(recovered.recover(savedRecord).succeeded() && record.isEmpty() && get("httpProxy")=="http://prior.example.invalid 3128" && get("NoProxyFor")=="old.example.invalid"
           && get("ReversedException")=="true" && get("ProxyType")=="2" && get("Proxy Config Script")=="https://pac.example.invalid/original.pac",
           "Fresh native KConfig backend lost original snapshot values");
     std::cout<<"PASS: fresh backend restored the native private KConfig snapshot\n";
@@ -524,13 +645,19 @@ int main(int argc, char **argv) {
         check(runPlatformCommand("gsettings", {"get","org.gnome.system.proxy","ignore-hosts"}).output=="['old.example.invalid']", "original bypass restored");
         const auto originalSettings=runPlatformCommand("gsettings",{"list-recursively","org.gnome.system.proxy"});
         check(originalSettings.result.succeeded(),"Read all private GSettings before snapshot handoff");
+        const PlatformCommandRunner native=[](const QString &p,const QStringList &a){return runPlatformCommand(p,a);};
+        PlatformSystemProxyBackend denied(native,[](const QJsonObject &){return PlatformOperationResult{Status::PermissionDenied,"Denied checkpoint"};});
+        const auto rejected=denied.apply(config);
+        check(!rejected.succeeded() && !rejected.mayHaveChanged && runPlatformCommand("gsettings",{"list-recursively","org.gnome.system.proxy"}).output==originalSettings.output,
+              "Native GSettings changed after its initial checkpoint was refused");
         QJsonObject record;
+        const PlatformSystemProxyBackend::CheckpointWriter persist=[&](const QJsonObject &value){record=value;return PlatformOperationResult{};};
         {
-            PlatformSystemProxyBackend owner;check(owner.apply(config).succeeded(),"Apply native GSettings snapshot owner");
-            record=QJsonDocument::fromJson(QJsonDocument(owner.recoverySnapshot()).toJson()).object();
+            PlatformSystemProxyBackend owner(native,persist);check(owner.apply(config).succeeded(),"Apply native GSettings snapshot owner");
+            check(record==owner.recoverySnapshot() && !record["written"].toArray().isEmpty(),"Native GSettings applied values were not checkpointed");
         }
-        PlatformSystemProxyBackend recovered;
-        check(recovered.recover(record).succeeded(),"Fresh native GSettings snapshot restoration");
+        const auto savedRecord=record;PlatformSystemProxyBackend recovered(native,persist);
+        check(recovered.recover(savedRecord).succeeded() && record.isEmpty(),"Fresh native GSettings snapshot restoration");
         const auto restoredSettings=runPlatformCommand("gsettings",{"list-recursively","org.gnome.system.proxy"});
         check(restoredSettings.result.succeeded() && restoredSettings.output==originalSettings.output,
               "Fresh native GSettings backend lost values or changed retained authentication material");
@@ -592,6 +719,9 @@ int main(int argc, char **argv) {
     backendTests();
 #if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
     recoveryRecordTests();
+#endif
+#ifdef Q_OS_LINUX
+    checkpointTests();
 #endif
     std::cout << "PASS: process statuses, backend failures, partial changes and readback\n";
 }
