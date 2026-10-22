@@ -20,6 +20,7 @@ jobs:
   probe:
     name: ${{ matrix.platform }}-${{ matrix.arch }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -91,18 +92,23 @@ jobs:
                   print(log_path.read_text(encoding='utf-8', errors='replace'), flush=True)
 
       - name: Verify formal C ABI, protocol session and authentication
+        timeout-minutes: 20
         shell: python
         run: |
           import os, pathlib, subprocess, sys
           output = pathlib.Path('build/coreabi')
           output.mkdir(parents=True, exist_ok=True)
           def run(name, args):
-              result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-              (output / (name + '.log')).write_bytes(result.stdout)
-              sys.stdout.buffer.write(result.stdout)
-              sys.stdout.buffer.flush()
-              if result.returncode:
-                  sys.exit(result.returncode)
+              with (output / (name + '.log')).open('wb') as log:
+                  with subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as process:
+                      for chunk in iter(lambda: process.stdout.read1(4096), b''):
+                          log.write(chunk)
+                          log.flush()
+                          sys.stdout.buffer.write(chunk)
+                          sys.stdout.buffer.flush()
+                      status = process.wait()
+              if status:
+                  sys.exit(status)
           run('go', ['go', 'version'])
           run('cgo-env', ['go', 'env', 'GOHOSTOS', 'GOHOSTARCH', 'CC', 'CGO_ENABLED'])
           run('cc', [os.environ['CC'], '--version'])
@@ -116,7 +122,7 @@ jobs:
           if sys.platform == 'win32':
               args += ['-A', 'ARM64' if os.environ['RUNNER_ARCH'] == 'ARM64' else 'x64']
           run('configure', args)
-          run('build', ['cmake', '--build', str(output), '--config', 'Release', '--parallel', '3'])
+          run('build', ['cmake', '--build', str(output), '--config', 'Release', '--parallel', '3', '--verbose'])
           run('host', ['ctest', '--test-dir', str(output), '-C', 'Release', '-V', '--output-on-failure'])
 
       - name: Check Linux TUN fd transfer and cleanup in an isolated network
