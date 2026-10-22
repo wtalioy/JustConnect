@@ -3,6 +3,7 @@ function(justconnect_core_ui_tests TARGET ENGINE LIBRARY)
         "${REPO}/tests/coreengineui_test.cpp"
         "${REPO}/application/applicationshutdown.cpp"
         "${REPO}/application/connectionsession.cpp"
+        "${REPO}/application/networkprotection.cpp"
         "${REPO}/application/applicationlogger.cpp"
         "${REPO}/application/systemproxysession.cpp"
         "${REPO}/application/profilecredentials.cpp"

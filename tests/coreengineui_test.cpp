@@ -1,4 +1,5 @@
 #include "application/connectionsession.h"
+#include "application/networkprotection.h"
 #include "tests/credentialstorefixture.h"
 #include "application/applicationlogger.h"
 #include "application/defaultsettings.h"
@@ -874,6 +875,8 @@ static void gateway(const QJsonObject &config) {
     int responses = 0, completed = 0, ticks = 0;
     QString generation;
     int networkSnapshots=0, resourceSnapshots=0;
+    std::optional<QJsonArray> originalTargets;
+    QJsonObject readyResources;
     CoreEngine::RequestStatus resourceStatus=CoreEngine::RequestStatus::Unavailable;
     QObject::connect(engine,&CoreEngine::sessionStarted,[&](const QString &value){generation=value;});
     QObject::connect(engine,&CoreEngine::snapshotReady,[&](CoreEngine::Snapshot kind,const QString &value,const QJsonObject &snapshot,CoreEngine::RequestStatus status){
@@ -881,10 +884,14 @@ static void gateway(const QJsonObject &config) {
         if(status!=CoreEngine::RequestStatus::Success) check(snapshot.isEmpty(),"pending or failed snapshot cannot expose old data");
         if(kind==CoreEngine::Snapshot::Resources) {
             resourceStatus=status;++resourceSnapshots;
-            if(status==CoreEngine::RequestStatus::Success)
+            if(status==CoreEngine::RequestStatus::Success) {
                 check(snapshot["resources"].toObject()["domain_resources"].toObject().contains("campus.test"),"Qt receives actual parsed campus permissions");
+                readyResources=snapshot["resources"].toObject();
+            }
         } else {
             check(status==CoreEngine::RequestStatus::Success && !snapshot["network"].toObject()["interfaces"].toArray().isEmpty(),"Qt receives the actual native network snapshot");
+            originalTargets=originalNetworkProtection(snapshot["network"].toObject());
+            check(originalTargets.has_value(),"actual native interfaces and routes produce a complete original-network model");
             ++networkSnapshots;
         }
     });
@@ -938,6 +945,20 @@ static void gateway(const QJsonObject &config) {
     engine->readSnapshot(CoreEngine::Snapshot::Network,generation);
     until([&]{return resourceSnapshots==2 && networkSnapshots==1;});
     check(resourceStatus==CoreEngine::RequestStatus::Success,"Qt receives ready resources without another authentication");
+    const auto conflicts=campusProtectionConflicts(*originalTargets,readyResources);
+    check(conflicts.has_value(),"actual parsed campus resources produce a complete conflict model");
+    auto overlappingTargets=*originalTargets;
+    const auto campusAddress=readyResources["dns_records"].toObject()["campus.test"].toArray().first().toString();
+    overlappingTargets.append(QJsonObject{{"prefix",campusAddress+"/32"}});
+    const auto overlapping=campusProtectionConflicts(overlappingTargets,readyResources);
+    check(overlapping.has_value(),"actual campus records accept an explicit overlap fixture");
+    bool explained=false;
+    for(const auto &value:*overlapping) {
+        const auto conflict=value.toObject();
+        if(conflict["kind"]=="dns_record" && conflict["domain"]=="campus.test"
+            && conflict["target"]==overlappingTargets.size()-1) explained=true;
+    }
+    check(explained,"actual campus fixture explains the explicitly overlapping original target");
     check(responses == 2, "SMS and explicit device confirmation each reach the production protocol once");
     check(session.phase()==ConnectionPhase::TransportReady
         && session.observation("authentication").result=="succeeded"
