@@ -26,7 +26,7 @@ struct WinState { DWORD flags=PROXY_TYPE_DIRECT; QString proxy,bypass,pac; };
 QMap<QString,WinState> states;
 QStringList rasNames{"fixture connection"};
 bool denyQuery=false,denySet=false,ignoreSet=false,denyNotify=false,denyRas=false;
-int writes=0,failAt=0,queries=0;
+int writes=0,failAt=0,queries=0,setCalls=0;
 DWORD queryError=ERROR_ACCESS_DENIED;
 BOOL WINAPI query(HINTERNET, DWORD, LPVOID buffer, LPDWORD) {
     ++queries;
@@ -44,6 +44,7 @@ BOOL WINAPI query(HINTERNET, DWORD, LPVOID buffer, LPDWORD) {
 }
 BOOL WINAPI set(HINTERNET, DWORD option, LPVOID buffer, DWORD) {
     if(option!=INTERNET_OPTION_PER_CONNECTION_OPTION){if(denyNotify){SetLastError(ERROR_ACCESS_DENIED);return FALSE;}return TRUE;}
+    ++setCalls;
     if(denySet || ++writes==failAt){SetLastError(ERROR_CANCELLED);return FALSE;}
     if(ignoreSet)return TRUE;
     auto *list=static_cast<INTERNET_PER_CONN_OPTION_LISTW *>(buffer);
@@ -77,8 +78,11 @@ static void backendTests() {
     queryError=ERROR_NOT_SUPPORTED;check(backend.check(config).result.status==Status::Unsupported,"WinINet unsupported classified");
     denyQuery=false;denyRas=true;
     check(backend.check(config).result.status==Status::PermissionDenied,"RAS failure propagated");denyRas=false;
-    denySet=true;const auto cancelled=backend.apply(config);
-    check(cancelled.status==Status::Cancelled && cancelled.mayHaveChanged,"cancelled WinINet mutation retains unresolved responsibility");
+    denySet=true;const auto beforeCancel=setCalls;const auto cancelled=backend.apply(config);
+    check(cancelled.status==Status::Cancelled && !cancelled.mayHaveChanged && setCalls==beforeCancel+1
+          && states[""].flags==original.flags && states[""].proxy==original.proxy && states[""].bypass==original.bypass && states[""].pac==original.pac
+          && states["fixture connection"].proxy=="socks=old.invalid:1080",
+          "Verified unchanged settings were rewritten or retained false cleanup responsibility after cancellation");
     denySet=false;check(backend.clear().succeeded(),"cancelled application can be recovered");
     writes=0;failAt=2;
     const auto partial=backend.apply(config);
