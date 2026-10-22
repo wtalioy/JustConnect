@@ -22,13 +22,19 @@ try {
     $parameters=[Microsoft.Management.Infrastructure.CimMethodParametersCollection]::new()
     $parameters.Add([Microsoft.Management.Infrastructure.CimMethodParameter]::Create('Effective',$true,[Microsoft.Management.Infrastructure.CimType]::Boolean,[Microsoft.Management.Infrastructure.CimFlags]::In))
     $result=$session.InvokeMethod('ROOT\Microsoft\Windows\DNS','PS_DnsClientNrptPolicy','Get',$parameters)
-    try {
-        if($result.ReturnValue.Value -ne 0) { throw 'Cannot read effective NRPT' }
-        $policies=@(foreach($row in $result.OutParameters['CmdletOutput'].Value) {
-            try { $row | Select-Object -Property @('Namespace','NameServers','DirectAccessEnabled','DirectAccessDnsServers','DirectAccessIPsecCARestriction','DirectAccessProxyName','DirectAccessProxyType','DirectAccessQueryIPsecEncryption','DirectAccessQueryIPsecRequired','DnsSecIPsecCARestriction','DnsSecQueryIPsecEncryption','DnsSecQueryIPsecRequired','DnsSecValidationRequired','NameEncoding','QueryPolicy','SecureNameQueryFallback') }
-            finally { $row.Dispose() }
-        })
-    } finally { $result.Dispose() }
+    $policies=@()
+    if($null -ne $result) {
+        try {
+            $output=$result.OutParameters['CmdletOutput'].Value
+            $code=$result.ReturnValue.Value
+            # Successful providers may return no method result when no NRPT policies exist.
+            if(($null -ne $code -and $code -ne 0) -or ($null -eq $code -and $null -ne $output -and @($output).Count -gt 0)) { throw 'Cannot read effective NRPT' }
+            $policies=@(foreach($row in $output) {
+                try { $row | Select-Object -Property @('Namespace','NameServers','DirectAccessEnabled','DirectAccessDnsServers','DirectAccessIPsecCARestriction','DirectAccessProxyName','DirectAccessProxyType','DirectAccessQueryIPsecEncryption','DirectAccessQueryIPsecRequired','DnsSecIPsecCARestriction','DnsSecQueryIPsecEncryption','DnsSecQueryIPsecRequired','DnsSecValidationRequired','NameEncoding','QueryPolicy','SecureNameQueryFallback') }
+                finally { $row.Dispose() }
+            })
+        } finally { $result.Dispose() }
+    }
     foreach($row in $policies) {
         $row.Namespace=@($row.Namespace | Where-Object {$null -ne $_} | ForEach-Object {[string]$_})
         $row.NameServers=@($row.NameServers | Where-Object {$null -ne $_} | ForEach-Object {([Net.IPAddress]$_).ToString()})

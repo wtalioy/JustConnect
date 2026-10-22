@@ -65,9 +65,9 @@ jobs:
                   + ':"+$clock.ElapsedMilliseconds));' + token)
           query = query.replace('$result=$session.InvokeMethod',
               '[Console]::Error.WriteLine(("stage:local_session:"+[int]($null -eq $session.ComputerName)));$result=$session.InvokeMethod')
-          query = query.replace('if($result.ReturnValue.Value -ne 0)',
+          query = query.replace('$policies=@()',
               '[Console]::Error.WriteLine(("stage:provider_present:"+[int]($null -ne $result.ReturnValue.Value)));'
-              + '[Console]::Error.WriteLine(("stage:provider_code:"+[long]$result.ReturnValue.Value));if($result.ReturnValue.Value -ne 0)')
+              + '[Console]::Error.WriteLine(("stage:provider_code:"+[long]$result.ReturnValue.Value));$policies=@()')
           query = query.replace('ConvertTo-Json -InputObject',
               '[Console]::Error.WriteLine(("stage:nrpt_count:"+@($policies).Count));ConvertTo-Json -InputObject')
           query = "try {\n" + query + "\n} catch { $fault=$_.Exception.GetBaseException();"

@@ -11,15 +11,18 @@
 static void check(bool ok, const char *message) {
     if (!ok) throw std::runtime_error(message);
 }
+const QString nrptInvocation = QStringLiteral("$session.InvokeMethod('ROOT\\Microsoft\\Windows\\DNS','PS_DnsClientNrptPolicy','Get',$parameters)");
 
 int main(int argc, char **argv) try
 {
     QCoreApplication app(argc, argv);
     if (app.arguments().contains("--native") || app.arguments().contains("--module-scope")
-        || app.arguments().contains("--missing-doh") || app.arguments().contains("--missing-nrpt")) {
+        || app.arguments().contains("--missing-doh") || app.arguments().contains("--missing-nrpt")
+        || app.arguments().contains("--empty-nrpt")) {
         const bool scope = app.arguments().contains("--module-scope");
         const bool missing = app.arguments().contains("--missing-doh");
         const bool missingNrpt = app.arguments().contains("--missing-nrpt");
+        const bool emptyNrpt = app.arguments().contains("--empty-nrpt");
         QTemporaryDir directory;
         QString moduleRoot;
         if (scope) {
@@ -40,10 +43,14 @@ int main(int argc, char **argv) try
         }
         PlatformCommandRunner runner;
         const auto program = qEnvironmentVariable("JC_TEST_WINDOWS_POWERSHELL");
-        if (!program.isEmpty() || scope || missing || missingNrpt) runner = [&](const QString &nativeProgram, const QStringList &arguments) {
+        if (!program.isEmpty() || scope || missing || missingNrpt || emptyNrpt) runner = [&](const QString &nativeProgram, const QStringList &arguments) {
             auto modified = arguments;
             if (missing) modified.last().replace("MSFT_DNSClientDohServerAddress", "JustConnectMissingDnsClass");
             if (missingNrpt) modified.last().replace("PS_DnsClientNrptPolicy", "JustConnectMissingDnsClass");
+            if (emptyNrpt) {
+                check(modified.last().contains("$result=" + nrptInvocation), "Empty provider fixture did not reach native method result");
+                modified.last().replace("$result=" + nrptInvocation, "$result=$null");
+            }
             if (scope) {
                 // Permit this test process to load its private unsigned fixture module.
                 modified = QStringList{"-ExecutionPolicy", "Bypass"} + modified;
@@ -62,6 +69,7 @@ int main(int argc, char **argv) try
         check(!snapshot.data["interfaces"].toArray().isEmpty(), "Native DNS interface facts missing");
         if (missing) check(snapshot.data["doh_supported"] == false && snapshot.data["doh"].toArray().isEmpty(),
                            "Missing optional DNS provider did not remain unavailable");
+        if (emptyNrpt) check(snapshot.data["nrpt"].toArray().isEmpty(), "Successful empty NRPT provider result became an error or partial policy");
         std::cout << "Native resolver interfaces, effective NRPT and DoH registrations inspected without writes\n";
         return 0;
     }
@@ -77,7 +85,7 @@ int main(int argc, char **argv) try
     auto runner = [&](const QString &, const QStringList &arguments) {
         check(arguments.size() == 5 && arguments[0] == "-NoLogo" && arguments[1] == "-NoProfile"
               && arguments[2] == "-NonInteractive" && arguments[3] == "-Command"
-              && arguments[4].contains("$session.InvokeMethod('ROOT\\Microsoft\\Windows\\DNS','PS_DnsClientNrptPolicy','Get',$parameters)")
+              && arguments[4].contains(nrptInvocation)
               && arguments[4].contains("$parameters.Add(") && arguments[4].contains("'Effective',$true")
               && arguments[4].contains("[cimsession]::Create([NullString]::Value)")
               && !arguments[4].contains("Set-DnsClient"), "Fixed read-only system query changed");

@@ -60,8 +60,10 @@ function(justconnect_platform_tests TARGET LIBRARY)
         add_test(NAME windows_dnssnapshot_test_module_scope COMMAND windows_dnssnapshot_test --module-scope)
         add_test(NAME windows_dnssnapshot_test_missing_doh COMMAND windows_dnssnapshot_test --missing-doh)
         add_test(NAME windows_dnssnapshot_test_missing_nrpt COMMAND windows_dnssnapshot_test --missing-nrpt)
+        add_test(NAME windows_dnssnapshot_test_empty_nrpt COMMAND windows_dnssnapshot_test --empty-nrpt)
         set_tests_properties(windows_dnssnapshot_test_native windows_dnssnapshot_test_module_scope
-            windows_dnssnapshot_test_missing_doh windows_dnssnapshot_test_missing_nrpt PROPERTIES TIMEOUT 20)
+            windows_dnssnapshot_test_missing_doh windows_dnssnapshot_test_missing_nrpt
+            windows_dnssnapshot_test_empty_nrpt PROPERTIES TIMEOUT 20)
     endif()
     add_executable(${TARGET} "${REPO}/tests/platform/platformbackend_test.cpp")
     target_link_libraries(${TARGET} PRIVATE ${LIBRARY} Qt6::Core)
