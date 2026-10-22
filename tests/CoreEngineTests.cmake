@@ -48,4 +48,12 @@ function(justconnect_network_policy_tests)
     target_link_libraries(networkpolicysession_test PRIVATE Qt6::Core Qt6::Network Qt6::Concurrent)
     add_test(NAME networkpolicysession_test COMMAND networkpolicysession_test)
     set_tests_properties(networkpolicysession_test PROPERTIES TIMEOUT 15)
+    add_executable(networkpolicywindow_test "${REPO}/tests/networkpolicywindow_test.cpp"
+        "${REPO}/presentation/dialogs/networkpolicywindow.cpp" "${REPO}/application/networkpolicysession.cpp"
+        "${REPO}/application/networkprotection.cpp" "${REPO}/application/coreengine.h")
+    set_target_properties(networkpolicywindow_test PROPERTIES AUTOMOC ON)
+    target_include_directories(networkpolicywindow_test PRIVATE "${REPO}")
+    target_link_libraries(networkpolicywindow_test PRIVATE Qt6::Widgets Qt6::Network Qt6::Concurrent)
+    add_test(NAME networkpolicywindow_test COMMAND networkpolicywindow_test)
+    set_tests_properties(networkpolicywindow_test PROPERTIES TIMEOUT 15 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endfunction()
