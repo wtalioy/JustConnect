@@ -271,7 +271,11 @@ func TestNativeProtocolHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("native protocol host: %v\n%s", err, output)
 	}
-	if !strings.Contains(string(output), "PASS: native protocol session") || g.authCount.Load() != 1 || g.deviceBinds.Load() != 1 || g.tcpCount.Load() != 2 {
+	expectedTCP := int32(2)
+	if strings.Contains(string(output), "PASS: initial native protection and live exact campus/original choices") {
+		expectedTCP++
+	}
+	if !strings.Contains(string(output), "PASS: native protocol session") || g.authCount.Load() != 1 || g.deviceBinds.Load() != 1 || g.tcpCount.Load() != expectedTCP {
 		t.Fatalf("missing actual protocol exchanges: auth=%d TCP=%d\n%s", g.authCount.Load(), g.tcpCount.Load(), output)
 	}
 	if strings.Contains(string(output), "PASS: browser TLS policy") && g.browserRedirects.Load() != 1 {

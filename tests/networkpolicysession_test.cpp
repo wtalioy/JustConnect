@@ -30,9 +30,11 @@ public:
     using CoreEngine::CoreEngine;
     QList<std::pair<Kind, QString>> requests;
     bool unsupported = false;
+    QList<QJsonObject> policies;
     bool start(const ConnectionProfile &, Operation) override { return true; }
     void stop() override { emit finished(ConnectionError::NONE); }
     void respond(const QJsonObject &) override {}
+    void updatePolicy(const QJsonObject &policy) override { policies.append(policy); }
     void readSnapshot(Kind kind, const QString &id) override {
         requests.append({kind, id});
         if (unsupported) emit snapshotReady(kind, id, {}, Status::Unavailable);
@@ -41,7 +43,7 @@ public:
 
 static QJsonObject network(const QString &address)
 {
-    return {{"network", QJsonObject{{"interfaces", QJsonArray{QJsonObject{{"addresses", QJsonArray{address + "/24"}}}}},
+    return {{"schema_version", 1}, {"network", QJsonObject{{"interfaces", QJsonArray{QJsonObject{{"addresses", QJsonArray{address + "/24"}}}}},
                                    {"routes", QJsonArray{}}}}};
 }
 static QJsonObject resources(const QString &address)
@@ -93,11 +95,45 @@ int main(int argc, char **argv) try
           && session.model()["dns_namespaces"].toArray().first().toObject()["name"] == ".generation2.test"
           && session.model()["network"].toObject() == network("192.168.2.19")["network"].toObject()
           && !session.model()["conflicts"].toArray().isEmpty(), "Old generation leaked into complete model");
+    for (const auto &bad : {"8.8.8.8", "192.168.2.999", "192.168.2.020", "::1", "::ffff:192.168.2.20"})
+        check(!session.setCampusAddress(bad, true) && session.policyStatus() == Status::Invalid,
+              "Campus choice accepted an ambiguous, unsupported or unprotected address");
+    check(engine.policies.isEmpty(), "Invalid campus choice reached the core");
+    check(session.setCampusAddress("192.168.2.20", true) && session.isBusy()
+          && session.campusAddresses().isEmpty() && !session.refresh()
+          && !session.setCampusAddress("192.168.2.21", true), "Unconfirmed choice published or writes overlapped");
+    const auto firstPolicy = engine.policies.last();
+    QJsonArray originalPrefixes;
+    for (const auto &value : session.model()["targets"].toArray()) originalPrefixes.append(value.toObject()["prefix"]);
+    check(firstPolicy["schema_version"] == 1 && firstPolicy["generation"] == "2" && firstPolicy["revision"] == "1"
+          && firstPolicy["protected"].toArray() == originalPrefixes
+          && firstPolicy["campus"].toArray() == QJsonArray{"192.168.2.20"}, "Choice lost its complete native scopes or wire identity");
+    emit engine.policyUpdated("1", "1", Status::Success);
+    emit engine.policyUpdated("2", "99", Status::Success);
+    check(session.isBusy() && session.campusAddresses().isEmpty(), "Unrelated acknowledgement applied a pending choice");
+    emit engine.policyUpdated("2", "1", Status::Success);
+    check(!session.isBusy() && session.policyStatus() == Status::Success
+          && session.campusAddresses() == QJsonArray{"192.168.2.20"}, "Matching acknowledgement did not publish actual choice");
+    check(session.setCampusAddress("192.168.2.20", true) && engine.policies.size() == 1, "Repeated choice wrote another policy");
+    check(session.setCampusAddress("192.168.2.21", true), "Second exact campus choice rejected");
+    emit engine.policyUpdated("2", "2", Status::Failed);
+    check(session.policyStatus() == Status::Failed && session.campusAddresses() == QJsonArray{"192.168.2.20"},
+          "Failed replacement overwrote the last effective selection");
     check(session.refresh(), "Ready session cannot refresh");
     reply(engine, "2", "192.168.3.19");
     until([&] { return session.status() == Status::Success; });
     check(session.model()["dns"].toObject()["reader"] == 3, "Refresh retained old DNS");
+    check(!session.setCampusAddress("192.168.2.21", true), "Refreshed scopes allowed a new exception outside the current network");
+    check(session.setCampusAddress("192.168.2.20", false), "Return to original network rejected");
+    check(engine.policies.last()["revision"] == "3" && engine.policies.last()["campus"].toArray().isEmpty(),
+          "Return failed to remove the exception with a fresh revision");
+    emit engine.policyUpdated("2", "3", Status::Success);
+    check(session.campusAddresses().isEmpty() && !session.isBusy(), "Confirmed original preference retained an exception");
+    check(session.setCampusAddress("192.168.3.20", true), "Choice after refresh rejected");
+    check(engine.policies.last()["revision"] == "4", "Refresh reset the revision within its generation");
     emit engine.sessionStarted("3");
+    emit engine.policyUpdated("2", "4", Status::Success);
+    check(session.campusAddresses().isEmpty(), "Old generation choice survived a new session");
     reply(engine, "3", "192.168.4.19");
     until([&] { return reads == 4; });
     engine.stop();
@@ -129,6 +165,30 @@ int main(int argc, char **argv) try
     check(malformed.refresh(), "Capability failure cannot be refreshed");
     until([&] { return !malformed.isBusy(); });
     check(malformed.status() == Status::Unavailable && malformed.model().isEmpty(), "Missing capability misreported");
+
+    Engine unsignedEngine;
+    NetworkPolicySession unsignedModel(&unsignedEngine, [] { return DnsSnapshot{}; });
+    emit unsignedEngine.sessionStarted("4");
+    auto unsignedNetwork = network("192.168.5.19");
+    unsignedNetwork.remove("schema_version");
+    emit unsignedEngine.snapshotReady(Kind::Network, "4", unsignedNetwork, Status::Success);
+    emit unsignedEngine.connectionEstablished();
+    emit unsignedEngine.snapshotReady(Kind::Resources, "4", resources("192.168.5.19"), Status::Success);
+    until([&] { return !unsignedModel.isBusy(); });
+    check(unsignedModel.status() == Status::Success && !unsignedModel.setCampusAddress("192.168.5.20", true)
+          && unsignedModel.policyStatus() == Status::Unavailable && unsignedEngine.policies.isEmpty(),
+          "Unversioned inspection invented a policy schema");
+
+    Engine stoppedPolicy;
+    NetworkPolicySession stoppingPolicy(&stoppedPolicy, [] { return DnsSnapshot{}; });
+    emit stoppedPolicy.sessionStarted("5");
+    reply(stoppedPolicy, "5", "192.168.6.19");
+    until([&] { return !stoppingPolicy.isBusy(); });
+    check(stoppingPolicy.setCampusAddress("192.168.6.20", true), "Pending stop fixture could not write");
+    stoppedPolicy.stop();
+    emit stoppedPolicy.policyUpdated("5", "1", Status::Success);
+    check(stoppingPolicy.status() == Status::Stale && stoppingPolicy.campusAddresses().isEmpty() && !stoppingPolicy.isBusy(),
+          "Stopped model accepted a late policy acknowledgement");
 
     Engine throwing;
     NetworkPolicySession failed(&throwing, []() -> DnsSnapshot { throw std::runtime_error("private native failure"); });

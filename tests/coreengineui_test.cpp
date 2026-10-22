@@ -1036,26 +1036,43 @@ static void gateway(const QJsonObject &config) {
         check(server.listen(QHostAddress::LocalHost, 0), "owned native protection server");
         nativePort = server.serverPort();
         nativeListening.release();
-        check(server.waitForNewConnection(5000), "protected request reaches its original native server");
-        auto *socket = server.nextPendingConnection();
-        check(socket->write(nativeReply) == nativeReply.size()
-            && (socket->bytesToWrite() == 0 || socket->waitForBytesWritten(5000)), "original-network reply");
-        socket->disconnectFromHost();
-        if (socket->state() != QAbstractSocket::UnconnectedState) socket->waitForDisconnected(5000);
+        for (int i = 0; i < 2; ++i) {
+            check(server.waitForNewConnection(5000), "protected request reaches its original native server");
+            auto *socket = server.nextPendingConnection();
+            check(socket->write(nativeReply) == nativeReply.size()
+                && (socket->bytesToWrite() == 0 || socket->waitForBytesWritten(5000)), "original-network reply");
+            socket->disconnectFromHost();
+            if (socket->state() != QAbstractSocket::UnconnectedState) socket->waitForDisconnected(5000);
+        }
     });
     check(nativeListening.tryAcquire(1, 5000), "native protection server became ready");
-    QTcpSocket protectedSocket;
-    ProxyCheck::connectProxy(protectedSocket, listeners["socks"].toString());
-    check(protectedSocket.write(QByteArray::fromHex("050100")) == 3 && (protectedSocket.bytesToWrite() == 0 || protectedSocket.waitForBytesWritten(5000)), "protected SOCKS greeting");
-    check(ProxyCheck::receive(protectedSocket, 2) == QByteArray::fromHex("0500"), "protected SOCKS authentication");
-    auto destination = QByteArray::fromHex("050100017f000001");
-    destination.append(char(nativePort >> 8)); destination.append(char(nativePort & 0xff));
-    check(protectedSocket.write(destination) == destination.size() && (protectedSocket.bytesToWrite() == 0 || protectedSocket.waitForBytesWritten(5000)), "protected SOCKS destination");
-    check(ProxyCheck::receive(protectedSocket, 10).startsWith(QByteArray::fromHex("05000001")), "protected SOCKS native connection");
-    check(ProxyCheck::receive(protectedSocket, nativeReply.size()) == nativeReply,
-        "initial Qt protection preserves an authorized campus-overlapping original address before any live update");
-    protectedSocket.close(); nativeServer.waitForFinished();
-    std::cout << "PASS: initial native protection before any live policy update\n";
+    int preference = 0;
+    for (const bool campus : {false, true, false}) {
+        if (preference++ != 0) {
+            check(networkPolicy.setCampusAddress("127.0.0.1", campus), "Request exact campus/original preference");
+            until([&] { return !networkPolicy.isBusy(); });
+            check(networkPolicy.policyStatus() == CoreEngine::RequestStatus::Success, "Real core confirms the requested preference");
+        }
+        QTcpSocket protectedSocket;
+        ProxyCheck::connectProxy(protectedSocket, listeners["socks"].toString());
+        check(protectedSocket.write(QByteArray::fromHex("050100")) == 3 && (protectedSocket.bytesToWrite() == 0 || protectedSocket.waitForBytesWritten(5000)), "protected SOCKS greeting");
+        check(ProxyCheck::receive(protectedSocket, 2) == QByteArray::fromHex("0500"), "protected SOCKS authentication");
+        auto destination = QByteArray::fromHex("050100017f000001");
+        destination.append(char(nativePort >> 8)); destination.append(char(nativePort & 0xff));
+        check(protectedSocket.write(destination) == destination.size() && (protectedSocket.bytesToWrite() == 0 || protectedSocket.waitForBytesWritten(5000)), "protected SOCKS destination");
+        check(ProxyCheck::receive(protectedSocket, 10).startsWith(QByteArray::fromHex("05000001")), "protected SOCKS connection");
+        if (campus) {
+            const QByteArray campusPayload("campus-echo");
+            check(protectedSocket.write(campusPayload) == campusPayload.size()
+                && (protectedSocket.bytesToWrite() == 0 || protectedSocket.waitForBytesWritten(5000)), "Explicit campus payload");
+            check(ProxyCheck::receive(protectedSocket, campusPayload.size()) == campusPayload, "Exact choice uses the campus tunnel");
+        } else check(ProxyCheck::receive(protectedSocket, nativeReply.size()) == nativeReply,
+            "Initial protection and returning to original preserve the actual native server");
+        protectedSocket.close();
+    }
+    nativeServer.waitForFinished();
+    check(networkPolicy.campusAddresses().isEmpty(), "Returning to original removed the confirmed campus exception");
+    std::cout << "PASS: initial native protection and live exact campus/original choices\n";
     until([&]{return !access.isBusy(settings.fileName());});
     ProxyCheck::exercise(listeners, [&] {
         session.stop();
