@@ -34,6 +34,7 @@ function(justconnect_platform TARGET)
         find_package(Qt6 REQUIRED COMPONENTS DBus)
         target_sources(${TARGET} PRIVATE "${REPO}/infrastructure/platform/linux/dnssnapshot.cpp"
             "${REPO}/infrastructure/platform/linux/tundevice.cpp"
+            "${REPO}/infrastructure/platform/linux/sourcejournal.cpp"
             "${REPO}/infrastructure/platform/linux/sourceroutes.cpp"
             "${REPO}/infrastructure/platform/linux/tunroutes.cpp")
         target_link_libraries(${TARGET} PUBLIC Qt6::DBus)
@@ -120,6 +121,11 @@ function(justconnect_platform_tests TARGET LIBRARY)
         set_tests_properties(${TARGET}_native_roundtrip PROPERTIES TIMEOUT 45)
     endif()
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_executable(linux_sourcejournal_test "${REPO}/tests/platform/sourcejournal_linux_test.cpp")
+        target_link_libraries(linux_sourcejournal_test PRIVATE ${LIBRARY} Qt6::Core)
+        target_link_options(linux_sourcejournal_test PRIVATE "LINKER:--wrap=fsync" "LINKER:--wrap=renameat2")
+        add_test(NAME linux_sourcejournal_test COMMAND linux_sourcejournal_test)
+        set_tests_properties(linux_sourcejournal_test PROPERTIES TIMEOUT 10)
         add_executable(linux_sourceroutes_test "${REPO}/tests/platform/sourceroutes_linux_test.cpp")
         target_link_libraries(linux_sourceroutes_test PRIVATE ${LIBRARY} Qt6::Core)
         add_test(NAME linux_sourceroutes_test COMMAND linux_sourceroutes_test)

@@ -1,10 +1,13 @@
 #include "infrastructure/platform/linux/sourceroutes.h"
+#include "infrastructure/platform/linux/sourcejournal.h"
 #include "infrastructure/platform/linux/tunroutes.h"
 #include "infrastructure/platform/linux/iprouteutility.h"
 #include <QCoreApplication>
 #include <QFile>
 #include <QJsonDocument>
 #include <QProcess>
+#include <QTemporaryDir>
+#include <fcntl.h>
 #include <grp.h>
 #include <iostream>
 #include <linux/capability.h>
@@ -65,6 +68,26 @@ int main(int argc, char **argv) try
     struct stat current{}, initial{};
     check(::geteuid()==0 && ::stat("/proc/self/ns/net",&current)==0 && ::stat("/proc/1/ns/net",&initial)==0
           && (current.st_dev!=initial.st_dev || current.st_ino!=initial.st_ino),"Refusing the host network namespace");
+    if (argc==4 && app.arguments()[1]=="--recover-journal") {
+        const auto id = QUuid(app.arguments()[2]);
+        const int directory = ::open(QFile::encodeName(app.arguments()[3]).constData(),O_RDONLY|O_DIRECTORY|O_CLOEXEC|O_NOFOLLOW);
+        check(directory>=0,"Open the trusted source checkpoint directory");
+        LinuxSourceJournal journal;
+        const auto opened = journal.open(directory,id);::close(directory);
+        check(opened.succeeded(),qPrintable(opened.detail));
+        QJsonObject saved;
+        auto result = journal.load(saved);
+        LinuxSourceRoutes routes;
+        if (result.succeeded()) result = routes.recover(id,saved);
+        if (result.succeeded()) result = journal.remove();
+        else if (!routes.snapshot().isEmpty()) {
+            const auto checkpointed = journal.store(routes.snapshot());
+            if (!checkpointed.succeeded()) result.detail += " Updated recovery record could not be persisted.";
+        }
+        check(result.succeeded() && routes.snapshot().isEmpty(),qPrintable(result.detail));
+        std::cout << "PASS: fresh process loaded protected source ownership and synchronized its removal after recovery\n";
+        return 0;
+    }
     if (argc==3 && app.arguments()[1]=="--recover") {
         QFile input;
         check(input.open(stdin,QIODevice::ReadOnly),"Read trusted saved source record");
@@ -148,32 +171,46 @@ int main(int argc, char **argv) try
     check(directRecovery.recover(owner,routes.snapshot()).succeeded() && directRecovery.snapshot().isEmpty()
           && routes.restore(owner).succeeded() && inventory()==baseline,"Direct saved source recovery changed original state");
 
-    QProcess holder;
-    holder.start(QCoreApplication::applicationFilePath(),{"--hold","original0",source,gateway,target});
-    check(holder.waitForStarted(5000) && holder.waitForReadyRead(5000),"Start independent source owner");
-    const auto savedOwner = holder.readLine();
-    const auto deadOwner = QJsonDocument::fromJson(savedOwner).object();
-    check(!deadOwner.isEmpty() && lookup(source)["table"]==QString::number(deadOwner["table"].toInteger()),
-          "Independent source owner did not confirm actual kernel state");
-    holder.kill();
-    check(holder.waitForFinished(5000) && holder.exitStatus()==QProcess::CrashExit && inventory()!=baseline,
-          "Source owner SIGKILL did not leave the independently recoverable kernel state");
-    QProcess differentNamespace;
-    differentNamespace.start("/usr/bin/unshare",{"--net","--",QCoreApplication::applicationFilePath(),"--recover",deadOwner["owner"].toString()});
-    check(differentNamespace.waitForStarted(5000) && differentNamespace.write(savedOwner)==savedOwner.size(),
-          "Send saved state to a different real network namespace");
-    differentNamespace.closeWriteChannel();
-    check(differentNamespace.waitForFinished(12000) && differentNamespace.exitCode()==1
-          && differentNamespace.readAllStandardOutput().trimmed()=="{}" && inventory()!=baseline,
-          "A different network namespace adopted saved source ownership");
-    QProcess recovery;
-    recovery.start(QCoreApplication::applicationFilePath(),{"--recover",deadOwner["owner"].toString()});
-    check(recovery.waitForStarted(5000) && recovery.write(savedOwner)==savedOwner.size(),"Send trusted state to a fresh recovery process");
-    recovery.closeWriteChannel();
-    check(recovery.waitForFinished(12000),"Fresh source recovery did not finish within its budget");
-    check(recovery.exitStatus()==QProcess::NormalExit && recovery.exitCode()==0 && inventory()==baseline,
-          qPrintable("Fresh process failed source recovery: "+QString::fromUtf8(recovery.readAllStandardError())));
-    std::cout << "PASS: fresh process recovered source routes/rule after owner SIGKILL\n";
+    // Root-owned checkpoint fixtures must be destroyed before the later permanent uid drop.
+    {
+        QProcess holder;
+        holder.start(QCoreApplication::applicationFilePath(),{"--hold","original0",source,gateway,target});
+        check(holder.waitForStarted(5000) && holder.waitForReadyRead(5000),"Start independent source owner");
+        const auto savedOwner = holder.readLine();
+        const auto deadOwner = QJsonDocument::fromJson(savedOwner).object();
+        check(!deadOwner.isEmpty() && lookup(source)["table"]==QString::number(deadOwner["table"].toInteger()),
+              "Independent source owner did not confirm actual kernel state");
+        QTemporaryDir checkpoint;
+        std::cout << "CHECK: creating protected source checkpoint before owner SIGKILL\n" << std::flush;
+        check(checkpoint.isValid(),"Create private checkpoint fixture");
+        const int checkpointDirectory = ::open(QFile::encodeName(checkpoint.path()).constData(),O_RDONLY|O_DIRECTORY|O_CLOEXEC);
+        LinuxSourceJournal savedJournal;
+        check(checkpointDirectory>=0 && savedJournal.open(checkpointDirectory,QUuid(deadOwner["owner"].toString())).succeeded()
+              && savedJournal.store(deadOwner).succeeded(),"Persist actual source ownership before owner SIGKILL");
+        ::close(checkpointDirectory);savedJournal.close();
+        std::cout << "CHECK: protected source checkpoint synchronized\n" << std::flush;
+        holder.kill();
+        check(holder.waitForFinished(5000) && holder.exitStatus()==QProcess::CrashExit && inventory()!=baseline,
+              "Source owner SIGKILL did not leave the independently recoverable kernel state");
+        QProcess differentNamespace;
+        differentNamespace.start("/usr/bin/unshare",{"--net","--",QCoreApplication::applicationFilePath(),"--recover",deadOwner["owner"].toString()});
+        check(differentNamespace.waitForStarted(5000) && differentNamespace.write(savedOwner)==savedOwner.size(),
+              "Send saved state to a different real network namespace");
+        differentNamespace.closeWriteChannel();
+        check(differentNamespace.waitForFinished(12000) && differentNamespace.exitCode()==1
+              && differentNamespace.readAllStandardOutput().trimmed()=="{}" && inventory()!=baseline,
+              "A different network namespace adopted saved source ownership");
+        std::cout << "CHECK: another real network namespace rejected the saved source record\n" << std::flush;
+        QProcess recovery;
+        recovery.start(QCoreApplication::applicationFilePath(),{"--recover-journal",deadOwner["owner"].toString(),checkpoint.path()});
+        check(recovery.waitForStarted(5000),"Start a fresh process using the root-private journal");
+        std::cout << "CHECK: fresh process started protected source recovery\n" << std::flush;
+        check(recovery.waitForFinished(12000),"Fresh source recovery did not finish within its budget");
+        check(recovery.exitStatus()==QProcess::NormalExit && recovery.exitCode()==0 && inventory()==baseline
+              && !QFile::exists(checkpoint.filePath("source.json")),
+              qPrintable("Fresh process failed source recovery: "+QString::fromUtf8(recovery.readAllStandardError())));
+        std::cout << "PASS: fresh process recovered source routes/rule from root-private journal after owner SIGKILL\n";
+    }
 
     check(routes.apply(owner,"original0",source,gateway,{target}).succeeded(),"Apply saved ownership external-reference fixture");
     const auto savedReference = routes.snapshot();

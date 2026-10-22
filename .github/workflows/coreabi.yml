@@ -150,6 +150,11 @@ jobs:
         shell: bash
         run: sudo unshare --net -- build/coreabi/linux_sourceroutes_test --isolated 2>&1 | tee build/coreabi/linux-source-routes.log
 
+      - name: Check protected Linux source ownership journal in an isolated network
+        if: runner.os == 'Linux'
+        shell: bash
+        run: sudo unshare --net -- build/coreabi/linux_sourcejournal_test --isolated 2>&1 | tee build/coreabi/linux-source-journal.log
+
       - name: Check owned Linux capture routes and partial recovery in an isolated network
         if: runner.os == 'Linux'
         shell: bash
