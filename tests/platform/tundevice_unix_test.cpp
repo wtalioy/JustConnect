@@ -11,6 +11,7 @@
 #include <iostream>
 #ifndef __APPLE__
 #include "infrastructure/platform/linux/iprouteutility.h"
+#include "infrastructure/platform/linux/tunroutes.h"
 #include "infrastructure/platform/platformcommand.h"
 #include <linux/capability.h>
 #include <linux/if_tun.h>
@@ -196,8 +197,15 @@ int main(int argc, char **argv) try
     if (cleanup >= 0) ::close(cleanup);
     check(removed && refused && preserved, "Persistent external-device collision was adopted, changed or left behind");
 #endif
-    const auto payload = QJsonDocument(QJsonObject{{"name", device.name()}, {"index", qint64(index)},
-        {"owner", device.owner().toString(QUuid::WithoutBraces)}, {"configuration", configuration}}).toJson(QJsonDocument::Compact);
+    QJsonObject metadata{{"name", device.name()}, {"index", qint64(index)},
+        {"owner", device.owner().toString(QUuid::WithoutBraces)}, {"configuration", configuration}};
+#ifndef __APPLE__
+    LinuxTunRoutes capture;
+    const auto captured = capture.apply(device, "198.18.0.1", "198.18.0.2", {"198.18.0.6/32"});
+    check(captured.succeeded(), qPrintable(captured.detail));
+    metadata["capture_routes"] = capture.snapshot();
+#endif
+    const auto payload = QJsonDocument(metadata).toJson(QJsonDocument::Compact);
     iovec data{const_cast<char *>(payload.constData()), size_t(payload.size())};
     alignas(cmsghdr) char ancillary[CMSG_SPACE(sizeof(int))]{};
     msghdr message{};
