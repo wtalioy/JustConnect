@@ -8,6 +8,7 @@
 #include "application/defaultsettings.h"
 #include "application/systemproxysession.h"
 #include "infrastructure/coreengine/embeddedcoreengine.h"
+#include "infrastructure/platform/dnssnapshot.h"
 #include "presentation/coordinators/authdialogcoordinator.h"
 #include "presentation/coordinators/connectionuicontroller.h"
 #include "presentation/dialogs/authinfowindow/authinfowindow.h"
@@ -955,7 +956,7 @@ static void gateway(const QJsonObject &config) {
     auto backend=std::make_unique<MemoryCredentialStore>();auto *store=backend.get();CredentialAccess access(std::move(backend));
     QPushButton connectButton(&parent),proxyButton(&parent);QAction trayAction(&parent);ApplicationLogger logger;
     SystemProxySession systemProxy(std::make_unique<ProxyBackend>());
-    NetworkPolicySession networkPolicy(engine, [] { return DnsSnapshot{{}, QJsonObject{}}; });
+    NetworkPolicySession networkPolicy(engine, readSystemDnsSnapshot);
     ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&systemProxy,&networkPolicy,&dialogs,&logger,
         &access,[&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
         [](const QString &,const QString &,QSystemTrayIcon::MessageIcon){check(false,"real gateway authentication cache must save successfully");});
@@ -1002,6 +1003,12 @@ static void gateway(const QJsonObject &config) {
     inspection.show();
     auto *targets=inspection.findChild<QTreeWidget *>("networkPolicyTargets");
     check(targets && targets->topLevelItemCount()==originalTargets.size(), "real Qt network inspection displays the collected native scopes");
+    const auto namespaces=originalDnsNamespaces(networkPolicy.model()["dns"].toObject());
+    const auto *dnsTree=inspection.findChild<QTreeWidget *>("networkPolicyDnsNamespaces");
+    check(!networkPolicy.model()["dns"].toObject().isEmpty() && namespaces
+          && networkPolicy.model()["dns_namespaces"].toArray()==*namespaces
+          && dnsTree && dnsTree->topLevelItemCount()==namespaces->size(),
+          "real native DNS facts join the same Qt session model and inspection without another authentication");
     bool nativeSourceShown=false;
     for(const auto &value:networkPolicy.model()["network"].toObject()["interfaces"].toArray()) {
         const auto interface=value.toObject();
