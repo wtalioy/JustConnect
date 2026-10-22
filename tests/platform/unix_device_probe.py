@@ -23,12 +23,20 @@ def exchange(fd, destination):
         udp.bind(('198.18.0.1', 0))
         local_port = udp.getsockname()[1]
         udp.sendto(b'justconnect-out', (destination, 54321))
+        print('CHECK: ordinary UDP sent; waiting for native TUN packet', flush=True)
         deadline = time.monotonic() + 3
+        packets = 0
+        family = ''
         while True:
             ready, _, _ = select.select([fd], [], [], max(0, deadline - time.monotonic()))
-            assert ready, 'no outbound packet on transferred TUN fd'
-            packet = os.read(fd, 65536)
+            assert ready and time.monotonic() < deadline, f'no matching outbound TUN packet: packets={packets}, family={family}'
+            try:
+                packet = os.read(fd, 65536)
+            except BlockingIOError:
+                continue
+            packets += 1
             if prefix:
+                family = packet[:4].hex()
                 if not packet.startswith(prefix):
                     continue
                 packet = packet[len(prefix):]
@@ -40,6 +48,7 @@ def exchange(fd, destination):
             assert packet[12:20] == socket.inet_aton('198.18.0.1') + socket.inet_aton(destination)
             assert struct.unpack('!HH', packet[offset:offset + 4]) == (local_port, 54321)
             break
+        print('CHECK: native TUN outbound payload verified', flush=True)
 
         payload = b'justconnect-in'
         reply_udp = struct.pack('!HHHH', 54321, local_port, 8 + len(payload), 0) + payload
@@ -52,6 +61,7 @@ def exchange(fd, destination):
         header = header[:10] + struct.pack('!H', (~checksum) & 0xffff) + header[12:]
         packet = prefix + header + reply_udp
         assert os.write(fd, packet) == len(packet)
+        print('CHECK: native TUN reply written; waiting for ordinary UDP reply', flush=True)
         assert udp.recvfrom(65536) == (payload, (destination, 54321))
 
 
@@ -86,6 +96,8 @@ def receive(control_fd, uid, gid, crash):
         message, fds, _, _ = socket.recv_fds(control, 1, 1)
         assert message == b'F' and len(fds) == 1
         received = fds[0]
+        os.set_blocking(received, False)
+        print('CHECK: ordinary receiver owns a nonblocking native TUN fd', flush=True)
         for destination, confirmation in [('198.18.0.2', b'C'), ('198.18.0.6', b'E')]:
             exchange(received, destination)
             control.sendall(confirmation)
@@ -126,6 +138,10 @@ def allocate_unix(allocator):
         assert owner.int != 0 and name.startswith('utun' if sys.platform == 'darwin' else 'jc') and socket.if_nametoindex(name) == index
         if sys.platform == 'darwin':
             os.set_inheritable(fds[0], False)
+            with socket.socket(socket.AF_SYSTEM, socket.SOCK_DGRAM, socket.SYSPROTO_CONTROL,
+                               fileno=os.dup(fds[0])) as native:
+                assert native.getsockopt(socket.SYSPROTO_CONTROL, 2, 16).split(b'\0', 1)[0].decode('ascii') == name, 'transferred fd lost its utun identity'
+                assert native.getsockopt(socket.SYSPROTO_CONTROL, 1) == 0, 'transferred fd lost address-family framing'
         assert not os.get_inheritable(fds[0]), 'received allocator fd can leak across exec'
         print(output.decode('utf-8'), end='', flush=True)
         return fds[0], name

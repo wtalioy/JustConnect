@@ -112,7 +112,7 @@ Linux 路由恢复另在私有命名空间核对了内核删除匹配：`ip rout
 sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_OS="$RUNNER_OS" "$(command -v python)" tests/platform/unix_device_probe.py --uid "$(id -u)" --allocator build/coreabi/macos_tundevice_test
 ```
 
-该正式分配后端增量在本机无 macOS SDK，编译、普通权限拒绝及实际设备验收待两组原生 CI；不以共享测试的 Linux 结果替代 macOS 结果。
+该正式分配后端增量在本机无 macOS SDK；`63aa80e` 的 macOS 应用 41/41 及 ARM64 正式 ABI 20/20 已通过，包含普通权限拒绝。ARM64 实际设备已完成创建及身份／帧标志回读，但普通用户首条路由收发超时，尚未验收；保留失败日志，根因未确认。接收 fd 使用非阻塞读写并限制匹配循环，原八秒总预算、双向载荷和正常／强杀清理断言不变；阶段信息只含固定检查名及地址族头，不记录网络地址或包内容。不得以共享测试的 Linux 结果替代 macOS 结果。
 
 [源码 `1105671` 的两组 macOS 及 Linux](https://github.com/wtalioy/JustConnect/actions/runs/39681929870)均通过直连／显式路由的真实设备／fd 读写、正常关闭及强杀后的设备／路由清理，日志分别为 `macos-device.log`／`linux-device.log`；本机 Linux 另验宿主接口、路由、DNS 不变。降权验证使用原生 `getgroups` 读取进程组，仅保留目标主组，并检查真实／有效 uid、gid 和无法恢复 root；[Python 的 macOS 组查询](https://docs.python.org/3/library/os.html#os.getgroups)可能返回目录成员列表，不能据此判断 `setgroups` 的结果。签名助手与真实桌面授权仍待验收，不依据源码或 Linux 结果宣称可用。原 `linux_device_probe.py` 已由共享脚本替代并删除，原 Linux 能力及独有权限断言保留。
 
