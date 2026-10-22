@@ -252,6 +252,7 @@ func TestNativeProtocolHost(t *testing.T) {
 	}
 	g := newGateway(t)
 	g.resumeCookies.Store(true)
+	g.loopbackResource.Store(true)
 	var foreignRequests atomic.Int32
 	other := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		foreignRequests.Add(1)

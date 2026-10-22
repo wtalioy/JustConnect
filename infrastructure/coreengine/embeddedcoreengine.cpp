@@ -1,5 +1,7 @@
 #include "embeddedcoreengine.h"
 #include "justconnect.h"
+#include "application/networkprotection.h"
+#include <atomic>
 
 #include <QCoreApplication>
 #include <QJsonDocument>
@@ -97,6 +99,45 @@ CoreEngine::RequestStatus requestStatus(int status) {
     default: return CoreEngine::RequestStatus::Failed;
     }
 }
+struct NativeSnapshot {
+    int status = JC_UNSUPPORTED;
+    QJsonObject data;
+};
+NativeSnapshot readNativeSnapshot(CoreEngine::Snapshot kind, uint64_t handle = 0, uint64_t generation = 0) {
+    auto &api = library();
+    const bool resources = kind == CoreEngine::Snapshot::Resources;
+    const auto capabilities = EmbeddedCoreEngine::buildInfo()["capabilities"].toObject();
+    if (!(resources ? api.jc_session_resources && capabilities["resource_snapshot"].toBool()
+                    : api.jc_network_snapshot && capabilities["network_snapshot"].toBool())) return {};
+    QByteArray bytes(JC_MAX_OUTPUT, Qt::Uninitialized);
+    uint32_t length = 0;
+    const int status = resources
+        ? api.jc_session_resources(handle, generation, reinterpret_cast<uint8_t *>(bytes.data()), uint32_t(bytes.size()), &length)
+        : api.jc_network_snapshot(JC_ABI_VERSION, reinterpret_cast<uint8_t *>(bytes.data()), uint32_t(bytes.size()), &length);
+    if (status != JC_OK) return {status, {}};
+    QJsonParseError error{};
+    const auto doc = length <= uint32_t(bytes.size()) ? QJsonDocument::fromJson(bytes.first(length), &error) : QJsonDocument();
+    const auto snapshot = doc.object();
+    if (error.error != QJsonParseError::NoError || !doc.isObject() || snapshot["schema_version"].toInt() != JC_ABI_VERSION
+        || !snapshot[resources ? "resources" : "network"].isObject()
+        || (resources && snapshot["generation"].toString() != QString::number(generation))) return {JC_INTERNAL, {}};
+    return {JC_OK, snapshot};
+}
+int installInitialProtection(QByteArray &config) {
+    auto fields = QJsonDocument::fromJson(config).object();
+    if (fields["operation"] != "connect") return JC_OK;
+    if (!EmbeddedCoreEngine::buildInfo()["capabilities"].toObject()["initial_protection"].toBool()) return JC_UNSUPPORTED;
+    const auto snapshot = readNativeSnapshot(CoreEngine::Snapshot::Network);
+    if (snapshot.status != JC_OK) return snapshot.status;
+    const auto targets = originalNetworkProtection(snapshot.data["network"].toObject());
+    if (!targets) return JC_INTERNAL;
+    QJsonArray prefixes;
+    for (const auto &target : *targets) prefixes.append(target.toObject()["prefix"]);
+    fields["protection"] = QJsonObject{{"protected", prefixes}, {"campus", QJsonArray{}}};
+    config.fill('\0');
+    config = QJsonDocument(fields).toJson(QJsonDocument::Compact);
+    return config.size() > JC_MAX_INPUT ? JC_LIMIT : JC_OK;
+}
 }
 
 class CoreEventPump : public QObject
@@ -107,6 +148,7 @@ public:
     uint64_t generation = 0;
     quint64 serial = 0;
     bool active = false;
+    std::atomic_bool cancelled{false};
     ~CoreEventPump() override {
         if (!handle) return;
         // No ABI call or borrowed buffer may outlive this worker.
@@ -117,10 +159,17 @@ public:
         auto &api = library();
         int status = JC_UNSUPPORTED;
         if (api.available) {
-            status = handle ? JC_OK : api.jc_session_create(JC_ABI_VERSION, &handle);
-            if (status == JC_OK)
-                status = api.jc_session_start(handle, reinterpret_cast<const uint8_t *>(config.constData()),
-                    uint32_t(config.size()), &generation);
+            status = api.jc_config_validate(JC_ABI_VERSION, reinterpret_cast<const uint8_t *>(config.constData()), uint32_t(config.size()));
+            if (status == JC_OK && !cancelled.load() && !QThread::currentThread()->isInterruptionRequested())
+                status = installInitialProtection(config);
+            // Stop can arrive while the native read is blocking this worker's event loop.
+            if (cancelled.load() || QThread::currentThread()->isInterruptionRequested()) status = JC_CANCELLED;
+            if (status == JC_OK) {
+                status = handle ? JC_OK : api.jc_session_create(JC_ABI_VERSION, &handle);
+                if (status == JC_OK)
+                    status = api.jc_session_start(handle, reinterpret_cast<const uint8_t *>(config.constData()),
+                        uint32_t(config.size()), &generation);
+            }
         }
         config.fill('\0');
         if (status != JC_OK) { emit failed(serial, status); return; }
@@ -157,28 +206,9 @@ public:
         int status = JC_STALE_REQUEST;
         QJsonObject snapshot;
         if (id == serial && active && requestedGeneration == QString::number(generation)) {
-            auto &api = library();
-            const bool resources = kind == CoreEngine::Snapshot::Resources;
-            const auto capabilities = EmbeddedCoreEngine::buildInfo()["capabilities"].toObject();
-            status = JC_UNSUPPORTED;
-            if (resources ? api.jc_session_resources && capabilities["resource_snapshot"].toBool()
-                          : api.jc_network_snapshot && capabilities["network_snapshot"].toBool()) {
-                QByteArray bytes(JC_MAX_OUTPUT, Qt::Uninitialized);
-                uint32_t length = 0;
-                status = resources ? api.jc_session_resources(handle, generation, reinterpret_cast<uint8_t *>(bytes.data()), uint32_t(bytes.size()), &length)
-                                   : api.jc_network_snapshot(JC_ABI_VERSION, reinterpret_cast<uint8_t *>(bytes.data()), uint32_t(bytes.size()), &length);
-                if (status == JC_OK) {
-                    QJsonParseError error{};
-                    const auto doc = length <= uint32_t(bytes.size()) ? QJsonDocument::fromJson(bytes.first(length), &error) : QJsonDocument();
-                    snapshot = doc.object();
-                    if (error.error != QJsonParseError::NoError || !doc.isObject() || snapshot["schema_version"].toInt() != JC_ABI_VERSION
-                        || !snapshot[resources ? "resources" : "network"].isObject()
-                        || (resources && snapshot["generation"].toString() != requestedGeneration)) {
-                        status = JC_INTERNAL;
-                        snapshot = {};
-                    }
-                }
-            }
+            const auto result = readNativeSnapshot(kind, handle, generation);
+            status = result.status;
+            snapshot = result.data;
         }
         emit snapshotResult(id, kind, requestedGeneration, snapshot, status);
     }
@@ -245,6 +275,7 @@ EmbeddedCoreEngine::EmbeddedCoreEngine(QObject *parent) : CoreEngine(parent), pu
 }
 EmbeddedCoreEngine::~EmbeddedCoreEngine() {
     active = false;
+    pump->cancelled.store(true);
     thread.requestInterruption();
     thread.quit();
     thread.wait();
@@ -252,6 +283,7 @@ EmbeddedCoreEngine::~EmbeddedCoreEngine() {
 bool EmbeddedCoreEngine::start(const ConnectionProfile &profile, Operation operation) {
     if (active) return false;
     active = true; stopping = false;
+    pump->cancelled.store(false);
     const auto id = ++serial;
     auto config = configurationBytes(profile, operation);
     QMetaObject::invokeMethod(pump, [this, id, config] { pump->start(id, config); }, Qt::QueuedConnection);
@@ -269,6 +301,7 @@ ConnectionError EmbeddedCoreEngine::validateConfiguration(const ConnectionProfil
 void EmbeddedCoreEngine::stop() {
     if (!active || stopping) return;
     stopping = true;
+    pump->cancelled.store(true);
     QMetaObject::invokeMethod(pump, &CoreEventPump::stop, Qt::QueuedConnection);
 }
 void EmbeddedCoreEngine::respond(const QJsonObject &response) {

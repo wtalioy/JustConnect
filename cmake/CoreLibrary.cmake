@@ -116,10 +116,11 @@ endfunction()
 function(justconnect_core_engine TARGET LIBRARY)
     add_library(${TARGET} STATIC "${REPO}/application/coreengine.h"
         "${REPO}/application/authmethodsquery.cpp"
+        "${REPO}/application/networkprotection.cpp"
         "${REPO}/infrastructure/coreengine/embeddedcoreengine.cpp")
     set_target_properties(${TARGET} PROPERTIES AUTOMOC ON)
     target_include_directories(${TARGET} PUBLIC "${REPO}")
-    target_link_libraries(${TARGET} PUBLIC Qt6::Core ${LIBRARY})
+    target_link_libraries(${TARGET} PUBLIC Qt6::Core Qt6::Network ${LIBRARY})
 endfunction()
 
 function(justconnect_core_runtime HOST KIND)

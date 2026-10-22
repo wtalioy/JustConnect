@@ -69,7 +69,6 @@ set(SOURCE_FILES
     application/profilecredentials.cpp
     application/settingsmigrator.cpp
     application/systemproxysession.cpp
-    application/networkprotection.cpp
     application/networkpolicysession.cpp
     presentation/dialogs/networkpolicywindow.cpp
     application/defaultsettings.cpp
