@@ -52,10 +52,9 @@ D2 的设备入口子方案已收敛：Linux／macOS 使用最小授权助手创
 
 助手只持有 ring 和新设备；同账户的普通权限／medium integrity 子进程通过继承的匿名管道处理一组限定测试 IP／UDP 端口的数据包，不加载 Qt 或 aTrust。根据 [CreateRestrictedToken](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-createrestrictedtoken) 的句柄权限继承语义，显式取得创建进程和降低完整性所需权限；使用 `LUA_TOKEN` 降为普通用户令牌，取消管理员 SID 的允许权限并移除可删除特权；仅手动降低完整性和移除特权不足以证明 UAC 降权。验证原始 UDP socket 经设备、普通进程及助手回注收到回包，拒绝超大 IPC 帧，检查正常关闭和助手被终止后的设备／路由消失。
 
-独立控制进程先安装只约束设备助手的 Job 生命周期，再恢复其主线程；异常时仅清理本次随机名称及创建时捕获的 Wintun PnP 实例。此 Job 不管理 VPN 核心，原型不修改既有接口、DNS 或默认路由。本机只运行七项原生只读／令牌／帧／协议边界检查及拒绝本机设备操作的入口检查。[源码 `1105671`](https://github.com/wtalioy/JustConnect/actions/runs/39681929870)的 Windows x64／ARM64 设备步骤已通过普通权限真实回包、超大帧拒绝，以及正常／强杀后的原始 PnP 实例和显式路由清理；六组完整 ABI 与三平台 Tests 同样通过，日志／SDK 来源元数据随各组 artifact 保存。
+独立控制进程先安装只约束设备助手的 Job 生命周期，再恢复其主线程；异常时仅清理本次随机名称及创建时捕获的 Wintun PnP 实例。此 Job 不管理 VPN 核心，原型不修改既有接口、DNS 或默认路由。本机只运行七项原生只读／令牌／帧／协议边界检查及拒绝本机设备操作的入口检查。日志／SDK 来源元数据随各组 artifact 保存。
 
-Windows 设备探针由 CI 选择一个绝对 pwsh 路径，签名检查与设备配置共用该宿主，原 60／30 秒预算不变；配置脚本通过完整 `-Command` 参数执行，不使用交互式标准输入。新设备创建后先通过原生 IP Helper／SetupAPI 核对 LUID／PnP 身份，发送 `allocated`；配置后再次核对同一身份并发送 `configured`，父进程收到第二阶段前不将其视为就绪。配置失败仍保留第一阶段的清理身份，未知／变化／重复阶段不发布就绪；身份补查使用已有原生入口，删除 PowerShell 的设备查找副本。新增受控配置后失败场景，在真实 IPv4 路由出现后退出，仍须验证原 PnP 节点与路由消失；原普通权限收发、超大帧、正常／强杀清理断言及预算保留。本机七项只读／协议回归和 ARM64 交叉编译通过，真实设备场景只在一次性原生 CI 执行，当前增量待两架构验收。
-
+Windows 设备探针由 CI 选择一个绝对 pwsh 路径，签名检查与设备配置共用该宿主，原 60／30 秒预算不变；配置脚本通过完整 `-Command` 参数执行，不使用交互式标准输入。新设备创建后先通过原生 IP Helper／SetupAPI 核对 LUID／PnP 身份，发送 `allocated`；配置后再次核对同一身份并发送 `configured`，父进程收到第二阶段前不将其视为就绪。配置失败仍保留第一阶段的清理身份，未知／变化／重复阶段不发布就绪；身份补查使用已有原生入口，删除 PowerShell 的设备查找副本。受控配置后失败场景在真实 IPv4 路由出现后退出，验证原 PnP 节点与路由消失；普通权限收发、超大帧、正常／强杀清理断言及预算保留。本机七项只读／协议回归和 ARM64 交叉编译通过；真实设备场景只在一次性原生 CI 执行。[`5e51df0` 的六组 Core ABI／设备](https://github.com/wtalioy/JustConnect/actions/runs/39807827167)及[三平台应用测试](https://github.com/wtalioy/JustConnect/actions/runs/39807827099)全部通过，Windows 双架构均验证正常收发、超大帧、强杀及配置后失败时的原始设备／路由清理，证据归 `build/reports/wintun-signature-host.json`。
 
 适配器／路由读取使用 x/sys 的 IP Helper API；创建时按 LUID／GUID 捕获原始 PnP 实例，删除后用 Configuration Manager 查询同一实例。接口表可保留 Down 元数据，不能按名称或一般 Down 状态猜测实体设备已删除。固定 PowerShell 配置操作及安全恢复均有操作／管道等待期限；证据直接写入文件，真实超时子进程已验证部分输出仍保留。设备结果不代替校园 TCP、性能、授权界面、Qt IPC 身份校验或生产路由／DNS 恢复；正式实现接入后保留独有内核故障回归，删除被替代脚手架。
 
@@ -159,7 +158,9 @@ sudo unshare --net -- build/coreabi/linux_tunroutes_test --isolated
 
 原生检查验证实际 UDP 进入 TUN 并在严格 `rp_filter=1` 下回到原 socket、原有默认／分割默认／主机路由不变、重复前缀合并、不同连接拒绝、部分批次失败回滚、回读失败与恢复重试、首次无法确认的值保留记录，以及读回前后改写设备／源地址／下一跳和接口重命名。最后永久降权并清空 capabilities，验证真实内核拒绝写入且未留下路由。恢复批次允许单项保护条件失败后继续清理其他所属项，再回读确认结果；不凭命令退出码推断已恢复。
 
-[`5c57603` 的 Linux 双架构原生 CI](https://github.com/wtalioy/JustConnect/actions/runs/39782590189)均通过该检查，同轮其余四组 Core ABI／设备及[三平台应用测试](https://github.com/wtalioy/JustConnect/actions/runs/39782590442)也通过，证据归并至 `build/reports/linux-owned-routes.json`。主应用／正式授权／持久恢复日志、DNS 及任意属性的读写竞争尚未交付，原出口专用表／源规则已通过双架构原生验收，主应用接入仍待；S4-06 之前不用于日常网络。原出口隔离脚本的专用表／源规则已由正式后端接管。Linux 分配方在交付 fd 前配置同一正式捕获后端的目标路由，将连接／设备／完整实际路由值随元数据交付；接收方对照真实全表，不使用会省略设备字段的按设备筛选输出。两份 Python 手写捕获命令已删除；创建方退出后普通用户双向包、正常／强杀后设备与路由消失、严格 rp_filter 原出口均在本地双构建通过，见 `build/reports/linux-capture-handoff.json`，该交付增量原生矩阵待验。测试仍是隔离调用，不安装为权限助手；macOS 的捕获命令保留至对应正式后端通过。
+Linux 分配方在交付 fd 前配置同一正式捕获后端的目标路由，将连接／设备／完整实际路由值随元数据交付；接收方对照真实全表，不使用会省略设备字段的按设备筛选输出。两份 Python 手写捕获命令已删除；创建方退出后普通用户双向包、正常／强杀后设备与路由消失、严格 rp_filter 原出口通过本地双构建及 [`1f05e3f` 的六组 Core ABI／设备](https://github.com/wtalioy/JustConnect/actions/runs/39817179435)与[三平台应用测试](https://github.com/wtalioy/JustConnect/actions/runs/39817179379)，证据归 `build/reports/linux-owned-routes.json`、`linux-capture-handoff.json`。
+
+测试仍是隔离调用，不安装为权限助手；主应用、正式授权、捕获路由持久恢复、DNS 及任意属性的读写竞争尚未交付，S4-06 之前不用于日常网络。原出口专用表／源规则及其持久检查点见[原出口后端](#linux-source-routes)，不据此宣称捕获路由具备同等恢复能力；macOS 的捕获命令保留至对应正式后端通过。
 
 [源码 `1105671` 的两组 macOS 及 Linux](https://github.com/wtalioy/JustConnect/actions/runs/39681929870)均通过直连／显式路由的真实设备／fd 读写、正常关闭及强杀后的设备／路由清理，日志分别为 `macos-device.log`／`linux-device.log`；本机 Linux 另验宿主接口、路由、DNS 不变。降权验证使用原生 `getgroups` 读取进程组，仅保留目标主组，并检查真实／有效 uid、gid 和无法恢复 root；[Python 的 macOS 组查询](https://docs.python.org/3/library/os.html#os.getgroups)可能返回目录成员列表，不能据此判断 `setgroups` 的结果。签名助手与真实桌面授权仍待验收，不依据源码或 Linux 结果宣称可用。原 `linux_device_probe.py` 已由共享脚本替代并删除，原 Linux 能力及独有权限断言保留。
 
