@@ -1,14 +1,25 @@
 #include "sourceroutes.h"
 #include "iprouteutility.h"
 #include <QJsonDocument>
+#include <QFile>
 #include <QRegularExpression>
 #include <QScopeGuard>
 #include <QSet>
 #include <ifaddrs.h>
 #include <net/if.h>
+#include <sys/stat.h>
 
 namespace {
 using Status = PlatformOperationResult::Status;
+QString currentNamespace()
+{
+    struct stat identity{};
+    QFile boot("/proc/sys/kernel/random/boot_id");
+    if (::stat("/proc/thread-self/ns/net",&identity)!=0 || !boot.open(QIODevice::ReadOnly)) return {};
+    const auto id = QString::fromLatin1(boot.read(64)).trimmed();
+    if (QUuid(id).isNull() || QUuid(id).toString(QUuid::WithoutBraces)!=id) return {};
+    return id+":"+QString::number(identity.st_dev)+":"+QString::number(identity.st_ino);
+}
 bool unicast(const QString &value)
 {
     if (!canonicalIpv4Prefix(value + "/32")) return false;
@@ -47,7 +58,8 @@ PlatformOperationResult write(const QString &utility, const QByteArray &batch, c
 
 bool LinuxSourceRoutes::identity() const
 {
-    return interfaceIndex && ::if_nametoindex(interfaceName.toLatin1().constData()) == interfaceIndex;
+    return interfaceIndex && !networkNamespace.isEmpty() && currentNamespace()==networkNamespace
+        && ::if_nametoindex(interfaceName.toLatin1().constData()) == interfaceIndex;
 }
 bool LinuxSourceRoutes::sourceAssigned() const
 {
@@ -152,16 +164,56 @@ QByteArray LinuxSourceRoutes::ruleCommand(const QString &operation) const
 void LinuxSourceRoutes::clear()
 {
     entries.clear();appliedRule = {};rulePending = false;owner = {};
-    interfaceName.clear();sourceAddress.clear();gatewayAddress.clear();interfaceIndex = table = metric = 0;
+    interfaceName.clear();sourceAddress.clear();gatewayAddress.clear();networkNamespace.clear();interfaceIndex = table = metric = 0;
 }
 QJsonObject LinuxSourceRoutes::snapshot() const
 {
     if (owner.isNull()) return {};
     QJsonArray routes;
     for (const auto &entry : entries) routes.append(QJsonObject{{"prefix",entry.prefix},{"before",QJsonArray{}},{"applied",entry.applied}});
-    return {{"owner",owner.toString(QUuid::WithoutBraces)},{"interface",interfaceName},{"index",qint64(interfaceIndex)},
+    return {{"owner",owner.toString(QUuid::WithoutBraces)},{"namespace",networkNamespace},{"interface",interfaceName},{"index",qint64(interfaceIndex)},
         {"source",sourceAddress},{"gateway",gatewayAddress},{"table",qint64(table)},{"priority",1},{"metric",qint64(metric)},
         {"routes",routes},{"rule_pending",rulePending},{"rule_before",QJsonArray{}},{"rule_applied",appliedRule}};
+}
+PlatformOperationResult LinuxSourceRoutes::recover(const QUuid &id, const QJsonObject &saved)
+{
+    if (!owner.isNull()) return {Status::Failed,"Active source ownership cannot be replaced by a saved record."};
+    const auto invalid = PlatformOperationResult{Status::Failed,"Invalid saved source route ownership."};
+    if (id.isNull() || saved.size()!=13 || saved["owner"]!=id.toString(QUuid::WithoutBraces)
+        || QJsonDocument(saved).toJson(QJsonDocument::Compact).size()>MaxSnapshotBytes
+        || !saved["interface"].isString() || !saved["source"].isString() || !saved["gateway"].isString()
+        || !QRegularExpression("^[A-Za-z0-9_.-]{1,15}$").match(saved["interface"].toString()).hasMatch()
+        || !unicast(saved["source"].toString()) || (!saved["gateway"].toString().isEmpty() && !unicast(saved["gateway"].toString()))
+        || saved["source"]==saved["gateway"] || saved["index"].toInteger(-1)<=0 || saved["index"].toInteger()>0xffffffffLL
+        || saved["priority"]!=1 || !saved["routes"].isArray() || saved["routes"].toArray().size()>4096
+        || !saved["rule_pending"].isBool() || !saved["rule_before"].isArray() || !saved["rule_before"].toArray().isEmpty()
+        || !saved["rule_applied"].isObject()) return invalid;
+    const auto namespaceId = currentNamespace();
+    if (namespaceId.isEmpty() || saved["namespace"]!=namespaceId) return invalid;
+    const auto hash = id.toByteArray(QUuid::Id128).left(8).toUInt(nullptr,16);
+    if (saved["table"].toInteger(-1)!=1000000000u+hash%1000000000u
+        || saved["metric"].toInteger(-1)!=1u+hash%0xfffffffeu) return invalid;
+    bool accepted = false;
+    const auto discard = qScopeGuard([&] { if (!accepted) clear(); });
+    owner = id;networkNamespace = namespaceId;interfaceName = saved["interface"].toString();interfaceIndex = quint32(saved["index"].toInteger());
+    sourceAddress = saved["source"].toString();gatewayAddress = saved["gateway"].toString();
+    table = quint32(saved["table"].toInteger());metric = quint32(saved["metric"].toInteger());
+    rulePending = saved["rule_pending"].toBool();appliedRule = saved["rule_applied"].toObject();
+    if (!appliedRule.isEmpty() && (!rulePending || !ruleShape(appliedRule) || findRule(QJsonArray{appliedRule})!=appliedRule)) return invalid;
+    QSet<QString> prefixes;
+    for (const auto &value : saved["routes"].toArray()) {
+        const auto entry = value.toObject();
+        const auto prefix = entry["prefix"].toString();
+        if (!value.isObject() || entry.size()!=3 || !canonicalIpv4Prefix(prefix) || prefixes.contains(prefix)
+            || !entry["before"].isArray() || !entry["before"].toArray().isEmpty() || !entry["applied"].isObject()
+            || (prefix==gatewayAddress+"/32" && !entries.isEmpty())) return invalid;
+        const auto row = entry["applied"].toObject();
+        if (!row.isEmpty() && (!routeShape(row,prefix) || ipv4RoutePrefix(row)!=prefix || row["dev"]!=interfaceName
+            || row["table"]!=QString::number(table) || row["protocol"]!="4" || row["metric"].toInteger(-1)!=metric)) return invalid;
+        prefixes.insert(prefix);entries.append({prefix,row});
+    }
+    accepted = true;
+    return restore(id);
 }
 PlatformOperationResult LinuxSourceRoutes::apply(const QUuid &id, const QString &interface, const QString &source,
                                                 const QString &gateway, const QStringList &requested)
@@ -176,7 +228,9 @@ PlatformOperationResult LinuxSourceRoutes::apply(const QUuid &id, const QString 
     prefixes.removeDuplicates();
     const auto utility = trustedIpRouteUtility();
     if (utility.isEmpty()) return {Status::Unsupported,"A trusted system iproute2 executable is required."};
-    owner = id;interfaceName = interface;sourceAddress = source;gatewayAddress = gateway;
+    const auto namespaceId = currentNamespace();
+    if (namespaceId.isEmpty()) return {Status::Failed,"Cannot identify the Linux boot and network namespace."};
+    owner = id;networkNamespace = namespaceId;interfaceName = interface;sourceAddress = source;gatewayAddress = gateway;
     interfaceIndex = ::if_nametoindex(interfaceName.toLatin1().constData());
     const auto hash = id.toByteArray(QUuid::Id128).left(8).toUInt(nullptr,16);
     table = 1000000000u + hash % 1000000000u;metric = 1u + hash % 0xfffffffeu;
@@ -235,7 +289,7 @@ PlatformOperationResult LinuxSourceRoutes::apply(const QUuid &id, const QString 
 PlatformOperationResult LinuxSourceRoutes::restore(const QUuid &id)
 {
     if (owner.isNull()) return {};
-    if (id != owner || !identity()) return {Status::Failed,"Source route owner or original interface identity changed.",true};
+    if (id != owner || !identity()) return {Status::Failed,"Source route owner, namespace or original interface identity changed.",true};
     const auto utility = trustedIpRouteUtility();
     if (utility.isEmpty()) return {Status::Unsupported,"A trusted system iproute2 executable is required.",true};
     QDeadlineTimer deadline(10000);

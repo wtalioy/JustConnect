@@ -2,7 +2,9 @@
 #include "infrastructure/platform/linux/tunroutes.h"
 #include "infrastructure/platform/linux/iprouteutility.h"
 #include <QCoreApplication>
+#include <QFile>
 #include <QJsonDocument>
+#include <QProcess>
 #include <grp.h>
 #include <iostream>
 #include <linux/capability.h>
@@ -55,12 +57,27 @@ int main(int argc, char **argv) try
         check(::geteuid()!=0,"Run ordinary source route checks without root");
         check(!missing.apply({},"original0",source,gateway,{target}).succeeded() && reads==0 && missing.snapshot().isEmpty(),
               "Missing ownership reached network operations");
+        check(!missing.recover(owner,{}).succeeded() && reads==0 && missing.snapshot().isEmpty(),
+              "An invalid saved owner reached network operations");
         std::cout << "PASS: source routes require a connection owner before OS operations\n";
         return 0;
     }
     struct stat current{}, initial{};
     check(::geteuid()==0 && ::stat("/proc/self/ns/net",&current)==0 && ::stat("/proc/1/ns/net",&initial)==0
           && (current.st_dev!=initial.st_dev || current.st_ino!=initial.st_ino),"Refusing the host network namespace");
+    if (argc==3 && app.arguments()[1]=="--recover") {
+        QFile input;
+        check(input.open(stdin,QIODevice::ReadOnly),"Read trusted saved source record");
+        const auto encoded = input.read(LinuxSourceRoutes::MaxSnapshotBytes+1);
+        const auto saved = QJsonDocument::fromJson(encoded);
+        check(encoded.size()<=LinuxSourceRoutes::MaxSnapshotBytes && saved.isObject(),"Saved source record exceeds its bounded object format");
+        LinuxSourceRoutes routes;
+        const auto result = routes.recover(QUuid(app.arguments()[2]),saved.object());
+        std::cout << QJsonDocument(routes.snapshot()).toJson(QJsonDocument::Compact).constData() << std::endl;
+        check(result.succeeded() && routes.snapshot().isEmpty(),qPrintable(result.detail));
+        std::cout << "PASS: fresh process restored the trusted source ownership record\n";
+        return 0;
+    }
     if (argc==6 && app.arguments()[1]=="--hold") {
         LinuxSourceRoutes routes;
         const auto result = routes.apply(owner,app.arguments()[2],app.arguments()[3],app.arguments()[4],{app.arguments()[5]});
@@ -99,6 +116,24 @@ int main(int argc, char **argv) try
           && lookup(source)["dev"]=="original0" && lookup(source)["table"]==table,
           "Actual bound source did not bypass the more specific TUN capture route");
     const auto active = inventory();
+    check(!routes.recover(owner,snapshot).succeeded() && routes.snapshot()==snapshot && inventory()==active,
+          "A saved record replaced active source ownership");
+    QList<QJsonObject> invalidRecords;
+    auto invalid = snapshot;invalid["owner"] = QUuid::createUuid().toString(QUuid::WithoutBraces);invalidRecords.append(invalid);
+    invalid = snapshot;invalid["table"] = snapshot["table"].toInteger()+1;invalidRecords.append(invalid);
+    invalid = snapshot;invalid["index"] = 0;invalidRecords.append(invalid);
+    invalid = snapshot;invalid["namespace"] = "another boot or network namespace";invalidRecords.append(invalid);
+    invalid = snapshot;invalid["rule_pending"] = "false";invalidRecords.append(invalid);
+    invalid = snapshot;invalid["extra"] = true;invalidRecords.append(invalid);
+    auto savedRoutes = snapshot["routes"].toArray();
+    invalid = snapshot;savedRoutes.append(savedRoutes.first());invalid["routes"] = savedRoutes;invalidRecords.append(invalid);
+    savedRoutes = snapshot["routes"].toArray();
+    auto changedEntry = savedRoutes.last().toObject();auto changedRow = changedEntry["applied"].toObject();
+    changedRow["gateway"] = "192.0.2.99";changedEntry["applied"] = changedRow;savedRoutes[savedRoutes.size()-1] = changedEntry;
+    invalid = snapshot;invalid["routes"] = savedRoutes;invalidRecords.append(invalid);
+    for (const auto &saved : invalidRecords)
+        check(!missing.recover(owner,saved).succeeded() && reads==0 && missing.snapshot().isEmpty() && inventory()==active,
+              "An invalid saved source record reached OS operations or retained partial authority");
     check(!routes.restore(QUuid::createUuid()).succeeded() && inventory()==active && routes.snapshot()==snapshot,
           "Another owner restored or discarded this connection's state");
     LinuxSourceRoutes collision;
@@ -109,7 +144,55 @@ int main(int argc, char **argv) try
     check(routes.apply(owner,"original0",source,{}, {target}).succeeded() && lookup(source)["dev"]=="original0"
           && !lookup(source).contains("gateway") && read({"route","show","table",table}).size()==1,
           "Direct original routes gained a fictitious gateway or lost source selection");
-    check(routes.restore(owner).succeeded() && inventory()==baseline,"Direct source recovery changed original state");
+    LinuxSourceRoutes directRecovery;
+    check(directRecovery.recover(owner,routes.snapshot()).succeeded() && directRecovery.snapshot().isEmpty()
+          && routes.restore(owner).succeeded() && inventory()==baseline,"Direct saved source recovery changed original state");
+
+    QProcess holder;
+    holder.start(QCoreApplication::applicationFilePath(),{"--hold","original0",source,gateway,target});
+    check(holder.waitForStarted(5000) && holder.waitForReadyRead(5000),"Start independent source owner");
+    const auto savedOwner = holder.readLine();
+    const auto deadOwner = QJsonDocument::fromJson(savedOwner).object();
+    check(!deadOwner.isEmpty() && lookup(source)["table"]==QString::number(deadOwner["table"].toInteger()),
+          "Independent source owner did not confirm actual kernel state");
+    holder.kill();
+    check(holder.waitForFinished(5000) && holder.exitStatus()==QProcess::CrashExit && inventory()!=baseline,
+          "Source owner SIGKILL did not leave the independently recoverable kernel state");
+    QProcess differentNamespace;
+    differentNamespace.start("/usr/bin/unshare",{"--net","--",QCoreApplication::applicationFilePath(),"--recover",deadOwner["owner"].toString()});
+    check(differentNamespace.waitForStarted(5000) && differentNamespace.write(savedOwner)==savedOwner.size(),
+          "Send saved state to a different real network namespace");
+    differentNamespace.closeWriteChannel();
+    check(differentNamespace.waitForFinished(12000) && differentNamespace.exitCode()==1
+          && differentNamespace.readAllStandardOutput().trimmed()=="{}" && inventory()!=baseline,
+          "A different network namespace adopted saved source ownership");
+    QProcess recovery;
+    recovery.start(QCoreApplication::applicationFilePath(),{"--recover",deadOwner["owner"].toString()});
+    check(recovery.waitForStarted(5000) && recovery.write(savedOwner)==savedOwner.size(),"Send trusted state to a fresh recovery process");
+    recovery.closeWriteChannel();
+    check(recovery.waitForFinished(12000),"Fresh source recovery did not finish within its budget");
+    check(recovery.exitStatus()==QProcess::NormalExit && recovery.exitCode()==0 && inventory()==baseline,
+          qPrintable("Fresh process failed source recovery: "+QString::fromUtf8(recovery.readAllStandardError())));
+    std::cout << "PASS: fresh process recovered source routes/rule after owner SIGKILL\n";
+
+    check(routes.apply(owner,"original0",source,gateway,{target}).succeeded(),"Apply saved ownership external-reference fixture");
+    const auto savedReference = routes.snapshot();
+    ip({"rule","add","priority","100","table",table,"protocol","99"});
+    const auto referencedRecovery = inventory();
+    LinuxSourceRoutes restarted;
+    check(!restarted.recover(owner,savedReference).succeeded() && restarted.snapshot()==savedReference
+          && inventory()==referencedRecovery,"Fresh recovery deleted an external reference or discarded saved responsibilities");
+    ip({"rule","del","priority","100","table",table,"protocol","99"});
+    check(restarted.restore(owner).succeeded() && routes.restore(owner).succeeded() && inventory()==baseline,
+          "Fresh recovery could not retry after an external reference disappeared");
+
+    check(routes.apply(owner,"original0",source,gateway,{target}).succeeded(),"Apply unconfirmed saved-write fixture");
+    auto unconfirmed = routes.snapshot();
+    auto intended = unconfirmed["routes"].toArray();
+    for (int i=0; i<intended.size(); ++i) { auto entry = intended[i].toObject();entry["applied"] = QJsonObject{};intended[i] = entry; }
+    unconfirmed["routes"] = intended;unconfirmed["rule_applied"] = QJsonObject{};
+    check(restarted.recover(owner,unconfirmed).succeeded() && routes.restore(owner).succeeded() && inventory()==baseline,
+          "Fresh recovery could not confirm and undo its recorded unconfirmed writes");
     ip({"route","add","198.18.9.0/24","dev","original0","table",table,"proto","99"});
     const auto foreignTable = inventory();
     check(!routes.apply(owner,"original0",source,gateway,{target}).succeeded() && routes.snapshot().isEmpty()
@@ -245,8 +328,13 @@ int main(int argc, char **argv) try
     const auto recreatedState = inventory();
     check(!recreated.restore(owner).succeeded() && inventory()==recreatedState,
           "Retry deleted a recreated external rule or its route table");
+    LinuxSourceRoutes recreatedRestart;
+    check(!recreatedRestart.recover(owner,recreated.snapshot()).succeeded()
+          && recreatedRestart.snapshot()["rule_pending"]==false && inventory()==recreatedState,
+          "Restart adopted the same-value rule recreated after confirmed deletion");
     ip({"rule","del","priority","1","from",source+"/32","table",table,"protocol","4"});
-    check(recreated.restore(owner).succeeded() && inventory()==baseline,"Recovery after recreated external rule removal failed");
+    check(recreatedRestart.restore(owner).succeeded() && recreated.restore(owner).succeeded() && inventory()==baseline,
+          "Recovery after recreated external rule removal failed");
 
     bool reference = true;
     LinuxSourceRoutes concurrentReference([&](const QString &program,const QStringList &args) {
@@ -304,7 +392,9 @@ int main(int argc, char **argv) try
           && routes.snapshot().isEmpty() && inventory()==baseline,"Route capacity was checked after writing instead of before");
     check(routes.apply(owner,"original0",source,gateway,bulk).succeeded()
           && read({"route","show","table","all"}).size()==4096,"Largest complete source route snapshot was rejected or truncated");
-    check(routes.restore(owner).succeeded() && inventory()==baseline,"Full-capacity source recovery failed");
+    const auto bulkRecord = QJsonDocument(routes.snapshot()).toJson(QJsonDocument::Compact);
+    check(restarted.recover(owner,QJsonDocument::fromJson(bulkRecord).object()).succeeded()
+          && routes.restore(owner).succeeded() && inventory()==baseline,"Full-capacity saved source recovery failed");
     check(capture.restore(tun).succeeded(),"Restore the formal capture fixture");tun.close();baseline=inventory();
     check(::setgroups(0,nullptr)==0 && ::setresgid(65534,65534,65534)==0 && ::setresuid(65534,65534,65534)==0,"Permanently drop device privileges");
     __user_cap_header_struct header{_LINUX_CAPABILITY_VERSION_3,0};__user_cap_data_struct caps[2]{};
