@@ -54,7 +54,7 @@ int main(int argc, char **argv) try
     QApplication app(argc, argv);
     Engine engine;
     std::atomic_bool fail = false;
-    NetworkPolicySession session(&engine, [&] {
+    const auto readDns = [&] {
         return fail ? DnsSnapshot{{PlatformOperationResult::Status::TimedOut, {}}, {}}
                     : DnsSnapshot{{}, {
                         {"resolved", QJsonObject{{"status", "available"}, {"Domains", QJsonArray{
@@ -64,7 +64,8 @@ int main(int argc, char **argv) try
                         {"dynamic_store", QJsonObject{
                             {"State:/Network/Service/a/DNS", QJsonObject{{"SupplementalMatchDomains", QJsonArray{""}}}},
                             {"Setup:/Network/Service/a/DNS", QJsonObject{{"SearchDomains", QJsonArray{"saved.test"}}}}}}}};
-    });
+    };
+    NetworkPolicySession session(&engine, readDns);
     NetworkPolicyWindow window(&session);
     window.show();
     auto *tree = window.findChild<QTreeWidget *>("networkPolicyTargets");
@@ -101,6 +102,10 @@ int main(int argc, char **argv) try
         if(item->text(0).contains("根域") && item->text(2).contains("State:")) current=item->text(2).startsWith("当前 DNS 配置");
     }
     check(saved && current,"Stored and current macOS resolver inputs collapsed into one active claim");
+    if (app.arguments().size() == 2) {
+        QCoreApplication::processEvents();
+        check(window.grab().save(app.arguments()[1]+".dns.png"), "Save controlled DNS UI preview");
+    }
     tabs->setCurrentWidget(tree);
     if (app.arguments().size() == 2) {
         QCoreApplication::processEvents();
@@ -118,8 +123,7 @@ int main(int argc, char **argv) try
     check(tree->topLevelItemCount() == 0 && dns->topLevelItemCount() == 0 && !refresh->isEnabled() && engine.policies == 0,
           "Inspection changed routing preference or retained disconnected facts");
     Engine detachedEngine;
-    auto owned = std::make_unique<NetworkPolicySession>(&detachedEngine,
-        [] { return DnsSnapshot{{}, {{"resolver", "fixture"}}}; });
+    auto owned = std::make_unique<NetworkPolicySession>(&detachedEngine, readDns);
     NetworkPolicyWindow detached(owned.get());
     detached.show();
     emit detachedEngine.sessionStarted("1");
@@ -127,6 +131,7 @@ int main(int argc, char **argv) try
     until([&] { return owned->status() == CoreEngine::RequestStatus::Success; });
     owned.reset();
     check(!detached.isVisible() && detached.findChild<QTreeWidget *>("networkPolicyTargets")->topLevelItemCount() == 0
+          && detached.findChild<QTreeWidget *>("networkPolicyDnsNamespaces")->topLevelItemCount() == 0
           && !detached.findChild<QPushButton *>("refreshNetworkPolicy")->isEnabled(),
           "Destroyed model retained stale network details in its window");
     std::cout << "PASS: network inspection sources, resource roles, refresh recovery, stale clearing and no policy writes\n";
