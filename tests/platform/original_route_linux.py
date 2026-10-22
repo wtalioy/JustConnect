@@ -1,17 +1,16 @@
 """Check the production Go underlay against a competing TUN route in private namespaces."""
 import argparse
-import fcntl
 import json
 import os
 from pathlib import Path
 import pwd
 import select
 import socket
-import struct
 import subprocess
 import sys
 import threading
 import time
+from unix_device_probe import allocate_linux
 
 
 def peer():
@@ -57,7 +56,7 @@ def ready(process, expected):
     assert process.stdout.readline() == expected
 
 
-def probe(binary, uid):
+def probe(binary, uid, allocator):
     user = pwd.getpwuid(uid)
     server = subprocess.Popen(['unshare', '--net', '--', sys.executable, str(Path(__file__).resolve()), '--peer'],
                               stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
@@ -80,11 +79,10 @@ def probe(binary, uid):
         remote('link', 'set', 'peer0', 'up')
         remote('addr', 'add', '198.18.0.6/32', 'dev', 'lo')
         ip('route', 'add', '198.18.0.0/24', 'via', '192.0.2.2', 'dev', 'original0')
-        tun = os.open('/dev/net/tun', os.O_RDWR | os.O_CLOEXEC)
-        fcntl.ioctl(tun, 0x400454ca, struct.pack('16sH22x', b'capture0', 0x1001))
-        ip('addr', 'add', '198.18.0.1/30', 'dev', 'capture0')
-        ip('link', 'set', 'capture0', 'up')
-        ip('route', 'add', '198.18.0.6/32', 'dev', 'capture0')
+        tun, capture = allocate_linux(allocator)
+        ip('addr', 'add', '198.18.0.1/30', 'dev', capture)
+        ip('link', 'set', capture, 'up')
+        ip('route', 'add', '198.18.0.6/32', 'dev', capture)
         # Preserve the selected original source and its reverse path without relaxing rp_filter.
         ip('route', 'add', '192.0.2.0/24', 'dev', 'original0', 'table', '42117')
         ip('route', 'add', '198.18.0.6/32', 'via', '192.0.2.2', 'dev', 'original0', 'table', '42117')
@@ -92,7 +90,7 @@ def probe(binary, uid):
         for name in ('all', 'original0'):
             assert Path('/proc/sys/net/ipv4/conf/' + name + '/rp_filter').read_text().strip() == '1'
         route = json.loads(subprocess.check_output(['ip', '-j', 'route', 'get', '198.18.0.6'], text=True))
-        assert route[0]['dev'] == 'capture0', 'competing capture route not selected'
+        assert route[0]['dev'] == capture, 'competing capture route not selected'
         original_route = json.loads(subprocess.check_output(
             ['ip', '-j', 'route', 'get', '198.18.0.6', 'from', '192.0.2.1'], text=True))
         assert original_route[0]['dev'] == 'original0' and str(original_route[0]['table']) == '42117', original_route
@@ -135,12 +133,13 @@ if __name__ == '__main__':
     parser.add_argument('--peer', action='store_true')
     parser.add_argument('--probe', type=Path)
     parser.add_argument('--uid', type=int)
+    parser.add_argument('--allocator', type=Path)
     args = parser.parse_args()
     if sys.platform != 'linux' or os.geteuid() != 0 or os.stat('/proc/self/ns/net').st_ino == os.stat('/proc/1/ns/net').st_ino:
         parser.error('requires root inside a private Linux network namespace')
     if args.peer:
         peer()
     else:
-        if not args.probe or not args.probe.is_file() or not args.uid or args.uid <= 0:
-            parser.error('requires a compiled probe and an ordinary uid')
-        probe(args.probe.resolve(), args.uid)
+        if not args.probe or not args.probe.is_file() or not args.uid or args.uid <= 0 or not args.allocator or not args.allocator.is_file():
+            parser.error('requires compiled Go and native allocator probes and an ordinary uid')
+        probe(args.probe.resolve(), args.uid, args.allocator.resolve())

@@ -1,6 +1,7 @@
 """S1-06 kernel/fd probe; isolated Linux namespace or disposable macOS runner only."""
 
 import argparse
+import array
 import fcntl
 import json
 import os
@@ -13,6 +14,7 @@ import struct
 import subprocess
 import sys
 import time
+import uuid
 
 
 def exchange(fd, destination):
@@ -96,18 +98,51 @@ def receive(control_fd, uid, gid, crash):
         control.sendall(b'K')
 
 
-def probe(uid, gid, crash):
-    name = 'jcprobe0'
+def allocate_linux(allocator):
+    parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+    process = subprocess.Popen([str(allocator), str(child.fileno())], pass_fds=(child.fileno(),),
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    child.close()
+    fds = []
+    try:
+        parent.settimeout(5)
+        payload, ancillary, flags, _ = parent.recvmsg(4096, socket.CMSG_SPACE(array.array('i').itemsize), socket.MSG_CMSG_CLOEXEC)
+        unexpected = False
+        for level, kind, data in ancillary:
+            if level == socket.SOL_SOCKET and kind == socket.SCM_RIGHTS:
+                received = array.array('i')
+                unexpected |= len(data) % received.itemsize != 0
+                received.frombytes(data[:len(data) - len(data) % received.itemsize])
+                fds.extend(received)
+            else:
+                unexpected = True
+        output, _ = process.communicate(timeout=5)
+        assert process.returncode == 0, output.decode('utf-8', errors='replace')
+        assert not unexpected and not flags & (socket.MSG_TRUNC | socket.MSG_CTRUNC) and len(fds) == 1, 'native allocator did not transfer exactly one complete device record'
+        metadata = json.loads(payload)
+        name, index = metadata['name'], metadata['index']
+        owner = uuid.UUID(metadata['owner'])
+        assert owner.int != 0 and name.startswith('jc') and socket.if_nametoindex(name) == index
+        assert not os.get_inheritable(fds[0]), 'received allocator fd can leak across exec'
+        print(output.decode('utf-8'), end='', flush=True)
+        return fds[0], name
+    except BaseException:
+        for fd in fds:
+            os.close(fd)
+        raise
+    finally:
+        parent.close()
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)
+        process.stdout.close()
+
+
+def probe(uid, gid, crash, allocator):
     if sys.platform == 'darwin':
         for destination in ('198.18.0.2', '198.18.0.6'):
             route = subprocess.check_output(['/sbin/route', '-n', 'get', destination], text=True, timeout=5)
             assert any(line.split() == ['destination:', 'default'] for line in route.splitlines()), 'test destination already has a specific route'
-    try:
-        socket.if_nametoindex(name)
-    except OSError:
-        pass
-    else:
-        raise AssertionError('test interface already exists')
     if sys.platform == 'darwin':
         with socket.socket(socket.AF_SYSTEM, socket.SOCK_DGRAM, socket.SYSPROTO_CONTROL) as control:
             info = fcntl.ioctl(control.fileno(), 0xc0644e03, struct.pack('I96s', 0, b'com.apple.net.utun_control'))
@@ -116,7 +151,7 @@ def probe(uid, gid, crash):
             assert name.startswith('utun') and name[4:].isdigit()
             fd = control.detach()
     else:
-        fd = os.open('/dev/net/tun', os.O_RDWR | os.O_CLOEXEC)
+        fd, name = allocate_linux(allocator)
     parent, child = socket.socketpair()
     receiver = None
     try:
@@ -126,7 +161,6 @@ def probe(uid, gid, crash):
             route = subprocess.check_output(['/sbin/route', '-n', 'get', '198.18.0.6'], text=True, timeout=5)
             assert any(line.split() == ['interface:', name] for line in route.splitlines()), 'owned host route was not applied'
         else:
-            fcntl.ioctl(fd, 0x400454ca, struct.pack('16sH22x', name.encode(), 0x1001))
             subprocess.run(['ip', 'address', 'add', '198.18.0.1/30', 'dev', name], check=True)
             subprocess.run(['ip', 'link', 'set', name, 'up'], check=True)
             subprocess.run(['ip', 'route', 'add', '198.18.0.6/32', 'dev', name], check=True)
@@ -192,6 +226,7 @@ if __name__ == '__main__':
     parser.add_argument('--uid', type=int, required=True, help='ordinary receiving user')
     parser.add_argument('--receive-fd', type=int, help=argparse.SUPPRESS)
     parser.add_argument('--crash', action='store_true', help=argparse.SUPPRESS)
+    parser.add_argument('--allocator', type=Path, help='native Linux TUN allocator test executable')
     args = parser.parse_args()
     if args.receive_fd is not None:
         receive(args.receive_fd, args.uid, pwd.getpwuid(args.uid).pw_gid, args.crash)
@@ -201,6 +236,8 @@ if __name__ == '__main__':
     if sys.platform == 'linux':
         if os.stat('/proc/self/ns/net').st_ino == os.stat('/proc/1/ns/net').st_ino:
             parser.error('refusing to run in the host network namespace; use unshare --net')
+        if args.allocator is None or not args.allocator.is_file():
+            parser.error('Linux requires the built native TUN allocator')
     elif sys.platform == 'darwin':
         if os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('RUNNER_OS') != 'macOS':
             parser.error('macOS device probe requires a disposable GitHub runner')
@@ -208,4 +245,4 @@ if __name__ == '__main__':
         parser.error('unsupported device probe platform')
     user = pwd.getpwuid(args.uid)
     for crash in (False, True):
-        probe(user.pw_uid, user.pw_gid, crash)
+        probe(user.pw_uid, user.pw_gid, crash, args.allocator)
