@@ -2,6 +2,7 @@
 #include "application/systemproxybackend.h"
 #include <memory>
 #ifdef Q_OS_WIN
+#include <QJsonObject>
 #include "windows/proxyapi.h"
 #elif defined(Q_OS_MACOS)
 #include "macos/proxyapi.h"
@@ -26,6 +27,11 @@ public:
     SystemProxyCheck check(const SystemProxyConfig &config) override;
     PlatformOperationResult apply(const SystemProxyConfig &config) override;
     PlatformOperationResult clear() override;
+#ifdef Q_OS_WIN
+    // Original proxy/PAC values may contain secrets; persist only in protected credential storage.
+    QJsonObject recoverySnapshot() const;
+    PlatformOperationResult recover(const QJsonObject &record);
+#endif
 private:
     struct Snapshot;
     std::shared_ptr<Snapshot> snapshot;
