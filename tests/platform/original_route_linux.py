@@ -80,8 +80,6 @@ def probe(binary, uid, allocator):
         remote('addr', 'add', '198.18.0.6/32', 'dev', 'lo')
         ip('route', 'add', '198.18.0.0/24', 'via', '192.0.2.2', 'dev', 'original0')
         tun, capture = allocate_unix(allocator)
-        ip('addr', 'add', '198.18.0.1/30', 'dev', capture)
-        ip('link', 'set', capture, 'up')
         ip('route', 'add', '198.18.0.6/32', 'dev', capture)
         # Preserve the selected original source and its reverse path without relaxing rp_filter.
         ip('route', 'add', '192.0.2.0/24', 'dev', 'original0', 'table', '42117')

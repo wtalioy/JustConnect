@@ -77,4 +77,5 @@ void UnixTunDevice::close()
     interfaceName.clear();
     interfaceIndex = 0;
     ownerId = {};
+    configuration = {};
 }

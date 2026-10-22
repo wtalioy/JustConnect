@@ -1,6 +1,7 @@
 #pragma once
 
 #include "application/platformoperationresult.h"
+#include <QJsonObject>
 #include <QUuid>
 
 class UnixTunDevice
@@ -12,6 +13,8 @@ public:
     UnixTunDevice &operator=(const UnixTunDevice &) = delete;
 
     PlatformOperationResult create(const QUuid &owner);
+    PlatformOperationResult createIpv4(const QUuid &owner, const QString &source, const QString &peer, int mtu);
+    QJsonObject snapshot() const;
     void close();
     // Borrowed descriptor; SCM_RIGHTS gives the receiver its own reference.
     int descriptor() const { return fd; }
@@ -23,4 +26,5 @@ private:
     QString interfaceName;
     quint32 interfaceIndex = 0;
     QUuid ownerId;
+    QJsonObject configuration;
 };

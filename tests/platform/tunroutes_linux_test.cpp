@@ -131,9 +131,7 @@ int main(int argc, char **argv) try
         QFile filter(QString("/proc/sys/net/ipv4/conf/%1/rp_filter").arg(name));
         check(filter.open(QIODevice::WriteOnly) && filter.write("1") == 1, "Keep strict reverse-path filtering in the private namespace");
     }
-    check(device.create(QUuid::createUuid()).succeeded(), "Create the exclusively owned route fixture device");
-    ip({"address", "add", source, "peer", peer + "/32", "dev", device.name()});
-    ip({"link", "set", device.name(), "up"});
+    check(device.createIpv4(QUuid::createUuid(), source, peer, 1400).succeeded(), "Create and configure the exclusively owned route fixture device");
     ip({"link", "add", "foreign0", "type", "dummy"});
     ip({"link", "set", "foreign0", "up"});
     ip({"address", "add", "192.0.2.1/24", "dev", "foreign0"});

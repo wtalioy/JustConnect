@@ -1,6 +1,7 @@
 #include "infrastructure/platform/tundevice.h"
 #include <QCoreApplication>
 #include <QJsonDocument>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QMap>
 #include <cerrno>
@@ -9,6 +10,8 @@
 #include <fcntl.h>
 #include <iostream>
 #ifndef __APPLE__
+#include "infrastructure/platform/linux/iprouteutility.h"
+#include "infrastructure/platform/platformcommand.h"
 #include <linux/capability.h>
 #include <linux/if_tun.h>
 #include <sys/syscall.h>
@@ -24,8 +27,9 @@
 static void check(bool ok, const char *message) { if (!ok) throw std::runtime_error(message); }
 
 #ifndef __APPLE__
-enum class Fault { None, ReadbackFailure, VirtualHeader, PacketInformation };
+enum class Fault { None, ReadbackFailure, VirtualHeader, PacketInformation, ConfigurationReadback, ConfigurationMtu };
 static Fault injected = Fault::None;
+static int mtuReads = 0;
 extern "C" int __real_ioctl(int fd, unsigned long request, ...);
 extern "C" int __wrap_ioctl(int fd, unsigned long request, ...)
 {
@@ -41,7 +45,12 @@ extern "C" int __wrap_ioctl(int fd, unsigned long request, ...)
     if (injected == Fault::ReadbackFailure && request == TUNGETIFF) { errno = EIO; return -1; }
     if (injected == Fault::VirtualHeader && request == TUNSETIFF) value->ifr_flags |= IFF_VNET_HDR;
     if (injected == Fault::PacketInformation && request == TUNSETIFF) value->ifr_flags &= ~IFF_NO_PI;
-    return __real_ioctl(fd, request, value);
+    const int result = __real_ioctl(fd, request, value);
+    if (request == SIOCGIFMTU && ++mtuReads == 2) {
+        if (injected == Fault::ConfigurationReadback) { errno = EIO; return -1; }
+        if (injected == Fault::ConfigurationMtu) ++value->ifr_mtu;
+    }
+    return result;
 }
 #endif
 
@@ -60,6 +69,19 @@ int main(int argc, char **argv) try
 {
     QCoreApplication app(argc, argv);
     UnixTunDevice device;
+    const auto originalInterfaces = interfaces();
+    const auto invalidConfiguration = [&] {
+        for (const auto &bad : {QString("0.0.0.0"), QString("127.0.0.1"), QString("224.0.0.1"),
+                               QString("198.018.0.1"), QString("::1"), QString("198.18.0.1") + QChar(0) + "ignored"})
+            check(!device.createIpv4(QUuid::createUuid(), bad, "198.18.0.2", 1400).succeeded()
+                  && device.snapshot().isEmpty(), "Invalid source reached configured TUN allocation");
+        for (const int mtu : {0, 67, 65536})
+            check(!device.createIpv4(QUuid::createUuid(), "198.18.0.1", "198.18.0.2", mtu).succeeded(),
+                  "Invalid MTU reached configured TUN allocation");
+        check(!device.createIpv4(QUuid::createUuid(), "198.18.0.1", "198.18.0.1", 1400).succeeded()
+              && !device.createIpv4(QUuid::createUuid(), "198.18.0.1", "224.0.0.1", 1400).succeeded()
+              && interfaces() == originalInterfaces, "Invalid point-to-point addresses changed interfaces");
+    };
     if (argc == 1) {
         check(::geteuid() != 0, "Run the ordinary-user check without root");
 #ifndef __APPLE__
@@ -69,10 +91,15 @@ int main(int argc, char **argv) try
               && (caps[0].effective | caps[1].effective) == 0,
               "Run the ordinary-user check without root or effective capabilities");
 #endif
+        invalidConfiguration();
         check(!device.create({}).succeeded(), "Missing ownership reached TUN creation");
         const auto denied = device.create(QUuid::createUuid());
         check(denied.status == PlatformOperationResult::Status::PermissionDenied && !denied.mayHaveChanged
               && device.descriptor() == -1 && device.name().isEmpty(), "Unprivileged creation changed network state or hid permission denial");
+        const auto configured = device.createIpv4(QUuid::createUuid(), "198.18.0.1", "198.18.0.2", 1400);
+        check(configured.status == PlatformOperationResult::Status::PermissionDenied && !configured.mayHaveChanged
+              && device.snapshot().isEmpty() && interfaces() == originalInterfaces,
+              "Unprivileged configured allocation changed the network or lost its permission result");
         std::cout << "PASS: native TUN creation requires device privileges and a valid owner\n";
         return 0;
     }
@@ -96,6 +123,7 @@ int main(int argc, char **argv) try
     const int descriptorFlags = ::fcntl(control, F_GETFD);
     check(descriptorFlags >= 0 && ::fcntl(control, F_SETFD, descriptorFlags | FD_CLOEXEC) == 0,
           "Allocator control channel can leak across exec");
+    invalidConfiguration();
 #ifndef __APPLE__
     for (const auto fault : {Fault::ReadbackFailure, Fault::VirtualHeader, Fault::PacketInformation}) {
         const auto before = interfaces();
@@ -106,10 +134,25 @@ int main(int argc, char **argv) try
               && device.descriptor() == -1 && interfaces() == before,
               "Failed readback or unsupported frame headers were accepted or leaked a device");
     }
+    for (const auto fault : {Fault::ConfigurationReadback, Fault::ConfigurationMtu}) {
+        const auto before = interfaces();
+        const auto routes = runPlatformCommand(trustedIpRouteUtility(), {"-j", "-4", "route", "show", "table", "all"});
+        check(routes.result.succeeded(), "Read kernel routes before failed configuration");
+        injected = fault;
+        mtuReads = 0;
+        const auto failed = device.createIpv4(QUuid::createUuid(), "198.18.0.1", "198.18.0.2", 1400);
+        injected = Fault::None;
+        check(failed.status == PlatformOperationResult::Status::Failed && failed.mayHaveChanged
+              && device.snapshot().isEmpty() && interfaces() == before,
+              "Failed configuration readback published or leaked an actual configured device");
+        const auto after = runPlatformCommand(trustedIpRouteUtility(), {"-j", "-4", "route", "show", "table", "all"});
+        check(after.result.succeeded() && after.output == routes.output,
+              "Failed device configuration left actual kernel routes behind");
+    }
 #endif
     const auto before = interfaces();
     const auto owner = QUuid::createUuid();
-    const auto result = device.create(owner);
+    const auto result = device.createIpv4(owner, "198.18.0.1", "198.18.0.2", 1400);
     check(result.succeeded(), qPrintable(result.detail));
     const auto descriptor = device.descriptor();
     const auto index = device.index();
@@ -118,6 +161,17 @@ int main(int argc, char **argv) try
     check(!device.create(QUuid::createUuid()).succeeded() && device.descriptor() == descriptor
           && device.index() == index && device.owner() == owner,
           "Repeated creation changed the owned device");
+    const auto snapshot = device.snapshot();
+    const auto configuration = snapshot["configuration"].toObject();
+    const auto applied = configuration["applied"].toObject();
+    check(configuration["before"].toObject()["ipv4"].toArray().isEmpty()
+          && applied["mtu"] == 1400 && (applied["flags"].toInt() & IFF_UP)
+          && applied["ipv4"].toArray() == QJsonArray{QJsonObject{{"source", "198.18.0.1"},
+              {"peer", "198.18.0.2"}, {"netmask", "255.255.255.255"}}},
+          "Device ownership lost its original and verified applied configuration");
+    check(!device.createIpv4(QUuid::createUuid(), "198.19.0.1", "198.19.0.2", 1420).succeeded()
+          && device.snapshot() == snapshot && device.descriptor() == descriptor,
+          "Repeated configured allocation replaced an active owner's device");
 #ifndef __APPLE__
     UnixTunDevice collision;
     check(!collision.create(owner).succeeded() && collision.descriptor() == -1
@@ -143,7 +197,7 @@ int main(int argc, char **argv) try
     check(removed && refused && preserved, "Persistent external-device collision was adopted, changed or left behind");
 #endif
     const auto payload = QJsonDocument(QJsonObject{{"name", device.name()}, {"index", qint64(index)},
-        {"owner", device.owner().toString(QUuid::WithoutBraces)}}).toJson(QJsonDocument::Compact);
+        {"owner", device.owner().toString(QUuid::WithoutBraces)}, {"configuration", configuration}}).toJson(QJsonDocument::Compact);
     iovec data{const_cast<char *>(payload.constData()), size_t(payload.size())};
     alignas(cmsghdr) char ancillary[CMSG_SPACE(sizeof(int))]{};
     msghdr message{};
@@ -168,9 +222,9 @@ int main(int argc, char **argv) try
           && ::recv(control, &accepted, 1, MSG_DONTWAIT) == 1 && accepted == 'R',
           "Receiver did not confirm ownership before allocator release");
 #ifdef __APPLE__
-    std::cout << "PASS: native utun allocator verifies fresh ownership, address-family framing and CLOEXEC before fd transfer\n";
+    std::cout << "PASS: native utun allocator verifies IPv4/MTU configuration, fresh ownership, address-family framing and CLOEXEC before fd transfer\n";
 #else
-    std::cout << "PASS: native TUN allocator verifies raw IP framing, readback rollback, exclusive ownership and CLOEXEC before fd transfer\n";
+    std::cout << "PASS: native TUN allocator verifies IPv4/MTU configuration, raw IP framing, readback rollback, exclusive ownership and CLOEXEC before fd transfer\n";
 #endif
     return 0;
 } catch (const std::exception &error) {
