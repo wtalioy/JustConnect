@@ -16,7 +16,7 @@ ctest --test-dir build -C Release --output-on-failure
 
 Unix 使用 Go 静态归档；Windows 的 cgo 使用固定校验和的 LLVM-MinGW UCRT，Qt 宿主使用 MSVC，并从应用目录加载随包 DLL。共享 [CoreLibrary.cmake](../cmake/CoreLibrary.cmake) 构建同一份核心，记录来源及工具链到 `build/source-revision.txt`／`build/core-toolchain.txt`。
 
-正式应用可离线自检，不需要账号、网络、TUN 或显示服务器，也不创建应用配置／日志：
+正式应用可离线自检，不需要账号、网络、TUN 或显示服务器，也不创建应用配置／日志；检查启动必需的 VPN、原网络快照接口及初始保护能力，但不读取实际网络：
 
 ```sh
 ./build/JustConnect --core-self-test

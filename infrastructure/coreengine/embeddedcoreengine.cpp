@@ -379,9 +379,11 @@ QJsonObject EmbeddedCoreEngine::buildInfo() {
 QJsonObject EmbeddedCoreEngine::selfTest() {
     auto info = buildInfo();
     auto &api = library();
+    const auto capabilities = info["capabilities"].toObject();
     bool ok = api.available && info["abi_version"].toInt() == JC_ABI_VERSION
         && info["test_driver"].isBool() && !info["test_driver"].toBool()
-        && info["capabilities"].toObject()["embedded_vpn"].toBool();
+        && capabilities["embedded_vpn"].toBool() && api.jc_network_snapshot
+        && capabilities["network_snapshot"].toBool() && capabilities["initial_protection"].toBool();
     uint64_t handle = 0;
     if (ok) {
         ok = api.jc_session_create(JC_ABI_VERSION, &handle) == JC_OK && handle != 0;
