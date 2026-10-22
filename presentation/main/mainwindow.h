@@ -23,6 +23,7 @@ class ApplicationLogger;
 class ApplicationLogFile;
 class ConnectionUiController;
 class ConfigurationGuideDialog;
+class NetworkPolicyWindow;
 class UpdateChecker;
 
 class MainWindow : public QMainWindow
@@ -122,6 +123,7 @@ private:
 
     QPointer<SettingWindow> settingWindow;
     QPointer<ConfigurationGuideDialog> guideWindow;
+    QPointer<NetworkPolicyWindow> networkPolicyWindow;
 
 };
 

@@ -1,4 +1,5 @@
 #include "connectionuicontroller.h"
+#include "application/networkpolicysession.h"
 #include "authenticationcachecoordinator.h"
 #include "presentation/presentationhelpers.h"
 
@@ -33,6 +34,7 @@ ConnectionUiController::ConnectionUiController(
     QAction *trayConnectAction,
     ConnectionSession *connectionSession,
     SystemProxySession *systemProxySession,
+    NetworkPolicySession *networkPolicy,
     AuthDialogCoordinator *authenticationDialogs,
     ApplicationLogger *applicationLogger,
     CredentialAccess *credentials,
@@ -48,6 +50,7 @@ ConnectionUiController::ConnectionUiController(
       trayConnectAction(trayConnectAction),
       connectionSession(connectionSession),
       systemProxySession(systemProxySession),
+      networkPolicy(networkPolicy),
       authenticationDialogs(authenticationDialogs),
       settingsProvider(std::move(settingsProvider)),credentials(credentials),credentialSourceProvider(std::move(credentialSourceProvider)),
       notificationHandler(std::move(notificationHandler))
@@ -62,6 +65,7 @@ ConnectionUiController::ConnectionUiController(
     authenticationCache=new AuthenticationCacheCoordinator(connectionSession,credentials,this->credentialSourceProvider,this);
     shutdown=new ApplicationShutdown(connectionSession,systemProxySession, [this] {
         if (this->credentials->isBusy() || authenticationCache->isBinding()) return true;
+        if (this->networkPolicy && this->networkPolicy->isBusy()) return true;
         for (auto *query:this->parentWidget->findChildren<AuthMethodsQuery *>()) if (query->isActive()) return true;
         return false;
     },this);
@@ -420,6 +424,7 @@ void ConnectionUiController::prepareForQuit()
 {
     if (!quitting) {
         quitting=true;
+        if (networkPolicy) networkPolicy->clear();
         cancelPendingCredentials();
         autoProxyPending=false;
         ++proxyGeneration;

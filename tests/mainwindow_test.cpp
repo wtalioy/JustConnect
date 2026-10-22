@@ -1,4 +1,5 @@
 #include "presentation/main/mainwindow.h"
+#include "presentation/dialogs/networkpolicywindow.h"
 #include "application/applicationlogger.h"
 #include "application/defaultsettings.h"
 #include "infrastructure/platform/terminationrequests.h"
@@ -63,6 +64,16 @@ int main(int argc,char **argv) {
         const bool tray=QSystemTrayIcon::isSystemTrayAvailable();
         check(tray ? window.isHidden() : window.isVisible(),"default close must use an available tray or keep the window reachable");
         window.show();
+        auto *inspectNetwork = window.findChild<QAction *>("inspectNetworkAction");
+        check(inspectNetwork, "network inspection is reachable from the main menu");
+        inspectNetwork->trigger();
+        QPointer<NetworkPolicyWindow> inspection = window.findChild<NetworkPolicyWindow *>();
+        check(inspection && inspection->isVisible(), "network inspection opens without an active connection");
+        inspectNetwork->trigger();
+        check(window.findChildren<NetworkPolicyWindow *>().size() == 1, "reopening network inspection reuses its window");
+        inspection->close();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        check(!inspection, "closed network inspection releases its window");
         QTcpServer stalledGateway;
         auto *connection=window.findChild<ConnectionSession *>();
         const bool activePreferences=app.arguments().contains("--active-preferences");

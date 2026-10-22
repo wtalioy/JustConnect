@@ -3,10 +3,12 @@
 #include <memory>
 
 #include "application/connectionsession.h"
+#include "application/networkpolicysession.h"
 #include "application/profileservice.h"
 #include "application/systemproxysession.h"
 #include "infrastructure/coreengine/embeddedcoreengine.h"
 #include "infrastructure/platform/platformsystemproxybackend.h"
+#include "infrastructure/platform/dnssnapshot.h"
 #include "infrastructure/settings/profilemanager.h"
 #include "infrastructure/settings/credentialaccess.h"
 #include "infrastructure/platform/systemcredentialstore.h"
@@ -25,7 +27,9 @@ MainWindowCoordinator::MainWindowCoordinator(
           overrideConfigPath,
           this
       )),
-      connectionSession(new ConnectionSession(new EmbeddedCoreEngine(), this)),
+      coreEngine(new EmbeddedCoreEngine()),
+      connectionSession(new ConnectionSession(coreEngine, this)),
+      networkPolicySession(new NetworkPolicySession(coreEngine, readSystemDnsSnapshot, this)),
       systemProxySession(new SystemProxySession(
           std::make_unique<PlatformSystemProxyBackend>(),
           this
@@ -42,6 +46,7 @@ MainWindowCoordinator::MainWindowCoordinator(
     connect(authenticationCoordinator, &AuthDialogCoordinator::responseSubmitted,
         connectionSession, &ConnectionSession::submitResponse);
     connect(connectionSession, &ConnectionSession::stateChanged, this, [this](ConnectionState state) {
+        if (state == ConnectionState::Stopping) networkPolicySession->clear();
         if (state != ConnectionState::Starting) authenticationCoordinator->closeAuthentication();
     });
 
@@ -68,6 +73,8 @@ ConnectionSession *MainWindowCoordinator::connection() const
 {
     return connectionSession;
 }
+
+NetworkPolicySession *MainWindowCoordinator::networkPolicy() const { return networkPolicySession; }
 
 SystemProxySession *MainWindowCoordinator::systemProxy() const
 {

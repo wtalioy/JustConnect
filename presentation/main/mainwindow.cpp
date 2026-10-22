@@ -22,6 +22,7 @@
 #include "infrastructure/settings/profilemanager.h"
 
 #include "mainwindow.h"
+#include "presentation/dialogs/networkpolicywindow.h"
 
 #include "application/applicationlogger.h"
 #include "application/applicationconstants.h"
@@ -189,6 +190,16 @@ MainWindow::MainWindow(
     connect(ui->openLogPushButton, &QPushButton::clicked,
             ui->openLogAction, &QAction::trigger);
 
+    connect(ui->inspectNetworkAction, &QAction::triggered, this, [this] {
+        if (!networkPolicyWindow) {
+            networkPolicyWindow = new NetworkPolicyWindow(coordinator->networkPolicy(), this);
+            networkPolicyWindow->setAttribute(Qt::WA_DeleteOnClose);
+        }
+        networkPolicyWindow->show();
+        networkPolicyWindow->raise();
+        networkPolicyWindow->activateWindow();
+    });
+
     // 文件-打开日志文件
     connect(ui->openLogAction, &QAction::triggered, this,
             [this]()
@@ -302,6 +313,7 @@ MainWindow::MainWindow(
         trayConnectAction,
         connectionSession,
         systemProxySession,
+        coordinator->networkPolicy(),
         authenticationDialogs,
         applicationLogger,
         coordinator->credentials(),

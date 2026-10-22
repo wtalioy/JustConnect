@@ -3,6 +3,7 @@
 
 #include <QObject>
 #include <QSystemTrayIcon>
+#include <QPointer>
 
 #include <functional>
 #include <optional>
@@ -16,6 +17,7 @@ class ApplicationLogger;
 class AuthDialogCoordinator;
 class AuthenticationCacheCoordinator;
 class ConnectionSession;
+class NetworkPolicySession;
 class QPushButton;
 class QSettings;
 class SystemProxySession;
@@ -41,6 +43,7 @@ public:
         QAction *trayConnectAction,
         ConnectionSession *connectionSession,
         SystemProxySession *systemProxySession,
+        NetworkPolicySession *networkPolicy,
         AuthDialogCoordinator *authenticationDialogs,
         ApplicationLogger *applicationLogger,
         CredentialAccess *credentials,
@@ -77,6 +80,7 @@ private:
     QAction *trayConnectAction;
     ConnectionSession *connectionSession;
     SystemProxySession *systemProxySession;
+    QPointer<NetworkPolicySession> networkPolicy;
     AuthDialogCoordinator *authenticationDialogs;
     SettingsProvider settingsProvider;
     CredentialAccess *credentials;
