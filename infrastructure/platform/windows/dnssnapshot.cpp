@@ -14,6 +14,9 @@ $dnsReadWatch=[Diagnostics.Stopwatch]::StartNew()
 function Trace-DnsRead([string]$dnsReadStage) {
     [Console]::Error.WriteLine(('JCDNS phase={0} elapsed_ms={1}' -f $dnsReadStage,$dnsReadWatch.ElapsedMilliseconds))
 }
+Trace-DnsRead 'script'
+# Compile CIM type references after the entry marker, using the same elapsed clock.
+& ([ScriptBlock]::Create(@'
 Trace-DnsRead 'utility'
 Import-Module ($PSHOME+'\Modules\Microsoft.PowerShell.Utility\Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop
 function Read-DnsRows([string]$class,[string[]]$fields) {
@@ -76,6 +79,7 @@ try {
     Trace-DnsRead 'serialize'
     ConvertTo-Json -InputObject $data -Depth 6 -Compress
 } finally { $session.Dispose() }
+'@))
 )PS");
 
 bool strings(const QJsonValue &value)
@@ -136,7 +140,7 @@ DnsSnapshot readWindowsDnsSnapshot(const PlatformCommandRunner &runner)
     if (!command.result.succeeded()) {
         auto result = command.result;
         const QRegularExpression phase(QStringLiteral("^JCDNS phase=([A-Za-z0-9_]{1,64}) elapsed_ms=([0-9]{1,8})$"));
-        const QStringList stages{"utility", "local_session", "nrpt", "nrpt_rows", "doh_class", "serialize",
+        const QStringList stages{"script", "utility", "local_session", "nrpt", "nrpt_rows", "doh_class", "serialize",
             "MSFT_DNSClientDohServerAddress", "MSFT_DNSClientServerAddress", "MSFT_DNSClient", "MSFT_DNSClientGlobalSetting"};
         QString last;
         for (const auto &line : command.standardError.split('\n')) {

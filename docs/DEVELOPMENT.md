@@ -86,6 +86,8 @@ Linux 可用 `JC_TEST_SECRET_PROVIDER` 指定隔离安装的 gnome-keyring-daemo
 
 原生凭据验证与使用替身的 UI／账户隔离／晚到结果测试各自保留；桌面解锁、真实授权、Clash 共存和宿主强杀恢复仍按计划单独验收。测试筛选可用 `ctest --test-dir build -R 'credential|profile|setting|coreengine|platform|autostart|systemproxy' --output-on-failure`。
 
+Windows DNS 读取只保留白名单 `JCDNS` 阶段与耗时。`script` 标记先于内部 CIM 脚本编译，共用同一计时起点；超时没有该标记时，不能归因为某条 CIM 查询。十秒预算包含进程启动与完整读取，不预热或重试。入口包装已在实际 Windows 互操作中核对完整结果等价、可选／必需提供者失败及受控编译错误；本机已有缓存，不作为 CI 冷启动性能证据。
+
 ## aTrust 性能基线
 
 ```sh
