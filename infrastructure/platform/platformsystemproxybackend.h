@@ -1,6 +1,7 @@
 #pragma once
 #include "application/systemproxybackend.h"
 #include <memory>
+#include <functional>
 #include <QJsonObject>
 #ifdef Q_OS_WIN
 #include "windows/proxyapi.h"
@@ -13,6 +14,8 @@
 class PlatformSystemProxyBackend : public SystemProxyBackend
 {
 public:
+    // Success confirms durable publication; an empty object removes the record. Caller holds the recovery lock.
+    using CheckpointWriter = std::function<PlatformOperationResult(const QJsonObject &)>;
 #ifdef Q_OS_WIN
     explicit PlatformSystemProxyBackend(WindowsProxyApi api = {}) : api(api) {}
 #elif defined(Q_OS_MACOS)
@@ -20,7 +23,7 @@ public:
 #else
     explicit PlatformSystemProxyBackend(PlatformCommandRunner runner = [](const QString &p, const QStringList &a) {
         return runPlatformCommand(p, a);
-    }) : runner(std::move(runner)) {}
+    }, CheckpointWriter writer = {}) : runner(std::move(runner)), checkpointWriter(std::move(writer)) {}
 #endif
     PlatformSystemProxyBackend(const PlatformSystemProxyBackend &) = delete;
     PlatformSystemProxyBackend &operator=(const PlatformSystemProxyBackend &) = delete;
@@ -41,5 +44,9 @@ private:
     MacProxyApi api;
 #else
     PlatformCommandRunner runner;
+    CheckpointWriter checkpointWriter;
+#ifdef Q_OS_LINUX
+    PlatformOperationResult checkpoint(bool remove = false);
+#endif
 #endif
 };

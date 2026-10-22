@@ -194,6 +194,9 @@ struct PlatformSystemProxyBackend::Snapshot {
     Target target;
     QVariantMap before, installed;
     QSet<QString> released;
+    QSet<QString> intent, written, uncertain;
+    QString pendingRestore;
+    bool dirty = false, resumed = false;
     SystemProxyConfig config;
     QJsonObject context;
     QUuid owner = QUuid::createUuid();
@@ -201,12 +204,22 @@ struct PlatformSystemProxyBackend::Snapshot {
 
 QJsonObject PlatformSystemProxyBackend::recoverySnapshot() const {
     if (!snapshot) return {};
-    auto released=snapshot->released.values();std::sort(released.begin(),released.end());
-    return {{"schema_version",1},{"platform","linux"},
+    const auto array=[](const QSet<QString> &set) {
+        auto values=set.values();std::sort(values.begin(),values.end());return QJsonArray::fromStringList(values);
+    };
+    return {{"schema_version",2},{"platform","linux"},
         {"machine",QString::fromLatin1(QSysInfo::machineUniqueId().toHex())},
         {"owner",snapshot->owner.toString(QUuid::WithoutBraces)},{"context",snapshot->context},
         {"config",QJsonObject{{"http_port",snapshot->config.httpPort},{"socks_port",snapshot->config.socksPort},{"bypass",snapshot->config.bypass}}},
-        {"before",QJsonObject::fromVariantMap(snapshot->before)},{"released",QJsonArray::fromStringList(released)}};
+        {"before",QJsonObject::fromVariantMap(snapshot->before)},{"released",array(snapshot->released)},
+        {"intent",array(snapshot->intent)},{"written",array(snapshot->written)},
+        {"uncertain",array(snapshot->uncertain)},{"pending_restore",snapshot->pendingRestore}};
+}
+
+PlatformOperationResult PlatformSystemProxyBackend::checkpoint(bool remove) {
+    auto result=checkpointWriter ? checkpointWriter(remove?QJsonObject{}:recoverySnapshot()) : Result{};
+    if (!result.succeeded() && snapshot && snapshot->dirty) result.mayHaveChanged=true;
+    return result;
 }
 
 PlatformOperationResult PlatformSystemProxyBackend::recover(const QJsonObject &record) {
@@ -215,10 +228,12 @@ PlatformOperationResult PlatformSystemProxyBackend::recover(const QJsonObject &r
     const auto bytes=QJsonDocument(record).toJson(QJsonDocument::Compact);
     const auto machine=QString::fromLatin1(QSysInfo::machineUniqueId().toHex());
     const auto ownerText=record["owner"].toString();const QUuid owner(ownerText);
-    if (bytes.size()>CredentialStore::MaxBytes || QJsonDocument::fromJson(bytes).object()!=record || record.size()!=8
-        || record["schema_version"]!=1 || record["platform"]!="linux" || machine.isEmpty() || record["machine"]!=machine
+    if (bytes.size()>CredentialStore::MaxBytes || QJsonDocument::fromJson(bytes).object()!=record || record.size()!=12
+        || record["schema_version"]!=2 || record["platform"]!="linux" || machine.isEmpty() || record["machine"]!=machine
         || owner.isNull() || owner.toString(QUuid::WithoutBraces)!=ownerText || record["context"]!=currentContext()
-        || !record["config"].isObject() || !record["before"].isObject() || !record["released"].isArray()) return invalid();
+        || !record["config"].isObject() || !record["before"].isObject() || !record["released"].isArray()
+        || !record["intent"].isArray() || !record["written"].isArray() || !record["uncertain"].isArray()
+        || !record["pending_restore"].isString()) return invalid();
     const auto config=record["config"].toObject();
     const auto http=config["http_port"].toInteger(-1),socks=config["socks_port"].toInteger(-1);
     if (config.size()!=3 || http<1 || http>65535 || socks<1 || socks>65535 || !config["bypass"].isString()) return invalid();
@@ -253,11 +268,25 @@ PlatformOperationResult PlatformSystemProxyBackend::recover(const QJsonObject &r
             pending->before[key]=value.toString();
         }
     }
-    for (const auto &entry:record["released"].toArray()) {
-        if (!entry.isString() || !keys.contains(entry.toString()) || pending->released.contains(entry.toString())) return invalid();
-        pending->released.insert(entry.toString());
+    pending->installed=requested(target,pending->before,pending->config);
+    for (const auto &field:QStringList{"released","intent","written","uncertain"}) {
+        auto &set=field=="released"?pending->released:field=="intent"?pending->intent:field=="written"?pending->written:pending->uncertain;
+        for (const auto &entry:record[field].toArray()) {
+            const auto key=entry.toString();
+            if (!entry.isString() || !keys.contains(key) || key==target.pacKey() || set.contains(key)
+                || (field!="released" && pending->before[key]==pending->installed[key])) return invalid();
+            set.insert(key);
+        }
     }
-    pending->installed=requested(target,pending->before,pending->config);snapshot=pending;
+    if (pending->released.intersects(pending->uncertain) || !(pending->written-pending->intent).isEmpty()
+        || !(pending->uncertain-pending->intent).isEmpty()) return invalid();
+    pending->pendingRestore=record["pending_restore"].toString();
+    if (!pending->pendingRestore.isEmpty()) {
+        const auto &key=pending->pendingRestore;
+        if (!pending->intent.contains(key) || pending->released.contains(key) || pending->uncertain.contains(key)) return invalid();
+    }
+    pending->dirty=!pending->intent.isEmpty();
+    pending->resumed=true;snapshot=pending;
     return clear();
 }
 
@@ -286,13 +315,28 @@ PlatformOperationResult PlatformSystemProxyBackend::apply(const SystemProxyConfi
     if(pending->target.isKde())for(const auto &protocol:protocols)
         if(pending->before[protocol+"Proxy"].toString().contains('@'))return {Status::Unsupported,"Credentialed KDE proxy URLs cannot be changed safely by the command-line backend"};
     pending->installed=requested(pending->target,pending->before,config);snapshot=pending;
+    if (auto result=checkpoint();!result.succeeded()) {
+        if (!result.mayHaveChanged) snapshot.reset();
+        return result;
+    }
     auto order=pending->target.keys();order.removeAll(pending->target.pacKey());
     // Disable authentication before changing the HTTP endpoint; restore it only after the original endpoint.
     if(!pending->target.isKde()){order.removeAll("http/use-authentication");order.prepend("http/use-authentication");}
     const auto fail=[this](Result result){const auto restored=clear();result.mayHaveChanged=!restored.succeeded();return result;};
     for(const auto &key:order)if(pending->before[key]!=pending->installed[key]) {
+        pending->intent.insert(key);
+        const auto abandon=[&](Result result) {
+            pending->intent.remove(key);pending->released.insert(key);return fail(result);
+        };
+        if (auto result=checkpoint();!result.succeeded()) return abandon(result);
+        QVariant actual;
+        if (auto result=readValue(runner,pending->target,key,actual);!result.succeeded()) return abandon(result);
+        if (actual!=pending->before[key]) return abandon({Status::Failed,"Proxy setting changed before application"});
+        pending->dirty=true;
         auto result=writeValue(runner,pending->target,key,pending->installed[key]);
         if(!result.succeeded())return fail(result);
+        pending->written.insert(key);
+        if (auto result=checkpoint();!result.succeeded()) return fail(result);
     }
     if(auto result=notify(runner,pending->target);!result.succeeded())return fail(result);
     return {Status::Success,{},true};
@@ -301,6 +345,27 @@ PlatformOperationResult PlatformSystemProxyBackend::apply(const SystemProxyConfi
 PlatformOperationResult PlatformSystemProxyBackend::clear() {
     if(!snapshot)return {};
     auto &saved=*snapshot;QVariantMap current;
+    if (!saved.dirty) {
+        const auto result=checkpoint(true);
+        if (!result.succeeded()) return {result.status,result.detail,true};
+        snapshot.reset();return {};
+    }
+    if (saved.resumed) {
+        auto unconfirmed=saved.intent-saved.written-saved.released;
+        if (!saved.pendingRestore.isEmpty()) unconfirmed.insert(saved.pendingRestore);
+        // A crash can lose write confirmation or hide restoration followed by external same-value recreation.
+        for (const auto &key:unconfirmed) {
+            QVariant value;
+            if (auto result=readValue(runner,saved.target,key,value);!result.succeeded()) return {result.status,result.detail,true};
+            if (value==saved.installed[key]) saved.uncertain.insert(key);
+            else {saved.uncertain.remove(key);saved.released.insert(key);}
+            if (saved.pendingRestore==key) saved.pendingRestore.clear();
+        }
+        saved.pendingRestore.clear();
+    }
+    saved.resumed=false;
+    for (const auto &key:saved.target.keys())
+        if (key!=saved.target.pacKey() && !saved.intent.contains(key)) saved.released.insert(key);
     if(auto result=readState(runner,saved.target,current);!result.succeeded()){result.mayHaveChanged=true;return result;}
     const auto known=[&](const QString &key){return current[key]==saved.before[key]
         || (!saved.released.contains(key) && current[key]==saved.installed[key]);};
@@ -313,25 +378,56 @@ PlatformOperationResult PlatformSystemProxyBackend::clear() {
         return Result{};
     };
     bool changed=false;
-    const auto restoreGroup=[&](const QStringList &keys) {
+    const auto restoreGroup=[&](const QStringList &keys) -> Result {
+        const auto release=[&] {
+            bool modified=false;
+            for (const auto &part:keys) {
+                modified|=!saved.released.contains(part) || saved.uncertain.contains(part);
+                saved.released.insert(part);saved.uncertain.remove(part);
+            }
+            if (keys.contains(saved.pendingRestore)) {saved.pendingRestore.clear();modified=true;}
+            return modified?checkpoint():Result{};
+        };
+        bool blocked=false;
+        for (const auto &part:keys) if (saved.uncertain.contains(part)) blocked=true;
+        if (blocked) {
+            auto result=refresh(keys);if (!result.succeeded()) return result;
+            for (const auto &part:keys) if (!known(part)) return release();
+            blocked=false;
+            for (const auto &part:keys) if (saved.uncertain.contains(part)) {
+                if (current[part]==saved.installed[part]) blocked=true;
+                else {saved.uncertain.remove(part);saved.released.insert(part);}
+            }
+            if (blocked) return checkpoint();
+        }
         for(const auto &key:keys) {
             if(saved.released.contains(key))continue;
             auto result=refresh(keys);if(!result.succeeded())return result;
-            for(const auto &part:keys)if(!known(part)) {
-                for(const auto &part:keys)saved.released.insert(part);
-                return Result{};
-            }
+            for(const auto &part:keys)if(!known(part))return release();
             // Credentials are valid only for the original endpoint, including during restoration.
             if(key=="http/use-authentication" && saved.before[key].toBool()
                 && (current["http/host"]!=saved.before["http/host"] || current["http/port"]!=saved.before["http/port"])) {
-                saved.released.insert(key);return Result{};
+                saved.released.insert(key);return checkpoint();
             }
             if(current[key]!=saved.before[key]) {
+                saved.pendingRestore=key;
+                if (auto result=checkpoint();!result.succeeded()) return {result.status,result.detail,true};
+                if (checkpointWriter) {
+                    if (auto result=refresh(keys);!result.succeeded()) return result;
+                    for (const auto &part:keys) if (!known(part)) return release();
+                }
+                if (current[key]==saved.before[key]) {
+                    saved.released.insert(key);saved.pendingRestore.clear();
+                    if (auto result=checkpoint();!result.succeeded()) return {result.status,result.detail,true};
+                    continue;
+                }
                 result=writeValue(runner,saved.target,key,saved.before[key]);
                 if(!result.succeeded()){result.mayHaveChanged=true;return result;}
                 current[key]=saved.before[key];changed=true;
             }
             saved.released.insert(key);
+            if (saved.pendingRestore==key) saved.pendingRestore.clear();
+            if (auto result=checkpoint();!result.succeeded()) return {result.status,result.detail,true};
         }
         return Result{};
     };
@@ -353,6 +449,10 @@ PlatformOperationResult PlatformSystemProxyBackend::clear() {
         flags << saved.target.modeKey();
         if(auto result=restoreGroup(flags);!result.succeeded())return result;
     }
+    if (auto result=checkpoint();!result.succeeded()) return {result.status,result.detail,true};
     if(auto result=notify(runner,saved.target);!result.succeeded()){result.mayHaveChanged=true;return result;}
+    if (!saved.uncertain.isEmpty()) return {Status::Failed,"Unconfirmed proxy restoration retained matching settings for review",true};
+    saved.dirty=false;
+    if (auto result=checkpoint(true);!result.succeeded()) return {result.status,result.detail,true};
     snapshot.reset();return {Status::Success,{},changed};
 }
