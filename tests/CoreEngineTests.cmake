@@ -35,3 +35,17 @@ function(justconnect_core_ui_tests TARGET ENGINE LIBRARY)
     set_tests_properties(${TARGET}_protocol PROPERTIES TIMEOUT 90 WORKING_DIRECTORY "${CORE}"
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu")
 endfunction()
+
+function(justconnect_network_policy_tests)
+    add_executable(networkprotection_test "${REPO}/tests/networkprotection_test.cpp" "${REPO}/application/networkprotection.cpp")
+    target_include_directories(networkprotection_test PRIVATE "${REPO}")
+    target_link_libraries(networkprotection_test PRIVATE Qt6::Core Qt6::Network)
+    add_test(NAME networkprotection_test COMMAND networkprotection_test)
+    add_executable(networkpolicysession_test "${REPO}/tests/networkpolicysession_test.cpp"
+        "${REPO}/application/networkpolicysession.cpp" "${REPO}/application/networkprotection.cpp" "${REPO}/application/coreengine.h")
+    set_target_properties(networkpolicysession_test PROPERTIES AUTOMOC ON)
+    target_include_directories(networkpolicysession_test PRIVATE "${REPO}")
+    target_link_libraries(networkpolicysession_test PRIVATE Qt6::Core Qt6::Network Qt6::Concurrent)
+    add_test(NAME networkpolicysession_test COMMAND networkpolicysession_test)
+    set_tests_properties(networkpolicysession_test PROPERTIES TIMEOUT 15)
+endfunction()
