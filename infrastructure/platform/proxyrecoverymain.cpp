@@ -6,6 +6,10 @@
 #include <QJsonObject>
 #include <QStandardPaths>
 #include <iostream>
+#ifdef Q_OS_LINUX
+#include "linux/persistentproxy.h"
+#include "systemcredentialstore.h"
+#endif
 
 int main(int argc, char **argv)
 {
@@ -19,6 +23,11 @@ int main(int argc, char **argv)
     QCoreApplication::setApplicationName("JustConnect");
     const auto directory = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
     if (directory.isEmpty() || !QDir().mkpath(directory)) return 1;
+#ifdef Q_OS_LINUX
+    auto credentials=createSystemCredentialStore();
+    LinuxPersistentProxyBackend backend(*credentials,LinuxPersistentProxyBackend::credentialKey());
+#else
     PlatformSystemProxyBackend backend;
+#endif
     return runProxyRecoveryWorker(backend,application.arguments()[1],directory+"/proxy-recovery.lock");
 }

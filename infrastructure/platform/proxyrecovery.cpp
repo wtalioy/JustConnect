@@ -175,7 +175,7 @@ PlatformOperationResult ProxyRecoveryBackend::clear() { return worker->call("cle
 
 int runProxyRecoveryWorker(SystemProxyBackend &backend, const QString &endpoint, const QString &lockFile)
 {
-    // shortcut: snapshots stay in this worker; persist them before supporting worker crash/restart recovery.
+    // shortcut: automatic worker restart still needs persistent backends and an ownership-safe reconnect handshake.
     QLocalSocket channel;
     channel.setReadBufferSize(MaxFrame+1);
     channel.connectToServer(endpoint);
@@ -203,9 +203,11 @@ int runProxyRecoveryWorker(SystemProxyBackend &backend, const QString &endpoint,
     }
     // The host may already be gone; keep the original backend alive until its recovery succeeds.
     unsigned delay = 1;
-    while (!backend.clear().succeeded()) {
+    for (;;) {
+        const auto result=backend.clear();
+        if (result.succeeded()) return 0;
+        if (!result.mayHaveChanged) return 1;
         QThread::sleep(delay);
         delay = qMin(delay*2,30u);
     }
-    return 0;
 }

@@ -14,6 +14,12 @@
 #include <cstdlib>
 #ifdef Q_OS_WIN
 #include <raserror.h>
+#elif defined(Q_OS_LINUX)
+#include "infrastructure/platform/linux/persistentproxy.h"
+#include "infrastructure/platform/systemcredentialstore.h"
+#include <QDir>
+#include <QFileInfo>
+#include <QLockFile>
 #endif
 
 static void check(bool ok, const char *message) { if (!ok) { std::cerr << message << '\n'; std::exit(1); } }
@@ -531,6 +537,30 @@ static void checkpointTests() {
               && fixture.values["org.gnome.system.proxy.http:use-authentication"]=="true",
               "Resolved uncertainty did not finish owned recovery or exposed original credentials too early");
     }
+    {
+        class Store final : public CredentialStore {
+        public:
+            QByteArray bytes;bool present=true;int reads=0;
+            CredentialResult read(const QString &) override {++reads;return present?CredentialResult{CredentialStatus::Success,bytes}:CredentialResult{CredentialStatus::NotFound,{}};}
+            CredentialResult write(const QString &,const QByteArray &) override {check(false,"Invalid recovery record was overwritten");return {};}
+            CredentialResult remove(const QString &) override {check(false,"Invalid recovery record was removed");return {};}
+        } store;
+        auto fixture=seed();QJsonObject record;
+        {PlatformSystemProxyBackend owner([&](const QString &p,const QStringList &a){return fixture.run(p,a);});
+         check(owner.apply(config).succeeded(),"Seed a typed recovery record");record=owner.recoverySnapshot();}
+        record["machine"]="foreign";
+        const auto foreign=QJsonDocument(record).toJson(QJsonDocument::Compact);
+        for(const auto &invalid:QList<QByteArray>{QByteArray{},"not-json","{}",foreign}) {
+            store.bytes=invalid;store.present=true;int calls=0;
+            LinuxPersistentProxyBackend backend(store,QString(64,'a'),[&](const QString &p,const QStringList &a){++calls;return fixture.run(p,a);});
+            const auto result=backend.clear();
+            check(!result.succeeded() && !result.mayHaveChanged && !backend.apply(config).succeeded() && calls==0 && store.bytes==invalid,
+                  "Invalid protected recovery reached native operations, allowed a new application or lost its original bytes");
+            const auto reads=store.reads;store.present=false;
+            check(!backend.clear().succeeded() && !backend.apply(config).succeeded() && store.reads==reads && calls==0,
+                  "External deletion after rejected recovery was mistaken for successful restoration");
+        }
+    }
     std::cout<<"PASS: proxy write-ahead intents, confirmed values, denied checkpoints, external races and fresh-backend uncertainty\n";
 }
 
@@ -578,6 +608,63 @@ static void isolatedKde() {
     check(get("httpProxy")==credentialed && get("ProxyType")=="1","unsupported credentialed KDE settings remain unchanged");
     std::cout<<"PASS: native KConfig apply, restoration and external ownership in a private directory/bus\n";
 }
+
+static void protectedProxyPhase(const QString &phase,const QString &key) {
+    const auto root=QFileInfo(qEnvironmentVariable("XDG_CONFIG_HOME")).dir();
+    check(qEnvironmentVariable("GSETTINGS_BACKEND")=="keyfile"
+          && root.dirName().startsWith("JustConnect-secret-test-")
+          && root.absolutePath().startsWith(QDir::tempPath()+'/'),"Refuse daily proxy and credential settings");
+    QLockFile ownership(root.filePath("proxy-test.lock"));ownership.setStaleLockTime(0);
+    check(ownership.tryLock(),"Acquire private proxy recovery ownership");
+    auto credentials=createSystemCredentialStore();int mutations=0,calls=0;
+    LinuxPersistentProxyBackend backend(*credentials,key,[&](const QString &p,const QStringList &a) {
+        ++calls;if(a.value(0)=="set")++mutations;return runPlatformCommand(p,a);
+    });
+    const auto all=[] {
+        const auto result=runPlatformCommand("gsettings",{"list-recursively","org.gnome.system.proxy"});
+        check(result.result.succeeded(),"Read complete private proxy settings");return result.output.toUtf8();
+    };
+    if(phase=="unavailable" || phase=="locked") {
+        const auto before=all();const auto result=backend.clear();
+        check(!result.succeeded() && result.mayHaveChanged && calls==0 && all()==before,
+              "Unavailable/locked recovery storage reached native proxy operations or claimed cleanup");
+    } else if(phase=="prepare" || phase=="denied") {
+        const auto set=[](const QString &schema,const QString &key,const QString &value) {
+            check(runPlatformCommand("gsettings",{"set",schema,key,value}).result.succeeded(),"Seed private native proxy values");
+        };
+        set("org.gnome.system.proxy.http","host","'prior.invalid'");
+        set("org.gnome.system.proxy.http","port","3128");
+        set("org.gnome.system.proxy.http","use-authentication","true");
+        set("org.gnome.system.proxy.http","authentication-user","'fixture user'");
+        set("org.gnome.system.proxy.http","authentication-password","'fixture password'");
+        set("org.gnome.system.proxy","autoconfig-url","'https://sensitive-proxy-fixture.invalid/token'");
+        set("org.gnome.system.proxy","mode","'auto'");
+        const auto before=all();const auto result=backend.apply(config);
+        if(phase=="denied") {
+            check(!result.succeeded() && mutations==0 && all()==before && backend.clear().succeeded()
+                  && credentials->read(key).status==CredentialStatus::NotFound,"Denied protected checkpoint changed native settings");
+        } else {
+            check(result.succeeded() && mutations>0 && credentials->read(key).succeeded(),"Native application did not persist protected recovery");
+            QFile baseline(root.filePath("proxy-before.txt"));
+            check(baseline.open(QIODevice::WriteOnly) && baseline.write(before)==before.size(),"Preserve private native test baseline");
+            // Exit without clear: the next process must use only the persisted protected record.
+        }
+    } else if(phase=="finish") {
+        QFile baseline(root.filePath("proxy-before.txt"));check(baseline.open(QIODevice::ReadOnly),"Read original private native baseline");
+        const auto original=baseline.readAll();
+        check(backend.clear().succeeded() && mutations>0 && all()==original
+              && credentials->read(key).status==CredentialStatus::NotFound,"Fresh process lost original values or retained a completed record");
+        ownership.unlock();
+        ProxyRecoveryBackend worker;
+        check(worker.check(config).result.succeeded() && worker.apply(config).succeeded()
+              && credentials->read(LinuxPersistentProxyBackend::credentialKey()).succeeded() && all()!=original,
+              "Packaged worker did not use protected checkpoints for actual native application");
+        check(worker.clear().succeeded() && all()==original
+              && credentials->read(LinuxPersistentProxyBackend::credentialKey()).status==CredentialStatus::NotFound,
+              "Packaged worker did not restore native settings and remove its protected record");
+    } else check(false,"Unknown protected recovery phase");
+    std::cout<<"PASS: protected native proxy recovery "<<phase.toStdString()<<'\n';
+}
 #endif
 
 int main(int argc, char **argv) {
@@ -612,6 +699,7 @@ int main(int argc, char **argv) {
         std::cout << "PASS: actual platform query, no system writes\n"; return 0;
     }
 #ifdef Q_OS_LINUX
+    if(args.size()==3 && CredentialStore::validKey(args[2])){protectedProxyPhase(args[1],args[2]);return 0;}
     if(args.contains("--isolated-kde")){isolatedKde();return 0;}
     if (args.contains("--isolated")) {
         QTemporaryDir directory;

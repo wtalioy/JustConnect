@@ -47,6 +47,7 @@ function(justconnect_platform TARGET)
     elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         find_package(Qt6 REQUIRED COMPONENTS DBus)
         target_sources(${TARGET} PRIVATE "${REPO}/infrastructure/platform/linux/dnssnapshot.cpp"
+            "${REPO}/infrastructure/platform/linux/persistentproxy.cpp"
             "${REPO}/infrastructure/platform/linux/tundevice.cpp"
             "${REPO}/infrastructure/platform/linux/sourcejournal.cpp"
             "${REPO}/infrastructure/platform/linux/sourceroutes.cpp"
@@ -149,6 +150,11 @@ function(justconnect_platform_tests TARGET LIBRARY)
         set_tests_properties(${TARGET}_native_roundtrip ${TARGET}_native_recovery PROPERTIES TIMEOUT 45)
     endif()
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_dependencies(${TARGET} JustConnectProxyRecovery)
+        add_test(NAME ${TARGET}_protected_recovery COMMAND "${Python3_EXECUTABLE}"
+            "${REPO}/tests/platform/credentialstore_linux.py" "$<TARGET_FILE:${TARGET}>")
+        set_tests_properties(${TARGET}_protected_recovery PROPERTIES TIMEOUT 75
+            ENVIRONMENT "GSETTINGS_BACKEND=keyfile;XDG_CURRENT_DESKTOP=GNOME;XDG_SESSION_DESKTOP=gnome")
         add_executable(linux_sourcejournal_test "${REPO}/tests/platform/sourcejournal_linux_test.cpp")
         target_link_libraries(linux_sourcejournal_test PRIVATE ${LIBRARY} Qt6::Core)
         target_link_options(linux_sourcejournal_test PRIVATE "LINKER:--wrap=fsync" "LINKER:--wrap=renameat2")
