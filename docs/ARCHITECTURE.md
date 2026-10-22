@@ -94,6 +94,9 @@ SSO 浏览器从当前连接会话接收 TLS 策略，回调来源与策略在�
 
 系统 DNS 结果类型归 `application/dnssnapshot.h`，平台适配由 `readSystemDnsSnapshot()` 统一选择既有原生读取实现；调用者在工作线程运行，返回值沿用状态、完整事实和失败时空数据。各平台的原生回归经过统一入口，私有总线与故障夹具仍直接注入平台读取器。
 
+同一模型模块从 DNS 快照提取 `dns_namespaces`，每项保留原始表达式、角色及原快照来源（字段／行／数组项或动态存储键）。resolved 的路由域与搜索路由域分开，Windows 生效 NRPT 保留原始命名空间，不能统一解释成后缀；macOS State／Setup 的匹配域、搜索域和主域作为配置输入分别保留，不冒充最终作用域或搜索顺序。`resolv.conf` 仅提取文件内最后一个非空 search／domain 指令，保留 glibc 的列首及空白语法，不代替 NSS、LOCALDOMAIN 或其他解析提供者。畸形、NUL 与超过 4096 项均使整次模型失败；表达式不直接成为授权或已生效保护。依据：[resolved 域路由](https://www.freedesktop.org/software/systemd/man/latest/systemd-resolved.service.html)、[Windows NRPT 命名空间](https://learn.microsoft.com/en-us/windows-server/networking/dns/name-resolution-policy-table)、[Apple DNS 配置处理](https://github.com/apple-oss-distributions/configd/blob/main/Plugins/IPMonitor/dns-configuration.c)、[glibc 文件解析](https://github.com/bminor/glibc/blob/master/resolv/res_init.c)。
+
+
 `application/networkpolicysession.*` 按核心会话代次聚合网络与已就绪的校园资源，在两者成功后由单个后台任务读取系统 DNS 并推导保护／冲突模型。刷新清空旧模型，缺少能力、读取失败或畸形数据不发布部分内容；新代等待旧任务退出后仅构建当前代，停止立即失效交付。底层只读调用仍按各平台已有边界完成，协调对象销毁前等待所属任务。主窗口协调器复用同一个核心，断开进入停止阶段即失效模型；有序退出先失效结果，再由既有关闭流程等待后台读取完成，保留事件循环及原有超时边界。自动提交保护策略仍待实现。
 
 `NetworkPolicyWindow` 只展示当前完整模型中的原网络范围、接口／路由来源和已知校园地址重叠，保留授权协议／端口及内置记录／校园 DNS 的角色。刷新失败、停止、代次变化或会话对象销毁先清空旧行；内容使用纯文本，查看及刷新不调用策略提交。主窗口“文件 → 网络范围与校园地址重叠…”复用单个窗口，关闭释放窗口；无活动连接也可打开并查看无结果提示。受控交互、真实协议展示、清空和查询期间退出均有回归。

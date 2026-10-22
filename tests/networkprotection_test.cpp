@@ -93,6 +93,55 @@ int main(int argc, char **argv) try
     network["interfaces"] = QJsonArray{QJsonObject{{"addresses", QJsonArray{"10.0.0.1/1"}}}};
     check(!originalNetworkProtection(network), "Unrepresentable interface protection silently discarded");
     check(!originalNetworkProtection({}), "Missing native facts treated as an empty network");
+    auto dnsFacts = QJsonDocument::fromJson(R"({
+        "resolv_conf":{"contents":"search obsolete.test\ndomain old.test\nsearch lan.test overlay.test\noptions ndots:5\n"},
+        "resolved":{"status":"available","Domains":[
+            {"domain":".","route_only":true,"interface_index":0},
+            {"domain":"mesh.test","route_only":false,"interface_index":7},
+            {"domain":"private.test","route_only":true,"interface_index":7}]},
+        "nrpt":[{"Namespace":[".overlay.test","host","host.example.test",".0.10.in-addr.arpa","."]}],
+        "clients":[{"ConnectionSpecificSuffix":"lan.test","ConnectionSpecificSuffixSearchList":["other.test"]}],
+        "global":{"SuffixSearchList":["global.test"]},
+        "dynamic_store":{
+            "State:/Network/Service/a/DNS":{"SupplementalMatchDomains":["","mesh.test"],"SearchDomains":["mesh"],"DomainName":"mesh.test","SupplementalMatchDomainsNoSearch":true},
+            "Setup:/Network/Service/a/DNS":{"SearchDomains":["configured.test"]}}
+    })").object();
+    const auto unchangedDns = dnsFacts;
+    const auto namespaces = originalDnsNamespaces(dnsFacts);
+    check(namespaces && namespaces->size() == 18 && dnsFacts == unchangedDns,
+          "DNS namespace roles, duplicate sources or original native expressions lost");
+    bool lastSearch=false, rootRoute=false, searchRoute=false, hostNrpt=false, configured=false, active=false;
+    for (const auto &value : *namespaces) {
+        const auto item=value.toObject(), source=item["source"].toObject();
+        check(item["name"]!="obsolete.test" && item["name"]!="old.test", "Superseded resolver search directive retained");
+        if (item["name"]=="lan.test" && source["provider"]=="resolv_conf")
+            lastSearch=item["role"]=="search_configuration" && source["line"]==2 && source["item"]==0;
+        if (item["name"]=="." && source["provider"]=="resolved") rootRoute=item["role"]=="route";
+        if (item["name"]=="mesh.test" && source["provider"]=="resolved")
+            searchRoute=item["role"]=="search_route" && source["row"]==1 && source["interface_index"]==7;
+        if (item["name"]=="host") hostNrpt=item["role"]=="nrpt" && source["item"]==1;
+        if (item["name"]=="configured.test") configured=source["key"]=="Setup:/Network/Service/a/DNS";
+        if (item["name"]=="" && source["provider"]=="dynamic_store") active=source["key"]=="State:/Network/Service/a/DNS";
+    }
+    check(lastSearch && rootRoute && searchRoute && hostNrpt && configured && active,
+          "DNS sources conflated search, routing, native NRPT or configured/current store data");
+    const auto fileSyntax=originalDnsNamespaces({{"resolv_conf",QJsonObject{
+        {"contents","search kept.test # literal\n search ignored.test\ndomain \t\n; search ignored.test\n"}}}});
+    check(fileSyntax && fileSyntax->size()==3 && fileSyntax->last().toObject()["name"]=="literal",
+          "Resolver file syntax invented inline comments, indented directives or an empty override");
+    for (const auto &bad : {QJsonObject{{"resolved",QJsonObject{{"status","available"}}}},
+                            QJsonObject{{"nrpt",QJsonArray{QJsonObject{{"Namespace","collapsed"}}}}},
+                            QJsonObject{{"dynamic_store",QJsonObject{{"State:/Network/Global/DNS",QJsonObject{{"SearchDomains",QJsonArray{7}}}}}}},
+                            QJsonObject{{"global",QJsonObject{{"SuffixSearchList",QJsonArray{QString("bad")+QChar::Null+"name"}}}}}})
+        check(!originalDnsNamespaces(bad), "Malformed DNS source published partial namespace facts");
+    QJsonArray tooMany;
+    for (int i=0;i<4096;++i) tooMany.append("same.test");
+    dnsFacts={{"nrpt",QJsonArray{QJsonObject{{"Namespace",tooMany}}}}};
+    check(originalDnsNamespaces(dnsFacts)->size()==4096,"DNS namespace capacity rejected exact boundary");
+    tooMany.append("overflow.test");dnsFacts["nrpt"]=QJsonArray{QJsonObject{{"Namespace",tooMany}}};
+    check(!originalDnsNamespaces(dnsFacts),"DNS namespace capacity silently truncated sources");
+    check(originalDnsNamespaces({{"resolved",QJsonObject{{"status","unavailable"}}}})->isEmpty(),
+          "Unavailable resolved treated as an invented namespace");
     std::cout << "PASS: actual original targets, exit exclusions, native provenance and invalid snapshot rejection\n";
     return 0;
 } catch (const std::exception &error) {
