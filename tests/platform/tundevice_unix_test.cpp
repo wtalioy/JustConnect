@@ -14,6 +14,7 @@
 #include <sys/syscall.h>
 #endif
 #include <net/if.h>
+#include <poll.h>
 #include <stdexcept>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
@@ -161,6 +162,11 @@ int main(int argc, char **argv) try
     constexpr int sendFlags = MSG_NOSIGNAL;
 #endif
     check(::sendmsg(control, &message, sendFlags) == payload.size(), "Native allocator did not transfer its owned fd");
+    pollfd acknowledgement{control, POLLIN, 0};
+    char accepted = 0;
+    check(::poll(&acknowledgement, 1, 5000) == 1 && (acknowledgement.revents & POLLIN)
+          && ::recv(control, &accepted, 1, MSG_DONTWAIT) == 1 && accepted == 'R',
+          "Receiver did not confirm ownership before allocator release");
 #ifdef __APPLE__
     std::cout << "PASS: native utun allocator verifies fresh ownership, address-family framing and CLOEXEC before fd transfer\n";
 #else

@@ -98,9 +98,14 @@ def receive(control_fd, uid, gid, crash):
         received = fds[0]
         os.set_blocking(received, False)
         print('CHECK: ordinary receiver owns a nonblocking native TUN fd', flush=True)
-        for destination, confirmation in [('198.18.0.2', b'C'), ('198.18.0.6', b'E')]:
-            exchange(received, destination)
-            control.sendall(confirmation)
+        try:
+            for destination, confirmation in [('198.18.0.2', b'C'), ('198.18.0.6', b'E')]:
+                exchange(received, destination)
+                control.sendall(confirmation)
+        except Exception as error:
+            # Closing the channel lets the parent kill us before Python prints its traceback.
+            print(f'FAIL: native receiver {type(error).__name__}: {error}', file=sys.stderr, flush=True)
+            raise
         if crash:
             control.sendall(b'K')
             control.recv(1)  # Parent kills this process with its fd still open.
@@ -129,8 +134,6 @@ def allocate_unix(allocator):
                 fds.extend(received)
             else:
                 unexpected = True
-        output, _ = process.communicate(timeout=5)
-        assert process.returncode == 0, output.decode('utf-8', errors='replace')
         assert not unexpected and not flags & (socket.MSG_TRUNC | socket.MSG_CTRUNC) and len(fds) == 1, 'native allocator did not transfer exactly one complete device record'
         metadata = json.loads(payload)
         name, index = metadata['name'], metadata['index']
@@ -143,6 +146,9 @@ def allocate_unix(allocator):
                 assert native.getsockopt(socket.SYSPROTO_CONTROL, 2, 16).split(b'\0', 1)[0].decode('ascii') == name, 'transferred fd lost its utun identity'
                 assert native.getsockopt(socket.SYSPROTO_CONTROL, 1) == 0, 'transferred fd lost address-family framing'
         assert not os.get_inheritable(fds[0]), 'received allocator fd can leak across exec'
+        parent.sendall(b'R')
+        output, _ = process.communicate(timeout=5)
+        assert process.returncode == 0, output.decode('utf-8', errors='replace')
         print(output.decode('utf-8'), end='', flush=True)
         return fds[0], name
     except BaseException:
