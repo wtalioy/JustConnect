@@ -56,6 +56,11 @@ int main(int argc, char **argv) try
           && config["protected_names"].toArray() == QJsonArray{QJsonObject{{"kind", "suffix"}, {"value", "lan.test"}}}
           && config["campus"].toArray().isEmpty() && config["campus_names"].toArray().isEmpty(),
           "Core configuration lost native scopes or leaked inspection metadata");
+    check(canonicalProtectionName("HOST.Example.TEST.") == QString("host.example.test")
+          && canonicalProtectionName(QStringLiteral("bücher.test")) == QString("xn--bcher-kva.test"),
+          "Name input lost case, absolute-query or ACE normalization");
+    for (const auto &bad : QStringList{"", ".", "*.mesh.test", "192.0.2.10", "::1", " a.test", "a..test", "-a.test", "a.test..", QString(64, 'a')+".test", QString("a")+QChar(0)+".test"})
+        check(!canonicalProtectionName(bad), "Invalid concrete name reached policy submission");
     auto resources = QJsonDocument::fromJson(R"({
         "ip_resources":[
             {"ip_min":"192.168.24.250","ip_max":"192.168.25.8","protocol":"tcp","port_min":22,"port_max":22},

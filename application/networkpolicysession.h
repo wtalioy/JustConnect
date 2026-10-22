@@ -17,8 +17,10 @@ public:
     void clear();
     bool refresh();
     bool setCampusAddress(const QString &address, bool campus);
+    bool setCampusName(const QString &name, bool campus);
     QString currentGeneration() const { return generation; }
     QJsonArray campusAddresses() const { return confirmedPolicy["campus"].toArray(); }
+    QJsonArray campusNames() const { return confirmedPolicy["campus_names"].toArray(); }
     bool isPolicyUpdating() const { return !pendingPolicy.isEmpty(); }
     std::optional<CoreEngine::RequestStatus> policyStatus() const { return lastPolicyStatus; }
     bool isBusy() const { return workerBusy || networkPending || resourcesPending || isPolicyUpdating(); }
@@ -28,6 +30,7 @@ signals:
     void changed();
 private:
     struct ModelResult { quint64 serial; CoreEngine::RequestStatus status; QJsonObject model; };
+    bool submitPolicy(QJsonObject policy);
     void begin(const QString &generation);
     void buildModel();
     void publish();

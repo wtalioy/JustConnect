@@ -1081,7 +1081,7 @@ static void gateway(const QJsonObject &config) {
         check(server.listen(QHostAddress::LocalHost, 0), "owned native protection server");
         nativePort = server.serverPort();
         nativeListening.release();
-        for (int i = 0; i < 4; ++i) {
+        for (int i = 0; i < 5; ++i) {
             check(server.waitForNewConnection(5000), "protected request reaches its original native server");
             auto *socket = server.nextPendingConnection();
             check(socket->write(nativeReply) == nativeReply.size()
@@ -1126,6 +1126,30 @@ static void gateway(const QJsonObject &config) {
         } else check(ProxyCheck::receive(protectedSocket, nativeReply.size()) == nativeReply,
             "Initial protection and returning to original preserve the actual native server");
         protectedSocket.close();
+    }
+    check(networkPolicy.setCampusName("LOCALHOST.", true), "Request a concrete campus name exception");
+    until([&] { return !networkPolicy.isPolicyUpdating(); });
+    check(networkPolicy.policyStatus()==CoreEngine::RequestStatus::Success
+          && networkPolicy.campusNames()==QJsonArray{"localhost"} && networkPolicy.campusAddresses().isEmpty(),
+          "Real core confirms only the concrete campus name");
+    {
+        QTcpSocket chosenName;
+        connectProtected(chosenName, true);
+        const QByteArray payload("campus-name-echo");
+        check(chosenName.write(payload)==payload.size()
+              && (chosenName.bytesToWrite()==0 || chosenName.waitForBytesWritten(5000)), "Explicit campus name payload");
+        check(ProxyCheck::receive(chosenName,payload.size())==payload,
+              "Explicit name uses the authorized campus resource despite protected native addresses");
+    }
+    check(networkPolicy.setCampusName("localhost", false), "Restore the owned original name");
+    until([&] { return !networkPolicy.isPolicyUpdating(); });
+    check(networkPolicy.policyStatus()==CoreEngine::RequestStatus::Success && networkPolicy.campusNames().isEmpty(),
+          "Real core confirms name recovery");
+    {
+        QTcpSocket restoredName;
+        connectProtected(restoredName, true);
+        check(ProxyCheck::receive(restoredName,nativeReply.size())==nativeReply,
+              "Restored name returns to the actual original server");
     }
     nativeServer.waitForFinished();
     check(networkPolicy.campusAddresses().isEmpty(), "Returning to original removed the confirmed campus exception");

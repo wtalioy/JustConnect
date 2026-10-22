@@ -93,7 +93,7 @@ int main(int argc, char **argv) try
           "Native source, protocol/port or DNS role lost in explanation");
     check(lan->toolTip(2)==lan->text(2), "Long overlap details became inaccessible in a narrow column");
     check(dns && tabs && dns->topLevelItemCount() == 7, "Native and reserved DNS namespace sources are reachable in a separate tab");
-    tabs->setCurrentWidget(dns);
+    tabs->setCurrentIndex(1);
     check(dns->isVisible() && dns->topLevelItem(0)->text(0).contains("根域")
           && dns->topLevelItem(1)->text(1).contains("搜索后缀及路由域")
           && dns->topLevelItem(1)->text(2).contains("LAN <bridge>&")
@@ -143,16 +143,7 @@ int main(int argc, char **argv) try
     check(session.campusAddresses()==QJsonArray{"192.168.24.12"} && lanRow()->text(3)=="192.168.24.12/32" && restore->isEnabled(),
           "Confirmed exact preference was not displayed or reversible");
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-    tabs->setCurrentWidget(dns);
-    if (app.arguments().size() == 2) {
-        QCoreApplication::processEvents();
-        check(window.grab().save(app.arguments()[1]+".dns.png"), "Save controlled DNS UI preview");
-    }
     tabs->setCurrentIndex(0);
-    if (app.arguments().size() == 2) {
-        QCoreApplication::processEvents();
-        check(window.grab().save(app.arguments()[1]), "Save controlled UI preview");
-    }
     choose->click(); input=activeInput(); input->setTextValue("192.168.24.13"); input->accept();
     check(engine.policies==2, "Second explicit selection did not reach the core");
     acknowledge(CoreEngine::RequestStatus::Failed);
@@ -193,6 +184,60 @@ int main(int argc, char **argv) try
     engine.stop();
     check(tree->topLevelItemCount() == 0 && dns->topLevelItemCount() == 0 && !refresh->isEnabled() && engine.policies == 4,
           "Stop changed routing preference or retained disconnected facts");
+    fail = false;
+    emit engine.sessionStarted("3");emit engine.connectionEstablished();
+    until([&]{return session.status()==CoreEngine::RequestStatus::Success;});
+    check(session.setCampusAddress("192.168.24.12",true), "Name UI fixture chooses an unrelated address");
+    acknowledge(CoreEngine::RequestStatus::Success);
+    auto *chooseName=window.findChild<QPushButton *>("chooseCampusName");
+    auto *restoreName=window.findChild<QPushButton *>("restoreOriginalName");
+    auto *nameChoices=window.findChild<QLabel *>("networkPolicyCampusNames");
+    check(chooseName && restoreName && nameChoices && chooseName->isEnabled() && !restoreName->isEnabled(),
+          "Concrete name actions unavailable or invented an effective exception");
+    const auto nameStart=engine.policies;
+    tabs->setCurrentIndex(1);
+    chooseName->click();input=activeInput();input->setTextValue("*.mesh.test");input->accept();
+    check(engine.policies==nameStart && session.campusNames().isEmpty(), "Name input accepted a namespace wildcard");
+    QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    chooseName->click();input=activeInput();input->setTextValue("HOST.Mesh.Test.");input->accept();
+    check(engine.policies==nameStart+1 && session.isPolicyUpdating() && !chooseName->isEnabled()
+          && !restoreName->isEnabled() && !nameChoices->text().contains("host.mesh.test"),
+          "Pending name choice published or another write remained enabled");
+    acknowledge(CoreEngine::RequestStatus::Success);
+    check(session.campusNames()==QJsonArray{"host.mesh.test"} && restoreName->isEnabled()
+          && nameChoices->text().contains("host.mesh.test") && nameChoices->textFormat()==Qt::PlainText
+          && session.campusAddresses()==QJsonArray{"192.168.24.12"}, "Confirmed name display lost normalization or changed its address");
+    if (app.arguments().size()==2) {
+        QCoreApplication::processEvents();check(window.grab().save(app.arguments()[1]+".dns.png"),"Save concrete name choice preview");
+        tabs->setCurrentIndex(0);QCoreApplication::processEvents();check(window.grab().save(app.arguments()[1]),"Save shared address and name preview");
+    }
+    QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    fail = true;refresh->click();
+    until([&]{return session.status()==CoreEngine::RequestStatus::Failed;});
+    check(!chooseName->isEnabled() && restoreName->isEnabled() && nameChoices->text().contains("host.mesh.test"),
+          "Failed inspection enabled a new name or hid confirmed recovery");
+    tabs->setCurrentIndex(1);restoreName->click();input=activeInput();
+    check(input->textValue()=="host.mesh.test","Name recovery offered unowned names");input->accept();
+    acknowledge(CoreEngine::RequestStatus::Failed);
+    check(restoreName->isEnabled() && nameChoices->text().contains("host.mesh.test") && preferenceStatus->text().contains("未能应用"),
+          "Failed name recovery discarded the effective choice");
+    QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    restoreName->click();input=activeInput();input->accept();acknowledge(CoreEngine::RequestStatus::Success);
+    check(session.campusNames().isEmpty() && !restoreName->isEnabled() && !nameChoices->text().contains("host.mesh.test")
+          && session.campusAddresses()==QJsonArray{"192.168.24.12"},"Name recovery retained its exception or damaged unrelated choices");
+    QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    fail = false;refresh->click();until([&]{return session.status()==CoreEngine::RequestStatus::Success;});
+    chooseName->click();QPointer<QInputDialog> oldNameInput=activeInput();oldNameInput->setTextValue("old.mesh.test");
+    const auto beforeNameGeneration=engine.policies;emit engine.sessionStarted("4");
+    if(oldNameInput)oldNameInput->accept();
+    check(engine.policies==beforeNameGeneration && session.campusNames().isEmpty(), "Old name editor changed a new session");
+    emit engine.connectionEstablished();until([&]{return session.status()==CoreEngine::RequestStatus::Success;});
+    QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    chooseName->click();input=activeInput();input->setTextValue("host.mesh.test");input->accept();
+    engine.stop();acknowledge(CoreEngine::RequestStatus::Success);
+    check(session.campusNames().isEmpty() && !chooseName->isEnabled() && !restoreName->isEnabled() && nameChoices->text().isEmpty(),
+          "Stopped name choice accepted late confirmation or retained actionable display");
+
     Engine detachedEngine;
     auto owned = std::make_unique<NetworkPolicySession>(&detachedEngine, readDns);
     NetworkPolicyWindow detached(owned.get());

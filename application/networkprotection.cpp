@@ -253,20 +253,12 @@ std::optional<QJsonObject> originalDnsProtection(const QJsonObject &dns)
             if (text.startsWith('.')) text.remove(0, 1);
             else kind = text.contains('.') ? "exact" : "prefix";
         }
-        if (text.endsWith('.')) text.chop(1);
-        if (text != text.trimmed()) return std::nullopt;
         bool ascii = true;
         for (const auto ch : text) ascii &= ch.unicode() < 128;
-        if ((!ascii && kind == "prefix") || text.contains(QChar::ReplacementCharacter)) return std::nullopt;
-        const auto name = ascii ? text.toLower() : QString::fromLatin1(QUrl::toAce(text)).toLower();
-        if (name.isEmpty() || name.size() > 253) return std::nullopt;
-        const QHostAddress literal(name);
-        if (!literal.isNull() && literal.toString() == name) return std::nullopt;
-        for (const auto &label : name.split('.')) {
-            if (label.isEmpty() || label.size() > 63 || label.startsWith('-') || label.endsWith('-')) return std::nullopt;
-            for (const auto ch : label)
-                if (!((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-' || ch == '_')) return std::nullopt;
-        }
+        if (!ascii && kind == "prefix") return std::nullopt;
+        const auto canonical = canonicalProtectionName(text);
+        if (!canonical) return std::nullopt;
+        const auto name = *canonical;
         if (provider == "dynamic_store" && role == "match_configuration"
             && (name.endsWith(".in-addr.arpa") || name.endsWith(".ip6.arpa"))) search = false;
         if (!add(kind, name, source) || (search && !add("single_label", "", source))) return std::nullopt;
@@ -275,6 +267,25 @@ std::optional<QJsonObject> originalDnsProtection(const QJsonObject &dns)
     for (auto it = rules.cbegin(); it != rules.cend(); ++it)
         targets.append(QJsonObject{{"kind", it.key().first}, {"value", it.key().second}, {"sources", it.value()}});
     return QJsonObject{{"namespaces", *namespaces}, {"targets", targets}};
+}
+
+std::optional<QString> canonicalProtectionName(QString nameInput)
+{
+    if (nameInput.endsWith('.')) nameInput.chop(1);
+    if (nameInput != nameInput.trimmed()) return std::nullopt;
+    bool ascii = true;
+    for (const auto ch : nameInput) ascii &= ch.unicode() < 128;
+    if (nameInput.contains(QChar::ReplacementCharacter)) return std::nullopt;
+    const auto name = ascii ? nameInput.toLower() : QString::fromLatin1(QUrl::toAce(nameInput)).toLower();
+    if (name.isEmpty() || name.size() > 253) return std::nullopt;
+    const QHostAddress literal(name);
+    if (!literal.isNull() && literal.toString() == name) return std::nullopt;
+    for (const auto &label : name.split('.')) {
+        if (label.isEmpty() || label.size() > 63 || label.startsWith('-') || label.endsWith('-')) return std::nullopt;
+        for (const auto ch : label)
+            if (!((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-' || ch == '_')) return std::nullopt;
+    }
+    return name;
 }
 
 QJsonObject protectionConfiguration(const QJsonArray &targets, const QJsonArray &names)

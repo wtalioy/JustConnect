@@ -19,11 +19,13 @@ private:
     void updatePolicyMessage();
     void chooseCampusAddress();
     void restoreOriginalAddress();
+    void editName(bool campus);
     QPointer<NetworkPolicySession> session;
     QLabel *status;
     QLabel *policyMessage;
+    QLabel *nameChoices;
     QTreeWidget *targets;
     QTreeWidget *namespaces;
-    QPushButton *refresh, *campus, *original;
+    QPushButton *refresh, *campus, *original, *campusName, *originalName;
     QPointer<QInputDialog> editor;
 };
