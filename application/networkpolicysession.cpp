@@ -80,7 +80,7 @@ void NetworkPolicySession::clear()
     networkVersion = {};
     confirmedPolicy = pendingPolicy = {};
     revision = 0;
-    lastPolicyStatus = Status::Unavailable;
+    lastPolicyStatus.reset();
     currentStatus = Status::Stale;
     emit changed();
 }
