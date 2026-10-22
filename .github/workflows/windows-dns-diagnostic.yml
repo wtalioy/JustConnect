@@ -51,7 +51,6 @@ jobs:
               ]
           else:
               phases += [
-                  ("$options=", "options"),
                   ("$session=", "session"),
                   ("$parameters=", "parameters"),
                   ("$result=$session.InvokeMethod", "nrpt"),
@@ -64,6 +63,17 @@ jobs:
                   raise RuntimeError('Missing production query phase: ' + label)
               query = query.replace(token, '[Console]::Error.WriteLine(("stage:' + label
                   + ':"+$clock.ElapsedMilliseconds));' + token)
+          query = query.replace('$result=$session.InvokeMethod',
+              '[Console]::Error.WriteLine(("stage:local_session:"+[int]($null -eq $session.ComputerName)));$result=$session.InvokeMethod')
+          query = query.replace('if($result.ReturnValue.Value -ne 0)',
+              '[Console]::Error.WriteLine(("stage:provider_present:"+[int]($null -ne $result.ReturnValue.Value)));'
+              + '[Console]::Error.WriteLine(("stage:provider_code:"+[long]$result.ReturnValue.Value));if($result.ReturnValue.Value -ne 0)')
+          query = query.replace('ConvertTo-Json -InputObject',
+              '[Console]::Error.WriteLine(("stage:nrpt_count:"+@($policies).Count));ConvertTo-Json -InputObject')
+          query = "try {\n" + query + "\n} catch { $fault=$_.Exception.GetBaseException();"
+          query += '[Console]::Error.WriteLine(("stage:fault_hresult:"+[int]$fault.HResult));'
+          query += 'if($fault -is [Microsoft.Management.Infrastructure.CimException]) {'
+          query += '[Console]::Error.WriteLine(("stage:fault_native:"+[int]$fault.NativeErrorCode)) };exit 1 }'
           query = '$clock=[Diagnostics.Stopwatch]::StartNew();[Console]::Error.WriteLine("stage:entered:0")\n' + query
           query += '\n[Console]::Error.WriteLine(("stage:complete:"+$clock.ElapsedMilliseconds))'
           program = str(pathlib.Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/powershell.exe')
@@ -75,8 +85,8 @@ jobs:
           except subprocess.TimeoutExpired as error:
               stderr, code = error.stderr or b'', -1
           print('elapsed_seconds=' + str(round(time.monotonic() - started, 3)), flush=True)
-          allowed = {'entered', 'complete'} | {label for _, label in phases}
-          for label, elapsed in re.findall(rb'stage:([a-z_]+):([0-9]+)', stderr):
+          allowed = {'entered', 'complete', 'provider_present', 'provider_code', 'local_session', 'nrpt_count', 'fault_hresult', 'fault_native'} | {label for _, label in phases}
+          for label, elapsed in re.findall(rb'stage:([a-z_]+):(-?[0-9]+)', stderr):
               if label.decode('ascii') in allowed:
                   print(label.decode('ascii') + ':' + elapsed.decode('ascii'), flush=True)
           print('exit_code=' + str(code), flush=True)

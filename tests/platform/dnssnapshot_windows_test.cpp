@@ -79,7 +79,7 @@ int main(int argc, char **argv) try
               && arguments[2] == "-NonInteractive" && arguments[3] == "-Command"
               && arguments[4].contains("$session.InvokeMethod('ROOT\\Microsoft\\Windows\\DNS','PS_DnsClientNrptPolicy','Get',$parameters)")
               && arguments[4].contains("$parameters.Add(") && arguments[4].contains("'Effective',$true")
-              && arguments[4].contains("[cimsession]::Create('.',$options)")
+              && arguments[4].contains("[cimsession]::Create([NullString]::Value)")
               && !arguments[4].contains("Set-DnsClient"), "Fixed read-only system query changed");
         return PlatformCommandResult{result, output};
     };
