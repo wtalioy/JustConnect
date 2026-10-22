@@ -66,7 +66,7 @@ int main(int argc, char **argv) try
     NetworkPolicySession session(&engine, [&] {
         const int read = ++reads;
         if (read == 1 || read == 4) check(resume.tryAcquire(1, 2000), "Release bounded DNS fixture");
-        return DnsSnapshot{{}, {{"reader", read}}};
+        return DnsSnapshot{{}, {{"reader", read}, {"nrpt", QJsonArray{QJsonObject{{"Namespace", QJsonArray{QString(".generation%1.test").arg(read)}}}}}}};
     });
     int ticks = 0;
     QTimer heartbeat;
@@ -90,6 +90,7 @@ int main(int argc, char **argv) try
     until([&] { return session.status() == Status::Success; });
     check(!session.isBusy() && session.model()["generation"] == "2"
           && session.model()["dns"].toObject()["reader"] == 2
+          && session.model()["dns_namespaces"].toArray().first().toObject()["name"] == ".generation2.test"
           && session.model()["network"].toObject() == network("192.168.2.19")["network"].toObject()
           && !session.model()["conflicts"].toArray().isEmpty(), "Old generation leaked into complete model");
     check(session.refresh(), "Ready session cannot refresh");
@@ -106,7 +107,9 @@ int main(int argc, char **argv) try
     check(session.model().isEmpty() && session.status() == Status::Stale, "Stopped session accepted late facts");
 
     Engine invalid;
-    NetworkPolicySession malformed(&invalid, [] { return DnsSnapshot{{}, {{"read", true}}}; });
+    NetworkPolicySession malformed(&invalid, [] {
+        return DnsSnapshot{{}, {{"nrpt", QJsonArray{QJsonObject{{"Namespace", "collapsed"}}}}}};
+    });
     emit invalid.sessionStarted("1");
     emit invalid.snapshotReady(Kind::Network, "1", {}, Status::Success);
     emit invalid.connectionEstablished();
@@ -118,6 +121,10 @@ int main(int argc, char **argv) try
     emit invalid.snapshotReady(Kind::Resources, "1", {{"resources", QJsonObject{}}}, Status::Success);
     until([&] { return !malformed.isBusy(); });
     check(malformed.status() == Status::Failed && malformed.model().isEmpty(), "Incomplete resources published partial model");
+    check(malformed.refresh(), "Malformed DNS source cannot be refreshed");
+    reply(invalid, "1", "192.168.1.19");
+    until([&] { return !malformed.isBusy(); });
+    check(malformed.status() == Status::Failed && malformed.model().isEmpty(), "Malformed DNS source published usable network facts");
     invalid.unsupported = true;
     check(malformed.refresh(), "Capability failure cannot be refreshed");
     until([&] { return !malformed.isBusy(); });

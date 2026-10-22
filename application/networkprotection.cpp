@@ -1,6 +1,7 @@
 #include "networkprotection.h"
 #include <QHostAddress>
 #include <QMap>
+#include <QRegularExpression>
 
 namespace {
 bool mapped(const QHostAddress &address)
@@ -113,4 +114,94 @@ std::optional<QJsonArray> campusProtectionConflicts(const QJsonArray &targets, c
     const auto dns = resources["campus_dns"].toString();
     if (!dns.isEmpty() && !add(dns, dns, {{"kind", "campus_dns"}})) return std::nullopt;
     return conflicts;
+}
+
+std::optional<QJsonArray> originalDnsNamespaces(const QJsonObject &dns)
+{
+    QJsonArray result;
+    auto add = [&](const QJsonValue &name, const QString &role, const QJsonObject &source) {
+        if (!name.isString() || name.toString().contains(QChar::Null) || result.size() == 4096) return false;
+        result.append(QJsonObject{{"name", name}, {"role", role}, {"source", source}});
+        return true;
+    };
+    auto list = [&](const QJsonObject &row, const QString &field, const QString &role, QJsonObject source) {
+        if (!row.contains(field)) return true;
+        if (!row[field].isArray()) return false;
+        const auto names = row[field].toArray();
+        source["field"] = field;
+        for (int i = 0; i < names.size(); ++i) {
+            source["item"] = i;
+            if (!add(names[i], role, source)) return false;
+        }
+        return true;
+    };
+    if (dns.contains("resolv_conf")) {
+        if (!dns["resolv_conf"].isObject()) return std::nullopt;
+        const auto contents = dns["resolv_conf"].toObject()["contents"];
+        if (!contents.isString()) return std::nullopt;
+        const auto lines = contents.toString().split('\n');
+        QStringList names;
+        int sourceLine = -1;
+        const QRegularExpression whitespace(QStringLiteral("[ \\t]+"));
+        for (int i = 0; i < lines.size(); ++i) {
+            const auto &line = lines[i];
+            if (!line.startsWith("search ") && !line.startsWith("search\t")
+                && !line.startsWith("domain ") && !line.startsWith("domain\t")) continue;
+            const auto words = line.split(whitespace, Qt::SkipEmptyParts);
+            if (words.size() < 2) continue;
+            names = words.mid(1, words[0] == "domain" ? 1 : -1);
+            sourceLine = i;
+        }
+        for (int i = 0; i < names.size(); ++i)
+            if (!add(names[i], "search_configuration", {{"provider", "resolv_conf"}, {"line", sourceLine}, {"item", i}})) return std::nullopt;
+    }
+    if (dns.contains("resolved")) {
+        if (!dns["resolved"].isObject()) return std::nullopt;
+        const auto resolved = dns["resolved"].toObject();
+        if (resolved["status"] == "available") {
+            if (!resolved["Domains"].isArray()) return std::nullopt;
+            const auto domains = resolved["Domains"].toArray();
+            for (int i = 0; i < domains.size(); ++i) {
+                const auto row = domains[i].toObject();
+                if (!row["route_only"].isBool() || row["interface_index"].toInteger(-1) < 0
+                    || !add(row["domain"], row["route_only"].toBool() ? "route" : "search_route",
+                            {{"provider", "resolved"}, {"row", i}, {"interface_index", row["interface_index"]}})) return std::nullopt;
+            }
+        } else if (resolved["status"] != "unavailable") return std::nullopt;
+    }
+    for (const auto &table : {QStringLiteral("nrpt"), QStringLiteral("clients")}) {
+        if (!dns.contains(table)) continue;
+        if (!dns[table].isArray()) return std::nullopt;
+        const auto rows = dns[table].toArray();
+        for (int i = 0; i < rows.size(); ++i) {
+            if (!rows[i].isObject()) return std::nullopt;
+            const auto row = rows[i].toObject();
+            const QJsonObject source{{"provider", table}, {"row", i}};
+            if (table == "nrpt") {
+                if (!row["Namespace"].isArray() || !list(row, "Namespace", "nrpt", source)) return std::nullopt;
+            } else {
+                const auto suffix = row["ConnectionSpecificSuffix"];
+                if (!suffix.isString() || (!suffix.toString().isEmpty()
+                    && !add(suffix, "search", {{"provider", table}, {"row", i}, {"field", "ConnectionSpecificSuffix"}}))
+                    || !list(row, "ConnectionSpecificSuffixSearchList", "search", source)) return std::nullopt;
+            }
+        }
+    }
+    if (dns.contains("global") && (!dns["global"].isObject()
+        || !list(dns["global"].toObject(), "SuffixSearchList", "search", {{"provider", "global"}}))) return std::nullopt;
+    if (dns.contains("dynamic_store")) {
+        if (!dns["dynamic_store"].isObject()) return std::nullopt;
+        const auto store = dns["dynamic_store"].toObject();
+        for (auto it = store.begin(); it != store.end(); ++it) {
+            if (!it.value().isObject()) return std::nullopt;
+            const auto row = it.value().toObject();
+            const QJsonObject source{{"provider", "dynamic_store"}, {"key", it.key()}};
+            // Store entries are resolver inputs, not the final scoped resolver order.
+            if (!list(row, "SupplementalMatchDomains", "match_configuration", source)
+                || !list(row, "SearchDomains", "search_configuration", source)) return std::nullopt;
+            if (row.contains("DomainName") && !add(row["DomainName"], "domain_configuration",
+                {{"provider", "dynamic_store"}, {"key", it.key()}, {"field", "DomainName"}})) return std::nullopt;
+        }
+    }
+    return result;
 }
