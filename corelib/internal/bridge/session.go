@@ -158,7 +158,7 @@ func (e *Engine) Start(handle uint64, input []byte) (uint64, Status) {
 	s.running, s.ready, s.stopping = true, false, false
 	s.ctx, s.cancel, s.done = ctx, cancel, make(chan struct{})
 	s.auth = nil
-	s.policy, s.policyRevision, s.connectOperation = nil, 0, config.Operation != "auth_methods"
+	s.policy, s.policyRevision, s.connectOperation = config.initialPolicy, 0, config.Operation != "auth_methods"
 	s.resources, s.resourcesStatus = nil, Busy
 	s.push(event{Type: "state", State: "starting"})
 	e.active = s

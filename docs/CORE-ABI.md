@@ -8,7 +8,7 @@
 
 构建提交与工作树状态由 Git 查询注入，不填写开发机目录、学校地址或账户。`jc_build_info` 返回当前 Go 版本、目标 OS／架构、JustConnect 完整提交、上游基线和由提交／工作树状态组成的本地版本。直接手动构建而没有 VCS 信息时明确返回 `unversioned/unknown`，不能作为可追溯发布产物。
 
-正式库返回 `embedded_vpn:true`、`auth_method_query:true`、`authentication_cache:true`、`policy_update:true`、`network_snapshot:true`、`resource_snapshot:true`。Start 使用真实会话：认证、资源、选线、IP 握手、解析、gVisor 和监听均成功后才产生 `ready`，失败或取消在清理完成后产生终态。该事件仅表示核心通道／本地代理就绪；系统接管与系统 DNS 不在其契约内，产品“已连接”须由应用层按 [R11／S7-02](../plan.md) 汇总完整就绪条件。只有测试驱动和未安装 Runner 的纯传输引擎没有 VPN 能力；测试驱动始终标记 `test_driver:true`。
+正式库返回 `embedded_vpn:true`、`auth_method_query:true`、`authentication_cache:true`、`policy_update:true`、`initial_protection:true`、`network_snapshot:true`、`resource_snapshot:true`。Start 使用真实会话：认证、资源、选线、IP 握手、解析、gVisor 和监听均成功后才产生 `ready`，失败或取消在清理完成后产生终态。该事件仅表示核心通道／本地代理就绪；系统接管与系统 DNS 不在其契约内，产品“已连接”须由应用层按 [R11／S7-02](../plan.md) 汇总完整就绪条件。只有测试驱动和未安装 Runner 的纯传输引擎没有 VPN 能力；测试驱动始终标记 `test_driver:true`。
 
 ## C 边界与生命周期
 
@@ -55,6 +55,8 @@ ABI v1 与 JSON schema 版本同步。S2-02 以兼容增补导出 `jc_config_val
 ~~~
 
 `schema_version/server.host/server.port` 必填。host 是 ASCII DNS 名或 IP，不是 URL／带端口地址，端口显式指定。其他字段可省略；`auth` 还接受 `phone/domain/totp_secret/auth_id/sub_type`，method 支持空值（按用户名／密码或手机号推导）、`auth/psw`、`auth/smsCheckCode`、`auth/cas`、`auth/httpsOauth2`。listener 空值不启用；非空必须是回环 IP:port。没有 CLI 附加参数、默认学校、TUN、路由／DNS 修改或原始调试输出开关。
+
+核对 `initial_protection` 能力后，connect 配置可附 `protection:{protected:[规范前缀],campus:[IPv4 地址]}`；两数组必填，使用与实时更新相同的完整校验。Start 在启动协议 Runner、保活和代理监听之前原子安装不可变规则，初始修订为 0，之后更新从 1 递增。无效配置不创建连接或消耗代次，省略字段维持原契约；每次新会话重新取本次配置，auth_methods 拒绝此字段。应用尚未自动生成该初始配置，不能把核心能力当作已启用的产品保护。
 
 `operation` 缺省为 `connect`；`auth_methods` 只查询认证方式，产生 `auth_methods` 结果（`methods:[{type,domain,name,login_url,auth_id,sub_type}]`）及终态，不建立数据栈或代理。结果数量、字段和整体事件大小均有界，超限返回 `JC_LIMIT`。
 

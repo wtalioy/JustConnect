@@ -2,6 +2,11 @@ package bridge
 
 import "github.com/wtalioy/JustConnect/corelib/policy"
 
+type ProtectionConfig struct {
+	Protected []string `json:"protected"`
+	Campus    []string `json:"campus"`
+}
+
 type PolicyUpdate struct {
 	SchemaVersion int      `json:"schema_version"`
 	Generation    uint64   `json:"generation,string"`

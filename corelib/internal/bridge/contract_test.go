@@ -84,6 +84,34 @@ func TestAuthenticationCacheInputBoundary(t *testing.T) {
 	}
 }
 
+func TestInitialProtectionInputBoundary(t *testing.T) {
+	var config Config
+	if json.Unmarshal([]byte(configJSON), &config) != nil {
+		t.Fatal("fixture")
+	}
+	config.Protection = &ProtectionConfig{Protected: []string{"192.168.50.0/24"}, Campus: []string{"192.168.50.17"}}
+	parsed, status := ParseConfig(configBytes(t, config))
+	if status != OK || parsed.initialPolicy == nil {
+		t.Fatal("initial policy missing", status)
+	}
+	for _, protection := range []*ProtectionConfig{
+		{}, {Protected: []string{}}, {Campus: []string{}},
+		{Protected: []string{"192.168.50.1/24"}, Campus: []string{}},
+		{Protected: []string{"0.0.0.0/0"}, Campus: []string{}},
+		{Protected: []string{}, Campus: []string{"::1"}},
+	} {
+		config.Protection = protection
+		if parsed, status := ParseConfig(configBytes(t, config)); status != InvalidArgument || parsed.initialPolicy != nil {
+			t.Fatal("invalid initial policy accepted", status)
+		}
+	}
+	config.Protection = &ProtectionConfig{Protected: []string{}, Campus: []string{}}
+	config.Operation = "auth_methods"
+	if _, status := ParseConfig(configBytes(t, config)); status != InvalidArgument {
+		t.Fatal("query accepted business policy")
+	}
+}
+
 func TestAuthenticationValidation(t *testing.T) {
 	for _, kind := range []string{"sms", "totp", "radius", "text_captcha", "click_captcha", "cas", "oauth2", "trusted_device"} {
 		t.Run(kind, func(t *testing.T) {

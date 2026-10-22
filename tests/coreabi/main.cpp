@@ -178,6 +178,8 @@ static void nativeProtocol(API &api, const QByteArray &input) {
     uint64_t handle = 0, generation = 0;
     check(api.jc_session_create(JC_ABI_VERSION, &handle) == JC_OK, "native protocol create");
     const auto start = [&] {
+        if (config["operation"] == "auth_methods") config.remove("protection");
+        else config["protection"] = QJsonObject{{"protected", QJsonArray{"192.0.2.0/24"}}, {"campus", QJsonArray{}}};
         auto bytes = QJsonDocument(config).toJson(QJsonDocument::Compact);
         check(api.jc_session_start(handle, reinterpret_cast<const uint8_t *>(bytes.constData()),
               static_cast<uint32_t>(bytes.size()), &generation) == JC_OK, "native protocol start");
@@ -277,6 +279,7 @@ int main(int argc, char **argv) {
     check(info["capabilities"].toObject()["embedded_vpn"].toBool() == !info["test_driver"].toBool(),
           "protocol capability identifies production and fixture drivers");
     check(info["capabilities"].toObject()["policy_update"].toBool(), "policy update capability matches the loaded export");
+    check(info["capabilities"].toObject()["initial_protection"].toBool(), "initial protection capability matches validated start input");
     check(info["capabilities"].toObject()["network_snapshot"].toBool(), "native network snapshot capability");
     check(info["capabilities"].toObject()["resource_snapshot"].toBool() == !info["test_driver"].toBool(), "campus resource capability requires the protocol backend");
     networkSnapshot(api);
@@ -304,6 +307,15 @@ int main(int argc, char **argv) {
     check(api.jc_config_validate(JC_ABI_VERSION, configInput, JC_MAX_INPUT + 1) == JC_INVALID_ARGUMENT, "validate input size limit");
     const std::string invalidConfig = R"({"schema_version":1,"server":{"host":"localhost","port":443},"extra_arguments":"-foo"})";
     check(api.jc_config_validate(JC_ABI_VERSION, reinterpret_cast<const uint8_t *>(invalidConfig.data()), uint32_t(invalidConfig.size())) == JC_INVALID_ARGUMENT, "validate rejects unknown fields");
+    auto protectedConfig = QJsonDocument::fromJson(QByteArray::fromStdString(config)).object();
+    protectedConfig["protection"] = QJsonObject{{"protected", QJsonArray{"192.0.2.0/24"}}, {"campus", QJsonArray{}}};
+    auto protectedBytes = QJsonDocument(protectedConfig).toJson(QJsonDocument::Compact);
+    check(api.jc_config_validate(JC_ABI_VERSION, reinterpret_cast<const uint8_t *>(protectedBytes.constData()), uint32_t(protectedBytes.size())) == JC_OK,
+        "native validation supports initial protection advertised by the loaded library");
+    protectedConfig["protection"] = QJsonObject{{"protected", QJsonArray{"192.0.2.1/24"}}, {"campus", QJsonArray{}}};
+    protectedBytes = QJsonDocument(protectedConfig).toJson(QJsonDocument::Compact);
+    check(api.jc_config_validate(JC_ABI_VERSION, reinterpret_cast<const uint8_t *>(protectedBytes.constData()), uint32_t(protectedBytes.size())) == JC_INVALID_ARGUMENT,
+        "native initial protection rejects noncanonical prefixes before networking");
     std::vector<uint64_t> idleHandles(JC_MAX_HANDLES);
     for (auto &h : idleHandles) check(api.jc_session_create(JC_ABI_VERSION, &h) == JC_OK, "reserve idle handles before pure validation");
     for (int i = 0; i < 32; ++i)
