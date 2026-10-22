@@ -16,9 +16,10 @@ public:
     void clear();
     bool refresh();
     bool setCampusAddress(const QString &address, bool campus);
-    QJsonArray campusAddresses() const { return chosenCampus; }
+    QJsonArray campusAddresses() const { return confirmedPolicy["campus"].toArray(); }
+    bool isPolicyUpdating() const { return !pendingPolicy.isEmpty(); }
     CoreEngine::RequestStatus policyStatus() const { return lastPolicyStatus; }
-    bool isBusy() const { return workerBusy || networkPending || resourcesPending || policyBusy; }
+    bool isBusy() const { return workerBusy || networkPending || resourcesPending || isPolicyUpdating(); }
     CoreEngine::RequestStatus status() const { return currentStatus; }
     QJsonObject model() const { return currentModel; }
 signals:
@@ -41,9 +42,7 @@ private:
     CoreEngine::RequestStatus currentStatus = CoreEngine::RequestStatus::Unavailable;
     QJsonObject network, resources, currentModel;
     QJsonValue networkVersion;
-    QJsonArray chosenCampus, pendingCampus;
-    QString pendingRevision;
+    QJsonObject confirmedPolicy, pendingPolicy;
     quint64 revision = 0;
-    bool policyBusy = false;
     CoreEngine::RequestStatus lastPolicyStatus = CoreEngine::RequestStatus::Unavailable;
 };

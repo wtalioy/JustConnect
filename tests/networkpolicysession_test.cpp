@@ -166,6 +166,44 @@ int main(int argc, char **argv) try
     until([&] { return !malformed.isBusy(); });
     check(malformed.status() == Status::Unavailable && malformed.model().isEmpty(), "Missing capability misreported");
 
+    Engine recoveryEngine;
+    std::atomic_bool failedDns = false;
+    QSemaphore recoveryEntered, recoveryResume;
+    NetworkPolicySession recovery(&recoveryEngine, [&] {
+        if (!failedDns) return DnsSnapshot{};
+        recoveryEntered.release();
+        check(recoveryResume.tryAcquire(1, 2000), "Release failed recovery DNS fixture");
+        return DnsSnapshot{{PlatformOperationResult::Status::TimedOut, {}}, {}};
+    });
+    emit recoveryEngine.sessionStarted("6");
+    reply(recoveryEngine, "6", "192.168.7.19");
+    until([&] { return !recovery.isBusy(); });
+    check(recovery.setCampusAddress("192.168.7.20", true), "Recovery fixture could not choose campus");
+    const auto confirmedPolicy = recoveryEngine.policies.last();
+    emit recoveryEngine.policyUpdated("6", "1", Status::Success);
+    failedDns = true;
+    check(recovery.refresh(), "Recovery fixture could not refresh");
+    reply(recoveryEngine, "6", "192.168.8.19");
+    until([&] { return recoveryEntered.available() != 0; });
+    check(recovery.status() == Status::Pending && !recovery.setCampusAddress("192.168.8.20", true),
+          "Failed refresh allowed a new unverified campus exception");
+    check(recovery.setCampusAddress("192.168.7.20", false), "Failed DNS refresh prevented removing an owned campus choice");
+    const auto restoration = recoveryEngine.policies.last();
+    check(restoration["protected"] == confirmedPolicy["protected"] && restoration["schema_version"] == confirmedPolicy["schema_version"]
+          && restoration["generation"] == "6" && restoration["revision"] == "2" && restoration["campus"].toArray().isEmpty(),
+          "Recovery guessed new scopes or discarded the last confirmed policy identity");
+    emit recoveryEngine.policyUpdated("6", "2", Status::Failed);
+    check(recovery.campusAddresses() == QJsonArray{"192.168.7.20"} && !recovery.isPolicyUpdating() && recovery.isBusy(),
+          "Failed recovery discarded the effective exception or confused the remaining native read");
+    recoveryResume.release();
+    until([&] { return !recovery.isBusy(); });
+    check(recovery.status() == Status::Failed && recovery.setCampusAddress("192.168.7.20", false),
+          "Failed DNS refresh prevented retrying owned recovery");
+    check(recoveryEngine.policies.last()["revision"] == "3", "Recovery retry reused its failed revision");
+    emit recoveryEngine.policyUpdated("6", "3", Status::Success);
+    check(recovery.campusAddresses().isEmpty() && recovery.status() == Status::Failed,
+          "Recovery either retained the exception or misreported failed inspection as successful");
+
     Engine unsignedEngine;
     NetworkPolicySession unsignedModel(&unsignedEngine, [] { return DnsSnapshot{}; });
     emit unsignedEngine.sessionStarted("4");

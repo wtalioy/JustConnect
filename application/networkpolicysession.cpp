@@ -41,11 +41,9 @@ NetworkPolicySession::NetworkPolicySession(CoreEngine *engine, DnsReader reader,
         });
     connect(engine, &CoreEngine::policyUpdated, this,
         [this](const QString &id, const QString &appliedRevision, Status status) {
-            if (!policyBusy || id != generation || appliedRevision != pendingRevision) return;
-            if (status == Status::Success) chosenCampus = pendingCampus;
-            pendingCampus = {};
-            pendingRevision.clear();
-            policyBusy = false;
+            if (!isPolicyUpdating() || id != generation || appliedRevision != pendingPolicy["revision"].toString()) return;
+            if (status == Status::Success) confirmedPolicy = pendingPolicy;
+            pendingPolicy = {};
             lastPolicyStatus = status;
             emit changed();
         });
@@ -80,10 +78,8 @@ void NetworkPolicySession::clear()
     transportReady = networkPending = resourcesPending = false;
     network = resources = currentModel = {};
     networkVersion = {};
-    chosenCampus = pendingCampus = {};
-    pendingRevision.clear();
+    confirmedPolicy = pendingPolicy = {};
     revision = 0;
-    policyBusy = false;
     lastPolicyStatus = Status::Unavailable;
     currentStatus = Status::Stale;
     emit changed();
@@ -91,7 +87,7 @@ void NetworkPolicySession::clear()
 
 bool NetworkPolicySession::refresh()
 {
-    if (!engine || generation.isEmpty() || networkPending || resourcesPending || policyBusy
+    if (!engine || generation.isEmpty() || networkPending || resourcesPending || isPolicyUpdating()
         || (workerBusy && workerSerial == serial)) return false;
     ++serial;
     network = resources = currentModel = {};
@@ -110,29 +106,38 @@ bool NetworkPolicySession::refresh()
 
 bool NetworkPolicySession::setCampusAddress(const QString &text, bool campus)
 {
-    if (!engine || generation.isEmpty() || currentStatus != Status::Success || isBusy()) return false;
+    if (!engine || generation.isEmpty() || isPolicyUpdating()) return false;
+    auto choices = campusAddresses();
+    const bool owned = choices.contains(text);
+    if ((currentStatus != Status::Success || isBusy()) && (campus || !owned)) return false;
     const QHostAddress address(text);
-    QJsonArray prefixes;
-    bool protectedAddress = false;
-    for (const auto &value : currentModel["targets"].toArray()) {
-        const auto prefix = value.toObject()["prefix"].toString();
-        prefixes.append(prefix);
-        protectedAddress |= address.isInSubnet(QHostAddress::parseSubnet(prefix));
-    }
-    if (address.protocol() != QAbstractSocket::IPv4Protocol || address.toString() != text
-        || (!protectedAddress && (campus || !chosenCampus.contains(text)))) {
+    if (address.protocol() != QAbstractSocket::IPv4Protocol || address.toString() != text) {
         lastPolicyStatus = Status::Invalid;
         emit changed();
         return false;
     }
-    if (networkVersion.toInteger() <= 0) {
+    QJsonObject policy;
+    if (currentStatus == Status::Success && networkVersion.toInteger() > 0) {
+        QJsonArray prefixes;
+        bool protectedAddress = false;
+        for (const auto &value : currentModel["targets"].toArray()) {
+            const auto prefix = value.toObject()["prefix"].toString();
+            prefixes.append(prefix);
+            protectedAddress |= address.isInSubnet(QHostAddress::parseSubnet(prefix));
+        }
+        if (!protectedAddress && (campus || !owned)) {
+            lastPolicyStatus = Status::Invalid;
+            emit changed();
+            return false;
+        }
+        policy = {{"schema_version", networkVersion}, {"generation", generation}, {"protected", prefixes}};
+    } else if (!campus && owned) policy = confirmedPolicy;
+    else {
         lastPolicyStatus = Status::Unavailable;
         emit changed();
         return false;
     }
-    pendingCampus = chosenCampus;
-    const auto found = pendingCampus.contains(text);
-    if (found == campus) {
+    if (owned == campus) {
         lastPolicyStatus = Status::Success;
         emit changed();
         return true;
@@ -142,14 +147,13 @@ bool NetworkPolicySession::setCampusAddress(const QString &text, bool campus)
         emit changed();
         return false;
     }
-    if (campus) pendingCampus.append(text);
-    else for (int i = pendingCampus.size() - 1; i >= 0; --i)
-        if (pendingCampus[i] == text) pendingCampus.removeAt(i);
-    pendingRevision = QString::number(++revision);
-    policyBusy = true;
+    if (campus) choices.append(text);
+    else for (int i = choices.size() - 1; i >= 0; --i)
+        if (choices[i] == text) choices.removeAt(i);
+    policy["revision"] = QString::number(++revision);
+    policy["campus"] = choices;
+    pendingPolicy = policy;
     lastPolicyStatus = Status::Pending;
-    const QJsonObject policy{{"schema_version", networkVersion}, {"generation", generation}, {"revision", pendingRevision},
-                             {"protected", prefixes}, {"campus", pendingCampus}};
     engine->updatePolicy(policy);
     emit changed();
     return true;
