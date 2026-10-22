@@ -125,7 +125,7 @@ sudo unshare --net -- build/coreabi/linux_tunroutes_test --isolated
 
 原生检查验证实际 UDP 进入 TUN 并在严格 `rp_filter=1` 下回到原 socket、原有默认／分割默认／主机路由不变、重复前缀合并、不同连接拒绝、部分批次失败回滚、回读失败与恢复重试、首次无法确认的值保留记录，以及读回前后改写设备／源地址／下一跳和接口重命名。最后永久降权并清空 capabilities，验证真实内核拒绝写入且未留下路由。恢复批次允许单项保护条件失败后继续清理其他所属项，再回读确认结果；不凭命令退出码推断已恢复。
 
-当前增量仍待 Linux 双架构原生 CI，主应用／正式授权／持久恢复日志、原出口专用表和源规则、DNS 及任意属性的读写竞争尚未交付；S4-06 之前不用于日常网络。原出口隔离脚本的 route／rule 夹具仍用于独有源选路与严格反向路径回归，待同一正式后端覆盖这些操作并接入助手后替换，不另做一套产品实现。
+[`5c57603` 的 Linux 双架构原生 CI](https://github.com/wtalioy/JustConnect/actions/runs/39782590189)均通过该检查，同轮其余四组 Core ABI／设备及[三平台应用测试](https://github.com/wtalioy/JustConnect/actions/runs/39782590442)也通过，证据归并至 `build/reports/linux-owned-routes.json`。主应用／正式授权／持久恢复日志、原出口专用表和源规则、DNS 及任意属性的读写竞争尚未交付；S4-06 之前不用于日常网络。原出口隔离脚本的 route／rule 夹具仍用于独有源选路与严格反向路径回归，待同一正式后端覆盖这些操作并接入助手后替换，不另做一套产品实现。
 
 [源码 `1105671` 的两组 macOS 及 Linux](https://github.com/wtalioy/JustConnect/actions/runs/39681929870)均通过直连／显式路由的真实设备／fd 读写、正常关闭及强杀后的设备／路由清理，日志分别为 `macos-device.log`／`linux-device.log`；本机 Linux 另验宿主接口、路由、DNS 不变。降权验证使用原生 `getgroups` 读取进程组，仅保留目标主组，并检查真实／有效 uid、gid 和无法恢复 root；[Python 的 macOS 组查询](https://docs.python.org/3/library/os.html#os.getgroups)可能返回目录成员列表，不能据此判断 `setgroups` 的结果。签名助手与真实桌面授权仍待验收，不依据源码或 Linux 结果宣称可用。原 `linux_device_probe.py` 已由共享脚本替代并删除，原 Linux 能力及独有权限断言保留。
 
