@@ -74,17 +74,18 @@ D2 的设备入口子方案已收敛：Linux／macOS 使用最小授权助手创
 
 ### Linux 设备／fd 原型复现
 
-[unix_device_probe.py](../tests/platform/unix_device_probe.py) 使用 Python 标准库与现有 `ip` 命令，测试内核权限与 fd 所有权，不把结果写成 Go／Qt 数据面已经接入。脚本拒绝在宿主网络命名空间运行；隔离命名空间内只创建测试 TUN 及其直连测试网段，不配置 DNS 或外部出口。
+[unix_device_probe.py](../tests/platform/unix_device_probe.py) 复用正式 [Linux TUN 分配后端](../infrastructure/platform/linux/tundevice.cpp) 的原生测试程序，再使用 Python 标准库与现有 `ip` 命令验证权限和 fd 所有权；主应用、Go 数据入口及正式授权助手尚未接入。脚本拒绝在宿主网络命名空间运行；隔离命名空间内只创建测试 TUN 及其直连测试网段，不配置 DNS 或外部出口。
 
 ```sh
-sudo unshare --net -- "$(command -v python)" tests/platform/unix_device_probe.py --uid "$(id -u)"
+sudo unshare --net -- "$(command -v python)" tests/platform/unix_device_probe.py --uid "$(id -u)" --allocator build/coreabi/linux_tundevice_test
 ```
 
 当前 WSL 本机不依赖 sudo，可从普通用户 shell 使用 WSL 自带的 root 启动入口执行同一测试：
 
 ```sh
 wsl.exe --distribution archlinux --user root --exec unshare --net -- \
-    python /home/lioy/JustConnect/tests/platform/unix_device_probe.py --uid 1000
+    python /home/lioy/JustConnect/tests/platform/unix_device_probe.py --uid 1000 \
+    --allocator /home/lioy/JustConnect/build/local/linux_tundevice_test
 ```
 
 父进程创建 TUN 并配置隔离地址后，接收进程先清空补充组并降为普通 uid／gid，再接收 fd；父进程关闭原 fd。接收进程读取内核发出的 UDP 包，再经 TUN 注入合法 IPv4／UDP 回包，由普通 UDP socket 验证收到预期数据。分别验证主动关闭与持有 fd 时被 SIGKILL 后的设备／自动路由清理。本地另验证了宿主命名空间／非 root 调用及测试设备名已存在时会被拒绝，以及测试前后宿主接口、全表路由和 `/etc/resolv.conf` 一致。代码 `7a910de` 的 [Linux x64／ARM64 CI](https://github.com/wtalioy/JustConnect/actions/runs/39275742177) 两组均通过同一隔离测试，日志保存在各组 artifact 的 `linux-device.log`。
@@ -93,15 +94,17 @@ wsl.exe --distribution archlinux --user root --exec unshare --net -- \
 
 该测试只覆盖内核设备与 fd 生命周期；直连路由随设备删除不等于已经实现任意路由／DNS 的所有权恢复。它没有验证提权界面、助手身份认证、Go fd 接收、TCP 转发、校园隧道或 Clash 共存。Windows 本机为 x64 普通用户，WSL root 不代表 Windows 管理员权限；没有据此进行 Windows 驱动安装或 UAC 提权。
 
+当前 Linux 分配入口由 `LinuxTunDevice` 单独维护：连接 UUID 派生设备名，排他创建非持久原始 IP TUN，回读名称／索引／帧模式；`TUNGETIFF` 的 NO_PI 与 NOFILTER 位复用，因此通过受信系统 `iproute2` 的链路详情核对真实 PI／virtio 头部状态，复用已有平台命令端口，固定参数且不经 shell；对象仅拥有自己的 fd，不接管已有同名设备。创建后的回读失败关闭 fd 并报告可能已修改；原生回读失败及错误 PI／virtio 帧模式注入验证实际接口回滚，活动及无队列持久设备冲突均保留原设备。`SCM_RIGHTS` 接收端使用原子 CLOEXEC，两种 Linux 隔离检查复用此入口，已删除 Python 分配副本。最后一个 fd 关闭的内核生命周期依据 [TUN/TAP 文档](https://docs.kernel.org/networking/tuntap.html)，本地普通 uid 的双向 UDP、正常／强杀清理与原网络不变已验证；当前增量仍待原生 CI，不代替完整路由／DNS 恢复或助手授权。
+
 ### Linux 原出口与更具体的捕获路由
 
-[隔离检查](../tests/platform/original_route_linux.py)只在新的网络命名空间中创建 veth 原网络、独立 TCP／UDP 回显端点及非持久 TUN。目标的 `/32` 捕获路由优先于原网络 `/24`；接口绑定单独使用在严格反向路径检查下已复现超时，因此测试保留 `rp_filter=1`，仅为所选原地址增加源规则与专用目标路由表。先回读两类选路并实际读取 TUN 包及捕获源地址，再由零 capabilities 的普通用户运行[生产 underlay 探针](../tests/platform/original_route_probe.go)，验证指定原接口的 TCP／UDP 往返及原地址，接口缺失必须报错。两端命名空间退出即释放设备和规则；宿主接口、全表路由、规则、DNS 及反向路径设置保持不变。
+[隔离检查](../tests/platform/original_route_linux.py)只在新的网络命名空间中创建 veth 原网络、独立 TCP／UDP 回显端点，并通过同一原生分配后端取得非持久 TUN。目标的 `/32` 捕获路由优先于原网络 `/24`；接口绑定单独使用在严格反向路径检查下已复现超时，因此测试保留 `rp_filter=1`，仅为所选原地址增加源规则与专用目标路由表。先回读两类选路并实际读取 TUN 包及捕获源地址，再由零 capabilities 的普通用户运行[生产 underlay 探针](../tests/platform/original_route_probe.go)，验证指定原接口的 TCP／UDP 往返及原地址，接口缺失必须报错。两端命名空间退出即释放设备和规则；宿主接口、全表路由、规则、DNS 及反向路径设置保持不变。
 
 本地 WSL 隔离内核及 [Linux 双架构 CI](https://github.com/wtalioy/JustConnect/actions/runs/39732640460) 已通过，日志为 `linux-original-route.log`，关键结果归并至计划引用的当前报告。该结果验证出口绑定与定向源规则的组合，正式后端尚未应用这组操作；未覆盖其他策略路由选择器、自动选择、IPv6、Windows／macOS 的竞争路由或正式助手恢复，不能据此接管日常网络。
 
 ### macOS utun／fd 隔离实验
 
-同一 [Unix 原型](../tests/platform/unix_device_probe.py) 在 macOS 使用 kernel control 分配全新 utun，按 [Apple 公开定义](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/net/if_utun.h)取得接口名并处理四字节地址族头。仅允许一次性 GitHub macOS runner，以 root 创建／配置测试点对点地址，再经 `SCM_RIGHTS` 将 fd 交给已设置普通 uid／gid 和明确附加组后 exec 的全新 Python 进程；复用 Linux 的实际 UDP 双向、主动关闭及持有 fd 时 SIGKILL 检查。测试目的已有非默认路由时拒绝运行，结束后检查接口和其全部路由消失，不改系统 DNS／默认路由。接收方逐阶段确认权限、两条路由通信及最终 fd 所有权，共用原八秒预算；避免 [macOS 上不安全的 fork 后原生调用](https://docs.python.org/3/library/os.html#os.fork)，不延长等待或跳过数据与清理检查。
+同一 [Unix 检查脚本](../tests/platform/unix_device_probe.py) 在 macOS 使用 kernel control 分配全新 utun，按 [Apple 公开定义](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/net/if_utun.h)取得接口名并处理四字节地址族头。仅允许一次性 GitHub macOS runner，以 root 创建／配置测试点对点地址，再经 `SCM_RIGHTS` 将 fd 交给已设置普通 uid／gid 和明确附加组后 exec 的全新 Python 进程；复用 Linux 的实际 UDP 双向、主动关闭及持有 fd 时 SIGKILL 检查。测试目的已有非默认路由时拒绝运行，结束后检查接口和其全部路由消失，不改系统 DNS／默认路由。接收方逐阶段确认权限、两条路由通信及最终 fd 所有权，共用原八秒预算；避免 [macOS 上不安全的 fork 后原生调用](https://docs.python.org/3/library/os.html#os.fork)，不延长等待或跳过数据与清理检查。
 
 [源码 `1105671` 的两组 macOS 及 Linux](https://github.com/wtalioy/JustConnect/actions/runs/39681929870)均通过直连／显式路由的真实设备／fd 读写、正常关闭及强杀后的设备／路由清理，日志分别为 `macos-device.log`／`linux-device.log`；本机 Linux 另验宿主接口、路由、DNS 不变。降权验证使用原生 `getgroups` 读取进程组，仅保留目标主组，并检查真实／有效 uid、gid 和无法恢复 root；[Python 的 macOS 组查询](https://docs.python.org/3/library/os.html#os.getgroups)可能返回目录成员列表，不能据此判断 `setgroups` 的结果。签名助手与真实桌面授权仍待验收，不依据源码或 Linux 结果宣称可用。原 `linux_device_probe.py` 已由共享脚本替代并删除，原 Linux 能力及独有权限断言保留。
 
