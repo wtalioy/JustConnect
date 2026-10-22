@@ -193,6 +193,34 @@ func TestCampusDomainNeverFallsBackThroughOrdinaryProxyDialer(t *testing.T) {
 	}
 }
 
+func TestResolutionFailureCannotBypassDestinationPolicy(t *testing.T) {
+	original := net.DefaultResolver
+	t.Cleanup(func() { net.DefaultResolver = original })
+	var bypass atomic.Int32
+	net.DefaultResolver = &net.Resolver{PreferGo: true, Dial: func(context.Context, string, string) (net.Conn, error) {
+		bypass.Add(1)
+		return nil, errors.New("unexpected second resolution outside destination policy")
+	}}
+	// An unusable configured DNS address deterministically fails before a query is sent.
+	resolver := resolve.NewResolver(nil, "", "::invalid", 1, nil, nil, false)
+	defer resolver.Close()
+	current, err := policy.NewProtectionPolicy([]string{"127.0.0.0/8"}, []string{"127.0.0.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dialer := NewDialer(&capturingStack{}, resolver, nil, false)
+	dialer.ProtectionPolicy = func() *policy.ProtectionPolicy { return &current }
+	for _, network := range []string{"tcp", "udp"} {
+		conn, err := dialer.Dial(t.Context(), network, "policy-bypass.invalid:9")
+		if conn != nil {
+			conn.Close()
+		}
+		if conn != nil || err == nil || bypass.Load() != 0 {
+			t.Fatalf("resolution failure bypassed destination policy: network=%s queries=%d connection=%t error=%v", network, bypass.Load(), conn != nil, err)
+		}
+	}
+}
+
 func TestRequiredCampusPathPreservesAuthorizedResources(t *testing.T) {
 	resource := client.IPResource{IPMin: net.IPv4(127, 0, 0, 1), IPMax: net.IPv4(127, 0, 0, 1),
 		Protocol: "udp", PortMin: 9, PortMax: 9, AppID: "authorized-udp"}
