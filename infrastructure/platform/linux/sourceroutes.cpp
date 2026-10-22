@@ -216,7 +216,8 @@ PlatformOperationResult LinuxSourceRoutes::recover(const QUuid &id, const QJsonO
     return restore(id);
 }
 PlatformOperationResult LinuxSourceRoutes::apply(const QUuid &id, const QString &interface, const QString &source,
-                                                const QString &gateway, const QStringList &requested)
+                                                const QString &gateway, const QStringList &requested,
+                                                const CheckpointWriter &writeAhead)
 {
     if (!owner.isNull() || id.isNull()) return {Status::Failed,"Source route ownership is missing or already active."};
     if (!QRegularExpression("^[A-Za-z0-9_.-]{1,15}$").match(interface).hasMatch()
@@ -237,22 +238,32 @@ PlatformOperationResult LinuxSourceRoutes::apply(const QUuid &id, const QString 
     const auto discard = qScopeGuard([&] { if (entries.isEmpty() && !rulePending) clear(); });
     if (!identity() || !sourceAssigned()) return {Status::Failed,"Original source is not assigned to the selected live interface."};
     QDeadlineTimer deadline(10000);
-    const auto before = read(utility,deadline);
-    if (!before.result.succeeded()) return before.result;
-    if (before.routes.size() + prefixes.size() + (gateway.isEmpty() ? 0 : 1) > 4096 || before.rules.size() + 1 > 4096)
-        return {Status::Failed,"Source routes exceed complete snapshot capacity."};
-    for (const auto &value : before.routes)
-        if (value.toObject()["table"] == QString::number(table)) return {Status::Failed,"An existing route table cannot be adopted."};
-    for (const auto &value : before.rules) {
-        const auto row = value.toObject();
-        if (row["table"] == QString::number(table) || (row["priority"].toInteger() <= 1
-            && !localRule(row)))
-            return {Status::Failed,"An existing early rule or table reference cannot be adopted."};
-    }
+    const auto available = [&](const ReadResult &state) -> PlatformOperationResult {
+        if (!state.result.succeeded()) return state.result;
+        if (state.routes.size()+prefixes.size()+(gateway.isEmpty() ? 0 : 1)>4096 || state.rules.size()+1>4096)
+            return {Status::Failed,"Source routes exceed complete snapshot capacity."};
+        for (const auto &value : state.routes)
+            if (value.toObject()["table"]==QString::number(table)) return {Status::Failed,"An existing route table cannot be adopted."};
+        for (const auto &value : state.rules) {
+            const auto row = value.toObject();
+            if (row["table"]==QString::number(table) || (row["priority"].toInteger()<=1 && !localRule(row)))
+                return {Status::Failed,"An existing early rule or table reference cannot be adopted."};
+        }
+        return {};
+    };
+    const auto before = available(read(utility,deadline));
+    if (!before.succeeded()) return before;
     if (!identity() || !sourceAssigned()) return {Status::Failed,"Original interface/source changed before application."};
     if (!gateway.isEmpty()) entries.append({gateway + "/32",{}});
     for (const auto &prefix : prefixes) entries.append({prefix,{}});
     rulePending = true;
+    if (writeAhead) {
+        const auto saved = writeAhead(snapshot());
+        if (!saved.succeeded()) { if (!saved.mayHaveChanged) clear();return saved; }
+        auto checked = available(read(utility,deadline));
+        if (checked.succeeded() && (!identity() || !sourceAssigned())) checked = {Status::Failed,"Original interface/source changed during checkpoint publication."};
+        if (!checked.succeeded()) { checked.mayHaveChanged = true;return checked; }
+    }
     QByteArray batch;
     for (const auto &entry : entries) batch += routeCommand("add",entry.prefix);
     batch += ruleCommand("add");
