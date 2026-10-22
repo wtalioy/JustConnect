@@ -17,14 +17,26 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def run(*args, env=None, cwd=None):
+def run(*args, env=None, cwd=None, timeout=60):
     result = subprocess.run(list(map(str, args)), env=env, cwd=cwd, check=False,
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
     if result.returncode:
         raise RuntimeError(f'{args[0]} exited {result.returncode}: '
                            + result.stderr.decode('utf-8', errors='replace')
                            + result.stdout.decode('utf-8', errors='replace'))
     return result.stdout.decode('utf-8', errors='replace')
+
+
+def check_windows_dns_reader(root, env):
+    reader = root / 'JustConnectDnsReader.exe'
+    if not reader.is_file():
+        raise RuntimeError('Missing packaged native DNS reader')
+    facts = json.loads(run(reader, env=env, timeout=10))
+    if (not isinstance(facts, dict) or set(facts) != {'interfaces', 'clients', 'global', 'nrpt', 'doh_supported', 'doh'}
+            or any(not isinstance(facts[key], list) for key in ('interfaces', 'clients', 'nrpt', 'doh'))
+            or not isinstance(facts['global'], dict) or not isinstance(facts['doh_supported'], bool)):
+        raise RuntimeError('Packaged DNS reader did not return complete native facts')
+    return {'interfaces': len(facts['interfaces']), 'effective_nrpt': len(facts['nrpt'])}
 
 
 def clean_environment():
@@ -241,6 +253,8 @@ def verify(root, executable, revision, application_version, output, archive, sig
             if magic == b'\x7fELF' or magic in (b'\xcf\xfa\xed\xfe', b'\xca\xfe\xba\xbe', b'\xca\xfe\xba\xbf') or magic[:2] == b'MZ':
                 files.append(path)
     if system == 'windows':
+        reader = executable.parent / 'JustConnectDnsReader.exe'
+        report['dns_reader'] = check_windows_dns_reader(executable.parent, env)
         runtime = executable.parent / report['runtime']
         if runtime.parent != executable.parent or not runtime.is_file():
             raise RuntimeError('Runtime DLL must be next to the host')
@@ -271,7 +285,7 @@ def verify(root, executable, revision, application_version, output, archive, sig
         'runtime_dll': runtime.stat().st_size if system == 'windows' else 0,
     }
     report['sha256'] = {}
-    for path in [executable] + ([runtime] if system == 'windows' else []):
+    for path in [executable] + ([runtime, reader] if system == 'windows' else []):
         with path.open('rb') as stream:
             report['sha256'][str(path.relative_to(root))] = hashlib.file_digest(stream, 'sha256').hexdigest()
         if system == 'windows':
