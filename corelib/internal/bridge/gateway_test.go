@@ -53,6 +53,7 @@ type gateway struct {
 	renewals         atomic.Int32
 	extraWANNode     atomic.Value
 	resourceIP       atomic.Value
+	loopbackResource atomic.Bool
 }
 
 func newGateway(t *testing.T) *gateway {
@@ -168,7 +169,11 @@ func newGatewayWithNodeTLS(t *testing.T, nodeTLS *tls.Config) *gateway {
 			if resourceIP == "" {
 				resourceIP = "192.0.2.10"
 			}
-			fmt.Fprintf(w, `{"data":{%s"appList":{"data":{"appInfo":[{"apps":[{"ID":"fixture-app","nodeGroupID":"fixture-group","accessModel":"L3VPN","addressList":[{"protocol":"udp","port":"1-65535","host":%q},{"protocol":"tcp","port":"1-65535","host":%q},{"protocol":"tcp","port":"1-65535","host":"campus.test","IP":[%q]}]}]}],"config":{"nodeGroupConf":{"majorNodeGroup":{"ID":"fixture-group"},"nodeGroupList":[{"ID":"fixture-group","addressInfo":[{"type":"wan","address":%q}%s]}]}}}}}}`, dnsPolicy, resourceIP, resourceIP, resourceIP, g.node.Addr().String(), extraNode)
+			extraResource := ""
+			if g.loopbackResource.Load() {
+				extraResource = `,{"protocol":"tcp","port":"1-65535","host":"127.0.0.1"}`
+			}
+			fmt.Fprintf(w, `{"data":{%s"appList":{"data":{"appInfo":[{"apps":[{"ID":"fixture-app","nodeGroupID":"fixture-group","accessModel":"L3VPN","addressList":[{"protocol":"udp","port":"1-65535","host":%q},{"protocol":"tcp","port":"1-65535","host":%q},{"protocol":"tcp","port":"1-65535","host":"campus.test","IP":[%q]}%s]}]}],"config":{"nodeGroupConf":{"majorNodeGroup":{"ID":"fixture-group"},"nodeGroupList":[{"ID":"fixture-group","addressInfo":[{"type":"wan","address":%q}%s]}]}}}}}}`, dnsPolicy, resourceIP, resourceIP, resourceIP, extraResource, g.node.Addr().String(), extraNode)
 		default:
 			t.Errorf("unexpected gateway route %s", r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)

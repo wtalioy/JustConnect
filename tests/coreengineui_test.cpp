@@ -32,6 +32,7 @@
 #include <QSemaphore>
 #include <QTemporaryDir>
 #include <QTimer>
+#include <QtConcurrent>
 #include <limits>
 #include <QUuid>
 #include <QTcpServer>
@@ -1021,6 +1022,40 @@ static void gateway(const QJsonObject &config) {
             nativeSourceShown |= targets->topLevelItem(row)->text(1).contains(interface["name"].toString());
     }
     check(nativeSourceShown,"real Qt inspection explains at least one actual native interface source");
+    bool loopbackAuthorized = false;
+    for (const auto &value : readyResources["ip_resources"].toArray()) {
+        const auto resource = value.toObject();
+        loopbackAuthorized |= resource["ip_min"] == "127.0.0.1" && resource["ip_max"] == "127.0.0.1";
+    }
+    check(loopbackAuthorized, "controlled campus permissions overlap the native loopback target");
+    QSemaphore nativeListening;
+    quint16 nativePort = 0;
+    const QByteArray nativeReply("original-network");
+    auto nativeServer = QtConcurrent::run([&] {
+        QTcpServer server;
+        check(server.listen(QHostAddress::LocalHost, 0), "owned native protection server");
+        nativePort = server.serverPort();
+        nativeListening.release();
+        check(server.waitForNewConnection(5000), "protected request reaches its original native server");
+        auto *socket = server.nextPendingConnection();
+        check(socket->write(nativeReply) == nativeReply.size()
+            && (socket->bytesToWrite() == 0 || socket->waitForBytesWritten(5000)), "original-network reply");
+        socket->disconnectFromHost();
+        if (socket->state() != QAbstractSocket::UnconnectedState) socket->waitForDisconnected(5000);
+    });
+    check(nativeListening.tryAcquire(1, 5000), "native protection server became ready");
+    QTcpSocket protectedSocket;
+    ProxyCheck::connectProxy(protectedSocket, listeners["socks"].toString());
+    check(protectedSocket.write(QByteArray::fromHex("050100")) == 3 && (protectedSocket.bytesToWrite() == 0 || protectedSocket.waitForBytesWritten(5000)), "protected SOCKS greeting");
+    check(ProxyCheck::receive(protectedSocket, 2) == QByteArray::fromHex("0500"), "protected SOCKS authentication");
+    auto destination = QByteArray::fromHex("050100017f000001");
+    destination.append(char(nativePort >> 8)); destination.append(char(nativePort & 0xff));
+    check(protectedSocket.write(destination) == destination.size() && (protectedSocket.bytesToWrite() == 0 || protectedSocket.waitForBytesWritten(5000)), "protected SOCKS destination");
+    check(ProxyCheck::receive(protectedSocket, 10).startsWith(QByteArray::fromHex("05000001")), "protected SOCKS native connection");
+    check(ProxyCheck::receive(protectedSocket, nativeReply.size()) == nativeReply,
+        "initial Qt protection preserves an authorized campus-overlapping original address before any live update");
+    protectedSocket.close(); nativeServer.waitForFinished();
+    std::cout << "PASS: initial native protection before any live policy update\n";
     until([&]{return !access.isBusy(settings.fileName());});
     ProxyCheck::exercise(listeners, [&] {
         session.stop();
