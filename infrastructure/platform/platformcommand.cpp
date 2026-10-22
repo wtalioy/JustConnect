@@ -20,7 +20,7 @@ PlatformCommandResult runPlatformCommand(const QString &program, const QStringLi
     if (!process.waitForFinished(int(deadline.remainingTime()))) {
         process.kill();
         process.waitForFinished(1000);
-        return {{Status::TimedOut, program + ": operation timed out"}, {}};
+        return {{Status::TimedOut, program + ": operation timed out"}, {}, QString::fromUtf8(process.readAllStandardError())};
     }
     const QString output = QString::fromUtf8(process.readAllStandardOutput()).trimmed();
     const QString error = QString::fromUtf8(process.readAllStandardError());
@@ -30,7 +30,7 @@ PlatformCommandResult runPlatformCommand(const QString &program, const QStringLi
         if ((diagnostic.contains("(-128)") || diagnostic.contains("(-60006)"))) status = Status::Cancelled;
         else if (diagnostic.contains("(-1743)") || diagnostic.contains("(-60005)") || output.startsWith("You need administrator access") || diagnostic.contains("permission denied", Qt::CaseInsensitive)
                  || diagnostic.contains("not authorized", Qt::CaseInsensitive)) status = Status::PermissionDenied;
-        return {{status, program + ": exit " + QString::number(process.exitCode())}, output};
+        return {{status, program + ": exit " + QString::number(process.exitCode())}, output, error};
     }
-    return {{}, output};
+    return {{}, output, error};
 }

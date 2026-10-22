@@ -1,6 +1,7 @@
 #include "dnssnapshot.h"
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QRegularExpression>
 #ifdef Q_OS_WIN
 #include <windows.h>
 #endif
@@ -9,19 +10,28 @@ namespace {
 const QString query = QString::fromLatin1(R"PS(
 $ErrorActionPreference='Stop'
 [Console]::OutputEncoding=[Text.Encoding]::UTF8
+$dnsReadWatch=[Diagnostics.Stopwatch]::StartNew()
+function Trace-DnsRead([string]$dnsReadStage) {
+    [Console]::Error.WriteLine(('JCDNS phase={0} elapsed_ms={1}' -f $dnsReadStage,$dnsReadWatch.ElapsedMilliseconds))
+}
+Trace-DnsRead 'utility'
 Import-Module ($PSHOME+'\Modules\Microsoft.PowerShell.Utility\Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop
 function Read-DnsRows([string]$class,[string[]]$fields) {
+    Trace-DnsRead $class
     # Select after reading so absent optional properties retain null on older providers.
     foreach($row in $session.QueryInstances('ROOT\StandardCimv2','WQL',('SELECT * FROM '+$class))) {
         try { $row | Select-Object -Property $fields } finally { $row.Dispose() }
     }
 }
 # NullString preserves a true local session; PowerShell binds $null as an empty string.
+Trace-DnsRead 'local_session'
 $session=[cimsession]::Create([NullString]::Value)
 try {
     $parameters=[Microsoft.Management.Infrastructure.CimMethodParametersCollection]::new()
     $parameters.Add([Microsoft.Management.Infrastructure.CimMethodParameter]::Create('Effective',$true,[Microsoft.Management.Infrastructure.CimType]::Boolean,[Microsoft.Management.Infrastructure.CimFlags]::In))
+    Trace-DnsRead 'nrpt'
     $result=$session.InvokeMethod('ROOT\Microsoft\Windows\DNS','PS_DnsClientNrptPolicy','Get',$parameters)
+    Trace-DnsRead 'nrpt_rows'
     $policies=@()
     if($null -ne $result) {
         try {
@@ -41,6 +51,7 @@ try {
         $row.DirectAccessDnsServers=@($row.DirectAccessDnsServers | Where-Object {$null -ne $_} | ForEach-Object {([Net.IPAddress]$_).ToString()})
     }
     try {
+        Trace-DnsRead 'doh_class'
         $dohClass=$session.GetClass('ROOT\StandardCimv2','MSFT_DNSClientDohServerAddress')
         $dohClass.Dispose()
         $dohSupported=$true
@@ -62,6 +73,7 @@ try {
     $global=$settings[0]
     $global.SuffixSearchList=@($global.SuffixSearchList | Where-Object {$null -ne $_} | ForEach-Object {[string]$_})
     $data=[ordered]@{interfaces=$interfaces;clients=$clients;global=$global;nrpt=$policies;doh_supported=$dohSupported;doh=$doh}
+    Trace-DnsRead 'serialize'
     ConvertTo-Json -InputObject $data -Depth 6 -Compress
 } finally { $session.Dispose() }
 )PS");
@@ -121,7 +133,20 @@ DnsSnapshot readWindowsDnsSnapshot(const PlatformCommandRunner &runner)
 #endif
     const QStringList arguments{"-NoLogo", "-NoProfile", "-NonInteractive", "-Command", query};
     const auto command = runner ? runner(program, arguments) : runPlatformCommand(program, arguments, 10000);
-    if (!command.result.succeeded()) return {command.result, {}};
+    if (!command.result.succeeded()) {
+        auto result = command.result;
+        const QRegularExpression phase(QStringLiteral("^JCDNS phase=([A-Za-z0-9_]{1,64}) elapsed_ms=([0-9]{1,8})$"));
+        const QStringList stages{"utility", "local_session", "nrpt", "nrpt_rows", "doh_class", "serialize",
+            "MSFT_DNSClientDohServerAddress", "MSFT_DNSClientServerAddress", "MSFT_DNSClient", "MSFT_DNSClientGlobalSetting"};
+        QString last;
+        for (const auto &line : command.standardError.split('\n')) {
+            const auto match = phase.match(line.trimmed());
+            if (match.hasMatch() && stages.contains(match.captured(1)))
+                last = QStringLiteral(" (DNS phase %1 at %2 ms)").arg(match.captured(1), match.captured(2));
+        }
+        result.detail += last;
+        return {result, {}};
+    }
     const auto bytes = command.output.toUtf8();
     if (bytes.size() > 262144) return {{Status::Failed, "System resolver snapshot too large"}, {}};
     QJsonParseError error{};
