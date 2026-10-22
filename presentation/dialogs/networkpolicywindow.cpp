@@ -14,11 +14,11 @@ QJsonObject at(const QJsonArray &items, const QJsonValue &index)
     const auto i = index.toInteger(-1);
     return i >= 0 && i < items.size() ? items[int(i)].toObject() : QJsonObject{};
 }
-QString interfaceName(const QJsonObject &network, int index)
+QString interfaceName(const QJsonObject &network, qint64 index)
 {
     for (const auto &value : network["interfaces"].toArray()) {
         const auto item = value.toObject();
-        if (item["index"].toInt() == index) return item["name"].toString();
+        if (item["index"].toInteger(-1) == index) return item["name"].toString();
     }
     return {};
 }
@@ -35,12 +35,12 @@ QString originalSource(const QJsonObject &network, const QJsonObject &source)
     if (kind == "route") {
         const auto route = at(network["routes"].toArray(), source["route"]);
         QStringList names;
-        names.append(interfaceName(network, route["interface_index"].toInt()));
+        names.append(interfaceName(network, route["interface_index"].toInteger()));
         for (const auto &hop : route["next_hops"].toArray())
-            names.append(interfaceName(network, hop.toObject()["interface_index"].toInt()));
+            names.append(interfaceName(network, hop.toObject()["interface_index"].toInteger()));
         names.removeAll(QString());
         names.removeDuplicates();
-        QString label = route["table"].toInt() > 0 ? QStringLiteral("路由表 %1").arg(route["table"].toInt()) : QStringLiteral("路由记录");
+        QString label = route["table"].toInteger() > 0 ? QStringLiteral("路由表 %1").arg(route["table"].toInteger()) : QStringLiteral("路由记录");
         if (!names.isEmpty()) label += QStringLiteral("：") + names.join(QStringLiteral("、"));
         return label;
     }

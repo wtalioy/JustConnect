@@ -35,9 +35,10 @@ public:
         QJsonObject data;
         if (kind == Snapshot::Network) data = {
             {"network", QJsonObject{
-                {"interfaces", QJsonArray{QJsonObject{{"index", 7}, {"name", "LAN <bridge>&"}, {"up", true},
+                {"interfaces", QJsonArray{QJsonObject{{"index", qint64(2147483648LL)}, {"name", "OTHER"}, {"addresses", QJsonArray{}}},
+                    QJsonObject{{"index", qint64(2147483649LL)}, {"name", "LAN <bridge>&"}, {"up", true},
                     {"addresses", QJsonArray{"192.168.24.19/24"}}}}},
-                {"routes", QJsonArray{QJsonObject{{"destination", "192.168.24.0/24"}, {"interface_index", 7}, {"table", 52}}}}}}};
+                {"routes", QJsonArray{QJsonObject{{"destination", "192.168.24.0/24"}, {"interface_index", qint64(2147483649LL)}, {"table", qint64(4000000000LL)}}}}}}};
         else data = {{"resources", QJsonObject{
             {"ip_resources", QJsonArray{QJsonObject{{"ip_min", "192.168.24.10"}, {"ip_max", "192.168.24.20"},
                 {"protocol", "tcp"}, {"port_min", 22}, {"port_max", 22}}}},
@@ -72,7 +73,7 @@ int main(int argc, char **argv) try
         auto *item = tree->topLevelItem(i);
         if (item->text(0) == "192.168.24.0/24") lan = item;
     }
-    check(lan && lan->text(1).contains("LAN <bridge>&") && lan->text(1).contains("52")
+    check(lan && lan->text(1).contains("LAN <bridge>&") && lan->text(1).contains("4000000000") && !lan->text(1).contains("OTHER")
           && lan->text(2).contains("TCP") && lan->text(2).contains("22")
           && lan->text(2).contains("ssh.campus.test") && lan->text(2).contains("192.168.24.53"),
           "Native source, protocol/port or DNS role lost in explanation");
