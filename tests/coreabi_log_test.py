@@ -41,12 +41,12 @@ class CoreAbiLogTest(unittest.TestCase):
             try:
                 deadline = time.monotonic() + 5
                 log = output / 'build.log'
-                while time.monotonic() < deadline and (not log.exists() or log.read_bytes() != b'in-progress' or console.getvalue() != b'in-progress'):
+                while time.monotonic() < deadline and (not log.exists() or log.read_bytes() != b'in-progress' or console.getvalue() != b'RUN: build\nin-progress'):
                     time.sleep(0.01)
                 self.assertTrue(worker.is_alive(), 'fixture must still be running when progress is observed')
                 self.assertTrue(log.exists(), 'artifact log must be available while the command is still running')
                 self.assertEqual(log.read_bytes(), b'in-progress')
-                self.assertEqual(console.getvalue(), b'in-progress')
+                self.assertEqual(console.getvalue(), b'RUN: build\nin-progress')
             finally:
                 release.touch()
                 worker.join(5)
@@ -62,7 +62,7 @@ class CoreAbiLogTest(unittest.TestCase):
                 run('build', [sys.executable, '-c', 'import sys; sys.stderr.buffer.write(b"compile failed\\n"); sys.exit(7)'])
             self.assertEqual(error.exception.code, 7)
             self.assertEqual((output / 'build.log').read_bytes(), b'compile failed\n')
-            self.assertEqual(console.getvalue(), b'compile failed\n')
+            self.assertEqual(console.getvalue(), b'RUN: build\ncompile failed\n')
 
 
 if __name__ == '__main__':
