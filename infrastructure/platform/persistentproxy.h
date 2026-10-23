@@ -3,13 +3,15 @@
 #include "infrastructure/platform/proxyjournal.h"
 #include <optional>
 
-// All operations require the recovery worker's per-user lock, including the first load.
+// All operations require the recovery worker's platform ownership lock, including the first load.
 class PersistentProxyBackend final : public SystemProxyBackend
 {
 public:
     static QString credentialKey();
 #ifdef Q_OS_WIN
     PersistentProxyBackend(CredentialStore &credentials, QString key, WindowsProxyApi api = {});
+#elif defined(Q_OS_MACOS)
+    PersistentProxyBackend(CredentialStore &credentials, QString key, MacProxyApi api = {});
 #else
     PersistentProxyBackend(CredentialStore &credentials, QString key,
         PlatformCommandRunner runner = [](const QString &p,const QStringList &a) { return runPlatformCommand(p,a); });
