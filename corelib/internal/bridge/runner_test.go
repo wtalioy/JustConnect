@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	stdlog "log"
@@ -53,6 +54,7 @@ func TestProtocolQueryProxyStopAndRestart(t *testing.T) {
 		if ready.State != "ready" {
 			t.Fatalf("ready = %+v", ready)
 		}
+		device := exerciseProtocolTUN(t, e, h, ready.Generation)
 		data, status := e.Resources(h, ready.Generation)
 		if status != OK {
 			t.Fatal(status)
@@ -118,9 +120,15 @@ func TestProtocolQueryProxyStopAndRestart(t *testing.T) {
 		}
 		awaitClosed(t, connection)
 		awaitClosed(t, tunnel)
+		if _, err := device.Read(make([]byte, 1)); !errors.Is(err, net.ErrClosed) {
+			t.Fatalf("session retained TUN device: %v", err)
+		}
+		if status := e.AttachTUN(h, ready.Generation, device, 1400); status != StaleRequest {
+			t.Fatal(status)
+		}
 	}
-	if g.authCount.Load() != 2 || g.tcpCount.Load() != 6 {
-		t.Fatalf("gateway exchanges: auth=%d, TCP=%d", g.authCount.Load(), g.tcpCount.Load())
+	if g.authCount.Load() != 2 || g.tcpCount.Load() != 6 || g.udpCount.Load() != 2 {
+		t.Fatalf("gateway exchanges: auth=%d, TCP=%d, UDP=%d", g.authCount.Load(), g.tcpCount.Load(), g.udpCount.Load())
 	}
 	if stdlog.Writer() != &logs || logs.Len() != 0 {
 		t.Fatalf("protocol wrote to or replaced host logger: %q", logs.String())

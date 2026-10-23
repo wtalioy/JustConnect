@@ -66,7 +66,16 @@ func RunProtocol(ctx context.Context, config Config, host *Session) Status {
 		}
 		options.Setup.ClientDataInvalidated = func() { host.InvalidateAuthenticationCache() }
 	}
-	err = corelib.NewSession(options).Run(ctx, corelib.Observer{
+	protocol := corelib.NewSession(options)
+	host.mu.Lock()
+	host.protocol = protocol
+	host.mu.Unlock()
+	defer func() {
+		host.mu.Lock()
+		host.protocol = nil
+		host.mu.Unlock()
+	}()
+	err = protocol.Run(ctx, corelib.Observer{
 		Ready:     func() error { return checkStatus(host.Ready()) },
 		Resources: func(resources corelib.Resources) { host.setResources(resources) },
 		AuthMethods: func(list []auth.AuthInfo) error {

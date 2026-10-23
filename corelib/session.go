@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync/atomic"
 	"time"
 
 	"github.com/wtalioy/JustConnect/corelib/client"
@@ -58,7 +59,18 @@ type Resources struct {
 
 // Session owns one protocol invocation; the ABI serializes starts and joins Run on stop.
 // An injected dialer/writer remains owned by its caller, as in atrust.ClientOptions.
-type Session struct{ options Options }
+type Session struct {
+	options   Options
+	listeners atomic.Pointer[service.Listeners]
+}
+
+// AttachTUN takes device ownership only on success; Run closes it before returning.
+func (s *Session) AttachTUN(device io.ReadWriteCloser, mtu uint32) error {
+	if listeners := s.listeners.Load(); listeners != nil {
+		return listeners.AttachTUN(device, mtu)
+	}
+	return net.ErrClosed
+}
 
 func NewSession(options Options) *Session {
 	options.Setup.ClientData = bytes.Clone(options.Setup.ClientData)
@@ -216,6 +228,8 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 	if err != nil {
 		return fmt.Errorf("listeners_failed: %w", err)
 	}
+	s.listeners.Store(listeners)
+	defer s.listeners.Store(nil)
 	probeDNS := remoteDNS
 	if options.DisableRemoteDNS {
 		probeDNS = ""

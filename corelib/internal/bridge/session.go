@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/wtalioy/JustConnect/corelib"
 	"github.com/wtalioy/JustConnect/corelib/policy"
 )
 
@@ -71,6 +72,7 @@ type pending struct {
 
 type Session struct {
 	mu               sync.Mutex
+	protocol         *corelib.Session
 	generation       uint64
 	sequence         uint64
 	nextRequest      uint64

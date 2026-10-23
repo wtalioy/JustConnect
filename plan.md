@@ -262,7 +262,7 @@ Linux x64／ARM64 AppImage 分别减少约 2.07%／1.90%；macOS 安装体积基
 
 当前增量：HTTP CONNECT 半关闭修复待 CI，正常 EOF 保留反向响应，错误与停止仍结束所属转发；SOCKS／CONNECT 共用真实 TCP 的首包、半关闭和停止回归。完整 Go 21 包／vet 与十轮目标 race 通过，修复前失败及当前证据归 `build/reports/http-halfclose.json`；无 Clash／实际校园 UDP、透明接管及其他平台实机仍待。
 
-S5-02 包入口增量待 CI：`Listeners.AttachTUN` 复用现有校园拨号／授权和保护，捕获流禁止直连回退；SOCKS／CONNECT／透明 TCP 的半关闭转发已合并，未增加依赖或地址默认值。双向多包 TCP、延迟 EOF 响应、UDP 空包／分片／首包、保护与未授权拒绝、设备失败、未完成握手及满容量停止、单向流量续期／空闲释放通过十轮 race。容量夹具改用内存连接，64 句柄上限下完整入口及容量 race 各五轮通过；实际 UDP 夹具显式分配完整发送缓冲区并保留 20KB 断言，macOS 完整 Go 检查已过；TCP 首段丢包后的完整响应／EOF 通过本地单／双核各十轮 race，macOS ARM64 无额外探针的十轮观察均完整交付，响应耗时 4.1–6.7 秒，原五秒总读取期限不足；夹具每阶段预算统一为三十秒，保留完整字节／EOF／首段丢包及一秒内停止断言。已撤去临时端点／队列／线程诊断，未采用拥塞算法或依赖改动；最终夹具已通过本地完整 21 包、构建／vet／契约及五轮入口 race，macOS 重复 race 与九项复验待验收。证据归 `build/reports/tun-ingress.json`，边界见[架构](docs/ARCHITECTURE.md#transparent-packet-ingress)。真实 fd／平台帧、会话／ABI 接入、系统 DNS 与实际普通终端仍待，不勾选完整 S5-02。
+S5-02 包入口与会话接入增量待验收：`Listeners.AttachTUN` 复用校园拨号／授权及保护，捕获流禁止直连回退；SOCKS／CONNECT／透明 TCP 共用半关闭转发，UDP 保留空包／分片。多包／首段丢包后的完整字节／EOF、未授权／保护拒绝、设备故障、不完整握手、容量与一秒内停止均有回归；容量夹具在 64 句柄下通过，原生 UDP 缓冲区及 macOS race 等待预算按实测校准，未改拥塞算法或依赖。`278dc0e` 的三平台 Tests 与六组中的五组 Core ABI 已过（Linux ARM64 尚未完成，不计为通过），macOS ARM64 正式 25 项、完整 Go normal／race 及最终源码十轮目标 race 均通过；临时探针／工作树／远程分支已清理，关键证据归 `build/reports/tun-ingress.json`。当前 Go 会话接入只接受就绪代次，失败保留设备、停止／故障释放、重启隔离；与既有代理共用真实认证／校园隧道，重复会话夹具已合并，完整模块、五轮目标 race 与合并后的完整 bridge race 本地通过，CI 待验，证据 `build/reports/session-tun.json`。C ABI／Qt、真实 fd／平台帧、系统 DNS 与实际普通终端仍待；边界见[架构](docs/ARCHITECTURE.md#transparent-packet-ingress)，不勾选完整 S5-02。
 
 完成条件：V1 在三平台通过；实现路径和限制已有决策记录，校园访问、普通网络与受保护目标均能在开启／关闭后保持预期。
 
