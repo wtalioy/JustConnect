@@ -15,6 +15,7 @@ import (
 
 	"github.com/wtalioy/JustConnect/corelib/internal/bridge"
 	"github.com/wtalioy/JustConnect/corelib/internal/networkstate"
+	"github.com/wtalioy/JustConnect/corelib/internal/tundevice"
 )
 
 var revision string
@@ -52,6 +53,7 @@ func buildInfo() []byte {
 			"name_protection":    true,
 			"network_snapshot":   networkstate.Supported(),
 			"resource_snapshot":  !testDriver,
+			"raw_ipv4_tun_fd":    !testDriver && tundevice.Supported,
 			"async_start":        true, "authentication_response": true, "bounded_events": true,
 			"max_sessions": 1, "max_handles": bridge.MaxHandles, "max_input_bytes": bridge.MaxInput,
 			"max_output_bytes": bridge.MaxOutput, "max_wait_ms": bridge.MaxWaitMS, "max_auth_wait_ms": bridge.MaxAuthWaitMS,
@@ -136,6 +138,22 @@ func jc_go_config_validate(abi C.uint32_t, input *C.uint8_t, length C.uint32_t) 
 	}
 	_, status := bridge.ParseConfig(data)
 	clear(data)
+	return C.int32_t(status)
+}
+
+//export jc_go_session_attach_tun
+func jc_go_session_attach_tun(handle C.uint64_t, generation C.uint64_t, fd C.int32_t, mtu C.uint32_t) C.int32_t {
+	if testDriver || !tundevice.Supported {
+		return C.int32_t(bridge.Unsupported)
+	}
+	device, err := tundevice.Duplicate(int(fd), uint32(mtu))
+	if err != nil {
+		return C.int32_t(bridge.InvalidArgument)
+	}
+	status := engine.AttachTUN(uint64(handle), uint64(generation), device, uint32(mtu))
+	if status != bridge.OK {
+		_ = device.Close()
+	}
 	return C.int32_t(status)
 }
 

@@ -5,7 +5,9 @@ import (
 	"encoding/binary"
 	"errors"
 	"net"
+	"os"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -134,6 +136,16 @@ func TestProtocolTUNAttachDuringStop(t *testing.T) {
 	}
 }
 
+type fileFailureDevice struct{ *net.UDPConn }
+
+func (d fileFailureDevice) Read(packet []byte) (int, error) {
+	n, err := d.UDPConn.Read(packet)
+	if err != nil {
+		err = &os.PathError{Op: "read", Path: "owned-tun", Err: syscall.EIO}
+	}
+	return n, err
+}
+
 func TestProtocolTUNReadinessAndDeviceFailure(t *testing.T) {
 	for _, phase := range []string{"not-ready", "device-failure"} {
 		t.Run(phase, func(t *testing.T) {
@@ -154,7 +166,7 @@ func TestProtocolTUNReadinessAndDeviceFailure(t *testing.T) {
 				if ready := next(t, e, h); ready.State != "ready" {
 					t.Fatal(ready)
 				}
-				if status := e.AttachTUN(h, generation, device, 1400); status != OK {
+				if status := e.AttachTUN(h, generation, fileFailureDevice{device}, 1400); status != OK {
 					t.Fatal(status)
 				}
 				if err := device.Close(); err != nil {

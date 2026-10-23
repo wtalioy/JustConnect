@@ -75,6 +75,8 @@ int main(int argc, char **argv) try
             check(client->state() == Client::State::Active && client->descriptor() >= 0, "No active borrowed TUN descriptor");
             QProcess exchange;
             const int device = client->descriptor();
+            const int flags = ::fcntl(device, F_GETFL);
+            check(flags >= 0 && (flags & O_NONBLOCK), "Borrowed TUN fd cannot provide interruptible core I/O");
             exchange.setChildProcessModifier([device] { ::fcntl(device, F_SETFD, 0); });
             exchange.start("/usr/bin/python3", {"-B", "-c",
                 "import sys;sys.path.insert(0,sys.argv[1]);from unix_device_probe import exchange;exchange(int(sys.argv[2]),'198.18.4.7')",

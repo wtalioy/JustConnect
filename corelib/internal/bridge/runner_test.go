@@ -422,3 +422,40 @@ func TestProtocolOversizedAuthenticationBodyReportsLimit(t *testing.T) {
 		t.Fatal(terminal)
 	}
 }
+
+func TestNativeTUNHost(t *testing.T) {
+	host := os.Getenv("JC_NATIVE_TUN_HOST")
+	inherited := os.Getenv("JC_NATIVE_TUN_FD")
+	if host == "" || inherited == "" {
+		t.Skip("native TUN/C ABI handoff runs in the guarded Linux Core ABI namespace")
+	}
+	descriptor, err := strconv.Atoi(inherited)
+	if err != nil || descriptor < 3 || os.Getuid() == 0 || os.Getuid() != os.Geteuid() {
+		t.Fatal("requires a borrowed TUN fd and an ordinary caller")
+	}
+	status, err := os.ReadFile("/proc/self/status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(string(status), "\n") {
+		if strings.HasPrefix(line, "CapEff:") && strings.TrimSpace(strings.TrimPrefix(line, "CapEff:")) != "0000000000000000" {
+			t.Fatal("native data plane retained capabilities")
+		}
+	}
+	file := os.NewFile(uintptr(descriptor), "inherited-tun")
+	defer file.Close()
+	g := newGateway(t)
+	g.resourceIP.Store("198.18.0.6")
+	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, host, "--tun-gateway", string(configBytes(t, g.config(t))), "3")
+	command.ExtraFiles = []*os.File{file}
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("native TUN/C ABI host: %v\n%s", err, output)
+	}
+	if !bytes.Contains(output, []byte("PASS: ordinary native TCP/UDP")) || g.authCount.Load() != 2 || g.tcpCount.Load() != 2 || g.udpCount.Load() != 4 {
+		t.Fatalf("missing actual TUN/campus exchanges: auth=%d TCP=%d UDP=%d\n%s", g.authCount.Load(), g.tcpCount.Load(), g.udpCount.Load(), output)
+	}
+	t.Log(string(output))
+}
