@@ -316,6 +316,40 @@ def main():
             command('send', packet=request(owner, 'cleanup'))
             receive(owner, 'cleaned')
             assert process.wait(timeout=10) == 0, 'receipt cleanup must be safely repeatable after a lost completion'
+
+            # Crash boundary: receipt deletion was durable, but its empty parent was not yet removed.
+            owner = str(uuid.uuid4())
+            process = start(owner)
+            command('send', packet=application(owner))
+            receive(owner, 'active', 1)
+            command('send', packet=request(owner, 'restore'))
+            receive(owner, 'restored')
+            command('disconnect')
+            assert process.wait(timeout=10) == 2
+            command('close-descriptors')
+            receipt = Path(temporary) / f'{args.uid}-{owner}'
+            assert json.loads((receipt / 'source.json').read_text())['phase'] == 'restored'
+            (receipt / 'capture').rmdir()
+            (receipt / 'underlay').rmdir()
+            (receipt / 'source.json').unlink()
+            receipt_fd = os.open(receipt, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+            try:
+                os.fsync(receipt_fd)
+            finally:
+                os.close(receipt_fd)
+            assert not list(receipt.iterdir()) and inventory() == baseline
+            foreign = receipt / 'foreign'
+            foreign.write_bytes(b'preserve unknown contents')
+            process = start(owner)
+            command('send', packet=request(owner, 'cleanup'))
+            assert command('receive')['packet'] is None and process.wait(timeout=10) != 0
+            assert foreign.read_bytes() == b'preserve unknown contents' and inventory() == baseline
+            foreign.unlink()
+            process = start(owner)
+            command('send', packet=request(owner, 'cleanup'))
+            receive(owner, 'cleaned')
+            assert process.wait(timeout=10) == 0 and not receipt.exists(), 'interrupted final receipt removal cannot be retried'
+            print('PASS: interrupted final receipt removal retries its empty directory; unknown contents remain untouched', flush=True)
             owner = str(uuid.uuid4())
             process = start(owner)
             command('send', packet=request(owner, 'recover'))
