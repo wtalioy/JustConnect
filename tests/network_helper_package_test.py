@@ -1,6 +1,6 @@
 import importlib.util
 import io
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import tarfile
 import tempfile
 import unittest
@@ -40,8 +40,8 @@ class NetworkHelperPackageTest(unittest.TestCase):
             text = (ROOT / f'resource/network-helper-recovery.{kind}.in').read_text()
             for key, value in {'JC_NETWORK_HELPER_PATH': package.LAYOUT['executable'],
                                'JC_NETWORK_HELPER_STATE': package.LAYOUT['state_directory'],
-                               'JC_NETWORK_HELPER_STATE_RELATIVE': str(Path(package.LAYOUT['state_directory']).relative_to('/var/lib')),
-                               'JC_NETWORK_HELPER_STATE_PARENT': str(Path(package.LAYOUT['state_directory']).relative_to('/var/lib').parent),
+                               'JC_NETWORK_HELPER_STATE_RELATIVE': str(PurePosixPath(package.LAYOUT['state_directory']).relative_to('/var/lib')),
+                               'JC_NETWORK_HELPER_STATE_PARENT': str(PurePosixPath(package.LAYOUT['state_directory']).relative_to('/var/lib').parent),
                                'JC_NETWORK_HELPER_RECOVERY_UNIT': package.LAYOUT['recovery_unit']}.items():
                 text = text.replace('@' + key + '@', value)
             files[package.RECOVERY_UNIT + '.' + kind] = text.encode()
