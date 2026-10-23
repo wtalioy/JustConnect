@@ -919,9 +919,11 @@ int main(int argc, char **argv) {
     QCoreApplication app(argc,argv);
     const auto args = app.arguments();
 #ifdef Q_OS_MACOS
-    if (args.contains("--native-ownership") || args.contains("--native-scope-probe") || args.contains("--native-foreign-scope-probe")) {
+    if (args.contains("--native-ownership") || args.contains("--native-persistent-recovery")
+        || args.contains("--native-scope-probe") || args.contains("--native-foreign-scope-probe")) {
         try {
             if (args.contains("--native-ownership")) nativeMacOwnership();
+            else if (args.contains("--native-persistent-recovery")) nativeMacPersistentRecovery();
             else nativeMacLockProbe(args.contains("--native-foreign-scope-probe"));
             return 0;
         } catch(const std::exception &error) {std::cerr<<error.what()<<'\n';return 1;}

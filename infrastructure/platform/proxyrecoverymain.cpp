@@ -6,7 +6,7 @@
 #include <QJsonObject>
 #include <QStandardPaths>
 #include <iostream>
-#if defined(Q_OS_LINUX) || defined(Q_OS_WIN)
+#if defined(Q_OS_LINUX) || defined(Q_OS_WIN) || defined(Q_OS_MACOS)
 #include "persistentproxy.h"
 #include "systemcredentialstore.h"
 #endif
@@ -44,7 +44,8 @@ int main(int argc, char **argv)
 #elif defined(Q_OS_MACOS)
     struct stat scope{};
     const bool trusted=stat("/var/tmp",&scope)==0 && S_ISDIR(scope.st_mode) && scope.st_uid==0 && (scope.st_mode&S_ISVTX);
-    PlatformSystemProxyBackend backend;
+    auto credentials=createSystemCredentialStore();
+    PersistentProxyBackend backend(*credentials,PersistentProxyBackend::credentialKey());
     return runProxyRecoveryWorker(backend,application.arguments()[1],MacProxyRecoveryLockFile,
                                   directory+"/proxy-recovery.lock",trusted);
 #else

@@ -32,7 +32,7 @@ class Store final : public CredentialStore {
     CFMutableDictionaryRef query(const QString &key,bool adding=false) const {
         auto dict=CFDictionaryCreateMutable(nullptr,0,&kCFTypeDictionaryKeyCallBacks,&kCFTypeDictionaryValueCallBacks);
         CFDictionarySetValue(dict,kSecClass,kSecClassGenericPassword);
-        CFDictionarySetValue(dict,kSecAttrService,CFSTR("com.github.wtalioy.JustConnect.credentials.v1"));
+        CFDictionarySetValue(dict,kSecAttrService,MacCredentialService);
         auto account=CFStringCreateWithCharacters(nullptr,reinterpret_cast<const UniChar *>(key.utf16()),key.size());
         CFDictionarySetValue(dict,kSecAttrAccount,account);CFRelease(account);
         CFDictionarySetValue(dict,kSecUseAuthenticationUI,kSecUseAuthenticationUIFail);
