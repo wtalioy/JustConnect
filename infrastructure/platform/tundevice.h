@@ -13,6 +13,7 @@ public:
     UnixTunDevice &operator=(const UnixTunDevice &) = delete;
 
     PlatformOperationResult create(const QUuid &owner);
+    static bool validIpv4Configuration(const QString &source, const QString &peer, qint64 mtu);
     PlatformOperationResult createIpv4(const QUuid &owner, const QString &source, const QString &peer, int mtu);
     QJsonObject snapshot() const;
     void close();
