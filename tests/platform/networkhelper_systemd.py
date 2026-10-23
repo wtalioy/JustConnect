@@ -19,7 +19,6 @@ class RecoveryTimer:
         self.name = layout['recovery_unit']
         self.owner = 'JustConnect isolated recovery ' + str(uuid.uuid4())
         self.environment = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C.UTF-8'}
-        self.created = False
         for kind in ('timer', 'service'):
             assert self.property(kind, 'LoadState') == 'not-found', 'refusing to replace an existing recovery unit'
 
@@ -50,11 +49,11 @@ class RecoveryTimer:
         # Manual fault cases retain their original assertions; production timing is exercised separately.
         command += ['--on-active=' + ('1h' if deferred else schedule['OnActiveSec']),
                     '--on-unit-inactive=' + ('1h' if deferred else schedule['OnUnitInactiveSec']),
+                    '--timer-property=Description=' + self.owner,
                     '--timer-property=AccuracySec=' + schedule['AccuracySec']]
         command += shlex.split(self.service['Service']['ExecStart'])
         try:
             self.command(*command)
-            self.created = True
             assert self.property('timer', 'ActiveState') == 'active'
             assert self.property('service', 'Slice') == 'system.slice'
         except BaseException:
@@ -75,13 +74,17 @@ class RecoveryTimer:
         return rows[-1] if rows else None
 
     def stop(self):
-        if self.property('service', 'Description') != self.owner:
-            assert not self.created, 'owned recovery unit was replaced during the test'
-            return
-        self.command(self.layout['systemctl_program'], 'stop', self.name + '.timer', self.name + '.service')
-        self.command(self.layout['systemctl_program'], 'reset-failed', self.name + '.timer', self.name + '.service', check=False)
+        for kind in ('timer', 'service'):
+            if self.property(kind, 'LoadState') == 'not-found':
+                continue
+            if self.property(kind, 'Description') != self.owner:
+                assert self.property(kind, 'LoadState') == 'not-found', 'owned recovery unit was replaced during the test'
+                continue
+            result = self.command(self.layout['systemctl_program'], 'stop', self.name + '.' + kind, check=False)
+            # Stopping the timer may already collect the inactive transient service.
+            assert result.returncode == 0 or self.property(kind, 'LoadState') == 'not-found', result.stderr
+            self.command(self.layout['systemctl_program'], 'reset-failed', self.name + '.' + kind, check=False)
         deadline = time.monotonic() + 10
         while any(self.property(kind, 'LoadState') != 'not-found' for kind in ('timer', 'service')) and time.monotonic() < deadline:
             time.sleep(0.05)
         assert all(self.property(kind, 'LoadState') == 'not-found' for kind in ('timer', 'service')), 'temporary recovery units did not unload'
-        self.created = False
