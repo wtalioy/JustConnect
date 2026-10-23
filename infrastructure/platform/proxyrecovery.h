@@ -17,4 +17,4 @@ private:
 };
 
 int runProxyRecoveryWorker(SystemProxyBackend &backend, const QString &endpoint, const QString &lockFile,
-                           const QString &legacyLockFile = {});
+                           const QString &legacyLockFile = {}, bool userOwnership = true);

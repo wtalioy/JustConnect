@@ -156,8 +156,9 @@ function(justconnect_platform_tests TARGET LIBRARY)
         add_dependencies(${TARGET} JustConnectProxyRecovery)
         add_test(NAME ${TARGET}_native_roundtrip COMMAND ${TARGET} --native-roundtrip)
         add_test(NAME ${TARGET}_native_recovery COMMAND ${TARGET} --native-recovery)
+        add_test(NAME ${TARGET}_native_persistent_recovery COMMAND ${TARGET} --native-persistent-recovery)
         add_test(NAME windows_proxy_lock_test_native COMMAND windows_proxy_lock_test --native)
-        set_tests_properties(${TARGET}_native_roundtrip ${TARGET}_native_recovery windows_proxy_lock_test_native
+        set_tests_properties(${TARGET}_native_roundtrip ${TARGET}_native_recovery ${TARGET}_native_persistent_recovery windows_proxy_lock_test_native
             PROPERTIES TIMEOUT 45 RESOURCE_LOCK system_proxy_recovery_user)
     endif()
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")

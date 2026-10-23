@@ -107,8 +107,10 @@ struct ProxyRecoveryBackend::Worker {
         process.setStandardErrorFile(QProcess::nullDevice());
         QDeadlineTimer deadline(qMin(qint64(5000),operationDeadline.remainingTime()));
         if (!process.startDetached()) return {Status::Failed,"Cannot start the system proxy recovery worker."};
+        // Even an initial query or EOF can resume persistent recovery in the worker.
+        dirty = true;
         if (!server.waitForNewConnection(int(deadline.remainingTime())))
-            return {Status::TimedOut,"The system proxy recovery worker did not connect."};
+            return {Status::TimedOut,"The system proxy recovery worker did not connect.",true};
         socket = server.nextPendingConnection();
         socket->setParent(context);
         socket->setReadBufferSize(MaxFrame+1);
@@ -116,11 +118,12 @@ struct ProxyRecoveryBackend::Worker {
         const auto hello = receive(*socket,deadline);
         if (hello && *hello==QJsonObject{{"protocol",1},{"ready",false}}) {
             delete socket;socket=nullptr;
+            dirty = false;
             return {Status::Failed,"Another system proxy recovery owner is active or its ownership lock is unavailable."};
         }
         if (!hello || *hello!=QJsonObject{{"protocol",1},{"ready",true}}) {
             delete socket;socket=nullptr;
-            return {Status::Failed,"Invalid system proxy recovery worker handshake."};
+            return {Status::Failed,"Invalid system proxy recovery worker handshake.",true};
         }
         return {};
     }
@@ -132,13 +135,14 @@ struct ProxyRecoveryBackend::Worker {
             if (!valid.succeeded()) return {valid};
         }
         QDeadlineTimer deadline(OperationTimeout);
+        const bool previousDirty = dirty;
         const auto connected = connect(deadline);
         if (!connected.succeeded()) return {connected};
         QJsonObject command{{"operation",operation}};
         if (operation!="clear") command["config"] = QJsonObject{{"http_port",config.httpPort},{"socks_port",config.socksPort},{"bypass",config.bypass}};
         if (QJsonDocument(command).toJson(QJsonDocument::Compact).size()+1>MaxFrame)
             return {{Status::Failed,"System proxy request exceeds the recovery channel limit.",dirty}};
-        if (operation=="apply") dirty = true;
+        if (operation=="apply" || operation=="check") dirty = true;
         const auto object = send(*socket,command,deadline) ? receive(*socket,deadline) : std::nullopt;
         const auto result = object ? decode(*object) : std::nullopt;
         if (!result) {
@@ -147,6 +151,7 @@ struct ProxyRecoveryBackend::Worker {
                      "System proxy recovery channel failed; the independent worker retains pending recovery.",dirty}};
         }
         if (operation=="apply") dirty = result->result.succeeded() || result->result.mayHaveChanged;
+        else if (operation=="check") dirty = previousDirty || result->result.mayHaveChanged;
         else if (operation=="clear" && result->result.succeeded()) dirty = false;
         return *result;
     }
@@ -174,7 +179,7 @@ PlatformOperationResult ProxyRecoveryBackend::apply(const SystemProxyConfig &con
 PlatformOperationResult ProxyRecoveryBackend::clear() { return worker->call("clear").result; }
 
 int runProxyRecoveryWorker(SystemProxyBackend &backend, const QString &endpoint, const QString &lockFile,
-                           const QString &legacyLockFile)
+                           const QString &legacyLockFile, bool userOwnership)
 {
     // shortcut: automatic worker restart still needs persistent backends and an ownership-safe reconnect handshake.
     QLocalSocket channel;
@@ -183,7 +188,7 @@ int runProxyRecoveryWorker(SystemProxyBackend &backend, const QString &endpoint,
     if (!channel.waitForConnected(5000)) return 1;
     QLockFile ownership(lockFile);
     ownership.setStaleLockTime(0);
-    bool locked = ownership.tryLock();
+    bool locked = userOwnership && ownership.tryLock();
     std::optional<QLockFile> legacy;
     if (locked && !legacyLockFile.isEmpty()) {
         legacy.emplace(legacyLockFile);legacy->setStaleLockTime(0);locked=legacy->tryLock();
