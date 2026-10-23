@@ -190,11 +190,13 @@ static void nativeMacPersistentRecovery() {
         {NativeProxyWorker refused(false);nativeWorkerCheck(recordReference()==record,"Refused Mac owner replaced protected recovery data");}
         owner.stop();restored();
     }
+    QString previousOwner;
     {
         NativeProxyWorker owner;owner.call("apply");
         nativeWorkerCheck(!recordReference().isEmpty(),"Missing protected product Mac crash record");owner.crash();
+        previousOwner=owner.recoveryOwner();
     }
-    {NativeProxyWorker fresh;fresh.call("check");restored();fresh.stop();}
+    {NativeProxyWorker fresh(true,previousOwner,true);fresh.call("clear");restored();fresh.stop();}
     nativeWorkerCheck(!QFile::exists(MacProxyRecoveryLockFile),"Persistent Mac recovery left a machine owner lock");
     cleanup.dismiss();provider.finish();
     std::cout<<"PASS: product macOS persistent worker, native endpoints, concurrent refusal, EOF and fresh process after owned termination\n";

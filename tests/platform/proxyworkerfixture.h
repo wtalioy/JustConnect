@@ -20,6 +20,8 @@ class NativeProxyWorker {
     QLocalServer server;
     QProcess process;
     std::unique_ptr<QLocalSocket> channel;
+    QString owner=QUuid::createUuid().toString(QUuid::WithoutBraces);
+    bool pending=false;
     QJsonObject receive() {
         QDeadlineTimer deadline(5000);
         while(!channel->canReadLine())nativeWorkerCheck(!deadline.hasExpired() && channel->bytesAvailable()<65536
@@ -29,7 +31,9 @@ class NativeProxyWorker {
         return document.object();
     }
 public:
-    explicit NativeProxyWorker(bool ready=true) {
+    explicit NativeProxyWorker(bool ready=true, QString previousOwner={}, bool resume=false) {
+        if(!previousOwner.isEmpty())owner=std::move(previousOwner);
+        pending=resume;
         server.setSocketOptions(QLocalServer::UserAccessOption);
 #ifdef Q_OS_WIN
         const auto endpoint="jcpr-native-"+QUuid::createUuid().toString(QUuid::Id128);
@@ -42,10 +46,11 @@ public:
 #ifdef Q_OS_WIN
         executable+=".exe";
 #endif
-        process.start(executable,{endpoint});
+        QStringList arguments{endpoint,owner};if(resume)arguments.append("--resume");
+        process.start(executable,arguments);
         nativeWorkerCheck(process.waitForStarted(5000) && server.waitForNewConnection(5000),"Start directly owned native recovery worker");
         channel.reset(server.nextPendingConnection());server.close();
-        nativeWorkerCheck(receive()==QJsonObject{{"protocol",1},{"ready",ready}},"Native recovery ownership handshake mismatch");
+        nativeWorkerCheck(receive()==QJsonObject{{"protocol",ProxyRecoveryProtocol},{"ready",ready}},"Native recovery ownership handshake mismatch");
         if(!ready)nativeWorkerCheck((process.state()==QProcess::NotRunning || process.waitForFinished(5000)) && process.exitStatus()==QProcess::NormalExit && process.exitCode()==1,
                         "Refused native owner did not exit without backend operations");
     }
@@ -55,12 +60,21 @@ public:
     }
     void call(const char *operation) {
         QJsonObject request{{"operation",operation}};
-        if(QString::fromLatin1(operation)!="clear")request["config"]=QJsonObject{{"http_port",config.httpPort},{"socks_port",config.socksPort},{"bypass",config.bypass}};
+        if(QString::fromLatin1(operation)!="clear") {
+            if(!pending)owner=QUuid::createUuid().toString(QUuid::WithoutBraces);
+            request["owner"]=owner;
+            request["config"]=QJsonObject{{"http_port",config.httpPort},{"socks_port",config.socksPort},{"bypass",config.bypass}};
+        }
         const auto bytes=QJsonDocument(request).toJson(QJsonDocument::Compact)+'\n';
         nativeWorkerCheck(channel->write(bytes)==bytes.size(),"Queue native recovery operation");QDeadlineTimer deadline(5000);
         while(channel->bytesToWrite())nativeWorkerCheck(!deadline.hasExpired() && channel->waitForBytesWritten(int(deadline.remainingTime())),"Deliver native recovery operation");
-        nativeWorkerCheck(receive()["status"]==int(Status::Success),"Native persistent recovery operation failed");
+        const auto result=receive();
+        nativeWorkerCheck(result["status"]==int(Status::Success),qPrintable("Native persistent recovery operation failed: "+result["detail"].toString()));
+        if(QString::fromLatin1(operation)=="apply")pending=true;
+        else if(QString::fromLatin1(operation)=="clear")pending=false;
+        else pending|=result["changed"].toBool();
     }
+    QString recoveryOwner() const {return owner;}
     void stop() {
         channel->disconnectFromServer();
         nativeWorkerCheck((process.state()==QProcess::NotRunning || process.waitForFinished(5000)) && process.exitStatus()==QProcess::NormalExit && process.exitCode()==0,"Native persistent worker did not finish cleanup");

@@ -29,11 +29,13 @@ static void nativePersistentRecovery() {
         QLockFile legacy(directory+"/proxy-recovery.lock");legacy.setStaleLockTime(0);nativeWorkerCheck(legacy.tryLock(),"Acquire legacy native directory lock");
         NativeProxyWorker refused(false);restored();
     }
+    QString previousOwner;
     {
         NativeProxyWorker owner;owner.call("apply");nativeWorkerCheck(credentials->read(key).succeeded(),"Missing protected worker crash record");owner.crash();
+        previousOwner=owner.recoveryOwner();
     }
     {
-        NativeProxyWorker fresh;fresh.call("check");restored();fresh.stop();
+        NativeProxyWorker fresh(true,previousOwner,true);fresh.call("clear");restored();fresh.stop();
     }
     std::cout<<"PASS: product Windows persistent worker, user/legacy ownership refusal, EOF recovery and fresh process after worker termination\n";
 }

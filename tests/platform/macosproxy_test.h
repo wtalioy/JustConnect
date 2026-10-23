@@ -379,6 +379,7 @@ static void backendTests() {
               "External record deletion reinterpreted rejected Mac ownership as successful recovery");restored();
         std::cout<<"PASS: native macOS private Keychain recovery, write ordering, fresh provider, locked retry and foreign scope refusal\n";
     }
+    scopedProxyTests(api,seed,restored,[]{return changes;});
     check(SCNetworkServiceSetEnabled(first,false) && SCNetworkServiceSetEnabled(second,false) && nativeCommit(prefs),"disable private fixture services");
     check(backend.apply(config).status==PlatformOperationResult::Status::Unsupported,"no enabled services is explicitly unsupported");
     check(SCNetworkServiceSetEnabled(first,true) && SCNetworkServiceSetEnabled(second,true) && nativeCommit(prefs),"reenable private fixture services");

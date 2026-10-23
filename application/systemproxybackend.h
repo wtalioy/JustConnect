@@ -22,4 +22,9 @@ public:
     virtual SystemProxyCheck check(const SystemProxyConfig &config) = 0;
     virtual PlatformOperationResult apply(const SystemProxyConfig &config) = 0;
     virtual PlatformOperationResult clear() = 0;
+    virtual PlatformOperationResult beginRecovery(const QString &, bool resume)
+    {
+        return resume ? PlatformOperationResult{PlatformOperationResult::Status::Unsupported,
+            "This backend cannot confirm a previous recovery owner"} : PlatformOperationResult{};
+    }
 };

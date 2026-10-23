@@ -28,6 +28,9 @@ static void check(bool ok, const char *message) { if (!ok) { std::cerr << messag
 using Status = PlatformOperationResult::Status;
 const SystemProxyConfig config{11081,11080,"localhost;*.example.test"};
 #include "proxyworkerfixture.h"
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX) || defined(Q_OS_MACOS)
+#include "scopedproxy_test.h"
+#endif
 
 #ifdef Q_OS_WIN
 namespace {
@@ -777,6 +780,21 @@ static void checkpointTests() {
         }
     }
     std::cout<<"PASS: Linux observed ownership, legacy records and authentication/mode/bypass storage waits\n";
+    {
+        auto fixture=seed();const auto original=fixture.values;
+        const PlatformCommandRunner api=[&](const QString &p,const QStringList &a){return fixture.run(p,a);};
+        scopedProxyTests(api,[&]{fixture=seed();},[&]{
+            for(auto i=original.cbegin();i!=original.cend();++i) {
+                auto actual=fixture.values[i.key()],expected=i.value();
+                if(expected.startsWith('\'') && expected.endsWith('\'')) {
+                    check((actual.startsWith('\'') && actual.endsWith('\'')) || (actual.startsWith('"') && actual.endsWith('"')),
+                          "Scoped Linux recovery changed a string into another native type");
+                    actual=actual.mid(1,actual.size()-2);expected=expected.mid(1,expected.size()-2);
+                }
+                check(actual==expected,"Scoped Linux recovery lost original values");
+            }
+        },[&]{return fixture.mutations;});
+    }
     std::cout<<"PASS: proxy write-ahead intents, confirmed values, denied checkpoints, external races and fresh-backend uncertainty\n";
 }
 

@@ -93,43 +93,76 @@ template<class Predicate> static void until(Predicate ready, const char *phase)
 }
 class FileBackend final : public SystemProxyBackend {
     int before = 0;
-    bool owned = false;
+    bool owned = false, prepared = false, rejected = false, confirmed = false, resuming = false;
+    QString owner;
     const QString mode = qEnvironmentVariable("JC_PROXY_RECOVERY_FIXTURE_MODE");
+    Result prepare() {
+        if(rejected)return {Status::Failed,"Unconfirmed private recovery owner"};
+        if(prepared)return {};
+        auto values=state();
+        if(resuming && values["completed_scope"]==owner) {
+            owned=false;confirmed=prepared=true;rejected=values.contains("pending_before");return {};
+        }
+        if(resuming && (!values.contains("pending_before") || values["pending_scope"]!=owner)) {
+            rejected=true;return {Status::Failed,"Missing or different private recovery owner"};
+        }
+        owned=values.contains("pending_before");
+        if(owned) {before=values["pending_before"].toInt();values["pending_scope"]=owner;store(values);}
+        prepared=true;return {};
+    }
 public:
-    SystemProxyCheck check(const SystemProxyConfig &config) override
-    {
+    Result beginRecovery(const QString &scope,bool resume) override {
+        const QUuid id(scope);
+        if(id.isNull() || id.toString(QUuid::WithoutBraces)!=scope || rejected || (resuming && !resume)
+            || (confirmed && owner==scope) || (prepared && owned && owner!=scope))
+            return {Status::Failed,"Invalid private recovery owner",owned};
+        if(owner!=scope){prepared=confirmed=false;}
+        owner=scope;resuming=resume;return {};
+    }
+    SystemProxyCheck check(const SystemProxyConfig &config) override {
         if (mode=="invalid-state") return {{Status::Failed,"Rejected unowned recovery data"}};
-        auto values = state();values["checks"] = values["checks"].toInt()+1;
-        values["config"] = QJsonObject{{"http",config.httpPort},{"socks",config.socksPort},{"bypass",config.bypass}};store(values);
-        if (mode=="recovering-check" || mode=="lost-check") {
-            if (!owned) { before=values["current"].toInt();owned=true;values["current"]=111;store(values); }
-            return {{Status::Failed,"Unconfirmed startup recovery",true}};
+        if(auto result=prepare();!result.succeeded())return {result};
+        auto values=state();values["checks"]=values["checks"].toInt()+1;
+        values["config"]=QJsonObject{{"http",config.httpPort},{"socks",config.socksPort},{"bypass",config.bypass}};
+        if(mode=="recovering-check" || mode=="lost-check") {
+            if(!owned) {
+                before=values["current"].toInt();owned=true;values["pending_before"]=before;
+                values["pending_scope"]=owner;values["current"]=111;
+            }
+            store(values);return {{Status::Failed,"Unconfirmed startup recovery",true}};
         }
-        return {{},false,values["current"]==111};
+        if(!owned){values["completed_scope"]=owner;confirmed=true;}
+        store(values);return {{},false,values["current"]==111};
     }
-    Result apply(const SystemProxyConfig &) override
-    {
-        if (owned) return {Status::Failed,"Already owned",true};
-        auto values = state();before = values["current"].toInt();owned = true;
-        values["current"] = 111;values["applies"] = values["applies"].toInt()+1;store(values);
-        if (mode=="blocked-apply") {
-            // Observers wait for publication so their Windows read handles cannot block replacement.
-            touch("apply-published");
-            QElapsedTimer timer;timer.start();
-            while (!QFile::exists(root+"/release") && timer.elapsed()<2000) QThread::msleep(5);
+    Result apply(const SystemProxyConfig &) override {
+        if(auto result=prepare();!result.succeeded())return result;
+        if(owned)return {Status::Failed,"Already owned",true};
+        auto values=state();before=values["current"].toInt();owned=true;
+        values["pending_before"]=before;values["pending_scope"]=owner;
+        values["current"]=111;values["applies"]=values["applies"].toInt()+1;store(values);
+        if(mode=="worker-exit")std::_Exit(23);
+        if(mode=="blocked-apply") {
+            touch("apply-published");QElapsedTimer timer;timer.start();
+            while(!QFile::exists(root+"/release") && timer.elapsed()<2000)QThread::msleep(5);
         }
-        return mode=="partial" ? Result{Status::Failed,"Injected partial application",true} : Result{Status::Success,{},true};
+        return mode=="partial"?Result{Status::Failed,"Injected partial application",true}:Result{Status::Success,{},true};
     }
-    Result clear() override
-    {
-        if (mode=="invalid-state") return {Status::Failed,"Rejected unowned recovery data"};
-        if (!owned) return {};
-        auto values = state();values["clears"] = values["clears"].toInt()+1;
-        if (QFile::exists(root+"/deny-clear")) {
-            store(values);touch("clear-denied");return {Status::PermissionDenied,"Injected cleanup denial",true};
+    Result clear() override {
+        if(confirmed)return {};
+        if(mode=="invalid-state")return {Status::Failed,"Rejected unowned recovery data"};
+        if(auto result=prepare();!result.succeeded())return result;
+        if(confirmed)return {};
+        auto values=state();
+        if(owned) {
+            if(mode=="exit-on-clear") {values["clear_exits"]=values["clear_exits"].toInt()+1;store(values);std::_Exit(24);}
+            values["clears"]=values["clears"].toInt()+1;
+            if(QFile::exists(root+"/deny-clear")) {
+                store(values);touch("clear-denied");return {Status::PermissionDenied,"Injected cleanup denial",true};
+            }
+            if(values["current"]==111)values["current"]=before;
+            values.remove("pending_before");values.remove("pending_scope");values["recovered"]=true;owned=false;
         }
-        if (values["current"]==111) values["current"] = before;
-        values["recovered"] = true;store(values);owned = false;return {};
+        values["completed_scope"]=owner;store(values);confirmed=true;resuming=false;return {};
     }
 };
 
@@ -137,7 +170,9 @@ int main(int argc, char **argv) try
 {
     QCoreApplication application(argc,argv);
     root = qEnvironmentVariable("JC_PROXY_RECOVERY_FIXTURE_ROOT");
-    if (argc==2) {
+    const bool resume=argc==4 && application.arguments()[3]=="--resume";
+    const auto owner=application.arguments().value(2);
+    if (argc==2 || argc==3 || resume) {
         check(!root.isEmpty() && QFile::exists(root+"/state.json"),"Worker requires its private fixture");
         FileBackend backend;
         const auto mode = qEnvironmentVariable("JC_PROXY_RECOVERY_FIXTURE_MODE");
@@ -145,27 +180,34 @@ int main(int argc, char **argv) try
             QLocalSocket socket;
             socket.connectToServer(application.arguments()[1]);check(socket.waitForConnected(5000),"Connect invalid-reply fixture");
             QLockFile ownership(root+"/owner.lock");ownership.setStaleLockTime(0);check(ownership.tryLock(),"Acquire invalid-reply fixture");
+            check(backend.beginRecovery(owner,resume).succeeded(),"Bind invalid-reply fixture owner");
             if (mode=="bad-hello") {
                 check(backend.apply(config).succeeded(),"Resume recovery before unconfirmed handshake");
-                deliver(socket,"{\"protocol\":1,\"ready\":\"true\"}\n");
+                deliver(socket,QJsonDocument(QJsonObject{{"protocol",ProxyRecoveryProtocol},{"ready","true"}}).toJson(QJsonDocument::Compact)+'\n');
             } else {
-                deliver(socket,"{\"protocol\":1,\"ready\":true}\n");
+                deliver(socket,QJsonDocument(QJsonObject{{"protocol",ProxyRecoveryProtocol},{"ready",true}}).toJson(QJsonDocument::Compact)+'\n');
                 const bool query=mode=="lost-check";
-                check(QJsonDocument::fromJson(frame(socket)).object()["operation"]==(query ? "check" : "apply"),
-                      "Invalid-reply fixture requires its expected operation");
+                const auto request=QJsonDocument::fromJson(frame(socket)).object();
+                check(request["operation"]==(query ? "check" : "apply")
+                      && backend.beginRecovery(request["owner"].toString(),false).succeeded(),
+                      "Invalid-reply fixture requires its expected operation and owner");
                 if (query) check(backend.check(config).result.mayHaveChanged,"Resume recovery before unconfirmed query reply");
                 else check(backend.apply(config).succeeded(),"Apply before unconfirmed reply");
                 if (mode!="withheld-reply") deliver(socket,"{\"status\":999}\n");
             }
             while (socket.state()==QLocalSocket::ConnectedState) socket.waitForReadyRead(20000);
-            check(backend.clear().succeeded(),"Recover after a lost response");return 0;
+            QElapsedTimer cleanupTime;cleanupTime.start();
+            while(!backend.clear().succeeded()) {
+                check(cleanupTime.elapsed()<5000,"Recover after a lost response");QThread::msleep(100);
+            }
+            return 0;
         }
 #ifdef Q_OS_LINUX
         if (qEnvironmentVariable("JC_PROXY_RECOVERY_FIXTURE_MODE")=="native") {
             check(qEnvironmentVariable("GSETTINGS_BACKEND")=="keyfile" && qEnvironmentVariable("XDG_CONFIG_HOME")==root+"/native-config",
                   "Refuse daily desktop proxy settings");
             PlatformSystemProxyBackend native;
-            return runProxyRecoveryWorker(native,application.arguments()[1],root+"/owner.lock");
+            return runProxyRecoveryWorker(native,application.arguments()[1],root+"/owner.lock",{},true,owner,resume);
         }
 #endif
 #ifdef Q_OS_MACOS
@@ -173,10 +215,10 @@ int main(int argc, char **argv) try
             MacProxyApi api;
             api.open = [](AuthorizationRef *authorization) { *authorization=nullptr;return privatePreferences(); };
             PlatformSystemProxyBackend native(api);
-            return runProxyRecoveryWorker(native,application.arguments()[1],root+"/owner.lock");
+            return runProxyRecoveryWorker(native,application.arguments()[1],root+"/owner.lock",{},true,owner,resume);
         }
 #endif
-        return runProxyRecoveryWorker(backend,application.arguments()[1],root+"/owner.lock",{},mode!="user-lock-denied");
+        return runProxyRecoveryWorker(backend,application.arguments()[1],root+"/owner.lock",{},mode!="user-lock-denied",owner,resume);
     }
     if (argc==4 && application.arguments()[1]=="--hold") {
         root = application.arguments()[3];
@@ -285,6 +327,66 @@ int main(int argc, char **argv) try
         check(state()["applies"]==1,"A second owner modified the orphan recovery fixture");
         std::cout << "PASS: proxy host SIGKILL at " << mode.toStdString() << ", independent recovery restored its original state\n";
     }
+    reset("worker-exit");
+    {
+        ProxyRecoveryBackend backend(QCoreApplication::applicationFilePath());
+        const auto lost=backend.apply(config);
+        check(!lost.succeeded() && lost.mayHaveChanged && state()["current"]==111 && state()["pending_before"]==17,
+              "Private worker exit did not preserve its unacknowledged pending recovery");
+        qputenv("JC_PROXY_RECOVERY_FIXTURE_MODE","normal");
+        check(backend.clear().succeeded() && state()["current"]==17 && !state().contains("pending_before")
+              && state()["applies"]==1 && state()["clears"]==1,
+              "Same client could not acquire a fresh worker and confirm recovery after worker exit");
+        check(backend.apply(config).succeeded() && backend.clear().succeeded() && state()["current"]==17,
+              "Confirmed fresh-worker cleanup did not permit another user application");
+        std::cout<<"PASS: same client recovers persisted private state through a fresh worker after unacknowledged worker exit\n";
+    }
+    reset("exit-on-clear");
+    {
+        ProxyRecoveryBackend backend(QCoreApplication::applicationFilePath());
+        check(backend.apply(config).succeeded(),"Apply before private worker exits during clear");
+        qputenv("JC_PROXY_RECOVERY_FIXTURE_MODE","normal");
+        check(backend.clear().succeeded() && state()["current"]==17 && state()["applies"]==1 && state()["clears"]==1
+              && !state().contains("pending_before"),"Clear did not recover through one fresh worker after its channel failed");
+    }
+    reset("bad-reply");touch("deny-clear");
+    {
+        ProxyRecoveryBackend backend(QCoreApplication::applicationFilePath());
+        check(!backend.apply(config).succeeded(),"Lost-reply fixture unexpectedly acknowledged its application");
+        until([]{return QFile::exists(root+"/clear-denied");},"Original worker did not retain denied cleanup");
+        qputenv("JC_PROXY_RECOVERY_FIXTURE_MODE","normal");
+        const auto refused=backend.clear();
+        check(!refused.succeeded() && refused.mayHaveChanged && !backend.apply(config).succeeded()
+              && state()["current"]==111 && state()["applies"]==1 && state().contains("pending_before"),
+              "Refused replacement erased prior responsibility or stole a live worker's ownership");
+        QFile::remove(root+"/deny-clear");
+        until([]{return !QFile::exists(root+"/owner.lock") && state()["current"]==17;},"Original recovery did not finish after refusal");
+        check(backend.clear().succeeded() && state()["applies"]==1 && state()["current"]==17,
+              "Same client could not confirm cleanup after the original owner released its lock");
+    }
+    reset("exit-on-clear");
+    {
+        ProxyRecoveryBackend backend(QCoreApplication::applicationFilePath());
+        check(backend.apply(config).succeeded(),"Apply before repeated private cleanup exits");
+        const auto failed=backend.clear();
+        check(!failed.succeeded() && failed.mayHaveChanged && state()["clear_exits"]==2
+              && state()["current"]==111 && state()["pending_before"]==17 && state()["applies"]==1,
+              "Repeated cleanup exits exceeded one reconnect or discarded pending recovery");
+        qputenv("JC_PROXY_RECOVERY_FIXTURE_MODE","normal");
+        check(backend.clear().succeeded() && state()["current"]==17 && !state().contains("pending_before"),
+              "Exhausted reconnect could not resume confirmed recovery on a later request");
+    }
+    std::cout<<"PASS: bounded clear reconnect, live owner refusal and retained responsibility after repeated interruption\n";
+    reset("exit-on-clear");
+    {
+        ProxyRecoveryBackend backend(QCoreApplication::applicationFilePath());
+        check(backend.apply(config).succeeded(),"Apply before external deletion of private pending recovery");
+        auto missing=state();missing.remove("pending_before");store(missing);
+        qputenv("JC_PROXY_RECOVERY_FIXTURE_MODE","normal");
+        const auto result=backend.clear();
+        check(!result.succeeded() && result.mayHaveChanged && state()["current"]==111,
+              "A replacement treated externally missing recovery data as confirmed cleanup");
+    }
     for (const auto *mode : {"bad-reply","withheld-reply","lost-check","bad-hello"}) {
         reset(mode);
         ProxyRecoveryBackend backend(QCoreApplication::applicationFilePath());
@@ -294,14 +396,14 @@ int main(int argc, char **argv) try
               && (QString::fromLatin1(mode)!="withheld-reply" || result.status==Status::TimedOut),
               "Invalid or timed-out acknowledgement published successful application");
         until([] { return !QFile::exists(root+"/owner.lock") && state()["current"]==17; },"Lost acknowledgement did not complete independent recovery");
-        const auto cleared=backend.clear();
-        check(!cleared.succeeded() && cleared.mayHaveChanged && !backend.apply(config).succeeded()
+        qputenv("JC_PROXY_RECOVERY_FIXTURE_MODE","normal");
+        check(backend.clear().succeeded() && state()["current"]==17 && !state().contains("pending_before")
               && state()["applies"]==(QString::fromLatin1(mode)=="lost-check" ? 0 : 1),
-              "Lost acknowledgement invented confirmed recovery or started another owner");
-        std::cout << "PASS: " << mode << ", no false acknowledgement or second owner after actual worker recovery\n";
+              "Fresh cleanup confirmation lost the original state or replayed an application");
+        std::cout << "PASS: " << mode << ", explicit fresh-worker confirmation after actual recovery without replaying application\n";
     }
     for (const auto &invalid : {QByteArray("{\"operation\":\"execute\"}\n"),QByteArray("{\"operation\":\"clear\",\"extra\":1}\n"),
-                               QByteArray("{\"operation\":\"apply\",\"config\":{\"http_port\":1.5,\"socks_port\":2,\"bypass\":\"\"}}\n"),
+                               QByteArray("{\"operation\":\"apply\",\"owner\":\"27491b85-972b-4a1e-b35d-a57351c72b20\",\"config\":{\"http_port\":1.5,\"socks_port\":2,\"bypass\":\"\"}}\n"),
                                QByteArray("{\"operation\":\"\xff\"}\n"),QByteArray(64*1024+1,'x')}) {
         reset();
         QLocalServer server;
@@ -321,7 +423,8 @@ int main(int argc, char **argv) try
               "Constrain only the owned fixture socket write buffer");
 #endif
         check(QJsonDocument::fromJson(frame(*socket)).object()["ready"]==true,"Protocol worker handshake");
-        const auto command = QByteArray("{\"operation\":\"apply\",\"config\":{\"http_port\":11081,\"socks_port\":11080,\"bypass\":\"localhost\"}}\n");
+        const auto command=QJsonDocument(QJsonObject{{"operation","apply"},{"owner",QUuid::createUuid().toString(QUuid::WithoutBraces)},
+            {"config",QJsonObject{{"http_port",11081},{"socks_port",11080},{"bypass","localhost"}}}}).toJson(QJsonDocument::Compact)+'\n';
         deliver(*socket,command);
         check(QJsonDocument::fromJson(frame(*socket)).object()["status"]==0,"Protocol fixture applies actual owned state");
         deliver(*socket,invalid);
