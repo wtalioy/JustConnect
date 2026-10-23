@@ -118,7 +118,16 @@ func (s *ingressCampus) DialTCP(ctx context.Context, addr *net.TCPAddr) (net.Con
 }
 func (s *ingressCampus) DialUDP(ctx context.Context, addr *net.UDPAddr) (net.Conn, error) {
 	s.called <- "udp:" + addr.String()
-	return (&net.Dialer{}).DialContext(ctx, "udp", s.udpAddress)
+	conn, err := (&net.Dialer{}).DialContext(ctx, "udp", s.udpAddress)
+	if err != nil {
+		return nil, err
+	}
+	// The native fixture must accept the full datagram contract, including macOS.
+	if err := conn.(*net.UDPConn).SetWriteBuffer(maxUDPPacket); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	return conn, nil
 }
 
 func newIngressOwner(t *testing.T, campus campusstack.Stack, protection *policy.ProtectionPolicy, resources []client.IPResource) (*Listeners, *packetDevice) {
@@ -178,11 +187,15 @@ func TestTUNRelaysTCPHalfCloseAndUDPDatagrams(t *testing.T) {
 		<-responseReady
 		_, _ = conn.Write(append([]byte("reply:"), data...))
 	}()
-	udpTarget, err := net.ListenPacket("udp", "127.0.0.1:0")
+	udpTarget, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer udpTarget.Close()
+	if err := udpTarget.SetWriteBuffer(maxUDPPacket); err != nil {
+		t.Fatal(err)
+	}
+	udpErrors := make(chan error, 1)
 	go func() {
 		buf := make([]byte, maxUDPPacket)
 		for {
@@ -190,7 +203,10 @@ func TestTUNRelaysTCPHalfCloseAndUDPDatagrams(t *testing.T) {
 			if err != nil {
 				return
 			}
-			_, _ = udpTarget.WriteTo(buf[:n], peer)
+			if _, err := udpTarget.WriteTo(buf[:n], peer); err != nil {
+				udpErrors <- err
+				return
+			}
 		}
 	}()
 	campus := &ingressCampus{tcpTarget.Addr().String(), udpTarget.LocalAddr().String(), make(chan string, 8)}
@@ -241,6 +257,11 @@ func TestTUNRelaysTCPHalfCloseAndUDPDatagrams(t *testing.T) {
 		buf := make([]byte, maxUDPPacket)
 		n, err := udpConn.Read(buf)
 		if err != nil || !bytes.Equal(buf[:n], data) {
+			select {
+			case targetErr := <-udpErrors:
+				t.Fatalf("UDP fixture reply failed: %v", targetErr)
+			default:
+			}
 			t.Fatalf("UDP datagram %d bytes -> %d bytes: %v", len(data), n, err)
 		}
 	}
