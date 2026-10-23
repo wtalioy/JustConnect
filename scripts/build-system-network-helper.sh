@@ -5,8 +5,8 @@ repo=$(cd "$(dirname "$0")/.." && pwd)
 output=${1:?Usage: build-system-network-helper.sh BUILD_DIRECTORY}
 # The GUI SDK must not affect qmake's reported prefix, CMake discovery or shlibdeps.
 unset CMAKE_PREFIX_PATH CMAKE_MODULE_PATH QT_ROOT_DIR QTDIR QT_HOST_PATH QT_PLUGIN_PATH QMAKEPATH QMAKEFEATURES
+unset PKG_CONFIG_PATH PKG_CONFIG_LIBDIR
 unset Qt6_ROOT Qt6_DIR Qt6Core_DIR Qt6CoreTools_DIR LD_LIBRARY_PATH LD_PRELOAD
-export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export LC_ALL=C.UTF-8
 qt_libraries=$(/usr/bin/qmake6 -query QT_INSTALL_LIBS)
 
