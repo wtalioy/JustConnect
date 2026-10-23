@@ -27,6 +27,7 @@
 static void check(bool ok, const char *message) { if (!ok) { std::cerr << message << '\n'; std::exit(1); } }
 using Status = PlatformOperationResult::Status;
 const SystemProxyConfig config{11081,11080,"localhost;*.example.test"};
+#include "proxyworkerfixture.h"
 
 #ifdef Q_OS_WIN
 namespace {
@@ -385,6 +386,7 @@ static void nativeRecovery()
 
 #elif defined(Q_OS_MACOS)
 #include "macosproxy_test.h"
+#include "macosproxy_worker_test.h"
 #else
 struct Fixture {
     QMap<QString, QString> values;
@@ -916,6 +918,15 @@ static void protectedProxyPhase(const QString &phase,const QString &key) {
 int main(int argc, char **argv) {
     QCoreApplication app(argc,argv);
     const auto args = app.arguments();
+#ifdef Q_OS_MACOS
+    if (args.contains("--native-ownership") || args.contains("--native-scope-probe") || args.contains("--native-foreign-scope-probe")) {
+        try {
+            if (args.contains("--native-ownership")) nativeMacOwnership();
+            else nativeMacLockProbe(args.contains("--native-foreign-scope-probe"));
+            return 0;
+        } catch(const std::exception &error) {std::cerr<<error.what()<<'\n';return 1;}
+    }
+#endif
 #ifdef Q_OS_WIN
     if(args.contains("--native-roundtrip")){nativeRoundtrip();return 0;}
     if(args.contains("--native-recovery-owner")){nativeRecoveryOwner();return 0;}
