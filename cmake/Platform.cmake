@@ -52,20 +52,8 @@ function(justconnect_platform TARGET)
         target_link_libraries(${TARGET} PRIVATE "-framework Security" "-framework CoreFoundation" "-framework SystemConfiguration")
     elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         find_package(Qt6 REQUIRED COMPONENTS DBus)
-        # The elevated runtime has no Go, GUI, network policy or credential-store dependency.
-        add_library(justconnect_network_helper STATIC
-            "${REPO}/infrastructure/platform/linux/networkhelper.cpp"
-            "${REPO}/infrastructure/platform/linux/sourcejournal.cpp"
-            "${REPO}/infrastructure/platform/linux/sourceroutes.cpp"
-            "${REPO}/infrastructure/platform/linux/tunroutes.cpp"
-            "${REPO}/infrastructure/platform/linux/tundevice.cpp"
-            "${REPO}/infrastructure/platform/tundevice.cpp"
-            "${REPO}/infrastructure/platform/platformcommand.cpp")
-        target_include_directories(justconnect_network_helper PUBLIC "${REPO}")
-        target_link_libraries(justconnect_network_helper PUBLIC Qt6::Core)
-        add_executable(JustConnectNetworkHelper "${REPO}/infrastructure/platform/linux/networkhelpermain.cpp")
-        target_link_libraries(JustConnectNetworkHelper PRIVATE justconnect_network_helper)
-        # Installation waits for trusted system runtime deployment; never elevate the user SDK/AppImage path.
+        include("${REPO}/cmake/NetworkHelper.cmake")
+        justconnect_linux_network_helper()
         target_sources(${TARGET} PRIVATE "${REPO}/infrastructure/platform/linux/dnssnapshot.cpp")
         target_link_libraries(${TARGET} PUBLIC Qt6::DBus justconnect_network_helper)
     endif()
@@ -208,10 +196,7 @@ function(justconnect_platform_tests TARGET LIBRARY)
         target_link_options(linux_sourcejournal_test PRIVATE "LINKER:--wrap=fsync" "LINKER:--wrap=renameat2")
         add_test(NAME linux_sourcejournal_test COMMAND linux_sourcejournal_test)
         set_tests_properties(linux_sourcejournal_test PROPERTIES TIMEOUT 10)
-        add_executable(linux_networkhelper_test "${REPO}/tests/platform/networkhelper_linux_test.cpp")
-        target_link_libraries(linux_networkhelper_test PRIVATE justconnect_network_helper)
-        add_test(NAME linux_networkhelper_test COMMAND linux_networkhelper_test)
-        set_tests_properties(linux_networkhelper_test PROPERTIES TIMEOUT 10)
+        justconnect_linux_network_helper_tests()
         add_executable(linux_sourceroutes_test "${REPO}/tests/platform/sourceroutes_linux_test.cpp")
         target_link_libraries(linux_sourceroutes_test PRIVATE ${LIBRARY} Qt6::Core)
         add_test(NAME linux_sourceroutes_test COMMAND linux_sourceroutes_test)

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+    "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>JustConnect</vendor>
+  <vendor_url>https://github.com/wtalioy/JustConnect</vendor_url>
+  <action id="@JC_NETWORK_HELPER_ACTION@">
+    <description>Manage this JustConnect connection's network settings</description>
+    <message>Authentication is required to configure and restore this JustConnect connection.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">@JC_NETWORK_HELPER_PATH@</annotate>
+  </action>
+</policyconfig>

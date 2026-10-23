@@ -1,0 +1,41 @@
+find_package(Git REQUIRED)
+if(EXISTS "${REPO}/source-revision.txt")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${REPO}/source-revision.txt")
+    file(STRINGS "${REPO}/source-revision.txt" REVISION)
+    string(LENGTH "${REVISION}" REVISION_LENGTH)
+    if(NOT REVISION MATCHES "^[0-9a-f]+$" OR NOT REVISION_LENGTH EQUAL 40)
+        message(FATAL_ERROR "Invalid source archive revision")
+    endif()
+    set(SOURCE_STATE archive)
+    file(TIMESTAMP "${REPO}/source-revision.txt" REVISION_TIME "%s" UTC)
+else()
+    execute_process(COMMAND "${GIT_EXECUTABLE}" rev-parse HEAD
+        WORKING_DIRECTORY "${REPO}" OUTPUT_VARIABLE REVISION OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
+    execute_process(COMMAND "${GIT_EXECUTABLE}" show -s --format=%ct HEAD
+        WORKING_DIRECTORY "${REPO}" OUTPUT_VARIABLE REVISION_TIME OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
+    execute_process(COMMAND "${GIT_EXECUTABLE}" status --porcelain
+        WORKING_DIRECTORY "${REPO}" OUTPUT_VARIABLE DIRTY COMMAND_ERROR_IS_FATAL ANY)
+    set(SOURCE_STATE clean)
+    if(DIRTY)
+        set(SOURCE_STATE dirty)
+    endif()
+    # Provenance changes when any tracked input is edited, staged or restored.
+    execute_process(COMMAND "${GIT_EXECUTABLE}" ls-files WORKING_DIRECTORY "${REPO}"
+        OUTPUT_VARIABLE TRACKED_INPUTS OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
+    string(REPLACE "\n" ";" TRACKED_INPUTS "${TRACKED_INPUTS}")
+    list(TRANSFORM TRACKED_INPUTS PREPEND "${REPO}/")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${TRACKED_INPUTS})
+    execute_process(COMMAND "${GIT_EXECUTABLE}" rev-parse --git-path HEAD WORKING_DIRECTORY "${REPO}"
+        OUTPUT_VARIABLE GIT_HEAD OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
+    execute_process(COMMAND "${GIT_EXECUTABLE}" symbolic-ref -q HEAD WORKING_DIRECTORY "${REPO}"
+        OUTPUT_VARIABLE GIT_REF OUTPUT_STRIP_TRAILING_WHITESPACE)
+    get_filename_component(GIT_HEAD "${GIT_HEAD}" ABSOLUTE BASE_DIR "${REPO}")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${GIT_HEAD}")
+    if(GIT_REF)
+        execute_process(COMMAND "${GIT_EXECUTABLE}" rev-parse --git-path "${GIT_REF}" WORKING_DIRECTORY "${REPO}"
+            OUTPUT_VARIABLE GIT_REF_PATH OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
+        get_filename_component(GIT_REF_PATH "${GIT_REF_PATH}" ABSOLUTE BASE_DIR "${REPO}")
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${GIT_REF_PATH}")
+    endif()
+endif()
+file(WRITE "${CMAKE_BINARY_DIR}/source-revision.txt" "${REVISION}\n")

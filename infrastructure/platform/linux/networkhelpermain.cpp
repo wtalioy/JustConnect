@@ -1,5 +1,8 @@
 #include "networkhelper.h"
+#include "networkhelperpaths.h"
 #include <QCoreApplication>
+#include <QFileInfo>
+#include <QJsonDocument>
 #include <QScopeGuard>
 #include <cerrno>
 #include <fcntl.h>
@@ -15,9 +18,10 @@ int storage()
     if (parent < 0) return -1;
     struct stat base{};
     if (::fstat(parent, &base) != 0 || base.st_uid != 0 || (base.st_mode & 0022)) { ::close(parent); return -1; }
-    for (const auto *name : {"JustConnect", "network"}) {
-        if (::mkdirat(parent, name, 0700) != 0 && errno != EEXIST) { ::close(parent); return -1; }
-        const int child = ::openat(parent, name, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+    for (const auto &part : QString::fromLatin1(LinuxNetworkHelperStatePath).mid(QStringLiteral("/var/lib/").size()).split('/')) {
+        const auto name = part.toLatin1();
+        if (::mkdirat(parent, name.constData(), 0700) != 0 && errno != EEXIST) { ::close(parent); return -1; }
+        const int child = ::openat(parent, name.constData(), O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
         struct stat info{};
         const bool valid = child >= 0 && ::fstat(child, &info) == 0 && S_ISDIR(info.st_mode)
             && info.st_uid == 0 && (info.st_mode & 07777) == 0700 && ::fsync(parent) == 0;
@@ -32,7 +36,12 @@ int storage()
 int main(int argc, char **argv)
 {
     QCoreApplication app(argc, argv);
-    if (::geteuid() != 0 || argc != 3) return 1;
+    if (app.arguments() == QStringList{app.arguments().first(), "--version"}) {
+        const auto bytes = QJsonDocument(QJsonObject{{"worker", "network-helper"}, {"protocol", LinuxHelperProtocol}, {"qt", qVersion()},
+            {"revision", JC_HELPER_REVISION}, {"source_state", JC_HELPER_SOURCE_STATE}}).toJson(QJsonDocument::Compact);
+        return ::write(STDOUT_FILENO, bytes.constData(), size_t(bytes.size())) == bytes.size() ? 0 : 1;
+    }
+    if (::geteuid() != 0 || argc != 3 || QFileInfo("/proc/self/exe").canonicalFilePath() != QLatin1String(LinuxNetworkHelperPath)) return 1;
     bool validUid = false, validPid = false;
     const auto invoker = qEnvironmentVariable("PKEXEC_UID");
     const auto callerUid = invoker.toUInt(&validUid);

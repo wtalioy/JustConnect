@@ -1,0 +1,5 @@
+#pragma once
+
+inline constexpr auto LinuxNetworkHelperPath = "@JC_NETWORK_HELPER_PATH@";
+inline constexpr auto LinuxNetworkHelperStatePath = "@JC_NETWORK_HELPER_STATE@";
+inline constexpr auto LinuxNetworkHelperAction = "@JC_NETWORK_HELPER_ACTION@";

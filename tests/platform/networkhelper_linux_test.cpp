@@ -1,6 +1,10 @@
 #include "infrastructure/platform/linux/networkhelper.h"
+#include "networkhelperpaths.h"
 #include <QCoreApplication>
 #include <QDir>
+#include <QFileInfo>
+#include <QJsonDocument>
+#include <QProcess>
 #include <fcntl.h>
 #include <iostream>
 #include <stdexcept>
@@ -33,6 +37,15 @@ int main(int argc, char **argv) try
         return result;
     }
     check(argc == 1 && ::geteuid() != 0, "Run ordinary IPC checks without root");
+    QProcess version;
+    version.start(app.applicationDirPath() + '/' + QFileInfo(QString::fromLatin1(LinuxNetworkHelperPath)).fileName(), {"--version"});
+    check(version.waitForFinished(3000) && version.exitStatus() == QProcess::NormalExit && version.exitCode() == 0,
+        "Helper runtime inspection requires privilege or failed to start");
+    const auto facts = QJsonDocument::fromJson(version.readAllStandardOutput()).object();
+    check(facts.size() == 5 && facts["worker"] == "network-helper" && facts["protocol"] == LinuxHelperProtocol
+        && facts["qt"] == qVersion() && facts["revision"].toString().size() == 40
+        && QStringList{"clean", "dirty", "archive"}.contains(facts["source_state"].toString()),
+        "Helper runtime identity, provenance or protocol does not match the caller");
     int sockets[2];
     check(::socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, sockets) == 0, "Create private packet sockets");
     const QJsonObject original{{"version", LinuxHelperProtocol}, {"value", "framed packet"}};
