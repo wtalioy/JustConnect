@@ -19,13 +19,22 @@
 
 using Status = PlatformOperationResult::Status;
 static QDir root;
+static bool kde = false;
 static const SystemProxyConfig config{11081,11080,"localhost;*.example.test"};
 static void require(bool valid,const char *message) {if(!valid)throw std::runtime_error(message);}
 static PlatformCommandResult command(const QString &program,const QStringList &arguments) {
     const auto result=runPlatformCommand(program,arguments);require(result.result.succeeded(),"Private native proxy command failed");return result;
 }
 static void set(const QString &schema,const QString &key,const QString &value) {command("gsettings",{"set",schema,key,value});}
-static QByteArray settings() {return command("gsettings",{"list-recursively","org.gnome.system.proxy"}).output.toUtf8();}
+static QStringList kdeArguments(const QString &key) {return {"--file",root.filePath("config/kioslaverc"),"--group","Proxy Settings","--key",key};}
+static QString kdeGet(const QString &key) {return command("kreadconfig6",kdeArguments(key)).output;}
+static void kdeSet(const QString &key,const QString &value) {auto args=kdeArguments(key);args<<"--"<<value;command("kwriteconfig6",args);}
+static QByteArray settings() {
+    if(!kde)return command("gsettings",{"list-recursively","org.gnome.system.proxy"}).output.toUtf8();
+    QJsonObject values;
+    for(const auto &key:QStringList{"httpProxy","httpsProxy","ftpProxy","socksProxy","NoProxyFor","ReversedException","ProxyType","Proxy Config Script","FixtureUnmanaged"})values[key]=kdeGet(key);
+    return QJsonDocument(values).toJson(QJsonDocument::Compact);
+}
 static QJsonObject receive(QLocalSocket &socket) {
     QDeadlineTimer deadline(5000);
     while(!socket.canReadLine())require(!deadline.hasExpired() && socket.bytesAvailable()<65536
@@ -45,14 +54,15 @@ static void pauseAt(const char *stage) {
 static int worker(const QString &endpoint,const QString &stage,const QString &key) {
     auto credentials=createSystemCredentialStore();int writes=0;
     LinuxPersistentProxyBackend backend(*credentials,key,[&](const QString &program,const QStringList &arguments) {
-        if(arguments.value(0)!="set")return runPlatformCommand(program,arguments);
+        if(arguments.value(0)!="set" && program!="kwriteconfig6")return runPlatformCommand(program,arguments);
         if(stage=="prepared" && writes==0)pauseAt("prepared");
         if(stage=="confirmed" && writes==1)pauseAt("confirmed");
         const auto result=runPlatformCommand(program,arguments);++writes;
         if(result.result.succeeded()) {
             if(stage=="unconfirmed" && writes==1)pauseAt("unconfirmed");
-            if((stage=="restore" || stage=="recreated") && arguments.value(1)=="org.gnome.system.proxy.http"
-                && arguments.value(2)=="host" && arguments.last()=="\"prior.invalid\"")pauseAt("restored");
+            const bool restored=kde ? arguments.value(5)=="httpProxy" && arguments.last()=="http://prior.invalid 3128"
+                : arguments.value(1)=="org.gnome.system.proxy.http" && arguments.value(2)=="host" && arguments.last()=="\"prior.invalid\"";
+            if((stage=="restore" || stage=="recreated") && restored)pauseAt("restored");
         }
         return result;
     });
@@ -118,12 +128,20 @@ static void phase(const QString &name,const QString &key) {
         const auto result=backend.clear();
         require(!result.succeeded() && result.mayHaveChanged && calls==0 && settings()==before,"Unreadable crash record reached native operations or claimed recovery");
     } else if(name=="prepare" || name=="denied") {
-        set("org.gnome.system.proxy.http","host","'prior.invalid'");set("org.gnome.system.proxy.http","port","3128");
-        set("org.gnome.system.proxy.http","use-authentication","true");
-        set("org.gnome.system.proxy.http","authentication-user","'fixture user'");
-        set("org.gnome.system.proxy.http","authentication-password","'fixture password'");
-        set("org.gnome.system.proxy","autoconfig-url","'https://sensitive-proxy-fixture.invalid/token'");
-        set("org.gnome.system.proxy","mode","'auto'");const auto before=settings();
+        if(kde) {
+            kdeSet("httpProxy","http://prior.invalid 3128");
+            for(const auto &key:QStringList{"httpsProxy","ftpProxy","socksProxy"})kdeSet(key,"");
+            kdeSet("NoProxyFor","old.example.invalid");kdeSet("ReversedException","true");kdeSet("ProxyType","2");
+            kdeSet("Proxy Config Script","https://sensitive-proxy-fixture.invalid/token");kdeSet("FixtureUnmanaged","untouched fixture value");
+        } else {
+            set("org.gnome.system.proxy.http","host","'prior.invalid'");set("org.gnome.system.proxy.http","port","3128");
+            set("org.gnome.system.proxy.http","use-authentication","true");
+            set("org.gnome.system.proxy.http","authentication-user","'fixture user'");
+            set("org.gnome.system.proxy.http","authentication-password","'fixture password'");
+            set("org.gnome.system.proxy","autoconfig-url","'https://sensitive-proxy-fixture.invalid/token'");
+            set("org.gnome.system.proxy","mode","'auto'");
+        }
+        const auto before=settings();
         if(name=="denied") {
             Fixture owner("denied",key);owner.start("apply");require(owner.result()["status"]!=int(Status::Success)
                 && settings()==before && owner.clear(),"Denied crash checkpoint changed native settings");
@@ -138,23 +156,28 @@ static void phase(const QString &name,const QString &key) {
                 }
                 if(stage!="steady")owner.pause(stage=="restore" || stage=="recreated"?QByteArray("restored"):stage.toUtf8());
                 const auto saved=record(*credentials,effectiveKey);
-                if(stage=="prepared" || stage=="unconfirmed")require(saved["intent"].toArray().contains("http/use-authentication")
-                    && !saved["written"].toArray().contains("http/use-authentication"),"Crash missed the unconfirmed application boundary");
-                if(stage=="confirmed")require(saved["written"].toArray().contains("http/use-authentication"),"Crash missed the confirmed checkpoint");
-                if(stage=="restore" || stage=="recreated")require(saved["pending_restore"]=="http/host","Crash missed the restoration checkpoint");
+                const auto first=kde?QString("httpProxy"):QString("http/use-authentication");
+                if(stage=="prepared" || stage=="unconfirmed")require(saved["intent"].toArray().contains(first)
+                    && !saved["written"].toArray().contains(first),"Crash missed the unconfirmed application boundary");
+                if(stage=="confirmed")require(saved["written"].toArray().contains(first),"Crash missed the confirmed checkpoint");
+                if(stage=="restore" || stage=="recreated")require(saved["pending_restore"]==(kde?"httpProxy":"http/host"),"Crash missed the restoration checkpoint");
                 owner.crash();
                 if(stage=="steady") {
                     QFile baseline(root.filePath("crash-before.txt"));require(baseline.open(QIODevice::WriteOnly)
                         && baseline.write(before)==before.size(),"Save independent native baseline");break;
                 }
-                if(stage=="recreated")set("org.gnome.system.proxy.http","host","'127.0.0.1'");
+                if(stage=="recreated") {
+                    if(kde)kdeSet("httpProxy","http://127.0.0.1 11081");else set("org.gnome.system.proxy.http","host","'127.0.0.1'");
+                }
                 Fixture fresh("recover",key);const bool recovered=fresh.clear();
                 if(stage=="unconfirmed" || stage=="recreated") {
-                    const auto uncertain=stage=="unconfirmed"?QString("http/use-authentication"):QString("http/host");
+                    const auto uncertain=kde?QString("httpProxy"):stage=="unconfirmed"?QString("http/use-authentication"):QString("http/host");
                     require(!recovered && record(*credentials,key)["uncertain"].toArray().contains(uncertain)
-                        && command("gsettings",{"get","org.gnome.system.proxy.http","use-authentication"}).output=="false",
+                        && (kde ? kdeGet("httpProxy")=="http://127.0.0.1 11081" && kdeGet("ProxyType")== (stage=="unconfirmed"?"2":"1")
+                            : command("gsettings",{"get","org.gnome.system.proxy.http","use-authentication"}).output=="false"),
                         "Fresh process guessed an unconfirmed native write or enabled old credentials");
-                    if(stage=="unconfirmed")set("org.gnome.system.proxy.http","use-authentication","true");
+                    if(kde)kdeSet("httpProxy","http://prior.invalid 3128");
+                    else if(stage=="unconfirmed")set("org.gnome.system.proxy.http","use-authentication","true");
                     else set("org.gnome.system.proxy.http","host","'prior.invalid'");
                     require(fresh.clear(),"Resolved native uncertainty did not finish recovery");
                 } else require(recovered,"Fresh process failed to restore its confirmed native writes");
@@ -174,8 +197,9 @@ static void phase(const QString &name,const QString &key) {
 int main(int argc,char **argv) try {
     QCoreApplication application(argc,argv);const auto args=application.arguments();
     root=QFileInfo(qEnvironmentVariable("XDG_CONFIG_HOME")).dir();
+    kde=qEnvironmentVariable("XDG_CURRENT_DESKTOP")=="KDE";
     require(qEnvironmentVariable("GSETTINGS_BACKEND")=="keyfile" && root.dirName().startsWith("JustConnect-secret-test-")
-        && root.absolutePath().startsWith(QDir::tempPath()+'/'),"Refuse daily proxy and credential settings");
+        && root.absolutePath().startsWith(QDir::tempPath()+'/') && (!kde || qEnvironmentVariable("KDE_SESSION_VERSION")=="6"),"Refuse daily proxy and credential settings");
     if(args.size()==5 && args[1]=="--worker" && CredentialStore::validKey(args[4]))return worker(args[2],args[3],args[4]);
     require(args.size()==3 && CredentialStore::validKey(args[2]),"Invalid private crash fixture arguments");phase(args[1],args[2]);return 0;
 } catch(const std::exception &error) {std::cerr<<error.what()<<'\n';return 1;}

@@ -158,10 +158,16 @@ function(justconnect_platform_tests TARGET LIBRARY)
             "${REPO}/tests/platform/credentialstore_linux.py" "$<TARGET_FILE:proxyrecovery_linux_crash_test>")
         set_tests_properties(proxyrecovery_linux_crash_test PROPERTIES TIMEOUT 75
             ENVIRONMENT "GSETTINGS_BACKEND=keyfile;XDG_CURRENT_DESKTOP=GNOME;XDG_SESSION_DESKTOP=gnome")
+        add_test(NAME proxyrecovery_linux_crash_test_kde COMMAND "${Python3_EXECUTABLE}"
+            "${REPO}/tests/platform/credentialstore_linux.py" "$<TARGET_FILE:proxyrecovery_linux_crash_test>")
+        set_tests_properties(proxyrecovery_linux_crash_test_kde PROPERTIES TIMEOUT 75
+            ENVIRONMENT "GSETTINGS_BACKEND=keyfile;XDG_CURRENT_DESKTOP=KDE;XDG_SESSION_DESKTOP=plasma;KDE_SESSION_VERSION=6")
         add_test(NAME ${TARGET}_protected_recovery COMMAND "${Python3_EXECUTABLE}"
             "${REPO}/tests/platform/credentialstore_linux.py" "$<TARGET_FILE:${TARGET}>")
         set_tests_properties(${TARGET}_protected_recovery PROPERTIES TIMEOUT 75
             ENVIRONMENT "GSETTINGS_BACKEND=keyfile;XDG_CURRENT_DESKTOP=GNOME;XDG_SESSION_DESKTOP=gnome")
+        set_tests_properties(proxyrecovery_linux_crash_test proxyrecovery_linux_crash_test_kde ${TARGET}_protected_recovery
+            PROPERTIES RESOURCE_LOCK system_proxy_recovery_user)
         add_executable(linux_sourcejournal_test "${REPO}/tests/platform/sourcejournal_linux_test.cpp")
         target_link_libraries(linux_sourcejournal_test PRIVATE ${LIBRARY} Qt6::Core)
         target_link_options(linux_sourcejournal_test PRIVATE "LINKER:--wrap=fsync" "LINKER:--wrap=renameat2")
