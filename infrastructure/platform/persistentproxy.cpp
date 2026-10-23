@@ -12,19 +12,23 @@ Result failure(CredentialStatus status) {
 }
 }
 
-QString LinuxPersistentProxyBackend::credentialKey() {
+QString PersistentProxyBackend::credentialKey() {
     return QString::fromLatin1(QCryptographicHash::hash("com.github.wtalioy.JustConnect/system-proxy-recovery/v1",QCryptographicHash::Sha256).toHex());
 }
 
-LinuxPersistentProxyBackend::LinuxPersistentProxyBackend(CredentialStore &credentials, QString key, PlatformCommandRunner runner)
-    : journal(credentials,std::move(key)), native(std::move(runner),[this](const QJsonObject &record) {
+#ifdef Q_OS_WIN
+PersistentProxyBackend::PersistentProxyBackend(CredentialStore &credentials, QString key, WindowsProxyApi api)
+#else
+PersistentProxyBackend::PersistentProxyBackend(CredentialStore &credentials, QString key, PlatformCommandRunner api)
+#endif
+    : journal(credentials,std::move(key)), native(std::move(api),[this](const QJsonObject &record) {
         if (!record.isEmpty() && record["machine"].toString().isEmpty())
             return Result{Status::Unsupported,"Machine identity is unavailable for proxy recovery"};
         const auto result=journal.checkpoint(record.isEmpty()?QByteArray{}:QJsonDocument(record).toJson(QJsonDocument::Compact));
         return result.succeeded()?Result{}:failure(result.status);
     }) {}
 
-PlatformOperationResult LinuxPersistentProxyBackend::recover() {
+PlatformOperationResult PersistentProxyBackend::recover() {
     if (rejected) return *rejected;
     if (initialized) {
         if (!recovering) return {};
@@ -52,15 +56,15 @@ PlatformOperationResult LinuxPersistentProxyBackend::recover() {
     return result;
 }
 
-SystemProxyCheck LinuxPersistentProxyBackend::check(const SystemProxyConfig &config) {
+SystemProxyCheck PersistentProxyBackend::check(const SystemProxyConfig &config) {
     if (auto result=recover();!result.succeeded()) return {result};
     return native.check(config);
 }
-PlatformOperationResult LinuxPersistentProxyBackend::apply(const SystemProxyConfig &config) {
+PlatformOperationResult PersistentProxyBackend::apply(const SystemProxyConfig &config) {
     if (auto result=recover();!result.succeeded()) return result;
     return native.apply(config);
 }
-PlatformOperationResult LinuxPersistentProxyBackend::clear() {
+PlatformOperationResult PersistentProxyBackend::clear() {
     if (auto result=recover();!result.succeeded()) return result;
     return native.clear();
 }
