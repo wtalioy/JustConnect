@@ -6,10 +6,14 @@
 #include <QJsonObject>
 #include <QStandardPaths>
 #include <iostream>
-#ifdef Q_OS_LINUX
+#if defined(Q_OS_LINUX) || defined(Q_OS_WIN)
 #include "persistentproxy.h"
 #include "systemcredentialstore.h"
+#endif
+#ifdef Q_OS_LINUX
 #include <unistd.h>
+#elif defined(Q_OS_WIN)
+#include "windows/proxyrecoverylock.h"
 #endif
 
 int main(int argc, char **argv)
@@ -30,6 +34,11 @@ int main(int argc, char **argv)
     auto credentials=createSystemCredentialStore();
     PersistentProxyBackend backend(*credentials,PersistentProxyBackend::credentialKey());
     return runProxyRecoveryWorker(backend,application.arguments()[1],lockFile,directory+"/proxy-recovery.lock");
+#elif defined(Q_OS_WIN)
+    WindowsProxyRecoveryLock ownership;
+    auto credentials=createSystemCredentialStore();
+    PersistentProxyBackend backend(*credentials,PersistentProxyBackend::credentialKey());
+    return runProxyRecoveryWorker(backend,application.arguments()[1],directory+"/proxy-recovery.lock",{},ownership.isLocked());
 #else
     const auto lockFile=directory+"/proxy-recovery.lock";
     PlatformSystemProxyBackend backend;

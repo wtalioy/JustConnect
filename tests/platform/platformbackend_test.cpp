@@ -343,6 +343,8 @@ static void nativeRoundtrip() {
     WinState actual;check(nativeRead(actual) && actual.flags==current.flags && actual.proxy==current.proxy && actual.bypass==current.bypass && actual.pac==current.pac,"native external proxy/PAC/bypass retained");
     std::cout<<"PASS: native WinINet apply, restore and external ownership on disposable CI runner\n";
 }
+#include "windowsproxy_worker_test.h"
+
 static void nativeRecoveryOwner()
 {
     check(qEnvironmentVariable("GITHUB_ACTIONS")=="true","native recovery requires a disposable CI runner");
@@ -354,6 +356,8 @@ static void nativeRecoveryOwner()
 static void nativeRecovery()
 {
     check(qEnvironmentVariable("GITHUB_ACTIONS")=="true","native recovery requires a disposable CI runner");
+    auto credentials=createSystemCredentialStore();const auto key=PersistentProxyBackend::credentialKey();
+    check(credentials->read(key).status==CredentialStatus::NotFound,"Native host recovery record already exists");
     check(nativeRead(nativeOriginal),"Read native recovery baseline");nativeSaved=true;std::atexit(nativeRestore);
     const WinState original{PROXY_TYPE_DIRECT|PROXY_TYPE_AUTO_PROXY_URL,"http=prior.invalid:3128","old.invalid","https://pac.invalid/original.pac"};
     check(nativeWrite(original),"Seed disposable native recovery baseline");
@@ -361,12 +365,20 @@ static void nativeRecovery()
     check(holder.waitForStarted(5000) && holder.waitForReadyRead(10000) && holder.readLine()=="READY\n","Start native recovery host fixture");
     WinState current;
     check(nativeRead(current) && current.proxy.contains("127.0.0.1:11081"),"Independent worker did not apply native WinINet");
+    check(credentials->read(key).succeeded(),"Native host recovery has no protected checkpoint");
     holder.kill();check(holder.waitForFinished(5000),"Kill only the disposable native host fixture");
     QElapsedTimer timer;timer.start();
     for (;;) {
         check(nativeRead(current),"Read actual native recovery outcome");
         if (current.flags==original.flags && current.proxy==original.proxy && current.bypass==original.bypass && current.pac==original.pac) break;
         check(timer.elapsed()<5000,"Independent native recovery exceeded its budget");QThread::msleep(10);
+    }
+    for(;;) {
+        WindowsProxyRecoveryLock released;
+        if(released.isLocked()) {
+            check(credentials->read(key).status==CredentialStatus::NotFound,"Host recovery released its user lock before record cleanup");break;
+        }
+        check(timer.elapsed()<5000,"Native recovery did not release user ownership");QThread::msleep(10);
     }
     std::cout << "PASS: native WinINet restored exactly by independent worker after Qt host SIGKILL\n";
 }
@@ -908,6 +920,10 @@ int main(int argc, char **argv) {
     if(args.contains("--native-roundtrip")){nativeRoundtrip();return 0;}
     if(args.contains("--native-recovery-owner")){nativeRecoveryOwner();return 0;}
     if(args.contains("--native-recovery")){nativeRecovery();return 0;}
+    if(args.contains("--native-persistent-recovery")) {
+        try {nativePersistentRecovery();return 0;}
+        catch(const std::exception &error){std::cerr<<error.what()<<'\n';return 1;}
+    }
 #endif
     if (args.size()==3 && args[1]=="--child") {
         if (args[2]=="hang") QThread::sleep(10);

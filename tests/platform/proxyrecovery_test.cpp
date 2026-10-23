@@ -101,6 +101,10 @@ public:
         if (mode=="invalid-state") return {{Status::Failed,"Rejected unowned recovery data"}};
         auto values = state();values["checks"] = values["checks"].toInt()+1;
         values["config"] = QJsonObject{{"http",config.httpPort},{"socks",config.socksPort},{"bypass",config.bypass}};store(values);
+        if (mode=="recovering-check" || mode=="lost-check") {
+            if (!owned) { before=values["current"].toInt();owned=true;values["current"]=111;store(values); }
+            return {{Status::Failed,"Unconfirmed startup recovery",true}};
+        }
         return {{},false,values["current"]==111};
     }
     Result apply(const SystemProxyConfig &) override
@@ -137,15 +141,22 @@ int main(int argc, char **argv) try
         check(!root.isEmpty() && QFile::exists(root+"/state.json"),"Worker requires its private fixture");
         FileBackend backend;
         const auto mode = qEnvironmentVariable("JC_PROXY_RECOVERY_FIXTURE_MODE");
-        if (mode=="bad-reply" || mode=="withheld-reply") {
+        if (mode=="bad-reply" || mode=="withheld-reply" || mode=="lost-check" || mode=="bad-hello") {
             QLocalSocket socket;
             socket.connectToServer(application.arguments()[1]);check(socket.waitForConnected(5000),"Connect invalid-reply fixture");
             QLockFile ownership(root+"/owner.lock");ownership.setStaleLockTime(0);check(ownership.tryLock(),"Acquire invalid-reply fixture");
-            deliver(socket,"{\"protocol\":1,\"ready\":true}\n");
-            check(QJsonDocument::fromJson(frame(socket)).object()["operation"]=="apply",
-                  "Invalid-reply fixture requires its owned apply");
-            check(backend.apply(config).succeeded(),"Apply before unconfirmed reply");
-            if (mode=="bad-reply") deliver(socket,"{\"status\":999}\n");
+            if (mode=="bad-hello") {
+                check(backend.apply(config).succeeded(),"Resume recovery before unconfirmed handshake");
+                deliver(socket,"{\"protocol\":1,\"ready\":\"true\"}\n");
+            } else {
+                deliver(socket,"{\"protocol\":1,\"ready\":true}\n");
+                const bool query=mode=="lost-check";
+                check(QJsonDocument::fromJson(frame(socket)).object()["operation"]==(query ? "check" : "apply"),
+                      "Invalid-reply fixture requires its expected operation");
+                if (query) check(backend.check(config).result.mayHaveChanged,"Resume recovery before unconfirmed query reply");
+                else check(backend.apply(config).succeeded(),"Apply before unconfirmed reply");
+                if (mode!="withheld-reply") deliver(socket,"{\"status\":999}\n");
+            }
             while (socket.state()==QLocalSocket::ConnectedState) socket.waitForReadyRead(20000);
             check(backend.clear().succeeded(),"Recover after a lost response");return 0;
         }
@@ -165,7 +176,7 @@ int main(int argc, char **argv) try
             return runProxyRecoveryWorker(native,application.arguments()[1],root+"/owner.lock");
         }
 #endif
-        return runProxyRecoveryWorker(backend,application.arguments()[1],root+"/owner.lock");
+        return runProxyRecoveryWorker(backend,application.arguments()[1],root+"/owner.lock",{},mode!="user-lock-denied");
     }
     if (argc==4 && application.arguments()[1]=="--hold") {
         root = application.arguments()[3];
@@ -201,10 +212,30 @@ int main(int argc, char **argv) try
         check(missing.check(config).result.status==Status::Unsupported && missing.clear().succeeded()
               && state()["applies"]==0,"Missing worker fell back to a host mutation");
     }
+    reset("user-lock-denied");
+    {
+        ProxyRecoveryBackend backend(QCoreApplication::applicationFilePath());
+        const auto result=backend.apply(config);
+        check(result.status==Status::Failed && !result.mayHaveChanged
+              && result.detail.contains("ownership lock"),"Denied user ownership became a timeout or unresolved mutation");
+    }
+    check(!QFile::exists(root+"/owner.lock") && state()["current"]==17 && state()["applies"]==0
+          && state()["checks"].toInt()==0 && state()["clears"].toInt()==0,"Denied user ownership reached a directory lock or backend operation");
+    reset("recovering-check");
+    {
+        ProxyRecoveryBackend backend(QCoreApplication::applicationFilePath());
+        const auto result=backend.check(config);
+        check(!result.result.succeeded() && result.result.mayHaveChanged && state()["current"]==111,"Missing mutating startup check fixture");
+        check(backend.clear().succeeded() && state()["current"]==17 && state()["clears"]==1,
+              "Mutating startup check was acknowledged without actual recovery");
+        std::cout << "PASS: mutating startup query retains responsibility until actual recovery\n";
+    }
     reset("invalid-state");
     {
         ProxyRecoveryBackend backend(QCoreApplication::applicationFilePath());
-        check(!backend.check(config).result.succeeded(),"Rejected recovery data was reported as a successful query");
+        const auto result=backend.check(config).result;
+        check(!result.succeeded() && !result.mayHaveChanged && backend.clear().succeeded(),
+              "Confirmed nonmutating rejection created recovery responsibility or reported a successful query");
     }
     until([] {return !QFile::exists(root+"/owner.lock");},"Rejected unowned recovery kept an unrecoverable worker alive");
     check(state()["current"]==17 && state()["applies"]==0,"Rejected unowned recovery changed native state");
@@ -218,6 +249,7 @@ int main(int argc, char **argv) try
         check(state()["current"]==111 && !backend.apply(config).succeeded(),"Repeated apply overwrote original ownership");
         ProxyRecoveryBackend concurrent(QCoreApplication::applicationFilePath());
         check(!concurrent.apply(config).succeeded() && state()["applies"]==1,"Concurrent recovery owners changed the same proxy state");
+        check(backend.check(config).result.succeeded(),"Read-only query after an owned apply failed");
         check(backend.clear().succeeded() && state()["current"]==17 && backend.clear().succeeded(),"Normal recovery was not acknowledged or idempotent");
         check(backend.apply(config).succeeded(),"Reapply after confirmed recovery");
         auto external = state();external["current"] = 777;store(external);
@@ -253,15 +285,18 @@ int main(int argc, char **argv) try
         check(state()["applies"]==1,"A second owner modified the orphan recovery fixture");
         std::cout << "PASS: proxy host SIGKILL at " << mode.toStdString() << ", independent recovery restored its original state\n";
     }
-    for (const auto *mode : {"bad-reply","withheld-reply"}) {
+    for (const auto *mode : {"bad-reply","withheld-reply","lost-check","bad-hello"}) {
         reset(mode);
         ProxyRecoveryBackend backend(QCoreApplication::applicationFilePath());
-        const auto result = backend.apply(config);
+        const bool query=QString::fromLatin1(mode)=="lost-check" || QString::fromLatin1(mode)=="bad-hello";
+        const auto result = query ? backend.check(config).result : backend.apply(config);
         check(!result.succeeded() && result.mayHaveChanged
               && (QString::fromLatin1(mode)!="withheld-reply" || result.status==Status::TimedOut),
               "Invalid or timed-out acknowledgement published successful application");
         until([] { return !QFile::exists(root+"/owner.lock") && state()["current"]==17; },"Lost acknowledgement did not complete independent recovery");
-        check(!backend.clear().succeeded() && !backend.apply(config).succeeded() && state()["applies"]==1,
+        const auto cleared=backend.clear();
+        check(!cleared.succeeded() && cleared.mayHaveChanged && !backend.apply(config).succeeded()
+              && state()["applies"]==(QString::fromLatin1(mode)=="lost-check" ? 0 : 1),
               "Lost acknowledgement invented confirmed recovery or started another owner");
         std::cout << "PASS: " << mode << ", no false acknowledgement or second owner after actual worker recovery\n";
     }
