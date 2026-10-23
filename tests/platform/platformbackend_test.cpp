@@ -144,6 +144,7 @@ static void recoveryRecordTests() {
         auto invalid=record;invalid[field]="foreign";reject(invalid);
     }
     auto invalid=record;invalid["schema_version"]=1;reject(invalid);
+    invalid=record;invalid["schema_version"]=2;reject(invalid);
     invalid=record;invalid["extra"]=true;reject(invalid);
     auto connections=record["connections"].toArray();connections.append(connections[0]);
     invalid=record;invalid["connections"]=connections;reject(invalid);
@@ -151,12 +152,21 @@ static void recoveryRecordTests() {
         connections=record["connections"].toArray();auto connection=connections[0].toObject();connection["flags"]=flags;connections[0]=connection;
         invalid=record;invalid["connections"]=connections;reject(invalid);
     }
-    for(const auto &released:QJsonArray{-1,0.5,8,"2",true,QJsonValue::Null}) {
-        connections=record["connections"].toArray();auto connection=connections[0].toObject();connection["released"]=released;connections[0]=connection;
+    for(const auto *field:{"released","intent","written","uncertain","pending_restore"}) {
+        for(const auto &mask:QJsonArray{-1,0.5,8,"2",true,QJsonValue::Null}) {
+            connections=record["connections"].toArray();auto connection=connections[0].toObject();connection[field]=mask;connections[0]=connection;
+            invalid=record;invalid["connections"]=connections;reject(invalid);
+        }
+        connections=record["connections"].toArray();auto connection=connections[0].toObject();connection.remove(field);connections[0]=connection;
         invalid=record;invalid["connections"]=connections;reject(invalid);
     }
-    connections=record["connections"].toArray();auto missingRelease=connections[0].toObject();missingRelease.remove("released");connections[0]=missingRelease;
-    invalid=record;invalid["connections"]=connections;reject(invalid);
+    for(const auto &patch:QJsonArray{QJsonObject{{"intent",0},{"written",1}},QJsonObject{{"intent",0},{"written",0},{"uncertain",1}},
+            QJsonObject{{"released",1},{"uncertain",1}},QJsonObject{{"released",1},{"pending_restore",1}},
+            QJsonObject{{"uncertain",1},{"pending_restore",1}}}) {
+        connections=record["connections"].toArray();auto connection=connections[0].toObject();
+        const auto values=patch.toObject();for(auto it=values.begin();it!=values.end();++it)connection[it.key()]=it.value();
+        connections[0]=connection;invalid=record;invalid["connections"]=connections;reject(invalid);
+    }
     for (const auto *field:{"name","server","bypass","pac"}) {
         connections=record["connections"].toArray();auto connection=connections[0].toObject();connection[field]=QString("bad")+QChar(0);connections[0]=connection;
         invalid=record;invalid["connections"]=connections;reject(invalid);
@@ -181,15 +191,28 @@ static void recoveryRecordTests() {
     writes=queries=0;
     check(!fresh.recover(record).succeeded() && writes==0 && queries==0,"Import replaced an active backend ownership snapshot");
     const auto recreated=states[""];denyNotify=true;check(!fresh.clear().succeeded(),"Keep unacknowledged notification state");
-    record=fresh.recoverySnapshot();denyNotify=false;states[""]=recreated;writes=0;
+    record=fresh.recoverySnapshot();states[""]=recreated;writes=0;
     PlatformSystemProxyBackend notifyOnly(WindowsProxyApi{query,set,entries});
-    check(notifyOnly.recover(record).succeeded() && writes==0 && states[""].proxy==recreated.proxy,
+    check(!notifyOnly.recover(record).succeeded() && writes==0 && !notifyOnly.recoverySnapshot().isEmpty(),
+          "Fresh notification-only recovery dropped an unacknowledged notification");denyNotify=false;
+    check(notifyOnly.clear().succeeded() && writes==0 && states[""].proxy==recreated.proxy,
           "Fresh recovery reacquired an already released external same-value recreation");
     std::cout<<"PASS: bounded machine-bound Windows snapshot handoff, strict rejection, sensitive values and released ownership\n";
 }
 
 static void fieldReleaseTests() {
     const WinState original{PROXY_TYPE_DIRECT|PROXY_TYPE_AUTO_PROXY_URL,"http=prior.invalid:3128","old.invalid","https://pac.invalid/original.pac"};
+    const auto recoverInterrupted=[&](const QJsonObject &record) {
+        PlatformSystemProxyBackend fresh(WindowsProxyApi{query,set,entries});const auto beforeCalls=setCalls;
+        const auto result=fresh.recover(record);const auto pending=fresh.recoverySnapshot()["connections"].toArray();
+        check(!result.succeeded() && result.mayHaveChanged && setCalls==beforeCalls && pending.size()==1,
+              "Fresh interrupted restoration overwrote ambiguous fields");
+        const auto uncertain=pending[0].toObject()["uncertain"].toInteger();check(uncertain!=0,"Interrupted restoration lost uncertainty");
+        if(uncertain&1)states[""].flags=original.flags;
+        if(uncertain&2)states[""].proxy=original.proxy;
+        if(uncertain&4)states[""].bypass=original.bypass;
+        check(fresh.clear().succeeded(),"External resolution of ambiguous fields did not release remaining responsibility");
+    };
     for(const auto &field:QStringList{"server","bypass","flags"})for(const bool observedOriginal:{false,true})for(const bool handoff:{false,true}) {
         states.clear();rasNames.clear();states[""]=original;
         denyQuery=denySet=ignoreSet=denyNotify=denyRas=false;writes=failAt=setCalls=queries=0;ignoreOption=0;
@@ -205,8 +228,7 @@ static void fieldReleaseTests() {
         else if(field=="bypass")states[""].bypass=installed.bypass;
         else states[""].flags=installed.flags;
         if(handoff) {
-            PlatformSystemProxyBackend fresh(WindowsProxyApi{query,set,entries});
-            check(fresh.recover(record).succeeded(),"Fresh instance did not finish remaining fields");
+            recoverInterrupted(record);
         } else check(owner.clear().succeeded(),"Live instance did not finish remaining fields");
         check(states[""].proxy==(field=="server"?installed.proxy:original.proxy)
               && states[""].bypass==(field=="bypass"?installed.bypass:original.bypass)
@@ -223,7 +245,7 @@ static void fieldReleaseTests() {
         const auto record=owner.recoverySnapshot();ignoreOption=0;
         if(field=="server")states[""].proxy=installed.proxy;else states[""].flags=installed.flags;
         if(handoff) {
-            PlatformSystemProxyBackend fresh(WindowsProxyApi{query,set,entries});check(fresh.recover(record).succeeded(),"Fresh restore did not retain partially confirmed fields");
+            recoverInterrupted(record);
         } else check(owner.clear().succeeded(),"Retry did not retain partially confirmed fields");
         check(states[""].proxy==(field=="server"?installed.proxy:original.proxy)
               && states[""].flags==(field=="flags"?installed.flags:original.flags) && states[""].bypass==original.bypass,
@@ -231,6 +253,8 @@ static void fieldReleaseTests() {
     }
     std::cout<<"PASS: Windows per-field release survives failed restoration and fresh-instance handoff\n";
 }
+
+#include "windowsproxy_checkpoint_test.h"
 
 namespace {
 WinState nativeOriginal;
@@ -895,7 +919,7 @@ int main(int argc, char **argv) {
 #ifdef Q_OS_WIN
     fieldReleaseTests();
 #endif
-#ifdef Q_OS_LINUX
+#if defined(Q_OS_LINUX) || defined(Q_OS_WIN)
     checkpointTests();
 #endif
     std::cout << "PASS: process statuses, backend failures, partial changes and readback\n";
