@@ -105,11 +105,14 @@ static void packets(const UnixTunDevice &device, const QString &source)
           && peer.sin_port == destination.sin_port, "The actual UDP route witness received the wrong return payload or endpoint");
 }
 
+#include "tunroutes_recovery_test.h"
+
 int main(int argc, char **argv) try
 {
     QCoreApplication app(argc, argv);
     using Status = PlatformOperationResult::Status;
-    const QString source("198.19.0.1"), peer("198.19.0.2");
+    if(const auto command=captureRecoveryCommand(app.arguments()))return *command;
+    const auto &source=captureSource,&peer=capturePeer;
     UnixTunDevice device;
     int reads = 0;
     LinuxTunRoutes inactive([&](const QString &, const QStringList &) {
@@ -118,6 +121,9 @@ int main(int argc, char **argv) try
     });
     check(!inactive.apply(device, source, peer, {"198.18.0.0/24"}).succeeded() && reads == 0 && inactive.snapshot().isEmpty(),
           "Routes reached the operating system without a live owned device");
+    int checkpoints=0;
+    check(!inactive.recover(QUuid::createUuid(),{},[&](const QJsonObject &){++checkpoints;return PlatformOperationResult{};}).succeeded()
+          && reads==0 && checkpoints==0 && inactive.snapshot().isEmpty(),"Invalid saved capture authority reached a command or storage operation");
     if (argc == 1) {
         check(::geteuid() != 0, "Run the ordinary route check without root");
         std::cout << "PASS: missing device ownership cannot reach route operations\n";
@@ -154,11 +160,11 @@ int main(int argc, char **argv) try
         check(!routes.apply(device, source, peer, {prefix}).succeeded() && routes.snapshot().isEmpty() && inventory() == baseline,
               "An existing external subnet or host route was adopted or changed");
     QStringList capacity;
-    for (int i = 0; i < 4096; ++i) capacity.append(QString("198.19.%1.%2/32").arg(16 + i / 256).arg(i % 256));
+    for (int i = 0; i < LinuxRouteSnapshotRows; ++i) capacity.append(QString("198.19.%1.%2/32").arg(16 + i / 256).arg(i % 256));
     const auto excessive = routes.apply(device, source, peer, capacity);
     check(!excessive.succeeded() && !excessive.mayHaveChanged && routes.snapshot().isEmpty() && inventory() == baseline,
           "A batch exceeding the complete post-apply snapshot capacity wrote unrecoverable routes");
-    const QStringList prefixes{"198.18.2.0/24", "198.18.3.0/24", "198.18.4.7/32"};
+    const auto &prefixes=capturePrefixes;
     check(routes.apply(device, source, peer, prefixes + QStringList{prefixes.first()}).succeeded(), "Apply and confirm owned capture routes");
     check(routes.snapshot()["routes"].toArray().size() == prefixes.size() && hasRoute(prefixes[0], device.name())
           && hasRoute(prefixes[1], device.name()) && hasRoute(prefixes[2], device.name()),
@@ -287,6 +293,7 @@ int main(int argc, char **argv) try
     ip({"link", "set", "renamed0", "name", device.name()});
     ip({"link", "set", device.name(), "up"});
     check(renamed.restore(device).succeeded() && inventory() == baseline, "Original identity could not recover its retained records");
+    captureRecoveryTests(device,baseline);
     check(::setgroups(0, nullptr) == 0 && ::setgid(65534) == 0 && ::setuid(65534) == 0, "Drop all test route privileges");
     __user_cap_header_struct header{_LINUX_CAPABILITY_VERSION_3, 0};
     __user_cap_data_struct caps[2]{};

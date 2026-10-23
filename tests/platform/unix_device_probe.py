@@ -151,10 +151,14 @@ def allocate_unix(allocator):
             link = json.loads(subprocess.check_output(['ip', '-j', 'link', 'show', 'dev', name], text=True, timeout=3))
             assert len(link) == 1 and link[0]['mtu'] == 1400, 'actual TUN MTU differs from the ownership record'
             capture = metadata['capture_routes']
+            identity = os.stat('/proc/thread-self/ns/net')
+            boot = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+            assert capture['version'] == 1 and capture['namespace'] == f'{boot}:{identity.st_dev}:{identity.st_ino}', 'capture scope differs from the actual boot/namespace'
             assert capture['owner'] == str(owner) and capture['interface'] == name and capture['index'] == index
             assert capture['source'] == '198.18.0.1' and capture['peer'] == '198.18.0.2'
             assert len(capture['routes']) == 1 and capture['routes'][0]['prefix'] == '198.18.0.6/32'
             assert capture['routes'][0]['before'] == []
+            assert capture['routes'][0]['delete_started'] is False, 'allocator handed out a route pending deletion'
             actual = json.loads(subprocess.check_output(['ip', '-N', '-j', '-4', 'route', 'show', 'table', 'all'], text=True, timeout=3))
             assert capture['routes'][0]['applied'] in actual, 'capture route differs from the native ownership record'
         if sys.platform == 'darwin':

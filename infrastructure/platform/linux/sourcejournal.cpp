@@ -1,5 +1,5 @@
 #include "sourcejournal.h"
-#include "sourceroutes.h"
+#include "iprouteutility.h"
 #include <QJsonDocument>
 #include <QScopeGuard>
 #include <cerrno>
@@ -51,11 +51,11 @@ PlatformOperationResult LinuxSourceJournal::read(SavedFile &file) const
     if (fd<0) return errno==ENOENT ? PlatformOperationResult{} : failed("Cannot open the saved source ownership.");
     const auto release = qScopeGuard([&] { ::close(fd); });
     struct stat info{};
-    if (::fstat(fd,&info)!=0 || !privateFile(info) || info.st_size<0 || info.st_size>LinuxSourceRoutes::MaxSnapshotBytes)
+    if (::fstat(fd,&info)!=0 || !privateFile(info) || info.st_size<0 || info.st_size>LinuxRouteRecoveryBytes)
         return {Status::Failed,"Saved source ownership has unsafe metadata or exceeds its budget."};
     QByteArray bytes;
     char buffer[16384];
-    while (bytes.size()<=LinuxSourceRoutes::MaxSnapshotBytes) {
+    while (bytes.size()<=LinuxRouteRecoveryBytes) {
         const auto count = ::read(fd,buffer,sizeof(buffer));
         if (count<0) { if (errno==EINTR) continue;return failed("Cannot read saved source ownership."); }
         if (count==0) break;
@@ -64,7 +64,7 @@ PlatformOperationResult LinuxSourceJournal::read(SavedFile &file) const
     struct stat after{}, named{};
     if (::fstat(fd,&after)!=0 || ::fstatat(directory,filename,&named,AT_SYMLINK_NOFOLLOW)!=0
         || !privateFile(after) || !privateFile(named) || named.st_dev!=info.st_dev || named.st_ino!=info.st_ino
-        || bytes.size()>LinuxSourceRoutes::MaxSnapshotBytes
+        || bytes.size()>LinuxRouteRecoveryBytes
         || after.st_size!=bytes.size() || after.st_size!=info.st_size
         || after.st_mtim.tv_sec!=info.st_mtim.tv_sec || after.st_mtim.tv_nsec!=info.st_mtim.tv_nsec
         || after.st_ctim.tv_sec!=info.st_ctim.tv_sec || after.st_ctim.tv_nsec!=info.st_ctim.tv_nsec)
@@ -93,7 +93,7 @@ PlatformOperationResult LinuxSourceJournal::store(const QJsonObject &record)
 {
     if (record["owner"]!=owner.toString(QUuid::WithoutBraces) || owner.isNull()) return {Status::Failed,"Source journal owner does not match the record."};
     const auto bytes = QJsonDocument(record).toJson(QJsonDocument::Compact);
-    if (bytes.size()>LinuxSourceRoutes::MaxSnapshotBytes) return {Status::Failed,"Source ownership record exceeds its budget."};
+    if (bytes.size()>LinuxRouteRecoveryBytes) return {Status::Failed,"Source ownership record exceeds its budget."};
     SavedFile current;
     const auto result = read(current);
     if (!result.succeeded()) return result;

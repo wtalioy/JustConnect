@@ -33,7 +33,7 @@ PlatformOperationResult UnixTunDevice::create(const QUuid &owner)
     const int device = ::open("/dev/net/tun", O_RDWR | O_CLOEXEC);
     if (device < 0) return failed(errno);
     ifreq request{};
-    const auto requestedName = QByteArray("jc") + owner.toByteArray(QUuid::Id128).left(IFNAMSIZ - 3);
+    const auto requestedName = linuxTunName(owner);
     std::memcpy(request.ifr_name, requestedName.constData(), size_t(requestedName.size()));
     request.ifr_flags = short(IFF_TUN | IFF_NO_PI | IFF_TUN_EXCL);
     if (::ioctl(device, TUNSETIFF, &request) != 0) {
