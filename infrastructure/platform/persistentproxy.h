@@ -29,8 +29,9 @@ private:
     ProxyRecoveryJournal journal, completion;
     PlatformSystemProxyBackend native;
     QString owner;
-    QJsonObject confirmation;
-    bool resuming = false, confirmed = false, completionLoaded = false;
-    bool initialized = false, recovering = false;
+    enum class State { Unloaded, Ready, Restoring, Complete };
+    State state = State::Unloaded;
+    bool resuming = false;
+    std::optional<QJsonObject> confirmation;
     std::optional<PlatformOperationResult> rejected;
 };
