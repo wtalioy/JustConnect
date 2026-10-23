@@ -59,6 +59,13 @@ static void scopedProxyTests(Api api,Reset reset,Verify restored,Mutations mutat
               && store.values[key]==pending && mutations()==released,"Completed scope removed a recreated same-value snapshot");
     }
     store.values.remove(key);
+    const auto completed=store.values[proofKey];auto bad=QJsonDocument::fromJson(completed).object();bad["machine"]="foreign";
+    for(const auto &invalid:QList<QByteArray>{"invalid",QJsonDocument(bad).toJson(QJsonDocument::Compact),
+                                           QJsonDocument::fromJson(completed).toJson(QJsonDocument::Indented)}) {
+        store.values[proofKey]=invalid;PersistentProxyBackend rejected(store,key,api);
+        check(rejected.configureRecovery(second,true).succeeded() && !rejected.clear().succeeded() && store.values[proofKey]==invalid
+              && mutations()==released,"Invalid completion proof reached native settings or was overwritten");
+    }
     reset();MemoryCredentialStore startup;
     {
         PersistentProxyBackend abandoned(startup,key,api);
@@ -69,13 +76,6 @@ static void scopedProxyTests(Api api,Reset reset,Verify restored,Mutations mutat
         check(fresh.configureRecovery(second,false).succeeded() && fresh.apply(config).succeeded(),"Fresh startup did not restore the previous owner before applying");
         check(startup.values.size()==1 && startup.values.contains(key),"Startup recovery prematurely confirmed the new operation");
         check(fresh.clear().succeeded() && !startup.values.contains(key),"Fresh startup skipped clearing its new native application");restored();
-    }
-    const auto completed=store.values[proofKey];auto bad=QJsonDocument::fromJson(completed).object();bad["machine"]="foreign";
-    for(const auto &invalid:QList<QByteArray>{"invalid",QJsonDocument(bad).toJson(QJsonDocument::Compact),
-                                           QJsonDocument::fromJson(completed).toJson(QJsonDocument::Indented)}) {
-        store.values[proofKey]=invalid;PersistentProxyBackend rejected(store,key,api);
-        check(rejected.configureRecovery(second,true).succeeded() && !rejected.clear().succeeded() && store.values[proofKey]==invalid
-              && mutations()==released,"Invalid completion proof reached native settings or was overwritten");
     }
     reset();MemoryCredentialStore denied;
     PersistentProxyBackend owner(denied,key,api);
