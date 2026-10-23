@@ -3,6 +3,10 @@
 #include "application/systemproxybackend.h"
 #include <memory>
 
+#ifdef Q_OS_MACOS
+inline constexpr auto MacProxyRecoveryLockFile = "/var/tmp/JustConnect-system-proxy-recovery.lock";
+#endif
+
 class ProxyRecoveryBackend final : public SystemProxyBackend
 {
 public:

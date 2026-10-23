@@ -14,6 +14,8 @@
 #include <unistd.h>
 #elif defined(Q_OS_WIN)
 #include "windows/proxyrecoverylock.h"
+#elif defined(Q_OS_MACOS)
+#include <sys/stat.h>
 #endif
 
 int main(int argc, char **argv)
@@ -39,6 +41,12 @@ int main(int argc, char **argv)
     auto credentials=createSystemCredentialStore();
     PersistentProxyBackend backend(*credentials,PersistentProxyBackend::credentialKey());
     return runProxyRecoveryWorker(backend,application.arguments()[1],directory+"/proxy-recovery.lock",{},ownership.isLocked());
+#elif defined(Q_OS_MACOS)
+    struct stat scope{};
+    const bool trusted=stat("/var/tmp",&scope)==0 && S_ISDIR(scope.st_mode) && scope.st_uid==0 && (scope.st_mode&S_ISVTX);
+    PlatformSystemProxyBackend backend;
+    return runProxyRecoveryWorker(backend,application.arguments()[1],MacProxyRecoveryLockFile,
+                                  directory+"/proxy-recovery.lock",trusted);
 #else
     const auto lockFile=directory+"/proxy-recovery.lock";
     PlatformSystemProxyBackend backend;
