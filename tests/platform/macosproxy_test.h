@@ -12,7 +12,7 @@ static void number(CFMutableDictionaryRef values, CFStringRef key, int value) {
 static CFStringRef path(SCNetworkServiceRef service) {
     return CFStringCreateWithFormat(nullptr,nullptr,CFSTR("/%@/%@/%@"),kSCPrefNetworkServices,SCNetworkServiceGetServiceID(service),kSCEntNetProxies);
 }
-static int changes=0,failAt=0;
+static int changes=0,failAt=0,commits=0,changesAtCommit=0;
 static bool ignoreSet=false,failCommit=false,failApply=false;
 static Boolean set(SCPreferencesRef prefs, CFStringRef key, CFDictionaryRef value) {
     if(++changes==failAt)return false;
@@ -23,7 +23,7 @@ static Boolean nativeCommit(SCPreferencesRef prefs) {
     if(!result)std::cerr<<"Native preferences commit error "<<SCError()<<": "<<SCErrorString(SCError())<<'\n';
     return result;
 }
-static Boolean commit(SCPreferencesRef prefs) { return !failCommit && nativeCommit(prefs); }
+static Boolean commit(SCPreferencesRef prefs) { ++commits;changesAtCommit=changes;return !failCommit && nativeCommit(prefs); }
 static Boolean apply(SCPreferencesRef prefs) { return !failApply && SCPreferencesApplyChanges(prefs); }
 
 static void backendTests() {
@@ -137,8 +137,19 @@ static void backendTests() {
     auto partial=backend.apply(config);check(!partial.succeeded() && !partial.mayHaveChanged,"uncommitted partial native edits are discarded");
     failAt=0;restored();
     ignoreSet=true;check(!backend.apply(config).succeeded(),"successful setter without mutation fails readback");ignoreSet=false;restored();
-    failCommit=true;check(!backend.apply(config).succeeded(),"commit failure propagated");failCommit=false;
+    const auto beforeCommits=commits;
+    failCommit=true;const auto rejectedCommit=backend.apply(config);failCommit=false;
+    check(!rejectedCommit.succeeded() && !rejectedCommit.mayHaveChanged && backend.recoverySnapshot().isEmpty()
+          && commits==beforeCommits+1 && changes==changesAtCommit,
+          "Rejected commit repeated unchanged restoration writes or retained recovered responsibility");
     check(backend.clear().succeeded(),"commit failure recovery can be retried");restored();
+    const auto beforeOriginalChanges=changes,beforeOriginalCommits=commits;
+    failAt=changes+1;failCommit=true;PlatformSystemProxyBackend alreadyOriginal(api);
+    const auto recoveredOriginal=alreadyOriginal.recover(record);failAt=0;failCommit=false;
+    check(recoveredOriginal.succeeded() && alreadyOriginal.recoverySnapshot().isEmpty()
+          && changes==beforeOriginalChanges && commits==beforeOriginalCommits,
+          "Fresh restoration of original native values attempted a setter or commit");restored();
+    std::cout<<"PASS: native macOS original-value recovery needs no setter or commit after denied publication\n";
     failApply=true;check(!backend.apply(config).succeeded(),"notification failure propagated");failApply=false;
     check(backend.clear().succeeded(),"notification failure recovery can be retried");restored();
     check(backend.apply(config).succeeded(),"apply before restore failure");changes=0;failAt=1;

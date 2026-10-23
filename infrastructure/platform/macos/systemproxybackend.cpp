@@ -250,6 +250,7 @@ PlatformOperationResult PlatformSystemProxyBackend::clear() {
     }
     auto expected = dictionary();
     const auto releaseExpected = qScopeGuard([&] { CFRelease(expected); });
+    bool changed = false;
     for (const auto &service : saved->services) {
         auto parent = CFStringCreateWithSubstring(nullptr, service.path, CFRangeMake(0, CFStringGetLength(service.path) - CFStringGetLength(kSCEntNetProxies) - 1));
         const bool exists = SCPreferencesPathGetValue(prefs, parent) != nullptr; CFRelease(parent);
@@ -274,10 +275,13 @@ PlatformOperationResult PlatformSystemProxyBackend::clear() {
         if (endpointsRestored && same(current, service.before, kSCPropNetProxiesProxyAutoConfigURLString))
             for (const auto key : modes) restore({key});
         const auto target = !service.before && CFDictionaryGetCount(restored) == 0 ? nullptr : restored;
-        if (!write(api, prefs, service.path, target)) return error("Restore proxy preferences", true);
+        if (target ? !current || !CFEqual(current, target) : current != nullptr) {
+            if (!write(api, prefs, service.path, target)) return error("Restore proxy preferences", true);
+            changed = true;
+        }
         CFDictionarySetValue(expected, service.path, target ? static_cast<CFTypeRef>(target) : kCFNull);
     }
-    if (!api.commit(prefs)) return error("Commit restored proxy preferences", true);
+    if (changed && !api.commit(prefs)) return error("Commit restored proxy preferences", true);
     SCPreferencesSynchronize(prefs);
     for (const auto &service : saved->services) {
         auto target = CFDictionaryGetValue(expected, service.path);
