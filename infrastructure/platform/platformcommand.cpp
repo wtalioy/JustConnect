@@ -3,11 +3,12 @@
 #include <QProcess>
 #include <QProcessEnvironment>
 
-PlatformCommandResult runPlatformCommand(const QString &program, const QStringList &arguments, int timeoutMs, const QByteArray &input)
+PlatformCommandResult runPlatformCommand(const QString &program, const QStringList &arguments, int timeoutMs, const QByteArray &input,
+                                        const QProcessEnvironment &inherited)
 {
     using Status = PlatformOperationResult::Status;
     QProcess process;
-    QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+    auto environment = inherited;
     environment.insert("LC_ALL", "C");
     process.setProcessEnvironment(environment);
     QDeadlineTimer deadline(timeoutMs);

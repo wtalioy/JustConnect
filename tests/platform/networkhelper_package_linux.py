@@ -18,6 +18,7 @@ import uuid
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts'))
 import network_helper_package as package
+from networkhelper_systemd import RecoveryTimer
 
 
 def run(*arguments, **options):
@@ -53,6 +54,7 @@ def main():
         package.verify_policy(files[package.POLICY])
         assert files[package.DOCUMENTATION + 'source-revision.txt'] == (args.revision + '\n').encode()
         report = {'mode': 'development-stage', 'source_commit': args.revision}
+    service, timer = package.verify_recovery_units(files)
 
     environment = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C.UTF-8', 'PYTHONDONTWRITEBYTECODE': '1'}
     account = pwd.getpwuid(args.uid)
@@ -64,6 +66,7 @@ def main():
         run('mount', '--make-rprivate', '/')
         run('mount', '-t', 'overlay', 'overlay', '-o', f'lowerdir=/usr,upperdir={upper},workdir={work}', '/usr')
         run('mount', '--bind', state, '/var/lib')
+        recovery = None
         try:
             for name, contents in files.items():
                 path = Path('/') / name
@@ -119,6 +122,24 @@ def main():
             assert result.returncode == 1 and not result.stdout, 'system recovery accepted an alternate executable location'
             assert json.loads(run(uninstalled, '--version', env=environment, user=args.uid, group=account.pw_gid, extra_groups=())) == facts
             print('PASS: root-installed path and system Core runtime load without SDK/AppImage environment', flush=True)
+            manager_root = temporary / 'manager-root'
+            for name in ('usr/bin', 'usr/sbin', 'usr/lib', 'usr/lib64', 'usr/libexec', 'usr/local/lib', 'proc', 'dev', 'tmp', 'etc'):
+                (manager_root / name).mkdir(parents=True, exist_ok=True)
+            for name in ('bin', 'sbin', 'lib', 'lib64', 'usr/sbin', 'usr/lib64'):
+                original = Path('/') / name
+                destination = manager_root / name
+                if original.is_symlink():
+                    if destination.is_dir():
+                        destination.rmdir()
+                    destination.symlink_to(original.readlink())
+            for path in (manager_root / 'var/lib', manager_root / package.LAYOUT['state_directory'].lstrip('/')):
+                path.mkdir(parents=True, exist_ok=True, mode=0o700)
+            shutil.copyfile(executable, manager_root / package.EXECUTABLE)
+            (manager_root / package.EXECUTABLE).chmod(0o755)
+            for name in report.get('development_libraries', []):
+                shutil.copyfile(Path('/usr/lib') / name, manager_root / 'usr/local/lib' / name)
+            recovery = RecoveryTimer(package.LAYOUT, service, timer, manager_root, state, report.get('development_libraries', []))
+            recovery.start(deferred=True)
             subprocess.run([sys.executable, '-B', str(ROOT / 'tests/platform/networkhelper_linux.py'), '--uid', str(args.uid),
                             '--helper', str(executable), '--installed', '--uninstalled-helper', str(uninstalled)], env=environment, check=True, timeout=60)
             assert not list(Path(package.LAYOUT['state_directory']).iterdir()), 'actual entry left operation records'
@@ -138,11 +159,13 @@ def main():
                 baseline = inventory()
                 # Only the ordinary test process keeps its SDK loader environment; the product client strips it before authorization.
                 caller_environment = {**environment, **{key: value for key, value in os.environ.items() if key == 'LD_LIBRARY_PATH'}}
+                client_cases = []
                 def call(scenario, mode='allow', owner=None):
                     owner = owner or str(uuid.uuid4())
                     result = run(client, scenario, owner, env={**caller_environment, 'JC_AUTH_TEST_MODE': mode},
                                  user=args.uid, group=account.pw_gid, extra_groups=())
                     print(result, end='', flush=True)
+                    client_cases.append(scenario)
                     return owner
                 for scenario, mode in [('normal', 'allow'), ('cancel-inspect', 'allow'), ('cancel-authorization', 'wait'),
                                        ('cancel-apply', 'allow'), ('denied', 'deny'), ('cancel-policy', 'cancel'), ('malformed', 'malformed')]:
@@ -178,16 +201,87 @@ def main():
                     output, errors = process.communicate(timeout=15)
                     assert process.returncode == 0, (output, errors)
                     print(output, end='', flush=True)
+                    client_cases.append('crash')
                 finally:
                     if process.poll() is None:
                         process.kill()
                         process.communicate(timeout=5)
                 assert inventory() == baseline and not list(Path(package.LAYOUT['state_directory']).iterdir())
+                recovery.stop()
+                recovery.start()
+                owner = str(uuid.uuid4())
+                process = subprocess.Popen([str(client), 'managed', owner], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                           env={**caller_environment, 'JC_AUTH_TEST_MODE': 'allow'}, user=args.uid,
+                                           group=account.pw_gid, extra_groups=())
+                worker_descriptor = None
+                try:
+                    assert select.select([process.stdout], [], [], 10)[0], 'managed fixture never reached handoff'
+                    assert process.stdout.readline().strip() == f'READY: managed helper {owner}'
+                    children = Path(f'/proc/{process.pid}/task/{process.pid}/children').read_text().split()
+                    workers = [int(pid) for pid in children if Path(f'/proc/{pid}/exe').resolve() == executable]
+                    assert len(workers) == 1
+                    worker_descriptor = os.pidfd_open(workers[0])
+                    held = inventory()
+                    deadline = time.monotonic() + 15
+                    observed = None
+                    while time.monotonic() < deadline:
+                        observed = recovery.invocation_summary()
+                        if observed and (observed['live'] == 1 or observed['failed']):
+                            break
+                        time.sleep(0.05)
+                    assert observed and observed['live'] == 1 and observed['restored'] == observed['failed'] == 0, observed
+                    assert inventory() == held, 'system timer disturbed an actively held connection'
+                    os.kill(workers[0], signal.SIGKILL)
+                    process.kill()
+                    process.communicate(timeout=5)
+                    assert process.returncode == -signal.SIGKILL
+                    deadline = time.monotonic() + 35
+                    receipt = Path(package.LAYOUT['state_directory']) / f'{args.uid}-{owner}' / 'source.json'
+                    while time.monotonic() < deadline:
+                        observed = recovery.invocation_summary()
+                        if inventory() == baseline and json.loads(receipt.read_text())['phase'] == 'restored' \
+                                and observed and observed['restored'] == 1 and observed['failed'] == 0:
+                            break
+                        time.sleep(0.05)
+                    assert inventory() == baseline and json.loads(receipt.read_text())['phase'] == 'restored', observed
+                    assert observed and observed['restored'] == 1 and observed['failed'] == 0, observed
+                    client_cases.append('managed')
+                    report['system_recovery'] = {'slice': recovery.property('service', 'Slice'),
+                                                 'invocation': recovery.property('service', 'InvocationID'), 'summary': observed,
+                                                 'gui_and_helper': 'owned fixtures both SIGKILL; no GUI command initiated recovery'}
+                    print('PASS: real system timer preserves live ownership and restores after both GUI/helper SIGKILL', flush=True)
+                finally:
+                    if process.poll() is None:
+                        process.kill()
+                        process.communicate(timeout=5)
+                    if worker_descriptor is not None:
+                        assert select.select([worker_descriptor], [], [], 35)[0], 'owned helper did not finish EOF recovery'
+                        os.close(worker_descriptor)
+                    recovery.stop()
+                call('cleanup', owner=owner)
+                call('guard-blocked')
+                assert inventory() == baseline and not list(Path(package.LAYOUT['state_directory']).iterdir())
+                other = subprocess.Popen(['unshare', '--net', '--', '/usr/bin/sleep', '60'], env=environment)
+                try:
+                    deadline = time.monotonic() + 3
+                    while os.stat(f'/proc/{other.pid}/ns/net') == os.stat('/proc/thread-self/ns/net') and time.monotonic() < deadline:
+                        time.sleep(0.01)
+                    assert os.stat(f'/proc/{other.pid}/ns/net') != os.stat('/proc/thread-self/ns/net')
+                    recovery.start(deferred=True, namespace_process=other.pid)
+                    call('guard-blocked')
+                    assert inventory() == baseline and not list(Path(package.LAYOUT['state_directory']).iterdir())
+                finally:
+                    recovery.stop()
+                    other.kill()
+                    other.wait(timeout=5)
+                print('PASS: disabled timer and another private recovery namespace refuse apply without network writes', flush=True)
                 ip('link', 'del', 'helperorig0')
-                report['qt_client'] = {'scenarios': 12, 'gui_uid': args.uid, 'broker': 'namespace-only setuid fixture',
+                report['qt_client'] = {'scenarios': len(client_cases), 'cases': client_cases, 'gui_uid': args.uid, 'broker': 'namespace-only setuid fixture',
                                        'desktop_polkit': 'not exercised'}
             print('REPORT: ' + json.dumps(report, sort_keys=True), flush=True)
         finally:
+            if recovery:
+                recovery.stop()
             run('umount', '/var/lib')
             run('umount', '--lazy', '/usr')
 

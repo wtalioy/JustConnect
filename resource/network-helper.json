@@ -2,5 +2,7 @@
   "executable": "/usr/libexec/JustConnectNetworkHelper",
   "authorization_program": "/usr/bin/pkexec",
   "action": "io.github.wtalioy.JustConnect.network-helper",
-  "state_directory": "/var/lib/JustConnect/network"
+  "state_directory": "/var/lib/JustConnect/network",
+  "recovery_unit": "justconnect-network-recovery",
+  "systemctl_program": "/usr/bin/systemctl"
 }

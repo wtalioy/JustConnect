@@ -71,5 +71,5 @@ int main(int argc, char **argv)
     const int directory = storage();
     if (directory < 0) return 1;
     const auto closeDirectory = qScopeGuard([&] { ::close(directory); });
-    return runLinuxNetworkHelper(channel, directory, callerUid, callerPid, owner);
+    return runLinuxNetworkHelper(channel, directory, callerUid, callerPid, owner, linuxNetworkRecoveryReady);
 }

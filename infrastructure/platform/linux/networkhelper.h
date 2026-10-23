@@ -5,6 +5,7 @@
 #include <QUuid>
 #include <QStringList>
 #include <optional>
+#include <functional>
 #include <sys/types.h>
 
 // One bounded JSON packet per operation; only a successful apply carries one TUN fd.
@@ -37,4 +38,6 @@ PlatformOperationResult receiveLinuxHelperPacket(int socket, QJsonObject &packet
 QByteArray linuxHelperSocketName(uid_t uid, const QUuid &owner);
 int connectLinuxHelper(uid_t uid, const QUuid &owner);
 // The connected OS peer, not request fields, determines the authorized account/process.
-int runLinuxNetworkHelper(int socket, int trustedDirectory, uid_t uid, pid_t pid, const QUuid &owner);
+int runLinuxNetworkHelper(int socket, int trustedDirectory, uid_t uid, pid_t pid, const QUuid &owner,
+    const std::function<PlatformOperationResult()> &beforeApply = {});
+PlatformOperationResult linuxNetworkRecoveryReady();

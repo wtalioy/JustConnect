@@ -4,3 +4,5 @@ inline constexpr auto LinuxNetworkHelperPath = "@JC_NETWORK_HELPER_PATH@";
 inline constexpr auto LinuxNetworkHelperAuthorizationPath = "@JC_NETWORK_HELPER_AUTHORIZATION@";
 inline constexpr auto LinuxNetworkHelperStatePath = "@JC_NETWORK_HELPER_STATE@";
 inline constexpr auto LinuxNetworkHelperAction = "@JC_NETWORK_HELPER_ACTION@";
+inline constexpr auto LinuxNetworkHelperRecoveryUnit = "@JC_NETWORK_HELPER_RECOVERY_UNIT@";
+inline constexpr auto LinuxNetworkHelperSystemctlPath = "@JC_NETWORK_HELPER_SYSTEMCTL@";

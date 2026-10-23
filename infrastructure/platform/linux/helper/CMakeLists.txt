@@ -28,7 +28,7 @@ set(CPACK_PACKAGING_INSTALL_PREFIX /usr)
 set(CPACK_DEBIAN_PACKAGE_VERSION "0~git${REVISION_TIME}.${REVISION}")
 set(CPACK_DEBIAN_PACKAGE_SECTION net)
 set(CPACK_DEBIAN_PACKAGE_PRIORITY optional)
-set(CPACK_DEBIAN_PACKAGE_DEPENDS "iproute2, pkexec | policykit-1")
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "iproute2, pkexec | policykit-1, systemd")
 # dpkg-shlibdeps records actual distribution Qt/libc/C++ requirements, including minimum versions.
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
 set(CPACK_DEBIAN_COMPRESSION_TYPE xz)
