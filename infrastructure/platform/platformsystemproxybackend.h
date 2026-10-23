@@ -17,7 +17,8 @@ public:
     // Success confirms durable publication; an empty object removes the record. Caller holds the recovery lock.
     using CheckpointWriter = std::function<PlatformOperationResult(const QJsonObject &)>;
 #ifdef Q_OS_WIN
-    explicit PlatformSystemProxyBackend(WindowsProxyApi api = {}) : api(api) {}
+    explicit PlatformSystemProxyBackend(WindowsProxyApi api = {}, CheckpointWriter writer = {})
+        : api(api), checkpointWriter(std::move(writer)) {}
 #elif defined(Q_OS_MACOS)
     explicit PlatformSystemProxyBackend(MacProxyApi api = {}) : api(std::move(api)) {}
 #else
@@ -44,9 +45,11 @@ private:
     MacProxyApi api;
 #else
     PlatformCommandRunner runner;
-    CheckpointWriter checkpointWriter;
-#ifdef Q_OS_LINUX
-    PlatformOperationResult checkpoint(bool remove = false);
 #endif
+#ifndef Q_OS_MACOS
+    CheckpointWriter checkpointWriter;
+#endif
+#if defined(Q_OS_LINUX) || defined(Q_OS_WIN)
+    PlatformOperationResult checkpoint(bool remove = false);
 #endif
 };
