@@ -104,6 +104,7 @@ func exerciseProtocolTUN(t *testing.T, e *Engine, h, generation uint64) *net.UDP
 }
 
 func TestProtocolTUNAttachDuringStop(t *testing.T) {
+	t.Parallel()
 	g := newGateway(t)
 	e := New(RunProtocol)
 	h := create(t, e)
@@ -147,8 +148,10 @@ func (d fileFailureDevice) Read(packet []byte) (int, error) {
 }
 
 func TestProtocolTUNReadinessAndDeviceFailure(t *testing.T) {
+	t.Parallel()
 	for _, phase := range []string{"not-ready", "device-failure"} {
 		t.Run(phase, func(t *testing.T) {
+			t.Parallel()
 			active := phase == "device-failure"
 			g := newGateway(t)
 			g.pauseIP.Store(!active)

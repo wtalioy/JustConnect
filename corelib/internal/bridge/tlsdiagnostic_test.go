@@ -23,8 +23,10 @@ import (
 )
 
 func TestTLSFailureDiagnosticsAfterAuthentication(t *testing.T) {
+	t.Parallel()
 	for _, scenario := range []string{"tls_unknown_authority", "tls_hostname_mismatch", "tls_certificate_time_invalid", "trusted", "unknown_authority_and_timeout", "untrusted_issuer_leaf_only", "untrusted_issuer_with_chain", "unverified_nodes_allowed"} {
 		t.Run(scenario, func(t *testing.T) {
+			t.Parallel()
 			reason := scenario
 			if scenario == "unknown_authority_and_timeout" || strings.HasPrefix(scenario, "untrusted_issuer_") || scenario == "unverified_nodes_allowed" {
 				reason = "tls_unknown_authority"
