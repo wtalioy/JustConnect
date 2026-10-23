@@ -7,9 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"runtime/pprof"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -34,7 +32,6 @@ type packetDevice struct {
 	once          sync.Once
 	dropOutput    bool
 	dropTCPData   chan struct{}
-	peerDrops     atomic.Uint64
 }
 
 func newPacketDevice() *packetDevice {
@@ -71,23 +68,10 @@ func (d *packetDevice) Write(b []byte) (int, error) {
 }
 func (d *packetDevice) Close() error { d.once.Do(func() { close(d.closed) }); return nil }
 
-type countedPeerLink struct {
-	*channel.Endpoint
-	drops *atomic.Uint64
-}
-
-func (l *countedPeerLink) WritePackets(packets stack.PacketBufferList) (int, tcpip.Error) {
-	written, err := l.Endpoint.WritePackets(packets)
-	if err != nil {
-		l.drops.Add(uint64(packets.Len() - written))
-	}
-	return written, err
-}
-
 func tunPeer(t *testing.T, device *packetDevice) *stack.Stack {
 	t.Helper()
 	s := stack.New(stack.Options{NetworkProtocols: []stack.NetworkProtocolFactory{ipv4.NewProtocol}, TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol, udp.NewProtocol}})
-	link := &countedPeerLink{Endpoint: channel.New(32, 1400, ""), drops: &device.peerDrops}
+	link := channel.New(32, 1400, "")
 	if err := s.CreateNIC(1, link); err != nil {
 		t.Fatal(err)
 	}
@@ -190,28 +174,9 @@ func closeIngress(t *testing.T, p *Listeners) {
 	}
 }
 
-func logTUNTCPState(t *testing.T, name string, s *stack.Stack) {
-	t.Helper()
-	t.Logf("%s TCP counters: %+v", name, s.Stats().TCP)
-	for _, candidate := range append(s.RegisteredEndpoints(), s.CleanupEndpoints()...) {
-		endpoint, ok := candidate.(tcpip.Endpoint)
-		if !ok {
-			continue
-		}
-		var info tcpip.TCPInfoOption
-		if endpoint.GetSockOpt(&info) != nil {
-			continue
-		}
-		sending, _ := endpoint.GetSockOptInt(tcpip.SendQueueSizeOption)
-		receiving, _ := endpoint.GetSockOptInt(tcpip.ReceiveQueueSizeOption)
-		t.Logf("%s TCP endpoint: %+v sending=%d receiving=%d", name, info, sending, receiving)
-	}
-}
-
 func TestTUNRelaysTCPHalfCloseAndUDPDatagrams(t *testing.T) {
-	// Exact delivery must survive a TCP retransmission on a loaded runner.
-	const networkTimeout = 5 * time.Second
-	started := time.Now()
+	// macOS ARM64 race runs take several seconds to recover the deliberately lost segment.
+	const networkTimeout = 30 * time.Second
 	tcpTarget, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -228,7 +193,7 @@ func TestTUNRelaysTCPHalfCloseAndUDPDatagrams(t *testing.T) {
 			return
 		}
 		defer conn.Close()
-		_ = conn.SetDeadline(time.Now().Add(2 * networkTimeout))
+		_ = conn.SetReadDeadline(time.Now().Add(networkTimeout))
 		data, err := io.ReadAll(conn)
 		if err != nil {
 			served <- err
@@ -236,6 +201,7 @@ func TestTUNRelaysTCPHalfCloseAndUDPDatagrams(t *testing.T) {
 		}
 		close(requestRead)
 		<-responseReady
+		_ = conn.SetWriteDeadline(time.Now().Add(networkTimeout))
 		written, err := conn.Write(append([]byte("reply:"), data...))
 		if err != nil {
 			err = fmt.Errorf("target wrote %d bytes: %w", written, err)
@@ -276,6 +242,7 @@ func TestTUNRelaysTCPHalfCloseAndUDPDatagrams(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn.Close()
+	_ = conn.SetWriteDeadline(time.Now().Add(networkTimeout))
 	payload := bytes.Repeat([]byte("request"), 1<<14)
 	if _, err := conn.Write(payload); err != nil {
 		t.Fatal(err)
@@ -285,7 +252,8 @@ func TestTUNRelaysTCPHalfCloseAndUDPDatagrams(t *testing.T) {
 	}
 	select {
 	case <-requestRead:
-		t.Logf("TCP request received after %s", time.Since(started))
+	case err := <-served:
+		t.Fatalf("TCP target failed before request EOF: %v", err)
 	case <-ctx.Done():
 		t.Fatal("target did not receive TCP EOF")
 	}
@@ -298,18 +266,6 @@ func TestTUNRelaysTCPHalfCloseAndUDPDatagrams(t *testing.T) {
 	_ = conn.SetReadDeadline(time.Now().Add(networkTimeout))
 	responseReady <- struct{}{}
 	if data, err := io.ReadAll(conn); err != nil || !bytes.Equal(data, append([]byte("reply:"), payload...)) {
-		t.Logf("Peer packet queue dropped %d packets", device.peerDrops.Load())
-		logTUNTCPState(t, "ingress", p.tun.stack)
-		logTUNTCPState(t, "peer", peer)
-		select {
-		case result := <-served:
-			t.Logf("Native target finished: %v", result)
-		default:
-			t.Log("Native target has not finished its response")
-		}
-		var stacks bytes.Buffer
-		_ = pprof.Lookup("goroutine").WriteTo(&stacks, 1)
-		t.Log(stacks.String())
 		t.Fatalf("TCP reply=%d bytes, %v", len(data), err)
 	}
 	if err := <-served; err != nil {
@@ -348,7 +304,7 @@ func TestTUNRelaysTCPHalfCloseAndUDPDatagrams(t *testing.T) {
 			if got != want {
 				t.Fatalf("campus target=%s, want %s", got, want)
 			}
-		case <-ctx.Done():
+		default:
 			t.Fatal("campus not used")
 		}
 	}
