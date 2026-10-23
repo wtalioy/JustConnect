@@ -31,6 +31,7 @@ type packetDevice struct {
 	closed        chan struct{}
 	once          sync.Once
 	dropOutput    bool
+	dropTCPData   chan struct{}
 }
 
 func newPacketDevice() *packetDevice {
@@ -47,6 +48,16 @@ func (d *packetDevice) Read(b []byte) (int, error) {
 func (d *packetDevice) Write(b []byte) (int, error) {
 	if d.dropOutput {
 		return len(b), nil
+	}
+	if d.dropTCPData != nil && len(b) >= header.IPv4MinimumSize && header.IPv4(b).TransportProtocol() == tcp.ProtocolNumber {
+		segment := header.TCP(header.IPv4(b).Payload())
+		if len(segment.Payload()) > 0 {
+			select {
+			case d.dropTCPData <- struct{}{}:
+				return len(b), nil
+			default:
+			}
+		}
 	}
 	select {
 	case d.output <- bytes.Clone(b):
@@ -164,6 +175,8 @@ func closeIngress(t *testing.T, p *Listeners) {
 }
 
 func TestTUNRelaysTCPHalfCloseAndUDPDatagrams(t *testing.T) {
+	// Exact delivery must survive a TCP retransmission on a loaded runner.
+	const networkTimeout = 5 * time.Second
 	tcpTarget, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -178,7 +191,7 @@ func TestTUNRelaysTCPHalfCloseAndUDPDatagrams(t *testing.T) {
 			return
 		}
 		defer conn.Close()
-		_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
+		_ = conn.SetDeadline(time.Now().Add(2 * networkTimeout))
 		data, err := io.ReadAll(conn)
 		if err != nil {
 			return
@@ -211,8 +224,9 @@ func TestTUNRelaysTCPHalfCloseAndUDPDatagrams(t *testing.T) {
 	}()
 	campus := &ingressCampus{tcpTarget.Addr().String(), udpTarget.LocalAddr().String(), make(chan string, 8)}
 	p, device := newIngressOwner(t, campus, nil, []client.IPResource{ingressResource("tcp", 80), ingressResource("udp", 53)})
+	device.dropTCPData = make(chan struct{}, 1)
 	peer := tunPeer(t, device)
-	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), networkTimeout)
 	defer cancel()
 	destination := tcpip.FullAddress{NIC: 1, Addr: tcpip.AddrFrom4([4]byte{203, 0, 113, 7}), Port: 80}
 	conn, err := gonet.DialContextTCP(ctx, peer, destination, ipv4.ProtocolNumber)
@@ -238,10 +252,15 @@ func TestTUNRelaysTCPHalfCloseAndUDPDatagrams(t *testing.T) {
 	} else if timeout, ok := err.(net.Error); !ok || !timeout.Timeout() {
 		t.Fatalf("half-close discarded response: %v", err)
 	}
-	_ = conn.SetReadDeadline(time.Now().Add(time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(networkTimeout))
 	responseReady <- struct{}{}
 	if data, err := io.ReadAll(conn); err != nil || !bytes.Equal(data, append([]byte("reply:"), payload...)) {
 		t.Fatalf("TCP reply=%d bytes, %v", len(data), err)
+	}
+	select {
+	case <-device.dropTCPData:
+	default:
+		t.Fatal("TCP retransmission scenario did not drop a data segment")
 	}
 	destination.Port = 53
 	udpConn, err := gonet.DialUDP(peer, nil, &destination, ipv4.ProtocolNumber)
@@ -249,7 +268,7 @@ func TestTUNRelaysTCPHalfCloseAndUDPDatagrams(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer udpConn.Close()
-	_ = udpConn.SetDeadline(time.Now().Add(time.Second))
+	_ = udpConn.SetDeadline(time.Now().Add(networkTimeout))
 	for _, data := range [][]byte{[]byte("first"), {}, bytes.Repeat([]byte("large"), 4000), []byte("last")} {
 		if _, err := udpConn.Write(data); err != nil {
 			t.Fatal(err)
