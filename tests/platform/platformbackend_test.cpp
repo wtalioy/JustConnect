@@ -473,8 +473,21 @@ static void recoveryRecordTests() {
         before=record["before"].toObject();before[kde?"ProxyType":"http/port"]="3";invalid=record;invalid["before"]=before;reject(invalid);
         before=record["before"].toObject();before[kde?"ReversedException":"http/use-authentication"]="false";invalid=record;invalid["before"]=before;reject(invalid);
         before=record["before"].toObject();before[kde?"httpProxy":"http/host"]=QString("bad")+QChar(0);invalid=record;invalid["before"]=before;reject(invalid);
-        for (const auto &released:QList<QJsonArray>{{"unknown"},{true},{kde?"httpProxy":"http/host",kde?"httpProxy":"http/host"}}) {
-            invalid=record;invalid["released"]=released;reject(invalid);
+        for (const auto *field:{"released","intent","written","uncertain","pending_restore"})
+            for (const auto &values:QList<QJsonArray>{{"unknown"},{true},{kde?"httpProxy":"http/host",kde?"httpProxy":"http/host"}}) {
+                invalid=record;invalid[field]=values;reject(invalid);
+            }
+        const auto key=kde?QString("httpProxy"):QString("http/host");
+        for(const auto *field:{"released","uncertain"}) {
+            invalid=record;invalid[field]=QJsonArray{key};invalid["pending_restore"]=QJsonArray{key};reject(invalid);
+        }
+        invalid=record;invalid["intent"]=QJsonArray{};invalid["written"]=QJsonArray{};invalid["pending_restore"]=QJsonArray{key};reject(invalid);
+        invalid=record;invalid["schema_version"]=2;reject(invalid);
+        {
+            auto legacy=record;legacy["schema_version"]=2;legacy["pending_restore"]="";
+            PlatformSystemProxyBackend migrated(runner);
+            check(migrated.recover(legacy).succeeded() && migrated.recoverySnapshot().isEmpty(),"Delivered Linux schema 2 record could not be restored");
+            check(migrated.apply(config).succeeded(),"Reapply the native fixture after legacy restoration");
         }
         PlatformSystemProxyBackend fresh(runner);
         check(fresh.recover(record).succeeded() && fresh.recoverySnapshot().isEmpty(),"Fresh Linux backend did not restore and release its record");
@@ -531,12 +544,12 @@ static void checkpointTests() {
             if(a.value(0)=="set") {
                 auto key=a[1].mid(QString("org.gnome.system.proxy").size());if(key.startsWith('.'))key=key.mid(1)+'/';key+=a[2];
                 check(stored["intent"].toArray().contains(key) && !stored["released"].toArray().contains(key),"Native mutation preceded durable ownership intent");
-                check(stored["pending_restore"].toString()==key || !stored["written"].toArray().contains(key),"Native restore preceded its checkpoint");++writes;
+                check(stored["pending_restore"].toArray().contains(key) || !stored["written"].toArray().contains(key),"Native restore preceded its checkpoint");++writes;
             }
             return fixture.run(p,a);
         };
         PlatformSystemProxyBackend backend(run,[&](const QJsonObject &record) {
-            if(denyRestore && !record["pending_restore"].toString().isEmpty())return PlatformOperationResult{Status::PermissionDenied,"Denied restore checkpoint"};
+            if(denyRestore && !record["pending_restore"].toArray().isEmpty())return PlatformOperationResult{Status::PermissionDenied,"Denied restore checkpoint"};
             stored=record;return PlatformOperationResult{};
         });
         check(backend.apply(config).succeeded() && stored["written"].toArray().size()==writes,"Confirmed applied values were not checkpointed");
@@ -599,7 +612,7 @@ static void checkpointTests() {
         {
             PlatformSystemProxyBackend owner(run,persist);check(owner.apply(config).succeeded(),"Apply before interrupted restoration checkpoint");
             denyRelease=true;check(!owner.clear().succeeded(),"Restoration checkpoint failure was acknowledged");
-            check(stored["pending_restore"]=="http/host" && fixture.values["org.gnome.system.proxy.http:host"]=="\"prior.invalid\"",
+            check(stored["pending_restore"].toArray().contains("http/host") && fixture.values["org.gnome.system.proxy.http:host"]=="\"prior.invalid\"",
                   "Interrupted restoration did not retain its write-ahead marker");
         }
         fixture.values["org.gnome.system.proxy.http:host"]="'127.0.0.1'";hostWrites=0;denyRelease=false;
@@ -608,11 +621,95 @@ static void checkpointTests() {
               && fixture.values["org.gnome.system.proxy.http:use-authentication"]=="false",
               "Fresh recovery reclaimed matching settings after an unconfirmed restore");
         fixture.values["org.gnome.system.proxy.http:host"]="'prior.invalid'";
+        fixture.values["org.gnome.system.proxy.http:port"]="3128";
+        fixture.values["org.gnome.system.proxy.http:use-authentication"]="true";
         check(fresh.clear().succeeded() && hostWrites==0 && stored.isEmpty()
               && fixture.values["org.gnome.system.proxy.http:port"]=="3128"
               && fixture.values["org.gnome.system.proxy.http:use-authentication"]=="true",
               "Resolved uncertainty did not finish owned recovery or exposed original credentials too early");
     }
+    for(const bool kde:{false,true})for(const bool observedOriginal:{false,true})for(const bool legacy:{false,true}) {
+        qputenv("XDG_CURRENT_DESKTOP",kde?"KDE":"GNOME");qputenv("XDG_SESSION_DESKTOP",kde?"plasma":"gnome");qputenv("KDE_SESSION_VERSION","6");
+        auto fixture=seed();
+        if(kde)fixture.values={{"httpProxy","http://prior.invalid 3128"},{"ProxyType","2"}};
+        const auto key=kde?QString("httpProxy"):QString("http/host");
+        const auto nativeKey=kde?key:QString("org.gnome.system.proxy.http:host");
+        const auto original=fixture.values[nativeKey];QJsonObject stored;bool denyRelease=false;int hostWrites=0;
+        const PlatformCommandRunner run=[&](const QString &p,const QStringList &a) {
+            if((kde && p=="kwriteconfig6" && a.value(5)==key)
+                || (!kde && a.value(0)=="set" && a.value(1)=="org.gnome.system.proxy.http" && a.value(2)=="host"))++hostWrites;
+            return fixture.run(p,a);
+        };
+        const auto persist=[&](const QJsonObject &record) {
+            if(denyRelease && record["released"].toArray().contains(key))return PlatformOperationResult{Status::Failed,"Lost observed original acknowledgement"};
+            stored=record;return PlatformOperationResult{};
+        };
+        QString installed;
+        {
+            PlatformSystemProxyBackend owner(run,persist);check(owner.apply(config).succeeded(),"Apply before original observation interruption");
+            installed=fixture.values[nativeKey];fixture.values[nativeKey]=observedOriginal?original
+                :kde?QString("http://external.invalid 8899"):QString("'external.invalid'");denyRelease=true;
+            check(!owner.clear().succeeded(),"Lost original observation acknowledgement was reported as recovered");
+        }
+        fixture.values[nativeKey]=installed;hostWrites=0;denyRelease=false;
+        if(legacy) {
+            check(stored["pending_restore"].toArray()==QJsonArray{key},"Legacy fixture requires one pending observation");
+            stored["schema_version"]=2;stored["pending_restore"]=key;
+        }
+        PlatformSystemProxyBackend fresh(run,persist);const auto result=fresh.recover(stored);
+        check(!result.succeeded() && result.mayHaveChanged && hostWrites==0 && fixture.values[nativeKey]==installed
+              && stored["uncertain"].toArray().contains(key) && stored["schema_version"]==3,
+              "Fresh recovery reclaimed a same-value setting after a lost original observation");
+        fixture.values[nativeKey]=original;
+        check(fresh.clear().succeeded() && hostWrites==0 && stored.isEmpty(),"Externally resolved observation retained recovery ownership");
+    }
+    qputenv("XDG_CURRENT_DESKTOP","GNOME");qputenv("XDG_SESSION_DESKTOP","gnome");
+    {
+        auto fixture=seed();QJsonObject stored;bool fail=false;
+        PlatformSystemProxyBackend backend([&](const QString &p,const QStringList &a){return fixture.run(p,a);},
+            [&](const QJsonObject &record) {
+                stored=record;if(fail && record["pending_restore"].toArray().contains("http/host"))fixture.failRead=true;
+                return PlatformOperationResult{};
+            });
+        check(backend.apply(config).succeeded(),"Apply before protected observation read failure");const auto writes=fixture.mutations;fail=true;
+        check(!backend.clear().succeeded() && fixture.mutations==writes && stored["pending_restore"].toArray().contains("http/host"),
+              "Failed observation lost its durable marker or changed native settings");
+        fail=false;fixture.failRead=false;
+        check(backend.clear().succeeded() && stored.isEmpty(),"Live observation retry did not finish confirmed restoration");
+    }
+    for(const auto &scenario:QStringList{"authentication","mode","reverse"}) {
+        const bool kde=scenario=="reverse";qputenv("XDG_CURRENT_DESKTOP",kde?"KDE":"GNOME");qputenv("XDG_SESSION_DESKTOP",kde?"plasma":"gnome");
+        auto fixture=seed();
+        if(kde)fixture.values={{"httpProxy","http://prior.invalid 3128"},{"ProxyType","2"},{"NoProxyFor","old.invalid"},{"ReversedException","true"}};
+        bool clearing=false,ready=false,injected=false;
+        PlatformSystemProxyBackend backend([&](const QString &p,const QStringList &a) {
+            const auto result=fixture.run(p,a);
+            if(clearing && ((kde && p=="kreadconfig6" && a.value(5)=="NoProxyFor" && fixture.values["NoProxyFor"]=="old.invalid")
+                || (!kde && a.value(0)=="get" && a.value(2)=="autoconfig-url"
+                    && fixture.values["org.gnome.system.proxy.http:host"].contains("prior.invalid"))))ready=true;
+            return result;
+        },[&](const QJsonObject &record) {
+            const auto pending=record["pending_restore"].toArray(),released=record["released"].toArray();
+            const auto key=scenario=="authentication"?"http/use-authentication":kde?"ReversedException":"mode";
+            const bool endpointRead= scenario=="authentication"?released.contains("http/host") && released.contains("http/port"):ready;
+            if(clearing && !injected && endpointRead && pending.contains(key)) {
+                injected=true;
+                if(kde)fixture.values["NoProxyFor"]="external.invalid";
+                else if(scenario=="authentication")fixture.values["org.gnome.system.proxy.http:host"]="'external.invalid'";
+                else fixture.values["org.gnome.system.proxy:autoconfig-url"]="'https://external.invalid/new.pac'";
+            }
+            return PlatformOperationResult{};
+        });
+        check(backend.apply(config).succeeded(),"Apply before dependency storage wait");clearing=true;
+        check(backend.clear().succeeded() && injected,"Dependency storage wait did not finish owned restoration");
+        if(kde)check(fixture.values["NoProxyFor"]=="external.invalid" && fixture.values["ReversedException"]=="false",
+                     "Restored reverse flag changed the meaning of an external bypass");
+        else if(scenario=="authentication")check(fixture.values["org.gnome.system.proxy.http:host"]=="'external.invalid'"
+                  && fixture.values["org.gnome.system.proxy.http:use-authentication"]=="false","Storage wait enabled old credentials on an external endpoint");
+        else check(fixture.values["org.gnome.system.proxy:autoconfig-url"]=="'https://external.invalid/new.pac'"
+                  && fixture.values["org.gnome.system.proxy:mode"].contains("manual"),"Storage wait enabled an external PAC with the old mode");
+    }
+    qputenv("XDG_CURRENT_DESKTOP","GNOME");qputenv("XDG_SESSION_DESKTOP","gnome");
     {
         class Store final : public CredentialStore {
         public:
@@ -637,6 +734,7 @@ static void checkpointTests() {
                   "External deletion after rejected recovery was mistaken for successful restoration");
         }
     }
+    std::cout<<"PASS: Linux observed ownership, legacy records and authentication/mode/bypass storage waits\n";
     std::cout<<"PASS: proxy write-ahead intents, confirmed values, denied checkpoints, external races and fresh-backend uncertainty\n";
 }
 

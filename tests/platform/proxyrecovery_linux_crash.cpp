@@ -160,7 +160,7 @@ static void phase(const QString &name,const QString &key) {
                 if(stage=="prepared" || stage=="unconfirmed")require(saved["intent"].toArray().contains(first)
                     && !saved["written"].toArray().contains(first),"Crash missed the unconfirmed application boundary");
                 if(stage=="confirmed")require(saved["written"].toArray().contains(first),"Crash missed the confirmed checkpoint");
-                if(stage=="restore" || stage=="recreated")require(saved["pending_restore"]==(kde?"httpProxy":"http/host"),"Crash missed the restoration checkpoint");
+                if(stage=="restore" || stage=="recreated")require(saved["pending_restore"].toArray().contains(kde?"httpProxy":"http/host"),"Crash missed the restoration checkpoint");
                 owner.crash();
                 if(stage=="steady") {
                     QFile baseline(root.filePath("crash-before.txt"));require(baseline.open(QIODevice::WriteOnly)
@@ -170,15 +170,25 @@ static void phase(const QString &name,const QString &key) {
                     if(kde)kdeSet("httpProxy","http://127.0.0.1 11081");else set("org.gnome.system.proxy.http","host","'127.0.0.1'");
                 }
                 Fixture fresh("recover",key);const bool recovered=fresh.clear();
-                if(stage=="unconfirmed" || stage=="recreated") {
-                    const auto uncertain=kde?QString("httpProxy"):stage=="unconfirmed"?QString("http/use-authentication"):QString("http/host");
+                if(stage=="unconfirmed" || stage=="recreated" || (!kde && stage=="restore")) {
+                    const auto uncertain=kde?QString("httpProxy"):stage=="unconfirmed"?QString("http/use-authentication")
+                        :stage=="restore"?QString("http/port"):QString("http/host");
                     require(!recovered && record(*credentials,key)["uncertain"].toArray().contains(uncertain)
                         && (kde ? kdeGet("httpProxy")=="http://127.0.0.1 11081" && kdeGet("ProxyType")== (stage=="unconfirmed"?"2":"1")
                             : command("gsettings",{"get","org.gnome.system.proxy.http","use-authentication"}).output=="false"),
                         "Fresh process guessed an unconfirmed native write or enabled old credentials");
+                    if(!kde && (stage=="restore" || stage=="recreated")) {
+                        const auto pending=record(*credentials,key)["uncertain"].toArray();
+                        require(pending.contains("http/port") && pending.contains("http/use-authentication")
+                            && command("gsettings",{"get","org.gnome.system.proxy.http","port"}).output=="11081",
+                            "Interrupted endpoint observation lost a sibling field's uncertainty");
+                    }
                     if(kde)kdeSet("httpProxy","http://prior.invalid 3128");
-                    else if(stage=="unconfirmed")set("org.gnome.system.proxy.http","use-authentication","true");
-                    else set("org.gnome.system.proxy.http","host","'prior.invalid'");
+                    else {
+                        set("org.gnome.system.proxy.http","host","'prior.invalid'");
+                        set("org.gnome.system.proxy.http","port","3128");
+                        set("org.gnome.system.proxy.http","use-authentication","true");
+                    }
                     require(fresh.clear(),"Resolved native uncertainty did not finish recovery");
                 } else require(recovered,"Fresh process failed to restore its confirmed native writes");
                 const auto writes=fresh.stop();require(settings()==before && credentials->read(key).status==CredentialStatus::NotFound,
