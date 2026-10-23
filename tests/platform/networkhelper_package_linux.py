@@ -6,10 +6,14 @@ import os
 from pathlib import Path
 import pwd
 import re
+import select
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import time
+import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts'))
@@ -28,11 +32,16 @@ def main():
     parser.add_argument('--uid', type=int, required=True)
     parser.add_argument('--revision', required=True)
     parser.add_argument('--development-qt', type=Path, help='local fixture only: copy SDK Core libraries into the private /usr')
+    parser.add_argument('--client', type=Path, help='ordinary Qt caller built with the application SDK')
+    parser.add_argument('--authorization-fixture', type=Path, help='namespace-only authorization broker fixture')
     args = parser.parse_args()
     assert os.geteuid() == 0 and args.uid != 0
     for name in ('net', 'mnt'):
         assert os.stat(f'/proc/thread-self/ns/{name}') != os.stat(f'/proc/1/ns/{name}'), f'refusing the host {name} namespace'
     assert not (args.package and args.development_qt), 'release package must load the actual distribution runtime'
+    assert bool(args.client) == bool(args.authorization_fixture)
+    client = args.client.resolve(strict=True) if args.client else None
+    broker = args.authorization_fixture.resolve(strict=True) if args.authorization_fixture else None
     if args.package:
         files, report = package.inspect_package(args.package.resolve(strict=True), args.revision)
         report['mode'] = 'distribution-package'
@@ -93,7 +102,7 @@ def main():
                 assert path.is_relative_to('/usr/lib') or path.is_relative_to('/lib'), path
                 assert path.stat().st_uid == 0 and not path.stat().st_mode & 0o022, path
             facts = json.loads(run(executable, '--version', env=environment, user=args.uid, group=account.pw_gid, extra_groups=()))
-            assert facts['worker'] == 'network-helper' and facts['protocol'] == 1 and facts['revision'] == args.revision
+            assert facts['worker'] == 'network-helper' and facts['protocol'] == 2 and facts['revision'] == args.revision
             if args.package:
                 assert facts['source_state'] == 'clean', facts
             report.update(runtime=facts, dependencies=dependencies)
@@ -105,6 +114,70 @@ def main():
             subprocess.run([sys.executable, '-B', str(ROOT / 'tests/platform/networkhelper_linux.py'), '--uid', str(args.uid),
                             '--helper', str(executable), '--installed', '--uninstalled-helper', str(uninstalled)], env=environment, check=True, timeout=60)
             assert not list(Path(package.LAYOUT['state_directory']).iterdir()), 'actual entry left operation records'
+            if client:
+                authorization = Path(package.LAYOUT['authorization_program'])
+                if authorization.exists():
+                    authorization.unlink()  # Only the private overlay is changed.
+                shutil.copyfile(broker, authorization)
+                authorization.chmod(0o4755)
+                ip = lambda *values: run('ip', *values, env=environment)
+                ip('link', 'add', 'helperorig0', 'type', 'dummy')
+                ip('link', 'set', 'helperorig0', 'up')
+                ip('address', 'add', '192.0.2.1/24', 'dev', 'helperorig0')
+                def inventory():
+                    return (ip('-N', '-j', '-4', 'route', 'show', 'table', 'all'),
+                            ip('-N', '-j', '-4', 'rule', 'show'), sorted(os.listdir('/sys/class/net')))
+                baseline = inventory()
+                # Only the ordinary test process keeps its SDK loader environment; the product client strips it before authorization.
+                caller_environment = {**environment, **{key: value for key, value in os.environ.items() if key == 'LD_LIBRARY_PATH'}}
+                def call(scenario, mode='allow', owner=None):
+                    owner = owner or str(uuid.uuid4())
+                    result = run(client, scenario, owner, env={**caller_environment, 'JC_AUTH_TEST_MODE': mode},
+                                 user=args.uid, group=account.pw_gid, extra_groups=())
+                    print(result, end='', flush=True)
+                    return owner
+                for scenario, mode in [('normal', 'allow'), ('cancel-inspect', 'allow'), ('cancel-authorization', 'wait'),
+                                       ('cancel-apply', 'allow'), ('denied', 'deny'), ('cancel-policy', 'cancel'), ('malformed', 'malformed')]:
+                    call(scenario, mode)
+                    assert inventory() == baseline, scenario
+                    assert not list(Path(package.LAYOUT['state_directory']).iterdir()), scenario
+                ip('route', 'add', '198.18.5.0/24', 'dev', 'helperorig0', 'proto', 'static', 'metric', '7')
+                before_failure = inventory()
+                call('partial')
+                assert inventory() == before_failure and not list(Path(package.LAYOUT['state_directory']).iterdir())
+                ip('route', 'del', '198.18.5.0/24', 'dev', 'helperorig0', 'metric', '7')
+                owner = call('destroy')
+                deadline = time.monotonic() + 10
+                while inventory() != baseline and time.monotonic() < deadline:
+                    time.sleep(0.02)
+                assert inventory() == baseline, 'client destruction left native network ownership'
+                receipts = list(Path(package.LAYOUT['state_directory']).glob('*/source.json'))
+                assert len(receipts) == 1 and json.loads(receipts[0].read_text())['phase'] == 'restored'
+                call('cleanup', owner=owner)
+                call('cleanup', owner=owner)
+                assert inventory() == baseline and not list(Path(package.LAYOUT['state_directory']).iterdir())
+                owner = str(uuid.uuid4())
+                process = subprocess.Popen([str(client), 'crash', owner], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                           env={**caller_environment, 'JC_AUTH_TEST_MODE': 'allow'}, user=args.uid,
+                                           group=account.pw_gid, extra_groups=())
+                try:
+                    assert select.select([process.stdout], [], [], 10)[0], 'Qt crash fixture never reached device handoff'
+                    assert process.stdout.readline().strip() == f'READY: active helper {owner}'
+                    children = Path(f'/proc/{process.pid}/task/{process.pid}/children').read_text().split()
+                    workers = [int(pid) for pid in children if Path(f'/proc/{pid}/exe').resolve() == executable]
+                    assert len(workers) == 1, 'cannot identify the directly owned private-namespace fixture helper'
+                    os.kill(workers[0], signal.SIGKILL)
+                    output, errors = process.communicate(timeout=15)
+                    assert process.returncode == 0, (output, errors)
+                    print(output, end='', flush=True)
+                finally:
+                    if process.poll() is None:
+                        process.kill()
+                        process.communicate(timeout=5)
+                assert inventory() == baseline and not list(Path(package.LAYOUT['state_directory']).iterdir())
+                ip('link', 'del', 'helperorig0')
+                report['qt_client'] = {'scenarios': 12, 'gui_uid': args.uid, 'broker': 'namespace-only setuid fixture',
+                                       'desktop_polkit': 'not exercised'}
             print('REPORT: ' + json.dumps(report, sort_keys=True), flush=True)
         finally:
             run('umount', '/var/lib')

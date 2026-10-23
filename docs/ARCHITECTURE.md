@@ -69,13 +69,15 @@ Linux 的 `LinuxSourceRoutes` 为明确原接口／IPv4 源地址建立全新专
 <a id="privileged-helper-entry"></a>
 ### 正式权限助手入口
 
-S4-04 的授权入口采用平台机制，尚待接入和桌面验收；授权成功只表示可以请求受限网络操作，接管就绪仍须实际回读和连通验证。
+S4-04 的授权入口采用平台机制；Linux 普通权限 Qt 调用方已实现，仍待 CI、实际会话接入和桌面验收。授权成功只表示可以请求受限网络操作，接管就绪仍须实际回读和连通验证。
 
-Linux 的 `JustConnectNetworkHelper` 运行层仅依赖 Qt Core 与系统运行库，复用正式设备、源路由、捕获路由及受保护日志，不包含 Go、GUI、凭据或校园策略。固定入口从 `PKEXEC_UID` 取得原账户，连接该账户与完整连接 UUID 派生的抽象 Unix `SOCK_SEQPACKET` 地址，再以 `SO_PEERCRED` 验证实际 UID／PID 及网络命名空间。协议 1 每包最多 64 KiB，仅接受完整字段的 `apply`、`recover`、`restore` 和完成确认；参数不包含程序、存储路径或恢复 JSON。地址、MTU 与明确前缀由调用方提供，经严格校验，不将夹具地址作为产品默认。
+Linux 的 `JustConnectNetworkHelper` 运行层仅依赖 Qt Core 与系统运行库，复用正式设备、源路由、捕获路由及受保护日志，不包含 Go、GUI、凭据或校园策略。固定入口从 `PKEXEC_UID` 取得原账户，连接该账户与完整连接 UUID 派生的抽象 Unix `SOCK_SEQPACKET` 地址，再以 `SO_PEERCRED` 验证实际 UID／PID 及网络命名空间。协议 2 每包最多 64 KiB，仅接受完整字段的 `apply`、`recover`、`restore`、已恢复回执的 `cleanup` 和完成确认；参数不包含程序、存储路径或恢复 JSON。地址、MTU 与明确前缀由调用方提供，客户端与助手共用解码及所属后端验证，不将夹具地址作为产品默认。
 
-每个账户／连接在固定 `/var/lib/JustConnect/network` 下维护 root 私有目录及启动／命名空间绑定的上下文；原出口先于捕获建立，恢复按相反顺序执行，捕获未确认释放时保留原出口。确认应用后才经 `SCM_RIGHTS` 交付一个原始 IP fd，收端原子设置 `CLOEXEC`；控制 EOF、非法后续操作或交付失败触发助手自身恢复。新实例只读取受保护的所属记录；完成回执在客户端明确确认前保留，连接上下文缺失不解释为成功。交付后的 fd 属于普通调用方，助手恢复只释放自己的引用；整体停止还须关闭客户端／核心持有的全部副本，才能确认非持久设备消失。独立命名空间已覆盖普通用户实际 UDP、部分失败、EOF 和助手强杀后的新进程恢复；这不证明桌面授权或自动守护重启。正式 Qt 调用方及授权取消验收仍待，S4-04 保持未完成。
+每个账户／连接在固定 `/var/lib/JustConnect/network` 下维护 root 私有目录及启动／命名空间绑定的上下文；原出口先于捕获建立，恢复按相反顺序执行，捕获未确认释放时保留原出口。确认应用后才经 `SCM_RIGHTS` 交付一个原始 IP fd，收端原子设置 `CLOEXEC`；控制 EOF、非法后续操作或交付失败触发助手自身恢复。新实例只读取受保护的所属记录；完成回执在客户端明确确认前保留，恢复时上下文缺失不解释为成功。退出码 0 证明回执已移除，2 表示网络已恢复但回执仍保留；存储版本维持 1，可恢复已部署版本的记录。`cleanup` 只清已恢复且无操作日志的回执，缺失可重复确认，活跃记录拒绝，不执行网络恢复。交付后的 fd 属于普通调用方，整体停止还须关闭客户端／核心持有的全部副本。隔离验证不证明桌面授权或自动守护重启，S4-04 保持未完成。
 
-Linux 系统助手由 `infrastructure/platform/linux/helper` 独立构建，只查找发行版 Qt Core；`scripts/build-system-network-helper.sh` 清除 GUI SDK 的加载／查找环境，再由系统 qmake 定位开发包。CMake 复用同一后端和源码来源记录，`dpkg-shlibdeps` 生成实际 Qt／libc／C++ 依赖及最低版本。DEB 仅含助手、固定 polkit 策略、许可证和源码版本，不捆绑 Qt、安装脚本或服务；GUI 的 `CoreRuntime`／AppImage 不携带此提权部署。安装路径、授权动作与状态目录统一归 `resource/network-helper.json`；安装后的 ELF 不保留 SDK RPATH，实际执行路径必须匹配固定入口。`--version` 可由普通进程读取协议、Qt 与源码状态。
+`LinuxNetworkHelperClient` 在普通 Qt 线程异步检查固定程序及各级目录的 root 所有权、不可写权限、非链接 ELF 与来源／协议，再清理 Qt／加载器注入环境并启动固定 `pkexec --disable-internal-agent`。私有监听只接受 root 且 PID 等于实际启动进程的对端；收到 fd 后核对连接派生接口、内核 TUN 类型、原始 IP 帧及 `CLOEXEC`。授权期间 Qt 事件循环持续运行，拒绝／取消分别分类；提交后取消须等待反向恢复及回执确认。客户端销毁只关闭通道／自身 fd，由助手处理 EOF；应用所属监视器负责回收子进程，不强杀已接管网络的助手。活跃助手意外退出会撤回 fd 并保留恢复责任，新授权实例按原连接恢复；已恢复但确认失败仅重试回执清理。测试 broker 仅在私有挂载／网络命名空间临时安装，实际 polkit 桌面交互仍待。
+
+Linux 系统助手由 `infrastructure/platform/linux/helper` 独立构建，只查找发行版 Qt Core；`scripts/build-system-network-helper.sh` 清除 GUI SDK 的加载／查找环境并保留 runner 构建工具路径，再由系统 qmake 定位开发包。CMake 复用同一后端和源码来源记录，`dpkg-shlibdeps` 生成实际 Qt／libc／C++ 依赖及最低版本。DEB 仅含助手、固定 polkit 策略、许可证和源码版本，不捆绑 Qt、安装脚本或服务；GUI 的 `CoreRuntime`／AppImage 不携带此提权部署。安装路径、授权程序／动作与状态目录统一归 `resource/network-helper.json`；安装后的 ELF 不保留 SDK RPATH，实际执行路径必须匹配固定入口。`--version` 可由普通进程读取协议、Qt 与源码状态。
 
 策略仅对活动本地会话请求 `auth_admin`，不保留授权、不允许 GUI 环境注入；程序与依赖由系统包管理器维护。包检查拒绝可写／非 root 项、链接、额外程序／维护脚本、放宽的授权范围和错误源码。当前本地已在私有 `/usr`／`/var/lib`／网络命名空间验收安装入口与外来路径拒绝；开发阶段仅在该命名空间复制必要 SDK 库，不能算发行版包验收。真实发行版 Qt／DEB 及双架构预览包由 Ubuntu 26.04 CI 验收，其他发行版与旧系统仍待；不在日常系统安装测试程序或接管网络。桌面授权及安装后的 Qt 调用仍需独立验收。
 

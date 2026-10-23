@@ -1,5 +1,6 @@
 #pragma once
 #include <QString>
+#include <QMetaType>
 
 struct PlatformOperationResult
 {
@@ -9,3 +10,4 @@ struct PlatformOperationResult
     bool mayHaveChanged = false;
     bool succeeded() const { return status == Status::Success; }
 };
+Q_DECLARE_METATYPE(PlatformOperationResult)

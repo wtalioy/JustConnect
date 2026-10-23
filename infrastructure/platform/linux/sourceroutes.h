@@ -17,6 +17,7 @@ public:
     // An empty record requests durable removal after all owned kernel state is gone.
     using CheckpointWriter = std::function<PlatformOperationResult(const QJsonObject &)>;
     explicit LinuxSourceRoutes(PlatformCommandRunner read = {}) : reader(std::move(read)) {}
+    static PlatformOperationResult validate(const QString &interface, const QString &source, const QString &gateway, const QStringList &prefixes);
     LinuxSourceRoutes(const LinuxSourceRoutes &) = delete;
     LinuxSourceRoutes &operator=(const LinuxSourceRoutes &) = delete;
     PlatformOperationResult apply(const QUuid &owner, const QString &interface, const QString &source,

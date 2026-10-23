@@ -1,6 +1,6 @@
 # JustConnect 实施计划与进度
 
-更新日期：2026-10-23。当前已完成同仓 aTrust 核心库、C ABI／Qt 接入及 S2-09 的清理瘦身；Windows Fudan 的代理网页／SSH、断开及重启恢复、清除后重新认证已验证；S2 的认证、进程内代理恢复与包基线已验，S2-06 的宿主强杀、客户端恢复续接及六组实际包已验，真实注销／桌面授权随 S4 补齐；设备权限、透明访问与自动共存仍按对应任务验收。
+更新日期：2026-10-24。当前已完成同仓 aTrust 核心库、C ABI／Qt 接入及 S2-09 的清理瘦身；Windows Fudan 的代理网页／SSH、断开及重启恢复、清除后重新认证已验证；S2 的认证、进程内代理恢复与包基线已验，S2-06 的宿主强杀、客户端恢复续接及六组实际包已验，真实注销／桌面授权随 S4 补齐；设备权限、透明访问与自动共存仍按对应任务验收。
 
 ## 使用方式
 
@@ -241,7 +241,8 @@ Linux x64／ARM64 AppImage 分别减少约 2.07%／1.90%；macOS 安装体积基
 - 代理清理／保留与包范围：三平台构造、恢复状态和共用安全回归已精简，未引入依赖；权限／一致性不同的文件日志与凭据日志保留独立契约。旧目录锁待停止支持仅持旧锁的进程后删除，Linux 已交付 schema 2 读取兼容待停止支持对应记录后删除，未交付旧导出拒绝；独有安全／失败／取消／平台回归保留。已归纳日志、临时核验工具及重复证据已清理。同源码[六组实际包及源码](https://github.com/wtalioy/JustConnect/actions/runs/39938150558)全部通过，已下载六份报告核对协议 2 恢复进程、原生依赖和干净来源，源码归档 CRC／SHA 及关键文件与 `8c9d7f8` 一致；历史失败及修复前回归证据保留在同一报告。真实注销、桌面授权与无人值守恢复仍待，S2-06／S3-05／S4-06／S7-03 保持未完成。
 - Windows 设备增量已验：签名／配置共用 CI 选择的 pwsh，配置前记录原生身份、配置后确认同一设备；双架构均通过收发、超大帧、异常退出及部分配置失败的所属设备／路由清理，预算不变。MI 的 MSVC 双架构 ABI 及实际安装目录读取通过；证据 `build/reports/windows-dns-native.json`、`wintun-signature-host.json`。既有六组包通过运行时检查，设备正式交付仍待；旧入口前超时及图形／页面偶发停顿未作根因归属，关键失败证据保留。
 - S4-04 助手运行层已验（`23ae6cb`）：Linux Qt Core 进程验证实际 UID／PID／命名空间，以限界协议交付单 fd，复用源／捕获日志反序恢复；回执须确认，缺失连接上下文不猜成功。本地双构建 14 组验证及同源码 [Tests](https://github.com/wtalioy/JustConnect/actions/runs/39956743046)／[Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/39956743014) 九项均通过；双架构实际日志已下载核对普通用户 UDP、部分失败、EOF 与助手强杀恢复，证据 `build/reports/linux-network-helper.json`。共享后端归单一构建目标，参数验证复用所属模块，无新增依赖；临时状态／缓存及重复下载已清理，不安装用户 SDK 中的高权限程序。正式 Qt 调用方、可信部署／`pkexec` 桌面授权、自动守护重启及 macOS／Windows 助手仍待，不据此勾选；契约归[权限入口](docs/ARCHITECTURE.md#privileged-helper-entry)。
-- S4-04 系统部署增量待验收：独立系统 Qt Core／DEB 构建复用同一后端及来源模块，真实依赖由 `dpkg-shlibdeps` 生成；固定路径／polkit 策略／状态目录共用配置，禁止其他路径执行，AppImage 不携带提权运行时。本地安装入口、普通用户 UDP／恢复及外来路径拒绝在私有挂载／网络命名空间通过；应用 54 项、正式 ABI 32 项（环境补齐后重跑 4 项）及包解析回归通过。真实发行版 SDK／依赖、双架构系统包及本批六组预览待 CI，不据开发 SDK 夹具宣称系统包可用；证据 `build/reports/linux-system-helper-package.json`。Qt 授权调用、桌面取消和自动守护重启仍待。
+- S4-04 系统部署已通过 `fb84863` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/39969513321)、[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/39969513258)及[六组预览与源码](https://github.com/wtalioy/JustConnect/actions/runs/39969987426)。独立系统 Qt Core／四文件 DEB 复用同一后端与来源，真实发行版 Qt 6.10.2／依赖及双架构安装入口、普通用户 UDP／恢复、外来路径拒绝已有实际产物报告；源码归档已重建验证，证据 `build/reports/linux-system-helper-package.json`。固定部署规则统一，AppImage 不携带提权运行时；其他发行版、旧系统及真实桌面仍待。
+- S4-04 Qt 授权调用增量待 CI：普通权限客户端异步检查可信安装／来源与 root 对端 PID，交付所属原始 TUN fd；授权拒绝、检查／授权／应用中取消、部分失败、销毁 EOF、助手强杀后的新授权恢复及回执清理在隔离内核通过。协议 2 区分恢复与回执移除，存储版本 1 保留；参数及失败重试状态复用单一规则，无新增依赖。应用 55 项通过，最终客户端另补验证，正式 ABI 33 项、Python 21 项及 12 个 Qt 原生场景通过，本批 CI 待验；证据 `build/reports/linux-helper-client.json`。临时 broker 不安装到日常系统；实际会话／核心 fd 接入、桌面 polkit、自动守护重启及其他平台仍待，不勾选任务。
 - D2／D3：Linux 真实原出口、严格 rp_filter 与独立源表保留；普通用户数据、帧拒绝及设备强杀清理沿用已验路径，Unix 先降权再 exec 和原八秒预算不变，原型不代替正式权限／恢复。Mihomo 1.19.32 临时实例验证完整 PUT、无效更新保留、恢复回读及 Fake-IP 与 API 真实地址差别；运行中 TUN、真实配置所有权及其余平台仍待，见[设备记录](docs/CORELINK-PROBE.md#设备与权限边界)和[接口记录](docs/CORELINK-PROBE.md#mihomo-api-probe)。
 - 清理／保留：已删被替代上游串联／专属测试、模型副本、测试专用 TTL 覆盖、重复 lastSeen、原型分配／配置／源表命令及已归并报告／日志／临时程序／stash、定位用 DNS 工作流；原出口／源记录、Windows 设备及 Linux 捕获移交说明已合并为当前契约、验证与剩余范围，删除被替代的待验结论。保留独有授权／信任／取消／平台回归，conntrack 16384 项／20000 次插入／90 秒预算及优化前后证据；不为通过删有效测试。当前构建、必要 SDK／工具、关键报告／预览及 S2 唯一包证据保留；隔离移交夹具保留独有收发／强杀断言，macOS 捕获命令在对应正式路由后端通过后删除；正式助手接入时复用后端，不另留产品副本。
 

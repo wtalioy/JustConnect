@@ -3,6 +3,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFileInfo>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QProcess>
 #include <fcntl.h>
@@ -46,6 +47,21 @@ int main(int argc, char **argv) try
         && facts["qt"] == qVersion() && facts["revision"].toString().size() == 40
         && QStringList{"clean", "dirty", "archive"}.contains(facts["source_state"].toString()),
         "Helper runtime identity, provenance or protocol does not match the caller");
+    const auto owner = QUuid::createUuid();
+    LinuxHelperConfiguration configuration;
+    configuration.address = "198.18.0.1"; configuration.peer = "198.18.0.2"; configuration.mtu = 1400;
+    configuration.capturePrefixes = {"198.18.4.0/24"};
+    configuration.originalInterface = "fixture0"; configuration.originalSource = "192.0.2.1";
+    configuration.originalPrefixes = configuration.capturePrefixes;
+    const auto encoded = linuxHelperApplyRequest(owner, configuration);
+    const auto parsed = parseLinuxHelperApply(owner, encoded);
+    check(parsed && linuxHelperApplyRequest(owner, *parsed) == encoded, "Typed configuration lost validated input");
+    auto invalid = encoded;
+    invalid["underlay"] = QJsonObject{{"interface", "fixture0"}, {"source", "192.0.2.1"}, {"prefixes", QJsonArray{"198.18.4.0/24"}}};
+    check(!parseLinuxHelperApply(owner, invalid), "Missing gateway was silently converted to an empty gateway");
+    check(!parseLinuxHelperApply(QUuid::createUuid(), encoded), "Typed decoder accepted another connection owner");
+    configuration.originalInterface = "fixture0; id";
+    check(!parseLinuxHelperApply(owner, linuxHelperApplyRequest(owner, configuration)), "Client validation diverged from native interface rules");
     int sockets[2];
     check(::socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, sockets) == 0, "Create private packet sockets");
     const QJsonObject original{{"version", LinuxHelperProtocol}, {"value", "framed packet"}};

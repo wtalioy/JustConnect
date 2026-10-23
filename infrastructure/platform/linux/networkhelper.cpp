@@ -18,7 +18,8 @@
 namespace {
 using Result = PlatformOperationResult;
 using Status = Result::Status;
-constexpr int packetTimeoutMs = 5000, handshakeTimeoutMs = 30000;
+constexpr int handshakeTimeoutMs = 30000;
+constexpr int metadataVersion = 1;
 Result invalid(const char *message) { return {Status::Failed, QString::fromLatin1(message)}; }
 bool fields(const QJsonObject &object, std::initializer_list<const char *> keys)
 {
@@ -82,7 +83,35 @@ int connectLinuxHelper(uid_t uid, const QUuid &owner)
     return -1;
 }
 
-Result sendLinuxHelperPacket(int socket, const QJsonObject &packet, int descriptor)
+QJsonObject linuxHelperApplyRequest(const QUuid &owner, const LinuxHelperConfiguration &config)
+{
+    return {{"version", LinuxHelperProtocol}, {"owner", owner.toString(QUuid::WithoutBraces)}, {"operation", "apply"},
+        {"device", QJsonObject{{"source", config.address}, {"peer", config.peer}, {"mtu", config.mtu}}},
+        {"capture", QJsonArray::fromStringList(config.capturePrefixes)},
+        {"underlay", QJsonObject{{"interface", config.originalInterface}, {"source", config.originalSource},
+            {"gateway", config.originalGateway}, {"prefixes", QJsonArray::fromStringList(config.originalPrefixes)}}}};
+}
+
+std::optional<LinuxHelperConfiguration> parseLinuxHelperApply(const QUuid &owner, const QJsonObject &request)
+{
+    const auto device = request["device"].toObject(), original = request["underlay"].toObject();
+    LinuxHelperConfiguration config;
+    if (owner.isNull() || request["owner"] != owner.toString(QUuid::WithoutBraces) || request["version"] != LinuxHelperProtocol
+        || request["operation"] != "apply" || !fields(request, {"version", "owner", "operation", "device", "capture", "underlay"})
+        || QJsonDocument(request).toJson(QJsonDocument::Compact).size() > LinuxHelperPacketBytes
+        || !fields(device, {"source", "peer", "mtu"})
+        || !UnixTunDevice::validIpv4Configuration(device["source"].toString(), device["peer"].toString(), device["mtu"].toInteger(-1))
+        || !prefixes(request["capture"], config.capturePrefixes)
+        || !fields(original, {"interface", "source", "gateway", "prefixes"}) || !original["interface"].isString()
+        || !original["gateway"].isString() || !prefixes(original["prefixes"], config.originalPrefixes)) return {};
+    config.address = device["source"].toString(); config.peer = device["peer"].toString(); config.mtu = device["mtu"].toInt();
+    config.originalInterface = original["interface"].toString(); config.originalSource = original["source"].toString();
+    config.originalGateway = original["gateway"].toString();
+    if (!LinuxSourceRoutes::validate(config.originalInterface, config.originalSource, config.originalGateway, config.originalPrefixes).succeeded()) return {};
+    return config;
+}
+
+Result sendLinuxHelperPacket(int socket, const QJsonObject &packet, int descriptor, int timeoutMs)
 {
     const auto bytes = QJsonDocument(packet).toJson(QJsonDocument::Compact);
     if (bytes.size() > LinuxHelperPacketBytes) return invalid("Network helper packet exceeds its budget.");
@@ -96,7 +125,7 @@ Result sendLinuxHelperPacket(int socket, const QJsonObject &packet, int descript
         header->cmsg_level = SOL_SOCKET; header->cmsg_type = SCM_RIGHTS; header->cmsg_len = CMSG_LEN(sizeof(int));
         std::memcpy(CMSG_DATA(header), &descriptor, sizeof(descriptor));
     }
-    QDeadlineTimer deadline(packetTimeoutMs);
+    QDeadlineTimer deadline(timeoutMs);
     for (;;) {
         const auto size = ::sendmsg(socket, &message, MSG_NOSIGNAL | MSG_DONTWAIT);
         if (size == bytes.size()) return {};
@@ -167,22 +196,24 @@ int runLinuxNetworkHelper(int socket, int trustedDirectory, uid_t uid, pid_t pid
     if (supplied >= 0) { ::close(supplied); return 1; }
     if (!result.succeeded() || !requestValid(request)) return 1;
     const bool applying = request["operation"] == "apply";
-    QStringList capturePrefixes, sourcePrefixes;
-    const auto config = request.value("device").toObject(), underlay = request.value("underlay").toObject();
+    const bool cleaning = request["operation"] == "cleanup";
+    std::optional<LinuxHelperConfiguration> config;
     if (applying) {
-        if (!fields(request, {"version", "owner", "operation", "device", "capture", "underlay"})
-            || !fields(config, {"source", "peer", "mtu"})
-            || !UnixTunDevice::validIpv4Configuration(config["source"].toString(), config["peer"].toString(), config["mtu"].toInteger(-1))
-            || !prefixes(request["capture"], capturePrefixes) || !fields(underlay, {"interface", "source", "gateway", "prefixes"})
-            || !underlay["interface"].isString() || !canonicalUnicastIpv4(underlay["source"].toString())
-            || !underlay["gateway"].isString() || (!underlay["gateway"].toString().isEmpty() && !canonicalUnicastIpv4(underlay["gateway"].toString()))
-            || !prefixes(underlay["prefixes"], sourcePrefixes)) return 1;
-    } else if (request["operation"] != "recover" || !fields(request, {"version", "owner", "operation"})) return 1;
+        config = parseLinuxHelperApply(owner, request);
+        if (!config) return 1;
+    } else if ((!cleaning && request["operation"] != "recover") || !fields(request, {"version", "owner", "operation"})) return 1;
 
     const auto name = QByteArray::number(uid) + '-' + owner.toByteArray(QUuid::WithoutBraces);
     // Recovery never creates an absent operation: absence is not a completion receipt.
     struct stat existing{};
-    if (!applying && ::fstatat(trustedDirectory, name.constData(), &existing, AT_SYMLINK_NOFOLLOW) != 0) return 1;
+    if (!applying && ::fstatat(trustedDirectory, name.constData(), &existing, AT_SYMLINK_NOFOLLOW) != 0) {
+        // Cleanup never claims recovery: it only removes an already completed receipt, if present.
+        if (cleaning && errno == ENOENT) {
+            return sendLinuxHelperPacket(socket, {{"version", LinuxHelperProtocol}, {"owner", id}, {"status", int(Status::Success)},
+                {"detail", QString{}}, {"changed", false}, {"state", "cleaned"}, {"device", QJsonObject{}}}).succeeded() ? 0 : 1;
+        }
+        return 1;
+    }
     const int directory = privateDirectory(trustedDirectory, name);
     if (directory < 0) return 1;
     const auto closeDirectory = qScopeGuard([&] { ::close(directory); });
@@ -191,15 +222,16 @@ int runLinuxNetworkHelper(int socket, int trustedDirectory, uid_t uid, pid_t pid
     QJsonObject context;
     const auto contextValid = [&] {
         return fields(context, {"version", "owner", "uid", "namespace", "phase"})
-            && context["version"] == LinuxHelperProtocol && context["owner"] == id && context["uid"].toInteger(-1) == uid
+            && context["version"] == metadataVersion && context["owner"] == id && context["uid"].toInteger(-1) == uid
             && context["namespace"] == linuxNetworkNamespace()
             && (context["phase"] == "prepared" || context["phase"] == "active" || context["phase"] == "restored");
     };
     if (applying) {
-        context = {{"version", LinuxHelperProtocol}, {"owner", id}, {"uid", qint64(uid)},
+        context = {{"version", metadataVersion}, {"owner", id}, {"uid", qint64(uid)},
                    {"namespace", linuxNetworkNamespace()}, {"phase", "prepared"}};
         if (context["namespace"].toString().isEmpty() || !metadata.store(context).succeeded()) return 1;
     } else if (!metadata.load(context).succeeded() || !contextValid()) return 1;
+    if (cleaning && context["phase"] != "restored") return 1;
 
     const int captureDirectory = privateDirectory(directory, "capture"), sourceDirectory = privateDirectory(directory, "underlay");
     const auto closeOperations = qScopeGuard([&] { if (captureDirectory >= 0) ::close(captureDirectory); if (sourceDirectory >= 0) ::close(sourceDirectory); });
@@ -211,6 +243,18 @@ int runLinuxNetworkHelper(int socket, int trustedDirectory, uid_t uid, pid_t pid
         return [&journal](const QJsonObject &record) { return record.isEmpty() ? journal.remove() : journal.store(record); };
     };
     const auto captureWriter = writer(captureJournal), sourceWriter = writer(sourceJournal);
+    const auto removeReceipt = [&]() {
+        captureJournal.close(); sourceJournal.close();
+        if (::unlinkat(directory, "capture", AT_REMOVEDIR) != 0 || ::unlinkat(directory, "underlay", AT_REMOVEDIR) != 0
+            || ::fsync(directory) != 0 || !metadata.remove().succeeded()) return false;
+        metadata.close();
+        return ::unlinkat(trustedDirectory, name.constData(), AT_REMOVEDIR) == 0 && ::fsync(trustedDirectory) == 0;
+    };
+    if (cleaning) {
+        if (!removeReceipt()) return 1;
+        return sendLinuxHelperPacket(socket, {{"version", LinuxHelperProtocol}, {"owner", id}, {"status", int(Status::Success)},
+            {"detail", QString{}}, {"changed", true}, {"state", "cleaned"}, {"device", QJsonObject{}}}).succeeded() ? 0 : 1;
+    }
     UnixTunDevice device;
     LinuxTunRoutes capture;
     LinuxSourceRoutes source;
@@ -239,9 +283,9 @@ int runLinuxNetworkHelper(int socket, int trustedDirectory, uid_t uid, pid_t pid
         return {};
     };
     if (applying) {
-        result = source.apply(owner, underlay["interface"].toString(), underlay["source"].toString(), underlay["gateway"].toString(), sourcePrefixes, sourceWriter);
-        if (result.succeeded()) result = device.createIpv4(owner, config["source"].toString(), config["peer"].toString(), config["mtu"].toInt());
-        if (result.succeeded()) result = capture.apply(device, config["source"].toString(), config["peer"].toString(), capturePrefixes, captureWriter);
+        result = source.apply(owner, config->originalInterface, config->originalSource, config->originalGateway, config->originalPrefixes, sourceWriter);
+        if (result.succeeded()) result = device.createIpv4(owner, config->address, config->peer, config->mtu);
+        if (result.succeeded()) result = capture.apply(device, config->address, config->peer, config->capturePrefixes, captureWriter);
         if (result.succeeded()) { context["phase"] = "active"; result = metadata.store(context); }
         if (!result.succeeded()) {
             const auto rolledBack = restore();
@@ -254,7 +298,7 @@ int runLinuxNetworkHelper(int socket, int trustedDirectory, uid_t uid, pid_t pid
             {"device", withDevice ? device.snapshot() : QJsonObject{}}};
         return sendLinuxHelperPacket(socket, response, withDevice ? device.descriptor() : -1);
     };
-    if (!reply(result, applying && result.succeeded()).succeeded()) return restore().succeeded() ? 0 : 1;
+    if (!reply(result, applying && result.succeeded()).succeeded()) return restore().succeeded() ? LinuxHelperReceiptRetained : 1;
     if (!result.succeeded() && context["phase"] != "restored") return 1;
     if (context["phase"] == "active") {
         request = {}; supplied = -1;
@@ -263,20 +307,16 @@ int runLinuxNetworkHelper(int socket, int trustedDirectory, uid_t uid, pid_t pid
         const bool valid = received.succeeded() && supplied < 0 && requestValid(request)
             && request["operation"] == "restore" && fields(request, {"version", "owner", "operation"});
         result = restore();
-        if (!valid || !result.succeeded()) { if (valid) reply(result, false); return result.succeeded() ? 0 : 1; }
-        if (!reply(result, false).succeeded()) return 0;
+        if (!valid || !result.succeeded()) { if (valid) reply(result, false); return result.succeeded() ? LinuxHelperReceiptRetained : 1; }
+        if (!reply(result, false).succeeded()) return LinuxHelperReceiptRetained;
     }
     // Keep a durable completion receipt until this peer acknowledges the restored state.
     request = {}; supplied = -1;
-    const auto acknowledged = receiveLinuxHelperPacket(socket, request, supplied, packetTimeoutMs);
+    const auto acknowledged = receiveLinuxHelperPacket(socket, request, supplied, LinuxHelperPacketTimeoutMs);
     if (supplied >= 0) ::close(supplied);
     if (acknowledged.succeeded() && supplied < 0 && requestValid(request)
         && request["operation"] == "acknowledge" && fields(request, {"version", "owner", "operation"})) {
-        captureJournal.close(); sourceJournal.close();
-        if (::unlinkat(directory, "capture", AT_REMOVEDIR) != 0 || ::unlinkat(directory, "underlay", AT_REMOVEDIR) != 0
-            || ::fsync(directory) != 0 || !metadata.remove().succeeded()) return 1;
-        metadata.close();
-        if (::unlinkat(trustedDirectory, name.constData(), AT_REMOVEDIR) != 0 || ::fsync(trustedDirectory) != 0) return 1;
+        return removeReceipt() ? 0 : 1;
     }
-    return 0;
+    return LinuxHelperReceiptRetained;
 }
