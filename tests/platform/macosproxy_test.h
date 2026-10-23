@@ -14,7 +14,9 @@ static CFStringRef path(SCNetworkServiceRef service) {
 }
 static int changes=0,failAt=0,commits=0,changesAtCommit=0;
 static bool ignoreSet=false,failCommit=false,failApply=false;
+static std::function<void()> beforeSet;
 static Boolean set(SCPreferencesRef prefs, CFStringRef key, CFDictionaryRef value) {
+    if (beforeSet) beforeSet();
     if(++changes==failAt)return false;
     return ignoreSet || SCPreferencesPathSetValue(prefs,key,value);
 }
@@ -31,8 +33,8 @@ static void backendTests() {
     const auto filename=directory.filePath("preferences.plist");
     auto file=CFStringCreateWithCharacters(nullptr,reinterpret_cast<const UniChar *>(filename.utf16()),filename.size());
     const auto releaseFile=qScopeGuard([&]{CFRelease(file);});
-    MacProxyApi api;int opens=0;
-    api.open=[&](AuthorizationRef *authorization){++opens;*authorization=nullptr;return SCPreferencesCreate(nullptr,CFSTR("JustConnect tests"),file);};
+    MacProxyApi api;int opens=0;SCPreferencesRef opened=nullptr;
+    api.open=[&](AuthorizationRef *authorization){++opens;*authorization=nullptr;opened=SCPreferencesCreate(nullptr,CFSTR("JustConnect tests"),file);return opened;};
     api.set=set;api.commit=commit;api.apply=apply;
     AuthorizationRef unused=nullptr;auto prefs=api.open(&unused);check(prefs,"open private native preferences");
     const auto releasePrefs=qScopeGuard([&]{CFRelease(prefs);});
@@ -115,6 +117,19 @@ static void backendTests() {
     auto invalid=record;invalid["machine"]=QString(65536,'x');reject(invalid);
     invalid=record;invalid["extra"]=true;reject(invalid);
     invalid=record;invalid["restoration_committed"]="true";reject(invalid);
+    invalid=record;invalid["schema_version"]=1;reject(invalid);
+    for (const auto *field : {"released","intent","written","uncertain","pending_restore"}) {
+        auto entries=record["services"].toArray();auto entry=entries[0].toObject();entry.remove(field);entries[0]=entry;
+        invalid=record;invalid["services"]=entries;reject(invalid);
+        for (auto value : {QJsonValue(-1),QJsonValue(64),QJsonValue(1.5),QJsonValue(true),QJsonValue("1")}) {
+            entry=record["services"].toArray()[0].toObject();entry[field]=value;entries[0]=entry;
+            invalid=record;invalid["services"]=entries;reject(invalid);
+        }
+    }
+    for (const auto *field : {"uncertain","pending_restore"}) {
+        auto entries=record["services"].toArray();auto entry=entries[0].toObject();entry["released"]=63;entry[field]=1;entries[0]=entry;
+        invalid=record;invalid["services"]=entries;reject(invalid);
+    }
     auto services=record["services"].toArray();services.append(services[0]);invalid=record;invalid["services"]=services;reject(invalid);
     for (const auto *id:{"../foreign",".","..",""}) {
         services=record["services"].toArray();auto service=services[0].toObject();service["id"]=id;services[0]=service;
@@ -176,6 +191,131 @@ static void backendTests() {
           "Fresh macOS recovery rewrote already committed restoration");
     SCPreferencesSynchronize(prefs);check(SCPreferencesPathSetValue(prefs,firstPath,original) && nativeCommit(prefs),"Clean the owned handoff fixture");restored();
     std::cout<<"PASS: native macOS snapshot handoff, typed sensitive values, strict scope rejection and committed restoration\n";
+    const auto hasMask=[](const QJsonObject &record,const char *field) {
+        for (const auto &value : record["services"].toArray()) if (value.toObject()[field].toInteger()!=0) return true;
+        return false;
+    };
+    const auto denied=[] {return PlatformOperationResult{Status::PermissionDenied,"injected checkpoint denial"};};
+    {
+        const auto beforeChanges=changes,beforeCommits=commits;
+        PlatformSystemProxyBackend rejected(api,[&](const QJsonObject &){return denied();});
+        const auto result=rejected.apply(config);
+        check(!result.succeeded() && !result.mayHaveChanged && rejected.recoverySnapshot().isEmpty()
+              && changes==beforeChanges && commits==beforeCommits,"Initial Mac checkpoint rejection mutated preferences or retained ownership");
+    }
+    {
+        QJsonObject stored;int publications=0;
+        PlatformSystemProxyBackend owner(api,[&](const QJsonObject &record) {
+            if (++publications==2) return denied();
+            stored=record;return PlatformOperationResult{};
+        });
+        const auto beforeChanges=changes,beforeCommits=commits;
+        const auto result=owner.apply(config);
+        check(!result.succeeded() && result.mayHaveChanged && changes==beforeChanges && commits==beforeCommits
+              && !stored.isEmpty() && !hasMask(stored,"intent"),"Denied application intent reached native setters or lost its initial record");
+        check(owner.clear().succeeded() && stored.isEmpty(),"Remove an unpublished Mac application intent");restored();
+    }
+    {
+        QJsonObject stored;bool denyRestore=false;
+        PlatformSystemProxyBackend owner(api,[&](const QJsonObject &record) {
+            if (denyRestore && hasMask(record,"pending_restore")) return denied();
+            stored=record;return PlatformOperationResult{};
+        });
+        beforeSet=[&] {check(!stored.isEmpty() && hasMask(stored,"intent"),"Native Mac setter preceded protected write intent");};
+        check(owner.apply(config).succeeded() && hasMask(stored,"written"),"Native Mac write confirmation was not checkpointed");
+        beforeSet={};denyRestore=true;const auto beforeChanges=changes,beforeCommits=commits;
+        const auto result=owner.clear();
+        check(!result.succeeded() && result.mayHaveChanged && changes==beforeChanges && commits==beforeCommits,
+              "Denied Mac restore checkpoint reached native writes");
+        denyRestore=false;check(owner.clear().succeeded() && stored.isEmpty(),"Mac checkpoint restore retry or confirmed removal failed");restored();
+    }
+    {
+        QJsonObject stored;bool replace=true;
+        auto external=CFDictionaryCreateMutableCopy(nullptr,0,original);
+        const auto releaseExternal=qScopeGuard([&]{CFRelease(external);});
+        CFDictionarySetValue(external,kSCPropNetProxiesHTTPProxy,CFSTR("127.0.0.1"));number(external,kSCPropNetProxiesHTTPPort,config.httpPort);
+        PlatformSystemProxyBackend owner(api,[&](const QJsonObject &record) {
+            stored=record;
+            if (replace && hasMask(record,"intent")) {
+                replace=false;
+                check(SCPreferencesPathSetValue(opened,firstPath,external) && nativeCommit(opened),"Change private native state during intent publication");
+            }
+            return PlatformOperationResult{};
+        });
+        const auto beforeChanges=changes;
+        check(!owner.apply(config).succeeded() && owner.clear().succeeded() && changes==beforeChanges && stored.isEmpty()
+              && CFEqual(value(firstPath),external),"Uncommitted Mac application claimed an external installed-looking value");seed();restored();
+    }
+    {
+        QJsonObject stored;int restorePublications=0;
+        PlatformSystemProxyBackend owner(api,[&](const QJsonObject &record) {
+            stored=record;
+            if (hasMask(record,"pending_restore") && ++restorePublications==2) {
+                auto external=CFDictionaryCreateMutableCopy(nullptr,0,SCPreferencesPathGetValue(opened,firstPath));
+                CFDictionarySetValue(external,CFSTR("FixtureMarker"),CFSTR("changed-during-storage"));
+                check(SCPreferencesPathSetValue(opened,firstPath,external) && nativeCommit(opened),"Change native Mac state during restoration storage");CFRelease(external);
+            }
+            return PlatformOperationResult{};
+        });
+        check(owner.apply(config).succeeded(),"Apply native Mac storage-wait fixture");const auto beforeChanges=changes;
+        check(!owner.clear().succeeded() && changes==beforeChanges && !stored.isEmpty(),"Mac restoration overwrote a dictionary changed during storage");
+        check(owner.clear().succeeded() && stored.isEmpty(),"Retry native Mac restoration after storage-wait conflict");
+        auto expected=CFDictionaryCreateMutableCopy(nullptr,0,original);
+        CFDictionarySetValue(expected,CFSTR("FixtureMarker"),CFSTR("changed-during-storage"));
+        check(CFEqual(value(firstPath),expected),"Mac restoration lost an external unmanaged field");CFRelease(expected);seed();restored();
+    }
+    for (int boundary : {0,1,2}) {
+        QJsonObject stored;bool interrupted=false;
+        CFDictionaryRef firstInstalled=nullptr,secondInstalled=nullptr;
+        const auto releaseInstalled=qScopeGuard([&]{if(firstInstalled)CFRelease(firstInstalled);if(secondInstalled)CFRelease(secondInstalled);});
+        {
+            PlatformSystemProxyBackend owner(api,[&](const QJsonObject &record) {
+                if ((boundary==0 && (hasMask(record,"written") || hasMask(record,"pending_restore")))
+                    || (interrupted && !record.isEmpty() && !hasMask(record,"pending_restore") && hasMask(record,"released"))) return denied();
+                stored=record;return PlatformOperationResult{};
+            });
+            const auto applied=owner.apply(config);
+            check(boundary==0 ? !applied.succeeded() && applied.mayHaveChanged : applied.succeeded(),"Prepare native Mac interrupted publication");
+            firstInstalled=static_cast<CFDictionaryRef>(CFRetain(value(firstPath)));
+            secondInstalled=static_cast<CFDictionaryRef>(CFRetain(value(secondPath)));
+            if (boundary!=0) {
+                if (boundary==1) seed();
+                interrupted=true;const auto result=owner.clear();
+                check(!result.succeeded() && result.mayHaveChanged,"Lose native Mac restore or observation confirmation");
+            }
+        }
+        check(!stored.isEmpty() && (boundary==0 ? !hasMask(stored,"written") : hasMask(stored,"pending_restore")),
+              "Interrupted Mac fixture lost its last durable uncertain record");
+        if (boundary!=0) {
+            SCPreferencesSynchronize(prefs);
+            check(SCPreferencesPathSetValue(prefs,firstPath,firstInstalled) && SCPreferencesPathSetValue(prefs,secondPath,secondInstalled)
+                  && nativeCommit(prefs),"Externally recreate unconfirmed native Mac values");
+        }
+        const auto beforeChanges=changes,beforeCommits=commits;
+        PlatformSystemProxyBackend fresh(api,[&](const QJsonObject &record){stored=record;return PlatformOperationResult{};});
+        const auto result=fresh.recover(stored);
+        check(!result.succeeded() && result.mayHaveChanged && hasMask(stored,"uncertain")
+              && changes==beforeChanges && commits==beforeCommits && CFEqual(value(firstPath),firstInstalled) && CFEqual(value(secondPath),secondInstalled),
+              "Fresh Mac recovery overwrote an unconfirmed matching application or restoration");
+        seed();check(fresh.clear().succeeded() && stored.isEmpty(),"Mac uncertainty did not resolve after external original restoration");restored();
+    }
+    {
+        QJsonObject stored;bool denyRemoval=true;
+        PlatformSystemProxyBackend owner(api,[&](const QJsonObject &record) {
+            if (record.isEmpty() && denyRemoval) return denied();
+            stored=record;return PlatformOperationResult{};
+        });
+        check(owner.apply(config).succeeded(),"Apply native Mac removal retry owner");
+        auto installed=static_cast<CFDictionaryRef>(CFRetain(value(firstPath)));
+        const auto releaseInstalled=qScopeGuard([&]{CFRelease(installed);});
+        check(!owner.clear().succeeded() && stored["restoration_committed"]==true,"Mac record removal failure lost committed restoration");restored();
+        SCPreferencesSynchronize(prefs);
+        check(SCPreferencesPathSetValue(prefs,firstPath,installed) && nativeCommit(prefs),"Externally recreate Mac settings after denied record removal");
+        denyRemoval=false;const auto beforeChanges=changes,beforeCommits=commits;
+        check(owner.clear().succeeded() && stored.isEmpty() && changes==beforeChanges && commits==beforeCommits
+              && CFEqual(value(firstPath),installed),"Mac record removal retry rewrote a released native dictionary");seed();restored();
+    }
+    std::cout<<"PASS: native macOS write-ahead checkpoints, interrupted apply/observation/restore, uncertainty and record removal retry\n";
     check(SCNetworkServiceSetEnabled(first,false) && SCNetworkServiceSetEnabled(second,false) && nativeCommit(prefs),"disable private fixture services");
     check(backend.apply(config).status==PlatformOperationResult::Status::Unsupported,"no enabled services is explicitly unsupported");
     check(SCNetworkServiceSetEnabled(first,true) && SCNetworkServiceSetEnabled(second,true) && nativeCommit(prefs),"reenable private fixture services");
