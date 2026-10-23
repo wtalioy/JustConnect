@@ -5,8 +5,10 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QFile>
+#include <QScopeGuard>
 #include <QUuid>
 #include <arpa/inet.h>
+#include <ifaddrs.h>
 #include <net/if.h>
 #include <sys/stat.h>
 
@@ -73,6 +75,26 @@ inline bool canonicalUnicastIpv4(const QString &value)
     if (!canonicalIpv4Prefix(value+"/32")) return false;
     const int first=value.section('.',0,0).toInt();
     return first>0 && first<224 && first!=127;
+}
+
+inline bool assignedLinuxTunPair(const QString &name, quint32 index, const QString &source, const QString &peer)
+{
+    if (!index || ::if_nametoindex(name.toLatin1().constData()) != index
+        || !canonicalUnicastIpv4(source) || !canonicalUnicastIpv4(peer) || source == peer) return false;
+    in_addr local{}, remote{};
+    ::inet_pton(AF_INET, source.toLatin1().constData(), &local);
+    ::inet_pton(AF_INET, peer.toLatin1().constData(), &remote);
+    ifaddrs *addresses = nullptr;
+    if (::getifaddrs(&addresses) != 0) return false;
+    const auto release = qScopeGuard([&] { ::freeifaddrs(addresses); });
+    for (auto *entry = addresses; entry; entry = entry->ifa_next) {
+        if (QString::fromLatin1(entry->ifa_name) == name && (entry->ifa_flags & IFF_POINTOPOINT)
+            && entry->ifa_addr && entry->ifa_addr->sa_family == AF_INET
+            && entry->ifa_dstaddr && entry->ifa_dstaddr->sa_family == AF_INET
+            && reinterpret_cast<const sockaddr_in *>(entry->ifa_addr)->sin_addr.s_addr == local.s_addr
+            && reinterpret_cast<const sockaddr_in *>(entry->ifa_dstaddr)->sin_addr.s_addr == remote.s_addr) return true;
+    }
+    return false;
 }
 
 inline QString trustedIpRouteUtility()
