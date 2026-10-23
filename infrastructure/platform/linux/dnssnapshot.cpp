@@ -1,4 +1,5 @@
 #include "dnssnapshot.h"
+#include "resolvedbus.h"
 #include <QDBusArgument>
 #include <QDBusError>
 #include <QDBusMessage>
@@ -14,9 +15,9 @@
 namespace {
 constexpr qsizetype maxFile = 65536;
 constexpr qsizetype maxSnapshot = 262144;
-const QString service = QStringLiteral("org.freedesktop.resolve1");
-const QString managerPath = QStringLiteral("/org/freedesktop/resolve1");
-const QString managerInterface = service + QStringLiteral(".Manager");
+using LinuxResolved::service;
+using LinuxResolved::managerPath;
+using LinuxResolved::managerInterface;
 
 bool servers(const QVariant &value, bool extended, QJsonArray &output)
 {
@@ -138,7 +139,7 @@ DnsSnapshot readLinuxDnsSnapshot(const QDBusConnection &bus, const QString &reso
             return failure(Status::Failed, "Cannot read system resolver link");
         const auto path = qvariant_cast<QDBusObjectPath>(link.arguments().first());
         const auto linkReply = call(service, path.path(), "org.freedesktop.DBus.Properties", "GetAll",
-                                    {service + ".Link"});
+                                    {LinuxResolved::linkInterface});
         if (linkReply.type() != QDBusMessage::ReplyMessage || linkReply.signature() != "a{sv}")
             return failure(Status::Failed, "System resolver link changed or could not be read");
         const auto values = qdbus_cast<QVariantMap>(linkReply.arguments().first());

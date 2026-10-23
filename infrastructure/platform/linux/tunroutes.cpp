@@ -4,31 +4,12 @@
 #include <QScopeGuard>
 #include <QSet>
 #include <arpa/inet.h>
-#include <ifaddrs.h>
 #include <linux/rtnetlink.h>
 #include <net/if.h>
 
 namespace {
 using Result = PlatformOperationResult;
 using Status = Result::Status;
-bool assignedPair(const UnixTunDevice &device, const QString &source, const QString &peer)
-{
-    if (!canonicalUnicastIpv4(source) || !canonicalUnicastIpv4(peer) || source==peer) return false;
-    in_addr local{}, remote{};
-    ::inet_pton(AF_INET, source.toLatin1().constData(), &local);
-    ::inet_pton(AF_INET, peer.toLatin1().constData(), &remote);
-    ifaddrs *addresses = nullptr;
-    if (::getifaddrs(&addresses) != 0) return false;
-    const auto release = qScopeGuard([&] { ::freeifaddrs(addresses); });
-    for (auto *entry = addresses; entry; entry = entry->ifa_next) {
-        if (QString::fromLatin1(entry->ifa_name) != device.name() || !(entry->ifa_flags & IFF_POINTOPOINT)
-            || !entry->ifa_addr || entry->ifa_addr->sa_family != AF_INET
-            || !entry->ifa_dstaddr || entry->ifa_dstaddr->sa_family != AF_INET) continue;
-        if (reinterpret_cast<const sockaddr_in *>(entry->ifa_addr)->sin_addr.s_addr == local.s_addr
-            && reinterpret_cast<const sockaddr_in *>(entry->ifa_dstaddr)->sin_addr.s_addr == remote.s_addr) return true;
-    }
-    return false;
-}
 Result write(const QString &utility, const QByteArray &batch, const QDeadlineTimer &deadline, bool recovering = false, bool *attempted = nullptr)
 {
     const int remaining = int(deadline.remainingTime());
@@ -158,7 +139,7 @@ Result LinuxTunRoutes::apply(const UnixTunDevice &device, const QString &source,
     for(const auto &prefix:prefixes)if(!canonicalIpv4Prefix(prefix))return {Status::Failed,"Capture routes require canonical IPv4 prefixes of length 2 through 32."};
     prefixes.removeDuplicates();if(prefixes.isEmpty())return {};
     if(device.descriptor()<0 || device.owner().isNull())return {Status::Failed,"Capture routes require an owned TUN device."};
-    if(!assignedPair(device,source,peer))return {Status::Failed,"Capture routes require the owned device's nonzero IPv4 point-to-point addresses."};
+    if(!assignedLinuxTunPair(device.name(),device.index(),source,peer))return {Status::Failed,"Capture routes require the owned device's nonzero IPv4 point-to-point addresses."};
     const auto utility=trustedIpRouteUtility();if(utility.isEmpty())return {Status::Unsupported,"A trusted system iproute2 executable is required."};
     const auto namespaceId=linuxNetworkNamespace();if(namespaceId.isEmpty())return {Status::Failed,"Cannot identify the Linux boot and network namespace."};
     owner=device.owner();interfaceName=device.name();interfaceIndex=device.index();sourceAddress=source;gatewayPeer=peer;
@@ -173,12 +154,12 @@ Result LinuxTunRoutes::apply(const UnixTunDevice &device, const QString &source,
         return {};
     };
     if(auto result=available(read(utility,int(deadline.remainingTime())));!result.succeeded()){clear();return result;}
-    if(!owns(device) || !assignedPair(device,source,peer)){clear();return {Status::Failed,"TUN identity or addresses changed while reading routes."};}
+    if(!owns(device) || !assignedLinuxTunPair(device.name(),device.index(),source,peer)){clear();return {Status::Failed,"TUN identity or addresses changed while reading routes."};}
     QByteArray batch;for(const auto &prefix:prefixes){entries.append({prefix,{}});batch+=command("add",prefix);}
     if(auto result=saveCheckpoint(checkpoint);!result.succeeded()){if(!result.mayHaveChanged)clear();return result;}
     if(checkpoint) {
         auto result=available(read(utility,int(deadline.remainingTime())));
-        if(result.succeeded() && (!owns(device) || !assignedPair(device,source,peer)))result={Status::Failed,"TUN identity or addresses changed during checkpoint publication."};
+        if(result.succeeded() && (!owns(device) || !assignedLinuxTunPair(device.name(),device.index(),source,peer)))result={Status::Failed,"TUN identity or addresses changed during checkpoint publication."};
         if(!result.succeeded()){result.mayHaveChanged=true;return result;}
     }
     bool attempted=false;auto result=write(utility,batch,deadline,false,&attempted);

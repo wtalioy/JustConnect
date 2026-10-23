@@ -38,7 +38,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgl1 libegl1 libxkbcommon-x11-0 libxcb-cursor0 libnss3 libevent-dev libminizip-dev gsettings-desktop-schemas gnome-keyring dbus-daemon dbus-bin libglib2.0-bin libkf6config-bin qt6-base-dev dpkg-dev
+          sudo apt-get install -y libgl1 libegl1 libxkbcommon-x11-0 libxcb-cursor0 libnss3 libevent-dev libminizip-dev gsettings-desktop-schemas gnome-keyring dbus-daemon dbus-bin libglib2.0-bin libkf6config-bin qt6-base-dev dpkg-dev systemd-resolved
 
       - uses: ./.github/actions/setup-qt
         with:
@@ -164,6 +164,11 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: sudo unshare --net -- env PYTHONDONTWRITEBYTECODE=1 "$(command -v python)" tests/platform/networkhelper_linux.py --uid "$(id -u)" --helper build/coreabi/linux_networkhelper_test 2>&1 | tee build/coreabi/linux-network-helper.log
+
+      - name: Check owned Linux DNS and crash recovery with an isolated system resolver
+        if: runner.os == 'Linux'
+        shell: bash
+        run: sudo unshare --mount --net -- env PYTHONDONTWRITEBYTECODE=1 "$(command -v python)" tests/platform/tundns_linux.py --uid "$(id -u)" --probe build/coreabi/linux_tundns_test 2>&1 | tee build/coreabi/linux-tun-dns.log
 
       - name: Build and verify the distribution-owned Linux permission helper
         if: runner.os == 'Linux'
