@@ -11,5 +11,6 @@ struct PlatformCommandResult
     QString standardError;
 };
 using PlatformCommandRunner = std::function<PlatformCommandResult(const QString &, const QStringList &)>;
+inline constexpr int PlatformCommandCleanupTimeoutMs = 1000;
 PlatformCommandResult runPlatformCommand(const QString &program, const QStringList &arguments, int timeoutMs = 5000,
                                         const QByteArray &input = {});
