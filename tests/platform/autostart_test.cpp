@@ -9,11 +9,16 @@
 #include <QStandardPaths>
 #include <QElapsedTimer>
 #include <QThread>
+#include <QDeadlineTimer>
+#include <QSet>
 #include <iostream>
 #include <cstdlib>
 
 static void check(bool ok, const char *message) { if (!ok) { std::cerr << message << '\n'; std::exit(1); } }
 int main(int argc, char **argv) {
+#ifdef Q_OS_MACOS
+    QDeadlineTimer compilationDeadline(JC_AUTOSTART_TEST_BUDGET_MS - PlatformCommandCleanupTimeoutMs);
+#endif
     QCoreApplication app(argc,argv);
     app.setApplicationName("JustConnect-autostart-test-" + QUuid::createUuid().toString(QUuid::Id128));
     using Status = PlatformOperationResult::Status;
@@ -68,13 +73,13 @@ int main(int argc, char **argv) {
 #elif defined(Q_OS_MACOS)
     int calls=0, count=0;
     bool deny=false, ignore=false, malformed=false;
+    QSet<QString> scripts;
     PlatformCommandRunner runner=[&](const QString &program,const QStringList &args) -> PlatformCommandResult {
         check(program=="/usr/bin/osascript" && args.size()==2,"fixed AppleScript interpreter, no shell");
         ++calls;
         if (deny) return {{Status::Cancelled,"authorization cancelled"},{}};
         const auto script=args[1];
-        const auto compiled = runPlatformCommand("/usr/bin/osacompile", {"-o",directory.filePath("login-item.scpt"),"-e",script});
-        check(compiled.result.succeeded(), qPrintable("Compile actual AppleScript: " + compiled.result.detail));
+        scripts.insert(script);
         if (script.contains("return count")) return {{}, malformed ? QString("invalid") : QString::number(count)};
         check(script.contains("path is not") && script.contains("path is "),"mutation limited to matching application item");
         if (!ignore) count=script.contains("make login item") ? 1 : 0;
@@ -91,6 +96,16 @@ int main(int argc, char **argv) {
     check(AutoStart::setEnabled(true,runner).succeeded(),"login item creation and verification");
     check(AutoStart::setEnabled(false,runner).succeeded() && count==0,"login item deletion and verification");
     check(AutoStart::setEnabled(false,runner).succeeded(),"missing item disable idempotent");
+    QString compilation;
+    int handler = 0;
+    for (const auto &script : scripts) {
+        const QString name = "autostart_fixture_" + QString::number(handler++);
+        compilation += "on " + name + "()\n" + script + "\nend " + name + "\n";
+    }
+    // Load the real dictionary once, compiling every distinct production script within the existing test budget.
+    const auto compiled = runPlatformCommand("/usr/bin/osacompile",
+        {"-o",directory.filePath("login-item.scpt"),"-e",compilation}, int(compilationDeadline.remainingTime()));
+    check(compiled.result.succeeded(), qPrintable("Compile actual AppleScript: " + compiled.result.detail + '\n' + compiled.standardError));
     std::cout << "UNVERIFIED: interactive System Events authorization; tests use an isolated command boundary\n";
 #else
     check(AutoStart::setEnabled(true).status==Status::Unsupported,"unsupported autostart explicit");
