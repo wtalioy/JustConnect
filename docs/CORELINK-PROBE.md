@@ -76,7 +76,7 @@ Windows 设备探针由 CI 选择一个绝对 pwsh 路径，签名检查与设�
 
 ### Linux 设备／fd 原型复现
 
-[unix_device_probe.py](../tests/platform/unix_device_probe.py) 复用正式 [Linux TUN 分配后端](../infrastructure/platform/linux/tundevice.cpp) 的原生测试程序，再使用 Python 标准库与现有 `ip` 命令验证权限和 fd 所有权；主应用、Go 数据入口及正式授权助手尚未接入。脚本拒绝在宿主网络命名空间运行；隔离命名空间内只创建测试 TUN 及其直连测试网段，不配置 DNS 或外部出口。
+[unix_device_probe.py](../tests/platform/unix_device_probe.py) 复用正式 [Linux TUN 分配后端](../infrastructure/platform/linux/tundevice.cpp) 的原生测试程序，再使用 Python 标准库与现有 `ip` 命令验证权限和 fd 所有权；主应用及 Go 数据入口尚未接入；Linux 系统助手的独立验收见[权限入口](ARCHITECTURE.md#privileged-helper-entry)。脚本拒绝在宿主网络命名空间运行；隔离命名空间内只创建测试 TUN 及其直连测试网段，不配置 DNS 或外部出口。
 
 ```sh
 sudo unshare --net -- "$(command -v python)" tests/platform/unix_device_probe.py --uid "$(id -u)" --allocator build/coreabi/linux_tundevice_test
@@ -135,7 +135,7 @@ sudo unshare --net -- python tests/platform/original_route_linux.py --uid "$(id 
 
 恢复检查点增量 `c2d3570` 覆盖规则／路由删除前后恢复进程强杀、匹配原项及外部同值重建保留、对象消失后完成、各阶段存储拒绝、写记录期间改写及最终移除重试。双构建隔离内核／实际 Go 流量和应用 48/48、正式 ABI 26/26 通过；[六组原生](https://github.com/wtalioy/JustConnect/actions/runs/39839399033)／[三平台应用 CI](https://github.com/wtalioy/JustConnect/actions/runs/39839399050)均通过，证据 `build/reports/linux-source-checkpoints.json`。
 
-测试统一使用受保护文件和 `--recover-journal`，旧标准输入恢复、父进程事后写快照及 Python 专用表／源规则命令已删除；root 临时目录在永久降权前销毁。未知对象由创建它的夹具显式清理，无强制接管模式；未配置存储的底层调用仅保留独有流量回归。当前没有安装这些测试为助手，也未完成正式授权、自动恢复服务重启、出口自动选择、其他策略选择器、IPv6 或任意属性原子比较。系统代理宿主强杀恢复已有[独立验收](../plan.md#s4)，不代替源路由的正式助手及恢复服务。S2-06／S3-05／S4-03／04／06／S7-03 的相应要求保持未完成，S4-06 前不应用于日常网络。
+测试统一使用受保护文件和 `--recover-journal`，旧标准输入恢复、父进程事后写快照及 Python 专用表／源规则命令已删除；root 临时目录在永久降权前销毁。未知对象由创建它的夹具显式清理，无强制接管模式；未配置存储的底层调用仅保留独有流量回归。测试程序保留隔离回归用途；正式 Linux 系统助手与周期恢复已复用同一后端，见[权限入口](ARCHITECTURE.md#privileged-helper-entry)。实际桌面授权／注销、出口自动选择、其他策略选择器、IPv6 或任意属性原子比较仍待；已有系统代理恢复不代替完整透明网络恢复。S2-06／S3-05／S4-03／04／06／S7-03 的相应要求保持未完成，S4-06 前不应用于日常网络。
 
 ### macOS utun／fd 隔离实验
 
@@ -164,7 +164,7 @@ Linux 分配方在交付 fd 前配置同一正式捕获后端的目标路由，�
 
 捕获回归在准备、应用后未确认、部分应用和应用确认四个边界强杀直接持有者；测试父进程只保留私有 TUN fd，随后新进程从真实保护文件恢复。删除前／删除后强杀、外部同值重建、原生重复身份、实际跨命名空间拒绝、存储拒绝／等待期间改写和完成移除重试也有覆盖；最后关闭所属 fd 后复查完整原始路由，root 临时目录在永久降权前清理。双构建普通检查、隔离内核、普通用户 fd 收发和生产 Go TCP／UDP 的严格 rp_filter 回归本地通过；`ca4989a` 的 Linux 双架构实际内核／完整跨平台矩阵亦通过，五类日志与归档 CRC 已核对，证据 `build/reports/linux-capture-recovery.json`。
 
-测试仍是隔离调用，不安装为权限助手；主应用、正式授权、捕获保护记录的正式生命周期／自动恢复服务、DNS、IPv6 及任意属性读写竞争尚未交付，S4-06 之前不用于日常网络。原出口专用表／源规则及其检查点见[原出口后端](#linux-source-routes)；原型 fd 交付仍保留独有收发／强杀验证，macOS 捕获命令保留至对应正式后端通过。
+测试程序保留隔离回归用途；正式 Linux 系统助手与周期恢复已复用捕获后端及保护记录，见[权限入口](ARCHITECTURE.md#privileged-helper-entry)。主应用／Go 会话、实际桌面授权／注销、DNS、IPv6 及任意属性读写竞争仍待，S4-06 之前不用于日常网络。原出口专用表／源规则及其检查点见[原出口后端](#linux-source-routes)；原型 fd 交付仍保留独有收发／强杀验证，macOS 捕获命令保留至对应正式后端通过。
 
 [源码 `1105671` 的两组 macOS 及 Linux](https://github.com/wtalioy/JustConnect/actions/runs/39681929870)均通过直连／显式路由的真实设备／fd 读写、正常关闭及强杀后的设备／路由清理，日志分别为 `macos-device.log`／`linux-device.log`；本机 Linux 另验宿主接口、路由、DNS 不变。降权验证使用原生 `getgroups` 读取进程组，仅保留目标主组，并检查真实／有效 uid、gid 和无法恢复 root；[Python 的 macOS 组查询](https://docs.python.org/3/library/os.html#os.getgroups)可能返回目录成员列表，不能据此判断 `setgroups` 的结果。签名助手与真实桌面授权仍待验收，不依据源码或 Linux 结果宣称可用。原 `linux_device_probe.py` 已由共享脚本替代并删除，原 Linux 能力及独有权限断言保留。
 
