@@ -103,12 +103,20 @@ def main():
                 assert path.stat().st_uid == 0 and not path.stat().st_mode & 0o022, path
             facts = json.loads(run(executable, '--version', env=environment, user=args.uid, group=account.pw_gid, extra_groups=()))
             assert facts['worker'] == 'network-helper' and facts['protocol'] == 2 and facts['revision'] == args.revision
+            for options in ({'user': args.uid, 'group': account.pw_gid, 'extra_groups': ()},
+                            {'env': {**environment, 'PKEXEC_UID': str(args.uid)}}):
+                result = subprocess.run([str(executable), '--recover-stale'], capture_output=True, timeout=5,
+                                        **({'env': environment} | options))
+                assert result.returncode == 1 and not result.stdout and not Path(package.LAYOUT['state_directory']).exists(), \
+                    'system recovery accepted an ordinary/pkexec caller or wrote storage before authorization'
             if args.package:
                 assert facts['source_state'] == 'clean', facts
             report.update(runtime=facts, dependencies=dependencies)
             uninstalled = executable.with_name(executable.name + '.fixture-copy')
             shutil.copyfile(executable, uninstalled)
             uninstalled.chmod(0o755)
+            result = subprocess.run([str(uninstalled), '--recover-stale'], env=environment, capture_output=True, timeout=5)
+            assert result.returncode == 1 and not result.stdout, 'system recovery accepted an alternate executable location'
             assert json.loads(run(uninstalled, '--version', env=environment, user=args.uid, group=account.pw_gid, extra_groups=())) == facts
             print('PASS: root-installed path and system Core runtime load without SDK/AppImage environment', flush=True)
             subprocess.run([sys.executable, '-B', str(ROOT / 'tests/platform/networkhelper_linux.py'), '--uid', str(args.uid),

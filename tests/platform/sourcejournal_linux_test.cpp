@@ -64,7 +64,9 @@ int main(int argc, char **argv) try
     check(argc==2 && app.arguments()[1]=="--isolated" && ::geteuid()==0 && ::stat("/proc/self/ns/net",&current)==0
           && ::stat("/proc/1/ns/net",&initial)==0 && (current.st_dev!=initial.st_dev || current.st_ino!=initial.st_ino),
           "Refusing the host namespace or unguarded journal mode");
-    check(::chmod(directoryName.constData(),0755)==0 && !journal.open(directory,owner).succeeded(),"A nonprivate journal directory was accepted");
+    bool alreadyOwned = true;
+    check(::chmod(directoryName.constData(),0755)==0 && !journal.open(directory,owner,&alreadyOwned).succeeded() && !alreadyOwned,
+          "An unsafe directory was accepted or misclassified as a live guardian");
     check(::chmod(directoryName.constData(),0700)==0,"Restore private directory permissions");
     const int workingDirectory = ::open(".",O_RDONLY|O_DIRECTORY|O_CLOEXEC);
     check(workingDirectory>=0 && ::fchdir(directory)==0 && !journal.open(AT_FDCWD,owner).succeeded(),
@@ -72,7 +74,7 @@ int main(int argc, char **argv) try
     check(::fchdir(workingDirectory)==0,"Restore the fixture working directory");::close(workingDirectory);
     check(journal.open(directory,owner).succeeded(),"Open root-owned private journal");
     LinuxSourceJournal other;
-    check(!other.open(directory,owner).succeeded(),"Independent guardians acquired the same directory lock");
+    check(!other.open(directory,owner,&alreadyOwned).succeeded() && alreadyOwned,"Independent guardians acquired the same directory lock or lost contention classification");
     const QJsonObject first{{"owner",owner.toString(QUuid::WithoutBraces)},{"state",1}};
     auto second = first;second["state"] = 2;
     createBeforePublish = true;

@@ -8,6 +8,7 @@
 #include <array>
 #include <cerrno>
 #include <cstring>
+#include <dirent.h>
 #include <fcntl.h>
 #include <poll.h>
 #include <sys/socket.h>
@@ -60,6 +61,171 @@ bool prefixes(const QJsonValue &value, QStringList &result)
     }
     return true;
 }
+
+struct OwnedOperation {
+    OwnedOperation(int parent, uid_t uid, const QUuid &owner)
+        : parent(parent), uid(uid), owner(owner), id(owner.toString(QUuid::WithoutBraces)),
+          name(QByteArray::number(uid) + '-' + owner.toByteArray(QUuid::WithoutBraces)) {}
+    ~OwnedOperation()
+    {
+        for (int fd : {captureDirectory, sourceDirectory, directory}) if (fd >= 0) ::close(fd);
+    }
+    Result open(bool applying, bool cleaning, bool *alreadyOwned = nullptr)
+    {
+        if (alreadyOwned) *alreadyOwned = false;
+        struct stat base{}, existing{};
+        if (::geteuid() != 0 || uid == 0 || owner.isNull() || ::fstat(parent, &base) != 0
+            || !S_ISDIR(base.st_mode) || base.st_uid != 0 || (base.st_mode & 07777) != 0700)
+            return invalid("A trusted private root directory and connection owner are required.");
+        if (!applying && ::fstatat(parent, name.constData(), &existing, AT_SYMLINK_NOFOLLOW) != 0) {
+            if (cleaning && errno == ENOENT) { cleaned = true; return {}; }
+            return invalid("Recovery ownership is absent or inaccessible.");
+        }
+        directory = privateDirectory(parent, name);
+        if (directory < 0) return invalid("Cannot open the private connection directory.");
+        const auto opened = metadata.open(directory, owner, alreadyOwned);
+        if (!opened.succeeded()) return opened;
+        const auto scope = linuxNetworkNamespace();
+        if (scope.isEmpty()) return invalid("Cannot bind recovery to the current network namespace.");
+        if (applying) {
+            context = {{"version", metadataVersion}, {"owner", id}, {"uid", qint64(uid)},
+                {"namespace", scope}, {"phase", "prepared"}};
+            const auto saved = metadata.store(context);
+            if (!saved.succeeded()) return saved;
+        } else {
+            // A crash after durable metadata removal can leave only the locked, empty receipt directory.
+            if (cleaning && !present(directory)) {
+                if (::unlinkat(parent, name.constData(), AT_REMOVEDIR) != 0 || ::fsync(parent) != 0)
+                    return invalid("Cannot remove the empty private receipt directory.");
+                cleaned = changed = true; return {};
+            }
+            const auto loaded = metadata.load(context);
+            if (!loaded.succeeded()) return loaded;
+            if (!fields(context, {"version", "owner", "uid", "namespace", "phase"})
+                || context["version"] != metadataVersion || context["owner"] != id || context["uid"].toInteger(-1) != uid
+                || context["namespace"] != scope
+                || (context["phase"] != "prepared" && context["phase"] != "active" && context["phase"] != "restored"))
+                return invalid("Recovery context does not match its privileged owner and current namespace.");
+        }
+        if (cleaning && context["phase"] != "restored") return invalid("An active connection cannot be cleaned as a receipt.");
+        captureDirectory = privateDirectory(directory, "capture");
+        sourceDirectory = privateDirectory(directory, "underlay");
+        if (captureDirectory < 0 || sourceDirectory < 0) return invalid("Cannot open the private operation journals.");
+        const auto captureOpened = captureJournal.open(captureDirectory, owner);
+        if (!captureOpened.succeeded()) return captureOpened;
+        const auto sourceOpened = sourceJournal.open(sourceDirectory, owner);
+        if (!sourceOpened.succeeded()) return sourceOpened;
+        if (context["phase"] == "restored" && (present(captureDirectory) || present(sourceDirectory)))
+            return invalid("A completed receipt still has operation journals.");
+        return {};
+    }
+    Result apply(const LinuxHelperConfiguration &config)
+    {
+        auto result = source.apply(owner, config.originalInterface, config.originalSource, config.originalGateway,
+            config.originalPrefixes, writer(sourceJournal));
+        if (result.succeeded()) result = device.createIpv4(owner, config.address, config.peer, config.mtu);
+        if (result.succeeded()) result = capture.apply(device, config.address, config.peer, config.capturePrefixes, writer(captureJournal));
+        if (result.succeeded()) { context["phase"] = "active"; result = metadata.store(context); }
+        if (!result.succeeded()) {
+            const auto rolledBack = restore();
+            if (!rolledBack.succeeded()) result = rolledBack;
+        }
+        return result;
+    }
+    Result restore()
+    {
+        if (context["phase"] == "restored") return {};
+        Result captureResult, sourceResult;
+        if (!capture.snapshot().isEmpty()) captureResult = capture.restore(device, writer(captureJournal));
+        else if (present(captureDirectory)) {
+            QJsonObject saved;
+            captureResult = captureJournal.load(saved);
+            if (captureResult.succeeded()) captureResult = capture.recover(owner, saved, writer(captureJournal));
+        }
+        // Keep original egress until capture is confirmed released.
+        if (!captureResult.succeeded()) return captureResult;
+        if (!source.snapshot().isEmpty()) sourceResult = source.restore(owner, writer(sourceJournal));
+        else if (present(sourceDirectory)) {
+            QJsonObject saved;
+            sourceResult = sourceJournal.load(saved);
+            if (sourceResult.succeeded()) sourceResult = source.recover(owner, saved, writer(sourceJournal));
+        }
+        if (!sourceResult.succeeded()) return sourceResult;
+        device.close();
+        context["phase"] = "restored";
+        const auto saved = metadata.store(context);
+        if (!saved.succeeded()) { context["phase"] = "active"; return saved; }
+        return {};
+    }
+    bool removeReceipt()
+    {
+        captureJournal.close(); sourceJournal.close();
+        if (::unlinkat(directory, "capture", AT_REMOVEDIR) != 0 || ::unlinkat(directory, "underlay", AT_REMOVEDIR) != 0
+            || ::fsync(directory) != 0 || !metadata.remove().succeeded()) return false;
+        metadata.close();
+        return ::unlinkat(parent, name.constData(), AT_REMOVEDIR) == 0 && ::fsync(parent) == 0;
+    }
+    QJsonObject context;
+    UnixTunDevice device;
+    bool cleaned = false, changed = false;
+private:
+    static LinuxSourceRoutes::CheckpointWriter writer(LinuxSourceJournal &journal)
+    {
+        return [&journal](const QJsonObject &record) { return record.isEmpty() ? journal.remove() : journal.store(record); };
+    }
+    int parent, directory = -1, captureDirectory = -1, sourceDirectory = -1;
+    uid_t uid;
+    QUuid owner;
+    QString id;
+    QByteArray name;
+    LinuxSourceJournal metadata, captureJournal, sourceJournal;
+    LinuxTunRoutes capture;
+    LinuxSourceRoutes source;
+};
+}
+
+QJsonObject LinuxHelperRecoverySummary::json() const
+{
+    return {{"worker", "network-recovery"}, {"capacity", LinuxHelperRecoveryEntries}, {"checked", checked}, {"live", live}, {"restored", restored},
+        {"unchanged", unchanged}, {"failed", failed}, {"limited", limited}};
+}
+
+LinuxHelperRecoverySummary recoverLinuxHelperRecords(int trustedDirectory)
+{
+    LinuxHelperRecoverySummary summary;
+    struct stat base{};
+    if (::geteuid() != 0 || ::fstat(trustedDirectory, &base) != 0 || !S_ISDIR(base.st_mode)
+        || base.st_uid != 0 || (base.st_mode & 07777) != 0700) { ++summary.failed; return summary; }
+    const int descriptor = ::openat(trustedDirectory, ".", O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+    DIR *entries = descriptor >= 0 ? ::fdopendir(descriptor) : nullptr;
+    if (!entries) { if (descriptor >= 0) ::close(descriptor); ++summary.failed; return summary; }
+    const auto close = qScopeGuard([&] { ::closedir(entries); });
+    for (;;) {
+        errno = 0;
+        const auto *entry = ::readdir(entries);
+        if (!entry) { if (errno) ++summary.failed; break; }
+        const QByteArray name(entry->d_name);
+        if (name == "." || name == "..") continue;
+        if (summary.checked == LinuxHelperRecoveryEntries) { summary.limited = true; break; }
+        ++summary.checked;
+        const auto separator = name.indexOf('-');
+        const auto account = QString::fromLatin1(name.first(separator < 0 ? 0 : separator));
+        bool validUid = false;
+        const auto uid = account.toUInt(&validUid);
+        const auto connection = QString::fromLatin1(name.mid(separator + 1));
+        const QUuid owner(connection);
+        if (!validUid || uid == 0 || QString::number(uid) != account || owner.isNull()
+            || owner.toString(QUuid::WithoutBraces) != connection) { ++summary.failed; continue; }
+        OwnedOperation operation(trustedDirectory, uid, owner);
+        bool live = false;
+        const auto opened = operation.open(false, false, &live);
+        if (live) { ++summary.live; continue; }
+        if (!opened.succeeded()) { ++summary.failed; continue; }
+        if (operation.context["phase"] == "restored") { ++summary.unchanged; continue; }
+        if (operation.restore().succeeded()) ++summary.restored;
+        else ++summary.failed;
+    }
+    return summary;
 }
 
 QByteArray linuxHelperSocketName(uid_t uid, const QUuid &owner)
@@ -207,113 +373,29 @@ int runLinuxNetworkHelper(int socket, int trustedDirectory, uid_t uid, pid_t pid
         if (!config) return 1;
     } else if ((!cleaning && request["operation"] != "recover") || !fields(request, {"version", "owner", "operation"})) return 1;
 
-    const auto name = QByteArray::number(uid) + '-' + owner.toByteArray(QUuid::WithoutBraces);
-    // Recovery never creates an absent operation: absence is not a completion receipt.
-    struct stat existing{};
-    if (!applying && ::fstatat(trustedDirectory, name.constData(), &existing, AT_SYMLINK_NOFOLLOW) != 0) {
-        // Cleanup never claims recovery: it only removes an already completed receipt, if present.
-        if (cleaning && errno == ENOENT) return cleaned(false);
-        return 1;
-    }
-    const int directory = privateDirectory(trustedDirectory, name);
-    if (directory < 0) return 1;
-    const auto closeDirectory = qScopeGuard([&] { ::close(directory); });
-    LinuxSourceJournal metadata;
-    if (!metadata.open(directory, owner).succeeded()) return 1;
-    QJsonObject context;
-    const auto contextValid = [&] {
-        return fields(context, {"version", "owner", "uid", "namespace", "phase"})
-            && context["version"] == metadataVersion && context["owner"] == id && context["uid"].toInteger(-1) == uid
-            && context["namespace"] == linuxNetworkNamespace()
-            && (context["phase"] == "prepared" || context["phase"] == "active" || context["phase"] == "restored");
-    };
-    if (applying) {
-        context = {{"version", metadataVersion}, {"owner", id}, {"uid", qint64(uid)},
-                   {"namespace", linuxNetworkNamespace()}, {"phase", "prepared"}};
-        if (context["namespace"].toString().isEmpty() || !metadata.store(context).succeeded()) return 1;
-    } else {
-        // A crash after durable metadata removal can leave only the locked, empty receipt directory.
-        if (cleaning && !present(directory)) {
-            if (::unlinkat(trustedDirectory, name.constData(), AT_REMOVEDIR) != 0 || ::fsync(trustedDirectory) != 0) return 1;
-            return cleaned(true);
-        }
-        if (!metadata.load(context).succeeded() || !contextValid()) return 1;
-    }
-    if (cleaning && context["phase"] != "restored") return 1;
-
-    const int captureDirectory = privateDirectory(directory, "capture"), sourceDirectory = privateDirectory(directory, "underlay");
-    const auto closeOperations = qScopeGuard([&] { if (captureDirectory >= 0) ::close(captureDirectory); if (sourceDirectory >= 0) ::close(sourceDirectory); });
-    if (captureDirectory < 0 || sourceDirectory < 0) return 1;
-    LinuxSourceJournal captureJournal, sourceJournal;
-    if (!captureJournal.open(captureDirectory, owner).succeeded() || !sourceJournal.open(sourceDirectory, owner).succeeded()) return 1;
-    if (context["phase"] == "restored" && (present(captureDirectory) || present(sourceDirectory))) return 1;
-    const auto writer = [](LinuxSourceJournal &journal) {
-        return [&journal](const QJsonObject &record) { return record.isEmpty() ? journal.remove() : journal.store(record); };
-    };
-    const auto captureWriter = writer(captureJournal), sourceWriter = writer(sourceJournal);
-    const auto removeReceipt = [&]() {
-        captureJournal.close(); sourceJournal.close();
-        if (::unlinkat(directory, "capture", AT_REMOVEDIR) != 0 || ::unlinkat(directory, "underlay", AT_REMOVEDIR) != 0
-            || ::fsync(directory) != 0 || !metadata.remove().succeeded()) return false;
-        metadata.close();
-        return ::unlinkat(trustedDirectory, name.constData(), AT_REMOVEDIR) == 0 && ::fsync(trustedDirectory) == 0;
-    };
+    OwnedOperation operation(trustedDirectory, uid, owner);
+    result = operation.open(applying, cleaning);
+    if (!result.succeeded()) return 1;
     if (cleaning) {
-        if (!removeReceipt()) return 1;
-        return cleaned(true);
+        if (!operation.cleaned && !operation.removeReceipt()) return 1;
+        return cleaned(operation.changed || !operation.cleaned);
     }
-    UnixTunDevice device;
-    LinuxTunRoutes capture;
-    LinuxSourceRoutes source;
-    const auto restore = [&]() -> Result {
-        if (context["phase"] == "restored") return {};
-        Result captureResult, sourceResult;
-        if (!capture.snapshot().isEmpty()) captureResult = capture.restore(device, captureWriter);
-        else if (present(captureDirectory)) {
-            QJsonObject saved;
-            captureResult = captureJournal.load(saved);
-            if (captureResult.succeeded()) captureResult = capture.recover(owner, saved, captureWriter);
-        }
-        // Keep original egress until capture is confirmed released.
-        if (!captureResult.succeeded()) return captureResult;
-        if (!source.snapshot().isEmpty()) sourceResult = source.restore(owner, sourceWriter);
-        else if (present(sourceDirectory)) {
-            QJsonObject saved;
-            sourceResult = sourceJournal.load(saved);
-            if (sourceResult.succeeded()) sourceResult = source.recover(owner, saved, sourceWriter);
-        }
-        if (!sourceResult.succeeded()) return sourceResult;
-        device.close();
-        context["phase"] = "restored";
-        const auto saved = metadata.store(context);
-        if (!saved.succeeded()) { context["phase"] = "active"; return saved; }
-        return {};
+    result = applying ? operation.apply(*config) : operation.restore();
+    const auto reply = [&](const Result &returned, bool withDevice) {
+        QJsonObject response{{"version", LinuxHelperProtocol}, {"owner", id}, {"status", int(returned.status)},
+            {"detail", returned.detail}, {"changed", returned.mayHaveChanged}, {"state", operation.context["phase"]},
+            {"device", withDevice ? operation.device.snapshot() : QJsonObject{}}};
+        return sendLinuxHelperPacket(socket, response, withDevice ? operation.device.descriptor() : -1);
     };
-    if (applying) {
-        result = source.apply(owner, config->originalInterface, config->originalSource, config->originalGateway, config->originalPrefixes, sourceWriter);
-        if (result.succeeded()) result = device.createIpv4(owner, config->address, config->peer, config->mtu);
-        if (result.succeeded()) result = capture.apply(device, config->address, config->peer, config->capturePrefixes, captureWriter);
-        if (result.succeeded()) { context["phase"] = "active"; result = metadata.store(context); }
-        if (!result.succeeded()) {
-            const auto rolledBack = restore();
-            if (!rolledBack.succeeded()) result = rolledBack;
-        }
-    } else result = restore();
-    const auto reply = [&](const Result &operation, bool withDevice) {
-        QJsonObject response{{"version", LinuxHelperProtocol}, {"owner", id}, {"status", int(operation.status)},
-            {"detail", operation.detail}, {"changed", operation.mayHaveChanged}, {"state", context["phase"]},
-            {"device", withDevice ? device.snapshot() : QJsonObject{}}};
-        return sendLinuxHelperPacket(socket, response, withDevice ? device.descriptor() : -1);
-    };
-    if (!reply(result, applying && result.succeeded()).succeeded()) return restore().succeeded() ? LinuxHelperReceiptRetained : 1;
-    if (!result.succeeded() && context["phase"] != "restored") return 1;
-    if (context["phase"] == "active") {
+    if (!reply(result, applying && result.succeeded()).succeeded()) return operation.restore().succeeded() ? LinuxHelperReceiptRetained : 1;
+    if (!result.succeeded() && operation.context["phase"] != "restored") return 1;
+    if (operation.context["phase"] == "active") {
         request = {}; supplied = -1;
         const auto received = receiveLinuxHelperPacket(socket, request, supplied, -1);
         if (supplied >= 0) ::close(supplied);
         const bool valid = received.succeeded() && supplied < 0 && requestValid(request)
             && request["operation"] == "restore" && fields(request, {"version", "owner", "operation"});
-        result = restore();
+        result = operation.restore();
         if (!valid || !result.succeeded()) { if (valid) reply(result, false); return result.succeeded() ? LinuxHelperReceiptRetained : 1; }
         if (!reply(result, false).succeeded()) return LinuxHelperReceiptRetained;
     }
@@ -323,7 +405,7 @@ int runLinuxNetworkHelper(int socket, int trustedDirectory, uid_t uid, pid_t pid
     if (supplied >= 0) ::close(supplied);
     if (acknowledged.succeeded() && supplied < 0 && requestValid(request)
         && request["operation"] == "acknowledge" && fields(request, {"version", "owner", "operation"})) {
-        return removeReceipt() ? 0 : 1;
+        return operation.removeReceipt() ? 0 : 1;
     }
     return LinuxHelperReceiptRetained;
 }

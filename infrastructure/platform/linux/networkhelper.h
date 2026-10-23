@@ -13,6 +13,16 @@ inline constexpr int LinuxHelperProtocol = 2;
 inline constexpr int LinuxHelperReceiptRetained = 2;
 inline constexpr int LinuxHelperPacketBytes = 65536;
 inline constexpr int LinuxHelperPacketTimeoutMs = 5000;
+// Bound one recovery pass over privileged storage; excess records are reported, never silently omitted.
+inline constexpr int LinuxHelperRecoveryEntries = 4096;
+struct LinuxHelperRecoverySummary {
+    int checked = 0, live = 0, restored = 0, unchanged = 0, failed = 0;
+    bool limited = false;
+    bool succeeded() const { return failed == 0 && !limited; }
+    QJsonObject json() const;
+};
+// No caller-supplied recovery JSON or path: callers provide the already authenticated private root directory.
+LinuxHelperRecoverySummary recoverLinuxHelperRecords(int trustedDirectory);
 struct LinuxHelperConfiguration {
     QString address, peer;
     int mtu = 0;

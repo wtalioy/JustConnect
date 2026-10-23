@@ -12,7 +12,7 @@ public:
     LinuxSourceJournal() = default;
     LinuxSourceJournal(const LinuxSourceJournal &) = delete;
     LinuxSourceJournal &operator=(const LinuxSourceJournal &) = delete;
-    PlatformOperationResult open(int trustedDirectory, const QUuid &owner);
+    PlatformOperationResult open(int trustedDirectory, const QUuid &owner, bool *alreadyOwned = nullptr);
     PlatformOperationResult store(const QJsonObject &record);
     PlatformOperationResult load(QJsonObject &record);
     PlatformOperationResult remove();

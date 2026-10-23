@@ -15,15 +15,28 @@
 #include <unistd.h>
 
 static void check(bool ok, const char *message) { if (!ok) throw std::runtime_error(message); }
+static void isolated()
+{
+    struct stat current{}, initial{};
+    check(::geteuid() == 0 && ::stat("/proc/thread-self/ns/net", &current) == 0 && ::stat("/proc/1/ns/net", &initial) == 0
+        && (current.st_dev != initial.st_dev || current.st_ino != initial.st_ino), "Refusing the host network namespace");
+}
 
 int main(int argc, char **argv) try
 {
     QCoreApplication app(argc, argv);
+    if (argc == 3 && app.arguments()[1] == "--scan-isolated") {
+        isolated();
+        bool valid = false;
+        const int directory = app.arguments()[2].toInt(&valid);
+        check(valid && directory >= 3, "Invalid private recovery directory fixture");
+        const auto summary = recoverLinuxHelperRecords(directory);
+        std::cout << QJsonDocument(summary.json()).toJson(QJsonDocument::Compact).constData() << '\n';
+        return summary.succeeded() ? 0 : 1;
+    }
     if (argc == 6) {
-        struct stat current{}, initial{};
-        check(::geteuid() == 0 && app.arguments()[1] == "--isolated"
-            && ::stat("/proc/thread-self/ns/net", &current) == 0 && ::stat("/proc/1/ns/net", &initial) == 0
-            && (current.st_dev != initial.st_dev || current.st_ino != initial.st_ino), "Refusing the host network namespace");
+        isolated();
+        check(app.arguments()[1] == "--isolated", "Invalid private helper fixture mode");
         bool directoryValid = false, uidValid = false, pidValid = false;
         const int directory = app.arguments()[2].toInt(&directoryValid);
         const auto uid = app.arguments()[3].toUInt(&uidValid);
@@ -38,6 +51,7 @@ int main(int argc, char **argv) try
         return result;
     }
     check(argc == 1 && ::geteuid() != 0, "Run ordinary IPC checks without root");
+    check(!recoverLinuxHelperRecords(-1).succeeded(), "Ordinary caller acquired system recovery authority");
     QProcess version;
     version.start(app.applicationDirPath() + '/' + QFileInfo(QString::fromLatin1(LinuxNetworkHelperPath)).fileName(), {"--version"});
     check(version.waitForFinished(3000) && version.exitStatus() == QProcess::NormalExit && version.exitCode() == 0,
