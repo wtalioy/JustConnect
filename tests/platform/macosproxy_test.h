@@ -1,5 +1,7 @@
 #pragma once
 #include "infrastructure/platform/platformsystemproxybackend.h"
+#include "infrastructure/platform/persistentproxy.h"
+#include "infrastructure/platform/macos/credentialstore.h"
 #include <QCoreApplication>
 #include <QTemporaryDir>
 #include <QScopeGuard>
@@ -316,6 +318,67 @@ static void backendTests() {
               && CFEqual(value(firstPath),installed),"Mac record removal retry rewrote a released native dictionary");seed();restored();
     }
     std::cout<<"PASS: native macOS write-ahead checkpoints, interrupted apply/observation/restore, uncertainty and record removal retry\n";
+    {
+        const auto keychainPath=directory.filePath("recovery.keychain-db").toUtf8();
+        const QByteArray password="private proxy recovery fixture";
+        SecKeychainRef keychain=nullptr;
+        check(SecKeychainCreate(keychainPath.constData(),UInt32(password.size()),password.constData(),false,nullptr,&keychain)==errSecSuccess,
+              "Create private recovery keychain");
+        const auto removeKeychain=qScopeGuard([&]{SecKeychainDelete(keychain);CFRelease(keychain);});
+        const auto unlock=[&] {check(SecKeychainUnlock(keychain,UInt32(password.size()),password.constData(),true)==errSecSuccess,
+                                    "Unlock private recovery keychain");};
+        unlock();auto credentials=createMacCredentialStore(keychain);
+        const auto key=PersistentProxyBackend::credentialKey();const QString other(64,'d');
+        check(credentials->write(other,"unrelated credential").succeeded(),"Seed separate private credential");
+        bool restoring=false;
+        beforeSet=[&] {
+            const auto stored=credentials->read(key);const auto document=QJsonDocument::fromJson(stored.value);
+            check(stored.succeeded() && document.isObject() && document.toJson(QJsonDocument::Compact)==stored.value
+                  && hasMask(document.object(),restoring?"pending_restore":"intent"),
+                  "Mac native mutation preceded canonical protected intent");
+        };
+        const auto resetHook=qScopeGuard([]{beforeSet={};});
+        QByteArray saved;
+        {
+            const auto beforeOpens=opens;
+            PersistentProxyBackend owner(*credentials,key,api);
+            check(opens==beforeOpens,"Protected Mac construction opened native preferences before ownership");
+            check(owner.apply(config).succeeded(),"Apply with real private Keychain checkpoints");
+            const auto record=credentials->read(key);saved=record.value;
+            check(record.succeeded() && hasMask(QJsonDocument::fromJson(saved).object(),"written"),
+                  "Real Keychain lost confirmed Mac application");
+        }
+        credentials.reset();
+        SecKeychainRef reopened=nullptr;
+        check(SecKeychainOpen(keychainPath.constData(),&reopened)==errSecSuccess,"Reopen private recovery keychain");
+        credentials=createMacCredentialStore(reopened);CFRelease(reopened);
+        check(credentials->read(key).value==saved,"Fresh native credential provider lost recovery bytes");
+        check(SecKeychainLock(keychain)==errSecSuccess,"Lock private recovery keychain");
+        PersistentProxyBackend fresh(*credentials,key,api);
+        const auto beforeOpens=opens,beforeChanges=changes;
+        const auto denied=fresh.clear();
+        check(denied.status==Status::PermissionDenied && denied.mayHaveChanged && opens==beforeOpens && changes==beforeChanges,
+              "Locked Mac recovery storage reached native preferences or discarded responsibility");
+        unlock();restoring=true;
+        const auto recovered=fresh.check(config);
+        check(recovered.result.succeeded() && recovered.conflict && recovered.active
+              && credentials->read(key).status==CredentialStatus::NotFound
+              && credentials->read(other).value=="unrelated credential",
+              "Fresh protected Mac query failed to restore/remove only its recovery record");restored();
+        beforeSet={};
+        auto foreign=QJsonDocument::fromJson(saved).object();foreign["machine"]="foreign";
+        const auto invalid=QJsonDocument(foreign).toJson(QJsonDocument::Compact);
+        check(credentials->write(key,invalid).succeeded(),"Seed foreign private recovery record");
+        PersistentProxyBackend rejected(*credentials,key,api);
+        const auto beforeRejectOpens=opens,beforeRejectChanges=changes;
+        const auto result=rejected.apply(config);
+        check(!result.succeeded() && !result.mayHaveChanged && opens==beforeRejectOpens && changes==beforeRejectChanges
+              && credentials->read(key).value==invalid,"Foreign protected Mac record reached native preferences or was replaced");
+        check(credentials->remove(key).succeeded(),"Remove only the owned invalid fixture record");
+        check(!rejected.clear().succeeded() && opens==beforeRejectOpens && changes==beforeRejectChanges,
+              "External record deletion reinterpreted rejected Mac ownership as successful recovery");restored();
+        std::cout<<"PASS: native macOS private Keychain recovery, write ordering, fresh provider, locked retry and foreign scope refusal\n";
+    }
     check(SCNetworkServiceSetEnabled(first,false) && SCNetworkServiceSetEnabled(second,false) && nativeCommit(prefs),"disable private fixture services");
     check(backend.apply(config).status==PlatformOperationResult::Status::Unsupported,"no enabled services is explicitly unsupported");
     check(SCNetworkServiceSetEnabled(first,true) && SCNetworkServiceSetEnabled(second,true) && nativeCommit(prefs),"reenable private fixture services");
