@@ -84,7 +84,9 @@ Result notify(const WindowsProxyApi &api) {
 }
 }
 struct PlatformSystemProxyBackend::Snapshot {
-    QMap<QString, State> before;
+    enum Field : unsigned { Flags=1, Proxy=2, Bypass=4 };
+    struct Connection { State before; unsigned released = 0; };
+    QMap<QString, Connection> connections;
     State installed;
     SystemProxyConfig config;
     QUuid owner = QUuid::createUuid();
@@ -93,12 +95,12 @@ struct PlatformSystemProxyBackend::Snapshot {
 QJsonObject PlatformSystemProxyBackend::recoverySnapshot() const {
     if (!snapshot) return {};
     QJsonArray connections;
-    for (auto it=snapshot->before.cbegin();it!=snapshot->before.cend();++it) {
-        const auto &state=it.value();
+    for (auto it=snapshot->connections.cbegin();it!=snapshot->connections.cend();++it) {
+        const auto &state=it->before;
         connections.append(QJsonObject{{"name",it.key()},{"flags",qint64(state.flags)},
-            {"server",state.server},{"bypass",state.bypass},{"pac",state.pac}});
+            {"server",state.server},{"bypass",state.bypass},{"pac",state.pac},{"released",qint64(it->released)}});
     }
-    return {{"schema_version",1},{"platform","windows"},
+    return {{"schema_version",2},{"platform","windows"},
         {"machine",QString::fromLatin1(QSysInfo::machineUniqueId().toHex())},
         {"owner",snapshot->owner.toString(QUuid::WithoutBraces)},
         {"config",QJsonObject{{"http_port",snapshot->config.httpPort},
@@ -113,7 +115,7 @@ PlatformOperationResult PlatformSystemProxyBackend::recover(const QJsonObject &r
     const auto machine=QString::fromLatin1(QSysInfo::machineUniqueId().toHex());
     const auto ownerText=record["owner"].toString();const QUuid owner(ownerText);
     if (bytes.size()>CredentialStore::MaxBytes || QJsonDocument::fromJson(bytes).object()!=record || record.size()!=6
-        || record["schema_version"]!=1 || record["platform"]!="windows" || machine.isEmpty()
+        || record["schema_version"]!=2 || record["platform"]!="windows" || machine.isEmpty()
         || record["machine"]!=machine || owner.isNull() || owner.toString(QUuid::WithoutBraces)!=ownerText
         || !record["config"].isObject() || !record["connections"].isArray()) return invalid();
     const auto config=record["config"].toObject();
@@ -127,12 +129,14 @@ PlatformOperationResult PlatformSystemProxyBackend::recover(const QJsonObject &r
     for (const auto &value:connections) {
         if (!value.isObject()) return invalid();
         const auto connection=value.toObject();const auto flags=connection["flags"].toInteger(-1);
-        if (connection.size()!=5 || flags<0 || quint64(flags)>(std::numeric_limits<DWORD>::max)()) return invalid();
+        const auto released=connection["released"].toInteger(-1);
+        if (connection.size()!=6 || flags<0 || quint64(flags)>(std::numeric_limits<DWORD>::max)()
+            || released<0 || released>7) return invalid();
         for (const auto *key:{"name","server","bypass","pac"})
             if (!connection[key].isString() || connection[key].toString().contains(QChar(0))) return invalid();
         const auto name=connection["name"].toString();
-        if (name.size()>RAS_MaxEntryName || pending->before.contains(name)) return invalid();
-        pending->before.insert(name,{DWORD(flags),connection["server"].toString(),connection["bypass"].toString(),connection["pac"].toString()});
+        if (name.size()>RAS_MaxEntryName || pending->connections.contains(name)) return invalid();
+        pending->connections.insert(name,{{DWORD(flags),connection["server"].toString(),connection["bypass"].toString(),connection["pac"].toString()},unsigned(released)});
     }
     snapshot=pending;
     return clear();
@@ -162,7 +166,7 @@ PlatformOperationResult PlatformSystemProxyBackend::apply(const SystemProxyConfi
     for (const auto &name : names) {
         State state;
         if (auto result = query(api, name, state); !result.succeeded()) return result;
-        pending->before.insert(name, state);
+        pending->connections.insert(name, {state,0});
     }
     pending->installed = {PROXY_TYPE_DIRECT | PROXY_TYPE_PROXY, server(config), ProxyValidation::bypass(config.bypass).join(';'), {}};
     snapshot = pending;
@@ -174,7 +178,7 @@ PlatformOperationResult PlatformSystemProxyBackend::apply(const SystemProxyConfi
         result = query(api, name, actual);
         if (!result.succeeded()) return fail(result);
         if (actual.flags != pending->installed.flags || actual.server != pending->installed.server
-            || actual.bypass != pending->installed.bypass || actual.pac != pending->before[name].pac)
+            || actual.bypass != pending->installed.bypass || actual.pac != pending->connections[name].before.pac)
             return fail({Status::Failed, "WinINet proxy readback mismatch", true});
     }
     if (auto result = notify(api); !result.succeeded()) return fail(result);
@@ -184,24 +188,28 @@ PlatformOperationResult PlatformSystemProxyBackend::clear() {
     if (!snapshot) return {};
     auto &saved = *snapshot;
     const auto failed = [](Result result) { result.mayHaveChanged = true; return result; };
-    for (auto it = saved.before.begin(); it != saved.before.end();) {
-        const auto &before = it.value(); State current;
+    for (auto it = saved.connections.begin(); it != saved.connections.end();) {
+        auto &entry=it.value();const auto &before = entry.before; State current;
+        const auto releaseObserved=[&](const State &value) {
+            if(value.server==before.server || value.server!=saved.installed.server)entry.released|=Snapshot::Proxy;
+            if(value.bypass==before.bypass || value.bypass!=saved.installed.bypass)entry.released|=Snapshot::Bypass;
+            if(value.flags==before.flags || value.flags!=saved.installed.flags || value.pac!=before.pac
+                || ((entry.released&Snapshot::Proxy) && value.server!=before.server))entry.released|=Snapshot::Flags;
+        };
         if (auto result = query(api, it.key(), current); !result.succeeded()) return failed(result);
-        if (current.flags==before.flags && current.server==before.server && current.bypass==before.bypass && current.pac==before.pac) {
-            it=saved.before.erase(it);continue;
-        }
-        const bool proxy = current.server == saved.installed.server;
-        const bool bypass = current.bypass == saved.installed.bypass;
-        // PAC and proxy endpoint changes belong to the external writer, including their mode.
-        const bool flags = (current.flags == saved.installed.flags || current.flags == before.flags)
-            && (proxy || current.server == before.server) && current.pac == before.pac;
-        if (!proxy && !bypass && !flags) { it=saved.before.erase(it);continue; }
+        // Release each observed original before another field's restore can fail or lose its acknowledgement.
+        releaseObserved(current);
+        const bool proxy = !(entry.released&Snapshot::Proxy);
+        const bool bypass = !(entry.released&Snapshot::Bypass);
+        const bool flags = !(entry.released&Snapshot::Flags);
+        if (!proxy && !bypass && !flags) { it=saved.connections.erase(it);continue; }
         if (auto result = set(api, it.key(), before, flags, proxy, bypass); !result.succeeded()) return failed(result);
         State actual;
         if (auto result = query(api, it.key(), actual); !result.succeeded()) return failed(result);
+        releaseObserved(actual);
         if ((proxy && actual.server != before.server) || (bypass && actual.bypass != before.bypass)
             || (flags && actual.flags != before.flags)) return {Status::Failed, "WinINet restoration readback mismatch", true};
-        it=saved.before.erase(it);
+        it=saved.connections.erase(it);
     }
     if (auto result = notify(api); !result.succeeded()) return result;
     snapshot.reset(); return {};
