@@ -1,0 +1,5 @@
+{
+  "executable": "/usr/libexec/JustConnectNetworkHelper",
+  "action": "io.github.wtalioy.JustConnect.network-helper",
+  "state_directory": "/var/lib/JustConnect/network"
+}

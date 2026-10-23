@@ -47,6 +47,17 @@ def user_agent(control, uid):
                 channel, _ = listener.accept()
                 channel.settimeout(15)
                 assert struct.unpack('3i', channel.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))[:2] == (command['pid'], 0)
+            elif operation == 'listener-empty':
+                listener.settimeout(0.05)
+                try:
+                    unexpected, _ = listener.accept()
+                except socket.timeout:
+                    pass
+                else:
+                    unexpected.close()
+                    raise AssertionError('uninstalled helper reached the privileged channel')
+                finally:
+                    listener.settimeout(10)
             elif operation == 'send':
                 if command.get('descriptor'):
                     with open('/dev/null', 'rb') as extra:
@@ -96,9 +107,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--uid', type=int, required=True)
     parser.add_argument('--helper', type=Path, required=True)
+    parser.add_argument('--installed', action='store_true', help='exercise the actual installed entry in private mount/network namespaces')
+    parser.add_argument('--uninstalled-helper', type=Path, help='installed-entry negative fixture with the same binary at another path')
     args = parser.parse_args()
     assert os.geteuid() == 0 and args.uid != 0
     assert os.stat('/proc/thread-self/ns/net') != os.stat('/proc/1/ns/net'), 'refusing the host network namespace'
+    if args.installed:
+        assert os.stat('/proc/thread-self/ns/mnt') != os.stat('/proc/1/ns/mnt'), 'installed-entry probe requires a private mount namespace'
     helper = args.helper.resolve(strict=True)
 
     def ip(*arguments):
@@ -147,11 +162,19 @@ def main():
     try:
         with tempfile.TemporaryDirectory(prefix='JustConnect-helper-test-') as temporary:
             os.chmod(temporary, 0o700)
-            directory = os.open(temporary, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+            if args.installed:
+                temporary = json.loads((Path(__file__).resolve().parents[2] / 'resource/network-helper.json').read_text())['state_directory']
+                directory = None
+            else:
+                directory = os.open(temporary, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
 
             def start(owner, pid=None):
                 command('listen', owner=owner)
-                process = subprocess.Popen([str(helper), '--isolated', str(directory), str(args.uid), str(pid or child), owner], pass_fds=(directory,))
+                if args.installed:
+                    environment = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C.UTF-8', 'PKEXEC_UID': str(args.uid)}
+                    process = subprocess.Popen([str(helper), owner, str(pid or child)], env=environment)
+                else:
+                    process = subprocess.Popen([str(helper), '--isolated', str(directory), str(args.uid), str(pid or child), owner], pass_fds=(directory,))
                 processes.append(process)
                 command('accept', pid=process.pid)
                 return process
@@ -171,6 +194,18 @@ def main():
                 command('close-descriptors')
                 assert inventory() == baseline, 'helper changed the original network inventory'
                 assert not list(Path(temporary).iterdir()), 'acknowledged operation left private state'
+
+            if args.uninstalled_helper:
+                assert args.installed
+                owner = str(uuid.uuid4())
+                command('listen', owner=owner)
+                process = subprocess.Popen([str(args.uninstalled_helper.resolve(strict=True)), owner, str(child)],
+                                           env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C.UTF-8', 'PKEXEC_UID': str(args.uid)})
+                processes.append(process)
+                assert process.wait(timeout=3) == 1
+                command('listener-empty')
+                assert inventory() == baseline and not Path(temporary).exists()
+                print('PASS: identical root-owned binary outside the fixed installation path rejected before IPC/storage', flush=True)
 
             # Normal helper owns native operations; the ordinary receiver exchanges real IP packets.
             owner = str(uuid.uuid4())
@@ -275,7 +310,8 @@ def main():
             command('send', packet=request(owner, 'recover'))
             assert command('receive')['packet'] is None and process.wait(timeout=10) != 0
             assert inventory() == baseline and not list(Path(temporary).iterdir())
-            os.close(directory)
+            if directory is not None:
+                os.close(directory)
             print('PASS: lost acknowledgement is recoverable; absent/foreign ownership is never a success receipt', flush=True)
     finally:
         for process in processes:
