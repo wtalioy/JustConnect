@@ -160,6 +160,11 @@ jobs:
         shell: bash
         run: sudo unshare --net -- build/coreabi/linux_tunroutes_test --isolated 2>&1 | tee build/coreabi/linux-owned-routes.log
 
+      - name: Check authenticated Linux helper fd handoff and independent recovery
+        if: runner.os == 'Linux'
+        shell: bash
+        run: sudo unshare --net -- env PYTHONDONTWRITEBYTECODE=1 "$(command -v python)" tests/platform/networkhelper_linux.py --uid "$(id -u)" --helper build/coreabi/linux_networkhelper_test 2>&1 | tee build/coreabi/linux-network-helper.log
+
       - name: Check macOS utun fd transfer and cleanup in the disposable runner
         if: runner.os == 'macOS'
         shell: bash

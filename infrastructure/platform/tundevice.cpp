@@ -73,10 +73,15 @@ QJsonObject UnixTunDevice::snapshot() const
         {"index", qint64(interfaceIndex)}, {"configuration", configuration}};
 }
 
+bool UnixTunDevice::validIpv4Configuration(const QString &source, const QString &peer, qint64 mtu)
+{
+    return unicast(source) && unicast(peer) && source != peer && mtu >= 68 && mtu <= 65535;
+}
+
 PlatformOperationResult UnixTunDevice::createIpv4(const QUuid &owner, const QString &source, const QString &peer, int mtu)
 {
     using Status = PlatformOperationResult::Status;
-    if (!unicast(source) || !unicast(peer) || source == peer || mtu < 68 || mtu > 65535)
+    if (!validIpv4Configuration(source, peer, mtu))
         return {Status::Failed, "TUN requires distinct canonical unicast IPv4 addresses and an MTU from 68 through 65535."};
     auto result = create(owner);
     if (!result.succeeded()) return result;
