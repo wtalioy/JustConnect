@@ -74,13 +74,35 @@ func TestTLSFailureDiagnosticsAfterAuthentication(t *testing.T) {
 				selfSigned = false
 			}
 			g := newGatewayWithNodeTLS(t, &tls.Config{Certificates: []tls.Certificate{{Certificate: chain, PrivateKey: key}}})
+			var timeoutClosed <-chan struct{}
 			if scenario == "unknown_authority_and_timeout" {
-				// A TCP listener that never accepts stalls each TLS probe until its deadline.
+				// Only the final probe needs a real timeout to test mixed trust/timeout diagnostics.
 				silent, err := net.Listen("tcp", "127.0.0.1:0")
 				if err != nil {
 					t.Fatal(err)
 				}
-				t.Cleanup(func() { _ = silent.Close() })
+				closed, finished := make(chan struct{}), make(chan struct{})
+				timeoutClosed = closed
+				go func() {
+					defer close(finished)
+					for attempt := 0; attempt < 3; attempt++ {
+						conn, err := silent.Accept()
+						if err != nil {
+							return
+						}
+						if attempt < 2 {
+							_ = conn.Close()
+							continue
+						}
+						_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+						bytes, err := io.Copy(io.Discard, conn)
+						_ = conn.Close()
+						if err == nil && bytes > 0 {
+							close(closed)
+						}
+					}
+				}()
+				t.Cleanup(func() { _ = silent.Close(); <-finished })
 				g.extraWANNode.Store(silent.Addr().String())
 			}
 			c := g.config(t)
@@ -152,6 +174,13 @@ func TestTLSFailureDiagnosticsAfterAuthentication(t *testing.T) {
 				}
 				if event.Type != "terminal" || event.Status != TLSTrust || len(codes) != codeCount || !codes["tls_node_probe_failed"] || !codes[reason] || codes["tls_peer_chain_leaf_only"] != (len(chain) == 1) || codes["tls_peer_self_signed"] != selfSigned || g.authCount.Load() != 1 {
 					t.Fatalf("event = %+v, diagnostics = %v, authentications = %d", event, codes, g.authCount.Load())
+				}
+				if timeoutClosed != nil {
+					select {
+					case <-timeoutClosed:
+					case <-time.After(time.Second):
+						t.Fatal("silent TLS probe did not close after its client deadline")
+					}
 				}
 				return
 			}
