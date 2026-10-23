@@ -27,10 +27,13 @@ public:
 };
 class Proxy : public SystemProxyBackend {
 public:
-    bool blockedApply=false,blockedClear=false,failClear=false;
+    bool blockedApply=false,blockedClear=false,failClear=false,blockedCheck=false,checkChanged=false;
     std::atomic<int> applies=0,clears=0;
     QSemaphore entered,proceed;
-    SystemProxyCheck check(const SystemProxyConfig &) override {return {};}
+    SystemProxyCheck check(const SystemProxyConfig &) override {
+        if (blockedCheck) {entered.release();proceed.acquire();}
+        return checkChanged ? SystemProxyCheck{{PlatformOperationResult::Status::PermissionDenied,"startup recovery unconfirmed",true}} : SystemProxyCheck{};
+    }
     PlatformOperationResult apply(const SystemProxyConfig &) override {
         ++applies;if (blockedApply) {entered.release();proceed.acquire();}return {};
     }
@@ -59,6 +62,27 @@ static void restoresBeforeStoppingAndWaitsForWrites() {
     check(!ready,"credential continuations must finish before quit");
     pending=false;until([&]{return ready==1;});shutdown.request();
     check(!failed && engine->stops==1 && native->clears==1 && !connection.start({},{}),"shutdown must be idempotent and forbid restart");
+}
+static void restoresPendingStartupQueryBeforeStopping() {
+    for (bool changed : {false,true}) {
+        auto *engine=new Engine;ConnectionSession connection(engine);
+        auto backend=std::make_unique<Proxy>();auto *native=backend.get();SystemProxySession proxy(std::move(backend));
+        native->blockedCheck=true;native->checkChanged=changed;native->blockedClear=true;
+        connection.start({},{});proxy.checkConflict({1081,1080,{}});
+        check(native->entered.tryAcquire(1,1000),"startup query did not start");
+        int ready=0,failed=0;ApplicationShutdown shutdown(&connection,&proxy,[]{return false;});
+        QObject::connect(&shutdown,&ApplicationShutdown::ready,[&]{++ready;});
+        QObject::connect(&shutdown,&ApplicationShutdown::failed,[&](const QString &){++failed;});
+        shutdown.request();check(engine->stops==0,"shutdown stopped core before its startup query completed");
+        native->proceed.release();
+        if (changed) {
+            until([&]{return native->clears==1;});
+            check(native->entered.tryAcquire(1,1000) && engine->stops==0 && !ready,"query recovery must finish before core stop or quit");
+            native->proceed.release();
+        }
+        until([&]{return engine->stops==1;});emit engine->finished(ConnectionError::NONE);until([&]{return ready==1;});
+        check(!failed && !proxy.needsCleanup() && native->clears==(changed ? 1 : 0),"startup query shutdown lost responsibility or cleared an unowned proxy");
+    }
 }
 static void timeoutRetainsLiveObjectsAndBlocksReconnect() {
     auto *engine=new Engine;ConnectionSession connection(engine);SystemProxySession proxy(std::make_unique<Proxy>());
@@ -128,6 +152,7 @@ static void networkFailureRestoresProxyDuringBackoff() {
 int main(int argc,char **argv) {
     QCoreApplication app(argc,argv);
     networkFailureRestoresProxyDuringBackoff();
+    restoresPendingStartupQueryBeforeStopping();
     pendingPlatformAndCredentialTimeoutsKeepEventLoopAlive();
     restoresBeforeStoppingAndWaitsForWrites();
     timeoutRetainsLiveObjectsAndBlocksReconnect();

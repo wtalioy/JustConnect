@@ -326,7 +326,7 @@ void ConnectionUiController::handleProxyClicked()
         {
             const auto current = [this,generation] {
                 return generation == proxyGeneration && connectionSession->state() == ConnectionState::Running
-                    && !systemProxySession->isBusy() && !systemProxySession->needsCleanup();
+                    && !systemProxySession->isBusy();
             };
             if (!current()) return;
 
@@ -334,6 +334,8 @@ void ConnectionUiController::handleProxyClicked()
                 QMessageBox::warning(parentWidget, "无法检查系统代理", PresentationHelpers::platformOperationMessage(check.result));
                 return;
             }
+            const auto canApply = [&] { return current() && !systemProxySession->needsCleanup(); };
+            if (!canApply()) return;
             const bool conflict = check.conflict;
             if (conflict &&
                 !settings()->value(
@@ -351,7 +353,7 @@ void ConnectionUiController::handleProxyClicked()
                 );
                 auto *dontShowCheckBox = new QCheckBox("不再提示");
                 messageBox.setCheckBox(dontShowCheckBox);
-                if (messageBox.exec() != QMessageBox::Yes || !current())
+                if (messageBox.exec() != QMessageBox::Yes || !canApply())
                 {
                     return;
                 }
@@ -369,7 +371,7 @@ void ConnectionUiController::handleProxyClicked()
                 qInfo().noquote() << "跳过系统代理覆盖警告，因为已设置了不再提示";
             }
 
-            if (!current()) return;
+            if (!canApply()) return;
             qInfo().noquote()
                 << "设置系统代理：HTTP端口 " + QString::number(httpPort)
                        + "，SOCKS5 端口 " + QString::number(socksPort);

@@ -32,7 +32,7 @@ bool SystemProxySession::enable(const SystemProxyConfig &config)
 
 bool SystemProxySession::disable()
 {
-    if (currentOperation==Operation::Enable || (currentOperation==Operation::CheckConflict && needsCleanup())) {
+    if (currentOperation==Operation::Enable || currentOperation==Operation::CheckConflict) {
         restoreRequested=true;return true;
     }
     if (!needsCleanup()) return false;
@@ -53,7 +53,10 @@ bool SystemProxySession::needsCleanup() const { return enabled || uncertain; }
 
 void SystemProxySession::updateState(Operation operation, const PlatformOperationResult &result)
 {
-    if (operation == Operation::CheckConflict) return;
+    if (operation == Operation::CheckConflict) {
+        uncertain |= result.mayHaveChanged;
+        return;
+    }
     if (result.succeeded()) {
         enabled = operation == Operation::Enable;
         uncertain = false;

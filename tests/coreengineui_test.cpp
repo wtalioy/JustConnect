@@ -192,7 +192,6 @@ static void proxyWaitsForReady() {
         "late override confirmation cannot change another running session or its preferences");
     session.stop();emit engine->finished(ConnectionError::NONE);
     settings.setValue("Common/AutoSetProxy",true);proxy->checkResult.conflict=false;
-    proxy->checkResult.result = {PlatformOperationResult::Status::PermissionDenied, "fixture query denial"};
     bool shown = false;
     QString expectedWarning="权限被拒绝";
     QTimer dismiss;
@@ -205,10 +204,16 @@ static void proxyWaitsForReady() {
         }
     });
     dismiss.start(1);
-    connectButton.click(); until([&] {return session.state()==ConnectionState::Starting;}); emit engine->connectionEstablished();
-    until([&] { return shown && !systemProxy.isBusy(); });
-    check(proxy->applied == 2, "failed conflict query cannot write system proxy");
-    session.stop();emit engine->finished(ConnectionError::NONE);
+    for (bool changed : {false,true}) {
+        shown=false;
+        proxy->checkResult.result={PlatformOperationResult::Status::PermissionDenied,"fixture query denial",changed};
+        connectButton.click(); until([&] {return session.state()==ConnectionState::Starting;}); emit engine->connectionEstablished();
+        until([&] { return shown && !systemProxy.isBusy(); });
+        check(proxy->applied==2 && systemProxy.needsCleanup()==changed,
+              "failed conflict query must show its error, retain recovery responsibility and prevent a new apply");
+        if (changed) {systemProxy.disable();until([&]{return !systemProxy.isBusy();});}
+        session.stop();emit engine->finished(ConnectionError::NONE);
+    }
     settings.setValue("JustConnect/HTTPPort",0);shown=false;expectedWarning="同时启用";
     const int previousChecks=proxy->checks;
     connectButton.click();until([&]{return session.state()==ConnectionState::Starting;});emit engine->connectionEstablished();
