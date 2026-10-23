@@ -105,6 +105,17 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
 
+      - name: Package Linux system permission helper
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          bash scripts/build-system-network-helper.sh build/system-helper
+          package=(build/system-helper/*.deb)
+          test "${#package[@]}" -eq 1
+          cp "${package[0]}" "$ARCHIVE_NAME-network-helper.deb"
+          python scripts/network_helper_package.py "$ARCHIVE_NAME-network-helper.deb" --revision "$GITHUB_SHA" --output "build/$ARCHIVE_NAME-helper.json"
+          sudo unshare --mount --net -- env PYTHONDONTWRITEBYTECODE=1 "$(command -v python)" tests/platform/networkhelper_package_linux.py --package "$ARCHIVE_NAME-network-helper.deb" --revision "$GITHUB_SHA" --uid "$(id -u)" 2>&1 | tee "build/$ARCHIVE_NAME-helper.log"
+
       - name: Package Windows
         if: runner.os == 'Windows'
         shell: pwsh
@@ -127,17 +138,6 @@ jobs:
           (cd "$package_check" && "$GITHUB_WORKSPACE/$ARCHIVE_NAME.AppImage" --appimage-extract > /dev/null)
           python scripts/verify-package.py "$package_check/squashfs-root" "$package_check/squashfs-root/usr/bin/$TARGET_NAME" --revision "$GITHUB_SHA" --version "$APP_VERSION" --archive "$ARCHIVE_NAME.AppImage" --output "build/$ARCHIVE_NAME.json"
           rm -rf "$package_check"
-
-      - name: Package Linux system permission helper
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          bash scripts/build-system-network-helper.sh build/system-helper
-          package=(build/system-helper/*.deb)
-          test "${#package[@]}" -eq 1
-          cp "${package[0]}" "$ARCHIVE_NAME-network-helper.deb"
-          python scripts/network_helper_package.py "$ARCHIVE_NAME-network-helper.deb" --revision "$GITHUB_SHA" --output "build/$ARCHIVE_NAME-helper.json"
-          sudo unshare --mount --net -- env PYTHONDONTWRITEBYTECODE=1 "$(command -v python)" tests/platform/networkhelper_package_linux.py --package "$ARCHIVE_NAME-network-helper.deb" --revision "$GITHUB_SHA" --uid "$(id -u)" 2>&1 | tee "build/$ARCHIVE_NAME-helper.log"
 
       - name: Prepare macOS bundle
         if: runner.os == 'macOS'
