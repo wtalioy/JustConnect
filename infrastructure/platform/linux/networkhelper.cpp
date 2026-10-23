@@ -191,6 +191,10 @@ int runLinuxNetworkHelper(int socket, int trustedDirectory, uid_t uid, pid_t pid
     const auto requestValid = [&](const QJsonObject &request) {
         return request["version"] == LinuxHelperProtocol && request["owner"] == id && request["operation"].isString();
     };
+    const auto cleaned = [&](bool changed) {
+        return sendLinuxHelperPacket(socket, {{"version", LinuxHelperProtocol}, {"owner", id}, {"status", int(Status::Success)},
+            {"detail", QString{}}, {"changed", changed}, {"state", "cleaned"}, {"device", QJsonObject{}}}).succeeded() ? 0 : 1;
+    };
     QJsonObject request; int supplied = -1;
     auto result = receiveLinuxHelperPacket(socket, request, supplied, handshakeTimeoutMs);
     if (supplied >= 0) { ::close(supplied); return 1; }
@@ -208,10 +212,7 @@ int runLinuxNetworkHelper(int socket, int trustedDirectory, uid_t uid, pid_t pid
     struct stat existing{};
     if (!applying && ::fstatat(trustedDirectory, name.constData(), &existing, AT_SYMLINK_NOFOLLOW) != 0) {
         // Cleanup never claims recovery: it only removes an already completed receipt, if present.
-        if (cleaning && errno == ENOENT) {
-            return sendLinuxHelperPacket(socket, {{"version", LinuxHelperProtocol}, {"owner", id}, {"status", int(Status::Success)},
-                {"detail", QString{}}, {"changed", false}, {"state", "cleaned"}, {"device", QJsonObject{}}}).succeeded() ? 0 : 1;
-        }
+        if (cleaning && errno == ENOENT) return cleaned(false);
         return 1;
     }
     const int directory = privateDirectory(trustedDirectory, name);
@@ -230,7 +231,14 @@ int runLinuxNetworkHelper(int socket, int trustedDirectory, uid_t uid, pid_t pid
         context = {{"version", metadataVersion}, {"owner", id}, {"uid", qint64(uid)},
                    {"namespace", linuxNetworkNamespace()}, {"phase", "prepared"}};
         if (context["namespace"].toString().isEmpty() || !metadata.store(context).succeeded()) return 1;
-    } else if (!metadata.load(context).succeeded() || !contextValid()) return 1;
+    } else {
+        // A crash after durable metadata removal can leave only the locked, empty receipt directory.
+        if (cleaning && !present(directory)) {
+            if (::unlinkat(trustedDirectory, name.constData(), AT_REMOVEDIR) != 0 || ::fsync(trustedDirectory) != 0) return 1;
+            return cleaned(true);
+        }
+        if (!metadata.load(context).succeeded() || !contextValid()) return 1;
+    }
     if (cleaning && context["phase"] != "restored") return 1;
 
     const int captureDirectory = privateDirectory(directory, "capture"), sourceDirectory = privateDirectory(directory, "underlay");
@@ -252,8 +260,7 @@ int runLinuxNetworkHelper(int socket, int trustedDirectory, uid_t uid, pid_t pid
     };
     if (cleaning) {
         if (!removeReceipt()) return 1;
-        return sendLinuxHelperPacket(socket, {{"version", LinuxHelperProtocol}, {"owner", id}, {"status", int(Status::Success)},
-            {"detail", QString{}}, {"changed", true}, {"state", "cleaned"}, {"device", QJsonObject{}}}).succeeded() ? 0 : 1;
+        return cleaned(true);
     }
     UnixTunDevice device;
     LinuxTunRoutes capture;
