@@ -45,6 +45,9 @@ public:
     NativeMacKeychain() {
         nativeWorkerCheck(qEnvironmentVariable("GITHUB_ACTIONS")=="true" && directory.isValid(),
                           "Private default Keychain fixture requires a disposable runner");
+        const QFileInfo accountDirectory(qEnvironmentVariable("HOME"));
+        nativeWorkerCheck(accountDirectory.isDir() && accountDirectory.ownerId()==geteuid(),
+                          "Private Keychain fixture requires the effective account's own home directory");
         bool ready=false;const auto failed=qScopeGuard([&]{if(!ready)restore();});
         previousStatus=SecKeychainCopyDefault(&previous);
         nativeWorkerCheck(previousStatus==errSecSuccess || previousStatus==errSecNoDefaultKeychain,"Read original default Keychain scope");

@@ -142,7 +142,7 @@ function(justconnect_platform_tests TARGET LIBRARY)
     add_executable(${TARGET} "${REPO}/tests/platform/platformbackend_test.cpp")
     target_link_libraries(${TARGET} PRIVATE ${LIBRARY} Qt6::Core)
     if(APPLE)
-        add_test(NAME ${TARGET} COMMAND sudo -n "$<TARGET_FILE:${TARGET}>")
+        add_test(NAME ${TARGET} COMMAND sudo -H -n "$<TARGET_FILE:${TARGET}>")
     else()
         add_test(NAME ${TARGET} COMMAND ${TARGET})
     endif()
@@ -167,7 +167,7 @@ function(justconnect_platform_tests TARGET LIBRARY)
     if(APPLE AND "$ENV{GITHUB_ACTIONS}" STREQUAL "true")
         add_dependencies(${TARGET} JustConnectProxyRecovery)
         add_test(NAME ${TARGET}_native_ownership COMMAND ${TARGET} --native-ownership)
-        add_test(NAME ${TARGET}_native_persistent_recovery COMMAND sudo -n /usr/bin/env GITHUB_ACTIONS=true
+        add_test(NAME ${TARGET}_native_persistent_recovery COMMAND sudo -H -n /usr/bin/env GITHUB_ACTIONS=true
             "$<TARGET_FILE:${TARGET}>" --native-persistent-recovery)
         set_tests_properties(${TARGET} ${TARGET}_native_ownership ${TARGET}_native_persistent_recovery
             PROPERTIES TIMEOUT 45 RESOURCE_LOCK system_proxy_recovery_user)
