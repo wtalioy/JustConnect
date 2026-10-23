@@ -23,6 +23,7 @@ public:
     SystemProxyCheck checkResult;
     bool applySucceeds = true;
     bool clearSucceeds = true;
+    bool blockChecks = false;
     SystemProxyConfig lastConfig;
     QSemaphore operationStarted;
     QSemaphore allowOperationToFinish;
@@ -31,6 +32,7 @@ public:
     {
         ++conflictChecks;
         lastConfig = config;
+        if (blockChecks) { operationStarted.release();allowOperationToFinish.acquire(); }
         auto result = checkResult; result.conflict = conflict; return result;
     }
 
@@ -194,7 +196,7 @@ bool restoresPendingOperationsOnce()
     fake->clearSucceeds=true;
     if(!session.disable() || !waitUntil([&]{return !session.isBusy();}) || session.needsCleanup() || fake->clearCalls!=2)return false;
     session.checkConflict({1081,1080,{}});
-    if(session.disable() || !waitUntil([&]{return !session.isBusy();}) || fake->clearCalls!=2)return false;
+    if(!session.disable() || !waitUntil([&]{return !session.isBusy();}) || fake->clearCalls!=2)return false;
     session.enable({1081,1080,{}});fake->allowOperationToFinish.release();
     if(!waitUntil([&]{return !session.isBusy();}) || !session.isEnabled())return false;
     session.checkConflict({1081,1080,{}});
@@ -237,10 +239,44 @@ bool reportsFailuresAndRetainsCleanupState()
     if (!waitUntil([&]{return !session.isBusy();})) return false;
     return result.status == Status::PermissionDenied && session.needsCleanup() && !session.isEnabled();
 }
+
+bool retainsQueryRecoveryAndRestoresWhenRequested()
+{
+    using Status=PlatformOperationResult::Status;
+    for (bool pending : {false,true}) for (bool changed : {false,true}) {
+        auto backend=std::make_unique<FakeSystemProxyBackend>();auto *fake=backend.get();
+        fake->blockChecks=pending;fake->checkResult.result={Status::PermissionDenied,"startup recovery unconfirmed",changed};
+        SystemProxySession session(std::move(backend));int busy=0,idle=0;
+        QObject::connect(&session,&SystemProxySession::busyChanged,[&](bool value){value?++busy:++idle;});
+        if (!session.checkConflict({1081,1080,{}})) return false;
+        bool requested=true;
+        if (pending) {
+            if (!fake->operationStarted.tryAcquire(1,1000)) {fake->allowOperationToFinish.release();return false;}
+            requested=session.disable() && session.disable();
+            fake->allowOperationToFinish.release();
+        }
+        if (!waitUntil([&]{return !session.isBusy();}) || !requested || session.isEnabled()
+            || session.needsCleanup()!=(!pending && changed) || fake->clearCalls!=(pending && changed ? 1 : 0)
+            || fake->applyCalls!=0 || busy!=1 || idle!=1) {
+            qCritical()<<"query recovery responsibility or queued restoration was lost";return false;
+        }
+        if (!pending && changed) {
+            fake->clearSucceeds=false;fake->failure={Status::PermissionDenied,"recovery denied",true};
+            if (session.enable({1081,1080,{}}) || !session.disable()
+                || !waitUntil([&]{return !session.isBusy();}) || !session.needsCleanup()) return false;
+            fake->checkResult={};
+            if (!session.checkConflict({1081,1080,{}}) || !waitUntil([&]{return !session.isBusy();}) || !session.needsCleanup()) return false;
+            fake->clearSucceeds=true;
+            if (!session.disable() || !waitUntil([&]{return !session.isBusy();}) || session.needsCleanup() || fake->clearCalls!=2) return false;
+        }
+    }
+    return true;
+}
 }
 
 int main(int argc, char *argv[])
 {
     QCoreApplication app(argc, argv);
-    return restoresPendingOperationsOnce() && delegatesPlatformOperationsAsynchronouslyAndTracksOwnedState() && reportsFailuresAndRetainsCleanupState() ? 0 : 1;
+    return retainsQueryRecoveryAndRestoresWhenRequested() && restoresPendingOperationsOnce()
+        && delegatesPlatformOperationsAsynchronouslyAndTracksOwnedState() && reportsFailuresAndRetainsCleanupState() ? 0 : 1;
 }
