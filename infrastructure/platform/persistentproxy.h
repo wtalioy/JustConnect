@@ -3,7 +3,7 @@
 #include "infrastructure/platform/proxyjournal.h"
 #include <optional>
 
-// All operations require the recovery worker's platform ownership lock, including the first load.
+// Native/storage operations require the platform ownership lock; initial scope binding performs no I/O.
 class PersistentProxyBackend final : public SystemProxyBackend
 {
 public:
@@ -19,10 +19,18 @@ public:
     SystemProxyCheck check(const SystemProxyConfig &config) override;
     PlatformOperationResult apply(const SystemProxyConfig &config) override;
     PlatformOperationResult clear() override;
+    PlatformOperationResult beginRecovery(const QString &owner, bool resume) override;
+    PlatformOperationResult configureRecovery(const QString &owner, bool resume);
 private:
     PlatformOperationResult recover();
-    ProxyRecoveryJournal journal;
+    PlatformOperationResult complete();
+    PlatformOperationResult loadCompletion();
+    PlatformOperationResult finishUnowned();
+    ProxyRecoveryJournal journal, completion;
     PlatformSystemProxyBackend native;
+    QString owner;
+    QJsonObject confirmation;
+    bool resuming = false, confirmed = false, completionLoaded = false;
     bool initialized = false, recovering = false;
     std::optional<PlatformOperationResult> rejected;
 };

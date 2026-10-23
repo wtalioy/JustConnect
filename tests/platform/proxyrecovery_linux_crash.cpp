@@ -1,4 +1,5 @@
 #include "infrastructure/platform/persistentproxy.h"
+#include <QUuid>
 #include "infrastructure/platform/proxyrecovery.h"
 #include "infrastructure/platform/systemcredentialstore.h"
 #include <QCoreApplication>
@@ -75,6 +76,7 @@ class Fixture {
     QProcess process;
     std::unique_ptr<QLocalSocket> channel;
     bool reportsWrites = true;
+    const QString owner=QUuid::createUuid().toString(QUuid::WithoutBraces);
 public:
     Fixture(const QString &stage,const QString &key) {
         require(directory.isValid(),"Create private crash channel");
@@ -82,10 +84,10 @@ public:
         require(server.listen(endpoint),"Listen for owned crash fixture");
         reportsWrites=stage!="steady" && stage!="packaged";
         if(reportsWrites)process.start(QCoreApplication::applicationFilePath(),{"--worker",endpoint,stage,key});
-        else process.start(QCoreApplication::applicationDirPath()+"/JustConnectProxyRecovery",{endpoint});
+        else process.start(QCoreApplication::applicationDirPath()+"/JustConnectProxyRecovery",{endpoint,owner});
         require(process.waitForStarted(5000) && server.waitForNewConnection(5000),"Start owned crash fixture");
         channel.reset(server.nextPendingConnection());server.close();
-        require(receive(*channel)==QJsonObject{{"protocol",1},{"ready",true}},"Crash fixture failed to acquire ownership");
+        require(receive(*channel)==QJsonObject{{"protocol",ProxyRecoveryProtocol},{"ready",true}},"Crash fixture failed to acquire ownership");
     }
     ~Fixture() {
         // Emergency cleanup applies only to this directly owned test process, never a detached product worker.
@@ -93,7 +95,10 @@ public:
     }
     void start(const QString &operation) {
         QJsonObject object{{"operation",operation}};
-        if(operation=="apply")object["config"]=QJsonObject{{"http_port",config.httpPort},{"socks_port",config.socksPort},{"bypass",config.bypass}};
+        if(operation!="clear") {
+            object["owner"]=owner;
+            object["config"]=QJsonObject{{"http_port",config.httpPort},{"socks_port",config.socksPort},{"bypass",config.bypass}};
+        }
         send(*channel,object);
     }
     QJsonObject result() {return receive(*channel);}

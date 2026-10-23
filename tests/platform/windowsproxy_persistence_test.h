@@ -94,5 +94,6 @@ static void persistenceTests() {
         denySet=true;const auto result=owner.apply(config);denySet=false;
         check(!result.succeeded() && !result.mayHaveChanged && !store.values.contains(key),"Cancelled Windows write retained a false protected responsibility");restored();
     }
+    scopedProxyTests(WindowsProxyApi{query,set,entries},reset,restored,[]{return setCalls;});
     std::cout<<"PASS: shared protected Windows recovery, lazy reads, native write ordering, store failures and scope rejection\n";
 }

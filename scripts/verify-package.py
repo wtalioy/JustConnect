@@ -45,7 +45,7 @@ def check_proxy_recovery(root, env):
         raise RuntimeError('Missing packaged system proxy recovery worker')
     facts = json.loads(run(worker, '--version', env=env, timeout=5))
     if (not isinstance(facts, dict) or set(facts) != {'worker', 'protocol', 'qt'} or facts['worker'] != 'system-proxy-recovery'
-            or type(facts['protocol']) is not int or facts['protocol'] != 1
+            or type(facts['protocol']) is not int or facts['protocol'] != 2
             or not isinstance(facts['qt'], str) or not facts['qt'].startswith('6.')):
         raise RuntimeError('Packaged system proxy recovery worker failed its runtime check')
     return facts

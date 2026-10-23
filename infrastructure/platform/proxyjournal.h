@@ -2,7 +2,7 @@
 #include "application/credentialstore.h"
 #include <optional>
 
-// Credential APIs lack compare-and-swap; callers hold the per-user lock and validate native records.
+// Credential APIs lack compare-and-swap; callers hold the platform ownership lock and validate native records.
 class ProxyRecoveryJournal
 {
 public:

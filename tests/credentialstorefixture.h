@@ -8,6 +8,7 @@ class MemoryCredentialStore final: public CredentialStore {
 public:
     QHash<QString,QByteArray> values;
     std::function<void()> beforeRead;
+    std::function<void(const QString &,const QByteArray &)> beforeWrite;
     CredentialStatus failure=CredentialStatus::Success;
     CredentialResult read(const QString &key) override {
         if (beforeRead) beforeRead();
@@ -15,6 +16,7 @@ public:
         return values.contains(key) ? CredentialResult{CredentialStatus::Success,values.value(key)} : CredentialResult{CredentialStatus::NotFound,{}};
     }
     CredentialResult write(const QString &key,const QByteArray &value) override {
+        if(beforeWrite)beforeWrite(key,value);
         if (failure!=CredentialStatus::Success) return {failure,{}};
         values.insert(key,value);return {CredentialStatus::Success,{}};
     }

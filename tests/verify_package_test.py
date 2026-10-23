@@ -20,7 +20,7 @@ class VerifyPackageTest(unittest.TestCase):
     def test_installed_proxy_recovery_worker_is_required_and_runs_with_a_budget(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
-            facts = {'worker': 'system-proxy-recovery', 'protocol': 1, 'qt': '6.12.0'}
+            facts = {'worker': 'system-proxy-recovery', 'protocol': 2, 'qt': '6.12.0'}
             for platform_name in ('win32', 'darwin', 'linux'):
                 with self.subTest(platform=platform_name), patch.object(package.sys, 'platform', platform_name):
                     worker = root / ('JustConnectProxyRecovery.exe' if platform_name == 'win32' else 'JustConnectProxyRecovery')
@@ -30,7 +30,7 @@ class VerifyPackageTest(unittest.TestCase):
                     with patch.object(package, 'run', return_value=json.dumps(facts)) as run:
                         self.assertEqual(package.check_proxy_recovery(root, {}), facts)
                         run.assert_called_once_with(worker, '--version', env={}, timeout=5)
-                    for invalid in ([], {}, dict(facts, protocol=True), dict(facts, protocol=2), dict(facts, qt=6)):
+                    for invalid in ([], {}, dict(facts, protocol=True), dict(facts, protocol=1), dict(facts, qt=6)):
                         with patch.object(package, 'run', return_value=json.dumps(invalid)), self.assertRaisesRegex(RuntimeError, 'runtime check'):
                             package.check_proxy_recovery(root, {})
                     with patch.object(package, 'run', side_effect=TimeoutError('worker startup budget')), self.assertRaises(TimeoutError):
@@ -78,7 +78,7 @@ class VerifyPackageTest(unittest.TestCase):
             nested.mkdir()
             output = Path(folder) / "report.json"
             def run(args, **kwargs):
-                payload = ({'worker': 'system-proxy-recovery', 'protocol': 1, 'qt': '6.12.0'}
+                payload = ({'worker': 'system-proxy-recovery', 'protocol': 2, 'qt': '6.12.0'}
                            if Path(args[0]).resolve() == worker.resolve() else {'runtime': 'static'})
                 return SimpleNamespace(returncode=0, stderr=b'', stdout=json.dumps(payload).encode())
             with patch.object(package.subprocess, 'run', side_effect=run), \

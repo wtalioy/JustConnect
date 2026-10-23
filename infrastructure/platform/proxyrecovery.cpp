@@ -65,6 +65,7 @@ struct ProxyRecoveryBackend::Worker {
     QObject *context = new QObject;
     QLocalSocket *socket = nullptr;
     QString executable;
+    QString owner;
     bool dirty = false;
 
     explicit Worker(QString program) : executable(std::move(program))
@@ -78,10 +79,12 @@ struct ProxyRecoveryBackend::Worker {
         QMetaObject::invokeMethod(context,[this] { delete socket;socket=nullptr; },Qt::BlockingQueuedConnection);
         thread.quit();thread.wait();
     }
-    Result connect(const QDeadlineTimer &operationDeadline)
+    Result connect(const QDeadlineTimer &operationDeadline, bool recovery)
     {
         if (socket && socket->state()==QLocalSocket::ConnectedState) return {};
-        if (dirty) return {Status::Failed,"System proxy recovery acknowledgement was lost; ownership remains unresolved.",true};
+        if (dirty && !recovery) return {Status::Failed,"System proxy recovery acknowledgement was lost; ownership remains unresolved.",true};
+        const bool previousDirty=dirty;
+        if(!previousDirty)owner=QUuid::createUuid().toString(QUuid::WithoutBraces);
         delete socket;socket=nullptr;
         const QFileInfo program(executable);
         if (!program.isAbsolute() || !program.isFile() || !program.isExecutable())
@@ -100,7 +103,8 @@ struct ProxyRecoveryBackend::Worker {
         if (!server.listen(endpoint)) return {Status::Failed,"Cannot listen on the private system proxy recovery channel."};
         QProcess process;
         process.setProgram(program.absoluteFilePath());
-        process.setArguments({endpoint});
+        QStringList arguments{endpoint,owner};if(previousDirty)arguments.append("--resume");
+        process.setArguments(arguments);
         process.setWorkingDirectory(program.absolutePath());
         process.setStandardInputFile(QProcess::nullDevice());
         process.setStandardOutputFile(QProcess::nullDevice());
@@ -116,12 +120,12 @@ struct ProxyRecoveryBackend::Worker {
         socket->setReadBufferSize(MaxFrame+1);
         server.close();
         const auto hello = receive(*socket,deadline);
-        if (hello && *hello==QJsonObject{{"protocol",1},{"ready",false}}) {
+        if (hello && *hello==QJsonObject{{"protocol",ProxyRecoveryProtocol},{"ready",false}}) {
             delete socket;socket=nullptr;
-            dirty = false;
-            return {Status::Failed,"Another system proxy recovery owner is active or its ownership lock is unavailable."};
+            dirty = previousDirty;
+            return {Status::Failed,"Another system proxy recovery owner is active or its ownership lock is unavailable.",dirty};
         }
-        if (!hello || *hello!=QJsonObject{{"protocol",1},{"ready",true}}) {
+        if (!hello || *hello!=QJsonObject{{"protocol",ProxyRecoveryProtocol},{"ready",true}}) {
             delete socket;socket=nullptr;
             return {Status::Failed,"Invalid system proxy recovery worker handshake.",true};
         }
@@ -136,24 +140,33 @@ struct ProxyRecoveryBackend::Worker {
         }
         QDeadlineTimer deadline(OperationTimeout);
         const bool previousDirty = dirty;
-        const auto connected = connect(deadline);
-        if (!connected.succeeded()) return {connected};
-        QJsonObject command{{"operation",operation}};
-        if (operation!="clear") command["config"] = QJsonObject{{"http_port",config.httpPort},{"socks_port",config.socksPort},{"bypass",config.bypass}};
-        if (QJsonDocument(command).toJson(QJsonDocument::Compact).size()+1>MaxFrame)
-            return {{Status::Failed,"System proxy request exceeds the recovery channel limit.",dirty}};
-        if (operation=="apply" || operation=="check") dirty = true;
-        const auto object = send(*socket,command,deadline) ? receive(*socket,deadline) : std::nullopt;
-        const auto result = object ? decode(*object) : std::nullopt;
-        if (!result) {
-            delete socket;socket=nullptr;
-            return {{deadline.hasExpired() ? Status::TimedOut : Status::Failed,
-                     "System proxy recovery channel failed; the independent worker retains pending recovery.",dirty}};
+        if(!previousDirty && socket && socket->state()==QLocalSocket::ConnectedState)
+            owner=QUuid::createUuid().toString(QUuid::WithoutBraces);
+        for (int attempt=0;;++attempt) {
+            auto connected = connect(deadline,operation=="clear");
+            if (!connected.succeeded()) {connected.mayHaveChanged|=previousDirty;return {connected};}
+            QJsonObject command{{"operation",operation}};
+            if (operation!="clear") {
+                command["owner"]=owner;
+                command["config"] = QJsonObject{{"http_port",config.httpPort},{"socks_port",config.socksPort},{"bypass",config.bypass}};
+            }
+            if (QJsonDocument(command).toJson(QJsonDocument::Compact).size()+1>MaxFrame)
+                return {{Status::Failed,"System proxy request exceeds the recovery channel limit.",dirty}};
+            if (operation=="apply" || operation=="check") dirty = true;
+            const auto object = send(*socket,command,deadline) ? receive(*socket,deadline) : std::nullopt;
+            auto result = object ? decode(*object) : std::nullopt;
+            if (!result) {
+                delete socket;socket=nullptr;
+                if(operation=="clear" && attempt==0 && !deadline.hasExpired())continue;
+                return {{deadline.hasExpired() ? Status::TimedOut : Status::Failed,
+                         "System proxy recovery channel failed; the independent worker retains pending recovery.",dirty}};
+            }
+            if (operation=="apply") dirty = result->result.succeeded() || result->result.mayHaveChanged;
+            else if (operation=="check") dirty = previousDirty || result->result.mayHaveChanged;
+            else if (operation=="clear" && result->result.succeeded()) dirty = false;
+            if(operation=="clear" && !result->result.succeeded())result->result.mayHaveChanged|=previousDirty;
+            return *result;
         }
-        if (operation=="apply") dirty = result->result.succeeded() || result->result.mayHaveChanged;
-        else if (operation=="check") dirty = previousDirty || result->result.mayHaveChanged;
-        else if (operation=="clear" && result->result.succeeded()) dirty = false;
-        return *result;
     }
     SystemProxyCheck call(const QString &operation, const SystemProxyConfig &config = {})
     {
@@ -179,9 +192,9 @@ PlatformOperationResult ProxyRecoveryBackend::apply(const SystemProxyConfig &con
 PlatformOperationResult ProxyRecoveryBackend::clear() { return worker->call("clear").result; }
 
 int runProxyRecoveryWorker(SystemProxyBackend &backend, const QString &endpoint, const QString &lockFile,
-                           const QString &legacyLockFile, bool userOwnership)
+                           const QString &legacyLockFile, bool userOwnership, const QString &owner, bool resume)
 {
-    // shortcut: automatic worker restart still needs persistent backends and an ownership-safe reconnect handshake.
+    // shortcut: unattended startup/logoff recovery is pending, integrate it with the application lifecycle.
     QLocalSocket channel;
     channel.setReadBufferSize(MaxFrame+1);
     channel.connectToServer(endpoint);
@@ -193,12 +206,13 @@ int runProxyRecoveryWorker(SystemProxyBackend &backend, const QString &endpoint,
     if (locked && !legacyLockFile.isEmpty()) {
         legacy.emplace(legacyLockFile);legacy->setStaleLockTime(0);locked=legacy->tryLock();
     }
-    if (!send(channel,{{"protocol",1},{"ready",locked}},QDeadlineTimer(5000)) || !locked) return 1;
+    if(locked && !owner.isEmpty())locked=backend.beginRecovery(owner,resume).succeeded();
+    if (!send(channel,{{"protocol",ProxyRecoveryProtocol},{"ready",locked}},QDeadlineTimer(5000)) || !locked) return 1;
     while (const auto object = receive(channel,QDeadlineTimer(QDeadlineTimer::Forever))) {
         const auto operation = (*object)["operation"].toString();
         if (operation!="check" && operation!="apply" && operation!="clear") break;
         const bool clear = operation=="clear";
-        if (object->size()!=(clear ? 1 : 2)) break;
+        if (object->size()!=(clear ? 1 : 3)) break;
         SystemProxyConfig config;
         if (!clear) {
             const auto values = (*object)["config"].toObject();
@@ -206,6 +220,13 @@ int runProxyRecoveryWorker(SystemProxyBackend &backend, const QString &endpoint,
             if (values.size()!=3 || http<1 || http>65535 || socks<1 || socks>65535 || !values["bypass"].isString()) break;
             config = {int(http),int(socks),values["bypass"].toString()};
             if (!ProxyValidation::config(config).succeeded()) break;
+            const auto scope=(*object)["owner"].toString();const QUuid id(scope);
+            if(id.isNull() || id.toString(QUuid::WithoutBraces)!=scope)break;
+            const auto selected=backend.beginRecovery(scope,false);
+            if(!selected.succeeded()) {
+                if(!send(channel,response({selected}),QDeadlineTimer(OperationTimeout)))break;
+                continue;
+            }
         }
         const auto result = operation=="check" ? backend.check(config)
             : SystemProxyCheck{clear ? backend.clear() : backend.apply(config)};
