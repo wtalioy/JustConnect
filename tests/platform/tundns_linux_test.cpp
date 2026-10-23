@@ -83,6 +83,23 @@ int main(int argc, char **argv) try
               "Absent resolver was misclassified or modified the owned DNS state");
         std::cout << "PASS: absent resolver reports unsupported without starting a service or changing DNS\n"; return 0;
     }
+    if (argc == 3 && app.arguments()[1] == "--foreign-provider-isolated") {
+        bool valid = false;
+        const auto control = app.arguments()[2].toInt(&valid);
+        check(valid && control >= 3, "Invalid provider collision fixture channel");
+        UnixTunDevice device; create(device, QUuid::createUuid());
+        success(sendLinuxHelperPacket(control, {{"index", qint64(device.index())}}));
+        QJsonObject ready; int received = -1;
+        success(receiveLinuxHelperPacket(control, ready, received, 5000));
+        if (received >= 0) ::close(received);
+        check(received < 0 && ready == QJsonObject{{"ready", true}}, "Provider collision was not prepared");
+        LinuxTunDns dns(bus);
+        const auto result = dns.apply(device, {"campus.test"});
+        check(result.status == Status::Unsupported && !result.mayHaveChanged && dns.snapshot().isEmpty(),
+              "Resolver in another network namespace accepted the colliding TUN index");
+        std::cout << "PASS: foreign resolver namespace rejected before checkpoint or DNS mutation despite colliding interface index\n";
+        return 0;
+    }
     if (argc == 4 && app.arguments()[1] == "--recover-isolated") {
         const QUuid owner(app.arguments()[3]); LinuxSourceJournal journal;
         openJournal(journal, app.arguments()[2], owner);
