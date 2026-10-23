@@ -34,6 +34,7 @@ QStringList rasNames{"fixture connection"};
 bool denyQuery=false,denySet=false,ignoreSet=false,denyNotify=false,denyRas=false;
 int writes=0,failAt=0,queries=0,setCalls=0;
 DWORD queryError=ERROR_ACCESS_DENIED;
+DWORD ignoreOption=0;
 BOOL WINAPI query(HINTERNET, DWORD, LPVOID buffer, LPDWORD) {
     ++queries;
     if(denyQuery){SetLastError(queryError);return FALSE;}
@@ -57,6 +58,7 @@ BOOL WINAPI set(HINTERNET, DWORD option, LPVOID buffer, DWORD) {
     auto &state=states[QString::fromWCharArray(list->pszConnection?list->pszConnection:L"")];
     for(DWORD i=0;i<list->dwOptionCount;++i) {
         const auto &value=list->pOptions[i];
+        if(value.dwOption==ignoreOption)continue;
         if(value.dwOption==INTERNET_PER_CONN_FLAGS)state.flags=value.Value.dwValue;
         else if(value.dwOption==INTERNET_PER_CONN_PROXY_SERVER)state.proxy=QString::fromWCharArray(value.Value.pszValue);
         else if(value.dwOption==INTERNET_PER_CONN_PROXY_BYPASS)state.bypass=QString::fromWCharArray(value.Value.pszValue);
@@ -141,7 +143,7 @@ static void recoveryRecordTests() {
     for (const auto *field:{"platform","machine","owner"}) {
         auto invalid=record;invalid[field]="foreign";reject(invalid);
     }
-    auto invalid=record;invalid["schema_version"]=2;reject(invalid);
+    auto invalid=record;invalid["schema_version"]=1;reject(invalid);
     invalid=record;invalid["extra"]=true;reject(invalid);
     auto connections=record["connections"].toArray();connections.append(connections[0]);
     invalid=record;invalid["connections"]=connections;reject(invalid);
@@ -149,6 +151,12 @@ static void recoveryRecordTests() {
         connections=record["connections"].toArray();auto connection=connections[0].toObject();connection["flags"]=flags;connections[0]=connection;
         invalid=record;invalid["connections"]=connections;reject(invalid);
     }
+    for(const auto &released:QJsonArray{-1,0.5,8,"2",true,QJsonValue::Null}) {
+        connections=record["connections"].toArray();auto connection=connections[0].toObject();connection["released"]=released;connections[0]=connection;
+        invalid=record;invalid["connections"]=connections;reject(invalid);
+    }
+    connections=record["connections"].toArray();auto missingRelease=connections[0].toObject();missingRelease.remove("released");connections[0]=missingRelease;
+    invalid=record;invalid["connections"]=connections;reject(invalid);
     for (const auto *field:{"name","server","bypass","pac"}) {
         connections=record["connections"].toArray();auto connection=connections[0].toObject();connection[field]=QString("bad")+QChar(0);connections[0]=connection;
         invalid=record;invalid["connections"]=connections;reject(invalid);
@@ -178,6 +186,50 @@ static void recoveryRecordTests() {
     check(notifyOnly.recover(record).succeeded() && writes==0 && states[""].proxy==recreated.proxy,
           "Fresh recovery reacquired an already released external same-value recreation");
     std::cout<<"PASS: bounded machine-bound Windows snapshot handoff, strict rejection, sensitive values and released ownership\n";
+}
+
+static void fieldReleaseTests() {
+    const WinState original{PROXY_TYPE_DIRECT|PROXY_TYPE_AUTO_PROXY_URL,"http=prior.invalid:3128","old.invalid","https://pac.invalid/original.pac"};
+    for(const auto &field:QStringList{"server","bypass","flags"})for(const bool observedOriginal:{false,true})for(const bool handoff:{false,true}) {
+        states.clear();rasNames.clear();states[""]=original;
+        denyQuery=denySet=ignoreSet=denyNotify=denyRas=false;writes=failAt=setCalls=queries=0;ignoreOption=0;
+        PlatformSystemProxyBackend owner(WindowsProxyApi{query,set,entries});
+        check(owner.apply(config).succeeded(),"Apply before individual field release");const auto installed=states[""];
+        if(field=="server")states[""].proxy=observedOriginal?original.proxy:QString("http=external.invalid:8899");
+        else if(field=="bypass")states[""].bypass=observedOriginal?original.bypass:QString("external.invalid");
+        else states[""].flags=observedOriginal?original.flags:DWORD(PROXY_TYPE_DIRECT|PROXY_TYPE_AUTO_DETECT);
+        denySet=true;const auto interrupted=owner.clear();
+        check(!interrupted.succeeded() && interrupted.mayHaveChanged,"Keep another field's denied restoration pending");
+        const auto record=owner.recoverySnapshot();denySet=false;
+        if(field=="server")states[""].proxy=installed.proxy;
+        else if(field=="bypass")states[""].bypass=installed.bypass;
+        else states[""].flags=installed.flags;
+        if(handoff) {
+            PlatformSystemProxyBackend fresh(WindowsProxyApi{query,set,entries});
+            check(fresh.recover(record).succeeded(),"Fresh instance did not finish remaining fields");
+        } else check(owner.clear().succeeded(),"Live instance did not finish remaining fields");
+        check(states[""].proxy==(field=="server"?installed.proxy:original.proxy)
+              && states[""].bypass==(field=="bypass"?installed.bypass:original.bypass)
+              && states[""].flags==((field=="server" || field=="flags")?installed.flags:original.flags)
+              && states[""].pac==original.pac,"Restoration reclaimed an already released field or enabled original mode for an external endpoint");
+    }
+    for(const auto &field:QStringList{"server","flags"})for(const bool handoff:{false,true}) {
+        states.clear();rasNames.clear();states[""]=original;ignoreOption=0;
+        PlatformSystemProxyBackend owner(WindowsProxyApi{query,set,entries});
+        check(owner.apply(config).succeeded(),"Apply before partially successful restoration");const auto installed=states[""];
+        ignoreOption=INTERNET_PER_CONN_PROXY_BYPASS;
+        check(!owner.clear().succeeded() && states[""].proxy==original.proxy && states[""].flags==original.flags
+              && states[""].bypass==installed.bypass,"Observe confirmed original fields alongside a restoration mismatch");
+        const auto record=owner.recoverySnapshot();ignoreOption=0;
+        if(field=="server")states[""].proxy=installed.proxy;else states[""].flags=installed.flags;
+        if(handoff) {
+            PlatformSystemProxyBackend fresh(WindowsProxyApi{query,set,entries});check(fresh.recover(record).succeeded(),"Fresh restore did not retain partially confirmed fields");
+        } else check(owner.clear().succeeded(),"Retry did not retain partially confirmed fields");
+        check(states[""].proxy==(field=="server"?installed.proxy:original.proxy)
+              && states[""].flags==(field=="flags"?installed.flags:original.flags) && states[""].bypass==original.bypass,
+              "Readback mismatch discarded another field's confirmed restoration");
+    }
+    std::cout<<"PASS: Windows per-field release survives failed restoration and fresh-instance handoff\n";
 }
 
 namespace {
@@ -839,6 +891,9 @@ int main(int argc, char **argv) {
     backendTests();
 #if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
     recoveryRecordTests();
+#endif
+#ifdef Q_OS_WIN
+    fieldReleaseTests();
 #endif
 #ifdef Q_OS_LINUX
     checkpointTests();
