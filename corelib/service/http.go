@@ -153,9 +153,11 @@ func (p *httpProxy) handleConnect(w http.ResponseWriter, req *http.Request) {
 	relayDone := make(chan error, 2)
 	go relayHTTPConnect(targetConn, buffered, relayDone, p.failure)
 	go relayHTTPConnect(clientConn, targetConn, relayDone, p.failure)
-	<-relayDone
-	_ = clientConn.Close()
-	_ = targetConn.Close()
+	// EOF ends one direction; the peer may still be preparing its response.
+	if err := <-relayDone; err != nil {
+		_ = clientConn.Close()
+		_ = targetConn.Close()
+	}
 	<-relayDone
 }
 
