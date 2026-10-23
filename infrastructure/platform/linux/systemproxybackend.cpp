@@ -195,7 +195,7 @@ struct PlatformSystemProxyBackend::Snapshot {
     QVariantMap before, installed;
     QSet<QString> released;
     QSet<QString> intent, written, uncertain;
-    QString pendingRestore;
+    QSet<QString> pendingRestore;
     bool dirty = false, resumed = false;
     SystemProxyConfig config;
     QJsonObject context;
@@ -207,13 +207,13 @@ QJsonObject PlatformSystemProxyBackend::recoverySnapshot() const {
     const auto array=[](const QSet<QString> &set) {
         auto values=set.values();std::sort(values.begin(),values.end());return QJsonArray::fromStringList(values);
     };
-    return {{"schema_version",2},{"platform","linux"},
+    return {{"schema_version",3},{"platform","linux"},
         {"machine",QString::fromLatin1(QSysInfo::machineUniqueId().toHex())},
         {"owner",snapshot->owner.toString(QUuid::WithoutBraces)},{"context",snapshot->context},
         {"config",QJsonObject{{"http_port",snapshot->config.httpPort},{"socks_port",snapshot->config.socksPort},{"bypass",snapshot->config.bypass}}},
         {"before",QJsonObject::fromVariantMap(snapshot->before)},{"released",array(snapshot->released)},
         {"intent",array(snapshot->intent)},{"written",array(snapshot->written)},
-        {"uncertain",array(snapshot->uncertain)},{"pending_restore",snapshot->pendingRestore}};
+        {"uncertain",array(snapshot->uncertain)},{"pending_restore",array(snapshot->pendingRestore)}};
 }
 
 PlatformOperationResult PlatformSystemProxyBackend::checkpoint(bool remove) {
@@ -228,12 +228,13 @@ PlatformOperationResult PlatformSystemProxyBackend::recover(const QJsonObject &r
     const auto bytes=QJsonDocument(record).toJson(QJsonDocument::Compact);
     const auto machine=QString::fromLatin1(QSysInfo::machineUniqueId().toHex());
     const auto ownerText=record["owner"].toString();const QUuid owner(ownerText);
+    const bool legacy=record["schema_version"]==2;
     if (bytes.size()>CredentialStore::MaxBytes || QJsonDocument::fromJson(bytes).object()!=record || record.size()!=12
-        || record["schema_version"]!=2 || record["platform"]!="linux" || machine.isEmpty() || record["machine"]!=machine
+        || (!legacy && record["schema_version"]!=3) || record["platform"]!="linux" || machine.isEmpty() || record["machine"]!=machine
         || owner.isNull() || owner.toString(QUuid::WithoutBraces)!=ownerText || record["context"]!=currentContext()
         || !record["config"].isObject() || !record["before"].isObject() || !record["released"].isArray()
         || !record["intent"].isArray() || !record["written"].isArray() || !record["uncertain"].isArray()
-        || !record["pending_restore"].isString()) return invalid();
+        || (legacy?!record["pending_restore"].isString():!record["pending_restore"].isArray())) return invalid();
     const auto config=record["config"].toObject();
     const auto http=config["http_port"].toInteger(-1),socks=config["socks_port"].toInteger(-1);
     if (config.size()!=3 || http<1 || http>65535 || socks<1 || socks>65535 || !config["bypass"].isString()) return invalid();
@@ -269,9 +270,12 @@ PlatformOperationResult PlatformSystemProxyBackend::recover(const QJsonObject &r
         }
     }
     pending->installed=requested(target,pending->before,pending->config);
-    for (const auto &field:QStringList{"released","intent","written","uncertain"}) {
-        auto &set=field=="released"?pending->released:field=="intent"?pending->intent:field=="written"?pending->written:pending->uncertain;
-        for (const auto &entry:record[field].toArray()) {
+    for (const auto &field:QStringList{"released","intent","written","uncertain","pending_restore"}) {
+        auto &set=field=="released"?pending->released:field=="intent"?pending->intent:field=="written"?pending->written
+            :field=="uncertain"?pending->uncertain:pending->pendingRestore;
+        const auto entries=legacy && field=="pending_restore"
+            ? (record[field].toString().isEmpty()?QJsonArray{}:QJsonArray{record[field]}) : record[field].toArray();
+        for (const auto &entry:entries) {
             const auto key=entry.toString();
             if (!entry.isString() || !keys.contains(key) || key==target.pacKey() || set.contains(key)
                 || (field!="released" && pending->before[key]==pending->installed[key])) return invalid();
@@ -280,11 +284,8 @@ PlatformOperationResult PlatformSystemProxyBackend::recover(const QJsonObject &r
     }
     if (pending->released.intersects(pending->uncertain) || !(pending->written-pending->intent).isEmpty()
         || !(pending->uncertain-pending->intent).isEmpty()) return invalid();
-    pending->pendingRestore=record["pending_restore"].toString();
-    if (!pending->pendingRestore.isEmpty()) {
-        const auto &key=pending->pendingRestore;
-        if (!pending->intent.contains(key) || pending->released.contains(key) || pending->uncertain.contains(key)) return invalid();
-    }
+    if (!(pending->pendingRestore-pending->intent).isEmpty() || pending->pendingRestore.intersects(pending->released)
+        || pending->pendingRestore.intersects(pending->uncertain)) return invalid();
     pending->dirty=!pending->intent.isEmpty();
     pending->resumed=true;snapshot=pending;
     return clear();
@@ -352,31 +353,51 @@ PlatformOperationResult PlatformSystemProxyBackend::clear() {
     }
     if (saved.resumed) {
         auto unconfirmed=saved.intent-saved.written-saved.released;
-        if (!saved.pendingRestore.isEmpty()) unconfirmed.insert(saved.pendingRestore);
+        unconfirmed.unite(saved.pendingRestore);
         // A crash can lose write confirmation or hide restoration followed by external same-value recreation.
         for (const auto &key:unconfirmed) {
             QVariant value;
             if (auto result=readValue(runner,saved.target,key,value);!result.succeeded()) return {result.status,result.detail,true};
             if (value==saved.installed[key]) saved.uncertain.insert(key);
             else {saved.uncertain.remove(key);saved.released.insert(key);}
-            if (saved.pendingRestore==key) saved.pendingRestore.clear();
+            saved.pendingRestore.remove(key);
         }
         saved.pendingRestore.clear();
     }
     saved.resumed=false;
     for (const auto &key:saved.target.keys())
         if (key!=saved.target.pacKey() && !saved.intent.contains(key)) saved.released.insert(key);
-    if(auto result=readState(runner,saved.target,current);!result.succeeded()){result.mayHaveChanged=true;return result;}
     const auto known=[&](const QString &key){return current[key]==saved.before[key]
         || (!saved.released.contains(key) && current[key]==saved.installed[key]);};
-    const auto refresh=[&](const QStringList &keys) {
+    const auto refresh=[&](const QStringList &keys,bool restoring=false) {
+        if (restoring) {
+            // Keep the whole group's observation marker through the native write and its confirmation.
+            for (const auto &key:keys)
+                if (saved.intent.contains(key) && !saved.released.contains(key) && !saved.uncertain.contains(key)) saved.pendingRestore.insert(key);
+            if (auto result=checkpoint();!result.succeeded()) return Result{result.status,result.detail,true};
+        }
         for(const auto &key:keys) {
+            const bool owned=saved.intent.contains(key) && !saved.released.contains(key) && !saved.uncertain.contains(key);
+            if (!restoring && owned) {
+                saved.pendingRestore.insert(key);
+                if (auto result=checkpoint();!result.succeeded()) return Result{result.status,result.detail,true};
+            }
             QVariant value;auto result=readValue(runner,saved.target,key,value);
             if(!result.succeeded()){result.mayHaveChanged=true;return result;}
             current[key]=value;
+            const bool release=saved.intent.contains(key) && !saved.released.contains(key)
+                && (value==saved.before[key] || value!=saved.installed[key]);
+            if (release) {saved.released.insert(key);saved.uncertain.remove(key);}
+            if (release) saved.pendingRestore.remove(key);
+            if (!restoring) {
+                saved.pendingRestore.remove(key);
+                if (owned || release)
+                    if (auto result=checkpoint();!result.succeeded()) return Result{result.status,result.detail,true};
+            }
         }
         return Result{};
     };
+    if (auto result=refresh(saved.target.keys());!result.succeeded()) return result;
     bool changed=false;
     const auto restoreGroup=[&](const QStringList &keys) -> Result {
         const auto release=[&] {
@@ -385,7 +406,7 @@ PlatformOperationResult PlatformSystemProxyBackend::clear() {
                 modified|=!saved.released.contains(part) || saved.uncertain.contains(part);
                 saved.released.insert(part);saved.uncertain.remove(part);
             }
-            if (keys.contains(saved.pendingRestore)) {saved.pendingRestore.clear();modified=true;}
+            for (const auto &key:keys) modified|=saved.pendingRestore.remove(key);
             return modified?checkpoint():Result{};
         };
         bool blocked=false;
@@ -404,29 +425,26 @@ PlatformOperationResult PlatformSystemProxyBackend::clear() {
             if(saved.released.contains(key))continue;
             auto result=refresh(keys);if(!result.succeeded())return result;
             for(const auto &part:keys)if(!known(part))return release();
-            // Credentials are valid only for the original endpoint, including during restoration.
-            if(key=="http/use-authentication" && saved.before[key].toBool()
-                && (current["http/host"]!=saved.before["http/host"] || current["http/port"]!=saved.before["http/port"])) {
-                saved.released.insert(key);return checkpoint();
-            }
             if(current[key]!=saved.before[key]) {
-                saved.pendingRestore=key;
-                if (auto result=checkpoint();!result.succeeded()) return {result.status,result.detail,true};
-                if (checkpointWriter) {
-                    if (auto result=refresh(keys);!result.succeeded()) return result;
-                    for (const auto &part:keys) if (!known(part)) return release();
-                }
-                if (current[key]==saved.before[key]) {
-                    saved.released.insert(key);saved.pendingRestore.clear();
-                    if (auto result=checkpoint();!result.succeeded()) return {result.status,result.detail,true};
-                    continue;
+                auto verification=keys;
+                if (key==saved.target.modeKey() || key=="use-same-proxy") {
+                    for (const auto &protocol:protocols) verification.append(saved.target.endpointKeys(protocol));
+                    verification.append(saved.target.pacKey());
+                } else if (key=="ReversedException") verification.append(saved.target.bypassKey());
+                if (auto result=refresh(verification,true);!result.succeeded()) return result;
+                for (const auto &part:verification) if (!known(part)) return release();
+                if (saved.released.contains(key)) continue;
+                // Never enable old credentials on an endpoint changed during protected storage.
+                if (key=="http/use-authentication" && saved.before[key].toBool()
+                    && (current["http/host"]!=saved.before["http/host"] || current["http/port"]!=saved.before["http/port"])) {
+                    saved.released.insert(key);saved.pendingRestore.clear();return checkpoint();
                 }
                 result=writeValue(runner,saved.target,key,saved.before[key]);
                 if(!result.succeeded()){result.mayHaveChanged=true;return result;}
                 current[key]=saved.before[key];changed=true;
             }
             saved.released.insert(key);
-            if (saved.pendingRestore==key) saved.pendingRestore.clear();
+            saved.pendingRestore.clear();
             if (auto result=checkpoint();!result.succeeded()) return {result.status,result.detail,true};
         }
         return Result{};
@@ -441,7 +459,7 @@ PlatformOperationResult PlatformSystemProxyBackend::clear() {
             if(auto result=restoreGroup({"ReversedException"});!result.succeeded())return result;
     }
     // Recheck endpoints after restoring them; external changes must not inherit old mode/auth flags.
-    if(auto result=readState(runner,saved.target,current);!result.succeeded()){result.mayHaveChanged=true;return result;}
+    if(auto result=refresh(saved.target.keys());!result.succeeded())return result;
     bool endpointsRestored=true;
     for(const auto &protocol:protocols)for(const auto &key:saved.target.endpointKeys(protocol))endpointsRestored &= current[key]==saved.before[key];
     if(endpointsRestored && current[saved.target.pacKey()]==saved.before[saved.target.pacKey()]) {
