@@ -2,6 +2,8 @@
 #include "sourcejournal.h"
 #include "sourceroutes.h"
 #include "tunroutes.h"
+#include "networkhelperpaths.h"
+#include "trustedexecutable.h"
 #include <QDeadlineTimer>
 #include <QJsonDocument>
 #include <QScopeGuard>
@@ -337,7 +339,45 @@ Result receiveLinuxHelperPacket(int socket, QJsonObject &packet, int &descriptor
     return {};
 }
 
-int runLinuxNetworkHelper(int socket, int trustedDirectory, uid_t uid, pid_t pid, const QUuid &owner)
+PlatformOperationResult linuxNetworkRecoveryReady()
+{
+    const auto unavailable = [] { return Result{Status::Unsupported, "Enable the installed system network recovery timer before connecting."}; };
+    if (!trustedLinuxExecutable(LinuxNetworkHelperSystemctlPath)) return unavailable();
+    const QString timer = QString::fromLatin1(LinuxNetworkHelperRecoveryUnit) + ".timer";
+    const QString service = QString::fromLatin1(LinuxNetworkHelperRecoveryUnit) + ".service";
+    QProcessEnvironment environment;
+    environment.insert("LC_ALL", "C");
+    const auto inspected = runPlatformCommand(QString::fromLatin1(LinuxNetworkHelperSystemctlPath),
+        {"--no-ask-password", "show", "--property=Id,ActiveState,Unit,Type,User,PrivateNetwork,NetworkNamespacePath,Slice,RemainAfterExit", timer, service},
+        LinuxRouteOperationTimeoutMs, {}, environment);
+    if (!inspected.result.succeeded()) return unavailable();
+    QMap<QString, QMap<QString, QString>> units;
+    for (const auto &block : inspected.output.split("\n\n", Qt::SkipEmptyParts)) {
+        QMap<QString, QString> properties;
+        for (const auto &line : block.split('\n', Qt::SkipEmptyParts)) {
+            const auto separator = line.indexOf('=');
+            if (separator <= 0 || properties.contains(line.first(separator))) return unavailable();
+            properties.insert(line.first(separator), line.mid(separator + 1));
+        }
+        const auto id = properties.value("Id");
+        if (units.contains(id)) return unavailable();
+        units.insert(id, properties);
+    }
+    const auto schedule = units.value(timer), worker = units.value(service);
+    if (units.size() != 2 || schedule.value("ActiveState") != "active" || schedule.value("Unit") != service
+        || worker.value("Type") != "oneshot" || worker.value("User") != "root" || worker.value("PrivateNetwork") != "no"
+        || worker.value("Slice") != "system.slice" || worker.value("RemainAfterExit") != "no") return unavailable();
+    const auto scope = worker.value("NetworkNamespacePath");
+    struct stat here{}, managed{};
+    const auto path = scope.isEmpty() ? QByteArray("/proc/1/ns/net") : scope.toLocal8Bit();
+    if (::stat("/proc/thread-self/ns/net", &here) != 0 || ::stat(path.constData(), &managed) != 0
+        || here.st_dev != managed.st_dev || here.st_ino != managed.st_ino)
+        return {Status::Unsupported, "The system recovery service does not share this network namespace."};
+    return {};
+}
+
+int runLinuxNetworkHelper(int socket, int trustedDirectory, uid_t uid, pid_t pid, const QUuid &owner,
+                         const std::function<Result()> &beforeApply)
 {
     ucred peer{}; socklen_t size = sizeof(peer);
     int type = 0; socklen_t typeSize = sizeof(type);
@@ -380,7 +420,12 @@ int runLinuxNetworkHelper(int socket, int trustedDirectory, uid_t uid, pid_t pid
         if (!operation.cleaned && !operation.removeReceipt()) return 1;
         return cleaned(operation.changed || !operation.cleaned);
     }
-    result = applying ? operation.apply(*config) : operation.restore();
+    if (applying && beforeApply) result = beforeApply();
+    if (result.succeeded()) result = applying ? operation.apply(*config) : operation.restore();
+    else {
+        const auto restored = operation.restore();
+        if (!restored.succeeded()) result = restored;
+    }
     const auto reply = [&](const Result &returned, bool withDevice) {
         QJsonObject response{{"version", LinuxHelperProtocol}, {"owner", id}, {"status", int(returned.status)},
             {"detail", returned.detail}, {"changed", returned.mayHaveChanged}, {"state", operation.context["phase"]},

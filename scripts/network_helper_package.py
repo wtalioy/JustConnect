@@ -1,6 +1,7 @@
 """Inspect the privileged system package without executing its payload or maintainer scripts."""
 
 import argparse
+import configparser
 from email.parser import Parser
 import hashlib
 import io
@@ -16,7 +17,39 @@ LAYOUT = json.loads((ROOT / 'resource/network-helper.json').read_text())
 EXECUTABLE = LAYOUT['executable'].lstrip('/')
 POLICY = f'usr/share/polkit-1/actions/{LAYOUT["action"]}.policy'
 DOCUMENTATION = 'usr/share/doc/justconnect-network-helper/'
-FILES = {EXECUTABLE, POLICY, DOCUMENTATION + 'LICENSE', DOCUMENTATION + 'source-revision.txt'}
+RECOVERY_UNIT = 'usr/lib/systemd/system/' + LAYOUT['recovery_unit']
+FILES = {EXECUTABLE, POLICY, DOCUMENTATION + 'LICENSE', DOCUMENTATION + 'source-revision.txt',
+         RECOVERY_UNIT + '.service', RECOVERY_UNIT + '.timer'}
+
+
+def verify_recovery_units(files):
+    def read(kind, expected):
+        parser = configparser.ConfigParser(interpolation=None, strict=True)
+        parser.optionxform = str
+        try:
+            parser.read_string(files[RECOVERY_UNIT + '.' + kind].decode())
+        except configparser.Error as error:
+            raise ValueError('Invalid recovery unit') from error
+        if parser.defaults() or set(parser.sections()) != {'Unit', *expected} or set(parser['Unit']) != {'Description'}:
+            raise ValueError('Unexpected recovery unit sections or dependencies')
+        for section, properties in expected.items():
+            if dict(parser[section]) != properties:
+                raise ValueError('Recovery unit expands its privilege or execution contract')
+        return parser
+
+    service = read('service', {'Service': {
+        'Type': 'oneshot', 'User': 'root', 'ExecStart': LAYOUT['executable'] + ' --recover-stale',
+        'StateDirectory': str(PurePosixPath(LAYOUT['state_directory']).relative_to('/var/lib').parent) + ' '
+                          + str(PurePosixPath(LAYOUT['state_directory']).relative_to('/var/lib')),
+        'StateDirectoryMode': '0700',
+        'NoNewPrivileges': 'yes', 'ProtectSystem': 'strict', 'ReadWritePaths': LAYOUT['state_directory'],
+        'ProtectHome': 'yes', 'PrivateTmp': 'yes', 'PrivateDevices': 'yes', 'ProtectKernelTunables': 'yes',
+        'ProtectKernelModules': 'yes', 'ProtectControlGroups': 'yes', 'CapabilityBoundingSet': 'CAP_NET_ADMIN',
+        'RestrictAddressFamilies': 'AF_UNIX AF_NETLINK'}})
+    timer = read('timer', {'Timer': {'OnActiveSec': '1s', 'OnUnitInactiveSec': '5s', 'AccuracySec': '1s',
+                                   'Unit': LAYOUT['recovery_unit'] + '.service'},
+                           'Install': {'WantedBy': 'timers.target'}})
+    return service, timer
 
 
 def read_tar(contents, allowed, executable=None):
@@ -82,12 +115,15 @@ def inspect_package(path, revision):
     dependencies = headers['Depends']
     if not all(name in dependencies for name in ('libqt6core6', 'libc6', 'libstdc++6', 'iproute2', 'pkexec')):
         raise ValueError('Missing actual system runtime or authorization dependencies')
+    if not re.search(r'(^|,\s*)systemd(?:\s*\([^)]*\))?(?=,|$)', dependencies):
+        raise ValueError('Missing the system recovery manager dependency')
     files = read_tar(read(members[2]), FILES, EXECUTABLE)
     if set(files) != FILES or files[DOCUMENTATION + 'source-revision.txt'] != (revision + '\n').encode():
         raise ValueError('Missing files or mismatched source revision')
     if files[EXECUTABLE][:4] != b'\x7fELF':
         raise ValueError('Helper payload is not an ELF executable')
     verify_policy(files[POLICY])
+    verify_recovery_units(files)
     return files, {'source_commit': revision, 'archive_sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
                    'control': metadata, 'files': {name: hashlib.sha256(value).hexdigest() for name, value in files.items()}}
 

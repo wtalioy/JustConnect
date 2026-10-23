@@ -1,5 +1,6 @@
 #include "networkhelperclient.h"
 #include "networkhelperpaths.h"
+#include "trustedexecutable.h"
 #include "iprouteutility.h"
 #include <QCoreApplication>
 #include <QJsonDocument>
@@ -7,7 +8,6 @@
 #include <QProcessEnvironment>
 #include <QRegularExpression>
 #include <QScopeGuard>
-#include <array>
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
@@ -19,7 +19,6 @@
 #include <spawn.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
-#include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/un.h>
 #include <sys/wait.h>
@@ -30,34 +29,6 @@ using Result = PlatformOperationResult;
 using Status = Result::Status;
 constexpr int inspectionTimeoutMs = 3000;
 constexpr int operationTimeoutMs = 3 * LinuxRouteOperationTimeoutMs + LinuxHelperPacketTimeoutMs;
-
-bool trustedExecutable(const char *path, bool setuidAllowed)
-{
-    const auto parts = QByteArray(path).split('/');
-    int directory = ::open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-    if (directory < 0) return false;
-    const auto close = qScopeGuard([&] { ::close(directory); });
-    struct stat root{};
-    if (::fstat(directory, &root) != 0 || root.st_uid != 0 || (root.st_mode & 07022)) return false;
-    for (int index = 1; index < parts.size(); ++index) {
-        const bool last = index == parts.size() - 1;
-        if (parts[index].isEmpty() || parts[index] == "." || parts[index] == "..") return false;
-        const int fd = ::openat(directory, parts[index].constData(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK | (last ? 0 : O_DIRECTORY));
-        if (fd < 0) return false;
-        struct stat value{};
-        const bool valid = ::fstat(fd, &value) == 0 && value.st_uid == 0
-            && !(value.st_mode & (setuidAllowed && last ? 03022 : 07022))
-            && (last ? S_ISREG(value.st_mode) && (value.st_mode & S_IXUSR) : S_ISDIR(value.st_mode));
-        if (valid && last) {
-            char magic[4]{};
-            const bool elf = ::read(fd, magic, sizeof(magic)) == sizeof(magic) && std::memcmp(magic, "\177ELF", 4) == 0;
-            ::close(fd); return elf;
-        }
-        if (!valid) { ::close(fd); return false; }
-        ::close(directory); directory = fd;
-    }
-    return false;
-}
 
 QProcessEnvironment cleanEnvironment()
 {
@@ -200,7 +171,7 @@ void LinuxNetworkHelperClient::begin(const QUuid &owner, Operation action, QJson
         emit finished(action, {Status::Failed, "Complete the existing connection's recovery before replacing it.", true}); return;
     }
     operation = action; connection = owner; initial = std::move(request); outcome.reset(); ++generation;
-    if (!trustedExecutable(LinuxNetworkHelperPath, false) || !trustedExecutable(LinuxNetworkHelperAuthorizationPath, true)) {
+    if (!trustedLinuxExecutable(LinuxNetworkHelperPath, false) || !trustedLinuxExecutable(LinuxNetworkHelperAuthorizationPath, true)) {
         finish({Status::Unsupported, "A trusted system network helper and authorization program must be installed."},
             retryState()); return;
     }

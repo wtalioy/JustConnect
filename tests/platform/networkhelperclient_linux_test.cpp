@@ -13,9 +13,9 @@
 using Client = LinuxNetworkHelperClient;
 using Status = PlatformOperationResult::Status;
 static void check(bool value, const char *message) { if (!value) throw std::runtime_error(message); }
-template<class Predicate> static void wait(Predicate predicate)
+template<class Predicate> static void wait(Predicate predicate, int timeoutMs = 10000)
 {
-    QDeadlineTimer deadline(10000);
+    QDeadlineTimer deadline(timeoutMs);
     while (!predicate() && !deadline.hasExpired()) { QCoreApplication::processEvents(); QThread::msleep(1); }
     check(predicate(), "Client operation did not complete within its test budget");
 }
@@ -62,8 +62,8 @@ int main(int argc, char **argv) try
     else if (scenario == "recover") client->recover(owner);
     else client->apply(owner, configuration);
     wait([&] { return !results.isEmpty(); });
-    if (scenario.startsWith("cancel-") || scenario == "denied" || scenario == "malformed" || scenario == "partial") {
-        const auto expected = scenario == "denied" ? Status::PermissionDenied
+    if (scenario.startsWith("cancel-") || scenario == "denied" || scenario == "malformed" || scenario == "partial" || scenario == "guard-blocked") {
+        const auto expected = scenario == "guard-blocked" ? Status::Unsupported : scenario == "denied" ? Status::PermissionDenied
             : scenario == "malformed" || scenario == "partial" ? Status::Failed : Status::Cancelled;
         check(results[0].status == expected, "Authorization/cancellation response was misclassified");
         check(client->state() == (scenario == "malformed" ? Client::State::RecoveryRequired : Client::State::Idle), "Wrong client recovery state");
@@ -81,7 +81,10 @@ int main(int argc, char **argv) try
                 QFileInfo(QString::fromUtf8(__FILE__)).absolutePath(), QString::number(device)});
             check(exchange.waitForFinished(8000) && exchange.exitCode() == 0 && exchange.exitStatus() == QProcess::NormalExit,
                 qPrintable(QString::fromUtf8(exchange.readAllStandardError())));
-            if (scenario == "crash") {
+            if (scenario == "managed") {
+                std::cout << "READY: managed helper " << owner.toString(QUuid::WithoutBraces).toStdString() << std::endl;
+                wait([] { return false; }, 30000);
+            } else if (scenario == "crash") {
                 std::cout << "READY: active helper " << owner.toString(QUuid::WithoutBraces).toStdString() << std::endl;
                 wait([&] { return !lost.isEmpty(); });
                 check(lost.size() == 1 && !lost[0].succeeded() && lost[0].mayHaveChanged

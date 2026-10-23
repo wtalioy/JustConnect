@@ -27,7 +27,7 @@ class NetworkHelperPackageTest(unittest.TestCase):
         policy = (ROOT / 'resource/network-helper.policy.in').read_text().replace('@JC_NETWORK_HELPER_ACTION@', package.LAYOUT['action']).replace('@JC_NETWORK_HELPER_PATH@', package.LAYOUT['executable']).encode()
         metadata = ('Package: justconnect-network-helper\nVersion: 0~git1.' + revision + '\nSection: net\nPriority: optional\n'
                     'Architecture: amd64\nInstalled-Size: 1\nMaintainer: JustConnect\nDescription: System helper\n'
-                    'Homepage: https://github.com/wtalioy/JustConnect\nDepends: iproute2, pkexec | policykit-1, libc6, libstdc++6, libqt6core6t64\n')
+                    'Homepage: https://github.com/wtalioy/JustConnect\nDepends: iproute2, pkexec | policykit-1, systemd, libc6, libstdc++6, libqt6core6t64\n')
 
         def regular(name, contents):
             entry = tarfile.TarInfo(name)
@@ -36,10 +36,20 @@ class NetworkHelperPackageTest(unittest.TestCase):
 
         files = {package.EXECUTABLE: b'\x7fELF', package.POLICY: policy, package.DOCUMENTATION + 'LICENSE': b'GPL',
                  package.DOCUMENTATION + 'source-revision.txt': (revision + '\n').encode()}
+        for kind in ('service', 'timer'):
+            text = (ROOT / f'resource/network-helper-recovery.{kind}.in').read_text()
+            for key, value in {'JC_NETWORK_HELPER_PATH': package.LAYOUT['executable'],
+                               'JC_NETWORK_HELPER_STATE': package.LAYOUT['state_directory'],
+                               'JC_NETWORK_HELPER_STATE_RELATIVE': str(Path(package.LAYOUT['state_directory']).relative_to('/var/lib')),
+                               'JC_NETWORK_HELPER_STATE_PARENT': str(Path(package.LAYOUT['state_directory']).relative_to('/var/lib').parent),
+                               'JC_NETWORK_HELPER_RECOVERY_UNIT': package.LAYOUT['recovery_unit']}.items():
+                text = text.replace('@' + key + '@', value)
+            files[package.RECOVERY_UNIT + '.' + kind] = text.encode()
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / 'helper.deb'
             path.write_bytes(b'archive-hash-fixture')
-            for mutation in ('valid', 'runtime', 'architecture', 'side-effect', 'duplicate', 'source', 'version'):
+            for mutation in ('valid', 'runtime', 'architecture', 'side-effect', 'duplicate', 'source', 'version',
+                             'manager', 'recovery-executable', 'recovery-privilege', 'recovery-path', 'recovery-dependency', 'timer'):
                 text = metadata
                 payload = dict(files)
                 if mutation == 'runtime':
@@ -54,6 +64,18 @@ class NetworkHelperPackageTest(unittest.TestCase):
                     payload[package.DOCUMENTATION + 'source-revision.txt'] = ('b' * 40 + '\n').encode()
                 elif mutation == 'version':
                     text = text.replace('0~git1.' + revision, '0~git1.' + 'b' * 40)
+                elif mutation == 'manager':
+                    text = text.replace(', systemd,', ', libsystemd0,')
+                elif mutation.startswith('recovery-'):
+                    key = package.RECOVERY_UNIT + '.service'
+                    before, after = {'recovery-executable': (package.LAYOUT['executable'], '/bin/sh'),
+                                     'recovery-privilege': ('CAP_NET_ADMIN', 'CAP_SYS_ADMIN'),
+                                     'recovery-path': (package.LAYOUT['state_directory'], '/'),
+                                     'recovery-dependency': ('Description=', 'Requires=unrelated.service\nDescription=')}[mutation]
+                    payload[key] = payload[key].replace(before.encode(), after.encode())
+                elif mutation == 'timer':
+                    key = package.RECOVERY_UNIT + '.timer'
+                    payload[key] = payload[key].replace((package.LAYOUT['recovery_unit'] + '.service').encode(), b'unrelated.service')
                 responses = [b'debian-binary\ncontrol.tar.xz\ndata.tar.xz\n', b'2.0\n', archive([regular('control', text.encode())]),
                              archive([regular(name, contents) for name, contents in payload.items()])]
                 responses[0] = responses[0].decode()

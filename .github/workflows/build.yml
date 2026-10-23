@@ -114,7 +114,7 @@ jobs:
           test "${#package[@]}" -eq 1
           cp "${package[0]}" "$ARCHIVE_NAME-network-helper.deb"
           python scripts/network_helper_package.py "$ARCHIVE_NAME-network-helper.deb" --revision "$GITHUB_SHA" --output "build/$ARCHIVE_NAME-helper.json"
-          sudo unshare --mount --net -- env PYTHONDONTWRITEBYTECODE=1 "$(command -v python)" tests/platform/networkhelper_package_linux.py --package "$ARCHIVE_NAME-network-helper.deb" --revision "$GITHUB_SHA" --uid "$(id -u)" 2>&1 | tee "build/$ARCHIVE_NAME-helper.log"
+          sudo unshare --mount --net -- env PYTHONDONTWRITEBYTECODE=1 "$(command -v python)" tests/platform/networkhelper_package_linux.py --package "$ARCHIVE_NAME-network-helper.deb" --revision "$GITHUB_SHA" --uid "$(id -u)" --client build/linux_networkhelperclient_test --authorization-fixture build/linux_authorization_fixture 2>&1 | tee "build/$ARCHIVE_NAME-helper.log"
 
       - name: Package Windows
         if: runner.os == 'Windows'

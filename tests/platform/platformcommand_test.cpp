@@ -10,6 +10,11 @@ static void check(bool ok, const char *message) { if (!ok) throw std::runtime_er
 int main(int argc, char **argv) try
 {
     QCoreApplication app(argc, argv);
+    if (app.arguments().contains("--environment")) {
+        check(qEnvironmentVariable("JC_COMMAND_TEST_INSIDE") == "visible"
+            && !qEnvironmentVariableIsSet("JC_COMMAND_TEST_OUTSIDE"), "A privileged command inherited an unintended environment");
+        return 0;
+    }
     if (app.arguments().contains("--input")) {
         QFile input;
         check(input.open(stdin, QIODevice::ReadOnly), "Read child command input");
@@ -24,6 +29,12 @@ int main(int argc, char **argv) try
         return 7;
     }
     using Status = PlatformOperationResult::Status;
+    qputenv("JC_COMMAND_TEST_OUTSIDE", "hidden");
+    auto isolated = QProcessEnvironment::systemEnvironment();
+    isolated.remove("JC_COMMAND_TEST_OUTSIDE");
+    isolated.insert("JC_COMMAND_TEST_INSIDE", "visible");
+    check(runPlatformCommand(app.applicationFilePath(), {"--environment"}, 2000, {}, isolated).result.succeeded(),
+        "Explicit command environment failed to isolate inherited variables");
     check(runPlatformCommand(app.applicationFilePath(), {"--input"}, 2000, QByteArray(128 * 1024, 'x')).result.succeeded(),
           "Command input larger than a pipe buffer failed to reach EOF");
     check(runPlatformCommand(app.applicationFilePath(), {"--denied"}).result.status == Status::PermissionDenied,

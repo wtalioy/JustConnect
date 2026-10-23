@@ -1,0 +1,20 @@
+[Unit]
+Description=Restore abandoned JustConnect network operations
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=@JC_NETWORK_HELPER_PATH@ --recover-stale
+StateDirectory=@JC_NETWORK_HELPER_STATE_PARENT@ @JC_NETWORK_HELPER_STATE_RELATIVE@
+StateDirectoryMode=0700
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=@JC_NETWORK_HELPER_STATE@
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+CapabilityBoundingSet=CAP_NET_ADMIN
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
