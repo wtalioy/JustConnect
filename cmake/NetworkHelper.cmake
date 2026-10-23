@@ -21,8 +21,10 @@ function(justconnect_linux_network_helper)
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${REPO}/resource/network-helper.json")
     string(JSON JC_NETWORK_HELPER_PATH GET "${HELPER_LAYOUT}" executable)
     string(JSON JC_NETWORK_HELPER_ACTION GET "${HELPER_LAYOUT}" action)
+    string(JSON JC_NETWORK_HELPER_AUTHORIZATION GET "${HELPER_LAYOUT}" authorization_program)
     string(JSON JC_NETWORK_HELPER_STATE GET "${HELPER_LAYOUT}" state_directory)
     if(NOT JC_NETWORK_HELPER_PATH MATCHES "^/usr/libexec/[A-Za-z0-9._-]+$"
+        OR NOT JC_NETWORK_HELPER_AUTHORIZATION MATCHES "^/usr/bin/[A-Za-z0-9._-]+$"
         OR NOT JC_NETWORK_HELPER_STATE MATCHES "^/var/lib/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+$"
         OR NOT JC_NETWORK_HELPER_ACTION MATCHES "^[A-Za-z0-9_-]+([.][A-Za-z0-9_-]+)+$")
         message(FATAL_ERROR "Invalid fixed Linux helper layout")

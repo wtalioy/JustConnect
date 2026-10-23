@@ -198,17 +198,24 @@ PlatformOperationResult LinuxSourceRoutes::recover(const QUuid &id, const QJsonO
     accepted = true;
     return restore(id,checkpoint);
 }
+PlatformOperationResult LinuxSourceRoutes::validate(const QString &interface, const QString &source,
+                                                   const QString &gateway, const QStringList &requested)
+{
+    if (!QRegularExpression("^[A-Za-z0-9_.-]{1,15}$").match(interface).hasMatch()
+        || !canonicalUnicastIpv4(source) || (!gateway.isEmpty() && !canonicalUnicastIpv4(gateway)) || source == gateway || requested.isEmpty() || requested.size() > LinuxRouteSnapshotRows)
+        return {Status::Failed,"Invalid original interface, source, gateway or target count."};
+    for (const auto &prefix : requested)
+        if (!canonicalIpv4Prefix(prefix) || prefix == gateway + "/32") return {Status::Failed,"Invalid original destination prefix."};
+    return {};
+}
 PlatformOperationResult LinuxSourceRoutes::apply(const QUuid &id, const QString &interface, const QString &source,
                                                 const QString &gateway, const QStringList &requested,
                                                 const CheckpointWriter &writeAhead)
 {
     if (!owner.isNull() || id.isNull()) return {Status::Failed,"Source route ownership is missing or already active."};
-    if (!QRegularExpression("^[A-Za-z0-9_.-]{1,15}$").match(interface).hasMatch()
-        || !canonicalUnicastIpv4(source) || (!gateway.isEmpty() && !canonicalUnicastIpv4(gateway)) || source == gateway || requested.isEmpty() || requested.size() > LinuxRouteSnapshotRows)
-        return {Status::Failed,"Invalid original interface, source, gateway or target count."};
+    const auto valid = validate(interface, source, gateway, requested);
+    if (!valid.succeeded()) return valid;
     auto prefixes = requested;
-    for (const auto &prefix : prefixes)
-        if (!canonicalIpv4Prefix(prefix) || prefix == gateway + "/32") return {Status::Failed,"Invalid original destination prefix."};
     prefixes.removeDuplicates();
     const auto utility = trustedIpRouteUtility();
     if (utility.isEmpty()) return {Status::Unsupported,"A trusted system iproute2 executable is required."};

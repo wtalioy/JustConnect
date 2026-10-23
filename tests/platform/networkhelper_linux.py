@@ -152,7 +152,7 @@ def main():
         return result
 
     def request(owner, operation):
-        return {'version': 1, 'owner': owner, 'operation': operation}
+        return {'version': 2, 'owner': owner, 'operation': operation}
 
     def application(owner):
         return {**request(owner, 'apply'), 'device': {'source': '198.18.0.1', 'peer': '198.18.0.2', 'mtu': 1400},
@@ -182,7 +182,7 @@ def main():
             def receive(owner, state, descriptor=0, success=True):
                 value = command('receive')
                 packet = value['packet']
-                assert packet and packet['version'] == 1 and packet['owner'] == owner and packet['state'] == state, value
+                assert packet and packet['version'] == 2 and packet['owner'] == owner and packet['state'] == state, value
                 assert (packet['status'] == 0) == success and value['descriptors'] == descriptor, value
                 if descriptor:
                     assert packet['device']['owner'] == owner and packet['device']['interface'].startswith('jc'), value
@@ -263,10 +263,11 @@ def main():
             command('send', packet=application(owner))
             receive(owner, 'active', 1)
             command('disconnect')
-            assert process.wait(timeout=10) == 0
+            assert process.wait(timeout=10) == 2, 'EOF must retain a recovery receipt, not report acknowledged cleanup'
             command('close-descriptors')
             assert inventory() == baseline
             saved = {path: path.read_bytes() for path in Path(temporary).rglob('*.json')}
+            assert any(json.loads(contents).get('version') == 1 for contents in saved.values()), 'wire upgrade changed stored recovery metadata'
             process = start(owner)
             command('send', packet=application(owner))
             assert command('receive')['packet'] is None and process.wait(timeout=10) != 0
@@ -285,6 +286,11 @@ def main():
             process.kill()
             assert process.wait(timeout=10) < 0
             assert inventory() != baseline
+            before_cleanup = inventory()
+            process = start(owner)
+            command('send', packet=request(owner, 'cleanup'))
+            assert command('receive')['packet'] is None and process.wait(timeout=10) != 0
+            assert inventory() == before_cleanup, 'receipt cleanup performed native recovery on an active connection'
             process = start(owner)
             command('send', packet=request(owner, 'recover'))
             receive(owner, 'restored')
@@ -299,12 +305,17 @@ def main():
             command('send', packet=request(owner, 'restore'))
             receive(owner, 'restored')
             command('disconnect')
-            assert process.wait(timeout=10) == 0
+            assert process.wait(timeout=10) == 2
             command('close-descriptors')
             process = start(owner)
-            command('send', packet=request(owner, 'recover'))
-            receive(owner, 'restored')
-            finish(owner, process)
+            command('send', packet=request(owner, 'cleanup'))
+            receive(owner, 'cleaned')
+            assert process.wait(timeout=10) == 0
+            assert inventory() == baseline and not list(Path(temporary).iterdir())
+            process = start(owner)
+            command('send', packet=request(owner, 'cleanup'))
+            receive(owner, 'cleaned')
+            assert process.wait(timeout=10) == 0, 'receipt cleanup must be safely repeatable after a lost completion'
             owner = str(uuid.uuid4())
             process = start(owner)
             command('send', packet=request(owner, 'recover'))
@@ -312,7 +323,7 @@ def main():
             assert inventory() == baseline and not list(Path(temporary).iterdir())
             if directory is not None:
                 os.close(directory)
-            print('PASS: lost acknowledgement is recoverable; absent/foreign ownership is never a success receipt', flush=True)
+            print('PASS: lost acknowledgement cleanup is repeatable, active cleanup refused; absent/foreign recovery never claims success', flush=True)
     finally:
         for process in processes:
             if process.poll() is None:

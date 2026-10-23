@@ -1,5 +1,6 @@
 {
   "executable": "/usr/libexec/JustConnectNetworkHelper",
+  "authorization_program": "/usr/bin/pkexec",
   "action": "io.github.wtalioy.JustConnect.network-helper",
   "state_directory": "/var/lib/JustConnect/network"
 }
