@@ -36,6 +36,13 @@ func dialDirect(ctx context.Context, network, address string) (net.Conn, error) 
 	return (&net.Dialer{}).DialContext(ctx, network, address)
 }
 
+// DialCampusIPPort refuses fallback: a captured flow must never loop into its TUN.
+func (d *Dialer) DialCampusIPPort(ctx context.Context, network, address string) (net.Conn, error) {
+	campus := *d
+	campus.alwaysUseVPN = true
+	return campus.DialIPPort(ctx, network, address)
+}
+
 func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Conn, error) {
 	if d.alwaysUseVPN && network != "tcp" && network != "udp" {
 		return nil, ErrACLDenied

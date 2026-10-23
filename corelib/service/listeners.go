@@ -23,6 +23,7 @@ type Listeners struct {
 	listeners   []net.Listener
 	http        *http.Server
 	proxy       *httpProxy
+	tun         *tunIngress
 	workers     sync.WaitGroup
 	errors      chan error
 	failOnce    sync.Once
@@ -202,6 +203,9 @@ func (p *Listeners) Close() {
 		}
 		for _, conn := range connections {
 			_ = conn.Close()
+		}
+		if p.tun != nil {
+			p.tun.close()
 		}
 		p.workers.Wait()
 	})
