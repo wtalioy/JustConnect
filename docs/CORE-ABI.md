@@ -30,6 +30,7 @@ UTF-8 JSON 不带结尾 NUL。输入仅借用至调用返回，库在返回前�
 | `jc_session_respond(handle, response, length)` | 仅接受匹配、已读取且尚未消费的认证请求 |
 | `jc_session_update_policy(handle, policy, length, generation)` | 完整校验后原子替换本代保护规则，成功返回生效代次，失败输出零 |
 | `jc_session_resources(handle, generation, output, capacity, length)` | 只读返回本代实际解析的校园资源，未就绪时返回 Busy，旧代次或停止后拒绝 |
+| `jc_session_attach_tun(handle, generation, fd, mtu)` | Linux 就绪代次接收经助手验证的非阻塞原始 IPv4 TUN fd；仅成功后持有自身副本，停止前释放 |
 | `jc_session_stop(handle, wait_ms)` | 先取消，再有界等待清理；重复停止有效句柄成功 |
 | `jc_session_destroy(handle, wait_ms)` | 清理完成后失效、释放句柄；重复销毁已签发句柄成功 |
 
@@ -192,3 +193,12 @@ S2-03 的 `tls` 可省略（默认验证系统信任链及目标主机名）；`
 学校配置使用 `JustConnect/KeepAliveMode` 与 `KeepAliveURL`，由 ProfileService 映射到连接配置；认证方式查询不传流量保活。缺少新模式时迁移旧 `KeepAlive:false` 为关闭，否则非空目标为指定目标，其余为自动；已有新模式优先，目标不因关闭而删除。导入复用同一迁移，导出保留模式及目标，旧布尔开关迁移后移除。早先版本已经删除的值无法还原，不猜测用户原选择。
 
 目标解析仅使用学校资源内置映射或获授权的校园 DNS，不使用来源未知的共享缓存或公共 DNS 回退。`disable_remote_dns` 同样约束保活，自动 DNS 探测报告不可用，指定目标仍可使用资源内置映射或 IP。连接必须命中校园 IP／域名、协议和端口授权，不走原网络。HTTPS 默认校验证书并复用显式学校 CA 策略。单次探测总预算 10 秒且随会话取消。`traffic` 与 `renewal` 结果独立：网页／DNS 探测成功不代表票据续期，临时续期失败保留有效缓存；明确失效报告 `renewal:required`／`authentication:required`，停止一次并交付 `JC_SESSION_INVALID`，不自动登录。
+
+<a id="raw-tun-fd"></a>
+## 原始 IPv4 TUN fd 接入
+
+正式 Linux 后端通过 `raw_ipv4_tun_fd:true` 和 `jc_session_attach_tun` 兼容增补 ABI v1；其他平台和测试驱动返回 `JC_UNSUPPORTED`。调用方先由权限助手验证设备来源、连接所有权与所在网络命名空间，完成地址／MTU／启用及所有权恢复准备，再向当前就绪连接代次交付 fd。该调用不配置地址、路由或 DNS，也不表示系统接管已经就绪。
+
+fd 为调用期间借用的 `int32_t`，须支持读写、已设 `O_NONBLOCK`，每次读写一个原始 IPv4 包。核心先创建 `CLOEXEC` 副本，核对实际 TUN 类型、启用状态及 MTU，以内核 netlink 信息拒绝 PI、virtio、TAP、多队列和持久设备；不依赖 `TUNGETIFF` 中与 `NOFILTER` 共用位的 `NO_PI` 判断帧格式。MTU 须与内核一致并满足包入口的 576–65535 字节范围。调用不更改原 fd 的标志或所有权；失败关闭本次副本，成功后原 fd 可由调用方关闭，核心保留自己的引用。
+
+活动但未就绪返回 `JC_BUSY`；其他代次、停止／完成返回 `JC_STALE_REQUEST`；无效 fd、帧配置、MTU 或重复交付返回 `JC_INVALID_ARGUMENT`。仅一个所属设备被接收，停止／设备失败会中断 I/O 并等待全部包处理退出，文件设备 I/O 错误沿既有网络失败／权限／超时分类报告，重启须重新交付且不接受旧代次。完整系统 DNS、域名资源关联、Qt 接管编排与其他平台帧适配仍按计划单独验收。

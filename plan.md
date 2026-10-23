@@ -17,7 +17,7 @@
 
 | 项目 | 当前记录 |
 | --- | --- |
-| 当前任务 | 按用户要求依次完成 S3 → S4 → S5；S3-02／03／04／06 已收尾，S3-01／05 的接管就绪与独立恢复随 S4／S5 补验；S4-01 初始保护与 S4-02 策略契约已验，当前推进 S4-03 的设备／路由所有权后端及 S4-04／06 的最小权限与独立恢复。S4 恢复／权限通过前不应用透明接管 |
+| 当前任务 | 按用户要求依次完成 S3 → S4 → S5；S3-02／03／04／06 已收尾，S3-01／05 的接管就绪与独立恢复随 S4／S5 补验；S4-01 初始保护与 S4-02 策略契约已验，当前推进 S4-04／06 的权限助手与核心包入口交接，并接入 S5-02 数据路径。S4 恢复／权限通过前不应用透明接管 |
 | 实测状态 | Windows Fudan `8fefd1c` 启用隧道证书例外后认证／隧道成功；Clash Verge TUN 开启时，用户确认手动设置系统代理后网页正常，普通断开及退出重启均无需再次认证，清除缓存后出现认证窗口、手动认证后连接成功。显式 SOCKS／HTTP 的校内 SSH 通信及 HTTP 代理密钥交换通过，未登录；终端直连与自动接管尚未实现 |
 | 验收范围 | 仅要求 Fudan 实测；按用户决定取消另一台 aTrust 服务器的硬性要求，保留 Custom 实现与服务器／账户隔离回归 |
 | 剩余缺口 | S1-04 真实样本、S1-06 其余设备权限、透明访问、Clash 共存、真实桌面／旧系统、正式签名／公证仍未验收；D2 设备入口已收敛，路由／DNS／回环仍待验证 |
@@ -32,7 +32,7 @@
 | [S2](#s2) | aTrust 配置、认证复用与基础设施结果可靠 | S1-01；核心交互需 S1 库化契约与 Qt 适配 | 进行中：S2-06 独立恢复待验，其余基线已验 |
 | [S3](#s3) | 会话、保活、重连和正常关闭可靠 | S1 已验收的会话能力、S2 | 进行中 |
 | [S4](#s4) | 策略、平台网络操作和原型恢复基础 | 先明确入口／权限；同组接入 S7-03 恢复保障 | 进行中 |
-| [S5](#s5) | Clash 未运行时的三平台透明原型 | 对应平台的 S3、S4 | 未开始 |
+| [S5](#s5) | Clash 未运行时的三平台透明原型 | 对应平台的 S3、S4 | 进行中：包入口／会话及 Linux fd 增量待验收 |
 | [S6](#s6) | Clash 各开关组合的可行路径 | 对应平台的 S5 | 未开始 |
 | [S7](#s7) | 一键流程、自动共存、UI 与完整恢复 | 按下表分别并入会话／网络／Clash／界面组 | 未开始 |
 | [S8](#s8) | 完整实测、安装包和交付文档 | S1—S7 | 未开始 |
@@ -242,7 +242,7 @@ Linux x64／ARM64 AppImage 分别减少约 2.07%／1.90%；macOS 安装体积基
 - Windows 设备增量已验：签名／配置共用 CI 选择的 pwsh，配置前记录原生身份、配置后确认同一设备；双架构均通过收发、超大帧、异常退出及部分配置失败的所属设备／路由清理，预算不变。MI 的 MSVC 双架构 ABI 及实际安装目录读取通过；证据 `build/reports/windows-dns-native.json`、`wintun-signature-host.json`。既有六组包通过运行时检查，设备正式交付仍待；旧入口前超时及图形／页面偶发停顿未作根因归属，关键失败证据保留。
 - S4-04 Linux 系统助手／普通 Qt 调用已验（`7602ae5`）：[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40006000657)、[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40006000662)及[六组实际包／源码](https://github.com/wtalioy/JustConnect/actions/runs/40006047287)全部通过。固定受信部署、原账户／root 对端与所属 fd、拒绝／取消、部分失败、销毁 EOF、新授权恢复及回执清理均有原生回归；协议 2、存储版本 1。六文件 DEB 使用发行版 Qt Core，部署值统一配置；双架构实际 DEB 已取出独立核验，六份包报告的干净来源／架构已核对，431 文件实际源码归档及重建通过。当前证据归 `build/reports/linux-recovery-timer.json`；早期独有失败证据保留在 `linux-helper-client.json` 等原报告。
 - S4-04／06 Linux 系统周期恢复已验（同源码）：真实 system manager 在 `system.slice` 定期复用同一反向恢复生命周期，持锁跳过，跨域／链接／未知项及超限拒绝，完成回执保留。应用前核对定时器、服务身份与命名空间；关闭或异域时无网络写入。双架构实际发行版入口的 16 个 Qt 场景及 GUI／助手同时强杀后的自动恢复通过。可信程序检查已合并，旧开发夹具与过时调试产物已清理，必要构建、SDK、当前源码／包证据及关键失败日志保留。实际桌面授权／注销、会话／核心 fd、DNS 生命周期接入和其他平台助手仍待，不勾选任务；安装启用及边界归[权限入口](docs/ARCHITECTURE.md#privileged-helper-entry)。
-- S4-03 Linux 专属 TUN DNS 后端已验（`d6b453f`）：[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40014747269)与[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40014747247)通过；`LinuxTunDns` 在新建所属接口上使用实际 resolved 设置路由域、peer DNS 与非默认查询范围；写前／回读／反向恢复复用私有日志，绑定启动／命名空间、接口及服务实例，未知中断和外部改写保留边界。双构建的实际普通用户系统解析、外部同值重建／回执重试、部分回滚、四个真实强杀边界及新进程恢复通过，原接口保持不变；路由身份和 resolve1 标识已合并复用，证据归 `build/reports/linux-tun-dns.json`。服务进程命名空间核对补丁待 CI：实际跨命名空间同索引误写已复现，现已写前拒绝；双构建各三项普通检查、完整 resolved／四个强杀恢复及助手 IPC／恢复均通过，命名空间比较已共用，证据 `build/reports/dns-provider-namespace.json`。尚未接入权限助手／核心 DNS 数据面，最小权限恢复服务的提供者核对、其他 DNS 管理方式及平台仍待；操作边界见[架构](docs/ARCHITECTURE.md#owned-tun-dns)。
+- S4-03 Linux 专属 TUN DNS 后端已验（`d6b453f`）：[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40014747269)与[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40014747247)通过；`LinuxTunDns` 在新建所属接口上使用实际 resolved 设置路由域、peer DNS 与非默认查询范围；写前／回读／反向恢复复用私有日志，绑定启动／命名空间、接口及服务实例，未知中断和外部改写保留边界。双构建的实际普通用户系统解析、外部同值重建／回执重试、部分回滚、四个真实强杀边界及新进程恢复通过，原接口保持不变；路由身份和 resolve1 标识已合并复用，证据归 `build/reports/linux-tun-dns.json`。服务进程命名空间核对补丁已通过 `278dc0e` 的三平台 Tests 与六组 Core ABI：跨命名空间同索引写前拒绝；双构建普通检查、完整 resolved／四个强杀及助手 IPC／恢复均通过，命名空间比较已共用，证据 `build/reports/dns-provider-namespace.json`。尚未接入权限助手／核心 DNS 数据面，最小权限恢复服务的提供者核对、其他 DNS 管理方式及平台仍待；操作边界见[架构](docs/ARCHITECTURE.md#owned-tun-dns)。
 - D2／D3：Linux 真实原出口、严格 rp_filter 与独立源表保留；普通用户数据、帧拒绝及设备强杀清理沿用已验路径，Unix 先降权再 exec 和原八秒预算不变，原型不代替正式权限／恢复。Mihomo 1.19.32 临时实例验证完整 PUT、无效更新保留、恢复回读及 Fake-IP 与 API 真实地址差别；运行中 TUN、真实配置所有权及其余平台仍待，见[设备记录](docs/CORELINK-PROBE.md#设备与权限边界)和[接口记录](docs/CORELINK-PROBE.md#mihomo-api-probe)。
 - 清理／保留：已删被替代上游串联／专属测试、模型副本、测试专用 TTL 覆盖、重复 lastSeen、原型分配／配置／源表命令及已归并报告／日志／临时程序／stash、定位用 DNS 工作流；原出口／源记录、Windows 设备及 Linux 捕获移交说明已合并为当前契约、验证与剩余范围，删除被替代的待验结论。保留独有授权／信任／取消／平台回归，conntrack 16384 项／20000 次插入／90 秒预算及优化前后证据；不为通过删有效测试。当前构建、必要 SDK／工具、关键报告／预览及 S2 唯一包证据保留；隔离移交夹具保留独有收发／强杀断言，macOS 捕获命令在对应正式路由后端通过后删除；正式助手接入时复用后端，不另留产品副本。
 
@@ -260,9 +260,9 @@ Linux x64／ARM64 AppImage 分别减少约 2.07%／1.90%；macOS 安装体积基
 - [ ] **S5-04**：验证地址重叠的默认保护、选择校园侧、切回原网络及撤销；明确不能同时访问的相同 IP。保护范围不得扩大成所有私网，校园失败不得偷走直连。
 - [ ] **S5-05**（阶段汇总）：归并 S5-01—04 的 V1 三平台结果，记录实际入口／DNS／出口和关闭后的恢复证据，不另建重复测试轮次。确认 TCP／UDP 与相应 IPv6 能力，某平台缺少入口时补该项，不以其他平台代替。
 
-当前增量：HTTP CONNECT 半关闭修复待 CI，正常 EOF 保留反向响应，错误与停止仍结束所属转发；SOCKS／CONNECT 共用真实 TCP 的首包、半关闭和停止回归。完整 Go 21 包／vet 与十轮目标 race 通过，修复前失败及当前证据归 `build/reports/http-halfclose.json`；无 Clash／实际校园 UDP、透明接管及其他平台实机仍待。
+当前增量：HTTP CONNECT 半关闭修复已通过 `278dc0e` 的三平台 Tests 与六组 Core ABI，正常 EOF 保留反向响应，错误与停止仍结束所属转发；SOCKS／CONNECT 共用真实 TCP 的首包、半关闭和停止回归。完整 Go 21 包／vet 与十轮目标 race 通过，修复前失败及当前证据归 `build/reports/http-halfclose.json`；无 Clash／实际校园 UDP、透明接管及其他平台实机仍待。
 
-S5-02 包入口与会话接入增量待验收：`Listeners.AttachTUN` 复用校园拨号／授权及保护，捕获流禁止直连回退；SOCKS／CONNECT／透明 TCP 共用半关闭转发，UDP 保留空包／分片。多包／首段丢包后的完整字节／EOF、未授权／保护拒绝、设备故障、不完整握手、容量与一秒内停止均有回归；容量夹具在 64 句柄下通过，原生 UDP 缓冲区及 macOS race 等待预算按实测校准，未改拥塞算法或依赖。`278dc0e` 的三平台 Tests 与六组中的五组 Core ABI 已过（Linux ARM64 尚未完成，不计为通过），macOS ARM64 正式 25 项、完整 Go normal／race 及最终源码十轮目标 race 均通过；临时探针／工作树／远程分支已清理，关键证据归 `build/reports/tun-ingress.json`。当前 Go 会话接入只接受就绪代次，失败保留设备、停止／故障释放、重启隔离；与既有代理共用真实认证／校园隧道，重复会话夹具已合并，完整模块、五轮目标 race 与合并后的完整 bridge race 本地通过，CI 待验，证据 `build/reports/session-tun.json`。C ABI／Qt、真实 fd／平台帧、系统 DNS 与实际普通终端仍待；边界见[架构](docs/ARCHITECTURE.md#transparent-packet-ingress)，不勾选完整 S5-02。
+S5-02 包入口基线已验，整体待验收：`278dc0e` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40033821798)及[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40033821865)全部通过，macOS ARM64 另有最终源码十轮目标 race。入口复用校园授权／保护，禁止直连回退；共享 TCP 半关闭转发，保留 UDP 空包／分片、完整字节／EOF／丢包重传、拒绝、设备故障、容量与一秒内停止回归，未增加依赖或产品地址默认值。临时探针／工作树／分支已清理，证据 `build/reports/tun-ingress.json`。会话／Linux fd／C ABI 增量本地通过、CI 待验：仅就绪代次取得设备，失败保留原 fd 及标志，核心持有 `CLOEXEC` 副本并在停止前释放，文件 I/O 故障复用网络错误分类；真实内核拒绝 PI／virtio／TAP／多队列／持久设备及错误 MTU／阻塞 fd。普通用户经实际 TUN、正式 C ABI 与校园协议完成多包 TCP、UDP 空包、停止及重启，结束后接口／IPv4／IPv6 路由与规则恢复原状；完整 22 包／构建／vet／契约、五轮目标 race、既有真实协议／C ABI 检查及助手客户端 16 个原生场景／系统恢复通过。复用已有分配／捕获后端和代理重启夹具，没有第二个校园包读取者；证据 `build/reports/session-tun.json`、`tun-fd-coreabi.json`，接口见[原始 fd 契约](docs/CORE-ABI.md#raw-tun-fd)。Qt 接管编排、其他平台帧、系统 DNS／域名资源关联及实际普通终端仍待，不勾选完整 S5-02。
 
 完成条件：V1 在三平台通过；实现路径和限制已有决策记录，校园访问、普通网络与受保护目标均能在开启／关闭后保持预期。
 

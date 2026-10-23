@@ -221,7 +221,7 @@ func (i *tunIngress) readPackets(mtu uint32) {
 	for {
 		n, err := i.device.Read(buf)
 		if err != nil {
-			i.deviceFailure(err)
+			i.deviceFailure("read", err)
 			return
 		}
 		if n < header.IPv4MinimumSize || n > int(mtu) || header.IPVersion(buf[:n]) != 4 {
@@ -248,15 +248,15 @@ func (i *tunIngress) writePackets() {
 		view.Release()
 		packet.DecRef()
 		if err != nil {
-			i.deviceFailure(err)
+			i.deviceFailure("write", err)
 			return
 		}
 	}
 }
 
-func (i *tunIngress) deviceFailure(err error) {
+func (i *tunIngress) deviceFailure(operation string, err error) {
 	if i.owner.ctx.Err() == nil {
-		i.owner.fail(err)
+		i.owner.fail(&net.OpError{Op: operation, Net: "tun", Err: err})
 	}
 }
 

@@ -26,7 +26,7 @@ static void check(bool ok, const char *message) {
     if (!ok) { std::cerr << "FAIL: " << message << '\n'; std::exit(1); }
 }
 #define ABI_FUNCTIONS(X) X(jc_abi_version) X(jc_build_info) X(jc_network_snapshot) X(jc_config_validate) X(jc_session_create) X(jc_session_start) \
-    X(jc_session_read) X(jc_session_respond) X(jc_session_update_policy) X(jc_session_resources) X(jc_session_stop) X(jc_session_destroy)
+    X(jc_session_read) X(jc_session_respond) X(jc_session_update_policy) X(jc_session_resources) X(jc_session_attach_tun) X(jc_session_stop) X(jc_session_destroy)
 struct API {
 #define MEMBER(name) decltype(&::name) name;
     ABI_FUNCTIONS(MEMBER)
@@ -258,10 +258,21 @@ static void nativeProtocol(API &api, const QByteArray &input) {
 }
 
 #include "performance.h"
+#include "tun.h"
 
 int main(int argc, char **argv) {
     QApplication application(argc, argv);
     API api;
+#ifdef Q_OS_LINUX
+    if (argc == 4 && QByteArray(argv[1]) == "--tun-gateway") {
+        bool valid = false;
+        const int descriptor = QByteArray(argv[3]).toInt(&valid);
+        check(valid && descriptor >= 3, "inherited native TUN fd");
+        const int flags = ::fcntl(descriptor, F_GETFD);
+        check(flags >= 0 && ::fcntl(descriptor, F_SETFD, flags | FD_CLOEXEC) == 0, "native host protects inherited fd across exec");
+        nativeTUNProtocol(api, QByteArray(argv[2]), descriptor); return 0;
+    }
+#endif
     if (argc == 3 && QByteArray(argv[1]) == "--gateway") { nativeProtocol(api, QByteArray(argv[2])); return 0; }
     if (argc == 3 && QByteArray(argv[1]) == "--baseline") { performance(api, QByteArray(argv[2])); return 0; }
     check(api.jc_abi_version() == JC_ABI_VERSION && jc_c_header_smoke(api.jc_abi_version) == JC_OK, "C and C++ ABI");
@@ -285,6 +296,13 @@ int main(int argc, char **argv) {
     check(info["capabilities"].toObject()["name_protection"].toBool(), "name protection capability matches validated policy input");
     check(info["capabilities"].toObject()["network_snapshot"].toBool(), "native network snapshot capability");
     check(info["capabilities"].toObject()["resource_snapshot"].toBool() == !info["test_driver"].toBool(), "campus resource capability requires the protocol backend");
+#if defined(Q_OS_LINUX) && !defined(ABI_FIXTURE)
+    check(info["capabilities"].toObject()["raw_ipv4_tun_fd"].toBool(), "Linux fd capability requires the protocol backend");
+    check(api.jc_session_attach_tun(0, 1, -1, 1400) == JC_INVALID_ARGUMENT, "invalid borrowed fd is rejected");
+#else
+    check(!info["capabilities"].toObject()["raw_ipv4_tun_fd"].toBool(), "unsupported platform/driver cannot advertise Linux raw fd attachment");
+    check(api.jc_session_attach_tun(0, 1, -1, 1400) == JC_UNSUPPORTED, "unsupported raw fd attachment is explicit");
+#endif
     networkSnapshot(api);
     check(metadata.front() == 0x5a && metadata.back() == 0x5a, "metadata bounds");
 #ifdef ABI_FIXTURE

@@ -303,6 +303,10 @@ void LinuxNetworkHelperClient::receive()
             if (guard && current == State::Restoring) send(command("restore"));
             return;
         }
+        const int flags = ::fcntl(received, F_GETFL);
+        if (flags < 0 || ::fcntl(received, F_SETFL, flags | O_NONBLOCK) != 0) {
+            failed("Cannot prepare interruptible packet I/O for the owned device."); return;
+        }
         device = received; received = -1;
         finish(returned, State::Active); return;
     }

@@ -31,5 +31,8 @@ int32_t jc_session_update_policy(uint64_t h, const uint8_t *in, uint32_t len, ui
 int32_t jc_session_resources(uint64_t h, uint64_t generation, uint8_t *out, uint32_t cap, uint32_t *len) {
     return jc_go_session_resources(h, generation, out, cap, len);
 }
+int32_t jc_session_attach_tun(uint64_t h, uint64_t generation, int32_t fd, uint32_t mtu) {
+    return jc_go_session_attach_tun(h, generation, fd, mtu);
+}
 int32_t jc_session_stop(uint64_t h, uint32_t wait) { return jc_go_session_stop(h, wait); }
 int32_t jc_session_destroy(uint64_t h, uint32_t wait) { return jc_go_session_destroy(h, wait); }

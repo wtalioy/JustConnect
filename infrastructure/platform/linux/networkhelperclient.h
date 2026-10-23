@@ -24,7 +24,7 @@ public:
     void cancel();
     State state() const { return current; }
     QUuid owner() const { return connection; }
-    // Borrowed; a core that duplicates this fd must close its reference before overall shutdown completes.
+    // Borrowed, nonblocking; a core duplicate must close before overall shutdown completes.
     int descriptor() const { return device; }
 signals:
     void stateChanged(LinuxNetworkHelperClient::State state);
