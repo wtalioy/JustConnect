@@ -14,6 +14,7 @@ import (
 	"github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/wtalioy/JustConnect/corelib/dial"
 	"github.com/wtalioy/JustConnect/corelib/policy"
+	campusstack "github.com/wtalioy/JustConnect/corelib/stack"
 	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
@@ -120,7 +121,7 @@ func (s *ingressCampus) DialUDP(ctx context.Context, addr *net.UDPAddr) (net.Con
 	return (&net.Dialer{}).DialContext(ctx, "udp", s.udpAddress)
 }
 
-func newIngressOwner(t *testing.T, campus *ingressCampus, protection *policy.ProtectionPolicy, resources []client.IPResource) (*Listeners, *packetDevice) {
+func newIngressOwner(t *testing.T, campus campusstack.Stack, protection *policy.ProtectionPolicy, resources []client.IPResource) (*Listeners, *packetDevice) {
 	t.Helper()
 	d := dial.NewDialer(campus, nil, resources, false)
 	d.ProtectionPolicy = func() *policy.ProtectionPolicy { return protection }
@@ -392,13 +393,31 @@ func TestTUNUDPIdleExpiresAfterTrafficStops(t *testing.T) {
 	}
 }
 
+type capacityCampus struct {
+	ingressCampus
+	mu    sync.Mutex
+	peers []net.Conn
+}
+
+func (s *capacityCampus) DialUDP(_ context.Context, addr *net.UDPAddr) (net.Conn, error) {
+	conn, peer := net.Pipe()
+	s.mu.Lock()
+	s.peers = append(s.peers, peer)
+	s.mu.Unlock()
+	s.called <- "udp:" + addr.String()
+	return conn, nil
+}
+
 func TestTUNBoundsFlowsAndJoinsFullCapacityOnShutdown(t *testing.T) {
-	target, err := net.ListenPacket("udp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer target.Close()
-	campus := &ingressCampus{udpAddress: target.LocalAddr().String(), called: make(chan string, maxTUNFlows+1)}
+	// Capacity and joining must not depend on the host's socket descriptor limit.
+	campus := &capacityCampus{ingressCampus: ingressCampus{called: make(chan string, maxTUNFlows+1)}}
+	defer func() {
+		campus.mu.Lock()
+		defer campus.mu.Unlock()
+		for _, peer := range campus.peers {
+			_ = peer.Close()
+		}
+	}()
 	p, device := newIngressOwner(t, campus, nil, []client.IPResource{ingressResource("udp", 53)})
 	peer := tunPeer(t, device)
 	destination := tcpip.FullAddress{NIC: 1, Addr: tcpip.AddrFrom4([4]byte{203, 0, 113, 7}), Port: 53}
