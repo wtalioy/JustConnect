@@ -20,7 +20,8 @@ public:
     explicit PlatformSystemProxyBackend(WindowsProxyApi api = {}, CheckpointWriter writer = {})
         : api(api), checkpointWriter(std::move(writer)) {}
 #elif defined(Q_OS_MACOS)
-    explicit PlatformSystemProxyBackend(MacProxyApi api = {}) : api(std::move(api)) {}
+    explicit PlatformSystemProxyBackend(MacProxyApi api = {}, CheckpointWriter writer = {})
+        : api(std::move(api)), checkpointWriter(std::move(writer)) {}
 #else
     explicit PlatformSystemProxyBackend(PlatformCommandRunner runner = [](const QString &p, const QStringList &a) {
         return runPlatformCommand(p, a);
@@ -46,10 +47,8 @@ private:
 #else
     PlatformCommandRunner runner;
 #endif
-#ifndef Q_OS_MACOS
     CheckpointWriter checkpointWriter;
-#endif
-#if defined(Q_OS_LINUX) || defined(Q_OS_WIN)
+#if defined(Q_OS_LINUX) || defined(Q_OS_WIN) || defined(Q_OS_MACOS)
     PlatformOperationResult checkpoint(bool remove = false);
 #endif
 };
