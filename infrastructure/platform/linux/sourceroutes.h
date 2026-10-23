@@ -1,6 +1,7 @@
 #pragma once
 
 #include "infrastructure/platform/platformcommand.h"
+#include "iprouteutility.h"
 #include <QDeadlineTimer>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -12,7 +13,7 @@
 class LinuxSourceRoutes
 {
 public:
-    static constexpr qsizetype MaxSnapshotBytes = 2*1024*1024;
+    static constexpr qsizetype MaxSnapshotBytes = LinuxRouteRecoveryBytes;
     // An empty record requests durable removal after all owned kernel state is gone.
     using CheckpointWriter = std::function<PlatformOperationResult(const QJsonObject &)>;
     explicit LinuxSourceRoutes(PlatformCommandRunner read = {}) : reader(std::move(read)) {}

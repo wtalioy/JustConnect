@@ -160,7 +160,11 @@ sudo unshare --net -- build/coreabi/linux_tunroutes_test --isolated
 
 Linux 分配方在交付 fd 前配置同一正式捕获后端的目标路由，将连接／设备／完整实际路由值随元数据交付；接收方对照真实全表，不使用会省略设备字段的按设备筛选输出。两份 Python 手写捕获命令已删除；创建方退出后普通用户双向包、正常／强杀后设备与路由消失、严格 rp_filter 原出口通过本地双构建及 [`1f05e3f` 的六组 Core ABI／设备](https://github.com/wtalioy/JustConnect/actions/runs/39817179435)与[三平台应用测试](https://github.com/wtalioy/JustConnect/actions/runs/39817179379)，证据归 `build/reports/linux-owned-routes.json`、`linux-capture-handoff.json`。
 
-测试仍是隔离调用，不安装为权限助手；主应用、正式授权、捕获路由持久恢复、DNS 及任意属性的读写竞争尚未交付，S4-06 之前不用于日常网络。原出口专用表／源规则及其持久检查点见[原出口后端](#linux-source-routes)，不据此宣称捕获路由具备同等恢复能力；macOS 的捕获命令保留至对应正式后端通过。
+捕获持久恢复已在同一后端接入：版本 1 快照绑定启动／线程网络命名空间、连接和实际设备身份，写前意图、成功确认、删除进度及完成移除复用同步检查点。存储失败停止后续内核写入，存储等待后重新核对；新实例对未确认应用和已开始删除但仍匹配的项保留，不接管同值重建。活跃实例确认未尝试写入时只撤销记录，最终移除重试不重写已释放对象。实际 root 私有文件复用 `LinuxSourceJournal`，捕获与源记录各持有自己的私有操作目录；`recover` 的 JSON 参数不授予权限，调用方须先认证保护文件及连接所有者。共用规则与范围见[架构说明](ARCHITECTURE.md)，最新验收状态见[计划](../plan.md#s4)。
+
+捕获回归在准备、应用后未确认、部分应用和应用确认四个边界强杀直接持有者；测试父进程只保留私有 TUN fd，随后新进程从真实保护文件恢复。删除前／删除后强杀、外部同值重建、原生重复身份、实际跨命名空间拒绝、存储拒绝／等待期间改写和完成移除重试也有覆盖；最后关闭所属 fd 后复查完整原始路由，root 临时目录在永久降权前清理。双构建普通检查、隔离内核、普通用户 fd 收发和生产 Go TCP／UDP 的严格 rp_filter 回归本地通过，原生矩阵待验，证据 `build/reports/linux-capture-recovery.json`。
+
+测试仍是隔离调用，不安装为权限助手；主应用、正式授权、捕获保护记录的正式生命周期／自动恢复服务、DNS、IPv6 及任意属性读写竞争尚未交付，S4-06 之前不用于日常网络。原出口专用表／源规则及其检查点见[原出口后端](#linux-source-routes)；原型 fd 交付仍保留独有收发／强杀验证，macOS 捕获命令保留至对应正式后端通过。
 
 [源码 `1105671` 的两组 macOS 及 Linux](https://github.com/wtalioy/JustConnect/actions/runs/39681929870)均通过直连／显式路由的真实设备／fd 读写、正常关闭及强杀后的设备／路由清理，日志分别为 `macos-device.log`／`linux-device.log`；本机 Linux 另验宿主接口、路由、DNS 不变。降权验证使用原生 `getgroups` 读取进程组，仅保留目标主组，并检查真实／有效 uid、gid 和无法恢复 root；[Python 的 macOS 组查询](https://docs.python.org/3/library/os.html#os.getgroups)可能返回目录成员列表，不能据此判断 `setgroups` 的结果。签名助手与真实桌面授权仍待验收，不依据源码或 Linux 结果宣称可用。原 `linux_device_probe.py` 已由共享脚本替代并删除，原 Linux 能力及独有权限断言保留。
 

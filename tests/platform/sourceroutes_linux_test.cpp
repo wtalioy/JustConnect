@@ -697,13 +697,13 @@ int main(int argc, char **argv) try
     ip({"link","set","renamed0","name","original0"});ip({"link","set","original0","up"});
     check(routes.restore(owner).succeeded() && inventory()==baseline,"Recovery after restoring original interface identity failed");
 
-    const int count = 4096-read({"route","show","table","all"}).size()-1;
+    const int count = LinuxRouteSnapshotRows-read({"route","show","table","all"}).size()-1;
     QStringList bulk;
     for (int i=0; i<count; ++i) bulk.append(QString("198.20.%1.%2/32").arg(i/256).arg(i%256));
     check(!routes.apply(owner,"original0",source,gateway,bulk+QStringList{"198.21.0.1/32"}).succeeded()
           && routes.snapshot().isEmpty() && inventory()==baseline,"Route capacity was checked after writing instead of before");
     check(routes.apply(owner,"original0",source,gateway,bulk).succeeded()
-          && read({"route","show","table","all"}).size()==4096,"Largest complete source route snapshot was rejected or truncated");
+          && read({"route","show","table","all"}).size()==LinuxRouteSnapshotRows,"Largest complete source route snapshot was rejected or truncated");
     const auto bulkRecord = QJsonDocument(routes.snapshot()).toJson(QJsonDocument::Compact);
     check(restarted.recover(owner,QJsonDocument::fromJson(bulkRecord).object()).succeeded()
           && routes.restore(owner).succeeded() && inventory()==baseline,"Full-capacity saved source recovery failed");
