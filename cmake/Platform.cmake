@@ -151,6 +151,13 @@ function(justconnect_platform_tests TARGET LIBRARY)
     endif()
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         add_dependencies(${TARGET} JustConnectProxyRecovery)
+        add_executable(proxyrecovery_linux_crash_test "${REPO}/tests/platform/proxyrecovery_linux_crash.cpp")
+        target_link_libraries(proxyrecovery_linux_crash_test PRIVATE ${LIBRARY})
+        add_dependencies(proxyrecovery_linux_crash_test JustConnectProxyRecovery)
+        add_test(NAME proxyrecovery_linux_crash_test COMMAND "${Python3_EXECUTABLE}"
+            "${REPO}/tests/platform/credentialstore_linux.py" "$<TARGET_FILE:proxyrecovery_linux_crash_test>")
+        set_tests_properties(proxyrecovery_linux_crash_test PROPERTIES TIMEOUT 75
+            ENVIRONMENT "GSETTINGS_BACKEND=keyfile;XDG_CURRENT_DESKTOP=GNOME;XDG_SESSION_DESKTOP=gnome")
         add_test(NAME ${TARGET}_protected_recovery COMMAND "${Python3_EXECUTABLE}"
             "${REPO}/tests/platform/credentialstore_linux.py" "$<TARGET_FILE:${TARGET}>")
         set_tests_properties(${TARGET}_protected_recovery PROPERTIES TIMEOUT 75
