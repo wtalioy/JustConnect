@@ -111,6 +111,36 @@ func TestLiveProtectionOverridesCampusResourcesButNeverGrantsAuthorization(t *te
 	}
 }
 
+func TestCapturedDialNeverFallsBackOrChangesProxyRouting(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	d := NewDialer(nil, nil, nil, false)
+	if conn, err := d.DialCampusIPPort(ctx, "tcp", listener.Addr().String()); !errors.Is(err, ErrACLDenied) {
+		if conn != nil {
+			conn.Close()
+		}
+		t.Fatalf("unauthorized capture fell back to reachable native target: %v", err)
+	}
+	protected, err := policy.NewProtectionPolicy([]string{"127.0.0.0/8"}, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.ProtectionPolicy = func() *policy.ProtectionPolicy { return &protected }
+	if _, err := d.DialCampusIPPort(ctx, "tcp", listener.Addr().String()); !errors.Is(err, policy.ErrProtectedTarget) {
+		t.Fatalf("protected capture = %v", err)
+	}
+	conn, err := d.DialIPPort(ctx, "tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatalf("captured dial changed ordinary proxy routing: %v", err)
+	}
+	conn.Close()
+}
+
 func TestIPPortEntryRejectsUnresolvedNames(t *testing.T) {
 	dialer := NewDialer(nil, nil, nil, false)
 	conn, err := dialer.DialIPPort(t.Context(), "udp", "localhost:9")
