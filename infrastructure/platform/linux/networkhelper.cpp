@@ -368,10 +368,8 @@ PlatformOperationResult linuxNetworkRecoveryReady()
         || worker.value("Type") != "oneshot" || worker.value("User") != "root" || worker.value("PrivateNetwork") != "no"
         || worker.value("Slice") != "system.slice" || worker.value("RemainAfterExit") != "no") return unavailable();
     const auto scope = worker.value("NetworkNamespacePath");
-    struct stat here{}, managed{};
     const auto path = scope.isEmpty() ? QByteArray("/proc/1/ns/net") : scope.toLocal8Bit();
-    if (::stat("/proc/thread-self/ns/net", &here) != 0 || ::stat(path.constData(), &managed) != 0
-        || here.st_dev != managed.st_dev || here.st_ino != managed.st_ino)
+    if (!sameLinuxNetworkNamespace(path))
         return {Status::Unsupported, "The system recovery service does not share this network namespace."};
     return {};
 }
@@ -381,13 +379,12 @@ int runLinuxNetworkHelper(int socket, int trustedDirectory, uid_t uid, pid_t pid
 {
     ucred peer{}; socklen_t size = sizeof(peer);
     int type = 0; socklen_t typeSize = sizeof(type);
-    struct stat here{}, caller{}, base{};
+    struct stat base{};
     const auto callerNamespace = QByteArray("/proc/") + QByteArray::number(pid) + "/ns/net";
     if (::geteuid() != 0 || uid == 0 || pid <= 0 || owner.isNull()
         || ::getsockopt(socket, SOL_SOCKET, SO_TYPE, &type, &typeSize) != 0 || type != SOCK_SEQPACKET
         || ::getsockopt(socket, SOL_SOCKET, SO_PEERCRED, &peer, &size) != 0 || size != sizeof(peer) || peer.uid != uid || peer.pid != pid
-        || ::stat("/proc/thread-self/ns/net", &here) != 0 || ::stat(callerNamespace.constData(), &caller) != 0
-        || here.st_dev != caller.st_dev || here.st_ino != caller.st_ino
+        || !sameLinuxNetworkNamespace(callerNamespace)
         || ::fstat(trustedDirectory, &base) != 0 || !S_ISDIR(base.st_mode) || base.st_uid != 0 || (base.st_mode & 07777) != 0700)
         return 1;
     const int flags = ::fcntl(socket, F_GETFD);

@@ -138,6 +138,31 @@ def exercise(binary, directory, phase, uid, environment):
             os.close(device)
 
 
+def exercise_foreign_provider(binary, environment):
+    parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+    parent.settimeout(10)
+    process = subprocess.Popen(['/usr/bin/unshare', '--net', str(binary), '--foreign-provider-isolated', str(child.fileno())],
+                               pass_fds=(child.fileno(),), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    child.close()
+    try:
+        metadata, descriptors = receive(parent)
+        assert not descriptors and type(metadata['index']) is int and metadata['index'] > 1
+        run('ip', 'link', 'add', 'dnsforeign0', 'index', metadata['index'], 'type', 'dummy')
+        run('ip', 'link', 'set', 'dnsforeign0', 'up')
+        baseline = [run('/usr/bin/resolvectl', key, 'dnsforeign0', env=environment) for key in ('dns', 'domain', 'default-route')]
+        parent.send(json.dumps({'ready': True}).encode())
+        output, error = process.communicate(timeout=15)
+        current = [run('/usr/bin/resolvectl', key, 'dnsforeign0', env=environment) for key in ('dns', 'domain', 'default-route')]
+        assert process.returncode == 0 and baseline == current, (output, error, baseline, current)
+        print(output, end='', flush=True)
+        run('ip', 'link', 'delete', 'dnsforeign0')
+    finally:
+        parent.close()
+        if process.poll() is None:
+            process.kill()
+            process.communicate(timeout=5)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--probe', type=Path, required=True)
@@ -193,6 +218,7 @@ def main():
             run('/usr/bin/resolvectl', 'dns', 'dnsoriginal0', '192.0.2.53', env=environment)
             run('/usr/bin/resolvectl', 'domain', 'dnsoriginal0', '~original.test', env=environment)
             baseline = [run('/usr/bin/resolvectl', key, 'dnsoriginal0', env=environment) for key in ('dns', 'domain', 'default-route')]
+            exercise_foreign_provider(binary, environment)
             output = run(binary, '--isolated')
             print(output, end='', flush=True)
             phases = ('flow', 'apply-domains-pending', 'apply-dns-confirmed', 'restore-dns-pending', 'restore-dns-confirmed')

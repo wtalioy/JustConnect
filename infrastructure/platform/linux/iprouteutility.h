@@ -17,6 +17,13 @@ inline constexpr qsizetype LinuxRouteSnapshotRows = 4096;
 inline constexpr qsizetype LinuxRouteRecoveryBytes = 2*1024*1024;
 inline constexpr int LinuxRouteOperationTimeoutMs = 10000;
 
+inline bool sameLinuxNetworkNamespace(const QByteArray &path)
+{
+    struct stat here{}, other{};
+    return ::stat("/proc/thread-self/ns/net", &here) == 0 && ::stat(path.constData(), &other) == 0
+        && here.st_dev == other.st_dev && here.st_ino == other.st_ino;
+}
+
 inline QString linuxNetworkNamespace()
 {
     struct stat identity{};

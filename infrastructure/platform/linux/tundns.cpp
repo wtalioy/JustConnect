@@ -112,6 +112,14 @@ LinuxTunDns::State LinuxTunDns::read(QDeadlineTimer &deadline) const
     state.provider = {{"bus", id.arguments().first().toString()}, {"owner", owner.arguments().first().toString()}};
     if (!providerIdentity(state.provider)) { state.result = failure("Invalid resolver provider identity."); return state; }
     const auto destination = state.provider["owner"].toString();
+    const auto process = call(bus, "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
+                              "GetConnectionUnixProcessID", {destination}, deadline);
+    const auto pid = process.arguments().isEmpty() ? 0 : process.arguments().first().toUInt();
+    if (process.type() != QDBusMessage::ReplyMessage || process.signature() != "u" || pid == 0 || pid > INT_MAX
+        || !sameLinuxNetworkNamespace(QByteArray("/proc/") + QByteArray::number(pid) + "/ns/net")) {
+        state.result = {Status::Unsupported, "The resolver provider does not share the owned TUN network namespace."};
+        return state;
+    }
     const auto link = call(bus, destination, managerPath, managerInterface, "GetLink", {int(record["index"].toInteger())}, deadline);
     if (link.type() == QDBusMessage::ErrorMessage && link.errorName() == service + ".NoSuchLink") {
         state.absent = true; return state;
