@@ -41,7 +41,18 @@ int main(int argc, char **argv)
             {"revision", JC_HELPER_REVISION}, {"source_state", JC_HELPER_SOURCE_STATE}}).toJson(QJsonDocument::Compact);
         return ::write(STDOUT_FILENO, bytes.constData(), size_t(bytes.size())) == bytes.size() ? 0 : 1;
     }
-    if (::geteuid() != 0 || argc != 3 || QFileInfo("/proc/self/exe").canonicalFilePath() != QLatin1String(LinuxNetworkHelperPath)) return 1;
+    if (::geteuid() != 0 || QFileInfo("/proc/self/exe").canonicalFilePath() != QLatin1String(LinuxNetworkHelperPath)) return 1;
+    if (argc == 2 && app.arguments()[1] == "--recover-stale") {
+        // System recovery is root-initiated; the user-authorized entry remains bound to its original peer.
+        if (::getuid() != 0 || qEnvironmentVariableIsSet("PKEXEC_UID")) return 1;
+        const int directory = storage();
+        if (directory < 0) return 1;
+        const auto closeDirectory = qScopeGuard([&] { ::close(directory); });
+        const auto summary = recoverLinuxHelperRecords(directory);
+        const auto bytes = QJsonDocument(summary.json()).toJson(QJsonDocument::Compact) + '\n';
+        return ::write(STDOUT_FILENO, bytes.constData(), size_t(bytes.size())) == bytes.size() && summary.succeeded() ? 0 : 1;
+    }
+    if (argc != 3) return 1;
     bool validUid = false, validPid = false;
     const auto invoker = qEnvironmentVariable("PKEXEC_UID");
     const auto callerUid = invoker.toUInt(&validUid);

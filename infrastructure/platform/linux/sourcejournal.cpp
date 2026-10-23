@@ -29,8 +29,9 @@ void LinuxSourceJournal::close()
     if (directory>=0) ::close(directory);
     directory = -1;owner = {};known = {};bound = false;
 }
-PlatformOperationResult LinuxSourceJournal::open(int trustedDirectory, const QUuid &id)
+PlatformOperationResult LinuxSourceJournal::open(int trustedDirectory, const QUuid &id, bool *alreadyOwned)
 {
+    if (alreadyOwned) *alreadyOwned = false;
     if (::geteuid()!=0) return {Status::PermissionDenied,"Source ownership journals require the privileged owner."};
     if (directory>=0 || trustedDirectory<0 || id.isNull()) return {Status::Failed,"A private directory descriptor and inactive journal owner are required."};
     // A new open description gives each guardian an independent lock, even for the same supplied fd.
@@ -40,7 +41,10 @@ PlatformOperationResult LinuxSourceJournal::open(int trustedDirectory, const QUu
     if (::fstat(fd,&info)!=0 || !S_ISDIR(info.st_mode) || info.st_uid!=0 || (info.st_mode&07777)!=0700) {
         ::close(fd);return {Status::Failed,"Source journal directory must be root-owned and private."};
     }
-    if (::flock(fd,LOCK_EX|LOCK_NB)!=0) { const auto result=failed("Source journal is already owned or cannot be locked.");::close(fd);return result; }
+    if (::flock(fd,LOCK_EX|LOCK_NB)!=0) {
+        if (alreadyOwned) *alreadyOwned = errno == EWOULDBLOCK || errno == EAGAIN;
+        const auto result=failed("Source journal is already owned or cannot be locked.");::close(fd);return result;
+    }
     directory = fd;owner = id;
     return {};
 }

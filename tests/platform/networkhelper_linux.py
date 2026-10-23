@@ -2,6 +2,7 @@
 
 import argparse
 import array
+import errno
 import json
 import os
 from pathlib import Path
@@ -131,18 +132,30 @@ def main():
                 ip('-N', '-j', '-4', 'rule', 'show'), socket.if_nameindex())
 
     baseline = inventory()
-    control, child_control = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET | socket.SOCK_CLOEXEC)
-    child = os.fork()
-    if child == 0:
-        control.close()
-        try:
-            user_agent(child_control, args.uid)
-        except BaseException:
-            os._exit(1)
-        else:
-            os._exit(0)
-    child_control.close()
-    control.settimeout(20)
+    def start_receiver():
+        control, child_control = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET | socket.SOCK_CLOEXEC)
+        child = os.fork()
+        if child == 0:
+            # A replacement ordinary caller must not inherit the root recovery directory or other capabilities.
+            for value in os.listdir('/proc/self/fd'):
+                fd = int(value)
+                if fd >= 3 and fd != child_control.fileno():
+                    try:
+                        os.close(fd)
+                    except OSError as error:
+                        if error.errno != errno.EBADF:
+                            raise
+            try:
+                user_agent(child_control, args.uid)
+            except BaseException:
+                os._exit(1)
+            else:
+                os._exit(0)
+        child_control.close()
+        control.settimeout(20)
+        return control, child
+
+    control, child = start_receiver()
     processes = []
 
     def command(operation, **values):
@@ -179,6 +192,18 @@ def main():
                 command('accept', pid=process.pid)
                 return process
 
+            def scan(success=True):
+                if args.installed:
+                    arguments, inherited = [str(helper), '--recover-stale'], ()
+                    environment = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C.UTF-8'}
+                else:
+                    arguments, inherited = [str(helper), '--scan-isolated', str(directory)], (directory,)
+                    environment = None
+                result = subprocess.run(arguments, pass_fds=inherited, env=environment, text=True, capture_output=True, timeout=30)
+                summary = json.loads(result.stdout)
+                assert (result.returncode == 0) == success and summary['worker'] == 'network-recovery', (summary, result.stderr)
+                return summary
+
             def receive(owner, state, descriptor=0, success=True):
                 value = command('receive')
                 packet = value['packet']
@@ -212,6 +237,11 @@ def main():
             process = start(owner)
             command('send', packet=application(owner))
             receive(owner, 'active', 1)
+            held = inventory()
+            saved_live = {path: path.read_bytes() for path in Path(temporary).rglob('*.json')}
+            summary = scan()
+            assert summary['checked'] == summary['live'] == 1 and summary['restored'] == summary['failed'] == 0
+            assert inventory() == held and all(path.read_bytes() == contents for path, contents in saved_live.items())
             command('exchange')
             command('send', packet=request(owner, 'restore'))
             receive(owner, 'restored')
@@ -291,6 +321,32 @@ def main():
             command('send', packet=request(owner, 'cleanup'))
             assert command('receive')['packet'] is None and process.wait(timeout=10) != 0
             assert inventory() == before_cleanup, 'receipt cleanup performed native recovery on an active connection'
+            context_file = Path(temporary) / f'{args.uid}-{owner}' / 'source.json'
+            original_context = context_file.read_bytes()
+            foreign_context = json.loads(original_context)
+            foreign_context['namespace'] += '.foreign'
+            context_file.write_bytes(encode(foreign_context))
+            summary = scan(success=False)
+            assert summary['failed'] == 1 and summary['restored'] == 0 and inventory() == before_cleanup
+            context_file.write_bytes(original_context)
+            summary = scan()
+            assert summary['restored'] == 1 and summary['failed'] == summary['live'] == 0
+            summary = scan()
+            assert summary['unchanged'] == 1 and summary['restored'] == 0
+            outside = Path(temporary).parent / (Path(temporary).name + '-foreign')
+            outside.mkdir(mode=0o700)
+            sentinel = outside / 'preserve'
+            sentinel.write_bytes(b'foreign private storage')
+            alias = Path(temporary) / f'{args.uid}-{uuid.uuid4()}'
+            alias.symlink_to(outside, target_is_directory=True)
+            try:
+                summary = scan(success=False)
+                assert summary['failed'] == 1 and summary['unchanged'] == 1
+                assert sentinel.read_bytes() == b'foreign private storage' and list(outside.iterdir()) == [sentinel]
+            finally:
+                alias.unlink()
+                sentinel.unlink()
+                outside.rmdir()
             process = start(owner)
             command('send', packet=request(owner, 'recover'))
             receive(owner, 'restored')
@@ -312,10 +368,44 @@ def main():
             receive(owner, 'cleaned')
             assert process.wait(timeout=10) == 0
             assert inventory() == baseline and not list(Path(temporary).iterdir())
+            empty_summary = scan()
+            assert empty_summary['checked'] == 0 and not empty_summary['limited']
+            excessive = [Path(temporary) / f'unknown-{index}' for index in range(empty_summary['capacity'] + 1)]
+            try:
+                for path in excessive:
+                    path.touch(mode=0o600)
+                summary = scan(success=False)
+                assert summary['limited'] and summary['checked'] == summary['failed'] == empty_summary['capacity']
+                assert all(path.is_file() and path.stat().st_size == 0 for path in excessive) and inventory() == baseline
+            finally:
+                for path in excessive:
+                    path.unlink()
+            print('PASS: system recovery bounds storage enumeration and preserves unknown entries', flush=True)
             process = start(owner)
             command('send', packet=request(owner, 'cleanup'))
             receive(owner, 'cleaned')
             assert process.wait(timeout=10) == 0, 'receipt cleanup must be safely repeatable after a lost completion'
+
+            # Both original processes are gone: system recovery needs only trusted records, not a live GUI PID.
+            owner = str(uuid.uuid4())
+            process = start(owner)
+            command('send', packet=application(owner))
+            receive(owner, 'active', 1)
+            process.kill()
+            assert process.wait(timeout=10) < 0
+            command('exit')
+            control.close()
+            _, status = os.waitpid(child, 0)
+            child = -1
+            assert status == 0 and inventory() != baseline
+            summary = scan()
+            assert summary['restored'] == 1 and summary['failed'] == summary['live'] == 0 and inventory() == baseline
+            control, child = start_receiver()
+            process = start(owner)
+            command('send', packet=request(owner, 'recover'))
+            receive(owner, 'restored')
+            finish(owner, process)
+            print('PASS: trusted system recovery skips live locks, rejects foreign namespace, and restores after GUI and helper both exit', flush=True)
 
             # Crash boundary: receipt deletion was durable, but its empty parent was not yet removed.
             owner = str(uuid.uuid4())
@@ -364,11 +454,14 @@ def main():
                 process.kill()
                 process.wait(timeout=5)
         try:
-            command('exit')
+            if child > 0:
+                try:
+                    command('exit')
+                finally:
+                    control.close()
+                    _, status = os.waitpid(child, 0)
+                    assert status == 0
         finally:
-            control.close()
-            _, status = os.waitpid(child, 0)
-            assert status == 0
             ip('link', 'del', 'helperorig0')
 
 
