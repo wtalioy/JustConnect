@@ -32,6 +32,9 @@ function(justconnect_platform TARGET)
     if(APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
         target_sources(${TARGET} PRIVATE "${REPO}/infrastructure/platform/tundevice.cpp")
     endif()
+    if(WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        target_sources(${TARGET} PRIVATE "${REPO}/infrastructure/platform/persistentproxy.cpp")
+    endif()
     if(WIN32)
         add_executable(JustConnectDnsReader "${REPO}/infrastructure/platform/windows/dnsreader.cpp")
         set_target_properties(JustConnectDnsReader PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
@@ -47,7 +50,6 @@ function(justconnect_platform TARGET)
     elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         find_package(Qt6 REQUIRED COMPONENTS DBus)
         target_sources(${TARGET} PRIVATE "${REPO}/infrastructure/platform/linux/dnssnapshot.cpp"
-            "${REPO}/infrastructure/platform/linux/persistentproxy.cpp"
             "${REPO}/infrastructure/platform/linux/tundevice.cpp"
             "${REPO}/infrastructure/platform/linux/sourcejournal.cpp"
             "${REPO}/infrastructure/platform/linux/sourceroutes.cpp"

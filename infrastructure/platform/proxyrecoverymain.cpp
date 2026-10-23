@@ -7,7 +7,7 @@
 #include <QStandardPaths>
 #include <iostream>
 #ifdef Q_OS_LINUX
-#include "linux/persistentproxy.h"
+#include "persistentproxy.h"
 #include "systemcredentialstore.h"
 #include <unistd.h>
 #endif
@@ -28,7 +28,7 @@ int main(int argc, char **argv)
     // A user owns the proxy settings across data/temp roots; do not derive this lock from XDG or TMPDIR.
     const auto lockFile=QString("/tmp/JustConnect-proxy-recovery-%1.lock").arg(geteuid());
     auto credentials=createSystemCredentialStore();
-    LinuxPersistentProxyBackend backend(*credentials,LinuxPersistentProxyBackend::credentialKey());
+    PersistentProxyBackend backend(*credentials,PersistentProxyBackend::credentialKey());
     return runProxyRecoveryWorker(backend,application.arguments()[1],lockFile,directory+"/proxy-recovery.lock");
 #else
     const auto lockFile=directory+"/proxy-recovery.lock";

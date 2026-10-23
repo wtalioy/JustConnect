@@ -1,4 +1,4 @@
-#include "infrastructure/platform/linux/persistentproxy.h"
+#include "infrastructure/platform/persistentproxy.h"
 #include "infrastructure/platform/proxyrecovery.h"
 #include "infrastructure/platform/systemcredentialstore.h"
 #include <QCoreApplication>
@@ -53,7 +53,7 @@ static void pauseAt(const char *stage) {
 }
 static int worker(const QString &endpoint,const QString &stage,const QString &key) {
     auto credentials=createSystemCredentialStore();int writes=0;
-    LinuxPersistentProxyBackend backend(*credentials,key,[&](const QString &program,const QStringList &arguments) {
+    PersistentProxyBackend backend(*credentials,key,[&](const QString &program,const QStringList &arguments) {
         if(arguments.value(0)!="set" && program!="kwriteconfig6")return runPlatformCommand(program,arguments);
         if(stage=="prepared" && writes==0)pauseAt("prepared");
         if(stage=="confirmed" && writes==1)pauseAt("confirmed");
@@ -124,7 +124,7 @@ static void phase(const QString &name,const QString &key) {
     if(name=="unavailable" || name=="locked") {
         int calls=0;const auto before=settings();QLockFile ownership(root.filePath("crash-owner.lock"));ownership.setStaleLockTime(0);
         require(ownership.tryLock(),"Acquire read-failure fixture ownership");
-        LinuxPersistentProxyBackend backend(*credentials,LinuxPersistentProxyBackend::credentialKey(),[&](const QString &,const QStringList &){++calls;return PlatformCommandResult{};});
+        PersistentProxyBackend backend(*credentials,PersistentProxyBackend::credentialKey(),[&](const QString &,const QStringList &){++calls;return PlatformCommandResult{};});
         const auto result=backend.clear();
         require(!result.succeeded() && result.mayHaveChanged && calls==0 && settings()==before,"Unreadable crash record reached native operations or claimed recovery");
     } else if(name=="prepare" || name=="denied") {
@@ -148,7 +148,7 @@ static void phase(const QString &name,const QString &key) {
             require(owner.stop()==0 && credentials->read(key).status==CredentialStatus::NotFound,"Denied crash checkpoint wrote native settings or retained a record");
         } else {
             for(const auto &stage:QStringList{"prepared","unconfirmed","confirmed","restore","recreated","steady"}) {
-                const auto effectiveKey=stage=="steady"?LinuxPersistentProxyBackend::credentialKey():key;
+                const auto effectiveKey=stage=="steady"?PersistentProxyBackend::credentialKey():key;
                 Fixture owner(stage,effectiveKey);owner.start("apply");
                 if(stage=="restore" || stage=="recreated" || stage=="steady") {
                     require(owner.result()["status"]==int(Status::Success),"Apply real private proxy before crash");
@@ -199,8 +199,8 @@ static void phase(const QString &name,const QString &key) {
         }
     } else if(name=="finish") {
         QFile baseline(root.filePath("crash-before.txt"));require(baseline.open(QIODevice::ReadOnly),"Read independent native baseline");
-        Fixture fresh("packaged",LinuxPersistentProxyBackend::credentialKey());require(fresh.clear(),"Fresh process failed after applied worker SIGKILL and provider restart");fresh.stop();
-        require(settings()==baseline.readAll() && credentials->read(LinuxPersistentProxyBackend::credentialKey()).status==CredentialStatus::NotFound,"Steady crash recovery lost original values");
+        Fixture fresh("packaged",PersistentProxyBackend::credentialKey());require(fresh.clear(),"Fresh process failed after applied worker SIGKILL and provider restart");fresh.stop();
+        require(settings()==baseline.readAll() && credentials->read(PersistentProxyBackend::credentialKey()).status==CredentialStatus::NotFound,"Steady crash recovery lost original values");
         std::cout<<"PASS: native proxy SIGKILL recovery at steady after provider restart\n";
     } else require(false,"Unknown crash fixture phase");
 }

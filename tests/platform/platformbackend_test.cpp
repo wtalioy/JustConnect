@@ -15,11 +15,13 @@
 #ifdef Q_OS_WIN
 #include <raserror.h>
 #elif defined(Q_OS_LINUX)
-#include "infrastructure/platform/linux/persistentproxy.h"
-#include "infrastructure/platform/systemcredentialstore.h"
 #include <QDir>
 #include <QFileInfo>
 #include <QLockFile>
+#endif
+#if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
+#include "infrastructure/platform/persistentproxy.h"
+#include "infrastructure/platform/systemcredentialstore.h"
 #endif
 
 static void check(bool ok, const char *message) { if (!ok) { std::cerr << message << '\n'; std::exit(1); } }
@@ -35,6 +37,7 @@ bool denyQuery=false,denySet=false,ignoreSet=false,denyNotify=false,denyRas=fals
 int writes=0,failAt=0,queries=0,setCalls=0;
 DWORD queryError=ERROR_ACCESS_DENIED;
 DWORD ignoreOption=0;
+std::function<void()> beforeProxySet;
 BOOL WINAPI query(HINTERNET, DWORD, LPVOID buffer, LPDWORD) {
     ++queries;
     if(denyQuery){SetLastError(queryError);return FALSE;}
@@ -51,6 +54,7 @@ BOOL WINAPI query(HINTERNET, DWORD, LPVOID buffer, LPDWORD) {
 }
 BOOL WINAPI set(HINTERNET, DWORD option, LPVOID buffer, DWORD) {
     if(option!=INTERNET_OPTION_PER_CONNECTION_OPTION){if(denyNotify){SetLastError(ERROR_ACCESS_DENIED);return FALSE;}return TRUE;}
+    if(beforeProxySet)beforeProxySet();
     ++setCalls;
     if(denySet || ++writes==failAt){SetLastError(ERROR_CANCELLED);return FALSE;}
     if(ignoreSet)return TRUE;
@@ -255,10 +259,13 @@ static void fieldReleaseTests() {
 }
 
 #include "windowsproxy_checkpoint_test.h"
+#include "windowsproxy_persistence_test.h"
 
 namespace {
 WinState nativeOriginal;
 bool nativeSaved=false;
+std::unique_ptr<CredentialStore> nativeCredentials;
+QString nativeCredentialKey;
 bool nativeRead(WinState &state) {
     INTERNET_PER_CONN_OPTIONW options[4]{};
     const DWORD keys[]{INTERNET_PER_CONN_FLAGS_UI,INTERNET_PER_CONN_PROXY_SERVER,INTERNET_PER_CONN_PROXY_BYPASS,INTERNET_PER_CONN_AUTOCONFIG_URL};
@@ -286,6 +293,12 @@ void nativeRestore() {
         || !InternetSetOptionW(nullptr,INTERNET_OPTION_REFRESH,nullptr,0)) {
         std::cerr<<"Failed to restore the disposable runner baseline\n";std::_Exit(1);
     }
+    if(nativeCredentials && !nativeCredentialKey.isEmpty()) {
+        const auto result=nativeCredentials->remove(nativeCredentialKey);
+        if(!result.succeeded() && result.status!=CredentialStatus::NotFound) {
+            std::cerr<<"Failed to remove the private native proxy test credential\n";std::_Exit(1);
+        }
+    }
 }
 }
 static void nativeRoundtrip() {
@@ -309,6 +322,21 @@ static void nativeRoundtrip() {
     check(recovered.recover(record).succeeded() && nativeRead(current) && current.flags==original.flags && current.proxy==original.proxy
           && current.bypass==original.bypass && current.pac==original.pac,"Fresh WinINet backend lost native original values");
     std::cout<<"PASS: fresh backend restored the native disposable WinINet snapshot\n";
+    nativeCredentials=createSystemCredentialStore();
+    const auto privateKey=QString::fromLatin1(QCryptographicHash::hash("JustConnect-native-proxy-recovery/"+QUuid::createUuid().toRfc4122(),QCryptographicHash::Sha256).toHex());
+    check(nativeCredentials->read(privateKey).status==CredentialStatus::NotFound,"Private native proxy recovery credential already exists");
+    nativeCredentialKey=privateKey;
+    {
+        PersistentProxyBackend owner(*nativeCredentials,privateKey,WindowsProxyApi{InternetQueryOptionW,InternetSetOptionW,entries});
+        check(owner.apply(config).succeeded() && nativeCredentials->read(privateKey).succeeded(),
+              "Native WinINet mutation was not backed by Windows protected storage");
+    }
+    PersistentProxyBackend protectedRecovery(*nativeCredentials,privateKey,WindowsProxyApi{InternetQueryOptionW,InternetSetOptionW,entries});
+    check(protectedRecovery.clear().succeeded() && nativeCredentials->read(privateKey).status==CredentialStatus::NotFound
+          && nativeRead(current) && current.flags==original.flags && current.proxy==original.proxy
+          && current.bypass==original.bypass && current.pac==original.pac,
+          "Fresh Windows protected recovery lost native settings or its confirmed credential removal");
+    std::cout<<"PASS: shared persistent backend restored native WinINet from Credential Manager and confirmed removal\n";
     check(backend.apply(config).succeeded(),"native reapply");
     current={PROXY_TYPE_DIRECT|PROXY_TYPE_PROXY,"http=external.invalid:8899","external.invalid","https://pac.invalid/new.pac"};
     check(nativeWrite(current) && backend.clear().succeeded(),"native external changes during ownership");
@@ -725,7 +753,7 @@ static void checkpointTests() {
         const auto foreign=QJsonDocument(record).toJson(QJsonDocument::Compact);
         for(const auto &invalid:QList<QByteArray>{QByteArray{},"not-json","{}",foreign}) {
             store.bytes=invalid;store.present=true;int calls=0;
-            LinuxPersistentProxyBackend backend(store,QString(64,'a'),[&](const QString &p,const QStringList &a){++calls;return fixture.run(p,a);});
+            PersistentProxyBackend backend(store,QString(64,'a'),[&](const QString &p,const QStringList &a){++calls;return fixture.run(p,a);});
             const auto result=backend.clear();
             check(!result.succeeded() && !result.mayHaveChanged && !backend.apply(config).succeeded() && calls==0 && store.bytes==invalid,
                   "Invalid protected recovery reached native operations, allowed a new application or lost its original bytes");
@@ -791,7 +819,7 @@ static void protectedProxyPhase(const QString &phase,const QString &key) {
     QLockFile ownership(root.filePath("proxy-test.lock"));ownership.setStaleLockTime(0);
     check(ownership.tryLock(),"Acquire private proxy recovery ownership");
     auto credentials=createSystemCredentialStore();int mutations=0,calls=0;
-    LinuxPersistentProxyBackend backend(*credentials,key,[&](const QString &p,const QStringList &a) {
+    PersistentProxyBackend backend(*credentials,key,[&](const QString &p,const QStringList &a) {
         ++calls;if(a.value(0)=="set")++mutations;return runPlatformCommand(p,a);
     });
     const auto all=[] {
@@ -863,10 +891,10 @@ static void protectedProxyPhase(const QString &phase,const QString &key) {
         ownership.unlock();
         ProxyRecoveryBackend worker;
         check(worker.check(config).result.succeeded() && worker.apply(config).succeeded()
-              && credentials->read(LinuxPersistentProxyBackend::credentialKey()).succeeded() && all()!=original,
+              && credentials->read(PersistentProxyBackend::credentialKey()).succeeded() && all()!=original,
               "Packaged worker did not use protected checkpoints for actual native application");
         check(worker.clear().succeeded() && all()==original
-              && credentials->read(LinuxPersistentProxyBackend::credentialKey()).status==CredentialStatus::NotFound,
+              && credentials->read(PersistentProxyBackend::credentialKey()).status==CredentialStatus::NotFound,
               "Packaged worker did not restore native settings and remove its protected record");
     } else check(false,"Unknown protected recovery phase");
     std::cout<<"PASS: protected native proxy recovery "<<phase.toStdString()<<'\n';
@@ -1016,6 +1044,7 @@ int main(int argc, char **argv) {
 #endif
 #ifdef Q_OS_WIN
     fieldReleaseTests();
+    persistenceTests();
 #endif
 #if defined(Q_OS_LINUX) || defined(Q_OS_WIN)
     checkpointTests();
