@@ -70,8 +70,8 @@ def certificate(directory, name, keychains):
     # codesign resolves identities through the user's search list, as in the package signing job.
     current = shlex.split(run('/usr/bin/security', 'list-keychains', '-d', 'user').stdout.decode())
     run('/usr/bin/security', 'list-keychains', '-d', 'user', '-s', *current, keychain)
-    identities = run('/usr/bin/security', 'find-identity', '-v', '-p', 'codesigning', keychain).stdout.decode()
-    assert digest in identities, 'Temporary signing identity is not valid: ' + identities
+    identities = run('/usr/bin/security', 'find-identity', '-p', 'codesigning', keychain).stdout.decode()
+    assert digest in identities, 'Temporary certificate has no matching signing key: ' + identities
     return digest
 
 
