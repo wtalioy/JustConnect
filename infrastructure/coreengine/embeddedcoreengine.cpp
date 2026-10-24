@@ -3,6 +3,11 @@
 #include "application/networkprotection.h"
 #include "infrastructure/platform/dnssnapshot.h"
 #include <atomic>
+#ifdef Q_OS_LINUX
+#include <fcntl.h>
+#include <unistd.h>
+#include <memory>
+#endif
 
 #include <QCoreApplication>
 #include <QJsonDocument>
@@ -12,7 +17,7 @@
 namespace {
 #define CORE_FUNCTIONS(X) X(jc_abi_version) X(jc_build_info) X(jc_config_validate) X(jc_session_create) X(jc_session_start) \
     X(jc_session_read) X(jc_session_respond) X(jc_session_stop) X(jc_session_destroy)
-#define CORE_EXTENSIONS(X) X(jc_session_update_policy) X(jc_network_snapshot) X(jc_session_resources)
+#define CORE_EXTENSIONS(X) X(jc_session_update_policy) X(jc_network_snapshot) X(jc_session_resources) X(jc_session_attach_tun)
 struct Library {
 #define MEMBER(name) decltype(&::name) name = nullptr;
     CORE_FUNCTIONS(MEMBER)
@@ -235,6 +240,16 @@ public:
         }
         emit snapshotResult(id, kind, requestedGeneration, snapshot, status);
     }
+    void attachTUN(quint64 id, const QString &requestedGeneration, int descriptor, quint32 mtu) {
+        int status = JC_STALE_REQUEST;
+        if (id == serial && active && !cancelled.load() && !QThread::currentThread()->isInterruptionRequested()) {
+            bool valid = false;
+            const auto requested = requestedGeneration.toULongLong(&valid);
+            status = valid && requested && requestedGeneration == QString::number(requested)
+                ? library().jc_session_attach_tun(handle, requested, descriptor, mtu) : JC_INVALID_ARGUMENT;
+        }
+        emit tunResult(id, requestedGeneration, status);
+    }
     void poll() {
         if (!active || QThread::currentThread()->isInterruptionRequested()) return;
         QByteArray buffer(JC_MAX_OUTPUT, Qt::Uninitialized);
@@ -270,6 +285,7 @@ signals:
     void accepted(quint64 serial);
     void rejected(quint64 serial);
     void policyResult(quint64 serial, const QString &generation, const QString &revision, int status);
+    void tunResult(quint64 serial, const QString &generation, int status);
     void snapshotResult(quint64 serial, CoreEngine::Snapshot kind, const QString &generation, const QJsonObject &snapshot, int status);
 };
 
@@ -296,6 +312,9 @@ EmbeddedCoreEngine::EmbeddedCoreEngine(QObject *parent) : CoreEngine(parent), pu
         if (id != serial) return;
         const bool stale = !active || stopping;
         emit snapshotReady(kind, generation, stale ? QJsonObject{} : snapshot, stale ? RequestStatus::Stale : requestStatus(status));
+    }, Qt::QueuedConnection);
+    connect(pump, &CoreEventPump::tunResult, this, [this](quint64 id, const QString &generation, int status) {
+        if (id == serial) emit tunAttached(generation, !active || stopping ? RequestStatus::Stale : requestStatus(status));
     }, Qt::QueuedConnection);
     thread.start();
 }
@@ -348,6 +367,22 @@ void EmbeddedCoreEngine::readSnapshot(Snapshot kind, const QString &generation) 
     if (!active || stopping) { emit snapshotReady(kind, generation, {}, RequestStatus::Stale); return; }
     const auto id = serial;
     QMetaObject::invokeMethod(pump, [this, id, kind, generation] { pump->readSnapshot(id, kind, generation); }, Qt::QueuedConnection);
+}
+void EmbeddedCoreEngine::attachTUN(const QString &generation, qint32 descriptor, quint32 mtu) {
+    if (!active || stopping) { emit tunAttached(generation, RequestStatus::Stale); return; }
+#ifdef Q_OS_LINUX
+    if (!library().jc_session_attach_tun || !buildInfo()["capabilities"].toObject()["raw_ipv4_tun_fd"].toBool()) {
+        emit tunAttached(generation, RequestStatus::Unavailable); return;
+    }
+    const int copied = ::fcntl(descriptor, F_DUPFD_CLOEXEC, 3);
+    if (copied < 0) { emit tunAttached(generation, RequestStatus::Invalid); return; }
+    const auto held = std::shared_ptr<int>(new int(copied), [](int *value) { ::close(*value); delete value; });
+    const auto id = serial;
+    QMetaObject::invokeMethod(pump, [this, id, generation, held, mtu] { pump->attachTUN(id, generation, *held, mtu); }, Qt::QueuedConnection);
+#else
+    Q_UNUSED(descriptor); Q_UNUSED(mtu);
+    emit tunAttached(generation, RequestStatus::Unavailable);
+#endif
 }
 void EmbeddedCoreEngine::deliver(quint64 id, const QJsonObject &event, const QJsonObject &initialPolicy) {
     if (!active || id != serial) return;

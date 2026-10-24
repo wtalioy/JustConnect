@@ -39,6 +39,13 @@ foreach(KIND coreabi coreabi_fixture)
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu")
 endforeach()
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(coreabi_tun_adapter_test tun_adapter.cpp)
+    target_include_directories(coreabi_tun_adapter_test PRIVATE "${REPO}")
+    target_link_libraries(coreabi_tun_adapter_test PRIVATE coreabi_engine Qt6::Network)
+    justconnect_core_runtime(coreabi_tun_adapter_test coreabi)
+endif()
+
 add_test(NAME coreabi_protocol_test
     COMMAND "${CMAKE_COMMAND}" -E env "JC_NATIVE_PROTOCOL_HOST=$<TARGET_FILE:coreabi_test>"
         GOTOOLCHAIN=local GOWORK=off GOENV=off CGO_ENABLED=1 GOEXPERIMENT=cgocheck2

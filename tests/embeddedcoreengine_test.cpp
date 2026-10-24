@@ -38,6 +38,7 @@ int main(int argc, char **argv) {
     EmbeddedCoreEngine engine;
     QJsonObject request;
     QString generation;
+    QList<CoreEngine::RequestStatus> tunReplies;
     QList<CoreEngine::RequestStatus> policyReplies;
     QList<CoreEngine::RequestStatus> snapshotReplies;
     QJsonObject lastSnapshot;
@@ -64,6 +65,12 @@ int main(int argc, char **argv) {
     QObject::connect(&engine, &CoreEngine::diagnostic, [&](const QString &code) {
         check(!code.contains("private-"), "diagnostics do not disclose credentials");
     });
+    QObject::connect(&engine, &CoreEngine::tunAttached, [&](const QString &value, CoreEngine::RequestStatus status) {
+        check(QThread::currentThread() == app.thread() && value == generation, "TUN result preserves its generation on the GUI thread");
+        tunReplies.append(status);
+    });
+    engine.attachTUN(generation, -1, 1400);
+    check(tunReplies.size() == 1 && tunReplies.last() == CoreEngine::RequestStatus::Stale, "idle adapter rejects TUN handoff");
     QTimer heartbeat;
     QObject::connect(&heartbeat, &QTimer::timeout, [&] { ++ticks; });
     heartbeat.start(1);
@@ -110,6 +117,9 @@ int main(int argc, char **argv) {
     until([&] { return ready == 1; });
     engine.respond(answer);
     until([&] { return rejected == 2; });
+    engine.attachTUN(generation, -1, 1400);
+    until([&] { return tunReplies.size() == 2; });
+    check(tunReplies.last() == CoreEngine::RequestStatus::Unavailable, "fixture driver cannot accept a real TUN device");
     const auto beforeStop = policyReplies.size();
     const auto snapshotsBeforeStop = snapshotReplies.size();
     engine.readSnapshot(CoreEngine::Snapshot::Network,generation);

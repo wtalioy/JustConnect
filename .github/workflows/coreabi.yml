@@ -149,7 +149,7 @@ jobs:
         run: |
           go -C corelib test -c -o ../build/coreabi/native-tun-host ./internal/bridge
           go -C corelib test -race -c -o ../build/coreabi/native-tun-fd ./internal/tundevice
-          sudo unshare --net -- env PYTHONDONTWRITEBYTECODE=1 "$(command -v python)" tests/platform/tun_coreabi_linux.py --uid "$(id -u)" --allocator build/coreabi/linux_tundevice_test --gateway build/coreabi/native-tun-host --host build/coreabi/coreabi_test --fd-test build/coreabi/native-tun-fd 2>&1 | tee build/coreabi/linux-tun-coreabi.log
+          sudo unshare --net -- env PYTHONDONTWRITEBYTECODE=1 "$(command -v python)" tests/platform/tun_coreabi_linux.py --uid "$(id -u)" --allocator build/coreabi/linux_tundevice_test --gateway build/coreabi/native-tun-host --host build/coreabi/coreabi_test --fd-test build/coreabi/native-tun-fd --adapter build/coreabi/coreabi_tun_adapter_test 2>&1 | tee build/coreabi/linux-tun-coreabi.log
 
       - name: Check original Go underlay beneath a competing Linux TUN route
         if: runner.os == 'Linux'
