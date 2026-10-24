@@ -23,7 +23,11 @@ SERVICE = APP_ID + LAYOUT['service_suffix']
 
 
 def run(*args, check=True, **kwargs):
-    return subprocess.run(list(map(str, args)), check=check, capture_output=True, timeout=90, **kwargs)
+    result = subprocess.run(list(map(str, args)), check=False, capture_output=True, timeout=90, **kwargs)
+    if check and result.returncode:
+        raise RuntimeError(f'{args[0]} exited {result.returncode}: '
+                           + result.stdout.decode(errors='replace') + result.stderr.decode(errors='replace'))
+    return result
 
 
 def wait_for(predicate, message):
