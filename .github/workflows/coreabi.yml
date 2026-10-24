@@ -121,7 +121,8 @@ jobs:
           run('constants', [sys.executable, 'scripts/generate-core-abi.py', '--check'])
           run('go-test', ['go', '-C', 'corelib', 'test', '-json', '-timeout', '90s', './...'])
           if not (os.environ['RUNNER_OS'] == 'Windows' and os.environ['RUNNER_ARCH'] == 'ARM64'):
-              run('go-race', ['go', '-C', 'corelib', 'test', '-json', '-race', '-timeout', '90s', './...'])
+              # Keep race-instrumented network stacks from competing across packages.
+              run('go-race', ['go', '-C', 'corelib', 'test', '-json', '-race', '-p', '1', '-timeout', '90s', './...'])
           else:
               print('UNSUPPORTED: Go race detector on Windows ARM64; normal Go and C ABI tests still run', flush=True)
           args = ['cmake', '-S', 'tests/coreabi', '-B', str(output), '-DCMAKE_BUILD_TYPE=Release']
