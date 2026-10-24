@@ -151,6 +151,23 @@ void LinuxNetworkHelperClient::recover(const QUuid &owner)
     begin(owner, Operation::Recover, {{"version", LinuxHelperProtocol}, {"owner", owner.toString(QUuid::WithoutBraces)}, {"operation", "recover"}});
 }
 
+void LinuxNetworkHelperClient::extend(const QStringList &addresses)
+{
+    const auto request = linuxHelperExtendRequest(connection,addresses);
+    if (current != State::Active || device < 0 || !parseLinuxHelperExtend(connection,request)) {
+        emit finished(Operation::Extend,{Status::Failed,"DNS route publication requires active ownership and canonical addresses."});
+        return;
+    }
+    operation = Operation::Extend; outcome.reset();
+    QPointer<LinuxNetworkHelperClient> guard(this);
+    setState(State::Extending);
+    if (!guard) return;
+    if (current == State::CancellingExtend) { restoreActive(); return; }
+    if (current != State::Extending) return;
+    deadline.start(operationTimeoutMs);
+    send(request);
+}
+
 void LinuxNetworkHelperClient::cleanupRestored(const QUuid &owner)
 {
     begin(owner, Operation::Cleanup, {{"version", LinuxHelperProtocol}, {"owner", owner.toString(QUuid::WithoutBraces)}, {"operation", "cleanup"}});
@@ -298,10 +315,7 @@ void LinuxNetworkHelperClient::receive()
             || (native.ifr_flags & (IFF_TUN | IFF_TAP | IFF_NO_PI | IFF_VNET_HDR | IFF_MULTI_QUEUE | IFF_PERSIST)) != (IFF_TUN | IFF_NO_PI)
             || !(::fcntl(received, F_GETFD) & FD_CLOEXEC)) { failed("The helper did not hand over its owned raw IP device."); return; }
         if (current == State::CancellingApply) {
-            deadline.start(operationTimeoutMs);
-            QPointer<LinuxNetworkHelperClient> guard(this);
-            setState(State::Restoring);
-            if (guard && current == State::Restoring) send(command("restore"));
+            restoreActive();
             return;
         }
         const int flags = ::fcntl(received, F_GETFL);
@@ -312,9 +326,16 @@ void LinuxNetworkHelperClient::receive()
         finish(returned, State::Active); return;
     }
     if (received >= 0 || !packet["device"].toObject().isEmpty()) { failed("Unexpected descriptor in a helper response."); return; }
+    if (phase == "active" && returned.succeeded() && (current == State::Extending || current == State::CancellingExtend)) {
+        if (child < 0) { failed("The helper exited before DNS route publication completed."); return; }
+        if (current == State::CancellingExtend) restoreActive();
+        else finish(returned,State::Active);
+        return;
+    }
     if (operation == Operation::Cleanup && current == State::Restoring && phase == "cleaned" && returned.succeeded()) {
         outcome = returned;
-    } else if ((current == State::Applying || current == State::CancellingApply || current == State::Restoring) && phase == "restored") {
+    } else if ((current == State::Applying || current == State::CancellingApply || current == State::Extending
+                || current == State::CancellingExtend || current == State::Restoring) && phase == "restored") {
         if (!returned.succeeded() && current == State::Restoring) { returned.mayHaveChanged = true; finish(returned, State::RecoveryRequired); return; }
         if (!outcome) outcome = returned;
         current = State::Acknowledging;
@@ -339,6 +360,11 @@ void LinuxNetworkHelperClient::restore()
     if (current == State::Idle) { emit finished(Operation::Restore, {}); return; }
     if (current != State::Active) { cancel(); return; }
     operation = Operation::Restore; outcome.reset();
+    restoreActive();
+}
+
+void LinuxNetworkHelperClient::restoreActive()
+{
     if (device >= 0) { ::close(device); device = -1; }
     QPointer<LinuxNetworkHelperClient> guard(this);
     setState(State::Restoring);
@@ -365,6 +391,10 @@ void LinuxNetworkHelperClient::cancel()
         outcome = Result{Status::Cancelled, "Network configuration was cancelled.", true};
         setState(State::CancellingApply);
     }
+    if (current == State::Extending) {
+        outcome = Result{Status::Cancelled,"DNS route publication was cancelled.",true};
+        setState(State::CancellingExtend);
+    }
 }
 
 void LinuxNetworkHelperClient::timeout()
@@ -384,6 +414,7 @@ void LinuxNetworkHelperClient::failed(const QString &detail)
         return;
     }
     const bool unknown = current == State::Applying || current == State::Restoring || current == State::CancellingApply
+        || current == State::Extending || current == State::CancellingExtend
         || current == State::Acknowledging || operation == Operation::Recover;
     finish({Status::Failed, detail, unknown}, operation == Operation::Cleanup || current == State::Acknowledging
         ? State::CleanupRequired : unknown ? State::RecoveryRequired : State::Idle);

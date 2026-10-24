@@ -33,7 +33,8 @@ int main(int argc, char **argv) try
     if (argc == 1) {
         client->apply(QUuid::createUuid(), {});
         client->recover({});
-        check(results.size() == 2 && !results[0].succeeded() && !results[1].succeeded()
+        client->extend({"198.18.6.7"});
+        check(results.size() == 3 && !results[0].succeeded() && !results[1].succeeded() && !results[2].succeeded()
             && client->state() == Client::State::Idle, "Invalid configuration reached authorization");
         std::cout << "PASS: invalid typed input rejected before deployment inspection or authorization\n";
         return 0;
@@ -49,7 +50,8 @@ int main(int argc, char **argv) try
     heartbeat.start(1);
     QObject::connect(client.get(), &Client::stateChanged, &app, [&](Client::State state) {
         if ((scenario == "cancel-inspect" && state == Client::State::Inspecting)
-            || (scenario == "cancel-apply" && state == Client::State::Applying)) client->cancel();
+            || (scenario == "cancel-apply" && state == Client::State::Applying)
+            || (scenario == "extend-cancel" && state == Client::State::Extending)) client->cancel();
         if (scenario == "cancel-authorization" && state == Client::State::Authorizing)
             QTimer::singleShot(50, client.get(), &Client::cancel);
     });
@@ -80,6 +82,29 @@ int main(int argc, char **argv) try
                 QFileInfo(QString::fromUtf8(__FILE__)).absolutePath(), QString::number(device)});
             check(exchange.waitForFinished(8000) && exchange.exitCode() == 0 && exchange.exitStatus() == QProcess::NormalExit,
                 qPrintable(QString::fromUtf8(exchange.readAllStandardError())));
+            auto previous = results.size();
+            client->extend({"198.18.6.7"});
+            wait([&] { return results.size() == previous+1; });
+            if (scenario == "extend-cancel" || scenario == "extend-partial") {
+                check(results.last().status == (scenario == "extend-cancel" ? Status::Cancelled : Status::Failed)
+                      && client->state() == Client::State::Idle && client->descriptor() == -1,
+                      "Failed/cancelled DNS publication did not restore and release its connection");
+                std::cout << "PASS: Qt helper client " << scenario.toStdString() << '\n';
+                return 0;
+            }
+            check(results.last().succeeded() && client->state() == Client::State::Active
+                  && client->descriptor() == device && ::fcntl(device,F_GETFL) == flags,
+                  "DNS publication replaced or closed the active borrowed descriptor");
+            previous = results.size();
+            client->extend({"198.18.6.7"});
+            wait([&] { return results.size() == previous+1; });
+            check(results.last().succeeded() && !results.last().mayHaveChanged && client->descriptor() == device,
+                  "Repeated DNS address publication changed active network state");
+            exchange.start("/usr/bin/python3", {"-B", "-c",
+                "import sys;sys.path.insert(0,sys.argv[1]);from unix_device_probe import exchange;exchange(int(sys.argv[2]),'198.18.6.7')",
+                QFileInfo(QString::fromUtf8(__FILE__)).absolutePath(),QString::number(device)});
+            check(exchange.waitForFinished(8000) && exchange.exitCode() == 0 && exchange.exitStatus() == QProcess::NormalExit,
+                  qPrintable(QString::fromUtf8(exchange.readAllStandardError())));
             if (scenario.startsWith("dns")) {
                 exchange.start("/usr/bin/python3", {"-B", "-c",
                     "import os,sys;sys.path.insert(0,sys.argv[1]);from tundns_fixture import query_via_tun;"
@@ -98,17 +123,19 @@ int main(int argc, char **argv) try
                 check(lost.size() == 1 && !lost[0].succeeded() && lost[0].mayHaveChanged
                     && client->state() == Client::State::RecoveryRequired && client->descriptor() == -1,
                     "Helper loss did not revoke its descriptor and retain recovery responsibility");
+                previous = results.size();
                 client->restore();
-                wait([&] { return results.size() == 2; });
-                check(results[1].succeeded() && client->state() == Client::State::Idle, "Fresh Qt-authorized recovery failed");
+                wait([&] { return results.size() == previous+1; });
+                check(results.last().succeeded() && client->state() == Client::State::Idle, "Fresh Qt-authorized recovery failed");
             } else if (scenario == "destroy") {
                 client.reset();
                 QDeadlineTimer settle(200);
                 while (!settle.hasExpired()) { QCoreApplication::processEvents(); QThread::msleep(1); }
             } else {
+                previous = results.size();
                 client->restore();
-                wait([&] { return results.size() == 2; });
-                check(results[1].succeeded() && client->state() == Client::State::Idle && client->descriptor() == -1,
+                wait([&] { return results.size() == previous+1; });
+                check(results.last().succeeded() && client->state() == Client::State::Idle && client->descriptor() == -1,
                     "Restore reported completion before its descriptor and receipt were released");
             }
         }

@@ -206,7 +206,7 @@ def main():
                     if scenario.startswith('dns'):
                         values['DBUS_SYSTEM_BUS_ADDRESS'] = 'unix:path=/nonexistent-untrusted-dns-bus'
                     return values
-                for scenario, mode in [('normal', 'allow'), ('cancel-inspect', 'allow'), ('cancel-authorization', 'wait'),
+                for scenario, mode in [('normal', 'allow'), ('extend-cancel', 'allow'), ('cancel-inspect', 'allow'), ('cancel-authorization', 'wait'),
                                        ('cancel-apply', 'allow'), ('denied', 'deny'), ('cancel-policy', 'cancel'), ('malformed', 'malformed')]:
                     call(scenario, mode)
                     assert inventory() == baseline, scenario
@@ -216,6 +216,11 @@ def main():
                 call('partial')
                 assert inventory() == before_failure and not list(Path(package.LAYOUT['state_directory']).iterdir())
                 ip('route', 'del', '198.18.5.0/24', 'dev', 'helperorig0', 'metric', '7')
+                ip('route','add','198.18.6.7/32','dev','helperorig0','proto','static','metric','7')
+                before_failure = inventory()
+                call('extend-partial')
+                assert inventory() == before_failure and not list(Path(package.LAYOUT['state_directory']).iterdir())
+                ip('route','del','198.18.6.7/32','dev','helperorig0','metric','7')
                 owner = call('destroy')
                 deadline = time.monotonic() + 10
                 while inventory() != baseline and time.monotonic() < deadline:

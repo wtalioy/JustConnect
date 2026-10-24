@@ -84,6 +84,17 @@ inline bool canonicalUnicastIpv4(const QString &value)
     return first>0 && first<224 && first!=127;
 }
 
+inline bool ipv4PrefixContainsAddress(const QString &prefix, const QString &address)
+{
+    if (!canonicalIpv4Prefix(prefix) || !canonicalUnicastIpv4(address)) return false;
+    const auto parts = prefix.split('/');
+    in_addr network{}, host{};
+    ::inet_pton(AF_INET, parts[0].toLatin1().constData(), &network);
+    ::inet_pton(AF_INET, address.toLatin1().constData(), &host);
+    const quint32 mask = 0xffffffffu << (32 - parts[1].toInt());
+    return (ntohl(host.s_addr) & mask) == ntohl(network.s_addr);
+}
+
 inline bool assignedLinuxTunPair(const QString &name, quint32 index, const QString &source, const QString &peer)
 {
     if (!index || ::if_nametoindex(name.toLatin1().constData()) != index

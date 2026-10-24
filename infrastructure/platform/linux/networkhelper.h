@@ -34,6 +34,8 @@ struct LinuxHelperConfiguration {
 };
 QJsonObject linuxHelperApplyRequest(const QUuid &owner, const LinuxHelperConfiguration &config);
 std::optional<LinuxHelperConfiguration> parseLinuxHelperApply(const QUuid &owner, const QJsonObject &request);
+QJsonObject linuxHelperExtendRequest(const QUuid &owner, const QStringList &addresses);
+std::optional<QStringList> parseLinuxHelperExtend(const QUuid &owner, const QJsonObject &request);
 PlatformOperationResult sendLinuxHelperPacket(int socket, const QJsonObject &packet, int descriptor = -1, int timeoutMs = LinuxHelperPacketTimeoutMs);
 PlatformOperationResult receiveLinuxHelperPacket(int socket, QJsonObject &packet, int &descriptor, int timeoutMs);
 QByteArray linuxHelperSocketName(uid_t uid, const QUuid &owner);

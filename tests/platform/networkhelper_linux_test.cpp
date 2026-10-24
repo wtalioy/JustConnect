@@ -71,6 +71,18 @@ int main(int argc, char **argv) try
     const auto encoded = linuxHelperApplyRequest(owner, configuration);
     const auto parsed = parseLinuxHelperApply(owner, encoded);
     check(parsed && linuxHelperApplyRequest(owner, *parsed) == encoded, "Typed configuration lost validated input");
+    const auto extension = linuxHelperExtendRequest(owner,{"198.18.6.7","198.18.6.7"});
+    const auto extended = parseLinuxHelperExtend(owner,extension);
+    check(extended && *extended == QStringList{"198.18.6.7"},"Typed DNS route input lost or duplicated its address");
+    for (const auto &address : {QString(),QString("0.0.0.0"),QString("127.0.0.1"),QString("224.0.0.1"),
+                               QString("198.18.6.0/24"),QString("198.18.6.7\nrule del priority 0"),QString("example.test")})
+        check(!parseLinuxHelperExtend(owner,linuxHelperExtendRequest(owner,{address})),"Unsafe DNS route input accepted");
+    auto badExtension = extension;
+    badExtension["addresses"] = QJsonArray{7};
+    check(!parseLinuxHelperExtend(owner,badExtension),"Non-string DNS address accepted");
+    badExtension = extension; badExtension["program"] = "/bin/sh";
+    check(!parseLinuxHelperExtend(owner,badExtension) && !parseLinuxHelperExtend(QUuid::createUuid(),extension),
+          "Extra authority or another owner entered DNS route publication");
     auto invalid = encoded;
     invalid.remove("dns");
     check(!parseLinuxHelperApply(owner, invalid), "Missing DNS intent silently became an IP-only connection");

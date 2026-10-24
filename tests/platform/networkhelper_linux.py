@@ -80,7 +80,7 @@ def user_agent(control, uid):
                 answer = {'packet': json.loads(data) if data else None, 'descriptors': len(incoming)}
             elif operation == 'exchange':
                 assert len(descriptors) == 1
-                exchange(descriptors[0], '198.18.4.7')
+                exchange(descriptors[0], command.get('target','198.18.4.7'))
             elif operation == 'query':
                 assert len(descriptors) == 1
                 query_via_tun(descriptors[0], command['name'], '198.18.0.2', uid,
@@ -254,6 +254,12 @@ def main():
             assert summary['checked'] == summary['live'] == 1 and summary['restored'] == summary['failed'] == 0
             assert inventory() == held and all(path.read_bytes() == contents for path, contents in saved_live.items())
             command('exchange')
+            command('send',packet={**request(owner,'extend'),'addresses':['198.18.6.7']})
+            receive(owner,'active')
+            command('exchange',target='198.18.6.7')
+            extended = inventory()
+            command('send',packet={**request(owner,'extend'),'addresses':['198.18.6.7']})
+            assert receive(owner,'active')['changed'] is False and inventory() == extended
             if dns_probe:
                 command('query', name='helper-' + uuid.uuid4().hex + '.campus.test')
                 print('PASS: ordinary system DNS query through authenticated helper-owned TUN fd', flush=True)
@@ -261,6 +267,20 @@ def main():
             receive(owner, 'restored')
             finish(owner, process)
             print('PASS: authenticated ordinary peer, real fd/UDP handoff, scoped source/capture rollback and cleanup', flush=True)
+
+            owner = str(uuid.uuid4())
+            process = start(owner)
+            command('send',packet=application(owner))
+            receive(owner,'active',1)
+            command('send',packet={**request(owner,'extend'),'addresses':['198.18.6.7'],'program':'/bin/sh'})
+            assert command('receive')['packet'] is None and process.wait(timeout=10) == 2
+            command('close-descriptors')
+            assert inventory() == baseline
+            process = start(owner)
+            command('send',packet=request(owner,'recover'))
+            receive(owner,'restored')
+            finish(owner,process)
+            print('PASS: malformed active DNS publication restores only its owner and retains an acknowledged recovery path',flush=True)
 
             # A caller-supplied PID does not replace SO_PEERCRED authority.
             owner = str(uuid.uuid4())
@@ -305,11 +325,27 @@ def main():
             finish(owner, process)
             print('PASS: native partial apply restores its source/device state and preserves the conflicting external route', flush=True)
 
+            ip('route','add','198.18.6.7/32','dev','helperorig0','proto','static','metric','7')
+            before_failure = inventory()
+            owner = str(uuid.uuid4())
+            process = start(owner)
+            command('send',packet=application(owner))
+            receive(owner,'active',1)
+            command('send',packet={**request(owner,'extend'),'addresses':['198.18.6.7']})
+            receive(owner,'restored',success=False)
+            command('close-descriptors')
+            assert inventory() == before_failure,'failed DNS capture publication lost the foreign route or its source rollback'
+            ip('route','del','198.18.6.7/32','dev','helperorig0','metric','7')
+            finish(owner,process)
+            print('PASS: DNS publication capture conflict reverses its source additions and preserves the external route',flush=True)
+
             # Application dies: the helper independently restores, retaining a durable receipt.
             owner = str(uuid.uuid4())
             process = start(owner)
             command('send', packet=application(owner))
             receive(owner, 'active', 1)
+            command('send',packet={**request(owner,'extend'),'addresses':['198.18.6.7']})
+            receive(owner,'active')
             command('disconnect')
             assert process.wait(timeout=10) == 2, 'EOF must retain a recovery receipt, not report acknowledged cleanup'
             command('close-descriptors')
@@ -331,6 +367,8 @@ def main():
             process = start(owner)
             command('send', packet=application(owner))
             receive(owner, 'active', 1)
+            command('send',packet={**request(owner,'extend'),'addresses':['198.18.6.7']})
+            receive(owner,'active')
             process.kill()
             assert process.wait(timeout=10) < 0
             assert inventory() != baseline

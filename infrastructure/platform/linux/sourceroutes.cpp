@@ -21,10 +21,11 @@ bool numericId(const QJsonValue &field, quint64 maximum)
     const auto value = field.toString().toULongLong(&valid);
     return valid && value <= maximum && field.toString() == QString::number(value);
 }
-PlatformOperationResult write(const QString &utility, const QByteArray &batch, const QDeadlineTimer &deadline, bool recovering = false)
+PlatformOperationResult write(const QString &utility, const QByteArray &batch, const QDeadlineTimer &deadline, bool recovering = false, bool *attempted = nullptr)
 {
     if (deadline.hasExpired()) return {Status::TimedOut,"Source route operation deadline expired."};
     const QStringList args = recovering ? QStringList{"-4","-force","-batch","-"} : QStringList{"-4","-batch","-"};
+    if (attempted) *attempted = true;
     return runPlatformCommand(utility,args,int(deadline.remainingTime()),batch).result;
 }
 }
@@ -291,6 +292,84 @@ PlatformOperationResult LinuxSourceRoutes::apply(const QUuid &id, const QString 
     if (!recovered.succeeded()) result.detail += " Recovery incomplete; source ownership records retained.";
     return result;
 }
+PlatformOperationResult LinuxSourceRoutes::extend(const QUuid &id, const QStringList &addresses, const CheckpointWriter &checkpoint)
+{
+    const auto invalid = PlatformOperationResult{Status::Failed,"DNS addresses require confirmed source route ownership."};
+    if (id.isNull() || id != owner || !rulePending || ruleDeleting || appliedRule.isEmpty()
+        || addresses.isEmpty() || addresses.size() > LinuxRouteSnapshotRows) return invalid;
+    for (const auto &entry : entries) if (entry.deleting || entry.applied.isEmpty()) return invalid;
+    QStringList prefixes;
+    for (const auto &address : addresses) {
+        if (!canonicalUnicastIpv4(address) || address == sourceAddress || address == gatewayAddress) return invalid;
+        bool covered = false;
+        for (const auto &entry : entries) covered |= ipv4PrefixContainsAddress(entry.prefix,address);
+        if (!covered) prefixes.append(address+"/32");
+    }
+    prefixes.removeDuplicates();
+    if (entries.size()+prefixes.size() > LinuxRouteSnapshotRows) return invalid;
+    const auto utility = trustedIpRouteUtility();
+    if (utility.isEmpty()) return {Status::Unsupported,"A trusted system iproute2 executable is required."};
+    QDeadlineTimer deadline(LinuxRouteOperationTimeoutMs);
+    const auto existing = entries;
+    const auto verify = [&](const ReadResult &state) -> PlatformOperationResult {
+        if (!state.result.succeeded()) return state.result;
+        if (!identity() || !sourceAssigned() || state.routes.size()+prefixes.size() > LinuxRouteSnapshotRows) return invalid;
+        int routes = 0, rules = 0;
+        for (const auto &row : state.routes) routes += row.toObject()["table"] == QString::number(table);
+        for (const auto &value : state.rules) {
+            const auto row = value.toObject();
+            if (row["table"] == QString::number(table)) {
+                if (row != appliedRule) return invalid;
+                ++rules;
+            }
+            if (row["priority"].toInteger() <= 1 && row != appliedRule && !localRule(row)) return invalid;
+        }
+        if (routes != existing.size() || rules != 1) return invalid;
+        for (const auto &entry : existing)
+            if (!sameLinuxRoute(findRoute(state,entry.prefix),entry.applied)) return invalid;
+        return {};
+    };
+    if (auto result = verify(read(utility,deadline)); !result.succeeded()) return result;
+    if (prefixes.isEmpty()) return {};
+    QByteArray batch;
+    for (const auto &prefix : prefixes) { entries.append({prefix,{}}); batch += routeCommand("add",prefix); }
+    const auto abandon = [&](PlatformOperationResult result) {
+        entries = existing;
+        const auto saved = saveCheckpoint(checkpoint);
+        if (!saved.succeeded()) result = saved;
+        result.mayHaveChanged = true;
+        return result;
+    };
+    if (auto result = saveCheckpoint(checkpoint); !result.succeeded()) return abandon(result);
+    if (auto result = verify(read(utility,deadline)); !result.succeeded()) return abandon(result);
+    bool attempted = false;
+    auto result = write(utility,batch,deadline,false,&attempted);
+    if (!attempted) return abandon(result);
+    const auto after = read(utility,deadline);
+    bool confirmed = after.result.succeeded() && identity() && sourceAssigned();
+    if (after.result.succeeded()) {
+        int routes = 0, rules = 0;
+        for (const auto &row : after.routes) routes += row.toObject()["table"] == QString::number(table);
+        for (const auto &value : after.rules) {
+            const auto row = value.toObject();
+            if (row["table"] == QString::number(table)) { ++rules; confirmed &= row == appliedRule; }
+            if (row["priority"].toInteger() <= 1 && row != appliedRule && !localRule(row)) confirmed = false;
+        }
+        confirmed &= routes == entries.size() && rules == 1;
+        for (const auto &entry : existing) confirmed &= sameLinuxRoute(findRoute(after,entry.prefix),entry.applied);
+        confirmed &= findRule(after.rules) == appliedRule;
+        for (qsizetype index = existing.size(); index < entries.size(); ++index) {
+            auto &entry = entries[index];
+            const auto row = findRoute(after,entry.prefix);
+            if (routeShape(row,entry.prefix)) entry.applied = row; else confirmed = false;
+        }
+    }
+    if (const auto saved = saveCheckpoint(checkpoint); !saved.succeeded()) result = saved;
+    if (result.succeeded() && !confirmed) result = after.result.succeeded() ? invalid : after.result;
+    result.mayHaveChanged = true;
+    return result;
+}
+
 PlatformOperationResult LinuxSourceRoutes::restore(const QUuid &id, const CheckpointWriter &checkpoint)
 {
     if (owner.isNull()) return {};

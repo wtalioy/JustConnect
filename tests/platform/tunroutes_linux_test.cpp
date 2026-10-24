@@ -53,7 +53,7 @@ static bool hasRoute(const QString &prefix, const QString &device)
     return false;
 }
 
-static void packets(const UnixTunDevice &device, const QString &source)
+static void packets(const UnixTunDevice &device, const QString &source, const QString &target = "198.18.4.7")
 {
     const int udp = ::socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
     check(udp >= 0, "Open the ordinary UDP route witness");
@@ -61,7 +61,7 @@ static void packets(const UnixTunDevice &device, const QString &source)
     sockaddr_in destination{};
     destination.sin_family = AF_INET;
     destination.sin_port = htons(54321);
-    check(::inet_pton(AF_INET, "198.18.4.7", &destination.sin_addr) == 1, "Parse the owned host-route fixture");
+    check(::inet_pton(AF_INET, target.toLatin1().constData(), &destination.sin_addr) == 1, "Parse the owned host-route fixture");
     const QByteArray payload("owned-route");
     check(::sendto(udp, payload.constData(), size_t(payload.size()), 0, reinterpret_cast<sockaddr *>(&destination), sizeof(destination)) == payload.size(),
           "The kernel could not submit ordinary UDP through the owned route");
@@ -173,6 +173,23 @@ int main(int argc, char **argv) try
     check(selected.result.succeeded() && QJsonDocument::fromJson(selected.output.toUtf8()).array().first().toObject()["dev"] == device.name(),
           "The native kernel did not select the owned capture route");
     packets(device, source);
+    const auto original = routes.snapshot();
+    check(routes.extend(device,{"198.18.2.9","198.18.6.7","198.18.6.7"}).succeeded()
+          && routes.snapshot()["routes"].toArray().size() == original["routes"].toArray().size()+1,
+          "DNS extension duplicated covered routes or failed to append a host");
+    packets(device,source,"198.18.6.7");
+    const auto extended = routes.snapshot();
+    const auto extendedInventory = inventory();
+    check(routes.extend(device,{"198.18.6.7"}).succeeded() && routes.snapshot() == extended && inventory() == extendedInventory,
+          "Repeated DNS publication changed its route identity");
+    for (const auto &invalid : {QString("127.0.0.1"),source,peer,QString("198.18.7.0/24")})
+        check(!routes.extend(device,{invalid}).succeeded() && routes.snapshot() == extended && inventory() == extendedInventory,
+              "Invalid DNS capture address changed active ownership");
+    check(!routes.extend(device,{"198.18.7.7"},[&](const QJsonObject &record) {
+        check(inventory() == extendedInventory,"DNS capture wrote before its checkpoint");
+        return record == extended ? PlatformOperationResult{} : PlatformOperationResult{Status::Failed,"Refused DNS checkpoint"};
+    }).succeeded() && routes.snapshot() == extended && inventory() == extendedInventory,
+          "Failed DNS checkpoint damaged existing capture routes");
     const auto active = inventory();
     UnixTunDevice other;
     check(other.create(QUuid::createUuid()).succeeded(), "Create another connection's device");
@@ -294,6 +311,15 @@ int main(int argc, char **argv) try
     ip({"link", "set", device.name(), "up"});
     check(renamed.restore(device).succeeded() && inventory() == baseline, "Original identity could not recover its retained records");
     captureRecoveryTests(device,baseline);
+    {
+        LinuxTunRoutes growing;
+        check(growing.apply(device,source,peer,{"198.18.8.1/32"}).succeeded()
+              && growing.extend(device,{"198.18.8.2"}).succeeded(),"Prepare persisted capture extension");
+        LinuxTunRoutes recovered;
+        check(recovered.recover(device.owner(),growing.snapshot()).succeeded() && inventory() == baseline,
+              "A fresh capture backend could not restore appended DNS routes");
+        check(growing.restore(device).succeeded(),"Release already restored capture metadata");
+    }
     check(::setgroups(0, nullptr) == 0 && ::setgid(65534) == 0 && ::setuid(65534) == 0, "Drop all test route privileges");
     __user_cap_header_struct header{_LINUX_CAPABILITY_VERSION_3, 0};
     __user_cap_data_struct caps[2]{};
