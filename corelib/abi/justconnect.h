@@ -33,10 +33,10 @@ JC_API int32_t jc_session_respond(uint64_t handle, const uint8_t *response, uint
 JC_API int32_t jc_session_update_policy(uint64_t handle, const uint8_t *policy, uint32_t length, uint64_t *generation);
 /* Read parsed campus resources for the requested active generation. */
 JC_API int32_t jc_session_resources(uint64_t handle, uint64_t generation, uint8_t *output, uint32_t capacity, uint32_t *length);
-/* Borrow a validated, nonblocking Linux raw IPv4 TUN fd for the ready generation.
+/* Borrow a validated, nonblocking Linux TUN or macOS utun fd for the ready generation.
  * Success owns a CLOEXEC duplicate until stop; the original fd and its flags remain
  * caller-owned. Address/routes/DNS and fd namespace ownership belong to the helper.
- * Other platforms and the fixture driver return JC_UNSUPPORTED.
+ * Packets retain native framing; other platforms and the fixture driver return JC_UNSUPPORTED.
  */
 JC_API int32_t jc_session_attach_tun(uint64_t handle, uint64_t generation, int32_t fd, uint32_t mtu);
 /* Opt in to dns_routes events before campus DNS replies. Acknowledge only after
