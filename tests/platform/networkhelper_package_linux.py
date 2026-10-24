@@ -35,14 +35,19 @@ def main():
     parser.add_argument('--development-qt', type=Path, help='local fixture only: copy SDK Core libraries into the private /usr')
     parser.add_argument('--client', type=Path, help='ordinary Qt caller built with the application SDK')
     parser.add_argument('--authorization-fixture', type=Path, help='namespace-only authorization broker fixture')
+    parser.add_argument('--gateway', type=Path, help='native campus gateway test binary')
+    parser.add_argument('--tun-adapter', type=Path, help='Qt/core TUN caller for the installed helper')
     args = parser.parse_args()
     assert os.geteuid() == 0 and args.uid != 0
     for name in ('net', 'mnt'):
         assert os.stat(f'/proc/thread-self/ns/{name}') != os.stat(f'/proc/1/ns/{name}'), f'refusing the host {name} namespace'
     assert not (args.package and args.development_qt), 'release package must load the actual distribution runtime'
     assert bool(args.client) == bool(args.authorization_fixture)
+    assert bool(args.gateway) == bool(args.tun_adapter) and (not args.gateway or args.client)
     client = args.client.resolve(strict=True) if args.client else None
     broker = args.authorization_fixture.resolve(strict=True) if args.authorization_fixture else None
+    gateway = args.gateway.resolve(strict=True) if args.gateway else None
+    tun_adapter = args.tun_adapter.resolve(strict=True) if args.tun_adapter else None
     if args.package:
         files, report = package.inspect_package(args.package.resolve(strict=True), args.revision)
         report['mode'] = 'distribution-package'
@@ -67,6 +72,7 @@ def main():
         run('mount', '-t', 'overlay', 'overlay', '-o', f'lowerdir=/usr,upperdir={upper},workdir={work}', '/usr')
         run('mount', '--bind', state, '/var/lib')
         recovery = None
+        caller_runtime = None
         try:
             for name, contents in files.items():
                 path = Path('/') / name
@@ -153,13 +159,36 @@ def main():
                 ip('link', 'add', 'helperorig0', 'type', 'dummy')
                 ip('link', 'set', 'helperorig0', 'up')
                 ip('address', 'add', '192.0.2.1/24', 'dev', 'helperorig0')
+                if gateway:
+                    ip('link', 'set', 'lo', 'up')
                 def inventory():
-                    return (ip('-N', '-j', '-4', 'route', 'show', 'table', 'all'),
-                            ip('-N', '-j', '-4', 'rule', 'show'), sorted(os.listdir('/sys/class/net')))
+                    return tuple(value for family in ('-4', '-6') for value in
+                                 (ip('-N', '-j', family, 'route', 'show', 'table', 'all'),
+                                  ip('-N', '-j', family, 'rule', 'show'))) + (sorted(os.listdir('/sys/class/net')),)
                 baseline = inventory()
                 # Only the ordinary test process keeps its SDK loader environment; the product client strips it before authorization.
                 caller_environment = {**environment, **{key: value for key, value in os.environ.items() if key == 'LD_LIBRARY_PATH'}}
+                caller_runtime = tempfile.TemporaryDirectory(prefix='JustConnect-helper-caller-')
+                os.chown(caller_runtime.name, args.uid, account.pw_gid)
+                caller_environment['XDG_RUNTIME_DIR'] = caller_runtime.name
                 client_cases = []
+                native_command = [str(gateway), '-test.v', '-test.timeout', '75s', '-test.run', '^TestNativeTUNHost$'] if gateway else None
+                def native_handoff(process, owner, ready_path):
+                    deadline = time.monotonic() + 10
+                    while not ready_path.is_file() and process.poll() is None and time.monotonic() < deadline:
+                        time.sleep(0.01)
+                    assert ready_path.is_file(), 'native Qt/core never completed actual TUN traffic'
+                    ready = json.loads(ready_path.read_text())
+                    qt_pid = ready['pid']
+                    qt_status = dict(line.split(':', 1) for line in Path(f'/proc/{qt_pid}/status').read_text().splitlines())
+                    assert ready['owner'] == owner and ready['generation'] and int(qt_status['PPid']) == process.pid
+                    assert int(qt_status['Uid'].split()[0]) == args.uid and Path(f'/proc/{qt_pid}/exe').resolve() == tun_adapter
+                    return qt_pid, os.pidfd_open(qt_pid)
+                def owned_helper(qt_pid):
+                    children = Path(f'/proc/{qt_pid}/task/{qt_pid}/children').read_text().split()
+                    workers = [int(pid) for pid in children if Path(f'/proc/{pid}/exe').resolve() == executable]
+                    assert len(workers) == 1, 'cannot identify the directly owned private-namespace fixture helper'
+                    return workers[0]
                 def call(scenario, mode='allow', owner=None):
                     owner = owner or str(uuid.uuid4())
                     result = run(client, scenario, owner, env={**caller_environment, 'JC_AUTH_TEST_MODE': mode},
@@ -188,39 +217,81 @@ def main():
                 call('cleanup', owner=owner)
                 assert inventory() == baseline and not list(Path(package.LAYOUT['state_directory']).iterdir())
                 owner = str(uuid.uuid4())
-                process = subprocess.Popen([str(client), 'crash', owner], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                                           env={**caller_environment, 'JC_AUTH_TEST_MODE': 'allow'}, user=args.uid,
+                ready_path = Path(caller_runtime.name) / 'helper-loss.json'
+                crash_environment = {**caller_environment, 'JC_AUTH_TEST_MODE': 'allow'}
+                if gateway:
+                    crash_environment.update(JC_NATIVE_TUN_HOST=str(tun_adapter), JC_NATIVE_TUN_HELPER_OWNER=owner,
+                                             JC_NATIVE_TUN_READY=str(ready_path), JC_NATIVE_TUN_SCENARIO='helper-loss')
+                process = subprocess.Popen(native_command if gateway else [str(client), 'crash', owner],
+                                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                           env=crash_environment, user=args.uid, start_new_session=bool(gateway),
                                            group=account.pw_gid, extra_groups=())
+                qt_descriptor = None
                 try:
-                    assert select.select([process.stdout], [], [], 10)[0], 'Qt crash fixture never reached device handoff'
-                    assert process.stdout.readline().strip() == f'READY: active helper {owner}'
-                    children = Path(f'/proc/{process.pid}/task/{process.pid}/children').read_text().split()
-                    workers = [int(pid) for pid in children if Path(f'/proc/{pid}/exe').resolve() == executable]
-                    assert len(workers) == 1, 'cannot identify the directly owned private-namespace fixture helper'
-                    os.kill(workers[0], signal.SIGKILL)
+                    qt_pid = process.pid
+                    if gateway:
+                        qt_pid, qt_descriptor = native_handoff(process, owner, ready_path)
+                    else:
+                        assert select.select([process.stdout], [], [], 10)[0], 'Qt crash fixture never reached device handoff'
+                        assert process.stdout.readline().strip() == f'READY: active helper {owner}'
+                    os.kill(owned_helper(qt_pid), signal.SIGKILL)
                     output, errors = process.communicate(timeout=15)
                     assert process.returncode == 0, (output, errors)
+                    if gateway:
+                        assert '--- PASS: TestNativeTUNHost' in output, 'native helper-loss data path was not verified'
                     print(output, end='', flush=True)
                     client_cases.append('crash')
                 finally:
                     if process.poll() is None:
-                        process.kill()
+                        if gateway:
+                            os.killpg(process.pid, signal.SIGKILL)
+                        else:
+                            process.kill()
                         process.communicate(timeout=5)
+                    if qt_descriptor is not None:
+                        if not select.select([qt_descriptor], [], [], 0)[0]:
+                            signal.pidfd_send_signal(qt_descriptor, signal.SIGKILL)
+                        assert select.select([qt_descriptor], [], [], 5)[0]
+                        os.close(qt_descriptor)
                 assert inventory() == baseline and not list(Path(package.LAYOUT['state_directory']).iterdir())
+                if gateway:
+                    native_environment = {**caller_environment, 'JC_AUTH_TEST_MODE': 'allow',
+                                          'JC_NATIVE_TUN_HOST': str(tun_adapter), 'JC_NATIVE_TUN_HELPER_OWNER': str(uuid.uuid4())}
+                    output = run(*native_command, env=native_environment, user=args.uid,
+                                 group=account.pw_gid, extra_groups=())
+                    assert '--- PASS: TestNativeTUNHost' in output, 'native Qt/core handoff was not verified'
+                    print(output, end='', flush=True)
+                    assert inventory() == baseline and not list(Path(package.LAYOUT['state_directory']).iterdir()), \
+                        'Qt/core/helper stop or destruction left network ownership'
+                    client_cases.append('core-tun')
+                    report['core_tun'] = {'normal_sessions': 2, 'helper_loss_sessions': 2,
+                                          'handoff': 'ordinary Qt caller through installed helper and formal C ABI',
+                                          'helper_loss': 'client fd revoked while core reference survives; core stops before fresh authorized recovery',
+                                          'traffic': 'native TCP, UDP and empty datagrams; stop/restart/destruction',
+                                          'inventory': 'IPv4/IPv6 routes/rules and interfaces restored'}
                 recovery.stop()
                 recovery.start()
                 owner = str(uuid.uuid4())
-                process = subprocess.Popen([str(client), 'managed', owner], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                                           env={**caller_environment, 'JC_AUTH_TEST_MODE': 'allow'}, user=args.uid,
+                ready_path = Path(caller_runtime.name) / 'active-core.json'
+                managed_environment = {**caller_environment, 'JC_AUTH_TEST_MODE': 'allow'}
+                if gateway:
+                    managed_environment.update(JC_NATIVE_TUN_HOST=str(tun_adapter), JC_NATIVE_TUN_HELPER_OWNER=owner,
+                                               JC_NATIVE_TUN_READY=str(ready_path), JC_NATIVE_TUN_SCENARIO='managed')
+                process = subprocess.Popen(native_command if gateway else [str(client), 'managed', owner],
+                                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                           env=managed_environment, user=args.uid, start_new_session=bool(gateway),
                                            group=account.pw_gid, extra_groups=())
                 worker_descriptor = None
+                qt_descriptor = None
                 try:
-                    assert select.select([process.stdout], [], [], 10)[0], 'managed fixture never reached handoff'
-                    assert process.stdout.readline().strip() == f'READY: managed helper {owner}'
-                    children = Path(f'/proc/{process.pid}/task/{process.pid}/children').read_text().split()
-                    workers = [int(pid) for pid in children if Path(f'/proc/{pid}/exe').resolve() == executable]
-                    assert len(workers) == 1
-                    worker_descriptor = os.pidfd_open(workers[0])
+                    qt_pid = process.pid
+                    if gateway:
+                        qt_pid, qt_descriptor = native_handoff(process, owner, ready_path)
+                    else:
+                        assert select.select([process.stdout], [], [], 10)[0], 'managed fixture never reached handoff'
+                        assert process.stdout.readline().strip() == f'READY: managed helper {owner}'
+                    worker = owned_helper(qt_pid)
+                    worker_descriptor = os.pidfd_open(worker)
                     held = inventory()
                     deadline = time.monotonic() + 15
                     observed = None
@@ -231,8 +302,10 @@ def main():
                         time.sleep(0.05)
                     assert observed and observed['live'] == 1 and observed['restored'] == observed['failed'] == 0, observed
                     assert inventory() == held, 'system timer disturbed an actively held connection'
-                    os.kill(workers[0], signal.SIGKILL)
+                    os.kill(worker, signal.SIGKILL)
                     process.kill()
+                    if qt_descriptor is not None:
+                        signal.pidfd_send_signal(qt_descriptor, signal.SIGKILL)
                     process.communicate(timeout=5)
                     assert process.returncode == -signal.SIGKILL
                     deadline = time.monotonic() + 35
@@ -248,12 +321,21 @@ def main():
                     client_cases.append('managed')
                     report['system_recovery'] = {'slice': recovery.property('service', 'Slice'),
                                                  'invocation': recovery.property('service', 'InvocationID'), 'summary': observed,
-                                                 'gui_and_helper': 'owned fixtures both SIGKILL; no GUI command initiated recovery'}
+                                                 'gui_and_helper': 'owned Qt/core and helper both SIGKILL after native TCP/UDP' if gateway
+                                                     else 'owned fixtures both SIGKILL; no GUI command initiated recovery'}
                     print('PASS: real system timer preserves live ownership and restores after both GUI/helper SIGKILL', flush=True)
                 finally:
                     if process.poll() is None:
-                        process.kill()
+                        if gateway:
+                            os.killpg(process.pid, signal.SIGKILL)
+                        else:
+                            process.kill()
                         process.communicate(timeout=5)
+                    if qt_descriptor is not None:
+                        if not select.select([qt_descriptor], [], [], 0)[0]:
+                            signal.pidfd_send_signal(qt_descriptor, signal.SIGKILL)
+                        assert select.select([qt_descriptor], [], [], 5)[0], 'owned Qt/core retained its TUN references'
+                        os.close(qt_descriptor)
                     if worker_descriptor is not None:
                         assert select.select([worker_descriptor], [], [], 35)[0], 'owned helper did not finish EOF recovery'
                         os.close(worker_descriptor)
@@ -282,6 +364,8 @@ def main():
         finally:
             if recovery:
                 recovery.stop()
+            if caller_runtime:
+                caller_runtime.cleanup()
             run('umount', '/var/lib')
             run('umount', '--lazy', '/usr')
 

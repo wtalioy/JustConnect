@@ -1,15 +1,17 @@
 #include "infrastructure/coreengine/embeddedcoreengine.h"
+#include "infrastructure/platform/linux/networkhelperclient.h"
+#include "tests/platform/networkhelperfixture.h"
 #include "tuntraffic.h"
 #include <QCoreApplication>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QJsonDocument>
+#include <QSaveFile>
 #include <QThread>
+#include <QTimer>
 #include <fcntl.h>
-#include <sys/socket.h>
 #include <unistd.h>
 #include <memory>
-#include <cstring>
 
 using ProxyCheck::check;
 
@@ -29,31 +31,12 @@ static int tunReferences() {
     }
     return count;
 }
-static int acquire(int control, quint32 &mtu) {
-    check(::send(control, "A", 1, MSG_NOSIGNAL) == 1, "request owned device after initial protection");
-    char data[32] = {};
-    iovec part{data, sizeof(data)};
-    alignas(cmsghdr) char ancillary[CMSG_SPACE(sizeof(int))] = {};
-    msghdr message{};
-    message.msg_iov = &part; message.msg_iovlen = 1;
-    message.msg_control = ancillary; message.msg_controllen = sizeof(ancillary);
-    const auto size = ::recvmsg(control, &message, MSG_CMSG_CLOEXEC);
-    check(size > 0 && !(message.msg_flags & (MSG_TRUNC | MSG_CTRUNC)), "receive native helper descriptor");
-    auto *header = CMSG_FIRSTHDR(&message);
-    check(header && header->cmsg_level == SOL_SOCKET && header->cmsg_type == SCM_RIGHTS
-        && header->cmsg_len == CMSG_LEN(sizeof(int)), "one owned TUN descriptor received");
-    int descriptor = -1;
-    std::memcpy(&descriptor, CMSG_DATA(header), sizeof(descriptor));
-    bool valid = false;
-    mtu = QByteArray(data, size).toUInt(&valid);
-    check(valid && descriptor >= 0, "native helper returned device MTU");
-    return descriptor;
-}
 int main(int argc, char **argv) {
     QCoreApplication app(argc, argv);
-    check(argc == 4 && QByteArray(argv[1]) == "--tun-gateway", "requires native gateway fixture");
+    check(argc == 3 && QByteArray(argv[1]) == "--tun-gateway", "requires native gateway fixture");
     check(::getuid() != 0 && ::getuid() == ::geteuid(), "Qt data plane stays unprivileged");
-    const int control = QByteArray(argv[3]).toInt();
+    const QUuid firstOwner(QString::fromUtf8(qgetenv("JC_NATIVE_TUN_HELPER_OWNER")));
+    check(!firstOwner.isNull(), "requires an isolated installed-helper owner");
     const auto config = QJsonDocument::fromJson(argv[2]).object();
     const auto server = config["server"].toObject(), auth = config["auth"].toObject();
     ConnectionProfile profile;
@@ -65,6 +48,13 @@ int main(int argc, char **argv) {
     profile.tls.caPem = config["tls"].toObject()["ca_pem"].toString();
     profile.keepAlive.mode = "off";
     auto engine = std::make_unique<EmbeddedCoreEngine>();
+    LinuxNetworkHelperClient helper;
+    QList<PlatformOperationResult> helperReplies;
+    QList<PlatformOperationResult> helperLosses;
+    QObject::connect(&helper, &LinuxNetworkHelperClient::finished, [&](LinuxNetworkHelperClient::Operation, PlatformOperationResult result) {
+        helperReplies.append(result);
+    });
+    QObject::connect(&helper, &LinuxNetworkHelperClient::ownershipLost, [&](PlatformOperationResult result) { helperLosses.append(result); });
     QString generation;
     int ready = 0, finished = 0;
     QList<CoreEngine::RequestStatus> replies;
@@ -84,8 +74,15 @@ int main(int argc, char **argv) {
         check(tunReferences() == 0, "previous session released every Qt/core TUN reference");
         check(engine->start(profile, CoreEngine::Operation::Connect), "start ordinary Qt core session");
         until([&] { return ready == round + 1; });
-        quint32 mtu = 0;
-        const int descriptor = acquire(control, mtu);
+        const auto configuration = helperFixtureConfiguration({"198.18.0.6/32"});
+        const auto owner = round == 0 ? firstOwner : QUuid::createUuid();
+        auto helperPrevious = helperReplies.size();
+        helper.apply(owner, configuration);
+        until([&] { return helperReplies.size() > helperPrevious; });
+        check(helperReplies.last().succeeded(), qPrintable(helperReplies.last().detail));
+        check(helper.state() == LinuxNetworkHelperClient::State::Active, "installed helper delivered its owned device");
+        const quint32 mtu = configuration.mtu;
+        const int descriptor = ::fcntl(helper.descriptor(), F_DUPFD_CLOEXEC, 3);
         const int flags = ::fcntl(descriptor, F_GETFL);
         check(flags >= 0 && (flags & O_NONBLOCK) && tunReferences() > 0, "received nonblocking native TUN reference");
         const auto attach = [&](quint32 value) {
@@ -102,20 +99,47 @@ int main(int argc, char **argv) {
         until([&] { return replies.size() > previous; });
         check(replies.last() == CoreEngine::RequestStatus::Success, "queued fd remains valid after caller closes its reference");
         exerciseNativeTUNTraffic();
+        bool helperLost = false;
+        if (const auto path = qgetenv("JC_NATIVE_TUN_READY"); round == 0 && !path.isEmpty()) {
+            check(tunReferences() >= 2, "helper client and core retain the active native device");
+            QSaveFile marker(QString::fromLocal8Bit(path));
+            const auto data = QJsonDocument(QJsonObject{{"pid", QCoreApplication::applicationPid()},
+                {"owner", owner.toString(QUuid::WithoutBraces)}, {"generation", generation}}).toJson(QJsonDocument::Compact);
+            check(marker.open(QIODevice::WriteOnly) && marker.write(data) == data.size() && marker.commit(),
+                  "publish active core/helper state for the isolated crash fixture");
+            if (qgetenv("JC_NATIVE_TUN_SCENARIO") == "helper-loss") {
+                until([&] { return !helperLosses.isEmpty(); });
+                check(helperLosses.size() == 1 && !helperLosses[0].succeeded() && helperLosses[0].mayHaveChanged
+                    && helper.state() == LinuxNetworkHelperClient::State::RecoveryRequired && helper.descriptor() == -1
+                    && tunReferences() == 1, "helper loss revokes the client fd while core still owns its reference");
+                helperLost = true;
+            } else {
+                QTimer::singleShot(30000, &app, [] { check(false, "managed native TUN fixture was not stopped"); });
+                app.exec();
+                return 1;
+            }
+        }
         // Queue another owned reference immediately before stop/destruction.
-        const int retained = acquire(control, mtu);
-        engine->attachTUN(generation, retained, mtu);
-        ::close(retained);
+        if (!helperLost) {
+            const int retained = ::fcntl(helper.descriptor(), F_DUPFD_CLOEXEC, 3);
+            check(retained >= 0, "retain helper-owned fd before queued stop");
+            engine->attachTUN(generation, retained, mtu);
+            ::close(retained);
+        }
         if (round == 0) {
             engine->stop();
             until([&] { return finished == 1; });
-            until([&] { return replies.size() == previous + 2; });
-            check(replies.last() == CoreEngine::RequestStatus::Stale, "queued reply becomes stale during stop");
+            if (!helperLost) {
+                until([&] { return replies.size() == previous + 2; });
+                check(replies.last() == CoreEngine::RequestStatus::Stale, "queued reply becomes stale during stop");
+            }
         } else engine.reset();
-        check(tunReferences() == 0, "stop/destruction releases active and queued references");
-        check(::send(control, "R", 1, MSG_NOSIGNAL) == 1, "release root fixture reference");
-        char response = 0;
-        check(::recv(control, &response, 1, 0) == 1 && response == 'R', "owned routes removed before next session snapshot");
+        check(tunReferences() == (helperLost ? 0 : 1), "core releases active and queued references before helper restore");
+        helperPrevious = helperReplies.size();
+        helper.restore();
+        until([&] { return helperReplies.size() > helperPrevious; });
+        check(helperReplies.last().succeeded() && helper.state() == LinuxNetworkHelperClient::State::Idle
+              && tunReferences() == 0, "helper restore releases its descriptor, network state and receipt");
     }
-    std::cout << "PASS: ordinary native TCP/UDP via queued Qt fd handoff, stop, restart and destruction\n";
+    std::cout << "PASS: ordinary native TCP/UDP via installed helper, queued Qt fd handoff, stop, restart and destruction\n";
 }

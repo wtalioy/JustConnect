@@ -426,12 +426,11 @@ func TestProtocolOversizedAuthenticationBodyReportsLimit(t *testing.T) {
 func TestNativeTUNHost(t *testing.T) {
 	host := os.Getenv("JC_NATIVE_TUN_HOST")
 	inherited := os.Getenv("JC_NATIVE_TUN_FD")
-	if host == "" || inherited == "" {
+	if host == "" || (inherited == "" && os.Getenv("JC_NATIVE_TUN_HELPER_OWNER") == "") {
 		t.Skip("native TUN/C ABI handoff runs in the guarded Linux Core ABI namespace")
 	}
-	descriptor, err := strconv.Atoi(inherited)
-	if err != nil || descriptor < 3 || os.Getuid() == 0 || os.Getuid() != os.Geteuid() {
-		t.Fatal("requires a borrowed TUN fd and an ordinary caller")
+	if os.Getuid() == 0 || os.Getuid() != os.Geteuid() {
+		t.Fatal("requires an ordinary caller")
 	}
 	status, err := os.ReadFile("/proc/self/status")
 	if err != nil {
@@ -442,14 +441,21 @@ func TestNativeTUNHost(t *testing.T) {
 			t.Fatal("native data plane retained capabilities")
 		}
 	}
-	file := os.NewFile(uintptr(descriptor), "inherited-tun")
-	defer file.Close()
 	g := newGateway(t)
 	g.resourceIP.Store("198.18.0.6")
 	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer cancel()
-	command := exec.CommandContext(ctx, host, "--tun-gateway", string(configBytes(t, g.config(t))), "3")
-	command.ExtraFiles = []*os.File{file}
+	command := exec.CommandContext(ctx, host, "--tun-gateway", string(configBytes(t, g.config(t))))
+	if inherited != "" {
+		descriptor, err := strconv.Atoi(inherited)
+		if err != nil || descriptor < 3 {
+			t.Fatal("requires a borrowed TUN fd")
+		}
+		file := os.NewFile(uintptr(descriptor), "inherited-tun")
+		defer file.Close()
+		command.Args = append(command.Args, "3")
+		command.ExtraFiles = []*os.File{file}
+	}
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("native TUN/C ABI host: %v\n%s", err, output)
