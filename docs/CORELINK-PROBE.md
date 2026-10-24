@@ -34,7 +34,7 @@ D2 的设备入口子方案已收敛：Linux／macOS 使用最小授权助手创
 | 平台 | 选定的设备与权限边界 | 已验证与剩余缺口 |
 | --- | --- | --- |
 | Linux | 非持久 TUN，助手创建／配置，通过 `SCM_RIGHTS` 交付 fd；普通宿主拥有数据 I/O，最后关闭 fd 结束设备。 | x64／ARM64 隔离内核原型及本机 WSL 通过普通 uid、零 capabilities、UDP 双向和正常／强杀后的设备及显式路由清理。直接创建仍需权限；正式 Go／Qt、授权与 AppImage 路径、完整路由／DNS 恢复待验收。 |
-| macOS | utun kernel control，助手创建／配置，`SCM_RIGHTS` 交付已连接 fd；数据含四字节地址族头。 | x64／ARM64 一次性 runner 通过普通 uid／gid、原生组核对、无法恢复 root、实际 UDP 及正常／强杀清理。正式宿主、签名／桌面授权与系统 DNS 仍待验收。 |
+| macOS | utun kernel control，正式签名 XPC 助手创建／配置并交付 fd；数据含四字节地址族头。 | 双架构普通权限真实收发、取消／强杀恢复及 supplemental DNS 原生检查已通过；完整 Qt／核心会话与真实桌面批准仍待，当前证据见[计划](../plan.md#s4)。 |
 | Windows | 官方固定哈希／签名 Wintun 0.14.1；助手拥有适配器和 ring，同账户普通权限宿主通过私有 IPC 处理 IP 包，不跨进程强转会话指针。 | x64／ARM64 设备步骤通过真实普通权限回包、超大帧拒绝和按原始 PnP 实例／路由确认清理；源码 `1105671` 的完整六组 ABI 检查通过。正式 Qt IPC 身份验证、性能、助手授权与驱动分发待验收，应用尚未带入此运行库。 |
 
 权限分析起于[导入基线](../corelib/UPSTREAM.md#导入基线)及其锁定依赖；S1-07 已删除无产品调用、直接修改宿主网络的旧系统 TUN 栈，不再恢复该实现或由核心直接改路由／DNS。新助手只承载实际需要的设备／网络操作，不能成为任意命令提权入口；具体操作必须回读并按所有权恢复。
@@ -100,7 +100,7 @@ wsl.exe --distribution archlinux --user root --exec unshare --net -- \
 
 IPv4 配置增量复用 [`UnixTunDevice::createIpv4`](../infrastructure/platform/tundevice.cpp)，只配置这次新建、尚未交付的设备：源／对端须是不同的规范单播 IPv4，使用 `/32` 点对点掩码，MTU 为 68—65535；配置前记录原 MTU／标志／空 IPv4，配置后独立回读完整预期及设备索引。macOS [utun 创建时即可为 UP](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/net/if_utun.c)，不把初始 down 当作共有契约；实际状态由原生 ioctl／getifaddrs 读取。失败关闭私有 fd，不交付部分配置；当前不支持更改已交付设备或恢复已有接口。共享设备／原出口脚本及捕获路由检查已移除重复地址／启用命令；Linux 捕获路由由分配方在交付 fd 前调用正式后端，原出口表／规则由独立原生持有进程负责；macOS 目的路由改由正式捕获后端及保护日志管理，验证状态见[计划](../plan.md#s4)。
 
-本地 Linux 应用及正式 ABI 构建均通过配置后普通用户双向 UDP、正常／强杀最终 fd 清理；真实配置后的回读错误／MTU 不符故障注入验证设备及全部 IPv4 路由回滚，宿主接口、全表路由／规则、DNS 与 rp_filter 不变。完整应用 45/45、正式 ABI 23/23 通过，报告 `build/reports/unix-tun-configuration.json`；该增量仍待 Linux／macOS 两架构原生 CI，未验收平台不据此继续透明接管。
+本地 Linux 应用及正式 ABI 构建均通过配置后普通用户双向 UDP、正常／强杀最终 fd 清理；真实配置后的回读错误／MTU 不符故障注入验证设备及全部 IPv4 路由回滚，宿主接口、全表路由／规则、DNS 与 rp_filter 不变。完整应用 45/45、正式 ABI 23/23 通过，报告 `build/reports/unix-tun-configuration.json`；Linux／macOS 双架构原生 CI 已通过，当前正式助手／会话接入状态见[计划](../plan.md#s4)；底层配置通过不代表整体透明接管已验收。
 
 ### Linux 独立捕获路由表
 
