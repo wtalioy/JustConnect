@@ -40,7 +40,7 @@ private:
     void receive(const QJsonObject &request, const QJsonObject &response, std::shared_ptr<int> descriptor, bool trusted, bool unavailable = false);
     void probeFailed();
     void authorize();
-    void disconnected();
+    void disconnected(const QString &detail);
     void closeDevice();
     std::shared_ptr<Native> native;
     State current = State::Idle;
