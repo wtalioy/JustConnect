@@ -37,7 +37,7 @@ def main():
     before = inventory()
     subprocess.run([str(args.fd_test.resolve()), '-test.v', '-test.run', '^TestNativeLinuxTUNDescriptors$'],
                    env=dict(os.environ, JC_TEST_TUN_NATIVE='1'), check=True, timeout=30)
-    descriptor, interface = allocate_unix(args.allocator.resolve())
+    descriptor, interface, cleanup_allocator = allocate_unix(args.allocator.resolve())
     try:
         os.set_blocking(descriptor, False)
         with tempfile.TemporaryDirectory(prefix='jc-tun-runtime-') as runtime:
@@ -49,6 +49,7 @@ def main():
                            check=True, timeout=80)
     finally:
         os.close(descriptor)
+        cleanup_allocator()
     assert inventory() == before, f'owned interface, route or rule remains: {interface}'
     print('PASS: ordinary caller uses actual C ABI TUN duplicate; owned device disappears after all references close', flush=True)
 
