@@ -3,6 +3,8 @@
 #include "infrastructure/platform/dnssnapshot.h"
 #include "infrastructure/platform/linux/networkhelperclient.h"
 #include "infrastructure/platform/linux/dnsroutepublisher.h"
+#include "infrastructure/platform/linux/networkaccess.h"
+#include <QStandardPaths>
 #include "tests/platform/networkhelperfixture.h"
 #include "tuntraffic.h"
 #include <QCoreApplication>
@@ -53,6 +55,63 @@ static QStringList systemAddresses(const char *hostname, int family = AF_INET) {
     ::freeaddrinfo(answer);
     return addresses;
 }
+static int exerciseApplicationNetworkAccess(const ConnectionProfile &profile)
+{
+    auto *engine = new EmbeddedCoreEngine;
+    NetworkPolicySession policy(engine, readSystemDnsSnapshot);
+    auto *network = new LinuxNetworkAccess(engine, &policy,
+        EmbeddedCoreEngine::buildInfo()["capabilities"].toObject()["tunnel_mtu"].toInt());
+    ConnectionSession session(engine, nullptr, network);
+    QObject::connect(&session, &ConnectionSession::diagnostic, [](const QString &message) { std::cerr << message.toStdString() << '\n'; });
+    QObject::connect(&session, &ConnectionSession::authenticationRequired, [engine](const QJsonObject &request) {
+        engine->respond(CoreEngine::responseFor(request, {{"action", "submit"}, {"code", "fixture-code"}}));
+    });
+    int started = 0, finished = 0;
+    bool sawPreparing = false;
+    QObject::connect(engine, &CoreEngine::sessionStarted, [&] { ++started; });
+    QObject::connect(&session, &ConnectionSession::finished, [&](ConnectionError error) {
+        check(error == ConnectionError::NONE, "application network lifecycle finished without error"); ++finished;
+    });
+    QObject::connect(&session, &ConnectionSession::progressChanged, [&] {
+        sawPreparing |= session.phase() == ConnectionPhase::NetworkPreparing;
+    });
+    QString hintPath;
+    QByteArray previousOwner;
+    const QDir hints(QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) + "/network-owners");
+    for (int round = 0; round < 2; ++round) {
+        if (round) {
+            // Reproduce a crash between the durable UUID hint and the first privileged write.
+            QSaveFile hint(hintPath);
+            check(hint.open(QIODevice::WriteOnly) && hint.write(previousOwner) == previousOwner.size() && hint.commit(),
+                  "seed an absent privileged owner for startup recovery");
+        }
+        check(session.start(profile, {}), "start application connection");
+        until([&] { return session.state() == ConnectionState::Running || !session.isActive(); });
+        check(session.state() == ConnectionState::Running && session.phase() == ConnectionPhase::CampusReady
+              && sawPreparing && started == round + 1 && tunReferences() == 2,
+              "application confirms network ownership and core attachment before campus readiness");
+        const auto files = hints.entryList({"*.owner"}, QDir::Files);
+        check(files.size() == 1, "one durable network responsibility hint");
+        hintPath = hints.filePath(files.first());
+        QFile hint(hintPath);
+        check(hint.open(QIODevice::ReadOnly), "read current connection responsibility");
+        const auto owner = hint.readAll();
+        check(!QUuid(owner).isNull() && owner != previousOwner, "fresh root ownership for each attempt");
+        previousOwner = owner;
+        auto lookup = std::async(std::launch::async, [] { return systemAddresses("campus.test"); });
+        until([&] { return lookup.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready; });
+        const auto addresses = lookup.get();
+        check(addresses.size() == 1, "application publishes campus DNS through the owned helper");
+        exerciseNativeTUNTraffic(QHostAddress(addresses.first()));
+        session.stop();session.stop();
+        until([&] { return !session.isActive(); });
+        check(finished == round + 1 && tunReferences() == 0 && !QFileInfo::exists(hintPath),
+              "application restores owned network before releasing the core and responsibility hint");
+    }
+    std::cout << "PASS: ordinary native TCP/UDP via application network startup recovery, campus readiness, DNS and ordered stop/restart\n";
+    return 0;
+}
+
 int main(int argc, char **argv) {
     QCoreApplication app(argc, argv);
     check(argc == 3 && QByteArray(argv[1]) == "--tun-gateway", "requires native gateway fixture");
@@ -69,6 +128,7 @@ int main(int argc, char **argv) {
     profile.endpoint.loginDomain = auth["domain"].toString();
     profile.tls.caPem = config["tls"].toObject()["ca_pem"].toString();
     profile.keepAlive.mode = "off";
+    if (qgetenv("JC_NATIVE_NETWORK_SESSION") == "1") return exerciseApplicationNetworkAccess(profile);
     auto engine = std::make_unique<EmbeddedCoreEngine>();
     LinuxNetworkHelperClient helper;
     LinuxDNSRoutePublisher publisher(engine.get(), &helper);

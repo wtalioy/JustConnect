@@ -24,6 +24,7 @@ public:
     void restore();
     void cancel();
     State state() const { return current; }
+    bool hasPendingProcess() const { return child > 0; }
     QUuid owner() const { return connection; }
     // Borrowed, nonblocking; a core duplicate must close before overall shutdown completes.
     int descriptor() const { return device; }

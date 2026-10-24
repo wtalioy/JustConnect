@@ -40,10 +40,20 @@ foreach(KIND coreabi coreabi_fixture)
 endforeach()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    add_executable(coreabi_tun_adapter_test tun_adapter.cpp)
+    add_executable(coreabi_tun_adapter_test tun_adapter.cpp
+        "${REPO}/application/connectionsession.cpp" "${REPO}/application/networkpolicysession.cpp"
+        "${REPO}/core/connectionsessionstate.cpp")
+    set_target_properties(coreabi_tun_adapter_test PROPERTIES AUTOMOC ON)
     target_include_directories(coreabi_tun_adapter_test PRIVATE "${REPO}")
     target_link_libraries(coreabi_tun_adapter_test PRIVATE coreabi_engine Qt6::Network)
     justconnect_core_runtime(coreabi_tun_adapter_test coreabi)
+    add_executable(linux_networkaccess_test ../platform/networkaccess_linux_test.cpp
+        "${REPO}/application/connectionsession.cpp" "${REPO}/application/networkpolicysession.cpp"
+        "${REPO}/core/connectionsessionstate.cpp")
+    set_target_properties(linux_networkaccess_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(linux_networkaccess_test PRIVATE coreabi_engine)
+    add_test(NAME linux_networkaccess_test COMMAND linux_networkaccess_test)
+    set_tests_properties(linux_networkaccess_test PROPERTIES TIMEOUT 15)
 endif()
 
 add_test(NAME coreabi_protocol_test

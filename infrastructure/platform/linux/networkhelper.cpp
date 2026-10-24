@@ -80,7 +80,7 @@ struct OwnedOperation {
             || !S_ISDIR(base.st_mode) || base.st_uid != 0 || (base.st_mode & 07777) != 0700)
             return invalid("A trusted private root directory and connection owner are required.");
         if (!applying && ::fstatat(parent, name.constData(), &existing, AT_SYMLINK_NOFOLLOW) != 0) {
-            if (cleaning && errno == ENOENT) { cleaned = true; return {}; }
+            if (errno == ENOENT) { cleaned = true; return {}; }
             return invalid("Recovery ownership is absent or inaccessible.");
         }
         directory = privateDirectory(parent, name);
@@ -478,9 +478,10 @@ int runLinuxNetworkHelper(int socket, int trustedDirectory, uid_t uid, pid_t pid
     OwnedOperation operation(trustedDirectory, uid, owner);
     result = operation.open(applying, cleaning);
     if (!result.succeeded()) return 1;
+    if (operation.cleaned) return cleaned(operation.changed);
     if (cleaning) {
-        if (!operation.cleaned && !operation.removeReceipt()) return 1;
-        return cleaned(operation.changed || !operation.cleaned);
+        if (!operation.removeReceipt()) return 1;
+        return cleaned(true);
     }
     if (applying && beforeApply) result = beforeApply();
     if (result.succeeded()) result = applying ? operation.apply(*config) : operation.restore();

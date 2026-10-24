@@ -25,6 +25,7 @@ public:
     std::optional<CoreEngine::RequestStatus> policyStatus() const { return lastPolicyStatus; }
     bool isBusy() const { return workerBusy || networkPending || resourcesPending || isPolicyUpdating(); }
     CoreEngine::RequestStatus status() const { return currentStatus; }
+    QJsonObject confirmedProtection() const { return confirmedPolicy; }
     QJsonObject model() const { return currentModel; }
 signals:
     void changed();

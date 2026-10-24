@@ -332,7 +332,8 @@ void LinuxNetworkHelperClient::receive()
         else finish(returned,State::Active);
         return;
     }
-    if (operation == Operation::Cleanup && current == State::Restoring && phase == "cleaned" && returned.succeeded()) {
+    if ((operation == Operation::Cleanup || operation == Operation::Recover) && current == State::Restoring
+        && phase == "cleaned" && returned.succeeded()) {
         outcome = returned;
     } else if ((current == State::Applying || current == State::CancellingApply || current == State::Extending
                 || current == State::CancellingExtend || current == State::Restoring) && phase == "restored") {

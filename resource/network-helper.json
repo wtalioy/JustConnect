@@ -1,5 +1,5 @@
 {
-  "protocol": 4,
+  "protocol": 5,
   "storage_version": 2,
   "executable": "/usr/libexec/JustConnectNetworkHelper",
   "authorization_program": "/usr/bin/pkexec",

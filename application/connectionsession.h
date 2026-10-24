@@ -6,20 +6,38 @@
 #include <QUrl>
 #include <QMap>
 #include <QDateTime>
+#include <QUuid>
+#include "application/platformoperationresult.h"
 
 #include "application/coreengine.h"
 #include "core/connectionprofile.h"
 #include "core/connectionsessionstate.h"
 
 struct SessionObservation { QString result; QDateTime observedAt; };
-enum class ConnectionPhase { Initializing, Starting, Authenticating, AuthenticationSucceeded, Restoring, ReauthenticationRequired, TransportReady };
+enum class ConnectionPhase { Initializing, Starting, Authenticating, AuthenticationSucceeded, Restoring, ReauthenticationRequired, TransportReady, NetworkRecovering, NetworkPreparing, NetworkRestoring, CampusReady };
+
+// The backend confirms ownership recovery before core startup and release before core shutdown.
+class NetworkAccess : public QObject
+{
+    Q_OBJECT
+public:
+    using QObject::QObject;
+    virtual void prepare(const QUuid &attempt) = 0;
+    virtual void activate(const QUuid &attempt, const ConnectionProfile &profile) = 0;
+    virtual void stop(const QUuid &attempt) = 0;
+signals:
+    void prepared(const QUuid &attempt, PlatformOperationResult result);
+    void ready(const QUuid &attempt, PlatformOperationResult result);
+    void stopped(const QUuid &attempt, PlatformOperationResult result);
+    void lost(const QUuid &attempt, PlatformOperationResult result);
+};
 
 class ConnectionSession : public QObject
 {
 Q_OBJECT
 
 public:
-    explicit ConnectionSession(CoreEngine *coreEngine, QObject *parent = nullptr);
+    explicit ConnectionSession(CoreEngine *coreEngine, QObject *parent = nullptr, NetworkAccess *network = nullptr);
 
     bool start(const ConnectionProfile &profile, const ReconnectPolicy &policy);
     void stop();
@@ -47,11 +65,18 @@ signals:
 
 private:
     void startCore();
+    void startEngine();
+    void stopNetwork();
+    void becameReady(ConnectionPhase phase);
+    void networkFailure(const PlatformOperationResult &result);
     void handleCoreFinished();
     QUrl serverUrl() const;
     void clearAuthentication();
 
     CoreEngine *coreEngine;
+    NetworkAccess *network;
+    QUuid attempt;
+    bool coreActive = false, stoppingNetwork = false, networkStopped = true, waitingCoreStop = false;
     QTimer reconnectTimer;
     QTimer stableTimer;
     ConnectionSessionState sessionState;

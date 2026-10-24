@@ -3,6 +3,9 @@
 #include <memory>
 
 #include "application/connectionsession.h"
+#ifdef Q_OS_LINUX
+#include "infrastructure/platform/linux/networkaccess.h"
+#endif
 #include "application/networkpolicysession.h"
 #include "application/profileservice.h"
 #include "application/systemproxysession.h"
@@ -28,8 +31,15 @@ MainWindowCoordinator::MainWindowCoordinator(
           this
       )),
       coreEngine(new EmbeddedCoreEngine()),
-      connectionSession(new ConnectionSession(coreEngine, this)),
       networkPolicySession(new NetworkPolicySession(coreEngine, readSystemDnsSnapshot, this)),
+      connectionSession(new ConnectionSession(coreEngine, this,
+#ifdef Q_OS_LINUX
+          new LinuxNetworkAccess(coreEngine, networkPolicySession,
+              EmbeddedCoreEngine::buildInfo()["capabilities"].toObject()["tunnel_mtu"].toInt())
+#else
+          nullptr
+#endif
+      )),
       systemProxySession(new SystemProxySession(
           std::make_unique<ProxyRecoveryBackend>(),
           this
@@ -41,6 +51,7 @@ MainWindowCoordinator::MainWindowCoordinator(
       )),
       credentialAccess(new CredentialAccess(createSystemCredentialStore(),this))
 {
+    connect(coreEngine, &CoreEngine::finished, systemProxySession, &SystemProxySession::disable);
     connect(connectionSession, &ConnectionSession::authenticationRequired,
         authenticationCoordinator, &AuthDialogCoordinator::requestAuthentication);
     connect(authenticationCoordinator, &AuthDialogCoordinator::responseSubmitted,

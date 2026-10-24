@@ -1,10 +1,37 @@
 #include "connectionsession.h"
 
-ConnectionSession::ConnectionSession(CoreEngine *coreEngine, QObject *parent)
+ConnectionSession::ConnectionSession(CoreEngine *coreEngine, QObject *parent, NetworkAccess *network)
     : QObject(parent),
-      coreEngine(coreEngine)
+      coreEngine(coreEngine), network(network)
 {
     coreEngine->setParent(this);
+    if (network) {
+        network->setParent(this);
+        connect(network, &NetworkAccess::prepared, this, [this](const QUuid &id, PlatformOperationResult result) {
+            if (id != attempt || state() != ConnectionState::Starting || stoppingNetwork
+                || currentPhase != ConnectionPhase::NetworkRecovering || coreActive) return;
+            if (!result.succeeded()) { networkFailure(result); stop(); }
+            else startEngine();
+        });
+        connect(network, &NetworkAccess::ready, this, [this](const QUuid &id, PlatformOperationResult result) {
+            if (id != attempt || state() != ConnectionState::Starting || currentPhase != ConnectionPhase::NetworkPreparing) return;
+            if (!result.succeeded()) { networkFailure(result); stop(); }
+            else becameReady(ConnectionPhase::CampusReady);
+        });
+        connect(network, &NetworkAccess::stopped, this, [this](const QUuid &id, PlatformOperationResult result) {
+            if (id != attempt || !stoppingNetwork) return;
+            stoppingNetwork = false;
+            if (!result.succeeded()) { networkFailure(result); emit progressChanged(); return; }
+            networkStopped = true;
+            if (coreActive) { waitingCoreStop = true; this->coreEngine->stop(); }
+            else handleCoreFinished();
+        });
+        connect(network, &NetworkAccess::lost, this, [this](const QUuid &id, PlatformOperationResult result) {
+            if (id != attempt || !isActive() || networkStopped) return;
+            networkFailure(result);
+            stop();
+        });
+    }
     reconnectTimer.setSingleShot(true);
     stableTimer.setSingleShot(true);
     stableTimer.setInterval(60000);
@@ -16,7 +43,7 @@ ConnectionSession::ConnectionSession(CoreEngine *coreEngine, QObject *parent)
         observations[stage]={result,observedAt};
         if (stage=="library" && state()==ConnectionState::Starting) currentPhase=ConnectionPhase::Starting;
         else if (stage=="authentication" && result=="required") currentPhase=ConnectionPhase::ReauthenticationRequired;
-        else if (state()==ConnectionState::Starting) {
+        else if (state()==ConnectionState::Starting && currentPhase != ConnectionPhase::NetworkPreparing) {
             if (stage=="restore") currentPhase=result=="succeeded" ? ConnectionPhase::AuthenticationSucceeded : ConnectionPhase::Restoring;
             else if (stage=="authentication") currentPhase=result=="succeeded" ? ConnectionPhase::AuthenticationSucceeded : ConnectionPhase::Authenticating;
         }
@@ -55,17 +82,23 @@ ConnectionSession::ConnectionSession(CoreEngine *coreEngine, QObject *parent)
     connect(coreEngine, &CoreEngine::connectionEstablished, this, [this] {
         clearAuthentication();
         if (sessionState.state() != ConnectionState::Starting) return;
-        currentPhase=ConnectionPhase::TransportReady;
-        sessionState.connectionEstablished();
-        stableTimer.start();
-        emit stateChanged(sessionState.state());
+        if (currentPhase == ConnectionPhase::NetworkPreparing) return;
+        if (this->network) {
+            currentPhase = ConnectionPhase::NetworkPreparing;
+            emit progressChanged();
+            this->network->activate(attempt, currentProfile);
+        } else becameReady(ConnectionPhase::TransportReady);
     });
     connect(coreEngine, &CoreEngine::finished, this, [this](ConnectionError error) {
-        if (!sessionState.isActive()) return;
+        if (!coreActive || !sessionState.isActive()) return;
+        coreActive = false;
+        waitingCoreStop = false;
+        stableTimer.stop();
         clearAuthentication();
         if (error==ConnectionError::SESSION_INVALID) currentPhase=ConnectionPhase::ReauthenticationRequired;
         sessionState.recordError(error);
-        handleCoreFinished();
+        if (!networkStopped) stopNetwork();
+        else handleCoreFinished();
     });
     connect(&reconnectTimer, &QTimer::timeout, this, [this]()
     {
@@ -115,11 +148,10 @@ void ConnectionSession::stop()
         return;
     }
 
-    if (engineNeedsStop)
-    {
-        emit stateChanged(sessionState.state());
-        coreEngine->stop();
-    }
+    if (engineNeedsStop) emit stateChanged(sessionState.state());
+    if (state() != ConnectionState::Stopping || waitingCoreStop) return;
+    if (!networkStopped) stopNetwork();
+    else if (coreActive) { waitingCoreStop = true; this->coreEngine->stop(); }
 }
 
 void ConnectionSession::forgetAuthenticationCache()
@@ -159,19 +191,59 @@ bool ConnectionSession::isActive() const
 
 void ConnectionSession::startCore()
 {
-    currentPhase=ConnectionPhase::Initializing;
+    attempt = QUuid::createUuid();
+    networkStopped = !network;
+    stoppingNetwork = waitingCoreStop = false;
+    currentPhase = network ? ConnectionPhase::NetworkRecovering : ConnectionPhase::Initializing;
     observations.clear();
-    emit progressChanged();
     clearAuthentication();
-    if (!coreEngine->start(currentProfile)) {
+    emit progressChanged();
+    if (network) network->prepare(attempt);
+    else startEngine();
+}
+
+void ConnectionSession::startEngine()
+{
+    currentPhase = ConnectionPhase::Initializing;
+    emit progressChanged();
+    coreActive = true;
+    if (!coreEngine->start(currentProfile) && coreActive) {
+        coreActive = false;
         sessionState.recordError(ConnectionError::OTHER);
-        handleCoreFinished();
+        if (!networkStopped) stopNetwork();
+        else handleCoreFinished();
     }
+}
+
+void ConnectionSession::becameReady(ConnectionPhase phase)
+{
+    currentPhase = phase;
+    sessionState.connectionEstablished();
+    stableTimer.start();
+    emit stateChanged(sessionState.state());
+}
+
+void ConnectionSession::stopNetwork()
+{
+    if (stoppingNetwork) return;
+    stoppingNetwork = true;
+    currentPhase = ConnectionPhase::NetworkRestoring;
+    emit progressChanged();
+    network->stop(attempt);
+}
+
+void ConnectionSession::networkFailure(const PlatformOperationResult &result)
+{
+    if (result.status != PlatformOperationResult::Status::Cancelled)
+        sessionState.recordError(result.status == PlatformOperationResult::Status::PermissionDenied
+            ? ConnectionError::PERMISSION_DENIED : ConnectionError::OTHER);
+    emit diagnostic(result.detail);
 }
 
 void ConnectionSession::handleCoreFinished()
 {
     stableTimer.stop();
+    if (sessionState.error() == ConnectionError::SESSION_INVALID) currentPhase = ConnectionPhase::ReauthenticationRequired;
     if (sessionState.engineFinished() == SessionFinishAction::Reconnect)
     {
         emit stateChanged(sessionState.state());
