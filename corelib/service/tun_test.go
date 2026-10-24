@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
+	"runtime/pprof"
 	"sync"
 	"testing"
 	"time"
@@ -170,6 +172,7 @@ func closeIngress(t *testing.T, p *Listeners) {
 	select {
 	case <-done:
 	case <-time.After(time.Second):
+		_ = pprof.Lookup("goroutine").WriteTo(os.Stderr, 2)
 		t.Fatal("TUN shutdown did not interrupt and join its workers")
 	}
 }

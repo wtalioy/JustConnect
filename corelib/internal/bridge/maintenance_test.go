@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"os"
+	"runtime/pprof"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -103,6 +105,7 @@ func TestOnlineMaintenanceAndIdleTrafficControls(t *testing.T) {
 					t.Fatal("expiry was not distinguished", err)
 				}
 			case <-time.After(3 * time.Second):
+				_ = pprof.Lookup("goroutine").WriteTo(os.Stderr, 2)
 				t.Fatal("explicit expiry did not stop the session")
 			}
 			if invalidations.Load() != 1 || g.authCount.Load() != 1 || saves.Load() < 2 {
