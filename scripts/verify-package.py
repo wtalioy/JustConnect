@@ -123,6 +123,11 @@ def linux_audit(files, root, arch, env):
             'required_symbol_versions': sorted(required), 'files': evidence}
 
 
+def macos_signature(path, env):
+    return subprocess.run(['codesign', '-dv', '--verbose=4', str(path)], env=env, check=True,
+                          stdout=subprocess.PIPE, stderr=subprocess.PIPE).stderr.decode('utf-8')
+
+
 def macos_audit(files, root, arch, env, signed):
     evidence, minimum = [], '0'
     for path in files:
@@ -160,10 +165,12 @@ def macos_audit(files, root, arch, env, signed):
     if version(minimum) > version(declared) or version(declared) > version(platform.mac_ver()[0]):
         raise RuntimeError(f'Invalid macOS floor: declared {declared}, binaries {minimum}')
     run('codesign', '--verify', '--deep', '--strict', root, env=env)
-    signature = subprocess.run(['codesign', '-dv', '--verbose=4', str(root)], env=env, check=True,
-                               stdout=subprocess.PIPE, stderr=subprocess.PIPE).stderr.decode('utf-8')
+    signature = macos_signature(root, env)
     if signed and ('Signature=adhoc' in signature or 'Authority=Developer ID Application:' not in signature):
         raise RuntimeError('Developer ID signature required')
+    app_id = plistlib.loads((root / 'Contents/Info.plist').read_bytes())['CFBundleIdentifier']
+    if 'Identifier=' + app_id not in signature.splitlines():
+        raise RuntimeError('Application signing identifier differs from its bundle')
     return {'minimum_macos': declared, 'binary_minimum': minimum, 'signature': signature, 'files': evidence,
             'network_helper': check_macos_network_helper(root, env, signed)}
 
@@ -183,6 +190,8 @@ def check_macos_network_helper(root, env, signed):
             or facts['revision'] != (root / 'Contents/Resources/source-revision.txt').read_text().strip()
             or facts['source_state'] != 'clean' or (signed and not facts['identity_ready'])):
         raise RuntimeError('Packaged network helper has mismatched provenance or signing identity')
+    if 'Identifier=' + identifier not in macos_signature(helper, env).splitlines():
+        raise RuntimeError('Packaged network helper lost its signing identifier')
     dependencies = run('otool', '-L', helper, env=env)
     if any(name in dependencies for name in ('QtNetwork', 'QtWidgets', 'QtWebEngine', 'justconnect_core')):
         raise RuntimeError('Privileged network helper links application/data-plane libraries')

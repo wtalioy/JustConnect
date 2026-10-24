@@ -231,7 +231,7 @@ class VerifyPackageTest(unittest.TestCase):
             helper.parent.mkdir(parents=True)
             dependency.parent.mkdir(parents=True)
             dependency.touch()
-            (root / 'Contents/Info.plist').write_bytes(plistlib.dumps({'LSMinimumSystemVersion': '14.4'}))
+            (root / 'Contents/Info.plist').write_bytes(plistlib.dumps({'LSMinimumSystemVersion': '14.4', 'CFBundleIdentifier': 'app.fixture'}))
             relative = Path(os.path.relpath(dependency, helper.parent)).as_posix()
             def run(*args, **kwargs):
                 if args[0] == 'lipo':
@@ -243,8 +243,11 @@ class VerifyPackageTest(unittest.TestCase):
             with patch.object(package, 'run', side_effect=run), \
                     patch.object(package, 'check_macos_network_helper', return_value={}), \
                     patch.object(package.platform, 'mac_ver', return_value=('26.0', (), '')), \
-                    patch.object(package.subprocess, 'run', return_value=SimpleNamespace(stderr=b'Signature=adhoc')):
+                    patch.object(package.subprocess, 'run', return_value=SimpleNamespace(stderr=b'Signature=adhoc\nIdentifier=app.fixture')) as signature:
                 audit = package.macos_audit([helper], root, 'arm64', {}, False)
+                signature.return_value = SimpleNamespace(stderr=b'Signature=adhoc\nIdentifier=foreign.fixture')
+                with self.assertRaisesRegex(RuntimeError, 'Application signing identifier'):
+                    package.macos_audit([helper], root, 'arm64', {}, False)
             self.assertEqual(package.version(audit['binary_minimum']), package.version('14.4'))
 
     def test_macos_network_helper_rejects_privilege_provenance_and_dependency_drift(self):
@@ -256,7 +259,7 @@ class VerifyPackageTest(unittest.TestCase):
                   'KeepAlive': {'SuccessfulExit': False}, 'ProcessType': 'Adaptive'}
         facts = {'protocol': layout['protocol'], 'storage_version': layout['storage_version'],
                  'revision': 'a' * 40, 'source_state': 'clean', 'identity_ready': True}
-        with tempfile.TemporaryDirectory() as folder:
+        with tempfile.TemporaryDirectory() as folder, patch.object(package, 'macos_signature', return_value='Identifier=' + identifier):
             root = Path(folder)
             for name in ('Resources', 'Library/LaunchDaemons', 'MacOS'):
                 (root / 'Contents' / name).mkdir(parents=True)
@@ -276,6 +279,10 @@ class VerifyPackageTest(unittest.TestCase):
                 with patch.object(package, 'run', side_effect=[json.dumps(facts), dependency]), \
                         self.assertRaisesRegex(RuntimeError, 'application/data-plane'):
                     package.check_macos_network_helper(root, {}, True)
+            with patch.object(package, 'run', return_value=json.dumps(facts)), \
+                    patch.object(package, 'macos_signature', return_value='Identifier=' + layout['executable']), \
+                    self.assertRaisesRegex(RuntimeError, 'lost its signing identifier'):
+                package.check_macos_network_helper(root, {}, False)
             manifest.write_bytes(plistlib.dumps(dict(launch, Program='/bin/sh')))
             with self.assertRaisesRegex(RuntimeError, 'fixed privilege contract'):
                 package.check_macos_network_helper(root, {}, False)
