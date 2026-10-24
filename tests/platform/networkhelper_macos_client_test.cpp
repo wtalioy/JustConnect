@@ -3,6 +3,7 @@
 #include "infrastructure/platform/macos/helpertransport.h"
 #include "infrastructure/platform/macos/tunroutes.h"
 #include <QCoreApplication>
+#include <QDeadlineTimer>
 #include <QJsonDocument>
 #include <QSocketNotifier>
 #include <arpa/inet.h>
@@ -37,11 +38,20 @@ static void packet(int device)
     const QByteArray content("JustConnect signed helper data path");
     const auto sent = ::sendto(socket,content.constData(),size_t(content.size()),0,reinterpret_cast<sockaddr *>(&destination),sizeof(destination));
     ::close(socket); check(sent == content.size(),"Ordinary UDP did not reach the owned device");
-    pollfd readiness{device,POLLIN,0}; check(::poll(&readiness,1,3000) == 1,"Transferred utun received no real packet");
-    char buffer[65536]{}; const auto count = ::read(device,buffer,sizeof(buffer));
-    const auto bytes = count > 0 ? QByteArray(buffer,qsizetype(count)) : QByteArray{};
-    const quint32 family = htonl(AF_INET);
-    check(bytes.size() >= 32 && !std::memcmp(bytes.constData(),&family,4) && bytes.endsWith(content),"Received fd is not the configured native utun packet path");
+    QDeadlineTimer deadline(3000);
+    while (!deadline.hasExpired()) {
+        pollfd readiness{device,POLLIN,0};
+        if (::poll(&readiness,1,int(deadline.remainingTime())) == 0) break;
+        char buffer[65536]{}; const auto count = ::read(device,buffer,sizeof(buffer));
+        check(count > 0,"Read transferred native utun packet");
+        const QByteArray bytes(buffer,qsizetype(count));
+        // System DNS may already be probing this newly published interface.
+        if (!bytes.endsWith(content)) continue;
+        const quint32 family = htonl(AF_INET);
+        check(bytes.size() >= 32 && !std::memcmp(bytes.constData(),&family,4),"Received fd is not the configured native utun packet path");
+        return;
+    }
+    check(false,"Transferred utun did not receive the ordinary UDP payload");
 }
 int main(int argc,char **argv) try
 {
