@@ -261,7 +261,7 @@ Linux x64／ARM64 AppImage 分别减少约 2.07%／1.90%；macOS 安装体积基
 
 - S3-04／05、S4-01／05／06 出口自动恢复已通过 `e6b0797` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40116435947)／[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40116435949)：当前 Running 代次通过既有网络端口请求恢复后重连，保留用户开关、预算及新 UUID；真实终态／恢复错误优先，取消、旧代／重复或未恢复责任不启动新核心。31 安装场景证明新网关下实际 TCP／UDP、先释放责任／fd 后重连，禁用自动重连的行为保留；应用构建、三项会话／退出与三项正式 ABI 回归通过。复用状态机及助手，不新增协议／存储／依赖；原地源规则改写及完整流量迁移仍待。证据 `build/reports/network-restart.json`；不据此勾选完整接管任务。
 
-- S1-06／S5-02 macOS utun 核心接入本地通过、原生 CI 待：复用既有设备分配、C ABI／Qt fd 交付及校园数据面，校验真实 utun 控制器、帧选项、MTU 与点对点 IPv4，转换地址族头并由原轮询取消 I/O。共享 Unix 夹具与拒绝无关 fd 回归，删除 Linux 专用夹具路径，原 Linux 安全／取消／流量断言保留。Darwin 双架构 Go 交叉编译、bridge／设备 race、五项 ABI／Qt 与隔离普通用户真实 TCP／UDP／空报文及停止重启通过；CI 新增双架构 macOS 普通用户原生收发、帧错误及关闭验收。证据 `build/reports/darwin-tun.json`；Qt 正向原生交付、macOS 最小权限助手／路由／DNS 恢复、实际校园与桌面仍待，不勾选完整任务。
+- S1-06／S5-02 macOS utun 核心接入已通过 `145fa66` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40118965527)／[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40118965533)：复用既有设备分配、C ABI／Qt fd 交付及校园数据面，校验真实 utun 控制器、帧选项、MTU 与点对点 IPv4，转换地址族头并由原轮询取消 I/O。共享 Unix 夹具与拒绝无关 fd 回归，删除 Linux 专用夹具路径，原 Linux 安全／取消／流量断言保留。Darwin 双架构 Go 交叉编译、bridge／设备 race、五项 ABI／Qt 与隔离普通用户真实 TCP／UDP／空报文及停止重启通过；macOS 双架构已验证普通用户真实 TCP／UDP／空报文、停止重启、帧拒绝、MTU／非阻塞／fd 所有权及关闭公开状态；原 fd 交付／强杀回归保留。已清理本地不可执行的交叉编译产物与重复首轮日志，合并文档中的旧主表职责。证据 `build/reports/darwin-tun.json`；Qt 正向原生交付、macOS 最小权限助手／路由／DNS 恢复、实际校园与桌面仍待，不勾选完整任务。
 
 未完成：系统代理真实注销／无人值守恢复及桌面授权、复杂策略路由／在途流量迁移协调、三平台透明入口验收、Linux 桌面验收及其他平台最小权限助手、完整路由／DNS 所有权记录及独立恢复。S4-06 验证之前不在日常网络应用透明接管；S3-01／05 的接管就绪与独立恢复仍待验收。系统代理恢复协议 2 的同源码六组实际包已验，不代替真实桌面或透明网络恢复验收。
 完成条件：三平台具备原型需要的操作与恢复路径，故障注入证明只撤销自身修改；资源、出口和 DNS 规则可解释。记录原型环境与尚未覆盖的系统网络管理方式。
