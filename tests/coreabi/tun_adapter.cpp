@@ -74,7 +74,8 @@ int main(int argc, char **argv) {
         check(tunReferences() == 0, "previous session released every Qt/core TUN reference");
         check(engine->start(profile, CoreEngine::Operation::Connect), "start ordinary Qt core session");
         until([&] { return ready == round + 1; });
-        const auto configuration = helperFixtureConfiguration({"198.18.0.6/32"});
+        const auto configuration = helperFixtureConfiguration({"198.18.0.6/32"},
+            EmbeddedCoreEngine::buildInfo()["capabilities"].toObject()["tunnel_mtu"].toInt());
         const auto owner = round == 0 ? firstOwner : QUuid::createUuid();
         auto helperPrevious = helperReplies.size();
         helper.apply(owner, configuration);

@@ -53,7 +53,7 @@ int main(int argc, char **argv) try
         if (scenario == "cancel-authorization" && state == Client::State::Authorizing)
             QTimer::singleShot(50, client.get(), &Client::cancel);
     });
-    const auto configuration = helperFixtureConfiguration({scenario == "partial" ? "198.18.5.0/24" : "198.18.4.0/24"});
+    const auto configuration = helperFixtureConfiguration({scenario == "partial" ? "198.18.5.0/24" : "198.18.4.0/24"}, 1400);
     if (scenario == "cleanup") client->cleanupRestored(owner);
     else if (scenario == "recover") client->recover(owner);
     else client->apply(owner, configuration);

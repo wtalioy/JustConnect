@@ -10,6 +10,8 @@
 
 正式库返回 `embedded_vpn:true`、`auth_method_query:true`、`authentication_cache:true`、`policy_update:true`、`initial_protection:true`、`name_protection:true`、`network_snapshot:true`、`resource_snapshot:true`。Start 使用真实会话：认证、资源、选线、IP 握手、解析、gVisor 和监听均成功后才产生 `ready`，失败或取消在清理完成后产生终态。该事件仅表示核心通道／本地代理就绪；系统接管与系统 DNS 不在其契约内，产品“已连接”须由应用层按 [R11／S7-02](../plan.md) 汇总完整就绪条件。只有测试驱动和未安装 Runner 的纯传输引擎没有 VPN 能力；测试驱动始终标记 `test_driver:true`。
 
+`capabilities.tunnel_mtu` 返回当前核心校园 L3 栈的 MTU，直接来自栈实现；测试驱动返回 0。需要配置原始 IPv4 TUN 的调用方先核对 `raw_ipv4_tun_fd`，再使用该值准备设备，不在宿主复制核心默认值。它不替代内核 MTU 回读或设备接收校验，也不表示其他平台已支持原始 fd。
+
 ## C 边界与生命周期
 
 仅使用固定宽度整数和有长度的字节缓冲区；句柄是单调递增、从不重用的整数，不是地址。没有跨边界对象、异常、字符串指针返回值、分配／释放配对或 Go 回调 Qt。

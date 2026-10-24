@@ -16,6 +16,7 @@ import (
 	"github.com/wtalioy/JustConnect/corelib/internal/bridge"
 	"github.com/wtalioy/JustConnect/corelib/internal/networkstate"
 	"github.com/wtalioy/JustConnect/corelib/internal/tundevice"
+	"github.com/wtalioy/JustConnect/corelib/stack/gvisor"
 )
 
 var revision string
@@ -42,6 +43,10 @@ func buildInfo() []byte {
 	if state == "" {
 		state = "unknown"
 	}
+	var tunnelMTU uint32
+	if !testDriver {
+		tunnelMTU = gvisor.MTU
+	}
 	data, _ := json.Marshal(map[string]any{
 		"schema_version": bridge.ABIVersion, "abi_version": bridge.ABIVersion,
 		"test_driver": testDriver,
@@ -54,6 +59,7 @@ func buildInfo() []byte {
 			"network_snapshot":   networkstate.Supported(),
 			"resource_snapshot":  !testDriver,
 			"raw_ipv4_tun_fd":    !testDriver && tundevice.Supported,
+			"tunnel_mtu":         tunnelMTU,
 			"async_start":        true, "authentication_response": true, "bounded_events": true,
 			"max_sessions": 1, "max_handles": bridge.MaxHandles, "max_input_bytes": bridge.MaxInput,
 			"max_output_bytes": bridge.MaxOutput, "max_wait_ms": bridge.MaxWaitMS, "max_auth_wait_ms": bridge.MaxAuthWaitMS,
