@@ -18,7 +18,8 @@ import uuid
 
 
 def run(*args, **options):
-    result = subprocess.run(list(map(str, args)), text=True, capture_output=True, timeout=15, **options)
+    result = subprocess.run(list(map(str, args)), text=True, capture_output=True, timeout=15,
+                            pass_fds=scope_descriptors(), **options)
     assert result.returncode == 0, (list(map(str, args)), result.stdout, result.stderr)
     return result.stdout
 
@@ -65,13 +66,21 @@ def dns_reply(fd, packet, expected, peer):
     return True
 
 
+def scope_descriptors():
+    return tuple(map(int, os.environ['JC_TEST_HOST_NAMESPACE_FDS'].split(',')))
+
+
+def probe(binary, *arguments):
+    return ['/usr/bin/setpriv', '--bounding-set=-all,+net_admin', str(binary), *arguments]
+
+
 def exercise(binary, directory, phase, uid, environment):
     folder = directory / phase
     folder.mkdir(mode=0o700)
     parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
     parent.settimeout(10)
-    process = subprocess.Popen([str(binary), '--prepare-isolated', str(child.fileno()), str(folder), phase],
-                               pass_fds=(child.fileno(),), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    process = subprocess.Popen(probe(binary, '--prepare-isolated', str(child.fileno()), str(folder), phase),
+                               pass_fds=(*scope_descriptors(), child.fileno()), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     child.close()
     device = None
     try:
@@ -113,8 +122,8 @@ def exercise(binary, directory, phase, uid, environment):
             process.communicate(timeout=5)
             assert process.returncode == -signal.SIGKILL
             before = [run('/usr/bin/resolvectl', key, name, env=environment) for key in ('dns', 'domain', 'default-route')]
-            result = subprocess.run([str(binary), '--recover-isolated', str(folder), metadata['owner']],
-                                    text=True, capture_output=True, timeout=15)
+            result = subprocess.run(probe(binary, '--recover-isolated', str(folder), metadata['owner']),
+                                    text=True, capture_output=True, timeout=15, pass_fds=scope_descriptors())
             if phase == 'restore-dns-pending':
                 assert result.returncode == 2 and (folder / 'source.json').is_file(), result.stderr
                 assert before == [run('/usr/bin/resolvectl', key, name, env=environment) for key in ('dns', 'domain', 'default-route')]
@@ -122,8 +131,8 @@ def exercise(binary, directory, phase, uid, environment):
                 device = None
                 deadline = time.monotonic() + 5
                 while time.monotonic() < deadline:
-                    result = subprocess.run([str(binary), '--recover-isolated', str(folder), metadata['owner']],
-                                            text=True, capture_output=True, timeout=15)
+                    result = subprocess.run(probe(binary, '--recover-isolated', str(folder), metadata['owner']),
+                                            text=True, capture_output=True, timeout=15, pass_fds=scope_descriptors())
                     if result.returncode == 0:
                         break
                     time.sleep(0.02)
@@ -141,8 +150,8 @@ def exercise(binary, directory, phase, uid, environment):
 def exercise_foreign_provider(binary, environment):
     parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
     parent.settimeout(10)
-    process = subprocess.Popen(['/usr/bin/unshare', '--net', str(binary), '--foreign-provider-isolated', str(child.fileno())],
-                               pass_fds=(child.fileno(),), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    process = subprocess.Popen(['/usr/bin/unshare', '--net', *probe(binary, '--foreign-provider-isolated', str(child.fileno()))],
+                               pass_fds=(*scope_descriptors(), child.fileno()), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     child.close()
     try:
         metadata, descriptors = receive(parent)
@@ -172,6 +181,13 @@ def main():
     assert os.geteuid() == 0 and args.uid != 0
     for kind in ('net', 'mnt'):
         assert os.stat('/proc/thread-self/ns/' + kind) != os.stat('/proc/1/ns/' + kind), 'refusing host namespaces'
+    try:
+        host = os.stat('/run/dbus/system_bus_socket')
+        os.environ['JC_TEST_HOST_BUS_ID'] = str(host.st_dev) + ',' + str(host.st_ino)
+    except FileNotFoundError:
+        os.environ['JC_TEST_HOST_BUS_ID'] = '0,0'
+    descriptors = tuple(os.open('/proc/1/ns/' + kind, os.O_RDONLY) for kind in ('net', 'mnt'))
+    os.environ['JC_TEST_HOST_NAMESPACE_FDS'] = ','.join(map(str, descriptors))
     environment = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C.UTF-8'}
     processes = []
     with tempfile.TemporaryDirectory(prefix='JustConnect-resolved-') as folder:
@@ -199,7 +215,7 @@ def main():
             deadline = time.monotonic() + 5
             while not Path('/run/dbus/system_bus_socket').exists() and time.monotonic() < deadline:
                 time.sleep(0.02)
-            print(run(binary, '--absent-isolated'), end='', flush=True)
+            print(run(*probe(binary, '--absent-isolated')), end='', flush=True)
             resolved_log = (root / 'resolved.log').open('w+')
             processes.append(subprocess.Popen(['/usr/lib/systemd/systemd-resolved'], env=environment,
                                               stdout=resolved_log, stderr=subprocess.STDOUT))
@@ -219,13 +235,14 @@ def main():
             run('/usr/bin/resolvectl', 'domain', 'dnsoriginal0', '~original.test', env=environment)
             baseline = [run('/usr/bin/resolvectl', key, 'dnsoriginal0', env=environment) for key in ('dns', 'domain', 'default-route')]
             exercise_foreign_provider(binary, environment)
-            output = run(binary, '--isolated')
+            output = run(*probe(binary, '--isolated'))
             print(output, end='', flush=True)
             phases = ('flow', 'apply-domains-pending', 'apply-dns-confirmed', 'restore-dns-pending', 'restore-dns-confirmed')
             for phase in phases:
                 exercise(binary, root, phase, args.uid, environment)
                 assert baseline == [run('/usr/bin/resolvectl', key, 'dnsoriginal0', env=environment) for key in ('dns', 'domain', 'default-route')]
             print('REPORT: ' + json.dumps({'provider': 'actual systemd-resolved on isolated canonical system bus',
+                                          'worker_capability': 'CAP_NET_ADMIN only; namespace guard and new-process recovery enforced',
                                           'phases': phases, 'ordinary_uid': args.uid,
                                           'original_interface': 'unchanged; no host route or resolver modification'}), flush=True)
         except BaseException:
@@ -241,6 +258,8 @@ def main():
                 except subprocess.TimeoutExpired:
                     process.kill()
                     process.wait(timeout=5)
+            for descriptor in descriptors:
+                os.close(descriptor)
 
 
 if __name__ == '__main__':
