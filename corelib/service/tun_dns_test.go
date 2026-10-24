@@ -90,8 +90,7 @@ func TestTUNDNSUsesOwnedPeerAndCampusACL(t *testing.T) {
 	}
 	peer := tunPeer(t, device.packetDevice)
 	target := tcpip.FullAddress{NIC: 1, Addr: tcpip.AddrFrom4([4]byte{198, 18, 0, 2}), Port: resolve.DNSPort}
-	query := func(transport string, destination tcpip.FullAddress, message *dns.Msg) *dns.Msg {
-		t.Helper()
+	exchange := func(transport string, destination tcpip.FullAddress, message *dns.Msg) (*dns.Msg, error) {
 		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 		defer cancel()
 		var conn net.Conn
@@ -102,10 +101,15 @@ func TestTUNDNSUsesOwnedPeerAndCampusACL(t *testing.T) {
 			conn, err = gonet.DialUDP(peer, nil, &destination, ipv4.ProtocolNumber)
 		}
 		if err != nil {
-			t.Fatal(err)
+			return nil, err
 		}
 		defer conn.Close()
 		reply, _, err := (&dns.Client{Net: transport}).ExchangeWithConnContext(ctx, message, &dns.Conn{Conn: conn, UDPSize: 4096})
+		return reply, err
+	}
+	query := func(transport string, destination tcpip.FullAddress, message *dns.Msg) *dns.Msg {
+		t.Helper()
+		reply, err := exchange(transport, destination, message)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -128,16 +132,34 @@ func TestTUNDNSUsesOwnedPeerAndCampusACL(t *testing.T) {
 	}
 	publicationMode.Store(1)
 	for _, applied := range []bool{true, false} {
-		result := make(chan *dns.Msg, 1)
-		go func() { result <- query("tcp", target, request) }()
-		<-publications
+		type queryResult struct {
+			reply *dns.Msg
+			err   error
+		}
+		result := make(chan queryResult, 1)
+		go func() { reply, err := exchange("tcp", target, request); result <- queryResult{reply, err} }()
+		select {
+		case <-publications:
+		case reply := <-result:
+			t.Fatalf("DNS completed before route publication: %v, %v", reply.reply, reply.err)
+		case <-time.After(5 * time.Second):
+			t.Fatal("DNS route publication did not start within the query deadline")
+		}
 		select {
 		case reply := <-result:
 			t.Fatal("DNS replied before owned route acknowledgement", reply)
 		case <-time.After(25 * time.Millisecond):
 		}
-		release <- applied
-		reply := <-result
+		select {
+		case release <- applied:
+		case reply := <-result:
+			t.Fatalf("DNS completed before route acknowledgement: %v, %v", reply.reply, reply.err)
+		}
+		answer := <-result
+		if answer.err != nil {
+			t.Fatal(answer.err)
+		}
+		reply := answer.reply
 		want := dns.RcodeServerFailure
 		if applied {
 			want = dns.RcodeSuccess
