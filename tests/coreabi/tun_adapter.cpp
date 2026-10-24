@@ -1,5 +1,6 @@
 #include "infrastructure/coreengine/embeddedcoreengine.h"
-#include "application/networkprotection.h"
+#include "infrastructure/platform/linux/networkhelperpreparation.h"
+#include "infrastructure/platform/dnssnapshot.h"
 #include "infrastructure/platform/linux/networkhelperclient.h"
 #include "infrastructure/platform/linux/dnsroutepublisher.h"
 #include "tests/platform/networkhelperfixture.h"
@@ -79,8 +80,8 @@ int main(int argc, char **argv) {
     QObject::connect(&helper, &LinuxNetworkHelperClient::ownershipLost, [&](PlatformOperationResult result) { helperLosses.append(result); });
     QString generation;
     int ready = 0, finished = 0;
-    int resourceReplies = 0;
-    QJsonObject resources, confirmedPolicy;
+    int resourceReplies = 0, networkReplies = 0;
+    QJsonObject resources, confirmedPolicy, network;
     QList<CoreEngine::RequestStatus> replies;
     QObject::connect(engine.get(), &CoreEngine::sessionStarted, [&](const QString &value) { generation = value; });
     QObject::connect(engine.get(), &CoreEngine::authenticationRequired, [&](const QJsonObject &request) {
@@ -100,33 +101,40 @@ int main(int argc, char **argv) {
     });
     QObject::connect(engine.get(), &CoreEngine::snapshotReady,
         [&](CoreEngine::Snapshot kind, const QString &value, const QJsonObject &snapshot, CoreEngine::RequestStatus status) {
-            if (kind != CoreEngine::Snapshot::Resources || value != generation) return;
-            check(status == CoreEngine::RequestStatus::Success,"read actual campus DNS resource");
-            resources = snapshot["resources"].toObject();
-            ++resourceReplies;
+            if (value != generation) return;
+            check(status == CoreEngine::RequestStatus::Success,"read actual preparation snapshot");
+            if (kind == CoreEngine::Snapshot::Resources) { resources = snapshot["resources"].toObject(); ++resourceReplies; }
+            else { network = snapshot["network"].toObject(); ++networkReplies; }
         });
     for (int round = 0; round < 2; ++round) {
         check(tunReferences() == 0, "previous session released every Qt/core TUN reference");
         check(engine->start(profile, CoreEngine::Operation::Connect), "start ordinary Qt core session");
         until([&] { return ready == round + 1; });
         const bool systemDNS = qgetenv("JC_NATIVE_TUN_DNS") == "1";
-        QStringList prefixes{"198.18.0.6/32"}, dnsDomains;
+        QStringList prefixes{"198.18.0.6/32"};
+        const auto coreMTU = EmbeddedCoreEngine::buildInfo()["capabilities"].toObject()["tunnel_mtu"].toInt();
+        auto configuration = helperFixtureConfiguration(prefixes,coreMTU);
         QHostAddress tcpTarget("198.18.0.6");
         if (systemDNS) {
-            const auto previous = resourceReplies;
+            const auto previous = resourceReplies, previousNetwork = networkReplies;
             engine->readSnapshot(CoreEngine::Snapshot::Resources,generation);
-            until([&] { return resourceReplies > previous; });
+            engine->readSnapshot(CoreEngine::Snapshot::Network,generation);
+            until([&] { return resourceReplies > previous && networkReplies > previousNetwork; });
             const auto dns = resources["campus_dns"].toString();
             check(resources["campus_dns_enabled"].toBool() && QHostAddress(dns).protocol() == QAbstractSocket::IPv4Protocol,
                   "dynamic route fixture uses the school's actual authorized DNS server");
-            const auto plan = campusCaptureTargets(resources, confirmedPolicy);
-            check(plan.has_value(), "derive initial capture from actual resources and confirmed original protection");
-            prefixes = plan->ipv4Prefixes;
-            dnsDomains = plan->dnsDomains;
+            auto worker = std::async(std::launch::async, [resources,confirmedPolicy,network,coreMTU] {
+                return prepareLinuxNetworkHelper(resources,confirmedPolicy,network,readSystemDnsSnapshot(),{},coreMTU);
+            });
+            until([&] { return worker.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready; });
+            const auto preparation = worker.get();
+            check(preparation.result.succeeded(),qPrintable(preparation.result.detail));
+            configuration = preparation.configuration;
+            prefixes = configuration.capturePrefixes;
+            check(configuration.originalInterface == "helperorig0" && configuration.originalSource == "192.0.2.1"
+                  && configuration.address != configuration.peer && !configuration.dnsDomains.isEmpty(),
+                  "actual kernel exit and collision-free device addresses feed the installed helper");
         }
-        auto configuration = helperFixtureConfiguration(prefixes,
-            EmbeddedCoreEngine::buildInfo()["capabilities"].toObject()["tunnel_mtu"].toInt());
-        configuration.dnsDomains = dnsDomains;
         const auto owner = round == 0 ? firstOwner : QUuid::createUuid();
         auto helperPrevious = helperReplies.size();
         helper.apply(owner, configuration);

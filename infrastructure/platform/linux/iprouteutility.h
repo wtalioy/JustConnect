@@ -6,6 +6,7 @@
 #include <QJsonArray>
 #include <QFile>
 #include <QScopeGuard>
+#include <QRegularExpression>
 #include <QUuid>
 #include <arpa/inet.h>
 #include <ifaddrs.h>
@@ -60,6 +61,11 @@ inline QString ipv4RoutePrefix(const QJsonObject &row)
     const auto value = row["dst"].toString();
     if (value == "default") return "0.0.0.0/0";
     return value.contains('/') ? value : value + "/32";
+}
+
+inline bool canonicalLinuxInterfaceName(const QString &name)
+{
+    return QRegularExpression("^[A-Za-z0-9_.-]{1,15}$").match(name).hasMatch();
 }
 
 inline bool canonicalIpv4Prefix(const QString &value, int minimum = 2)

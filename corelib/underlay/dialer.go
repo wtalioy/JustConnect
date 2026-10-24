@@ -78,6 +78,19 @@ func New(options ...Options) (*Dialer, error) {
 	return d, nil
 }
 
+// InterfaceName reports the current socket preference; an empty name uses system routing.
+func (d *Dialer) InterfaceName() string {
+	if d == nil {
+		return ""
+	}
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	if d.closed {
+		return ""
+	}
+	return d.interfaceName
+}
+
 // Close flushes and closes the optional packet capture.
 func (d *Dialer) Close() error {
 	if d == nil {

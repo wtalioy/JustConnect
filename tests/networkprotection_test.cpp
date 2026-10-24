@@ -28,6 +28,20 @@ static void captureTargets()
     check(plan && plan->ipv4Prefixes == QStringList{"100.74.12.3/32","192.168.24.253/32","192.168.25.0/29","192.168.25.8/32","203.0.113.53/32"},
           "Initial capture lost exact choices, range boundaries, coalescing or actual DNS");
     check(plan->dnsDomains == QStringList{"campus.test"},"DNS domains were not derived from normalized resources");
+    const QJsonObject allocationNetwork{{"interfaces",QJsonArray{QJsonObject{{"addresses",QJsonArray{"10.0.0.1/8","172.16.0.1/16","2001:db8::1/64"}}}}},
+        {"routes",QJsonArray{QJsonObject{{"destination","0.0.0.0/0"}}}}};
+    const auto pair = privateTUNAddresses(allocationNetwork, {"172.17.0.0/16","192.168.0.0/16"});
+    check(pair && QHostAddress(pair->second).toIPv4Address() == QHostAddress(pair->first).toIPv4Address()+1,
+          "Private point-to-point allocation did not return two distinct consecutive addresses");
+    for (const auto &address : {pair->first,pair->second}) {
+        check(QHostAddress(address).isInSubnet(QHostAddress::parseSubnet("172.16.0.0/12"))
+            && !QHostAddress(address).isInSubnet(QHostAddress::parseSubnet("172.16.0.0/16"))
+            && !QHostAddress(address).isInSubnet(QHostAddress::parseSubnet("172.17.0.0/16")),
+              "Private TUN allocation overlapped an original or campus target");
+    }
+    check(!privateTUNAddresses(allocationNetwork,{"172.16.0.0/12","192.168.0.0/16"}),
+          "Exhausted private pools reused an occupied address");
+    check(!privateTUNAddresses(allocationNetwork,{"172.16.0.1/16"}),"Invalid capture prefix reached device allocation");
     auto protectedPolicy = policy;
     protectedPolicy["protected_names"] = QJsonArray{QJsonObject{{"kind","exact"},{"value","host.campus.test"}}};
     check(!campusCaptureTargets(resources, protectedPolicy),"Protected descendant name reached a broad campus DNS route");

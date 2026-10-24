@@ -4,6 +4,7 @@
 #include <QJsonObject>
 #include <QStringList>
 #include <optional>
+#include <utility>
 
 // Each target retains references into the unchanged native network snapshot.
 std::optional<QJsonArray> originalNetworkProtection(const QJsonObject &network);
@@ -22,3 +23,6 @@ struct CampusCaptureTargets {
 };
 // Derive initial IPv4 capture from parsed resources and the core-confirmed policy.
 std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &resources, const QJsonObject &policy);
+
+// Choose two unused RFC 1918 addresses without overlapping original or campus targets.
+std::optional<std::pair<QString, QString>> privateTUNAddresses(const QJsonObject &network, const QStringList &reservedPrefixes);
