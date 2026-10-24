@@ -257,9 +257,11 @@ Linux x64／ARM64 AppImage 分别减少约 2.07%／1.90%；macOS 安装体积基
 
 - S4-03／06、S5-04 精确 `/32` 增量已通过 `cf69bf8` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40109000896)／[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40109000863)，含双架构实际发行版助手：校园捕获与原出口复用独立表后端，保留原 main 路由及 local 优先级；协议 8、捕获日志 v2。已删旧主表应用／追加／运行中撤回，v1 仅保留升级恢复，停止支持可能遗留 v1 记录的版本后连同专属测试删除。验证与剩余项见[独立捕获表](docs/CORELINK-PROBE.md#linux-独立捕获路由表)及 `build/reports/capture-table.json`，不勾选完整任务。
 
-- S4-01／03／06 Linux 运行中观察已通过 `c309971` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40112073592)／[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40112073575)，含同源助手 30 安装场景：复用完整模型、核心／助手双确认和恢复链，保留显式选择；普通覆盖网络加入／移除自动改变保护与捕获，原出口变化则恢复并提示重连。30 安装场景验证两侧实际 UDP／空报文、出口变化后恢复及新 UUID TCP／UDP；应用构建、针对性界面／策略与正式 ABI、原设备删除后的所属规则清理通过。已合并重复策略收尾与 UDP 夹具，读取期间保留选中行，失败／旧代／外部值及强杀断言保留。边界及未验项见[运行中观察](docs/ARCHITECTURE.md#linux-network-observation)和 `build/reports/network-observation.json`；本批仍不勾选完整任务。
+- S4-01／03／06 Linux 运行中观察已通过 `c309971` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40112073592)／[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40112073575)，含同源助手 30 安装场景：复用完整模型、核心／助手双确认和恢复链，保留显式选择；普通覆盖网络加入／移除自动改变保护与捕获，原出口变化先恢复，自动重连增量见下文。30 安装场景验证两侧实际 UDP／空报文、出口变化后恢复及新 UUID TCP／UDP；应用构建、针对性界面／策略与正式 ABI、原设备删除后的所属规则清理通过。已合并重复策略收尾与 UDP 夹具，读取期间保留选中行，失败／旧代／外部值及强杀断言保留。边界及未验项见[运行中观察](docs/ARCHITECTURE.md#linux-network-observation)和 `build/reports/network-observation.json`；本批仍不勾选完整任务。
 
-未完成：系统代理真实注销／无人值守恢复及桌面授权、已确认原出口迁移／外部策略路由变化协调、三平台透明入口验收、Linux 桌面验收及其他平台最小权限助手、完整路由／DNS 所有权记录及独立恢复。S4-06 验证之前不在日常网络应用透明接管；S3-01／05 的接管就绪与独立恢复仍待验收。系统代理恢复协议 2 的同源码六组实际包已验，不代替真实桌面或透明网络恢复验收。
+- S3-04／05、S4-01／05／06 出口自动恢复本地通过、CI 待：当前 Running 代次通过既有网络端口请求恢复后重连，保留用户开关、预算及新 UUID；真实终态／恢复错误优先，取消、旧代／重复或未恢复责任不启动新核心。31 安装场景证明新网关下实际 TCP／UDP、先释放责任／fd 后重连，禁用自动重连的行为保留；应用构建、三项会话／退出与三项正式 ABI 回归通过。复用状态机及助手，不新增协议／存储／依赖；原地源规则改写及完整流量迁移仍待。证据 `build/reports/network-restart.json`；不据此勾选完整接管任务。
+
+未完成：系统代理真实注销／无人值守恢复及桌面授权、出口自动重连增量 CI、复杂策略路由／在途流量迁移协调、三平台透明入口验收、Linux 桌面验收及其他平台最小权限助手、完整路由／DNS 所有权记录及独立恢复。S4-06 验证之前不在日常网络应用透明接管；S3-01／05 的接管就绪与独立恢复仍待验收。系统代理恢复协议 2 的同源码六组实际包已验，不代替真实桌面或透明网络恢复验收。
 完成条件：三平台具备原型需要的操作与恢复路径，故障注入证明只撤销自身修改；资源、出口和 DNS 规则可解释。记录原型环境与尚未覆盖的系统网络管理方式。
 
 <a id="s5"></a>

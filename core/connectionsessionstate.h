@@ -45,6 +45,7 @@ public:
     void connectionEstablished();
     void recordError(ConnectionError error);
     bool requestStop();
+    bool interruptForReconnect();
     SessionFinishAction engineFinished();
     void beginReconnect();
 

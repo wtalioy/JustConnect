@@ -161,12 +161,36 @@ bool completedAuthenticationDoesNotDisableNetworkRecovery()
     return session.engineFinished()==SessionFinishAction::Reconnect && session.reconnectAttempt()==2;
 }
 
+bool networkRestartKeepsIntentAndExistingRetryBounds()
+{
+    ConnectionSessionState session;
+    session.requestStart({true,1});
+    if (session.interruptForReconnect()) return false;
+    for (int attempt=1; attempt<=ConnectionSessionState::MaxReconnectAttempts; ++attempt) {
+        session.connectionEstablished();
+        if (!session.interruptForReconnect() || session.interruptForReconnect() || !session.wantsConnection()
+            || session.state()!=ConnectionState::Stopping) return false;
+        session.recordError(ConnectionError::NETWORK_FAILED);
+        if (session.engineFinished()!=SessionFinishAction::Reconnect || session.reconnectAttempt()!=attempt) return false;
+        session.beginReconnect();
+    }
+    session.connectionEstablished();session.interruptForReconnect();session.recordError(ConnectionError::NETWORK_FAILED);
+    if (session.engineFinished()!=SessionFinishAction::Complete || session.wantsConnection()) return false;
+    session.requestStart({true,1});session.connectionEstablished();session.interruptForReconnect();session.requestStop();
+    if (session.wantsConnection() || session.engineFinished()!=SessionFinishAction::Complete) return false;
+    session.requestStart({true,1});session.connectionEstablished();session.cancelReconnect();
+    if (!session.interruptForReconnect() || session.wantsConnection()) return false;
+    session.recordError(ConnectionError::NETWORK_FAILED);
+    return session.engineFinished()==SessionFinishAction::Complete;
+}
+
 }
 
 int main(int argc, char *argv[])
 {
     QCoreApplication app(argc, argv);
-    return completedAuthenticationDoesNotDisableNetworkRecovery()
+    return networkRestartKeepsIntentAndExistingRetryBounds()
+        && completedAuthenticationDoesNotDisableNetworkRecovery()
         && boundedBackoffAndStableRecovery()
         && rejectsUnsafeRetriesAndDuplicateStop()
         && normalLifecycle()

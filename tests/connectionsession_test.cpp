@@ -169,6 +169,81 @@ bool restoresBeforeReconnectAndDoesNotLoopAuthorization()
     return session.state() == ConnectionState::Failed && !session.isActive() && network->preparations == 2;
 }
 
+bool networkRestartWaitsForOwnedRecovery()
+{
+    auto *engine = new FakeCoreEngine;
+    auto *network = new FakeNetworkAccess;
+    ConnectionSession session(engine,nullptr,network);
+    engine->completeDuringStop = true;
+    int scheduled = 0, finished = 0;
+    QObject::connect(&session,&ConnectionSession::reconnectScheduled,[&](int) { ++scheduled; });
+    QObject::connect(&session,&ConnectionSession::finished,[&](ConnectionError) { ++finished; });
+    session.start({}, {true,1});emit network->prepared(network->attempt,{});
+    engine->establishConnection();emit network->ready(network->attempt,{});
+    const auto first = network->attempt;
+    emit network->restartRequired(QUuid::createUuid(),"stale exit");
+    if (session.state()!=ConnectionState::Running || network->stops) return false;
+    emit network->restartRequired(first,"changed exit");emit network->restartRequired(first,"duplicate");
+    if (session.state()!=ConnectionState::Stopping || network->stops!=1 || engine->stopCalls || scheduled || finished) return false;
+    emit network->stopped(first,{});
+    if (session.state()!=ConnectionState::Reconnecting || engine->stopCalls!=1 || scheduled!=1 || finished) return false;
+    QElapsedTimer elapsed;elapsed.start();
+    while (network->preparations==1 && elapsed.elapsed()<3000) QCoreApplication::processEvents();
+    if (network->preparations!=2 || network->attempt==first || engine->startCalls!=1 || session.reconnectAttempt()!=1) return false;
+    emit network->prepared(first,{});emit network->ready(first,{});
+    if (engine->startCalls!=1) return false;
+    emit network->prepared(network->attempt,{});engine->establishConnection();emit network->ready(network->attempt,{});
+    emit network->restartRequired(first,"late exit");
+    if (session.state()!=ConnectionState::Running || network->stops!=1) return false;
+    emit network->restartRequired(network->attempt,"changed again");
+    session.stop();emit network->stopped(network->attempt,{});
+    QCoreApplication::processEvents();
+    return !session.isActive() && session.state()==ConnectionState::Disconnected && finished==1 && scheduled==1;
+}
+
+bool networkRestartDoesNotRetryPermissionOrAuthenticationFailures()
+{
+    enum class Failure { Authentication, Recovery, EarlyFinishRecovery };
+    for (const auto failure : {Failure::Authentication,Failure::Recovery,Failure::EarlyFinishRecovery}) {
+        const bool denied = failure != Failure::Authentication;
+        const bool earlyFinish = failure == Failure::EarlyFinishRecovery;
+        auto *engine = new FakeCoreEngine;
+        auto *network = new FakeNetworkAccess;
+        ConnectionSession session(engine,nullptr,network);
+        engine->completeDuringStop = true;
+        int scheduled = 0;
+        ConnectionError terminal = ConnectionError::NONE;
+        QObject::connect(&session,&ConnectionSession::finished,[&](ConnectionError error) { terminal = error; });
+        QObject::connect(&session,&ConnectionSession::reconnectScheduled,[&](int) { ++scheduled; });
+        session.start({}, {true,1});emit network->prepared(network->attempt,{});
+        engine->establishConnection();emit network->ready(network->attempt,{});
+        emit network->restartRequired(network->attempt,"changed exit");
+        if (denied) {
+            if (earlyFinish) engine->complete();
+            emit network->stopped(network->attempt,{PlatformOperationResult::Status::PermissionDenied,"denied",true});
+            if (engine->stopCalls!=(earlyFinish ? 0 : 1) || scheduled || !session.isActive()) return false;
+            session.stop();emit network->stopped(network->attempt,{});
+        } else {
+            engine->complete(ConnectionError::SESSION_INVALID);
+            emit network->stopped(network->attempt,{});
+            if (session.phase()!=ConnectionPhase::ReauthenticationRequired) return false;
+        }
+        QCoreApplication::processEvents();
+        if (session.isActive() || scheduled || network->preparations!=1 || session.state()!=ConnectionState::Failed
+            || terminal != (denied ? ConnectionError::PERMISSION_DENIED : ConnectionError::SESSION_INVALID)) return false;
+    }
+    auto *engine = new FakeCoreEngine;auto *network = new FakeNetworkAccess;
+    ConnectionSession disabled(engine,nullptr,network);
+    engine->completeDuringStop = true;
+    disabled.start({},{});emit network->prepared(network->attempt,{});
+    engine->establishConnection();emit network->ready(network->attempt,{});
+    ConnectionError result = ConnectionError::NONE;
+    QObject::connect(&disabled,&ConnectionSession::finished,[&](ConnectionError error) { result = error; });
+    emit network->restartRequired(network->attempt,"changed exit");emit network->stopped(network->attempt,{});
+    QCoreApplication::processEvents();
+    return !disabled.isActive() && network->preparations==1 && result==ConnectionError::NETWORK_FAILED;
+}
+
 bool delegatesSessionLifecycleThroughPort()
 {
     auto *engine = new FakeCoreEngine();
@@ -396,7 +471,9 @@ bool progressUsesObservedEventsAndRejectsLateResults()
 int main(int argc, char *argv[])
 {
     QCoreApplication application(argc, argv);
-    return ordersNetworkOwnershipAroundTheCore()
+    return networkRestartWaitsForOwnedRecovery()
+        && networkRestartDoesNotRetryPermissionOrAuthenticationFailures()
+        && ordersNetworkOwnershipAroundTheCore()
         && networkLossReleasesCoreWithoutRepeatingFailedRecovery()
         && restoresBeforeReconnectAndDoesNotLoopAuthorization()
         && progressUsesObservedEventsAndRejectsLateResults()

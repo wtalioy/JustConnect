@@ -32,6 +32,15 @@ ConnectionSession::ConnectionSession(CoreEngine *coreEngine, QObject *parent, Ne
             if (coreActive) stopCore();
             else handleCoreFinished();
         });
+        connect(network, &NetworkAccess::restartRequired, this, [this](const QUuid &id, const QString &detail) {
+            if (id != attempt || networkStopped || networkLost || !sessionState.interruptForReconnect()) return;
+            networkLost = true;
+            stableTimer.stop();
+            clearAuthentication();
+            emit diagnostic(detail);
+            emit stateChanged(sessionState.state());
+            stopNetwork();
+        });
         connect(network, &NetworkAccess::lost, this, [this](const QUuid &id, PlatformOperationResult result) {
             if (id != attempt || !isActive() || networkStopped || networkLost) return;
             networkLost = true;
@@ -259,6 +268,8 @@ void ConnectionSession::networkFailure(const PlatformOperationResult &result)
 void ConnectionSession::handleCoreFinished()
 {
     stableTimer.stop();
+    // Both releases are confirmed here; real core/recovery errors keep their priority.
+    if (networkLost && sessionState.wantsConnection()) sessionState.recordError(ConnectionError::NETWORK_FAILED);
     if (sessionState.error() == ConnectionError::SESSION_INVALID) currentPhase = ConnectionPhase::ReauthenticationRequired;
     if (sessionState.engineFinished() == SessionFinishAction::Reconnect)
     {

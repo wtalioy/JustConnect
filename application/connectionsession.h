@@ -30,6 +30,7 @@ signals:
     void ready(const QUuid &attempt, PlatformOperationResult result);
     void stopped(const QUuid &attempt, PlatformOperationResult result);
     void lost(const QUuid &attempt, PlatformOperationResult result);
+    void restartRequired(const QUuid &attempt, const QString &detail);
 };
 
 class ConnectionSession : public QObject
