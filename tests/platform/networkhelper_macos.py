@@ -152,7 +152,13 @@ def main(args):
                 error.close(); os.close(read_fd); processes.append(process); return process
 
             def event(process, expected):
-                assert select.select([process.stdout], [], [], 40)[0], 'Client event timed out'
+                ready = select.select([process.stdout], [], [], 40)[0]
+                if not ready:
+                    service = run('/bin/launchctl', 'print', 'system/' + SERVICE, check=False).stdout.decode()
+                    print('CHECK: managed helper', re.findall(r'^\s*(?:state|pid|last exit code|last terminating signal) =.*$', service, re.M), flush=True)
+                    for path in user_state.glob('*/source.json'):
+                        print('CHECK: owned recovery receipt', path.read_text(), flush=True)
+                assert ready, 'Client event timed out: ' + expected
                 value = process.stdout.readline()
                 assert value, f'Client exited before {expected}: {process.poll()}'
                 value = json.loads(value)
