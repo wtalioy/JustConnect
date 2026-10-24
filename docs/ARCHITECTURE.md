@@ -142,7 +142,7 @@ Linux 的 `LinuxTunRoutes` 将当前捕获操作委托给共享 `LinuxOwnedRoute
 <a id="macos-owned-routes"></a>
 macOS 的 `MacTunRoutes` 仅为当前拥有、已配置点对点 IPv4 的新 utun 添加捕获；`/sbin/route` 使用固定参数及空继承环境，不接收任意程序、路径或命令。`NET_RT_DUMP` 从原生路由消息读取有界完整 IPv4 清单，保存地址、接口、标志和指标；仅忽略使用／报文计数及派生接口引用位。规范前缀不得捕获自有源／对端，已有相同前缀保留并拒绝，暂不支持同 IP 的原路由替换。`RTF_PROTO1` 作为自有捕获标志，含义依据 [XNU route.h](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/net/route.h)。
 
-捕获记录绑定启动 UUID、连接 UUID、utun 名称／索引和地址对，写前意图、完整回读确认、删除开始及完成移除复用 `UnixNetworkJournal`。首次原子发布分别使用 Linux `RENAME_NOREPLACE` 和 macOS `RENAME_EXCL`，固定文件名与 Linux 存储格式不变；已有日志、同步失败、链接、同值替换和外部改写的拒绝语义保留。新恢复进程只消费由权限入口认证的 root 私有记录：未确认应用或已开始删除的匹配值保留；已消失或完整属性不同的路由只解除原责任，不改写当前值。设备改名／索引复用或地址对变化时保留责任。
+捕获记录绑定启动 UUID、连接 UUID、utun 名称／索引和地址对，写前意图、完整回读确认、删除开始及完成移除复用 `UnixNetworkJournal`。首次原子发布分别使用 Linux `RENAME_NOREPLACE` 和 macOS `RENAME_EXCL`，固定文件名与 Linux 存储格式不变；已有日志、同步失败、链接、同值替换和外部改写的拒绝语义保留。同前缀的其他作用域／内核派生项通过完整已应用值与所属父路由区分，不按前缀唯一性判断。新恢复进程只消费由权限入口认证的 root 私有记录：未确认应用或已开始删除的匹配值保留；已消失或完整属性不同的路由只解除原责任，不改写当前值。设备改名／索引复用或地址对变化时保留责任。
 
 原生夹具在 fd 交付前调用正式 macOS 捕获后端，已删两处 Python 手写路由；C ABI 流量之后，先在普通调用方仍持有 utun fd 时撤销捕获，再验证最终 fd、接口及路由清理。保护日志、部分失败、指标改写、已有精确路由和新进程恢复由同一后端验证。此增量的当前本地／原生状态见[计划](../plan.md#s4)，不代表 macOS 已有安装授权、系统助手、DNS 所有权恢复或完整应用接管。
 

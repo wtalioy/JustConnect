@@ -267,6 +267,12 @@ int main(int argc, char **argv) try
 #ifdef __APPLE__
     QJsonObject saved;
     check(journal.load(saved).succeeded() && saved == savedCapture, "Protected capture record changed before recovery");
+    const auto observed = readMacRoutes();
+    check(observed.result.succeeded(), qPrintable(observed.result.detail));
+    QJsonArray current;
+    for (const auto &row : observed.rows)
+        if (row.toObject()["prefix"] == "198.18.0.6/32") current.append(row);
+    std::cout << "CAPTURE_OBSERVATION " << QJsonDocument(QJsonObject{{"record",saved},{"current",current}}).toJson(QJsonDocument::Compact).constData() << std::endl;
     MacTunRoutes recovered;
     const auto restored = recovered.recover(owner, saved, checkpoint);
     journal.close(); ::close(journalDirectory);

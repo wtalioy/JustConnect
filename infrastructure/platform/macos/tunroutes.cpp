@@ -17,6 +17,12 @@ QJsonArray matching(const QJsonArray &rows, const QString &prefix)
     for (const auto &row : rows) if (row.toObject()["prefix"] == prefix) result.append(row);
     return result;
 }
+int exactMatches(const QJsonArray &rows, const QJsonObject &applied)
+{
+    int count = 0;
+    for (const auto &row : rows) if (row.toObject() == applied) ++count;
+    return count;
+}
 bool utunName(const QString &name)
 {
     if (!name.startsWith("utun") || name.size() <= 4 || name.size() >= IFNAMSIZ) return false;
@@ -61,7 +67,7 @@ bool MacTunRoutes::shape(const QJsonObject &row) const
     std::memcpy(&link, gateway.constData(), size_t(gateway.size()));
     return row["index"].toInteger() == interfaceIndex && link.sdl_family == AF_LINK && link.sdl_index == interfaceIndex
         && (flags & (RTF_UP|RTF_STATIC|RTF_PROTO1)) == (RTF_UP|RTF_STATIC|RTF_PROTO1)
-        && !(flags & (RTF_GATEWAY|RTF_REJECT|RTF_BLACKHOLE|RTF_IFSCOPE|RTF_LOCAL|RTF_BROADCAST|RTF_MULTICAST));
+        && !(flags & (RTF_GATEWAY|RTF_REJECT|RTF_BLACKHOLE|RTF_IFSCOPE|RTF_WASCLONED|RTF_LOCAL|RTF_BROADCAST|RTF_MULTICAST));
 }
 QJsonObject MacTunRoutes::snapshot() const
 {
@@ -141,9 +147,11 @@ Result MacTunRoutes::apply(const UnixTunDevice &device, const QStringList &prefi
         if (!after.result.succeeded()) return failed(after.result);
         const auto rows = matching(after.rows, prefix);
         if (!written.succeeded()) return failed(written);
-        if (!identity() || rows.size() != 1 || !shape(rows.first().toObject()))
+        QJsonArray owned;
+        for (const auto &row : rows) if (shape(row.toObject())) owned.append(row);
+        if (!identity() || owned.size() != 1)
             return failed({Status::Failed, "Cannot confirm the complete applied capture route."});
-        entries.last().applied = rows.first().toObject();
+        entries.last().applied = owned.first().toObject();
         if (const auto saved = save(checkpoint); !saved.succeeded()) return failed(saved);
     }
     return {Status::Success, {}, true};
@@ -189,14 +197,15 @@ Result MacTunRoutes::restore(const QUuid &id, const CheckpointWriter &checkpoint
         auto read = readMacRoutes();
         if (!read.result.succeeded()) { read.result.mayHaveChanged = true; return read.result; }
         const auto rows = matching(read.rows, it->prefix);
-        if (rows.isEmpty() || (!it->applied.isEmpty() && rows.size() == 1 && rows.first().toObject() != it->applied)) {
+        const int exact = exactMatches(rows,it->applied);
+        if (rows.isEmpty() || (!it->applied.isEmpty() && exact == 0)) {
             it = entries.erase(it); continue;
         }
-        if (rows.size() != 1 || it->applied.isEmpty() || it->deleting) { unresolved = true; ++it; continue; }
+        if (exact != 1 || it->applied.isEmpty() || it->deleting) { unresolved = true; ++it; continue; }
         it->deleting = true;
         if (const auto saved = save(checkpoint); !saved.succeeded()) { it->deleting = false; return saved; }
         const auto verified = readMacRoutes();
-        if (!verified.result.succeeded() || !identity() || matching(verified.rows, it->prefix) != rows) {
+        if (!verified.result.succeeded() || !identity() || exactMatches(matching(verified.rows, it->prefix),it->applied) != 1) {
             it->deleting = false; const auto saved = save(checkpoint);
             if (!saved.succeeded()) return saved;
             return {Status::Failed, "Capture route changed while publishing deletion; it was preserved.", true};
@@ -205,7 +214,7 @@ Result MacTunRoutes::restore(const QUuid &id, const CheckpointWriter &checkpoint
         auto after = readMacRoutes();
         if (!after.result.succeeded()) { after.result.mayHaveChanged = true; return after.result; }
         const auto remaining = matching(after.rows, it->prefix);
-        if (remaining.isEmpty() || (remaining.size() == 1 && remaining.first().toObject() != it->applied)) it = entries.erase(it);
+        if (exactMatches(remaining,it->applied) == 0) it = entries.erase(it);
         else {
             removed.mayHaveChanged = true;
             return removed.succeeded() ? Result{Status::Failed, "Cannot confirm capture removal; ownership is retained.", true} : removed;
