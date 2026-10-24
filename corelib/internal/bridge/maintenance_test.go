@@ -17,7 +17,6 @@ import (
 )
 
 func TestOnlineMaintenanceAndIdleTrafficControls(t *testing.T) {
-	t.Parallel()
 	for _, test := range []struct {
 		name, mode string
 		disableDNS bool
