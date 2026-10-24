@@ -174,28 +174,6 @@ def main(args):
 
             def finish(process):
                 status = process.wait(timeout=20)
-                if status:
-                    # Keep only diagnostics belonging to this fixture process, without memory dumps.
-                    until = time.monotonic() + 5
-                    found = False
-                    while not found and time.monotonic() < until:
-                        for folder in (Path(account.pw_dir) / 'Library/Logs/DiagnosticReports', Path('/Library/Logs/DiagnosticReports')):
-                            for path in folder.glob('JustConnect*.ips'):
-                                if path.stat().st_size > 2 * 1024 * 1024:
-                                    continue
-                                try:
-                                    data = path.read_text()
-                                    _, offset = json.JSONDecoder().raw_decode(data)
-                                    crash = json.loads(data[offset:])
-                                except (ValueError, OSError):
-                                    continue
-                                if crash.get('pid') != process.pid:
-                                    continue
-                                selected = {key: crash.get(key) for key in ('pid', 'exception', 'termination', 'asi', 'faultingThread', 'threads', 'usedImages')}
-                                (output / f'client-{process.pid}-crash.json').write_text(json.dumps(selected, indent=2))
-                                found = True
-                        if not found:
-                            time.sleep(.1)
                 assert status == 0, f'Native client {process.pid} exited {status}'
 
             def withdrawn(interface):
