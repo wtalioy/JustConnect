@@ -2,6 +2,7 @@ package tundevice
 
 import (
 	"encoding/binary"
+	"errors"
 	"io"
 	"net"
 	"net/netip"
@@ -29,6 +30,16 @@ type Device struct {
 }
 
 func (d *Device) TUNAddresses() (netip.Addr, netip.Addr) { return d.local, d.peer }
+
+func (d *Device) ioError(err error) error {
+	// RawConn exposes an internal poller error; preserve os.File's public close contract.
+	if err != nil {
+		if _, state := d.File.Stat(); errors.Is(state, os.ErrClosed) {
+			return os.ErrClosed
+		}
+	}
+	return err
+}
 
 // Duplicate borrows a nonblocking utun socket and retains its address-family framing.
 func Duplicate(fd int, mtu uint32) (*Device, error) {
@@ -162,7 +173,7 @@ func (d *Device) Read(packet []byte) (int, error) {
 		}
 	})
 	if err != nil {
-		return 0, err
+		return 0, d.ioError(err)
 	}
 	if readErr != nil {
 		return 0, readErr
@@ -191,7 +202,7 @@ func (d *Device) Write(packet []byte) (int, error) {
 		}
 	})
 	if err != nil {
-		return 0, err
+		return 0, d.ioError(err)
 	}
 	if writeErr != nil {
 		return 0, writeErr

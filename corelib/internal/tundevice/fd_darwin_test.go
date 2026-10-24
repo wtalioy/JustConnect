@@ -76,6 +76,9 @@ func TestUTUNFramingAndClose(t *testing.T) {
 		t.Fatal("invalid outbound IPv4 accepted", err)
 	}
 	checkReadClose(t, device)
+	if _, err := device.Write(packet); !errors.Is(err, os.ErrClosed) {
+		t.Fatal("closed device write lost its close status", err)
+	}
 }
 
 func checkReadClose(t *testing.T, device *Device) {
