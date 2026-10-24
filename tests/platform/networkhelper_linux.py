@@ -282,6 +282,16 @@ def main():
             finish(owner,process)
             print('PASS: malformed active DNS publication restores only its owner and retains an acknowledged recovery path',flush=True)
 
+            # A write-ahead host hint can survive before any privileged operation exists.
+            owner = str(uuid.uuid4())
+            for _ in range(2):
+                process = start(owner)
+                command('send', packet=request(owner, 'recover'))
+                receive(owner, 'cleaned')
+                assert process.wait(timeout=10) == 0
+                assert inventory() == baseline and not list(Path(temporary).iterdir())
+            print('PASS: absent recovery ownership is idempotent and never writes native state', flush=True)
+
             # A caller-supplied PID does not replace SO_PEERCRED authority.
             owner = str(uuid.uuid4())
             process = start(owner, os.getpid())
@@ -425,7 +435,7 @@ def main():
             finish(owner, process)
             print('PASS: fresh authenticated helper restores durable native ownership after owned helper SIGKILL', flush=True)
 
-            # A lost restore acknowledgement must not turn absence into guessed success.
+            # A lost acknowledgement retains its receipt until authenticated cleanup.
             owner = str(uuid.uuid4())
             process = start(owner)
             command('send', packet=application(owner))
@@ -514,13 +524,21 @@ def main():
             assert process.wait(timeout=10) == 0 and not receipt.exists(), 'interrupted final receipt removal cannot be retried'
             print('PASS: interrupted final receipt removal retries its empty directory; unknown contents remain untouched', flush=True)
             owner = str(uuid.uuid4())
-            process = start(owner)
-            command('send', packet=request(owner, 'recover'))
-            assert command('receive')['packet'] is None and process.wait(timeout=10) != 0
-            assert inventory() == baseline and not list(Path(temporary).iterdir())
+            with tempfile.TemporaryDirectory(prefix='JustConnect-foreign-recovery-') as outside:
+                foreign = Path(outside) / 'preserve'
+                foreign.write_bytes(b'foreign ownership is not absence')
+                alias = Path(temporary) / f'{args.uid}-{owner}'
+                alias.symlink_to(outside, target_is_directory=True)
+                process = start(owner)
+                command('send', packet=request(owner, 'recover'))
+                assert command('receive')['packet'] is None and process.wait(timeout=10) != 0
+                assert inventory() == baseline and foreign.read_bytes() == b'foreign ownership is not absence'
+                assert list(Path(outside).iterdir()) == [foreign]
+                alias.unlink()
+            assert not list(Path(temporary).iterdir())
             if directory is not None:
                 os.close(directory)
-            print('PASS: lost acknowledgement cleanup is repeatable, active cleanup refused; absent/foreign recovery never claims success', flush=True)
+            print('PASS: lost acknowledgement cleanup is repeatable, active cleanup refused; foreign recovery never claims success; absent ownership is explicitly cleaned', flush=True)
     finally:
         for process in processes:
             if process.poll() is None:

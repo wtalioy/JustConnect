@@ -501,13 +501,20 @@ void MainWindow::updateConnectionState(ConnectionState state)
         case ConnectionPhase::AuthenticationSucceeded: title="认证成功，正在建立通道";break;
         case ConnectionPhase::ReauthenticationRequired: title="需要重新认证";break;
         case ConnectionPhase::TransportReady: title="通道就绪";break;
+        case ConnectionPhase::NetworkRecovering: title="正在检查并恢复原网络";break;
+        case ConnectionPhase::NetworkPreparing: title="正在授权并接管校园访问";break;
+        case ConnectionPhase::NetworkRestoring: title="正在恢复原网络";break;
+        case ConnectionPhase::CampusReady: title="校园访问就绪";break;
         }
         detail = "校园访问接管尚未就绪。";
         break;
     case ConnectionState::Running:
-        propertyValue = "starting";
-        title = "通道就绪";
-        detail = systemProxySession->needsCleanup() && !systemProxySession->isEnabled()
+        propertyValue = connectionSession->phase() == ConnectionPhase::CampusReady ? "connected" : "starting";
+        title = connectionSession->phase() == ConnectionPhase::CampusReady ? "已连接"
+            : connectionSession->phase() == ConnectionPhase::NetworkRestoring ? "正在恢复原网络" : "通道就绪";
+        detail = connectionSession->phase() == ConnectionPhase::CampusReady ? "校园 IPv4 接管已就绪。"
+            : connectionSession->phase() == ConnectionPhase::NetworkRestoring ? "校园访问已暂停，等待原网络恢复确认。"
+            : systemProxySession->needsCleanup() && !systemProxySession->isEnabled()
             ? "系统代理状态未确认，请检查残留设置。"
             : systemProxySession->isEnabled()
             ? "通道与系统代理已启用；校园访问接管尚未就绪。"
@@ -550,7 +557,7 @@ void MainWindow::updateConnectionState(ConnectionState state)
     ui->statusTitleLabel->setText(title);
     if (trayIcon) {
         trayIcon->setToolTip(QApplication::applicationName()+" · "+title+"\n"+detail);
-        trayIcon->setIcon(style()->standardIcon(state==ConnectionState::Running ? QStyle::SP_MediaPlay : QStyle::SP_MediaStop));
+        trayIcon->setIcon(style()->standardIcon(connectionSession->phase()==ConnectionPhase::CampusReady && state==ConnectionState::Running ? QStyle::SP_MediaPlay : QStyle::SP_MediaStop));
     }
     ui->statusDetailLabel->setText(detail);
 

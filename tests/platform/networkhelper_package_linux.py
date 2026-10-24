@@ -23,7 +23,11 @@ from tundns_fixture import IsolatedResolver, OriginalDnsServer
 
 
 def run(*arguments, **options):
-    return subprocess.check_output(list(map(str, arguments)), text=True, timeout=30, **options)
+    try:
+        return subprocess.check_output(list(map(str, arguments)), text=True, timeout=30, **options)
+    except subprocess.CalledProcessError as error:
+        print(error.output, end='', flush=True)
+        raise
 
 
 def main():
@@ -173,6 +177,7 @@ def main():
                 caller_runtime = tempfile.TemporaryDirectory(prefix='JustConnect-helper-caller-')
                 os.chown(caller_runtime.name, args.uid, account.pw_gid)
                 caller_environment['XDG_RUNTIME_DIR'] = caller_runtime.name
+                caller_environment['XDG_DATA_HOME'] = caller_runtime.name + '/data'
                 client_cases = []
                 native_command = [str(gateway), '-test.v', '-test.timeout', '75s', '-test.run', '^TestNativeTUNHost$'] if gateway else None
                 def native_handoff(process, owner, ready_path):
@@ -396,6 +401,14 @@ def main():
                                 assert output.count('PASS: ordinary getaddrinfo through installed helper and core TUN DNS') == 2, output
                                 print(output, end='', flush=True)
                                 client_cases.append('core-dns')
+                                application_environment = {**dns_environment, 'JC_NATIVE_NETWORK_SESSION': '1'}
+                                output = run(*native_command, env=application_environment, user=args.uid,
+                                             group=account.pw_gid, extra_groups=())
+                                assert 'via application network startup recovery' in output, output
+                                print(output, end='', flush=True)
+                                client_cases.append('application-network')
+                                report['application_network'] = {'sessions': 2, 'startup': 'write-ahead UUID without privileged record',
+                                    'data': 'ordinary DNS, TCP and UDP', 'stop': 'owned network before core; hint and fd released'}
                             finally:
                                 recovery.stop()
                             assert inventory() == dns_baseline and original_dns() == dns_settings

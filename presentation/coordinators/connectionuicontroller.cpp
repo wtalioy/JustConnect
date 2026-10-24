@@ -130,6 +130,13 @@ ConnectionUiController::ConnectionUiController(
             applyPendingAutomaticProxy();
         } else { ++proxyGeneration;autoProxyPending=false;this->proxyButton->hide(); }
     });
+    connect(connectionSession, &ConnectionSession::progressChanged, this, [this] {
+        if (this->connectionSession->phase() != ConnectionPhase::NetworkRestoring) return;
+        ++proxyGeneration;
+        autoProxyPending = false;
+        this->proxyButton->hide();
+        this->systemProxySession->disable();
+    });
     connect(systemProxySession,&SystemProxySession::busyChanged,this,[this](bool busy) {
         // Deliver the old operation's result before starting the current session's request.
         if (!busy && autoProxyPending) QTimer::singleShot(0,this,&ConnectionUiController::applyPendingAutomaticProxy);
@@ -282,7 +289,7 @@ void ConnectionUiController::submitManual(const CredentialSource &source,const C
 void ConnectionUiController::applyPendingAutomaticProxy()
 {
     if (!autoProxyPending) return;
-    if (connectionSession->state()!=ConnectionState::Running || !settings()->value("Common/AutoSetProxy",false).toBool()) {
+    if (connectionSession->state()!=ConnectionState::Running || connectionSession->phase()==ConnectionPhase::NetworkRestoring || !settings()->value("Common/AutoSetProxy",false).toBool()) {
         autoProxyPending=false;return;
     }
     if (systemProxySession->isBusy()) return;
@@ -293,7 +300,7 @@ void ConnectionUiController::applyPendingAutomaticProxy()
 
 void ConnectionUiController::handleProxyClicked()
 {
-    if (connectionSession->state() != ConnectionState::Running || systemProxySession->isBusy())
+    if (connectionSession->state() != ConnectionState::Running || connectionSession->phase()==ConnectionPhase::NetworkRestoring || systemProxySession->isBusy())
     {
         return;
     }
@@ -326,6 +333,7 @@ void ConnectionUiController::handleProxyClicked()
         {
             const auto current = [this,generation] {
                 return generation == proxyGeneration && connectionSession->state() == ConnectionState::Running
+                    && connectionSession->phase() != ConnectionPhase::NetworkRestoring
                     && !systemProxySession->isBusy();
             };
             if (!current()) return;
@@ -479,7 +487,7 @@ void ConnectionUiController::showConnectionError(ConnectionError error)
         message = "核心库不可用！\n请检查安装包是否完整及核心 ABI 是否匹配。";
         break;
     case ConnectionError::INVALID_CONFIGURATION:
-        message = "配置无效或含有当前核心不支持的旧选项。\n请使用 aTrust 和回环 SOCKS/HTTP；TUN、额外 CLI 参数等功能尚不可用。";
+        message = "配置无效或含有当前核心不支持的旧选项。\n请使用 aTrust 和受支持的网络设置。";
         break;
     case ConnectionError::OTHER:
         message = "其它错误！\n未知原因，可将日志反馈给开发者以便调查。";

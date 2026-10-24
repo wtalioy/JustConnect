@@ -82,11 +82,12 @@ function(justconnect_core_engine TARGET LIBRARY PLATFORM)
         "${REPO}/application/networkprotection.cpp"
         "${REPO}/infrastructure/coreengine/embeddedcoreengine.cpp")
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-        target_sources(${TARGET} PRIVATE "${REPO}/infrastructure/platform/linux/networkhelperpreparation.cpp")
+        target_sources(${TARGET} PRIVATE "${REPO}/infrastructure/platform/linux/networkhelperpreparation.cpp"
+            "${REPO}/infrastructure/platform/linux/networkaccess.cpp")
     endif()
     set_target_properties(${TARGET} PROPERTIES AUTOMOC ON)
     target_include_directories(${TARGET} PUBLIC "${REPO}")
-    target_link_libraries(${TARGET} PUBLIC Qt6::Core Qt6::Network ${LIBRARY} ${PLATFORM})
+    target_link_libraries(${TARGET} PUBLIC Qt6::Core Qt6::Network Qt6::Concurrent ${LIBRARY} ${PLATFORM})
 endfunction()
 
 function(justconnect_core_runtime HOST KIND)

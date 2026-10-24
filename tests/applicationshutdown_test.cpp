@@ -42,6 +42,40 @@ public:
         return failClear ? PlatformOperationResult{PlatformOperationResult::Status::PermissionDenied,"fixture",true} : PlatformOperationResult{};
     }
 };
+class Network : public NetworkAccess {
+public:
+    QUuid attempt;
+    int stops = 0;
+    void prepare(const QUuid &id) override { attempt = id; emit prepared(id, {}); }
+    void activate(const QUuid &id, const ConnectionProfile &) override { emit ready(id, {}); }
+    void stop(const QUuid &) override { ++stops; }
+};
+static void retainsCoreAndEventLoopUntilNetworkRestoration() {
+    auto *engine = new Engine;
+    auto *network = new Network;
+    ConnectionSession connection(engine, nullptr, network);
+    SystemProxySession proxy(std::make_unique<Proxy>());
+    int ready = 0, failed = 0;
+    ApplicationShutdown shutdown(&connection, &proxy, [] { return false; }, nullptr, 30);
+    QObject::connect(&shutdown, &ApplicationShutdown::ready, [&] { ++ready; });
+    QObject::connect(&shutdown, &ApplicationShutdown::failed, [&] { ++failed; });
+    connection.start({}, {true, 1});
+    emit engine->connectionEstablished();
+    shutdown.request();
+    until([&] { return network->stops == 1; });
+    check(!engine->stops && !ready, "network restoration precedes core stop");
+    emit network->stopped(network->attempt, {PlatformOperationResult::Status::Failed, "retain owned network", true});
+    until([&] { return failed == 1; });
+    check(connection.isActive() && !engine->stops && !connection.start({}, {}) && !ready,
+          "failed network restoration retains the live core and blocks new sessions");
+    shutdown.request();
+    until([&] { return network->stops == 2; });
+    emit network->stopped(network->attempt, {});
+    check(engine->stops == 1 && !ready, "restoration alone does not destroy the running core");
+    emit engine->finished(ConnectionError::NONE);
+    until([&] { return ready == 1; });
+    check(!connection.isActive() && failed == 1 && engine->starts == 1, "explicit retry waits for both owners without reconnecting");
+}
 static void restoresBeforeStoppingAndWaitsForWrites() {
     auto *engine=new Engine;ConnectionSession connection(engine);
     auto backend=std::make_unique<Proxy>();auto *native=backend.get();SystemProxySession proxy(std::move(backend));
@@ -154,6 +188,7 @@ int main(int argc,char **argv) {
     networkFailureRestoresProxyDuringBackoff();
     restoresPendingStartupQueryBeforeStopping();
     pendingPlatformAndCredentialTimeoutsKeepEventLoopAlive();
+    retainsCoreAndEventLoopUntilNetworkRestoration();
     restoresBeforeStoppingAndWaitsForWrites();
     timeoutRetainsLiveObjectsAndBlocksReconnect();
     failedRestoreIsReportedAndCanBeRetriedExplicitly();
