@@ -148,6 +148,18 @@ int main(int argc, char **argv) try
         nativeChange("delete",first,device.name());
     }
     {
+        MacTunRoutes capture;
+        check(capture.apply(device,{first},checkpoint).succeeded(), "Prepare shared-prefix capture");
+        nativeChange("add",first,device.name(),{"-ifscope",device.name()});
+        const auto both = routes(first);
+        QJsonArray external;
+        const auto owned = capture.snapshot()["routes"].toArray().first().toObject()["applied"].toObject();
+        for (const auto &row : both) if (row.toObject() != owned) external.append(row);
+        check(!external.isEmpty() && capture.restore(owner,checkpoint).succeeded() && routes(first) == external && !QFile::exists(path),
+            "Recovery confused shared-prefix scope with ownership or removed an external scoped route");
+        nativeChange("delete",first,device.name(),{"-ifscope",device.name()});
+    }
+    {
         int writes = 0; bool deny = true;
         MacTunRoutes capture([&](const QString &program, const QStringList &args) {
             ++writes; return runPlatformCommand(program,args,5000,{},QProcessEnvironment{});
