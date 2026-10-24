@@ -38,7 +38,8 @@ struct MacNetworkHelperClient::Native {
             QMetaObject::invokeMethod(target,[target,callback] { callback(target); },Qt::QueuedConnection);
         }
     }
-    void connect(const std::weak_ptr<Native> &weak)
+    // Blocks copy reference parameters as references; retain the weak handle by value.
+    void connect(std::weak_ptr<Native> weak)
     {
         if (connection && !invalid) return;
         if (connection) { xpc_connection_cancel(connection); xpc_release(connection); connection = nullptr; }
