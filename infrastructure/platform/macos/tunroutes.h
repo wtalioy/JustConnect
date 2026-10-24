@@ -22,12 +22,15 @@ public:
     MacTunRoutes(const MacTunRoutes &) = delete;
     MacTunRoutes &operator=(const MacTunRoutes &) = delete;
     PlatformOperationResult apply(const UnixTunDevice &device, const QStringList &prefixes, const CheckpointWriter &checkpoint = {});
+    // Failure retains the full ownership record; the caller restores DNS before capture.
+    PlatformOperationResult extend(const UnixTunDevice &device, const QStringList &addresses, const CheckpointWriter &checkpoint = {});
     PlatformOperationResult restore(const QUuid &owner, const CheckpointWriter &checkpoint = {});
     // The privileged caller must authenticate the saved record and its connection owner.
     PlatformOperationResult recover(const QUuid &owner, const QJsonObject &saved, const CheckpointWriter &checkpoint = {});
     QJsonObject snapshot() const;
 private:
     struct Entry { QString prefix; QJsonObject applied; bool deleting = false; };
+    PlatformOperationResult append(const QStringList &prefixes, const CheckpointWriter &checkpoint);
     PlatformOperationResult save(const CheckpointWriter &checkpoint) const;
     PlatformOperationResult change(const QString &operation, const QString &prefix, int timeoutMs) const;
     bool identity() const;

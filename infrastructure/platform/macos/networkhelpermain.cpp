@@ -109,6 +109,11 @@ public:
                 if (result.succeeded()) result = entry->state->apply(*configuration);
                 if (result.succeeded()) { entry->peer = peer; device = entry->state->deviceInfo(); descriptor = entry->state->descriptor(); }
             }
+        } else if (operation == "extend") {
+            const auto addresses = parseMacHelperExtend(packet);
+            if (!entry || entry->peer != peer) result = {Status::PermissionDenied,"DNS publication requires this live connection owner.",false};
+            else if (!addresses) result = {Status::Failed,"Invalid bounded DNS addresses.",false};
+            else result = entry->state->extend(*addresses);
         } else if (!entry) {
             // Only an explicit receipt acknowledgement is idempotent without ownership evidence.
             result = operation == "cleanup" ? Result{} : Result{Status::Failed,"No authenticated connection ownership was found.",true};

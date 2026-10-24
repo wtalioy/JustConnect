@@ -114,7 +114,7 @@ int main(int argc, char **argv) try
     const QString first("198.18.0.6/32"), second("198.18.1.0/24");
     {
         MacTunRoutes capture;
-        for (const auto &bad : {QString("0.0.0.0/0"), QString("198.18.0.7/31"), QString("198.18.0.6/032"), QString("198.18.0.1/32")})
+        for (const auto &bad : {QString("0.0.0.0/0"), QString("198.18.0.7/31"), QString("198.18.0.6/032"), QString("198.18.0.1/32"), QString("127.0.0.1/32"), QString("224.0.0.0/4")})
             check(!capture.apply(device,{bad},checkpoint).succeeded() && capture.snapshot().isEmpty() && !QFile::exists(path), "Invalid or self-capturing prefix reached the kernel");
         const auto applied = capture.apply(device,{first,first,second},checkpoint);
         if (!applied.succeeded()) std::cerr << QJsonDocument(readMacRoutes().rows).toJson().constData();
@@ -122,6 +122,14 @@ int main(int argc, char **argv) try
         check(capture.snapshot()["routes"].toArray().size() == 2 && routes(first).size() == 1 && routes(second).size() == 1, "Applied captures differ from their ownership record");
         const auto lookup = runPlatformCommand("/sbin/route", {"-n","get","198.18.1.1"},5000,{},QProcessEnvironment{});
         check(lookup.result.succeeded() && lookup.output.contains("interface: "+device.name()), "The actual subnet destination did not select the owned utun");
+        check(capture.extend(device,{"198.18.0.7","198.18.0.7","198.18.1.1"},checkpoint).succeeded()
+            && capture.snapshot()["routes"].toArray().size() == 3 && routes("198.18.0.7/32").size() == 1,
+            "DNS extension was not confirmed or duplicated an already covered subnet");
+        const auto extended = capture.snapshot();
+        check(!capture.extend(device,{"198.18.0.1"},checkpoint).succeeded() && capture.snapshot() == extended,
+            "DNS extension captured its own source or changed confirmed ownership");
+        const auto unchanged = capture.extend(device,{"198.18.0.7","198.18.1.1"},checkpoint);
+        check(unchanged.succeeded() && !unchanged.mayHaveChanged && capture.snapshot() == extended,"Repeated DNS addresses mutated existing capture");
         const auto before = routes(first);
         check(!capture.restore(QUuid::createUuid(),checkpoint).succeeded() && routes(first) == before, "Another owner removed actual capture");
         auto damaged = capture.snapshot();
@@ -134,8 +142,31 @@ int main(int argc, char **argv) try
         MacTunRoutes incompleteOwner;
         check(!incompleteOwner.recover(owner,damaged,checkpoint).succeeded() && routes(first) == before, "Incomplete native route identity was accepted");
         recoverInNewProcess();
-        check(routes(first).isEmpty() && routes(second).isEmpty() && !QFile::exists(path)
+        check(routes(first).isEmpty() && routes(second).isEmpty() && routes("198.18.0.7/32").isEmpty() && !QFile::exists(path)
             && ::if_nametoindex(device.name().toLatin1().constData()) == device.index(), "Independent recovery lost device identity or retained capture");
+    }
+    {
+        MacTunRoutes capture;
+        check(capture.apply(device,{first},checkpoint).succeeded(),"Prepare conflicting DNS publication");
+        nativeChange("add","198.18.0.7/32",device.name()); const auto external = routes("198.18.0.7/32");
+        const auto owned = capture.snapshot();
+        check(!capture.extend(device,{"198.18.0.7"},checkpoint).succeeded() && capture.snapshot() == owned
+            && routes("198.18.0.7/32") == external,"DNS publication adopted an external exact-prefix route");
+        check(capture.restore(owner,checkpoint).succeeded() && routes("198.18.0.7/32") == external,"Connection rollback removed an external DNS route");
+        nativeChange("delete","198.18.0.7/32",device.name());
+    }
+    {
+        int additions = 0;
+        MacTunRoutes capture([&](const QString &program,const QStringList &arguments) {
+            if (arguments.contains("add") && ++additions == 3) return PlatformCommandResult{{PlatformOperationResult::Status::Failed,"injected extension failure"},{},{}};
+            return runPlatformCommand(program,arguments,5000,{},QProcessEnvironment{});
+        });
+        check(capture.apply(device,{first},checkpoint).succeeded(),"Prepare partially applied DNS extension");
+        check(!capture.extend(device,{"198.18.0.7","198.18.0.8"},checkpoint).succeeded()
+            && routes("198.18.0.7/32").size() == 1,"DNS extension did not preserve its first real checkpoint after a later failure");
+        recoverInNewProcess();
+        check(routes(first).isEmpty() && routes("198.18.0.7/32").isEmpty() && routes("198.18.0.8/32").isEmpty()
+            && !QFile::exists(path),"Fresh-process recovery retained partially appended DNS capture");
     }
     {
         nativeChange("add",first,device.name()); const auto foreign = routes(first);

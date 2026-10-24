@@ -3,6 +3,7 @@
 #include "helperidentity.h"
 #include "helperregistration.h"
 #include "helpertransport.h"
+#include "infrastructure/platform/ipv4.h"
 #include <QScopeGuard>
 #include <dispatch/dispatch.h>
 #include <functional>
@@ -67,7 +68,7 @@ MacNetworkHelperClient::MacNetworkHelperClient(QObject *parent, AuthorizationPro
     native->client = this; deadline.setSingleShot(true); deadline.setInterval(MacHelperOperationTimeoutMs);
     connect(&deadline,&QTimer::timeout,this,[this] {
         pendingRequest = {}; closeDevice();
-        const bool changed = current == State::Applying || current == State::Restoring || current == State::Acknowledging;
+        const bool changed = current == State::Applying || current == State::Extending || current == State::Restoring || current == State::Acknowledging;
         const Result result{Status::TimedOut,"Network helper timed out; pending ownership is retained.",changed};
         finish(result,current == State::Acknowledging ? State::CleanupRequired : changed ? State::RecoveryRequired : State::Idle);
         if (changed) emit ownershipLost(result);
@@ -102,10 +103,20 @@ void MacNetworkHelperClient::apply(const QUuid &owner, const MacHelperConfigurat
     connection = owner; configuration = config; cancelled = false; registered = false; receipts = {}; outcome = {};
     setState(State::Inspecting); send("probe");
 }
+void MacNetworkHelperClient::extend(const QStringList &addresses)
+{
+    const auto parsed = parseMacHelperExtend(macHelperExtendRequest(connection,QUuid::createUuid(),addresses));
+    if (current != State::Active || device < 0 || !parsed || addresses.contains(configuration.address) || addresses.contains(configuration.peer)) {
+        emit finished(Operation::Extend,{Status::Failed,"DNS publication requires active ownership and canonical addresses.",false}); return;
+    }
+    operation = Operation::Extend; pendingExtension = *parsed; outcome = {};
+    send("extend"); setState(State::Extending);
+}
 void MacNetworkHelperClient::send(const char *name)
 {
     pendingRequest = QUuid::createUuid();
     const auto request = QByteArray(name) == "apply" ? macHelperApplyRequest(connection,pendingRequest,configuration)
+        : QByteArray(name) == "extend" ? macHelperExtendRequest(connection,pendingRequest,pendingExtension)
         : macHelperRequest(name,connection,pendingRequest);
     deadline.start();
     const std::weak_ptr<Native> weak(native);
@@ -213,6 +224,21 @@ void MacNetworkHelperClient::receive(const QJsonObject &request, const QJsonObje
         outcome = cancelled ? Result{Status::Cancelled,"Network setup cancelled.",false} : result;
         setState(State::Acknowledging); send("cleanup"); return;
     }
+    if (name == "extend") {
+        if (!result.succeeded()) {
+            closeDevice(); auto failure = result; failure.mayHaveChanged = true;
+            finish(failure,State::RecoveryRequired); emit ownershipLost(failure); return;
+        }
+        for (const auto &address : pendingExtension) {
+            bool covered = false;
+            for (const auto &prefix : configuration.capturePrefixes) covered |= ipv4PrefixContainsAddress(prefix,address);
+            if (!covered) configuration.capturePrefixes.append(address+"/32");
+        }
+        pendingExtension.clear();
+        if (!cancelled) { finish(result,State::Active); return; }
+        outcome = {Status::Cancelled,"DNS publication cancelled after restoring its changes.",false};
+        closeDevice(); setState(State::Restoring); send("restore"); return;
+    }
     if (name == "cleanup") {
         if (!result.succeeded()) finish(result,State::CleanupRequired);
         else finish(outcome,State::Idle);
@@ -246,7 +272,7 @@ void MacNetworkHelperClient::cancel()
 }
 void MacNetworkHelperClient::disconnected(const QString &detail)
 {
-    if (current != State::Active) return;
+    if (current != State::Active && current != State::Extending) return;
     closeDevice(); const Result result{Status::Failed,"Network helper ownership was lost; stop the core and recover before reconnecting. "+detail,true};
     finish(result,State::RecoveryRequired); emit ownershipLost(result);
 }

@@ -22,6 +22,14 @@ int main(int argc,char **argv) try
     }
     auto noDns = packet; auto noDnsConfig = noDns["configuration"].toObject(); noDnsConfig["dns_domains"] = QJsonArray{}; noDns["configuration"] = noDnsConfig;
     check(parseMacHelperApply(noDns).has_value(),"Explicitly disabled system DNS was rejected");
+    const auto extension = macHelperExtendRequest(owner,request,{"198.18.0.7","198.18.0.7","198.18.0.6"});
+    check(parseMacHelperExtend(extension) == std::optional(QStringList{"198.18.0.7","198.18.0.6"}),"DNS address request lost its canonical unique targets");
+    for (const auto &addresses : {QJsonArray{},QJsonArray{1},QJsonArray{"127.0.0.1"},QJsonArray{"224.0.0.1"},QJsonArray{"198.18.0.7/32"},QJsonArray{"198.18.00.7"}}) {
+        auto invalid = extension; invalid["addresses"] = addresses;
+        check(!parseMacHelperExtend(invalid),"Invalid DNS publication crossed the privilege boundary");
+    }
+    auto injected = extension; injected["program"] = "/bin/sh";
+    check(!parseMacHelperExtend(injected),"DNS publication accepted an arbitrary execution field");
     for (const auto *operation : {"probe","restore","recover","cleanup"})
         check(validMacHelperRequest(macHelperRequest(operation,owner,request)),"Bound owner operation was rejected");
     for (const auto *key : {"schema_version","owner","request_id","operation"}) {

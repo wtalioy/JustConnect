@@ -1,4 +1,5 @@
 #include "infrastructure/platform/macos/networkhelperclient.h"
+#include "infrastructure/platform/dnsroutepublisher.h"
 #include "infrastructure/platform/macos/helperidentity.h"
 #include "infrastructure/platform/macos/helpertransport.h"
 #include "infrastructure/platform/macos/tunroutes.h"
@@ -16,6 +17,15 @@
 #include <sys/uio.h>
 #include <unistd.h>
 
+class PublicationCore final : public CoreEngine
+{
+public:
+    bool start(const ConnectionProfile &, Operation) override { return false; }
+    void stop() override {}
+    void respond(const QJsonObject &) override {}
+    void acknowledgeDNSRoutes(const QString &generation,const QString &request,bool applied) override { acknowledged(generation,request,applied); }
+    std::function<void(const QString &,const QString &,bool)> acknowledged;
+};
 static void check(bool ok, const char *message) { if (!ok) throw std::runtime_error(message); }
 static void report(const QJsonObject &value) { std::cout << QJsonDocument(value).toJson(QJsonDocument::Compact).constData() << std::endl; }
 static const MacHelperConfiguration configuration{"198.18.0.1","198.18.0.2",1400,{"198.18.0.6/32"},{"campus.justconnect-fixture.test"}};
@@ -29,12 +39,12 @@ static void deliver(int control, int descriptor)
     std::memcpy(CMSG_DATA(item),&descriptor,sizeof(descriptor));
     check(::sendmsg(control,&message,0) == 1,"Deliver the ordinary test DNS descriptor");
 }
-static void packet(int device)
+static void packet(int device,const char *target = "198.18.0.6")
 {
     check((::fcntl(device,F_GETFL)&O_NONBLOCK) && (::fcntl(device,F_GETFD)&FD_CLOEXEC),"Delivered fd is blocking or inheritable");
     const int socket = ::socket(AF_INET,SOCK_DGRAM,0); check(socket >= 0,"Create ordinary UDP socket");
     sockaddr_in destination{}; destination.sin_len = sizeof(destination); destination.sin_family = AF_INET;
-    destination.sin_port = htons(39871); ::inet_pton(AF_INET,"198.18.0.6",&destination.sin_addr);
+    destination.sin_port = htons(39871); ::inet_pton(AF_INET,target,&destination.sin_addr);
     const QByteArray content("JustConnect signed helper data path");
     const auto sent = ::sendto(socket,content.constData(),size_t(content.size()),0,reinterpret_cast<sockaddr *>(&destination),sizeof(destination));
     ::close(socket); check(sent == content.size(),"Ordinary UDP did not reach the owned device");
@@ -65,11 +75,13 @@ int main(int argc,char **argv) try
         client.apply(QUuid::createUuid(),configuration); check(completed,"Unsigned application did not report its deployment requirement"); return 0;
     }
     if (arguments.size() >= 2 && arguments[1].startsWith("--wire-")) {
-        const bool recover = arguments[1] == "--wire-foreign" || arguments[1] == "--wire-live";
+        const bool extension = arguments[1] == "--wire-live-extend";
+        const bool recover = arguments[1] == "--wire-foreign" || arguments[1] == "--wire-live" || extension;
         check(arguments.size() == (recover ? 3 : 2),"Invalid wire boundary arguments");
         const auto connection = xpc_connection_create_mach_service(MacHelperIdentifier,nullptr,XPC_CONNECTION_MACH_SERVICE_PRIVILEGED);
         check(connection,"Create native XPC connection"); xpc_connection_set_event_handler(connection,^(xpc_object_t) {}); xpc_connection_resume(connection);
-        const auto request = recover ? macHelperRequest("recover",QUuid(arguments[2]),QUuid::createUuid())
+        const auto request = extension ? macHelperExtendRequest(QUuid(arguments[2]),QUuid::createUuid(),{"198.18.0.8"})
+            : recover ? macHelperRequest("recover",QUuid(arguments[2]),QUuid::createUuid())
             : macHelperApplyRequest(QUuid::createUuid(),QUuid::createUuid(),configuration);
         const AuthorizationExternalForm invalid{};
         const auto message = macHelperMessage(request,-1,arguments[1] == "--wire-invalid-auth" ? &invalid : nullptr);
@@ -96,9 +108,23 @@ int main(int argc,char **argv) try
         return AuthorizationCreateFromExternalForm(&external,authorization);
     };
     MacNetworkHelperClient client(nullptr,provider); int held = -1; QString interface; qint64 index = 0;
+    PublicationCore core; DNSRoutePublisher<MacNetworkHelperClient> publisher(&core,&client);
+    int publication = 0;
+    core.acknowledged = [&](const QString &generation,const QString &request,bool applied) {
+        if (mode == "--cancel-extend") {
+            check(!applied,"Cancelled DNS publication was acknowledged as applied"); return;
+        }
+        check(generation == owner.toString(QUuid::WithoutBraces) && request == QString::number(publication) && applied,
+            "Owned helper did not confirm the exact CoreEngine DNS publication");
+        const auto configuration = client.ownedConfiguration();
+        check(configuration && configuration->capturePrefixes.contains("198.18.0.7/32"),"Confirmed DNS address was not retained in client ownership");
+        packet(held,"198.18.0.7");
+        report({{"event","published"},{"owner",generation},{"request_id",request}});
+    };
     QObject::connect(&client,&MacNetworkHelperClient::stateChanged,&app,[&](auto state) {
-        if (mode == "--cancel" && state == MacNetworkHelperClient::State::Applying) {
-            report({{"event","applying"},{"owner",owner.toString(QUuid::WithoutBraces)}});
+        if ((mode == "--cancel" && state == MacNetworkHelperClient::State::Applying)
+            || (mode == "--cancel-extend" && state == MacNetworkHelperClient::State::Extending)) {
+            report({{"event",mode == "--cancel" ? "applying" : "extending"},{"owner",owner.toString(QUuid::WithoutBraces)}});
             pollfd control{STDIN_FILENO,POLLIN,0}; char command[32]{};
             check(::poll(&control,1,30000) == 1 && ::read(STDIN_FILENO,command,sizeof(command)) > 0
                 && QByteArray(command).trimmed() == "cancel","Parent did not confirm an actual applied cancellation point");
@@ -106,20 +132,22 @@ int main(int argc,char **argv) try
         }
     });
     QObject::connect(&client,&MacNetworkHelperClient::finished,&app,[&](auto operation,auto result) {
+        if (operation == MacNetworkHelperClient::Operation::Extend && client.state() == MacNetworkHelperClient::State::Active) return;
         if (client.state() == MacNetworkHelperClient::State::Active) {
             check(result.succeeded() && operation == MacNetworkHelperClient::Operation::Apply,"Ordinary signed apply failed");
             interface = client.ownedDevice()["interface"].toString(); index = client.ownedDevice()["index"].toInteger(); held = ::fcntl(client.descriptor(),F_DUPFD_CLOEXEC,0);
             check(held >= 0,"Retain ordinary device reference"); packet(held);
+            emit core.sessionStarted(owner.toString(QUuid::WithoutBraces));
             if (mode == "--dns") deliver(arguments[3].toInt(),held);
             report({{"event","active"},{"owner",owner.toString(QUuid::WithoutBraces)},{"interface",interface},
                 {"peer",configuration.peer},{"dns_domains",QJsonArray::fromStringList(configuration.dnsDomains)}}); return;
         }
         if (client.state() == MacNetworkHelperClient::State::RecoveryRequired) return;
         check(client.state() == MacNetworkHelperClient::State::Idle
-            && (result.succeeded() || (mode == "--cancel" && result.status == PlatformOperationResult::Status::Cancelled)),qPrintable(result.detail));
+            && (result.succeeded() || ((mode == "--cancel" || mode == "--cancel-extend") && result.status == PlatformOperationResult::Status::Cancelled)),qPrintable(result.detail));
         if (held >= 0) {
             const auto routes = readMacRoutes(); check(routes.result.succeeded(),"Read routes after restoration");
-            for (const auto &value : routes.rows) check(value.toObject()["prefix"] != "198.18.0.6/32" || value.toObject()["index"].toInteger() != index,
+            for (const auto &value : routes.rows) check((value.toObject()["prefix"] != "198.18.0.6/32" && value.toObject()["prefix"] != "198.18.0.7/32") || value.toObject()["index"].toInteger() != index,
                 "Capture persisted while the ordinary device fd remained open");
             ::close(held); held = -1;
         }
@@ -133,7 +161,12 @@ int main(int argc,char **argv) try
         char buffer[128]{}; const auto count = ::read(STDIN_FILENO,buffer,sizeof(buffer));
         if (count <= 0) std::_Exit(0);
         const QByteArray command(buffer,qsizetype(count));
-        if (command.trimmed() == "restore") client.restore();
+        if (command.trimmed() == "publish") {
+            ++publication;
+            emit core.dnsRoutesRequired(QJsonObject{{"generation",owner.toString(QUuid::WithoutBraces)},{"request_id",QString::number(publication)},
+                {"addresses",QJsonArray{"198.18.0.7","198.18.0.7","198.18.0.6"}}});
+        }
+        else if (command.trimmed() == "restore") client.restore();
         else if (command.trimmed() == "exit") std::_Exit(0);
     });
     QTimer::singleShot(0,&app,[&] {

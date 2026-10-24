@@ -2,7 +2,7 @@
 #include "infrastructure/platform/linux/networkhelperpreparation.h"
 #include "infrastructure/platform/dnssnapshot.h"
 #include "infrastructure/platform/linux/networkhelperclient.h"
-#include "infrastructure/platform/linux/dnsroutepublisher.h"
+#include "infrastructure/platform/dnsroutepublisher.h"
 #include "infrastructure/platform/linux/networkaccess.h"
 #include "application/networkprotection.h"
 #include "infrastructure/platform/linux/iprouteutility.h"
@@ -259,7 +259,7 @@ int main(int argc, char **argv) {
     if (qgetenv("JC_NATIVE_NETWORK_SESSION") == "1") return exerciseApplicationNetworkAccess(profile);
     auto engine = std::make_unique<EmbeddedCoreEngine>();
     LinuxNetworkHelperClient helper;
-    LinuxDNSRoutePublisher publisher(engine.get(), &helper);
+    DNSRoutePublisher<LinuxNetworkHelperClient> publisher(engine.get(), &helper);
     QList<PlatformOperationResult> helperReplies;
     QList<PlatformOperationResult> helperLosses;
     QObject::connect(&helper, &LinuxNetworkHelperClient::finished, [&](LinuxNetworkHelperClient::Operation, PlatformOperationResult result) {
