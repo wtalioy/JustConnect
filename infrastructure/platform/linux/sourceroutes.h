@@ -24,6 +24,8 @@ public:
                                   const QString &gateway, const QStringList &prefixes,
                                   const CheckpointWriter &writeAhead = {});
     PlatformOperationResult restore(const QUuid &owner, const CheckpointWriter &checkpoint = {});
+    // Adds DNS addresses in place; a failed native write retains ownership for ordered restoration.
+    PlatformOperationResult extend(const QUuid &owner, const QStringList &addresses, const CheckpointWriter &checkpoint = {});
     // The caller must authenticate the privileged owner's saved record before recovery.
     PlatformOperationResult recover(const QUuid &owner, const QJsonObject &saved, const CheckpointWriter &checkpoint = {});
     QJsonObject snapshot() const;

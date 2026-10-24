@@ -175,6 +175,34 @@ int main(int argc, char **argv) try
           && !missing.apply(owner,QString("original0")+QChar(0)+"\nrule del priority 0",source,gateway,{target}).succeeded()
           && !missing.apply(owner,"original0","192.0.2.99",gateway,{target}).succeeded()
           && reads==0 && inventory()==baseline,"Invalid interface/source changed network state");
+    {
+        LinuxSourceRoutes growing;
+        check(growing.apply(owner,"original0",source,gateway,{target}).succeeded(),"Prepare source extension");
+        const auto original = growing.snapshot();
+        check(growing.extend(owner,{"198.18.1.7","198.18.1.7"}).succeeded()
+              && growing.snapshot()["routes"].toArray().size() == original["routes"].toArray().size()+1,
+              "DNS source extension lost ownership or duplicated its address");
+        check(read({"route","get","198.18.1.7","from",source}).first().toObject()["dev"] == "original0",
+              "Published DNS target did not retain its original bound-source route");
+        const auto extended = growing.snapshot();
+        const auto held = inventory();
+        check(growing.extend(owner,{"198.18.1.7"}).succeeded() && growing.snapshot() == extended && inventory() == held,
+              "Repeated DNS source publication changed the original rule");
+        for (const auto &bad : {QString("127.0.0.1"),source,gateway,QString("198.18.2.0/24")})
+            check(!growing.extend(owner,{bad}).succeeded() && growing.snapshot() == extended && inventory() == held,
+                  "Invalid DNS source address changed active ownership");
+        check(!growing.extend(QUuid::createUuid(),{"198.18.1.8"}).succeeded() && inventory() == held,
+              "Another owner extended the source lookup");
+        check(!growing.extend(owner,{"198.18.1.8"},[&](const QJsonObject &record) {
+            check(inventory() == held,"DNS source wrote before its checkpoint");
+            return record == extended ? PlatformOperationResult{} : PlatformOperationResult{Status::Failed,"Refused DNS checkpoint"};
+        }).succeeded() && growing.snapshot() == extended && inventory() == held,
+              "Failed DNS checkpoint damaged existing source ownership");
+        LinuxSourceRoutes recovered;
+        check(recovered.recover(owner,growing.snapshot()).succeeded() && inventory() == baseline,
+              "A fresh source backend could not restore appended DNS routes");
+        check(growing.restore(owner).succeeded(),"Release already restored source metadata");
+    }
     LinuxSourceRoutes routes;
     {
         QTemporaryDir checkpoint;

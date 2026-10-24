@@ -75,6 +75,8 @@ int main(int argc, char **argv) {
     QObject::connect(&helper, &LinuxNetworkHelperClient::ownershipLost, [&](PlatformOperationResult result) { helperLosses.append(result); });
     QString generation;
     int ready = 0, finished = 0;
+    int resourceReplies = 0;
+    QJsonObject resources;
     QList<CoreEngine::RequestStatus> replies;
     QObject::connect(engine.get(), &CoreEngine::sessionStarted, [&](const QString &value) { generation = value; });
     QObject::connect(engine.get(), &CoreEngine::authenticationRequired, [&](const QJsonObject &request) {
@@ -88,13 +90,30 @@ int main(int argc, char **argv) {
         check(QThread::currentThread() == app.thread() && value == generation, "TUN reply preserves GUI thread and generation");
         replies.append(status);
     });
+    QObject::connect(engine.get(), &CoreEngine::snapshotReady,
+        [&](CoreEngine::Snapshot kind, const QString &value, const QJsonObject &snapshot, CoreEngine::RequestStatus status) {
+            if (kind != CoreEngine::Snapshot::Resources || value != generation) return;
+            check(status == CoreEngine::RequestStatus::Success,"read actual campus DNS resource");
+            resources = snapshot["resources"].toObject();
+            ++resourceReplies;
+        });
     for (int round = 0; round < 2; ++round) {
         check(tunReferences() == 0, "previous session released every Qt/core TUN reference");
         check(engine->start(profile, CoreEngine::Operation::Connect), "start ordinary Qt core session");
         until([&] { return ready == round + 1; });
-        auto configuration = helperFixtureConfiguration({"198.18.0.6/32"},
-            EmbeddedCoreEngine::buildInfo()["capabilities"].toObject()["tunnel_mtu"].toInt());
         const bool systemDNS = qgetenv("JC_NATIVE_TUN_DNS") == "1";
+        QStringList prefixes{"198.18.0.6/32"};
+        if (systemDNS) {
+            const auto previous = resourceReplies;
+            engine->readSnapshot(CoreEngine::Snapshot::Resources,generation);
+            until([&] { return resourceReplies > previous; });
+            const auto dns = resources["campus_dns"].toString();
+            check(resources["campus_dns_enabled"].toBool() && QHostAddress(dns).protocol() == QAbstractSocket::IPv4Protocol,
+                  "dynamic route fixture uses the school's actual authorized DNS server");
+            prefixes = {dns+"/32"};
+        }
+        auto configuration = helperFixtureConfiguration(prefixes,
+            EmbeddedCoreEngine::buildInfo()["capabilities"].toObject()["tunnel_mtu"].toInt());
         if (systemDNS) configuration.dnsDomains = {"campus.test"};
         const auto owner = round == 0 ? firstOwner : QUuid::createUuid();
         auto helperPrevious = helperReplies.size();
@@ -103,7 +122,8 @@ int main(int argc, char **argv) {
         check(helperReplies.last().succeeded(), qPrintable(helperReplies.last().detail));
         check(helper.state() == LinuxNetworkHelperClient::State::Active, "installed helper delivered its owned device");
         const quint32 mtu = configuration.mtu;
-        const int descriptor = ::fcntl(helper.descriptor(), F_DUPFD_CLOEXEC, 3);
+        const int borrowed = helper.descriptor();
+        const int descriptor = ::fcntl(borrowed, F_DUPFD_CLOEXEC, 3);
         const int flags = ::fcntl(descriptor, F_GETFL);
         check(flags >= 0 && (flags & O_NONBLOCK) && tunReferences() > 0, "received nonblocking native TUN reference");
         const auto attach = [&](quint32 value) {
@@ -120,8 +140,20 @@ int main(int argc, char **argv) {
         until([&] { return replies.size() > previous; });
         check(replies.last() == CoreEngine::RequestStatus::Success, "queued fd remains valid after caller closes its reference");
         if (systemDNS) {
-            for (const auto &address : systemAddresses("campus.test"))
+            const auto addresses = systemAddresses("campus.test");
+            for (const auto &address : addresses)
                 check(address == "198.18.0.6", "system DNS preserved the authorized campus resource");
+            QTcpSocket uncaptured;
+            uncaptured.connectToHost(QHostAddress(addresses.first()),80);
+            check(!uncaptured.waitForConnected(1000),"new DNS address unexpectedly had an initial capture route");
+            helperPrevious = helperReplies.size();
+            const auto references = tunReferences();
+            helper.extend(addresses);
+            until([&] { return helperReplies.size() > helperPrevious; });
+            check(helperReplies.last().succeeded() && helper.state() == LinuxNetworkHelperClient::State::Active
+                  && helper.descriptor() == borrowed && tunReferences() == references,
+                  "DNS route publication preserves the active helper/core fd ownership");
+            std::cout << "PASS: actual DNS addresses published as owned capture routes before ordinary TCP\n" << std::flush;
             for (const auto *hostname : {"public.test", "host.original.test"}) {
                 for (const auto &address : systemAddresses(hostname))
                     check(address == "203.0.113.9", "public and original names retain their original DNS path");

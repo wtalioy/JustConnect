@@ -176,6 +176,69 @@ Result LinuxTunRoutes::apply(const UnixTunDevice &device, const QString &source,
     if(!recovered.succeeded())result.detail+=" Route rollback is incomplete; ownership records retained.";
     return result;
 }
+Result LinuxTunRoutes::extend(const UnixTunDevice &device, const QStringList &addresses, const CheckpointWriter &checkpoint)
+{
+    const Result invalid{Status::Failed,"DNS addresses require confirmed capture route ownership."};
+    if (addresses.isEmpty() || addresses.size() > LinuxRouteSnapshotRows || !owns(device)
+        || !assignedLinuxTunPair(interfaceName,interfaceIndex,sourceAddress,gatewayPeer)) return invalid;
+    for (const auto &entry : entries) if (entry.deleting || entry.applied.isEmpty()) return invalid;
+    QStringList prefixes;
+    for (const auto &address : addresses) {
+        if (!canonicalUnicastIpv4(address) || address == sourceAddress || address == gatewayPeer) return invalid;
+        bool covered = false;
+        for (const auto &entry : entries) covered |= ipv4PrefixContainsAddress(entry.prefix,address);
+        if (!covered) prefixes.append(address+"/32");
+    }
+    prefixes.removeDuplicates();
+    if (entries.size()+prefixes.size() > LinuxRouteSnapshotRows) return invalid;
+    const auto utility = trustedIpRouteUtility();
+    if (utility.isEmpty()) return {Status::Unsupported,"A trusted system iproute2 executable is required."};
+    QDeadlineTimer deadline(LinuxRouteOperationTimeoutMs);
+    const auto existing = entries;
+    const auto verify = [&](const ReadResult &state) -> Result {
+        if (!state.result.succeeded()) return state.result;
+        if (!owns(device) || !assignedLinuxTunPair(interfaceName,interfaceIndex,sourceAddress,gatewayPeer)
+            || state.rows.size()+prefixes.size() > LinuxRouteSnapshotRows) return invalid;
+        for (const auto &entry : existing)
+            if (!sameLinuxRoute(find(state.rows,entry.prefix),entry.applied)) return invalid;
+        for (const auto &row : state.rows)
+            if (prefixes.contains(ipv4RoutePrefix(row.toObject()))) return invalid;
+        return {};
+    };
+    if (auto result = verify(read(utility,int(deadline.remainingTime()))); !result.succeeded()) return result;
+    if (prefixes.isEmpty()) return {};
+    QByteArray batch;
+    for (const auto &prefix : prefixes) { entries.append({prefix,{}}); batch += command("add",prefix); }
+    const auto abandon = [&](Result result) {
+        entries = existing;
+        const auto saved = saveCheckpoint(checkpoint);
+        if (!saved.succeeded()) result = saved;
+        result.mayHaveChanged = true;
+        return result;
+    };
+    if (auto result = saveCheckpoint(checkpoint); !result.succeeded()) return abandon(result);
+    if (auto result = verify(read(utility,int(deadline.remainingTime()))); !result.succeeded()) return abandon(result);
+    bool attempted = false;
+    auto result = write(utility,batch,deadline,false,&attempted);
+    if (!attempted) return abandon(result);
+    origin = Origin::Recovered; // Unconfirmed additions must retain ambiguity during later recovery.
+    const auto after = read(utility,int(deadline.remainingTime()));
+    bool confirmed = after.result.succeeded() && owns(device)
+        && assignedLinuxTunPair(interfaceName,interfaceIndex,sourceAddress,gatewayPeer);
+    if (after.result.succeeded()) {
+        for (const auto &entry : existing) confirmed &= sameLinuxRoute(find(after.rows,entry.prefix),entry.applied);
+        for (qsizetype index = existing.size(); index < entries.size(); ++index) {
+            auto &entry = entries[index];
+            const auto row = find(after.rows,entry.prefix);
+            if (createdShape(row)) entry.applied = row; else confirmed = false;
+        }
+    }
+    if (const auto saved = saveCheckpoint(checkpoint); !saved.succeeded()) result = saved;
+    if (result.succeeded() && !confirmed) result = after.result.succeeded() ? invalid : after.result;
+    result.mayHaveChanged = true;
+    return result;
+}
+
 Result LinuxTunRoutes::restore(const UnixTunDevice &device, const CheckpointWriter &checkpoint)
 {
     if(owner.isNull())return {};

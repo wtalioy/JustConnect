@@ -19,6 +19,7 @@ public:
     PlatformOperationResult apply(const UnixTunDevice &device, const QString &source, const QString &peer, const QStringList &prefixes,
                                   const CheckpointWriter &checkpoint = {});
     PlatformOperationResult restore(const UnixTunDevice &device, const CheckpointWriter &checkpoint = {});
+    PlatformOperationResult extend(const UnixTunDevice &device, const QStringList &addresses, const CheckpointWriter &checkpoint = {});
     // The caller must authenticate the privileged owner's saved record before recovery.
     PlatformOperationResult recover(const QUuid &owner, const QJsonObject &saved, const CheckpointWriter &checkpoint = {});
     QJsonObject snapshot() const;

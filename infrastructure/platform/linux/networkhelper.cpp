@@ -147,6 +147,18 @@ struct OwnedOperation {
         }
         return result;
     }
+    Result extend(const QStringList &addresses)
+    {
+        if (context["phase"] != "active") return invalid("DNS routes require active connection ownership.");
+        auto result = source.extend(owner,addresses,writer(sourceJournal));
+        bool changed = result.mayHaveChanged;
+        if (result.succeeded()) result = capture.extend(device,addresses,writer(captureJournal));
+        if (result.succeeded()) return {Status::Success,{},changed || result.mayHaveChanged};
+        const auto restored = restore();
+        if (!restored.succeeded()) result = restored;
+        result.mayHaveChanged = true;
+        return result;
+    }
     Result restore()
     {
         if (context["phase"] == "restored") return {};
@@ -310,6 +322,28 @@ std::optional<LinuxHelperConfiguration> parseLinuxHelperApply(const QUuid &owner
     return config;
 }
 
+QJsonObject linuxHelperExtendRequest(const QUuid &owner, const QStringList &addresses)
+{
+    return {{"version",LinuxHelperProtocol},{"owner",owner.toString(QUuid::WithoutBraces)},
+        {"operation","extend"},{"addresses",QJsonArray::fromStringList(addresses)}};
+}
+
+std::optional<QStringList> parseLinuxHelperExtend(const QUuid &owner, const QJsonObject &request)
+{
+    if (owner.isNull() || request["version"] != LinuxHelperProtocol || request["owner"] != owner.toString(QUuid::WithoutBraces)
+        || request["operation"] != "extend" || !fields(request,{"version","owner","operation","addresses"})
+        || !request["addresses"].isArray() || request["addresses"].toArray().isEmpty()
+        || request["addresses"].toArray().size() > LinuxRouteSnapshotRows
+        || QJsonDocument(request).toJson(QJsonDocument::Compact).size() > LinuxHelperPacketBytes) return {};
+    QStringList addresses;
+    for (const auto &address : request["addresses"].toArray()) {
+        if (!address.isString() || !canonicalUnicastIpv4(address.toString())) return {};
+        addresses.append(address.toString());
+    }
+    addresses.removeDuplicates();
+    return addresses;
+}
+
 Result sendLinuxHelperPacket(int socket, const QJsonObject &packet, int descriptor, int timeoutMs)
 {
     const auto bytes = QJsonDocument(packet).toJson(QJsonDocument::Compact);
@@ -462,12 +496,28 @@ int runLinuxNetworkHelper(int socket, int trustedDirectory, uid_t uid, pid_t pid
     };
     if (!reply(result, applying && result.succeeded()).succeeded()) return operation.restore().succeeded() ? LinuxHelperReceiptRetained : 1;
     if (!result.succeeded() && operation.context["phase"] != "restored") return 1;
-    if (operation.context["phase"] == "active") {
+    while (operation.context["phase"] == "active") {
         request = {}; supplied = -1;
         const auto received = receiveLinuxHelperPacket(socket, request, supplied, -1);
         if (supplied >= 0) ::close(supplied);
-        const bool valid = received.succeeded() && supplied < 0 && requestValid(request)
-            && request["operation"] == "restore" && fields(request, {"version", "owner", "operation"});
+        const bool authenticated = received.succeeded() && supplied < 0 && requestValid(request)
+            && sameLinuxNetworkNamespace(callerNamespace);
+        if (authenticated && request["operation"] == "extend") {
+            const auto addresses = parseLinuxHelperExtend(owner,request);
+            if (addresses) {
+                result = beforeApply ? beforeApply() : Result{};
+                if (result.succeeded()) result = operation.extend(*addresses);
+                else {
+                    const auto restored = operation.restore();
+                    if (!restored.succeeded()) result = restored;
+                    result.mayHaveChanged = true;
+                }
+                if (!reply(result,false).succeeded()) return operation.restore().succeeded() ? LinuxHelperReceiptRetained : 1;
+                if (!result.succeeded() && operation.context["phase"] != "restored") return 1;
+                continue;
+            }
+        }
+        const bool valid = authenticated && request["operation"] == "restore" && fields(request, {"version", "owner", "operation"});
         result = operation.restore();
         if (!valid || !result.succeeded()) { if (valid) reply(result, false); return result.succeeded() ? LinuxHelperReceiptRetained : 1; }
         if (!reply(result, false).succeeded()) return LinuxHelperReceiptRetained;
