@@ -164,7 +164,29 @@ def macos_audit(files, root, arch, env, signed):
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE).stderr.decode('utf-8')
     if signed and ('Signature=adhoc' in signature or 'Authority=Developer ID Application:' not in signature):
         raise RuntimeError('Developer ID signature required')
-    return {'minimum_macos': declared, 'binary_minimum': minimum, 'signature': signature, 'files': evidence}
+    return {'minimum_macos': declared, 'binary_minimum': minimum, 'signature': signature, 'files': evidence,
+            'network_helper': check_macos_network_helper(root, env, signed)}
+
+
+def check_macos_network_helper(root, env, signed):
+    layout = json.loads((ROOT / 'resource/network-helper-macos.json').read_text())
+    identifier = plistlib.loads((root / 'Contents/Info.plist').read_bytes())['CFBundleIdentifier'] + layout['service_suffix']
+    helper = root / 'Contents/MacOS' / layout['executable']
+    launch = plistlib.loads((root / 'Contents/Library/LaunchDaemons' / (identifier + '.plist')).read_bytes())
+    if launch != {'Label': identifier, 'BundleProgram': 'Contents/MacOS/' + layout['executable'], 'MachServices': {identifier: True},
+                  'UserName': 'root', 'RunAtLoad': True, 'KeepAlive': {'SuccessfulExit': False}, 'ProcessType': 'Adaptive'}:
+        raise RuntimeError('Packaged network daemon expands its fixed privilege contract')
+    facts = json.loads(run(helper, '--version', env=env, timeout=10))
+    if (not isinstance(facts, dict) or set(facts) != {'protocol', 'storage_version', 'revision', 'source_state', 'identity_ready'}
+            or type(facts['protocol']) is not int or type(facts['storage_version']) is not int or type(facts['identity_ready']) is not bool
+            or facts['protocol'] != layout['protocol'] or facts['storage_version'] != layout['storage_version']
+            or facts['revision'] != (root / 'Contents/Resources/source-revision.txt').read_text().strip()
+            or facts['source_state'] != 'clean' or (signed and not facts['identity_ready'])):
+        raise RuntimeError('Packaged network helper has mismatched provenance or signing identity')
+    dependencies = run('otool', '-L', helper, env=env)
+    if any(name in dependencies for name in ('QtNetwork', 'QtWidgets', 'QtWebEngine', 'justconnect_core')):
+        raise RuntimeError('Privileged network helper links application/data-plane libraries')
+    return facts
 
 
 def windows_audit(files, root, arch):

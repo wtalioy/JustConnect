@@ -241,10 +241,44 @@ class VerifyPackageTest(unittest.TestCase):
                             else f'helper:\n @executable_path/{relative} (compatibility version 1.0)\n')
                 return ''
             with patch.object(package, 'run', side_effect=run), \
+                    patch.object(package, 'check_macos_network_helper', return_value={}), \
                     patch.object(package.platform, 'mac_ver', return_value=('26.0', (), '')), \
                     patch.object(package.subprocess, 'run', return_value=SimpleNamespace(stderr=b'Signature=adhoc')):
                 audit = package.macos_audit([helper], root, 'arm64', {}, False)
             self.assertEqual(package.version(audit['binary_minimum']), package.version('14.4'))
+
+    def test_macos_network_helper_rejects_privilege_provenance_and_dependency_drift(self):
+        layout = json.loads((ROOT / 'resource/network-helper-macos.json').read_text())
+        app_id = plistlib.loads((ROOT / 'resource/Info.plist').read_bytes())['CFBundleIdentifier']
+        identifier = app_id + layout['service_suffix']
+        launch = {'Label': identifier, 'BundleProgram': 'Contents/MacOS/' + layout['executable'],
+                  'MachServices': {identifier: True}, 'UserName': 'root', 'RunAtLoad': True,
+                  'KeepAlive': {'SuccessfulExit': False}, 'ProcessType': 'Adaptive'}
+        facts = {'protocol': layout['protocol'], 'storage_version': layout['storage_version'],
+                 'revision': 'a' * 40, 'source_state': 'clean', 'identity_ready': True}
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            for name in ('Resources', 'Library/LaunchDaemons', 'MacOS'):
+                (root / 'Contents' / name).mkdir(parents=True)
+            (root / 'Contents/Info.plist').write_bytes(plistlib.dumps({'CFBundleIdentifier': app_id}))
+            (root / 'Contents/Resources/source-revision.txt').write_text(facts['revision'])
+            manifest = root / 'Contents/Library/LaunchDaemons' / (identifier + '.plist')
+            manifest.write_bytes(plistlib.dumps(launch))
+            for signed in (False, True):
+                with patch.object(package, 'run', side_effect=[json.dumps(facts), 'QtCore']):
+                    self.assertEqual(package.check_macos_network_helper(root, {}, signed), facts)
+            for key, value in [('protocol', 999), ('protocol', True), ('storage_version', 999), ('revision', 'old'),
+                               ('source_state', 'dirty'), ('identity_ready', False)]:
+                with self.subTest(key=key), patch.object(package, 'run', return_value=json.dumps(dict(facts, **{key: value}))), \
+                        self.assertRaisesRegex(RuntimeError, 'provenance or signing'):
+                    package.check_macos_network_helper(root, {}, True)
+            for dependency in ('QtNetwork', 'QtWidgets', 'QtWebEngine', 'justconnect_core'):
+                with patch.object(package, 'run', side_effect=[json.dumps(facts), dependency]), \
+                        self.assertRaisesRegex(RuntimeError, 'application/data-plane'):
+                    package.check_macos_network_helper(root, {}, True)
+            manifest.write_bytes(plistlib.dumps(dict(launch, Program='/bin/sh')))
+            with self.assertRaisesRegex(RuntimeError, 'fixed privilege contract'):
+                package.check_macos_network_helper(root, {}, False)
 
 
 if __name__ == '__main__':

@@ -15,7 +15,9 @@ cp -R "$BUILD_DIR/$TARGET_NAME.app" .
 cmake --install "$BUILD_DIR" --config Release --component CoreRuntime --prefix "$PWD"
 
 # Run macdeployqt
-macdeployqt "$APP_PATH" "-executable=$APP_PATH/Contents/MacOS/JustConnectProxyRecovery"
+MAC_HELPER="$(python3 -c 'import json; print(json.load(open("resource/network-helper-macos.json"))["executable"])')"
+macdeployqt "$APP_PATH" "-executable=$APP_PATH/Contents/MacOS/JustConnectProxyRecovery" \
+    "-executable=$APP_PATH/Contents/MacOS/$MAC_HELPER"
 
 # Reduce bundle size by stripping unused slices from universal Mach-O binaries.
 while IFS= read -r -d '' binary; do

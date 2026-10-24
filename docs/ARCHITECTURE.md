@@ -144,7 +144,11 @@ macOS 的 `MacTunRoutes` 仅为当前拥有、已配置点对点 IPv4 的新 utu
 
 捕获记录绑定启动 UUID、连接 UUID、utun 名称／索引和地址对，写前意图、完整回读确认、删除开始及完成移除复用 `UnixNetworkJournal`。首次原子发布分别使用 Linux `RENAME_NOREPLACE` 和 macOS `RENAME_EXCL`，固定文件名与 Linux 存储格式不变；已有日志、同步失败、链接、同值替换和外部改写的拒绝语义保留。同前缀的其他作用域／内核派生项通过完整已应用值与所属父路由区分，不按前缀唯一性判断。新恢复进程只消费由权限入口认证的 root 私有记录：未确认应用或已开始删除的匹配值保留；已消失或完整属性不同的路由只解除原责任，不改写当前值。设备改名／索引复用或地址对变化时保留责任。
 
-原生夹具在 fd 交付前调用正式 macOS 捕获后端，已删两处 Python 手写路由；C ABI 流量之后，先在普通调用方仍持有 utun fd 时撤销捕获，再验证最终 fd、接口及路由清理。保护日志、部分失败、指标改写、已有精确路由和新进程恢复由同一后端验证。此增量的当前本地／原生状态见[计划](../plan.md#s4)，不代表 macOS 已有安装授权、系统助手、DNS 所有权恢复或完整应用接管。
+原生夹具在 fd 交付前调用正式 macOS 捕获后端，已删两处 Python 手写路由；C ABI 流量之后，先在普通调用方仍持有 utun fd 时撤销捕获，再验证最终 fd、接口及路由清理。保护日志、部分失败、指标改写、已有精确路由和新进程恢复由同一后端验证。此增量的当前本地／原生状态见[计划](../plan.md#s4)，不代表完整应用接管已验收。
+
+macOS 权限入口使用应用内 `SMAppService` LaunchDaemon 和固定的特权 Mach 服务，布局／协议由 `resource/network-helper-macos.json` 生成；root 进程只链接 Qt Core 与系统安全框架，复用上述设备、捕获及日志，不链接校园数据面或界面。双方逐条以 [SecCodeCreateWithXPCMessage](https://developer.apple.com/documentation/security/seccodecreatewithxpcmessage(_:_:_:)) 校验消息签名、角色标识、相同叶证书与 hardened runtime，拒绝调试／禁用库验证的身份；内核连接要求只设置一次。网络应用另需已授予的 `system.preferences.network` Authorization Services 凭据，服务端只验证，不弹窗或扩展权限。客户端在工作队列注册／授权，通过 Qt 排队回调交付非阻塞 fd；无证书的预览包明确报告不支持。
+
+协议 1／存储 1 将 root 私有记录限定为当前内核启动 UUID、XPC 调用方 UID 和连接 UUID，调用方不能指定程序、目录、接口或其他用户。写前记录创建／设备／捕获阶段，正常恢复保留持久回执直至客户端确认清理；断开、服务退出和重启扫描复用同一恢复路径，其他存活连接与未知／外部记录不接管。旧启动下的磁盘记录保留，不据此修改当前内核网络。当前验收缺口包括真实系统设置批准、证书签名包、Qt／核心完整会话接入及 DNS；直接 bootstrap 的 CI 服务验证不能替代桌面注册批准。
 
 <a id="owned-tun-dns"></a>
 Linux 的 `LinuxTunDns` 为本次新建、已配置的 TUN 设置 peer 地址上的 DNS 端点、明确路由域和 `DefaultRoute=false`，接口原先须无 DNS／域配置。权限工作线程传入可信总线；读取和写入固定 resolve1 API，不自动启动解析服务，缺失时报告不支持。API 依据 [resolve1 契约](https://www.freedesktop.org/software/systemd/man/latest/org.freedesktop.resolve1.html)。配置成功证明原生值已回读；核心在该 peer 的 53 端口提供 IPv4 UDP／TCP DNS，设备地址由内核回读，不另设产品地址常量。
