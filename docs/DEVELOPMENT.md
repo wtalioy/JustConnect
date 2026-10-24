@@ -55,6 +55,8 @@ env LD_LIBRARY_PATH="$HOME/.local/share/JustConnect/sysroot/usr/lib:$HOME/.local
 
 ## 集成 Go 源码的离线基线
 
+受控网关的流量计数须先于对应回包可见，避免调用方已经收到正确数据却读取旧计数；验证仍同时检查实际载荷、TLS 策略与所属连接，不用放宽计数或等待时间处理该时序。
+
 ```sh
 python scripts/test-corelib.py
 python -m unittest discover -s tests -p '*_test.py'

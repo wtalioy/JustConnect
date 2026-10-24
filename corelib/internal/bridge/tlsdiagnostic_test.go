@@ -159,8 +159,9 @@ func TestTLSFailureDiagnosticsAfterAuthentication(t *testing.T) {
 					}
 					if c.TLS.AllowUnverifiedNodes {
 						checkNodeTraffic(t, c.Listeners.SOCKS)
-						if g.tcpCount.Load() != 1 || g.udpCount.Load() != 1 {
-							t.Fatal("missing real TCP/L3 UDP traffic")
+						tcp, udp := g.tcpCount.Load(), g.udpCount.Load()
+						if tcp != 1 || udp != 1 {
+							t.Fatalf("missing real TCP/L3 UDP traffic: TCP=%d UDP=%d", tcp, udp)
 						}
 					}
 					e.Stop(h, MaxWaitMS)
