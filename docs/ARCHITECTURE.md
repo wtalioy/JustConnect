@@ -148,7 +148,7 @@ macOS 的 `MacTunRoutes` 仅为当前拥有、已配置点对点 IPv4 的新 utu
 
 macOS 权限入口使用应用内 `SMAppService` LaunchDaemon 和固定的特权 Mach 服务，布局／协议由 `resource/network-helper-macos.json` 生成；root 进程只链接 Qt Core 与系统安全框架，复用上述设备、捕获及日志，不链接校园数据面或界面。双方逐条以 [SecCodeCreateWithXPCMessage](https://developer.apple.com/documentation/security/seccodecreatewithxpcmessage(_:_:_:)) 校验消息签名、角色标识、相同叶证书与 hardened runtime，拒绝调试／禁用库验证的身份；内核连接要求只设置一次。网络应用另需已授予的 `system.preferences.network` Authorization Services 凭据，服务端只验证，不弹窗或扩展权限。客户端在工作队列注册／授权，通过 Qt 排队回调交付非阻塞 fd；无证书的预览包明确报告不支持。
 
-协议 1／存储 1 将 root 私有记录限定为当前内核启动 UUID、XPC 调用方 UID 和连接 UUID，调用方不能指定程序、目录、接口或其他用户。写前记录创建／设备／捕获阶段，正常恢复保留持久回执直至客户端确认清理；断开、服务退出和重启扫描复用同一恢复路径，其他存活连接与未知／外部记录不接管。旧启动下的磁盘记录保留，不据此修改当前内核网络。双架构原生夹具已验证真实网络授权、普通用户 fd／UDP、持 fd 撤销、取消／EOF／助手强杀及重启恢复；签名夹具与整包重签均保留助手角色标识，包审计独立核对应用和助手实际签名标识。完整矩阵／实际包状态见计划，真实系统设置批准、Developer ID 签名包、Qt／核心完整会话接入及 DNS 仍待；临时证书与直接 bootstrap 的 CI 服务不能替代桌面注册批准。
+协议 1／存储 1 将 root 私有记录限定为当前内核启动 UUID、XPC 调用方 UID 和连接 UUID，调用方不能指定程序、目录、接口或其他用户。写前记录创建／设备／捕获阶段，正常恢复保留持久回执直至客户端确认清理；断开、服务退出和重启扫描复用同一恢复路径，其他存活连接与未知／外部记录不接管。旧启动下的磁盘记录保留，不据此修改当前内核网络。双架构原生夹具已验证真实网络授权、普通用户 fd／UDP、持 fd 撤销、取消／EOF／助手强杀及重启恢复；签名夹具与整包重签均保留助手角色标识，包审计独立核对应用和助手实际签名标识。当前源码已通过完整矩阵和六组实际包，证据见计划；Mac 包为临时签名，真实系统设置批准、Developer ID 签名包、Qt／核心完整会话、原出口及 DNS 仍待。临时证书与直接 bootstrap 的 CI 服务不能替代桌面注册批准。
 
 <a id="owned-tun-dns"></a>
 Linux 的 `LinuxTunDns` 为本次新建、已配置的 TUN 设置 peer 地址上的 DNS 端点、明确路由域和 `DefaultRoute=false`，接口原先须无 DNS／域配置。权限工作线程传入可信总线；读取和写入固定 resolve1 API，不自动启动解析服务，缺失时报告不支持。API 依据 [resolve1 契约](https://www.freedesktop.org/software/systemd/man/latest/org.freedesktop.resolve1.html)。配置成功证明原生值已回读；核心在该 peer 的 53 端口提供 IPv4 UDP／TCP DNS，设备地址由内核回读，不另设产品地址常量。
