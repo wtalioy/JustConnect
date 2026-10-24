@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts'))
 import network_helper_package as package
 from networkhelper_systemd import RecoveryTimer
-from tundns_fixture import IsolatedResolver
+from tundns_fixture import IsolatedResolver, OriginalDnsServer
 
 
 def run(*arguments, **options):
@@ -365,41 +365,47 @@ def main():
                 managed(bool(gateway))
                 with IsolatedResolver(temporary / 'resolver', environment) as resolver:
                     resolver.start()
-                    dns_baseline = inventory()
-                    run('/usr/bin/resolvectl', 'dns', 'helperorig0', '192.0.2.53', env=environment)
-                    run('/usr/bin/resolvectl', 'domain', 'helperorig0', '~original.test', env=environment)
-                    def original_dns():
-                        return [run('/usr/bin/resolvectl', key, 'helperorig0', env=environment)
-                                for key in ('dns', 'domain', 'default-route')]
-                    dns_settings = original_dns()
-                    recovery.start(deferred=True, dns_bus=resolver.socket)
-                    try:
-                        call('dns')
-                        assert inventory() == dns_baseline and original_dns() == dns_settings
-                    finally:
-                        recovery.stop()
-                    if gateway:
-                        dns_environment = {**caller_environment, 'JC_AUTH_TEST_MODE': 'allow',
-                                           'JC_NATIVE_TUN_HOST': str(tun_adapter), 'JC_NATIVE_TUN_HELPER_OWNER': str(uuid.uuid4()),
-                                           'JC_NATIVE_TUN_DNS': '1'}
+                    with OriginalDnsServer(resolver, 'helperorig0') as original:
+                        dns_baseline = inventory()
+                        run('/usr/bin/resolvectl', 'dns', 'helperorig0', '192.0.2.53', env=environment)
+                        run('/usr/bin/resolvectl', 'domain', 'helperorig0', '~.', '~original.test', env=environment)
+                        def original_dns():
+                            return [run('/usr/bin/resolvectl', key, 'helperorig0', env=environment)
+                                    for key in ('dns', 'domain', 'default-route')]
+                        dns_settings = original_dns()
                         recovery.start(deferred=True, dns_bus=resolver.socket)
                         try:
-                            output = run(*native_command, env=dns_environment, user=args.uid,
-                                         group=account.pw_gid, extra_groups=())
-                            assert output.count('PASS: ordinary getaddrinfo through installed helper and core TUN DNS') == 2, output
-                            print(output, end='', flush=True)
-                            client_cases.append('core-dns')
+                            call('dns')
+                            assert inventory() == dns_baseline and original_dns() == dns_settings
                         finally:
                             recovery.stop()
+                        if gateway:
+                            dns_environment = {**caller_environment, 'JC_AUTH_TEST_MODE': 'allow',
+                                               'JC_NATIVE_TUN_HOST': str(tun_adapter), 'JC_NATIVE_TUN_HELPER_OWNER': str(uuid.uuid4()),
+                                               'JC_NATIVE_TUN_DNS': '1'}
+                            recovery.start(deferred=True, dns_bus=resolver.socket)
+                            try:
+                                output = run(*native_command, env=dns_environment, user=args.uid,
+                                             group=account.pw_gid, extra_groups=())
+                                assert output.count('PASS: ordinary getaddrinfo through installed helper and core TUN DNS') == 2, output
+                                print(output, end='', flush=True)
+                                client_cases.append('core-dns')
+                            finally:
+                                recovery.stop()
+                            assert inventory() == dns_baseline and original_dns() == dns_settings
+                        managed(native_core=bool(gateway), dns_bus=resolver.socket)
                         assert inventory() == dns_baseline and original_dns() == dns_settings
-                    managed(native_core=bool(gateway), dns_bus=resolver.socket)
-                    assert inventory() == dns_baseline and original_dns() == dns_settings
-                    report['owned_dns'] = {'provider': 'actual isolated resolved',
-                                           'entry': 'clean installed helper via ordinary Qt authorization caller',
-                                           'query': 'actual ordinary getaddrinfo through ' + ('core TUN DNS' if gateway else 'authenticated TUN fd fixture'),
-                                           'system_manager': 'real system.slice timer, production CAP_NET_ADMIN sandbox',
-                                           'injected_bus': 'untrusted caller address ignored',
-                                           'original_interface': 'DNS settings and IPv4/IPv6 inventory unchanged'}
+                        report['owned_dns'] = {'provider': 'actual isolated resolved',
+                                               'entry': 'clean installed helper via ordinary Qt authorization caller',
+                                               'query': 'actual ordinary getaddrinfo through ' + ('core TUN DNS' if gateway else 'authenticated TUN fd fixture'),
+                                               'system_manager': 'real system.slice timer, production CAP_NET_ADMIN sandbox',
+                                               'injected_bus': 'untrusted caller address ignored',
+                                               'original_interface': 'DNS settings and IPv4/IPv6 inventory unchanged'}
+                        if gateway:
+                            assert set(original.queries) == {'public.test', 'host.original.test'}, original.queries
+                            report['owned_dns']['original_queries'] = original.queries
+                            report['owned_dns']['original_families'] = 'A and AAAA through original DNS'
+                            report['owned_dns']['localhost'] = 'ordinary AF_UNSPEC lookup and local TCP connection remain loopback'
                 assert inventory() == baseline and not list(Path(package.LAYOUT['state_directory']).iterdir())
                 call('guard-blocked')
                 assert inventory() == baseline and not list(Path(package.LAYOUT['state_directory']).iterdir())

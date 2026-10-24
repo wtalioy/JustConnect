@@ -10,6 +10,7 @@ import struct
 import subprocess
 import sys
 import time
+import threading
 
 
 class IsolatedResolver:
@@ -127,15 +128,7 @@ class IsolatedResolver:
                     print(name + ':\n' + path.read_text()[-4000:], file=sys.stderr)
 
 
-def dns_reply(fd, packet, expected, peer):
-    if len(packet) < 28 or packet[0] >> 4 != 4 or packet[9] != socket.IPPROTO_UDP:
-        return False
-    offset = (packet[0] & 15) * 4
-    source, target, length, _ = struct.unpack('!4H', packet[offset:offset + 8])
-    if target != 53:
-        return False
-    assert packet[16:20] == socket.inet_aton(peer), 'system query used a DNS server outside the owned peer'
-    query = packet[offset + 8:offset + length]
+def dns_answer(query, expected):
     assert len(query) >= 12 and struct.unpack('!H', query[4:6])[0] == 1
     cursor, labels = 12, []
     while query[cursor]:
@@ -145,9 +138,71 @@ def dns_reply(fd, packet, expected, peer):
         cursor += size + 1
     cursor += 1
     qtype, qclass = struct.unpack('!HH', query[cursor:cursor + 4])
-    assert '.'.join(labels) == expected and qtype == qclass == 1
+    assert '.'.join(labels) == expected and qclass == 1 and qtype in (1, 28)
     answer = query[:2] + struct.pack('!5H', 0x8180, 1, 1, 0, 0) + query[12:cursor + 4]
-    answer += struct.pack('!HHHIH4s', 0xc00c, 1, 1, 60, 4, socket.inet_aton('203.0.113.9'))
+    address = socket.inet_aton('203.0.113.9') if qtype == 1 else socket.inet_pton(socket.AF_INET6, '2001:db8::9')
+    answer += struct.pack('!HHHIH', 0xc00c, qtype, 1, 60, len(address)) + address
+    return answer
+
+
+class OriginalDnsServer:
+    """An actual UDP DNS server on the fixture's original interface."""
+    def __init__(self, resolver, interface):
+        self.resolver, self.interface = resolver, interface
+        self.queries, self.errors = [], []
+        self.stopped = threading.Event()
+
+    def __enter__(self):
+        self.resolver.run('ip', 'address', 'add', '192.0.2.53/32', 'dev', self.interface)
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            self.socket.bind(('192.0.2.53', 53))
+            self.socket.settimeout(0.1)
+            self.thread = threading.Thread(target=self.serve)
+            self.thread.start()
+            return self
+        except BaseException:
+            self.socket.close()
+            self.resolver.run('ip', 'address', 'del', '192.0.2.53/32', 'dev', self.interface)
+            raise
+
+    def serve(self):
+        while not self.stopped.is_set():
+            try:
+                query, sender = self.socket.recvfrom(65536)
+            except socket.timeout:
+                continue
+            try:
+                for hostname in ('public.test', 'host.original.test'):
+                    labels = b''.join(bytes([len(label)]) + label.encode('ascii') for label in hostname.split('.')) + b'\0'
+                    if query[12:].startswith(labels):
+                        self.socket.sendto(dns_answer(query, hostname), sender)
+                        self.queries.append(hostname)
+                        break
+                else:
+                    raise AssertionError('original resolver received an unexpected query')
+            except BaseException as error:
+                self.errors.append(str(error))
+                return
+
+    def __exit__(self, kind, error, traceback):
+        self.stopped.set()
+        self.thread.join(timeout=2)
+        self.socket.close()
+        self.resolver.run('ip', 'address', 'del', '192.0.2.53/32', 'dev', self.interface)
+        if kind is None:
+            assert not self.thread.is_alive() and not self.errors, self.errors
+
+
+def dns_reply(fd, packet, expected, peer):
+    if len(packet) < 28 or packet[0] >> 4 != 4 or packet[9] != socket.IPPROTO_UDP:
+        return False
+    offset = (packet[0] & 15) * 4
+    source, target, length, _ = struct.unpack('!4H', packet[offset:offset + 8])
+    if target != 53:
+        return False
+    assert packet[16:20] == socket.inet_aton(peer), 'system query used a DNS server outside the owned peer'
+    answer = dns_answer(packet[offset + 8:offset + length], expected)
     udp = struct.pack('!4H', target, source, 8 + len(answer), 0) + answer
     header = struct.pack('!BBHHHBBH4s4s', 0x45, 0, 20 + len(udp), 1, 0, 64, socket.IPPROTO_UDP, 0, packet[16:20], packet[12:16])
     checksum = sum(struct.unpack('!10H', header))
