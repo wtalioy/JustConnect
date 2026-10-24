@@ -102,7 +102,7 @@ jobs:
           import os, pathlib, subprocess, sys
           output = pathlib.Path('build/coreabi')
           output.mkdir(parents=True, exist_ok=True)
-          def run(name, args):
+          def run(name, args, required=True):
               sys.stdout.buffer.write(('RUN: ' + name + '\n').encode())
               sys.stdout.buffer.flush()
               with (output / (name + '.log')).open('wb') as log:
@@ -113,19 +113,22 @@ jobs:
                           sys.stdout.buffer.write(chunk)
                           sys.stdout.buffer.flush()
                       status = process.wait()
-              if status:
+              if status and required:
                   sys.exit(status)
+              return status
           run('go', ['go', 'version'])
           run('cgo-env', ['go', 'env', 'GOHOSTOS', 'GOHOSTARCH', 'CC', 'CGO_ENABLED'])
           run('cc', [os.environ['CC'], '--version'])
           run('constants', [sys.executable, 'scripts/generate-core-abi.py', '--check'])
           run('go-test', ['go', '-C', 'corelib', 'test', '-json', '-timeout', '90s', './...'])
+          race_status = shutdown_status = 0
           if not (os.environ['RUNNER_OS'] == 'Windows' and os.environ['RUNNER_ARCH'] == 'ARM64'):
+              # Collect independent ABI results even when a race regression fails; the step still fails below.
               # Serialize packages; retain the platform's CPU and parallel-test budgets.
-              run('go-race', ['go', '-C', 'corelib', 'test', '-json', '-race', '-p', '1', '-timeout', '90s', './...'])
+              race_status = run('go-race', ['go', '-C', 'corelib', 'test', '-json', '-race', '-p', '1', '-timeout', '90s', './...'], required=False)
               # Repeat the observed shutdown regression without relaxing its per-close deadline.
-              run('go-race-tun-shutdown', ['go', '-C', 'corelib', 'test', '-json', '-race', '-count', '5',
-                  '-timeout', '90s', '-run', '^TestTUNBoundsFlowsAndJoinsFullCapacityOnShutdown$', './service'])
+              shutdown_status = run('go-race-tun-shutdown', ['go', '-C', 'corelib', 'test', '-json', '-race', '-count', '5',
+                  '-timeout', '90s', '-run', '^TestTUNBoundsFlowsAndJoinsFullCapacityOnShutdown$', './service'], required=False)
           else:
               print('UNSUPPORTED: Go race detector on Windows ARM64; normal Go and C ABI tests still run', flush=True)
           args = ['cmake', '-S', 'tests/coreabi', '-B', str(output), '-DCMAKE_BUILD_TYPE=Release']
@@ -134,6 +137,7 @@ jobs:
           run('configure', args)
           run('build', ['cmake', '--build', str(output), '--config', 'Release', '--parallel', '3', '--verbose'])
           run('host', ['ctest', '--test-dir', str(output), '-C', 'Release', '-V', '--output-on-failure'])
+          sys.exit(race_status or shutdown_status)
 
       - name: Check Linux TUN fd transfer and cleanup in an isolated network
         if: runner.os == 'Linux'

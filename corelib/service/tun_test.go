@@ -340,6 +340,21 @@ func TestTUNRelaysTCPHalfCloseAndUDPDatagrams(t *testing.T) {
 	}
 }
 
+func ingressSYN(port uint16) []byte {
+	source := tcpip.AddrFrom4([4]byte{198, 18, 0, 1})
+	destination := tcpip.AddrFrom4([4]byte{203, 0, 113, 7})
+	packet := make([]byte, header.IPv4MinimumSize+header.TCPMinimumSize)
+	ip := header.IPv4(packet)
+	ip.Encode(&header.IPv4Fields{TotalLength: uint16(len(packet)), TTL: 64,
+		Protocol: uint8(tcp.ProtocolNumber), SrcAddr: source, DstAddr: destination})
+	ip.SetChecksum(^ip.CalculateChecksum())
+	segment := header.TCP(packet[header.IPv4MinimumSize:])
+	segment.Encode(&header.TCPFields{SrcPort: 40000, DstPort: port, SeqNum: 1,
+		DataOffset: header.TCPMinimumSize, Flags: header.TCPFlagSyn, WindowSize: 65535})
+	segment.SetChecksum(^segment.CalculateChecksum(header.PseudoHeaderChecksum(tcp.ProtocolNumber, source, destination, uint16(len(segment)))))
+	return packet
+}
+
 func TestTUNRejectsUnownedAttachmentAndCapturedFallback(t *testing.T) {
 	for _, test := range []struct {
 		name    string
@@ -369,15 +384,26 @@ func TestTUNRejectsUnownedAttachmentAndCapturedFallback(t *testing.T) {
 				t.Fatal("failed attachment took device ownership")
 			default:
 			}
-			peer := tunPeer(t, device)
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
-			defer cancel()
-			conn, err := gonet.DialContextTCP(ctx, peer, tcpip.FullAddress{NIC: 1, Addr: tcpip.AddrFrom4([4]byte{203, 0, 113, 7}), Port: test.port}, ipv4.ProtocolNumber)
-			if err == nil {
-				conn.Close()
-				t.Fatal("denied captured TCP connected")
-			}
-			if errors.Is(err, context.DeadlineExceeded) {
+			syn := ingressSYN(test.port)
+			device.input <- syn
+			select {
+			case packet := <-device.output:
+				if len(packet) < header.IPv4MinimumSize+header.TCPMinimumSize {
+					t.Fatal("short denial response")
+				}
+				ip := header.IPv4(packet)
+				if !ip.IsValid(len(packet)) || ip.CalculateChecksum() != 0xffff || ip.TransportProtocol() != tcp.ProtocolNumber || ip.SourceAddress() != header.IPv4(syn).DestinationAddress() ||
+					ip.DestinationAddress() != header.IPv4(syn).SourceAddress() {
+					t.Fatal("denial response lost its IP tuple")
+				}
+				segment := header.TCP(ip.Payload())
+				if len(segment) < header.TCPMinimumSize || segment.Flags() != header.TCPFlagRst|header.TCPFlagAck ||
+					segment.SourcePort() != test.port || segment.DestinationPort() != header.TCP(syn[header.IPv4MinimumSize:]).SourcePort() ||
+					segment.AckNumber() != 2 || segment.CalculateChecksum(header.PseudoHeaderChecksum(tcp.ProtocolNumber,
+					ip.SourceAddress(), ip.DestinationAddress(), uint16(len(ip.Payload())))) != 0xffff {
+					t.Fatal("denied captured TCP did not return the matching reset")
+				}
+			case <-time.After(time.Second):
 				t.Fatal("denied flow was not reset promptly")
 			}
 			select {
@@ -404,17 +430,8 @@ func TestTUNShutdownAbortsIncompleteHandshakeAndDeviceFailure(t *testing.T) {
 			campus := &ingressCampus{tcpAddress: target.Addr().String(), called: make(chan string, 1)}
 			p, device := newIngressOwner(t, campus, nil, []client.IPResource{ingressResource("tcp", 80)})
 			device.dropOutput = true
-			peer := tunPeer(t, device)
-			ctx, cancel := context.WithCancel(t.Context())
-			defer cancel()
-			dialDone := make(chan struct{})
-			go func() {
-				conn, _ := gonet.DialContextTCP(ctx, peer, tcpip.FullAddress{NIC: 1, Addr: tcpip.AddrFrom4([4]byte{203, 0, 113, 7}), Port: 80}, ipv4.ProtocolNumber)
-				if conn != nil {
-					conn.Close()
-				}
-				close(dialDone)
-			}()
+			// A raw SYN leaves the product handshake pending without a second TCP stack.
+			device.input <- ingressSYN(80)
 			select {
 			case <-campus.called:
 			case <-time.After(time.Second):
@@ -429,12 +446,6 @@ func TestTUNShutdownAbortsIncompleteHandshakeAndDeviceFailure(t *testing.T) {
 				}
 			}
 			closeIngress(t, p)
-			cancel()
-			select {
-			case <-dialDone:
-			case <-time.After(time.Second):
-				t.Fatal("peer dial did not cancel")
-			}
 		})
 	}
 }
