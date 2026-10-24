@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strconv"
 	"strings"
 	"sync"
@@ -496,7 +497,7 @@ func (g *gateway) serveL3(conn net.Conn) {
 							resourceIP, _ := g.resourceIP.Load().(string)
 							reply.Answer = []dns.RR{
 								&dns.CNAME{Hdr: dns.RR_Header{Name: "campus.test.", Class: dns.ClassINET, Rrtype: dns.TypeCNAME, Ttl: 60}, Target: "target.campus.test."},
-								&dns.A{Hdr: dns.RR_Header{Name: "target.campus.test.", Class: dns.ClassINET, Rrtype: dns.TypeA, Ttl: 60}, A: net.ParseIP(resourceIP)},
+								&dns.A{Hdr: dns.RR_Header{Name: "target.campus.test.", Class: dns.ClassINET, Rrtype: dns.TypeA, Ttl: 60}, A: net.IP(netip.MustParseAddr(resourceIP).Next().AsSlice())},
 							}
 							g.nativeDNSQueries.Add(1)
 						}

@@ -7,9 +7,78 @@
 
 static void check(bool ok, const char *message) { if (!ok) throw std::runtime_error(message); }
 
+
+static void captureTargets()
+{
+    auto resources = QJsonDocument::fromJson(R"({
+        "ip_resources":[
+            {"ip_min":"192.168.24.250","ip_max":"192.168.25.8","protocol":"tcp","port_min":22,"port_max":22},
+            {"ip_min":"100.74.12.3","ip_max":"100.74.12.3","protocol":"udp","port_min":53,"port_max":53},
+            {"ip_min":"127.9.0.1","ip_max":"127.9.0.1","protocol":"all","port_min":1,"port_max":65535},
+            {"ip_min":"2001:db8::1","ip_max":"2001:db8::ffff","protocol":"tcp","port_min":80,"port_max":80}
+        ],
+        "domain_resources":{"*.campus.test":[{"protocol":"tcp","port_min":22,"port_max":22}],".campus.test":[{"protocol":"tcp","port_min":80,"port_max":80}]},
+        "dns_records":{"mapped.campus.test":["192.168.25.1","2001:db8::7"]},
+        "campus_dns":"203.0.113.53","campus_dns_enabled":true
+    })").object();
+    auto policy = QJsonObject{{"protected",QJsonArray{"192.168.24.0/24","100.74.12.3/32","127.0.0.0/8","::1/128"}},
+        {"campus",QJsonArray{"192.168.24.253","100.74.12.3","127.9.0.1"}},
+        {"protected_names",QJsonArray{QJsonObject{{"kind","exact"},{"value","localhost"}}}}, {"campus_names",QJsonArray{}}};
+    const auto plan = campusCaptureTargets(resources, policy);
+    check(plan && plan->ipv4Prefixes == QStringList{"100.74.12.3/32","192.168.24.253/32","192.168.25.0/29","192.168.25.8/32","203.0.113.53/32"},
+          "Initial capture lost exact choices, range boundaries, coalescing or actual DNS");
+    check(plan->dnsDomains == QStringList{"campus.test"},"DNS domains were not derived from normalized resources");
+    auto protectedPolicy = policy;
+    protectedPolicy["protected_names"] = QJsonArray{QJsonObject{{"kind","exact"},{"value","host.campus.test"}}};
+    check(!campusCaptureTargets(resources, protectedPolicy),"Protected descendant name reached a broad campus DNS route");
+    protectedPolicy["campus_names"] = QJsonArray{"host.campus.test"};
+    check(campusCaptureTargets(resources, protectedPolicy).has_value(),"Confirmed exact campus name choice was ignored");
+    protectedPolicy["protected_names"] = QJsonArray{QJsonObject{{"kind","suffix"},{"value","campus.test"}}};
+    protectedPolicy["campus_names"] = QJsonArray{"campus.test"};
+    check(!campusCaptureTargets(resources, protectedPolicy),"One exact choice unprotected an entire namespace");
+    protectedPolicy = policy;
+    protectedPolicy["protected"] = QJsonArray{"203.0.113.53/32"};
+    check(!campusCaptureTargets(resources, protectedPolicy),"Protected campus DNS produced a partially usable plan");
+    auto disabled = resources;
+    disabled["campus_dns_enabled"] = false;
+    const auto localRecords = campusCaptureTargets(disabled, policy);
+    check(localRecords && localRecords->dnsDomains == QStringList{"mapped.campus.test"}
+          && !localRecords->ipv4Prefixes.contains("203.0.113.53/32"),"Disabled remote DNS still captured its server or domains");
+    for (const auto &bad : {QJsonObject{{"ip_min","192.168.25.9"},{"ip_max","192.168.25.1"},{"protocol","tcp"},{"port_min",22},{"port_max",22}},
+                           QJsonObject{{"ip_min","::1"},{"ip_max","127.0.0.1"},{"protocol","tcp"},{"port_min",22},{"port_max",22}},
+                           QJsonObject{{"ip_min","203.0.113.7"},{"ip_max","203.0.113.7"},{"protocol","tcp"},{"port_min",0},{"port_max",22}}}) {
+        auto invalid = resources;
+        invalid["ip_resources"] = QJsonArray{bad};
+        check(!campusCaptureTargets(invalid, policy),"Invalid resource published a partial capture plan");
+    }
+    auto wide = resources;
+    wide["ip_resources"] = QJsonArray{QJsonObject{{"ip_min","0.0.0.0"},{"ip_max","255.255.255.255"},{"protocol","all"},{"port_min",1},{"port_max",65535}}};
+    const auto full = campusCaptureTargets(wide, policy);
+    check(full.has_value(),"Wide IPv4 range overflowed");
+    auto captured = [&](const QString &address) {
+        for (const auto &prefix : full->ipv4Prefixes) {
+            const auto subnet = QHostAddress::parseSubnet(prefix);
+            check(subnet.second >= 2,"Initial capture synthesized a default route");
+            if (QHostAddress(address).isInSubnet(subnet)) return true;
+        }
+        return false;
+    };
+    for (const auto *address : {"1.0.0.0","126.255.255.255","128.0.0.0","223.255.255.255","192.168.24.253"})
+        check(captured(QString::fromLatin1(address)),"Wide range lost an allowed boundary");
+    for (const auto *address : {"0.0.0.0","0.255.255.255","127.0.0.1","127.9.0.1","224.0.0.0","255.255.255.255","192.168.24.252"})
+        check(!captured(QString::fromLatin1(address)),"Protected, multicast or reserved address was captured");
+    QJsonArray fragmented;
+    for (quint32 index=0; index<4096; ++index) fragmented.append(QHostAddress(0x01000000u+index*2).toString()+"/32");
+    protectedPolicy = policy;
+    protectedPolicy["protected"] = fragmented;
+    protectedPolicy["campus"] = QJsonArray{};
+    check(!campusCaptureTargets(wide, protectedPolicy),"Fragmented capture plan silently exceeded its output bound");
+}
+
 int main(int argc, char **argv) try
 {
     QCoreApplication app(argc, argv);
+    captureTargets();
     auto network = QJsonDocument::fromJson(R"({
         "interfaces":[
             {"name":"ethernet","addresses":["192.168.24.19/24","fe80::1/64"]},
