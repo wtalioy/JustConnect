@@ -134,6 +134,8 @@ static int exerciseApplicationNetworkAccess(const ConnectionProfile &profile)
                   && policy.campusAddresses().contains(address) == campus,"campus choice waits for core and actual helper routing confirmation");
             originalView(QUuid(owner));
         };
+        const bool originalPeer = choose && qgetenv("JC_NATIVE_ORIGINAL_PEER") == "1";
+        if (originalPeer) exerciseOriginalNetworkTraffic();
         if (choose) for (const auto *address : {"198.18.0.6","198.18.0.7"}) chooseAddress(QString::fromLatin1(address),true);
         auto lookup = std::async(std::launch::async, [] { return systemAddresses("campus.test"); });
         until([&] { return lookup.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready; });
@@ -148,6 +150,7 @@ static int exerciseApplicationNetworkAccess(const ConnectionProfile &profile)
             check(selected.result.succeeded() && rows.size() == 1 && rows[0].toObject()["dev"] == "helperorig0",
                   "revoked campus choice restores the kernel's actual original route");
         }
+        if (originalPeer && !(withdrawalCrash && round == 0)) exerciseOriginalNetworkTraffic();
         if (helperLoss && round == 0) {
             QSaveFile marker(QString::fromLocal8Bit(qgetenv("JC_NATIVE_TUN_READY")));
             const auto bytes = QJsonDocument(QJsonObject{{"pid",QCoreApplication::applicationPid()},

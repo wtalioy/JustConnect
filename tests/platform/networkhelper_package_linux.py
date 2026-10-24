@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 import network_helper_package as package
 from networkhelper_systemd import RecoveryTimer
 from networkhelper_checkpoint import kill_during_capture_delete
+from original_network_peer import OriginalNetworkPeer
 from tundns_fixture import IsolatedResolver, OriginalDnsServer
 
 
@@ -79,6 +80,7 @@ def main():
         run('mount', '--bind', state, '/var/lib')
         recovery = None
         caller_runtime = None
+        original_peer = None
         try:
             for name, contents in files.items():
                 path = Path('/') / name
@@ -162,12 +164,22 @@ def main():
                 shutil.copyfile(broker, authorization)
                 authorization.chmod(0o4755)
                 ip = lambda *values: run('ip', *values, env=environment)
-                ip('link', 'add', 'helperorig0', 'type', 'dummy')
+                if gateway:
+                    original_peer = OriginalNetworkPeer(args.uid, environment)
+                    original_peer.start()
+                else:
+                    ip('link', 'add', 'helperorig0', 'type', 'dummy')
                 ip('link', 'set', 'helperorig0', 'up')
                 ip('address', 'add', '192.0.2.1/24', 'dev', 'helperorig0')
                 ip('-4', 'route', 'add', 'default', 'dev', 'helperorig0')
                 if gateway:
                     ip('link', 'set', 'lo', 'up')
+                    # Settle the fixture's IPv6 DAD before capturing its original route inventory.
+                    deadline = time.monotonic() + 5
+                    while ip('-6', 'address', 'show', 'dev', 'helperorig0', 'tentative'):
+                        assert time.monotonic() < deadline, 'original interface IPv6 initialization did not settle'
+                        time.sleep(0.01)
+                    assert not ip('-6', 'address', 'show', 'dev', 'helperorig0', 'dadfailed')
                 def inventory():
                     return tuple(value for family in ('-4', '-6') for value in
                                  (ip('-N', '-j', family, 'route', 'show', 'table', 'all'),
@@ -408,7 +420,7 @@ def main():
                                 assert output.count('PASS: ordinary getaddrinfo through installed helper and core TUN DNS') == 2, output
                                 print(output, end='', flush=True)
                                 client_cases.append('core-dns')
-                                application_environment = {**dns_environment, 'JC_NATIVE_NETWORK_SESSION': '1'}
+                                application_environment = {**dns_environment, 'JC_NATIVE_NETWORK_SESSION': '1', 'JC_NATIVE_ORIGINAL_PEER': '1'}
                                 ip('route','add','198.18.0.4/30','dev','helperorig0')
                                 try:
                                     output = run(*native_command, env={**application_environment, 'JC_NATIVE_NETWORK_CHOICES': '1'}, user=args.uid,
@@ -419,7 +431,7 @@ def main():
                                 print(output, end='', flush=True)
                                 client_cases.append('application-network')
                                 report['application_network'] = {'sessions': 2, 'startup': 'write-ahead UUID without privileged record',
-                                    'data': 'ordinary DNS, TCP and UDP; exact campus/original address choices and capture withdrawal', 'stop': 'owned network before core; hint and fd released'}
+                                    'data': 'same-IP original TCP/UDP before capture and after withdrawal; distinct actual campus DNS/TCP/UDP while selected', 'stop': 'owned network before core; hint and fd released'}
                                 for scenario in ('helper-loss', 'withdraw-crash', 'withdraw-deleted-crash'):
                                     withdrawing = scenario != 'helper-loss'
                                     ready_path = Path(caller_runtime.name) / f'application-{scenario}.json'
@@ -506,6 +518,8 @@ def main():
         finally:
             if recovery:
                 recovery.stop()
+            if original_peer:
+                original_peer.close()
             if caller_runtime:
                 caller_runtime.cleanup()
             run('umount', '/var/lib')

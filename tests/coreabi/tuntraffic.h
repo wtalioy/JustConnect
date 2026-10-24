@@ -30,3 +30,26 @@ inline void exerciseNativeTUNTraffic(const QHostAddress &tcpTarget = QHostAddres
         check(returned == packet, "native UDP bytes and empty datagram preserved");
     }
 }
+
+inline void exerciseOriginalNetworkTraffic()
+{
+    using ProxyCheck::check;
+    const QByteArray tag("original:"), payload("same-ip-original-network");
+    QTcpSocket tcp;
+    tcp.connectToHost(QHostAddress("198.18.0.7"),80);
+    check(tcp.waitForConnected(5000),"ordinary TCP reaches the original side of an overlapping IP");
+    check(ProxyCheck::receive(tcp,tag.size()) == tag,"same-IP TCP connected to the original peer rather than the campus tunnel");
+    check(tcp.write(payload) == payload.size() && (tcp.bytesToWrite() == 0 || tcp.waitForBytesWritten(5000)),"original TCP payload sent");
+    check(ProxyCheck::receive(tcp,payload.size()) == payload,"original TCP payload preserved");
+    tcp.abort();
+    QUdpSocket udp;
+    udp.connectToHost(QHostAddress("198.18.0.6"),53);
+    for (const auto &packet : {payload,QByteArray{}}) {
+        const auto expected = tag + packet;
+        check(udp.write(packet) == packet.size() && udp.waitForReadyRead(5000),"ordinary UDP reaches the original side of an overlapping IP");
+        check(udp.pendingDatagramSize() == expected.size(),"original peer UDP datagram has the exact expected length");
+        QByteArray returned(expected.size(),Qt::Uninitialized);
+        check(udp.readDatagram(returned.data(),returned.size()) == returned.size() && returned == expected,
+              "same-IP original UDP bytes and empty datagrams never entered the campus tunnel");
+    }
+}
