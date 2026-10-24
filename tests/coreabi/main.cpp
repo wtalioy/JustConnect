@@ -263,7 +263,7 @@ static void nativeProtocol(API &api, const QByteArray &input) {
 int main(int argc, char **argv) {
     QApplication application(argc, argv);
     API api;
-#ifdef Q_OS_LINUX
+#if defined(Q_OS_LINUX) || defined(Q_OS_MACOS)
     if (argc == 4 && QByteArray(argv[1]) == "--tun-gateway") {
         bool valid = false;
         const int descriptor = QByteArray(argv[3]).toInt(&valid);
@@ -296,14 +296,14 @@ int main(int argc, char **argv) {
     check(info["capabilities"].toObject()["name_protection"].toBool(), "name protection capability matches validated policy input");
     check(info["capabilities"].toObject()["network_snapshot"].toBool(), "native network snapshot capability");
     check(info["capabilities"].toObject()["resource_snapshot"].toBool() == !info["test_driver"].toBool(), "campus resource capability requires the protocol backend");
-#if defined(Q_OS_LINUX) && !defined(ABI_FIXTURE)
-    check(info["capabilities"].toObject()["raw_ipv4_tun_fd"].toBool(), "Linux fd capability requires the protocol backend");
+#if (defined(Q_OS_LINUX) || defined(Q_OS_MACOS)) && !defined(ABI_FIXTURE)
+    check(info["capabilities"].toObject()["raw_ipv4_tun_fd"].toBool(), "native fd capability requires the protocol backend");
     check(api.jc_session_attach_tun(0, 1, -1, 1400) == JC_INVALID_ARGUMENT, "invalid borrowed fd is rejected");
     check(api.jc_session_attach_tun_dns(0, 1, -1, 1400) == JC_INVALID_ARGUMENT, "DNS-publishing attach retains fd guards");
     check(api.jc_session_ack_dns_routes(0, 1, 1, 2) == JC_INVALID_ARGUMENT, "DNS publication result is a strict boolean");
     check(api.jc_session_ack_dns_routes(0, 1, 1, 1) == JC_INVALID_HANDLE, "DNS publication acknowledgement validates handle");
 #else
-    check(!info["capabilities"].toObject()["raw_ipv4_tun_fd"].toBool(), "unsupported platform/driver cannot advertise Linux raw fd attachment");
+    check(!info["capabilities"].toObject()["raw_ipv4_tun_fd"].toBool(), "unsupported platform/driver cannot advertise raw fd attachment");
     check(api.jc_session_attach_tun(0, 1, -1, 1400) == JC_UNSUPPORTED, "unsupported raw fd attachment is explicit");
     check(api.jc_session_attach_tun_dns(0, 1, -1, 1400) == JC_UNSUPPORTED &&
           api.jc_session_ack_dns_routes(0, 1, 1, 1) == JC_UNSUPPORTED, "unsupported DNS publication is explicit");

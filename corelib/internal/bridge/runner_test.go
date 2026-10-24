@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -427,18 +428,20 @@ func TestNativeTUNHost(t *testing.T) {
 	host := os.Getenv("JC_NATIVE_TUN_HOST")
 	inherited := os.Getenv("JC_NATIVE_TUN_FD")
 	if host == "" || (inherited == "" && os.Getenv("JC_NATIVE_TUN_HELPER_OWNER") == "") {
-		t.Skip("native TUN/C ABI handoff runs in the guarded Linux Core ABI namespace")
+		t.Skip("native TUN/C ABI handoff runs in a guarded namespace or disposable macOS runner")
 	}
 	if os.Getuid() == 0 || os.Getuid() != os.Geteuid() {
 		t.Fatal("requires an ordinary caller")
 	}
-	status, err := os.ReadFile("/proc/self/status")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, line := range strings.Split(string(status), "\n") {
-		if strings.HasPrefix(line, "CapEff:") && strings.TrimSpace(strings.TrimPrefix(line, "CapEff:")) != "0000000000000000" {
-			t.Fatal("native data plane retained capabilities")
+	if runtime.GOOS == "linux" {
+		status, err := os.ReadFile("/proc/self/status")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, line := range strings.Split(string(status), "\n") {
+			if strings.HasPrefix(line, "CapEff:") && strings.TrimSpace(strings.TrimPrefix(line, "CapEff:")) != "0000000000000000" {
+				t.Fatal("native data plane retained capabilities")
+			}
 		}
 	}
 	g := newGateway(t)
