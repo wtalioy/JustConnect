@@ -4,6 +4,7 @@ package tundevice
 
 import (
 	"encoding/binary"
+	"net/netip"
 	"os"
 
 	"github.com/sagernet/netlink/nl"
@@ -12,8 +13,15 @@ import (
 
 const Supported = true
 
+type Device struct {
+	*os.File
+	local, peer netip.Addr
+}
+
+func (d *Device) TUNAddresses() (netip.Addr, netip.Addr) { return d.local, d.peer }
+
 // Duplicate borrows a nonblocking raw TUN fd; it never changes the caller's flags.
-func Duplicate(fd int, mtu uint32) (*os.File, error) {
+func Duplicate(fd int, mtu uint32) (*Device, error) {
 	copied, err := unix.FcntlInt(uintptr(fd), unix.F_DUPFD_CLOEXEC, 3)
 	if err != nil {
 		return nil, err
@@ -41,12 +49,51 @@ func Duplicate(fd int, mtu uint32) (*os.File, error) {
 	if err := rawLink(request.Name(), mtu); err != nil {
 		return nil, err
 	}
+	local, peer, err := addresses(request.Name())
+	if err != nil {
+		return nil, err
+	}
 	file := os.NewFile(uintptr(copied), request.Name())
 	if file == nil {
 		return nil, unix.EBADF
 	}
 	owned = true
-	return file, nil
+	return &Device{File: file, local: local, peer: peer}, nil
+}
+
+func addresses(name string) (netip.Addr, netip.Addr, error) {
+	socket, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM|unix.SOCK_CLOEXEC, 0)
+	if err != nil {
+		return netip.Addr{}, netip.Addr{}, err
+	}
+	defer unix.Close(socket)
+	read := func(operation uint) (netip.Addr, error) {
+		request, err := unix.NewIfreq(name)
+		if err == nil {
+			err = unix.IoctlIfreq(socket, operation, request)
+		}
+		if err != nil {
+			return netip.Addr{}, err
+		}
+		value, err := request.Inet4Addr()
+		address, valid := netip.AddrFromSlice(value)
+		if err == nil && !valid {
+			err = unix.EINVAL
+		}
+		return address, err
+	}
+	local, err := read(unix.SIOCGIFADDR)
+	if err != nil {
+		return netip.Addr{}, netip.Addr{}, err
+	}
+	peer, err := read(unix.SIOCGIFDSTADDR)
+	if err != nil {
+		return netip.Addr{}, netip.Addr{}, err
+	}
+	if !ValidIPv4Pair(local, peer) {
+		return netip.Addr{}, netip.Addr{}, unix.EINVAL
+	}
+	return local, peer, nil
 }
 
 func attributes(data []byte) (map[uint16][]byte, error) {

@@ -4,10 +4,12 @@ import (
 	"errors"
 	"io"
 	"net"
+	"net/netip"
 	"strconv"
 	"sync"
 	"time"
 
+	"github.com/wtalioy/JustConnect/corelib/internal/tundevice"
 	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
@@ -33,15 +35,16 @@ type tunFlow struct {
 }
 
 type tunIngress struct {
-	owner   *Listeners
-	device  io.ReadWriteCloser
-	stack   *stack.Stack
-	link    *channel.Endpoint
-	mu      sync.Mutex
-	closed  bool
-	flows   map[tunFlow]struct{}
-	workers sync.WaitGroup
-	pumps   sync.WaitGroup
+	owner       *Listeners
+	device      io.ReadWriteCloser
+	stack       *stack.Stack
+	link        *channel.Endpoint
+	mu          sync.Mutex
+	closed      bool
+	flows       map[tunFlow]struct{}
+	workers     sync.WaitGroup
+	pumps       sync.WaitGroup
+	local, peer netip.Addr
 }
 
 // AttachTUN takes ownership on success. Each read/write is one raw IPv4 packet;
@@ -59,6 +62,14 @@ func (p *Listeners) AttachTUN(device io.ReadWriteCloser, mtu uint32) error {
 		return errors.New("TUN requires a dialer and a single device owner")
 	}
 	i := &tunIngress{owner: p, device: device, flows: make(map[tunFlow]struct{})}
+	if addressed, ok := device.(interface {
+		TUNAddresses() (netip.Addr, netip.Addr)
+	}); ok {
+		i.local, i.peer = addressed.TUNAddresses()
+		if !tundevice.ValidIPv4Pair(i.local, i.peer) {
+			return errors.New("invalid IPv4 TUN source and peer")
+		}
+	}
 	i.stack = stack.New(stack.Options{
 		NetworkProtocols:   []stack.NetworkProtocolFactory{ipv4.NewProtocol},
 		TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol, udp.NewProtocol},
@@ -110,6 +121,9 @@ func (i *tunIngress) release(key tunFlow) {
 }
 
 func (i *tunIngress) dial(protocol string, id stack.TransportEndpointID) (net.Conn, error) {
+	if i.peer.IsValid() && id.LocalAddress.String() == i.peer.String() {
+		return nil, errors.New("the owned TUN peer is reserved for DNS")
+	}
 	address := net.JoinHostPort(id.LocalAddress.String(), strconv.Itoa(int(id.LocalPort)))
 	conn, err := i.owner.dialer.DialCampusIPPort(i.owner.ctx, protocol, address)
 	if err != nil {
@@ -127,11 +141,16 @@ func (i *tunIngress) forwardTCP(request *tcp.ForwarderRequest) {
 			request.Complete(true)
 		}
 	}()
-	target, err := i.dial("tcp", request.ID())
-	if err != nil {
-		return
+	dns := i.dnsFlow(request.ID())
+	var target net.Conn
+	if !dns {
+		var err error
+		target, err = i.dial("tcp", request.ID())
+		if err != nil {
+			return
+		}
+		defer target.Close()
 	}
-	defer target.Close()
 	var queue waiter.Queue
 	endpoint, tcpErr := request.CreateEndpoint(&queue)
 	if tcpErr != nil {
@@ -144,6 +163,10 @@ func (i *tunIngress) forwardTCP(request *tcp.ForwarderRequest) {
 		return
 	}
 	defer guest.Close()
+	if dns {
+		i.serveDNS("tcp", guest)
+		return
+	}
 	relayStream(guest, guest, target, i.owner.fail)
 }
 
@@ -173,6 +196,10 @@ func (i *tunIngress) forwardUDP(id stack.TransportEndpointID, packet *stack.Pack
 		defer i.release(key)
 		defer i.owner.recoverWorker()
 		defer guest.Close()
+		if i.dnsFlow(id) {
+			i.serveDNS("udp", guest)
+			return
+		}
 		target, err := i.dial("udp", id)
 		if err != nil {
 			return

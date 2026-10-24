@@ -4,6 +4,8 @@ package tundevice
 
 import (
 	"errors"
+	"net"
+	"net/netip"
 	"os"
 	"testing"
 	"time"
@@ -73,14 +75,16 @@ func TestNativeLinuxTUNDescriptors(t *testing.T) {
 		name    string
 		flags   uint16
 		persist bool
+		address bool
 		valid   bool
 	}{
-		{"raw", unix.IFF_TUN | unix.IFF_NO_PI, false, true},
-		{"pi", unix.IFF_TUN, false, false},
-		{"tap", unix.IFF_TAP | unix.IFF_NO_PI, false, false},
-		{"virtio", unix.IFF_TUN | unix.IFF_NO_PI | unix.IFF_VNET_HDR, false, false},
-		{"multiqueue", unix.IFF_TUN | unix.IFF_NO_PI | unix.IFF_MULTI_QUEUE, false, false},
-		{"persistent", unix.IFF_TUN | unix.IFF_NO_PI, true, false},
+		{"raw", unix.IFF_TUN | unix.IFF_NO_PI, false, true, true},
+		{"unconfigured", unix.IFF_TUN | unix.IFF_NO_PI, false, false, false},
+		{"pi", unix.IFF_TUN, false, true, false},
+		{"tap", unix.IFF_TAP | unix.IFF_NO_PI, false, true, false},
+		{"virtio", unix.IFF_TUN | unix.IFF_NO_PI | unix.IFF_VNET_HDR, false, true, false},
+		{"multiqueue", unix.IFF_TUN | unix.IFF_NO_PI | unix.IFF_MULTI_QUEUE, false, true, false},
+		{"persistent", unix.IFF_TUN | unix.IFF_NO_PI, true, true, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			fd, err := unix.Open("/dev/net/tun", unix.O_RDWR|unix.O_CLOEXEC|unix.O_NONBLOCK, 0)
@@ -106,6 +110,14 @@ func TestNativeLinuxTUNDescriptors(t *testing.T) {
 			if err := handle.LinkSetMTU(link, 1400); err != nil {
 				t.Fatal(err)
 			}
+			if test.address {
+				if err := handle.AddrAdd(link, &netlink.Addr{
+					IPNet: &net.IPNet{IP: net.IPv4(198, 18, 0, 1), Mask: net.CIDRMask(32, 32)},
+					Peer:  &net.IPNet{IP: net.IPv4(198, 18, 0, 2), Mask: net.CIDRMask(32, 32)},
+				}); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if err := handle.LinkSetUp(link); err != nil {
 				t.Fatal(err)
 			}
@@ -124,6 +136,9 @@ func TestNativeLinuxTUNDescriptors(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer device.Close()
+			if local, peer := device.TUNAddresses(); local != netip.MustParseAddr("198.18.0.1") || peer != netip.MustParseAddr("198.18.0.2") {
+				t.Fatal("kernel TUN addresses were not retained", local, peer)
+			}
 			if int(device.Fd()) == fd {
 				t.Fatal("caller fd was adopted instead of duplicated")
 			}
