@@ -79,16 +79,16 @@ func exerciseProtocolTUN(t *testing.T, e *Engine, h, generation uint64) *net.UDP
 	}{
 		{0, 1400, InvalidArgument}, {generation + 1, 1400, StaleRequest}, {generation, 1, InvalidArgument},
 	} {
-		if status := e.AttachTUN(h, test.generation, device, test.mtu); status != test.want {
+		if status := e.AttachTUN(h, test.generation, device, test.mtu, false); status != test.want {
 			t.Fatalf("rejected attachment=%v want %v", status, test.want)
 		}
 	}
 	address := device.LocalAddr().(*net.UDPAddr)
-	if status := e.AttachTUN(h, generation, device, 1400); status != OK {
+	if status := e.AttachTUN(h, generation, device, 1400, false); status != OK {
 		t.Fatal(status)
 	}
 	extra, extraPeer := tunDatagram(t)
-	if status := e.AttachTUN(h, generation, extra, 1400); status != InvalidArgument {
+	if status := e.AttachTUN(h, generation, extra, 1400, false); status != InvalidArgument {
 		t.Fatal(status)
 	}
 	if _, err := extra.Write([]byte("caller-owned")); err != nil {
@@ -117,7 +117,7 @@ func TestProtocolTUNAttachDuringStop(t *testing.T) {
 	var workers sync.WaitGroup
 	workers.Add(1)
 	var status Status
-	go func() { defer workers.Done(); status = e.AttachTUN(h, ready.Generation, device, 1400) }()
+	go func() { defer workers.Done(); status = e.AttachTUN(h, ready.Generation, device, 1400, false) }()
 	if e.Stop(h, 3000) != OK {
 		t.Fatal("stop did not join concurrent attachment")
 	}
@@ -169,7 +169,7 @@ func TestProtocolTUNReadinessAndDeviceFailure(t *testing.T) {
 				if ready := next(t, e, h); ready.State != "ready" {
 					t.Fatal(ready)
 				}
-				if status := e.AttachTUN(h, generation, fileFailureDevice{device}, 1400); status != OK {
+				if status := e.AttachTUN(h, generation, fileFailureDevice{device}, 1400, false); status != OK {
 					t.Fatal(status)
 				}
 				if err := device.Close(); err != nil {
@@ -181,7 +181,7 @@ func TestProtocolTUNReadinessAndDeviceFailure(t *testing.T) {
 				case <-time.After(5 * time.Second):
 					t.Fatal("IP setup did not start")
 				}
-				if status := e.AttachTUN(h, generation, device, 1400); status != Busy {
+				if status := e.AttachTUN(h, generation, device, 1400, false); status != Busy {
 					t.Fatal(status)
 				}
 				if e.Stop(h, 3000) != OK {

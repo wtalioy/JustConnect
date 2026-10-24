@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/netip"
+	"slices"
 	"time"
 
 	"github.com/miekg/dns"
@@ -18,14 +19,11 @@ type campusDNSBinding struct {
 	expires time.Time
 }
 
-func (r *Resolver) bindCampusAnswer(request, reply *dns.Msg) error {
+func (r *Resolver) bindCampusAnswer(request, reply *dns.Msg, publish func([]netip.Addr) error) ([]netip.Addr, error) {
 	if request.Question[0].Qtype != dns.TypeA || reply.Rcode != dns.RcodeSuccess || reply.Truncated {
-		return nil
+		return nil, nil
 	}
 	host := normalizeHostname(request.Question[0].Name)
-	if _, _, granted := matchDomainResource(r.domainIndex, host); !granted {
-		return nil
-	}
 	records := make(map[string][]dns.RR)
 	for _, record := range reply.Answer {
 		if record.Header().Class != dns.ClassINET {
@@ -39,7 +37,7 @@ func (r *Resolver) bindCampusAnswer(request, reply *dns.Msg) error {
 	name, ttl := host, r.dnsTTL
 	for {
 		if seen[name] {
-			return ErrInvalidDNSResponse
+			return nil, ErrInvalidDNSResponse
 		}
 		seen[name] = true
 		target := ""
@@ -47,7 +45,7 @@ func (r *Resolver) bindCampusAnswer(request, reply *dns.Msg) error {
 			if alias, ok := record.(*dns.CNAME); ok {
 				next := normalizeHostname(alias.Target)
 				if next == "" || (target != "" && next != target) {
-					return ErrInvalidDNSResponse
+					return nil, ErrInvalidDNSResponse
 				}
 				target = next
 				ttl = min(ttl, alias.Hdr.Ttl)
@@ -61,7 +59,7 @@ func (r *Resolver) bindCampusAnswer(request, reply *dns.Msg) error {
 			if answer, ok := record.(*dns.A); ok {
 				address, valid := netip.AddrFromSlice(answer.A.To4())
 				if !valid {
-					return ErrInvalidDNSResponse
+					return nil, ErrInvalidDNSResponse
 				}
 				lifetime := min(ttl, answer.Hdr.Ttl)
 				if previous, found := addresses[address]; found {
@@ -73,7 +71,20 @@ func (r *Resolver) bindCampusAnswer(request, reply *dns.Msg) error {
 		break
 	}
 	if len(addresses) == 0 {
-		return nil
+		return nil, nil
+	}
+	result := make([]netip.Addr, 0, len(addresses))
+	for address := range addresses {
+		result = append(result, address)
+	}
+	slices.SortFunc(result, netip.Addr.Compare)
+	if publish != nil {
+		if err := publish(result); err != nil {
+			return nil, err
+		}
+	}
+	if _, _, granted := matchDomainResource(r.domainIndex, host); !granted {
+		return result, nil
 	}
 	r.cacheMu.Lock()
 	defer r.cacheMu.Unlock()
@@ -108,7 +119,7 @@ func (r *Resolver) bindCampusAnswer(request, reply *dns.Msg) error {
 			}
 		}
 		if r.dnsBindingCount+needed() > maxDNSCacheEntries {
-			return ErrCampusDNSCapacity
+			return nil, ErrCampusDNSCapacity
 		}
 	}
 	if r.dnsBindings == nil {
@@ -132,7 +143,7 @@ func (r *Resolver) bindCampusAnswer(request, reply *dns.Msg) error {
 		}
 		r.dnsBindings[address] = rows
 	}
-	return nil
+	return result, nil
 }
 
 // CampusResourcesForIP only uses live DNS bindings and the caller's current name policy.

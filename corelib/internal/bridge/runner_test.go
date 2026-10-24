@@ -123,7 +123,7 @@ func TestProtocolQueryProxyStopAndRestart(t *testing.T) {
 		if _, err := device.Read(make([]byte, 1)); !errors.Is(err, net.ErrClosed) {
 			t.Fatalf("session retained TUN device: %v", err)
 		}
-		if status := e.AttachTUN(h, ready.Generation, device, 1400); status != StaleRequest {
+		if status := e.AttachTUN(h, ready.Generation, device, 1400, false); status != StaleRequest {
 			t.Fatal(status)
 		}
 	}

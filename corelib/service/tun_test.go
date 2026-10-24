@@ -152,7 +152,7 @@ func newIngressOwner(t *testing.T, campus campusstack.Stack, protection *policy.
 		t.Fatal(err)
 	}
 	device := newPacketDevice()
-	if err := p.AttachTUN(device, 1400); err != nil {
+	if err := p.AttachTUN(device, 1400, nil); err != nil {
 		p.Close()
 		t.Fatal(err)
 	}
@@ -339,7 +339,7 @@ func TestTUNRejectsUnownedAttachmentAndCapturedFallback(t *testing.T) {
 			p, device := newIngressOwner(t, campus, protection, []client.IPResource{ingressResource("tcp", 80)})
 			unused := newPacketDevice()
 			defer unused.Close()
-			if err := p.AttachTUN(unused, 1400); err == nil {
+			if err := p.AttachTUN(unused, 1400, nil); err == nil {
 				t.Fatal("second device accepted")
 			}
 			select {
@@ -364,7 +364,7 @@ func TestTUNRejectsUnownedAttachmentAndCapturedFallback(t *testing.T) {
 			default:
 			}
 			closeIngress(t, p)
-			if err := p.AttachTUN(unused, 1400); !errors.Is(err, net.ErrClosed) {
+			if err := p.AttachTUN(unused, 1400, nil); !errors.Is(err, net.ErrClosed) {
 				t.Fatalf("attachment after close=%v", err)
 			}
 		})

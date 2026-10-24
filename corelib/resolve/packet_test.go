@@ -41,12 +41,12 @@ func TestCampusDNSPacketsPreserveRecordsAndRejectOriginalNames(t *testing.T) {
 		return (&net.Dialer{}).DialContext(ctx, "udp", udp.LocalAddr().String())
 	}
 	request := new(dns.Msg).SetQuestion("alias.campus.test.", dns.TypeA)
-	reply, err := r.ExchangeCampus(t.Context(), request, "udp", dial)
+	reply, err := r.ExchangeCampus(t.Context(), request, "udp", dial, nil)
 	if err != nil || len(reply.Answer) != 2 || reply.Answer[0].Header().Rrtype != dns.TypeCNAME || reply.Answer[1].Header().Ttl != 5 || reply.Id != request.Id {
 		t.Fatalf("records lost: %v %v", reply, err)
 	}
 	for _, kind := range []uint16{dns.TypeA, dns.TypeAAAA} {
-		reply, err := r.ExchangeCampus(t.Context(), new(dns.Msg).SetQuestion("static.campus.test.", kind), "udp", dial)
+		reply, err := r.ExchangeCampus(t.Context(), new(dns.Msg).SetQuestion("static.campus.test.", kind), "udp", dial, nil)
 		if err != nil || len(reply.Answer) != 1 || reply.Answer[0].Header().Rrtype != kind || reply.Answer[0].Header().Ttl != 30 {
 			t.Fatalf("static records: %v %v", reply, err)
 		}
@@ -55,7 +55,7 @@ func TestCampusDNSPacketsPreserveRecordsAndRejectOriginalNames(t *testing.T) {
 		t.Fatal("static records unnecessarily queried the campus", calls.Load())
 	}
 	for _, host := range []string{"public.test.", "localhost."} {
-		if _, err := r.ExchangeCampus(t.Context(), new(dns.Msg).SetQuestion(host, dns.TypeA), "udp", dial); !errors.Is(err, ErrOriginalDNSRequired) {
+		if _, err := r.ExchangeCampus(t.Context(), new(dns.Msg).SetQuestion(host, dns.TypeA), "udp", dial, nil); !errors.Is(err, ErrOriginalDNSRequired) {
 			t.Fatal("ungranted name queried campus", host, err)
 		}
 	}
@@ -64,7 +64,7 @@ func TestCampusDNSPacketsPreserveRecordsAndRejectOriginalNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.ProtectionPolicy = func() *policy.ProtectionPolicy { return &protection }
-	if _, err := r.ExchangeCampus(t.Context(), request, "udp", dial); !errors.Is(err, policy.ErrProtectedTarget) {
+	if _, err := r.ExchangeCampus(t.Context(), request, "udp", dial, nil); !errors.Is(err, policy.ErrProtectedTarget) {
 		t.Fatal("protected name escaped to campus", err)
 	}
 	if calls.Load() != 1 {
@@ -72,7 +72,7 @@ func TestCampusDNSPacketsPreserveRecordsAndRejectOriginalNames(t *testing.T) {
 	}
 	bad := request.Copy()
 	bad.Question = append(bad.Question, bad.Question[0])
-	if _, err := r.ExchangeCampus(t.Context(), bad, "udp", dial); !errors.Is(err, ErrInvalidDNSQuestion) {
+	if _, err := r.ExchangeCampus(t.Context(), bad, "udp", dial, nil); !errors.Is(err, ErrInvalidDNSQuestion) {
 		t.Fatal("multi-question request accepted", err)
 	}
 }
@@ -90,7 +90,7 @@ func TestCampusDNSPacketCancellationAndCloseJoinNetworkIO(t *testing.T) {
 			done := make(chan error, 1)
 			go func() {
 				_, err := r.ExchangeCampus(ctx, new(dns.Msg).SetQuestion("campus.test.", dns.TypeA), "tcp",
-					func(context.Context, string, string) (net.Conn, error) { close(started); return left, nil })
+					func(context.Context, string, string) (net.Conn, error) { close(started); return left, nil }, nil)
 				done <- err
 			}()
 			<-started
@@ -130,7 +130,7 @@ func TestCampusDNSRejectsMismatchedUpstreamQuestion(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
 	if _, err := r.ExchangeCampus(ctx, new(dns.Msg).SetQuestion("campus.test.", dns.TypeA), "tcp",
-		func(context.Context, string, string) (net.Conn, error) { return left, nil }); !errors.Is(err, ErrInvalidDNSResponse) {
+		func(context.Context, string, string) (net.Conn, error) { return left, nil }, nil); !errors.Is(err, ErrInvalidDNSResponse) {
 		t.Fatal("mismatched upstream question accepted", err)
 	}
 	if err := <-done; err != nil {

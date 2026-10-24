@@ -26,7 +26,7 @@ static void check(bool ok, const char *message) {
     if (!ok) { std::cerr << "FAIL: " << message << '\n'; std::exit(1); }
 }
 #define ABI_FUNCTIONS(X) X(jc_abi_version) X(jc_build_info) X(jc_network_snapshot) X(jc_config_validate) X(jc_session_create) X(jc_session_start) \
-    X(jc_session_read) X(jc_session_respond) X(jc_session_update_policy) X(jc_session_resources) X(jc_session_attach_tun) X(jc_session_stop) X(jc_session_destroy)
+    X(jc_session_read) X(jc_session_respond) X(jc_session_update_policy) X(jc_session_resources) X(jc_session_attach_tun) X(jc_session_attach_tun_dns) X(jc_session_ack_dns_routes) X(jc_session_stop) X(jc_session_destroy)
 struct API {
 #define MEMBER(name) decltype(&::name) name;
     ABI_FUNCTIONS(MEMBER)
@@ -299,9 +299,14 @@ int main(int argc, char **argv) {
 #if defined(Q_OS_LINUX) && !defined(ABI_FIXTURE)
     check(info["capabilities"].toObject()["raw_ipv4_tun_fd"].toBool(), "Linux fd capability requires the protocol backend");
     check(api.jc_session_attach_tun(0, 1, -1, 1400) == JC_INVALID_ARGUMENT, "invalid borrowed fd is rejected");
+    check(api.jc_session_attach_tun_dns(0, 1, -1, 1400) == JC_INVALID_ARGUMENT, "DNS-publishing attach retains fd guards");
+    check(api.jc_session_ack_dns_routes(0, 1, 1, 2) == JC_INVALID_ARGUMENT, "DNS publication result is a strict boolean");
+    check(api.jc_session_ack_dns_routes(0, 1, 1, 1) == JC_INVALID_HANDLE, "DNS publication acknowledgement validates handle");
 #else
     check(!info["capabilities"].toObject()["raw_ipv4_tun_fd"].toBool(), "unsupported platform/driver cannot advertise Linux raw fd attachment");
     check(api.jc_session_attach_tun(0, 1, -1, 1400) == JC_UNSUPPORTED, "unsupported raw fd attachment is explicit");
+    check(api.jc_session_attach_tun_dns(0, 1, -1, 1400) == JC_UNSUPPORTED &&
+          api.jc_session_ack_dns_routes(0, 1, 1, 1) == JC_UNSUPPORTED, "unsupported DNS publication is explicit");
 #endif
     networkSnapshot(api);
     check(metadata.front() == 0x5a && metadata.back() == 0x5a, "metadata bounds");

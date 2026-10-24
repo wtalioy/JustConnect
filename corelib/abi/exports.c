@@ -34,5 +34,11 @@ int32_t jc_session_resources(uint64_t h, uint64_t generation, uint8_t *out, uint
 int32_t jc_session_attach_tun(uint64_t h, uint64_t generation, int32_t fd, uint32_t mtu) {
     return jc_go_session_attach_tun(h, generation, fd, mtu);
 }
+int32_t jc_session_attach_tun_dns(uint64_t h, uint64_t generation, int32_t fd, uint32_t mtu) {
+    return jc_go_session_attach_tun_dns(h, generation, fd, mtu);
+}
+int32_t jc_session_ack_dns_routes(uint64_t h, uint64_t generation, uint64_t request, uint32_t applied) {
+    return jc_go_session_ack_dns_routes(h, generation, request, applied);
+}
 int32_t jc_session_stop(uint64_t h, uint32_t wait) { return jc_go_session_stop(h, wait); }
 int32_t jc_session_destroy(uint64_t h, uint32_t wait) { return jc_go_session_destroy(h, wait); }

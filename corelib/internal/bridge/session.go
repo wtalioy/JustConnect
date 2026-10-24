@@ -47,6 +47,7 @@ type event struct {
 	Stage         string               `json:"stage,omitempty"`
 	Result        string               `json:"result,omitempty"`
 	ObservedAt    string               `json:"observed_at,omitempty"`
+	Addresses     []string             `json:"addresses,omitempty"`
 }
 
 type AuthenticationCache struct {
@@ -55,11 +56,12 @@ type AuthenticationCache struct {
 }
 
 type queued struct {
-	data        []byte
-	request     uint64
-	diagnostic  bool
-	cacheAction string
-	stage       string
+	data           []byte
+	request        uint64
+	diagnostic     bool
+	authentication bool
+	cacheAction    string
+	stage          string
 }
 
 type pending struct {
@@ -72,6 +74,8 @@ type pending struct {
 
 type Session struct {
 	mu               sync.Mutex
+	dnsRoutes        *pendingDNSRoutes
+	dnsRouteGate     chan struct{}
 	protocol         *corelib.Session
 	generation       uint64
 	sequence         uint64
@@ -110,7 +114,7 @@ func (s *Session) push(e event) Status {
 		s.sequence--
 		return Limit
 	}
-	s.queue = append(s.queue, queued{data: data, request: e.RequestID, diagnostic: e.Type == "diagnostic", cacheAction: e.Action, stage: e.Stage})
+	s.queue = append(s.queue, queued{data: data, request: e.RequestID, diagnostic: e.Type == "diagnostic", authentication: e.Type == "authentication", cacheAction: e.Action, stage: e.Stage})
 	s.notify()
 	return OK
 }
@@ -125,7 +129,7 @@ func (e *Engine) Create(abi uint32) (uint64, Status) {
 		return 0, Limit
 	}
 	e.next++
-	e.handles[e.next] = &Session{changed: make(chan struct{})}
+	e.handles[e.next] = &Session{changed: make(chan struct{}), dnsRouteGate: make(chan struct{}, 1)}
 	return e.next, OK
 }
 
@@ -420,7 +424,10 @@ func (e *Engine) Read(handle uint64, capacity uint32, waitMS uint32) ([]byte, ui
 			if item.diagnostic {
 				s.diagnostics--
 			}
-			if item.request != 0 {
+			if s.dnsRoutes != nil && item.request == s.dnsRoutes.id {
+				s.dnsRoutes.delivered = true
+			}
+			if item.authentication {
 				s.unreadAuth = false
 			}
 			if s.auth != nil && item.request == s.auth.id {
