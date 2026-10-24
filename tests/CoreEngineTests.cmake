@@ -1,3 +1,6 @@
+add_test(NAME coreabi_workflow_test COMMAND "${Python3_EXECUTABLE}" "${REPO}/tests/coreabi_workflow_test.py")
+set_tests_properties(coreabi_workflow_test PROPERTIES TIMEOUT 10)
+
 function(justconnect_core_ui_tests TARGET ENGINE LIBRARY PLATFORM)
     add_executable(${TARGET}
         "${REPO}/tests/coreengineui_test.cpp"
