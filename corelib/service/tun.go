@@ -57,7 +57,7 @@ func (p *Listeners) AttachTUN(device io.ReadWriteCloser, mtu uint32, publishDNSR
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.closed || p.ctx.Err() != nil {
+	if p.closed.Load() || p.ctx.Err() != nil {
 		return net.ErrClosed
 	}
 	if p.tun != nil || p.dialer == nil {
@@ -92,7 +92,7 @@ func (p *Listeners) AttachTUN(device io.ReadWriteCloser, mtu uint32, publishDNSR
 		key := tunFlow{tcp.ProtocolNumber, id}
 		i.mu.Lock()
 		defer i.mu.Unlock()
-		if i.closed || len(i.flows) >= maxTUNFlows {
+		if i.closed || i.owner.closed.Load() || len(i.flows) >= maxTUNFlows {
 			return true
 		}
 		if _, exists := i.flows[key]; exists {
@@ -116,9 +116,12 @@ func (p *Listeners) AttachTUN(device io.ReadWriteCloser, mtu uint32, publishDNSR
 }
 
 func (i *tunIngress) release(key tunFlow) {
-	i.mu.Lock()
-	delete(i.flows, key)
-	i.mu.Unlock()
+	// A closing owner clears the whole registry after joining all flow workers.
+	if !i.owner.closed.Load() {
+		i.mu.Lock()
+		delete(i.flows, key)
+		i.mu.Unlock()
+	}
 	i.workers.Done()
 }
 
@@ -143,6 +146,9 @@ func (i *tunIngress) forwardTCP(request *tcp.ForwarderRequest) {
 			request.Complete(true)
 		}
 	}()
+	if i.owner.ctx.Err() != nil {
+		return
+	}
 	dns := i.dnsFlow(request.ID())
 	var target net.Conn
 	if !dns {
@@ -176,7 +182,7 @@ func (i *tunIngress) forwardUDP(id stack.TransportEndpointID, packet *stack.Pack
 	key := tunFlow{udp.ProtocolNumber, id}
 	i.mu.Lock()
 	defer i.mu.Unlock()
-	if i.closed || len(i.flows) >= maxTUNFlows {
+	if i.closed || i.owner.closed.Load() || len(i.flows) >= maxTUNFlows {
 		return true
 	}
 	if _, exists := i.flows[key]; exists {
@@ -198,6 +204,9 @@ func (i *tunIngress) forwardUDP(id stack.TransportEndpointID, packet *stack.Pack
 		defer i.release(key)
 		defer i.owner.recoverWorker()
 		defer guest.Close()
+		if i.owner.ctx.Err() != nil {
+			return
+		}
 		if i.dnsFlow(id) {
 			i.serveDNS("udp", guest)
 			return
@@ -207,12 +216,18 @@ func (i *tunIngress) forwardUDP(id stack.TransportEndpointID, packet *stack.Pack
 			return
 		}
 		defer target.Close()
-		relayDatagrams(guest, target, tunUDPIdleTimeout, i.owner.fail)
+		relayDatagrams(i.owner.ctx, guest, target, tunUDPIdleTimeout, i.owner.fail)
 	}()
 	return true
 }
 
-func relayDatagrams(left, right net.Conn, idle time.Duration, fail func(error)) {
+// The owner interrupts I/O on close; cancellation also prevents starting unused relay work.
+func relayDatagrams(ctx context.Context, left, right net.Conn, idle time.Duration, fail func(error)) {
+	if ctx.Err() != nil {
+		_ = left.Close()
+		_ = right.Close()
+		return
+	}
 	refresh := func() {
 		deadline := time.Now().Add(idle)
 		_ = left.SetDeadline(deadline)
@@ -226,10 +241,13 @@ func relayDatagrams(left, right net.Conn, idle time.Duration, fail func(error)) 
 				fail(errors.New("TUN datagram relay panicked"))
 			}
 		}()
+		if ctx.Err() != nil {
+			return
+		}
 		buf := make([]byte, maxUDPPacket)
-		for {
+		for ctx.Err() == nil {
 			n, err := src.Read(buf)
-			if err != nil {
+			if err != nil || ctx.Err() != nil {
 				return
 			}
 			refresh()
@@ -307,6 +325,9 @@ func (i *tunIngress) close() {
 		}
 		select {
 		case <-done:
+			i.mu.Lock()
+			i.flows = nil
+			i.mu.Unlock()
 			i.stack.Close()
 			i.stack.Wait()
 			return
