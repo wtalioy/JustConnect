@@ -1,8 +1,7 @@
 #pragma once
 
 #ifdef Q_OS_LINUX
-#include <QTcpSocket>
-#include <QUdpSocket>
+#include "tuntraffic.h"
 #include <fcntl.h>
 #include <unistd.h>
 
@@ -33,32 +32,7 @@ static void nativeTUNProtocol(API &api, const QByteArray &config, int descriptor
         check(api.jc_session_attach_tun(handle, generation, retained, 1400) == JC_INVALID_ARGUMENT, "second TUN owner rejected");
         if (round == 0) { ::close(descriptor); descriptor = -1; }
         check(::fcntl(retained, F_GETFL) == originalFlags, "C ABI changed the borrowed descriptor flags");
-        {
-            QTcpSocket tcp;
-            tcp.connectToHost(QHostAddress("198.18.0.6"), 80);
-            check(tcp.waitForConnected(5000), "ordinary TCP reached campus through kernel capture and C ABI");
-            const QByteArray payload(32768, 't');
-            check(tcp.write(payload) == payload.size(), "native TCP payload queued");
-            while (tcp.bytesToWrite() > 0) check(tcp.waitForBytesWritten(5000), "native TCP payload sent");
-            QByteArray reply;
-            while (reply.size() < payload.size()) {
-                if (!tcp.bytesAvailable()) check(tcp.waitForReadyRead(5000), "native TUN TCP response available");
-                reply += tcp.readAll();
-            }
-            check(reply == payload, "multi-packet native TCP bytes preserved through campus tunnel");
-            tcp.abort();
-            QUdpSocket udp;
-            udp.connectToHost(QHostAddress("198.18.0.6"), 53);
-            for (const auto &packet : {QByteArray("native-tun-datagram"), QByteArray()}) {
-                check(udp.write(packet) == packet.size(), "native UDP datagram sent");
-                check(udp.waitForReadyRead(5000), "native UDP datagram returned through campus tunnel");
-                QByteArray returned(qMax(packet.size(), qsizetype(1)), Qt::Uninitialized);
-                const auto size = udp.readDatagram(returned.data(), returned.size());
-                check(size >= 0, "native UDP datagram received");
-                returned.resize(size);
-                check(returned == packet, "native UDP bytes and empty datagram preserved");
-            }
-        }
+        exerciseNativeTUNTraffic();
         check(api.jc_session_stop(handle, 5000) == JC_OK, "TUN stop joins blocked device I/O");
         auto terminal = protocolEvent(api, handle);
         check(terminal["type"] == "terminal" && terminal["status"].toInt() == JC_CANCELLED, "TUN stopped terminal");
