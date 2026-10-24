@@ -68,6 +68,7 @@ func (d *rejectedNodeDialer) DialContext(ctx context.Context, network, address s
 }
 
 func TestAuthenticationSurvivesFailedTunnelSetup(t *testing.T) {
+	t.Parallel()
 	g := newGateway(t)
 	g.resumeCookies.Store(true)
 	host, port, _ := net.SplitHostPort(strings.TrimPrefix(g.HTTP.URL, "https://"))
@@ -108,6 +109,7 @@ func TestAuthenticationSurvivesFailedTunnelSetup(t *testing.T) {
 }
 
 func TestClientDataRestoresAfterOrdinaryClose(t *testing.T) {
+	t.Parallel()
 	g := newGateway(t)
 	g.resumeCookies.Store(true)
 	first, challenges, invalidated, err := setupWithCache(t, g, nil)
@@ -125,6 +127,7 @@ func TestClientDataRestoresAfterOrdinaryClose(t *testing.T) {
 }
 
 func TestAuthenticationCheckpointKeepsResourceCookieRefresh(t *testing.T) {
+	t.Parallel()
 	g := newGateway(t)
 	g.resumeCookies.Store(true)
 	g.rotateSID.Store(true)
@@ -148,6 +151,7 @@ func TestAuthenticationCheckpointKeepsResourceCookieRefresh(t *testing.T) {
 }
 
 func TestClientDataRejectsForeignGatewayBeforeUsingCookies(t *testing.T) {
+	t.Parallel()
 	first, other := newGateway(t), newGateway(t)
 	first.resumeCookies.Store(true)
 	other.resumeCookies.Store(true)
@@ -162,6 +166,7 @@ func TestClientDataRejectsForeignGatewayBeforeUsingCookies(t *testing.T) {
 }
 
 func TestClientDataCorruptionFallsBackToOneAuthentication(t *testing.T) {
+	t.Parallel()
 	g := newGateway(t)
 	g.resumeCookies.Store(true)
 	_, challenges, invalidated, err := setupWithCache(t, g, []byte(`{"corrupt":`))
@@ -171,6 +176,7 @@ func TestClientDataCorruptionFallsBackToOneAuthentication(t *testing.T) {
 }
 
 func TestClientDataChecksServerAccountAndExpiration(t *testing.T) {
+	t.Parallel()
 	for _, mismatch := range []bool{false, true} {
 		t.Run(strconv.FormatBool(mismatch), func(t *testing.T) {
 			g := newGateway(t)
@@ -201,6 +207,7 @@ func TestClientDataChecksServerAccountAndExpiration(t *testing.T) {
 }
 
 func TestClientDataNetworkFailureDoesNotInvalidate(t *testing.T) {
+	t.Parallel()
 	g := newGateway(t)
 	g.resumeCookies.Store(true)
 	encoded, _, _, err := setupWithCache(t, g, nil)
@@ -216,6 +223,7 @@ func TestClientDataNetworkFailureDoesNotInvalidate(t *testing.T) {
 }
 
 func TestClientDataInvalidatesWhenTunnelRejectsSession(t *testing.T) {
+	t.Parallel()
 	g := newGateway(t)
 	g.resumeCookies.Store(true)
 	encoded, _, _, err := setupWithCache(t, g, nil)
