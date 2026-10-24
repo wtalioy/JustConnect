@@ -10,6 +10,7 @@ import (
 	"os"
 	"runtime/pprof"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -167,11 +168,29 @@ func ingressResource(protocol string, port int) client.IPResource {
 
 func closeIngress(t *testing.T, p *Listeners) {
 	t.Helper()
-	done := make(chan struct{})
-	go func() { p.Close(); close(done) }()
+	start := time.Now()
+	started, done := make(chan time.Duration, 1), make(chan time.Duration, 1)
+	go func() { started <- time.Since(start); p.Close(); done <- time.Since(start) }()
 	select {
-	case <-done:
+	case elapsed := <-done:
+		delay := <-started
+		t.Logf("TUN close: scheduling=%s cleanup=%s total=%s", delay, elapsed-delay, elapsed)
 	case <-time.After(time.Second):
+		var delay time.Duration = -1
+		select {
+		case delay = <-started:
+		default:
+		}
+		connections, flows := -1, -1
+		if p.mu.TryLock() {
+			connections = len(p.connections)
+			p.mu.Unlock()
+		}
+		if p.tun.mu.TryLock() {
+			flows = len(p.tun.flows)
+			p.tun.mu.Unlock()
+		}
+		t.Logf("TUN close deadline: scheduling=%s connection_registry=%d flow_registry=%d", delay, connections, flows)
 		_ = pprof.Lookup("goroutine").WriteTo(os.Stderr, 2)
 		t.Fatal("TUN shutdown did not interrupt and join its workers")
 	}
@@ -424,7 +443,7 @@ func TestTUNUDPIdleExpiresAfterTrafficStops(t *testing.T) {
 	defer receiver.Close()
 	done := make(chan struct{})
 	go func() {
-		relayDatagrams(left, right, 100*time.Millisecond, func(err error) { t.Error(err) })
+		relayDatagrams(t.Context(), left, right, 100*time.Millisecond, func(err error) { t.Error(err) })
 		close(done)
 	}()
 	for range 4 {
@@ -501,4 +520,52 @@ func TestTUNBoundsFlowsAndJoinsFullCapacityOnShutdown(t *testing.T) {
 	case <-time.After(30 * time.Millisecond):
 	}
 	closeIngress(t, p)
+	if len(p.connections) != 0 || len(p.tun.flows) != 0 {
+		t.Fatal("closed owner retained connection or flow registries")
+	}
+}
+
+type observedUDPConn struct {
+	net.Conn
+	operations atomic.Int32
+}
+
+func (c *observedUDPConn) Read(data []byte) (int, error) {
+	c.operations.Add(1)
+	return c.Conn.Read(data)
+}
+func (c *observedUDPConn) Write(data []byte) (int, error) {
+	c.operations.Add(1)
+	return c.Conn.Write(data)
+}
+
+func TestCancelledUDPRelayClosesWithoutStartingIO(t *testing.T) {
+	left, leftPeer := net.Pipe()
+	right, rightPeer := net.Pipe()
+	defer leftPeer.Close()
+	defer rightPeer.Close()
+	defer left.Close()
+	defer right.Close()
+	observedLeft, observedRight := &observedUDPConn{Conn: left}, &observedUDPConn{Conn: right}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		relayDatagrams(ctx, observedLeft, observedRight, time.Second, func(err error) { t.Error(err) })
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("cancelled relay started blocking I/O")
+	}
+	if observedLeft.operations.Load() != 0 || observedRight.operations.Load() != 0 {
+		t.Fatal("cancelled relay performed I/O")
+	}
+	for _, peer := range []net.Conn{leftPeer, rightPeer} {
+		_ = peer.SetReadDeadline(time.Now().Add(time.Second))
+		if _, err := peer.Read(make([]byte, 1)); !errors.Is(err, io.EOF) {
+			t.Fatal("cancelled relay left an endpoint open", err)
+		}
+	}
 }

@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"sync/atomic"
 
 	"github.com/wtalioy/JustConnect/corelib/dial"
 	"github.com/wtalioy/JustConnect/corelib/resolve"
@@ -19,7 +20,7 @@ type Listeners struct {
 	dialer      *dial.Dialer
 	resolver    *resolve.Resolver
 	mu          sync.Mutex
-	closed      bool
+	closed      atomic.Bool
 	connections map[io.Closer]struct{}
 	listeners   []net.Listener
 	http        *http.Server
@@ -39,7 +40,15 @@ type ownedConn struct {
 }
 
 func (c *ownedConn) Close() error {
-	c.once.Do(func() { c.err = c.Conn.Close(); c.owner.mu.Lock(); delete(c.owner.connections, c); c.owner.mu.Unlock() })
+	c.once.Do(func() {
+		c.err = c.Conn.Close()
+		// Shutdown owns the detached registry; normal closes deregister themselves.
+		if !c.owner.closed.Load() {
+			c.owner.mu.Lock()
+			delete(c.owner.connections, c)
+			c.owner.mu.Unlock()
+		}
+	})
 	return c.err
 }
 
@@ -144,7 +153,7 @@ func NewListeners(ctx context.Context, socksAddr, httpAddr string, dialer *dial.
 func (p *Listeners) begin() bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.closed {
+	if p.closed.Load() {
 		return false
 	}
 	p.workers.Add(1)
@@ -166,7 +175,7 @@ func (p *Listeners) Errors() <-chan error { return p.errors }
 func (p *Listeners) own(conn net.Conn) (net.Conn, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.closed {
+	if p.closed.Load() {
 		_ = conn.Close()
 		return nil, net.ErrClosed
 	}
@@ -185,14 +194,12 @@ func (p *Listeners) dial(ctx context.Context, network, address string) (net.Conn
 }
 func (p *Listeners) Close() {
 	p.closeOnce.Do(func() {
-		p.cancel()
 		p.mu.Lock()
-		p.closed = true
-		connections := make([]io.Closer, 0, len(p.connections))
-		for conn := range p.connections {
-			connections = append(connections, conn)
-		}
+		p.closed.Store(true)
+		connections := p.connections
+		p.connections = nil
 		p.mu.Unlock()
+		p.cancel()
 		for _, listener := range p.listeners {
 			_ = listener.Close()
 		}
@@ -202,7 +209,7 @@ func (p *Listeners) Close() {
 		if p.proxy != nil {
 			p.proxy.close()
 		}
-		for _, conn := range connections {
+		for conn := range connections {
 			_ = conn.Close()
 		}
 		if p.tun != nil {

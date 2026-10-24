@@ -25,7 +25,7 @@ func (p *Listeners) handleSOCKSUDP(ctx context.Context, writer io.Writer, reques
 		return err
 	}
 	p.mu.Lock()
-	if p.closed {
+	if p.closed.Load() {
 		p.mu.Unlock()
 		_ = listener.Close()
 		return net.ErrClosed

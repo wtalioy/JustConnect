@@ -123,6 +123,9 @@ jobs:
           if not (os.environ['RUNNER_OS'] == 'Windows' and os.environ['RUNNER_ARCH'] == 'ARM64'):
               # Keep race-instrumented network stacks from competing across packages.
               run('go-race', ['go', '-C', 'corelib', 'test', '-json', '-race', '-p', '1', '-timeout', '90s', './...'])
+              # Repeat the observed shutdown regression without relaxing its per-close deadline.
+              run('go-race-tun-shutdown', ['go', '-C', 'corelib', 'test', '-json', '-race', '-count', '5',
+                  '-timeout', '90s', '-run', '^TestTUNBoundsFlowsAndJoinsFullCapacityOnShutdown$', './service'])
           else:
               print('UNSUPPORTED: Go race detector on Windows ARM64; normal Go and C ABI tests still run', flush=True)
           args = ['cmake', '-S', 'tests/coreabi', '-B', str(output), '-DCMAKE_BUILD_TYPE=Release']
