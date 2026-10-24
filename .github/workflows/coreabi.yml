@@ -102,11 +102,11 @@ jobs:
           import os, pathlib, subprocess, sys
           output = pathlib.Path('build/coreabi')
           output.mkdir(parents=True, exist_ok=True)
-          def run(name, args):
+          def run(name, args, env=None):
               sys.stdout.buffer.write(('RUN: ' + name + '\n').encode())
               sys.stdout.buffer.flush()
               with (output / (name + '.log')).open('wb') as log:
-                  with subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as process:
+                  with subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env) as process:
                       for chunk in iter(lambda: process.stdout.read1(4096), b''):
                           log.write(chunk)
                           log.flush()
@@ -121,11 +121,12 @@ jobs:
           run('constants', [sys.executable, 'scripts/generate-core-abi.py', '--check'])
           run('go-test', ['go', '-C', 'corelib', 'test', '-json', '-timeout', '90s', './...'])
           if not (os.environ['RUNNER_OS'] == 'Windows' and os.environ['RUNNER_ARCH'] == 'ARM64'):
-              # Keep race-instrumented network stacks from competing across packages.
-              run('go-race', ['go', '-C', 'corelib', 'test', '-json', '-race', '-p', '1', '-timeout', '90s', './...'])
+              # Bound both package and in-process stack parallelism on shared runners.
+              race_env = dict(os.environ, GOMAXPROCS='2')
+              run('go-race', ['go', '-C', 'corelib', 'test', '-json', '-race', '-p', '1', '-timeout', '90s', './...'], env=race_env)
               # Repeat the observed shutdown regression without relaxing its per-close deadline.
               run('go-race-tun-shutdown', ['go', '-C', 'corelib', 'test', '-json', '-race', '-count', '5',
-                  '-timeout', '90s', '-run', '^TestTUNBoundsFlowsAndJoinsFullCapacityOnShutdown$', './service'])
+                  '-timeout', '90s', '-run', '^TestTUNBoundsFlowsAndJoinsFullCapacityOnShutdown$', './service'], env=race_env)
           else:
               print('UNSUPPORTED: Go race detector on Windows ARM64; normal Go and C ABI tests still run', flush=True)
           args = ['cmake', '-S', 'tests/coreabi', '-B', str(output), '-DCMAKE_BUILD_TYPE=Release']
