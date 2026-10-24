@@ -1,5 +1,5 @@
 #pragma once
-#include "infrastructure/platform/linux/sourcejournal.h"
+#include "infrastructure/platform/networkjournal.h"
 #include <QDir>
 #include <QProcess>
 #include <QTemporaryDir>
@@ -15,14 +15,14 @@ static void isolatedCapture()
     check(::geteuid()==0 && ::stat("/proc/thread-self/ns/net",&current)==0 && ::stat("/proc/1/ns/net",&initial)==0
           && (current.st_dev!=initial.st_dev || current.st_ino!=initial.st_ino),"Refusing capture recovery in the host namespace");
 }
-static void openCaptureJournal(LinuxSourceJournal &journal,const QString &path,const QUuid &owner)
+static void openCaptureJournal(UnixNetworkJournal &journal,const QString &path,const QUuid &owner)
 {
     check(path.startsWith(QDir::tempPath()+"/JustConnect-capture-test-"),"Refusing an unrelated fixture directory");
     const int fd=::open(QFile::encodeName(path).constData(),O_RDONLY|O_DIRECTORY|O_CLOEXEC|O_NOFOLLOW);
     check(fd>=0,"Open the private capture journal directory");
     const auto result=journal.open(fd,owner);::close(fd);check(result.succeeded(),qPrintable(result.detail));
 }
-static PlatformOperationResult captureCheckpoint(LinuxSourceJournal &journal,const QJsonObject &record)
+static PlatformOperationResult captureCheckpoint(UnixNetworkJournal &journal,const QJsonObject &record)
 {
     return record.isEmpty()?journal.remove():journal.store(record);
 }
@@ -73,7 +73,7 @@ static std::optional<int> captureRecoveryCommand(const QStringList &args)
     const auto stage=recovering?QString{}:args[2];const auto path=args[recovering?2:3];const auto text=args[recovering?3:4];const QUuid owner(text);
     check(!owner.isNull() && owner.toString(QUuid::WithoutBraces)==text,"Invalid capture fixture owner");
     routeOwner = owner;
-    LinuxSourceJournal journal;openCaptureJournal(journal,path,owner);int reads=0,writes=0;
+    UnixNetworkJournal journal;openCaptureJournal(journal,path,owner);int reads=0,writes=0;
     LinuxTunRoutes routes([&](const QString &program,const QStringList &arguments) {
         ++reads;
         if((applying && reads==5 && (stage=="applied" || stage=="partial")) || (!applying && stage=="deleted" && reads==9))pauseCapture();
@@ -123,7 +123,7 @@ static void captureRecoveryTests(const UnixTunDevice &device,const QStringList &
     const auto makeDirectory=[] {return QDir::tempPath()+"/JustConnect-capture-test-XXXXXX";};
     {
         QTemporaryDir directory(makeDirectory());check(directory.isValid(),"Create private capture checkpoint fixture");
-        LinuxSourceJournal journal;openCaptureJournal(journal,directory.path(),device.owner());
+        UnixNetworkJournal journal;openCaptureJournal(journal,directory.path(),device.owner());
         const auto checkpoint=[&](const QJsonObject &record){return captureCheckpoint(journal,record);};
         QJsonObject snapshot;
         {
@@ -268,7 +268,7 @@ static void captureRecoveryTests(const UnixTunDevice &device,const QStringList &
             if(recreate && stage=="deleting")continue;
             QTemporaryDir directory(makeDirectory());check(directory.isValid(),"Create capture restoration crash journal");
             {
-                LinuxSourceJournal journal;openCaptureJournal(journal,directory.path(),device.owner());LinuxTunRoutes routes;
+                UnixNetworkJournal journal;openCaptureJournal(journal,directory.path(),device.owner());LinuxTunRoutes routes;
                 check(routes.apply(device,captureSource,capturePeer,capturePrefixes,[&](const QJsonObject &record){return captureCheckpoint(journal,record);}).succeeded(),"Apply actual capture before restore interruption");
             }
             QProcess holder;const auto cleanup=qScopeGuard([&]{stopCaptureFixture(holder);});

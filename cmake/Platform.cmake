@@ -48,7 +48,10 @@ function(justconnect_platform TARGET)
         target_link_libraries(${TARGET} PRIVATE wininet rasapi32 advapi32)
     elseif(APPLE)
         target_sources(${TARGET} PRIVATE "${REPO}/infrastructure/platform/macos/dnssnapshot.cpp"
-            "${REPO}/infrastructure/platform/macos/tundevice.cpp")
+            "${REPO}/infrastructure/platform/macos/tundevice.cpp"
+            "${REPO}/infrastructure/platform/networkjournal.cpp"
+            "${REPO}/infrastructure/platform/macos/routesnapshot.cpp"
+            "${REPO}/infrastructure/platform/macos/tunroutes.cpp")
         target_link_libraries(${TARGET} PRIVATE "-framework Security" "-framework CoreFoundation" "-framework SystemConfiguration")
     elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         find_package(Qt6 REQUIRED COMPONENTS DBus)
@@ -118,6 +121,10 @@ function(justconnect_platform_tests TARGET LIBRARY)
         set_tests_properties(${DEVICE_TEST} PROPERTIES TIMEOUT 10)
     endif()
     if(APPLE)
+        add_executable(macos_tunroutes_test "${REPO}/tests/platform/tunroutes_macos_test.cpp")
+        target_link_libraries(macos_tunroutes_test PRIVATE ${LIBRARY} Qt6::Core)
+        add_test(NAME macos_tunroutes_test COMMAND macos_tunroutes_test)
+        set_tests_properties(macos_tunroutes_test PROPERTIES TIMEOUT 15)
         add_executable(macos_dnssnapshot_test "${REPO}/tests/platform/dnssnapshot_macos_test.cpp")
         target_link_libraries(macos_dnssnapshot_test PRIVATE ${LIBRARY} Qt6::Core)
         add_test(NAME macos_dnssnapshot_test COMMAND macos_dnssnapshot_test)

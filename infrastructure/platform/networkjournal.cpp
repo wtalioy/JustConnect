@@ -1,10 +1,11 @@
-#include "sourcejournal.h"
-#include "iprouteutility.h"
+#include "networkjournal.h"
 #include <QJsonDocument>
 #include <QScopeGuard>
 #include <cerrno>
 #include <fcntl.h>
+#ifdef Q_OS_LINUX
 #include <linux/fs.h>
+#endif
 #include <stdio.h>
 #include <sys/file.h>
 #include <sys/stat.h>
@@ -12,6 +13,7 @@
 
 namespace {
 using Status = PlatformOperationResult::Status;
+// Preserve the fixed filename used by existing Linux recovery records.
 constexpr auto filename = "source.json";
 PlatformOperationResult failed(const char *detail, bool changed = false)
 {
@@ -23,13 +25,13 @@ bool privateFile(const struct stat &value)
 }
 }
 
-LinuxSourceJournal::~LinuxSourceJournal() { close(); }
-void LinuxSourceJournal::close()
+UnixNetworkJournal::~UnixNetworkJournal() { close(); }
+void UnixNetworkJournal::close()
 {
     if (directory>=0) ::close(directory);
     directory = -1;owner = {};known = {};bound = false;
 }
-PlatformOperationResult LinuxSourceJournal::open(int trustedDirectory, const QUuid &id, bool *alreadyOwned)
+PlatformOperationResult UnixNetworkJournal::open(int trustedDirectory, const QUuid &id, bool *alreadyOwned)
 {
     if (alreadyOwned) *alreadyOwned = false;
     if (::geteuid()!=0) return {Status::PermissionDenied,"Source ownership journals require the privileged owner."};
@@ -48,18 +50,18 @@ PlatformOperationResult LinuxSourceJournal::open(int trustedDirectory, const QUu
     directory = fd;owner = id;
     return {};
 }
-PlatformOperationResult LinuxSourceJournal::read(SavedFile &file) const
+PlatformOperationResult UnixNetworkJournal::read(SavedFile &file) const
 {
     if (directory<0) return {Status::Failed,"Source journal is not open."};
     const int fd = ::openat(directory,filename,O_RDONLY|O_CLOEXEC|O_NOFOLLOW|O_NONBLOCK);
     if (fd<0) return errno==ENOENT ? PlatformOperationResult{} : failed("Cannot open the saved source ownership.");
     const auto release = qScopeGuard([&] { ::close(fd); });
     struct stat info{};
-    if (::fstat(fd,&info)!=0 || !privateFile(info) || info.st_size<0 || info.st_size>LinuxRouteRecoveryBytes)
+    if (::fstat(fd,&info)!=0 || !privateFile(info) || info.st_size<0 || info.st_size>NetworkJournalMaxBytes)
         return {Status::Failed,"Saved source ownership has unsafe metadata or exceeds its budget."};
     QByteArray bytes;
     char buffer[16384];
-    while (bytes.size()<=LinuxRouteRecoveryBytes) {
+    while (bytes.size()<=NetworkJournalMaxBytes) {
         const auto count = ::read(fd,buffer,sizeof(buffer));
         if (count<0) { if (errno==EINTR) continue;return failed("Cannot read saved source ownership."); }
         if (count==0) break;
@@ -68,19 +70,26 @@ PlatformOperationResult LinuxSourceJournal::read(SavedFile &file) const
     struct stat after{}, named{};
     if (::fstat(fd,&after)!=0 || ::fstatat(directory,filename,&named,AT_SYMLINK_NOFOLLOW)!=0
         || !privateFile(after) || !privateFile(named) || named.st_dev!=info.st_dev || named.st_ino!=info.st_ino
-        || bytes.size()>LinuxRouteRecoveryBytes
+        || bytes.size()>NetworkJournalMaxBytes
         || after.st_size!=bytes.size() || after.st_size!=info.st_size
-        || after.st_mtim.tv_sec!=info.st_mtim.tv_sec || after.st_mtim.tv_nsec!=info.st_mtim.tv_nsec
-        || after.st_ctim.tv_sec!=info.st_ctim.tv_sec || after.st_ctim.tv_nsec!=info.st_ctim.tv_nsec)
+        ||
+#ifdef Q_OS_MACOS
+        after.st_mtimespec.tv_sec!=info.st_mtimespec.tv_sec || after.st_mtimespec.tv_nsec!=info.st_mtimespec.tv_nsec
+        || after.st_ctimespec.tv_sec!=info.st_ctimespec.tv_sec || after.st_ctimespec.tv_nsec!=info.st_ctimespec.tv_nsec
+#else
+        after.st_mtim.tv_sec!=info.st_mtim.tv_sec || after.st_mtim.tv_nsec!=info.st_mtim.tv_nsec
+        || after.st_ctim.tv_sec!=info.st_ctim.tv_sec || after.st_ctim.tv_nsec!=info.st_ctim.tv_nsec
+#endif
+        )
         return {Status::Failed,"Saved source ownership changed during the read."};
     file = {bytes,quint64(info.st_dev),quint64(info.st_ino),true};
     return {};
 }
-bool LinuxSourceJournal::unchanged(const SavedFile &file) const
+bool UnixNetworkJournal::unchanged(const SavedFile &file) const
 {
     return file.present==known.present && (!file.present || (file.device==known.device && file.inode==known.inode && file.bytes==known.bytes));
 }
-PlatformOperationResult LinuxSourceJournal::load(QJsonObject &record)
+PlatformOperationResult UnixNetworkJournal::load(QJsonObject &record)
 {
     record = {};
     SavedFile current;
@@ -93,11 +102,11 @@ PlatformOperationResult LinuxSourceJournal::load(QJsonObject &record)
     known = current;bound = true;record = parsed.object();
     return {};
 }
-PlatformOperationResult LinuxSourceJournal::store(const QJsonObject &record)
+PlatformOperationResult UnixNetworkJournal::store(const QJsonObject &record)
 {
     if (record["owner"]!=owner.toString(QUuid::WithoutBraces) || owner.isNull()) return {Status::Failed,"Source journal owner does not match the record."};
     const auto bytes = QJsonDocument(record).toJson(QJsonDocument::Compact);
-    if (bytes.size()>LinuxRouteRecoveryBytes) return {Status::Failed,"Source ownership record exceeds its budget."};
+    if (bytes.size()>NetworkJournalMaxBytes) return {Status::Failed,"Source ownership record exceeds its budget."};
     SavedFile current;
     const auto result = read(current);
     if (!result.succeeded()) return result;
@@ -128,8 +137,13 @@ PlatformOperationResult LinuxSourceJournal::store(const QJsonObject &record)
     const auto checked = read(beforeRename);
     if (!checked.succeeded()) return checked;
     if (!unchanged(beforeRename)) return {Status::Failed,"Source ownership changed before checkpoint publication.",true};
-    const int renamed = known.present ? ::renameat(directory,temporary.constData(),directory,filename)
-        : ::renameat2(directory,temporary.constData(),directory,filename,RENAME_NOREPLACE);
+    int renamed;
+    if (known.present) renamed = ::renameat(directory,temporary.constData(),directory,filename);
+#ifdef Q_OS_MACOS
+    else renamed = ::renameatx_np(directory,temporary.constData(),directory,filename,RENAME_EXCL);
+#else
+    else renamed = ::renameat2(directory,temporary.constData(),directory,filename,RENAME_NOREPLACE);
+#endif
     if (renamed!=0) return failed("Cannot publish the source checkpoint.",true);
     published = true;
     known = {bytes,quint64(info.st_dev),quint64(info.st_ino),true};
@@ -137,7 +151,7 @@ PlatformOperationResult LinuxSourceJournal::store(const QJsonObject &record)
     if (::fsync(directory)!=0) return failed("Cannot synchronize the published source ownership.",true);
     return {Status::Success,{},true};
 }
-PlatformOperationResult LinuxSourceJournal::remove()
+PlatformOperationResult UnixNetworkJournal::remove()
 {
     SavedFile current;
     const auto result = read(current);

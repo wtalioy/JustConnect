@@ -98,7 +98,7 @@ wsl.exe --distribution archlinux --user root --exec unshare --net -- \
 
 当前 Linux 分配入口由 `UnixTunDevice` 的平台实现单独维护：连接 UUID 派生设备名，排他创建非持久原始 IP TUN，回读名称／索引／帧模式；`TUNGETIFF` 的 NO_PI 与 NOFILTER 位复用，因此通过受信系统 `iproute2` 的链路详情核对真实 PI／virtio 头部状态，复用已有平台命令端口，固定参数且不经 shell；对象仅拥有自己的 fd，不接管已有同名设备。创建后的回读失败关闭 fd 并报告可能已修改；原生回读失败及错误 PI／virtio 帧模式注入验证实际接口回滚，活动及无队列持久设备冲突均保留原设备。`SCM_RIGHTS` 接收端使用原子 CLOEXEC，两种 Linux 隔离检查复用此入口，已删除 Python 分配副本。最后一个 fd 关闭的内核生命周期依据 [TUN/TAP 文档](https://docs.kernel.org/networking/tuntap.html)；本地普通 uid 的双向 UDP、正常／强杀清理与原网络不变及 [`a0aec56` 的 Linux 双架构](https://github.com/wtalioy/JustConnect/actions/runs/39761802978)均已通过，不代替完整路由／DNS 恢复或助手授权。
 
-IPv4 配置增量复用 [`UnixTunDevice::createIpv4`](../infrastructure/platform/tundevice.cpp)，只配置这次新建、尚未交付的设备：源／对端须是不同的规范单播 IPv4，使用 `/32` 点对点掩码，MTU 为 68—65535；配置前记录原 MTU／标志／空 IPv4，配置后独立回读完整预期及设备索引。macOS [utun 创建时即可为 UP](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/net/if_utun.c)，不把初始 down 当作共有契约；实际状态由原生 ioctl／getifaddrs 读取。失败关闭私有 fd，不交付部分配置；当前不支持更改已交付设备或恢复已有接口。共享设备／原出口脚本及捕获路由检查已移除重复地址／启用命令；Linux 捕获路由由分配方在交付 fd 前调用正式后端，原出口表／规则由独立原生持有进程负责；macOS 目的路由仍保留至对应正式后端接管。
+IPv4 配置增量复用 [`UnixTunDevice::createIpv4`](../infrastructure/platform/tundevice.cpp)，只配置这次新建、尚未交付的设备：源／对端须是不同的规范单播 IPv4，使用 `/32` 点对点掩码，MTU 为 68—65535；配置前记录原 MTU／标志／空 IPv4，配置后独立回读完整预期及设备索引。macOS [utun 创建时即可为 UP](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/net/if_utun.c)，不把初始 down 当作共有契约；实际状态由原生 ioctl／getifaddrs 读取。失败关闭私有 fd，不交付部分配置；当前不支持更改已交付设备或恢复已有接口。共享设备／原出口脚本及捕获路由检查已移除重复地址／启用命令；Linux 捕获路由由分配方在交付 fd 前调用正式后端，原出口表／规则由独立原生持有进程负责；macOS 目的路由改由正式捕获后端及保护日志管理，验证状态见[计划](../plan.md#s4)。
 
 本地 Linux 应用及正式 ABI 构建均通过配置后普通用户双向 UDP、正常／强杀最终 fd 清理；真实配置后的回读错误／MTU 不符故障注入验证设备及全部 IPv4 路由回滚，宿主接口、全表路由／规则、DNS 与 rp_filter 不变。完整应用 45/45、正式 ABI 23/23 通过，报告 `build/reports/unix-tun-configuration.json`；该增量仍待 Linux／macOS 两架构原生 CI，未验收平台不据此继续透明接管。
 
@@ -127,7 +127,7 @@ Linux 路由恢复另在私有命名空间核对了内核删除匹配：`ip rout
 
 `recover` 仅接受同一启动 UUID／调用线程网络命名空间的完整可信记录；严格校验结构、规范所有者、派生表／metric、实际接口身份和路由／规则值，拒绝畸形、重复、跨启动／命名空间或超过 2 MiB 的记录，不替换活动实例。**调用方必须先认证权限所有者的受保护记录；用户 JSON 不授予恢复权限。**
 
-[`LinuxSourceJournal`](../infrastructure/platform/linux/sourcejournal.cpp) 只接受已打开的 root 0700 私有目录 fd，以独立打开描述持有非阻塞独占锁，操作固定 `source.json`。文件须为 root 0600 单链接普通文件，完整 UTF-8 JSON 最多 2 MiB；符号／硬链接、错连接、超限及已知外部改写拒绝。私有临时文件完整写入并 fsync 后原子发布，再同步目录；首次发布不替换，更新／删除比对文件身份及完整原字节，同值替换或确认删除后重建不接管。删除目录同步失败保留已删除事实供重试，关闭／进程结束只释放锁。
+[`UnixNetworkJournal`](../infrastructure/platform/networkjournal.cpp) 只接受已打开的 root 0700 私有目录 fd，以独立打开描述持有非阻塞独占锁，操作固定 `source.json`。文件须为 root 0600 单链接普通文件，完整 UTF-8 JSON 最多 2 MiB；符号／硬链接、错连接、超限及已知外部改写拒绝。私有临时文件完整写入并 fsync 后原子发布，再同步目录；首次发布不替换，更新／删除比对文件身份及完整原字节，同值替换或确认删除后重建不接管。删除目录同步失败保留已删除事实供重试，关闭／进程结束只释放锁。
 
 `apply`、`restore` 和 `recover` 共用同步 `CheckpointWriter`：非空对象提交完整状态，空对象持久移除记录。首次内核写入前同步完整意图，拒绝且确认未发布则清空内存，可能已发布则保留责任；存储后重验容量、表／早期规则及接口／源身份。成功应用值确认、规则删除前、规则释放后和路由批次删除前均由后端提交，失败回滚沿用同一端口，调用方不重复维护状态机；每次删除前重验存储等待期间的完整值、表引用及接口身份。存储失败不继续下一次内核修改，最后同步移除失败可重试而不接管新引用。删除标记与内核操作不具备跨资源原子性：新进程看到标记且匹配对象仍在时保留并报告未决，不猜测它是否被外部同值重建；对象缺失或完整值已改变时可解除该项责任。已确认释放的规则不重新接管。
 
@@ -166,4 +166,4 @@ sudo unshare --net -- build/coreabi/linux_tunroutes_test --isolated
 
 原生回归保留严格 `rp_filter=1` 下实际 UDP、既有路由不变、连接与设备身份、部分失败、写前／回读／存储错误、同值重建保留、恢复重试，以及应用／删除前后强杀和新进程恢复。版本 1 专属回归继续验证已有 main 记录的恢复及歧义保留；停止支持可能遗留该记录的版本后删除。当前独立表后端和正式安装助手证据见[计划](../plan.md#s4)及 `build/reports/capture-table.json`，早期独有捕获／持久恢复证据保留于 `linux-owned-routes.json`、`linux-capture-handoff.json`、`linux-capture-recovery.json`。
 
-Linux 分配方在交付 fd 前调用同一正式后端并交付实际元数据，接收方比对真实全表；原型夹具继续验证普通用户收发、正常／强杀最终 fd 清理与规则恢复。正式系统助手、Go 数据面及应用会话已接入；桌面授权／注销、实际校园、IPv6 透明入口及完整网络迁移仍待，未经相应 S4-06 验收不接管日常网络。macOS 手写捕获命令保留至对应正式后端通过。
+Linux 分配方在交付 fd 前调用同一正式后端并交付实际元数据，接收方比对真实全表；原型夹具继续验证普通用户收发、正常／强杀最终 fd 清理与规则恢复。正式系统助手、Go 数据面及应用会话已接入；桌面授权／注销、实际校园、IPv6 透明入口及完整网络迁移仍待，未经相应 S4-06 验收不接管日常网络。macOS 手写捕获命令已由[正式后端](ARCHITECTURE.md#macos-owned-routes)取代，原 fd／收发／强杀检查保留。

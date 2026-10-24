@@ -1,5 +1,5 @@
 #include "infrastructure/platform/linux/ownedroutetable.h"
-#include "infrastructure/platform/linux/sourcejournal.h"
+#include "infrastructure/platform/networkjournal.h"
 #include "infrastructure/platform/linux/tunroutes.h"
 #include "infrastructure/platform/linux/iprouteutility.h"
 #include <QCoreApplication>
@@ -87,7 +87,7 @@ int main(int argc, char **argv) try
         check(stage=="prepared" || stage=="partial" || stage=="applied" || stage=="confirmed","Unknown source apply crash boundary");
         const int directory = ::open(QFile::encodeName(app.arguments()[3]).constData(),O_RDONLY|O_DIRECTORY|O_CLOEXEC|O_NOFOLLOW);
         check(directory>=0,"Open the source owner checkpoint directory");
-        LinuxSourceJournal journal;
+        UnixNetworkJournal journal;
         const auto opened = journal.open(directory,owner);::close(directory);
         check(opened.succeeded(),qPrintable(opened.detail));
         QJsonObject intent;
@@ -117,7 +117,7 @@ int main(int argc, char **argv) try
               "Unknown source recovery crash boundary");
         const int directory = ::open(QFile::encodeName(app.arguments()[3]).constData(),O_RDONLY|O_DIRECTORY|O_CLOEXEC|O_NOFOLLOW);
         check(directory>=0,"Open the trusted source checkpoint directory");
-        LinuxSourceJournal journal;
+        UnixNetworkJournal journal;
         const auto opened = journal.open(directory,id);::close(directory);
         check(opened.succeeded(),qPrintable(opened.detail));
         QJsonObject saved;
@@ -211,7 +211,7 @@ int main(int argc, char **argv) try
     {
         QTemporaryDir checkpoint;
         const int directory = ::open(QFile::encodeName(checkpoint.path()).constData(),O_RDONLY|O_DIRECTORY|O_CLOEXEC);
-        LinuxSourceJournal journal;
+        UnixNetworkJournal journal;
         check(checkpoint.isValid() && directory>=0 && journal.open(directory,owner).succeeded(),"Open protected write-ahead fixture");
         ::close(directory);
         bool checkpointed = false;
@@ -281,7 +281,7 @@ int main(int argc, char **argv) try
     for (const auto &boundary : {QString("applied"),QString("rule"),QString("routes"),QString("remove")}) {
         QTemporaryDir checkpoint;
         const int directory = ::open(QFile::encodeName(checkpoint.path()).constData(),O_RDONLY|O_DIRECTORY|O_CLOEXEC);
-        LinuxSourceJournal journal;
+        UnixNetworkJournal journal;
         check(checkpoint.isValid() && directory>=0 && journal.open(directory,owner).succeeded(),"Open recovery checkpoint refusal fixture");
         ::close(directory);
         bool rejected = false;
@@ -327,7 +327,7 @@ int main(int argc, char **argv) try
     for (const bool changeRule : {true,false}) {
         QTemporaryDir checkpoint;
         const int directory = ::open(QFile::encodeName(checkpoint.path()).constData(),O_RDONLY|O_DIRECTORY|O_CLOEXEC);
-        LinuxSourceJournal journal;
+        UnixNetworkJournal journal;
         check(checkpoint.isValid() && directory>=0 && journal.open(directory,owner).succeeded(),"Open checkpoint interference fixture");
         ::close(directory);
         bool interfere = false;
@@ -428,7 +428,7 @@ int main(int argc, char **argv) try
         for (const auto &entry : deadOwner["routes"].toArray())
             check(entry.toObject()["applied"].toObject().isEmpty()==(stage!="confirmed"),
                   "Crash boundary did not preserve the expected unconfirmed or confirmed route values");
-        LinuxSourceJournal competing;
+        UnixNetworkJournal competing;
         const int directory = ::open(QFile::encodeName(checkpoint.path()).constData(),O_RDONLY|O_DIRECTORY|O_CLOEXEC);
         check(directory>=0 && !competing.open(directory,QUuid(deadOwner["owner"].toString())).succeeded(),
               "Another guardian acquired the live source owner's protected journal");
@@ -465,7 +465,7 @@ int main(int argc, char **argv) try
         for (const bool recreate : {false,true}) {
             if (recreate && !stage.endsWith("-pre")) continue;
             QTemporaryDir checkpoint;
-            LinuxSourceJournal journal;
+            UnixNetworkJournal journal;
             const int directory = ::open(QFile::encodeName(checkpoint.path()).constData(),O_RDONLY|O_DIRECTORY|O_CLOEXEC);
             check(checkpoint.isValid() && directory>=0 && journal.open(directory,owner).succeeded(),"Open recovery crash fixture");
             ::close(directory);

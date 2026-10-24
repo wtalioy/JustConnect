@@ -168,31 +168,33 @@ def allocate_unix(allocator):
                                fileno=os.dup(fds[0])) as native:
                 assert native.getsockopt(socket.SYSPROTO_CONTROL, 2, 16).split(b'\0', 1)[0].decode('ascii') == name, 'transferred fd lost its utun identity'
                 assert native.getsockopt(socket.SYSPROTO_CONTROL, 1) == 0, 'transferred fd lost address-family framing'
+            capture = metadata['capture_routes']
+            assert capture['version'] == 1 and capture['owner'] == str(owner)
+            assert capture['interface'] == name and capture['index'] == index and uuid.UUID(capture['boot']).int != 0
+            assert capture['source'] == '198.18.0.1' and capture['peer'] == '198.18.0.2'
+            assert len(capture['routes']) == 1 and capture['routes'][0]['prefix'] == '198.18.0.6/32'
+            assert capture['routes'][0]['before'] == [] and capture['routes'][0]['applied']
+            assert capture['routes'][0]['delete_started'] is False
         assert not os.get_inheritable(fds[0]), 'received allocator fd can leak across exec'
         parent.sendall(b'R')
-        if sys.platform == 'linux':
-            assert select.select([process.stdout], [], [], 5)[0], 'allocator did not release its device fd'
-            assert process.stdout.readline() == b'TRANSFERRED\n'
-            def cleanup():
-                if parent.fileno() < 0:
-                    return
-                try:
-                    parent.sendall(b'C')
-                    output, _ = process.communicate(timeout=12)
-                    assert process.returncode == 0, output.decode('utf-8', errors='replace')
-                    print(output.decode('utf-8'), end='', flush=True)
-                finally:
-                    parent.close()
-                    if process.poll() is None:
-                        process.kill()
-                        process.wait(timeout=5)
-                    process.stdout.close()
-            handed_off = True
-            return fds[0], name, cleanup
-        output, _ = process.communicate(timeout=5)
-        assert process.returncode == 0, output.decode('utf-8', errors='replace')
-        print(output.decode('utf-8'), end='', flush=True)
-        return fds[0], name, lambda: None
+        assert select.select([process.stdout], [], [], 5)[0], 'allocator did not release its device fd'
+        assert process.stdout.readline() == b'TRANSFERRED\n'
+        def cleanup():
+            if parent.fileno() < 0:
+                return
+            try:
+                parent.sendall(b'C')
+                output, _ = process.communicate(timeout=12)
+                assert process.returncode == 0, output.decode('utf-8', errors='replace')
+                print(output.decode('utf-8'), end='', flush=True)
+            finally:
+                parent.close()
+                if process.poll() is None:
+                    process.kill()
+                    process.wait(timeout=5)
+                process.stdout.close()
+        handed_off = True
+        return fds[0], name, cleanup
     except BaseException:
         for fd in fds:
             os.close(fd)
@@ -216,7 +218,6 @@ def probe(uid, gid, crash, allocator):
     receiver = None
     try:
         if sys.platform == 'darwin':
-            subprocess.run(['/sbin/route', '-n', 'add', '-host', '198.18.0.6', '-interface', name], check=True, timeout=5)
             route = subprocess.check_output(['/sbin/route', '-n', 'get', '198.18.0.6'], text=True, timeout=5)
             assert any(line.split() == ['interface:', name] for line in route.splitlines()), 'owned host route was not applied'
         else:

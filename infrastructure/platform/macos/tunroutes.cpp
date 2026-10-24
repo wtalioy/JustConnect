@@ -1,0 +1,218 @@
+#include "tunroutes.h"
+#include "infrastructure/platform/ipv4.h"
+#include <QDeadlineTimer>
+#include <QFileInfo>
+#include <QJsonDocument>
+#include <QSet>
+#include <cstring>
+#include <net/if_dl.h>
+#include <net/route.h>
+
+namespace {
+using Result = PlatformOperationResult;
+using Status = Result::Status;
+QJsonArray matching(const QJsonArray &rows, const QString &prefix)
+{
+    QJsonArray result;
+    for (const auto &row : rows) if (row.toObject()["prefix"] == prefix) result.append(row);
+    return result;
+}
+bool utunName(const QString &name)
+{
+    if (!name.startsWith("utun") || name.size() <= 4 || name.size() >= IFNAMSIZ) return false;
+    for (auto character : name.mid(4)) if (character < '0' || character > '9') return false;
+    return true;
+}
+}
+
+void MacTunRoutes::clear()
+{
+    owner = {}; interfaceName.clear(); boot.clear(); sourceAddress.clear(); peerAddress.clear(); interfaceIndex = 0; entries.clear();
+}
+bool MacTunRoutes::identity() const
+{
+    return !boot.isEmpty() && macBootSession() == boot && assignedUnixTunPair(interfaceName, interfaceIndex, sourceAddress, peerAddress);
+}
+bool MacTunRoutes::shape(const QJsonObject &row) const
+{
+    const auto flags = row["flags"].toInteger(-1);
+    if (row.size() != 5 || flags < 0 || flags > 0xffffffffLL || row["flags"].toDouble(-1) != double(flags)
+        || row["index"].toDouble(-1) != double(interfaceIndex) || !row["addresses"].isObject()
+        || !row["metrics"].isArray() || row["metrics"].toArray().size() != 13
+        || macRoutePrefix(row["addresses"].toObject(), quint32(flags)) != row["prefix"].toString()) return false;
+    int metricIndex = 0;
+    for (const auto &value : row["metrics"].toArray()) {
+        const auto metric = value.toInteger(-2147483649LL);
+        if (!value.isDouble() || value.toDouble() != double(metric)
+            || metric < (metricIndex == 3 ? -2147483648LL : 0) || metric > 0xffffffffLL) return false;
+        ++metricIndex;
+    }
+    const auto addresses = row["addresses"].toObject();
+    for (auto it = addresses.begin(); it != addresses.end(); ++it) {
+        bool valid = false; const auto index = it.key().toInt(&valid);
+        const auto raw = QByteArray::fromHex(it.value().toString().toLatin1());
+        if (!valid || index < 0 || index >= RTAX_MAX || QString::number(index) != it.key()
+            || !it.value().isString() || QString::fromLatin1(raw.toHex()) != it.value().toString()
+            || (raw.isEmpty() ? index != RTAX_NETMASK : raw.size() < 2 || quint8(raw[0]) != raw.size())) return false;
+    }
+    const auto gateway = QByteArray::fromHex(row["addresses"].toObject()[QString::number(RTAX_GATEWAY)].toString().toLatin1());
+    sockaddr_dl link{};
+    if (gateway.size() < 4 || gateway.size() > int(sizeof(link))) return false;
+    std::memcpy(&link, gateway.constData(), size_t(gateway.size()));
+    return row["index"].toInteger() == interfaceIndex && link.sdl_family == AF_LINK && link.sdl_index == interfaceIndex
+        && (flags & (RTF_UP|RTF_STATIC|RTF_PROTO1)) == (RTF_UP|RTF_STATIC|RTF_PROTO1)
+        && !(flags & (RTF_GATEWAY|RTF_REJECT|RTF_BLACKHOLE|RTF_IFSCOPE|RTF_LOCAL|RTF_BROADCAST|RTF_MULTICAST));
+}
+QJsonObject MacTunRoutes::snapshot() const
+{
+    if (owner.isNull()) return {};
+    QJsonArray routes;
+    for (const auto &entry : entries) routes.append(QJsonObject{{"prefix", entry.prefix}, {"before", QJsonArray{}},
+        {"applied", entry.applied}, {"delete_started", entry.deleting}});
+    return {{"version", 1}, {"owner", owner.toString(QUuid::WithoutBraces)}, {"boot", boot}, {"interface", interfaceName},
+        {"index", qint64(interfaceIndex)}, {"source", sourceAddress}, {"peer", peerAddress}, {"routes", routes}};
+}
+Result MacTunRoutes::save(const CheckpointWriter &checkpoint) const
+{
+    const auto record = snapshot();
+    if (QJsonDocument(record).toJson(QJsonDocument::Compact).size() > NetworkJournalMaxBytes)
+        return {Status::Failed, "macOS capture ownership exceeds its complete record budget.", true};
+    auto result = checkpoint ? checkpoint(record) : Result{};
+    if (!result.succeeded()) result.mayHaveChanged = true;
+    return result;
+}
+Result MacTunRoutes::change(const QString &operation, const QString &prefix, int timeoutMs) const
+{
+    const QFileInfo program("/sbin/route");
+    if (timeoutMs <= 0) return {Status::TimedOut, "macOS capture operation timed out.", true};
+    if (!program.isExecutable() || program.ownerId() != 0 || program.isSymLink()
+        || (program.permissions() & (QFileDevice::WriteGroup|QFileDevice::WriteOther)))
+        return {Status::Unsupported, "A trusted system route utility is required."};
+    const QStringList arguments{"-n", operation, "-inet", "-net", prefix, "-interface", interfaceName, "-static", "-proto1"};
+    return (runner ? runner(program.absoluteFilePath(), arguments)
+        : runPlatformCommand(program.absoluteFilePath(), arguments, timeoutMs, {}, QProcessEnvironment{})).result;
+}
+Result MacTunRoutes::apply(const UnixTunDevice &device, const QStringList &prefixes, const CheckpointWriter &checkpoint)
+{
+    if (!owner.isNull() || device.owner().isNull() || device.descriptor() < 0 || prefixes.isEmpty() || prefixes.size() > MacRouteSnapshotRows)
+        return {Status::Failed, "Inactive route ownership and a configured owned utun are required."};
+    const auto ipv4 = device.snapshot()["configuration"].toObject()["applied"].toObject()["ipv4"].toArray();
+    if (ipv4.size() != 1 || !utunName(device.name())) return {Status::Failed, "A verified point-to-point utun is required."};
+    const auto pair = ipv4.first().toObject();
+    if (!assignedUnixTunPair(device.name(), device.index(), pair["source"].toString(), pair["peer"].toString()))
+        return {Status::Failed, "The owned utun address identity changed."};
+    const auto session = macBootSession();
+    if (session.isEmpty()) return {Status::Failed, "Cannot bind capture ownership to the current boot."};
+    QSet<QString> unique;
+    for (const auto &prefix : prefixes) {
+        if (!canonicalIpv4Prefix(prefix) || ipv4PrefixContainsAddress(prefix, pair["source"].toString())
+            || ipv4PrefixContainsAddress(prefix, pair["peer"].toString())) return {Status::Failed, "Invalid or self-capturing IPv4 prefix."};
+        unique.insert(prefix);
+    }
+    const auto initial = readMacRoutes();
+    if (!initial.result.succeeded()) return initial.result;
+    if (initial.rows.size()+unique.size() > MacRouteSnapshotRows) return {Status::Failed, "Capture routes exceed the complete native snapshot bound."};
+    for (const auto &prefix : unique) if (!matching(initial.rows, prefix).isEmpty())
+        return {Status::Failed, "An existing exact-prefix route is preserved; macOS replacement is not supported."};
+    owner = device.owner(); interfaceName = device.name(); interfaceIndex = device.index(); boot = session;
+    sourceAddress = pair["source"].toString(); peerAddress = pair["peer"].toString();
+    QDeadlineTimer deadline(MacRouteOperationTimeoutMs);
+    const auto failed = [&](Result result) {
+        const auto recovered = restore(owner, checkpoint);
+        if (!recovered.succeeded()) {
+            result.detail += " Recovery: "+recovered.detail;
+            result.mayHaveChanged = true; return result;
+        }
+        result.mayHaveChanged = false; return result;
+    };
+    for (const auto &prefix : unique) {
+        const auto before = readMacRoutes();
+        if (!before.result.succeeded()) return failed(before.result);
+        if (!identity() || !matching(before.rows, prefix).isEmpty()) return failed({Status::Failed, "Route or utun identity changed before capture."});
+        entries.append({prefix, {}, false});
+        if (const auto saved = save(checkpoint); !saved.succeeded()) { entries.removeLast(); return failed(saved); }
+        const auto verified = readMacRoutes();
+        if (!verified.result.succeeded()) { entries.removeLast(); return failed(verified.result); }
+        if (!identity() || !matching(verified.rows, prefix).isEmpty()) {
+            entries.removeLast(); return failed({Status::Failed, "Capture state changed while publishing intent."});
+        }
+        const auto written = change("add", prefix, int(deadline.remainingTime()));
+        const auto after = readMacRoutes();
+        if (!after.result.succeeded()) return failed(after.result);
+        const auto rows = matching(after.rows, prefix);
+        if (!written.succeeded()) return failed(written);
+        if (!identity() || rows.size() != 1 || !shape(rows.first().toObject()))
+            return failed({Status::Failed, "Cannot confirm the complete applied capture route."});
+        entries.last().applied = rows.first().toObject();
+        if (const auto saved = save(checkpoint); !saved.succeeded()) return failed(saved);
+    }
+    return {Status::Success, {}, true};
+}
+
+Result MacTunRoutes::recover(const QUuid &id, const QJsonObject &saved, const CheckpointWriter &checkpoint)
+{
+    const Result invalid{Status::Failed, "Invalid or foreign macOS capture ownership."};
+    if (!owner.isNull() || id.isNull() || saved.size() != 8 || saved["version"] != 1
+        || saved["owner"] != id.toString(QUuid::WithoutBraces) || saved["boot"] != macBootSession() || saved["boot"].toString().isEmpty()
+        || !utunName(saved["interface"].toString()) || saved["index"].toInteger() <= 0 || saved["index"].toInteger() > 65535
+        || !canonicalUnicastIpv4(saved["source"].toString()) || !canonicalUnicastIpv4(saved["peer"].toString()) || saved["source"] == saved["peer"]
+        || !saved["routes"].isArray() || saved["routes"].toArray().size() > MacRouteSnapshotRows
+        || QJsonDocument(saved).toJson(QJsonDocument::Compact).size() > NetworkJournalMaxBytes) return invalid;
+    owner = id; interfaceName = saved["interface"].toString(); interfaceIndex = quint32(saved["index"].toInteger());
+    boot = saved["boot"].toString(); sourceAddress = saved["source"].toString(); peerAddress = saved["peer"].toString();
+    QSet<QString> unique;
+    for (const auto &value : saved["routes"].toArray()) {
+        const auto row = value.toObject(); const auto prefix = row["prefix"].toString(); const auto applied = row["applied"].toObject();
+        if (row.size() != 4 || !canonicalIpv4Prefix(prefix) || unique.contains(prefix)
+            || ipv4PrefixContainsAddress(prefix,sourceAddress) || ipv4PrefixContainsAddress(prefix,peerAddress)
+            || !row["before"].isArray() || !row["before"].toArray().isEmpty()
+            || !row["applied"].isObject() || !row["delete_started"].isBool() || (row["delete_started"].toBool() && applied.isEmpty())
+            || (!applied.isEmpty() && (applied["prefix"] != prefix || !shape(applied)))) { clear(); return invalid; }
+        unique.insert(prefix); entries.append({prefix, applied, row["delete_started"].toBool()});
+    }
+    return restore(id, checkpoint);
+}
+
+Result MacTunRoutes::restore(const QUuid &id, const CheckpointWriter &checkpoint)
+{
+    if (owner.isNull()) return {};
+    if (id != owner || macBootSession() != boot) return {Status::Failed, "Capture recovery owner or boot differs.", true};
+    const auto validIdentity = [&] {
+        if (identity()) return true;
+        char name[IFNAMSIZ]{};
+        return !::if_nametoindex(interfaceName.toLatin1().constData()) && !::if_indextoname(interfaceIndex, name);
+    };
+    if (!validIdentity()) return {Status::Failed, "Capture device identity changed; saved ownership is retained.", true};
+    QDeadlineTimer deadline(MacRouteOperationTimeoutMs);
+    bool unresolved = false;
+    for (auto it = entries.begin(); it != entries.end();) {
+        auto read = readMacRoutes();
+        if (!read.result.succeeded()) { read.result.mayHaveChanged = true; return read.result; }
+        const auto rows = matching(read.rows, it->prefix);
+        if (rows.isEmpty() || (!it->applied.isEmpty() && rows.size() == 1 && rows.first().toObject() != it->applied)) {
+            it = entries.erase(it); continue;
+        }
+        if (rows.size() != 1 || it->applied.isEmpty() || it->deleting) { unresolved = true; ++it; continue; }
+        it->deleting = true;
+        if (const auto saved = save(checkpoint); !saved.succeeded()) { it->deleting = false; return saved; }
+        const auto verified = readMacRoutes();
+        if (!verified.result.succeeded() || !identity() || matching(verified.rows, it->prefix) != rows) {
+            it->deleting = false; const auto saved = save(checkpoint);
+            if (!saved.succeeded()) return saved;
+            return {Status::Failed, "Capture route changed while publishing deletion; it was preserved.", true};
+        }
+        auto removed = change("delete", it->prefix, int(deadline.remainingTime()));
+        auto after = readMacRoutes();
+        if (!after.result.succeeded()) { after.result.mayHaveChanged = true; return after.result; }
+        const auto remaining = matching(after.rows, it->prefix);
+        if (remaining.isEmpty() || (remaining.size() == 1 && remaining.first().toObject() != it->applied)) it = entries.erase(it);
+        else {
+            removed.mayHaveChanged = true;
+            return removed.succeeded() ? Result{Status::Failed, "Cannot confirm capture removal; ownership is retained.", true} : removed;
+        }
+        if (const auto saved = save(checkpoint); !saved.succeeded()) return saved;
+    }
+    if (unresolved) return {Status::Failed, "Interrupted or unconfirmed capture is unresolved; matching routes are retained.", true};
+    if (checkpoint) { auto saved = checkpoint({}); if (!saved.succeeded()) { saved.mayHaveChanged = true; return saved; } }
+    clear(); return {Status::Success, {}, true};
+}

@@ -194,7 +194,7 @@ LinuxTunDns::State LinuxTunDns::read(QDeadlineTimer &deadline) const
 bool LinuxTunDns::identity() const
 {
     return !record.isEmpty() && !record["namespace"].toString().isEmpty() && record["namespace"] == linuxNetworkNamespace()
-        && assignedLinuxTunPair(record["interface"].toString(), quint32(record["index"].toInteger()),
+        && assignedUnixTunPair(record["interface"].toString(), quint32(record["index"].toInteger()),
                                 record["source"].toString(), record["peer"].toString());
 }
 PlatformOperationResult LinuxTunDns::save(const CheckpointWriter &checkpoint) const

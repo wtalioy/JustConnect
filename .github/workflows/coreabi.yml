@@ -205,7 +205,9 @@ jobs:
       - name: Check macOS utun fd transfer and cleanup in the disposable runner
         if: runner.os == 'macOS'
         shell: bash
-        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_OS="$RUNNER_OS" "$(command -v python)" tests/platform/unix_device_probe.py --uid "$(id -u)" --allocator build/coreabi/macos_tundevice_test 2>&1 | tee build/coreabi/macos-device.log
+        run: |
+          sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_OS="$RUNNER_OS" build/coreabi/macos_tunroutes_test --isolated 2>&1 | tee build/coreabi/macos-routes.log
+          sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_OS="$RUNNER_OS" "$(command -v python)" tests/platform/unix_device_probe.py --uid "$(id -u)" --allocator build/coreabi/macos_tundevice_test 2>&1 | tee build/coreabi/macos-device.log
 
       - name: Verify ordinary macOS utun traffic through the formal C ABI
         if: runner.os == 'macOS'

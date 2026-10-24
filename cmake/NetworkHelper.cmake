@@ -3,7 +3,7 @@ function(justconnect_linux_network_helper)
     add_library(justconnect_network_helper STATIC
         "${REPO}/infrastructure/platform/linux/networkhelper.cpp"
         "${REPO}/infrastructure/platform/linux/trustedexecutable.cpp"
-        "${REPO}/infrastructure/platform/linux/sourcejournal.cpp"
+        "${REPO}/infrastructure/platform/networkjournal.cpp"
         "${REPO}/infrastructure/platform/linux/ownedroutetable.cpp"
         "${REPO}/infrastructure/platform/linux/tunroutes.cpp"
         "${REPO}/infrastructure/platform/linux/tundns.cpp"
