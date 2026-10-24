@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts'))
 import network_helper_package as package
 from networkhelper_systemd import RecoveryTimer
+from tundns_fixture import IsolatedResolver
 
 
 def run(*arguments, **options):
@@ -191,11 +192,16 @@ def main():
                     return workers[0]
                 def call(scenario, mode='allow', owner=None):
                     owner = owner or str(uuid.uuid4())
-                    result = run(client, scenario, owner, env={**caller_environment, 'JC_AUTH_TEST_MODE': mode},
+                    result = run(client, scenario, owner, env=client_environment(scenario, mode),
                                  user=args.uid, group=account.pw_gid, extra_groups=())
                     print(result, end='', flush=True)
                     client_cases.append(scenario)
                     return owner
+                def client_environment(scenario, mode='allow'):
+                    values = {**caller_environment, 'JC_AUTH_TEST_MODE': mode}
+                    if scenario.startswith('dns'):
+                        values['DBUS_SYSTEM_BUS_ADDRESS'] = 'unix:path=/nonexistent-untrusted-dns-bus'
+                    return values
                 for scenario, mode in [('normal', 'allow'), ('cancel-inspect', 'allow'), ('cancel-authorization', 'wait'),
                                        ('cancel-apply', 'allow'), ('denied', 'deny'), ('cancel-policy', 'cancel'), ('malformed', 'malformed')]:
                     call(scenario, mode)
@@ -269,78 +275,111 @@ def main():
                                           'helper_loss': 'client fd revoked while core reference survives; core stops before fresh authorized recovery',
                                           'traffic': 'native TCP, UDP and empty datagrams; stop/restart/destruction',
                                           'inventory': 'IPv4/IPv6 routes/rules and interfaces restored'}
-                recovery.stop()
-                recovery.start()
-                owner = str(uuid.uuid4())
-                ready_path = Path(caller_runtime.name) / 'active-core.json'
-                managed_environment = {**caller_environment, 'JC_AUTH_TEST_MODE': 'allow'}
-                if gateway:
-                    managed_environment.update(JC_NATIVE_TUN_HOST=str(tun_adapter), JC_NATIVE_TUN_HELPER_OWNER=owner,
-                                               JC_NATIVE_TUN_READY=str(ready_path), JC_NATIVE_TUN_SCENARIO='managed')
-                process = subprocess.Popen(native_command if gateway else [str(client), 'managed', owner],
-                                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                                           env=managed_environment, user=args.uid, start_new_session=bool(gateway),
-                                           group=account.pw_gid, extra_groups=())
-                worker_descriptor = None
-                qt_descriptor = None
-                try:
-                    qt_pid = process.pid
-                    if gateway:
-                        qt_pid, qt_descriptor = native_handoff(process, owner, ready_path)
-                    else:
-                        assert select.select([process.stdout], [], [], 10)[0], 'managed fixture never reached handoff'
-                        assert process.stdout.readline().strip() == f'READY: managed helper {owner}'
-                    worker = owned_helper(qt_pid)
-                    worker_descriptor = os.pidfd_open(worker)
-                    held = inventory()
-                    deadline = time.monotonic() + 15
-                    observed = None
-                    while time.monotonic() < deadline:
-                        observed = recovery.invocation_summary()
-                        if observed and (observed['live'] == 1 or observed['failed']):
-                            break
-                        time.sleep(0.05)
-                    assert observed and observed['live'] == 1 and observed['restored'] == observed['failed'] == 0, observed
-                    assert inventory() == held, 'system timer disturbed an actively held connection'
-                    os.kill(worker, signal.SIGKILL)
-                    process.kill()
-                    if qt_descriptor is not None:
-                        signal.pidfd_send_signal(qt_descriptor, signal.SIGKILL)
-                    process.communicate(timeout=5)
-                    assert process.returncode == -signal.SIGKILL
-                    deadline = time.monotonic() + 35
-                    receipt = Path(package.LAYOUT['state_directory']) / f'{args.uid}-{owner}' / 'source.json'
-                    while time.monotonic() < deadline:
-                        observed = recovery.invocation_summary()
-                        if inventory() == baseline and json.loads(receipt.read_text())['phase'] == 'restored' \
-                                and observed and observed['restored'] == 1 and observed['failed'] == 0:
-                            break
-                        time.sleep(0.05)
-                    assert inventory() == baseline and json.loads(receipt.read_text())['phase'] == 'restored', observed
-                    assert observed and observed['restored'] == 1 and observed['failed'] == 0, observed
-                    client_cases.append('managed')
-                    report['system_recovery'] = {'slice': recovery.property('service', 'Slice'),
-                                                 'invocation': recovery.property('service', 'InvocationID'), 'summary': observed,
-                                                 'gui_and_helper': 'owned Qt/core and helper both SIGKILL after native TCP/UDP' if gateway
-                                                     else 'owned fixtures both SIGKILL; no GUI command initiated recovery'}
-                    print('PASS: real system timer preserves live ownership and restores after both GUI/helper SIGKILL', flush=True)
-                finally:
-                    if process.poll() is None:
-                        if gateway:
-                            os.killpg(process.pid, signal.SIGKILL)
-                        else:
-                            process.kill()
-                        process.communicate(timeout=5)
-                    if qt_descriptor is not None:
-                        if not select.select([qt_descriptor], [], [], 0)[0]:
-                            signal.pidfd_send_signal(qt_descriptor, signal.SIGKILL)
-                        assert select.select([qt_descriptor], [], [], 5)[0], 'owned Qt/core retained its TUN references'
-                        os.close(qt_descriptor)
-                    if worker_descriptor is not None:
-                        assert select.select([worker_descriptor], [], [], 35)[0], 'owned helper did not finish EOF recovery'
-                        os.close(worker_descriptor)
+                def managed(native_core, dns_bus=None):
+                    baseline = inventory()
                     recovery.stop()
-                call('cleanup', owner=owner)
+                    recovery.start(dns_bus=dns_bus)
+                    owner = str(uuid.uuid4())
+                    ready_path = Path(caller_runtime.name) / 'active-core.json'
+                    scenario = 'dns-managed' if dns_bus else 'managed'
+                    managed_environment = client_environment(scenario)
+                    if native_core:
+                        managed_environment.update(JC_NATIVE_TUN_HOST=str(tun_adapter), JC_NATIVE_TUN_HELPER_OWNER=owner,
+                                                   JC_NATIVE_TUN_READY=str(ready_path), JC_NATIVE_TUN_SCENARIO='managed')
+                    process = subprocess.Popen(native_command if native_core else [str(client), scenario, owner],
+                                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                               env=managed_environment, user=args.uid, start_new_session=native_core,
+                                               group=account.pw_gid, extra_groups=())
+                    worker_descriptor = None
+                    qt_descriptor = None
+                    try:
+                        qt_pid = process.pid
+                        if native_core:
+                            qt_pid, qt_descriptor = native_handoff(process, owner, ready_path)
+                        else:
+                            assert select.select([process.stdout], [], [], 10)[0], 'managed fixture never reached handoff'
+                            assert process.stdout.readline().strip() == f'READY: managed helper {owner}'
+                        worker = owned_helper(qt_pid)
+                        worker_descriptor = os.pidfd_open(worker)
+                        held = inventory()
+                        deadline = time.monotonic() + 15
+                        observed = None
+                        while time.monotonic() < deadline:
+                            observed = recovery.invocation_summary()
+                            if observed and (observed['live'] == 1 or observed['failed']):
+                                break
+                            time.sleep(0.05)
+                        assert observed and observed['live'] == 1 and observed['restored'] == observed['failed'] == 0, observed
+                        assert inventory() == held, 'system timer disturbed an actively held connection'
+                        signal.pidfd_send_signal(worker_descriptor, signal.SIGKILL)
+                        process.kill()
+                        if qt_descriptor is not None:
+                            signal.pidfd_send_signal(qt_descriptor, signal.SIGKILL)
+                        process.communicate(timeout=5)
+                        assert process.returncode == -signal.SIGKILL
+                        deadline = time.monotonic() + 35
+                        receipt = Path(package.LAYOUT['state_directory']) / f'{args.uid}-{owner}' / 'source.json'
+                        while time.monotonic() < deadline:
+                            observed = recovery.invocation_summary()
+                            if inventory() == baseline and json.loads(receipt.read_text())['phase'] == 'restored' \
+                                    and observed and observed['restored'] == 1 and observed['failed'] == 0:
+                                break
+                            time.sleep(0.05)
+                        assert inventory() == baseline and json.loads(receipt.read_text())['phase'] == 'restored', observed
+                        assert observed and observed['restored'] == 1 and observed['failed'] == 0, observed
+                        client_cases.append(scenario)
+                        if native_core:
+                            fault = 'owned Qt/core and helper both SIGKILL after native TCP/UDP'
+                        elif dns_bus:
+                            fault = 'ordinary Qt DNS caller and helper both SIGKILL after actual system query'
+                        else:
+                            fault = 'owned fixtures both SIGKILL; no GUI command initiated recovery'
+                        report['system_dns_recovery' if dns_bus else 'system_recovery'] = {
+                            'slice': recovery.property('service', 'Slice'), 'invocation': recovery.property('service', 'InvocationID'),
+                            'summary': observed, 'gui_and_helper': fault}
+                        print('PASS: real system timer preserves live ownership and restores after both GUI/helper SIGKILL' + (' with owned DNS' if dns_bus else ''), flush=True)
+                    finally:
+                        if process.poll() is None:
+                            if native_core:
+                                os.killpg(process.pid, signal.SIGKILL)
+                            else:
+                                process.kill()
+                            process.communicate(timeout=5)
+                        if qt_descriptor is not None:
+                            if not select.select([qt_descriptor], [], [], 0)[0]:
+                                signal.pidfd_send_signal(qt_descriptor, signal.SIGKILL)
+                            assert select.select([qt_descriptor], [], [], 5)[0], 'owned Qt/core retained its TUN references'
+                            os.close(qt_descriptor)
+                        if worker_descriptor is not None:
+                            assert select.select([worker_descriptor], [], [], 35)[0], 'owned helper did not finish EOF recovery'
+                            os.close(worker_descriptor)
+                        recovery.stop()
+                    call('cleanup', owner=owner)
+                managed(bool(gateway))
+                with IsolatedResolver(temporary / 'resolver', environment) as resolver:
+                    resolver.start()
+                    dns_baseline = inventory()
+                    run('/usr/bin/resolvectl', 'dns', 'helperorig0', '192.0.2.53', env=environment)
+                    run('/usr/bin/resolvectl', 'domain', 'helperorig0', '~original.test', env=environment)
+                    def original_dns():
+                        return [run('/usr/bin/resolvectl', key, 'helperorig0', env=environment)
+                                for key in ('dns', 'domain', 'default-route')]
+                    dns_settings = original_dns()
+                    recovery.start(deferred=True, dns_bus=resolver.socket)
+                    try:
+                        call('dns')
+                        assert inventory() == dns_baseline and original_dns() == dns_settings
+                    finally:
+                        recovery.stop()
+                    managed(native_core=False, dns_bus=resolver.socket)
+                    assert inventory() == dns_baseline and original_dns() == dns_settings
+                    report['owned_dns'] = {'provider': 'actual isolated resolved',
+                                           'entry': 'clean installed helper via ordinary Qt authorization caller',
+                                           'query': 'actual ordinary getaddrinfo through authenticated TUN fd',
+                                           'system_manager': 'real system.slice timer, production CAP_NET_ADMIN sandbox',
+                                           'injected_bus': 'untrusted caller address ignored',
+                                           'original_interface': 'DNS settings and IPv4/IPv6 inventory unchanged'}
+                assert inventory() == baseline and not list(Path(package.LAYOUT['state_directory']).iterdir())
                 call('guard-blocked')
                 assert inventory() == baseline and not list(Path(package.LAYOUT['state_directory']).iterdir())
                 other = subprocess.Popen(['unshare', '--net', '--', '/usr/bin/sleep', '60'], env=environment)

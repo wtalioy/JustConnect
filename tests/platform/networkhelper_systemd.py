@@ -23,14 +23,19 @@ class RecoveryTimer:
             assert self.property(kind, 'LoadState') == 'not-found', 'refusing to replace an existing recovery unit'
 
     def command(self, *arguments, check=True):
-        return subprocess.run(list(arguments), env=self.environment, text=True, capture_output=True, timeout=30, check=check)
+        try:
+            return subprocess.run(list(arguments), env=self.environment, text=True, capture_output=True, timeout=30, check=check)
+        except subprocess.CalledProcessError as error:
+            raise RuntimeError(error.stderr) from error
 
     def property(self, kind, name):
         result = self.command(self.layout['systemctl_program'], 'show', '--value', '--property=' + name,
                               self.name + '.' + kind, check=False)
+        if result.returncode and not result.stdout.strip():
+            raise RuntimeError(result.stderr)
         return result.stdout.strip()
 
-    def start(self, deferred=False, namespace_process=None):
+    def start(self, deferred=False, namespace_process=None, dns_bus=None):
         command = ['systemd-run', '--collect', '--unit=' + self.name, '--description=' + self.owner]
         # The probe's private bind supplies writable state; PID 1 must never create production directories on the host.
         scoped = {'ExecStart', 'StateDirectory', 'StateDirectoryMode'}
@@ -42,7 +47,12 @@ class RecoveryTimer:
                     '--property=MemoryPressureWatch=no']
         libraries = [path for path in ('/usr/bin', '/usr/sbin', '/usr/lib', '/usr/lib64', '/proc')
                      if Path(path).is_dir() and not Path(path).is_symlink()]
-        command += ['--property=BindReadOnlyPaths=' + ' '.join(path + ':' + path for path in libraries)]
+        bindings = [path + ':' + path for path in libraries]
+        if dns_bus is not None:
+            assert dns_bus.is_socket()
+            (self.root / 'run/dbus').mkdir(parents=True, exist_ok=True)
+            bindings.append(str(dns_bus) + ':/run/dbus/system_bus_socket')
+        command += ['--property=BindReadOnlyPaths=' + ' '.join(bindings)]
         if self.development_libraries:
             command += ['--property=Environment=LD_LIBRARY_PATH=/usr/local/lib']
         schedule = self.timer['Timer']

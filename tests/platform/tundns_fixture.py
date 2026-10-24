@@ -1,6 +1,8 @@
 """Shared actual system-resolver query and TUN reply fixture."""
 
+import json
 import os
+from pathlib import Path
 import pwd
 import select
 import socket
@@ -8,6 +10,121 @@ import struct
 import subprocess
 import sys
 import time
+
+
+class IsolatedResolver:
+    def __init__(self, root, environment):
+        self.root, self.environment = Path(root), environment
+        self.socket = self.root / 'bus.sock'
+        self.processes, self.logs = [], []
+        self.pinned = []
+
+    def run(self, *arguments):
+        result = subprocess.run(list(map(str, arguments)), env=self.environment, text=True,
+                                capture_output=True, timeout=15)
+        assert result.returncode == 0, (arguments, result.stdout, result.stderr)
+        return result.stdout
+
+    def __enter__(self):
+        assert os.geteuid() == 0
+        for kind in ('net', 'mnt'):
+            assert os.stat('/proc/thread-self/ns/' + kind) != os.stat('/proc/1/ns/' + kind), 'refusing host namespaces'
+        self.root.mkdir(mode=0o755)
+        self.loopback_up = 'UP' in json.loads(self.run('ip', '-j', 'link', 'show', 'lo'))[0]['flags']
+        try:
+            self.run('mount', '--make-rprivate', '/')
+            manager_booted = Path('/run/systemd/system').is_dir()
+            # Pin transports in this mount namespace before hiding /run.
+            for name in ('systemd/private', 'log/journal'):
+                source, pinned = Path('/run') / name, self.root / ('host-' + name.replace('/', '-'))
+                if not source.exists():
+                    continue
+                if source.is_dir():
+                    pinned.mkdir()
+                else:
+                    pinned.touch()
+                self.run('mount', '--bind', source, pinned)
+                self.pinned.append((name, pinned))
+            self.run('mount', '-t', 'tmpfs', '-o', 'mode=755', 'tmpfs', '/run')
+            for name in ('dbus', 'systemd/resolve'):
+                (Path('/run') / name).mkdir(mode=0o755, parents=True)
+            # Keep the real system-manager transport/journal available while DNS gets its own bus.
+            for name, source in self.pinned:
+                target = Path('/run') / name
+                target.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+                if source.is_dir():
+                    target.mkdir()
+                else:
+                    target.touch()
+                self.run('mount', '--bind', source, target)
+                original, mounted = source.stat(), target.stat()
+                assert (original.st_dev, original.st_ino) == (mounted.st_dev, mounted.st_ino)
+            if manager_booted:
+                Path('/run/systemd/system').mkdir()
+            account = pwd.getpwnam('systemd-resolve')
+            os.chown('/run/systemd/resolve', account.pw_uid, account.pw_gid)
+            configuration = self.root / 'systemd'
+            configuration.mkdir()
+            (configuration / 'resolved.conf').write_text('[Resolve]\nLLMNR=no\nMulticastDNS=no\nDNSSEC=no\nDNSOverTLS=no\n')
+            self.run('mount', '--bind', configuration, '/etc/systemd')
+            config = self.root / 'dbus.conf'
+            config.write_text('<busconfig><type>system</type><listen>unix:path=' + str(self.socket) + '</listen>'
+                              '<auth>EXTERNAL</auth><policy context="default"><allow user="*"/><allow own="*"/>'
+                              '<allow send_destination="*"/><allow receive_sender="*"/></policy></busconfig>')
+            log = (self.root / 'dbus.log').open('w+')
+            self.logs.append(log)
+            self.processes.append(subprocess.Popen(['/usr/bin/dbus-daemon', '--nofork', '--config-file=' + str(config)],
+                                                  env=self.environment, stdout=log, stderr=subprocess.STDOUT))
+            self.deadline = time.monotonic() + 5
+            while not self.socket.exists() and time.monotonic() < self.deadline:
+                assert self.processes[-1].poll() is None
+                time.sleep(0.02)
+            assert self.socket.is_socket()
+            Path('/run/dbus/system_bus_socket').touch()
+            self.run('mount', '--bind', self.socket, '/run/dbus/system_bus_socket')
+            self.run('ip', 'link', 'set', 'lo', 'up')
+            return self
+        except BaseException:
+            self.__exit__(*sys.exc_info())
+            raise
+
+    def start(self):
+        log = (self.root / 'resolved.log').open('w+')
+        self.logs.append(log)
+        self.processes.append(subprocess.Popen(['/usr/lib/systemd/systemd-resolved'], env=self.environment,
+                                              stdout=log, stderr=subprocess.STDOUT))
+        ready = None
+        while time.monotonic() < self.deadline:
+            ready = subprocess.run(['/usr/bin/resolvectl', 'status'], env=self.environment, text=True,
+                                   capture_output=True, timeout=2)
+            if ready.returncode == 0:
+                break
+            assert self.processes[-1].poll() is None
+            time.sleep(0.02)
+        assert ready and ready.returncode == 0, ready
+        stub = Path('/run/systemd/resolve/stub-resolv.conf')
+        assert stub.is_file()
+        self.run('mount', '--bind', stub, '/etc/resolv.conf')
+
+    def __exit__(self, error_type, error, traceback):
+        for process in reversed(self.processes):
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+        for log in self.logs:
+            log.close()
+        for _, path in reversed(self.pinned):
+            self.run('umount', path)
+        if not self.loopback_up:
+            self.run('ip', 'link', 'set', 'lo', 'down')
+        if error_type:
+            for name in ('dbus.log', 'resolved.log'):
+                path = self.root / name
+                if path.exists():
+                    print(name + ':\n' + path.read_text()[-4000:], file=sys.stderr)
 
 
 def dns_reply(fd, packet, expected, peer):
