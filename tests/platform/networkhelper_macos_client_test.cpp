@@ -50,7 +50,9 @@ int main(int argc,char **argv) try
         check(connection,"Create native XPC connection"); xpc_connection_set_event_handler(connection,^(xpc_object_t) {}); xpc_connection_resume(connection);
         const auto request = recover ? macHelperRequest("recover",QUuid(arguments[2]),QUuid::createUuid())
             : macHelperApplyRequest(QUuid::createUuid(),QUuid::createUuid(),configuration);
-        const auto message = macHelperMessage(request); const auto reply = xpc_connection_send_message_with_reply_sync(connection,message);
+        const AuthorizationExternalForm invalid{};
+        const auto message = macHelperMessage(request,-1,arguments[1] == "--wire-invalid-auth" ? &invalid : nullptr);
+        const auto reply = xpc_connection_send_message_with_reply_sync(connection,message);
         if (arguments[1] == "--wire-untrusted") check(xpc_get_type(reply) == XPC_TYPE_ERROR,"Untrusted signed identity received a privileged reply");
         else {
             MacHelperIdentity identity(MacHelperAppIdentifier,MacHelperIdentifier); QJsonObject response; int descriptor = -1;
@@ -73,7 +75,13 @@ int main(int argc,char **argv) try
     };
     MacNetworkHelperClient client(nullptr,provider); int held = -1; QString interface; qint64 index = 0;
     QObject::connect(&client,&MacNetworkHelperClient::stateChanged,&app,[&](auto state) {
-        if (mode == "--cancel" && state == MacNetworkHelperClient::State::Applying) QTimer::singleShot(0,&client,&MacNetworkHelperClient::cancel);
+        if (mode == "--cancel" && state == MacNetworkHelperClient::State::Applying) {
+            report({{"event","applying"},{"owner",owner.toString(QUuid::WithoutBraces)}});
+            pollfd control{STDIN_FILENO,POLLIN,0}; char command[32]{};
+            check(::poll(&control,1,30000) == 1 && ::read(STDIN_FILENO,command,sizeof(command)) > 0
+                && QByteArray(command).trimmed() == "cancel","Parent did not confirm an actual applied cancellation point");
+            client.cancel();
+        }
     });
     QObject::connect(&client,&MacNetworkHelperClient::finished,&app,[&](auto operation,auto result) {
         if (client.state() == MacNetworkHelperClient::State::Active) {
