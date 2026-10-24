@@ -2,6 +2,7 @@
 
 #include "networkhelper.h"
 #include "tunroutes.h"
+#include "tundns.h"
 #include <sys/types.h>
 
 class MacNetworkHelperState
@@ -30,6 +31,7 @@ private:
     UnixNetworkJournal guardian, captureJournal;
     UnixTunDevice device;
     MacTunRoutes capture;
+    MacTunDns dns;
 };
 
 // The daemon scopes all callers to the current kernel boot, independently of request data.

@@ -12,7 +12,6 @@ public:
     using CheckpointWriter = std::function<PlatformOperationResult(const QJsonObject &)>;
     // Blocking privileged worker API; the caller supplies its trusted bus, never request fields.
     explicit LinuxTunDns(const QDBusConnection &bus) : bus(bus) {}
-    static bool validDomains(const QStringList &domains);
     LinuxTunDns(const LinuxTunDns &) = delete;
     LinuxTunDns &operator=(const LinuxTunDns &) = delete;
     PlatformOperationResult apply(const UnixTunDevice &device, const QStringList &domains, const CheckpointWriter &checkpoint = {});

@@ -16,6 +16,7 @@ struct MacHelperConfiguration {
     QString address, peer;
     int mtu = 0;
     QStringList capturePrefixes;
+    QStringList dnsDomains;
 };
 
 QJsonObject macHelperRequest(const char *operation, const QUuid &owner, const QUuid &request);

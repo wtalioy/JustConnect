@@ -1,4 +1,5 @@
 #include "tundns.h"
+#include "infrastructure/platform/dnsdomains.h"
 #include "iprouteutility.h"
 #include "resolvedbus.h"
 #include <QDBusArgument>
@@ -52,22 +53,13 @@ bool fields(const QJsonObject &value, std::initializer_list<const char *> keys)
     for (const auto *key : keys) if (!value.contains(QLatin1String(key))) return false;
     return true;
 }
-bool domain(const QString &name)
-{
-    if (name.isEmpty() || name.size() > 253 || name.toLower() != name) return false;
-    for (const auto &label : name.split('.')) {
-        if (label.isEmpty() || label.size() > 63 || label.front() == '-' || label.back() == '-') return false;
-        for (const auto c : label) if (!(c >= 'a' && c <= 'z') && !(c >= '0' && c <= '9') && c != '-') return false;
-    }
-    return true;
-}
 bool routingDomains(const QJsonValue &value)
 {
     if (!value.isArray() || value.toArray().size() > LinuxRouteSnapshotRows) return false;
     QSet<QString> seen;
     for (const auto &item : value.toArray()) {
         const auto row = item.toObject(); const auto name = row["name"].toString();
-        if (!item.isObject() || !fields(row, {"name", "route_only"}) || !domain(name)
+        if (!item.isObject() || !fields(row, {"name", "route_only"}) || !canonicalDnsDomain(name)
             || row["route_only"] != true || seen.contains(name)) return false;
         seen.insert(name);
     }
@@ -249,24 +241,12 @@ PlatformOperationResult LinuxTunDns::change(const QJsonObject &next, bool restor
     return save(checkpoint);
 }
 
-bool LinuxTunDns::validDomains(const QStringList &names)
-{
-    if (names.isEmpty() || names.size() > LinuxRouteSnapshotRows) return false;
-    QSet<QString> seen;
-    for (const auto &name : names) {
-        if (!domain(name) || seen.contains(name)) return false;
-        seen.insert(name);
-    }
-    return true;
-}
-
 PlatformOperationResult LinuxTunDns::apply(const UnixTunDevice &device, const QStringList &names, const CheckpointWriter &checkpoint)
 {
     if (::geteuid() != 0) return {Status::PermissionDenied, "TUN DNS requires its privileged owner."};
-    if (!record.isEmpty() || device.descriptor() < 0 || device.owner().isNull() || names.isEmpty()
-        || names.size() > LinuxRouteSnapshotRows)
+    if (!record.isEmpty() || device.descriptor() < 0 || device.owner().isNull())
         return {Status::Failed, "An inactive DNS operation and newly owned configured TUN are required."};
-    if (!validDomains(names)) return {Status::Failed, "TUN DNS requires distinct canonical routing domains."};
+    if (!validTunDnsDomains(names)) return {Status::Failed, "TUN DNS requires distinct canonical routing domains."};
     QJsonArray domains;
     for (const auto &name : names) {
         domains.append(QJsonObject{{"name", name}, {"route_only", true}});

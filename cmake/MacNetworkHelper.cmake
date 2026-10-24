@@ -38,12 +38,13 @@ function(justconnect_mac_network_helper)
         "${REPO}/infrastructure/platform/macos/tundevice.cpp"
         "${REPO}/infrastructure/platform/macos/routesnapshot.cpp"
         "${REPO}/infrastructure/platform/macos/tunroutes.cpp"
+        "${REPO}/infrastructure/platform/macos/tundns.cpp"
         "${REPO}/infrastructure/platform/tundevice.cpp"
         "${REPO}/infrastructure/platform/networkjournal.cpp"
         "${REPO}/infrastructure/platform/platformcommand.cpp")
     target_include_directories(justconnect_macos_network_helper PUBLIC "${REPO}" "${CMAKE_CURRENT_BINARY_DIR}")
     target_compile_options(justconnect_macos_network_helper PRIVATE -fblocks)
-    target_link_libraries(justconnect_macos_network_helper PUBLIC Qt6::Core "-framework Security" "-framework CoreFoundation")
+    target_link_libraries(justconnect_macos_network_helper PUBLIC Qt6::Core "-framework Security" "-framework CoreFoundation" "-framework SystemConfiguration")
     add_executable(JustConnectNetworkHelper "${REPO}/infrastructure/platform/macos/networkhelpermain.cpp")
     target_link_libraries(JustConnectNetworkHelper PRIVATE justconnect_macos_network_helper)
     target_compile_options(JustConnectNetworkHelper PRIVATE -fblocks)

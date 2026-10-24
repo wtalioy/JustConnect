@@ -12,11 +12,22 @@
 #include <poll.h>
 #include <stdexcept>
 #include <sys/socket.h>
+#include <sys/uio.h>
 #include <unistd.h>
 
 static void check(bool ok, const char *message) { if (!ok) throw std::runtime_error(message); }
 static void report(const QJsonObject &value) { std::cout << QJsonDocument(value).toJson(QJsonDocument::Compact).constData() << std::endl; }
-static const MacHelperConfiguration configuration{"198.18.0.1","198.18.0.2",1400,{"198.18.0.6/32"}};
+static const MacHelperConfiguration configuration{"198.18.0.1","198.18.0.2",1400,{"198.18.0.6/32"},{"campus.justconnect-fixture.test"}};
+static void deliver(int control, int descriptor)
+{
+    char token = 'D'; iovec payload{&token,1};
+    union { cmsghdr alignment; char bytes[CMSG_SPACE(sizeof(int))]; } ancillary{};
+    msghdr message{}; message.msg_iov = &payload; message.msg_iovlen = 1;
+    message.msg_control = ancillary.bytes; message.msg_controllen = sizeof(ancillary.bytes);
+    auto *item = CMSG_FIRSTHDR(&message); item->cmsg_level = SOL_SOCKET; item->cmsg_type = SCM_RIGHTS; item->cmsg_len = CMSG_LEN(sizeof(int));
+    std::memcpy(CMSG_DATA(item),&descriptor,sizeof(descriptor));
+    check(::sendmsg(control,&message,0) == 1,"Deliver the ordinary test DNS descriptor");
+}
 static void packet(int device)
 {
     check((::fcntl(device,F_GETFL)&O_NONBLOCK) && (::fcntl(device,F_GETFD)&FD_CLOEXEC),"Delivered fd is blocking or inheritable");
@@ -66,7 +77,8 @@ int main(int argc,char **argv) try
         report({{"event","wire-denied"}}); return 0;
     }
     check(arguments.size() == 3 || arguments.size() == 4,"Invalid native client fixture arguments");
-    const auto mode = arguments[1]; const auto owner = arguments.size() == 4 ? QUuid(arguments[3]) : QUuid::createUuid();
+    const auto mode = arguments[1];
+    const auto owner = arguments.size() == 4 && mode != "--dns" ? QUuid(arguments[3]) : QUuid::createUuid();
     const int authorizationDescriptor = arguments[2].toInt();
     auto provider = [authorizationDescriptor](AuthorizationRef *authorization) {
         AuthorizationExternalForm external{};
@@ -88,7 +100,9 @@ int main(int argc,char **argv) try
             check(result.succeeded() && operation == MacNetworkHelperClient::Operation::Apply,"Ordinary signed apply failed");
             interface = client.ownedDevice()["interface"].toString(); index = client.ownedDevice()["index"].toInteger(); held = ::fcntl(client.descriptor(),F_DUPFD_CLOEXEC,0);
             check(held >= 0,"Retain ordinary device reference"); packet(held);
-            report({{"event","active"},{"owner",owner.toString(QUuid::WithoutBraces)},{"interface",interface}}); return;
+            if (mode == "--dns") deliver(arguments[3].toInt(),held);
+            report({{"event","active"},{"owner",owner.toString(QUuid::WithoutBraces)},{"interface",interface},
+                {"peer",configuration.peer},{"dns_domains",QJsonArray::fromStringList(configuration.dnsDomains)}}); return;
         }
         if (client.state() == MacNetworkHelperClient::State::RecoveryRequired) return;
         check(client.state() == MacNetworkHelperClient::State::Idle

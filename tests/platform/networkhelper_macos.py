@@ -1,5 +1,6 @@
 """Exercise the real signed XPC daemon on a disposable macOS runner; no desktop approval claim."""
 import argparse
+import array
 import ctypes
 import json
 import os
@@ -11,6 +12,7 @@ import select
 import shlex
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -109,6 +111,7 @@ def main(args):
     user_state = Path(LAYOUT['state_directory']) / boot / str(args.uid)
     assert not user_state.exists(), 'Refusing pre-existing ownership evidence'
     before = set(run('/sbin/ifconfig', '-l').stdout.decode().split())
+    dns_before = json.loads(run(args.dns_probe, '--snapshot').stdout)
     output = Path(args.output).resolve(); output.mkdir(parents=True, exist_ok=True)
     processes, keychains, grants = [], [], []
     original_keychains = shlex.split(run('/usr/bin/security', 'list-keychains', '-d', 'user').stdout.decode())
@@ -134,7 +137,7 @@ def main(args):
             launch['StandardOutPath'], launch['StandardErrorPath'] = str(output / 'daemon.out'), str(output / 'daemon.err')
             launch_path = directory / (SERVICE + '.plist'); launch_path.write_bytes(plistlib.dumps(launch)); launch_path.chmod(0o644)
 
-            def start(mode, *, app=bundle, owner=None, grant=False, target=account):
+            def start(mode, *, app=bundle, owner=None, grant=False, target=account, control=None):
                 def ordinary():
                     os.setgroups([]); os.setgid(target.pw_gid); os.setuid(target.pw_uid)
                 read_fd, write_fd = os.pipe()
@@ -142,13 +145,16 @@ def main(args):
                     authorization = Authorization(); grants.append(authorization); os.write(write_fd, authorization.external.raw)
                 os.close(write_fd)
                 command = [str(app / 'Contents/MacOS/JustConnect'), mode]
+                inherited = [read_fd]
                 if not mode.startswith('--wire-'):
-                    command += [str(read_fd)] + ([owner] if owner else [])
+                    command += [str(read_fd)] + ([str(control.fileno())] if control else [owner] if owner else [])
+                    if control:
+                        inherited.append(control.fileno())
                 elif owner:
                     command.append(owner)
                 error = (output / ('client-' + str(len(processes)) + '.err')).open('wb')
                 process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=error,
-                    preexec_fn=ordinary, pass_fds=(read_fd,), cwd='/', env={'HOME': target.pw_dir, 'PATH': '/usr/bin:/bin:/usr/sbin:/sbin'})
+                    preexec_fn=ordinary, pass_fds=inherited, cwd='/', env={'HOME': target.pw_dir, 'PATH': '/usr/bin:/bin:/usr/sbin:/sbin'})
                 error.close(); os.close(read_fd); processes.append(process); return process
 
             def event(process, expected):
@@ -180,6 +186,9 @@ def main(args):
                 result = run('/sbin/route', '-n', 'get', '-inet', '198.18.0.6', check=False)
                 return not re.search(r'^\s*interface:\s*' + re.escape(interface) + r'\s*$', result.stdout.decode(), re.M)
 
+            def dns_restored():
+                return json.loads(run(args.dns_probe, '--snapshot').stdout) == dns_before
+
             run('/bin/launchctl', 'bootstrap', 'system', launch_path)
             bootstrapped = True
             wait_for(lambda: user_state.parent.exists(), 'Signed root daemon did not start')
@@ -202,25 +211,53 @@ def main(args):
                 assert receipt(active['owner'], 'active') and not withdrawn(active['interface']), 'Foreign connection withdrew live ownership'
             client.stdin.write(b'restore\n'); client.stdin.flush(); event(client, 'restored'); finish(client)
             assert not (user_state / active['owner']).exists(), 'Confirmed restoration left an unacknowledged receipt'
+            wait_for(dns_restored, 'Normal restore left owned DNS settings')
+            parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_DGRAM)
+            descriptors = array.array('i')
+            try:
+                client = start('--dns', grant=True, control=child); child.close(); active = event(client, 'active')
+                assert select.select([parent], [], [], 5)[0], 'No ordinary DNS device handoff'
+                token, ancillary, flags, _ = parent.recvmsg(1, socket.CMSG_SPACE(descriptors.itemsize))
+                for level, kind, data in ancillary:
+                    if level == socket.SOL_SOCKET and kind == socket.SCM_RIGHTS:
+                        descriptors.frombytes(data[:len(data) - len(data) % descriptors.itemsize])
+                assert token == b'D' and not flags & socket.MSG_CTRUNC and len(descriptors) == 1
+                device = descriptors[0]; os.set_inheritable(device, False)
+                domain = active['dns_domains'][0]
+                wait_for(lambda: domain in run('/usr/sbin/scutil', '--dns').stdout.decode(), 'Owned resolver did not become effective')
+                lookup = run(sys.executable, ROOT / 'tests/platform/tundns_fixture.py', '--device', device,
+                    '--hostname', 'host-' + uuid.uuid4().hex + '.' + domain, '--peer', active['peer'],
+                    user=args.uid, group=account.pw_gid, extra_groups=(), pass_fds=(device,),
+                    env={'HOME': account.pw_dir, 'PATH': '/usr/bin:/bin:/usr/sbin:/sbin', 'PYTHONDONTWRITEBYTECODE': '1'})
+                print(lookup.stdout.decode(), end='', flush=True)
+                client.stdin.write(b'restore\n'); client.stdin.flush(); event(client, 'restored'); finish(client)
+            finally:
+                for descriptor in descriptors:
+                    os.close(descriptor)
+                parent.close(); child.close()
+            wait_for(dns_restored, 'System resolver query fixture left DNS settings')
             cancelled = str(uuid.uuid4())
             client = start('--cancel', grant=True, owner=cancelled); event(client, 'applying')
             wait_for(lambda: receipt(cancelled, 'active'), 'Cancellation did not reach real privileged apply')
             client.stdin.write(b'cancel\n'); client.stdin.flush(); event(client, 'restored'); finish(client)
             assert not list(user_state.iterdir()), 'Cancelled apply leaked ownership'
+            wait_for(dns_restored, 'Cancelled apply left owned DNS settings')
             client = start('--roundtrip', grant=True); active = event(client, 'active')
             client.kill(); client.wait(timeout=10)
             wait_for(lambda: receipt(active['owner'], 'restored') and withdrawn(active['interface']), 'Client EOF failed to restore owned capture')
+            wait_for(dns_restored, 'Client EOF failed to restore owned DNS')
             recovery = start('--recover', owner=active['owner']); event(recovery, 'restored'); finish(recovery)
             client = start('--roundtrip', grant=True); active = event(client, 'active')
             service = run('/bin/launchctl', 'print', 'system/' + SERVICE).stdout.decode()
             pid = re.search(r'^\s*pid = (\d+)\s*$', service, re.M); assert pid
             print('CHECK: kill managed helper pid', pid[1], flush=True)
             os.kill(int(pid[1]), signal.SIGKILL); event(client, 'lost')
+            wait_for(dns_restored, 'Killed helper session left owned DNS settings')
             wait_for(lambda: receipt(active['owner'], 'restored') and withdrawn(active['interface']), 'New daemon did not restore capture while ordinary fd remained open')
             client.stdin.write(b'exit\n'); client.stdin.flush(); finish(client)
             recovery = start('--recover', owner=active['owner']); event(recovery, 'restored'); finish(recovery)
             assert not list(user_state.iterdir()), 'Recovered ownership was not acknowledged'
-            print('PASS: signed root XPC, denied foreign identity and absent network rights, ordinary real UDP/fd, cancellation, EOF and daemon restart recovery', flush=True)
+            print('PASS: signed root XPC, identity/network authorization boundaries, ordinary UDP/fd and system DNS, cancellation, EOF and daemon restart recovery', flush=True)
         finally:
             for process in processes:
                 if process.poll() is None:
@@ -233,6 +270,7 @@ def main(args):
             for keychain in keychains:
                 run('/usr/bin/security', 'delete-keychain', keychain, check=False)
     wait_for(lambda: set(run('/sbin/ifconfig', '-l').stdout.decode().split()) == before, 'Owned utun survived completed fixture')
+    wait_for(lambda: json.loads(run(args.dns_probe, '--snapshot').stdout) == dns_before, 'Original DNS inventory changed after helper fixture')
     if user_state.exists():
         assert not list(user_state.iterdir()), 'Preserve unresolved ownership evidence'
         user_state.rmdir()
@@ -241,6 +279,6 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--uid', type=int, required=True)
-    for name in ('helper', 'client', 'plist', 'deploy-tool', 'revision', 'output'):
+    for name in ('helper', 'client', 'plist', 'deploy-tool', 'revision', 'output', 'dns-probe'):
         parser.add_argument('--' + name, required=True)
     main(parser.parse_args())
