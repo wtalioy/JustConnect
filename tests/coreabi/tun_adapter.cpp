@@ -87,6 +87,7 @@ static int exerciseApplicationNetworkAccess(const ConnectionProfile &profile)
         check(matches, "owned routes and DNS never become original protection scopes");
     };
     const bool withdrawalCrash = qgetenv("JC_NATIVE_NETWORK_WITHDRAW_CRASH") == "1";
+    const bool automaticExit = qgetenv("JC_NATIVE_NETWORK_AUTORESTART") == "1";
     const bool exitChange = qgetenv("JC_NATIVE_NETWORK_EXIT_CHANGE") == "1";
     const bool helperLoss = qgetenv("JC_NATIVE_NETWORK_HELPER_LOSS") == "1" || withdrawalCrash;
     int coreFinished = 0;
@@ -95,7 +96,8 @@ static int exerciseApplicationNetworkAccess(const ConnectionProfile &profile)
     bool sawPreparing = false;
     QObject::connect(engine, &CoreEngine::sessionStarted, [&] { ++started; });
     QObject::connect(&session, &ConnectionSession::finished, [&](ConnectionError error) {
-        const auto expected = (helperLoss || exitChange) && finished == 0 ? ConnectionError::OTHER : ConnectionError::NONE;
+        const auto expected = helperLoss && finished == 0 ? ConnectionError::OTHER
+            : exitChange && !automaticExit && finished == 0 ? ConnectionError::NETWORK_FAILED : ConnectionError::NONE;
         check(error == expected, "application network lifecycle retains its actual failure result"); ++finished;
     });
     QObject::connect(&session, &ConnectionSession::progressChanged, [&] {
@@ -105,17 +107,28 @@ static int exerciseApplicationNetworkAccess(const ConnectionProfile &profile)
     QByteArray previousOwner;
     const QDir hints(QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) + "/network-owners");
     for (int round = 0; round < 2; ++round) {
-        if (round) {
+        if (round && !automaticExit) {
             // Reproduce a crash between the durable UUID hint and the first privileged write.
             QSaveFile hint(hintPath);
             check(hint.open(QIODevice::WriteOnly) && hint.write(previousOwner) == previousOwner.size() && hint.commit(),
                   "seed an absent privileged owner for startup recovery");
         }
-        check(session.start(profile, {}), "start application connection");
+        if (!round || !automaticExit)
+            check(session.start(profile, {automaticExit,1000}), "start application connection");
         until([&] { return session.state() == ConnectionState::Running || !session.isActive(); });
         check(session.state() == ConnectionState::Running && session.phase() == ConnectionPhase::CampusReady
               && sawPreparing && started == round + 1 && tunReferences() == 2,
               "application confirms network ownership and core attachment before campus readiness");
+        if (automaticExit && round) {
+            check(session.reconnectAttempt() == 1,"Changed exit reused the existing reconnect budget");
+            until([&] { return !policy.isBusy(); });
+            bool changedGateway = false;
+            for (const auto &value : policy.model()["network"].toObject()["routes"].toArray()) {
+                const auto row = value.toObject();
+                changedGateway |= row["destination"] == "0.0.0.0/0" && row["gateway"] == "192.0.2.2";
+            }
+            check(changedGateway,"Automatic restart adopted the actual changed original exit");
+        }
         const auto files = hints.entryList({"*.owner"}, QDir::Files);
         check(files.size() == 1, "one durable network responsibility hint");
         hintPath = hints.filePath(files.first());
@@ -166,13 +179,28 @@ static int exerciseApplicationNetworkAccess(const ConnectionProfile &profile)
             std::cout << "PASS: automatic overlay protection and withdrawal route actual UDP to original then campus, including empty datagrams\n";
         }
         if (exitChange && round == 0) {
+            QMetaObject::Connection barrier;
+            if (automaticExit) {
+                barrier = QObject::connect(&session,&ConnectionSession::reconnectScheduled,&session,[&](int) {
+                    check(!finished && tunReferences() == 0 && !QFileInfo::exists(hintPath)
+                          && session.state() == ConnectionState::Reconnecting,"Restart is scheduled only after root ownership and core fd release");
+                    publish(".restored");
+                    const auto proceed = QString::fromLocal8Bit(qgetenv("JC_NATIVE_TUN_READY")) + ".continue";
+                    until([&] { return QFileInfo::exists(proceed); });
+                });
+            }
             publish({});
-            until([&] { return !session.isActive(); });
-            check(finished == 1 && tunReferences() == 0 && !QFileInfo::exists(hintPath)
-                  && session.state() == ConnectionState::Failed,"Changed original exit invalidates readiness and completes owned recovery");
-            publish(".restored");
-            const auto proceed = QString::fromLocal8Bit(qgetenv("JC_NATIVE_TUN_READY")) + ".continue";
-            until([&] { return QFileInfo::exists(proceed); });
+            until([&] { return session.state() == ConnectionState::Reconnecting || !session.isActive(); });
+            if (automaticExit) {
+                QObject::disconnect(barrier);
+                check(session.state() == ConnectionState::Reconnecting,"Changed exit retained the requested automatic restart");
+            } else {
+                check(finished == 1 && tunReferences() == 0 && !QFileInfo::exists(hintPath)
+                      && session.state() == ConnectionState::Failed,"Disabled automatic restart restores ownership and ends the connection");
+                publish(".restored");
+                const auto proceed = QString::fromLocal8Bit(qgetenv("JC_NATIVE_TUN_READY")) + ".continue";
+                until([&] { return QFileInfo::exists(proceed); });
+            }
             continue;
         }
         if (choose && !(withdrawalCrash && round == 0)) for (const auto *address : {"198.18.0.6","198.18.0.7"}) {
@@ -201,9 +229,10 @@ static int exerciseApplicationNetworkAccess(const ConnectionProfile &profile)
                   "prepare a policy transaction cancelled before core application");
         session.stop();session.stop();
         until([&] { return !session.isActive(); });
-        check(finished == round + 1 && tunReferences() == 0 && !QFileInfo::exists(hintPath),
+        check(finished == (automaticExit ? 1 : round + 1) && tunReferences() == 0 && !QFileInfo::exists(hintPath),
               "application restores owned network before releasing the core and responsibility hint");
     }
+    if (automaticExit) std::cout << "PASS: changed exit resumes automatically after confirmed restoration with a fresh owner and the changed gateway\n";
     if (exitChange) std::cout << "PASS: changed original exit automatically restores ownership and restarts with a fresh owner\n";
     if (withdrawalCrash) std::cout << "PASS: application capture withdrawal checkpoint crash restores DNS/routes and restarts with a fresh owner\n";
     if (helperLoss) std::cout << "PASS: application helper loss releases core/device before explicit recovery and fresh restart\n";

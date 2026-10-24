@@ -69,6 +69,13 @@ void ConnectionSessionState::recordError(ConnectionError error)
     }
 }
 
+bool ConnectionSessionState::interruptForReconnect()
+{
+    if (currentState != ConnectionState::Running) return false;
+    currentState = ConnectionState::Stopping;
+    return true;
+}
+
 bool ConnectionSessionState::requestStop()
 {
     desiredConnected = false;

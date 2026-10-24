@@ -186,9 +186,14 @@ void LinuxNetworkAccess::observeModel()
     if (stage != Stage::Ready || automaticPolicy || policy->isBusy()) return;
     const auto owned = helper.ownedConfiguration();
     const auto current = owned ? linuxOriginalExitSnapshot(policy->model()["network"].toObject(),*owned) : std::nullopt;
-    if (policy->status() != CoreEngine::RequestStatus::Success || !current || *current != originalExit) {
-        // shortcut: changed exits require reconnect; add live migration when source-route replacement is verified.
-        invalidateNetwork(QStringLiteral("原网络出口已变化或无法完整读取，正在恢复网络，请重新连接。"));
+    if (policy->status() != CoreEngine::RequestStatus::Success || !owned) {
+        invalidateNetwork(QStringLiteral("无法完整读取原网络，正在恢复网络。"));
+        return;
+    }
+    if (!current || *current != originalExit) {
+        observation.stop();
+        stage = Stage::Prepared;
+        emit restartRequired(attempt,QStringLiteral("原网络出口已变化，正在恢复网络。"));
         return;
     }
     automaticPolicy = true;

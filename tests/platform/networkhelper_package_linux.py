@@ -422,11 +422,12 @@ def main():
                                 client_cases.append('core-dns')
                                 application_environment = {**dns_environment, 'JC_NATIVE_NETWORK_SESSION': '1', 'JC_NATIVE_ORIGINAL_PEER': '1'}
 
-                                for change in ('overlay', 'exit'):
+                                for change in ('overlay', 'exit', 'exit-reconnect'):
                                     observation_ready = Path(caller_runtime.name) / f'application-observation-{change}.json'
                                     observing = subprocess.Popen(native_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                                         env={**application_environment, 'JC_NATIVE_NETWORK_OBSERVE': str(int(change == 'overlay')),
-                                             'JC_NATIVE_NETWORK_EXIT_CHANGE': str(int(change == 'exit')), 'JC_NATIVE_TUN_READY': str(observation_ready)},
+                                             'JC_NATIVE_NETWORK_EXIT_CHANGE': str(int(change.startswith('exit'))),
+                                             'JC_NATIVE_NETWORK_AUTORESTART': str(int(change == 'exit-reconnect')), 'JC_NATIVE_TUN_READY': str(observation_ready)},
                                         user=args.uid, group=account.pw_gid, extra_groups=(), start_new_session=True)
                                     observation_descriptors = []
                                     try:
@@ -443,18 +444,23 @@ def main():
                                         if change == 'overlay':
                                             original_peer.remove_overlay()
                                         else:
+                                            route = json.loads(ip('-j', '-4', 'route', 'get', '198.18.0.6'))
+                                            assert len(route) == 1 and route[0]['gateway'] == '192.0.2.2', 'recovery overwrote the external default route'
                                             ip('route', 'replace', 'default', 'dev', 'helperorig0')
                                             assert inventory() == dns_baseline and original_dns() == dns_settings, 'changed exit recovery left owned network state'
+                                            if change == 'exit-reconnect':
+                                                ip('route', 'replace', 'default', 'via', '192.0.2.2', 'dev', 'helperorig0')
                                             Path(str(observation_ready) + '.continue').touch()
                                         output, errors = observing.communicate(timeout=30)
                                         assert observing.returncode == 0, output + errors
-                                        expected = 'automatic overlay protection and withdrawal' if change == 'overlay' else 'changed original exit automatically restores ownership'
+                                        expected = 'automatic overlay protection and withdrawal' if change == 'overlay' else (
+                                            'changed exit resumes automatically' if change == 'exit-reconnect' else 'changed original exit automatically restores ownership')
                                         assert 'PASS: ' + expected in output, output
                                         print(output, end='', flush=True)
                                         client_cases.append('application-network-' + change)
                                     finally:
                                         original_peer.remove_overlay()
-                                        if change == 'exit':
+                                        if change.startswith('exit'):
                                             ip('route', 'replace', 'default', 'dev', 'helperorig0')
                                         if observing.poll() is None:
                                             os.killpg(observing.pid, signal.SIGKILL)
