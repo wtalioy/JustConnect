@@ -55,7 +55,8 @@ def kill_during_capture_delete(worker, journal, owner, prefix, begin, route_pres
                     deleting = [row for row in record['routes'] if row['prefix'] == prefix and row['delete_started'] is True]
                     if pid == worker and deleting:
                         assert len(deleting) == 1 and deleting[0]['applied']
-                        routes = json.loads(subprocess.check_output(['ip', '-N', '-j', '-4', 'route', 'show', 'table', str(record['table'])], text=True, timeout=3))
+                        # Explicit table queries omit the table attribute; match the backend's complete rows.
+                        routes = json.loads(subprocess.check_output(['ip', '-N', '-j', '-4', 'route', 'show', 'table', 'all'], text=True, timeout=3))
                         assert socket.if_nametoindex(record['interface']) == record['index'], 'owned device disappeared at the checkpoint'
                         present = deleting[0]['applied'] in routes
                         if present == route_present:
