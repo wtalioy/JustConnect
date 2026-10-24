@@ -1,6 +1,7 @@
 #include "networkaccess.h"
 #include "dnsroutepublisher.h"
 #include "iprouteutility.h"
+#include "networkownership.h"
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFileInfo>
@@ -20,6 +21,10 @@ LinuxNetworkAccess::LinuxNetworkAccess(CoreEngine *core, NetworkPolicySession *p
 {
     new LinuxDNSRoutePublisher(core, &helper, this);
     connect(&helper, &LinuxNetworkHelperClient::finished, this, &LinuxNetworkAccess::helperFinished);
+    connect(&helper, &LinuxNetworkHelperClient::stateChanged, this, [this](HelperState state) {
+        if (state != HelperState::Idle && state != HelperState::Active)
+            this->policy->setNetworkBusy(generation, true);
+    });
     connect(&helper, &LinuxNetworkHelperClient::ownershipLost, this, [this](Result result) {
         if (stage == Stage::Ready) { stage = Stage::Failed; emit lost(attempt, result); }
     });
@@ -29,9 +34,9 @@ LinuxNetworkAccess::LinuxNetworkAccess(CoreEngine *core, NetworkPolicySession *p
         if (stage == Stage::Stopping) { driveStop(); return; }
         if (stage != Stage::Activating) return;
         const auto prepared = worker.result();
-        if (!prepared.result.succeeded()) { stage = Stage::Prepared; emit ready(attempt, prepared.result); return; }
+        if (!prepared.result.succeeded()) { stage = Stage::Prepared; this->policy->setNetworkBusy(generation, false); emit ready(attempt, prepared.result); return; }
         const auto saved = saveOwner(attempt);
-        if (!saved.succeeded()) { stage = Stage::Prepared; emit ready(attempt, saved); return; }
+        if (!saved.succeeded()) { stage = Stage::Prepared; this->policy->setNetworkBusy(generation, false); emit ready(attempt, saved); return; }
         helper.apply(attempt, prepared.configuration);
     });
     connect(core, &CoreEngine::tunAttached, this, [this](const QString &id, CoreEngine::RequestStatus status) {
@@ -122,6 +127,7 @@ void LinuxNetworkAccess::prepareConfiguration()
     }
     const auto model = policy->model(), confirmed = policy->confirmedProtection();
     preparingConfiguration = true;
+    policy->setNetworkBusy(generation, true);
     worker.setFuture(QtConcurrent::run([model, confirmed, dns = localDNS, mtu = mtu] {
         return prepareLinuxNetworkHelper(model["resources"].toObject(), confirmed, model["network"].toObject(),
             DnsSnapshot{{}, model["dns"].toObject()}, dns, mtu);
@@ -130,6 +136,19 @@ void LinuxNetworkAccess::prepareConfiguration()
 
 void LinuxNetworkAccess::helperFinished(Operation operation, Result result)
 {
+    if ((operation == Operation::Apply || operation == Operation::Extend) && result.succeeded()
+        && helper.state() == HelperState::Active && (stage == Stage::Ready || stage == Stage::Activating)) {
+        if (operation == Operation::Extend && !result.mayHaveChanged) {
+            policy->setNetworkBusy(generation, false);
+            return;
+        }
+        const auto configuration = helper.ownedConfiguration();
+        const auto filter = configuration ? linuxOriginalNetworkView(helper.owner(), *configuration, helper.ownedDevice(),
+            int(::if_nametoindex(configuration->originalInterface.toLatin1().constData()))) : NetworkPolicySession::OriginalViewFilter{};
+        if (!filter) { stage = Stage::Failed; emit lost(attempt, {Status::Failed, QStringLiteral("无法识别活动网络接管的读取范围。"), true}); return; }
+        policy->setOriginalViewFilter(generation, filter);
+        policy->setNetworkBusy(generation, false);
+    }
     if (operation == Operation::Extend && stage == Stage::Ready) {
         if (!result.succeeded()) { stage = Stage::Failed; emit lost(attempt, result); }
         return;
@@ -145,7 +164,7 @@ void LinuxNetworkAccess::helperFinished(Operation operation, Result result)
         stage = result.succeeded() ? Stage::Prepared : Stage::Failed;
         emit prepared(attempt, result);
     } else if (stage == Stage::Activating && operation == Operation::Apply) {
-        if (!result.succeeded()) { stage = Stage::Prepared; emit ready(attempt, result); return; }
+        if (!result.succeeded()) { stage = Stage::Prepared; policy->setNetworkBusy(generation, false); emit ready(attempt, result); return; }
         attaching = true;
         core->attachTUN(generation, helper.descriptor(), quint32(mtu), true);
     }

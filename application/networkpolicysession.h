@@ -6,15 +6,20 @@
 #include <QPointer>
 #include <functional>
 #include <optional>
+#include <utility>
 
 class NetworkPolicySession : public QObject
 {
     Q_OBJECT
 public:
+    using OriginalView = std::pair<QJsonObject, QJsonObject>;
+    using OriginalViewFilter = std::function<std::optional<OriginalView>(const QJsonObject &, const QJsonObject &)>;
     using DnsReader = std::function<DnsSnapshot()>;
     NetworkPolicySession(CoreEngine *engine, DnsReader reader, QObject *parent = nullptr);
     ~NetworkPolicySession() override;
     void clear();
+    void setNetworkBusy(const QString &generation, bool busy);
+    void setOriginalViewFilter(const QString &generation, OriginalViewFilter filter);
     bool refresh();
     bool setCampusAddress(const QString &address, bool campus);
     bool setCampusName(const QString &name, bool campus);
@@ -23,7 +28,7 @@ public:
     QJsonArray campusNames() const { return confirmedPolicy["campus_names"].toArray(); }
     bool isPolicyUpdating() const { return !pendingPolicy.isEmpty(); }
     std::optional<CoreEngine::RequestStatus> policyStatus() const { return lastPolicyStatus; }
-    bool isBusy() const { return workerBusy || networkPending || resourcesPending || isPolicyUpdating(); }
+    bool isBusy() const { return refreshQueued || networkBusy || workerBusy || networkPending || resourcesPending || isPolicyUpdating(); }
     CoreEngine::RequestStatus status() const { return currentStatus; }
     QJsonObject confirmedProtection() const { return confirmedPolicy; }
     QJsonObject model() const { return currentModel; }
@@ -37,6 +42,8 @@ private:
     void publish();
     QPointer<CoreEngine> engine;
     DnsReader reader;
+    OriginalViewFilter originalViewFilter;
+    bool networkBusy = false, refreshQueued = false;
     QFutureWatcher<ModelResult> watcher;
     QString generation;
     quint64 serial = 0;

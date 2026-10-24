@@ -1,5 +1,6 @@
 #include "infrastructure/platform/tundevice.h"
 #include <QCoreApplication>
+#include <ifaddrs.h>
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -170,6 +171,16 @@ int main(int argc, char **argv) try
           && applied["ipv4"].toArray() == QJsonArray{QJsonObject{{"source", "198.18.0.1"},
               {"peer", "198.18.0.2"}, {"netmask", "255.255.255.255"}}},
           "Device ownership lost its original and verified applied configuration");
+#ifdef Q_OS_LINUX
+    check(applied["ipv6_disabled"] == true, "IPv4-only TUN omitted its IPv6 isolation confirmation");
+    ifaddrs *addresses = nullptr;
+    check(::getifaddrs(&addresses) == 0, "Read configured interface families");
+    bool unexpectedIPv6 = false;
+    for (auto *entry = addresses; entry; entry = entry->ifa_next)
+        if (entry->ifa_addr && entry->ifa_addr->sa_family == AF_INET6 && QByteArray(entry->ifa_name) == device.name().toLatin1()) unexpectedIPv6 = true;
+    ::freeifaddrs(addresses);
+    check(!unexpectedIPv6, "IPv4-only TUN generated an IPv6 address");
+#endif
     check(!device.createIpv4(QUuid::createUuid(), "198.19.0.1", "198.19.0.2", 1420).succeeded()
           && device.snapshot() == snapshot && device.descriptor() == descriptor,
           "Repeated configured allocation replaced an active owner's device");

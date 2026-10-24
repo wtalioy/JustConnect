@@ -33,12 +33,12 @@ func readRoutes(_ []Interface) ([]Route, error) {
 		if row.Dst != nil {
 			destination = row.Dst.String()
 		}
-		item := Route{Destination: destination, InterfaceIndex: row.LinkIndex, Table: row.Table, Metric: row.Priority, Protocol: int(row.Protocol), Kind: row.Type, Flags: row.Flags}
+		item := Route{Destination: destination, InterfaceIndex: row.LinkIndex, Table: row.Table, Metric: row.Priority, Scope: int(row.Scope), Protocol: int(row.Protocol), Kind: row.Type, Flags: row.Flags}
 		if row.Gw != nil {
 			item.Gateway = row.Gw.String()
 		}
 		if row.Src != nil {
-			item.Source = row.Src.String()
+			item.Source = row.Src.IP.String()
 		}
 		for _, hop := range row.MultiPath {
 			value := NextHop{InterfaceIndex: hop.LinkIndex, Weight: hop.Hops + 1, Flags: hop.Flags}

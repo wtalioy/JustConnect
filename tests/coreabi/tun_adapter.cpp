@@ -4,6 +4,8 @@
 #include "infrastructure/platform/linux/networkhelperclient.h"
 #include "infrastructure/platform/linux/dnsroutepublisher.h"
 #include "infrastructure/platform/linux/networkaccess.h"
+#include "application/networkprotection.h"
+#include "infrastructure/platform/linux/iprouteutility.h"
 #include <QStandardPaths>
 #include "tests/platform/networkhelperfixture.h"
 #include "tuntraffic.h"
@@ -66,6 +68,24 @@ static int exerciseApplicationNetworkAccess(const ConnectionProfile &profile)
     QObject::connect(&session, &ConnectionSession::authenticationRequired, [engine](const QJsonObject &request) {
         engine->respond(CoreEngine::responseFor(request, {{"action", "submit"}, {"code", "fixture-code"}}));
     });
+    QJsonObject initialPolicy, lastNativeNetwork;
+    QObject::connect(engine, &CoreEngine::initialProtectionApplied, [&](const QJsonObject &value) { initialPolicy = value; });
+    QObject::connect(engine, &CoreEngine::snapshotReady, [&](CoreEngine::Snapshot kind, const QString &, const QJsonObject &value, CoreEngine::RequestStatus status) {
+        if (kind == CoreEngine::Snapshot::Network && status == CoreEngine::RequestStatus::Success) lastNativeNetwork = value;
+    });
+    const auto originalView = [&](const QUuid &owner) {
+        until([&] { return !policy.isBusy(); });
+        const auto model = policy.model();
+        const auto protection = protectionConfiguration(model["targets"].toArray(), model["name_targets"].toArray());
+        bool rulesOriginal = true;
+        for (const auto &value : model["network"].toObject()["policy_rules"].toArray())
+            rulesOriginal &= value.toObject()["table"].toInteger() != linuxSourceTable(owner);
+        const bool matches = rulesOriginal && policy.status() == CoreEngine::RequestStatus::Success
+            && protection["protected"] == initialPolicy["protected"] && protection["protected_names"] == initialPolicy["protected_names"];
+        if (!matches) std::cerr << QJsonDocument(QJsonObject{{"initial", initialPolicy}, {"view", protection}, {"model", model},
+            {"raw_network", lastNativeNetwork}}).toJson(QJsonDocument::Compact).toStdString() << '\n';
+        check(matches, "owned routes and DNS never become original protection scopes");
+    };
     int started = 0, finished = 0;
     bool sawPreparing = false;
     QObject::connect(engine, &CoreEngine::sessionStarted, [&] { ++started; });
@@ -98,17 +118,21 @@ static int exerciseApplicationNetworkAccess(const ConnectionProfile &profile)
         const auto owner = hint.readAll();
         check(!QUuid(owner).isNull() && owner != previousOwner, "fresh root ownership for each attempt");
         previousOwner = owner;
+        originalView(QUuid(owner));
+        check(policy.refresh(), "explicit original-network refresh remains available during takeover");
+        originalView(QUuid(owner));
         auto lookup = std::async(std::launch::async, [] { return systemAddresses("campus.test"); });
         until([&] { return lookup.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready; });
         const auto addresses = lookup.get();
         check(addresses.size() == 1, "application publishes campus DNS through the owned helper");
+        originalView(QUuid(owner));
         exerciseNativeTUNTraffic(QHostAddress(addresses.first()));
         session.stop();session.stop();
         until([&] { return !session.isActive(); });
         check(finished == round + 1 && tunReferences() == 0 && !QFileInfo::exists(hintPath),
               "application restores owned network before releasing the core and responsibility hint");
     }
-    std::cout << "PASS: ordinary native TCP/UDP via application network startup recovery, campus readiness, DNS and ordered stop/restart\n";
+    std::cout << "PASS: ordinary native TCP/UDP via application network startup recovery, campus readiness, original network views, DNS and ordered stop/restart\n";
     return 0;
 }
 
