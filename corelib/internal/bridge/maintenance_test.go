@@ -30,6 +30,7 @@ func TestOnlineMaintenanceAndIdleTrafficControls(t *testing.T) {
 			g.probeDNS.Store(true)
 			config := g.config(t)
 			observations := make(chan [2]string, 1024)
+			invalidated := make(chan struct{})
 			var invalidations, saves atomic.Int32
 			options := corelib.Options{
 				Client: atrust.ClientOptions{UnderlayDialer: &cacheDialer{}, TLSConfig: g.HTTP.Client().Transport.(*http.Transport).TLSClientConfig.Clone(),
@@ -39,7 +40,7 @@ func TestOnlineMaintenanceAndIdleTrafficControls(t *testing.T) {
 					ChallengeHandler: authchallenge.HandlerFuncs{Code: func(authchallenge.CodeChallenge) (authchallenge.CodeResponse, error) {
 						return authchallenge.CodeResponse{Code: "fixture-code"}, nil
 					}},
-					SaveClientData: func([]byte) error { saves.Add(1); return nil }, ClientDataInvalidated: func() { invalidations.Add(1) }},
+					SaveClientData: func([]byte) error { saves.Add(1); return nil }, ClientDataInvalidated: func() { invalidations.Add(1); close(invalidated) }},
 				KeepAliveMode: mode, KeepAliveURL: "http://campus.test/repeatable", DisableRemoteDNS: test.disableDNS,
 			}
 			ctx, cancel := context.WithCancel(t.Context())
@@ -56,9 +57,11 @@ func TestOnlineMaintenanceAndIdleTrafficControls(t *testing.T) {
 			case <-time.After(5 * time.Second):
 				t.Fatal("session startup timed out")
 			}
+			observationTimeout := corelib.TrafficProbeTimeout + 3*time.Second
 			wait := func(stage, result string) {
 				t.Helper()
-				deadline := time.NewTimer(3 * time.Second)
+				// A renewal follows the preceding traffic probe on the same worker.
+				deadline := time.NewTimer(observationTimeout)
 				defer deadline.Stop()
 				for {
 					select {
@@ -99,6 +102,11 @@ func TestOnlineMaintenanceAndIdleTrafficControls(t *testing.T) {
 			g.authConfigFails.Store(false)
 			wait("renewal", "succeeded")
 			g.expireCookies.Store(true)
+			select {
+			case <-invalidated:
+			case <-time.After(observationTimeout):
+				t.Fatal("explicit expiry was not detected after the traffic probe")
+			}
 			select {
 			case err := <-done:
 				if !errors.Is(err, auth.ErrSessionInvalid) {
