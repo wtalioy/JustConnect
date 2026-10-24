@@ -111,7 +111,7 @@ Linux 活动连接每两秒通过现有 `NetworkPolicySession` 读取完整原�
 
 `linuxOriginalExitSnapshot` 比较原接口身份／源地址、所属 IPv4 路由、默认／分割默认路由与外部策略规则，排序消除枚举顺序差异；不使用已被自身源规则固定的查询来证明原出口未变。普通新增覆盖接口／路由可动态进入保护；原出口或策略路由变化、完整读取失败、尚不支持的 DNS 路由域变化及自动事务失败触发既有有序恢复，撤销校园就绪并提示重新连接，不自动重复认证。已确认出口的运行中迁移仍待验证。原设备真实消失后，仅在名称和原索引均未被复用时清理已确认的所属源规则；改名、替换、未知引用及外部值仍保留责任。
 
-本地原生增量通过覆盖网络加入／移除后的实际原端→校园 UDP（含空报文），以及默认出口改变后的自动恢复、fd／提示清理和新 UUID 实际 TCP／UDP。普通用户通过同一已安装助手、C ABI 与真实 resolved 完成，原 DNS／IPv4／IPv6 清单保持完整；源设备删除、策略双确认／失败／旧代和界面选中行另有针对性回归。当前 30 安装场景与构建证据归 `build/reports/network-observation.json`，CI、桌面／真实网络迁移及其他平台仍待。
+本地原生增量通过覆盖网络加入／移除后的实际原端→校园 UDP（含空报文），以及默认出口改变后的自动恢复、fd／提示清理和新 UUID 实际 TCP／UDP。普通用户通过同一已安装助手、C ABI 与真实 resolved 完成，原 DNS／IPv4／IPv6 清单保持完整；源设备删除、策略双确认／失败／旧代和界面选中行另有针对性回归。`c309971` 的三平台 Tests 与六组 Core ABI 已通过，30 安装场景与构建证据归 `build/reports/network-observation.json`；桌面／真实网络迁移及其他平台仍待。
 
 系统包提供 `justconnect-network-recovery.timer` 和同名 oneshot service，由 system manager 在 `system.slice` 运行，权限限定为 root 与 `CAP_NET_ADMIN`。定时器启动一秒后检查，此后每次服务结束五秒后再次检查，时间精度一秒；服务不保留 active 状态，避免阻止后续触发，依据 [systemd.timer](https://www.freedesktop.org/software/systemd/man/latest/systemd.timer.html)。服务仅可写固定状态目录，父子目录由 `StateDirectory` 创建为 0700。安装包后管理员须执行 `sudo systemctl daemon-reload` 和 `sudo systemctl enable --now justconnect-network-recovery.timer`；GUI 不自动启用服务。每次应用／追加前，助手以固定受信 `systemctl` 和最小环境核对定时器运行、服务身份与当前网络命名空间；未启用或命名空间不同即拒绝，尚未写入网络。恢复／回执清理不依赖定时器仍启用。
 
