@@ -306,7 +306,7 @@ func (i *tunIngress) deviceFailure(operation string, err error) {
 	}
 }
 
-func (i *tunIngress) close() {
+func (i *tunIngress) stopPackets() {
 	i.mu.Lock()
 	i.closed = true
 	i.mu.Unlock()
@@ -314,6 +314,11 @@ func (i *tunIngress) close() {
 	i.link.Close()
 	i.pumps.Wait()
 	_ = i.stack.RemoveNIC(tunNIC)
+	// Retire TCP processors before waking all relays; UDP endpoints still drain through their owner.
+	i.stack.TransportProtocolInstance(tcp.ProtocolNumber).Close()
+}
+
+func (i *tunIngress) close() {
 	done := make(chan struct{})
 	go func() { i.workers.Wait(); close(done) }()
 	// A forwarder may register its handshake after shutdown started.

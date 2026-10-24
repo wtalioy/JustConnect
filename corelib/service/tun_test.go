@@ -71,9 +71,12 @@ func (d *packetDevice) Write(b []byte) (int, error) {
 }
 func (d *packetDevice) Close() error { d.once.Do(func() { close(d.closed) }); return nil }
 
-func tunPeer(t *testing.T, device *packetDevice) *stack.Stack {
+func tunPeer(t *testing.T, device *packetDevice, protocols ...stack.TransportProtocolFactory) *stack.Stack {
 	t.Helper()
-	s := stack.New(stack.Options{NetworkProtocols: []stack.NetworkProtocolFactory{ipv4.NewProtocol}, TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol, udp.NewProtocol}})
+	if len(protocols) == 0 {
+		protocols = []stack.TransportProtocolFactory{tcp.NewProtocol, udp.NewProtocol}
+	}
+	s := stack.New(stack.Options{NetworkProtocols: []stack.NetworkProtocolFactory{ipv4.NewProtocol}, TransportProtocols: protocols})
 	link := channel.New(32, 1400, "")
 	if err := s.CreateNIC(1, link); err != nil {
 		t.Fatal(err)
@@ -495,7 +498,7 @@ func TestTUNBoundsFlowsAndJoinsFullCapacityOnShutdown(t *testing.T) {
 		}
 	}()
 	p, device := newIngressOwner(t, campus, nil, []client.IPResource{ingressResource("udp", 53)})
-	peer := tunPeer(t, device)
+	peer := tunPeer(t, device, udp.NewProtocol)
 	destination := tcpip.FullAddress{NIC: 1, Addr: tcpip.AddrFrom4([4]byte{203, 0, 113, 7}), Port: 53}
 	for n := 0; n <= maxTUNFlows; n++ {
 		conn, err := gonet.DialUDP(peer, nil, &destination, ipv4.ProtocolNumber)

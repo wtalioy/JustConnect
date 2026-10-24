@@ -209,6 +209,9 @@ func (p *Listeners) Close() {
 		if p.proxy != nil {
 			p.proxy.close()
 		}
+		if p.tun != nil {
+			p.tun.stopPackets()
+		}
 		for conn := range connections {
 			_ = conn.Close()
 		}
