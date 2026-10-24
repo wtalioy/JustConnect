@@ -1,5 +1,4 @@
 #include "infrastructure/platform/networkjournal.h"
-#include "infrastructure/platform/linux/ownedroutetable.h"
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
@@ -147,7 +146,7 @@ int main(int argc, char **argv) try
           && !journal.store(second).succeeded() && !journal.remove().succeeded() && bytes(file)==corrupt,
           "Corrupt UTF-8 ownership was accepted, overwritten or removed during a fresh load");
     check(QFile::remove(file),"Remove the owned corrupt-input fixture");
-    put(file,QByteArray(LinuxOwnedRouteTable::MaxSnapshotBytes+1,'x'));
+    put(file,QByteArray(NetworkJournalMaxBytes+1,'x'));
     check(!journal.load(loaded).succeeded() && loaded.isEmpty() && !journal.store(second).succeeded()
           && !journal.remove().succeeded(),"Oversized journal was loaded, replaced or removed");
     check(QFile::remove(file),"Remove the owned oversized fixture");
