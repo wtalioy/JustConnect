@@ -9,8 +9,8 @@
 #include <QSaveFile>
 #include <QThread>
 #include <QTimer>
+#include <QTcpServer>
 #include <netdb.h>
-#include <arpa/inet.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <memory>
@@ -32,6 +32,22 @@ static int tunReferences() {
         if (size > 0 && QByteArray(target, size) == "/dev/net/tun") ++count;
     }
     return count;
+}
+static QStringList systemAddresses(const char *hostname, int family = AF_INET) {
+    addrinfo hints{};
+    hints.ai_family = family;
+    hints.ai_socktype = SOCK_STREAM;
+    addrinfo *answer = nullptr;
+    check(::getaddrinfo(hostname, nullptr, &hints, &answer) == 0 && answer, "ordinary system DNS lookup succeeded");
+    QStringList addresses;
+    for (auto *entry = answer; entry; entry = entry->ai_next) {
+        char numeric[NI_MAXHOST];
+        check(::getnameinfo(entry->ai_addr, entry->ai_addrlen, numeric, sizeof(numeric), nullptr, 0, NI_NUMERICHOST) == 0,
+              "system DNS returned a numeric address");
+        addresses.append(QString::fromLatin1(numeric));
+    }
+    ::freeaddrinfo(answer);
+    return addresses;
 }
 int main(int argc, char **argv) {
     QCoreApplication app(argc, argv);
@@ -104,17 +120,22 @@ int main(int argc, char **argv) {
         until([&] { return replies.size() > previous; });
         check(replies.last() == CoreEngine::RequestStatus::Success, "queued fd remains valid after caller closes its reference");
         if (systemDNS) {
-            addrinfo hints{};
-            hints.ai_family = AF_INET;
-            hints.ai_socktype = SOCK_STREAM;
-            addrinfo *answer = nullptr;
-            check(::getaddrinfo("campus.test", nullptr, &hints, &answer) == 0 && answer,
-                  "ordinary system resolver reached the core through helper-owned DNS");
-            for (auto *entry = answer; entry; entry = entry->ai_next) {
-                const auto *address = reinterpret_cast<const sockaddr_in *>(entry->ai_addr);
-                check(address->sin_addr.s_addr == ::inet_addr("198.18.0.6"), "system DNS preserved the authorized campus resource");
+            for (const auto &address : systemAddresses("campus.test"))
+                check(address == "198.18.0.6", "system DNS preserved the authorized campus resource");
+            for (const auto *hostname : {"public.test", "host.original.test"}) {
+                for (const auto &address : systemAddresses(hostname))
+                    check(address == "203.0.113.9", "public and original names retain their original DNS path");
+                for (const auto &address : systemAddresses(hostname, AF_INET6))
+                    check(address == "2001:db8::9", "original IPv6 DNS answers remain available");
             }
-            ::freeaddrinfo(answer);
+            for (const auto &address : systemAddresses("localhost", AF_UNSPEC))
+                check(QHostAddress(address).isLoopback(), "localhost remains on the local computer");
+            QTcpServer localServer;
+            check(localServer.listen(QHostAddress::LocalHost), "open an ordinary local TCP listener");
+            QTcpSocket localClient;
+            localClient.connectToHost("localhost", localServer.serverPort());
+            check(localClient.waitForConnected(5000) && localClient.peerAddress().isLoopback(),
+                  "localhost TCP still reaches this computer during campus DNS takeover");
             std::cout << "PASS: ordinary getaddrinfo through installed helper and core TUN DNS\n" << std::flush;
         }
         exerciseNativeTUNTraffic();
