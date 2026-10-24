@@ -24,6 +24,7 @@ public:
     void setPolicyApplier(const QString &generation, PolicyApplier applier);
     void completePolicy(const QString &generation, const QString &revision, CoreEngine::RequestStatus status);
     bool refresh();
+    CoreEngine::RequestStatus synchronizeProtection();
     bool setCampusAddress(const QString &address, bool campus);
     bool setCampusName(const QString &name, bool campus);
     QString currentGeneration() const { return generation; }

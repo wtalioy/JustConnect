@@ -73,6 +73,25 @@ int main(int argc, char **argv) try {
     }
     exitRows = QJsonArray{exits[0]};
     check(!verifyLinuxCaptureExit(config,config.capturePrefixes,exitReader).succeeded(),"Truncated original exit accepted");
+    auto native = network;auto iface = native["interfaces"].toArray()[0].toObject();iface["index"] = 2;
+    native["interfaces"] = QJsonArray{iface};
+    native["routes"] = QJsonArray{QJsonObject{{"destination","0.0.0.0/0"},{"interface_index",2},{"gateway",config.originalGateway}}};
+    native["policy_rules"] = QJsonArray{QJsonObject{{"priority",0},{"table",255}}};
+    const auto baselineExit = linuxOriginalExitSnapshot(native,config);
+    check(bool(baselineExit),"Read complete original exit identity");
+    auto overlay = native;
+    auto interfaces = overlay["interfaces"].toArray();interfaces.append(QJsonObject{{"name","overlay0"},{"index",3},
+        {"up",true},{"loopback",false},{"addresses",QJsonArray{"100.64.0.1/24"}}});overlay["interfaces"] = interfaces;
+    auto nativeRoutes = overlay["routes"].toArray();nativeRoutes.append(QJsonObject{{"destination","100.64.0.0/24"},{"interface_index",3}});
+    overlay["routes"] = nativeRoutes;
+    check(linuxOriginalExitSnapshot(overlay,config) == baselineExit,"Unrelated overlay protection invalidated the confirmed original exit");
+    auto changed = native;iface["up"] = false;changed["interfaces"] = QJsonArray{iface};
+    check(!linuxOriginalExitSnapshot(changed,config),"A down original interface remained valid");
+    changed = native;auto changedRoute = native["routes"].toArray()[0].toObject();changedRoute["gateway"] = "192.0.2.253";
+    changed["routes"] = QJsonArray{changedRoute};
+    check(linuxOriginalExitSnapshot(changed,config) != baselineExit,"Owned source pins hid an externally changed gateway");
+    changed = native;changed["policy_rules"] = QJsonArray{QJsonObject{{"priority",1},{"table",123}}};
+    check(linuxOriginalExitSnapshot(changed,config) != baselineExit,"Changed external policy routing remained trusted");
     auto injection = resources;
     injection["underlay_interface"] = "original0\nroute del default";
     check(!prepareLinuxNetworkHelper(injection,policy,network,dns,"10.0.0.3:53",1400,reader).result.succeeded() && reads == 1,

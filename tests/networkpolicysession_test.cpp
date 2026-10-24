@@ -152,10 +152,48 @@ static void ownershipViewsStaySerializedAndGenerationBound()
           "Failed ownership projection published partial facts or changed the core policy");
 }
 
+static void synchronizeCurrentProtection()
+{
+    Engine engine;
+    QJsonObject dns{{"nrpt",QJsonArray{QJsonObject{{"Namespace",QJsonArray{".original.test"}}}}}};
+    NetworkPolicySession session(&engine,[&] { return DnsSnapshot{{},dns}; });
+    emit engine.sessionStarted("observe");reply(engine,"observe","192.168.10.19");
+    until([&] { return !session.isBusy(); });
+    check(session.setCampusAddress("192.168.10.20",true),"Seed explicit address choice");
+    emit engine.policyUpdated("observe",engine.policies.last()["revision"].toString(),Status::Success);
+    check(session.setCampusName("host.original.test",true),"Seed explicit name choice");
+    emit engine.policyUpdated("observe",engine.policies.last()["revision"].toString(),Status::Success);
+    const auto before = session.confirmedProtection();const auto writes = engine.policies.size();
+    check(session.synchronizeProtection() == Status::Success && engine.policies.size() == writes,
+          "Unchanged protection wrote a new policy revision");
+    dns = {{"nrpt",QJsonArray{QJsonObject{{"Namespace",QJsonArray{".next.test"}}}}}};
+    check(session.refresh() && session.synchronizeProtection() == Status::Unavailable,"Incomplete native facts reached policy synchronization");
+    reply(engine,"observe","192.168.11.19");until([&] { return !session.isBusy(); });
+    check(session.confirmedProtection() == before && engine.policies.size() == writes,"Read-only refresh silently applied protection");
+    QJsonObject proposed;
+    session.setPolicyApplier("observe",[&](const QJsonObject &value) { proposed = value; });
+    check(session.synchronizeProtection() == Status::Pending && !proposed.isEmpty()
+          && proposed["protected"] != before["protected"] && proposed["protected_names"] != before["protected_names"]
+          && proposed["campus"] == before["campus"] && proposed["campus_names"] == before["campus_names"]
+          && session.confirmedProtection() == before,"Automatic synchronization lost choices or published before confirmation");
+    emit engine.policyUpdated("observe",proposed["revision"].toString(),Status::Success);
+    check(session.confirmedProtection() == before,"Core-only acknowledgement confirmed platform protection");
+    session.completePolicy("observe",proposed["revision"].toString(),Status::Failed);
+    check(session.confirmedProtection() == before && session.synchronizeProtection() == Status::Pending,
+          "Failed synchronization changed confirmed protection or blocked retry");
+    session.completePolicy("stale",proposed["revision"].toString(),Status::Success);
+    check(session.isPolicyUpdating(),"Stale synchronization settled current ownership");
+    session.completePolicy("observe",proposed["revision"].toString(),Status::Success);
+    check(session.confirmedProtection() == proposed && session.synchronizeProtection() == Status::Success,
+          "Both confirmations did not settle new protection idempotently");
+    session.clear();check(session.synchronizeProtection() == Status::Unavailable,"Stopped generation synchronized its old native model");
+}
+
 int main(int argc, char **argv) try
 {
     QCoreApplication app(argc, argv);
     coordinatedPolicyRequiresBothConfirmations();
+    synchronizeCurrentProtection();
     ownershipViewsStaySerializedAndGenerationBound();
     Engine engine;
     std::atomic_int reads = 0;

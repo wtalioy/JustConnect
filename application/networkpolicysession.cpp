@@ -144,6 +144,21 @@ bool NetworkPolicySession::refresh()
     return true;
 }
 
+CoreEngine::RequestStatus NetworkPolicySession::synchronizeProtection()
+{
+    if (!engine || generation.isEmpty() || isBusy() || currentStatus != Status::Success
+        || networkVersion.toInteger() <= 0 || confirmedPolicy.isEmpty()) return Status::Unavailable;
+    auto policy = protectionConfiguration(currentModel["targets"].toArray(),currentModel["name_targets"].toArray());
+    policy["campus"] = campusAddresses();
+    policy["campus_names"] = campusNames();
+    if (policy["protected"] == confirmedPolicy["protected"] && policy["protected_names"] == confirmedPolicy["protected_names"])
+        return Status::Success;
+    policy["generation"] = generation;
+    policy["schema_version"] = networkVersion;
+    if (!submitPolicy(policy)) return lastPolicyStatus.value_or(Status::Failed);
+    return isPolicyUpdating() ? Status::Pending : lastPolicyStatus.value_or(Status::Failed);
+}
+
 bool NetworkPolicySession::setCampusAddress(const QString &text, bool campus)
 {
     if (!engine || generation.isEmpty() || networkBusy || isPolicyUpdating()) return false;

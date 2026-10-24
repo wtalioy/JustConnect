@@ -50,7 +50,7 @@ bool LinuxOwnedRouteTable::identity() const
 {
     const auto current = ::if_nametoindex(interfaceName.toLatin1().constData());
     return interfaceIndex && !networkNamespace.isEmpty() && linuxNetworkNamespace()==networkNamespace
-        && (current == interfaceIndex || (role == Role::Capture && !current && [&] {
+        && (current == interfaceIndex || (!current && [&] {
             char name[IF_NAMESIZE]{};return !::if_indextoname(interfaceIndex,name);
         }()));
 }

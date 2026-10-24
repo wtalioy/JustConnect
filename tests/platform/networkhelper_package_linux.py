@@ -422,6 +422,46 @@ def main():
                                 client_cases.append('core-dns')
                                 application_environment = {**dns_environment, 'JC_NATIVE_NETWORK_SESSION': '1', 'JC_NATIVE_ORIGINAL_PEER': '1'}
 
+                                for change in ('overlay', 'exit'):
+                                    observation_ready = Path(caller_runtime.name) / f'application-observation-{change}.json'
+                                    observing = subprocess.Popen(native_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                        env={**application_environment, 'JC_NATIVE_NETWORK_OBSERVE': str(int(change == 'overlay')),
+                                             'JC_NATIVE_NETWORK_EXIT_CHANGE': str(int(change == 'exit')), 'JC_NATIVE_TUN_READY': str(observation_ready)},
+                                        user=args.uid, group=account.pw_gid, extra_groups=(), start_new_session=True)
+                                    observation_descriptors = []
+                                    try:
+                                        _, descriptor = native_handoff(observing, None, observation_ready)
+                                        observation_descriptors.append(descriptor)
+                                        if change == 'overlay':
+                                            original_peer.add_overlay()
+                                            settled = '.protected'
+                                        else:
+                                            ip('route', 'replace', 'default', 'via', '192.0.2.2', 'dev', 'helperorig0')
+                                            settled = '.restored'
+                                        _, descriptor = native_handoff(observing, None, Path(str(observation_ready) + settled))
+                                        observation_descriptors.append(descriptor)
+                                        if change == 'overlay':
+                                            original_peer.remove_overlay()
+                                        else:
+                                            ip('route', 'replace', 'default', 'dev', 'helperorig0')
+                                            assert inventory() == dns_baseline and original_dns() == dns_settings, 'changed exit recovery left owned network state'
+                                            Path(str(observation_ready) + '.continue').touch()
+                                        output, errors = observing.communicate(timeout=30)
+                                        assert observing.returncode == 0, output + errors
+                                        expected = 'automatic overlay protection and withdrawal' if change == 'overlay' else 'changed original exit automatically restores ownership'
+                                        assert 'PASS: ' + expected in output, output
+                                        print(output, end='', flush=True)
+                                        client_cases.append('application-network-' + change)
+                                    finally:
+                                        original_peer.remove_overlay()
+                                        if change == 'exit':
+                                            ip('route', 'replace', 'default', 'dev', 'helperorig0')
+                                        if observing.poll() is None:
+                                            os.killpg(observing.pid, signal.SIGKILL)
+                                            observing.communicate(timeout=5)
+                                        for descriptor in observation_descriptors:
+                                            os.close(descriptor)
+                                    assert inventory() == dns_baseline and original_dns() == dns_settings, 'automatic observation changed the original DNS/IPv4/IPv6 inventory'
                                 for address in ('198.18.0.6/32', '198.18.0.7/32'):
                                     ip('route','add',address,'dev','helperorig0')
                                 try:

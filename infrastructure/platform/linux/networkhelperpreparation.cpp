@@ -172,3 +172,36 @@ PlatformOperationResult verifyLinuxCaptureExit(const LinuxHelperConfiguration &o
     }
     return {};
 }
+
+std::optional<QJsonObject> linuxOriginalExitSnapshot(const QJsonObject &network, const LinuxHelperConfiguration &owned)
+{
+    if (!network["interfaces"].isArray() || !network["routes"].isArray() || !network["policy_rules"].isArray()) return {};
+    int index = 0;
+    for (const auto &value : network["interfaces"].toArray()) {
+        const auto row = value.toObject();
+        if (row["name"] != owned.originalInterface) continue;
+        if (index || row["index"].toInt() <= 0 || row["up"] != true || row["loopback"] != false || !row["addresses"].isArray()) return {};
+        bool assigned = false;
+        for (const auto &address : row["addresses"].toArray())
+            assigned |= address.toString().section('/',0,0) == owned.originalSource;
+        if (!assigned) return {};
+        index = row["index"].toInt();
+    }
+    if (!index) return {};
+    QStringList routes, rules;
+    for (const auto &value : network["routes"].toArray()) {
+        const auto row = value.toObject();
+        const auto prefix = QHostAddress::parseSubnet(row["destination"].toString());
+        if (!value.isObject() || prefix.second < 0) return {};
+        if (prefix.first.protocol() == QAbstractSocket::IPv4Protocol
+            && (row["interface_index"] == index || prefix.second <= 1))
+            routes.append(QString::fromUtf8(QJsonDocument(row).toJson(QJsonDocument::Compact)));
+    }
+    for (const auto &value : network["policy_rules"].toArray()) {
+        if (!value.isObject()) return {};
+        rules.append(QString::fromUtf8(QJsonDocument(value.toObject()).toJson(QJsonDocument::Compact)));
+    }
+    routes.sort();rules.sort();
+    return QJsonObject{{"index",index},{"source",owned.originalSource},
+        {"routes",QJsonArray::fromStringList(routes)},{"rules",QJsonArray::fromStringList(rules)}};
+}

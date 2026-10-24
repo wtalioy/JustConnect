@@ -21,6 +21,9 @@ private:
     enum class Stage { Idle, Preparing, Prepared, Activating, Ready, Updating, Stopping, Failed };
     void prepareConfiguration();
     void applyPolicy(const QJsonObject &policy);
+    void observeModel();
+    void finishPolicy(CoreEngine::RequestStatus status);
+    void invalidateNetwork(const QString &detail);
     void driveStop();
     void completeStop();
     void helperFinished(LinuxNetworkHelperClient::Operation operation, PlatformOperationResult result);
@@ -33,9 +36,10 @@ private:
     std::unique_ptr<QLockFile> lock;
     QUuid attempt, savedOwner;
     QString hint, generation, localDNS;
-    QJsonObject changingPolicy;
+    QJsonObject changingPolicy, originalExit, activationNetwork;
+    QTimer observation;
     QStringList nextCapture;
     Stage stage = Stage::Idle;
-    bool preparingConfiguration = false, attaching = false;
+    bool preparingConfiguration = false, attaching = false, automaticPolicy = false;
     QElapsedTimer stopElapsed;
 };
