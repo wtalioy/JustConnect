@@ -739,6 +739,17 @@ int main(int argc, char **argv) try
     const auto bulkRecord = QJsonDocument(routes.snapshot()).toJson(QJsonDocument::Compact);
     check(restarted.recover(owner,QJsonDocument::fromJson(bulkRecord).object()).succeeded()
           && routes.restore(owner).succeeded() && inventory()==baseline,"Full-capacity saved source recovery failed");
+    {
+        const auto beforeLoss = inventory();
+        ip({"link","add","vanished0","type","dummy"});ip({"link","set","vanished0","up"});
+        ip({"address","add","192.0.3.1/24","dev","vanished0"});
+        LinuxOwnedRouteTable disappearing;
+        check(disappearing.apply(owner,"vanished0","192.0.3.1",{},{target}).succeeded(),"Own source lookup before interface loss");
+        const auto saved = disappearing.snapshot();ip({"link","del","vanished0"});
+        LinuxOwnedRouteTable recovered;
+        check(recovered.recover(owner,saved).succeeded() && recovered.snapshot().isEmpty() && inventory() == beforeLoss,
+              "A genuinely removed original device retained its owned lookup or changed unrelated state");
+    }
     check(capture.restore(tun).succeeded(),"Restore the formal capture fixture");tun.close();baseline=inventory();
     check(::setgroups(0,nullptr)==0 && ::setresgid(65534,65534,65534)==0 && ::setresuid(65534,65534,65534)==0,"Permanently drop device privileges");
     __user_cap_header_struct header{_LINUX_CAPABILITY_VERSION_3,0};__user_cap_data_struct caps[2]{};

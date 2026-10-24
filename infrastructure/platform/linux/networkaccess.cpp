@@ -29,6 +29,12 @@ LinuxNetworkAccess::LinuxNetworkAccess(CoreEngine *core, NetworkPolicySession *p
         if (stage == Stage::Ready || stage == Stage::Updating) { stage = Stage::Failed; emit lost(attempt, result); }
     });
     connect(policy, &NetworkPolicySession::changed, this, &LinuxNetworkAccess::prepareConfiguration);
+    connect(policy, &NetworkPolicySession::changed, this, &LinuxNetworkAccess::observeModel, Qt::QueuedConnection);
+    // Bound stale protection without overlapping native reads or introducing another policy owner.
+    observation.setInterval(2000);
+    connect(&observation, &QTimer::timeout, this, [this] {
+        if (stage == Stage::Ready && !this->policy->isBusy()) this->policy->refresh();
+    });
     connect(&worker, &QFutureWatcher<LinuxHelperPreparation>::finished, this, [this] {
         preparingConfiguration = false;
         if (stage == Stage::Stopping) { driveStop(); return; }
@@ -37,14 +43,16 @@ LinuxNetworkAccess::LinuxNetworkAccess(CoreEngine *core, NetworkPolicySession *p
         if (stage == Stage::Updating) {
             if (prepared.result.succeeded()) this->core->updatePolicy(changingPolicy);
             else {
-                const auto revision = changingPolicy["revision"].toString();
-                changingPolicy = {}; nextCapture.clear(); stage = Stage::Ready;
-                this->policy->setNetworkBusy(generation,false);
-                this->policy->completePolicy(generation,revision,CoreEngine::RequestStatus::Unavailable);
+                finishPolicy(CoreEngine::RequestStatus::Unavailable);
             }
             return;
         }
         if (!prepared.result.succeeded()) { stage = Stage::Prepared; this->policy->setNetworkBusy(generation, false); emit ready(attempt, prepared.result); return; }
+        const auto exit = linuxOriginalExitSnapshot(activationNetwork,prepared.configuration);
+        if (!exit) { stage = Stage::Prepared; this->policy->setNetworkBusy(generation,false);
+            emit ready(attempt,{Status::Failed,QStringLiteral("无法确认原网络出口的完整读取范围。")});return; }
+        originalExit = *exit;
+        activationNetwork = {};
         const auto saved = saveOwner(attempt);
         if (!saved.succeeded()) { stage = Stage::Prepared; this->policy->setNetworkBusy(generation, false); emit ready(attempt, saved); return; }
         helper.apply(attempt, prepared.configuration);
@@ -53,7 +61,10 @@ LinuxNetworkAccess::LinuxNetworkAccess(CoreEngine *core, NetworkPolicySession *p
         if (stage != Stage::Activating || !attaching || id != generation) return;
         attaching = false;
         stage = status == CoreEngine::RequestStatus::Success ? Stage::Ready : Stage::Prepared;
-        if (stage == Stage::Ready) this->policy->setPolicyApplier(generation, [this](const QJsonObject &value) { applyPolicy(value); });
+        if (stage == Stage::Ready) {
+            this->policy->setPolicyApplier(generation, [this](const QJsonObject &value) { applyPolicy(value); });
+            observation.start();
+        }
         emit ready(attempt, status == CoreEngine::RequestStatus::Success ? Result{}
             : Result{Status::Failed, QStringLiteral("核心未能接收已授权的网络设备。")});
     });
@@ -61,9 +72,7 @@ LinuxNetworkAccess::LinuxNetworkAccess(CoreEngine *core, NetworkPolicySession *p
         if (stage != Stage::Updating || id != generation || revision != changingPolicy["revision"].toString()) return;
         if (status == CoreEngine::RequestStatus::Success) helper.reconcile(nextCapture);
         else {
-            changingPolicy = {}; nextCapture.clear(); stage = Stage::Ready;
-            this->policy->setNetworkBusy(generation,false);
-            this->policy->completePolicy(id,revision,status);
+            finishPolicy(status);
         }
     });
 }
@@ -146,6 +155,7 @@ void LinuxNetworkAccess::prepareConfiguration()
         emit ready(attempt, {Status::Failed, QStringLiteral("无法取得完整且已确认的原网络保护策略。")}); return;
     }
     const auto model = policy->model(), confirmed = policy->confirmedProtection();
+    activationNetwork = model["network"].toObject();
     preparingConfiguration = true;
     policy->setNetworkBusy(generation, true);
     worker.setFuture(QtConcurrent::run([model, confirmed, dns = localDNS, mtu = mtu] {
@@ -171,6 +181,43 @@ void LinuxNetworkAccess::applyPolicy(const QJsonObject &value)
     }));
 }
 
+void LinuxNetworkAccess::observeModel()
+{
+    if (stage != Stage::Ready || automaticPolicy || policy->isBusy()) return;
+    const auto owned = helper.ownedConfiguration();
+    const auto current = owned ? linuxOriginalExitSnapshot(policy->model()["network"].toObject(),*owned) : std::nullopt;
+    if (policy->status() != CoreEngine::RequestStatus::Success || !current || *current != originalExit) {
+        // shortcut: changed exits require reconnect; add live migration when source-route replacement is verified.
+        invalidateNetwork(QStringLiteral("原网络出口已变化或无法完整读取，正在恢复网络，请重新连接。"));
+        return;
+    }
+    automaticPolicy = true;
+    const auto result = policy->synchronizeProtection();
+    if (result == CoreEngine::RequestStatus::Pending) return;
+    automaticPolicy = false;
+    if (result != CoreEngine::RequestStatus::Success)
+        invalidateNetwork(QStringLiteral("新的网络或 DNS 保护范围无法安全生效，正在恢复原网络。"));
+}
+
+void LinuxNetworkAccess::finishPolicy(CoreEngine::RequestStatus status)
+{
+    const auto revision = changingPolicy["revision"].toString();
+    const bool automatic = automaticPolicy;
+    changingPolicy = {}; nextCapture.clear(); stage = Stage::Ready;
+    policy->setNetworkBusy(generation,false);
+    policy->completePolicy(generation,revision,status);
+    automaticPolicy = false;
+    if (automatic && status != CoreEngine::RequestStatus::Success && stage == Stage::Ready)
+        invalidateNetwork(QStringLiteral("新的网络或 DNS 保护策略未能确认，正在恢复原网络。"));
+}
+
+void LinuxNetworkAccess::invalidateNetwork(const QString &detail)
+{
+    observation.stop();
+    stage = Stage::Prepared;
+    emit lost(attempt,{Status::Failed,detail,true});
+}
+
 void LinuxNetworkAccess::helperFinished(Operation operation, Result result)
 {
     if ((operation == Operation::Apply || operation == Operation::Extend || operation == Operation::Routes) && result.succeeded()
@@ -188,7 +235,7 @@ void LinuxNetworkAccess::helperFinished(Operation operation, Result result)
     }
     if (operation == Operation::Routes && stage == Stage::Updating) {
         const auto revision = changingPolicy["revision"].toString();
-        changingPolicy = {}; nextCapture.clear();
+        changingPolicy = {}; nextCapture.clear();automaticPolicy = false;
         stage = result.succeeded() ? Stage::Ready : helper.state() == HelperState::Idle ? Stage::Prepared : Stage::Failed;
         if (!result.succeeded()) emit lost(attempt,result);
         policy->completePolicy(generation,revision,result.succeeded() ? CoreEngine::RequestStatus::Success : CoreEngine::RequestStatus::Failed);
@@ -219,6 +266,7 @@ void LinuxNetworkAccess::stop(const QUuid &id)
 {
     if (id != attempt) { emit stopped(id, {Status::Failed, QStringLiteral("恢复请求不属于当前连接。"), true}); return; }
     if (stage == Stage::Stopping) return;
+    observation.stop();
     const bool failedRecovery = stage == Stage::Failed;
     stage = Stage::Stopping;
     stopElapsed.start();
@@ -265,6 +313,7 @@ void LinuxNetworkAccess::completeStop()
     }
     lock.reset();
     stage = Stage::Idle;
-    attaching = false;
+    attaching = automaticPolicy = false;
+    changingPolicy = originalExit = activationNetwork = {};nextCapture.clear();
     emit stopped(attempt, {});
 }

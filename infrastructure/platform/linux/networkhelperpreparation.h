@@ -18,3 +18,6 @@ std::optional<QStringList> updatedLinuxCapturePrefixes(const QJsonObject &resour
 
 PlatformOperationResult verifyLinuxCaptureExit(const LinuxHelperConfiguration &owned, const QStringList &prefixes,
     const PlatformCommandRunner &reader = {});
+
+// Excludes unrelated overlay routes, while detecting changes hidden by our source lookup.
+std::optional<QJsonObject> linuxOriginalExitSnapshot(const QJsonObject &network, const LinuxHelperConfiguration &owned);

@@ -336,8 +336,10 @@ void NetworkPolicyWindow::editName(bool campus)
 void NetworkPolicyWindow::updateModel()
 {
     const auto selected = targets->currentItem() ? targets->currentItem()->text(0) : QString();
-    targets->clear();
-    namespaces->clear();
+    if (!session || session->status() != CoreEngine::RequestStatus::Pending) {
+        targets->clear();
+        namespaces->clear();
+    }
     if (editor && (!session || session->status() == CoreEngine::RequestStatus::Stale)) editor->reject();
     refresh->setEnabled(false);
     if (!session) { status->setText(QStringLiteral("连接已结束。")); return; }

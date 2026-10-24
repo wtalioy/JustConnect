@@ -87,6 +87,7 @@ static int exerciseApplicationNetworkAccess(const ConnectionProfile &profile)
         check(matches, "owned routes and DNS never become original protection scopes");
     };
     const bool withdrawalCrash = qgetenv("JC_NATIVE_NETWORK_WITHDRAW_CRASH") == "1";
+    const bool exitChange = qgetenv("JC_NATIVE_NETWORK_EXIT_CHANGE") == "1";
     const bool helperLoss = qgetenv("JC_NATIVE_NETWORK_HELPER_LOSS") == "1" || withdrawalCrash;
     int coreFinished = 0;
     QObject::connect(engine,&CoreEngine::finished,[&] { ++coreFinished; });
@@ -94,7 +95,7 @@ static int exerciseApplicationNetworkAccess(const ConnectionProfile &profile)
     bool sawPreparing = false;
     QObject::connect(engine, &CoreEngine::sessionStarted, [&] { ++started; });
     QObject::connect(&session, &ConnectionSession::finished, [&](ConnectionError error) {
-        const auto expected = helperLoss && finished == 0 ? ConnectionError::OTHER : ConnectionError::NONE;
+        const auto expected = (helperLoss || exitChange) && finished == 0 ? ConnectionError::OTHER : ConnectionError::NONE;
         check(error == expected, "application network lifecycle retains its actual failure result"); ++finished;
     });
     QObject::connect(&session, &ConnectionSession::progressChanged, [&] {
@@ -126,6 +127,14 @@ static int exerciseApplicationNetworkAccess(const ConnectionProfile &profile)
         originalView(QUuid(owner));
         check(policy.refresh(), "explicit original-network refresh remains available during takeover");
         originalView(QUuid(owner));
+        const auto activeGeneration = policy.currentGeneration();
+        const auto publish = [&](const QString &suffix) {
+            QSaveFile marker(QString::fromLocal8Bit(qgetenv("JC_NATIVE_TUN_READY"))+suffix);
+            const auto bytes = QJsonDocument(QJsonObject{{"pid",QCoreApplication::applicationPid()},
+                {"owner",QString::fromLatin1(owner)},{"generation",activeGeneration}}).toJson(QJsonDocument::Compact);
+            check(marker.open(QIODevice::WriteOnly) && marker.write(bytes) == bytes.size() && marker.commit(),
+                  "publish the application's active helper for isolated network changes");
+        };
         const bool choose = qgetenv("JC_NATIVE_NETWORK_CHOICES") == "1";
         const auto chooseAddress = [&](const QString &address, bool campus) {
             check(policy.setCampusAddress(address,campus),"submit a running campus/original address choice");
@@ -143,6 +152,29 @@ static int exerciseApplicationNetworkAccess(const ConnectionProfile &profile)
         check(addresses.size() == 1, "application publishes campus DNS through the owned helper");
         originalView(QUuid(owner));
         exerciseNativeTUNTraffic(QHostAddress(addresses.first()));
+        if (qgetenv("JC_NATIVE_NETWORK_OBSERVE") == "1" && round == 0) {
+            publish({});
+            until([&] { return !session.isActive() || (!policy.isBusy()
+                && policy.confirmedProtection()["protected"].toArray().contains("198.18.0.6/32")); });
+            check(session.state() == ConnectionState::Running,"Overlay addition updated protection without losing campus readiness");
+            exerciseOriginalNetworkUDP();
+            publish(".protected");
+            until([&] { return !session.isActive() || (!policy.isBusy()
+                && !policy.confirmedProtection()["protected"].toArray().contains("198.18.0.6/32")); });
+            check(session.state() == ConnectionState::Running,"Overlay removal settled both policy and capture ownership");
+            exerciseNativeTUNUDP();
+            std::cout << "PASS: automatic overlay protection and withdrawal route actual UDP to original then campus, including empty datagrams\n";
+        }
+        if (exitChange && round == 0) {
+            publish({});
+            until([&] { return !session.isActive(); });
+            check(finished == 1 && tunReferences() == 0 && !QFileInfo::exists(hintPath)
+                  && session.state() == ConnectionState::Failed,"Changed original exit invalidates readiness and completes owned recovery");
+            publish(".restored");
+            const auto proceed = QString::fromLocal8Bit(qgetenv("JC_NATIVE_TUN_READY")) + ".continue";
+            until([&] { return QFileInfo::exists(proceed); });
+            continue;
+        }
         if (choose && !(withdrawalCrash && round == 0)) for (const auto *address : {"198.18.0.6","198.18.0.7"}) {
             chooseAddress(QString::fromLatin1(address),false);
             const auto selected = runPlatformCommand(trustedIpRouteUtility(),{"-N","-j","-4","route","get",QString::fromLatin1(address)});
@@ -152,11 +184,7 @@ static int exerciseApplicationNetworkAccess(const ConnectionProfile &profile)
         }
         if (originalPeer && !(withdrawalCrash && round == 0)) exerciseOriginalNetworkTraffic();
         if (helperLoss && round == 0) {
-            QSaveFile marker(QString::fromLocal8Bit(qgetenv("JC_NATIVE_TUN_READY")));
-            const auto bytes = QJsonDocument(QJsonObject{{"pid",QCoreApplication::applicationPid()},
-                {"owner",QString::fromLatin1(owner)},{"generation",policy.currentGeneration()}}).toJson(QJsonDocument::Compact);
-            check(marker.open(QIODevice::WriteOnly) && marker.write(bytes) == bytes.size() && marker.commit(),
-                  "publish the application's active helper for isolated loss injection");
+            publish({});
             if (withdrawalCrash) {
                 const auto proceed = QString::fromLocal8Bit(qgetenv("JC_NATIVE_TUN_READY")) + ".continue";
                 until([&] { return QFileInfo::exists(proceed); });
@@ -176,6 +204,7 @@ static int exerciseApplicationNetworkAccess(const ConnectionProfile &profile)
         check(finished == round + 1 && tunReferences() == 0 && !QFileInfo::exists(hintPath),
               "application restores owned network before releasing the core and responsibility hint");
     }
+    if (exitChange) std::cout << "PASS: changed original exit automatically restores ownership and restarts with a fresh owner\n";
     if (withdrawalCrash) std::cout << "PASS: application capture withdrawal checkpoint crash restores DNS/routes and restarts with a fresh owner\n";
     if (helperLoss) std::cout << "PASS: application helper loss releases core/device before explicit recovery and fresh restart\n";
     std::cout << "PASS: ordinary native TCP/UDP via application network startup recovery, campus readiness, original network views, live address choices, DNS and ordered stop/restart\n";

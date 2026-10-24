@@ -14,6 +14,7 @@ class OriginalNetworkPeer:
     def __init__(self, uid, environment):
         self.uid, self.environment = uid, environment
         self.process = None
+        self.overlay = False
 
     def start(self):
         self.process = subprocess.Popen(['unshare', '--net', '--', sys.executable, '-B', __file__, '--serve', str(self.uid)],
@@ -30,11 +31,29 @@ class OriginalNetworkPeer:
         status = dict(row.split(':', 1) for row in Path(f'/proc/{self.process.pid}/status').read_text().splitlines())
         assert set(map(int, status['Uid'].split())) == {self.uid}
 
+    def add_overlay(self):
+        subprocess.run(['ip', 'link', 'add', 'helperover0', 'type', 'veth', 'peer', 'name', 'helperoverp0'],
+                       env=self.environment, check=True, timeout=3)
+        self.overlay = True
+        for command in [['ip', 'link', 'set', 'helperoverp0', 'netns', str(self.process.pid)],
+                        ['ip', 'address', 'add', '192.0.3.1/24', 'dev', 'helperover0'],
+                        ['ip', 'link', 'set', 'helperover0', 'up'],
+                        ['nsenter', '-t', str(self.process.pid), '-n', '--', 'ip', 'address', 'add', '192.0.3.2/24', 'dev', 'helperoverp0'],
+                        ['nsenter', '-t', str(self.process.pid), '-n', '--', 'ip', 'link', 'set', 'helperoverp0', 'up'],
+                        ['ip', 'route', 'add', '198.18.0.6/32', 'via', '192.0.3.2', 'dev', 'helperover0']]:
+            subprocess.run(command, env=self.environment, check=True, timeout=3)
+
+    def remove_overlay(self):
+        if self.overlay:
+            subprocess.run(['ip', 'link', 'del', 'helperover0'], env=self.environment, check=True, timeout=3)
+            self.overlay = False
+
     def _ready(self, expected):
         assert select.select([self.process.stdout], [], [], 5)[0], 'original peer did not start'
         assert self.process.stdout.readline().strip() == expected, 'original peer setup failed'
 
     def close(self):
+        self.remove_overlay()
         if self.process:
             if self.process.poll() is None:
                 self.process.terminate()

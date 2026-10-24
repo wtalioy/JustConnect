@@ -116,6 +116,14 @@ int main(int argc, char **argv) try
             if (tree->topLevelItem(i)->text(0)=="192.168.24.0/24") return tree->topLevelItem(i);
         return nullptr;
     };
+    tree->setCurrentItem(lanRow());
+    refresh->click();
+    check(session.status() == CoreEngine::RequestStatus::Pending && tree->topLevelItemCount() == 3
+          && tree->currentItem() && tree->currentItem()->text(0) == "192.168.24.0/24" && !choose->isEnabled(),
+          "Native observation cleared the selected scope or enabled stale policy actions");
+    until([&] { return session.status() == CoreEngine::RequestStatus::Success; });
+    check(tree->currentItem() && tree->currentItem()->text(0) == "192.168.24.0/24" && choose->isEnabled(),
+          "Settled observation lost the selected scope");
     auto activeInput = [&]() -> QInputDialog * {
         for (auto *input : window.findChildren<QInputDialog *>()) if (input->isVisible()) return input;
         check(false, "Address action did not open its input");
