@@ -153,7 +153,7 @@ sudo unshare --net -- python tests/platform/original_route_linux.py --uid "$(id 
 sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_OS="$RUNNER_OS" "$(command -v python)" tests/platform/unix_device_probe.py --uid "$(id -u)" --allocator build/coreabi/macos_tundevice_test
 ```
 
-[`a14ecba` 的六组 Core ABI／设备](https://github.com/wtalioy/JustConnect/actions/runs/39769154866)及[三平台应用测试](https://github.com/wtalioy/JustConnect/actions/runs/39769154825)全部通过。Unix 原生创建方等接收方核对 fd／身份并确认后才释放引用，创建方进程退出后才配置和执行流量测试；两平台均通过普通用户双向 UDP、正常／强杀后最终引用清理，原八秒总预算不变。本地拒绝确认的隔离检查无设备泄漏。早期未确认移交时序下的失败未作底层归因，独有失败片段保留在 `build/reports/unix-tun-backends.json` 的引用中；不将后续通过宣称为已证明某个 macOS 内核缺陷。普通权限设备创建拒绝、CLOEXEC、身份／帧模式、降权和来源检查保留；Linux 助手及系统恢复的后续验收见[权限入口](ARCHITECTURE.md#privileged-helper-entry)，macOS 助手及完整网络恢复仍待。
+[`a14ecba` 的六组 Core ABI／设备](https://github.com/wtalioy/JustConnect/actions/runs/39769154866)及[三平台应用测试](https://github.com/wtalioy/JustConnect/actions/runs/39769154825)全部通过。上述为 fd 交接基线。当前 Unix 创建方在接收方核对并确认后释放所有设备 fd，保留恢复控制与保护日志，实际流量由普通用户及核心处理；两平台的双向 UDP、正常／强杀最终引用清理及原八秒 fd 探针预算保留，最新捕获／恢复见[计划](../plan.md#s4)。本地拒绝确认的隔离检查无设备泄漏。早期未确认移交时序下的失败未作底层归因，独有失败片段保留在 `build/reports/unix-tun-backends.json` 的引用中；不将后续通过宣称为已证明某个 macOS 内核缺陷。普通权限设备创建拒绝、CLOEXEC、身份／帧模式、降权和来源检查保留；Linux 助手及系统恢复的后续验收见[权限入口](ARCHITECTURE.md#privileged-helper-entry)，macOS 助手及完整网络恢复仍待。
 
 <a id="linux-owned-routes"></a>
 ### Linux 捕获路由后端
