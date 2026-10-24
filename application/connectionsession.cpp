@@ -8,7 +8,7 @@ ConnectionSession::ConnectionSession(CoreEngine *coreEngine, QObject *parent, Ne
     if (network) {
         network->setParent(this);
         connect(network, &NetworkAccess::prepared, this, [this](const QUuid &id, PlatformOperationResult result) {
-            if (id != attempt || state() != ConnectionState::Starting || stoppingNetwork
+            if (id != attempt || state() != ConnectionState::Starting || networkRestore != NetworkRestoreState::Idle
                 || currentPhase != ConnectionPhase::NetworkRecovering || coreActive) return;
             if (!result.succeeded()) { networkFailure(result); stop(); }
             else startEngine();
@@ -19,15 +19,22 @@ ConnectionSession::ConnectionSession(CoreEngine *coreEngine, QObject *parent, Ne
             else becameReady(ConnectionPhase::CampusReady);
         });
         connect(network, &NetworkAccess::stopped, this, [this](const QUuid &id, PlatformOperationResult result) {
-            if (id != attempt || !stoppingNetwork) return;
-            stoppingNetwork = false;
-            if (!result.succeeded()) { networkFailure(result); emit progressChanged(); return; }
+            if (id != attempt || networkRestore != NetworkRestoreState::Pending) return;
+            networkRestore = result.succeeded() ? NetworkRestoreState::Idle : NetworkRestoreState::Failed;
+            if (!result.succeeded()) {
+                networkFailure(result);
+                // A lost helper cannot keep the core's last device reference alive indefinitely.
+                if (networkLost) stopCore();
+                emit progressChanged();
+                return;
+            }
             networkStopped = true;
-            if (coreActive) { waitingCoreStop = true; this->coreEngine->stop(); }
+            if (coreActive) stopCore();
             else handleCoreFinished();
         });
         connect(network, &NetworkAccess::lost, this, [this](const QUuid &id, PlatformOperationResult result) {
-            if (id != attempt || !isActive() || networkStopped) return;
+            if (id != attempt || !isActive() || networkStopped || networkLost) return;
+            networkLost = true;
             networkFailure(result);
             stop();
         });
@@ -97,8 +104,9 @@ ConnectionSession::ConnectionSession(CoreEngine *coreEngine, QObject *parent, Ne
         clearAuthentication();
         if (error==ConnectionError::SESSION_INVALID) currentPhase=ConnectionPhase::ReauthenticationRequired;
         sessionState.recordError(error);
-        if (!networkStopped) stopNetwork();
-        else handleCoreFinished();
+        if (networkStopped) handleCoreFinished();
+        else if (networkRestore != NetworkRestoreState::Failed) stopNetwork();
+        else emit progressChanged();
     });
     connect(&reconnectTimer, &QTimer::timeout, this, [this]()
     {
@@ -151,7 +159,7 @@ void ConnectionSession::stop()
     if (engineNeedsStop) emit stateChanged(sessionState.state());
     if (state() != ConnectionState::Stopping || waitingCoreStop) return;
     if (!networkStopped) stopNetwork();
-    else if (coreActive) { waitingCoreStop = true; this->coreEngine->stop(); }
+    else stopCore();
 }
 
 void ConnectionSession::forgetAuthenticationCache()
@@ -193,7 +201,8 @@ void ConnectionSession::startCore()
 {
     attempt = QUuid::createUuid();
     networkStopped = !network;
-    stoppingNetwork = waitingCoreStop = false;
+    networkRestore = NetworkRestoreState::Idle;
+    networkLost = waitingCoreStop = false;
     currentPhase = network ? ConnectionPhase::NetworkRecovering : ConnectionPhase::Initializing;
     observations.clear();
     clearAuthentication();
@@ -225,11 +234,18 @@ void ConnectionSession::becameReady(ConnectionPhase phase)
 
 void ConnectionSession::stopNetwork()
 {
-    if (stoppingNetwork) return;
-    stoppingNetwork = true;
+    if (networkRestore == NetworkRestoreState::Pending) return;
+    networkRestore = NetworkRestoreState::Pending;
     currentPhase = ConnectionPhase::NetworkRestoring;
     emit progressChanged();
     network->stop(attempt);
+}
+
+void ConnectionSession::stopCore()
+{
+    if (!coreActive || waitingCoreStop) return;
+    waitingCoreStop = true;
+    coreEngine->stop();
 }
 
 void ConnectionSession::networkFailure(const PlatformOperationResult &result)

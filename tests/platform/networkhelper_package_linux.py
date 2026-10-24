@@ -192,7 +192,8 @@ def main():
                     ready = json.loads(ready_path.read_text())
                     qt_pid = ready['pid']
                     qt_status = dict(line.split(':', 1) for line in Path(f'/proc/{qt_pid}/status').read_text().splitlines())
-                    assert ready['owner'] == owner and ready['generation'] and int(qt_status['PPid']) == process.pid
+                    assert (owner is None or ready['owner'] == owner) and str(uuid.UUID(ready['owner'])) == ready['owner']
+                    assert ready['generation'] and int(qt_status['PPid']) == process.pid
                     assert int(qt_status['Uid'].split()[0]) == args.uid and Path(f'/proc/{qt_pid}/exe').resolve() == tun_adapter
                     return qt_pid, os.pidfd_open(qt_pid)
                 def owned_helper(qt_pid):
@@ -418,6 +419,36 @@ def main():
                                 client_cases.append('application-network')
                                 report['application_network'] = {'sessions': 2, 'startup': 'write-ahead UUID without privileged record',
                                     'data': 'ordinary DNS, TCP and UDP; exact campus/original address choices and capture withdrawal', 'stop': 'owned network before core; hint and fd released'}
+                                ready_path = Path(caller_runtime.name) / 'application-helper-loss.json'
+                                ready_path.unlink(missing_ok=True)
+                                process = subprocess.Popen(native_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                                           env={**application_environment, 'JC_NATIVE_NETWORK_HELPER_LOSS': '1',
+                                                                'JC_NATIVE_TUN_READY': str(ready_path)}, user=args.uid,
+                                                           group=account.pw_gid, extra_groups=(), start_new_session=True)
+                                qt_descriptor = None
+                                try:
+                                    qt_pid, qt_descriptor = native_handoff(process, None, ready_path)
+                                    worker = owned_helper(qt_pid)
+                                    worker_descriptor = os.pidfd_open(worker)
+                                    try:
+                                        signal.pidfd_send_signal(worker_descriptor, signal.SIGKILL)
+                                    finally:
+                                        os.close(worker_descriptor)
+                                    output, errors = process.communicate(timeout=30)
+                                    assert process.returncode == 0, output + errors
+                                    assert 'application helper loss releases core/device before explicit recovery and fresh restart' in output, output
+                                    print(output, end='', flush=True)
+                                    client_cases.append('application-helper-loss')
+                                    report['application_network']['helper_loss'] = 'helper SIGKILL; release core fd, retain responsibility until explicit recovery, then fresh ready session'
+                                finally:
+                                    if process.poll() is None:
+                                        os.killpg(process.pid, signal.SIGKILL)
+                                        process.communicate(timeout=5)
+                                    if qt_descriptor is not None:
+                                        if not select.select([qt_descriptor], [], [], 0)[0]:
+                                            signal.pidfd_send_signal(qt_descriptor, signal.SIGKILL)
+                                        assert select.select([qt_descriptor], [], [], 5)[0]
+                                        os.close(qt_descriptor)
                             finally:
                                 recovery.stop()
                             assert inventory() == dns_baseline and original_dns() == dns_settings

@@ -86,11 +86,15 @@ static int exerciseApplicationNetworkAccess(const ConnectionProfile &profile)
             {"raw_network", lastNativeNetwork}}).toJson(QJsonDocument::Compact).toStdString() << '\n';
         check(matches, "owned routes and DNS never become original protection scopes");
     };
+    const bool helperLoss = qgetenv("JC_NATIVE_NETWORK_HELPER_LOSS") == "1";
+    int coreFinished = 0;
+    QObject::connect(engine,&CoreEngine::finished,[&] { ++coreFinished; });
     int started = 0, finished = 0;
     bool sawPreparing = false;
     QObject::connect(engine, &CoreEngine::sessionStarted, [&] { ++started; });
     QObject::connect(&session, &ConnectionSession::finished, [&](ConnectionError error) {
-        check(error == ConnectionError::NONE, "application network lifecycle finished without error"); ++finished;
+        const auto expected = helperLoss && finished == 0 ? ConnectionError::OTHER : ConnectionError::NONE;
+        check(error == expected, "application network lifecycle retains its actual failure result"); ++finished;
     });
     QObject::connect(&session, &ConnectionSession::progressChanged, [&] {
         sawPreparing |= session.phase() == ConnectionPhase::NetworkPreparing;
@@ -143,6 +147,18 @@ static int exerciseApplicationNetworkAccess(const ConnectionProfile &profile)
             check(selected.result.succeeded() && rows.size() == 1 && rows[0].toObject()["dev"] == "helperorig0",
                   "revoked campus choice restores the kernel's actual original route");
         }
+        if (helperLoss && round == 0) {
+            QSaveFile marker(QString::fromLocal8Bit(qgetenv("JC_NATIVE_TUN_READY")));
+            const auto bytes = QJsonDocument(QJsonObject{{"pid",QCoreApplication::applicationPid()},
+                {"owner",QString::fromLatin1(owner)},{"generation",policy.currentGeneration()}}).toJson(QJsonDocument::Compact);
+            check(marker.open(QIODevice::WriteOnly) && marker.write(bytes) == bytes.size() && marker.commit(),
+                  "publish the application's active helper for isolated loss injection");
+            until([&] { return coreFinished == 1 && tunReferences() == 0; });
+            check(session.isActive() && session.state() == ConnectionState::Stopping
+                  && session.phase() == ConnectionPhase::NetworkRestoring && QFileInfo::exists(hintPath)
+                  && !session.start(profile,{}),"helper loss releases the device but keeps unresolved responsibility and blocks restart");
+            session.stop();
+        }
         if (choose && round == 0)
             check(policy.setCampusAddress("198.18.0.6",true) && policy.isPolicyUpdating(),
                   "prepare a policy transaction cancelled before core application");
@@ -151,6 +167,7 @@ static int exerciseApplicationNetworkAccess(const ConnectionProfile &profile)
         check(finished == round + 1 && tunReferences() == 0 && !QFileInfo::exists(hintPath),
               "application restores owned network before releasing the core and responsibility hint");
     }
+    if (helperLoss) std::cout << "PASS: application helper loss releases core/device before explicit recovery and fresh restart\n";
     std::cout << "PASS: ordinary native TCP/UDP via application network startup recovery, campus readiness, original network views, live address choices, DNS and ordered stop/restart\n";
     return 0;
 }

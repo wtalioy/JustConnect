@@ -67,6 +67,7 @@ private:
     void startCore();
     void startEngine();
     void stopNetwork();
+    void stopCore();
     void becameReady(ConnectionPhase phase);
     void networkFailure(const PlatformOperationResult &result);
     void handleCoreFinished();
@@ -76,7 +77,9 @@ private:
     CoreEngine *coreEngine;
     NetworkAccess *network;
     QUuid attempt;
-    bool coreActive = false, stoppingNetwork = false, networkStopped = true, waitingCoreStop = false;
+    enum class NetworkRestoreState { Idle, Pending, Failed };
+    NetworkRestoreState networkRestore = NetworkRestoreState::Idle;
+    bool coreActive = false, networkStopped = true, waitingCoreStop = false, networkLost = false;
     QTimer reconnectTimer;
     QTimer stableTimer;
     ConnectionSessionState sessionState;
