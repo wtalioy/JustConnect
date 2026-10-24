@@ -40,7 +40,7 @@ def wait_for(predicate, message):
     raise AssertionError(message)
 
 
-def sign(bundle, identity, keychain, identifier):
+def sign(bundle, identity, identifier):
     command = ['/usr/bin/codesign', '--force', '--options', 'runtime', '--sign', identity]
     for framework in (bundle / 'Contents/Frameworks').glob('*.framework'):
         run(*command, '--deep', framework)
@@ -72,7 +72,7 @@ def certificate(directory, name, keychains):
     run('/usr/bin/security', 'list-keychains', '-d', 'user', '-s', *current, keychain)
     identities = run('/usr/bin/security', 'find-identity', '-v', '-p', 'codesigning', keychain).stdout.decode()
     assert digest in identities, 'Temporary signing identity is not valid: ' + identities
-    return digest, keychain
+    return digest
 
 
 class Authorization:
@@ -123,8 +123,8 @@ def main(args):
             (bundle / 'Contents/Info.plist').write_bytes(plistlib.dumps({'CFBundleIdentifier': APP_ID, 'CFBundleExecutable': 'JustConnect',
                 'CFBundlePackageType': 'APPL', 'CFBundleVersion': '1', 'CFBundleShortVersionString': '1', 'LSMinimumSystemVersion': '14.4'}))
             run(args.deploy_tool, bundle, '-executable=' + str(binaries / LAYOUT['executable']))
-            identity, keychain = certificate(private, 'JustConnect disposable signing fixture', keychains)
-            sign(bundle, identity, keychain, APP_ID)
+            identity = certificate(private, 'JustConnect disposable signing fixture', keychains)
+            sign(bundle, identity, APP_ID)
             facts = json.loads(run(binaries / LAYOUT['executable'], '--version').stdout)
             assert facts['identity_ready'] and facts['protocol'] == LAYOUT['protocol'] and facts['revision'] == args.revision
             launch = plistlib.loads(Path(args.plist).read_bytes())
@@ -182,10 +182,10 @@ def main(args):
             for name, wrong_identity in [('wrong-id', False), ('wrong-certificate', True)]:
                 copy = directory / (name + '.app'); shutil.copytree(bundle, copy, symlinks=True)
                 if wrong_identity:
-                    other, other_keychain = certificate(private, 'JustConnect foreign signing fixture', keychains)
-                    sign(copy, other, other_keychain, APP_ID)
+                    other = certificate(private, 'JustConnect foreign signing fixture', keychains)
+                    sign(copy, other, APP_ID)
                 else:
-                    sign(copy, identity, keychain, APP_ID + '.foreign')
+                    sign(copy, identity, APP_ID + '.foreign')
                 denied = start('--wire-untrusted', app=copy); event(denied, 'wire-denied'); finish(denied)
                 assert not user_state.exists(), 'Untrusted signed executable created ownership storage'
             client = start('--roundtrip', grant=True); active = event(client, 'active')
