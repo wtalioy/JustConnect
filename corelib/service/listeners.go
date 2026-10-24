@@ -17,6 +17,7 @@ type Listeners struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	dialer      *dial.Dialer
+	resolver    *resolve.Resolver
 	mu          sync.Mutex
 	closed      bool
 	connections map[io.Closer]struct{}
@@ -69,7 +70,7 @@ func NewListeners(ctx context.Context, socksAddr, httpAddr string, dialer *dial.
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	p := &Listeners{ctx: ctx, cancel: cancel, dialer: dialer, connections: make(map[io.Closer]struct{}), errors: make(chan error, 1)}
+	p := &Listeners{ctx: ctx, cancel: cancel, dialer: dialer, resolver: resolver, connections: make(map[io.Closer]struct{}), errors: make(chan error, 1)}
 	success := false
 	defer func() {
 		if !success {

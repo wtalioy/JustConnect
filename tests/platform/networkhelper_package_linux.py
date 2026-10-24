@@ -178,7 +178,11 @@ def main():
                     deadline = time.monotonic() + 10
                     while not ready_path.is_file() and process.poll() is None and time.monotonic() < deadline:
                         time.sleep(0.01)
-                    assert ready_path.is_file(), 'native Qt/core never completed actual TUN traffic'
+                    if not ready_path.is_file():
+                        if process.poll() is None:
+                            os.killpg(process.pid, signal.SIGKILL)
+                        output, errors = process.communicate(timeout=5)
+                        raise AssertionError(f'native Qt/core never completed actual TUN traffic:\n{output}\n{errors}')
                     ready = json.loads(ready_path.read_text())
                     qt_pid = ready['pid']
                     qt_status = dict(line.split(':', 1) for line in Path(f'/proc/{qt_pid}/status').read_text().splitlines())
@@ -281,11 +285,14 @@ def main():
                     recovery.start(dns_bus=dns_bus)
                     owner = str(uuid.uuid4())
                     ready_path = Path(caller_runtime.name) / 'active-core.json'
+                    ready_path.unlink(missing_ok=True)
                     scenario = 'dns-managed' if dns_bus else 'managed'
-                    managed_environment = client_environment(scenario)
+                    managed_environment = client_environment('managed' if native_core else scenario)
                     if native_core:
                         managed_environment.update(JC_NATIVE_TUN_HOST=str(tun_adapter), JC_NATIVE_TUN_HELPER_OWNER=owner,
                                                    JC_NATIVE_TUN_READY=str(ready_path), JC_NATIVE_TUN_SCENARIO='managed')
+                        if dns_bus:
+                            managed_environment['JC_NATIVE_TUN_DNS'] = '1'
                     process = subprocess.Popen(native_command if native_core else [str(client), scenario, owner],
                                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                                                env=managed_environment, user=args.uid, start_new_session=native_core,
@@ -329,7 +336,7 @@ def main():
                         assert observed and observed['restored'] == 1 and observed['failed'] == 0, observed
                         client_cases.append(scenario)
                         if native_core:
-                            fault = 'owned Qt/core and helper both SIGKILL after native TCP/UDP'
+                            fault = 'owned Qt/core and helper both SIGKILL after native TCP/UDP' + (' and actual core DNS' if dns_bus else '')
                         elif dns_bus:
                             fault = 'ordinary Qt DNS caller and helper both SIGKILL after actual system query'
                         else:
@@ -371,11 +378,25 @@ def main():
                         assert inventory() == dns_baseline and original_dns() == dns_settings
                     finally:
                         recovery.stop()
-                    managed(native_core=False, dns_bus=resolver.socket)
+                    if gateway:
+                        dns_environment = {**caller_environment, 'JC_AUTH_TEST_MODE': 'allow',
+                                           'JC_NATIVE_TUN_HOST': str(tun_adapter), 'JC_NATIVE_TUN_HELPER_OWNER': str(uuid.uuid4()),
+                                           'JC_NATIVE_TUN_DNS': '1'}
+                        recovery.start(deferred=True, dns_bus=resolver.socket)
+                        try:
+                            output = run(*native_command, env=dns_environment, user=args.uid,
+                                         group=account.pw_gid, extra_groups=())
+                            assert output.count('PASS: ordinary getaddrinfo through installed helper and core TUN DNS') == 2, output
+                            print(output, end='', flush=True)
+                            client_cases.append('core-dns')
+                        finally:
+                            recovery.stop()
+                        assert inventory() == dns_baseline and original_dns() == dns_settings
+                    managed(native_core=bool(gateway), dns_bus=resolver.socket)
                     assert inventory() == dns_baseline and original_dns() == dns_settings
                     report['owned_dns'] = {'provider': 'actual isolated resolved',
                                            'entry': 'clean installed helper via ordinary Qt authorization caller',
-                                           'query': 'actual ordinary getaddrinfo through authenticated TUN fd',
+                                           'query': 'actual ordinary getaddrinfo through ' + ('core TUN DNS' if gateway else 'authenticated TUN fd fixture'),
                                            'system_manager': 'real system.slice timer, production CAP_NET_ADMIN sandbox',
                                            'injected_bus': 'untrusted caller address ignored',
                                            'original_interface': 'DNS settings and IPv4/IPv6 inventory unchanged'}

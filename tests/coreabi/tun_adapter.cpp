@@ -9,6 +9,8 @@
 #include <QSaveFile>
 #include <QThread>
 #include <QTimer>
+#include <netdb.h>
+#include <arpa/inet.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <memory>
@@ -74,8 +76,10 @@ int main(int argc, char **argv) {
         check(tunReferences() == 0, "previous session released every Qt/core TUN reference");
         check(engine->start(profile, CoreEngine::Operation::Connect), "start ordinary Qt core session");
         until([&] { return ready == round + 1; });
-        const auto configuration = helperFixtureConfiguration({"198.18.0.6/32"},
+        auto configuration = helperFixtureConfiguration({"198.18.0.6/32"},
             EmbeddedCoreEngine::buildInfo()["capabilities"].toObject()["tunnel_mtu"].toInt());
+        const bool systemDNS = qgetenv("JC_NATIVE_TUN_DNS") == "1";
+        if (systemDNS) configuration.dnsDomains = {"campus.test"};
         const auto owner = round == 0 ? firstOwner : QUuid::createUuid();
         auto helperPrevious = helperReplies.size();
         helper.apply(owner, configuration);
@@ -99,6 +103,20 @@ int main(int argc, char **argv) {
         ::close(descriptor);
         until([&] { return replies.size() > previous; });
         check(replies.last() == CoreEngine::RequestStatus::Success, "queued fd remains valid after caller closes its reference");
+        if (systemDNS) {
+            addrinfo hints{};
+            hints.ai_family = AF_INET;
+            hints.ai_socktype = SOCK_STREAM;
+            addrinfo *answer = nullptr;
+            check(::getaddrinfo("campus.test", nullptr, &hints, &answer) == 0 && answer,
+                  "ordinary system resolver reached the core through helper-owned DNS");
+            for (auto *entry = answer; entry; entry = entry->ai_next) {
+                const auto *address = reinterpret_cast<const sockaddr_in *>(entry->ai_addr);
+                check(address->sin_addr.s_addr == ::inet_addr("198.18.0.6"), "system DNS preserved the authorized campus resource");
+            }
+            ::freeaddrinfo(answer);
+            std::cout << "PASS: ordinary getaddrinfo through installed helper and core TUN DNS\n" << std::flush;
+        }
         exerciseNativeTUNTraffic();
         bool helperLost = false;
         if (const auto path = qgetenv("JC_NATIVE_TUN_READY"); round == 0 && !path.isEmpty()) {

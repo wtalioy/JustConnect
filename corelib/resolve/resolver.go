@@ -19,6 +19,10 @@ import (
 
 type Resolver struct {
 	ProtectionPolicy  func() *policy.ProtectionPolicy
+	remoteDNSServer   string
+	dnsTTL            uint32
+	ctx               context.Context
+	cancel            context.CancelFunc
 	remoteUDPResolver *net.Resolver
 	remoteTCPResolver *net.Resolver
 	secondaryResolver *net.Resolver
@@ -382,11 +386,15 @@ func (r *Resolver) Close() {
 			call.cancel()
 		}
 		r.resolutionMu.Unlock()
+		if r.cancel != nil {
+			r.cancel()
+		}
 		r.workers.Wait()
 	})
 }
 
 func NewResolver(stack stack.Stack, remoteDNSServer, secondaryDNSServer string, ttl uint64, domainResources client.DomainResources, dnsResource map[string][]net.IP, useRemoteDNS bool) *Resolver {
+	lifecycle, cancel := context.WithCancel(context.Background())
 	var resolver *Resolver
 	allowed := func() bool {
 		if resolver.ProtectionPolicy != nil {
@@ -399,6 +407,9 @@ func NewResolver(stack stack.Stack, remoteDNSServer, secondaryDNSServer string, 
 		return true
 	}
 	resolver = &Resolver{
+		remoteDNSServer: remoteDNSServer,
+		dnsTTL:          uint32(min(ttl, uint64(^uint32(0)))),
+		ctx:             lifecycle, cancel: cancel,
 		remoteUDPResolver: &net.Resolver{
 			PreferGo: true,
 			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
@@ -407,7 +418,7 @@ func NewResolver(stack stack.Stack, remoteDNSServer, secondaryDNSServer string, 
 				}
 				return stack.DialUDP(ctx, &net.UDPAddr{
 					IP:   net.ParseIP(remoteDNSServer),
-					Port: 53,
+					Port: DNSPort,
 				})
 			},
 		},
@@ -419,7 +430,7 @@ func NewResolver(stack stack.Stack, remoteDNSServer, secondaryDNSServer string, 
 				}
 				return stack.DialTCP(ctx, &net.TCPAddr{
 					IP:   net.ParseIP(remoteDNSServer),
-					Port: 53,
+					Port: DNSPort,
 				})
 			},
 		},
