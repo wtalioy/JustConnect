@@ -48,7 +48,7 @@ def sign(bundle, identity, keychain, identifier):
     run('/usr/bin/codesign', '--verify', '--deep', '--strict', bundle)
 
 
-def certificate(directory, name):
+def certificate(directory, name, keychains):
     configuration = directory / (name + '.cnf')
     configuration.write_text('[req]\ndistinguished_name=dn\nx509_extensions=extensions\nprompt=no\n'
                              f'[dn]\nCN={name}\n[extensions]\nbasicConstraints=critical,CA:FALSE\n'
@@ -61,10 +61,15 @@ def certificate(directory, name):
     run('/usr/bin/openssl', 'pkcs12', '-export', '-inkey', private, '-in', certificate,
         '-out', archive, '-passout', 'pass:' + password)
     run('/usr/bin/security', 'create-keychain', '-p', password, keychain)
+    keychains.append(keychain)
     run('/usr/bin/security', 'unlock-keychain', '-p', password, keychain)
     run('/usr/bin/security', 'import', archive, '-k', keychain, '-P', password, '-T', '/usr/bin/codesign')
     run('/usr/bin/security', 'set-key-partition-list', '-S', 'apple-tool:,apple:,codesign:', '-s', '-k', password, keychain)
     digest = run('/usr/bin/openssl', 'x509', '-in', certificate, '-noout', '-fingerprint', '-sha1').stdout.decode().strip().split('=')[1].replace(':', '')
+    # The disposable runner explicitly trusts this generated identity for code signing only.
+    run('/usr/bin/security', 'add-trusted-cert', '-d', '-r', 'trustRoot', '-p', 'codeSign', '-k', keychain, certificate)
+    identities = run('/usr/bin/security', 'find-identity', '-v', '-p', 'codesigning', keychain).stdout.decode()
+    assert digest in identities, 'Temporary signing identity is not valid: ' + identities
     return digest, keychain
 
 
@@ -105,66 +110,68 @@ def main(args):
     output = Path(args.output).resolve(); output.mkdir(parents=True, exist_ok=True)
     processes, keychains, grants = [], [], []
     with tempfile.TemporaryDirectory(prefix='JustConnect-helper-', dir='/Library/Application Support') as temporary:
-        directory = Path(temporary); directory.chmod(0o755)
-        private = directory / 'signing'; private.mkdir(mode=0o700)
-        bundle = directory / 'JustConnect.app'; binaries = bundle / 'Contents/MacOS'; binaries.mkdir(parents=True)
-        shutil.copy2(args.client, binaries / 'JustConnect')
-        shutil.copy2(args.helper, binaries / LAYOUT['executable'])
-        (bundle / 'Contents/Info.plist').write_bytes(plistlib.dumps({'CFBundleIdentifier': APP_ID, 'CFBundleExecutable': 'JustConnect',
-            'CFBundlePackageType': 'APPL', 'CFBundleVersion': '1', 'CFBundleShortVersionString': '1', 'LSMinimumSystemVersion': '14.4'}))
-        run(args.deploy_tool, bundle, '-executable=' + str(binaries / LAYOUT['executable']))
-        identity, keychain = certificate(private, 'JustConnect disposable signing fixture'); keychains.append(keychain)
-        sign(bundle, identity, keychain, APP_ID)
-        facts = json.loads(run(binaries / LAYOUT['executable'], '--version').stdout)
-        assert facts['identity_ready'] and facts['protocol'] == LAYOUT['protocol'] and facts['revision'] == args.revision
-        launch = plistlib.loads(Path(args.plist).read_bytes())
-        assert launch['Label'] == SERVICE and launch['MachServices'] == {SERVICE: True} and launch['UserName'] == 'root'
-        assert launch.pop('BundleProgram') == 'Contents/MacOS/' + LAYOUT['executable']
-        launch['Program'] = str(binaries / LAYOUT['executable'])
-        launch['StandardOutPath'], launch['StandardErrorPath'] = str(output / 'daemon.out'), str(output / 'daemon.err')
-        launch_path = directory / (SERVICE + '.plist'); launch_path.write_bytes(plistlib.dumps(launch)); launch_path.chmod(0o644)
-
-        def start(mode, *, app=bundle, owner=None, grant=False, target=account):
-            def ordinary():
-                os.setgroups([]); os.setgid(target.pw_gid); os.setuid(target.pw_uid)
-            read_fd, write_fd = os.pipe()
-            if grant:
-                authorization = Authorization(); grants.append(authorization); os.write(write_fd, authorization.external.raw)
-            os.close(write_fd)
-            command = [str(app / 'Contents/MacOS/JustConnect'), mode]
-            if not mode.startswith('--wire-'):
-                command += [str(read_fd)] + ([owner] if owner else [])
-            elif owner:
-                command.append(owner)
-            error = (output / ('client-' + str(len(processes)) + '.err')).open('wb')
-            process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=error,
-                preexec_fn=ordinary, pass_fds=(read_fd,), cwd='/', env={'HOME': target.pw_dir, 'PATH': '/usr/bin:/bin:/usr/sbin:/sbin'})
-            error.close(); os.close(read_fd); processes.append(process); return process
-
-        def event(process, expected):
-            assert select.select([process.stdout], [], [], 40)[0], 'Client event timed out'
-            value = process.stdout.readline()
-            assert value, f'Client exited before {expected}: {process.poll()}'
-            value = json.loads(value)
-            assert value['event'] == expected, value
-            print('CHECK:', value, flush=True); return value
-
-        def receipt(owner, phase):
-            path = user_state / owner / 'source.json'
-            try:
-                return json.loads(path.read_text())['phase'] == phase
-            except (FileNotFoundError, json.JSONDecodeError):
-                return False
-
-        def finish(process):
-            assert process.wait(timeout=20) == 0, 'Native client failed'
-
-        def withdrawn(interface):
-            result = run('/sbin/route', '-n', 'get', '-inet', '198.18.0.6', check=False)
-            return not re.search(r'^\s*interface:\s*' + re.escape(interface) + r'\s*$', result.stdout.decode(), re.M)
-
+        bootstrapped = False
         try:
+            directory = Path(temporary); directory.chmod(0o755)
+            private = directory / 'signing'; private.mkdir(mode=0o700)
+            bundle = directory / 'JustConnect.app'; binaries = bundle / 'Contents/MacOS'; binaries.mkdir(parents=True)
+            shutil.copy2(args.client, binaries / 'JustConnect')
+            shutil.copy2(args.helper, binaries / LAYOUT['executable'])
+            (bundle / 'Contents/Info.plist').write_bytes(plistlib.dumps({'CFBundleIdentifier': APP_ID, 'CFBundleExecutable': 'JustConnect',
+                'CFBundlePackageType': 'APPL', 'CFBundleVersion': '1', 'CFBundleShortVersionString': '1', 'LSMinimumSystemVersion': '14.4'}))
+            run(args.deploy_tool, bundle, '-executable=' + str(binaries / LAYOUT['executable']))
+            identity, keychain = certificate(private, 'JustConnect disposable signing fixture', keychains)
+            sign(bundle, identity, keychain, APP_ID)
+            facts = json.loads(run(binaries / LAYOUT['executable'], '--version').stdout)
+            assert facts['identity_ready'] and facts['protocol'] == LAYOUT['protocol'] and facts['revision'] == args.revision
+            launch = plistlib.loads(Path(args.plist).read_bytes())
+            assert launch['Label'] == SERVICE and launch['MachServices'] == {SERVICE: True} and launch['UserName'] == 'root'
+            assert launch.pop('BundleProgram') == 'Contents/MacOS/' + LAYOUT['executable']
+            launch['Program'] = str(binaries / LAYOUT['executable'])
+            launch['StandardOutPath'], launch['StandardErrorPath'] = str(output / 'daemon.out'), str(output / 'daemon.err')
+            launch_path = directory / (SERVICE + '.plist'); launch_path.write_bytes(plistlib.dumps(launch)); launch_path.chmod(0o644)
+
+            def start(mode, *, app=bundle, owner=None, grant=False, target=account):
+                def ordinary():
+                    os.setgroups([]); os.setgid(target.pw_gid); os.setuid(target.pw_uid)
+                read_fd, write_fd = os.pipe()
+                if grant:
+                    authorization = Authorization(); grants.append(authorization); os.write(write_fd, authorization.external.raw)
+                os.close(write_fd)
+                command = [str(app / 'Contents/MacOS/JustConnect'), mode]
+                if not mode.startswith('--wire-'):
+                    command += [str(read_fd)] + ([owner] if owner else [])
+                elif owner:
+                    command.append(owner)
+                error = (output / ('client-' + str(len(processes)) + '.err')).open('wb')
+                process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=error,
+                    preexec_fn=ordinary, pass_fds=(read_fd,), cwd='/', env={'HOME': target.pw_dir, 'PATH': '/usr/bin:/bin:/usr/sbin:/sbin'})
+                error.close(); os.close(read_fd); processes.append(process); return process
+
+            def event(process, expected):
+                assert select.select([process.stdout], [], [], 40)[0], 'Client event timed out'
+                value = process.stdout.readline()
+                assert value, f'Client exited before {expected}: {process.poll()}'
+                value = json.loads(value)
+                assert value['event'] == expected, value
+                print('CHECK:', value, flush=True); return value
+
+            def receipt(owner, phase):
+                path = user_state / owner / 'source.json'
+                try:
+                    return json.loads(path.read_text())['phase'] == phase
+                except (FileNotFoundError, json.JSONDecodeError):
+                    return False
+
+            def finish(process):
+                assert process.wait(timeout=20) == 0, 'Native client failed'
+
+            def withdrawn(interface):
+                result = run('/sbin/route', '-n', 'get', '-inet', '198.18.0.6', check=False)
+                return not re.search(r'^\s*interface:\s*' + re.escape(interface) + r'\s*$', result.stdout.decode(), re.M)
+
             run('/bin/launchctl', 'bootstrap', 'system', launch_path)
+            bootstrapped = True
             wait_for(lambda: user_state.parent.exists(), 'Signed root daemon did not start')
             for mode in ('--wire-denied', '--wire-invalid-auth'):
                 denied = start(mode); event(denied, 'wire-denied'); finish(denied)
@@ -172,7 +179,7 @@ def main(args):
             for name, wrong_identity in [('wrong-id', False), ('wrong-certificate', True)]:
                 copy = directory / (name + '.app'); shutil.copytree(bundle, copy, symlinks=True)
                 if wrong_identity:
-                    other, other_keychain = certificate(private, 'JustConnect foreign signing fixture'); keychains.append(other_keychain)
+                    other, other_keychain = certificate(private, 'JustConnect foreign signing fixture', keychains)
                     sign(copy, other, other_keychain, APP_ID)
                 else:
                     sign(copy, identity, keychain, APP_ID + '.foreign')
@@ -207,10 +214,12 @@ def main(args):
             for process in processes:
                 if process.poll() is None:
                     process.kill(); process.wait(timeout=10)
-            run('/bin/launchctl', 'bootout', 'system/' + SERVICE, check=False)
+            if bootstrapped:
+                run('/bin/launchctl', 'bootout', 'system/' + SERVICE, check=False)
             for grant in grants:
                 grant.close()
             for keychain in keychains:
+                run('/usr/bin/security', 'remove-trusted-cert', '-d', keychain.with_suffix('.pem'), check=False)
                 run('/usr/bin/security', 'delete-keychain', keychain, check=False)
     wait_for(lambda: set(run('/sbin/ifconfig', '-l').stdout.decode().split()) == before, 'Owned utun survived completed fixture')
     if user_state.exists():
