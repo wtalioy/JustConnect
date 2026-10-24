@@ -8,6 +8,11 @@ on:
     branches: [main, develop]
     paths: ['.gitattributes', 'tests/coreabi/**', 'tests/embeddedcoreengine_test.cpp', 'infrastructure/coreengine/**', 'infrastructure/settings/**', 'infrastructure/platform/**', 'application/**', 'presentation/**', 'core/**', 'tests/coreengineui_test.cpp', 'tests/credentialstorefixture.h', 'tests/CoreEngineTests.cmake', 'cmake/**', '.github/actions/setup-core-toolchain/**', 'corelib/**', 'scripts/generate-core-abi.py', 'scripts/build-system-network-helper.sh', 'scripts/network_helper_package.py', 'resource/network-helper*', 'tests/network_helper_package_test.py', 'tests/platform/**', '.github/workflows/coreabi.yml', '.github/actions/setup-qt/**']
   workflow_dispatch:
+    inputs:
+      macos_helper_only:
+        type: boolean
+        default: false
+        description: Run only the signed macOS permission helper checks (not the full ABI matrix)
 
 permissions:
   contents: read
@@ -17,7 +22,41 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  macos-helper:
+    if: github.event_name == 'workflow_dispatch' && inputs.macos_helper_only
+    name: macOS helper ${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: macos-26, arch: arm64}
+          - {os: macos-26-intel, arch: x64}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: ./.github/actions/setup-qt
+        with:
+          host: mac
+          arch: clang_64
+      - uses: ./.github/actions/setup-core-toolchain
+      - name: Verify signed helper and independent recovery
+        run: bash tests/platform/run_macos_networkhelper.sh
+      - name: Upload native helper evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: macos-helper-${{ matrix.arch }}
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            build/coreabi/*.txt
+            build/coreabi/macos-helper.log
+            build/coreabi/macos-helper/*.out
+            build/coreabi/macos-helper/*.err
+            build/coreabi/macos-helper/*-crash.json
   probe:
+    if: github.event_name != 'workflow_dispatch' || !inputs.macos_helper_only
     name: ${{ matrix.platform }}-${{ matrix.arch }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
@@ -98,11 +137,7 @@ jobs:
       - name: Verify signed macOS network helper and independent recovery
         if: runner.os == 'macOS'
         shell: bash
-        run: |
-          cmake -S tests/coreabi -B build/coreabi -DCMAKE_BUILD_TYPE=Release
-          cmake --build build/coreabi --config Release --parallel 3 --target macos_networkhelper_client_test
-          helper_id="$(python -c 'import json,plistlib; c=json.load(open("resource/network-helper-macos.json")); p=plistlib.load(open("resource/Info.plist","rb")); print(p["CFBundleIdentifier"]+c["service_suffix"])')"
-          sudo env PYTHONDONTWRITEBYTECODE=1 GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_OS="$RUNNER_OS" "$(command -v python)" tests/platform/networkhelper_macos.py --uid "$(id -u)" --helper build/coreabi/JustConnectNetworkHelper --client build/coreabi/macos_networkhelper_client_test --plist "build/coreabi/$helper_id.plist" --deploy-tool "$(command -v macdeployqt)" --revision "$GITHUB_SHA" --output build/coreabi/macos-helper 2>&1 | tee build/coreabi/macos-helper.log
+        run: bash tests/platform/run_macos_networkhelper.sh
 
       - name: Verify formal C ABI, protocol session and authentication
         timeout-minutes: 20
