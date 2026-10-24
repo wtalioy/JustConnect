@@ -101,8 +101,8 @@ int main(int argc,char **argv) try
         }
         report({{"event","restored"},{"owner",owner.toString(QUuid::WithoutBraces)}}); app.quit();
     });
-    QObject::connect(&client,&MacNetworkHelperClient::ownershipLost,&app,[&](auto) {
-        report({{"event","lost"},{"owner",owner.toString(QUuid::WithoutBraces)},{"interface",interface}});
+    QObject::connect(&client,&MacNetworkHelperClient::ownershipLost,&app,[&](auto result) {
+        report({{"event","lost"},{"owner",owner.toString(QUuid::WithoutBraces)},{"interface",interface},{"detail",result.detail}});
     });
     QSocketNotifier input(STDIN_FILENO,QSocketNotifier::Read);
     QObject::connect(&input,&QSocketNotifier::activated,&app,[&] {

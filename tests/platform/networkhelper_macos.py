@@ -230,6 +230,7 @@ def main(args):
             client = start('--roundtrip', grant=True); active = event(client, 'active')
             service = run('/bin/launchctl', 'print', 'system/' + SERVICE).stdout.decode()
             pid = re.search(r'^\s*pid = (\d+)\s*$', service, re.M); assert pid
+            print('CHECK: kill managed helper pid', pid[1], flush=True)
             os.kill(int(pid[1]), signal.SIGKILL); event(client, 'lost')
             wait_for(lambda: receipt(active['owner'], 'restored') and withdrawn(active['interface']), 'New daemon did not restore capture while ordinary fd remained open')
             client.stdin.write(b'exit\n'); client.stdin.flush(); finish(client)

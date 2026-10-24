@@ -46,8 +46,11 @@ struct MacNetworkHelperClient::Native {
         connection = xpc_connection_create_mach_service(MacHelperIdentifier,queue,XPC_CONNECTION_MACH_SERVICE_PRIVILEGED);
         if (!connection) return;
         xpc_connection_set_event_handler(connection,^(xpc_object_t event) {
-            if (event == XPC_ERROR_CONNECTION_INVALID || event == XPC_ERROR_CONNECTION_INTERRUPTED) {
-                if (auto state = weak.lock()) { state->invalid = true; state->post([](auto *target) { target->disconnected(); }); }
+            if (xpc_get_type(event) == XPC_TYPE_ERROR) {
+                const auto detail = QString::fromUtf8(xpc_dictionary_get_string(event,XPC_ERROR_KEY_DESCRIPTION));
+                if (auto state = weak.lock()) {
+                    state->invalid = true; state->post([detail](auto *target) { target->disconnected(detail); });
+                }
             }
         });
         if (!identity.constrain(connection)) {
@@ -240,9 +243,9 @@ void MacNetworkHelperClient::cancel()
     cancelled = true;
     if (current == State::Active || current == State::RecoveryRequired) restore();
 }
-void MacNetworkHelperClient::disconnected()
+void MacNetworkHelperClient::disconnected(const QString &detail)
 {
     if (current != State::Active) return;
-    closeDevice(); const Result result{Status::Failed,"Network helper ownership was lost; stop the core and recover before reconnecting.",true};
+    closeDevice(); const Result result{Status::Failed,"Network helper ownership was lost; stop the core and recover before reconnecting. "+detail,true};
     finish(result,State::RecoveryRequired); emit ownershipLost(result);
 }
