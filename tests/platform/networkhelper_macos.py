@@ -120,10 +120,9 @@ def main(args):
         launch['StandardOutPath'], launch['StandardErrorPath'] = str(output / 'daemon.out'), str(output / 'daemon.err')
         launch_path = directory / (SERVICE + '.plist'); launch_path.write_bytes(plistlib.dumps(launch)); launch_path.chmod(0o644)
 
-        def ordinary():
-            os.setgroups([]); os.setgid(account.pw_gid); os.setuid(args.uid)
-
-        def start(mode, *, app=bundle, owner=None, grant=False):
+        def start(mode, *, app=bundle, owner=None, grant=False, target=account):
+            def ordinary():
+                os.setgroups([]); os.setgid(target.pw_gid); os.setuid(target.pw_uid)
             read_fd, write_fd = os.pipe()
             if grant:
                 authorization = Authorization(); grants.append(authorization); os.write(write_fd, authorization.external.raw)
@@ -131,9 +130,11 @@ def main(args):
             command = [str(app / 'Contents/MacOS/JustConnect'), mode]
             if not mode.startswith('--wire-'):
                 command += [str(read_fd)] + ([owner] if owner else [])
+            elif owner:
+                command.append(owner)
             error = (output / ('client-' + str(len(processes)) + '.err')).open('wb')
             process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=error,
-                preexec_fn=ordinary, pass_fds=(read_fd,), cwd='/', env={'HOME': account.pw_dir, 'PATH': '/usr/bin:/bin:/usr/sbin:/sbin'})
+                preexec_fn=ordinary, pass_fds=(read_fd,), cwd='/', env={'HOME': target.pw_dir, 'PATH': '/usr/bin:/bin:/usr/sbin:/sbin'})
             error.close(); os.close(read_fd); processes.append(process); return process
 
         def event(process, expected):
@@ -174,6 +175,9 @@ def main(args):
                 assert not user_state.exists(), 'Untrusted signed executable created ownership storage'
             client = start('--roundtrip', grant=True); active = event(client, 'active')
             assert receipt(active['owner'], 'active')
+            for mode, target in [('--wire-live', account), ('--wire-foreign', pwd.getpwnam('nobody'))]:
+                denied = start(mode, owner=active['owner'], target=target); event(denied, 'wire-denied'); finish(denied)
+                assert receipt(active['owner'], 'active') and not withdrawn(active['interface']), 'Foreign connection withdrew live ownership'
             client.stdin.write(b'restore\n'); client.stdin.flush(); event(client, 'restored'); finish(client)
             assert not (user_state / active['owner']).exists(), 'Confirmed restoration left an unacknowledged receipt'
             client = start('--cancel', grant=True); event(client, 'restored'); finish(client)

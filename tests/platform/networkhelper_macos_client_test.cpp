@@ -43,17 +43,21 @@ int main(int argc,char **argv) try
         });
         client.apply(QUuid::createUuid(),configuration); check(completed,"Unsigned application did not report its deployment requirement"); return 0;
     }
-    if (arguments.size() == 2 && arguments[1].startsWith("--wire-")) {
+    if (arguments.size() >= 2 && arguments[1].startsWith("--wire-")) {
+        const bool recover = arguments[1] == "--wire-foreign" || arguments[1] == "--wire-live";
+        check(arguments.size() == (recover ? 3 : 2),"Invalid wire boundary arguments");
         const auto connection = xpc_connection_create_mach_service(MacHelperIdentifier,nullptr,XPC_CONNECTION_MACH_SERVICE_PRIVILEGED);
         check(connection,"Create native XPC connection"); xpc_connection_set_event_handler(connection,^(xpc_object_t) {}); xpc_connection_resume(connection);
-        const auto request = macHelperApplyRequest(QUuid::createUuid(),QUuid::createUuid(),configuration);
+        const auto request = recover ? macHelperRequest("recover",QUuid(arguments[2]),QUuid::createUuid())
+            : macHelperApplyRequest(QUuid::createUuid(),QUuid::createUuid(),configuration);
         const auto message = macHelperMessage(request); const auto reply = xpc_connection_send_message_with_reply_sync(connection,message);
         if (arguments[1] == "--wire-untrusted") check(xpc_get_type(reply) == XPC_TYPE_ERROR,"Untrusted signed identity received a privileged reply");
         else {
             MacHelperIdentity identity(MacHelperAppIdentifier,MacHelperIdentifier); QJsonObject response; int descriptor = -1;
             check(identity.accepts(reply) && xpc_connection_get_euid(connection) == 0 && readMacHelperMessage(reply,response,&descriptor),"No authenticated root denial");
             const auto result = parseMacHelperResponse(response,request);
-            check(result && result->status == PlatformOperationResult::Status::PermissionDenied && !result->mayHaveChanged && descriptor < 0,
+            const auto expected = arguments[1] == "--wire-foreign" ? PlatformOperationResult::Status::Failed : PlatformOperationResult::Status::PermissionDenied;
+            check(result && result->status == expected && result->mayHaveChanged == (arguments[1] == "--wire-foreign") && descriptor < 0,
                 "Signed client without administrator right changed the network or received a device");
         }
         xpc_release(reply); xpc_release(message); xpc_connection_cancel(connection); xpc_release(connection);
