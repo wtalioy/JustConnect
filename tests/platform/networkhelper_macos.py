@@ -42,10 +42,10 @@ def wait_for(predicate, message):
 
 def sign(bundle, identity, identifier):
     command = ['/usr/bin/codesign', '--force', '--options', 'runtime', '--sign', identity]
-    for framework in (bundle / 'Contents/Frameworks').glob('*.framework'):
-        run(*command, '--deep', framework)
     run(*command, '--identifier', SERVICE, bundle / 'Contents/MacOS' / LAYOUT['executable'])
-    run(*command, '--identifier', identifier, bundle)
+    run(*command, '--deep', '--preserve-metadata=entitlements,identifier', bundle)
+    if identifier != APP_ID:
+        run(*command, '--identifier', identifier, bundle)
     run('/usr/bin/codesign', '--verify', '--deep', '--strict', bundle)
 
 
