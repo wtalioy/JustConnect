@@ -1,0 +1,96 @@
+"""An unprivileged original-network echo peer behind an isolated veth link."""
+
+import os
+from pathlib import Path
+import pwd
+import select
+import selectors
+import socket
+import subprocess
+import sys
+
+
+class OriginalNetworkPeer:
+    def __init__(self, uid, environment):
+        self.uid, self.environment = uid, environment
+        self.process = None
+
+    def start(self):
+        self.process = subprocess.Popen(['unshare', '--net', '--', sys.executable, '-B', __file__, '--serve', str(self.uid)],
+                                        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                        text=True, env=self.environment)
+        self._ready('NAMESPACE')
+        assert os.stat(f'/proc/{self.process.pid}/ns/net') != os.stat('/proc/thread-self/ns/net')
+        for args in [('link', 'add', 'helperorig0', 'type', 'veth', 'peer', 'name', 'helperpeer0'),
+                     ('link', 'set', 'helperpeer0', 'netns', str(self.process.pid))]:
+            subprocess.run(['ip', *args], env=self.environment, check=True, timeout=3)
+        self.process.stdin.write('LINK\n')
+        self.process.stdin.flush()
+        self._ready('READY')
+        status = dict(row.split(':', 1) for row in Path(f'/proc/{self.process.pid}/status').read_text().splitlines())
+        assert set(map(int, status['Uid'].split())) == {self.uid}
+
+    def _ready(self, expected):
+        assert select.select([self.process.stdout], [], [], 5)[0], 'original peer did not start'
+        assert self.process.stdout.readline().strip() == expected, 'original peer setup failed'
+
+    def close(self):
+        if self.process:
+            if self.process.poll() is None:
+                self.process.terminate()
+            try:
+                self.process.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.communicate(timeout=5)
+
+
+def serve(uid):
+    assert os.geteuid() == 0 and uid != 0
+    for name in ('net', 'mnt'):
+        assert os.stat(f'/proc/thread-self/ns/{name}') != os.stat(f'/proc/1/ns/{name}'), 'refusing a host namespace'
+    print('NAMESPACE', flush=True)
+    assert sys.stdin.readline() == 'LINK\n'
+    for args in [('link', 'set', 'helperpeer0', 'up'), ('address', 'add', '192.0.2.2/24', 'dev', 'helperpeer0'),
+                 ('address', 'add', '198.18.0.6/32', 'dev', 'helperpeer0'),
+                 ('address', 'add', '198.18.0.7/32', 'dev', 'helperpeer0'),
+                 ('route', 'add', 'default', 'via', '192.0.2.1', 'dev', 'helperpeer0')]:
+        subprocess.run(['ip', *args], check=True, timeout=3)
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as tcp, socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
+        tcp.bind(('198.18.0.7', 80))
+        tcp.listen(4)
+        udp.bind(('198.18.0.6', 53))
+        os.setgroups([])
+        os.setgid(pwd.getpwuid(uid).pw_gid)
+        os.setuid(uid)
+        assert os.getuid() == os.geteuid() == uid
+        with selectors.DefaultSelector() as selector:
+            selector.register(tcp, selectors.EVENT_READ, 'accept')
+            selector.register(udp, selectors.EVENT_READ, 'udp')
+            print('READY', flush=True)
+            try:
+                while True:
+                    for key, _ in selector.select():
+                        if key.data == 'accept':
+                            connection, _ = tcp.accept()
+                            connection.settimeout(3)
+                            connection.sendall(b'original:')
+                            selector.register(connection, selectors.EVENT_READ, 'tcp')
+                        elif key.data == 'udp':
+                            packet, address = udp.recvfrom(65536)
+                            udp.sendto(b'original:' + packet, address)
+                        else:
+                            packet = key.fileobj.recv(65536)
+                            if packet:
+                                key.fileobj.sendall(packet)
+                            else:
+                                selector.unregister(key.fileobj)
+                                key.fileobj.close()
+            finally:
+                for key in list(selector.get_map().values()):
+                    key.fileobj.close()
+
+
+if __name__ == '__main__':
+    assert len(sys.argv) == 3 and sys.argv[1] == '--serve'
+    serve(int(sys.argv[2]))
