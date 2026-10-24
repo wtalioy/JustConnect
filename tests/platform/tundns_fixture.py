@@ -128,7 +128,7 @@ class IsolatedResolver:
                     print(name + ':\n' + path.read_text()[-4000:], file=sys.stderr)
 
 
-def dns_answer(query, expected):
+def dns_answer(query, expected, *, ignore_unrelated=False):
     assert len(query) >= 12 and struct.unpack('!H', query[4:6])[0] == 1
     cursor, labels = 12, []
     while query[cursor]:
@@ -138,7 +138,10 @@ def dns_answer(query, expected):
         cursor += size + 1
     cursor += 1
     qtype, qclass = struct.unpack('!HH', query[cursor:cursor + 4])
-    assert '.'.join(labels) == expected and qclass == 1 and qtype in (1, 28)
+    matches = '.'.join(labels).lower() == expected and qclass == 1 and qtype in (1, 28)
+    if ignore_unrelated and not matches:
+        return None
+    assert matches, (labels, qclass, qtype, expected)
     answer = query[:2] + struct.pack('!5H', 0x8180, 1, 1, 0, 0) + query[12:cursor + 4]
     address = socket.inet_aton('203.0.113.9') if qtype == 1 else socket.inet_pton(socket.AF_INET6, '2001:db8::9')
     answer += struct.pack('!HHHIH', 0xc00c, qtype, 1, 60, len(address)) + address
@@ -202,7 +205,10 @@ def dns_reply(fd, packet, expected, peer, framing=b''):
     if target != 53:
         return False
     assert packet[16:20] == socket.inet_aton(peer), 'system query used a DNS server outside the owned peer'
-    answer = dns_answer(packet[offset + 8:offset + length], expected)
+    # Darwin's system resolver also sends interface discovery queries to this peer.
+    answer = dns_answer(packet[offset + 8:offset + length], expected, ignore_unrelated=bool(framing))
+    if answer is None:
+        return False
     udp = struct.pack('!4H', target, source, 8 + len(answer), 0) + answer
     header = struct.pack('!BBHHHBBH4s4s', 0x45, 0, 20 + len(udp), 1, 0, 64, socket.IPPROTO_UDP, 0, packet[16:20], packet[12:16])
     checksum = sum(struct.unpack('!10H', header))
