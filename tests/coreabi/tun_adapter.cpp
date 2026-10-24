@@ -1,4 +1,5 @@
 #include "infrastructure/coreengine/embeddedcoreengine.h"
+#include "application/networkprotection.h"
 #include "infrastructure/platform/linux/networkhelperclient.h"
 #include "infrastructure/platform/linux/dnsroutepublisher.h"
 #include "tests/platform/networkhelperfixture.h"
@@ -79,11 +80,15 @@ int main(int argc, char **argv) {
     QString generation;
     int ready = 0, finished = 0;
     int resourceReplies = 0;
-    QJsonObject resources;
+    QJsonObject resources, confirmedPolicy;
     QList<CoreEngine::RequestStatus> replies;
     QObject::connect(engine.get(), &CoreEngine::sessionStarted, [&](const QString &value) { generation = value; });
     QObject::connect(engine.get(), &CoreEngine::authenticationRequired, [&](const QJsonObject &request) {
         engine->respond(CoreEngine::responseFor(request, {{"action", "submit"}, {"code", "fixture-code"}}));
+    });
+    QObject::connect(engine.get(), &CoreEngine::initialProtectionApplied, [&](const QJsonObject &policy) {
+        check(policy["generation"] == generation, "capture plan uses the confirmed session protection");
+        confirmedPolicy = policy;
     });
     QObject::connect(engine.get(), &CoreEngine::connectionEstablished, [&] { ++ready; });
     QObject::connect(engine.get(), &CoreEngine::finished, [&](ConnectionError error) {
@@ -105,7 +110,8 @@ int main(int argc, char **argv) {
         check(engine->start(profile, CoreEngine::Operation::Connect), "start ordinary Qt core session");
         until([&] { return ready == round + 1; });
         const bool systemDNS = qgetenv("JC_NATIVE_TUN_DNS") == "1";
-        QStringList prefixes{"198.18.0.6/32"};
+        QStringList prefixes{"198.18.0.6/32"}, dnsDomains;
+        QHostAddress tcpTarget("198.18.0.6");
         if (systemDNS) {
             const auto previous = resourceReplies;
             engine->readSnapshot(CoreEngine::Snapshot::Resources,generation);
@@ -113,11 +119,14 @@ int main(int argc, char **argv) {
             const auto dns = resources["campus_dns"].toString();
             check(resources["campus_dns_enabled"].toBool() && QHostAddress(dns).protocol() == QAbstractSocket::IPv4Protocol,
                   "dynamic route fixture uses the school's actual authorized DNS server");
-            prefixes = {dns+"/32"};
+            const auto plan = campusCaptureTargets(resources, confirmedPolicy);
+            check(plan.has_value(), "derive initial capture from actual resources and confirmed original protection");
+            prefixes = plan->ipv4Prefixes;
+            dnsDomains = plan->dnsDomains;
         }
         auto configuration = helperFixtureConfiguration(prefixes,
             EmbeddedCoreEngine::buildInfo()["capabilities"].toObject()["tunnel_mtu"].toInt());
-        if (systemDNS) configuration.dnsDomains = {"campus.test"};
+        configuration.dnsDomains = dnsDomains;
         const auto owner = round == 0 ? firstOwner : QUuid::createUuid();
         auto helperPrevious = helperReplies.size();
         helper.apply(owner, configuration);
@@ -143,16 +152,18 @@ int main(int argc, char **argv) {
         until([&] { return replies.size() > previous; });
         check(replies.last() == CoreEngine::RequestStatus::Success, "queued fd remains valid after caller closes its reference");
         if (systemDNS) {
-            QTcpSocket uncaptured;
-            uncaptured.connectToHost(QHostAddress("198.18.0.6"),80);
-            check(!uncaptured.waitForConnected(1000),"business address had a capture route before DNS publication");
             const auto references = tunReferences();
             helperPrevious = helperReplies.size();
             auto lookup = std::async(std::launch::async, [] { return systemAddresses("campus.test"); });
             until([&] { return lookup.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready; });
             const auto addresses = lookup.get();
-            for (const auto &address : addresses)
-                check(address == "198.18.0.6", "system DNS preserved the authorized campus resource");
+            check(!addresses.isEmpty(), "system DNS returned a campus address");
+            for (const auto &address : addresses) {
+                for (const auto &prefix : prefixes)
+                    check(!QHostAddress(address).isInSubnet(QHostAddress::parseSubnet(prefix)),
+                          "DNS-discovered TCP address was not already part of initial IP capture");
+            }
+            tcpTarget = QHostAddress(addresses.first());
             check(helperReplies.size() > helperPrevious && helperReplies.last().succeeded()
                   && helper.state() == LinuxNetworkHelperClient::State::Active
                   && helper.descriptor() == borrowed && tunReferences() == references,
@@ -174,7 +185,7 @@ int main(int argc, char **argv) {
                   "localhost TCP still reaches this computer during campus DNS takeover");
             std::cout << "PASS: ordinary getaddrinfo through installed helper and core TUN DNS\n" << std::flush;
         }
-        exerciseNativeTUNTraffic();
+        exerciseNativeTUNTraffic(tcpTarget);
         bool helperLost = false;
         if (const auto path = qgetenv("JC_NATIVE_TUN_READY"); round == 0 && !path.isEmpty()) {
             check(tunReferences() >= 2, "helper client and core retain the active native device");

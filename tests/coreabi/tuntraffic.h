@@ -2,11 +2,11 @@
 #include "proxycheck.h"
 #include <QUdpSocket>
 
-inline void exerciseNativeTUNTraffic()
+inline void exerciseNativeTUNTraffic(const QHostAddress &tcpTarget = QHostAddress("198.18.0.6"))
 {
     using ProxyCheck::check;
     QTcpSocket tcp;
-    tcp.connectToHost(QHostAddress("198.18.0.6"), 80);
+    tcp.connectToHost(tcpTarget, 80);
     check(tcp.waitForConnected(5000), "ordinary TCP reached campus through kernel capture and C ABI");
     const QByteArray payload(32768, 't');
     check(tcp.write(payload) == payload.size(), "native TCP payload queued");

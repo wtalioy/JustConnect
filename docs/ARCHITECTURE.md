@@ -160,6 +160,8 @@ SSO 浏览器从当前连接会话接收 TLS 策略，回调来源与策略在�
 
 系统 DNS 结果类型归 `application/dnssnapshot.h`，平台适配由 `readSystemDnsSnapshot()` 统一选择既有原生读取实现；调用者在工作线程运行，返回值沿用状态、完整事实和失败时空数据。各平台的原生回归经过统一入口，私有总线与故障夹具仍直接注入平台读取器。
 
+同一模块的 `campusCaptureTargets` 从实际资源和核心已确认的保护策略推导初始 IPv4 捕获／DNS 路由域。合并 IP 区间、静态解析地址及启用的校园 DNS，扣除实际保护范围，仅恢复已确认的精确地址例外；回环、0/8 和多播／保留高地址不允许例外。区间分解为去重的 `/2`—`/32`，结果过限整批拒绝，不生成默认路由；协议／端口授权仍由核心执行。不生成 IPv6 捕获前缀，当前规划不宣称透明 IPv6。远端 DNS 关闭时仅保留内置解析记录的路由域；域名从资源规范化并合并重复及父子覆盖。受保护的校园 DNS 地址或相交名称域使规划失败，须先完成原网络 DNS 转发／必要选择，不能以扩大校园域接管掩盖冲突。该规划不选择原出口或私有设备地址；初始出口查询、设备避让、运行中撤销及应用整体编排仍待接入。
+
 同一模型模块从 DNS 快照提取 `dns_namespaces`，每项保留原始表达式、角色及原快照来源（字段／行／数组项或动态存储键）。resolved 的路由域与搜索路由域分开，Windows 生效 NRPT 保留原始命名空间，不能统一解释成后缀；macOS State／Setup 的匹配域、搜索域和主域作为配置输入分别保留，不冒充最终作用域或搜索顺序。`resolv.conf` 仅提取文件内最后一个非空 search／domain 指令，保留 glibc 的列首及空白语法，不代替 NSS、LOCALDOMAIN 或其他解析提供者。畸形、NUL 与超过 4096 项均使整次模型失败；表达式不直接成为授权或已生效保护。依据：[resolved 域路由](https://www.freedesktop.org/software/systemd/man/latest/systemd-resolved.service.html)、[Windows NRPT 命名空间](https://learn.microsoft.com/en-us/windows-server/networking/dns/name-resolution-policy-table)、[Apple DNS 配置处理](https://github.com/apple-oss-distributions/configd/blob/main/Plugins/IPMonitor/dns-configuration.c)、[glibc 文件解析](https://github.com/bminor/glibc/blob/master/resolv/res_init.c)。
 
 
