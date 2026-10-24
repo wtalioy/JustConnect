@@ -8,6 +8,7 @@ import plistlib
 import pwd
 import re
 import select
+import shlex
 import shutil
 import signal
 import subprocess
@@ -40,7 +41,7 @@ def wait_for(predicate, message):
 
 
 def sign(bundle, identity, keychain, identifier):
-    command = ['/usr/bin/codesign', '--force', '--options', 'runtime', '--keychain', str(keychain), '--sign', identity]
+    command = ['/usr/bin/codesign', '--force', '--options', 'runtime', '--sign', identity]
     for framework in (bundle / 'Contents/Frameworks').glob('*.framework'):
         run(*command, '--deep', framework)
     run(*command, '--identifier', SERVICE, bundle / 'Contents/MacOS' / LAYOUT['executable'])
@@ -66,8 +67,9 @@ def certificate(directory, name, keychains):
     run('/usr/bin/security', 'import', archive, '-k', keychain, '-P', password, '-T', '/usr/bin/codesign')
     run('/usr/bin/security', 'set-key-partition-list', '-S', 'apple-tool:,apple:,codesign:', '-s', '-k', password, keychain)
     digest = run('/usr/bin/openssl', 'x509', '-in', certificate, '-noout', '-fingerprint', '-sha1').stdout.decode().strip().split('=')[1].replace(':', '')
-    # The disposable runner explicitly trusts this generated identity for code signing only.
-    run('/usr/bin/security', 'add-trusted-cert', '-d', '-r', 'trustRoot', '-p', 'codeSign', '-k', keychain, certificate)
+    # codesign resolves identities through the user's search list, as in the package signing job.
+    current = shlex.split(run('/usr/bin/security', 'list-keychains', '-d', 'user').stdout.decode())
+    run('/usr/bin/security', 'list-keychains', '-d', 'user', '-s', *current, keychain)
     identities = run('/usr/bin/security', 'find-identity', '-v', '-p', 'codesigning', keychain).stdout.decode()
     assert digest in identities, 'Temporary signing identity is not valid: ' + identities
     return digest, keychain
@@ -109,6 +111,7 @@ def main(args):
     before = set(run('/sbin/ifconfig', '-l').stdout.decode().split())
     output = Path(args.output).resolve(); output.mkdir(parents=True, exist_ok=True)
     processes, keychains, grants = [], [], []
+    original_keychains = shlex.split(run('/usr/bin/security', 'list-keychains', '-d', 'user').stdout.decode())
     with tempfile.TemporaryDirectory(prefix='JustConnect-helper-', dir='/Library/Application Support') as temporary:
         bootstrapped = False
         try:
@@ -218,8 +221,8 @@ def main(args):
                 run('/bin/launchctl', 'bootout', 'system/' + SERVICE, check=False)
             for grant in grants:
                 grant.close()
+            run('/usr/bin/security', 'list-keychains', '-d', 'user', '-s', *original_keychains)
             for keychain in keychains:
-                run('/usr/bin/security', 'remove-trusted-cert', '-d', keychain.with_suffix('.pem'), check=False)
                 run('/usr/bin/security', 'delete-keychain', keychain, check=False)
     wait_for(lambda: set(run('/sbin/ifconfig', '-l').stdout.decode().split()) == before, 'Owned utun survived completed fixture')
     if user_state.exists():
