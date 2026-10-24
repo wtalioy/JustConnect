@@ -34,7 +34,7 @@ QJsonObject macHelperApplyRequest(const QUuid &owner, const QUuid &request, cons
 }
 bool validMacHelperRequest(const QJsonObject &packet)
 {
-    if (!bounded(packet) || packet["schema_version"] != MacHelperProtocol || !canonicalUuid(packet["owner"])
+    if (QJsonDocument(packet).toJson(QJsonDocument::Compact).size() > MacHelperRequestBytes || packet["schema_version"] != MacHelperProtocol || !canonicalUuid(packet["owner"])
         || !canonicalUuid(packet["request_id"])) return false;
     const auto operation = packet["operation"].toString();
     if (operation == "extend") return packet.size() == 5 && packet["addresses"].isArray();
@@ -89,13 +89,17 @@ QJsonObject macHelperResponse(const QJsonObject &request, const PlatformOperatio
 std::optional<PlatformOperationResult> parseMacHelperResponse(const QJsonObject &packet, const QJsonObject &request)
 {
     const auto status = packet["status"].toInteger(-1);
-    const bool owners = packet.contains("owners");
+    const bool owners = packet.contains("owners"), network = packet.contains("network");
+    const bool needsNetwork = status == 0 && (request["operation"] == "apply" || request["operation"] == "extend");
     if (!bounded(packet) || packet["schema_version"] != MacHelperProtocol || packet["request_id"] != request["request_id"]
         || packet["owner"] != request["owner"] || packet["operation"] != request["operation"]
         || !packet["detail"].isString() || !packet["changed"].isBool() || status < 0 || status > int(PlatformOperationResult::Status::TimedOut)
         || packet["status"].toDouble(-1) != double(status)
-        || packet.size() != 7+int(packet.contains("device"))+int(owners)
+        || packet.size() != 7+int(packet.contains("device"))+int(owners)+int(network)
         || (packet.contains("device") && (request["operation"] != "apply" || status != 0 || !packet["device"].isObject()))) return {};
+    if (network != needsNetwork || (network && (!packet["network"].isObject() || packet["network"].toObject().size() != 3
+        || !packet["network"].toObject()["capture"].isObject() || !packet["network"].toObject()["dns"].isObject()
+        || !packet["network"].toObject()["device_routes"].isArray()))) return {};
     if (owners) {
         if (request["operation"] != "probe" || status != 0 || !packet["owners"].isArray() || packet["owners"].toArray().size() > MacRouteSnapshotRows) return {};
         QSet<QString> seen;

@@ -5,6 +5,7 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <net/if.h>
+#include <net/route.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -131,6 +132,21 @@ Result MacNetworkHelperState::apply(const MacHelperConfiguration &configuration)
         if (!recovered.succeeded()) result.detail += " Recovery: "+recovered.detail;
     }
     return result;
+}
+QJsonObject MacNetworkHelperState::networkView() const
+{
+    const auto current = readMacRoutes(); if (!current.result.succeeded()) return {};
+    const auto info = device.snapshot();
+    const auto ipv4 = info["configuration"].toObject()["applied"].toObject()["ipv4"].toArray();
+    if (ipv4.size() != 1) return {};
+    const auto pair = ipv4.first().toObject();
+    QJsonArray related;
+    for (const auto &value : current.rows) {
+        const auto row = value.toObject(); const auto prefix = row["prefix"].toString();
+        if ((prefix == pair["source"].toString()+"/32" || prefix == pair["peer"].toString()+"/32")
+            && (row["index"] == info["index"] || (prefix == pair["source"].toString()+"/32" && (row["flags"].toInteger() & RTF_LOCAL)))) related.append(row);
+    }
+    return {{"capture",capture.snapshot()},{"dns",dns.snapshot()},{"device_routes",related}};
 }
 Result MacNetworkHelperState::extend(const QStringList &addresses)
 {

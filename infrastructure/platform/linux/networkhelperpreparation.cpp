@@ -5,7 +5,6 @@
 #include <QHostAddress>
 #include <QJsonDocument>
 #include <QSet>
-#include <QUrl>
 
 namespace {
 std::optional<QStringList> routeEndpoints(const QStringList &prefixes)
@@ -33,31 +32,9 @@ LinuxHelperPreparation prepareLinuxNetworkHelper(const QJsonObject &resources, c
     const auto targets = campusCaptureTargets(resources, policy);
     if (!targets || targets->ipv4Prefixes.isEmpty()) return {{Status::Unsupported, "Cannot derive safe campus capture targets."}, {}};
     if (!dns.result.succeeded()) return {dns.result, {}};
-    auto reserved = targets->ipv4Prefixes;
-    auto reserveLiteral = [&](const QString &token) {
-        QHostAddress address(token);
-        if (address.isNull()) address = QHostAddress(QUrl("dns://"+token).host());
-        bool ipv4 = false;
-        const auto number = address.toIPv4Address(&ipv4);
-        if (ipv4) reserved.append(QHostAddress(number).toString()+"/32");
-    };
-    reserveLiteral(localDNS);
-    QList<QJsonValue> pending{dns.data};
-    while (!pending.isEmpty()) {
-        const auto value = pending.takeLast();
-        if (value.isObject()) for (const auto &entry : value.toObject()) pending.append(entry);
-        else if (value.isArray()) for (const auto &entry : value.toArray()) pending.append(entry);
-        else if (value.isString()) {
-            // Conservatively reserve IP literals, including resolver-file tokens; this never changes DNS policy.
-            auto text = value.toString();
-            text.replace('#',' '); text.replace(';',' ');
-            for (const auto &token : text.split(QRegularExpression("\\s+"),Qt::SkipEmptyParts)) reserveLiteral(token);
-        }
-        if (pending.size() > LinuxRouteSnapshotRows || reserved.size() > LinuxRouteSnapshotRows)
-            return {{Status::Failed,"DNS address reservations exceed the complete input bound."},{}};
-    }
-    reserved.removeDuplicates();
-    const auto addresses = privateTUNAddresses(network, reserved);
+    const auto reserved = tunAddressReservations(targets->ipv4Prefixes,dns.data,localDNS);
+    if (!reserved) return {{Status::Failed,"DNS address reservations exceed the complete input bound."},{}};
+    const auto addresses = privateTUNAddresses(network,*reserved);
     if (!addresses) return {{Status::Unsupported, "No unused private IPv4 address pair is available."}, {}};
     if (!UnixTunDevice::validIpv4Configuration(addresses->first, addresses->second, mtu)
         || !resources["underlay_interface"].isString())

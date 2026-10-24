@@ -1,4 +1,5 @@
 #include "infrastructure/platform/macos/networkhelperclient.h"
+#include "infrastructure/platform/macos/networkownership.h"
 #include "infrastructure/platform/dnsroutepublisher.h"
 #include "infrastructure/platform/macos/helperidentity.h"
 #include "infrastructure/platform/macos/helpertransport.h"
@@ -29,6 +30,33 @@ public:
 static void check(bool ok, const char *message) { if (!ok) throw std::runtime_error(message); }
 static void report(const QJsonObject &value) { std::cout << QJsonDocument(value).toJson(QJsonDocument::Compact).constData() << std::endl; }
 static const MacHelperConfiguration configuration{"198.18.0.1","198.18.0.2",1400,{"198.18.0.6/32"},{"campus.justconnect-fixture.test"}};
+static void checkOriginalView(const MacNetworkHelperClient &client)
+{
+    const auto configuration = client.ownedConfiguration(); check(configuration.has_value(),"Confirmed configuration for original view");
+    const auto device = client.ownedDevice(), view = client.ownedNetwork();
+    const auto filter = macOriginalNetworkView(client.owner(),*configuration,device,view); check(bool(filter),"Construct the confirmed native original view");
+    const QJsonObject externalRoute{{"destination","192.0.2.99/32"},{"interface_index",device["index"]},{"flags",1},{"external",true}};
+    QJsonArray routes{externalRoute};
+    for (const auto &value : view["capture"].toObject()["routes"].toArray()) {
+        const auto row = value.toObject()["applied"].toObject();
+        routes.append(QJsonObject{{"destination",row["prefix"]},{"interface_index",row["index"]},{"flags",row["flags"]}});
+    }
+    const QJsonObject interface{{"name",device["interface"]},{"index",device["index"]},{"up",true},{"addresses",QJsonArray{configuration->address+"/32","192.0.2.99/32"}}};
+    const QJsonObject network{{"interfaces",QJsonArray{interface}},{"routes",routes}};
+    QJsonObject entries;
+    const auto published = view["dns"].toObject();
+    for (auto it=published.begin();it!=published.end();++it) if (it.key().endsWith("/DNS")) entries[it.key()] = it.value();
+    const QString externalKey("State:/Network/Service/external/DNS");
+    entries[externalKey] = QJsonObject{{"ServerAddresses",QJsonArray{"192.0.2.53"}}};
+    const auto original = filter(network,QJsonObject{{"dynamic_store",entries}});
+    check(original && original->first["routes"] == QJsonArray{externalRoute}
+        && original->first["interfaces"].toArray().first().toObject()["addresses"] == QJsonArray{"192.0.2.99/32"}
+        && original->second["dynamic_store"].toObject() == QJsonObject{{externalKey,entries[externalKey]}},
+        "Original view removed external fields, addresses or resolver namespaces");
+    for (auto it=entries.begin();it!=entries.end();++it) if (it.key()!=externalKey) it.value() = QJsonObject{{"ServerAddresses",QJsonArray{"192.0.2.54"}}};
+    const auto changed = filter(network,QJsonObject{{"dynamic_store",entries}});
+    check(changed && changed->second["dynamic_store"] == entries,"Original view hid externally changed DNS");
+}
 static void deliver(int control, int descriptor)
 {
     char token = 'D'; iovec payload{&token,1};
@@ -118,7 +146,7 @@ int main(int argc,char **argv) try
             "Owned helper did not confirm the exact CoreEngine DNS publication");
         const auto configuration = client.ownedConfiguration();
         check(configuration && configuration->capturePrefixes.contains("198.18.0.7/32"),"Confirmed DNS address was not retained in client ownership");
-        packet(held,"198.18.0.7");
+        checkOriginalView(client); packet(held,"198.18.0.7");
         report({{"event","published"},{"owner",generation},{"request_id",request}});
     };
     QObject::connect(&client,&MacNetworkHelperClient::stateChanged,&app,[&](auto state) {
@@ -136,7 +164,7 @@ int main(int argc,char **argv) try
         if (client.state() == MacNetworkHelperClient::State::Active) {
             check(result.succeeded() && operation == MacNetworkHelperClient::Operation::Apply,"Ordinary signed apply failed");
             interface = client.ownedDevice()["interface"].toString(); index = client.ownedDevice()["index"].toInteger(); held = ::fcntl(client.descriptor(),F_DUPFD_CLOEXEC,0);
-            check(held >= 0,"Retain ordinary device reference"); packet(held);
+            check(held >= 0,"Retain ordinary device reference"); checkOriginalView(client); packet(held);
             emit core.sessionStarted(owner.toString(QUuid::WithoutBraces));
             if (mode == "--dns") deliver(arguments[3].toInt(),held);
             report({{"event","active"},{"owner",owner.toString(QUuid::WithoutBraces)},{"interface",interface},

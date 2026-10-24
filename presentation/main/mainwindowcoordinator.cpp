@@ -5,6 +5,8 @@
 #include "application/connectionsession.h"
 #ifdef Q_OS_LINUX
 #include "infrastructure/platform/linux/networkaccess.h"
+#elif defined(Q_OS_MACOS)
+#include "infrastructure/platform/macos/networkaccess.h"
 #endif
 #include "application/networkpolicysession.h"
 #include "application/profileservice.h"
@@ -35,6 +37,9 @@ MainWindowCoordinator::MainWindowCoordinator(
       connectionSession(new ConnectionSession(coreEngine, this,
 #ifdef Q_OS_LINUX
           new LinuxNetworkAccess(coreEngine, networkPolicySession,
+              EmbeddedCoreEngine::buildInfo()["capabilities"].toObject()["tunnel_mtu"].toInt())
+#elif defined(Q_OS_MACOS)
+          new MacNetworkAccess(coreEngine, networkPolicySession,
               EmbeddedCoreEngine::buildInfo()["capabilities"].toObject()["tunnel_mtu"].toInt())
 #else
           nullptr

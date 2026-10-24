@@ -427,7 +427,8 @@ func TestProtocolOversizedAuthenticationBodyReportsLimit(t *testing.T) {
 func TestNativeTUNHost(t *testing.T) {
 	host := os.Getenv("JC_NATIVE_TUN_HOST")
 	inherited := os.Getenv("JC_NATIVE_TUN_FD")
-	if host == "" || (inherited == "" && os.Getenv("JC_NATIVE_TUN_HELPER_OWNER") == "") {
+	macAuthorization := os.Getenv("JC_NATIVE_TUN_MAC_AUTH_FD")
+	if host == "" || (inherited == "" && macAuthorization == "" && os.Getenv("JC_NATIVE_TUN_HELPER_OWNER") == "") {
 		t.Skip("native TUN/C ABI handoff runs in a guarded namespace or disposable macOS runner")
 	}
 	if os.Getuid() == 0 || os.Getuid() != os.Geteuid() {
@@ -459,6 +460,19 @@ func TestNativeTUNHost(t *testing.T) {
 			t.Fatal("requires a borrowed TUN fd")
 		}
 		file := os.NewFile(uintptr(descriptor), "inherited-tun")
+		defer file.Close()
+		command.Args = append(command.Args, "3")
+		command.ExtraFiles = []*os.File{file}
+	}
+	if macAuthorization != "" {
+		if runtime.GOOS != "darwin" || inherited != "" {
+			t.Fatal("network authorization is separate from native device ownership")
+		}
+		descriptor, err := strconv.Atoi(macAuthorization)
+		if err != nil || descriptor < 3 {
+			t.Fatal("requires the inherited network authorization pipe")
+		}
+		file := os.NewFile(uintptr(descriptor), "macos-network-authorization")
 		defer file.Close()
 		command.Args = append(command.Args, "3")
 		command.ExtraFiles = []*os.File{file}

@@ -26,3 +26,6 @@ std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &reso
 
 // Choose two unused RFC 1918 addresses without overlapping original or campus targets.
 std::optional<std::pair<QString, QString>> privateTUNAddresses(const QJsonObject &network, const QStringList &reservedPrefixes);
+
+// Reserve existing resolver literals before allocating a new owned IPv4 pair.
+std::optional<QStringList> tunAddressReservations(const QStringList &captures, const QJsonObject &dns, const QString &localDNS);

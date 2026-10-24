@@ -1,4 +1,6 @@
 #include "infrastructure/platform/macos/networkhelper.h"
+#include "infrastructure/platform/macos/networkhelperpreparation.h"
+#include <QJsonDocument>
 #include <QCoreApplication>
 #include <QJsonArray>
 #include <iostream>
@@ -50,6 +52,24 @@ int main(int argc,char **argv) try
     check(!parseMacHelperApply(unexpected),"Arbitrary execution field was accepted");
     unexpected = packet;unexpected["owner"] = owner.toString();
     check(!parseMacHelperApply(unexpected),"Noncanonical owner crossed the boundary");
+    const auto successful = macHelperResponse(extension,{});
+    check(!parseMacHelperResponse(successful,extension),"Success without confirmed network facts was accepted");
+    auto scoped = successful; scoped["network"] = QJsonObject{{"capture",QJsonObject{}},{"dns",QJsonObject{}},{"device_routes",QJsonArray{}}};
+    check(parseMacHelperResponse(scoped,extension).has_value(),"Typed network-view envelope was rejected");
+    scoped["operation"] = "restore";
+    check(!parseMacHelperResponse(scoped,macHelperRequest("restore",owner,request)),"Restore acquired an unrelated active network view");
+    const auto resources = QJsonDocument::fromJson(R"({"ip_resources":[{"ip_min":"203.0.113.8","ip_max":"203.0.113.9","protocol":"tcp","port_min":22,"port_max":22}],
+        "domain_resources":{"campus.test":[{"protocol":"tcp","port_min":22,"port_max":22}]},"dns_records":{},"campus_dns":"203.0.113.53","campus_dns_enabled":true,"underlay_interface":""})").object();
+    const QJsonObject protection{{"protected",QJsonArray{"192.0.2.0/24"}},{"campus",QJsonArray{}},{"protected_names",QJsonArray{}},{"campus_names",QJsonArray{}}};
+    const QJsonObject network{{"interfaces",QJsonArray{QJsonObject{{"addresses",QJsonArray{"192.0.2.1/24"}}}}},{"routes",QJsonArray{QJsonObject{{"destination","0.0.0.0/0"}}}}};
+    const QJsonObject dns{{"dynamic_store",QJsonObject{{"fixture",QJsonObject{{"ServerAddresses",QJsonArray{"10.0.0.1","10.0.0.2"}}}}}}};
+    const auto prepared = prepareMacNetworkHelper(resources,protection,network,dns,"10.0.0.3:53",1400);
+    check(prepared.result.succeeded() && prepared.configuration.capturePrefixes == QStringList{"203.0.113.8/31","203.0.113.53/32"}
+        && prepared.configuration.dnsDomains == QStringList{"campus.test"},"Mac preparation lost actual resource scopes");
+    for (const auto &address : {prepared.configuration.address,prepared.configuration.peer})
+        check(address != "10.0.0.1" && address != "10.0.0.2" && address != "10.0.0.3","Mac preparation captured an existing DNS endpoint");
+    auto missing = resources; missing["underlay_interface"] = "justconnect-nonexistent-interface";
+    check(!prepareMacNetworkHelper(missing,protection,network,dns,{},1400).result.succeeded(),"Missing selected underlay was silently ignored");
     const auto response = macHelperResponse(packet,{PlatformOperationResult::Status::PermissionDenied,"denied",true});
     const auto result = parseMacHelperResponse(response,packet);
     check(result && result->status == PlatformOperationResult::Status::PermissionDenied && result->mayHaveChanged,"Typed denial or retained responsibility was lost");

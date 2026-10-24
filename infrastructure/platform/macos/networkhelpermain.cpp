@@ -124,7 +124,16 @@ public:
             result = entry->state->restore();
             if (result.succeeded()) entry->peer = 0;
         }
+        QJsonObject network;
+        if (result.succeeded() && (operation == "apply" || operation == "extend")) {
+            network = entry->state->networkView();
+            if (network.isEmpty()) {
+                const auto restored = entry->state->restore(); descriptor = -1; device = {};
+                result = {Status::Failed,"Cannot confirm the native network view. "+restored.detail,true};
+            }
+        }
         auto response = macHelperResponse(packet,result,device);
+        if (result.succeeded() && (operation == "apply" || operation == "extend")) response["network"] = network;
         if (operation == "probe" && result.succeeded()) response["owners"] = receipts;
         const auto reply = xpc_dictionary_create_reply(message);
         const auto encoded = macHelperMessage(response,descriptor);

@@ -56,6 +56,16 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set_tests_properties(linux_networkaccess_test PROPERTIES TIMEOUT 15)
 endif()
 
+if(APPLE)
+    add_executable(coreabi_macos_tun_adapter_test tun_macos_adapter.cpp
+        "${REPO}/application/connectionsession.cpp" "${REPO}/application/networkpolicysession.cpp"
+        "${REPO}/core/connectionsessionstate.cpp")
+    set_target_properties(coreabi_macos_tun_adapter_test PROPERTIES AUTOMOC ON INSTALL_RPATH "@executable_path/../Frameworks")
+    target_include_directories(coreabi_macos_tun_adapter_test PRIVATE "${REPO}")
+    target_link_libraries(coreabi_macos_tun_adapter_test PRIVATE coreabi_engine Qt6::Network)
+    justconnect_core_runtime(coreabi_macos_tun_adapter_test coreabi)
+endif()
+
 add_test(NAME coreabi_protocol_test
     COMMAND "${CMAKE_COMMAND}" -E env "JC_NATIVE_PROTOCOL_HOST=$<TARGET_FILE:coreabi_test>"
         GOTOOLCHAIN=local GOWORK=off GOENV=off CGO_ENABLED=1 GOEXPERIMENT=cgocheck2
