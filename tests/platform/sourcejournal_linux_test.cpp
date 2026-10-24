@@ -1,4 +1,4 @@
-#include "infrastructure/platform/linux/sourcejournal.h"
+#include "infrastructure/platform/networkjournal.h"
 #include "infrastructure/platform/linux/ownedroutetable.h"
 #include <QCoreApplication>
 #include <QDir>
@@ -54,7 +54,7 @@ int main(int argc, char **argv) try
     check(directory>=0,"Open the private directory descriptor");
     const auto owner = QUuid::createUuid();
     const auto file = temporary.filePath("source.json");
-    LinuxSourceJournal journal;
+    UnixNetworkJournal journal;
     if (argc==1) {
         check(::geteuid()!=0 && journal.open(directory,owner).status==PlatformOperationResult::Status::PermissionDenied
               && !QFile::exists(file),"Ordinary caller gained privileged journal authority or created a file");
@@ -73,7 +73,7 @@ int main(int argc, char **argv) try
           "Implicit current-directory authority replaced an explicit directory descriptor");
     check(::fchdir(workingDirectory)==0,"Restore the fixture working directory");::close(workingDirectory);
     check(journal.open(directory,owner).succeeded(),"Open root-owned private journal");
-    LinuxSourceJournal other;
+    UnixNetworkJournal other;
     check(!other.open(directory,owner,&alreadyOwned).succeeded() && alreadyOwned,"Independent guardians acquired the same directory lock or lost contention classification");
     const QJsonObject first{{"owner",owner.toString(QUuid::WithoutBraces)},{"state",1}};
     auto second = first;second["state"] = 2;

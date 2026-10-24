@@ -154,7 +154,7 @@ bool LinuxTunRoutes::validDevice(const UnixTunDevice &device) const
     const auto saved = capture.snapshot();
     return !legacy && !saved.isEmpty() && device.owner().toString(QUuid::WithoutBraces) == saved["owner"]
         && device.descriptor() >= 0 && device.name() == saved["interface"] && device.index() == saved["index"].toInteger()
-        && assignedLinuxTunPair(device.name(),device.index(),saved["source"].toString(),gatewayPeer);
+        && assignedUnixTunPair(device.name(),device.index(),saved["source"].toString(),gatewayPeer);
 }
 Result LinuxTunRoutes::validatePrefixes(const QStringList &prefixes) const
 {
@@ -169,7 +169,7 @@ Result LinuxTunRoutes::apply(const UnixTunDevice &device, const QString &source,
 {
     if (legacy || !capture.snapshot().isEmpty()) return {Status::Failed,"Owned routes must be restored before another apply."};
     if (device.owner().isNull() || device.descriptor() < 0 || device.name() != QString::fromLatin1(linuxTunName(device.owner()))
-        || !assignedLinuxTunPair(device.name(),device.index(),source,peer))
+        || !assignedUnixTunPair(device.name(),device.index(),source,peer))
         return {Status::Failed,"Capture requires an exclusively owned live TUN and its assigned endpoints."};
     sourceAddress = source;gatewayPeer = peer;
     if (auto valid = validatePrefixes(prefixes); !valid.succeeded()) return valid;

@@ -5,13 +5,15 @@
 #include <QJsonObject>
 #include <QUuid>
 
-class LinuxSourceJournal
+inline constexpr int NetworkJournalMaxBytes = 2 * 1024 * 1024;
+
+class UnixNetworkJournal
 {
 public:
-    ~LinuxSourceJournal();
-    LinuxSourceJournal() = default;
-    LinuxSourceJournal(const LinuxSourceJournal &) = delete;
-    LinuxSourceJournal &operator=(const LinuxSourceJournal &) = delete;
+    ~UnixNetworkJournal();
+    UnixNetworkJournal() = default;
+    UnixNetworkJournal(const UnixNetworkJournal &) = delete;
+    UnixNetworkJournal &operator=(const UnixNetworkJournal &) = delete;
     PlatformOperationResult open(int trustedDirectory, const QUuid &owner, bool *alreadyOwned = nullptr);
     PlatformOperationResult store(const QJsonObject &record);
     PlatformOperationResult load(QJsonObject &record);

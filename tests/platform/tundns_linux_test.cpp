@@ -1,7 +1,7 @@
 #include "infrastructure/platform/linux/tundns.h"
 #include "infrastructure/platform/linux/iprouteutility.h"
 #include "infrastructure/platform/linux/networkhelper.h"
-#include "infrastructure/platform/linux/sourcejournal.h"
+#include "infrastructure/platform/networkjournal.h"
 #include "infrastructure/platform/platformcommand.h"
 #include <QCoreApplication>
 #include <QDBusConnection>
@@ -65,11 +65,11 @@ static QStringList settings(const QString &name)
     for (const auto *key : {"dns", "domain", "default-route"}) result.append(resolver({key, name}));
     return result;
 }
-static LinuxTunDns::CheckpointWriter writer(LinuxSourceJournal &journal)
+static LinuxTunDns::CheckpointWriter writer(UnixNetworkJournal &journal)
 {
     return [&journal](const QJsonObject &value) { return value.isEmpty() ? journal.remove() : journal.store(value); };
 }
-static void openJournal(LinuxSourceJournal &journal, const QString &path, const QUuid &owner)
+static void openJournal(UnixNetworkJournal &journal, const QString &path, const QUuid &owner)
 {
     const int directory = ::open(path.toLocal8Bit().constData(), O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
     check(directory >= 0, "Open private DNS journal");
@@ -126,7 +126,7 @@ int main(int argc, char **argv) try
         return 0;
     }
     if (argc == 4 && app.arguments()[1] == "--recover-isolated") {
-        const QUuid owner(app.arguments()[3]); LinuxSourceJournal journal;
+        const QUuid owner(app.arguments()[3]); UnixNetworkJournal journal;
         openJournal(journal, app.arguments()[2], owner);
         QJsonObject saved; success(journal.load(saved));
         LinuxTunDns dns(bus);
@@ -141,7 +141,7 @@ int main(int argc, char **argv) try
     if (argc == 5 && app.arguments()[1] == "--prepare-isolated") {
         const int socket = app.arguments()[2].toInt(); const auto phase = app.arguments()[4];
         const auto owner = QUuid::createUuid(); UnixTunDevice device; create(device, owner);
-        LinuxSourceJournal journal; openJournal(journal, app.arguments()[3], owner);
+        UnixNetworkJournal journal; openJournal(journal, app.arguments()[3], owner);
         success(sendLinuxHelperPacket(socket, {{"owner", owner.toString(QUuid::WithoutBraces)}, {"device", device.snapshot()}}, device.descriptor()));
         QString pendingKey;
         auto checkpoint = [&](const QJsonObject &record) {
@@ -182,7 +182,7 @@ int main(int argc, char **argv) try
     for (const auto &names : QList<QStringList>{{}, {"."}, {"Campus.test"}, {"-bad.test"}, {"a..test"}, {"campus.test", "campus.test"}})
         check(!dns.apply(device, names).succeeded() && dns.snapshot().isEmpty(), "Invalid routing domains changed DNS");
     QTemporaryDir directory; check(directory.isValid(), "Private DNS journal directory");
-    LinuxSourceJournal journal; openJournal(journal, directory.path(), owner);
+    UnixNetworkJournal journal; openJournal(journal, directory.path(), owner);
     success(dns.apply(device, {"campus.test", "research.test"}, writer(journal)));
     const auto configured = settings(device.name());
     check(configured[0].endsWith(": 198.18.0.2") && configured[1].contains("~campus.test")

@@ -1,5 +1,6 @@
 #include "infrastructure/platform/tundevice.h"
 #include <QCoreApplication>
+#include <QFile>
 #include <ifaddrs.h>
 #include <QJsonDocument>
 #include <QJsonArray>
@@ -10,7 +11,10 @@
 #include <cstring>
 #include <fcntl.h>
 #include <iostream>
-#ifndef __APPLE__
+#ifdef __APPLE__
+#include "infrastructure/platform/macos/tunroutes.h"
+#include <QTemporaryDir>
+#else
 #include "infrastructure/platform/linux/iprouteutility.h"
 #include "infrastructure/platform/linux/tunroutes.h"
 #include "infrastructure/platform/platformcommand.h"
@@ -210,12 +214,22 @@ int main(int argc, char **argv) try
 #endif
     QJsonObject metadata{{"name", device.name()}, {"index", qint64(index)},
         {"owner", device.owner().toString(QUuid::WithoutBraces)}, {"configuration", configuration}};
-#ifndef __APPLE__
+#ifdef __APPLE__
+    QTemporaryDir ownershipDirectory;
+    check(ownershipDirectory.isValid(), "Create a protected native capture journal");
+    const int journalDirectory = ::open(QFile::encodeName(ownershipDirectory.path()).constData(), O_RDONLY|O_DIRECTORY|O_CLOEXEC|O_NOFOLLOW);
+    check(journalDirectory >= 0, "Open protected native capture storage");
+    UnixNetworkJournal journal;
+    check(journal.open(journalDirectory, owner).succeeded(), "Acquire native capture journal authority");
+    const auto checkpoint = [&](const QJsonObject &record) { return record.isEmpty() ? journal.remove() : journal.store(record); };
+    MacTunRoutes capture;
+    const auto captured = capture.apply(device, {"198.18.0.6/32"}, checkpoint);
+#else
     LinuxTunRoutes capture;
     const auto captured = capture.apply(device, "198.18.0.1", "198.18.0.2", {"198.18.0.6/32"});
+#endif
     check(captured.succeeded(), qPrintable(captured.detail));
     metadata["capture_routes"] = capture.snapshot();
-#endif
     const auto payload = QJsonDocument(metadata).toJson(QJsonDocument::Compact);
     iovec data{const_cast<char *>(payload.constData()), size_t(payload.size())};
     alignas(cmsghdr) char ancillary[CMSG_SPACE(sizeof(int))]{};
@@ -240,20 +254,28 @@ int main(int argc, char **argv) try
     check(::poll(&acknowledgement, 1, 5000) == 1 && (acknowledgement.revents & POLLIN)
           && ::recv(control, &accepted, 1, MSG_DONTWAIT) == 1 && accepted == 'R',
           "Receiver did not confirm ownership before allocator release");
-#ifdef __APPLE__
-    std::cout << "PASS: native utun allocator verifies IPv4/MTU configuration, fresh ownership, address-family framing and CLOEXEC before fd transfer\n";
-#else
     const auto savedCapture = capture.snapshot();
     device.close();
     std::cout << "TRANSFERRED" << std::endl;
     char finished = 0;
+#ifdef __APPLE__
+    pollfd cleanupRequest{control, POLLIN, 0};
+    check(::poll(&cleanupRequest, 1, 120000) == 1 && (cleanupRequest.revents & POLLIN), "Native allocator cleanup acknowledgement timed out");
+#endif
     const auto count = ::recv(control, &finished, 1, 0);
     check(count == 0 || (count == 1 && finished == 'C'), "Invalid fixture cleanup acknowledgement");
+#ifdef __APPLE__
+    QJsonObject saved;
+    check(journal.load(saved).succeeded() && saved == savedCapture, "Protected capture record changed before recovery");
+    MacTunRoutes recovered;
+    const auto restored = recovered.recover(owner, saved, checkpoint);
+    journal.close(); ::close(journalDirectory);
+#else
     LinuxTunRoutes recovered;
     const auto restored = recovered.recover(owner,savedCapture);
-    check(restored.succeeded(),qPrintable(restored.detail));
-    std::cout << "PASS: native TUN allocator verifies IPv4/MTU configuration, raw IP framing, readback rollback, exclusive ownership and CLOEXEC before fd transfer\n";
 #endif
+    check(restored.succeeded(),qPrintable(restored.detail));
+    std::cout << "PASS: native TUN allocator verifies configuration, framing, exclusive fd ownership and capture recovery\n";
     return 0;
 } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';

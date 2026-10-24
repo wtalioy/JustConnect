@@ -60,7 +60,6 @@ def main():
     try:
         os.set_blocking(descriptor, False)
         if sys.platform == 'darwin':
-            subprocess.run(['/sbin/route', '-n', 'add', '-host', '198.18.0.6', '-interface', interface], check=True, timeout=5)
             subprocess.run([str(args.fd_test.resolve()), '-test.v', '-test.timeout', '30s'],
                            env=dict(os.environ, JC_TEST_TUN_FD=str(descriptor)),
                            user=args.uid, group=user.pw_gid, extra_groups=[user.pw_gid],
@@ -73,8 +72,14 @@ def main():
                            env=env, user=args.uid, group=user.pw_gid, extra_groups=[user.pw_gid] if sys.platform == 'darwin' else [], pass_fds=(descriptor,),
                            check=True, timeout=80)
     finally:
-        os.close(descriptor)
-        cleanup_allocator()
+        try:
+            if sys.platform == 'darwin':
+                cleanup_allocator()
+                route = subprocess.check_output(['/sbin/route', '-n', 'get', '198.18.0.6'], text=True, timeout=5)
+                assert not any(line.split() == ['interface:', interface] for line in route.splitlines()), 'capture remained while caller still held its device fd'
+        finally:
+            os.close(descriptor)
+            cleanup_allocator()
     if sys.platform == 'darwin':
         deadline = time.monotonic() + 5
         while True:

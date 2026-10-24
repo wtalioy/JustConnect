@@ -1,5 +1,5 @@
 #include "networkhelper.h"
-#include "sourcejournal.h"
+#include "infrastructure/platform/networkjournal.h"
 #include "ownedroutetable.h"
 #include "tunroutes.h"
 #include "tundns.h"
@@ -218,7 +218,7 @@ struct OwnedOperation {
     UnixTunDevice device;
     bool cleaned = false, changed = false;
 private:
-    static LinuxOwnedRouteTable::CheckpointWriter writer(LinuxSourceJournal &journal)
+    static LinuxOwnedRouteTable::CheckpointWriter writer(UnixNetworkJournal &journal)
     {
         return [&journal](const QJsonObject &record) { return record.isEmpty() ? journal.remove() : journal.store(record); };
     }
@@ -227,7 +227,7 @@ private:
     QUuid owner;
     QString id;
     QByteArray name;
-    LinuxSourceJournal metadata, captureJournal, sourceJournal, dnsJournal;
+    UnixNetworkJournal metadata, captureJournal, sourceJournal, dnsJournal;
     LinuxTunRoutes capture;
     LinuxOwnedRouteTable source;
     LinuxTunDns dns{QDBusConnection::connectToBus(QStringLiteral("unix:path=/run/dbus/system_bus_socket"),
