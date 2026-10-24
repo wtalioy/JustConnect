@@ -19,6 +19,8 @@ import (
 	"github.com/wtalioy/JustConnect/corelib/stack"
 )
 
+const TrafficProbeTimeout = 10 * time.Second
+
 func ValidateKeepAlive(mode, target string) error {
 	if len(target) > 8192 || strings.ContainsAny(target, "\x00\r\n") {
 		return errors.New("invalid_keepalive_target")
@@ -56,7 +58,7 @@ func trafficProbe(ctx context.Context, mode, target, remoteDNS string, network s
 	if mode == "off" {
 		return "disabled"
 	}
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, TrafficProbeTimeout)
 	defer cancel()
 	dnsIP := authorizedDNS(remoteDNS, ips)
 	if mode != "target" {
@@ -77,7 +79,7 @@ func trafficProbe(ctx context.Context, mode, target, remoteDNS string, network s
 		defer stop()
 		request := new(dns.Msg)
 		request.SetQuestion(".", dns.TypeNS)
-		reply, _, err := (&dns.Client{Timeout: 10 * time.Second}).ExchangeWithConnContext(ctx, request, &dns.Conn{Conn: conn})
+		reply, _, err := (&dns.Client{Timeout: TrafficProbeTimeout}).ExchangeWithConnContext(ctx, request, &dns.Conn{Conn: conn})
 		if err != nil || reply == nil || reply.Rcode != dns.RcodeSuccess {
 			return "failed"
 		}
@@ -111,7 +113,7 @@ func trafficProbe(ctx context.Context, mode, target, remoteDNS string, network s
 		transport.TLSClientConfig = tlsPolicy.Clone()
 	}
 	defer transport.CloseIdleConnections()
-	httpClient := &http.Client{Transport: transport, Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	httpClient := &http.Client{Transport: transport, Timeout: TrafficProbeTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
 		return "unavailable"
