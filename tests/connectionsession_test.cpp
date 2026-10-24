@@ -13,6 +13,7 @@ public:
     int stopCalls = 0;
     QJsonObject lastResponse;
     bool acceptResponse = true;
+    bool completeDuringStop = false;
     ConnectionProfile lastProfile;
 
     bool start(const ConnectionProfile &profile, Operation = Operation::Connect) override
@@ -25,6 +26,7 @@ public:
     void stop() override
     {
         ++stopCalls;
+        if (completeDuringStop) emit finished(ConnectionError::NONE);
     }
 
     void respond(const QJsonObject &response) override {
@@ -98,6 +100,45 @@ bool ordersNetworkOwnershipAroundTheCore()
     emit network->prepared(network->attempt, {});
     if (engine->startCalls != 1) return false;
     emit network->stopped(network->attempt, {});
+    return !session.isActive() && finishes == 2 && engine->stopCalls == 1;
+}
+
+bool networkLossReleasesCoreWithoutRepeatingFailedRecovery()
+{
+    auto *engine = new FakeCoreEngine;
+    auto *network = new FakeNetworkAccess;
+    ConnectionSession session(engine,nullptr,network);
+    engine->completeDuringStop = true;
+    int finishes = 0;
+    QObject::connect(&session,&ConnectionSession::finished,[&](ConnectionError) { ++finishes; });
+    if (!session.start({}, {true,1})) return false;
+    emit network->prepared(network->attempt,{});
+    engine->establishConnection(); emit network->ready(network->attempt,{});
+    const auto lostAttempt = network->attempt;
+    emit network->lost(lostAttempt,{PlatformOperationResult::Status::Failed,"helper exited",true});
+    emit network->lost(lostAttempt,{PlatformOperationResult::Status::Failed,"duplicate loss",true});
+    if (session.state() != ConnectionState::Stopping || network->stops != 1 || engine->stopCalls) return false;
+    emit network->stopped(lostAttempt,{PlatformOperationResult::Status::Failed,"explicit recovery required",true});
+    if (engine->stopCalls != 1) { qWarning() << "Network loss retained the active core after recovery failed"; return false; }
+    engine->complete();
+    emit network->lost(lostAttempt,{PlatformOperationResult::Status::Failed,"late duplicate loss",true});
+    QCoreApplication::processEvents();
+    if (network->stops != 1 || !session.isActive() || finishes || session.start({},{})) return false;
+    session.stop();session.stop();
+    if (network->stops != 2 || engine->stopCalls != 1) return false;
+    emit network->stopped(lostAttempt,{});
+    if (session.isActive() || finishes != 1 || session.state() != ConnectionState::Failed) return false;
+    if (!session.start({},{})) return false;
+    emit network->prepared(network->attempt,{});
+    engine->establishConnection();emit network->ready(network->attempt,{});
+    emit network->lost(lostAttempt,{PlatformOperationResult::Status::Failed,"stale helper",true});
+    if (session.state() != ConnectionState::Running || network->stops != 2) return false;
+    session.stop();
+    emit network->stopped(network->attempt,{PlatformOperationResult::Status::Failed,"ordinary restore failed",true});
+    if (engine->stopCalls != 1) return false;
+    engine->complete(ConnectionError::NETWORK_FAILED);
+    if (network->stops != 3 || !session.isActive()) return false;
+    session.stop();emit network->stopped(network->attempt,{});
     return !session.isActive() && finishes == 2 && engine->stopCalls == 1;
 }
 
@@ -356,6 +397,7 @@ int main(int argc, char *argv[])
 {
     QCoreApplication application(argc, argv);
     return ordersNetworkOwnershipAroundTheCore()
+        && networkLossReleasesCoreWithoutRepeatingFailedRecovery()
         && restoresBeforeReconnectAndDoesNotLoopAuthorization()
         && progressUsesObservedEventsAndRejectsLateResults()
         && cancellingBackoffPreventsLateRestart()
