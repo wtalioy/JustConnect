@@ -190,9 +190,8 @@ func relayDatagrams(left, right net.Conn, idle time.Duration, fail func(error)) 
 		_ = right.SetDeadline(deadline)
 	}
 	refresh()
-	done := make(chan struct{}, 2)
 	copyPackets := func(dst, src net.Conn) {
-		defer func() { _ = left.Close(); _ = right.Close(); done <- struct{}{} }()
+		defer func() { _ = left.Close(); _ = right.Close() }()
 		defer func() {
 			if recover() != nil {
 				fail(errors.New("TUN datagram relay panicked"))
@@ -210,9 +209,9 @@ func relayDatagrams(left, right net.Conn, idle time.Duration, fail func(error)) 
 			}
 		}
 	}
-	go copyPackets(left, right)
-	go copyPackets(right, left)
-	<-done
+	done := make(chan struct{})
+	go func() { defer close(done); copyPackets(left, right) }()
+	copyPackets(right, left)
 	<-done
 }
 
