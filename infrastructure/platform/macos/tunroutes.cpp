@@ -111,7 +111,7 @@ Result MacTunRoutes::apply(const UnixTunDevice &device, const QStringList &prefi
     if (session.isEmpty()) return {Status::Failed, "Cannot bind capture ownership to the current boot."};
     QSet<QString> unique;
     for (const auto &prefix : prefixes) {
-        if (!canonicalIpv4Prefix(prefix) || ipv4PrefixContainsAddress(prefix, pair["source"].toString())
+        if (!canonicalUnicastIpv4Prefix(prefix) || ipv4PrefixContainsAddress(prefix, pair["source"].toString())
             || ipv4PrefixContainsAddress(prefix, pair["peer"].toString())) return {Status::Failed, "Invalid or self-capturing IPv4 prefix."};
         unique.insert(prefix);
     }
@@ -122,16 +122,47 @@ Result MacTunRoutes::apply(const UnixTunDevice &device, const QStringList &prefi
         return {Status::Failed, "An existing exact-prefix route is preserved; macOS replacement is not supported."};
     owner = device.owner(); interfaceName = device.name(); interfaceIndex = device.index(); boot = session;
     sourceAddress = pair["source"].toString(); peerAddress = pair["peer"].toString();
-    QDeadlineTimer deadline(MacRouteOperationTimeoutMs);
-    const auto failed = [&](Result result) {
-        const auto recovered = restore(owner, checkpoint);
-        if (!recovered.succeeded()) {
-            result.detail += " Recovery: "+recovered.detail;
-            result.mayHaveChanged = true; return result;
+    auto result = append(unique.values(),checkpoint);
+    if (result.succeeded()) return result;
+    const auto recovered = restore(owner,checkpoint);
+    if (!recovered.succeeded()) result.detail += " Recovery: "+recovered.detail;
+    result.mayHaveChanged = !recovered.succeeded();
+    return result;
+}
+
+Result MacTunRoutes::extend(const UnixTunDevice &device, const QStringList &addresses, const CheckpointWriter &checkpoint)
+{
+    if (owner.isNull() || device.owner() != owner || device.descriptor() < 0 || device.name() != interfaceName
+        || device.index() != interfaceIndex || !identity() || addresses.isEmpty() || addresses.size() > MacRouteSnapshotRows)
+        return {Status::Failed,"DNS captures require the active owned utun.",true};
+    const auto current = readMacRoutes();
+    if (!current.result.succeeded()) return current.result;
+    for (const auto &entry : entries)
+        if (entry.deleting || entry.applied.isEmpty() || exactMatches(matching(current.rows,entry.prefix),entry.applied) != 1)
+            return {Status::Failed,"Existing capture ownership changed before DNS publication.",true};
+    QStringList additions;
+    for (const auto &address : addresses) {
+        if (!canonicalUnicastIpv4(address) || address == sourceAddress || address == peerAddress)
+            return {Status::Failed,"Invalid or self-capturing DNS address.",true};
+        bool covered = false;
+        for (const auto &entry : entries) covered |= ipv4PrefixContainsAddress(entry.prefix,address);
+        const auto prefix = address+"/32";
+        if (!covered && !additions.contains(prefix)) {
+            if (!matching(current.rows,prefix).isEmpty()) return {Status::Failed,"External DNS address route is preserved.",true};
+            additions.append(prefix);
         }
-        result.mayHaveChanged = false; return result;
-    };
-    for (const auto &prefix : unique) {
+    }
+    if (entries.size()+additions.size() > MacRouteSnapshotRows || current.rows.size()+additions.size() > MacRouteSnapshotRows)
+        return {Status::Failed,"DNS captures exceed the complete native snapshot bound.",true};
+    if (additions.isEmpty()) return {};
+    return append(additions,checkpoint);
+}
+
+Result MacTunRoutes::append(const QStringList &prefixes, const CheckpointWriter &checkpoint)
+{
+    QDeadlineTimer deadline(MacRouteOperationTimeoutMs);
+    const auto failed = [](Result result) { result.mayHaveChanged = true; return result; };
+    for (const auto &prefix : prefixes) {
         const auto before = readMacRoutes();
         if (!before.result.succeeded()) return failed(before.result);
         if (!identity() || !matching(before.rows, prefix).isEmpty()) return failed({Status::Failed, "Route or utun identity changed before capture."});

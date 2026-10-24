@@ -183,8 +183,22 @@ def main(args):
                 assert status == 0, f'Native client {process.pid} exited {status}'
 
             def withdrawn(interface):
-                result = run('/sbin/route', '-n', 'get', '-inet', '198.18.0.6', check=False)
-                return not re.search(r'^\s*interface:\s*' + re.escape(interface) + r'\s*$', result.stdout.decode(), re.M)
+                for address in ('198.18.0.6', '198.18.0.7'):
+                    result = run('/sbin/route', '-n', 'get', '-inet', address, check=False)
+                    if re.search(r'^\s*interface:\s*' + re.escape(interface) + r'\s*$', result.stdout.decode(), re.M):
+                        return False
+                return True
+
+            def published(owner):
+                try:
+                    record = json.loads((user_state / owner / 'capture/source.json').read_text())
+                    return any(row['prefix'] == '198.18.0.7/32' and row['applied'] for row in record['routes'])
+                except (FileNotFoundError, json.JSONDecodeError):
+                    return False
+
+            def publish(client, active):
+                client.stdin.write(b'publish\n'); client.stdin.flush(); event(client, 'published')
+                assert published(active['owner']), 'CoreEngine acknowledged before durable native DNS capture'
 
             def dns_restored():
                 return json.loads(run(args.dns_probe, '--snapshot').stdout) == dns_before
@@ -204,11 +218,16 @@ def main(args):
                     sign(copy, identity, APP_ID + '.foreign')
                 denied = start('--wire-untrusted', app=copy); event(denied, 'wire-denied'); finish(denied)
                 assert not user_state.exists(), 'Untrusted signed executable created ownership storage'
-            client = start('--roundtrip', grant=True); active = event(client, 'active')
+            client = start('--publish', grant=True); active = event(client, 'active')
             assert receipt(active['owner'], 'active')
-            for mode, target in [('--wire-live', account), ('--wire-foreign', pwd.getpwnam('nobody'))]:
+            for mode, target in [('--wire-live', account), ('--wire-live-extend', account), ('--wire-foreign', pwd.getpwnam('nobody')), ('--wire-live-extend', pwd.getpwnam('nobody'))]:
                 denied = start(mode, owner=active['owner'], target=target); event(denied, 'wire-denied'); finish(denied)
                 assert receipt(active['owner'], 'active') and not withdrawn(active['interface']), 'Foreign connection withdrew live ownership'
+            publish(client, active)
+            checkpoint = user_state / active['owner'] / 'capture/source.json'
+            unchanged = checkpoint.read_bytes()
+            publish(client, active)
+            assert checkpoint.read_bytes() == unchanged, 'Repeated DNS publication rewrote its confirmed record'
             client.stdin.write(b'restore\n'); client.stdin.flush(); event(client, 'restored'); finish(client)
             assert not (user_state / active['owner']).exists(), 'Confirmed restoration left an unacknowledged receipt'
             wait_for(dns_restored, 'Normal restore left owned DNS settings')
@@ -242,12 +261,18 @@ def main(args):
             client.stdin.write(b'cancel\n'); client.stdin.flush(); event(client, 'restored'); finish(client)
             assert not list(user_state.iterdir()), 'Cancelled apply leaked ownership'
             wait_for(dns_restored, 'Cancelled apply left owned DNS settings')
-            client = start('--roundtrip', grant=True); active = event(client, 'active')
+            client = start('--cancel-extend', grant=True); active = event(client, 'active')
+            client.stdin.write(b'publish\n'); client.stdin.flush(); event(client, 'extending')
+            wait_for(lambda: published(active['owner']), 'Cancellation did not reach durable native DNS publication')
+            client.stdin.write(b'cancel\n'); client.stdin.flush(); event(client, 'restored'); finish(client)
+            assert withdrawn(active['interface']) and not list(user_state.iterdir()), 'Cancelled DNS publication leaked capture ownership'
+            wait_for(dns_restored, 'Cancelled DNS publication left resolver state')
+            client = start('--publish', grant=True); active = event(client, 'active'); publish(client, active)
             client.kill(); client.wait(timeout=10)
             wait_for(lambda: receipt(active['owner'], 'restored') and withdrawn(active['interface']), 'Client EOF failed to restore owned capture')
             wait_for(dns_restored, 'Client EOF failed to restore owned DNS')
             recovery = start('--recover', owner=active['owner']); event(recovery, 'restored'); finish(recovery)
-            client = start('--roundtrip', grant=True); active = event(client, 'active')
+            client = start('--publish', grant=True); active = event(client, 'active'); publish(client, active)
             service = run('/bin/launchctl', 'print', 'system/' + SERVICE).stdout.decode()
             pid = re.search(r'^\s*pid = (\d+)\s*$', service, re.M); assert pid
             print('CHECK: kill managed helper pid', pid[1], flush=True)
@@ -257,7 +282,7 @@ def main(args):
             client.stdin.write(b'exit\n'); client.stdin.flush(); finish(client)
             recovery = start('--recover', owner=active['owner']); event(recovery, 'restored'); finish(recovery)
             assert not list(user_state.iterdir()), 'Recovered ownership was not acknowledged'
-            print('PASS: signed root XPC, identity/network authorization boundaries, ordinary UDP/fd and system DNS, cancellation, EOF and daemon restart recovery', flush=True)
+            print('PASS: signed root XPC, identity/network authorization boundaries, ordinary UDP/fd and system DNS, durable CoreEngine DNS publication, cancellation, EOF and daemon restart recovery', flush=True)
         finally:
             for process in processes:
                 if process.poll() is None:

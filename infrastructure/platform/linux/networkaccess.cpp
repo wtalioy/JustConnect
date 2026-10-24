@@ -1,5 +1,5 @@
 #include "networkaccess.h"
-#include "dnsroutepublisher.h"
+#include "infrastructure/platform/dnsroutepublisher.h"
 #include "iprouteutility.h"
 #include "networkownership.h"
 #include <QCryptographicHash>
@@ -19,7 +19,7 @@ using Operation = LinuxNetworkHelperClient::Operation;
 LinuxNetworkAccess::LinuxNetworkAccess(CoreEngine *core, NetworkPolicySession *policy, int mtu, QObject *parent)
     : NetworkAccess(parent), core(core), policy(policy), mtu(mtu)
 {
-    new LinuxDNSRoutePublisher(core, &helper, this, [this] { return stage == Stage::Ready; });
+    new DNSRoutePublisher<LinuxNetworkHelperClient>(core, &helper, this, [this] { return stage == Stage::Ready; });
     connect(&helper, &LinuxNetworkHelperClient::finished, this, &LinuxNetworkAccess::helperFinished);
     connect(&helper, &LinuxNetworkHelperClient::stateChanged, this, [this](HelperState state) {
         if (state != HelperState::Idle && state != HelperState::Active)

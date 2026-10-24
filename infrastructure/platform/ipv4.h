@@ -21,6 +21,16 @@ inline bool canonicalIpv4Prefix(const QString &value, int minimum = 2)
     return (host & mask) == host;
 }
 
+inline bool canonicalUnicastIpv4Prefix(const QString &value)
+{
+    if (!canonicalIpv4Prefix(value)) return false;
+    const auto parts = value.split('/');
+    in_addr address{}; ::inet_pton(AF_INET,parts[0].toLatin1().constData(),&address);
+    const quint64 first = ntohl(address.s_addr), last = first+(quint64(1)<<(32-parts[1].toInt()))-1;
+    // Captures must exclude IPv4's unspecified, loopback and non-unicast ranges.
+    return first >= 0x01000000ULL && last < 0xe0000000ULL && !(first <= 0x7fffffffULL && last >= 0x7f000000ULL);
+}
+
 inline bool canonicalUnicastIpv4(const QString &value)
 {
     if (!canonicalIpv4Prefix(value+"/32")) return false;

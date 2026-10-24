@@ -132,6 +132,20 @@ Result MacNetworkHelperState::apply(const MacHelperConfiguration &configuration)
     }
     return result;
 }
+Result MacNetworkHelperState::extend(const QStringList &addresses)
+{
+    QJsonObject checked, saved;
+    if (phase() != "active" || !guardian.load(checked).succeeded() || checked != metadata
+        || !captureJournal.load(saved).succeeded() || saved != capture.snapshot())
+        { dns.restore(); return failed("Active DNS capture ownership could not be confirmed."); }
+    auto result = capture.extend(device,addresses,[&](const QJsonObject &record) { return captureJournal.store(record); });
+    if (!result.succeeded()) {
+        const auto recovered = restore();
+        if (!recovered.succeeded()) result.detail += " Recovery: "+recovered.detail;
+        result.mayHaveChanged = true;
+    }
+    return result;
+}
 bool MacNetworkHelperState::deviceAbsent() const
 {
     const auto info = metadata["device"].toObject();

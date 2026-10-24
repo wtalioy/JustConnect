@@ -21,6 +21,8 @@ struct MacHelperConfiguration {
 
 QJsonObject macHelperRequest(const char *operation, const QUuid &owner, const QUuid &request);
 QJsonObject macHelperApplyRequest(const QUuid &owner, const QUuid &request, const MacHelperConfiguration &configuration);
+QJsonObject macHelperExtendRequest(const QUuid &owner, const QUuid &request, const QStringList &addresses);
+std::optional<QStringList> parseMacHelperExtend(const QJsonObject &packet);
 bool validMacHelperRequest(const QJsonObject &packet);
 std::optional<MacHelperConfiguration> parseMacHelperApply(const QJsonObject &packet);
 QJsonObject macHelperResponse(const QJsonObject &request, const PlatformOperationResult &result, const QJsonObject &device = {});

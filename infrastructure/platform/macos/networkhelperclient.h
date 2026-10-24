@@ -10,14 +10,15 @@ class MacNetworkHelperClient final : public QObject
 {
     Q_OBJECT
 public:
-    enum class State { Idle, Inspecting, Registering, Authorizing, Applying, Active, Restoring, Acknowledging, RecoveryRequired, CleanupRequired };
+    enum class State { Idle, Inspecting, Registering, Authorizing, Applying, Active, Extending, Restoring, Acknowledging, RecoveryRequired, CleanupRequired };
     Q_ENUM(State)
-    enum class Operation { Apply, Restore, Recover, Cleanup };
+    enum class Operation { Apply, Extend, Restore, Recover, Cleanup };
     Q_ENUM(Operation)
     using AuthorizationProvider = std::function<OSStatus(AuthorizationRef *)>;
     explicit MacNetworkHelperClient(QObject *parent = nullptr, AuthorizationProvider authorization = {});
     ~MacNetworkHelperClient() override;
     void apply(const QUuid &owner, const MacHelperConfiguration &configuration);
+    void extend(const QStringList &addresses);
     void restore();
     void recover(const QUuid &owner);
     void cleanupRestored(const QUuid &owner);
@@ -25,6 +26,7 @@ public:
     State state() const { return current; }
     QUuid owner() const { return connection; }
     QJsonArray pendingOwners() const { return receipts; }
+    std::optional<MacHelperConfiguration> ownedConfiguration() const { return device >= 0 ? std::optional(configuration) : std::nullopt; }
     QJsonObject ownedDevice() const { return deviceInfo; }
     // Borrowed fd; callers duplicate before returning to the event loop.
     int descriptor() const { return device; }
@@ -49,6 +51,7 @@ private:
     MacHelperConfiguration configuration;
     QJsonObject deviceInfo;
     QJsonArray receipts;
+    QStringList pendingExtension;
     QTimer deadline;
     int device = -1;
     bool cancelled = false, registered = false;

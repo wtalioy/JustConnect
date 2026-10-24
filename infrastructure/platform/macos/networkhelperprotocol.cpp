@@ -37,8 +37,25 @@ bool validMacHelperRequest(const QJsonObject &packet)
     if (!bounded(packet) || packet["schema_version"] != MacHelperProtocol || !canonicalUuid(packet["owner"])
         || !canonicalUuid(packet["request_id"])) return false;
     const auto operation = packet["operation"].toString();
+    if (operation == "extend") return packet.size() == 5 && packet["addresses"].isArray();
     if (operation == "apply") return packet.size() == 5 && packet["configuration"].isObject();
     return packet.size() == 4 && (operation == "probe" || operation == "restore" || operation == "recover" || operation == "cleanup");
+}
+QJsonObject macHelperExtendRequest(const QUuid &owner, const QUuid &request, const QStringList &addresses)
+{
+    auto packet = macHelperRequest("extend",owner,request);
+    packet["addresses"] = QJsonArray::fromStringList(addresses); return packet;
+}
+std::optional<QStringList> parseMacHelperExtend(const QJsonObject &packet)
+{
+    if (!validMacHelperRequest(packet) || packet["operation"] != "extend" || packet["addresses"].toArray().isEmpty()
+        || packet["addresses"].toArray().size() > MacRouteSnapshotRows) return {};
+    QStringList addresses;
+    for (const auto &value : packet["addresses"].toArray()) {
+        if (!value.isString() || !canonicalUnicastIpv4(value.toString())) return {};
+        if (!addresses.contains(value.toString())) addresses.append(value.toString());
+    }
+    return addresses;
 }
 std::optional<MacHelperConfiguration> parseMacHelperApply(const QJsonObject &packet)
 {
@@ -55,13 +72,8 @@ std::optional<MacHelperConfiguration> parseMacHelperApply(const QJsonObject &pac
     QSet<QString> unique;
     for (const auto &value : configuration["prefixes"].toArray()) {
         const auto prefix = value.toString();
-        if (!canonicalIpv4Prefix(prefix) || unique.contains(prefix) || ipv4PrefixContainsAddress(prefix,result.address)
+        if (!canonicalUnicastIpv4Prefix(prefix) || unique.contains(prefix) || ipv4PrefixContainsAddress(prefix,result.address)
             || ipv4PrefixContainsAddress(prefix,result.peer)) return {};
-        // Local and non-unicast destinations cannot be reassigned to a campus device.
-        const auto parts = prefix.split('/');
-        in_addr address{}; ::inet_pton(AF_INET,parts[0].toLatin1().constData(),&address);
-        const quint64 first = ntohl(address.s_addr), last = first+(quint64(1)<<(32-parts[1].toInt()))-1;
-        if (first < 0x01000000ULL || last >= 0xe0000000ULL || (first <= 0x7fffffffULL && last >= 0x7f000000ULL)) return {};
         unique.insert(prefix); result.capturePrefixes.append(prefix);
     }
     return result;

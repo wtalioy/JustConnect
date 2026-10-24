@@ -53,6 +53,7 @@ jobs:
             build/coreabi/*.txt
             build/coreabi/macos-helper.log
             build/coreabi/macos-tun-dns.log
+            build/coreabi/macos-tun-routes.log
             build/coreabi/macos-helper/*.out
             build/coreabi/macos-helper/*.err
   probe:
