@@ -1,7 +1,6 @@
 #include "sourceroutes.h"
 #include "iprouteutility.h"
 #include <QJsonDocument>
-#include <QRegularExpression>
 #include <QScopeGuard>
 #include <QSet>
 #include <ifaddrs.h>
@@ -202,7 +201,7 @@ PlatformOperationResult LinuxSourceRoutes::recover(const QUuid &id, const QJsonO
 PlatformOperationResult LinuxSourceRoutes::validate(const QString &interface, const QString &source,
                                                    const QString &gateway, const QStringList &requested)
 {
-    if (!QRegularExpression("^[A-Za-z0-9_.-]{1,15}$").match(interface).hasMatch()
+    if (!canonicalLinuxInterfaceName(interface)
         || !canonicalUnicastIpv4(source) || (!gateway.isEmpty() && !canonicalUnicastIpv4(gateway)) || source == gateway || requested.isEmpty() || requested.size() > LinuxRouteSnapshotRows)
         return {Status::Failed,"Invalid original interface, source, gateway or target count."};
     for (const auto &prefix : requested)

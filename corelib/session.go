@@ -51,11 +51,12 @@ type Observer struct {
 
 // Resources borrows the session's parsed data read-only for the observer call.
 type Resources struct {
-	IPs              []client.IPResource
-	Domains          client.DomainResources
-	DNSRecords       map[string][]net.IP
-	CampusDNS        string
-	CampusDNSEnabled bool
+	IPs               []client.IPResource
+	Domains           client.DomainResources
+	DNSRecords        map[string][]net.IP
+	CampusDNS         string
+	CampusDNSEnabled  bool
+	UnderlayInterface string
 }
 
 // Session owns one protocol invocation; the ABI serializes starts and joins Run on stop.
@@ -214,7 +215,12 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 	}
 	remoteDNS, _ := vpn.DNSServer()
 	if observer.Resources != nil {
-		observer.Resources(Resources{ips, domains, dnsResource, remoteDNS, !options.DisableRemoteDNS && remoteDNS != ""})
+		var interfaceName string
+		if selected, ok := clientOptions.UnderlayDialer.(interface{ InterfaceName() string }); ok {
+			interfaceName = selected.InterfaceName()
+		}
+		observer.Resources(Resources{IPs: ips, Domains: domains, DNSRecords: dnsResource,
+			CampusDNS: remoteDNS, CampusDNSEnabled: !options.DisableRemoteDNS && remoteDNS != "", UnderlayInterface: interfaceName})
 	}
 	ttl := options.DNSCacheTTL
 	if ttl == 0 {

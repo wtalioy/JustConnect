@@ -20,11 +20,12 @@ type ipResource struct {
 }
 
 type resourceSnapshot struct {
-	IPs              []ipResource                    `json:"ip_resources"`
-	Domains          map[string][]resourcePermission `json:"domain_resources"`
-	DNSRecords       map[string][]string             `json:"dns_records"`
-	CampusDNS        string                          `json:"campus_dns"`
-	CampusDNSEnabled bool                            `json:"campus_dns_enabled"`
+	IPs               []ipResource                    `json:"ip_resources"`
+	Domains           map[string][]resourcePermission `json:"domain_resources"`
+	DNSRecords        map[string][]string             `json:"dns_records"`
+	CampusDNS         string                          `json:"campus_dns"`
+	CampusDNSEnabled  bool                            `json:"campus_dns_enabled"`
+	UnderlayInterface string                          `json:"underlay_interface"`
 }
 
 func (s *Session) setResources(resources corelib.Resources) Status {
@@ -35,7 +36,7 @@ func (s *Session) setResources(resources corelib.Resources) Status {
 		return Cancelled
 	}
 	s.mu.Unlock()
-	snapshot := resourceSnapshot{IPs: []ipResource{}, Domains: map[string][]resourcePermission{}, DNSRecords: map[string][]string{}, CampusDNS: resources.CampusDNS, CampusDNSEnabled: resources.CampusDNSEnabled}
+	snapshot := resourceSnapshot{IPs: []ipResource{}, Domains: map[string][]resourcePermission{}, DNSRecords: map[string][]string{}, CampusDNS: resources.CampusDNS, CampusDNSEnabled: resources.CampusDNSEnabled, UnderlayInterface: resources.UnderlayInterface}
 	for _, row := range resources.IPs {
 		snapshot.IPs = append(snapshot.IPs, ipResource{row.IPMin.String(), row.IPMax.String(), resourcePermission{row.Protocol, row.PortMin, row.PortMax}})
 	}

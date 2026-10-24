@@ -62,7 +62,7 @@ func TestAutoDetectionIsDeferredAndSharedByConcurrentFirstDials(t *testing.T) {
 	if got := detectCalls.Load(); got != 0 {
 		t.Fatalf("New triggered %d interface detections, want 0", got)
 	}
-	if got := dialer.interfaceName; got != "" {
+	if got := dialer.InterfaceName(); got != "" {
 		t.Fatalf("InterfaceName before first dial = %q, want empty", got)
 	}
 
@@ -87,8 +87,12 @@ func TestAutoDetectionIsDeferredAndSharedByConcurrentFirstDials(t *testing.T) {
 	if got := detectCalls.Load(); got != 1 {
 		t.Fatalf("interface detection calls = %d, want 1", got)
 	}
-	if got := dialer.interfaceName; got != interfaceName {
+	if got := dialer.InterfaceName(); got != interfaceName {
 		t.Fatalf("InterfaceName after first dial = %q, want %q", got, interfaceName)
+	}
+	dialer.Close()
+	if got := dialer.InterfaceName(); got != "" {
+		t.Fatal("closed dialer retained an interface preference", got)
 	}
 }
 

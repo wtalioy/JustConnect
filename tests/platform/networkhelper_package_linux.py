@@ -160,6 +160,7 @@ def main():
                 ip('link', 'add', 'helperorig0', 'type', 'dummy')
                 ip('link', 'set', 'helperorig0', 'up')
                 ip('address', 'add', '192.0.2.1/24', 'dev', 'helperorig0')
+                ip('-4', 'route', 'add', 'default', 'dev', 'helperorig0')
                 if gateway:
                     ip('link', 'set', 'lo', 'up')
                 def inventory():

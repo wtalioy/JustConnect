@@ -38,6 +38,13 @@ function(justconnect_core_ui_tests TARGET ENGINE LIBRARY PLATFORM)
 endfunction()
 
 function(justconnect_network_policy_tests)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_executable(linux_networkhelperpreparation_test "${REPO}/tests/platform/networkhelperpreparation_linux_test.cpp"
+            "${REPO}/infrastructure/platform/linux/networkhelperpreparation.cpp" "${REPO}/application/networkprotection.cpp")
+        target_include_directories(linux_networkhelperpreparation_test PRIVATE "${REPO}")
+        target_link_libraries(linux_networkhelperpreparation_test PRIVATE justconnect_network_helper Qt6::Network)
+        add_test(NAME linux_networkhelperpreparation_test COMMAND linux_networkhelperpreparation_test)
+    endif()
     add_executable(networkprotection_test "${REPO}/tests/networkprotection_test.cpp" "${REPO}/application/networkprotection.cpp")
     target_include_directories(networkprotection_test PRIVATE "${REPO}")
     target_link_libraries(networkprotection_test PRIVATE Qt6::Core Qt6::Network)

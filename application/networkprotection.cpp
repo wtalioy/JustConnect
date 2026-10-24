@@ -458,3 +458,37 @@ std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &reso
     if (result.dnsDomains.size() > MaxModelItems || result.ipv4Prefixes.isEmpty()) return {};
     return result;
 }
+
+std::optional<std::pair<QString, QString>> privateTUNAddresses(const QJsonObject &network, const QStringList &reservedPrefixes)
+{
+    const auto original = originalNetworkProtection(network);
+    if (!original || reservedPrefixes.size() > MaxModelItems) return {};
+    IPv4Ranges blocked;
+    auto exclude = [&](const QString &text) {
+        const auto subnet = QHostAddress::parseSubnet(text);
+        if (subnet.second < 2 || mapped(subnet.first) || !subnet.first.scopeId().isEmpty()) return false;
+        if (subnet.first.protocol() != QAbstractSocket::IPv4Protocol) return true;
+        const quint64 first = subnet.first.toIPv4Address(), span = quint64(1) << (32-subnet.second);
+        if (first % span || text != subnet.first.toString()+"/"+QString::number(subnet.second)) return false;
+        blocked.append({first, first+span-1});
+        return true;
+    };
+    for (const auto &entry : *original) if (!exclude(entry.toObject()["prefix"].toString())) return {};
+    for (const auto &prefix : reservedPrefixes) if (!exclude(prefix)) return {};
+    blocked = mergedRanges(blocked);
+    // RFC 1918 candidate pools are fixed protocol ranges, not fixed device addresses.
+    for (const auto *pool : {"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}) {
+        const auto subnet = QHostAddress::parseSubnet(QString::fromLatin1(pool));
+        const quint64 start = subnet.first.toIPv4Address(), end = start+(quint64(1) << (32-subnet.second))-2;
+        auto candidate = start+1;
+        for (const auto &range : blocked) {
+            if (range.second < candidate) continue;
+            if (range.first > candidate+1) break;
+            candidate = range.second+1;
+            if (candidate+1 > end) break;
+        }
+        if (candidate+1 <= end)
+            return std::pair{QHostAddress(quint32(candidate)).toString(), QHostAddress(quint32(candidate+1)).toString()};
+    }
+    return {};
+}

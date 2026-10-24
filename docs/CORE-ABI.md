@@ -79,7 +79,7 @@ Linux 使用独立限时 netlink 句柄读取所有 IP 路由表，包含 Tailsc
 
 ## 校园资源只读快照
 
-`resource_snapshot` 由正式协议后端提供。`jc_session_resources` 需要活动句柄及 Start 返回的代次，返回 `{schema_version,generation,resources}`，代次为字符串。`resources` 包含 `ip_resources:[{ip_min,ip_max,protocol,port_min,port_max}]`、`domain_resources:{域名:[{protocol,port_min,port_max}]}`、`dns_records:{域名:[地址]}`、`campus_dns` 与 `campus_dns_enabled`。数据直接取自该代实际交给拨号／解析层的解析结果，不重新登录、不重复请求服务器、读取代理文件或重写授权匹配器；应用／节点标识、认证材料及服务器原始响应不导出。
+`resource_snapshot` 由正式协议后端提供。`jc_session_resources` 需要活动句柄及 Start 返回的代次，返回 `{schema_version,generation,resources}`，代次为字符串。`resources` 包含 `ip_resources:[{ip_min,ip_max,protocol,port_min,port_max}]`、`domain_resources:{域名:[{protocol,port_min,port_max}]}`、`dns_records:{域名:[地址]}`、`campus_dns`、`campus_dns_enabled` 与 `underlay_interface`。后者为资源建立时核心当前选用的原网络接口偏好，空字符串表示使用系统路由；它不代替内核出口查询，不证明实时路由或接管已就绪。注入的外部拨号器未提供该观测时同样为空。数据直接取自该代实际交给拨号／解析层的解析结果，不重新登录、不重复请求服务器、读取代理文件或重写授权匹配器；应用／节点标识、认证材料及服务器原始响应不导出。
 
 资源尚未发布时返回 `JC_BUSY`，应用在核心 ready 后读取，无需文件轮询。零代次返回 `JC_INVALID_ARGUMENT`；其他代次、停止期间及已结束会话返回 `JC_STALE_REQUEST`，已销毁句柄返回 `JC_INVALID_HANDLE`；认证方式查询不提供该数据。输入和返回缓冲区均不被保留；同代数据不因调用方修改而改变，下一代清空，结束后释放。无效或超限结果只报告状态；超过 `MaxOutput` 返回 `JC_LIMIT`，不截断，当前本地代理会话仍可运行，透明入口不得据缺失数据应用规则。
 

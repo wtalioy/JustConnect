@@ -162,6 +162,8 @@ SSO 浏览器从当前连接会话接收 TLS 策略，回调来源与策略在�
 
 同一模块的 `campusCaptureTargets` 从实际资源和核心已确认的保护策略推导初始 IPv4 捕获／DNS 路由域。合并 IP 区间、静态解析地址及启用的校园 DNS，扣除实际保护范围，仅恢复已确认的精确地址例外；回环、0/8 和多播／保留高地址不允许例外。区间分解为去重的 `/2`—`/32`，结果过限整批拒绝，不生成默认路由；协议／端口授权仍由核心执行。不生成 IPv6 捕获前缀，当前规划不宣称透明 IPv6。远端 DNS 关闭时仅保留内置解析记录的路由域；域名从资源规范化并合并重复及父子覆盖。受保护的校园 DNS 地址或相交名称域使规划失败，须先完成原网络 DNS 转发／必要选择，不能以扩大校园域接管掩盖冲突。该规划不选择原出口或私有设备地址；初始出口查询、设备避让、运行中撤销及应用整体编排仍待接入。
 
+Linux 的 `prepareLinuxNetworkHelper` 在工作线程上只读准备实际助手配置：复用捕获规划，采纳核心资源快照的原接口偏好，用一次受信 `ip -N -j -4 -batch -` 查询每个目标前缀的首尾地址，保留十秒预算及完整输出上限；结果须全部同接口／源地址／网关，源地址仍在原生接口快照中，歧义、截断、外部出口不同或查询失败均不返回部分配置。`privateTUNAddresses` 使用统一的 RFC 1918 候选范围，合并并避开原接口／非默认路由、校园目标和实际系统／自定义 DNS 的 IPv4 地址；只选择未占用的连续点对点地址，空间不足时失败。DNS 快照字面量仅用作保守分配保留，不增加授权或改写解析规则。接口名称规则由原出口模块与准备共用；真实助手仍在写入前重新验证接口、源地址与所有权。原生联合夹具已使用真实快照、内核出口和生成地址，不再手填 DNS 模式的设备／原出口配置。准备不修改网络；当前应用启动／就绪／退出、运行中变化与路由寿命的整体协调仍待接入。
+
 同一模型模块从 DNS 快照提取 `dns_namespaces`，每项保留原始表达式、角色及原快照来源（字段／行／数组项或动态存储键）。resolved 的路由域与搜索路由域分开，Windows 生效 NRPT 保留原始命名空间，不能统一解释成后缀；macOS State／Setup 的匹配域、搜索域和主域作为配置输入分别保留，不冒充最终作用域或搜索顺序。`resolv.conf` 仅提取文件内最后一个非空 search／domain 指令，保留 glibc 的列首及空白语法，不代替 NSS、LOCALDOMAIN 或其他解析提供者。畸形、NUL 与超过 4096 项均使整次模型失败；表达式不直接成为授权或已生效保护。依据：[resolved 域路由](https://www.freedesktop.org/software/systemd/man/latest/systemd-resolved.service.html)、[Windows NRPT 命名空间](https://learn.microsoft.com/en-us/windows-server/networking/dns/name-resolution-policy-table)、[Apple DNS 配置处理](https://github.com/apple-oss-distributions/configd/blob/main/Plugins/IPMonitor/dns-configuration.c)、[glibc 文件解析](https://github.com/bminor/glibc/blob/master/resolv/res_init.c)。
 
 
