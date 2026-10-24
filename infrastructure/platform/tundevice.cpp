@@ -16,6 +16,8 @@
 #endif
 #ifdef Q_OS_LINUX
 #include "linux/iprouteutility.h"
+#include <linux/magic.h>
+#include <sys/vfs.h>
 #endif
 
 namespace {
@@ -93,6 +95,21 @@ PlatformOperationResult UnixTunDevice::createIpv4(const QUuid &owner, const QStr
 #ifdef Q_OS_LINUX
     const auto utility = trustedIpRouteUtility();
     if (utility.isEmpty()) return {Status::Unsupported, "A trusted system iproute2 executable is required.", true};
+    // This newly owned IPv4-only interface must not add IPv6 link-local or multicast routes.
+    const auto ipv6Path = QString("/proc/sys/net/ipv6/conf/%1/disable_ipv6").arg(interfaceName).toLocal8Bit();
+    const int ipv6 = ::open(ipv6Path.constData(), O_RDWR | O_CLOEXEC | O_NOFOLLOW);
+    const auto closeIpv6 = qScopeGuard([&] { if (ipv6 >= 0) ::close(ipv6); });
+    struct statfs filesystem{};
+    if (ipv6 < 0 ? (errno != ENOENT || QFileInfo::exists("/proc/sys/net/ipv6/conf"))
+        : (::fstatfs(ipv6, &filesystem) != 0 || filesystem.f_type != PROC_SUPER_MAGIC
+            || ::write(ipv6, "1\n", 2) != 2))
+        return {Status::Failed, "Cannot isolate IPv6 on the newly owned IPv4 TUN.", true};
+    const auto ipv6Disabled = [&] {
+        char value[4]{};
+        return ipv6 < 0 || (::lseek(ipv6, 0, SEEK_SET) == 0 && ::read(ipv6, value, sizeof(value)) == 2
+            && value[0] == '1' && value[1] == '\n');
+    };
+    if (!ipv6Disabled()) return {Status::Failed, "Cannot confirm IPv6 isolation on the new TUN.", true};
     const auto batch = QString("address add %1 peer %2/32 dev %3\nlink set dev %3 mtu %4 up\n")
         .arg(source, peer, interfaceName).arg(mtu).toLatin1();
     result = runPlatformCommand(utility, {"-4", "-batch", "-"}, 5000, batch).result;
@@ -105,11 +122,15 @@ PlatformOperationResult UnixTunDevice::createIpv4(const QUuid &owner, const QStr
         "netmask", "255.255.255.255", "mtu", QString::number(mtu), "up"}, 5000).result;
 #endif
     if (!result.succeeded()) { result.mayHaveChanged = true; return result; }
-    const auto after = readLink(interfaceName, interfaceIndex);
+    auto after = readLink(interfaceName, interfaceIndex);
     const QJsonArray expected{QJsonObject{{"source", source}, {"peer", peer}, {"netmask", "255.255.255.255"}}};
     if (after.isEmpty() || after["mtu"].toInt() != mtu || !(after["flags"].toInt() & IFF_UP)
         || after["ipv4"].toArray() != expected)
         return {Status::Failed, "Cannot verify the newly configured TUN device.", true};
+#ifdef Q_OS_LINUX
+    if (!ipv6Disabled()) return {Status::Failed, "IPv6 isolation changed during TUN configuration.", true};
+    after["ipv6_disabled"] = true;
+#endif
     configuration = {{"before", before}, {"applied", after}};
     rollback.dismiss();
     return {Status::Success, {}, true};

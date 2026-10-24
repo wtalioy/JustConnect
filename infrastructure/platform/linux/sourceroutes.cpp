@@ -160,7 +160,7 @@ PlatformOperationResult LinuxSourceRoutes::recover(const QUuid &id, const QJsonO
     if (id.isNull() || saved.size()!=14 || saved["owner"]!=id.toString(QUuid::WithoutBraces)
         || QJsonDocument(saved).toJson(QJsonDocument::Compact).size()>MaxSnapshotBytes
         || !saved["interface"].isString() || !saved["source"].isString() || !saved["gateway"].isString()
-        || !QRegularExpression("^[A-Za-z0-9_.-]{1,15}$").match(saved["interface"].toString()).hasMatch()
+        || !canonicalLinuxInterfaceName(saved["interface"].toString())
         || !canonicalUnicastIpv4(saved["source"].toString()) || (!saved["gateway"].toString().isEmpty() && !canonicalUnicastIpv4(saved["gateway"].toString()))
         || saved["source"]==saved["gateway"] || saved["index"].toInteger(-1)<=0 || saved["index"].toInteger()>0xffffffffLL
         || saved["priority"]!=1 || !saved["routes"].isArray() || saved["routes"].toArray().size()>LinuxRouteSnapshotRows
@@ -169,8 +169,7 @@ PlatformOperationResult LinuxSourceRoutes::recover(const QUuid &id, const QJsonO
         || !saved["rule_applied"].isObject()) return invalid;
     const auto namespaceId = linuxNetworkNamespace();
     if (namespaceId.isEmpty() || saved["namespace"]!=namespaceId) return invalid;
-    const auto hash = id.toByteArray(QUuid::Id128).left(8).toUInt(nullptr,16);
-    if (saved["table"].toInteger(-1)!=1000000000u+hash%1000000000u
+    if (saved["table"].toInteger(-1)!=linuxSourceTable(id)
         || saved["metric"].toInteger(-1)!=linuxRouteMetric(id)) return invalid;
     bool accepted = false;
     const auto discard = qScopeGuard([&] { if (!accepted) clear(); });
@@ -223,8 +222,7 @@ PlatformOperationResult LinuxSourceRoutes::apply(const QUuid &id, const QString 
     if (namespaceId.isEmpty()) return {Status::Failed,"Cannot identify the Linux boot and network namespace."};
     owner = id;networkNamespace = namespaceId;interfaceName = interface;sourceAddress = source;gatewayAddress = gateway;
     interfaceIndex = ::if_nametoindex(interfaceName.toLatin1().constData());
-    const auto hash = id.toByteArray(QUuid::Id128).left(8).toUInt(nullptr,16);
-    table = 1000000000u + hash % 1000000000u;metric = linuxRouteMetric(id);
+    table = linuxSourceTable(id);metric = linuxRouteMetric(id);
     const auto discard = qScopeGuard([&] { if (entries.isEmpty() && !rulePending) clear(); });
     if (!identity() || !sourceAssigned()) return {Status::Failed,"Original source is not assigned to the selected live interface."};
     QDeadlineTimer deadline(LinuxRouteOperationTimeoutMs);

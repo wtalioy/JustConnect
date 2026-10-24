@@ -38,6 +38,7 @@ type Route struct {
 	Source         string    `json:"source,omitempty"`
 	Table          int       `json:"table,omitempty"`
 	Metric         int       `json:"metric,omitempty"`
+	Scope          int       `json:"scope,omitempty"`
 	Protocol       int       `json:"protocol,omitempty"`
 	Kind           int       `json:"kind,omitempty"`
 	Flags          int       `json:"flags,omitempty"`

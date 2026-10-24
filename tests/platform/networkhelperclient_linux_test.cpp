@@ -72,6 +72,9 @@ int main(int argc, char **argv) try
         if (scenario == "cleanup" || scenario == "recover") check(client->state() == Client::State::Idle, "Recovery did not finish receipt cleanup");
         else {
             check(client->state() == Client::State::Active && client->descriptor() >= 0, "No active borrowed TUN descriptor");
+            check(client->ownedConfiguration() && client->ownedDevice()["owner"] == owner.toString(QUuid::WithoutBraces),
+                  "Active helper omitted its confirmed ownership view");
+            const auto beforeExtension = *client->ownedConfiguration();
             QProcess exchange;
             const int device = client->descriptor();
             const int flags = ::fcntl(device, F_GETFL);
@@ -89,17 +92,25 @@ int main(int argc, char **argv) try
                 check(results.last().status == (scenario == "extend-cancel" ? Status::Cancelled : Status::Failed)
                       && client->state() == Client::State::Idle && client->descriptor() == -1,
                       "Failed/cancelled DNS publication did not restore and release its connection");
+                check(!client->ownedConfiguration() && client->ownedDevice().isEmpty(), "Failed extension retained active ownership facts");
                 std::cout << "PASS: Qt helper client " << scenario.toStdString() << '\n';
                 return 0;
             }
             check(results.last().succeeded() && client->state() == Client::State::Active
                   && client->descriptor() == device && ::fcntl(device,F_GETFL) == flags,
                   "DNS publication replaced or closed the active borrowed descriptor");
+            const auto extendedConfiguration = client->ownedConfiguration();
+            check(extendedConfiguration && extendedConfiguration->capturePrefixes.contains("198.18.6.7/32")
+                  && extendedConfiguration->originalPrefixes.contains("198.18.6.7/32")
+                  && extendedConfiguration->capturePrefixes.size() == beforeExtension.capturePrefixes.size() + 1,
+                  "Acknowledged DNS publication was not added to its owned view");
             previous = results.size();
             client->extend({"198.18.6.7"});
             wait([&] { return results.size() == previous+1; });
             check(results.last().succeeded() && !results.last().mayHaveChanged && client->descriptor() == device,
                   "Repeated DNS address publication changed active network state");
+            check(client->ownedConfiguration()->capturePrefixes == extendedConfiguration->capturePrefixes,
+                  "Repeated publication duplicated the ownership view");
             exchange.start("/usr/bin/python3", {"-B", "-c",
                 "import sys;sys.path.insert(0,sys.argv[1]);from unix_device_probe import exchange;exchange(int(sys.argv[2]),'198.18.6.7')",
                 QFileInfo(QString::fromUtf8(__FILE__)).absolutePath(),QString::number(device)});
@@ -123,6 +134,7 @@ int main(int argc, char **argv) try
                 check(lost.size() == 1 && !lost[0].succeeded() && lost[0].mayHaveChanged
                     && client->state() == Client::State::RecoveryRequired && client->descriptor() == -1,
                     "Helper loss did not revoke its descriptor and retain recovery responsibility");
+                check(!client->ownedConfiguration() && client->ownedDevice().isEmpty(), "Lost helper retained active ownership facts");
                 previous = results.size();
                 client->restore();
                 wait([&] { return results.size() == previous+1; });
@@ -137,6 +149,7 @@ int main(int argc, char **argv) try
                 wait([&] { return results.size() == previous+1; });
                 check(results.last().succeeded() && client->state() == Client::State::Idle && client->descriptor() == -1,
                     "Restore reported completion before its descriptor and receipt were released");
+                check(!client->ownedConfiguration() && client->ownedDevice().isEmpty(), "Restored helper retained active ownership facts");
             }
         }
     }

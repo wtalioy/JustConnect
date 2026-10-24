@@ -25,6 +25,8 @@ public:
     void cancel();
     State state() const { return current; }
     bool hasPendingProcess() const { return child > 0; }
+    std::optional<LinuxHelperConfiguration> ownedConfiguration() const { return device >= 0 ? configuration : std::nullopt; }
+    QJsonObject ownedDevice() const { return device >= 0 ? deviceInfo : QJsonObject{}; }
     QUuid owner() const { return connection; }
     // Borrowed, nonblocking; a core duplicate must close before overall shutdown completes.
     int descriptor() const { return device; }
@@ -57,6 +59,8 @@ private:
     State current = State::Idle;
     Operation operation = Operation::Apply;
     QUuid connection;
-    QJsonObject initial;
+    QJsonObject initial, deviceInfo;
+    std::optional<LinuxHelperConfiguration> configuration;
+    QStringList pendingExtension;
     std::optional<PlatformOperationResult> outcome;
 };

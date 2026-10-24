@@ -154,10 +154,12 @@ void LinuxNetworkHelperClient::recover(const QUuid &owner)
 void LinuxNetworkHelperClient::extend(const QStringList &addresses)
 {
     const auto request = linuxHelperExtendRequest(connection,addresses);
-    if (current != State::Active || device < 0 || !parseLinuxHelperExtend(connection,request)) {
+    const auto parsed = parseLinuxHelperExtend(connection,request);
+    if (current != State::Active || device < 0 || !parsed) {
         emit finished(Operation::Extend,{Status::Failed,"DNS route publication requires active ownership and canonical addresses."});
         return;
     }
+    pendingExtension = *parsed;
     operation = Operation::Extend; outcome.reset();
     QPointer<LinuxNetworkHelperClient> guard(this);
     setState(State::Extending);
@@ -310,7 +312,8 @@ void LinuxNetworkHelperClient::receive()
         const auto expected = linuxTunName(connection);
         if (received < 0 || info.size() != 4 || info["owner"] != connection.toString(QUuid::WithoutBraces)
             || info["interface"] != QString::fromLatin1(expected) || info["index"].toInteger(-1) != ::if_nametoindex(expected.constData())
-            || !info["configuration"].isObject() || ::ioctl(received, TUNGETIFF, &native) != 0
+            || !info["configuration"].isObject() || info["configuration"].toObject()["applied"].toObject()["ipv6_disabled"] != true
+            || ::ioctl(received, TUNGETIFF, &native) != 0
             || QByteArray(native.ifr_name) != expected
             || (native.ifr_flags & (IFF_TUN | IFF_TAP | IFF_NO_PI | IFF_VNET_HDR | IFF_MULTI_QUEUE | IFF_PERSIST)) != (IFF_TUN | IFF_NO_PI)
             || !(::fcntl(received, F_GETFD) & FD_CLOEXEC)) { failed("The helper did not hand over its owned raw IP device."); return; }
@@ -322,6 +325,10 @@ void LinuxNetworkHelperClient::receive()
         if (flags < 0 || ::fcntl(received, F_SETFL, flags | O_NONBLOCK) != 0) {
             failed("Cannot prepare interruptible packet I/O for the owned device."); return;
         }
+        configuration = parseLinuxHelperApply(connection, initial);
+        if (!configuration) { failed("The active device lost its confirmed configuration."); return; }
+        deviceInfo = info;
+        initial = {};
         device = received; received = -1;
         finish(returned, State::Active); return;
     }
@@ -329,7 +336,18 @@ void LinuxNetworkHelperClient::receive()
     if (phase == "active" && returned.succeeded() && (current == State::Extending || current == State::CancellingExtend)) {
         if (child < 0) { failed("The helper exited before DNS route publication completed."); return; }
         if (current == State::CancellingExtend) restoreActive();
-        else finish(returned,State::Active);
+        else {
+            if (!configuration) { failed("The active device lost its confirmed configuration."); return; }
+            for (auto *prefixes : {&configuration->capturePrefixes, &configuration->originalPrefixes}) {
+                for (const auto &address : pendingExtension) {
+                    bool covered = false;
+                    for (const auto &prefix : *prefixes) covered |= ipv4PrefixContainsAddress(prefix, address);
+                    if (!covered) prefixes->append(address + "/32");
+                }
+            }
+            pendingExtension.clear();
+            finish(returned,State::Active);
+        }
         return;
     }
     if ((operation == Operation::Cleanup || operation == Operation::Recover) && current == State::Restoring

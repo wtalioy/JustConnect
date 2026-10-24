@@ -54,7 +54,7 @@ NetworkPolicySession::NetworkPolicySession(CoreEngine *engine, DnsReader reader,
             if (status == Status::Success) confirmedPolicy = pendingPolicy;
             pendingPolicy = {};
             lastPolicyStatus = status;
-            emit changed();
+            publish();
         });
     connect(&watcher, &QFutureWatcher<ModelResult>::finished, this, [this] {
         const auto result = watcher.result();
@@ -84,7 +84,8 @@ void NetworkPolicySession::clear()
 {
     ++serial;
     generation.clear();
-    transportReady = networkPending = resourcesPending = false;
+    transportReady = networkPending = resourcesPending = networkBusy = refreshQueued = false;
+    originalViewFilter = {};
     network = resources = currentModel = {};
     networkVersion = {};
     confirmedPolicy = pendingPolicy = {};
@@ -94,10 +95,29 @@ void NetworkPolicySession::clear()
     emit changed();
 }
 
+void NetworkPolicySession::setNetworkBusy(const QString &id, bool busy)
+{
+    if (id.isEmpty() || id != generation || networkBusy == busy) return;
+    networkBusy = busy;
+    publish();
+}
+
+void NetworkPolicySession::setOriginalViewFilter(const QString &id, OriginalViewFilter filter)
+{
+    if (id.isEmpty() || id != generation) return;
+    originalViewFilter = std::move(filter);
+    ++serial;
+    currentModel = {};
+    currentStatus = modelStatus = Status::Pending;
+    refreshQueued = true;
+    publish();
+}
+
 bool NetworkPolicySession::refresh()
 {
-    if (!engine || generation.isEmpty() || networkPending || resourcesPending || isPolicyUpdating()
+    if (!engine || generation.isEmpty() || networkBusy || networkPending || resourcesPending || isPolicyUpdating()
         || (workerBusy && workerSerial == serial)) return false;
+    refreshQueued = false;
     ++serial;
     network = resources = currentModel = {};
     networkVersion = {};
@@ -115,7 +135,7 @@ bool NetworkPolicySession::refresh()
 
 bool NetworkPolicySession::setCampusAddress(const QString &text, bool campus)
 {
-    if (!engine || generation.isEmpty() || isPolicyUpdating()) return false;
+    if (!engine || generation.isEmpty() || networkBusy || isPolicyUpdating()) return false;
     auto choices = campusAddresses();
     const bool owned = choices.contains(text);
     if ((currentStatus != Status::Success || isBusy()) && (campus || !owned)) return false;
@@ -164,7 +184,7 @@ bool NetworkPolicySession::setCampusAddress(const QString &text, bool campus)
 
 bool NetworkPolicySession::setCampusName(const QString &text, bool campus)
 {
-    if (!engine || generation.isEmpty() || isPolicyUpdating()) return false;
+    if (!engine || generation.isEmpty() || networkBusy || isPolicyUpdating()) return false;
     const auto name = canonicalProtectionName(text);
     if (!name) {
         lastPolicyStatus = Status::Invalid;
@@ -218,7 +238,7 @@ void NetworkPolicySession::buildModel()
     workerBusy = true;
     const auto request = workerSerial = serial;
     const auto read = reader;
-    watcher.setFuture(QtConcurrent::run([read, request, id=generation, version=networkVersion, original=network, campus=resources] {
+    watcher.setFuture(QtConcurrent::run([read, request, id=generation, version=networkVersion, original=network, campus=resources, filter=originalViewFilter] {
         try {
             const auto snapshot = read();
             using NativeStatus = PlatformOperationResult::Status;
@@ -227,13 +247,15 @@ void NetworkPolicySession::buildModel()
                     : snapshot.result.status == NativeStatus::Cancelled ? Status::Stale : Status::Failed;
                 return ModelResult{request, status, {}};
             }
-            const auto targets = originalNetworkProtection(original);
+            const auto view = filter ? filter(original, snapshot.data) : std::optional<OriginalView>{{original, snapshot.data}};
+            if (!view) return ModelResult{request, Status::Failed, {}};
+            const auto targets = originalNetworkProtection(view->first);
             const auto conflicts = targets ? campusProtectionConflicts(*targets, campus) : std::nullopt;
-            const auto names = originalDnsProtection(snapshot.data);
+            const auto names = originalDnsProtection(view->second);
             if (!targets || !conflicts || !names) return ModelResult{request, Status::Failed, {}};
             return ModelResult{request, Status::Success,
-                {{"schema_version", version}, {"generation", id}, {"network", original}, {"resources", campus},
-                 {"dns", snapshot.data}, {"dns_namespaces", (*names)["namespaces"]}, {"name_targets", (*names)["targets"]},
+                {{"schema_version", version}, {"generation", id}, {"network", view->first}, {"resources", campus},
+                 {"dns", view->second}, {"dns_namespaces", (*names)["namespaces"]}, {"name_targets", (*names)["targets"]},
                  {"targets", *targets}, {"conflicts", *conflicts}}};
         } catch (...) { return ModelResult{request, Status::Failed, {}}; }
     }));
@@ -242,7 +264,12 @@ void NetworkPolicySession::buildModel()
 void NetworkPolicySession::publish()
 {
     if (generation.isEmpty()) { emit changed(); return; }
-    if (networkStatus == Status::Success && resourceStatus == Status::Success
+    if (refreshQueued && !networkBusy && !workerBusy && !networkPending && !resourcesPending && !isPolicyUpdating()) {
+        refreshQueued = false;
+        refresh();
+        return;
+    }
+    if (!networkBusy && !refreshQueued && networkStatus == Status::Success && resourceStatus == Status::Success
         && modelStatus == Status::Pending && !workerBusy) buildModel();
     currentStatus = Status::Success;
     for (const auto value : {networkStatus, resourceStatus, modelStatus}) {

@@ -59,9 +59,73 @@ static void reply(Engine &engine, const QString &id, const QString &address)
     emit engine.snapshotReady(Kind::Resources, id, resources(address), Status::Success);
 }
 
+static void ownershipViewsStaySerializedAndGenerationBound()
+{
+    Engine engine;
+    std::atomic_int reads = 0;
+    QSemaphore entered, resume;
+    NetworkPolicySession session(&engine, [&] {
+        if (++reads == 2) {
+            entered.release();
+            check(resume.tryAcquire(1, 2000), "Release ownership projection fixture");
+        }
+        return DnsSnapshot{};
+    });
+    emit engine.sessionStarted("owned");
+    reply(engine, "owned", "192.168.10.19");
+    until([&] { return !session.isBusy(); });
+    const auto requests = engine.requests.size();
+    session.setNetworkBusy("stale", true);
+    check(!session.isBusy(), "Old ownership operation changed the current model");
+    session.setNetworkBusy("owned", true);
+    check(session.isBusy() && !session.refresh() && !session.setCampusAddress("192.168.10.20", true)
+          && !session.setCampusName("campus.test", true) && engine.policies.isEmpty(),
+          "A changing owned network allowed new reads or policy choices");
+    const auto select = [](const QString &marker) -> NetworkPolicySession::OriginalViewFilter {
+        return [marker](QJsonObject network, QJsonObject dns) -> std::optional<NetworkPolicySession::OriginalView> {
+            network["interfaces"] = QJsonArray{};
+            network["owned_filter"] = marker;
+            return NetworkPolicySession::OriginalView{network, dns};
+        };
+    };
+    session.setOriginalViewFilter("owned", select("first"));
+    check(engine.requests.size() == requests && session.model().isEmpty(), "Projection changed facts during an active network operation");
+    session.setNetworkBusy("owned", false);
+    check(engine.requests.size() == requests + 2, "Settled ownership did not refresh both native snapshots");
+    reply(engine, "owned", "192.168.10.19");
+    until([&] { return entered.available() != 0; });
+    session.setNetworkBusy("owned", true);
+    session.setOriginalViewFilter("owned", select("latest"));
+    session.setNetworkBusy("owned", false);
+    check(engine.requests.size() == requests + 2 && session.isBusy(), "Ownership change overlapped a native DNS reader");
+    resume.release();
+    until([&] { return engine.requests.size() == requests + 4; });
+    const auto original = network("192.168.11.19");
+    emit engine.snapshotReady(Kind::Network, "owned", original, Status::Success);
+    emit engine.snapshotReady(Kind::Resources, "owned", resources("192.168.11.19"), Status::Success);
+    until([&] { return !session.isBusy(); });
+    check(session.status() == Status::Success && session.model()["network"].toObject()["owned_filter"] == "latest"
+          && session.model()["targets"].toArray().size() == 2
+          && !original["network"].toObject()["interfaces"].toArray().isEmpty(),
+          "Old projection won, owned scopes survived, or the original input was mutated");
+    emit engine.sessionStarted("next");
+    session.setNetworkBusy("owned", true);
+    session.setOriginalViewFilter("owned", select("stale"));
+    reply(engine, "next", "192.168.12.19");
+    until([&] { return !session.isBusy(); });
+    check(session.status() == Status::Success && !session.model()["network"].toObject().contains("owned_filter")
+          && session.model()["targets"].toArray().size() == 3, "New generation inherited previous ownership");
+    session.setOriginalViewFilter("next", [](const QJsonObject &, const QJsonObject &) -> std::optional<NetworkPolicySession::OriginalView> { return {}; });
+    reply(engine, "next", "192.168.12.19");
+    until([&] { return !session.isBusy(); });
+    check(session.status() == Status::Failed && session.model().isEmpty() && engine.policies.isEmpty(),
+          "Failed ownership projection published partial facts or changed the core policy");
+}
+
 int main(int argc, char **argv) try
 {
     QCoreApplication app(argc, argv);
+    ownershipViewsStaySerializedAndGenerationBound();
     Engine engine;
     std::atomic_int reads = 0;
     QSemaphore resume;

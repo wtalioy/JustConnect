@@ -35,6 +35,11 @@ inline QString linuxNetworkNamespace()
     return id+":"+QString::number(identity.st_dev)+":"+QString::number(identity.st_ino);
 }
 
+inline quint32 linuxSourceTable(const QUuid &owner)
+{
+    return 1000000000u + owner.toByteArray(QUuid::Id128).left(8).toUInt(nullptr, 16) % 1000000000u;
+}
+
 inline quint32 linuxRouteMetric(const QUuid &owner)
 {
     return 1u + owner.toByteArray(QUuid::Id128).left(8).toUInt(nullptr,16) % 0xfffffffeu;
