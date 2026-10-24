@@ -57,13 +57,25 @@ int main(int argc, char **argv) try
     UnixNetworkJournal journal;
     if (argc==1) {
         check(::geteuid()!=0 && journal.open(directory,owner).status==PlatformOperationResult::Status::PermissionDenied
-              && !QFile::exists(file),"Ordinary caller gained privileged journal authority or created a file");
+              && openPrivateNetworkDirectory(directory,"child") < 0 && !QFile::exists(file),"Ordinary caller gained privileged journal authority or created a file");
         ::close(directory);return 0;
     }
     struct stat current{}, initial{};
     check(argc==2 && app.arguments()[1]=="--isolated" && ::geteuid()==0 && ::stat("/proc/self/ns/net",&current)==0
           && ::stat("/proc/1/ns/net",&initial)==0 && (current.st_dev!=initial.st_dev || current.st_ino!=initial.st_ino),
           "Refusing the host namespace or unguarded journal mode");
+    for (const auto &name : {QByteArray{},QByteArray("."),QByteArray(".."),QByteArray("x/y"),QByteArray("x\0y",3)})
+        check(openPrivateNetworkDirectory(directory,name) < 0,"Unsafe private path component was accepted");
+    check(openPrivateNetworkDirectory(AT_FDCWD,"child") < 0,"Implicit working directory became storage authority");
+    check(::symlinkat("/",directory,"child") == 0 && openPrivateNetworkDirectory(directory,"child") < 0
+          && ::unlinkat(directory,"child",0) == 0,"Private directory followed a symlink");
+    check(::mkdirat(directory,"child",0755) == 0 && openPrivateNetworkDirectory(directory,"child") < 0
+          && ::unlinkat(directory,"child",AT_REMOVEDIR) == 0,"Nonprivate existing child was adopted");
+    failSync = 0;
+    check(openPrivateNetworkDirectory(directory,"child") < 0,"Directory publication sync failure was hidden");
+    const int child = openPrivateNetworkDirectory(directory,"child");
+    check(child >= 0,"Trusted private directory could not retry publication");::close(child);
+    check(::unlinkat(directory,"child",AT_REMOVEDIR) == 0,"Remove the owned private directory fixture");
     bool alreadyOwned = true;
     check(::chmod(directoryName.constData(),0755)==0 && !journal.open(directory,owner,&alreadyOwned).succeeded() && !alreadyOwned,
           "An unsafe directory was accepted or misclassified as a live guardian");

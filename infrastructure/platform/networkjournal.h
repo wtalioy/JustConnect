@@ -6,6 +6,8 @@
 #include <QUuid>
 
 inline constexpr int NetworkJournalMaxBytes = 2 * 1024 * 1024;
+// The parent descriptor must name a trusted root-owned directory; components never contain paths.
+int openPrivateNetworkDirectory(int parent, const QByteArray &component, bool create = true);
 
 class UnixNetworkJournal
 {

@@ -1,5 +1,6 @@
 #include "networkhelper.h"
 #include "networkhelperpaths.h"
+#include "infrastructure/platform/networkjournal.h"
 #include <QCoreApplication>
 #include <QFileInfo>
 #include <QJsonDocument>
@@ -20,13 +21,9 @@ int storage()
     if (::fstat(parent, &base) != 0 || base.st_uid != 0 || (base.st_mode & 0022)) { ::close(parent); return -1; }
     for (const auto &part : QString::fromLatin1(LinuxNetworkHelperStatePath).mid(QStringLiteral("/var/lib/").size()).split('/')) {
         const auto name = part.toLatin1();
-        if (::mkdirat(parent, name.constData(), 0700) != 0 && errno != EEXIST) { ::close(parent); return -1; }
-        const int child = ::openat(parent, name.constData(), O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
-        struct stat info{};
-        const bool valid = child >= 0 && ::fstat(child, &info) == 0 && S_ISDIR(info.st_mode)
-            && info.st_uid == 0 && (info.st_mode & 07777) == 0700 && ::fsync(parent) == 0;
+        const int child = openPrivateNetworkDirectory(parent,name);
         ::close(parent);
-        if (!valid) { if (child >= 0) ::close(child); return -1; }
+        if (child < 0) return -1;
         parent = child;
     }
     return parent;

@@ -1,0 +1,10 @@
+#pragma once
+
+inline constexpr int MacHelperProtocol = @JC_MAC_HELPER_PROTOCOL@;
+inline constexpr int MacHelperStorageVersion = @JC_MAC_HELPER_STORAGE@;
+inline constexpr char MacHelperAppIdentifier[] = "@JC_MAC_APP_ID@";
+inline constexpr char MacHelperIdentifier[] = "@JC_MAC_HELPER_ID@";
+inline constexpr char MacHelperPlist[] = "@JC_MAC_HELPER_ID@.plist";
+inline constexpr char MacHelperExecutable[] = "@JC_MAC_HELPER_EXECUTABLE@";
+inline constexpr char MacHelperStatePath[] = "@JC_MAC_HELPER_STATE@";
+inline constexpr char MacHelperAuthorizationRight[] = "@JC_MAC_HELPER_RIGHT@";

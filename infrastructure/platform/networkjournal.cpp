@@ -25,6 +25,22 @@ bool privateFile(const struct stat &value)
 }
 }
 
+int openPrivateNetworkDirectory(int parent, const QByteArray &component, bool create)
+{
+    if (::geteuid() != 0) { errno = EPERM; return -1; }
+    struct stat base{};
+    if (parent < 0 || component.isEmpty() || component == "." || component == ".." || component.contains('/') || component.contains('\0')
+        || ::fstat(parent,&base) != 0 || !S_ISDIR(base.st_mode) || base.st_uid != 0 || (base.st_mode & 0022)) { errno = EINVAL; return -1; }
+    if (create && ::mkdirat(parent,component.constData(),0700) != 0 && errno != EEXIST) return -1;
+    const int child = ::openat(parent,component.constData(),O_RDONLY|O_DIRECTORY|O_CLOEXEC|O_NOFOLLOW);
+    if (child < 0) return -1;
+    struct stat info{};
+    if (::fstat(child,&info) != 0 || !S_ISDIR(info.st_mode) || info.st_uid != 0 || (info.st_mode & 07777) != 0700 || ::fsync(parent) != 0) {
+        ::close(child); errno = EINVAL; return -1;
+    }
+    return child;
+}
+
 UnixNetworkJournal::~UnixNetworkJournal() { close(); }
 void UnixNetworkJournal::close()
 {

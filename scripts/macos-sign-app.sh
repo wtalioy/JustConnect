@@ -16,4 +16,6 @@ if [[ -z "$APP_PATH" || ! -d "$APP_PATH" ]]; then
   exit 1
 fi
 codesign --verbose --force --options runtime --sign "$CODESIGN_IDENTITY" --entitlements "$QTWEBENGINE_PATH/Contents/Resources/QtWebEngineProcess.entitlements" "$QTWEBENGINE_PATH/Contents/MacOS/QtWebEngineProcess"
+read -r MAC_HELPER MAC_HELPER_ID < <(python3 -c 'import json,plistlib; c=json.load(open("resource/network-helper-macos.json")); p=plistlib.load(open("resource/Info.plist","rb")); print(c["executable"],p["CFBundleIdentifier"]+c["service_suffix"])')
+codesign --verbose --force --options runtime --identifier "$MAC_HELPER_ID" --sign "$CODESIGN_IDENTITY" "$APP_PATH/Contents/MacOS/$MAC_HELPER"
 codesign --verbose --force --options runtime --deep --preserve-metadata=entitlements --sign "$CODESIGN_IDENTITY" "$APP_PATH"
