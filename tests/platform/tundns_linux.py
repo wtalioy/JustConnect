@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import pwd
 import select
+import shutil
 import signal
 import socket
 import struct
@@ -194,6 +195,22 @@ def main():
         root = Path(folder)
         os.environ['TMPDIR'] = str(root)
         try:
+            # CAP_NET_ADMIN cannot traverse private SDK homes; keep the exact built runtime in this root-owned fixture.
+            runtime = root / 'runtime'
+            runtime.mkdir()
+            dependencies = run('ldd', binary)
+            assert 'not found' not in dependencies, dependencies
+            for line in dependencies.splitlines():
+                if '=>' not in line:
+                    continue
+                library = Path(line.split('=>', 1)[1].split()[0]).resolve(strict=True)
+                if not any(library.is_relative_to(path) for path in ('/usr/lib', '/lib')):
+                    shutil.copyfile(library, runtime / line.split('=>', 1)[0].strip())
+            staged = runtime / binary.name
+            shutil.copyfile(binary, staged)
+            staged.chmod(0o755)
+            binary = staged
+            os.environ['LD_LIBRARY_PATH'] = str(runtime)
             run('mount', '--make-rprivate', '/')
             run('mount', '-t', 'tmpfs', '-o', 'mode=755', 'tmpfs', '/run')
             Path('/run/dbus').mkdir(mode=0o755)
