@@ -162,7 +162,8 @@ def main(args):
         try:
             run('/bin/launchctl', 'bootstrap', 'system', launch_path)
             wait_for(lambda: user_state.parent.exists(), 'Signed root daemon did not start')
-            denied = start('--wire-denied'); event(denied, 'wire-denied'); finish(denied)
+            for mode in ('--wire-denied', '--wire-invalid-auth'):
+                denied = start(mode); event(denied, 'wire-denied'); finish(denied)
             assert not user_state.exists(), 'Authorization denial created ownership or network state'
             for name, wrong_identity in [('wrong-id', False), ('wrong-certificate', True)]:
                 copy = directory / (name + '.app'); shutil.copytree(bundle, copy, symlinks=True)
@@ -180,7 +181,10 @@ def main(args):
                 assert receipt(active['owner'], 'active') and not withdrawn(active['interface']), 'Foreign connection withdrew live ownership'
             client.stdin.write(b'restore\n'); client.stdin.flush(); event(client, 'restored'); finish(client)
             assert not (user_state / active['owner']).exists(), 'Confirmed restoration left an unacknowledged receipt'
-            client = start('--cancel', grant=True); event(client, 'restored'); finish(client)
+            cancelled = str(uuid.uuid4())
+            client = start('--cancel', grant=True, owner=cancelled); event(client, 'applying')
+            wait_for(lambda: receipt(cancelled, 'active'), 'Cancellation did not reach real privileged apply')
+            client.stdin.write(b'cancel\n'); client.stdin.flush(); event(client, 'restored'); finish(client)
             assert not list(user_state.iterdir()), 'Cancelled apply leaked ownership'
             client = start('--roundtrip', grant=True); active = event(client, 'active')
             client.kill(); client.wait(timeout=10)

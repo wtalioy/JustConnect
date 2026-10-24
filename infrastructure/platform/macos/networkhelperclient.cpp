@@ -161,7 +161,7 @@ void MacNetworkHelperClient::authorize()
                 if (target->current != State::Authorizing) return;
                 if (target->cancelled || status == errAuthorizationCanceled) target->finish({Status::Cancelled,"Network authorization cancelled.",false},State::Idle);
                 else if (status != errAuthorizationSuccess) target->finish({Status::PermissionDenied,"Network administrator authorization was denied.",false},State::Idle);
-                else { target->setState(State::Applying); target->send("apply"); }
+                else { target->send("apply"); target->setState(State::Applying); }
             });
         });
     });
