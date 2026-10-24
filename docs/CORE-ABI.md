@@ -201,9 +201,11 @@ S2-03 的 `tls` 可省略（默认验证系统信任链及目标主机名）；`
 <a id="raw-tun-fd"></a>
 ## 原始 IPv4 TUN fd 接入
 
-正式 Linux 后端通过 `raw_ipv4_tun_fd:true` 和 `jc_session_attach_tun` 兼容增补 ABI v1；其他平台和测试驱动返回 `JC_UNSUPPORTED`。调用方先由权限助手验证设备来源、连接所有权与所在网络命名空间，完成地址／MTU／启用及所有权恢复准备，再向当前就绪连接代次交付 fd。该调用不配置地址、路由或 DNS，也不表示系统接管已经就绪。
+正式 Linux／macOS 后端通过 `raw_ipv4_tun_fd:true` 和 `jc_session_attach_tun` 兼容增补 ABI v1；其他平台和测试驱动返回 `JC_UNSUPPORTED`。macOS 原生验收状态见[计划](../plan.md#s4)。调用方先由权限助手验证设备来源、连接所有权与所在网络命名空间，完成地址／MTU／启用及所有权恢复准备，再向当前就绪连接代次交付 fd。该调用不配置地址、路由或 DNS，也不表示系统接管已经就绪。
 
-fd 为调用期间借用的 `int32_t`，须支持读写、已设 `O_NONBLOCK`，每次读写一个原始 IPv4 包。核心先创建 `CLOEXEC` 副本，核对实际 TUN 类型、启用状态、MTU 及不同的有效 IPv4 源／对端地址，以内核 netlink 信息拒绝 PI、virtio、TAP、多队列和持久设备；不依赖 `TUNGETIFF` 中与 `NOFILTER` 共用位的 `NO_PI` 判断帧格式。MTU 须与内核一致并满足包入口的 576–65535 字节范围。调用不更改原 fd 的标志或所有权；失败关闭本次副本，成功后原 fd 可由调用方关闭，核心保留自己的引用。
+fd 为调用期间借用的 `int32_t`，须支持读写、已设 `O_NONBLOCK`，保留平台原生包边界和帧格式。核心先创建 `CLOEXEC` 副本，核对实际 TUN 类型、启用状态、MTU 及不同的有效 IPv4 源／对端地址，Linux 以原始 IPv4 包收发，通过内核 netlink 信息拒绝 PI、virtio、TAP、多队列和持久设备；不依赖 `TUNGETIFF` 中与 `NOFILTER` 共用位的 `NO_PI` 判断帧格式。MTU 须与内核一致并满足包入口的 576–65535 字节范围。调用不更改原 fd 的标志或所有权；失败关闭本次副本，成功后原 fd 可由调用方关闭，核心保留自己的引用。
+
+macOS 接收带四字节网络序地址族头的 utun fd：通过原生控制器 ID、utun 名称／帧选项和接口清单核对设备，回读实际 MTU、启用及点对点状态和唯一 IPv4 源／对端。适配器剥除／补入 `AF_INET` 头，仅丢弃 IPv6 控制流量；未知地址族、错误 IPv4 版本及截断报文拒绝。非阻塞收发复用 Go 运行时轮询，关闭所属副本中断等待，不改调用方标志。固定控制器和帧选项来自 [XNU if_utun.h](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/net/if_utun.h)，控制协议号依据 [sys_domain.h](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/sys_domain.h)。此能力不等于 macOS 已有系统权限助手、路由／DNS 所有权恢复或应用透明接管。
 
 Qt `CoreEngine::attachTUN(generation, fd, mtu)` 同步保留 `CLOEXEC` 引用后排队到专属核心线程，调用返回即可关闭调用方 fd；通过应用线程的 `tunAttached` 回应代次与 `RequestStatus`。停止期间回应过期，新会话丢弃旧操作；销毁释放尚在队列中的引用。其他平台／缺少能力返回不可用。设备应在原网络保护快照完成后创建，避免把自有捕获路由当成原网络；系统助手与会话的实际编排仍待接入。
 

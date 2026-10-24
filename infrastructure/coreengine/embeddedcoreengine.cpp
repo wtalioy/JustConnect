@@ -3,7 +3,7 @@
 #include "application/networkprotection.h"
 #include "infrastructure/platform/dnssnapshot.h"
 #include <atomic>
-#ifdef Q_OS_LINUX
+#if defined(Q_OS_LINUX) || defined(Q_OS_MACOS)
 #include <fcntl.h>
 #include <unistd.h>
 #include <memory>
@@ -384,7 +384,7 @@ void EmbeddedCoreEngine::readSnapshot(Snapshot kind, const QString &generation) 
 }
 void EmbeddedCoreEngine::attachTUN(const QString &generation, qint32 descriptor, quint32 mtu, bool publishDNSRoutes) {
     if (!active || stopping) { emit tunAttached(generation, RequestStatus::Stale); return; }
-#ifdef Q_OS_LINUX
+#if defined(Q_OS_LINUX) || defined(Q_OS_MACOS)
     if (!library().jc_session_attach_tun || !buildInfo()["capabilities"].toObject()["raw_ipv4_tun_fd"].toBool()
         || (publishDNSRoutes && (!library().jc_session_attach_tun_dns || !library().jc_session_ack_dns_routes
             || !buildInfo()["capabilities"].toObject()["tun_dns_routes"].toBool()))) {
