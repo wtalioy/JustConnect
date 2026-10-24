@@ -72,12 +72,13 @@ static std::optional<int> captureRecoveryCommand(const QStringList &args)
     check(args.size()==(applying?6:recovering?4:5),"Invalid private capture fixture arguments");
     const auto stage=recovering?QString{}:args[2];const auto path=args[recovering?2:3];const auto text=args[recovering?3:4];const QUuid owner(text);
     check(!owner.isNull() && owner.toString(QUuid::WithoutBraces)==text,"Invalid capture fixture owner");
+    routeOwner = owner;
     LinuxSourceJournal journal;openCaptureJournal(journal,path,owner);int reads=0,writes=0;
     LinuxTunRoutes routes([&](const QString &program,const QStringList &arguments) {
         ++reads;
-        if((applying && reads==3 && (stage=="applied" || stage=="partial")) || (!applying && stage=="deleted" && reads==3))pauseCapture();
+        if((applying && reads==5 && (stage=="applied" || stage=="partial")) || (!applying && stage=="deleted" && reads==9))pauseCapture();
         const auto result=runPlatformCommand(program,arguments);
-        if(applying && stage=="partial" && reads==2)
+        if(applying && stage=="partial" && reads==4)
             ip({"route","add",capturePrefixes[1],"dev","foreign0","proto","4","scope","link","metric",QString::number(linuxRouteMetric(owner))});
         return result;
     });
@@ -85,7 +86,7 @@ static std::optional<int> captureRecoveryCommand(const QStringList &args)
         const auto result=captureCheckpoint(journal,record);if(!result.succeeded())return result;
         if(!record.isEmpty()) {
             ++writes;
-            if((applying && ((stage=="prepared" && writes==1) || (stage=="confirmed" && writes==2))) || (!applying && stage=="deleting"))pauseCapture();
+            if((applying && ((stage=="prepared" && writes==1) || (stage=="confirmed" && writes==2))) || (!applying && stage=="deleting" && !record["routes"].toArray().isEmpty() && record["routes"].toArray().first().toObject()["delete_started"]==true))pauseCapture();
         }
         return result;
     };
@@ -132,14 +133,14 @@ static void captureRecoveryTests(const UnixTunDevice &device,const QStringList &
         LinuxTunRoutes rejected([&](const QString &,const QStringList &){++calls;return PlatformCommandResult{};});
         QList<QJsonObject> invalidRecords;auto bad=snapshot;bad["owner"]=QUuid::createUuid().toString(QUuid::WithoutBraces);invalidRecords.append(bad);
         for(const auto &field:QStringList{"version","index","metric"}){bad=snapshot;bad[field]=-1;invalidRecords.append(bad);}
-        for(const auto &field:QStringList{"namespace","interface","source","peer"}){bad=snapshot;bad[field]="foreign";invalidRecords.append(bad);}
+        for(const auto &field:QStringList{"namespace","interface","source","gateway"}){bad=snapshot;bad[field]="foreign";invalidRecords.append(bad);}
         bad=snapshot;bad["index"]=qint64(device.index())+1;invalidRecords.append(bad);
         bad=snapshot;bad["extra"]=true;invalidRecords.append(bad);
         auto entries=snapshot["routes"].toArray();entries.append(entries[0]);bad=snapshot;bad["routes"]=entries;invalidRecords.append(bad);
         entries=snapshot["routes"].toArray();auto entry=entries[0].toObject();entry["before"]=QJsonArray{QJsonObject{}};entries[0]=entry;bad=snapshot;bad["routes"]=entries;invalidRecords.append(bad);
         for(const auto &record:invalidRecords)check(!rejected.recover(device.owner(),record).succeeded() && calls==0 && rejected.snapshot().isEmpty() && inventory()==active,
                                                    "Invalid capture record reached a command or replaced active ownership");
-        ip({"route","add",capturePrefixes[0],"dev",device.name(),"proto","4","scope","0","metric",QString::number(linuxRouteMetric(device.owner())),"src",captureSource,"via",capturePeer,"tos","0x04"});
+        ip({"route","add",capturePrefixes[0],"dev",device.name(),"proto","4","scope","link","metric",QString::number(linuxRouteMetric(device.owner())),"src",captureSource,"tos","0x04"});
         const auto duplicate=inventory();LinuxTunRoutes ambiguous;int duplicateCheckpoints=0;
         check(!ambiguous.recover(device.owner(),snapshot,[&](const QJsonObject &){++duplicateCheckpoints;return Result{};}).succeeded()
               && duplicateCheckpoints==0 && inventory()==duplicate,"Ambiguous native capture identity reached a write or checkpoint");
@@ -168,7 +169,7 @@ static void captureRecoveryTests(const UnixTunDevice &device,const QStringList &
         const auto checkpoint=[&](const QJsonObject &record){if(denied && record.isEmpty())return Result{Status::PermissionDenied,"Denied final capture removal"};return Result{};};
         check(routes.apply(device,captureSource,capturePeer,capturePrefixes,checkpoint).succeeded(),"Apply before final checkpoint denial");denied=true;
         check(!routes.restore(device,checkpoint).succeeded() && !routes.snapshot().isEmpty() && inventory()==baseline,"Final removal denial lost a completed capture record");
-        denied=false;ip({"route","add",capturePrefixes[0],"dev",device.name(),"proto","4","scope","0","metric",QString::number(linuxRouteMetric(device.owner())),"src",captureSource,"via",capturePeer});
+        denied=false;ip({"route","add",capturePrefixes[0],"dev",device.name(),"proto","4","scope","link","metric",QString::number(linuxRouteMetric(device.owner())),"src",captureSource});
         const auto recreated=inventory();
         check(routes.restore(device,checkpoint).succeeded() && routes.snapshot().isEmpty() && inventory()==recreated,"Final checkpoint retry deleted a later same-value capture route");
         ip({"route","del",capturePrefixes[0],"metric",QString::number(linuxRouteMetric(device.owner()))});check(inventory()==baseline,"Remove only the recreated private fixture");
@@ -190,7 +191,7 @@ static void captureRecoveryTests(const UnixTunDevice &device,const QStringList &
         const auto checkpoint=[&](const QJsonObject &record) {
             stored=record;
             if(!inserted && !record.isEmpty()) {
-                inserted=true;ip({"route","add",capturePrefixes[0],"dev",device.name(),"proto","4","scope","0","metric",QString::number(linuxRouteMetric(device.owner())),"src",captureSource,"via",capturePeer});
+                inserted=true;ip({"route","add",capturePrefixes[0],"dev",device.name(),"proto","4","scope","link","metric",QString::number(linuxRouteMetric(device.owner())),"src",captureSource});
             }
             return Result{};
         };
@@ -219,9 +220,9 @@ static void captureRecoveryTests(const UnixTunDevice &device,const QStringList &
         int reads=0;QJsonObject stored;QStringList external;
         LinuxTunRoutes routes([&](const QString &program,const QStringList &args) {
             const auto snapshot=runPlatformCommand(program,args);
-            if(++reads==2) {
+            if(++reads==4) {
                 QThread::msleep(LinuxRouteOperationTimeoutMs+100);
-                ip({"route","add",capturePrefixes[0],"dev",device.name(),"proto","4","scope","0","metric",QString::number(linuxRouteMetric(device.owner())),"src",captureSource,"via",capturePeer});external=inventory();
+                ip({"route","add",capturePrefixes[0],"dev",device.name(),"proto","4","scope","link","metric",QString::number(linuxRouteMetric(device.owner())),"src",captureSource});external=inventory();
             }
             return snapshot;
         });
@@ -235,13 +236,13 @@ static void captureRecoveryTests(const UnixTunDevice &device,const QStringList &
         int reads=0;QJsonObject stored;
         LinuxTunRoutes routes([&](const QString &program,const QStringList &args) {
             const auto snapshot=runPlatformCommand(program,args);
-            if(++reads==5)QThread::msleep(LinuxRouteOperationTimeoutMs+100);
+            if(++reads==11)QThread::msleep(LinuxRouteOperationTimeoutMs+100);
             return snapshot;
         });
         const auto checkpoint=[&](const QJsonObject &record){stored=record;return Result{};};
         check(routes.apply(device,captureSource,capturePeer,capturePrefixes,checkpoint).succeeded(),"Apply before unattempted deletion timeout");
-        const auto active=inventory();
-        check(routes.restore(device,checkpoint).status==Status::TimedOut && inventory()==active,"Expired deletion changed native capture routes");
+        const auto active=rows();
+        check(routes.restore(device,checkpoint).status==Status::TimedOut && rows()==active,"Expired deletion changed native capture routes");
         check(routes.restore(device,checkpoint).succeeded() && stored.isEmpty() && inventory()==baseline,
               "A deletion never sent to the kernel became permanently uncertain in its live owner");
     }
@@ -258,7 +259,7 @@ static void captureRecoveryTests(const UnixTunDevice &device,const QStringList &
         if(!confirmed)check(inventory()==active && QFile::exists(directory.filePath("source.json")),"Unconfirmed capture recovery changed matching state or erased the record");
         ::close(std::exchange(held,-1));
         if(!confirmed)check(freshCapture(directory.path(),owner),"Absent capture routes did not release their retained recovery record");
-        if(stage=="partial")ip({"route","del",capturePrefixes[1],"metric",QString::number(linuxRouteMetric(owner))});
+        if(stage=="partial")ip({"route","del",capturePrefixes[1],"metric",QString::number(linuxRouteMetric(owner)),"table",QString::number(linuxCaptureTable(owner))});
         check(inventory()==baseline && !QFile::exists(directory.filePath("source.json")),"Capture owner SIGKILL changed unrelated routes or retained completed data");
         std::cout<<"PASS: protected capture owner SIGKILL at "<<stage.toStdString()<<", retained fd and fresh-process recovery\n";
     }
@@ -273,7 +274,7 @@ static void captureRecoveryTests(const UnixTunDevice &device,const QStringList &
             QProcess holder;const auto cleanup=qScopeGuard([&]{stopCaptureFixture(holder);});
             holder.start(QCoreApplication::applicationFilePath(),{"--restore-capture-owner",stage,directory.path(),device.owner().toString(QUuid::WithoutBraces)});
             check(holder.waitForStarted(5000),"Start directly owned restoration fixture");waitCapturePause(holder);killCaptureFixture(holder);
-            if(recreate)for(const auto &prefix:capturePrefixes)ip({"route","add",prefix,"dev",device.name(),"proto","4","scope","0","metric",QString::number(linuxRouteMetric(device.owner())),"src",captureSource,"via",capturePeer});
+            if(recreate)for(const auto &prefix:capturePrefixes)ip({"route","add",prefix,"dev",device.name(),"proto","4","scope","link","metric",QString::number(linuxRouteMetric(device.owner())),"src",captureSource});
             const auto interrupted=inventory();const bool unresolved=stage=="deleting" || recreate;
             check(freshCapture(directory.path(),device.owner())!=unresolved && inventory()==interrupted,"Interrupted restoration adopted matching or recreated capture routes");
             if(unresolved) {
@@ -285,4 +286,39 @@ static void captureRecoveryTests(const UnixTunDevice &device,const QStringList &
         }
     }
     std::cout<<"PASS: capture write-ahead ordering, strict scoped records, storage denial and final-removal retry\n";
+}
+
+// Existing installations can leave v1 main-table records after a crash.
+static void legacyCaptureRecoveryTests(const UnixTunDevice &device,const QStringList &baseline)
+{
+    const QString prefix = "198.18.9.7/32", metric = QString::number(linuxRouteMetric(device.owner()));
+    const auto install = [&] {
+        ip({"route","add",prefix,"dev",device.name(),"proto","4","scope","0","metric",metric,
+            "src",captureSource,"via",capturePeer,"table","main"});
+    };
+    install();
+    QJsonObject applied;
+    const auto native = runPlatformCommand(trustedIpRouteUtility(), {"-N","-j","-4","route","show","table","main"});
+    check(native.result.succeeded(),"Read the independent legacy route fixture");
+    for (const auto &value : QJsonDocument::fromJson(native.output.toUtf8()).array())
+        if (ipv4RoutePrefix(value.toObject()) == prefix && value.toObject()["dev"] == device.name()) applied = value.toObject();
+    // iproute2's table-all query includes a main-table tag; v1 recorded a main-only query.
+    applied.remove("table");
+    QJsonObject saved{{"version",1},{"owner",device.owner().toString(QUuid::WithoutBraces)},
+        {"namespace",linuxNetworkNamespace()},{"interface",device.name()},{"index",qint64(device.index())},
+        {"source",captureSource},{"peer",capturePeer},{"metric",qint64(linuxRouteMetric(device.owner()))},
+        {"routes",QJsonArray{QJsonObject{{"prefix",prefix},{"before",QJsonArray{}},{"applied",applied},{"delete_started",false}}}}};
+    LinuxTunRoutes legacy;
+    check(legacy.recover(device.owner(),saved).succeeded() && inventory() == baseline,
+          "Upgrade failed to recover an authenticated v1 main-table record");
+    install();auto interrupted = saved;auto entries = saved["routes"].toArray();auto entry = entries[0].toObject();
+    entry["delete_started"] = true;entries[0] = entry;interrupted["routes"] = entries;
+    const auto held = inventory();LinuxTunRoutes ambiguous;
+    check(!ambiguous.recover(device.owner(),interrupted).succeeded() && inventory() == held,
+          "Upgrade adopted an interrupted or same-value v1 route");
+    ip({"route","del",prefix,"metric",metric,"table","main"});
+    LinuxTunRoutes absent;
+    check(absent.recover(device.owner(),interrupted).succeeded() && inventory() == baseline,
+          "Absent legacy routes retained an obsolete recovery obligation");
+    std::cout << "PASS: v1 recovery migration, interrupted same-value preservation and absent-route completion\n";
 }

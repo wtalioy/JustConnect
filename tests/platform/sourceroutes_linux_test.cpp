@@ -1,4 +1,4 @@
-#include "infrastructure/platform/linux/sourceroutes.h"
+#include "infrastructure/platform/linux/ownedroutetable.h"
 #include "infrastructure/platform/linux/sourcejournal.h"
 #include "infrastructure/platform/linux/tunroutes.h"
 #include "infrastructure/platform/linux/iprouteutility.h"
@@ -64,7 +64,7 @@ int main(int argc, char **argv) try
     const QString source("192.0.2.1"), gateway("192.0.2.2"), target("198.18.0.6/32");
     const auto owner = QUuid::createUuid();
     int reads = 0;
-    LinuxSourceRoutes missing([&](const QString &, const QStringList &) {
+    LinuxOwnedRouteTable missing([&](const QString &, const QStringList &) {
         ++reads;return PlatformCommandResult{{Status::Failed,"Unexpected read"},{}};
     });
     if (argc == 1) {
@@ -92,7 +92,7 @@ int main(int argc, char **argv) try
         check(opened.succeeded(),qPrintable(opened.detail));
         QJsonObject intent;
         int routeReads = 0, ruleReads = 0;
-        LinuxSourceRoutes routes([&](const QString &program,const QStringList &args) {
+        LinuxOwnedRouteTable routes([&](const QString &program,const QStringList &args) {
             if (args.contains("route") && ++routeReads==3 && (stage=="applied" || stage=="partial")) pauseAt(intent);
             const auto result = runPlatformCommand(program,args);
             if (args.contains("rule") && ++ruleReads==2 && stage=="partial")
@@ -122,7 +122,7 @@ int main(int argc, char **argv) try
         check(opened.succeeded(),qPrintable(opened.detail));
         QJsonObject saved;
         auto result = journal.load(saved);
-        LinuxSourceRoutes routes([&](const QString &program,const QStringList &args) {
+        LinuxOwnedRouteTable routes([&](const QString &program,const QStringList &args) {
             const auto result = runPlatformCommand(program,args);
             if (stage=="routes-post" && deletingRoutes(saved) && args.contains("route") && result.result.succeeded()) {
                 bool present = false;
@@ -147,7 +147,7 @@ int main(int argc, char **argv) try
         return 0;
     }
     if (argc==6 && app.arguments()[1]=="--hold") {
-        LinuxSourceRoutes routes;
+        LinuxOwnedRouteTable routes;
         const auto result = routes.apply(owner,app.arguments()[2],app.arguments()[3],app.arguments()[4],{app.arguments()[5]});
         check(result.succeeded(),qPrintable(result.detail));
         std::cout << QJsonDocument(routes.snapshot()).toJson(QJsonDocument::Compact).constData() << std::endl;
@@ -168,6 +168,7 @@ int main(int argc, char **argv) try
     LinuxTunRoutes capture;
     check(capture.apply(tun,"198.19.0.1","198.19.0.2",{target}).succeeded(),"Apply formal capture route fixture");
     auto baseline = inventory();
+    const auto baselineRuleCount = read({"rule","show"}).size();
     for (const auto &bad : {QString("default"),QString("0.0.0.0/0"),QString("198.18.0.7/24"),QString("198.018.0.6/32"),
                            QString("198.18.0.6")+QChar(0)+"\nrule del priority 0/32"})
         check(!missing.apply(owner,"original0",source,gateway,{bad}).succeeded() && reads==0,"Invalid prefix reached commands");
@@ -176,7 +177,7 @@ int main(int argc, char **argv) try
           && !missing.apply(owner,"original0","192.0.2.99",gateway,{target}).succeeded()
           && reads==0 && inventory()==baseline,"Invalid interface/source changed network state");
     {
-        LinuxSourceRoutes growing;
+        LinuxOwnedRouteTable growing;
         check(growing.apply(owner,"original0",source,gateway,{target}).succeeded(),"Prepare source extension");
         const auto original = growing.snapshot();
         check(growing.extend(owner,{"198.18.1.7","198.18.1.7"}).succeeded()
@@ -201,12 +202,12 @@ int main(int argc, char **argv) try
         check(growing.ensurePrefixes(owner,{"198.18.9.0/24","198.18.9.0/24"}).succeeded()
               && read({"route","get","198.18.9.7","from",source}).first().toObject()["dev"] == "original0"
               && growing.snapshot()["rule_applied"] == extended["rule_applied"],"Live capture additions lost original egress or replaced its rule");
-        LinuxSourceRoutes recovered;
+        LinuxOwnedRouteTable recovered;
         check(recovered.recover(owner,growing.snapshot()).succeeded() && inventory() == baseline,
               "A fresh source backend could not restore appended DNS routes");
         check(growing.restore(owner).succeeded(),"Release already restored source metadata");
     }
-    LinuxSourceRoutes routes;
+    LinuxOwnedRouteTable routes;
     {
         QTemporaryDir checkpoint;
         const int directory = ::open(QFile::encodeName(checkpoint.path()).constData(),O_RDONLY|O_DIRECTORY|O_CLOEXEC);
@@ -244,7 +245,7 @@ int main(int argc, char **argv) try
 
         QString privateTable;
         bool sawOwnedRoute = false;
-        LinuxSourceRoutes changedRules([&](const QString &program,const QStringList &args) {
+        LinuxOwnedRouteTable changedRules([&](const QString &program,const QStringList &args) {
             const auto result = runPlatformCommand(program,args);
             if (!privateTable.isEmpty() && args.contains("route"))
                 for (const auto &value : QJsonDocument::fromJson(result.output.toUtf8()).array())
@@ -307,7 +308,7 @@ int main(int argc, char **argv) try
               && QFile::exists(checkpoint.filePath("source.json")),"Failed recovery checkpoint discarded pending duties or its protected record");
         if (boundary=="rule") check(inventory()==active,"Rule deletion preceded its durable checkpoint");
         else if (boundary=="routes") {
-            check(read({"rule","show"}).size()==3 && routes.snapshot()["routes"].toArray().size()==2
+            check(read({"rule","show"}).size()==baselineRuleCount && routes.snapshot()["routes"].toArray().size()==2
                   && !deletingRoutes(routes.snapshot()),"Route deletion preceded its checkpoint or retained an unattempted marker");
         } else {
             check(inventory()==baseline && routes.snapshot()["routes"].toArray().isEmpty(),"Journal removal failed before kernel recovery completed");
@@ -394,7 +395,7 @@ int main(int argc, char **argv) try
               "An invalid saved source record reached OS operations or retained partial authority");
     check(!routes.restore(QUuid::createUuid()).succeeded() && inventory()==active && routes.snapshot()==snapshot,
           "Another owner restored or discarded this connection's state");
-    LinuxSourceRoutes collision;
+    LinuxOwnedRouteTable collision;
     check(!collision.apply(QUuid::createUuid(),"original0",source,gateway,{target}).succeeded()
           && collision.snapshot().isEmpty() && inventory()==active,"Early rule conflict was adopted or changed");
     check(routes.restore(owner).succeeded() && routes.snapshot().isEmpty() && inventory()==baseline,"Normal source recovery changed original state");
@@ -402,7 +403,7 @@ int main(int argc, char **argv) try
     check(routes.apply(owner,"original0",source,{}, {target}).succeeded() && lookup(source)["dev"]=="original0"
           && !lookup(source).contains("gateway") && read({"route","show","table",table}).size()==1,
           "Direct original routes gained a fictitious gateway or lost source selection");
-    LinuxSourceRoutes directRecovery;
+    LinuxOwnedRouteTable directRecovery;
     check(directRecovery.recover(owner,routes.snapshot()).succeeded() && directRecovery.snapshot().isEmpty()
           && routes.restore(owner).succeeded() && inventory()==baseline,"Direct saved source recovery changed original state");
 
@@ -522,7 +523,7 @@ int main(int argc, char **argv) try
     const auto savedReference = routes.snapshot();
     ip({"rule","add","priority","100","table",table,"protocol","99"});
     const auto referencedRecovery = inventory();
-    LinuxSourceRoutes restarted;
+    LinuxOwnedRouteTable restarted;
     check(!restarted.recover(owner,savedReference).succeeded() && restarted.snapshot()==savedReference
           && inventory()==referencedRecovery,"Fresh recovery deleted an external reference or discarded saved responsibilities");
     ip({"rule","del","priority","100","table",table,"protocol","99"});
@@ -549,7 +550,7 @@ int main(int argc, char **argv) try
 
     int routeReads = 0;
     bool sawApplied = false;
-    LinuxSourceRoutes failedRead([&](const QString &program,const QStringList &args) {
+    LinuxOwnedRouteTable failedRead([&](const QString &program,const QStringList &args) {
         if (args.contains("route") && ++routeReads==2) {
             sawApplied = inventory()!=baseline;
             return PlatformCommandResult{{Status::Failed,"Injected post-apply read failure"},{}};
@@ -560,7 +561,7 @@ int main(int argc, char **argv) try
           && failedRead.snapshot().isEmpty() && inventory()==baseline,"Failed readback did not roll back real source operations");
 
     bool block = false;
-    LinuxSourceRoutes retry([&](const QString &program,const QStringList &args) {
+    LinuxOwnedRouteTable retry([&](const QString &program,const QStringList &args) {
         if (block) return PlatformCommandResult{{Status::Failed,"Injected recovery read failure"},{}};
         return runPlatformCommand(program,args);
     });
@@ -580,7 +581,7 @@ int main(int argc, char **argv) try
     ip({"rule","del","priority","100","table",table,"protocol","99"});
     check(routes.restore(owner).succeeded() && inventory()==baseline,"Recovery after removing an external reference failed");
     bool duplicateRead = false;
-    LinuxSourceRoutes ambiguous([&](const QString &program,const QStringList &args) {
+    LinuxOwnedRouteTable ambiguous([&](const QString &program,const QStringList &args) {
         auto result = runPlatformCommand(program,args);
         if (duplicateRead && args.contains("rule")) {
             auto rows = QJsonDocument::fromJson(result.output.toUtf8()).array();
@@ -599,7 +600,7 @@ int main(int argc, char **argv) try
     check(ambiguous.restore(owner).succeeded() && inventory()==baseline,"Recovery after duplicate reference resolution failed");
 
     int malformed = 0;
-    LinuxSourceRoutes invalidRead([&](const QString &program,const QStringList &args) {
+    LinuxOwnedRouteTable invalidRead([&](const QString &program,const QStringList &args) {
         auto result = runPlatformCommand(program,args);
         if ((malformed==1 && args.contains("route")) || (malformed==2 && args.contains("rule"))) {
             auto rows = QJsonDocument::fromJson(result.output.toUtf8()).array();
@@ -624,7 +625,7 @@ int main(int argc, char **argv) try
     check(routes.apply(owner,"original0",source,gateway,{target}).succeeded(),"Apply non-lookup foreign rule fixture");
     ip({"rule","add","priority","100","blackhole"});ip({"rule","add","priority","101","goto","200"});
     check(routes.restore(owner).succeeded(),"Valid terminal or goto rules were treated as malformed lookup data");
-    check(read({"rule","show"}).size()==5,"Foreign terminal/goto rules were removed");
+    check(read({"rule","show"}).size()==baselineRuleCount+2,"Foreign terminal/goto rules were removed");
     ip({"rule","del","priority","100"});ip({"rule","del","priority","101"});
     check(inventory()==baseline,"Non-lookup foreign rule recovery changed unrelated state");
 
@@ -636,7 +637,7 @@ int main(int argc, char **argv) try
     check(inventory()==baseline,"External route fixture cleanup changed unrelated state");
 
     bool interfere = false;
-    LinuxSourceRoutes race([&](const QString &program,const QStringList &args) {
+    LinuxOwnedRouteTable race([&](const QString &program,const QStringList &args) {
         const auto readback = runPlatformCommand(program,args);
         if (interfere && args.contains("rule")) {
             interfere = false;
@@ -653,7 +654,7 @@ int main(int argc, char **argv) try
     check(race.restore(owner).succeeded() && inventory()==baseline,"Recovery after a rule change did not finish");
 
     bool reinsert = false;
-    LinuxSourceRoutes recreated([&](const QString &program,const QStringList &args) {
+    LinuxOwnedRouteTable recreated([&](const QString &program,const QStringList &args) {
         if (reinsert && args.contains("route")) {
             bool present = false;
             for (const auto &value : read({"rule","show"})) present |= value.toObject()["table"]==table;
@@ -671,7 +672,7 @@ int main(int argc, char **argv) try
     const auto recreatedState = inventory();
     check(!recreated.restore(owner).succeeded() && inventory()==recreatedState,
           "Retry deleted a recreated external rule or its route table");
-    LinuxSourceRoutes recreatedRestart;
+    LinuxOwnedRouteTable recreatedRestart;
     check(!recreatedRestart.recover(owner,recreated.snapshot()).succeeded()
           && recreatedRestart.snapshot()["rule_pending"]==false && inventory()==recreatedState,
           "Restart adopted the same-value rule recreated after confirmed deletion");
@@ -680,7 +681,7 @@ int main(int argc, char **argv) try
           "Recovery after recreated external rule removal failed");
 
     bool reference = true;
-    LinuxSourceRoutes concurrentReference([&](const QString &program,const QStringList &args) {
+    LinuxOwnedRouteTable concurrentReference([&](const QString &program,const QStringList &args) {
         const auto readback = runPlatformCommand(program,args);
         if (reference && args.contains("rule")) {
             reference = false;
@@ -694,7 +695,7 @@ int main(int argc, char **argv) try
     check(concurrentReference.restore(owner).succeeded() && inventory()==baseline,"Recovery after concurrent external table reference failed");
 
     bool insert = true;
-    LinuxSourceRoutes partial([&](const QString &program,const QStringList &args) {
+    LinuxOwnedRouteTable partial([&](const QString &program,const QStringList &args) {
         const auto readback = runPlatformCommand(program,args);
         if (insert && args.contains("rule")) {
             insert = false;

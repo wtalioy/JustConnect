@@ -27,7 +27,7 @@ int main(int argc, char **argv) try
         {"addresses", QJsonArray{configuration.address + "/32"}}};
     const QJsonObject originalRoute{{"destination", "192.168.20.0/24"}, {"interface_index", 2}};
     const QJsonObject capture{{"destination", "198.18.4.0/24"}, {"interface_index", 7}, {"source", configuration.address},
-        {"gateway", configuration.peer}, {"table", 254}, {"metric", metric}, {"protocol", 4}, {"kind", 1}};
+        {"scope", 253}, {"table", qint64(linuxCaptureTable(owner))}, {"metric", metric}, {"protocol", 4}, {"kind", 1}};
     const QJsonObject source{{"destination", "198.18.4.0/24"}, {"interface_index", 2}, {"source", configuration.originalSource},
         {"table", table}, {"metric", metric}, {"protocol", 4}, {"scope", 253}, {"kind", 1}};
     const QJsonObject peer{{"destination", configuration.peer + "/32"}, {"interface_index", 7}, {"source", configuration.address},
@@ -40,8 +40,13 @@ int main(int argc, char **argv) try
             QJsonObject{{"type", FRA_SRC}, {"value_hex", "c0000201"}}, QJsonObject{{"type", FRA_PRIORITY}, {"value_hex", word(1)}},
             QJsonObject{{"type", FRA_TABLE}, {"value_hex", word(quint32(table))}}, QJsonObject{{"type", FRA_PROTOCOL}, {"value_hex", "04"}},
             QJsonObject{{"type", FRA_SUPPRESS_PREFIXLEN}, {"value_hex", word(0xffffffffu)}}}}};
-    const QJsonObject network{{"interfaces", QJsonArray{originalInterface, ownedInterface}},
+    QJsonObject network{{"interfaces", QJsonArray{originalInterface, ownedInterface}},
         {"routes", QJsonArray{originalRoute, capture, source, peer, local}}, {"policy_rules", QJsonArray{rule}}};
+    auto captureRule = rule;
+    captureRule.remove("source");captureRule["priority"] = LinuxCaptureRulePriority;captureRule["table"] = qint64(linuxCaptureTable(owner));
+    captureRule["attributes"] = QJsonArray{QJsonObject{{"type", FRA_PRIORITY}, {"value_hex", word(LinuxCaptureRulePriority)}},
+        QJsonObject{{"type", FRA_TABLE}, {"value_hex", word(linuxCaptureTable(owner))}}, QJsonObject{{"type", FRA_PROTOCOL}, {"value_hex", "04"}}};
+    network["policy_rules"] = QJsonArray{rule,captureRule};
     const QJsonObject originalNetwork{{"interfaces", QJsonArray{originalInterface}}, {"routes", QJsonArray{originalRoute}}, {"policy_rules", QJsonArray{}}};
     const QJsonObject server{{"interface_index", 7}, {"family", AF_INET}, {"address", configuration.peer}, {"port", 53}, {"server_name", ""}};
     const QJsonObject domain{{"interface_index", 7}, {"domain", "campus.test"}, {"route_only", true}};

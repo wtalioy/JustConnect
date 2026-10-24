@@ -243,6 +243,15 @@ int main(int argc, char **argv) try
 #ifdef __APPLE__
     std::cout << "PASS: native utun allocator verifies IPv4/MTU configuration, fresh ownership, address-family framing and CLOEXEC before fd transfer\n";
 #else
+    const auto savedCapture = capture.snapshot();
+    device.close();
+    std::cout << "TRANSFERRED" << std::endl;
+    char finished = 0;
+    const auto count = ::recv(control, &finished, 1, 0);
+    check(count == 0 || (count == 1 && finished == 'C'), "Invalid fixture cleanup acknowledgement");
+    LinuxTunRoutes recovered;
+    const auto restored = recovered.recover(owner,savedCapture);
+    check(restored.succeeded(),qPrintable(restored.detail));
     std::cout << "PASS: native TUN allocator verifies IPv4/MTU configuration, raw IP framing, readback rollback, exclusive ownership and CLOEXEC before fd transfer\n";
 #endif
     return 0;

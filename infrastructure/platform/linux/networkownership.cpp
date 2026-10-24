@@ -21,16 +21,16 @@ QJsonObject route(const QString &prefix, int index, const QString &source, const
 }
 QByteArray nativeWord(quint32 value) { return QByteArray(reinterpret_cast<const char *>(&value), sizeof(value)).toHex(); }
 
-bool ownedRule(const QJsonObject &row, quint32 table, const QString &source)
+bool ownedRule(const QJsonObject &row, quint32 table, const QString &source, int priority)
 {
-    if (row["family"] != AF_INET || row["priority"] != 1 || row["table"].toInteger() != table
+    if (row["family"] != AF_INET || row["priority"] != priority || row["table"].toInteger() != table
         || row["action"] != FR_ACT_TO_TBL || row["flags"] != 0 || row["tos"] != 0
-        || row["source"] != source + "/32" || row.contains("destination") || row.size() != 8
+        || (source.isEmpty() ? row.contains("source") : row["source"] != source + "/32") || row.contains("destination") || row.size() != (source.isEmpty() ? 7 : 8)
         || !row["attributes"].isArray()) return false;
     in_addr address{};
-    if (::inet_pton(AF_INET, source.toLatin1().constData(), &address) != 1) return false;
-    const QMap<int, QByteArray> expected{{FRA_SRC, QByteArray(reinterpret_cast<const char *>(&address), sizeof(address)).toHex()},
-        {FRA_PRIORITY, nativeWord(1)}, {FRA_TABLE, nativeWord(table)}, {FRA_PROTOCOL, QByteArray("04")}};
+    if (!source.isEmpty() && ::inet_pton(AF_INET, source.toLatin1().constData(), &address) != 1) return false;
+    QMap<int, QByteArray> expected{{FRA_PRIORITY, nativeWord(priority)}, {FRA_TABLE, nativeWord(table)}, {FRA_PROTOCOL, QByteArray("04")}};
+    if (!source.isEmpty()) expected[FRA_SRC] = QByteArray(reinterpret_cast<const char *>(&address), sizeof(address)).toHex();
     QSet<int> found;
     for (const auto &value : row["attributes"].toArray()) {
         const auto attribute = value.toObject();
@@ -56,7 +56,7 @@ NetworkPolicySession::OriginalViewFilter linuxOriginalNetworkView(const QUuid &o
     const auto table = linuxSourceTable(owner), metric = linuxRouteMetric(owner);
     QJsonArray routes;
     for (const auto &prefix : configuration.capturePrefixes)
-        routes.append(route(prefix, index, configuration.address, configuration.peer, RT_TABLE_MAIN, metric, RTPROT_STATIC, RT_SCOPE_UNIVERSE));
+        routes.append(route(prefix, index, configuration.address, {}, linuxCaptureTable(owner), metric, RTPROT_STATIC, RT_SCOPE_LINK));
     const auto &sourcePrefixes = configuration.originalPrefixes;
     if (!configuration.originalGateway.isEmpty()) {
         const auto prefix = configuration.originalGateway + "/32";
@@ -69,7 +69,7 @@ NetworkPolicySession::OriginalViewFilter linuxOriginalNetworkView(const QUuid &o
     routes.append(route(configuration.address + "/32", index, configuration.address, {}, RT_TABLE_LOCAL, 0, RTPROT_KERNEL, RT_SCOPE_HOST, RTN_LOCAL));
     QHash<QByteArray, int> ownedRoutes;
     for (const auto &value : routes) ownedRoutes[QJsonDocument(value.toObject()).toJson(QJsonDocument::Compact)] = 1;
-    return [configuration, name, index, ownedRoutes, table](QJsonObject network, QJsonObject dns)
+    return [configuration, name, index, ownedRoutes, table, captureTable = linuxCaptureTable(owner)](QJsonObject network, QJsonObject dns)
         -> std::optional<NetworkPolicySession::OriginalView> {
         if (!network["interfaces"].isArray() || !network["routes"].isArray()) return {};
         QJsonArray interfaces;
@@ -101,7 +101,8 @@ NetworkPolicySession::OriginalViewFilter linuxOriginalNetworkView(const QUuid &o
         if (network["policy_rules"].isArray()) {
             QJsonArray rules;
             for (const auto &row : network["policy_rules"].toArray())
-                if (!ownedRule(row.toObject(), table, configuration.originalSource)) rules.append(row);
+                if (!ownedRule(row.toObject(), table, configuration.originalSource, LinuxOriginalRulePriority)
+                    && !ownedRule(row.toObject(), captureTable, {}, LinuxCaptureRulePriority)) rules.append(row);
             network["policy_rules"] = rules;
         }
         if (!configuration.dnsDomains.isEmpty() && dns["resolved"].isObject()) {

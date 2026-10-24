@@ -56,6 +56,7 @@ int main(int argc, char **argv) try
             QTimer::singleShot(50, client.get(), &Client::cancel);
     });
     auto configuration = helperFixtureConfiguration({scenario == "partial" ? "198.18.5.0/24" : "198.18.4.0/24"}, 1400);
+    if (scenario == "partial") configuration.capturePrefixes.append(configuration.peer+"/32");
     if (scenario.startsWith("dns")) configuration.dnsDomains = {"campus.test"};
     if (scenario == "cleanup") client->cleanupRestored(owner);
     else if (scenario == "recover") client->recover(owner);
@@ -86,7 +87,7 @@ int main(int argc, char **argv) try
             check(exchange.waitForFinished(8000) && exchange.exitCode() == 0 && exchange.exitStatus() == QProcess::NormalExit,
                 qPrintable(QString::fromUtf8(exchange.readAllStandardError())));
             auto previous = results.size();
-            client->extend({"198.18.6.7"});
+            client->extend({scenario == "extend-partial" ? configuration.peer : QString("198.18.6.7")});
             wait([&] { return results.size() == previous+1; });
             if (scenario == "extend-cancel" || scenario == "extend-partial") {
                 check(results.last().status == (scenario == "extend-cancel" ? Status::Cancelled : Status::Failed)
@@ -118,7 +119,7 @@ int main(int argc, char **argv) try
                   qPrintable(QString::fromUtf8(exchange.readAllStandardError())));
             if (scenario == "normal" || scenario == "routes-partial") {
                 previous = results.size();
-                const QStringList changedCapture{"198.18.4.0/24","198.18.7.0/24"};
+                const QStringList changedCapture{"198.18.4.0/24",scenario == "routes-partial" ? configuration.peer+"/32" : QString("198.18.7.0/24")};
                 client->reconcile(changedCapture);
                 wait([&] { return results.size() == previous+1; });
                 if (scenario == "routes-partial") {
@@ -138,7 +139,8 @@ int main(int argc, char **argv) try
                 check(results.last().succeeded() && client->ownedConfiguration()->capturePrefixes == beforeExtension.capturePrefixes,
                       "Live route withdrawal retained stale capture in its confirmed view");
             }
-            if (scenario.startsWith("dns")) {
+            if (scenario == "partial") configuration.capturePrefixes.append(configuration.peer+"/32");
+    if (scenario.startsWith("dns")) {
                 exchange.start("/usr/bin/python3", {"-B", "-c",
                     "import os,sys;sys.path.insert(0,sys.argv[1]);from tundns_fixture import query_via_tun;"
                     "query_via_tun(int(sys.argv[2]),sys.argv[3],sys.argv[4],os.getuid(),{'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LC_ALL':'C.UTF-8'})",

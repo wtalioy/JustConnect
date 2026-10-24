@@ -21,23 +21,33 @@
 
 static void check(bool ok, const char *message) { if (!ok) throw std::runtime_error(message); }
 
-static void ip(const QStringList &args)
+static QUuid routeOwner;
+static void ip(QStringList args)
 {
+    if (args.value(0) == "route" && QStringList{"add","del","replace"}.contains(args.value(1))
+        && args.value(2).startsWith("198.18.") && !args.contains("7") && !args.contains("table"))
+        args << "table" << QString::number(linuxCaptureTable(routeOwner));
     const auto result = runPlatformCommand(trustedIpRouteUtility(), args);
     check(result.result.succeeded(), qPrintable(result.result.detail));
 }
 
 static QJsonArray rows()
 {
-    const auto result = runPlatformCommand(trustedIpRouteUtility(), {"-j", "-4", "route", "show", "table", "main"});
+    const auto result = runPlatformCommand(trustedIpRouteUtility(), {"-j", "-4", "route", "show", "table", "all"});
     const auto document = QJsonDocument::fromJson(result.output.toUtf8());
     check(result.result.succeeded() && document.isArray(), "Read the independent kernel route inventory");
     return document.array();
 }
 
-static QStringList inventory()
+static QStringList inventory(bool excludeCaptureRule = false)
 {
     QStringList result;
+    const auto rules = runPlatformCommand(trustedIpRouteUtility(), {"-N","-j","-4","rule","show"});
+    check(rules.result.succeeded(),"Read the independent rule inventory");
+    for (const auto &value : QJsonDocument::fromJson(rules.output.toUtf8()).array()) {
+        if (excludeCaptureRule && value.toObject()["table"] == QString::number(linuxCaptureTable(routeOwner))) continue;
+        result.append(QString::fromUtf8(QJsonDocument(value.toObject()).toJson(QJsonDocument::Compact)));
+    }
     for (const auto &row : rows()) result.append(QString::fromUtf8(QJsonDocument(row.toObject()).toJson(QJsonDocument::Compact)));
     result.sort();
     return result;
@@ -138,6 +148,7 @@ int main(int argc, char **argv) try
         check(filter.open(QIODevice::WriteOnly) && filter.write("1") == 1, "Keep strict reverse-path filtering in the private namespace");
     }
     check(device.createIpv4(QUuid::createUuid(), source, peer, 1400).succeeded(), "Create and configure the exclusively owned route fixture device");
+    routeOwner = device.owner();
     ip({"link", "add", "foreign0", "type", "dummy"});
     ip({"link", "set", "foreign0", "up"});
     ip({"address", "add", "192.0.2.1/24", "dev", "foreign0"});
@@ -156,9 +167,14 @@ int main(int argc, char **argv) try
         check(!inactive.apply(device, pair.first, pair.second, {"198.18.2.0/24"}).succeeded()
               && reads == 0 && inactive.snapshot().isEmpty(), "Unassigned or zero point-to-point addresses reached route operations");
     LinuxTunRoutes routes;
-    for (const auto &prefix : QStringList{"198.18.1.0/24", "198.18.1.7/32", peer + "/32"})
-        check(!routes.apply(device, source, peer, {prefix}).succeeded() && routes.snapshot().isEmpty() && inventory() == baseline,
-              "An existing external subnet or host route was adopted or changed");
+    check(!routes.apply(device,source,peer,{peer+"/32"}).succeeded() && routes.snapshot().isEmpty() && inventory() == baseline,
+          "Capture adopted its own point-to-point peer");
+    for (const auto &prefix : QStringList{"198.18.1.0/24", "198.18.1.7/32"}) {
+        check(routes.apply(device,source,peer,{prefix}).succeeded(),"Select an overlapping original subnet or exact host route");
+        packets(device,source,"198.18.1.7");
+        check(hasRoute(prefix,"foreign0") && routes.restore(device).succeeded() && inventory() == baseline,
+              "Exact host capture or restoration replaced the original route");
+    }
     QStringList capacity;
     for (int i = 0; i < LinuxRouteSnapshotRows; ++i) capacity.append(QString("198.19.%1.%2/32").arg(16 + i / 256).arg(i % 256));
     const auto excessive = routes.apply(device, source, peer, capacity);
@@ -220,7 +236,7 @@ int main(int argc, char **argv) try
         check(changing.reconcile(device,next,checkpoint).succeeded() && inventory() == held,
               "Retry lost a retained capture after a rejected deletion checkpoint");
         check(changing.reconcile(device,{},checkpoint).succeeded() && changing.snapshot()["routes"].toArray().isEmpty()
-              && inventory() == baseline && device.descriptor() >= 0,"Empty live capture set destroyed its active device or retained routes");
+              && inventory(true) == baseline && device.descriptor() >= 0,"Empty live capture set destroyed its active device or retained routes");
         check(changing.reconcile(device,next,checkpoint).succeeded(),"An empty active capture set could not expand again");
         LinuxTunRoutes recovered;
         check(recovered.recover(device.owner(),durable).succeeded() && inventory() == baseline,
@@ -267,7 +283,7 @@ int main(int argc, char **argv) try
         QString racedMetric;
         LinuxTunRoutes race([&](const QString &program, const QStringList &args) {
             const auto snapshot = runPlatformCommand(program, args);
-            if (++reads == 3) {
+            if (++reads == 5) {
                 racedMetric = QString::number(recovering->snapshot()["metric"].toInteger());
                 QStringList changed{"route", "replace", prefixes[0], "dev", device.name(), "proto", "4", "scope", "0",
                     "metric", racedMetric, "src", changedGateway ? source : QString("192.0.2.1"),
@@ -305,14 +321,14 @@ int main(int argc, char **argv) try
           "Partial batch failure leaked an owned route or deleted the concurrent external route");
     ip({"route", "del", prefixes[1], "metric", collisionMetric});
     check(inventory() == baseline, "Partial batch rollback changed unrelated routes");
-    for (const int failedRead : {2, 3}) {
+    for (const int failedRead : {3, 5}) {
         int calls = 0;
         LinuxTunRoutes fault([&](const QString &program, const QStringList &args) {
             if (++calls == failedRead) return PlatformCommandResult{{Status::TimedOut, "Injected route readback failure"}, {}};
             return runPlatformCommand(program, args);
         });
         const auto applied = fault.apply(device, source, peer, prefixes);
-        if (failedRead == 2) {
+        if (failedRead == 3) {
             check(applied.status == Status::TimedOut && fault.snapshot().isEmpty() && inventory() == baseline,
                   "Failed application readback did not roll back actual kernel routes");
         } else {
@@ -328,7 +344,7 @@ int main(int argc, char **argv) try
     LinuxTunRoutes *unconfirmed = nullptr;
     QString unknownMetric;
     LinuxTunRoutes unknown([&](const QString &program, const QStringList &args) {
-        if (++unknownReads == 2) {
+        if (++unknownReads == 3) {
             unknownMetric = QString::number(unconfirmed->snapshot()["metric"].toInteger());
             ip({"route", "replace", prefixes[0], "dev", device.name(), "proto", "4", "scope", "0", "metric", unknownMetric, "src", "192.0.2.1", "via", peer});
         }
@@ -338,14 +354,14 @@ int main(int argc, char **argv) try
     check(!unknown.apply(device, source, peer, prefixes).succeeded() && !unknown.snapshot().isEmpty()
           && hasRoute(prefixes[0], device.name()) && !hasRoute(prefixes[1], device.name()),
           "Unconfirmed externally changed values were deleted or their recovery obligation was discarded");
-    ip({"route", "replace", prefixes[0], "dev", device.name(), "proto", "4", "scope", "0", "metric", unknownMetric, "src", source, "via", peer});
+    ip({"route", "replace", prefixes[0], "dev", device.name(), "proto", "4", "scope", "link", "metric", unknownMetric, "src", source});
     check(unknown.restore(device).succeeded() && unknown.snapshot().isEmpty() && inventory() == baseline,
           "Unconfirmed route records could not recover after their expected shape returned");
     int renameReads = 0;
     QStringList renamedInventory;
     LinuxTunRoutes renamed([&](const QString &program, const QStringList &args) {
         const auto snapshot = runPlatformCommand(program, args);
-        if (++renameReads == 3) {
+        if (++renameReads == 5) {
             ip({"link", "set", device.name(), "down"});
             ip({"link", "set", device.name(), "name", "renamed0"});
             renamedInventory = inventory();
@@ -359,6 +375,7 @@ int main(int argc, char **argv) try
     ip({"link", "set", device.name(), "up"});
     check(renamed.restore(device).succeeded() && inventory() == baseline, "Original identity could not recover its retained records");
     captureRecoveryTests(device,baseline);
+    legacyCaptureRecoveryTests(device,baseline);
     {
         LinuxTunRoutes growing;
         check(growing.apply(device,source,peer,{"198.18.8.1/32"}).succeeded()

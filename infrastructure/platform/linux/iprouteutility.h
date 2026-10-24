@@ -40,6 +40,14 @@ inline quint32 linuxSourceTable(const QUuid &owner)
     return 1000000000u + owner.toByteArray(QUuid::Id128).left(8).toUInt(nullptr, 16) % 1000000000u;
 }
 
+// Local delivery stays first; bound original traffic bypasses the campus lookup.
+inline constexpr int LinuxOriginalRulePriority = 1;
+inline constexpr int LinuxCaptureRulePriority = 2;
+inline quint32 linuxCaptureTable(const QUuid &owner)
+{
+    return linuxSourceTable(owner) + 1000000000u;
+}
+
 inline quint32 linuxRouteMetric(const QUuid &owner)
 {
     return 1u + owner.toByteArray(QUuid::Id128).left(8).toUInt(nullptr,16) % 0xfffffffeu;

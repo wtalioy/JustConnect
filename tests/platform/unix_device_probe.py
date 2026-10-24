@@ -122,6 +122,7 @@ def allocate_unix(allocator):
                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     child.close()
     fds = []
+    handed_off = False
     try:
         parent.settimeout(5)
         payload, ancillary, flags, _ = parent.recvmsg(4096, socket.CMSG_SPACE(array.array('i').itemsize),
@@ -153,9 +154,9 @@ def allocate_unix(allocator):
             capture = metadata['capture_routes']
             identity = os.stat('/proc/thread-self/ns/net')
             boot = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
-            assert capture['version'] == 1 and capture['namespace'] == f'{boot}:{identity.st_dev}:{identity.st_ino}', 'capture scope differs from the actual boot/namespace'
+            assert capture['version'] == 2 and capture['namespace'] == f'{boot}:{identity.st_dev}:{identity.st_ino}', 'capture scope differs from the actual boot/namespace'
             assert capture['owner'] == str(owner) and capture['interface'] == name and capture['index'] == index
-            assert capture['source'] == '198.18.0.1' and capture['peer'] == '198.18.0.2'
+            assert capture['source'] == '198.18.0.1' and capture['gateway'] == '' and capture['priority'] == 2
             assert len(capture['routes']) == 1 and capture['routes'][0]['prefix'] == '198.18.0.6/32'
             assert capture['routes'][0]['before'] == []
             assert capture['routes'][0]['delete_started'] is False, 'allocator handed out a route pending deletion'
@@ -169,20 +170,40 @@ def allocate_unix(allocator):
                 assert native.getsockopt(socket.SYSPROTO_CONTROL, 1) == 0, 'transferred fd lost address-family framing'
         assert not os.get_inheritable(fds[0]), 'received allocator fd can leak across exec'
         parent.sendall(b'R')
+        if sys.platform == 'linux':
+            assert select.select([process.stdout], [], [], 5)[0], 'allocator did not release its device fd'
+            assert process.stdout.readline() == b'TRANSFERRED\n'
+            def cleanup():
+                if parent.fileno() < 0:
+                    return
+                try:
+                    parent.sendall(b'C')
+                    output, _ = process.communicate(timeout=12)
+                    assert process.returncode == 0, output.decode('utf-8', errors='replace')
+                    print(output.decode('utf-8'), end='', flush=True)
+                finally:
+                    parent.close()
+                    if process.poll() is None:
+                        process.kill()
+                        process.wait(timeout=5)
+                    process.stdout.close()
+            handed_off = True
+            return fds[0], name, cleanup
         output, _ = process.communicate(timeout=5)
         assert process.returncode == 0, output.decode('utf-8', errors='replace')
         print(output.decode('utf-8'), end='', flush=True)
-        return fds[0], name
+        return fds[0], name, lambda: None
     except BaseException:
         for fd in fds:
             os.close(fd)
         raise
     finally:
-        parent.close()
-        if process.poll() is None:
-            process.kill()
-            process.wait(timeout=5)
-        process.stdout.close()
+        if not handed_off:
+            parent.close()
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=5)
+            process.stdout.close()
 
 
 def probe(uid, gid, crash, allocator):
@@ -190,7 +211,7 @@ def probe(uid, gid, crash, allocator):
         for destination in ('198.18.0.2', '198.18.0.6'):
             route = subprocess.check_output(['/sbin/route', '-n', 'get', destination], text=True, timeout=5)
             assert any(line.split() == ['destination:', 'default'] for line in route.splitlines()), 'test destination already has a specific route'
-    fd, name = allocate_unix(allocator)
+    fd, name, cleanup_allocator = allocate_unix(allocator)
     parent, child = socket.socketpair()
     receiver = None
     try:
@@ -232,6 +253,8 @@ def probe(uid, gid, crash, allocator):
             receiver.kill()
         status = receiver.wait(timeout=5)
         assert status == (-signal.SIGKILL if crash else 0), f'unexpected receiver exit: {status}'
+        cleanup_allocator()
+        cleanup_allocator = lambda: None
         deadline = time.monotonic() + 5
         while True:
             try:
@@ -254,6 +277,7 @@ def probe(uid, gid, crash, allocator):
         if receiver is not None and receiver.poll() is None:
             receiver.kill()
             receiver.wait(timeout=5)
+        cleanup_allocator()
 
 
 if __name__ == '__main__':

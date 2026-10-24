@@ -61,6 +61,7 @@ def probe(binary, uid, allocator, route_backend):
     server = subprocess.Popen(['unshare', '--net', '--', sys.executable, str(Path(__file__).resolve()), '--peer'],
                               stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
     tun = None
+    cleanup_allocator = lambda: None
     source_routes = None
     source_snapshot = None
     try:
@@ -81,7 +82,7 @@ def probe(binary, uid, allocator, route_backend):
         remote('link', 'set', 'peer0', 'up')
         remote('addr', 'add', '198.18.0.6/32', 'dev', 'lo')
         ip('route', 'add', '198.18.0.0/24', 'via', '192.0.2.2', 'dev', 'original0')
-        tun, capture = allocate_unix(allocator)
+        tun, capture, cleanup_allocator = allocate_unix(allocator)
         original_routes = json.loads(subprocess.check_output(['ip', '-N', '-j', '-4', 'route', 'show', 'table', 'all'], text=True))
         original_rules = json.loads(subprocess.check_output(['ip', '-N', '-j', '-4', 'rule', 'show'], text=True))
         # The formal backend owns the source lookup; EOF restores it in another process.
@@ -140,6 +141,7 @@ def probe(binary, uid, allocator, route_backend):
         finally:
             if tun is not None:
                 os.close(tun)
+            cleanup_allocator()
             if server.stdin:
                 server.stdin.close()
             try:
