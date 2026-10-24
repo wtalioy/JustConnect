@@ -48,7 +48,7 @@ int main(int argc,char **argv) try
     void *warm[1]; ::backtrace(warm,1);
     struct sigaction diagnostic{};
     diagnostic.sa_handler = fatalSignal; diagnostic.sa_flags = SA_RESETHAND;
-    ::sigemptyset(&diagnostic.sa_mask);
+    sigemptyset(&diagnostic.sa_mask);
     check(::sigaction(SIGSEGV,&diagnostic,nullptr) == 0 && ::sigaction(SIGABRT,&diagnostic,nullptr) == 0,"Install owned fixture fatal diagnostics");
     if (arguments.size() == 2 && arguments[1] == "--unavailable") {
         MacNetworkHelperClient client; bool completed = false;
