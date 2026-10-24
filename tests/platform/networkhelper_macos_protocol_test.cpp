@@ -9,11 +9,19 @@ int main(int argc,char **argv) try
 {
     QCoreApplication app(argc,argv);
     const auto owner = QUuid::createUuid(), request = QUuid::createUuid();
-    const MacHelperConfiguration configuration{"198.18.0.1","198.18.0.2",1400,{"198.18.0.6/32","198.18.1.0/24"}};
+    const MacHelperConfiguration configuration{"198.18.0.1","198.18.0.2",1400,{"198.18.0.6/32","198.18.1.0/24"},{"campus.example.test"}};
     const auto packet = macHelperApplyRequest(owner,request,configuration);
     const auto parsed = parseMacHelperApply(packet);
     check(parsed && parsed->address == configuration.address && parsed->peer == configuration.peer
-        && parsed->mtu == configuration.mtu && parsed->capturePrefixes == configuration.capturePrefixes,"Valid complete configuration lost its semantics");
+        && parsed->mtu == configuration.mtu && parsed->capturePrefixes == configuration.capturePrefixes
+        && parsed->dnsDomains == configuration.dnsDomains,"Valid complete configuration lost its semantics");
+    for (const auto &domains : {QJsonValue("campus.example.test"),QJsonValue(QJsonArray{"."}),QJsonValue(QJsonArray{"campus.example.test","campus.example.test"}),
+            QJsonValue(QJsonArray{"Upper.test"}),QJsonValue(QJsonArray{"a..test"}),QJsonValue(QJsonArray{1}),QJsonValue(QJsonArray{"-bad.test"})}) {
+        auto broken = packet; auto config = broken["configuration"].toObject(); config["dns_domains"] = domains; broken["configuration"] = config;
+        check(!parseMacHelperApply(broken),"Malformed or default DNS scope was accepted");
+    }
+    auto noDns = packet; auto noDnsConfig = noDns["configuration"].toObject(); noDnsConfig["dns_domains"] = QJsonArray{}; noDns["configuration"] = noDnsConfig;
+    check(parseMacHelperApply(noDns).has_value(),"Explicitly disabled system DNS was rejected");
     for (const auto *operation : {"probe","restore","recover","cleanup"})
         check(validMacHelperRequest(macHelperRequest(operation,owner,request)),"Bound owner operation was rejected");
     for (const auto *key : {"schema_version","owner","request_id","operation"}) {

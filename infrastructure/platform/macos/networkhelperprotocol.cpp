@@ -1,5 +1,6 @@
 #include "networkhelper.h"
 #include "infrastructure/platform/ipv4.h"
+#include "infrastructure/platform/dnsdomains.h"
 #include "infrastructure/platform/tundevice.h"
 #include "tunroutes.h"
 #include <QJsonArray>
@@ -27,7 +28,8 @@ QJsonObject macHelperApplyRequest(const QUuid &owner, const QUuid &request, cons
 {
     auto packet = macHelperRequest("apply",owner,request);
     packet["configuration"] = QJsonObject{{"address",configuration.address},{"peer",configuration.peer},
-        {"mtu",configuration.mtu},{"prefixes",QJsonArray::fromStringList(configuration.capturePrefixes)}};
+        {"mtu",configuration.mtu},{"prefixes",QJsonArray::fromStringList(configuration.capturePrefixes)},
+        {"dns_domains",QJsonArray::fromStringList(configuration.dnsDomains)}};
     return packet;
 }
 bool validMacHelperRequest(const QJsonObject &packet)
@@ -43,11 +45,13 @@ std::optional<MacHelperConfiguration> parseMacHelperApply(const QJsonObject &pac
     if (!validMacHelperRequest(packet) || packet["operation"] != "apply") return {};
     const auto configuration = packet["configuration"].toObject();
     const auto mtu = configuration["mtu"].toInteger(-1);
-    if (configuration.size() != 4 || configuration["mtu"].toDouble(-1) != double(mtu)
+    if (configuration.size() != 5 || configuration["mtu"].toDouble(-1) != double(mtu)
         || !UnixTunDevice::validIpv4Configuration(configuration["address"].toString(),configuration["peer"].toString(),mtu)
         || !configuration["prefixes"].isArray() || configuration["prefixes"].toArray().isEmpty()
-        || configuration["prefixes"].toArray().size() > MacRouteSnapshotRows) return {};
+        || configuration["prefixes"].toArray().size() > MacRouteSnapshotRows || !configuration["dns_domains"].isArray()) return {};
     MacHelperConfiguration result{configuration["address"].toString(),configuration["peer"].toString(),int(mtu),{}};
+    for (const auto &value : configuration["dns_domains"].toArray()) result.dnsDomains.append(value.toString());
+    if (!result.dnsDomains.isEmpty() && !validTunDnsDomains(result.dnsDomains)) return {};
     QSet<QString> unique;
     for (const auto &value : configuration["prefixes"].toArray()) {
         const auto prefix = value.toString();

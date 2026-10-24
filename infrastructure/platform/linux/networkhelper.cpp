@@ -1,4 +1,5 @@
 #include "networkhelper.h"
+#include "infrastructure/platform/dnsdomains.h"
 #include "infrastructure/platform/networkjournal.h"
 #include "ownedroutetable.h"
 #include "tunroutes.h"
@@ -327,7 +328,7 @@ std::optional<LinuxHelperConfiguration> parseLinuxHelperApply(const QUuid &owner
         if (!name.isString()) return {};
         config.dnsDomains.append(name.toString());
     }
-    if (!config.dnsDomains.isEmpty() && !LinuxTunDns::validDomains(config.dnsDomains)) return {};
+    if (!config.dnsDomains.isEmpty() && !validTunDnsDomains(config.dnsDomains)) return {};
     config.address = device["source"].toString(); config.peer = device["peer"].toString(); config.mtu = device["mtu"].toInt();
     config.originalInterface = original["interface"].toString(); config.originalSource = original["source"].toString();
     config.originalGateway = original["gateway"].toString();

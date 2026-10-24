@@ -44,6 +44,7 @@ int openMacHelperBootDirectory()
 }
 MacNetworkHelperState::~MacNetworkHelperState()
 {
+    dns.restore();
     device.close(); captureJournal.close(); guardian.close();
     if (captureDirectory >= 0) ::close(captureDirectory);
     if (directory >= 0) ::close(directory);
@@ -117,6 +118,7 @@ Result MacNetworkHelperState::apply(const MacHelperConfiguration &configuration)
     if (result.succeeded()) result = capture.apply(device,configuration.capturePrefixes,[&](const QJsonObject &record) {
         return record.isEmpty() ? captureJournal.remove() : captureJournal.store(record);
     });
+    if (result.succeeded() && !configuration.dnsDomains.isEmpty()) result = dns.apply(device,configuration.dnsDomains);
     if (result.succeeded()) result = store("active");
     if (result.succeeded()) {
         const int flags = ::fcntl(device.descriptor(),F_GETFL);
@@ -140,6 +142,8 @@ bool MacNetworkHelperState::deviceAbsent() const
 }
 Result MacNetworkHelperState::restore()
 {
+    // The live SC session independently proves DNS ownership, even if disk metadata was changed.
+    dns.restore();
     QJsonObject checked;
     if (!guardian.load(checked).succeeded() || !valid(checked) || checked != metadata) {
         device.close(); return failed("Connection ownership changed; recovery responsibility is retained.");
