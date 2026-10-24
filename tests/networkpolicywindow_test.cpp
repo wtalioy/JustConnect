@@ -125,8 +125,12 @@ int main(int argc, char **argv) try
         const auto policy = engine.lastPolicy;
         emit engine.policyUpdated(policy["generation"].toString(), policy["revision"].toString(), result);
     };
-    check(choose && restore && preferenceStatus && !choose->isEnabled() && !restore->isEnabled() && engine.policies==0,
-          "Inspection wrote a policy without an explicit address selection");
+    tree->setCurrentItem(lanRow());
+    check(choose && restore && preferenceStatus && engine.policies==0,
+          "Inspection or selecting a scope wrote a policy without a confirmed address");
+    tree->clearSelection();
+    tree->setCurrentItem(nullptr);
+    check(!choose->isEnabled() && !restore->isEnabled(), "Empty scope selection enabled address actions");
     tabs->setCurrentIndex(0);
     tree->setCurrentItem(lanRow());
     check(choose->isEnabled(), "Actual IPv4 scope did not enable explicit selection");
