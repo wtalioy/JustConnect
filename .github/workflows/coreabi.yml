@@ -95,6 +95,15 @@ jobs:
                   log.flush()
                   print(log_path.read_text(encoding='utf-8', errors='replace'), flush=True)
 
+      - name: Verify signed macOS network helper and independent recovery
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          cmake -S tests/coreabi -B build/coreabi -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/coreabi --config Release --parallel 3 --target macos_networkhelper_client_test
+          helper_id="$(python -c 'import json,plistlib; c=json.load(open("resource/network-helper-macos.json")); p=plistlib.load(open("resource/Info.plist","rb")); print(p["CFBundleIdentifier"]+c["service_suffix"])')"
+          sudo env PYTHONDONTWRITEBYTECODE=1 GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_OS="$RUNNER_OS" "$(command -v python)" tests/platform/networkhelper_macos.py --uid "$(id -u)" --helper build/coreabi/JustConnectNetworkHelper --client build/coreabi/macos_networkhelper_client_test --plist "build/coreabi/$helper_id.plist" --deploy-tool "$(command -v macdeployqt)" --revision "$GITHUB_SHA" --output build/coreabi/macos-helper 2>&1 | tee build/coreabi/macos-helper.log
+
       - name: Verify formal C ABI, protocol session and authentication
         timeout-minutes: 20
         shell: python
@@ -222,13 +231,6 @@ jobs:
           go -C corelib test -c -o ../build/coreabi/native-tun-host ./internal/bridge
           go -C corelib test -race -c -o ../build/coreabi/native-tun-fd ./internal/tundevice
           sudo env PYTHONDONTWRITEBYTECODE=1 GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_OS="$RUNNER_OS" "$(command -v python)" tests/platform/tun_coreabi_unix.py --uid "$(id -u)" --allocator build/coreabi/macos_tundevice_test --gateway build/coreabi/native-tun-host --host build/coreabi/coreabi_test --fd-test build/coreabi/native-tun-fd 2>&1 | tee build/coreabi/macos-tun-coreabi.log
-
-      - name: Verify signed macOS network helper and independent recovery
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          helper_id="$(python -c 'import json,plistlib; c=json.load(open("resource/network-helper-macos.json")); p=plistlib.load(open("resource/Info.plist","rb")); print(p["CFBundleIdentifier"]+c["service_suffix"])')"
-          sudo env PYTHONDONTWRITEBYTECODE=1 GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_OS="$RUNNER_OS" "$(command -v python)" tests/platform/networkhelper_macos.py --uid "$(id -u)" --helper build/coreabi/JustConnectNetworkHelper --client build/coreabi/macos_networkhelper_client_test --plist "build/coreabi/$helper_id.plist" --deploy-tool "$(command -v macdeployqt)" --revision "$GITHUB_SHA" --output build/coreabi/macos-helper 2>&1 | tee build/coreabi/macos-helper.log
 
       - name: Upload toolchain and runtime evidence
         if: always()
