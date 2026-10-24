@@ -52,7 +52,7 @@ func TestTUNDNSUsesOwnedPeerAndCampusACL(t *testing.T) {
 	}
 	campus := &ingressCampus{tcpAddress: tcpListener.Addr().String(), udpAddress: udpSocket.LocalAddr().String(), called: make(chan string, 32)}
 	r := resolve.NewResolver(campus, "203.0.113.7", "", 30,
-		client.DomainResources{"*.campus.test": {{Protocol: "all", PortMin: 1, PortMax: 65535}}}, nil, true)
+		client.DomainResources{"*.campus.test": {{Protocol: "tcp", PortMin: 80, PortMax: 80}}}, nil, true)
 	t.Cleanup(r.Close)
 	var protection atomic.Pointer[policy.ProtectionPolicy]
 	r.ProtectionPolicy = protection.Load
@@ -69,16 +69,16 @@ func TestTUNDNSUsesOwnedPeerAndCampusACL(t *testing.T) {
 	}
 	peer := tunPeer(t, device.packetDevice)
 	target := tcpip.FullAddress{NIC: 1, Addr: tcpip.AddrFrom4([4]byte{198, 18, 0, 2}), Port: resolve.DNSPort}
-	query := func(transport string, message *dns.Msg) *dns.Msg {
+	query := func(transport string, destination tcpip.FullAddress, message *dns.Msg) *dns.Msg {
 		t.Helper()
 		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 		defer cancel()
 		var conn net.Conn
 		var err error
 		if transport == "tcp" {
-			conn, err = gonet.DialContextTCP(ctx, peer, target, ipv4.ProtocolNumber)
+			conn, err = gonet.DialContextTCP(ctx, peer, destination, ipv4.ProtocolNumber)
 		} else {
-			conn, err = gonet.DialUDP(peer, nil, &target, ipv4.ProtocolNumber)
+			conn, err = gonet.DialUDP(peer, nil, &destination, ipv4.ProtocolNumber)
 		}
 		if err != nil {
 			t.Fatal(err)
@@ -91,13 +91,17 @@ func TestTUNDNSUsesOwnedPeerAndCampusACL(t *testing.T) {
 		return reply
 	}
 	request := new(dns.Msg).SetQuestion("alias.campus.test.", dns.TypeA)
-	reply := query("udp", request)
+	reply := query("udp", target, request)
 	if !reply.Truncated || reply.Rcode != dns.RcodeSuccess {
 		t.Fatalf("large UDP response did not request TCP: %v", reply)
 	}
-	reply = query("tcp", request)
+	reply = query("tcp", target, request)
 	if reply.Truncated || len(reply.Answer) != 81 || reply.Answer[0].Header().Rrtype != dns.TypeCNAME {
 		t.Fatalf("TCP/CNAME records lost: %v", reply)
+	}
+	application := tcpip.FullAddress{NIC: 1, Addr: tcpip.AddrFrom4([4]byte{203, 0, 113, 9}), Port: 80}
+	if reply := query("tcp", application, request); len(reply.Answer) != 81 {
+		t.Fatal("DNS-authorized transparent TCP lost data without an IP resource", reply)
 	}
 	before := upstream.Load()
 	for _, entry := range []struct {
@@ -107,7 +111,7 @@ func TestTUNDNSUsesOwnedPeerAndCampusACL(t *testing.T) {
 	}{
 		{"outside.test.", dns.TypeA, dns.RcodeRefused}, {"alias.campus.test.", dns.TypeAAAA, dns.RcodeNotImplemented},
 	} {
-		if reply := query("udp", new(dns.Msg).SetQuestion(entry.host, entry.kind)); reply.Rcode != entry.code {
+		if reply := query("udp", target, new(dns.Msg).SetQuestion(entry.host, entry.kind)); reply.Rcode != entry.code {
 			t.Fatalf("wrong DNS refusal: %v", reply)
 		}
 	}
@@ -116,7 +120,7 @@ func TestTUNDNSUsesOwnedPeerAndCampusACL(t *testing.T) {
 		t.Fatal(err)
 	}
 	protection.Store(&blocked)
-	if reply := query("tcp", request); reply.Rcode != dns.RcodeRefused {
+	if reply := query("tcp", target, request); reply.Rcode != dns.RcodeRefused {
 		t.Fatalf("protected DNS upstream was used: %v", reply)
 	}
 	if upstream.Load() != before {

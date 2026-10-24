@@ -70,6 +70,9 @@ func (r *Resolver) ExchangeCampus(ctx context.Context, request *dns.Msg, transpo
 				reply.Answer = append(reply.Answer, &dns.AAAA{Hdr: header, AAAA: append(net.IP(nil), ip.To16()...)})
 			}
 		}
+		if err := r.bindCampusAnswer(request, reply); err != nil {
+			return nil, err
+		}
 		return reply, nil
 	}
 	if !r.useRemoteDNS || r.remoteDNSServer == "" || dial == nil {
@@ -100,7 +103,10 @@ func (r *Resolver) ExchangeCampus(ctx context.Context, request *dns.Msg, transpo
 	}
 	reply, err := exchange(transport)
 	if transport == "udp" && ctx.Err() == nil && (err != nil || reply.Truncated) {
-		return exchange("tcp")
+		reply, err = exchange("tcp")
+	}
+	if err == nil {
+		err = r.bindCampusAnswer(request, reply)
 	}
 	return reply, err
 }

@@ -443,6 +443,10 @@ func TestNativeTUNHost(t *testing.T) {
 	}
 	g := newGateway(t)
 	g.resourceIP.Store("198.18.0.6")
+	if os.Getenv("JC_NATIVE_TUN_DNS") == "1" {
+		g.nativeDNS.Store(true)
+		g.probeDNS.Store(true)
+	}
 	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer cancel()
 	command := exec.CommandContext(ctx, host, "--tun-gateway", string(configBytes(t, g.config(t))))
@@ -460,8 +464,11 @@ func TestNativeTUNHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("native TUN/C ABI host: %v\n%s", err, output)
 	}
-	if !bytes.Contains(output, []byte("PASS: ordinary native TCP/UDP")) || g.authCount.Load() != 2 || g.tcpCount.Load() != 2 || g.udpCount.Load() != 4 {
+	if !bytes.Contains(output, []byte("PASS: ordinary native TCP/UDP")) || g.authCount.Load() != 2 || g.tcpCount.Load() != 2 || g.udpCount.Load() != 4+g.nativeDNSQueries.Load() || (g.nativeDNS.Load() && g.nativeDNSQueries.Load() < 2) {
 		t.Fatalf("missing actual TUN/campus exchanges: auth=%d TCP=%d UDP=%d\n%s", g.authCount.Load(), g.tcpCount.Load(), g.udpCount.Load(), output)
+	}
+	if g.nativeDNS.Load() {
+		t.Logf("domain-only TCP/80 via actual campus CNAME DNS: queries=%d, TCP=%d, UDP=%d", g.nativeDNSQueries.Load(), g.tcpCount.Load(), g.udpCount.Load())
 	}
 	t.Log(string(output))
 }

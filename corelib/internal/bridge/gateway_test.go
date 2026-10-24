@@ -50,6 +50,8 @@ type gateway struct {
 	passwordMethod   atomic.Bool
 	rotateSID        atomic.Bool
 	probeDNS         atomic.Bool
+	nativeDNS        atomic.Bool
+	nativeDNSQueries atomic.Int32
 	renewals         atomic.Int32
 	extraWANNode     atomic.Value
 	resourceIP       atomic.Value
@@ -162,8 +164,12 @@ func newGatewayWithNodeTLS(t *testing.T, nodeTLS *tls.Config) *gateway {
 				extraNode = fmt.Sprintf(`,{"type":"wan","address":%q}`, address)
 			}
 			dnsPolicy := ""
+			campusDNS := "192.0.2.10"
+			if g.nativeDNS.Load() {
+				campusDNS = "198.18.0.53"
+			}
 			if g.probeDNS.Load() {
-				dnsPolicy = `"sdpPolicy":{"data":{"clientOption":{"dnsOption":{"firstDns":"192.0.2.10"}}}},`
+				dnsPolicy = fmt.Sprintf(`"sdpPolicy":{"data":{"clientOption":{"dnsOption":{"firstDns":%q}}}},`, campusDNS)
 			}
 			resourceIP, _ := g.resourceIP.Load().(string)
 			if resourceIP == "" {
@@ -173,7 +179,11 @@ func newGatewayWithNodeTLS(t *testing.T, nodeTLS *tls.Config) *gateway {
 			if g.loopbackResource.Load() {
 				extraResource = fmt.Sprintf(`,{"protocol":"tcp","port":"1-65535","host":"127.0.0.1"},{"protocol":"tcp","port":"1-65535","host":"localhost","IP":[%q]}`, resourceIP)
 			}
-			fmt.Fprintf(w, `{"data":{%s"appList":{"data":{"appInfo":[{"apps":[{"ID":"fixture-app","nodeGroupID":"fixture-group","accessModel":"L3VPN","addressList":[{"protocol":"udp","port":"1-65535","host":%q},{"protocol":"tcp","port":"1-65535","host":%q},{"protocol":"tcp","port":"1-65535","host":"campus.test","IP":[%q]}%s]}]}],"config":{"nodeGroupConf":{"majorNodeGroup":{"ID":"fixture-group"},"nodeGroupList":[{"ID":"fixture-group","addressInfo":[{"type":"wan","address":%q}%s]}]}}}}}}`, dnsPolicy, resourceIP, resourceIP, resourceIP, extraResource, g.node.Addr().String(), extraNode)
+			addresses := fmt.Sprintf(`{"protocol":"udp","port":"1-65535","host":%q},{"protocol":"tcp","port":"1-65535","host":%q},{"protocol":"tcp","port":"1-65535","host":"campus.test","IP":[%q]}`, resourceIP, resourceIP, resourceIP)
+			if g.nativeDNS.Load() {
+				addresses = fmt.Sprintf(`{"protocol":"udp","port":"1-65535","host":%q},{"protocol":"udp","port":"53","host":%q},{"protocol":"tcp","port":"80","host":"campus.test"}`, resourceIP, campusDNS)
+			}
+			fmt.Fprintf(w, `{"data":{%s"appList":{"data":{"appInfo":[{"apps":[{"ID":"fixture-app","nodeGroupID":"fixture-group","accessModel":"L3VPN","addressList":[%s%s]}]}],"config":{"nodeGroupConf":{"majorNodeGroup":{"ID":"fixture-group"},"nodeGroupList":[{"ID":"fixture-group","addressInfo":[{"type":"wan","address":%q}%s]}]}}}}}}`, dnsPolicy, addresses, extraResource, g.node.Addr().String(), extraNode)
 		default:
 			t.Errorf("unexpected gateway route %s", r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
@@ -482,11 +492,24 @@ func (g *gateway) serveL3(conn net.Conn) {
 					if request.Unpack(udp.Payload()) == nil {
 						reply := new(dns.Msg)
 						reply.SetReply(request)
+						if g.nativeDNS.Load() && len(request.Question) == 1 && request.Question[0].Name == "campus.test." && request.Question[0].Qtype == dns.TypeA {
+							resourceIP, _ := g.resourceIP.Load().(string)
+							reply.Answer = []dns.RR{
+								&dns.CNAME{Hdr: dns.RR_Header{Name: "campus.test.", Class: dns.ClassINET, Rrtype: dns.TypeCNAME, Ttl: 60}, Target: "target.campus.test."},
+								&dns.A{Hdr: dns.RR_Header{Name: "target.campus.test.", Class: dns.ClassINET, Rrtype: dns.TypeA, Ttl: 60}, A: net.ParseIP(resourceIP)},
+							}
+							g.nativeDNSQueries.Add(1)
+						}
 						encoded, err := reply.Pack()
-						if err != nil || len(encoded) != len(udp.Payload()) {
+						if err != nil {
 							return
 						}
-						copy(udp.Payload(), encoded)
+						header := int(ip.HeaderLen())
+						packet = append(packet[:header+zctcpip.UDPHeaderSize], encoded...)
+						binary.BigEndian.PutUint16(packet[2:4], uint16(len(packet)))
+						ip = zctcpip.IPv4Packet(packet)
+						udp = zctcpip.UDPPacket(ip.Payload())
+						binary.BigEndian.PutUint16(udp[4:6], uint16(len(udp)))
 					}
 				}
 				source, destination := ip.SourceIP(), ip.DestinationIP()

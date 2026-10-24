@@ -31,7 +31,9 @@ type Resolver struct {
 	dnsResourceCursor sync.Map
 	useRemoteDNS      bool
 
-	dnsCache *cache.Cache
+	dnsCache        *cache.Cache
+	dnsBindings     map[netip.Addr][]campusDNSBinding
+	dnsBindingCount int
 
 	preferTCPUntil time.Time
 	useTCP         bool
