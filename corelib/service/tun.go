@@ -125,7 +125,7 @@ func (i *tunIngress) dial(protocol string, id stack.TransportEndpointID) (net.Co
 		return nil, errors.New("the owned TUN peer is reserved for DNS")
 	}
 	address := net.JoinHostPort(id.LocalAddress.String(), strconv.Itoa(int(id.LocalPort)))
-	conn, err := i.owner.dialer.DialCampusIPPort(i.owner.ctx, protocol, address)
+	conn, err := i.owner.dialer.DialCapturedIPPort(i.owner.ctx, protocol, address)
 	if err != nil {
 		return nil, err
 	}

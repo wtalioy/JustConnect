@@ -43,6 +43,25 @@ func (d *Dialer) DialCampusIPPort(ctx context.Context, network, address string) 
 	return campus.DialIPPort(ctx, network, address)
 }
 
+// DialCapturedIPPort also accepts a live campus DNS binding; IP protection still applies.
+func (d *Dialer) DialCapturedIPPort(ctx context.Context, network, address string) (net.Conn, error) {
+	snapshot, captured := ctx.Value(resolve.ContextKeyProtectionPolicy).(*policy.ProtectionPolicy)
+	if !captured && d.ProtectionPolicy != nil {
+		snapshot = d.ProtectionPolicy()
+		ctx = context.WithValue(ctx, resolve.ContextKeyProtectionPolicy, snapshot)
+	}
+	if d.resolver != nil {
+		if host, _, err := net.SplitHostPort(address); err == nil {
+			if ip, err := netip.ParseAddr(host); err == nil {
+				if resources := d.resolver.CampusResourcesForIP(ctx, ip); len(resources) != 0 {
+					ctx = context.WithValue(ctx, resolve.ContextKeyDomainResource, resources)
+				}
+			}
+		}
+	}
+	return d.DialCampusIPPort(ctx, network, address)
+}
+
 func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Conn, error) {
 	if d.alwaysUseVPN && network != "tcp" && network != "udp" {
 		return nil, ErrACLDenied
