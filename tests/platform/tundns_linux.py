@@ -5,7 +5,6 @@ import array
 import json
 import os
 from pathlib import Path
-import pwd
 import shutil
 import signal
 import socket
@@ -15,7 +14,7 @@ import tempfile
 import time
 import uuid
 
-from tundns_fixture import query_via_tun
+from tundns_fixture import IsolatedResolver, query_via_tun
 
 
 def run(*args, **options):
@@ -144,7 +143,6 @@ def main():
     descriptors = tuple(os.open('/proc/1/ns/' + kind, os.O_RDONLY) for kind in ('net', 'mnt'))
     os.environ['JC_TEST_HOST_NAMESPACE_FDS'] = ','.join(map(str, descriptors))
     environment = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C.UTF-8'}
-    processes = []
     with tempfile.TemporaryDirectory(prefix='JustConnect-resolved-') as folder:
         root = Path(folder)
         os.environ['TMPDIR'] = str(root)
@@ -165,74 +163,30 @@ def main():
             staged.chmod(0o755)
             binary = staged
             os.environ['LD_LIBRARY_PATH'] = str(runtime)
-            run('mount', '--make-rprivate', '/')
-            run('mount', '-t', 'tmpfs', '-o', 'mode=755', 'tmpfs', '/run')
-            Path('/run/dbus').mkdir(mode=0o755)
-            Path('/run/systemd/resolve').mkdir(mode=0o755, parents=True)
-            resolver_account = pwd.getpwnam('systemd-resolve')
-            os.chown('/run/systemd/resolve', resolver_account.pw_uid, resolver_account.pw_gid)
-            configuration = root / 'systemd'
-            configuration.mkdir(mode=0o755)
-            (configuration / 'resolved.conf').write_text('[Resolve]\nLLMNR=no\nMulticastDNS=no\nDNSSEC=no\nDNSOverTLS=no\n')
-            run('mount', '--bind', configuration, '/etc/systemd')
-            config = root / 'dbus.conf'
-            config.write_text('<busconfig><type>system</type><listen>unix:path=/run/dbus/system_bus_socket</listen>'
-                              '<auth>EXTERNAL</auth><policy context="default"><allow user="*"/><allow own="*"/>'
-                              '<allow send_destination="*"/><allow receive_sender="*"/></policy></busconfig>')
-            daemon_log = (root / 'dbus.log').open('w+')
-            processes.append(subprocess.Popen(['/usr/bin/dbus-daemon', '--nofork', '--config-file=' + str(config)],
-                                              env=environment, stdout=daemon_log, stderr=subprocess.STDOUT))
-            run('ip', 'link', 'set', 'lo', 'up')
-            deadline = time.monotonic() + 5
-            while not Path('/run/dbus/system_bus_socket').exists() and time.monotonic() < deadline:
-                time.sleep(0.02)
-            print(run(*probe(binary, '--absent-isolated')), end='', flush=True)
-            resolved_log = (root / 'resolved.log').open('w+')
-            processes.append(subprocess.Popen(['/usr/lib/systemd/systemd-resolved'], env=environment,
-                                              stdout=resolved_log, stderr=subprocess.STDOUT))
-            while time.monotonic() < deadline:
-                ready = subprocess.run(['/usr/bin/resolvectl', 'status'], env=environment, text=True, capture_output=True, timeout=2)
-                if ready.returncode == 0:
-                    break
-                assert processes[-1].poll() is None, (root / 'resolved.log').read_text()
-                time.sleep(0.02)
-            assert ready.returncode == 0, ready.stderr
-            stub = Path('/run/systemd/resolve/stub-resolv.conf')
-            assert stub.is_file()
-            run('mount', '--bind', stub, '/etc/resolv.conf')
-            run('ip', 'link', 'add', 'dnsoriginal0', 'type', 'dummy')
-            run('ip', 'link', 'set', 'dnsoriginal0', 'up')
-            run('/usr/bin/resolvectl', 'dns', 'dnsoriginal0', '192.0.2.53', env=environment)
-            run('/usr/bin/resolvectl', 'domain', 'dnsoriginal0', '~original.test', env=environment)
-            baseline = [run('/usr/bin/resolvectl', key, 'dnsoriginal0', env=environment) for key in ('dns', 'domain', 'default-route')]
-            print(run(sys.executable, '-B', Path(__file__).with_name('networkhelper_linux.py'),
-                      '--uid', args.uid, '--helper', helper, '--dns-probe', binary), end='', flush=True)
-            assert baseline == [run('/usr/bin/resolvectl', key, 'dnsoriginal0', env=environment) for key in ('dns', 'domain', 'default-route')]
-            exercise_foreign_provider(binary, environment)
-            output = run(*probe(binary, '--isolated'))
-            print(output, end='', flush=True)
-            phases = ('flow', 'apply-domains-pending', 'apply-dns-confirmed', 'restore-dns-pending', 'restore-dns-confirmed')
-            for phase in phases:
-                exercise(binary, root, phase, args.uid, environment)
+            with IsolatedResolver(root / 'resolver', environment) as resolver:
+                print(run(*probe(binary, '--absent-isolated')), end='', flush=True)
+                resolver.start()
+                run('ip', 'link', 'add', 'dnsoriginal0', 'type', 'dummy')
+                run('ip', 'link', 'set', 'dnsoriginal0', 'up')
+                run('/usr/bin/resolvectl', 'dns', 'dnsoriginal0', '192.0.2.53', env=environment)
+                run('/usr/bin/resolvectl', 'domain', 'dnsoriginal0', '~original.test', env=environment)
+                baseline = [run('/usr/bin/resolvectl', key, 'dnsoriginal0', env=environment) for key in ('dns', 'domain', 'default-route')]
+                print(run(sys.executable, '-B', Path(__file__).with_name('networkhelper_linux.py'),
+                          '--uid', args.uid, '--helper', helper, '--dns-probe', binary), end='', flush=True)
                 assert baseline == [run('/usr/bin/resolvectl', key, 'dnsoriginal0', env=environment) for key in ('dns', 'domain', 'default-route')]
-            print('REPORT: ' + json.dumps({'provider': 'actual systemd-resolved on isolated canonical system bus',
-                                          'worker_capability': 'CAP_NET_ADMIN only; namespace guard and new-process recovery enforced',
-                                          'helper': 'authenticated ordinary fd handoff, actual system query, DNS-first restore and restricted stale-record recovery',
-                                          'phases': phases, 'ordinary_uid': args.uid,
-                                          'original_interface': 'unchanged; no host route or resolver modification'}), flush=True)
-        except BaseException:
-            for name in ('dbus.log', 'resolved.log'):
-                if (root / name).exists():
-                    print(name + ':\n' + (root / name).read_text()[-4000:], file=sys.stderr)
-            raise
+                exercise_foreign_provider(binary, environment)
+                output = run(*probe(binary, '--isolated'))
+                print(output, end='', flush=True)
+                phases = ('flow', 'apply-domains-pending', 'apply-dns-confirmed', 'restore-dns-pending', 'restore-dns-confirmed')
+                for phase in phases:
+                    exercise(binary, root, phase, args.uid, environment)
+                    assert baseline == [run('/usr/bin/resolvectl', key, 'dnsoriginal0', env=environment) for key in ('dns', 'domain', 'default-route')]
+                print('REPORT: ' + json.dumps({'provider': 'actual systemd-resolved on isolated canonical system bus',
+                                              'worker_capability': 'CAP_NET_ADMIN only; namespace guard and new-process recovery enforced',
+                                              'helper': 'authenticated ordinary fd handoff, actual system query, DNS-first restore and restricted stale-record recovery',
+                                              'phases': phases, 'ordinary_uid': args.uid,
+                                              'original_interface': 'unchanged; no host route or resolver modification'}), flush=True)
         finally:
-            for process in reversed(processes):
-                process.terminate()
-                try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait(timeout=5)
             for descriptor in descriptors:
                 os.close(descriptor)
 

@@ -53,7 +53,8 @@ int main(int argc, char **argv) try
         if (scenario == "cancel-authorization" && state == Client::State::Authorizing)
             QTimer::singleShot(50, client.get(), &Client::cancel);
     });
-    const auto configuration = helperFixtureConfiguration({scenario == "partial" ? "198.18.5.0/24" : "198.18.4.0/24"}, 1400);
+    auto configuration = helperFixtureConfiguration({scenario == "partial" ? "198.18.5.0/24" : "198.18.4.0/24"}, 1400);
+    if (scenario.startsWith("dns")) configuration.dnsDomains = {"campus.test"};
     if (scenario == "cleanup") client->cleanupRestored(owner);
     else if (scenario == "recover") client->recover(owner);
     else client->apply(owner, configuration);
@@ -79,7 +80,16 @@ int main(int argc, char **argv) try
                 QFileInfo(QString::fromUtf8(__FILE__)).absolutePath(), QString::number(device)});
             check(exchange.waitForFinished(8000) && exchange.exitCode() == 0 && exchange.exitStatus() == QProcess::NormalExit,
                 qPrintable(QString::fromUtf8(exchange.readAllStandardError())));
-            if (scenario == "managed") {
+            if (scenario.startsWith("dns")) {
+                exchange.start("/usr/bin/python3", {"-B", "-c",
+                    "import os,sys;sys.path.insert(0,sys.argv[1]);from tundns_fixture import query_via_tun;"
+                    "query_via_tun(int(sys.argv[2]),sys.argv[3],sys.argv[4],os.getuid(),{'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LC_ALL':'C.UTF-8'})",
+                    QFileInfo(QString::fromUtf8(__FILE__)).absolutePath(), QString::number(device),
+                    "helper-" + owner.toString(QUuid::Id128) + '.' + configuration.dnsDomains.first(), configuration.peer});
+                check(exchange.waitForFinished(10000) && exchange.exitCode() == 0 && exchange.exitStatus() == QProcess::NormalExit,
+                      qPrintable(QString::fromUtf8(exchange.readAllStandardError())));
+            }
+            if (scenario == "managed" || scenario == "dns-managed") {
                 std::cout << "READY: managed helper " << owner.toString(QUuid::WithoutBraces).toStdString() << std::endl;
                 wait([] { return false; }, 30000);
             } else if (scenario == "crash") {
