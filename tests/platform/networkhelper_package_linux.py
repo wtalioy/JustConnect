@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts'))
 import network_helper_package as package
 from networkhelper_systemd import RecoveryTimer
+from networkhelper_checkpoint import kill_during_capture_delete
 from tundns_fixture import IsolatedResolver, OriginalDnsServer
 
 
@@ -419,36 +420,52 @@ def main():
                                 client_cases.append('application-network')
                                 report['application_network'] = {'sessions': 2, 'startup': 'write-ahead UUID without privileged record',
                                     'data': 'ordinary DNS, TCP and UDP; exact campus/original address choices and capture withdrawal', 'stop': 'owned network before core; hint and fd released'}
-                                ready_path = Path(caller_runtime.name) / 'application-helper-loss.json'
-                                ready_path.unlink(missing_ok=True)
-                                process = subprocess.Popen(native_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                                                           env={**application_environment, 'JC_NATIVE_NETWORK_HELPER_LOSS': '1',
-                                                                'JC_NATIVE_TUN_READY': str(ready_path)}, user=args.uid,
-                                                           group=account.pw_gid, extra_groups=(), start_new_session=True)
-                                qt_descriptor = None
-                                try:
-                                    qt_pid, qt_descriptor = native_handoff(process, None, ready_path)
-                                    worker = owned_helper(qt_pid)
-                                    worker_descriptor = os.pidfd_open(worker)
+                                for scenario in ('helper-loss', 'withdraw-crash', 'withdraw-deleted-crash'):
+                                    withdrawing = scenario != 'helper-loss'
+                                    ready_path = Path(caller_runtime.name) / f'application-{scenario}.json'
+                                    ready_path.unlink(missing_ok=True)
+                                    if withdrawing:
+                                        ip('route','add','198.18.0.4/30','dev','helperorig0')
+                                    process = subprocess.Popen(native_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                                               env={**application_environment, 'JC_NATIVE_NETWORK_HELPER_LOSS': '1',
+                                                                    'JC_NATIVE_TUN_READY': str(ready_path),
+                                                                    'JC_NATIVE_NETWORK_WITHDRAW_CRASH': str(int(withdrawing)),
+                                                                    'JC_NATIVE_NETWORK_CHOICES': str(int(withdrawing))}, user=args.uid,
+                                                               group=account.pw_gid, extra_groups=(), start_new_session=True)
+                                    qt_descriptor = None
                                     try:
-                                        signal.pidfd_send_signal(worker_descriptor, signal.SIGKILL)
+                                        qt_pid, qt_descriptor = native_handoff(process, None, ready_path)
+                                        worker = owned_helper(qt_pid)
+                                        if withdrawing:
+                                            connection = json.loads(ready_path.read_text())['owner']
+                                            journal = Path(package.LAYOUT['state_directory']) / f'{args.uid}-{connection}' / 'capture/source.json'
+                                            checkpoint = kill_during_capture_delete(worker, journal, connection, '198.18.0.6/32',
+                                                lambda: Path(str(ready_path) + '.continue').touch(), route_present=scenario == 'withdraw-crash')
+                                            report['application_network'].setdefault('withdrawal_crashes', []).append(checkpoint)
+                                        else:
+                                            worker_descriptor = os.pidfd_open(worker)
+                                            try:
+                                                signal.pidfd_send_signal(worker_descriptor, signal.SIGKILL)
+                                            finally:
+                                                os.close(worker_descriptor)
+                                        output, errors = process.communicate(timeout=30)
+                                        assert process.returncode == 0, output + errors
+                                        expected = 'application capture withdrawal checkpoint crash' if withdrawing else 'application helper loss releases core/device'
+                                        assert expected in output, output
+                                        print(output, end='', flush=True)
+                                        client_cases.append('application-' + scenario)
+                                        report['application_network']['helper_loss'] = 'helper SIGKILL; release core fd, retain responsibility until explicit recovery, then fresh ready session'
                                     finally:
-                                        os.close(worker_descriptor)
-                                    output, errors = process.communicate(timeout=30)
-                                    assert process.returncode == 0, output + errors
-                                    assert 'application helper loss releases core/device before explicit recovery and fresh restart' in output, output
-                                    print(output, end='', flush=True)
-                                    client_cases.append('application-helper-loss')
-                                    report['application_network']['helper_loss'] = 'helper SIGKILL; release core fd, retain responsibility until explicit recovery, then fresh ready session'
-                                finally:
-                                    if process.poll() is None:
-                                        os.killpg(process.pid, signal.SIGKILL)
-                                        process.communicate(timeout=5)
-                                    if qt_descriptor is not None:
-                                        if not select.select([qt_descriptor], [], [], 0)[0]:
-                                            signal.pidfd_send_signal(qt_descriptor, signal.SIGKILL)
-                                        assert select.select([qt_descriptor], [], [], 5)[0]
-                                        os.close(qt_descriptor)
+                                        if process.poll() is None:
+                                            os.killpg(process.pid, signal.SIGKILL)
+                                            process.communicate(timeout=5)
+                                        if qt_descriptor is not None:
+                                            if not select.select([qt_descriptor], [], [], 0)[0]:
+                                                signal.pidfd_send_signal(qt_descriptor, signal.SIGKILL)
+                                            assert select.select([qt_descriptor], [], [], 5)[0]
+                                            os.close(qt_descriptor)
+                                        if withdrawing:
+                                            ip('route','del','198.18.0.4/30','dev','helperorig0')
                             finally:
                                 recovery.stop()
                             assert inventory() == dns_baseline and original_dns() == dns_settings
