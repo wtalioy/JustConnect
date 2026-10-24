@@ -1,4 +1,4 @@
-#include "sourceroutes.h"
+#include "ownedroutetable.h"
 #include "iprouteutility.h"
 #include <QJsonDocument>
 #include <QScopeGuard>
@@ -29,12 +29,32 @@ PlatformOperationResult write(const QString &utility, const QByteArray &batch, c
 }
 }
 
-bool LinuxSourceRoutes::identity() const
+int LinuxOwnedRouteTable::priority() const
 {
-    return interfaceIndex && !networkNamespace.isEmpty() && linuxNetworkNamespace()==networkNamespace
-        && ::if_nametoindex(interfaceName.toLatin1().constData()) == interfaceIndex;
+    return role == Role::Capture ? LinuxCaptureRulePriority : LinuxOriginalRulePriority;
 }
-bool LinuxSourceRoutes::sourceAssigned() const
+quint32 LinuxOwnedRouteTable::ownedTable(const QUuid &id) const
+{
+    return role == Role::Capture ? linuxCaptureTable(id) : linuxSourceTable(id);
+}
+bool LinuxOwnedRouteTable::permittedPrecedingRule(const QJsonObject &row) const
+{
+    if (localRule(row)) return true;
+    // The source backend authenticates the exact source; capture only permits this owner's bypass table.
+    return role == Role::Capture && row.size() == 4 && row["priority"] == LinuxOriginalRulePriority
+        && row["table"] == QString::number(linuxSourceTable(owner)) && row["protocol"] == "4"
+        && canonicalUnicastIpv4(row["src"].toString().section('/',0,0))
+        && (!row["src"].toString().contains('/') || row["src"].toString().endsWith("/32"));
+}
+bool LinuxOwnedRouteTable::identity() const
+{
+    const auto current = ::if_nametoindex(interfaceName.toLatin1().constData());
+    return interfaceIndex && !networkNamespace.isEmpty() && linuxNetworkNamespace()==networkNamespace
+        && (current == interfaceIndex || (role == Role::Capture && !current && [&] {
+            char name[IF_NAMESIZE]{};return !::if_indextoname(interfaceIndex,name);
+        }()));
+}
+bool LinuxOwnedRouteTable::sourceAssigned() const
 {
     ifaddrs *addresses = nullptr;
     if (::getifaddrs(&addresses) != 0) return false;
@@ -48,7 +68,7 @@ bool LinuxSourceRoutes::sourceAssigned() const
     }
     return false;
 }
-LinuxSourceRoutes::ReadResult LinuxSourceRoutes::read(const QString &utility, const QDeadlineTimer &deadline) const
+LinuxOwnedRouteTable::ReadResult LinuxOwnedRouteTable::read(const QString &utility, const QDeadlineTimer &deadline) const
 {
     ReadResult snapshot;
     for (const bool rules : {false,true}) {
@@ -92,20 +112,20 @@ LinuxSourceRoutes::ReadResult LinuxSourceRoutes::read(const QString &utility, co
     }
     return snapshot;
 }
-QJsonObject LinuxSourceRoutes::findRoute(const ReadResult &rows, const QString &prefix) const
+QJsonObject LinuxOwnedRouteTable::findRoute(const ReadResult &rows, const QString &prefix) const
 {
     return rows.ownedRoutes.value(prefix);
 }
-QJsonObject LinuxSourceRoutes::findRule(const QJsonArray &rows) const
+QJsonObject LinuxOwnedRouteTable::findRule(const QJsonArray &rows) const
 {
     for (const auto &value : rows) {
         const auto row = value.toObject();
-        if (row["priority"] == 1 && row["table"] == QString::number(table) && row["protocol"] == "4"
-            && (row["src"] == sourceAddress || row["src"] == sourceAddress + "/32")) return row;
+        if (row["priority"] == priority() && row["table"] == QString::number(table) && row["protocol"] == "4"
+            && (role == Role::Capture ? row["src"] == "all" : row["src"] == sourceAddress || row["src"] == sourceAddress + "/32")) return row;
     }
     return {};
 }
-bool LinuxSourceRoutes::routeShape(const QJsonObject &row, const QString &prefix) const
+bool LinuxOwnedRouteTable::routeShape(const QJsonObject &row, const QString &prefix) const
 {
     const bool link = gatewayAddress.isEmpty() || prefix == gatewayAddress + "/32";
     if (row.isEmpty() || row["prefsrc"] != sourceAddress || !row["flags"].isArray()
@@ -118,42 +138,43 @@ bool LinuxSourceRoutes::routeShape(const QJsonObject &row, const QString &prefix
             && key != "metric" && key != "flags" && key != "prefsrc" && key != "gateway") return false;
     return true;
 }
-bool LinuxSourceRoutes::ruleShape(const QJsonObject &row) const
+bool LinuxOwnedRouteTable::ruleShape(const QJsonObject &row) const
 {
     return !row.isEmpty() && row.size() == 4 && row.contains("priority") && row.contains("src")
         && row.contains("table") && row.contains("protocol");
 }
-QByteArray LinuxSourceRoutes::routeCommand(const QString &operation, const QString &prefix) const
+QByteArray LinuxOwnedRouteTable::routeCommand(const QString &operation, const QString &prefix) const
 {
     const bool link = gatewayAddress.isEmpty() || prefix == gatewayAddress + "/32";
     return QString("route %1 %2 dev %3 proto 4 scope %4 metric %5 table %6 src %7%8\n")
         .arg(operation,prefix,interfaceName,link ? "253" : "0",QString::number(metric),QString::number(table),sourceAddress,
              link ? QString{} : " via " + gatewayAddress).toLatin1();
 }
-QByteArray LinuxSourceRoutes::ruleCommand(const QString &operation) const
+QByteArray LinuxOwnedRouteTable::ruleCommand(const QString &operation) const
 {
-    return QString("rule %1 priority 1 from %2/32 table %3 protocol 4\n").arg(operation,sourceAddress,QString::number(table)).toLatin1();
+    return QString("rule %1 priority %2 from %3 table %4 protocol 4\n")
+        .arg(operation,QString::number(priority()),role == Role::Capture ? QString("all") : sourceAddress+"/32",QString::number(table)).toLatin1();
 }
-void LinuxSourceRoutes::clear()
+void LinuxOwnedRouteTable::clear()
 {
-    entries.clear();appliedRule = {};rulePending = false;ruleDeleting = false;owner = {};
+    entries.clear();recovered = nativeAttempted = false;appliedRule = {};rulePending = false;ruleDeleting = false;owner = {};
     interfaceName.clear();sourceAddress.clear();gatewayAddress.clear();networkNamespace.clear();interfaceIndex = table = metric = 0;
 }
-QJsonObject LinuxSourceRoutes::snapshot() const
+QJsonObject LinuxOwnedRouteTable::snapshot() const
 {
     if (owner.isNull()) return {};
     QJsonArray routes;
     for (const auto &entry : entries) routes.append(QJsonObject{{"prefix",entry.prefix},{"before",QJsonArray{}},
         {"applied",entry.applied},{"delete_started",entry.deleting}});
     return {{"owner",owner.toString(QUuid::WithoutBraces)},{"namespace",networkNamespace},{"interface",interfaceName},{"index",qint64(interfaceIndex)},
-        {"source",sourceAddress},{"gateway",gatewayAddress},{"table",qint64(table)},{"priority",1},{"metric",qint64(metric)},
+        {"source",sourceAddress},{"gateway",gatewayAddress},{"table",qint64(table)},{"priority",priority()},{"metric",qint64(metric)},
         {"routes",routes},{"rule_pending",rulePending},{"rule_delete_started",ruleDeleting},{"rule_before",QJsonArray{}},{"rule_applied",appliedRule}};
 }
-PlatformOperationResult LinuxSourceRoutes::saveCheckpoint(const CheckpointWriter &writer) const
+PlatformOperationResult LinuxOwnedRouteTable::saveCheckpoint(const CheckpointWriter &writer) const
 {
     return writer ? writer(snapshot()) : PlatformOperationResult{};
 }
-PlatformOperationResult LinuxSourceRoutes::recover(const QUuid &id, const QJsonObject &saved, const CheckpointWriter &checkpoint)
+PlatformOperationResult LinuxOwnedRouteTable::recover(const QUuid &id, const QJsonObject &saved, const CheckpointWriter &checkpoint)
 {
     if (!owner.isNull()) return {Status::Failed,"Active source ownership cannot be replaced by a saved record."};
     const auto invalid = PlatformOperationResult{Status::Failed,"Invalid saved source route ownership."};
@@ -163,13 +184,17 @@ PlatformOperationResult LinuxSourceRoutes::recover(const QUuid &id, const QJsonO
         || !canonicalLinuxInterfaceName(saved["interface"].toString())
         || !canonicalUnicastIpv4(saved["source"].toString()) || (!saved["gateway"].toString().isEmpty() && !canonicalUnicastIpv4(saved["gateway"].toString()))
         || saved["source"]==saved["gateway"] || saved["index"].toInteger(-1)<=0 || saved["index"].toInteger()>0xffffffffLL
-        || saved["priority"]!=1 || !saved["routes"].isArray() || saved["routes"].toArray().size()>LinuxRouteSnapshotRows
+        || saved["priority"]!=priority() || !saved["routes"].isArray() || saved["routes"].toArray().size()>LinuxRouteSnapshotRows
         || !saved["rule_pending"].isBool() || !saved["rule_delete_started"].isBool()
         || !saved["rule_before"].isArray() || !saved["rule_before"].toArray().isEmpty()
         || !saved["rule_applied"].isObject()) return invalid;
     const auto namespaceId = linuxNetworkNamespace();
     if (namespaceId.isEmpty() || saved["namespace"]!=namespaceId) return invalid;
-    if (saved["table"].toInteger(-1)!=linuxSourceTable(id)
+    if (role == Role::Capture && (saved["interface"] != QString::fromLatin1(linuxTunName(id))
+        || !saved["gateway"].toString().isEmpty())) return invalid;
+    const auto liveIndex = ::if_nametoindex(saved["interface"].toString().toLatin1().constData());
+    if (liveIndex && liveIndex != quint32(saved["index"].toInteger())) return invalid;
+    if (saved["table"].toInteger(-1)!=ownedTable(id)
         || saved["metric"].toInteger(-1)!=linuxRouteMetric(id)) return invalid;
     bool accepted = false;
     const auto discard = qScopeGuard([&] { if (!accepted) clear(); });
@@ -191,13 +216,13 @@ PlatformOperationResult LinuxSourceRoutes::recover(const QUuid &id, const QJsonO
         if (!row.isEmpty() && (!routeShape(row,prefix) || ipv4RoutePrefix(row)!=prefix || row["dev"]!=interfaceName
             || row["table"]!=QString::number(table) || row["protocol"]!="4" || row["metric"].toInteger(-1)!=metric)) return invalid;
         const bool deleting = entry["delete_started"].toBool();
-        if (deleting && (row.isEmpty() || rulePending || ruleDeleting)) return invalid;
+        if (deleting && (row.isEmpty() || (role != Role::Capture && (rulePending || ruleDeleting)))) return invalid;
         prefixes.insert(prefix);entries.append({prefix,row,deleting});
     }
-    accepted = true;
+    accepted = true;recovered = true;
     return restore(id,checkpoint);
 }
-PlatformOperationResult LinuxSourceRoutes::validate(const QString &interface, const QString &source,
+PlatformOperationResult LinuxOwnedRouteTable::validate(const QString &interface, const QString &source,
                                                    const QString &gateway, const QStringList &requested)
 {
     if (!canonicalLinuxInterfaceName(interface)
@@ -207,7 +232,7 @@ PlatformOperationResult LinuxSourceRoutes::validate(const QString &interface, co
         if (!canonicalIpv4Prefix(prefix) || prefix == gateway + "/32") return {Status::Failed,"Invalid original destination prefix."};
     return {};
 }
-PlatformOperationResult LinuxSourceRoutes::apply(const QUuid &id, const QString &interface, const QString &source,
+PlatformOperationResult LinuxOwnedRouteTable::apply(const QUuid &id, const QString &interface, const QString &source,
                                                 const QString &gateway, const QStringList &requested,
                                                 const CheckpointWriter &writeAhead)
 {
@@ -222,7 +247,7 @@ PlatformOperationResult LinuxSourceRoutes::apply(const QUuid &id, const QString 
     if (namespaceId.isEmpty()) return {Status::Failed,"Cannot identify the Linux boot and network namespace."};
     owner = id;networkNamespace = namespaceId;interfaceName = interface;sourceAddress = source;gatewayAddress = gateway;
     interfaceIndex = ::if_nametoindex(interfaceName.toLatin1().constData());
-    table = linuxSourceTable(id);metric = linuxRouteMetric(id);
+    table = ownedTable(id);metric = linuxRouteMetric(id);
     const auto discard = qScopeGuard([&] { if (entries.isEmpty() && !rulePending) clear(); });
     if (!identity() || !sourceAssigned()) return {Status::Failed,"Original source is not assigned to the selected live interface."};
     QDeadlineTimer deadline(LinuxRouteOperationTimeoutMs);
@@ -234,7 +259,7 @@ PlatformOperationResult LinuxSourceRoutes::apply(const QUuid &id, const QString 
             if (value.toObject()["table"]==QString::number(table)) return {Status::Failed,"An existing route table cannot be adopted."};
         for (const auto &value : state.rules) {
             const auto row = value.toObject();
-            if (row["table"]==QString::number(table) || (row["priority"].toInteger()<=1 && !localRule(row)))
+            if (row["table"]==QString::number(table) || (row["priority"].toInteger()<=priority() && !permittedPrecedingRule(row)))
                 return {Status::Failed,"An existing early rule or table reference cannot be adopted."};
         }
         return {};
@@ -255,7 +280,7 @@ PlatformOperationResult LinuxSourceRoutes::apply(const QUuid &id, const QString 
     QByteArray batch;
     for (const auto &entry : entries) batch += routeCommand("add",entry.prefix);
     batch += ruleCommand("add");
-    auto result = write(utility,batch,deadline);
+    auto result = write(utility,batch,deadline,false,&nativeAttempted);
     const auto after = read(utility,deadline);
     bool confirmed = after.result.succeeded();
     if (confirmed) {
@@ -272,7 +297,7 @@ PlatformOperationResult LinuxSourceRoutes::apply(const QUuid &id, const QString 
         for (const auto &value : after.rules) {
             const auto row = value.toObject();
             if (row["table"] == QString::number(table)) { ++references;if (row != appliedRule) confirmed = false; }
-            if (row["priority"].toInteger() <= 1 && row != appliedRule && !localRule(row)) confirmed = false;
+            if (row["priority"].toInteger() <= priority() && row != appliedRule && !permittedPrecedingRule(row)) confirmed = false;
         }
         if (references != 1) confirmed = false;
         confirmed &= identity() && sourceAssigned();
@@ -280,6 +305,7 @@ PlatformOperationResult LinuxSourceRoutes::apply(const QUuid &id, const QString 
     if (result.succeeded() && confirmed) {
         const auto saved = saveCheckpoint(writeAhead);
         if (saved.succeeded()) return {Status::Success,{},true};
+        if (role == Role::Capture) { auto failed = saved;failed.mayHaveChanged = true;return failed; }
         result = saved;
     }
     if (result.succeeded()) result = after.result.succeeded()
@@ -289,7 +315,7 @@ PlatformOperationResult LinuxSourceRoutes::apply(const QUuid &id, const QString 
     if (!recovered.succeeded()) result.detail += " Recovery incomplete; source ownership records retained.";
     return result;
 }
-PlatformOperationResult LinuxSourceRoutes::extend(const QUuid &id, const QStringList &addresses, const CheckpointWriter &checkpoint)
+PlatformOperationResult LinuxOwnedRouteTable::extend(const QUuid &id, const QStringList &addresses, const CheckpointWriter &checkpoint)
 {
     const auto invalid = PlatformOperationResult{Status::Failed,"DNS addresses require confirmed source route ownership."};
     if (id.isNull() || id != owner || !rulePending || ruleDeleting || appliedRule.isEmpty()
@@ -305,7 +331,7 @@ PlatformOperationResult LinuxSourceRoutes::extend(const QUuid &id, const QString
     return ensurePrefixes(id, prefixes, checkpoint);
 }
 
-PlatformOperationResult LinuxSourceRoutes::ensurePrefixes(const QUuid &id, const QStringList &requested, const CheckpointWriter &checkpoint)
+PlatformOperationResult LinuxOwnedRouteTable::ensurePrefixes(const QUuid &id, const QStringList &requested, const CheckpointWriter &checkpoint)
 {
     const auto invalid = PlatformOperationResult{Status::Failed,"Route additions require confirmed source ownership."};
     if (id.isNull() || id != owner || !rulePending || ruleDeleting || appliedRule.isEmpty()
@@ -335,7 +361,7 @@ PlatformOperationResult LinuxSourceRoutes::ensurePrefixes(const QUuid &id, const
                 if (row != appliedRule) return invalid;
                 ++rules;
             }
-            if (row["priority"].toInteger() <= 1 && row != appliedRule && !localRule(row)) return invalid;
+            if (row["priority"].toInteger() <= priority() && row != appliedRule && !permittedPrecedingRule(row)) return invalid;
         }
         if (routes != existing.size() || rules != 1) return invalid;
         for (const auto &entry : existing)
@@ -358,6 +384,7 @@ PlatformOperationResult LinuxSourceRoutes::ensurePrefixes(const QUuid &id, const
     bool attempted = false;
     auto result = write(utility,batch,deadline,false,&attempted);
     if (!attempted) return abandon(result);
+    nativeAttempted = true;
     const auto after = read(utility,deadline);
     bool confirmed = after.result.succeeded() && identity() && sourceAssigned();
     if (after.result.succeeded()) {
@@ -366,7 +393,7 @@ PlatformOperationResult LinuxSourceRoutes::ensurePrefixes(const QUuid &id, const
         for (const auto &value : after.rules) {
             const auto row = value.toObject();
             if (row["table"] == QString::number(table)) { ++rules; confirmed &= row == appliedRule; }
-            if (row["priority"].toInteger() <= 1 && row != appliedRule && !localRule(row)) confirmed = false;
+            if (row["priority"].toInteger() <= priority() && row != appliedRule && !permittedPrecedingRule(row)) confirmed = false;
         }
         confirmed &= routes == entries.size() && rules == 1;
         for (const auto &entry : existing) confirmed &= sameLinuxRoute(findRoute(after,entry.prefix),entry.applied);
@@ -383,18 +410,34 @@ PlatformOperationResult LinuxSourceRoutes::ensurePrefixes(const QUuid &id, const
     return result;
 }
 
-PlatformOperationResult LinuxSourceRoutes::restore(const QUuid &id, const CheckpointWriter &checkpoint)
+PlatformOperationResult LinuxOwnedRouteTable::restore(const QUuid &id, const CheckpointWriter &checkpoint)
+{
+    return restore(id, checkpoint, nullptr);
+}
+
+PlatformOperationResult LinuxOwnedRouteTable::reconcile(const QUuid &id, const QStringList &requested, const CheckpointWriter &checkpoint)
+{
+    if (role != Role::Capture) return {Status::Failed,"Only campus capture supports route withdrawal."};
+    const auto added = ensurePrefixes(id, requested, checkpoint);
+    if (!added.succeeded()) return added;
+    const QSet<QString> retained(requested.begin(), requested.end());
+    auto result = restore(id, checkpoint, &retained);
+    result.mayHaveChanged |= added.mayHaveChanged;
+    return result;
+}
+
+PlatformOperationResult LinuxOwnedRouteTable::restore(const QUuid &id, const CheckpointWriter &checkpoint, const QSet<QString> *retained)
 {
     if (owner.isNull()) return {};
     if (id!=owner) return {Status::Failed,"Source route owner changed.",true};
     const auto failedRecovery = [](PlatformOperationResult result) { result.mayHaveChanged = true;return result; };
     const auto complete = [&](bool external) {
-        const auto saved = checkpoint ? checkpoint(QJsonObject{}) : PlatformOperationResult{};
+        const auto saved = checkpoint ? checkpoint(retained ? snapshot() : QJsonObject{}) : PlatformOperationResult{};
         if (!saved.succeeded()) return failedRecovery(saved);
-        clear();
+        if (!retained) clear();
         return PlatformOperationResult{Status::Success,external ? QString("External source route changes were preserved.") : QString{}};
     };
-    if (entries.isEmpty() && !rulePending) return complete(false);
+    if ((role == Role::Capture && !recovered && !nativeAttempted) || (entries.isEmpty() && !rulePending)) return complete(false);
     if (!identity()) return {Status::Failed,"Source route namespace or original interface identity changed.",true};
     const auto utility = trustedIpRouteUtility();
     if (utility.isEmpty()) return {Status::Unsupported,"A trusted system iproute2 executable is required.",true};
@@ -412,6 +455,10 @@ PlatformOperationResult LinuxSourceRoutes::restore(const QUuid &id, const Checkp
     };
     auto before = read(utility,deadline);
     if (!before.result.succeeded()) return failedRecovery(before.result);
+    if (role == Role::Capture && recovered)
+        for (const auto &entry : entries)
+            if (entry.applied.isEmpty() && !findRoute(before,entry.prefix).isEmpty())
+                return {Status::Failed,"Unconfirmed capture ownership is unresolved; matching state is preserved.",true};
     const auto currentRule = findRule(before.rules);
     const auto expected = rulePending && (appliedRule.isEmpty() ? ruleShape(currentRule) : currentRule==appliedRule)
         ? currentRule : QJsonObject{};
@@ -420,9 +467,9 @@ PlatformOperationResult LinuxSourceRoutes::restore(const QUuid &id, const Checkp
         return {Status::Failed,"Interrupted source rule deletion is unresolved; matching state is preserved.",true};
     bool external = false, released = false;
     if (rulePending && currentRule.isEmpty())
-        for (const auto &value : before.rules) external |= value.toObject()["priority"]==1;
+        for (const auto &value : before.rules) external |= value.toObject()["priority"]==priority();
     if (!identity()) return {Status::Failed,"Original interface renamed while reading recovery state.",true};
-    if (rulePending && !currentRule.isEmpty()) {
+    if (!retained && rulePending && !currentRule.isEmpty()) {
         appliedRule = currentRule;ruleDeleting = true;
         const auto saved = saveCheckpoint(checkpoint);
         if (!saved.succeeded()) { ruleDeleting = false;return failedRecovery(saved); }
@@ -446,10 +493,12 @@ PlatformOperationResult LinuxSourceRoutes::restore(const QUuid &id, const Checkp
         if (!references(before,{})) return {removed.succeeded() ? Status::Failed : removed.status,
             "Source lookup remains or changed; its route table is retained.",true};
     }
-    rulePending = false;ruleDeleting = false;appliedRule = {};
-    if (!released) {
-        const auto savedRelease = saveCheckpoint(checkpoint);
-        if (!savedRelease.succeeded()) return failedRecovery(savedRelease);
+    if (!retained) {
+        rulePending = false;ruleDeleting = false;appliedRule = {};
+        if (!released) {
+            const auto savedRelease = saveCheckpoint(checkpoint);
+            if (!savedRelease.succeeded()) return failedRecovery(savedRelease);
+        }
     }
     QByteArray batch;
     QSet<QString> prefixes, planned;
@@ -463,10 +512,16 @@ PlatformOperationResult LinuxSourceRoutes::restore(const QUuid &id, const Checkp
     // Delete next-hop routes last, after removing the source lookup and its destination routes.
     for (int i=entries.size()-1; i>=0; --i) {
         auto &entry = entries[i];
+        if (retained && retained->contains(entry.prefix)) {
+            if (!sameLinuxRoute(findRoute(before,entry.prefix),entry.applied))
+                return {Status::Failed,"Retained capture changed during reconciliation.",true};
+            continue;
+        }
         const auto current = findRoute(before,entry.prefix);
         if (current.isEmpty() || (!entry.applied.isEmpty() && !sameLinuxRoute(current,entry.applied))) {
             external |= !current.isEmpty();entries.removeAt(i);
         } else if (entry.deleting) unresolved = true;
+        else if (entry.applied.isEmpty() && role == Role::Capture && recovered) unresolved = true;
         else if (entry.applied.isEmpty() && !routeShape(current,entry.prefix)) continue;
         else { entry.applied = current;planned.insert(entry.prefix);batch += routeCommand("del",entry.prefix); }
     }
@@ -486,27 +541,38 @@ PlatformOperationResult LinuxSourceRoutes::restore(const QUuid &id, const Checkp
         }
         if (checkpoint) {
             const auto verified = read(utility,deadline);
-            bool unchanged = verified.result.succeeded() && identity() && references(verified,{});
+            bool unchanged = verified.result.succeeded() && identity() && references(verified,retained ? appliedRule : QJsonObject{});
             for (const auto &entry : entries)
-                if (planned.contains(entry.prefix)) unchanged &= sameLinuxRoute(findRoute(verified,entry.prefix),entry.applied);
+                if (planned.contains(entry.prefix) || (retained && retained->contains(entry.prefix))) unchanged &= sameLinuxRoute(findRoute(verified,entry.prefix),entry.applied);
             if (!unchanged) {
                 for (auto &entry : entries) if (planned.contains(entry.prefix)) entry.deleting = false;
                 return verified.result.succeeded() ? PlatformOperationResult{Status::Failed,"Source routes or references changed during deletion checkpoint publication.",true}
                     : failedRecovery(verified.result);
             }
         }
-        removed = write(utility,batch,deadline,true);
+        bool attempted = false;
+        removed = write(utility,batch,deadline,true,&attempted);
+        if (!attempted) for (auto &entry : entries) if (planned.contains(entry.prefix)) entry.deleting = false;
     }
     const auto after = read(utility,deadline);
     if (!after.result.succeeded()) return failedRecovery(after.result);
+    if (retained && !references(after,appliedRule))
+        return {Status::Failed,"Capture lookup changed during reconciliation.",true};
+    bool retainedChanged = false;
     for (auto it=entries.begin(); it!=entries.end();) {
+        if (retained && retained->contains(it->prefix)) {
+            retainedChanged |= !sameLinuxRoute(findRoute(after,it->prefix),it->applied);
+            ++it;continue;
+        }
         const auto current = findRoute(after,it->prefix);
         if (current.isEmpty() || (!it->applied.isEmpty() && !sameLinuxRoute(current,it->applied))
             || (planned.contains(it->prefix) && removed.succeeded())) {
             external |= !current.isEmpty();it = entries.erase(it);
         } else ++it;
     }
-    if (!entries.isEmpty()) {
+    bool remaining = retainedChanged;
+    for (const auto &entry : entries) remaining |= !retained || !retained->contains(entry.prefix);
+    if (remaining) {
         const auto saved = saveCheckpoint(checkpoint);
         if (!saved.succeeded()) return failedRecovery(saved);
         return {removed.succeeded() ? Status::Failed : removed.status,"Cannot confirm source route recovery; ownership records retained.",true};

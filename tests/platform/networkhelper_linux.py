@@ -327,13 +327,13 @@ def main():
             owner = str(uuid.uuid4())
             process = start(owner)
             packet = application(owner)
-            packet['capture'] = ['198.18.5.0/24']
+            packet['capture'] = ['198.18.5.0/24', packet['device']['peer'] + '/32']
             command('send', packet=packet)
             receive(owner, 'restored', success=False)
             assert inventory() == before_failure, 'partial apply damaged the external route or leaked source/device state'
             ip('route', 'del', '198.18.5.0/24', 'dev', 'helperorig0', 'metric', '7')
             finish(owner, process)
-            print('PASS: native partial apply restores its source/device state and preserves the conflicting external route', flush=True)
+            print('PASS: native partial apply restores its source/device state and preserves the original external route', flush=True)
 
             ip('route','add','198.18.6.7/32','dev','helperorig0','proto','static','metric','7')
             before_failure = inventory()
@@ -341,13 +341,13 @@ def main():
             process = start(owner)
             command('send',packet=application(owner))
             receive(owner,'active',1)
-            command('send',packet={**request(owner,'extend'),'addresses':['198.18.6.7']})
+            command('send',packet={**request(owner,'extend'),'addresses':[application(owner)['device']['peer']]})
             receive(owner,'restored',success=False)
             command('close-descriptors')
             assert inventory() == before_failure,'failed DNS capture publication lost the foreign route or its source rollback'
             ip('route','del','198.18.6.7/32','dev','helperorig0','metric','7')
             finish(owner,process)
-            print('PASS: DNS publication capture conflict reverses its source additions and preserves the external route',flush=True)
+            print('PASS: DNS publication endpoint rejection reverses its source additions and preserves the external route',flush=True)
 
             # Application dies: the helper independently restores, retaining a durable receipt.
             owner = str(uuid.uuid4())

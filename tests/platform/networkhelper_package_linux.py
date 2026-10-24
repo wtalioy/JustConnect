@@ -421,12 +421,16 @@ def main():
                                 print(output, end='', flush=True)
                                 client_cases.append('core-dns')
                                 application_environment = {**dns_environment, 'JC_NATIVE_NETWORK_SESSION': '1', 'JC_NATIVE_ORIGINAL_PEER': '1'}
-                                ip('route','add','198.18.0.4/30','dev','helperorig0')
+
+                                for address in ('198.18.0.6/32', '198.18.0.7/32'):
+                                    ip('route','add',address,'dev','helperorig0')
                                 try:
                                     output = run(*native_command, env={**application_environment, 'JC_NATIVE_NETWORK_CHOICES': '1'}, user=args.uid,
                                                  group=account.pw_gid, extra_groups=())
                                 finally:
-                                    ip('route','del','198.18.0.4/30','dev','helperorig0')
+
+                                    for address in ('198.18.0.6/32', '198.18.0.7/32'):
+                                        ip('route','del',address,'dev','helperorig0')
                                 assert 'via application network startup recovery' in output, output
                                 print(output, end='', flush=True)
                                 client_cases.append('application-network')
@@ -437,7 +441,9 @@ def main():
                                     ready_path = Path(caller_runtime.name) / f'application-{scenario}.json'
                                     ready_path.unlink(missing_ok=True)
                                     if withdrawing:
-                                        ip('route','add','198.18.0.4/30','dev','helperorig0')
+
+                                        for address in ('198.18.0.6/32', '198.18.0.7/32'):
+                                            ip('route','add',address,'dev','helperorig0')
                                     process = subprocess.Popen(native_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                                                                env={**application_environment, 'JC_NATIVE_NETWORK_HELPER_LOSS': '1',
                                                                     'JC_NATIVE_TUN_READY': str(ready_path),
@@ -477,7 +483,9 @@ def main():
                                             assert select.select([qt_descriptor], [], [], 5)[0]
                                             os.close(qt_descriptor)
                                         if withdrawing:
-                                            ip('route','del','198.18.0.4/30','dev','helperorig0')
+
+                                            for address in ('198.18.0.6/32', '198.18.0.7/32'):
+                                                ip('route','del',address,'dev','helperorig0')
                             finally:
                                 recovery.stop()
                             assert inventory() == dns_baseline and original_dns() == dns_settings

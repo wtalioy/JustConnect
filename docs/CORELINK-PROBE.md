@@ -102,6 +102,14 @@ IPv4 配置增量复用 [`UnixTunDevice::createIpv4`](../infrastructure/platform
 
 本地 Linux 应用及正式 ABI 构建均通过配置后普通用户双向 UDP、正常／强杀最终 fd 清理；真实配置后的回读错误／MTU 不符故障注入验证设备及全部 IPv4 路由回滚，宿主接口、全表路由／规则、DNS 与 rp_filter 不变。完整应用 45/45、正式 ABI 23/23 通过，报告 `build/reports/unix-tun-configuration.json`；该增量仍待 Linux／macOS 两架构原生 CI，未验收平台不据此继续透明接管。
 
+### Linux 独立捕获路由表
+
+Linux 的原出口与校园捕获共用 `LinuxOwnedRouteTable` 的写前记录、回读、恢复与歧义保护。原出口使用 priority 1 的精确源规则；校园捕获使用 priority 2 的全源规则、UUID 派生的另一张专用表与直连 TUN 路由，表范围互不相交。priority 0 的 local 表保持最先，因此本机地址和 localhost 不被捕获；目标不在校园表时继续原规则。既有 main 表中的精确 `/32` 保持原样，选择校园后走 TUN，撤回捕获后回到原网络。
+
+协议 8 要求客户端与助手同时更新。捕获日志 v2 使用同一表后端的结构并附版本；原网络投影精确排除所属表、规则与设备路由，不隐藏原 main 路由或外部变化。最后一个 TUN fd 关闭可使路由消失，恢复仍须释放所属查表规则；接口改名或索引复用不能解释为设备消失。分配器夹具保留原生恢复控制通道，释放自身 fd 后由最终持有者完成流量，再调用正式恢复入口清理规则，无 Python 路由删除副本。
+
+旧 v1 仅保留受保护记录的主表恢复，不再提供主表应用、追加或运行中撤回。停止支持仍可能留有 v1 未恢复记录的版本后，删除该恢复分支及专属迁移测试。现有边界、失败、取消、外部改写与强杀回归继续验证 v2；另验证实际 v1 记录恢复和中断／同值保留。当前本地证据与未验收项见 `build/reports/capture-table.json`，不代替桌面授权、校园实测或其他平台验收。
+
 ### Linux 原出口与更具体的捕获路由
 
 [隔离检查](../tests/platform/original_route_linux.py)只在新的网络命名空间中创建 veth 原网络、独立 TCP／UDP 回显端点，并通过同一原生分配后端取得非持久 TUN。目标的 `/32` 捕获路由优先于原网络 `/24`；接口绑定单独使用在严格反向路径检查下已复现超时，因此测试保留 `rp_filter=1`，仅为所选原地址增加源规则与专用目标路由表。先回读两类选路并实际读取 TUN 包及捕获源地址，再由零 capabilities 的普通用户运行[生产 underlay 探针](../tests/platform/original_route_probe.go)，验证指定原接口的 TCP／UDP 往返及原地址，接口缺失必须报错。两端命名空间退出即释放设备和规则；宿主接口、全表路由、规则、DNS 及反向路径设置保持不变。
@@ -113,7 +121,7 @@ Linux 路由恢复另在私有命名空间核对了内核删除匹配：`ip rout
 <a id="linux-source-routes"></a>
 ### Linux 原出口表／规则后端
 
-[`LinuxSourceRoutes`](../infrastructure/platform/linux/sourceroutes.cpp) 为明确原接口及实际所属 IPv4 源地址新建连接专用表和精确源规则；空网关表示直连，非零网关另建所属 `/32` 链路路由。只接受规范 `/2`—`/32`，不改原接口、既有路由或 DNS。记录连接 UUID、接口名／索引、源／网关、派生表／metric、原先不存在及完整应用值。priority 1 冲突、未知更早规则或候选表已有路由／引用时拒绝；接口名限安全 ASCII token，支持实际地址别名。
+[`LinuxOwnedRouteTable`](../infrastructure/platform/linux/ownedroutetable.cpp) 为明确原接口及实际所属 IPv4 源地址新建连接专用表和精确源规则；空网关表示直连，非零网关另建所属 `/32` 链路路由。只接受规范 `/2`—`/32`，不改原接口、既有路由或 DNS。记录连接 UUID、接口名／索引、源／网关、派生表／metric、原先不存在及完整应用值。priority 1 冲突、未知更早规则或候选表已有路由／引用时拒绝；接口名限安全 ASCII token，支持实际地址别名。
 
 后端与捕获路由共用规范前缀和受信 iproute2 检查；数字全表／规则各限 4096 行、1 MiB，写前检查容量，索引所属路由。接受原生省略 main 表和合法 blackhole／goto，所属项缺少表身份则拒绝。应用／恢复各有十秒命令预算，失败回滚独立计时。恢复先删除源规则并确认没有表引用，再按设备、协议、scope、metric、源和适用下一跳删除路由；外部引用／改写、重复身份或未确认值保留并报告，只忽略派生 linkdown／默认 unicast 差异。
 

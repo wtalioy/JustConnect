@@ -1,7 +1,7 @@
 #include "networkhelperpreparation.h"
 #include "application/networkprotection.h"
 #include "infrastructure/platform/tundevice.h"
-#include "sourceroutes.h"
+#include "ownedroutetable.h"
 #include <QHostAddress>
 #include <QJsonDocument>
 #include <QSet>
@@ -117,7 +117,7 @@ LinuxHelperPreparation prepareLinuxNetworkHelper(const QJsonObject &resources, c
         } else if (config.originalInterface != interface || config.originalSource != source || config.originalGateway != gateway)
             return {{Status::Unsupported, "Campus targets use different original exits."}, {}};
     }
-    const auto valid = LinuxSourceRoutes::validate(config.originalInterface, config.originalSource, config.originalGateway, config.originalPrefixes);
+    const auto valid = LinuxOwnedRouteTable::validate(config.originalInterface, config.originalSource, config.originalGateway, config.originalPrefixes);
     if (!valid.succeeded()) return {valid, {}};
     return {{}, config};
 }

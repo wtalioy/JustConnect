@@ -3,6 +3,7 @@
 #include "infrastructure/platform/platformcommand.h"
 #include "infrastructure/platform/tundevice.h"
 #include "iprouteutility.h"
+#include "ownedroutetable.h"
 #include <QJsonArray>
 #include <QJsonObject>
 #include <utility>
@@ -14,7 +15,7 @@ class LinuxTunRoutes
 public:
     static constexpr qsizetype MaxSnapshotBytes = LinuxRouteRecoveryBytes;
     using CheckpointWriter = std::function<PlatformOperationResult(const QJsonObject &)>;
-    explicit LinuxTunRoutes(PlatformCommandRunner read = {}) : reader(std::move(read)) {}
+    explicit LinuxTunRoutes(PlatformCommandRunner read = {}) : reader(read), capture(std::move(read), LinuxOwnedRouteTable::Role::Capture) {}
     LinuxTunRoutes(const LinuxTunRoutes &) = delete;
     LinuxTunRoutes &operator=(const LinuxTunRoutes &) = delete;
     PlatformOperationResult apply(const UnixTunDevice &device, const QString &source, const QString &peer, const QStringList &prefixes,
@@ -35,14 +36,16 @@ private:
     bool createdShape(const QJsonObject &row) const;
     QByteArray command(const QString &operation, const QString &prefix) const;
     PlatformOperationResult saveCheckpoint(const CheckpointWriter &checkpoint) const;
-    PlatformOperationResult addPrefixes(const UnixTunDevice &device, const QStringList &prefixes, const CheckpointWriter &checkpoint);
-    PlatformOperationResult restore(const QUuid &owner, const CheckpointWriter &checkpoint, const QSet<QString> *retained = nullptr);
+    bool validDevice(const UnixTunDevice &device) const;
+    PlatformOperationResult validatePrefixes(const QStringList &prefixes) const;
+    CheckpointWriter captureWriter(const CheckpointWriter &checkpoint) const;
+    PlatformOperationResult restore(const QUuid &owner, const CheckpointWriter &checkpoint);
     void clear();
     PlatformCommandRunner reader;
+    LinuxOwnedRouteTable capture;
+    bool legacy = false;
     QUuid owner;
     QString interfaceName, sourceAddress, gatewayPeer, networkNamespace;
     quint32 interfaceIndex = 0, metric = 0;
     QList<Entry> entries;
-    enum class Origin { Prepared, Live, Recovered };
-    Origin origin = Origin::Prepared;
 };

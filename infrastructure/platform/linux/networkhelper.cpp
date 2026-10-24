@@ -1,6 +1,6 @@
 #include "networkhelper.h"
 #include "sourcejournal.h"
-#include "sourceroutes.h"
+#include "ownedroutetable.h"
 #include "tunroutes.h"
 #include "tundns.h"
 #include "networkhelperpaths.h"
@@ -218,7 +218,7 @@ struct OwnedOperation {
     UnixTunDevice device;
     bool cleaned = false, changed = false;
 private:
-    static LinuxSourceRoutes::CheckpointWriter writer(LinuxSourceJournal &journal)
+    static LinuxOwnedRouteTable::CheckpointWriter writer(LinuxSourceJournal &journal)
     {
         return [&journal](const QJsonObject &record) { return record.isEmpty() ? journal.remove() : journal.store(record); };
     }
@@ -229,7 +229,7 @@ private:
     QByteArray name;
     LinuxSourceJournal metadata, captureJournal, sourceJournal, dnsJournal;
     LinuxTunRoutes capture;
-    LinuxSourceRoutes source;
+    LinuxOwnedRouteTable source;
     LinuxTunDns dns{QDBusConnection::connectToBus(QStringLiteral("unix:path=/run/dbus/system_bus_socket"),
                                                QStringLiteral("JustConnect.network-helper.dns"))};
 };
@@ -331,7 +331,7 @@ std::optional<LinuxHelperConfiguration> parseLinuxHelperApply(const QUuid &owner
     config.address = device["source"].toString(); config.peer = device["peer"].toString(); config.mtu = device["mtu"].toInt();
     config.originalInterface = original["interface"].toString(); config.originalSource = original["source"].toString();
     config.originalGateway = original["gateway"].toString();
-    if (!LinuxSourceRoutes::validate(config.originalInterface, config.originalSource, config.originalGateway, config.originalPrefixes).succeeded()) return {};
+    if (!LinuxOwnedRouteTable::validate(config.originalInterface, config.originalSource, config.originalGateway, config.originalPrefixes).succeeded()) return {};
     return config;
 }
 

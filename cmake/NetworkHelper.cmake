@@ -4,7 +4,7 @@ function(justconnect_linux_network_helper)
         "${REPO}/infrastructure/platform/linux/networkhelper.cpp"
         "${REPO}/infrastructure/platform/linux/trustedexecutable.cpp"
         "${REPO}/infrastructure/platform/linux/sourcejournal.cpp"
-        "${REPO}/infrastructure/platform/linux/sourceroutes.cpp"
+        "${REPO}/infrastructure/platform/linux/ownedroutetable.cpp"
         "${REPO}/infrastructure/platform/linux/tunroutes.cpp"
         "${REPO}/infrastructure/platform/linux/tundns.cpp"
         "${REPO}/infrastructure/platform/linux/tundevice.cpp"
