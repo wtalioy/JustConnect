@@ -198,6 +198,9 @@ int main(int argc, char **argv) try
             return record == extended ? PlatformOperationResult{} : PlatformOperationResult{Status::Failed,"Refused DNS checkpoint"};
         }).succeeded() && growing.snapshot() == extended && inventory() == held,
               "Failed DNS checkpoint damaged existing source ownership");
+        check(growing.ensurePrefixes(owner,{"198.18.9.0/24","198.18.9.0/24"}).succeeded()
+              && read({"route","get","198.18.9.7","from",source}).first().toObject()["dev"] == "original0"
+              && growing.snapshot()["rule_applied"] == extended["rule_applied"],"Live capture additions lost original egress or replaced its rule");
         LinuxSourceRoutes recovered;
         check(recovered.recover(owner,growing.snapshot()).succeeded() && inventory() == baseline,
               "A fresh source backend could not restore appended DNS routes");

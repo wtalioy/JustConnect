@@ -13,12 +13,13 @@ public:
     enum class State { Idle, Inspecting, Authorizing, Applying, Active, Extending, Restoring, Acknowledging,
                        CancellingAuthorization, CancellingApply, CancellingExtend, RecoveryRequired, CleanupRequired };
     Q_ENUM(State)
-    enum class Operation { Apply, Extend, Restore, Recover, Cleanup };
+    enum class Operation { Apply, Extend, Routes, Restore, Recover, Cleanup };
     Q_ENUM(Operation)
     explicit LinuxNetworkHelperClient(QObject *parent = nullptr);
     ~LinuxNetworkHelperClient() override;
     void apply(const QUuid &owner, const LinuxHelperConfiguration &configuration);
     void extend(const QStringList &addresses);
+    void reconcile(const QStringList &prefixes);
     void recover(const QUuid &owner);
     void cleanupRestored(const QUuid &owner);
     void restore();
@@ -45,6 +46,7 @@ private:
     void setState(State state);
     void closeChannels();
     void restoreActive();
+    void changeRoutes(Operation operation, const QStringList &targets, const QJsonObject &request);
     void finish(PlatformOperationResult result, State state);
     void failed(const QString &detail);
     State retryState() const;

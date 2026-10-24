@@ -227,6 +227,11 @@ def main():
                 call('extend-partial')
                 assert inventory() == before_failure and not list(Path(package.LAYOUT['state_directory']).iterdir())
                 ip('route','del','198.18.6.7/32','dev','helperorig0','metric','7')
+                ip('route','add','198.18.7.0/24','dev','helperorig0','proto','static','metric','7')
+                before_failure = inventory()
+                call('routes-partial')
+                assert inventory() == before_failure and not list(Path(package.LAYOUT['state_directory']).iterdir())
+                ip('route','del','198.18.7.0/24','dev','helperorig0','metric','7')
                 owner = call('destroy')
                 deadline = time.monotonic() + 10
                 while inventory() != baseline and time.monotonic() < deadline:
@@ -402,13 +407,17 @@ def main():
                                 print(output, end='', flush=True)
                                 client_cases.append('core-dns')
                                 application_environment = {**dns_environment, 'JC_NATIVE_NETWORK_SESSION': '1'}
-                                output = run(*native_command, env=application_environment, user=args.uid,
-                                             group=account.pw_gid, extra_groups=())
+                                ip('route','add','198.18.0.4/30','dev','helperorig0')
+                                try:
+                                    output = run(*native_command, env={**application_environment, 'JC_NATIVE_NETWORK_CHOICES': '1'}, user=args.uid,
+                                                 group=account.pw_gid, extra_groups=())
+                                finally:
+                                    ip('route','del','198.18.0.4/30','dev','helperorig0')
                                 assert 'via application network startup recovery' in output, output
                                 print(output, end='', flush=True)
                                 client_cases.append('application-network')
                                 report['application_network'] = {'sessions': 2, 'startup': 'write-ahead UUID without privileged record',
-                                    'data': 'ordinary DNS, TCP and UDP', 'stop': 'owned network before core; hint and fd released'}
+                                    'data': 'ordinary DNS, TCP and UDP; exact campus/original address choices and capture withdrawal', 'stop': 'owned network before core; hint and fd released'}
                             finally:
                                 recovery.stop()
                             assert inventory() == dns_baseline and original_dns() == dns_settings

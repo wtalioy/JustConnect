@@ -8,9 +8,10 @@
 class LinuxDNSRoutePublisher final : public QObject
 {
 public:
-    LinuxDNSRoutePublisher(CoreEngine *core, LinuxNetworkHelperClient *helper, QObject *parent = nullptr);
+    LinuxDNSRoutePublisher(CoreEngine *core, LinuxNetworkHelperClient *helper, QObject *parent = nullptr, std::function<bool()> available = {});
 private:
     void acknowledge(bool applied);
+    std::function<bool()> available;
     QPointer<CoreEngine> core;
     QPointer<LinuxNetworkHelperClient> helper;
     QString generation, pendingGeneration, pendingRequest;

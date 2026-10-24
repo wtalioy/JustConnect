@@ -14,12 +14,15 @@ class NetworkPolicySession : public QObject
 public:
     using OriginalView = std::pair<QJsonObject, QJsonObject>;
     using OriginalViewFilter = std::function<std::optional<OriginalView>(const QJsonObject &, const QJsonObject &)>;
+    using PolicyApplier = std::function<void(const QJsonObject &)>;
     using DnsReader = std::function<DnsSnapshot()>;
     NetworkPolicySession(CoreEngine *engine, DnsReader reader, QObject *parent = nullptr);
     ~NetworkPolicySession() override;
     void clear();
     void setNetworkBusy(const QString &generation, bool busy);
     void setOriginalViewFilter(const QString &generation, OriginalViewFilter filter);
+    void setPolicyApplier(const QString &generation, PolicyApplier applier);
+    void completePolicy(const QString &generation, const QString &revision, CoreEngine::RequestStatus status);
     bool refresh();
     bool setCampusAddress(const QString &address, bool campus);
     bool setCampusName(const QString &name, bool campus);
@@ -43,6 +46,7 @@ private:
     QPointer<CoreEngine> engine;
     DnsReader reader;
     OriginalViewFilter originalViewFilter;
+    PolicyApplier policyApplier;
     bool networkBusy = false, refreshQueued = false;
     QFutureWatcher<ModelResult> watcher;
     QString generation;

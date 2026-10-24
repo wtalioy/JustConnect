@@ -343,7 +343,7 @@ IPv4Ranges subtractRanges(const IPv4Ranges &included, const IPv4Ranges &excluded
 }
 }
 
-std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &resources, const QJsonObject &policy)
+std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &resources, const QJsonObject &policy, const QStringList &dynamicAddresses)
 {
     if (!resources["ip_resources"].isArray() || !resources["domain_resources"].isObject()
         || !resources["dns_records"].isObject() || !resources["campus_dns"].isString()
@@ -352,7 +352,7 @@ std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &reso
     const auto ips = resources["ip_resources"].toArray(), protectedIPs = policy["protected"].toArray(), choices = policy["campus"].toArray();
     const auto domains = resources["domain_resources"].toObject(), records = resources["dns_records"].toObject();
     const auto names = policy["protected_names"].toArray(), campusNames = policy["campus_names"].toArray();
-    for (const auto size : {ips.size(), protectedIPs.size(), choices.size(), domains.size(), records.size(), names.size(), campusNames.size()})
+    for (const auto size : {ips.size(), protectedIPs.size(), choices.size(), domains.size(), records.size(), names.size(), campusNames.size(), dynamicAddresses.size()})
         if (size > MaxModelItems) return {};
     IPv4Ranges included, excluded, selected;
     CampusCaptureTargets result;
@@ -376,6 +376,8 @@ std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &reso
         if (firstPort < 1 || lastPort > 65535 || firstPort > lastPort
             || !add(row["ip_min"].toString(), row["ip_max"].toString())) return {};
     }
+    for (const auto &address : dynamicAddresses)
+        if (!ipv4Number(address) || !add(address,address)) return {};
     for (const auto &value : protectedIPs) {
         if (!value.isString()) return {};
         const auto subnet = QHostAddress::parseSubnet(value.toString());
@@ -455,7 +457,7 @@ std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &reso
         if (!inherited) result.dnsDomains.append(domain);
     }
     result.dnsDomains.sort();
-    if (result.dnsDomains.size() > MaxModelItems || result.ipv4Prefixes.isEmpty()) return {};
+    if (result.dnsDomains.size() > MaxModelItems) return {};
     return result;
 }
 

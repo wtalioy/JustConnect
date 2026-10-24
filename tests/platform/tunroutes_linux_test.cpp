@@ -198,6 +198,54 @@ int main(int argc, char **argv) try
     check(routes.restore(device).succeeded() && routes.snapshot().isEmpty() && inventory() == baseline,
           "Normal recovery changed the original route inventory");
     check(routes.restore(device).succeeded() && inventory() == baseline, "Repeated recovery changed an external route");
+    {
+        LinuxTunRoutes changing;
+        check(changing.apply(device,source,peer,prefixes).succeeded(),"Prepare live capture reconciliation");
+        const QStringList next{prefixes[2],"198.18.6.7/32"};
+        QJsonObject durable;
+        const auto checkpoint = [&](const QJsonObject &value) { durable = value; return PlatformOperationResult{}; };
+        check(changing.reconcile(device,next,checkpoint).succeeded()
+              && !hasRoute(prefixes[0],device.name()) && !hasRoute(prefixes[1],device.name())
+              && hasRoute(next[0],device.name()) && hasRoute(next[1],device.name())
+              && durable == changing.snapshot(),"Live reconciliation did not persist exact capture ownership");
+        packets(device,source,"198.18.6.7");
+        const auto held = inventory();
+        check(!changing.reconcile(device,{next[0],"default"},checkpoint).succeeded() && inventory() == held,
+              "Invalid replacement changed existing routes");
+        check(!changing.reconcile(device,{next[0]},[&](const QJsonObject &value) {
+            for (const auto &route : value["routes"].toArray())
+                if (route.toObject()["delete_started"] == true) return PlatformOperationResult{PlatformOperationResult::Status::Failed,"refused withdrawal intent"};
+            return PlatformOperationResult{};
+        }).succeeded() && inventory() == held,"Withdrawal preceded its durable checkpoint");
+        check(changing.reconcile(device,next,checkpoint).succeeded() && inventory() == held,
+              "Retry lost a retained capture after a rejected deletion checkpoint");
+        check(changing.reconcile(device,{},checkpoint).succeeded() && changing.snapshot()["routes"].toArray().isEmpty()
+              && inventory() == baseline && device.descriptor() >= 0,"Empty live capture set destroyed its active device or retained routes");
+        check(changing.reconcile(device,next,checkpoint).succeeded(),"An empty active capture set could not expand again");
+        LinuxTunRoutes recovered;
+        check(recovered.recover(device.owner(),durable).succeeded() && inventory() == baseline,
+              "Fresh recovery lost ownership after live replacement");
+        check(changing.restore(device).succeeded(),"Release independently recovered live capture metadata");
+    }
+    {
+        LinuxTunRoutes changing;
+        check(changing.apply(device,source,peer,prefixes).succeeded(),"Prepare retained-route external-change fixture");
+        const auto metric = QString::number(changing.snapshot()["metric"].toInteger());
+        bool changed = false;
+        const auto replaced = changing.reconcile(device,{prefixes[2]},[&](const QJsonObject &record) {
+            for (const auto &row : record["routes"].toArray()) if (!changed && row.toObject()["delete_started"] == true) {
+                ip({"route","replace",prefixes[2],"dev","foreign0","proto","4","scope","0","metric",metric,
+                    "src","192.0.2.1","via","192.0.2.2"});
+                changed = true;
+            }
+            return PlatformOperationResult{};
+        });
+        check(changed && !replaced.succeeded() && hasRoute(prefixes[0],device.name()) && hasRoute(prefixes[2],"foreign0"),
+              "Reconciliation ignored an external retained-route change or deleted before revalidation");
+        check(changing.restore(device).succeeded() && hasRoute(prefixes[2],"foreign0"),"Recovery deleted the externally replaced retained route");
+        ip({"route","del",prefixes[2],"metric",metric});
+        check(inventory() == baseline,"Retained-route fixture changed the original inventory");
+    }
     for (const bool changedSource : {false, true}) {
         check(routes.apply(device, source, peer, prefixes).succeeded(), "Apply external-change fixture routes");
         const auto metric = QString::number(routes.snapshot()["metric"].toInteger());

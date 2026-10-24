@@ -39,6 +39,40 @@ int main(int argc, char **argv) try {
     for (const auto &address : {config.address,config.peer})
         check(address != "10.0.0.1" && address != "10.0.0.2" && address != "10.0.0.3",
               "device allocation stole a system or explicitly configured DNS server");
+    auto held = config;
+    held.capturePrefixes.append("203.0.113.70/32");
+    auto nextPolicy = policy;
+    nextPolicy["protected"] = QJsonArray{"192.0.2.0/24","203.0.113.8/31"};
+    check(updatedLinuxCapturePrefixes(resources,policy,nextPolicy,held) == std::optional<QStringList>{{"203.0.113.53/32","203.0.113.70/32"}},
+          "Live policy failed to withdraw static capture or lost a confirmed DNS target");
+    nextPolicy["campus"] = QJsonArray{"203.0.113.8"};
+    check(updatedLinuxCapturePrefixes(resources,policy,nextPolicy,held) == std::optional<QStringList>{{"203.0.113.8/32","203.0.113.53/32","203.0.113.70/32"}},
+          "Explicit campus choice did not restore its exact host route");
+    nextPolicy["protected"] = QJsonArray{"192.0.2.0/24","203.0.113.70/32"};
+    check(updatedLinuxCapturePrefixes(resources,policy,nextPolicy,held) == std::optional<QStringList>{config.capturePrefixes},
+          "New protection did not withdraw a previously published DNS target");
+    nextPolicy["protected_names"] = QJsonArray{QJsonObject{{"kind","suffix"},{"value","campus.test"}}};
+    check(!updatedLinuxCapturePrefixes(resources,policy,nextPolicy,held),"A policy changed DNS ownership without a supported DNS transition");
+    QJsonArray exitRows;
+    for (const auto *target : {"203.0.113.8","203.0.113.9","203.0.113.53"})
+        exitRows.append(QJsonObject{{"dst",target},{"from",config.originalSource},{"dev",config.originalInterface},
+            {"gateway",config.originalGateway},{"flags",QJsonArray{}}});
+    auto exitReader = [&](const QString &, const QStringList &) {
+        QString result;
+        for (const auto &row : exitRows) result += QString::fromUtf8(QJsonDocument(QJsonArray{row}).toJson(QJsonDocument::Compact))+"\n";
+        return PlatformCommandResult{{},result,{}};
+    };
+    check(verifyLinuxCaptureExit(config,config.capturePrefixes,exitReader).succeeded(),"Confirmed bound-source exit was rejected");
+    const auto exits = exitRows;
+    for (const auto &changed : {QJsonObject{{"dev","other0"}},QJsonObject{{"gateway","192.0.2.253"}},QJsonObject{{"from","192.0.2.2"}}}) {
+        exitRows = exits;
+        auto row = exitRows[1].toObject();
+        for (auto it=changed.begin(); it!=changed.end(); ++it) row[it.key()] = it.value();
+        exitRows[1] = row;
+        check(!verifyLinuxCaptureExit(config,config.capturePrefixes,exitReader).succeeded(),"Live policy accepted changed original routing");
+    }
+    exitRows = QJsonArray{exits[0]};
+    check(!verifyLinuxCaptureExit(config,config.capturePrefixes,exitReader).succeeded(),"Truncated original exit accepted");
     auto injection = resources;
     injection["underlay_interface"] = "original0\nroute del default";
     check(!prepareLinuxNetworkHelper(injection,policy,network,dns,"10.0.0.3:53",1400,reader).result.succeeded() && reads == 1,

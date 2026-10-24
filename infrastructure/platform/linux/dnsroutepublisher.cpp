@@ -1,14 +1,14 @@
 #include "dnsroutepublisher.h"
 #include <utility>
 
-LinuxDNSRoutePublisher::LinuxDNSRoutePublisher(CoreEngine *core, LinuxNetworkHelperClient *helper, QObject *parent)
-    : QObject(parent), core(core), helper(helper)
+LinuxDNSRoutePublisher::LinuxDNSRoutePublisher(CoreEngine *core, LinuxNetworkHelperClient *helper, QObject *parent, std::function<bool()> available)
+    : QObject(parent), available(std::move(available)), core(core), helper(helper)
 {
     connect(core, &CoreEngine::sessionStarted, this, [this](const QString &value) { generation = value; });
     connect(core, &CoreEngine::dnsRoutesRequired, this, [this](const QJsonObject &request) {
         const auto requested = request["generation"].toString(), id = request["request_id"].toString();
         if (!this->core) return;
-        if (!this->helper || requested != generation || !pendingRequest.isEmpty() || this->helper->state() != LinuxNetworkHelperClient::State::Active) {
+        if ((this->available && !this->available()) || !this->helper || requested != generation || !pendingRequest.isEmpty() || this->helper->state() != LinuxNetworkHelperClient::State::Active) {
             this->core->acknowledgeDNSRoutes(requested, id, false);
             return;
         }

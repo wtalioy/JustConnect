@@ -50,11 +50,7 @@ NetworkPolicySession::NetworkPolicySession(CoreEngine *engine, DnsReader reader,
         });
     connect(engine, &CoreEngine::policyUpdated, this,
         [this](const QString &id, const QString &appliedRevision, Status status) {
-            if (!isPolicyUpdating() || id != generation || appliedRevision != pendingPolicy["revision"].toString()) return;
-            if (status == Status::Success) confirmedPolicy = pendingPolicy;
-            pendingPolicy = {};
-            lastPolicyStatus = status;
-            publish();
+            if (!policyApplier) completePolicy(id,appliedRevision,status);
         });
     connect(&watcher, &QFutureWatcher<ModelResult>::finished, this, [this] {
         const auto result = watcher.result();
@@ -86,6 +82,7 @@ void NetworkPolicySession::clear()
     generation.clear();
     transportReady = networkPending = resourcesPending = networkBusy = refreshQueued = false;
     originalViewFilter = {};
+    policyApplier = {};
     network = resources = currentModel = {};
     networkVersion = {};
     confirmedPolicy = pendingPolicy = {};
@@ -110,6 +107,20 @@ void NetworkPolicySession::setOriginalViewFilter(const QString &id, OriginalView
     currentModel = {};
     currentStatus = modelStatus = Status::Pending;
     refreshQueued = true;
+    publish();
+}
+
+void NetworkPolicySession::setPolicyApplier(const QString &id, PolicyApplier applier)
+{
+    if (!generation.isEmpty() && id == generation && !isPolicyUpdating()) policyApplier = std::move(applier);
+}
+
+void NetworkPolicySession::completePolicy(const QString &id, const QString &appliedRevision, Status status)
+{
+    if (!isPolicyUpdating() || id != generation || appliedRevision != pendingPolicy["revision"].toString()) return;
+    if (status == Status::Success) confirmedPolicy = pendingPolicy;
+    pendingPolicy = {};
+    lastPolicyStatus = status;
     publish();
 }
 
@@ -227,7 +238,8 @@ bool NetworkPolicySession::submitPolicy(QJsonObject policy)
     policy["revision"] = QString::number(++revision);
     pendingPolicy = policy;
     lastPolicyStatus = Status::Pending;
-    engine->updatePolicy(policy);
+    if (policyApplier) policyApplier(policy);
+    else engine->updatePolicy(policy);
     emit changed();
     return true;
 }

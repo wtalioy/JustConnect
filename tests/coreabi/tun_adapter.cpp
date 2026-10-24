@@ -121,18 +121,37 @@ static int exerciseApplicationNetworkAccess(const ConnectionProfile &profile)
         originalView(QUuid(owner));
         check(policy.refresh(), "explicit original-network refresh remains available during takeover");
         originalView(QUuid(owner));
+        const bool choose = qgetenv("JC_NATIVE_NETWORK_CHOICES") == "1";
+        const auto chooseAddress = [&](const QString &address, bool campus) {
+            check(policy.setCampusAddress(address,campus),"submit a running campus/original address choice");
+            until([&] { return !policy.isBusy() || !session.isActive(); });
+            check(session.state() == ConnectionState::Running && policy.policyStatus() == CoreEngine::RequestStatus::Success
+                  && policy.campusAddresses().contains(address) == campus,"campus choice waits for core and actual helper routing confirmation");
+            originalView(QUuid(owner));
+        };
+        if (choose) for (const auto *address : {"198.18.0.6","198.18.0.7"}) chooseAddress(QString::fromLatin1(address),true);
         auto lookup = std::async(std::launch::async, [] { return systemAddresses("campus.test"); });
         until([&] { return lookup.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready; });
         const auto addresses = lookup.get();
         check(addresses.size() == 1, "application publishes campus DNS through the owned helper");
         originalView(QUuid(owner));
         exerciseNativeTUNTraffic(QHostAddress(addresses.first()));
+        if (choose) for (const auto *address : {"198.18.0.6","198.18.0.7"}) {
+            chooseAddress(QString::fromLatin1(address),false);
+            const auto selected = runPlatformCommand(trustedIpRouteUtility(),{"-N","-j","-4","route","get",QString::fromLatin1(address)});
+            const auto rows = QJsonDocument::fromJson(selected.output.toUtf8()).array();
+            check(selected.result.succeeded() && rows.size() == 1 && rows[0].toObject()["dev"] == "helperorig0",
+                  "revoked campus choice restores the kernel's actual original route");
+        }
+        if (choose && round == 0)
+            check(policy.setCampusAddress("198.18.0.6",true) && policy.isPolicyUpdating(),
+                  "prepare a policy transaction cancelled before core application");
         session.stop();session.stop();
         until([&] { return !session.isActive(); });
         check(finished == round + 1 && tunReferences() == 0 && !QFileInfo::exists(hintPath),
               "application restores owned network before releasing the core and responsibility hint");
     }
-    std::cout << "PASS: ordinary native TCP/UDP via application network startup recovery, campus readiness, original network views, DNS and ordered stop/restart\n";
+    std::cout << "PASS: ordinary native TCP/UDP via application network startup recovery, campus readiness, original network views, live address choices, DNS and ordered stop/restart\n";
     return 0;
 }
 

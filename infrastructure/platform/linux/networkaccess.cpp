@@ -19,21 +19,31 @@ using Operation = LinuxNetworkHelperClient::Operation;
 LinuxNetworkAccess::LinuxNetworkAccess(CoreEngine *core, NetworkPolicySession *policy, int mtu, QObject *parent)
     : NetworkAccess(parent), core(core), policy(policy), mtu(mtu)
 {
-    new LinuxDNSRoutePublisher(core, &helper, this);
+    new LinuxDNSRoutePublisher(core, &helper, this, [this] { return stage == Stage::Ready; });
     connect(&helper, &LinuxNetworkHelperClient::finished, this, &LinuxNetworkAccess::helperFinished);
     connect(&helper, &LinuxNetworkHelperClient::stateChanged, this, [this](HelperState state) {
         if (state != HelperState::Idle && state != HelperState::Active)
             this->policy->setNetworkBusy(generation, true);
     });
     connect(&helper, &LinuxNetworkHelperClient::ownershipLost, this, [this](Result result) {
-        if (stage == Stage::Ready) { stage = Stage::Failed; emit lost(attempt, result); }
+        if (stage == Stage::Ready || stage == Stage::Updating) { stage = Stage::Failed; emit lost(attempt, result); }
     });
     connect(policy, &NetworkPolicySession::changed, this, &LinuxNetworkAccess::prepareConfiguration);
     connect(&worker, &QFutureWatcher<LinuxHelperPreparation>::finished, this, [this] {
         preparingConfiguration = false;
         if (stage == Stage::Stopping) { driveStop(); return; }
-        if (stage != Stage::Activating) return;
+        if (stage != Stage::Activating && stage != Stage::Updating) return;
         const auto prepared = worker.result();
+        if (stage == Stage::Updating) {
+            if (prepared.result.succeeded()) this->core->updatePolicy(changingPolicy);
+            else {
+                const auto revision = changingPolicy["revision"].toString();
+                changingPolicy = {}; nextCapture.clear(); stage = Stage::Ready;
+                this->policy->setNetworkBusy(generation,false);
+                this->policy->completePolicy(generation,revision,CoreEngine::RequestStatus::Unavailable);
+            }
+            return;
+        }
         if (!prepared.result.succeeded()) { stage = Stage::Prepared; this->policy->setNetworkBusy(generation, false); emit ready(attempt, prepared.result); return; }
         const auto saved = saveOwner(attempt);
         if (!saved.succeeded()) { stage = Stage::Prepared; this->policy->setNetworkBusy(generation, false); emit ready(attempt, saved); return; }
@@ -43,8 +53,18 @@ LinuxNetworkAccess::LinuxNetworkAccess(CoreEngine *core, NetworkPolicySession *p
         if (stage != Stage::Activating || !attaching || id != generation) return;
         attaching = false;
         stage = status == CoreEngine::RequestStatus::Success ? Stage::Ready : Stage::Prepared;
+        if (stage == Stage::Ready) this->policy->setPolicyApplier(generation, [this](const QJsonObject &value) { applyPolicy(value); });
         emit ready(attempt, status == CoreEngine::RequestStatus::Success ? Result{}
             : Result{Status::Failed, QStringLiteral("核心未能接收已授权的网络设备。")});
+    });
+    connect(core, &CoreEngine::policyUpdated, this, [this](const QString &id, const QString &revision, CoreEngine::RequestStatus status) {
+        if (stage != Stage::Updating || id != generation || revision != changingPolicy["revision"].toString()) return;
+        if (status == CoreEngine::RequestStatus::Success) helper.reconcile(nextCapture);
+        else {
+            changingPolicy = {}; nextCapture.clear(); stage = Stage::Ready;
+            this->policy->setNetworkBusy(generation,false);
+            this->policy->completePolicy(id,revision,status);
+        }
     });
 }
 
@@ -134,10 +154,27 @@ void LinuxNetworkAccess::prepareConfiguration()
     }));
 }
 
+void LinuxNetworkAccess::applyPolicy(const QJsonObject &value)
+{
+    const auto owned = helper.ownedConfiguration();
+    const auto capture = owned ? updatedLinuxCapturePrefixes(policy->model()["resources"].toObject(),
+        policy->confirmedProtection(),value,*owned) : std::nullopt;
+    if (stage != Stage::Ready || helper.state() != HelperState::Active || !capture) {
+        policy->completePolicy(value["generation"].toString(),value["revision"].toString(),CoreEngine::RequestStatus::Unavailable);
+        return;
+    }
+    changingPolicy = value; nextCapture = *capture; stage = Stage::Updating;
+    policy->setNetworkBusy(generation,true);
+    preparingConfiguration = true;
+    worker.setFuture(QtConcurrent::run([configuration=*owned,prefixes=*capture] {
+        return LinuxHelperPreparation{verifyLinuxCaptureExit(configuration,prefixes),{}};
+    }));
+}
+
 void LinuxNetworkAccess::helperFinished(Operation operation, Result result)
 {
-    if ((operation == Operation::Apply || operation == Operation::Extend) && result.succeeded()
-        && helper.state() == HelperState::Active && (stage == Stage::Ready || stage == Stage::Activating)) {
+    if ((operation == Operation::Apply || operation == Operation::Extend || operation == Operation::Routes) && result.succeeded()
+        && helper.state() == HelperState::Active && (stage == Stage::Ready || stage == Stage::Updating || stage == Stage::Activating)) {
         if (operation == Operation::Extend && !result.mayHaveChanged) {
             policy->setNetworkBusy(generation, false);
             return;
@@ -148,6 +185,14 @@ void LinuxNetworkAccess::helperFinished(Operation operation, Result result)
         if (!filter) { stage = Stage::Failed; emit lost(attempt, {Status::Failed, QStringLiteral("无法识别活动网络接管的读取范围。"), true}); return; }
         policy->setOriginalViewFilter(generation, filter);
         policy->setNetworkBusy(generation, false);
+    }
+    if (operation == Operation::Routes && stage == Stage::Updating) {
+        const auto revision = changingPolicy["revision"].toString();
+        changingPolicy = {}; nextCapture.clear();
+        stage = result.succeeded() ? Stage::Ready : helper.state() == HelperState::Idle ? Stage::Prepared : Stage::Failed;
+        if (!result.succeeded()) emit lost(attempt,result);
+        policy->completePolicy(generation,revision,result.succeeded() ? CoreEngine::RequestStatus::Success : CoreEngine::RequestStatus::Failed);
+        return;
     }
     if (operation == Operation::Extend && stage == Stage::Ready) {
         if (!result.succeeded()) { stage = Stage::Failed; emit lost(attempt, result); }

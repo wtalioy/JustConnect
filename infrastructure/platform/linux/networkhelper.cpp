@@ -159,6 +159,19 @@ struct OwnedOperation {
         result.mayHaveChanged = true;
         return result;
     }
+    Result reconcile(const QStringList &prefixes)
+    {
+        if (context["phase"] != "active") return invalid("Route changes require active connection ownership.");
+        // Original egress remains owned until full restoration, including existing relay traffic.
+        auto result = source.ensurePrefixes(owner,prefixes,writer(sourceJournal));
+        const bool changed = result.mayHaveChanged;
+        if (result.succeeded()) result = capture.reconcile(device,prefixes,writer(captureJournal));
+        if (result.succeeded()) return {Status::Success,{},changed || result.mayHaveChanged};
+        const auto restored = restore();
+        if (!restored.succeeded()) result = restored;
+        result.mayHaveChanged = true;
+        return result;
+    }
     Result restore()
     {
         if (context["phase"] == "restored") return {};
@@ -344,6 +357,27 @@ std::optional<QStringList> parseLinuxHelperExtend(const QUuid &owner, const QJso
     return addresses;
 }
 
+QJsonObject linuxHelperRoutesRequest(const QUuid &owner, const QStringList &prefixes)
+{
+    return {{"version",LinuxHelperProtocol},{"owner",owner.toString(QUuid::WithoutBraces)},
+        {"operation","routes"},{"prefixes",QJsonArray::fromStringList(prefixes)}};
+}
+
+std::optional<QStringList> parseLinuxHelperRoutes(const QUuid &owner, const QJsonObject &request)
+{
+    if (owner.isNull() || request["version"] != LinuxHelperProtocol || request["owner"] != owner.toString(QUuid::WithoutBraces)
+        || request["operation"] != "routes" || !fields(request,{"version","owner","operation","prefixes"})
+        || !request["prefixes"].isArray() || request["prefixes"].toArray().size() > LinuxRouteSnapshotRows
+        || QJsonDocument(request).toJson(QJsonDocument::Compact).size() > LinuxHelperPacketBytes) return {};
+    QStringList result;
+    for (const auto &prefix : request["prefixes"].toArray()) {
+        if (!prefix.isString() || !canonicalIpv4Prefix(prefix.toString())) return {};
+        result.append(prefix.toString());
+    }
+    result.removeDuplicates();
+    return result;
+}
+
 Result sendLinuxHelperPacket(int socket, const QJsonObject &packet, int descriptor, int timeoutMs)
 {
     const auto bytes = QJsonDocument(packet).toJson(QJsonDocument::Compact);
@@ -503,11 +537,12 @@ int runLinuxNetworkHelper(int socket, int trustedDirectory, uid_t uid, pid_t pid
         if (supplied >= 0) ::close(supplied);
         const bool authenticated = received.succeeded() && supplied < 0 && requestValid(request)
             && sameLinuxNetworkNamespace(callerNamespace);
-        if (authenticated && request["operation"] == "extend") {
-            const auto addresses = parseLinuxHelperExtend(owner,request);
-            if (addresses) {
+        const bool changingRoutes = request["operation"] == "routes";
+        if (authenticated && (request["operation"] == "extend" || changingRoutes)) {
+            const auto targets = changingRoutes ? parseLinuxHelperRoutes(owner,request) : parseLinuxHelperExtend(owner,request);
+            if (targets) {
                 result = beforeApply ? beforeApply() : Result{};
-                if (result.succeeded()) result = operation.extend(*addresses);
+                if (result.succeeded()) result = changingRoutes ? operation.reconcile(*targets) : operation.extend(*targets);
                 else {
                     const auto restored = operation.restore();
                     if (!restored.succeeded()) result = restored;

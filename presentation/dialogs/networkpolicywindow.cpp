@@ -189,7 +189,7 @@ NetworkPolicyWindow::NetworkPolicyWindow(NetworkPolicySession *input, QWidget *p
     refresh = buttons->addButton(QStringLiteral("刷新"), QDialogButtonBox::ActionRole);
     refresh->setObjectName("refreshNetworkPolicy");
     buttons->addButton(QStringLiteral("关闭"), QDialogButtonBox::RejectRole);
-    auto *explanation = new QLabel(QStringLiteral("这里展示最近读取的模型，刷新不自动应用；实际访问按核心已确认策略及学校授权判断。"), this);
+    auto *explanation = new QLabel(QStringLiteral("这里展示最近读取的模型，刷新不自动应用；实际访问按已确认的网络策略及学校授权判断。"), this);
     explanation->setWordWrap(true);
     auto *layout = new QVBoxLayout(this);
     layout->addWidget(status);
@@ -240,13 +240,13 @@ void NetworkPolicyWindow::updatePolicyMessage()
     nameChoices->setText(names.isEmpty() ? QStringLiteral("当前没有已确认的校园名称例外。")
         : QStringLiteral("已确认的校园名称例外：%1").arg(names.join(QStringLiteral("、"))));
     const auto count = session->campusAddresses().size();
-    QString text = QStringLiteral("已确认 %1 个校园 IPv4 例外、%2 个名称例外。选择仅影响后续新连接，仍需学校授权；相同目标不能同时选择两侧。").arg(count).arg(names.size());
+    QString text = QStringLiteral("已确认 %1 个校园 IPv4 例外、%2 个名称例外。选择仍需学校授权；切换地址侧可能中断该地址的已有连接，相同目标不能同时选择两侧。").arg(count).arg(names.size());
     const auto result = session->policyStatus();
-    if (session->isPolicyUpdating()) text = QStringLiteral("正在确认校园选择，原选择仍有效。") + text;
-    else if (result == Status::Pending) text = QStringLiteral("核心正忙，可以稍后重试。") + text;
+    if (session->isPolicyUpdating()) text = QStringLiteral("正在确认校园选择，请稍候。") + text;
+    else if (result == Status::Pending) text = QStringLiteral("当前连接正忙，可以稍后重试。") + text;
     else if (result == Status::Invalid) text = QStringLiteral("校园选择无效，请检查保护范围及具体 IPv4 地址／名称。") + text;
-    else if (result == Status::Unavailable) text = QStringLiteral("当前核心无法更新校园选择。") + text;
-    else if (result && result != Status::Success) text = QStringLiteral("校园选择未能应用，仍保留最后确认的选择，可以重试。") + text;
+    else if (result == Status::Unavailable) text = QStringLiteral("当前连接无法更新校园选择。") + text;
+    else if (result && result != Status::Success) text = QStringLiteral("校园选择未能应用，请检查连接状态后重试。") + text;
     policyMessage->setText(text);
 }
 

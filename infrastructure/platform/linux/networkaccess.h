@@ -18,8 +18,9 @@ public:
     void activate(const QUuid &attempt, const ConnectionProfile &profile) override;
     void stop(const QUuid &attempt) override;
 private:
-    enum class Stage { Idle, Preparing, Prepared, Activating, Ready, Stopping, Failed };
+    enum class Stage { Idle, Preparing, Prepared, Activating, Ready, Updating, Stopping, Failed };
     void prepareConfiguration();
+    void applyPolicy(const QJsonObject &policy);
     void driveStop();
     void completeStop();
     void helperFinished(LinuxNetworkHelperClient::Operation operation, PlatformOperationResult result);
@@ -32,6 +33,8 @@ private:
     std::unique_ptr<QLockFile> lock;
     QUuid attempt, savedOwner;
     QString hint, generation, localDNS;
+    QJsonObject changingPolicy;
+    QStringList nextCapture;
     Stage stage = Stage::Idle;
     bool preparingConfiguration = false, attaching = false;
     QElapsedTimer stopElapsed;
