@@ -1,4 +1,5 @@
 #include "infrastructure/platform/linux/networkhelperclient.h"
+#include "networkhelperfixture.h"
 #include <QCoreApplication>
 #include <QDeadlineTimer>
 #include <QFileInfo>
@@ -52,12 +53,7 @@ int main(int argc, char **argv) try
         if (scenario == "cancel-authorization" && state == Client::State::Authorizing)
             QTimer::singleShot(50, client.get(), &Client::cancel);
     });
-    LinuxHelperConfiguration configuration;
-    configuration.address = "198.18.0.1"; configuration.peer = "198.18.0.2"; configuration.mtu = 1400;
-    configuration.capturePrefixes = {"198.18.4.0/24"};
-    if (scenario == "partial") configuration.capturePrefixes = {"198.18.5.0/24"};
-    configuration.originalInterface = "helperorig0"; configuration.originalSource = "192.0.2.1";
-    configuration.originalPrefixes = configuration.capturePrefixes;
+    const auto configuration = helperFixtureConfiguration({scenario == "partial" ? "198.18.5.0/24" : "198.18.4.0/24"});
     if (scenario == "cleanup") client->cleanupRestored(owner);
     else if (scenario == "recover") client->recover(owner);
     else client->apply(owner, configuration);
