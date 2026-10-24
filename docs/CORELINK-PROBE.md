@@ -158,24 +158,12 @@ sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_OS="$RUNNER_OS" "$(command -v p
 <a id="linux-owned-routes"></a>
 ### Linux 捕获路由后端
 
-[`LinuxTunRoutes`](../infrastructure/platform/linux/tunroutes.cpp) 只为已拥有且配置非零点对点地址的 TUN 新增 main 表 IPv4 `/2`—`/32` 路由，不覆盖已有目标。创建及删除都带连接派生的 metric、设备、数字协议／作用域／表、本地源地址和对端下一跳；回读保留内核完整值，裸 IP 的主机路由与 `/32` 规范前缀等价匹配。命令按已验证字段批量输入，无 shell 或任意命令接口；内核快照最多 4096 行／1 MiB，预先核对应用后容量，不能写入后才发现无法完整回读。
+[`LinuxTunRoutes`](../infrastructure/platform/linux/tunroutes.cpp) 负责验证已拥有且配置非零点对点地址的 TUN，再将当前捕获操作交给共享独立表后端；当前协议 8、日志 v2 和 `/32` 选择行为见[独立捕获路由表](#linux-独立捕获路由表)，完整写前／回读／恢复职责见[架构](ARCHITECTURE.md#privileged-helper-entry)。不再创建或运行中修改旧 main 表捕获路由，v1 仅供受保护遗留记录恢复。
 
 ```sh
 sudo unshare --net -- build/coreabi/linux_tunroutes_test --isolated
 ```
 
-原生检查验证实际 UDP 进入 TUN 并在严格 `rp_filter=1` 下回到原 socket、原有默认／分割默认／主机路由不变、重复前缀合并、不同连接拒绝、部分批次失败回滚、回读失败与恢复重试、首次无法确认的值保留记录，以及读回前后改写设备／源地址／下一跳和接口重命名。最后永久降权并清空 capabilities，验证真实内核拒绝写入且未留下路由。恢复批次允许单项保护条件失败后继续清理其他所属项，再回读确认结果；不凭命令退出码推断已恢复。
+原生回归保留严格 `rp_filter=1` 下实际 UDP、既有路由不变、连接与设备身份、部分失败、写前／回读／存储错误、同值重建保留、恢复重试，以及应用／删除前后强杀和新进程恢复。版本 1 专属回归继续验证已有 main 记录的恢复及歧义保留；停止支持可能遗留该记录的版本后删除。当前独立表后端和正式安装助手证据见[计划](../plan.md#s4)及 `build/reports/capture-table.json`，早期独有捕获／持久恢复证据保留于 `linux-owned-routes.json`、`linux-capture-handoff.json`、`linux-capture-recovery.json`。
 
-Linux 分配方在交付 fd 前配置同一正式捕获后端的目标路由，将连接／设备／完整实际路由值随元数据交付；接收方对照真实全表，不使用会省略设备字段的按设备筛选输出。两份 Python 手写捕获命令已删除；创建方退出后普通用户双向包、正常／强杀后设备与路由消失、严格 rp_filter 原出口通过本地双构建及 [`1f05e3f` 的六组 Core ABI／设备](https://github.com/wtalioy/JustConnect/actions/runs/39817179435)与[三平台应用测试](https://github.com/wtalioy/JustConnect/actions/runs/39817179379)，证据归 `build/reports/linux-owned-routes.json`、`linux-capture-handoff.json`。
-
-捕获持久恢复已在同一后端接入：版本 1 快照绑定启动／线程网络命名空间、连接和实际设备身份，写前意图、成功确认、删除进度及完成移除复用同步检查点。存储失败停止后续内核写入，存储等待后重新核对；新实例对未确认应用和已开始删除但仍匹配的项保留，不接管同值重建。活跃实例确认未尝试写入时只撤销记录，最终移除重试不重写已释放对象。实际 root 私有文件复用 `LinuxSourceJournal`，捕获与源记录各持有自己的私有操作目录；`recover` 的 JSON 参数不授予权限，调用方须先认证保护文件及连接所有者。共用规则与范围见[架构说明](ARCHITECTURE.md)，最新验收状态见[计划](../plan.md#s4)。
-
-捕获回归在准备、应用后未确认、部分应用和应用确认四个边界强杀直接持有者；测试父进程只保留私有 TUN fd，随后新进程从真实保护文件恢复。删除前／删除后强杀、外部同值重建、原生重复身份、实际跨命名空间拒绝、存储拒绝／等待期间改写和完成移除重试也有覆盖；最后关闭所属 fd 后复查完整原始路由，root 临时目录在永久降权前清理。双构建普通检查、隔离内核、普通用户 fd 收发和生产 Go TCP／UDP 的严格 rp_filter 回归本地通过；`ca4989a` 的 Linux 双架构实际内核／完整跨平台矩阵亦通过，五类日志与归档 CRC 已核对，证据 `build/reports/linux-capture-recovery.json`。
-
-测试程序保留隔离回归用途；正式 Linux 系统助手与周期恢复已复用捕获后端及保护记录，见[权限入口](ARCHITECTURE.md#privileged-helper-entry)。主应用／Go 会话、实际桌面授权／注销、DNS、IPv6 及任意属性读写竞争仍待，S4-06 之前不用于日常网络。原出口专用表／源规则及其检查点见[原出口后端](#linux-source-routes)；原型 fd 交付仍保留独有收发／强杀验证，macOS 捕获命令保留至对应正式后端通过。
-
-[源码 `1105671` 的两组 macOS 及 Linux](https://github.com/wtalioy/JustConnect/actions/runs/39681929870)均通过直连／显式路由的真实设备／fd 读写、正常关闭及强杀后的设备／路由清理，日志分别为 `macos-device.log`／`linux-device.log`；本机 Linux 另验宿主接口、路由、DNS 不变。降权验证使用原生 `getgroups` 读取进程组，仅保留目标主组，并检查真实／有效 uid、gid 和无法恢复 root；[Python 的 macOS 组查询](https://docs.python.org/3/library/os.html#os.getgroups)可能返回目录成员列表，不能据此判断 `setgroups` 的结果。签名助手与真实桌面授权仍待验收，不依据源码或 Linux 结果宣称可用。原 `linux_device_probe.py` 已由共享脚本替代并删除，原 Linux 能力及独有权限断言保留。
-
-Qt／WebEngine 宿主保持普通用户权限。CI 的网页加载验证只覆盖同进程 Go 运行时和浏览器子进程共存，不能替代真实桌面沙箱／UAC／授权取消验证；不通过禁用 WebEngine sandbox 解决权限问题。真实设备验收至少记录：设备创建、非提权宿主收发、重复关闭、宿主崩溃后的设备／路由／DNS 残留、拒绝／取消授权，以及 Windows ARM64 原生驱动行为。任一平台未证明数据路径交付前，不继续依赖该路径的网络接管。
-
-依据：[Go build modes](https://pkg.go.dev/cmd/go#hdr-Build_modes)、[cgo 指针规则](https://pkg.go.dev/cmd/cgo#hdr-Passing_pointers)、[Qt 对象线程规则](https://doc.qt.io/qt-6/threads-qobject.html)、[Linux TUN 设备权限与生命周期](https://docs.kernel.org/networking/tuntap.html)、[Apple utun control 注册](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/net/if_utun.c)、[Wintun ring 分配／注册与释放](https://git.zx2c4.com/wintun/tree/api/session.c)、[Wintun API](https://www.wintun.net/)、[Qt WebEngine 平台与沙箱说明](https://doc.qt.io/qt-6/qtwebengine-platform-notes.html)。上游文档仅支持可行性分析，不替代对应设备验证。
+Linux 分配方在交付 fd 前调用同一正式后端并交付实际元数据，接收方比对真实全表；原型夹具继续验证普通用户收发、正常／强杀最终 fd 清理与规则恢复。正式系统助手、Go 数据面及应用会话已接入；桌面授权／注销、实际校园、IPv6 透明入口及完整网络迁移仍待，未经相应 S4-06 验收不接管日常网络。macOS 手写捕获命令保留至对应正式后端通过。
