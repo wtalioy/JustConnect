@@ -263,10 +263,10 @@ Linux x64／ARM64 AppImage 分别减少约 2.07%／1.90%；macOS 安装体积基
 
 - S1-06、S4-03／06、S5-02 macOS utun／捕获／权限助手已通过 `2c53431` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40135547523)／[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40135550037)及[六组实际预览包](https://github.com/wtalioy/JustConnect/actions/runs/40135515496)，含同源 Linux 发行版助手。C ABI 已验真实 TCP／UDP／空报文，Qt 助手已验普通用户 fd／UDP、真实网络授权、持 fd 撤销、已应用后取消、EOF 和助手强杀后的通知／新进程恢复；无效凭据、其他签名／角色／用户及存活连接拒绝。原生 `/24`、同前缀／外部值及未确认恢复回归保留。复用正式后端、`UnixNetworkJournal`、IPv4 与私有目录校验，修复回调引用寿命和整包重签角色保留，不增轮询；Linux 协议 8／存储 2 不变。已删除手写捕获和临时诊断、归并旧记录／调试产物，无新 SDK／源码副本；旧启动记录保留，不作当前网络恢复依据。当前 Mac 实际包为临时签名，明确拒绝未具备证书身份的网络授权；真实系统设置批准、Developer ID 签名、完整 Qt／核心会话、原出口／DNS、同 IP 替换及桌面／校园仍待，不勾选完整任务。机制见[架构](docs/ARCHITECTURE.md#macos-owned-routes)，证据 `build/reports/macos-helper.json`。
 
-未完成：系统代理真实注销／无人值守恢复及桌面授权、复杂策略路由／在途流量迁移协调、三平台透明入口验收、Linux 桌面验收、Windows 最小权限助手、macOS 完整接入及路由／DNS 所有权与独立恢复。S4-06 验证之前不在日常网络应用透明接管；S3-01／05 的接管就绪与独立恢复仍待验收。系统代理恢复协议 2 的同源码六组实际包已验，不代替真实桌面或透明网络恢复验收。
+- S4-03／06、S5-03 macOS DNS 增量已通过 `158db18` 的[双架构原生检查](https://github.com/wtalioy/JustConnect/actions/runs/40139821202)、[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40140033583)及[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40140033568)：独立临时 SystemConfiguration 会话发布明确域与实际 utun peer，正常／取消／EOF／助手强杀释放仍属本连接的设置，外部同值改写保留；部分发布撤销、命名冲突拒绝、默认路由不变、普通系统解析及 localhost 保护均已验。协议 2／存储 1，无新 DNS 日志；共用 Linux 域名校验和真实查询夹具，Linux 实际解析／助手／强杀恢复及包审计回归通过。已归并过时设备说明、清理重复调试产物，独有失败与原生证据保留；完整 Qt／核心会话、原出口保护、DNS 动态路由及真实桌面仍待，不勾选任务。设计见[架构](docs/ARCHITECTURE.md#owned-tun-dns)，证据 `build/reports/macos-dns.json`。
+未完成：系统代理真实注销／无人值守恢复及桌面授权、复杂策略路由／在途流量迁移协调、三平台透明入口验收、Linux 桌面验收、Windows 最小权限助手、macOS 完整会话、原出口保护与 DNS 动态路由。S4-06 验证之前不在日常网络应用透明接管；S3-01／05 的接管就绪与独立恢复仍待验收。系统代理恢复协议 2 的同源码六组实际包已验，不代替真实桌面或透明网络恢复验收。
 完成条件：三平台具备原型需要的操作与恢复路径，故障注入证明只撤销自身修改；资源、出口和 DNS 规则可解释。记录原型环境与尚未覆盖的系统网络管理方式。
 
-- S4-03／06、S5-03 macOS DNS 增量待原生验收：独立临时 SystemConfiguration 会话发布明确域与实际 utun peer，关闭／强杀释放仍属本连接的设置，外部同值改写保留；协议 2／存储 1，无新 DNS 日志。已共用 Linux 域名校验及真实查询夹具，本地 3 项契约／后端检查、包审计回归及隔离 Linux 真实 DNS／助手／强杀恢复通过；双架构 Mac 原生检查、普通系统解析及全矩阵尚待，不勾选任务。设计见[架构](docs/ARCHITECTURE.md#owned-tun-dns)。
 
 <a id="s5"></a>
 ## S5 无 Clash 的透明原型
