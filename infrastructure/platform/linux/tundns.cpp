@@ -249,16 +249,27 @@ PlatformOperationResult LinuxTunDns::change(const QJsonObject &next, bool restor
     return save(checkpoint);
 }
 
+bool LinuxTunDns::validDomains(const QStringList &names)
+{
+    if (names.isEmpty() || names.size() > LinuxRouteSnapshotRows) return false;
+    QSet<QString> seen;
+    for (const auto &name : names) {
+        if (!domain(name) || seen.contains(name)) return false;
+        seen.insert(name);
+    }
+    return true;
+}
+
 PlatformOperationResult LinuxTunDns::apply(const UnixTunDevice &device, const QStringList &names, const CheckpointWriter &checkpoint)
 {
     if (::geteuid() != 0) return {Status::PermissionDenied, "TUN DNS requires its privileged owner."};
     if (!record.isEmpty() || device.descriptor() < 0 || device.owner().isNull() || names.isEmpty()
         || names.size() > LinuxRouteSnapshotRows)
         return {Status::Failed, "An inactive DNS operation and newly owned configured TUN are required."};
-    QJsonArray domains; QSet<QString> seen;
+    if (!validDomains(names)) return {Status::Failed, "TUN DNS requires distinct canonical routing domains."};
+    QJsonArray domains;
     for (const auto &name : names) {
-        if (!domain(name) || seen.contains(name)) return {Status::Failed, "TUN DNS requires distinct canonical routing domains."};
-        seen.insert(name); domains.append(QJsonObject{{"name", name}, {"route_only", true}});
+        domains.append(QJsonObject{{"name", name}, {"route_only", true}});
     }
     const auto addresses = device.snapshot()["configuration"].toObject()["applied"].toObject()["ipv4"].toArray();
     if (addresses.size() != 1)

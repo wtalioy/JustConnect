@@ -14,7 +14,9 @@ import tempfile
 import uuid
 
 from unix_device_probe import exchange
+from tundns_fixture import query_via_tun
 
+LAYOUT = json.loads((Path(__file__).resolve().parents[2] / 'resource/network-helper.json').read_text())
 
 def encode(value):
     return json.dumps(value, separators=(',', ':')).encode()
@@ -79,6 +81,10 @@ def user_agent(control, uid):
             elif operation == 'exchange':
                 assert len(descriptors) == 1
                 exchange(descriptors[0], '198.18.4.7')
+            elif operation == 'query':
+                assert len(descriptors) == 1
+                query_via_tun(descriptors[0], command['name'], '198.18.0.2', uid,
+                              {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C.UTF-8'})
             elif operation == 'disconnect':
                 channel.close()
                 channel = None
@@ -110,12 +116,14 @@ def main():
     parser.add_argument('--helper', type=Path, required=True)
     parser.add_argument('--installed', action='store_true', help='exercise the actual installed entry in private mount/network namespaces')
     parser.add_argument('--uninstalled-helper', type=Path, help='installed-entry negative fixture with the same binary at another path')
+    parser.add_argument('--dns-probe', type=Path, help='actual resolved and restricted recovery fixture')
     args = parser.parse_args()
     assert os.geteuid() == 0 and args.uid != 0
     assert os.stat('/proc/thread-self/ns/net') != os.stat('/proc/1/ns/net'), 'refusing the host network namespace'
     if args.installed:
         assert os.stat('/proc/thread-self/ns/mnt') != os.stat('/proc/1/ns/mnt'), 'installed-entry probe requires a private mount namespace'
     helper = args.helper.resolve(strict=True)
+    dns_probe = args.dns_probe.resolve(strict=True) if args.dns_probe else None
 
     def ip(*arguments):
         return subprocess.check_output(['ip', *arguments], text=True, timeout=10)
@@ -165,11 +173,11 @@ def main():
         return result
 
     def request(owner, operation):
-        return {'version': 2, 'owner': owner, 'operation': operation}
+        return {'version': LAYOUT['protocol'], 'owner': owner, 'operation': operation}
 
     def application(owner):
         return {**request(owner, 'apply'), 'device': {'source': '198.18.0.1', 'peer': '198.18.0.2', 'mtu': 1400},
-                'capture': ['198.18.4.0/24'],
+                'capture': ['198.18.4.0/24'], 'dns': ['campus.test'] if dns_probe else [],
                 'underlay': {'interface': 'helperorig0', 'source': '192.0.2.1', 'gateway': '', 'prefixes': ['198.18.4.0/24']}}
 
     try:
@@ -199,6 +207,9 @@ def main():
                 else:
                     arguments, inherited = [str(helper), '--scan-isolated', str(directory)], (directory,)
                     environment = None
+                    if dns_probe:
+                        inherited += tuple(map(int, os.environ['JC_TEST_HOST_NAMESPACE_FDS'].split(',')))
+                        arguments = ['/usr/bin/setpriv', '--bounding-set=-all,+net_admin', str(dns_probe), '--scan-isolated', str(directory)]
                 result = subprocess.run(arguments, pass_fds=inherited, env=environment, text=True, capture_output=True, timeout=30)
                 summary = json.loads(result.stdout)
                 assert (result.returncode == 0) == success and summary['worker'] == 'network-recovery', (summary, result.stderr)
@@ -207,7 +218,7 @@ def main():
             def receive(owner, state, descriptor=0, success=True):
                 value = command('receive')
                 packet = value['packet']
-                assert packet and packet['version'] == 2 and packet['owner'] == owner and packet['state'] == state, value
+                assert packet and packet['version'] == LAYOUT['protocol'] and packet['owner'] == owner and packet['state'] == state, value
                 assert (packet['status'] == 0) == success and value['descriptors'] == descriptor, value
                 if descriptor:
                     assert packet['device']['owner'] == owner and packet['device']['interface'].startswith('jc'), value
@@ -243,6 +254,9 @@ def main():
             assert summary['checked'] == summary['live'] == 1 and summary['restored'] == summary['failed'] == 0
             assert inventory() == held and all(path.read_bytes() == contents for path, contents in saved_live.items())
             command('exchange')
+            if dns_probe:
+                command('query', name='helper-' + uuid.uuid4().hex + '.campus.test')
+                print('PASS: ordinary system DNS query through authenticated helper-owned TUN fd', flush=True)
             command('send', packet=request(owner, 'restore'))
             receive(owner, 'restored')
             finish(owner, process)
@@ -254,7 +268,7 @@ def main():
             assert command('receive')['packet'] is None and process.wait(timeout=10) != 0
             assert inventory() == baseline and not list(Path(temporary).iterdir())
 
-            for mutation in ('owner', 'version', 'extra', 'prefix', 'mtu', 'descriptor'):
+            for mutation in ('owner', 'version', 'extra', 'prefix', 'mtu', 'descriptor', 'dns', 'missing-dns'):
                 owner = str(uuid.uuid4())
                 process = start(owner)
                 packet = application(owner)
@@ -266,6 +280,10 @@ def main():
                     packet['program'] = '/bin/sh'
                 elif mutation == 'prefix':
                     packet['capture'] = ['0.0.0.0/0']
+                elif mutation == 'dns':
+                    packet['dns'] = ['Campus.test']
+                elif mutation == 'missing-dns':
+                    del packet['dns']
                 elif mutation == 'mtu':
                     packet['device']['mtu'] = 1400.5
                 command('send', packet=packet, descriptor=mutation == 'descriptor')
@@ -297,7 +315,7 @@ def main():
             command('close-descriptors')
             assert inventory() == baseline
             saved = {path: path.read_bytes() for path in Path(temporary).rglob('*.json')}
-            assert any(json.loads(contents).get('version') == 1 for contents in saved.values()), 'wire upgrade changed stored recovery metadata'
+            assert json.loads((Path(temporary) / f'{args.uid}-{owner}' / 'source.json').read_bytes())['version'] == LAYOUT['storage_version']
             process = start(owner)
             command('send', packet=application(owner))
             assert command('receive')['packet'] is None and process.wait(timeout=10) != 0
@@ -322,6 +340,22 @@ def main():
             assert command('receive')['packet'] is None and process.wait(timeout=10) != 0
             assert inventory() == before_cleanup, 'receipt cleanup performed native recovery on an active connection'
             context_file = Path(temporary) / f'{args.uid}-{owner}' / 'source.json'
+            if dns_probe:
+                dns_file = context_file.parent / 'dns/source.json'
+                original_dns = dns_file.read_bytes()
+                foreign_dns = json.loads(original_dns)
+                foreign_dns['namespace'] += '.foreign'
+                dns_file.write_bytes(encode(foreign_dns))
+                summary = scan(success=False)
+                assert summary['failed'] == 1 and summary['restored'] == 0 and inventory() == before_cleanup, \
+                    'failed DNS recovery released capture or original egress prematurely'
+                dns_file.write_bytes(original_dns)
+            if not dns_probe:
+                # A real active pre-DNS record has version1 and no DNS operation directory.
+                (context_file.parent / 'dns').rmdir()
+                legacy = json.loads(context_file.read_bytes())
+                legacy['version'] = 1
+                context_file.write_bytes(encode(legacy))
             original_context = context_file.read_bytes()
             foreign_context = json.loads(original_context)
             foreign_context['namespace'] += '.foreign'
@@ -421,6 +455,7 @@ def main():
             assert json.loads((receipt / 'source.json').read_text())['phase'] == 'restored'
             (receipt / 'capture').rmdir()
             (receipt / 'underlay').rmdir()
+            (receipt / 'dns').rmdir()
             (receipt / 'source.json').unlink()
             receipt_fd = os.open(receipt, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
             try:

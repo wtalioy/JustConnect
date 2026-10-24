@@ -6,11 +6,12 @@ function(justconnect_linux_network_helper)
         "${REPO}/infrastructure/platform/linux/sourcejournal.cpp"
         "${REPO}/infrastructure/platform/linux/sourceroutes.cpp"
         "${REPO}/infrastructure/platform/linux/tunroutes.cpp"
+        "${REPO}/infrastructure/platform/linux/tundns.cpp"
         "${REPO}/infrastructure/platform/linux/tundevice.cpp"
         "${REPO}/infrastructure/platform/tundevice.cpp"
         "${REPO}/infrastructure/platform/platformcommand.cpp")
     target_include_directories(justconnect_network_helper PUBLIC "${REPO}" "${CMAKE_CURRENT_BINARY_DIR}")
-    target_link_libraries(justconnect_network_helper PUBLIC Qt6::Core)
+    target_link_libraries(justconnect_network_helper PUBLIC Qt6::Core Qt6::DBus)
     add_executable(JustConnectNetworkHelper "${REPO}/infrastructure/platform/linux/networkhelpermain.cpp")
     target_link_libraries(JustConnectNetworkHelper PRIVATE justconnect_network_helper)
     target_compile_definitions(JustConnectNetworkHelper PRIVATE
@@ -20,6 +21,12 @@ function(justconnect_linux_network_helper)
     set_target_properties(JustConnectNetworkHelper PROPERTIES INSTALL_RPATH "")
     file(READ "${REPO}/resource/network-helper.json" HELPER_LAYOUT)
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${REPO}/resource/network-helper.json")
+    string(JSON JC_NETWORK_HELPER_PROTOCOL GET "${HELPER_LAYOUT}" protocol)
+    string(JSON JC_NETWORK_HELPER_STORAGE_VERSION GET "${HELPER_LAYOUT}" storage_version)
+    if(NOT JC_NETWORK_HELPER_PROTOCOL MATCHES "^[1-9][0-9]*$"
+        OR NOT JC_NETWORK_HELPER_STORAGE_VERSION MATCHES "^[1-9][0-9]*$")
+        message(FATAL_ERROR "Invalid Linux helper protocol or storage version")
+    endif()
     string(JSON JC_NETWORK_HELPER_PATH GET "${HELPER_LAYOUT}" executable)
     string(JSON JC_NETWORK_HELPER_ACTION GET "${HELPER_LAYOUT}" action)
     string(JSON JC_NETWORK_HELPER_AUTHORIZATION GET "${HELPER_LAYOUT}" authorization_program)

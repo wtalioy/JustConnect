@@ -28,7 +28,7 @@ namespace {
 using Result = PlatformOperationResult;
 using Status = Result::Status;
 constexpr int inspectionTimeoutMs = 3000;
-constexpr int operationTimeoutMs = 3 * LinuxRouteOperationTimeoutMs + LinuxHelperPacketTimeoutMs;
+constexpr int operationTimeoutMs = 4 * LinuxRouteOperationTimeoutMs + LinuxHelperPacketTimeoutMs;
 
 QProcessEnvironment cleanEnvironment()
 {
@@ -135,8 +135,9 @@ QJsonObject LinuxNetworkHelperClient::command(const char *name) const
 
 void LinuxNetworkHelperClient::apply(const QUuid &owner, const LinuxHelperConfiguration &configuration)
 {
-    if (configuration.capturePrefixes.size() > LinuxRouteSnapshotRows || configuration.originalPrefixes.size() > LinuxRouteSnapshotRows) {
-        emit finished(Operation::Apply, {Status::Failed, "Too many network prefixes."}); return;
+    if (configuration.capturePrefixes.size() > LinuxRouteSnapshotRows || configuration.originalPrefixes.size() > LinuxRouteSnapshotRows
+        || configuration.dnsDomains.size() > LinuxRouteSnapshotRows) {
+        emit finished(Operation::Apply, {Status::Failed, "Too many network configuration entries."}); return;
     }
     const auto request = linuxHelperApplyRequest(owner, configuration);
     if (!parseLinuxHelperApply(owner, request)) {

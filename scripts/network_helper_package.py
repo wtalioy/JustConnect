@@ -113,7 +113,7 @@ def inspect_package(path, revision):
     if not re.fullmatch(r'0~git[0-9]+\.' + revision, headers['Version']):
         raise ValueError('Package version does not match the source revision')
     dependencies = headers['Depends']
-    if not all(name in dependencies for name in ('libqt6core6', 'libc6', 'libstdc++6', 'iproute2', 'pkexec')):
+    if not all(name in dependencies for name in ('libqt6core6', 'libqt6dbus6', 'libc6', 'libstdc++6', 'iproute2', 'pkexec')):
         raise ValueError('Missing actual system runtime or authorization dependencies')
     if not re.search(r'(^|,\s*)systemd(?:\s*\([^)]*\))?(?=,|$)', dependencies):
         raise ValueError('Missing the system recovery manager dependency')

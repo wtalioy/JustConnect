@@ -27,7 +27,7 @@ class NetworkHelperPackageTest(unittest.TestCase):
         policy = (ROOT / 'resource/network-helper.policy.in').read_text().replace('@JC_NETWORK_HELPER_ACTION@', package.LAYOUT['action']).replace('@JC_NETWORK_HELPER_PATH@', package.LAYOUT['executable']).encode()
         metadata = ('Package: justconnect-network-helper\nVersion: 0~git1.' + revision + '\nSection: net\nPriority: optional\n'
                     'Architecture: amd64\nInstalled-Size: 1\nMaintainer: JustConnect\nDescription: System helper\n'
-                    'Homepage: https://github.com/wtalioy/JustConnect\nDepends: iproute2, pkexec | policykit-1, systemd, libc6, libstdc++6, libqt6core6t64\n')
+                    'Homepage: https://github.com/wtalioy/JustConnect\nDepends: iproute2, pkexec | policykit-1, systemd, libc6, libstdc++6, libqt6core6t64, libqt6dbus6\n')
 
         def regular(name, contents):
             entry = tarfile.TarInfo(name)
@@ -48,12 +48,14 @@ class NetworkHelperPackageTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / 'helper.deb'
             path.write_bytes(b'archive-hash-fixture')
-            for mutation in ('valid', 'runtime', 'architecture', 'side-effect', 'duplicate', 'source', 'version',
+            for mutation in ('valid', 'runtime', 'dbus', 'architecture', 'side-effect', 'duplicate', 'source', 'version',
                              'manager', 'recovery-executable', 'recovery-privilege', 'recovery-path', 'recovery-dependency', 'timer'):
                 text = metadata
                 payload = dict(files)
                 if mutation == 'runtime':
                     text = text.replace(', libqt6core6t64', '')
+                elif mutation == 'dbus':
+                    text = text.replace(', libqt6dbus6', '')
                 elif mutation == 'architecture':
                     text = text.replace('amd64', 'i386')
                 elif mutation == 'side-effect':
