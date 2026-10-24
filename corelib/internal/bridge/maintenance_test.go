@@ -22,7 +22,6 @@ func TestOnlineMaintenanceAndIdleTrafficControls(t *testing.T) {
 		disableDNS bool
 	}{{"off", "off", false}, {"auto", "auto", false}, {"target", "target", false}, {"disabled_dns", "auto", true}} {
 		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
 			mode := test.mode
 			g := newGateway(t)
 			g.resumeCookies.Store(true)
