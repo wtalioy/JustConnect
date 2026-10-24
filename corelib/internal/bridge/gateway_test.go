@@ -523,10 +523,11 @@ func (g *gateway) serveL3(conn net.Conn) {
 				ip.ResetChecksum()
 				time.Sleep(time.Duration(g.delay.Load()))
 				response := append([]byte{5, 0x94, byte(len(packet) >> 8), byte(len(packet))}, packet...)
+				// Count received traffic before its reply can become visible to the caller.
+				g.udpCount.Add(1)
 				if _, err := conn.Write(response); err != nil {
 					return
 				}
-				g.udpCount.Add(1)
 			}
 		default:
 			return
