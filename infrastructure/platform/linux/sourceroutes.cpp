@@ -302,6 +302,22 @@ PlatformOperationResult LinuxSourceRoutes::extend(const QUuid &id, const QString
         for (const auto &entry : entries) covered |= ipv4PrefixContainsAddress(entry.prefix,address);
         if (!covered) prefixes.append(address+"/32");
     }
+    return ensurePrefixes(id, prefixes, checkpoint);
+}
+
+PlatformOperationResult LinuxSourceRoutes::ensurePrefixes(const QUuid &id, const QStringList &requested, const CheckpointWriter &checkpoint)
+{
+    const auto invalid = PlatformOperationResult{Status::Failed,"Route additions require confirmed source ownership."};
+    if (id.isNull() || id != owner || !rulePending || ruleDeleting || appliedRule.isEmpty()
+        || requested.size() > LinuxRouteSnapshotRows) return invalid;
+    for (const auto &entry : entries) if (entry.deleting || entry.applied.isEmpty()) return invalid;
+    QStringList prefixes;
+    for (const auto &prefix : requested) {
+        if (!canonicalIpv4Prefix(prefix) || prefix == gatewayAddress + "/32") return invalid;
+        bool present = false;
+        for (const auto &entry : entries) present |= entry.prefix == prefix;
+        if (!present) prefixes.append(prefix);
+    }
     prefixes.removeDuplicates();
     if (entries.size()+prefixes.size() > LinuxRouteSnapshotRows) return invalid;
     const auto utility = trustedIpRouteUtility();

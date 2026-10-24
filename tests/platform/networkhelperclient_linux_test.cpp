@@ -116,6 +116,28 @@ int main(int argc, char **argv) try
                 QFileInfo(QString::fromUtf8(__FILE__)).absolutePath(),QString::number(device)});
             check(exchange.waitForFinished(8000) && exchange.exitCode() == 0 && exchange.exitStatus() == QProcess::NormalExit,
                   qPrintable(QString::fromUtf8(exchange.readAllStandardError())));
+            if (scenario == "normal" || scenario == "routes-partial") {
+                previous = results.size();
+                const QStringList changedCapture{"198.18.4.0/24","198.18.7.0/24"};
+                client->reconcile(changedCapture);
+                wait([&] { return results.size() == previous+1; });
+                if (scenario == "routes-partial") {
+                    check(results.last().status == Status::Failed && client->state() == Client::State::Idle
+                          && !client->ownedConfiguration() && client->descriptor() < 0,
+                          "Partial live route apply failed to restore all owned network state");
+                    std::cout << "PASS: Qt helper client " << scenario.toStdString() << '\n';
+                    return 0;
+                }
+                check(results.last().succeeded() && client->state() == Client::State::Active && client->descriptor() == device
+                      && client->ownedConfiguration()->capturePrefixes == changedCapture
+                      && client->ownedConfiguration()->originalPrefixes.contains("198.18.6.7/32"),
+                      "Live route confirmation replaced the fd or discarded still-owned original egress");
+                previous = results.size();
+                client->reconcile(beforeExtension.capturePrefixes);
+                wait([&] { return results.size() == previous+1; });
+                check(results.last().succeeded() && client->ownedConfiguration()->capturePrefixes == beforeExtension.capturePrefixes,
+                      "Live route withdrawal retained stale capture in its confirmed view");
+            }
             if (scenario.startsWith("dns")) {
                 exchange.start("/usr/bin/python3", {"-B", "-c",
                     "import os,sys;sys.path.insert(0,sys.argv[1]);from tundns_fixture import query_via_tun;"

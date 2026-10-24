@@ -189,6 +189,22 @@ Result LinuxTunRoutes::extend(const UnixTunDevice &device, const QStringList &ad
         for (const auto &entry : entries) covered |= ipv4PrefixContainsAddress(entry.prefix,address);
         if (!covered) prefixes.append(address+"/32");
     }
+    return addPrefixes(device, prefixes, checkpoint);
+}
+
+Result LinuxTunRoutes::addPrefixes(const UnixTunDevice &device, const QStringList &requested, const CheckpointWriter &checkpoint)
+{
+    const Result invalid{Status::Failed,"Route additions require confirmed capture ownership."};
+    if (requested.size() > LinuxRouteSnapshotRows || !owns(device)
+        || !assignedLinuxTunPair(interfaceName,interfaceIndex,sourceAddress,gatewayPeer)) return invalid;
+    for (const auto &entry : entries) if (entry.deleting || entry.applied.isEmpty()) return invalid;
+    QStringList prefixes;
+    for (const auto &prefix : requested) {
+        if (!canonicalIpv4Prefix(prefix)) return invalid;
+        bool present = false;
+        for (const auto &entry : entries) present |= entry.prefix == prefix;
+        if (!present) prefixes.append(prefix);
+    }
     prefixes.removeDuplicates();
     if (entries.size()+prefixes.size() > LinuxRouteSnapshotRows) return invalid;
     const auto utility = trustedIpRouteUtility();
@@ -239,20 +255,35 @@ Result LinuxTunRoutes::extend(const UnixTunDevice &device, const QStringList &ad
     return result;
 }
 
+Result LinuxTunRoutes::reconcile(const UnixTunDevice &device, const QStringList &requested, const CheckpointWriter &checkpoint)
+{
+    // Add replacements before withdrawing old capture, keeping egress available throughout.
+    QSet<QString> previous;
+    for (const auto &entry : entries) previous.insert(entry.prefix);
+    const QSet<QString> retained(requested.begin(), requested.end());
+    const auto added = addPrefixes(device, requested, checkpoint);
+    if (!added.succeeded()) return added;
+    auto result = restore(owner, checkpoint, &retained);
+    result.mayHaveChanged |= added.mayHaveChanged || previous != retained;
+    return result;
+}
+
 Result LinuxTunRoutes::restore(const UnixTunDevice &device, const CheckpointWriter &checkpoint)
 {
     if(owner.isNull())return {};
     if(!owns(device))return {Status::Failed,"Route ownership no longer matches the active TUN device.",true};
     return restore(owner,checkpoint);
 }
-Result LinuxTunRoutes::restore(const QUuid &id, const CheckpointWriter &checkpoint)
+Result LinuxTunRoutes::restore(const QUuid &id, const CheckpointWriter &checkpoint, const QSet<QString> *retained)
 {
     if(owner.isNull())return {};
     if(id!=owner || linuxNetworkNamespace()!=networkNamespace)return {Status::Failed,"Capture owner or network namespace changed.",true};
     const auto failed=[](Result result){result.mayHaveChanged=true;return result;};
     const auto complete=[&](bool external) {
-        const auto result=checkpoint?checkpoint({}):Result{};if(!result.succeeded())return failed(result);
-        clear();return Result{Status::Success,external?QString("External route changes were preserved."):QString{}};
+        const auto result=checkpoint?checkpoint(retained ? snapshot() : QJsonObject{}):Result{};
+        if(!result.succeeded())return failed(result);
+        if (!retained) clear();
+        return Result{Status::Success,external?QString("External route changes were preserved."):QString{}};
     };
     // This live instance knows no native write was attempted; a fresh instance must retain ambiguity.
     if(origin==Origin::Prepared || entries.isEmpty())return complete(false);
@@ -261,6 +292,11 @@ Result LinuxTunRoutes::restore(const QUuid &id, const CheckpointWriter &checkpoi
     if(!before.result.succeeded())return failed(before.result);
     bool external=false,unresolved=false;QSet<QString> planned;QByteArray batch;
     for(auto it=entries.begin();it!=entries.end();) {
+        if (retained && retained->contains(it->prefix)) {
+            if (!sameLinuxRoute(find(before.rows,it->prefix),it->applied))
+                return {Status::Failed,"Retained capture changed during reconciliation.",true};
+            ++it; continue;
+        }
         const auto current=find(before.rows,it->prefix);
         if(current.isEmpty() || (!it->applied.isEmpty() && !sameLinuxRoute(current,it->applied))) {
             if(current.isEmpty())for(const auto &value:before.rows)external|=ipv4RoutePrefix(value.toObject())==it->prefix;
@@ -270,7 +306,7 @@ Result LinuxTunRoutes::restore(const QUuid &id, const CheckpointWriter &checkpoi
         else if(it->applied.isEmpty() && !createdShape(current)){unresolved=true;++it;}
         else {it->applied=current;planned.insert(it->prefix);batch+=command("del",it->prefix);++it;}
     }
-    if(entries.isEmpty())return complete(external);
+    if(entries.isEmpty() || (retained && batch.isEmpty() && !unresolved))return complete(external);
     if(!identity())return {Status::Failed,"TUN identity changed before route recovery.",true};
     if(unresolved && batch.isEmpty())return {Status::Failed,"Interrupted or unconfirmed capture ownership is unresolved; matching state is preserved.",true};
     for(auto &entry:entries)if(planned.contains(entry.prefix))entry.deleting=true;
@@ -280,7 +316,8 @@ Result LinuxTunRoutes::restore(const QUuid &id, const CheckpointWriter &checkpoi
     }
     if(checkpoint) {
         const auto verified=read(utility,int(deadline.remainingTime()));bool unchanged=verified.result.succeeded() && identity();
-        for(const auto &entry:entries)if(planned.contains(entry.prefix))unchanged&=sameLinuxRoute(find(verified.rows,entry.prefix),entry.applied);
+        for(const auto &entry:entries)if(planned.contains(entry.prefix) || (retained && retained->contains(entry.prefix)))
+            unchanged&=sameLinuxRoute(find(verified.rows,entry.prefix),entry.applied);
         if(!unchanged) {
             for(auto &entry:entries)if(planned.contains(entry.prefix))entry.deleting=false;
             return verified.result.succeeded()?Result{Status::Failed,"Capture routes changed during deletion checkpoint publication.",true}:failed(verified.result);
@@ -290,13 +327,20 @@ Result LinuxTunRoutes::restore(const QUuid &id, const CheckpointWriter &checkpoi
     if(!attempted)for(auto &entry:entries)if(planned.contains(entry.prefix))entry.deleting=false;
     const auto after=read(utility,int(deadline.remainingTime()));
     if(!after.result.succeeded())return failed(after.result);
+    bool retainedChanged = false;
     for(auto it=entries.begin();it!=entries.end();) {
+        if (retained && retained->contains(it->prefix)) {
+            retainedChanged |= !sameLinuxRoute(find(after.rows,it->prefix),it->applied);
+            ++it; continue;
+        }
         const auto current=find(after.rows,it->prefix);
         if(current.isEmpty() || (!it->applied.isEmpty() && !sameLinuxRoute(current,it->applied)) || (planned.contains(it->prefix) && removed.succeeded())) {
             external|=!current.isEmpty();it=entries.erase(it);
         } else ++it;
     }
-    if(entries.isEmpty())return complete(external);
+    bool remaining = false;
+    for (const auto &entry : entries) remaining |= !retained || !retained->contains(entry.prefix);
+    if(!remaining && !retainedChanged)return complete(external);
     if(auto saved=saveCheckpoint(checkpoint);!saved.succeeded())return failed(saved);
     return {removed.succeeded()?Status::Failed:removed.status,"Cannot confirm route recovery; ownership records retained.",true};
 }

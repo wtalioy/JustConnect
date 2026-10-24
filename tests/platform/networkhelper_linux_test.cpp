@@ -83,6 +83,14 @@ int main(int argc, char **argv) try
     badExtension = extension; badExtension["program"] = "/bin/sh";
     check(!parseLinuxHelperExtend(owner,badExtension) && !parseLinuxHelperExtend(QUuid::createUuid(),extension),
           "Extra authority or another owner entered DNS route publication");
+    const auto replacement = linuxHelperRoutesRequest(owner,{"198.18.8.0/24","198.18.8.0/24"});
+    check(parseLinuxHelperRoutes(owner,replacement) == std::optional<QStringList>{{"198.18.8.0/24"}}
+          && parseLinuxHelperRoutes(owner,linuxHelperRoutesRequest(owner,{})).has_value(),"Route set parsing lost duplicates or empty withdrawal");
+    auto invalidRoutes = replacement; invalidRoutes["path"] = "/tmp/foreign";
+    check(!parseLinuxHelperRoutes(owner,invalidRoutes) && !parseLinuxHelperRoutes(QUuid::createUuid(),replacement),
+          "Route replacement accepted external authority or another owner");
+    for (const auto &prefix : {"default","0.0.0.0/0","198.18.8.7/24","198.18.8.0/24\nrule del priority 0"})
+        check(!parseLinuxHelperRoutes(owner,linuxHelperRoutesRequest(owner,{QString::fromLatin1(prefix)})),"Unsafe route replacement accepted");
     auto invalid = encoded;
     invalid.remove("dns");
     check(!parseLinuxHelperApply(owner, invalid), "Missing DNS intent silently became an IP-only connection");

@@ -159,8 +159,24 @@ void LinuxNetworkHelperClient::extend(const QStringList &addresses)
         emit finished(Operation::Extend,{Status::Failed,"DNS route publication requires active ownership and canonical addresses."});
         return;
     }
-    pendingExtension = *parsed;
-    operation = Operation::Extend; outcome.reset();
+    changeRoutes(Operation::Extend, *parsed, request);
+}
+
+void LinuxNetworkHelperClient::reconcile(const QStringList &prefixes)
+{
+    const auto request = linuxHelperRoutesRequest(connection,prefixes);
+    const auto parsed = parseLinuxHelperRoutes(connection,request);
+    if (current != State::Active || device < 0 || !parsed) {
+        emit finished(Operation::Routes,{Status::Failed,"Route changes require active ownership and canonical prefixes."});
+        return;
+    }
+    changeRoutes(Operation::Routes, *parsed, request);
+}
+
+void LinuxNetworkHelperClient::changeRoutes(Operation action, const QStringList &targets, const QJsonObject &request)
+{
+    pendingExtension = targets;
+    operation = action; outcome.reset();
     QPointer<LinuxNetworkHelperClient> guard(this);
     setState(State::Extending);
     if (!guard) return;
@@ -338,11 +354,17 @@ void LinuxNetworkHelperClient::receive()
         if (current == State::CancellingExtend) restoreActive();
         else {
             if (!configuration) { failed("The active device lost its confirmed configuration."); return; }
-            for (auto *prefixes : {&configuration->capturePrefixes, &configuration->originalPrefixes}) {
-                for (const auto &address : pendingExtension) {
-                    bool covered = false;
-                    for (const auto &prefix : *prefixes) covered |= ipv4PrefixContainsAddress(prefix, address);
-                    if (!covered) prefixes->append(address + "/32");
+            if (operation == Operation::Routes) {
+                configuration->capturePrefixes = pendingExtension;
+                configuration->originalPrefixes.append(pendingExtension);
+                configuration->originalPrefixes.removeDuplicates();
+            } else {
+                for (auto *prefixes : {&configuration->capturePrefixes, &configuration->originalPrefixes}) {
+                    for (const auto &address : pendingExtension) {
+                        bool covered = false;
+                        for (const auto &prefix : *prefixes) covered |= ipv4PrefixContainsAddress(prefix, address);
+                        if (!covered) prefixes->append(address + "/32");
+                    }
                 }
             }
             pendingExtension.clear();

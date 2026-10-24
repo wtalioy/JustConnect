@@ -59,6 +59,36 @@ static void reply(Engine &engine, const QString &id, const QString &address)
     emit engine.snapshotReady(Kind::Resources, id, resources(address), Status::Success);
 }
 
+static void coordinatedPolicyRequiresBothConfirmations()
+{
+    Engine engine;
+    NetworkPolicySession session(&engine, [] { return DnsSnapshot{}; });
+    emit engine.sessionStarted("coordinated");
+    reply(engine,"coordinated","192.168.10.19");
+    until([&] { return !session.isBusy(); });
+    QJsonObject proposed;
+    session.setPolicyApplier("coordinated", [&](const QJsonObject &value) { proposed = value; });
+    check(session.setCampusAddress("192.168.10.20",true) && !proposed.isEmpty() && engine.policies.isEmpty(),
+          "Coordinated policy bypassed its platform applier");
+    emit engine.policyUpdated("coordinated",proposed["revision"].toString(),Status::Success);
+    check(session.isPolicyUpdating() && session.campusAddresses().isEmpty(),"Core-only success published campus routing before network confirmation");
+    session.completePolicy("stale",proposed["revision"].toString(),Status::Success);
+    session.completePolicy("coordinated","999",Status::Success);
+    check(session.isPolicyUpdating(),"Stale platform acknowledgement completed a newer policy");
+    session.completePolicy("coordinated",proposed["revision"].toString(),Status::Failed);
+    check(!session.isPolicyUpdating() && session.campusAddresses().isEmpty(),"Failed network apply published an unconfirmed campus choice");
+    check(session.setCampusAddress("192.168.10.20",true),"Retry the failed coordinated policy");
+    session.completePolicy("coordinated",proposed["revision"].toString(),Status::Success);
+    check(session.campusAddresses() == QJsonArray{"192.168.10.20"},"Confirmed network policy lost its exact choice");
+    emit engine.sessionStarted("next");
+    reply(engine,"next","192.168.11.19");
+    until([&] { return !session.isBusy(); });
+    check(session.setCampusAddress("192.168.11.20",true) && engine.policies.size() == 1,
+          "New generation inherited its old platform applier");
+    emit engine.policyUpdated("next",engine.policies.last()["revision"].toString(),Status::Success);
+    check(session.campusAddresses() == QJsonArray{"192.168.11.20"},"Unmanaged policy no longer accepts its core confirmation");
+}
+
 static void ownershipViewsStaySerializedAndGenerationBound()
 {
     Engine engine;
@@ -125,6 +155,7 @@ static void ownershipViewsStaySerializedAndGenerationBound()
 int main(int argc, char **argv) try
 {
     QCoreApplication app(argc, argv);
+    coordinatedPolicyRequiresBothConfirmations();
     ownershipViewsStaySerializedAndGenerationBound();
     Engine engine;
     std::atomic_int reads = 0;

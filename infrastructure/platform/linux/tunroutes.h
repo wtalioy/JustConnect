@@ -6,6 +6,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <utility>
+#include <QSet>
 #include <functional>
 
 class LinuxTunRoutes
@@ -20,6 +21,7 @@ public:
                                   const CheckpointWriter &checkpoint = {});
     PlatformOperationResult restore(const UnixTunDevice &device, const CheckpointWriter &checkpoint = {});
     PlatformOperationResult extend(const UnixTunDevice &device, const QStringList &addresses, const CheckpointWriter &checkpoint = {});
+    PlatformOperationResult reconcile(const UnixTunDevice &device, const QStringList &prefixes, const CheckpointWriter &checkpoint = {});
     // The caller must authenticate the privileged owner's saved record before recovery.
     PlatformOperationResult recover(const QUuid &owner, const QJsonObject &saved, const CheckpointWriter &checkpoint = {});
     QJsonObject snapshot() const;
@@ -33,7 +35,8 @@ private:
     bool createdShape(const QJsonObject &row) const;
     QByteArray command(const QString &operation, const QString &prefix) const;
     PlatformOperationResult saveCheckpoint(const CheckpointWriter &checkpoint) const;
-    PlatformOperationResult restore(const QUuid &owner, const CheckpointWriter &checkpoint);
+    PlatformOperationResult addPrefixes(const UnixTunDevice &device, const QStringList &prefixes, const CheckpointWriter &checkpoint);
+    PlatformOperationResult restore(const QUuid &owner, const CheckpointWriter &checkpoint, const QSet<QString> *retained = nullptr);
     void clear();
     PlatformCommandRunner reader;
     QUuid owner;
