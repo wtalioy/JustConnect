@@ -55,7 +55,8 @@ function(justconnect_platform TARGET)
         include("${REPO}/cmake/NetworkHelper.cmake")
         justconnect_linux_network_helper()
         target_sources(${TARGET} PRIVATE "${REPO}/infrastructure/platform/linux/networkhelperclient.cpp"
-            "${REPO}/infrastructure/platform/linux/networkhelperclient.h")
+            "${REPO}/infrastructure/platform/linux/networkhelperclient.h"
+            "${REPO}/infrastructure/platform/linux/dnsroutepublisher.cpp")
         set_target_properties(${TARGET} PROPERTIES AUTOMOC ON)
         target_sources(${TARGET} PRIVATE "${REPO}/infrastructure/platform/linux/dnssnapshot.cpp")
         target_link_libraries(${TARGET} PUBLIC Qt6::DBus justconnect_network_helper)

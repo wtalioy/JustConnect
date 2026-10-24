@@ -30,9 +30,11 @@ public:
     }
 
     // Borrowed raw IPv4 TUN fd; queued implementations retain their own reference.
-    virtual void attachTUN(const QString &generation, qint32, quint32) {
+    virtual void attachTUN(const QString &generation, qint32, quint32, bool = false) {
         emit tunAttached(generation, RequestStatus::Unavailable);
     }
+
+    virtual void acknowledgeDNSRoutes(const QString &, const QString &, bool) {}
 
     static QJsonObject responseFor(const QJsonObject &request, QJsonObject fields) {
         fields["schema_version"] = request["schema_version"];
@@ -46,6 +48,8 @@ signals:
     void initialProtectionApplied(const QJsonObject &policy);
     void policyUpdated(const QString &generation, const QString &revision, CoreEngine::RequestStatus status);
     void snapshotReady(CoreEngine::Snapshot kind, const QString &generation, const QJsonObject &snapshot, CoreEngine::RequestStatus status);
+    void dnsRoutesRequired(const QJsonObject &request);
+    void dnsRoutesAcknowledged(const QString &generation, const QString &request, CoreEngine::RequestStatus status);
     void tunAttached(const QString &generation, CoreEngine::RequestStatus status);
     void authenticationRequired(const QJsonObject &request);
     void authMethodsReady(const QJsonArray &methods);

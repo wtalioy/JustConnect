@@ -1,5 +1,6 @@
 #include "infrastructure/coreengine/embeddedcoreengine.h"
 #include "infrastructure/platform/linux/networkhelperclient.h"
+#include "infrastructure/platform/linux/dnsroutepublisher.h"
 #include "tests/platform/networkhelperfixture.h"
 #include "tuntraffic.h"
 #include <QCoreApplication>
@@ -14,6 +15,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <memory>
+#include <future>
 
 using ProxyCheck::check;
 
@@ -67,6 +69,7 @@ int main(int argc, char **argv) {
     profile.keepAlive.mode = "off";
     auto engine = std::make_unique<EmbeddedCoreEngine>();
     LinuxNetworkHelperClient helper;
+    LinuxDNSRoutePublisher publisher(engine.get(), &helper);
     QList<PlatformOperationResult> helperReplies;
     QList<PlatformOperationResult> helperLosses;
     QObject::connect(&helper, &LinuxNetworkHelperClient::finished, [&](LinuxNetworkHelperClient::Operation, PlatformOperationResult result) {
@@ -128,32 +131,33 @@ int main(int argc, char **argv) {
         check(flags >= 0 && (flags & O_NONBLOCK) && tunReferences() > 0, "received nonblocking native TUN reference");
         const auto attach = [&](quint32 value) {
             const auto previous = replies.size();
-            engine->attachTUN(generation, descriptor, value);
+            engine->attachTUN(generation, descriptor, value, systemDNS);
             until([&] { return replies.size() > previous; });
         };
         attach(mtu + 1);
         check(replies.last() == CoreEngine::RequestStatus::Invalid, "Qt preserves kernel MTU rejection");
         check(::fcntl(descriptor, F_GETFL) == flags, "failed handoff preserves caller descriptor and flags");
         const auto previous = replies.size();
-        engine->attachTUN(generation, descriptor, mtu);
+        engine->attachTUN(generation, descriptor, mtu, systemDNS);
         ::close(descriptor);
         until([&] { return replies.size() > previous; });
         check(replies.last() == CoreEngine::RequestStatus::Success, "queued fd remains valid after caller closes its reference");
         if (systemDNS) {
-            const auto addresses = systemAddresses("campus.test");
+            QTcpSocket uncaptured;
+            uncaptured.connectToHost(QHostAddress("198.18.0.6"),80);
+            check(!uncaptured.waitForConnected(1000),"business address had a capture route before DNS publication");
+            const auto references = tunReferences();
+            helperPrevious = helperReplies.size();
+            auto lookup = std::async(std::launch::async, [] { return systemAddresses("campus.test"); });
+            until([&] { return lookup.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready; });
+            const auto addresses = lookup.get();
             for (const auto &address : addresses)
                 check(address == "198.18.0.6", "system DNS preserved the authorized campus resource");
-            QTcpSocket uncaptured;
-            uncaptured.connectToHost(QHostAddress(addresses.first()),80);
-            check(!uncaptured.waitForConnected(1000),"new DNS address unexpectedly had an initial capture route");
-            helperPrevious = helperReplies.size();
-            const auto references = tunReferences();
-            helper.extend(addresses);
-            until([&] { return helperReplies.size() > helperPrevious; });
-            check(helperReplies.last().succeeded() && helper.state() == LinuxNetworkHelperClient::State::Active
+            check(helperReplies.size() > helperPrevious && helperReplies.last().succeeded()
+                  && helper.state() == LinuxNetworkHelperClient::State::Active
                   && helper.descriptor() == borrowed && tunReferences() == references,
-                  "DNS route publication preserves the active helper/core fd ownership");
-            std::cout << "PASS: actual DNS addresses published as owned capture routes before ordinary TCP\n" << std::flush;
+                  "DNS reply waits for automatic route publication without changing fd ownership");
+            std::cout << "PASS: DNS reply waits for owned capture routes before ordinary TCP\n" << std::flush;
             for (const auto *hostname : {"public.test", "host.original.test"}) {
                 for (const auto &address : systemAddresses(hostname))
                     check(address == "203.0.113.9", "public and original names retain their original DNS path");

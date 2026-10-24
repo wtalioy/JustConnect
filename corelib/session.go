@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"sync/atomic"
 	"time"
 
@@ -65,9 +66,9 @@ type Session struct {
 }
 
 // AttachTUN takes device ownership only on success; Run closes it before returning.
-func (s *Session) AttachTUN(device io.ReadWriteCloser, mtu uint32) error {
+func (s *Session) AttachTUN(device io.ReadWriteCloser, mtu uint32, publishDNSRoutes func(context.Context, []netip.Addr) error) error {
 	if listeners := s.listeners.Load(); listeners != nil {
-		return listeners.AttachTUN(device, mtu)
+		return listeners.AttachTUN(device, mtu, publishDNSRoutes)
 	}
 	return net.ErrClosed
 }

@@ -30,8 +30,8 @@ func TestCampusDNSBindingsFollowCNAMEExpiryAndCurrentProtection(t *testing.T) {
 		&dns.A{Hdr: dns.RR_Header{Name: "target.test.", Class: dns.ClassINET, Rrtype: dns.TypeA, Ttl: 30}, A: net.IPv4(203, 0, 113, 7)},
 	}
 	ip := netip.MustParseAddr("203.0.113.7")
-	if err := r.bindCampusAnswer(request, reply); err != nil {
-		t.Fatal(err)
+	if addresses, err := r.bindCampusAnswer(request, reply, nil); err != nil || len(addresses) != 1 || addresses[0] != ip {
+		t.Fatal("publication addresses must use only the validated answer chain", addresses, err)
 	}
 	if len(r.CampusResourcesForIP(t.Context(), ip)) != 1 || len(r.CampusResourcesForIP(t.Context(), netip.MustParseAddr("203.0.113.9"))) != 0 {
 		t.Fatal("CNAME destination or unrelated record granted the wrong address")
@@ -39,7 +39,7 @@ func TestCampusDNSBindingsFollowCNAMEExpiryAndCurrentProtection(t *testing.T) {
 	sharedRequest := new(dns.Msg).SetQuestion("other.campus.test.", dns.TypeA)
 	sharedReply := new(dns.Msg).SetReply(sharedRequest)
 	sharedReply.Answer = []dns.RR{&dns.A{Hdr: dns.RR_Header{Name: "other.campus.test.", Class: dns.ClassINET, Rrtype: dns.TypeA, Ttl: 1}, A: net.IPv4(203, 0, 113, 7)}}
-	if err := r.bindCampusAnswer(sharedRequest, sharedReply); err != nil {
+	if _, err := r.bindCampusAnswer(sharedRequest, sharedReply, nil); err != nil {
 		t.Fatal(err)
 	}
 	blocked, err := policy.NewProtectionPolicy(nil, nil, []policy.NameRule{{Kind: "exact", Value: "alias.campus.test"}}, nil)
@@ -60,7 +60,7 @@ func TestCampusDNSBindingsFollowCNAMEExpiryAndCurrentProtection(t *testing.T) {
 		t.Fatal("A TTL outlived the shorter CNAME TTL")
 	}
 	reply.Answer[1].Header().Ttl = 0
-	if err := r.bindCampusAnswer(request, reply); err != nil || len(r.CampusResourcesForIP(ctx, ip)) != 1 {
+	if _, err := r.bindCampusAnswer(request, reply, nil); err != nil || len(r.CampusResourcesForIP(ctx, ip)) != 1 {
 		t.Fatal("zero-TTL answer could not hand off its first flow", err)
 	}
 	r.Close()
@@ -79,14 +79,14 @@ func TestCampusDNSBindingCapacityRejectsAtomicallyAndReclaimsExpiry(t *testing.T
 		for n := group * 1024; n < (group+1)*1024; n++ {
 			reply.Answer = append(reply.Answer, &dns.A{Hdr: dns.RR_Header{Name: host, Class: dns.ClassINET, Rrtype: dns.TypeA, Ttl: 30}, A: net.IPv4(198, 19, byte(n>>8), byte(n))})
 		}
-		if err := r.bindCampusAnswer(request, reply); err != nil {
+		if _, err := r.bindCampusAnswer(request, reply, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
 	request := new(dns.Msg).SetQuestion("next.campus.test.", dns.TypeA)
 	reply := new(dns.Msg).SetReply(request)
 	reply.Answer = []dns.RR{&dns.A{Hdr: dns.RR_Header{Name: "next.campus.test.", Class: dns.ClassINET, Rrtype: dns.TypeA, Ttl: 30}, A: net.IPv4(192, 0, 2, 7)}}
-	if err := r.bindCampusAnswer(request, reply); !errors.Is(err, ErrCampusDNSCapacity) {
+	if _, err := r.bindCampusAnswer(request, reply, nil); !errors.Is(err, ErrCampusDNSCapacity) {
 		t.Fatal("full cache accepted another binding", err)
 	}
 	if len(r.CampusResourcesForIP(t.Context(), netip.MustParseAddr("192.0.2.7"))) != 0 {
@@ -98,7 +98,7 @@ func TestCampusDNSBindingCapacityRejectsAtomicallyAndReclaimsExpiry(t *testing.T
 		}
 		r.dnsBindings[address] = bindings
 	}
-	if err := r.bindCampusAnswer(request, reply); err != nil || len(r.CampusResourcesForIP(t.Context(), netip.MustParseAddr("192.0.2.7"))) != 1 {
+	if _, err := r.bindCampusAnswer(request, reply, nil); err != nil || len(r.CampusResourcesForIP(t.Context(), netip.MustParseAddr("192.0.2.7"))) != 1 {
 		t.Fatal("expired capacity was not reclaimed", err)
 	}
 }
@@ -112,11 +112,11 @@ func TestCampusDNSBindingsRejectAliasCyclesAndForeignClasses(t *testing.T) {
 		&dns.CNAME{Hdr: dns.RR_Header{Name: "loop.campus.test.", Class: dns.ClassINET, Rrtype: dns.TypeCNAME, Ttl: 30}, Target: "target.test."},
 		&dns.CNAME{Hdr: dns.RR_Header{Name: "target.test.", Class: dns.ClassINET, Rrtype: dns.TypeCNAME, Ttl: 30}, Target: "loop.campus.test."},
 	}
-	if err := r.bindCampusAnswer(request, reply); !errors.Is(err, ErrInvalidDNSResponse) {
+	if _, err := r.bindCampusAnswer(request, reply, nil); !errors.Is(err, ErrInvalidDNSResponse) {
 		t.Fatal("alias cycle accepted", err)
 	}
 	reply.Answer = []dns.RR{&dns.A{Hdr: dns.RR_Header{Name: "loop.campus.test.", Class: dns.ClassCHAOS, Rrtype: dns.TypeA, Ttl: 30}, A: net.IPv4(203, 0, 113, 7)}}
-	if err := r.bindCampusAnswer(request, reply); err != nil || len(r.CampusResourcesForIP(t.Context(), netip.MustParseAddr("203.0.113.7"))) != 0 {
+	if _, err := r.bindCampusAnswer(request, reply, nil); err != nil || len(r.CampusResourcesForIP(t.Context(), netip.MustParseAddr("203.0.113.7"))) != 0 {
 		t.Fatal("non-IN record granted a campus flow", err)
 	}
 }
@@ -133,7 +133,7 @@ func TestCampusDNSBindingsConcurrentLookupAndClose(t *testing.T) {
 	for host := range records {
 		workers.Go(func() {
 			request := new(dns.Msg).SetQuestion(host+".", dns.TypeA)
-			if _, err := r.ExchangeCampus(t.Context(), request, "udp", nil); err != nil {
+			if _, err := r.ExchangeCampus(t.Context(), request, "udp", nil, nil); err != nil {
 				t.Error(err)
 			}
 			if len(r.CampusResourcesForIP(t.Context(), netip.MustParseAddr("203.0.113.7"))) != 1 {
@@ -142,7 +142,7 @@ func TestCampusDNSBindingsConcurrentLookupAndClose(t *testing.T) {
 			ready <- struct{}{}
 			<-proceed
 			for range 16 {
-				_, err := r.ExchangeCampus(t.Context(), request, "udp", nil)
+				_, err := r.ExchangeCampus(t.Context(), request, "udp", nil, nil)
 				if err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, context.Canceled) {
 					t.Error(err)
 				}
@@ -158,5 +158,34 @@ func TestCampusDNSBindingsConcurrentLookupAndClose(t *testing.T) {
 	workers.Wait()
 	if len(r.CampusResourcesForIP(t.Context(), netip.MustParseAddr("203.0.113.7"))) != 0 {
 		t.Fatal("closed resolver exposed a live grant")
+	}
+}
+
+func TestCampusDNSPublicationPrecedesAuthorizationLifetime(t *testing.T) {
+	r := bindingResolver()
+	defer r.Close()
+	request := new(dns.Msg).SetQuestion("alias.campus.test.", dns.TypeA)
+	reply := new(dns.Msg).SetReply(request)
+	address := netip.MustParseAddr("203.0.113.7")
+	reply.Answer = []dns.RR{&dns.A{Hdr: dns.RR_Header{Name: request.Question[0].Name, Class: dns.ClassINET, Rrtype: dns.TypeA, Ttl: 0}, A: net.IPv4(203, 0, 113, 7)}}
+	refused := errors.New("route publication failed")
+	if _, err := r.bindCampusAnswer(request, reply, func([]netip.Addr) error { return refused }); !errors.Is(err, refused) {
+		t.Fatal("publication failure ignored", err)
+	}
+	if len(r.CampusResourcesForIP(t.Context(), address)) != 0 {
+		t.Fatal("failed publication granted a captured address")
+	}
+	var published time.Time
+	if _, err := r.bindCampusAnswer(request, reply, func(addresses []netip.Addr) error {
+		if len(addresses) != 1 || addresses[0] != address || len(r.CampusResourcesForIP(t.Context(), address)) != 0 {
+			t.Fatal("address authorized before publication", addresses)
+		}
+		published = time.Now()
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.CampusResourcesForIP(t.Context(), address)) != 1 || r.dnsBindings[address][0].expires.Before(published.Add(time.Second)) {
+		t.Fatal("publication consumed the zero-TTL first-flow lifetime")
 	}
 }

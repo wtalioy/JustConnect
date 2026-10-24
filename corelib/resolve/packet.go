@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/netip"
 	"strconv"
 	"strings"
 
@@ -19,7 +20,7 @@ var ErrInvalidDNSResponse = errors.New("invalid campus DNS response")
 const DNSPort = 53
 
 // ExchangeCampus preserves DNS records; the caller supplies the ACL-enforcing campus dialer.
-func (r *Resolver) ExchangeCampus(ctx context.Context, request *dns.Msg, transport string, dial client.DialContextFunc) (*dns.Msg, error) {
+func (r *Resolver) ExchangeCampus(ctx context.Context, request *dns.Msg, transport string, dial client.DialContextFunc, publish func(context.Context, []netip.Addr) error) (*dns.Msg, error) {
 	if request == nil || request.Response || request.Opcode != dns.OpcodeQuery || len(request.Question) != 1 ||
 		request.Question[0].Qclass != dns.ClassINET || (transport != "udp" && transport != "tcp") {
 		return nil, ErrInvalidDNSQuestion
@@ -55,6 +56,10 @@ func (r *Resolver) ExchangeCampus(ctx context.Context, request *dns.Msg, transpo
 			explicit = protected && allowed
 		}
 	}
+	var prepare func([]netip.Addr) error
+	if publish != nil {
+		prepare = func(addresses []netip.Addr) error { return publish(ctx, addresses) }
+	}
 	ips, known := r.dnsResource[host]
 	if _, _, granted := matchDomainResource(r.domainIndex, host); !granted && !known && !explicit {
 		return nil, ErrOriginalDNSRequired
@@ -70,10 +75,8 @@ func (r *Resolver) ExchangeCampus(ctx context.Context, request *dns.Msg, transpo
 				reply.Answer = append(reply.Answer, &dns.AAAA{Hdr: header, AAAA: append(net.IP(nil), ip.To16()...)})
 			}
 		}
-		if err := r.bindCampusAnswer(request, reply); err != nil {
-			return nil, err
-		}
-		return reply, nil
+		_, err := r.bindCampusAnswer(request, reply, prepare)
+		return reply, err
 	}
 	if !r.useRemoteDNS || r.remoteDNSServer == "" || dial == nil {
 		return nil, ErrCampusDNSUnavailable
@@ -106,7 +109,7 @@ func (r *Resolver) ExchangeCampus(ctx context.Context, request *dns.Msg, transpo
 		reply, err = exchange("tcp")
 	}
 	if err == nil {
-		err = r.bindCampusAnswer(request, reply)
+		_, err = r.bindCampusAnswer(request, reply, prepare)
 	}
 	return reply, err
 }

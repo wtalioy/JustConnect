@@ -33,6 +33,8 @@ UTF-8 JSON 不带结尾 NUL。输入仅借用至调用返回，库在返回前�
 | `jc_session_update_policy(handle, policy, length, generation)` | 完整校验后原子替换本代保护规则，成功返回生效代次，失败输出零 |
 | `jc_session_resources(handle, generation, output, capacity, length)` | 只读返回本代实际解析的校园资源，未就绪时返回 Busy，旧代次或停止后拒绝 |
 | `jc_session_attach_tun(handle, generation, fd, mtu)` | Linux 就绪代次接收经助手验证的非阻塞原始 IPv4 TUN fd；仅成功后持有自身副本，停止前释放 |
+| `jc_session_attach_tun_dns(handle, generation, fd, mtu)` | 同一 fd 接收契约，启用校园 DNS 应答前的所属路由发布确认 |
+| `jc_session_ack_dns_routes(handle, generation, request_id, applied)` | 仅确认已读取的同代次 `dns_routes` 请求；`applied` 严格为 0／1 |
 | `jc_session_stop(handle, wait_ms)` | 先取消，再有界等待清理；重复停止有效句柄成功 |
 | `jc_session_destroy(handle, wait_ms)` | 清理完成后失效、释放句柄；重复销毁已签发句柄成功 |
 
@@ -204,5 +206,9 @@ S2-03 的 `tls` 可省略（默认验证系统信任链及目标主机名）；`
 fd 为调用期间借用的 `int32_t`，须支持读写、已设 `O_NONBLOCK`，每次读写一个原始 IPv4 包。核心先创建 `CLOEXEC` 副本，核对实际 TUN 类型、启用状态、MTU 及不同的有效 IPv4 源／对端地址，以内核 netlink 信息拒绝 PI、virtio、TAP、多队列和持久设备；不依赖 `TUNGETIFF` 中与 `NOFILTER` 共用位的 `NO_PI` 判断帧格式。MTU 须与内核一致并满足包入口的 576–65535 字节范围。调用不更改原 fd 的标志或所有权；失败关闭本次副本，成功后原 fd 可由调用方关闭，核心保留自己的引用。
 
 Qt `CoreEngine::attachTUN(generation, fd, mtu)` 同步保留 `CLOEXEC` 引用后排队到专属核心线程，调用返回即可关闭调用方 fd；通过应用线程的 `tunAttached` 回应代次与 `RequestStatus`。停止期间回应过期，新会话丢弃旧操作；销毁释放尚在队列中的引用。其他平台／缺少能力返回不可用。设备应在原网络保护快照完成后创建，避免把自有捕获路由当成原网络；系统助手与会话的实际编排仍待接入。
+
+需要自动发布时，先核对 `tun_dns_routes:true`，再用 `jc_session_attach_tun_dns`，或 Qt `attachTUN(generation, fd, mtu, true)`。原始 attach 保留调用方管理路由的行为。新模式在成功的 IPv4 校园 DNS 应答前发出 `dns_routes` 事件，含字符串 `generation`／`request_id` 和规范 IPv4 `addresses`；地址仅来自原问题的有效 IN Answer CNAME 链，不采用无关 Answer／Additional。发布前重核当前名称／地址保护，拒绝回环、非单播及自有源／对端；不据此增加协议／端口授权。
+
+宿主通过 `dnsRoutesRequired` 接收事件，在所属助手成功确认路由后调用 `acknowledgeDNSRoutes`；结果通过 `dnsRoutesAcknowledged` 返回。Go 最多保留一个待确认事件，其他查询可取消地等待同一槽位，每个请求从进入发布等待起共用五秒预算；超时／取消删除未读请求。仅完整读取的当前请求可确认，探测缓冲区大小、其他代次、晚到及重复回应均不生效；该事件独立于认证请求。成功发布后才登记地址授权寿命并交付 DNS，应答保留原 TTL；失败／超时返回 SERVFAIL，停止中断等待并加入原有有界清理，不回落公共 DNS。当前追加路由仍保留至所属连接恢复，运行中策略变化与路由撤销／在途流量寿命协调待实现。
 
 活动但未就绪返回 `JC_BUSY`；其他代次、停止／完成返回 `JC_STALE_REQUEST`；无效 fd、帧配置、MTU 或重复交付返回 `JC_INVALID_ARGUMENT`。仅一个所属设备被接收，停止／设备失败会中断 I/O 并等待全部包处理退出，文件设备 I/O 错误沿既有网络失败／权限／超时分类报告，重启须重新交付且不接受旧代次。核心在内核读回的 TUN peer:53 提供 UDP／TCP DNS，仅接受该设备源地址；此地址不转发到校园。复用学校资源、名称保护及校园 DNS 的 IP／协议／端口授权，保留 CNAME、TTL、错误响应及 TCP 重试；内置资源地址直接回答。请求随会话取消，UDP 按查询大小截断。当前透明入口仅 IPv4，AAAA 返回 NOTIMP；非校园／受保护名称返回 REFUSED，不走校园或公共 DNS 回退。校园 A／CNAME 回答另为原查询域名建立至多 4096 项的会话内地址授权绑定，TTL 不超过链中最短值及配置缓存寿命；零 TTL 留一秒首流交接窗口。透明新流仍匹配域名协议／端口、名称与 IP 保护；严格校园 DNS 上游不使用该绑定。Linux 助手的增量捕获接口已通过隔离调用；当前 C ABI 尚无 DNS 应答前的自动发布确认。完整原网络 DNS 分流、地址／流量寿命协调、应用接管编排及其他平台仍待验收。

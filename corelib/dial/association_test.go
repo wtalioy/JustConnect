@@ -29,7 +29,7 @@ func TestCapturedDNSAddressRetainsPortNameAndIPProtection(t *testing.T) {
 		}
 	}
 	check("tcp", "203.0.113.7:80", ErrACLDenied)
-	if _, err := r.ExchangeCampus(t.Context(), new(dns.Msg).SetQuestion("campus.test.", dns.TypeA), "udp", nil); err != nil {
+	if _, err := r.ExchangeCampus(t.Context(), new(dns.Msg).SetQuestion("campus.test.", dns.TypeA), "udp", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	check("tcp", "203.0.113.7:80", nil)

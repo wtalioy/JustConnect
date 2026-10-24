@@ -1,9 +1,15 @@
 package bridge
 
-import "io"
+import (
+	"context"
+	"errors"
+	"io"
+	"net/netip"
+	"time"
+)
 
 // AttachTUN takes ownership only after binding the device to the ready generation.
-func (e *Engine) AttachTUN(handle, generation uint64, device io.ReadWriteCloser, mtu uint32) Status {
+func (e *Engine) AttachTUN(handle, generation uint64, device io.ReadWriteCloser, mtu uint32, publishDNS bool) Status {
 	if generation == 0 || device == nil {
 		return InvalidArgument
 	}
@@ -28,7 +34,17 @@ func (e *Engine) AttachTUN(handle, generation uint64, device io.ReadWriteCloser,
 	if s.protocol == nil {
 		return Unsupported
 	}
-	if err := s.protocol.AttachTUN(device, mtu); err != nil {
+	var publish func(context.Context, []netip.Addr) error
+	if publishDNS {
+		publish = func(ctx context.Context, addresses []netip.Addr) error {
+			status := s.publishDNSRoutes(ctx, generation, addresses, 5*time.Second)
+			if status != OK {
+				return errors.New(status.Message())
+			}
+			return nil
+		}
+	}
+	if err := s.protocol.AttachTUN(device, mtu, publish); err != nil {
 		return InvalidArgument
 	}
 	return OK

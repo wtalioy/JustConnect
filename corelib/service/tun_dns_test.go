@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/netip"
 	"sync/atomic"
@@ -64,7 +65,27 @@ func TestTUNDNSUsesOwnedPeerAndCampusACL(t *testing.T) {
 	}
 	t.Cleanup(p.Close)
 	device := &dnsPacketDevice{newPacketDevice()}
-	if err := p.AttachTUN(device, 1400); err != nil {
+	var publicationMode atomic.Int32
+	publications := make(chan []netip.Addr, 16)
+	release := make(chan bool)
+	publicationCancelled := make(chan struct{})
+	publish := func(ctx context.Context, addresses []netip.Addr) error {
+		publications <- append([]netip.Addr(nil), addresses...)
+		if publicationMode.Load() == 0 {
+			return nil
+		}
+		select {
+		case applied := <-release:
+			if applied {
+				return nil
+			}
+			return errors.New("owned helper refused publication")
+		case <-ctx.Done():
+			close(publicationCancelled)
+			return ctx.Err()
+		}
+	}
+	if err := p.AttachTUN(device, 1400, publish); err != nil {
 		t.Fatal(err)
 	}
 	peer := tunPeer(t, device.packetDevice)
@@ -99,10 +120,51 @@ func TestTUNDNSUsesOwnedPeerAndCampusACL(t *testing.T) {
 	if reply.Truncated || len(reply.Answer) != 81 || reply.Answer[0].Header().Rrtype != dns.TypeCNAME {
 		t.Fatalf("TCP/CNAME records lost: %v", reply)
 	}
+	for index := 0; index < 2; index++ {
+		addresses := <-publications
+		if len(addresses) != 80 || addresses[0] != netip.MustParseAddr("203.0.113.1") || addresses[79] != netip.MustParseAddr("203.0.113.80") {
+			t.Fatal("route publication lost the validated CNAME address set", addresses)
+		}
+	}
+	publicationMode.Store(1)
+	for _, applied := range []bool{true, false} {
+		result := make(chan *dns.Msg, 1)
+		go func() { result <- query("tcp", target, request) }()
+		<-publications
+		select {
+		case reply := <-result:
+			t.Fatal("DNS replied before owned route acknowledgement", reply)
+		case <-time.After(25 * time.Millisecond):
+		}
+		release <- applied
+		reply := <-result
+		want := dns.RcodeServerFailure
+		if applied {
+			want = dns.RcodeSuccess
+		}
+		if reply.Rcode != want || (!applied && len(reply.Answer) != 0) {
+			t.Fatal("publication result ignored", reply)
+		}
+	}
+	publicationMode.Store(0)
 	application := tcpip.FullAddress{NIC: 1, Addr: tcpip.AddrFrom4([4]byte{203, 0, 113, 9}), Port: 80}
 	if reply := query("tcp", application, request); len(reply.Answer) != 81 {
 		t.Fatal("DNS-authorized transparent TCP lost data without an IP resource", reply)
 	}
+	protectedAnswer, err := policy.NewProtectionPolicy([]string{"203.0.113.9/32"}, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	protection.Store(&protectedAnswer)
+	if reply := query("tcp", target, request); reply.Rcode != dns.RcodeRefused {
+		t.Fatal("protected answer was captured", reply)
+	}
+	select {
+	case addresses := <-publications:
+		t.Fatal("protected addresses reached the helper", addresses)
+	default:
+	}
+	protection.Store(nil)
 	before := upstream.Load()
 	for _, entry := range []struct {
 		host string
@@ -126,5 +188,33 @@ func TestTUNDNSUsesOwnedPeerAndCampusACL(t *testing.T) {
 	if upstream.Load() != before {
 		t.Fatal("refused questions generated campus traffic")
 	}
+	protection.Store(nil)
+	publicationMode.Store(1)
+	conn, err := gonet.DialContextTCP(t.Context(), peer, target, ipv4.ProtocolNumber)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	stopped := make(chan error, 1)
+	go func() {
+		_, _, err := (&dns.Client{Net: "tcp"}).ExchangeWithConnContext(t.Context(), request, &dns.Conn{Conn: conn})
+		stopped <- err
+	}()
+	<-publications
 	closeIngress(t, p)
+	select {
+	case <-publicationCancelled:
+	default:
+		t.Fatal("shutdown did not cancel pending DNS publication")
+	}
+	// The detached test link cannot deliver a peer FIN; close the simulated host's socket.
+	_ = conn.Close()
+	select {
+	case err := <-stopped:
+		if err == nil {
+			t.Fatal("shutdown returned a successful unpublished DNS reply")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("simulated DNS caller did not exit after its socket closed")
+	}
 }

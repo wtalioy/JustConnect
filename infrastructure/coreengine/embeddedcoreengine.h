@@ -16,7 +16,8 @@ public:
     void respond(const QJsonObject &response) override;
     void updatePolicy(const QJsonObject &policy) override;
     void readSnapshot(Snapshot kind, const QString &generation) override;
-    void attachTUN(const QString &generation, qint32 descriptor, quint32 mtu) override;
+    void attachTUN(const QString &generation, qint32 descriptor, quint32 mtu, bool publishDNSRoutes = false) override;
+    void acknowledgeDNSRoutes(const QString &generation, const QString &request, bool applied) override;
     static ConnectionError validateConfiguration(const ConnectionProfile &profile);
     static QJsonObject buildInfo();
     static QJsonObject selfTest();

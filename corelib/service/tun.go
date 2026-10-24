@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net"
@@ -35,21 +36,22 @@ type tunFlow struct {
 }
 
 type tunIngress struct {
-	owner       *Listeners
-	device      io.ReadWriteCloser
-	stack       *stack.Stack
-	link        *channel.Endpoint
-	mu          sync.Mutex
-	closed      bool
-	flows       map[tunFlow]struct{}
-	workers     sync.WaitGroup
-	pumps       sync.WaitGroup
-	local, peer netip.Addr
+	owner            *Listeners
+	device           io.ReadWriteCloser
+	stack            *stack.Stack
+	link             *channel.Endpoint
+	mu               sync.Mutex
+	closed           bool
+	flows            map[tunFlow]struct{}
+	workers          sync.WaitGroup
+	pumps            sync.WaitGroup
+	local, peer      netip.Addr
+	publishDNSRoutes func(context.Context, []netip.Addr) error
 }
 
 // AttachTUN takes ownership on success. Each read/write is one raw IPv4 packet;
 // Close must interrupt device I/O. Address, routes and DNS belong to the helper.
-func (p *Listeners) AttachTUN(device io.ReadWriteCloser, mtu uint32) error {
+func (p *Listeners) AttachTUN(device io.ReadWriteCloser, mtu uint32, publishDNSRoutes func(context.Context, []netip.Addr) error) error {
 	if device == nil || mtu < header.IPv4MinimumProcessableDatagramSize || mtu > maxUDPPacket {
 		return errors.New("invalid IPv4 TUN device or MTU")
 	}
@@ -61,7 +63,7 @@ func (p *Listeners) AttachTUN(device io.ReadWriteCloser, mtu uint32) error {
 	if p.tun != nil || p.dialer == nil {
 		return errors.New("TUN requires a dialer and a single device owner")
 	}
-	i := &tunIngress{owner: p, device: device, flows: make(map[tunFlow]struct{})}
+	i := &tunIngress{owner: p, device: device, publishDNSRoutes: publishDNSRoutes, flows: make(map[tunFlow]struct{})}
 	if addressed, ok := device.(interface {
 		TUNAddresses() (netip.Addr, netip.Addr)
 	}); ok {

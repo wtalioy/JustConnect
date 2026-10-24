@@ -39,6 +39,12 @@ JC_API int32_t jc_session_resources(uint64_t handle, uint64_t generation, uint8_
  * Other platforms and the fixture driver return JC_UNSUPPORTED.
  */
 JC_API int32_t jc_session_attach_tun(uint64_t handle, uint64_t generation, int32_t fd, uint32_t mtu);
+/* Opt in to dns_routes events before campus DNS replies. Acknowledge only after
+ * the owned route operation completes. Failure/timeout returns DNS SERVFAIL.
+ * The original attach API retains its caller-managed route behavior.
+ */
+JC_API int32_t jc_session_attach_tun_dns(uint64_t handle, uint64_t generation, int32_t fd, uint32_t mtu);
+JC_API int32_t jc_session_ack_dns_routes(uint64_t handle, uint64_t generation, uint64_t request_id, uint32_t applied);
 /* Stop cancels before waiting; timeout retains the active slot until cleanup.
  * Destroy invalidates only after cleanup. Retry after timeout; repeated destroy
  * succeeds for issued handles. No library unload while the host is alive.

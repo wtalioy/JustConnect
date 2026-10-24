@@ -58,6 +58,7 @@ func buildInfo() []byte {
 			"name_protection":    true,
 			"network_snapshot":   networkstate.Supported(),
 			"resource_snapshot":  !testDriver,
+			"tun_dns_routes":     !testDriver && tundevice.Supported,
 			"raw_ipv4_tun_fd":    !testDriver && tundevice.Supported,
 			"tunnel_mtu":         tunnelMTU,
 			"async_start":        true, "authentication_response": true, "bounded_events": true,
@@ -149,6 +150,26 @@ func jc_go_config_validate(abi C.uint32_t, input *C.uint8_t, length C.uint32_t) 
 
 //export jc_go_session_attach_tun
 func jc_go_session_attach_tun(handle C.uint64_t, generation C.uint64_t, fd C.int32_t, mtu C.uint32_t) C.int32_t {
+	return attachTUN(handle, generation, fd, mtu, false)
+}
+
+//export jc_go_session_attach_tun_dns
+func jc_go_session_attach_tun_dns(handle C.uint64_t, generation C.uint64_t, fd C.int32_t, mtu C.uint32_t) C.int32_t {
+	return attachTUN(handle, generation, fd, mtu, true)
+}
+
+//export jc_go_session_ack_dns_routes
+func jc_go_session_ack_dns_routes(handle C.uint64_t, generation C.uint64_t, request C.uint64_t, applied C.uint32_t) C.int32_t {
+	if testDriver || !tundevice.Supported {
+		return C.int32_t(bridge.Unsupported)
+	}
+	if applied > 1 {
+		return C.int32_t(bridge.InvalidArgument)
+	}
+	return C.int32_t(engine.AcknowledgeDNSRoutes(uint64(handle), uint64(generation), uint64(request), applied == 1))
+}
+
+func attachTUN(handle C.uint64_t, generation C.uint64_t, fd C.int32_t, mtu C.uint32_t, publishDNS bool) C.int32_t {
 	if testDriver || !tundevice.Supported {
 		return C.int32_t(bridge.Unsupported)
 	}
@@ -156,7 +177,7 @@ func jc_go_session_attach_tun(handle C.uint64_t, generation C.uint64_t, fd C.int
 	if err != nil {
 		return C.int32_t(bridge.InvalidArgument)
 	}
-	status := engine.AttachTUN(uint64(handle), uint64(generation), device, uint32(mtu))
+	status := engine.AttachTUN(uint64(handle), uint64(generation), device, uint32(mtu), publishDNS)
 	if status != bridge.OK {
 		_ = device.Close()
 	}
