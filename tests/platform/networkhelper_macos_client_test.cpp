@@ -7,24 +7,15 @@
 #include <QSocketNotifier>
 #include <arpa/inet.h>
 #include <fcntl.h>
-#include <execinfo.h>
 #include <iostream>
 #include <cstring>
 #include <poll.h>
 #include <stdexcept>
 #include <sys/socket.h>
-#include <signal.h>
 #include <unistd.h>
 
 static void check(bool ok, const char *message) { if (!ok) throw std::runtime_error(message); }
 static void report(const QJsonObject &value) { std::cout << QJsonDocument(value).toJson(QJsonDocument::Compact).constData() << std::endl; }
-static void fatalSignal(int signal)
-{
-    void *frames[64];
-    const auto count = ::backtrace(frames,64);
-    ::backtrace_symbols_fd(frames,count,STDERR_FILENO);
-    ::raise(signal);
-}
 static const MacHelperConfiguration configuration{"198.18.0.1","198.18.0.2",1400,{"198.18.0.6/32"}};
 static void packet(int device)
 {
@@ -45,11 +36,6 @@ int main(int argc,char **argv) try
 {
     QCoreApplication app(argc,argv); const auto arguments = app.arguments();
     check(::geteuid() != 0,"Client fixture must run as an ordinary account");
-    void *warm[1]; ::backtrace(warm,1);
-    struct sigaction diagnostic{};
-    diagnostic.sa_handler = fatalSignal; diagnostic.sa_flags = SA_RESETHAND;
-    sigemptyset(&diagnostic.sa_mask);
-    check(::sigaction(SIGSEGV,&diagnostic,nullptr) == 0 && ::sigaction(SIGABRT,&diagnostic,nullptr) == 0,"Install owned fixture fatal diagnostics");
     if (arguments.size() == 2 && arguments[1] == "--unavailable") {
         MacNetworkHelperClient client; bool completed = false;
         QObject::connect(&client,&MacNetworkHelperClient::finished,&app,[&](auto,auto result) {
@@ -133,7 +119,6 @@ int main(int argc,char **argv) try
     });
     QTimer::singleShot(60000,&app,[] { std::_Exit(4); });
     const int status = app.exec();
-    std::cerr << "CLIENT: event loop exited " << status << std::endl;
     if (held >= 0) ::close(held);
     return status;
 } catch (const std::exception &error) { std::cerr << error.what() << '\n';return 1; }

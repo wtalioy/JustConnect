@@ -54,7 +54,6 @@ jobs:
             build/coreabi/macos-helper.log
             build/coreabi/macos-helper/*.out
             build/coreabi/macos-helper/*.err
-            build/coreabi/macos-helper/*-crash.json
   probe:
     if: github.event_name != 'workflow_dispatch' || !inputs.macos_helper_only
     name: ${{ matrix.platform }}-${{ matrix.arch }}
@@ -281,4 +280,3 @@ jobs:
             build/coreabi/Testing/Temporary/*.log
             build/coreabi/macos-helper/*.out
             build/coreabi/macos-helper/*.err
-            build/coreabi/macos-helper/*-crash.json
