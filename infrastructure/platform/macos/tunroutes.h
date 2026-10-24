@@ -28,7 +28,9 @@ public:
     // The privileged caller must authenticate the saved record and its connection owner.
     PlatformOperationResult recover(const QUuid &owner, const QJsonObject &saved, const CheckpointWriter &checkpoint = {});
     QJsonObject snapshot() const;
+    static bool validRecord(const QUuid &owner, const QJsonObject &record);
 private:
+    bool load(const QUuid &owner, const QJsonObject &record);
     struct Entry { QString prefix; QJsonObject applied; bool deleting = false; };
     PlatformOperationResult append(const QStringList &prefixes, const CheckpointWriter &checkpoint);
     PlatformOperationResult save(const CheckpointWriter &checkpoint) const;

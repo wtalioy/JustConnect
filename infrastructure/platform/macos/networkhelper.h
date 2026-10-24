@@ -2,13 +2,16 @@
 
 #include "application/platformoperationresult.h"
 #include "macosnetworkhelperpaths.h"
+#include "infrastructure/platform/networkjournal.h"
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QStringList>
 #include <QUuid>
 #include <optional>
 
-inline constexpr int MacHelperPacketBytes = 65536;
+inline constexpr int MacHelperRequestBytes = 65536;
+// A reply includes the bounded native capture record and its DNS/device envelope.
+inline constexpr int MacHelperPacketBytes = NetworkJournalMaxBytes + 2*MacHelperRequestBytes;
 inline constexpr int MacHelperOperationTimeoutMs = 30000;
 inline constexpr int MacHelperMaxPeers = 64;
 

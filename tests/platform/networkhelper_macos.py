@@ -282,6 +282,26 @@ def main(args):
             client.stdin.write(b'exit\n'); client.stdin.flush(); finish(client)
             recovery = start('--recover', owner=active['owner']); event(recovery, 'restored'); finish(recovery)
             assert not list(user_state.iterdir()), 'Recovered ownership was not acknowledged'
+            core_bundle = directory / 'CoreConnect.app'
+            shutil.copytree(bundle, core_bundle, symlinks=True)
+            shutil.copy2(args.core_client, core_bundle / 'Contents/MacOS/JustConnect')
+            sign(core_bundle, identity, APP_ID)
+            authorizations = [Authorization(), Authorization()]; grants.extend(authorizations)
+            read_fd, write_fd = os.pipe()
+            try:
+                os.write(write_fd, b''.join(value.external.raw for value in authorizations)); os.close(write_fd); write_fd = -1
+                result = run(args.gateway, '-test.v', '-test.timeout', '75s', '-test.run', '^TestNativeTUNHost$',
+                    user=args.uid, group=account.pw_gid, extra_groups=(), pass_fds=(read_fd,),
+                    env={'HOME': account.pw_dir, 'PATH': '/usr/bin:/bin:/usr/sbin:/sbin', 'GITHUB_ACTIONS': 'true', 'RUNNER_OS': 'macOS',
+                        'JC_NATIVE_TUN_HOST': str(core_bundle / 'Contents/MacOS/JustConnect'),
+                        'JC_NATIVE_TUN_MAC_AUTH_FD': str(read_fd), 'JC_NATIVE_TUN_DNS': '1'})
+                print(result.stdout.decode(), end='', flush=True)
+            finally:
+                os.close(read_fd)
+                if write_fd >= 0:
+                    os.close(write_fd)
+            assert not list(user_state.iterdir()), 'Actual Qt/core session retained an ownership receipt'
+            wait_for(dns_restored, 'Actual Qt/core session left original DNS changed')
             print('PASS: signed root XPC, identity/network authorization boundaries, ordinary UDP/fd and system DNS, durable CoreEngine DNS publication, cancellation, EOF and daemon restart recovery', flush=True)
         finally:
             for process in processes:
@@ -304,6 +324,6 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--uid', type=int, required=True)
-    for name in ('helper', 'client', 'plist', 'deploy-tool', 'revision', 'output', 'dns-probe'):
+    for name in ('helper', 'client', 'plist', 'deploy-tool', 'revision', 'output', 'dns-probe', 'core-client', 'gateway'):
         parser.add_argument('--' + name, required=True)
     main(parser.parse_args())

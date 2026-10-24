@@ -3,6 +3,7 @@
 #include "helperidentity.h"
 #include "helperregistration.h"
 #include "helpertransport.h"
+#include "tunroutes.h"
 #include "infrastructure/platform/ipv4.h"
 #include <QScopeGuard>
 #include <dispatch/dispatch.h>
@@ -13,6 +14,16 @@
 namespace {
 using Result = PlatformOperationResult;
 using Status = Result::Status;
+bool confirmedCaptures(const QJsonObject &capture,QStringList expected)
+{
+    QStringList actual;
+    for (const auto &value : capture["routes"].toArray()) {
+        const auto row = value.toObject();
+        if (row["applied"].toObject().isEmpty() || row["delete_started"] != false) return false;
+        actual.append(row["prefix"].toString());
+    }
+    actual.sort(); expected.sort(); return actual == expected;
+}
 std::shared_ptr<int> ownedFd(int descriptor = -1)
 {
     return {new int(descriptor),[](int *value) { if (*value >= 0) ::close(*value); delete value; }};
@@ -88,7 +99,15 @@ void MacNetworkHelperClient::finish(const Result &result, State state)
 void MacNetworkHelperClient::closeDevice()
 {
     if (device >= 0) ::close(device);
-    device = -1; deviceInfo = {};
+    device = -1; deviceInfo = {}; networkInfo = {};
+}
+void MacNetworkHelperClient::inspect(const QUuid &attempt)
+{
+    if (current != State::Idle || attempt.isNull()) return;
+    operation = Operation::Inspect;
+    if (!native->identity.ready()) { finish({Status::Unsupported,"A certificate-signed application with hardened runtime is required for network authorization.",false},State::Idle); return; }
+    connection = attempt; cancelled = false; registered = false; receipts = {}; outcome = {};
+    setState(State::Inspecting); send("probe");
 }
 void MacNetworkHelperClient::apply(const QUuid &owner, const MacHelperConfiguration &config)
 {
@@ -201,6 +220,7 @@ void MacNetworkHelperClient::receive(const QJsonObject &request, const QJsonObje
         if (!result.succeeded()) { finish(result,State::Idle); return; }
         receipts = response["owners"].toArray();
         if (cancelled) finish({Status::Cancelled,"Network setup cancelled.",false},State::Idle);
+        else if (operation == Operation::Inspect) finish(result,State::Idle);
         else if (!receipts.isEmpty()) finish({Status::Failed,"Recover or acknowledge previous network ownership before starting a new connection.",false},State::Idle);
         else authorize();
         return;
@@ -215,7 +235,12 @@ void MacNetworkHelperClient::receive(const QJsonObject &request, const QJsonObje
                 outcome = {Status::Failed,"The delivered device does not match the requested connection.",true};
                 setState(State::Restoring); send("restore"); return;
             }
-            device = *descriptor; *descriptor = -1; deviceInfo = info;
+            const auto view = response["network"].toObject(), capture = view["capture"].toObject();
+            if (!MacTunRoutes::validRecord(connection,capture) || !confirmedCaptures(capture,configuration.capturePrefixes) || capture["interface"] != info["interface"] || capture["index"] != info["index"]
+                || capture["source"] != configuration.address || capture["peer"] != configuration.peer) {
+                outcome = {Status::Failed,"The confirmed capture scope differs from its device.",true}; setState(State::Restoring); send("restore"); return;
+            }
+            device = *descriptor; *descriptor = -1; deviceInfo = info; networkInfo = view;
             if (!cancelled) { finish(result,State::Active); return; }
             outcome = {Status::Cancelled,"Network setup cancelled after restoring its changes.",false};
             closeDevice(); setState(State::Restoring); send("restore"); return;
@@ -229,11 +254,20 @@ void MacNetworkHelperClient::receive(const QJsonObject &request, const QJsonObje
             closeDevice(); auto failure = result; failure.mayHaveChanged = true;
             finish(failure,State::RecoveryRequired); emit ownershipLost(failure); return;
         }
+        auto next = configuration;
         for (const auto &address : pendingExtension) {
             bool covered = false;
-            for (const auto &prefix : configuration.capturePrefixes) covered |= ipv4PrefixContainsAddress(prefix,address);
-            if (!covered) configuration.capturePrefixes.append(address+"/32");
+            for (const auto &prefix : next.capturePrefixes) covered |= ipv4PrefixContainsAddress(prefix,address);
+            if (!covered) next.capturePrefixes.append(address+"/32");
         }
+        const auto view = response["network"].toObject(), capture = view["capture"].toObject();
+        if (!MacTunRoutes::validRecord(connection,capture) || !confirmedCaptures(capture,next.capturePrefixes)
+            || capture["interface"] != deviceInfo["interface"] || capture["index"] != deviceInfo["index"]
+            || capture["source"] != configuration.address || capture["peer"] != configuration.peer) {
+            closeDevice(); const Result failure{Status::Failed,"Confirmed DNS capture scope differs from its device.",true};
+            finish(failure,State::RecoveryRequired); emit ownershipLost(failure); return;
+        }
+        configuration = next; networkInfo = view;
         pendingExtension.clear();
         if (!cancelled) { finish(result,State::Active); return; }
         outcome = {Status::Cancelled,"DNS publication cancelled after restoring its changes.",false};

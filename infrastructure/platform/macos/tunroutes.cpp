@@ -188,15 +188,14 @@ Result MacTunRoutes::append(const QStringList &prefixes, const CheckpointWriter 
     return {Status::Success, {}, true};
 }
 
-Result MacTunRoutes::recover(const QUuid &id, const QJsonObject &saved, const CheckpointWriter &checkpoint)
+bool MacTunRoutes::load(const QUuid &id, const QJsonObject &saved)
 {
-    const Result invalid{Status::Failed, "Invalid or foreign macOS capture ownership."};
     if (!owner.isNull() || id.isNull() || saved.size() != 8 || saved["version"] != 1
         || saved["owner"] != id.toString(QUuid::WithoutBraces) || saved["boot"] != macBootSession() || saved["boot"].toString().isEmpty()
         || !utunName(saved["interface"].toString()) || saved["index"].toInteger() <= 0 || saved["index"].toInteger() > 65535
         || !canonicalUnicastIpv4(saved["source"].toString()) || !canonicalUnicastIpv4(saved["peer"].toString()) || saved["source"] == saved["peer"]
         || !saved["routes"].isArray() || saved["routes"].toArray().size() > MacRouteSnapshotRows
-        || QJsonDocument(saved).toJson(QJsonDocument::Compact).size() > NetworkJournalMaxBytes) return invalid;
+        || QJsonDocument(saved).toJson(QJsonDocument::Compact).size() > NetworkJournalMaxBytes) return false;
     owner = id; interfaceName = saved["interface"].toString(); interfaceIndex = quint32(saved["index"].toInteger());
     boot = saved["boot"].toString(); sourceAddress = saved["source"].toString(); peerAddress = saved["peer"].toString();
     QSet<QString> unique;
@@ -206,11 +205,22 @@ Result MacTunRoutes::recover(const QUuid &id, const QJsonObject &saved, const Ch
             || ipv4PrefixContainsAddress(prefix,sourceAddress) || ipv4PrefixContainsAddress(prefix,peerAddress)
             || !row["before"].isArray() || !row["before"].toArray().isEmpty()
             || !row["applied"].isObject() || !row["delete_started"].isBool() || (row["delete_started"].toBool() && applied.isEmpty())
-            || (!applied.isEmpty() && (applied["prefix"] != prefix || !shape(applied)))) { clear(); return invalid; }
+            || (!applied.isEmpty() && (applied["prefix"] != prefix || !shape(applied)))) { clear(); return false; }
         unique.insert(prefix); entries.append({prefix, applied, row["delete_started"].toBool()});
     }
-    return restore(id, checkpoint);
+    return true;
 }
+
+bool MacTunRoutes::validRecord(const QUuid &id,const QJsonObject &saved)
+{
+    MacTunRoutes reader; return reader.load(id,saved);
+}
+Result MacTunRoutes::recover(const QUuid &id,const QJsonObject &saved,const CheckpointWriter &checkpoint)
+{
+    if (!load(id,saved)) return {Status::Failed,"Invalid or foreign macOS capture ownership."};
+    return restore(id,checkpoint);
+}
+
 
 Result MacTunRoutes::restore(const QUuid &id, const CheckpointWriter &checkpoint)
 {

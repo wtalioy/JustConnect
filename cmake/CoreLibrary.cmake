@@ -86,6 +86,10 @@ function(justconnect_core_engine TARGET LIBRARY PLATFORM)
             "${REPO}/infrastructure/platform/linux/networkaccess.cpp"
             "${REPO}/infrastructure/platform/linux/networkownership.cpp")
     endif()
+    if(APPLE)
+        target_sources(${TARGET} PRIVATE "${REPO}/infrastructure/platform/macos/networkhelperpreparation.cpp"
+            "${REPO}/infrastructure/platform/macos/networkaccess.cpp")
+    endif()
     set_target_properties(${TARGET} PROPERTIES AUTOMOC ON)
     target_include_directories(${TARGET} PUBLIC "${REPO}")
     target_link_libraries(${TARGET} PUBLIC Qt6::Core Qt6::Network Qt6::Concurrent ${LIBRARY} ${PLATFORM})

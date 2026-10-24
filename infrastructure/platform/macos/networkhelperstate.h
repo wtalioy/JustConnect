@@ -18,6 +18,7 @@ public:
     QUuid owner() const { return connection; }
     uid_t uid() const { return user; }
     int descriptor() const { return device.descriptor(); }
+    QJsonObject networkView() const;
     QJsonObject deviceInfo() const { return device.snapshot(); }
 private:
     PlatformOperationResult commit(const QJsonObject &record);

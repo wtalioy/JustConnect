@@ -52,6 +52,7 @@ function(justconnect_platform TARGET)
         justconnect_mac_network_helper()
         add_dependencies(${TARGET} JustConnectNetworkHelper)
         target_sources(${TARGET} PRIVATE "${REPO}/infrastructure/platform/macos/dnssnapshot.cpp"
+            "${REPO}/infrastructure/platform/macos/networkownership.cpp"
             "${REPO}/infrastructure/platform/macos/networkhelperclient.cpp"
             "${REPO}/infrastructure/platform/macos/networkhelperclient.h"
             "${REPO}/infrastructure/platform/macos/helperregistration.mm")
@@ -95,7 +96,8 @@ function(justconnect_platform_tests TARGET LIBRARY)
     if(APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
         include("${REPO}/cmake/MacNetworkHelper.cmake")
         justconnect_mac_helper_layout()
-        add_executable(macos_networkhelper_protocol_test "${REPO}/tests/platform/networkhelper_macos_protocol_test.cpp")
+        add_executable(macos_networkhelper_protocol_test "${REPO}/tests/platform/networkhelper_macos_protocol_test.cpp"
+            "${REPO}/infrastructure/platform/macos/networkhelperpreparation.cpp" "${REPO}/application/networkprotection.cpp")
         if(NOT APPLE)
             target_sources(macos_networkhelper_protocol_test PRIVATE "${REPO}/infrastructure/platform/macos/networkhelperprotocol.cpp")
         endif()

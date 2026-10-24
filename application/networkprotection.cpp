@@ -494,3 +494,32 @@ std::optional<std::pair<QString, QString>> privateTUNAddresses(const QJsonObject
     }
     return {};
 }
+
+std::optional<QStringList> tunAddressReservations(const QStringList &captures,const QJsonObject &dns,const QString &localDNS)
+{
+    auto reserved = captures;
+    auto reserveLiteral = [&](const QString &token) {
+        QHostAddress address(token);
+        if (address.isNull()) address = QHostAddress(QUrl("dns://"+token).host());
+        bool ipv4 = false;
+        const auto number = address.toIPv4Address(&ipv4);
+        if (ipv4) reserved.append(QHostAddress(number).toString()+"/32");
+    };
+    reserveLiteral(localDNS);
+    QList<QJsonValue> pending{dns};
+    while (!pending.isEmpty()) {
+        const auto value = pending.takeLast();
+        if (value.isObject()) for (const auto &entry : value.toObject()) pending.append(entry);
+        else if (value.isArray()) for (const auto &entry : value.toArray()) pending.append(entry);
+        else if (value.isString()) {
+            // Conservatively reserve IP literals, including resolver-file tokens; this never changes DNS policy.
+            auto text = value.toString();
+            text.replace('#',' '); text.replace(';',' ');
+            for (const auto &token : text.split(QRegularExpression("\\s+"),Qt::SkipEmptyParts)) reserveLiteral(token);
+        }
+        if (pending.size() > MaxModelItems || reserved.size() > MaxModelItems)
+            return {};
+    }
+    reserved.removeDuplicates();
+    return reserved;
+}
