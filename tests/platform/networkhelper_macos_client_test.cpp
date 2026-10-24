@@ -118,5 +118,8 @@ int main(int argc,char **argv) try
         else client.apply(owner,configuration);
     });
     QTimer::singleShot(60000,&app,[] { std::_Exit(4); });
-    const int status = app.exec(); if (held >= 0) ::close(held); return status;
+    const int status = app.exec();
+    std::cerr << "CLIENT: event loop exited " << status << std::endl;
+    if (held >= 0) ::close(held);
+    return status;
 } catch (const std::exception &error) { std::cerr << error.what() << '\n';return 1; }

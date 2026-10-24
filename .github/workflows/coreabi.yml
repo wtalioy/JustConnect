@@ -246,3 +246,4 @@ jobs:
             build/coreabi/Testing/Temporary/*.log
             build/coreabi/macos-helper/*.out
             build/coreabi/macos-helper/*.err
+            build/coreabi/macos-helper/*-crash.json
