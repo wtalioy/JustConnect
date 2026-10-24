@@ -67,10 +67,17 @@ int main(int argc, char **argv) try
     configuration.capturePrefixes = {"198.18.4.0/24"};
     configuration.originalInterface = "fixture0"; configuration.originalSource = "192.0.2.1";
     configuration.originalPrefixes = configuration.capturePrefixes;
+    configuration.dnsDomains = {"campus.test", "research.test"};
     const auto encoded = linuxHelperApplyRequest(owner, configuration);
     const auto parsed = parseLinuxHelperApply(owner, encoded);
     check(parsed && linuxHelperApplyRequest(owner, *parsed) == encoded, "Typed configuration lost validated input");
     auto invalid = encoded;
+    invalid.remove("dns");
+    check(!parseLinuxHelperApply(owner, invalid), "Missing DNS intent silently became an IP-only connection");
+    invalid = encoded;
+    invalid["dns"] = QJsonArray{"campus.test", 7};
+    check(!parseLinuxHelperApply(owner, invalid), "Non-string DNS routing domain accepted");
+    invalid = encoded;
     invalid["underlay"] = QJsonObject{{"interface", "fixture0"}, {"source", "192.0.2.1"}, {"prefixes", QJsonArray{"198.18.4.0/24"}}};
     check(!parseLinuxHelperApply(owner, invalid), "Missing gateway was silently converted to an empty gateway");
     check(!parseLinuxHelperApply(QUuid::createUuid(), encoded), "Typed decoder accepted another connection owner");

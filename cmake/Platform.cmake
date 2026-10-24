@@ -57,8 +57,7 @@ function(justconnect_platform TARGET)
         target_sources(${TARGET} PRIVATE "${REPO}/infrastructure/platform/linux/networkhelperclient.cpp"
             "${REPO}/infrastructure/platform/linux/networkhelperclient.h")
         set_target_properties(${TARGET} PROPERTIES AUTOMOC ON)
-        target_sources(${TARGET} PRIVATE "${REPO}/infrastructure/platform/linux/dnssnapshot.cpp"
-            "${REPO}/infrastructure/platform/linux/tundns.cpp")
+        target_sources(${TARGET} PRIVATE "${REPO}/infrastructure/platform/linux/dnssnapshot.cpp")
         target_link_libraries(${TARGET} PUBLIC Qt6::DBus justconnect_network_helper)
     endif()
 endfunction()

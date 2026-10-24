@@ -6,16 +6,16 @@ import json
 import os
 from pathlib import Path
 import pwd
-import select
 import shutil
 import signal
 import socket
-import struct
 import subprocess
 import sys
 import tempfile
 import time
 import uuid
+
+from tundns_fixture import query_via_tun
 
 
 def run(*args, **options):
@@ -34,37 +34,6 @@ def receive(control):
         descriptors.extend(array.array('i', values))
     assert len(descriptors) <= 1 and all(not os.get_inheritable(fd) for fd in descriptors)
     return json.loads(data), descriptors
-
-
-def dns_reply(fd, packet, expected, peer):
-    if len(packet) < 28 or packet[0] >> 4 != 4 or packet[9] != socket.IPPROTO_UDP:
-        return False
-    offset = (packet[0] & 15) * 4
-    source, target, length, _ = struct.unpack('!4H', packet[offset:offset + 8])
-    if target != 53:
-        return False
-    assert packet[16:20] == socket.inet_aton(peer), 'system query used a DNS server outside the owned peer'
-    query = packet[offset + 8:offset + length]
-    assert len(query) >= 12 and struct.unpack('!H', query[4:6])[0] == 1
-    cursor, labels = 12, []
-    while query[cursor]:
-        size = query[cursor]
-        assert 0 < size <= 63 and cursor + size + 1 < len(query)
-        labels.append(query[cursor + 1:cursor + size + 1].decode('ascii'))
-        cursor += size + 1
-    cursor += 1
-    qtype, qclass = struct.unpack('!HH', query[cursor:cursor + 4])
-    assert '.'.join(labels) == expected and qtype == qclass == 1
-    answer = query[:2] + struct.pack('!5H', 0x8180, 1, 1, 0, 0) + query[12:cursor + 4]
-    answer += struct.pack('!HHHIH4s', 0xc00c, 1, 1, 60, 4, socket.inet_aton('203.0.113.9'))
-    udp = struct.pack('!4H', target, source, 8 + len(answer), 0) + answer
-    header = struct.pack('!BBHHHBBH4s4s', 0x45, 0, 20 + len(udp), 1, 0, 64, socket.IPPROTO_UDP, 0, packet[16:20], packet[12:16])
-    checksum = sum(struct.unpack('!10H', header))
-    while checksum >> 16:
-        checksum = (checksum & 0xffff) + (checksum >> 16)
-    header = header[:10] + struct.pack('!H', (~checksum) & 0xffff) + header[12:]
-    assert os.write(fd, header + udp) == len(header) + len(udp)
-    return True
 
 
 def scope_descriptors():
@@ -94,25 +63,8 @@ def exercise(binary, directory, phase, uid, environment):
         assert not extra
         if phase == 'flow':
             assert ready == {'ready': True}
-            account = pwd.getpwuid(uid)
             hostname = 'witness-' + uuid.uuid4().hex + '.campus.test'
-            query_code = ('import os,socket; assert os.getuid()==os.geteuid()==' + str(uid)
-                          + '; assert int(next(s.split()[1] for s in open("/proc/self/status") if s.startswith("CapEff:")),16)==0'
-                          + '; print(socket.getaddrinfo(' + repr(hostname) + ',None,socket.AF_INET,socket.SOCK_STREAM))')
-            query = subprocess.Popen([sys.executable, '-c', query_code], env=environment, user=uid, group=account.pw_gid,
-                                     extra_groups=(), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            packets = 0
-            try:
-                deadline = time.monotonic() + 8
-                while query.poll() is None and time.monotonic() < deadline:
-                    if select.select([device], [], [], 0.05)[0]:
-                        packets += dns_reply(device, os.read(device, 65536), hostname, peer)
-                output, error = query.communicate(timeout=1)
-                assert query.returncode == 0 and '203.0.113.9' in output and packets > 0, (output, error)
-            finally:
-                if query.poll() is None:
-                    query.kill()
-                    query.communicate(timeout=5)
+            query_via_tun(device, hostname, peer, uid, environment)
             parent.send(json.dumps({'done': True}).encode())
             output, errors = process.communicate(timeout=10)
             assert process.returncode == 0, (output, errors)
@@ -177,8 +129,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--probe', type=Path, required=True)
     parser.add_argument('--uid', type=int, required=True)
+    parser.add_argument('--helper', type=Path, required=True)
     args = parser.parse_args()
     binary = args.probe.resolve(strict=True)
+    helper = args.helper.resolve(strict=True)
     assert os.geteuid() == 0 and args.uid != 0
     for kind in ('net', 'mnt'):
         assert os.stat('/proc/thread-self/ns/' + kind) != os.stat('/proc/1/ns/' + kind), 'refusing host namespaces'
@@ -251,6 +205,9 @@ def main():
             run('/usr/bin/resolvectl', 'dns', 'dnsoriginal0', '192.0.2.53', env=environment)
             run('/usr/bin/resolvectl', 'domain', 'dnsoriginal0', '~original.test', env=environment)
             baseline = [run('/usr/bin/resolvectl', key, 'dnsoriginal0', env=environment) for key in ('dns', 'domain', 'default-route')]
+            print(run(sys.executable, '-B', Path(__file__).with_name('networkhelper_linux.py'),
+                      '--uid', args.uid, '--helper', helper, '--dns-probe', binary), end='', flush=True)
+            assert baseline == [run('/usr/bin/resolvectl', key, 'dnsoriginal0', env=environment) for key in ('dns', 'domain', 'default-route')]
             exercise_foreign_provider(binary, environment)
             output = run(*probe(binary, '--isolated'))
             print(output, end='', flush=True)
@@ -260,6 +217,7 @@ def main():
                 assert baseline == [run('/usr/bin/resolvectl', key, 'dnsoriginal0', env=environment) for key in ('dns', 'domain', 'default-route')]
             print('REPORT: ' + json.dumps({'provider': 'actual systemd-resolved on isolated canonical system bus',
                                           'worker_capability': 'CAP_NET_ADMIN only; namespace guard and new-process recovery enforced',
+                                          'helper': 'authenticated ordinary fd handoff, actual system query, DNS-first restore and restricted stale-record recovery',
                                           'phases': phases, 'ordinary_uid': args.uid,
                                           'original_interface': 'unchanged; no host route or resolver modification'}), flush=True)
         except BaseException:

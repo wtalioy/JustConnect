@@ -32,7 +32,7 @@ def main():
     source.add_argument('--stage', type=Path)
     parser.add_argument('--uid', type=int, required=True)
     parser.add_argument('--revision', required=True)
-    parser.add_argument('--development-qt', type=Path, help='local fixture only: copy SDK Core libraries into the private /usr')
+    parser.add_argument('--development-qt', type=Path, help='local fixture only: copy SDK Core/DBus libraries into the private /usr')
     parser.add_argument('--client', type=Path, help='ordinary Qt caller built with the application SDK')
     parser.add_argument('--authorization-fixture', type=Path, help='namespace-only authorization broker fixture')
     parser.add_argument('--gateway', type=Path, help='native campus gateway test binary')
@@ -84,7 +84,7 @@ def main():
             if args.development_qt:
                 # This supplies only the isolated local fixture, never the release package.
                 library = args.development_qt.resolve(strict=True) / 'lib'
-                pending = ['libQt6Core.so.6']
+                pending = ['libQt6Core.so.6', 'libQt6DBus.so.6']
                 copied = set()
                 while pending:
                     name = pending.pop()
@@ -103,7 +103,7 @@ def main():
             dynamic = run('readelf', '-d', executable, env=environment)
             assert not re.search(r'\((?:RPATH|RUNPATH)\).*?\[[^\]]+\]', dynamic), 'installed helper retains a loader search path'
             qt = [name for name in re.findall(r'\(NEEDED\).*?\[(.*?)\]', dynamic) if name.startswith('libQt')]
-            assert qt == ['libQt6Core.so.6'], qt
+            assert set(qt) == {'libQt6Core.so.6', 'libQt6DBus.so.6'}, qt
             dependencies = run('ldd', executable, env=environment)
             assert 'not found' not in dependencies
             for name in re.findall(r'(/\S+)\s+\(0x', dependencies):
@@ -111,7 +111,7 @@ def main():
                 assert path.is_relative_to('/usr/lib') or path.is_relative_to('/lib'), path
                 assert path.stat().st_uid == 0 and not path.stat().st_mode & 0o022, path
             facts = json.loads(run(executable, '--version', env=environment, user=args.uid, group=account.pw_gid, extra_groups=()))
-            assert facts['worker'] == 'network-helper' and facts['protocol'] == 2 and facts['revision'] == args.revision
+            assert facts['worker'] == 'network-helper' and facts['protocol'] == package.LAYOUT['protocol'] and facts['revision'] == args.revision
             for options in ({'user': args.uid, 'group': account.pw_gid, 'extra_groups': ()},
                             {'env': {**environment, 'PKEXEC_UID': str(args.uid)}}):
                 result = subprocess.run([str(executable), '--recover-stale'], capture_output=True, timeout=5,
@@ -127,7 +127,7 @@ def main():
             result = subprocess.run([str(uninstalled), '--recover-stale'], env=environment, capture_output=True, timeout=5)
             assert result.returncode == 1 and not result.stdout, 'system recovery accepted an alternate executable location'
             assert json.loads(run(uninstalled, '--version', env=environment, user=args.uid, group=account.pw_gid, extra_groups=())) == facts
-            print('PASS: root-installed path and system Core runtime load without SDK/AppImage environment', flush=True)
+            print('PASS: root-installed path and system Core/DBus runtime load without SDK/AppImage environment', flush=True)
             manager_root = temporary / 'manager-root'
             for name in ('usr/bin', 'usr/sbin', 'usr/lib', 'usr/lib64', 'usr/libexec', 'usr/local/lib', 'proc', 'dev', 'tmp', 'etc'):
                 (manager_root / name).mkdir(parents=True, exist_ok=True)

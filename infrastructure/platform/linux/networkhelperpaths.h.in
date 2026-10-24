@@ -1,5 +1,7 @@
 #pragma once
 
+inline constexpr int LinuxHelperProtocol = @JC_NETWORK_HELPER_PROTOCOL@;
+inline constexpr int LinuxHelperStorageVersion = @JC_NETWORK_HELPER_STORAGE_VERSION@;
 inline constexpr auto LinuxNetworkHelperPath = "@JC_NETWORK_HELPER_PATH@";
 inline constexpr auto LinuxNetworkHelperAuthorizationPath = "@JC_NETWORK_HELPER_AUTHORIZATION@";
 inline constexpr auto LinuxNetworkHelperStatePath = "@JC_NETWORK_HELPER_STATE@";

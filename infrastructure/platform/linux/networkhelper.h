@@ -1,6 +1,7 @@
 #pragma once
 
 #include "application/platformoperationresult.h"
+#include "networkhelperpaths.h"
 #include <QJsonObject>
 #include <QUuid>
 #include <QStringList>
@@ -9,7 +10,6 @@
 #include <sys/types.h>
 
 // One bounded JSON packet per operation; only a successful apply carries one TUN fd.
-inline constexpr int LinuxHelperProtocol = 2;
 // Exit 0 confirms receipt removal; exit 2 retains a completed receipt for a later caller.
 inline constexpr int LinuxHelperReceiptRetained = 2;
 inline constexpr int LinuxHelperPacketBytes = 65536;
@@ -30,6 +30,7 @@ struct LinuxHelperConfiguration {
     QStringList capturePrefixes;
     QString originalInterface, originalSource, originalGateway;
     QStringList originalPrefixes;
+    QStringList dnsDomains;
 };
 QJsonObject linuxHelperApplyRequest(const QUuid &owner, const LinuxHelperConfiguration &config);
 std::optional<LinuxHelperConfiguration> parseLinuxHelperApply(const QUuid &owner, const QJsonObject &request);

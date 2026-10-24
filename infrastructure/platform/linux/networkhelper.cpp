@@ -2,6 +2,7 @@
 #include "sourcejournal.h"
 #include "sourceroutes.h"
 #include "tunroutes.h"
+#include "tundns.h"
 #include "networkhelperpaths.h"
 #include "trustedexecutable.h"
 #include <QDeadlineTimer>
@@ -22,7 +23,6 @@ namespace {
 using Result = PlatformOperationResult;
 using Status = Result::Status;
 constexpr int handshakeTimeoutMs = 30000;
-constexpr int metadataVersion = 1;
 Result invalid(const char *message) { return {Status::Failed, QString::fromLatin1(message)}; }
 bool fields(const QJsonObject &object, std::initializer_list<const char *> keys)
 {
@@ -70,7 +70,7 @@ struct OwnedOperation {
           name(QByteArray::number(uid) + '-' + owner.toByteArray(QUuid::WithoutBraces)) {}
     ~OwnedOperation()
     {
-        for (int fd : {captureDirectory, sourceDirectory, directory}) if (fd >= 0) ::close(fd);
+        for (int fd : {dnsDirectory, captureDirectory, sourceDirectory, directory}) if (fd >= 0) ::close(fd);
     }
     Result open(bool applying, bool cleaning, bool *alreadyOwned = nullptr)
     {
@@ -90,7 +90,7 @@ struct OwnedOperation {
         const auto scope = linuxNetworkNamespace();
         if (scope.isEmpty()) return invalid("Cannot bind recovery to the current network namespace.");
         if (applying) {
-            context = {{"version", metadataVersion}, {"owner", id}, {"uid", qint64(uid)},
+            context = {{"version", LinuxHelperStorageVersion}, {"owner", id}, {"uid", qint64(uid)},
                 {"namespace", scope}, {"phase", "prepared"}};
             const auto saved = metadata.store(context);
             if (!saved.succeeded()) return saved;
@@ -104,7 +104,8 @@ struct OwnedOperation {
             const auto loaded = metadata.load(context);
             if (!loaded.succeeded()) return loaded;
             if (!fields(context, {"version", "owner", "uid", "namespace", "phase"})
-                || context["version"] != metadataVersion || context["owner"] != id || context["uid"].toInteger(-1) != uid
+                || (context["version"] != LinuxHelperStorageVersion && context["version"] != 1)
+                || context["owner"] != id || context["uid"].toInteger(-1) != uid
                 || context["namespace"] != scope
                 || (context["phase"] != "prepared" && context["phase"] != "active" && context["phase"] != "restored"))
                 return invalid("Recovery context does not match its privileged owner and current namespace.");
@@ -117,7 +118,18 @@ struct OwnedOperation {
         if (!captureOpened.succeeded()) return captureOpened;
         const auto sourceOpened = sourceJournal.open(sourceDirectory, owner);
         if (!sourceOpened.succeeded()) return sourceOpened;
-        if (context["phase"] == "restored" && (present(captureDirectory) || present(sourceDirectory)))
+        if (context["version"] == 1) {
+            struct stat unexpected{};
+            if (::fstatat(directory, "dns", &unexpected, AT_SYMLINK_NOFOLLOW) == 0 || errno != ENOENT)
+                return invalid("Legacy recovery metadata cannot own DNS operations.");
+        } else {
+            dnsDirectory = privateDirectory(directory, "dns");
+            if (dnsDirectory < 0) return invalid("Cannot open the private DNS journal.");
+            const auto dnsOpened = dnsJournal.open(dnsDirectory, owner);
+            if (!dnsOpened.succeeded()) return dnsOpened;
+        }
+        if (context["phase"] == "restored" && (present(captureDirectory) || present(sourceDirectory)
+            || (dnsDirectory >= 0 && present(dnsDirectory))))
             return invalid("A completed receipt still has operation journals.");
         return {};
     }
@@ -127,6 +139,7 @@ struct OwnedOperation {
             config.originalPrefixes, writer(sourceJournal));
         if (result.succeeded()) result = device.createIpv4(owner, config.address, config.peer, config.mtu);
         if (result.succeeded()) result = capture.apply(device, config.address, config.peer, config.capturePrefixes, writer(captureJournal));
+        if (result.succeeded() && !config.dnsDomains.isEmpty()) result = dns.apply(device, config.dnsDomains, writer(dnsJournal));
         if (result.succeeded()) { context["phase"] = "active"; result = metadata.store(context); }
         if (!result.succeeded()) {
             const auto rolledBack = restore();
@@ -137,6 +150,14 @@ struct OwnedOperation {
     Result restore()
     {
         if (context["phase"] == "restored") return {};
+        Result dnsResult;
+        if (!dns.snapshot().isEmpty()) dnsResult = dns.restore(device, writer(dnsJournal));
+        else if (dnsDirectory >= 0 && present(dnsDirectory)) {
+            QJsonObject saved;
+            dnsResult = dnsJournal.load(saved);
+            if (dnsResult.succeeded()) dnsResult = dns.recover(owner, saved, writer(dnsJournal));
+        }
+        if (!dnsResult.succeeded()) return dnsResult;
         Result captureResult, sourceResult;
         if (!capture.snapshot().isEmpty()) captureResult = capture.restore(device, writer(captureJournal));
         else if (present(captureDirectory)) {
@@ -161,8 +182,9 @@ struct OwnedOperation {
     }
     bool removeReceipt()
     {
-        captureJournal.close(); sourceJournal.close();
-        if (::unlinkat(directory, "capture", AT_REMOVEDIR) != 0 || ::unlinkat(directory, "underlay", AT_REMOVEDIR) != 0
+        dnsJournal.close(); captureJournal.close(); sourceJournal.close();
+        if ((dnsDirectory >= 0 && ::unlinkat(directory, "dns", AT_REMOVEDIR) != 0)
+            || ::unlinkat(directory, "capture", AT_REMOVEDIR) != 0 || ::unlinkat(directory, "underlay", AT_REMOVEDIR) != 0
             || ::fsync(directory) != 0 || !metadata.remove().succeeded()) return false;
         metadata.close();
         return ::unlinkat(parent, name.constData(), AT_REMOVEDIR) == 0 && ::fsync(parent) == 0;
@@ -175,14 +197,16 @@ private:
     {
         return [&journal](const QJsonObject &record) { return record.isEmpty() ? journal.remove() : journal.store(record); };
     }
-    int parent, directory = -1, captureDirectory = -1, sourceDirectory = -1;
+    int parent, directory = -1, captureDirectory = -1, sourceDirectory = -1, dnsDirectory = -1;
     uid_t uid;
     QUuid owner;
     QString id;
     QByteArray name;
-    LinuxSourceJournal metadata, captureJournal, sourceJournal;
+    LinuxSourceJournal metadata, captureJournal, sourceJournal, dnsJournal;
     LinuxTunRoutes capture;
     LinuxSourceRoutes source;
+    LinuxTunDns dns{QDBusConnection::connectToBus(QStringLiteral("unix:path=/run/dbus/system_bus_socket"),
+                                               QStringLiteral("JustConnect.network-helper.dns"))};
 };
 }
 
@@ -256,6 +280,7 @@ QJsonObject linuxHelperApplyRequest(const QUuid &owner, const LinuxHelperConfigu
     return {{"version", LinuxHelperProtocol}, {"owner", owner.toString(QUuid::WithoutBraces)}, {"operation", "apply"},
         {"device", QJsonObject{{"source", config.address}, {"peer", config.peer}, {"mtu", config.mtu}}},
         {"capture", QJsonArray::fromStringList(config.capturePrefixes)},
+        {"dns", QJsonArray::fromStringList(config.dnsDomains)},
         {"underlay", QJsonObject{{"interface", config.originalInterface}, {"source", config.originalSource},
             {"gateway", config.originalGateway}, {"prefixes", QJsonArray::fromStringList(config.originalPrefixes)}}}};
 }
@@ -265,13 +290,19 @@ std::optional<LinuxHelperConfiguration> parseLinuxHelperApply(const QUuid &owner
     const auto device = request["device"].toObject(), original = request["underlay"].toObject();
     LinuxHelperConfiguration config;
     if (owner.isNull() || request["owner"] != owner.toString(QUuid::WithoutBraces) || request["version"] != LinuxHelperProtocol
-        || request["operation"] != "apply" || !fields(request, {"version", "owner", "operation", "device", "capture", "underlay"})
+        || request["operation"] != "apply" || !fields(request, {"version", "owner", "operation", "device", "capture", "underlay", "dns"})
         || QJsonDocument(request).toJson(QJsonDocument::Compact).size() > LinuxHelperPacketBytes
         || !fields(device, {"source", "peer", "mtu"})
         || !UnixTunDevice::validIpv4Configuration(device["source"].toString(), device["peer"].toString(), device["mtu"].toInteger(-1))
         || !prefixes(request["capture"], config.capturePrefixes)
         || !fields(original, {"interface", "source", "gateway", "prefixes"}) || !original["interface"].isString()
-        || !original["gateway"].isString() || !prefixes(original["prefixes"], config.originalPrefixes)) return {};
+        || !original["gateway"].isString() || !prefixes(original["prefixes"], config.originalPrefixes)
+        || !request["dns"].isArray() || request["dns"].toArray().size() > LinuxRouteSnapshotRows) return {};
+    for (const auto &name : request["dns"].toArray()) {
+        if (!name.isString()) return {};
+        config.dnsDomains.append(name.toString());
+    }
+    if (!config.dnsDomains.isEmpty() && !LinuxTunDns::validDomains(config.dnsDomains)) return {};
     config.address = device["source"].toString(); config.peer = device["peer"].toString(); config.mtu = device["mtu"].toInt();
     config.originalInterface = original["interface"].toString(); config.originalSource = original["source"].toString();
     config.originalGateway = original["gateway"].toString();

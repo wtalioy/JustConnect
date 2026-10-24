@@ -5,6 +5,7 @@
 #include "infrastructure/platform/platformcommand.h"
 #include <QCoreApplication>
 #include <QDBusConnection>
+#include <QJsonDocument>
 #include <QTemporaryDir>
 #include <csignal>
 #include <fcntl.h>
@@ -92,6 +93,14 @@ int main(int argc, char **argv) try
         return 0;
     }
     const auto bus = privateBus();
+    if (argc == 3 && app.arguments()[1] == "--scan-isolated") {
+        bool valid = false;
+        const auto directory = app.arguments()[2].toInt(&valid);
+        check(valid && directory >= 3, "Require the private helper recovery directory");
+        const auto summary = recoverLinuxHelperRecords(directory);
+        std::cout << QJsonDocument(summary.json()).toJson(QJsonDocument::Compact).constData() << '\n';
+        return summary.succeeded() ? 0 : 1;
+    }
     if (argc == 2 && app.arguments()[1] == "--absent-isolated") {
         UnixTunDevice device; create(device, QUuid::createUuid());
         LinuxTunDns dns(bus); const auto result = dns.apply(device, {"campus.test"});
