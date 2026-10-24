@@ -8,6 +8,7 @@
 #include <QTemporaryDir>
 #include <csignal>
 #include <fcntl.h>
+#include <linux/capability.h>
 #include <iostream>
 #include <stdexcept>
 #include <sys/stat.h>
@@ -20,18 +21,33 @@ static void success(const Result &result) { check(result.succeeded(), qPrintable
 static QDBusConnection privateBus()
 {
     check(::geteuid() == 0, "Native DNS tests require root inside private namespaces");
+    QFile status("/proc/self/status");
+    check(status.open(QIODevice::ReadOnly), "Read actual DNS worker capabilities");
+    const auto rows = status.readAll().split('\n');
+    bool limited = false;
+    for (const auto &row : rows) if (row.startsWith("CapEff:")) {
+        bool valid = false;
+        limited = row.mid(7).trimmed().toULongLong(&valid, 16) == (1ULL << CAP_NET_ADMIN) && valid;
+    }
+    check(limited, "DNS worker must run with only CAP_NET_ADMIN, as the recovery service does");
+    const auto hostNamespaces = qgetenv("JC_TEST_HOST_NAMESPACE_FDS").split(',');
+    check(hostNamespaces.size() == 2, "Require host namespace handles opened by the isolated root harness");
+    int position = 0;
     for (const auto *kind : {"net", "mnt"}) {
         struct stat here{}, host{};
         const auto suffix = QByteArray("/ns/") + kind;
+        bool valid = false;
+        const auto descriptor = hostNamespaces[position++].toInt(&valid);
         check(::stat(("/proc/thread-self" + suffix).constData(), &here) == 0
-            && ::stat(("/proc/1" + suffix).constData(), &host) == 0
+            && valid && descriptor >= 3 && ::fstat(descriptor, &host) == 0
             && (here.st_dev != host.st_dev || here.st_ino != host.st_ino), "Refusing host network or mounts");
     }
-    struct stat socket{}, host{};
+    struct stat socket{};
     check(::stat("/run/dbus/system_bus_socket", &socket) == 0 && S_ISSOCK(socket.st_mode) && socket.st_uid == 0,
           "A private root-owned resolver bus is required");
-    check(::stat("/proc/1/root/run/dbus/system_bus_socket", &host) != 0
-        || socket.st_dev != host.st_dev || socket.st_ino != host.st_ino, "Refusing the host system bus");
+    const auto hostSocket = qgetenv("JC_TEST_HOST_BUS_ID").split(',');
+    check(hostSocket.size() == 2 && (QByteArray::number(socket.st_dev) != hostSocket[0]
+        || QByteArray::number(socket.st_ino) != hostSocket[1]), "Refusing the host system bus");
     auto bus = QDBusConnection::connectToBus("unix:path=/run/dbus/system_bus_socket", "owned-dns-test");
     check(bus.isConnected(), "Connect the isolated system resolver bus");
     return bus;

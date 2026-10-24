@@ -11,6 +11,8 @@
 #include <QSet>
 #include <QThread>
 #include <climits>
+#include <linux/netlink.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
 namespace {
@@ -22,6 +24,28 @@ using LinuxResolved::managerInterface;
 using Servers = QList<QPair<int, QByteArray>>;
 using Domains = QList<QPair<QString, bool>>;
 Result failure(const char *message) { return {Status::Failed, QString::fromLatin1(message), true}; }
+bool sameProviderNamespace(quint32 pid)
+{
+    // A held socket inode is unique; the provider's kernel table lists it only in the same netns.
+    const int descriptor = ::socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_ROUTE);
+    if (descriptor < 0) return false;
+    const auto close = qScopeGuard([&] { ::close(descriptor); });
+    sockaddr_nl address{};
+    address.nl_family = AF_NETLINK;
+    struct stat identity{};
+    if (::bind(descriptor, reinterpret_cast<const sockaddr *>(&address), sizeof(address)) != 0
+        || ::fstat(descriptor, &identity) != 0 || !identity.st_ino) return false;
+    QFile table(QString("/proc/%1/net/netlink").arg(pid));
+    if (!table.open(QIODevice::ReadOnly)) return false;
+    const auto data = table.read(LinuxRouteSnapshotBytes + 1);
+    if (table.error() != QFileDevice::NoError || data.size() > LinuxRouteSnapshotBytes || !data.endsWith('\n')) return false;
+    const auto inode = QByteArray::number(identity.st_ino);
+    for (const auto &line : data.split('\n')) {
+        const auto columns = line.simplified().split(' ');
+        if (columns.size() == 10 && columns[1] == QByteArray::number(NETLINK_ROUTE) && columns[9] == inode) return true;
+    }
+    return false;
+}
 bool fields(const QJsonObject &value, std::initializer_list<const char *> keys)
 {
     if (value.size() != qsizetype(keys.size())) return false;
@@ -116,7 +140,7 @@ LinuxTunDns::State LinuxTunDns::read(QDeadlineTimer &deadline) const
                               "GetConnectionUnixProcessID", {destination}, deadline);
     const auto pid = process.arguments().isEmpty() ? 0 : process.arguments().first().toUInt();
     if (process.type() != QDBusMessage::ReplyMessage || process.signature() != "u" || pid == 0 || pid > INT_MAX
-        || !sameLinuxNetworkNamespace(QByteArray("/proc/") + QByteArray::number(pid) + "/ns/net")) {
+        || !sameProviderNamespace(pid)) {
         state.result = {Status::Unsupported, "The resolver provider does not share the owned TUN network namespace."};
         return state;
     }
