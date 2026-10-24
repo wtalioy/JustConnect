@@ -126,7 +126,7 @@ Result MacNetworkHelperState::apply(const MacHelperConfiguration &configuration)
     }
     if (!result.succeeded()) {
         // No fd has been delivered; releasing this private reference removes the new device.
-        device.close(); const auto recovered = restore();
+        dns.restore(); device.close(); const auto recovered = restore();
         result.mayHaveChanged = !recovered.succeeded();
         if (!recovered.succeeded()) result.detail += " Recovery: "+recovered.detail;
     }
