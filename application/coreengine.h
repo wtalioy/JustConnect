@@ -34,6 +34,10 @@ public:
         emit tunAttached(generation, RequestStatus::Unavailable);
     }
 
+    virtual void attachWindowsPipe(const QString &generation, quint64, quint32, quint32, const QString &, const QString &, bool = false) {
+        emit tunAttached(generation, RequestStatus::Unavailable);
+    }
+
     virtual void acknowledgeDNSRoutes(const QString &, const QString &, bool) {}
 
     static QJsonObject responseFor(const QJsonObject &request, QJsonObject fields) {

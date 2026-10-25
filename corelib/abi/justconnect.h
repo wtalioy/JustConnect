@@ -44,6 +44,16 @@ JC_API int32_t jc_session_attach_tun(uint64_t handle, uint64_t generation, int32
  * The original attach API retains its caller-managed route behavior.
  */
 JC_API int32_t jc_session_attach_tun_dns(uint64_t handle, uint64_t generation, int32_t fd, uint32_t mtu);
+/* Windows only: borrow an idle overlapped, byte-mode named-pipe CLIENT handle.
+ * The confirmed server PID must match helper_pid. Success owns a noninheritable
+ * duplicate until stop; no cross-process Wintun pointers or rings are accepted.
+ * IPv4 values are address-order integers (192.0.2.1 = 0xc0000201).
+ * Frames are a big-endian uint32 length followed by one complete IPv4 packet,
+ * limited to mtu. publish_dns_routes is a strict boolean. Other platforms and
+ * fixture drivers return JC_UNSUPPORTED. The launcher authenticates the helper.
+ */
+JC_API int32_t jc_session_attach_windows_pipe(uint64_t handle, uint64_t generation, uint64_t pipe_handle,
+    uint32_t helper_pid, uint32_t mtu, uint32_t source_ipv4, uint32_t peer_ipv4, uint32_t publish_dns_routes);
 JC_API int32_t jc_session_ack_dns_routes(uint64_t handle, uint64_t generation, uint64_t request_id, uint32_t applied);
 /* Stop cancels before waiting; timeout retains the active slot until cleanup.
  * Destroy invalidates only after cleanup. Retry after timeout; repeated destroy

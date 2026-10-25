@@ -108,7 +108,7 @@ jobs:
           host = shutil.which('pwsh')
           if not host:
               raise RuntimeError('CI PowerShell host unavailable')
-          env = dict(os.environ, JC_TEST_PWSH=host, JC_TEST_WINTUN_DLL=str(dll), CGO_ENABLED='0', GOTOOLCHAIN='local', GOWORK='off', GOENV='off')
+          env = dict(os.environ, JC_TEST_WINTUN_DLL=str(dll), CGO_ENABLED='0', GOTOOLCHAIN='local', GOWORK='off', GOENV='off')
           print('RUN: Wintun Authenticode via the CI pwsh host (60s)', flush=True)
           signature = json.loads(subprocess.check_output([host, '-NoProfile', '-NonInteractive', '-Command',
               '$s=Get-AuthenticodeSignature -LiteralPath $env:JC_TEST_WINTUN_DLL; @{status=$s.Status.ToString(); signer=$s.SignerCertificate.Thumbprint} | ConvertTo-Json -Compress'], env=env, text=True, timeout=60))
@@ -116,8 +116,8 @@ jobs:
               raise RuntimeError(f'Untrusted Wintun signature: {signature}')
           metadata = {'archive_sha256': digest, 'version': '0.14.1', 'arch': arch, 'signature': signature, 'powershell_host': host, 'source': os.environ['GITHUB_SHA']}
           (output / 'windows-device.json').write_text(json.dumps(metadata, indent=2), encoding='utf-8')
-          source = pathlib.Path('tests/platform/windows_device_probe.go').resolve()
-          tests = pathlib.Path('tests/platform/windows_device_probe_test.go').resolve()
+          source = pathlib.Path('corelib/internal/wintun/fixture/main.go').resolve()
+          tests = pathlib.Path('corelib/internal/wintun/fixture/main_test.go').resolve()
           if subprocess.check_output(['gofmt', '-l', str(source), str(tests)], env=env).strip():
               raise RuntimeError('Unformatted device probe')
           subprocess.run(['go', '-C', 'corelib', 'vet', str(source), str(tests)], env=env, check=True, timeout=120)
