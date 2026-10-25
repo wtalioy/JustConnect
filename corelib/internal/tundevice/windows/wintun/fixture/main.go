@@ -85,7 +85,7 @@ func run() error {
 		return broker(os.Args[2], name, os.Args[4])
 	}
 	if len(os.Args) == 3 && os.Args[1] == "--benchmark" {
-		for _, baseline := range []bool{true, false} {
+		for _, baseline := range []bool{false, true} {
 			if err := runBroker(os.Args[2], "benchmark", baseline); err != nil {
 				return err
 			}
@@ -619,8 +619,19 @@ func client(mode string) error {
 		return err
 	}
 	latencies := make([]float64, 0, count)
+	frequency := int64(0)
+	if mode == "benchmark" {
+		if ok, _, callErr := queryPerformanceFrequency.Call(uintptr(unsafe.Pointer(&frequency))); ok == 0 || frequency <= 0 {
+			return fmt.Errorf("read performance counter frequency: %w", callErr)
+		}
+	}
 	for iteration := range count {
-		started := time.Now()
+		var started int64
+		if mode == "benchmark" {
+			if ok, _, callErr := queryPerformanceCounter.Call(uintptr(unsafe.Pointer(&started))); ok == 0 {
+				return callErr
+			}
+		}
 		if _, err = conn.Write([]byte("ping")); err != nil {
 			return err
 		}
@@ -659,7 +670,13 @@ func client(mode string) error {
 		if string(response[:size]) != "pong" {
 			return errors.New("device reply did not reach the original UDP socket")
 		}
-		latencies = append(latencies, float64(time.Since(started).Nanoseconds())/1000)
+		if mode == "benchmark" {
+			var finished int64
+			if ok, _, callErr := queryPerformanceCounter.Call(uintptr(unsafe.Pointer(&finished))); ok == 0 {
+				return callErr
+			}
+			latencies = append(latencies, float64(finished-started)*1e6/float64(frequency))
+		}
 	}
 	if mode == "benchmark" {
 		sort.Float64s(latencies)
@@ -671,6 +688,9 @@ func client(mode string) error {
 	fmt.Fprintln(os.Stderr, "PASS: non-elevated process consumed and returned an actual device packet")
 	return nil
 }
+
+var queryPerformanceCounter = windows.NewLazySystemDLL("kernel32.dll").NewProc("QueryPerformanceCounter")
+var queryPerformanceFrequency = windows.NewLazySystemDLL("kernel32.dll").NewProc("QueryPerformanceFrequency")
 
 func benchmarkCount(mode string) (int, error) {
 	if mode != "benchmark" {
