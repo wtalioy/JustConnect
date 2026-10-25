@@ -30,7 +30,7 @@ Linux 设备后端及隔离验证需要系统 `iproute2`。分配后端只使用
 
 Linux 路由后端与设备分配共用这一受信程序检查。批量命令通过标准输入交付并关闭写端，命令端口保留原有无输入调用；超过管道缓冲区的完整交付／EOF 及内核权限拒绝有针对性回归。路由隔离验证只允许私有网络命名空间，命令与边界见[设备记录](CORELINK-PROBE.md#linux-owned-routes)。
 
-Unix 原生分配测试通过同一后端在交付 fd 前配置 IPv4 点对点地址及非默认 MTU，Linux 捕获路由在分配方交付前由正式后端配置，接收方独立核对所属快照与实际全表；脚本保留数据交换及尚未由正式后端接管的 macOS 目的路由。Linux 配置后回读故障验证真实接口及路由无残留；macOS 使用一次性 runner。宿主命名空间拒绝和原普通用户／收发／强杀清理断言保留，测试中的 SIGKILL 只针对持有测试设备 fd 的隔离接收进程。原出口探针新增 `--routes build/coreabi/linux_sourceroutes_test`，使用正式专用表／源规则后端；控制管道 EOF 后由持有进程恢复并独立回读原始状态。 受保护快照文件检查使用 `sudo unshare --net -- build/coreabi/linux_sourcejournal_test --isolated`；源路由检查覆盖写前准备、部分写入、应用确认和规则／路由删除前后强杀边界，由新进程从 root 私有记录恢复；删除结果不明且匹配对象仍存在时保留并报告，范围及尚缺的助手／自动恢复服务见[原出口边界](CORELINK-PROBE.md#linux-source-routes)。
+Unix 原生分配测试通过同一后端在交付 fd 前配置 IPv4 点对点地址及非默认 MTU，Linux 捕获路由在分配方交付前由正式后端配置，接收方独立核对所属快照与实际全表；脚本保留数据交换，Linux 与 macOS 目的捕获路由均由正式后端管理。Linux 配置后回读故障验证真实接口及路由无残留；macOS 使用一次性 runner。宿主命名空间拒绝和原普通用户／收发／强杀清理断言保留，测试中的 SIGKILL 只针对持有测试设备 fd 的隔离接收进程。原出口探针新增 `--routes build/coreabi/linux_sourceroutes_test`，使用正式专用表／源规则后端；控制管道 EOF 后由持有进程恢复并独立回读原始状态。 受保护快照文件检查使用 `sudo unshare --net -- build/coreabi/linux_sourcejournal_test --isolated`；源路由检查覆盖写前准备、部分写入、应用确认和规则／路由删除前后强杀边界，由新进程从 root 私有记录恢复；删除结果不明且匹配对象仍存在时保留并报告，范围及尚缺的助手／自动恢复服务见[原出口边界](CORELINK-PROBE.md#linux-source-routes)。
 
 系统代理恢复进程与应用同包，`CoreRuntime` 安装组件在 Windows／Linux 放在宿主旁，macOS 放入 `Contents/MacOS` 并由 macdeployqt 一起重定位。包验证实际运行 `JustConnectProxyRecovery --version` 检查依赖可加载与协议版本，该命令不读写代理；恢复行为由 `proxyrecovery_test` 验证，不以版本输出代替。测试只强杀自己创建的宿主：公共进程／协议夹具覆盖部分失败、外部改写、恢复拒绝、单所有者、坏回复／真实超时及非法／超限输入；Linux 使用私有 GSettings keyfile，macOS 使用私有 SystemConfiguration 文件，Windows 真实 WinINet 强杀仅在一次性 GitHub runner 运行。日常主机不得运行 Windows 原生写入模式。恢复进程当前仍需补持久快照及自身异常重启，不能替代完整网络助手验收。
 
