@@ -8,8 +8,6 @@
 #include <system_error>
 
 namespace {
-// shortcut: recheck for Wintun 0.14.1 missed wakeups; remove after the fixed signed SDK is verified.
-constexpr DWORD ReceiveWakeRecoveryMs=1000;
 [[noreturn]] void fail(const char *stage, DWORD error = GetLastError())
 {
     throw std::system_error(static_cast<int>(error), std::system_category(), stage);
@@ -208,7 +206,7 @@ size_t WindowsTunDevice::read(unsigned char *packet, size_t capacity)
             const auto error = GetLastError();
             if (error != ERROR_NO_MORE_ITEMS) fail("receive owned packet",error);
             const HANDLE waits[]{stop,ready};
-            const auto state = WaitForMultipleObjects(2,waits,FALSE,ReceiveWakeRecoveryMs);
+            const auto state = WaitForMultipleObjects(2,waits,FALSE,INFINITE);
             if (state == WAIT_FAILED) fail("wait for owned packet");
             if (state == WAIT_OBJECT_0) fail("owned adapter stopped",ERROR_OPERATION_ABORTED);
             continue;
