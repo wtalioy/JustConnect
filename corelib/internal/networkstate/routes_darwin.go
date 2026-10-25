@@ -51,7 +51,7 @@ func readRoutes(_ []Interface) ([]Route, error) {
 		} else if !address.IsUnspecified() {
 			return nil, errors.New("missing native route mask")
 		}
-		item := Route{Destination: netip.PrefixFrom(address, bits).Masked().String(), InterfaceIndex: row.Index, Flags: row.Flags}
+		item := Route{Destination: netip.PrefixFrom(address, bits).Masked().String(), InterfaceIndex: row.Index, Flags: row.Flags, Cloned: row.Flags&unix.RTF_WASCLONED != 0}
 		if len(row.Addrs) > unix.RTAX_GATEWAY {
 			if gateway := routeAddress(row.Addrs[unix.RTAX_GATEWAY]); gateway != nil {
 				item.Gateway = gateway.String()

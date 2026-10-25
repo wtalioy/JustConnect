@@ -11,6 +11,7 @@ namespace {
 QJsonObject projection(const QJsonObject &row)
 {
     QJsonObject value{{"destination",row["prefix"]},{"interface_index",row["index"]},{"flags",row["flags"]}};
+    if (row["flags"].toInteger() & RTF_WASCLONED) value["cloned"] = true;
     const auto raw = QByteArray::fromHex(row["addresses"].toObject()[QString::number(RTAX_GATEWAY)].toString().toLatin1());
     if (raw.size() >= 8 && quint8(raw[1]) == AF_INET) {
         in_addr address{}; std::memcpy(&address,raw.constData()+4,sizeof(address)); char text[INET_ADDRSTRLEN]{};

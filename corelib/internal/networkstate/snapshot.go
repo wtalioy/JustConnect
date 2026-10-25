@@ -42,6 +42,7 @@ type Route struct {
 	Protocol       int       `json:"protocol,omitempty"`
 	Kind           int       `json:"kind,omitempty"`
 	Flags          int       `json:"flags,omitempty"`
+	Cloned         bool      `json:"cloned,omitempty"`
 	NextHops       []NextHop `json:"next_hops,omitempty"`
 }
 
