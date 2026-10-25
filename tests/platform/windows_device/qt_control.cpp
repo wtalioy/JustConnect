@@ -1,4 +1,5 @@
 #include "infrastructure/networkhelper/windows/networkhelperclient.h"
+#include "controlhandoff.h"
 #include <QCoreApplication>
 #include <QEventLoop>
 #include <QTimer>
@@ -18,7 +19,7 @@
 
 namespace {
 void check(bool value,const char *stage){if(!value)throw std::runtime_error(stage);}
-struct Input {std::uintptr_t server=0;GUID dead{},live{},foreign{};};
+using Input=WindowsControlFixtureInput;
 QUuid uuid(const GUID &id){wchar_t value[39]{};check(StringFromGUID2(id,value,39)!=0,"Qt test ownership UUID");return QUuid(QString::fromWCharArray(value));}
 bool contains(const QJsonArray &owners,const QUuid &id){for(const auto &item:owners)if(QUuid(item.toObject()["owner"].toString())==id)return true;return false;}
 

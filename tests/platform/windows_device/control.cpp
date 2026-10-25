@@ -3,6 +3,7 @@
 #include "infrastructure/networkhelper/windows/installation.h"
 #include "infrastructure/packetpipe/windows/stream.h"
 #include "ordinarytoken.h"
+#include "controlhandoff.h"
 #include "windowsnetworkcontract.h"
 #include <objbase.h>
 #include <winrt/Windows.Data.Json.h>
@@ -33,7 +34,7 @@ struct Process {
 GUID uuid(){GUID id{};check(SUCCEEDED(CoCreateGuid(&id)),"new control UUID");return id;}
 std::wstring guid(const GUID &id){wchar_t value[39]{};check(StringFromGUID2(id,value,39)!=0,"control UUID text");return value;}
 std::wstring executable(){wchar_t value[32768]{};const auto size=GetModuleFileNameW(nullptr,value,32768);check(size && size<32768,"control fixture image");return value;}
-struct Input {std::uintptr_t server=0;GUID dead{},live{},foreign{};};
+using Input=WindowsControlFixtureInput;
 void transfer(HANDLE pipe,void *data,DWORD size,bool write){
     DWORD count=0;check((write?WriteFile(pipe,data,size,&count,nullptr):ReadFile(pipe,data,size,&count,nullptr)) && count==size,"control fixture handoff");
 }
@@ -131,17 +132,29 @@ int client(const GUID &session,const std::wstring &mode){
     bool refused=false;try{receiveWindowsControlMessage(*pipe,5000);}catch(const std::system_error &){refused=true;}
     check(refused,"unsafe control request returned a reply");return 0;
 }
-void scenario(const std::wstring &helper,const std::wstring &mode,const std::wstring &clientImage={}){
-    const auto session=uuid();
-    Handle token,input,childInput,console;
+void scenario(const std::wstring &helper,const std::wstring &mode,const std::wstring &clientImage={},bool application=false){
+    auto session=uuid();
+    Handle token,input,childInput,console,request,childRequest;
     token.value=ordinaryWindowsToken();
     SECURITY_ATTRIBUTES attributes{sizeof(attributes),nullptr,TRUE};
     check(CreatePipe(&childInput.value,&input.value,&attributes,0) && SetHandleInformation(input.value,HANDLE_FLAG_INHERIT,0),"control fixture input pipe");
     check(DuplicateHandle(GetCurrentProcess(),GetStdHandle(STD_OUTPUT_HANDLE),GetCurrentProcess(),&console.value,0,TRUE,DUPLICATE_SAME_ACCESS),"control fixture console");
     STARTUPINFOW startup{sizeof(startup)};startup.dwFlags=STARTF_USESTDHANDLES;
     startup.hStdInput=childInput.value;startup.hStdOutput=console.value;startup.hStdError=console.value;
-    Process gui;gui.start(L"\""+(clientImage.empty()?executable():clientImage)+L"\" --client "+guid(session)+L" "+mode,token.value,&startup);
+    if(application)check(CreatePipe(&request.value,&childRequest.value,&attributes,0) && SetHandleInformation(request.value,HANDLE_FLAG_INHERIT,0),"application approval request pipe");
+    const auto reply=application?L" "+std::to_wstring(reinterpret_cast<std::uintptr_t>(childRequest.value)):L"";
+    Process gui;gui.start(L"\""+(clientImage.empty()?executable():clientImage)+L"\" --client "+guid(session)+L" "+mode+reply,token.value,&startup);
     CloseHandle(childInput.value);childInput.value=nullptr;
+    if(application){
+        CloseHandle(childRequest.value);childRequest.value=nullptr;
+        const auto deadline=GetTickCount64()+WindowsNetworkContract::ControlTimeoutMs;DWORD available=0;
+        for(;;){
+            check(PeekNamedPipe(request.value,nullptr,0,nullptr,&available,nullptr),"read actual application approval request");
+            if(available>=sizeof(session))break;
+            check(GetTickCount64()<deadline && WaitForSingleObject(gui.process.value,0)==WAIT_TIMEOUT,"application did not request approval before its deadline");Sleep(10);
+        }
+        transfer(request.value,&session,sizeof(session),false);check(session!=GUID{},"actual application attempt UUID");
+    }
     WindowsProcess caller(GetProcessId(gui.process.value)),current(GetCurrentProcessId());
     WindowsRegistryJournal journal;Input payload;
     payload.dead=uuid();payload.live=uuid();payload.foreign=uuid();
@@ -205,8 +218,10 @@ int wmain(int argc,wchar_t **argv) try
         GUID session{};check(SUCCEEDED(CLSIDFromString(argv[2],&session)),"client session UUID");return client(session,argv[3]);
     }
     wchar_t guarded[8]{};
-    check((argc==2 || (argc==4 && std::wstring(argv[1])==L"--qt")) && GetEnvironmentVariableW(L"GITHUB_ACTIONS",guarded,8)==4 && std::wstring(guarded)==L"true","control mutation requires disposable runner");
-    if(argc==4){scenario(argv[2],L"normal",argv[3]);scenario(argv[2],L"network",argv[3]);return 0;}
+    const bool qt=argc==4 && std::wstring(argv[1])==L"--qt";
+    const bool application=argc==4 && std::wstring(argv[1])==L"--qt-session";
+    check((argc==2 || qt || application) && GetEnvironmentVariableW(L"GITHUB_ACTIONS",guarded,8)==4 && std::wstring(guarded)==L"true","control mutation requires disposable runner");
+    if(qt || application){scenario(argv[2],application?L"network":L"normal",argv[3],application);scenario(argv[2],L"network",argv[3],application);return 0;}
     for(const auto mode:{L"normal",L"authorize",L"authorize-cancel",L"authorize-replaced",L"server-mismatch",L"replaced",L"session-mismatch",L"unknown-field",L"unknown-operation",L"oversized",L"io-timeout",L"eof"})scenario(argv[1],mode);
     return 0;
 }catch(const std::exception &error){std::cerr<<error.what()<<'\n';return 1;}

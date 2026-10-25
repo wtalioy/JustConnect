@@ -22,7 +22,7 @@ int main(int argc,char **argv) try
     const QJsonObject dns{{"nrpt",QJsonArray{originalPolicy,ownedPolicy}},{"interfaces",QJsonArray{}},{"clients",QJsonArray{}}};
     const auto ownership=WindowsNetworkOwnership::capture(configuration,device,network,dns);
     check(ownership.has_value(),"confirmed owned snapshot was rejected");
-    const auto filter=ownership->filter(configuration,network);check(bool(filter),"confirmed capture set was rejected");
+    const auto filter=ownership->filter(configuration);check(bool(filter),"confirmed capture set was rejected");
     const auto clean=filter(network,dns);check(clean && clean->first["interfaces"]==QJsonArray{lan}
         && clean->first["routes"]==QJsonArray{originalRoute} && clean->second["nrpt"]==QJsonArray{originalPolicy},"original network was not restored in the read model");
     auto changedNetwork=network,changedDns=dns;
@@ -43,7 +43,7 @@ int main(int argc,char **argv) try
     check(!filter(changedNetwork,dns),"missing or edited capture was treated as active ownership");
     auto next=configuration;next["capture_prefixes"]=QJsonArray{"198.18.0.7/32"};auto nextTarget=target;nextTarget["destination"]="198.18.0.7/32";
     changedNetwork["routes"]=QJsonArray{originalRoute,peer,nextTarget,source,target};
-    const auto replacement=ownership->filter(next,changedNetwork);check(bool(replacement),"new confirmed capture was rejected");
+    const auto replacement=ownership->filter(next);check(bool(replacement),"new confirmed capture was rejected");
     const auto replaced=replacement(changedNetwork,dns);check(replaced && replaced->first["routes"].toArray().contains(target),"revoked capture was hidden after external reappearance");
     changedDns["nrpt"]=QJsonArray{originalPolicy};
     check(!WindowsNetworkOwnership::capture(configuration,device,network,changedDns),"ineffective owned DNS acquired a read filter");

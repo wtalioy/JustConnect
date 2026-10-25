@@ -11,7 +11,11 @@ ROOT = Path(__file__).resolve().parents[2]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--qt-control", action="store_true")
+    parser.add_argument("--session-host", type=Path)
     args = parser.parse_args()
+    if args.session_host and not args.session_host.is_absolute():
+        parser.error('--session-host requires the absolute built application fixture path')
+    args.qt_control = args.qt_control or bool(args.session_host)
     if os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('RUNNER_OS') != 'Windows':
         raise RuntimeError('Machine installation checks require a disposable Windows runner')
     os.chdir(ROOT)
@@ -41,7 +45,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Native helper configuration failed' }
     & cmake --build $env:JC_HELPER_NATIVE_BUILD --config Release --target windows_installation_test windows_helper windows_recovery_test windows_control_test --parallel 3
     if ($LASTEXITCODE -ne 0) { throw 'Native helper installation build failed' }
-    if ($qtOnly) {
+    if ($qtOnly -and -not $env:JC_HELPER_QT_SESSION_HOST) {
         & cmake --build $env:JC_HELPER_NATIVE_BUILD --config Release --target windows_control_qt_test --parallel 3
         if ($LASTEXITCODE -ne 0) { throw 'Ordinary Qt control build failed' }
     }
@@ -95,9 +99,14 @@ try {
         & (Join-Path $env:JC_HELPER_NATIVE_BUILD 'Release/windows_recovery_test.exe') --service (Join-Path $directory $env:JC_HELPER_DRIVER_NAME)
         if ($LASTEXITCODE -ne 0) { throw 'Independent SCM recovery failed' }
     } else {
-        Write-Host 'RUN: actual ordinary Qt authenticated control and cancellation'
-        & $env:JC_HELPER_CONTROL_IMAGE --qt $env:JC_HELPER_SERVICE_IMAGE (Join-Path $env:JC_HELPER_NATIVE_BUILD 'Release/windows_control_qt_test.exe')
-        if ($LASTEXITCODE -ne 0) { throw 'Ordinary Qt native control failed' }
+        if ($env:JC_HELPER_QT_SESSION_HOST) {
+            Write-Host 'RUN: actual ordinary application, native helper, core DNS and transparent traffic'
+            & $env:JC_HELPER_CONTROL_IMAGE --qt-session $env:JC_HELPER_SERVICE_IMAGE $env:JC_HELPER_QT_SESSION_HOST
+        } else {
+            Write-Host 'RUN: actual ordinary Qt authenticated control and cancellation'
+            & $env:JC_HELPER_CONTROL_IMAGE --qt $env:JC_HELPER_SERVICE_IMAGE (Join-Path $env:JC_HELPER_NATIVE_BUILD 'Release/windows_control_qt_test.exe')
+        }
+        if ($LASTEXITCODE -ne 0) { throw 'Ordinary Qt native lifecycle failed' }
     }
 } finally {
     try {
@@ -120,12 +129,13 @@ try {
                JC_HELPER_SDK_DIRECTORY=str(destination),
                JC_HELPER_CMAKE_ARCH='ARM64' if metadata['arch'] == 'arm64' else 'x64',
                JC_HELPER_QT_CONTROL='true' if args.qt_control else 'false',
+               JC_HELPER_QT_SESSION_HOST=str(args.session_host) if args.session_host else '',
                JC_HELPER_CONTROL_IMAGE=str(destination / 'control-validation.exe'),
                JC_HELPER_TEST_IMAGE=str(destination / 'helper-validation.exe'),
                JC_HELPER_SERVICE_IMAGE=str(destination / contract['executable']),
                JC_HELPER_SERVICE_NAME=contract['service'], JC_HELPER_DRIVER_NAME=contract['driver_library'],
                JC_HELPER_EXECUTABLE=contract['executable'], JC_HELPER_INSTALL_DIRECTORY=contract['install_directory'])
-    suffix = '-qt' if args.qt_control else ''
+    suffix = '-session' if args.session_host else '-qt' if args.qt_control else ''
     script_path = output / ('validate-windows-helper' + suffix + '.ps1')
     script_path.write_text(script, encoding='utf-8')
     log_path = output / ('windows-helper' + suffix + '.log')
