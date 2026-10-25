@@ -121,6 +121,8 @@ def device():
             raise RuntimeError('Native device comparison did not exchange all packets')
         if record['benchmark'] == 'helper' and (record['seconds'] <= 0 or record['peak_rss_bytes'] <= 0 or record['cpu_seconds'] < 0):
             raise RuntimeError('Invalid native device measurements')
+        if record['benchmark'] == 'client' and not 0 < record['p50_us'] <= record['p95_us'] <= record['p99_us']:
+            raise RuntimeError('Invalid native latency counter measurements')
     (output / 'windows-device-benchmark.json').write_text(json.dumps({
         'source': os.environ['GITHUB_SHA'], 'arch': arch, 'driver_sha256': metadata['driver_sha256'],
         'scenario': 'paired same-runner component brokers; 4-byte UDP round trips over real Wintun and framed ordinary-client IPC; not campus or full Qt throughput',
