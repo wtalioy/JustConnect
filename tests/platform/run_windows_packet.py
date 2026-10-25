@@ -66,6 +66,7 @@ def device():
     subprocess.run([str(native / 'windows_process_identity_test.exe')], check=True, timeout=15)
     subprocess.run([str(native / 'windows_publisher_test.exe')], env=env, check=True, timeout=30)
     subprocess.run([str(native / 'windows_registry_journal_test.exe')], env=env, check=True, timeout=30)
+    subprocess.run([str(native / 'windows_packet_frame_test.exe')], env=env, check=True, timeout=15)
     env['JC_TEST_CPP_WINTUN_BROKER'] = str(native / 'windows_device_broker.exe')
     trap = output / 'windows-device-loader-trap'
     trap.mkdir(exist_ok=True)

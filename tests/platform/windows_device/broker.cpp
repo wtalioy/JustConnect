@@ -1,5 +1,8 @@
 #include "infrastructure/tundevice/windows/adapter.h"
 #include "ordinarytoken.h"
+#include "infrastructure/process/windows/identity.h"
+#include "infrastructure/packetpipe/windows/stream.h"
+#include "infrastructure/networkhelper/windows/packetrelay.h"
 #include <sddl.h>
 #include <objbase.h>
 #include <cfgmgr32.h>
@@ -134,13 +137,51 @@ int exchange(WindowsTunDevice &device,const std::wstring &client,const std::wstr
     if (!GetExitCodeProcess(process.value,&code)) fail("ordinary consumer exit");
     return static_cast<int>(code);
 }
+
+int packetRelay(const std::wstring &dll,const std::wstring &base)
+{
+    DWORD pid=0;
+    if (!(std::cin>>pid) || !pid) fail("read actual Qt client identity",ERROR_INVALID_DATA);
+    WindowsProcess caller(pid);
+    for (int round=0;round<2;++round) {
+        auto pipe=WindowsPacketPipe::listen(base+std::to_wstring(round),caller);
+        unsigned char ready=0;
+        pipe->read(&ready,1);
+        if (ready!=1) fail("core did not request actual adapter allocation",ERROR_INVALID_DATA);
+        GUID owner{};
+        if (FAILED(CoCreateGuid(&owner))) fail("create packet owner",ERROR_INVALID_DATA);
+        IN_ADDR source{},peer{},target{};
+        source.S_un.S_addr=htonl(0xc6120001);
+        peer.S_un.S_addr=htonl(0xc6120002);
+        target.S_un.S_addr=htonl(0xc6120006);
+        auto device=WindowsTunDevice::create(dll,owner,source,peer,1400,{{target,32}},[&](const auto &identity) {
+            if (!identity.luid.Value || !identity.index || identity.guid!=owner) fail("actual packet owner differs",ERROR_INVALID_DATA);
+        });
+        ready=1;
+        pipe->write(&ready,1);
+        relayWindowsPackets(*device,*pipe,1400);
+        const auto deadline=GetTickCount64()+5000;
+        for (;;) {
+            MIB_IF_ROW2 row{};
+            row.InterfaceLuid=device->identity().luid;
+            const auto status=GetIfEntry2Ex(MibIfEntryNormalWithoutStatistics,&row);
+            if (status==ERROR_NOT_FOUND || status==ERROR_FILE_NOT_FOUND) break;
+            if (status!=NO_ERROR) fail("confirm released packet adapter",status);
+            if (GetTickCount64()>=deadline) fail("packet adapter survived disconnect",ERROR_TIMEOUT);
+            Sleep(20);
+        }
+    }
+    std::cout << "PASS: native C++ authenticated packet relay and two released adapter identities\n";
+    return 0;
+}
 }
 
 int wmain(int argc,wchar_t **argv) try
 {
     wchar_t guarded[8]{};
     if (GetEnvironmentVariableW(L"GITHUB_ACTIONS",guarded,static_cast<DWORD>(std::size(guarded))) != 4
-        || std::wstring(guarded) != L"true" || argc != 6 || std::wstring(argv[1]) != L"--broker")
+        || std::wstring(guarded) != L"true" || !((argc==6 && std::wstring(argv[1])==L"--broker")
+            || (argc==4 && std::wstring(argv[1])==L"--packet-relay")))
         fail("device fixture requires the disposable runner",ERROR_ACCESS_DENIED);
     Handle ownToken;
     if (!OpenProcessToken(GetCurrentProcess(),TOKEN_QUERY,&ownToken.value)) fail("read fixture elevation");
@@ -148,6 +189,10 @@ int wmain(int argc,wchar_t **argv) try
     DWORD tokenSize=0;
     if (!GetTokenInformation(ownToken.value,TokenElevation,&elevation,sizeof(elevation),&tokenSize) || !elevation.TokenIsElevated)
         fail("device fixture requires an elevated disposable runner",ERROR_ACCESS_DENIED);
+    if (std::wstring(argv[1])==L"--packet-relay") {
+        if (std::wstring(argv[3]).rfind(L"\\\\.\\pipe\\JustConnect-native-packets-",0)!=0) fail("invalid fixture pipe",ERROR_INVALID_PARAMETER);
+        return packetRelay(argv[2],argv[3]);
+    }
     const std::wstring name=argv[3],mode=argv[4];
     if (name.rfind(L"JustConnect ",0)!=0 || (mode!=L"connected" && mode!=L"roundtrip" && mode!=L"oversized" && mode!=L"crash" && mode!=L"setup-failure"))
         fail("invalid native fixture request",ERROR_INVALID_PARAMETER);
