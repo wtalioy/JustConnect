@@ -23,6 +23,7 @@ class WindowsHelperSDKTest(unittest.TestCase):
             output.writestr(self.contract['sdk']['driver_entry'].format(arch='amd64'), b'x64-native-payload')
             output.writestr(self.contract['sdk']['driver_entry'].format(arch='arm64'), b'arm64-native-payload')
             output.writestr(self.contract['sdk']['license_entry'], b'fixture-license')
+            output.writestr(self.contract['sdk']['header_entry'], b'fixture-native-header')
             output.writestr('../unrelated', b'must-never-be-extracted')
         self.data = archive.getvalue()
         self.contract['sdk']['archive_sha256'] = hashlib.sha256(self.data).hexdigest()
@@ -37,7 +38,8 @@ class WindowsHelperSDKTest(unittest.TestCase):
                 self.assertEqual(Path(result['driver']).read_bytes(), expected)
                 self.assertEqual(result['driver_sha256'], hashlib.sha256(expected).hexdigest())
                 self.assertEqual(Path(result['license']).read_bytes(), b'fixture-license')
-                self.assertEqual(set(Path(directory).iterdir()), {Path(result['driver']), Path(result['license']), Path(directory) / 'source.json'})
+                self.assertEqual(Path(result['header']).read_bytes(), b'fixture-native-header')
+                self.assertEqual(set(Path(directory).iterdir()), {Path(result['driver']), Path(result['license']), Path(result['header']), Path(directory) / 'source.json'})
 
     def test_refuses_changed_archive_before_writing(self):
         bad = copy.deepcopy(self.contract)

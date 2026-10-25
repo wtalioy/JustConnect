@@ -18,7 +18,9 @@
     ],
     "driver_entry": "wintun/bin/{arch}/wintun.dll",
     "license_entry": "wintun/LICENSE.txt",
-    "publisher_thumbprint": "DF98E075A012ED8C86FBCF14854B8F9555CB3D45"
+    "publisher_thumbprint": "DF98E075A012ED8C86FBCF14854B8F9555CB3D45",
+    "header_entry": "wintun/include/wintun.h",
+    "header_file": "wintun.h"
   },
   "driver_license": "wintun.LICENSE.txt"
 }
