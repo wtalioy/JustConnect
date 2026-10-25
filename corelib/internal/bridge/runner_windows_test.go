@@ -151,7 +151,7 @@ func serveNativeWindowsPackets(ctx context.Context, name, dll string, pid <-chan
 
 func TestNativeWindowsPacketHost(t *testing.T) {
 	host := os.Getenv("JC_NATIVE_WINDOWS_PACKET_HOST")
-	if host == "" {
+	if host == "" || os.Getenv("GITHUB_ACTIONS") != "true" {
 		t.Skip("Windows Qt/Wintun packet integration runs in the native ABI target")
 	}
 	dll := os.Getenv("JC_TEST_WINTUN_DLL")

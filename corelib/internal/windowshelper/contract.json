@@ -1,0 +1,24 @@
+{
+  "protocol": 1,
+  "storage_version": 1,
+  "executable": "JustConnectNetworkHelper.exe",
+  "service": "JustConnectNetworkRecovery",
+  "install_directory": "JustConnectNetworkHelper",
+  "state_registry": "SOFTWARE\\JustConnectNetworkHelper",
+  "max_message_bytes": 65536,
+  "max_record_bytes": 1048576,
+  "driver_library": "wintun.dll",
+  "sdk": {
+    "version": "0.14.1",
+    "url": "https://www.wintun.net/builds/wintun-0.14.1.zip",
+    "archive_sha256": "07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51",
+    "architectures": [
+      "amd64",
+      "arm64"
+    ],
+    "driver_entry": "wintun/bin/{arch}/wintun.dll",
+    "license_entry": "wintun/LICENSE.txt",
+    "publisher_thumbprint": "DF98E075A012ED8C86FBCF14854B8F9555CB3D45"
+  },
+  "driver_license": "wintun.LICENSE.txt"
+}

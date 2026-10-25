@@ -62,7 +62,6 @@ if(WIN32)
     justconnect_core_runtime(coreabi_windows_packet_test coreabi)
     add_test(NAME coreabi_windows_packet_test
         COMMAND "${CMAKE_COMMAND}" -E env "JC_NATIVE_WINDOWS_PACKET_HOST=$<TARGET_FILE:coreabi_windows_packet_test>"
-            "JC_TEST_WINTUN_DLL=${CMAKE_BINARY_DIR}/wintun-probe/wintun.dll"
             GOTOOLCHAIN=local GOWORK=off GOENV=off CGO_ENABLED=1 GOEXPERIMENT=cgocheck2
             "${GO_EXECUTABLE}" test -mod=readonly -count=1 -timeout 90s -run "^TestNativeWindowsPacketHost$" -v ./internal/bridge)
     set_tests_properties(coreabi_windows_packet_test PROPERTIES TIMEOUT 120 WORKING_DIRECTORY "${CORE}")
