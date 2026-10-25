@@ -15,7 +15,7 @@ struct WindowsProcessIdentity {
 // Retain the process object throughout authorization so PID reuse cannot change its owner.
 class WindowsProcess final {
 public:
-    explicit WindowsProcess(DWORD pid);
+    explicit WindowsProcess(DWORD pid,DWORD access=PROCESS_QUERY_LIMITED_INFORMATION|SYNCHRONIZE);
     ~WindowsProcess();
     WindowsProcess(const WindowsProcess &) = delete;
     WindowsProcess &operator=(const WindowsProcess &) = delete;

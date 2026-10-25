@@ -1,4 +1,4 @@
-function(justconnect_windows_network_helper TARGET)
+function(justconnect_windows_helper_layout)
     set(CONTRACT "${REPO}/resource/network-helper-windows.json")
     file(READ "${CONTRACT}" LAYOUT)
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CONTRACT}")
@@ -17,6 +17,11 @@ function(justconnect_windows_network_helper TARGET)
     endforeach()
     configure_file("${REPO}/infrastructure/networkhelper/windows/networkcontract.h.in"
         "${CMAKE_CURRENT_BINARY_DIR}/windowsnetworkcontract.h" @ONLY)
+    set(WINDOWS_EXECUTABLE "${WINDOWS_EXECUTABLE}" PARENT_SCOPE)
+endfunction()
+
+function(justconnect_windows_network_helper TARGET)
+    justconnect_windows_helper_layout()
     add_library(${TARGET}_support STATIC
         "${REPO}/infrastructure/process/windows/identity.cpp"
         "${REPO}/infrastructure/networkhelper/windows/publisher.cpp"
@@ -24,6 +29,7 @@ function(justconnect_windows_network_helper TARGET)
         "${REPO}/infrastructure/networkhelper/windows/recovery.cpp"
         "${REPO}/infrastructure/networkhelper/windows/service.cpp"
         "${REPO}/infrastructure/networkhelper/windows/control.cpp"
+        "${REPO}/infrastructure/networkhelper/windows/controlwire.cpp"
         "${REPO}/infrastructure/packetpipe/windows/stream.cpp"
         "${REPO}/infrastructure/tundevice/windows/recovery.cpp"
         "${REPO}/infrastructure/dns/windows/nrpt.cpp"
@@ -38,4 +44,20 @@ function(justconnect_windows_network_helper TARGET)
     get_filename_component(OUTPUT_NAME "${WINDOWS_EXECUTABLE}" NAME_WE)
     set_target_properties(${TARGET} PROPERTIES OUTPUT_NAME "${OUTPUT_NAME}")
     target_link_libraries(${TARGET} PRIVATE ${TARGET}_support)
+endfunction()
+
+function(justconnect_windows_network_client TARGET)
+    justconnect_windows_helper_layout()
+    find_package(Qt6 REQUIRED COMPONENTS Core Concurrent)
+    add_library(${TARGET} STATIC
+        "${REPO}/infrastructure/networkhelper/windows/networkhelperclient.cpp"
+        "${REPO}/infrastructure/networkhelper/windows/networkhelperclient.h"
+        "${REPO}/infrastructure/networkhelper/windows/controlwire.cpp"
+        "${REPO}/infrastructure/packetpipe/windows/stream.cpp"
+        "${REPO}/infrastructure/process/windows/identity.cpp")
+    set_target_properties(${TARGET} PROPERTIES AUTOMOC ON MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+    target_compile_features(${TARGET} PUBLIC cxx_std_20)
+    target_compile_definitions(${TARGET} PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0A00)
+    target_include_directories(${TARGET} PUBLIC "${REPO}" "${CMAKE_CURRENT_BINARY_DIR}")
+    target_link_libraries(${TARGET} PUBLIC Qt6::Core Qt6::Concurrent PRIVATE advapi32 ole32)
 endfunction()

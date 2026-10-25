@@ -13,7 +13,7 @@ class WindowsPacketPipe final {
 public:
     static std::unique_ptr<WindowsPacketPipe> listen(const std::wstring &name,const WindowsProcess &caller,DWORD timeout=INFINITE);
     // The launch handle identifies the approved elevated process without querying another account's token.
-    static std::unique_ptr<WindowsPacketPipe> connect(const std::wstring &name,HANDLE server,DWORD timeout);
+    static std::unique_ptr<WindowsPacketPipe> connect(const std::wstring &name,HANDLE server,DWORD timeout,HANDLE cancel=nullptr);
     ~WindowsPacketPipe();
     WindowsPacketPipe(const WindowsPacketPipe &) = delete;
     WindowsPacketPipe &operator=(const WindowsPacketPipe &) = delete;

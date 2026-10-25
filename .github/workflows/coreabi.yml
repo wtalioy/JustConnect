@@ -95,6 +95,10 @@ jobs:
 
       - uses: ./.github/actions/setup-core-toolchain
 
+      - name: Verify ordinary Qt Windows authorization and recovery control
+        if: runner.os == 'Windows'
+        run: python tests/platform/run_windows_helper.py --qt-control
+
       - name: Probe Windows device broker in the disposable runner
         if: runner.os == 'Windows'
         run: python tests/platform/run_windows_packet.py --device-only
@@ -267,6 +271,8 @@ jobs:
           host: ${{ matrix.qt_host }}
           arch: ${{ matrix.qt_arch }}
       - uses: ./.github/actions/setup-core-toolchain
+      - name: Verify ordinary Qt authorization and recovery control
+        run: python tests/platform/run_windows_helper.py --qt-control
       - name: Verify native ownership and ordinary Qt/core packets
         run: python tests/platform/run_windows_packet.py
       - name: Upload native Windows evidence

@@ -35,7 +35,7 @@ void WindowsPacketPipe::initialize()
     if (!stop || !readReady || !writeReady) fail("create packet I/O events");
 }
 
-std::unique_ptr<WindowsPacketPipe> WindowsPacketPipe::connect(const std::wstring &name,HANDLE server,DWORD timeout)
+std::unique_ptr<WindowsPacketPipe> WindowsPacketPipe::connect(const std::wstring &name,HANDLE server,DWORD timeout,HANDLE cancel)
 {
     if (!server || !timeout || timeout==INFINITE || name.rfind(L"\\\\.\\pipe\\",0)!=0)
         fail("invalid local pipe connection",ERROR_INVALID_PARAMETER);
@@ -44,13 +44,16 @@ std::unique_ptr<WindowsPacketPipe> WindowsPacketPipe::connect(const std::wstring
     auto stream=std::unique_ptr<WindowsPacketPipe>(new WindowsPacketPipe);
     const auto deadline=GetTickCount64()+timeout;
     for (;;) {
+        if(cancel && WaitForSingleObject(cancel,0)!=WAIT_TIMEOUT)fail("local pipe connection cancelled",ERROR_OPERATION_ABORTED);
         stream->pipe=CreateFileW(name.c_str(),GENERIC_READ|GENERIC_WRITE,0,nullptr,OPEN_EXISTING,
             FILE_FLAG_OVERLAPPED|SECURITY_SQOS_PRESENT|SECURITY_IDENTIFICATION,nullptr);
         if (stream->pipe!=INVALID_HANDLE_VALUE) break;
         const auto error=GetLastError();
         if (error!=ERROR_PIPE_BUSY && error!=ERROR_FILE_NOT_FOUND) fail("open local pipe",error);
         if (GetTickCount64()>=deadline) fail("local pipe connection deadline",ERROR_TIMEOUT);
-        if (WaitForSingleObject(server,10)!=WAIT_TIMEOUT) fail("approved pipe server exited",ERROR_PROCESS_ABORTED);
+        const HANDLE waits[]{server,cancel};
+        const auto state=WaitForMultipleObjects(cancel?2:1,waits,FALSE,10);
+        if(state!=WAIT_TIMEOUT)fail("local pipe connection stopped",state==WAIT_OBJECT_0+1?ERROR_OPERATION_ABORTED:ERROR_PROCESS_ABORTED);
     }
     ULONG actual=0;
     if (!GetNamedPipeServerProcessId(stream->pipe,&actual)) fail("identify local pipe server");

@@ -21,3 +21,11 @@ foreach(CASE IN ITEMS process_identity publisher registry_journal packet_frame n
     add_executable(windows_${CASE}_test ${CASE}.cpp)
     target_link_libraries(windows_${CASE}_test PRIVATE windows_helper_support windows_fixture_support windows_packet_relay)
 endforeach()
+
+option(JC_WINDOWS_QT_CONTROL_TEST "Build the ordinary Qt ownership control client checks" OFF)
+if(JC_WINDOWS_QT_CONTROL_TEST)
+    justconnect_windows_network_client(windows_control_client)
+    add_executable(windows_control_qt_test qt_control.cpp)
+    set_target_properties(windows_control_qt_test PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+    target_link_libraries(windows_control_qt_test PRIVATE windows_control_client)
+endif()

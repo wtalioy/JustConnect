@@ -20,11 +20,12 @@ std::uint64_t number(const wchar_t *text)
 int wmain(int argc,wchar_t **argv) try
 {
     if(argc==2 && std::wstring(argv[1])==L"--service")return runWindowsRecoveryService();
-    if(argc==5 && std::wstring(argv[1])==L"--control"){
+    if(argc==5 && (std::wstring(argv[1])==L"--control" || std::wstring(argv[1])==L"--authorize")){
         const auto pid=number(argv[2]),created=number(argv[3]);
         GUID session{};wchar_t canonical[39]{};
         if(pid>MAXDWORD || FAILED(CLSIDFromString(argv[4],&session)) || session==GUID{} || !StringFromGUID2(session,canonical,39) || std::wstring(argv[4])!=canonical)throw std::runtime_error("invalid control session identity");
-        return runWindowsNetworkControl(static_cast<DWORD>(pid),created,session);
+        return std::wstring(argv[1])==L"--authorize"?WindowsHelperInstallation::authorizeControl(static_cast<DWORD>(pid),created,session)
+            :runWindowsNetworkControl(static_cast<DWORD>(pid),created,session);
     }
     if(argc!=2 || std::wstring(argv[1])!=L"--install")throw std::runtime_error("unknown native helper request");
     auto installation=WindowsHelperInstallation::prepare();
