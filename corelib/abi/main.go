@@ -8,6 +8,7 @@ import "C"
 import (
 	"encoding/json"
 	"errors"
+	"net/netip"
 	"runtime"
 	"runtime/debug"
 	"time"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/wtalioy/JustConnect/corelib/internal/bridge"
 	"github.com/wtalioy/JustConnect/corelib/internal/networkstate"
+	"github.com/wtalioy/JustConnect/corelib/internal/packetpipe"
 	"github.com/wtalioy/JustConnect/corelib/internal/tundevice"
 	"github.com/wtalioy/JustConnect/corelib/stack/gvisor"
 )
@@ -54,14 +56,15 @@ func buildInfo() []byte {
 			"upstream_commit": bridge.UpstreamCommit, "local_version": rev + "+" + state,
 			"go_version": runtime.Version(), "os": runtime.GOOS, "arch": runtime.GOARCH},
 		"capabilities": map[string]any{"embedded_vpn": !testDriver, "auth_method_query": !testDriver, "authentication_cache": !testDriver, "policy_update": true,
-			"initial_protection": true,
-			"name_protection":    true,
-			"network_snapshot":   networkstate.Supported(),
-			"resource_snapshot":  !testDriver,
-			"tun_dns_routes":     !testDriver && tundevice.Supported,
-			"raw_ipv4_tun_fd":    !testDriver && tundevice.Supported,
-			"tunnel_mtu":         tunnelMTU,
-			"async_start":        true, "authentication_response": true, "bounded_events": true,
+			"initial_protection":       true,
+			"name_protection":          true,
+			"network_snapshot":         networkstate.Supported(),
+			"resource_snapshot":        !testDriver,
+			"tun_dns_routes":           !testDriver && (tundevice.Supported || packetpipe.Supported),
+			"raw_ipv4_tun_fd":          !testDriver && tundevice.Supported,
+			"windows_ipv4_packet_pipe": !testDriver && packetpipe.Supported,
+			"tunnel_mtu":               tunnelMTU,
+			"async_start":              true, "authentication_response": true, "bounded_events": true,
 			"max_sessions": 1, "max_handles": bridge.MaxHandles, "max_input_bytes": bridge.MaxInput,
 			"max_output_bytes": bridge.MaxOutput, "max_wait_ms": bridge.MaxWaitMS, "max_auth_wait_ms": bridge.MaxAuthWaitMS,
 			"max_diagnostics": bridge.MaxDiagnostics},
@@ -158,9 +161,31 @@ func jc_go_session_attach_tun_dns(handle C.uint64_t, generation C.uint64_t, fd C
 	return attachTUN(handle, generation, fd, mtu, true)
 }
 
+//export jc_go_session_attach_windows_pipe
+func jc_go_session_attach_windows_pipe(handle C.uint64_t, generation C.uint64_t, pipe C.uint64_t, helperPID C.uint32_t, mtu C.uint32_t, source C.uint32_t, peer C.uint32_t, publishDNS C.uint32_t) C.int32_t {
+	if testDriver || !packetpipe.Supported {
+		return C.int32_t(bridge.Unsupported)
+	}
+	if publishDNS > 1 {
+		return C.int32_t(bridge.InvalidArgument)
+	}
+	address := func(value uint32) netip.Addr {
+		return netip.AddrFrom4([4]byte{byte(value >> 24), byte(value >> 16), byte(value >> 8), byte(value)})
+	}
+	device, err := packetpipe.Duplicate(uint64(pipe), uint32(helperPID), uint32(mtu), address(uint32(source)), address(uint32(peer)))
+	if err != nil {
+		return C.int32_t(bridge.InvalidArgument)
+	}
+	status := engine.AttachTUN(uint64(handle), uint64(generation), device, uint32(mtu), publishDNS == 1)
+	if status != bridge.OK {
+		_ = device.Close()
+	}
+	return C.int32_t(status)
+}
+
 //export jc_go_session_ack_dns_routes
 func jc_go_session_ack_dns_routes(handle C.uint64_t, generation C.uint64_t, request C.uint64_t, applied C.uint32_t) C.int32_t {
-	if testDriver || !tundevice.Supported {
+	if testDriver || (!tundevice.Supported && !packetpipe.Supported) {
 		return C.int32_t(bridge.Unsupported)
 	}
 	if applied > 1 {

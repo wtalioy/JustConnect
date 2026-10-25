@@ -3,10 +3,14 @@
 #include "application/networkprotection.h"
 #include "infrastructure/platform/dnssnapshot.h"
 #include <atomic>
+#include <memory>
+#ifdef Q_OS_WIN
+#include <windows.h>
+#include <QHostAddress>
+#endif
 #if defined(Q_OS_LINUX) || defined(Q_OS_MACOS)
 #include <fcntl.h>
 #include <unistd.h>
-#include <memory>
 #endif
 
 #include <QCoreApplication>
@@ -17,7 +21,7 @@
 namespace {
 #define CORE_FUNCTIONS(X) X(jc_abi_version) X(jc_build_info) X(jc_config_validate) X(jc_session_create) X(jc_session_start) \
     X(jc_session_read) X(jc_session_respond) X(jc_session_stop) X(jc_session_destroy)
-#define CORE_EXTENSIONS(X) X(jc_session_update_policy) X(jc_network_snapshot) X(jc_session_resources) X(jc_session_attach_tun) X(jc_session_attach_tun_dns) X(jc_session_ack_dns_routes)
+#define CORE_EXTENSIONS(X) X(jc_session_update_policy) X(jc_network_snapshot) X(jc_session_resources) X(jc_session_attach_tun) X(jc_session_attach_tun_dns) X(jc_session_attach_windows_pipe) X(jc_session_ack_dns_routes)
 struct Library {
 #define MEMBER(name) decltype(&::name) name = nullptr;
     CORE_FUNCTIONS(MEMBER)
@@ -250,6 +254,18 @@ public:
         }
         emit tunResult(id, requestedGeneration, status);
     }
+    void attachWindowsPipe(quint64 id, const QString &requestedGeneration, quint64 pipe, quint32 helperPID,
+        quint32 mtu, quint32 source, quint32 peer, bool publishDNSRoutes) {
+        int status = JC_STALE_REQUEST;
+        if (id == serial && active && !cancelled.load() && !QThread::currentThread()->isInterruptionRequested()) {
+            bool valid = false;
+            const auto requested = requestedGeneration.toULongLong(&valid);
+            status = valid && requested && requestedGeneration == QString::number(requested)
+                ? library().jc_session_attach_windows_pipe(handle, requested, pipe, helperPID, mtu, source, peer, publishDNSRoutes ? 1 : 0)
+                : JC_INVALID_ARGUMENT;
+        }
+        emit tunResult(id, requestedGeneration, status);
+    }
     void acknowledgeDNSRoutes(quint64 id, const QString &requestedGeneration, const QString &request, bool applied) {
         int status = JC_STALE_REQUEST;
         if (id == serial && active && !cancelled.load() && requestedGeneration == QString::number(generation)) {
@@ -397,6 +413,35 @@ void EmbeddedCoreEngine::attachTUN(const QString &generation, qint32 descriptor,
     QMetaObject::invokeMethod(pump, [this, id, generation, held, mtu, publishDNSRoutes] { pump->attachTUN(id, generation, *held, mtu, publishDNSRoutes); }, Qt::QueuedConnection);
 #else
     Q_UNUSED(descriptor); Q_UNUSED(mtu); Q_UNUSED(publishDNSRoutes);
+    emit tunAttached(generation, RequestStatus::Unavailable);
+#endif
+}
+void EmbeddedCoreEngine::attachWindowsPipe(const QString &generation, quint64 handle, quint32 helperPID, quint32 mtu,
+    const QString &source, const QString &peer, bool publishDNSRoutes) {
+    if (!active || stopping) { emit tunAttached(generation, RequestStatus::Stale); return; }
+#ifdef Q_OS_WIN
+    const auto capabilities = buildInfo()["capabilities"].toObject();
+    if (!library().jc_session_attach_windows_pipe || !capabilities["windows_ipv4_packet_pipe"].toBool()
+        || (publishDNSRoutes && (!library().jc_session_ack_dns_routes || !capabilities["tun_dns_routes"].toBool()))) {
+        emit tunAttached(generation, RequestStatus::Unavailable); return;
+    }
+    bool sourceValid = false, peerValid = false;
+    const QHostAddress sourceAddress(source), peerAddress(peer);
+    const auto sourceValue = sourceAddress.toIPv4Address(&sourceValid), peerValue = peerAddress.toIPv4Address(&peerValid);
+    HANDLE copied = nullptr;
+    if (!sourceValid || !peerValid || sourceAddress.toString() != source || peerAddress.toString() != peer
+        || !handle || quint64(quintptr(handle)) != handle || !helperPID
+        || !::DuplicateHandle(::GetCurrentProcess(), reinterpret_cast<HANDLE>(quintptr(handle)),
+            ::GetCurrentProcess(), &copied, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
+        emit tunAttached(generation, RequestStatus::Invalid); return;
+    }
+    const auto held = std::shared_ptr<void>(copied, [](void *value) { ::CloseHandle(value); });
+    const auto id = serial;
+    QMetaObject::invokeMethod(pump, [this, id, generation, held, helperPID, mtu, sourceValue, peerValue, publishDNSRoutes] {
+        pump->attachWindowsPipe(id, generation, quint64(reinterpret_cast<quintptr>(held.get())), helperPID, mtu, sourceValue, peerValue, publishDNSRoutes);
+    }, Qt::QueuedConnection);
+#else
+    Q_UNUSED(handle); Q_UNUSED(helperPID); Q_UNUSED(mtu); Q_UNUSED(source); Q_UNUSED(peer); Q_UNUSED(publishDNSRoutes);
     emit tunAttached(generation, RequestStatus::Unavailable);
 #endif
 }

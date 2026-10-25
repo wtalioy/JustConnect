@@ -1,4 +1,4 @@
-//go:build windows
+//go:build windows && jc_wintun_probe
 
 package main
 
@@ -12,6 +12,7 @@ import (
 	"testing"
 	"unsafe"
 
+	"github.com/wtalioy/JustConnect/corelib/internal/windowstest"
 	"golang.org/x/sys/windows"
 )
 
@@ -120,27 +121,8 @@ func TestDeviceConfirmationKeepsOwnershipBeforeConfiguration(t *testing.T) {
 	}
 }
 
-func TestDeviceProbeUsesSelectedCIHost(t *testing.T) {
-	t.Run("missing-host", func(t *testing.T) {
-		t.Setenv("JC_TEST_PWSH", "")
-		if _, err := ciPowerShellHost(); err == nil {
-			t.Fatal("missing CI host accepted")
-		}
-	})
-	t.Run("legacy-host", func(t *testing.T) {
-		t.Setenv("JC_TEST_PWSH", `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`)
-		if _, err := ciPowerShellHost(); err == nil {
-			t.Fatal("legacy host accepted instead of the CI host")
-		}
-	})
-	output, err := powershell("Write-Output 'jc-device-host'")
-	if err != nil || string(output) != "jc-device-host" {
-		t.Fatalf("fixed command execution added interactive output or failed: %v %q", err, output)
-	}
-}
-
 func TestDeviceClientTokenKeepsIdentityWithoutElevation(t *testing.T) {
-	token, err := restrictedToken()
+	token, err := windowstest.OrdinaryToken()
 	if err != nil {
 		t.Fatal(err)
 	}

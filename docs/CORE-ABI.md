@@ -209,6 +209,8 @@ macOS 接收带四字节网络序地址族头的 utun fd：通过原生控制器
 
 Qt `CoreEngine::attachTUN(generation, fd, mtu)` 同步保留 `CLOEXEC` 引用后排队到专属核心线程，调用返回即可关闭调用方 fd；通过应用线程的 `tunAttached` 回应代次与 `RequestStatus`。停止期间回应过期，新会话丢弃旧操作；销毁释放尚在队列中的引用。其他平台／缺少能力返回不可用。设备应在原网络保护快照完成后创建，避免把自有捕获路由当成原网络；系统助手与会话的实际编排仍待接入。
 
+Windows 使用独立可选扩展 `windows_ipv4_packet_pipe:true`／`jc_session_attach_windows_pipe`，不接收 Unix fd 或跨进程 Wintun 指针。助手持有适配器和环，调用方交付空闲、可重叠读写的字节模式 named-pipe 客户端 HANDLE（`uint64_t`）及已确认的助手 PID、MTU、源／对端 IPv4 整数；整数按地址顺序表示，例如 `192.0.2.1 = 0xc0000201`。核心保留不可继承副本，核对实际服务器 PID、客户端方向、读写权限和异步模式；四字节大端长度加完整 IPv4 包，长度受 MTU 限制，坏帧／截断关闭通道。停止取消本副本未完成的 I/O 并加入读写，不改变原句柄标志；启动方负责授权和助手可执行文件身份。Qt `attachWindowsPipe` 在排队前保留句柄，仍经 `tunAttached` 返回代次结果。原网络快照在设备配置前完成；设备参数、系统 DNS 和独立恢复由权限助手验收，该能力不表示 Windows 一键接管已交付。Windows 及 Unix 共用原会话、流量入口和 DNS 路由确认，其他平台／夹具拒绝 Windows 扩展。
+
 需要自动发布时，先核对 `tun_dns_routes:true`，再用 `jc_session_attach_tun_dns`，或 Qt `attachTUN(generation, fd, mtu, true)`。原始 attach 保留调用方管理路由的行为。新模式在成功的 IPv4 校园 DNS 应答前发出 `dns_routes` 事件，含字符串 `generation`／`request_id` 和规范 IPv4 `addresses`；地址仅来自原问题的有效 IN Answer CNAME 链，不采用无关 Answer／Additional。发布前重核当前名称／地址保护，拒绝回环、非单播及自有源／对端；不据此增加协议／端口授权。
 
 宿主通过 `dnsRoutesRequired` 接收事件，在所属助手成功确认路由后调用 `acknowledgeDNSRoutes`；结果通过 `dnsRoutesAcknowledged` 返回。Go 最多保留一个待确认事件，其他查询可取消地等待同一槽位，每个请求从进入发布等待起共用五秒预算；超时／取消删除未读请求。仅完整读取的当前请求可确认，探测缓冲区大小、其他代次、晚到及重复回应均不生效；该事件独立于认证请求。成功发布后才登记地址授权寿命并交付 DNS，应答保留原 TTL；失败／超时返回 SERVFAIL，停止中断等待并加入原有有界清理，不回落公共 DNS。当前追加路由仍保留至所属连接恢复，运行中策略变化与路由撤销／在途流量寿命协调待实现。

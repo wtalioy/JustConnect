@@ -1,4 +1,4 @@
-//go:build windows
+//go:build windows && jc_wintun_probe
 
 // This disposable-runner probe owns a fresh adapter; it never loads the VPN core.
 package main
@@ -7,23 +7,23 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/rand"
 	"encoding/binary"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
 	"unsafe"
 
+	"github.com/wtalioy/JustConnect/corelib/internal/windowstest"
+	"github.com/wtalioy/JustConnect/corelib/internal/wintun"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
@@ -69,16 +69,11 @@ func run() error {
 	if !windows.GetCurrentProcessToken().IsElevated() {
 		return errors.New("device broker requires an elevated disposable runner")
 	}
-	if _, err := ciPowerShellHost(); err != nil {
-		return err
-	}
 	if len(os.Args) == 5 && os.Args[1] == "--broker" {
 		name := os.Args[3]
-		if !strings.HasPrefix(name, "JCProbe") || len(name) != 23 {
-			return errors.New("invalid test adapter name")
-		}
-		if _, err := hex.DecodeString(name[7:]); err != nil {
-			return err
+		owner, err := windows.GUIDFromString(strings.TrimPrefix(name, "JustConnect "))
+		if err != nil || name != "JustConnect "+owner.String() {
+			return errors.New("invalid owned test adapter name")
 		}
 		switch os.Args[4] {
 		case "connected", "roundtrip", "oversized", "crash", "setup-failure":
@@ -120,36 +115,6 @@ func executable() string {
 		panic(err)
 	}
 	return path
-}
-
-func ciPowerShellHost() (string, error) {
-	path := os.Getenv("JC_TEST_PWSH")
-	if !filepath.IsAbs(path) || !strings.EqualFold(filepath.Base(path), "pwsh.exe") {
-		return "", errors.New("device probe requires the CI-selected PowerShell host")
-	}
-	info, err := os.Stat(path)
-	if err != nil || !info.Mode().IsRegular() {
-		return "", errors.New("CI-selected PowerShell host is unavailable")
-	}
-	return path, nil
-}
-
-func powershell(script string) ([]byte, error) {
-	operation, _, _ := strings.Cut(script, " ")
-	fmt.Fprintln(os.Stderr, "START: adapter operation", operation)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	path, err := ciPowerShellHost()
-	if err != nil {
-		return nil, err
-	}
-	cmd := exec.CommandContext(ctx, path, "-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference='Stop';"+script)
-	cmd.WaitDelay = time.Second
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return nil, errors.Join(ctx.Err(), fmt.Errorf("test adapter operation: %w: %s", err, output))
-	}
-	return bytes.TrimSpace(output), nil
 }
 
 func adapterLUID(name string) (uint64, error) {
@@ -283,11 +248,11 @@ func confirmDevice(input io.Reader, name string, owned *brokerDevice) error {
 
 func runBroker(dll, mode string) (result error) {
 	fmt.Fprintln(os.Stderr, "START: device case", mode)
-	var nonce [8]byte
-	if _, err := rand.Read(nonce[:]); err != nil {
+	owner, err := windows.GenerateGUID()
+	if err != nil {
 		return err
 	}
-	name := "JCProbe" + hex.EncodeToString(nonce[:])
+	name := "JustConnect " + owner.String()
 	present, err := adapterPresent(name)
 	if err != nil {
 		return err
@@ -458,100 +423,33 @@ func assignAndResume(job windows.Handle, processID uint32) error {
 	return errors.New("suspended broker thread not found")
 }
 
-func restrictedToken() (windows.Token, error) {
-	var original, restricted windows.Token
-	access := uint32(windows.TOKEN_DUPLICATE | windows.TOKEN_QUERY | windows.TOKEN_ASSIGN_PRIMARY | windows.TOKEN_ADJUST_DEFAULT)
-	if err := windows.OpenProcessToken(windows.CurrentProcess(), access, &original); err != nil {
-		return 0, fmt.Errorf("open caller token: %w", err)
-	}
-	defer original.Close()
-	admin, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
-	if err != nil {
-		return 0, err
-	}
-	denied := windows.SIDAndAttributes{Sid: admin}
-	create := windows.NewLazySystemDLL("advapi32.dll").NewProc("CreateRestrictedToken")
-	const disableMaxPrivilege, luaToken = 0x1, 0x4
-	ok, _, err := create.Call(uintptr(original), disableMaxPrivilege|luaToken, 1, uintptr(unsafe.Pointer(&denied)), 0, 0, 0, 0, uintptr(unsafe.Pointer(&restricted)))
-	if ok == 0 {
-		return 0, fmt.Errorf("restrict caller token: %w", err)
-	}
-	medium, err := windows.StringToSid("S-1-16-8192")
-	if err == nil {
-		label := windows.Tokenmandatorylabel{Label: windows.SIDAndAttributes{Sid: medium, Attributes: windows.SE_GROUP_INTEGRITY}}
-		err = windows.SetTokenInformation(restricted, windows.TokenIntegrityLevel, (*byte)(unsafe.Pointer(&label)), label.Size())
-	}
-	if err != nil {
-		restricted.Close()
-		return 0, fmt.Errorf("limit client integrity: %w", err)
-	}
-	return restricted, nil
-}
-
 func broker(path, name, mode string) error {
-	module, err := windows.LoadLibraryEx(path, 0, windows.LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR|windows.LOAD_LIBRARY_SEARCH_SYSTEM32)
+	owner, err := windows.GUIDFromString(strings.TrimPrefix(name, "JustConnect "))
 	if err != nil {
 		return err
 	}
-	defer windows.FreeLibrary(module)
-	library := &windows.DLL{Name: path, Handle: module}
-	procedures := make(map[string]*windows.Proc)
-	for _, name := range []string{"WintunCreateAdapter", "WintunCloseAdapter", "WintunStartSession", "WintunEndSession", "WintunGetAdapterLUID", "WintunGetReadWaitEvent", "WintunReceivePacket", "WintunReleaseReceivePacket", "WintunAllocateSendPacket", "WintunSendPacket"} {
-		procedures[name], err = library.FindProc(name)
+	encoder := json.NewEncoder(os.Stdout)
+	var device brokerDevice
+	adapter, err := wintun.Create(path, owner, netip.MustParseAddr("192.0.2.1"), netip.MustParseAddr("192.0.2.2"), 1400, nil, func(identity wintun.Identity) error {
+		instanceID, err := deviceInstanceID(identity.LUID)
 		if err != nil {
 			return err
 		}
-	}
-	adapter, _, err := procedures["WintunCreateAdapter"].Call(uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(name))), uintptr(unsafe.Pointer(windows.StringToUTF16Ptr("JustConnectProbe"))), 0)
-	if adapter == 0 {
-		return fmt.Errorf("create test adapter: %w", err)
-	}
-	defer procedures["WintunCloseAdapter"].Call(adapter)
-	session, _, err := procedures["WintunStartSession"].Call(adapter, 0x20000)
-	if session == 0 {
-		return fmt.Errorf("register device rings: %w", err)
-	}
-	defer procedures["WintunEndSession"].Call(session)
-	var luid uint64
-	_, _, _ = procedures["WintunGetAdapterLUID"].Call(adapter, uintptr(unsafe.Pointer(&luid)))
-	if luid == 0 {
-		return errors.New("adapter has no LUID")
-	}
-	var index uint32
-	convert := windows.NewLazySystemDLL("iphlpapi.dll").NewProc("ConvertInterfaceLuidToIndex")
-	if status, _, _ := convert.Call(uintptr(unsafe.Pointer(&luid)), uintptr(unsafe.Pointer(&index))); status != 0 || index == 0 {
-		return fmt.Errorf("adapter index status %d", status)
-	}
-	instanceID, err := deviceInstanceID(luid)
+		if present, err := devicePresent(instanceID); err != nil || !present {
+			return fmt.Errorf("new owned test device is absent: %v", err)
+		}
+		device = brokerDevice{identity.Name, identity.Index, identity.LUID, instanceID}
+		return encoder.Encode(brokerNotice{"allocated", device})
+	})
 	if err != nil {
-		return fmt.Errorf("identify created test device: %w", err)
-	}
-	if present, err := devicePresent(instanceID); err != nil || !present {
-		return fmt.Errorf("created test device is not present: %v", err)
-	}
-	device := brokerDevice{name, index, luid, instanceID}
-	encoder := json.NewEncoder(os.Stdout)
-	if err = encoder.Encode(brokerNotice{"allocated", device}); err != nil {
 		return err
 	}
-	idx := strconv.FormatUint(uint64(index), 10)
-	script := "Set-NetIPInterface -InterfaceIndex " + idx + " -AddressFamily IPv4 -DadTransmits 0;" +
-		"New-NetIPAddress -InterfaceIndex " + idx + " -IPAddress 192.0.2.1 -PrefixLength 30 -AddressFamily IPv4 -PolicyStore ActiveStore | Out-Null;"
-	if mode != "connected" {
-		script += "New-NetRoute -InterfaceIndex " + idx + " -DestinationPrefix 192.0.2.2/32 -NextHop 0.0.0.0 -PolicyStore ActiveStore | Out-Null;" +
-			"$r=@(Get-NetRoute -InterfaceIndex " + idx + " -DestinationPrefix 192.0.2.2/32 -PolicyStore ActiveStore);" +
-			"if($r.Count -ne 1 -or $r[0].NextHop -ne '0.0.0.0'){throw 'owned host route was not applied'}"
+	defer adapter.Close()
+	confirmedID, err := deviceInstanceID(device.LUID)
+	if err != nil || confirmedID != device.InstanceID {
+		return fmt.Errorf("owned test device identity changed: %v", err)
 	}
-	if _, err = powershell(script); err != nil {
-		return err
-	}
-	confirmedID, err := deviceInstanceID(luid)
-	if err != nil || confirmedID != instanceID {
-		return fmt.Errorf("device identity changed during configuration: %v", err)
-	}
-	if present, err := devicePresent(instanceID); err != nil || !present {
-		return fmt.Errorf("configured test device is not present: %v", err)
-	}
+	index := device.Index
 	if mode == "setup-failure" {
 		if present, err := interfaceHasRoutes(index); err != nil || !present {
 			return fmt.Errorf("controlled setup failure lacked actual IPv4 routes: %v", err)
@@ -566,7 +464,7 @@ func broker(path, name, mode string) error {
 			time.Sleep(time.Hour)
 		}
 	}
-	token, err := restrictedToken()
+	token, err := windowstest.OrdinaryToken()
 	if err != nil {
 		return err
 	}
@@ -598,37 +496,19 @@ func broker(path, name, mode string) error {
 			_ = cmd.Wait()
 		}
 	}()
-	event, _, _ := procedures["WintunGetReadWaitEvent"].Call(session)
-	var packet []byte
-	deadline := time.Now().Add(8 * time.Second)
-	for time.Now().Before(deadline) {
-		var size uint32
-		pointer, _, receiveErr := procedures["WintunReceivePacket"].Call(session, uintptr(unsafe.Pointer(&size)))
-		if pointer == 0 {
-			if receiveErr != windows.ERROR_NO_MORE_ITEMS {
-				return fmt.Errorf("read test adapter: %w", receiveErr)
-			}
-			_, _ = windows.WaitForSingleObject(windows.Handle(event), 100)
-			continue
+	deadline := time.AfterFunc(8*time.Second, func() { _ = adapter.Close() })
+	defer deadline.Stop()
+	packet := make([]byte, 1400)
+	for {
+		size, err := adapter.Read(packet)
+		if err != nil {
+			return fmt.Errorf("ordinary client packet did not reach owned device: %w", err)
 		}
-		if size < 20 || size > 65535 {
-			_, _, _ = procedures["WintunReleaseReceivePacket"].Call(session, pointer)
-			return errRejectedFrame
-		}
-		packet = make([]byte, size)
-		var copied uintptr
-		err = windows.ReadProcessMemory(windows.CurrentProcess(), pointer, &packet[0], uintptr(size), &copied)
-		_, _, _ = procedures["WintunReleaseReceivePacket"].Call(session, pointer)
-		if err != nil || copied != uintptr(size) {
-			return errors.New("incomplete native packet copy")
-		}
+		packet = packet[:size]
 		if validPacket(packet, false) {
 			break
 		}
-		packet = nil
-	}
-	if packet == nil {
-		return errors.New("ordinary client packet never reached device broker")
+		packet = packet[:cap(packet)]
 	}
 	if err = writeFrame(input, packet); err != nil {
 		return err
@@ -641,15 +521,9 @@ func broker(path, name, mode string) error {
 	if !validPacket(response, true) || !bytes.Equal(response[28:], []byte("pong")) || !bytes.Equal(response[22:24], packet[20:22]) {
 		return errRejectedFrame
 	}
-	pointer, _, err := procedures["WintunAllocateSendPacket"].Call(session, uintptr(len(response)))
-	if pointer == 0 {
+	if _, err = adapter.Write(response); err != nil {
 		return err
 	}
-	var copied uintptr
-	if err = windows.WriteProcessMemory(windows.CurrentProcess(), pointer, &response[0], uintptr(len(response)), &copied); err != nil || copied != uintptr(len(response)) {
-		return errors.New("incomplete native packet write")
-	}
-	_, _, _ = procedures["WintunSendPacket"].Call(session, pointer)
 	return cmd.Wait()
 }
 

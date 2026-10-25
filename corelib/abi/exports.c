@@ -37,6 +37,9 @@ int32_t jc_session_attach_tun(uint64_t h, uint64_t generation, int32_t fd, uint3
 int32_t jc_session_attach_tun_dns(uint64_t h, uint64_t generation, int32_t fd, uint32_t mtu) {
     return jc_go_session_attach_tun_dns(h, generation, fd, mtu);
 }
+int32_t jc_session_attach_windows_pipe(uint64_t h, uint64_t generation, uint64_t pipe, uint32_t helper_pid, uint32_t mtu, uint32_t source, uint32_t peer, uint32_t publish_dns_routes) {
+    return jc_go_session_attach_windows_pipe(h, generation, pipe, helper_pid, mtu, source, peer, publish_dns_routes);
+}
 int32_t jc_session_ack_dns_routes(uint64_t h, uint64_t generation, uint64_t request, uint32_t applied) {
     return jc_go_session_ack_dns_routes(h, generation, request, applied);
 }
