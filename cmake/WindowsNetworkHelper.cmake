@@ -57,6 +57,7 @@ function(justconnect_windows_network_client TARGET)
         "${REPO}/infrastructure/networkhelper/windows/networkhelperclient.cpp"
         "${REPO}/infrastructure/networkhelper/windows/networkhelperclient.h"
         "${REPO}/infrastructure/networkhelper/windows/networkhelperpreparation.cpp"
+        "${REPO}/infrastructure/networkhelper/windows/networkownership.cpp"
         "${REPO}/infrastructure/networkhelper/windows/controlwire.cpp"
         "${REPO}/infrastructure/packetpipe/windows/stream.cpp"
         "${REPO}/infrastructure/process/windows/identity.cpp")

@@ -43,6 +43,11 @@ function(justconnect_core_ui_tests TARGET ENGINE LIBRARY PLATFORM)
 endfunction()
 
 function(justconnect_network_policy_tests)
+    add_executable(windows_networkownership_test "${REPO}/tests/platform/networkownership_windows_test.cpp"
+        "${REPO}/infrastructure/networkhelper/windows/networkownership.cpp")
+    target_include_directories(windows_networkownership_test PRIVATE "${REPO}")
+    target_link_libraries(windows_networkownership_test PRIVATE Qt6::Core Qt6::Network)
+    add_test(NAME windows_networkownership_test COMMAND windows_networkownership_test)
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         add_executable(linux_networkownership_test "${REPO}/tests/platform/networkownership_linux_test.cpp"
             "${REPO}/infrastructure/networkhelper/linux/networkownership.cpp")
