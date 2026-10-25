@@ -35,5 +35,26 @@ func OrdinaryToken() (windows.Token, error) {
 		restricted.Close()
 		return 0, fmt.Errorf("limit client integrity: %w", err)
 	}
+	user, err := restricted.GetTokenUser()
+	if err != nil {
+		restricted.Close()
+		return 0, err
+	}
+	descriptor, err := windows.SecurityDescriptorFromString("D:P(A;;GA;;;SY)(A;;GA;;;" + user.User.Sid.String() + ")")
+	if err != nil {
+		restricted.Close()
+		return 0, err
+	}
+	acl, _, err := descriptor.DACL()
+	if err != nil {
+		restricted.Close()
+		return 0, err
+	}
+	// New child process objects must remain accessible after the administrator SID becomes deny-only.
+	defaultACL := struct{ ACL *windows.ACL }{acl}
+	if err := windows.SetTokenInformation(restricted, windows.TokenDefaultDacl, (*byte)(unsafe.Pointer(&defaultACL)), uint32(unsafe.Sizeof(defaultACL))); err != nil {
+		restricted.Close()
+		return 0, fmt.Errorf("set ordinary child object permissions: %w", err)
+	}
 	return restricted, nil
 }
