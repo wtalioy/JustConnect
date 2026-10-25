@@ -160,7 +160,6 @@ def main(args):
                 def ordinary():
                     os.setgroups([]); os.setgid(target.pw_gid); os.setuid(target.pw_uid)
                 read_fd, write_fd = os.pipe()
-                original_fd = -1
                 if grant:
                     authorization = Authorization(); grants.append(authorization); os.write(write_fd, authorization.external.raw)
                 os.close(write_fd)
@@ -326,6 +325,7 @@ def main(args):
                 authorization_count = 3 if authorization_mode == 'cancel' else 1 if authorization_mode == 'exit' or scenario == 'process-crash' else 2
                 authorizations = [Authorization() for _ in range(authorization_count)]; grants.extend(authorizations)
                 read_fd, write_fd = os.pipe()
+                original_fd = -1
                 transcript = output / ('core-' + scenario + '.out')
                 try:
                     os.write(write_fd, b''.join(value.external.raw for value in authorizations)); os.close(write_fd); write_fd = -1
