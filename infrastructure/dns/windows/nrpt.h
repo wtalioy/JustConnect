@@ -12,4 +12,6 @@ struct WindowsDnsRule {
     bool valid() const;
     void apply(HKEY parent) const;
     void restore(HKEY parent) const;
+    void applySystem() const;
+    void restoreSystem() const;
 };

@@ -269,6 +269,8 @@ Linux x64／ARM64 AppImage 分别减少约 2.07%／1.90%；macOS 安装体积基
 - Windows 权限／设备部件已迁至 C++：真实 Wintun、受限管道与普通 Qt／Go 的双轮 TCP／UDP／空包，签名安装／用户权限、进程身份、机器记录及所属 NRPT 均经双架构定向验证。Go 权限／设备实现及手工 SDK 布局已删，独有故障／PnP／安全回归迁入原生夹具，契约归 `resource/network-helper-windows.json`，测试工具归 `corelib/tests/windows`。C++ 两架构 4096 次往返及同机测量见[架构与基线](docs/ARCHITECTURE.md#windows-native-helper)，原始证据 `build/reports/windows-helper-cpp.json`；x64 总 CPU 略高，保留限制说明。Go 管道复用方向事件／OVERLAPPED 和帧缓冲，二十轮 Windows 常规及包帧 race、本机六组 Go 夹具、双架构 vet／ABI 依赖与脚本检查通过。`015f529` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40198395634)已过，[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40198395739)也全部通过（同源 attempt 2），含原生权限／数据与恢复；单次 macOS ARM64 DNS／TCP race 超时在本地五十轮及原断言／时限重跑通过。清理已归并旧产物和重复日志，保留最终矩阵、配对测量及唯一异常摘要。生产 UAC／控制 IPC、服务恢复、有效系统 DNS／应用及真实环境仍待，保持任务未勾选。
 
 
+- Windows 持久恢复增量待验：C++ 会话记录在设备／本机 NRPT 修改前持久写入，以受保护机器互斥量串行恢复；实际 PID／创建时间／SID 保持活助手权威，故障后确认原设备 GUID 在 IP／PnP 均消失，保留回执并阻止未确认的新 UUID。原生夹具覆盖声明后／分配中／DNS 应用后三处强杀、外部 DNS 改动保留、回执重开与账户隔离。本地 SDK stage 三项、Python／CMake 契约语法及 diff 检查通过；本机缺少 Windows SDK，双架构实际编译／执行待 CI。SCM 服务、有效系统 DNS 与应用接入仍待，不勾选任务。
+
 未完成：系统代理真实注销／无人值守恢复及桌面授权、复杂策略路由／在途流量迁移协调、三平台透明入口验收、Linux 桌面验收、Windows 最小权限助手及其双杀恢复、各平台真实桌面／校园操作验收、重叠名称原 DNS 转发。S4-06 验证之前不在日常网络应用透明接管；S3-01／05 的接管就绪与独立恢复仍待验收。系统代理恢复协议 2 的同源码六组实际包已验，不代替真实桌面或透明网络恢复验收。
 完成条件：三平台具备原型需要的操作与恢复路径，故障注入证明只撤销自身修改；资源、出口和 DNS 规则可解释。记录原型环境与尚未覆盖的系统网络管理方式。
 

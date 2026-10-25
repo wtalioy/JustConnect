@@ -8,6 +8,7 @@ struct WindowsProcessIdentity {
     DWORD pid = 0;
     std::uint64_t created = 0;
     std::wstring sid;
+    bool valid() const;
     bool alive() const;
 };
 
