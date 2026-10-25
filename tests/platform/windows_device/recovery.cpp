@@ -6,6 +6,7 @@
 #include <sddl.h>
 #include <objbase.h>
 #include <winrt/Windows.Data.Json.h>
+#include <winrt/Windows.Foundation.Collections.h>
 #include <iostream>
 #include <memory>
 #include <system_error>
