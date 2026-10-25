@@ -173,7 +173,7 @@ Windows 为 ZIP（完整解压并保留核心 DLL），macOS 为 DMG，Linux 为
 | 开发者签名 | `MACOS_CERT_P12`：证书及私钥 P12 的 Base64；`MACOS_CERT_PASSWORD`：导出密码；`MACOS_CERT_IDENTITY`：Developer ID Application 身份 |
 | 公证（另需签名凭据完整） | `APPLE_ID`：开发者账户；`APPLE_APP_SPECIFIC_PASSWORD`：应用专用密码；`APPLE_TEAM_ID`：团队 ID |
 
-PR 不使用签名 Secrets；已配置的签名／公证失败时构建失败，不降级为成功发布。Windows 当前未配置代码签名。
+PR 不使用签名 Secrets；已配置的签名／公证失败时构建失败，不降级为成功发布。Windows 当前未配置代码签名。 Windows 包单独构建静态 CRT 的 C++ 网络助手，`WindowsNetworkHelper` 安装组件将助手、原生 Wintun DLL 与许可证放在应用旁；普通应用仍使用动态 Qt CRT。SDK 由固定归档暂存，发布工作流传入驱动／许可证哈希；`--version` 只读报告协议、来源和编译权限身份。未配置发布者的预览包保留 `identity_ready=false`，拒绝安装／授权；验包会校验实际助手、载荷、驱动签名及原生依赖，不将这类预览计为透明访问可用。
 
 ## 任务与验证记录
 

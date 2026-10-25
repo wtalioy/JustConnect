@@ -11,6 +11,7 @@ using WindowsControlElevation = std::function<HANDLE(const std::wstring &,const 
 
 class WindowsHelperInstallation final {
 public:
+    static bool identityReady() noexcept;
     static std::unique_ptr<WindowsHelperInstallation> prepare();
     static std::unique_ptr<WindowsHelperInstallation> openInstalled();
     // Run in an ordinary launcher process; its lifetime isolates the GUI from the synchronous UAC API.

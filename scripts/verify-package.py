@@ -15,6 +15,7 @@ import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
+WINDOWS_HELPER = json.loads((ROOT / 'resource/network-helper-windows.json').read_text())
 
 
 def run(*args, env=None, cwd=None, timeout=60):
@@ -238,6 +239,42 @@ def windows_signature(path):
     return run('pwsh', '-NoProfile', '-Command', command).strip()
 
 
+def check_windows_network_helper(root, env, revision, signed):
+    helper = root / WINDOWS_HELPER['executable']
+    if not helper.is_file():
+        raise RuntimeError('Missing packaged Windows network helper')
+    facts = json.loads(run(helper, '--version', env=env, timeout=10))
+    if (not isinstance(facts, dict) or set(facts) != {'protocol', 'storage_version', 'revision', 'source_state',
+                                                                  'identity_ready', 'publisher_sha256', 'driver_sha256', 'license_sha256'}
+            or type(facts['protocol']) is not int or facts['protocol'] != WINDOWS_HELPER['protocol']
+            or type(facts['storage_version']) is not int or facts['storage_version'] != WINDOWS_HELPER['storage_version']
+            or facts['revision'] != revision or facts['source_state'] != 'clean'
+            or type(facts['identity_ready']) is not bool
+            or not isinstance(facts['publisher_sha256'], str)
+            or (facts['publisher_sha256'] and not re.fullmatch('[0-9a-fA-F]{64}', facts['publisher_sha256']))
+            or facts['identity_ready'] != bool(re.fullmatch('[0-9a-fA-F]{64}', facts['publisher_sha256']))
+            or (signed and not facts['identity_ready'])):
+        raise RuntimeError('Packaged Windows network helper has mismatched provenance or signing identity')
+    for field, name in [('driver_sha256', 'driver_library'), ('license_sha256', 'driver_license')]:
+        payload = root / WINDOWS_HELPER[name]
+        if not payload.is_file() or hashlib.sha256(payload.read_bytes()).hexdigest() != facts[field]:
+            raise RuntimeError('Packaged Windows network helper payload hash mismatch: ' + name)
+    signature = windows_signature(helper)
+    if signature not in ('Valid', 'NotSigned') or (signed and signature != 'Valid'):
+        raise RuntimeError('Packaged Windows network helper signature is invalid')
+    if facts['identity_ready']:
+        command = ("$s = Get-AuthenticodeSignature -LiteralPath '" + str(helper).replace("'", "''")
+                   + "'; [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($s.SignerCertificate.RawData))")
+        if signature != 'Valid' or run('pwsh', '-NoProfile', '-Command', command).strip().lower() != facts['publisher_sha256'].lower():
+            raise RuntimeError('Packaged Windows helper signer differs from its compiled authority')
+    if windows_signature(root / WINDOWS_HELPER['driver_library']) != 'Valid':
+        raise RuntimeError('Packaged Windows native driver signature is invalid')
+    imports = run('llvm-readobj', '--coff-imports', helper)
+    if re.search(r'Name:\s+(?:Qt6|justconnect_core)', imports, re.I):
+        raise RuntimeError('Privileged Windows network helper links application/data-plane libraries')
+    return dict(facts, signature=signature)
+
+
 def check_windows_webengine(root, probe, env):
     locales = root / 'translations/qtwebengine_locales'
     languages = ('en-US', 'zh-CN')
@@ -289,7 +326,9 @@ def verify(root, executable, revision, application_version, output, archive, sig
             raise RuntimeError(f'Missing license/source notice: {name}')
     files = []
     for path in root.rglob('*'):
-        if path.name.casefold() in ('zju-connect', 'zju-connect.exe', 'core-provenance', 'wintun.dll'):
+        if (path.name.casefold() in ('zju-connect', 'zju-connect.exe', 'core-provenance')
+                or (path.name.casefold() == WINDOWS_HELPER['driver_library'].casefold()
+                    and not (system == 'windows' and path == executable.parent / WINDOWS_HELPER['driver_library']))):
             raise RuntimeError(f'Obsolete runtime in package: {path}')
         if path.is_file() and not path.is_symlink():
             with path.open('rb') as stream:
@@ -297,6 +336,7 @@ def verify(root, executable, revision, application_version, output, archive, sig
             if magic == b'\x7fELF' or magic in (b'\xcf\xfa\xed\xfe', b'\xca\xfe\xba\xbe', b'\xca\xfe\xba\xbf') or magic[:2] == b'MZ':
                 files.append(path)
     if system == 'windows':
+        report['network_helper'] = check_windows_network_helper(executable.parent, env, revision, signed)
         reader = executable.parent / 'JustConnectDnsReader.exe'
         report['dns_reader'] = check_windows_dns_reader(executable.parent, env)
         runtime = executable.parent / report['runtime']

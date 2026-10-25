@@ -21,6 +21,8 @@ Copy-Item -Path "../$BuildDir/Release/$TargetName.exe" -Destination .
 # Install the CMake-selected embedded runtime next to the host.
 cmake --install "../$BuildDir" --config Release --component CoreRuntime --prefix (Get-Location).Path
 if ($LASTEXITCODE -ne 0) { throw "Embedded runtime installation failed" }
+cmake --install "../$BuildDir/windows-helper" --config Release --component WindowsNetworkHelper --prefix (Get-Location).Path
+if ($LASTEXITCODE -ne 0) { throw "Native network helper installation failed" }
 
 # Run windeployqt
 & windeployqt.exe --release --translations "en,zh_CN" --skip-plugin-types qmltooling "$TargetName.exe"
