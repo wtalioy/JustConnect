@@ -146,24 +146,28 @@ void scenario(const std::wstring &helper,const std::wstring &mode,const std::wst
     WindowsRegistryJournal journal;Input payload;
     payload.dead=uuid();payload.live=uuid();payload.foreign=uuid();
     struct Cleanup {
-        WindowsRegistryJournal &journal;Input &input;GUID session;std::wstring sid;bool network;
+        WindowsRegistryJournal &journal;Input &input;GUID session;std::wstring sid;bool network,done=false;
         ~Cleanup(){
+            if(done)return;
             if(network){
                 try{WindowsNetworkRecovery recovery;if(recovery.restoreAbandoned(session))recovery.acknowledge(session,sid);}
                 catch(const std::system_error &error){if(error.code().value()!=ERROR_FILE_NOT_FOUND)std::cerr<<"session fixture cleanup: "<<error.what()<<'\n';}
                 return;
             }
-            for(const auto &id:{input.dead,input.live,input.foreign}){try{journal.remove(id);}catch(...){}}
+            try{WindowsNetworkLock lock;for(const auto &id:{input.dead,input.live,input.foreign}){try{journal.remove(id);}catch(...){}}}
+            catch(const std::exception &error){std::cerr<<"control fixture cleanup: "<<error.what()<<'\n';}
         }
     } cleanup{journal,payload,session,caller.identity().sid,mode==L"network"};
     auto record=WindowsNetworkRecord{payload.live,uuid(),caller.identity(),current.identity(),{},WindowsRecoveryPhase::Declared};
-    if(mode!=L"network")journal.write(record.owner,encodeWindowsNetworkRecord(record));
     const auto liveRecord=encodeWindowsNetworkRecord(record);
     record.owner=payload.dead;record.adapter=uuid();--record.helper.created;
-    if(mode!=L"network")journal.write(record.owner,encodeWindowsNetworkRecord(record));
+    const auto deadRecord=encodeWindowsNetworkRecord(record);
     record.owner=payload.foreign;record.adapter=uuid();record.caller.sid=L"S-1-5-18";record.phase=WindowsRecoveryPhase::Restored;
-    if(mode!=L"network")journal.write(record.owner,encodeWindowsNetworkRecord(record));
     const auto foreignRecord=encodeWindowsNetworkRecord(record);
+    if(mode!=L"network"){
+        WindowsNetworkLock lock;
+        journal.write(payload.live,liveRecord);journal.write(payload.dead,deadRecord);journal.write(payload.foreign,foreignRecord);
+    }
     Process elevated;
     if(mode==L"server-mismatch" || mode==L"authorize-cancel" || mode==L"authorize-replaced")elevated.start(L"\""+executable()+L"\" --idle");
     else elevated.start(L"\""+helper+L"\" --control "+std::to_wstring(caller.identity().pid)+L" "+std::to_wstring(caller.identity().created+(mode==L"replaced"?1:0))+L" "+guid(session));
@@ -184,6 +188,11 @@ void scenario(const std::wstring &helper,const std::wstring &mode,const std::wst
     }
     if(mode!=L"network")check(journal.read(payload.live)==liveRecord && journal.read(payload.foreign)==foreignRecord,"control modified live or foreign ownership");
     else{bool absent=false;try{journal.read(session);}catch(const std::system_error &error){absent=error.code().value()==ERROR_FILE_NOT_FOUND;}check(absent,"normal network stop left an unacknowledged record");}
+    if(mode!=L"network"){
+        WindowsNetworkLock lock;
+        for(const auto &id:{payload.dead,payload.live,payload.foreign})journal.remove(id);
+    }
+    cleanup.done=true;
     std::wcout<<L"PASS: native authenticated control "<<mode<<L'\n';
 }
 }
