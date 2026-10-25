@@ -1,3 +1,4 @@
+#include "application/networkprotection.h"
 #include "infrastructure/platform/linux/networkhelperpreparation.h"
 #include <QCoreApplication>
 #include <QJsonDocument>
@@ -41,18 +42,23 @@ int main(int argc, char **argv) try {
               "device allocation stole a system or explicitly configured DNS server");
     auto held = config;
     held.capturePrefixes.append("203.0.113.70/32");
+    auto liveResources = resources;
+    liveResources["dns_records"] = QJsonObject{{"campus.test",QJsonArray{"203.0.113.70"}}};
     auto nextPolicy = policy;
     nextPolicy["protected"] = QJsonArray{"192.0.2.0/24","203.0.113.8/31"};
-    check(updatedLinuxCapturePrefixes(resources,policy,nextPolicy,held) == std::optional<QStringList>{{"203.0.113.53/32","203.0.113.70/32"}},
+    check(updatedCampusCapturePrefixes(liveResources,nextPolicy,held.dnsDomains) == std::optional<QStringList>{{"203.0.113.53/32","203.0.113.70/32"}},
           "Live policy failed to withdraw static capture or lost a confirmed DNS target");
     nextPolicy["campus"] = QJsonArray{"203.0.113.8"};
-    check(updatedLinuxCapturePrefixes(resources,policy,nextPolicy,held) == std::optional<QStringList>{{"203.0.113.8/32","203.0.113.53/32","203.0.113.70/32"}},
+    check(updatedCampusCapturePrefixes(liveResources,nextPolicy,held.dnsDomains) == std::optional<QStringList>{{"203.0.113.8/32","203.0.113.53/32","203.0.113.70/32"}},
           "Explicit campus choice did not restore its exact host route");
     nextPolicy["protected"] = QJsonArray{"192.0.2.0/24","203.0.113.70/32"};
-    check(updatedLinuxCapturePrefixes(resources,policy,nextPolicy,held) == std::optional<QStringList>{config.capturePrefixes},
+    check(updatedCampusCapturePrefixes(liveResources,nextPolicy,held.dnsDomains) == std::optional<QStringList>{config.capturePrefixes},
           "New protection did not withdraw a previously published DNS target");
     nextPolicy["protected_names"] = QJsonArray{QJsonObject{{"kind","suffix"},{"value","campus.test"}}};
-    check(!updatedLinuxCapturePrefixes(resources,policy,nextPolicy,held),"A policy changed DNS ownership without a supported DNS transition");
+    check(!updatedCampusCapturePrefixes(liveResources,nextPolicy,held.dnsDomains),"A policy changed DNS ownership without a supported DNS transition");
+    nextPolicy = policy; liveResources["dns_records"] = QJsonObject{};
+    check(updatedCampusCapturePrefixes(liveResources,nextPolicy,held.dnsDomains) == std::optional<QStringList>{config.capturePrefixes},
+          "Expired authoritative DNS bindings retained stale capture routes");
     QJsonArray exitRows;
     for (const auto *target : {"203.0.113.8","203.0.113.9","203.0.113.53"})
         exitRows.append(QJsonObject{{"dst",target},{"from",config.originalSource},{"dev",config.originalInterface},

@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import ipaddress
 import os
 from pathlib import Path
 import pwd
@@ -503,7 +504,12 @@ def main():
                                         if withdrawing:
                                             connection = json.loads(ready_path.read_text())['owner']
                                             journal = Path(package.LAYOUT['state_directory']) / f'{args.uid}-{connection}' / 'capture/source.json'
-                                            checkpoint = kill_during_capture_delete(worker, journal, connection, '198.18.0.6/32',
+                                            record = json.loads(journal.read_text())
+                                            assert record['owner'] == connection
+                                            prefixes = [row['prefix'] for row in record['routes'] if row['applied'] and not row['delete_started']
+                                                and ipaddress.IPv4Address('198.18.0.6') in ipaddress.IPv4Network(row['prefix'])]
+                                            assert len(prefixes) == 1, 'No unique owned capture covers the withdrawing address'
+                                            checkpoint = kill_during_capture_delete(worker, journal, connection, prefixes[0],
                                                 lambda: Path(str(ready_path) + '.continue').touch(), route_present=scenario == 'withdraw-crash')
                                             report['application_network'].setdefault('withdrawal_crashes', []).append(checkpoint)
                                         else:

@@ -16,11 +16,13 @@ public:
     void activate(const QUuid &attempt,const ConnectionProfile &profile) override;
     void stop(const QUuid &attempt) override;
 private:
-    enum class Stage { Idle, Preparing, Prepared, Activating, Ready, Stopping };
+    enum class Stage { Idle, Preparing, Prepared, Activating, Ready, Updating, Stopping };
     void prepareConfiguration();
     void helperFinished(MacNetworkHelperClient::Operation operation,PlatformOperationResult result);
     void driveStop();
     void observeModel();
+    void applyPolicy(const QJsonObject &value);
+    void finishPolicy(CoreEngine::RequestStatus status);
     CoreEngine *core;
     NetworkPolicySession *policy;
     const int mtu;
@@ -29,6 +31,8 @@ private:
     std::unique_ptr<QLockFile> lock;
     QUuid attempt;
     QString generation,localDNS;
+    QJsonObject changingPolicy, originalExit;
+    QStringList nextCapture;
     Stage stage = Stage::Idle;
     QTimer observation;
     bool preparing = false,attaching = false,automaticPolicy = false;

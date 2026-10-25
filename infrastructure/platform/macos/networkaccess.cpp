@@ -1,6 +1,7 @@
 #include "networkaccess.h"
 #include "networkownership.h"
 #include "tunroutes.h"
+#include "application/networkprotection.h"
 #include "infrastructure/platform/dnsroutepublisher.h"
 #include <QDir>
 #include <QFileInfo>
@@ -22,7 +23,7 @@ MacNetworkAccess::MacNetworkAccess(CoreEngine *core,NetworkPolicySession *policy
         if (state != HelperState::Idle && state != HelperState::Active) this->policy->setNetworkBusy(generation,true);
     });
     connect(&helper,&MacNetworkHelperClient::ownershipLost,this,[this](Result result) {
-        if (stage == Stage::Ready) { observation.stop(); stage = Stage::Prepared; emit lost(attempt,result); }
+        if (stage == Stage::Ready || stage == Stage::Updating) { observation.stop(); stage = Stage::Prepared; emit lost(attempt,result); }
     });
     new DNSRoutePublisher<MacNetworkHelperClient>(core,&helper,this,[this] { return stage == Stage::Ready; });
     connect(policy,&NetworkPolicySession::changed,this,&MacNetworkAccess::prepareConfiguration);
@@ -46,15 +47,13 @@ MacNetworkAccess::MacNetworkAccess(CoreEngine *core,NetworkPolicySession *policy
             stage = Stage::Prepared; emit ready(attempt,{Status::Failed,QStringLiteral("核心未能接收已授权的网络设备。"),true}); return;
         }
         stage = Stage::Ready;
-        this->policy->setPolicyApplier(generation,[this](const QJsonObject &value) {
-            // shortcut: restart for changed protection; replace when macOS live reconciliation is verified.
-            const bool restart = automaticPolicy;
-            if (restart) { stage = Stage::Prepared; observation.stop(); }
-            automaticPolicy = false;
-            this->policy->completePolicy(value["generation"].toString(),value["revision"].toString(),CoreEngine::RequestStatus::Unavailable);
-            if (restart) emit restartRequired(attempt,QStringLiteral("原网络保护范围已变化，正在恢复网络后重新连接。"));
-        });
+        this->policy->setPolicyApplier(generation,[this](const QJsonObject &value) { applyPolicy(value); });
         observation.start(); emit ready(attempt,{});
+    });
+    connect(core,&CoreEngine::policyUpdated,this,[this](const QString &id,const QString &revision,CoreEngine::RequestStatus status) {
+        if (stage != Stage::Updating || id != generation || revision != changingPolicy["revision"].toString()) return;
+        if (status == CoreEngine::RequestStatus::Success) helper.reconcile(nextCapture);
+        else finishPolicy(status);
     });
 }
 MacNetworkAccess::~MacNetworkAccess() { worker.waitForFinished(); }
@@ -89,6 +88,9 @@ void MacNetworkAccess::prepareConfiguration()
         stage = Stage::Prepared; emit ready(attempt,{Status::Failed,QStringLiteral("无法取得完整且已确认的原网络保护策略。")}); return;
     }
     const auto model = policy->model(), confirmed = policy->confirmedProtection();
+    const auto exit = macOriginalExitSnapshot(model["network"].toObject(),model["resources"].toObject()["underlay_interface"].toString());
+    if (!exit) { stage = Stage::Prepared; emit ready(attempt,{Status::Failed,QStringLiteral("无法确认完整的原网络出口。")}); return; }
+    originalExit = *exit;
     preparing = true; policy->setNetworkBusy(generation,true);
     worker.setFuture(QtConcurrent::run([model,confirmed,dns=localDNS,mtu=mtu] {
         return prepareMacNetworkHelper(model["resources"].toObject(),confirmed,model["network"].toObject(),model["dns"].toObject(),dns,mtu);
@@ -112,13 +114,22 @@ void MacNetworkAccess::helperFinished(Operation operation,Result result)
         else helper.recover(owner);
         return;
     }
-    if (result.succeeded() && helper.state() == HelperState::Active && (operation == Operation::Apply || operation == Operation::Extend)) {
+    if (result.succeeded() && helper.state() == HelperState::Active && (operation == Operation::Apply || operation == Operation::Extend || operation == Operation::Routes)) {
         const auto configuration = helper.ownedConfiguration();
         const auto filter = configuration ? macOriginalNetworkView(helper.owner(),*configuration,helper.ownedDevice(),helper.ownedNetwork()) : NetworkPolicySession::OriginalViewFilter{};
         if (!filter) { stage = Stage::Prepared; emit lost(attempt,{Status::Failed,QStringLiteral("无法识别活动网络接管的读取范围。"),true}); return; }
         policy->setOriginalViewFilter(generation,filter); policy->setNetworkBusy(generation,false);
     }
-    if (operation == Operation::Extend && stage == Stage::Ready) {
+    if (operation == Operation::Routes && stage == Stage::Updating) {
+        const auto revision = changingPolicy["revision"].toString();
+        changingPolicy = {}; nextCapture.clear(); automaticPolicy = false;
+        stage = result.succeeded() ? Stage::Ready : Stage::Prepared;
+        policy->setNetworkBusy(generation,false);
+        if (!result.succeeded()) { observation.stop(); emit lost(attempt,result); }
+        policy->completePolicy(generation,revision,result.succeeded() ? CoreEngine::RequestStatus::Success : CoreEngine::RequestStatus::Failed);
+        return;
+    }
+    if ((operation == Operation::Extend || operation == Operation::Routes) && stage == Stage::Ready) {
         if (!result.succeeded()) { stage = Stage::Prepared; observation.stop(); emit lost(attempt,result); }
         return;
     }
@@ -133,12 +144,46 @@ void MacNetworkAccess::observeModel()
     if (policy->status() != CoreEngine::RequestStatus::Success) {
         stage = Stage::Prepared; observation.stop(); emit lost(attempt,{Status::Failed,QStringLiteral("无法完整读取原网络，正在恢复网络。"),true}); return;
     }
+    const auto model = policy->model();
+    const auto exit = macOriginalExitSnapshot(model["network"].toObject(),model["resources"].toObject()["underlay_interface"].toString());
+    if (!exit || *exit != originalExit) {
+        stage = Stage::Prepared; observation.stop(); emit restartRequired(attempt,QStringLiteral("原网络出口已变化，正在恢复网络后重新连接。")); return;
+    }
+    const auto owned = helper.ownedConfiguration();
+    const auto prefixes = owned ? updatedCampusCapturePrefixes(model["resources"].toObject(),policy->confirmedProtection(),owned->dnsDomains) : std::nullopt;
+    if (!prefixes) { stage = Stage::Prepared; observation.stop(); emit lost(attempt,{Status::Failed,QStringLiteral("无法确认当前校园捕获范围。"),true}); return; }
+    auto actual = owned->capturePrefixes, expected = *prefixes; actual.sort(); expected.sort();
+    if (actual != expected) { helper.reconcile(*prefixes); return; }
     automaticPolicy = true;
     const auto result = policy->synchronizeProtection();
     if (result == CoreEngine::RequestStatus::Pending) return;
     automaticPolicy = false;
     if (result != CoreEngine::RequestStatus::Success) {
         stage = Stage::Prepared; observation.stop(); emit restartRequired(attempt,QStringLiteral("原网络保护无法确认，正在恢复网络。"));
+    }
+}
+void MacNetworkAccess::applyPolicy(const QJsonObject &value)
+{
+    const auto owned = helper.ownedConfiguration();
+    const auto prefixes = owned ? updatedCampusCapturePrefixes(policy->model()["resources"].toObject(),
+        value,owned->dnsDomains) : std::nullopt;
+    if (stage != Stage::Ready || helper.state() != HelperState::Active || !prefixes) {
+        const bool automatic = automaticPolicy; automaticPolicy = false;
+        policy->completePolicy(value["generation"].toString(),value["revision"].toString(),CoreEngine::RequestStatus::Unavailable);
+        if (automatic) { stage = Stage::Prepared; observation.stop(); emit restartRequired(attempt,QStringLiteral("新的网络保护无法应用，正在恢复网络后重新连接。")); }
+        return;
+    }
+    changingPolicy = value; nextCapture = *prefixes; stage = Stage::Updating;
+    policy->setNetworkBusy(generation,true); core->updatePolicy(value);
+}
+void MacNetworkAccess::finishPolicy(CoreEngine::RequestStatus status)
+{
+    const auto revision = changingPolicy["revision"].toString();
+    const bool automatic = automaticPolicy;
+    changingPolicy = {}; nextCapture.clear(); automaticPolicy = false; stage = Stage::Ready;
+    policy->setNetworkBusy(generation,false); policy->completePolicy(generation,revision,status);
+    if (automatic && status != CoreEngine::RequestStatus::Success && stage == Stage::Ready) {
+        stage = Stage::Prepared; observation.stop(); emit restartRequired(attempt,QStringLiteral("新的网络保护未能确认，正在恢复网络后重新连接。"));
     }
 }
 void MacNetworkAccess::stop(const QUuid &id)
@@ -152,7 +197,7 @@ void MacNetworkAccess::driveStop()
     if (stage != Stage::Stopping || preparing) return;
     switch (helper.state()) {
     case HelperState::Idle:
-        lock.reset(); stage = Stage::Idle; generation.clear(); attaching = automaticPolicy = false;
+        lock.reset(); stage = Stage::Idle; generation.clear(); changingPolicy = {}; nextCapture.clear(); originalExit = {}; attaching = automaticPolicy = false;
         emit stopped(attempt,{}); return;
     case HelperState::Active: helper.restore(); return;
     case HelperState::RecoveryRequired: helper.recover(helper.owner()); return;

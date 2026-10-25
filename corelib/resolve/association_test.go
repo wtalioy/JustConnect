@@ -36,6 +36,9 @@ func TestCampusDNSBindingsFollowCNAMEExpiryAndCurrentProtection(t *testing.T) {
 	if len(r.CampusResourcesForIP(t.Context(), ip)) != 1 || len(r.CampusResourcesForIP(t.Context(), netip.MustParseAddr("203.0.113.9"))) != 0 {
 		t.Fatal("CNAME destination or unrelated record granted the wrong address")
 	}
+	if records := r.CampusDNSRecords(); len(records) != 1 || len(records["alias.campus.test"]) != 1 || records["alias.campus.test"][0] != ip.String() {
+		t.Fatal("resource snapshot lost the validated CNAME owner or included unrelated answers", records)
+	}
 	sharedRequest := new(dns.Msg).SetQuestion("other.campus.test.", dns.TypeA)
 	sharedReply := new(dns.Msg).SetReply(sharedRequest)
 	sharedReply.Answer = []dns.RR{&dns.A{Hdr: dns.RR_Header{Name: "other.campus.test.", Class: dns.ClassINET, Rrtype: dns.TypeA, Ttl: 1}, A: net.IPv4(203, 0, 113, 7)}}
@@ -59,12 +62,15 @@ func TestCampusDNSBindingsFollowCNAMEExpiryAndCurrentProtection(t *testing.T) {
 	if len(r.CampusResourcesForIP(ctx, ip)) != 0 {
 		t.Fatal("A TTL outlived the shorter CNAME TTL")
 	}
+	if records := r.CampusDNSRecords(); len(records) != 0 {
+		t.Fatal("expired binding remained in the resource snapshot", records)
+	}
 	reply.Answer[1].Header().Ttl = 0
 	if _, err := r.bindCampusAnswer(request, reply, nil); err != nil || len(r.CampusResourcesForIP(ctx, ip)) != 1 {
 		t.Fatal("zero-TTL answer could not hand off its first flow", err)
 	}
 	r.Close()
-	if len(r.CampusResourcesForIP(ctx, ip)) != 0 {
+	if len(r.CampusResourcesForIP(ctx, ip)) != 0 || len(r.CampusDNSRecords()) != 0 {
 		t.Fatal("closed session retained an address grant")
 	}
 }

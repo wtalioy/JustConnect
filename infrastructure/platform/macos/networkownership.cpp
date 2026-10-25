@@ -3,6 +3,10 @@
 #include "tundns.h"
 #include "infrastructure/platform/ipv4.h"
 #include <algorithm>
+#include <QHostAddress>
+#include <QJsonDocument>
+#include <QMap>
+#include <QSet>
 #include <SystemConfiguration/SystemConfiguration.h>
 #include <net/route.h>
 #include <cstring>
@@ -19,6 +23,39 @@ QJsonObject projection(const QJsonObject &row)
     }
     return value;
 }
+}
+std::optional<QJsonObject> macOriginalExitSnapshot(const QJsonObject &network,const QString &interface)
+{
+    if (!network["interfaces"].isArray() || !network["routes"].isArray()) return {};
+    QSet<int> indexes;
+    for (const auto &value : network["interfaces"].toArray()) {
+        const auto row = value.toObject();
+        if (!interface.isEmpty() && row["name"] == interface && row["up"] == true) indexes.insert(row["index"].toInt());
+    }
+    if (!interface.isEmpty() && indexes.isEmpty()) return {};
+    QMap<QByteArray,QJsonObject> routes;
+    for (const auto &value : network["routes"].toArray()) {
+        auto row = value.toObject();
+        const auto subnet = QHostAddress::parseSubnet(row["destination"].toString());
+        if (subnet.second < 0 || subnet.second > 1 || (!interface.isEmpty() && !indexes.contains(row["interface_index"].toInt()))) continue;
+        row["flags"] = row["flags"].toInteger() & ~qint64(RTF_IFREF);
+        routes[QJsonDocument(row).toJson(QJsonDocument::Compact)] = row;
+        indexes.insert(row["interface_index"].toInt());
+    }
+    QMap<QString,QJsonObject> interfaces;
+    for (const auto &value : network["interfaces"].toArray()) {
+        const auto row = value.toObject();
+        if (!indexes.contains(row["index"].toInt())) continue;
+        if (row["up"] != true || !row["addresses"].isArray()) return {};
+        QStringList addresses;
+        for (const auto &address : row["addresses"].toArray()) addresses.append(address.toString());
+        addresses.sort();
+        interfaces[row["name"].toString()] = {{"name",row["name"]},{"index",row["index"]},{"addresses",QJsonArray::fromStringList(addresses)}};
+    }
+    QJsonArray routeRows, interfaceRows;
+    for (const auto &row : routes) routeRows.append(row);
+    for (const auto &row : interfaces) interfaceRows.append(row);
+    return QJsonObject{{"interfaces",interfaceRows},{"routes",routeRows}};
 }
 NetworkPolicySession::OriginalViewFilter macOriginalNetworkView(const QUuid &owner,
     const MacHelperConfiguration &configuration,const QJsonObject &device,const QJsonObject &confirmed)

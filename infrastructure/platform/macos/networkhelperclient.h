@@ -10,9 +10,9 @@ class MacNetworkHelperClient final : public QObject
 {
     Q_OBJECT
 public:
-    enum class State { Idle, Inspecting, Registering, Authorizing, Applying, Active, Extending, Restoring, Acknowledging, RecoveryRequired, CleanupRequired };
+    enum class State { Idle, Inspecting, Registering, Authorizing, Applying, Active, Extending, Reconciling, Restoring, Acknowledging, RecoveryRequired, CleanupRequired };
     Q_ENUM(State)
-    enum class Operation { Inspect, Apply, Extend, Restore, Recover, Cleanup };
+    enum class Operation { Inspect, Apply, Extend, Routes, Restore, Recover, Cleanup };
     Q_ENUM(Operation)
     using AuthorizationProvider = std::function<OSStatus(AuthorizationRef *)>;
     explicit MacNetworkHelperClient(QObject *parent = nullptr, AuthorizationProvider authorization = {});
@@ -20,6 +20,7 @@ public:
     void inspect(const QUuid &attempt);
     void apply(const QUuid &owner, const MacHelperConfiguration &configuration);
     void extend(const QStringList &addresses);
+    void reconcile(const QStringList &prefixes);
     void restore();
     void recover(const QUuid &owner);
     void cleanupRestored(const QUuid &owner);
@@ -53,7 +54,7 @@ private:
     MacHelperConfiguration configuration;
     QJsonObject deviceInfo, networkInfo;
     QJsonArray receipts;
-    QStringList pendingExtension;
+    QStringList pendingTargets;
     QTimer deadline;
     int device = -1;
     bool cancelled = false, registered = false;

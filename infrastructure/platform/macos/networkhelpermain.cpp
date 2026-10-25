@@ -109,11 +109,11 @@ public:
                 if (result.succeeded()) result = entry->state->apply(*configuration);
                 if (result.succeeded()) { entry->peer = peer; device = entry->state->deviceInfo(); descriptor = entry->state->descriptor(); }
             }
-        } else if (operation == "extend") {
-            const auto addresses = parseMacHelperExtend(packet);
-            if (!entry || entry->peer != peer) result = {Status::PermissionDenied,"DNS publication requires this live connection owner.",false};
-            else if (!addresses) result = {Status::Failed,"Invalid bounded DNS addresses.",false};
-            else result = entry->state->extend(*addresses);
+        } else if (operation == "extend" || operation == "routes") {
+            const auto targets = operation == "routes" ? parseMacHelperRoutes(packet) : parseMacHelperExtend(packet);
+            if (!entry || entry->peer != peer) result = {Status::PermissionDenied,"Capture changes require this live connection owner.",false};
+            else if (!targets) result = {Status::Failed,"Invalid bounded capture targets.",false};
+            else result = entry->state->update(*targets,operation == "routes");
         } else if (!entry) {
             // Only an explicit receipt acknowledgement is idempotent without ownership evidence.
             result = operation == "cleanup" ? Result{} : Result{Status::Failed,"No authenticated connection ownership was found.",true};
@@ -125,7 +125,7 @@ public:
             if (result.succeeded()) entry->peer = 0;
         }
         QJsonObject network;
-        if (result.succeeded() && (operation == "apply" || operation == "extend")) {
+        if (result.succeeded() && (operation == "apply" || operation == "extend" || operation == "routes")) {
             network = entry->state->networkView();
             if (network.isEmpty()) {
                 const auto restored = entry->state->restore(); descriptor = -1; device = {};
@@ -133,7 +133,7 @@ public:
             }
         }
         auto response = macHelperResponse(packet,result,device);
-        if (result.succeeded() && (operation == "apply" || operation == "extend")) response["network"] = network;
+        if (result.succeeded() && (operation == "apply" || operation == "extend" || operation == "routes")) response["network"] = network;
         if (operation == "probe" && result.succeeded()) response["owners"] = receipts;
         const auto reply = xpc_dictionary_create_reply(message);
         const auto encoded = macHelperMessage(response,descriptor);

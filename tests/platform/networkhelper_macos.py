@@ -3,6 +3,7 @@ import argparse
 import array
 import ctypes
 import json
+import ipaddress
 import os
 from pathlib import Path
 import plistlib
@@ -218,10 +219,11 @@ def main(args):
                         return False
                 return True
 
-            def published(owner):
+            def published(owner, address="198.18.0.7"):
                 try:
                     record = json.loads((user_state / owner / 'capture/source.json').read_text())
-                    return any(row['prefix'] == '198.18.0.7/32' and row['applied'] for row in record['routes'])
+                    return any(ipaddress.IPv4Address(address) in ipaddress.IPv4Network(row['prefix']) and row['applied']
+                               and not row['delete_started'] for row in record['routes'])
                 except (FileNotFoundError, json.JSONDecodeError):
                     return False
 
@@ -250,7 +252,8 @@ def main(args):
                 assert not user_state.exists(), 'Untrusted signed executable created ownership storage'
             client = start('--publish', grant=True); active = event(client, 'active')
             assert receipt(active['owner'], 'active')
-            for mode, target in [('--wire-live', account), ('--wire-live-extend', account), ('--wire-foreign', pwd.getpwnam('nobody')), ('--wire-live-extend', pwd.getpwnam('nobody'))]:
+            for mode, target in [('--wire-live', account), ('--wire-live-extend', account), ('--wire-live-routes', account),
+                                 ('--wire-foreign', pwd.getpwnam('nobody')), ('--wire-live-extend', pwd.getpwnam('nobody')), ('--wire-live-routes', pwd.getpwnam('nobody'))]:
                 denied = start(mode, owner=active['owner'], target=target); event(denied, 'wire-denied'); finish(denied)
                 assert receipt(active['owner'], 'active') and not withdrawn(active['interface']), 'Foreign connection withdrew live ownership'
             publish(client, active)
@@ -314,7 +317,7 @@ def main(args):
             shutil.copy2(args.core_client, core_bundle / 'Contents/MacOS/JustConnect')
             sign(core_bundle, identity, APP_ID)
             crashed_owner = None
-            for scenario in ('authorization-cancel', 'authorization-exit', 'process-crash', 'normal', 'helper-loss', 'helper-offline'):
+            for scenario in ('authorization-cancel', 'authorization-exit', 'process-crash', 'normal', 'network-policy', 'helper-loss', 'helper-offline'):
                 control = directory / ('core-' + scenario); control.mkdir(mode=0o700); os.chown(control, args.uid, account.pw_gid)
                 marker = control / 'ready'
                 authorization_mode = scenario.removeprefix('authorization-') if scenario.startswith('authorization-') else ''
@@ -329,6 +332,8 @@ def main(args):
                         'JC_NATIVE_TUN_MAC_AUTH_FD': str(read_fd), 'JC_NATIVE_TUN_DNS': '1'}
                     if authorization_mode:
                         environment.update(JC_NATIVE_NETWORK_AUTHORIZATION=authorization_mode, JC_NATIVE_TUN_READY=str(marker))
+                    elif scenario == 'network-policy':
+                        environment.update(JC_NATIVE_NETWORK_POLICY='1', JC_NATIVE_TUN_READY=str(marker))
                     elif scenario != 'normal':
                         environment.update(JC_NATIVE_NETWORK_HELPER_LOSS='1', JC_NATIVE_TUN_READY=str(marker),
                             JC_NATIVE_NETWORK_HELPER_OFFLINE='1' if scenario == 'helper-offline' else '0')
@@ -369,6 +374,26 @@ def main(args):
                             assert not list(user_state.iterdir()) and dns_restored(), 'Old authorization approved the new pending connection'
                             Path(str(marker) + '.approve').touch()
                             print('CHECK: cancelled authorization revoked before current authorization was approved', flush=True)
+                    elif scenario == 'network-policy':
+                        boundary('.policy-ready'); active = active_owner()
+                        assert published(active['owner']), 'Overlap test preceded confirmed dynamic DNS capture'
+                        external = ('-n', 'add', '-inet', '-net', '198.18.0.0/29', '-interface', 'lo0', '-static')
+                        run('/sbin/route', *external)
+                        try:
+                            Path(str(marker) + '.overlay-up').touch(); boundary('.protected')
+                            assert not any(published(active['owner'], address) for address in ('198.18.0.6', '198.18.0.7')), 'New original protection retained campus capture'
+                            Path(str(marker) + '.select-campus').touch(); boundary('.campus-selected')
+                            assert published(active['owner']) and active_owner()['owner'] == active['owner'], 'Explicit campus choice lost its active ownership'
+                            Path(str(marker) + '.select-original').touch(); boundary('.original-selected')
+                            assert not published(active['owner']), 'Original-side choice retained the campus host route'
+                            original = run('/sbin/route', '-n', 'get', '-inet', '198.18.0.3').stdout.decode()
+                            assert re.search(r'^\s*interface:\s*lo0\s*$', original, re.M), 'Policy update removed the external original route'
+                        finally:
+                            run('/sbin/route', '-n', 'delete', '-inet', '-net', '198.18.0.0/29', '-interface', 'lo0')
+                        Path(str(marker) + '.overlay-down').touch(); boundary('.policy-restored')
+                        assert all(published(active['owner'], address) for address in ('198.18.0.6', '198.18.0.7')), 'Overlay removal lost the still-live DNS binding or campus IP resource'
+                        Path(str(marker) + '.traffic').touch()
+                        print('CHECK: live overlap protected, explicitly selected, withdrawn and restored within owner', active['owner'], flush=True)
                     elif scenario == 'process-crash':
                         boundary(''); active = active_owner()
                         assert published(active['owner']), 'Full-process crash preceded actual DNS and data traffic'

@@ -32,6 +32,13 @@ type Listeners struct {
 	closeOnce   sync.Once
 }
 
+func (p *Listeners) CampusDNSRecords() map[string][]string {
+	if p.resolver != nil {
+		return p.resolver.CampusDNSRecords()
+	}
+	return nil
+}
+
 type ownedConn struct {
 	net.Conn
 	owner *Listeners

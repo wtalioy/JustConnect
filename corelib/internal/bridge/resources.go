@@ -3,6 +3,7 @@ package bridge
 import (
 	"bytes"
 	"encoding/json"
+	"slices"
 
 	"github.com/wtalioy/JustConnect/corelib"
 )
@@ -26,6 +27,12 @@ type resourceSnapshot struct {
 	CampusDNS         string                          `json:"campus_dns"`
 	CampusDNSEnabled  bool                            `json:"campus_dns_enabled"`
 	UnderlayInterface string                          `json:"underlay_interface"`
+}
+
+type resourcesEnvelope struct {
+	SchemaVersion int              `json:"schema_version"`
+	Generation    uint64           `json:"generation,string"`
+	Resources     resourceSnapshot `json:"resources"`
 }
 
 func (s *Session) setResources(resources corelib.Resources) Status {
@@ -54,11 +61,7 @@ func (s *Session) setResources(resources corelib.Resources) Status {
 		}
 		snapshot.DNSRecords[domain] = values
 	}
-	data, err := json.Marshal(struct {
-		SchemaVersion int              `json:"schema_version"`
-		Generation    uint64           `json:"generation,string"`
-		Resources     resourceSnapshot `json:"resources"`
-	}{ABIVersion, generation, snapshot})
+	data, err := json.Marshal(resourcesEnvelope{ABIVersion, generation, snapshot})
 	status := OK
 	if err != nil {
 		status = Internal
@@ -100,5 +103,31 @@ func (e *Engine) Resources(handle, generation uint64) ([]byte, Status) {
 	if s.resourcesStatus != OK {
 		return nil, s.resourcesStatus
 	}
-	return bytes.Clone(s.resources), OK
+	if s.protocol == nil {
+		return bytes.Clone(s.resources), OK
+	}
+	records := s.protocol.CampusDNSRecords()
+	if len(records) == 0 {
+		return bytes.Clone(s.resources), OK
+	}
+	var snapshot resourcesEnvelope
+	if json.Unmarshal(s.resources, &snapshot) != nil {
+		return nil, Internal
+	}
+	for host, addresses := range records {
+		for _, address := range addresses {
+			if !slices.Contains(snapshot.Resources.DNSRecords[host], address) {
+				snapshot.Resources.DNSRecords[host] = append(snapshot.Resources.DNSRecords[host], address)
+			}
+		}
+		slices.Sort(snapshot.Resources.DNSRecords[host])
+	}
+	data, err := json.Marshal(snapshot)
+	if err != nil {
+		return nil, Internal
+	}
+	if len(data) > MaxOutput {
+		return nil, Limit
+	}
+	return data, OK
 }
