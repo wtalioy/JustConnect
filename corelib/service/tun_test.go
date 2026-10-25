@@ -12,6 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/wtalioy/JustConnect/corelib/client"
@@ -451,36 +452,38 @@ func TestTUNShutdownAbortsIncompleteHandshakeAndDeviceFailure(t *testing.T) {
 }
 
 func TestTUNUDPIdleExpiresAfterTrafficStops(t *testing.T) {
-	left, sender := net.Pipe()
-	right, receiver := net.Pipe()
-	defer sender.Close()
-	defer receiver.Close()
-	done := make(chan struct{})
-	go func() {
-		relayDatagrams(t.Context(), left, right, 100*time.Millisecond, func(err error) { t.Error(err) })
-		close(done)
-	}()
-	for range 4 {
-		if err := sender.SetWriteDeadline(time.Now().Add(time.Second)); err != nil {
-			t.Fatal(err)
+	synctest.Test(t, func(t *testing.T) {
+		left, sender := net.Pipe()
+		right, receiver := net.Pipe()
+		defer sender.Close()
+		defer receiver.Close()
+		done := make(chan struct{})
+		go func() {
+			relayDatagrams(t.Context(), left, right, 100*time.Millisecond, func(err error) { t.Error(err) })
+			close(done)
+		}()
+		for range 4 {
+			if err := sender.SetWriteDeadline(time.Now().Add(time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			written := make(chan error, 1)
+			go func() { _, err := sender.Write([]byte("one-way")); written <- err }()
+			data := make([]byte, 7)
+			_ = receiver.SetReadDeadline(time.Now().Add(time.Second))
+			if _, err := io.ReadFull(receiver, data); err != nil || string(data) != "one-way" {
+				t.Fatalf("active one-way UDP expired: %q, %v", data, err)
+			}
+			if err := <-written; err != nil {
+				t.Fatal(err)
+			}
+			time.Sleep(40 * time.Millisecond)
 		}
-		written := make(chan error, 1)
-		go func() { _, err := sender.Write([]byte("one-way")); written <- err }()
-		data := make([]byte, 7)
-		_ = receiver.SetReadDeadline(time.Now().Add(time.Second))
-		if _, err := io.ReadFull(receiver, data); err != nil || string(data) != "one-way" {
-			t.Fatalf("active one-way UDP expired: %q, %v", data, err)
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("idle UDP relay retained both endpoints")
 		}
-		if err := <-written; err != nil {
-			t.Fatal(err)
-		}
-		time.Sleep(40 * time.Millisecond)
-	}
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("idle UDP relay retained both endpoints")
-	}
+	})
 }
 
 type capacityCampus struct {
