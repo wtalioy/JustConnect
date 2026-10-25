@@ -182,6 +182,12 @@ def main(args):
                 status = process.wait(timeout=20)
                 assert status == 0, f'Native client {process.pid} exited {status}'
 
+            def kill_helper():
+                service = run('/bin/launchctl', 'print', 'system/' + SERVICE).stdout.decode()
+                pid = re.search(r'^\s*pid = (\d+)\s*$', service, re.M); assert pid
+                print('CHECK: kill managed helper pid', pid[1], flush=True)
+                os.kill(int(pid[1]), signal.SIGKILL)
+
             def withdrawn(interface):
                 for address in ('198.18.0.6', '198.18.0.7'):
                     result = run('/sbin/route', '-n', 'get', '-inet', address, check=False)
@@ -273,10 +279,7 @@ def main(args):
             wait_for(dns_restored, 'Client EOF failed to restore owned DNS')
             recovery = start('--recover', owner=active['owner']); event(recovery, 'restored'); finish(recovery)
             client = start('--publish', grant=True); active = event(client, 'active'); publish(client, active)
-            service = run('/bin/launchctl', 'print', 'system/' + SERVICE).stdout.decode()
-            pid = re.search(r'^\s*pid = (\d+)\s*$', service, re.M); assert pid
-            print('CHECK: kill managed helper pid', pid[1], flush=True)
-            os.kill(int(pid[1]), signal.SIGKILL); event(client, 'lost')
+            kill_helper(); event(client, 'lost')
             wait_for(dns_restored, 'Killed helper session left owned DNS settings')
             wait_for(lambda: receipt(active['owner'], 'restored') and withdrawn(active['interface']), 'New daemon did not restore capture while ordinary fd remained open')
             client.stdin.write(b'exit\n'); client.stdin.flush(); finish(client)
@@ -286,22 +289,74 @@ def main(args):
             shutil.copytree(bundle, core_bundle, symlinks=True)
             shutil.copy2(args.core_client, core_bundle / 'Contents/MacOS/JustConnect')
             sign(core_bundle, identity, APP_ID)
-            authorizations = [Authorization(), Authorization()]; grants.extend(authorizations)
-            read_fd, write_fd = os.pipe()
-            try:
-                os.write(write_fd, b''.join(value.external.raw for value in authorizations)); os.close(write_fd); write_fd = -1
-                result = run(args.gateway, '-test.v', '-test.timeout', '75s', '-test.run', '^TestNativeTUNHost$',
-                    user=args.uid, group=account.pw_gid, extra_groups=(), pass_fds=(read_fd,),
-                    env={'HOME': account.pw_dir, 'PATH': '/usr/bin:/bin:/usr/sbin:/sbin', 'GITHUB_ACTIONS': 'true', 'RUNNER_OS': 'macOS',
+            for scenario in ('normal', 'helper-loss', 'helper-offline'):
+                control = directory / ('core-' + scenario); control.mkdir(mode=0o700); os.chown(control, args.uid, account.pw_gid)
+                marker = control / 'ready'
+                authorizations = [Authorization(), Authorization()]; grants.extend(authorizations)
+                read_fd, write_fd = os.pipe()
+                transcript = output / ('core-' + scenario + '.out')
+                try:
+                    os.write(write_fd, b''.join(value.external.raw for value in authorizations)); os.close(write_fd); write_fd = -1
+                    environment = {'HOME': account.pw_dir, 'PATH': '/usr/bin:/bin:/usr/sbin:/sbin', 'GITHUB_ACTIONS': 'true', 'RUNNER_OS': 'macOS',
                         'JC_NATIVE_TUN_HOST': str(core_bundle / 'Contents/MacOS/JustConnect'),
-                        'JC_NATIVE_TUN_MAC_AUTH_FD': str(read_fd), 'JC_NATIVE_TUN_DNS': '1'})
-                print(result.stdout.decode(), end='', flush=True)
-            finally:
-                os.close(read_fd)
-                if write_fd >= 0:
-                    os.close(write_fd)
-            assert not list(user_state.iterdir()), 'Actual Qt/core session retained an ownership receipt'
-            wait_for(dns_restored, 'Actual Qt/core session left original DNS changed')
+                        'JC_NATIVE_TUN_MAC_AUTH_FD': str(read_fd), 'JC_NATIVE_TUN_DNS': '1'}
+                    if scenario != 'normal':
+                        environment.update(JC_NATIVE_NETWORK_HELPER_LOSS='1', JC_NATIVE_TUN_READY=str(marker),
+                            JC_NATIVE_NETWORK_HELPER_OFFLINE='1' if scenario == 'helper-offline' else '0')
+                    with transcript.open('wb') as stream:
+                        core = subprocess.Popen([args.gateway, '-test.v', '-test.timeout', '75s', '-test.run', '^TestNativeTUNHost$'],
+                            user=args.uid, group=account.pw_gid, extra_groups=(), pass_fds=(read_fd,), env=environment,
+                            stdout=stream, stderr=subprocess.STDOUT)
+                    processes.append(core)
+
+                    def boundary(suffix):
+                        def reached():
+                            assert core.poll() is None, 'Qt/core exited before ' + suffix + ': ' + transcript.read_text()
+                            return Path(str(marker) + suffix).exists()
+                        wait_for(reached, 'Qt/core did not reach ' + scenario + suffix)
+
+                    def active_owner():
+                        owners = list(user_state.glob('*/source.json')); assert len(owners) == 1, owners
+                        value = json.loads(owners[0].read_text()); assert value['phase'] == 'active', value
+                        return value
+
+                    if scenario != 'normal':
+                        boundary(''); active = active_owner()
+                        assert published(active['owner']), 'Fault preceded actual DNS publication and data traffic'
+                        if scenario == 'helper-offline':
+                            run('/bin/launchctl', 'bootout', 'system/' + SERVICE); bootstrapped = False
+                            boundary('.blocked')
+                            assert (user_state / active['owner'] / 'source.json').exists(), 'Offline restoration lost its ownership receipt'
+                            wait_for(lambda: active['device']['interface'] not in run('/sbin/ifconfig', '-l').stdout.decode().split(),
+                                'Stopped core retained an owned utun while its helper was unavailable')
+                            wait_for(dns_restored, 'Offline helper session left owned DNS settings')
+                            run('/bin/launchctl', 'bootstrap', 'system', launch_path); bootstrapped = True
+                            wait_for(lambda: receipt(active['owner'], 'restored'), 'Reloaded daemon did not recover the old owner')
+                        else:
+                            kill_helper(); boundary('.released')
+                            wait_for(lambda: not (user_state / active['owner']).exists() or receipt(active['owner'], 'restored'),
+                                'Reloaded helper did not restore the failed full core session')
+                        Path(str(marker) + '.continue').touch()
+                        boundary('.restored')
+                        assert not list(user_state.iterdir()), 'Full core failure acknowledged restoration before receipt cleanup'
+                        wait_for(lambda: active['device']['interface'] not in run('/sbin/ifconfig', '-l').stdout.decode().split(),
+                            'Completed helper loss retained a core/device reference')
+                        wait_for(dns_restored, 'Full Qt/core helper loss left owned DNS settings')
+                        Path(str(marker) + '.restart').touch(); boundary('.reconnected')
+                        fresh = active_owner()
+                        assert fresh['owner'] != active['owner'], 'Restart reused the failed privileged ownership'
+                        Path(str(marker) + '.traffic').touch()
+                        print('CHECK: full Qt/core', scenario, active['owner'], 'restored before fresh owner', fresh['owner'], flush=True)
+                    try:
+                        finish(core)
+                    finally:
+                        print(transcript.read_text(), end='', flush=True)
+                finally:
+                    os.close(read_fd)
+                    if write_fd >= 0:
+                        os.close(write_fd)
+                assert not list(user_state.iterdir()), 'Actual Qt/core session retained an ownership receipt'
+                wait_for(dns_restored, 'Actual Qt/core session left original DNS changed')
             print('PASS: signed root XPC, identity/network authorization boundaries, ordinary UDP/fd and system DNS, durable CoreEngine DNS publication, cancellation, EOF and daemon restart recovery', flush=True)
         finally:
             for process in processes:
