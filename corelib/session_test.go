@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/wtalioy/JustConnect/corelib/client/atrust"
-	"github.com/wtalioy/JustConnect/corelib/internal/platform/privatefile"
+	"github.com/wtalioy/JustConnect/corelib/internal/privatefile"
 	"github.com/wtalioy/JustConnect/corelib/underlay"
 )
 

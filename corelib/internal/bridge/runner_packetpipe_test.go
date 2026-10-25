@@ -7,7 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	nativepipe "github.com/wtalioy/JustConnect/corelib/internal/platform/windows/packetpipe"
+	nativepipe "github.com/wtalioy/JustConnect/corelib/internal/packetpipe/windows"
 	"io"
 	"net"
 	"net/netip"
@@ -21,9 +21,9 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/wtalioy/JustConnect/corelib/internal/platform/packetpipe"
-	"github.com/wtalioy/JustConnect/corelib/internal/platform/windows/testutil"
-	"github.com/wtalioy/JustConnect/corelib/internal/platform/windows/wintun"
+	"github.com/wtalioy/JustConnect/corelib/internal/networkhelper/windows/testsupport"
+	"github.com/wtalioy/JustConnect/corelib/internal/packetpipe"
+	"github.com/wtalioy/JustConnect/corelib/internal/tundevice/windows/wintun"
 	"golang.org/x/sys/windows"
 )
 
@@ -180,7 +180,7 @@ func TestNativeWindowsPacketHost(t *testing.T) {
 			}
 		}
 	}
-	token, err := testutil.OrdinaryToken()
+	token, err := testsupport.OrdinaryToken()
 	if err != nil {
 		t.Fatal(err)
 	}

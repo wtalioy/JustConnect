@@ -48,13 +48,13 @@ D2 的设备入口子方案已收敛：Linux／macOS 使用最小授权助手创
 <a id="windows-device-probe"></a>
 ### Windows 设备助手隔离实验（S4-01／D2）
 
-[设备验收夹具](../corelib/internal/platform/windows/wintun/fixture/main.go) 仅在一次性 CI 中创建随机名称的专用适配器，使用官方 Wintun 0.14.1 的公开 API。下载包固定 SHA-256 为 `07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51`，运行前核对 WireGuard 签名并保留随包许可证；不修改 DLL 或提取内嵌驱动，应用交付尚未引入该运行库。
+[设备验收夹具](../corelib/internal/tundevice/windows/wintun/fixture/main.go) 仅在一次性 CI 中创建随机名称的专用适配器，使用官方 Wintun 0.14.1 的公开 API。下载包固定 SHA-256 为 `07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51`，运行前核对 WireGuard 签名并保留随包许可证；不修改 DLL 或提取内嵌驱动，应用交付尚未引入该运行库。
 
 助手只持有 ring 和新设备；同账户的普通权限／medium integrity 子进程通过继承的匿名管道处理一组限定测试 IP／UDP 端口的数据包，不加载 Qt 或 aTrust。根据 [CreateRestrictedToken](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-createrestrictedtoken) 的句柄权限继承语义，显式取得创建进程和降低完整性所需权限；使用 `LUA_TOKEN` 降为普通用户令牌，取消管理员 SID 的允许权限并移除可删除特权；仅手动降低完整性和移除特权不足以证明 UAC 降权。验证原始 UDP socket 经设备、普通进程及助手回注收到回包，拒绝超大 IPC 帧，检查正常关闭和助手被终止后的设备／路由消失。
 
 独立控制进程先安装只约束设备助手的 Job 生命周期，再恢复其主线程；异常时仅清理本次随机名称及创建时捕获的 Wintun PnP 实例。此 Job 不管理 VPN 核心，原型不修改既有接口、DNS 或默认路由。本机只运行七项原生只读／令牌／帧／协议边界检查及拒绝本机设备操作的入口检查。日志／SDK 来源元数据随各组 artifact 保存。
 
-设备操作现复用正式 `internal/platform/windows/wintun`：以新 UUID／GUID 创建专属适配器，经原生 IP Helper 配置自身 IPv4 `/32`、MTU、对端与获选捕获路由并回读，助手持有环至停止，不调用 PowerShell 配置网络。`allocated` 仍在配置前确认 LUID／GUID 与原始 PnP 实例，`configured` 在实际回读后发布；失败不丢原清理身份。保留五组真实内核收发、超大帧、强杀及配置后失败的独有设备／PnP 清理断言。令牌转换由两个原生夹具共用，不复制权限模型。前序独立原型的 [`5e51df0` 六组 Core ABI／设备](https://github.com/wtalioy/JustConnect/actions/runs/39807827167)及[三平台应用测试](https://github.com/wtalioy/JustConnect/actions/runs/39807827099)已通过；迁移后的原生结果见计划，不以旧原型证明新后端。CI 固定 pwsh 仅用于运行前验证官方 SDK 签名，原配置／查找脚本已删除。
+设备操作现复用正式 `internal/tundevice/windows/wintun`：以新 UUID／GUID 创建专属适配器，经原生 IP Helper 配置自身 IPv4 `/32`、MTU、对端与获选捕获路由并回读，助手持有环至停止，不调用 PowerShell 配置网络。`allocated` 仍在配置前确认 LUID／GUID 与原始 PnP 实例，`configured` 在实际回读后发布；失败不丢原清理身份。保留五组真实内核收发、超大帧、强杀及配置后失败的独有设备／PnP 清理断言。令牌转换由两个原生夹具共用，不复制权限模型。前序独立原型的 [`5e51df0` 六组 Core ABI／设备](https://github.com/wtalioy/JustConnect/actions/runs/39807827167)及[三平台应用测试](https://github.com/wtalioy/JustConnect/actions/runs/39807827099)已通过；迁移后的原生结果见计划，不以旧原型证明新后端。CI 固定 pwsh 仅用于运行前验证官方 SDK 签名，原配置／查找脚本已删除。
 
 新增完整链路由普通权限 Qt／嵌入 Go 经正式 C ABI 连接受限字节管道，助手保留真实 Wintun 环；验证实际校园协议、TCP、UDP／空报文、关闭原句柄后继续收发、无效 PID／MTU／代次拒绝及两次停止重启。源／对端与捕获目标仅为隔离夹具输入，不成为产品默认。助手进程绑定与原生取消另有本机 Windows 回归；真正 UAC 启动、受保护安装、系统 DNS、持久记录及双杀独立恢复仍须正式权限助手接入，不能把此夹具当作交付。
 

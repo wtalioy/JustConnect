@@ -15,9 +15,9 @@ import (
 	"unsafe"
 
 	"github.com/wtalioy/JustConnect/corelib/internal/bridge"
-	"github.com/wtalioy/JustConnect/corelib/internal/platform/networkstate"
-	"github.com/wtalioy/JustConnect/corelib/internal/platform/packetpipe"
-	"github.com/wtalioy/JustConnect/corelib/internal/platform/tundevice"
+	"github.com/wtalioy/JustConnect/corelib/internal/networkstate"
+	"github.com/wtalioy/JustConnect/corelib/internal/packetpipe"
+	"github.com/wtalioy/JustConnect/corelib/internal/tundevice"
 	"github.com/wtalioy/JustConnect/corelib/stack/gvisor"
 )
 

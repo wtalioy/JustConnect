@@ -8,7 +8,7 @@ import urllib.request
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-CONTRACT = ROOT / 'corelib/internal/platform/windows/networkhelper/contract.json'
+CONTRACT = ROOT / 'corelib/internal/networkhelper/windows/contract.json'
 
 
 def stage(contract, destination, arch):
