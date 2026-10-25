@@ -205,6 +205,7 @@ func TestNativeWindowsPacketHost(t *testing.T) {
 	}()
 	command := exec.CommandContext(ctx, host, "--packet-gateway", string(configBytes(t, g.config(t))), name, strconv.FormatUint(uint64(windows.GetCurrentProcessId()), 10))
 	command.SysProcAttr = &syscall.SysProcAttr{Token: syscall.Token(token)}
+	command.Env = os.Environ() // Token-based CreateProcess otherwise drops the CI's Qt/runtime DLL paths.
 	var output bytes.Buffer
 	command.Stdout, command.Stderr = &output, &output
 	if err = command.Start(); err != nil {
