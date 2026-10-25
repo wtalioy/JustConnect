@@ -33,3 +33,6 @@ std::optional<std::pair<QString, QString>> privateTUNAddresses(const QJsonObject
 
 // Reserve existing resolver literals before allocating a new owned IPv4 pair.
 std::optional<QStringList> tunAddressReservations(const QStringList &captures, const QJsonObject &dns, const QString &localDNS);
+
+// Stable default/split-default exits and selected-interface addresses; native volatile flags are normalized by the reader.
+std::optional<QJsonObject> originalExitSnapshot(const QJsonObject &network,const QString &preferred);
