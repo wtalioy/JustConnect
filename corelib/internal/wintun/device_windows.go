@@ -97,9 +97,6 @@ func Create(dllPath string, owner windows.GUID, source, peer netip.Addr, mtu uin
 	if err = allocated(d.Identity); err != nil {
 		return nil, err
 	}
-	if err = d.configure(source, peer, targets); err != nil {
-		return nil, err
-	}
 	d.session, _, err = d.procedures["WintunStartSession"].Call(d.adapter, 0x20000) // Wintun's minimum ring capacity: 128 KiB.
 	if d.session == 0 {
 		return nil, fmt.Errorf("start owned Wintun rings: %w", err)
@@ -108,6 +105,10 @@ func Create(dllPath string, owner windows.GUID, source, peer netip.Addr, mtu uin
 	d.ready = windows.Handle(event)
 	d.stop, err = windows.CreateEvent(nil, 1, 0, nil)
 	if err != nil {
+		return nil, err
+	}
+	// Starting the rings brings the link up before address readiness is confirmed.
+	if err = d.configure(source, peer, targets); err != nil {
 		return nil, err
 	}
 	return d, nil
