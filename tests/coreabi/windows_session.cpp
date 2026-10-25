@@ -16,13 +16,13 @@
 #include <objbase.h>
 
 using ProxyCheck::check;
-template<class Predicate> static void until(Predicate done,int timeout=10000){
+template<class Predicate> static void until(const char *stage,Predicate done,int timeout=10000){
     QElapsedTimer timer;timer.start();
     while(!done() && timer.elapsed()<timeout)QCoreApplication::processEvents(QEventLoop::AllEvents,10);
-    check(done(),"Windows application operation completed within deadline");
+    check(done(),stage);
 }
 static QJsonObject dnsSnapshot(){
-    auto future=QtConcurrent::run(readSystemDnsSnapshot);until([&]{return future.isFinished();});
+    auto future=QtConcurrent::run(readSystemDnsSnapshot);until("complete native DNS snapshot",[&]{return future.isFinished();});
     const auto result=future.result();check(result.result.succeeded(),"ordinary application reads complete system DNS");
     auto data=result.data;
     for(const auto &key:{"interfaces","clients","nrpt","doh"}){
@@ -81,6 +81,16 @@ int main(int argc,char **argv) try
     });
     ConnectionSession session(engine,nullptr,access);
     QObject::connect(&session,&ConnectionSession::diagnostic,[](const QString &value){std::cerr<<value.toStdString()<<'\n';});
+    QObject::connect(&session,&ConnectionSession::progressChanged,[&]{std::cerr<<"application phase="<<int(session.phase())<<'\n';});
+    QObject::connect(&policy,&NetworkPolicySession::changed,[&]{
+        std::cerr<<"policy status="<<int(policy.status())<<" busy="<<policy.isBusy()<<" confirmed="<<!policy.confirmedProtection().isEmpty()<<'\n';
+    });
+    QObject::connect(engine,&CoreEngine::snapshotReady,[](CoreEngine::Snapshot kind,const QString &,const QJsonObject &,CoreEngine::RequestStatus status){
+        std::cerr<<"native snapshot kind="<<int(kind)<<" status="<<int(status)<<'\n';
+    });
+    QObject::connect(engine,&CoreEngine::tunAttached,[](const QString &,CoreEngine::RequestStatus status){std::cerr<<"native pipe attachment="<<int(status)<<'\n';});
+    QObject::connect(access,&NetworkAccess::ready,[](const QUuid &,PlatformOperationResult result){std::cerr<<"network ready="<<result.succeeded()<<" "<<result.detail.toStdString()<<'\n';});
+
     QObject::connect(engine,&CoreEngine::authenticationRequired,[engine](const QJsonObject &request){engine->respond(CoreEngine::responseFor(request,{{"action","submit"},{"code","fixture-code"}}));});
     QObject::connect(engine,&CoreEngine::sessionStarted,[&]{coreStarted=true;});
     QObject::connect(engine,&CoreEngine::initialProtectionApplied,[&](const QJsonObject &value){initialProtection=value;});
@@ -91,22 +101,22 @@ int main(int argc,char **argv) try
         ++finished;
     });
     for(int prefix=1;prefix<=2;++prefix){
-        check(session.start(profile,{}),"start explicit refusal/cancellation attempt");until([&]{return finished==prefix;});
+        check(session.start(profile,{}),"start explicit refusal/cancellation attempt");until("finish refused or cancelled authorization",[&]{return finished==prefix;});
         check(authorizations==prefix && !session.isActive() && !coreStarted,"permission refusal never loops authorization or starts the core");
     }
     normal=true;
     check(session.start(profile,{}),"start complete Windows application connection");
-    until([&]{return session.state()==ConnectionState::Running || finished>2;},20000);
+    until("reach CampusReady after native attachment",[&]{return session.state()==ConnectionState::Running || finished>2;},20000);
     check(finished==2 && session.phase()==ConnectionPhase::CampusReady,"application reports campus readiness only after authorized device attachment");
-    until([&]{return !policy.isBusy();});
+    until("finish original-network policy observation",[&]{return !policy.isBusy();});
     check(policy.status()==CoreEngine::RequestStatus::Success && policy.confirmedProtection()["protected"]==initialProtection["protected"]
         && policy.confirmedProtection()["protected_names"]==initialProtection["protected_names"],"owned routes/DNS never become original protection");
-    auto lookup=QtConcurrent::run([]{return QHostInfo::fromName("campus.test");});until([&]{return lookup.isFinished();});
+    auto lookup=QtConcurrent::run([]{return QHostInfo::fromName("campus.test");});until("complete system campus DNS lookup",[&]{return lookup.isFinished();});
     const auto answer=lookup.result();check(answer.error()==QHostInfo::NoError && answer.addresses().contains(QHostAddress("198.18.0.7")),"ordinary Windows system DNS follows campus CNAME through the actual core");
     exerciseNativeTUNTraffic(QHostAddress("198.18.0.7"));
-    until([&]{return !policy.isBusy();});check(policy.refresh(),"refresh original view after DNS capture publication");until([&]{return !policy.isBusy();});
+    until("finish original-network policy observation",[&]{return !policy.isBusy();});check(policy.refresh(),"refresh original view after DNS capture publication");until("finish original-network policy observation",[&]{return !policy.isBusy();});
     check(policy.status()==CoreEngine::RequestStatus::Success && policy.confirmedProtection()["protected"]==initialProtection["protected"],"new DNS captures remain excluded from original protection");
-    session.stop();until([&]{return finished==3;},20000);
+    session.stop();until("finish staged network/core restoration",[&]{return finished==3;},20000);
     check(authorizations==3 && approvals==1 && !session.isActive() && interfaceAddresses()==initialAddresses && dnsSnapshot()==initialDns,
         "single approval, owned device removal and complete original DNS/interface restoration");
     std::cout<<"PASS: ordinary Windows application/native helper/Go core system DNS, TCP/UDP and empty datagrams, staged stop and complete restore\n";

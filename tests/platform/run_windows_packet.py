@@ -153,8 +153,8 @@ def main():
     output = ROOT / 'build/coreabi'
     subprocess.run(['cmake', '-S', 'tests/coreabi', '-B', str(output), '-DCMAKE_BUILD_TYPE=Release', '-A',
         'ARM64' if os.environ['RUNNER_ARCH'] == 'ARM64' else 'x64'], check=True, timeout=120)
-    subprocess.run(['cmake', '--build', str(output), '--config', 'Release', '--target', 'coreabi_windows_packet_test', '--parallel', '3'], check=True, timeout=600)
-    subprocess.run(['ctest', '--test-dir', str(output), '-C', 'Release', '-V', '-R', '^coreabi_windows_packet_test$', '--output-on-failure'], env=env, check=True, timeout=150)
+    subprocess.run(['cmake', '--build', str(output), '--config', 'Release', '--target', 'coreabi_windows_packet_test', 'coreabi_windows_session_test', '--parallel', '3'], check=True, timeout=600)
+    subprocess.run(['ctest', '--test-dir', str(output), '-C', 'Release', '-V', '-R', '^coreabi_windows_(packet|session)_test$', '--output-on-failure'], env=env, check=True, timeout=480)
 
 
 if __name__ == '__main__':

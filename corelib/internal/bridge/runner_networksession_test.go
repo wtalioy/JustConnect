@@ -32,7 +32,7 @@ func TestNativeWindowsSessionHost(t *testing.T) {
 	command.Env = append(os.Environ(), "JC_WINDOWS_SESSION_CONFIG="+string(configBytes(t, g.config(t))))
 	output, err := command.CombinedOutput()
 	if err != nil {
-		t.Fatalf("actual ordinary Windows application session: %v\n%s", err, output)
+		t.Fatalf("actual ordinary Windows application session: %v; auth=%d TCP=%d UDP=%d DNS=%d\n%s", err, g.authCount.Load(), g.tcpCount.Load(), g.udpCount.Load(), g.nativeDNSQueries.Load(), output)
 	}
 	if g.authCount.Load() != 2 || g.tcpCount.Load() != 2 || g.nativeDNSQueries.Load() < 2 || g.udpCount.Load() != 4+g.nativeDNSQueries.Load() {
 		t.Fatalf("actual application exchanges auth=%d TCP=%d UDP=%d DNS=%d\n%s", g.authCount.Load(), g.tcpCount.Load(), g.udpCount.Load(), g.nativeDNSQueries.Load(), output)
