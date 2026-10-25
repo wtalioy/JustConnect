@@ -182,6 +182,15 @@ func TestNativeWindowsPacketHost(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer token.Close()
+	restoreDesktop, err := windowstest.PermitDesktop(token)
+	if err != nil {
+		t.Fatal("prepare the disposable ordinary desktop", err)
+	}
+	defer func() {
+		if err := restoreDesktop(); err != nil {
+			t.Error("restore the disposable desktop", err)
+		}
+	}()
 	g := newGateway(t)
 	g.resourceIP.Store("198.18.0.6")
 	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
