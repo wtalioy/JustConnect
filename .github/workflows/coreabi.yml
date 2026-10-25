@@ -12,7 +12,7 @@ on:
       windows_packet_only:
         type: boolean
         default: false
-        description: Run only Windows native device and ordinary Qt/core packet checks
+        description: Run only Windows native device, ordinary Qt/core packets and application sessions
       macos_helper_only:
         type: boolean
         default: false
