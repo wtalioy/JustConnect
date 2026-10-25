@@ -1,7 +1,9 @@
 #pragma once
 #include "infrastructure/tundevice/tundevice.h"
+#include "infrastructure/process/command.h"
 #include <SystemConfiguration/SystemConfiguration.h>
 #include <QStringList>
+#include <utility>
 
 // Apple VPN.DNS defines 1 as supplemental routing without adding search domains.
 inline constexpr int MacDnsNoSearch = 1;
@@ -12,7 +14,8 @@ class MacTunDns
 public:
     ~MacTunDns() { restore(); }
     using AddTemporary = decltype(&SCDynamicStoreAddTemporaryValue);
-    explicit MacTunDns(AddTemporary add = SCDynamicStoreAddTemporaryValue) : add(add) {}
+    explicit MacTunDns(AddTemporary add = SCDynamicStoreAddTemporaryValue,PlatformCommandRunner inspect = {})
+        : add(add),inspect(std::move(inspect)) {}
     MacTunDns(const MacTunDns &) = delete;
     MacTunDns &operator=(const MacTunDns &) = delete;
     PlatformOperationResult apply(const UnixTunDevice &device, const QStringList &domains);
@@ -24,4 +27,5 @@ private:
     SCDynamicStoreRef store = nullptr;
     QJsonObject applied;
     AddTemporary add;
+    PlatformCommandRunner inspect;
 };

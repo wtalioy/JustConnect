@@ -1,4 +1,5 @@
 #include "infrastructure/dns/macos/tundns.h"
+#include "infrastructure/dns/macos/resolver.h"
 #include "infrastructure/routing/macos/tunroutes.h"
 #include "infrastructure/dns/macos/dnssnapshot.h"
 #include <QCoreApplication>
@@ -68,7 +69,8 @@ int main(int argc,char **argv) try
         for (auto it = expected.begin(); it != expected.end(); ++it) if (hasValue(inspector,it.key())) return false;
         return true;
     };
-    wait([&] { return runPlatformCommand("/usr/sbin/scutil",{"--dns"}).output.contains(domains.first()); },"Supplemental resolver did not become effective");
+    const auto ipv4 = device.snapshot()["configuration"].toObject()["applied"].toObject()["ipv4"].toArray().first().toObject();
+    check(macDnsResolverMatches(runPlatformCommand("/usr/sbin/scutil",{"--dns"}).output,ipv4["peer"].toString(),domains),"Publication returned before the complete owned resolver became effective");
     const auto global = SCDynamicStoreKeyCreateNetworkGlobalEntity(nullptr,kSCDynamicStoreDomainState,kSCEntNetDNS);
     const auto globalKey = QString::fromCFString(global); CFRelease(global);
     const auto originalGlobal = before["dynamic_store"].toObject().value(globalKey).toObject();
@@ -80,6 +82,14 @@ int main(int argc,char **argv) try
     dns.restore();
     wait(absent,"Owned DNS service keys survived session close");
     wait([&] { return dnsSnapshot() == before; },"Session close did not restore the original DNS inventory");
+    int inspections = 0;
+    MacTunDns unreadable(SCDynamicStoreAddTemporaryValue,[&](const QString &,const QStringList &) {
+        ++inspections;return PlatformCommandResult{{PlatformOperationResult::Status::Failed,"resolver inspection failed"},{},{}};
+    });
+    check(!unreadable.apply(device,domains).succeeded() && inspections == 1 && unreadable.snapshot().isEmpty(),
+        "Resolver inspection failure retained temporary DNS ownership");
+    wait(absent,"Resolver inspection failure retained owned service keys");
+    wait([&] { return dnsSnapshot() == before; },"Resolver inspection failure changed original DNS settings");
     MacTunDns partial(failSecond);
     check(!partial.apply(device,domains).succeeded() && writes == 2 && partial.snapshot().isEmpty(),"Partial publication did not fail");
     wait(absent,"The first real publication survived failure of the second key");

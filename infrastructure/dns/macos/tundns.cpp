@@ -1,4 +1,5 @@
 #include "infrastructure/dns/macos/tundns.h"
+#include "infrastructure/dns/macos/resolver.h"
 #include "infrastructure/dns/dnsdomains.h"
 #include "infrastructure/networkaddress/ipv4.h"
 #include <QJsonArray>
@@ -73,6 +74,8 @@ PlatformOperationResult MacTunDns::apply(const UnixTunDevice &device, const QStr
     if (!add(store,ipv4Key,ipv4) || !add(store,dnsKey,dns)) {
         const auto result = failed("Cannot publish the owned supplemental DNS service."); restore(); return result;
     }
+    const auto effective = waitForMacDnsResolver(peer,domains,inspect);
+    if (!effective.succeeded()) { restore(); return effective; }
     const std::pair<CFStringRef,CFDictionaryRef> entries[]{{ipv4Key,ipv4},{dnsKey,dns}};
     for (const auto &entry : entries) {
         const auto current = SCDynamicStoreCopyValue(store,entry.first);

@@ -196,7 +196,9 @@ macOS 的 `MacNetworkAccess` 复用 `ConnectionSession`／`NetworkPolicySession`
 <a id="owned-tun-dns"></a>
 macOS 的 `MacTunDns` 在独立 SystemConfiguration 会话中为连接 UUID 发布临时 IPv4 服务绑定与 supplemental DNS：接口、地址／掩码来自已配置 utun 的内核回读，DNS 端点为实际 peer，只接受明确的规范域名。两项均要求原先不存在，逐项添加并回读；不设置 Router、默认域或全局 DNS；显式使用 Apple [VPN.DNS](https://developer.apple.com/documentation/devicemanagement/vpn/dns-data.dictionary) 定义的 `SupplementalMatchDomainsNoSearch=1`，防止系统把校园后缀合并到全局搜索列表。域名校验与 Linux 共用，助手协议 6 的必填 `dns_domains` 数组，空数组表示禁用；磁盘存储仍为 1。
 
-[SCDynamicStoreAddTemporaryValue](https://developer.apple.com/documentation/systemconfiguration/1437789-scdynamicstoreaddtemporaryvalue) 将临时键绑定到发布会话；关闭或进程终止只删除仍属于该会话的值，其他会话即使写入相同值也转移所有权。因此 DNS 无需另存恢复日志，正常停止、部分失败和连接丢失先关闭该会话，再恢复捕获与设备；磁盘记录改变不妨碍释放仍持有的 DNS 会话。原生夹具覆盖部分发布、外部同值改写／命名冲突、默认路由不变及普通用户系统解析；Qt／核心完整会话与真实桌面批准仍待，验收状态见计划。
+发布后在连接操作的有界预算内读取系统 `scutil --dns`，核对普通查询解析器中的全部 supplemental 域名与唯一 peer，再交付设备；读取失败或超时关闭临时会话。接口专属／服务专属查询分组独立处理，不计入普通 `getaddrinfo` 就绪。该检查仅在应用 DNS 时运行；[Apple configd](https://github.com/apple-oss-distributions/configd/blob/main/Plugins/IPMonitor/dns-configuration.c) 为普通 supplemental 配置生成非接口绑定的解析器，接口仍由前后的原生 utun／路由回读确认。
+
+[SCDynamicStoreAddTemporaryValue](https://developer.apple.com/documentation/systemconfiguration/1437789-scdynamicstoreaddtemporaryvalue) 将临时键绑定到发布会话；关闭或进程终止只删除仍属于该会话的值，其他会话即使写入相同值也转移所有权。因此 DNS 无需另存恢复日志，正常停止、部分失败和连接丢失先关闭该会话，再恢复捕获与设备；磁盘记录改变不妨碍释放仍持有的 DNS 会话。原生夹具覆盖部分发布、外部同值改写／命名冲突、默认路由不变及普通用户系统解析；Qt／核心完整会话的自动验收与最新生效检查见计划，真实桌面批准仍待。
 
 Linux 的 `LinuxTunDns` 为本次新建、已配置的 TUN 设置 peer 地址上的 DNS 端点、明确路由域和 `DefaultRoute=false`，接口原先须无 DNS／域配置。权限工作线程传入可信总线；读取和写入固定 resolve1 API，不自动启动解析服务，缺失时报告不支持。API 依据 [resolve1 契约](https://www.freedesktop.org/software/systemd/man/latest/org.freedesktop.resolve1.html)。配置成功证明原生值已回读；核心在该 peer 的 53 端口提供 IPv4 UDP／TCP DNS，设备地址由内核回读，不另设产品地址常量。
 
