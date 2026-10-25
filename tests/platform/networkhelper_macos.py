@@ -385,7 +385,7 @@ def main(args):
                             Path(str(marker) + '.select-campus').touch(); boundary('.campus-selected')
                             assert published(active['owner']) and active_owner()['owner'] == active['owner'], 'Explicit campus choice lost its active ownership'
                             Path(str(marker) + '.select-original').touch(); boundary('.original-selected')
-                            assert not published(active['owner']), 'Original-side choice retained the campus host route'
+                            assert not any(published(active['owner'], address) for address in ('198.18.0.6', '198.18.0.7')), 'Original-side choice retained a campus host route'
                             original = run('/sbin/route', '-n', 'get', '-inet', '198.18.0.3').stdout.decode()
                             assert re.search(r'^\s*interface:\s*lo0\s*$', original, re.M), 'Policy update removed the external original route'
                         finally:

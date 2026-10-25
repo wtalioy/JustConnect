@@ -174,13 +174,19 @@ int main(int argc,char **argv)
             until([&] { return !policy.isBusy() && policy.confirmedProtection()["protected"].toArray().contains("198.18.0.0/29"); });
             check(session.state() == ConnectionState::Running && policy.currentGeneration() == generation,"New protection did not require a new authenticated session");
             publish(".protected"); until([&] { return QFileInfo::exists(marker+".select-campus"); });
-            check(policy.setCampusAddress("198.18.0.7",true),"Select the confirmed cached campus DNS address");
-            until([&] { return !policy.isBusy(); });
+            for (const auto *address : {"198.18.0.6","198.18.0.7"}) {
+                check(policy.setCampusAddress(QString::fromLatin1(address),true),"Select each actual TCP and UDP campus target");
+                until([&] { return !policy.isBusy(); });
+                check(policy.policyStatus() == CoreEngine::RequestStatus::Success,"Core and helper confirmed the selected target");
+            }
             check(policy.policyStatus() == CoreEngine::RequestStatus::Success && policy.campusAddresses().contains("198.18.0.7"),"Core and helper did not confirm the explicit campus choice");
             exerciseNativeTUNTraffic(QHostAddress("198.18.0.7"));
             publish(".campus-selected"); until([&] { return QFileInfo::exists(marker+".select-original"); });
-            check(policy.setCampusAddress("198.18.0.7",false),"Return the overlapping address to its original network");
-            until([&] { return !policy.isBusy(); });
+            for (const auto *address : {"198.18.0.6","198.18.0.7"}) {
+                check(policy.setCampusAddress(QString::fromLatin1(address),false),"Return each actual TCP and UDP target to its original network");
+                until([&] { return !policy.isBusy(); });
+                check(policy.policyStatus() == CoreEngine::RequestStatus::Success,"Core and helper confirmed the original-side target");
+            }
             check(policy.policyStatus() == CoreEngine::RequestStatus::Success && policy.campusAddresses().isEmpty(),"Original-side choice did not complete both confirmations");
             publish(".original-selected"); until([&] { return QFileInfo::exists(marker+".overlay-down"); });
             check(policy.refresh(),"Read actual original overlay removal");
