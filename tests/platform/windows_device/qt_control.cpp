@@ -113,11 +113,11 @@ int main(int argc,char **argv) try
         }}catch(...){error=std::current_exception();}});
         ping("198.18.0.6");
         client.extend({"198.18.0.7"});wait(WindowsNetworkHelperClient::Operation::Extend);
-        check(client.ownedConfiguration()["capture_prefixes"]==QJsonArray{"198.18.0.6/32","198.18.0.7/32"},"confirmed extension was not retained by the ordinary client");
+        check(client.ownedConfiguration()["capture_prefixes"].toArray()==QJsonArray{"198.18.0.6/32","198.18.0.7/32"},"confirmed extension was not retained by the ordinary client");
         check(captured(device,L"198.18.0.7"),"dynamic capture was not confirmed");ping("198.18.0.7");
         pump.join();CloseHandle(data);if(error)std::rethrow_exception(error);check(packets==2,"owned data path omitted a packet");
         client.reconcile({"198.18.0.7/32"});wait(WindowsNetworkHelperClient::Operation::Routes);
-        check(client.ownedConfiguration()["capture_prefixes"]==QJsonArray{"198.18.0.7/32"},"confirmed replacement was not retained by the ordinary client");
+        check(client.ownedConfiguration()["capture_prefixes"].toArray()==QJsonArray{"198.18.0.7/32"},"confirmed replacement was not retained by the ordinary client");
         check(!captured(device,L"198.18.0.6") && captured(device,L"198.18.0.7"),"capture replacement did not preserve its intended set");
         client.quiesce();wait(WindowsNetworkHelperClient::Operation::Quiesce);
         check(!captured(device,L"198.18.0.7") && !dnsPresent(device) && client.state()==WindowsNetworkHelperClient::State::Quiesced,"capture/DNS were not released before core stop");
