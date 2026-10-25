@@ -7,6 +7,8 @@
 #include "infrastructure/networkaccess/linux/networkaccess.h"
 #elif defined(Q_OS_MACOS)
 #include "infrastructure/networkaccess/macos/networkaccess.h"
+#elif defined(Q_OS_WIN)
+#include "infrastructure/networkaccess/windows/networkaccess.h"
 #endif
 #include "application/networkpolicysession.h"
 #include "application/profileservice.h"
@@ -24,12 +26,14 @@
 namespace {
 NetworkAccess *createNetworkAccess(CoreEngine *core, NetworkPolicySession *policy)
 {
-#if defined(Q_OS_LINUX) || defined(Q_OS_MACOS)
+#if defined(Q_OS_LINUX) || defined(Q_OS_MACOS) || defined(Q_OS_WIN)
     const auto mtu = EmbeddedCoreEngine::buildInfo()["capabilities"].toObject()["tunnel_mtu"].toInt();
 #ifdef Q_OS_LINUX
     return new LinuxNetworkAccess(core, policy, mtu);
-#else
+#elif defined(Q_OS_MACOS)
     return new MacNetworkAccess(core, policy, mtu);
+#else
+    return new WindowsNetworkAccess(core, policy, mtu);
 #endif
 #else
     Q_UNUSED(core)

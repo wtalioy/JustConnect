@@ -67,16 +67,16 @@ std::optional<WindowsNetworkOwnership> WindowsNetworkOwnership::capture(const QJ
     if(!pending.isEmpty())return {};
     for(const auto &item:dns["interfaces"].toArray())if(item.toObject()["InterfaceIndex"]==device["index"])result.dnsInterfaces.append(item);
     for(const auto &item:dns["clients"].toArray())if(item.toObject()["InterfaceIndex"]==device["index"])result.dnsClients.append(item);
-    if(!result.filter(configuration,network))return {};
+    const auto filter=result.filter(configuration);
+    if(!filter || !filter(network,dns))return {};
     return result;
 }
 
-NetworkPolicySession::OriginalViewFilter WindowsNetworkOwnership::filter(const QJsonObject &configuration,const QJsonObject &network) const
+NetworkPolicySession::OriginalViewFilter WindowsNetworkOwnership::filter(const QJsonObject &configuration) const
 {
-    if(!ownedInterface(network,device) || configuration["address"]!=device["address"]
+    if(configuration["address"]!=device["address"]
         || configuration["peer"]!=device["peer"] || !configuration["capture_prefixes"].isArray())return {};
     const auto required=captures(configuration,peerRoute);
-    for(const auto &row:required)if(!network["routes"].toArray().contains(row))return {};
     return [owned=*this,required](QJsonObject network,QJsonObject dns)->std::optional<NetworkPolicySession::OriginalView>{
         if(!ownedInterface(network,owned.device) || !dns["nrpt"].isArray() || !dns["interfaces"].isArray() || !dns["clients"].isArray())return {};
         auto routes=network["routes"].toArray();
