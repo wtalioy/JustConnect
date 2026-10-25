@@ -46,6 +46,18 @@ bool trusted(PSID sid)
 {
     return sid && (IsWellKnownSid(sid,WinBuiltinAdministratorsSid) || IsWellKnownSid(sid,WinLocalSystemSid));
 }
+bool firewallService(PSID sid)
+{
+    static const auto service=[] {
+        DWORD size=0,length=0;SID_NAME_USE use{};
+        LookupAccountNameW(nullptr,L"NT SERVICE\\mpssvc",nullptr,&size,nullptr,&length,&use);
+        if (GetLastError()!=ERROR_INSUFFICIENT_BUFFER) fail("locate native firewall policy owner");
+        std::vector<BYTE> result(size);std::vector<wchar_t> domain(length);
+        if (!LookupAccountNameW(nullptr,L"NT SERVICE\\mpssvc",result.data(),&size,domain.data(),&length,&use)) fail("read native firewall policy owner");
+        return result;
+    }();
+    return EqualSid(sid,const_cast<BYTE *>(service.data()))!=FALSE;
+}
 void trustedKey(HKEY key,bool requireProtected)
 {
     Security security;
@@ -56,13 +68,14 @@ void trustedKey(HKEY key,bool requireProtected)
     DWORD revision=0;
     if (!trusted(owner) || !GetSecurityDescriptorControl(security.value,&control,&revision) || (requireProtected && !(control&SE_DACL_PROTECTED)) || !acl || !IsValidAcl(acl))
         fail("untrusted NRPT owner or DACL",ERROR_ACCESS_DENIED);
-    constexpr DWORD writes=KEY_SET_VALUE|KEY_CREATE_SUB_KEY|DELETE|WRITE_DAC|WRITE_OWNER|GENERIC_WRITE|GENERIC_ALL;
+    // The system parent permits network operators to add namespaces; our UUID child never inherits those rights.
+    const DWORD writes=DELETE|WRITE_DAC|WRITE_OWNER|GENERIC_WRITE|GENERIC_ALL|(requireProtected?(KEY_SET_VALUE|KEY_CREATE_SUB_KEY):0);
     for (DWORD i=0;i<acl->AceCount;++i) {
         void *value=nullptr;
         if (!GetAce(acl,i,&value)) fail("read NRPT ACE");
         const auto ace=static_cast<ACCESS_ALLOWED_ACE *>(value);
         if ((ace->Header.AceFlags&INHERIT_ONLY_ACE) || ace->Header.AceType==ACCESS_DENIED_ACE_TYPE) continue;
-        if (ace->Header.AceType!=ACCESS_ALLOWED_ACE_TYPE || ((ace->Mask&writes) && !trusted(&ace->SidStart)))
+        if (ace->Header.AceType!=ACCESS_ALLOWED_ACE_TYPE || ((ace->Mask&writes) && !trusted(&ace->SidStart) && (requireProtected || !firewallService(&ace->SidStart))))
             fail("foreign NRPT write permission",ERROR_ACCESS_DENIED);
     }
 }

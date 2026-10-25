@@ -4,6 +4,8 @@
 #include "windowsnetworkcontract.h"
 #include <ws2tcpip.h>
 #include <objbase.h>
+#include <aclapi.h>
+#include <sddl.h>
 #include <iostream>
 #include <system_error>
 
@@ -60,6 +62,18 @@ int main() try
     auto foreign=rule;
     check(SUCCEEDED(CoCreateGuid(&foreign.marker)),"new foreign marker");
     refused([&] { foreign.restore(parent.value); },"foreign class deleted an owned rule");
+    for (const auto &permissions:{L"O:BAG:SYD:P(A;;KA;;;SY)(A;;KA;;;BA)(A;;KW;;;BU)",L"O:BAG:SYD:P(A;;KA;;;SY)(A;;KA;;;BA)(A;;KR;;;WD)"}) {
+        PSECURITY_DESCRIPTOR descriptor=nullptr;
+        check(ConvertStringSecurityDescriptorToSecurityDescriptorW(permissions,SDDL_REVISION_1,&descriptor,nullptr),"parse owned DNS ACL fixture");
+        BOOL present=FALSE,defaulted=FALSE;PACL acl=nullptr;
+        const bool parsed=GetSecurityDescriptorDacl(descriptor,&present,&acl,&defaulted);
+        const auto status=parsed && present?SetSecurityInfo(key.value,SE_REGISTRY_KEY,DACL_SECURITY_INFORMATION|PROTECTED_DACL_SECURITY_INFORMATION,nullptr,nullptr,acl,nullptr):ERROR_INVALID_DATA;
+        LocalFree(descriptor);check(status==ERROR_SUCCESS,"set owned DNS ACL fixture");
+        if (permissions==std::wstring(L"O:BAG:SYD:P(A;;KA;;;SY)(A;;KA;;;BA)(A;;KW;;;BU)")) {
+            refused([&]{rule.apply(parent.value);},"user-writable owned DNS rule adopted");
+            refused([&]{rule.restore(parent.value);},"user-writable owned DNS rule deleted");
+        }
+    }
     const wchar_t changed[]=L"192.0.2.54";
     check(RegSetValueExW(key.value,L"GenericDNSServers",0,REG_SZ,reinterpret_cast<const BYTE *>(changed),sizeof(changed))==ERROR_SUCCESS,"simulate external DNS edit");
     refused([&] { rule.restore(parent.value); },"external DNS value was deleted");
