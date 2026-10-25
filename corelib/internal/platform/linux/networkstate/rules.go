@@ -1,9 +1,12 @@
+//go:build linux
+
 package networkstate
 
 import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"github.com/wtalioy/JustConnect/corelib/internal/platform/networkstate/model"
 	"net/netip"
 	"time"
 
@@ -13,42 +16,42 @@ import (
 
 var errRuleSnapshot = errors.New("invalid or incomplete routing policy snapshot")
 
-func parsePolicyRule(payload []byte) (PolicyRule, bool, error) {
+func parsePolicyRule(payload []byte) (model.PolicyRule, bool, error) {
 	if len(payload) < unix.SizeofRtMsg {
-		return PolicyRule{}, false, errRuleSnapshot
+		return model.PolicyRule{}, false, errRuleSnapshot
 	}
 	family, destinationBits, sourceBits := int(payload[0]), int(payload[1]), int(payload[2])
 	if family != unix.AF_INET && family != unix.AF_INET6 {
-		return PolicyRule{}, false, nil
+		return model.PolicyRule{}, false, nil
 	}
 	size := 4
 	if family == unix.AF_INET6 {
 		size = 16
 	}
 	if sourceBits > size*8 || destinationBits > size*8 {
-		return PolicyRule{}, false, errRuleSnapshot
+		return model.PolicyRule{}, false, errRuleSnapshot
 	}
-	rule := PolicyRule{Family: family, Table: uint32(payload[4]), Action: payload[7],
-		Flags: binary.NativeEndian.Uint32(payload[8:12]), TOS: payload[3], Attributes: []RuleAttribute{}}
+	rule := model.PolicyRule{Family: family, Table: uint32(payload[4]), Action: payload[7],
+		Flags: binary.NativeEndian.Uint32(payload[8:12]), TOS: payload[3], Attributes: []model.RuleAttribute{}}
 	if payload[5] != 0 || payload[6] != 0 {
-		return PolicyRule{}, false, errRuleSnapshot
+		return model.PolicyRule{}, false, errRuleSnapshot
 	}
 	attributes := payload[unix.SizeofRtMsg:]
 	for len(attributes) > 0 {
 		if len(attributes) < 4 {
-			return PolicyRule{}, false, errRuleSnapshot
+			return model.PolicyRule{}, false, errRuleSnapshot
 		}
 		length := int(binary.NativeEndian.Uint16(attributes[:2]))
 		aligned := (length + 3) &^ 3
 		if length < 4 || aligned > len(attributes) {
-			return PolicyRule{}, false, errRuleSnapshot
+			return model.PolicyRule{}, false, errRuleSnapshot
 		}
 		kind, value := binary.NativeEndian.Uint16(attributes[2:4]), attributes[4:length]
-		rule.Attributes = append(rule.Attributes, RuleAttribute{Type: kind, Value: hex.EncodeToString(value)})
+		rule.Attributes = append(rule.Attributes, model.RuleAttribute{Type: kind, Value: hex.EncodeToString(value)})
 		switch kind {
 		case nl.FRA_TABLE, nl.FRA_PRIORITY:
 			if len(value) != 4 {
-				return PolicyRule{}, false, errRuleSnapshot
+				return model.PolicyRule{}, false, errRuleSnapshot
 			}
 			number := binary.NativeEndian.Uint32(value)
 			if kind == nl.FRA_TABLE {
@@ -58,7 +61,7 @@ func parsePolicyRule(payload []byte) (PolicyRule, bool, error) {
 			}
 		case nl.FRA_SRC, nl.FRA_DST:
 			if len(value) != size {
-				return PolicyRule{}, false, errRuleSnapshot
+				return model.PolicyRule{}, false, errRuleSnapshot
 			}
 			address, _ := netip.AddrFromSlice(value)
 			bits := sourceBits
@@ -75,16 +78,16 @@ func parsePolicyRule(payload []byte) (PolicyRule, bool, error) {
 		attributes = attributes[aligned:]
 	}
 	if (sourceBits > 0 && rule.Source == "") || (destinationBits > 0 && rule.Destination == "") {
-		return PolicyRule{}, false, errRuleSnapshot
+		return model.PolicyRule{}, false, errRuleSnapshot
 	}
 	return rule, true, nil
 }
 
-func parseRuleMessages(data []byte, port uint32) ([]PolicyRule, bool, error) {
+func parseRuleMessages(data []byte, port uint32) ([]model.PolicyRule, bool, error) {
 	if len(data) == 0 {
 		return nil, false, errRuleSnapshot
 	}
-	rules := []PolicyRule{}
+	rules := []model.PolicyRule{}
 	for len(data) > 0 {
 		if len(data) < unix.NLMSG_HDRLEN {
 			return nil, false, errRuleSnapshot
@@ -142,7 +145,7 @@ func parseRuleMessages(data []byte, port uint32) ([]PolicyRule, bool, error) {
 	return rules, false, nil
 }
 
-func readPolicyRules() ([]PolicyRule, error) {
+func ReadPolicyRules() ([]model.PolicyRule, error) {
 	fd, err := unix.Socket(unix.AF_NETLINK, unix.SOCK_RAW|unix.SOCK_CLOEXEC, unix.NETLINK_ROUTE)
 	if err != nil {
 		return nil, err
@@ -170,7 +173,7 @@ func readPolicyRules() ([]PolicyRule, error) {
 	if err := unix.Sendto(fd, request, 0, &unix.SockaddrNetlink{Family: unix.AF_NETLINK}); err != nil {
 		return nil, err
 	}
-	rules := []PolicyRule{}
+	rules := []model.PolicyRule{}
 	buffer := make([]byte, 65536)
 	for {
 		remaining := time.Until(deadline)

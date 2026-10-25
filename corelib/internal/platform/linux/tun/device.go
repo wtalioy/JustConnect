@@ -1,17 +1,16 @@
 //go:build linux
 
-package tundevice
+package tun
 
 import (
 	"encoding/binary"
+	"github.com/wtalioy/JustConnect/corelib/internal/platform/ipconfig"
 	"net/netip"
 	"os"
 
 	"github.com/sagernet/netlink/nl"
 	"golang.org/x/sys/unix"
 )
-
-const Supported = true
 
 type Device struct {
 	*os.File
@@ -90,7 +89,7 @@ func addresses(name string) (netip.Addr, netip.Addr, error) {
 	if err != nil {
 		return netip.Addr{}, netip.Addr{}, err
 	}
-	if !ValidIPv4Pair(local, peer) {
+	if !ipconfig.ValidIPv4Pair(local, peer) {
 		return netip.Addr{}, netip.Addr{}, unix.EINVAL
 	}
 	return local, peer, nil

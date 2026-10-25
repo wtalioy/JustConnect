@@ -2,6 +2,8 @@
 
 package networkstate
 
-func readRoutes([]Interface) ([]Route, error) {
+import "github.com/wtalioy/JustConnect/corelib/internal/platform/networkstate/model"
+
+func readRoutes([]model.Interface) ([]model.Route, error) {
 	return nil, ErrUnsupported
 }

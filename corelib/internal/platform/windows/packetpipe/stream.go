@@ -4,15 +4,12 @@ package packetpipe
 
 import (
 	"io"
-	"net/netip"
 	"runtime"
 	"sync"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
-
-const Supported = true
 
 // FILE_INFORMATION_CLASS and FILE_MODE_INFORMATION flags from the Windows SDK.
 const (
@@ -69,7 +66,7 @@ func OwnNative(handle windows.Handle) (*NativeStream, error) {
 	return &NativeStream{handle: handle}, nil
 }
 
-func Duplicate(value uint64, serverPID uint32, mtu uint32, local, peer netip.Addr) (*Device, error) {
+func Duplicate(value uint64, serverPID uint32) (*NativeStream, error) {
 	if value == 0 || uint64(uintptr(value)) != value || serverPID == 0 {
 		return nil, windows.ERROR_INVALID_PARAMETER
 	}
@@ -94,12 +91,8 @@ func Duplicate(value uint64, serverPID uint32, mtu uint32, local, peer netip.Add
 	if err != nil {
 		return nil, err
 	}
-	device, err := New(stream, mtu, local, peer)
-	if err != nil {
-		return nil, err
-	}
 	owned = true
-	return device, nil
+	return stream, nil
 }
 
 func (s *NativeStream) transfer(data []byte, write bool) (int, error) {

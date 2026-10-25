@@ -13,7 +13,7 @@ import (
 	"sync"
 	"unsafe"
 
-	"github.com/wtalioy/JustConnect/corelib/internal/platform/tundevice"
+	"github.com/wtalioy/JustConnect/corelib/internal/platform/ipconfig"
 	"golang.org/x/sys/windows"
 )
 
@@ -42,7 +42,7 @@ type Device struct {
 // allocated's identity before any address or route is configured on the new adapter.
 func Create(dllPath string, owner windows.GUID, source, peer netip.Addr, mtu uint32, targets []netip.Prefix, allocated func(Identity) error) (_ *Device, result error) {
 	if !filepath.IsAbs(dllPath) || owner == (windows.GUID{}) || allocated == nil ||
-		!tundevice.ValidIPv4Pair(source, peer) || mtu < 68 || mtu > 65535 {
+		!ipconfig.ValidIPv4Pair(source, peer) || mtu < 68 || mtu > 65535 {
 		return nil, windows.ERROR_INVALID_PARAMETER
 	}
 	for _, target := range targets {

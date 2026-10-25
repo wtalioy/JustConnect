@@ -1,4 +1,6 @@
-package tundevice
+//go:build darwin
+
+package utun
 
 import (
 	"bytes"

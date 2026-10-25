@@ -1,7 +1,9 @@
 package networkstate
 
 import (
+	"github.com/wtalioy/JustConnect/corelib/internal/platform/networkstate/model"
 	"net/netip"
+	"slices"
 	"testing"
 
 	"golang.org/x/sys/unix"
@@ -28,4 +30,16 @@ func TestReadRetainsLocalTableAndDoesNotOnlyReportMainTable(t *testing.T) {
 		}
 	}
 	t.Fatal("native local table omitted; policy tables must not be filtered to main")
+}
+
+func TestReadIncludesActualIPv4LocalPolicyTable(t *testing.T) {
+	snapshot, err := Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(snapshot.PolicyRules, func(rule model.PolicyRule) bool {
+		return rule.Family == unix.AF_INET && rule.Table == unix.RT_TABLE_LOCAL && rule.Action == 1
+	}) {
+		t.Fatal("native IPv4 local-table routing rule omitted")
+	}
 }

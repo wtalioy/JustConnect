@@ -1,6 +1,7 @@
 package networkstate
 
 import (
+	"github.com/wtalioy/JustConnect/corelib/internal/platform/networkstate/model"
 	"net"
 	"net/netip"
 	"slices"
@@ -20,7 +21,7 @@ func TestReadIncludesActualLoopbackInterfaceAndNativeRoutes(t *testing.T) {
 		if iface.Flags&net.FlagLoopback == 0 || iface.Flags&net.FlagUp == 0 {
 			continue
 		}
-		found := slices.IndexFunc(snapshot.Interfaces, func(row Interface) bool {
+		found := slices.IndexFunc(snapshot.Interfaces, func(row model.Interface) bool {
 			return row.Index == iface.Index && row.Name == iface.Name && row.Loopback && row.Up
 		})
 		if found < 0 {
@@ -38,7 +39,7 @@ func TestReadIncludesActualLoopbackInterfaceAndNativeRoutes(t *testing.T) {
 			if !slices.Contains(snapshot.Interfaces[found].Addresses, prefix.String()) {
 				t.Fatal("actual loopback address missing")
 			}
-			if !slices.ContainsFunc(snapshot.Routes, func(row Route) bool {
+			if !slices.ContainsFunc(snapshot.Routes, func(row model.Route) bool {
 				scope, err := netip.ParsePrefix(row.Destination)
 				return err == nil && scope.Bits() > 1 && scope.Contains(prefix.Addr()) && row.InterfaceIndex == iface.Index
 			}) {

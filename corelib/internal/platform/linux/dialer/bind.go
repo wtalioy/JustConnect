@@ -10,7 +10,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func bindInterface(dialer *net.Dialer, interfaceName string) error {
+func BindInterface(dialer *net.Dialer, interfaceName string) error {
 	dialer.ControlContext = func(_ context.Context, _, _ string, conn syscall.RawConn) error {
 		var bindErr error
 		err := conn.Control(func(fd uintptr) {

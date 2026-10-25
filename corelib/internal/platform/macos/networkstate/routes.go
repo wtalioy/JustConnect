@@ -1,7 +1,10 @@
+//go:build darwin
+
 package networkstate
 
 import (
 	"errors"
+	"github.com/wtalioy/JustConnect/corelib/internal/platform/networkstate/model"
 	"net"
 	"net/netip"
 
@@ -19,7 +22,7 @@ func routeAddress(value route.Addr) net.IP {
 	return nil
 }
 
-func readRoutes(_ []Interface) ([]Route, error) {
+func ReadRoutes(_ []model.Interface) ([]model.Route, error) {
 	rib, err := route.FetchRIB(unix.AF_UNSPEC, route.RIBTypeRoute, 0)
 	if err != nil {
 		return nil, err
@@ -28,7 +31,7 @@ func readRoutes(_ []Interface) ([]Route, error) {
 	if err != nil {
 		return nil, err
 	}
-	routes := []Route{}
+	routes := []model.Route{}
 	for _, message := range messages {
 		row, ok := message.(*route.RouteMessage)
 		if !ok || len(row.Addrs) <= unix.RTAX_DST {
@@ -51,7 +54,7 @@ func readRoutes(_ []Interface) ([]Route, error) {
 		} else if !address.IsUnspecified() {
 			return nil, errors.New("missing native route mask")
 		}
-		item := Route{Destination: netip.PrefixFrom(address, bits).Masked().String(), InterfaceIndex: row.Index, Flags: row.Flags, Cloned: row.Flags&unix.RTF_WASCLONED != 0}
+		item := model.Route{Destination: netip.PrefixFrom(address, bits).Masked().String(), InterfaceIndex: row.Index, Flags: row.Flags, Cloned: row.Flags&unix.RTF_WASCLONED != 0}
 		if len(row.Addrs) > unix.RTAX_GATEWAY {
 			if gateway := routeAddress(row.Addrs[unix.RTAX_GATEWAY]); gateway != nil {
 				item.Gateway = gateway.String()
