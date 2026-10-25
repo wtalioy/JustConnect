@@ -45,7 +45,8 @@ bool present(const MIB_IPFORWARD_ROW2 &expected)
     auto actual=expected;const auto status=GetIpForwardEntry2(&actual);
     if(status==ERROR_NOT_FOUND || status==ERROR_FILE_NOT_FOUND)return false;
     checked(status,"inspect owned IPv4 capture");
-    if(actual.Metric!=expected.Metric || actual.Protocol!=expected.Protocol || actual.Loopback || actual.AutoconfigureAddress)
+    if(actual.Metric!=expected.Metric || actual.Protocol!=expected.Protocol || actual.Loopback!=expected.Loopback
+        || actual.AutoconfigureAddress!=expected.AutoconfigureAddress || actual.Publish!=expected.Publish || actual.Immortal!=expected.Immortal)
         fail("owned IPv4 capture was externally changed",ERROR_INVALID_DATA);
     return true;
 }
