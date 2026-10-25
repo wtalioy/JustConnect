@@ -55,6 +55,21 @@ try {
     if ($LASTEXITCODE -ne 0 -or $installed -isnot [string]) { throw 'Recovery service installation failed' }
     $reused = & $env:JC_HELPER_SERVICE_IMAGE --install
     if ($LASTEXITCODE -ne 0 -or $reused -ne $installed) { throw 'Recovery service reuse changed its identity' }
+    $service = Get-CimInstance -ClassName Win32_Service -Filter "Name='$env:JC_HELPER_SERVICE_NAME'"
+    $originalCommand = $service.PathName
+    $foreignCommand = "$originalCommand --unowned"
+    $changed = Invoke-CimMethod -InputObject $service -MethodName Change -Arguments @{PathName=$foreignCommand}
+    if ($changed.ReturnValue -ne 0) { throw 'Could not prepare foreign service configuration fixture' }
+    try {
+        & $env:JC_HELPER_SERVICE_IMAGE --install
+        if ($LASTEXITCODE -eq 0) { throw 'Installer adopted foreign service configuration' }
+        $observed = Get-CimInstance -ClassName Win32_Service -Filter "Name='$env:JC_HELPER_SERVICE_NAME'"
+        if ($observed.PathName -ne $foreignCommand) { throw 'Refused installer overwrote external service configuration' }
+    } finally {
+        $restored = Invoke-CimMethod -InputObject $service -MethodName Change -Arguments @{PathName=$originalCommand}
+        if ($restored.ReturnValue -ne 0) { throw 'Could not restore fixture-owned service configuration' }
+    }
+    Write-Host 'PASS: foreign SCM configuration refused and preserved'
     Remove-Item -LiteralPath "Cert:\LocalMachine\Root\$($certificate.Thumbprint)" -Force
     $trusted = $false
     Write-Host 'RUN: actual SCM restart, independent owned recovery and ordinary-user control denial without installer trust'
