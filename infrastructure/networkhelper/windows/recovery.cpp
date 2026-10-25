@@ -184,7 +184,9 @@ bool WindowsNetworkRecovery::restoreAbandoned(const GUID &owner)
     if (record.owner!=owner) fail("recovery key and record differ",ERROR_INVALID_DATA);
     if (record.phase==WindowsRecoveryPhase::Restored) return true;
     if (record.helper.alive()) return false;
-    record.phase=WindowsRecoveryPhase::Restoring;journal.write(owner,encodeWindowsNetworkRecord(record));
+    if (record.phase!=WindowsRecoveryPhase::Restoring) {
+        record.phase=WindowsRecoveryPhase::Restoring;journal.write(owner,encodeWindowsNetworkRecord(record));
+    }
     if (record.dns) record.dns->restoreSystem();
     restoreWindowsAdapter(record.adapter);
     if (windowsAdapterPresent(record.adapter)) return false;

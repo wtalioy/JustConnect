@@ -30,7 +30,7 @@ corelib/internal/
 
 Linux TUN、macOS utun 的创建仍由 C++ 平台助手完成；Go 原生实现接收、校验与持有 fd，并处理设备 I/O 语义。共有契约测试覆盖平台接入，原生解析和设备测试随实现存放。`tundevice/address` 是各后端与数据面的同一份地址契约，没有第二套默认值或解析状态。
 
-三平台提权、安装与恢复统一由 C++ 助手承担。Windows 的设备桥、受保护安装、原生签名与进程身份、机器记录和所属 NRPT 操作已迁入各职责模块，并经双架构定向验证；Go 的安装／记录／NRPT 与设备后端、手工 SDK 布局补丁已删除；原生 PnP／收发断言归 `corelib/tests/windows/device`，设备配置直接使用官方 SDK。UAC／控制 IPC、恢复服务及应用接入仍待实现。Go 核心继续拥有认证、aTrust、策略／分流与数据面，必要的原生读取、fd 或管道 I/O 不进入提权运行链路；Windows 的降权夹具归 `corelib/tests/windows`。Unix 保持直接交付 fd，Windows 保持最小受限设备桥，不为语言或目录对称增加额外逐包转发。
+三平台提权、安装与恢复统一由 C++ 助手承担。Windows 的设备桥、受保护安装、原生签名与进程身份、机器记录和所属 NRPT 操作已迁入各职责模块，并经双架构定向验证；Go 的安装／记录／NRPT 与设备后端、手工 SDK 布局补丁已删除；原生 PnP／收发断言归 `corelib/tests/windows/device`，设备配置直接使用官方 SDK。C++ 独立恢复服务及机器会话记录已接通；生产 UAC／控制 IPC 与应用接入仍待实现。Go 核心继续拥有认证、aTrust、策略／分流与数据面，必要的原生读取、fd 或管道 I/O 不进入提权运行链路；Windows 的降权夹具归 `corelib/tests/windows`。Unix 保持直接交付 fd，Windows 保持最小受限设备桥，不为语言或目录对称增加额外逐包转发。
 
 
 ## 会话与线程
@@ -153,7 +153,9 @@ Windows 的 C++ 部件按职责放在 `tundevice/windows`、`packetpipe/windows`
 
 原生 Windows 目标使用静态 CRT 和 [/DEPENDENTLOADFLAG:0x800](https://learn.microsoft.com/en-us/cpp/build/reference/dependentloadflag)，在进入 main 前约束静态依赖的搜索。安装只复制本次签名构建自身及固定哈希的驱动／许可证；未配置签名者时先拒绝。实际签名叶证书、运行映像的 CodeView 链接身份与固定源文件分别核对；原生查询 Program Files，逐级固定目录句柄并检查所有者／写权限，不接管普通用户所有的同哈希文件。配置与 SDK 来源归 `resource/network-helper-windows.json`，构建生成原生常量；不加载 Qt／Go 运行时作为提权依赖。
 
-`WindowsRegistryJournal` 在受保护的 64 位 HKLM 键保存有界 JSON 原子值，每次操作检查 SY／Administrators 所有者及受保护 DACL，写入后刷新。NRPT 部件在创建键时原子保存随机 class 身份，核对所有者、ACL、全部已存在的类型／字节及无未知值；准备值先刷新，匹配名称最后激活。恢复使用已验证的内核键句柄删除，外部修改保留。当前原生验收覆盖这些部件和普通 Qt／Go 数据链；生产 UAC／控制协议、独立服务恢复、有效系统 DNS 及应用编排仍待接入。
+`WindowsRegistryJournal` 在受保护的 64 位 HKLM 键保存有界 JSON 原子值，每次操作检查 SY／Administrators 所有者及受保护 DACL，写入后刷新。NRPT 部件在创建键时原子保存随机 class 身份，核对所有者、ACL、全部已存在的类型／字节及无未知值；准备值先刷新，匹配名称最后激活。恢复使用已验证的内核键句柄删除，外部修改保留。`WindowsNetworkRecovery` 在设备／DNS 修改前保存严格版本化的会话记录，以受保护的机器互斥量串行写入与恢复；调用方／助手均绑定实际 PID、创建时间和 SID。仅助手死亡后恢复，外部 DNS 修改保留；`tundevice/windows/recovery` 只清理记录 UUID 对应的 Wintun 软件节点，包含分配中崩溃留下的 phantom 节点，确认 IP／PnP 均消失后才保存恢复回执。同账户确认回执前拒绝新 UUID，其他活动 Wintun 不被清理。系统 NRPT 父键保留 Windows 自带的网络配置／防火墙服务权限，本助手规则子键仍只允许 SYSTEM／Administrators 修改，不覆盖域策略。
+
+独立 C++ 入口在签名安装后注册固定 LocalSystem 自进程 SCM 服务，验证服务所有者、控制权限、固定命令及失败动作；普通用户只读查询，外部配置拒绝接管。SCM 自动重启与周期恢复不依赖 GUI／Go。服务重开当前受保护安装时核对所有目录、映像内容身份与驱动／许可证固定哈希，不重新依赖安装证书信任；一次性 CI 验证撤销临时安装信任后，实际服务与助手强杀仍能独立恢复。不同映像哈希的服务升级须在恢复后显式替换，生产更新器接入前补齐。当前原生验收覆盖安装、SCM／机器恢复及普通 Qt／Go 数据部件；生产 UAC／控制协议、有效系统 DNS、完整应用编排与真实桌面／校园仍待，不以 NRPT 注册表回读代替有效解析。
 
 同机组件对照使用同一普通 Go 客户端、真实 Wintun、帧 IPC 和 4096 次四字节 UDP 往返。以下是单次配对样本，CPU 包含建链／配置，不能代表校园或完整 Qt 吞吐上限：
 
