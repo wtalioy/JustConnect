@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/wtalioy/JustConnect/corelib/internal/windowstest"
 	"golang.org/x/sys/windows"
@@ -111,8 +112,27 @@ func TestInstallerRefusesUserOwnedExistingPayload(t *testing.T) {
 	directory := t.TempDir()
 	data := []byte("untrusted existing payload")
 	path := filepath.Join(directory, "existing.bin")
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	initial, err := windows.SecurityDescriptorFromString("O:" + user.User.Sid.String() + "D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;" + user.User.Sid.String() + ")")
+	if err != nil {
 		t.Fatal(err)
+	}
+	attributes := windows.SecurityAttributes{Length: uint32(unsafe.Sizeof(windows.SecurityAttributes{})), SecurityDescriptor: initial}
+	handle, err := windows.CreateFile(windows.StringToUTF16Ptr(path), windows.GENERIC_WRITE|windows.READ_CONTROL|windows.WRITE_DAC, windows.FILE_SHARE_READ, &attributes, windows.CREATE_NEW, windows.FILE_ATTRIBUTE_NORMAL, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := os.NewFile(uintptr(handle), path)
+	defer output.Close()
+	if _, err := output.Write(data); err != nil {
+		t.Fatal(err)
+	}
+	current, err := windows.GetSecurityInfo(handle, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, _, err := current.Owner()
+	if err != nil || !windows.EqualSid(owner, user.User.Sid) {
+		t.Fatal("fixture is not owned by the ordinary user's SID", err)
 	}
 	descriptor, err := windows.SecurityDescriptorFromString("D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;GR;;;" + user.User.Sid.String() + ")")
 	if err != nil {
@@ -122,34 +142,10 @@ func TestInstallerRefusesUserOwnedExistingPayload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handle, err := windows.CreateFile(windows.StringToUTF16Ptr(path), windows.READ_CONTROL|windows.WRITE_DAC, windows.FILE_SHARE_READ, nil, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
-	if err != nil {
+	if err := windows.SetSecurityInfo(handle, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, acl, nil); err != nil {
 		t.Fatal(err)
 	}
-	current, err := windows.GetSecurityInfo(handle, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION)
-	if err != nil {
-		windows.CloseHandle(handle)
-		t.Fatal(err)
-	}
-	owner, _, err := current.Owner()
-	if err != nil {
-		windows.CloseHandle(handle)
-		t.Fatal(err)
-	}
-	flags := windows.SECURITY_INFORMATION(windows.DACL_SECURITY_INFORMATION | windows.PROTECTED_DACL_SECURITY_INFORMATION)
-	var replacement *windows.SID
-	if !windows.EqualSid(owner, user.User.Sid) {
-		_ = windows.CloseHandle(handle)
-		handle, err = windows.CreateFile(windows.StringToUTF16Ptr(path), windows.WRITE_OWNER|windows.WRITE_DAC, windows.FILE_SHARE_READ, nil, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
-		if err != nil {
-			t.Fatal(err)
-		}
-		flags |= windows.OWNER_SECURITY_INFORMATION
-		replacement = user.User.Sid
-	}
-	err = windows.SetSecurityInfo(handle, windows.SE_FILE_OBJECT, flags, replacement, nil, acl, nil)
-	_ = windows.CloseHandle(handle)
-	if err != nil {
+	if err := output.Close(); err != nil {
 		t.Fatal(err)
 	}
 	source, err := os.Open(path)
