@@ -17,6 +17,14 @@ QJsonArray matching(const QJsonArray &rows, const QString &prefix)
     for (const auto &row : rows) if (row.toObject()["prefix"] == prefix) result.append(row);
     return result;
 }
+bool unscopedRoute(const QJsonArray &rows, const QString &prefix)
+{
+    for (const auto &value : rows) {
+        const auto row = value.toObject();
+        if (row["prefix"] == prefix && !(row["flags"].toInteger() & RTF_IFSCOPE)) return true;
+    }
+    return false;
+}
 int exactMatches(const QJsonArray &rows, const QJsonObject &applied)
 {
     int count = 0;
@@ -118,7 +126,7 @@ Result MacTunRoutes::apply(const UnixTunDevice &device, const QStringList &prefi
     const auto initial = readMacRoutes();
     if (!initial.result.succeeded()) return initial.result;
     if (initial.rows.size()+unique.size() > MacRouteSnapshotRows) return {Status::Failed, "Capture routes exceed the complete native snapshot bound."};
-    for (const auto &prefix : unique) if (!matching(initial.rows, prefix).isEmpty())
+    for (const auto &prefix : unique) if (unscopedRoute(initial.rows, prefix))
         return {Status::Failed, "An existing exact-prefix route is preserved; macOS replacement is not supported."};
     owner = device.owner(); interfaceName = device.name(); interfaceIndex = device.index(); boot = session;
     sourceAddress = pair["source"].toString(); peerAddress = pair["peer"].toString();
@@ -148,7 +156,7 @@ Result MacTunRoutes::extend(const UnixTunDevice &device, const QStringList &addr
         for (const auto &entry : entries) covered |= ipv4PrefixContainsAddress(entry.prefix,address);
         const auto prefix = address+"/32";
         if (!covered && !additions.contains(prefix)) {
-            if (!matching(current.rows,prefix).isEmpty()) return {Status::Failed,"External DNS address route is preserved.",true};
+            if (unscopedRoute(current.rows,prefix)) return {Status::Failed,"External unscoped DNS address route is preserved.",true};
             additions.append(prefix);
         }
     }
@@ -179,12 +187,12 @@ Result MacTunRoutes::reconcile(const UnixTunDevice &device, const QStringList &p
             return {Status::Failed,"Invalid or self-capturing replacement prefix.",true};
         unique.insert(prefix);
         if (!before.contains(prefix)) {
-            if (!matching(current.rows,prefix).isEmpty()) return {Status::Failed,"An external exact route is preserved.",true};
             additions.append(prefix);
         }
     }
     if (current.rows.size()+additions.size() > MacRouteSnapshotRows)
         return {Status::Failed,"Capture changes exceed the complete native snapshot bound.",true};
+    // Removing owned parents first lets the kernel withdraw their derived host caches.
     if (auto removed = remove(removals,checkpoint); !removed.succeeded()) return removed;
     return append(additions,checkpoint);
 }
@@ -196,12 +204,12 @@ Result MacTunRoutes::append(const QStringList &prefixes, const CheckpointWriter 
     for (const auto &prefix : prefixes) {
         const auto before = readMacRoutes();
         if (!before.result.succeeded()) return failed(before.result);
-        if (!identity() || !matching(before.rows, prefix).isEmpty()) return failed({Status::Failed, "Route or utun identity changed before capture."});
+        if (!identity() || unscopedRoute(before.rows, prefix)) return failed({Status::Failed, "Route or utun identity changed before capture."});
         entries.append({prefix, {}, false});
         if (const auto saved = save(checkpoint); !saved.succeeded()) { entries.removeLast(); return failed(saved); }
         const auto verified = readMacRoutes();
         if (!verified.result.succeeded()) { entries.removeLast(); return failed(verified.result); }
-        if (!identity() || !matching(verified.rows, prefix).isEmpty()) {
+        if (!identity() || unscopedRoute(verified.rows, prefix)) {
             entries.removeLast(); return failed({Status::Failed, "Capture state changed while publishing intent."});
         }
         const auto written = change("add", prefix, int(deadline.remainingTime()));
