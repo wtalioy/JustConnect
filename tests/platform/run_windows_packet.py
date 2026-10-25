@@ -21,11 +21,12 @@ def stage_sdk(output):
     contract = json.loads(sdk_module.CONTRACT.read_text(encoding='utf-8'))
     arch = {'X64': 'amd64', 'ARM64': 'arm64'}[os.environ['RUNNER_ARCH']]
     metadata = sdk_module.stage(contract, sdk, arch)
+    metadata['native_build'] = str(output / 'windows-device')
     return contract, arch, metadata
 
 
-def build_native(output, arch, metadata):
-    native = output / 'windows-device'
+def build_native(arch, metadata):
+    native = pathlib.Path(metadata['native_build'])
     subprocess.run(['cmake', '-S', 'tests/platform/windows_device', '-B', str(native),
         '-DCMAKE_BUILD_TYPE=Release', '-DWINTUN_INCLUDE_DIR=' + str(pathlib.Path(metadata['header']).parent),
         '-A', 'ARM64' if arch == 'arm64' else 'x64'], check=True, timeout=120)
@@ -62,7 +63,7 @@ def device():
             exported.write(key + '=' + value + '\n')
     (output / 'windows-device.json').write_text(json.dumps(metadata, indent=2), encoding='utf-8')
     subprocess.run([os.sys.executable, 'tests/platform/run_windows_helper.py'], env=env, check=True, timeout=260)
-    native = build_native(output, arch, metadata)
+    native = build_native(arch, metadata)
     subprocess.run([str(native / 'windows_process_identity_test.exe')], check=True, timeout=15)
     subprocess.run([str(native / 'windows_publisher_test.exe')], env=env, check=True, timeout=30)
     subprocess.run([str(native / 'windows_registry_journal_test.exe')], env=env, check=True, timeout=30)
@@ -112,7 +113,8 @@ def main():
     if args.build_only:
         output = pathlib.Path('build/coreabi').resolve()
         _, arch, metadata = stage_sdk(output)
-        build_native(output, arch, metadata)
+        native = build_native(arch, metadata)
+        subprocess.run([str(native / 'windows_installation_test.exe'), '--unconfigured'], check=True, timeout=15)
         return
     env = device()
     if args.device_only:

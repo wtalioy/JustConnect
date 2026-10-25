@@ -28,6 +28,17 @@ try {
     $root.Open('ReadWrite')
     try { $root.Add($certificate); $trusted = $true } finally { $root.Close() }
     $publisher = [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($certificate.RawData)).ToLowerInvariant()
+    Write-Host 'RUN: configure native C++ installation authority'
+    & cmake -S tests/platform/windows_device -B $env:JC_HELPER_NATIVE_BUILD '-DCMAKE_BUILD_TYPE=Release' "-DWINTUN_INCLUDE_DIR=$env:JC_HELPER_SDK_DIRECTORY" -A $env:JC_HELPER_CMAKE_ARCH "-DJC_HELPER_PUBLISHER_SHA256=$publisher" "-DJC_HELPER_DRIVER_SHA256=$env:JC_HELPER_DRIVER_SHA256" "-DJC_HELPER_LICENSE_SHA256=$env:JC_HELPER_LICENSE_SHA256"
+    if ($LASTEXITCODE -ne 0) { throw 'Native helper configuration failed' }
+    & cmake --build $env:JC_HELPER_NATIVE_BUILD --config Release --target windows_installation_test --parallel 3
+    if ($LASTEXITCODE -ne 0) { throw 'Native helper installation build failed' }
+    Copy-Item -LiteralPath (Join-Path $env:JC_HELPER_NATIVE_BUILD 'Release/windows_installation_test.exe') -Destination $env:JC_CPP_HELPER_TEST_IMAGE
+    $nativeSignature = Set-AuthenticodeSignature -LiteralPath $env:JC_CPP_HELPER_TEST_IMAGE -Certificate $certificate -HashAlgorithm SHA256
+    if ($nativeSignature.Status -ne 'Valid') { throw "Native installation image signature: $($nativeSignature.Status)" }
+    Write-Host 'RUN: signed C++ installation and ordinary-user boundaries'
+    & $env:JC_CPP_HELPER_TEST_IMAGE
+    if ($LASTEXITCODE -ne 0) { throw 'Signed native C++ installation failed' }
     $flags = "-X {package}.publisherSHA256=$publisher -X {package}.driverSHA256=$env:JC_HELPER_DRIVER_SHA256 -X {package}.licenseSHA256=$env:JC_HELPER_LICENSE_SHA256"
     Write-Host 'RUN: compile native helper validation image'
     & go -C corelib test -mod=readonly -c -ldflags $flags -o $env:JC_HELPER_TEST_IMAGE ./internal/networkhelper/windows
@@ -46,6 +57,10 @@ try {
     env = dict(os.environ, CGO_ENABLED='0', GOTOOLCHAIN='local', GOWORK='off', GOENV='off',
                JC_HELPER_DRIVER_SHA256=metadata['driver_sha256'],
                JC_HELPER_LICENSE_SHA256=metadata['license_sha256'],
+               JC_HELPER_NATIVE_BUILD=metadata['native_build'],
+               JC_HELPER_SDK_DIRECTORY=str(destination),
+               JC_HELPER_CMAKE_ARCH='ARM64' if metadata['arch'] == 'arm64' else 'x64',
+               JC_CPP_HELPER_TEST_IMAGE=str(destination / 'cpp-helper-validation.exe'),
                JC_HELPER_TEST_IMAGE=str(destination / 'helper-validation.exe'))
     script_path = output / 'validate-windows-helper.ps1'
     script_path.write_text(script, encoding='utf-8')

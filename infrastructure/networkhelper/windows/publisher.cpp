@@ -11,9 +11,9 @@ namespace {
 }
 }
 
-void verifyWindowsPublisher(const std::wstring &path,HANDLE pinnedFile,const WindowsPublisherHash &expected)
+void verifyWindowsPublisher(const std::wstring &path,HANDLE pinnedFile,const WindowsSha256 &expected)
 {
-    if (expected==WindowsPublisherHash{}) fail("unconfigured helper publisher",ERROR_NOT_SUPPORTED);
+    if (expected==WindowsSha256{}) fail("unconfigured helper publisher",ERROR_NOT_SUPPORTED);
     if (!pinnedFile || pinnedFile==INVALID_HANDLE_VALUE) fail("invalid signed file handle",ERROR_INVALID_HANDLE);
     WINTRUST_FILE_INFO file{};
     file.cbStruct=sizeof(file);
@@ -40,7 +40,7 @@ void verifyWindowsPublisher(const std::wstring &path,HANDLE pinnedFile,const Win
     if (!certificate || certificate->cbStruct<sizeof(CRYPT_PROVIDER_CERT) || !certificate->pCert
         || !certificate->pCert->pbCertEncoded || !certificate->pCert->cbCertEncoded || certificate->pCert->cbCertEncoded>65536)
         fail("read native signing certificate",ERROR_INVALID_DATA);
-    WindowsPublisherHash actual{};
+    WindowsSha256 actual{};
     DWORD size=static_cast<DWORD>(actual.size());
     if (!CryptHashCertificate2(BCRYPT_SHA256_ALGORITHM,0,nullptr,certificate->pCert->pbCertEncoded,
         certificate->pCert->cbCertEncoded,actual.data(),&size)) fail("hash signing certificate");

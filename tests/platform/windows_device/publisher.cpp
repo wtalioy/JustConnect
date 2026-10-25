@@ -16,7 +16,7 @@ int main() try
 {
     const auto path=environment(L"JC_TEST_SIGNED_FIXTURE"), encoded=environment(L"JC_TEST_PUBLISHER_SHA256");
     if (encoded.size()!=64) throw std::runtime_error("invalid fixture publisher hash");
-    WindowsPublisherHash hash{};
+    WindowsSha256 hash{};
     const auto digit=[](wchar_t c) { if(c>=L'0' && c<=L'9') return c-L'0'; if(c>=L'a' && c<=L'f') return c-L'a'+10; throw std::runtime_error("invalid hash digit"); };
     for (size_t i=0;i<hash.size();++i) hash[i]=static_cast<unsigned char>((digit(encoded[i*2])<<4)|digit(encoded[i*2+1]));
     const auto handle=CreateFileW(path.c_str(),GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_FLAG_OPEN_REPARSE_POINT,nullptr);

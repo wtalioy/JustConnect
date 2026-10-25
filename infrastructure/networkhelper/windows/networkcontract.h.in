@@ -3,4 +3,11 @@
 namespace WindowsNetworkContract {
 inline constexpr wchar_t StateRegistry[] = L"@WINDOWS_STATE_REGISTRY@";
 inline constexpr std::size_t MaxRecordBytes = @WINDOWS_MAX_RECORD_BYTES@;
+inline constexpr wchar_t Executable[] = L"@WINDOWS_EXECUTABLE@";
+inline constexpr wchar_t DriverLibrary[] = L"@WINDOWS_DRIVER_LIBRARY@";
+inline constexpr wchar_t DriverLicense[] = L"@WINDOWS_DRIVER_LICENSE@";
+inline constexpr wchar_t InstallDirectory[] = L"@WINDOWS_INSTALL_DIRECTORY@";
+inline constexpr char PublisherSHA256[] = "@JC_HELPER_PUBLISHER_SHA256@";
+inline constexpr char DriverSHA256[] = "@JC_HELPER_DRIVER_SHA256@";
+inline constexpr char LicenseSHA256[] = "@JC_HELPER_LICENSE_SHA256@";
 }
