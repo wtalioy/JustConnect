@@ -24,7 +24,7 @@ try {
     Write-Host 'RUN: create ephemeral signing key'
     $certificate = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=JustConnect ephemeral helper validation" -CertStoreLocation Cert:\CurrentUser\My -NotAfter (Get-Date).AddDays(1)
     Write-Host 'RUN: trust ephemeral signing certificate'
-    $root = [System.Security.Cryptography.X509Certificates.X509Store]::new('Root','CurrentUser')
+    $root = [System.Security.Cryptography.X509Certificates.X509Store]::new('Root','LocalMachine')
     $root.Open('ReadWrite')
     try { $root.Add($certificate); $trusted = $true } finally { $root.Close() }
     $publisher = [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($certificate.RawData)).ToLowerInvariant()
@@ -39,7 +39,7 @@ try {
     & $env:JC_HELPER_TEST_IMAGE '-test.v' '-test.count=1' '-test.timeout=90s'
     if ($LASTEXITCODE -ne 0) { throw 'Protected helper validation failed' }
 } finally {
-    if ($trusted) { Remove-Item -LiteralPath "Cert:\CurrentUser\Root\$($certificate.Thumbprint)" -Force }
+    if ($trusted) { Remove-Item -LiteralPath "Cert:\LocalMachine\Root\$($certificate.Thumbprint)" -Force }
     if ($null -ne $certificate) { Remove-Item -LiteralPath "Cert:\CurrentUser\My\$($certificate.Thumbprint)" -Force -DeleteKey }
 }
 '''.replace('{package}', PACKAGE)
