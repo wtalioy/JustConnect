@@ -455,6 +455,7 @@ func runNativeTUNHost(t *testing.T, killed bool) (*gateway, []byte) {
 	}
 	g := newGateway(t)
 	g.resourceIP.Store("198.18.0.6")
+	original := startNativeOriginalPeer(t, g)
 	if os.Getenv("JC_NATIVE_TUN_DNS") == "1" {
 		g.nativeDNS.Store(true)
 		g.probeDNS.Store(true)
@@ -493,6 +494,9 @@ func runNativeTUNHost(t *testing.T, killed bool) (*gateway, []byte) {
 		}
 	} else if err != nil {
 		t.Fatalf("native TUN/C ABI host: %v\n%s", err, output)
+	}
+	if original != nil && (original.tcp.Load() != 2 || original.udp.Load() != 4) {
+		t.Fatalf("missing actual original-side exchanges: TCP=%d UDP=%d\n%s", original.tcp.Load(), original.udp.Load(), output)
 	}
 	return g, output
 }

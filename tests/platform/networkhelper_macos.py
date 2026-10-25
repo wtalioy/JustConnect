@@ -19,6 +19,7 @@ import sys
 import tempfile
 import time
 import uuid
+from unix_device_probe import allocate_unix
 
 ROOT = Path(__file__).resolve().parents[2]
 LAYOUT = json.loads((ROOT / 'resource/network-helper-macos.json').read_text())
@@ -159,6 +160,7 @@ def main(args):
                 def ordinary():
                     os.setgroups([]); os.setgid(target.pw_gid); os.setuid(target.pw_uid)
                 read_fd, write_fd = os.pipe()
+                original_fd = -1
                 if grant:
                     authorization = Authorization(); grants.append(authorization); os.write(write_fd, authorization.external.raw)
                 os.close(write_fd)
@@ -333,7 +335,10 @@ def main(args):
                     if authorization_mode:
                         environment.update(JC_NATIVE_NETWORK_AUTHORIZATION=authorization_mode, JC_NATIVE_TUN_READY=str(marker))
                     elif scenario == 'network-policy':
-                        environment.update(JC_NATIVE_NETWORK_POLICY='1', JC_NATIVE_TUN_READY=str(marker))
+                        original_fd, original_interface, release_allocator = allocate_unix(Path(args.allocator).resolve())
+                        release_allocator()
+                        os.set_blocking(original_fd, False)
+                        environment.update(JC_NATIVE_NETWORK_POLICY='1', JC_NATIVE_TUN_READY=str(marker), JC_NATIVE_ORIGINAL_FD=str(original_fd))
                     elif scenario != 'normal':
                         environment.update(JC_NATIVE_NETWORK_HELPER_LOSS='1', JC_NATIVE_TUN_READY=str(marker),
                             JC_NATIVE_NETWORK_HELPER_OFFLINE='1' if scenario == 'helper-offline' else '0')
@@ -343,7 +348,7 @@ def main(args):
                     test_name = 'TestNativeTUNAuthorizationExit' if authorization_mode == 'exit' else 'TestNativeTUNProcessCrash' if scenario == 'process-crash' else 'TestNativeTUNHost'
                     with transcript.open('wb') as stream:
                         core = subprocess.Popen([args.gateway, '-test.v', '-test.timeout', '75s', '-test.run', '^' + test_name + '$'],
-                            user=args.uid, group=account.pw_gid, extra_groups=(), pass_fds=(read_fd,), env=environment,
+                            user=args.uid, group=account.pw_gid, extra_groups=(), pass_fds=(read_fd,) + ((original_fd,) if original_fd >= 0 else ()), env=environment,
                             stdout=stream, stderr=subprocess.STDOUT)
                     processes.append(core)
 
@@ -377,7 +382,7 @@ def main(args):
                     elif scenario == 'network-policy':
                         boundary('.policy-ready'); active = active_owner()
                         assert published(active['owner']), 'Overlap test preceded confirmed dynamic DNS capture'
-                        external = ('-n', 'add', '-inet', '-net', '198.18.0.0/29', '-interface', 'lo0', '-static')
+                        external = ('-n', 'add', '-inet', '-net', '198.18.0.0/29', '-interface', original_interface, '-static')
                         run('/sbin/route', *external)
                         try:
                             Path(str(marker) + '.overlay-up').touch(); boundary('.protected')
@@ -387,9 +392,9 @@ def main(args):
                             Path(str(marker) + '.select-original').touch(); boundary('.original-selected')
                             assert not any(published(active['owner'], address) for address in ('198.18.0.6', '198.18.0.7')), 'Original-side choice retained a campus host route'
                             original = run('/sbin/route', '-n', 'get', '-inet', '198.18.0.3').stdout.decode()
-                            assert re.search(r'^\s*interface:\s*lo0\s*$', original, re.M), 'Policy update removed the external original route'
+                            assert re.search(r'^\s*interface:\s*' + re.escape(original_interface) + r'\s*$', original, re.M), 'Policy update removed the external original route'
                         finally:
-                            run('/sbin/route', '-n', 'delete', '-inet', '-net', '198.18.0.0/29', '-interface', 'lo0')
+                            run('/sbin/route', '-n', 'delete', '-inet', '-net', '198.18.0.0/29', '-interface', original_interface)
                         Path(str(marker) + '.overlay-down').touch(); boundary('.policy-restored')
                         assert all(published(active['owner'], address) for address in ('198.18.0.6', '198.18.0.7')), 'Overlay removal lost the still-live DNS binding or campus IP resource'
                         Path(str(marker) + '.traffic').touch()
@@ -451,6 +456,8 @@ def main(args):
                         print(transcript.read_text(), end='', flush=True)
                 finally:
                     os.close(read_fd)
+                    if original_fd >= 0:
+                        os.close(original_fd)
                     if write_fd >= 0:
                         os.close(write_fd)
                 if scenario != 'process-crash':
@@ -478,6 +485,6 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--uid', type=int, required=True)
-    for name in ('helper', 'client', 'plist', 'deploy-tool', 'revision', 'output', 'dns-probe', 'core-client', 'gateway'):
+    for name in ('helper', 'client', 'plist', 'deploy-tool', 'revision', 'output', 'dns-probe', 'core-client', 'gateway', 'allocator'):
         parser.add_argument('--' + name, required=True)
     main(parser.parse_args())

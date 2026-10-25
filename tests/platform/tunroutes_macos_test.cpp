@@ -193,6 +193,17 @@ int main(int argc, char **argv) try
         nativeChange("delete",first,device.name(),{"-ifscope",device.name()});
     }
     {
+        nativeChange("add",first,device.name(),{"-ifscope",device.name()}); const auto scoped = routes(first);
+        MacTunRoutes capture;
+        check(capture.apply(device,{first},checkpoint).succeeded() && routes(first).size() == scoped.size()+1,
+            "Existing scoped route prevented distinct unscoped capture");
+        check(capture.reconcile(device,{},checkpoint).succeeded() && routes(first) == scoped,
+            "Capture withdrawal changed the existing scoped route");
+        check(capture.reconcile(device,{first},checkpoint).succeeded() && capture.restore(owner,checkpoint).succeeded()
+            && routes(first) == scoped,"Capture resume or final restore adopted a scoped external route");
+        nativeChange("delete",first,device.name(),{"-ifscope",device.name()});
+    }
+    {
         int writes = 0; bool deny = true;
         MacTunRoutes capture([&](const QString &program, const QStringList &args) {
             ++writes; return runPlatformCommand(program,args,5000,{},QProcessEnvironment{});

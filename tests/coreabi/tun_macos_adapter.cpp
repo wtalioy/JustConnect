@@ -1,5 +1,6 @@
 #include "infrastructure/coreengine/embeddedcoreengine.h"
 #include "infrastructure/platform/macos/networkaccess.h"
+#include "infrastructure/platform/macos/tunroutes.h"
 #include "infrastructure/platform/dnssnapshot.h"
 #include "application/networkprotection.h"
 #include "application/applicationshutdown.h"
@@ -96,6 +97,7 @@ int main(int argc,char **argv)
     QObject::connect(&session,&ConnectionSession::progressChanged,[&] { wasPreparing |= session.phase() == ConnectionPhase::NetworkPreparing; });
     QObject::connect(&session,&ConnectionSession::finished,[&](ConnectionError error) {
         const auto expected = helperLoss && finished == 0 ? ConnectionError::OTHER : ConnectionError::NONE;
+        if (error != expected) std::cerr << "CHECK: native routes after failed connection " << QJsonDocument(readMacRoutes().rows).toJson(QJsonDocument::Compact).constData() << '\n';
         check(error == expected,"macOS connection retained its actual terminal result"); ++finished;
     });
     QByteArray previousDifference; bool changingNetwork = false;
@@ -173,6 +175,7 @@ int main(int argc,char **argv)
             check(policy.refresh(),"Read actual original route overlap");
             until([&] { return !policy.isBusy() && policy.confirmedProtection()["protected"].toArray().contains("198.18.0.0/29"); });
             check(session.state() == ConnectionState::Running && policy.currentGeneration() == generation,"New protection did not require a new authenticated session");
+            exerciseOriginalNetworkTraffic();
             publish(".protected"); until([&] { return QFileInfo::exists(marker+".select-campus"); });
             for (const auto *address : {"198.18.0.6","198.18.0.7"}) {
                 check(policy.setCampusAddress(QString::fromLatin1(address),true),"Select each actual TCP and UDP campus target");
@@ -188,6 +191,7 @@ int main(int argc,char **argv)
                 check(policy.policyStatus() == CoreEngine::RequestStatus::Success,"Core and helper confirmed the original-side target");
             }
             check(policy.policyStatus() == CoreEngine::RequestStatus::Success && policy.campusAddresses().isEmpty(),"Original-side choice did not complete both confirmations");
+            exerciseOriginalNetworkTraffic();
             publish(".original-selected"); until([&] { return QFileInfo::exists(marker+".overlay-down"); });
             check(policy.refresh(),"Read actual original overlay removal");
             until([&] { return !policy.isBusy() && !policy.confirmedProtection()["protected"].toArray().contains("198.18.0.0/29"); });
