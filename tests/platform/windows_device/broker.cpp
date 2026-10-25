@@ -157,17 +157,23 @@ int exchange(WindowsTunDevice &device,const std::wstring &client,const std::wstr
     const auto budget=packetBudget(mode);
     MIB_UDPSTATS udpBefore{};
     const auto udpBeforeStatus=GetUdpStatisticsEx(&udpBefore,AF_INET);
+    MIB_IPSTATS ipBefore{};
+    const auto ipBeforeStatus=GetIpStatisticsEx(&ipBefore,AF_INET);
     std::thread watchdog([&] {
         if (WaitForSingleObject(done.value,budget)!=WAIT_TIMEOUT) return;
         MIB_IF_ROW2 row{};row.InterfaceLuid=device.identity().luid;
         const auto interfaceStatus=GetIfEntry2Ex(MibIfEntryNormal,&row);
         MIB_UDPSTATS udpAfter{};
         const auto udpAfterStatus=GetUdpStatisticsEx(&udpAfter,AF_INET);
+        MIB_IPSTATS ipAfter{};
+        const auto ipAfterStatus=GetIpStatisticsEx(&ipAfter,AF_INET);
         std::cerr<<"DIAGNOSTIC: native UDP timeout, interface_status="<<interfaceStatus<<", oper="<<row.OperStatus
             <<", in_packets="<<row.InUcastPkts<<", in_discards="<<row.InDiscards<<", in_errors="<<row.InErrors
             <<", out_packets="<<row.OutUcastPkts<<", out_discards="<<row.OutDiscards<<", out_errors="<<row.OutErrors
             <<", udp_status="<<udpBeforeStatus<<'/'<<udpAfterStatus<<", udp_in="<<udpBefore.dwInDatagrams<<'/'<<udpAfter.dwInDatagrams
-            <<", udp_errors="<<udpBefore.dwInErrors<<'/'<<udpAfter.dwInErrors<<", udp_no_ports="<<udpBefore.dwNoPorts<<'/'<<udpAfter.dwNoPorts<<'\n';
+            <<", udp_errors="<<udpBefore.dwInErrors<<'/'<<udpAfter.dwInErrors<<", udp_no_ports="<<udpBefore.dwNoPorts<<'/'<<udpAfter.dwNoPorts
+            <<", ip_status="<<ipBeforeStatus<<'/'<<ipAfterStatus<<", ip_headers="<<ipBefore.dwInHdrErrors<<'/'<<ipAfter.dwInHdrErrors
+            <<", ip_addresses="<<ipBefore.dwInAddrErrors<<'/'<<ipAfter.dwInAddrErrors<<", ip_discards="<<ipBefore.dwInDiscards<<'/'<<ipAfter.dwInDiscards<<'\n';
         device.close();
     });
     struct Join { HANDLE done; std::thread &worker; ~Join() { SetEvent(done); worker.join(); } } join{done.value,watchdog};
