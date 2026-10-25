@@ -39,10 +39,12 @@ std::optional<QJsonArray> originalNetworkProtection(const QJsonObject &network)
 {
     if (!network["interfaces"].isArray() || !network["routes"].isArray()) return std::nullopt;
     QMap<QString, QJsonArray> targets;
-    auto add = [&](const QString &value, const QJsonObject &source, bool route) {
+    auto add = [&](const QString &value, const QJsonObject &source, bool route, bool cloned = false) {
         const auto subnet = QHostAddress::parseSubnet(value);
         if (subnet.second < 0 || !subnet.first.scopeId().isEmpty()) return false;
         if (mapped(subnet.first)) return false;
+        // Kernel-derived host caches inherit their parent scope and do not create new protection.
+        if (cloned) return true;
         // Default and split-default routes describe exits, never protected destinations.
         if (subnet.second <= 1) return route;
         const QString prefix = subnet.first.toString() + '/' + QString::number(subnet.second);
@@ -65,8 +67,10 @@ std::optional<QJsonArray> originalNetworkProtection(const QJsonObject &network)
     const auto routes = network["routes"].toArray();
     for (int i = 0; i < routes.size(); ++i) {
         if (!routes[i].isObject()) return std::nullopt;
-        const auto destination = routes[i].toObject().value("destination");
-        if (!destination.isString() || !add(destination.toString(), {{"kind", "route"}, {"route", i}}, true))
+        const auto row = routes[i].toObject();
+        const auto destination = row.value("destination");
+        if ((row.contains("cloned") && !row["cloned"].isBool()) || !destination.isString()
+            || !add(destination.toString(), {{"kind", "route"}, {"route", i}}, true,row["cloned"].toBool()))
             return std::nullopt;
     }
     QJsonArray result;
@@ -477,6 +481,12 @@ std::optional<std::pair<QString, QString>> privateTUNAddresses(const QJsonObject
     };
     for (const auto &entry : *original) if (!exclude(entry.toObject()["prefix"].toString())) return {};
     for (const auto &prefix : reservedPrefixes) if (!exclude(prefix)) return {};
+    // A cache does not grant protection, but its currently used private address is unavailable for allocation.
+    for (const auto &value : network["routes"].toArray()) {
+        const auto row = value.toObject();
+        const auto prefix = row["destination"].toString();
+        if (row["cloned"] == true && QHostAddress::parseSubnet(prefix).second > 1 && !exclude(prefix)) return {};
+    }
     blocked = mergedRanges(blocked);
     // RFC 1918 candidate pools are fixed protocol ranges, not fixed device addresses.
     for (const auto *pool : {"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}) {

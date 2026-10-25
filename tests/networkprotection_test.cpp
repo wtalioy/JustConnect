@@ -108,6 +108,26 @@ int main(int argc, char **argv) try
         ],
         "policy_rules":[{"priority":100,"table":52,"attributes":[{"type":10,"value_hex":"01000000"}]}]
     })").object();
+    auto cached = network;
+    auto nativeRoutes = cached["routes"].toArray();
+    nativeRoutes.append(QJsonObject{{"destination","203.0.113.8/32"},{"cloned",true},{"flags",0x45020007}});
+    nativeRoutes.append(QJsonObject{{"destination","203.0.113.9/32"},{"cloned",false}});
+    cached["routes"] = nativeRoutes;
+    const auto cacheTargets = originalNetworkProtection(cached); check(cacheTargets.has_value(),"Kernel cache annotation rejected a complete snapshot");
+    bool protectedCache = false, protectedStatic = false;
+    for (const auto &value : *cacheTargets) {
+        protectedCache |= value.toObject()["prefix"] == "203.0.113.8/32";
+        protectedStatic |= value.toObject()["prefix"] == "203.0.113.9/32";
+    }
+    check(!protectedCache && protectedStatic && cached["routes"].toArray() == nativeRoutes,"Kernel-derived cache became protection or static/raw routes were discarded");
+    nativeRoutes[nativeRoutes.size()-1] = QJsonObject{{"destination","broken"},{"cloned",true}}; cached["routes"] = nativeRoutes;
+    check(!originalNetworkProtection(cached),"Cache annotation hid an invalid native destination");
+    nativeRoutes[nativeRoutes.size()-1] = QJsonObject{{"destination","203.0.113.9/32"},{"cloned","yes"}}; cached["routes"] = nativeRoutes;
+    check(!originalNetworkProtection(cached),"Malformed native cache classification published partial protection");
+    const QJsonObject cachedAddress{{"interfaces",QJsonArray{QJsonObject{{"addresses",QJsonArray{"192.0.2.1/24"}}}}},
+        {"routes",QJsonArray{QJsonObject{{"destination","10.0.0.1/32"},{"cloned",true}}}}};
+    const auto unused = privateTUNAddresses(cachedAddress,{});
+    check(unused && unused->first != "10.0.0.1" && unused->second != "10.0.0.1","TUN allocation reused a private address present in a raw kernel cache");
     const auto original = network;
     const auto targets = originalNetworkProtection(network);
     check(targets.has_value() && network == original, "Native facts changed or model rejected");
