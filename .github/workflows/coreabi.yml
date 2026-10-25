@@ -109,6 +109,14 @@ jobs:
           if not host:
               raise RuntimeError('CI PowerShell host unavailable')
           env = dict(os.environ, JC_TEST_WINTUN_DLL=str(dll), CGO_ENABLED='0', GOTOOLCHAIN='local', GOWORK='off', GOENV='off')
+          layout_host = output / 'windows-iphelper-layout.exe'
+          subprocess.run([os.environ['CC'], '-std=c11', 'tests/platform/windows_iphelper_layout.c', '-o', str(layout_host)], check=True, timeout=60)
+          layout = output / 'windows-iphelper-layout.json'
+          layout.write_bytes(subprocess.check_output([str(layout_host)], timeout=10))
+          env['JC_TEST_IPHELPER_LAYOUT'] = str(layout)
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as exported:
+              exported.write('JC_TEST_IPHELPER_LAYOUT=' + str(layout) + '\n')
+          subprocess.run(['go', '-C', 'corelib', 'test', '-mod=readonly', '-count=1', '-timeout=30s', './internal/wintun'], env=env, check=True, timeout=60)
           print('RUN: Wintun Authenticode via the CI pwsh host (60s)', flush=True)
           signature = json.loads(subprocess.check_output([host, '-NoProfile', '-NonInteractive', '-Command',
               '$s=Get-AuthenticodeSignature -LiteralPath $env:JC_TEST_WINTUN_DLL; @{status=$s.Status.ToString(); signer=$s.SignerCertificate.Thumbprint} | ConvertTo-Json -Compress'], env=env, text=True, timeout=60))
