@@ -13,7 +13,6 @@ struct WindowsNetworkRecord {
     WindowsRecoveryPhase phase = WindowsRecoveryPhase::Declared;
 };
 
-bool windowsAdapterPresent(const GUID &adapter);
 std::string encodeWindowsNetworkRecord(const WindowsNetworkRecord &record);
 WindowsNetworkRecord decodeWindowsNetworkRecord(const std::string &data);
 

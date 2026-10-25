@@ -1,14 +1,11 @@
 #include "infrastructure/networkhelper/windows/recovery.h"
 #include "windowsnetworkcontract.h"
 #include "infrastructure/dns/domainlimits.h"
+#include "infrastructure/tundevice/windows/recovery.h"
 #include <ws2tcpip.h>
-#include <iphlpapi.h>
 #include <aclapi.h>
 #include <sddl.h>
 #include <objbase.h>
-#include <setupapi.h>
-#include <devguid.h>
-#include <cfgmgr32.h>
 #include <winrt/Windows.Data.Json.h>
 #include <winrt/Windows.Foundation.Collections.h>
 #include <algorithm>
@@ -160,35 +157,6 @@ WindowsNetworkLock::WindowsNetworkLock()
 }
 WindowsNetworkLock::~WindowsNetworkLock() { if (mutex) {ReleaseMutex(mutex);CloseHandle(mutex);} }
 
-bool windowsAdapterPresent(const GUID &adapter)
-{
-    if (adapter==GUID{}) fail("empty recovery adapter",ERROR_INVALID_PARAMETER);
-    MIB_IF_TABLE2 *table=nullptr;
-    const auto status=GetIfTable2Ex(MibIfTableNormalWithoutStatistics,&table);
-    if (status!=NO_ERROR) fail("read recovery interface identities",status);
-    bool present=false;
-    for (ULONG i=0;i<table->NumEntries;++i) present=present || table->Table[i].InterfaceGuid==adapter;
-    FreeMibTable(table);
-    if (present) return true;
-    const auto devices=SetupDiGetClassDevsW(&GUID_DEVCLASS_NET,nullptr,nullptr,DIGCF_PRESENT);
-    if (devices==INVALID_HANDLE_VALUE) fail("enumerate recovery PnP devices");
-    struct Free {HDEVINFO value;~Free(){SetupDiDestroyDeviceInfoList(value);}} free{devices};
-    for (DWORD i=0;;++i) {
-        SP_DEVINFO_DATA device{sizeof(device)};
-        if (!SetupDiEnumDeviceInfo(devices,i,&device)) {if(GetLastError()==ERROR_NO_MORE_ITEMS)return false;fail("read recovery PnP identity");}
-        wchar_t instance[MAX_DEVICE_ID_LEN]{};
-        if (!SetupDiGetDeviceInstanceIdW(devices,&device,instance,static_cast<DWORD>(std::size(instance)),nullptr)) fail("read recovery PnP instance");
-        if (_wcsnicmp(instance,L"SWD\\WINTUN\\",11)!=0) continue;
-        const auto key=SetupDiOpenDevRegKey(devices,&device,DICS_FLAG_GLOBAL,0,DIREG_DRV,KEY_QUERY_VALUE);
-        if (key==INVALID_HANDLE_VALUE) fail("open recovery adapter identity");
-        wchar_t value[64]{};DWORD size=sizeof(value),type=0;
-        const auto queried=RegQueryValueExW(key,L"NetCfgInstanceId",nullptr,&type,reinterpret_cast<BYTE *>(value),&size);RegCloseKey(key);
-        GUID actual{};
-        if (queried!=ERROR_SUCCESS || type!=REG_SZ || size>sizeof(value) || !size || size%sizeof(wchar_t) || value[size/sizeof(wchar_t)-1]!=0 || FAILED(CLSIDFromString(value,&actual))) fail("ambiguous recovery adapter identity",ERROR_INVALID_DATA);
-        if (actual==adapter) return true;
-    }
-}
-
 void WindowsNetworkRecovery::declare(const WindowsNetworkRecord &record)
 {
     WindowsNetworkLock lock;
@@ -218,6 +186,7 @@ bool WindowsNetworkRecovery::restoreAbandoned(const GUID &owner)
     if (record.helper.alive()) return false;
     record.phase=WindowsRecoveryPhase::Restoring;journal.write(owner,encodeWindowsNetworkRecord(record));
     if (record.dns) record.dns->restoreSystem();
+    restoreWindowsAdapter(record.adapter);
     if (windowsAdapterPresent(record.adapter)) return false;
     record.phase=WindowsRecoveryPhase::Restored;journal.write(owner,encodeWindowsNetworkRecord(record));
     return true;
