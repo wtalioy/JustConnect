@@ -1,7 +1,7 @@
 #pragma once
 
 #include <wintun.h>
-#include <netioapi.h>
+#include <iphlpapi.h>
 #include <atomic>
 #include <functional>
 #include <memory>
