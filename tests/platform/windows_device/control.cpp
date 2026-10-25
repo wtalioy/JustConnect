@@ -1,5 +1,6 @@
 #include "infrastructure/networkhelper/windows/control.h"
 #include "infrastructure/networkhelper/windows/recovery.h"
+#include "infrastructure/networkhelper/windows/installation.h"
 #include "infrastructure/packetpipe/windows/stream.h"
 #include "ordinarytoken.h"
 #include "windowsnetworkcontract.h"
@@ -46,9 +47,12 @@ JsonObject command(const GUID &session,const wchar_t *operation,const GUID &owne
 }
 JsonObject exchange(WindowsPacketPipe &pipe,const GUID &session,const wchar_t *operation,const GUID &owner={}){
     sendWindowsControlMessage(pipe,winrt::to_string(command(session,operation,owner).Stringify()));
+    if(std::wstring(operation)==L"close")Sleep(50); // The reply must survive a delayed consumer.
     const auto reply=JsonObject::Parse(winrt::to_hstring(receiveWindowsControlMessage(pipe,WindowsNetworkContract::ControlTimeoutMs)));
     check(reply.GetNamedNumber(L"version")==WindowsNetworkContract::Protocol && reply.GetNamedString(L"session")==guid(session)
-        && reply.GetNamedString(L"operation")==operation,"control response escaped its request");return reply;
+        && reply.GetNamedString(L"operation")==operation,"control response escaped its request");
+    if(std::wstring(operation)==L"close"){const unsigned char received=1;pipe.write(&received,1,5000);}
+    return reply;
 }
 bool contains(const JsonObject &reply,const GUID &owner){
     for(const auto &item:reply.GetNamedArray(L"owners"))if(item.GetObject().GetNamedString(L"owner")==guid(owner))return true;
@@ -60,6 +64,30 @@ int client(const GUID &session,const std::wstring &mode){
     check(GetTokenInformation(token.value,TokenElevation,&elevation,sizeof(elevation),&size) && !elevation.TokenIsElevated,"control client must remain ordinary");
     Input input;transfer(GetStdHandle(STD_INPUT_HANDLE),&input,sizeof(input),false);
     Handle server;server.value=reinterpret_cast<HANDLE>(input.server);
+    if(mode==L"authorize" || mode==L"authorize-cancel" || mode==L"authorize-replaced"){
+        Handle captured,writer;check(CreatePipe(&captured.value,&writer.value,nullptr,0),"capture native authorization result");
+        const auto original=GetStdHandle(STD_OUTPUT_HANDLE);check(SetStdHandle(STD_OUTPUT_HANDLE,writer.value),"redirect authorization result");
+        WindowsProcess self(GetCurrentProcessId());bool called=false;
+        const auto code=WindowsHelperInstallation::authorizeControl(self.identity().pid,self.identity().created+(mode==L"authorize-replaced"?1:0),session,
+            [&](const auto &image,const auto &parameters)->HANDLE{
+                called=true;check(image==executable() && parameters==L"--control "+std::to_wstring(self.identity().pid)+L" "+std::to_wstring(self.identity().created)+L" "+guid(session),"authorization changed its fixed launch target");
+                if(mode==L"authorize-cancel"){SetLastError(ERROR_CANCELLED);return nullptr;}
+                HANDLE duplicate=nullptr;check(DuplicateHandle(GetCurrentProcess(),server.value,GetCurrentProcess(),&duplicate,0,FALSE,DUPLICATE_SAME_ACCESS),"retain approved authorization result");return duplicate;
+            });
+        check(SetStdHandle(STD_OUTPUT_HANDLE,original),"restore control test console");
+        char bytes[1024]{};DWORD size=0;check(ReadFile(captured.value,bytes,sizeof(bytes),&size,nullptr) && size,"read authorization result");
+        const auto result=JsonObject::Parse(winrt::to_hstring(std::string(bytes,size)));
+        check(result.Size()==4 && result.GetNamedString(L"session")==guid(session) && result.GetNamedNumber(L"version")==WindowsNetworkContract::Protocol,"authorization response escaped its session");
+        if(mode!=L"authorize"){
+            check(code==1 && result.GetNamedString(L"handle")==L"0" && result.GetNamedNumber(L"error")== (mode==L"authorize-cancel"?ERROR_CANCELLED:ERROR_ACCESS_DENIED),"authorization refusal lost its error or transferred a handle");
+            check(called==(mode==L"authorize-cancel"),"replaced caller reached elevation");return 0;
+        }
+        check(code==0 && called && result.GetNamedNumber(L"error")==0,"authorization did not return the approved process");
+        const auto value=std::stoull(std::wstring(result.GetNamedString(L"handle").c_str()));
+        Handle approved;approved.value=reinterpret_cast<HANDLE>(static_cast<std::uintptr_t>(value));
+        check(approved.value!=server.value && GetProcessId(approved.value)==GetProcessId(server.value),"authorization transferred another process identity");
+        CloseHandle(server.value);server.value=approved.value;approved.value=nullptr;
+    }
     if(mode==L"replaced"){
         bool denied=false;try{WindowsPacketPipe::connect(windowsControlPipeName(session),server.value,5000);}catch(const std::system_error &){denied=true;}
         check(denied,"replaced caller was accepted");return 0;
@@ -78,7 +106,7 @@ int client(const GUID &session,const std::wstring &mode){
         const auto size=WindowsNetworkContract::MaxMessageBytes+1;
         unsigned char length[]{static_cast<unsigned char>(size>>24),static_cast<unsigned char>(size>>16),static_cast<unsigned char>(size>>8),static_cast<unsigned char>(size)};
         pipe->write(length,4,5000);
-    }else if(mode!=L"normal" && mode!=L"eof"){
+    }else if(mode!=L"normal" && mode!=L"authorize" && mode!=L"eof"){
         auto request=command(session,L"inspect");
         if(mode==L"session-mismatch")request.SetNamedValue(L"session",JsonValue::CreateStringValue(guid(uuid())));
         else if(mode==L"unknown-field")request.SetNamedValue(L"path",JsonValue::CreateStringValue(L"C:\\unowned"));
@@ -97,12 +125,13 @@ int client(const GUID &session,const std::wstring &mode){
             reply=exchange(*pipe,session,operation,input.foreign);
             check(!reply.GetNamedBoolean(L"ok") && reply.GetNamedNumber(L"error")==ERROR_ACCESS_DENIED,"foreign account receipt accepted through control");
         }
-        check(exchange(*pipe,session,L"close").GetNamedBoolean(L"ok"),"control close failed");return 0;
+        check(exchange(*pipe,session,L"close").GetNamedBoolean(L"ok"),"control close failed");
+        check(WaitForSingleObject(server.value,5000)==WAIT_OBJECT_0,"acknowledged control did not exit");return 0;
     }
     bool refused=false;try{receiveWindowsControlMessage(*pipe,5000);}catch(const std::system_error &){refused=true;}
     check(refused,"unsafe control request returned a reply");return 0;
 }
-void scenario(const std::wstring &helper,const std::wstring &mode){
+void scenario(const std::wstring &helper,const std::wstring &mode,const std::wstring &clientImage={}){
     const auto session=uuid();
     Handle token,input,childInput,console;
     token.value=ordinaryWindowsToken();
@@ -111,7 +140,7 @@ void scenario(const std::wstring &helper,const std::wstring &mode){
     check(DuplicateHandle(GetCurrentProcess(),GetStdHandle(STD_OUTPUT_HANDLE),GetCurrentProcess(),&console.value,0,TRUE,DUPLICATE_SAME_ACCESS),"control fixture console");
     STARTUPINFOW startup{sizeof(startup)};startup.dwFlags=STARTF_USESTDHANDLES;
     startup.hStdInput=childInput.value;startup.hStdOutput=console.value;startup.hStdError=console.value;
-    Process gui;gui.start(L"\""+executable()+L"\" --client "+guid(session)+L" "+mode,token.value,&startup);
+    Process gui;gui.start(L"\""+(clientImage.empty()?executable():clientImage)+L"\" --client "+guid(session)+L" "+mode,token.value,&startup);
     CloseHandle(childInput.value);childInput.value=nullptr;
     WindowsProcess caller(GetProcessId(gui.process.value)),current(GetCurrentProcessId());
     WindowsRegistryJournal journal;Input payload;
@@ -126,7 +155,7 @@ void scenario(const std::wstring &helper,const std::wstring &mode){
     journal.write(record.owner,encodeWindowsNetworkRecord(record));
     const auto foreignRecord=encodeWindowsNetworkRecord(record);
     Process elevated;
-    if(mode==L"server-mismatch")elevated.start(L"\""+executable()+L"\" --idle");
+    if(mode==L"server-mismatch" || mode==L"authorize-cancel" || mode==L"authorize-replaced")elevated.start(L"\""+executable()+L"\" --idle");
     else elevated.start(L"\""+helper+L"\" --control "+std::to_wstring(caller.identity().pid)+L" "+std::to_wstring(caller.identity().created+(mode==L"replaced"?1:0))+L" "+guid(session));
     HANDLE retained=nullptr;
     check(DuplicateHandle(GetCurrentProcess(),elevated.process.value,gui.process.value,&retained,PROCESS_QUERY_LIMITED_INFORMATION|SYNCHRONIZE,FALSE,0),"handoff actual elevated process object");
@@ -139,7 +168,9 @@ void scenario(const std::wstring &helper,const std::wstring &mode){
     }else{
         transfer(input.value,&payload,sizeof(payload),true);
         check(gui.wait()==0,"ordinary control client failed");
-        const auto code=elevated.wait();check(code==(mode==L"normal"?0:1),"control helper accepted an invalid session");
+        if(mode!=L"authorize-cancel" && mode!=L"authorize-replaced"){
+            const auto code=elevated.wait();check(code==(mode==L"normal" || mode==L"authorize"?0:1),"control helper accepted an invalid session");
+        }
     }
     check(journal.read(payload.live)==liveRecord && journal.read(payload.foreign)==foreignRecord,"control modified live or foreign ownership");
     std::wcout<<L"PASS: native authenticated control "<<mode<<L'\n';
@@ -154,7 +185,8 @@ int wmain(int argc,wchar_t **argv) try
         GUID session{};check(SUCCEEDED(CLSIDFromString(argv[2],&session)),"client session UUID");return client(session,argv[3]);
     }
     wchar_t guarded[8]{};
-    check(argc==2 && GetEnvironmentVariableW(L"GITHUB_ACTIONS",guarded,8)==4 && std::wstring(guarded)==L"true","control mutation requires disposable runner");
-    for(const auto mode:{L"normal",L"server-mismatch",L"replaced",L"session-mismatch",L"unknown-field",L"unknown-operation",L"oversized",L"io-timeout",L"eof"})scenario(argv[1],mode);
+    check((argc==2 || (argc==4 && std::wstring(argv[1])==L"--qt")) && GetEnvironmentVariableW(L"GITHUB_ACTIONS",guarded,8)==4 && std::wstring(guarded)==L"true","control mutation requires disposable runner");
+    if(argc==4){scenario(argv[2],L"normal",argv[3]);return 0;}
+    for(const auto mode:{L"normal",L"authorize",L"authorize-cancel",L"authorize-replaced",L"server-mismatch",L"replaced",L"session-mismatch",L"unknown-field",L"unknown-operation",L"oversized",L"io-timeout",L"eof"})scenario(argv[1],mode);
     return 0;
 }catch(const std::exception &error){std::cerr<<error.what()<<'\n';return 1;}

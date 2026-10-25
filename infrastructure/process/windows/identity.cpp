@@ -35,10 +35,10 @@ bool canonicalSid(const std::wstring &value)
 }
 }
 
-WindowsProcess::WindowsProcess(DWORD pid)
+WindowsProcess::WindowsProcess(DWORD pid,DWORD access)
 {
     if (!pid) fail("invalid process identity",ERROR_INVALID_PARAMETER);
-    process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION|SYNCHRONIZE,FALSE,pid);
+    process = OpenProcess(access|PROCESS_QUERY_LIMITED_INFORMATION|SYNCHRONIZE,FALSE,pid);
     if (!process) fail("retain process identity");
     try {
         FILETIME created{},exited{},kernel{},user{};

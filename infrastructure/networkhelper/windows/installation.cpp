@@ -1,10 +1,13 @@
 #include "infrastructure/networkhelper/windows/installation.h"
 #include "infrastructure/networkhelper/windows/publisher.h"
+#include "infrastructure/process/windows/identity.h"
 #include "windowsnetworkcontract.h"
 #include <aclapi.h>
 #include <sddl.h>
 #include <objbase.h>
 #include <shlobj.h>
+#include <shellapi.h>
+#include <winrt/Windows.Data.Json.h>
 #include <bcrypt.h>
 #include <winternl.h>
 #include <array>
@@ -180,6 +183,19 @@ std::wstring currentImage()
     if (!length || length>=32768) fail("locate running helper image");
     return path;
 }
+
+struct Source {
+    std::wstring executable=currentImage();
+    File image{executable};
+    WindowsSha256 publisher=decode(WindowsNetworkContract::PublisherSHA256),driverHash=decode(WindowsNetworkContract::DriverSHA256),licenseHash=decode(WindowsNetworkContract::LicenseSHA256);
+    std::filesystem::path directory=std::filesystem::path(executable).parent_path();
+    File driver{(directory/WindowsNetworkContract::DriverLibrary).wstring()},license{(directory/WindowsNetworkContract::DriverLicense).wstring()};
+    WindowsSha256 identity{};
+    Source(){
+        verifyWindowsPublisher(executable,image.value,publisher);runningImage(image);identity=image.hash();
+        if(driver.hash()!=driverHash || license.hash()!=licenseHash)fail("untrusted helper driver or license",ERROR_INVALID_DATA);
+    }
+};
 }
 
 void WindowsHelperInstallation::pinDirectory(const std::wstring &path,bool create,bool allowNewChildren)
@@ -232,21 +248,70 @@ std::unique_ptr<WindowsHelperInstallation> WindowsHelperInstallation::prepare()
     TOKEN_ELEVATION elevation{};DWORD size=0;
     if (!GetTokenInformation(token.value,TokenElevation,&elevation,sizeof(elevation),&size)) fail("read installation privilege");
     if (!elevation.TokenIsElevated) fail("installation requires elevation",ERROR_ACCESS_DENIED);
-    const auto publisher=decode(WindowsNetworkContract::PublisherSHA256),driverHash=decode(WindowsNetworkContract::DriverSHA256),licenseHash=decode(WindowsNetworkContract::LicenseSHA256);
-    const auto executable=currentImage();
-    File image(executable);
-    verifyWindowsPublisher(executable,image.value,publisher);
-    runningImage(image);
-    const auto identity=image.hash();
-    const auto source=std::filesystem::path(executable).parent_path();
-    File driver((source/WindowsNetworkContract::DriverLibrary).wstring()),license((source/WindowsNetworkContract::DriverLicense).wstring());
-    if (driver.hash()!=driverHash || license.hash()!=licenseHash) fail("untrusted helper driver or license",ERROR_INVALID_DATA);
+    Source source;
     auto result=std::unique_ptr<WindowsHelperInstallation>(new WindowsHelperInstallation);
-    result->pinInstallation(hex(identity),true);
+    result->pinInstallation(hex(source.identity),true);
     const auto path=std::filesystem::path(result->image()).parent_path();
-    install(image,result->executable,identity);install(driver,result->library,driverHash);
-    install(license,(path/WindowsNetworkContract::DriverLicense).wstring(),licenseHash);
+    install(source.image,result->executable,source.identity);install(source.driver,result->library,source.driverHash);
+    install(source.license,(path/WindowsNetworkContract::DriverLicense).wstring(),source.licenseHash);
     return result;
+}
+
+int WindowsHelperInstallation::authorizeControl(DWORD pid,std::uint64_t created,const GUID &session,const WindowsControlElevation &elevate)
+{
+    using namespace winrt::Windows::Data::Json;
+    if(!elevate)winrt::init_apartment(winrt::apartment_type::single_threaded);
+    JsonObject result;
+    wchar_t id[39]{};
+    if(session==GUID{} || !StringFromGUID2(session,id,39))fail("invalid authorization session",ERROR_INVALID_PARAMETER);
+    result.SetNamedValue(L"version",JsonValue::CreateNumberValue(WindowsNetworkContract::Protocol));
+    result.SetNamedValue(L"session",JsonValue::CreateStringValue(id));
+    result.SetNamedValue(L"error",JsonValue::CreateNumberValue(0));
+    result.SetNamedValue(L"handle",JsonValue::CreateStringValue(L"0"));
+    Handle approved;
+    std::unique_ptr<WindowsProcess> caller;
+    struct Remote {
+        const std::unique_ptr<WindowsProcess> &caller;HANDLE value=nullptr;
+        ~Remote(){if(value && caller){HANDLE copy=nullptr;if(DuplicateHandle(caller->handle(),value,GetCurrentProcess(),&copy,0,FALSE,DUPLICATE_CLOSE_SOURCE|DUPLICATE_SAME_ACCESS))CloseHandle(copy);}}
+    } remote{caller};
+    try{
+        WindowsProcess self(GetCurrentProcessId());
+        caller=std::make_unique<WindowsProcess>(pid,PROCESS_DUP_HANDLE);
+        if(caller->identity().created!=created || caller->identity().sid!=self.identity().sid || !caller->identity().alive())fail("authorization caller was replaced",ERROR_ACCESS_DENIED);
+        Handle token;if(!OpenProcessToken(GetCurrentProcess(),TOKEN_QUERY,&token.value))fail("inspect launcher elevation");
+        TOKEN_ELEVATION elevation{};DWORD size=0;
+        if(!GetTokenInformation(token.value,TokenElevation,&elevation,sizeof(elevation),&size))fail("read launcher elevation");
+        if(elevation.TokenIsElevated)fail("authorization launcher must remain ordinary",ERROR_ACCESS_DENIED);
+        Source source;
+        const auto parameters=L"--control "+std::to_wstring(pid)+L" "+std::to_wstring(created)+L" "+id;
+        if(elevate)approved.value=elevate(source.executable,parameters);
+        else{
+            SHELLEXECUTEINFOW request{sizeof(request)};
+            request.fMask=SEE_MASK_NOCLOSEPROCESS|SEE_MASK_NOASYNC|SEE_MASK_FLAG_NO_UI;
+            request.lpVerb=L"runas";request.lpFile=source.executable.c_str();request.lpParameters=parameters.c_str();request.nShow=SW_HIDE;
+            if(!ShellExecuteExW(&request))fail("request network permission");
+            approved.value=request.hProcess;
+            if(!approved.value)fail("approved helper process was not returned",ERROR_INVALID_HANDLE);
+            std::wstring launched(32768,L'\0');DWORD length=static_cast<DWORD>(launched.size());
+            if(!QueryFullProcessImageNameW(approved.value,0,launched.data(),&length))fail("identify approved helper image");
+            launched.resize(length);File running(launched);
+            if(running.hash()!=source.identity)fail("approved process differs from the verified helper",ERROR_ACCESS_DENIED);
+        }
+        if(!approved.value)fail("network permission was not granted",GetLastError()?GetLastError():ERROR_INVALID_HANDLE);
+        if(!caller->identity().alive() || WaitForSingleObject(approved.value,0)!=WAIT_TIMEOUT)fail("approved connection is no longer active",ERROR_PROCESS_ABORTED);
+        if(!DuplicateHandle(GetCurrentProcess(),approved.value,caller->handle(),&remote.value,PROCESS_QUERY_LIMITED_INFORMATION|SYNCHRONIZE,FALSE,0))fail("transfer approved process identity");
+        result.SetNamedValue(L"handle",JsonValue::CreateStringValue(std::to_wstring(reinterpret_cast<std::uintptr_t>(remote.value))));
+    }catch(const std::system_error &error){
+        result.SetNamedValue(L"error",JsonValue::CreateNumberValue(error.code().value()));
+        result.SetNamedValue(L"handle",JsonValue::CreateStringValue(L"0"));
+    }
+    const auto message=winrt::to_string(result.Stringify())+'\n';
+    DWORD written=0;
+    if(!WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),message.data(),static_cast<DWORD>(message.size()),&written,nullptr) || written!=message.size()){
+        fail("deliver network authorization result",ERROR_WRITE_FAULT);
+    }
+    if(result.GetNamedNumber(L"error")!=0)return 1;
+    remote.value=nullptr;return 0;
 }
 void WindowsHelperInstallation::close()
 {

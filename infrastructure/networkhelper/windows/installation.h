@@ -4,11 +4,17 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <functional>
+#include <cstdint>
+
+using WindowsControlElevation = std::function<HANDLE(const std::wstring &,const std::wstring &)>;
 
 class WindowsHelperInstallation final {
 public:
     static std::unique_ptr<WindowsHelperInstallation> prepare();
     static std::unique_ptr<WindowsHelperInstallation> openInstalled();
+    // Run in an ordinary launcher process; its lifetime isolates the GUI from the synchronous UAC API.
+    static int authorizeControl(DWORD caller,std::uint64_t created,const GUID &session,const WindowsControlElevation &elevate={});
     ~WindowsHelperInstallation();
     WindowsHelperInstallation(const WindowsHelperInstallation &) = delete;
     WindowsHelperInstallation &operator=(const WindowsHelperInstallation &) = delete;
