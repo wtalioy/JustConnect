@@ -49,13 +49,13 @@ static void checkOriginalView(const MacNetworkHelperClient &client)
     const QString externalKey("State:/Network/Service/external/DNS");
     entries[externalKey] = QJsonObject{{"ServerAddresses",QJsonArray{"192.0.2.53"}}};
     const auto original = filter(network,QJsonObject{{"dynamic_store",entries}});
-    check(original && original->first["routes"] == QJsonArray{externalRoute}
-        && original->first["interfaces"].toArray().first().toObject()["addresses"] == QJsonArray{"192.0.2.99/32"}
+    check(original && original->first.value("routes").toArray() == QJsonArray{externalRoute}
+        && original->first.value("interfaces").toArray().first().toObject().value("addresses").toArray() == QJsonArray{"192.0.2.99/32"}
         && original->second["dynamic_store"].toObject() == QJsonObject{{externalKey,entries[externalKey]}},
         "Original view removed external fields, addresses or resolver namespaces");
     for (auto it=entries.begin();it!=entries.end();++it) if (it.key()!=externalKey) it.value() = QJsonObject{{"ServerAddresses",QJsonArray{"192.0.2.54"}}};
     const auto changed = filter(network,QJsonObject{{"dynamic_store",entries}});
-    check(changed && changed->second["dynamic_store"] == entries,"Original view hid externally changed DNS");
+    check(changed && changed->second.value("dynamic_store").toObject() == entries,"Original view hid externally changed DNS");
 }
 static void deliver(int control, int descriptor)
 {
