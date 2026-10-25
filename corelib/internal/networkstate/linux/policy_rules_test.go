@@ -54,8 +54,8 @@ func TestPolicyRulePreservesHeaderAndOpaqueSelectors(t *testing.T) {
 	if rule.Table != 12345 || rule.Priority != 52 || rule.Action != 1 || rule.Flags != 2 || rule.TOS != 4 || rule.Source != "100.64.0.0/16" || rule.Destination != "192.0.2.0/24" {
 		t.Fatalf("native routing rule header or scope lost: %+v", rule)
 	}
-	for _, expected := range []model.RuleAttribute{{nl.FRA_IP_PROTO, "06"}, {nl.FRA_FWMARK, "00000000"},
-		{nl.FRA_FWMASK, hex.EncodeToString(nl.Uint32Attr(0xffffffff))}, {999, "010203"}} {
+	for _, expected := range []model.RuleAttribute{{Type: nl.FRA_IP_PROTO, Value: "06"}, {Type: nl.FRA_FWMARK, Value: "00000000"},
+		{Type: nl.FRA_FWMASK, Value: hex.EncodeToString(nl.Uint32Attr(0xffffffff))}, {Type: 999, Value: "010203"}} {
 		if !slices.Contains(rule.Attributes, expected) {
 			t.Fatalf("selector lost: %+v", expected)
 		}

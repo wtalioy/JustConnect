@@ -1,5 +1,5 @@
 #include "application/networkprotection.h"
-#include "infrastructure/platform/linux/networkhelperpreparation.h"
+#include "infrastructure/networkhelper/linux/networkhelperpreparation.h"
 #include <QCoreApplication>
 #include <QJsonDocument>
 #include <QJsonArray>

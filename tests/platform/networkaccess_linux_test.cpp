@@ -1,4 +1,4 @@
-#include "infrastructure/platform/linux/networkaccess.h"
+#include "infrastructure/networkaccess/linux/networkaccess.h"
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>

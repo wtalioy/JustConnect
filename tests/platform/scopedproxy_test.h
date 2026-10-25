@@ -1,5 +1,5 @@
 #pragma once
-#include "infrastructure/platform/persistentproxy.h"
+#include "infrastructure/systemproxy/persistentproxy.h"
 #include "tests/credentialstorefixture.h"
 #include <QJsonDocument>
 #include <QUuid>

@@ -33,8 +33,8 @@ find_package(Qt6 6.10 COMPONENTS
 include(cmake/CoreLibrary.cmake)
 justconnect_core_library(justconnect_core)
 justconnect_core_engine(justconnect_engine justconnect_core justconnect_platform)
-include(cmake/Platform.cmake)
-justconnect_platform(justconnect_platform)
+include(cmake/SystemIntegration.cmake)
+justconnect_system_integration(justconnect_platform)
 if(WIN32)
     install(FILES "$<TARGET_GENEX_EVAL:justconnect_core,$<TARGET_PROPERTY:justconnect_core,JC_RUNTIME_LIBRARY>>" DESTINATION . COMPONENT CoreRuntime)
 endif()
@@ -54,7 +54,7 @@ install(FILES "${CORE}/internal/ping/LICENSE"
 
 set(SOURCE_FILES
     main.cpp
-    infrastructure/platform/terminationrequests.cpp
+    infrastructure/process/terminationrequests.cpp
     presentation/main/mainwindow.cpp
     presentation/main/mainwindowcoordinator.cpp
     presentation/coordinators/authdialogcoordinator.cpp
@@ -154,7 +154,7 @@ if(BUILD_TESTING)
     target_link_libraries(serversettingswidget_test PRIVATE Qt6::Widgets)
     add_test(NAME serversettingswidget_test COMMAND serversettingswidget_test)
     set_tests_properties(serversettingswidget_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
-    justconnect_platform_tests(platformbackend_test justconnect_platform)
+    justconnect_system_integration_tests(platformbackend_test justconnect_platform)
     justconnect_credential_tests(credentialstore_test justconnect_platform)
     justconnect_autostart_tests(autostart_test justconnect_platform)
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")

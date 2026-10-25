@@ -1,11 +1,11 @@
 #include "infrastructure/coreengine/embeddedcoreengine.h"
-#include "infrastructure/platform/macos/networkaccess.h"
-#include "infrastructure/platform/macos/tunroutes.h"
-#include "infrastructure/platform/dnssnapshot.h"
+#include "infrastructure/networkaccess/macos/networkaccess.h"
+#include "infrastructure/routing/macos/tunroutes.h"
+#include "infrastructure/dns/dnssnapshot.h"
 #include "application/networkprotection.h"
 #include "application/applicationshutdown.h"
 #include "application/systemproxysession.h"
-#include "infrastructure/platform/proxyrecovery.h"
+#include "infrastructure/systemproxy/proxyrecovery.h"
 #include "tuntraffic.h"
 #include <QCoreApplication>
 #include <QElapsedTimer>

@@ -1,6 +1,6 @@
 #include "infrastructure/coreengine/embeddedcoreengine.h"
 #include "tuntraffic.h"
-#include "infrastructure/platform/dnssnapshot.h"
+#include "infrastructure/dns/dnssnapshot.h"
 #include <QCoreApplication>
 #include <QElapsedTimer>
 #include <QJsonDocument>

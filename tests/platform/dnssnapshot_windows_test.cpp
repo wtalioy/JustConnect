@@ -1,4 +1,4 @@
-#include "infrastructure/platform/windows/dnssnapshot.h"
+#include "infrastructure/dns/windows/dnssnapshot.h"
 #include <QCoreApplication>
 #include <QJsonArray>
 #include <QJsonDocument>

@@ -1,5 +1,5 @@
-#include "infrastructure/platform/macos/networkhelper.h"
-#include "infrastructure/platform/macos/networkhelperpreparation.h"
+#include "infrastructure/networkhelper/macos/networkhelper.h"
+#include "infrastructure/networkhelper/macos/networkhelperpreparation.h"
 #include <QJsonDocument>
 #include <QCoreApplication>
 #include <QJsonArray>

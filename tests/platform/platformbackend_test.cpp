@@ -1,6 +1,6 @@
-#include "infrastructure/platform/platformsystemproxybackend.h"
-#include "infrastructure/platform/platformcommand.h"
-#include "infrastructure/platform/proxyrecovery.h"
+#include "infrastructure/systemproxy/platformsystemproxybackend.h"
+#include "infrastructure/process/command.h"
+#include "infrastructure/systemproxy/proxyrecovery.h"
 #include <QCoreApplication>
 #include <QTemporaryDir>
 #include <QFile>
@@ -20,8 +20,8 @@
 #include <QLockFile>
 #endif
 #if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
-#include "infrastructure/platform/persistentproxy.h"
-#include "infrastructure/platform/systemcredentialstore.h"
+#include "infrastructure/systemproxy/persistentproxy.h"
+#include "infrastructure/credentialstore/systemcredentialstore.h"
 #endif
 
 static void check(bool ok, const char *message) { if (!ok) { std::cerr << message << '\n'; std::exit(1); } }

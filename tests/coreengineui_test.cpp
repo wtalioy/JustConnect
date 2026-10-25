@@ -8,7 +8,7 @@
 #include "application/defaultsettings.h"
 #include "application/systemproxysession.h"
 #include "infrastructure/coreengine/embeddedcoreengine.h"
-#include "infrastructure/platform/dnssnapshot.h"
+#include "infrastructure/dns/dnssnapshot.h"
 #include "presentation/coordinators/authdialogcoordinator.h"
 #include "presentation/coordinators/connectionuicontroller.h"
 #include "presentation/dialogs/authinfowindow/authinfowindow.h"

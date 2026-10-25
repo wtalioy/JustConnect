@@ -82,7 +82,7 @@ INI 格式检查由 SettingsMigrator 维护：在私有临时目录用仅所有�
 
 S2-03 将 TLS 信任策略收敛到会话配置，查询用例只复制端点与 TLS 策略，不携带账户密码。服务器编辑控件维护验证开关及可选学校 CA；旧配置默认验证系统证书，显式关闭会显示持续提示。认证、节点探测与隧道复用同一个带取消的 TLS 握手实现，失败类型通过 ABI 和 Qt 保留；不再把上游历史兼容行为当作跳过证书验证的默认值。
 
-平台实现按 `infrastructure/platform/linux/`、`macos/`、`windows/` 归档，未支持平台的回退实现位于 `unsupported/`。外层保留公共端口适配声明、命令执行、代理校验和自启动共用规则；Windows／macOS 的原生代理 API 注入声明归各自目录。`cmake/Platform.cmake` 只按目标系统选择对应目录，主应用与原生测试复用同一入口，调用方继续使用公共接口。
+基础设施同样按职责分组：`autostart`、`credentialstore`、`systemproxy`、`dns`、`tundevice`、`routing`、`networkhelper`、`networkaccess`、`networkjournal`、`networkaddress` 和 `process`。模块根目录维护共有端口适配、校验／生命周期和真实共有的 Unix／POSIX 逻辑；系统私有实现放在模块内的 `linux`／`macos`／`windows`，显式不支持的端口仍返回 Unsupported。`cmake/SystemIntegration.cmake` 组合现有能力并按目标系统选择实现，主应用与原生测试复用同一入口；Linux 发行版助手与 macOS 授权服务的源码／签名／安装契约保持原有职责，不另建兼容层。
 
 Unix 的 `UnixTunDevice` 统一维护所属 fd、设备名／索引及完整连接 UUID，平台各自分配并回读后才交付：Linux 排他创建非持久原始 IP TUN；macOS 由内核自动分配新 utun，核对四字节地址族帧模式，均不附着已有设备。失败关闭私有 fd，回读未确认时保守报告可能已修改；共享隔离测试核对 fd 所有权、普通用户收发和正常／强杀清理。Linux 正式助手已复用设备及路由后端，测试程序不安装为助手；Linux 与 macOS 主应用会话均已接入正式 Go／TUN／DNS 数据面；Linux／macOS 完整矩阵及 Mac 双架构原生检查已通过，真实桌面验收状态见[权限入口](#privileged-helper-entry)和计划。运行中模型协调须结合后端所有权排除自身 TUN／路由，不能把本软件的捕获范围重新当作原网络保护目标。验证状态及剩余范围见[设备记录](CORELINK-PROBE.md#设备与权限边界)。
 
@@ -133,7 +133,7 @@ Linux 活动连接每两秒通过现有 `NetworkPolicySession` 读取完整原�
 
 隔离验收由真实 system manager 启动相同程序及沙箱，先验证实际 Qt／核心持有 TUN fd 完成收发时不干扰活跃所有权，再强杀 Qt／核心与助手并观察独立定时恢复，无新 GUI 或手工恢复命令。仅助手退出、核心仍持有副本的回归验证先停止核心、再由新授权实例恢复；应用层另外保留未解除责任并阻止新连接，实际会话编排的本地联验见下文。同一隔离 resolved 夹具覆盖正式 Qt 调用方的系统解析与 DNS 故障恢复；先在当前挂载域保留原管理器通道／日志，再隔离 `/run`，复用原生管理命令而不模拟 systemd 输出。恢复服务只读绑定隔离 DNS socket，权限不扩大。测试不覆盖真实桌面注销或发行版差异，不能据此勾选完整恢复任务。
 
-Linux 系统助手由 `infrastructure/platform/linux/helper` 独立构建，只查找发行版 Qt Core／DBus；`scripts/build-system-network-helper.sh` 清除 GUI SDK 的加载／查找环境并保留 runner 构建工具路径，再由系统 qmake 定位开发包。CMake 复用同一后端和源码来源记录，`dpkg-shlibdeps` 生成实际 Qt／libc／C++ 依赖及最低版本，另明确依赖 iproute2、polkit 与 systemd。DEB 仅含助手、固定 polkit 策略、许可证、源码版本及恢复服务／定时器六个文件，不捆绑 Qt 或安装脚本；GUI 的 `CoreRuntime`／AppImage 不携带此提权部署。协议／上下文版本、安装路径、授权程序／动作、状态目录及恢复单元统一归 `resource/network-helper.json`；安装后的 ELF 不保留 SDK RPATH，实际执行路径必须匹配固定入口。`--version` 可由普通进程读取协议、Qt 与源码状态。
+Linux 系统助手由 `infrastructure/networkhelper/linux/helper` 独立构建，只查找发行版 Qt Core／DBus；`scripts/build-system-network-helper.sh` 清除 GUI SDK 的加载／查找环境并保留 runner 构建工具路径，再由系统 qmake 定位开发包。CMake 复用同一后端和源码来源记录，`dpkg-shlibdeps` 生成实际 Qt／libc／C++ 依赖及最低版本，另明确依赖 iproute2、polkit 与 systemd。DEB 仅含助手、固定 polkit 策略、许可证、源码版本及恢复服务／定时器六个文件，不捆绑 Qt 或安装脚本；GUI 的 `CoreRuntime`／AppImage 不携带此提权部署。协议／上下文版本、安装路径、授权程序／动作、状态目录及恢复单元统一归 `resource/network-helper.json`；安装后的 ELF 不保留 SDK RPATH，实际执行路径必须匹配固定入口。`--version` 可由普通进程读取协议、Qt 与源码状态。
 
 策略仅对活动本地会话请求 `auth_admin`，不保留授权、不允许 GUI 环境注入；程序与依赖由系统包管理器维护。包检查拒绝可写／非 root 项、链接、额外程序／维护脚本、放宽的授权范围和错误源码。当前本地已在私有 `/usr`／`/var/lib`／网络命名空间验收安装入口与外来路径拒绝；开发阶段仅在该命名空间复制必要 SDK 库，不能算发行版包验收。真实发行版 Qt／DEB 及双架构预览包由 Ubuntu 26.04 CI 验收，其他发行版与旧系统仍待；不在日常系统安装测试程序或接管网络。桌面授权及安装后的 Qt 调用仍需独立验收。
 
@@ -193,7 +193,7 @@ Linux 恢复记录 schema 3 将未决恢复保存为字段集合，并继续读�
 
 `WindowsProxyRecoveryLock` 从进程 TokenUser SID 派生固定全局互斥量，显式受保护 DACL 仅授予该 SID 同步／修改状态权限，句柄不继承，获取不等待；同一线程释放。正常与遗弃状态都只证明取得排他所有权，恢复记录仍须原后端校验。产品在原握手中汇总系统锁与旧目录锁，任一失败都不读恢复记录或运行后端，并保留旧目录锁直到不再支持仅持旧锁的进程。全局命名空间按 API 契约跨登录会话，实际跨会话／不同账户进程尚未实测；原生用例检查不同临时／工作目录的进程竞争及正常／强杀后的真实内核等待状态。依据：[命名空间](https://learn.microsoft.com/en-us/windows/win32/termserv/kernel-object-namespaces)、[创建与权限](https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-createmutexexw)、[线程所有权](https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-releasemutex)。
 
-系统凭据存储端口位于 `application/credentialstore.h`，提供有界不透明值的读／写／删和明确状态，平台工厂位于 `infrastructure/platform/systemcredentialstore.h`。`windows/credentialstore.cpp` 使用当前用户 Credential Manager，`macos/` 使用 Keychain，`linux/` 使用 Qt DBus 调用 Secret Service；锁定和权限状态不会被当作空凭据或成功。原生回归使用隔离条目／临时 Keychain／私有总线。`ProxyRecoveryJournal` 复用该端口存放代理恢复记录，要求先载入并比较已知完整字节，写／删后回读确认；拒绝外部改写、异常空值和超限值，保留发布后确认丢失的可能结果。系统凭据 API 没有原子比较替换，调用方必须持有独占恢复锁；记录校验、作用域和原生恢复由平台代理后端负责。主窗口协调器持有串行后台 CredentialAccess，连接、设置窗口和配置引导复用它；退出先等待后台写入，再销毁配置存储。
+系统凭据存储端口位于 `application/credentialstore.h`，提供有界不透明值的读／写／删和明确状态，平台工厂位于 `infrastructure/credentialstore/systemcredentialstore.h`。`windows/credentialstore.cpp` 使用当前用户 Credential Manager，`macos/` 使用 Keychain，`linux/` 使用 Qt DBus 调用 Secret Service；锁定和权限状态不会被当作空凭据或成功。原生回归使用隔离条目／临时 Keychain／私有总线。`ProxyRecoveryJournal` 复用该端口存放代理恢复记录，要求先载入并比较已知完整字节，写／删后回读确认；拒绝外部改写、异常空值和超限值，保留发布后确认丢失的可能结果。系统凭据 API 没有原子比较替换，调用方必须持有独占恢复锁；记录校验、作用域和原生恢复由平台代理后端负责。主窗口协调器持有串行后台 CredentialAccess，连接、设置窗口和配置引导复用它；退出先等待后台写入，再销毁配置存储。
 
 `application/ProfileCredentials` 维护按配置命名空间、服务器／端口、完整认证身份、手机号和账户派生的存储键，以及有版本的密码／TOTP 记录。修改密码不改变键；网络／TLS 偏好不改变账户归属。迁移在来源身份改变之前运行，只有系统存储写入并回读一致后才能移除旧 INI 值；已有安全值与旧 INI 冲突时保留双方，不用旧值覆盖新值。旧 Cookie 文件缺少可靠账户绑定，只可验证后隔离保存，不自动投入登录。原生调用为同步边界，由 CredentialAccess 在工作线程串行执行；访问旧配置时先完成验证迁移，来源变化的结果不交付凭据。
 

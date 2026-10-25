@@ -1,4 +1,4 @@
-#include "infrastructure/platform/tundevice.h"
+#include "infrastructure/tundevice/tundevice.h"
 #include <QCoreApplication>
 #include <QFile>
 #include <ifaddrs.h>
@@ -12,12 +12,12 @@
 #include <fcntl.h>
 #include <iostream>
 #ifdef __APPLE__
-#include "infrastructure/platform/macos/tunroutes.h"
+#include "infrastructure/routing/macos/tunroutes.h"
 #include <QTemporaryDir>
 #else
-#include "infrastructure/platform/linux/iprouteutility.h"
-#include "infrastructure/platform/linux/tunroutes.h"
-#include "infrastructure/platform/platformcommand.h"
+#include "infrastructure/routing/linux/iprouteutility.h"
+#include "infrastructure/routing/linux/tunroutes.h"
+#include "infrastructure/process/command.h"
 #include <linux/capability.h>
 #include <linux/if_tun.h>
 #include <sys/syscall.h>

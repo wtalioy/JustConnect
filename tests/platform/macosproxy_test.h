@@ -1,7 +1,7 @@
 #pragma once
-#include "infrastructure/platform/platformsystemproxybackend.h"
-#include "infrastructure/platform/persistentproxy.h"
-#include "infrastructure/platform/macos/credentialstore.h"
+#include "infrastructure/systemproxy/platformsystemproxybackend.h"
+#include "infrastructure/systemproxy/persistentproxy.h"
+#include "infrastructure/credentialstore/macos/credentialstore.h"
 #include <QCoreApplication>
 #include <QTemporaryDir>
 #include <QScopeGuard>

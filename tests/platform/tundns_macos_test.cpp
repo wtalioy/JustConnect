@@ -1,6 +1,6 @@
-#include "infrastructure/platform/macos/tundns.h"
-#include "infrastructure/platform/macos/tunroutes.h"
-#include "infrastructure/platform/macos/dnssnapshot.h"
+#include "infrastructure/dns/macos/tundns.h"
+#include "infrastructure/routing/macos/tunroutes.h"
+#include "infrastructure/dns/macos/dnssnapshot.h"
 #include <QCoreApplication>
 #include <QDeadlineTimer>
 #include <QJsonDocument>

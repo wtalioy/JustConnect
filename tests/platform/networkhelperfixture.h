@@ -1,5 +1,5 @@
 #pragma once
-#include "infrastructure/platform/linux/networkhelper.h"
+#include "infrastructure/networkhelper/linux/networkhelper.h"
 
 inline LinuxHelperConfiguration helperFixtureConfiguration(const QStringList &prefixes, int mtu)
 {

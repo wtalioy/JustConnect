@@ -1,4 +1,4 @@
-#include "infrastructure/platform/dnsroutepublisher.h"
+#include "infrastructure/dns/dnsroutepublisher.h"
 #include <QCoreApplication>
 #include <iostream>
 #include <stdexcept>

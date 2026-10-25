@@ -1,5 +1,5 @@
-#include "infrastructure/platform/linux/networkownership.h"
-#include "infrastructure/platform/linux/iprouteutility.h"
+#include "infrastructure/networkhelper/linux/networkownership.h"
+#include "infrastructure/routing/linux/iprouteutility.h"
 #include "networkhelperfixture.h"
 #include <QCoreApplication>
 #include <QJsonDocument>

@@ -18,7 +18,7 @@
 #include "infrastructure/coreengine/embeddedcoreengine.h"
 #include "application/settingsmigrator.h"
 #include "core/connectionsessionstate.h"
-#include "infrastructure/platform/autostart.h"
+#include "infrastructure/autostart/autostart.h"
 #include "infrastructure/settings/profilemanager.h"
 #include "application/profileservice.h"
 #include "infrastructure/storage/applicationpaths.h"

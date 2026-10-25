@@ -10,7 +10,7 @@ unset Qt6_ROOT Qt6_DIR Qt6Core_DIR Qt6CoreTools_DIR Qt6DBus_DIR Qt6DBusTools_DIR
 export LC_ALL=C.UTF-8
 qt_libraries=$(/usr/bin/qmake6 -query QT_INSTALL_LIBS)
 
-cmake -S "$repo/infrastructure/platform/linux/helper" -B "$output" -DCMAKE_BUILD_TYPE=Release \
+cmake -S "$repo/infrastructure/networkhelper/linux/helper" -B "$output" -DCMAKE_BUILD_TYPE=Release \
     "-DCMAKE_PREFIX_PATH=$qt_libraries/cmake" \
     "-DQt6_DIR=$qt_libraries/cmake/Qt6" "-DQt6Core_DIR=$qt_libraries/cmake/Qt6Core" \
     "-DQt6CoreTools_DIR=$qt_libraries/cmake/Qt6CoreTools" \

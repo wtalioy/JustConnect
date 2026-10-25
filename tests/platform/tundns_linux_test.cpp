@@ -1,8 +1,8 @@
-#include "infrastructure/platform/linux/tundns.h"
-#include "infrastructure/platform/linux/iprouteutility.h"
-#include "infrastructure/platform/linux/networkhelper.h"
-#include "infrastructure/platform/networkjournal.h"
-#include "infrastructure/platform/platformcommand.h"
+#include "infrastructure/dns/linux/tundns.h"
+#include "infrastructure/routing/linux/iprouteutility.h"
+#include "infrastructure/networkhelper/linux/networkhelper.h"
+#include "infrastructure/networkjournal/networkjournal.h"
+#include "infrastructure/process/command.h"
 #include <QCoreApplication>
 #include <QDBusConnection>
 #include <QJsonDocument>

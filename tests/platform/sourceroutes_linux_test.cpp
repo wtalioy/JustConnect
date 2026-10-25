@@ -1,7 +1,7 @@
-#include "infrastructure/platform/linux/ownedroutetable.h"
-#include "infrastructure/platform/networkjournal.h"
-#include "infrastructure/platform/linux/tunroutes.h"
-#include "infrastructure/platform/linux/iprouteutility.h"
+#include "infrastructure/routing/linux/ownedroutetable.h"
+#include "infrastructure/networkjournal/networkjournal.h"
+#include "infrastructure/routing/linux/tunroutes.h"
+#include "infrastructure/routing/linux/iprouteutility.h"
 #include <QCoreApplication>
 #include <QFile>
 #include <QJsonDocument>

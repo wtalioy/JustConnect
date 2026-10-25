@@ -1,5 +1,5 @@
-#include "infrastructure/platform/autostart.h"
-#include "infrastructure/platform/platformcommand.h"
+#include "infrastructure/autostart/autostart.h"
+#include "infrastructure/process/command.h"
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>

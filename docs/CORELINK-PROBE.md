@@ -76,7 +76,7 @@ D2 的设备入口子方案已收敛：Linux／macOS 使用最小授权助手创
 
 ### Linux 设备／fd 原型复现
 
-[unix_device_probe.py](../tests/platform/unix_device_probe.py) 复用正式 [Linux TUN 分配后端](../infrastructure/platform/linux/tundevice.cpp) 的原生测试程序，再使用 Python 标准库与现有 `ip` 命令验证权限和 fd 所有权；Linux 主应用及 Go／DNS 数据入口的本地联验已接入，跨平台 CI 与桌面验收仍待；Linux 系统助手的独立验收见[权限入口](ARCHITECTURE.md#privileged-helper-entry)。脚本拒绝在宿主网络命名空间运行；隔离命名空间内只创建测试 TUN 及其直连测试网段，不配置 DNS 或外部出口。
+[unix_device_probe.py](../tests/platform/unix_device_probe.py) 复用正式 [Linux TUN 分配后端](../infrastructure/tundevice/linux/tundevice.cpp) 的原生测试程序，再使用 Python 标准库与现有 `ip` 命令验证权限和 fd 所有权；Linux 主应用及 Go／DNS 数据入口的本地联验已接入，跨平台 CI 与桌面验收仍待；Linux 系统助手的独立验收见[权限入口](ARCHITECTURE.md#privileged-helper-entry)。脚本拒绝在宿主网络命名空间运行；隔离命名空间内只创建测试 TUN 及其直连测试网段，不配置 DNS 或外部出口。
 
 ```sh
 sudo unshare --net -- "$(command -v python)" tests/platform/unix_device_probe.py --uid "$(id -u)" --allocator build/coreabi/linux_tundevice_test
@@ -98,7 +98,7 @@ wsl.exe --distribution archlinux --user root --exec unshare --net -- \
 
 当前 Linux 分配入口由 `UnixTunDevice` 的平台实现单独维护：连接 UUID 派生设备名，排他创建非持久原始 IP TUN，回读名称／索引／帧模式；`TUNGETIFF` 的 NO_PI 与 NOFILTER 位复用，因此通过受信系统 `iproute2` 的链路详情核对真实 PI／virtio 头部状态，复用已有平台命令端口，固定参数且不经 shell；对象仅拥有自己的 fd，不接管已有同名设备。创建后的回读失败关闭 fd 并报告可能已修改；原生回读失败及错误 PI／virtio 帧模式注入验证实际接口回滚，活动及无队列持久设备冲突均保留原设备。`SCM_RIGHTS` 接收端使用原子 CLOEXEC，两种 Linux 隔离检查复用此入口，已删除 Python 分配副本。最后一个 fd 关闭的内核生命周期依据 [TUN/TAP 文档](https://docs.kernel.org/networking/tuntap.html)；本地普通 uid 的双向 UDP、正常／强杀清理与原网络不变及 [`a0aec56` 的 Linux 双架构](https://github.com/wtalioy/JustConnect/actions/runs/39761802978)均已通过，不代替完整路由／DNS 恢复或助手授权。
 
-IPv4 配置增量复用 [`UnixTunDevice::createIpv4`](../infrastructure/platform/tundevice.cpp)，只配置这次新建、尚未交付的设备：源／对端须是不同的规范单播 IPv4，使用 `/32` 点对点掩码，MTU 为 68—65535；配置前记录原 MTU／标志／空 IPv4，配置后独立回读完整预期及设备索引。macOS [utun 创建时即可为 UP](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/net/if_utun.c)，不把初始 down 当作共有契约；实际状态由原生 ioctl／getifaddrs 读取。失败关闭私有 fd，不交付部分配置；当前不支持更改已交付设备或恢复已有接口。共享设备／原出口脚本及捕获路由检查已移除重复地址／启用命令；Linux 捕获路由由分配方在交付 fd 前调用正式后端，原出口表／规则由独立原生持有进程负责；macOS 目的路由改由正式捕获后端及保护日志管理，验证状态见[计划](../plan.md#s4)。
+IPv4 配置增量复用 [`UnixTunDevice::createIpv4`](../infrastructure/tundevice/tundevice.cpp)，只配置这次新建、尚未交付的设备：源／对端须是不同的规范单播 IPv4，使用 `/32` 点对点掩码，MTU 为 68—65535；配置前记录原 MTU／标志／空 IPv4，配置后独立回读完整预期及设备索引。macOS [utun 创建时即可为 UP](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/net/if_utun.c)，不把初始 down 当作共有契约；实际状态由原生 ioctl／getifaddrs 读取。失败关闭私有 fd，不交付部分配置；当前不支持更改已交付设备或恢复已有接口。共享设备／原出口脚本及捕获路由检查已移除重复地址／启用命令；Linux 捕获路由由分配方在交付 fd 前调用正式后端，原出口表／规则由独立原生持有进程负责；macOS 目的路由改由正式捕获后端及保护日志管理，验证状态见[计划](../plan.md#s4)。
 
 本地 Linux 应用及正式 ABI 构建均通过配置后普通用户双向 UDP、正常／强杀最终 fd 清理；真实配置后的回读错误／MTU 不符故障注入验证设备及全部 IPv4 路由回滚，宿主接口、全表路由／规则、DNS 与 rp_filter 不变。完整应用 45/45、正式 ABI 23/23 通过，报告 `build/reports/unix-tun-configuration.json`；Linux／macOS 双架构原生 CI 已通过，当前正式助手／会话接入状态见[计划](../plan.md#s4)；底层配置通过不代表整体透明接管已验收。
 
@@ -121,13 +121,13 @@ Linux 路由恢复另在私有命名空间核对了内核删除匹配：`ip rout
 <a id="linux-source-routes"></a>
 ### Linux 原出口表／规则后端
 
-[`LinuxOwnedRouteTable`](../infrastructure/platform/linux/ownedroutetable.cpp) 为明确原接口及实际所属 IPv4 源地址新建连接专用表和精确源规则；空网关表示直连，非零网关另建所属 `/32` 链路路由。只接受规范 `/2`—`/32`，不改原接口、既有路由或 DNS。记录连接 UUID、接口名／索引、源／网关、派生表／metric、原先不存在及完整应用值。priority 1 冲突、未知更早规则或候选表已有路由／引用时拒绝；接口名限安全 ASCII token，支持实际地址别名。
+[`LinuxOwnedRouteTable`](../infrastructure/routing/linux/ownedroutetable.cpp) 为明确原接口及实际所属 IPv4 源地址新建连接专用表和精确源规则；空网关表示直连，非零网关另建所属 `/32` 链路路由。只接受规范 `/2`—`/32`，不改原接口、既有路由或 DNS。记录连接 UUID、接口名／索引、源／网关、派生表／metric、原先不存在及完整应用值。priority 1 冲突、未知更早规则或候选表已有路由／引用时拒绝；接口名限安全 ASCII token，支持实际地址别名。
 
 后端与捕获路由共用规范前缀和受信 iproute2 检查；数字全表／规则各限 4096 行、1 MiB，写前检查容量，索引所属路由。接受原生省略 main 表和合法 blackhole／goto，所属项缺少表身份则拒绝。应用／恢复各有十秒命令预算，失败回滚独立计时。恢复先删除源规则并确认没有表引用，再按设备、协议、scope、metric、源和适用下一跳删除路由；外部引用／改写、重复身份或未确认值保留并报告，只忽略派生 linkdown／默认 unicast 差异。
 
 `recover` 仅接受同一启动 UUID／调用线程网络命名空间的完整可信记录；严格校验结构、规范所有者、派生表／metric、实际接口身份和路由／规则值，拒绝畸形、重复、跨启动／命名空间或超过 2 MiB 的记录，不替换活动实例。**调用方必须先认证权限所有者的受保护记录；用户 JSON 不授予恢复权限。**
 
-[`UnixNetworkJournal`](../infrastructure/platform/networkjournal.cpp) 只接受已打开的 root 0700 私有目录 fd，以独立打开描述持有非阻塞独占锁，操作固定 `source.json`。文件须为 root 0600 单链接普通文件，完整 UTF-8 JSON 最多 2 MiB；符号／硬链接、错连接、超限及已知外部改写拒绝。私有临时文件完整写入并 fsync 后原子发布，再同步目录；首次发布不替换，更新／删除比对文件身份及完整原字节，同值替换或确认删除后重建不接管。删除目录同步失败保留已删除事实供重试，关闭／进程结束只释放锁。
+[`UnixNetworkJournal`](../infrastructure/networkjournal/networkjournal.cpp) 只接受已打开的 root 0700 私有目录 fd，以独立打开描述持有非阻塞独占锁，操作固定 `source.json`。文件须为 root 0600 单链接普通文件，完整 UTF-8 JSON 最多 2 MiB；符号／硬链接、错连接、超限及已知外部改写拒绝。私有临时文件完整写入并 fsync 后原子发布，再同步目录；首次发布不替换，更新／删除比对文件身份及完整原字节，同值替换或确认删除后重建不接管。删除目录同步失败保留已删除事实供重试，关闭／进程结束只释放锁。
 
 `apply`、`restore` 和 `recover` 共用同步 `CheckpointWriter`：非空对象提交完整状态，空对象持久移除记录。首次内核写入前同步完整意图，拒绝且确认未发布则清空内存，可能已发布则保留责任；存储后重验容量、表／早期规则及接口／源身份。成功应用值确认、规则删除前、规则释放后和路由批次删除前均由后端提交，失败回滚沿用同一端口，调用方不重复维护状态机；每次删除前重验存储等待期间的完整值、表引用及接口身份。存储失败不继续下一次内核修改，最后同步移除失败可重试而不接管新引用。删除标记与内核操作不具备跨资源原子性：新进程看到标记且匹配对象仍在时保留并报告未决，不猜测它是否被外部同值重建；对象缺失或完整值已改变时可解除该项责任。已确认释放的规则不重新接管。
 
@@ -147,7 +147,7 @@ sudo unshare --net -- python tests/platform/original_route_linux.py --uid "$(id 
 
 ### macOS utun／fd 隔离实验
 
-同一 [Unix 检查脚本](../tests/platform/unix_device_probe.py) 在 macOS 复用 [utun 平台实现](../infrastructure/platform/macos/tundevice.cpp)，由内核自动分配新接口，按 [Apple 公开定义](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/net/if_utun.h)回读名称／索引及零外部标志，使用四字节地址族头。Unix 后端共用所有权声明与原生测试，已删除 Python 的 macOS 分配副本；普通权限创建须拒绝，重复创建保留原 fd／身份。仅允许一次性 GitHub macOS runner，以 root 创建／配置测试点对点地址，再经 `SCM_RIGHTS` 将 fd 交给已设置普通 uid／gid 和明确附加组后 exec 的全新 Python 进程；复用 Linux 的实际 UDP 双向、主动关闭及持有 fd 时 SIGKILL 检查。macOS 控制通道使用 Unix 数据报；单线程测试接收后立即设置 CLOEXEC，Linux 仍使用原子接收，不将前者宣称为原子保证。测试目的已有非默认路由时拒绝运行，结束后检查接口和其全部路由消失，不改系统 DNS／默认路由。接收方逐阶段确认权限、两条路由通信及最终 fd 所有权，共用原八秒预算；避免 [macOS 上不安全的 fork 后原生调用](https://docs.python.org/3/library/os.html#os.fork)，不延长等待或跳过数据与清理检查。
+同一 [Unix 检查脚本](../tests/platform/unix_device_probe.py) 在 macOS 复用 [utun 平台实现](../infrastructure/tundevice/macos/tundevice.cpp)，由内核自动分配新接口，按 [Apple 公开定义](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/net/if_utun.h)回读名称／索引及零外部标志，使用四字节地址族头。Unix 后端共用所有权声明与原生测试，已删除 Python 的 macOS 分配副本；普通权限创建须拒绝，重复创建保留原 fd／身份。仅允许一次性 GitHub macOS runner，以 root 创建／配置测试点对点地址，再经 `SCM_RIGHTS` 将 fd 交给已设置普通 uid／gid 和明确附加组后 exec 的全新 Python 进程；复用 Linux 的实际 UDP 双向、主动关闭及持有 fd 时 SIGKILL 检查。macOS 控制通道使用 Unix 数据报；单线程测试接收后立即设置 CLOEXEC，Linux 仍使用原子接收，不将前者宣称为原子保证。测试目的已有非默认路由时拒绝运行，结束后检查接口和其全部路由消失，不改系统 DNS／默认路由。接收方逐阶段确认权限、两条路由通信及最终 fd 所有权，共用原八秒预算；避免 [macOS 上不安全的 fork 后原生调用](https://docs.python.org/3/library/os.html#os.fork)，不延长等待或跳过数据与清理检查。
 
 ```sh
 sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_OS="$RUNNER_OS" "$(command -v python)" tests/platform/unix_device_probe.py --uid "$(id -u)" --allocator build/coreabi/macos_tundevice_test
@@ -158,7 +158,7 @@ sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_OS="$RUNNER_OS" "$(command -v p
 <a id="linux-owned-routes"></a>
 ### Linux 捕获路由后端
 
-[`LinuxTunRoutes`](../infrastructure/platform/linux/tunroutes.cpp) 负责验证已拥有且配置非零点对点地址的 TUN，再将当前捕获操作交给共享独立表后端；当前协议 8、日志 v2 和 `/32` 选择行为见[独立捕获路由表](#linux-独立捕获路由表)，完整写前／回读／恢复职责见[架构](ARCHITECTURE.md#privileged-helper-entry)。不再创建或运行中修改旧 main 表捕获路由，v1 仅供受保护遗留记录恢复。
+[`LinuxTunRoutes`](../infrastructure/routing/linux/tunroutes.cpp) 负责验证已拥有且配置非零点对点地址的 TUN，再将当前捕获操作交给共享独立表后端；当前协议 8、日志 v2 和 `/32` 选择行为见[独立捕获路由表](#linux-独立捕获路由表)，完整写前／回读／恢复职责见[架构](ARCHITECTURE.md#privileged-helper-entry)。不再创建或运行中修改旧 main 表捕获路由，v1 仅供受保护遗留记录恢复。
 
 ```sh
 sudo unshare --net -- build/coreabi/linux_tunroutes_test --isolated

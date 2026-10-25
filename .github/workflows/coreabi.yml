@@ -3,7 +3,7 @@ name: Core ABI
 on:
   push:
     branches: [develop]
-    paths: &coreabi_paths ['.gitattributes', 'tests/coreabi/**', 'tests/embeddedcoreengine_test.cpp', 'infrastructure/coreengine/**', 'infrastructure/settings/**', 'infrastructure/platform/**', 'application/**', 'presentation/**', 'core/**', 'tests/coreengineui_test.cpp', 'tests/credentialstorefixture.h', 'tests/CoreEngineTests.cmake', 'cmake/**', '.github/actions/setup-core-toolchain/**', 'corelib/**', 'scripts/generate-core-abi.py', 'scripts/build-system-network-helper.sh', 'scripts/network_helper_package.py', 'scripts/windows_helper_sdk.py', 'tests/windows_helper_sdk_test.py', 'resource/network-helper*', 'tests/network_helper_package_test.py', 'tests/platform/**', '.github/workflows/coreabi.yml', '.github/actions/setup-qt/**']
+    paths: &coreabi_paths ['.gitattributes', 'tests/coreabi/**', 'tests/embeddedcoreengine_test.cpp', 'infrastructure/**', 'application/**', 'presentation/**', 'core/**', 'tests/coreengineui_test.cpp', 'tests/credentialstorefixture.h', 'tests/CoreEngineTests.cmake', 'cmake/**', '.github/actions/setup-core-toolchain/**', 'corelib/**', 'scripts/generate-core-abi.py', 'scripts/build-system-network-helper.sh', 'scripts/network_helper_package.py', 'scripts/windows_helper_sdk.py', 'tests/windows_helper_sdk_test.py', 'resource/network-helper*', 'tests/network_helper_package_test.py', 'tests/platform/**', '.github/workflows/coreabi.yml', '.github/actions/setup-qt/**']
   pull_request:
     branches: [main, develop]
     paths: *coreabi_paths

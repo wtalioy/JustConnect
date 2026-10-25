@@ -2,7 +2,7 @@
 #include "presentation/dialogs/networkpolicywindow.h"
 #include "application/applicationlogger.h"
 #include "application/defaultsettings.h"
-#include "infrastructure/platform/terminationrequests.h"
+#include "infrastructure/process/terminationrequests.h"
 #include "infrastructure/logging/applicationlogfile.h"
 #include "infrastructure/settings/profilemanager.h"
 

@@ -4,19 +4,19 @@
 
 #include "application/connectionsession.h"
 #ifdef Q_OS_LINUX
-#include "infrastructure/platform/linux/networkaccess.h"
+#include "infrastructure/networkaccess/linux/networkaccess.h"
 #elif defined(Q_OS_MACOS)
-#include "infrastructure/platform/macos/networkaccess.h"
+#include "infrastructure/networkaccess/macos/networkaccess.h"
 #endif
 #include "application/networkpolicysession.h"
 #include "application/profileservice.h"
 #include "application/systemproxysession.h"
 #include "infrastructure/coreengine/embeddedcoreengine.h"
-#include "infrastructure/platform/proxyrecovery.h"
-#include "infrastructure/platform/dnssnapshot.h"
+#include "infrastructure/systemproxy/proxyrecovery.h"
+#include "infrastructure/dns/dnssnapshot.h"
 #include "infrastructure/settings/profilemanager.h"
 #include "infrastructure/settings/credentialaccess.h"
-#include "infrastructure/platform/systemcredentialstore.h"
+#include "infrastructure/credentialstore/systemcredentialstore.h"
 #include "infrastructure/storage/applicationpaths.h"
 #include "infrastructure/update/updatechecker.h"
 #include "presentation/coordinators/authdialogcoordinator.h"

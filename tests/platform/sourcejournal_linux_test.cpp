@@ -1,4 +1,4 @@
-#include "infrastructure/platform/networkjournal.h"
+#include "infrastructure/networkjournal/networkjournal.h"
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>

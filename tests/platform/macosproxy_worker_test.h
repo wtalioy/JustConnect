@@ -1,6 +1,6 @@
 #pragma once
-#include "infrastructure/platform/macos/credentialstore.h"
-#include "infrastructure/platform/persistentproxy.h"
+#include "infrastructure/credentialstore/macos/credentialstore.h"
+#include "infrastructure/systemproxy/persistentproxy.h"
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>

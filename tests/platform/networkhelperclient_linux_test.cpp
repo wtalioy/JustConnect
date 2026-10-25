@@ -1,4 +1,4 @@
-#include "infrastructure/platform/linux/networkhelperclient.h"
+#include "infrastructure/networkhelper/linux/networkhelperclient.h"
 #include "networkhelperfixture.h"
 #include <QCoreApplication>
 #include <QDeadlineTimer>

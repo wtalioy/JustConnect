@@ -21,7 +21,7 @@ function(justconnect_mac_helper_layout)
         OR NOT JC_MAC_HELPER_RIGHT MATCHES "^[A-Za-z0-9_-]+([.][A-Za-z0-9_-]+)+$")
         message(FATAL_ERROR "Invalid fixed macOS network helper layout")
     endif()
-    configure_file("${REPO}/infrastructure/platform/macos/networkhelperpaths.h.in" macosnetworkhelperpaths.h @ONLY)
+    configure_file("${REPO}/infrastructure/networkhelper/macos/networkhelperpaths.h.in" macosnetworkhelperpaths.h @ONLY)
     configure_file("${REPO}/resource/network-helper-macos.plist.in" "${JC_MAC_HELPER_ID}.plist" @ONLY)
     set(JC_MAC_HELPER_PLIST "${JC_MAC_HELPER_ID}.plist" PARENT_SCOPE)
     set(JC_MAC_HELPER_EXECUTABLE "${JC_MAC_HELPER_EXECUTABLE}" PARENT_SCOPE)
@@ -30,22 +30,22 @@ endfunction()
 function(justconnect_mac_network_helper)
     justconnect_mac_helper_layout()
     add_library(justconnect_macos_network_helper STATIC
-        "${REPO}/infrastructure/platform/macos/networkhelperprotocol.cpp"
-        "${REPO}/infrastructure/platform/macos/networkhelperstate.cpp"
-        "${REPO}/infrastructure/platform/macos/helperauthorization.cpp"
-        "${REPO}/infrastructure/platform/macos/helperidentity.cpp"
-        "${REPO}/infrastructure/platform/macos/helpertransport.cpp"
-        "${REPO}/infrastructure/platform/macos/tundevice.cpp"
-        "${REPO}/infrastructure/platform/macos/routesnapshot.cpp"
-        "${REPO}/infrastructure/platform/macos/tunroutes.cpp"
-        "${REPO}/infrastructure/platform/macos/tundns.cpp"
-        "${REPO}/infrastructure/platform/tundevice.cpp"
-        "${REPO}/infrastructure/platform/networkjournal.cpp"
-        "${REPO}/infrastructure/platform/platformcommand.cpp")
+        "${REPO}/infrastructure/networkhelper/macos/networkhelperprotocol.cpp"
+        "${REPO}/infrastructure/networkhelper/macos/networkhelperstate.cpp"
+        "${REPO}/infrastructure/networkhelper/macos/helperauthorization.cpp"
+        "${REPO}/infrastructure/networkhelper/macos/helperidentity.cpp"
+        "${REPO}/infrastructure/networkhelper/macos/helpertransport.cpp"
+        "${REPO}/infrastructure/tundevice/macos/tundevice.cpp"
+        "${REPO}/infrastructure/routing/macos/routesnapshot.cpp"
+        "${REPO}/infrastructure/routing/macos/tunroutes.cpp"
+        "${REPO}/infrastructure/dns/macos/tundns.cpp"
+        "${REPO}/infrastructure/tundevice/tundevice.cpp"
+        "${REPO}/infrastructure/networkjournal/networkjournal.cpp"
+        "${REPO}/infrastructure/process/command.cpp")
     target_include_directories(justconnect_macos_network_helper PUBLIC "${REPO}" "${CMAKE_CURRENT_BINARY_DIR}")
     target_compile_options(justconnect_macos_network_helper PRIVATE -fblocks)
     target_link_libraries(justconnect_macos_network_helper PUBLIC Qt6::Core "-framework Security" "-framework CoreFoundation" "-framework SystemConfiguration")
-    add_executable(JustConnectNetworkHelper "${REPO}/infrastructure/platform/macos/networkhelpermain.cpp")
+    add_executable(JustConnectNetworkHelper "${REPO}/infrastructure/networkhelper/macos/networkhelpermain.cpp")
     target_link_libraries(JustConnectNetworkHelper PRIVATE justconnect_macos_network_helper)
     target_compile_options(JustConnectNetworkHelper PRIVATE -fblocks)
     target_compile_definitions(JustConnectNetworkHelper PRIVATE JC_HELPER_REVISION="${REVISION}" JC_HELPER_SOURCE_STATE="${SOURCE_STATE}")
