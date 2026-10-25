@@ -61,7 +61,6 @@ def device():
     subprocess.run([str(native / 'windows_registry_journal_test.exe')], env=env, check=True, timeout=30)
     subprocess.run([str(native / 'windows_packet_frame_test.exe')], env=env, check=True, timeout=15)
     subprocess.run([str(native / 'windows_nrpt_test.exe')], env=env, check=True, timeout=30)
-    subprocess.run([str(native / 'windows_recovery_test.exe'), str(dll)], env=env, check=True, timeout=120)
     env['JC_TEST_CPP_WINTUN_BROKER'] = str(native / 'windows_device_broker.exe')
     trap = output / 'windows-device-loader-trap'
     trap.mkdir(exist_ok=True)
@@ -128,7 +127,7 @@ def device():
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--device-only', action='store_true')
-    parser.add_argument('--build-only', action='store_true', help='Compile native Windows backends before installing Qt/Go')
+    parser.add_argument('--build-only', action='store_true', help='Build and check native Windows recovery before installing Qt/Go')
     args = parser.parse_args()
     os.chdir(ROOT)
     if args.build_only:
@@ -136,6 +135,7 @@ def main():
         _, arch, metadata = stage_sdk(output)
         native = build_native(arch, metadata)
         subprocess.run([str(native / 'windows_installation_test.exe'), '--unconfigured'], check=True, timeout=15)
+        subprocess.run([str(native / 'windows_recovery_test.exe'), metadata['driver']], check=True, timeout=120)
         return
     env = device()
     if args.device_only:
