@@ -80,7 +80,10 @@ jobs:
 
       - name: Build Windows native backends before toolchain setup
         if: runner.os == 'Windows'
-        run: python tests/platform/run_windows_packet.py --build-only
+        run: &windows_native_probe |
+          New-Item -ItemType Directory -Force build/coreabi | Out-Null
+          python tests/platform/run_windows_packet.py --build-only 2>&1 | Tee-Object -FilePath build/coreabi/windows-native-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -265,7 +268,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
       - name: Build Windows native backends before toolchain setup
-        run: python tests/platform/run_windows_packet.py --build-only
+        run: *windows_native_probe
       - uses: ./.github/actions/setup-qt
         with:
           host: ${{ matrix.qt_host }}
