@@ -1,8 +1,10 @@
 #include "infrastructure/coreengine/embeddedcoreengine.h"
 #include "tuntraffic.h"
+#include "infrastructure/platform/dnssnapshot.h"
 #include <QCoreApplication>
 #include <QElapsedTimer>
 #include <QJsonDocument>
+#include <QLibrary>
 #include <windows.h>
 
 using ProxyCheck::check;
@@ -33,6 +35,14 @@ int main(int argc,char **argv) {
         && ::GetTokenInformation(token,TokenElevation,&elevation,sizeof(elevation),&size)
         && !elevation.TokenIsElevated,"Qt and Go core run with an ordinary token");
     ::CloseHandle(token);
+    QLibrary runtime(QCoreApplication::applicationDirPath()+"/"+QStringLiteral(JC_SHARED_LIBRARY));
+    runtime.setLoadHints(QLibrary::PreventUnloadHint);
+    if (!runtime.load()) std::cerr << "Native runtime: " << runtime.errorString().toStdString() << '\n';
+    check(runtime.isLoaded(),"Ordinary Windows host can load the actual embedded runtime");
+    check(EmbeddedCoreEngine::buildInfo()["capabilities"].toObject()["windows_ipv4_packet_pipe"].toBool(),"Actual loaded core supports Windows helper pipes");
+    const auto dns = readSystemDnsSnapshot();
+    if (!dns.result.succeeded()) std::cerr << "Native original DNS: " << int(dns.result.status) << " " << dns.result.detail.toStdString() << '\n';
+    check(dns.result.succeeded(),"Ordinary Windows caller can read the real original DNS snapshot");
     const auto config = QJsonDocument::fromJson(argv[2]).object();
     const auto server = config["server"].toObject(), auth = config["auth"].toObject();
     ConnectionProfile profile;
@@ -40,6 +50,7 @@ int main(int argc,char **argv) {
     profile.endpoint.authType = auth["method"].toString().mid(QStringLiteral("auth/").size());
     profile.endpoint.phone = auth["phone"].toString(); profile.endpoint.loginDomain = auth["domain"].toString();
     profile.tls.caPem = config["tls"].toObject()["ca_pem"].toString(); profile.keepAlive.mode = "off";
+    check(EmbeddedCoreEngine::validateConfiguration(profile) == ConnectionError::NONE,"Actual fixture profile passes formal validation");
     EmbeddedCoreEngine engine;
     QString generation; bool ready = false,attached = false; int finished = 0;
     CoreEngine::RequestStatus attachment = CoreEngine::RequestStatus::Failed;
@@ -50,7 +61,10 @@ int main(int argc,char **argv) {
     QObject::connect(&engine,&CoreEngine::diagnostic,[](const QString &value) { std::cerr << value.toStdString() << '\n'; });
     QObject::connect(&engine,&CoreEngine::connectionEstablished,[&] { ready = true; });
     QObject::connect(&engine,&CoreEngine::tunAttached,[&](const QString &,CoreEngine::RequestStatus status) { attachment = status; attached = true; });
-    QObject::connect(&engine,&CoreEngine::finished,[&](ConnectionError error) { check(error == ConnectionError::NONE,"Windows core stopped normally"); ++finished; });
+    QObject::connect(&engine,&CoreEngine::finished,[&](ConnectionError error) {
+        if (error != ConnectionError::NONE) std::cerr << "Native core terminal error=" << int(error) << '\n';
+        check(error == ConnectionError::NONE,"Windows core stopped normally"); ++finished;
+    });
     bool validPID = false;
     const auto helperPID = QByteArray(argv[4]).toUInt(&validPID);
     check(validPID && helperPID,"Actual helper process identity");
