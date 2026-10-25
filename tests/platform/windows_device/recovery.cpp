@@ -1,5 +1,6 @@
 #include "infrastructure/networkhelper/windows/recovery.h"
 #include "infrastructure/tundevice/windows/adapter.h"
+#include "infrastructure/tundevice/windows/recovery.h"
 #include "windowsnetworkcontract.h"
 #include "ordinarytoken.h"
 #include <ws2tcpip.h>
@@ -163,8 +164,13 @@ int wmain(int argc,wchar_t **argv) try
     }
     check(argc==2,"recovery fixture requires the verified Wintun DLL");
     parser();lockBoundary();
-    for(const auto &mode:{L"declared",L"allocated",L"active"})crash(mode,argv[1],false);
+    auto foreign=WindowsTunDevice::create(argv[1],uuid(),address(L"198.51.100.1"),address(L"198.51.100.2"),1400,{},[](const WindowsTunIdentity &){});
+    for(const auto &mode:{L"declared",L"allocated",L"active"}){
+        crash(mode,argv[1],false);
+        check(windowsAdapterPresent(foreign->identity().guid),"recovery removed another live Wintun device");
+    }
     crash(L"active",argv[1],true);
+    check(windowsAdapterPresent(foreign->identity().guid),"conflict recovery removed another live Wintun device");
     return 0;
 } catch(const winrt::hresult_error &error){std::cerr<<winrt::to_string(error.message())<<'\n';return 1;}
 catch(const std::exception &error){std::cerr<<error.what()<<'\n';return 1;}

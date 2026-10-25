@@ -18,6 +18,7 @@ function(justconnect_windows_helper_support TARGET)
         "${REPO}/infrastructure/networkhelper/windows/publisher.cpp"
         "${REPO}/infrastructure/networkhelper/windows/installation.cpp"
         "${REPO}/infrastructure/networkhelper/windows/recovery.cpp"
+        "${REPO}/infrastructure/tundevice/windows/recovery.cpp"
         "${REPO}/infrastructure/dns/windows/nrpt.cpp"
         "${REPO}/infrastructure/networkjournal/windows/registry.cpp")
     target_include_directories(${TARGET} PUBLIC "${REPO}" "${CMAKE_CURRENT_BINARY_DIR}")
