@@ -6,6 +6,7 @@
 class AuthDialogCoordinator;
 class ConnectionSession;
 class CoreEngine;
+class NetworkAccess;
 class NetworkPolicySession;
 class CredentialAccess;
 struct CredentialSource;
@@ -19,10 +20,13 @@ class MainWindowCoordinator : public QObject
     Q_OBJECT
 
 public:
+    using NetworkFactory = NetworkAccess *(*)(CoreEngine *, NetworkPolicySession *);
+
     MainWindowCoordinator(
         QWidget *parentWidget,
         const QString &overrideConfigPath,
-        QObject *parent = nullptr
+        QObject *parent = nullptr,
+        NetworkFactory networkFactory = nullptr
     );
 
     ~MainWindowCoordinator() override;

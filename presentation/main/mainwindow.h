@@ -34,7 +34,8 @@ public:
     explicit MainWindow(
         ApplicationLogger *logger,
         ApplicationLogFile *logFile,
-        QWidget *parent = nullptr
+        QWidget *parent = nullptr,
+        MainWindowCoordinator::NetworkFactory networkFactory = nullptr
     );
 
     ~MainWindow() override;

@@ -21,10 +21,29 @@
 #include "infrastructure/update/updatechecker.h"
 #include "presentation/coordinators/authdialogcoordinator.h"
 
+namespace {
+NetworkAccess *createNetworkAccess(CoreEngine *core, NetworkPolicySession *policy)
+{
+#if defined(Q_OS_LINUX) || defined(Q_OS_MACOS)
+    const auto mtu = EmbeddedCoreEngine::buildInfo()["capabilities"].toObject()["tunnel_mtu"].toInt();
+#ifdef Q_OS_LINUX
+    return new LinuxNetworkAccess(core, policy, mtu);
+#else
+    return new MacNetworkAccess(core, policy, mtu);
+#endif
+#else
+    Q_UNUSED(core)
+    Q_UNUSED(policy)
+    return nullptr;
+#endif
+}
+}
+
 MainWindowCoordinator::MainWindowCoordinator(
     QWidget *parentWidget,
     const QString &overrideConfigPath,
-    QObject *parent
+    QObject *parent,
+    NetworkFactory networkFactory
 )
     : QObject(parent),
       profileService(new ProfileService(
@@ -35,16 +54,7 @@ MainWindowCoordinator::MainWindowCoordinator(
       coreEngine(new EmbeddedCoreEngine()),
       networkPolicySession(new NetworkPolicySession(coreEngine, readSystemDnsSnapshot, this)),
       connectionSession(new ConnectionSession(coreEngine, this,
-#ifdef Q_OS_LINUX
-          new LinuxNetworkAccess(coreEngine, networkPolicySession,
-              EmbeddedCoreEngine::buildInfo()["capabilities"].toObject()["tunnel_mtu"].toInt())
-#elif defined(Q_OS_MACOS)
-          new MacNetworkAccess(coreEngine, networkPolicySession,
-              EmbeddedCoreEngine::buildInfo()["capabilities"].toObject()["tunnel_mtu"].toInt())
-#else
-          nullptr
-#endif
-      )),
+          (networkFactory ? networkFactory : createNetworkAccess)(coreEngine, networkPolicySession))),
       systemProxySession(new SystemProxySession(
           std::make_unique<ProxyRecoveryBackend>(),
           this

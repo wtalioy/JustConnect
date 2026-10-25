@@ -55,7 +55,8 @@ bool appendStyleSheet(const QString &path, QString &styleSheet)
 MainWindow::MainWindow(
     ApplicationLogger *logger,
     ApplicationLogFile *logFile,
-    QWidget *parent
+    QWidget *parent,
+    MainWindowCoordinator::NetworkFactory networkFactory
 ) :
     QMainWindow(parent),
     ui(new Ui::MainWindow),
@@ -64,7 +65,7 @@ MainWindow::MainWindow(
 {
     const QString overrideConfigPath =
         CommandLineOptions::value(QCoreApplication::arguments(), "--config-path");
-    coordinator = new MainWindowCoordinator(this, overrideConfigPath, this);
+    coordinator = new MainWindowCoordinator(this, overrideConfigPath, this, networkFactory);
     profileService = coordinator->profiles();
     currentProfileId = profileService->currentProfileId();
     settings = profileService->settings();

@@ -55,7 +55,8 @@ int main(int argc,char **argv) {
     {
         ProfileManager manager;
         QSettings settings(manager.profilePath(""),QSettings::IniFormat);DefaultSettings::reset(settings);settings.sync();
-        MainWindow window(&logger,&log);
+        // UI preference tests retain the real core without requesting host network privileges.
+        MainWindow window(&logger,&log,nullptr,[](CoreEngine *,NetworkPolicySession *) -> NetworkAccess * { return nullptr; });
         check(window.isVisible(),"normal startup must show the main window");
         check(window.findChild<QLabel *>("statusTitleLabel")->text()!="已连接","disconnected cannot claim campus readiness");
         window.showMinimized();QCoreApplication::processEvents();
