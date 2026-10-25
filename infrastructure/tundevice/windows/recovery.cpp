@@ -10,6 +10,7 @@
 #include <system_error>
 
 namespace {
+constexpr ULONGLONG RemovalTimeoutMs=5000;
 [[noreturn]] void fail(const char *stage,LONG error=GetLastError()) {throw std::system_error(static_cast<int>(error),std::system_category(),stage);}
 std::wstring instance(const GUID &adapter)
 {
@@ -65,12 +66,21 @@ bool windowsAdapterPresent(const GUID &adapter)
 }
 void restoreWindowsAdapter(const GUID &adapter)
 {
-    Node node(adapter);
-    if (!node.found) return;
-    SP_REMOVEDEVICE_PARAMS removal{};
-    removal.ClassInstallHeader.cbSize=sizeof(SP_CLASSINSTALL_HEADER);
-    removal.ClassInstallHeader.InstallFunction=DIF_REMOVE;
-    removal.Scope=DI_REMOVEDEVICE_GLOBAL;
-    if (!SetupDiSetClassInstallParamsW(node.devices,&node.device,&removal.ClassInstallHeader,sizeof(removal))
-        || !SetupDiCallClassInstaller(DIF_REMOVE,node.devices,&node.device)) fail("remove abandoned owned Wintun node");
+    {
+        Node node(adapter);
+        if (node.found) {
+            SP_REMOVEDEVICE_PARAMS removal{};
+            removal.ClassInstallHeader.cbSize=sizeof(SP_CLASSINSTALL_HEADER);
+            removal.ClassInstallHeader.InstallFunction=DIF_REMOVE;
+            removal.Scope=DI_REMOVEDEVICE_GLOBAL;
+            if (!SetupDiSetClassInstallParamsW(node.devices,&node.device,&removal.ClassInstallHeader,sizeof(removal))
+                || !SetupDiCallClassInstaller(DIF_REMOVE,node.devices,&node.device)) fail("remove abandoned owned Wintun node");
+        }
+    }
+    // SwDeviceClose initiates asynchronous PnP removal; never publish a receipt before it settles.
+    const auto deadline=GetTickCount64()+RemovalTimeoutMs;
+    while(windowsAdapterPresent(adapter)) {
+        if(GetTickCount64()>=deadline)fail("owned Wintun removal remains pending",ERROR_TIMEOUT);
+        Sleep(50);
+    }
 }
