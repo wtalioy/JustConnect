@@ -31,6 +31,7 @@ class WindowsHelperSDKTest(unittest.TestCase):
         for arch in self.contract['sdk']['architectures']:
             with self.subTest(arch=arch), tempfile.TemporaryDirectory() as directory, \
                     patch.object(sdk_module.urllib.request, 'urlopen', return_value=io.BytesIO(self.data)):
+                directory = Path(directory).resolve()
                 result = sdk_module.stage(self.contract, directory, arch)
                 expected = b'x64-native-payload' if arch == 'amd64' else b'arm64-native-payload'
                 self.assertEqual(Path(result['driver']).read_bytes(), expected)
