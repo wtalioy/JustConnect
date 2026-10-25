@@ -33,21 +33,45 @@ SOCKADDR_INET ipv4(IN_ADDR address)
     result.Ipv4.sin_addr = address;
     return result;
 }
+bool same(const WindowsTunPrefix &a,const WindowsTunPrefix &b){return a.address.S_un.S_addr==b.address.S_un.S_addr && a.bits==b.bits;}
+MIB_IPFORWARD_ROW2 ownedRoute(NET_LUID luid,const WindowsTunPrefix &target)
+{
+    MIB_IPFORWARD_ROW2 route{};InitializeIpForwardEntry(&route);
+    route.InterfaceLuid=luid;route.DestinationPrefix.Prefix=ipv4(target.address);route.DestinationPrefix.PrefixLength=target.bits;
+    route.NextHop=ipv4(IN_ADDR{});route.Metric=1;route.Protocol=MIB_IPPROTO_NETMGMT;return route;
+}
+bool present(const MIB_IPFORWARD_ROW2 &expected)
+{
+    auto actual=expected;const auto status=GetIpForwardEntry2(&actual);
+    if(status==ERROR_NOT_FOUND || status==ERROR_FILE_NOT_FOUND)return false;
+    checked(status,"inspect owned IPv4 capture");
+    if(actual.Metric!=expected.Metric || actual.Protocol!=expected.Protocol || actual.Loopback || actual.AutoconfigureAddress)
+        fail("owned IPv4 capture was externally changed",ERROR_INVALID_DATA);
+    return true;
+}
+}
+
+void WindowsTunDevice::validate(IN_ADDR source,IN_ADDR peer,unsigned int maximum,const std::vector<WindowsTunPrefix> &targets)
+{
+    if(!unicast(source) || !unicast(peer) || source.S_un.S_addr==peer.S_un.S_addr || maximum<68 || maximum>65535)
+        fail("invalid owned adapter configuration",ERROR_INVALID_PARAMETER);
+    for(const auto &target:targets){
+        const auto network=ntohl(target.address.S_un.S_addr);
+        const auto mask=target.bits<=32 && target.bits>0?0xffffffffu<<(32-target.bits):0;
+        const auto last=network|~mask;
+        if(target.bits<2 || target.bits>32 || (network&mask)!=network || network<0x01000000u || last>=0xe0000000u
+            || (network<=0x7fffffffu && last>=0x7f000000u) || (ntohl(source.S_un.S_addr)&mask)==network)
+            fail("invalid owned capture prefix",ERROR_INVALID_PARAMETER);
+    }
 }
 
 std::unique_ptr<WindowsTunDevice> WindowsTunDevice::create(const std::wstring &dll, const GUID &owner,
     IN_ADDR source, IN_ADDR peer, unsigned int maximum, const std::vector<WindowsTunPrefix> &targets,
     const std::function<void(const WindowsTunIdentity &)> &allocated)
 {
-    if (!std::filesystem::path(dll).is_absolute() || owner == GUID{} || !allocated
-        || !unicast(source) || !unicast(peer) || source.S_un.S_addr == peer.S_un.S_addr || maximum < 68 || maximum > 65535)
+    validate(source,peer,maximum,targets);
+    if (!std::filesystem::path(dll).is_absolute() || owner == GUID{} || !allocated)
         fail("invalid owned adapter configuration", ERROR_INVALID_PARAMETER);
-    for (const auto &target : targets) {
-        const auto mask = target.bits <= 32 && target.bits > 0 ? 0xffffffffu << (32-target.bits) : 0;
-        const auto network = ntohl(target.address.S_un.S_addr);
-        if (target.bits < 2 || target.bits > 32 || (network & mask) != network || (ntohl(source.S_un.S_addr) & mask) == network)
-            fail("invalid owned capture prefix", ERROR_INVALID_PARAMETER);
-    }
     auto device = std::unique_ptr<WindowsTunDevice>(new WindowsTunDevice);
     device->module = LoadLibraryExW(dll.c_str(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
     if (!device->module) fail("load verified Wintun library");
@@ -66,6 +90,7 @@ std::unique_ptr<WindowsTunDevice> WindowsTunDevice::create(const std::wstring &d
     device->owned.name = std::wstring(L"JustConnect ")+guid;
     device->owned.guid = owner;
     device->mtu = maximum;
+    device->source=source;device->peer=peer;
     MIB_IF_TABLE2 *table = nullptr;
     checked(GetIfTable2Ex(MibIfTableNormalWithoutStatistics,&table),"read existing adapter identities");
     bool present = false;
@@ -123,24 +148,39 @@ void WindowsTunDevice::configure(IN_ADDR source, IN_ADDR peer, const std::vector
     checked(GetUnicastIpAddressEntry(&address),"confirm owned IPv4 address");
     if (address.InterfaceLuid.Value != owned.luid.Value || address.OnLinkPrefixLength != 32 || address.DadState != IpDadStatePreferred)
         fail("owned IPv4 address differs",ERROR_INVALID_DATA);
-    std::vector<WindowsTunPrefix> routes{{peer,32}};
-    routes.insert(routes.end(),targets.begin(),targets.end());
-    std::vector<WindowsTunPrefix> seen;
-    for (const auto &target : routes) {
-        if (std::any_of(seen.begin(),seen.end(),[&](const auto &item) { return item.address.S_un.S_addr == target.address.S_un.S_addr && item.bits == target.bits; })) continue;
-        seen.push_back(target);
-        MIB_IPFORWARD_ROW2 route{};
-        InitializeIpForwardEntry(&route);
-        route.InterfaceLuid = owned.luid;
-        route.DestinationPrefix.Prefix = ipv4(target.address);
-        route.DestinationPrefix.PrefixLength = target.bits;
-        route.NextHop = ipv4(IN_ADDR{});
-        route.Metric = 1;
-        route.Protocol = MIB_IPPROTO_NETMGMT;
+    auto route=ownedRoute(owned.luid,{peer,32});
+    checked(CreateIpForwardEntry2(&route),"create owned peer route");
+    if(!present(route))fail("owned peer route disappeared",ERROR_NOT_FOUND);
+    reconcile(targets);
+}
+
+void WindowsTunDevice::reconcile(const std::vector<WindowsTunPrefix> &targets)
+{
+    validate(source,peer,mtu,targets);
+    std::lock_guard<std::mutex> serial(writeLock);
+    std::shared_lock<std::shared_mutex> active(lifetime);
+    if(closed)fail("owned adapter stopped",ERROR_OPERATION_ABORTED);
+    MIB_IF_ROW2 identity{};identity.InterfaceLuid=owned.luid;
+    checked(GetIfEntry2Ex(MibIfEntryNormalWithoutStatistics,&identity),"confirm capture interface identity");
+    if(identity.InterfaceGuid!=owned.guid || identity.InterfaceIndex!=owned.index || owned.name!=identity.Alias)fail("capture interface identity changed",ERROR_INVALID_DATA);
+    for(const auto &target:captures)if(!present(ownedRoute(owned.luid,target)))fail("owned capture disappeared",ERROR_NOT_FOUND);
+    std::vector<WindowsTunPrefix> wanted;
+    for(const auto &target:targets)if(!same(target,{peer,32}) && std::none_of(wanted.begin(),wanted.end(),[&](const auto &item){return same(item,target);}))wanted.push_back(target);
+    for(const auto &target:wanted){
+        if(std::any_of(captures.begin(),captures.end(),[&](const auto &item){return same(item,target);}))continue;
+        auto route=ownedRoute(owned.luid,target);
+        if(present(route))fail("refuse pre-existing capture route",ERROR_ALREADY_EXISTS);
         checked(CreateIpForwardEntry2(&route),"create owned IPv4 capture");
-        checked(GetIpForwardEntry2(&route),"confirm owned IPv4 capture");
-        if (route.InterfaceLuid.Value != owned.luid.Value || route.Metric != 1 || route.Protocol != MIB_IPPROTO_NETMGMT)
-            fail("owned IPv4 capture differs",ERROR_INVALID_DATA);
+        captures.push_back(target);
+        if(!present(route))fail("new owned capture disappeared",ERROR_NOT_FOUND);
+    }
+    for(auto target=captures.begin();target!=captures.end();){
+        if(std::any_of(wanted.begin(),wanted.end(),[&](const auto &item){return same(item,*target);})){++target;continue;}
+        const auto route=ownedRoute(owned.luid,*target);
+        if(!present(route))fail("capture changed before deletion",ERROR_NOT_FOUND);
+        checked(DeleteIpForwardEntry2(&route),"delete owned IPv4 capture");
+        if(present(route))fail("deleted capture reappeared",ERROR_INVALID_DATA);
+        target=captures.erase(target);
     }
 }
 

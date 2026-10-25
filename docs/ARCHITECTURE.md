@@ -164,6 +164,10 @@ Windows 的 C++ 部件按职责放在 `tundevice/windows`、`packetpipe/windows`
 
 `--authorize` 由普通 Qt 作为普通子进程启动，隔离系统 [ShellExecuteExW](https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-shellexecuteexw) 的同步授权等待。启动器先固定并验证自身签名／链接映像和驱动／许可证，再只以 `runas` 启动本次同一映像的 `--control`；核对实际批准进程映像后，只向原调用进程转交查询／等待句柄，不传管理员令牌。Qt 客户端以单一 worker 串行请求，管道连接与 I/O 均可取消；旧授权按代次释放，取消后的提权进程无客户端可进入网络操作。关闭应答须由客户端确认，客户端等待实际进程退出后释放通道，避免尾帧在关闭时丢失。普通启动器、安装与已安装恢复各有职责，Qt 的动态运行时不进入原生助手；此客户端尚未接入完整接管主链，真实桌面及跨账户授权仍待实机验证。
 
+Windows 活动会话与控制协议 2 共用已批准进程，私有设备与环仍由 C++ 持有。`apply` 只接受规范 IPv4 地址对、MTU、捕获前缀及明确 DNS 域名，生成新适配器 UUID 并在创建前保存所有权；禁止默认、回环、多播及捕获自有源地址。数据管道独立于控制管道，名称由契约和会话 UUID 推导，仍核对实际客户端 PID／SID。Qt 只持有可借出的原生管道，Go 自行复制并直接收发，逐包链路复用既有原生 relay。
+
+`routes` 在所属接口核对现有条目，追加／删除均回读确认，不改其他接口；`quiesce` 先保存恢复意图，再撤回 DNS 与捕获，暂留私有设备／管道供核心有序停止；`restore` 验证当前助手身份，释放设备并确认 IP／PnP 均消失后保存持久回执。DNS 外部改写保留并报告，仍停止自有数据面；未知助手不能执行正常释放。独立服务与正常释放复用同一恢复检查点，Qt 使用 [QWinEventNotifier](https://doc.qt.io/qt-6/qwineventnotifier.html) 监测实际进程结束，无额外状态轮询。此后端的普通 Qt 夹具包含真实 UDP 与动态路由，正式 ConnectionSession／Go 接入和真实环境状态见计划。
+
 同机组件对照使用同一普通 Go 客户端、真实 Wintun、帧 IPC 和 4096 次四字节 UDP 往返。以下是单次配对样本，CPU 包含建链／配置，不能代表校园或完整 Qt 吞吐上限：
 
 | 平台／源码 | Go → C++ 包／秒 | Go → C++ 峰值工作集 | Go → C++ 总 CPU 秒 | Go → C++ 延迟 P50／P99（微秒） |

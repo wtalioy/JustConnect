@@ -10,7 +10,7 @@ namespace {
 }
 }
 
-std::unique_ptr<WindowsPacketPipe> WindowsPacketPipe::listen(const std::wstring &name,const WindowsProcess &caller,DWORD timeout)
+std::unique_ptr<WindowsPacketPipe> WindowsPacketPipe::create(const std::wstring &name,const WindowsProcess &caller)
 {
     auto stream=std::unique_ptr<WindowsPacketPipe>(new WindowsPacketPipe);
     const auto sddl=L"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;"+caller.identity().sid+L")S:(ML;;NW;;;ME)";
@@ -23,8 +23,12 @@ std::unique_ptr<WindowsPacketPipe> WindowsPacketPipe::listen(const std::wstring 
     LocalFree(descriptor);
     if (stream->pipe==INVALID_HANDLE_VALUE) fail("create private packet pipe",error);
     stream->initialize();
-    stream->accept(caller,timeout);
     return stream;
+}
+
+std::unique_ptr<WindowsPacketPipe> WindowsPacketPipe::listen(const std::wstring &name,const WindowsProcess &caller,DWORD timeout)
+{
+    auto stream=create(name,caller);stream->accept(caller,timeout);return stream;
 }
 
 void WindowsPacketPipe::initialize()
@@ -80,6 +84,9 @@ void WindowsPacketPipe::complete(OVERLAPPED &operation,DWORD &size,BOOL started,
 
 void WindowsPacketPipe::accept(const WindowsProcess &caller,DWORD timeout)
 {
+    std::lock_guard<std::mutex> serial(readLock);
+    std::shared_lock<std::shared_mutex> active(lifetime);
+    if(closed)fail("packet pipe stopped",ERROR_OPERATION_ABORTED);
     OVERLAPPED operation{};
     operation.hEvent=readReady;
     const auto started=ConnectNamedPipe(pipe,&operation);

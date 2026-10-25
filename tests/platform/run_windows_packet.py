@@ -135,6 +135,7 @@ def main():
         output = pathlib.Path('build/coreabi').resolve()
         _, arch, metadata = stage_sdk(output)
         native = build_native(arch, metadata)
+        subprocess.run([str(native / 'windows_session_test.exe')], check=True, timeout=15)
         subprocess.run([str(native / 'windows_installation_test.exe'), '--unconfigured'], check=True, timeout=15)
         verify_system_dns(native / 'windows_system_dns_test.exe')
         subprocess.run([str(native / 'windows_recovery_test.exe'), metadata['driver']], check=True, timeout=120)

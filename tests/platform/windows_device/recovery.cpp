@@ -182,6 +182,34 @@ void crash(const std::wstring &mode,const std::wstring &dll,bool externalChange,
     WindowsRegistryJournal journal;journal.remove(next.owner);
     std::wcout<<L"PASS: "<<(managed?L"SCM independent":L"native")<<L" recovery at "<<mode<<(externalChange?L" with external DNS preservation":L"")<<L", persistent receipt and fresh UUID gate\n";
 }
+void ownedRelease(const std::wstring &dll,bool externalChange)
+{
+    auto record=fresh();
+    auto domain=guid(record.owner).substr(1,36);for(auto &c:domain)c=static_cast<wchar_t>(towlower(c));
+    record.dns=WindowsDnsRule::create({domain+L".invalid"},address(L"192.0.2.2"));
+    WindowsNetworkRecovery recovery;recovery.declare(record);
+    auto device=WindowsTunDevice::create(dll,record.adapter,address(L"192.0.2.1"),address(L"192.0.2.2"),1400,{},[](const auto &){});
+    record.dns->applySystem();Key rule;rule.value=systemRule(*record.dns);
+    WindowsRegistryJournal journal;
+    auto replaced=record;++replaced.helper.created;journal.write(record.owner,encodeWindowsNetworkRecord(replaced));
+    bool released=false;
+    const auto release=[&]{released=true;device->close();restoreWindowsAdapter(record.adapter);};
+    refused([&]{recovery.restoreOwned(record.owner,release);},"another helper identity released live ownership");
+    check(!released && windowsAdapterPresent(record.adapter),"refused live release still changed its device");
+    journal.write(record.owner,encodeWindowsNetworkRecord(record));
+    if(externalChange){
+        server(rule.value,L"192.0.2.54");
+        refused([&]{recovery.restoreOwned(record.owner,release);},"live restore overwrote external DNS");
+        check(released && !windowsAdapterPresent(record.adapter) && recovery.read(record.owner).phase==WindowsRecoveryPhase::Restoring,"foreign DNS prevented safe device release or lost recovery intent");
+        server(rule.value,L"192.0.2.2");
+    }
+    check(recovery.restoreOwned(record.owner,[&]{
+        DWORD type=0;check(RegQueryValueExW(rule.value,L"Name",nullptr,&type,nullptr,nullptr)==ERROR_KEY_DELETED,"device release preceded owned DNS release");release();
+    }),"live owner did not publish its restored receipt");
+    check(recovery.read(record.owner).phase==WindowsRecoveryPhase::Restored,"live release lost its durable receipt");
+    recovery.acknowledge(record.owner,record.caller.sid);
+    std::cout<<"PASS: live owned restore, helper identity, DNS-before-device release"<<(externalChange?" and foreign DNS preservation":"")<<'\n';
+}
 }
 
 int wmain(int argc,wchar_t **argv) try
@@ -197,6 +225,7 @@ int wmain(int argc,wchar_t **argv) try
     check(argc==2 || managed,"recovery fixture requires the verified Wintun DLL");
     const auto dll=argv[managed?2:1];
     parser();lockBoundary();
+    if(!managed){ownedRelease(dll,false);ownedRelease(dll,true);}
     if(managed)serviceBoundary();
     auto foreign=WindowsTunDevice::create(dll,uuid(),address(L"198.51.100.1"),address(L"198.51.100.2"),1400,{},[](const WindowsTunIdentity &){});
     for(const auto &mode:{L"declared",L"allocated",L"active"}){

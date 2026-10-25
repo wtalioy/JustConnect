@@ -12,6 +12,7 @@
 #include <charconv>
 #include <iterator>
 #include <system_error>
+#include <exception>
 
 using namespace winrt::Windows::Data::Json;
 namespace {
@@ -185,13 +186,43 @@ bool WindowsNetworkRecovery::restoreAbandoned(const GUID &owner,const std::wstri
     if (!callerSid.empty() && record.caller.sid!=callerSid) fail("network recovery belongs to another account",ERROR_ACCESS_DENIED);
     if (record.phase==WindowsRecoveryPhase::Restored) return true;
     if (record.helper.alive()) return false;
+    return restoreRecord(record,[&]{restoreWindowsAdapter(record.adapter);});
+}
+bool WindowsNetworkRecovery::restoreOwned(const GUID &owner,const std::function<void()> &release)
+{
+    WindowsNetworkLock lock;
+    auto record=ownedRecord(owner);
+    if(!release)fail("missing owned device release",ERROR_INVALID_PARAMETER);
+    if(record.phase==WindowsRecoveryPhase::Restored)return true;
+    return restoreRecord(record,release);
+}
+WindowsNetworkRecord WindowsNetworkRecovery::ownedRecord(const GUID &owner)
+{
+    auto record=decodeWindowsNetworkRecord(journal.read(owner));
+    WindowsProcess current(GetCurrentProcessId());
+    if(record.owner!=owner || !same(record.helper,current.identity()))fail("network release belongs to another helper",ERROR_ACCESS_DENIED);
+    return record;
+}
+void WindowsNetworkRecovery::beginOwnedRestore(const GUID &owner)
+{
+    WindowsNetworkLock lock;auto record=ownedRecord(owner);
+    if(record.phase!=WindowsRecoveryPhase::Restored){beginRestore(record);if(record.dns)record.dns->restoreSystem();}
+}
+void WindowsNetworkRecovery::beginRestore(WindowsNetworkRecord &record)
+{
     if (record.phase!=WindowsRecoveryPhase::Restoring) {
-        record.phase=WindowsRecoveryPhase::Restoring;journal.write(owner,encodeWindowsNetworkRecord(record));
+        record.phase=WindowsRecoveryPhase::Restoring;journal.write(record.owner,encodeWindowsNetworkRecord(record));
     }
-    if (record.dns) record.dns->restoreSystem();
-    restoreWindowsAdapter(record.adapter);
+}
+bool WindowsNetworkRecovery::restoreRecord(WindowsNetworkRecord &record,const std::function<void()> &release)
+{
+    beginRestore(record);
+    std::exception_ptr failure;
+    try{if(record.dns)record.dns->restoreSystem();}catch(...){failure=std::current_exception();}
+    try{release();}catch(...){if(!failure)failure=std::current_exception();}
+    if(failure)std::rethrow_exception(failure);
     if (windowsAdapterPresent(record.adapter)) return false;
-    record.phase=WindowsRecoveryPhase::Restored;journal.write(owner,encodeWindowsNetworkRecord(record));
+    record.phase=WindowsRecoveryPhase::Restored;journal.write(record.owner,encodeWindowsNetworkRecord(record));
     return true;
 }
 void WindowsNetworkRecovery::acknowledge(const GUID &owner,const std::wstring &callerSid)

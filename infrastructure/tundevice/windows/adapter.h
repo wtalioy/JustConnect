@@ -32,6 +32,8 @@ public:
     WindowsTunDevice(const WindowsTunDevice &) = delete;
     WindowsTunDevice &operator=(const WindowsTunDevice &) = delete;
     const WindowsTunIdentity &identity() const { return owned; }
+    static void validate(IN_ADDR source,IN_ADDR peer,unsigned int mtu,const std::vector<WindowsTunPrefix> &targets);
+    void reconcile(const std::vector<WindowsTunPrefix> &targets);
     size_t read(unsigned char *packet, size_t capacity);
     void write(const unsigned char *packet, size_t size);
     void close();
@@ -44,6 +46,8 @@ private:
     WINTUN_SESSION_HANDLE session = nullptr;
     HANDLE ready = nullptr, stop = nullptr;
     unsigned int mtu = 0;
+    IN_ADDR source{},peer{};
+    std::vector<WindowsTunPrefix> captures;
     std::atomic<bool> closed{false};
     std::shared_mutex lifetime;
     std::mutex readLock, writeLock;

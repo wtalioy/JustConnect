@@ -145,14 +145,24 @@ void scenario(const std::wstring &helper,const std::wstring &mode,const std::wst
     WindowsProcess caller(GetProcessId(gui.process.value)),current(GetCurrentProcessId());
     WindowsRegistryJournal journal;Input payload;
     payload.dead=uuid();payload.live=uuid();payload.foreign=uuid();
-    struct Cleanup {WindowsRegistryJournal &journal;Input &input;~Cleanup(){for(const auto &id:{input.dead,input.live,input.foreign}){try{journal.remove(id);}catch(...){}}}} cleanup{journal,payload};
+    struct Cleanup {
+        WindowsRegistryJournal &journal;Input &input;GUID session;std::wstring sid;bool network;
+        ~Cleanup(){
+            if(network){
+                try{WindowsNetworkRecovery recovery;if(recovery.restoreAbandoned(session))recovery.acknowledge(session,sid);}
+                catch(const std::system_error &error){if(error.code().value()!=ERROR_FILE_NOT_FOUND)std::cerr<<"session fixture cleanup: "<<error.what()<<'\n';}
+                return;
+            }
+            for(const auto &id:{input.dead,input.live,input.foreign}){try{journal.remove(id);}catch(...){}}
+        }
+    } cleanup{journal,payload,session,caller.identity().sid,mode==L"network"};
     auto record=WindowsNetworkRecord{payload.live,uuid(),caller.identity(),current.identity(),{},WindowsRecoveryPhase::Declared};
-    journal.write(record.owner,encodeWindowsNetworkRecord(record));
+    if(mode!=L"network")journal.write(record.owner,encodeWindowsNetworkRecord(record));
     const auto liveRecord=encodeWindowsNetworkRecord(record);
     record.owner=payload.dead;record.adapter=uuid();--record.helper.created;
-    journal.write(record.owner,encodeWindowsNetworkRecord(record));
+    if(mode!=L"network")journal.write(record.owner,encodeWindowsNetworkRecord(record));
     record.owner=payload.foreign;record.adapter=uuid();record.caller.sid=L"S-1-5-18";record.phase=WindowsRecoveryPhase::Restored;
-    journal.write(record.owner,encodeWindowsNetworkRecord(record));
+    if(mode!=L"network")journal.write(record.owner,encodeWindowsNetworkRecord(record));
     const auto foreignRecord=encodeWindowsNetworkRecord(record);
     Process elevated;
     if(mode==L"server-mismatch" || mode==L"authorize-cancel" || mode==L"authorize-replaced")elevated.start(L"\""+executable()+L"\" --idle");
@@ -169,10 +179,11 @@ void scenario(const std::wstring &helper,const std::wstring &mode,const std::wst
         transfer(input.value,&payload,sizeof(payload),true);
         check(gui.wait()==0,"ordinary control client failed");
         if(mode!=L"authorize-cancel" && mode!=L"authorize-replaced"){
-            const auto code=elevated.wait();check(code==(mode==L"normal" || mode==L"authorize"?0:1),"control helper accepted an invalid session");
+            const auto code=elevated.wait();check(code==(mode==L"normal" || mode==L"authorize" || mode==L"network"?0:1),"control helper accepted an invalid session");
         }
     }
-    check(journal.read(payload.live)==liveRecord && journal.read(payload.foreign)==foreignRecord,"control modified live or foreign ownership");
+    if(mode!=L"network")check(journal.read(payload.live)==liveRecord && journal.read(payload.foreign)==foreignRecord,"control modified live or foreign ownership");
+    else{bool absent=false;try{journal.read(session);}catch(const std::system_error &error){absent=error.code().value()==ERROR_FILE_NOT_FOUND;}check(absent,"normal network stop left an unacknowledged record");}
     std::wcout<<L"PASS: native authenticated control "<<mode<<L'\n';
 }
 }
@@ -186,7 +197,7 @@ int wmain(int argc,wchar_t **argv) try
     }
     wchar_t guarded[8]{};
     check((argc==2 || (argc==4 && std::wstring(argv[1])==L"--qt")) && GetEnvironmentVariableW(L"GITHUB_ACTIONS",guarded,8)==4 && std::wstring(guarded)==L"true","control mutation requires disposable runner");
-    if(argc==4){scenario(argv[2],L"normal",argv[3]);return 0;}
+    if(argc==4){scenario(argv[2],L"normal",argv[3]);scenario(argv[2],L"network",argv[3]);return 0;}
     for(const auto mode:{L"normal",L"authorize",L"authorize-cancel",L"authorize-replaced",L"server-mismatch",L"replaced",L"session-mismatch",L"unknown-field",L"unknown-operation",L"oversized",L"io-timeout",L"eof"})scenario(argv[1],mode);
     return 0;
 }catch(const std::exception &error){std::cerr<<error.what()<<'\n';return 1;}
