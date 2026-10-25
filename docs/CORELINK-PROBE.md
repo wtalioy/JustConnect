@@ -54,7 +54,7 @@ D2 的设备入口子方案已收敛：Linux／macOS 使用最小授权助手创
 
 独立控制进程先安装只约束设备助手的 Job 生命周期，再恢复其主线程；异常时仅清理本次随机名称及创建时捕获的 Wintun PnP 实例。此 Job 不管理 VPN 核心，原型不修改既有接口、DNS 或默认路由。本机只运行七项原生只读／令牌／帧／协议边界检查及拒绝本机设备操作的入口检查。日志／SDK 来源元数据随各组 artifact 保存。
 
-设备操作现复用正式 `internal/tundevice/windows/wintun`：以新 UUID／GUID 创建专属适配器，经原生 IP Helper 配置自身 IPv4 `/32`、MTU、对端与获选捕获路由并回读，助手持有环至停止，不调用 PowerShell 配置网络。`allocated` 仍在配置前确认 LUID／GUID 与原始 PnP 实例，`configured` 在实际回读后发布；失败不丢原清理身份。保留五组真实内核收发、超大帧、强杀及配置后失败的独有设备／PnP 清理断言。令牌转换由两个原生夹具共用，不复制权限模型。前序独立原型的 [`5e51df0` 六组 Core ABI／设备](https://github.com/wtalioy/JustConnect/actions/runs/39807827167)及[三平台应用测试](https://github.com/wtalioy/JustConnect/actions/runs/39807827099)已通过；迁移后的原生结果见计划，不以旧原型证明新后端。CI 固定 pwsh 仅用于运行前验证官方 SDK 签名，原配置／查找脚本已删除。
+设备操作现复用 C++ `infrastructure/tundevice/windows/adapter.cpp`：以新 UUID／GUID 创建专属适配器，经原生 IP Helper 配置自身 IPv4 `/32`、MTU、对端与获选捕获路由并回读，助手持有环至停止，不调用 PowerShell 配置网络。`allocated` 仍在配置前确认 LUID／GUID 与原始 PnP 实例，`configured` 在实际回读后发布；失败不丢原清理身份。保留五组真实内核收发、超大帧、强杀及配置后失败的独有设备／PnP 清理断言。C++ 设备／权限夹具共用原生降权工具，Go 普通 Qt 宿主降权夹具归 `corelib/tests/windows`；旧 Go 设备后端只作同机性能对照，测量后删除。前序独立原型的 [`5e51df0` 六组 Core ABI／设备](https://github.com/wtalioy/JustConnect/actions/runs/39807827167)及[三平台应用测试](https://github.com/wtalioy/JustConnect/actions/runs/39807827099)已通过；迁移后的原生结果见计划，不以旧原型证明新后端。CI 固定 pwsh 仅用于运行前验证官方 SDK 签名，原配置／查找脚本已删除。
 
 新增完整链路由普通权限 Qt／嵌入 Go 经正式 C ABI 连接受限字节管道，助手保留真实 Wintun 环；验证实际校园协议、TCP、UDP／空报文、关闭原句柄后继续收发、无效 PID／MTU／代次拒绝及两次停止重启。源／对端与捕获目标仅为隔离夹具输入，不成为产品默认。助手进程绑定与原生取消另有本机 Windows 回归；真正 UAC 启动、受保护安装、系统 DNS、持久记录及双杀独立恢复仍须正式权限助手接入，不能把此夹具当作交付。
 

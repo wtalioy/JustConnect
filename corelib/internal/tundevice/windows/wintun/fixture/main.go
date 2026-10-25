@@ -24,8 +24,8 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/wtalioy/JustConnect/corelib/internal/networkhelper/windows/testsupport"
 	"github.com/wtalioy/JustConnect/corelib/internal/tundevice/windows/wintun"
+	windowsfixture "github.com/wtalioy/JustConnect/corelib/tests/windows"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
@@ -484,7 +484,7 @@ func broker(path, name, mode string) error {
 			time.Sleep(time.Hour)
 		}
 	}
-	token, err := testsupport.OrdinaryToken()
+	token, err := windowsfixture.OrdinaryToken()
 	if err != nil {
 		return err
 	}

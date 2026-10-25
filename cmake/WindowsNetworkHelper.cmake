@@ -1,5 +1,5 @@
 function(justconnect_windows_helper_support TARGET)
-    set(CONTRACT "${REPO}/corelib/internal/networkhelper/windows/contract.json")
+    set(CONTRACT "${REPO}/resource/network-helper-windows.json")
     file(READ "${CONTRACT}" LAYOUT)
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CONTRACT}")
     string(JSON WINDOWS_STATE_REGISTRY GET "${LAYOUT}" state_registry)
