@@ -37,7 +37,7 @@ func (d *Device) configure(source, peer netip.Addr, targets []netip.Prefix) erro
 		return fmt.Errorf("confirm owned IPv4 interface: %w", err)
 	}
 	if confirmedInterface.NlMtu != d.mtu || confirmedInterface.UseAutomaticMetric != 0 || confirmedInterface.Metric != iface.Metric || confirmedInterface.DadTransmits != 0 || confirmedInterface.DisableDefaultRoutes != 1 {
-		return windows.ERROR_INVALID_DATA
+		return fmt.Errorf("owned IPv4 interface differs: MTU=%d/%d automatic_metric=%d metric=%d/%d DAD=%d disable_default=%d: %w", confirmedInterface.NlMtu, d.mtu, confirmedInterface.UseAutomaticMetric, confirmedInterface.Metric, iface.Metric, confirmedInterface.DadTransmits, confirmedInterface.DisableDefaultRoutes, windows.ERROR_INVALID_DATA)
 	}
 	var row windows.MibUnicastIpAddressRow
 	initializeAddress.Call(uintptr(unsafe.Pointer(&row)))
@@ -52,7 +52,7 @@ func (d *Device) configure(source, peer netip.Addr, targets []netip.Prefix) erro
 		return fmt.Errorf("confirm owned IPv4 address: %w", err)
 	}
 	if confirmed.InterfaceLuid != d.LUID || confirmed.OnLinkPrefixLength != 32 || confirmed.DadState != windows.IpDadStatePreferred {
-		return windows.ERROR_INVALID_DATA
+		return fmt.Errorf("owned IPv4 address differs: LUID=%d/%d prefix=%d DAD=%d: %w", confirmed.InterfaceLuid, d.LUID, confirmed.OnLinkPrefixLength, confirmed.DadState, windows.ERROR_INVALID_DATA)
 	}
 	// Only routes on this newly allocated adapter are touched; its last owner removes them.
 	all := append([]netip.Prefix{netip.PrefixFrom(peer, 32)}, targets...)
@@ -75,7 +75,7 @@ func (d *Device) configure(source, peer netip.Addr, targets []netip.Prefix) erro
 			return fmt.Errorf("confirm owned IPv4 capture: %w", err)
 		}
 		if confirmed.InterfaceLuid != d.LUID || confirmed.Metric != route.Metric || confirmed.Protocol != route.Protocol {
-			return windows.ERROR_INVALID_DATA
+			return fmt.Errorf("owned IPv4 capture differs: LUID=%d/%d metric=%d/%d protocol=%d/%d: %w", confirmed.InterfaceLuid, d.LUID, confirmed.Metric, route.Metric, confirmed.Protocol, route.Protocol, windows.ERROR_INVALID_DATA)
 		}
 	}
 	return nil
