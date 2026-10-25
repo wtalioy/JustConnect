@@ -6,6 +6,8 @@
   "install_directory": "JustConnectNetworkHelper",
   "state_registry": "SOFTWARE\\JustConnectNetworkHelper",
   "ownership_mutex": "Global\\JustConnectNetworkOwnership",
+  "control_pipe_prefix": "\\\\.\\pipe\\JustConnectNetworkControl-",
+  "control_timeout_ms": 30000,
   "max_message_bytes": 65536,
   "max_record_bytes": 1048576,
   "driver_library": "wintun.dll",

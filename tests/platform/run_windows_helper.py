@@ -33,7 +33,7 @@ try {
     Write-Host 'RUN: configure native C++ installation authority'
     & cmake -S tests/platform/windows_device -B $env:JC_HELPER_NATIVE_BUILD '-DCMAKE_BUILD_TYPE=Release' "-DWINTUN_INCLUDE_DIR=$env:JC_HELPER_SDK_DIRECTORY" -A $env:JC_HELPER_CMAKE_ARCH "-DJC_HELPER_PUBLISHER_SHA256=$publisher" "-DJC_HELPER_DRIVER_SHA256=$env:JC_HELPER_DRIVER_SHA256" "-DJC_HELPER_LICENSE_SHA256=$env:JC_HELPER_LICENSE_SHA256"
     if ($LASTEXITCODE -ne 0) { throw 'Native helper configuration failed' }
-    & cmake --build $env:JC_HELPER_NATIVE_BUILD --config Release --target windows_installation_test windows_helper windows_recovery_test --parallel 3
+    & cmake --build $env:JC_HELPER_NATIVE_BUILD --config Release --target windows_installation_test windows_helper windows_recovery_test windows_control_test --parallel 3
     if ($LASTEXITCODE -ne 0) { throw 'Native helper installation build failed' }
     Copy-Item -LiteralPath (Join-Path $env:JC_HELPER_NATIVE_BUILD 'Release/windows_installation_test.exe') -Destination $env:JC_HELPER_TEST_IMAGE
     $nativeSignature = Set-AuthenticodeSignature -LiteralPath $env:JC_HELPER_TEST_IMAGE -Certificate $certificate -HashAlgorithm SHA256
@@ -70,6 +70,9 @@ try {
         if ($restored.ReturnValue -ne 0) { throw 'Could not restore fixture-owned service configuration' }
     }
     Write-Host 'PASS: foreign SCM configuration refused and preserved'
+    Write-Host 'RUN: actual ordinary-user native control and account-scoped recovery'
+    & (Join-Path $env:JC_HELPER_NATIVE_BUILD 'Release/windows_control_test.exe') $env:JC_HELPER_SERVICE_IMAGE
+    if ($LASTEXITCODE -ne 0) { throw 'Native control identity or recovery boundary failed' }
     Remove-Item -LiteralPath "Cert:\LocalMachine\Root\$($certificate.Thumbprint)" -Force
     $trusted = $false
     Write-Host 'RUN: actual SCM restart, independent owned recovery and ordinary-user control denial without installer trust'
