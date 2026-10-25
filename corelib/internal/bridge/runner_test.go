@@ -424,12 +424,17 @@ func TestProtocolOversizedAuthenticationBodyReportsLimit(t *testing.T) {
 	}
 }
 
-func TestNativeTUNHost(t *testing.T) {
+func runNativeTUNHost(t *testing.T) (*gateway, []byte) {
+	t.Helper()
 	host := os.Getenv("JC_NATIVE_TUN_HOST")
 	inherited := os.Getenv("JC_NATIVE_TUN_FD")
 	macAuthorization := os.Getenv("JC_NATIVE_TUN_MAC_AUTH_FD")
 	if host == "" || (inherited == "" && macAuthorization == "" && os.Getenv("JC_NATIVE_TUN_HELPER_OWNER") == "") {
 		t.Skip("native TUN/C ABI handoff runs in a guarded namespace or disposable macOS runner")
+	}
+	mode := os.Getenv("JC_NATIVE_NETWORK_AUTHORIZATION")
+	if mode != "" && (runtime.GOOS != "darwin" || macAuthorization == "" || (mode != "cancel" && mode != "exit")) {
+		t.Fatal("authorization scenarios require the disposable macOS authorization fixture")
 	}
 	if os.Getuid() == 0 || os.Getuid() != os.Geteuid() {
 		t.Fatal("requires an ordinary caller")
@@ -481,15 +486,35 @@ func TestNativeTUNHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("native TUN/C ABI host: %v\n%s", err, output)
 	}
+	return g, output
+}
+
+func TestNativeTUNHost(t *testing.T) {
+	g, output := runNativeTUNHost(t)
+	expectedAuth := int32(2)
+	if os.Getenv("JC_NATIVE_NETWORK_AUTHORIZATION") == "cancel" {
+		expectedAuth++ // The cancelled prefix reached real authentication before network authorization.
+	}
 	extraUDP := int32(0)
 	if os.Getenv("JC_NATIVE_NETWORK_OBSERVE") == "1" {
 		extraUDP = 2
 	}
-	if !bytes.Contains(output, []byte("PASS: ordinary native TCP/UDP")) || g.authCount.Load() != 2 || g.tcpCount.Load() != 2 || g.udpCount.Load() != 4+extraUDP+g.nativeDNSQueries.Load() || (g.nativeDNS.Load() && g.nativeDNSQueries.Load() < 2) {
+	if !bytes.Contains(output, []byte("PASS: ordinary native TCP/UDP")) || g.authCount.Load() != expectedAuth || g.tcpCount.Load() != 2 || g.udpCount.Load() != 4+extraUDP+g.nativeDNSQueries.Load() || (g.nativeDNS.Load() && g.nativeDNSQueries.Load() < 2) {
 		t.Fatalf("missing actual TUN/campus exchanges: auth=%d TCP=%d UDP=%d\n%s", g.authCount.Load(), g.tcpCount.Load(), g.udpCount.Load(), output)
 	}
 	if g.nativeDNS.Load() {
 		t.Logf("domain-only TCP/80 via actual campus CNAME DNS: queries=%d, TCP=%d, UDP=%d", g.nativeDNSQueries.Load(), g.tcpCount.Load(), g.udpCount.Load())
+	}
+	t.Log(string(output))
+}
+
+func TestNativeTUNAuthorizationExit(t *testing.T) {
+	if os.Getenv("JC_NATIVE_NETWORK_AUTHORIZATION") != "exit" {
+		t.Skip("ordered exit with pending system authorization runs in the disposable macOS fixture")
+	}
+	g, output := runNativeTUNHost(t)
+	if !bytes.Contains(output, []byte("PASS: macOS ordered application exit while system authorization is still pending")) || g.authCount.Load() != 1 || g.tcpCount.Load() != 0 || g.udpCount.Load() != 0 || g.nativeDNSQueries.Load() != 0 {
+		t.Fatalf("authorization exit did not stop before network activation: auth=%d TCP=%d UDP=%d DNS=%d\n%s", g.authCount.Load(), g.tcpCount.Load(), g.udpCount.Load(), g.nativeDNSQueries.Load(), output)
 	}
 	t.Log(string(output))
 }

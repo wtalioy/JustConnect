@@ -2,6 +2,9 @@
 #include "infrastructure/platform/macos/networkaccess.h"
 #include "infrastructure/platform/dnssnapshot.h"
 #include "application/networkprotection.h"
+#include "application/applicationshutdown.h"
+#include "application/systemproxysession.h"
+#include "infrastructure/platform/proxyrecovery.h"
 #include "tuntraffic.h"
 #include <QCoreApplication>
 #include <QElapsedTimer>
@@ -10,10 +13,17 @@
 #include <QSaveFile>
 #include <QStandardPaths>
 #include <future>
+#include <atomic>
 #include <netdb.h>
 #include <unistd.h>
 
 using ProxyCheck::check;
+struct AuthorizationWait {
+    std::atomic_int calls{0}, entered{0};
+    std::atomic_bool oldReturned{false};
+    std::promise<void> first, current;
+    std::shared_future<void> releaseFirst = first.get_future().share(), releaseCurrent = current.get_future().share();
+};
 template<class Predicate> static void until(Predicate done,int timeout = 10000)
 {
     QElapsedTimer timer; timer.start();
@@ -37,10 +47,21 @@ int main(int argc,char **argv)
     check(argc == 4 && QByteArray(argv[1]) == "--tun-gateway" && ::getuid() == ::geteuid() && ::getuid() != 0
         && qgetenv("GITHUB_ACTIONS") == "true" && qgetenv("RUNNER_OS") == "macOS","Disposable ordinary macOS Qt/core fixture only");
     const int authorizationFd = QByteArray(argv[3]).toInt(); check(authorizationFd >= 3,"Inherited network authorization pipe");
-    auto authorization = [authorizationFd](AuthorizationRef *reference) {
+    const auto authorizationMode = qgetenv("JC_NATIVE_NETWORK_AUTHORIZATION");
+    const bool cancelAuthorization = authorizationMode == "cancel", exitAuthorization = authorizationMode == "exit";
+    check(authorizationMode.isEmpty() || cancelAuthorization || exitAuthorization,"Known native authorization scenario");
+    const auto waiting = std::make_shared<AuthorizationWait>();
+    auto authorization = [authorizationFd,waiting,cancelAuthorization,exitAuthorization](AuthorizationRef *reference) {
+        const int call = ++waiting->calls;
         AuthorizationExternalForm external{};
         if (::read(authorizationFd,&external,sizeof(external)) != sizeof(external)) return OSStatus(errAuthorizationDenied);
-        return AuthorizationCreateFromExternalForm(&external,reference);
+        const auto status = AuthorizationCreateFromExternalForm(&external,reference);
+        if (status != errAuthorizationSuccess) return status;
+        waiting->entered = call;
+        if ((cancelAuthorization || exitAuthorization) && call == 1) waiting->releaseFirst.wait();
+        if (cancelAuthorization && call == 2) waiting->releaseCurrent.wait();
+        if (call == 1) waiting->oldReturned = true;
+        return status;
     };
     const auto config = QJsonDocument::fromJson(argv[2]).object();
     const auto server = config["server"].toObject(), auth = config["auth"].toObject();
@@ -62,7 +83,7 @@ int main(int argc,char **argv)
     const bool helperLoss = qgetenv("JC_NATIVE_NETWORK_HELPER_LOSS") == "1";
     const bool offline = qgetenv("JC_NATIVE_NETWORK_HELPER_OFFLINE") == "1";
     const auto marker = QString::fromLocal8Bit(qgetenv("JC_NATIVE_TUN_READY"));
-    check(!helperLoss || !marker.isEmpty(),"External helper failure observer has a private control directory");
+    check((!helperLoss && authorizationMode.isEmpty()) || !marker.isEmpty(),"External native observer has a private control directory");
     const auto publish = [&](const QString &suffix) {
         QSaveFile file(marker+suffix);
         const auto value = QJsonDocument(QJsonObject{{"pid",QCoreApplication::applicationPid()},
@@ -95,8 +116,41 @@ int main(int argc,char **argv)
         until([&] { return !policy.isBusy(); });
         check(policy.status() == CoreEngine::RequestStatus::Success && viewMatches(),"Owned macOS routes/DNS did not become original protection scopes");
     };
+    if (cancelAuthorization || exitAuthorization) {
+        check(session.start(profile,{false,1000}),"Start a real core before blocking system authorization");
+        until([&] { return waiting->entered == 1; });
+        check(session.phase() == ConnectionPhase::NetworkPreparing,"System authorization precedes network and campus readiness");
+        publish(".authorizing"); until([&] { return QFileInfo::exists(marker+".cancel"); });
+        if (exitAuthorization) {
+            SystemProxySession proxy(std::make_unique<ProxyRecoveryBackend>());
+            ApplicationShutdown shutdown(&session,&proxy,[] { return false; });
+            bool closed = false;
+            QObject::connect(&shutdown,&ApplicationShutdown::ready,&app,[&] { closed = true; app.quit(); });
+            QObject::connect(&shutdown,&ApplicationShutdown::failed,[](const QString &) { check(false,"Pending authorization cannot block ordered application exit"); });
+            QTimer::singleShot(0,&app,[&] { shutdown.request(); shutdown.request(); });
+            QTimer::singleShot(10000,&app,[] { check(false,"Ordered exit completed while authorization was still pending"); });
+            check(app.exec() == 0 && closed && coreFinished == 1 && finished == 1 && !session.isActive()
+                && !session.start(profile,{}) && !waiting->oldReturned,"Ordered shutdown joins the real core without waiting for system authorization");
+            ::close(authorizationFd);
+            std::cout << "PASS: macOS ordered application exit while system authorization is still pending\n";
+            return 0;
+        }
+        session.stop(); session.stop(); until([&] { return !session.isActive(); });
+        check(coreFinished == 1 && finished == 1 && session.state() == ConnectionState::Disconnected && !waiting->oldReturned,
+            "Cancellation releases the real core and network responsibility before authorization returns");
+        publish(".cancelled");
+    }
     for (int round=0;round<2;++round) {
         check(session.start(profile,{false,1000}),"Start actual macOS application network session");
+        if (cancelAuthorization && round == 0) {
+            until([&] { return waiting->entered == 2; }); publish(".current-authorizing");
+            until([&] { return QFileInfo::exists(marker+".release-old"); });
+            waiting->first.set_value(); until([&] { return waiting->oldReturned.load(); }); publish(".old-returned");
+            until([&] { return QFileInfo::exists(marker+".approve"); });
+            check(session.state() == ConnectionState::Starting && session.phase() == ConnectionPhase::NetworkPreparing,
+                "Late cancelled authorization cannot approve the new pending connection");
+            waiting->current.set_value();
+        }
         until([&] { return session.state() == ConnectionState::Running || !session.isActive(); });
         check(session.state() == ConnectionState::Running && session.phase() == ConnectionPhase::CampusReady && wasPreparing,"Campus readiness follows helper ownership and real Go attachment");
         if (helperLoss && round == 1) {
@@ -124,7 +178,8 @@ int main(int argc,char **argv)
         }
         session.stop(); session.stop(); until([&] { return !session.isActive(); });
         const auto expected = helperLoss && round == 0 ? ConnectionState::Failed : ConnectionState::Disconnected;
-        check(finished == round+1 && coreFinished == round+1 && session.state() == expected,"Ordered helper restoration and core stop complete before restart");
+        const int completed = round+1+(cancelAuthorization ? 1 : 0);
+        check(finished == completed && coreFinished == completed && session.state() == expected,"Ordered helper restoration and core stop complete before restart");
         if (helperLoss && round == 0) {
             publish(".restored"); until([&] { return QFileInfo::exists(marker+".restart"); });
         }
@@ -132,5 +187,6 @@ int main(int argc,char **argv)
     ::close(authorizationFd);
     if (helperLoss) std::cout << "PASS: full macOS application releases core/device on helper loss and reconnects with fresh ownership\n";
     if (offline) std::cout << "PASS: unavailable macOS helper retains restoration responsibility and blocks restart until explicit recovery\n";
+    if (cancelAuthorization) std::cout << "PASS: pending macOS authorization cancels promptly and its late grant cannot approve a fresh connection\n";
     std::cout << "PASS: ordinary native TCP/UDP via actual signed macOS helper, application readiness, system CNAME DNS, exact original views and ordered stop/restart\n";
 }

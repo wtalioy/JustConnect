@@ -91,15 +91,18 @@ class Authorization:
         self.security.AuthorizationMakeExternalForm.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
         self.security.AuthorizationFree.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
         assert self.security.AuthorizationCreate(None, None, 0, ctypes.byref(self.reference)) == 0
-        item = self.Item(LAYOUT['authorization_right'].encode(), 0, None, 0)
-        rights = Rights(1, ctypes.pointer(item))
+        self.item = self.Item(LAYOUT['authorization_right'].encode(), 0, None, 0)
+        self.rights = Rights(1, ctypes.pointer(self.item))
         # Root obtains the real existing system right without an interactive prompt.
-        assert self.security.AuthorizationCopyRights(self.reference, ctypes.byref(rights), None, (1 << 1) | (1 << 4), None) == 0
+        assert self.security.AuthorizationCopyRights(self.reference, ctypes.byref(self.rights), None, (1 << 1) | (1 << 4), None) == 0
         self.external = ctypes.create_string_buffer(32)  # Security.framework AuthorizationExternalForm ABI.
         assert self.security.AuthorizationMakeExternalForm(self.reference, self.external) == 0
 
     def close(self):
         self.security.AuthorizationFree(self.reference, 1 << 3)
+
+    def has_right(self):
+        return self.security.AuthorizationCopyRights(self.reference, ctypes.byref(self.rights), None, 0, None) == 0
 
 
 def main(args):
@@ -289,10 +292,12 @@ def main(args):
             shutil.copytree(bundle, core_bundle, symlinks=True)
             shutil.copy2(args.core_client, core_bundle / 'Contents/MacOS/JustConnect')
             sign(core_bundle, identity, APP_ID)
-            for scenario in ('normal', 'helper-loss', 'helper-offline'):
+            for scenario in ('authorization-cancel', 'authorization-exit', 'normal', 'helper-loss', 'helper-offline'):
                 control = directory / ('core-' + scenario); control.mkdir(mode=0o700); os.chown(control, args.uid, account.pw_gid)
                 marker = control / 'ready'
-                authorizations = [Authorization(), Authorization()]; grants.extend(authorizations)
+                authorization_mode = scenario.removeprefix('authorization-') if scenario.startswith('authorization-') else ''
+                authorization_count = 3 if authorization_mode == 'cancel' else 1 if authorization_mode == 'exit' else 2
+                authorizations = [Authorization() for _ in range(authorization_count)]; grants.extend(authorizations)
                 read_fd, write_fd = os.pipe()
                 transcript = output / ('core-' + scenario + '.out')
                 try:
@@ -300,11 +305,14 @@ def main(args):
                     environment = {'HOME': account.pw_dir, 'PATH': '/usr/bin:/bin:/usr/sbin:/sbin', 'GITHUB_ACTIONS': 'true', 'RUNNER_OS': 'macOS',
                         'JC_NATIVE_TUN_HOST': str(core_bundle / 'Contents/MacOS/JustConnect'),
                         'JC_NATIVE_TUN_MAC_AUTH_FD': str(read_fd), 'JC_NATIVE_TUN_DNS': '1'}
-                    if scenario != 'normal':
+                    if authorization_mode:
+                        environment.update(JC_NATIVE_NETWORK_AUTHORIZATION=authorization_mode, JC_NATIVE_TUN_READY=str(marker))
+                    elif scenario != 'normal':
                         environment.update(JC_NATIVE_NETWORK_HELPER_LOSS='1', JC_NATIVE_TUN_READY=str(marker),
                             JC_NATIVE_NETWORK_HELPER_OFFLINE='1' if scenario == 'helper-offline' else '0')
+                    test_name = 'TestNativeTUNAuthorizationExit' if authorization_mode == 'exit' else 'TestNativeTUNHost'
                     with transcript.open('wb') as stream:
-                        core = subprocess.Popen([args.gateway, '-test.v', '-test.timeout', '75s', '-test.run', '^TestNativeTUNHost$'],
+                        core = subprocess.Popen([args.gateway, '-test.v', '-test.timeout', '75s', '-test.run', '^' + test_name + '$'],
                             user=args.uid, group=account.pw_gid, extra_groups=(), pass_fds=(read_fd,), env=environment,
                             stdout=stream, stderr=subprocess.STDOUT)
                     processes.append(core)
@@ -320,7 +328,20 @@ def main(args):
                         value = json.loads(owners[0].read_text()); assert value['phase'] == 'active', value
                         return value
 
-                    if scenario != 'normal':
+                    if authorization_mode:
+                        boundary('.authorizing')
+                        assert not list(user_state.iterdir()) and dns_restored(), 'Pending authorization changed native network ownership'
+                        Path(str(marker) + '.cancel').touch()
+                        if authorization_mode == 'cancel':
+                            boundary('.cancelled'); boundary('.current-authorizing')
+                            assert not list(user_state.iterdir()), 'Cancelled authorization retained a privileged operation'
+                            Path(str(marker) + '.release-old').touch(); boundary('.old-returned')
+                            wait_for(lambda: not authorizations[0].has_right(), 'Late cancelled authorization was not released')
+                            assert all(grant.has_right() for grant in authorizations[1:]), 'Late authorization cleanup destroyed the new authorization contexts'
+                            assert not list(user_state.iterdir()) and dns_restored(), 'Old authorization approved the new pending connection'
+                            Path(str(marker) + '.approve').touch()
+                            print('CHECK: cancelled authorization revoked before current authorization was approved', flush=True)
+                    elif scenario != 'normal':
                         boundary(''); active = active_owner()
                         assert published(active['owner']), 'Fault preceded actual DNS publication and data traffic'
                         if scenario == 'helper-offline':
