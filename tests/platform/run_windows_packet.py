@@ -103,7 +103,7 @@ def device():
 
     benchmark_log = output / 'windows-device-benchmark.log'
     count = 4096
-    measured = dict(env, JC_TEST_WINTUN_BENCHMARK_PACKETS=str(count), JC_TEST_POWERSHELL_HOST=host)
+    measured = dict(env, JC_TEST_WINTUN_BENCHMARK_PACKETS=str(count), JC_TEST_WINTUN_BENCHMARK_TIMEOUT_MS='30000', JC_TEST_POWERSHELL_HOST=host)
     with benchmark_log.open('w', encoding='utf-8') as log:
         try:
             result = subprocess.run([str(probe), '--benchmark', str(dll)], env=measured, stdout=log, stderr=subprocess.STDOUT, timeout=100)

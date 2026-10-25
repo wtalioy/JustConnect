@@ -489,7 +489,11 @@ func broker(path, name, mode string) error {
 		return err
 	}
 	defer token.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	budget, err := packetBudget(mode)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), budget+4*time.Second)
 	defer cancel()
 	clientMode := mode
 	if clientMode == "connected" {
@@ -516,7 +520,7 @@ func broker(path, name, mode string) error {
 			_ = cmd.Wait()
 		}
 	}()
-	deadline := time.AfterFunc(8*time.Second, func() { _ = adapter.Close() })
+	deadline := time.AfterFunc(budget, func() { _ = adapter.Close() })
 	defer deadline.Stop()
 	count, err := benchmarkCount(mode)
 	if err != nil {
@@ -524,12 +528,12 @@ func broker(path, name, mode string) error {
 	}
 	packet := make([]byte, 1400)
 	started := time.Now()
-	for range count {
+	for iteration := range count {
 		packet = packet[:cap(packet)]
 		for {
 			size, err := adapter.Read(packet)
 			if err != nil {
-				return fmt.Errorf("ordinary client packet did not reach owned device: %w", err)
+				return fmt.Errorf("ordinary client packet %d/%d did not reach owned device: %w", iteration+1, count, err)
 			}
 			packet = packet[:size]
 			if validPacket(packet, false) {
@@ -605,13 +609,17 @@ func client(mode string) error {
 		return err
 	}
 	defer conn.Close()
-	conn.SetDeadline(time.Now().Add(8 * time.Second))
+	budget, err := packetBudget(mode)
+	if err != nil {
+		return err
+	}
+	conn.SetDeadline(time.Now().Add(budget))
 	count, err := benchmarkCount(mode)
 	if err != nil {
 		return err
 	}
 	latencies := make([]float64, 0, count)
-	for range count {
+	for iteration := range count {
 		started := time.Now()
 		if _, err = conn.Write([]byte("ping")); err != nil {
 			return err
@@ -646,7 +654,7 @@ func client(mode string) error {
 		response := make([]byte, 32)
 		size, err := conn.Read(response)
 		if err != nil {
-			return err
+			return fmt.Errorf("ordinary UDP reply %d/%d: %w", iteration+1, count, err)
 		}
 		if string(response[:size]) != "pong" {
 			return errors.New("device reply did not reach the original UDP socket")
@@ -693,4 +701,15 @@ func benchmarkStats(started time.Time, count int) error {
 	}
 	return json.NewEncoder(os.Stderr).Encode(map[string]any{"benchmark": "helper", "backend": "go", "round_trips": count, "seconds": elapsed,
 		"packets_per_second": float64(count*2) / elapsed, "cpu_seconds": cpu, "peak_rss_bytes": peak})
+}
+
+func packetBudget(mode string) (time.Duration, error) {
+	if mode != "benchmark" {
+		return 8 * time.Second, nil
+	}
+	milliseconds, err := strconv.Atoi(os.Getenv("JC_TEST_WINTUN_BENCHMARK_TIMEOUT_MS"))
+	if err != nil || milliseconds < 1 || milliseconds > 30000 {
+		return 0, errors.New("invalid native benchmark timeout")
+	}
+	return time.Duration(milliseconds) * time.Millisecond, nil
 }

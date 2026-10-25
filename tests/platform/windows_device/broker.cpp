@@ -106,6 +106,17 @@ unsigned int benchmarkCount(const std::wstring &mode)
     if (consumed!=size || !count || count>65536) fail("invalid benchmark packet count",ERROR_INVALID_PARAMETER);
     return static_cast<unsigned int>(count);
 }
+DWORD packetBudget(const std::wstring &mode)
+{
+    if (mode!=L"benchmark") return 8000;
+    wchar_t value[16]{};
+    const auto size=GetEnvironmentVariableW(L"JC_TEST_WINTUN_BENCHMARK_TIMEOUT_MS",value,16);
+    if (!size || size>=16) fail("benchmark timeout unavailable",ERROR_INVALID_PARAMETER);
+    size_t consumed=0;
+    const auto timeout=std::stoul(value,&consumed);
+    if (consumed!=size || !timeout || timeout>30000) fail("invalid benchmark timeout",ERROR_INVALID_PARAMETER);
+    return static_cast<DWORD>(timeout);
+}
 void benchmarkStats(std::chrono::steady_clock::time_point started,unsigned int count)
 {
     const auto seconds=std::chrono::duration<double>(std::chrono::steady_clock::now()-started).count();
@@ -143,7 +154,8 @@ int exchange(WindowsTunDevice &device,const std::wstring &client,const std::wstr
     struct ChildCleanup { HANDLE process; ~ChildCleanup() { if (WaitForSingleObject(process,0)==WAIT_TIMEOUT) { TerminateProcess(process,1); WaitForSingleObject(process,5000); } } } child{process.value};
     done.value = CreateEventW(nullptr,TRUE,FALSE,nullptr);
     if (!done.value) fail("create fixture deadline");
-    std::thread watchdog([&] { if (WaitForSingleObject(done.value,8000)==WAIT_TIMEOUT) device.close(); });
+    const auto budget=packetBudget(mode);
+    std::thread watchdog([&] { if (WaitForSingleObject(done.value,budget)==WAIT_TIMEOUT) device.close(); });
     struct Join { HANDLE done; std::thread &worker; ~Join() { SetEvent(done); worker.join(); } } join{done.value,watchdog};
     const auto count=benchmarkCount(mode);
     const auto started=std::chrono::steady_clock::now();
@@ -163,7 +175,7 @@ int exchange(WindowsTunDevice &device,const std::wstring &client,const std::wstr
         device.write(response.data(),response.size());
     }
     CloseHandle(input.value);input.value=nullptr;
-    if (WaitForSingleObject(process.value,12000)!=WAIT_OBJECT_0) fail("ordinary consumer timeout",ERROR_TIMEOUT);
+    if (WaitForSingleObject(process.value,budget+4000)!=WAIT_OBJECT_0) fail("ordinary consumer timeout",ERROR_TIMEOUT);
     DWORD code=1;
     if (!GetExitCodeProcess(process.value,&code)) fail("ordinary consumer exit");
     if (mode==L"benchmark" && code==0) benchmarkStats(started,count);
