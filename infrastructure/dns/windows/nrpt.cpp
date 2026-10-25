@@ -46,19 +46,15 @@ bool trusted(PSID sid)
 {
     return sid && (IsWellKnownSid(sid,WinBuiltinAdministratorsSid) || IsWellKnownSid(sid,WinLocalSystemSid));
 }
-void ownedKey(HKEY key,const WindowsDnsRule &rule)
+void trustedKey(HKEY key,bool requireProtected)
 {
-    wchar_t name[64]{};
-    DWORD size=static_cast<DWORD>(std::size(name));
-    checked(RegQueryInfoKeyW(key,name,&size,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr),"read atomic NRPT class");
-    if (std::wstring(name,size)!=L"JustConnect/"+guid(rule.marker)) fail("foreign NRPT ownership class",ERROR_ACCESS_DENIED);
     Security security;
     PSID owner=nullptr;
     PACL acl=nullptr;
     checked(GetSecurityInfo(key,SE_REGISTRY_KEY,OWNER_SECURITY_INFORMATION|DACL_SECURITY_INFORMATION,&owner,nullptr,&acl,nullptr,&security.value),"read NRPT security");
     SECURITY_DESCRIPTOR_CONTROL control{};
     DWORD revision=0;
-    if (!trusted(owner) || !GetSecurityDescriptorControl(security.value,&control,&revision) || !(control&SE_DACL_PROTECTED) || !acl || !IsValidAcl(acl))
+    if (!trusted(owner) || !GetSecurityDescriptorControl(security.value,&control,&revision) || (requireProtected && !(control&SE_DACL_PROTECTED)) || !acl || !IsValidAcl(acl))
         fail("untrusted NRPT owner or DACL",ERROR_ACCESS_DENIED);
     constexpr DWORD writes=KEY_SET_VALUE|KEY_CREATE_SUB_KEY|DELETE|WRITE_DAC|WRITE_OWNER|GENERIC_WRITE|GENERIC_ALL;
     for (DWORD i=0;i<acl->AceCount;++i) {
@@ -69,6 +65,44 @@ void ownedKey(HKEY key,const WindowsDnsRule &rule)
         if (ace->Header.AceType!=ACCESS_ALLOWED_ACE_TYPE || ((ace->Mask&writes) && !trusted(&ace->SidStart)))
             fail("foreign NRPT write permission",ERROR_ACCESS_DENIED);
     }
+}
+void ownedKey(HKEY key,const WindowsDnsRule &rule)
+{
+    wchar_t name[64]{};
+    DWORD size=static_cast<DWORD>(std::size(name));
+    checked(RegQueryInfoKeyW(key,name,&size,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr),"read atomic NRPT class");
+    if (std::wstring(name,size)!=L"JustConnect/"+guid(rule.marker)) fail("foreign NRPT ownership class",ERROR_ACCESS_DENIED);
+    trustedKey(key,true);
+}
+// MS-GPNRPT local policy; managed policy remains owned by the domain administrator.
+constexpr wchar_t LocalPolicy[]=L"SYSTEM\\CurrentControlSet\\Services\\Dnscache\\Parameters\\DnsPolicyConfig";
+constexpr wchar_t ManagedPolicy[]=L"SOFTWARE\\Policies\\Microsoft\\Windows NT\\DNSClient\\DnsPolicyConfig";
+HKEY policyParent(bool create)
+{
+    Key key;
+    auto status=RegOpenKeyExW(HKEY_LOCAL_MACHINE,LocalPolicy,REG_OPTION_OPEN_LINK,KEY_ALL_ACCESS|KEY_WOW64_64KEY,&key.value);
+    if (status==ERROR_FILE_NOT_FOUND && create) {
+        Security security;
+        if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(L"O:BAG:SYD:P(A;CI;KA;;;SY)(A;CI;KA;;;BA)(A;CI;KR;;;WD)",SDDL_REVISION_1,&security.value,nullptr)) fail("create local NRPT parent security");
+        SECURITY_ATTRIBUTES attributes{sizeof(attributes),security.value,FALSE};
+        status=RegCreateKeyExW(HKEY_LOCAL_MACHINE,LocalPolicy,0,nullptr,0,KEY_ALL_ACCESS|KEY_WOW64_64KEY,&attributes,&key.value,nullptr);
+    }
+    if (status==ERROR_FILE_NOT_FOUND) return nullptr;
+    checked(status,"open native local DNS policy");
+    trustedKey(key.value,false);
+    if (RegQueryValueExW(key.value,L"SymbolicLinkValue",nullptr,nullptr,nullptr,nullptr)!=ERROR_FILE_NOT_FOUND)
+        fail("refuse linked local DNS policy",ERROR_ACCESS_DENIED);
+    const auto result=key.value;key.value=nullptr;return result;
+}
+void refresh()
+{
+    // Windows exports cache refresh without a public SDK declaration.
+    const auto library=LoadLibraryExW(L"dnsapi.dll",nullptr,LOAD_LIBRARY_SEARCH_SYSTEM32);
+    if (!library) fail("load system DNS API");
+    struct Free {HMODULE value;~Free(){FreeLibrary(value);}} free{library};
+    const auto flush=reinterpret_cast<BOOL (WINAPI *)()>(GetProcAddress(library,"DnsFlushResolverCache"));
+    if (!flush) fail("resolve native DNS cache refresh");
+    if (!flush()) fail("refresh native DNS cache",ERROR_GEN_FAILURE);
 }
 struct Value { const wchar_t *name;DWORD type;std::vector<BYTE> data; };
 std::vector<BYTE> bytes(const void *data,size_t size)
@@ -163,4 +197,23 @@ void WindowsDnsRule::restore(HKEY parent) const
     const auto result=remove(key.value);
     if (result<0) fail("delete validated NRPT object",RtlNtStatusToDosError(result));
     checked(RegFlushKey(parent),"flush restored NRPT parent");
+}
+
+void WindowsDnsRule::applySystem() const
+{
+    Key managed;
+    const auto status=RegOpenKeyExW(HKEY_LOCAL_MACHINE,ManagedPolicy,REG_OPTION_OPEN_LINK,KEY_READ|KEY_WOW64_64KEY,&managed.value);
+    if (status!=ERROR_FILE_NOT_FOUND) {
+        checked(status,"inspect managed DNS policy");
+        fail("managed DNS policy requires administrator coordination",ERROR_NOT_SUPPORTED);
+    }
+    Key parent;parent.value=policyParent(true);
+    apply(parent.value);
+    refresh();
+}
+void WindowsDnsRule::restoreSystem() const
+{
+    Key parent;parent.value=policyParent(false);
+    if (parent.value) restore(parent.value);
+    refresh();
 }

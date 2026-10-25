@@ -52,9 +52,11 @@ WindowsProcess::WindowsProcess(DWORD pid)
 }
 WindowsProcess::~WindowsProcess() { if (process) CloseHandle(process); }
 
+bool WindowsProcessIdentity::valid() const { return pid && created && canonicalSid(sid); }
+
 bool WindowsProcessIdentity::alive() const
 {
-    if (!pid || !created || !canonicalSid(sid)) fail("invalid saved process identity",ERROR_INVALID_DATA);
+    if (!valid()) fail("invalid saved process identity",ERROR_INVALID_DATA);
     try {
         WindowsProcess actual(pid);
         const auto &value = actual.identity();

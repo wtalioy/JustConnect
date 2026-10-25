@@ -5,6 +5,7 @@
   "service": "JustConnectNetworkRecovery",
   "install_directory": "JustConnectNetworkHelper",
   "state_registry": "SOFTWARE\\JustConnectNetworkHelper",
+  "ownership_mutex": "Global\\JustConnectNetworkOwnership",
   "max_message_bytes": 65536,
   "max_record_bytes": 1048576,
   "driver_library": "wintun.dll",
