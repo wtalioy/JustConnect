@@ -1,5 +1,5 @@
 {
-  "protocol": 1,
+  "protocol": 2,
   "storage_version": 1,
   "executable": "JustConnectNetworkHelper.exe",
   "service": "JustConnectNetworkRecovery",
@@ -7,6 +7,7 @@
   "state_registry": "SOFTWARE\\JustConnectNetworkHelper",
   "ownership_mutex": "Global\\JustConnectNetworkOwnership",
   "control_pipe_prefix": "\\\\.\\pipe\\JustConnectNetworkControl-",
+  "packet_pipe_prefix": "\\\\.\\pipe\\JustConnectNetworkPackets-",
   "control_timeout_ms": 30000,
   "max_message_bytes": 65536,
   "max_record_bytes": 1048576,

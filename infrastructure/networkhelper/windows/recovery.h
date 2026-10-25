@@ -4,6 +4,7 @@
 #include "infrastructure/process/windows/identity.h"
 #include "infrastructure/networkjournal/windows/registry.h"
 #include <optional>
+#include <functional>
 
 enum class WindowsRecoveryPhase { Declared, Restoring, Restored };
 struct WindowsNetworkRecord {
@@ -34,7 +35,13 @@ public:
     std::vector<GUID> owners();
     // A live helper keeps authority; recovery never competes with its mutations.
     bool restoreAbandoned(const GUID &owner,const std::wstring &callerSid={});
+    // A live owner first releases DNS, then its private device, before publishing a durable receipt.
+    bool restoreOwned(const GUID &owner,const std::function<void()> &release);
+    void beginOwnedRestore(const GUID &owner);
     void acknowledge(const GUID &owner,const std::wstring &callerSid);
 private:
+    bool restoreRecord(WindowsNetworkRecord &record,const std::function<void()> &release);
+    WindowsNetworkRecord ownedRecord(const GUID &owner);
+    void beginRestore(WindowsNetworkRecord &record);
     WindowsRegistryJournal journal;
 };

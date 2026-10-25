@@ -10,6 +10,7 @@ inline constexpr wchar_t InstallDirectory[] = L"@WINDOWS_INSTALL_DIRECTORY@";
 inline constexpr wchar_t Service[] = L"@WINDOWS_SERVICE@";
 inline constexpr wchar_t OwnershipMutex[] = L"@WINDOWS_OWNERSHIP_MUTEX@";
 inline constexpr wchar_t ControlPipePrefix[] = L"@WINDOWS_CONTROL_PIPE_PREFIX@";
+inline constexpr wchar_t PacketPipePrefix[] = L"@WINDOWS_PACKET_PIPE_PREFIX@";
 inline constexpr unsigned int Protocol = @WINDOWS_PROTOCOL@;
 inline constexpr unsigned int ControlTimeoutMs = @WINDOWS_CONTROL_TIMEOUT_MS@;
 inline constexpr std::size_t MaxMessageBytes = @WINDOWS_MAX_MESSAGE_BYTES@;

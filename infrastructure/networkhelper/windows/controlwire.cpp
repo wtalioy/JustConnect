@@ -11,6 +11,8 @@ std::wstring guid(const GUID &id){wchar_t value[39]{};if(id==GUID{} || !StringFr
 
 std::wstring windowsControlPipeName(const GUID &session)
 {return std::wstring(WindowsNetworkContract::ControlPipePrefix)+guid(session);}
+std::wstring windowsPacketPipeName(const GUID &session)
+{return std::wstring(WindowsNetworkContract::PacketPipePrefix)+guid(session);}
 
 std::string receiveWindowsControlMessage(WindowsPacketPipe &pipe,DWORD timeout)
 {
