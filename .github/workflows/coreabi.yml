@@ -160,7 +160,7 @@ jobs:
           GOENV: 'off'
         run: |
           go -C corelib test -c -o ../build/coreabi/native-tun-host ./internal/bridge
-          go -C corelib test -race -c -o ../build/coreabi/native-tun-fd ./internal/tundevice
+          go -C corelib test -race -c -o ../build/coreabi/native-tun-fd ./internal/platform/tundevice
           sudo unshare --net -- env PYTHONDONTWRITEBYTECODE=1 "$(command -v python)" tests/platform/tun_coreabi_unix.py --uid "$(id -u)" --allocator build/coreabi/linux_tundevice_test --gateway build/coreabi/native-tun-host --host build/coreabi/coreabi_test --fd-test build/coreabi/native-tun-fd 2>&1 | tee build/coreabi/linux-tun-coreabi.log
 
       - name: Check original Go underlay beneath a competing Linux TUN route
@@ -225,7 +225,7 @@ jobs:
           GOENV: 'off'
         run: |
           go -C corelib test -c -o ../build/coreabi/native-tun-host ./internal/bridge
-          go -C corelib test -race -c -o ../build/coreabi/native-tun-fd ./internal/tundevice
+          go -C corelib test -race -c -o ../build/coreabi/native-tun-fd ./internal/platform/tundevice
           sudo env PYTHONDONTWRITEBYTECODE=1 GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_OS="$RUNNER_OS" "$(command -v python)" tests/platform/tun_coreabi_unix.py --uid "$(id -u)" --allocator build/coreabi/macos_tundevice_test --gateway build/coreabi/native-tun-host --host build/coreabi/coreabi_test --fd-test build/coreabi/native-tun-fd 2>&1 | tee build/coreabi/macos-tun-coreabi.log
 
       - name: Upload toolchain and runtime evidence

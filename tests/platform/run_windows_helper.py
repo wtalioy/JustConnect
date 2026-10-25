@@ -5,7 +5,7 @@ from pathlib import Path
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKAGE = 'github.com/wtalioy/JustConnect/corelib/internal/windowshelper'
+PACKAGE = 'github.com/wtalioy/JustConnect/corelib/internal/platform/windows/networkhelper'
 
 
 def main():
@@ -30,7 +30,7 @@ try {
     $publisher = [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($certificate.RawData)).ToLowerInvariant()
     $flags = "-X {package}.publisherSHA256=$publisher -X {package}.driverSHA256=$env:JC_HELPER_DRIVER_SHA256 -X {package}.licenseSHA256=$env:JC_HELPER_LICENSE_SHA256"
     Write-Host 'RUN: compile native helper validation image'
-    & go -C corelib test -mod=readonly -c -ldflags $flags -o $env:JC_HELPER_TEST_IMAGE ./internal/windowshelper
+    & go -C corelib test -mod=readonly -c -ldflags $flags -o $env:JC_HELPER_TEST_IMAGE ./internal/platform/windows/networkhelper
     if ($LASTEXITCODE -ne 0) { throw 'Signed helper validation build failed' }
     Write-Host 'RUN: sign native helper validation image'
     $signature = Set-AuthenticodeSignature -LiteralPath $env:JC_HELPER_TEST_IMAGE -Certificate $certificate -HashAlgorithm SHA256
