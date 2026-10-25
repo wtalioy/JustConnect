@@ -33,7 +33,7 @@ public:
     WindowsNetworkRecord read(const GUID &owner);
     std::vector<GUID> owners();
     // A live helper keeps authority; recovery never competes with its mutations.
-    bool restoreAbandoned(const GUID &owner);
+    bool restoreAbandoned(const GUID &owner,const std::wstring &callerSid={});
     void acknowledge(const GUID &owner,const std::wstring &callerSid);
 private:
     WindowsRegistryJournal journal;

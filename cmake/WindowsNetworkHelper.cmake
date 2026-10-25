@@ -5,12 +5,16 @@ function(justconnect_windows_network_helper TARGET)
     string(JSON WINDOWS_STATE_REGISTRY GET "${LAYOUT}" state_registry)
     string(REPLACE "\\" "\\\\" WINDOWS_STATE_REGISTRY "${WINDOWS_STATE_REGISTRY}")
     string(JSON WINDOWS_MAX_RECORD_BYTES GET "${LAYOUT}" max_record_bytes)
-    foreach(FIELD IN ITEMS executable driver_library driver_license install_directory service ownership_mutex)
+    foreach(FIELD IN ITEMS executable driver_library driver_license install_directory service ownership_mutex control_pipe_prefix)
         string(TOUPPER "${FIELD}" VARIABLE)
         string(JSON WINDOWS_${VARIABLE} GET "${LAYOUT}" "${FIELD}")
         string(REPLACE "\\" "\\\\" WINDOWS_${VARIABLE} "${WINDOWS_${VARIABLE}}")
     endforeach()
     string(JSON WINDOWS_STORAGE_VERSION GET "${LAYOUT}" storage_version)
+    foreach(FIELD IN ITEMS protocol control_timeout_ms max_message_bytes)
+        string(TOUPPER "${FIELD}" VARIABLE)
+        string(JSON WINDOWS_${VARIABLE} GET "${LAYOUT}" "${FIELD}")
+    endforeach()
     configure_file("${REPO}/infrastructure/networkhelper/windows/networkcontract.h.in"
         "${CMAKE_CURRENT_BINARY_DIR}/windowsnetworkcontract.h" @ONLY)
     add_library(${TARGET}_support STATIC
@@ -19,6 +23,8 @@ function(justconnect_windows_network_helper TARGET)
         "${REPO}/infrastructure/networkhelper/windows/installation.cpp"
         "${REPO}/infrastructure/networkhelper/windows/recovery.cpp"
         "${REPO}/infrastructure/networkhelper/windows/service.cpp"
+        "${REPO}/infrastructure/networkhelper/windows/control.cpp"
+        "${REPO}/infrastructure/packetpipe/windows/stream.cpp"
         "${REPO}/infrastructure/tundevice/windows/recovery.cpp"
         "${REPO}/infrastructure/dns/windows/nrpt.cpp"
         "${REPO}/infrastructure/networkjournal/windows/registry.cpp")

@@ -177,11 +177,12 @@ WindowsNetworkRecord WindowsNetworkRecovery::read(const GUID &owner)
     return result;
 }
 std::vector<GUID> WindowsNetworkRecovery::owners() {WindowsNetworkLock lock;return journal.owners();}
-bool WindowsNetworkRecovery::restoreAbandoned(const GUID &owner)
+bool WindowsNetworkRecovery::restoreAbandoned(const GUID &owner,const std::wstring &callerSid)
 {
     WindowsNetworkLock lock;
     auto record=decodeWindowsNetworkRecord(journal.read(owner));
     if (record.owner!=owner) fail("recovery key and record differ",ERROR_INVALID_DATA);
+    if (!callerSid.empty() && record.caller.sid!=callerSid) fail("network recovery belongs to another account",ERROR_ACCESS_DENIED);
     if (record.phase==WindowsRecoveryPhase::Restored) return true;
     if (record.helper.alive()) return false;
     if (record.phase!=WindowsRecoveryPhase::Restoring) {
