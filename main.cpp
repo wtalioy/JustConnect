@@ -8,7 +8,7 @@
 #include <QLocale>
 #include <QTranslator>
 #include <QSessionManager>
-#include "infrastructure/platform/terminationrequests.h"
+#include "infrastructure/process/terminationrequests.h"
 
 #include "SingleApplication"
 
