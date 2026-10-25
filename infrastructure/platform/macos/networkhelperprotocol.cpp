@@ -38,6 +38,7 @@ bool validMacHelperRequest(const QJsonObject &packet)
         || !canonicalUuid(packet["request_id"])) return false;
     const auto operation = packet["operation"].toString();
     if (operation == "extend") return packet.size() == 5 && packet["addresses"].isArray();
+    if (operation == "routes") return packet.size() == 5 && packet["prefixes"].isArray();
     if (operation == "apply") return packet.size() == 5 && packet["configuration"].isObject();
     return packet.size() == 4 && (operation == "probe" || operation == "restore" || operation == "recover" || operation == "cleanup");
 }
@@ -56,6 +57,22 @@ std::optional<QStringList> parseMacHelperExtend(const QJsonObject &packet)
         if (!addresses.contains(value.toString())) addresses.append(value.toString());
     }
     return addresses;
+}
+QJsonObject macHelperRoutesRequest(const QUuid &owner, const QUuid &request, const QStringList &prefixes)
+{
+    auto packet = macHelperRequest("routes",owner,request);
+    packet["prefixes"] = QJsonArray::fromStringList(prefixes); return packet;
+}
+std::optional<QStringList> parseMacHelperRoutes(const QJsonObject &packet)
+{
+    if (!validMacHelperRequest(packet) || packet["operation"] != "routes"
+        || packet["prefixes"].toArray().size() > MacRouteSnapshotRows) return {};
+    QStringList prefixes;
+    for (const auto &value : packet["prefixes"].toArray()) {
+        if (!value.isString() || !canonicalUnicastIpv4Prefix(value.toString()) || prefixes.contains(value.toString())) return {};
+        prefixes.append(value.toString());
+    }
+    return prefixes;
 }
 std::optional<MacHelperConfiguration> parseMacHelperApply(const QJsonObject &packet)
 {
@@ -90,7 +107,7 @@ std::optional<PlatformOperationResult> parseMacHelperResponse(const QJsonObject 
 {
     const auto status = packet["status"].toInteger(-1);
     const bool owners = packet.contains("owners"), network = packet.contains("network");
-    const bool needsNetwork = status == 0 && (request["operation"] == "apply" || request["operation"] == "extend");
+    const bool needsNetwork = status == 0 && (request["operation"] == "apply" || request["operation"] == "extend" || request["operation"] == "routes");
     if (!bounded(packet) || packet["schema_version"] != MacHelperProtocol || packet["request_id"] != request["request_id"]
         || packet["owner"] != request["owner"] || packet["operation"] != request["operation"]
         || !packet["detail"].isString() || !packet["changed"].isBool() || status < 0 || status > int(PlatformOperationResult::Status::TimedOut)

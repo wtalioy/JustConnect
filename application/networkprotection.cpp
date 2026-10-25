@@ -465,6 +465,14 @@ std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &reso
     return result;
 }
 
+std::optional<QStringList> updatedCampusCapturePrefixes(const QJsonObject &resources, const QJsonObject &policy,
+    const QStringList &dnsDomains)
+{
+    const auto result = campusCaptureTargets(resources,policy);
+    if (!result || result->dnsDomains != dnsDomains) return {};
+    return result->ipv4Prefixes;
+}
+
 std::optional<std::pair<QString, QString>> privateTUNAddresses(const QJsonObject &network, const QStringList &reservedPrefixes)
 {
     const auto original = originalNetworkProtection(network);

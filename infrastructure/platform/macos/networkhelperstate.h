@@ -11,7 +11,7 @@ public:
     ~MacNetworkHelperState();
     PlatformOperationResult open(int bootDirectory, uid_t uid, const QUuid &owner, bool create);
     PlatformOperationResult apply(const MacHelperConfiguration &configuration);
-    PlatformOperationResult extend(const QStringList &addresses);
+    PlatformOperationResult update(const QStringList &targets, bool replace);
     PlatformOperationResult restore();
     PlatformOperationResult cleanup();
     QString phase() const { return metadata["phase"].toString("unknown"); }

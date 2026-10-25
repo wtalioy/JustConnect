@@ -99,23 +99,6 @@ LinuxHelperPreparation prepareLinuxNetworkHelper(const QJsonObject &resources, c
     return {{}, config};
 }
 
-std::optional<QStringList> updatedLinuxCapturePrefixes(const QJsonObject &resources, const QJsonObject &previous,
-    const QJsonObject &next, const LinuxHelperConfiguration &owned)
-{
-    const auto before = campusCaptureTargets(resources,previous);
-    if (!before || before->dnsDomains != owned.dnsDomains) return {};
-    for (const auto &prefix : before->ipv4Prefixes) if (!owned.capturePrefixes.contains(prefix)) return {};
-    QStringList dynamic;
-    for (const auto &prefix : owned.capturePrefixes) {
-        if (before->ipv4Prefixes.contains(prefix)) continue;
-        if (!canonicalIpv4Prefix(prefix) || !prefix.endsWith("/32")) return {};
-        dynamic.append(prefix.chopped(3));
-    }
-    const auto result = campusCaptureTargets(resources,next,dynamic);
-    if (!result || result->dnsDomains != owned.dnsDomains) return {};
-    return result->ipv4Prefixes;
-}
-
 PlatformOperationResult verifyLinuxCaptureExit(const LinuxHelperConfiguration &owned, const QStringList &prefixes,
     const PlatformCommandRunner &reader)
 {

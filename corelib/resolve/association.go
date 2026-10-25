@@ -19,6 +19,31 @@ type campusDNSBinding struct {
 	expires time.Time
 }
 
+// CampusDNSRecords reads the same live bindings used to authorize transparent traffic.
+func (r *Resolver) CampusDNSRecords() map[string][]string {
+	r.resolutionMu.Lock()
+	closed := r.resolutionClosed
+	r.resolutionMu.Unlock()
+	if closed {
+		return nil
+	}
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
+	result := make(map[string][]string)
+	now := time.Now()
+	for address, bindings := range r.dnsBindings {
+		for _, binding := range bindings {
+			if binding.expires.After(now) {
+				result[binding.host] = append(result[binding.host], address.String())
+			}
+		}
+	}
+	for host := range result {
+		slices.Sort(result[host])
+	}
+	return result
+}
+
 func (r *Resolver) bindCampusAnswer(request, reply *dns.Msg, publish func([]netip.Addr) error) ([]netip.Addr, error) {
 	if request.Question[0].Qtype != dns.TypeA || reply.Rcode != dns.RcodeSuccess || reply.Truncated {
 		return nil, nil

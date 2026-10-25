@@ -8,6 +8,7 @@
 #include <QScopeGuard>
 #include <dispatch/dispatch.h>
 #include <functional>
+#include <algorithm>
 #include <net/if.h>
 #include <unistd.h>
 
@@ -80,7 +81,7 @@ MacNetworkHelperClient::MacNetworkHelperClient(QObject *parent, AuthorizationPro
     native->client = this; deadline.setSingleShot(true); deadline.setInterval(MacHelperOperationTimeoutMs);
     connect(&deadline,&QTimer::timeout,this,[this] {
         pendingRequest = {}; closeDevice();
-        const bool changed = current == State::Applying || current == State::Extending || current == State::Restoring || current == State::Acknowledging;
+        const bool changed = current == State::Applying || current == State::Extending || current == State::Reconciling || current == State::Restoring || current == State::Acknowledging;
         const Result result{Status::TimedOut,"Network helper timed out; pending ownership is retained.",changed};
         finish(result,current == State::Acknowledging ? State::CleanupRequired : changed ? State::RecoveryRequired : State::Idle);
         if (changed) emit ownershipLost(result);
@@ -129,14 +130,26 @@ void MacNetworkHelperClient::extend(const QStringList &addresses)
     if (current != State::Active || device < 0 || !parsed || addresses.contains(configuration.address) || addresses.contains(configuration.peer)) {
         emit finished(Operation::Extend,{Status::Failed,"DNS publication requires active ownership and canonical addresses.",false}); return;
     }
-    operation = Operation::Extend; pendingExtension = *parsed; outcome = {};
+    operation = Operation::Extend; pendingTargets = *parsed; outcome = {};
     send("extend"); setState(State::Extending);
+}
+void MacNetworkHelperClient::reconcile(const QStringList &prefixes)
+{
+    const auto parsed = parseMacHelperRoutes(macHelperRoutesRequest(connection,QUuid::createUuid(),prefixes));
+    if (current != State::Active || device < 0 || !parsed || std::any_of(prefixes.begin(),prefixes.end(),[&](const auto &prefix) {
+        return ipv4PrefixContainsAddress(prefix,configuration.address) || ipv4PrefixContainsAddress(prefix,configuration.peer);
+    })) {
+        emit finished(Operation::Routes,{Status::Failed,"Capture changes require active ownership and canonical non-device prefixes.",false}); return;
+    }
+    operation = Operation::Routes; pendingTargets = *parsed; outcome = {};
+    send("routes"); setState(State::Reconciling);
 }
 void MacNetworkHelperClient::send(const char *name)
 {
     pendingRequest = QUuid::createUuid();
     const auto request = QByteArray(name) == "apply" ? macHelperApplyRequest(connection,pendingRequest,configuration)
-        : QByteArray(name) == "extend" ? macHelperExtendRequest(connection,pendingRequest,pendingExtension)
+        : QByteArray(name) == "extend" ? macHelperExtendRequest(connection,pendingRequest,pendingTargets)
+        : QByteArray(name) == "routes" ? macHelperRoutesRequest(connection,pendingRequest,pendingTargets)
         : macHelperRequest(name,connection,pendingRequest);
     deadline.start();
     const std::weak_ptr<Native> weak(native);
@@ -266,13 +279,14 @@ void MacNetworkHelperClient::receive(const QJsonObject &request, const QJsonObje
         outcome = cancelled ? Result{Status::Cancelled,"Network setup cancelled.",false} : result;
         setState(State::Acknowledging); send("cleanup"); return;
     }
-    if (name == "extend") {
+    if (name == "extend" || name == "routes") {
         if (!result.succeeded()) {
             closeDevice(); auto failure = result; failure.mayHaveChanged = true;
             finish(failure,State::RecoveryRequired); emit ownershipLost(failure); return;
         }
         auto next = configuration;
-        for (const auto &address : pendingExtension) {
+        if (name == "routes") next.capturePrefixes = pendingTargets;
+        else for (const auto &address : pendingTargets) {
             bool covered = false;
             for (const auto &prefix : next.capturePrefixes) covered |= ipv4PrefixContainsAddress(prefix,address);
             if (!covered) next.capturePrefixes.append(address+"/32");
@@ -281,13 +295,13 @@ void MacNetworkHelperClient::receive(const QJsonObject &request, const QJsonObje
         if (!MacTunRoutes::validRecord(connection,capture) || !confirmedCaptures(capture,next.capturePrefixes)
             || capture["interface"] != deviceInfo["interface"] || capture["index"] != deviceInfo["index"]
             || capture["source"] != configuration.address || capture["peer"] != configuration.peer) {
-            closeDevice(); const Result failure{Status::Failed,"Confirmed DNS capture scope differs from its device.",true};
+            closeDevice(); const Result failure{Status::Failed,"Confirmed capture scope differs from its device.",true};
             finish(failure,State::RecoveryRequired); emit ownershipLost(failure); return;
         }
         configuration = next; networkInfo = view;
-        pendingExtension.clear();
+        pendingTargets.clear();
         if (!cancelled) { finish(result,State::Active); return; }
-        outcome = {Status::Cancelled,"DNS publication cancelled after restoring its changes.",false};
+        outcome = {Status::Cancelled,"Capture update cancelled after restoring its changes.",false};
         closeDevice(); setState(State::Restoring); send("restore"); return;
     }
     if (name == "cleanup") {
@@ -326,7 +340,7 @@ void MacNetworkHelperClient::cancel()
 }
 void MacNetworkHelperClient::disconnected(const QString &detail)
 {
-    if (current != State::Active && current != State::Extending) return;
+    if (current != State::Active && current != State::Extending && current != State::Reconciling) return;
     closeDevice(); const Result result{Status::Failed,"Network helper ownership was lost; stop the core and recover before reconnecting. "+detail,true};
     finish(result,State::RecoveryRequired); emit ownershipLost(result);
 }

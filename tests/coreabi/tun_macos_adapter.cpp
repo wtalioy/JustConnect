@@ -81,9 +81,10 @@ int main(int argc,char **argv)
     QJsonObject initial;
     QObject::connect(engine,&CoreEngine::initialProtectionApplied,[&](const QJsonObject &value) { initial = value; });
     const bool helperLoss = qgetenv("JC_NATIVE_NETWORK_HELPER_LOSS") == "1";
+    const bool policyChanges = qgetenv("JC_NATIVE_NETWORK_POLICY") == "1";
     const bool offline = qgetenv("JC_NATIVE_NETWORK_HELPER_OFFLINE") == "1";
     const auto marker = QString::fromLocal8Bit(qgetenv("JC_NATIVE_TUN_READY"));
-    check((!helperLoss && authorizationMode.isEmpty()) || !marker.isEmpty(),"External native observer has a private control directory");
+    check((!helperLoss && !policyChanges && authorizationMode.isEmpty()) || !marker.isEmpty(),"External native observer has a private control directory");
     const auto publish = [&](const QString &suffix) {
         QSaveFile file(marker+suffix);
         const auto value = QJsonDocument(QJsonObject{{"pid",QCoreApplication::applicationPid()},
@@ -97,7 +98,7 @@ int main(int argc,char **argv)
         const auto expected = helperLoss && finished == 0 ? ConnectionError::OTHER : ConnectionError::NONE;
         check(error == expected,"macOS connection retained its actual terminal result"); ++finished;
     });
-    QByteArray previousDifference;
+    QByteArray previousDifference; bool changingNetwork = false;
     const auto viewMatches = [&] {
         const auto model = policy.model();
         const auto actual = protectionConfiguration(model["targets"].toArray(),model["name_targets"].toArray());
@@ -110,7 +111,7 @@ int main(int argc,char **argv)
         return matches;
     };
     QObject::connect(&policy,&NetworkPolicySession::changed,[&] {
-        if (!initial.isEmpty() && !policy.isBusy() && policy.status() == CoreEngine::RequestStatus::Success) viewMatches();
+        if (!changingNetwork && !initial.isEmpty() && !policy.isBusy() && policy.status() == CoreEngine::RequestStatus::Success) viewMatches();
     });
     const auto originalView = [&] {
         until([&] { return !policy.isBusy(); });
@@ -153,7 +154,7 @@ int main(int argc,char **argv)
         }
         until([&] { return session.state() == ConnectionState::Running || !session.isActive(); });
         check(session.state() == ConnectionState::Running && session.phase() == ConnectionPhase::CampusReady && wasPreparing,"Campus readiness follows helper ownership and real Go attachment");
-        if ((helperLoss && round == 1) || (!helperLoss && authorizationMode.isEmpty() && !marker.isEmpty() && round == 0)) {
+        if ((helperLoss && round == 1) || (!helperLoss && !policyChanges && authorizationMode.isEmpty() && !marker.isEmpty() && round == 0)) {
             publish(".reconnected"); until([&] { return QFileInfo::exists(marker+".traffic"); });
         }
         originalView();
@@ -165,6 +166,30 @@ int main(int argc,char **argv)
         for (const auto &address : addresses("localhost")) check(QHostAddress(address).isLoopback(),"localhost remains on this computer");
         originalView();
         check(policy.refresh(),"Read current native network after DNS route publication and traffic"); originalView();
+        if (policyChanges && round == 0) {
+            const auto generation = policy.currentGeneration();
+            changingNetwork = true; publish(".policy-ready");
+            until([&] { return QFileInfo::exists(marker+".overlay-up"); });
+            check(policy.refresh(),"Read actual original route overlap");
+            until([&] { return !policy.isBusy() && policy.confirmedProtection()["protected"].toArray().contains("198.18.0.0/29"); });
+            check(session.state() == ConnectionState::Running && policy.currentGeneration() == generation,"New protection did not require a new authenticated session");
+            publish(".protected"); until([&] { return QFileInfo::exists(marker+".select-campus"); });
+            check(policy.setCampusAddress("198.18.0.7",true),"Select the confirmed cached campus DNS address");
+            until([&] { return !policy.isBusy(); });
+            check(policy.policyStatus() == CoreEngine::RequestStatus::Success && policy.campusAddresses().contains("198.18.0.7"),"Core and helper did not confirm the explicit campus choice");
+            exerciseNativeTUNTraffic(QHostAddress("198.18.0.7"));
+            publish(".campus-selected"); until([&] { return QFileInfo::exists(marker+".select-original"); });
+            check(policy.setCampusAddress("198.18.0.7",false),"Return the overlapping address to its original network");
+            until([&] { return !policy.isBusy(); });
+            check(policy.policyStatus() == CoreEngine::RequestStatus::Success && policy.campusAddresses().isEmpty(),"Original-side choice did not complete both confirmations");
+            publish(".original-selected"); until([&] { return QFileInfo::exists(marker+".overlay-down"); });
+            check(policy.refresh(),"Read actual original overlay removal");
+            until([&] { return !policy.isBusy() && !policy.confirmedProtection()["protected"].toArray().contains("198.18.0.0/29"); });
+            check(session.state() == ConnectionState::Running && policy.currentGeneration() == generation,"Original route changes lost the active generation");
+            publish(".policy-restored"); until([&] { return QFileInfo::exists(marker+".traffic"); });
+            exerciseNativeTUNTraffic(QHostAddress("198.18.0.7"));
+            changingNetwork = false; originalView();
+        }
         if (helperLoss && round == 0) {
             publish({});
             until([&] { return coreFinished == 1; },MacHelperOperationTimeoutMs);
@@ -188,5 +213,6 @@ int main(int argc,char **argv)
     if (helperLoss) std::cout << "PASS: full macOS application releases core/device on helper loss and reconnects with fresh ownership\n";
     if (offline) std::cout << "PASS: unavailable macOS helper retains restoration responsibility and blocks restart until explicit recovery\n";
     if (cancelAuthorization) std::cout << "PASS: pending macOS authorization cancels promptly and its late grant cannot approve a fresh connection\n";
+    if (policyChanges) std::cout << "PASS: macOS live overlap protection, cached DNS campus selection, original-side withdrawal and overlay removal without reauthentication\n";
     std::cout << "PASS: ordinary native TCP/UDP via actual signed macOS helper, application readiness, system CNAME DNS, exact original views and ordered stop/restart\n";
 }

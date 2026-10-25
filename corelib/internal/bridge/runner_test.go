@@ -504,10 +504,14 @@ func TestNativeTUNHost(t *testing.T) {
 		expectedAuth++ // The cancelled prefix reached real authentication before network authorization.
 	}
 	extraUDP := int32(0)
+	extraTCP := int32(0)
 	if os.Getenv("JC_NATIVE_NETWORK_OBSERVE") == "1" {
 		extraUDP = 2
 	}
-	if !bytes.Contains(output, []byte("PASS: ordinary native TCP/UDP")) || g.authCount.Load() != expectedAuth || g.tcpCount.Load() != 2 || g.udpCount.Load() != 4+extraUDP+g.nativeDNSQueries.Load() || (g.nativeDNS.Load() && g.nativeDNSQueries.Load() < 2) {
+	if os.Getenv("JC_NATIVE_NETWORK_POLICY") == "1" {
+		extraTCP, extraUDP = 2, extraUDP+4
+	}
+	if !bytes.Contains(output, []byte("PASS: ordinary native TCP/UDP")) || g.authCount.Load() != expectedAuth || g.tcpCount.Load() != 2+extraTCP || g.udpCount.Load() != 4+extraUDP+g.nativeDNSQueries.Load() || (g.nativeDNS.Load() && g.nativeDNSQueries.Load() < 2) {
 		t.Fatalf("missing actual TUN/campus exchanges: auth=%d TCP=%d UDP=%d\n%s", g.authCount.Load(), g.tcpCount.Load(), g.udpCount.Load(), output)
 	}
 	if g.nativeDNS.Load() {

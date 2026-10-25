@@ -24,6 +24,10 @@ struct CampusCaptureTargets {
 // Derive IPv4 capture from resources, confirmed dynamic addresses and protection.
 std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &resources, const QJsonObject &policy, const QStringList &dynamicAddresses = {});
 
+// Derive live captures from authoritative resources while validating the owned DNS scope.
+std::optional<QStringList> updatedCampusCapturePrefixes(const QJsonObject &resources, const QJsonObject &policy,
+    const QStringList &dnsDomains);
+
 // Choose two unused RFC 1918 addresses without overlapping original or campus targets.
 std::optional<std::pair<QString, QString>> privateTUNAddresses(const QJsonObject &network, const QStringList &reservedPrefixes);
 

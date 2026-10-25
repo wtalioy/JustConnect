@@ -158,6 +158,37 @@ Result MacTunRoutes::extend(const UnixTunDevice &device, const QStringList &addr
     return append(additions,checkpoint);
 }
 
+Result MacTunRoutes::reconcile(const UnixTunDevice &device, const QStringList &prefixes, const CheckpointWriter &checkpoint)
+{
+    if (owner.isNull() || device.owner() != owner || device.descriptor() < 0 || device.name() != interfaceName
+        || device.index() != interfaceIndex || !identity() || prefixes.size() > MacRouteSnapshotRows)
+        return {Status::Failed,"Capture changes require the active owned utun.",true};
+    const auto current = readMacRoutes();
+    if (!current.result.succeeded()) return current.result;
+    QStringList before, additions, removals;
+    for (const auto &entry : entries) {
+        if (entry.deleting || entry.applied.isEmpty() || exactMatches(matching(current.rows,entry.prefix),entry.applied) != 1)
+            return {Status::Failed,"Capture ownership changed before reconciliation.",true};
+        before.append(entry.prefix);
+        if (!prefixes.contains(entry.prefix)) removals.append(entry.prefix);
+    }
+    QSet<QString> unique;
+    for (const auto &prefix : prefixes) {
+        if (!canonicalUnicastIpv4Prefix(prefix) || unique.contains(prefix)
+            || ipv4PrefixContainsAddress(prefix,sourceAddress) || ipv4PrefixContainsAddress(prefix,peerAddress))
+            return {Status::Failed,"Invalid or self-capturing replacement prefix.",true};
+        unique.insert(prefix);
+        if (!before.contains(prefix)) {
+            if (!matching(current.rows,prefix).isEmpty()) return {Status::Failed,"An external exact route is preserved.",true};
+            additions.append(prefix);
+        }
+    }
+    if (current.rows.size()+additions.size() > MacRouteSnapshotRows)
+        return {Status::Failed,"Capture changes exceed the complete native snapshot bound.",true};
+    if (auto removed = remove(removals,checkpoint); !removed.succeeded()) return removed;
+    return append(additions,checkpoint);
+}
+
 Result MacTunRoutes::append(const QStringList &prefixes, const CheckpointWriter &checkpoint)
 {
     QDeadlineTimer deadline(MacRouteOperationTimeoutMs);
@@ -232,9 +263,20 @@ Result MacTunRoutes::restore(const QUuid &id, const CheckpointWriter &checkpoint
         return !::if_nametoindex(interfaceName.toLatin1().constData()) && !::if_indextoname(interfaceIndex, name);
     };
     if (!validIdentity()) return {Status::Failed, "Capture device identity changed; saved ownership is retained.", true};
+    QStringList prefixes;
+    for (const auto &entry : entries) prefixes.append(entry.prefix);
+    const auto result = remove(prefixes,checkpoint);
+    if (!result.succeeded()) return result;
+    if (checkpoint) { auto saved = checkpoint({}); if (!saved.succeeded()) { saved.mayHaveChanged = true; return saved; } }
+    clear(); return {Status::Success, {}, true};
+}
+
+Result MacTunRoutes::remove(const QStringList &prefixes, const CheckpointWriter &checkpoint)
+{
     QDeadlineTimer deadline(MacRouteOperationTimeoutMs);
     bool unresolved = false;
     for (auto it = entries.begin(); it != entries.end();) {
+        if (!prefixes.contains(it->prefix)) { ++it; continue; }
         auto read = readMacRoutes();
         if (!read.result.succeeded()) { read.result.mayHaveChanged = true; return read.result; }
         const auto rows = matching(read.rows, it->prefix);
@@ -263,6 +305,6 @@ Result MacTunRoutes::restore(const QUuid &id, const CheckpointWriter &checkpoint
         if (const auto saved = save(checkpoint); !saved.succeeded()) return saved;
     }
     if (unresolved) return {Status::Failed, "Interrupted or unconfirmed capture is unresolved; matching routes are retained.", true};
-    if (checkpoint) { auto saved = checkpoint({}); if (!saved.succeeded()) { saved.mayHaveChanged = true; return saved; } }
-    clear(); return {Status::Success, {}, true};
+    if (!prefixes.isEmpty()) { const auto saved = save(checkpoint); if (!saved.succeeded()) return saved; }
+    return {Status::Success, {}, !prefixes.isEmpty()};
 }

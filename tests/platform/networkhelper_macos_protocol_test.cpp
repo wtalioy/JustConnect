@@ -32,6 +32,16 @@ int main(int argc,char **argv) try
     }
     auto injected = extension; injected["program"] = "/bin/sh";
     check(!parseMacHelperExtend(injected),"DNS publication accepted an arbitrary execution field");
+    const auto routes = macHelperRoutesRequest(owner,request,{"198.18.0.7/32","198.18.1.0/24"});
+    check(parseMacHelperRoutes(routes) == std::optional(QStringList{"198.18.0.7/32","198.18.1.0/24"})
+        && parseMacHelperRoutes(macHelperRoutesRequest(owner,request,{})) == std::optional(QStringList{}),"Capture replacement lost its targets or explicit withdrawal");
+    for (const auto &prefixes : {QJsonArray{1},QJsonArray{"127.0.0.1/32"},QJsonArray{"0.0.0.0/0"},
+            QJsonArray{"198.18.0.7/31"},QJsonArray{"198.18.0.7/32","198.18.0.7/32"}}) {
+        auto invalid = routes; invalid["prefixes"] = prefixes;
+        check(!parseMacHelperRoutes(invalid),"Unsafe replacement crossed the privilege boundary");
+    }
+    injected = routes; injected["program"] = "/bin/sh";
+    check(!parseMacHelperRoutes(injected),"Capture replacement accepted an arbitrary execution field");
     for (const auto *operation : {"probe","restore","recover","cleanup"})
         check(validMacHelperRequest(macHelperRequest(operation,owner,request)),"Bound owner operation was rejected");
     for (const auto *key : {"schema_version","owner","request_id","operation"}) {

@@ -74,6 +74,13 @@ func (s *Session) AttachTUN(device io.ReadWriteCloser, mtu uint32, publishDNSRou
 	return net.ErrClosed
 }
 
+func (s *Session) CampusDNSRecords() map[string][]string {
+	if listeners := s.listeners.Load(); listeners != nil {
+		return listeners.CampusDNSRecords()
+	}
+	return nil
+}
+
 func NewSession(options Options) *Session {
 	options.Setup.ClientData = bytes.Clone(options.Setup.ClientData)
 	return &Session{options: options}

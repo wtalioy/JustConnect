@@ -2,6 +2,7 @@
 #include "infrastructure/platform/dnsroutepublisher.h"
 #include "iprouteutility.h"
 #include "networkownership.h"
+#include "application/networkprotection.h"
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFileInfo>
@@ -167,8 +168,8 @@ void LinuxNetworkAccess::prepareConfiguration()
 void LinuxNetworkAccess::applyPolicy(const QJsonObject &value)
 {
     const auto owned = helper.ownedConfiguration();
-    const auto capture = owned ? updatedLinuxCapturePrefixes(policy->model()["resources"].toObject(),
-        policy->confirmedProtection(),value,*owned) : std::nullopt;
+    const auto capture = owned ? updatedCampusCapturePrefixes(policy->model()["resources"].toObject(),
+        value,owned->dnsDomains) : std::nullopt;
     if (stage != Stage::Ready || helper.state() != HelperState::Active || !capture) {
         policy->completePolicy(value["generation"].toString(),value["revision"].toString(),CoreEngine::RequestStatus::Unavailable);
         return;
@@ -196,6 +197,10 @@ void LinuxNetworkAccess::observeModel()
         emit restartRequired(attempt,QStringLiteral("原网络出口已变化，正在恢复网络。"));
         return;
     }
+    const auto prefixes = updatedCampusCapturePrefixes(policy->model()["resources"].toObject(),policy->confirmedProtection(),owned->dnsDomains);
+    if (!prefixes) { invalidateNetwork(QStringLiteral("无法确认当前校园捕获范围。")); return; }
+    auto actual = owned->capturePrefixes, expected = *prefixes; actual.sort(); expected.sort();
+    if (actual != expected) { helper.reconcile(*prefixes); return; }
     automaticPolicy = true;
     const auto result = policy->synchronizeProtection();
     if (result == CoreEngine::RequestStatus::Pending) return;
@@ -246,7 +251,7 @@ void LinuxNetworkAccess::helperFinished(Operation operation, Result result)
         policy->completePolicy(generation,revision,result.succeeded() ? CoreEngine::RequestStatus::Success : CoreEngine::RequestStatus::Failed);
         return;
     }
-    if (operation == Operation::Extend && stage == Stage::Ready) {
+    if ((operation == Operation::Extend || operation == Operation::Routes) && stage == Stage::Ready) {
         if (!result.succeeded()) { stage = Stage::Failed; emit lost(attempt, result); }
         return;
     }

@@ -12,10 +12,6 @@ struct LinuxHelperPreparation {
 LinuxHelperPreparation prepareLinuxNetworkHelper(const QJsonObject &resources, const QJsonObject &policy,
     const QJsonObject &network, const DnsSnapshot &dns, const QString &localDNS, int mtu, const PlatformCommandRunner &reader = {});
 
-// Preserve confirmed DNS additions while applying the same protection to the next capture set.
-std::optional<QStringList> updatedLinuxCapturePrefixes(const QJsonObject &resources, const QJsonObject &previous,
-    const QJsonObject &next, const LinuxHelperConfiguration &owned);
-
 PlatformOperationResult verifyLinuxCaptureExit(const LinuxHelperConfiguration &owned, const QStringList &prefixes,
     const PlatformCommandRunner &reader = {});
 

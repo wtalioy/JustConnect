@@ -104,11 +104,13 @@ int main(int argc,char **argv) try
     }
     if (arguments.size() >= 2 && arguments[1].startsWith("--wire-")) {
         const bool extension = arguments[1] == "--wire-live-extend";
-        const bool recover = arguments[1] == "--wire-foreign" || arguments[1] == "--wire-live" || extension;
+        const bool routes = arguments[1] == "--wire-live-routes";
+        const bool recover = arguments[1] == "--wire-foreign" || arguments[1] == "--wire-live" || extension || routes;
         check(arguments.size() == (recover ? 3 : 2),"Invalid wire boundary arguments");
         const auto connection = xpc_connection_create_mach_service(MacHelperIdentifier,nullptr,XPC_CONNECTION_MACH_SERVICE_PRIVILEGED);
         check(connection,"Create native XPC connection"); xpc_connection_set_event_handler(connection,^(xpc_object_t) {}); xpc_connection_resume(connection);
         const auto request = extension ? macHelperExtendRequest(QUuid(arguments[2]),QUuid::createUuid(),{"198.18.0.8"})
+            : routes ? macHelperRoutesRequest(QUuid(arguments[2]),QUuid::createUuid(),{"198.18.0.8/32"})
             : recover ? macHelperRequest("recover",QUuid(arguments[2]),QUuid::createUuid())
             : macHelperApplyRequest(QUuid::createUuid(),QUuid::createUuid(),configuration);
         AuthorizationExternalForm external{}; AuthorizationRef ungranted = nullptr;

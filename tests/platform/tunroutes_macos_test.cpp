@@ -175,6 +175,8 @@ int main(int argc, char **argv) try
         nativeChange("delete",first,device.name());
         check(capture.apply(device,{first},checkpoint).succeeded(), "Prepare external-edit capture");
         nativeChange("change",first,device.name(),{"-hopcount","7"}); const auto edited = routes(first);
+        check(!capture.reconcile(device,{second},checkpoint).succeeded() && routes(first) == edited && routes(second).isEmpty(),
+            "Live reconciliation adopted an external metric edit or applied a partial new scope");
         check(capture.restore(owner,checkpoint).succeeded() && routes(first) == edited && !QFile::exists(path), "Recovery overwrote an external metric change");
         nativeChange("delete",first,device.name());
     }
@@ -225,6 +227,27 @@ int main(int argc, char **argv) try
         check(!unconfirmed.recover(owner,saved,checkpoint).succeeded() && routes(first) == before, "Unconfirmed matching route was adopted or deleted");
         nativeChange("delete",first,device.name()); recoverInNewProcess();
         check(!QFile::exists(path), "Absent unconfirmed state retained stale ownership");
+    }
+    {
+        MacTunRoutes capture;
+        check(capture.apply(device,{first,second},checkpoint).succeeded(),"Prepare live route reconciliation");
+        const auto before = capture.snapshot();
+        check(!capture.reconcile(device,{second,"198.18.0.7/32"},[](const QJsonObject &) {
+            return PlatformOperationResult{PlatformOperationResult::Status::PermissionDenied,"injected deletion checkpoint denial"};
+        }).succeeded() && capture.snapshot() == before && routes(first).size() == 1 && routes("198.18.0.7/32").isEmpty(),
+            "Denied deletion checkpoint changed live capture");
+        check(capture.reconcile(device,{second,"198.18.0.7/32"},checkpoint).succeeded()
+            && routes(first).isEmpty() && routes(second).size() == 1 && routes("198.18.0.7/32").size() == 1,
+            "Live replacement did not withdraw and append its actual owned routes");
+        const auto owned = capture.snapshot();
+        check(!capture.reconcile(device,{"198.18.0.1/32"},checkpoint).succeeded() && capture.snapshot() == owned,
+            "Live reconciliation captured its own device");
+        check(capture.reconcile(device,{},checkpoint).succeeded() && routes(second).isEmpty() && routes("198.18.0.7/32").isEmpty()
+            && QFile::exists(path),"Withdrawing all captures lost active device ownership or retained a route");
+        check(capture.reconcile(device,{first},checkpoint).succeeded() && routes(first).size() == 1,
+            "Active ownership could not resume capture after complete withdrawal");
+        recoverInNewProcess();
+        check(routes(first).isEmpty() && !QFile::exists(path),"Independent recovery lost the latest reconciled checkpoint");
     }
     device.close(); journal.close(); ::close(directory);
     check(routes(first).isEmpty() && routes(second).isEmpty(), "Owned test capture survived final cleanup");
