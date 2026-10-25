@@ -168,12 +168,15 @@ void MacNetworkHelperClient::probeFailed()
 {
     if (cancelled) { finish({Status::Cancelled,"Network setup cancelled.",false},State::Idle); return; }
     if (registered) { finish({Status::Failed,"The trusted root network helper is unavailable.",false},State::Idle); return; }
-    registered = true; deadline.stop(); setState(State::Registering);
+    registered = true; deadline.stop();
+    const auto request = pendingRequest = QUuid::createUuid();
+    setState(State::Registering);
+    if (current != State::Registering || pendingRequest != request) return;
     const std::weak_ptr<Native> weak(native);
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0),^{
         const auto result = registerMacNetworkHelper();
-        if (auto state = weak.lock()) dispatch_async(state->queue,^{ state->post([result](auto *target) {
-            if (target->current != State::Registering) return;
+        if (auto state = weak.lock()) dispatch_async(state->queue,^{ state->post([result,request](auto *target) {
+            if (target->current != State::Registering || target->pendingRequest != request) return;
             if (target->cancelled) target->finish({Status::Cancelled,"Network setup cancelled.",false},State::Idle);
             else if (!result.succeeded()) target->finish(result,State::Idle);
             else { target->setState(State::Inspecting); target->send("probe"); }
@@ -182,22 +185,34 @@ void MacNetworkHelperClient::probeFailed()
 }
 void MacNetworkHelperClient::authorize()
 {
-    deadline.stop(); setState(State::Authorizing);
+    deadline.stop();
+    // A completed prompt may only authorize the attempt that opened it.
+    const auto request = pendingRequest = QUuid::createUuid();
+    setState(State::Authorizing);
+    if (current != State::Authorizing || pendingRequest != request) return;
     const std::weak_ptr<Native> weak(native);
     const auto provider = native->authorize;
+    const auto authorization = std::shared_ptr<AuthorizationRef>(new AuthorizationRef(nullptr),[](AuthorizationRef *value) {
+        if (*value) AuthorizationFree(*value,kAuthorizationFlagDestroyRights);
+        delete value;
+    });
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0),^{
-        AuthorizationRef authorization = nullptr;
-        const auto status = provider(&authorization);
+        const auto status = provider(authorization.get());
         const auto state = weak.lock();
-        if (!state) { if (authorization) AuthorizationFree(authorization,kAuthorizationFlagDestroyRights); return; }
+        if (!state) return;
         dispatch_async(state->queue,^{
-            if (state->authorization) AuthorizationFree(state->authorization,kAuthorizationFlagDestroyRights);
-            state->authorization = authorization;
-            state->post([status](auto *target) {
-                if (target->current != State::Authorizing) return;
+            state->post([status,authorization,request](auto *target) {
+                if (target->current != State::Authorizing || target->pendingRequest != request) return;
                 if (target->cancelled || status == errAuthorizationCanceled) target->finish({Status::Cancelled,"Network authorization cancelled.",false},State::Idle);
                 else if (status != errAuthorizationSuccess) target->finish({Status::PermissionDenied,"Network administrator authorization was denied.",false},State::Idle);
-                else { target->send("apply"); target->setState(State::Applying); }
+                else {
+                    const auto accepted = target->native;
+                    dispatch_async(accepted->queue,^{
+                        if (accepted->authorization) AuthorizationFree(accepted->authorization,kAuthorizationFlagDestroyRights);
+                        accepted->authorization = *authorization; *authorization = nullptr;
+                    });
+                    target->send("apply"); target->setState(State::Applying);
+                }
             });
         });
     });
@@ -304,6 +319,9 @@ void MacNetworkHelperClient::cleanupRestored(const QUuid &owner)
 void MacNetworkHelperClient::cancel()
 {
     cancelled = true;
+    if (current == State::Inspecting || current == State::Registering || current == State::Authorizing) {
+        finish({Status::Cancelled,"Network setup cancelled before applying changes.",false},State::Idle); return;
+    }
     if (current == State::Active || current == State::RecoveryRequired) restore();
 }
 void MacNetworkHelperClient::disconnected(const QString &detail)
