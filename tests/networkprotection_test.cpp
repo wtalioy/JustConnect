@@ -1,4 +1,5 @@
 #include "application/networkprotection.h"
+#include "infrastructure/networkhelper/windows/networkhelperpreparation.h"
 #include <QCoreApplication>
 #include <QHostAddress>
 #include <QJsonDocument>
@@ -42,6 +43,21 @@ static void captureTargets()
     check(!privateTUNAddresses(allocationNetwork,{"172.16.0.0/12","192.168.0.0/16"}),
           "Exhausted private pools reused an occupied address");
     check(!privateTUNAddresses(allocationNetwork,{"172.16.0.1/16"}),"Invalid capture prefix reached device allocation");
+    resources["underlay_interface"]="";
+    const QJsonObject dns{{"interfaces",QJsonArray{QJsonObject{{"ServerAddresses",QJsonArray{"172.17.0.1","172.17.0.2"}}}}}};
+    const auto prepared=prepareWindowsNetworkHelper(resources,policy,allocationNetwork,dns,"172.17.0.3:53",1400);
+    check(prepared.result.succeeded() && prepared.configuration["capture_prefixes"]==QJsonArray::fromStringList(plan->ipv4Prefixes)
+        && prepared.configuration["dns_domains"]==QJsonArray::fromStringList(plan->dnsDomains),"Windows preparation lost confirmed resource scopes");
+    for(const auto &field:{"address","peer"}){
+        const QHostAddress address(prepared.configuration[field].toString());
+        check(!address.isInSubnet(QHostAddress::parseSubnet("10.0.0.0/8"))
+            && !address.isInSubnet(QHostAddress::parseSubnet("172.16.0.0/16"))
+            && !QStringList{"172.17.0.1","172.17.0.2","172.17.0.3"}.contains(address.toString()),
+            "Windows preparation reused original network or DNS addresses");
+    }
+    auto missingUnderlay=resources;missingUnderlay["underlay_interface"]="missing-underlay";
+    check(!prepareWindowsNetworkHelper(missingUnderlay,policy,allocationNetwork,dns,{},1400).result.succeeded(),
+        "Windows preparation ignored a missing selected underlay");
     auto protectedPolicy = policy;
     protectedPolicy["protected_names"] = QJsonArray{QJsonObject{{"kind","exact"},{"value","host.campus.test"}}};
     check(!campusCaptureTargets(resources, protectedPolicy),"Protected descendant name reached a broad campus DNS route");
