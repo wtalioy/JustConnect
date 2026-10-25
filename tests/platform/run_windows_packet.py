@@ -54,6 +54,16 @@ def device():
         '-A', 'ARM64' if arch == 'arm64' else 'x64'], check=True, timeout=120)
     subprocess.run(['cmake', '--build', str(native), '--config', 'Release', '--parallel', '3'], check=True, timeout=180)
     env['JC_TEST_CPP_WINTUN_BROKER'] = str(native / 'Release/windows_device_broker.exe')
+    trap = output / 'windows-device-loader-trap'
+    trap.mkdir(exist_ok=True)
+    guarded = trap / 'windows_device_broker.exe'
+    shutil.copy2(env['JC_TEST_CPP_WINTUN_BROKER'], guarded)
+    (trap / 'iphlpapi.dll').write_bytes(b'not a DLL: adjacent dependency must never be loaded')
+    checked = subprocess.run([str(guarded)], env=env, capture_output=True, text=True, timeout=15)
+    if checked.returncode != 1 or 'device fixture requires' not in checked.stderr:
+        raise RuntimeError(f'Native broker loaded an adjacent dependency: {checked.returncode}: {checked.stderr}')
+    print('PASS: native broker resolves system dependencies before main and refuses unguarded device execution', flush=True)
+
     with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as exported:
         exported.write('JC_TEST_CPP_WINTUN_BROKER=' + env['JC_TEST_CPP_WINTUN_BROKER'] + '\n')
     source = pathlib.Path('corelib/internal/tundevice/windows/wintun/fixture/main.go').resolve()
