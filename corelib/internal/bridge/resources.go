@@ -21,12 +21,13 @@ type ipResource struct {
 }
 
 type resourceSnapshot struct {
-	IPs               []ipResource                    `json:"ip_resources"`
-	Domains           map[string][]resourcePermission `json:"domain_resources"`
-	DNSRecords        map[string][]string             `json:"dns_records"`
-	CampusDNS         string                          `json:"campus_dns"`
-	CampusDNSEnabled  bool                            `json:"campus_dns_enabled"`
-	UnderlayInterface string                          `json:"underlay_interface"`
+	IPs                []ipResource                    `json:"ip_resources"`
+	Domains            map[string][]resourcePermission `json:"domain_resources"`
+	DNSRecords         map[string][]string             `json:"dns_records"`
+	CampusDNS          string                          `json:"campus_dns"`
+	CampusDNSEnabled   bool                            `json:"campus_dns_enabled"`
+	UnderlayInterface  string                          `json:"underlay_interface"`
+	ActiveTUNAddresses []string                        `json:"active_tun_addresses,omitempty"`
 }
 
 type resourcesEnvelope struct {
@@ -107,13 +108,15 @@ func (e *Engine) Resources(handle, generation uint64) ([]byte, Status) {
 		return bytes.Clone(s.resources), OK
 	}
 	records := s.protocol.CampusDNSRecords()
-	if len(records) == 0 {
+	active := s.protocol.ActiveTUNAddresses()
+	if len(records) == 0 && len(active) == 0 {
 		return bytes.Clone(s.resources), OK
 	}
 	var snapshot resourcesEnvelope
 	if json.Unmarshal(s.resources, &snapshot) != nil {
 		return nil, Internal
 	}
+	snapshot.Resources.ActiveTUNAddresses = active
 	for host, addresses := range records {
 		for _, address := range addresses {
 			if !slices.Contains(snapshot.Resources.DNSRecords[host], address) {

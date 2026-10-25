@@ -169,6 +169,12 @@ func TestTUNDNSUsesOwnedPeerAndCampusACL(t *testing.T) {
 		}
 	}
 	publicationMode.Store(0)
+	local, ownedPeer := device.TUNAddresses()
+	for _, address := range p.ActiveTUNAddresses() {
+		if address == local.String() || address == ownedPeer.String() {
+			t.Fatal("owned DNS endpoints became external capture targets", address)
+		}
+	}
 	application := tcpip.FullAddress{NIC: 1, Addr: tcpip.AddrFrom4([4]byte{203, 0, 113, 9}), Port: 80}
 	if reply := query("tcp", application, request); len(reply.Answer) != 81 {
 		t.Fatal("DNS-authorized transparent TCP lost data without an IP resource", reply)

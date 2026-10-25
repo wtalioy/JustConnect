@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -47,6 +48,31 @@ type tunIngress struct {
 	pumps            sync.WaitGroup
 	local, peer      netip.Addr
 	publishDNSRoutes func(context.Context, []netip.Addr) error
+}
+
+// Keep routes for draining flows without extending their DNS authorization.
+func (p *Listeners) ActiveTUNAddresses() []string {
+	p.mu.Lock()
+	ingress := p.tun
+	p.mu.Unlock()
+	if ingress == nil || p.closed.Load() {
+		return nil
+	}
+	ingress.mu.Lock()
+	defer ingress.mu.Unlock()
+	addresses := make(map[string]struct{})
+	for flow := range ingress.flows {
+		address, ok := netip.AddrFromSlice(flow.id.LocalAddress.AsSlice())
+		if ok && address.Is4() && address != ingress.local && address != ingress.peer {
+			addresses[address.String()] = struct{}{}
+		}
+	}
+	result := make([]string, 0, len(addresses))
+	for address := range addresses {
+		result = append(result, address)
+	}
+	slices.Sort(result)
+	return result
 }
 
 // AttachTUN takes ownership on success. Each read/write is one raw IPv4 packet;

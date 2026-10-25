@@ -59,6 +59,12 @@ int main(int argc, char **argv) try {
     nextPolicy = policy; liveResources["dns_records"] = QJsonObject{};
     check(updatedCampusCapturePrefixes(liveResources,nextPolicy,held.dnsDomains) == std::optional<QStringList>{config.capturePrefixes},
           "Expired authoritative DNS bindings retained stale capture routes");
+    liveResources["active_tun_addresses"] = QJsonArray{"203.0.113.70"};
+    check(updatedCampusCapturePrefixes(liveResources,nextPolicy,held.dnsDomains) == std::optional<QStringList>{{"203.0.113.8/31","203.0.113.53/32","203.0.113.70/32"}},
+          "DNS expiry withdrew capture from a still active flow");
+    nextPolicy["protected"] = QJsonArray{"203.0.113.70/32"};
+    check(updatedCampusCapturePrefixes(liveResources,nextPolicy,held.dnsDomains) == std::optional<QStringList>{config.capturePrefixes},
+          "A draining flow bypassed an explicit original-side policy");
     QJsonArray exitRows;
     for (const auto *target : {"203.0.113.8","203.0.113.9","203.0.113.53"})
         exitRows.append(QJsonObject{{"dst",target},{"from",config.originalSource},{"dev",config.originalInterface},
