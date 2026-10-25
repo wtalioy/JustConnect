@@ -16,7 +16,7 @@ target_link_libraries(windows_packet_relay PUBLIC windows_device windows_helper_
 add_library(windows_fixture_support STATIC ordinarytoken.cpp)
 target_link_libraries(windows_fixture_support PUBLIC windows_helper_support)
 add_executable(windows_device_broker broker.cpp)
-target_link_libraries(windows_device_broker PRIVATE windows_device windows_fixture_support windows_packet_relay setupapi uuid)
+target_link_libraries(windows_device_broker PRIVATE windows_device windows_fixture_support windows_packet_relay setupapi uuid psapi)
 
 foreach(CASE IN ITEMS process_identity publisher registry_journal packet_frame nrpt installation)
     add_executable(windows_${CASE}_test ${CASE}.cpp)

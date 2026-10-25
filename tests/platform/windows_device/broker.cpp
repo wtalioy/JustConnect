@@ -14,6 +14,8 @@
 #include <system_error>
 #include <thread>
 #include <vector>
+#include <chrono>
+#include <psapi.h>
 
 namespace {
 [[noreturn]] void fail(const char *stage, DWORD error = GetLastError())
@@ -93,6 +95,31 @@ bool validPacket(const std::vector<unsigned char> &packet,bool reply)
         && (packet[port]<<8|packet[port+1])==43877;
 }
 
+unsigned int benchmarkCount(const std::wstring &mode)
+{
+    if (mode!=L"benchmark") return 1;
+    wchar_t value[16]{};
+    const auto size=GetEnvironmentVariableW(L"JC_TEST_WINTUN_BENCHMARK_PACKETS",value,16);
+    if (!size || size>=16) fail("benchmark packet count unavailable",ERROR_INVALID_PARAMETER);
+    size_t consumed=0;
+    const auto count=std::stoul(value,&consumed);
+    if (consumed!=size || !count || count>65536) fail("invalid benchmark packet count",ERROR_INVALID_PARAMETER);
+    return static_cast<unsigned int>(count);
+}
+void benchmarkStats(std::chrono::steady_clock::time_point started,unsigned int count)
+{
+    const auto seconds=std::chrono::duration<double>(std::chrono::steady_clock::now()-started).count();
+    FILETIME created{},exited{},kernel{},user{};
+    PROCESS_MEMORY_COUNTERS_EX memory{};
+    memory.cb=sizeof(memory);
+    if (!GetProcessTimes(GetCurrentProcess(),&created,&exited,&kernel,&user)
+        || !GetProcessMemoryInfo(GetCurrentProcess(),reinterpret_cast<PROCESS_MEMORY_COUNTERS *>(&memory),sizeof(memory))) fail("read native broker measurements");
+    const auto ticks=[](FILETIME value) { return (static_cast<unsigned long long>(value.dwHighDateTime)<<32)|value.dwLowDateTime; };
+    std::cerr<<"{\"benchmark\":\"helper\",\"backend\":\"cpp\",\"round_trips\":"<<count<<",\"seconds\":"<<seconds
+        <<",\"packets_per_second\":"<<count*2/seconds<<",\"cpu_seconds\":"<<(ticks(kernel)+ticks(user))/1e7
+        <<",\"peak_rss_bytes\":"<<memory.PeakWorkingSetSize<<"}\n";
+}
+
 int exchange(WindowsTunDevice &device,const std::wstring &client,const std::wstring &mode)
 {
     Handle token, childIn, childOut, input, output, error, process, thread, done;
@@ -118,23 +145,28 @@ int exchange(WindowsTunDevice &device,const std::wstring &client,const std::wstr
     if (!done.value) fail("create fixture deadline");
     std::thread watchdog([&] { if (WaitForSingleObject(done.value,8000)==WAIT_TIMEOUT) device.close(); });
     struct Join { HANDLE done; std::thread &worker; ~Join() { SetEvent(done); worker.join(); } } join{done.value,watchdog};
+    const auto count=benchmarkCount(mode);
+    const auto started=std::chrono::steady_clock::now();
     std::vector<unsigned char> packet(1400);
-    do { packet.resize(1400); packet.resize(device.read(packet.data(),packet.size())); } while (!validPacket(packet,false));
-    unsigned char length[]{0,0,0,static_cast<unsigned char>(packet.size())};
-    transfer(input.value,length,4,true);
-    transfer(input.value,packet.data(),static_cast<DWORD>(packet.size()),true);
+    for (unsigned int i=0;i<count;++i) {
+        do { packet.resize(1400); packet.resize(device.read(packet.data(),packet.size())); } while (!validPacket(packet,false));
+        unsigned char length[]{0,0,0,static_cast<unsigned char>(packet.size())};
+        transfer(input.value,length,4,true);
+        transfer(input.value,packet.data(),static_cast<DWORD>(packet.size()),true);
+        transfer(output.value,length,4,false);
+        const auto size=(DWORD(length[0])<<24)|(DWORD(length[1])<<16)|(DWORD(length[2])<<8)|length[3];
+        if (size<20 || size>65535) return 23;
+        std::vector<unsigned char> response(size);
+        transfer(output.value,response.data(),size,false);
+        if (!validPacket(response,true) || std::memcmp(response.data()+28,"pong",4)!=0
+            || response[22]!=packet[20] || response[23]!=packet[21]) return 23;
+        device.write(response.data(),response.size());
+    }
     CloseHandle(input.value);input.value=nullptr;
-    transfer(output.value,length,4,false);
-    const auto size=(DWORD(length[0])<<24)|(DWORD(length[1])<<16)|(DWORD(length[2])<<8)|length[3];
-    if (size<20 || size>65535) return 23;
-    std::vector<unsigned char> response(size);
-    transfer(output.value,response.data(),size,false);
-    if (!validPacket(response,true) || std::memcmp(response.data()+28,"pong",4)!=0
-        || response[22]!=packet[20] || response[23]!=packet[21]) return 23;
-    device.write(response.data(),response.size());
     if (WaitForSingleObject(process.value,12000)!=WAIT_OBJECT_0) fail("ordinary consumer timeout",ERROR_TIMEOUT);
     DWORD code=1;
     if (!GetExitCodeProcess(process.value,&code)) fail("ordinary consumer exit");
+    if (mode==L"benchmark" && code==0) benchmarkStats(started,count);
     return static_cast<int>(code);
 }
 
@@ -194,7 +226,7 @@ int wmain(int argc,wchar_t **argv) try
         return packetRelay(argv[2],argv[3]);
     }
     const std::wstring name=argv[3],mode=argv[4];
-    if (name.rfind(L"JustConnect ",0)!=0 || (mode!=L"connected" && mode!=L"roundtrip" && mode!=L"oversized" && mode!=L"crash" && mode!=L"setup-failure"))
+    if (name.rfind(L"JustConnect ",0)!=0 || (mode!=L"connected" && mode!=L"roundtrip" && mode!=L"oversized" && mode!=L"crash" && mode!=L"setup-failure" && mode!=L"benchmark"))
         fail("invalid native fixture request",ERROR_INVALID_PARAMETER);
     GUID owner{};
     if (FAILED(CLSIDFromString(name.substr(12).c_str(),&owner))) fail("invalid fixture owner",ERROR_INVALID_PARAMETER);

@@ -101,6 +101,32 @@ def device():
             log.flush()
             print(log_path.read_text(encoding='utf-8', errors='replace'), flush=True)
 
+    benchmark_log = output / 'windows-device-benchmark.log'
+    count = 4096
+    measured = dict(env, JC_TEST_WINTUN_BENCHMARK_PACKETS=str(count), JC_TEST_POWERSHELL_HOST=host)
+    with benchmark_log.open('w', encoding='utf-8') as log:
+        try:
+            result = subprocess.run([str(probe), '--benchmark', str(dll)], env=measured, stdout=log, stderr=subprocess.STDOUT, timeout=100)
+            if result.returncode:
+                raise RuntimeError(f'Native device comparison failed: {result.returncode}')
+        finally:
+            log.flush()
+            print(benchmark_log.read_text(encoding='utf-8', errors='replace'), flush=True)
+    records = [json.loads(line) for line in benchmark_log.read_text(encoding='utf-8').splitlines() if line.startswith('{')]
+    expected = {(kind, backend) for kind in ('helper', 'client') for backend in ('go', 'cpp')}
+    if len(records) != len(expected) or {(r.get('benchmark'), r.get('backend')) for r in records} != expected:
+        raise RuntimeError('Native device comparison omitted a backend or ordinary client')
+    for record in records:
+        if record['round_trips'] != count:
+            raise RuntimeError('Native device comparison did not exchange all packets')
+        if record['benchmark'] == 'helper' and (record['seconds'] <= 0 or record['peak_rss_bytes'] <= 0 or record['cpu_seconds'] < 0):
+            raise RuntimeError('Invalid native device measurements')
+    (output / 'windows-device-benchmark.json').write_text(json.dumps({
+        'source': os.environ['GITHUB_SHA'], 'arch': arch, 'driver_sha256': metadata['driver_sha256'],
+        'scenario': 'paired same-runner component brokers; 4-byte UDP round trips over real Wintun and framed ordinary-client IPC; not campus or full Qt throughput',
+        'measurements': records,
+    }, indent=2), encoding='utf-8')
+
     return env
 
 

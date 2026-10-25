@@ -17,6 +17,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -76,11 +78,19 @@ func run() error {
 			return errors.New("invalid owned test adapter name")
 		}
 		switch os.Args[4] {
-		case "connected", "roundtrip", "oversized", "crash", "setup-failure":
+		case "connected", "roundtrip", "oversized", "crash", "setup-failure", "benchmark":
 		default:
 			return errors.New("invalid probe mode")
 		}
 		return broker(os.Args[2], name, os.Args[4])
+	}
+	if len(os.Args) == 3 && os.Args[1] == "--benchmark" {
+		for _, baseline := range []bool{true, false} {
+			if err := runBroker(os.Args[2], "benchmark", baseline); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 	if len(os.Args) != 2 {
 		return errors.New("expected verified Wintun DLL path")
@@ -102,7 +112,7 @@ func run() error {
 		}
 	}
 	for _, mode := range []string{"connected", "roundtrip", "oversized", "crash", "setup-failure"} {
-		if err := runBroker(os.Args[1], mode); err != nil {
+		if err := runBroker(os.Args[1], mode, false); err != nil {
 			return fmt.Errorf("%s: %w", mode, err)
 		}
 	}
@@ -246,7 +256,7 @@ func confirmDevice(input io.Reader, name string, owned *brokerDevice) error {
 	return nil
 }
 
-func runBroker(dll, mode string) (result error) {
+func runBroker(dll, mode string, baseline bool) (result error) {
 	fmt.Fprintln(os.Stderr, "START: device case", mode)
 	owner, err := windows.GenerateGUID()
 	if err != nil {
@@ -278,6 +288,12 @@ func runBroker(dll, mode string) (result error) {
 		return errors.New("native C++ device broker is required by the device validation producer")
 	}
 	cmd := exec.CommandContext(ctx, native, "--broker", dll, name, mode, executable())
+	backend := "cpp"
+	if baseline {
+		backend = "go"
+		cmd = exec.CommandContext(ctx, executable(), "--broker", dll, name, mode)
+	}
+	cmd.Env = append(os.Environ(), "JC_TEST_WINTUN_BENCHMARK_BACKEND="+backend)
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_SUSPENDED}
 	output, err := cmd.StdoutPipe()
 	if err != nil {
@@ -502,33 +518,47 @@ func broker(path, name, mode string) error {
 	}()
 	deadline := time.AfterFunc(8*time.Second, func() { _ = adapter.Close() })
 	defer deadline.Stop()
-	packet := make([]byte, 1400)
-	for {
-		size, err := adapter.Read(packet)
-		if err != nil {
-			return fmt.Errorf("ordinary client packet did not reach owned device: %w", err)
-		}
-		packet = packet[:size]
-		if validPacket(packet, false) {
-			break
-		}
-		packet = packet[:cap(packet)]
-	}
-	if err = writeFrame(input, packet); err != nil {
-		return err
-	}
-	input.Close()
-	response, err := readFrame(output)
+	count, err := benchmarkCount(mode)
 	if err != nil {
 		return err
 	}
-	if !validPacket(response, true) || !bytes.Equal(response[28:], []byte("pong")) || !bytes.Equal(response[22:24], packet[20:22]) {
-		return errRejectedFrame
+	packet := make([]byte, 1400)
+	started := time.Now()
+	for range count {
+		packet = packet[:cap(packet)]
+		for {
+			size, err := adapter.Read(packet)
+			if err != nil {
+				return fmt.Errorf("ordinary client packet did not reach owned device: %w", err)
+			}
+			packet = packet[:size]
+			if validPacket(packet, false) {
+				break
+			}
+			packet = packet[:cap(packet)]
+		}
+		if err = writeFrame(input, packet); err != nil {
+			return err
+		}
+		response, err := readFrame(output)
+		if err != nil {
+			return err
+		}
+		if !validPacket(response, true) || !bytes.Equal(response[28:], []byte("pong")) || !bytes.Equal(response[22:24], packet[20:22]) {
+			return errRejectedFrame
+		}
+		if _, err = adapter.Write(response); err != nil {
+			return err
+		}
 	}
-	if _, err = adapter.Write(response); err != nil {
+	input.Close()
+	if err = cmd.Wait(); err != nil {
 		return err
 	}
-	return cmd.Wait()
+	if mode == "benchmark" {
+		return benchmarkStats(started, count)
+	}
+	return nil
 }
 
 func readFrame(input io.Reader) ([]byte, error) {
@@ -564,7 +594,7 @@ func validPacket(packet []byte, reply bool) bool {
 }
 
 func client(mode string) error {
-	if mode != "roundtrip" && mode != "oversized" {
+	if mode != "roundtrip" && mode != "oversized" && mode != "benchmark" {
 		return errors.New("invalid client mode")
 	}
 	if windows.GetCurrentProcessToken().IsElevated() {
@@ -576,44 +606,91 @@ func client(mode string) error {
 	}
 	defer conn.Close()
 	conn.SetDeadline(time.Now().Add(8 * time.Second))
-	if _, err = conn.Write([]byte("ping")); err != nil {
-		return err
-	}
-	packet, err := readFrame(os.Stdin)
+	count, err := benchmarkCount(mode)
 	if err != nil {
 		return err
 	}
-	if !validPacket(packet, false) || !bytes.Equal(packet[28:], []byte("ping")) {
-		return errRejectedFrame
+	latencies := make([]float64, 0, count)
+	for range count {
+		started := time.Now()
+		if _, err = conn.Write([]byte("ping")); err != nil {
+			return err
+		}
+		packet, err := readFrame(os.Stdin)
+		if err != nil {
+			return err
+		}
+		if !validPacket(packet, false) || !bytes.Equal(packet[28:], []byte("ping")) {
+			return errRejectedFrame
+		}
+		if mode == "oversized" {
+			return binary.Write(os.Stdout, binary.BigEndian, uint32(65536))
+		}
+		copy(packet[12:20], []byte{192, 0, 2, 2, 192, 0, 2, 1})
+		packet[20], packet[22] = packet[22], packet[20]
+		packet[21], packet[23] = packet[23], packet[21]
+		packet[26], packet[27] = 0, 0 // IPv4 UDP permits an omitted checksum.
+		copy(packet[28:], "pong")
+		packet[10], packet[11] = 0, 0
+		var sum uint32
+		for offset := 0; offset < 20; offset += 2 {
+			sum += uint32(binary.BigEndian.Uint16(packet[offset:]))
+		}
+		for sum > 0xffff {
+			sum = sum&0xffff + sum>>16
+		}
+		binary.BigEndian.PutUint16(packet[10:12], ^uint16(sum))
+		if err = writeFrame(os.Stdout, packet); err != nil {
+			return err
+		}
+		response := make([]byte, 32)
+		size, err := conn.Read(response)
+		if err != nil {
+			return err
+		}
+		if string(response[:size]) != "pong" {
+			return errors.New("device reply did not reach the original UDP socket")
+		}
+		latencies = append(latencies, float64(time.Since(started).Nanoseconds())/1000)
 	}
-	if mode == "oversized" {
-		return binary.Write(os.Stdout, binary.BigEndian, uint32(65536))
-	}
-	copy(packet[12:20], []byte{192, 0, 2, 2, 192, 0, 2, 1})
-	packet[20], packet[22] = packet[22], packet[20]
-	packet[21], packet[23] = packet[23], packet[21]
-	packet[26], packet[27] = 0, 0 // IPv4 UDP permits an omitted checksum.
-	copy(packet[28:], "pong")
-	packet[10], packet[11] = 0, 0
-	var sum uint32
-	for offset := 0; offset < 20; offset += 2 {
-		sum += uint32(binary.BigEndian.Uint16(packet[offset:]))
-	}
-	for sum > 0xffff {
-		sum = sum&0xffff + sum>>16
-	}
-	binary.BigEndian.PutUint16(packet[10:12], ^uint16(sum))
-	if err = writeFrame(os.Stdout, packet); err != nil {
-		return err
-	}
-	response := make([]byte, 32)
-	size, err := conn.Read(response)
-	if err != nil {
-		return err
-	}
-	if string(response[:size]) != "pong" {
-		return errors.New("device reply did not reach the original UDP socket")
+	if mode == "benchmark" {
+		sort.Float64s(latencies)
+		if err := json.NewEncoder(os.Stderr).Encode(map[string]any{"benchmark": "client", "backend": os.Getenv("JC_TEST_WINTUN_BENCHMARK_BACKEND"), "round_trips": count,
+			"p50_us": latencies[count/2], "p95_us": latencies[(count-1)*95/100], "p99_us": latencies[(count-1)*99/100]}); err != nil {
+			return err
+		}
 	}
 	fmt.Fprintln(os.Stderr, "PASS: non-elevated process consumed and returned an actual device packet")
 	return nil
+}
+
+func benchmarkCount(mode string) (int, error) {
+	if mode != "benchmark" {
+		return 1, nil
+	}
+	count, err := strconv.Atoi(os.Getenv("JC_TEST_WINTUN_BENCHMARK_PACKETS"))
+	if err != nil || count < 1 || count > 65536 {
+		return 0, errors.New("invalid native benchmark packet count")
+	}
+	return count, nil
+}
+
+func benchmarkStats(started time.Time, count int) error {
+	elapsed := time.Since(started).Seconds()
+	var created, exited, kernel, user windows.Filetime
+	if err := windows.GetProcessTimes(windows.CurrentProcess(), &created, &exited, &kernel, &user); err != nil {
+		return err
+	}
+	ticks := func(value windows.Filetime) uint64 { return uint64(value.HighDateTime)<<32 | uint64(value.LowDateTime) }
+	cpu := float64(ticks(kernel)+ticks(user)) / 1e7
+	output, err := exec.Command(os.Getenv("JC_TEST_POWERSHELL_HOST"), "-NoProfile", "-NonInteractive", "-Command", "(Get-Process -Id "+strconv.Itoa(os.Getpid())+").PeakWorkingSet64").Output()
+	if err != nil {
+		return err
+	}
+	peak, err := strconv.ParseUint(strings.TrimSpace(string(output)), 10, 64)
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(os.Stderr).Encode(map[string]any{"benchmark": "helper", "backend": "go", "round_trips": count, "seconds": elapsed,
+		"packets_per_second": float64(count*2) / elapsed, "cpu_seconds": cpu, "peak_rss_bytes": peak})
 }
