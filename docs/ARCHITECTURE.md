@@ -150,7 +150,7 @@ Linux 系统助手由 `infrastructure/networkhelper/linux/helper` 独立构建�
 
 <a id="windows-native-helper"></a>
 
-当前 Wintun 签名 SDK 0.14.1 的批量验收仍有单个入站包停滞，不能作为生产数据面稳定性通过。诊断已排除整批耗尽期限，失败报文 IPv4 校验和有效，接口和 IP 丢弃／错误计数为零。[上游源码](https://git.zx2c4.com/wintun/log/)于 2026-03-18 修复 Alertable 环形队列丢失唤醒，[官方签名下载](https://www.wintun.net/)仍为旧版；现象吻合，但本项目尚未最终隔离根因。读取仍按事件唤醒，无通知时每秒重检一次接收环，避免漏通知后无限等待；沿用同一线程与停止事件，不发送伪造唤醒包或访问驱动私有结构。此缓解尚不能证明前序异常根因，取得修复后的正式签名 SDK 并验证后删除重检。保留原 4096 次／30 秒检查，不修改签名 DLL 或依赖私有会话内存布局；当前检查及缺口见计划。
+当前 Wintun 签名 SDK 0.14.1 的批量验收仍有单个入站包停滞，不能作为生产数据面稳定性通过。诊断已排除整批耗尽期限，失败报文 IPv4 校验和有效，接口和 IP 丢弃／错误计数为零。[上游源码](https://git.zx2c4.com/wintun/log/)于 2026-03-18 修复 Alertable 环形队列丢失唤醒，[官方签名下载](https://www.wintun.net/)仍为旧版；现象吻合，但本项目尚未最终隔离根因。接收环每秒重检的试验未消除同类停滞，已撤回；不发送伪造唤醒包、访问 DLL 私有结构或降低检查数量／预算。保留原 4096 次／30 秒检查，不修改签名 DLL 或依赖私有会话内存布局；当前检查及缺口见计划。
 
 Windows 的 C++ 部件按职责放在 `tundevice/windows`、`packetpipe/windows`、`networkhelper/windows`、`networkjournal/windows`、`dns/windows` 与 `process/windows`。Wintun 使用同一已校验归档的官方头文件及原生结构；创建前拒绝已存在的身份，配置后回读，分配通知先于地址／路由修改。助手持有适配器与环，普通 Qt／Go 通过实际 PID／SID 校验的本地字节管道收发 IPv4；关闭取消并等待 I/O，再释放所属设备。C++ 两方向复用事件与包缓冲，Go 同样复用方向事件／OVERLAPPED 和发包缓冲，避免逐包创建内核事件与分配完整帧；Unix 仍直接移交 fd。
 
