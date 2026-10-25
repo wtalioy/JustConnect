@@ -189,6 +189,24 @@ void ownedRelease(const std::wstring &dll,bool externalChange)
     record.dns=WindowsDnsRule::create({domain+L".invalid"},address(L"192.0.2.2"));
     WindowsNetworkRecovery recovery;recovery.declare(record);
     auto device=WindowsTunDevice::create(dll,record.adapter,address(L"192.0.2.1"),address(L"192.0.2.2"),1400,{},[](const auto &){});
+    if(!externalChange){
+        const WindowsTunPrefix target{address(L"198.18.0.6"),32};
+        device->reconcile({target});
+        MIB_IPFORWARD_ROW2 route{};InitializeIpForwardEntry(&route);
+        route.InterfaceLuid=device->identity().luid;
+        route.DestinationPrefix.Prefix.Ipv4.sin_family=AF_INET;route.DestinationPrefix.Prefix.Ipv4.sin_addr=target.address;
+        route.DestinationPrefix.PrefixLength=target.bits;route.NextHop.Ipv4.sin_family=AF_INET;
+        check(GetIpForwardEntry2(&route)==NO_ERROR,"read actual owned capture");
+        const auto original=route;++route.Metric;
+        check(SetIpForwardEntry2(&route)==NO_ERROR,"edit fixture-owned capture metric");
+        refused([&]{device->reconcile({target});},"externally edited capture was accepted");
+        check(GetIpForwardEntry2(&route)==NO_ERROR && route.Metric==original.Metric+1,"refused reconciliation changed external route");
+        check(SetIpForwardEntry2(&original)==NO_ERROR,"restore fixture-owned capture metric");
+        device->reconcile({});
+        const auto status=GetIpForwardEntry2(&route);
+        check(status==ERROR_NOT_FOUND || status==ERROR_FILE_NOT_FOUND,"withdrawn capture remained installed");
+        std::cout<<"PASS: actual capture reconciliation preserves external metric edits\n";
+    }
     record.dns->applySystem();Key rule;rule.value=systemRule(*record.dns);
     WindowsRegistryJournal journal;
     auto replaced=record;++replaced.helper.created;journal.write(record.owner,encodeWindowsNetworkRecord(replaced));
