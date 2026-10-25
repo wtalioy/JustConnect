@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	nativepipe "github.com/wtalioy/JustConnect/corelib/internal/platform/windows/packetpipe"
 	"io"
 	"net"
 	"net/netip"
@@ -78,7 +79,7 @@ func serveNativeWindowsPackets(ctx context.Context, name, dll string, pid <-chan
 	if clientPID != expected {
 		return errors.New("native fixture accepted an unexpected process")
 	}
-	stream, err := packetpipe.OwnNative(pipe)
+	stream, err := nativepipe.OwnNative(pipe)
 	if err != nil {
 		return err
 	}

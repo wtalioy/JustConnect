@@ -3,6 +3,7 @@
 package networkstate
 
 import (
+	"github.com/wtalioy/JustConnect/corelib/internal/platform/networkstate/model"
 	"net/netip"
 	"syscall"
 	"unsafe"
@@ -16,7 +17,7 @@ func windowsAddress(value *windows.RawSockaddrInet) (netip.Addr, bool) {
 	return ip, ok
 }
 
-func readRoutes(interfaces []Interface) ([]Route, error) {
+func ReadRoutes(interfaces []model.Interface) ([]model.Route, error) {
 	for i := range interfaces {
 		row := windows.MibIfRow2{InterfaceIndex: uint32(interfaces[i].Index)}
 		if err := windows.GetIfEntry2Ex(windows.MibIfTableNormalWithoutStatistics, &row); err != nil {
@@ -29,7 +30,7 @@ func readRoutes(interfaces []Interface) ([]Route, error) {
 		return nil, err
 	}
 	defer windows.FreeMibTable(unsafe.Pointer(table))
-	routes := []Route{}
+	routes := []model.Route{}
 	for _, row := range table.Rows() {
 		address, ok := windowsAddress(&row.DestinationPrefix.Prefix)
 		if !ok {
@@ -39,7 +40,7 @@ func readRoutes(interfaces []Interface) ([]Route, error) {
 		if !prefix.IsValid() {
 			return nil, windows.ERROR_INVALID_DATA
 		}
-		item := Route{Destination: prefix.Masked().String(), InterfaceIndex: int(row.InterfaceIndex), Metric: int(row.Metric), Protocol: int(row.Protocol)}
+		item := model.Route{Destination: prefix.Masked().String(), InterfaceIndex: int(row.InterfaceIndex), Metric: int(row.Metric), Protocol: int(row.Protocol)}
 		if gateway, ok := windowsAddress(&row.NextHop); ok {
 			item.Gateway = gateway.String()
 		}

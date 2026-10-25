@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wtalioy/JustConnect/corelib/internal/platform/tundevice"
+	"github.com/wtalioy/JustConnect/corelib/internal/platform/ipconfig"
 	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
@@ -94,7 +94,7 @@ func (p *Listeners) AttachTUN(device io.ReadWriteCloser, mtu uint32, publishDNSR
 		TUNAddresses() (netip.Addr, netip.Addr)
 	}); ok {
 		i.local, i.peer = addressed.TUNAddresses()
-		if !tundevice.ValidIPv4Pair(i.local, i.peer) {
+		if !ipconfig.ValidIPv4Pair(i.local, i.peer) {
 			return errors.New("invalid IPv4 TUN source and peer")
 		}
 	}

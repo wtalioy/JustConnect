@@ -4,6 +4,7 @@ package packetpipe
 
 import (
 	"fmt"
+	nativepipe "github.com/wtalioy/JustConnect/corelib/internal/platform/windows/packetpipe"
 	"testing"
 	"time"
 
@@ -61,7 +62,7 @@ func TestNativeBorrowedPipe(t *testing.T) {
 		t.Fatal(err)
 	}
 	pair.client = 0
-	stream, err := OwnNative(server)
+	stream, err := nativepipe.OwnNative(server)
 	if err != nil {
 		t.Fatal(err)
 	}

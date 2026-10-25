@@ -1,6 +1,6 @@
 //go:build linux
 
-package tundevice
+package tun
 
 import (
 	"errors"

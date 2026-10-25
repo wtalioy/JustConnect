@@ -16,7 +16,7 @@ const (
 	ipv6UnicastIf = 31
 )
 
-func bindInterface(dialer *net.Dialer, interfaceName string) error {
+func BindInterface(dialer *net.Dialer, interfaceName string) error {
 	iface, err := net.InterfaceByName(interfaceName)
 	if err != nil {
 		return err

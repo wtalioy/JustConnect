@@ -8,7 +8,7 @@ import (
 	"net/netip"
 	"sync"
 
-	"github.com/wtalioy/JustConnect/corelib/internal/platform/tundevice"
+	"github.com/wtalioy/JustConnect/corelib/internal/platform/ipconfig"
 )
 
 var ErrFrame = errors.New("invalid helper IPv4 packet frame")
@@ -23,7 +23,7 @@ type Device struct {
 }
 
 func New(stream io.ReadWriteCloser, mtu uint32, local, peer netip.Addr) (*Device, error) {
-	if stream == nil || mtu < 68 || mtu > 65535 || !tundevice.ValidIPv4Pair(local, peer) {
+	if stream == nil || mtu < 68 || mtu > 65535 || !ipconfig.ValidIPv4Pair(local, peer) {
 		return nil, ErrFrame
 	}
 	return &Device{stream: stream, mtu: mtu, local: local, peer: peer}, nil

@@ -1,8 +1,11 @@
-package tundevice
+//go:build darwin
+
+package utun
 
 import (
 	"encoding/binary"
 	"errors"
+	"github.com/wtalioy/JustConnect/corelib/internal/platform/ipconfig"
 	"io"
 	"net"
 	"net/netip"
@@ -12,8 +15,6 @@ import (
 	"golang.org/x/net/route"
 	"golang.org/x/sys/unix"
 )
-
-const Supported = true
 
 // XNU bsd/net/if_utun.h: framed packets, interface identity and control name.
 const (
@@ -131,7 +132,7 @@ func addresses(index int) (netip.Addr, netip.Addr, error) {
 		}
 		local, peer = netip.AddrFrom4(source.IP), netip.AddrFrom4(destination.IP)
 	}
-	if !ValidIPv4Pair(local, peer) {
+	if !ipconfig.ValidIPv4Pair(local, peer) {
 		return netip.Addr{}, netip.Addr{}, unix.EINVAL
 	}
 	return local, peer, nil

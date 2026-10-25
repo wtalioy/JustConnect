@@ -9,7 +9,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func open(path string) (*os.File, error) {
+func Open(path string) (*os.File, error) {
 	user, err := windows.GetCurrentProcessToken().GetTokenUser()
 	if err != nil {
 		return nil, err

@@ -1,8 +1,11 @@
+//go:build linux
+
 package networkstate
 
 import (
 	"encoding/binary"
 	"encoding/hex"
+	"github.com/wtalioy/JustConnect/corelib/internal/platform/networkstate/model"
 	"net/netip"
 	"slices"
 	"testing"
@@ -51,7 +54,7 @@ func TestPolicyRulePreservesHeaderAndOpaqueSelectors(t *testing.T) {
 	if rule.Table != 12345 || rule.Priority != 52 || rule.Action != 1 || rule.Flags != 2 || rule.TOS != 4 || rule.Source != "100.64.0.0/16" || rule.Destination != "192.0.2.0/24" {
 		t.Fatalf("native routing rule header or scope lost: %+v", rule)
 	}
-	for _, expected := range []RuleAttribute{{nl.FRA_IP_PROTO, "06"}, {nl.FRA_FWMARK, "00000000"},
+	for _, expected := range []model.RuleAttribute{{nl.FRA_IP_PROTO, "06"}, {nl.FRA_FWMARK, "00000000"},
 		{nl.FRA_FWMASK, hex.EncodeToString(nl.Uint32Attr(0xffffffff))}, {999, "010203"}} {
 		if !slices.Contains(rule.Attributes, expected) {
 			t.Fatalf("selector lost: %+v", expected)
@@ -91,18 +94,6 @@ func TestRuleDumpRejectsInterruptedMalformedAndForeignResults(t *testing.T) {
 		if err == nil || complete || rules != nil {
 			t.Fatal("invalid dump published partial rules")
 		}
-	}
-}
-
-func TestReadIncludesActualIPv4LocalPolicyTable(t *testing.T) {
-	snapshot, err := Read()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.ContainsFunc(snapshot.PolicyRules, func(rule PolicyRule) bool {
-		return rule.Family == unix.AF_INET && rule.Table == unix.RT_TABLE_LOCAL && rule.Action == 1
-	}) {
-		t.Fatal("native IPv4 local-table routing rule omitted")
 	}
 }
 

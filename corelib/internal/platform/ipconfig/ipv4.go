@@ -1,4 +1,4 @@
-package tundevice
+package ipconfig
 
 import "net/netip"
 

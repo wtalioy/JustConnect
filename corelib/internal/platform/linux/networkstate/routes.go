@@ -1,13 +1,16 @@
+//go:build linux
+
 package networkstate
 
 import (
+	"github.com/wtalioy/JustConnect/corelib/internal/platform/networkstate/model"
 	"time"
 
 	"github.com/sagernet/netlink"
 	"golang.org/x/sys/unix"
 )
 
-func readRoutes(_ []Interface) ([]Route, error) {
+func ReadRoutes(_ []model.Interface) ([]model.Route, error) {
 	handle, err := netlink.NewHandle(unix.NETLINK_ROUTE)
 	if err != nil {
 		return nil, err
@@ -21,7 +24,7 @@ func readRoutes(_ []Interface) ([]Route, error) {
 	if err != nil {
 		return nil, err
 	}
-	routes := []Route{}
+	routes := []model.Route{}
 	for _, row := range native {
 		if row.Family != unix.AF_INET && row.Family != unix.AF_INET6 {
 			continue
@@ -33,7 +36,7 @@ func readRoutes(_ []Interface) ([]Route, error) {
 		if row.Dst != nil {
 			destination = row.Dst.String()
 		}
-		item := Route{Destination: destination, InterfaceIndex: row.LinkIndex, Table: row.Table, Metric: row.Priority, Scope: int(row.Scope), Protocol: int(row.Protocol), Kind: row.Type, Flags: row.Flags}
+		item := model.Route{Destination: destination, InterfaceIndex: row.LinkIndex, Table: row.Table, Metric: row.Priority, Scope: int(row.Scope), Protocol: int(row.Protocol), Kind: row.Type, Flags: row.Flags}
 		if row.Gw != nil {
 			item.Gateway = row.Gw.String()
 		}
@@ -41,7 +44,7 @@ func readRoutes(_ []Interface) ([]Route, error) {
 			item.Source = row.Src.IP.String()
 		}
 		for _, hop := range row.MultiPath {
-			value := NextHop{InterfaceIndex: hop.LinkIndex, Weight: hop.Hops + 1, Flags: hop.Flags}
+			value := model.NextHop{InterfaceIndex: hop.LinkIndex, Weight: hop.Hops + 1, Flags: hop.Flags}
 			if hop.Gw != nil {
 				value.Gateway = hop.Gw.String()
 			}
