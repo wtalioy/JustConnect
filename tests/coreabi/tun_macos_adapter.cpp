@@ -6,16 +6,18 @@
 #include <QCoreApplication>
 #include <QElapsedTimer>
 #include <QJsonDocument>
+#include <QFileInfo>
+#include <QSaveFile>
 #include <QStandardPaths>
 #include <future>
 #include <netdb.h>
 #include <unistd.h>
 
 using ProxyCheck::check;
-template<class Predicate> static void until(Predicate done)
+template<class Predicate> static void until(Predicate done,int timeout = 10000)
 {
     QElapsedTimer timer; timer.start();
-    while (!done() && timer.elapsed() < 10000) QCoreApplication::processEvents(QEventLoop::AllEvents,10);
+    while (!done() && timer.elapsed() < timeout) QCoreApplication::processEvents(QEventLoop::AllEvents,10);
     check(done(),"macOS Qt network operation completed within deadline");
 }
 static QStringList addresses(const char *hostname)
@@ -57,9 +59,23 @@ int main(int argc,char **argv)
     });
     QJsonObject initial;
     QObject::connect(engine,&CoreEngine::initialProtectionApplied,[&](const QJsonObject &value) { initial = value; });
-    int finished = 0; bool wasPreparing = false;
+    const bool helperLoss = qgetenv("JC_NATIVE_NETWORK_HELPER_LOSS") == "1";
+    const bool offline = qgetenv("JC_NATIVE_NETWORK_HELPER_OFFLINE") == "1";
+    const auto marker = QString::fromLocal8Bit(qgetenv("JC_NATIVE_TUN_READY"));
+    check(!helperLoss || !marker.isEmpty(),"External helper failure observer has a private control directory");
+    const auto publish = [&](const QString &suffix) {
+        QSaveFile file(marker+suffix);
+        const auto value = QJsonDocument(QJsonObject{{"pid",QCoreApplication::applicationPid()},
+            {"generation",policy.currentGeneration()}}).toJson(QJsonDocument::Compact);
+        check(file.open(QIODevice::WriteOnly) && file.write(value) == value.size() && file.commit(),"Publish actual Qt/core lifecycle boundary");
+    };
+    int coreFinished = 0, finished = 0; bool wasPreparing = false;
+    QObject::connect(engine,&CoreEngine::finished,[&] { ++coreFinished; });
     QObject::connect(&session,&ConnectionSession::progressChanged,[&] { wasPreparing |= session.phase() == ConnectionPhase::NetworkPreparing; });
-    QObject::connect(&session,&ConnectionSession::finished,[&](ConnectionError error) { check(error == ConnectionError::NONE,"macOS connection retained its actual terminal result"); ++finished; });
+    QObject::connect(&session,&ConnectionSession::finished,[&](ConnectionError error) {
+        const auto expected = helperLoss && finished == 0 ? ConnectionError::OTHER : ConnectionError::NONE;
+        check(error == expected,"macOS connection retained its actual terminal result"); ++finished;
+    });
     QByteArray previousDifference;
     const auto viewMatches = [&] {
         const auto model = policy.model();
@@ -83,6 +99,9 @@ int main(int argc,char **argv)
         check(session.start(profile,{false,1000}),"Start actual macOS application network session");
         until([&] { return session.state() == ConnectionState::Running || !session.isActive(); });
         check(session.state() == ConnectionState::Running && session.phase() == ConnectionPhase::CampusReady && wasPreparing,"Campus readiness follows helper ownership and real Go attachment");
+        if (helperLoss && round == 1) {
+            publish(".reconnected"); until([&] { return QFileInfo::exists(marker+".traffic"); });
+        }
         originalView();
         auto lookup = std::async(std::launch::async,[] { return addresses("campus.test"); });
         until([&] { return lookup.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready; });
@@ -92,9 +111,26 @@ int main(int argc,char **argv)
         for (const auto &address : addresses("localhost")) check(QHostAddress(address).isLoopback(),"localhost remains on this computer");
         originalView();
         check(policy.refresh(),"Read current native network after DNS route publication and traffic"); originalView();
-        session.stop(); until([&] { return !session.isActive(); });
-        check(finished == round+1 && session.state() == ConnectionState::Disconnected,"Ordered helper restoration and core stop complete before restart");
+        if (helperLoss && round == 0) {
+            publish({});
+            until([&] { return coreFinished == 1; },MacHelperOperationTimeoutMs);
+            if (offline) {
+                check(session.isActive() && session.state() == ConnectionState::Stopping
+                    && session.phase() == ConnectionPhase::NetworkRestoring && !session.start(profile,{}),
+                    "Unavailable helper retains restoration responsibility and blocks a fresh core after releasing the old one");
+                publish(".blocked");
+            } else publish(".released");
+            until([&] { return QFileInfo::exists(marker+".continue"); });
+        }
+        session.stop(); session.stop(); until([&] { return !session.isActive(); });
+        const auto expected = helperLoss && round == 0 ? ConnectionState::Failed : ConnectionState::Disconnected;
+        check(finished == round+1 && coreFinished == round+1 && session.state() == expected,"Ordered helper restoration and core stop complete before restart");
+        if (helperLoss && round == 0) {
+            publish(".restored"); until([&] { return QFileInfo::exists(marker+".restart"); });
+        }
     }
     ::close(authorizationFd);
+    if (helperLoss) std::cout << "PASS: full macOS application releases core/device on helper loss and reconnects with fresh ownership\n";
+    if (offline) std::cout << "PASS: unavailable macOS helper retains restoration responsibility and blocks restart until explicit recovery\n";
     std::cout << "PASS: ordinary native TCP/UDP via actual signed macOS helper, application readiness, system CNAME DNS, exact original views and ordered stop/restart\n";
 }
