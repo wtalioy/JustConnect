@@ -34,7 +34,9 @@ template<class Predicate> static void until(Predicate done,int timeout = 10000)
 static QStringList addresses(const char *hostname)
 {
     addrinfo hints{}; hints.ai_family = AF_INET; hints.ai_socktype = SOCK_STREAM; addrinfo *result = nullptr;
-    check(::getaddrinfo(hostname,nullptr,&hints,&result) == 0 && result,"Ordinary macOS system resolver returned a campus answer");
+    const auto error = ::getaddrinfo(hostname,nullptr,&hints,&result);
+    if (error || !result) std::cerr << "System DNS lookup for " << hostname << " failed: " << error << " (" << ::gai_strerror(error) << ")\n";
+    check(error == 0 && result,"Ordinary macOS system DNS lookup succeeds");
     QStringList values;
     for (auto *row = result;row;row = row->ai_next) {
         char value[NI_MAXHOST]; check(::getnameinfo(row->ai_addr,row->ai_addrlen,value,sizeof(value),nullptr,0,NI_NUMERICHOST) == 0,"Numeric system DNS address");
