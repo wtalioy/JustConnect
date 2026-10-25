@@ -115,6 +115,9 @@ int main(int argc,char **argv) try
         if (arguments[1] == "--wire-ungranted-auth") {
             check(AuthorizationCreate(nullptr,nullptr,kAuthorizationFlagDefaults,&ungranted) == errAuthorizationSuccess
                 && AuthorizationMakeExternalForm(ungranted,&external) == errAuthorizationSuccess,"Create a valid authorization with no granted rights");
+            AuthorizationItem item{MacHelperAuthorizationRight,0,nullptr,0}; AuthorizationRights rights{1,&item};
+            check(AuthorizationCopyRights(ungranted,&rights,kAuthorizationEmptyEnvironment,kAuthorizationFlagDefaults,nullptr) != errAuthorizationSuccess,
+                "Negative fixture must not currently be authorized by system policy");
         }
         const auto message = macHelperMessage(request,-1,(arguments[1] == "--wire-invalid-auth" || ungranted) ? &external : nullptr);
         const auto reply = xpc_connection_send_message_with_reply_sync(connection,message);
@@ -124,7 +127,9 @@ int main(int argc,char **argv) try
             check(identity.accepts(reply) && xpc_connection_get_euid(connection) == 0 && readMacHelperMessage(reply,response,&descriptor),"No authenticated root denial");
             const auto result = parseMacHelperResponse(response,request);
             const auto expected = arguments[1] == "--wire-foreign" ? PlatformOperationResult::Status::Failed : PlatformOperationResult::Status::PermissionDenied;
-            check(result && result->status == expected && result->mayHaveChanged == (arguments[1] == "--wire-foreign") && descriptor < 0,
+            const bool denied = result && result->status == expected && result->mayHaveChanged == (arguments[1] == "--wire-foreign") && descriptor < 0;
+            if (!denied) std::cerr << QJsonDocument(response).toJson(QJsonDocument::Compact).constData() << '\n';
+            check(denied,
                 "Signed client without administrator right changed the network or received a device");
         }
         if (ungranted) AuthorizationFree(ungranted,kAuthorizationFlagDefaults);

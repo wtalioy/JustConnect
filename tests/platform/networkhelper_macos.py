@@ -89,6 +89,7 @@ class Authorization:
         self.security.AuthorizationCreate.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint32, ctypes.POINTER(ctypes.c_void_p)]
         self.security.AuthorizationCopyRights.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p]
         self.security.AuthorizationMakeExternalForm.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        self.security.AuthorizationCreateFromExternalForm.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
         self.security.AuthorizationFree.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
         assert self.security.AuthorizationCreate(None, None, 0, ctypes.byref(self.reference)) == 0
         self.item = self.Item(LAYOUT['authorization_right'].encode(), 0, None, 0)
@@ -98,11 +99,17 @@ class Authorization:
         self.external = ctypes.create_string_buffer(32)  # Security.framework AuthorizationExternalForm ABI.
         assert self.security.AuthorizationMakeExternalForm(self.reference, self.external) == 0
 
-    def close(self):
-        self.security.AuthorizationFree(self.reference, 1 << 3)
+    def close(self, *, destroy=True):
+        if self.reference:
+            self.security.AuthorizationFree(self.reference, (1 << 3) if destroy else 0)
+            self.reference = ctypes.c_void_p()
 
-    def has_right(self):
-        return self.security.AuthorizationCopyRights(self.reference, ctypes.byref(self.rights), None, 0, None) == 0
+    def can_import(self):
+        reference = ctypes.c_void_p()
+        if self.security.AuthorizationCreateFromExternalForm(self.external, ctypes.byref(reference)) != 0:
+            return False
+        self.security.AuthorizationFree(reference, 0)
+        return True
 
 
 def main(args):
@@ -155,9 +162,11 @@ def main(args):
                         inherited.append(control.fileno())
                 elif owner:
                     command.append(owner)
-                error = (output / ('client-' + str(len(processes)) + '.err')).open('wb')
+                error_path = output / ('client-' + str(len(processes)) + '.err')
+                error = error_path.open('wb')
                 process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=error,
                     preexec_fn=ordinary, pass_fds=inherited, cwd='/', env={'HOME': target.pw_dir, 'PATH': '/usr/bin:/bin:/usr/sbin:/sbin'})
+                process.fixture_stderr = error_path
                 error.close(); os.close(read_fd); processes.append(process); return process
 
             def event(process, expected):
@@ -169,7 +178,7 @@ def main(args):
                         print('CHECK: owned recovery receipt', path.read_text(), flush=True)
                 assert ready, 'Client event timed out: ' + expected
                 value = process.stdout.readline()
-                assert value, f'Client exited before {expected}: {process.poll()}'
+                assert value, f'Client exited before {expected}: {process.poll()}\n' + process.fixture_stderr.read_text()
                 value = json.loads(value)
                 assert value['event'] == expected, value
                 print('CHECK:', value, flush=True); return value
@@ -216,7 +225,8 @@ def main(args):
             bootstrapped = True
             wait_for(lambda: user_state.parent.exists(), 'Signed root daemon did not start')
             for mode in ('--wire-denied', '--wire-invalid-auth', '--wire-ungranted-auth'):
-                denied = start(mode); event(denied, 'wire-denied'); finish(denied)
+                target = pwd.getpwnam('nobody') if mode == '--wire-ungranted-auth' else account
+                denied = start(mode, target=target); event(denied, 'wire-denied'); finish(denied)
             assert not user_state.exists(), 'Authorization denial created ownership or network state'
             for name, wrong_identity in [('wrong-id', False), ('wrong-certificate', True)]:
                 copy = directory / (name + '.app'); shutil.copytree(bundle, copy, symlinks=True)
@@ -331,13 +341,16 @@ def main(args):
                     if authorization_mode:
                         boundary('.authorizing')
                         assert not list(user_state.iterdir()) and dns_restored(), 'Pending authorization changed native network ownership'
+                        if authorization_mode == 'cancel':
+                            authorizations[0].close(destroy=False)
+                            assert authorizations[0].can_import(), 'Blocked provider must retain the actual old authorization reference'
                         Path(str(marker) + '.cancel').touch()
                         if authorization_mode == 'cancel':
                             boundary('.cancelled'); boundary('.current-authorizing')
                             assert not list(user_state.iterdir()), 'Cancelled authorization retained a privileged operation'
                             Path(str(marker) + '.release-old').touch(); boundary('.old-returned')
-                            wait_for(lambda: not authorizations[0].has_right(), 'Late cancelled authorization was not released')
-                            assert all(grant.has_right() for grant in authorizations[1:]), 'Late authorization cleanup destroyed the new authorization contexts'
+                            wait_for(lambda: not authorizations[0].can_import(), 'Late cancelled authorization reference was not released')
+                            assert all(grant.can_import() for grant in authorizations[1:]), 'Late authorization cleanup destroyed the new authorization contexts'
                             assert not list(user_state.iterdir()) and dns_restored(), 'Old authorization approved the new pending connection'
                             Path(str(marker) + '.approve').touch()
                             print('CHECK: cancelled authorization revoked before current authorization was approved', flush=True)
