@@ -1,6 +1,7 @@
 #include "infrastructure/networkhelper/windows/installation.h"
 #include "infrastructure/networkhelper/windows/service.h"
 #include "infrastructure/networkhelper/windows/control.h"
+#include "windowsnetworkcontract.h"
 #include <objbase.h>
 #include <charconv>
 #include <iostream>
@@ -19,6 +20,15 @@ std::uint64_t number(const wchar_t *text)
 }
 int wmain(int argc,wchar_t **argv) try
 {
+    if(argc==2 && std::wstring(argv[1])==L"--version"){
+        using namespace WindowsNetworkContract;
+        std::cout<<"{\"protocol\":"<<Protocol<<",\"storage_version\":"<<StorageVersion
+            <<",\"revision\":\""<<JC_HELPER_REVISION<<"\",\"source_state\":\""<<JC_HELPER_SOURCE_STATE
+            <<"\",\"identity_ready\":"<<(WindowsHelperInstallation::identityReady()?"true":"false")
+            <<",\"publisher_sha256\":\""<<PublisherSHA256<<"\",\"driver_sha256\":\""<<DriverSHA256
+            <<"\",\"license_sha256\":\""<<LicenseSHA256<<"\"}\n";
+        return 0;
+    }
     if(argc==2 && std::wstring(argv[1])==L"--service")return runWindowsRecoveryService();
     if(argc==5 && (std::wstring(argv[1])==L"--control" || std::wstring(argv[1])==L"--authorize")){
         const auto pid=number(argv[2]),created=number(argv[3]);

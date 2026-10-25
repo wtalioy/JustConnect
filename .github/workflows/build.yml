@@ -116,6 +116,22 @@ jobs:
           python scripts/network_helper_package.py "$ARCHIVE_NAME-network-helper.deb" --revision "$GITHUB_SHA" --output "build/$ARCHIVE_NAME-helper.json"
           sudo unshare --mount --net -- env PYTHONDONTWRITEBYTECODE=1 "$(command -v python)" tests/platform/networkhelper_package_linux.py --package "$ARCHIVE_NAME-network-helper.deb" --revision "$GITHUB_SHA" --uid "$(id -u)" --client build/linux_networkhelperclient_test --authorization-fixture build/linux_authorization_fixture 2>&1 | tee "build/$ARCHIVE_NAME-helper.log"
 
+      - name: Build Windows system permission helper
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          PACKAGE_ARCH: ${{ matrix.arch }}
+        run: |
+          $nativeArch = if ($env:PACKAGE_ARCH -eq 'arm64') { 'arm64' } else { 'amd64' }
+          $cmakeArch = if ($env:PACKAGE_ARCH -eq 'arm64') { 'ARM64' } else { 'x64' }
+          $metadata = python scripts/windows_helper_sdk.py --destination build/windows-sdk --arch $nativeArch | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned native Windows SDK staging failed' }
+          $sdk = Split-Path -Parent $metadata.header
+          cmake -S infrastructure/networkhelper/windows/helper -B build/windows-helper -A $cmakeArch "-DWINTUN_INCLUDE_DIR=$sdk" "-DJC_HELPER_DRIVER_SHA256=$($metadata.driver_sha256)" "-DJC_HELPER_LICENSE_SHA256=$($metadata.license_sha256)"
+          if ($LASTEXITCODE -ne 0) { throw 'Native network helper configuration failed' }
+          cmake --build build/windows-helper --config Release --parallel 3
+          if ($LASTEXITCODE -ne 0) { throw 'Native network helper build failed' }
+
       - name: Package Windows
         if: runner.os == 'Windows'
         shell: pwsh

@@ -318,4 +318,13 @@ void WindowsHelperInstallation::close()
     for (auto it=directories.rbegin();it!=directories.rend();++it) CloseHandle(*it);
     directories.clear();
 }
+bool WindowsHelperInstallation::identityReady() noexcept
+{
+    try {
+        decode(WindowsNetworkContract::PublisherSHA256);
+        decode(WindowsNetworkContract::DriverSHA256);
+        decode(WindowsNetworkContract::LicenseSHA256);
+        return true;
+    } catch (...) { return false; }
+}
 WindowsHelperInstallation::~WindowsHelperInstallation() { close(); }

@@ -45,6 +45,15 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Native helper configuration failed' }
     & cmake --build $env:JC_HELPER_NATIVE_BUILD --config Release --target windows_installation_test windows_helper windows_recovery_test windows_control_test --parallel 3
     if ($LASTEXITCODE -ne 0) { throw 'Native helper installation build failed' }
+    $helperImage = Join-Path $env:JC_HELPER_NATIVE_BUILD "Release/$env:JC_HELPER_EXECUTABLE"
+    $facts = & $helperImage --version | ConvertFrom-Json
+    $layout = Get-Content -Raw resource/network-helper-windows.json | ConvertFrom-Json
+    if ($LASTEXITCODE -ne 0 -or $facts.revision -ne $env:GITHUB_SHA -or $facts.source_state -ne 'clean' -or
+        $facts.protocol -ne $layout.protocol -or $facts.storage_version -ne $layout.storage_version -or
+        $facts.identity_ready -ne $true -or $facts.publisher_sha256 -ne $publisher -or
+        $facts.driver_sha256 -ne $env:JC_HELPER_DRIVER_SHA256 -or $facts.license_sha256 -ne $env:JC_HELPER_LICENSE_SHA256) {
+        throw 'Native helper read-only provenance or compiled authority mismatch'
+    }
     if ($qtOnly -and -not $env:JC_HELPER_QT_SESSION_HOST) {
         & cmake --build $env:JC_HELPER_NATIVE_BUILD --config Release --target windows_control_qt_test --parallel 3
         if ($LASTEXITCODE -ne 0) { throw 'Ordinary Qt control build failed' }
