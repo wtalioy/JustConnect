@@ -90,6 +90,7 @@ int main(int argc,char **argv)
         for (const auto &address : resolved) check(address == "198.18.0.7","Actual CNAME campus DNS answer");
         exerciseNativeTUNTraffic(QHostAddress(resolved.first()));
         for (const auto &address : addresses("localhost")) check(QHostAddress(address).isLoopback(),"localhost remains on this computer");
+        originalView();
         check(policy.refresh(),"Read current native network after DNS route publication and traffic"); originalView();
         session.stop(); until([&] { return !session.isActive(); });
         check(finished == round+1 && session.state() == ConnectionState::Disconnected,"Ordered helper restoration and core stop complete before restart");
