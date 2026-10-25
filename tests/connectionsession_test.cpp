@@ -103,6 +103,37 @@ bool ordersNetworkOwnershipAroundTheCore()
     return !session.isActive() && finishes == 2 && engine->stopCalls == 1;
 }
 
+bool stagedNetworkReleaseWaitsForCoreAndFinalReceipt()
+{
+    for (const bool synchronous : {false,true}) {
+        auto *engine = new FakeCoreEngine;
+        auto *network = new FakeNetworkAccess;
+        ConnectionSession session(engine,nullptr,network);
+        engine->completeDuringStop = synchronous;
+        int finishes = 0;
+        QObject::connect(&session,&ConnectionSession::finished,[&](ConnectionError) { ++finishes; });
+        if (!session.start({},{})) return false;
+        const auto id = network->attempt;
+        emit network->prepared(id,{}); engine->establishConnection(); emit network->ready(id,{});
+        emit network->quiesced(id);
+        if (engine->stopCalls) return false;
+        session.stop();
+        emit network->quiesced(QUuid::createUuid());
+        if (engine->stopCalls) return false;
+        emit network->quiesced(id); emit network->quiesced(id); session.stop();
+        if (engine->stopCalls != 1 || network->stops != 1 || finishes || !session.isActive()) return false;
+        if (!synchronous) engine->complete();
+        if (finishes || !session.isActive() || session.start({},{})) return false;
+        emit network->stopped(id,{PlatformOperationResult::Status::Failed,"receipt pending",true});
+        if (finishes || !session.isActive()) return false;
+        session.stop();
+        if (network->stops != 2) return false;
+        emit network->stopped(id,{}); emit network->stopped(id,{}); emit network->quiesced(id);
+        if (finishes != 1 || session.isActive() || engine->stopCalls != 1) return false;
+    }
+    return true;
+}
+
 bool networkLossReleasesCoreWithoutRepeatingFailedRecovery()
 {
     auto *engine = new FakeCoreEngine;
@@ -474,6 +505,7 @@ int main(int argc, char *argv[])
     return networkRestartWaitsForOwnedRecovery()
         && networkRestartDoesNotRetryPermissionOrAuthenticationFailures()
         && ordersNetworkOwnershipAroundTheCore()
+        && stagedNetworkReleaseWaitsForCoreAndFinalReceipt()
         && networkLossReleasesCoreWithoutRepeatingFailedRecovery()
         && restoresBeforeReconnectAndDoesNotLoopAuthorization()
         && progressUsesObservedEventsAndRejectsLateResults()

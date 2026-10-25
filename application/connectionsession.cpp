@@ -18,6 +18,9 @@ ConnectionSession::ConnectionSession(CoreEngine *coreEngine, QObject *parent, Ne
             if (!result.succeeded()) { networkFailure(result); stop(); }
             else becameReady(ConnectionPhase::CampusReady);
         });
+        connect(network, &NetworkAccess::quiesced, this, [this](const QUuid &id) {
+            if (id == attempt && networkRestore == NetworkRestoreState::Pending) stopCore();
+        });
         connect(network, &NetworkAccess::stopped, this, [this](const QUuid &id, PlatformOperationResult result) {
             if (id != attempt || networkRestore != NetworkRestoreState::Pending) return;
             networkRestore = result.succeeded() ? NetworkRestoreState::Idle : NetworkRestoreState::Failed;

@@ -16,7 +16,7 @@
 struct SessionObservation { QString result; QDateTime observedAt; };
 enum class ConnectionPhase { Initializing, Starting, Authenticating, AuthenticationSucceeded, Restoring, ReauthenticationRequired, TransportReady, NetworkRecovering, NetworkPreparing, NetworkRestoring, CampusReady };
 
-// The backend confirms ownership recovery before core startup and release before core shutdown.
+// The backend confirms recovery before startup and retains responsibility until final release.
 class NetworkAccess : public QObject
 {
     Q_OBJECT
@@ -28,6 +28,8 @@ public:
 signals:
     void prepared(const QUuid &attempt, PlatformOperationResult result);
     void ready(const QUuid &attempt, PlatformOperationResult result);
+    // Captures and DNS are withdrawn; the core may stop before the backend releases its device.
+    void quiesced(const QUuid &attempt);
     void stopped(const QUuid &attempt, PlatformOperationResult result);
     void lost(const QUuid &attempt, PlatformOperationResult result);
     void restartRequired(const QUuid &attempt, const QString &detail);
