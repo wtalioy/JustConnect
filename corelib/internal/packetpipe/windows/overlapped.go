@@ -21,12 +21,15 @@ const (
 
 // NativeStream owns an overlapped byte-pipe handle without registering a second IOCP.
 type NativeStream struct {
-	handle   windows.Handle
-	mu       sync.Mutex
-	pending  sync.WaitGroup
-	closed   bool
-	once     sync.Once
-	closeErr error
+	handle                        windows.Handle
+	mu                            sync.Mutex
+	pending                       sync.WaitGroup
+	closed                        bool
+	once                          sync.Once
+	closeErr                      error
+	read, write                   sync.Mutex
+	readEvent, writeEvent         windows.Handle
+	readOperation, writeOperation windows.Overlapped
 }
 
 // OwnNative takes ownership only on success. No I/O may already be pending.
@@ -63,7 +66,16 @@ func OwnNative(handle windows.Handle) (*NativeStream, error) {
 	if access&(windows.FILE_READ_DATA|windows.FILE_WRITE_DATA) != windows.FILE_READ_DATA|windows.FILE_WRITE_DATA {
 		return nil, windows.ERROR_ACCESS_DENIED
 	}
-	return &NativeStream{handle: handle}, nil
+	readEvent, err := windows.CreateEvent(nil, 1, 0, nil)
+	if err != nil {
+		return nil, err
+	}
+	writeEvent, err := windows.CreateEvent(nil, 1, 0, nil)
+	if err != nil {
+		_ = windows.CloseHandle(readEvent)
+		return nil, err
+	}
+	return &NativeStream{handle: handle, readEvent: readEvent, writeEvent: writeEvent}, nil
 }
 
 func Duplicate(value uint64, serverPID uint32) (*NativeStream, error) {
@@ -99,28 +111,34 @@ func (s *NativeStream) transfer(data []byte, write bool) (int, error) {
 	if len(data) == 0 {
 		return 0, nil
 	}
-	event, err := windows.CreateEvent(nil, 1, 0, nil)
-	if err != nil {
-		return 0, err
+	serial, event, operation := &s.read, s.readEvent, &s.readOperation
+	if write {
+		serial, event, operation = &s.write, s.writeEvent, &s.writeOperation
 	}
-	defer windows.CloseHandle(event)
-	operation := windows.Overlapped{HEvent: event}
+	serial.Lock()
+	defer serial.Unlock()
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
 		return 0, windows.ERROR_OPERATION_ABORTED
 	}
+	if err := windows.ResetEvent(event); err != nil {
+		s.mu.Unlock()
+		return 0, err
+	}
+	*operation = windows.Overlapped{HEvent: event}
 	s.pending.Add(1)
 	var count uint32
+	var err error
 	if write {
-		err = windows.WriteFile(s.handle, data, &count, &operation)
+		err = windows.WriteFile(s.handle, data, &count, operation)
 	} else {
-		err = windows.ReadFile(s.handle, data, &count, &operation)
+		err = windows.ReadFile(s.handle, data, &count, operation)
 	}
 	s.mu.Unlock()
 	defer s.pending.Done()
 	if err == windows.ERROR_IO_PENDING {
-		err = windows.GetOverlappedResult(s.handle, &operation, &count, true)
+		err = windows.GetOverlappedResult(s.handle, operation, &count, true)
 	}
 	runtime.KeepAlive(data)
 	if err == windows.ERROR_BROKEN_PIPE {
@@ -139,7 +157,11 @@ func (s *NativeStream) Close() error {
 		err := windows.CancelIoEx(s.handle, nil)
 		s.mu.Unlock()
 		s.pending.Wait()
-		s.closeErr = windows.CloseHandle(s.handle)
+		for _, handle := range []windows.Handle{s.handle, s.readEvent, s.writeEvent} {
+			if closeErr := windows.CloseHandle(handle); s.closeErr == nil {
+				s.closeErr = closeErr
+			}
+		}
 		if err != nil && err != windows.ERROR_NOT_FOUND {
 			s.closeErr = err
 		}
