@@ -111,8 +111,12 @@ int main(int argc,char **argv) try
         const auto request = extension ? macHelperExtendRequest(QUuid(arguments[2]),QUuid::createUuid(),{"198.18.0.8"})
             : recover ? macHelperRequest("recover",QUuid(arguments[2]),QUuid::createUuid())
             : macHelperApplyRequest(QUuid::createUuid(),QUuid::createUuid(),configuration);
-        const AuthorizationExternalForm invalid{};
-        const auto message = macHelperMessage(request,-1,arguments[1] == "--wire-invalid-auth" ? &invalid : nullptr);
+        AuthorizationExternalForm external{}; AuthorizationRef ungranted = nullptr;
+        if (arguments[1] == "--wire-ungranted-auth") {
+            check(AuthorizationCreate(nullptr,nullptr,kAuthorizationFlagDefaults,&ungranted) == errAuthorizationSuccess
+                && AuthorizationMakeExternalForm(ungranted,&external) == errAuthorizationSuccess,"Create a valid authorization with no granted rights");
+        }
+        const auto message = macHelperMessage(request,-1,(arguments[1] == "--wire-invalid-auth" || ungranted) ? &external : nullptr);
         const auto reply = xpc_connection_send_message_with_reply_sync(connection,message);
         if (arguments[1] == "--wire-untrusted") check(xpc_get_type(reply) == XPC_TYPE_ERROR,"Untrusted signed identity received a privileged reply");
         else {
@@ -123,6 +127,7 @@ int main(int argc,char **argv) try
             check(result && result->status == expected && result->mayHaveChanged == (arguments[1] == "--wire-foreign") && descriptor < 0,
                 "Signed client without administrator right changed the network or received a device");
         }
+        if (ungranted) AuthorizationFree(ungranted,kAuthorizationFlagDefaults);
         xpc_release(reply); xpc_release(message); xpc_connection_cancel(connection); xpc_release(connection);
         report({{"event","wire-denied"}}); return 0;
     }

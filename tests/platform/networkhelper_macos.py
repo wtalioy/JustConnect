@@ -215,7 +215,7 @@ def main(args):
             run('/bin/launchctl', 'bootstrap', 'system', launch_path)
             bootstrapped = True
             wait_for(lambda: user_state.parent.exists(), 'Signed root daemon did not start')
-            for mode in ('--wire-denied', '--wire-invalid-auth'):
+            for mode in ('--wire-denied', '--wire-invalid-auth', '--wire-ungranted-auth'):
                 denied = start(mode); event(denied, 'wire-denied'); finish(denied)
             assert not user_state.exists(), 'Authorization denial created ownership or network state'
             for name, wrong_identity in [('wrong-id', False), ('wrong-certificate', True)]:
