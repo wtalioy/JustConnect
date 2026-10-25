@@ -1,0 +1,6 @@
+#pragma once
+#include <cstddef>
+namespace WindowsNetworkContract {
+inline constexpr wchar_t StateRegistry[] = L"@WINDOWS_STATE_REGISTRY@";
+inline constexpr std::size_t MaxRecordBytes = @WINDOWS_MAX_RECORD_BYTES@;
+}
