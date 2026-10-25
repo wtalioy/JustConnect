@@ -47,7 +47,13 @@ bool present(const MIB_IPFORWARD_ROW2 &expected)
     checked(status,"inspect owned IPv4 capture");
     if(actual.Metric!=expected.Metric || actual.Protocol!=expected.Protocol || actual.Loopback!=expected.Loopback
         || actual.AutoconfigureAddress!=expected.AutoconfigureAddress || actual.Publish!=expected.Publish || actual.Immortal!=expected.Immortal)
-        fail("owned IPv4 capture was externally changed",ERROR_INVALID_DATA);
+    {
+        const auto fields=[](const MIB_IPFORWARD_ROW2 &row){return std::to_string(row.Metric)+","+std::to_string(row.Protocol)+","+
+            std::to_string(row.Loopback)+","+std::to_string(row.AutoconfigureAddress)+","+std::to_string(row.Publish)+","+std::to_string(row.Immortal);};
+        const auto detail="owned IPv4 capture was externally changed (metric,protocol,loopback,autoconfigure,publish,immortal actual="+
+            fields(actual)+" expected="+fields(expected)+")";
+        fail(detail.c_str(),ERROR_INVALID_DATA);
+    }
     return true;
 }
 }
