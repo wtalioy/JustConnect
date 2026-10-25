@@ -20,13 +20,14 @@ type Device struct {
 	read, write sync.Mutex
 	close       sync.Once
 	closeErr    error
+	frame       []byte
 }
 
 func New(stream io.ReadWriteCloser, mtu uint32, local, peer netip.Addr) (*Device, error) {
 	if stream == nil || mtu < 68 || mtu > 65535 || !deviceaddr.ValidIPv4Pair(local, peer) {
 		return nil, ErrFrame
 	}
-	return &Device{stream: stream, mtu: mtu, local: local, peer: peer}, nil
+	return &Device{stream: stream, mtu: mtu, local: local, peer: peer, frame: make([]byte, 4+mtu)}, nil
 }
 
 func (d *Device) TUNAddresses() (netip.Addr, netip.Addr) { return d.local, d.peer }
@@ -66,7 +67,7 @@ func (d *Device) Write(packet []byte) (int, error) {
 	}
 	d.write.Lock()
 	defer d.write.Unlock()
-	frame := make([]byte, 4+len(packet))
+	frame := d.frame[:4+len(packet)]
 	binary.BigEndian.PutUint32(frame, uint32(len(packet)))
 	copy(frame[4:], packet)
 	for len(frame) != 0 {

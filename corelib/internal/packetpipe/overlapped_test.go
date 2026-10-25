@@ -137,3 +137,38 @@ func TestNativeCloseInterruptsPendingIO(t *testing.T) {
 		})
 	}
 }
+
+func TestNativeCloseReleasesPendingAndQueuedReaders(t *testing.T) {
+	pair := nativePair(t, false)
+	stream, err := nativepipe.OwnNative(pair.client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pair.client = 0
+	defer stream.Close()
+	done := make(chan error, 2)
+	for range 2 {
+		go func() { _, err := stream.Read(make([]byte, 32)); done <- err }()
+	}
+	time.Sleep(20 * time.Millisecond)
+	closed := make(chan error, 1)
+	go func() { closed <- stream.Close() }()
+	select {
+	case err := <-closed:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("close retained pending native I/O")
+	}
+	for range 2 {
+		select {
+		case err := <-done:
+			if err == nil {
+				t.Fatal("reader survived closed pipe")
+			}
+		case <-time.After(time.Second):
+			t.Fatal("pending or queued reader survived close")
+		}
+	}
+}
