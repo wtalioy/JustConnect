@@ -1,6 +1,7 @@
 package wintun
 
 import (
+	"fmt"
 	"net/netip"
 	"unsafe"
 
@@ -23,11 +24,20 @@ func ipv4(address netip.Addr) windows.RawSockaddrInet {
 func (d *Device) configure(source, peer netip.Addr, targets []netip.Prefix) error {
 	iface := windows.MibIpInterfaceRow{Family: windows.AF_INET, InterfaceLuid: d.LUID}
 	if err := windows.GetIpInterfaceEntry(&iface); err != nil {
-		return err
+		return fmt.Errorf("read owned IPv4 interface: %w", err)
 	}
+	// SetIpInterfaceEntry requires zero for IPv4, even if the readback differs.
+	iface.SitePrefixLength = 0
 	iface.UseAutomaticMetric, iface.Metric, iface.NlMtu, iface.DadTransmits, iface.DisableDefaultRoutes = 0, 1, d.mtu, 0, 1
 	if status, _, _ := setInterface.Call(uintptr(unsafe.Pointer(&iface))); status != 0 {
-		return windows.Errno(status)
+		return fmt.Errorf("configure owned IPv4 interface: %w", windows.Errno(status))
+	}
+	confirmedInterface := windows.MibIpInterfaceRow{Family: windows.AF_INET, InterfaceLuid: d.LUID}
+	if err := windows.GetIpInterfaceEntry(&confirmedInterface); err != nil {
+		return fmt.Errorf("confirm owned IPv4 interface: %w", err)
+	}
+	if confirmedInterface.NlMtu != d.mtu || confirmedInterface.UseAutomaticMetric != 0 || confirmedInterface.Metric != iface.Metric || confirmedInterface.DadTransmits != 0 || confirmedInterface.DisableDefaultRoutes != 1 {
+		return windows.ERROR_INVALID_DATA
 	}
 	var row windows.MibUnicastIpAddressRow
 	initializeAddress.Call(uintptr(unsafe.Pointer(&row)))
@@ -35,11 +45,11 @@ func (d *Device) configure(source, peer netip.Addr, targets []netip.Prefix) erro
 	*(*windows.RawSockaddrInet4)(unsafe.Pointer(&row.Address)) = windows.RawSockaddrInet4{Family: windows.AF_INET, Addr: source.As4()}
 	row.OnLinkPrefixLength, row.DadState = 32, windows.IpDadStatePreferred
 	if status, _, _ := createAddress.Call(uintptr(unsafe.Pointer(&row))); status != 0 {
-		return windows.Errno(status)
+		return fmt.Errorf("create owned IPv4 address: %w", windows.Errno(status))
 	}
 	confirmed := row
 	if err := windows.GetUnicastIpAddressEntry(&confirmed); err != nil {
-		return err
+		return fmt.Errorf("confirm owned IPv4 address: %w", err)
 	}
 	if confirmed.InterfaceLuid != d.LUID || confirmed.OnLinkPrefixLength != 32 || confirmed.DadState != windows.IpDadStatePreferred {
 		return windows.ERROR_INVALID_DATA
@@ -58,11 +68,11 @@ func (d *Device) configure(source, peer netip.Addr, targets []netip.Prefix) erro
 		route.DestinationPrefix = windows.IpAddressPrefix{Prefix: ipv4(prefix.Addr()), PrefixLength: uint8(prefix.Bits())}
 		route.NextHop, route.Metric, route.Protocol = ipv4(netip.IPv4Unspecified()), 1, windows.MIB_IPPROTO_NETMGMT
 		if status, _, _ := createRoute.Call(uintptr(unsafe.Pointer(&route))); status != 0 {
-			return windows.Errno(status)
+			return fmt.Errorf("create owned IPv4 capture: %w", windows.Errno(status))
 		}
 		confirmed := route
 		if err := windows.GetIpForwardEntry2(&confirmed); err != nil {
-			return err
+			return fmt.Errorf("confirm owned IPv4 capture: %w", err)
 		}
 		if confirmed.InterfaceLuid != d.LUID || confirmed.Metric != route.Metric || confirmed.Protocol != route.Protocol {
 			return windows.ERROR_INVALID_DATA
