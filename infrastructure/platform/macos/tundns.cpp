@@ -21,6 +21,13 @@ CFArrayRef strings(const QStringList &values)
 }
 }
 
+QJsonObject MacTunDns::properties(const QString &peer,const QStringList &domains)
+{
+    return {{QString::fromCFString(kSCPropNetDNSServerAddresses),QJsonArray{peer}},
+        {QString::fromCFString(kSCPropNetDNSSupplementalMatchDomains),QJsonArray::fromStringList(domains)},
+        {QString::fromCFString(macDnsNoSearchKey()),MacDnsNoSearch}};
+}
+
 void MacTunDns::restore()
 {
     // AddTemporaryValue transfers ownership on another session's update, even for equal values.
@@ -48,12 +55,13 @@ PlatformOperationResult MacTunDns::apply(const UnixTunDevice &device, const QStr
     const void *ipv4Keys[]{kSCPropInterfaceName,kSCPropNetIPv4Addresses,kSCPropNetIPv4SubnetMasks};
     const void *ipv4Values[]{interface,local,mask};
     const auto ipv4 = CFDictionaryCreate(nullptr,ipv4Keys,ipv4Values,3,&kCFTypeDictionaryKeyCallBacks,&kCFTypeDictionaryValueCallBacks);
-    const void *dnsKeys[]{kSCPropNetDNSServerAddresses,kSCPropNetDNSSupplementalMatchDomains};
-    const void *dnsValues[]{servers,matches};
-    const auto dns = CFDictionaryCreate(nullptr,dnsKeys,dnsValues,2,&kCFTypeDictionaryKeyCallBacks,&kCFTypeDictionaryValueCallBacks);
+    const auto noSearch = CFNumberCreate(nullptr,kCFNumberIntType,&MacDnsNoSearch);
+    const void *dnsKeys[]{kSCPropNetDNSServerAddresses,kSCPropNetDNSSupplementalMatchDomains,macDnsNoSearchKey()};
+    const void *dnsValues[]{servers,matches,noSearch};
+    const auto dns = CFDictionaryCreate(nullptr,dnsKeys,dnsValues,3,&kCFTypeDictionaryKeyCallBacks,&kCFTypeDictionaryValueCallBacks);
     const auto release = qScopeGuard([&] {
         for (const auto value : {CFTypeRef(owner),CFTypeRef(ipv4Key),CFTypeRef(dnsKey),CFTypeRef(interface),CFTypeRef(local),
-                 CFTypeRef(mask),CFTypeRef(servers),CFTypeRef(matches),CFTypeRef(ipv4),CFTypeRef(dns)}) CFRelease(value);
+                 CFTypeRef(mask),CFTypeRef(servers),CFTypeRef(matches),CFTypeRef(noSearch),CFTypeRef(ipv4),CFTypeRef(dns)}) CFRelease(value);
     });
     store = SCDynamicStoreCreate(nullptr,CFSTR("JustConnect owned TUN DNS"),nullptr,nullptr);
     if (!store) return failed("Cannot open the owned DNS session.");
@@ -77,7 +85,6 @@ PlatformOperationResult MacTunDns::apply(const UnixTunDevice &device, const QStr
     }
     applied = {{QString::fromCFString(ipv4Key),QJsonObject{{QString::fromCFString(kSCPropInterfaceName),name},
             {QString::fromCFString(kSCPropNetIPv4Addresses),QJsonArray{source}},{QString::fromCFString(kSCPropNetIPv4SubnetMasks),QJsonArray{pair["netmask"]}}}},
-        {QString::fromCFString(dnsKey),QJsonObject{{QString::fromCFString(kSCPropNetDNSServerAddresses),QJsonArray{peer}},
-            {QString::fromCFString(kSCPropNetDNSSupplementalMatchDomains),QJsonArray::fromStringList(domains)}}}};
+        {QString::fromCFString(dnsKey),properties(peer,domains)}};
     return {Status::Success,{},true};
 }

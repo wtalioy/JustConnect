@@ -69,6 +69,13 @@ int main(int argc,char **argv) try
         return true;
     };
     wait([&] { return runPlatformCommand("/usr/sbin/scutil",{"--dns"}).output.contains(domains.first()); },"Supplemental resolver did not become effective");
+    const auto global = SCDynamicStoreKeyCreateNetworkGlobalEntity(nullptr,kSCDynamicStoreDomainState,kSCEntNetDNS);
+    const auto globalKey = QString::fromCFString(global); CFRelease(global);
+    const auto originalGlobal = before["dynamic_store"].toObject().value(globalKey).toObject();
+    wait([&] {
+        const auto current = dnsSnapshot()["dynamic_store"].toObject().value(globalKey).toObject();
+        return current.value("SearchDomains") == originalGlobal.value("SearchDomains") && current.value("ServerAddresses") == originalGlobal.value("ServerAddresses");
+    },"Supplemental DNS changed the global search domains or primary servers");
     check(defaults() == routeBefore,"Supplemental DNS changed the original default route");
     dns.restore();
     wait(absent,"Owned DNS service keys survived session close");
