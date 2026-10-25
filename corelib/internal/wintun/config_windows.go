@@ -11,6 +11,7 @@ import (
 var ipHelper = windows.NewLazySystemDLL("iphlpapi.dll")
 var initializeAddress = ipHelper.NewProc("InitializeUnicastIpAddressEntry")
 var createAddress = ipHelper.NewProc("CreateUnicastIpAddressEntry")
+var getInterface = ipHelper.NewProc("GetIpInterfaceEntry")
 var setInterface = ipHelper.NewProc("SetIpInterfaceEntry")
 var initializeRoute = ipHelper.NewProc("InitializeIpForwardEntry")
 var createRoute = ipHelper.NewProc("CreateIpForwardEntry2")
@@ -22,9 +23,9 @@ func ipv4(address netip.Addr) windows.RawSockaddrInet {
 }
 
 func (d *Device) configure(source, peer netip.Addr, targets []netip.Prefix) error {
-	iface := windows.MibIpInterfaceRow{Family: windows.AF_INET, InterfaceLuid: d.LUID}
-	if err := windows.GetIpInterfaceEntry(&iface); err != nil {
-		return fmt.Errorf("read owned IPv4 interface: %w", err)
+	iface := ipInterfaceRow{Family: windows.AF_INET, InterfaceLuid: d.LUID}
+	if status, _, _ := getInterface.Call(uintptr(unsafe.Pointer(&iface))); status != 0 {
+		return fmt.Errorf("read owned IPv4 interface: %w", windows.Errno(status))
 	}
 	// SetIpInterfaceEntry requires zero for IPv4, even if the readback differs.
 	iface.SitePrefixLength = 0
@@ -32,9 +33,9 @@ func (d *Device) configure(source, peer netip.Addr, targets []netip.Prefix) erro
 	if status, _, _ := setInterface.Call(uintptr(unsafe.Pointer(&iface))); status != 0 {
 		return fmt.Errorf("configure owned IPv4 interface: %w", windows.Errno(status))
 	}
-	confirmedInterface := windows.MibIpInterfaceRow{Family: windows.AF_INET, InterfaceLuid: d.LUID}
-	if err := windows.GetIpInterfaceEntry(&confirmedInterface); err != nil {
-		return fmt.Errorf("confirm owned IPv4 interface: %w", err)
+	confirmedInterface := ipInterfaceRow{Family: windows.AF_INET, InterfaceLuid: d.LUID}
+	if status, _, _ := getInterface.Call(uintptr(unsafe.Pointer(&confirmedInterface))); status != 0 {
+		return fmt.Errorf("confirm owned IPv4 interface: %w", windows.Errno(status))
 	}
 	if confirmedInterface.NlMtu != d.mtu || confirmedInterface.UseAutomaticMetric != 0 || confirmedInterface.Metric != iface.Metric || confirmedInterface.DadTransmits != 0 || confirmedInterface.DisableDefaultRoutes != 1 {
 		return fmt.Errorf("owned IPv4 interface differs: MTU=%d/%d automatic_metric=%d metric=%d/%d DAD=%d disable_default=%d: %w", confirmedInterface.NlMtu, d.mtu, confirmedInterface.UseAutomaticMetric, confirmedInterface.Metric, iface.Metric, confirmedInterface.DadTransmits, confirmedInterface.DisableDefaultRoutes, windows.ERROR_INVALID_DATA)
