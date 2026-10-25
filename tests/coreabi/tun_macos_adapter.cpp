@@ -153,7 +153,7 @@ int main(int argc,char **argv)
         }
         until([&] { return session.state() == ConnectionState::Running || !session.isActive(); });
         check(session.state() == ConnectionState::Running && session.phase() == ConnectionPhase::CampusReady && wasPreparing,"Campus readiness follows helper ownership and real Go attachment");
-        if (helperLoss && round == 1) {
+        if ((helperLoss && round == 1) || (!helperLoss && authorizationMode.isEmpty() && !marker.isEmpty() && round == 0)) {
             publish(".reconnected"); until([&] { return QFileInfo::exists(marker+".traffic"); });
         }
         originalView();

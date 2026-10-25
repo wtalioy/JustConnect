@@ -201,11 +201,15 @@ def main(args):
                 status = process.wait(timeout=20)
                 assert status == 0, f'Native client {process.pid} exited {status}'
 
-            def kill_helper():
+            def helper_pid():
                 service = run('/bin/launchctl', 'print', 'system/' + SERVICE).stdout.decode()
                 pid = re.search(r'^\s*pid = (\d+)\s*$', service, re.M); assert pid
-                print('CHECK: kill managed helper pid', pid[1], flush=True)
-                os.kill(int(pid[1]), signal.SIGKILL)
+                return int(pid[1])
+
+            def kill_helper():
+                pid = helper_pid()
+                print('CHECK: kill managed helper pid', pid, flush=True)
+                os.kill(pid, signal.SIGKILL)
 
             def withdrawn(interface):
                 for address in ('198.18.0.6', '198.18.0.7'):
@@ -309,11 +313,12 @@ def main(args):
             shutil.copytree(bundle, core_bundle, symlinks=True)
             shutil.copy2(args.core_client, core_bundle / 'Contents/MacOS/JustConnect')
             sign(core_bundle, identity, APP_ID)
-            for scenario in ('authorization-cancel', 'authorization-exit', 'normal', 'helper-loss', 'helper-offline'):
+            crashed_owner = None
+            for scenario in ('authorization-cancel', 'authorization-exit', 'process-crash', 'normal', 'helper-loss', 'helper-offline'):
                 control = directory / ('core-' + scenario); control.mkdir(mode=0o700); os.chown(control, args.uid, account.pw_gid)
                 marker = control / 'ready'
                 authorization_mode = scenario.removeprefix('authorization-') if scenario.startswith('authorization-') else ''
-                authorization_count = 3 if authorization_mode == 'cancel' else 1 if authorization_mode == 'exit' else 2
+                authorization_count = 3 if authorization_mode == 'cancel' else 1 if authorization_mode == 'exit' or scenario == 'process-crash' else 2
                 authorizations = [Authorization() for _ in range(authorization_count)]; grants.extend(authorizations)
                 read_fd, write_fd = os.pipe()
                 transcript = output / ('core-' + scenario + '.out')
@@ -327,7 +332,10 @@ def main(args):
                     elif scenario != 'normal':
                         environment.update(JC_NATIVE_NETWORK_HELPER_LOSS='1', JC_NATIVE_TUN_READY=str(marker),
                             JC_NATIVE_NETWORK_HELPER_OFFLINE='1' if scenario == 'helper-offline' else '0')
-                    test_name = 'TestNativeTUNAuthorizationExit' if authorization_mode == 'exit' else 'TestNativeTUNHost'
+                    elif crashed_owner:
+                        assert receipt(crashed_owner, 'restored'), 'Restart must encounter the unacknowledged crash receipt'
+                        environment['JC_NATIVE_TUN_READY'] = str(marker)
+                    test_name = 'TestNativeTUNAuthorizationExit' if authorization_mode == 'exit' else 'TestNativeTUNProcessCrash' if scenario == 'process-crash' else 'TestNativeTUNHost'
                     with transcript.open('wb') as stream:
                         core = subprocess.Popen([args.gateway, '-test.v', '-test.timeout', '75s', '-test.run', '^' + test_name + '$'],
                             user=args.uid, group=account.pw_gid, extra_groups=(), pass_fds=(read_fd,), env=environment,
@@ -361,6 +369,30 @@ def main(args):
                             assert not list(user_state.iterdir()) and dns_restored(), 'Old authorization approved the new pending connection'
                             Path(str(marker) + '.approve').touch()
                             print('CHECK: cancelled authorization revoked before current authorization was approved', flush=True)
+                    elif scenario == 'process-crash':
+                        boundary(''); active = active_owner()
+                        assert published(active['owner']), 'Full-process crash preceded actual DNS and data traffic'
+                        pid = int(json.loads(marker.read_text())['pid'])
+                        parent, uid = map(int, run('/bin/ps', '-p', pid, '-o', 'ppid=', '-o', 'uid=').stdout.split())
+                        assert (parent, uid) == (core.pid, args.uid), 'Refusing an unrelated native process'
+                        daemon = helper_pid()
+                        os.kill(daemon, signal.SIGSTOP)
+                        try:
+                            os.kill(pid, signal.SIGKILL)
+                        finally:
+                            os.kill(daemon, signal.SIGKILL)
+                        crashed_owner = active['owner']
+                        wait_for(lambda: receipt(crashed_owner, 'restored'), 'Independent daemon did not recover after full Qt/core and helper kill')
+                        wait_for(lambda: active['device']['interface'] not in run('/sbin/ifconfig', '-l').stdout.decode().split(),
+                            'Full-process crash retained the owned utun')
+                        wait_for(dns_restored, 'Full-process crash left owned DNS settings')
+                        print('CHECK: full Qt/core and helper killed; independent recovery retained receipt', crashed_owner, flush=True)
+                    elif scenario == 'normal' and crashed_owner:
+                        boundary('.reconnected'); fresh = active_owner()
+                        assert fresh['owner'] != crashed_owner and not (user_state / crashed_owner).exists(), 'New application did not acknowledge old crash recovery before acquiring fresh ownership'
+                        Path(str(marker) + '.traffic').touch()
+                        print('CHECK: new application acknowledged crash recovery before fresh owner', fresh['owner'], flush=True)
+                        crashed_owner = None
                     elif scenario != 'normal':
                         boundary(''); active = active_owner()
                         assert published(active['owner']), 'Fault preceded actual DNS publication and data traffic'
@@ -396,7 +428,8 @@ def main(args):
                     os.close(read_fd)
                     if write_fd >= 0:
                         os.close(write_fd)
-                assert not list(user_state.iterdir()), 'Actual Qt/core session retained an ownership receipt'
+                if scenario != 'process-crash':
+                    assert not list(user_state.iterdir()), 'Actual Qt/core session retained an ownership receipt'
                 wait_for(dns_restored, 'Actual Qt/core session left original DNS changed')
             print('PASS: signed root XPC, identity/network authorization boundaries, ordinary UDP/fd and system DNS, durable CoreEngine DNS publication, cancellation, EOF and daemon restart recovery', flush=True)
         finally:

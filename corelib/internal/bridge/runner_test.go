@@ -424,7 +424,7 @@ func TestProtocolOversizedAuthenticationBodyReportsLimit(t *testing.T) {
 	}
 }
 
-func runNativeTUNHost(t *testing.T) (*gateway, []byte) {
+func runNativeTUNHost(t *testing.T, killed bool) (*gateway, []byte) {
 	t.Helper()
 	host := os.Getenv("JC_NATIVE_TUN_HOST")
 	inherited := os.Getenv("JC_NATIVE_TUN_FD")
@@ -435,6 +435,9 @@ func runNativeTUNHost(t *testing.T) (*gateway, []byte) {
 	mode := os.Getenv("JC_NATIVE_NETWORK_AUTHORIZATION")
 	if mode != "" && (runtime.GOOS != "darwin" || macAuthorization == "" || (mode != "cancel" && mode != "exit")) {
 		t.Fatal("authorization scenarios require the disposable macOS authorization fixture")
+	}
+	if killed && (runtime.GOOS != "darwin" || macAuthorization == "" || os.Getenv("JC_NATIVE_NETWORK_HELPER_LOSS") != "1") {
+		t.Fatal("process crash requires the disposable macOS helper fixture")
 	}
 	if os.Getuid() == 0 || os.Getuid() != os.Geteuid() {
 		t.Fatal("requires an ordinary caller")
@@ -483,14 +486,19 @@ func runNativeTUNHost(t *testing.T) (*gateway, []byte) {
 		command.ExtraFiles = []*os.File{file}
 	}
 	output, err := command.CombinedOutput()
-	if err != nil {
+	if killed {
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) || exit.ExitCode() != -1 || ctx.Err() != nil {
+			t.Fatalf("native host did not terminate by the injected signal: %v\n%s", err, output)
+		}
+	} else if err != nil {
 		t.Fatalf("native TUN/C ABI host: %v\n%s", err, output)
 	}
 	return g, output
 }
 
 func TestNativeTUNHost(t *testing.T) {
-	g, output := runNativeTUNHost(t)
+	g, output := runNativeTUNHost(t, false)
 	expectedAuth := int32(2)
 	if os.Getenv("JC_NATIVE_NETWORK_AUTHORIZATION") == "cancel" {
 		expectedAuth++ // The cancelled prefix reached real authentication before network authorization.
@@ -512,9 +520,21 @@ func TestNativeTUNAuthorizationExit(t *testing.T) {
 	if os.Getenv("JC_NATIVE_NETWORK_AUTHORIZATION") != "exit" {
 		t.Skip("ordered exit with pending system authorization runs in the disposable macOS fixture")
 	}
-	g, output := runNativeTUNHost(t)
+	g, output := runNativeTUNHost(t, false)
 	if !bytes.Contains(output, []byte("PASS: macOS ordered application exit while system authorization is still pending")) || g.authCount.Load() != 1 || g.tcpCount.Load() != 0 || g.udpCount.Load() != 0 || g.nativeDNSQueries.Load() != 0 {
 		t.Fatalf("authorization exit did not stop before network activation: auth=%d TCP=%d UDP=%d DNS=%d\n%s", g.authCount.Load(), g.tcpCount.Load(), g.udpCount.Load(), g.nativeDNSQueries.Load(), output)
 	}
+	t.Log(string(output))
+}
+
+func TestNativeTUNProcessCrash(t *testing.T) {
+	if runtime.GOOS != "darwin" || os.Getenv("JC_NATIVE_NETWORK_HELPER_LOSS") != "1" {
+		t.Skip("full process crash runs in the disposable macOS helper fixture")
+	}
+	g, output := runNativeTUNHost(t, true)
+	if g.authCount.Load() != 1 || g.tcpCount.Load() != 1 || g.nativeDNSQueries.Load() < 1 || g.udpCount.Load() != 2+g.nativeDNSQueries.Load() {
+		t.Fatalf("process was killed before actual native traffic: auth=%d TCP=%d UDP=%d DNS=%d\n%s", g.authCount.Load(), g.tcpCount.Load(), g.udpCount.Load(), g.nativeDNSQueries.Load(), output)
+	}
+	t.Log("PASS: signed macOS Qt/core killed after actual system DNS, TCP and UDP exchanges")
 	t.Log(string(output))
 }
