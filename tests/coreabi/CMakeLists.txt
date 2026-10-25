@@ -65,6 +65,7 @@ if(WIN32)
     justconnect_core_runtime(coreabi_windows_session_test coreabi)
     add_test(NAME coreabi_windows_session_test
         COMMAND "${CMAKE_COMMAND}" -E env "JC_NATIVE_WINDOWS_SESSION_HOST=$<TARGET_FILE:coreabi_windows_session_test>"
+            "JC_NATIVE_WINDOWS_HELPER_RUNNER=${REPO}/tests/platform/run_windows_helper.py"
             GOTOOLCHAIN=local GOWORK=off GOENV=off CGO_ENABLED=1 GOEXPERIMENT=cgocheck2
             "${GO_EXECUTABLE}" test -mod=readonly -count=1 -timeout 300s -run "^TestNativeWindowsSessionHost$" -v ./internal/bridge)
     set_tests_properties(coreabi_windows_session_test PROPERTIES TIMEOUT 320 WORKING_DIRECTORY "${CORE}" RUN_SERIAL TRUE)

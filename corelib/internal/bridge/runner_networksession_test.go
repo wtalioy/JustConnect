@@ -18,7 +18,8 @@ func TestNativeWindowsSessionHost(t *testing.T) {
 	if host == "" || os.Getenv("GITHUB_ACTIONS") != "true" {
 		t.Skip("Windows application/native helper integration runs in the native ABI target")
 	}
-	if !filepath.IsAbs(host) || !windows.GetCurrentProcessToken().IsElevated() {
+	runner := os.Getenv("JC_NATIVE_WINDOWS_HELPER_RUNNER")
+	if !filepath.IsAbs(host) || !filepath.IsAbs(runner) || !windows.GetCurrentProcessToken().IsElevated() {
 		t.Fatal("requires the built application host and an elevated disposable runner")
 	}
 	g := newGateway(t)
@@ -27,7 +28,7 @@ func TestNativeWindowsSessionHost(t *testing.T) {
 	g.probeDNS.Store(true)
 	ctx, cancel := context.WithTimeout(t.Context(), 240*time.Second)
 	defer cancel()
-	command := exec.CommandContext(ctx, "python", "../tests/platform/run_windows_helper.py", "--session-host", host)
+	command := exec.CommandContext(ctx, "python", runner, "--session-host", host)
 	command.Env = append(os.Environ(), "JC_WINDOWS_SESSION_CONFIG="+string(configBytes(t, g.config(t))))
 	output, err := command.CombinedOutput()
 	if err != nil {
