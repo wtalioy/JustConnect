@@ -78,7 +78,7 @@ std::unique_ptr<WindowsTunDevice> WindowsTunDevice::create(const std::wstring &d
     getLuid(device->adapter,&device->owned.luid);
     MIB_IF_ROW2 row{};
     row.InterfaceLuid = device->owned.luid;
-    checked(GetIfEntry2Ex(MibIfTableNormalWithoutStatistics,&row),"confirm new adapter identity");
+    checked(GetIfEntry2Ex(MibIfEntryNormalWithoutStatistics,&row),"confirm new adapter identity");
     if (row.InterfaceGuid != owner || device->owned.name != row.Alias)
         fail("new adapter identity differs",ERROR_INVALID_DATA);
     device->owned.index = row.InterfaceIndex;
