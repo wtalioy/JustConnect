@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,8 +23,6 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/wtalioy/JustConnect/corelib/internal/tundevice/windows/wintun"
-	windowsfixture "github.com/wtalioy/JustConnect/corelib/tests/windows"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
@@ -45,7 +42,6 @@ type brokerNotice struct {
 }
 
 var errRejectedFrame = errors.New("rejected device frame")
-var errSetupFailure = errors.New("controlled failure after owned device configuration")
 
 func main() {
 	err := run()
@@ -53,9 +49,6 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		if errors.Is(err, errRejectedFrame) {
 			os.Exit(23)
-		}
-		if errors.Is(err, errSetupFailure) {
-			os.Exit(24)
 		}
 		os.Exit(1)
 	}
@@ -71,28 +64,8 @@ func run() error {
 	if !windows.GetCurrentProcessToken().IsElevated() {
 		return errors.New("device broker requires an elevated disposable runner")
 	}
-	if len(os.Args) == 5 && os.Args[1] == "--broker" {
-		name := os.Args[3]
-		owner, err := windows.GUIDFromString(strings.TrimPrefix(name, "JustConnect "))
-		if err != nil || name != "JustConnect "+owner.String() {
-			return errors.New("invalid owned test adapter name")
-		}
-		switch os.Args[4] {
-		case "connected", "roundtrip", "oversized", "crash", "setup-failure", "benchmark":
-		default:
-			return errors.New("invalid probe mode")
-		}
-		return broker(os.Args[2], name, os.Args[4])
-	}
-	if len(os.Args) == 3 && os.Args[1] == "--benchmark" {
-		for _, baseline := range []bool{false, true} {
-			if err := runBroker(os.Args[2], "benchmark", baseline); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	if len(os.Args) != 2 {
+	benchmark := len(os.Args) == 3 && os.Args[1] == "--benchmark"
+	if len(os.Args) != 2 && !benchmark {
 		return errors.New("expected verified Wintun DLL path")
 	}
 	interfaces, err := net.Interfaces()
@@ -111,8 +84,11 @@ func run() error {
 			}
 		}
 	}
+	if benchmark {
+		return runBroker(os.Args[2], "benchmark")
+	}
 	for _, mode := range []string{"connected", "roundtrip", "oversized", "crash", "setup-failure"} {
-		if err := runBroker(os.Args[1], mode, false); err != nil {
+		if err := runBroker(os.Args[1], mode); err != nil {
 			return fmt.Errorf("%s: %w", mode, err)
 		}
 	}
@@ -256,7 +232,7 @@ func confirmDevice(input io.Reader, name string, owned *brokerDevice) error {
 	return nil
 }
 
-func runBroker(dll, mode string, baseline bool) (result error) {
+func runBroker(dll, mode string) (result error) {
 	fmt.Fprintln(os.Stderr, "START: device case", mode)
 	owner, err := windows.GenerateGUID()
 	if err != nil {
@@ -288,12 +264,7 @@ func runBroker(dll, mode string, baseline bool) (result error) {
 		return errors.New("native C++ device broker is required by the device validation producer")
 	}
 	cmd := exec.CommandContext(ctx, native, "--broker", dll, name, mode, executable())
-	backend := "cpp"
-	if baseline {
-		backend = "go"
-		cmd = exec.CommandContext(ctx, executable(), "--broker", dll, name, mode)
-	}
-	cmd.Env = append(os.Environ(), "JC_TEST_WINTUN_BENCHMARK_BACKEND="+backend)
+	cmd.Env = append(os.Environ(), "JC_TEST_WINTUN_BENCHMARK_BACKEND=cpp")
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_SUSPENDED}
 	output, err := cmd.StdoutPipe()
 	if err != nil {
@@ -443,128 +414,6 @@ func assignAndResume(job windows.Handle, processID uint32) error {
 	return errors.New("suspended broker thread not found")
 }
 
-func broker(path, name, mode string) error {
-	owner, err := windows.GUIDFromString(strings.TrimPrefix(name, "JustConnect "))
-	if err != nil {
-		return err
-	}
-	encoder := json.NewEncoder(os.Stdout)
-	var device brokerDevice
-	adapter, err := wintun.Create(path, owner, netip.MustParseAddr("192.0.2.1"), netip.MustParseAddr("192.0.2.2"), 1400, nil, func(identity wintun.Identity) error {
-		instanceID, err := deviceInstanceID(identity.LUID)
-		if err != nil {
-			return err
-		}
-		if present, err := devicePresent(instanceID); err != nil || !present {
-			return fmt.Errorf("new owned test device is absent: %v", err)
-		}
-		device = brokerDevice{identity.Name, identity.Index, identity.LUID, instanceID}
-		return encoder.Encode(brokerNotice{"allocated", device})
-	})
-	if err != nil {
-		return err
-	}
-	defer adapter.Close()
-	confirmedID, err := deviceInstanceID(device.LUID)
-	if err != nil || confirmedID != device.InstanceID {
-		return fmt.Errorf("owned test device identity changed: %v", err)
-	}
-	index := device.Index
-	if mode == "setup-failure" {
-		if present, err := interfaceHasRoutes(index); err != nil || !present {
-			return fmt.Errorf("controlled setup failure lacked actual IPv4 routes: %v", err)
-		}
-		return errSetupFailure
-	}
-	if err = encoder.Encode(brokerNotice{"configured", device}); err != nil {
-		return err
-	}
-	if mode == "crash" {
-		for {
-			time.Sleep(time.Hour)
-		}
-	}
-	token, err := windowsfixture.OrdinaryToken()
-	if err != nil {
-		return err
-	}
-	defer token.Close()
-	budget, err := packetBudget(mode)
-	if err != nil {
-		return err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), budget+4*time.Second)
-	defer cancel()
-	clientMode := mode
-	if clientMode == "connected" {
-		clientMode = "roundtrip"
-	}
-	cmd := exec.CommandContext(ctx, executable(), "--client", clientMode)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Token: syscall.Token(token)}
-	cmd.Env = os.Environ()
-	input, err := cmd.StdinPipe()
-	if err != nil {
-		return err
-	}
-	output, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-	cmd.Stderr = os.Stderr
-	if err = cmd.Start(); err != nil {
-		return err
-	}
-	defer func() {
-		if cmd.ProcessState == nil {
-			_ = cmd.Process.Kill()
-			_ = cmd.Wait()
-		}
-	}()
-	deadline := time.AfterFunc(budget, func() { _ = adapter.Close() })
-	defer deadline.Stop()
-	count, err := benchmarkCount(mode)
-	if err != nil {
-		return err
-	}
-	packet := make([]byte, 1400)
-	started := time.Now()
-	for iteration := range count {
-		packet = packet[:cap(packet)]
-		for {
-			size, err := adapter.Read(packet)
-			if err != nil {
-				return fmt.Errorf("ordinary client packet %d/%d did not reach owned device: %w", iteration+1, count, err)
-			}
-			packet = packet[:size]
-			if validPacket(packet, false) {
-				break
-			}
-			packet = packet[:cap(packet)]
-		}
-		if err = writeFrame(input, packet); err != nil {
-			return err
-		}
-		response, err := readFrame(output)
-		if err != nil {
-			return err
-		}
-		if !validPacket(response, true) || !bytes.Equal(response[28:], []byte("pong")) || !bytes.Equal(response[22:24], packet[20:22]) {
-			return errRejectedFrame
-		}
-		if _, err = adapter.Write(response); err != nil {
-			return err
-		}
-	}
-	input.Close()
-	if err = cmd.Wait(); err != nil {
-		return err
-	}
-	if mode == "benchmark" {
-		return benchmarkStats(started, count)
-	}
-	return nil
-}
-
 func readFrame(input io.Reader) ([]byte, error) {
 	var size uint32
 	if err := binary.Read(input, binary.BigEndian, &size); err != nil {
@@ -701,26 +550,6 @@ func benchmarkCount(mode string) (int, error) {
 		return 0, errors.New("invalid native benchmark packet count")
 	}
 	return count, nil
-}
-
-func benchmarkStats(started time.Time, count int) error {
-	elapsed := time.Since(started).Seconds()
-	var created, exited, kernel, user windows.Filetime
-	if err := windows.GetProcessTimes(windows.CurrentProcess(), &created, &exited, &kernel, &user); err != nil {
-		return err
-	}
-	ticks := func(value windows.Filetime) uint64 { return uint64(value.HighDateTime)<<32 | uint64(value.LowDateTime) }
-	cpu := float64(ticks(kernel)+ticks(user)) / 1e7
-	output, err := exec.Command(os.Getenv("JC_TEST_POWERSHELL_HOST"), "-NoProfile", "-NonInteractive", "-Command", "(Get-Process -Id "+strconv.Itoa(os.Getpid())+").PeakWorkingSet64").Output()
-	if err != nil {
-		return err
-	}
-	peak, err := strconv.ParseUint(strings.TrimSpace(string(output)), 10, 64)
-	if err != nil {
-		return err
-	}
-	return json.NewEncoder(os.Stderr).Encode(map[string]any{"benchmark": "helper", "backend": "go", "round_trips": count, "seconds": elapsed,
-		"packets_per_second": float64(count*2) / elapsed, "cpu_seconds": cpu, "peak_rss_bytes": peak})
 }
 
 func packetBudget(mode string) (time.Duration, error) {

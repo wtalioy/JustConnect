@@ -43,14 +43,6 @@ def device():
     if not host:
         raise RuntimeError('CI PowerShell host unavailable')
     env = dict(os.environ, JC_TEST_WINTUN_DLL=str(dll), CGO_ENABLED='0', GOTOOLCHAIN='local', GOWORK='off', GOENV='off')
-    layout_host = output / 'windows-iphelper-layout.exe'
-    subprocess.run([os.environ['CC'], '-std=c11', 'tests/platform/windows_iphelper_layout.c', '-o', str(layout_host)], check=True, timeout=60)
-    layout = output / 'windows-iphelper-layout.json'
-    layout.write_bytes(subprocess.check_output([str(layout_host)], timeout=10))
-    env['JC_TEST_IPHELPER_LAYOUT'] = str(layout)
-    with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as exported:
-        exported.write('JC_TEST_IPHELPER_LAYOUT=' + str(layout) + '\n')
-    subprocess.run(['go', '-C', 'corelib', 'test', '-mod=readonly', '-count=1', '-timeout=30s', './internal/tundevice/windows/wintun'], env=env, check=True, timeout=60)
     print('RUN: Wintun Authenticode via the CI pwsh host (60s)', flush=True)
     signature = json.loads(subprocess.check_output([host, '-NoProfile', '-NonInteractive', '-Command',
         '$s=Get-AuthenticodeSignature -LiteralPath $env:JC_TEST_WINTUN_DLL; $h=[System.Security.Cryptography.SHA256]::HashData($s.SignerCertificate.RawData); @{status=$s.Status.ToString(); signer=$s.SignerCertificate.Thumbprint; publisher=[Convert]::ToHexString($h).ToLowerInvariant()} | ConvertTo-Json -Compress'], env=env, text=True, timeout=60))
@@ -82,8 +74,8 @@ def device():
 
     with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as exported:
         exported.write('JC_TEST_CPP_WINTUN_BROKER=' + env['JC_TEST_CPP_WINTUN_BROKER'] + '\n')
-    source = pathlib.Path('corelib/internal/tundevice/windows/wintun/fixture/main.go').resolve()
-    tests = pathlib.Path('corelib/internal/tundevice/windows/wintun/fixture/main_test.go').resolve()
+    source = pathlib.Path('corelib/tests/windows/device/main.go').resolve()
+    tests = pathlib.Path('corelib/tests/windows/device/main_test.go').resolve()
     if subprocess.check_output(['gofmt', '-l', str(source), str(tests)], env=env).strip():
         raise RuntimeError('Unformatted device probe')
     subprocess.run(['go', '-C', 'corelib', 'vet', str(source), str(tests)], env=env, check=True, timeout=120)
@@ -103,19 +95,19 @@ def device():
 
     benchmark_log = output / 'windows-device-benchmark.log'
     count = 4096
-    measured = dict(env, JC_TEST_WINTUN_BENCHMARK_PACKETS=str(count), JC_TEST_WINTUN_BENCHMARK_TIMEOUT_MS='30000', JC_TEST_POWERSHELL_HOST=host)
+    measured = dict(env, JC_TEST_WINTUN_BENCHMARK_PACKETS=str(count), JC_TEST_WINTUN_BENCHMARK_TIMEOUT_MS='30000')
     with benchmark_log.open('w', encoding='utf-8') as log:
         try:
             result = subprocess.run([str(probe), '--benchmark', str(dll)], env=measured, stdout=log, stderr=subprocess.STDOUT, timeout=100)
             if result.returncode:
-                raise RuntimeError(f'Native device comparison failed: {result.returncode}')
+                raise RuntimeError(f'Native device batch failed: {result.returncode}')
         finally:
             log.flush()
             print(benchmark_log.read_text(encoding='utf-8', errors='replace'), flush=True)
     records = [json.loads(line) for line in benchmark_log.read_text(encoding='utf-8').splitlines() if line.startswith('{')]
-    expected = {(kind, backend) for kind in ('helper', 'client') for backend in ('go', 'cpp')}
+    expected = {(kind, 'cpp') for kind in ('helper', 'client')}
     if len(records) != len(expected) or {(r.get('benchmark'), r.get('backend')) for r in records} != expected:
-        raise RuntimeError('Native device comparison omitted a backend or ordinary client')
+        raise RuntimeError('Native device batch omitted the helper or ordinary client')
     for record in records:
         if record['round_trips'] != count:
             raise RuntimeError('Native device comparison did not exchange all packets')
@@ -125,7 +117,7 @@ def device():
             raise RuntimeError('Invalid native latency counter measurements')
     (output / 'windows-device-benchmark.json').write_text(json.dumps({
         'source': os.environ['GITHUB_SHA'], 'arch': arch, 'driver_sha256': metadata['driver_sha256'],
-        'scenario': 'paired same-runner component brokers; 4-byte UDP round trips over real Wintun and framed ordinary-client IPC; not campus or full Qt throughput',
+        'scenario': '4096 ordinary-client 4-byte UDP round trips over real Wintun and framed IPC; not campus or full Qt throughput',
         'measurements': records,
     }, indent=2), encoding='utf-8')
 
