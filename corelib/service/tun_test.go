@@ -533,8 +533,11 @@ func TestTUNBoundsFlowsAndJoinsFullCapacityOnShutdown(t *testing.T) {
 		t.Fatal("TUN exceeded its active flow limit")
 	case <-time.After(30 * time.Millisecond):
 	}
+	if addresses := p.ActiveTUNAddresses(); len(addresses) != 1 || addresses[0] != destination.Addr.String() {
+		t.Fatal("active flow snapshot lost or duplicated the draining destination", addresses)
+	}
 	closeIngress(t, p)
-	if len(p.connections) != 0 || len(p.tun.flows) != 0 {
+	if len(p.connections) != 0 || len(p.tun.flows) != 0 || len(p.ActiveTUNAddresses()) != 0 {
 		t.Fatal("closed owner retained connection or flow registries")
 	}
 }

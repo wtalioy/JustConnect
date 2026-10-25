@@ -81,6 +81,13 @@ func (s *Session) CampusDNSRecords() map[string][]string {
 	return nil
 }
 
+func (s *Session) ActiveTUNAddresses() []string {
+	if listeners := s.listeners.Load(); listeners != nil {
+		return listeners.ActiveTUNAddresses()
+	}
+	return nil
+}
+
 func NewSession(options Options) *Session {
 	options.Setup.ClientData = bytes.Clone(options.Setup.ClientData)
 	return &Session{options: options}

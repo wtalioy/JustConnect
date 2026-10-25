@@ -468,7 +468,16 @@ std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &reso
 std::optional<QStringList> updatedCampusCapturePrefixes(const QJsonObject &resources, const QJsonObject &policy,
     const QStringList &dnsDomains)
 {
-    const auto result = campusCaptureTargets(resources,policy);
+    QStringList active;
+    const auto addresses = resources.value("active_tun_addresses");
+    if (!addresses.isUndefined()) {
+        if (!addresses.isArray()) return {};
+        for (const auto &address : addresses.toArray()) {
+            if (!address.isString()) return {};
+            active.append(address.toString());
+        }
+    }
+    const auto result = campusCaptureTargets(resources,policy,active);
     if (!result || result->dnsDomains != dnsDomains) return {};
     return result->ipv4Prefixes;
 }
