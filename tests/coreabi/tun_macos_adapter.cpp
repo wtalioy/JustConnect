@@ -119,6 +119,10 @@ int main(int argc,char **argv)
         until([&] { return !policy.isBusy(); });
         check(policy.status() == CoreEngine::RequestStatus::Success && viewMatches(),"Owned macOS routes/DNS did not become original protection scopes");
     };
+    const auto refresh = [&] {
+        until([&] { return !policy.isBusy(); });
+        check(policy.refresh(),"Read actual native network after the current observation completes");
+    };
     if (cancelAuthorization || exitAuthorization) {
         check(session.start(profile,{false,1000}),"Start a real core before blocking system authorization");
         until([&] { return waiting->entered == 1; });
@@ -167,12 +171,12 @@ int main(int argc,char **argv)
         exerciseNativeTUNTraffic(QHostAddress(resolved.first()));
         for (const auto &address : addresses("localhost")) check(QHostAddress(address).isLoopback(),"localhost remains on this computer");
         originalView();
-        check(policy.refresh(),"Read current native network after DNS route publication and traffic"); originalView();
+        refresh(); originalView();
         if (policyChanges && round == 0) {
             const auto generation = policy.currentGeneration();
             changingNetwork = true; publish(".policy-ready");
             until([&] { return QFileInfo::exists(marker+".overlay-up"); });
-            check(policy.refresh(),"Read actual original route overlap");
+            refresh();
             until([&] { return !policy.isBusy() && policy.confirmedProtection()["protected"].toArray().contains("198.18.0.0/29"); });
             check(session.state() == ConnectionState::Running && policy.currentGeneration() == generation,"New protection did not require a new authenticated session");
             exerciseOriginalNetworkTraffic();
@@ -193,7 +197,7 @@ int main(int argc,char **argv)
             check(policy.policyStatus() == CoreEngine::RequestStatus::Success && policy.campusAddresses().isEmpty(),"Original-side choice did not complete both confirmations");
             exerciseOriginalNetworkTraffic();
             publish(".original-selected"); until([&] { return QFileInfo::exists(marker+".overlay-down"); });
-            check(policy.refresh(),"Read actual original overlay removal");
+            refresh();
             until([&] { return !policy.isBusy() && !policy.confirmedProtection()["protected"].toArray().contains("198.18.0.0/29"); });
             check(session.state() == ConnectionState::Running && policy.currentGeneration() == generation,"Original route changes lost the active generation");
             publish(".policy-restored"); until([&] { return QFileInfo::exists(marker+".traffic"); });
