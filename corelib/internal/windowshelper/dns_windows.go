@@ -74,9 +74,11 @@ func (r DNSRule) namespaces() []string {
 	return names
 }
 
+func (r DNSRule) class() string { return "JustConnect/" + r.Marker }
+
 func dnsKeyOwner(key registry.Key, rule DNSRule) error {
 	// The class is created atomically with the key, before any DNS value can be active.
-	expected := "JustConnect/" + rule.Marker
+	expected := rule.class()
 	class := make([]uint16, len(expected)+1)
 	size := uint32(len(class))
 	if err := windows.RegQueryInfoKey(windows.Handle(key), &class[0], &size, nil, nil, nil, nil, nil, nil, nil, nil, nil); err != nil {
@@ -170,7 +172,7 @@ func createDNSRule(parent registry.Key, rule DNSRule) error {
 		return err
 	}
 	attributes := windows.SecurityAttributes{Length: uint32(unsafe.Sizeof(windows.SecurityAttributes{})), SecurityDescriptor: sd}
-	name, class := windows.StringToUTF16Ptr(rule.ID), windows.StringToUTF16Ptr("JustConnect/"+rule.Marker)
+	name, class := windows.StringToUTF16Ptr(rule.ID), windows.StringToUTF16Ptr(rule.class())
 	var handle windows.Handle
 	var disposition uint32
 	status, _, _ := createRegistryKey.Call(uintptr(parent), uintptr(unsafe.Pointer(name)), 0, uintptr(unsafe.Pointer(class)), 0, windows.KEY_ALL_ACCESS|windows.KEY_WOW64_64KEY, uintptr(unsafe.Pointer(&attributes)), uintptr(unsafe.Pointer(&handle)), uintptr(unsafe.Pointer(&disposition)))
