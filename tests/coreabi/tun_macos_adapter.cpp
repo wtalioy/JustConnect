@@ -60,14 +60,24 @@ int main(int argc,char **argv)
     int finished = 0; bool wasPreparing = false;
     QObject::connect(&session,&ConnectionSession::progressChanged,[&] { wasPreparing |= session.phase() == ConnectionPhase::NetworkPreparing; });
     QObject::connect(&session,&ConnectionSession::finished,[&](ConnectionError error) { check(error == ConnectionError::NONE,"macOS connection retained its actual terminal result"); ++finished; });
-    const auto originalView = [&] {
-        until([&] { return !policy.isBusy(); });
+    QByteArray previousDifference;
+    const auto viewMatches = [&] {
         const auto model = policy.model();
         const auto actual = protectionConfiguration(model["targets"].toArray(),model["name_targets"].toArray());
-        if (actual["protected"] != initial["protected"] || actual["protected_names"] != initial["protected_names"])
-            std::cerr << QJsonDocument(QJsonObject{{"initial",initial},{"current",actual},{"model",model}}).toJson(QJsonDocument::Compact).toStdString() << '\n';
-        check(policy.status() == CoreEngine::RequestStatus::Success && actual["protected"] == initial["protected"]
-            && actual["protected_names"] == initial["protected_names"],"Owned macOS routes/DNS did not become original protection scopes");
+        const bool matches = actual["protected"] == initial["protected"] && actual["protected_names"] == initial["protected_names"];
+        if (!matches) {
+            const auto difference = QJsonDocument(QJsonObject{{"initial",initial},{"current",actual},{"model",model}}).toJson(QJsonDocument::Compact);
+            if (difference != previousDifference) std::cerr << difference.toStdString() << '\n';
+            previousDifference = difference;
+        }
+        return matches;
+    };
+    QObject::connect(&policy,&NetworkPolicySession::changed,[&] {
+        if (!initial.isEmpty() && !policy.isBusy() && policy.status() == CoreEngine::RequestStatus::Success) viewMatches();
+    });
+    const auto originalView = [&] {
+        until([&] { return !policy.isBusy(); });
+        check(policy.status() == CoreEngine::RequestStatus::Success && viewMatches(),"Owned macOS routes/DNS did not become original protection scopes");
     };
     for (int round=0;round<2;++round) {
         check(session.start(profile,{false,1000}),"Start actual macOS application network session");
