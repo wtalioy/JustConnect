@@ -58,10 +58,11 @@ struct MacNetworkHelperClient::Native {
         invalid = false;
         connection = xpc_connection_create_mach_service(MacHelperIdentifier,queue,XPC_CONNECTION_MACH_SERVICE_PRIVILEGED);
         if (!connection) return;
+        const auto transport = connection;
         xpc_connection_set_event_handler(connection,^(xpc_object_t event) {
             if (xpc_get_type(event) == XPC_TYPE_ERROR) {
                 const auto detail = QString::fromUtf8(xpc_dictionary_get_string(event,XPC_ERROR_KEY_DESCRIPTION));
-                if (auto state = weak.lock()) {
+                if (auto state = weak.lock(); state && state->connection == transport) {
                     state->invalid = true; state->post([detail](auto *target) { target->disconnected(detail); });
                 }
             }
@@ -150,10 +151,11 @@ void MacNetworkHelperClient::send(const char *name)
         }
         const auto message = macHelperMessage(request,-1,apply ? &external : nullptr);
         if (!message) { state->post([request](auto *target) { target->receive(request,{},ownedFd(),false); }); return; }
-        xpc_connection_send_message_with_reply(state->connection,message,state->queue,^(xpc_object_t reply) {
-            const auto accepted = weak.lock(); if (!accepted) return;
+        const auto transport = state->connection;
+        xpc_connection_send_message_with_reply(transport,message,state->queue,^(xpc_object_t reply) {
+            const auto accepted = weak.lock(); if (!accepted || accepted->connection != transport) return;
             QJsonObject response; int fd = -1;
-            const bool trusted = xpc_connection_get_euid(accepted->connection) == 0 && accepted->identity.accepts(reply)
+            const bool trusted = xpc_connection_get_euid(transport) == 0 && accepted->identity.accepts(reply)
                 && readMacHelperMessage(reply,response,&fd);
             const bool unavailable = reply == XPC_ERROR_CONNECTION_INVALID || reply == XPC_ERROR_CONNECTION_INTERRUPTED;
             auto descriptor = ownedFd(fd);
