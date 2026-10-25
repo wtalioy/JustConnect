@@ -20,7 +20,7 @@
 
 同时导入 `go.mod`、`go.sum`、根许可证、`internal/ping/LICENSE` 和两份上游 README。根许可证原文保存为 [LICENSE.zju-connect](LICENSE.zju-connect)，上游说明与致谢原文保存为 [UPSTREAM-README.md](UPSTREAM-README.md) 和 [UPSTREAM-README_en.md](UPSTREAM-README_en.md)。未导入上游 Actions、Docker／服务安装配置、示例配置及推广图片；当前源码没有依赖它们的嵌入资源。
 
-S1-05 迁移模块及 Go 导入路径、固定工具链、通过 `go mod tidy`／`go mod download` 重建依赖锁，并添加 JustConnect 的模块集成测试。首次 Windows 回归后，TLS 密钥日志与 PCAP 改用共享的 `internal/privatefile`：写入前收紧已有文件权限，Windows 使用仅当前账户可访问的受保护 DACL，Unix 使用 `0600`；协议实现不变。首次三平台 CI 暴露 Windows 不提供 Unix 权限位：`internal/keylog/keylog_test.go` 和 `underlay/pcap_test.go` 的 `0600` 断言仅在非 Windows 平台执行；文件内容、错误传播和抓包行为测试仍在全部平台执行。不维护指向上游源码的本地 `replace`。历史 `inet.af/netaddr` 替换已随无调用方的系统路由 IPSet 副本删除；当前没有模块替换。
+S1-05 迁移模块及 Go 导入路径、固定工具链、通过 `go mod tidy`／`go mod download` 重建依赖锁，并添加 JustConnect 的模块集成测试。首次 Windows 回归后，TLS 密钥日志与 PCAP 改用共享的 `internal/platform/privatefile`：写入前收紧已有文件权限，Windows 使用仅当前账户可访问的受保护 DACL，Unix 使用 `0600`；协议实现不变。首次三平台 CI 暴露 Windows 不提供 Unix 权限位：`internal/keylog/keylog_test.go` 和 `underlay/pcap_test.go` 的 `0600` 断言仅在非 Windows 平台执行；文件内容、错误传播和抓包行为测试仍在全部平台执行。不维护指向上游源码的本地 `replace`。历史 `inet.af/netaddr` 替换已随无调用方的系统路由 IPSet 副本删除；当前没有模块替换。
 
 导入时逐文件验证了源码：除上述路径迁移和模块锁外，与校验过的归档一致；许可证和上游说明保持逐字节一致。以后直接提交这里的实际修改，利用本次导入提交和固定归档审查差异，有选择地合入上游修复，不重新下载覆盖源码、不维护外部补丁队列。Go 的外部依赖由 `go.sum` 和 module cache 管理，不提交整个缓存或 vendor。
 

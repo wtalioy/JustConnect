@@ -35,7 +35,7 @@ def device():
     env['JC_TEST_IPHELPER_LAYOUT'] = str(layout)
     with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as exported:
         exported.write('JC_TEST_IPHELPER_LAYOUT=' + str(layout) + '\n')
-    subprocess.run(['go', '-C', 'corelib', 'test', '-mod=readonly', '-count=1', '-timeout=30s', './internal/wintun'], env=env, check=True, timeout=60)
+    subprocess.run(['go', '-C', 'corelib', 'test', '-mod=readonly', '-count=1', '-timeout=30s', './internal/platform/windows/wintun'], env=env, check=True, timeout=60)
     print('RUN: Wintun Authenticode via the CI pwsh host (60s)', flush=True)
     signature = json.loads(subprocess.check_output([host, '-NoProfile', '-NonInteractive', '-Command',
         '$s=Get-AuthenticodeSignature -LiteralPath $env:JC_TEST_WINTUN_DLL; $h=[System.Security.Cryptography.SHA256]::HashData($s.SignerCertificate.RawData); @{status=$s.Status.ToString(); signer=$s.SignerCertificate.Thumbprint; publisher=[Convert]::ToHexString($h).ToLowerInvariant()} | ConvertTo-Json -Compress'], env=env, text=True, timeout=60))
@@ -48,8 +48,8 @@ def device():
             exported.write(key + '=' + value + '\n')
     (output / 'windows-device.json').write_text(json.dumps(metadata, indent=2), encoding='utf-8')
     subprocess.run([os.sys.executable, 'tests/platform/run_windows_helper.py'], env=env, check=True, timeout=260)
-    source = pathlib.Path('corelib/internal/wintun/fixture/main.go').resolve()
-    tests = pathlib.Path('corelib/internal/wintun/fixture/main_test.go').resolve()
+    source = pathlib.Path('corelib/internal/platform/windows/wintun/fixture/main.go').resolve()
+    tests = pathlib.Path('corelib/internal/platform/windows/wintun/fixture/main_test.go').resolve()
     if subprocess.check_output(['gofmt', '-l', str(source), str(tests)], env=env).strip():
         raise RuntimeError('Unformatted device probe')
     subprocess.run(['go', '-C', 'corelib', 'vet', str(source), str(tests)], env=env, check=True, timeout=120)
@@ -79,7 +79,7 @@ def main():
     if args.device_only:
         return
     env.pop('CGO_ENABLED', None)
-    subprocess.run(['go', '-C', 'corelib', 'test', '-mod=readonly', '-count=1', '-timeout=30s', './internal/packetpipe'], env=env, check=True, timeout=60)
+    subprocess.run(['go', '-C', 'corelib', 'test', '-mod=readonly', '-count=1', '-timeout=30s', './internal/platform/packetpipe'], env=env, check=True, timeout=60)
     output = ROOT / 'build/coreabi'
     subprocess.run(['cmake', '-S', 'tests/coreabi', '-B', str(output), '-DCMAKE_BUILD_TYPE=Release', '-A',
         'ARM64' if os.environ['RUNNER_ARCH'] == 'ARM64' else 'x64'], check=True, timeout=120)

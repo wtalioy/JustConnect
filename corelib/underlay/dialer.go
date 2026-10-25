@@ -10,7 +10,7 @@ import (
 	"time"
 
 	tun "github.com/mythologyli/sing-tun"
-	"github.com/wtalioy/JustConnect/corelib/internal/platformdialer"
+	socketdialer "github.com/wtalioy/JustConnect/corelib/internal/platform/dialer"
 
 	"github.com/sagernet/sing/common/logger"
 )
@@ -230,7 +230,7 @@ func (d *Dialer) wrapCapture(conn net.Conn) net.Conn {
 }
 
 func dialContextOnInterface(ctx context.Context, network, address, interfaceName, localDNSServer string) (net.Conn, error) {
-	dialer := &platformdialer.Dialer{InterfaceName: interfaceName}
+	dialer := &socketdialer.Dialer{InterfaceName: interfaceName}
 	if interfaceName != "" || localDNSServer != "" {
 		dialer.Resolver = newUnderlayResolver(interfaceName, localDNSServer)
 	}
@@ -249,7 +249,7 @@ func newUnderlayResolver(interfaceName, localDNSServer string) *net.Resolver {
 			if isLoopbackAddress(target) {
 				boundInterface = ""
 			}
-			dialer := &platformdialer.Dialer{InterfaceName: boundInterface}
+			dialer := &socketdialer.Dialer{InterfaceName: boundInterface}
 			return dialer.DialContext(ctx, network, target)
 		},
 	}

@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wtalioy/JustConnect/corelib/internal/tundevice"
+	"github.com/wtalioy/JustConnect/corelib/internal/platform/tundevice"
 	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"

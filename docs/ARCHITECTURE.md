@@ -16,6 +16,22 @@ tests/            领域、端口、界面、真实 C ABI 与受控网关回归
 
 `application` 依赖 `core`，不引用 Widgets 或具体基础设施。`MainWindowCoordinator` 组合 `CoreEngine → EmbeddedCoreEngine`、`SystemProxyBackend → ProxyRecoveryBackend → JustConnectProxyRecovery → PlatformSystemProxyBackend` 和 `ProfileBackend → ProfileManager`。认证方式窗口通过应用层 `AuthMethodsQuery` 使用 `CoreEngine`，允许注入测试端口；只在查询与清理均成功后交付完整方法身份，取消或失败不暴露部分结果。
 
+`corelib/internal` 顶层按核心职责组织，平台能力集中在 `platform/`：`networkstate` 读取三平台网络／路由，`dialer` 实现三平台出口绑定，`privatefile` 处理 Unix 权限／Windows DACL，`tundevice` 持有 Linux／macOS fd，`packetpipe` 维护受限 IP 包传输。Windows 独有的 Wintun 设备后端、权限／恢复助手和测试工具另置于 `platform/windows/{wintun,networkhelper,testutil}`。Linux TUN、macOS utun 的创建由现有 C++ 平台层完成，因此不另造 Go 空壳后端。Windows 文件用显式构建标签选入，不再重复 `_windows` 后缀；不保留旧导入路径的转接层。
+
+```text
+corelib/internal/platform/
+  networkstate/  Linux／macOS／Windows 原生网络读取
+  dialer/        Linux／macOS／Windows socket 出口绑定
+  privatefile/   Unix 权限与 Windows DACL
+  tundevice/     Linux／macOS 设备 fd 的校验和生命周期
+  packetpipe/    包帧协议及原生异步管道
+  windows/
+    wintun/      Wintun 设备和 ring
+    networkhelper/  特权操作、安装与恢复
+    testutil/    真实普通用户令牌，仅供测试
+```
+
+
 ## 会话与线程
 
 `ConnectionSession` 持有连接意图、重连计时器及当前配置，使用 `ConnectionSessionState` 管理状态。`EmbeddedCoreEngine` 将配置序列化后提交专属 Qt 工作线程；每次 connect（含重连）先读取原网络与系统 DNS 快照，复用应用模型推导保护前缀及名称规则，再把默认无校园例外的完整初始策略交给核心。读取或推导失败不启动会话；原子取消标志避免工作线程读取期间收到的停止请求在读取完成后仍开始会话，既有有界退出继续等待线程所有者。认证方式查询不读取保护快照。创建、异步启动、认证回应、读取、停止和销毁都在该线程调用 C ABI。每次最多一个 Qt 事件在途，应用线程确认交付后继续读取，避免另造无界日志队列。诊断字符串只供记录，状态仅由结构化状态／终态事件改变。`observation` 将认证、恢复和维护结果及观测时间独立传入同一会话，按阶段保留最新结果，未观测显示未知。主窗口和托盘共用该状态；当前仅显示“通道就绪”，不把核心 ready 标成产品“已连接”。设置页的自动／目标／关闭经现有 Profile 及 Go 配置校验接入维护循环；主窗口／托盘分别显示会话续期、DNS／HTTP 流量保活、节点和隧道维护的结果／时间，缺少获授权资源明确提示不可用。

@@ -3,7 +3,7 @@ package keylog
 import (
 	"io"
 
-	"github.com/wtalioy/JustConnect/corelib/internal/privatefile"
+	"github.com/wtalioy/JustConnect/corelib/internal/platform/privatefile"
 )
 
 func Open(path string) (io.WriteCloser, error) {
