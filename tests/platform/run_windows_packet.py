@@ -42,10 +42,12 @@ def device():
     if signature['status'] != 'Valid' or signature['signer'] != contract['sdk']['publisher_thumbprint']:
         raise RuntimeError(f'Untrusted Wintun signature: {signature}')
     metadata.update(signature=signature, powershell_host=host, source=os.environ['GITHUB_SHA'])
+    env.update(JC_TEST_SIGNED_FIXTURE=str(dll), JC_TEST_PUBLISHER_SHA256=signature['publisher'])
     with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as exported:
         for key, value in {'JC_TEST_WINTUN_DLL': str(dll), 'JC_TEST_SIGNED_FIXTURE': str(dll), 'JC_TEST_PUBLISHER_SHA256': signature['publisher']}.items():
             exported.write(key + '=' + value + '\n')
     (output / 'windows-device.json').write_text(json.dumps(metadata, indent=2), encoding='utf-8')
+    subprocess.run([os.sys.executable, 'tests/platform/run_windows_helper.py'], env=env, check=True, timeout=260)
     source = pathlib.Path('corelib/internal/wintun/fixture/main.go').resolve()
     tests = pathlib.Path('corelib/internal/wintun/fixture/main_test.go').resolve()
     if subprocess.check_output(['gofmt', '-l', str(source), str(tests)], env=env).strip():
