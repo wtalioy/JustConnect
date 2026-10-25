@@ -273,7 +273,11 @@ func runBroker(dll, mode string) (result error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, executable(), "--broker", dll, name, mode)
+	native := os.Getenv("JC_TEST_CPP_WINTUN_BROKER")
+	if native == "" {
+		return errors.New("native C++ device broker is required by the device validation producer")
+	}
+	cmd := exec.CommandContext(ctx, native, "--broker", dll, name, mode, executable())
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_SUSPENDED}
 	output, err := cmd.StdoutPipe()
 	if err != nil {

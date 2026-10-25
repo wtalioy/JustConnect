@@ -48,6 +48,14 @@ def device():
             exported.write(key + '=' + value + '\n')
     (output / 'windows-device.json').write_text(json.dumps(metadata, indent=2), encoding='utf-8')
     subprocess.run([os.sys.executable, 'tests/platform/run_windows_helper.py'], env=env, check=True, timeout=260)
+    native = output / 'windows-device'
+    subprocess.run(['cmake', '-S', 'tests/platform/windows_device', '-B', str(native),
+        '-DCMAKE_BUILD_TYPE=Release', '-DWINTUN_INCLUDE_DIR=' + str(pathlib.Path(metadata['header']).parent),
+        '-A', 'ARM64' if arch == 'arm64' else 'x64'], check=True, timeout=120)
+    subprocess.run(['cmake', '--build', str(native), '--config', 'Release', '--parallel', '3'], check=True, timeout=180)
+    env['JC_TEST_CPP_WINTUN_BROKER'] = str(native / 'Release/windows_device_broker.exe')
+    with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as exported:
+        exported.write('JC_TEST_CPP_WINTUN_BROKER=' + env['JC_TEST_CPP_WINTUN_BROKER'] + '\n')
     source = pathlib.Path('corelib/internal/tundevice/windows/wintun/fixture/main.go').resolve()
     tests = pathlib.Path('corelib/internal/tundevice/windows/wintun/fixture/main_test.go').resolve()
     if subprocess.check_output(['gofmt', '-l', str(source), str(tests)], env=env).strip():

@@ -23,17 +23,21 @@ def stage(contract, destination, arch):
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
         driver = archive.read(sdk['driver_entry'].format(arch=arch))
         license = archive.read(sdk['license_entry'])
+        header = archive.read(sdk['header_entry'])
     destination = Path(destination).resolve()
     destination.mkdir(parents=True, exist_ok=True)
     driver_path = destination / contract['driver_library']
     license_path = destination / contract['driver_license']
     driver_path.write_bytes(driver)
     license_path.write_bytes(license)
+    header_path = destination / sdk['header_file']
+    header_path.write_bytes(header)
     metadata = {
         'archive_sha256': digest, 'version': sdk['version'], 'arch': arch,
-        'driver': str(driver_path), 'license': str(license_path),
+        'driver': str(driver_path), 'license': str(license_path), 'header': str(header_path),
         'driver_sha256': hashlib.sha256(driver).hexdigest(),
         'license_sha256': hashlib.sha256(license).hexdigest(),
+        'header_sha256': hashlib.sha256(header).hexdigest(),
     }
     (destination / 'source.json').write_text(json.dumps(metadata, indent=2) + '\n', encoding='utf-8')
     return metadata
