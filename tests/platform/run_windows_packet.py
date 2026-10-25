@@ -54,7 +54,6 @@ def device():
         for key, value in {'JC_TEST_WINTUN_DLL': str(dll), 'JC_TEST_SIGNED_FIXTURE': str(dll), 'JC_TEST_PUBLISHER_SHA256': signature['publisher']}.items():
             exported.write(key + '=' + value + '\n')
     (output / 'windows-device.json').write_text(json.dumps(metadata, indent=2), encoding='utf-8')
-    subprocess.run([os.sys.executable, 'tests/platform/run_windows_helper.py'], env=env, check=True, timeout=260)
     native = build_native(arch, metadata)
     subprocess.run([str(native / 'windows_process_identity_test.exe')], check=True, timeout=15)
     subprocess.run([str(native / 'windows_publisher_test.exe')], env=env, check=True, timeout=30)
@@ -136,6 +135,11 @@ def main():
         native = build_native(arch, metadata)
         subprocess.run([str(native / 'windows_installation_test.exe'), '--unconfigured'], check=True, timeout=15)
         subprocess.run([str(native / 'windows_recovery_test.exe'), metadata['driver']], check=True, timeout=120)
+        metadata.update(powershell_host=shutil.which('pwsh'), source=os.environ['GITHUB_SHA'])
+        if not metadata['powershell_host']:
+            raise RuntimeError('Native helper validation requires the CI PowerShell host')
+        (output / 'windows-device.json').write_text(json.dumps(metadata, indent=2), encoding='utf-8')
+        subprocess.run([os.sys.executable, 'tests/platform/run_windows_helper.py'], check=True, timeout=260)
         return
     env = device()
     if args.device_only:

@@ -23,6 +23,8 @@ std::filesystem::path self()
 void ordinary()
 {
     const auto directory=self().parent_path();
+    auto installed=WindowsHelperInstallation::openInstalled();
+    check(installed->image()==self().wstring(),"protected installation could not reopen without installer authority");
     for (const auto &name:{WindowsNetworkContract::Executable,WindowsNetworkContract::DriverLibrary,WindowsNetworkContract::DriverLicense}) {
         const DWORD denied[]{FILE_WRITE_DATA,DELETE,WRITE_DAC,WRITE_OWNER};
         for (const auto access:denied) {
