@@ -514,6 +514,16 @@ func client(mode string) error {
 		response := make([]byte, 32)
 		size, err := conn.Read(response)
 		if err != nil {
+			if mode == "benchmark" {
+				var stopped int64
+				if ok, _, _ := queryPerformanceCounter.Call(uintptr(unsafe.Pointer(&stopped))); ok != 0 {
+					var prior float64
+					for _, elapsed := range latencies {
+						prior += elapsed
+					}
+					err = fmt.Errorf("%w; completed=%d prior_us=%.1f current_us=%.1f", err, len(latencies), prior, float64(stopped-started)*1e6/float64(frequency))
+				}
+			}
 			return fmt.Errorf("ordinary UDP reply %d/%d: %w; injected packet=%x", iteration+1, count, err, packet)
 		}
 		if string(response[:size]) != "pong" {
