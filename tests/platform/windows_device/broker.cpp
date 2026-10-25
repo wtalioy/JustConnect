@@ -155,7 +155,21 @@ int exchange(WindowsTunDevice &device,const std::wstring &client,const std::wstr
     done.value = CreateEventW(nullptr,TRUE,FALSE,nullptr);
     if (!done.value) fail("create fixture deadline");
     const auto budget=packetBudget(mode);
-    std::thread watchdog([&] { if (WaitForSingleObject(done.value,budget)==WAIT_TIMEOUT) device.close(); });
+    MIB_UDPSTATS udpBefore{};
+    const auto udpBeforeStatus=GetUdpStatisticsEx(&udpBefore,AF_INET);
+    std::thread watchdog([&] {
+        if (WaitForSingleObject(done.value,budget)!=WAIT_TIMEOUT) return;
+        MIB_IF_ROW2 row{};row.InterfaceLuid=device.identity().luid;
+        const auto interfaceStatus=GetIfEntry2Ex(MibIfEntryNormal,&row);
+        MIB_UDPSTATS udpAfter{};
+        const auto udpAfterStatus=GetUdpStatisticsEx(&udpAfter,AF_INET);
+        std::cerr<<"DIAGNOSTIC: native UDP timeout, interface_status="<<interfaceStatus<<", oper="<<row.OperStatus
+            <<", in_packets="<<row.InUcastPkts<<", in_discards="<<row.InDiscards<<", in_errors="<<row.InErrors
+            <<", out_packets="<<row.OutUcastPkts<<", out_discards="<<row.OutDiscards<<", out_errors="<<row.OutErrors
+            <<", udp_status="<<udpBeforeStatus<<'/'<<udpAfterStatus<<", udp_in="<<udpBefore.dwInDatagrams<<'/'<<udpAfter.dwInDatagrams
+            <<", udp_errors="<<udpBefore.dwInErrors<<'/'<<udpAfter.dwInErrors<<", udp_no_ports="<<udpBefore.dwNoPorts<<'/'<<udpAfter.dwNoPorts<<'\n';
+        device.close();
+    });
     struct Join { HANDLE done; std::thread &worker; ~Join() { SetEvent(done); worker.join(); } } join{done.value,watchdog};
     const auto count=benchmarkCount(mode);
     const auto started=std::chrono::steady_clock::now();
