@@ -12,7 +12,8 @@ function(justconnect_windows_helper_support TARGET)
         "${REPO}/infrastructure/networkhelper/windows/publisher.cpp"
         "${REPO}/infrastructure/networkjournal/windows/registry.cpp")
     target_include_directories(${TARGET} PUBLIC "${REPO}" "${CMAKE_CURRENT_BINARY_DIR}")
-    target_compile_features(${TARGET} PUBLIC cxx_std_17)
+    # Current Windows SDK projections use the standard coroutine headers.
+    target_compile_features(${TARGET} PUBLIC cxx_std_20)
     target_compile_definitions(${TARGET} PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0A00)
     target_link_libraries(${TARGET} PUBLIC advapi32 wintrust crypt32 ole32 windowsapp)
 endfunction()
