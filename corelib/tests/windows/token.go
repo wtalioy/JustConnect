@@ -1,6 +1,6 @@
 //go:build windows
 
-package testsupport
+package windowsfixture
 
 import (
 	"fmt"
@@ -28,7 +28,7 @@ func OrdinaryToken() (windows.Token, error) {
 	if ok == 0 {
 		return 0, fmt.Errorf("restrict caller token: %w", err)
 	}
-	medium, err := windows.StringToSid("S-1-16-8192")
+	medium, err := windows.CreateWellKnownSid(windows.WinMediumLabelSid)
 	if err == nil {
 		label := windows.Tokenmandatorylabel{Label: windows.SIDAndAttributes{Sid: medium, Attributes: windows.SE_GROUP_INTEGRITY}}
 		err = windows.SetTokenInformation(restricted, windows.TokenIntegrityLevel, (*byte)(unsafe.Pointer(&label)), label.Size())

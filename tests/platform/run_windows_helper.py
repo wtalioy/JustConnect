@@ -5,7 +5,6 @@ from pathlib import Path
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
-PACKAGE = 'github.com/wtalioy/JustConnect/corelib/internal/networkhelper/windows'
 
 
 def main():
@@ -33,34 +32,23 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Native helper configuration failed' }
     & cmake --build $env:JC_HELPER_NATIVE_BUILD --config Release --target windows_installation_test --parallel 3
     if ($LASTEXITCODE -ne 0) { throw 'Native helper installation build failed' }
-    Copy-Item -LiteralPath (Join-Path $env:JC_HELPER_NATIVE_BUILD 'Release/windows_installation_test.exe') -Destination $env:JC_CPP_HELPER_TEST_IMAGE
-    $nativeSignature = Set-AuthenticodeSignature -LiteralPath $env:JC_CPP_HELPER_TEST_IMAGE -Certificate $certificate -HashAlgorithm SHA256
+    Copy-Item -LiteralPath (Join-Path $env:JC_HELPER_NATIVE_BUILD 'Release/windows_installation_test.exe') -Destination $env:JC_HELPER_TEST_IMAGE
+    $nativeSignature = Set-AuthenticodeSignature -LiteralPath $env:JC_HELPER_TEST_IMAGE -Certificate $certificate -HashAlgorithm SHA256
     if ($nativeSignature.Status -ne 'Valid') { throw "Native installation image signature: $($nativeSignature.Status)" }
     Write-Host 'RUN: signed C++ installation and ordinary-user boundaries'
-    & $env:JC_CPP_HELPER_TEST_IMAGE
+    & $env:JC_HELPER_TEST_IMAGE
     if ($LASTEXITCODE -ne 0) { throw 'Signed native C++ installation failed' }
-    $flags = "-X {package}.publisherSHA256=$publisher -X {package}.driverSHA256=$env:JC_HELPER_DRIVER_SHA256 -X {package}.licenseSHA256=$env:JC_HELPER_LICENSE_SHA256"
-    Write-Host 'RUN: compile native helper validation image'
-    & go -C corelib test -mod=readonly -c -ldflags $flags -o $env:JC_HELPER_TEST_IMAGE ./internal/networkhelper/windows
-    if ($LASTEXITCODE -ne 0) { throw 'Signed helper validation build failed' }
-    Write-Host 'RUN: sign native helper validation image'
-    $signature = Set-AuthenticodeSignature -LiteralPath $env:JC_HELPER_TEST_IMAGE -Certificate $certificate -HashAlgorithm SHA256
-    if ($signature.Status -ne 'Valid') { throw "Validation image signature: $($signature.Status)" }
-    Write-Host 'RUN: protected installation and durable state checks'
-    & $env:JC_HELPER_TEST_IMAGE '-test.v' '-test.count=1' '-test.timeout=90s'
-    if ($LASTEXITCODE -ne 0) { throw 'Protected helper validation failed' }
 } finally {
     if ($trusted) { Remove-Item -LiteralPath "Cert:\LocalMachine\Root\$($certificate.Thumbprint)" -Force }
     if ($null -ne $certificate) { Remove-Item -LiteralPath "Cert:\CurrentUser\My\$($certificate.Thumbprint)" -Force -DeleteKey }
 }
-'''.replace('{package}', PACKAGE)
-    env = dict(os.environ, CGO_ENABLED='0', GOTOOLCHAIN='local', GOWORK='off', GOENV='off',
+'''
+    env = dict(os.environ,
                JC_HELPER_DRIVER_SHA256=metadata['driver_sha256'],
                JC_HELPER_LICENSE_SHA256=metadata['license_sha256'],
                JC_HELPER_NATIVE_BUILD=metadata['native_build'],
                JC_HELPER_SDK_DIRECTORY=str(destination),
                JC_HELPER_CMAKE_ARCH='ARM64' if metadata['arch'] == 'arm64' else 'x64',
-               JC_CPP_HELPER_TEST_IMAGE=str(destination / 'cpp-helper-validation.exe'),
                JC_HELPER_TEST_IMAGE=str(destination / 'helper-validation.exe'))
     script_path = output / 'validate-windows-helper.ps1'
     script_path.write_text(script, encoding='utf-8')

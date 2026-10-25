@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wtalioy/JustConnect/corelib/internal/networkhelper/windows/testsupport"
+	windowsfixture "github.com/wtalioy/JustConnect/corelib/tests/windows"
 	"golang.org/x/sys/windows"
 )
 
@@ -48,7 +48,7 @@ func TestNativeWindowsPacketHost(t *testing.T) {
 			}
 		}
 	}
-	token, err := testsupport.OrdinaryToken()
+	token, err := windowsfixture.OrdinaryToken()
 	if err != nil {
 		t.Fatal(err)
 	}
