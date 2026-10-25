@@ -1,8 +1,8 @@
 #pragma once
+#include "infrastructure/dns/domainlimits.h"
 #include <QSet>
 #include <QStringList>
 
-inline constexpr qsizetype NetworkDnsDomainLimit = 4096;
 inline bool canonicalDnsDomain(const QString &name)
 {
     if (name.isEmpty() || name.size() > 253 || name.toLower() != name) return false;
