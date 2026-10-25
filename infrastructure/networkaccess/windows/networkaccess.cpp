@@ -5,6 +5,7 @@
 #include "infrastructure/dns/dnssnapshot.h"
 #include <QDir>
 #include <QStandardPaths>
+#include <QLoggingCategory>
 #include <QtConcurrent>
 #include <utility>
 
@@ -12,6 +13,7 @@ using Result=PlatformOperationResult;
 using Status=Result::Status;
 using HelperState=WindowsNetworkHelperClient::State;
 using Operation=WindowsNetworkHelperClient::Operation;
+Q_LOGGING_CATEGORY(windowsNetworkAccessLog,"justconnect.networkaccess.windows",QtWarningMsg)
 
 WindowsNetworkAccess::WindowsNetworkAccess(CoreEngine *core,NetworkPolicySession *policy,int mtu,QObject *parent,
     WindowsNetworkHelperClient::AuthorizationProvider authorization)
@@ -208,7 +210,7 @@ void WindowsNetworkAccess::observeModel()
     const auto prefixes=updatedCampusCapturePrefixes(model["resources"].toObject(),policy->confirmedProtection(),domains);
     if(!prefixes){fail({Status::Failed,"Cannot confirm current campus capture scope.",true});return;}
     QStringList actual;for(const auto &item:helper.ownedConfiguration()["capture_prefixes"].toArray())actual.append(item.toString());actual.sort();auto expected=*prefixes;expected.sort();
-    if(actual!=expected){helper.reconcile(*prefixes);return;}
+    if(actual!=expected){qCDebug(windowsNetworkAccessLog)<<"reconcile captures"<<actual<<"to"<<expected;helper.reconcile(*prefixes);return;}
     automaticPolicy=true;const auto status=policy->synchronizeProtection();
     if(status==CoreEngine::RequestStatus::Pending)return;
     automaticPolicy=false;

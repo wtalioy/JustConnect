@@ -11,6 +11,7 @@
 #include <QMap>
 #include <QNetworkInterface>
 #include <QStandardPaths>
+#include <QLoggingCategory>
 #include <QtConcurrent>
 #include <iostream>
 #include <objbase.h>
@@ -42,6 +43,7 @@ static QStringList interfaceAddresses(){
 int main(int argc,char **argv) try
 {
     QCoreApplication app(argc,argv);QStandardPaths::setTestModeEnabled(true);
+    QLoggingCategory::setFilterRules("justconnect.networkaccess.windows.debug=true");
     check(argc==5 && QByteArray(argv[1])=="--client" && QByteArray(argv[3])=="network" && qgetenv("GITHUB_ACTIONS")=="true","disposable Windows application fixture only");
     bool valid=false;const auto replyValue=QByteArray(argv[4]).toULongLong(&valid);check(valid && replyValue,"application approval reply pipe");
     const auto reply=reinterpret_cast<HANDLE>(quintptr(replyValue));
