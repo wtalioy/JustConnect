@@ -151,13 +151,14 @@ Linux 系统助手由 `infrastructure/networkhelper/linux/helper` 独立构建�
 <a id="windows-native-helper"></a>
 
 当前 Wintun 签名 SDK 0.14.1 的批量验收仍有单个入站包停滞，不能作为生产数据面稳定性通过。诊断已排除整批耗尽期限，失败报文 IPv4 校验和有效，接口和 IP 丢弃／错误计数为零。[上游源码](https://git.zx2c4.com/wintun/log/)于 2026-03-18 修复 Alertable 环形队列丢失唤醒，[官方签名下载](https://www.wintun.net/)仍为旧版；现象吻合，但本项目尚未最终隔离根因。保留原 4096 次／30 秒检查，不修改签名 DLL 或依赖私有会话内存布局；当前检查及缺口见计划。
+
 Windows 的 C++ 部件按职责放在 `tundevice/windows`、`packetpipe/windows`、`networkhelper/windows`、`networkjournal/windows`、`dns/windows` 与 `process/windows`。Wintun 使用同一已校验归档的官方头文件及原生结构；创建前拒绝已存在的身份，配置后回读，分配通知先于地址／路由修改。助手持有适配器与环，普通 Qt／Go 通过实际 PID／SID 校验的本地字节管道收发 IPv4；关闭取消并等待 I/O，再释放所属设备。C++ 两方向复用事件与包缓冲，Go 同样复用方向事件／OVERLAPPED 和发包缓冲，避免逐包创建内核事件与分配完整帧；Unix 仍直接移交 fd。
 
 原生 Windows 目标使用静态 CRT 和 [/DEPENDENTLOADFLAG:0x800](https://learn.microsoft.com/en-us/cpp/build/reference/dependentloadflag)，在进入 main 前约束静态依赖的搜索。安装只复制本次签名构建自身及固定哈希的驱动／许可证；未配置签名者时先拒绝。实际签名叶证书、运行映像的 CodeView 链接身份与固定源文件分别核对；原生查询 Program Files，逐级固定目录句柄并检查所有者／写权限，不接管普通用户所有的同哈希文件。配置与 SDK 来源归 `resource/network-helper-windows.json`，构建生成原生常量；不加载 Qt／Go 运行时作为提权依赖。
 
 `WindowsRegistryJournal` 在受保护的 64 位 HKLM 键保存有界 JSON 原子值，每次操作检查 SY／Administrators 所有者及受保护 DACL，写入后刷新。NRPT 部件在创建键时原子保存随机 class 身份，核对所有者、ACL、全部已存在的类型／字节及无未知值；准备值先刷新，匹配名称最后激活。恢复使用已验证的内核键句柄删除，外部修改保留。`WindowsNetworkRecovery` 在设备／DNS 修改前保存严格版本化的会话记录，以受保护的机器互斥量串行写入与恢复；调用方／助手均绑定实际 PID、创建时间和 SID。仅助手死亡后恢复，外部 DNS 修改保留；`tundevice/windows/recovery` 只清理记录 UUID 对应的 Wintun 软件节点，包含分配中崩溃留下的 phantom 节点，确认 IP／PnP 均消失后才保存恢复回执。同账户确认回执前拒绝新 UUID，其他活动 Wintun 不被清理。系统 NRPT 父键保留 Windows 自带的网络配置／防火墙服务权限，本助手规则子键仍只允许 SYSTEM／Administrators 修改，不覆盖域策略。
 
-独立 C++ 入口在签名安装后注册固定 LocalSystem 自进程 SCM 服务，验证服务所有者、控制权限、固定命令及失败动作；普通用户只读查询，外部配置拒绝接管。SCM 自动重启与周期恢复不依赖 GUI／Go。服务重开当前受保护安装时核对所有目录、映像内容身份与驱动／许可证固定哈希，不重新依赖安装证书信任；一次性 CI 验证撤销临时安装信任后，实际服务与助手强杀仍能独立恢复。不同映像哈希的服务升级须在恢复后显式替换，生产更新器接入前补齐。当前原生验收覆盖安装、SCM／机器恢复及普通 Qt／Go 数据部件；生产 UAC／控制协议、有效系统 DNS、完整应用编排与真实桌面／校园仍待，不以 NRPT 注册表回读代替有效解析。
+独立 C++ 入口在签名安装后注册固定 LocalSystem 自进程 SCM 服务，验证服务所有者、控制权限、固定命令及失败动作；普通用户只读查询，外部配置拒绝接管。SCM 自动重启与周期恢复不依赖 GUI／Go。服务重开当前受保护安装时核对所有目录、映像内容身份与驱动／许可证固定哈希，不重新依赖安装证书信任；一次性 CI 验证撤销临时安装信任后，实际服务与助手强杀仍能独立恢复。不同映像哈希的服务升级须在恢复后显式替换，生产更新器接入前补齐。当前原生验收覆盖安装、SCM／机器恢复及普通 Qt／Go 数据部件；独立 DNS 夹具另以实际非回环 IPv4 端点验证普通权限 `GetAddrInfoW` 的 NRPT 应答、localhost 保留和所属恢复，不以注册表回读代替有效解析。该结果不代表已接通 Wintun 的系统 DNS；生产 UAC／控制协议、完整应用编排与真实桌面／校园仍待。
 
 同机组件对照使用同一普通 Go 客户端、真实 Wintun、帧 IPC 和 4096 次四字节 UDP 往返。以下是单次配对样本，CPU 包含建链／配置，不能代表校园或完整 Qt 吞吐上限：
 
