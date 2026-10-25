@@ -149,6 +149,8 @@ Linux 系统助手由 `infrastructure/networkhelper/linux/helper` 独立构建�
 助手只复用已验的设备／路由／恢复后端，不链接 VPN 核心或 Widgets／WebEngine，不接受 shell、任意程序、路径或未经认证的恢复 JSON。高权限运行时的可执行文件及非系统依赖须来自受信部署；当前开发测试程序的 Qt RUNPATH 指向用户可写 SDK，因此不能直接当成正式提权部署。Linux AppImage／只读包须先完成受限助手及依赖的受信安装，再使用固定授权入口；不以 AppImage 挂载只读代替来源校验。连接数据、保护记录与实际修改仍由所属后端维护；安装、批准、对端认证、原生操作及回滚须分别验收，当前隔离 root／管理员测试不代替桌面授权。
 
 <a id="windows-native-helper"></a>
+
+当前 Wintun 签名 SDK 0.14.1 的批量验收仍有单个入站包停滞，不能作为生产数据面稳定性通过。诊断已排除整批耗尽期限，失败报文 IPv4 校验和有效，接口和 IP 丢弃／错误计数为零。[上游源码](https://git.zx2c4.com/wintun/log/)于 2026-03-18 修复 Alertable 环形队列丢失唤醒，[官方签名下载](https://www.wintun.net/)仍为旧版；现象吻合，但本项目尚未最终隔离根因。保留原 4096 次／30 秒检查，不修改签名 DLL 或依赖私有会话内存布局；当前检查及缺口见计划。
 Windows 的 C++ 部件按职责放在 `tundevice/windows`、`packetpipe/windows`、`networkhelper/windows`、`networkjournal/windows`、`dns/windows` 与 `process/windows`。Wintun 使用同一已校验归档的官方头文件及原生结构；创建前拒绝已存在的身份，配置后回读，分配通知先于地址／路由修改。助手持有适配器与环，普通 Qt／Go 通过实际 PID／SID 校验的本地字节管道收发 IPv4；关闭取消并等待 I/O，再释放所属设备。C++ 两方向复用事件与包缓冲，Go 同样复用方向事件／OVERLAPPED 和发包缓冲，避免逐包创建内核事件与分配完整帧；Unix 仍直接移交 fd。
 
 原生 Windows 目标使用静态 CRT 和 [/DEPENDENTLOADFLAG:0x800](https://learn.microsoft.com/en-us/cpp/build/reference/dependentloadflag)，在进入 main 前约束静态依赖的搜索。安装只复制本次签名构建自身及固定哈希的驱动／许可证；未配置签名者时先拒绝。实际签名叶证书、运行映像的 CodeView 链接身份与固定源文件分别核对；原生查询 Program Files，逐级固定目录句柄并检查所有者／写权限，不接管普通用户所有的同哈希文件。配置与 SDK 来源归 `resource/network-helper-windows.json`，构建生成原生常量；不加载 Qt／Go 运行时作为提权依赖。
