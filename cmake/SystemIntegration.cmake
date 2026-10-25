@@ -18,6 +18,7 @@ function(justconnect_system_integration TARGET)
         "${REPO}/infrastructure/systemproxy/proxyrecovery.cpp"
         "${REPO}/infrastructure/systemproxy/proxyjournal.cpp"
         "${REPO}/infrastructure/dns/dnssnapshot.cpp"
+        "${REPO}/infrastructure/routing/originalexit.cpp"
         "${REPO}/infrastructure/autostart/${PLATFORM}/autostart.cpp")
     target_include_directories(${TARGET} PUBLIC "${REPO}")
     target_link_libraries(${TARGET} PUBLIC Qt6::Core Qt6::Network)
@@ -88,6 +89,9 @@ function(justconnect_credential_tests TARGET LIBRARY)
 endfunction()
 
 function(justconnect_system_integration_tests TARGET LIBRARY)
+    add_executable(originalexit_test "${REPO}/tests/platform/originalexit_test.cpp")
+    target_link_libraries(originalexit_test PRIVATE ${LIBRARY})
+    add_test(NAME originalexit_test COMMAND originalexit_test)
     add_executable(dnsroutepublisher_test "${REPO}/tests/platform/dnsroutepublisher_test.cpp" "${REPO}/application/coreengine.h")
     set_target_properties(dnsroutepublisher_test PROPERTIES AUTOMOC ON)
     target_link_libraries(dnsroutepublisher_test PRIVATE ${LIBRARY})

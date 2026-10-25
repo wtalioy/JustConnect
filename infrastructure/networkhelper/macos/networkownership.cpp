@@ -1,5 +1,5 @@
 #include "infrastructure/networkhelper/macos/networkownership.h"
-#include "application/networkprotection.h"
+#include "infrastructure/routing/originalexit.h"
 #include "infrastructure/routing/macos/tunroutes.h"
 #include "infrastructure/dns/macos/tundns.h"
 #include "infrastructure/networkaddress/ipv4.h"
