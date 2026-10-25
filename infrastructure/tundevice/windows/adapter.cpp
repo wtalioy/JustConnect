@@ -38,6 +38,8 @@ MIB_IPFORWARD_ROW2 ownedRoute(NET_LUID luid,const WindowsTunPrefix &target)
 {
     MIB_IPFORWARD_ROW2 route{};InitializeIpForwardEntry(&route);
     route.InterfaceLuid=luid;route.DestinationPrefix.Prefix=ipv4(target.address);route.DestinationPrefix.PrefixLength=target.bits;
+    // InitializeIpForwardEntry uses unspecified (255) flags; request explicit owned route behavior.
+    route.Loopback=FALSE;route.AutoconfigureAddress=FALSE;route.Publish=FALSE;route.Immortal=TRUE;
     route.NextHop=ipv4(IN_ADDR{});route.Metric=1;route.Protocol=MIB_IPPROTO_NETMGMT;return route;
 }
 bool present(const MIB_IPFORWARD_ROW2 &expected)
