@@ -123,6 +123,13 @@ def main(args):
     before = set(run('/sbin/ifconfig', '-l').stdout.decode().split())
     dns_before = json.loads(run(args.dns_probe, '--snapshot').stdout)
     output = Path(args.output).resolve(); output.mkdir(parents=True, exist_ok=True)
+    policies = {}
+    for right in (LAYOUT['authorization_right'], 'system.preferences.network'):
+        policy = plistlib.loads(run('/usr/bin/security', 'authorizationdb', 'read', right).stdout)
+        policies[right] = {key: value for key, value in policy.items()
+            if key in ('class', 'rule', 'group', 'shared', 'authenticate-user', 'allow-root', 'timeout')}
+    (output / 'authorization-policy.out').write_text(json.dumps(policies, indent=2) + '\n')
+    print('CHECK: actual network authorization policy', json.dumps(policies), flush=True)
     processes, keychains, grants = [], [], []
     original_keychains = shlex.split(run('/usr/bin/security', 'list-keychains', '-d', 'user').stdout.decode())
     with tempfile.TemporaryDirectory(prefix='JustConnect-helper-', dir='/Library/Application Support') as temporary:
