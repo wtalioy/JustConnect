@@ -10,10 +10,9 @@ import subprocess
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
-def device():
+def stage_sdk(output):
     if os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('RUNNER_OS') != 'Windows':
         raise RuntimeError('Native Windows network mutation requires a disposable runner')
-    output = pathlib.Path('build/coreabi').resolve()
     sdk = output / 'wintun-probe'
     sdk.mkdir(parents=True, exist_ok=True)
     spec = importlib.util.spec_from_file_location('windows_helper_sdk', pathlib.Path('scripts/windows_helper_sdk.py').resolve())
@@ -22,6 +21,21 @@ def device():
     contract = json.loads(sdk_module.CONTRACT.read_text(encoding='utf-8'))
     arch = {'X64': 'amd64', 'ARM64': 'arm64'}[os.environ['RUNNER_ARCH']]
     metadata = sdk_module.stage(contract, sdk, arch)
+    return contract, arch, metadata
+
+
+def build_native(output, arch, metadata):
+    native = output / 'windows-device'
+    subprocess.run(['cmake', '-S', 'tests/platform/windows_device', '-B', str(native),
+        '-DCMAKE_BUILD_TYPE=Release', '-DWINTUN_INCLUDE_DIR=' + str(pathlib.Path(metadata['header']).parent),
+        '-A', 'ARM64' if arch == 'arm64' else 'x64'], check=True, timeout=120)
+    subprocess.run(['cmake', '--build', str(native), '--config', 'Release', '--parallel', '3'], check=True, timeout=180)
+    return native / 'Release'
+
+
+def device():
+    output = pathlib.Path('build/coreabi').resolve()
+    contract, arch, metadata = stage_sdk(output)
     dll = pathlib.Path(metadata['driver'])
     (output / 'windows-device-license.txt').write_bytes(pathlib.Path(metadata['license']).read_bytes())
     host = shutil.which('pwsh')
@@ -48,12 +62,10 @@ def device():
             exported.write(key + '=' + value + '\n')
     (output / 'windows-device.json').write_text(json.dumps(metadata, indent=2), encoding='utf-8')
     subprocess.run([os.sys.executable, 'tests/platform/run_windows_helper.py'], env=env, check=True, timeout=260)
-    native = output / 'windows-device'
-    subprocess.run(['cmake', '-S', 'tests/platform/windows_device', '-B', str(native),
-        '-DCMAKE_BUILD_TYPE=Release', '-DWINTUN_INCLUDE_DIR=' + str(pathlib.Path(metadata['header']).parent),
-        '-A', 'ARM64' if arch == 'arm64' else 'x64'], check=True, timeout=120)
-    subprocess.run(['cmake', '--build', str(native), '--config', 'Release', '--parallel', '3'], check=True, timeout=180)
-    env['JC_TEST_CPP_WINTUN_BROKER'] = str(native / 'Release/windows_device_broker.exe')
+    native = build_native(output, arch, metadata)
+    subprocess.run([str(native / 'windows_process_identity_test.exe')], check=True, timeout=15)
+    subprocess.run([str(native / 'windows_publisher_test.exe')], env=env, check=True, timeout=30)
+    env['JC_TEST_CPP_WINTUN_BROKER'] = str(native / 'windows_device_broker.exe')
     trap = output / 'windows-device-loader-trap'
     trap.mkdir(exist_ok=True)
     guarded = trap / 'windows_device_broker.exe'
@@ -91,8 +103,14 @@ def device():
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--device-only', action='store_true')
+    parser.add_argument('--build-only', action='store_true', help='Compile native Windows backends before installing Qt/Go')
     args = parser.parse_args()
     os.chdir(ROOT)
+    if args.build_only:
+        output = pathlib.Path('build/coreabi').resolve()
+        _, arch, metadata = stage_sdk(output)
+        build_native(output, arch, metadata)
+        return
     env = device()
     if args.device_only:
         return

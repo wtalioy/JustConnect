@@ -78,6 +78,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
 
+      - name: Build Windows native backends before toolchain setup
+        if: runner.os == 'Windows'
+        run: python tests/platform/run_windows_packet.py --build-only
+
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
@@ -256,6 +260,8 @@ jobs:
           - *windows_arm64
     steps:
       - uses: actions/checkout@v7.0.1
+      - name: Build Windows native backends before toolchain setup
+        run: python tests/platform/run_windows_packet.py --build-only
       - uses: ./.github/actions/setup-qt
         with:
           host: ${{ matrix.qt_host }}
