@@ -7,6 +7,8 @@ import pathlib
 import shutil
 import subprocess
 
+from windows_system_dns import verify as verify_system_dns
+
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
@@ -134,6 +136,7 @@ def main():
         _, arch, metadata = stage_sdk(output)
         native = build_native(arch, metadata)
         subprocess.run([str(native / 'windows_installation_test.exe'), '--unconfigured'], check=True, timeout=15)
+        verify_system_dns(native / 'windows_system_dns_test.exe')
         subprocess.run([str(native / 'windows_recovery_test.exe'), metadata['driver']], check=True, timeout=120)
         metadata.update(powershell_host=shutil.which('pwsh'), source=os.environ['GITHUB_SHA'])
         if not metadata['powershell_host']:
