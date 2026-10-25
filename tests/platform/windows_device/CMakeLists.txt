@@ -8,7 +8,7 @@ get_filename_component(REPO "${CMAKE_CURRENT_SOURCE_DIR}/../../.." ABSOLUTE)
 include("${REPO}/cmake/WindowsDevice.cmake")
 include("${REPO}/cmake/WindowsNetworkHelper.cmake")
 justconnect_windows_device(windows_device)
-justconnect_windows_helper_support(windows_helper_support)
+justconnect_windows_network_helper(windows_helper)
 add_library(windows_packet_relay STATIC
     "${REPO}/infrastructure/packetpipe/windows/stream.cpp"
     "${REPO}/infrastructure/networkhelper/windows/packetrelay.cpp")

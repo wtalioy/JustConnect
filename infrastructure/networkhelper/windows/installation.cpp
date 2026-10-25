@@ -173,6 +173,13 @@ void install(const File &source,const std::wstring &path,const WindowsSha256 &ha
         installed(path,hash);
     }
 }
+std::wstring currentImage()
+{
+    wchar_t path[32768]{};
+    const auto length=GetModuleFileNameW(nullptr,path,32768);
+    if (!length || length>=32768) fail("locate running helper image");
+    return path;
+}
 }
 
 void WindowsHelperInstallation::pinDirectory(const std::wstring &path,bool create,bool allowNewChildren)
@@ -190,6 +197,34 @@ void WindowsHelperInstallation::pinDirectory(const std::wstring &path,bool creat
     immutable(handle.value,allowNewChildren);
     directories.push_back(handle.value);handle.value=nullptr;
 }
+void WindowsHelperInstallation::pinInstallation(const std::wstring &hash,bool create)
+{
+    PWSTR folder=nullptr;
+    const auto status=SHGetKnownFolderPath(FOLDERID_ProgramFiles,0,nullptr,&folder);
+    if (FAILED(status)) fail("locate system installation folder",status);
+    std::filesystem::path base;
+    try { base=folder; } catch (...) { CoTaskMemFree(folder);throw; }
+    CoTaskMemFree(folder);
+    if (!base.is_absolute() || base.root_name().wstring().size()!=2 || base.root_name().wstring()[1]!=L':') fail("unsupported system installation volume",ERROR_NOT_SUPPORTED);
+    auto path=base.root_path();
+    pinDirectory(path.wstring(),false,true);
+    for (const auto &part:base.relative_path()) { path/=part;pinDirectory(path.wstring(),false,true); }
+    path/=WindowsNetworkContract::InstallDirectory;pinDirectory(path.wstring(),create,false);
+    path/=hash;pinDirectory(path.wstring(),create,false);
+    executable=(path/WindowsNetworkContract::Executable).wstring();
+    library=(path/WindowsNetworkContract::DriverLibrary).wstring();
+}
+std::unique_ptr<WindowsHelperInstallation> WindowsHelperInstallation::openInstalled()
+{
+    const auto executable=currentImage();
+    File image(executable);immutable(image.value,false);runningImage(image);
+    auto result=std::unique_ptr<WindowsHelperInstallation>(new WindowsHelperInstallation);
+    result->pinInstallation(hex(image.hash()),false);
+    if (_wcsicmp(executable.c_str(),result->image().c_str())!=0) fail("recovery must run from its protected installation",ERROR_ACCESS_DENIED);
+    installed(result->library,decode(WindowsNetworkContract::DriverSHA256));
+    installed((std::filesystem::path(result->image()).parent_path()/WindowsNetworkContract::DriverLicense).wstring(),decode(WindowsNetworkContract::LicenseSHA256));
+    return result;
+}
 std::unique_ptr<WindowsHelperInstallation> WindowsHelperInstallation::prepare()
 {
     Handle token;
@@ -198,9 +233,7 @@ std::unique_ptr<WindowsHelperInstallation> WindowsHelperInstallation::prepare()
     if (!GetTokenInformation(token.value,TokenElevation,&elevation,sizeof(elevation),&size)) fail("read installation privilege");
     if (!elevation.TokenIsElevated) fail("installation requires elevation",ERROR_ACCESS_DENIED);
     const auto publisher=decode(WindowsNetworkContract::PublisherSHA256),driverHash=decode(WindowsNetworkContract::DriverSHA256),licenseHash=decode(WindowsNetworkContract::LicenseSHA256);
-    wchar_t executable[32768]{};
-    const auto length=GetModuleFileNameW(nullptr,executable,32768);
-    if (!length || length>=32768) fail("locate running helper image");
+    const auto executable=currentImage();
     File image(executable);
     verifyWindowsPublisher(executable,image.value,publisher);
     runningImage(image);
@@ -208,21 +241,9 @@ std::unique_ptr<WindowsHelperInstallation> WindowsHelperInstallation::prepare()
     const auto source=std::filesystem::path(executable).parent_path();
     File driver((source/WindowsNetworkContract::DriverLibrary).wstring()),license((source/WindowsNetworkContract::DriverLicense).wstring());
     if (driver.hash()!=driverHash || license.hash()!=licenseHash) fail("untrusted helper driver or license",ERROR_INVALID_DATA);
-    PWSTR folder=nullptr;
-    const auto status=SHGetKnownFolderPath(FOLDERID_ProgramFiles,0,nullptr,&folder);
-    if (FAILED(status)) fail("locate system installation folder",status);
-    std::filesystem::path base;
-    try { base=folder; } catch (...) { CoTaskMemFree(folder);throw; }
-    CoTaskMemFree(folder);
-    if (!base.is_absolute() || base.root_name().wstring().size()!=2 || base.root_name().wstring()[1]!=L':') fail("unsupported system installation volume",ERROR_NOT_SUPPORTED);
     auto result=std::unique_ptr<WindowsHelperInstallation>(new WindowsHelperInstallation);
-    auto path=base.root_path();
-    result->pinDirectory(path.wstring(),false,true);
-    for (const auto &part:base.relative_path()) { path/=part;result->pinDirectory(path.wstring(),false,true); }
-    path/=WindowsNetworkContract::InstallDirectory;result->pinDirectory(path.wstring(),true,false);
-    path/=hex(identity);result->pinDirectory(path.wstring(),true,false);
-    result->executable=(path/WindowsNetworkContract::Executable).wstring();
-    result->library=(path/WindowsNetworkContract::DriverLibrary).wstring();
+    result->pinInstallation(hex(identity),true);
+    const auto path=std::filesystem::path(result->image()).parent_path();
     install(image,result->executable,identity);install(driver,result->library,driverHash);
     install(license,(path/WindowsNetworkContract::DriverLicense).wstring(),licenseHash);
     return result;

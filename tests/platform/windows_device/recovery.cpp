@@ -17,6 +17,7 @@ namespace {
 void check(bool value,const char *stage) { if (!value) throw std::runtime_error(stage); }
 struct Handle { HANDLE value=nullptr;~Handle(){if(value)CloseHandle(value);} };
 struct Key { HKEY value=nullptr;~Key(){if(value)RegCloseKey(value);} };
+struct Service {SC_HANDLE value=nullptr;~Service(){if(value)CloseServiceHandle(value);}};
 GUID uuid() { GUID value{};check(SUCCEEDED(CoCreateGuid(&value)),"allocate fixture UUID");return value; }
 std::wstring guid(const GUID &value) {wchar_t text[39]{};check(StringFromGUID2(value,text,39)!=0,"format fixture UUID");return text;}
 IN_ADDR address(const wchar_t *text) {IN_ADDR result{};check(InetPtonW(AF_INET,text,&result)==1,"parse fixture IPv4");return result;}
@@ -71,6 +72,32 @@ void lockBoundary()
     check(RevertToSelf(),"restore elevated fixture identity");
     check(denied,"ordinary client acquired privileged recovery lock");
 }
+void serviceBoundary()
+{
+    Handle token;token.value=ordinaryWindowsToken();
+    check(ImpersonateLoggedOnUser(token.value),"impersonate ordinary service client");
+    Service manager;manager.value=OpenSCManagerW(nullptr,nullptr,SC_MANAGER_CONNECT);check(manager.value,"open fixture service manager");
+    bool denied=true;
+    const DWORD controls[]{SERVICE_START,SERVICE_STOP,SERVICE_CHANGE_CONFIG,WRITE_DAC,DELETE};
+    for(const auto access:controls){
+        Service service;service.value=OpenServiceW(manager.value,WindowsNetworkContract::Service,access);
+        denied=denied && !service.value && GetLastError()==ERROR_ACCESS_DENIED;
+    }
+    Service read;read.value=OpenServiceW(manager.value,WindowsNetworkContract::Service,SERVICE_QUERY_CONFIG|SERVICE_QUERY_STATUS);
+    const bool readable=read.value!=nullptr;
+    check(RevertToSelf(),"restore fixture service identity");
+    check(denied && readable,"ordinary client changed service authority or could not read service readiness");
+}
+void killService()
+{
+    Service manager,service;
+    manager.value=OpenSCManagerW(nullptr,nullptr,SC_MANAGER_CONNECT);check(manager.value,"open recovery service manager");
+    service.value=OpenServiceW(manager.value,WindowsNetworkContract::Service,SERVICE_QUERY_STATUS);check(service.value,"open recovery service status");
+    SERVICE_STATUS_PROCESS state{};DWORD size=0;
+    check(QueryServiceStatusEx(service.value,SC_STATUS_PROCESS_INFO,reinterpret_cast<BYTE *>(&state),sizeof(state),&size) && state.dwCurrentState==SERVICE_RUNNING && state.dwProcessId,"read actual recovery service PID");
+    Handle process;process.value=OpenProcess(PROCESS_TERMINATE|SYNCHRONIZE,FALSE,state.dwProcessId);
+    check(process.value && TerminateProcess(process.value,1) && WaitForSingleObject(process.value,5000)==WAIT_OBJECT_0,"hard-kill real recovery service");
+}
 void writer(const GUID &owner,DWORD callerPid,const std::wstring &mode,const std::wstring &dll)
 {
     auto record=fresh();record.owner=owner;
@@ -96,7 +123,7 @@ void server(HKEY key,const wchar_t *value)
 {
     check(RegSetValueExW(key,L"GenericDNSServers",0,REG_SZ,reinterpret_cast<const BYTE *>(value),static_cast<DWORD>((wcslen(value)+1)*sizeof(wchar_t)))==ERROR_SUCCESS,"edit fixture-owned system NRPT rule");
 }
-void crash(const std::wstring &mode,const std::wstring &dll,bool externalChange)
+void crash(const std::wstring &mode,const std::wstring &dll,bool externalChange,bool managed)
 {
     const auto owner=uuid();
     Handle event,process,thread;
@@ -127,16 +154,20 @@ void crash(const std::wstring &mode,const std::wstring &dll,bool externalChange)
         // Retain a separately opened handle across process death and conflict recovery.
         if(externalChange)server(rule.value,L"192.0.2.54");
     }
+    if(managed && mode==L"allocated")killService();
     check(TerminateProcess(process.value,1) && WaitForSingleObject(process.value,5000)==WAIT_OBJECT_0,"hard-kill ownership writer");
     if(externalChange){
-        refused([&]{recovery.restoreAbandoned(owner);},"external system DNS edit was deleted");
+        if(managed){
+            const auto deadline=GetTickCount64()+15000;
+            while(recovery.read(owner).phase!=WindowsRecoveryPhase::Restoring){check(GetTickCount64()<deadline,"service did not attempt durable conflict recovery");Sleep(50);}
+        }else refused([&]{recovery.restoreAbandoned(owner);},"external system DNS edit was deleted");
         wchar_t value[32]{};DWORD bytes=sizeof(value),type=0;
         check(RegQueryValueExW(rule.value,L"GenericDNSServers",nullptr,&type,reinterpret_cast<BYTE *>(value),&bytes)==ERROR_SUCCESS && std::wstring(value)==L"192.0.2.54","failed recovery changed external DNS");
         check(recovery.read(owner).phase==WindowsRecoveryPhase::Restoring,"conflict lost pending recovery intent");
         server(rule.value,L"192.0.2.53");
     }
     const auto deadline=GetTickCount64()+15000;
-    while(!recovery.restoreAbandoned(owner)) {check(GetTickCount64()<deadline,"owned device remained after helper death");Sleep(50);}
+    while(managed?recovery.read(owner).phase!=WindowsRecoveryPhase::Restored:!recovery.restoreAbandoned(owner)) {check(GetTickCount64()<deadline,"owned device remained after helper death");Sleep(50);}
     check(!windowsAdapterPresent(record.adapter),"restored receipt precedes actual IP/PnP device removal");
     if(mode==L"active"){
         DWORD type=0;check(RegQueryValueExW(rule.value,L"Name",nullptr,&type,nullptr,nullptr)==ERROR_KEY_DELETED,"owned system DNS key survives restoration");
@@ -149,7 +180,7 @@ void crash(const std::wstring &mode,const std::wstring &dll,bool externalChange)
     reopened.acknowledge(owner,record.caller.sid);
     reopened.declare(next);
     WindowsRegistryJournal journal;journal.remove(next.owner);
-    std::wcout<<L"PASS: native recovery at "<<mode<<(externalChange?L" with external DNS preservation":L"")<<L", persistent receipt and fresh UUID gate\n";
+    std::wcout<<L"PASS: "<<(managed?L"SCM independent":L"native")<<L" recovery at "<<mode<<(externalChange?L" with external DNS preservation":L"")<<L", persistent receipt and fresh UUID gate\n";
 }
 }
 
@@ -162,14 +193,17 @@ int wmain(int argc,wchar_t **argv) try
         GUID owner{};check(SUCCEEDED(CLSIDFromString(argv[2],&owner)),"parse writer UUID");
         writer(owner,std::stoul(argv[3]),argv[4],argv[5]);return 0;
     }
-    check(argc==2,"recovery fixture requires the verified Wintun DLL");
+    const bool managed=argc==3 && std::wstring(argv[1])==L"--service";
+    check(argc==2 || managed,"recovery fixture requires the verified Wintun DLL");
+    const auto dll=argv[managed?2:1];
     parser();lockBoundary();
-    auto foreign=WindowsTunDevice::create(argv[1],uuid(),address(L"198.51.100.1"),address(L"198.51.100.2"),1400,{},[](const WindowsTunIdentity &){});
+    if(managed)serviceBoundary();
+    auto foreign=WindowsTunDevice::create(dll,uuid(),address(L"198.51.100.1"),address(L"198.51.100.2"),1400,{},[](const WindowsTunIdentity &){});
     for(const auto &mode:{L"declared",L"allocated",L"active"}){
-        crash(mode,argv[1],false);
+        crash(mode,dll,false,managed);
         check(windowsAdapterPresent(foreign->identity().guid),"recovery removed another live Wintun device");
     }
-    crash(L"active",argv[1],true);
+    crash(L"active",dll,true,managed);
     check(windowsAdapterPresent(foreign->identity().guid),"conflict recovery removed another live Wintun device");
     return 0;
 } catch(const winrt::hresult_error &error){std::cerr<<winrt::to_string(error.message())<<'\n';return 1;}
