@@ -1,4 +1,4 @@
-#include "infrastructure/platform/platformcommand.h"
+#include "infrastructure/process/command.h"
 #include <QCoreApplication>
 #include <QFile>
 #include <QThread>

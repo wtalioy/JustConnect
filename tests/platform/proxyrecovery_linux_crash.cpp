@@ -1,7 +1,7 @@
-#include "infrastructure/platform/persistentproxy.h"
+#include "infrastructure/systemproxy/persistentproxy.h"
 #include <QUuid>
-#include "infrastructure/platform/proxyrecovery.h"
-#include "infrastructure/platform/systemcredentialstore.h"
+#include "infrastructure/systemproxy/proxyrecovery.h"
+#include "infrastructure/credentialstore/systemcredentialstore.h"
 #include <QCoreApplication>
 #include <QDeadlineTimer>
 #include <QDir>

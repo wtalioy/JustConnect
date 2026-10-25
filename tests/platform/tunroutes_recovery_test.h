@@ -1,5 +1,5 @@
 #pragma once
-#include "infrastructure/platform/networkjournal.h"
+#include "infrastructure/networkjournal/networkjournal.h"
 #include <QDir>
 #include <QProcess>
 #include <QTemporaryDir>

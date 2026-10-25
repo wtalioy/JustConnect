@@ -1,4 +1,4 @@
-#include "infrastructure/platform/windows/proxyrecoverylock.h"
+#include "infrastructure/systemproxy/windows/proxyrecoverylock.h"
 #include <QCoreApplication>
 #include <QDir>
 #include <QProcess>

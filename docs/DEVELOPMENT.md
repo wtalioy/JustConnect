@@ -89,7 +89,7 @@ Windows 设备与普通 Qt／Go 数据面可用 `gh workflow run coreabi.yml --r
 
 ## 平台结果契约与隔离验证
 
-测试通过 [Platform.cmake](../cmake/Platform.cmake) 按平台注册；`ctest --test-dir build -N` 可查看清单。失败／取消／权限／超时及可能已修改的结果由应用层契约表达，代理快照与所有权恢复规则见[架构说明](ARCHITECTURE.md)。隔离环境要求：
+测试通过 [SystemIntegration.cmake](../cmake/SystemIntegration.cmake) 按平台注册；`ctest --test-dir build -N` 可查看清单。失败／取消／权限／超时及可能已修改的结果由应用层契约表达，代理快照与所有权恢复规则见[架构说明](ARCHITECTURE.md)。隔离环境要求：
 
 | 平台 | 测试依赖与写入边界 |
 | --- | --- |

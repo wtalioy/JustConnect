@@ -1,4 +1,4 @@
-#include "infrastructure/platform/macos/dnssnapshot.h"
+#include "infrastructure/dns/macos/dnssnapshot.h"
 #include <QCoreApplication>
 #include <QJsonArray>
 #include <QScopeGuard>

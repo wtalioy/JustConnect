@@ -1,5 +1,5 @@
-#include "infrastructure/platform/macos/tunroutes.h"
-#include "infrastructure/platform/ipv4.h"
+#include "infrastructure/routing/macos/tunroutes.h"
+#include "infrastructure/networkaddress/ipv4.h"
 #include <QCoreApplication>
 #include <QFile>
 #include <QJsonDocument>

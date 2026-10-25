@@ -82,13 +82,13 @@ function(justconnect_core_engine TARGET LIBRARY PLATFORM)
         "${REPO}/application/networkprotection.cpp"
         "${REPO}/infrastructure/coreengine/embeddedcoreengine.cpp")
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-        target_sources(${TARGET} PRIVATE "${REPO}/infrastructure/platform/linux/networkhelperpreparation.cpp"
-            "${REPO}/infrastructure/platform/linux/networkaccess.cpp"
-            "${REPO}/infrastructure/platform/linux/networkownership.cpp")
+        target_sources(${TARGET} PRIVATE "${REPO}/infrastructure/networkhelper/linux/networkhelperpreparation.cpp"
+            "${REPO}/infrastructure/networkaccess/linux/networkaccess.cpp"
+            "${REPO}/infrastructure/networkhelper/linux/networkownership.cpp")
     endif()
     if(APPLE)
-        target_sources(${TARGET} PRIVATE "${REPO}/infrastructure/platform/macos/networkhelperpreparation.cpp"
-            "${REPO}/infrastructure/platform/macos/networkaccess.cpp")
+        target_sources(${TARGET} PRIVATE "${REPO}/infrastructure/networkhelper/macos/networkhelperpreparation.cpp"
+            "${REPO}/infrastructure/networkaccess/macos/networkaccess.cpp")
     endif()
     set_target_properties(${TARGET} PROPERTIES AUTOMOC ON)
     target_include_directories(${TARGET} PUBLIC "${REPO}")

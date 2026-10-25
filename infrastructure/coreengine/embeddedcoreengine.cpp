@@ -1,7 +1,7 @@
 #include "embeddedcoreengine.h"
 #include "justconnect.h"
 #include "application/networkprotection.h"
-#include "infrastructure/platform/dnssnapshot.h"
+#include "infrastructure/dns/dnssnapshot.h"
 #include <atomic>
 #include <memory>
 #ifdef Q_OS_WIN

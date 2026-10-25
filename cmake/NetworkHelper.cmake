@@ -1,18 +1,18 @@
 function(justconnect_linux_network_helper)
     # Both development probes and the distribution package compile this one implementation.
     add_library(justconnect_network_helper STATIC
-        "${REPO}/infrastructure/platform/linux/networkhelper.cpp"
-        "${REPO}/infrastructure/platform/linux/trustedexecutable.cpp"
-        "${REPO}/infrastructure/platform/networkjournal.cpp"
-        "${REPO}/infrastructure/platform/linux/ownedroutetable.cpp"
-        "${REPO}/infrastructure/platform/linux/tunroutes.cpp"
-        "${REPO}/infrastructure/platform/linux/tundns.cpp"
-        "${REPO}/infrastructure/platform/linux/tundevice.cpp"
-        "${REPO}/infrastructure/platform/tundevice.cpp"
-        "${REPO}/infrastructure/platform/platformcommand.cpp")
+        "${REPO}/infrastructure/networkhelper/linux/networkhelper.cpp"
+        "${REPO}/infrastructure/process/linux/trustedexecutable.cpp"
+        "${REPO}/infrastructure/networkjournal/networkjournal.cpp"
+        "${REPO}/infrastructure/routing/linux/ownedroutetable.cpp"
+        "${REPO}/infrastructure/routing/linux/tunroutes.cpp"
+        "${REPO}/infrastructure/dns/linux/tundns.cpp"
+        "${REPO}/infrastructure/tundevice/linux/tundevice.cpp"
+        "${REPO}/infrastructure/tundevice/tundevice.cpp"
+        "${REPO}/infrastructure/process/command.cpp")
     target_include_directories(justconnect_network_helper PUBLIC "${REPO}" "${CMAKE_CURRENT_BINARY_DIR}")
     target_link_libraries(justconnect_network_helper PUBLIC Qt6::Core Qt6::DBus)
-    add_executable(JustConnectNetworkHelper "${REPO}/infrastructure/platform/linux/networkhelpermain.cpp")
+    add_executable(JustConnectNetworkHelper "${REPO}/infrastructure/networkhelper/linux/networkhelpermain.cpp")
     target_link_libraries(JustConnectNetworkHelper PRIVATE justconnect_network_helper)
     target_compile_definitions(JustConnectNetworkHelper PRIVATE
         JC_HELPER_REVISION="${REVISION}" JC_HELPER_SOURCE_STATE="${SOURCE_STATE}")
@@ -47,7 +47,7 @@ function(justconnect_linux_network_helper)
     string(REGEX REPLACE "^/var/lib/" "" JC_NETWORK_HELPER_STATE_RELATIVE "${JC_NETWORK_HELPER_STATE}")
     get_filename_component(JC_NETWORK_HELPER_STATE_PARENT "${JC_NETWORK_HELPER_STATE_RELATIVE}" DIRECTORY)
     set_target_properties(JustConnectNetworkHelper PROPERTIES OUTPUT_NAME "${HELPER_FILENAME}")
-    configure_file("${REPO}/infrastructure/platform/linux/networkhelperpaths.h.in" networkhelperpaths.h @ONLY)
+    configure_file("${REPO}/infrastructure/networkhelper/linux/networkhelperpaths.h.in" networkhelperpaths.h @ONLY)
     configure_file("${REPO}/resource/network-helper.policy.in" "${JC_NETWORK_HELPER_ACTION}.policy" @ONLY)
     foreach(KIND service timer)
         configure_file("${REPO}/resource/network-helper-recovery.${KIND}.in" "${JC_NETWORK_HELPER_RECOVERY_UNIT}.${KIND}" @ONLY)

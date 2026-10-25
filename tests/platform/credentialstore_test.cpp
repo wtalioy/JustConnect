@@ -1,5 +1,5 @@
-#include "infrastructure/platform/systemcredentialstore.h"
-#include "infrastructure/platform/proxyjournal.h"
+#include "infrastructure/credentialstore/systemcredentialstore.h"
+#include "infrastructure/systemproxy/proxyjournal.h"
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QScopeGuard>
@@ -8,7 +8,7 @@
 #include <iostream>
 #include <stdexcept>
 #ifdef Q_OS_MACOS
-#include "infrastructure/platform/macos/credentialstore.h"
+#include "infrastructure/credentialstore/macos/credentialstore.h"
 #elif defined(Q_OS_WIN)
 #include <windows.h>
 #endif

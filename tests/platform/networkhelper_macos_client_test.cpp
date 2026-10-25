@@ -1,9 +1,9 @@
-#include "infrastructure/platform/macos/networkhelperclient.h"
-#include "infrastructure/platform/macos/networkownership.h"
-#include "infrastructure/platform/dnsroutepublisher.h"
-#include "infrastructure/platform/macos/helperidentity.h"
-#include "infrastructure/platform/macos/helpertransport.h"
-#include "infrastructure/platform/macos/tunroutes.h"
+#include "infrastructure/networkhelper/macos/networkhelperclient.h"
+#include "infrastructure/networkhelper/macos/networkownership.h"
+#include "infrastructure/dns/dnsroutepublisher.h"
+#include "infrastructure/networkhelper/macos/helperidentity.h"
+#include "infrastructure/networkhelper/macos/helpertransport.h"
+#include "infrastructure/routing/macos/tunroutes.h"
 #include <QCoreApplication>
 #include <QDeadlineTimer>
 #include <QJsonDocument>

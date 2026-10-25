@@ -1,5 +1,5 @@
 #pragma once
-#include "infrastructure/platform/windows/proxyrecoverylock.h"
+#include "infrastructure/systemproxy/windows/proxyrecoverylock.h"
 #include <QLockFile>
 #include <QStandardPaths>
 #include <QDir>

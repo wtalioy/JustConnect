@@ -1,5 +1,5 @@
-#include "infrastructure/platform/linux/tunroutes.h"
-#include "infrastructure/platform/linux/iprouteutility.h"
+#include "infrastructure/routing/linux/tunroutes.h"
+#include "infrastructure/routing/linux/iprouteutility.h"
 #include <QCoreApplication>
 #include <QDeadlineTimer>
 #include <QFile>

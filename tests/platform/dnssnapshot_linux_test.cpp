@@ -1,4 +1,4 @@
-#include "infrastructure/platform/linux/dnssnapshot.h"
+#include "infrastructure/dns/linux/dnssnapshot.h"
 #include <QCoreApplication>
 #include <QDBusArgument>
 #include <QDBusMessage>

@@ -1,4 +1,4 @@
-#include "infrastructure/platform/linux/networkhelper.h"
+#include "infrastructure/networkhelper/linux/networkhelper.h"
 #include "networkhelperpaths.h"
 #include <QCoreApplication>
 #include <QDir>

@@ -1,6 +1,6 @@
-#include "infrastructure/platform/proxyrecovery.h"
-#include "infrastructure/platform/platformsystemproxybackend.h"
-#include "infrastructure/platform/platformcommand.h"
+#include "infrastructure/systemproxy/proxyrecovery.h"
+#include "infrastructure/systemproxy/platformsystemproxybackend.h"
+#include "infrastructure/process/command.h"
 #include <QCoreApplication>
 #include <QDir>
 #include <QDeadlineTimer>

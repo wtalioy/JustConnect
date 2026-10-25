@@ -1,4 +1,4 @@
-#include "infrastructure/platform/proxyjournal.h"
+#include "infrastructure/systemproxy/proxyjournal.h"
 #include <QMap>
 #include <iostream>
 #include <stdexcept>
