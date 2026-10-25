@@ -159,7 +159,7 @@ macOS 的 `MacNetworkAccess` 复用 `ConnectionSession`／`NetworkPolicySession`
 协议 4 的成功应用／追加回应携带完整已确认捕获记录、设备派生 IPv4 路由及 DNS 视图；请求仍限制 64 KiB，回应预算由既有日志上限和设备／DNS 信封派生。捕获记录的只读校验与 root 恢复共用，Qt 不由前缀猜测所有权。原网络过滤在当前原生 RIB 完整匹配记录后才扣除对应读取行，保留额外字段、外部地址及改变的 DNS；此读取投影不授权任何恢复写入。地址预留复用 Linux 的解析逻辑，无产品测试地址默认值。原网络变化先安全恢复并按会话重连预算处理；macOS 运行中手动覆盖／精确路由替换仍待，拒绝更新并保留已确认策略，不能据此声称完整重叠地址已可用。真实桌面批准、签名包及校园验收另见计划。
 
 <a id="owned-tun-dns"></a>
-macOS 的 `MacTunDns` 在独立 SystemConfiguration 会话中为连接 UUID 发布临时 IPv4 服务绑定与 supplemental DNS：接口、地址／掩码来自已配置 utun 的内核回读，DNS 端点为实际 peer，只接受明确的规范域名。两项均要求原先不存在，逐项添加并回读；不设置 Router、默认域或全局 DNS。域名校验与 Linux 共用，助手协议 4 的必填 `dns_domains` 数组，空数组表示禁用；磁盘存储仍为 1。
+macOS 的 `MacTunDns` 在独立 SystemConfiguration 会话中为连接 UUID 发布临时 IPv4 服务绑定与 supplemental DNS：接口、地址／掩码来自已配置 utun 的内核回读，DNS 端点为实际 peer，只接受明确的规范域名。两项均要求原先不存在，逐项添加并回读；不设置 Router、默认域或全局 DNS；显式使用 Apple [VPN.DNS](https://developer.apple.com/documentation/devicemanagement/vpn/dns-data.dictionary) 定义的 `SupplementalMatchDomainsNoSearch=1`，防止系统把校园后缀合并到全局搜索列表。域名校验与 Linux 共用，助手协议 4 的必填 `dns_domains` 数组，空数组表示禁用；磁盘存储仍为 1。
 
 [SCDynamicStoreAddTemporaryValue](https://developer.apple.com/documentation/systemconfiguration/1437789-scdynamicstoreaddtemporaryvalue) 将临时键绑定到发布会话；关闭或进程终止只删除仍属于该会话的值，其他会话即使写入相同值也转移所有权。因此 DNS 无需另存恢复日志，正常停止、部分失败和连接丢失先关闭该会话，再恢复捕获与设备；磁盘记录改变不妨碍释放仍持有的 DNS 会话。原生夹具覆盖部分发布、外部同值改写／命名冲突、默认路由不变及普通用户系统解析；Qt／核心完整会话与真实桌面批准仍待，验收状态见计划。
 

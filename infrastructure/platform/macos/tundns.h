@@ -3,6 +3,10 @@
 #include <SystemConfiguration/SystemConfiguration.h>
 #include <QStringList>
 
+// Apple VPN.DNS defines 1 as supplemental routing without adding search domains.
+inline constexpr int MacDnsNoSearch = 1;
+inline CFStringRef macDnsNoSearchKey() { return CFSTR("SupplementalMatchDomainsNoSearch"); }
+
 class MacTunDns
 {
 public:
@@ -14,6 +18,7 @@ public:
     PlatformOperationResult apply(const UnixTunDevice &device, const QStringList &domains);
     // Closing this dedicated session removes only its still-owned temporary keys.
     void restore();
+    static QJsonObject properties(const QString &peer,const QStringList &domains);
     QJsonObject snapshot() const { return applied; }
 private:
     SCDynamicStoreRef store = nullptr;

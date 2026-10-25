@@ -1,5 +1,6 @@
 #include "networkownership.h"
 #include "tunroutes.h"
+#include "tundns.h"
 #include "infrastructure/platform/ipv4.h"
 #include <algorithm>
 #include <SystemConfiguration/SystemConfiguration.h>
@@ -31,9 +32,7 @@ NetworkPolicySession::OriginalViewFilter macOriginalNetworkView(const QUuid &own
     const auto key = SCDynamicStoreKeyCreateNetworkServiceEntity(nullptr,kSCDynamicStoreDomainState,service,kSCEntNetDNS);
     const auto dnsKey = QString::fromCFString(key); CFRelease(key); CFRelease(service);
     const QJsonValue expectedDns = confirmed.value("dns").toObject().value(dnsKey);
-    if (!configuration.dnsDomains.isEmpty() && expectedDns.toObject() != QJsonObject{
-        {QString::fromCFString(kSCPropNetDNSServerAddresses),QJsonArray{configuration.peer}},
-        {QString::fromCFString(kSCPropNetDNSSupplementalMatchDomains),QJsonArray::fromStringList(configuration.dnsDomains)}}) return {};
+    if (!configuration.dnsDomains.isEmpty() && expectedDns.toObject() != MacTunDns::properties(configuration.peer,configuration.dnsDomains)) return {};
     return [configuration,name,index,owned,dnsKey,expectedDns](QJsonObject network,QJsonObject dns)
         -> std::optional<NetworkPolicySession::OriginalView> {
         if (!assignedUnixTunPair(name,index,configuration.address,configuration.peer) || !network["interfaces"].isArray() || !network["routes"].isArray()) return {};
