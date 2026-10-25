@@ -10,7 +10,7 @@ import (
 	"time"
 
 	tun "github.com/mythologyli/sing-tun"
-	socketdialer "github.com/wtalioy/JustConnect/corelib/internal/platform/dialer"
+	socketdialer "github.com/wtalioy/JustConnect/corelib/internal/dialer"
 
 	"github.com/sagernet/sing/common/logger"
 )

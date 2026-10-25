@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/wtalioy/JustConnect/corelib/internal/platform/privatefile"
+	"github.com/wtalioy/JustConnect/corelib/internal/privatefile"
 )
 
 const (

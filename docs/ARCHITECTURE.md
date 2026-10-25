@@ -16,35 +16,19 @@ tests/            领域、端口、界面、真实 C ABI 与受控网关回归
 
 `application` 依赖 `core`，不引用 Widgets 或具体基础设施。`MainWindowCoordinator` 组合 `CoreEngine → EmbeddedCoreEngine`、`SystemProxyBackend → ProxyRecoveryBackend → JustConnectProxyRecovery → PlatformSystemProxyBackend` 和 `ProfileBackend → ProfileManager`。认证方式窗口通过应用层 `AuthMethodsQuery` 使用 `CoreEngine`，允许注入测试端口；只在查询与清理均成功后交付完整方法身份，取消或失败不暴露部分结果。
 
-`corelib/internal/platform` 按共有能力与系统私有操作划分。网络快照模型、接口收集、拨号流程、Unix 文件权限、IPv4 设备校验和包帧处理由共享模块维护；Linux 的 netlink／TUN、macOS 的原生路由／utun、Windows 的 IP Helper／DACL／管道／Wintun 和权限助手分别归 `linux`、`macos`、`windows`。共享入口只在编译时选择原生实现，不复制系统逻辑或保留旧路径兼容包。Go 文件用明确构建标签选择目标系统，平台私有目录里的文件不再重复系统后缀。
+`corelib/internal` 按职责分包。网络模型与快照收集、拨号流程、文件生命周期和共有 Unix 权限、设备地址校验、IPv4 包帧分别由所属模块维护。系统私有实现位于各模块自己的 `linux`、`macos`、`windows` 子目录，不再设置混合不同能力的总 `platform` 包。入口文件仅在编译时选择后端；Windows 私有文件使用明确构建标签，不重复系统后缀，也不保留旧路径兼容包。
 
 ```text
-corelib/internal/platform/
-  networkstate/  共有快照读取与 model 数据契约
-  dialer/        共有拨号流程
-  privatefile/   共有文件生命周期与 Unix 权限
-  ipconfig/      共有 IPv4 设备校验
-  tundevice/     原生 fd 入口选择
-  packetpipe/    共有 IPv4 包帧与管道接入
-  linux/
-    networkstate/  netlink 路由及策略规则
-    dialer/        socket 设备绑定
-    tun/           原生 TUN fd 校验／I/O
-  macos/
-    networkstate/  原生路由读取
-    dialer/        socket 接口绑定
-    utun/          原生控制 socket／地址族帧
-  windows/
-    networkstate/  IP Helper 网络读取
-    dialer/        socket 接口绑定
-    privatefile/   原生 DACL
-    packetpipe/    HANDLE 校验与异步 I/O
-    wintun/        Wintun 设备和 ring
-    networkhelper/ 特权操作、安装与恢复
-    testutil/      真实普通用户令牌，仅供测试
+corelib/internal/
+  networkstate/  共有快照收集与 model；linux／macos／windows 原生读取
+  dialer/        共有拨号流程；linux／macos／windows socket 绑定
+  privatefile/   共有生命周期与 Unix 权限；windows 原生 DACL
+  tundevice/     共有入口和 address；linux TUN／macos utun／windows Wintun
+  packetpipe/    共有 IPv4 包帧；windows HANDLE 与异步 I/O
+  networkhelper/windows/  安装、特权操作与恢复；testsupport 仅供权限夹具
 ```
 
-Linux TUN、macOS utun 的创建仍由现有 C++ 平台助手完成；Go 平台实现负责接收、校验和持有 fd，以及设备所需的 I/O 语义。平台目录只包含实际实现，不添加空壳后端。共有契约测试覆盖平台接入，原生解析／设备测试随对应实现存放。
+Linux TUN、macOS utun 的创建仍由 C++ 平台助手完成；Go 原生实现接收、校验与持有 fd，并处理设备 I/O 语义。共有契约测试覆盖平台接入，原生解析和设备测试随实现存放。`tundevice/address` 是各后端与数据面的同一份地址契约，没有第二套默认值或解析状态。
 
 ## 会话与线程
 
