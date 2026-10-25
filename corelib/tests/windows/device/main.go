@@ -514,7 +514,7 @@ func client(mode string) error {
 		response := make([]byte, 32)
 		size, err := conn.Read(response)
 		if err != nil {
-			return fmt.Errorf("ordinary UDP reply %d/%d: %w", iteration+1, count, err)
+			return fmt.Errorf("ordinary UDP reply %d/%d: %w; injected packet=%x", iteration+1, count, err, packet)
 		}
 		if string(response[:size]) != "pong" {
 			return errors.New("device reply did not reach the original UDP socket")
