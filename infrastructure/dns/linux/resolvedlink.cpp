@@ -44,6 +44,42 @@ bool sameProviderNamespace(quint32 pid)
     return false;
 }
 }
+std::optional<QJsonObject> linkInputs(const QJsonObject &resolved, const QJsonValue &index, const QString &interface)
+{
+    if (resolved["status"] != "available" || !resolved["DNS"].isArray()
+        || !resolved["Domains"].isArray() || !resolved["Links"].isArray()) return {};
+    QJsonObject native;
+    for (const auto &value : resolved["Links"].toArray()) {
+        const auto row = value.toObject();
+        if (row["interface_index"] != index) continue;
+        if (!native.isEmpty() || row["name"] != interface || !row["DefaultRoute"].isBool()) return {};
+        native = row;
+    }
+    if (native.isEmpty()) return {};
+    QJsonObject security;
+    for (const auto *key : {"DNSOverTLS", "DNSSEC"}) {
+        if (!native.contains(key)) continue;
+        if (!native[key].isString()) return {};
+        security[key] = native[key];
+    }
+    QJsonArray servers, domains;
+    for (const auto &value : resolved["DNS"].toArray()) {
+        const auto row = value.toObject();
+        if (row["interface_index"] != index) continue;
+        if (row.size() != 5) return {};
+        servers.append(QJsonObject{{"family", row["family"]}, {"address", row["address"]},
+            {"port", row["port"]}, {"name", row["server_name"]}});
+    }
+    for (const auto &value : resolved["Domains"].toArray()) {
+        const auto row = value.toObject();
+        if (row["interface_index"] != index) continue;
+        if (row.size() != 3) return {};
+        domains.append(QJsonObject{{"name", row["domain"]}, {"route_only", row["route_only"]}});
+    }
+    return QJsonObject{{"profile", QJsonObject{{"dns", servers}, {"domains", domains}, {"default_route", native["DefaultRoute"]}}},
+        {"security", security}};
+}
+
 bool providerIdentity(const QJsonObject &value)
 {
     static const QRegularExpression id("^[0-9a-f]{32}$"), owner("^:[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)+$");
