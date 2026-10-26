@@ -41,6 +41,19 @@ static QStringList interfaceAddresses(){
         result.append(QString::number(adapter.index())+"/"+adapter.name()+"/"+address.ip().toString()+"/"+QString::number(address.prefixLength()));
     result.sort();return result;
 }
+static bool sameNetwork(const QJsonObject &beforeDns,const QJsonObject &afterDns,
+    const QStringList &beforeAddresses,const QStringList &afterAddresses){
+    if(beforeDns==afterDns && beforeAddresses==afterAddresses)return true;
+    QJsonObject changedDns;
+    auto keys=beforeDns.keys();keys.append(afterDns.keys());keys.removeDuplicates();
+    for(const auto &key:keys)if(beforeDns[key]!=afterDns[key])
+        changedDns[key]=QJsonObject{{"before",beforeDns[key]},{"after",afterDns[key]}};
+    QJsonObject difference{{"dns",changedDns}};
+    if(beforeAddresses!=afterAddresses)difference["interfaces"]=QJsonObject{
+        {"before",QJsonArray::fromStringList(beforeAddresses)},{"after",QJsonArray::fromStringList(afterAddresses)}};
+    std::cerr<<"network_restoration_difference="<<QJsonDocument(difference).toJson(QJsonDocument::Compact).constData()<<'\n';
+    return false;
+}
 int main(int argc,char **argv) try
 {
     qInstallMessageHandler([](QtMsgType,const QMessageLogContext &,const QString &message){std::cerr<<"qt: "<<message.toStdString()<<'\n';});
@@ -89,6 +102,9 @@ int main(int argc,char **argv) try
     QJsonObject initialProtection;bool coreStarted=false,coreStopped=false,quiesced=false,networkStopped=false,normal=false,recoveryBlocked=false;int finished=0;
     QObject::connect(access,&NetworkAccess::quiesced,[&](const QUuid &){check(!networkStopped,"capture release precedes final network release");quiesced=true;});
     QObject::connect(access,&NetworkAccess::stopped,[&](const QUuid &,PlatformOperationResult result){
+        std::cerr<<"network stopped status="<<int(result.status)<<" changed="<<result.mayHaveChanged
+            <<" core_started="<<coreStarted<<" core_stopped="<<coreStopped<<" quiesced="<<quiesced
+            <<" normal="<<normal<<" fault="<<fault.constData()<<" detail="<<result.detail.toStdString()<<'\n';
         if(normal && !fault.isEmpty()){check(!result.succeeded(),"lost helper cannot confirm an owned release");recoveryBlocked=true;return;}
         check(result.succeeded() && (normal?coreStopped:!coreStarted),"final network release follows core shutdown, or no core started after refusal");
         if(normal)networkStopped=true;
@@ -157,11 +173,12 @@ int main(int argc,char **argv) try
         check(finished==2 && session.isActive() && !session.start(profile,{}) && authorizations==3,"pending recovery blocks a new connection and repeated authorization");
         unsigned char restored=0;
         check(ReadFile(GetStdHandle(STD_INPUT_HANDLE),&restored,1,&count,nullptr) && count==1 && restored==1,"independent service confirms its durable recovery receipt");
-        check(interfaceAddresses()==initialAddresses && dnsSnapshot()==initialDns,"independent service restores complete DNS and interfaces while the application remains alive");
+        check(sameNetwork(initialDns,dnsSnapshot(),initialAddresses,interfaceAddresses()),"independent service restores complete DNS and interfaces while the application remains alive");
         std::cout<<"PASS: helper loss stops core, blocks new authorization and preserves responsibility through independent restoration\n";return 0;
     }
     session.stop();until("finish staged network/core restoration",[&]{return finished==3;},20000);
-    check(authorizations==3 && approvals==1 && !session.isActive() && interfaceAddresses()==initialAddresses && dnsSnapshot()==initialDns,
+    const auto restored=sameNetwork(initialDns,dnsSnapshot(),initialAddresses,interfaceAddresses());
+    check(authorizations==3 && approvals==1 && !session.isActive() && restored,
         "single approval, owned device removal and complete original DNS/interface restoration");
     if(policyChanges)std::cout<<"PASS: Windows same-IP original/campus/original TCP, UDP and empty datagrams without reauthentication\n";
     std::cout<<"PASS: ordinary Windows application/native helper/Go core system DNS, TCP/UDP and empty datagrams, staged stop and complete restore\n";
