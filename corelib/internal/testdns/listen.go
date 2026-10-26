@@ -2,9 +2,7 @@
 package testdns
 
 import (
-	"errors"
 	"net"
-	"syscall"
 	"testing"
 )
 
@@ -35,9 +33,6 @@ func listenPair(t testing.TB, listenTCP func() (net.Listener, error)) (net.Liste
 			return tcp, udp
 		}
 		_ = tcp.Close()
-		if !errors.Is(err, syscall.EADDRINUSE) {
-			t.Fatal(err)
-		}
 	}
 	t.Fatalf("cannot reserve a TCP/UDP DNS pair: %v", err)
 	return nil, nil
