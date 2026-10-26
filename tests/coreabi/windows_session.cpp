@@ -1,6 +1,7 @@
 #include "infrastructure/networkaccess/windows/networkaccess.h"
 #include "infrastructure/coreengine/embeddedcoreengine.h"
 #include "infrastructure/dns/dnssnapshot.h"
+#include "infrastructure/routing/originalexit.h"
 #include "tests/platform/windows_device/controlhandoff.h"
 #include "tests/platform/networksnapshotcheck.h"
 #include "tuntraffic.h"
@@ -13,6 +14,7 @@
 #include <QNetworkInterface>
 #include <QStandardPaths>
 #include <QCryptographicHash>
+#include <QSet>
 #include <QtConcurrent>
 #include <cstring>
 #include <iostream>
@@ -58,7 +60,9 @@ int main(int argc,char **argv) try
     check((argc==5 || argc==6) && QByteArray(argv[1])=="--client" && QByteArray(argv[3])=="network" && qgetenv("GITHUB_ACTIONS")=="true","disposable Windows application fixture only");
     const auto fault=argc==6?QByteArray(argv[5]):QByteArray{};
     const bool policyChanges=qgetenv("JC_WINDOWS_SESSION_POLICY")=="true";
+    const bool exitChange=qgetenv("JC_WINDOWS_SESSION_EXIT_CHANGE")=="true";
     check(!policyChanges || fault.isEmpty(),"policy changes use normal ownership restoration");
+    check(!exitChange || (!policyChanges && fault.isEmpty()),"exit change has its own ordinary two-session scenario");
     check(fault.isEmpty() || fault=="helper-loss" || fault=="dual-kill","known application fault scenario");
     bool valid=false;const auto replyValue=QByteArray(argv[4]).toULongLong(&valid);check(valid && replyValue,"application approval reply pipe");
     const auto reply=reinterpret_cast<HANDLE>(quintptr(replyValue));
@@ -87,16 +91,16 @@ int main(int argc,char **argv) try
     auto *access=new WindowsNetworkAccess(engine,&policy,mtu,nullptr,[&](const QUuid &id,auto ready){
         ++authorizations;
         if(authorizations<=2){const DWORD error=authorizations==1?ERROR_ACCESS_DENIED:ERROR_CANCELLED;QTimer::singleShot(0,&app,[ready,error]{ready(nullptr,error);});return;}
-        check(++approvals==1,"one approved process per application connection");
+        check(++approvals<=(exitChange?2:1),"one approved process per application connection");
         GUID requested{};const auto text=id.toString(QUuid::WithBraces);DWORD count=0;
         check(SUCCEEDED(CLSIDFromString(reinterpret_cast<LPCOLESTR>(text.utf16()),&requested))
             && WriteFile(reply,&requested,sizeof(requested),&count,nullptr) && count==sizeof(requested),"actual application UUID reaches the approval fixture");
-        if(fault.isEmpty())CloseHandle(reply);WindowsControlFixtureInput input;
+        if(fault.isEmpty() && !exitChange)CloseHandle(reply);WindowsControlFixtureInput input;
         check(ReadFile(GetStdHandle(STD_INPUT_HANDLE),&input,sizeof(input),&count,nullptr) && count==sizeof(input),"approved native process handoff");
         check(!input.hasBaseline || (input.baseline.dns==baseline.dns && input.baseline.interfaces==baseline.interfaces),"new ordinary application confirms complete pre-crash DNS and interface baseline");
         const auto handle=reinterpret_cast<HANDLE>(input.server);QTimer::singleShot(0,&app,[ready,handle]{ready(handle,0);});
     });
-    QJsonObject initialProtection;bool coreStarted=false,coreStopped=false,quiesced=false,networkStopped=false,normal=false,recoveryBlocked=false;int finished=0;
+    QJsonObject initialProtection;bool coreStarted=false,coreStopped=false,quiesced=false,networkStopped=false,normal=false,recoveryBlocked=false;int finished=0,coreFinishes=0;
     QObject::connect(access,&NetworkAccess::quiesced,[&](const QUuid &){check(!networkStopped,"capture release precedes final network release");quiesced=true;});
     QObject::connect(access,&NetworkAccess::stopped,[&](const QUuid &,PlatformOperationResult result){
         std::cerr<<"network stopped status="<<int(result.status)<<" changed="<<result.mayHaveChanged
@@ -112,12 +116,15 @@ int main(int argc,char **argv) try
     QObject::connect(access,&NetworkAccess::ready,[](const QUuid &,PlatformOperationResult result){std::cerr<<"network ready="<<result.succeeded()<<" "<<result.detail.toStdString()<<'\n';});
 
     QObject::connect(engine,&CoreEngine::authenticationRequired,[engine](const QJsonObject &request){engine->respond(CoreEngine::responseFor(request,{{"action","submit"},{"code","fixture-code"}}));});
-    QObject::connect(engine,&CoreEngine::sessionStarted,[&]{coreStarted=true;});
+    QObject::connect(engine,&CoreEngine::sessionStarted,[&]{
+        if(exitChange && coreStopped)coreStopped=quiesced=networkStopped=false;
+        coreStarted=true;
+    });
     QObject::connect(engine,&CoreEngine::initialProtectionApplied,[&](const QJsonObject &value){initialProtection=value;});
     QObject::connect(engine,&CoreEngine::finished,[&](ConnectionError error){
         if(fault.isEmpty())check(error==ConnectionError::NONE && quiesced && !networkStopped,"normal core shutdown occurs between capture and device release");
         else check(!networkStopped,"helper loss does not report a final network release");
-        coreStopped=true;
+        coreStopped=true;++coreFinishes;
     });
     QObject::connect(&session,&ConnectionSession::finished,[&](ConnectionError error){
         if(!normal)check(error==(finished==0?ConnectionError::PERMISSION_DENIED:ConnectionError::NONE) && !coreStarted,"refused/cancelled authorization terminates without starting the core");
@@ -129,38 +136,74 @@ int main(int argc,char **argv) try
         check(authorizations==prefix && !session.isActive() && !coreStarted,"permission refusal never loops authorization or starts the core");
     }
     normal=true;
-    check(session.start(profile,{}),"start complete Windows application connection");
+    check(session.start(profile,{exitChange,1000}),"start complete Windows application connection");
     until("reach CampusReady after native attachment",[&]{return session.state()==ConnectionState::Running || finished>2;},20000);
     check(finished==2 && session.phase()==ConnectionPhase::CampusReady,"application reports campus readiness only after authorized device attachment");
-    until("finish original-network policy observation",[&]{return !policy.isBusy();});
-    check(policy.status()==CoreEngine::RequestStatus::Success && policy.confirmedProtection()["protected"]==initialProtection["protected"]
-        && policy.confirmedProtection()["protected_names"]==initialProtection["protected_names"],"owned routes/DNS never become original protection");
-    const auto chooseCampus=[&](bool campus){
-        for(const auto *address:{"198.18.0.6","198.18.0.7"}){
-            check(policy.setCampusAddress(QString::fromLatin1(address),campus),"choose each overlapping TCP/UDP target");
-            until("confirm core and helper target policy",[&]{return !policy.isBusy();});
-            check(policy.policyStatus()==CoreEngine::RequestStatus::Success,"core and native helper confirm the target choice");
+    const auto traffic=[&]{
+        until("finish original-network policy observation",[&]{return !policy.isBusy();});
+        check(policy.status()==CoreEngine::RequestStatus::Success && policy.confirmedProtection()["protected"]==initialProtection["protected"]
+            && policy.confirmedProtection()["protected_names"]==initialProtection["protected_names"],"owned routes/DNS never become original protection");
+        const auto chooseCampus=[&](bool campus){
+            for(const auto *address:{"198.18.0.6","198.18.0.7"}){
+                check(policy.setCampusAddress(QString::fromLatin1(address),campus),"choose each overlapping TCP/UDP target");
+                until("confirm core and helper target policy",[&]{return !policy.isBusy();});
+                check(policy.policyStatus()==CoreEngine::RequestStatus::Success,"core and native helper confirm the target choice");
+            }
+        };
+        if(policyChanges){
+            check(policy.campusAddresses().isEmpty(),"overlapping targets default to their original network");
+            exerciseOriginalNetworkTraffic();
+            chooseCampus(true);
+        }
+        auto lookup=QtConcurrent::run([]{return QHostInfo::fromName("campus.test");});until("complete system campus DNS lookup",[&]{return lookup.isFinished();});
+        const auto answer=lookup.result();check(answer.error()==QHostInfo::NoError && answer.addresses().contains(QHostAddress("198.18.0.7")),"ordinary Windows system DNS follows campus CNAME through the actual core");
+        exerciseNativeTUNTraffic(QHostAddress("198.18.0.7"));
+        exerciseNativeSSH(QHostAddress("198.18.0.7"));
+        if(policyChanges)exerciseNonCampusNetworkTraffic();
+        until("finish original-network policy observation",[&]{return !policy.isBusy();});check(policy.refresh(),"refresh original view after DNS capture publication");until("finish original-network policy observation",[&]{return !policy.isBusy();});
+        check(policy.status()==CoreEngine::RequestStatus::Success && policy.confirmedProtection()["protected"]==initialProtection["protected"],"new DNS captures remain excluded from original protection");
+        exerciseNativeTUNTraffic(QHostAddress("198.18.0.7"));
+        if(policyChanges){
+            const auto generation=policy.currentGeneration();
+            chooseCampus(false);
+            check(policy.campusAddresses().isEmpty() && session.state()==ConnectionState::Running && policy.currentGeneration()==generation,
+                "returning to the original network preserves the authenticated session");
+            exerciseOriginalNetworkTraffic();
         }
     };
-    if(policyChanges){
-        check(policy.campusAddresses().isEmpty(),"overlapping targets default to their original network");
-        exerciseOriginalNetworkTraffic();
-        chooseCampus(true);
-    }
-    auto lookup=QtConcurrent::run([]{return QHostInfo::fromName("campus.test");});until("complete system campus DNS lookup",[&]{return lookup.isFinished();});
-    const auto answer=lookup.result();check(answer.error()==QHostInfo::NoError && answer.addresses().contains(QHostAddress("198.18.0.7")),"ordinary Windows system DNS follows campus CNAME through the actual core");
-    exerciseNativeTUNTraffic(QHostAddress("198.18.0.7"));
-    exerciseNativeSSH(QHostAddress("198.18.0.7"));
-    if(policyChanges)exerciseNonCampusNetworkTraffic();
-    until("finish original-network policy observation",[&]{return !policy.isBusy();});check(policy.refresh(),"refresh original view after DNS capture publication");until("finish original-network policy observation",[&]{return !policy.isBusy();});
-    check(policy.status()==CoreEngine::RequestStatus::Success && policy.confirmedProtection()["protected"]==initialProtection["protected"],"new DNS captures remain excluded from original protection");
-    exerciseNativeTUNTraffic(QHostAddress("198.18.0.7"));
-    if(policyChanges){
-        const auto generation=policy.currentGeneration();
-        chooseCampus(false);
-        check(policy.campusAddresses().isEmpty() && session.state()==ConnectionState::Running && policy.currentGeneration()==generation,
-            "returning to the original network preserves the authenticated session");
-        exerciseOriginalNetworkTraffic();
+    traffic();
+    WindowsExitChangeFixtureInput changed;
+    if(exitChange){
+        const auto previousGeneration=policy.currentGeneration();const auto model=policy.model();
+        const auto exit=originalExitSnapshot(model["network"].toObject(),{});
+        check(exit.has_value(),"complete original exit snapshot before address change");
+        QSet<int> indexes;
+        for(const auto &value:(*exit)["routes"].toArray()){
+            const auto route=value.toObject();if(route["destination"]=="0.0.0.0/0")indexes.insert(route["interface_index"].toInt());
+        }
+        check(indexes.size()==1 && *indexes.begin()>0,"one actual IPv4 default interface for the exit change");
+        changed.interfaceIndex=quint32(*indexes.begin());
+        const auto barrier=QObject::connect(&session,&ConnectionSession::reconnectScheduled,&session,[&](int){
+            check(finished==2 && coreStopped && networkStopped && session.state()==ConnectionState::Reconnecting,
+                "changed exit restores the old helper and core before scheduling reconnect");
+            DWORD count=0;
+            check(ReadFile(GetStdHandle(STD_INPUT_HANDLE),&changed,sizeof(changed),&count,nullptr) && count==sizeof(changed) && changed.address,
+                "native observer confirms old ownership release and the external exit alias");
+        });
+        DWORD count=0;
+        check(WriteFile(reply,&changed,sizeof(changed),&count,nullptr) && count==sizeof(changed),"actual default interface reaches the external change observer");
+        until("automatic reconnect after original exit address change",[&]{return (session.state()==ConnectionState::Running && coreFinishes==1) || finished>2;},20000);
+        QObject::disconnect(barrier);
+        check(finished==2 && session.phase()==ConnectionPhase::CampusReady && session.reconnectAttempt()==1
+            && policy.currentGeneration()!=previousGeneration,"changed exit reconnects once with a fresh generation");
+        until("complete changed original-network policy view",[&]{return !policy.isBusy();});
+        bool adopted=false;
+        for(const auto &value:policy.model()["network"].toObject()["interfaces"].toArray()){
+            const auto row=value.toObject();if(row["index"].toInt()!=int(changed.interfaceIndex))continue;
+            adopted=row["addresses"].toArray().contains(QHostAddress(changed.address).toString()+"/32");
+        }
+        check(adopted,"fresh connection adopts the actual external exit address");
+        traffic();
     }
     if(!fault.isEmpty()){
         DWORD count=0;
@@ -174,9 +217,15 @@ int main(int argc,char **argv) try
         std::cout<<"PASS: helper loss stops core, blocks new authorization and preserves responsibility through independent restoration\n";return 0;
     }
     session.stop();until("finish staged network/core restoration",[&]{return finished==3;},20000);
+    if(exitChange){
+        unsigned char complete=1;DWORD count=0;
+        check(coreFinishes==2 && WriteFile(reply,&complete,1,&count,nullptr) && count==1,"both real cores and owned network generations finish before fixture cleanup");CloseHandle(reply);
+        check(ReadFile(GetStdHandle(STD_INPUT_HANDLE),&complete,1,&count,nullptr) && count==1 && complete==1,"external observer removes only its own exit alias after network restoration");
+    }
     const auto restored=sameNetwork(initialDns,dnsSnapshot(),initialAddresses,interfaceAddresses());
-    check(authorizations==3 && approvals==1 && !session.isActive() && restored,
+    check(authorizations==(exitChange?4:3) && approvals==(exitChange?2:1) && !session.isActive() && restored,
         "single approval, owned device removal and complete original DNS/interface restoration");
+    if(exitChange)std::cout<<"PASS: changed Windows original exit restores before automatic reconnect, fresh generation, system DNS/TCP/UDP/SSH and complete final restoration\n";
     if(policyChanges)std::cout<<"PASS: Windows same-IP original/campus/original TCP, UDP and empty datagrams without reauthentication\n";
     std::cout<<"PASS: ordinary Windows application/native helper/Go core system DNS, TCP/UDP and empty datagrams, staged stop and complete restore\n";
     return 0;

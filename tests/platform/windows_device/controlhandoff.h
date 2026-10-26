@@ -13,3 +13,7 @@ struct WindowsControlFixtureInput {
     WindowsNetworkFingerprint baseline;
     bool hasBaseline=false;
 };
+
+struct WindowsExitChangeFixtureInput {
+    std::uint32_t interfaceIndex=0,address=0;
+};

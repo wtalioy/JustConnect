@@ -1,3 +1,4 @@
+#include <winsock2.h>
 #include "infrastructure/networkhelper/windows/control.h"
 #include "infrastructure/networkhelper/windows/recovery.h"
 #include "infrastructure/networkhelper/windows/installation.h"
@@ -6,6 +7,8 @@
 #include "controlhandoff.h"
 #include "windowsnetworkcontract.h"
 #include <objbase.h>
+#include <iphlpapi.h>
+#include <set>
 #include <winrt/Windows.Data.Json.h>
 #include <winrt/Windows.Foundation.Collections.h>
 #include <iostream>
@@ -17,6 +20,46 @@ using namespace winrt::Windows::Data::Json;
 namespace {
 constexpr DWORD FixtureTimeoutMs=45000;
 void check(bool value,const char *stage){if(!value)throw std::runtime_error(stage);}
+struct ExitAddress {
+    MIB_UNICASTIPADDRESS_ROW row{};
+    std::set<ULONG> before;
+    bool added=false;
+    ~ExitAddress(){if(added && DeleteUnicastIpAddressEntry(&row)!=NO_ERROR)std::cerr<<"exit fixture address cleanup failed\n";}
+    static std::set<ULONG> addresses(NET_IFINDEX index=0){
+        MIB_UNICASTIPADDRESS_TABLE *table=nullptr;
+        check(GetUnicastIpAddressTable(AF_INET,&table)==NO_ERROR,"read actual exit addresses");
+        std::set<ULONG> values;
+        for(ULONG i=0;i<table->NumEntries;++i)if(!index || table->Table[i].InterfaceIndex==index)
+            values.insert(ntohl(table->Table[i].Address.Ipv4.sin_addr.s_addr));
+        FreeMibTable(table);return values;
+    }
+    ULONG apply(NET_IFINDEX index){
+        MIB_IF_ROW2 adapter{};adapter.InterfaceIndex=index;
+        check(index && GetIfEntry2(&adapter)==NO_ERROR && adapter.OperStatus==IfOperStatusUp && adapter.Type!=IF_TYPE_SOFTWARE_LOOPBACK,
+            "changed exit is an actual active original interface");
+        MIB_IPFORWARD_TABLE2 *routes=nullptr;
+        check(GetIpForwardTable2(AF_INET,&routes)==NO_ERROR,"read actual original default routes");
+        bool isDefault=false;
+        for(ULONG i=0;i<routes->NumEntries;++i)isDefault|=routes->Table[i].InterfaceIndex==index && routes->Table[i].DestinationPrefix.PrefixLength==0;
+        FreeMibTable(routes);check(isDefault,"changed exit carries an actual default route");
+        before=addresses(index);const auto used=addresses();ULONG selected=0;
+        // RFC 5737 addresses are fixture inputs; no existing address or default route is replaced.
+        for(ULONG host=1;host<255;++host){const auto candidate=(192u<<24)|(2u<<8)|host;if(!used.contains(candidate)){selected=candidate;break;}}
+        check(selected && !before.empty(),"unused documentation alias and original exit addresses");
+        InitializeUnicastIpAddressEntry(&row);row.InterfaceIndex=index;row.Address.Ipv4.sin_family=AF_INET;
+        row.Address.Ipv4.sin_addr.s_addr=htonl(selected);row.OnLinkPrefixLength=32;row.SkipAsSource=TRUE;row.DadState=IpDadStatePreferred;
+        check(CreateUnicastIpAddressEntry(&row)==NO_ERROR,"add external exit address alias");added=true;
+        check(GetUnicastIpAddressEntry(&row)==NO_ERROR && row.DadState==IpDadStatePreferred && row.SkipAsSource && row.OnLinkPrefixLength==32,
+            "external exit alias is usable without changing automatic source selection");
+        auto expected=before;expected.insert(selected);check(addresses(index)==expected,"external alias preserves prior exit addresses");return selected;
+    }
+    void restore(){
+        auto expected=before;expected.insert(ntohl(row.Address.Ipv4.sin_addr.s_addr));
+        check(added && addresses(row.InterfaceIndex)==expected,"application restoration preserves the external alias");
+        check(DeleteUnicastIpAddressEntry(&row)==NO_ERROR,"remove only the fixture exit alias");added=false;
+        check(addresses(row.InterfaceIndex)==before,"fixture restores complete original exit address inventory");
+    }
+};
 struct Handle {HANDLE value=nullptr;~Handle(){if(value)CloseHandle(value);}};
 struct Process {
     Handle process,thread;
@@ -142,7 +185,7 @@ int client(const GUID &session,const std::wstring &mode){
     check(refused,"unsafe control request returned a reply");return 0;
 }
 GUID scenario(const std::wstring &helper,const std::wstring &mode,const std::wstring &clientImage={},bool application=false,
-    const std::wstring &fault={},std::optional<WindowsNetworkFingerprint> *baseline=nullptr){
+    const std::wstring &fault={},std::optional<WindowsNetworkFingerprint> *baseline=nullptr,bool exitChange=false){
     auto session=uuid();
     Handle token,input,childInput,console,request,childRequest;
     token.value=ordinaryWindowsToken();
@@ -200,7 +243,34 @@ GUID scenario(const std::wstring &helper,const std::wstring &mode,const std::wst
         const auto code=gui.wait();fake.join();if(error)std::rethrow_exception(error);check(code==0,"ordinary client accepted fake server");
     }else{
         transfer(input.value,&payload,sizeof(payload),true);
-        if(!fault.empty()){
+        if(exitChange){
+            check(fault.empty(),"exit change uses normal ownership restoration");
+            WindowsExitChangeFixtureInput changed;
+            awaitInput(request.value,sizeof(changed),gui,FixtureTimeoutMs,"application did not reach the original exit change boundary");
+            transfer(request.value,&changed,sizeof(changed),false);
+            ExitAddress alias;changed.address=alias.apply(changed.interfaceIndex);
+            const auto absent=[&](const GUID &owner){try{journal.read(owner);}catch(const std::system_error &error){if(error.code().value()==ERROR_FILE_NOT_FOUND)return true;throw;}return false;};
+            const auto previous=session;const auto deadline=GetTickCount64()+FixtureTimeoutMs;
+            while(!absent(previous) || WaitForSingleObject(elevated.process.value,0)!=WAIT_OBJECT_0){
+                check(GetTickCount64()<deadline && WaitForSingleObject(gui.process.value,0)==WAIT_TIMEOUT,"changed exit did not release old responsibility before reconnect");Sleep(10);
+            }
+            check(elevated.wait()==0,"old authorized helper exits after complete restoration");
+            transfer(input.value,&changed,sizeof(changed),true);
+            awaitInput(request.value,sizeof(session),gui,WindowsNetworkContract::ControlTimeoutMs,"reconnect did not request a fresh authorization");
+            transfer(request.value,&session,sizeof(session),false);check(session!=GUID{} && session!=previous,"reconnect uses a fresh ownership UUID");cleanup.session=session;
+            Process reconnected;
+            reconnected.start(L"\""+helper+L"\" --control "+std::to_wstring(caller.identity().pid)+L" "+std::to_wstring(caller.identity().created)+L" "+guid(session));
+            retained=nullptr;
+            check(DuplicateHandle(GetCurrentProcess(),reconnected.process.value,gui.process.value,&retained,PROCESS_QUERY_LIMITED_INFORMATION|SYNCHRONIZE,FALSE,0),"handoff fresh authorized helper process");
+            payload.server=reinterpret_cast<std::uintptr_t>(retained);transfer(input.value,&payload,sizeof(payload),true);
+            unsigned char complete=0;
+            awaitInput(request.value,1,gui,FixtureTimeoutMs,"reconnected application did not finish real traffic and ordered restoration");
+            transfer(request.value,&complete,1,false);
+            check(complete==1 && reconnected.wait()==0 && absent(previous) && absent(session),"both exit generations restore and acknowledge their complete ownership");
+            alias.restore();transfer(input.value,&complete,1,true);
+            check(gui.wait()==0,"application did not confirm original DNS and interface restoration after the exit change");
+            std::cout<<"PASS: actual Windows exit address change, old ownership release, fresh authorization and preserved external address\n";
+        }else if(!fault.empty()){
             check(application && baseline,"fault injection requires the ordinary application fixture");
             WindowsNetworkFingerprint original;
             awaitInput(request.value,sizeof(original),gui,FixtureTimeoutMs,"application did not finish actual traffic before the fault");
@@ -216,7 +286,7 @@ GUID scenario(const std::wstring &helper,const std::wstring &mode,const std::wst
             if(fault==L"helper-loss"){unsigned char restored=1;transfer(input.value,&restored,1,true);}
             check(gui.wait()==(fault==L"dual-kill"?1:0),"ordinary application failed its helper-loss contract");
         }else check(gui.wait()==0,"ordinary control client failed");
-        if(fault.empty() && mode!=L"authorize-cancel" && mode!=L"authorize-replaced"){
+        if(!exitChange && fault.empty() && mode!=L"authorize-cancel" && mode!=L"authorize-replaced"){
             const auto code=elevated.wait();check(code==(mode==L"normal" || mode==L"authorize" || mode==L"network"?0:1),"control helper accepted an invalid session");
         }
     }
@@ -258,7 +328,13 @@ int wmain(int argc,wchar_t **argv) try
             std::cout<<"PASS: ordinary application helper-loss, double crash, SCM recovery, complete baseline and new-session receipt handoff\n";return 0;
         }
     }
-    if(qt || application){scenario(argv[2],application?L"network":L"normal",argv[3],application);scenario(argv[2],L"network",argv[3],application);return 0;}
+    if(qt || application){
+        wchar_t changed[8]{};
+        const bool exitChange=application && GetEnvironmentVariableW(L"JC_WINDOWS_SESSION_EXIT_CHANGE",changed,8)==4 && std::wstring(changed)==L"true";
+        scenario(argv[2],application?L"network":L"normal",argv[3],application,{},nullptr,exitChange);
+        if(!exitChange)scenario(argv[2],L"network",argv[3],application);
+        return 0;
+    }
     for(const auto mode:{L"normal",L"authorize",L"authorize-cancel",L"authorize-replaced",L"server-mismatch",L"replaced",L"session-mismatch",L"unknown-field",L"unknown-operation",L"oversized",L"io-timeout",L"eof"})scenario(argv[1],mode);
     return 0;
 }catch(const std::exception &error){std::cerr<<error.what()<<'\n';return 1;}

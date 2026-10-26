@@ -15,18 +15,22 @@ import (
 )
 
 func TestNativeWindowsSessionHost(t *testing.T) {
-	nativeWindowsSession(t, false, false)
+	nativeWindowsSession(t, false, false, false)
 }
 
 func TestNativeWindowsSessionFaults(t *testing.T) {
-	nativeWindowsSession(t, true, false)
+	nativeWindowsSession(t, true, false, false)
 }
 
 func TestNativeWindowsSessionPolicy(t *testing.T) {
-	nativeWindowsSession(t, false, true)
+	nativeWindowsSession(t, false, true, false)
 }
 
-func nativeWindowsSession(t *testing.T, faults, policy bool) {
+func TestNativeWindowsSessionExitChange(t *testing.T) {
+	nativeWindowsSession(t, false, false, true)
+}
+
+func nativeWindowsSession(t *testing.T, faults, policy, exitChange bool) {
 	t.Helper()
 	host := os.Getenv("JC_NATIVE_WINDOWS_SESSION_HOST")
 	if host == "" || os.Getenv("GITHUB_ACTIONS") != "true" {
@@ -50,6 +54,7 @@ func nativeWindowsSession(t *testing.T, faults, policy bool) {
 	command := exec.CommandContext(ctx, "python", runner, "--session-host", host)
 	command.Env = append(os.Environ(), "JC_WINDOWS_SESSION_CONFIG="+string(configBytes(t, g.config(t))))
 	command.Env = append(command.Env, "JC_WINDOWS_SESSION_POLICY="+strconv.FormatBool(policy))
+	command.Env = append(command.Env, "JC_WINDOWS_SESSION_EXIT_CHANGE="+strconv.FormatBool(exitChange))
 	rounds := int32(2)
 	if faults {
 		command.Env = append(command.Env, "JC_WINDOWS_SESSION_FAULTS=true")
