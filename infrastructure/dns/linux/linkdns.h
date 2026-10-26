@@ -17,12 +17,13 @@ public:
     PlatformOperationResult apply(const QUuid &owner, const QString &interface, const QString &source,
         quint16 port, const QJsonObject &expected, const CheckpointWriter &checkpoint);
     PlatformOperationResult restore(const CheckpointWriter &checkpoint);
+    static PlatformOperationResult validateRecovery(const QUuid &owner, const QJsonObject &saved);
     PlatformOperationResult recover(const QUuid &owner, const QJsonObject &saved, const CheckpointWriter &checkpoint);
     QJsonObject snapshot() const { return record; }
 private:
     bool identity() const;
     PlatformOperationResult save(const CheckpointWriter &checkpoint) const;
-    PlatformOperationResult clear(const CheckpointWriter &checkpoint);
+    PlatformOperationResult clear(const CheckpointWriter &checkpoint, QDeadlineTimer &deadline);
     PlatformOperationResult restore(QDeadlineTimer &deadline, const CheckpointWriter &checkpoint);
     PlatformOperationResult write(const QJsonArray &servers, const QJsonObject &provider, QDeadlineTimer &deadline);
     QDBusConnection bus;

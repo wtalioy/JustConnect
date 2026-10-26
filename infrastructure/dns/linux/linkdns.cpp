@@ -62,6 +62,14 @@ Result plainTransport(const QDBusConnection &bus, const LinuxResolved::LinkSnaps
     if (tls != "no") return {Status::Unsupported, "The native DNS transport cannot be replaced by a plain local endpoint."};
     return {};
 }
+Result flushCaches(const QDBusConnection &bus, QDeadlineTimer &deadline)
+{
+    const auto reply = LinuxResolved::call(bus,LinuxResolved::service,LinuxResolved::managerPath,
+        LinuxResolved::managerInterface,"FlushCaches",{},deadline);
+    auto result = LinuxResolved::replyResult(reply);
+    if (result.succeeded() && !reply.signature().isEmpty()) return failure("Invalid native DNS cache confirmation.");
+    return result;
+}
 bool servers(const QJsonValue &value)
 {
     if (!value.isArray() || value.toArray().isEmpty() || value.toArray().size() > LinuxRouteSnapshotRows) return false;
@@ -98,8 +106,12 @@ PlatformOperationResult LinuxLinkDns::save(const CheckpointWriter &checkpoint) c
     if (!result.succeeded() && record["phase"] != "applying") result.mayHaveChanged = true;
     return result;
 }
-PlatformOperationResult LinuxLinkDns::clear(const CheckpointWriter &checkpoint)
+PlatformOperationResult LinuxLinkDns::clear(const CheckpointWriter &checkpoint, QDeadlineTimer &deadline)
 {
+    if (record["phase"] != "released") {
+        const auto flushed = flushCaches(bus,deadline);
+        if (!flushed.succeeded()) return flushed;
+    }
     record["phase"] = "released";
     auto result = save(checkpoint); if (!result.succeeded()) return result;
     result = checkpoint({}); if (!result.succeeded()) { result.mayHaveChanged = true; return result; }
@@ -151,12 +163,12 @@ PlatformOperationResult LinuxLinkDns::apply(const QUuid &owner, const QString &i
     if (!identity() || !sourceAssigned(interface, index, source) || !current.result.succeeded()
         || current.expectation(int(index)) != expected) {
         if (!current.result.succeeded()) return current.result;
-        const auto cleaned = clear(checkpoint);
+        const auto cleaned = clear(checkpoint, deadline);
         return {Status::Failed, "Original DNS changed before replacement.", !cleaned.succeeded()};
     }
     transport = plainTransport(bus, current, deadline);
     if (!transport.succeeded()) {
-        transport.mayHaveChanged = !clear(checkpoint).succeeded();
+        transport.mayHaveChanged = !clear(checkpoint, deadline).succeeded();
         return transport;
     }
     result = write(after, current.provider, deadline);
@@ -166,7 +178,8 @@ PlatformOperationResult LinuxLinkDns::apply(const QUuid &owner, const QString &i
         && actual.profile["domains"] == before.profile["domains"]
         && actual.profile["default_route"] == before.profile["default_route"] && actual.security == before.security
         && plainTransport(bus, actual, deadline).succeeded()) {
-        record["phase"] = "active"; return save(checkpoint);
+        result = flushCaches(bus,deadline);
+        if (result.succeeded()) { record["phase"] = "active"; return save(checkpoint); }
     }
     if (result.succeeded()) result = actual.result.succeeded() ? failure("Cannot confirm the original DNS replacement.") : actual.result;
     QDeadlineTimer rollback(LinuxRouteOperationTimeoutMs);
@@ -181,14 +194,14 @@ PlatformOperationResult LinuxLinkDns::restore(const CheckpointWriter &checkpoint
 PlatformOperationResult LinuxLinkDns::restore(QDeadlineTimer &deadline, const CheckpointWriter &checkpoint)
 {
     if (::geteuid() != 0) return {Status::PermissionDenied, "Original DNS recovery requires its privileged owner."};
-    if (record["phase"] == "released") return clear(checkpoint);
+    if (record["phase"] == "released") return clear(checkpoint, deadline);
     if (!identity()) {
         char name[IFNAMSIZ]{};
         if (record["namespace"] == linuxNetworkNamespace()
             && ::if_nametoindex(record["interface"].toString().toLatin1().constData()) == 0
             && !::if_indextoname(quint32(record["index"].toInteger()), name)) {
             const auto gone = LinuxResolved::readLink(bus, int(record["index"].toInteger()), deadline);
-            if (gone.result.succeeded() && gone.absent && gone.provider["bus"] == record["provider"].toObject()["bus"]) return clear(checkpoint);
+            if (gone.result.succeeded() && gone.absent && gone.provider["bus"] == record["provider"].toObject()["bus"]) return clear(checkpoint, deadline);
         }
         return failure("Original DNS interface identity changed.");
     }
@@ -199,7 +212,7 @@ PlatformOperationResult LinuxLinkDns::restore(QDeadlineTimer &deadline, const Ch
     if (!current.extended) return failure("Cannot completely inspect original DNS endpoint ownership.");
     const auto owned = record["after"].toArray().first();
     auto remaining = current.profile["dns"].toArray();
-    if (!remaining.contains(owned)) return clear(checkpoint);
+    if (!remaining.contains(owned)) return clear(checkpoint, deadline);
     // The unique DNSEx name marks our plain endpoint even across an interrupted native write.
     if (remaining == record["after"].toArray()) remaining = record["before"].toArray();
     else for (qsizetype i = remaining.size(); i-- > 0;) if (remaining[i] == owned) remaining.removeAt(i);
@@ -214,20 +227,27 @@ PlatformOperationResult LinuxLinkDns::restore(QDeadlineTimer &deadline, const Ch
     if (!restored.result.succeeded()) return restored.result;
     if (restored.absent || !restored.extended || restored.provider != confirmed.provider || restored.profile["dns"] != remaining)
         return failure("Cannot confirm the original DNS restoration.");
-    return clear(checkpoint);
+    return clear(checkpoint, deadline);
 }
-PlatformOperationResult LinuxLinkDns::recover(const QUuid &owner, const QJsonObject &saved, const CheckpointWriter &checkpoint)
+PlatformOperationResult LinuxLinkDns::validateRecovery(const QUuid &owner, const QJsonObject &saved)
 {
-    if (::geteuid() != 0) return {Status::PermissionDenied, "Original DNS recovery requires its privileged owner."};
     const auto after = saved["after"].toArray(); const auto endpoint = after.isEmpty() ? QJsonObject{} : after.first().toObject();
-    if (!checkpoint || !record.isEmpty() || owner.isNull() || saved.size() != 10 || saved["version"] != 1
+    if (owner.isNull() || saved.size() != 10 || saved["version"] != 1
         || saved["owner"] != owner.toString(QUuid::WithoutBraces) || saved["index"].toInteger() < 1 || saved["index"].toInteger() > INT_MAX || saved["index"] != QJsonValue(saved["index"].toInteger())
         || !canonicalLinuxInterfaceName(saved["interface"].toString()) || !canonicalUnicastIpv4(saved["source"].toString())
-        || saved["namespace"].toString().isEmpty() || !LinuxResolved::providerIdentity(saved["provider"].toObject())
+        || saved["namespace"].toString().isEmpty() || saved["namespace"] != linuxNetworkNamespace() || !LinuxResolved::providerIdentity(saved["provider"].toObject())
         || !servers(saved["before"]) || !servers(saved["after"]) || after.size() != 1
         || endpoint != linuxLinkDnsEndpoint(owner, saved["source"].toString(), quint16(endpoint["port"].toInteger()))
         || !QStringList{"applying", "active", "restoring", "released"}.contains(saved["phase"].toString())
         || !recordFits(saved))
         return {Status::Failed, "Invalid original DNS ownership record."};
+    return {};
+}
+PlatformOperationResult LinuxLinkDns::recover(const QUuid &owner, const QJsonObject &saved, const CheckpointWriter &checkpoint)
+{
+    if (::geteuid() != 0) return {Status::PermissionDenied, "Original DNS recovery requires its privileged owner."};
+    if (!checkpoint || !record.isEmpty()) return {Status::Failed,"Original DNS recovery requires an inactive owner and durable checkpoint."};
+    const auto valid = validateRecovery(owner,saved);
+    if (!valid.succeeded()) return valid;
     record = saved; return restore(checkpoint);
 }

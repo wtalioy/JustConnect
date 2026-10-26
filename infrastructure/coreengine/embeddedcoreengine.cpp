@@ -424,7 +424,9 @@ void EmbeddedCoreEngine::readSnapshot(Snapshot kind, const QString &generation) 
 }
 void EmbeddedCoreEngine::prepareOriginalDNS(const QString &generation, const QJsonArray &sources) {
     if (!active || stopping) { emit originalDNSPrepared(generation, {}, RequestStatus::Stale); return; }
-    if (!library().jc_session_prepare_original_dns || !buildInfo()["capabilities"].toObject()["original_dns_preparation"].toBool()) {
+    const auto capabilities = buildInfo()["capabilities"].toObject();
+    if (!library().jc_session_prepare_original_dns || !capabilities["original_dns_preparation"].toBool()
+        || !capabilities["original_dns_exclusions"].toBool()) {
         emit originalDNSPrepared(generation, {}, RequestStatus::Unavailable); return;
     }
     auto bytes = QJsonDocument(QJsonObject{{"schema_version", int(JC_ABI_VERSION)}, {"generation", generation}, {"sources", sources}}).toJson(QJsonDocument::Compact);

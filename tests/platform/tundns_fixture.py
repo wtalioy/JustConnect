@@ -174,23 +174,24 @@ class LocalDnsEndpoint:
 
 class OriginalDnsServer:
     """An actual UDP DNS server on the fixture's original interface."""
-    def __init__(self, resolver, interface):
+    def __init__(self, resolver, interface, address="192.0.2.53", answers=None):
         self.resolver, self.interface = resolver, interface
+        self.address, self.answers = address, dict(answers or {})
         self.queries, self.errors = [], []
         self.stopped = threading.Event()
 
     def __enter__(self):
-        self.resolver.run('ip', 'address', 'add', '192.0.2.53/32', 'dev', self.interface)
+        self.resolver.run('ip', 'address', 'add', self.address + '/32', 'dev', self.interface)
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
-            self.socket.bind(('192.0.2.53', 53))
+            self.socket.bind((self.address, 53))
             self.socket.settimeout(0.1)
             self.thread = threading.Thread(target=self.serve)
             self.thread.start()
             return self
         except BaseException:
             self.socket.close()
-            self.resolver.run('ip', 'address', 'del', '192.0.2.53/32', 'dev', self.interface)
+            self.resolver.run('ip', 'address', 'del', self.address + '/32', 'dev', self.interface)
             raise
 
     def serve(self):
@@ -200,10 +201,11 @@ class OriginalDnsServer:
             except socket.timeout:
                 continue
             try:
-                for hostname in ('public.test', 'host.original.test'):
+                for hostname in ('public.test', 'host.original.test', *self.answers):
                     labels = b''.join(bytes([len(label)]) + label.encode('ascii') for label in hostname.split('.')) + b'\0'
                     if query[12:].startswith(labels):
-                        self.socket.sendto(dns_answer(query, hostname), sender)
+                        answer = dns_answer(query, hostname, **({'ipv4': self.answers[hostname]} if hostname in self.answers else {}))
+                        self.socket.sendto(answer, sender)
                         self.queries.append(hostname)
                         break
                 else:
@@ -216,7 +218,7 @@ class OriginalDnsServer:
         self.stopped.set()
         self.thread.join(timeout=2)
         self.socket.close()
-        self.resolver.run('ip', 'address', 'del', '192.0.2.53/32', 'dev', self.interface)
+        self.resolver.run('ip', 'address', 'del', self.address + '/32', 'dev', self.interface)
         if kind is None:
             assert not self.thread.is_alive() and not self.errors, self.errors
 

@@ -1,17 +1,142 @@
 #include "infrastructure/networkhelper/linux/networkhelperpreparation.h"
 #include "application/networkprotection.h"
+#include "infrastructure/dns/dnssnapshot.h"
 #include "infrastructure/tundevice/tundevice.h"
 #include "infrastructure/routing/linux/ownedroutetable.h"
 #include "infrastructure/routing/linux/originalexit.h"
 #include <QHostAddress>
 #include <QJsonDocument>
+#include <QMap>
+#include <QUrl>
+#include <sys/socket.h>
 
 
-LinuxHelperPreparation prepareLinuxNetworkHelper(const QJsonObject &resources, const QJsonObject &policy,
-    const QJsonObject &network, const DnsSnapshot &dns, const QString &localDNS, int mtu, const PlatformCommandRunner &reader)
+namespace {
+LinuxHelperPreparation prepareOriginalDNS(const QJsonArray &required, const QJsonObject &network,
+    const QJsonObject &dns, const LinuxOriginalDNSReader &reader, QDeadlineTimer &deadline)
 {
     using Status = PlatformOperationResult::Status;
-    const auto targets = campusCaptureTargets(resources, policy);
+    auto unsupported = [](const char *message) { return LinuxHelperPreparation{{Status::Unsupported,QString::fromLatin1(message)},{},{}}; };
+    const auto protection = originalDnsProtection(dns);
+    const auto resolved = dns["resolved"].toObject();
+    if (!protection || resolved["status"] != "available") return unsupported("The original resolver context is unavailable.");
+    if (!LinuxResolved::nativeStubRouting(resolved))
+        return unsupported("The native stub resolver routing cannot be confirmed.");
+    const auto targets = (*protection)["targets"].toArray(), namespaces = (*protection)["namespaces"].toArray();
+    QMap<int,QJsonArray> scopes;
+    for (const auto &value : required) {
+        const auto rule = value.toObject();
+        bool found = false;
+        for (const auto &target : targets) {
+            const auto row = target.toObject();
+            if (row["kind"] != rule["kind"] || row["value"] != rule["value"]) continue;
+            for (const auto &reference : row["sources"].toArray()) {
+                const auto ref = reference.toObject();
+                const auto at = ref["index"].toInt(-1);
+                if (ref["kind"] != "namespace" || at < 0 || at >= namespaces.size())
+                    return unsupported("A protected name has no replaceable native resolver context.");
+                const auto origin = namespaces[at].toObject()["source"].toObject();
+                if (origin["provider"] == "resolv_conf") continue;
+                if (origin["provider"] != "resolved" || origin["interface_index"].toInt() <= 0)
+                    return unsupported("A protected name requires an unsupported global resolver context.");
+                auto &names = scopes[origin["interface_index"].toInt()];
+                if (!names.contains(rule)) names.append(rule);
+                found = true;
+            }
+        }
+        if (!found) return unsupported("A protected name cannot be mapped to its native DNS interface.");
+    }
+    LinuxHelperPreparation result;
+    qsizetype endpoints = 0;
+    for (auto it = scopes.cbegin(); it != scopes.cend(); ++it) {
+        QJsonObject interface;
+        for (const auto &value : network["interfaces"].toArray()) {
+            const auto row = value.toObject();
+            if (row["index"] != it.key()) continue;
+            if (!interface.isEmpty()) return unsupported("The original DNS interface is ambiguous.");
+            interface = row;
+        }
+        const auto name = interface["name"].toString();
+        if (!canonicalLinuxInterfaceName(name) || interface["up"] != true || interface["loopback"] != false)
+            return unsupported("The original DNS interface is unavailable.");
+        QString local;
+        for (const auto &value : interface["addresses"].toArray()) {
+            if (!value.isString()) return unsupported("The original DNS interface address is invalid.");
+            const auto address = value.toString().section('/',0,0);
+            if (canonicalUnicastIpv4(address)) { local = address; break; }
+        }
+        if (local.isEmpty()) return unsupported("The original DNS interface has no assigned IPv4 listener address.");
+        const auto snapshot = reader ? reader(it.key(),deadline)
+            : LinuxResolved::readLink(QDBusConnection::systemBus(),it.key(),deadline);
+        if (!snapshot.result.succeeded()) return {snapshot.result,{},{}};
+        const auto expected = snapshot.expectation(it.key());
+        const auto observed = LinuxResolved::linkInputs(resolved,it.key(),name);
+        if (snapshot.absent || !snapshot.extended || !observed || !LinuxResolved::providerIdentity(snapshot.provider)
+            || (*observed)["profile"] != snapshot.profile || (*observed)["security"] != snapshot.security)
+            return unsupported("The original DNS profile changed during preparation.");
+        auto tls = snapshot.security.value("DNSOverTLS");
+        if (tls == "") tls = resolved.value("DNSOverTLS");
+        if (tls != "no") return unsupported("The native DNS transport cannot be downgraded to a plain relay.");
+        const auto servers = snapshot.profile["dns"].toArray();
+        if (servers.isEmpty()) return unsupported("The original DNS server list is empty.");
+        bool loopback = true, anyLoopback = false;
+        for (const auto &value : servers) {
+            const QHostAddress address(value.toObject()["address"].toString());
+            loopback &= address.isLoopback(); anyLoopback |= address.isLoopback();
+        }
+        if (loopback != anyLoopback) return unsupported("The native server list requires multiple query interfaces.");
+        QString queryInterface = name;
+        if (loopback) {
+            queryInterface.clear();
+            for (const auto &value : network["interfaces"].toArray()) {
+                const auto row = value.toObject();
+                if (row["up"] != true || row["loopback"] != true) continue;
+                if (!queryInterface.isEmpty()) return unsupported("The loopback query interface is ambiguous.");
+                queryInterface = row["name"].toString();
+            }
+            if (!canonicalLinuxInterfaceName(queryInterface)) return unsupported("No native loopback query interface is available.");
+        }
+        QJsonArray literals;
+        for (const auto &value : servers) {
+            const auto row = value.toObject();
+            QHostAddress address(row["address"].toString());
+            const auto port = row["port"].toInt(-1), family = row["family"].toInt();
+            if (address.isNull() || address.isMulticast() || address == QHostAddress::AnyIPv4 || address == QHostAddress::AnyIPv6
+                || address == QHostAddress::Broadcast || port < 0 || port > 65535
+                || (family != AF_INET && family != AF_INET6)
+                || (family == AF_INET) != (address.protocol() == QAbstractSocket::IPv4Protocol))
+                return unsupported("The native DNS server is not a complete unicast endpoint.");
+            if (address.protocol() == QAbstractSocket::IPv6Protocol && address.isLinkLocal()) address.setScopeId(queryInterface);
+            // DNSEx port zero denotes the DNS protocol's standard port.
+            const auto endpoint = (family == AF_INET6 ? '['+address.toString()+']' : address.toString()) + ':' + QString::number(port ? port : DnsServerPort);
+            literals.append(endpoint);
+        }
+        for (const auto &rule : it.value()) {
+            endpoints += literals.size();
+            if (endpoints > LinuxRouteSnapshotRows) return unsupported("The original DNS source plan exceeds its complete bound.");
+            result.originalSources.append(QJsonObject{{"name",rule},{"servers",literals},{"interface",queryInterface},
+                {"source",QString::number(it.key())},{"listen",local+":0"}});
+        }
+        result.configuration.originalDns.append({name,local,0,expected});
+    }
+    return result;
+}
+}
+
+LinuxHelperPreparation prepareLinuxNetworkHelper(const QJsonObject &resources, const QJsonObject &policy,
+    const QJsonObject &network, const DnsSnapshot &dns, const QString &localDNS, int mtu, const PlatformCommandRunner &reader, const LinuxOriginalDNSReader &dnsReader)
+{
+    using Status = PlatformOperationResult::Status;
+    QDeadlineTimer deadline(LinuxRouteOperationTimeoutMs);
+    const auto required = requiredOriginalDnsNames(resources,policy);
+    if (!required) return {{Status::Unsupported,"Cannot determine the complete original DNS requirements."},{},{}};
+    LinuxHelperPreparation original;
+    if (!required->isEmpty()) {
+        if (!dns.result.succeeded()) return {dns.result,{},{}};
+        original = prepareOriginalDNS(*required,network,dns.data,dnsReader,deadline);
+        if (!original.result.succeeded()) return original;
+    }
+    const auto targets = campusCaptureTargets(resources, policy, {}, original.originalSources);
     if (!targets || targets->ipv4Prefixes.isEmpty()) return {{Status::Unsupported, "Cannot derive safe campus capture targets."}, {}};
     if (!dns.result.succeeded()) return {dns.result, {}};
     const auto reserved = tunAddressReservations(targets->ipv4Prefixes,dns.data,localDNS);
@@ -36,8 +161,9 @@ LinuxHelperPreparation prepareLinuxNetworkHelper(const QJsonObject &resources, c
     }
     // One process handles all read-only queries; each compact JSON array is one output line.
     const QStringList arguments{"-N", "-j", "-4", "-batch", "-"};
+    if (deadline.hasExpired()) return {{Status::TimedOut,"Original network preparation timed out."},{},{}};
     const auto read = reader ? reader(utility, arguments)
-        : runPlatformCommand(utility, arguments, LinuxRouteOperationTimeoutMs, batch);
+        : runPlatformCommand(utility, arguments, int(deadline.remainingTime()), batch);
     if (!read.result.succeeded()) return {read.result, {}};
     if (read.output.toUtf8().size() > LinuxRouteSnapshotBytes || read.output.contains(QChar::ReplacementCharacter))
         return {{Status::Failed, "Original route queries exceeded the complete output bound."}, {}};
@@ -49,6 +175,7 @@ LinuxHelperPreparation prepareLinuxNetworkHelper(const QJsonObject &resources, c
     config.mtu = mtu;
     config.capturePrefixes = config.originalPrefixes = targets->ipv4Prefixes;
     config.dnsDomains = targets->dnsDomains;
+    config.originalDns = original.configuration.originalDns;
     for (qsizetype index=0; index<lines.size(); ++index) {
         const auto document = QJsonDocument::fromJson(lines[index].toUtf8());
         if (!document.isArray() || document.array().size() != 1 || !document.array().first().isObject())
@@ -78,7 +205,23 @@ LinuxHelperPreparation prepareLinuxNetworkHelper(const QJsonObject &resources, c
     }
     const auto valid = LinuxOwnedRouteTable::validate(config.originalInterface, config.originalSource, config.originalGateway, config.originalPrefixes);
     if (!valid.succeeded()) return {valid, {}};
-    return {{}, config};
+    return {{}, config, original.originalSources};
+}
+
+std::optional<LinuxHelperConfiguration> completeLinuxOriginalDNS(LinuxHelperConfiguration configuration, const QJsonObject &listeners)
+{
+    if (listeners.size() != configuration.originalDns.size()) return {};
+    for (auto &link : configuration.originalDns) {
+        const auto source = QString::number(link.expected["index"].toInt());
+        const auto value = listeners[source];
+        if (!value.isString()) return {};
+        const auto literal = value.toString();
+        const QUrl endpoint("dns://"+literal);
+        const auto port = endpoint.port(0);
+        if (port < 1 || port > 65535 || literal != link.source+':'+QString::number(port)) return {};
+        link.port = quint16(port);
+    }
+    return configuration;
 }
 
 PlatformOperationResult verifyLinuxCaptureExit(const LinuxHelperConfiguration &owned, const QStringList &prefixes,

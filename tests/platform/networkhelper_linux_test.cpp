@@ -1,5 +1,7 @@
 #include "infrastructure/networkhelper/linux/networkhelper.h"
 #include "networkhelperpaths.h"
+#include "infrastructure/dns/linux/linkdns.h"
+#include "infrastructure/routing/linux/iprouteutility.h"
 #include <QCoreApplication>
 #include <QDir>
 #include <QFileInfo>
@@ -72,6 +74,17 @@ int main(int argc, char **argv) try
         {"profile", QJsonObject{{"dns", QJsonArray{QJsonObject{{"family", AF_INET}, {"address", "192.0.2.53"}, {"port", 0}, {"name", ""}}}},
             {"domains", QJsonArray{QJsonObject{{"name", "original.test"}, {"route_only", true}}}}, {"default_route", false}}},
         {"security", QJsonObject{{"DNSOverTLS", "no"}, {"DNSSEC", "no"}}}};
+    const QJsonObject originalRecord{{"version",1},{"owner",owner.toString(QUuid::WithoutBraces)},
+        {"interface","fixture0"},{"index",2},{"source","192.0.2.1"},{"namespace",linuxNetworkNamespace()},
+        {"provider",expected["provider"]},{"before",expected["profile"].toObject()["dns"]},
+        {"after",QJsonArray{linuxLinkDnsEndpoint(owner,"192.0.2.1",47321)}},{"phase","active"}};
+    check(LinuxLinkDns::validateRecovery(owner,originalRecord).succeeded(),"Valid original DNS responsibility failed read-only preflight");
+    for (const auto &change : {QJsonObject{{"namespace",linuxNetworkNamespace()+".foreign"}},QJsonObject{{"owner",QUuid::createUuid().toString(QUuid::WithoutBraces)}},
+                              QJsonObject{{"index",2.5}},QJsonObject{{"before",QJsonArray{}}},QJsonObject{{"after",QJsonArray{}}}}) {
+        auto invalid = originalRecord;
+        for (auto it=change.begin();it!=change.end();++it) invalid[it.key()] = it.value();
+        check(!LinuxLinkDns::validateRecovery(owner,invalid).succeeded(),"Invalid DNS responsibility could release routes before rejection");
+    }
     configuration.originalDns = {{"fixture0", "192.0.2.1", 47321, expected}, {"other0", "192.0.2.2", 39417, expected}};
     const auto encoded = linuxHelperApplyRequest(owner, configuration);
     const auto parsed = parseLinuxHelperApply(owner, encoded);

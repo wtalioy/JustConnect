@@ -44,6 +44,10 @@ bool sameProviderNamespace(quint32 pid)
     return false;
 }
 }
+bool nativeStubRouting(const QJsonObject &resolved)
+{
+    return resolved["status"] == "available" && (resolved["ResolvConfMode"] == "stub" || resolved["ResolvConfMode"] == "static");
+}
 std::optional<QJsonObject> linkInputs(const QJsonObject &resolved, const QJsonValue &index, const QString &interface)
 {
     if (resolved["status"] != "available" || !resolved["DNS"].isArray()
