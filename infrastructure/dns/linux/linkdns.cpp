@@ -80,6 +80,12 @@ bool servers(const QJsonValue &value)
 }
 }
 
+QJsonObject linuxLinkDnsEndpoint(const QUuid &owner, const QString &source, quint16 port)
+{
+    if (owner.isNull() || !canonicalUnicastIpv4(source) || port == 0) return {};
+    return {{"family", AF_INET}, {"address", source}, {"port", port}, {"name", marker(owner)}};
+}
+
 bool LinuxLinkDns::identity() const
 {
     return record["namespace"] == linuxNetworkNamespace() && !record["namespace"].toString().isEmpty()
@@ -128,7 +134,7 @@ PlatformOperationResult LinuxLinkDns::apply(const QUuid &owner, const QString &i
     auto transport = plainTransport(bus, before, deadline);
     if (!transport.succeeded()) return transport;
     // With DNSOverTLS disabled, the unused TLS name carries our crash-recovery tag.
-    const QJsonArray after{QJsonObject{{"family", AF_INET}, {"address", source}, {"port", port}, {"name", marker(owner)}}};
+    const QJsonArray after{linuxLinkDnsEndpoint(owner, source, port)};
     static const QRegularExpression ownedName("^justconnect-[0-9a-f]{32}[.]invalid$");
     for (const auto &value : before.profile["dns"].toArray())
         if (ownedName.match(value.toObject()["name"].toString()).hasMatch())
@@ -218,8 +224,8 @@ PlatformOperationResult LinuxLinkDns::recover(const QUuid &owner, const QJsonObj
         || saved["owner"] != owner.toString(QUuid::WithoutBraces) || saved["index"].toInteger() < 1 || saved["index"].toInteger() > INT_MAX || saved["index"] != QJsonValue(saved["index"].toInteger())
         || !canonicalLinuxInterfaceName(saved["interface"].toString()) || !canonicalUnicastIpv4(saved["source"].toString())
         || saved["namespace"].toString().isEmpty() || !LinuxResolved::providerIdentity(saved["provider"].toObject())
-        || !servers(saved["before"]) || !servers(saved["after"]) || after.size() != 1 || endpoint["family"] != AF_INET
-        || endpoint["address"] != saved["source"] || endpoint["port"].toInteger() < 1 || endpoint["name"] != marker(owner)
+        || !servers(saved["before"]) || !servers(saved["after"]) || after.size() != 1
+        || endpoint != linuxLinkDnsEndpoint(owner, saved["source"].toString(), quint16(endpoint["port"].toInteger()))
         || !QStringList{"applying", "active", "restoring", "released"}.contains(saved["phase"].toString())
         || !recordFits(saved))
         return {Status::Failed, "Invalid original DNS ownership record."};
