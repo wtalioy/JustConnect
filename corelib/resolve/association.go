@@ -184,6 +184,22 @@ func (r *Resolver) bindDNSAnswer(request, reply *dns.Msg, publish func([]netip.A
 		}
 		r.dnsBindings[address] = rows
 	}
+	if originalInterface == "" {
+		// Downstream caches must not outlive the authorization created for this answer.
+		lifetime := r.dnsTTL
+		for _, ttl := range addresses {
+			lifetime = min(lifetime, ttl)
+		}
+		for _, record := range reply.Answer {
+			if record.Header().Class != dns.ClassINET || !seen[normalizeHostname(record.Header().Name)] {
+				continue
+			}
+			switch record.(type) {
+			case *dns.A, *dns.CNAME, *dns.RRSIG:
+				record.Header().Ttl = min(record.Header().Ttl, lifetime)
+			}
+		}
+	}
 	return result, nil
 }
 

@@ -2,6 +2,7 @@ package resolve
 
 import (
 	"context"
+	"crypto"
 	"errors"
 	"fmt"
 	"net"
@@ -193,5 +194,70 @@ func TestCampusDNSPublicationPrecedesAuthorizationLifetime(t *testing.T) {
 	}
 	if len(r.CampusResourcesForIP(t.Context(), address)) != 1 || r.dnsBindings[address][0].expires.Before(published.Add(time.Second)) {
 		t.Fatal("publication consumed the zero-TTL first-flow lifetime")
+	}
+}
+
+func TestCampusDNSCacheTTLFollowsBindingLifetime(t *testing.T) {
+	key := &dns.DNSKEY{Hdr: dns.RR_Header{Name: "test.", Rrtype: dns.TypeDNSKEY, Class: dns.ClassINET, Ttl: 300}, Flags: 257, Protocol: 3, Algorithm: dns.ECDSAP256SHA256}
+	private, err := key.Generate(256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, configured := range []uint32{0, 1, 30} {
+		t.Run(fmt.Sprint(configured), func(t *testing.T) {
+			r := NewResolver(nil, "", "", uint64(configured), client.DomainResources{"*.campus.test": {{Protocol: "tcp", PortMin: 80, PortMax: 80}}}, nil, false)
+			defer r.Close()
+			request := new(dns.Msg).SetQuestion("alias.campus.test.", dns.TypeA)
+			alias := &dns.CNAME{Hdr: dns.RR_Header{Name: request.Question[0].Name, Rrtype: dns.TypeCNAME, Class: dns.ClassINET, Ttl: 10}, Target: "target.cdn.test."}
+			answer := &dns.A{Hdr: dns.RR_Header{Name: alias.Target, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 5}, A: net.IPv4(203, 0, 113, 7)}
+			signature := &dns.RRSIG{Hdr: dns.RR_Header{Ttl: answer.Hdr.Ttl}, Algorithm: key.Algorithm, KeyTag: key.KeyTag(), SignerName: key.Hdr.Name,
+				Inception: uint32(time.Now().Add(-time.Hour).Unix()), Expiration: uint32(time.Now().Add(time.Hour).Unix())}
+			if err := signature.Sign(private.(crypto.Signer), []dns.RR{answer}); err != nil {
+				t.Fatal(err)
+			}
+			originalSignature, originalTTL := signature.Signature, signature.OrigTtl
+			reply := new(dns.Msg).SetReply(request)
+			unrelated := &dns.A{Hdr: dns.RR_Header{Name: "public.test.", Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 40}, A: net.IPv4(203, 0, 113, 9)}
+			reply.Answer = []dns.RR{alias, answer, signature, unrelated}
+			reply.SetEdns0(1232, true)
+			want := min(configured, alias.Hdr.Ttl, answer.Hdr.Ttl)
+			before := time.Now()
+			if _, err := r.bindCampusAnswer(request, reply, nil); err != nil {
+				t.Fatal(err)
+			}
+			after := time.Now()
+			wire, err := reply.Pack()
+			if err != nil {
+				t.Fatal(err)
+			}
+			observed := new(dns.Msg)
+			if err := observed.Unpack(wire); err != nil {
+				t.Fatal(err)
+			}
+			for _, record := range observed.Answer[:3] {
+				if record.Header().Ttl != want {
+					t.Fatalf("downstream cache TTL %d exceeds binding lifetime %d", record.Header().Ttl, want)
+				}
+			}
+			if observed.Answer[3].String() != unrelated.String() {
+				t.Fatal("unrelated DNS record was rewritten")
+			}
+			if observed.Answer[0].(*dns.CNAME).Target != alias.Target || !observed.Answer[1].(*dns.A).A.Equal(answer.A) || !observed.IsEdns0().Do() {
+				t.Fatal("TTL adjustment changed DNS records or EDNS flags")
+			}
+			signed := observed.Answer[2].(*dns.RRSIG)
+			if signed.OrigTtl != originalTTL || signed.Signature != originalSignature {
+				t.Fatal("TTL adjustment rewrote signed data")
+			}
+			if err := signed.Verify(key, []dns.RR{observed.Answer[1]}); err != nil {
+				t.Fatal("bounded DNS answer lost signature validity", err)
+			}
+			address := netip.MustParseAddr(answer.A.String())
+			binding := r.dnsBindings[address][0]
+			lifetime := time.Duration(max(want, 1)) * time.Second
+			if binding.expires.Before(before.Add(lifetime)) || binding.expires.After(after.Add(lifetime)) || len(r.CampusResourcesForIP(t.Context(), address)) != 1 {
+				t.Fatal("wire lifetime and actual transparent authorization disagree")
+			}
+		})
 	}
 }
