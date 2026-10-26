@@ -116,9 +116,12 @@ static int exerciseApplicationNetworkAccess(const ConnectionProfile &profile)
         if (!round || !automaticExit)
             check(session.start(profile, {automaticExit,1000}), "start application connection");
         until([&] { return session.state() == ConnectionState::Running || !session.isActive(); });
-        check(session.state() == ConnectionState::Running && session.phase() == ConnectionPhase::CampusReady
-              && sawPreparing && started == round + 1 && tunReferences() == 2,
-              "application confirms network ownership and core attachment before campus readiness");
+        const int references=tunReferences();
+        const bool ready=session.state() == ConnectionState::Running && session.phase() == ConnectionPhase::CampusReady
+              && sawPreparing && started == round + 1 && references == 2;
+        if(!ready)std::cerr<<"network readiness round="<<round<<" state="<<int(session.state())<<" phase="<<int(session.phase())
+            <<" preparing="<<sawPreparing<<" starts="<<started<<" TUN references="<<references<<'\n';
+        check(ready,"application confirms network ownership and core attachment before campus readiness");
         if (automaticExit && round) {
             check(session.reconnectAttempt() == 1,"Changed exit reused the existing reconnect budget");
             until([&] { return !policy.isBusy(); });
