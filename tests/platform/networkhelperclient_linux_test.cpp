@@ -1,5 +1,7 @@
 #include "infrastructure/networkhelper/linux/networkhelperclient.h"
 #include "networkhelperfixture.h"
+#include "infrastructure/routing/linux/iprouteutility.h"
+#include "infrastructure/process/command.h"
 #include <QCoreApplication>
 #include <QDeadlineTimer>
 #include <QFileInfo>
@@ -131,13 +133,21 @@ int main(int argc, char **argv) try
                 }
                 check(results.last().succeeded() && client->state() == Client::State::Active && client->descriptor() == device
                       && client->ownedConfiguration()->capturePrefixes == changedCapture
-                      && client->ownedConfiguration()->originalPrefixes.contains("198.18.6.7/32"),
-                      "Live route confirmation replaced the fd or discarded still-owned original egress");
+                      && client->ownedConfiguration()->originalPrefixes == changedCapture,
+                      "Live route confirmation replaced the fd or retained withdrawn source prefixes");
+                const auto lookup = runPlatformCommand(trustedIpRouteUtility(),
+                    {"-N","-j","-4","route","get","198.18.6.7","from",configuration.originalSource});
+                const auto native = QJsonDocument::fromJson(lookup.output.toUtf8());
+                check(lookup.result.succeeded() && native.isArray() && native.array().size() == 1
+                      && native.array()[0].toObject()["dev"] == configuration.originalInterface
+                      && native.array()[0].toObject()["table"] != QString::number(linuxSourceTable(owner)),
+                      "Withdrawn DNS traffic still uses the helper's temporary original-source table");
                 previous = results.size();
                 client->reconcile(beforeExtension.capturePrefixes);
                 wait([&] { return results.size() == previous+1; });
-                check(results.last().succeeded() && client->ownedConfiguration()->capturePrefixes == beforeExtension.capturePrefixes,
-                      "Live route withdrawal retained stale capture in its confirmed view");
+                check(results.last().succeeded() && client->ownedConfiguration()->capturePrefixes == beforeExtension.capturePrefixes
+                      && client->ownedConfiguration()->originalPrefixes == beforeExtension.originalPrefixes,
+                      "Live route withdrawal retained stale capture or source prefixes in its confirmed view");
             }
             if (scenario == "partial") configuration.capturePrefixes.append(configuration.peer+"/32");
     if (scenario.startsWith("dns")) {

@@ -187,11 +187,13 @@ struct OwnedOperation {
     Result reconcile(const QStringList &prefixes)
     {
         if (context["phase"] != "active") return invalid("Route changes require active connection ownership.");
-        // Original egress remains owned until full restoration, including existing relay traffic.
         auto result = source.verifyExit(prefixes);
         if (result.succeeded()) result = source.ensurePrefixes(owner,prefixes,writer(sourceJournal));
-        const bool changed = result.mayHaveChanged;
+        bool changed = result.mayHaveChanged;
         if (result.succeeded()) result = capture.reconcile(device,prefixes,writer(captureJournal));
+        changed |= result.mayHaveChanged;
+        // Release capture before its bypass pins so withdrawn traffic follows native routing.
+        if (result.succeeded()) result = source.reconcile(owner,prefixes,writer(sourceJournal));
         if (result.succeeded()) return {Status::Success,{},changed || result.mayHaveChanged};
         const auto restored = restore();
         if (!restored.succeeded()) result = restored;

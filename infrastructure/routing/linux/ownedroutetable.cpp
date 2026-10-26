@@ -9,6 +9,7 @@
 
 namespace {
 using Status = PlatformOperationResult::Status;
+constexpr int sourceSnapshotVersion = 2;
 bool localRule(QJsonObject row)
 {
     row.remove("protocol");
@@ -167,9 +168,11 @@ QJsonObject LinuxOwnedRouteTable::snapshot() const
     QJsonArray routes;
     for (const auto &entry : entries) routes.append(QJsonObject{{"prefix",entry.prefix},{"before",QJsonArray{}},
         {"applied",entry.applied},{"delete_started",entry.deleting}});
-    return {{"owner",owner.toString(QUuid::WithoutBraces)},{"namespace",networkNamespace},{"interface",interfaceName},{"index",qint64(interfaceIndex)},
+    QJsonObject record{{"owner",owner.toString(QUuid::WithoutBraces)},{"namespace",networkNamespace},{"interface",interfaceName},{"index",qint64(interfaceIndex)},
         {"source",sourceAddress},{"gateway",gatewayAddress},{"table",qint64(table)},{"priority",priority()},{"metric",qint64(metric)},
         {"routes",routes},{"rule_pending",rulePending},{"rule_delete_started",ruleDeleting},{"rule_before",QJsonArray{}},{"rule_applied",appliedRule}};
+    if (role == Role::OriginalSource) record["version"] = sourceSnapshotVersion;
+    return record;
 }
 PlatformOperationResult LinuxOwnedRouteTable::saveCheckpoint(const CheckpointWriter &writer) const
 {
@@ -179,7 +182,8 @@ PlatformOperationResult LinuxOwnedRouteTable::recover(const QUuid &id, const QJs
 {
     if (!owner.isNull()) return {Status::Failed,"Active source ownership cannot be replaced by a saved record."};
     const auto invalid = PlatformOperationResult{Status::Failed,"Invalid saved source route ownership."};
-    if (id.isNull() || saved.size()!=14 || saved["owner"]!=id.toString(QUuid::WithoutBraces)
+    const bool versionedSource = role == Role::OriginalSource && saved["version"] == sourceSnapshotVersion;
+    if (id.isNull() || (versionedSource ? saved.size()!=15 : saved.size()!=14 || saved.contains("version")) || saved["owner"]!=id.toString(QUuid::WithoutBraces)
         || QJsonDocument(saved).toJson(QJsonDocument::Compact).size()>MaxSnapshotBytes
         || !saved["interface"].isString() || !saved["source"].isString() || !saved["gateway"].isString()
         || !canonicalLinuxInterfaceName(saved["interface"].toString())
@@ -217,7 +221,7 @@ PlatformOperationResult LinuxOwnedRouteTable::recover(const QUuid &id, const QJs
         if (!row.isEmpty() && (!routeShape(row,prefix) || ipv4RoutePrefix(row)!=prefix || row["dev"]!=interfaceName
             || row["table"]!=QString::number(table) || row["protocol"]!="4" || row["metric"].toInteger(-1)!=metric)) return invalid;
         const bool deleting = entry["delete_started"].toBool();
-        if (deleting && (row.isEmpty() || (role != Role::Capture && (rulePending || ruleDeleting)))) return invalid;
+        if (deleting && (row.isEmpty() || (role != Role::Capture && !versionedSource && (rulePending || ruleDeleting)))) return invalid;
         prefixes.insert(prefix);entries.append({prefix,row,deleting});
     }
     accepted = true;recovered = true;
@@ -425,12 +429,14 @@ PlatformOperationResult LinuxOwnedRouteTable::restore(const QUuid &id, const Che
 
 PlatformOperationResult LinuxOwnedRouteTable::reconcile(const QUuid &id, const QStringList &requested, const CheckpointWriter &checkpoint)
 {
-    if (role != Role::Capture) return {Status::Failed,"Only campus capture supports route withdrawal."};
     const auto added = ensurePrefixes(id, requested, checkpoint);
     if (!added.succeeded()) return added;
-    const QSet<QString> retained(requested.begin(), requested.end());
+    QSet<QString> retained(requested.begin(), requested.end());
+    if (!gatewayAddress.isEmpty()) retained.insert(gatewayAddress + "/32");
+    bool withdrawing = false;
+    for (const auto &entry : entries) withdrawing |= !retained.contains(entry.prefix);
     auto result = restore(id, checkpoint, &retained);
-    result.mayHaveChanged |= added.mayHaveChanged;
+    result.mayHaveChanged |= added.mayHaveChanged || withdrawing;
     return result;
 }
 
@@ -522,7 +528,7 @@ PlatformOperationResult LinuxOwnedRouteTable::restore(const QUuid &id, const Che
         auto &entry = entries[i];
         if (retained && retained->contains(entry.prefix)) {
             if (!sameLinuxRoute(findRoute(before,entry.prefix),entry.applied))
-                return {Status::Failed,"Retained capture changed during reconciliation.",true};
+                return {Status::Failed,"Retained route changed during reconciliation.",true};
             continue;
         }
         const auto current = findRoute(before,entry.prefix);
@@ -565,7 +571,7 @@ PlatformOperationResult LinuxOwnedRouteTable::restore(const QUuid &id, const Che
     const auto after = read(utility,deadline);
     if (!after.result.succeeded()) return failedRecovery(after.result);
     if (retained && !references(after,appliedRule))
-        return {Status::Failed,"Capture lookup changed during reconciliation.",true};
+        return {Status::Failed,"Owned lookup changed during reconciliation.",true};
     bool retainedChanged = false;
     for (auto it=entries.begin(); it!=entries.end();) {
         if (retained && retained->contains(it->prefix)) {
