@@ -92,7 +92,7 @@ int main(int argc,char **argv) try
         if(!policy.isBusy() && policy.status()==CoreEngine::RequestStatus::Success){
             const auto model=policy.model();
             const auto view=QJsonDocument(QJsonObject{{"protection",protectionConfiguration(model["targets"].toArray(),model["name_targets"].toArray())},
-                {"resources",model["resources"]}}).toJson(QJsonDocument::Compact);
+                {"resources",model["resources"]},{"network",model["network"]}}).toJson(QJsonDocument::Compact);
             if(view!=previousPolicyView){std::cerr<<"policy view="<<view.toStdString()<<'\n';previousPolicyView=view;}
         }
     });
