@@ -2,6 +2,7 @@
 #include "infrastructure/dns/macos/resolver.h"
 #include "infrastructure/routing/macos/tunroutes.h"
 #include "infrastructure/dns/macos/dnssnapshot.h"
+#include "tests/platform/networksnapshotcheck.h"
 #include <QCoreApplication>
 #include <QDeadlineTimer>
 #include <QJsonDocument>
@@ -12,6 +13,7 @@
 #include <unistd.h>
 
 static void check(bool ok,const char *message) { if (!ok) throw std::runtime_error(message); }
+static QJsonObject initialDns,lastDns;
 template<class Predicate> static void wait(Predicate predicate,const char *message)
 {
     QDeadlineTimer deadline(5000);
@@ -20,7 +22,7 @@ template<class Predicate> static void wait(Predicate predicate,const char *messa
 }
 static QJsonObject dnsSnapshot()
 {
-    const auto value = readMacDnsSnapshot(); check(value.result.succeeded(),qPrintable(value.result.detail)); return value.data;
+    const auto value = readMacDnsSnapshot(); check(value.result.succeeded(),qPrintable(value.result.detail)); lastDns=value.data;return value.data;
 }
 static QJsonArray defaults()
 {
@@ -57,6 +59,7 @@ int main(int argc,char **argv) try
         "Native DNS mutation requires the disposable macOS runner");
     check(device.createIpv4(QUuid::createUuid(),"198.18.0.1","198.18.0.2",1400).succeeded(),"Create owned DNS device");
     const auto before = dnsSnapshot();
+    initialDns=before;
     const auto routeBefore = defaults();
     const QStringList domains{"campus.justconnect-fixture.test"};
     const auto published = dns.apply(device,domains);
@@ -127,4 +130,8 @@ int main(int argc,char **argv) try
     device.close();
     std::cout << "PASS: supplemental DNS session ownership, partial rollback, same-value external preservation and unchanged default route\n";
     return 0;
-} catch (const std::exception &error) { std::cerr << error.what() << '\n';return 1; }
+} catch (const std::exception &error) {
+    if(!initialDns.isEmpty())std::cerr<<"dns_restoration_difference="<<QJsonDocument(NetworkSnapshotCheck::difference(
+        initialDns["dynamic_store"].toObject(),lastDns["dynamic_store"].toObject())).toJson(QJsonDocument::Compact).constData()<<'\n';
+    std::cerr << error.what() << '\n';return 1;
+}
