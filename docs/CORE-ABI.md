@@ -69,7 +69,7 @@ ABI v1 与 JSON schema 版本同步。S2-02 以兼容增补导出 `jc_config_val
 
 `capabilities.original_dns_forwarding` 表示 TUN DNS 可使用宿主显式提供的原 DNS 来源，不代表应用已完成自动来源选择。可选 `network.original_dns` 是按原生优先级排列的数组，每项包含 `name:{kind,value}`（复用名称保护规则）、`servers:["IP:port",...]`、查询出口 `interface` 与数据出口 `egress_interface`。仅接受显式单播端点，不解析服务器主机名、不补公共 DNS；必须同时提供 `protection`。宿主须在接管前选定来源、保护服务器原出口，并确认原生安全／加密要求允许普通 DNS；未知来源或不支持的安全要求不能降级。来源变化时需恢复并重连，当前会话来源不可变。
 
-受保护的原名称先走原 DNS，原 AAAA 不受校园 IPv4 限制；`localhost` 永不转发上游。原 A 应答与校园应答复用同一有界绑定，分别导出 `resources.original_dns_records` 与校园 `dns_records`，应答前沿用捕获确认；原记录不产生校园授权。同 IP 的原方向优先于校园 IP 授权，DNS TTL 结束后仍保留方向保护至显式选校园或会话结束，避免遗留捕获误送校园；缺少当前名称策略或原出口冲突时拒绝，容量不足不得静默逐出原方向。应用自动发现原来源、重叠名称接管与原生安全策略联验仍待完成。
+受保护的原名称先走原 DNS，原 AAAA 不受校园 IPv4 限制；`localhost` 永不转发上游。原 A 应答与校园应答复用同一有界绑定表，以名称和方向区分，校园刷新不覆盖撤回所需的原方向；分别导出 `resources.original_dns_records` 与校园 `dns_records`，应答前沿用捕获确认；原记录不产生校园授权。同 IP 的原方向优先于校园 IP 授权，DNS TTL 结束后仍保留方向保护至显式选校园或会话结束，避免遗留捕获误送校园；缺少当前名称策略或原出口冲突时拒绝，容量不足不得静默逐出原方向。应用自动发现原来源、重叠名称接管与原生安全策略联验仍待完成。
 
 拒绝重复键、未知字段、非规范字段大小写、尾随 JSON、null、超深结构、无效 UTF-8、NUL 和 Unicode 替代字符。超限值不截断、不静默回退。无效输入只返回 `JC_INVALID_ARGUMENT`，不把账户、密码或输入片段写入错误。
 
