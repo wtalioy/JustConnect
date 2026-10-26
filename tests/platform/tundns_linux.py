@@ -145,6 +145,8 @@ def main():
     environment = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C.UTF-8'}
     with tempfile.TemporaryDirectory(prefix='JustConnect-resolved-') as folder:
         root = Path(folder)
+        # The ordinary DNS reader executes the staged runtime; recovery journals keep their own private directories.
+        root.chmod(0o711)
         os.environ['TMPDIR'] = str(root)
         try:
             # CAP_NET_ADMIN cannot traverse private SDK homes; keep the exact built runtime in this root-owned fixture.
