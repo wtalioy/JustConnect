@@ -102,7 +102,8 @@ jobs:
         if: runner.os == 'Windows'
         run: python tests/platform/run_windows_helper.py --qt-control
 
-      - name: Probe Windows device broker in the disposable runner
+      - &windows_device_probe
+        name: Probe Windows device broker in the disposable runner
         id: windows_device_probe
         if: runner.os == 'Windows'
         continue-on-error: true
@@ -242,7 +243,8 @@ jobs:
           sudo env PYTHONDONTWRITEBYTECODE=1 GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_OS="$RUNNER_OS" "$(command -v python)" tests/platform/tun_coreabi_unix.py --uid "$(id -u)" --allocator build/coreabi/macos_tundevice_test --gateway build/coreabi/native-tun-host --host build/coreabi/coreabi_test --fd-test build/coreabi/native-tun-fd 2>&1 | tee build/coreabi/macos-tun-coreabi.log
 
       # Collect independent ABI/application evidence, but keep the original device probe mandatory.
-      - name: Enforce required Windows device result
+      - &windows_device_result
+        name: Enforce required Windows device result
         if: ${{ !cancelled() && runner.os == 'Windows' && steps.windows_device_probe.outcome != 'success' }}
         shell: pwsh
         run: throw 'Required Windows native device/4096-packet check failed or did not run; see its original log.'
@@ -284,8 +286,10 @@ jobs:
       - uses: ./.github/actions/setup-core-toolchain
       - name: Verify ordinary Qt authorization and recovery control
         run: python tests/platform/run_windows_helper.py --qt-control
-      - name: Verify native ownership and ordinary Qt/core packets
-        run: python tests/platform/run_windows_packet.py
+      - *windows_device_probe
+      - name: Verify ordinary Qt/core packets and application sessions
+        run: python tests/platform/run_windows_packet.py --core-only
+      - *windows_device_result
       - name: Upload native Windows evidence
         if: always()
         uses: actions/upload-artifact@v7.0.2

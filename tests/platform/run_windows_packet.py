@@ -127,8 +127,10 @@ def device():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--device-only', action='store_true')
-    parser.add_argument('--build-only', action='store_true', help='Build and check native Windows recovery before installing Qt/Go')
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--device-only', action='store_true')
+    mode.add_argument('--core-only', action='store_true', help='Use the native inputs exported by the device step')
+    mode.add_argument('--build-only', action='store_true', help='Build and check native Windows recovery before installing Qt/Go')
     args = parser.parse_args()
     os.chdir(ROOT)
     if args.build_only:
@@ -145,7 +147,16 @@ def main():
         (output / 'windows-device.json').write_text(json.dumps(metadata, indent=2), encoding='utf-8')
         subprocess.run([os.sys.executable, 'tests/platform/run_windows_helper.py'], check=True, timeout=260)
         return
-    env = device()
+    if args.core_only:
+        if os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('RUNNER_OS') != 'Windows':
+            raise RuntimeError('Native Windows network mutation requires a disposable runner')
+        env = dict(os.environ, GOTOOLCHAIN='local', GOWORK='off', GOENV='off')
+        for key in ('JC_TEST_WINTUN_DLL', 'JC_TEST_CPP_WINTUN_BROKER'):
+            path = pathlib.Path(env.get(key, ''))
+            if not path.is_absolute() or not path.is_file():
+                raise RuntimeError(f'Device step did not export a built native input: {key}')
+    else:
+        env = device()
     if args.device_only:
         return
     env.pop('CGO_ENABLED', None)
