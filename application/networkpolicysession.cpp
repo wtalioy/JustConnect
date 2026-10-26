@@ -83,6 +83,7 @@ void NetworkPolicySession::clear()
     transportReady = networkPending = resourcesPending = networkBusy = refreshQueued = false;
     originalViewFilter = {};
     policyApplier = {};
+    waitingForPolicyModel = false;
     network = resources = currentModel = {};
     networkVersion = {};
     confirmedPolicy = pendingPolicy = {};
@@ -119,6 +120,7 @@ void NetworkPolicySession::completePolicy(const QString &id, const QString &appl
 {
     if (!isPolicyUpdating() || id != generation || appliedRevision != pendingPolicy["revision"].toString()) return;
     if (status == Status::Success) confirmedPolicy = pendingPolicy;
+    waitingForPolicyModel = false;
     pendingPolicy = {};
     lastPolicyStatus = status;
     publish();
@@ -126,7 +128,7 @@ void NetworkPolicySession::completePolicy(const QString &id, const QString &appl
 
 bool NetworkPolicySession::refresh()
 {
-    if (!engine || generation.isEmpty() || networkBusy || networkPending || resourcesPending || isPolicyUpdating()
+    if (!engine || generation.isEmpty() || networkBusy || networkPending || resourcesPending || (isPolicyUpdating() && !waitingForPolicyModel)
         || (workerBusy && workerSerial == serial)) return false;
     refreshQueued = false;
     ++serial;
@@ -253,9 +255,13 @@ bool NetworkPolicySession::submitPolicy(QJsonObject policy)
     policy["revision"] = QString::number(++revision);
     pendingPolicy = policy;
     lastPolicyStatus = Status::Pending;
-    if (policyApplier) policyApplier(policy);
-    else engine->updatePolicy(policy);
-    emit changed();
+    // An owned choice can be withdrawn while its platform view is being refreshed.
+    waitingForPolicyModel = policyApplier && currentStatus == Status::Pending;
+    if (!waitingForPolicyModel) {
+        if (policyApplier) policyApplier(policy);
+        else engine->updatePolicy(policy);
+    }
+    publish();
     return true;
 }
 
@@ -291,7 +297,7 @@ void NetworkPolicySession::buildModel()
 void NetworkPolicySession::publish()
 {
     if (generation.isEmpty()) { emit changed(); return; }
-    if (refreshQueued && !networkBusy && !workerBusy && !networkPending && !resourcesPending && !isPolicyUpdating()) {
+    if (refreshQueued && !networkBusy && !workerBusy && !networkPending && !resourcesPending && (!isPolicyUpdating() || waitingForPolicyModel)) {
         refreshQueued = false;
         refresh();
         return;
@@ -306,5 +312,12 @@ void NetworkPolicySession::publish()
         }
     }
     if (currentStatus != Status::Success) currentModel = {};
+    if (waitingForPolicyModel && !networkBusy && !workerBusy && !networkPending && !resourcesPending
+        && currentStatus != Status::Pending) {
+        const auto value = pendingPolicy;
+        waitingForPolicyModel = false;
+        if (currentStatus == Status::Success && policyApplier) policyApplier(value);
+        else completePolicy(generation,value["revision"].toString(),Status::Unavailable);
+    }
     emit changed();
 }

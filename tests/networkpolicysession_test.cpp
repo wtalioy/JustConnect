@@ -2,6 +2,7 @@
 #include <QCoreApplication>
 #include <QElapsedTimer>
 #include <QSemaphore>
+#include <QScopeGuard>
 #include <QThread>
 #include <QTimer>
 #include <atomic>
@@ -87,6 +88,69 @@ static void coordinatedPolicyRequiresBothConfirmations()
           "New generation inherited its old platform applier");
     emit engine.policyUpdated("next",engine.policies.last()["revision"].toString(),Status::Success);
     check(session.campusAddresses() == QJsonArray{"192.168.11.20"},"Unmanaged policy no longer accepts its core confirmation");
+}
+
+static void withdrawalWaitsForCurrentOwnedView()
+{
+    Engine engine;
+    std::atomic_bool blockRead = false;
+    QSemaphore entered,resume;
+    NetworkPolicySession session(&engine, [&] {
+        if (blockRead.exchange(false)) { entered.release(); check(resume.tryAcquire(1,2000),"Release the queued ownership DNS reader"); }
+        return DnsSnapshot{{},{{"nrpt",QJsonArray{QJsonObject{{"Namespace",QJsonArray{".original.test"}}}}}}};
+    });
+    const auto release = qScopeGuard([&] { resume.release(); });
+    emit engine.sessionStarted("withdraw"); reply(engine,"withdraw","192.168.10.19");
+    until([&] { return !session.isBusy(); });
+    check(session.setCampusAddress("192.168.10.20",true),"Seed a confirmed address before ownership refresh");
+    emit engine.policyUpdated("withdraw",engine.policies.last()["revision"].toString(),Status::Success);
+    check(session.setCampusName("host.original.test",true),"Seed a confirmed name before ownership refresh");
+    emit engine.policyUpdated("withdraw",engine.policies.last()["revision"].toString(),Status::Success);
+    QList<QJsonObject> applied;
+    session.setPolicyApplier("withdraw",[&](const QJsonObject &value) {
+        check(session.status() == Status::Success && !session.model().isEmpty(),
+            "Withdrawal reached native capture planning before the current ownership view was ready");
+        applied.append(value);
+    });
+    const auto project = [](QJsonObject network,QJsonObject dns) -> std::optional<NetworkPolicySession::OriginalView> {
+        return NetworkPolicySession::OriginalView{network,dns};
+    };
+    session.setOriginalViewFilter("withdraw",project);
+    check(session.status() == Status::Pending && session.model().isEmpty(),"Ownership refresh did not invalidate the old model");
+    check(session.setCampusName("host.original.test",false) && applied.isEmpty() && session.isPolicyUpdating(),
+        "Owned name withdrawal bypassed its pending native view");
+    auto fresh=resources("192.168.10.19"), data=fresh["resources"].toObject();
+    data["original_dns_records"]=QJsonObject{{"host.original.test",QJsonArray{"203.0.113.9"}}};fresh["resources"]=data;
+    emit engine.snapshotReady(Kind::Network,"withdraw",network("192.168.10.19"),Status::Success);
+    emit engine.snapshotReady(Kind::Resources,"withdraw",fresh,Status::Success);
+    until([&] { return applied.size()==1; });
+    check(session.model()["resources"].toObject()["original_dns_records"]==data["original_dns_records"]
+        && session.campusNames()==QJsonArray{"host.original.test"},"Fresh original bindings were absent or withdrawal confirmed before the platform");
+    session.completePolicy("withdraw",applied.last()["revision"].toString(),Status::Success);
+    check(session.campusNames().isEmpty() && session.campusAddresses()==QJsonArray{"192.168.10.20"},"Name withdrawal lost the independent address choice");
+    blockRead = true;
+    check(session.refresh(),"Start the prior native view read");reply(engine,"withdraw","192.168.10.19");
+    until([&] { return entered.available()!=0; });
+    session.setNetworkBusy("withdraw",true);session.setOriginalViewFilter("withdraw",project);session.setNetworkBusy("withdraw",false);
+    const auto previousRequests=engine.requests.size();
+    check(session.setCampusAddress("192.168.10.20",false) && applied.size()==1,"Queued address withdrawal dispatched the obsolete model");
+    resume.release();until([&] { return engine.requests.size()==previousRequests+2; });
+    emit engine.snapshotReady(Kind::Network,"withdraw",network("192.168.10.19"),Status::Success);
+    emit engine.snapshotReady(Kind::Resources,"withdraw",fresh,Status::Success);
+    until([&] { return applied.size()==2; });
+    session.completePolicy("withdraw",applied.last()["revision"].toString(),Status::Failed);
+    check(session.campusAddresses()==QJsonArray{"192.168.10.20"},"Failed platform confirmation erased the original address choice");
+    check(session.refresh() && session.setCampusAddress("192.168.10.20",false) && applied.size()==2,
+        "Owned address withdrawal did not wait for its current model");
+    emit engine.snapshotReady(Kind::Network,"withdraw",{},Status::Unavailable);
+    emit engine.snapshotReady(Kind::Resources,"withdraw",fresh,Status::Success);
+    until([&] { return !session.isPolicyUpdating(); });
+    check(session.policyStatus()==Status::Unavailable && applied.size()==2
+        && session.campusAddresses()==QJsonArray{"192.168.10.20"},"Failed native read confirmed or applied a withdrawal without facts");
+    check(session.refresh() && session.setCampusAddress("192.168.10.20",false),"Queue withdrawal before stop");
+    engine.stop();reply(engine,"withdraw","192.168.10.19");
+    check(session.status()==Status::Stale && !session.isPolicyUpdating() && applied.size()==2,
+        "Stopped generation applied a late queued withdrawal");
 }
 
 static void ownershipViewsStaySerializedAndGenerationBound()
@@ -193,6 +257,7 @@ int main(int argc, char **argv) try
 {
     QCoreApplication app(argc, argv);
     coordinatedPolicyRequiresBothConfirmations();
+    withdrawalWaitsForCurrentOwnedView();
     synchronizeCurrentProtection();
     ownershipViewsStaySerializedAndGenerationBound();
     Engine engine;
