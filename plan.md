@@ -22,7 +22,7 @@
 | S3—S5 剩余 | **17 项中已收尾 9 项，剩余 8 项**：S3-05；S4-01／04／05；S5-01／02／03／05。剩余包含已有实现的待验收项，并非 8 项全部未实现；原生 IP／域名 SSH 已通过六组联验，当前优先原 DNS 重叠转发与出口缺口，随后真实桌面／校园验收 |
 | 全计划进度 | 64 项中已收尾 31 项，剩余 33 项；其中本轮目标 S3—S5 剩余 8 项，后续 S6—S8 仍按实施顺序推进 |
 | 最近整轮通过 | `2c0874a` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40309425987)与[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40309426226)全部通过；六份原生日志来源一致，包含显式原 DNS、同 IP 刷新／撤回、实际 OpenSSH、接管／恢复及 Windows 原 4096 次设备门槛。历史 SDK 偶发停滞仍保留为风险，不能据单轮通过宣称根除 |
-| 本轮验证 | `83717b4` 的[Tests](https://github.com/wtalioy/JustConnect/actions/runs/40380655222)／[Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40380655658)已结束，未整轮通过。Tests 的 Linux／macOS、ABI 的 macOS ARM64 全组通过；Linux 双架构的 DNS 网卡／网关分歧拒绝与恢复已通过，后续 Qt 夹具仍使用旧错误分类而失败。Windows 夹具误用 Unix 端口错误常量，已删除平台错误分类并复用有界成对分配，待原生重验。macOS x64 故障恢复场景 UDP 失败、Windows x64 原 SDK 第 659／4096 次停滞仍保留，原断言及期限不变；证据归 `build/reports/dns-fixtures-83717b4/` |
+| 本轮验证 | `83717b4` 的[Tests](https://github.com/wtalioy/JustConnect/actions/runs/40380655222)／[Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40380655658)已结束，未整轮通过。Tests 的 Linux／macOS、ABI 的 macOS ARM64 全组通过；Linux 双架构的 DNS 网卡／网关分歧拒绝与恢复已通过，后续 Qt 夹具旧错误分类已修正，本地构建与相关 CTest 4/4 通过，待原生重验。Windows 夹具误用 Unix 端口错误常量，已删除平台错误分类并复用有界成对分配，待原生重验。macOS x64 故障恢复场景 UDP 失败、Windows x64 原 SDK 第 659／4096 次停滞仍保留，原断言及期限不变；证据归 `build/reports/dns-fixtures-83717b4/` |
 | 当前推进与下一步 | 先修复当前原生回归的夹具问题，再继续 S4-01／S5-03 的完整调用链。认证后、设备交接前一次性准备原 DNS 的 Go／C ABI／Qt 接口及真实宿主已通过 macOS ARM64 完整矩阵和其他平台既有对应检查；应用自动来源推导、真实端点安装、原 DNS 应答的数据出口与来源变化联动仍未完成 |
 | 验收范围 | 仅要求 Fudan 实测；按用户决定取消另一台 aTrust 服务器的硬性要求，保留 Custom 实现与服务器／账户隔离回归 |
 | 剩余缺口 | S1-04 真实样本、正式签名／公证、真实桌面／校园透明访问、Clash 共存与剩余平台矩阵未验收；D2 的三平台设备／权限／正常及故障恢复已通过受控自动验证，边界与实机缺口见 S4／S5 |
@@ -295,7 +295,7 @@ Linux x64／ARM64 AppImage 分别减少约 2.07%／1.90%；macOS 安装体积基
 
 Linux 原接口 DNS：真实查询、完整原值恢复、外部新增／同值重建、写入中断及 TLS 拒绝已通过双架构隔离检查；[正式助手基线](https://github.com/wtalioy/JustConnect/actions/runs/40331611353)含普通用户查询、后续接口失败整组回退、受损记录拒绝、EOF／双杀扫描和中断回执删除。协议 10／存储 3 要求同一原生快照格式，替换前、写前日志落盘后及回读核对完整原值／域／默认路径／安全模式；`ad66e78` 的[Linux 双架构原生检查](https://github.com/wtalioy/JustConnect/actions/runs/40360573232)已通过过时快照／并发域修改、普通读取器、正式助手回退、原值投影及来源变化观察，替代先前 x64 未通过状态。只将精确所属端点投影为原服务器，保留顺序／原始端口／名称及外改；监听网卡／地址、域／默认路径和安全变化复用恢复后重连。共享后端端点编码与响应夹具，无新增轮询／缓存；暂存运行库仅开放顶层遍历，恢复目录仍为 0700；已交付 v1／v2 记录继续恢复。关键报告 `build/reports/original-dns-view.json`、`build/reports/original-link-helper-9f86213/`。应用自动来源推导、原服务器出口准备、真实端点安装与完整查询／数据出口证明仍未接入，保持重叠名称拒绝；不将组件通过计为产品已可用。
 
-DNS 扩展出口补验（S4-05／S5-03，原生待验）：助手追加原出口／捕获路由前复用应用的真实绑定源路由校验；不同网卡、源地址、网关、多路径、失效或不完整结果拒绝发布并恢复已有责任，不再按固定出口盲目接管新应答。只读校验归路由模块，未增加配置副本、产品默认值、协议／存储版本或依赖；本地两套构建、6 项相关检查及 Python 语法通过，真实网卡／网关分歧隔离回归待 CI。`453e29c` 的 Linux 双架构已实际验证不同接口拒绝与恢复、外部路由保留；新夹具随后因自建路由未删除而触发最终基线断言。已改为逐场景清理自有路由／网卡后再确认回执，原值与最终基线断言均保留；本地语法／控制流复查通过，完整原生重验待 CI。详细检查与限制归 `build/reports/dns-exit-proof.json`。
+DNS 扩展出口补验（S4-05／S5-03，原生部分已验、完整回归待）：助手追加原出口／捕获路由前复用真实绑定源路由校验；不同网卡、源地址、网关、多路径、失效或不完整结果拒绝发布并恢复已有责任。本地两套构建及 6 项相关检查通过；`83717b4` 的[Linux 双架构检查](https://github.com/wtalioy/JustConnect/actions/runs/40380655658)已验证不同网卡及网关拒绝、外部路由保留和最终基线恢复，替代先前夹具收尾失败状态。后续 Qt 端点拒绝夹具仍期待旧捕获阶段 Failed，现改为精确断言新前置校验的 Unsupported，并按真实行为重命名场景；取消、描述符释放、所有权清空和原值断言均保留，实际部分写入回滚仍由独立场景覆盖。本地客户端构建、相关 CTest 4/4 与 Python 语法通过。共享校验归路由模块，无配置副本或新增依赖；完整原生重验待 CI，详情归 `build/reports/dns-exit-proof.json`。
 
 HTTP CONNECT 已验基线：半关闭修复已通过 `278dc0e` 的三平台 Tests 与六组 Core ABI，正常 EOF 保留反向响应，错误与停止仍结束所属转发；SOCKS／CONNECT 共用真实 TCP 的首包、半关闭和停止回归。完整 Go 21 包／vet 与十轮目标 race 通过，修复前失败及当前证据归 `build/reports/http-halfclose.json`；三平台透明接管自动验收已由下文覆盖；无 Clash／实际校园 UDP 及其他平台实机仍待。
 
