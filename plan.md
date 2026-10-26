@@ -22,7 +22,7 @@
 | S3—S5 剩余 | **17 项中已收尾 9 项，剩余 8 项**：S3-05；S4-01／04／05；S5-01／02／03／05。剩余包含已有实现的待验收项，并非 8 项全部未实现；原生 IP／域名 SSH 已通过六组联验，当前集中完成已通过的原 DNS 应答排除基础上的自动来源／真实端点与出口联动，再补真实桌面／校园验收 |
 | 全计划进度 | 64 项中已收尾 31 项，剩余 33 项；其中本轮目标 S3—S5 剩余 8 项，后续 S6—S8 仍按实施顺序推进 |
 | 最近整轮通过 | `8f61046` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40406685834)和[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40406685645)全部通过，覆盖原 DNS 应答排除捕获、校园缓存 TTL、双向内核端口分配及既有接管／恢复与原 SDK 4096 次门槛。六份同源码日志及摘要归 `build/reports/original-dns-native-8f61046/`；历史 SDK 偶发停滞仍保留为风险 |
-| 本轮验证 | `93ebc4b` 的 Linux 双架构正式 ABI／基础恢复通过，[包内原生场景](https://github.com/wtalioy/JustConnect/actions/runs/40411002803/job/121881366645)在新增重叠范围第一次系统 DNS 查询失败／超时；实际端点替换与失败后恢复已确认，功能尚未验收。原始日志及包证据归 `build/reports/linux-original-dns-93ebc4b/`；补隔离场景定向解析诊断，不改断言／预算，其余运行按实际结果更新 |
+| 本轮验证 | `93ebc4b` 三平台 Tests 全部通过，Linux 双架构正式 ABI／基础恢复通过；重叠范围场景失败。`f5627ea` 的[ARM64 诊断](https://github.com/wtalioy/JustConnect/actions/runs/40412977285/job/121888699465)确认校园 DNS／TCP／SSH 已成功，原夹具拒绝 CNAME 目标的合法 AAAA 并退出，随后原网查询超时。已补合法应答，四个必测名称、未知查询拒绝、捕获／恢复及原预算不变；本地实际 UDP 前后对照通过、原生修复待验。唯一失败与解析器日志归 `build/reports/linux-original-dns-f5627ea/` |
 | 当前推进与下一步 | 先验收 Linux 重叠范围原 DNS 的自动来源、实际端点、原出口及来源观察整条调用链；随后补 macOS／Windows 来源链与未支持上下文。真实桌面／校园及正式签名另列缺口，复用既有自动证据，不重复实现或机械重跑 |
 | 验收范围 | 仅要求 Fudan 实测；按用户决定取消另一台 aTrust 服务器的硬性要求，保留 Custom 实现与服务器／账户隔离回归 |
 | 剩余缺口 | S1-04 真实样本、正式签名／公证、真实桌面／校园透明访问、Clash 共存与剩余平台矩阵未验收；D2 的三平台设备／权限／正常及故障恢复已通过受控自动验证，边界与实机缺口见 S4／S5 |
