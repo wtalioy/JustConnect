@@ -13,7 +13,7 @@ int main(int argc,char **argv) try
     const QJsonObject lan{{"index",7},{"name","original"},{"up",true},{"addresses",QJsonArray{"192.168.1.2/24"}}};
     const QJsonObject tun{{"index",91},{"name",device["name"]},{"up",true},{"addresses",QJsonArray{"10.222.0.1/32","fe80::1/64"}}};
     const QJsonObject peer{{"interface_index",91},{"destination","10.222.0.2/32"},{"gateway","0.0.0.0"},{"metric",1},{"protocol",3}};
-    auto target=peer;target["destination"]="198.18.0.6/32";
+    auto target=peer;target["destination"]="198.18.0.6/32";target["gateway"]=device["peer"];
     auto source=peer;source["destination"]="10.222.0.1/32";source["metric"]=256;source["protocol"]=2;
     const QJsonObject originalRoute{{"interface_index",7},{"destination","192.168.1.0/24"},{"protocol",2}};
     const QJsonObject network{{"interfaces",QJsonArray{lan,tun}},{"routes",QJsonArray{originalRoute,peer,target,source}}};
@@ -41,6 +41,11 @@ int main(int argc,char **argv) try
         "external interface attributes were hidden");
     auto editedTarget=target;editedTarget["metric"]=9;changedNetwork["routes"]=QJsonArray{originalRoute,peer,editedTarget,source};
     check(!filter(changedNetwork,dns),"missing or edited capture was treated as active ownership");
+    auto onLink=target;onLink["gateway"]="0.0.0.0";changedNetwork["routes"]=QJsonArray{originalRoute,peer,onLink,source};
+    check(!filter(changedNetwork,dns),"on-link capture was accepted as a remote campus route");
+    auto withPeer=configuration;withPeer["capture_prefixes"]=QJsonArray{"198.18.0.6/32",peer["destination"]};
+    const auto peerFilter=ownership->filter(withPeer);check(bool(peerFilter),"explicit peer capture unavailable");
+    const auto peerView=peerFilter(network,dns);check(peerView && peerView->first["routes"]==QJsonArray{originalRoute},"peer host route became a gateway to itself");
     auto next=configuration;next["capture_prefixes"]=QJsonArray{"198.18.0.7/32"};auto nextTarget=target;nextTarget["destination"]="198.18.0.7/32";
     changedNetwork["routes"]=QJsonArray{originalRoute,peer,nextTarget,source,target};
     const auto replacement=ownership->filter(next);check(bool(replacement),"new confirmed capture was rejected");
@@ -48,19 +53,13 @@ int main(int argc,char **argv) try
     auto merged=configuration;merged["capture_prefixes"]=QJsonArray{"198.18.0.6/31"};
     auto mergedTarget=target;mergedTarget["destination"]="198.18.0.6/31";
     auto broadcast=source;broadcast["destination"]="198.18.0.7/32";
-    changedNetwork=network;changedNetwork["routes"]=QJsonArray{originalRoute,peer,source,mergedTarget,broadcast};
+    changedNetwork=network;changedNetwork["routes"]=QJsonArray{originalRoute,peer,source,mergedTarget};
     const auto mergedFilter=ownership->filter(merged);check(bool(mergedFilter),"coalesced capture filter unavailable");
     const auto mergedView=mergedFilter(changedNetwork,dns);
-    check(mergedView && mergedView->first["routes"]==QJsonArray{originalRoute},"new kernel broadcast host route leaked into original protection after capture coalescing");
-    for(const auto &field:{"protocol","metric","interface_index"}){
-        auto external=broadcast;external[field]=999;
-        changedNetwork["routes"]=QJsonArray{originalRoute,peer,source,mergedTarget,external};
-        const auto externalView=mergedFilter(changedNetwork,dns);
-        check(externalView && externalView->first["routes"].toArray().contains(external),"external broadcast-scope route was hidden");
-    }
-    changedNetwork["routes"]=QJsonArray{originalRoute,peer,source,target,broadcast};
-    const auto withdrawn=filter(changedNetwork,dns);
-    check(withdrawn && withdrawn->first["routes"].toArray().contains(broadcast),"broadcast-scope row remained hidden after its owning prefix was withdrawn");
+    check(mergedView && mergedView->first["routes"]==QJsonArray{originalRoute},"coalesced remote capture leaked into original protection");
+    changedNetwork["routes"]=QJsonArray{originalRoute,peer,source,mergedTarget,broadcast};
+    const auto externalView=mergedFilter(changedNetwork,dns);
+    check(externalView && externalView->first["routes"].toArray().contains(broadcast),"unowned local host route was hidden by remote capture filtering");
     changedDns["nrpt"]=QJsonArray{originalPolicy};
     check(!WindowsNetworkOwnership::capture(configuration,device,network,changedDns),"ineffective owned DNS acquired a read filter");
     std::cout<<"PASS: original Windows read model, exact captures, DNS coverage and external-value preservation\n";

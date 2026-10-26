@@ -196,6 +196,7 @@ void ownedRelease(const std::wstring &dll,bool externalChange)
         route.InterfaceLuid=device->identity().luid;
         route.DestinationPrefix.Prefix.Ipv4.sin_family=AF_INET;route.DestinationPrefix.Prefix.Ipv4.sin_addr=target.address;
         route.DestinationPrefix.PrefixLength=target.bits;route.NextHop.Ipv4.sin_family=AF_INET;
+        route.NextHop.Ipv4.sin_addr=address(L"192.0.2.2");
         check(GetIpForwardEntry2(&route)==NO_ERROR,"read actual owned capture");
         const auto original=route;++route.Metric;
         check(SetIpForwardEntry2(&route)==NO_ERROR,"edit fixture-owned capture metric");
