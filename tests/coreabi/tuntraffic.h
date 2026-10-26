@@ -40,34 +40,43 @@ inline void exerciseNativeTUNTraffic(const QHostAddress &tcpTarget = QHostAddres
     exerciseNativeTUNUDP();
 }
 
-inline void exerciseOriginalNetworkUDP()
+inline void exerciseOriginalNetworkUDP(const QHostAddress &target = QHostAddress("198.18.0.6"))
 {
     using ProxyCheck::check;
     const QByteArray tag("original:"), payload("same-ip-original-network");
     QUdpSocket udp;
-    udp.connectToHost(QHostAddress("198.18.0.6"),53);
+    udp.connectToHost(target,53);
     for (const auto &packet : {payload,QByteArray{}}) {
         const auto expected = tag + packet;
-        check(udp.write(packet) == packet.size() && udp.waitForReadyRead(5000),"ordinary UDP reaches the original side of an overlapping IP");
+        check(udp.write(packet) == packet.size() && udp.waitForReadyRead(5000),"ordinary UDP reaches the original network peer");
         check(udp.pendingDatagramSize() == expected.size(),"original peer UDP datagram has the exact expected length");
         QByteArray returned(expected.size(),Qt::Uninitialized);
         check(udp.readDatagram(returned.data(),returned.size()) == returned.size() && returned == expected,
-              "same-IP original UDP bytes and empty datagrams never entered the campus tunnel");
+              "original UDP bytes and empty datagrams never entered the campus tunnel");
     }
 }
 
-inline void exerciseOriginalNetworkTraffic()
+inline void exerciseOriginalNetworkTraffic(const QHostAddress &tcpTarget = QHostAddress("198.18.0.7"),
+    const QHostAddress &udpTarget = QHostAddress("198.18.0.6"))
 {
     using ProxyCheck::check;
     const QByteArray tag("original:"), payload("same-ip-original-network");
     QTcpSocket tcp;
-    tcp.connectToHost(QHostAddress("198.18.0.7"),80);
-    check(tcp.waitForConnected(5000),"ordinary TCP reaches the original side of an overlapping IP");
-    check(ProxyCheck::receive(tcp,tag.size()) == tag,"same-IP TCP connected to the original peer rather than the campus tunnel");
+    tcp.connectToHost(tcpTarget,80);
+    check(tcp.waitForConnected(5000),"ordinary TCP reaches the original network peer");
+    check(ProxyCheck::receive(tcp,tag.size()) == tag,"TCP connected to the original peer rather than the campus tunnel");
     check(tcp.write(payload) == payload.size() && (tcp.bytesToWrite() == 0 || tcp.waitForBytesWritten(5000)),"original TCP payload sent");
     check(ProxyCheck::receive(tcp,payload.size()) == payload,"original TCP payload preserved");
     tcp.abort();
-    exerciseOriginalNetworkUDP();
+    exerciseOriginalNetworkUDP(udpTarget);
+}
+
+inline void exerciseNonCampusNetworkTraffic()
+{
+    // This peer address is outside every IP/domain grant offered by the campus fixture.
+    const QHostAddress target("198.18.0.5");
+    exerciseOriginalNetworkTraffic(target,target);
+    std::cout << "PASS: non-campus TCP/UDP and empty datagrams retain the original network during campus capture\n";
 }
 
 inline void exerciseNativeSSH(const QHostAddress &target)

@@ -138,6 +138,7 @@ int main(int argc,char **argv) try
     const auto answer=lookup.result();check(answer.error()==QHostInfo::NoError && answer.addresses().contains(QHostAddress("198.18.0.7")),"ordinary Windows system DNS follows campus CNAME through the actual core");
     exerciseNativeTUNTraffic(QHostAddress("198.18.0.7"));
     exerciseNativeSSH(QHostAddress("198.18.0.7"));
+    if(policyChanges)exerciseNonCampusNetworkTraffic();
     until("finish original-network policy observation",[&]{return !policy.isBusy();});check(policy.refresh(),"refresh original view after DNS capture publication");until("finish original-network policy observation",[&]{return !policy.isBusy();});
     check(policy.status()==CoreEngine::RequestStatus::Success && policy.confirmedProtection()["protected"]==initialProtection["protected"],"new DNS captures remain excluded from original protection");
     exerciseNativeTUNTraffic(QHostAddress("198.18.0.7"));

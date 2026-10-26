@@ -67,5 +67,8 @@ func nativeWindowsSession(t *testing.T, faults, policy bool) {
 	if original != nil && (original.tcp.Load() != 2*rounds || original.udp.Load() != 4*rounds) {
 		t.Fatalf("same-IP original exchanges TCP=%d UDP=%d\n%s", original.tcp.Load(), original.udp.Load(), output)
 	}
+	if original != nil && (original.nonCampusTCP.Load() != rounds || original.nonCampusUDP.Load() != 2*rounds) {
+		t.Fatalf("non-campus original exchanges TCP=%d UDP=%d\n%s", original.nonCampusTCP.Load(), original.nonCampusUDP.Load(), output)
+	}
 	t.Log(string(output))
 }

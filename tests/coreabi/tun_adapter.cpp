@@ -169,6 +169,7 @@ static int exerciseApplicationNetworkAccess(const ConnectionProfile &profile)
         originalView(QUuid(owner));
         exerciseNativeTUNTraffic(QHostAddress(addresses.first()));
         exerciseNativeSSH(QHostAddress(addresses.first()));
+        if (originalPeer) exerciseNonCampusNetworkTraffic();
         if (qgetenv("JC_NATIVE_NETWORK_OBSERVE") == "1" && round == 0) {
             publish({});
             until([&] { return !session.isActive() || (!policy.isBusy()
