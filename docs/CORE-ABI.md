@@ -61,7 +61,7 @@ ABI v1 与 JSON schema 版本同步。S2-02 以兼容增补导出 `jc_config_val
 
 `schema_version/server.host/server.port` 必填。host 是 ASCII DNS 名或 IP，不是 URL／带端口地址，端口显式指定。其他字段可省略；`auth` 还接受 `phone/domain/totp_secret/auth_id/sub_type`，method 支持空值（按用户名／密码或手机号推导）、`auth/psw`、`auth/smsCheckCode`、`auth/cas`、`auth/httpsOauth2`。listener 空值不启用；非空必须是回环 IP:port。没有 CLI 附加参数、默认学校、TUN、路由／DNS 修改或原始调试输出开关。
 
-核对 `initial_protection` 能力后，connect 配置可附 `protection:{protected:[规范前缀],campus:[IPv4 地址]}`；两数组必填，使用与实时更新相同的完整校验。Start 在启动协议 Runner、保活和代理监听之前原子安装不可变规则，初始修订为 0，之后更新从 1 递增。无效配置不创建连接或消耗代次，省略字段维持原契约；每次新会话重新取本次配置，auth_methods 拒绝此字段。Qt 适配器在每次 connect（含重连）的工作线程中读取原网络与系统 DNS 快照，复用应用范围／名称推导并生成完整初始配置；同时核对 name_protection，默认不含校园例外。缺少能力、读取／推导失败或超限时不启动会话，取消会在读取返回后再次检查；auth_methods 不读保护快照。Qt 当前自动安装地址及名称保护，并通过应用协调及查看窗口接入明确 IPv4 选择／撤回；网络变化自动更新仍待接入，不代表系统接管已就绪。
+核对 `initial_protection` 能力后，connect 配置可附 `protection:{protected:[规范前缀],campus:[IPv4 地址]}`；两数组必填，使用与实时更新相同的完整校验。Start 在启动协议 Runner、保活和代理监听之前原子安装不可变规则，初始修订为 0，之后更新从 1 递增。无效配置不创建连接或消耗代次，省略字段维持原契约；每次新会话重新取本次配置，auth_methods 拒绝此字段。Qt 适配器在每次 connect（含重连）的工作线程中读取原网络与系统 DNS 快照，复用应用范围／名称推导并生成完整初始配置；同时核对 name_protection，默认不含校园例外。缺少能力、读取／推导失败或超限时不启动会话，取消会在读取返回后再次检查；auth_methods 不读保护快照。Qt 当前自动安装地址及名称保护，并通过应用协调及查看窗口接入明确 IPv4 选择／撤回；接管后端负责网络变化观察与保护／捕获确认，初始核心确认本身不代表系统接管就绪。
 
 `operation` 缺省为 `connect`；`auth_methods` 只查询认证方式，产生 `auth_methods` 结果（`methods:[{type,domain,name,login_url,auth_id,sub_type}]`）及终态，不建立数据栈或代理。结果数量、字段和整体事件大小均有界，超限返回 `JC_LIMIT`。
 
@@ -103,7 +103,7 @@ DNS 内置记录只解释服务器提供的解析数据，不单独授予业务�
 
 生产 SOCKS／HTTP 新拨号先应用保护，再进行服务器 IP／域名、协议与端口授权。命中保护且未明确选择校园时保留实际原网络出口；强制校园拨号、校园 DNS 与保活拒绝跨越该保护，不借机回退公共 DNS。明确选择同时要求该保护地址使用校园路径；普通代理与强制校园模式均继续核对服务器授权，未授权时返回错误，不改走原网络，也不授予额外权限。IPv4 映射与 IPv6 zone 统一进入保护／授权判断，带 zone 的映射 IPv4 先规范化再匹配；IP 入口拒绝未解析名称，名称保护先于解析判断，其余域名解析后继续检查地址保护。域名解析及 DNS 回退统一由解析器处理；最终解析失败即返回错误。只有已明确属于原网络的受保护名称使用原生名称拨号，不能借原生再次解析绕过其余地址策略。
 
-本接口只确认核心后续连接使用的规则；名称解析结果与随后业务拨号共用解析开始时的快照，直接 IP 拨号取当前快照。不关闭已建立连接、不改系统路由／DNS，也不确认透明入口就绪。Qt `sessionStarted` 交付该代的字符串标识，随后 `initialProtectionApplied` 交付该代核心已接受的完整初始策略（修订 0）；IPv4 更新保留其中最后确认的名称字段，不从只读刷新隐式替换。`updatePolicy` 与 `readSnapshot(Network/Resources,generation)` 均在专属工作线程核对能力和可选导出后执行。`policyUpdated`／`snapshotReady` 共用 `RequestStatus` 分类，区分成功、待就绪、过期、无效、不支持、超限与失败；资源回应还核对库返回的代次。关闭期间的晚到结果按过期处理并清空快照内容，新会话丢弃旧操作的确认。缺少扩展时只报告该能力不可用，保留原有会话入口。Qt 已接入原网络模型及明确 IPv4／具体名称选择和撤回，名称／地址更新保留另一类已确认字段；名称规范化复用模型推导，保护范围及学校授权继续由核心唯一判断。网络变化自动协调和透明前端仍待接入，当前界面不宣称系统透明接管已经生效。会话控制连接与网关出口由 S4-05 单独验证。
+本接口只确认核心后续连接使用的规则；名称解析结果与随后业务拨号共用解析开始时的快照，直接 IP 拨号取当前快照。不关闭已建立连接、不改系统路由／DNS，也不确认透明入口就绪。Qt `sessionStarted` 交付该代的字符串标识，随后 `initialProtectionApplied` 交付该代核心已接受的完整初始策略（修订 0）；IPv4 更新保留其中最后确认的名称字段，不从只读刷新隐式替换。`updatePolicy` 与 `readSnapshot(Network/Resources,generation)` 均在专属工作线程核对能力和可选导出后执行。`policyUpdated`／`snapshotReady` 共用 `RequestStatus` 分类，区分成功、待就绪、过期、无效、不支持、超限与失败；资源回应还核对库返回的代次。关闭期间的晚到结果按过期处理并清空快照内容，新会话丢弃旧操作的确认。缺少扩展时只报告该能力不可用，保留原有会话入口。Qt 已接入原网络模型及明确 IPv4／具体名称选择和撤回，名称／地址更新保留另一类已确认字段；名称规范化复用模型推导，保护范围及学校授权继续由核心唯一判断。网络变化与透明接管由三平台 `NetworkAccess` 协调，应用汇总助手和核心确认后发布校园就绪；真实桌面／校园验收状态见[计划](../plan.md#s4)。会话控制连接与网关出口由 S4-05 单独验证。
 
 ## 事件与认证回应
 
@@ -162,7 +162,7 @@ ctest --test-dir build/coreabi -C Release -V --output-on-failure
 
 宿主以 C11、C++17 头文件编译并实际调用正式库，检查来源、ABI 不匹配、257 轮生命周期、缓冲区护栏和四个 QThread 调用，并在同一进程验证 GUI 心跳与 WebEngine JavaScript；这部分已取代 S1-06 模拟探针。另一个仅通过 `jc_abi_test` 构建标签启用、明确标为 `test_driver:true` 的驱动，复用同一导出／传输实现，验证跨 C ABI 的认证成功回应、输入覆盖后使用、忙错误、重复／旧代次回应、取消与重启；不访问网络、不作为 VPN 分发。
 
-Go 回归覆盖严格配置、各类认证回应、事件积压、过期请求、慢清理超时、读者唤醒、并发启动、panic 脱敏和资源上限，并包含配置模糊测试。新增 `coreabi_protocol_test` 由测试 Go 网关驱动正式 C 宿主，经过实际 HTTP/TLS、短信认证、资源／选线／隧道握手、SOCKS 和 HTTP CONNECT 双向数据、活动连接停止及查询重启。网关只使用回环与测试资源地址；不是内置的生产替身。Go 还覆盖普通 HTTP、SOCKS UDP association、DNS／认证／IP 阶段取消、监听冲突回滚、会话失效和同 goroutine panic 交付。六组原生 CI 验证 C／Qt 宿主、性能与平台代理／自启动检查（Windows／macOS 各 11 项、Linux 各 12 项）及完整 Go 套件；race 在 Go 支持的五组平台执行，Windows ARM64 由固定 Go 明确不支持，但仍执行普通 Go 与真实 FFI 回归。宿主库启用 `GOEXPERIMENT=cgocheck2`，没有关闭指针检查。
+Go 回归覆盖严格配置、各类认证回应、事件积压、过期请求、慢清理超时、读者唤醒、并发启动、panic 脱敏和资源上限，并包含配置模糊测试。新增 `coreabi_protocol_test` 由测试 Go 网关驱动正式 C 宿主，经过实际 HTTP/TLS、短信认证、资源／选线／隧道握手、SOCKS 和 HTTP CONNECT 双向数据、活动连接停止及查询重启。网关只使用回环与测试资源地址；不是内置的生产替身。Go 还覆盖普通 HTTP、SOCKS UDP association、DNS／认证／IP 阶段取消、监听冲突回滚、会话失效和同 goroutine panic 交付。六组原生 CI 验证 C／Qt 宿主、性能与平台代理／自启动检查及完整 Go 套件；race 在 Go 支持的五组平台执行，Windows ARM64 由固定 Go 明确不支持，但仍执行普通 Go 与真实 FFI 回归。宿主库启用 `GOEXPERIMENT=cgocheck2`，没有关闭指针检查。
 
 Windows 原生会话夹具另验证同一 IP 的原网络／校园选择与撤回：复用 macOS 原网络对端的 TCP／UDP 实现，经正式 C++ Wintun 与已认证包管道承载；原网络使用独有响应标记，校园与原网络分别核对实际交换次数。原网络 `/30` 捕获不包含校园 DNS，明确校园 `/32` 优先；两轮普通应用会话均确认系统 CNAME、空报文、不中断认证的切换及停止后的完整 DNS／接口基线。该夹具只在隔离 CI 运行，当前验收状态见[计划](../plan.md#s4)。
 
@@ -215,6 +215,6 @@ Windows 使用独立可选扩展 `windows_ipv4_packet_pipe:true`／`jc_session_a
 
 需要自动发布时，先核对 `tun_dns_routes:true`，再用 `jc_session_attach_tun_dns`，或 Qt `attachTUN(generation, fd, mtu, true)`。原始 attach 保留调用方管理路由的行为。新模式在成功的 IPv4 校园 DNS 应答前发出 `dns_routes` 事件，含字符串 `generation`／`request_id` 和规范 IPv4 `addresses`；地址仅来自原问题的有效 IN Answer CNAME 链，不采用无关 Answer／Additional。发布前重核当前名称／地址保护，拒绝回环、非单播及自有源／对端；不据此增加协议／端口授权。
 
-宿主通过 `dnsRoutesRequired` 接收事件，在所属助手成功确认路由后调用 `acknowledgeDNSRoutes`；结果通过 `dnsRoutesAcknowledged` 返回。Go 最多保留一个待确认事件，其他查询可取消地等待同一槽位，每个请求从进入发布等待起共用五秒预算；超时／取消删除未读请求。仅完整读取的当前请求可确认，探测缓冲区大小、其他代次、晚到及重复回应均不生效；该事件独立于认证请求。成功发布后才登记地址授权寿命并交付 DNS，应答保留原 TTL；失败／超时返回 SERVFAIL，停止中断等待并加入原有有界清理，不回落公共 DNS。当前追加路由仍保留至所属连接恢复，运行中策略变化与路由撤销／在途流量寿命协调待实现。
+宿主通过 `dnsRoutesRequired` 接收事件，在所属助手成功确认路由后调用 `acknowledgeDNSRoutes`；结果通过 `dnsRoutesAcknowledged` 返回。Go 最多保留一个待确认事件，其他查询可取消地等待同一槽位，每个请求从进入发布等待起共用五秒预算；超时／取消删除未读请求。仅完整读取的当前请求可确认，探测缓冲区大小、其他代次、晚到及重复回应均不生效；该事件独立于认证请求。成功发布后才登记地址授权寿命并交付 DNS，应答保留原 TTL；失败／超时返回 SERVFAIL，停止中断等待并加入原有有界清理，不回落公共 DNS。运行中捕获协调读取核心当前资源、保护及活动流／发布责任；保护变化与明确选择可增减所属捕获。复杂网络变化、流量迁移与实际平台验收边界见[计划](../plan.md#s4)。
 
-活动但未就绪返回 `JC_BUSY`；其他代次、停止／完成返回 `JC_STALE_REQUEST`；无效 fd、帧配置、MTU 或重复交付返回 `JC_INVALID_ARGUMENT`。仅一个所属设备被接收，停止／设备失败会中断 I/O 并等待全部包处理退出，文件设备 I/O 错误沿既有网络失败／权限／超时分类报告，重启须重新交付且不接受旧代次。核心在内核读回的 TUN peer:53 提供 UDP／TCP DNS，仅接受该设备源地址；此地址不转发到校园。复用学校资源、名称保护及校园 DNS 的 IP／协议／端口授权，保留 CNAME、TTL、错误响应及 TCP 重试；内置资源地址直接回答。请求随会话取消，UDP 按查询大小截断。当前透明入口仅 IPv4，AAAA 返回 NOTIMP；非校园／受保护名称返回 REFUSED，不走校园或公共 DNS 回退。校园 A／CNAME 回答另为原查询域名建立至多 4096 项的会话内地址授权绑定，TTL 不超过链中最短值及配置缓存寿命；零 TTL 留一秒首流交接窗口。透明新流仍匹配域名协议／端口、名称与 IP 保护；严格校园 DNS 上游不使用该绑定。Linux 应用通过下述 `dns_routes` 确认，在 DNS 应答前完成助手增量捕获；实际接管与有序停止已联验。完整原网络 DNS 分流、地址／流量寿命协调及其他平台仍待验收。
+活动但未就绪返回 `JC_BUSY`；其他代次、停止／完成返回 `JC_STALE_REQUEST`；无效 fd、帧配置、MTU 或重复交付返回 `JC_INVALID_ARGUMENT`。仅一个所属设备被接收，停止／设备失败会中断 I/O 并等待全部包处理退出，文件设备 I/O 错误沿既有网络失败／权限／超时分类报告，重启须重新交付且不接受旧代次。核心在内核读回的 TUN peer:53 提供 UDP／TCP DNS，仅接受该设备源地址；此地址不转发到校园。复用学校资源、名称保护及校园 DNS 的 IP／协议／端口授权，保留 CNAME、TTL、错误响应及 TCP 重试；内置资源地址直接回答。请求随会话取消，UDP 按查询大小截断。当前透明入口仅 IPv4，AAAA 返回 NOTIMP；非校园／受保护名称返回 REFUSED，不走校园或公共 DNS 回退。校园 A／CNAME 回答另为原查询域名建立至多 4096 项的会话内地址授权绑定，TTL 不超过链中最短值及配置缓存寿命；零 TTL 留一秒首流交接窗口。透明新流仍匹配域名协议／端口、名称与 IP 保护；严格校园 DNS 上游不使用该绑定。Linux 应用通过下述 `dns_routes` 确认，在 DNS 应答前完成助手增量捕获；三平台实际接管与有序停止已通过受控联验；完整原网络 DNS 分流、复杂地址／流量迁移及真实桌面／校园仍待验收。
