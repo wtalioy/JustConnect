@@ -20,7 +20,7 @@
 | 当前任务 | 按 S3 → S4 → S5 推进；S3-01／02／03／04／06、S4-02／03／06、S5-04 已收尾。已统一职责布局与三平台 C++ 权限助手；三平台普通接管、助手故障及双杀自动验收、六组助手包链已通过。正式签名／桌面与校园实测、原 DNS 重叠转发及剩余平台要求保持待验收 |
 | 实测状态 | Windows Fudan `8fefd1c` 启用隧道证书例外后认证／隧道成功；Clash Verge TUN 开启时，用户确认手动设置系统代理后网页正常，普通断开及退出重启均无需再次认证，清除缓存后出现认证窗口、手动认证后连接成功。显式 SOCKS／HTTP 的校内 SSH 通信及 HTTP 代理密钥交换通过，未登录；该已交付版本的终端直连与自动接管未验收；开发分支的三平台接管／恢复自动结果见 S4 |
 | S3—S5 剩余 | **17 项中已收尾 9 项，剩余 8 项**：S3-05；S4-01／04／05；S5-01／02／03／05。剩余包含已有实现的待验收项，并非 8 项全部未实现；原生 IP／域名 SSH 已通过六组联验，当前优先原 DNS 重叠转发与出口缺口，随后真实桌面／校园验收 |
-| 最新自动验收 | `6bd0724` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40276804178)与[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40276804240)全部通过；六份原生日志来源一致，覆盖实际 OpenSSH、接管／恢复及 Windows 原 4096 次设备门槛。历史 SDK 偶发停滞仍保留为风险，不能据单轮通过宣称根除 |
+| 最新自动验收 | `2c0874a` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40309425987)与[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40309426226)全部通过；六份原生日志来源一致，包含显式原 DNS、同 IP 刷新／撤回、实际 OpenSSH、接管／恢复及 Windows 原 4096 次设备门槛。历史 SDK 偶发停滞仍保留为风险，不能据单轮通过宣称根除 |
 | 验收范围 | 仅要求 Fudan 实测；按用户决定取消另一台 aTrust 服务器的硬性要求，保留 Custom 实现与服务器／账户隔离回归 |
 | 剩余缺口 | S1-04 真实样本、正式签名／公证、真实桌面／校园透明访问、Clash 共存与剩余平台矩阵未验收；D2 的三平台设备／权限／正常及故障恢复已通过受控自动验证，边界与实机缺口见 S4／S5 |
 | 最新交付 | 通用隧道证书选项预览 `8fefd1c`：[Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/39595437026/artifacts/12343204224)／[ARM64](https://github.com/wtalioy/JustConnect/actions/runs/39595437026/artifacts/12343943637)；代理网页／SSH、断开及重启恢复、清除后重新认证已验证；透明访问待验收，完整验证见[验证与收尾](#implementation-history) |
@@ -286,7 +286,9 @@ Linux x64／ARM64 AppImage 分别减少约 2.07%／1.90%；macOS 安装体积基
 - [x] **S5-04**（三平台默认保护、明确选择／撤回及同 IP 两侧实际流量已验，已收尾）：验证地址重叠的默认保护、选择校园侧、切回原网络及撤销；明确不能同时访问的相同 IP。保护范围不得扩大成所有私网，校园失败不得偷走直连。
 - [ ] **S5-05**（阶段汇总）：归并 S5-01—04 的 V1 三平台结果，记录实际入口／DNS／出口和关闭后的恢复证据，不另建重复测试轮次。确认 TCP／UDP 与相应 IPv6 能力，某平台缺少入口时补该项，不以其他平台代替。
 
-原 DNS 核心增量（S4-01／S5-03，应用接入与整体验收待）：已实现显式来源的 UDP／TCP 回退、A／AAAA／CNAME、独立查询／数据出口及应答前捕获确认；原／校园方向复用同一有界绑定表，不新增缓存、兼容分支或产品 DNS 默认值，localhost 保留本机。`f772a43` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40305814258)全部通过，[六平台对应检查](https://github.com/wtalioy/JustConnect/actions/runs/40305814847)均实际跑过六项新增原 DNS 测试；支持 race 的五组也通过，Windows 两架构实际应用／故障／完整恢复通过。整轮五组成功，Windows x64 原 4096 次设备门槛在第 98 次超时，不能算全绿；ARM64 原门槛通过。`5f13415` 补同名称／同 IP 校园刷新后撤回的方向保留，修复前失败，修复后相关 85 项 race 与 Windows 实际回归通过，跨平台补验待。调用方、配置、资源输出和文档已同步；临时程序及已提交暂存副本已清理，六份来源一致日志及关键证据保留于 `build/reports/original-dns-f772a43/summary.json`。自动原生来源选择、安全策略保真、服务器原出口准备、重叠名称作用域及来源变化重连仍未实现，不解除应用原有重叠拒绝；[核心契约](docs/CORE-ABI.md)记录接口及限制。
+原 DNS 核心增量（S4-01／S5-03，应用接入与整体验收待）：`2c0874a` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40309425987)与[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40309426226)全部通过，含实际原 DNS UDP／TCP、A／AAAA／CNAME、独立查询／数据出口、应答前确认及同名称／同 IP 刷新后撤回。原／校园方向共用同一有界绑定，TTL／容量回收不丢原方向，localhost 保留本机；无额外缓存、兼容分支或产品 DNS 默认值。六份来源一致日志及证据归 `build/reports/original-dns-2c0874a/summary.json`；临时程序、已提交暂存及被替代的重复日志已归纳清理，独有 SDK 失败证据保留。自动原生来源选择、安全策略保真、服务器原出口准备、重叠名称作用域及来源变化重连仍未实现，不解除应用原有重叠拒绝；[核心契约](docs/CORE-ABI.md)记录接口及限制。
+
+Linux 原接口 DNS 扩展待验：已实现仅替换服务器列表、持久写前检查点、原生连接标识及新进程恢复，保留域／搜索／默认路由与安全模式；不能确认普通 DNS 传输时不修改。原生读取与已有 TUN 后端共用，保留 DNSEx 未指定端口；现有 TUN 记录仍使用有效标准端口。普通权限／真实私有 D-Bus 的三项本地检查及夹具语法通过；真实系统查询、外部新增／同值重建、写入中断恢复和 TLS 拒绝由隔离 CI 验证，本机无所需提权能力，尚未验收。该组件是当前原 DNS 接入依赖，尚未接正式助手恢复扫描或应用，不作为已有透明访问能力。
 
 当前增量：HTTP CONNECT 半关闭修复已通过 `278dc0e` 的三平台 Tests 与六组 Core ABI，正常 EOF 保留反向响应，错误与停止仍结束所属转发；SOCKS／CONNECT 共用真实 TCP 的首包、半关闭和停止回归。完整 Go 21 包／vet 与十轮目标 race 通过，修复前失败及当前证据归 `build/reports/http-halfclose.json`；无 Clash／实际校园 UDP、透明接管及其他平台实机仍待。
 

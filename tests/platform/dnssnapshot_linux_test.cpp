@@ -1,4 +1,5 @@
 #include "infrastructure/dns/linux/dnssnapshot.h"
+#include "infrastructure/dns/linux/resolvedlink.h"
 #include <QCoreApplication>
 #include <QDBusArgument>
 #include <QDBusMessage>
@@ -18,9 +19,17 @@ static void check(bool ok, const char *message) {
 struct Server { int index, family; QByteArray address; };
 struct ServerEx { int index, family; QByteArray address; quint16 port; QString name; };
 struct Domain { int index; QString name; bool routeOnly; };
+struct LinkServerEx { int family; QByteArray address; quint16 port; QString name; };
 Q_DECLARE_METATYPE(Server)
 Q_DECLARE_METATYPE(ServerEx)
 Q_DECLARE_METATYPE(Domain)
+Q_DECLARE_METATYPE(LinkServerEx)
+QDBusArgument &operator<<(QDBusArgument &a, const LinkServerEx &v) {
+    a.beginStructure(); a << v.family << v.address << v.port << v.name; a.endStructure(); return a;
+}
+const QDBusArgument &operator>>(const QDBusArgument &a, LinkServerEx &v) {
+    a.beginStructure(); a >> v.family >> v.address >> v.port >> v.name; a.endStructure(); return a;
+}
 QDBusArgument &operator<<(QDBusArgument &a, const Server &v) {
     a.beginStructure(); a << v.index << v.family << v.address; a.endStructure(); return a;
 }
@@ -61,6 +70,12 @@ public:
                     return true;
                 }
                 value = QVariantMap{{"DefaultRoute", false}, {"DNSOverTLS", "yes"}};
+                auto profile = value.toMap();
+                const auto address = mode == "invalid" ? QByteArray(3, '\0') : QByteArray::fromHex("c0000235");
+                if (mode == "legacy") profile["DNS"] = QVariant::fromValue(QList<QPair<int,QByteArray>>{{2,address}});
+                else profile["DNSEx"] = QVariant::fromValue(QList<LinkServerEx>{{2,address,0,"resolver.example.test"}});
+                profile["Domains"] = QVariant::fromValue(QList<QPair<QString,bool>>{{"original.test",true},{"search.test",false}});
+                value = profile;
             } else {
                 const bool extended = mode != "legacy";
                 const auto address = mode == "invalid" ? QByteArray(3, '\0') : QByteArray::fromHex("c0000235");
@@ -88,6 +103,9 @@ int main(int argc, char **argv) try
     qDBusRegisterMetaType<Server>(); qDBusRegisterMetaType<QList<Server>>();
     qDBusRegisterMetaType<ServerEx>(); qDBusRegisterMetaType<QList<ServerEx>>();
     qDBusRegisterMetaType<Domain>(); qDBusRegisterMetaType<QList<Domain>>();
+    qDBusRegisterMetaType<LinkServerEx>(); qDBusRegisterMetaType<QList<LinkServerEx>>();
+    qDBusRegisterMetaType<QPair<int,QByteArray>>(); qDBusRegisterMetaType<QList<QPair<int,QByteArray>>>();
+    qDBusRegisterMetaType<QPair<QString,bool>>(); qDBusRegisterMetaType<QList<QPair<QString,bool>>>();
     if (app.arguments().contains("--native")) {
         const auto snapshot = readSystemDnsSnapshot();
         check(snapshot.result.succeeded(), qPrintable(snapshot.result.detail));
@@ -118,8 +136,18 @@ int main(int argc, char **argv) try
         server.start(app.applicationFilePath(), {"--serve", mode});
         check(server.waitForReadyRead(3000) && server.readLine() == "ready\n", "Start private resolver fixture");
         const auto snapshot = readLinuxDnsSnapshot(bus, source);
+        QDeadlineTimer deadline(5000);
+        const auto link = LinuxResolved::readLink(bus, 7, deadline);
         const bool valid = QString(mode) == "modern" || QString(mode) == "legacy" || QString(mode) == "nolinks";
         check(snapshot.result.succeeded() == valid, qPrintable(QString(mode) + ": " + snapshot.result.detail));
+        check(link.result.succeeded() == valid, "Owned-link parser accepted invalid native properties or rejected valid metadata");
+        if (valid && QString(mode) != "nolinks") {
+            const auto endpoint = link.profile["dns"].toArray().first().toObject();
+            check(!link.absent && link.extended == (QString(mode) != "legacy") && endpoint["port"] == 0
+                && endpoint["address"] == "192.0.2.53" && endpoint["name"] == (QString(mode) == "legacy" ? "" : "resolver.example.test")
+                && link.profile["domains"].toArray().size() == 2 && link.security["DNSOverTLS"] == "yes"
+                && LinuxResolved::providerIdentity(link.provider), "Native link source, unspecified port, security or provider identity was lost");
+        } else if (valid) check(link.absent && link.profile.isEmpty(), "Unmanaged link published a synthetic DNS profile");
         if (valid) {
             const auto resolved = snapshot.data["resolved"].toObject();
             const auto dns = resolved["DNS"].toArray().first().toObject();

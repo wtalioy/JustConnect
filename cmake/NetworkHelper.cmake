@@ -7,6 +7,8 @@ function(justconnect_linux_network_helper)
         "${REPO}/infrastructure/routing/linux/ownedroutetable.cpp"
         "${REPO}/infrastructure/routing/linux/tunroutes.cpp"
         "${REPO}/infrastructure/dns/linux/tundns.cpp"
+        "${REPO}/infrastructure/dns/linux/resolvedlink.cpp"
+        "${REPO}/infrastructure/dns/linux/linkdns.cpp"
         "${REPO}/infrastructure/tundevice/linux/tundevice.cpp"
         "${REPO}/infrastructure/tundevice/tundevice.cpp"
         "${REPO}/infrastructure/process/command.cpp")
