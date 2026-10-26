@@ -2,6 +2,7 @@
 #include "infrastructure/coreengine/embeddedcoreengine.h"
 #include "infrastructure/dns/dnssnapshot.h"
 #include "tests/platform/windows_device/controlhandoff.h"
+#include "tests/platform/networksnapshotcheck.h"
 #include "tuntraffic.h"
 #include <QCoreApplication>
 #include <QElapsedTimer>
@@ -44,11 +45,7 @@ static QStringList interfaceAddresses(){
 static bool sameNetwork(const QJsonObject &beforeDns,const QJsonObject &afterDns,
     const QStringList &beforeAddresses,const QStringList &afterAddresses){
     if(beforeDns==afterDns && beforeAddresses==afterAddresses)return true;
-    QJsonObject changedDns;
-    auto keys=beforeDns.keys();keys.append(afterDns.keys());keys.removeDuplicates();
-    for(const auto &key:keys)if(beforeDns[key]!=afterDns[key])
-        changedDns[key]=QJsonObject{{"before",beforeDns[key]},{"after",afterDns[key]}};
-    QJsonObject difference{{"dns",changedDns}};
+    QJsonObject difference{{"dns",NetworkSnapshotCheck::difference(beforeDns,afterDns)}};
     if(beforeAddresses!=afterAddresses)difference["interfaces"]=QJsonObject{
         {"before",QJsonArray::fromStringList(beforeAddresses)},{"after",QJsonArray::fromStringList(afterAddresses)}};
     std::cerr<<"network_restoration_difference="<<QJsonDocument(difference).toJson(QJsonDocument::Compact).constData()<<'\n';
