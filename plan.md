@@ -22,7 +22,7 @@
 | S3—S5 剩余 | **17 项中已收尾 9 项，剩余 8 项**：S3-05；S4-01／04／05；S5-01／02／03／05。剩余包含已有实现的待验收项，并非 8 项全部未实现；原生 IP／域名 SSH 已通过六组联验，当前优先原 DNS 重叠转发与出口缺口，随后真实桌面／校园验收 |
 | 全计划进度 | 64 项中已收尾 31 项，剩余 33 项；其中本轮目标 S3—S5 剩余 8 项，后续 S6—S8 仍按实施顺序推进 |
 | 最新自动验收 | `2c0874a` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40309425987)与[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40309426226)全部通过；六份原生日志来源一致，包含显式原 DNS、同 IP 刷新／撤回、实际 OpenSSH、接管／恢复及 Windows 原 4096 次设备门槛。历史 SDK 偶发停滞仍保留为风险，不能据单轮通过宣称根除 |
-| 在途验证 | `3e232d9` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40323881946)已通过，[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40323882024)仍运行中；Linux ARM64 已通过新增原接口 DNS 原生查询／独立恢复及正式助手包回归，不能代替其余平台结果 |
+| 本轮验证 | `3e232d9` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40323881946)全部通过；[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40323882024)中 Linux 双架构通过，macOS ARM64 的 Go race DNS 应答读取超时，其他项仍运行。失败日志已下载，本地对应测试十轮 race 通过，原因未确认；不记整轮通过 |
 | 验收范围 | 仅要求 Fudan 实测；按用户决定取消另一台 aTrust 服务器的硬性要求，保留 Custom 实现与服务器／账户隔离回归 |
 | 剩余缺口 | S1-04 真实样本、正式签名／公证、真实桌面／校园透明访问、Clash 共存与剩余平台矩阵未验收；D2 的三平台设备／权限／正常及故障恢复已通过受控自动验证，边界与实机缺口见 S4／S5 |
 | 最新交付 | 通用隧道证书选项预览 `8fefd1c`：[Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/39595437026/artifacts/12343204224)／[ARM64](https://github.com/wtalioy/JustConnect/actions/runs/39595437026/artifacts/12343943637)；代理网页／SSH、断开及重启恢复、清除后重新认证已验证；透明访问待验收，完整验证见[验证与收尾](#implementation-history) |
@@ -290,7 +290,7 @@ Linux x64／ARM64 AppImage 分别减少约 2.07%／1.90%；macOS 安装体积基
 
 原 DNS 核心增量（S4-01／S5-03，应用接入与整体验收待）：`2c0874a` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40309425987)与[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40309426226)全部通过，含实际原 DNS UDP／TCP、A／AAAA／CNAME、独立查询／数据出口、应答前确认及同名称／同 IP 刷新后撤回。原／校园方向共用同一有界绑定，TTL／容量回收不丢原方向，localhost 保留本机；无额外缓存、兼容分支或产品 DNS 默认值。六份来源一致日志及证据归 `build/reports/original-dns-2c0874a/summary.json`；临时程序、已提交暂存及被替代的重复日志已归纳清理，独有 SDK 失败证据保留。自动原生来源选择、安全策略保真、服务器原出口准备、重叠名称作用域及来源变化重连仍未实现，不解除应用原有重叠拒绝；[核心契约](docs/CORE-ABI.md)记录接口及限制。
 
-Linux 原接口 DNS 扩展（ARM64 原生已验，x64 待）：`3e232d9` 的[ARM64 原生检查](https://github.com/wtalioy/JustConnect/actions/runs/40323882024/job/121575449471)通过真实系统查询、外部新增／同值重建、写入中断新进程恢复、TLS 拒绝及既有 TUN／助手包回归，来源一致的日志归 `build/reports/original-link-dns-3e232d9/`。已实现仅替换服务器列表、持久写前检查点、原生连接标识及新进程恢复，保留域／搜索／默认路由与安全模式；不能确认普通 DNS 传输时不修改。原生读取与已有 TUN 后端共用，保留 DNSEx 未指定端口；现有 TUN 记录仍使用有效标准端口。普通权限／真实私有 D-Bus 的三项本地检查及夹具语法通过。本机无所需提权能力，Linux x64 仍待相同隔离 CI，不以 ARM64 结果替代。该组件是当前原 DNS 接入依赖，尚未接正式助手恢复扫描或应用，不作为已有透明访问能力。CI 依赖安装配置为 needrestart 报告模式，静态检查通过，实际执行随本批必需 CI 验证；说明归[开发说明](docs/DEVELOPMENT.md)。
+Linux 原接口 DNS 后端已通过 `3e232d9` 的[双架构原生检查](https://github.com/wtalioy/JustConnect/actions/runs/40323882024)：真实查询、完整原值恢复、外部新增／同值重建、写入中断新进程恢复、TLS 拒绝及既有 TUN／助手包回归均通过。仅替换服务器列表，保留域／搜索／默认路由和安全模式；与 TUN 共用原生读取，保留 DNSEx 未指定端口。普通权限及真实私有 D-Bus 的本地三项检查亦通过，来源一致日志归 `build/reports/original-link-dns-3e232d9/`。正式助手恢复扫描和应用仍未接入，不作为重叠名称已可用的证据。显式 apt 步骤的 needrestart 报告模式已在 ARM64 日志确认；Qt action 后续自行安装依赖仍可能重启服务，不宣称整条安装链已排除该风险；说明归[开发说明](docs/DEVELOPMENT.md)。
 
 当前增量：HTTP CONNECT 半关闭修复已通过 `278dc0e` 的三平台 Tests 与六组 Core ABI，正常 EOF 保留反向响应，错误与停止仍结束所属转发；SOCKS／CONNECT 共用真实 TCP 的首包、半关闭和停止回归。完整 Go 21 包／vet 与十轮目标 race 通过，修复前失败及当前证据归 `build/reports/http-halfclose.json`；无 Clash／实际校园 UDP、透明接管及其他平台实机仍待。
 
