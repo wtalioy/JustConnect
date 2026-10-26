@@ -107,7 +107,7 @@ func TestOriginalDNSKeepsRecordsAndDirectionAcrossPolicyChanges(t *testing.T) {
 		<-ready
 		t.Cleanup(func() { _ = server.Shutdown() })
 	}
-	r := NewResolver(nil, "", "", 30, client.DomainResources{host: {{Protocol: "tcp", PortMin: 80, PortMax: 80}}}, map[string][]net.IP{host: {net.IPv4(203, 0, 113, 7)}, "localhost": {net.IPv4(203, 0, 113, 8)}}, false)
+	r := NewResolver(nil, "", "", 30, client.DomainResources{host: {{Protocol: "tcp", PortMin: 80, PortMax: 80}}}, map[string][]net.IP{host: {net.IPv4(203, 0, 113, 9)}, "localhost": {net.IPv4(203, 0, 113, 8)}}, false)
 	defer r.Close()
 	routes := []OriginalDNSRoute{{Name: policy.NameRule{Kind: "suffix", Value: "campus.test"}, Servers: []string{tcp.Addr().String()}, Interface: iface, EgressInterface: iface}}
 	r.OriginalDNS, err = NewOriginalDNS(routes)
@@ -167,11 +167,18 @@ func TestOriginalDNSKeepsRecordsAndDirectionAcrossPolicyChanges(t *testing.T) {
 		t.Fatal("campus name choice kept an original binding", got, err)
 	}
 	reply, err := r.ExchangeTUN(t.Context(), new(dns.Msg).SetQuestion(host+".", dns.TypeA), "udp", nil, nil)
-	if err != nil || len(reply.Answer) != 1 || !reply.Answer[0].(*dns.A).A.Equal(net.IPv4(203, 0, 113, 7)) {
+	if err != nil || len(reply.Answer) != 1 || !reply.Answer[0].(*dns.A).A.Equal(net.IPv4(203, 0, 113, 9)) {
 		t.Fatal("explicit campus choice did not use its granted record", reply, err)
 	}
 	if _, err := r.ExchangeTUN(t.Context(), new(dns.Msg).SetQuestion(host+".", dns.TypeAAAA), "udp", nil, nil); !errors.Is(err, ErrCampusIPv6Unsupported) {
 		t.Fatal("campus IPv6 support was invented", err)
+	}
+	if len(r.CampusResourcesForIP(t.Context(), address)) != 1 {
+		t.Fatal("same-IP campus choice lost its DNS authorization")
+	}
+	current.Store(&protected)
+	if got, err := r.OriginalInterfaceForIP(t.Context(), address); err != nil || got != iface || len(r.CampusResourcesForIP(t.Context(), address)) != 0 {
+		t.Fatal("same-IP campus refresh destroyed original direction on withdrawal", got, err)
 	}
 	if _, err := r.ExchangeTUN(t.Context(), new(dns.Msg).SetQuestion("localhost.", dns.TypeA), "udp", nil, nil); !errors.Is(err, ErrOriginalDNSRequired) {
 		t.Fatal("a server-supplied localhost answer bypassed reserved local naming", err)

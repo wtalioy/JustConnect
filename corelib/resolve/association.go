@@ -127,12 +127,13 @@ func (r *Resolver) bindDNSAnswer(request, reply *dns.Msg, publish func([]netip.A
 	r.cacheMu.Lock()
 	defer r.cacheMu.Unlock()
 	now := time.Now()
+	// A campus refresh must not erase the original direction needed after withdrawal.
 	needed := func() int {
 		n := 0
 		for address := range addresses {
 			found := false
 			for _, binding := range r.dnsBindings[address] {
-				found = found || binding.host == host
+				found = found || (binding.host == host && (binding.originalInterface == "") == (originalInterface == ""))
 			}
 			if !found {
 				n++
@@ -169,7 +170,7 @@ func (r *Resolver) bindDNSAnswer(request, reply *dns.Msg, publish func([]netip.A
 		rows := r.dnsBindings[address]
 		found := false
 		for index := range rows {
-			if rows[index].host == host {
+			if rows[index].host == host && (rows[index].originalInterface == "") == (originalInterface == "") {
 				rows[index] = binding
 				found = true
 				break
