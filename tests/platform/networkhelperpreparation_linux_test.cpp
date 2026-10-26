@@ -1,5 +1,6 @@
 #include "application/networkprotection.h"
 #include "infrastructure/networkhelper/linux/networkhelperpreparation.h"
+#include "infrastructure/routing/linux/originalexit.h"
 #include <QCoreApplication>
 #include <QJsonDocument>
 #include <QJsonArray>
@@ -75,8 +76,27 @@ int main(int argc, char **argv) try {
         return PlatformCommandResult{{},result,{}};
     };
     check(verifyLinuxCaptureExit(config,config.capturePrefixes,exitReader).succeeded(),"Confirmed bound-source exit was rejected");
+    const auto endpoints = linuxRouteEndpoints({"192.0.2.0/31", "192.0.2.1/32", "192.0.2.2/32"});
+    check(endpoints == std::optional<QStringList>{{"192.0.2.0", "192.0.2.1", "192.0.2.2"}},
+          "Original route queries lost range endpoints, order or deduplication");
+    check(linuxRouteEndpoints({"64.0.0.0/2"}) == std::optional<QStringList>{{"64.0.0.0", "127.255.255.255"}},
+          "Large original route query range overflowed");
+    int invalidReads = 0;
+    auto neverRead = [&](const QString &, const QStringList &) {
+        ++invalidReads; return PlatformCommandResult{};
+    };
+    check(!verifyLinuxOriginalExit("original0\nroute del default", config.originalSource, config.originalGateway,
+              config.capturePrefixes, neverRead).succeeded()
+          && !verifyLinuxOriginalExit(config.originalInterface, "127.0.0.1", config.originalGateway,
+              config.capturePrefixes, neverRead).succeeded()
+          && !verifyLinuxOriginalExit(config.originalInterface, config.originalSource, config.originalSource,
+              config.capturePrefixes, neverRead).succeeded()
+          && !verifyLinuxOriginalExit(config.originalInterface, config.originalSource, config.originalGateway,
+              {"203.0.113.8/31\nroute del default"}, neverRead).succeeded()
+          && invalidReads == 0, "Invalid original exit reached the command reader");
     const auto exits = exitRows;
-    for (const auto &changed : {QJsonObject{{"dev","other0"}},QJsonObject{{"gateway","192.0.2.253"}},QJsonObject{{"from","192.0.2.2"}}}) {
+    for (const auto &changed : {QJsonObject{{"dev","other0"}},QJsonObject{{"gateway","192.0.2.253"}},QJsonObject{{"from","192.0.2.2"}}, QJsonObject{{"dst","203.0.113.10"}},
+        QJsonObject{{"nhid",1}}, QJsonObject{{"type","blackhole"}}, QJsonObject{{"flags",QJsonArray{"linkdown"}}}}) {
         exitRows = exits;
         auto row = exitRows[1].toObject();
         for (auto it=changed.begin(); it!=changed.end(); ++it) row[it.key()] = it.value();

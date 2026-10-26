@@ -172,7 +172,10 @@ struct OwnedOperation {
     Result extend(const QStringList &addresses)
     {
         if (context["phase"] != "active") return invalid("DNS routes require active connection ownership.");
-        auto result = source.extend(owner,addresses,writer(sourceJournal));
+        QStringList prefixes;
+        for (const auto &address : addresses) prefixes.append(address + "/32");
+        auto result = source.verifyExit(prefixes);
+        if (result.succeeded()) result = source.extend(owner,addresses,writer(sourceJournal));
         bool changed = result.mayHaveChanged;
         if (result.succeeded()) result = capture.extend(device,addresses,writer(captureJournal));
         if (result.succeeded()) return {Status::Success,{},changed || result.mayHaveChanged};
@@ -185,7 +188,8 @@ struct OwnedOperation {
     {
         if (context["phase"] != "active") return invalid("Route changes require active connection ownership.");
         // Original egress remains owned until full restoration, including existing relay traffic.
-        auto result = source.ensurePrefixes(owner,prefixes,writer(sourceJournal));
+        auto result = source.verifyExit(prefixes);
+        if (result.succeeded()) result = source.ensurePrefixes(owner,prefixes,writer(sourceJournal));
         const bool changed = result.mayHaveChanged;
         if (result.succeeded()) result = capture.reconcile(device,prefixes,writer(captureJournal));
         if (result.succeeded()) return {Status::Success,{},changed || result.mayHaveChanged};

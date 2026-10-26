@@ -146,6 +146,8 @@ def main():
     ip('link', 'add', 'helperorig0', 'type', 'dummy')
     ip('link', 'set', 'helperorig0', 'up')
     ip('address', 'add', '192.0.2.1/24', 'dev', 'helperorig0')
+    # DNS extensions must use a real original lookup, independently of owned source routes.
+    ip('route', 'add', '198.18.6.7/32', 'dev', 'helperorig0')
     for name in ('all', 'default'):
         Path(f'/proc/sys/net/ipv4/conf/{name}/rp_filter').write_text('1')
 
@@ -387,10 +389,33 @@ def main():
             command('send',packet={**request(owner,'extend'),'addresses':[application(owner)['device']['peer']]})
             receive(owner,'restored',success=False)
             command('close-descriptors')
-            assert inventory() == before_failure,'failed DNS capture publication lost the foreign route or its source rollback'
+            assert inventory() == before_failure,'refused DNS endpoint publication lost the foreign route or retained owned state'
             ip('route','del','198.18.6.7/32','dev','helperorig0','metric','7')
             finish(owner,process)
-            print('PASS: DNS publication endpoint rejection reverses its source additions and preserves the external route',flush=True)
+            print('PASS: DNS publication endpoint rejection restores ownership and preserves the external route',flush=True)
+
+            ip('link', 'add', 'helperalt0', 'type', 'dummy')
+            ip('link', 'set', 'helperalt0', 'up')
+            ip('address', 'add', '192.0.3.1/24', 'dev', 'helperalt0')
+            for destination, route in (
+                ('198.18.7.7', ('dev', 'helperalt0')),
+                ('198.18.8.8', ('via', '192.0.2.254', 'dev', 'helperorig0')),
+            ):
+                ip('route', 'add', destination + '/32', *route)
+                before_failure = inventory()
+                owner = str(uuid.uuid4())
+                process = start(owner)
+                command('send', packet=application(owner))
+                receive(owner, 'active', 1)
+                command('send', packet={**request(owner, 'extend'), 'addresses': [destination]})
+                receive(owner, 'restored', success=False)
+                command('close-descriptors')
+                assert inventory() == before_failure, 'DNS extension overrode a different original exit'
+                finish(owner, process)
+                ip('route', 'del', destination + '/32', *route)
+            ip('link', 'del', 'helperalt0')
+            assert inventory() == baseline
+            print('PASS: DNS addresses on another original interface or gateway refuse publication and restore ownership', flush=True)
 
             # Application dies: the helper independently restores, retaining a durable receipt.
             owner = str(uuid.uuid4())

@@ -5,6 +5,7 @@ function(justconnect_linux_network_helper)
         "${REPO}/infrastructure/process/linux/trustedexecutable.cpp"
         "${REPO}/infrastructure/networkjournal/networkjournal.cpp"
         "${REPO}/infrastructure/routing/linux/ownedroutetable.cpp"
+        "${REPO}/infrastructure/routing/linux/originalexit.cpp"
         "${REPO}/infrastructure/routing/linux/tunroutes.cpp"
         "${REPO}/infrastructure/dns/linux/tundns.cpp"
         "${REPO}/infrastructure/dns/linux/resolvedlink.cpp"

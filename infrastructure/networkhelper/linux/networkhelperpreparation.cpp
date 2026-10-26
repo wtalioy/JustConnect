@@ -2,28 +2,10 @@
 #include "application/networkprotection.h"
 #include "infrastructure/tundevice/tundevice.h"
 #include "infrastructure/routing/linux/ownedroutetable.h"
+#include "infrastructure/routing/linux/originalexit.h"
 #include <QHostAddress>
 #include <QJsonDocument>
-#include <QSet>
 
-namespace {
-std::optional<QStringList> routeEndpoints(const QStringList &prefixes)
-{
-    if (prefixes.size() > LinuxRouteSnapshotRows) return {};
-    QSet<QString> unique;
-    QStringList result;
-    for (const auto &prefix : prefixes) {
-        if (!canonicalIpv4Prefix(prefix)) return {};
-        const auto subnet = QHostAddress::parseSubnet(prefix);
-        const quint64 first = subnet.first.toIPv4Address(), last = first + (quint64(1) << (32-subnet.second))-1;
-        for (const auto number : {first,last}) {
-            const auto address = QHostAddress(quint32(number)).toString();
-            if (!unique.contains(address)) { unique.insert(address); result.append(address); }
-        }
-    }
-    return result;
-}
-}
 
 LinuxHelperPreparation prepareLinuxNetworkHelper(const QJsonObject &resources, const QJsonObject &policy,
     const QJsonObject &network, const DnsSnapshot &dns, const QString &localDNS, int mtu, const PlatformCommandRunner &reader)
@@ -44,7 +26,7 @@ LinuxHelperPreparation prepareLinuxNetworkHelper(const QJsonObject &resources, c
         return {{Status::Failed, "Invalid underlay interface name."}, {}};
     const auto utility = trustedIpRouteUtility();
     if (utility.isEmpty()) return {{Status::Unsupported, "A trusted system iproute2 executable is required."}, {}};
-    const auto queries = routeEndpoints(targets->ipv4Prefixes);
+    const auto queries = linuxRouteEndpoints(targets->ipv4Prefixes);
     if (!queries) return {{Status::Failed,"Invalid route query endpoints."},{}};
     QByteArray batch;
     for (const auto &address : *queries) {
@@ -102,35 +84,7 @@ LinuxHelperPreparation prepareLinuxNetworkHelper(const QJsonObject &resources, c
 PlatformOperationResult verifyLinuxCaptureExit(const LinuxHelperConfiguration &owned, const QStringList &prefixes,
     const PlatformCommandRunner &reader)
 {
-    using Status = PlatformOperationResult::Status;
-    if (!canonicalUnicastIpv4(owned.originalSource) || prefixes.size() > LinuxRouteSnapshotRows)
-        return {Status::Failed,"Invalid original route verification input."};
-    const auto utility = trustedIpRouteUtility();
-    if (utility.isEmpty()) return {Status::Unsupported,"A trusted system iproute2 executable is required."};
-    const auto queries = routeEndpoints(prefixes);
-    if (!queries) return {Status::Failed,"Invalid capture prefixes."};
-    if (queries->isEmpty()) return {};
-    QByteArray batch;
-    for (const auto &address : *queries)
-        batch += "route get " + address.toLatin1() + " from " + owned.originalSource.toLatin1() + '\n';
-    const QStringList args{"-N","-j","-4","-batch","-"};
-    const auto read = reader ? reader(utility,args) : runPlatformCommand(utility,args,LinuxRouteOperationTimeoutMs,batch);
-    if (!read.result.succeeded()) return read.result;
-    if (read.output.toUtf8().size() > LinuxRouteSnapshotBytes || read.output.contains(QChar::ReplacementCharacter))
-        return {Status::Failed,"Original exit verification exceeded its complete output budget."};
-    const auto lines = read.output.split('\n',Qt::SkipEmptyParts);
-    if (lines.size() != queries->size()) return {Status::Failed,"Incomplete original exit verification."};
-    for (qsizetype i=0; i<lines.size(); ++i) {
-        const auto parsed = QJsonDocument::fromJson(lines[i].toUtf8());
-        const auto rows = parsed.array();
-        if (!parsed.isArray() || rows.size() != 1 || !rows[0].isObject()) return {Status::Failed,"Invalid original exit verification."};
-        const auto row = rows[0].toObject();
-        if (row["dst"] != (*queries)[i] || row["from"] != owned.originalSource || row["dev"] != owned.originalInterface
-            || row["gateway"].toString() != owned.originalGateway || row.contains("nhid") || row.contains("nexthops")
-            || (row.contains("type") && row["type"] != "unicast") || !row["flags"].isArray() || !row["flags"].toArray().isEmpty())
-            return {Status::Unsupported,"Changed capture targets no longer share the confirmed original exit."};
-    }
-    return {};
+    return verifyLinuxOriginalExit(owned.originalInterface, owned.originalSource, owned.originalGateway, prefixes, reader);
 }
 
 std::optional<QJsonObject> linuxOriginalExitSnapshot(const QJsonObject &network, const LinuxHelperConfiguration &owned)
