@@ -148,7 +148,7 @@ std::optional<QJsonArray> originalDnsNamespaces(const QJsonObject &dns)
     };
     if (dns.contains("resolv_conf")) {
         if (!dns["resolv_conf"].isObject()) return std::nullopt;
-        const auto contents = dns["resolv_conf"].toObject()["contents"];
+        const auto contents = dns["resolv_conf"].toObject().value("contents");
         if (!contents.isString()) return std::nullopt;
         const auto lines = contents.toString().split('\n');
         QStringList names;
