@@ -163,8 +163,10 @@ func NewListeners(ctx context.Context, socksAddr, httpAddr string, dialer *dial.
 			}
 		})
 	}
-	if err := p.listenOriginalDNS(); err != nil {
-		return nil, err
+	if resolver != nil && resolver.OriginalDNS != nil {
+		if err := p.prepareOriginalDNS(resolver.OriginalDNS, true); err != nil {
+			return nil, err
+		}
 	}
 	success = true
 	return p, nil

@@ -89,6 +89,13 @@ func (s *Session) OriginalDNSRecords() map[string][]string {
 	return nil
 }
 
+func (s *Session) PrepareOriginalDNS(sources *resolve.OriginalDNS) error {
+	if listeners := s.listeners.Load(); listeners != nil {
+		return listeners.PrepareOriginalDNS(sources)
+	}
+	return net.ErrClosed
+}
+
 func (s *Session) OriginalDNSListeners() map[string]string {
 	if listeners := s.listeners.Load(); listeners != nil {
 		return listeners.OriginalDNSListeners()
