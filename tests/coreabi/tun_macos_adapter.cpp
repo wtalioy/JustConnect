@@ -86,12 +86,14 @@ int main(int argc,char **argv)
     const bool helperLoss = qgetenv("JC_NATIVE_NETWORK_HELPER_LOSS") == "1";
     const bool policyChanges = qgetenv("JC_NATIVE_NETWORK_POLICY") == "1";
     const bool offline = qgetenv("JC_NATIVE_NETWORK_HELPER_OFFLINE") == "1";
+    const bool exitChange = qgetenv("JC_NATIVE_NETWORK_EXIT_CHANGE") == "1";
     const auto marker = QString::fromLocal8Bit(qgetenv("JC_NATIVE_TUN_READY"));
-    check((!helperLoss && !policyChanges && authorizationMode.isEmpty()) || !marker.isEmpty(),"External native observer has a private control directory");
+    check((!helperLoss && !policyChanges && !exitChange && authorizationMode.isEmpty()) || !marker.isEmpty(),"External native observer has a private control directory");
     const auto publish = [&](const QString &suffix) {
         QSaveFile file(marker+suffix);
-        const auto value = QJsonDocument(QJsonObject{{"pid",QCoreApplication::applicationPid()},
-            {"generation",policy.currentGeneration()}}).toJson(QJsonDocument::Compact);
+        QJsonObject snapshot{{"pid",QCoreApplication::applicationPid()},{"generation",policy.currentGeneration()}};
+        if (exitChange) snapshot["network"] = policy.model()["network"];
+        const auto value = QJsonDocument(snapshot).toJson(QJsonDocument::Compact);
         check(file.open(QIODevice::WriteOnly) && file.write(value) == value.size() && file.commit(),"Publish actual Qt/core lifecycle boundary");
     };
     int coreFinished = 0, finished = 0; bool wasPreparing = false;
@@ -149,8 +151,9 @@ int main(int argc,char **argv)
             "Cancellation releases the real core and network responsibility before authorization returns");
         publish(".cancelled");
     }
+    QString previousGeneration;
     for (int round=0;round<2;++round) {
-        check(session.start(profile,{false,1000}),"Start actual macOS application network session");
+        if (!round || !exitChange) check(session.start(profile,{exitChange,1000}),"Start actual macOS application network session");
         if (cancelAuthorization && round == 0) {
             until([&] { return waiting->entered == 2; }); publish(".current-authorizing");
             until([&] { return QFileInfo::exists(marker+".release-old"); });
@@ -162,7 +165,13 @@ int main(int argc,char **argv)
         }
         until([&] { return session.state() == ConnectionState::Running || !session.isActive(); });
         check(session.state() == ConnectionState::Running && session.phase() == ConnectionPhase::CampusReady && wasPreparing,"Campus readiness follows helper ownership and real Go attachment");
-        if ((helperLoss && round == 1) || (!helperLoss && !policyChanges && authorizationMode.isEmpty() && !marker.isEmpty() && round == 0)) {
+        if (exitChange && round == 1) {
+            check(session.reconnectAttempt() == 1 && policy.currentGeneration() != previousGeneration,
+                "Changed exit reuses the bounded reconnect policy with a fresh core generation");
+            changingNetwork = false; publish(".exit-reconnected");
+            until([&] { return QFileInfo::exists(marker+".traffic"); });
+        }
+        if ((helperLoss && round == 1) || (!helperLoss && !policyChanges && !exitChange && authorizationMode.isEmpty() && !marker.isEmpty() && round == 0)) {
             publish(".reconnected"); until([&] { return QFileInfo::exists(marker+".traffic"); });
         }
         originalView();
@@ -175,6 +184,19 @@ int main(int argc,char **argv)
         for (const auto &address : addresses("localhost")) check(QHostAddress(address).isLoopback(),"localhost remains on this computer");
         originalView();
         refresh(); originalView();
+        if (exitChange && round == 0) {
+            previousGeneration = policy.currentGeneration(); changingNetwork = true;
+            const auto barrier = QObject::connect(&session,&ConnectionSession::reconnectScheduled,&session,[&](int) {
+                check(finished == 0 && session.state() == ConnectionState::Reconnecting,
+                    "Changed exit restores ownership and stops its old core before scheduling reconnect");
+                publish(".exit-restored"); until([&] { return QFileInfo::exists(marker+".continue"); });
+            });
+            publish(".exit-ready");
+            until([&] { return session.state() == ConnectionState::Reconnecting || !session.isActive(); });
+            QObject::disconnect(barrier);
+            check(coreFinished == 1 && session.state() == ConnectionState::Reconnecting,"Changed original exit stops its old core and preserves automatic restart");
+            continue;
+        }
         if (policyChanges && round == 0) {
             const auto generation = policy.currentGeneration();
             changingNetwork = true; publish(".policy-ready");
@@ -222,12 +244,13 @@ int main(int argc,char **argv)
         session.stop(); session.stop(); until([&] { return !session.isActive(); });
         const auto expected = helperLoss && round == 0 ? ConnectionState::Failed : ConnectionState::Disconnected;
         const int completed = round+1+(cancelAuthorization ? 1 : 0);
-        check(finished == completed && coreFinished == completed && session.state() == expected,"Ordered helper restoration and core stop complete before restart");
+        check(finished == (exitChange ? 1 : completed) && coreFinished == completed && session.state() == expected,"Ordered helper restoration and core stop complete before restart");
         if (helperLoss && round == 0) {
             publish(".restored"); until([&] { return QFileInfo::exists(marker+".restart"); });
         }
     }
     ::close(authorizationFd);
+    if (exitChange) std::cout << "PASS: changed macOS original exit restores before automatic reconnect with a fresh generation and ownership\n";
     if (helperLoss) std::cout << "PASS: full macOS application releases core/device on helper loss and reconnects with fresh ownership\n";
     if (offline) std::cout << "PASS: unavailable macOS helper retains restoration responsibility and blocks restart until explicit recovery\n";
     if (cancelAuthorization) std::cout << "PASS: pending macOS authorization cancels promptly and its late grant cannot approve a fresh connection\n";
