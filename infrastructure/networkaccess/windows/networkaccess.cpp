@@ -218,6 +218,7 @@ void WindowsNetworkAccess::observeModel()
 }
 void WindowsNetworkAccess::applyPolicy(const QJsonObject &value)
 {
+    qCDebug(windowsNetworkAccessLog)<<"apply policy"<<value;
     QStringList domains;for(const auto &item:helper.ownedConfiguration()["dns_domains"].toArray())domains.append(item.toString());
     const auto prefixes=updatedCampusCapturePrefixes(policy->model()["resources"].toObject(),value,domains);
     if(stage!=Stage::Ready || helper.state()!=HelperState::Active || !prefixes){

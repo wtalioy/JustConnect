@@ -1,6 +1,7 @@
 #include "infrastructure/networkaccess/windows/networkaccess.h"
 #include "infrastructure/coreengine/embeddedcoreengine.h"
 #include "infrastructure/dns/dnssnapshot.h"
+#include "application/networkprotection.h"
 #include "tests/platform/windows_device/controlhandoff.h"
 #include "tuntraffic.h"
 #include <QCoreApplication>
@@ -42,6 +43,7 @@ static QStringList interfaceAddresses(){
 }
 int main(int argc,char **argv) try
 {
+    qInstallMessageHandler([](QtMsgType,const QMessageLogContext &,const QString &message){std::cerr<<"qt: "<<message.toStdString()<<'\n';});
     QCoreApplication app(argc,argv);QStandardPaths::setTestModeEnabled(true);
     QLoggingCategory::setFilterRules("justconnect.networkaccess.windows.debug=true");
     check(argc==5 && QByteArray(argv[1])=="--client" && QByteArray(argv[3])=="network" && qgetenv("GITHUB_ACTIONS")=="true","disposable Windows application fixture only");
@@ -84,8 +86,15 @@ int main(int argc,char **argv) try
     ConnectionSession session(engine,nullptr,access);
     QObject::connect(&session,&ConnectionSession::diagnostic,[](const QString &value){std::cerr<<value.toStdString()<<'\n';});
     QObject::connect(&session,&ConnectionSession::progressChanged,[&]{std::cerr<<"application phase="<<int(session.phase())<<'\n';});
+    QByteArray previousPolicyView;
     QObject::connect(&policy,&NetworkPolicySession::changed,[&]{
-        std::cerr<<"policy status="<<int(policy.status())<<" busy="<<policy.isBusy()<<" confirmed="<<!policy.confirmedProtection().isEmpty()<<'\n';
+        std::cerr<<"policy status="<<int(policy.status())<<" busy="<<policy.isBusy()<<" revision="<<policy.confirmedProtection()["revision"].toString().toStdString()<<'\n';
+        if(!policy.isBusy() && policy.status()==CoreEngine::RequestStatus::Success){
+            const auto model=policy.model();
+            const auto view=QJsonDocument(QJsonObject{{"protection",protectionConfiguration(model["targets"].toArray(),model["name_targets"].toArray())},
+                {"resources",model["resources"]}}).toJson(QJsonDocument::Compact);
+            if(view!=previousPolicyView){std::cerr<<"policy view="<<view.toStdString()<<'\n';previousPolicyView=view;}
+        }
     });
     QObject::connect(engine,&CoreEngine::snapshotReady,[](CoreEngine::Snapshot kind,const QString &,const QJsonObject &,CoreEngine::RequestStatus status){
         std::cerr<<"native snapshot kind="<<int(kind)<<" status="<<int(status)<<'\n';
