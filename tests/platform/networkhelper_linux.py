@@ -545,6 +545,7 @@ def main():
             (receipt / 'capture').rmdir()
             (receipt / 'underlay').rmdir()
             (receipt / 'dns').rmdir()
+            (receipt / 'original-dns').rmdir()
             (receipt / 'source.json').unlink()
             receipt_fd = os.open(receipt, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
             try:
