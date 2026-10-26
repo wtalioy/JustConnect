@@ -85,6 +85,11 @@ def user_agent(control, uid):
                 assert len(descriptors) == 1
                 query_via_tun(descriptors[0], command['name'], '198.18.0.2', uid,
                               {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C.UTF-8'})
+            elif operation == 'original-query':
+                result = subprocess.run(['/usr/bin/resolvectl', 'query', '--type=A', 'source-check.original.test'],
+                                        env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C.UTF-8'},
+                                        text=True, capture_output=True, timeout=10)
+                assert result.returncode == 0 and '203.0.113.9' in result.stdout, (result.stdout, result.stderr)
             elif operation == 'disconnect':
                 channel.close()
                 channel = None
@@ -117,6 +122,7 @@ def main():
     parser.add_argument('--installed', action='store_true', help='exercise the actual installed entry in private mount/network namespaces')
     parser.add_argument('--uninstalled-helper', type=Path, help='installed-entry negative fixture with the same binary at another path')
     parser.add_argument('--dns-probe', type=Path, help='actual resolved and restricted recovery fixture')
+    parser.add_argument('--original-dns-port', type=int, help='already listening original-link fixture endpoint')
     args = parser.parse_args()
     assert os.geteuid() == 0 and args.uid != 0
     assert os.stat('/proc/thread-self/ns/net') != os.stat('/proc/1/ns/net'), 'refusing the host network namespace'
@@ -124,6 +130,9 @@ def main():
         assert os.stat('/proc/thread-self/ns/mnt') != os.stat('/proc/1/ns/mnt'), 'installed-entry probe requires a private mount namespace'
     helper = args.helper.resolve(strict=True)
     dns_probe = args.dns_probe.resolve(strict=True) if args.dns_probe else None
+    assert bool(dns_probe) == bool(args.original_dns_port)
+    if dns_probe:
+        assert 0 < args.original_dns_port <= 65535
 
     def ip(*arguments):
         return subprocess.check_output(['ip', *arguments], text=True, timeout=10)
@@ -137,7 +146,10 @@ def main():
 
     def inventory():
         return (ip('-N', '-j', '-4', 'route', 'show', 'table', 'all'),
-                ip('-N', '-j', '-4', 'rule', 'show'), socket.if_nameindex())
+                ip('-N', '-j', '-4', 'rule', 'show'), socket.if_nameindex(),
+                tuple(subprocess.check_output(['/usr/bin/resolvectl', key, 'dnsoriginal0'],
+                      env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C.UTF-8'}, text=True, timeout=10)
+                      for key in ('dns', 'domain', 'default-route', 'dnsovertls', 'dnssec')) if dns_probe else ())
 
     baseline = inventory()
     def start_receiver():
@@ -178,6 +190,7 @@ def main():
     def application(owner):
         return {**request(owner, 'apply'), 'device': {'source': '198.18.0.1', 'peer': '198.18.0.2', 'mtu': 1400},
                 'capture': ['198.18.4.0/24'], 'dns': ['campus.test'] if dns_probe else [],
+                'original_dns': [{'interface': 'dnsoriginal0', 'source': '192.0.2.1', 'port': args.original_dns_port}] if dns_probe else [],
                 'underlay': {'interface': 'helperorig0', 'source': '192.0.2.1', 'gateway': '', 'prefixes': ['198.18.4.0/24']}}
 
     try:
@@ -262,11 +275,22 @@ def main():
             assert receive(owner,'active')['changed'] is False and inventory() == extended
             if dns_probe:
                 command('query', name='helper-' + uuid.uuid4().hex + '.campus.test')
+                command('original-query')
                 print('PASS: ordinary system DNS query through authenticated helper-owned TUN fd', flush=True)
             command('send', packet=request(owner, 'restore'))
             receive(owner, 'restored')
             finish(owner, process)
             print('PASS: authenticated ordinary peer, real fd/UDP handoff, scoped source/capture rollback and cleanup', flush=True)
+
+            if dns_probe:
+                owner = str(uuid.uuid4())
+                process = start(owner)
+                packet = application(owner)
+                packet['original_dns'].append({'interface': 'helperorig0', 'source': '192.0.2.1', 'port': args.original_dns_port})
+                command('send', packet=packet)
+                receive(owner, 'restored', success=False)
+                finish(owner, process)
+                print('PASS: later original-link DNS refusal restores the earlier link and all owned routes/device', flush=True)
 
             owner = str(uuid.uuid4())
             process = start(owner)
@@ -366,6 +390,13 @@ def main():
             command('send', packet=application(owner))
             assert command('receive')['packet'] is None and process.wait(timeout=10) != 0
             assert all(path.read_bytes() == contents for path, contents in saved.items()), 'repeated apply replaced recovery authority'
+            if not dns_probe:
+                # Delivered v2 has campus DNS storage but no original-link DNS directory.
+                context_file = Path(temporary) / f'{args.uid}-{owner}' / 'source.json'
+                (context_file.parent / 'original-dns').rmdir()
+                legacy = json.loads(context_file.read_bytes())
+                legacy['version'] = 2
+                context_file.write_bytes(encode(legacy))
             process = start(owner)
             command('send', packet=request(owner, 'recover'))
             receive(owner, 'restored')
@@ -398,9 +429,19 @@ def main():
                 assert summary['failed'] == 1 and summary['restored'] == 0 and inventory() == before_cleanup, \
                     'failed DNS recovery released capture or original egress prematurely'
                 dns_file.write_bytes(original_dns)
+                original_file = context_file.parent / 'original-dns/source.json'
+                original_links = original_file.read_bytes()
+                foreign_links = json.loads(original_links)
+                foreign_links['links'][0]['namespace'] += '.foreign'
+                original_file.write_bytes(encode(foreign_links))
+                summary = scan(success=False)
+                assert summary['failed'] == 1 and summary['restored'] == 0 and inventory() == before_cleanup, \
+                    'failed original-link DNS recovery released capture or original egress prematurely'
+                original_file.write_bytes(original_links)
             if not dns_probe:
                 # A real active pre-DNS record has version1 and no DNS operation directory.
                 (context_file.parent / 'dns').rmdir()
+                (context_file.parent / 'original-dns').rmdir()
                 legacy = json.loads(context_file.read_bytes())
                 legacy['version'] = 1
                 context_file.write_bytes(encode(legacy))

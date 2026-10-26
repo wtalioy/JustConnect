@@ -4,11 +4,13 @@
 #include "infrastructure/routing/linux/ownedroutetable.h"
 #include "infrastructure/routing/linux/tunroutes.h"
 #include "infrastructure/dns/linux/tundns.h"
+#include "infrastructure/dns/linux/linkdns.h"
 #include "networkhelperpaths.h"
 #include "infrastructure/process/linux/trustedexecutable.h"
 #include <QDeadlineTimer>
 #include <QJsonDocument>
 #include <QScopeGuard>
+#include <QSet>
 #include <array>
 #include <cerrno>
 #include <cstring>
@@ -71,7 +73,7 @@ struct OwnedOperation {
           name(QByteArray::number(uid) + '-' + owner.toByteArray(QUuid::WithoutBraces)) {}
     ~OwnedOperation()
     {
-        for (int fd : {dnsDirectory, captureDirectory, sourceDirectory, directory}) if (fd >= 0) ::close(fd);
+        for (int fd : {originalDnsDirectory, dnsDirectory, captureDirectory, sourceDirectory, directory}) if (fd >= 0) ::close(fd);
     }
     Result open(bool applying, bool cleaning, bool *alreadyOwned = nullptr)
     {
@@ -105,7 +107,7 @@ struct OwnedOperation {
             const auto loaded = metadata.load(context);
             if (!loaded.succeeded()) return loaded;
             if (!fields(context, {"version", "owner", "uid", "namespace", "phase"})
-                || (context["version"] != LinuxHelperStorageVersion && context["version"] != 1)
+                || (context["version"] != LinuxHelperStorageVersion && context["version"] != 2 && context["version"] != 1)
                 || context["owner"] != id || context["uid"].toInteger(-1) != uid
                 || context["namespace"] != scope
                 || (context["phase"] != "prepared" && context["phase"] != "active" && context["phase"] != "restored"))
@@ -129,8 +131,19 @@ struct OwnedOperation {
             const auto dnsOpened = dnsJournal.open(dnsDirectory, owner);
             if (!dnsOpened.succeeded()) return dnsOpened;
         }
+        // Delivered v1/v2 receipts predate original-link DNS ownership.
+        if (context["version"].toInt() < 3) {
+            struct stat unexpected{};
+            if (::fstatat(directory, "original-dns", &unexpected, AT_SYMLINK_NOFOLLOW) == 0 || errno != ENOENT)
+                return invalid("Legacy recovery metadata cannot own original DNS operations.");
+        } else {
+            originalDnsDirectory = privateDirectory(directory, "original-dns");
+            if (originalDnsDirectory < 0) return invalid("Cannot open the private original DNS journal.");
+            const auto opened = originalDnsJournal.open(originalDnsDirectory, owner);
+            if (!opened.succeeded()) return opened;
+        }
         if (context["phase"] == "restored" && (present(captureDirectory) || present(sourceDirectory)
-            || (dnsDirectory >= 0 && present(dnsDirectory))))
+            || (dnsDirectory >= 0 && present(dnsDirectory)) || (originalDnsDirectory >= 0 && present(originalDnsDirectory))))
             return invalid("A completed receipt still has operation journals.");
         return {};
     }
@@ -140,6 +153,13 @@ struct OwnedOperation {
             config.originalPrefixes, writer(sourceJournal));
         if (result.succeeded()) result = device.createIpv4(owner, config.address, config.peer, config.mtu);
         if (result.succeeded()) result = capture.apply(device, config.address, config.peer, config.capturePrefixes, writer(captureJournal));
+        for (const auto &link : config.originalDns) {
+            if (!result.succeeded()) break;
+            const auto position = originalDnsRecords.size();
+            originalDnsRecords.append(QJsonObject{});
+            LinuxLinkDns original(dnsBus);
+            result = original.apply(owner, link.interface, link.source, link.port, originalWriter(position));
+        }
         if (result.succeeded() && !config.dnsDomains.isEmpty()) result = dns.apply(device, config.dnsDomains, writer(dnsJournal));
         if (result.succeeded()) { context["phase"] = "active"; result = metadata.store(context); }
         if (!result.succeeded()) {
@@ -184,6 +204,29 @@ struct OwnedOperation {
             if (dnsResult.succeeded()) dnsResult = dns.recover(owner, saved, writer(dnsJournal));
         }
         if (!dnsResult.succeeded()) return dnsResult;
+        if (originalDnsDirectory >= 0 && present(originalDnsDirectory)) {
+            QJsonObject saved;
+            auto result = originalDnsJournal.load(saved);
+            if (!result.succeeded()) return result;
+            if (!fields(saved, {"version", "owner", "links"}) || saved["version"] != 1 || saved["owner"] != id
+                || !saved["links"].isArray() || saved["links"].toArray().isEmpty()
+                || saved["links"].toArray().size() > LinuxRouteSnapshotRows)
+                return invalid("Invalid original DNS recovery group.");
+            originalDnsRecords = saved["links"].toArray();
+            QSet<qint64> interfaces;
+            for (const auto &value : originalDnsRecords) {
+                const auto record = value.toObject();
+                const auto index = record["index"].toInteger(-1);
+                if (!value.isObject() || record["owner"] != id || index < 1 || interfaces.contains(index))
+                    return invalid("Original DNS recovery contains an invalid or repeated owner.");
+                interfaces.insert(index);
+            }
+            for (qsizetype position = originalDnsRecords.size(); position-- > 0;) {
+                LinuxLinkDns original(dnsBus);
+                result = original.recover(owner, originalDnsRecords[position].toObject(), originalWriter(position));
+                if (!result.succeeded()) return result;
+            }
+        }
         Result captureResult, sourceResult;
         if (!capture.snapshot().isEmpty()) captureResult = capture.restore(device, writer(captureJournal));
         else if (present(captureDirectory)) {
@@ -208,8 +251,9 @@ struct OwnedOperation {
     }
     bool removeReceipt()
     {
-        dnsJournal.close(); captureJournal.close(); sourceJournal.close();
-        if ((dnsDirectory >= 0 && ::unlinkat(directory, "dns", AT_REMOVEDIR) != 0)
+        originalDnsJournal.close(); dnsJournal.close(); captureJournal.close(); sourceJournal.close();
+        if ((originalDnsDirectory >= 0 && ::unlinkat(directory, "original-dns", AT_REMOVEDIR) != 0)
+            || (dnsDirectory >= 0 && ::unlinkat(directory, "dns", AT_REMOVEDIR) != 0)
             || ::unlinkat(directory, "capture", AT_REMOVEDIR) != 0 || ::unlinkat(directory, "underlay", AT_REMOVEDIR) != 0
             || ::fsync(directory) != 0 || !metadata.remove().succeeded()) return false;
         metadata.close();
@@ -219,20 +263,42 @@ struct OwnedOperation {
     UnixTunDevice device;
     bool cleaned = false, changed = false;
 private:
+    LinuxLinkDns::CheckpointWriter originalWriter(qsizetype position)
+    {
+        return [this, position](const QJsonObject &record) {
+            const auto previous = originalDnsRecords.at(position);
+            originalDnsRecords[position] = record;
+            QJsonArray records, reserved;
+            for (const auto &value : originalDnsRecords) if (!value.toObject().isEmpty()) {
+                records.append(value);
+                auto longest = value.toObject(); longest["phase"] = "restoring"; reserved.append(longest);
+            }
+            QJsonObject envelope{{"version", 1}, {"owner", id}, {"links", reserved}};
+            Result result;
+            if (QJsonDocument(envelope).toJson(QJsonDocument::Compact).size() > NetworkJournalMaxBytes)
+                result = invalid("Original DNS recovery exceeds its storage budget.");
+            else if (records.isEmpty()) result = originalDnsJournal.remove();
+            else { envelope["links"] = records; result = originalDnsJournal.store(envelope); }
+            if (!result.succeeded()) originalDnsRecords[position] = previous;
+            return result;
+        };
+    }
     static LinuxOwnedRouteTable::CheckpointWriter writer(UnixNetworkJournal &journal)
     {
         return [&journal](const QJsonObject &record) { return record.isEmpty() ? journal.remove() : journal.store(record); };
     }
-    int parent, directory = -1, captureDirectory = -1, sourceDirectory = -1, dnsDirectory = -1;
+    int parent, directory = -1, captureDirectory = -1, sourceDirectory = -1, dnsDirectory = -1, originalDnsDirectory = -1;
     uid_t uid;
     QUuid owner;
     QString id;
     QByteArray name;
-    UnixNetworkJournal metadata, captureJournal, sourceJournal, dnsJournal;
+    UnixNetworkJournal metadata, captureJournal, sourceJournal, dnsJournal, originalDnsJournal;
+    QJsonArray originalDnsRecords;
     LinuxTunRoutes capture;
     LinuxOwnedRouteTable source;
-    LinuxTunDns dns{QDBusConnection::connectToBus(QStringLiteral("unix:path=/run/dbus/system_bus_socket"),
-                                               QStringLiteral("JustConnect.network-helper.dns"))};
+    QDBusConnection dnsBus{QDBusConnection::connectToBus(QStringLiteral("unix:path=/run/dbus/system_bus_socket"),
+                                                       QStringLiteral("JustConnect.network-helper.dns"))};
+    LinuxTunDns dns{dnsBus};
 };
 }
 
@@ -303,10 +369,14 @@ int connectLinuxHelper(uid_t uid, const QUuid &owner)
 
 QJsonObject linuxHelperApplyRequest(const QUuid &owner, const LinuxHelperConfiguration &config)
 {
+    QJsonArray originalDns;
+    for (const auto &link : config.originalDns)
+        originalDns.append(QJsonObject{{"interface", link.interface}, {"source", link.source}, {"port", link.port}});
     return {{"version", LinuxHelperProtocol}, {"owner", owner.toString(QUuid::WithoutBraces)}, {"operation", "apply"},
         {"device", QJsonObject{{"source", config.address}, {"peer", config.peer}, {"mtu", config.mtu}}},
         {"capture", QJsonArray::fromStringList(config.capturePrefixes)},
         {"dns", QJsonArray::fromStringList(config.dnsDomains)},
+        {"original_dns", originalDns},
         {"underlay", QJsonObject{{"interface", config.originalInterface}, {"source", config.originalSource},
             {"gateway", config.originalGateway}, {"prefixes", QJsonArray::fromStringList(config.originalPrefixes)}}}};
 }
@@ -316,14 +386,26 @@ std::optional<LinuxHelperConfiguration> parseLinuxHelperApply(const QUuid &owner
     const auto device = request["device"].toObject(), original = request["underlay"].toObject();
     LinuxHelperConfiguration config;
     if (owner.isNull() || request["owner"] != owner.toString(QUuid::WithoutBraces) || request["version"] != LinuxHelperProtocol
-        || request["operation"] != "apply" || !fields(request, {"version", "owner", "operation", "device", "capture", "underlay", "dns"})
+        || request["operation"] != "apply" || !fields(request, {"version", "owner", "operation", "device", "capture", "underlay", "dns", "original_dns"})
         || QJsonDocument(request).toJson(QJsonDocument::Compact).size() > LinuxHelperPacketBytes
         || !fields(device, {"source", "peer", "mtu"})
         || !UnixTunDevice::validIpv4Configuration(device["source"].toString(), device["peer"].toString(), device["mtu"].toInteger(-1))
         || !prefixes(request["capture"], config.capturePrefixes)
         || !fields(original, {"interface", "source", "gateway", "prefixes"}) || !original["interface"].isString()
         || !original["gateway"].isString() || !prefixes(original["prefixes"], config.originalPrefixes)
-        || !request["dns"].isArray() || request["dns"].toArray().size() > LinuxRouteSnapshotRows) return {};
+        || !request["dns"].isArray() || request["dns"].toArray().size() > LinuxRouteSnapshotRows
+        || !request["original_dns"].isArray() || request["original_dns"].toArray().size() > LinuxRouteSnapshotRows) return {};
+    QSet<QString> dnsInterfaces;
+    for (const auto &value : request["original_dns"].toArray()) {
+        const auto link = value.toObject(); const auto port = link["port"].toInteger(-1);
+        if (!fields(link, {"interface", "source", "port"}) || !link["interface"].isString() || !link["source"].isString()
+            || !canonicalLinuxInterfaceName(link["interface"].toString()) || !canonicalUnicastIpv4(link["source"].toString())
+            || link["source"] == device["source"] || link["source"] == device["peer"]
+            || port < 1 || port > 65535 || link["port"] != QJsonValue(port)
+            || dnsInterfaces.contains(link["interface"].toString())) return {};
+        dnsInterfaces.insert(link["interface"].toString());
+        config.originalDns.append({link["interface"].toString(), link["source"].toString(), quint16(port)});
+    }
     for (const auto &name : request["dns"].toArray()) {
         if (!name.isString()) return {};
         config.dnsDomains.append(name.toString());
