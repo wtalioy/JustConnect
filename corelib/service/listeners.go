@@ -26,6 +26,9 @@ type Listeners struct {
 	http        *http.Server
 	proxy       *httpProxy
 	tun         *tunIngress
+	originalDNS map[string]string
+	dnsReady    chan struct{}
+	dnsWorkers  chan struct{}
 	workers     sync.WaitGroup
 	errors      chan error
 	failOnce    sync.Once
@@ -159,6 +162,9 @@ func NewListeners(ctx context.Context, socksAddr, httpAddr string, dialer *dial.
 				p.fail(err)
 			}
 		})
+	}
+	if err := p.listenOriginalDNS(); err != nil {
+		return nil, err
 	}
 	success = true
 	return p, nil

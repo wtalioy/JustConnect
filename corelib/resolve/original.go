@@ -20,6 +20,8 @@ type OriginalDNSRoute struct {
 	Servers         []string        `json:"servers"`
 	Interface       string          `json:"interface"`
 	EgressInterface string          `json:"egress_interface"`
+	Listen          string          `json:"listen,omitempty"`
+	Source          string          `json:"source,omitempty"`
 }
 
 type originalDNSRoute struct {
@@ -27,7 +29,10 @@ type originalDNSRoute struct {
 	scope policy.ProtectionPolicy
 }
 
-type OriginalDNS struct{ routes []originalDNSRoute }
+type OriginalDNS struct {
+	routes    []originalDNSRoute
+	listeners map[string]int
+}
 
 var ErrOriginalDNSConflict = errors.New("original DNS answers require different network exits")
 
@@ -57,11 +62,45 @@ func NewOriginalDNS(routes []OriginalDNSRoute) (*OriginalDNS, error) {
 				return nil, errors.New("original DNS server must be an explicit unicast endpoint")
 			}
 		}
+		if route.Listen != "" {
+			endpoint, err := netip.ParseAddrPort(route.Listen)
+			if route.Source == "" || strings.ContainsAny(route.Source, "\x00\r\n") || err != nil || !endpoint.Addr().Is4() || endpoint.String() != route.Listen ||
+				(!endpoint.Addr().IsGlobalUnicast() && !endpoint.Addr().IsLoopback() && !endpoint.Addr().IsLinkLocalUnicast()) {
+				return nil, errors.New("original DNS listener must use an assigned IPv4 endpoint")
+			}
+		}
 		seen[route.Name] = true
 		route.Servers = slices.Clone(route.Servers)
 		compiled = append(compiled, originalDNSRoute{route, scope})
 	}
-	return &OriginalDNS{routes: compiled}, nil
+	listeners := make(map[string]int)
+	for index, route := range compiled {
+		if route.Listen != "" {
+			if previous, found := listeners[route.Source]; found && compiled[previous].Listen != route.Listen {
+				return nil, errors.New("one native DNS source requires one listener")
+			}
+			listeners[route.Source] = index
+		}
+	}
+	for _, route := range compiled {
+		if index, found := listeners[route.Source]; found && (compiled[index].Interface != route.Interface || compiled[index].EgressInterface != route.EgressInterface ||
+			!slices.Equal(compiled[index].Servers, route.Servers)) {
+			return nil, errors.New("one native DNS listener requires one original server list and exit")
+		}
+	}
+	return &OriginalDNS{routes: compiled, listeners: listeners}, nil
+}
+
+func (o *OriginalDNS) ListenSources() map[string]OriginalDNSRoute {
+	result := make(map[string]OriginalDNSRoute)
+	if o != nil {
+		for source, index := range o.listeners {
+			copy := o.routes[index].OriginalDNSRoute
+			copy.Servers = slices.Clone(copy.Servers)
+			result[source] = copy
+		}
+	}
+	return result
 }
 
 func (r *Resolver) exchangeOriginal(ctx context.Context, request *dns.Msg, transport string,
@@ -74,27 +113,35 @@ func (r *Resolver) exchangeOriginal(ctx context.Context, request *dns.Msg, trans
 		if _, matched := route.scope.CampusNameAllowed(host); !matched {
 			continue
 		}
-		dial := &dialer.Dialer{InterfaceName: route.Interface}
-		var last error
-		for _, server := range route.Servers {
-			reply, err := exchangeDNSPacket(ctx, request, transport, server, dial.DialContext)
-			if err != nil {
-				if ctx.Err() != nil {
-					return nil, ctx.Err()
-				}
-				last = err
-				continue
-			}
-			var prepare func([]netip.Addr) error
-			if publish != nil {
-				prepare = func(addresses []netip.Addr) error { return publish(ctx, addresses, true) }
-			}
-			_, err = r.bindDNSAnswer(request, reply, prepare, route.EgressInterface)
-			return reply, err
-		}
-		return nil, last
+		return r.exchangeOriginalRoute(ctx, request, transport, route, publish, true)
 	}
 	return nil, ErrOriginalDNSRequired
+}
+
+func (r *Resolver) exchangeOriginalRoute(ctx context.Context, request *dns.Msg, transport string, route originalDNSRoute,
+	publish func(context.Context, []netip.Addr, bool) error, bind bool) (*dns.Msg, error) {
+	dial := &dialer.Dialer{InterfaceName: route.Interface}
+	var last error
+	for _, server := range route.Servers {
+		reply, err := exchangeDNSPacket(ctx, request, transport, server, dial.DialContext)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			last = err
+			continue
+		}
+		if !bind {
+			return reply, nil
+		}
+		var prepare func([]netip.Addr) error
+		if publish != nil {
+			prepare = func(addresses []netip.Addr) error { return publish(ctx, addresses, true) }
+		}
+		_, err = r.bindDNSAnswer(request, reply, prepare, route.EgressInterface)
+		return reply, err
+	}
+	return nil, last
 }
 
 // Original direction outlives DNS TTL: a lingering capture must never become a campus grant.
