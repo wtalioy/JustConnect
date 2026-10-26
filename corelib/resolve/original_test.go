@@ -12,6 +12,7 @@ import (
 
 	"github.com/miekg/dns"
 	"github.com/wtalioy/JustConnect/corelib/client"
+	"github.com/wtalioy/JustConnect/corelib/internal/testdns"
 	"github.com/wtalioy/JustConnect/corelib/policy"
 )
 
@@ -127,15 +128,7 @@ func TestOriginalDNSOverlappingScopesRequireNativeSelection(t *testing.T) {
 func TestOriginalDNSKeepsRecordsAndDirectionAcrossPolicyChanges(t *testing.T) {
 	const host = "private.campus.test"
 	iface := originalLoopback(t)
-	tcp, err := net.Listen("tcp4", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	udp, err := net.ListenPacket("udp4", tcp.Addr().String())
-	if err != nil {
-		tcp.Close()
-		t.Fatal(err)
-	}
+	tcp, udp := testdns.ListenPair(t, "127.0.0.1")
 	var udpQueries, tcpQueries atomic.Int32
 	handler := dns.HandlerFunc(func(w dns.ResponseWriter, request *dns.Msg) {
 		reply := new(dns.Msg).SetReply(request)
@@ -168,6 +161,7 @@ func TestOriginalDNSKeepsRecordsAndDirectionAcrossPolicyChanges(t *testing.T) {
 	r := NewResolver(nil, "", "", 30, client.DomainResources{host: {{Protocol: "tcp", PortMin: 80, PortMax: 80}}}, map[string][]net.IP{host: {net.IPv4(203, 0, 113, 9)}, "localhost": {net.IPv4(203, 0, 113, 8)}}, false)
 	defer r.Close()
 	routes := []OriginalDNSRoute{{Name: policy.NameRule{Kind: "suffix", Value: "campus.test"}, Servers: []string{tcp.Addr().String()}, Interface: iface, EgressInterface: iface}}
+	var err error
 	r.OriginalDNS, err = NewOriginalDNS(routes)
 	if err != nil {
 		t.Fatal(err)

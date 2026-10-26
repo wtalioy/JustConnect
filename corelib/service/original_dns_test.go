@@ -16,21 +16,14 @@ import (
 	"github.com/miekg/dns"
 	"github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/wtalioy/JustConnect/corelib/dial"
+	"github.com/wtalioy/JustConnect/corelib/internal/testdns"
 	"github.com/wtalioy/JustConnect/corelib/policy"
 	"github.com/wtalioy/JustConnect/corelib/resolve"
 )
 
 func originalDNSUpstream(t *testing.T, address string, marker byte) (string, *atomic.Int32) {
 	t.Helper()
-	tcp, err := net.Listen("tcp4", net.JoinHostPort(address, "0"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	udp, err := net.ListenPacket("udp4", tcp.Addr().String())
-	if err != nil {
-		tcp.Close()
-		t.Fatal(err)
-	}
+	tcp, udp := testdns.ListenPair(t, address)
 	queries := new(atomic.Int32)
 	handler := dns.HandlerFunc(func(w dns.ResponseWriter, request *dns.Msg) {
 		queries.Add(1)
