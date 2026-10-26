@@ -168,6 +168,7 @@ static int exerciseApplicationNetworkAccess(const ConnectionProfile &profile)
         check(addresses.size() == 1, "application publishes campus DNS through the owned helper");
         originalView(QUuid(owner));
         exerciseNativeTUNTraffic(QHostAddress(addresses.first()));
+        exerciseNativeSSH(QHostAddress(addresses.first()));
         if (qgetenv("JC_NATIVE_NETWORK_OBSERVE") == "1" && round == 0) {
             publish({});
             until([&] { return !session.isActive() || (!policy.isBusy()

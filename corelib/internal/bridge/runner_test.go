@@ -456,6 +456,9 @@ func runNativeTUNHost(t *testing.T, killed bool) (*gateway, []byte) {
 	g := newGateway(t)
 	g.resourceIP.Store("198.18.0.6")
 	original := startNativeOriginalPeer(t, g)
+	if macAuthorization != "" || os.Getenv("JC_NATIVE_TUN_HELPER_OWNER") != "" {
+		enableNativeSSH(t, g)
+	}
 	if os.Getenv("JC_NATIVE_TUN_DNS") == "1" {
 		g.nativeDNS.Store(true)
 		g.probeDNS.Store(true)
@@ -515,7 +518,11 @@ func TestNativeTUNHost(t *testing.T) {
 	if os.Getenv("JC_NATIVE_NETWORK_POLICY") == "1" {
 		extraTCP, extraUDP = 2, extraUDP+4
 	}
-	if !bytes.Contains(output, []byte("PASS: ordinary native TCP/UDP")) || g.authCount.Load() != expectedAuth || g.tcpCount.Load() != 2+extraTCP || g.udpCount.Load() != 4+extraUDP+g.nativeDNSQueries.Load() || (g.nativeDNS.Load() && g.nativeDNSQueries.Load() < 2) {
+	expectedSSH := int32(0)
+	if g.sshHandler.Load() != nil {
+		expectedSSH = 4
+	}
+	if !bytes.Contains(output, []byte("PASS: ordinary native TCP/UDP")) || g.authCount.Load() != expectedAuth || g.tcpCount.Load() != 2+extraTCP+expectedSSH || g.sshCount.Load() != expectedSSH || g.udpCount.Load() != 4+extraUDP+g.nativeDNSQueries.Load() || (g.nativeDNS.Load() && g.nativeDNSQueries.Load() < 2) {
 		t.Fatalf("missing actual TUN/campus exchanges: auth=%d TCP=%d UDP=%d\n%s", g.authCount.Load(), g.tcpCount.Load(), g.udpCount.Load(), output)
 	}
 	if g.nativeDNS.Load() {
@@ -540,7 +547,7 @@ func TestNativeTUNProcessCrash(t *testing.T) {
 		t.Skip("full process crash runs in the disposable macOS helper fixture")
 	}
 	g, output := runNativeTUNHost(t, true)
-	if g.authCount.Load() != 1 || g.tcpCount.Load() != 1 || g.nativeDNSQueries.Load() < 1 || g.udpCount.Load() != 2+g.nativeDNSQueries.Load() {
+	if g.authCount.Load() != 1 || g.tcpCount.Load() != 3 || g.sshCount.Load() != 2 || g.nativeDNSQueries.Load() < 1 || g.udpCount.Load() != 2+g.nativeDNSQueries.Load() {
 		t.Fatalf("process was killed before actual native traffic: auth=%d TCP=%d UDP=%d DNS=%d\n%s", g.authCount.Load(), g.tcpCount.Load(), g.udpCount.Load(), g.nativeDNSQueries.Load(), output)
 	}
 	t.Log("PASS: signed macOS Qt/core killed after actual system DNS, TCP and UDP exchanges")

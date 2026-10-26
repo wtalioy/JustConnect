@@ -10,6 +10,7 @@ require (
 	github.com/sagernet/netlink v0.0.0-20240916134442-83396419aa8b
 	github.com/sagernet/sing v0.7.18
 	github.com/things-go/go-socks5 v0.1.1
+	golang.org/x/crypto v0.51.0
 	golang.org/x/net v0.55.0
 	golang.org/x/sys v0.45.0
 	gvisor.dev/gvisor v0.0.0-20260129214308-cb856800aa1c
