@@ -168,13 +168,15 @@ int main(int argc,char **argv)
         if (exitChange && round == 1) {
             check(session.reconnectAttempt() == 1 && policy.currentGeneration() != previousGeneration,
                 "Changed exit reuses the bounded reconnect policy with a fresh core generation");
-            changingNetwork = false; publish(".exit-reconnected");
-            until([&] { return QFileInfo::exists(marker+".traffic"); });
+            changingNetwork = false;
+        }
+        originalView();
+        if (exitChange && round == 1) {
+            publish(".exit-reconnected"); until([&] { return QFileInfo::exists(marker+".traffic"); });
         }
         if ((helperLoss && round == 1) || (!helperLoss && !policyChanges && !exitChange && authorizationMode.isEmpty() && !marker.isEmpty() && round == 0)) {
             publish(".reconnected"); until([&] { return QFileInfo::exists(marker+".traffic"); });
         }
-        originalView();
         auto lookup = std::async(std::launch::async,[] { return addresses("campus.test"); });
         until([&] { return lookup.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready; });
         const auto resolved = lookup.get();
