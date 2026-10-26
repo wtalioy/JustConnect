@@ -8,11 +8,9 @@ import (
 	"net/netip"
 
 	"github.com/miekg/dns"
+	"github.com/wtalioy/JustConnect/corelib/internal/dnslistener"
 	"github.com/wtalioy/JustConnect/corelib/resolve"
 )
-
-// TCP allocation does not reserve UDP; cap automatic pairing attempts to prevent a busy loop.
-const originalDNSPortAttempts = 8
 
 var ErrOriginalDNSSealed = errors.New("original DNS sources are already prepared or the device is attached")
 
@@ -141,25 +139,7 @@ func (p *Listeners) openOriginalDNS(endpoints map[string]resolve.OriginalDNSRout
 		if !available[name] || !assigned[endpoint.Addr()] {
 			return nil, errors.New("original DNS requires an available query interface and assigned local listener address")
 		}
-		var listener net.Listener
-		var udp *net.UDPConn
-		for attempt := 0; attempt < originalDNSPortAttempts; attempt++ {
-			if err := p.ctx.Err(); err != nil {
-				return nil, err
-			}
-			listener, err = net.Listen("tcp4", address)
-			if err != nil {
-				return nil, err
-			}
-			udp, err = net.ListenUDP("udp4", net.UDPAddrFromAddrPort(listener.Addr().(*net.TCPAddr).AddrPort()))
-			if err == nil {
-				break
-			}
-			_ = listener.Close()
-			if endpoint.Port() != 0 {
-				return nil, err
-			}
-		}
+		listener, udp, err := dnslistener.Listen(p.ctx, address)
 		if err != nil {
 			return nil, err
 		}
