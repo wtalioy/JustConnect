@@ -6,6 +6,13 @@
 #include <QEventLoop>
 #include <QList>
 #include <QTimer>
+#if defined(Q_OS_LINUX) || defined(Q_OS_MACOS)
+#include <fcntl.h>
+#include <unistd.h>
+#include <cerrno>
+#elif defined(Q_OS_WIN)
+#include <windows.h>
+#endif
 #include <cstdlib>
 #include <iostream>
 
@@ -27,6 +34,47 @@ static QJsonObject policy(const QString &generation, const QString &revision) {
     return {{"schema_version",int(JC_ABI_VERSION)},{"generation",generation},{"revision",revision},
         {"protected",QJsonArray{"192.168.50.0/24"}},{"campus",QJsonArray{}}};
 }
+#if (defined(Q_OS_LINUX) || defined(Q_OS_MACOS) || defined(Q_OS_WIN)) && !defined(ABI_FIXTURE)
+static void rejectedDeviceHandoffReleasesItsBorrowedHandle(const ConnectionProfile &profile) {
+    EmbeddedCoreEngine engine;int finished=0,replies=0;
+#ifdef Q_OS_WIN
+    HANDLE reading=nullptr;
+#else
+    int reading=-1;
+#endif
+    QObject::connect(&engine,&CoreEngine::finished,[&]{++finished;});
+    QObject::connect(&engine,&CoreEngine::tunAttached,[&](const QString &value,CoreEngine::RequestStatus status){
+        check(value=="0" && status!=CoreEngine::RequestStatus::Success,"invalid-generation device handoff is rejected");
+#ifdef Q_OS_WIN
+        DWORD available=0;
+        const bool released=!::PeekNamedPipe(reading,nullptr,0,nullptr,&available,nullptr) && ::GetLastError()==ERROR_BROKEN_PIPE;
+#else
+        char byte=0;errno=0;const auto size=::read(reading,&byte,1);
+        if(size!=0)std::cerr<<"borrowed descriptor reply="<<replies<<" read="<<size<<" errno="<<errno<<'\n';
+        const bool released=size==0;
+#endif
+        check(released,"device rejection publishes only after the borrowed handle closes");++replies;
+    });
+    for(int attempt=0;attempt<64;++attempt){
+        check(engine.start(profile),"start before a rejected queued handoff");
+#ifdef Q_OS_WIN
+        HANDLE writing=nullptr;check(::CreatePipe(&reading,&writing,nullptr,0),"owned rejection fixture pipe");
+        engine.attachWindowsPipe("0",quint64(quintptr(writing)),::GetCurrentProcessId(),1400,"192.0.2.1","192.0.2.2");::CloseHandle(writing);
+#else
+        int descriptors[2];check(::pipe(descriptors)==0,"owned rejection fixture pipe");reading=descriptors[0];
+        const auto flags=::fcntl(reading,F_GETFL);check(flags>=0 && ::fcntl(reading,F_SETFL,flags|O_NONBLOCK)==0,"nonblocking ownership observation");
+        engine.attachTUN("0",descriptors[1],1400);::close(descriptors[1]);
+#endif
+        until([&]{return replies==attempt+1;});
+#ifdef Q_OS_WIN
+        ::CloseHandle(reading);
+#else
+        ::close(reading);
+#endif
+        engine.stop();until([&]{return finished==attempt+1;});
+    }
+}
+#endif
 int main(int argc, char **argv) {
     QCoreApplication app(argc, argv);
     const auto info = EmbeddedCoreEngine::buildInfo();
@@ -156,6 +204,9 @@ int main(int argc, char **argv) {
     }
 #else
     check(!info["test_driver"].toBool() && info["capabilities"].toObject()["embedded_vpn"].toBool(), "production backend");
+#if defined(Q_OS_LINUX) || defined(Q_OS_MACOS) || defined(Q_OS_WIN)
+    rejectedDeviceHandoffReleasesItsBorrowedHandle(profile);
+#endif
     for (int i = 0; i < 16; ++i) {
         check(engine.start(profile), "production asynchronous start");
         engine.stop();

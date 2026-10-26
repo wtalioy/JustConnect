@@ -4,6 +4,7 @@
 #include "infrastructure/dns/dnssnapshot.h"
 #include <atomic>
 #include <memory>
+#include <utility>
 #ifdef Q_OS_WIN
 #include <windows.h>
 #include <QHostAddress>
@@ -244,7 +245,7 @@ public:
         }
         emit snapshotResult(id, kind, requestedGeneration, snapshot, status);
     }
-    void attachTUN(quint64 id, const QString &requestedGeneration, int descriptor, quint32 mtu, bool publishDNSRoutes) {
+    int attachTUN(quint64 id, const QString &requestedGeneration, int descriptor, quint32 mtu, bool publishDNSRoutes) {
         int status = JC_STALE_REQUEST;
         if (id == serial && active && !cancelled.load() && !QThread::currentThread()->isInterruptionRequested()) {
             bool valid = false;
@@ -252,9 +253,9 @@ public:
             status = valid && requested && requestedGeneration == QString::number(requested)
                 ? (publishDNSRoutes ? library().jc_session_attach_tun_dns : library().jc_session_attach_tun)(handle, requested, descriptor, mtu) : JC_INVALID_ARGUMENT;
         }
-        emit tunResult(id, requestedGeneration, status);
+        return status;
     }
-    void attachWindowsPipe(quint64 id, const QString &requestedGeneration, quint64 pipe, quint32 helperPID,
+    int attachWindowsPipe(quint64 id, const QString &requestedGeneration, quint64 pipe, quint32 helperPID,
         quint32 mtu, quint32 source, quint32 peer, bool publishDNSRoutes) {
         int status = JC_STALE_REQUEST;
         if (id == serial && active && !cancelled.load() && !QThread::currentThread()->isInterruptionRequested()) {
@@ -264,7 +265,7 @@ public:
                 ? library().jc_session_attach_windows_pipe(handle, requested, pipe, helperPID, mtu, source, peer, publishDNSRoutes ? 1 : 0)
                 : JC_INVALID_ARGUMENT;
         }
-        emit tunResult(id, requestedGeneration, status);
+        return status;
     }
     void acknowledgeDNSRoutes(quint64 id, const QString &requestedGeneration, const QString &request, bool applied) {
         int status = JC_STALE_REQUEST;
@@ -408,9 +409,13 @@ void EmbeddedCoreEngine::attachTUN(const QString &generation, qint32 descriptor,
     }
     const int copied = ::fcntl(descriptor, F_DUPFD_CLOEXEC, 3);
     if (copied < 0) { emit tunAttached(generation, RequestStatus::Invalid); return; }
-    const auto held = std::shared_ptr<int>(new int(copied), [](int *value) { ::close(*value); delete value; });
+    auto held = std::shared_ptr<int>(new int(copied), [](int *value) { ::close(*value); delete value; });
     const auto id = serial;
-    QMetaObject::invokeMethod(pump, [this, id, generation, held, mtu, publishDNSRoutes] { pump->attachTUN(id, generation, *held, mtu, publishDNSRoutes); }, Qt::QueuedConnection);
+    QMetaObject::invokeMethod(pump, [this, id, generation, held=std::move(held), mtu, publishDNSRoutes]() mutable {
+        const auto status=pump->attachTUN(id, generation, *held, mtu, publishDNSRoutes);
+        held.reset(); // Publish completion only after the queue's borrowed descriptor is released.
+        emit pump->tunResult(id, generation, status);
+    }, Qt::QueuedConnection);
 #else
     Q_UNUSED(descriptor); Q_UNUSED(mtu); Q_UNUSED(publishDNSRoutes);
     emit tunAttached(generation, RequestStatus::Unavailable);
@@ -435,10 +440,12 @@ void EmbeddedCoreEngine::attachWindowsPipe(const QString &generation, quint64 ha
             ::GetCurrentProcess(), &copied, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
         emit tunAttached(generation, RequestStatus::Invalid); return;
     }
-    const auto held = std::shared_ptr<void>(copied, [](void *value) { ::CloseHandle(value); });
+    auto held = std::shared_ptr<void>(copied, [](void *value) { ::CloseHandle(value); });
     const auto id = serial;
-    QMetaObject::invokeMethod(pump, [this, id, generation, held, helperPID, mtu, sourceValue, peerValue, publishDNSRoutes] {
-        pump->attachWindowsPipe(id, generation, quint64(reinterpret_cast<quintptr>(held.get())), helperPID, mtu, sourceValue, peerValue, publishDNSRoutes);
+    QMetaObject::invokeMethod(pump, [this, id, generation, held=std::move(held), helperPID, mtu, sourceValue, peerValue, publishDNSRoutes]() mutable {
+        const auto status=pump->attachWindowsPipe(id, generation, quint64(reinterpret_cast<quintptr>(held.get())), helperPID, mtu, sourceValue, peerValue, publishDNSRoutes);
+        held.reset();
+        emit pump->tunResult(id, generation, status);
     }, Qt::QueuedConnection);
 #else
     Q_UNUSED(handle); Q_UNUSED(helperPID); Q_UNUSED(mtu); Q_UNUSED(source); Q_UNUSED(peer); Q_UNUSED(publishDNSRoutes);
