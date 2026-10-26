@@ -37,8 +37,10 @@ func originalDNSLoopback(t *testing.T) string {
 }
 
 func TestProtocolOwnsOriginalDNSListeners(t *testing.T) {
+	t.Parallel()
 	for _, late := range []bool{false, true} {
 		t.Run(map[bool]string{false: "startup", true: "ready"}[late], func(t *testing.T) {
+			t.Parallel()
 			loopback := originalDNSLoopback(t)
 			upstream, err := net.ListenPacket("udp4", "127.0.0.1:0")
 			if err != nil {
