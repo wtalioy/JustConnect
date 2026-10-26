@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net"
 	"net/netip"
 	"runtime"
@@ -260,6 +262,144 @@ func TestOriginalDNSRejectsForeignPeers(t *testing.T) {
 		if localDNSPeer(netip.MustParseAddr(peer), local) {
 			t.Fatal("non-local peer entered the native DNS relay", peer)
 		}
+	}
+}
+
+func TestOriginalDNSPreparationBeforeDeviceIsAtomicAndSealed(t *testing.T) {
+	iface, local := originalDNSInterface(t)
+	upstream, _ := originalDNSUpstream(t, local.String(), 9)
+	r := resolve.NewResolver(nil, "", "", 30, nil, nil, false)
+	defer r.Close()
+	p, err := NewListeners(t.Context(), "127.0.0.1:0", "", dial.NewDialer(nil, r, nil, false), r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	base := resolve.OriginalDNSRoute{Name: policy.NameRule{Kind: "suffix", Value: "original.test"}, Servers: []string{upstream},
+		Interface: iface, EgressInterface: iface, Source: iface, Listen: net.JoinHostPort(local.String(), "0")}
+	compile := func(route resolve.OriginalDNSRoute) *resolve.OriginalDNS {
+		value, err := resolve.NewOriginalDNS([]resolve.OriginalDNSRoute{route})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+	occupied, err := net.ListenPacket("udp4", base.Listen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer occupied.Close()
+	bad := base
+	bad.Listen = occupied.LocalAddr().String()
+	if err := p.PrepareOriginalDNS(compile(bad)); err == nil || r.OriginalDNS != nil || len(p.OriginalDNSListeners()) != 0 {
+		t.Fatal("failed preparation changed the active resolver or exposed partial endpoints", err)
+	}
+	proxy, err := net.DialTimeout("tcp4", p.listeners[0].Addr().String(), time.Second)
+	if err != nil {
+		t.Fatal("preparation failure closed the running proxy", err)
+	}
+	_ = proxy.SetDeadline(time.Now().Add(time.Second))
+	if _, err := proxy.Write([]byte{5, 1, 0}); err != nil {
+		t.Fatal(err)
+	}
+	var greeting [2]byte
+	if _, err := io.ReadFull(proxy, greeting[:]); err != nil || greeting != [2]byte{5, 0} {
+		t.Fatal("proxy did not survive source failure", greeting, err)
+	}
+	proxy.Close()
+	tcp, err := net.Listen("tcp4", bad.Listen)
+	if err != nil {
+		t.Fatal("failed preparation retained its TCP socket", err)
+	}
+	tcp.Close()
+	occupied.Close()
+	first, second := bad, bad
+	first.Source, second.Source = iface+":first", iface+":second"
+	conflict, err := resolve.NewOriginalDNS([]resolve.OriginalDNSRoute{first, second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.PrepareOriginalDNS(conflict); err == nil || r.OriginalDNS != nil || len(p.OriginalDNSListeners()) != 0 {
+		t.Fatal("multi-source conflict committed a partial preparation", err)
+	}
+	tcp, err = net.Listen("tcp4", bad.Listen)
+	if err != nil {
+		t.Fatal("failed multi-source preparation retained TCP", err)
+	}
+	udp, err := net.ListenPacket("udp4", bad.Listen)
+	if err != nil {
+		t.Fatal("failed multi-source preparation retained its earlier UDP socket", err)
+	}
+	tcp.Close()
+	udp.Close()
+	prepared := compile(base)
+	if err := p.PrepareOriginalDNS(prepared); err != nil {
+		t.Fatal("retry after bind failure", err)
+	}
+	endpoint := p.OriginalDNSListeners()[iface]
+	if endpoint == "" || r.OriginalDNS != prepared {
+		t.Fatal("prepared endpoints were not committed together")
+	}
+	if err := p.PrepareOriginalDNS(compile(base)); !errors.Is(err, ErrOriginalDNSSealed) {
+		t.Fatal("a prepared source set was replaced", err)
+	}
+	if err := p.AttachTUN(&dnsPacketDevice{newPacketDevice()}, 1400, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.PrepareOriginalDNS(compile(base)); !errors.Is(err, ErrOriginalDNSSealed) {
+		t.Fatal(err)
+	}
+	closeIngress(t, p)
+	if err := p.PrepareOriginalDNS(compile(base)); !errors.Is(err, net.ErrClosed) {
+		t.Fatal("closed session prepared sources", err)
+	}
+	tcp, err = net.Listen("tcp4", endpoint)
+	if err != nil {
+		t.Fatal("prepared TCP endpoint survived close", err)
+	}
+	tcp.Close()
+	udp, err = net.ListenPacket("udp4", endpoint)
+	if err != nil {
+		t.Fatal("prepared UDP endpoint survived close", err)
+	}
+	udp.Close()
+	other := resolve.NewResolver(nil, "", "", 30, nil, nil, false)
+	defer other.Close()
+	attached, err := NewListeners(t.Context(), "", "", dial.NewDialer(nil, other, nil, false), other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer attached.Close()
+	if err := attached.AttachTUN(&dnsPacketDevice{newPacketDevice()}, 1400, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := attached.PrepareOriginalDNS(compile(base)); !errors.Is(err, ErrOriginalDNSSealed) || other.OriginalDNS != nil {
+		t.Fatal("device attachment did not seal source preparation", err)
+	}
+	legacy := resolve.NewResolver(nil, "", "", 30, nil, nil, false)
+	defer legacy.Close()
+	protected, err := policy.NewProtectionPolicy(nil, nil, []policy.NameRule{base.Name}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy.ProtectionPolicy = func() *policy.ProtectionPolicy { return &protected }
+	plain, err := NewListeners(t.Context(), "", "", nil, legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer plain.Close()
+	explicit := base
+	explicit.Source = ""
+	explicit.Listen = ""
+	if err := plain.PrepareOriginalDNS(compile(explicit)); err != nil {
+		t.Fatal(err)
+	}
+	reply, err := legacy.ExchangeTUN(t.Context(), new(dns.Msg).SetQuestion("host.original.test.", dns.TypeA), "udp", nil, nil)
+	if err != nil || len(reply.Answer) != 1 || reply.Answer[0].(*dns.A).A.String() != "203.0.113.9" || len(plain.OriginalDNSListeners()) != 0 {
+		t.Fatal("explicit sources without native listeners did not prepare their original forwarding", reply, err)
+	}
+	if err := plain.PrepareOriginalDNS(compile(base)); !errors.Is(err, ErrOriginalDNSSealed) {
+		t.Fatal("explicit sources were not sealed", err)
 	}
 }
 

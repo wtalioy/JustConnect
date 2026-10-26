@@ -20,6 +20,7 @@ public:
     void attachWindowsPipe(const QString &generation, quint64 handle, quint32 helperPID, quint32 mtu,
         const QString &source, const QString &peer, bool publishDNSRoutes = false) override;
     void acknowledgeDNSRoutes(const QString &generation, const QString &request, bool applied) override;
+    void prepareOriginalDNS(const QString &generation, const QJsonArray &sources) override;
     static ConnectionError validateConfiguration(const ConnectionProfile &profile);
     static QJsonObject buildInfo();
     static QJsonObject selfTest();

@@ -28,6 +28,7 @@ UTF-8 JSON 不带结尾 NUL。输入仅借用至调用返回，库在返回前�
 | `jc_config_validate(abi, config, length)` | 使用启动时同一解析器作纯配置校验，不创建会话、不监听或联网；同样限制输入长度／未知字段 |
 | `jc_session_create(abi, handle)` | 校验版本，创建空闲句柄；保留数量受契约限制 |
 | `jc_session_start(handle, config, length, generation)` | 同步严格校验并复制配置，异步启动；返回代次 |
+| `jc_session_prepare_original_dns(handle, sources, length, generation)` | 为当前 ready 代次一次性准备原 DNS 来源；设备交接前调用，成功返回代次 |
 | `jc_session_read(handle, wait_ms, output, capacity, length)` | 有界等待一个 FIFO 事件；容量不足可重试 |
 | `jc_session_respond(handle, response, length)` | 仅接受匹配、已读取且尚未消费的认证请求 |
 | `jc_session_update_policy(handle, policy, length, generation)` | 完整校验后原子替换本代保护规则，成功返回生效代次，失败输出零 |
@@ -68,6 +69,8 @@ ABI v1 与 JSON schema 版本同步。S2-02 以兼容增补导出 `jc_config_val
 `network` 支持 `interface/auto_detect/local_dns/secondary_dns/dns_cache_ttl/disable_remote_dns/language/original_dns`。接口、DNS 和语言显式传入；local DNS 允许 IP 或 IP:port，secondary DNS 为 IP。接口名优先于自动选择；自动选择默认关闭，避免悄悄改变宿主的网络策略。DNS 缓存寿命与维护间隔的默认值集中在 `corelib/session.go`，缓存不启动游离 janitor，且有容量上限。代理出口不读取系统 HTTP_PROXY 等环境配置；核心配置接口不修改系统网络；设备、路由和系统 DNS 由 C++ 助手按所有权接管，核心接收显式移交的 TUN。Clash 共存仍由后续阶段验证。
 
 `capabilities.original_dns_forwarding` 表示 TUN DNS 可使用宿主显式提供的原 DNS 来源，不代表应用已完成自动来源选择。可选 `network.original_dns` 是按原生优先级排列的数组，每项包含 `name:{kind,value}`（复用名称保护规则）、`servers:["IP:port",...]`、查询出口 `interface` 与数据出口 `egress_interface`。仅接受显式单播端点，不解析服务器主机名、不补公共 DNS；必须同时提供 `protection`。宿主须在接管前选定来源、保护服务器原出口，并确认原生安全／加密要求允许普通 DNS；未知来源或不支持的安全要求不能降级。来源变化时需恢复并重连，当前会话来源不可变。
+
+`capabilities.original_dns_preparation` 提供 `jc_session_prepare_original_dns`，允许宿主取得认证后的资源及原出口事实后、移交设备前一次性准备来源；输入为 `{schema_version:1,generation:"当前代次",sources:[...]}`，sources 与 `network.original_dns` 共用校验。启动配置已提供来源、准备成功或设备已交接后再次调用返回 `JC_BUSY`；尚未 ready 也返回 `JC_BUSY`，停止／旧代次返回 `JC_STALE_REQUEST`。失败将释放本次全部监听套接字，不改变已运行的代理或原来源，可修正后重试；成功后通过原资源快照读取实际端点。Qt 的 `prepareOriginalDNS` 在核心线程调用并以 `originalDNSPrepared` 在应用线程交付代次、端点及状态，停止后的回应清空端点并标过期。该接口只准备会话资源，不写系统 DNS；来源变化仍须恢复并重连。
 
 `capabilities.original_dns_listeners` 额外支持在同一会话内准备原 DNS 的 UDP／TCP 监听：对应项显式提供不含 NUL／换行的原生上下文标识 `source` 与 `listen:"IPv4:port"`；`port=0` 由内核分配，监听地址必须实际属于本机可用接口，查询出口单独校验，不与监听或数据出口混同。相同 `source` 的多个名称范围共用端点，服务器、接口和数据出口须一致；同一网卡的不同原生上下文可以分别监听；不同 `source` 可服务相同名称范围，保留系统实际选中的上下文。重复范围须全部提供独立原生监听，同一来源重复或与无监听来源混合时拒绝；没有来源标识的 TUN 查询遇到此类歧义返回拒绝，不按数组顺序猜测。`resources.original_dns_listeners` 按 `source` 返回实际端点，不采用产品默认端口。自动端口在 TCP／UDP 配对失败时有界重选，每次先关闭失败的 TCP 套接字；显式端口不重选。仅接收来自绑定地址或本机回环的请求，设备交接前等待，关闭会话取消等待、流量与闲置 TCP 并释放两种套接字；并发与入口容量共用预算。
 

@@ -63,6 +63,7 @@ func buildInfo() []byte {
 			"tun_dns_routes":           !testDriver && (tundevice.Supported || packetpipe.Supported),
 			"original_dns_forwarding":  !testDriver && (tundevice.Supported || packetpipe.Supported),
 			"original_dns_listeners":   !testDriver && (tundevice.Supported || packetpipe.Supported),
+			"original_dns_preparation": !testDriver && (tundevice.Supported || packetpipe.Supported),
 			"raw_ipv4_tun_fd":          !testDriver && tundevice.Supported,
 			"windows_ipv4_packet_pipe": !testDriver && packetpipe.Supported,
 			"tunnel_mtu":               tunnelMTU,
@@ -270,6 +271,21 @@ func jc_go_session_update_policy(handle C.uint64_t, input *C.uint8_t, length C.u
 		return C.int32_t(bridge.InvalidArgument)
 	}
 	value, status := engine.UpdatePolicy(uint64(handle), data)
+	*generation = C.uint64_t(value)
+	return C.int32_t(status)
+}
+
+//export jc_go_session_prepare_original_dns
+func jc_go_session_prepare_original_dns(handle C.uint64_t, input *C.uint8_t, length C.uint32_t, generation *C.uint64_t) C.int32_t {
+	if generation == nil {
+		return C.int32_t(bridge.InvalidArgument)
+	}
+	*generation = 0
+	data, ok := inputBytes(input, length)
+	if !ok {
+		return C.int32_t(bridge.InvalidArgument)
+	}
+	value, status := engine.PrepareOriginalDNS(uint64(handle), data)
 	*generation = C.uint64_t(value)
 	return C.int32_t(status)
 }

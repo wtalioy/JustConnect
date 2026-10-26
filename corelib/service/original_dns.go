@@ -8,12 +8,24 @@ import (
 	"net/netip"
 
 	"github.com/miekg/dns"
+	"github.com/wtalioy/JustConnect/corelib/resolve"
 )
 
 // TCP allocation does not reserve UDP; cap automatic pairing attempts to prevent a busy loop.
 const originalDNSPortAttempts = 8
 
+var ErrOriginalDNSSealed = errors.New("original DNS sources are already prepared or the device is attached")
+
+type originalDNSListener struct {
+	source string
+	local  netip.Addr
+	tcp    net.Listener
+	udp    *net.UDPConn
+}
+
 func (p *Listeners) OriginalDNSListeners() map[string]string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	result := make(map[string]string)
 	if !p.closed.Load() {
 		for name, address := range p.originalDNS {
@@ -23,20 +35,85 @@ func (p *Listeners) OriginalDNSListeners() map[string]string {
 	return result
 }
 
-func (p *Listeners) listenOriginalDNS() error {
-	if p.resolver == nil {
-		return nil
+// PrepareOriginalDNS installs one immutable source set before device attachment.
+func (p *Listeners) PrepareOriginalDNS(original *resolve.OriginalDNS) error {
+	return p.prepareOriginalDNS(original, false)
+}
+
+func (p *Listeners) prepareOriginalDNS(original *resolve.OriginalDNS, startup bool) error {
+	p.mu.Lock()
+	if p.closed.Load() || p.ctx.Err() != nil {
+		p.mu.Unlock()
+		return net.ErrClosed
 	}
-	endpoints := p.resolver.OriginalDNS.ListenSources()
+	if p.resolver == nil || original == nil {
+		p.mu.Unlock()
+		return errors.New("original DNS requires a resolver and compiled sources")
+	}
+	if p.tun != nil || (!startup && p.resolver.OriginalDNS != nil) || (startup && p.resolver.OriginalDNS != original) {
+		p.mu.Unlock()
+		return ErrOriginalDNSSealed
+	}
+	opened, err := p.openOriginalDNS(original.ListenSources())
+	if err != nil {
+		p.mu.Unlock()
+		return err
+	}
+	p.resolver.OriginalDNS = original
+	if len(opened) != 0 {
+		p.originalDNS = make(map[string]string, len(opened))
+		p.dnsReady = make(chan struct{})
+		p.dnsWorkers = make(chan struct{}, maxTUNFlows)
+	}
+	for _, entry := range opened {
+		p.listeners = append(p.listeners, entry.tcp)
+		p.connections[entry.udp] = struct{}{}
+		p.originalDNS[entry.source] = entry.tcp.Addr().String()
+	}
+	p.mu.Unlock()
+	for _, entry := range opened {
+		p.start(func() { p.readOriginalDNS(entry.udp, entry.source, entry.local) })
+		p.start(func() {
+			for {
+				conn, err := entry.tcp.Accept()
+				if err != nil {
+					if p.ctx.Err() == nil {
+						p.fail(err)
+					}
+					return
+				}
+				peer := conn.RemoteAddr().(*net.TCPAddr).AddrPort().Addr().Unmap()
+				if !localDNSPeer(peer, entry.local) {
+					_ = conn.Close()
+					continue
+				}
+				owned, err := p.own(conn)
+				if err == nil && !p.startDNS(func() { defer owned.Close(); p.serveOriginalDNS(owned, entry.source) }) {
+					_ = owned.Close()
+				}
+			}
+		})
+	}
+	return nil
+}
+
+func (p *Listeners) openOriginalDNS(endpoints map[string]resolve.OriginalDNSRoute) ([]originalDNSListener, error) {
 	if len(endpoints) == 0 {
-		return nil
+		return nil, nil
 	}
-	p.originalDNS = make(map[string]string)
-	p.dnsReady = make(chan struct{})
-	p.dnsWorkers = make(chan struct{}, maxTUNFlows)
+	var opened []originalDNSListener
+	success := false
+	defer func() {
+		if !success {
+			for _, entry := range opened {
+				_ = entry.tcp.Close()
+				_ = entry.udp.Close()
+			}
+		}
+	}()
 	interfaces, err := net.Interfaces()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	available := make(map[string]bool)
 	assigned := make(map[netip.Addr]bool)
@@ -47,7 +124,7 @@ func (p *Listeners) listenOriginalDNS() error {
 		available[iface.Name] = true
 		addresses, err := iface.Addrs()
 		if err != nil {
-			return err
+			return nil, err
 		}
 		for _, address := range addresses {
 			if prefix, err := netip.ParsePrefix(address.String()); err == nil {
@@ -59,20 +136,20 @@ func (p *Listeners) listenOriginalDNS() error {
 		name, address := route.Interface, route.Listen
 		endpoint, err := netip.ParseAddrPort(address)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if !available[name] || !assigned[endpoint.Addr()] {
-			return errors.New("original DNS requires an available query interface and assigned local listener address")
+			return nil, errors.New("original DNS requires an available query interface and assigned local listener address")
 		}
 		var listener net.Listener
 		var udp *net.UDPConn
 		for attempt := 0; attempt < originalDNSPortAttempts; attempt++ {
 			if err := p.ctx.Err(); err != nil {
-				return err
+				return nil, err
 			}
 			listener, err = net.Listen("tcp4", address)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			udp, err = net.ListenUDP("udp4", net.UDPAddrFromAddrPort(listener.Addr().(*net.TCPAddr).AddrPort()))
 			if err == nil {
@@ -80,41 +157,16 @@ func (p *Listeners) listenOriginalDNS() error {
 			}
 			_ = listener.Close()
 			if endpoint.Port() != 0 {
-				return err
+				return nil, err
 			}
 		}
 		if err != nil {
-			return err
+			return nil, err
 		}
-		p.listeners = append(p.listeners, listener)
-		if _, err := p.own(udp); err != nil {
-			return err
-		}
-		p.originalDNS[source] = listener.Addr().String()
-		local := endpoint.Addr()
-		p.start(func() { p.readOriginalDNS(udp, source, local) })
-		p.start(func() {
-			for {
-				conn, err := listener.Accept()
-				if err != nil {
-					if p.ctx.Err() == nil {
-						p.fail(err)
-					}
-					return
-				}
-				peer := conn.RemoteAddr().(*net.TCPAddr).AddrPort().Addr().Unmap()
-				if !localDNSPeer(peer, local) {
-					_ = conn.Close()
-					continue
-				}
-				owned, err := p.own(conn)
-				if err == nil && !p.startDNS(func() { defer owned.Close(); p.serveOriginalDNS(owned, source) }) {
-					_ = owned.Close()
-				}
-			}
-		})
+		opened = append(opened, originalDNSListener{source: source, local: endpoint.Addr(), tcp: listener, udp: udp})
 	}
-	return nil
+	success = true
+	return opened, nil
 }
 
 // A listener on an interface address must not become a LAN DNS server.

@@ -6,6 +6,10 @@
 #include <QEventLoop>
 #include <QList>
 #include <QTimer>
+#include <QJsonDocument>
+#include <QTcpSocket>
+#include <QTcpServer>
+#include <QUdpSocket>
 #if defined(Q_OS_LINUX) || defined(Q_OS_MACOS)
 #include <fcntl.h>
 #include <unistd.h>
@@ -75,8 +79,64 @@ static void rejectedDeviceHandoffReleasesItsBorrowedHandle(const ConnectionProfi
     }
 }
 #endif
+#ifndef ABI_FIXTURE
+static int originalDNSPreparation(const QJsonObject &config) {
+    const auto server = config["server"].toObject(), auth = config["auth"].toObject();
+    const auto sources = config["network"].toObject()["original_dns"].toArray();
+    check(!sources.isEmpty(), "explicit native DNS fixture sources");
+    ConnectionProfile profile;
+    profile.endpoint.server = server["host"].toString(); profile.endpoint.port = server["port"].toInt();
+    profile.endpoint.authType = auth["method"].toString().mid(QStringLiteral("auth/").size());
+    profile.endpoint.authId = auth["auth_id"].toString(); profile.endpoint.authSubType = auth["sub_type"].toString();
+    profile.endpoint.phone = auth["phone"].toString(); profile.endpoint.loginDomain = auth["domain"].toString();
+    profile.tls.caPem = config["tls"].toObject()["ca_pem"].toString(); profile.keepAlive.mode = "off";
+    EmbeddedCoreEngine engine;
+    QString generation; bool ready = false, finished = false;
+    QJsonObject endpoints; QList<CoreEngine::RequestStatus> replies;
+    QObject::connect(&engine, &CoreEngine::sessionStarted, [&](const QString &value) { generation = value; });
+    QObject::connect(&engine, &CoreEngine::authenticationRequired, [&](const QJsonObject &request) {
+        engine.respond(CoreEngine::responseFor(request, {{"action", "submit"}, {"code", "fixture-code"}}));
+    });
+    QObject::connect(&engine, &CoreEngine::connectionEstablished, [&] { ready = true; });
+    QObject::connect(&engine, &CoreEngine::finished, [&](ConnectionError error) {
+        check(error == ConnectionError::NONE, "prepared session stops normally"); finished = true;
+    });
+    QObject::connect(&engine, &CoreEngine::originalDNSPrepared,
+        [&](const QString &value, const QJsonObject &listeners, CoreEngine::RequestStatus status) {
+            check(value == generation && QThread::currentThread() == QCoreApplication::instance()->thread(), "DNS preparation keeps generation and GUI delivery");
+            if (status != CoreEngine::RequestStatus::Success) check(listeners.isEmpty(), "failed preparation cannot expose stale endpoints");
+            endpoints = listeners; replies.append(status);
+        });
+    check(engine.start(profile), "start actual protocol before native DNS preparation");
+    until([&] { return ready || finished; }); check(ready && !finished, "authenticated core is ready before source preparation");
+    auto invalid = sources; auto bad = invalid[0].toObject(); bad["interface"] = QString(JC_MAX_INPUT, 'x'); invalid[0] = bad;
+    engine.prepareOriginalDNS(generation, invalid); until([&] { return replies.size() == 1; });
+    check(replies.last() == CoreEngine::RequestStatus::Invalid, "oversized source input did not prepare partial listeners");
+    engine.prepareOriginalDNS(generation, sources); until([&] { return replies.size() == 2; });
+    check(replies.last() == CoreEngine::RequestStatus::Success && endpoints.size() == 1, "actual Qt/C ABI prepares one source context");
+    const auto address = endpoints[sources[0].toObject()["source"].toString()].toString();
+    const auto port = address.section(':', -1).toUShort();
+    check(address.startsWith("127.0.0.1:") && port, "actual kernel-selected native listener endpoint");
+    QTcpSocket idle; idle.connectToHost(QHostAddress::LocalHost, port);
+    check(idle.waitForConnected(5000), "prepared native TCP listener is owned before TUN attachment");
+    idle.disconnectFromHost();
+    check(idle.state() == QAbstractSocket::UnconnectedState || idle.waitForDisconnected(5000), "prepared listener joins a closed idle peer");
+    engine.prepareOriginalDNS(generation, sources); until([&] { return replies.size() == 3; });
+    check(replies.last() == CoreEngine::RequestStatus::Pending, "prepared source set is sealed");
+    engine.prepareOriginalDNS(generation, sources); engine.stop();
+    until([&] { return finished && replies.size() == 4; });
+    check(replies.last() == CoreEngine::RequestStatus::Stale, "queued preparation cannot claim success after stop");
+    QTcpServer tcp; QUdpSocket udp;
+    check(tcp.listen(QHostAddress::LocalHost, port) && udp.bind(QHostAddress::LocalHost, port), "ordered stop releases prepared TCP/UDP endpoints");
+    std::cout << "PASS: Qt/C ABI ready DNS preparation, sealed sources, queued stop and native endpoint release\n";
+    return 0;
+}
+#endif
 int main(int argc, char **argv) {
     QCoreApplication app(argc, argv);
+#ifndef ABI_FIXTURE
+    if (argc == 3 && QByteArray(argv[1]) == "--original-dns-gateway") return originalDNSPreparation(QJsonDocument::fromJson(argv[2]).object());
+#endif
     const auto info = EmbeddedCoreEngine::buildInfo();
     check(info["abi_version"].toInt() == JC_ABI_VERSION, "loaded library ABI metadata");
     ConnectionProfile profile;

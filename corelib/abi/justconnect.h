@@ -31,6 +31,12 @@ JC_API int32_t jc_session_read(uint64_t handle, uint32_t wait_ms, uint8_t *outpu
 JC_API int32_t jc_session_respond(uint64_t handle, const uint8_t *response, uint32_t length);
 /* Atomically replace protection rules for new connections; output the applied generation. */
 JC_API int32_t jc_session_update_policy(uint64_t handle, const uint8_t *policy, uint32_t length, uint64_t *generation);
+/* Prepare one immutable original-DNS source set for the ready generation, before
+ * device attachment. Input: {schema_version,generation,sources:[...]}. The sources
+ * use network.original_dns's schema. Read actual endpoints through resources.
+ * A failed preparation releases its sockets and permits retry; success seals it.
+ */
+JC_API int32_t jc_session_prepare_original_dns(uint64_t handle, const uint8_t *sources, uint32_t length, uint64_t *generation);
 /* Read parsed campus resources for the requested active generation. */
 JC_API int32_t jc_session_resources(uint64_t handle, uint64_t generation, uint8_t *output, uint32_t capacity, uint32_t *length);
 /* Borrow a validated, nonblocking Linux TUN or macOS utun fd for the ready generation.

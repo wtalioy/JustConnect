@@ -204,13 +204,8 @@ func ParseConfig(data []byte) (Config, Status) {
 		if c.Operation == "auth_methods" || c.Protection == nil {
 			return Config{}, InvalidArgument
 		}
-		for _, route := range c.Network.OriginalDNS {
-			if len(route.Interface) > MaxInterfaceName || len(route.EgressInterface) > MaxInterfaceName {
-				return Config{}, InvalidArgument
-			}
-		}
 		var err error
-		c.originalDNS, err = resolve.NewOriginalDNS(c.Network.OriginalDNS)
+		c.originalDNS, err = compileOriginalDNS(c.Network.OriginalDNS)
 		if err != nil {
 			return Config{}, InvalidArgument
 		}

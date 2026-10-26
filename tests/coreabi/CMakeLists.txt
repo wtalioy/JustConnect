@@ -105,6 +105,12 @@ add_test(NAME coreabi_performance_test
 set_tests_properties(coreabi_performance_test PROPERTIES TIMEOUT 150 WORKING_DIRECTORY "${CORE}"
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu")
 
+add_test(NAME coreabi_original_dns_preparation_test
+    COMMAND "${CMAKE_COMMAND}" -E env "JC_NATIVE_ORIGINAL_DNS_HOST=$<TARGET_FILE:coreabi_adapter_test>"
+        GOTOOLCHAIN=local GOWORK=off GOENV=off CGO_ENABLED=1 GOEXPERIMENT=cgocheck2
+        "${GO_EXECUTABLE}" test -mod=readonly -count=1 -timeout 60s -run "^TestNativeOriginalDNSPreparationHost$" -v ./internal/bridge)
+set_tests_properties(coreabi_original_dns_preparation_test PROPERTIES TIMEOUT 90 WORKING_DIRECTORY "${CORE}")
+
 include("${REPO}/tests/CoreEngineTests.cmake")
 
 include("${REPO}/cmake/SystemIntegration.cmake")

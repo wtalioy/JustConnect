@@ -26,7 +26,7 @@ static void check(bool ok, const char *message) {
     if (!ok) { std::cerr << "FAIL: " << message << '\n'; std::exit(1); }
 }
 #define ABI_FUNCTIONS(X) X(jc_abi_version) X(jc_build_info) X(jc_network_snapshot) X(jc_config_validate) X(jc_session_create) X(jc_session_start) \
-    X(jc_session_read) X(jc_session_respond) X(jc_session_update_policy) X(jc_session_resources) X(jc_session_attach_tun) X(jc_session_attach_tun_dns) X(jc_session_attach_windows_pipe) X(jc_session_ack_dns_routes) X(jc_session_stop) X(jc_session_destroy)
+    X(jc_session_read) X(jc_session_respond) X(jc_session_update_policy) X(jc_session_prepare_original_dns) X(jc_session_resources) X(jc_session_attach_tun) X(jc_session_attach_tun_dns) X(jc_session_attach_windows_pipe) X(jc_session_ack_dns_routes) X(jc_session_stop) X(jc_session_destroy)
 struct API {
 #define MEMBER(name) decltype(&::name) name;
     ABI_FUNCTIONS(MEMBER)
@@ -263,6 +263,11 @@ static void nativeProtocol(API &api, const QByteArray &input) {
 int main(int argc, char **argv) {
     QApplication application(argc, argv);
     API api;
+    uint64_t preparedGeneration = 99;
+    check(api.jc_session_prepare_original_dns(0, nullptr, 0, &preparedGeneration) == JC_INVALID_ARGUMENT && preparedGeneration == 0,
+          "original DNS preparation clears generation on invalid input");
+    check(api.jc_session_prepare_original_dns(0, nullptr, 0, nullptr) == JC_INVALID_ARGUMENT,
+          "original DNS preparation requires a caller-owned generation output");
 #if defined(Q_OS_LINUX) || defined(Q_OS_MACOS)
     if (argc == 4 && QByteArray(argv[1]) == "--tun-gateway") {
         bool valid = false;

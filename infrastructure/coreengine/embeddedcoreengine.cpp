@@ -22,7 +22,7 @@
 namespace {
 #define CORE_FUNCTIONS(X) X(jc_abi_version) X(jc_build_info) X(jc_config_validate) X(jc_session_create) X(jc_session_start) \
     X(jc_session_read) X(jc_session_respond) X(jc_session_stop) X(jc_session_destroy)
-#define CORE_EXTENSIONS(X) X(jc_session_update_policy) X(jc_network_snapshot) X(jc_session_resources) X(jc_session_attach_tun) X(jc_session_attach_tun_dns) X(jc_session_attach_windows_pipe) X(jc_session_ack_dns_routes)
+#define CORE_EXTENSIONS(X) X(jc_session_update_policy) X(jc_network_snapshot) X(jc_session_resources) X(jc_session_attach_tun) X(jc_session_attach_tun_dns) X(jc_session_attach_windows_pipe) X(jc_session_ack_dns_routes) X(jc_session_prepare_original_dns)
 struct Library {
 #define MEMBER(name) decltype(&::name) name = nullptr;
     CORE_FUNCTIONS(MEMBER)
@@ -245,6 +245,23 @@ public:
         }
         emit snapshotResult(id, kind, requestedGeneration, snapshot, status);
     }
+    void prepareOriginalDNS(quint64 id, const QString &requestedGeneration, QByteArray bytes) {
+        int status = JC_STALE_REQUEST;
+        QJsonObject listeners;
+        if (id == serial && active && !cancelled.load() && requestedGeneration == QString::number(generation)) {
+            uint64_t applied = 0;
+            status = library().jc_session_prepare_original_dns(handle,
+                reinterpret_cast<const uint8_t *>(bytes.constData()), uint32_t(bytes.size()), &applied);
+            if (status == JC_OK && applied != generation) status = JC_INTERNAL;
+            if (status == JC_OK) {
+                const auto snapshot = readNativeSnapshot(CoreEngine::Snapshot::Resources, handle, generation);
+                status = snapshot.status;
+                if (status == JC_OK) listeners = snapshot.data["resources"].toObject()["original_dns_listeners"].toObject();
+            }
+        }
+        bytes.fill('\0');
+        emit originalDNSResult(id, requestedGeneration, listeners, status);
+    }
     int attachTUN(quint64 id, const QString &requestedGeneration, int descriptor, quint32 mtu, bool publishDNSRoutes) {
         int status = JC_STALE_REQUEST;
         if (id == serial && active && !cancelled.load() && !QThread::currentThread()->isInterruptionRequested()) {
@@ -313,6 +330,7 @@ signals:
     void rejected(quint64 serial);
     void policyResult(quint64 serial, const QString &generation, const QString &revision, int status);
     void dnsRoutesResult(quint64 serial, const QString &generation, const QString &request, int status);
+    void originalDNSResult(quint64 serial, const QString &generation, const QJsonObject &listeners, int status);
     void tunResult(quint64 serial, const QString &generation, int status);
     void snapshotResult(quint64 serial, CoreEngine::Snapshot kind, const QString &generation, const QJsonObject &snapshot, int status);
 };
@@ -346,6 +364,11 @@ EmbeddedCoreEngine::EmbeddedCoreEngine(QObject *parent) : CoreEngine(parent), pu
     }, Qt::QueuedConnection);
     connect(pump, &CoreEventPump::tunResult, this, [this](quint64 id, const QString &generation, int status) {
         if (id == serial) emit tunAttached(generation, !active || stopping ? RequestStatus::Stale : requestStatus(status));
+    }, Qt::QueuedConnection);
+    connect(pump, &CoreEventPump::originalDNSResult, this, [this](quint64 id, const QString &generation, const QJsonObject &listeners, int status) {
+        if (id != serial) return;
+        const bool stale = !active || stopping;
+        emit originalDNSPrepared(generation, stale ? QJsonObject{} : listeners, stale ? RequestStatus::Stale : requestStatus(status));
     }, Qt::QueuedConnection);
     thread.start();
 }
@@ -398,6 +421,16 @@ void EmbeddedCoreEngine::readSnapshot(Snapshot kind, const QString &generation) 
     if (!active || stopping) { emit snapshotReady(kind, generation, {}, RequestStatus::Stale); return; }
     const auto id = serial;
     QMetaObject::invokeMethod(pump, [this, id, kind, generation] { pump->readSnapshot(id, kind, generation); }, Qt::QueuedConnection);
+}
+void EmbeddedCoreEngine::prepareOriginalDNS(const QString &generation, const QJsonArray &sources) {
+    if (!active || stopping) { emit originalDNSPrepared(generation, {}, RequestStatus::Stale); return; }
+    if (!library().jc_session_prepare_original_dns || !buildInfo()["capabilities"].toObject()["original_dns_preparation"].toBool()) {
+        emit originalDNSPrepared(generation, {}, RequestStatus::Unavailable); return;
+    }
+    auto bytes = QJsonDocument(QJsonObject{{"schema_version", int(JC_ABI_VERSION)}, {"generation", generation}, {"sources", sources}}).toJson(QJsonDocument::Compact);
+    if (bytes.size() > JC_MAX_INPUT) bytes.clear();
+    const auto id = serial;
+    QMetaObject::invokeMethod(pump, [this, id, generation, bytes] { pump->prepareOriginalDNS(id, generation, bytes); }, Qt::QueuedConnection);
 }
 void EmbeddedCoreEngine::attachTUN(const QString &generation, qint32 descriptor, quint32 mtu, bool publishDNSRoutes) {
     if (!active || stopping) { emit tunAttached(generation, RequestStatus::Stale); return; }
