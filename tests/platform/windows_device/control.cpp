@@ -15,6 +15,7 @@
 
 using namespace winrt::Windows::Data::Json;
 namespace {
+constexpr DWORD FixtureTimeoutMs=45000;
 void check(bool value,const char *stage){if(!value)throw std::runtime_error(stage);}
 struct Handle {HANDLE value=nullptr;~Handle(){if(value)CloseHandle(value);}};
 struct Process {
@@ -27,7 +28,7 @@ struct Process {
         check(ok,"launch control fixture process");process.value=info.hProcess;thread.value=info.hThread;
     }
     DWORD wait(){
-        check(WaitForSingleObject(process.value,45000)==WAIT_OBJECT_0,"control fixture process deadline");
+        check(WaitForSingleObject(process.value,FixtureTimeoutMs)==WAIT_OBJECT_0,"control fixture process deadline");
         DWORD code=1;check(GetExitCodeProcess(process.value,&code),"control fixture exit");return code;
     }
 };
@@ -37,6 +38,14 @@ std::wstring executable(){wchar_t value[32768]{};const auto size=GetModuleFileNa
 using Input=WindowsControlFixtureInput;
 void transfer(HANDLE pipe,void *data,DWORD size,bool write){
     DWORD count=0;check((write?WriteFile(pipe,data,size,&count,nullptr):ReadFile(pipe,data,size,&count,nullptr)) && count==size,"control fixture handoff");
+}
+void awaitInput(HANDLE pipe,DWORD size,const Process &sender,DWORD timeout,const char *stage){
+    const auto deadline=GetTickCount64()+timeout;DWORD available=0;
+    for(;;){
+        check(PeekNamedPipe(pipe,nullptr,0,nullptr,&available,nullptr),stage);
+        if(available>=size)return;
+        check(GetTickCount64()<deadline && WaitForSingleObject(sender.process.value,0)==WAIT_TIMEOUT,stage);Sleep(10);
+    }
 }
 JsonObject command(const GUID &session,const wchar_t *operation,const GUID &owner={}){
     JsonObject value;
@@ -132,7 +141,8 @@ int client(const GUID &session,const std::wstring &mode){
     bool refused=false;try{receiveWindowsControlMessage(*pipe,5000);}catch(const std::system_error &){refused=true;}
     check(refused,"unsafe control request returned a reply");return 0;
 }
-void scenario(const std::wstring &helper,const std::wstring &mode,const std::wstring &clientImage={},bool application=false){
+GUID scenario(const std::wstring &helper,const std::wstring &mode,const std::wstring &clientImage={},bool application=false,
+    const std::wstring &fault={},std::optional<WindowsNetworkFingerprint> *baseline=nullptr){
     auto session=uuid();
     Handle token,input,childInput,console,request,childRequest;
     token.value=ordinaryWindowsToken();
@@ -142,22 +152,18 @@ void scenario(const std::wstring &helper,const std::wstring &mode,const std::wst
     STARTUPINFOW startup{sizeof(startup)};startup.dwFlags=STARTF_USESTDHANDLES;
     startup.hStdInput=childInput.value;startup.hStdOutput=console.value;startup.hStdError=console.value;
     if(application)check(CreatePipe(&request.value,&childRequest.value,&attributes,0) && SetHandleInformation(request.value,HANDLE_FLAG_INHERIT,0),"application approval request pipe");
-    const auto reply=application?L" "+std::to_wstring(reinterpret_cast<std::uintptr_t>(childRequest.value)):L"";
+    const auto reply=application?L" "+std::to_wstring(reinterpret_cast<std::uintptr_t>(childRequest.value))+(fault.empty()?L"":L" "+fault):L"";
     Process gui;gui.start(L"\""+(clientImage.empty()?executable():clientImage)+L"\" --client "+guid(session)+L" "+mode+reply,token.value,&startup);
     CloseHandle(childInput.value);childInput.value=nullptr;
     if(application){
         CloseHandle(childRequest.value);childRequest.value=nullptr;
-        const auto deadline=GetTickCount64()+WindowsNetworkContract::ControlTimeoutMs;DWORD available=0;
-        for(;;){
-            check(PeekNamedPipe(request.value,nullptr,0,nullptr,&available,nullptr),"read actual application approval request");
-            if(available>=sizeof(session))break;
-            check(GetTickCount64()<deadline && WaitForSingleObject(gui.process.value,0)==WAIT_TIMEOUT,"application did not request approval before its deadline");Sleep(10);
-        }
+        awaitInput(request.value,sizeof(session),gui,WindowsNetworkContract::ControlTimeoutMs,"application did not request approval before its deadline");
         transfer(request.value,&session,sizeof(session),false);check(session!=GUID{},"actual application attempt UUID");
     }
     WindowsProcess caller(GetProcessId(gui.process.value)),current(GetCurrentProcessId());
     WindowsRegistryJournal journal;Input payload;
     payload.dead=uuid();payload.live=uuid();payload.foreign=uuid();
+    if(baseline && *baseline){payload.baseline=**baseline;payload.hasBaseline=true;}
     struct Cleanup {
         WindowsRegistryJournal &journal;Input &input;GUID session;std::wstring sid;bool network,done=false;
         ~Cleanup(){
@@ -194,19 +200,35 @@ void scenario(const std::wstring &helper,const std::wstring &mode,const std::wst
         const auto code=gui.wait();fake.join();if(error)std::rethrow_exception(error);check(code==0,"ordinary client accepted fake server");
     }else{
         transfer(input.value,&payload,sizeof(payload),true);
-        check(gui.wait()==0,"ordinary control client failed");
-        if(mode!=L"authorize-cancel" && mode!=L"authorize-replaced"){
+        if(!fault.empty()){
+            check(application && baseline,"fault injection requires the ordinary application fixture");
+            WindowsNetworkFingerprint original;
+            awaitInput(request.value,sizeof(original),gui,FixtureTimeoutMs,"application did not finish actual traffic before the fault");
+            transfer(request.value,&original,sizeof(original),false);*baseline=original;
+            WindowsNetworkRecovery recovery;
+            const auto active=recovery.read(session);
+            check(active.phase==WindowsRecoveryPhase::Declared && active.adapter!=GUID{} && active.dns.has_value(),"real active device and DNS precede the crash");
+            check(TerminateProcess(elevated.process.value,1),"kill actual privileged network helper");
+            if(fault==L"dual-kill")check(TerminateProcess(gui.process.value,1),"kill actual Qt/core host");
+            check(elevated.wait()==1,"privileged helper terminated without normal restoration");
+            const auto deadline=GetTickCount64()+FixtureTimeoutMs;
+            while(recovery.read(session).phase!=WindowsRecoveryPhase::Restored){check(GetTickCount64()<deadline,"SCM did not independently restore the crashed application");Sleep(50);}
+            if(fault==L"helper-loss"){unsigned char restored=1;transfer(input.value,&restored,1,true);}
+            check(gui.wait()==(fault==L"dual-kill"?1:0),"ordinary application failed its helper-loss contract");
+        }else check(gui.wait()==0,"ordinary control client failed");
+        if(fault.empty() && mode!=L"authorize-cancel" && mode!=L"authorize-replaced"){
             const auto code=elevated.wait();check(code==(mode==L"normal" || mode==L"authorize" || mode==L"network"?0:1),"control helper accepted an invalid session");
         }
     }
     if(mode!=L"network")check(journal.read(payload.live)==liveRecord && journal.read(payload.foreign)==foreignRecord,"control modified live or foreign ownership");
-    else{bool absent=false;try{journal.read(session);}catch(const std::system_error &error){absent=error.code().value()==ERROR_FILE_NOT_FOUND;}check(absent,"normal network stop left an unacknowledged record");}
+    else if(fault.empty()){bool absent=false;try{journal.read(session);}catch(const std::system_error &error){absent=error.code().value()==ERROR_FILE_NOT_FOUND;}check(absent,"normal network stop left an unacknowledged record");}
     if(mode!=L"network"){
         WindowsNetworkLock lock;
         for(const auto &id:{payload.dead,payload.live,payload.foreign})journal.remove(id);
     }
     cleanup.done=true;
     std::wcout<<L"PASS: native authenticated control "<<mode<<L'\n';
+    return session;
 }
 }
 
@@ -221,6 +243,21 @@ int wmain(int argc,wchar_t **argv) try
     const bool qt=argc==4 && std::wstring(argv[1])==L"--qt";
     const bool application=argc==4 && std::wstring(argv[1])==L"--qt-session";
     check((argc==2 || qt || application) && GetEnvironmentVariableW(L"GITHUB_ACTIONS",guarded,8)==4 && std::wstring(guarded)==L"true","control mutation requires disposable runner");
+    if(application){
+        wchar_t faults[8]{};
+        if(GetEnvironmentVariableW(L"JC_WINDOWS_SESSION_FAULTS",faults,8)==4 && std::wstring(faults)==L"true"){
+            std::optional<WindowsNetworkFingerprint> baseline;
+            const auto lost=scenario(argv[2],L"network",argv[3],true,L"helper-loss",&baseline);
+            const auto killed=scenario(argv[2],L"network",argv[3],true,L"dual-kill",&baseline);
+            scenario(argv[2],L"network",argv[3],true,{},&baseline);
+            WindowsRegistryJournal journal;
+            for(const auto &owner:{lost,killed}){
+                bool absent=false;try{journal.read(owner);}catch(const std::system_error &error){absent=error.code().value()==ERROR_FILE_NOT_FOUND;}
+                check(absent,"new application did not acknowledge the prior crash receipt");
+            }
+            std::cout<<"PASS: ordinary application helper-loss, double crash, SCM recovery, complete baseline and new-session receipt handoff\n";return 0;
+        }
+    }
     if(qt || application){scenario(argv[2],application?L"network":L"normal",argv[3],application);scenario(argv[2],L"network",argv[3],application);return 0;}
     for(const auto mode:{L"normal",L"authorize",L"authorize-cancel",L"authorize-replaced",L"server-mismatch",L"replaced",L"session-mismatch",L"unknown-field",L"unknown-operation",L"oversized",L"io-timeout",L"eof"})scenario(argv[1],mode);
     return 0;
