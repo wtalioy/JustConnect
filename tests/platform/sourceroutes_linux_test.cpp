@@ -446,13 +446,17 @@ int main(int argc, char **argv) try
     invalid = snapshot;invalid["rule_delete_started"] = "false";invalidRecords.append(invalid);
     invalid = snapshot;invalid["rule_pending"] = false;invalid["rule_delete_started"] = true;invalidRecords.append(invalid);
     invalid = snapshot;invalid["extra"] = true;invalidRecords.append(invalid);
+    invalid = snapshot;invalid["version"] = snapshot["version"].toInt()+1;invalidRecords.append(invalid);
     auto savedRoutes = snapshot["routes"].toArray();
     invalid = snapshot;savedRoutes.append(savedRoutes.first());invalid["routes"] = savedRoutes;invalidRecords.append(invalid);
     savedRoutes = snapshot["routes"].toArray();
     auto changedEntry = savedRoutes.last().toObject();
     for (const QJsonValue marker : {QJsonValue("false"),QJsonValue(true)}) {
         changedEntry["delete_started"] = marker;savedRoutes[savedRoutes.size()-1] = changedEntry;
-        invalid = snapshot;invalid["routes"] = savedRoutes;invalidRecords.append(invalid);
+        invalid = snapshot;invalid["routes"] = savedRoutes;
+        // Delivered unversioned records cannot authorize active deletion intent.
+        if (marker == true) invalid.remove("version");
+        invalidRecords.append(invalid);
     }
     savedRoutes = snapshot["routes"].toArray();changedEntry = savedRoutes.last().toObject();
     auto changedRow = changedEntry["applied"].toObject();
