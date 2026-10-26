@@ -87,10 +87,10 @@ int main(int argc, char **argv) try
             check(exchange.waitForFinished(8000) && exchange.exitCode() == 0 && exchange.exitStatus() == QProcess::NormalExit,
                 qPrintable(QString::fromUtf8(exchange.readAllStandardError())));
             auto previous = results.size();
-            client->extend({scenario == "extend-partial" ? configuration.peer : QString("198.18.6.7")});
+            client->extend({scenario == "extend-endpoint-rejected" ? configuration.peer : QString("198.18.6.7")});
             wait([&] { return results.size() == previous+1; });
-            if (scenario == "extend-cancel" || scenario == "extend-partial") {
-                check(results.last().status == (scenario == "extend-cancel" ? Status::Cancelled : Status::Failed)
+            if (scenario == "extend-cancel" || scenario == "extend-endpoint-rejected") {
+                check(results.last().status == (scenario == "extend-cancel" ? Status::Cancelled : Status::Unsupported)
                       && client->state() == Client::State::Idle && client->descriptor() == -1,
                       "Failed/cancelled DNS publication did not restore and release its connection");
                 check(!client->ownedConfiguration() && client->ownedDevice().isEmpty(), "Failed extension retained active ownership facts");
@@ -117,15 +117,15 @@ int main(int argc, char **argv) try
                 QFileInfo(QString::fromUtf8(__FILE__)).absolutePath(),QString::number(device)});
             check(exchange.waitForFinished(8000) && exchange.exitCode() == 0 && exchange.exitStatus() == QProcess::NormalExit,
                   qPrintable(QString::fromUtf8(exchange.readAllStandardError())));
-            if (scenario == "normal" || scenario == "routes-partial") {
+            if (scenario == "normal" || scenario == "routes-endpoint-rejected") {
                 previous = results.size();
-                const QStringList changedCapture{"198.18.4.0/24",scenario == "routes-partial" ? configuration.peer+"/32" : QString("198.18.7.0/24")};
+                const QStringList changedCapture{"198.18.4.0/24",scenario == "routes-endpoint-rejected" ? configuration.peer+"/32" : QString("198.18.7.0/24")};
                 client->reconcile(changedCapture);
                 wait([&] { return results.size() == previous+1; });
-                if (scenario == "routes-partial") {
-                    check(results.last().status == Status::Failed && client->state() == Client::State::Idle
+                if (scenario == "routes-endpoint-rejected") {
+                    check(results.last().status == Status::Unsupported && client->state() == Client::State::Idle
                           && !client->ownedConfiguration() && client->descriptor() < 0,
-                          "Partial live route apply failed to restore all owned network state");
+                          "Rejected live route endpoint failed to restore all owned network state");
                     std::cout << "PASS: Qt helper client " << scenario.toStdString() << '\n';
                     return 0;
                 }
