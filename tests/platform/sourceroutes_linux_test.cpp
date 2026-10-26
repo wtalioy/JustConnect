@@ -202,7 +202,7 @@ int main(int argc, char **argv) try
         check(growing.ensurePrefixes(owner,{"198.18.9.0/24","198.18.9.0/24"}).succeeded()
               && read({"route","get","198.18.9.7","from",source}).first().toObject()["dev"] == "original0"
               && growing.snapshot()["rule_applied"] == extended["rule_applied"],"Live capture additions lost original egress or replaced its rule");
-        const auto keptRule = growing.snapshot()["rule_applied"];
+        const auto keptRule = growing.snapshot().value("rule_applied");
         auto withdrawn = growing.reconcile(owner,{target});
         check(withdrawn.succeeded() && withdrawn.mayHaveChanged
               && growing.snapshot()["routes"].toArray().size() == original["routes"].toArray().size()
