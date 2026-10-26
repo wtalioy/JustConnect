@@ -34,13 +34,13 @@ SOCKADDR_INET ipv4(IN_ADDR address)
     return result;
 }
 bool same(const WindowsTunPrefix &a,const WindowsTunPrefix &b){return a.address.S_un.S_addr==b.address.S_un.S_addr && a.bits==b.bits;}
-MIB_IPFORWARD_ROW2 ownedRoute(NET_LUID luid,const WindowsTunPrefix &target)
+MIB_IPFORWARD_ROW2 ownedRoute(NET_LUID luid,const WindowsTunPrefix &target,IN_ADDR gateway)
 {
     MIB_IPFORWARD_ROW2 route{};InitializeIpForwardEntry(&route);
     route.InterfaceLuid=luid;route.DestinationPrefix.Prefix=ipv4(target.address);route.DestinationPrefix.PrefixLength=target.bits;
     // InitializeIpForwardEntry uses unspecified (255) flags; request explicit owned route behavior.
     route.Loopback=FALSE;route.AutoconfigureAddress=FALSE;route.Publish=FALSE;route.Immortal=TRUE;
-    route.NextHop=ipv4(IN_ADDR{});route.Metric=1;route.Protocol=MIB_IPPROTO_NETMGMT;return route;
+    route.NextHop=ipv4(gateway);route.Metric=1;route.Protocol=MIB_IPPROTO_NETMGMT;return route;
 }
 bool present(const MIB_IPFORWARD_ROW2 &expected)
 {
@@ -157,7 +157,7 @@ void WindowsTunDevice::configure(IN_ADDR source, IN_ADDR peer, const std::vector
     checked(GetUnicastIpAddressEntry(&address),"confirm owned IPv4 address");
     if (address.InterfaceLuid.Value != owned.luid.Value || address.OnLinkPrefixLength != 32 || address.DadState != IpDadStatePreferred)
         fail("owned IPv4 address differs",ERROR_INVALID_DATA);
-    auto route=ownedRoute(owned.luid,{peer,32});
+    auto route=ownedRoute(owned.luid,{peer,32},IN_ADDR{});
     checked(CreateIpForwardEntry2(&route),"create owned peer route");
     if(!present(route))fail("owned peer route disappeared",ERROR_NOT_FOUND);
     reconcile(targets);
@@ -172,12 +172,13 @@ void WindowsTunDevice::reconcile(const std::vector<WindowsTunPrefix> &targets)
     MIB_IF_ROW2 identity{};identity.InterfaceLuid=owned.luid;
     checked(GetIfEntry2Ex(MibIfEntryNormalWithoutStatistics,&identity),"confirm capture interface identity");
     if(identity.InterfaceGuid!=owned.guid || identity.InterfaceIndex!=owned.index || owned.name!=identity.Alias)fail("capture interface identity changed",ERROR_INVALID_DATA);
-    for(const auto &target:captures)if(!present(ownedRoute(owned.luid,target)))fail("owned capture disappeared",ERROR_NOT_FOUND);
+    for(const auto &target:captures)if(!present(ownedRoute(owned.luid,target,peer)))fail("owned capture disappeared",ERROR_NOT_FOUND);
     std::vector<WindowsTunPrefix> wanted;
     for(const auto &target:targets)if(!same(target,{peer,32}) && std::none_of(wanted.begin(),wanted.end(),[&](const auto &item){return same(item,target);}))wanted.push_back(target);
     for(const auto &target:wanted){
         if(std::any_of(captures.begin(),captures.end(),[&](const auto &item){return same(item,target);}))continue;
-        auto route=ownedRoute(owned.luid,target);
+        // Campus destinations are remote; on-link prefixes synthesize conflicting local broadcasts.
+        auto route=ownedRoute(owned.luid,target,peer);
         if(present(route))fail("refuse pre-existing capture route",ERROR_ALREADY_EXISTS);
         checked(CreateIpForwardEntry2(&route),"create owned IPv4 capture");
         captures.push_back(target);
@@ -185,7 +186,7 @@ void WindowsTunDevice::reconcile(const std::vector<WindowsTunPrefix> &targets)
     }
     for(auto target=captures.begin();target!=captures.end();){
         if(std::any_of(wanted.begin(),wanted.end(),[&](const auto &item){return same(item,*target);})){++target;continue;}
-        const auto route=ownedRoute(owned.luid,*target);
+        const auto route=ownedRoute(owned.luid,*target,peer);
         if(!present(route))fail("capture changed before deletion",ERROR_NOT_FOUND);
         checked(DeleteIpForwardEntry2(&route),"delete owned IPv4 capture");
         if(present(route))fail("deleted capture reappeared",ERROR_INVALID_DATA);

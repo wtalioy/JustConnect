@@ -46,10 +46,11 @@ void ping(const char *target){
     check(connect(socket,reinterpret_cast<sockaddr *>(&peer),sizeof(peer))==0 && send(socket,"ping",4,0)==4,"ordinary UDP request");
     char answer[8]{};check(recv(socket,answer,sizeof(answer),0)==4 && std::string(answer,4)=="pong","ordinary UDP response through owned device");
 }
-bool captured(const QJsonObject &device,const wchar_t *target){
+bool captured(const QJsonObject &device,const wchar_t *target,UCHAR bits=32){
     MIB_IPFORWARD_ROW2 route{};InitializeIpForwardEntry(&route);
     route.InterfaceLuid.Value=device["luid"].toString().toULongLong();route.DestinationPrefix.Prefix.si_family=AF_INET;
-    InetPtonW(AF_INET,target,&route.DestinationPrefix.Prefix.Ipv4.sin_addr);route.DestinationPrefix.PrefixLength=32;route.NextHop.si_family=AF_INET;
+    InetPtonW(AF_INET,target,&route.DestinationPrefix.Prefix.Ipv4.sin_addr);route.DestinationPrefix.PrefixLength=bits;route.NextHop.si_family=AF_INET;
+    const auto peer=device["peer"].toString();check(InetPtonW(AF_INET,reinterpret_cast<LPCWSTR>(peer.utf16()),&route.NextHop.Ipv4.sin_addr)==1,"confirmed capture gateway");
     const auto status=GetIpForwardEntry2(&route);
     check(status==NO_ERROR || status==ERROR_NOT_FOUND || status==ERROR_FILE_NOT_FOUND,"query actual owned route");return status==NO_ERROR;
 }
@@ -98,7 +99,7 @@ int main(int argc,char **argv) try
         check(captured(device,L"198.18.0.6") && dnsPresent(device),"actual capture and DNS not active");
         HANDLE data=nullptr;check(DuplicateHandle(GetCurrentProcess(),reinterpret_cast<HANDLE>(quintptr(client.packetPipeHandle())),GetCurrentProcess(),&data,0,FALSE,DUPLICATE_SAME_ACCESS),"ordinary core packet pipe duplicate");
         std::exception_ptr error;std::atomic<int> packets=0;
-        std::jthread pump([&]{try{while(packets<2){
+        std::jthread pump([&]{try{while(packets<3){
             unsigned char length[4]{};transfer(data,length,4,false);
             const DWORD size=(DWORD(length[0])<<24)|(DWORD(length[1])<<16)|(DWORD(length[2])<<8)|length[3];
             check(size>=20 && size<=1400,"bounded IPv4 packet frame");std::vector<unsigned char> packet(size);transfer(data,packet.data(),size,false);
@@ -115,7 +116,10 @@ int main(int argc,char **argv) try
         client.extend({"198.18.0.7"});wait(WindowsNetworkHelperClient::Operation::Extend);
         check(client.ownedConfiguration()["capture_prefixes"].toArray()==QJsonArray{"198.18.0.6/32","198.18.0.7/32"},"confirmed extension was not retained by the ordinary client");
         check(captured(device,L"198.18.0.7"),"dynamic capture was not confirmed");ping("198.18.0.7");
-        pump.join();CloseHandle(data);if(error)std::rethrow_exception(error);check(packets==2,"owned data path omitted a packet");
+        client.reconcile({"198.18.0.6/31"});wait(WindowsNetworkHelperClient::Operation::Routes);
+        check(captured(device,L"198.18.0.6",31) && !captured(device,L"198.18.0.6") && !captured(device,L"198.18.0.7"),"remote capture coalescing left host routes");
+        ping("198.18.0.7");
+        pump.join();CloseHandle(data);if(error)std::rethrow_exception(error);check(packets==3,"owned data path omitted a packet");
         client.reconcile({"198.18.0.7/32"});wait(WindowsNetworkHelperClient::Operation::Routes);
         check(client.ownedConfiguration()["capture_prefixes"].toArray()==QJsonArray{"198.18.0.7/32"},"confirmed replacement was not retained by the ordinary client");
         check(!captured(device,L"198.18.0.6") && captured(device,L"198.18.0.7"),"capture replacement did not preserve its intended set");

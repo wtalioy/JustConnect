@@ -11,6 +11,7 @@
 #include <winrt/Windows.Foundation.Collections.h>
 #include <system_error>
 #include <thread>
+#include <iostream>
 
 using namespace winrt::Windows::Data::Json;
 namespace {
@@ -139,6 +140,7 @@ int runWindowsNetworkControl(DWORD pid,std::uint64_t created,const GUID &session
                 if(active && !active->isRestored())reply.SetNamedValue(L"device",metadata(*active,*configuration));
             }
         }catch(const std::system_error &error){
+            std::cerr<<"native network "<<winrt::to_string(command.operation)<<": "<<error.what()<<'\n';
             reply.SetNamedValue(L"ok",JsonValue::CreateBooleanValue(false));
             reply.SetNamedValue(L"error",JsonValue::CreateNumberValue(error.code().value()));
         }
