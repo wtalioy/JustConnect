@@ -383,7 +383,64 @@ std::optional<QStringList> excludeCampusCaptureAddresses(const QStringList &owne
     return prefixesForRanges(subtractRanges(mergedRanges(included), mergedRanges(excluded)));
 }
 
-std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &resources, const QJsonObject &policy, const QStringList &dynamicAddresses)
+std::optional<QStringList> campusDnsDomains(const QJsonObject &resources)
+{
+    if (!resources["campus_dns_enabled"].isBool() || !resources["domain_resources"].isObject()
+        || !resources["dns_records"].isObject()) return {};
+    QStringList result;
+    auto add = [&](QString name) {
+        if (name.startsWith("*.")) name.remove(0,2);
+        else if (name.startsWith('.')) name.remove(0,1);
+        const auto canonical = canonicalProtectionName(name);
+        if (!canonical || result.size() >= MaxModelItems) return false;
+        result.append(*canonical); return true;
+    };
+    const auto domains = resources["domain_resources"].toObject(), records = resources["dns_records"].toObject();
+    if (domains.size() > MaxModelItems || records.size() > MaxModelItems) return {};
+    if (resources["campus_dns_enabled"].toBool())
+        for (auto it = domains.begin(); it != domains.end(); ++it)
+            if (!it.value().isArray() || (!it.value().toArray().isEmpty() && !add(it.key()))) return {};
+    for (auto it = records.begin(); it != records.end(); ++it)
+        if (!it.value().isArray() || !add(it.key())) return {};
+    const QSet<QString> namespaces(result.begin(), result.end());
+    result.clear();
+    for (const auto &domain : namespaces) {
+        auto suffix = domain;
+        bool inherited = false;
+        while (suffix.contains('.')) {
+            suffix.remove(0,suffix.indexOf('.')+1);
+            if (namespaces.contains(suffix)) { inherited = true; break; }
+        }
+        if (!inherited) result.append(domain);
+    }
+    result.sort();
+    return result;
+}
+
+std::optional<QJsonArray> requiredOriginalDnsNames(const QJsonObject &resources, const QJsonObject &policy)
+{
+    const auto domains = campusDnsDomains(resources);
+    if (!domains || !policy["protected_names"].isArray() || !policy["campus_names"].isArray()
+        || policy["protected_names"].toArray().size() > MaxModelItems || policy["campus_names"].toArray().size() > MaxModelItems) return {};
+    QJsonArray result;
+    const auto choices = policy["campus_names"].toArray();
+    for (const auto &entry : policy["protected_names"].toArray()) {
+        if (!entry.isObject()) return {};
+        const auto rule = entry.toObject();
+        const auto kind = rule["kind"].toString(), value = rule["value"].toString();
+        if (kind != "exact" && kind != "suffix" && kind != "prefix" && kind != "single_label") return {};
+        if (kind == "exact" && choices.contains(value)) continue;
+        for (const auto &domain : *domains) {
+            const bool overlap = kind == "prefix" || (kind == "single_label" && !domain.contains('.'))
+                || ((kind == "exact" || kind == "suffix") && (value == domain || value.endsWith('.'+domain)))
+                || (kind == "suffix" && domain.endsWith('.'+value));
+            if (overlap) { result.append(rule); break; }
+        }
+    }
+    return result;
+}
+
+std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &resources, const QJsonObject &policy, const QStringList &dynamicAddresses, const QJsonArray &originalDNS)
 {
     if (!resources["ip_resources"].isArray() || !resources["domain_resources"].isObject()
         || !resources["dns_records"].isObject() || !resources["campus_dns"].isString()
@@ -394,7 +451,27 @@ std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &reso
     const auto names = policy["protected_names"].toArray(), campusNames = policy["campus_names"].toArray();
     for (const auto size : {ips.size(), protectedIPs.size(), choices.size(), domains.size(), records.size(), names.size(), campusNames.size(), dynamicAddresses.size()})
         if (size > MaxModelItems) return {};
+    const auto required = requiredOriginalDnsNames(resources,policy);
+    if (!required || originalDNS.size() > MaxModelItems) return {};
+    QJsonArray forwarded;
     IPv4Ranges included, excluded, selected;
+    IPv4Ranges originalServers;
+    for (const auto &value : originalDNS) {
+        if (!value.isObject()) return {};
+        const auto row = value.toObject();
+        if (!row["name"].isObject() || !names.contains(row["name"]) || !row["servers"].isArray() || row["servers"].toArray().isEmpty()) return {};
+        forwarded.append(row["name"]);
+        for (const auto &server : row["servers"].toArray()) {
+            if (!server.isString()) return {};
+            const QUrl endpoint("dns://"+server.toString());
+            const QHostAddress address(endpoint.host());
+            if (!endpoint.isValid() || endpoint.port() < 1 || endpoint.port() > 65535 || address.isNull()) return {};
+            if (address.protocol() == QAbstractSocket::IPv4Protocol)
+                originalServers.append({address.toIPv4Address(),address.toIPv4Address()});
+            if (originalServers.size() > MaxModelItems) return {};
+        }
+    }
+    for (const auto &name : *required) if (!forwarded.contains(name)) return {};
     CampusCaptureTargets result;
     auto add = [&](const QString &first, const QString &last) {
         const QHostAddress low(first), high(last);
@@ -434,6 +511,7 @@ std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &reso
         selected.append({*address, *address});
     }
     excluded = subtractRanges(mergedRanges(excluded), mergedRanges(selected));
+    excluded.append(originalServers);
     // Match the helper's unicast address boundary; campus choices cannot capture these ranges.
     for (const auto &prefix : {"0.0.0.0/8", "127.0.0.0/8", "224.0.0.0/3"}) {
         const auto subnet = QHostAddress::parseSubnet(QString::fromLatin1(prefix));
@@ -470,60 +548,29 @@ std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &reso
             }
         }
     }
-    auto routeDomain = [&](QString name) {
-        if (name.startsWith("*.")) name.remove(0, 2);
-        else if (name.startsWith('.')) name.remove(0, 1);
-        const auto canonical = canonicalProtectionName(name);
-        if (!canonical) return false;
-        for (const auto &entry : names) {
-            if (!entry.isObject()) return false;
-            const auto row = entry.toObject();
-            const auto kind = row["kind"].toString(), value = row["value"].toString();
-            if (kind == "exact" && campusNames.contains(value)) continue;
-            const bool overlap = kind == "prefix" || (kind == "single_label" && !canonical->contains('.'))
-                || ((kind == "exact" || kind == "suffix") && (value == *canonical || value.endsWith('.' + *canonical)))
-                || (kind == "suffix" && canonical->endsWith('.' + value));
-            if (overlap) return false; // Original-DNS forwarding must precede capture of overlapping namespaces.
-            if (kind != "exact" && kind != "suffix" && kind != "prefix" && kind != "single_label") return false;
-        }
-        result.dnsDomains.append(*canonical);
-        return true;
-    };
+    const auto dnsDomains = campusDnsDomains(resources);
+    if (!dnsDomains) return {};
+    result.dnsDomains = *dnsDomains;
     const bool remoteDNS = resources["campus_dns_enabled"].toBool();
     if (remoteDNS) {
         const auto server = resources["campus_dns"].toString();
         const auto address = ipv4Number(server);
         if (!address || !add(server, server) || std::any_of(excluded.begin(), excluded.end(),
             [&](const IPv4Range &range) { return range.first <= *address && *address <= range.second; })) return {};
-        for (auto it = domains.begin(); it != domains.end(); ++it)
-            if (!it.value().isArray() || (!it.value().toArray().isEmpty() && !routeDomain(it.key()))) return {};
     }
     for (auto it = records.begin(); it != records.end(); ++it) {
-        if (!it.value().isArray() || !routeDomain(it.key())) return {};
+        if (!it.value().isArray()) return {};
         for (const auto &value : it.value().toArray())
             if (!value.isString() || !add(value.toString(), value.toString())) return {};
     }
     const auto prefixes = prefixesForRanges(subtractRanges(mergedRanges(included), mergedRanges(excluded)));
     if (!prefixes) return {};
     result.ipv4Prefixes = *prefixes;
-    const QSet<QString> namespaces(result.dnsDomains.begin(), result.dnsDomains.end());
-    result.dnsDomains.clear();
-    for (const auto &domain : namespaces) {
-        auto suffix = domain;
-        bool inherited = false;
-        while (suffix.contains('.')) {
-            suffix.remove(0, suffix.indexOf('.') + 1);
-            if (namespaces.contains(suffix)) { inherited = true; break; }
-        }
-        if (!inherited) result.dnsDomains.append(domain);
-    }
-    result.dnsDomains.sort();
-    if (result.dnsDomains.size() > MaxModelItems) return {};
     return result;
 }
 
 std::optional<QStringList> updatedCampusCapturePrefixes(const QJsonObject &resources, const QJsonObject &policy,
-    const QStringList &dnsDomains)
+    const QStringList &dnsDomains, const QJsonArray &originalDNS)
 {
     QStringList active;
     const auto addresses = resources.value("active_tun_addresses");
@@ -534,7 +581,7 @@ std::optional<QStringList> updatedCampusCapturePrefixes(const QJsonObject &resou
             active.append(address.toString());
         }
     }
-    const auto result = campusCaptureTargets(resources,policy,active);
+    const auto result = campusCaptureTargets(resources,policy,active,originalDNS);
     if (!result || result->dnsDomains != dnsDomains) return {};
     return result->ipv4Prefixes;
 }

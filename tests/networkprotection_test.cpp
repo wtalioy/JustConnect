@@ -127,6 +127,18 @@ static void captureTargets()
     protectedPolicy = policy;
     protectedPolicy["protected"] = QJsonArray{"203.0.113.53/32"};
     check(!campusCaptureTargets(resources, protectedPolicy),"Protected campus DNS produced a partially usable plan");
+    auto forwardedPolicy = policy;
+    const QJsonObject nativeScope{{"kind","suffix"},{"value","campus.test"}};
+    forwardedPolicy["protected_names"] = QJsonArray{nativeScope};
+    const QJsonArray sources{QJsonObject{{"name",nativeScope},{"servers",QJsonArray{"192.168.25.1:5353"}}}};
+    const auto forwarded = campusCaptureTargets(resources,forwardedPolicy,{},sources);
+    check(forwarded && forwarded->dnsDomains == QStringList{"campus.test"}
+        && !contains(forwarded->ipv4Prefixes,"192.168.25.1") && contains(forwarded->ipv4Prefixes,"192.168.25.2"),
+        "Prepared native scope lost the campus DNS route or recaptured its original server");
+    const QJsonArray collision{QJsonObject{{"name",nativeScope},{"servers",QJsonArray{"203.0.113.53:53"}}}};
+    check(!campusCaptureTargets(resources,forwardedPolicy,{},collision),"A shared original/campus DNS endpoint silently looped");
+    const QJsonArray invalidSource{QJsonObject{{"name",nativeScope},{"servers",QJsonArray{"resolver.original.test:53"}}}};
+    check(!campusCaptureTargets(resources,forwardedPolicy,{},invalidSource),"A hostname invented an original DNS route exclusion");
     auto disabled = resources;
     disabled["campus_dns_enabled"] = false;
     const auto localRecords = campusCaptureTargets(disabled, policy);

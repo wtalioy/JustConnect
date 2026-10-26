@@ -41,6 +41,90 @@ int main(int argc, char **argv) try {
     for (const auto &address : {config.address,config.peer})
         check(address != "10.0.0.1" && address != "10.0.0.2" && address != "10.0.0.3",
               "device allocation stole a system or explicitly configured DNS server");
+    auto overlapPolicy = policy;
+    overlapPolicy["protected_names"] = QJsonArray{QJsonObject{{"kind","suffix"},{"value","campus.test"}}};
+    auto nativeNetwork = network;
+    auto originalInterface = network["interfaces"].toArray()[0].toObject(); originalInterface["index"] = 7;
+    nativeNetwork["interfaces"] = QJsonArray{originalInterface};
+    auto sourceDns = QJsonDocument::fromJson(R"({"resolv_conf":{"contents":"search campus.test\n"},
+        "resolved":{"status":"available","ResolvConfMode":"stub","DNSOverTLS":"no","Domains":[{"interface_index":7,"domain":"campus.test","route_only":true}],
+        "DNS":[{"interface_index":7,"family":2,"address":"203.0.113.2","port":0,"server_name":""}],
+        "Links":[{"interface_index":7,"name":"original0","DefaultRoute":true,"DNSOverTLS":"no","DNSSEC":"yes"}]}})").object();
+    int sourceReads = 0;
+    auto linkReader = [&](int index,QDeadlineTimer &deadline) {
+        check(!deadline.hasExpired(),"Original DNS preparation lost its bounded read budget");
+        ++sourceReads;
+        const auto interface = index == 7 ? QStringLiteral("original0") : QStringLiteral("second0");
+        const auto inputs = LinuxResolved::linkInputs(sourceDns["resolved"].toObject(),index,interface);
+        check(inputs.has_value(),"Fixture has no complete native source inputs");
+        LinuxResolved::LinkSnapshot result;
+        result.profile = (*inputs)["profile"].toObject(); result.security = (*inputs)["security"].toObject();
+        result.provider = {{"bus","0123456789abcdef0123456789abcdef"},{"owner",":1.2"}};
+        result.extended = true;
+        return result;
+    };
+    const auto sourced = prepareLinuxNetworkHelper(resources,overlapPolicy,nativeNetwork,{{},sourceDns},{},1400,reader,linkReader);
+    check(sourced.result.succeeded() && sourceReads == 1 && sourced.configuration.originalDns.size() == 1
+        && sourced.originalSources.size() == 1,"Overlapping native DNS was not prepared as one source transaction");
+    const auto source = sourced.originalSources[0].toObject();
+    check(source["name"] == overlapPolicy["protected_names"].toArray()[0] && source["source"] == "7"
+        && source["interface"] == "original0" && source["listen"] == "192.0.2.1:0"
+        && source["servers"] == QJsonArray{"203.0.113.2:53"}
+        && sourced.configuration.originalDns[0].expected["security"].toObject()["DNSSEC"] == "yes"
+        && sourced.configuration.originalDns[0].port == 0,"Native source lost its scope, server order, endpoint or security precondition");
+    const auto completed = completeLinuxOriginalDNS(sourced.configuration,{{"7","192.0.2.1:50123"}});
+    check(completed && completed->originalDns[0].port == 50123 && sourced.configuration.originalDns[0].port == 0,
+        "Core-confirmed source completion lost its actual port or changed the prepared input");
+    for (const auto &listeners : {QJsonObject{},QJsonObject{{"8","192.0.2.1:50123"}},
+                                 QJsonObject{{"7","192.0.2.2:50123"}},QJsonObject{{"7","192.0.2.1:0"}},
+                                 QJsonObject{{"7","192.0.2.1:50123/path"}},QJsonObject{{"7",50123}}})
+        check(!completeLinuxOriginalDNS(sourced.configuration,listeners) && sourced.configuration.originalDns[0].port == 0,
+            "Invalid actual endpoints committed a partial source configuration");
+    auto missingSource = nativeNetwork;
+    auto down = originalInterface; down["up"] = false; missingSource["interfaces"] = QJsonArray{down};
+    check(!prepareLinuxNetworkHelper(resources,overlapPolicy,missingSource,{{},sourceDns},{},1400,reader,linkReader).result.succeeded(),
+        "An unavailable native DNS interface was guessed");
+    auto changedReader = [&](int index,QDeadlineTimer &deadline) {
+        auto snapshot = linkReader(index,deadline); snapshot.profile["default_route"] = false; return snapshot;
+    };
+    check(!prepareLinuxNetworkHelper(resources,overlapPolicy,nativeNetwork,{{},sourceDns},{},1400,reader,changedReader).result.succeeded(),
+        "A changed native resolver profile was accepted");
+    auto secured = sourceDns;
+    auto resolvedSources = sourceDns["resolved"].toObject(); auto nativeLinks = resolvedSources["Links"].toArray();
+    auto nativeLink = nativeLinks[0].toObject(); nativeLink["DNSOverTLS"] = "opportunistic";
+    nativeLinks[0] = nativeLink; resolvedSources["Links"] = nativeLinks; secured["resolved"] = resolvedSources;
+    const auto ordinaryDns = sourceDns; sourceDns = secured;
+    check(!prepareLinuxNetworkHelper(resources,overlapPolicy,nativeNetwork,{{},sourceDns},{},1400,reader,linkReader).result.succeeded(),
+        "Native encrypted DNS was downgraded");
+    sourceDns = ordinaryDns;
+    auto foreign = sourceDns["resolved"].toObject(); foreign["ResolvConfMode"] = "foreign"; sourceDns["resolved"] = foreign;
+    check(!prepareLinuxNetworkHelper(resources,overlapPolicy,nativeNetwork,{{},sourceDns},{},1400,reader,linkReader).result.succeeded(),
+        "An unconfirmed system resolver path was treated as native per-link routing");
+    sourceDns = ordinaryDns;
+    auto multiple = nativeNetwork; auto second = originalInterface;
+    second["index"] = 8; second["name"] = "second0"; second["addresses"] = QJsonArray{"192.0.3.1/24"};
+    multiple["interfaces"] = QJsonArray{originalInterface,second};
+    resolvedSources = sourceDns["resolved"].toObject();
+    auto link = resolvedSources["Links"].toArray()[0].toObject(); link["interface_index"] = 8; link["name"] = "second0";
+    auto links = resolvedSources["Links"].toArray(); links.append(link); resolvedSources["Links"] = links;
+    auto domain = resolvedSources["Domains"].toArray()[0].toObject(); domain["interface_index"] = 8;
+    auto domains = resolvedSources["Domains"].toArray(); domains.append(domain); resolvedSources["Domains"] = domains;
+    auto server = resolvedSources["DNS"].toArray()[0].toObject(); server["interface_index"] = 8; server["address"] = "2001:db8::53";
+    server["family"] = 10; server["port"] = 5353;
+    auto servers = resolvedSources["DNS"].toArray(); servers.append(server); resolvedSources["DNS"] = servers;
+    sourceDns["resolved"] = resolvedSources;
+    const auto overlappingSources = prepareLinuxNetworkHelper(resources,overlapPolicy,multiple,{{},sourceDns},{},1400,reader,linkReader);
+    check(overlappingSources.result.succeeded() && overlappingSources.originalSources.size() == 2
+        && overlappingSources.configuration.originalDns.size() == 2
+        && overlappingSources.originalSources[1].toObject().value("servers").toArray() == QJsonArray{"[2001:db8::53]:5353"},
+        "Distinct native contexts for one namespace were merged or lost their explicit IPv6 endpoint");
+    sourceDns = ordinaryDns;
+    auto global = sourceDns["resolved"].toObject(); auto globalDomains = global["Domains"].toArray();
+    auto globalDomain = globalDomains[0].toObject(); globalDomain["interface_index"] = 0; globalDomains.append(globalDomain); global["Domains"] = globalDomains;
+    sourceDns["resolved"] = global;
+    check(!prepareLinuxNetworkHelper(resources,overlapPolicy,nativeNetwork,{{},sourceDns},{},1400,reader,linkReader).result.succeeded(),
+        "A global resolver scope was silently reassigned to one interface");
+    sourceDns = ordinaryDns;
     auto held = config;
     held.capturePrefixes.append("203.0.113.70/32");
     auto liveResources = resources;
@@ -124,9 +208,10 @@ int main(int argc, char **argv) try {
     check(linuxOriginalExitSnapshot(changed,config) != baselineExit,"Owned source pins hid an externally changed gateway");
     changed = native;changed["policy_rules"] = QJsonArray{QJsonObject{{"priority",1},{"table",123}}};
     check(linuxOriginalExitSnapshot(changed,config) != baselineExit,"Changed external policy routing remained trusted");
+    const auto beforeInvalidInterface = reads;
     auto injection = resources;
     injection["underlay_interface"] = "original0\nroute del default";
-    check(!prepareLinuxNetworkHelper(injection,policy,network,dns,"10.0.0.3:53",1400,reader).result.succeeded() && reads == 1,
+    check(!prepareLinuxNetworkHelper(injection,policy,network,dns,"10.0.0.3:53",1400,reader).result.succeeded() && reads == beforeInvalidInterface,
           "invalid interface reached the batch input");
     const auto original = rows;
     for (const auto &change : {QJsonObject{{"dst","203.0.113.99"}}, QJsonObject{{"dev","another0"}},

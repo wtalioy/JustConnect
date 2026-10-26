@@ -483,6 +483,29 @@ def main():
                                 client_cases.append('application-network')
                                 report['application_network'] = {'sessions': 2, 'startup': 'write-ahead UUID without privileged record',
                                     'data': 'same-IP original TCP/UDP before capture and after withdrawal; distinct actual campus DNS/TCP/UDP while selected', 'stop': 'owned network before core; hint and fd released'}
+                                with OriginalDnsServer(resolver, 'helperorig0', '192.0.2.54',
+                                                       {f'{prefix}-{round}.campus.test': '198.18.0.7' for prefix in ('private', 'withdrawn') for round in range(2)}) as overlapping_dns:
+                                    run('/usr/bin/resolvectl', 'dns', 'helperorig0', '192.0.2.54', env=environment)
+                                    run('/usr/bin/resolvectl', 'domain', 'helperorig0', '~.', '~original.test', '~campus.test', env=environment)
+                                    # A pre-connection cached original answer must still pass the new publication barrier.
+                                    resolver.run('/usr/bin/resolvectl', 'query', '--type=A', 'private-0.campus.test')
+                                    source_baseline, source_dns = inventory(), original_dns()
+                                    for address in ('198.18.0.6/32', '198.18.0.7/32'):
+                                        ip('route', 'add', address, 'dev', 'helperorig0')
+                                    try:
+                                        output = run(*native_command, env={**application_environment, 'JC_NATIVE_NETWORK_CHOICES': '1',
+                                                     'JC_NATIVE_NETWORK_ORIGINAL_DNS': '1'}, user=args.uid, group=account.pw_gid, extra_groups=())
+                                        assert 'PASS: automatic original DNS source preparation' in output, output
+                                        assert set(overlapping_dns.queries) == set(overlapping_dns.answers), overlapping_dns.queries
+                                        print(output, end='', flush=True)
+                                        client_cases.append('application-original-dns')
+                                    finally:
+                                        for address in ('198.18.0.6/32', '198.18.0.7/32'):
+                                            ip('route', 'del', address, 'dev', 'helperorig0')
+                                    assert inventory() == source_baseline and original_dns() == source_dns, 'automatic original DNS source replacement was not fully restored'
+                                    run('/usr/bin/resolvectl', 'dns', 'helperorig0', '192.0.2.53', env=environment)
+                                    run('/usr/bin/resolvectl', 'domain', 'helperorig0', '~.', '~original.test', env=environment)
+                                assert inventory() == dns_baseline and original_dns() == dns_settings, 'original DNS integration altered the prior fixture baseline'
                                 for scenario in ('helper-loss', 'withdraw-crash', 'withdraw-deleted-crash'):
                                     withdrawing = scenario != 'helper-loss'
                                     ready_path = Path(caller_runtime.name) / f'application-{scenario}.json'

@@ -51,6 +51,7 @@ bool ownedRule(const QJsonObject &row, quint32 table, const QString &source, int
 
 bool linuxOriginalDnsSourcesMatch(const LinuxHelperConfiguration &configuration, const QJsonObject &network, const QJsonObject &dns)
 {
+    if (!configuration.originalDns.isEmpty() && !LinuxResolved::nativeStubRouting(dns["resolved"].toObject())) return false;
     for (const auto &link : configuration.originalDns) {
         bool assigned = false;
         for (const auto &value : network["interfaces"].toArray()) {

@@ -152,6 +152,7 @@ static int exerciseApplicationNetworkAccess(const ConnectionProfile &profile)
                   "publish the application's active helper for isolated network changes");
         };
         const bool choose = qgetenv("JC_NATIVE_NETWORK_CHOICES") == "1";
+        const bool originalDNS = qgetenv("JC_NATIVE_NETWORK_ORIGINAL_DNS") == "1";
         const auto chooseAddress = [&](const QString &address, bool campus) {
             check(policy.setCampusAddress(address,campus),"submit a running campus/original address choice");
             until([&] { return !policy.isBusy() || !session.isActive(); });
@@ -162,6 +163,23 @@ static int exerciseApplicationNetworkAccess(const ConnectionProfile &profile)
         const bool originalPeer = choose && qgetenv("JC_NATIVE_ORIGINAL_PEER") == "1";
         if (originalPeer) exerciseOriginalNetworkTraffic();
         if (choose) for (const auto *address : {"198.18.0.6","198.18.0.7"}) chooseAddress(QString::fromLatin1(address),true);
+        const auto chooseName = [&](bool campus) {
+            check(policy.setCampusName("campus.test",campus),"submit the overlapping native DNS name choice");
+            until([&] { return !policy.isBusy() || !session.isActive(); });
+            check(session.state() == ConnectionState::Running && policy.policyStatus() == CoreEngine::RequestStatus::Success
+                && policy.campusNames().contains("campus.test") == campus,"name choice waits for core and native capture confirmation");
+        };
+        const auto originalLookup = [&](const QString &hostname) {
+            auto lookup = std::async(std::launch::async, [hostname] { return systemAddresses(hostname.toUtf8().constData()); });
+            until([&] { return lookup.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready; });
+            check(lookup.get() == QStringList{"198.18.0.7"},"overlapping original DNS kept its native server answer");
+            const auto route = runPlatformCommand(trustedIpRouteUtility(),{"-N","-j","-4","route","get","198.18.0.7"});
+            const auto rows = QJsonDocument::fromJson(route.output.toUtf8()).array();
+            check(route.result.succeeded() && rows.size() == 1 && rows[0].toObject()["dev"] == "helperorig0",
+                "original DNS released capture and its temporary source pin before returning the answer");
+            exerciseOriginalNetworkTraffic(QHostAddress("198.18.0.7"),QHostAddress("198.18.0.5"));
+        };
+        if (originalDNS) chooseName(true);
         auto lookup = std::async(std::launch::async, [] { return systemAddresses("campus.test"); });
         until([&] { return lookup.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready; });
         const auto addresses = lookup.get();
@@ -208,6 +226,11 @@ static int exerciseApplicationNetworkAccess(const ConnectionProfile &profile)
             }
             continue;
         }
+        if (originalDNS) {
+            originalLookup(QString("private-%1.campus.test").arg(round));
+            chooseName(false);
+            originalLookup(QString("withdrawn-%1.campus.test").arg(round));
+        }
         if (choose && !(withdrawalCrash && round == 0)) for (const auto *address : {"198.18.0.6","198.18.0.7"}) {
             chooseAddress(QString::fromLatin1(address),false);
             const auto selected = runPlatformCommand(trustedIpRouteUtility(),{"-N","-j","-4","route","get",QString::fromLatin1(address)});
@@ -237,6 +260,7 @@ static int exerciseApplicationNetworkAccess(const ConnectionProfile &profile)
         check(finished == (automaticExit ? 1 : round + 1) && tunReferences() == 0 && !QFileInfo::exists(hintPath),
               "application restores owned network before releasing the core and responsibility hint");
     }
+    if (qgetenv("JC_NATIVE_NETWORK_ORIGINAL_DNS") == "1") std::cout << "PASS: automatic original DNS source preparation, actual endpoint replacement, shared-IP exclusion and name choice withdrawal\n";
     if (automaticExit) std::cout << "PASS: changed exit resumes automatically after confirmed restoration with a fresh owner and the changed gateway\n";
     if (exitChange) std::cout << "PASS: changed original exit automatically restores ownership and restarts with a fresh owner\n";
     if (withdrawalCrash) std::cout << "PASS: application capture withdrawal checkpoint crash restores DNS/routes and restarts with a fresh owner\n";

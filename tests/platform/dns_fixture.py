@@ -3,7 +3,7 @@ import socket
 import struct
 
 
-def dns_answer(query, expected, *, ignore_unrelated=False):
+def dns_answer(query, expected, *, ignore_unrelated=False, ipv4="203.0.113.9"):
     assert len(query) >= 12 and struct.unpack('!H', query[4:6])[0] == 1
     cursor, labels = 12, []
     while query[cursor]:
@@ -18,6 +18,6 @@ def dns_answer(query, expected, *, ignore_unrelated=False):
         return None
     assert matches, (labels, qclass, qtype, expected)
     answer = query[:2] + struct.pack('!5H', 0x8180, 1, 1, 0, 0) + query[12:cursor + 4]
-    address = socket.inet_aton('203.0.113.9') if qtype == 1 else socket.inet_pton(socket.AF_INET6, '2001:db8::9')
+    address = socket.inet_aton(ipv4) if qtype == 1 else socket.inet_pton(socket.AF_INET6, '2001:db8::9')
     answer += struct.pack('!HHHIH', 0xc00c, qtype, 1, 60, len(address)) + address
     return answer

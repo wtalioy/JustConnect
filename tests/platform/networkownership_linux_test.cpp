@@ -107,7 +107,7 @@ int main(int argc, char **argv) try
         {"addresses", QJsonArray{"192.0.3.1/24"}}};
     interfaces.append(sourceInterface); nativeNetwork["interfaces"] = interfaces;
     auto nativeDomain = foreignDomain; nativeDomain["interface_index"] = 3;
-    auto nativeResolved = resolved;
+    auto nativeResolved = resolved; nativeResolved["ResolvConfMode"] = "stub";
     nativeResolved["Domains"] = QJsonArray{domain, nativeDomain, foreignDomain};
     nativeResolved["DNS"] = QJsonArray{server, replaced, unrelated};
     nativeResolved["Links"] = QJsonArray{link, nativeLink};
@@ -118,6 +118,10 @@ int main(int argc, char **argv) try
     check(restoredView && restoredView->second["resolved"] == before
         && linuxOriginalDnsSourcesMatch(dnsConfiguration, restoredView->first, restoredView->second),
         "Owned original DNS did not project exact ordered IPv4/IPv6 servers and security");
+    auto rerouted = restoredView->second;
+    auto foreignRouting = rerouted["resolved"].toObject(); foreignRouting["ResolvConfMode"] = "foreign"; rerouted["resolved"] = foreignRouting;
+    check(!linuxOriginalDnsSourcesMatch(dnsConfiguration,restoredView->first,rerouted),
+        "Changing the system resolver path kept the old native source active");
     for (const auto &key : {"port", "server_name", "addition", "missing-link", "duplicate-link"}) {
         auto changed = nativeResolved; auto endpoint = replaced;
         if (QString(key) == "port") endpoint["port"] = 47322;

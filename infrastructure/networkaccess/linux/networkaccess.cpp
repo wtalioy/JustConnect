@@ -53,14 +53,24 @@ LinuxNetworkAccess::LinuxNetworkAccess(CoreEngine *core, NetworkPolicySession *p
             return;
         }
         if (!prepared.result.succeeded()) { stage = Stage::Prepared; this->policy->setNetworkBusy(generation, false); emit ready(attempt, prepared.result); return; }
-        const auto exit = linuxOriginalExitSnapshot(activationNetwork,prepared.configuration);
-        if (!exit) { stage = Stage::Prepared; this->policy->setNetworkBusy(generation,false);
-            emit ready(attempt,{Status::Failed,QStringLiteral("无法确认原网络出口的完整读取范围。")});return; }
-        originalExit = *exit;
-        activationNetwork = {};
-        const auto saved = saveOwner(attempt);
-        if (!saved.succeeded()) { stage = Stage::Prepared; this->policy->setNetworkBusy(generation, false); emit ready(attempt, saved); return; }
-        helper.apply(attempt, prepared.configuration);
+        originalSources = prepared.originalSources;
+        if (!originalSources.isEmpty()) {
+            pendingConfiguration = prepared.configuration;
+            this->core->prepareOriginalDNS(generation, originalSources);
+            return;
+        }
+        applyPreparedConfiguration(prepared.configuration);
+    });
+    connect(core, &CoreEngine::originalDNSPrepared, this, [this](const QString &id, const QJsonObject &listeners, CoreEngine::RequestStatus status) {
+        if (stage != Stage::Activating || id != generation || !pendingConfiguration) return;
+        const auto configuration = status == CoreEngine::RequestStatus::Success
+            ? completeLinuxOriginalDNS(*pendingConfiguration,listeners) : std::nullopt;
+        pendingConfiguration.reset();
+        if (!configuration) {
+            stage = Stage::Prepared; this->policy->setNetworkBusy(generation,false);
+            emit ready(attempt,{Status::Failed,QStringLiteral("核心未确认原 DNS 的完整监听端点。")}); return;
+        }
+        applyPreparedConfiguration(*configuration);
     });
     connect(core, &CoreEngine::tunAttached, this, [this](const QString &id, CoreEngine::RequestStatus status) {
         if (stage != Stage::Activating || !attaching || id != generation) return;
@@ -169,11 +179,22 @@ void LinuxNetworkAccess::prepareConfiguration()
     }));
 }
 
+void LinuxNetworkAccess::applyPreparedConfiguration(const LinuxHelperConfiguration &configuration)
+{
+    const auto exit = linuxOriginalExitSnapshot(activationNetwork,configuration);
+    if (!exit) { stage = Stage::Prepared; policy->setNetworkBusy(generation,false);
+        emit ready(attempt,{Status::Failed,QStringLiteral("无法确认原网络出口的完整读取范围。")}); return; }
+    originalExit = *exit; activationNetwork = {};
+    const auto saved = saveOwner(attempt);
+    if (!saved.succeeded()) { stage = Stage::Prepared; policy->setNetworkBusy(generation,false); emit ready(attempt,saved); return; }
+    helper.apply(attempt,configuration);
+}
+
 void LinuxNetworkAccess::applyPolicy(const QJsonObject &value)
 {
     const auto owned = helper.ownedConfiguration();
     const auto capture = owned ? updatedCampusCapturePrefixes(policy->model()["resources"].toObject(),
-        value,owned->dnsDomains) : std::nullopt;
+        value,owned->dnsDomains,originalSources) : std::nullopt;
     if (stage != Stage::Ready || helper.state() != HelperState::Active || !capture) {
         policy->completePolicy(value["generation"].toString(),value["revision"].toString(),CoreEngine::RequestStatus::Unavailable);
         return;
@@ -202,7 +223,7 @@ void LinuxNetworkAccess::observeModel()
         emit restartRequired(attempt,QStringLiteral("原网络出口或 DNS 来源已变化，正在恢复网络。"));
         return;
     }
-    const auto prefixes = updatedCampusCapturePrefixes(policy->model()["resources"].toObject(),policy->confirmedProtection(),owned->dnsDomains);
+    const auto prefixes = updatedCampusCapturePrefixes(policy->model()["resources"].toObject(),policy->confirmedProtection(),owned->dnsDomains,originalSources);
     if (!prefixes) { invalidateNetwork(QStringLiteral("无法确认当前校园捕获范围。")); return; }
     auto actual = owned->capturePrefixes, expected = *prefixes; actual.sort(); expected.sort();
     if (actual != expected) { helper.reconcile(*prefixes); return; }
@@ -330,5 +351,6 @@ void LinuxNetworkAccess::completeStop()
     stage = Stage::Idle;
     attaching = automaticPolicy = false;
     changingPolicy = originalExit = activationNetwork = {};nextCapture.clear();
+    originalSources = {}; pendingConfiguration.reset();
     emit stopped(attempt, {});
 }

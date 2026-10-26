@@ -211,6 +211,7 @@ struct OwnedOperation {
             if (dnsResult.succeeded()) dnsResult = dns.recover(owner, saved, writer(dnsJournal));
         }
         if (!dnsResult.succeeded()) return dnsResult;
+        originalDnsRecords = {};
         if (originalDnsDirectory >= 0 && present(originalDnsDirectory)) {
             QJsonObject saved;
             auto result = originalDnsJournal.load(saved);
@@ -228,10 +229,9 @@ struct OwnedOperation {
                     return invalid("Original DNS recovery contains an invalid or repeated owner.");
                 interfaces.insert(index);
             }
-            for (qsizetype position = originalDnsRecords.size(); position-- > 0;) {
-                LinuxLinkDns original(dnsBus);
-                result = original.recover(owner, originalDnsRecords[position].toObject(), originalWriter(position));
-                if (!result.succeeded()) return result;
+            for (const auto &value : originalDnsRecords) {
+                const auto valid = LinuxLinkDns::validateRecovery(owner,value.toObject());
+                if (!valid.succeeded()) return valid;
             }
         }
         Result captureResult, sourceResult;
@@ -250,6 +250,12 @@ struct OwnedOperation {
             if (sourceResult.succeeded()) sourceResult = source.recover(owner, saved, writer(sourceJournal));
         }
         if (!sourceResult.succeeded()) return sourceResult;
+        // Unobserved original DNS answers must not encounter any remaining owned capture or bypass.
+        for (qsizetype position = originalDnsRecords.size(); position-- > 0;) {
+            LinuxLinkDns original(dnsBus);
+            const auto result = original.recover(owner,originalDnsRecords[position].toObject(),originalWriter(position));
+            if (!result.succeeded()) return result;
+        }
         device.close();
         context["phase"] = "restored";
         const auto saved = metadata.store(context);

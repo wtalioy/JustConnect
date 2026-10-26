@@ -20,6 +20,7 @@ public:
 private:
     enum class Stage { Idle, Preparing, Prepared, Activating, Ready, Updating, Stopping, Failed };
     void prepareConfiguration();
+    void applyPreparedConfiguration(const LinuxHelperConfiguration &configuration);
     void applyPolicy(const QJsonObject &policy);
     void observeModel();
     void finishPolicy(CoreEngine::RequestStatus status);
@@ -39,6 +40,8 @@ private:
     QJsonObject changingPolicy, originalExit, activationNetwork;
     QTimer observation;
     QStringList nextCapture;
+    QJsonArray originalSources;
+    std::optional<LinuxHelperConfiguration> pendingConfiguration;
     Stage stage = Stage::Idle;
     bool preparingConfiguration = false, attaching = false, automaticPolicy = false;
     QElapsedTimer stopElapsed;
