@@ -90,7 +90,7 @@ int main(int argc, char **argv) try
     }
     result = {};
     result.status = PlatformOperationResult::Status::TimedOut;
-    for (const auto &stage : {QString("nrpt"), QString("native")}) {
+    for (const auto &stage : {QString("nrpt"), QString("native"), QString("nrpt_sources"), QString("nrpt_consistency")}) {
         auto traced = [&](const QString &p, const QStringList &a) {
             auto command = runner(p,a);
             command.standardError = "private.campus.test\nJCDNS phase=" + stage + " elapsed_ms=321\nJCDNS phase=privatecorp elapsed_ms=999\n";
