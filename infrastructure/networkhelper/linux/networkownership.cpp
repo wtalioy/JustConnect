@@ -1,5 +1,6 @@
 #include "infrastructure/networkhelper/linux/networkownership.h"
 #include "infrastructure/dns/linux/linkdns.h"
+#include "infrastructure/dns/linux/resolvedlink.h"
 #include "infrastructure/routing/linux/iprouteutility.h"
 #include <QHostAddress>
 #include <QJsonDocument>
@@ -10,42 +11,6 @@
 #include <linux/rtnetlink.h>
 
 namespace {
-std::optional<QJsonObject> dnsLinkInputs(const QJsonObject &resolved, const LinuxHelperDnsLink &link)
-{
-    if (resolved["status"] != "available" || !resolved["DNS"].isArray()
-        || !resolved["Domains"].isArray() || !resolved["Links"].isArray()) return {};
-    const auto index = link.expected["index"];
-    QJsonObject native;
-    for (const auto &value : resolved["Links"].toArray()) {
-        const auto row = value.toObject();
-        if (row["interface_index"] != index) continue;
-        if (!native.isEmpty() || row["name"] != link.interface || !row["DefaultRoute"].isBool()) return {};
-        native = row;
-    }
-    if (native.isEmpty()) return {};
-    QJsonObject security;
-    for (const auto *key : {"DNSOverTLS", "DNSSEC"}) {
-        if (!native.contains(key)) continue;
-        if (!native[key].isString()) return {};
-        security[key] = native[key];
-    }
-    QJsonArray servers, domains;
-    for (const auto &value : resolved["DNS"].toArray()) {
-        const auto row = value.toObject();
-        if (row["interface_index"] != index) continue;
-        if (row.size() != 5) return {};
-        servers.append(QJsonObject{{"family", row["family"]}, {"address", row["address"]},
-            {"port", row["port"]}, {"name", row["server_name"]}});
-    }
-    for (const auto &value : resolved["Domains"].toArray()) {
-        const auto row = value.toObject();
-        if (row["interface_index"] != index) continue;
-        if (row.size() != 3) return {};
-        domains.append(QJsonObject{{"name", row["domain"]}, {"route_only", row["route_only"]}});
-    }
-    return QJsonObject{{"profile", QJsonObject{{"dns", servers}, {"domains", domains}, {"default_route", native["DefaultRoute"]}}},
-        {"security", security}};
-}
 
 QJsonObject route(const QString &prefix, int index, const QString &source, const QString &gateway,
     quint32 table, quint32 metric, int protocol, int scope, int kind = RTN_UNICAST)
@@ -97,7 +62,7 @@ bool linuxOriginalDnsSourcesMatch(const LinuxHelperConfiguration &configuration,
             if (!assigned) return false;
         }
         if (!assigned) return false;
-        const auto actual = dnsLinkInputs(dns["resolved"].toObject(), link);
+        const auto actual = LinuxResolved::linkInputs(dns["resolved"].toObject(), link.expected["index"], link.interface);
         if (!actual || (*actual)["profile"] != link.expected["profile"] || (*actual)["security"] != link.expected["security"]) return false;
         auto tls = (*actual)["security"].toObject().value("DNSOverTLS");
         if (tls == "") tls = dns["resolved"].toObject().value("DNSOverTLS");
@@ -207,7 +172,7 @@ NetworkPolicySession::OriginalViewFilter linuxOriginalNetworkView(const QUuid &o
         if (!configuration.originalDns.isEmpty()) {
             auto resolved = dns["resolved"].toObject();
             for (const auto &link : configuration.originalDns) {
-                const auto actual = dnsLinkInputs(resolved, link);
+                const auto actual = LinuxResolved::linkInputs(resolved, link.expected["index"], link.interface);
                 if (!actual) continue;
                 const auto endpoint = linuxLinkDnsEndpoint(owner, link.source, link.port);
                 if ((*actual)["profile"].toObject().value("dns").toArray() != QJsonArray{endpoint}) continue;
