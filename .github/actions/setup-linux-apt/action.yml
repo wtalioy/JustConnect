@@ -1,0 +1,12 @@
+name: Prepare Linux package mirrors
+description: Use the hosted runner's existing Ubuntu archive and security mirrors.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        # The runner's Azure mirror delivered 42.2 MB in 15 minutes; official alternatives are already configured.
+        if [[ -f /etc/apt/apt-mirrors.txt ]]; then
+          sudo sed -i '\#^http://azure\.archive\.ubuntu\.com/ubuntu/[[:space:]]#d' /etc/apt/apt-mirrors.txt
+          cat /etc/apt/apt-mirrors.txt
+        fi

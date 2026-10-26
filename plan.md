@@ -24,6 +24,7 @@
 | 最近整轮通过 | `8f61046` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40406685834)和[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40406685645)全部通过，覆盖原 DNS 应答排除捕获、校园缓存 TTL、双向内核端口分配及既有接管／恢复与原 SDK 4096 次门槛。六份同源码日志及摘要归 `build/reports/original-dns-native-8f61046/`；历史 SDK 偶发停滞仍保留为风险 |
 | 本轮验证 | `99a6b87` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40417959800)全部通过；Linux ARM64 正式 ABI、安装后原 DNS 来源／实际端点、同 IP 两侧流量、名称／地址撤回及两次连接恢复完整通过，x64 待验。macOS 两架构观测早于后台视图完成而失败，`103057c` 已修正夹具顺序；`3308090` 补 SDK 超时写入进度，两项原生增量待验。共享协调器本地四项、二十轮及正式 ABI／准备／应用控制 3/3 通过。证据归 `build/reports/policy-withdrawal.json`、`build/reports/macos-exit-change.json`，SDK 偶发失败保留 |
 | 当前推进与下一步 | 本批修正已推送，补 Linux x64 原 DNS 整链及 macOS 出口变化验收，并采集 Windows SDK 写入进度；Windows 出口变化夹具本地检查通过、待原生验收。随后补 macOS／Windows 自动来源链与未支持上下文。真实桌面／校园及正式签名另列缺口，复用既有证据，不重复实现或机械重跑 |
+| CI 下载瓶颈 | Linux x64 的 Azure 依赖源下载 42.2 MB 用时 15 分 11 秒；三组工作流已统一接入 `setup-linux-apt`，使用 runner 现有 Ubuntu 官方替代源。本地镜像样例／幂等／缺少列表、workflow 检查及八种失败传播通过，实际速度待后续 CI 确认；[依据与范围](docs/DEVELOPMENT.md#ci-apt-mirrors) |
 | 验收范围 | 仅要求 Fudan 实测；按用户决定取消另一台 aTrust 服务器的硬性要求，保留 Custom 实现与服务器／账户隔离回归 |
 | 剩余缺口 | S1-04 真实样本、正式签名／公证、真实桌面／校园透明访问、Clash 共存与剩余平台矩阵未验收；D2 的三平台设备／权限／正常及故障恢复已通过受控自动验证，边界与实机缺口见 S4／S5 |
 | 最新交付 | 通用隧道证书选项预览 `8fefd1c`：[Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/39595437026/artifacts/12343204224)／[ARM64](https://github.com/wtalioy/JustConnect/actions/runs/39595437026/artifacts/12343943637)；代理网页／SSH、断开及重启恢复、清除后重新认证已验证；透明访问待验收，完整验证见[验证与收尾](#implementation-history) |
