@@ -78,3 +78,38 @@ func TestCancelledPairDoesNotOpenSockets(t *testing.T) {
 		t.Fatal("cancelled DNS allocation returned owned sockets", err)
 	}
 }
+
+func TestExcludedUDPSelectionUsesTCPAllocatorWithoutGuessingPort(t *testing.T) {
+	occupied, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer occupied.Close()
+	var firstUDP *net.UDPConn
+	usedTCPAllocator := false
+	tcp, udp, err := listenPair(t.Context(), "127.0.0.1:0", func(network string, address *net.UDPAddr) (*net.UDPConn, error) {
+		if address.Port == 0 {
+			// Model a UDP allocator repeatedly choosing ports unavailable to TCP.
+			blocked := occupied.Addr().(*net.TCPAddr)
+			address = &net.UDPAddr{IP: blocked.IP, Port: blocked.Port}
+		} else {
+			usedTCPAllocator = true
+		}
+		conn, err := net.ListenUDP(network, address)
+		if firstUDP == nil {
+			firstUDP = conn
+		}
+		return conn, err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tcp.Close()
+	defer udp.Close()
+	if !usedTCPAllocator || tcp.Addr().String() != udp.LocalAddr().String() || tcp.Addr().String() == occupied.Addr().String() {
+		t.Fatal("excluded UDP candidates did not use the TCP kernel allocator")
+	}
+	if _, _, err := firstUDP.ReadFromUDPAddrPort(make([]byte, 1)); !errors.Is(err, net.ErrClosed) {
+		t.Fatal("abandoned UDP candidate retained its socket", err)
+	}
+}
