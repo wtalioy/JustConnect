@@ -26,6 +26,139 @@ func (*dnsPacketDevice) TUNAddresses() (netip.Addr, netip.Addr) {
 	return netip.MustParseAddr("198.18.0.1"), netip.MustParseAddr("198.18.0.2")
 }
 
+func TestTUNOriginalDNSAndBoundDataStayOutsideCampus(t *testing.T) {
+	var iface string
+	var localIP net.IP
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range interfaces {
+		if row.Flags&net.FlagLoopback != 0 || row.Flags&net.FlagUp == 0 {
+			continue
+		}
+		addresses, err := row.Addrs()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, address := range addresses {
+			ip, _, err := net.ParseCIDR(address.String())
+			if err == nil && ip.To4() != nil && ip.IsGlobalUnicast() {
+				local, peer := new(dnsPacketDevice).TUNAddresses()
+				candidate := netip.MustParseAddr(ip.String())
+				if candidate == local || candidate == peer {
+					continue
+				}
+				iface, localIP = row.Name, ip.To4()
+				break
+			}
+		}
+		if localIP != nil {
+			break
+		}
+	}
+	if localIP == nil {
+		t.Fatal("no active unicast IPv4 interface for original DNS traffic")
+	}
+	tcp, err := net.Listen("tcp4", net.JoinHostPort(localIP.String(), "0"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	udp, err := net.ListenPacket("udp4", tcp.Addr().String())
+	if err != nil {
+		tcp.Close()
+		t.Fatal(err)
+	}
+	var queries atomic.Int32
+	handler := dns.HandlerFunc(func(w dns.ResponseWriter, request *dns.Msg) {
+		queries.Add(1)
+		reply := new(dns.Msg).SetReply(request)
+		address := localIP
+		if request.Question[0].Name == "capture.original.test." {
+			address = net.IPv4(203, 0, 113, 9)
+		}
+		reply.Answer = []dns.RR{&dns.A{Hdr: dns.RR_Header{Name: request.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 30}, A: address}}
+		_ = w.WriteMsg(reply)
+	})
+	for _, server := range []*dns.Server{{Listener: tcp, Net: "tcp", Handler: handler}, {PacketConn: udp, Handler: handler}} {
+		ready := make(chan struct{})
+		server.NotifyStartedFunc = func() { close(ready) }
+		go func() { _ = server.ActivateAndServe() }()
+		<-ready
+		t.Cleanup(func() { _ = server.Shutdown() })
+	}
+	protected, err := policy.NewProtectionPolicy(nil, nil, []policy.NameRule{{Kind: "suffix", Value: "original.test"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := resolve.NewResolver(nil, "", "", 30, nil, nil, false)
+	t.Cleanup(r.Close)
+	r.ProtectionPolicy = func() *policy.ProtectionPolicy { return &protected }
+	r.OriginalDNS, err = resolve.NewOriginalDNS([]resolve.OriginalDNSRoute{{Name: policy.NameRule{Kind: "suffix", Value: "original.test"}, Servers: []string{tcp.Addr().String()}, Interface: iface, EgressInterface: iface}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := dial.NewDialer(nil, r, nil, false)
+	d.ProtectionPolicy = r.ProtectionPolicy
+	p, err := NewListeners(t.Context(), "", "", d, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(p.Close)
+	device := &dnsPacketDevice{newPacketDevice()}
+	var publications atomic.Int32
+	if err := p.AttachTUN(device, 1400, func(_ context.Context, addresses []netip.Addr) error {
+		address := netip.MustParseAddr("203.0.113.9")
+		if len(addresses) != 1 || !slices.Contains(p.ActiveTUNAddresses(), addresses[0].String()) || (addresses[0] == address && len(r.OriginalDNSRecords()["capture.original.test"]) != 0) {
+			t.Error("original direction was usable before its capture publication", addresses)
+		}
+		publications.Add(1)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	peer := tunPeer(t, device.packetDevice)
+	source := tcp.Addr().(*net.TCPAddr)
+	for _, transport := range []string{"udp", "tcp"} {
+		for _, entry := range []struct {
+			host string
+			addr [4]byte
+			port uint16
+		}{
+			{"data.original.test.", [4]byte{198, 18, 0, 2}, resolve.DNSPort},
+			{"proof.original.test.", [4]byte(localIP.To4()), uint16(source.Port)},
+		} {
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			target := tcpip.FullAddress{NIC: 1, Addr: tcpip.AddrFrom4(entry.addr), Port: entry.port}
+			var conn net.Conn
+			if transport == "tcp" {
+				conn, err = gonet.DialContextTCP(ctx, peer, target, ipv4.ProtocolNumber)
+			} else {
+				conn, err = gonet.DialUDP(peer, nil, &target, ipv4.ProtocolNumber)
+			}
+			if err != nil {
+				cancel()
+				t.Fatal(err)
+			}
+			reply, _, exchangeErr := (&dns.Client{Net: transport}).ExchangeWithConnContext(ctx, new(dns.Msg).SetQuestion(entry.host, dns.TypeA), &dns.Conn{Conn: conn})
+			conn.Close()
+			cancel()
+			if exchangeErr != nil || reply.Rcode != dns.RcodeSuccess || len(reply.Answer) != 1 || !reply.Answer[0].(*dns.A).A.Equal(localIP) {
+				t.Fatal("original DNS or bound data reached the wrong network", transport, entry.host, reply, exchangeErr)
+			}
+		}
+	}
+	if queries.Load() != 4 || publications.Load() != 2 || len(r.CampusDNSRecords()) != 0 {
+		t.Fatal("original DNS created campus authority or lost its capture publication", queries.Load(), publications.Load())
+	}
+	if _, err := p.tun.exchangeDNS(new(dns.Msg).SetQuestion("capture.original.test.", dns.TypeA), "udp"); err != nil {
+		t.Fatal(err)
+	}
+	if publications.Load() != 3 || slices.Contains(p.ActiveTUNAddresses(), "203.0.113.9") || len(r.OriginalDNSRecords()["capture.original.test"]) != 1 || len(r.CampusDNSRecords()) != 0 {
+		t.Fatal("original publication did not hand over to the canonical binding", publications.Load())
+	}
+}
+
 func TestTUNDNSPublicationHoldJoinsOverlappingQueries(t *testing.T) {
 	const host = "hold.campus.test"
 	address := netip.MustParseAddr("203.0.113.9")

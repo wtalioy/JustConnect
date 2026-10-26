@@ -382,6 +382,17 @@ std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &reso
     }
     for (const auto &address : dynamicAddresses)
         if (!ipv4Number(address) || !add(address,address)) return {};
+    if (resources.contains("original_dns_records")) {
+        if (!resources["original_dns_records"].isObject()) return {};
+        const auto originalRecords = resources["original_dns_records"].toObject();
+        if (originalRecords.size() > MaxModelItems) return {};
+        for (auto it = originalRecords.begin(); it != originalRecords.end(); ++it) {
+            const auto name = canonicalProtectionName(it.key());
+            if (!name || *name != it.key() || !it.value().isArray() || it.value().toArray().size() > MaxModelItems) return {};
+            for (const auto &address : it.value().toArray())
+                if (!address.isString() || !add(address.toString(), address.toString())) return {};
+        }
+    }
     for (const auto &value : protectedIPs) {
         if (!value.isString()) return {};
         const auto subnet = QHostAddress::parseSubnet(value.toString());

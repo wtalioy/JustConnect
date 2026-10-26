@@ -29,6 +29,19 @@ static void captureTargets()
     check(plan && plan->ipv4Prefixes == QStringList{"100.74.12.3/32","192.168.24.253/32","192.168.25.0/29","192.168.25.8/32","203.0.113.53/32"},
           "Initial capture lost exact choices, range boundaries, coalescing or actual DNS");
     check(plan->dnsDomains == QStringList{"campus.test"},"DNS domains were not derived from normalized resources");
+    auto originalAnswers = resources;
+    originalAnswers["original_dns_records"] = QJsonObject{{"private.original.test",QJsonArray{"203.0.113.9","192.168.24.252"}}};
+    const auto originalCapture = campusCaptureTargets(originalAnswers, policy);
+    check(originalCapture && originalCapture->ipv4Prefixes.contains("203.0.113.9/32")
+          && !originalCapture->ipv4Prefixes.contains("192.168.24.252/32")
+          && originalCapture->dnsDomains == plan->dnsDomains,
+          "Original answers lost capture or bypassed IP protection or created campus DNS authority");
+    for (const auto &invalid : {QJsonObject{{"Bad.original.test",QJsonArray{"203.0.113.9"}}},
+                               QJsonObject{{"private.original.test",QJsonArray{"invalid"}}},
+                               QJsonObject{{"private.original.test",QJsonArray{42}}}}) {
+        originalAnswers["original_dns_records"] = invalid;
+        check(!campusCaptureTargets(originalAnswers, policy),"Invalid original answer produced a partial capture plan");
+    }
     const QJsonObject allocationNetwork{{"interfaces",QJsonArray{QJsonObject{{"addresses",QJsonArray{"10.0.0.1/8","172.16.0.1/16","2001:db8::1/64"}}}}},
         {"routes",QJsonArray{QJsonObject{{"destination","0.0.0.0/0"}}}}};
     const auto pair = privateTUNAddresses(allocationNetwork, {"172.17.0.0/16","192.168.0.0/16"});

@@ -19,6 +19,7 @@ import (
 
 type Resolver struct {
 	ProtectionPolicy  func() *policy.ProtectionPolicy
+	OriginalDNS       *OriginalDNS
 	remoteDNSServer   string
 	dnsTTL            uint32
 	ctx               context.Context
@@ -32,7 +33,7 @@ type Resolver struct {
 	useRemoteDNS      bool
 
 	dnsCache        *cache.Cache
-	dnsBindings     map[netip.Addr][]campusDNSBinding
+	dnsBindings     map[netip.Addr][]dnsBinding
 	dnsBindingCount int
 
 	preferTCPUntil time.Time

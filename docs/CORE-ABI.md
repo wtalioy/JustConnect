@@ -65,7 +65,11 @@ ABI v1 与 JSON schema 版本同步。S2-02 以兼容增补导出 `jc_config_val
 
 `operation` 缺省为 `connect`；`auth_methods` 只查询认证方式，产生 `auth_methods` 结果（`methods:[{type,domain,name,login_url,auth_id,sub_type}]`）及终态，不建立数据栈或代理。结果数量、字段和整体事件大小均有界，超限返回 `JC_LIMIT`。
 
-`network` 支持 `interface/auto_detect/local_dns/secondary_dns/dns_cache_ttl/disable_remote_dns/language`。接口、DNS 和语言显式传入；local DNS 允许 IP 或 IP:port，secondary DNS 为 IP。接口名优先于自动选择；自动选择默认关闭，避免悄悄改变宿主的网络策略。DNS 缓存寿命与维护间隔的默认值集中在 `corelib/session.go`，缓存不启动游离 janitor，且有容量上限。代理出口不读取系统 HTTP_PROXY 等环境配置；本阶段不修改路由、系统代理或系统 DNS，不创建自己的 TUN。Clash 共存仍由后续阶段验证。
+`network` 支持 `interface/auto_detect/local_dns/secondary_dns/dns_cache_ttl/disable_remote_dns/language/original_dns`。接口、DNS 和语言显式传入；local DNS 允许 IP 或 IP:port，secondary DNS 为 IP。接口名优先于自动选择；自动选择默认关闭，避免悄悄改变宿主的网络策略。DNS 缓存寿命与维护间隔的默认值集中在 `corelib/session.go`，缓存不启动游离 janitor，且有容量上限。代理出口不读取系统 HTTP_PROXY 等环境配置；核心配置接口不修改系统网络；设备、路由和系统 DNS 由 C++ 助手按所有权接管，核心接收显式移交的 TUN。Clash 共存仍由后续阶段验证。
+
+`capabilities.original_dns_forwarding` 表示 TUN DNS 可使用宿主显式提供的原 DNS 来源，不代表应用已完成自动来源选择。可选 `network.original_dns` 是按原生优先级排列的数组，每项包含 `name:{kind,value}`（复用名称保护规则）、`servers:["IP:port",...]`、查询出口 `interface` 与数据出口 `egress_interface`。仅接受显式单播端点，不解析服务器主机名、不补公共 DNS；必须同时提供 `protection`。宿主须在接管前选定来源、保护服务器原出口，并确认原生安全／加密要求允许普通 DNS；未知来源或不支持的安全要求不能降级。来源变化时需恢复并重连，当前会话来源不可变。
+
+受保护的原名称先走原 DNS，原 AAAA 不受校园 IPv4 限制；`localhost` 永不转发上游。原 A 应答与校园应答复用同一有界绑定，分别导出 `resources.original_dns_records` 与校园 `dns_records`，应答前沿用捕获确认；原记录不产生校园授权。同 IP 的原方向优先于校园 IP 授权，DNS TTL 结束后仍保留方向保护至显式选校园或会话结束，避免遗留捕获误送校园；缺少当前名称策略或原出口冲突时拒绝，容量不足不得静默逐出原方向。应用自动发现原来源、重叠名称接管与原生安全策略联验仍待完成。
 
 拒绝重复键、未知字段、非规范字段大小写、尾随 JSON、null、超深结构、无效 UTF-8、NUL 和 Unicode 替代字符。超限值不截断、不静默回退。无效输入只返回 `JC_INVALID_ARGUMENT`，不把账户、密码或输入片段写入错误。
 

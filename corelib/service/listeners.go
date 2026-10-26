@@ -39,6 +39,13 @@ func (p *Listeners) CampusDNSRecords() map[string][]string {
 	return nil
 }
 
+func (p *Listeners) OriginalDNSRecords() map[string][]string {
+	if p.resolver != nil {
+		return p.resolver.OriginalDNSRecords()
+	}
+	return nil
+}
+
 type ownedConn struct {
 	net.Conn
 	owner *Listeners

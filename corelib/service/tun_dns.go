@@ -45,15 +45,14 @@ func (i *tunIngress) serveDNS(transport string, conn net.Conn) {
 		reply := new(dns.Msg).SetReply(request)
 		if i.owner.resolver == nil {
 			reply.Rcode = dns.RcodeServerFailure
-		} else if len(request.Question) == 1 && request.Question[0].Qtype == dns.TypeAAAA {
-			// shortcut: refuse AAAA until the transparent ingress can carry campus IPv6.
-			reply.Rcode = dns.RcodeNotImplemented
 		} else {
 			answer, err := i.exchangeDNS(request, transport)
 			if err == nil {
 				reply = answer
 			} else if errors.Is(err, resolve.ErrInvalidDNSQuestion) {
 				reply.Rcode = dns.RcodeFormatError
+			} else if errors.Is(err, resolve.ErrCampusIPv6Unsupported) {
+				reply.Rcode = dns.RcodeNotImplemented
 			} else if errors.Is(err, resolve.ErrOriginalDNSRequired) || errors.Is(err, policy.ErrProtectedTarget) {
 				reply.Rcode = dns.RcodeRefused
 			} else {
@@ -83,6 +82,8 @@ func (i *tunIngress) serveDNS(transport string, conn net.Conn) {
 }
 
 func (i *tunIngress) exchangeDNS(request *dns.Msg, transport string) (*dns.Msg, error) {
+	ctx, cancel := context.WithTimeout(i.owner.ctx, tunUDPIdleTimeout)
+	defer cancel()
 	var held []netip.Addr
 	defer func() {
 		if len(held) == 0 {
@@ -97,13 +98,19 @@ func (i *tunIngress) exchangeDNS(request *dns.Msg, transport string) (*dns.Msg, 
 			}
 		}
 	}()
-	return i.owner.resolver.ExchangeCampus(i.owner.ctx, request, transport, i.owner.dialer.DialCampusIPPort,
-		func(ctx context.Context, addresses []netip.Addr) error {
-			if i.publishDNSRoutes == nil {
-				return nil
-			}
-			if err := i.checkDNSRoutes(request.Question[0].Name, addresses); err != nil {
+	return i.owner.resolver.ExchangeTUN(ctx, request, transport, i.owner.dialer.DialCampusIPPort,
+		func(ctx context.Context, addresses []netip.Addr, original bool) error {
+			if original {
+				var err error
+				addresses, err = i.originalDNSRoutes(request.Question[0].Name, addresses)
+				if err != nil {
+					return err
+				}
+			} else if err := i.checkDNSRoutes(request.Question[0].Name, addresses); err != nil {
 				return err
+			}
+			if i.publishDNSRoutes == nil || len(addresses) == 0 {
+				return nil
 			}
 			i.mu.Lock()
 			if i.closed {
@@ -143,4 +150,30 @@ func (i *tunIngress) checkDNSRoutes(host string, addresses []netip.Addr) error {
 		}
 	}
 	return nil
+}
+
+func (i *tunIngress) originalDNSRoutes(host string, addresses []netip.Addr) ([]netip.Addr, error) {
+	var current *policy.ProtectionPolicy
+	if i.owner.dialer.ProtectionPolicy != nil {
+		current = i.owner.dialer.ProtectionPolicy()
+	}
+	if current == nil {
+		return nil, policy.ErrProtectedTarget
+	}
+	if allowed, protected := current.CampusNameAllowed(host); !protected || allowed {
+		return nil, policy.ErrProtectedTarget
+	}
+	kept := make([]netip.Addr, 0, len(addresses))
+	for _, address := range addresses {
+		if address == i.local || address == i.peer {
+			return nil, policy.ErrProtectedTarget
+		}
+		if !address.Is4() || !address.IsGlobalUnicast() || address.IsLoopback() {
+			continue
+		}
+		if allowed, _ := current.CampusAllowed(address); allowed {
+			kept = append(kept, address)
+		}
+	}
+	return kept, nil
 }
