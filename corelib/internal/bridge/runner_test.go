@@ -456,7 +456,7 @@ func runNativeTUNHost(t *testing.T, killed bool) (*gateway, []byte) {
 	g := newGateway(t)
 	g.resourceIP.Store("198.18.0.6")
 	original := startNativeOriginalPeer(t, g)
-	if macAuthorization != "" || os.Getenv("JC_NATIVE_TUN_HELPER_OWNER") != "" {
+	if macAuthorization != "" || os.Getenv("JC_NATIVE_NETWORK_SESSION") == "1" {
 		enableNativeSSH(t, g)
 	}
 	if os.Getenv("JC_NATIVE_TUN_DNS") == "1" {
@@ -523,7 +523,7 @@ func TestNativeTUNHost(t *testing.T) {
 		expectedSSH = 4
 	}
 	if !bytes.Contains(output, []byte("PASS: ordinary native TCP/UDP")) || g.authCount.Load() != expectedAuth || g.tcpCount.Load() != 2+extraTCP+expectedSSH || g.sshCount.Load() != expectedSSH || g.udpCount.Load() != 4+extraUDP+g.nativeDNSQueries.Load() || (g.nativeDNS.Load() && g.nativeDNSQueries.Load() < 2) {
-		t.Fatalf("missing actual TUN/campus exchanges: auth=%d TCP=%d UDP=%d\n%s", g.authCount.Load(), g.tcpCount.Load(), g.udpCount.Load(), output)
+		t.Fatalf("missing actual TUN/campus exchanges: auth=%d TCP=%d UDP=%d SSH=%d/%d\n%s", g.authCount.Load(), g.tcpCount.Load(), g.udpCount.Load(), g.sshCount.Load(), expectedSSH, output)
 	}
 	if g.nativeDNS.Load() {
 		t.Logf("domain-only TCP/80 via actual campus CNAME DNS: queries=%d, TCP=%d, UDP=%d", g.nativeDNSQueries.Load(), g.tcpCount.Load(), g.udpCount.Load())

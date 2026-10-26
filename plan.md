@@ -289,7 +289,7 @@ Linux x64／ARM64 AppImage 分别减少约 2.07%／1.90%；macOS 安装体积基
 
 S5-02 整体待验收，当前证据：
 
-- 原生 OpenSSH 增量待验：三平台普通 Qt 会话在系统 DNS／捕获确认后调用实际 `ssh`，分别用校园 IP／域名验证严格主机身份、公钥认证及固定命令输出；未配置代理，原退出／恢复及 TCP／UDP 独立计数保持。测试公钥与私钥为一次性数据，复用私有文件权限；`x/crypto/ssh` 仅供夹具使用，版本沿用既有 `x/net` 图。Linux 本地 OpenSSH 正确／错误主机身份及经正式核心校园隧道执行通过，完整核心 race、正式 ABI／协议检查及跨架构 Go 编译通过；原生三平台运行与真实校园仍待。
+- 原生 OpenSSH 增量待验：三平台普通 Qt 会话在系统 DNS／捕获确认后调用实际 `ssh`，分别用校园 IP／域名验证严格主机身份、公钥认证及固定命令输出；未配置代理，原 fd／助手移交夹具继续独立核对所有权与旧计数，SSH 只接应用会话；退出／恢复及 TCP／UDP／SSH 独立计数保持。测试公钥与私钥为一次性数据，复用私有文件权限；`x/crypto/ssh` 仅供夹具使用，版本沿用既有 `x/net` 图。Linux 本地 OpenSSH 正确／错误主机身份及经正式核心校园隧道执行通过，完整核心 race、正式 ABI／协议检查及跨架构 Go 编译通过；原生三平台运行与真实校园仍待。
 
 - 包入口基线 `278dc0e` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40033821798)及[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40033821865)全部通过，macOS ARM64 另有十轮目标 race。复用校园授权／保护、TCP 半关闭及 UDP 转发，禁止直连回退；保留完整字节、空包／分片、丢包重传、拒绝、设备故障、容量及一秒停止回归。无新增依赖或产品地址默认值；临时探针／工作树／分支已清理，证据 `build/reports/tun-ingress.json`。UDP 双向转发已复用流 worker 执行一个方向，每流少一个等待 goroutine，首错关闭双端及等待全部退出不变；完整模块／race、十轮容量、正式 C ABI／Qt 原生收发及 `d4430d6` 六组 Core ABI 通过，证据 `build/reports/datagram-workers.json`。
 - 会话／Linux fd／C ABI 增量：仅就绪代次接收设备，失败保留原 fd／标志，核心副本随停止释放；真实内核帧／MTU／模式拒绝、普通用户流量、停止／重启及恢复有原生回归，无第二个校园包读取者。`d4430d6` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40052874710)及[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40052874806)全部通过，含 macOS ARM64 普通／race；一秒 TUN 断言、五秒启动、九十秒全包及跳过范围均未放宽。四个维护场景顺序运行，独立认证缓存夹具仍并行，本地相同 96 项 normal／race 为 36.633／38.685 秒；续期观察复用十秒探测预算，确认失效后保留三秒停止。必要失败日志保留；证据 `build/reports/session-tun.json`、`tun-fd-coreabi.json`、`maintenance-probe-budget.json`、`maintenance-scheduling.json`、`maintenance-serial.json`；接口见[原始 fd 契约](docs/CORE-ABI.md#raw-tun-fd)。
