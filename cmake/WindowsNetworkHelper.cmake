@@ -56,7 +56,7 @@ endfunction()
 
 function(justconnect_windows_network_client TARGET)
     justconnect_windows_helper_layout()
-    find_package(Qt6 REQUIRED COMPONENTS Core Concurrent)
+    find_package(Qt6 REQUIRED COMPONENTS Core Concurrent Network)
     add_library(${TARGET} STATIC
         "${REPO}/infrastructure/networkhelper/windows/networkhelperclient.cpp"
         "${REPO}/infrastructure/networkhelper/windows/networkhelperclient.h"
@@ -69,5 +69,5 @@ function(justconnect_windows_network_client TARGET)
     target_compile_features(${TARGET} PUBLIC cxx_std_20)
     target_compile_definitions(${TARGET} PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0A00)
     target_include_directories(${TARGET} PUBLIC "${REPO}" "${CMAKE_CURRENT_BINARY_DIR}")
-    target_link_libraries(${TARGET} PUBLIC Qt6::Core Qt6::Concurrent PRIVATE advapi32 ole32)
+    target_link_libraries(${TARGET} PUBLIC Qt6::Core Qt6::Concurrent PRIVATE Qt6::Network advapi32 ole32)
 endfunction()
