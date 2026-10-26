@@ -356,8 +356,7 @@ void LinuxNetworkHelperClient::receive()
             if (!configuration) { failed("The active device lost its confirmed configuration."); return; }
             if (operation == Operation::Routes) {
                 configuration->capturePrefixes = pendingExtension;
-                configuration->originalPrefixes.append(pendingExtension);
-                configuration->originalPrefixes.removeDuplicates();
+                configuration->originalPrefixes = pendingExtension;
             } else {
                 for (auto *prefixes : {&configuration->capturePrefixes, &configuration->originalPrefixes}) {
                     for (const auto &address : pendingExtension) {

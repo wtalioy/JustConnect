@@ -202,10 +202,78 @@ int main(int argc, char **argv) try
         check(growing.ensurePrefixes(owner,{"198.18.9.0/24","198.18.9.0/24"}).succeeded()
               && read({"route","get","198.18.9.7","from",source}).first().toObject()["dev"] == "original0"
               && growing.snapshot()["rule_applied"] == extended["rule_applied"],"Live capture additions lost original egress or replaced its rule");
+        const auto keptRule = growing.snapshot()["rule_applied"];
+        auto withdrawn = growing.reconcile(owner,{target});
+        check(withdrawn.succeeded() && withdrawn.mayHaveChanged
+              && growing.snapshot()["routes"].toArray().size() == original["routes"].toArray().size()
+              && growing.snapshot()["rule_applied"] == keptRule,
+              "Source reconciliation retained withdrawn DNS pins or replaced its lookup rule");
+        check(read({"route","show","table",QString::number(linuxSourceTable(owner))}).size() == 2,
+              "Withdrawn source routes remain in the native table");
+        check(growing.reconcile(owner,{}).succeeded()
+              && growing.snapshot()["routes"].toArray().size() == 1
+              && growing.snapshot()["routes"].toArray()[0].toObject()["prefix"] == gateway+"/32"
+              && growing.snapshot()["rule_applied"] == keptRule,
+              "Empty source selection lost its gateway or kept destination pins");
+        check(growing.extend(owner,{"198.18.1.7"}).succeeded()
+              && read({"route","get","198.18.1.7","from",source}).first().toObject()["dev"] == "original0",
+              "Source extension could not reuse an emptied active table");
         LinuxOwnedRouteTable recovered;
         check(recovered.recover(owner,growing.snapshot()).succeeded() && inventory() == baseline,
-              "A fresh source backend could not restore appended DNS routes");
+              "A fresh source backend could not restore reconciled DNS routes");
         check(growing.restore(owner).succeeded(),"Release already restored source metadata");
+    }
+    // Existing delivered records retain their stricter pre-withdrawal recovery contract.
+    {
+        LinuxOwnedRouteTable legacy;
+        check(legacy.apply(owner,"original0",source,gateway,{target}).succeeded(),"Prepare delivered source record");
+        auto saved = legacy.snapshot(); saved.remove("version");
+        LinuxOwnedRouteTable recovered;
+        check(recovered.recover(owner,saved).succeeded() && inventory() == baseline,
+              "Delivered source record no longer restores");
+        check(legacy.restore(owner).succeeded(),"Release delivered record metadata");
+    }
+    for (const bool deleted : {false,true}) {
+        LinuxOwnedRouteTable active;
+        check(active.apply(owner,"original0",source,gateway,{target}).succeeded(),"Prepare active source withdrawal checkpoint");
+        QJsonObject intent;
+        const auto withdrawal = active.reconcile(owner,{},[&](const QJsonObject &record) {
+            if (deletingRoutes(record)) {
+                intent = record;
+                if (!deleted) return PlatformOperationResult{Status::Failed,"Stop at durable source withdrawal intent"};
+            }
+            return PlatformOperationResult{};
+        });
+        check(!intent.isEmpty() && intent["version"] == 2 && intent["rule_pending"] == true
+              && withdrawal.succeeded() == deleted,"Source withdrawal lost its durable active lookup intent");
+        if (!deleted) {
+            auto legacy = intent; legacy.remove("version");
+            const auto held = inventory();
+            LinuxOwnedRouteTable invalid;
+            check(!invalid.recover(owner,legacy).succeeded() && inventory() == held && invalid.snapshot().isEmpty(),
+                  "A legacy record authorized an active source deletion state");
+        }
+        LinuxOwnedRouteTable recovered;
+        const auto recovery = recovered.recover(owner,intent);
+        if (deleted) check(recovery.succeeded() && inventory() == baseline,
+                           "Post-deletion active source recovery did not restore the baseline");
+        else check(!recovery.succeeded() && !recovered.snapshot().isEmpty()
+                   && read({"route","show","table",QString::number(linuxSourceTable(owner))}).size() == 2,
+                   "Unresolved active source deletion erased matching native state");
+        check(active.restore(owner).succeeded() && inventory() == baseline,
+              "Current owner could not finish interrupted source withdrawal recovery");
+    }
+    {
+        LinuxOwnedRouteTable direct;
+        check(direct.apply(owner,"original0",source,{}, {target}).succeeded()
+              && direct.reconcile(owner,{}).succeeded()
+              && direct.snapshot()["routes"].toArray().isEmpty()
+              && direct.snapshot()["rule_pending"] == true,
+              "Empty direct source table did not retain its active lookup ownership");
+        LinuxOwnedRouteTable recovered;
+        check(recovered.recover(owner,direct.snapshot()).succeeded() && inventory() == baseline,
+              "A fresh backend could not recover an empty active source table");
+        check(direct.restore(owner).succeeded(),"Release empty direct source metadata");
     }
     LinuxOwnedRouteTable routes;
     {
