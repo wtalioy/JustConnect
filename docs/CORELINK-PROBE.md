@@ -29,17 +29,19 @@ Windows 静态路径的已知线索：固定 Go 的 [PE 链接器 `addInitArray`
 
 ## 设备与权限边界
 
+S1-06 已完成链接与设备边界验收：`2c0874a` 的[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40309426226)及[三平台应用检查](https://github.com/wtalioy/JustConnect/actions/runs/40309425987)全部通过，覆盖真实设备、普通权限 Qt／Go 数据链及正常／故障恢复。正式发布签名、真实桌面批准与校园访问分别由 S4／S5 验收；原型已由正式实现替代，无旧链接／设备后端保留。
+
 D2 的设备入口子方案已收敛：Linux／macOS 使用最小授权助手创建 TUN／utun，再将 fd 交给普通宿主；Windows 使用 Wintun 设备助手持有 ring，仅传递受限 IP 包。认证、aTrust、资源分流与核心仍留在 Qt 进程。Clash 的 TUN／系统代理开关不作为此入口的前提。三平台正式助手、普通应用系统校园 DNS／数据面与独立恢复的自动验收已归 S4；剩余路由／DNS／共存行为及真实浏览器／终端验收见 S5／S6，不以原型回包代表实机完成。
 
 | 平台 | 选定的设备与权限边界 | 已验证与剩余缺口 |
 | --- | --- | --- |
-| Linux | 非持久 TUN，助手创建／配置，通过 `SCM_RIGHTS` 交付 fd；普通宿主拥有数据 I/O，最后关闭 fd 结束设备。 | x64／ARM64 隔离内核原型及本机 WSL 通过普通 uid、零 capabilities、UDP 双向和正常／强杀后的设备及显式路由清理。直接创建仍需权限；正式 Go／Qt、授权与 AppImage 路径、完整路由／DNS 恢复待验收。 |
-| macOS | utun kernel control，正式签名 XPC 助手创建／配置并交付 fd；数据含四字节地址族头。 | 双架构普通权限真实收发、取消／强杀恢复及 supplemental DNS 原生检查已通过；完整 Qt／核心会话与真实桌面批准仍待，当前证据见[计划](../plan.md#s4)。 |
-| Windows | 官方固定哈希／签名 Wintun 0.14.1；助手拥有适配器和 ring，同账户普通权限宿主通过私有 IPC 处理 IP 包，不跨进程强转会话指针。 | x64／ARM64 设备步骤通过真实普通权限回包、超大帧拒绝和按原始 PnP 实例／路由确认清理；源码 `1105671` 的完整六组 ABI 检查通过。普通 Qt／Go 与真实设备的完整数据链已验；正式助手控制 IPC、授权与驱动分发待验收，应用尚未带入此运行库。 |
+| Linux | 非持久 TUN，助手创建／配置，通过 `SCM_RIGHTS` 交付 fd；普通宿主拥有数据 I/O，最后关闭 fd 结束设备。 | x64／ARM64 隔离内核原型及本机 WSL 通过普通 uid、零 capabilities、UDP 双向和正常／强杀后的设备及显式路由清理。直接创建仍需权限；正式 Go／Qt、发行版助手安装路径、受控授权及完整路由／DNS 独立恢复均已通过双架构原生自动验收；真实桌面批准仍归 S4-04。 |
+| macOS | utun kernel control，正式签名 XPC 助手创建／配置并交付 fd；数据含四字节地址族头。 | 双架构普通权限真实收发、取消／强杀恢复及 supplemental DNS 原生检查已通过；完整 Qt／核心会话、系统 DNS、动态协调及双杀独立恢复已通过双架构原生自动验收；真实桌面批准仍待，证据见[计划](../plan.md#s4)。 |
+| Windows | 官方固定哈希／签名 Wintun 0.14.1；助手拥有适配器和 ring，同账户普通权限宿主通过私有 IPC 处理 IP 包，不跨进程强转会话指针。 | x64／ARM64 设备步骤通过真实普通权限回包、超大帧拒绝和按原始 PnP 实例／路由确认清理；源码 `1105671` 的完整六组 ABI 检查通过。普通 Qt／Go 与真实设备的完整数据链已验；正式 C++ 助手控制 IPC、受控授权及随包驱动均已通过双架构原生与实际包检查；正式发布签名／真实桌面 UAC 仍待。 |
 
 权限分析起于[导入基线](../corelib/UPSTREAM.md#导入基线)及其锁定依赖；S1-07 已删除无产品调用、直接修改宿主网络的旧系统 TUN 栈，不再恢复该实现或由核心直接改路由／DNS。新助手只承载实际需要的设备／网络操作，不能成为任意命令提权入口；具体操作必须回读并按所有权恢复。
 
-2026-10-22 只读复查确认：当前 [Wintun 驱动](https://git.zx2c4.com/wintun/tree/driver/wintun.c) 在注册 ring 的 IOCTL 内再次按调用者执行 `SeAccessCheck`，使用只授予 SYSTEM／Administrators 的固定描述符；[StartSession](https://git.zx2c4.com/wintun/tree/api/session.c) 还在本进程分配 ring 内存。因而只传递设备 HANDLE 不能证明普通宿主能注册 ring。隔离实验验证最小设备助手拥有 ring、仅交付受限 IP 包 I/O 的路径；认证、aTrust 与分流继续留在 Qt 宿主。已选择该设备 I/O 路径，正式 Qt 数据面已验，性能／完整授权仍待，不恢复已删除的旧 TUN 栈。当前 Windows 只读发现 Sangfor 虚拟接口处于 Up，另有 Meta、Tailscale、WSL 和其他覆盖接口；未修改日常网络，接口存在不作为认证有效的证据。
+2026-10-22 只读复查确认：当前 [Wintun 驱动](https://git.zx2c4.com/wintun/tree/driver/wintun.c) 在注册 ring 的 IOCTL 内再次按调用者执行 `SeAccessCheck`，使用只授予 SYSTEM／Administrators 的固定描述符；[StartSession](https://git.zx2c4.com/wintun/tree/api/session.c) 还在本进程分配 ring 内存。因而只传递设备 HANDLE 不能证明普通宿主能注册 ring。隔离实验验证最小设备助手拥有 ring、仅交付受限 IP 包 I/O 的路径；认证、aTrust 与分流继续留在 Qt 宿主。已选择该设备 I/O 路径，正式 Qt 数据面、原 4096 次设备门槛及受控授权已验，实际校园负载性能与真实桌面 UAC 仍待，不恢复已删除的旧 TUN 栈。当前 Windows 只读发现 Sangfor 虚拟接口处于 Up，另有 Meta、Tailscale、WSL 和其他覆盖接口；未修改日常网络，接口存在不作为认证有效的证据。
 
 数据接入须复用现有分流语义：[gVisor 拨号](../corelib/stack/gvisor/dial.go)分别保留 aTrust TCP 与 L3 路径，授权规则由[共用拨号层](../corelib/dial/dialer.go)按域名、IP、协议和端口匹配。现有 gVisor 已独占读取 [L3Conn](../corelib/client/atrust/l3conn.go) 的共享入站队列，不能另开一个连接给 TUN 竞争同一队列。系统 IP 路由本身不能区分端口；透明前端还须处理捕获范围内不走校园的流量，并保持其实际原出口及保护范围，不能全部绑定物理网卡或直接将每个包写入校园 L3。设备探测通过只解决入口权限／生命周期，这些接入与策略仍须另验。原型保留直连与显式主机路由两种数据路径，显式路由只绑定新设备，回读后才发送测试数据，并沿用关闭／强杀后的全路由清理断言；清理同时要求实际设备消失和原接口零路由，不能以“接口 down”代替清理。
 
