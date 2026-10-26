@@ -16,6 +16,10 @@ int main(int argc,char **argv) try
     auto reorderedExit=exitNetwork,reorderedInterface=exitInterface;
     reorderedInterface["addresses"]=QJsonArray{"fe80::1/64","192.168.1.2/24"};reorderedExit["interfaces"]=QJsonArray{reorderedInterface};
     check(originalExitSnapshot(reorderedExit,"original")==originalExit,"Address order invented an exit change");
+    auto changedInterface=exitInterface,changedNetwork=exitNetwork;
+    auto addresses=changedInterface["addresses"].toArray();addresses.append("192.0.2.1/32");
+    changedInterface["addresses"]=addresses;changedNetwork["interfaces"]=QJsonArray{changedInterface};
+    check(originalExitSnapshot(changedNetwork,{})!=originalExit,"Actual address addition on the default exit was hidden");
     auto changedRoute=defaultRoute;changedRoute["gateway"]="192.168.1.254";reorderedExit["routes"]=QJsonArray{changedRoute};
     check(originalExitSnapshot(reorderedExit,"original")!=originalExit,"Actual gateway change was hidden");
     check(!originalExitSnapshot(exitNetwork,"missing"),"Missing selected exit was accepted");

@@ -35,6 +35,10 @@ def run(*args, check=True, **kwargs):
     return result
 
 
+def ipv4_addresses(interface):
+    return set(re.findall(r'\binet (\S+)', run('/sbin/ifconfig', interface).stdout.decode()))
+
+
 def wait_for(predicate, message):
     end = time.monotonic() + 30
     while time.monotonic() < end:
@@ -318,7 +322,7 @@ def main(args):
             shutil.copy2(args.core_client, core_bundle / 'Contents/MacOS/JustConnect')
             sign(core_bundle, identity, APP_ID)
             crashed_owner = None
-            for scenario in ('authorization-cancel', 'authorization-exit', 'process-crash', 'normal', 'network-policy', 'helper-loss', 'helper-offline'):
+            for scenario in ('authorization-cancel', 'authorization-exit', 'process-crash', 'normal', 'network-policy', 'network-exit', 'helper-loss', 'helper-offline'):
                 control = directory / ('core-' + scenario); control.mkdir(mode=0o700); os.chown(control, args.uid, account.pw_gid)
                 marker = control / 'ready'
                 authorization_mode = scenario.removeprefix('authorization-') if scenario.startswith('authorization-') else ''
@@ -326,6 +330,7 @@ def main(args):
                 authorizations = [Authorization() for _ in range(authorization_count)]; grants.extend(authorizations)
                 read_fd, write_fd = os.pipe()
                 original_fd = -1
+                external_alias = None
                 transcript = output / ('core-' + scenario + '.out')
                 try:
                     os.write(write_fd, b''.join(value.external.raw for value in authorizations)); os.close(write_fd); write_fd = -1
@@ -334,6 +339,8 @@ def main(args):
                         'JC_NATIVE_TUN_MAC_AUTH_FD': str(read_fd), 'JC_NATIVE_TUN_DNS': '1'}
                     if authorization_mode:
                         environment.update(JC_NATIVE_NETWORK_AUTHORIZATION=authorization_mode, JC_NATIVE_TUN_READY=str(marker))
+                    elif scenario == 'network-exit':
+                        environment.update(JC_NATIVE_NETWORK_EXIT_CHANGE='1', JC_NATIVE_TUN_READY=str(marker))
                     elif scenario == 'network-policy':
                         original_fd, original_interface, release_allocator = allocate_unix(Path(args.allocator).resolve())
                         release_allocator()
@@ -379,6 +386,34 @@ def main(args):
                             assert not list(user_state.iterdir()) and dns_restored(), 'Old authorization approved the new pending connection'
                             Path(str(marker) + '.approve').touch()
                             print('CHECK: cancelled authorization revoked before current authorization was approved', flush=True)
+                    elif scenario == 'network-exit':
+                        boundary('.exit-ready'); active = active_owner()
+                        snapshot = json.loads(Path(str(marker) + '.exit-ready').read_text())
+                        defaults = {row['interface_index'] for row in snapshot['network']['routes'] if row['destination'] == '0.0.0.0/0'}
+                        interfaces = [row for row in snapshot['network']['interfaces'] if row['index'] in defaults and row['up'] and not row['loopback']]
+                        assert len(interfaces) == 1, 'Exit change fixture requires one actual IPv4 default interface'
+                        interface = interfaces[0]['name']
+                        assigned = ipv4_addresses('-a')
+                        address = next(str(value) for value in ipaddress.ip_network('192.0.2.0/24').hosts() if str(value) not in assigned)
+                        before_addresses = ipv4_addresses(interface)
+                        external_alias = (interface, address, before_addresses)
+                        run('/sbin/ifconfig', interface, 'inet', address, 'netmask', '255.255.255.255', 'alias')
+                        assert ipv4_addresses(interface) == before_addresses | {address}, 'Address alias altered an existing original address'
+                        boundary('.exit-restored')
+                        assert not list(user_state.iterdir()), 'Exit change scheduled a new core before restoring the old owner'
+                        wait_for(dns_restored, 'Exit change left the old owned DNS installed')
+                        wait_for(lambda: active['device']['interface'] not in run('/sbin/ifconfig', '-l').stdout.decode().split(),
+                            'Exit change retained the old core/device reference')
+                        Path(str(marker) + '.continue').touch(); boundary('.exit-reconnected')
+                        fresh = active_owner()
+                        assert fresh['owner'] != active['owner'], 'Exit change reused the old privileged owner'
+                        changed = json.loads(Path(str(marker) + '.exit-reconnected').read_text())
+                        assert changed['generation'] != snapshot['generation'], 'Exit change reused the old core generation'
+                        assert any(row['index'] == interfaces[0]['index'] and address + '/32' in row['addresses']
+                                   for row in changed['network']['interfaces']), 'Fresh connection did not adopt the actual changed exit address'
+                        assert ipv4_addresses(interface) == before_addresses | {address}, 'Recovery altered the external original address inventory'
+                        Path(str(marker) + '.traffic').touch()
+                        print('CHECK: actual exit address change restored', active['owner'], 'before fresh owner', fresh['owner'], flush=True)
                     elif scenario == 'network-policy':
                         boundary('.policy-ready'); active = active_owner()
                         assert published(active['owner']), 'Overlap test preceded confirmed dynamic DNS capture'
@@ -455,6 +490,11 @@ def main(args):
                     finally:
                         print(transcript.read_text(), end='', flush=True)
                 finally:
+                    if external_alias:
+                        interface, address, before_addresses = external_alias
+                        if address in ipv4_addresses(interface):
+                            run('/sbin/ifconfig', interface, 'inet', address, '-alias')
+                        assert ipv4_addresses(interface) == before_addresses, 'Exit change fixture altered the original address inventory'
                     os.close(read_fd)
                     if original_fd >= 0:
                         os.close(original_fd)
