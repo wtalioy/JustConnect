@@ -89,7 +89,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo env NEEDRESTART_MODE=l apt-get install -y libgl1 libegl1 libxkbcommon-x11-0 libxcb-cursor0 libnss3 libevent-dev libminizip-dev gsettings-desktop-schemas gnome-keyring dbus-daemon dbus-bin libglib2.0-bin libkf6config-bin qt6-base-dev dpkg-dev systemd-resolved
+          sudo env NEEDRESTART_MODE=l apt-get install -y --no-install-recommends libgl1 libegl1 libxkbcommon-x11-0 libxcb-cursor0 libnss3 libevent-dev libminizip-dev gsettings-desktop-schemas gnome-keyring dbus-daemon dbus-bin libglib2.0-bin libkf6config-bin qt6-base-dev dpkg-dev systemd-resolved
 
       - uses: ./.github/actions/setup-qt
         with:
