@@ -1,4 +1,7 @@
 #include "infrastructure/dns/linux/tundns.h"
+#include "infrastructure/dns/linux/linkdns.h"
+#include "infrastructure/dns/linux/resolvedbus.h"
+#include "infrastructure/routing/linux/iprouteutility.h"
 #include "infrastructure/routing/linux/iprouteutility.h"
 #include "infrastructure/networkhelper/linux/networkhelper.h"
 #include "infrastructure/networkjournal/networkjournal.h"
@@ -89,10 +92,118 @@ int main(int argc, char **argv) try
         check(dns.apply(device, {"campus.test"}).status == Status::PermissionDenied && dns.snapshot().isEmpty(),
               "Ordinary caller entered DNS mutation or retained responsibility");
         check(!dns.recover(QUuid::createUuid(), {}).succeeded(), "Unowned DNS recovery accepted");
+        LinuxLinkDns original(QDBusConnection::systemBus());
+        check(original.apply(QUuid::createUuid(), "lo", "127.0.0.1", 53535, {}).status == Status::PermissionDenied
+            && original.snapshot().isEmpty() && !original.recover(QUuid::createUuid(), {}, {}).succeeded(),
+            "Ordinary caller entered original-link DNS replacement or recovery");
         std::cout << "PASS: ordinary DNS mutation and unowned recovery rejected\n";
         return 0;
     }
     const auto bus = privateBus();
+    if (argc == 4 && app.arguments()[1] == "--recover-link-dns-isolated") {
+        const QUuid owner(app.arguments()[3]); UnixNetworkJournal journal;
+        openJournal(journal, app.arguments()[2], owner);
+        QJsonObject saved; success(journal.load(saved));
+        LinuxLinkDns original(bus); success(original.recover(owner, saved, writer(journal)));
+        check(original.snapshot().isEmpty(), "Recovered original DNS retained its journal");
+        return 0;
+    }
+    if (argc == 5 && app.arguments()[1] == "--link-dns-isolated") {
+        const auto interface = app.arguments()[2], source = app.arguments()[3];
+        const auto index = ::if_nametoindex(interface.toLatin1().constData());
+        bool validPort = false;
+        const auto suppliedPort = app.arguments()[4].toUInt(&validPort);
+        check(validPort && suppliedPort > 0 && suppliedPort <= 65535, "Require the actual prepared DNS listener port");
+        const auto port = quint16(suppliedPort); const auto owner = QUuid::createUuid();
+        const auto inspect = [&] {
+            QDeadlineTimer deadline(LinuxRouteOperationTimeoutMs);
+            const auto state = LinuxResolved::readLink(bus, int(index), deadline); success(state.result); return state;
+        };
+        const auto before = inspect();
+        const auto initial = settings(interface);
+        QTemporaryDir directory; check(directory.isValid(), "Create original DNS journal directory");
+        UnixNetworkJournal journal; openJournal(journal, directory.path(), owner);
+        LinuxLinkDns original(bus);
+        const auto missing = original.apply(owner, interface, source, port, {});
+        check(!missing.succeeded() && !missing.mayHaveChanged && original.snapshot().isEmpty() && settings(interface) == initial,
+              "Original DNS accepted mutation without a durable checkpoint");
+        const auto rejected = original.apply(owner, interface, source, port, [](const QJsonObject &) {
+            return Result{Status::Failed, "Injected original DNS checkpoint failure"};
+        });
+        check(!rejected.succeeded() && !rejected.mayHaveChanged && original.snapshot().isEmpty() && settings(interface) == initial,
+              "Original DNS changed despite its failed write-ahead checkpoint");
+        // Leave the durable pre-write state while the native property contains our unique endpoint.
+        const auto interrupted = original.apply(owner, interface, source, port, [&](const QJsonObject &value) {
+            if (value["phase"] == "active") return Result{Status::Failed, "Injected post-write checkpoint failure"};
+            return writer(journal)(value);
+        });
+        check(!interrupted.succeeded() && interrupted.mayHaveChanged && original.snapshot()["phase"] == "active",
+              "An interrupted original DNS write lost its recovery responsibility");
+        const auto applied = settings(interface);
+        LinuxLinkDns competing(bus);
+        const auto competingResult = competing.apply(QUuid::createUuid(), interface, source, port, writer(journal));
+        check(!competingResult.succeeded() && !competingResult.mayHaveChanged && competing.snapshot().isEmpty()
+            && settings(interface) == applied, "A second connection nested ownership over an active DNS endpoint");
+        check(applied[0] != initial[0] && applied[1] == initial[1] && applied[2] == initial[2],
+              "Original DNS replacement changed domains or default routing");
+        check(resolver({"query", "--type=A", "source-check.original.test"}).contains("203.0.113.9"),
+              "The actual system resolver did not reach the assigned local DNS endpoint");
+        LinuxLinkDns wrongOwner(bus);
+        check(!wrongOwner.recover(QUuid::createUuid(), original.snapshot(), writer(journal)).succeeded() && wrongOwner.snapshot().isEmpty()
+            && settings(interface) == applied, "A different owner recovered an original DNS setting");
+        journal.close();
+        success(runPlatformCommand(app.applicationFilePath(), {"--recover-link-dns-isolated", directory.path(), owner.toString(QUuid::WithoutBraces)}, 10000).result);
+        const auto recovered = inspect();
+        check(settings(interface) == initial && recovered.profile == before.profile && recovered.security == before.security,
+              "New-process recovery failed to restore the exact native original DNS values");
+        openJournal(journal, directory.path(), owner);
+        success(original.restore(writer(journal)));
+        success(original.apply(owner, interface, source, port, writer(journal)));
+        const auto endpoint = original.snapshot()["after"].toArray().first().toObject();
+        const auto owned = source + ":" + QString::number(port) + "#" + endpoint["name"].toString();
+        resolver({"dns", interface, owned, "192.0.2.54"});
+        const auto added = inspect();
+        auto expectedExternal = added.profile["dns"].toArray();
+        check(expectedExternal.size() == 2 && expectedExternal[0] == endpoint, "Prepare an actual external DNS addition");
+        expectedExternal.removeFirst();
+        bool cleanupFailed = false;
+        const auto receipt = original.restore([&](const QJsonObject &value) {
+            if (value.isEmpty() && !cleanupFailed) { cleanupFailed = true; return Result{Status::Failed, "Injected original DNS receipt failure"}; }
+            return writer(journal)(value);
+        });
+        check(!receipt.succeeded() && receipt.mayHaveChanged && original.snapshot()["phase"] == "released",
+              "Original DNS lost its completed-restoration receipt");
+        const auto external = inspect();
+        check(external.profile["dns"].toArray() == expectedExternal
+            && external.profile["domains"] == before.profile["domains"] && external.profile["default_route"] == before.profile["default_route"],
+            "Original DNS restoration overwrote an external server or another native property");
+        resolver({"dns", interface, owned});
+        const auto recreated = settings(interface);
+        success(original.restore(writer(journal)));
+        check(settings(interface) == recreated, "Receipt retry reclaimed an externally recreated identical DNS endpoint");
+        QStringList restore{"dns", interface};
+        for (const auto &value : before.profile["dns"].toArray()) {
+            const auto row = value.toObject(); auto address = row["address"].toString();
+            if (row["family"] == AF_INET6) address = '[' + address + ']';
+            if (row["port"].toInteger() != 0) address += ':' + QString::number(row["port"].toInteger());
+            if (!row["name"].toString().isEmpty()) address += '#' + row["name"].toString();
+            restore.append(address);
+        }
+        resolver(restore);
+        const auto setTLS = [&](const QString &mode) {
+            QDeadlineTimer budget(10000);
+            success(LinuxResolved::replyResult(LinuxResolved::call(bus, before.provider["owner"].toString(), LinuxResolved::managerPath,
+                LinuxResolved::managerInterface, "SetLinkDNSOverTLS", {int(index), mode}, budget)));
+        };
+        setTLS("yes");
+        const auto secure = original.apply(owner, interface, source, port, writer(journal));
+        check(secure.status == Status::Unsupported && !secure.mayHaveChanged && original.snapshot().isEmpty()
+            && settings(interface) == initial, "Encrypted native DNS was downgraded or changed before refusal");
+        setTLS(before.security["DNSOverTLS"].toString());
+        check(settings(interface) == initial, "Original DNS fixture did not restore its complete native state");
+        std::cout << "PASS: existing-link DNS servers, unchanged domains/security, foreign additions and interrupted-write recovery\n";
+        return 0;
+    }
     if (argc == 3 && app.arguments()[1] == "--scan-isolated") {
         bool valid = false;
         const auto directory = app.arguments()[2].toInt(&valid);

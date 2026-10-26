@@ -1,6 +1,7 @@
 #pragma once
 
 #include "infrastructure/tundevice/tundevice.h"
+#include "infrastructure/dns/linux/resolvedlink.h"
 #include <QDBusConnection>
 #include <QDeadlineTimer>
 #include <QStringList>
@@ -20,7 +21,7 @@ public:
     PlatformOperationResult recover(const QUuid &owner, const QJsonObject &saved, const CheckpointWriter &checkpoint = {});
     QJsonObject snapshot() const { return record; }
 private:
-    struct State { PlatformOperationResult result; QJsonObject profile, provider; bool absent = false; };
+    using State = LinuxResolved::LinkSnapshot;
     State read(QDeadlineTimer &deadline) const;
     PlatformOperationResult change(const QJsonObject &next, bool restoring, QDeadlineTimer &deadline, const CheckpointWriter &checkpoint);
     PlatformOperationResult restore(QDeadlineTimer &deadline, const CheckpointWriter &checkpoint);
