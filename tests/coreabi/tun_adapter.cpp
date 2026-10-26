@@ -46,7 +46,9 @@ static QStringList systemAddresses(const char *hostname, int family = AF_INET) {
     hints.ai_family = family;
     hints.ai_socktype = SOCK_STREAM;
     addrinfo *answer = nullptr;
-    check(::getaddrinfo(hostname, nullptr, &hints, &answer) == 0 && answer, "ordinary system DNS lookup succeeded");
+    const int status = ::getaddrinfo(hostname, nullptr, &hints, &answer);
+    if (status) std::cerr << "system DNS " << hostname << ": " << ::gai_strerror(status) << " (" << status << ")\n";
+    check(status == 0 && answer, "ordinary system DNS lookup succeeded");
     QStringList addresses;
     for (auto *entry = answer; entry; entry = entry->ai_next) {
         char numeric[NI_MAXHOST];
