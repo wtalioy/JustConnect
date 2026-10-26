@@ -13,6 +13,7 @@ import (
 	"github.com/miekg/dns"
 	"github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/wtalioy/JustConnect/corelib/dial"
+	"github.com/wtalioy/JustConnect/corelib/internal/testdns"
 	"github.com/wtalioy/JustConnect/corelib/policy"
 	"github.com/wtalioy/JustConnect/corelib/resolve"
 	"gvisor.dev/gvisor/pkg/tcpip"
@@ -66,15 +67,7 @@ func originalDNSInterface(t *testing.T) (string, net.IP) {
 
 func TestTUNOriginalDNSAndBoundDataStayOutsideCampus(t *testing.T) {
 	iface, localIP := originalDNSInterface(t)
-	tcp, err := net.Listen("tcp4", net.JoinHostPort(localIP.String(), "0"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	udp, err := net.ListenPacket("udp4", tcp.Addr().String())
-	if err != nil {
-		tcp.Close()
-		t.Fatal(err)
-	}
+	tcp, udp := testdns.ListenPair(t, localIP.String())
 	var queries atomic.Int32
 	handler := dns.HandlerFunc(func(w dns.ResponseWriter, request *dns.Msg) {
 		queries.Add(1)
