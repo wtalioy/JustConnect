@@ -41,6 +41,7 @@ type Options struct {
 	KeepAliveURL     string
 	QueryAuthMethods bool
 	ProtectionPolicy func() *policy.ProtectionPolicy
+	OriginalDNS      *resolve.OriginalDNS
 }
 
 type Observer struct {
@@ -77,6 +78,13 @@ func (s *Session) AttachTUN(device io.ReadWriteCloser, mtu uint32, publishDNSRou
 func (s *Session) CampusDNSRecords() map[string][]string {
 	if listeners := s.listeners.Load(); listeners != nil {
 		return listeners.CampusDNSRecords()
+	}
+	return nil
+}
+
+func (s *Session) OriginalDNSRecords() map[string][]string {
+	if listeners := s.listeners.Load(); listeners != nil {
+		return listeners.OriginalDNSRecords()
 	}
 	return nil
 }
@@ -242,6 +250,7 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 	}
 	resolver = resolve.NewResolver(network, remoteDNS, options.SecondaryDNS, ttl, domains, dnsResource, !options.DisableRemoteDNS && remoteDNS != "")
 	resolver.ProtectionPolicy = options.ProtectionPolicy
+	resolver.OriginalDNS = options.OriginalDNS
 
 	dialer := dial.NewDialer(network, resolver, ips, false)
 	dialer.ProtectionPolicy = options.ProtectionPolicy

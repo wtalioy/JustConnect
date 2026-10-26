@@ -15,12 +15,28 @@ import (
 
 var ErrOriginalDNSRequired = errors.New("DNS question requires the original network")
 var ErrInvalidDNSQuestion = errors.New("invalid DNS question")
-var ErrInvalidDNSResponse = errors.New("invalid campus DNS response")
+var ErrInvalidDNSResponse = errors.New("invalid DNS response")
+var ErrCampusIPv6Unsupported = errors.New("campus IPv6 ingress is unavailable")
 
 const DNSPort = 53
 
 // ExchangeCampus preserves DNS records; the caller supplies the ACL-enforcing campus dialer.
 func (r *Resolver) ExchangeCampus(ctx context.Context, request *dns.Msg, transport string, dial client.DialContextFunc, publish func(context.Context, []netip.Addr) error) (*dns.Msg, error) {
+	var prepare func(context.Context, []netip.Addr, bool) error
+	if publish != nil {
+		prepare = func(ctx context.Context, addresses []netip.Addr, _ bool) error { return publish(ctx, addresses) }
+	}
+	return r.exchangeDNS(ctx, request, transport, dial, prepare, true)
+}
+
+// ExchangeTUN keeps protected questions on their confirmed original DNS source.
+func (r *Resolver) ExchangeTUN(ctx context.Context, request *dns.Msg, transport string, dial client.DialContextFunc,
+	publish func(context.Context, []netip.Addr, bool) error) (*dns.Msg, error) {
+	return r.exchangeDNS(ctx, request, transport, dial, publish, false)
+}
+
+func (r *Resolver) exchangeDNS(ctx context.Context, request *dns.Msg, transport string, dial client.DialContextFunc,
+	publish func(context.Context, []netip.Addr, bool) error, campusOnly bool) (*dns.Msg, error) {
 	if request == nil || request.Response || request.Opcode != dns.OpcodeQuery || len(request.Question) != 1 ||
 		request.Question[0].Qclass != dns.ClassINET || (transport != "udp" && transport != "tcp") {
 		return nil, ErrInvalidDNSQuestion
@@ -29,6 +45,10 @@ func (r *Resolver) ExchangeCampus(ctx context.Context, request *dns.Msg, transpo
 	host := normalizeHostname(question.Name)
 	if host == "" || !dns.IsFqdn(question.Name) {
 		return nil, ErrInvalidDNSQuestion
+	}
+	// Reserved local names never belong to the captured upstream DNS path.
+	if !campusOnly && (host == "localhost" || strings.HasSuffix(host, ".localhost")) {
+		return nil, ErrOriginalDNSRequired
 	}
 	r.resolutionMu.Lock()
 	if r.resolutionClosed {
@@ -51,6 +71,9 @@ func (r *Resolver) ExchangeCampus(ctx context.Context, request *dns.Msg, transpo
 		if snapshot != nil {
 			allowed, protected := snapshot.CampusNameAllowed(host)
 			if protected && !allowed {
+				if !campusOnly {
+					return r.exchangeOriginal(ctx, request, transport, publish)
+				}
 				return nil, policy.ErrProtectedTarget
 			}
 			explicit = protected && allowed
@@ -58,11 +81,14 @@ func (r *Resolver) ExchangeCampus(ctx context.Context, request *dns.Msg, transpo
 	}
 	var prepare func([]netip.Addr) error
 	if publish != nil {
-		prepare = func(addresses []netip.Addr) error { return publish(ctx, addresses) }
+		prepare = func(addresses []netip.Addr) error { return publish(ctx, addresses, false) }
 	}
 	ips, known := r.dnsResource[host]
 	if _, _, granted := matchDomainResource(r.domainIndex, host); !granted && !known && !explicit {
 		return nil, ErrOriginalDNSRequired
+	}
+	if !campusOnly && question.Qtype == dns.TypeAAAA {
+		return nil, ErrCampusIPv6Unsupported
 	}
 	if known && (question.Qtype == dns.TypeA || question.Qtype == dns.TypeAAAA) {
 		reply := new(dns.Msg).SetReply(request)
@@ -81,8 +107,17 @@ func (r *Resolver) ExchangeCampus(ctx context.Context, request *dns.Msg, transpo
 	if !r.useRemoteDNS || r.remoteDNSServer == "" || dial == nil {
 		return nil, ErrCampusDNSUnavailable
 	}
+	reply, err := exchangeDNSPacket(ctx, request, transport, net.JoinHostPort(r.remoteDNSServer, strconv.Itoa(DNSPort)), dial)
+	if err == nil {
+		_, err = r.bindCampusAnswer(request, reply, prepare)
+	}
+	return reply, err
+}
+
+func exchangeDNSPacket(ctx context.Context, request *dns.Msg, transport, server string, dial client.DialContextFunc) (*dns.Msg, error) {
+	question := request.Question[0]
 	exchange := func(network string) (*dns.Msg, error) {
-		conn, err := dial(ctx, network, net.JoinHostPort(r.remoteDNSServer, strconv.Itoa(DNSPort)))
+		conn, err := dial(ctx, network, server)
 		if err != nil {
 			return nil, err
 		}
@@ -107,9 +142,6 @@ func (r *Resolver) ExchangeCampus(ctx context.Context, request *dns.Msg, transpo
 	reply, err := exchange(transport)
 	if transport == "udp" && ctx.Err() == nil && (err != nil || reply.Truncated) {
 		reply, err = exchange("tcp")
-	}
-	if err == nil {
-		_, err = r.bindCampusAnswer(request, reply, prepare)
 	}
 	return reply, err
 }

@@ -28,6 +28,7 @@ type resourceSnapshot struct {
 	CampusDNSEnabled   bool                            `json:"campus_dns_enabled"`
 	UnderlayInterface  string                          `json:"underlay_interface"`
 	ActiveTUNAddresses []string                        `json:"active_tun_addresses,omitempty"`
+	OriginalDNSRecords map[string][]string             `json:"original_dns_records,omitempty"`
 }
 
 type resourcesEnvelope struct {
@@ -110,7 +111,8 @@ func (e *Engine) Resources(handle, generation uint64) ([]byte, Status) {
 	// A publication hold ends only after its DNS binding exists; read the hold side first.
 	active := s.protocol.ActiveTUNAddresses()
 	records := s.protocol.CampusDNSRecords()
-	if len(records) == 0 && len(active) == 0 {
+	original := s.protocol.OriginalDNSRecords()
+	if len(records) == 0 && len(original) == 0 && len(active) == 0 {
 		return bytes.Clone(s.resources), OK
 	}
 	var snapshot resourcesEnvelope
@@ -118,6 +120,7 @@ func (e *Engine) Resources(handle, generation uint64) ([]byte, Status) {
 		return nil, Internal
 	}
 	snapshot.Resources.ActiveTUNAddresses = active
+	snapshot.Resources.OriginalDNSRecords = original
 	for host, addresses := range records {
 		for _, address := range addresses {
 			if !slices.Contains(snapshot.Resources.DNSRecords[host], address) {

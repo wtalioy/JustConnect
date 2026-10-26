@@ -14,13 +14,22 @@ import (
 
 var ErrCampusDNSCapacity = errors.New("campus DNS address binding capacity reached")
 
-type campusDNSBinding struct {
-	host    string
-	expires time.Time
+type dnsBinding struct {
+	host              string
+	expires           time.Time
+	originalInterface string
 }
 
 // CampusDNSRecords reads the same live bindings used to authorize transparent traffic.
 func (r *Resolver) CampusDNSRecords() map[string][]string {
+	return r.dnsRecords(false)
+}
+
+func (r *Resolver) OriginalDNSRecords() map[string][]string {
+	return r.dnsRecords(true)
+}
+
+func (r *Resolver) dnsRecords(original bool) map[string][]string {
 	r.resolutionMu.Lock()
 	closed := r.resolutionClosed
 	r.resolutionMu.Unlock()
@@ -33,7 +42,7 @@ func (r *Resolver) CampusDNSRecords() map[string][]string {
 	now := time.Now()
 	for address, bindings := range r.dnsBindings {
 		for _, binding := range bindings {
-			if binding.expires.After(now) {
+			if binding.expires.After(now) && (binding.originalInterface != "") == original {
 				result[binding.host] = append(result[binding.host], address.String())
 			}
 		}
@@ -45,6 +54,10 @@ func (r *Resolver) CampusDNSRecords() map[string][]string {
 }
 
 func (r *Resolver) bindCampusAnswer(request, reply *dns.Msg, publish func([]netip.Addr) error) ([]netip.Addr, error) {
+	return r.bindDNSAnswer(request, reply, publish, "")
+}
+
+func (r *Resolver) bindDNSAnswer(request, reply *dns.Msg, publish func([]netip.Addr) error, originalInterface string) ([]netip.Addr, error) {
 	if request.Question[0].Qtype != dns.TypeA || reply.Rcode != dns.RcodeSuccess || reply.Truncated {
 		return nil, nil
 	}
@@ -108,7 +121,7 @@ func (r *Resolver) bindCampusAnswer(request, reply *dns.Msg, publish func([]neti
 			return nil, err
 		}
 	}
-	if _, _, granted := matchDomainResource(r.domainIndex, host); !granted {
+	if _, _, granted := matchDomainResource(r.domainIndex, host); !granted && originalInterface == "" {
 		return result, nil
 	}
 	r.cacheMu.Lock()
@@ -131,7 +144,7 @@ func (r *Resolver) bindCampusAnswer(request, reply *dns.Msg, publish func([]neti
 		for address, bindings := range r.dnsBindings {
 			kept := bindings[:0]
 			for _, binding := range bindings {
-				if binding.expires.After(now) {
+				if binding.originalInterface != "" || binding.expires.After(now) {
 					kept = append(kept, binding)
 				} else {
 					r.dnsBindingCount--
@@ -148,11 +161,11 @@ func (r *Resolver) bindCampusAnswer(request, reply *dns.Msg, publish func([]neti
 		}
 	}
 	if r.dnsBindings == nil {
-		r.dnsBindings = make(map[netip.Addr][]campusDNSBinding)
+		r.dnsBindings = make(map[netip.Addr][]dnsBinding)
 	}
 	for address, ttl := range addresses {
 		// A zero-TTL answer needs a bounded window for the host's first connection.
-		binding := campusDNSBinding{host: host, expires: now.Add(time.Duration(max(ttl, 1)) * time.Second)}
+		binding := dnsBinding{host: host, expires: now.Add(time.Duration(max(ttl, 1)) * time.Second), originalInterface: originalInterface}
 		rows := r.dnsBindings[address]
 		found := false
 		for index := range rows {
@@ -190,6 +203,9 @@ func (r *Resolver) CampusResourcesForIP(ctx context.Context, address netip.Addr)
 	now := time.Now()
 	for _, binding := range r.dnsBindings[address.Unmap()] {
 		if !binding.expires.After(now) {
+			continue
+		}
+		if binding.originalInterface != "" {
 			continue
 		}
 		if snapshot != nil {

@@ -53,6 +53,7 @@ func RunProtocol(ctx context.Context, config Config, host *Session) Status {
 		KeepAliveMode: config.KeepAlive.Mode, KeepAliveURL: config.KeepAlive.URL,
 		QueryAuthMethods: config.Operation == "auth_methods",
 		ProtectionPolicy: host.ProtectionPolicy,
+		OriginalDNS:      config.originalDNS,
 	}
 	if config.AuthenticationCache.Enabled {
 		options.Client.Session.Username = config.AuthenticationCache.Account

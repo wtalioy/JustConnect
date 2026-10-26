@@ -61,6 +61,7 @@ func buildInfo() []byte {
 			"network_snapshot":         networkstate.Supported(),
 			"resource_snapshot":        !testDriver,
 			"tun_dns_routes":           !testDriver && (tundevice.Supported || packetpipe.Supported),
+			"original_dns_forwarding":  !testDriver && (tundevice.Supported || packetpipe.Supported),
 			"raw_ipv4_tun_fd":          !testDriver && tundevice.Supported,
 			"windows_ipv4_packet_pipe": !testDriver && packetpipe.Supported,
 			"tunnel_mtu":               tunnelMTU,

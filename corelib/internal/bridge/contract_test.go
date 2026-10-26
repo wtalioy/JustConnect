@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/wtalioy/JustConnect/corelib/policy"
+	"github.com/wtalioy/JustConnect/corelib/resolve"
 )
 
 const configJSON = "{\"schema_version\":1,\"server\":{\"host\":\"vpn.example.invalid\",\"port\":443},\"auth\":{\"method\":\"auth/psw\",\"username\":\"alice\",\"password\":\"private-password\"},\"listeners\":{\"socks\":\"127.0.0.1:1080\",\"http\":\"[::1]:1081\"}}"
@@ -112,6 +113,34 @@ func TestInitialProtectionInputBoundary(t *testing.T) {
 	config.Operation = "auth_methods"
 	if _, status := ParseConfig(configBytes(t, config)); status != InvalidArgument {
 		t.Fatal("query accepted business policy")
+	}
+}
+
+func TestOriginalDNSInputBoundary(t *testing.T) {
+	var config Config
+	if err := json.Unmarshal([]byte(configJSON), &config); err != nil {
+		t.Fatal(err)
+	}
+	config.Protection = &ProtectionConfig{Protected: []string{}, Campus: []string{}, ProtectedNames: []policy.NameRule{{Kind: "suffix", Value: "original.test"}}}
+	config.Network.OriginalDNS = []resolve.OriginalDNSRoute{{Name: config.Protection.ProtectedNames[0], Servers: []string{"192.0.2.53:53"}, Interface: "native-query", EgressInterface: "native-data"}}
+	parsed, status := ParseConfig(configBytes(t, config))
+	if status != OK || parsed.originalDNS == nil || len(parsed.Network.OriginalDNS) != 1 {
+		t.Fatal("native DNS source did not cross the session boundary", status)
+	}
+	for _, mutate := range []func(*Config){
+		func(c *Config) { c.Protection = nil },
+		func(c *Config) { c.Operation = "auth_methods" },
+		func(c *Config) { c.Network.OriginalDNS[0].Interface = strings.Repeat("x", MaxInterfaceName+1) },
+		func(c *Config) { c.Network.OriginalDNS[0].Servers = []string{"resolver.original.test:53"} },
+	} {
+		var bad Config
+		if err := json.Unmarshal(configBytes(t, config), &bad); err != nil {
+			t.Fatal(err)
+		}
+		mutate(&bad)
+		if parsed, status := ParseConfig(configBytes(t, bad)); status != InvalidArgument || parsed.originalDNS != nil {
+			t.Fatal("invalid source crossed the session boundary", status)
+		}
 	}
 }
 

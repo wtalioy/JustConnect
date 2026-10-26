@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"github.com/wtalioy/JustConnect/corelib"
 	"github.com/wtalioy/JustConnect/corelib/policy"
+	"github.com/wtalioy/JustConnect/corelib/resolve"
 	"image"
 	_ "image/gif"
 	_ "image/jpeg"
@@ -58,6 +59,7 @@ type Config struct {
 	Operation     string            `json:"operation"`
 	Protection    *ProtectionConfig `json:"protection,omitempty"`
 	initialPolicy *policy.ProtectionPolicy
+	originalDNS   *resolve.OriginalDNS
 	Server        struct {
 		Host string `json:"host"`
 		Port uint16 `json:"port"`
@@ -83,13 +85,14 @@ type Config struct {
 		Data    []byte `json:"data,omitempty"`
 	} `json:"authentication_cache"`
 	Network struct {
-		Interface        string `json:"interface"`
-		AutoDetect       bool   `json:"auto_detect"`
-		LocalDNS         string `json:"local_dns"`
-		SecondaryDNS     string `json:"secondary_dns"`
-		DNSCacheTTL      uint32 `json:"dns_cache_ttl"`
-		DisableRemoteDNS bool   `json:"disable_remote_dns"`
-		Language         string `json:"language"`
+		Interface        string                     `json:"interface"`
+		AutoDetect       bool                       `json:"auto_detect"`
+		LocalDNS         string                     `json:"local_dns"`
+		SecondaryDNS     string                     `json:"secondary_dns"`
+		DNSCacheTTL      uint32                     `json:"dns_cache_ttl"`
+		DisableRemoteDNS bool                       `json:"disable_remote_dns"`
+		Language         string                     `json:"language"`
+		OriginalDNS      []resolve.OriginalDNSRoute `json:"original_dns,omitempty"`
 	} `json:"network"`
 	KeepAlive struct {
 		Mode string `json:"mode"`
@@ -196,6 +199,21 @@ func ParseConfig(data []byte) (Config, Status) {
 	}
 	if len(c.Network.Interface) > MaxInterfaceName || len(c.Network.Language) > MaxLanguage || !validDNS(c.Network.LocalDNS) {
 		return Config{}, InvalidArgument
+	}
+	if len(c.Network.OriginalDNS) != 0 {
+		if c.Operation == "auth_methods" || c.Protection == nil {
+			return Config{}, InvalidArgument
+		}
+		for _, route := range c.Network.OriginalDNS {
+			if len(route.Interface) > MaxInterfaceName || len(route.EgressInterface) > MaxInterfaceName {
+				return Config{}, InvalidArgument
+			}
+		}
+		var err error
+		c.originalDNS, err = resolve.NewOriginalDNS(c.Network.OriginalDNS)
+		if err != nil {
+			return Config{}, InvalidArgument
+		}
 	}
 	if c.Network.SecondaryDNS != "" {
 		if _, err := netip.ParseAddr(c.Network.SecondaryDNS); err != nil {
