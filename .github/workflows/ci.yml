@@ -28,6 +28,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
 
+      - uses: ./.github/actions/setup-linux-apt
+        if: runner.os == 'Linux'
+
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |

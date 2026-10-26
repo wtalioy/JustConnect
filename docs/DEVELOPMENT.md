@@ -68,6 +68,9 @@ Go 入口校验固定工具链、模块锁、ABI 生成文件、gofmt、vet、�
 
 Tests／Core ABI 的 Linux 显式依赖安装传入 `sudo env NEEDRESTART_MODE=l apt-get install ...`，让 needrestart 按[官方说明](https://manpages.debian.org/testing/needrestart/needrestart.1.en.html#ENVIRONMENT)仅报告待重启服务；ARM64 原生日志已确认该步骤使用报告模式。仍执行依赖安装、库／内核扫描及原有构建、原生和设备检查；此设置只属于该 apt 子进程，不修改发布应用或宿主配置。Qt action 后续自行安装依赖不继承它，仍可能触发服务重启。
 
+<a id="ci-apt-mirrors"></a>
+三组工作流的 Linux 依赖安装统一先运行 `setup-linux-apt`：从 hosted runner 已配置的镜像列表移除慢的 Azure 项，继续使用其中的 Ubuntu 官方 archive／security 来源；没有该列表的镜像保持原配置。`99a6b87` 的 x64 原生日志记录 Azure 下载 42.2 MB 耗时 15 分 11 秒（46.3 kB/s），原日志归 `build/reports/native-policy-99a6b87/linux-x64.log`。来源格式见 [runner-images 配置](https://github.com/actions/runner-images/blob/main/images/ubuntu/scripts/build/configure-apt-sources.sh)；依赖、签名校验和验收门槛不变，实际提速仍须当前 CI 日志确认。
+
 全量 Go 每包预算与正式 ABI CI 一致为 90 秒。S3 维护／失效回归扩展后，本机 bridge 包约 59 秒；单个网络、取消及退出场景仍保留原有短时限，包总预算留出累计用时和机器调度余量，不扩大场景的失败等待。
 
 ## 正式 C ABI 契约验证
