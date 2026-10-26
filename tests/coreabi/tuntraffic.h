@@ -81,6 +81,8 @@ inline void exerciseNativeSSH(const QHostAddress &target)
     ProxyCheck::check(!hostname.isEmpty(),"native SSH domain is supplied by the gateway fixture");
     for(const auto &host:QStringList{target.toString(),hostname}){
         QProcess process;
+        // Windows OpenSSH can stay alive after the command while its input pipe remains open.
+        process.setStandardInputFile(QProcess::nullDevice());
         process.start("ssh",{"-F",config,host,command});
         const bool finished=process.waitForStarted(5000) && process.waitForFinished(10000);
         const auto output=process.readAllStandardOutput(),error=process.readAllStandardError();
