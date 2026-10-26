@@ -28,7 +28,7 @@ int main(int argc,char **argv) try
     check(child.waitForStarted(5000) && child.waitForReadyRead(5000) && child.readAllStandardOutput().contains("ready"),"ordinary child starts");
     check(isProcessRunning(name)==std::optional<bool>(true),"native enumeration finds the actual image basename");
     check(child.state()==QProcess::Running,"read-only detection never terminates the process");
-    child.terminate();check(child.waitForFinished(5000),"stop only the owned child fixture");
+    child.kill();check(child.waitForFinished(5000),"stop only the owned child fixture");
     check(isProcessRunning(name)==std::optional<bool>(false),"terminated child is no longer running");
     std::cout<<"PASS: native process basename detection, live preservation and disappearance\n";return 0;
 }catch(const std::exception &error){std::cerr<<error.what()<<'\n';return 1;}
