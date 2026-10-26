@@ -27,6 +27,24 @@ import (
 )
 
 func TestProtocolQueryProxyStopAndRestart(t *testing.T) {
+	const childMarker = "JC_PROTOCOL_LOGGER_CHILD"
+	if os.Getenv(childMarker) != "1" {
+		// Isolate the process logger while retaining the complete parallel data-plane regression.
+		t.Parallel()
+		ctx := t.Context()
+		if deadline, bounded := t.Deadline(); bounded {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithDeadline(ctx, deadline)
+			defer cancel()
+		}
+		command := exec.CommandContext(ctx, os.Args[0], "-test.v", "-test.run=^"+t.Name()+"$")
+		command.Env = append(os.Environ(), childMarker+"=1")
+		output, err := command.CombinedOutput()
+		if err != nil || !bytes.Contains(output, []byte("--- PASS: "+t.Name()+" ")) {
+			t.Fatalf("isolated protocol/logging regression did not pass: %v\n%s", err, output)
+		}
+		return
+	}
 	var logs bytes.Buffer
 	previous := stdlog.Writer()
 	stdlog.SetOutput(&logs)
