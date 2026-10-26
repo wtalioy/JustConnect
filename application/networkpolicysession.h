@@ -48,7 +48,7 @@ private:
     DnsReader reader;
     OriginalViewFilter originalViewFilter;
     PolicyApplier policyApplier;
-    bool networkBusy = false, refreshQueued = false;
+    bool networkBusy = false, refreshQueued = false, waitingForPolicyModel = false;
     QFutureWatcher<ModelResult> watcher;
     QString generation;
     quint64 serial = 0;

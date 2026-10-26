@@ -168,8 +168,12 @@ static int exerciseApplicationNetworkAccess(const ConnectionProfile &profile)
         const auto chooseName = [&](bool campus) {
             check(policy.setCampusName("campus.test",campus),"submit the overlapping native DNS name choice");
             until([&] { return !policy.isBusy() || !session.isActive(); });
-            check(session.state() == ConnectionState::Running && policy.policyStatus() == CoreEngine::RequestStatus::Success
-                && policy.campusNames().contains("campus.test") == campus,"name choice waits for core and native capture confirmation");
+            const bool confirmed = session.state() == ConnectionState::Running && policy.policyStatus() == CoreEngine::RequestStatus::Success
+                && policy.campusNames().contains("campus.test") == campus;
+            if (!confirmed) std::cerr << "name choice campus=" << campus << " state=" << int(session.state())
+                << " model=" << int(policy.status()) << " policy=" << (policy.policyStatus() ? int(*policy.policyStatus()) : -1)
+                << " busy=" << policy.isBusy() << '\n';
+            check(confirmed,"name choice waits for core and native capture confirmation");
         };
         const auto originalLookup = [&](const QString &hostname) {
             auto lookup = std::async(std::launch::async, [hostname] { return systemAddresses(hostname.toUtf8().constData()); });
