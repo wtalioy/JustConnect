@@ -10,6 +10,9 @@ import (
 	"github.com/miekg/dns"
 )
 
+// TCP allocation does not reserve UDP; cap automatic pairing attempts to prevent a busy loop.
+const originalDNSPortAttempts = 8
+
 func (p *Listeners) OriginalDNSListeners() map[string]string {
 	result := make(map[string]string)
 	if !p.closed.Load() {
@@ -61,19 +64,29 @@ func (p *Listeners) listenOriginalDNS() error {
 		if !available[name] || !assigned[endpoint.Addr()] {
 			return errors.New("original DNS requires an available query interface and assigned local listener address")
 		}
-		listener, err := net.Listen("tcp4", address)
+		var listener net.Listener
+		var udp *net.UDPConn
+		for attempt := 0; attempt < originalDNSPortAttempts; attempt++ {
+			if err := p.ctx.Err(); err != nil {
+				return err
+			}
+			listener, err = net.Listen("tcp4", address)
+			if err != nil {
+				return err
+			}
+			udp, err = net.ListenUDP("udp4", net.UDPAddrFromAddrPort(listener.Addr().(*net.TCPAddr).AddrPort()))
+			if err == nil {
+				break
+			}
+			_ = listener.Close()
+			if endpoint.Port() != 0 {
+				return err
+			}
+		}
 		if err != nil {
 			return err
 		}
 		p.listeners = append(p.listeners, listener)
-		udpAddress, err := net.ResolveUDPAddr("udp4", listener.Addr().String())
-		if err != nil {
-			return err
-		}
-		udp, err := net.ListenUDP("udp4", udpAddress)
-		if err != nil {
-			return err
-		}
 		if _, err := p.own(udp); err != nil {
 			return err
 		}

@@ -26,7 +26,8 @@ type OriginalDNSRoute struct {
 
 type originalDNSRoute struct {
 	OriginalDNSRoute
-	scope policy.ProtectionPolicy
+	scope          policy.ProtectionPolicy
+	requiresSource bool
 }
 
 type OriginalDNS struct {
@@ -43,12 +44,12 @@ func NewOriginalDNS(routes []OriginalDNSRoute) (*OriginalDNS, error) {
 		return nil, errors.New("too many original DNS routes")
 	}
 	compiled := make([]originalDNSRoute, 0, len(routes))
-	seen := make(map[policy.NameRule]bool)
+	seen := make(map[policy.NameRule]map[string]bool)
 	servers := 0
 	for _, route := range routes {
 		scope, err := policy.NewProtectionPolicy(nil, nil, []policy.NameRule{route.Name}, nil)
 		servers += len(route.Servers)
-		if err != nil || seen[route.Name] || len(route.Servers) == 0 || servers > maxDNSCacheEntries {
+		if err != nil || len(route.Servers) == 0 || servers > maxDNSCacheEntries {
 			return nil, errors.New("invalid original DNS scope")
 		}
 		for _, name := range []string{route.Interface, route.EgressInterface} {
@@ -69,12 +70,23 @@ func NewOriginalDNS(routes []OriginalDNSRoute) (*OriginalDNS, error) {
 				return nil, errors.New("original DNS listener must use an assigned IPv4 endpoint")
 			}
 		}
-		seen[route.Name] = true
+		source := route.Source
+		if route.Listen == "" {
+			source = ""
+		}
+		if previous := seen[route.Name]; previous != nil && (source == "" || previous[""] || previous[source]) {
+			return nil, errors.New("duplicate original DNS scope requires distinct native listeners")
+		}
+		if seen[route.Name] == nil {
+			seen[route.Name] = make(map[string]bool)
+		}
+		seen[route.Name][source] = true
 		route.Servers = slices.Clone(route.Servers)
-		compiled = append(compiled, originalDNSRoute{route, scope})
+		compiled = append(compiled, originalDNSRoute{OriginalDNSRoute: route, scope: scope})
 	}
 	listeners := make(map[string]int)
 	for index, route := range compiled {
+		compiled[index].requiresSource = len(seen[route.Name]) > 1
 		if route.Listen != "" {
 			if previous, found := listeners[route.Source]; found && compiled[previous].Listen != route.Listen {
 				return nil, errors.New("one native DNS source requires one listener")
@@ -112,6 +124,9 @@ func (r *Resolver) exchangeOriginal(ctx context.Context, request *dns.Msg, trans
 	for _, route := range r.OriginalDNS.routes {
 		if _, matched := route.scope.CampusNameAllowed(host); !matched {
 			continue
+		}
+		if route.requiresSource {
+			return nil, ErrOriginalDNSRequired
 		}
 		return r.exchangeOriginalRoute(ctx, request, transport, route, publish, true)
 	}

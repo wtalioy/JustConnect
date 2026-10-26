@@ -89,6 +89,41 @@ func originalLoopback(t *testing.T) string {
 	return ""
 }
 
+func TestOriginalDNSOverlappingScopesRequireNativeSelection(t *testing.T) {
+	base := OriginalDNSRoute{Name: policy.NameRule{Kind: "suffix", Value: "original.test"}, Servers: []string{"192.0.2.53:53"},
+		Interface: "query", EgressInterface: "data", Source: "native-first", Listen: "192.0.2.1:0"}
+	other := base
+	other.Source = "native-second"
+	other.Servers = []string{"192.0.2.54:53"}
+	compiled, err := NewOriginalDNS([]OriginalDNSRoute{base, other})
+	if err != nil {
+		t.Fatal("distinct native sources could not serve their shared scope", err)
+	}
+	r := NewResolver(nil, "", "", 30, nil, nil, false)
+	defer r.Close()
+	r.OriginalDNS = compiled
+	protected, err := policy.NewProtectionPolicy(nil, nil, []policy.NameRule{base.Name}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.ProtectionPolicy = func() *policy.ProtectionPolicy { return &protected }
+	request := new(dns.Msg).SetQuestion("private.original.test.", dns.TypeA)
+	if _, err := r.ExchangeTUN(t.Context(), request, "udp", nil, nil); !errors.Is(err, ErrOriginalDNSRequired) {
+		t.Fatal("unscoped request guessed one of the native sources", err)
+	}
+	for _, routes := range [][]OriginalDNSRoute{{base, base}, {base, other, other}} {
+		if _, err := NewOriginalDNS(routes); err == nil {
+			t.Fatal("repeated native source accepted the same scope twice")
+		}
+	}
+	other.Listen = ""
+	for _, routes := range [][]OriginalDNSRoute{{base, other}, {other, base}} {
+		if _, err := NewOriginalDNS(routes); err == nil {
+			t.Fatal("unscoped source mixed with ambiguous native sources")
+		}
+	}
+}
+
 func TestOriginalDNSKeepsRecordsAndDirectionAcrossPolicyChanges(t *testing.T) {
 	const host = "private.campus.test"
 	iface := originalLoopback(t)
@@ -212,47 +247,60 @@ func TestOriginalDNSKeepsRecordsAndDirectionAcrossPolicyChanges(t *testing.T) {
 }
 
 func TestOriginalDNSBindingFailureExpiryAndExitConflict(t *testing.T) {
-	r := NewResolver(nil, "", "", 30, nil, nil, false)
-	defer r.Close()
-	protected, err := policy.NewProtectionPolicy(nil, nil, []policy.NameRule{{Kind: "suffix", Value: "original.test"}}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	r.ProtectionPolicy = func() *policy.ProtectionPolicy { return &protected }
-	address := netip.MustParseAddr("203.0.113.9")
-	request := new(dns.Msg).SetQuestion("a.original.test.", dns.TypeA)
-	reply := new(dns.Msg).SetReply(request)
-	reply.Answer = []dns.RR{&dns.A{Hdr: dns.RR_Header{Name: request.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 1}, A: net.IP(address.AsSlice())}}
-	refused := errors.New("route publication refused")
-	if _, err := r.bindDNSAnswer(request, reply, func([]netip.Addr) error { return refused }, "first"); !errors.Is(err, refused) {
-		t.Fatal(err)
-	}
-	if got, _ := r.OriginalInterfaceForIP(t.Context(), address); got != "" || len(r.OriginalDNSRecords()) != 0 {
-		t.Fatal("failed publication retained an original route")
-	}
-	if _, err := r.bindDNSAnswer(request, reply, nil, "first"); err != nil {
-		t.Fatal(err)
-	}
-	request.Question[0].Name = "b.original.test."
-	reply.Question[0] = request.Question[0]
-	reply.Answer[0].Header().Name = request.Question[0].Name
-	if _, err := r.bindDNSAnswer(request, reply, nil, "second"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := r.OriginalInterfaceForIP(t.Context(), address); !errors.Is(err, ErrOriginalDNSConflict) {
-		t.Fatal("ambiguous exit silently selected a network", err)
-	}
-	r.cacheMu.Lock()
-	for i := range r.dnsBindings[address] {
-		r.dnsBindings[address][i].expires = time.Now().Add(-time.Second)
-	}
-	r.cacheMu.Unlock()
-	if _, err := r.OriginalInterfaceForIP(t.Context(), address); !errors.Is(err, ErrOriginalDNSConflict) || len(r.OriginalDNSRecords()) != 0 {
-		t.Fatal("expired records lost their original direction protection", err)
-	}
-	r.Close()
-	if _, err := r.OriginalInterfaceForIP(t.Context(), address); !errors.Is(err, net.ErrClosed) {
-		t.Fatal("closed resolver served an original route", err)
+	for _, secondName := range []string{"a.original.test.", "b.original.test."} {
+		t.Run(secondName, func(t *testing.T) {
+			r := NewResolver(nil, "", "", 30, nil, nil, false)
+			defer r.Close()
+			protected, err := policy.NewProtectionPolicy(nil, nil, []policy.NameRule{{Kind: "suffix", Value: "original.test"}}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r.ProtectionPolicy = func() *policy.ProtectionPolicy { return &protected }
+			address := netip.MustParseAddr("203.0.113.9")
+			request := new(dns.Msg).SetQuestion("a.original.test.", dns.TypeA)
+			reply := new(dns.Msg).SetReply(request)
+			reply.Answer = []dns.RR{&dns.A{Hdr: dns.RR_Header{Name: request.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 1}, A: net.IP(address.AsSlice())}}
+			refused := errors.New("route publication refused")
+			if _, err := r.bindDNSAnswer(request, reply, func([]netip.Addr) error { return refused }, "first"); !errors.Is(err, refused) {
+				t.Fatal(err)
+			}
+			if got, _ := r.OriginalInterfaceForIP(t.Context(), address); got != "" || len(r.OriginalDNSRecords()) != 0 {
+				t.Fatal("failed publication retained an original route")
+			}
+			if _, err := r.bindDNSAnswer(request, reply, nil, "first"); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := r.bindDNSAnswer(request, reply, nil, "first"); err != nil {
+				t.Fatal(err)
+			}
+			if r.dnsBindingCount != 1 {
+				t.Fatal("refresh of one native source duplicated its binding")
+			}
+			request.Question[0].Name = secondName
+			reply.Question[0] = request.Question[0]
+			reply.Answer[0].Header().Name = request.Question[0].Name
+			if _, err := r.bindDNSAnswer(request, reply, nil, "second"); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := r.OriginalInterfaceForIP(t.Context(), address); !errors.Is(err, ErrOriginalDNSConflict) {
+				t.Fatal("different native exits silently selected a network", err)
+			}
+			if r.dnsBindingCount != 2 || !slices.Equal(r.OriginalDNSRecords()["a.original.test"], []string{address.String()}) {
+				t.Fatal("native exit records were overwritten or exported duplicate addresses")
+			}
+			r.cacheMu.Lock()
+			for i := range r.dnsBindings[address] {
+				r.dnsBindings[address][i].expires = time.Now().Add(-time.Second)
+			}
+			r.cacheMu.Unlock()
+			if _, err := r.OriginalInterfaceForIP(t.Context(), address); !errors.Is(err, ErrOriginalDNSConflict) || len(r.OriginalDNSRecords()) != 0 {
+				t.Fatal("expired records lost their original direction protection", err)
+			}
+			r.Close()
+			if _, err := r.OriginalInterfaceForIP(t.Context(), address); !errors.Is(err, net.ErrClosed) {
+				t.Fatal("closed resolver served an original route", err)
+			}
+		})
 	}
 }
 
