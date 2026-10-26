@@ -30,6 +30,7 @@ class ConnectionUiController : public QObject
 public:
     using CredentialSourceProvider = std::function<CredentialSource()>;
     using SettingsProvider = std::function<QSettings *()>;
+    using OfficialClientProbe = std::function<std::optional<bool>()>;
     using NotificationHandler = std::function<void(
         const QString &title,
         const QString &content,
@@ -50,7 +51,8 @@ public:
         SettingsProvider settingsProvider,
         CredentialSourceProvider credentialSourceProvider,
         NotificationHandler notificationHandler,
-        QObject *parent = nullptr
+        QObject *parent = nullptr,
+        OfficialClientProbe officialClientProbe = {}
     );
 
     bool isConfigurationSaving() const;
@@ -96,6 +98,7 @@ private:
     bool autoProxyPending=false;
     bool credentialsPending=false;
     NotificationHandler notificationHandler;
+    OfficialClientProbe officialClientProbe;
 };
 
 #endif // CONNECTIONUICONTROLLER_H

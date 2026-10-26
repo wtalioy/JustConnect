@@ -13,6 +13,7 @@
 #include <QWidget>
 #include <QUrl>
 #include <QTimer>
+#include <QtConcurrent>
 
 #include <utility>
 
@@ -25,6 +26,7 @@
 #include "application/settingsmigrator.h"
 #include "application/defaultsettings.h"
 #include "infrastructure/coreengine/embeddedcoreengine.h"
+#include "infrastructure/process/running.h"
 #include "presentation/coordinators/authdialogcoordinator.h"
 
 ConnectionUiController::ConnectionUiController(
@@ -41,7 +43,8 @@ ConnectionUiController::ConnectionUiController(
     SettingsProvider settingsProvider,
     CredentialSourceProvider credentialSourceProvider,
     NotificationHandler notificationHandler,
-    QObject *parent
+    QObject *parent,
+    OfficialClientProbe officialClientProbe
 )
     : QObject(parent),
       parentWidget(parentWidget),
@@ -53,7 +56,8 @@ ConnectionUiController::ConnectionUiController(
       networkPolicy(networkPolicy),
       authenticationDialogs(authenticationDialogs),
       settingsProvider(std::move(settingsProvider)),credentials(credentials),credentialSourceProvider(std::move(credentialSourceProvider)),
-      notificationHandler(std::move(notificationHandler))
+      notificationHandler(std::move(notificationHandler)),
+      officialClientProbe(officialClientProbe?std::move(officialClientProbe):[] {return isProcessRunning(QStringLiteral("aTrustAgent"));})
 {
     connectButton->setText("连接服务器");
     trayConnectAction->setText("连接服务器");
@@ -199,6 +203,13 @@ void ConnectionUiController::handleConnectClicked()
         QMessageBox::warning(parentWidget,"配置不可用","无法读取当前配置，请检查文件权限与内容后重新打开配置。");return;
     }
     credentialsPending=true;connectButton->setText("取消连接");trayConnectAction->setText("取消连接");
+    // The vendor's three desktop clients use aTrustAgent; this is advisory, never ownership or authentication evidence.
+    QtConcurrent::run(officialClientProbe).then(this,[this,generation](std::optional<bool> running) {
+        if(quitting || generation!=credentialGeneration)return;
+        if(!running){qWarning()<<"Cannot inspect the official aTrust core process.";return;}
+        if(*running)notificationHandler("检测到官方 aTrust 正在运行",
+            "官方客户端可能与 JustConnect 的路由或 DNS 设置冲突。请先手动断开官方连接；JustConnect 不会结束它的进程。",QSystemTrayIcon::Warning);
+    });
     credentials->load(source).then(this,[this,source,generation](const CredentialLoadResult &loaded) {
         if (generation!=credentialGeneration) return;
         if (!sourceStillCurrent(source) || (loaded.result.succeeded() && !CredentialAccess::matches(source,*settings()))) {cancelPendingCredentials();return;}

@@ -30,6 +30,7 @@
 #include <QSettings>
 #include <QFile>
 #include <QSemaphore>
+#include <QThreadPool>
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QtConcurrent>
@@ -46,6 +47,7 @@
 #include <atomic>
 
 using ProxyCheck::check;
+static std::optional<bool> noOfficialClient(){return false;}
 template<class Predicate> static void waitUntil(const char *file, int line, Predicate done) {
     QElapsedTimer elapsed;
     elapsed.start();
@@ -128,7 +130,7 @@ static void proxyWaitsForReady() {
     ConnectionUiController controller(&parent, &connectButton, &proxyButton, &trayAction,
         &session, &systemProxy, nullptr, &dialogs, &logger, &credentials, [&] { return &settings; },
         [&] {return CredentialAccess::source(settings,{});},
-        [](const QString &, const QString &, QSystemTrayIcon::MessageIcon) {});
+        [](const QString &, const QString &, QSystemTrayIcon::MessageIcon) {},nullptr,noOfficialClient);
     connectButton.click();
     until([&] {return session.state()==ConnectionState::Starting;});
     check(session.state() == ConnectionState::Starting && proxyButton.isHidden() && proxy->checks == 0,
@@ -258,7 +260,7 @@ static void manualCredentialsAndLateResults() {
     auto backend=std::make_unique<MemoryCredentialStore>();auto *store=backend.get();CredentialAccess access(std::move(backend));
     ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,
         &access,[&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
-        [](const QString &,const QString &,QSystemTrayIcon::MessageIcon){});
+        [](const QString &,const QString &,QSystemTrayIcon::MessageIcon){},nullptr,noOfficialClient);
     auto login=[&](bool save,const QString &name) {
         connectButton.click();until([&]{
             for (auto *dialog:parent.findChildren<QDialog *>())
@@ -352,7 +354,7 @@ static void authenticationCacheLifecycle() {
     auto backend=std::make_unique<MemoryCredentialStore>();auto *store=backend.get();CredentialAccess access(std::move(backend));
     ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,
         &access,[&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
-        [&](const QString &title,const QString &body,QSystemTrayIcon::MessageIcon){notices.append(title+body);});
+        [&](const QString &title,const QString &body,QSystemTrayIcon::MessageIcon){notices.append(title+body);},nullptr,noOfficialClient);
     auto source=CredentialAccess::source(settings,{});ProfileCredentials vault(*store);
     auto totp=source.profile;totp.credentials.totpSecret="private-totp";
     check(vault.save(source.scope,totp).succeeded(),"cache fixture keeps TOTP without storing a password");
@@ -467,7 +469,7 @@ static void onlineExpiryOffersOneReauthentication() {
     int notices=0,finishes=0;
     ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,
         &access,[&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
-        [&](const QString &,const QString &,QSystemTrayIcon::MessageIcon){++notices;});
+        [&](const QString &,const QString &,QSystemTrayIcon::MessageIcon){++notices;},nullptr,noOfficialClient);
     QObject::connect(&session,&ConnectionSession::finished,[&](ConnectionError){++finishes;});
     const auto source=CredentialAccess::source(settings,{});ProfileCredentials vault(*store);
     check(vault.saveAuthenticationCache(source.scope,source.profile,{"alice","expired-cookie"}).succeeded(),"seed online session authentication");
@@ -497,6 +499,30 @@ static void onlineExpiryOffersOneReauthentication() {
     session.stop();emit engine->finished(ConnectionError::NONE);
 }
 
+static void officialClientWarningIsReadOnlyAndDropsCancelledResults() {
+    QTemporaryDir folder;QSettings settings(folder.filePath("official-client.ini"),QSettings::IniFormat);
+    settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");settings.setValue("JustConnect/AuthType","httpsOauth2");settings.sync();
+    QWidget parent;QPushButton connectButton(&parent),proxyButton(&parent);QAction trayAction(&parent);
+    auto *engine=new QueryEngine;ConnectionSession session(engine);SystemProxySession proxy(std::make_unique<ProxyBackend>());
+    AuthDialogCoordinator dialogs(&parent);ApplicationLogger logger;CredentialAccess access(std::make_unique<MemoryCredentialStore>());
+    QSemaphore release;std::atomic<int> scans=0;int warnings=0;
+    ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,
+        &access,[&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
+        [&](const QString &title,const QString &text,QSystemTrayIcon::MessageIcon icon){
+            check(title.contains("aTrust") && text.contains("DNS") && text.contains("不会结束") && icon==QSystemTrayIcon::Warning,
+                "official client warning explains a possible conflict without claiming an authenticated connection");++warnings;
+        },nullptr,[&]() -> std::optional<bool>{++scans;release.acquire();return true;});
+    struct FinishProbe{QSemaphore &release;~FinishProbe(){release.release(4);QThreadPool::globalInstance()->waitForDone(1000);}} finish{release};
+    connectButton.click();until([&]{return scans==1;});until([&]{return engine->starts==1;});
+    check(warnings==0,"slow advisory probe never blocks credentials or the core");
+    connectButton.click();emit engine->finished(ConnectionError::NONE);release.release();
+    check(QThreadPool::globalInstance()->waitForDone(1000),"cancelled advisory probe finishes");QApplication::processEvents();
+    check(warnings==0 && engine->starts==1,"cancelled probe neither warns nor restarts a connection");
+    release.release();connectButton.click();until([&]{return warnings==1 && engine->starts==2;});
+    check(scans==2 && session.isActive() && engine->stops==1,"one warning per explicit attempt leaves connection and process control unchanged");
+    session.stop();emit engine->finished(ConnectionError::NONE);
+}
+
 static void authenticationSurvivesTunnelFailure() {
     QTemporaryDir folder;QSettings settings(folder.filePath("failed-tunnel-cache.ini"),QSettings::IniFormat);
     settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");settings.setValue("JustConnect/ServerPort",443);
@@ -507,7 +533,7 @@ static void authenticationSurvivesTunnelFailure() {
     auto backend=std::make_unique<MemoryCredentialStore>();auto *store=backend.get();CredentialAccess access(std::move(backend));
     ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,
         &access,[&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
-        [](const QString &,const QString &,QSystemTrayIcon::MessageIcon){});
+        [](const QString &,const QString &,QSystemTrayIcon::MessageIcon){},nullptr,noOfficialClient);
     connectButton.click();until([&]{return engine->starts==1;});
     bool errorShown=false;QTimer closeError;
     QObject::connect(&closeError,&QTimer::timeout,[&]{
@@ -537,7 +563,7 @@ static void quitWaitsForAuthenticationQueryWithoutBlockingTheGui() {
     auto *engine=new QueryEngine;ConnectionSession session(engine);SystemProxySession proxy(std::make_unique<ProxyBackend>());
     AuthDialogCoordinator dialogs(&parent);ApplicationLogger logger;CredentialAccess access(std::make_unique<MemoryCredentialStore>());
     ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,&access,
-        [&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},[](const QString &,const QString &,QSystemTrayIcon::MessageIcon){});
+        [&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},[](const QString &,const QString &,QSystemTrayIcon::MessageIcon){},nullptr,noOfficialClient);
     auto *queryEngine=new QueryEngine;QPointer<QueryEngine> guarded=queryEngine;
     auto *window=new AuthInfoWindow(&parent,queryEngine);window->fetchAuthInfo({});window->show();window->close();
     QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
@@ -568,7 +594,7 @@ static void quitWaitsForNetworkInspectionWithoutBlockingTheGui() {
     });
     AuthDialogCoordinator dialogs(&parent);ApplicationLogger logger;CredentialAccess access(std::make_unique<MemoryCredentialStore>());
     ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,&networkPolicy,&dialogs,&logger,&access,
-        [&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},[](const QString &,const QString &,QSystemTrayIcon::MessageIcon){});
+        [&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},[](const QString &,const QString &,QSystemTrayIcon::MessageIcon){},nullptr,noOfficialClient);
     int ready=0;QObject::connect(&controller,&ConnectionUiController::readyToQuit,[&]{++ready;});
     check(session.start({},{}),"start network inspection exit fixture");
     emit engine->sessionStarted("1");emit engine->connectionEstablished();
@@ -595,7 +621,7 @@ static void quitWaitsForInitialSsoCache() {
     auto backend=std::make_unique<MemoryCredentialStore>();auto *store=backend.get();CredentialAccess access(std::move(backend));
     ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,
         &access,[&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
-        [](const QString &,const QString &,QSystemTrayIcon::MessageIcon){check(false,"exit preserves authorized SSO cache persistence");});
+        [](const QString &,const QString &,QSystemTrayIcon::MessageIcon){check(false,"exit preserves authorized SSO cache persistence");},nullptr,noOfficialClient);
     int ready=0;
     QObject::connect(&controller,&ConnectionUiController::readyToQuit,[&]{
         const auto source=CredentialAccess::source(settings,{});AuthenticationCache saved;ProfileCredentials vault(*store);
@@ -1007,7 +1033,7 @@ static void gateway(const QJsonObject &config) {
     NetworkPolicySession networkPolicy(engine, readSystemDnsSnapshot);
     ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&systemProxy,&networkPolicy,&dialogs,&logger,
         &access,[&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
-        [](const QString &,const QString &,QSystemTrayIcon::MessageIcon){check(false,"real gateway authentication cache must save successfully");});
+        [](const QString &,const QString &,QSystemTrayIcon::MessageIcon){check(false,"real gateway authentication cache must save successfully");},nullptr,noOfficialClient);
     QTimer heartbeat;
     QObject::connect(&heartbeat, &QTimer::timeout, [&] { ++ticks; });
     heartbeat.start(1);
@@ -1178,7 +1204,7 @@ static void gateway(const QJsonObject &config) {
         QPushButton restoredConnect(&parent),restoredProxyButton(&parent);QAction restoredTray(&parent);
         ConnectionUiController restoredController(&parent,&restoredConnect,&restoredProxyButton,&restoredTray,&restarted,&restoredProxy,nullptr,
             &restoredDialogs,&logger,&access,[&]{return &restartedSettings;},[&]{return CredentialAccess::source(restartedSettings,{});},
-            [](const QString &,const QString &,QSystemTrayIcon::MessageIcon){check(false,"restored native cache remains usable");});
+            [](const QString &,const QString &,QSystemTrayIcon::MessageIcon){check(false,"restored native cache remains usable");},nullptr,noOfficialClient);
         bool done=false;
         QObject::connect(&restarted,&ConnectionSession::authenticationRequired,[&](const QJsonObject &,const QUrl &,const TlsOptions &){check(false,"native cache must avoid another authentication prompt");});
         QObject::connect(&restarted,&ConnectionSession::finished,[&](ConnectionError error){check(error==ConnectionError::NONE,"restored Qt connection stops normally");done=true;});
@@ -1203,5 +1229,5 @@ int main(int argc, char **argv) {
         qputenv("QT_QUICK_BACKEND", "software");
     QApplication app(argc, argv);
     if (argc == 3 && QByteArray(argv[1]) == "--gateway") gateway(QJsonDocument::fromJson(argv[2]).object());
-    else { browserCookiesStayInLoginDialog(); browserValidatesCallbackNavigation(); uiContracts(); proxyWaitsForReady(); manualCredentialsAndLateResults(); authenticationCacheLifecycle(); onlineExpiryOffersOneReauthentication(); authenticationSurvivesTunnelFailure(); quitWaitsForInitialSsoCache(); quitWaitsForAuthenticationQueryWithoutBlockingTheGui(); quitWaitsForNetworkInspectionWithoutBlockingTheGui(); }
+    else { browserCookiesStayInLoginDialog(); browserValidatesCallbackNavigation(); uiContracts(); proxyWaitsForReady(); manualCredentialsAndLateResults(); authenticationCacheLifecycle(); onlineExpiryOffersOneReauthentication(); officialClientWarningIsReadOnlyAndDropsCancelledResults(); authenticationSurvivesTunnelFailure(); quitWaitsForInitialSsoCache(); quitWaitsForAuthenticationQueryWithoutBlockingTheGui(); quitWaitsForNetworkInspectionWithoutBlockingTheGui(); }
 }

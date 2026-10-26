@@ -1041,6 +1041,11 @@ void MainWindow::updateVersionInfo()
 
 void MainWindow::showNotification(const QString &title, const QString &content, QSystemTrayIcon::MessageIcon icon)
 {
+    if(!QSystemTrayIcon::isSystemTrayAvailable() || !QSystemTrayIcon::supportsMessages()){
+        auto *notice=new QMessageBox(icon==QSystemTrayIcon::Warning?QMessageBox::Warning:QMessageBox::Information,
+            title,content,QMessageBox::Ok,this);
+        notice->setAttribute(Qt::WA_DeleteOnClose);notice->setWindowModality(Qt::NonModal);notice->show();return;
+    }
     disconnect(trayIcon, &QSystemTrayIcon::messageClicked, nullptr, nullptr);
     trayIcon->showMessage(
         title,
