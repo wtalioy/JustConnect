@@ -50,6 +50,11 @@ bool providerIdentity(const QJsonObject &value)
     return fields(value, {"bus", "owner"}) && id.match(value["bus"].toString()).hasMatch()
         && owner.match(value["owner"].toString()).hasMatch();
 }
+QJsonObject LinkSnapshot::expectation(int index) const
+{
+    if (!result.succeeded() || absent || !extended || index <= 0) return {};
+    return {{"index", index}, {"profile", profile}, {"security", security}, {"provider", provider}};
+}
 QDBusMessage call(const QDBusConnection &bus, const QString &destination, const QString &path,
                   const QString &interface, const QString &method, const QVariantList &args, QDeadlineTimer &deadline)
 {

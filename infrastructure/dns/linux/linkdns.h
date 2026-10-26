@@ -13,7 +13,7 @@ public:
     LinuxLinkDns(const LinuxLinkDns &) = delete;
     LinuxLinkDns &operator=(const LinuxLinkDns &) = delete;
     PlatformOperationResult apply(const QUuid &owner, const QString &interface, const QString &source,
-        quint16 port, const CheckpointWriter &checkpoint);
+        quint16 port, const QJsonObject &expected, const CheckpointWriter &checkpoint);
     PlatformOperationResult restore(const CheckpointWriter &checkpoint);
     PlatformOperationResult recover(const QUuid &owner, const QJsonObject &saved, const CheckpointWriter &checkpoint);
     QJsonObject snapshot() const { return record; }

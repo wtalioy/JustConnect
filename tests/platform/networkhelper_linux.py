@@ -90,6 +90,11 @@ def user_agent(control, uid):
                                         env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C.UTF-8'},
                                         text=True, capture_output=True, timeout=10)
                 assert result.returncode == 0 and '203.0.113.9' in result.stdout, (result.stdout, result.stderr)
+            elif operation == 'original-dns-state':
+                result = subprocess.run([command['binary'], '--inspect-link-dns', command['interface']],
+                                        text=True, capture_output=True, timeout=10)
+                assert result.returncode == 0, (result.stdout, result.stderr)
+                answer = json.loads(result.stdout)
             elif operation == 'disconnect':
                 channel.close()
                 channel = None
@@ -188,9 +193,13 @@ def main():
         return {'version': LAYOUT['protocol'], 'owner': owner, 'operation': operation}
 
     def application(owner):
+        original_dns = []
+        if dns_probe:
+            original_dns.append({'interface': 'dnsoriginal0', 'source': '192.0.2.1', 'port': args.original_dns_port,
+                                 'expected': command('original-dns-state', binary=str(dns_probe), interface='dnsoriginal0')})
         return {**request(owner, 'apply'), 'device': {'source': '198.18.0.1', 'peer': '198.18.0.2', 'mtu': 1400},
                 'capture': ['198.18.4.0/24'], 'dns': ['campus.test'] if dns_probe else [],
-                'original_dns': [{'interface': 'dnsoriginal0', 'source': '192.0.2.1', 'port': args.original_dns_port}] if dns_probe else [],
+                'original_dns': original_dns,
                 'underlay': {'interface': 'helperorig0', 'source': '192.0.2.1', 'gateway': '', 'prefixes': ['198.18.4.0/24']}}
 
     try:
@@ -286,11 +295,21 @@ def main():
                 owner = str(uuid.uuid4())
                 process = start(owner)
                 packet = application(owner)
-                packet['original_dns'].append({'interface': 'helperorig0', 'source': '192.0.2.1', 'port': args.original_dns_port})
+                packet['original_dns'].append({'interface': 'helperorig0', 'source': '192.0.2.1', 'port': args.original_dns_port,
+                    'expected': command('original-dns-state', binary=str(dns_probe), interface='helperorig0')})
                 command('send', packet=packet)
                 receive(owner, 'restored', success=False)
                 finish(owner, process)
                 print('PASS: later original-link DNS refusal restores the earlier link and all owned routes/device', flush=True)
+
+                owner = str(uuid.uuid4())
+                process = start(owner)
+                packet = application(owner)
+                packet['original_dns'][0]['expected']['profile']['default_route'] ^= True
+                command('send', packet=packet)
+                receive(owner, 'restored', success=False)
+                finish(owner, process)
+                print('PASS: stale ordinary-user DNS source snapshot refuses replacement and restores all owned routes/device', flush=True)
 
             owner = str(uuid.uuid4())
             process = start(owner)

@@ -10,6 +10,8 @@ struct LinkSnapshot {
     PlatformOperationResult result;
     QJsonObject profile, provider, security;
     bool absent = false, extended = false;
+    // Source preparation precondition; durable ownership remains with the mutation backend.
+    QJsonObject expectation(int index) const;
 };
 // The unique bus owner and a held kernel socket bind reads to this network namespace.
 LinkSnapshot readLink(const QDBusConnection &bus, int index, QDeadlineTimer &deadline);

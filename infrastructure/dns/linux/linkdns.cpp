@@ -46,6 +46,22 @@ bool recordFits(QJsonObject value)
     value["phase"] = "restoring";
     return QJsonDocument(value).toJson(QJsonDocument::Compact).size() <= LinuxRouteRecoveryBytes;
 }
+Result plainTransport(const QDBusConnection &bus, const LinuxResolved::LinkSnapshot &state, QDeadlineTimer &deadline)
+{
+    auto tls = state.security["DNSOverTLS"];
+    if (tls == "") {
+        const auto reply = LinuxResolved::call(bus, state.provider["owner"].toString(), LinuxResolved::managerPath,
+            "org.freedesktop.DBus.Properties", "GetAll", {LinuxResolved::managerInterface}, deadline);
+        if (reply.type() != QDBusMessage::ReplyMessage || reply.signature() != "a{sv}") {
+            auto result = LinuxResolved::replyResult(reply);
+            if (result.succeeded()) result = {Status::Failed, "Invalid native DNS transport properties."};
+            result.mayHaveChanged = false; return result;
+        }
+        tls = QJsonValue::fromVariant(qdbus_cast<QVariantMap>(reply.arguments().first()).value("DNSOverTLS"));
+    }
+    if (tls != "no") return {Status::Unsupported, "The native DNS transport cannot be replaced by a plain local endpoint."};
+    return {};
+}
 bool servers(const QJsonValue &value)
 {
     if (!value.isArray() || value.toArray().isEmpty() || value.toArray().size() > LinuxRouteSnapshotRows) return false;
@@ -97,7 +113,7 @@ PlatformOperationResult LinuxLinkDns::write(const QJsonArray &value, const QJson
         LinuxResolved::managerInterface, "SetLinkDNSEx", {int(record["index"].toInteger()), QVariant::fromValue(endpoints)}, deadline));
 }
 PlatformOperationResult LinuxLinkDns::apply(const QUuid &owner, const QString &interface, const QString &source,
-    quint16 port, const CheckpointWriter &checkpoint)
+    quint16 port, const QJsonObject &expected, const CheckpointWriter &checkpoint)
 {
     if (::geteuid() != 0) return {Status::PermissionDenied, "Original DNS replacement requires its privileged owner."};
     const auto index = ::if_nametoindex(interface.toLatin1().constData());
@@ -107,18 +123,10 @@ PlatformOperationResult LinuxLinkDns::apply(const QUuid &owner, const QString &i
     const auto before = LinuxResolved::readLink(bus, int(index), deadline);
     if (!before.result.succeeded()) { auto result = before.result; result.mayHaveChanged = false; return result; }
     if (before.absent || !before.extended || !servers(before.profile["dns"])) return {Status::Unsupported, "No complete native DNS-server list is available."};
-    auto tls = before.security["DNSOverTLS"];
-    if (tls == "") {
-        const auto reply = LinuxResolved::call(bus, before.provider["owner"].toString(), LinuxResolved::managerPath,
-            "org.freedesktop.DBus.Properties", "GetAll", {LinuxResolved::managerInterface}, deadline);
-        if (reply.type() != QDBusMessage::ReplyMessage || reply.signature() != "a{sv}") {
-            auto result = LinuxResolved::replyResult(reply);
-            if (result.succeeded()) result = {Status::Failed, "Invalid native DNS transport properties."};
-            result.mayHaveChanged = false; return result;
-        }
-        tls = QJsonValue::fromVariant(qdbus_cast<QVariantMap>(reply.arguments().first()).value("DNSOverTLS"));
-    }
-    if (tls != "no") return {Status::Unsupported, "The native DNS transport cannot be replaced by a plain local endpoint."};
+    if (expected.isEmpty() || before.expectation(int(index)) != expected)
+        return {Status::Failed, "Original DNS no longer matches the prepared source."};
+    auto transport = plainTransport(bus, before, deadline);
+    if (!transport.succeeded()) return transport;
     // With DNSOverTLS disabled, the unused TLS name carries our crash-recovery tag.
     const QJsonArray after{QJsonObject{{"family", AF_INET}, {"address", source}, {"port", port}, {"name", marker(owner)}}};
     static const QRegularExpression ownedName("^justconnect-[0-9a-f]{32}[.]invalid$");
@@ -134,16 +142,24 @@ PlatformOperationResult LinuxLinkDns::apply(const QUuid &owner, const QString &i
         return result;
     }
     const auto current = LinuxResolved::readLink(bus, int(index), deadline);
-    if (!identity() || !sourceAssigned(interface, index, source) || !current.result.succeeded() || current.absent || current.provider != before.provider
-        || current.profile["dns"] != before.profile["dns"] || current.security != before.security) {
+    if (!identity() || !sourceAssigned(interface, index, source) || !current.result.succeeded()
+        || current.expectation(int(index)) != expected) {
         if (!current.result.succeeded()) return current.result;
         const auto cleaned = clear(checkpoint);
         return {Status::Failed, "Original DNS changed before replacement.", !cleaned.succeeded()};
     }
+    transport = plainTransport(bus, current, deadline);
+    if (!transport.succeeded()) {
+        transport.mayHaveChanged = !clear(checkpoint).succeeded();
+        return transport;
+    }
     result = write(after, current.provider, deadline);
     const auto actual = LinuxResolved::readLink(bus, int(index), deadline);
     if (result.succeeded() && sourceAssigned(interface, index, source) && actual.result.succeeded() && !actual.absent
-        && actual.extended && actual.provider == current.provider && actual.profile["dns"] == after) {
+        && actual.extended && actual.provider == current.provider && actual.profile["dns"] == after
+        && actual.profile["domains"] == before.profile["domains"]
+        && actual.profile["default_route"] == before.profile["default_route"] && actual.security == before.security
+        && plainTransport(bus, actual, deadline).succeeded()) {
         record["phase"] = "active"; return save(checkpoint);
     }
     if (result.succeeded()) result = actual.result.succeeded() ? failure("Cannot confirm the original DNS replacement.") : actual.result;

@@ -13,6 +13,7 @@
 #include <QSet>
 #include <array>
 #include <cerrno>
+#include <climits>
 #include <cstring>
 #include <dirent.h>
 #include <fcntl.h>
@@ -158,7 +159,7 @@ struct OwnedOperation {
             const auto position = originalDnsRecords.size();
             originalDnsRecords.append(QJsonObject{});
             LinuxLinkDns original(dnsBus);
-            result = original.apply(owner, link.interface, link.source, link.port, originalWriter(position));
+            result = original.apply(owner, link.interface, link.source, link.port, link.expected, originalWriter(position));
         }
         if (result.succeeded() && !config.dnsDomains.isEmpty()) result = dns.apply(device, config.dnsDomains, writer(dnsJournal));
         if (result.succeeded()) { context["phase"] = "active"; result = metadata.store(context); }
@@ -371,7 +372,7 @@ QJsonObject linuxHelperApplyRequest(const QUuid &owner, const LinuxHelperConfigu
 {
     QJsonArray originalDns;
     for (const auto &link : config.originalDns)
-        originalDns.append(QJsonObject{{"interface", link.interface}, {"source", link.source}, {"port", link.port}});
+        originalDns.append(QJsonObject{{"interface", link.interface}, {"source", link.source}, {"port", link.port}, {"expected", link.expected}});
     return {{"version", LinuxHelperProtocol}, {"owner", owner.toString(QUuid::WithoutBraces)}, {"operation", "apply"},
         {"device", QJsonObject{{"source", config.address}, {"peer", config.peer}, {"mtu", config.mtu}}},
         {"capture", QJsonArray::fromStringList(config.capturePrefixes)},
@@ -398,13 +399,18 @@ std::optional<LinuxHelperConfiguration> parseLinuxHelperApply(const QUuid &owner
     QSet<QString> dnsInterfaces;
     for (const auto &value : request["original_dns"].toArray()) {
         const auto link = value.toObject(); const auto port = link["port"].toInteger(-1);
-        if (!fields(link, {"interface", "source", "port"}) || !link["interface"].isString() || !link["source"].isString()
+        const auto expected = link["expected"].toObject(); const auto index = expected["index"].toInteger(-1);
+        if (!fields(link, {"interface", "source", "port", "expected"}) || !link["interface"].isString() || !link["source"].isString()
             || !canonicalLinuxInterfaceName(link["interface"].toString()) || !canonicalUnicastIpv4(link["source"].toString())
             || link["source"] == device["source"] || link["source"] == device["peer"]
             || port < 1 || port > 65535 || link["port"] != QJsonValue(port)
+            || !fields(expected, {"index", "profile", "security", "provider"})
+            || index < 1 || index > INT_MAX || expected["index"] != QJsonValue(index)
+            || !expected["profile"].isObject() || !expected["security"].isObject()
+            || !LinuxResolved::providerIdentity(expected["provider"].toObject())
             || dnsInterfaces.contains(link["interface"].toString())) return {};
         dnsInterfaces.insert(link["interface"].toString());
-        config.originalDns.append({link["interface"].toString(), link["source"].toString(), quint16(port)});
+        config.originalDns.append({link["interface"].toString(), link["source"].toString(), quint16(port), expected});
     }
     for (const auto &name : request["dns"].toArray()) {
         if (!name.isString()) return {};

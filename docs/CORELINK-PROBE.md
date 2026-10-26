@@ -108,7 +108,7 @@ IPv4 配置增量复用 [`UnixTunDevice::createIpv4`](../infrastructure/tundevic
 
 Linux 的原出口与校园捕获共用 `LinuxOwnedRouteTable` 的写前记录、回读、恢复与歧义保护。原出口使用 priority 1 的精确源规则；校园捕获使用 priority 2 的全源规则、UUID 派生的另一张专用表与直连 TUN 路由，表范围互不相交。priority 0 的 local 表保持最先，因此本机地址和 localhost 不被捕获；目标不在校园表时继续原规则。既有 main 表中的精确 `/32` 保持原样，选择校园后走 TUN，撤回捕获后回到原网络。
 
-协议 9 要求客户端与助手同时更新。捕获日志 v2 使用同一表后端的结构并附版本；原网络投影精确排除所属表、规则与设备路由，不隐藏原 main 路由或外部变化。最后一个 TUN fd 关闭可使路由消失，恢复仍须释放所属查表规则；接口改名或索引复用不能解释为设备消失。分配器夹具保留原生恢复控制通道，释放自身 fd 后由最终持有者完成流量，再调用正式恢复入口清理规则，无 Python 路由删除副本。
+协议 10 要求客户端与助手同时更新。捕获日志 v2 使用同一表后端的结构并附版本；原网络投影精确排除所属表、规则与设备路由，不隐藏原 main 路由或外部变化。最后一个 TUN fd 关闭可使路由消失，恢复仍须释放所属查表规则；接口改名或索引复用不能解释为设备消失。分配器夹具保留原生恢复控制通道，释放自身 fd 后由最终持有者完成流量，再调用正式恢复入口清理规则，无 Python 路由删除副本。
 
 旧 v1 仅保留受保护记录的主表恢复，不再提供主表应用、追加或运行中撤回。停止支持仍可能留有 v1 未恢复记录的版本后，删除该恢复分支及专属迁移测试。现有边界、失败、取消、外部改写与强杀回归继续验证 v2；另验证实际 v1 记录恢复和中断／同值保留。当前本地证据与未验收项见 `build/reports/capture-table.json`，不代替桌面授权、校园实测或其他平台验收。
 
@@ -160,7 +160,7 @@ sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_OS="$RUNNER_OS" "$(command -v p
 <a id="linux-owned-routes"></a>
 ### Linux 捕获路由后端
 
-[`LinuxTunRoutes`](../infrastructure/routing/linux/tunroutes.cpp) 负责验证已拥有且配置非零点对点地址的 TUN，再将当前捕获操作交给共享独立表后端；当前协议 9、日志 v2 和 `/32` 选择行为见[独立捕获路由表](#linux-独立捕获路由表)，完整写前／回读／恢复职责见[架构](ARCHITECTURE.md#privileged-helper-entry)。不再创建或运行中修改旧 main 表捕获路由，v1 仅供受保护遗留记录恢复。
+[`LinuxTunRoutes`](../infrastructure/routing/linux/tunroutes.cpp) 负责验证已拥有且配置非零点对点地址的 TUN，再将当前捕获操作交给共享独立表后端；当前协议 10、日志 v2 和 `/32` 选择行为见[独立捕获路由表](#linux-独立捕获路由表)，完整写前／回读／恢复职责见[架构](ARCHITECTURE.md#privileged-helper-entry)。不再创建或运行中修改旧 main 表捕获路由，v1 仅供受保护遗留记录恢复。
 
 ```sh
 sudo unshare --net -- build/coreabi/linux_tunroutes_test --isolated
