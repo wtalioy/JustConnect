@@ -394,13 +394,13 @@ def main():
             finish(owner,process)
             print('PASS: DNS publication endpoint rejection restores ownership and preserves the external route',flush=True)
 
-            ip('link', 'add', 'helperalt0', 'type', 'dummy')
-            ip('link', 'set', 'helperalt0', 'up')
-            ip('address', 'add', '192.0.3.1/24', 'dev', 'helperalt0')
             for destination, route in (
                 ('198.18.7.7', ('dev', 'helperalt0')),
                 ('198.18.8.8', ('via', '192.0.2.254', 'dev', 'helperorig0')),
             ):
+                ip('link', 'add', 'helperalt0', 'type', 'dummy')
+                ip('link', 'set', 'helperalt0', 'up')
+                ip('address', 'add', '192.0.3.1/24', 'dev', 'helperalt0')
                 ip('route', 'add', destination + '/32', *route)
                 before_failure = inventory()
                 owner = str(uuid.uuid4())
@@ -411,9 +411,9 @@ def main():
                 receive(owner, 'restored', success=False)
                 command('close-descriptors')
                 assert inventory() == before_failure, 'DNS extension overrode a different original exit'
-                finish(owner, process)
                 ip('route', 'del', destination + '/32', *route)
-            ip('link', 'del', 'helperalt0')
+                ip('link', 'del', 'helperalt0')
+                finish(owner, process)
             assert inventory() == baseline
             print('PASS: DNS addresses on another original interface or gateway refuse publication and restore ownership', flush=True)
 
