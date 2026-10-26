@@ -27,6 +27,7 @@ LinuxHelperRecoverySummary recoverLinuxHelperRecords(int trustedDirectory);
 struct LinuxHelperDnsLink {
     QString interface, source;
     quint16 port = 0;
+    QJsonObject expected;
 };
 struct LinuxHelperConfiguration {
     QString address, peer;

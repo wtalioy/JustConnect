@@ -68,7 +68,11 @@ int main(int argc, char **argv) try
     configuration.originalInterface = "fixture0"; configuration.originalSource = "192.0.2.1";
     configuration.originalPrefixes = configuration.capturePrefixes;
     configuration.dnsDomains = {"campus.test", "research.test"};
-    configuration.originalDns = {{"fixture0", "192.0.2.1", 47321}, {"other0", "192.0.2.2", 39417}};
+    const QJsonObject expected{{"index", 2}, {"provider", QJsonObject{{"bus", QString(32, 'a')}, {"owner", ":1.2"}}},
+        {"profile", QJsonObject{{"dns", QJsonArray{QJsonObject{{"family", AF_INET}, {"address", "192.0.2.53"}, {"port", 0}, {"name", ""}}}},
+            {"domains", QJsonArray{QJsonObject{{"name", "original.test"}, {"route_only", true}}}}, {"default_route", false}}},
+        {"security", QJsonObject{{"DNSOverTLS", "no"}, {"DNSSEC", "no"}}}};
+    configuration.originalDns = {{"fixture0", "192.0.2.1", 47321, expected}, {"other0", "192.0.2.2", 39417, expected}};
     const auto encoded = linuxHelperApplyRequest(owner, configuration);
     const auto parsed = parseLinuxHelperApply(owner, encoded);
     check(parsed && linuxHelperApplyRequest(owner, *parsed) == encoded, "Typed configuration lost validated input");
@@ -79,11 +83,20 @@ int main(int argc, char **argv) try
                              QJsonObject{{"interface", "fixture0"}, {"source", "127.0.0.1"}, {"port", 47321}},
                              QJsonObject{{"interface", "fixture0; id"}, {"source", "192.0.2.1"}, {"port", 47321}},
                              QJsonObject{{"interface", "fixture0"}, {"source", "192.0.2.1"}, {"port", 47321}, {"path", "/tmp/foreign"}}}) {
-        auto invalid = encoded; invalid["original_dns"] = QJsonArray{link};
+        auto invalid = encoded; auto endpoint = link; endpoint["expected"] = expected;
+        invalid["original_dns"] = QJsonArray{endpoint};
         check(!parseLinuxHelperApply(owner, invalid), "Unsafe original DNS endpoint accepted");
     }
     auto repeatedDns = encoded;
     const auto firstDns = encoded["original_dns"].toArray().first();
+    for (const auto &field : {"index", "profile", "security", "provider"}) {
+        auto invalid = encoded; auto endpoint = firstDns.toObject(); auto incomplete = expected;
+        incomplete.remove(field); endpoint["expected"] = incomplete; invalid["original_dns"] = QJsonArray{endpoint};
+        check(!parseLinuxHelperApply(owner, invalid), "Incomplete original DNS source expectation accepted");
+    }
+    auto missingExpectation = encoded; auto endpoint = firstDns.toObject(); endpoint.remove("expected");
+    missingExpectation["original_dns"] = QJsonArray{endpoint};
+    check(!parseLinuxHelperApply(owner, missingExpectation), "Missing original DNS expectation silently resnapshotted the source");
     repeatedDns["original_dns"] = QJsonArray{firstDns, firstDns};
     check(!parseLinuxHelperApply(owner, repeatedDns), "Repeated original DNS interface accepted");
     repeatedDns.remove("original_dns");

@@ -85,6 +85,17 @@ static void create(UnixTunDevice &device, const QUuid &owner)
 int main(int argc, char **argv) try
 {
     QCoreApplication app(argc, argv);
+    if (argc == 3 && app.arguments()[1] == "--inspect-link-dns") {
+        check(::geteuid() != 0, "Prepared DNS source must be read by the ordinary caller");
+        const auto index = ::if_nametoindex(app.arguments()[2].toLatin1().constData());
+        QDeadlineTimer deadline(LinuxRouteOperationTimeoutMs);
+        const auto state = LinuxResolved::readLink(QDBusConnection::systemBus(), int(index), deadline);
+        success(state.result);
+        const auto expected = state.expectation(int(index));
+        check(!expected.isEmpty(), "No complete native DNS source expectation");
+        std::cout << QJsonDocument(expected).toJson(QJsonDocument::Compact).constData() << '\n';
+        return 0;
+    }
     if (argc == 1) {
         check(::geteuid() != 0, "Ordinary DNS check must run without root");
         LinuxTunDns dns(QDBusConnection::systemBus()); UnixTunDevice device;
@@ -92,7 +103,7 @@ int main(int argc, char **argv) try
               "Ordinary caller entered DNS mutation or retained responsibility");
         check(!dns.recover(QUuid::createUuid(), {}).succeeded(), "Unowned DNS recovery accepted");
         LinuxLinkDns original(QDBusConnection::systemBus());
-        check(original.apply(QUuid::createUuid(), "lo", "127.0.0.1", 53535, {}).status == Status::PermissionDenied
+        check(original.apply(QUuid::createUuid(), "lo", "127.0.0.1", 53535, {}, {}).status == Status::PermissionDenied
             && original.snapshot().isEmpty() && !original.recover(QUuid::createUuid(), {}, {}).succeeded(),
             "Ordinary caller entered original-link DNS replacement or recovery");
         std::cout << "PASS: ordinary DNS mutation and unowned recovery rejected\n";
@@ -119,20 +130,57 @@ int main(int argc, char **argv) try
             const auto state = LinuxResolved::readLink(bus, int(index), deadline); success(state.result); return state;
         };
         const auto before = inspect();
+        const auto expected = before.expectation(int(index));
+        check(!expected.isEmpty(), "Read the complete original DNS source before preparation");
         const auto initial = settings(interface);
         QTemporaryDir directory; check(directory.isValid(), "Create original DNS journal directory");
         UnixNetworkJournal journal; openJournal(journal, directory.path(), owner);
         LinuxLinkDns original(bus);
-        const auto missing = original.apply(owner, interface, source, port, {});
+        const auto missing = original.apply(owner, interface, source, port, expected, {});
         check(!missing.succeeded() && !missing.mayHaveChanged && original.snapshot().isEmpty() && settings(interface) == initial,
               "Original DNS accepted mutation without a durable checkpoint");
-        const auto rejected = original.apply(owner, interface, source, port, [](const QJsonObject &) {
+        QList<QJsonObject> staleSources{{}};
+        for (const auto &field : {"dns", "domains", "default_route"}) {
+            auto stale = expected; auto profile = before.profile;
+            if (QString(field) == "default_route") profile[field] = !profile[field].toBool();
+            else profile[field] = QJsonArray{};
+            stale["profile"] = profile; staleSources.append(stale);
+        }
+        auto stale = expected; stale["index"] = int(index) + 1; staleSources.append(stale);
+        stale = expected; stale["security"] = QJsonObject{{"DNSOverTLS", "yes"}}; staleSources.append(stale);
+        stale = expected; stale["provider"] = QJsonObject{{"bus", QString(32, '0')}, {"owner", ":1.999"}}; staleSources.append(stale);
+        for (const auto &prepared : staleSources) {
+            bool checkpointed = false;
+            const auto refused = original.apply(owner, interface, source, port, prepared, [&](const QJsonObject &) {
+                checkpointed = true; return Result{};
+            });
+            check(!refused.succeeded() && !refused.mayHaveChanged && !checkpointed && original.snapshot().isEmpty()
+                && inspect().expectation(int(index)) == expected && settings(interface) == initial,
+                "Stale original DNS source reached write-ahead or changed native state");
+        }
+        const auto rejected = original.apply(owner, interface, source, port, expected, [](const QJsonObject &) {
             return Result{Status::Failed, "Injected original DNS checkpoint failure"};
         });
         check(!rejected.succeeded() && !rejected.mayHaveChanged && original.snapshot().isEmpty() && settings(interface) == initial,
               "Original DNS changed despite its failed write-ahead checkpoint");
+        const auto changedDomain = original.apply(owner, interface, source, port, expected, [&](const QJsonObject &value) {
+            const auto saved = writer(journal)(value);
+            if (saved.succeeded() && value["phase"] == "applying") resolver({"domain", interface, "~changed.original.test"});
+            return saved;
+        });
+        check(!changedDomain.succeeded() && !changedDomain.mayHaveChanged && original.snapshot().isEmpty()
+            && inspect().profile["dns"] == before.profile["dns"]
+            && resolver({"domain", interface}).contains("~changed.original.test"),
+            "A domain change during checkpoint was ignored or overwritten");
+        QStringList restoreDomains{"domain", interface};
+        for (const auto &value : before.profile["domains"].toArray()) {
+            const auto domain = value.toObject();
+            restoreDomains.append((domain["route_only"].toBool() ? "~" : "") + domain["name"].toString());
+        }
+        resolver(restoreDomains);
+        check(inspect().expectation(int(index)) == expected, "Restore the fixture's original routing domains");
         // Leave the durable pre-write state while the native property contains our unique endpoint.
-        const auto interrupted = original.apply(owner, interface, source, port, [&](const QJsonObject &value) {
+        const auto interrupted = original.apply(owner, interface, source, port, expected, [&](const QJsonObject &value) {
             if (value["phase"] == "active") return Result{Status::Failed, "Injected post-write checkpoint failure"};
             return writer(journal)(value);
         });
@@ -140,7 +188,7 @@ int main(int argc, char **argv) try
               "An interrupted original DNS write lost its recovery responsibility");
         const auto applied = settings(interface);
         LinuxLinkDns competing(bus);
-        const auto competingResult = competing.apply(QUuid::createUuid(), interface, source, port, writer(journal));
+        const auto competingResult = competing.apply(QUuid::createUuid(), interface, source, port, inspect().expectation(int(index)), writer(journal));
         check(!competingResult.succeeded() && !competingResult.mayHaveChanged && competing.snapshot().isEmpty()
             && settings(interface) == applied, "A second connection nested ownership over an active DNS endpoint");
         check(applied[0] != initial[0] && applied[1] == initial[1] && applied[2] == initial[2],
@@ -157,7 +205,7 @@ int main(int argc, char **argv) try
               "New-process recovery failed to restore the exact native original DNS values");
         openJournal(journal, directory.path(), owner);
         success(original.restore(writer(journal)));
-        success(original.apply(owner, interface, source, port, writer(journal)));
+        success(original.apply(owner, interface, source, port, expected, writer(journal)));
         const auto endpoint = original.snapshot()["after"].toArray().first().toObject();
         const auto owned = source + ":" + QString::number(port) + "#" + endpoint["name"].toString();
         resolver({"dns", interface, owned, "192.0.2.54"});
@@ -195,7 +243,7 @@ int main(int argc, char **argv) try
                 LinuxResolved::managerInterface, "SetLinkDNSOverTLS", {int(index), mode}, budget)));
         };
         setTLS("yes");
-        const auto secure = original.apply(owner, interface, source, port, writer(journal));
+        const auto secure = original.apply(owner, interface, source, port, inspect().expectation(int(index)), writer(journal));
         check(secure.status == Status::Unsupported && !secure.mayHaveChanged && original.snapshot().isEmpty()
             && settings(interface) == initial, "Encrypted native DNS was downgraded or changed before refusal");
         setTLS(before.security["DNSOverTLS"].toString());
