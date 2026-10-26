@@ -1,24 +1,18 @@
 #include "infrastructure/process/running.h"
-#include <libproc.h>
-#include <sys/proc_info.h>
+#include <sys/sysctl.h>
 #include <vector>
-#include <cerrno>
-#include <limits>
 
 std::optional<bool> isProcessRunning(const QString &name)
 {
-    const auto capacity=proc_listallpids(nullptr,0);
-    if(capacity<=0 || capacity>std::numeric_limits<int>::max()/int(sizeof(int)))return {};
-    std::vector<int> processes(capacity);
-    const auto count=proc_listallpids(processes.data(),capacity*int(sizeof(int)));
-    if(count<=0 || count>capacity)return {};
-    bool complete=count<capacity;
-    for(int index=0;index<count;++index){
-        if(processes[index]<=0)continue;
-        char image[sizeof(proc_bsdinfo{}.pbi_name)]{};errno=0;
-        const auto size=proc_name(processes[index],image,sizeof(image));
-        if(size<=0){if(errno!=ESRCH)complete=false;continue;}
-        if(QString::fromLocal8Bit(image,size)==name)return true;
-    }
-    return complete?std::optional<bool>(false):std::nullopt;
+    int query[]{CTL_KERN,KERN_PROC,KERN_PROC_ALL};size_t bytes=0;
+    constexpr unsigned querySize=sizeof(query)/sizeof(query[0]);
+    if(sysctl(query,querySize,nullptr,&bytes,nullptr,0)!=0 || bytes%sizeof(kinfo_proc))return {};
+    std::vector<kinfo_proc> processes(bytes/sizeof(kinfo_proc));
+    if(processes.empty())return false;
+    // Names are public process-table metadata; per-PID detail queries can reject unrelated protected processes.
+    if(sysctl(query,querySize,processes.data(),&bytes,nullptr,0)!=0 || bytes>processes.size()*sizeof(kinfo_proc)
+        || bytes%sizeof(kinfo_proc))return {};
+    for(size_t index=0;index<bytes/sizeof(kinfo_proc);++index)
+        if(QString::fromLocal8Bit(processes[index].kp_proc.p_comm)==name)return true;
+    return false;
 }
