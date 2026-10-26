@@ -26,29 +26,49 @@ func (r *Resolver) ExchangeCampus(ctx context.Context, request *dns.Msg, transpo
 	if publish != nil {
 		prepare = func(ctx context.Context, addresses []netip.Addr, _ bool) error { return publish(ctx, addresses) }
 	}
-	return r.exchangeDNS(ctx, request, transport, dial, prepare, true)
+	return r.exchangeDNS(ctx, request, transport, dial, prepare, true, "")
 }
 
 // ExchangeTUN keeps protected questions on their confirmed original DNS source.
 func (r *Resolver) ExchangeTUN(ctx context.Context, request *dns.Msg, transport string, dial client.DialContextFunc,
 	publish func(context.Context, []netip.Addr, bool) error) (*dns.Msg, error) {
-	return r.exchangeDNS(ctx, request, transport, dial, publish, false)
+	return r.exchangeDNS(ctx, request, transport, dial, publish, false, "")
+}
+
+// ExchangeNative preserves the resolver link selected by the operating system.
+func (r *Resolver) ExchangeNative(ctx context.Context, request *dns.Msg, transport, source string, dial client.DialContextFunc,
+	publish func(context.Context, []netip.Addr, bool) error) (*dns.Msg, error) {
+	if source == "" {
+		return nil, ErrOriginalDNSRequired
+	}
+	return r.exchangeDNS(ctx, request, transport, dial, publish, false, source)
 }
 
 func (r *Resolver) exchangeDNS(ctx context.Context, request *dns.Msg, transport string, dial client.DialContextFunc,
-	publish func(context.Context, []netip.Addr, bool) error, campusOnly bool) (*dns.Msg, error) {
+	publish func(context.Context, []netip.Addr, bool) error, campusOnly bool, source string) (*dns.Msg, error) {
 	if request == nil || request.Response || request.Opcode != dns.OpcodeQuery || len(request.Question) != 1 ||
 		request.Question[0].Qclass != dns.ClassINET || (transport != "udp" && transport != "tcp") {
 		return nil, ErrInvalidDNSQuestion
 	}
 	question := request.Question[0]
 	host := normalizeHostname(question.Name)
-	if host == "" || !dns.IsFqdn(question.Name) {
+	if (host == "" && (source == "" || question.Name != ".")) || !dns.IsFqdn(question.Name) {
 		return nil, ErrInvalidDNSQuestion
 	}
 	// Reserved local names never belong to the captured upstream DNS path.
 	if !campusOnly && (host == "localhost" || strings.HasSuffix(host, ".localhost")) {
 		return nil, ErrOriginalDNSRequired
+	}
+	var selected *originalDNSRoute
+	if source != "" {
+		if r.OriginalDNS != nil {
+			if index, found := r.OriginalDNS.listeners[source]; found {
+				selected = &r.OriginalDNS.routes[index]
+			}
+		}
+		if selected == nil {
+			return nil, ErrOriginalDNSRequired
+		}
 	}
 	r.resolutionMu.Lock()
 	if r.resolutionClosed {
@@ -64,6 +84,9 @@ func (r *Resolver) exchangeDNS(ctx context.Context, request *dns.Msg, transport 
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if selected != nil && question.Name == "." {
+		return r.exchangeOriginalRoute(ctx, request, transport, *selected, nil, false)
+	}
 	explicit := false
 	if r.ProtectionPolicy != nil {
 		snapshot := r.ProtectionPolicy()
@@ -72,6 +95,9 @@ func (r *Resolver) exchangeDNS(ctx context.Context, request *dns.Msg, transport 
 			allowed, protected := snapshot.CampusNameAllowed(host)
 			if protected && !allowed {
 				if !campusOnly {
+					if selected != nil {
+						return r.exchangeOriginalRoute(ctx, request, transport, *selected, publish, true)
+					}
 					return r.exchangeOriginal(ctx, request, transport, publish)
 				}
 				return nil, policy.ErrProtectedTarget
@@ -84,7 +110,13 @@ func (r *Resolver) exchangeDNS(ctx context.Context, request *dns.Msg, transport 
 		prepare = func(addresses []netip.Addr) error { return publish(ctx, addresses, false) }
 	}
 	ips, known := r.dnsResource[host]
+	if selected != nil && !r.useRemoteDNS && !known {
+		return r.exchangeOriginalRoute(ctx, request, transport, *selected, nil, false)
+	}
 	if _, _, granted := matchDomainResource(r.domainIndex, host); !granted && !known && !explicit {
+		if selected != nil {
+			return r.exchangeOriginalRoute(ctx, request, transport, *selected, nil, false)
+		}
 		return nil, ErrOriginalDNSRequired
 	}
 	if !campusOnly && question.Qtype == dns.TypeAAAA {

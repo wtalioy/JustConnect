@@ -19,71 +19,89 @@ func (i *tunIngress) dnsFlow(id stack.TransportEndpointID) bool {
 }
 
 func (i *tunIngress) serveDNS(transport string, conn net.Conn) {
-	stream := &dns.Conn{Conn: conn}
+	if transport == "tcp" {
+		serveDNSTCP(conn, func(request *dns.Msg) (*dns.Msg, error) { return i.exchangeDNS(request, transport) })
+		return
+	}
 	buffer := make([]byte, maxUDPPacket)
 	for {
 		if err := conn.SetDeadline(time.Now().Add(tunUDPIdleTimeout)); err != nil {
 			return
 		}
-		var request *dns.Msg
-		if transport == "tcp" {
-			var err error
-			request, err = stream.ReadMsg()
-			if err != nil {
-				return
-			}
-		} else {
-			n, err := conn.Read(buffer)
-			if err != nil {
-				return
-			}
-			request = new(dns.Msg)
-			if request.Unpack(buffer[:n]) != nil {
-				continue
-			}
+		n, err := conn.Read(buffer)
+		if err != nil {
+			return
 		}
-		reply := new(dns.Msg).SetReply(request)
-		if i.owner.resolver == nil {
-			reply.Rcode = dns.RcodeServerFailure
-		} else {
-			answer, err := i.exchangeDNS(request, transport)
-			if err == nil {
-				reply = answer
-			} else if errors.Is(err, resolve.ErrInvalidDNSQuestion) {
-				reply.Rcode = dns.RcodeFormatError
-			} else if errors.Is(err, resolve.ErrCampusIPv6Unsupported) {
-				reply.Rcode = dns.RcodeNotImplemented
-			} else if errors.Is(err, resolve.ErrOriginalDNSRequired) || errors.Is(err, policy.ErrProtectedTarget) {
-				reply.Rcode = dns.RcodeRefused
-			} else {
-				reply.Rcode = dns.RcodeServerFailure
-			}
+		request := new(dns.Msg)
+		if request.Unpack(buffer[:n]) != nil {
+			continue
 		}
-		if transport == "tcp" {
-			if stream.WriteMsg(reply) != nil {
-				return
-			}
-		} else {
-			size := dns.MinMsgSize
-			if option := request.IsEdns0(); option != nil {
-				size = max(size, min(int(option.UDPSize()), maxUDPPacket))
-			}
-			reply.Truncate(size)
-			data, err := reply.Pack()
-			if err != nil {
-				return
-			}
-			n, err := conn.Write(data)
-			if err != nil || n != len(data) {
-				return
-			}
+		answer, err := i.exchangeDNS(request, transport)
+		data, err := dnsDatagram(request, dnsResponse(request, answer, err))
+		if err != nil {
+			return
+		}
+		n, err = conn.Write(data)
+		if err != nil || n != len(data) {
+			return
 		}
 	}
+}
+
+func serveDNSTCP(conn net.Conn, exchange func(*dns.Msg) (*dns.Msg, error)) {
+	stream := &dns.Conn{Conn: conn}
+	for {
+		if conn.SetDeadline(time.Now().Add(tunUDPIdleTimeout)) != nil {
+			return
+		}
+		request, err := stream.ReadMsg()
+		if err != nil {
+			return
+		}
+		answer, err := exchange(request)
+		if stream.WriteMsg(dnsResponse(request, answer, err)) != nil {
+			return
+		}
+	}
+}
+
+func dnsResponse(request, answer *dns.Msg, err error) *dns.Msg {
+	if err == nil && answer != nil {
+		return answer
+	}
+	reply := new(dns.Msg).SetReply(request)
+	switch {
+	case errors.Is(err, resolve.ErrInvalidDNSQuestion):
+		reply.Rcode = dns.RcodeFormatError
+	case errors.Is(err, resolve.ErrCampusIPv6Unsupported):
+		reply.Rcode = dns.RcodeNotImplemented
+	case errors.Is(err, resolve.ErrOriginalDNSRequired), errors.Is(err, policy.ErrProtectedTarget):
+		reply.Rcode = dns.RcodeRefused
+	default:
+		reply.Rcode = dns.RcodeServerFailure
+	}
+	return reply
+}
+
+func dnsDatagram(request, reply *dns.Msg) ([]byte, error) {
+	size := dns.MinMsgSize
+	if option := request.IsEdns0(); option != nil {
+		size = max(size, min(int(option.UDPSize()), maxUDPPacket))
+	}
+	reply.Truncate(size)
+	return reply.Pack()
 }
 
 func (i *tunIngress) exchangeDNS(request *dns.Msg, transport string) (*dns.Msg, error) {
 	ctx, cancel := context.WithTimeout(i.owner.ctx, tunUDPIdleTimeout)
 	defer cancel()
+	return i.exchangeDNSOn(ctx, request, transport, "")
+}
+
+func (i *tunIngress) exchangeDNSOn(ctx context.Context, request *dns.Msg, transport, source string) (*dns.Msg, error) {
+	if i.owner.resolver == nil {
+		return nil, net.ErrClosed
+	}
 	var held []netip.Addr
 	defer func() {
 		if len(held) == 0 {
@@ -98,35 +116,38 @@ func (i *tunIngress) exchangeDNS(request *dns.Msg, transport string) (*dns.Msg, 
 			}
 		}
 	}()
-	return i.owner.resolver.ExchangeTUN(ctx, request, transport, i.owner.dialer.DialCampusIPPort,
-		func(ctx context.Context, addresses []netip.Addr, original bool) error {
-			if original {
-				var err error
-				addresses, err = i.originalDNSRoutes(request.Question[0].Name, addresses)
-				if err != nil {
-					return err
-				}
-			} else if err := i.checkDNSRoutes(request.Question[0].Name, addresses); err != nil {
+	publish := func(ctx context.Context, addresses []netip.Addr, original bool) error {
+		if original {
+			var err error
+			addresses, err = i.originalDNSRoutes(request.Question[0].Name, addresses)
+			if err != nil {
 				return err
 			}
-			if i.publishDNSRoutes == nil || len(addresses) == 0 {
-				return nil
-			}
-			i.mu.Lock()
-			if i.closed {
-				i.mu.Unlock()
-				return net.ErrClosed
-			}
-			if i.publishingDNS == nil {
-				i.publishingDNS = make(map[netip.Addr]int)
-			}
-			for _, address := range addresses {
-				i.publishingDNS[address]++
-			}
-			held = append(held, addresses...)
+		} else if err := i.checkDNSRoutes(request.Question[0].Name, addresses); err != nil {
+			return err
+		}
+		if i.publishDNSRoutes == nil || len(addresses) == 0 {
+			return nil
+		}
+		i.mu.Lock()
+		if i.closed {
 			i.mu.Unlock()
-			return i.publishDNSRoutes(ctx, addresses)
-		})
+			return net.ErrClosed
+		}
+		if i.publishingDNS == nil {
+			i.publishingDNS = make(map[netip.Addr]int)
+		}
+		for _, address := range addresses {
+			i.publishingDNS[address]++
+		}
+		held = append(held, addresses...)
+		i.mu.Unlock()
+		return i.publishDNSRoutes(ctx, addresses)
+	}
+	if source != "" {
+		return i.owner.resolver.ExchangeNative(ctx, request, transport, source, i.owner.dialer.DialCampusIPPort, publish)
+	}
+	return i.owner.resolver.ExchangeTUN(ctx, request, transport, i.owner.dialer.DialCampusIPPort, publish)
 }
 
 func (i *tunIngress) checkDNSRoutes(host string, addresses []netip.Addr) error {

@@ -89,6 +89,13 @@ func (s *Session) OriginalDNSRecords() map[string][]string {
 	return nil
 }
 
+func (s *Session) OriginalDNSListeners() map[string]string {
+	if listeners := s.listeners.Load(); listeners != nil {
+		return listeners.OriginalDNSListeners()
+	}
+	return nil
+}
+
 func (s *Session) ActiveTUNAddresses() []string {
 	if listeners := s.listeners.Load(); listeners != nil {
 		return listeners.ActiveTUNAddresses()

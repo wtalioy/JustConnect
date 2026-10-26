@@ -26,7 +26,8 @@ func (*dnsPacketDevice) TUNAddresses() (netip.Addr, netip.Addr) {
 	return netip.MustParseAddr("198.18.0.1"), netip.MustParseAddr("198.18.0.2")
 }
 
-func TestTUNOriginalDNSAndBoundDataStayOutsideCampus(t *testing.T) {
+func originalDNSInterface(t *testing.T) (string, net.IP) {
+	t.Helper()
 	var iface string
 	var localIP net.IP
 	interfaces, err := net.Interfaces()
@@ -60,6 +61,11 @@ func TestTUNOriginalDNSAndBoundDataStayOutsideCampus(t *testing.T) {
 	if localIP == nil {
 		t.Fatal("no active unicast IPv4 interface for original DNS traffic")
 	}
+	return iface, localIP
+}
+
+func TestTUNOriginalDNSAndBoundDataStayOutsideCampus(t *testing.T) {
+	iface, localIP := originalDNSInterface(t)
 	tcp, err := net.Listen("tcp4", net.JoinHostPort(localIP.String(), "0"))
 	if err != nil {
 		t.Fatal(err)

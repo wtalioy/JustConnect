@@ -142,6 +142,9 @@ func (p *Listeners) AttachTUN(device io.ReadWriteCloser, mtu uint32, publishDNSR
 	i.pumps.Add(2)
 	go func() { defer i.pumps.Done(); defer p.recoverWorker(); i.readPackets(mtu) }()
 	go func() { defer i.pumps.Done(); defer p.recoverWorker(); i.writePackets() }()
+	if p.dnsReady != nil {
+		close(p.dnsReady)
+	}
 	return nil
 }
 

@@ -27,6 +27,11 @@ func TestOriginalDNSSourceValidationAndOrder(t *testing.T) {
 		func(r *OriginalDNSRoute) { r.Servers = []string{"0.0.0.0:53"} },
 		func(r *OriginalDNSRoute) { r.Servers = []string{"255.255.255.255:53"} },
 		func(r *OriginalDNSRoute) { r.Servers = []string{"[ff02::1]:53"} },
+		func(r *OriginalDNSRoute) { r.Source = "native-source"; r.Listen = "localhost:0" },
+		func(r *OriginalDNSRoute) { r.Source = "native-source"; r.Listen = "0.0.0.0:0" },
+		func(r *OriginalDNSRoute) { r.Source = "native-source"; r.Listen = "[::1]:0" },
+		func(r *OriginalDNSRoute) { r.Source = "native-source"; r.Listen = "192.0.2.1:65536" },
+		func(r *OriginalDNSRoute) { r.Listen = "192.0.2.1:0" },
 	} {
 		bad := base
 		mutate(&bad)
@@ -48,6 +53,24 @@ func TestOriginalDNSSourceValidationAndOrder(t *testing.T) {
 	input[0].Servers[0] = "192.0.2.99:53"
 	if compiled.routes[0].Name != exact.Name || !slices.Equal(compiled.routes[0].Servers, []string{"[2001:db8::53]:5353", "192.0.2.54:53"}) || compiled.routes[1].Name != base.Name {
 		t.Fatal("source precedence or immutable server order changed")
+	}
+	base.Listen = "192.0.2.1:0"
+	base.Source = "native-source"
+	exact = base
+	exact.Name = policy.NameRule{Kind: "exact", Value: "private.original.test"}
+	if _, err := NewOriginalDNS([]OriginalDNSRoute{base, exact}); err != nil {
+		t.Fatal("native scopes could not share their one listener", err)
+	}
+	for _, mutate := range []func(*OriginalDNSRoute){
+		func(r *OriginalDNSRoute) { r.Listen = "192.0.2.2:0" },
+		func(r *OriginalDNSRoute) { r.Servers = []string{"192.0.2.54:53"} },
+		func(r *OriginalDNSRoute) { r.EgressInterface = "different-exit" },
+	} {
+		other := exact
+		mutate(&other)
+		if _, err := NewOriginalDNS([]OriginalDNSRoute{base, other}); err == nil {
+			t.Fatal("one native listener accepted inconsistent source identity")
+		}
 	}
 }
 
