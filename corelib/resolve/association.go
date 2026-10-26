@@ -49,6 +49,7 @@ func (r *Resolver) dnsRecords(original bool) map[string][]string {
 	}
 	for host := range result {
 		slices.Sort(result[host])
+		result[host] = slices.Compact(result[host])
 	}
 	return result
 }
@@ -133,7 +134,7 @@ func (r *Resolver) bindDNSAnswer(request, reply *dns.Msg, publish func([]netip.A
 		for address := range addresses {
 			found := false
 			for _, binding := range r.dnsBindings[address] {
-				found = found || (binding.host == host && (binding.originalInterface == "") == (originalInterface == ""))
+				found = found || (binding.host == host && binding.originalInterface == originalInterface)
 			}
 			if !found {
 				n++
@@ -170,7 +171,7 @@ func (r *Resolver) bindDNSAnswer(request, reply *dns.Msg, publish func([]netip.A
 		rows := r.dnsBindings[address]
 		found := false
 		for index := range rows {
-			if rows[index].host == host && (rows[index].originalInterface == "") == (originalInterface == "") {
+			if rows[index].host == host && rows[index].originalInterface == originalInterface {
 				rows[index] = binding
 				found = true
 				break

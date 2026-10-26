@@ -82,7 +82,6 @@ func TestOriginalDNSListenerPreservesSourceAndPublication(t *testing.T) {
 		Servers: []string{upstream}, Interface: iface, EgressInterface: iface, Source: iface, Listen: net.JoinHostPort(local.String(), "0")}
 	shared, alternate, split := base, base, base
 	shared.Name = policy.NameRule{Kind: "exact", Value: "shared.campus.test"}
-	alternate.Name = policy.NameRule{Kind: "exact", Value: "host.second.test"}
 	alternate.Source, alternate.Servers = iface+":alternate", []string{alternateUpstream}
 	interfaces, err := net.Interfaces()
 	if err != nil {
@@ -201,13 +200,18 @@ func TestOriginalDNSListenerPreservesSourceAndPublication(t *testing.T) {
 	if len(endpoints) != 3 || endpoints[iface] == endpoints[alternate.Source] {
 		t.Fatal("native scopes were not grouped by their actual source context", endpoints)
 	}
-	for source, want := range map[string]string{iface: "203.0.113.9", alternate.Source: "203.0.113.11"} {
-		reply, _, err := (&dns.Client{Timeout: 5 * time.Second}).ExchangeContext(t.Context(), new(dns.Msg).SetQuestion("host.second.test.", dns.TypeA), endpoints[source])
-		if err != nil || len(reply.Answer) != 1 || reply.Answer[0].(*dns.A).A.String() != want {
-			t.Fatal("same-interface DNS contexts lost their native source", source, reply, err)
+	for _, transport := range []string{"udp", "tcp"} {
+		for source, want := range map[string]string{iface: "203.0.113.9", alternate.Source: "203.0.113.11"} {
+			reply, _, err := (&dns.Client{Net: transport, Timeout: 5 * time.Second}).ExchangeContext(t.Context(), new(dns.Msg).SetQuestion("private.campus.test.", dns.TypeA), endpoints[source])
+			if err != nil || len(reply.Answer) != 1 || reply.Answer[0].(*dns.A).A.String() != want {
+				t.Fatal("overlapping native DNS contexts lost their selected source", source, reply, err)
+			}
+			if actual, err := r.OriginalInterfaceForIP(t.Context(), netip.MustParseAddr(want)); err != nil || actual != iface {
+				t.Fatal("overlapping DNS sources lost their original data direction", actual, err)
+			}
 		}
 	}
-	if alternateQueries.Load() != 1 {
+	if alternateQueries.Load() != 2 {
 		t.Fatal("a native listener queried another source context")
 	}
 	splitAnswer, _, err := (&dns.Client{Timeout: 5 * time.Second}).ExchangeContext(t.Context(), new(dns.Msg).SetQuestion("split.campus.test.", dns.TypeA), endpoints[split.Source])
