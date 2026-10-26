@@ -26,7 +26,7 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/transport/udp"
 )
 
-type nativeOriginalPeer struct{ tcp, udp atomic.Int32 }
+type nativeOriginalPeer struct{ tcp, udp, nonCampusTCP, nonCampusUDP atomic.Int32 }
 
 func startNativeOriginalPeer(t *testing.T, gateway *gateway) *nativeOriginalPeer {
 	t.Helper()
@@ -54,25 +54,17 @@ func serveNativeOriginalPeer(t *testing.T, gateway *gateway, device io.ReadWrite
 	if err := s.CreateNIC(1, link); err != nil {
 		t.Fatal(err)
 	}
-	for _, ip := range []netip.Addr{address, address.Next()} {
+	for _, ip := range []netip.Addr{address.Prev(), address, address.Next()} {
 		if err := s.AddProtocolAddress(1, tcpip.ProtocolAddress{Protocol: ipv4.ProtocolNumber,
 			AddressWithPrefix: tcpip.AddrFrom4(ip.As4()).WithPrefix()}, stack.AddressProperties{}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	s.AddRoute(tcpip.Route{Destination: header.IPv4EmptySubnet, NIC: 1})
-	stream, err := gonet.ListenTCP(s, tcpip.FullAddress{NIC: 1, Addr: tcpip.AddrFrom4(address.Next().As4()), Port: 80}, ipv4.ProtocolNumber)
-	if err != nil {
-		t.Fatal(err)
-	}
-	datagram, err := gonet.DialUDP(s, &tcpip.FullAddress{NIC: 1, Addr: tcpip.AddrFrom4(address.As4()), Port: 53}, nil, ipv4.ProtocolNumber)
-	if err != nil {
-		t.Fatal(err)
-	}
 	peer := new(nativeOriginalPeer)
 	ctx, cancel := context.WithCancel(t.Context())
 	var workers sync.WaitGroup
-	workers.Add(4)
+	workers.Add(2)
 	go func() {
 		defer workers.Done()
 		data := make([]byte, 65536)
@@ -105,43 +97,63 @@ func serveNativeOriginalPeer(t *testing.T, gateway *gateway, device io.ReadWrite
 			}
 		}
 	}()
-	go func() {
-		defer workers.Done()
-		for {
-			conn, err := stream.Accept()
-			if err != nil {
-				return
-			}
-			workers.Add(1)
-			go func() {
-				defer workers.Done()
-				defer conn.Close()
-				conn.SetDeadline(time.Now().Add(5 * time.Second))
-				peer.tcp.Add(1)
-				if _, err := io.WriteString(conn, "original:"); err == nil {
-					io.Copy(conn, conn)
+	var sockets []io.Closer
+	for index, target := range []netip.Addr{address.Next(), address.Prev()} {
+		stream, err := gonet.ListenTCP(s, tcpip.FullAddress{NIC: 1, Addr: tcpip.AddrFrom4(target.As4()), Port: 80}, ipv4.ProtocolNumber)
+		if err != nil {
+			t.Fatal(err)
+		}
+		udpTarget := address
+		tcpCount, udpCount := &peer.tcp, &peer.udp
+		if index == 1 {
+			udpTarget = target
+			tcpCount, udpCount = &peer.nonCampusTCP, &peer.nonCampusUDP
+		}
+		datagram, err := gonet.DialUDP(s, &tcpip.FullAddress{NIC: 1, Addr: tcpip.AddrFrom4(udpTarget.As4()), Port: 53}, nil, ipv4.ProtocolNumber)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sockets = append(sockets, stream, datagram)
+		workers.Add(2)
+		go func() {
+			defer workers.Done()
+			for {
+				conn, err := stream.Accept()
+				if err != nil {
+					return
 				}
-			}()
-		}
-	}()
-	go func() {
-		defer workers.Done()
-		data := make([]byte, 65536)
-		for {
-			n, addr, err := datagram.ReadFrom(data)
-			if err != nil {
-				return
+				workers.Add(1)
+				go func() {
+					defer workers.Done()
+					defer conn.Close()
+					conn.SetDeadline(time.Now().Add(5 * time.Second))
+					tcpCount.Add(1)
+					if _, err := io.WriteString(conn, "original:"); err == nil {
+						io.Copy(conn, conn)
+					}
+				}()
 			}
-			if _, err := datagram.WriteTo(append([]byte("original:"), data[:n]...), addr); err != nil {
-				return
+		}()
+		go func() {
+			defer workers.Done()
+			data := make([]byte, 65536)
+			for {
+				n, addr, err := datagram.ReadFrom(data)
+				if err != nil {
+					return
+				}
+				udpCount.Add(1)
+				if _, err := datagram.WriteTo(append([]byte("original:"), data[:n]...), addr); err != nil {
+					return
+				}
 			}
-			peer.udp.Add(1)
-		}
-	}()
+		}()
+	}
 	t.Cleanup(func() {
 		cancel()
-		stream.Close()
-		datagram.Close()
+		for _, socket := range sockets {
+			socket.Close()
+		}
 		device.Close()
 		link.Close()
 		workers.Wait()

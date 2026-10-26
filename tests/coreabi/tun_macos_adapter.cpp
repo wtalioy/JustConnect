@@ -191,6 +191,7 @@ int main(int argc,char **argv)
             }
             check(policy.policyStatus() == CoreEngine::RequestStatus::Success && policy.campusAddresses().contains("198.18.0.7"),"Core and helper did not confirm the explicit campus choice");
             exerciseNativeTUNTraffic(QHostAddress("198.18.0.7"));
+            exerciseNonCampusNetworkTraffic();
             publish(".campus-selected"); until([&] { return QFileInfo::exists(marker+".select-original"); });
             for (const auto *address : {"198.18.0.6","198.18.0.7"}) {
                 check(policy.setCampusAddress(QString::fromLatin1(address),false),"Return each actual TCP and UDP target to its original network");

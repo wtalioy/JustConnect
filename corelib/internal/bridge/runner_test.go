@@ -501,6 +501,9 @@ func runNativeTUNHost(t *testing.T, killed bool) (*gateway, []byte) {
 	if original != nil && (original.tcp.Load() != 2 || original.udp.Load() != 4) {
 		t.Fatalf("missing actual original-side exchanges: TCP=%d UDP=%d\n%s", original.tcp.Load(), original.udp.Load(), output)
 	}
+	if original != nil && (original.nonCampusTCP.Load() != 1 || original.nonCampusUDP.Load() != 2) {
+		t.Fatalf("missing non-campus original exchanges: TCP=%d UDP=%d\n%s", original.nonCampusTCP.Load(), original.nonCampusUDP.Load(), output)
+	}
 	return g, output
 }
 

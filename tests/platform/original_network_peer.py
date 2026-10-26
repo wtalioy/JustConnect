@@ -1,6 +1,7 @@
 """An unprivileged original-network echo peer behind an isolated veth link."""
 
 import os
+from contextlib import ExitStack
 from pathlib import Path
 import pwd
 import select
@@ -71,43 +72,46 @@ def serve(uid):
     print('NAMESPACE', flush=True)
     assert sys.stdin.readline() == 'LINK\n'
     for args in [('link', 'set', 'helperpeer0', 'up'), ('address', 'add', '192.0.2.2/24', 'dev', 'helperpeer0'),
+                 ('address', 'add', '198.18.0.5/32', 'dev', 'helperpeer0'),
                  ('address', 'add', '198.18.0.6/32', 'dev', 'helperpeer0'),
                  ('address', 'add', '198.18.0.7/32', 'dev', 'helperpeer0'),
                  ('route', 'add', 'default', 'via', '192.0.2.1', 'dev', 'helperpeer0')]:
         subprocess.run(['ip', *args], check=True, timeout=3)
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as tcp, socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
-        tcp.bind(('198.18.0.7', 80))
-        tcp.listen(4)
-        udp.bind(('198.18.0.6', 53))
+    with ExitStack() as sockets, selectors.DefaultSelector() as selector:
+        for tcp_address, udp_address in [('198.18.0.7', '198.18.0.6'), ('198.18.0.5', '198.18.0.5')]:
+            tcp = sockets.enter_context(socket.socket(socket.AF_INET, socket.SOCK_STREAM))
+            udp = sockets.enter_context(socket.socket(socket.AF_INET, socket.SOCK_DGRAM))
+            tcp.bind((tcp_address, 80))
+            tcp.listen(4)
+            udp.bind((udp_address, 53))
+            selector.register(tcp, selectors.EVENT_READ, 'accept')
+            selector.register(udp, selectors.EVENT_READ, 'udp')
         os.setgroups([])
         os.setgid(pwd.getpwuid(uid).pw_gid)
         os.setuid(uid)
         assert os.getuid() == os.geteuid() == uid
-        with selectors.DefaultSelector() as selector:
-            selector.register(tcp, selectors.EVENT_READ, 'accept')
-            selector.register(udp, selectors.EVENT_READ, 'udp')
-            print('READY', flush=True)
-            try:
-                while True:
-                    for key, _ in selector.select():
-                        if key.data == 'accept':
-                            connection, _ = tcp.accept()
-                            connection.settimeout(3)
-                            connection.sendall(b'original:')
-                            selector.register(connection, selectors.EVENT_READ, 'tcp')
-                        elif key.data == 'udp':
-                            packet, address = udp.recvfrom(65536)
-                            udp.sendto(b'original:' + packet, address)
+        print('READY', flush=True)
+        try:
+            while True:
+                for key, _ in selector.select():
+                    if key.data == 'accept':
+                        connection, _ = key.fileobj.accept()
+                        connection.settimeout(3)
+                        connection.sendall(b'original:')
+                        selector.register(connection, selectors.EVENT_READ, 'tcp')
+                    elif key.data == 'udp':
+                        packet, address = key.fileobj.recvfrom(65536)
+                        key.fileobj.sendto(b'original:' + packet, address)
+                    else:
+                        packet = key.fileobj.recv(65536)
+                        if packet:
+                            key.fileobj.sendall(packet)
                         else:
-                            packet = key.fileobj.recv(65536)
-                            if packet:
-                                key.fileobj.sendall(packet)
-                            else:
-                                selector.unregister(key.fileobj)
-                                key.fileobj.close()
-            finally:
-                for key in list(selector.get_map().values()):
-                    key.fileobj.close()
+                            selector.unregister(key.fileobj)
+                            key.fileobj.close()
+        finally:
+            for key in list(selector.get_map().values()):
+                key.fileobj.close()
 
 
 if __name__ == '__main__':
