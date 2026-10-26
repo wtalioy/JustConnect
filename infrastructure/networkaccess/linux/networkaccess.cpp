@@ -191,10 +191,11 @@ void LinuxNetworkAccess::observeModel()
         invalidateNetwork(QStringLiteral("无法完整读取原网络，正在恢复网络。"));
         return;
     }
-    if (!current || *current != originalExit) {
+    if (!current || *current != originalExit || !linuxOriginalDnsSourcesMatch(*owned,
+        policy->model()["network"].toObject(), policy->model()["dns"].toObject())) {
         observation.stop();
         stage = Stage::Prepared;
-        emit restartRequired(attempt,QStringLiteral("原网络出口已变化，正在恢复网络。"));
+        emit restartRequired(attempt,QStringLiteral("原网络出口或 DNS 来源已变化，正在恢复网络。"));
         return;
     }
     const auto prefixes = updatedCampusCapturePrefixes(policy->model()["resources"].toObject(),policy->confirmedProtection(),owned->dnsDomains);

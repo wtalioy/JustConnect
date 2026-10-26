@@ -1,4 +1,5 @@
 #include "infrastructure/networkhelper/linux/networkownership.h"
+#include "infrastructure/dns/linux/linkdns.h"
 #include "infrastructure/routing/linux/iprouteutility.h"
 #include "networkhelperfixture.h"
 #include <QCoreApplication>
@@ -81,6 +82,97 @@ int main(int argc, char **argv) try
     check(filter(network, foreignDns)->second["resolved"].toObject()["Domains"].toArray().size() == 2, "foreign DNS scope on an owned link was hidden");
     values = resolved;auto wrongLink = link;wrongLink["name"] = "foreign0";values["Links"] = QJsonArray{wrongLink};foreignDns["resolved"] = values;
     check(!filter(network, foreignDns), "DNS link identity mismatch was accepted");
+
+    auto dnsConfiguration = configuration;
+    const QJsonObject originalServer{{"family", AF_INET}, {"address", "192.0.2.53"}, {"port", 0}, {"name", ""}};
+    const QJsonObject ipv6Server{{"family", AF_INET6}, {"address", "2001:db8::53"}, {"port", 5353}, {"name", "upstream.test"}};
+    const QJsonObject expected{{"index", 3}, {"provider", QJsonObject{{"bus", QString(32, 'a')}, {"owner", ":1.2"}}},
+        {"profile", QJsonObject{{"dns", QJsonArray{originalServer, ipv6Server}},
+            {"domains", QJsonArray{QJsonObject{{"name", "original.test"}, {"route_only", true}}}}, {"default_route", true}}},
+        {"security", QJsonObject{{"DNSOverTLS", "no"}, {"DNSSEC", "yes"}}}};
+    dnsConfiguration.originalDns = {{"helperdns0", "192.0.3.1", 47321, expected}};
+    const auto originalFilter = linuxOriginalNetworkView(owner, dnsConfiguration, device, 2);
+    check(bool(originalFilter), "A confirmed native source could not create its original view");
+    auto nativeRow = [](QJsonObject endpoint, int index) {
+        endpoint["server_name"] = endpoint["name"]; endpoint.remove("name"); endpoint["interface_index"] = index;
+        return endpoint;
+    };
+    const auto replaced = nativeRow(linuxLinkDnsEndpoint(owner, "192.0.3.1", 47321), 3);
+    const auto originalRow = nativeRow(originalServer, 3), ipv6Row = nativeRow(ipv6Server, 3);
+    auto unrelated = foreignServer; unrelated["interface_index"] = 4;
+    const QJsonObject nativeLink{{"interface_index", 3}, {"name", "helperdns0"}, {"DefaultRoute", true},
+        {"DNSOverTLS", "no"}, {"DNSSEC", "yes"}};
+    auto nativeNetwork = network; auto interfaces = network["interfaces"].toArray();
+    const QJsonObject sourceInterface{{"index", 3}, {"name", "helperdns0"}, {"up", true}, {"loopback", false},
+        {"addresses", QJsonArray{"192.0.3.1/24"}}};
+    interfaces.append(sourceInterface); nativeNetwork["interfaces"] = interfaces;
+    auto nativeDomain = foreignDomain; nativeDomain["interface_index"] = 3;
+    auto nativeResolved = resolved;
+    nativeResolved["Domains"] = QJsonArray{domain, nativeDomain, foreignDomain};
+    nativeResolved["DNS"] = QJsonArray{server, replaced, unrelated};
+    nativeResolved["Links"] = QJsonArray{link, nativeLink};
+    auto nativeDns = dns; nativeDns["resolved"] = nativeResolved;
+    const auto restoredView = originalFilter(nativeNetwork, nativeDns);
+    auto before = nativeResolved; before["DNS"] = QJsonArray{originalRow, ipv6Row, unrelated};
+    before["Links"] = QJsonArray{nativeLink}; before["Domains"] = QJsonArray{nativeDomain, foreignDomain};
+    check(restoredView && restoredView->second["resolved"] == before
+        && linuxOriginalDnsSourcesMatch(dnsConfiguration, restoredView->first, restoredView->second),
+        "Owned original DNS did not project exact ordered IPv4/IPv6 servers and security");
+    for (const auto &key : {"port", "server_name", "addition", "missing-link", "duplicate-link"}) {
+        auto changed = nativeResolved; auto endpoint = replaced;
+        if (QString(key) == "port") endpoint["port"] = 47322;
+        else if (QString(key) == "server_name") endpoint["server_name"] = "foreign.test";
+        auto servers = QJsonArray{server, endpoint, unrelated};
+        if (QString(key) == "addition") servers.append(originalRow);
+        if (QString(key) == "missing-link") changed["Links"] = QJsonArray{link};
+        if (QString(key) == "duplicate-link") changed["Links"] = QJsonArray{link, nativeLink, nativeLink};
+        changed["DNS"] = servers; auto snapshot = dns; snapshot["resolved"] = changed;
+        const auto external = originalFilter(nativeNetwork, snapshot);
+        servers.removeFirst();
+        check(external && external->second["resolved"].toObject()["DNS"].toArray() == servers
+            && !linuxOriginalDnsSourcesMatch(dnsConfiguration, external->first, external->second),
+            "External original DNS or ambiguous identity was hidden instead of invalidating its source");
+    }
+    for (const auto &key : {"Domains", "DefaultRoute", "DNSOverTLS", "DNSSEC"}) {
+        auto changed = nativeResolved;
+        if (QString(key) == "Domains") {
+            auto updated = nativeDomain; updated["domain"] = "changed.test"; changed["Domains"] = QJsonArray{domain, updated, foreignDomain};
+        } else {
+            auto updated = nativeLink;
+            updated[key] = QString(key) == "DefaultRoute" ? QJsonValue(false) : QJsonValue("changed");
+            changed["Links"] = QJsonArray{link, updated};
+        }
+        auto snapshot = dns; snapshot["resolved"] = changed;
+        const auto external = originalFilter(nativeNetwork, snapshot);
+        auto visibleDomains = changed["Domains"].toArray(), visibleLinks = changed["Links"].toArray();
+        visibleDomains.removeFirst(); visibleLinks.removeFirst();
+        check(external && external->second["resolved"].toObject()["DNS"].toArray() == before["DNS"].toArray()
+            && external->second["resolved"].toObject()["Domains"].toArray() == visibleDomains
+            && external->second["resolved"].toObject()["Links"].toArray() == visibleLinks
+            && !linuxOriginalDnsSourcesMatch(dnsConfiguration, external->first, external->second),
+            "An external DNS scope/default/security change was hidden by endpoint projection");
+    }
+    for (const auto &key : {"name", "up", "addresses"}) {
+        auto changed = sourceInterface;
+        changed[key] = QString(key) == "name" ? QJsonValue("reused0") : QString(key) == "up" ? QJsonValue(false) : QJsonValue(QJsonArray{"192.0.3.2/24"});
+        auto moved = restoredView->first; moved["interfaces"] = QJsonArray{originalInterface, changed};
+        check(!linuxOriginalDnsSourcesMatch(dnsConfiguration, moved, restoredView->second),
+            "A changed DNS-only interface or listener address was hidden by the unchanged data exit");
+    }
+    auto inheritedConfiguration = dnsConfiguration;
+    auto inheritedExpected = expected; auto inheritedSecurity = expected["security"].toObject();
+    inheritedSecurity["DNSOverTLS"] = ""; inheritedExpected["security"] = inheritedSecurity;
+    inheritedConfiguration.originalDns[0].expected = inheritedExpected;
+    auto inherited = before; auto inheritedLink = nativeLink; inheritedLink["DNSOverTLS"] = "";
+    inherited["Links"] = QJsonArray{inheritedLink}; inherited["DNSOverTLS"] = "no";
+    check(linuxOriginalDnsSourcesMatch(inheritedConfiguration, restoredView->first, {{"resolved", inherited}}),
+        "An unchanged inherited plain transport was rejected");
+    inherited["DNSOverTLS"] = "yes";
+    check(!linuxOriginalDnsSourcesMatch(inheritedConfiguration, restoredView->first, {{"resolved", inherited}}),
+        "Changed inherited encryption kept forwarding through the plain listener");
+    inherited["Links"] = QJsonArray{nativeLink};
+    check(linuxOriginalDnsSourcesMatch(dnsConfiguration, restoredView->first, {{"resolved", inherited}}),
+        "A global mode change overrode the explicit native link transport");
     configuration.dnsDomains.clear();
     check(linuxOriginalNetworkView(owner, configuration, device, 2)(network, dns)->second == dns, "IP-only ownership changed the DNS view");
     std::cout << "PASS: owned network projection, external routes/selectors/addresses/DNS, identity and duplicate guards\n";

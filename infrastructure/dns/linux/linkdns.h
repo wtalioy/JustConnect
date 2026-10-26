@@ -3,6 +3,8 @@
 #include <QUuid>
 #include <functional>
 
+QJsonObject linuxLinkDnsEndpoint(const QUuid &owner, const QString &source, quint16 port);
+
 // Owns only a temporary DNS-server replacement on an existing native link.
 // The caller authenticates saved records, persists checkpoints and supplies the trusted system bus.
 class LinuxLinkDns
