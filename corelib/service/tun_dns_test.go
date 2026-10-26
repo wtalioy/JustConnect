@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -23,6 +24,68 @@ type dnsPacketDevice struct{ *packetDevice }
 
 func (*dnsPacketDevice) TUNAddresses() (netip.Addr, netip.Addr) {
 	return netip.MustParseAddr("198.18.0.1"), netip.MustParseAddr("198.18.0.2")
+}
+
+func TestTUNDNSPublicationHoldJoinsOverlappingQueries(t *testing.T) {
+	const host = "hold.campus.test"
+	address := netip.MustParseAddr("203.0.113.9")
+	r := resolve.NewResolver(nil, "", "", 60,
+		client.DomainResources{host: {{Protocol: "tcp", PortMin: 80, PortMax: 80}}},
+		map[string][]net.IP{host: {net.ParseIP(address.String())}}, false)
+	defer r.Close()
+	p := &Listeners{ctx: t.Context(), resolver: r, dialer: dial.NewDialer(nil, r, nil, false)}
+	i := &tunIngress{owner: p}
+	p.tun = i
+	entered := make(chan struct{}, 2)
+	release := [2]chan struct{}{make(chan struct{}), make(chan struct{})}
+	refused := errors.New("publication refused")
+	var next atomic.Int32
+	i.publishDNSRoutes = func(ctx context.Context, _ []netip.Addr) error {
+		index := int(next.Add(1)) - 1
+		entered <- struct{}{}
+		select {
+		case <-release[index]:
+			if index == 0 {
+				return refused
+			}
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	completed := make(chan error, 2)
+	for range 2 {
+		go func() {
+			_, err := i.exchangeDNS(new(dns.Msg).SetQuestion(host+".", dns.TypeA), "udp")
+			completed <- err
+		}()
+	}
+	for range 2 {
+		select {
+		case <-entered:
+		case <-time.After(time.Second):
+			t.Fatal("overlapping DNS publications did not enter")
+		}
+	}
+	checkHeld := func() {
+		t.Helper()
+		if got := p.ActiveTUNAddresses(); len(got) != 1 || got[0] != address.String() || len(r.CampusResourcesForIP(t.Context(), address)) != 0 {
+			t.Fatal("pending capture was absent, duplicated or already authorized", got)
+		}
+	}
+	checkHeld()
+	close(release[0])
+	if err := <-completed; !errors.Is(err, refused) {
+		t.Fatal("publication refusal lost", err)
+	}
+	checkHeld()
+	close(release[1])
+	if err := <-completed; err != nil {
+		t.Fatal(err)
+	}
+	if got := p.ActiveTUNAddresses(); len(got) != 0 || len(r.CampusResourcesForIP(t.Context(), address)) != 1 {
+		t.Fatal("publication hold did not hand over to the committed binding", got)
+	}
 }
 
 func TestTUNDNSUsesOwnedPeerAndCampusACL(t *testing.T) {
@@ -70,6 +133,12 @@ func TestTUNDNSUsesOwnedPeerAndCampusACL(t *testing.T) {
 	release := make(chan bool)
 	publicationCancelled := make(chan struct{})
 	publish := func(ctx context.Context, addresses []netip.Addr) error {
+		for _, address := range addresses {
+			if !slices.Contains(p.ActiveTUNAddresses(), address.String()) {
+				t.Error("pending DNS publication is missing from the capture snapshot", address)
+				break
+			}
+		}
 		publications <- append([]netip.Addr(nil), addresses...)
 		if publicationMode.Load() == 0 {
 			return nil

@@ -44,13 +44,14 @@ type tunIngress struct {
 	mu               sync.Mutex
 	closed           bool
 	flows            map[tunFlow]struct{}
+	publishingDNS    map[netip.Addr]int
 	workers          sync.WaitGroup
 	pumps            sync.WaitGroup
 	local, peer      netip.Addr
 	publishDNSRoutes func(context.Context, []netip.Addr) error
 }
 
-// Keep routes for draining flows without extending their DNS authorization.
+// Hold routes for draining flows and pending DNS publication without extending authorization.
 func (p *Listeners) ActiveTUNAddresses() []string {
 	p.mu.Lock()
 	ingress := p.tun
@@ -66,6 +67,9 @@ func (p *Listeners) ActiveTUNAddresses() []string {
 		if ok && address.Is4() && address != ingress.local && address != ingress.peer {
 			addresses[address.String()] = struct{}{}
 		}
+	}
+	for address := range ingress.publishingDNS {
+		addresses[address.String()] = struct{}{}
 	}
 	result := make([]string, 0, len(addresses))
 	for address := range addresses {
