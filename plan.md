@@ -17,9 +17,9 @@
 
 | 项目 | 当前记录 |
 | --- | --- |
-| 当前任务 | 按 S3 → S4 → S5 推进；S3-01／02／03／04／06、S4-02／03／06 已收尾。已统一职责布局与三平台 C++ 权限助手；三平台普通接管、助手故障及双杀自动验收、六组助手包链已通过。正式签名／桌面与校园实测、原 DNS 重叠转发及剩余平台要求保持待验收 |
+| 当前任务 | 按 S3 → S4 → S5 推进；S3-01／02／03／04／06、S4-02／03／06、S5-04 已收尾。已统一职责布局与三平台 C++ 权限助手；三平台普通接管、助手故障及双杀自动验收、六组助手包链已通过。正式签名／桌面与校园实测、原 DNS 重叠转发及剩余平台要求保持待验收 |
 | 实测状态 | Windows Fudan `8fefd1c` 启用隧道证书例外后认证／隧道成功；Clash Verge TUN 开启时，用户确认手动设置系统代理后网页正常，普通断开及退出重启均无需再次认证，清除缓存后出现认证窗口、手动认证后连接成功。显式 SOCKS／HTTP 的校内 SSH 通信及 HTTP 代理密钥交换通过，未登录；该已交付版本的终端直连与自动接管未验收；开发分支的三平台接管／恢复自动结果见 S4 |
-| S3—S5 剩余 | **9 项未完成**：S3-05；S4-01／04／05；S5-01—05。其中包含已有实现的待验收项；当前优先 Windows 重叠切换联验、出口／DNS 缺口，随后真实桌面／校园验收 |
+| S3—S5 剩余 | **8 项未完成**：S3-05；S4-01／04／05；S5-01／02／03／05。其中包含已有实现的待验收项；当前优先出口／DNS 缺口与原生 SSH 联验，随后真实桌面／校园验收 |
 | 验收范围 | 仅要求 Fudan 实测；按用户决定取消另一台 aTrust 服务器的硬性要求，保留 Custom 实现与服务器／账户隔离回归 |
 | 剩余缺口 | S1-04 真实样本、正式签名／公证、真实桌面／校园透明访问、Clash 共存与剩余平台矩阵未验收；D2 的三平台设备／权限／正常及故障恢复已通过受控自动验证，边界与实机缺口见 S4／S5 |
 | 最新交付 | 通用隧道证书选项预览 `8fefd1c`：[Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/39595437026/artifacts/12343204224)／[ARM64](https://github.com/wtalioy/JustConnect/actions/runs/39595437026/artifacts/12343943637)；代理网页／SSH、断开及重启恢复、清除后重新认证已验证；透明访问待验收，完整验证见[验证与收尾](#implementation-history) |
@@ -219,7 +219,7 @@ Linux x64／ARM64 AppImage 分别减少约 2.07%／1.90%；macOS 安装体积基
 
 前置：已验收的 S1／S2 及当前需要的会话状态、取消与退出契约，不等 S3 整阶段结束。资源／网络只读调查和 D2 隔离实验可先做，结合 D3 共存约束选入口；再实现所需策略、权限与所有权恢复，同组接入 S7-03，避免原型与正式版各写一套。
 
-- [ ] **S4-01**（资源／原生快照及 Linux／macOS 运行中协调已自动验收，Windows／真实桌面待）：读取校园资源、实际接口／路由／DNS、局域网、WSL、Tailscale 和其他覆盖网络，形成可解释的规则模型；保护目标优先，冲突仅按明确范围手动选择。策略同时约束透明入口与核心分流，不把所有受保护目标统一绑定物理网卡。
+- [ ] **S4-01**（三平台地址模型／运行中选边已自动验收，重叠名称 DNS 路径及真实环境待）：读取校园资源、实际接口／路由／DNS、局域网、WSL、Tailscale 和其他覆盖网络，形成可解释的规则模型；保护目标优先，冲突仅按明确范围手动选择。策略同时约束透明入口与核心分流，不把所有受保护目标统一绑定物理网卡。
 - [x] **S4-02**（`e1d2c00` 当前已验证路径的 API 契约及全仓收尾通过；Clash 字段随对应路径增补）：仅为已验证路径的实际需要，通过核心库 API 传入带版本与会话代次的策略；保护范围／冲突选择先接入，上游代理等字段随 Clash 联动补齐，不预建完整策略框架；先校验完整快照，再原子替换并回报生效代次，无效更新保留最后有效版本。取消原跨进程策略文件轮询作为主路径的设计；文件仅按实际需要用于诊断导出。更新与关闭竞态、旧代次拒绝和错误分类须有回归，能力通过 S1 的 ABI／能力查询核对。
 - [x] **S4-03**（三平台快照、应用／回读、持久所有权及恢复后端已验，已收尾）：在 S2-06 的代理恢复基础上，为原型需要的路由、DNS、TUN 操作提供读取快照、应用、回读及按所有权恢复的后端；记录原值、实际修改和本次连接标识，失败能撤销部分完成的操作。外部新设置不被恢复覆盖，未知遗留配置只报告，不猜测或清空。
 - [ ] **S4-04**：按 S1-06 的实际设备权限结论实现最小授权路径：核心仍在 Qt 进程，助手只执行经验证的设备／路由／DNS 操作，验证调用者、会话所有权、参数和授权结果；拒绝或取消不留修改，不交付可任意执行命令的高权限接口。验证 AppImage 挂载路径、只读包、助手可信来源与句柄／fd 归属，不默认给 GUI／WebEngine 整体提权。检测到官方 VPN 运行时提示冲突，不自动终止它。
@@ -261,7 +261,7 @@ Linux x64／ARM64 AppImage 分别减少约 2.07%／1.90%；macOS 安装体积基
 - Windows 活动会话基线已验：协议 2 共用正式所有权／恢复后端，真实 Wintun、NRPT 与捕获协调通过双架构原生及普通 Qt 检查；停止先撤 DNS／捕获，再停核心、释放设备与回执。`f43f9bf` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40231899132)／[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40231899263)全部通过，含原 4096 次往返、外部路由／DNS 保留及 IP／PnP 清理。Qt 仅借出实际服务端管道供 Go 复制，无逐包 Qt 转发；配置准备复用现有推导，共有原出口指纹归路由模块，原网络视图只扣除精确所属行。控制夹具与 SCM 共用机器锁；报告归 `build/reports/windows-native-recovery.json`。
 - Windows 正式应用与故障自动验收已通过：`f765745` 的[双架构原生联验](https://github.com/wtalioy/JustConnect/actions/runs/40258560448)和[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40258496200)全部通过。涵盖普通 Qt／Go 两轮系统 CNAME、策略收敛前后 TCP／UDP／空报文、分段停止、仅助手强杀、Qt／Go 与助手双杀、真实 SCM 独立恢复、新应用完整 DNS／接口指纹比较、旧回执确认及再连接。校园捕获经确认的私有 peer，广播过滤绕行和 Qt Network 依赖已删，严格所有权不变。定向 CI 已验证设备失败后仍收集应用证据且整轮失败，`8ac3988` 的[实际链](https://github.com/wtalioy/JustConnect/actions/runs/40257148546)中 ARM64 通过、x64 应用通过但 SDK 门槛保留失败，其三平台 Tests 通过；原 SDK 批量停滞仍未确诊／修复，不以本轮通过覆盖历史失败。旧 packet-relay 夹具保留独有错误 PID／MTU／句柄断言，定位用逐行策略输出及被替代记录已清理；真实桌面／校园、正式签名及稳定性缺口保留。报告 `build/reports/windows-native-recovery.json`。
 - Windows 助手打包链已验：`49bcd51` 的[六组实际包及源码](https://github.com/wtalioy/JustConnect/actions/runs/40255281719)全部通过；下载六份包报告核对来源／架构／正式助手，源码归档 SHA 与全部 612 文件逐字节匹配 Git。Windows 包包含同源码 C++ 助手、已校验原生驱动及许可证，验证协议 2／存储 1、负载哈希／签名与提权依赖边界；SDK 路径已规范化，双架构实际安装通过。只读 `--version` 不修改网络；当前助手 `identity_ready=false`／`NotSigned`，正式签名与受信桌面授权仍待，不宣称透明接管可用。报告 `build/reports/native-helper-package-49bcd51/summary.json`；此前唯一失败日志保留，架构／ABI 说明中过时的待实现表述已同步。
-- S4-01／S5-04 Windows 重叠地址原生联验待验：复用既有 macOS 原网络对端与正式 C++ Wintun／认证包管道，两轮普通 Qt 会话核对默认原网络、明确校园、撤回原网络的实际 TCP／UDP／空报文及独立计数；保留系统 DNS、原视图、单次授权和完整恢复断言，无产品替身或新依赖。本地核心 101 项及 race、Linux／Windows vet、Windows 双架构与 macOS ARM64 Go 编译通过；C++／原生运行待 CI，本机无相应 SDK。
+- S4-01／S5-04 Windows 重叠地址原生联验已通过：`f5cc9bf` 的[双架构完整原生任务](https://github.com/wtalioy/JustConnect/actions/runs/40270035829)与[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40270035869)通过；逐份下载日志核对每个平台两轮默认原网络→校园→原网络的 TCP／UDP／空报文、独立两侧计数、单次授权、系统 CNAME、原视图及完整 DNS／接口恢复。复用 macOS 原网络对端与正式 C++ Wintun／认证管道，无产品替身；共用夹具、取消／错误边界、构建／CI／文档已回查，设计草稿与临时编译产物已删。Mac／Linux 对应正式后端沿用各自已验原生场景；S5-04 的地址选择要求已满足，S4-01 的重叠名称解析另随 S5-03 完成。报告 `build/reports/windows-original-policy.json`；该轮 Mac x64 formal 未取得最终通过，不将其余对应项通过当作完整矩阵成功；后续 SSH 批次继续覆盖完整矩阵。
 - S4-04 官方客户端冲突提示已自动验收：`a180bf7` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40263827519)及[六组 ABI 对应项](https://github.com/wtalioy/JustConnect/actions/runs/40263827507)通过实际子进程发现／存活／退出、UI 异步及取消契约。普通权限只读检测官方核心，明确连接时提示可能冲突；不终止进程、不推断认证／在线，旧结果丢弃，无托盘时非模态反馈。macOS 改用公开 sysctl 名称表，夹具仅强杀自建子进程，原期限与断言不变；唯一失败及最终证据归 `build/reports/official-client-warning.json`。整体 ABI 的 Linux ARM64 助手重连失败见下；Windows x64 在 UDP 第 3733／4096 次复现原 SDK 停滞，原门槛保留，其他应用检查通过。真实官方版本／桌面通知仍待，依据及边界见[架构](docs/ARCHITECTURE.md)。
 
 - S4-03／06 收尾核对：全仓回查调用方、原生后端、日志／恢复服务、夹具、部署契约、构建／CI 和文档。Linux 验证部分写入、取消、外部同值／改值及 systemd 双杀恢复；macOS 验证动态 DNS 会话所有权、部分回滚、外部路由／DNS 保留、授权取消及 launchd 新进程恢复；Windows 验证持久阶段、外部指标／NRPT 保留、账户／UUID 门槛及 SCM 双杀恢复。`f765745` 的[Windows 双架构完整联验](https://github.com/wtalioy/JustConnect/actions/runs/40258560448)、`967bcaa` 的上述六组对应项及原 Linux／macOS 原生记录覆盖当前实现；恢复后端、调用会话及部署契约相较 `f765745` 无改动，复用有效证据。保留遗留日志读取的明确迁移条件、独有安全／失败回归、当前构建和唯一失败证据，无重复产品后端或本次新增临时产物；仅更新说明无需重建或重打包。
@@ -270,7 +270,7 @@ Linux x64／ARM64 AppImage 分别减少约 2.07%／1.90%；macOS 安装体积基
 - S3-05／S4-06 Windows 故障收尾：故障后的核心停止、未决责任阻止新连接／重复授权、独立服务恢复、完整 DNS／接口与旧回执续接均随上述双架构联验通过。复用原进程交接／日志／SCM 后端，无产品故障钩子或新权限；等待输入逻辑已合并，临时交叉编译产物、已被取代的广播模型报告与逐行诊断已清理；保留唯一失败及当前验证报告。S3-05 的真实桌面授权／注销及 S5 的校园仍待；本条受控恢复已覆盖 S4-06。
 - S3-05／S4-06 交接顺序竞态已自动验收：Qt 队列借用副本在结果发布后才关闭，真实核心＋OS 管道 EOF 回归修复前第 26 次失败；Unix／Windows 现先释放临时副本再回应，正式核心副本与代次／取消不变。64 次交接回归随 `967bcaa` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40267881894)和[六组 ABI／应用对应项](https://github.com/wtalioy/JustConnect/actions/runs/40267882012)通过；本地正式／夹具各 10 轮及 UI／协议／会话／关闭通过。上一轮 Linux ARM64 助手强杀后重连也复验通过，根因关联未直接证实；本轮 Windows x64 独立设备门槛失败，其他五组整体通过，不以对应项通过冒充整轮成功。保留严格就绪诊断及唯一失败，证据 `build/reports/queued-attachment-close.json`。
 
-未完成：系统代理真实注销／无人值守恢复及桌面授权、复杂策略路由／在途流量迁移协调、Windows 运行中重叠选择联验、正式签名／受信部署、各平台真实桌面／校园操作验收、重叠名称原 DNS 转发。S4-03／06 的后端与受控恢复要求已满足；S3-05 的真实系统退出、S4-04 的桌面授权与可信部署及 S5 的最终可用性继续验收。受控结果不替代真实桌面／校园或解决 Windows SDK 停滞。
+未完成：系统代理真实注销／无人值守恢复及桌面授权、复杂策略路由／在途流量迁移协调、正式签名／受信部署、各平台真实桌面／校园操作验收、重叠名称原 DNS 转发。S4-03／06 的后端与受控恢复要求已满足；S3-05 的真实系统退出、S4-04 的桌面授权与可信部署及 S5 的最终可用性继续验收。受控结果不替代真实桌面／校园或解决 Windows SDK 停滞。
 完成条件：三平台具备原型需要的操作与恢复路径，故障注入证明只撤销自身修改；资源、出口和 DNS 规则可解释。记录原型环境与尚未覆盖的系统网络管理方式。
 
 
@@ -282,7 +282,7 @@ Linux x64／ARM64 AppImage 分别减少约 2.07%／1.90%；macOS 安装体积基
 - [ ] **S5-01**（补齐代理数据基线）：SOCKS5／HTTP 的实现、回环限制及受控 TCP／UDP 回归沿用 S1／S2，Windows Fudan 网页／SSH 的实测引用 S2-08。剩余为 Clash 未运行场景、非校园实际出口和校园 UDP 实测，核对实际监听／UDP 中继端口，并补其余平台结果；不重新实现代理，不把 TCP 或 `udp: true` 当成真实 UDP 已通。
 - [ ] **S5-02**：实现最小透明入口，使未设置代理的已打开终端在单次连接后可用普通 SSH 命令直接访问校园 IP，不设置 ProxyCommand／环境变量或重开终端；同时验证非校园 TCP／UDP、局域网和受保护网络行为，不强制使用系统代理覆盖终端。
 - [ ] **S5-03**：复用已交付的核心内部解析器及回归，补系统 DNS 与透明入口的衔接，验证校园域名 SSH、网页、公共域名和 MagicDNS；覆盖 A／AAAA、CNAME、缓存和断开重连。Fake-IP 过滤、选择解析服务器和解析请求的转发分别验证，不清空用户整套 DNS 配置。
-- [ ] **S5-04**（Linux／macOS 精确选择／撤回及同 IP 两侧流量已通过自动验收；Windows／实测待）：验证地址重叠的默认保护、选择校园侧、切回原网络及撤销；明确不能同时访问的相同 IP。保护范围不得扩大成所有私网，校园失败不得偷走直连。
+- [x] **S5-04**（三平台默认保护、明确选择／撤回及同 IP 两侧实际流量已验，已收尾）：验证地址重叠的默认保护、选择校园侧、切回原网络及撤销；明确不能同时访问的相同 IP。保护范围不得扩大成所有私网，校园失败不得偷走直连。
 - [ ] **S5-05**（阶段汇总）：归并 S5-01—04 的 V1 三平台结果，记录实际入口／DNS／出口和关闭后的恢复证据，不另建重复测试轮次。确认 TCP／UDP 与相应 IPv6 能力，某平台缺少入口时补该项，不以其他平台代替。
 
 当前增量：HTTP CONNECT 半关闭修复已通过 `278dc0e` 的三平台 Tests 与六组 Core ABI，正常 EOF 保留反向响应，错误与停止仍结束所属转发；SOCKS／CONNECT 共用真实 TCP 的首包、半关闭和停止回归。完整 Go 21 包／vet 与十轮目标 race 通过，修复前失败及当前证据归 `build/reports/http-halfclose.json`；无 Clash／实际校园 UDP、透明接管及其他平台实机仍待。
@@ -295,7 +295,7 @@ S5-02 整体待验收，当前证据：
 - 会话／Linux fd／C ABI 增量：仅就绪代次接收设备，失败保留原 fd／标志，核心副本随停止释放；真实内核帧／MTU／模式拒绝、普通用户流量、停止／重启及恢复有原生回归，无第二个校园包读取者。`d4430d6` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40052874710)及[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40052874806)全部通过，含 macOS ARM64 普通／race；一秒 TUN 断言、五秒启动、九十秒全包及跳过范围均未放宽。四个维护场景顺序运行，独立认证缓存夹具仍并行，本地相同 96 项 normal／race 为 36.633／38.685 秒；续期观察复用十秒探测预算，确认失效后保留三秒停止。必要失败日志保留；证据 `build/reports/session-tun.json`、`tun-fd-coreabi.json`、`maintenance-probe-budget.json`、`maintenance-scheduling.json`、`maintenance-serial.json`；接口见[原始 fd 契约](docs/CORE-ABI.md#raw-tun-fd)。
 - Linux Qt fd 适配器增量已通过上述 `d4430d6` 完整矩阵：同步保留 fd 后跨线程交付，复用代次／能力／停止检查；普通用户真实 TCP／UDP、立即关闭原 fd、错误 MTU、停止／重连／销毁和恢复通过，收发断言由 Qt／C ABI 共享。34 项 Qt 检查及双架构正式助手交接通过；临时分配器／控制夹具已由正式助手替换，证据 `build/reports/qt-tun-adapter.json`、`helper-core-handoff.json`。三平台正式入口、系统校园 DNS 与动态资源联验见 S4；真实桌面已打开终端／SSH、校园及剩余 DNS 行为仍待，不勾选完整 S5-02。
 
-S5-04 同 IP 两侧流量已通过 `1d5f20f` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40105955318)／[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40105955316)：原网络端为独立网络命名空间内的普通用户 veth TCP／UDP 服务；选择前／撤回后验证原端专属标识，选择校园侧验证校园原载荷与空 UDP，未设置代理。原接口 IPv6 DAD 完成后取基线，原 DNS／IPv4／IPv6 清单继续完整比较；同批 28 安装场景及共享头的正式 ABI 三项通过。复用既有校园网关／接管／恢复链，无产品改动、新依赖或重复 SDK；夹具初始差异及当前证据归 `build/reports/original-peer.json`。保留独有失败、取消、双杀及删除前后检查点，临时诊断已清理；真实校园／SSH、地址过期／在途流量、网络变化与其他平台仍待，不勾选完整任务。
+S5-04 同 IP 两侧流量已通过 `1d5f20f` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40105955318)／[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40105955316)：原网络端为独立网络命名空间内的普通用户 veth TCP／UDP 服务；选择前／撤回后验证原端专属标识，选择校园侧验证校园原载荷与空 UDP，未设置代理。原接口 IPv6 DAD 完成后取基线，原 DNS／IPv4／IPv6 清单继续完整比较；同批 28 安装场景及共享头的正式 ABI 三项通过。复用既有校园网关／接管／恢复链，无产品改动、新依赖或重复 SDK；夹具初始差异及当前证据归 `build/reports/original-peer.json`。保留独有失败、取消、双杀及删除前后检查点，临时诊断已清理；三平台当前地址选择／撤回均已自动验收，收尾与 Windows 证据见 S4；真实校园／SSH 归 S5-01／02，地址寿命／网络变化与名称 DNS 缺口仍分别验收。
 
 S5-03 校园 DNS 地址授权／应答前路由确认与 Linux 应用接管已随 `b4b65f2` 通过上述九项 CI：校园 CNAME 回答后，仅有域名 TCP/80 授权的普通透明 TCP 已完成两次真实收发，DNS 上游仍核对 IP／协议／端口。绑定复用最短 TTL／配置寿命、当前名称／地址保护和学校资源；4096 项、零 TTL 首流、失败／超时／旧代确认与关闭均有回归。公共／原网络 A／AAAA、localhost TCP 及双杀恢复通过；无第二套解析／路由状态或产品地址常量。证据 `build/reports/dns-bindings.json`、`dns-publication.json`、`network-view.json`。地址过期／在途流量安全释放、重叠名称原 DNS 转发、MagicDNS／桌面及其他平台仍待，完整任务不勾选。
 
