@@ -190,7 +190,7 @@ func TestOriginalDNSKeepsRecordsAndDirectionAcrossPolicyChanges(t *testing.T) {
 	}
 	for _, kind := range []uint16{dns.TypeA, dns.TypeAAAA} {
 		reply, err := r.ExchangeTUN(t.Context(), new(dns.Msg).SetQuestion(host+".", kind), "udp", nil, publish)
-		if err != nil || len(reply.Answer) != 2 || reply.Answer[0].Header().Ttl != 3 || reply.Answer[1].Header().Rrtype != kind {
+		if err != nil || len(reply.Answer) != 2 || reply.Answer[0].Header().Ttl != 3 || reply.Answer[1].Header().Ttl != 10 || reply.Answer[1].Header().Rrtype != kind {
 			t.Fatal("original records changed", reply, err)
 		}
 	}

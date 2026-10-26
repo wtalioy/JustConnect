@@ -42,7 +42,7 @@ func TestCampusDNSPacketsPreserveRecordsAndRejectOriginalNames(t *testing.T) {
 	}
 	request := new(dns.Msg).SetQuestion("alias.campus.test.", dns.TypeA)
 	reply, err := r.ExchangeCampus(t.Context(), request, "udp", dial, nil)
-	if err != nil || len(reply.Answer) != 2 || reply.Answer[0].Header().Rrtype != dns.TypeCNAME || reply.Answer[1].Header().Ttl != 5 || reply.Id != request.Id {
+	if err != nil || len(reply.Answer) != 2 || reply.Answer[0].Header().Rrtype != dns.TypeCNAME || reply.Answer[0].Header().Ttl != 5 || reply.Answer[1].Header().Ttl != 5 || reply.Id != request.Id {
 		t.Fatalf("records lost: %v %v", reply, err)
 	}
 	for _, kind := range []uint16{dns.TypeA, dns.TypeAAAA} {
