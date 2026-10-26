@@ -25,7 +25,11 @@ MacNetworkAccess::MacNetworkAccess(CoreEngine *core,NetworkPolicySession *policy
     connect(&helper,&MacNetworkHelperClient::ownershipLost,this,[this](Result result) {
         if (stage == Stage::Ready || stage == Stage::Updating) { observation.stop(); stage = Stage::Prepared; emit lost(attempt,result); }
     });
-    new DNSRoutePublisher<MacNetworkHelperClient>(core,&helper,this,[this] { return stage == Stage::Ready; });
+    new DNSRoutePublisher<MacNetworkHelperClient>(core, &helper, this, [this] { return stage == Stage::Ready; },
+        [this](const QStringList &addresses) -> std::optional<QStringList> {
+            const auto owned = helper.ownedConfiguration();
+            return owned ? excludeCampusCaptureAddresses(owned->capturePrefixes, addresses) : std::nullopt;
+        });
     connect(policy,&NetworkPolicySession::changed,this,&MacNetworkAccess::prepareConfiguration);
     connect(policy,&NetworkPolicySession::changed,this,&MacNetworkAccess::observeModel,Qt::QueuedConnection);
     observation.setInterval(2000);

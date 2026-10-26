@@ -74,7 +74,7 @@ func TestOriginalDNSListenerPreservesSourceAndPublication(t *testing.T) {
 	r.ProtectionPolicy = protection.Load
 	var err error
 	base := resolve.OriginalDNSRoute{Name: policy.NameRule{Kind: "suffix", Value: "campus.test"},
-		Servers: []string{upstream}, Interface: iface, EgressInterface: iface, Source: iface, Listen: net.JoinHostPort(local.String(), "0")}
+		Servers: []string{upstream}, Interface: iface, Source: iface, Listen: net.JoinHostPort(local.String(), "0")}
 	shared, alternate, split := base, base, base
 	shared.Name = policy.NameRule{Kind: "exact", Value: "shared.campus.test"}
 	alternate.Source, alternate.Servers = iface+":alternate", []string{alternateUpstream}
@@ -125,7 +125,10 @@ func TestOriginalDNSListenerPreservesSourceAndPublication(t *testing.T) {
 	publication := make(chan []netip.Addr, 8)
 	acknowledged := make(chan struct{})
 	var publications atomic.Int32
-	if err := p.AttachTUN(&dnsPacketDevice{newPacketDevice()}, 1400, func(ctx context.Context, addresses []netip.Addr) error {
+	if err := p.AttachTUN(&dnsPacketDevice{newPacketDevice()}, 1400, func(ctx context.Context, addresses []netip.Addr, exclude bool) error {
+		if (addresses[0].String() == "203.0.113.10") == exclude {
+			t.Error("wrong native/campus publication direction", addresses, exclude)
+		}
 		if publications.Add(1) == 1 {
 			publication <- addresses
 			select {
@@ -140,15 +143,15 @@ func TestOriginalDNSListenerPreservesSourceAndPublication(t *testing.T) {
 	}
 	select {
 	case addresses := <-publication:
-		if !slices.Equal(addresses, []netip.Addr{netip.MustParseAddr("203.0.113.9")}) || !slices.Contains(p.ActiveTUNAddresses(), "203.0.113.9") {
-			t.Fatal("native DNS publication lost its pending capture", addresses)
+		if !slices.Equal(addresses, []netip.Addr{netip.MustParseAddr("203.0.113.9")}) || slices.Contains(p.ActiveTUNAddresses(), "203.0.113.9") || !slices.Contains(p.OriginalDNSRecords()["private.campus.test"], "203.0.113.9") {
+			t.Fatal("native DNS publication lost its pending exclusion", addresses)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("native DNS did not reach its shared route publisher")
 	}
 	select {
 	case early := <-answer:
-		t.Fatal("native DNS replied before capture confirmation", early)
+		t.Fatal("native DNS replied before exclusion confirmation", early)
 	default:
 	}
 	close(acknowledged)
@@ -201,7 +204,7 @@ func TestOriginalDNSListenerPreservesSourceAndPublication(t *testing.T) {
 			if err != nil || len(reply.Answer) != 1 || reply.Answer[0].(*dns.A).A.String() != want {
 				t.Fatal("overlapping native DNS contexts lost their selected source", source, reply, err)
 			}
-			if actual, err := r.OriginalInterfaceForIP(t.Context(), netip.MustParseAddr(want)); err != nil || actual != iface {
+			if actual, err := r.OriginalDNSProtectedIP(t.Context(), netip.MustParseAddr(want)); err != nil || !actual {
 				t.Fatal("overlapping DNS sources lost their original data direction", actual, err)
 			}
 		}
@@ -213,7 +216,7 @@ func TestOriginalDNSListenerPreservesSourceAndPublication(t *testing.T) {
 	if err != nil || len(splitAnswer.Answer) != 1 || splitAnswer.Answer[0].(*dns.A).A.String() != "203.0.113.12" {
 		t.Fatal("listener interface was incorrectly used as the query interface", splitAnswer, err)
 	}
-	if actual, err := r.OriginalInterfaceForIP(t.Context(), netip.MustParseAddr("203.0.113.12")); err != nil || actual != iface {
+	if actual, err := r.OriginalDNSProtectedIP(t.Context(), netip.MustParseAddr("203.0.113.12")); err != nil || !actual {
 		t.Fatal("query and data exits were conflated", actual, err)
 	}
 	disabled := resolve.NewResolver(campus, "203.0.113.7", "", 30,
@@ -269,7 +272,7 @@ func TestOriginalDNSPreparationBeforeDeviceIsAtomicAndSealed(t *testing.T) {
 	}
 	defer p.Close()
 	base := resolve.OriginalDNSRoute{Name: policy.NameRule{Kind: "suffix", Value: "original.test"}, Servers: []string{upstream},
-		Interface: iface, EgressInterface: iface, Source: iface, Listen: net.JoinHostPort(local.String(), "0")}
+		Interface: iface, Source: iface, Listen: net.JoinHostPort(local.String(), "0")}
 	compile := func(route resolve.OriginalDNSRoute) *resolve.OriginalDNS {
 		value, err := resolve.NewOriginalDNS([]resolve.OriginalDNSRoute{route})
 		if err != nil {
@@ -413,7 +416,7 @@ func TestOriginalDNSCloseBeforeTUNAndPartialBindFailure(t *testing.T) {
 	defer r.Close()
 	configure := func(address string) {
 		r.OriginalDNS, err = resolve.NewOriginalDNS([]resolve.OriginalDNSRoute{{Name: policy.NameRule{Kind: "suffix", Value: "original.test"},
-			Servers: []string{occupied.LocalAddr().String()}, Interface: iface, EgressInterface: iface, Source: iface, Listen: address}})
+			Servers: []string{occupied.LocalAddr().String()}, Interface: iface, Source: iface, Listen: address}})
 		if err != nil {
 			t.Fatal(err)
 		}

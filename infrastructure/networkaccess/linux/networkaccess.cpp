@@ -20,7 +20,11 @@ using Operation = LinuxNetworkHelperClient::Operation;
 LinuxNetworkAccess::LinuxNetworkAccess(CoreEngine *core, NetworkPolicySession *policy, int mtu, QObject *parent)
     : NetworkAccess(parent), core(core), policy(policy), mtu(mtu)
 {
-    new DNSRoutePublisher<LinuxNetworkHelperClient>(core, &helper, this, [this] { return stage == Stage::Ready; });
+    new DNSRoutePublisher<LinuxNetworkHelperClient>(core, &helper, this, [this] { return stage == Stage::Ready; },
+        [this](const QStringList &addresses) -> std::optional<QStringList> {
+            const auto owned = helper.ownedConfiguration();
+            return owned ? excludeCampusCaptureAddresses(owned->capturePrefixes, addresses) : std::nullopt;
+        });
     connect(&helper, &LinuxNetworkHelperClient::finished, this, &LinuxNetworkAccess::helperFinished);
     connect(&helper, &LinuxNetworkHelperClient::stateChanged, this, [this](HelperState state) {
         if (state != HelperState::Idle && state != HelperState::Active)

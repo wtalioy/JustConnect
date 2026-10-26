@@ -122,7 +122,7 @@ func TestOriginalDNSInputBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	config.Protection = &ProtectionConfig{Protected: []string{}, Campus: []string{}, ProtectedNames: []policy.NameRule{{Kind: "suffix", Value: "original.test"}}}
-	config.Network.OriginalDNS = []resolve.OriginalDNSRoute{{Name: config.Protection.ProtectedNames[0], Servers: []string{"192.0.2.53:53"}, Interface: "native-query", EgressInterface: "native-data"}}
+	config.Network.OriginalDNS = []resolve.OriginalDNSRoute{{Name: config.Protection.ProtectedNames[0], Servers: []string{"192.0.2.53:53"}, Interface: "native-query"}}
 	parsed, status := ParseConfig(configBytes(t, config))
 	if status != OK || parsed.originalDNS == nil || len(parsed.Network.OriginalDNS) != 1 {
 		t.Fatal("native DNS source did not cross the session boundary", status)

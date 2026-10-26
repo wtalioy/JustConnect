@@ -34,10 +34,10 @@ func (e *Engine) AttachTUN(handle, generation uint64, device io.ReadWriteCloser,
 	if s.protocol == nil {
 		return Unsupported
 	}
-	var publish func(context.Context, []netip.Addr) error
+	var publish func(context.Context, []netip.Addr, bool) error
 	if publishDNS {
-		publish = func(ctx context.Context, addresses []netip.Addr) error {
-			status := s.publishDNSRoutes(ctx, generation, addresses, 5*time.Second)
+		publish = func(ctx context.Context, addresses []netip.Addr, exclude bool) error {
+			status := s.publishDNSRoutes(ctx, generation, addresses, exclude, 5*time.Second)
 			if status != OK {
 				return errors.New(status.Message())
 			}

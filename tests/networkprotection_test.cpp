@@ -1,6 +1,7 @@
 #include "application/networkprotection.h"
 #include "infrastructure/networkhelper/windows/networkhelperpreparation.h"
 #include <QCoreApplication>
+#include <algorithm>
 #include <QHostAddress>
 #include <QJsonDocument>
 #include <iostream>
@@ -31,16 +32,60 @@ static void captureTargets()
     check(plan->dnsDomains == QStringList{"campus.test"},"DNS domains were not derived from normalized resources");
     auto originalAnswers = resources;
     originalAnswers["original_dns_records"] = QJsonObject{{"private.original.test",QJsonArray{"203.0.113.9","192.168.24.252"}}};
-    const auto originalCapture = campusCaptureTargets(originalAnswers, policy);
-    check(originalCapture && originalCapture->ipv4Prefixes.contains("203.0.113.9/32")
-          && !originalCapture->ipv4Prefixes.contains("192.168.24.252/32")
+    auto originalPolicy = policy;
+    auto protectedNames = policy["protected_names"].toArray();
+    protectedNames.append(QJsonObject{{"kind","suffix"},{"value","original.test"}});
+    originalPolicy["protected_names"] = protectedNames;
+    auto originalIPs = resources["ip_resources"].toArray();
+    originalIPs.append(QJsonObject{{"ip_min","203.0.113.0"},{"ip_max","203.0.113.255"},{"protocol","tcp"},{"port_min",80},{"port_max",80}});
+    originalAnswers["ip_resources"] = originalIPs;
+    originalAnswers["original_dns_records"] = QJsonObject{{"private.original.test",QJsonArray{"203.0.113.9","192.168.24.253"}}};
+    const auto originalCapture = campusCaptureTargets(originalAnswers, originalPolicy);
+    const auto contains = [](const QStringList &prefixes, const QString &address) {
+        return std::any_of(prefixes.begin(),prefixes.end(),[&](const QString &prefix) { return QHostAddress(address).isInSubnet(QHostAddress::parseSubnet(prefix)); });
+    };
+    check(originalCapture && !contains(originalCapture->ipv4Prefixes,"203.0.113.9")
+          && !contains(originalCapture->ipv4Prefixes,"192.168.24.253")
+          && contains(originalCapture->ipv4Prefixes,"203.0.113.8") && contains(originalCapture->ipv4Prefixes,"203.0.113.10")
           && originalCapture->dnsDomains == plan->dnsDomains,
-          "Original answers lost capture or bypassed IP protection or created campus DNS authority");
+          "Original name protection did not withdraw capture or lost unrelated campus targets");
+    originalPolicy["campus_names"] = QJsonArray{"private.original.test"};
+    const auto chosen = campusCaptureTargets(originalAnswers,originalPolicy);
+    check(chosen && contains(chosen->ipv4Prefixes,"203.0.113.9") && contains(chosen->ipv4Prefixes,"192.168.24.253"),
+          "Exact campus name choice did not release its original exclusion");
+    auto shared = originalAnswers["original_dns_records"].toObject();
+    shared["other.original.test"] = QJsonArray{"203.0.113.9"}; originalAnswers["original_dns_records"] = shared;
+    const auto stillProtected = campusCaptureTargets(originalAnswers,originalPolicy);
+    check(stillProtected && !contains(stillProtected->ipv4Prefixes,"203.0.113.9"),"One chosen name removed another name's shared-IP protection");
+    originalPolicy["campus_names"] = QJsonArray{};
+    check(campusCaptureTargets(originalAnswers,originalPolicy)->ipv4Prefixes == originalCapture->ipv4Prefixes,
+          "Withdrawing the campus choice failed to restore original exclusions");
+    for (const auto &rule : {QJsonObject{{"kind","exact"},{"value","private.original.test"}},
+                             QJsonObject{{"kind","prefix"},{"value","private"}},
+                             QJsonObject{{"kind","single_label"},{"value",""}}}) {
+        auto scoped = originalPolicy;
+        scoped["protected_names"] = QJsonArray{rule};
+        auto answers = originalAnswers;
+        answers["campus_dns_enabled"] = false;
+        answers["dns_records"] = QJsonObject{};
+        const auto name = rule["kind"] == "single_label" ? QStringLiteral("private") : QStringLiteral("private.original.test");
+        answers["original_dns_records"] = QJsonObject{{name,QJsonArray{"203.0.113.9"}}};
+        const auto planned = campusCaptureTargets(answers,scoped);
+        check(planned && !contains(planned->ipv4Prefixes,"203.0.113.9"),"Native exact/prefix/single-label protection lost its exclusion");
+    }
+    const auto withdrawn = excludeCampusCaptureAddresses({"198.51.100.0/30","203.0.113.7/32"},
+                                                       {"198.51.100.1","203.0.113.7","198.51.100.200"});
+    check(withdrawn && *withdrawn == QStringList{"198.51.100.0/32","198.51.100.2/31"},"Live withdrawal captured new addresses or lost retained targets");
+    const auto emptyCapture = excludeCampusCaptureAddresses({}, {"203.0.113.7"});
+    check(emptyCapture && emptyCapture->isEmpty(),"An empty owned capture gained authority");
+    for (const auto &invalid : {QStringList{"0.0.0.0/0"},QStringList{"198.51.100.1/24"},QStringList{"::/64"},QStringList{"bad"}})
+        check(!excludeCampusCaptureAddresses(invalid,{"203.0.113.7"}),"Invalid owned prefix produced a partial withdrawal");
+    check(!excludeCampusCaptureAddresses({"203.0.113.7/32"},{"::1"}),"Invalid exclusion address was accepted");
     for (const auto &invalid : {QJsonObject{{"Bad.original.test",QJsonArray{"203.0.113.9"}}},
                                QJsonObject{{"private.original.test",QJsonArray{"invalid"}}},
                                QJsonObject{{"private.original.test",QJsonArray{42}}}}) {
         originalAnswers["original_dns_records"] = invalid;
-        check(!campusCaptureTargets(originalAnswers, policy),"Invalid original answer produced a partial capture plan");
+        check(!campusCaptureTargets(originalAnswers, originalPolicy),"Invalid original answer produced a partial capture plan");
     }
     const QJsonObject allocationNetwork{{"interfaces",QJsonArray{QJsonObject{{"addresses",QJsonArray{"10.0.0.1/8","172.16.0.1/16","2001:db8::1/64"}}}}},
         {"routes",QJsonArray{QJsonObject{{"destination","0.0.0.0/0"}}}}};

@@ -65,7 +65,7 @@ func originalDNSInterface(t *testing.T) (string, net.IP) {
 	return iface, localIP
 }
 
-func TestTUNOriginalDNSAndBoundDataStayOutsideCampus(t *testing.T) {
+func TestTUNOriginalDNSExcludesCaptureAndRejectsRecapturedData(t *testing.T) {
 	iface, localIP := originalDNSInterface(t)
 	tcp, udp := testdns.ListenPair(t, localIP.String())
 	var queries atomic.Int32
@@ -93,7 +93,7 @@ func TestTUNOriginalDNSAndBoundDataStayOutsideCampus(t *testing.T) {
 	r := resolve.NewResolver(nil, "", "", 30, nil, nil, false)
 	t.Cleanup(r.Close)
 	r.ProtectionPolicy = func() *policy.ProtectionPolicy { return &protected }
-	r.OriginalDNS, err = resolve.NewOriginalDNS([]resolve.OriginalDNSRoute{{Name: policy.NameRule{Kind: "suffix", Value: "original.test"}, Servers: []string{tcp.Addr().String()}, Interface: iface, EgressInterface: iface}})
+	r.OriginalDNS, err = resolve.NewOriginalDNS([]resolve.OriginalDNSRoute{{Name: policy.NameRule{Kind: "suffix", Value: "original.test"}, Servers: []string{tcp.Addr().String()}, Interface: iface}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,10 +106,10 @@ func TestTUNOriginalDNSAndBoundDataStayOutsideCampus(t *testing.T) {
 	t.Cleanup(p.Close)
 	device := &dnsPacketDevice{newPacketDevice()}
 	var publications atomic.Int32
-	if err := p.AttachTUN(device, 1400, func(_ context.Context, addresses []netip.Addr) error {
+	if err := p.AttachTUN(device, 1400, func(_ context.Context, addresses []netip.Addr, exclude bool) error {
 		address := netip.MustParseAddr("203.0.113.9")
-		if len(addresses) != 1 || !slices.Contains(p.ActiveTUNAddresses(), addresses[0].String()) || (addresses[0] == address && len(r.OriginalDNSRecords()["capture.original.test"]) != 0) {
-			t.Error("original direction was usable before its capture publication", addresses)
+		if !exclude || len(addresses) != 1 || slices.Contains(p.ActiveTUNAddresses(), addresses[0].String()) || (addresses[0] == address && (len(r.OriginalDNSRecords()["capture.original.test"]) != 0 || !slices.Contains(p.OriginalDNSRecords()["capture.original.test"], address.String()))) {
+			t.Error("original exclusion was absent or became a campus capture before acknowledgement", addresses)
 		}
 		publications.Add(1)
 		return nil
@@ -117,7 +117,6 @@ func TestTUNOriginalDNSAndBoundDataStayOutsideCampus(t *testing.T) {
 		t.Fatal(err)
 	}
 	peer := tunPeer(t, device.packetDevice)
-	source := tcp.Addr().(*net.TCPAddr)
 	for _, transport := range []string{"udp", "tcp"} {
 		for _, entry := range []struct {
 			host string
@@ -125,7 +124,6 @@ func TestTUNOriginalDNSAndBoundDataStayOutsideCampus(t *testing.T) {
 			port uint16
 		}{
 			{"data.original.test.", [4]byte{198, 18, 0, 2}, resolve.DNSPort},
-			{"proof.original.test.", [4]byte(localIP.To4()), uint16(source.Port)},
 		} {
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			target := tcpip.FullAddress{NIC: 1, Addr: tcpip.AddrFrom4(entry.addr), Port: entry.port}
@@ -147,14 +145,27 @@ func TestTUNOriginalDNSAndBoundDataStayOutsideCampus(t *testing.T) {
 			}
 		}
 	}
-	if queries.Load() != 4 || publications.Load() != 2 || len(r.CampusDNSRecords()) != 0 {
+	if queries.Load() != 2 || publications.Load() != 2 || len(r.CampusDNSRecords()) != 0 {
 		t.Fatal("original DNS created campus authority or lost its capture publication", queries.Load(), publications.Load())
+	}
+	for _, transport := range []string{"tcp", "udp"} {
+		conn, err := d.DialCapturedIPPort(t.Context(), transport, tcp.Addr().String())
+		if conn != nil {
+			conn.Close()
+		}
+		if !errors.Is(err, policy.ErrProtectedTarget) {
+			t.Fatal("recaptured original data escaped to a guessed interface", transport, err)
+		}
 	}
 	if _, err := p.tun.exchangeDNS(new(dns.Msg).SetQuestion("capture.original.test.", dns.TypeA), "udp"); err != nil {
 		t.Fatal(err)
 	}
 	if publications.Load() != 3 || slices.Contains(p.ActiveTUNAddresses(), "203.0.113.9") || len(r.OriginalDNSRecords()["capture.original.test"]) != 1 || len(r.CampusDNSRecords()) != 0 {
 		t.Fatal("original publication did not hand over to the canonical binding", publications.Load())
+	}
+	p.tun.publishDNSRoutes = nil
+	if _, err := p.tun.exchangeDNS(new(dns.Msg).SetQuestion("unpublished.original.test.", dns.TypeA), "udp"); !errors.Is(err, policy.ErrProtectedTarget) || len(r.OriginalDNSRecords()["unpublished.original.test"]) != 0 {
+		t.Fatal("missing withdrawal publisher delivered or committed an original answer", err)
 	}
 }
 
@@ -172,7 +183,7 @@ func TestTUNDNSPublicationHoldJoinsOverlappingQueries(t *testing.T) {
 	release := [2]chan struct{}{make(chan struct{}), make(chan struct{})}
 	refused := errors.New("publication refused")
 	var next atomic.Int32
-	i.publishDNSRoutes = func(ctx context.Context, _ []netip.Addr) error {
+	i.publishDNSRoutes = func(ctx context.Context, _ []netip.Addr, _ bool) error {
 		index := int(next.Add(1)) - 1
 		entered <- struct{}{}
 		select {
@@ -264,7 +275,7 @@ func TestTUNDNSUsesOwnedPeerAndCampusACL(t *testing.T) {
 	publications := make(chan []netip.Addr, 16)
 	release := make(chan bool)
 	publicationCancelled := make(chan struct{})
-	publish := func(ctx context.Context, addresses []netip.Addr) error {
+	publish := func(ctx context.Context, addresses []netip.Addr, _ bool) error {
 		for _, address := range addresses {
 			if !slices.Contains(p.ActiveTUNAddresses(), address.String()) {
 				t.Error("pending DNS publication is missing from the capture snapshot", address)

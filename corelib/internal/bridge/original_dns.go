@@ -10,7 +10,7 @@ import (
 
 func compileOriginalDNS(routes []resolve.OriginalDNSRoute) (*resolve.OriginalDNS, error) {
 	for _, route := range routes {
-		if len(route.Interface) > MaxInterfaceName || len(route.EgressInterface) > MaxInterfaceName {
+		if len(route.Interface) > MaxInterfaceName {
 			return nil, errors.New("original DNS interface exceeds its input bound")
 		}
 	}

@@ -69,7 +69,7 @@ func tunDatagramEcho(t *testing.T, peer *net.UDPConn, address *net.UDPAddr) {
 	}
 }
 
-func exerciseProtocolTUN(t *testing.T, e *Engine, h, generation uint64) *net.UDPConn {
+func exerciseProtocolTUN(t *testing.T, e *Engine, h, generation uint64, publish bool) *net.UDPConn {
 	t.Helper()
 	device, peer := tunDatagram(t)
 	for _, test := range []struct {
@@ -84,7 +84,7 @@ func exerciseProtocolTUN(t *testing.T, e *Engine, h, generation uint64) *net.UDP
 		}
 	}
 	address := device.LocalAddr().(*net.UDPAddr)
-	if status := e.AttachTUN(h, generation, device, 1400, false); status != OK {
+	if status := e.AttachTUN(h, generation, device, 1400, publish); status != OK {
 		t.Fatal(status)
 	}
 	extra, extraPeer := tunDatagram(t)

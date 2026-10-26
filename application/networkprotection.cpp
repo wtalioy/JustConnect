@@ -345,6 +345,42 @@ IPv4Ranges subtractRanges(const IPv4Ranges &included, const IPv4Ranges &excluded
     }
     return result;
 }
+
+std::optional<QStringList> prefixesForRanges(const IPv4Ranges &ranges)
+{
+    QStringList result;
+    for (const auto &range : ranges) {
+        for (auto first = range.first; first <= range.second;) {
+            // The owned backend permits /2 through /32; never synthesize a default route.
+            quint64 span = quint64(1) << 30;
+            int bits = 2;
+            while (span > range.second - first + 1 || first % span) { span >>= 1; ++bits; }
+            result.append(QHostAddress(quint32(first)).toString() + "/" + QString::number(bits));
+            if (result.size() > MaxModelItems) return {};
+            first += span;
+        }
+    }
+    return result;
+}
+}
+
+std::optional<QStringList> excludeCampusCaptureAddresses(const QStringList &ownedPrefixes, const QStringList &addresses)
+{
+    if (ownedPrefixes.size() > MaxModelItems || addresses.size() > MaxModelItems) return {};
+    IPv4Ranges included, excluded;
+    for (const auto &prefix : ownedPrefixes) {
+        const auto subnet = QHostAddress::parseSubnet(prefix);
+        if (subnet.first.protocol() != QAbstractSocket::IPv4Protocol || subnet.second < 2 || subnet.second > 32) return {};
+        const quint64 first = subnet.first.toIPv4Address(), span = quint64(1) << (32 - subnet.second);
+        if (first % span || prefix != subnet.first.toString() + "/" + QString::number(subnet.second)) return {};
+        included.append({first, first + span - 1});
+    }
+    for (const auto &text : addresses) {
+        const auto address = ipv4Number(text);
+        if (!address) return {};
+        excluded.append({*address, *address});
+    }
+    return prefixesForRanges(subtractRanges(mergedRanges(included), mergedRanges(excluded)));
 }
 
 std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &resources, const QJsonObject &policy, const QStringList &dynamicAddresses)
@@ -382,17 +418,6 @@ std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &reso
     }
     for (const auto &address : dynamicAddresses)
         if (!ipv4Number(address) || !add(address,address)) return {};
-    if (resources.contains("original_dns_records")) {
-        if (!resources["original_dns_records"].isObject()) return {};
-        const auto originalRecords = resources["original_dns_records"].toObject();
-        if (originalRecords.size() > MaxModelItems) return {};
-        for (auto it = originalRecords.begin(); it != originalRecords.end(); ++it) {
-            const auto name = canonicalProtectionName(it.key());
-            if (!name || *name != it.key() || !it.value().isArray() || it.value().toArray().size() > MaxModelItems) return {};
-            for (const auto &address : it.value().toArray())
-                if (!address.isString() || !add(address.toString(), address.toString())) return {};
-        }
-    }
     for (const auto &value : protectedIPs) {
         if (!value.isString()) return {};
         const auto subnet = QHostAddress::parseSubnet(value.toString());
@@ -414,6 +439,36 @@ std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &reso
         const auto subnet = QHostAddress::parseSubnet(QString::fromLatin1(prefix));
         const quint64 first = subnet.first.toIPv4Address();
         excluded.append({first, first + (quint64(1) << (32 - subnet.second)) - 1});
+    }
+    // Name protection takes precedence over an IP-only campus choice.
+    if (resources.contains("original_dns_records")) {
+        if (!resources["original_dns_records"].isObject()) return {};
+        const auto originalRecords = resources["original_dns_records"].toObject();
+        if (originalRecords.size() > MaxModelItems) return {};
+        qsizetype addressCount = 0;
+        for (auto it = originalRecords.begin(); it != originalRecords.end(); ++it) {
+            const auto name = canonicalProtectionName(it.key());
+            if (!name || *name != it.key() || !it.value().isArray()) return {};
+            bool protectedName = false;
+            for (const auto &entry : names) {
+                if (!entry.isObject()) return {};
+                const auto rule = entry.toObject();
+                const auto kind = rule["kind"].toString(), value = rule["value"].toString();
+                if (kind == "exact") protectedName |= *name == value;
+                else if (kind == "suffix") protectedName |= *name == value || name->endsWith('.' + value);
+                else if (kind == "prefix") protectedName |= name->startsWith(value);
+                else if (kind == "single_label") protectedName |= !name->contains('.');
+                else return {};
+            }
+            if (!protectedName) return {};
+            const bool chosen = campusNames.contains(*name);
+            for (const auto &value : it.value().toArray()) {
+                if (++addressCount > MaxModelItems || !value.isString()) return {};
+                const auto address = ipv4Number(value.toString());
+                if (!address) return {};
+                if (!chosen) excluded.append({*address, *address});
+            }
+        }
     }
     auto routeDomain = [&](QString name) {
         if (name.startsWith("*.")) name.remove(0, 2);
@@ -448,18 +503,9 @@ std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &reso
         for (const auto &value : it.value().toArray())
             if (!value.isString() || !add(value.toString(), value.toString())) return {};
     }
-    const auto ranges = subtractRanges(mergedRanges(included), mergedRanges(excluded));
-    for (const auto &range : ranges) {
-        for (auto first = range.first; first <= range.second;) {
-            // The owned backend permits /2 through /32; never synthesize a default route.
-            quint64 span = quint64(1) << 30;
-            int bits = 2;
-            while (span > range.second - first + 1 || first % span) { span >>= 1; ++bits; }
-            result.ipv4Prefixes.append(QHostAddress(quint32(first)).toString() + "/" + QString::number(bits));
-            if (result.ipv4Prefixes.size() > MaxModelItems) return {};
-            first += span;
-        }
-    }
+    const auto prefixes = prefixesForRanges(subtractRanges(mergedRanges(included), mergedRanges(excluded)));
+    if (!prefixes) return {};
+    result.ipv4Prefixes = *prefixes;
     const QSet<QString> namespaces(result.dnsDomains.begin(), result.dnsDomains.end());
     result.dnsDomains.clear();
     for (const auto &domain : namespaces) {

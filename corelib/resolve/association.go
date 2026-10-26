@@ -15,9 +15,9 @@ import (
 var ErrCampusDNSCapacity = errors.New("campus DNS address binding capacity reached")
 
 type dnsBinding struct {
-	host              string
-	expires           time.Time
-	originalInterface string
+	host     string
+	expires  time.Time
+	original bool
 }
 
 // CampusDNSRecords reads the same live bindings used to authorize transparent traffic.
@@ -43,7 +43,7 @@ func (r *Resolver) dnsRecords(original bool) map[string][]string {
 	now := time.Now()
 	for address, bindings := range r.dnsBindings {
 		for _, binding := range bindings {
-			if (original || binding.expires.After(now)) && (binding.originalInterface != "") == original {
+			if (original || binding.expires.After(now)) && binding.original == original {
 				result[binding.host] = append(result[binding.host], address.String())
 			}
 		}
@@ -56,10 +56,10 @@ func (r *Resolver) dnsRecords(original bool) map[string][]string {
 }
 
 func (r *Resolver) bindCampusAnswer(request, reply *dns.Msg, publish func([]netip.Addr) error) ([]netip.Addr, error) {
-	return r.bindDNSAnswer(request, reply, publish, "")
+	return r.bindDNSAnswer(request, reply, publish, false)
 }
 
-func (r *Resolver) bindDNSAnswer(request, reply *dns.Msg, publish func([]netip.Addr) error, originalInterface string) ([]netip.Addr, error) {
+func (r *Resolver) bindDNSAnswer(request, reply *dns.Msg, publish func([]netip.Addr) error, original bool) ([]netip.Addr, error) {
 	if request.Question[0].Qtype != dns.TypeA || reply.Rcode != dns.RcodeSuccess || reply.Truncated {
 		return nil, nil
 	}
@@ -123,7 +123,7 @@ func (r *Resolver) bindDNSAnswer(request, reply *dns.Msg, publish func([]netip.A
 			return nil, err
 		}
 	}
-	if _, _, granted := matchDomainResource(r.domainIndex, host); !granted && originalInterface == "" {
+	if _, _, granted := matchDomainResource(r.domainIndex, host); !granted && !original {
 		return result, nil
 	}
 	r.cacheMu.Lock()
@@ -135,7 +135,7 @@ func (r *Resolver) bindDNSAnswer(request, reply *dns.Msg, publish func([]netip.A
 		for address := range addresses {
 			found := false
 			for _, binding := range r.dnsBindings[address] {
-				found = found || (binding.host == host && binding.originalInterface == originalInterface)
+				found = found || (binding.host == host && binding.original == original)
 			}
 			if !found {
 				n++
@@ -147,7 +147,7 @@ func (r *Resolver) bindDNSAnswer(request, reply *dns.Msg, publish func([]netip.A
 		for address, bindings := range r.dnsBindings {
 			kept := bindings[:0]
 			for _, binding := range bindings {
-				if binding.originalInterface != "" || binding.expires.After(now) {
+				if binding.original || binding.expires.After(now) {
 					kept = append(kept, binding)
 				} else {
 					r.dnsBindingCount--
@@ -168,11 +168,11 @@ func (r *Resolver) bindDNSAnswer(request, reply *dns.Msg, publish func([]netip.A
 	}
 	for address, ttl := range addresses {
 		// A zero-TTL answer needs a bounded window for the host's first connection.
-		binding := dnsBinding{host: host, expires: now.Add(time.Duration(max(ttl, 1)) * time.Second), originalInterface: originalInterface}
+		binding := dnsBinding{host: host, expires: now.Add(time.Duration(max(ttl, 1)) * time.Second), original: original}
 		rows := r.dnsBindings[address]
 		found := false
 		for index := range rows {
-			if rows[index].host == host && rows[index].originalInterface == originalInterface {
+			if rows[index].host == host && rows[index].original == original {
 				rows[index] = binding
 				found = true
 				break
@@ -184,7 +184,7 @@ func (r *Resolver) bindDNSAnswer(request, reply *dns.Msg, publish func([]netip.A
 		}
 		r.dnsBindings[address] = rows
 	}
-	if originalInterface == "" {
+	if !original {
 		// Downstream caches must not outlive the authorization created for this answer.
 		lifetime := r.dnsTTL
 		for _, ttl := range addresses {
@@ -224,7 +224,7 @@ func (r *Resolver) CampusResourcesForIP(ctx context.Context, address netip.Addr)
 		if !binding.expires.After(now) {
 			continue
 		}
-		if binding.originalInterface != "" {
+		if binding.original {
 			continue
 		}
 		if snapshot != nil {

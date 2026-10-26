@@ -8,7 +8,6 @@ import (
 	"strconv"
 
 	"github.com/wtalioy/JustConnect/corelib/client"
-	socketdialer "github.com/wtalioy/JustConnect/corelib/internal/dialer"
 	"github.com/wtalioy/JustConnect/corelib/internal/ipresource"
 	"github.com/wtalioy/JustConnect/corelib/policy"
 
@@ -54,12 +53,12 @@ func (d *Dialer) DialCapturedIPPort(ctx context.Context, network, address string
 	if d.resolver != nil {
 		if host, _, err := net.SplitHostPort(address); err == nil {
 			if ip, err := netip.ParseAddr(host); err == nil {
-				iface, err := d.resolver.OriginalInterfaceForIP(ctx, ip)
+				original, err := d.resolver.OriginalDNSProtectedIP(ctx, ip)
 				if err != nil {
 					return nil, err
 				}
-				if iface != "" {
-					return (&socketdialer.Dialer{InterfaceName: iface}).DialContext(ctx, network, address)
+				if original {
+					return nil, policy.ErrProtectedTarget
 				}
 				if resources := d.resolver.CampusResourcesForIP(ctx, ip); len(resources) != 0 {
 					ctx = context.WithValue(ctx, resolve.ContextKeyDomainResource, resources)

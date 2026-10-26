@@ -18,11 +18,11 @@ import (
 )
 
 func TestOriginalDNSSourceValidationAndOrder(t *testing.T) {
-	base := OriginalDNSRoute{Name: policy.NameRule{Kind: "suffix", Value: "original.test"}, Servers: []string{"192.0.2.53:53"}, Interface: "native-query", EgressInterface: "native-data"}
+	base := OriginalDNSRoute{Name: policy.NameRule{Kind: "suffix", Value: "original.test"}, Servers: []string{"192.0.2.53:53"}, Interface: "native-query"}
 	for _, mutate := range []func(*OriginalDNSRoute){
 		func(r *OriginalDNSRoute) { r.Name.Value = ".invalid" },
 		func(r *OriginalDNSRoute) { r.Interface = "" },
-		func(r *OriginalDNSRoute) { r.EgressInterface = "bad\x00interface" },
+		func(r *OriginalDNSRoute) { r.Interface = "bad\x00interface" },
 		func(r *OriginalDNSRoute) { r.Servers = nil },
 		func(r *OriginalDNSRoute) { r.Servers = []string{"resolver.original.test:53"} },
 		func(r *OriginalDNSRoute) { r.Servers = []string{"192.0.2.53:0"} },
@@ -66,7 +66,7 @@ func TestOriginalDNSSourceValidationAndOrder(t *testing.T) {
 	for _, mutate := range []func(*OriginalDNSRoute){
 		func(r *OriginalDNSRoute) { r.Listen = "192.0.2.2:0" },
 		func(r *OriginalDNSRoute) { r.Servers = []string{"192.0.2.54:53"} },
-		func(r *OriginalDNSRoute) { r.EgressInterface = "different-exit" },
+		func(r *OriginalDNSRoute) { r.Interface = "different-exit" },
 	} {
 		other := exact
 		mutate(&other)
@@ -93,7 +93,7 @@ func originalLoopback(t *testing.T) string {
 
 func TestOriginalDNSOverlappingScopesRequireNativeSelection(t *testing.T) {
 	base := OriginalDNSRoute{Name: policy.NameRule{Kind: "suffix", Value: "original.test"}, Servers: []string{"192.0.2.53:53"},
-		Interface: "query", EgressInterface: "data", Source: "native-first", Listen: "192.0.2.1:0"}
+		Interface: "query", Source: "native-first", Listen: "192.0.2.1:0"}
 	other := base
 	other.Source = "native-second"
 	other.Servers = []string{"192.0.2.54:53"}
@@ -161,7 +161,7 @@ func TestOriginalDNSKeepsRecordsAndDirectionAcrossPolicyChanges(t *testing.T) {
 	}
 	r := NewResolver(nil, "", "", 30, client.DomainResources{host: {{Protocol: "tcp", PortMin: 80, PortMax: 80}}}, map[string][]net.IP{host: {net.IPv4(203, 0, 113, 9)}, "localhost": {net.IPv4(203, 0, 113, 8)}}, false)
 	defer r.Close()
-	routes := []OriginalDNSRoute{{Name: policy.NameRule{Kind: "suffix", Value: "campus.test"}, Servers: []string{tcp.Addr().String()}, Interface: iface, EgressInterface: iface}}
+	routes := []OriginalDNSRoute{{Name: policy.NameRule{Kind: "suffix", Value: "campus.test"}, Servers: []string{tcp.Addr().String()}, Interface: iface}}
 	var err error
 	r.OriginalDNS, err = NewOriginalDNS(routes)
 	if err != nil {
@@ -182,7 +182,7 @@ func TestOriginalDNSKeepsRecordsAndDirectionAcrossPolicyChanges(t *testing.T) {
 		if !original || len(addresses) != 1 || addresses[0] != address {
 			t.Fatal("wrong DNS publication direction", original, addresses)
 		}
-		if got, _ := r.OriginalInterfaceForIP(t.Context(), address); got != "" {
+		if got, _ := r.OriginalDNSProtectedIP(t.Context(), address); got {
 			t.Fatal("answer became usable before publication")
 		}
 		publications++
@@ -197,8 +197,8 @@ func TestOriginalDNSKeepsRecordsAndDirectionAcrossPolicyChanges(t *testing.T) {
 	if publications != 1 || udpQueries.Load() != 2 || tcpQueries.Load() != 1 {
 		t.Fatal("original UDP/TCP fallback or AAAA path missing", publications, udpQueries.Load(), tcpQueries.Load())
 	}
-	if got, err := r.OriginalInterfaceForIP(t.Context(), address); err != nil || got != iface {
-		t.Fatal("original answer lost its exit", got, err)
+	if got, err := r.OriginalDNSProtectedIP(t.Context(), address); err != nil || !got {
+		t.Fatal("original answer lost native protection", got, err)
 	}
 	if len(r.CampusResourcesForIP(t.Context(), address)) != 0 || len(r.CampusDNSRecords()) != 0 || len(r.OriginalDNSRecords()[host]) != 1 {
 		t.Fatal("original answer created a campus grant or duplicate binding state")
@@ -216,7 +216,7 @@ func TestOriginalDNSKeepsRecordsAndDirectionAcrossPolicyChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	current.Store(&chosen)
-	if got, err := r.OriginalInterfaceForIP(t.Context(), address); got != "" || err != nil {
+	if got, err := r.OriginalDNSProtectedIP(t.Context(), address); got || err != nil {
 		t.Fatal("campus name choice kept an original binding", got, err)
 	}
 	reply, err := r.ExchangeTUN(t.Context(), new(dns.Msg).SetQuestion(host+".", dns.TypeA), "udp", nil, nil)
@@ -230,7 +230,7 @@ func TestOriginalDNSKeepsRecordsAndDirectionAcrossPolicyChanges(t *testing.T) {
 		t.Fatal("same-IP campus choice lost its DNS authorization")
 	}
 	current.Store(&protected)
-	if got, err := r.OriginalInterfaceForIP(t.Context(), address); err != nil || got != iface || len(r.CampusResourcesForIP(t.Context(), address)) != 0 {
+	if got, err := r.OriginalDNSProtectedIP(t.Context(), address); err != nil || !got || len(r.CampusResourcesForIP(t.Context(), address)) != 0 {
 		t.Fatal("same-IP campus refresh destroyed original direction on withdrawal", got, err)
 	}
 	if _, err := r.ExchangeTUN(t.Context(), new(dns.Msg).SetQuestion("localhost.", dns.TypeA), "udp", nil, nil); !errors.Is(err, ErrOriginalDNSRequired) {
@@ -241,7 +241,7 @@ func TestOriginalDNSKeepsRecordsAndDirectionAcrossPolicyChanges(t *testing.T) {
 	}
 }
 
-func TestOriginalDNSBindingFailureExpiryAndExitConflict(t *testing.T) {
+func TestOriginalDNSBindingFailureExpiryAndSharedAddress(t *testing.T) {
 	for _, secondName := range []string{"a.original.test.", "b.original.test."} {
 		t.Run(secondName, func(t *testing.T) {
 			r := NewResolver(nil, "", "", 30, nil, nil, false)
@@ -256,16 +256,16 @@ func TestOriginalDNSBindingFailureExpiryAndExitConflict(t *testing.T) {
 			reply := new(dns.Msg).SetReply(request)
 			reply.Answer = []dns.RR{&dns.A{Hdr: dns.RR_Header{Name: request.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 1}, A: net.IP(address.AsSlice())}}
 			refused := errors.New("route publication refused")
-			if _, err := r.bindDNSAnswer(request, reply, func([]netip.Addr) error { return refused }, "first"); !errors.Is(err, refused) {
+			if _, err := r.bindDNSAnswer(request, reply, func([]netip.Addr) error { return refused }, true); !errors.Is(err, refused) {
 				t.Fatal(err)
 			}
-			if got, _ := r.OriginalInterfaceForIP(t.Context(), address); got != "" || len(r.OriginalDNSRecords()) != 0 {
+			if got, _ := r.OriginalDNSProtectedIP(t.Context(), address); got || len(r.OriginalDNSRecords()) != 0 {
 				t.Fatal("failed publication retained an original route")
 			}
-			if _, err := r.bindDNSAnswer(request, reply, nil, "first"); err != nil {
+			if _, err := r.bindDNSAnswer(request, reply, nil, true); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := r.bindDNSAnswer(request, reply, nil, "first"); err != nil {
+			if _, err := r.bindDNSAnswer(request, reply, nil, true); err != nil {
 				t.Fatal(err)
 			}
 			if r.dnsBindingCount != 1 {
@@ -274,14 +274,18 @@ func TestOriginalDNSBindingFailureExpiryAndExitConflict(t *testing.T) {
 			request.Question[0].Name = secondName
 			reply.Question[0] = request.Question[0]
 			reply.Answer[0].Header().Name = request.Question[0].Name
-			if _, err := r.bindDNSAnswer(request, reply, nil, "second"); err != nil {
+			if _, err := r.bindDNSAnswer(request, reply, nil, true); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := r.OriginalInterfaceForIP(t.Context(), address); !errors.Is(err, ErrOriginalDNSConflict) {
-				t.Fatal("different native exits silently selected a network", err)
+			if original, err := r.OriginalDNSProtectedIP(t.Context(), address); err != nil || !original {
+				t.Fatal("shared address lost its native direction", original, err)
 			}
-			if r.dnsBindingCount != 2 || !slices.Equal(r.OriginalDNSRecords()["a.original.test"], []string{address.String()}) {
-				t.Fatal("native exit records were overwritten or exported duplicate addresses")
+			expected := 1
+			if secondName != "a.original.test." {
+				expected = 2
+			}
+			if r.dnsBindingCount != expected || !slices.Equal(r.OriginalDNSRecords()["a.original.test"], []string{address.String()}) {
+				t.Fatal("native direction records were overwritten or exported duplicate addresses")
 			}
 			beforeExpiry := r.OriginalDNSRecords()
 			r.cacheMu.Lock()
@@ -289,11 +293,11 @@ func TestOriginalDNSBindingFailureExpiryAndExitConflict(t *testing.T) {
 				r.dnsBindings[address][i].expires = time.Now().Add(-time.Second)
 			}
 			r.cacheMu.Unlock()
-			if _, err := r.OriginalInterfaceForIP(t.Context(), address); !errors.Is(err, ErrOriginalDNSConflict) || !reflect.DeepEqual(r.OriginalDNSRecords(), beforeExpiry) {
+			if original, err := r.OriginalDNSProtectedIP(t.Context(), address); err != nil || !original || !reflect.DeepEqual(r.OriginalDNSRecords(), beforeExpiry) {
 				t.Fatal("expired records lost their original direction protection", err)
 			}
 			r.Close()
-			if _, err := r.OriginalInterfaceForIP(t.Context(), address); !errors.Is(err, net.ErrClosed) {
+			if _, err := r.OriginalDNSProtectedIP(t.Context(), address); !errors.Is(err, net.ErrClosed) {
 				t.Fatal("closed resolver served an original route", err)
 			}
 		})
@@ -312,7 +316,7 @@ func TestOriginalDNSDirectionSurvivesExpiryAndCachePressure(t *testing.T) {
 	request := new(dns.Msg).SetQuestion("a.original.test.", dns.TypeA)
 	reply := new(dns.Msg).SetReply(request)
 	reply.Answer = []dns.RR{&dns.A{Hdr: dns.RR_Header{Name: request.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 1}, A: net.IP(address.AsSlice())}}
-	if _, err := r.bindDNSAnswer(request, reply, nil, "original-exit"); err != nil {
+	if _, err := r.bindDNSAnswer(request, reply, nil, true); err != nil {
 		t.Fatal(err)
 	}
 	r.dnsBindings[address][0].expires = time.Time{}
@@ -326,12 +330,12 @@ func TestOriginalDNSDirectionSurvivesExpiryAndCachePressure(t *testing.T) {
 	if len(r.CampusResourcesForIP(t.Context(), address)) != 1 {
 		t.Fatal("missing same-IP campus grant for expiry regression")
 	}
-	if got, err := r.OriginalInterfaceForIP(t.Context(), address); err != nil || got != "original-exit" {
+	if got, err := r.OriginalDNSProtectedIP(t.Context(), address); err != nil || !got {
 		t.Fatal("TTL expiry allowed a shared-IP campus grant to win", got, err)
 	}
 	for _, current := range []*policy.ProtectionPolicy{nil, new(policy.ProtectionPolicy)} {
 		ctx := context.WithValue(t.Context(), ContextKeyProtectionPolicy, current)
-		if _, err := r.OriginalInterfaceForIP(ctx, address); !errors.Is(err, ErrOriginalDNSRequired) {
+		if _, err := r.OriginalDNSProtectedIP(ctx, address); !errors.Is(err, ErrOriginalDNSRequired) {
 			t.Fatal("unknown name policy silently selected an exit", err)
 		}
 	}
@@ -341,12 +345,12 @@ func TestOriginalDNSDirectionSurvivesExpiryAndCachePressure(t *testing.T) {
 	for n := 0; n < maxDNSCacheEntries-2; n++ {
 		filled.Answer = append(filled.Answer, &dns.A{Hdr: dns.RR_Header{Name: fill.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 1}, A: net.IPv4(198, 19, byte(n>>8), byte(n))})
 	}
-	if _, err := r.bindDNSAnswer(fill, filled, nil, "original-exit"); err != nil {
+	if _, err := r.bindDNSAnswer(fill, filled, nil, true); err != nil {
 		t.Fatal(err)
 	}
 	for ip, bindings := range r.dnsBindings {
 		for n := range bindings {
-			if bindings[n].originalInterface != "" {
+			if bindings[n].original {
 				bindings[n].expires = time.Time{}
 			}
 		}
@@ -358,7 +362,7 @@ func TestOriginalDNSDirectionSurvivesExpiryAndCachePressure(t *testing.T) {
 	if _, err := r.bindCampusAnswer(request, reply, nil); !errors.Is(err, ErrCampusDNSCapacity) {
 		t.Fatal("capacity pressure evicted original direction protection", err)
 	}
-	if got, err := r.OriginalInterfaceForIP(t.Context(), address); err != nil || got != "original-exit" {
+	if got, err := r.OriginalDNSProtectedIP(t.Context(), address); err != nil || !got {
 		t.Fatal("cache reclamation changed original direction", got, err)
 	}
 	for address, bindings := range r.dnsBindings {

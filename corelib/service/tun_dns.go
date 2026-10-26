@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/miekg/dns"
@@ -102,17 +103,17 @@ func (i *tunIngress) exchangeDNSOn(ctx context.Context, request *dns.Msg, transp
 	if i.owner.resolver == nil {
 		return nil, net.ErrClosed
 	}
-	var held []netip.Addr
+	var held []dnsPublication
 	defer func() {
 		if len(held) == 0 {
 			return
 		}
 		i.mu.Lock()
 		defer i.mu.Unlock()
-		for _, address := range held {
-			i.publishingDNS[address]--
-			if i.publishingDNS[address] == 0 {
-				delete(i.publishingDNS, address)
+		for _, publication := range held {
+			i.publishingDNS[publication]--
+			if i.publishingDNS[publication] == 0 {
+				delete(i.publishingDNS, publication)
 			}
 		}
 	}()
@@ -123,10 +124,16 @@ func (i *tunIngress) exchangeDNSOn(ctx context.Context, request *dns.Msg, transp
 			if err != nil {
 				return err
 			}
-		} else if err := i.checkDNSRoutes(request.Question[0].Name, addresses); err != nil {
+		} else if err := i.checkDNSRoutes(ctx, request.Question[0].Name, addresses); err != nil {
 			return err
 		}
-		if i.publishDNSRoutes == nil || len(addresses) == 0 {
+		if len(addresses) == 0 {
+			return nil
+		}
+		if i.publishDNSRoutes == nil {
+			if original {
+				return policy.ErrProtectedTarget
+			}
 			return nil
 		}
 		i.mu.Lock()
@@ -135,14 +142,19 @@ func (i *tunIngress) exchangeDNSOn(ctx context.Context, request *dns.Msg, transp
 			return net.ErrClosed
 		}
 		if i.publishingDNS == nil {
-			i.publishingDNS = make(map[netip.Addr]int)
+			i.publishingDNS = make(map[dnsPublication]int)
+		}
+		name := ""
+		if original {
+			name = strings.TrimSuffix(strings.ToLower(request.Question[0].Name), ".")
 		}
 		for _, address := range addresses {
-			i.publishingDNS[address]++
+			publication := dnsPublication{address: address, originalName: name}
+			i.publishingDNS[publication]++
+			held = append(held, publication)
 		}
-		held = append(held, addresses...)
 		i.mu.Unlock()
-		return i.publishDNSRoutes(ctx, addresses)
+		return i.publishDNSRoutes(ctx, addresses, original)
 	}
 	if source != "" {
 		return i.owner.resolver.ExchangeNative(ctx, request, transport, source, i.owner.dialer.DialCampusIPPort, publish)
@@ -150,7 +162,7 @@ func (i *tunIngress) exchangeDNSOn(ctx context.Context, request *dns.Msg, transp
 	return i.owner.resolver.ExchangeTUN(ctx, request, transport, i.owner.dialer.DialCampusIPPort, publish)
 }
 
-func (i *tunIngress) checkDNSRoutes(host string, addresses []netip.Addr) error {
+func (i *tunIngress) checkDNSRoutes(ctx context.Context, host string, addresses []netip.Addr) error {
 	var current *policy.ProtectionPolicy
 	if i.owner.dialer.ProtectionPolicy != nil {
 		current = i.owner.dialer.ProtectionPolicy()
@@ -160,7 +172,15 @@ func (i *tunIngress) checkDNSRoutes(host string, addresses []netip.Addr) error {
 			return policy.ErrProtectedTarget
 		}
 	}
+	ctx = context.WithValue(ctx, resolve.ContextKeyProtectionPolicy, current)
 	for _, address := range addresses {
+		original, err := i.owner.resolver.OriginalDNSProtectedIP(ctx, address)
+		if err != nil {
+			return err
+		}
+		if original {
+			return policy.ErrProtectedTarget
+		}
 		if !address.Is4() || !address.IsGlobalUnicast() || address.IsLoopback() || address == i.local || address == i.peer {
 			return policy.ErrProtectedTarget
 		}
