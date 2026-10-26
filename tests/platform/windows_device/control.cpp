@@ -1,4 +1,5 @@
 #include <winsock2.h>
+#include <ws2ipdef.h> // iphlpapi.h exposes NetIO declarations only after these IP types.
 #include "infrastructure/networkhelper/windows/control.h"
 #include "infrastructure/networkhelper/windows/recovery.h"
 #include "infrastructure/networkhelper/windows/installation.h"
