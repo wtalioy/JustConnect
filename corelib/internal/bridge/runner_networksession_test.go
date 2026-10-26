@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -14,14 +15,18 @@ import (
 )
 
 func TestNativeWindowsSessionHost(t *testing.T) {
-	nativeWindowsSession(t, false)
+	nativeWindowsSession(t, false, false)
 }
 
 func TestNativeWindowsSessionFaults(t *testing.T) {
-	nativeWindowsSession(t, true)
+	nativeWindowsSession(t, true, false)
 }
 
-func nativeWindowsSession(t *testing.T, faults bool) {
+func TestNativeWindowsSessionPolicy(t *testing.T) {
+	nativeWindowsSession(t, false, true)
+}
+
+func nativeWindowsSession(t *testing.T, faults, policy bool) {
 	t.Helper()
 	host := os.Getenv("JC_NATIVE_WINDOWS_SESSION_HOST")
 	if host == "" || os.Getenv("GITHUB_ACTIONS") != "true" {
@@ -35,10 +40,15 @@ func nativeWindowsSession(t *testing.T, faults bool) {
 	g.resourceIP.Store("198.18.0.6")
 	g.nativeDNS.Store(true)
 	g.probeDNS.Store(true)
+	var original *nativeOriginalPeer
+	if policy {
+		original = startWindowsOriginalPeer(t, g)
+	}
 	ctx, cancel := context.WithTimeout(t.Context(), 240*time.Second)
 	defer cancel()
 	command := exec.CommandContext(ctx, "python", runner, "--session-host", host)
 	command.Env = append(os.Environ(), "JC_WINDOWS_SESSION_CONFIG="+string(configBytes(t, g.config(t))))
+	command.Env = append(command.Env, "JC_WINDOWS_SESSION_POLICY="+strconv.FormatBool(policy))
 	rounds := int32(2)
 	if faults {
 		command.Env = append(command.Env, "JC_WINDOWS_SESSION_FAULTS=true")
@@ -52,6 +62,9 @@ func nativeWindowsSession(t *testing.T, faults bool) {
 	}
 	if g.authCount.Load() != rounds || g.tcpCount.Load() != 2*rounds || g.nativeDNSQueries.Load() < rounds || g.udpCount.Load() != 4*rounds+g.nativeDNSQueries.Load() {
 		t.Fatalf("actual application exchanges auth=%d TCP=%d UDP=%d DNS=%d\n%s", g.authCount.Load(), g.tcpCount.Load(), g.udpCount.Load(), g.nativeDNSQueries.Load(), output)
+	}
+	if original != nil && (original.tcp.Load() != 2*rounds || original.udp.Load() != 4*rounds) {
+		t.Fatalf("same-IP original exchanges TCP=%d UDP=%d\n%s", original.tcp.Load(), original.udp.Load(), output)
 	}
 	t.Log(string(output))
 }

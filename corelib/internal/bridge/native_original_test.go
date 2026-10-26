@@ -39,6 +39,13 @@ func startNativeOriginalPeer(t *testing.T, gateway *gateway) *nativeOriginalPeer
 		t.Fatal("original peer requires the disposable macOS policy fixture")
 	}
 	device := os.NewFile(uintptr(fd), "original-utun")
+	var family [4]byte
+	binary.BigEndian.PutUint32(family[:], syscall.AF_INET)
+	return serveNativeOriginalPeer(t, gateway, device, family[:])
+}
+
+func serveNativeOriginalPeer(t *testing.T, gateway *gateway, device io.ReadWriteCloser, family []byte) *nativeOriginalPeer {
+	t.Helper()
 	base, _ := gateway.resourceIP.Load().(string)
 	address := netip.MustParseAddr(base)
 	s := stack.New(stack.Options{NetworkProtocols: []stack.NetworkProtocolFactory{ipv4.NewProtocol},
@@ -63,8 +70,6 @@ func startNativeOriginalPeer(t *testing.T, gateway *gateway) *nativeOriginalPeer
 		t.Fatal(err)
 	}
 	peer := new(nativeOriginalPeer)
-	var family [4]byte
-	binary.BigEndian.PutUint32(family[:], syscall.AF_INET)
 	ctx, cancel := context.WithCancel(t.Context())
 	var workers sync.WaitGroup
 	workers.Add(4)
@@ -76,7 +81,7 @@ func startNativeOriginalPeer(t *testing.T, gateway *gateway) *nativeOriginalPeer
 			if err != nil {
 				return
 			}
-			if n <= len(family) || !bytes.Equal(data[:len(family)], family[:]) {
+			if n <= len(family) || !bytes.Equal(data[:len(family)], family) {
 				continue
 			}
 			packet := stack.NewPacketBuffer(stack.PacketBufferOptions{Payload: buffer.MakeWithData(bytes.Clone(data[len(family):n]))})
@@ -92,7 +97,7 @@ func startNativeOriginalPeer(t *testing.T, gateway *gateway) *nativeOriginalPeer
 				return
 			}
 			view := packet.ToView()
-			data := append(bytes.Clone(family[:]), view.AsSlice()...)
+			data := append(bytes.Clone(family), view.AsSlice()...)
 			view.Release()
 			packet.DecRef()
 			if _, err := device.Write(data); err != nil {

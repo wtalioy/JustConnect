@@ -47,6 +47,8 @@ int main(int argc,char **argv) try
     QCoreApplication app(argc,argv);QStandardPaths::setTestModeEnabled(true);
     check((argc==5 || argc==6) && QByteArray(argv[1])=="--client" && QByteArray(argv[3])=="network" && qgetenv("GITHUB_ACTIONS")=="true","disposable Windows application fixture only");
     const auto fault=argc==6?QByteArray(argv[5]):QByteArray{};
+    const bool policyChanges=qgetenv("JC_WINDOWS_SESSION_POLICY")=="true";
+    check(!policyChanges || fault.isEmpty(),"policy changes use normal ownership restoration");
     check(fault.isEmpty() || fault=="helper-loss" || fault=="dual-kill","known application fault scenario");
     bool valid=false;const auto replyValue=QByteArray(argv[4]).toULongLong(&valid);check(valid && replyValue,"application approval reply pipe");
     const auto reply=reinterpret_cast<HANDLE>(quintptr(replyValue));
@@ -120,12 +122,31 @@ int main(int argc,char **argv) try
     until("finish original-network policy observation",[&]{return !policy.isBusy();});
     check(policy.status()==CoreEngine::RequestStatus::Success && policy.confirmedProtection()["protected"]==initialProtection["protected"]
         && policy.confirmedProtection()["protected_names"]==initialProtection["protected_names"],"owned routes/DNS never become original protection");
+    const auto chooseCampus=[&](bool campus){
+        for(const auto *address:{"198.18.0.6","198.18.0.7"}){
+            check(policy.setCampusAddress(QString::fromLatin1(address),campus),"choose each overlapping TCP/UDP target");
+            until("confirm core and helper target policy",[&]{return !policy.isBusy();});
+            check(policy.policyStatus()==CoreEngine::RequestStatus::Success,"core and native helper confirm the target choice");
+        }
+    };
+    if(policyChanges){
+        check(policy.campusAddresses().isEmpty(),"overlapping targets default to their original network");
+        exerciseOriginalNetworkTraffic();
+        chooseCampus(true);
+    }
     auto lookup=QtConcurrent::run([]{return QHostInfo::fromName("campus.test");});until("complete system campus DNS lookup",[&]{return lookup.isFinished();});
     const auto answer=lookup.result();check(answer.error()==QHostInfo::NoError && answer.addresses().contains(QHostAddress("198.18.0.7")),"ordinary Windows system DNS follows campus CNAME through the actual core");
     exerciseNativeTUNTraffic(QHostAddress("198.18.0.7"));
     until("finish original-network policy observation",[&]{return !policy.isBusy();});check(policy.refresh(),"refresh original view after DNS capture publication");until("finish original-network policy observation",[&]{return !policy.isBusy();});
     check(policy.status()==CoreEngine::RequestStatus::Success && policy.confirmedProtection()["protected"]==initialProtection["protected"],"new DNS captures remain excluded from original protection");
     exerciseNativeTUNTraffic(QHostAddress("198.18.0.7"));
+    if(policyChanges){
+        const auto generation=policy.currentGeneration();
+        chooseCampus(false);
+        check(policy.campusAddresses().isEmpty() && session.state()==ConnectionState::Running && policy.currentGeneration()==generation,
+            "returning to the original network preserves the authenticated session");
+        exerciseOriginalNetworkTraffic();
+    }
     if(!fault.isEmpty()){
         DWORD count=0;
         check(WriteFile(reply,&baseline,sizeof(baseline),&count,nullptr) && count==sizeof(baseline),"real traffic checkpoint reaches root fixture");CloseHandle(reply);
@@ -140,6 +161,7 @@ int main(int argc,char **argv) try
     session.stop();until("finish staged network/core restoration",[&]{return finished==3;},20000);
     check(authorizations==3 && approvals==1 && !session.isActive() && interfaceAddresses()==initialAddresses && dnsSnapshot()==initialDns,
         "single approval, owned device removal and complete original DNS/interface restoration");
+    if(policyChanges)std::cout<<"PASS: Windows same-IP original/campus/original TCP, UDP and empty datagrams without reauthentication\n";
     std::cout<<"PASS: ordinary Windows application/native helper/Go core system DNS, TCP/UDP and empty datagrams, staged stop and complete restore\n";
     return 0;
 }catch(const std::exception &error){std::cerr<<error.what()<<'\n';return 1;}
