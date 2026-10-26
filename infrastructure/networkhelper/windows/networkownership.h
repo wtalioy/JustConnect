@@ -8,6 +8,6 @@ public:
         const QJsonObject &network,const QJsonObject &dns);
     NetworkPolicySession::OriginalViewFilter filter(const QJsonObject &configuration) const;
 private:
-    QJsonObject device,peerRoute,interfaceSnapshot;
+    QJsonObject device,peerRoute,localRoute,interfaceSnapshot;
     QJsonArray automaticRoutes,dnsPolicies,dnsInterfaces,dnsClients;
 };
