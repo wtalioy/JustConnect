@@ -492,6 +492,7 @@ def main():
                                     source_baseline, source_dns = inventory(), original_dns()
                                     for address in ('198.18.0.6/32', '198.18.0.7/32'):
                                         ip('route', 'add', address, 'dev', 'helperorig0')
+                                    resolver.run('/usr/bin/resolvectl', 'log-level', 'debug')
                                     try:
                                         output = run(*native_command, env={**application_environment, 'JC_NATIVE_NETWORK_CHOICES': '1',
                                                      'JC_NATIVE_NETWORK_ORIGINAL_DNS': '1'}, user=args.uid, group=account.pw_gid, extra_groups=())
@@ -500,6 +501,8 @@ def main():
                                         print(output, end='', flush=True)
                                         client_cases.append('application-original-dns')
                                     finally:
+                                        shutil.copyfile(resolver.root / 'resolved.log', ROOT / 'build/coreabi/linux-original-dns-resolved.log')
+                                        resolver.run('/usr/bin/resolvectl', 'log-level', 'info')
                                         for address in ('198.18.0.6/32', '198.18.0.7/32'):
                                             ip('route', 'del', address, 'dev', 'helperorig0')
                                     assert inventory() == source_baseline and original_dns() == source_dns, 'automatic original DNS source replacement was not fully restored'

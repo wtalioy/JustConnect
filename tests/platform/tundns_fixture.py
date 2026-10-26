@@ -209,7 +209,7 @@ class OriginalDnsServer:
                         self.queries.append(hostname)
                         break
                 else:
-                    raise AssertionError('original resolver received an unexpected query')
+                    raise AssertionError(f'original resolver received an unexpected question: {query[12:76]!r}')
             except BaseException as error:
                 self.errors.append(str(error))
                 return
@@ -219,6 +219,8 @@ class OriginalDnsServer:
         self.thread.join(timeout=2)
         self.socket.close()
         self.resolver.run('ip', 'address', 'del', self.address + '/32', 'dev', self.interface)
+        if self.errors:
+            print('original DNS errors:', self.errors, 'queries:', self.queries, file=sys.stderr)
         if kind is None:
             assert not self.thread.is_alive() and not self.errors, self.errors
 

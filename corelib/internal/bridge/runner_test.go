@@ -514,7 +514,7 @@ func runNativeTUNHost(t *testing.T, killed bool) (*gateway, []byte) {
 			t.Fatalf("native host did not terminate by the injected signal: %v\n%s", err, output)
 		}
 	} else if err != nil {
-		t.Fatalf("native TUN/C ABI host: %v\n%s", err, output)
+		t.Fatalf("native TUN/C ABI host: %v; auth=%d TCP=%d UDP=%d DNS=%d\n%s", err, g.authCount.Load(), g.tcpCount.Load(), g.udpCount.Load(), g.nativeDNSQueries.Load(), output)
 	}
 	if original != nil && (original.tcp.Load() != 2 || original.udp.Load() != 4) {
 		t.Fatalf("missing actual original-side exchanges: TCP=%d UDP=%d\n%s", original.tcp.Load(), original.udp.Load(), output)
