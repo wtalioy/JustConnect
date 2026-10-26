@@ -61,7 +61,7 @@ func TestProtocolOwnsOriginalDNSListeners(t *testing.T) {
 			config := g.config(t)
 			config.Protection = &ProtectionConfig{Protected: []string{}, Campus: []string{}, ProtectedNames: []policy.NameRule{{Kind: "suffix", Value: "original.test"}}}
 			config.Network.OriginalDNS = []resolve.OriginalDNSRoute{{Name: config.Protection.ProtectedNames[0],
-				Servers: []string{upstream.LocalAddr().String()}, Interface: loopback, EgressInterface: loopback, Source: loopback, Listen: "127.0.0.1:0"}}
+				Servers: []string{upstream.LocalAddr().String()}, Interface: loopback, Source: loopback, Listen: "127.0.0.1:0"}}
 			sources := config.Network.OriginalDNS
 			if late {
 				config.Network.OriginalDNS = nil
@@ -145,11 +145,50 @@ func TestProtocolOwnsOriginalDNSListeners(t *testing.T) {
 				if err != nil || endpoint.Port() == 0 || !endpoint.Addr().IsLoopback() {
 					t.Fatal("session did not publish its actual prepared DNS endpoint", address, err)
 				}
-				exerciseProtocolTUN(t, e, h, ready.Generation)
+				exerciseProtocolTUN(t, e, h, ready.Generation, true)
 				if value, status := prepare(ready.Generation, sources); status != Busy || value != 0 {
 					t.Fatal("attached device allowed source replacement", value, status)
 				}
-				reply, _, err := (&dns.Client{Timeout: 5 * time.Second}).ExchangeContext(t.Context(), new(dns.Msg).SetQuestion("host.original.test.", dns.TypeA), address)
+				type dnsResult struct {
+					reply *dns.Msg
+					err   error
+				}
+				completed := make(chan dnsResult, 1)
+				go func() {
+					reply, _, err := (&dns.Client{Timeout: 5 * time.Second}).ExchangeContext(t.Context(), new(dns.Msg).SetQuestion("host.original.test.", dns.TypeA), address)
+					completed <- dnsResult{reply, err}
+				}()
+				publication := next(t, e, h)
+				if publication.Type != "dns_routes" || !publication.Exclude || publication.Generation != ready.Generation || len(publication.Addresses) != 1 || publication.Addresses[0] != "203.0.113.9" {
+					t.Fatal("original DNS did not request native capture withdrawal", publication)
+				}
+				if held := readResources().OriginalDNSRecords["host.original.test"]; len(held) != 1 || held[0] != "203.0.113.9" {
+					t.Fatal("pending exclusion was missing from the resource handoff", held)
+				}
+				select {
+				case early := <-completed:
+					t.Fatal("original answer escaped before withdrawal", early)
+				default:
+				}
+				// A campus query may have passed validation before this original publication.
+				campusQueued := make(chan Status, 1)
+				go func() {
+					campusQueued <- e.lookup(h).publishDNSRoutes(t.Context(), ready.Generation,
+						[]netip.Addr{netip.MustParseAddr("203.0.113.9")}, false, 5*time.Second)
+				}()
+				if status := e.AcknowledgeDNSRoutes(h, ready.Generation, publication.RequestID, true); status != OK {
+					t.Fatal(status)
+				}
+				select {
+				case status := <-campusQueued:
+					if status != NetworkFailure {
+						t.Fatal("queued campus publication recaptured an original answer", status)
+					}
+				case <-time.After(time.Second):
+					t.Fatal("queued campus publication reached route confirmation after original exclusion")
+				}
+				result := <-completed
+				reply, err := result.reply, result.err
 				if err != nil || len(reply.Answer) != 1 || reply.Answer[0].(*dns.A).A.String() != "203.0.113.9" {
 					t.Fatal("actual protocol session did not forward through original DNS", reply, err)
 				}
@@ -204,7 +243,7 @@ func TestNativeOriginalDNSPreparationHost(t *testing.T) {
 	config := g.config(t)
 	loopback := originalDNSLoopback(t)
 	config.Network.OriginalDNS = []resolve.OriginalDNSRoute{{Name: policy.NameRule{Kind: "suffix", Value: "original.test"},
-		Servers: []string{upstream.LocalAddr().String()}, Interface: loopback, EgressInterface: loopback, Source: loopback, Listen: "127.0.0.1:0"}}
+		Servers: []string{upstream.LocalAddr().String()}, Interface: loopback, Source: loopback, Listen: "127.0.0.1:0"}}
 	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 	defer cancel()
 	output, err := exec.CommandContext(ctx, host, "--original-dns-gateway", string(configBytes(t, config))).CombinedOutput()

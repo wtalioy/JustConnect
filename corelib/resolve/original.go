@@ -16,12 +16,11 @@ import (
 // OriginalDNSRoute is an already selected native resolver scope. Routes are in
 // native precedence order; the host must not infer servers from captured DNS.
 type OriginalDNSRoute struct {
-	Name            policy.NameRule `json:"name"`
-	Servers         []string        `json:"servers"`
-	Interface       string          `json:"interface"`
-	EgressInterface string          `json:"egress_interface"`
-	Listen          string          `json:"listen,omitempty"`
-	Source          string          `json:"source,omitempty"`
+	Name      policy.NameRule `json:"name"`
+	Servers   []string        `json:"servers"`
+	Interface string          `json:"interface"`
+	Listen    string          `json:"listen,omitempty"`
+	Source    string          `json:"source,omitempty"`
 }
 
 type originalDNSRoute struct {
@@ -34,8 +33,6 @@ type OriginalDNS struct {
 	routes    []originalDNSRoute
 	listeners map[string]int
 }
-
-var ErrOriginalDNSConflict = errors.New("original DNS answers require different network exits")
 
 // NewOriginalDNS validates and copies native resolver routes before a session starts.
 // Only plain DNS sources belong here; native encrypted/security policy cannot be downgraded.
@@ -52,10 +49,8 @@ func NewOriginalDNS(routes []OriginalDNSRoute) (*OriginalDNS, error) {
 		if err != nil || len(route.Servers) == 0 || servers > maxDNSCacheEntries {
 			return nil, errors.New("invalid original DNS scope")
 		}
-		for _, name := range []string{route.Interface, route.EgressInterface} {
-			if name == "" || strings.ContainsAny(name, "\x00\r\n") {
-				return nil, errors.New("invalid original DNS interface")
-			}
+		if route.Interface == "" || strings.ContainsAny(route.Interface, "\x00\r\n") {
+			return nil, errors.New("invalid original DNS interface")
 		}
 		for _, server := range route.Servers {
 			endpoint, err := netip.ParseAddrPort(server)
@@ -95,8 +90,7 @@ func NewOriginalDNS(routes []OriginalDNSRoute) (*OriginalDNS, error) {
 		}
 	}
 	for _, route := range compiled {
-		if index, found := listeners[route.Source]; found && (compiled[index].Interface != route.Interface || compiled[index].EgressInterface != route.EgressInterface ||
-			!slices.Equal(compiled[index].Servers, route.Servers)) {
+		if index, found := listeners[route.Source]; found && (compiled[index].Interface != route.Interface || !slices.Equal(compiled[index].Servers, route.Servers)) {
 			return nil, errors.New("one native DNS listener requires one original server list and exit")
 		}
 	}
@@ -153,7 +147,7 @@ func (r *Resolver) exchangeOriginalRoute(ctx context.Context, request *dns.Msg, 
 		if publish != nil {
 			prepare = func(addresses []netip.Addr) error { return publish(ctx, addresses, true) }
 		}
-		_, err = r.bindDNSAnswer(request, reply, prepare, route.EgressInterface)
+		_, err = r.bindDNSAnswer(request, reply, prepare, true)
 		return reply, err
 	}
 	return nil, last
@@ -161,12 +155,12 @@ func (r *Resolver) exchangeOriginalRoute(ctx context.Context, request *dns.Msg, 
 
 // Original direction outlives DNS TTL: a lingering capture must never become a campus grant.
 // Name protection wins when two names resolve to the same address.
-func (r *Resolver) OriginalInterfaceForIP(ctx context.Context, address netip.Addr) (string, error) {
+func (r *Resolver) OriginalDNSProtectedIP(ctx context.Context, address netip.Addr) (bool, error) {
 	r.resolutionMu.Lock()
 	closed := r.resolutionClosed
 	r.resolutionMu.Unlock()
 	if closed {
-		return "", net.ErrClosed
+		return false, net.ErrClosed
 	}
 	snapshot, captured := ctx.Value(ContextKeyProtectionPolicy).(*policy.ProtectionPolicy)
 	if !captured && r.ProtectionPolicy != nil {
@@ -174,25 +168,19 @@ func (r *Resolver) OriginalInterfaceForIP(ctx context.Context, address netip.Add
 	}
 	r.cacheMu.Lock()
 	defer r.cacheMu.Unlock()
-	var result string
+	protectedIP := false
 	for _, binding := range r.dnsBindings[address.Unmap()] {
-		if binding.originalInterface == "" {
+		if !binding.original {
 			continue
 		}
 		if snapshot == nil {
-			return "", ErrOriginalDNSRequired
+			return false, ErrOriginalDNSRequired
 		}
 		allowed, protected := snapshot.CampusNameAllowed(binding.host)
 		if !protected {
-			return "", ErrOriginalDNSRequired
+			return false, ErrOriginalDNSRequired
 		}
-		if allowed {
-			continue
-		}
-		if result != "" && result != binding.originalInterface {
-			return "", ErrOriginalDNSConflict
-		}
-		result = binding.originalInterface
+		protectedIP = protectedIP || !allowed
 	}
-	return result, nil
+	return protectedIP, nil
 }

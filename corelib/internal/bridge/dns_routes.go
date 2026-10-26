@@ -15,7 +15,7 @@ type pendingDNSRoutes struct {
 }
 
 // One request owns the event slot until acknowledged, expired or cancelled.
-func (s *Session) publishDNSRoutes(parent context.Context, generation uint64, addresses []netip.Addr, wait time.Duration) Status {
+func (s *Session) publishDNSRoutes(parent context.Context, generation uint64, addresses []netip.Addr, exclude bool, wait time.Duration) Status {
 	s.mu.Lock()
 	if !s.running || s.stopping || generation != s.generation {
 		s.mu.Unlock()
@@ -53,9 +53,29 @@ func (s *Session) publishDNSRoutes(parent context.Context, generation uint64, ad
 	for index, address := range addresses {
 		values[index] = address.String()
 	}
+	// Recheck after serialization: an earlier original reply may have withdrawn this address.
+	if !exclude && s.protocol != nil {
+		wanted := make(map[string]struct{}, len(values))
+		for _, address := range values {
+			wanted[address] = struct{}{}
+		}
+		for name, original := range s.protocol.OriginalDNSRecords() {
+			if s.policy != nil {
+				if allowed, protected := s.policy.CampusNameAllowed(name); protected && allowed {
+					continue
+				}
+			}
+			for _, address := range original {
+				if _, found := wanted[address]; found {
+					s.mu.Unlock()
+					return NetworkFailure
+				}
+			}
+		}
+	}
 	s.nextRequest++
 	pending := &pendingDNSRoutes{id: s.nextRequest, ctx: ctx, result: make(chan bool, 1)}
-	if status := s.push(event{Type: "dns_routes", RequestID: pending.id, Addresses: values}); status != OK {
+	if status := s.push(event{Type: "dns_routes", RequestID: pending.id, Addresses: values, Exclude: exclude}); status != OK {
 		s.mu.Unlock()
 		return status
 	}

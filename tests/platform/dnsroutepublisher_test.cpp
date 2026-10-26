@@ -20,12 +20,13 @@ class Helper final : public QObject
     Q_OBJECT
 public:
     enum class State { Active, Extending, Idle };
-    enum class Operation { Extend, Restore };
+    enum class Operation { Extend, Routes, Restore };
     State state() const { return current; }
     void extend(const QStringList &addresses) { sent.append(addresses); current = State::Extending; }
+    void reconcile(const QStringList &prefixes) { routed.append(prefixes); current = State::Extending; }
     void cancel() { ++cancelled; current = State::Idle; }
     State current = State::Active;
-    QList<QStringList> sent;
+    QList<QStringList> sent, routed;
     int cancelled = 0;
 signals:
     void finished(Helper::Operation operation, PlatformOperationResult result);
@@ -35,7 +36,13 @@ static void check(bool ok,const char *message) { if (!ok) throw std::runtime_err
 int main(int argc,char **argv) try
 {
     QCoreApplication app(argc,argv); Core core; Helper helper; bool available = true;
-    DNSRoutePublisher<Helper> publisher(&core,&helper,nullptr,[&] { return available; });
+    bool validExclusion = true;
+    DNSRoutePublisher<Helper> publisher(&core,&helper,nullptr,[&] { return available; },
+        [&](const QStringList &addresses) -> std::optional<QStringList> {
+            check(addresses == QStringList{"198.18.0.7"},"Exclusion lost the requested addresses");
+            if (!validExclusion) return {};
+            return QStringList{"198.18.0.8/32"};
+        });
     const auto request = [](const QString &generation,const QString &id) {
         return QJsonObject{{"generation",generation},{"request_id",id},{"addresses",QJsonArray{"198.18.0.7"}}};
     };
@@ -63,6 +70,38 @@ int main(int argc,char **argv) try
     emit core.dnsRoutesRequired(request("two","new"));
     emit helper.finished(Helper::Operation::Extend,{PlatformOperationResult::Status::Failed,"denied",true});
     check(core.replies.last().toObject() == QJsonObject{{"generation","two"},{"id","new"},{"applied",false}},"New generation inherited a previous publication or ignored failure");
+    helper.current = Helper::State::Active;
+    auto exclusion = request("two","original"); exclusion["exclude"] = true;
+    const auto before = core.replies.size();
+    emit core.dnsRoutesRequired(exclusion);
+    check(helper.routed == QList<QStringList>{QStringList{"198.18.0.8/32"}} && core.replies.size() == before,
+          "Original answer was acknowledged before capture withdrawal");
+    emit helper.finished(Helper::Operation::Extend,{});
+    check(core.replies.size() == before,"Unrelated extension acknowledged a withdrawal");
+    helper.current = Helper::State::Active; emit helper.finished(Helper::Operation::Routes,{});
+    check(core.replies.last().toObject() == QJsonObject{{"generation","two"},{"id","original"},{"applied",true}},
+          "Confirmed withdrawal did not acknowledge the original answer");
+    validExclusion = false;
+    emit core.dnsRoutesRequired(exclusion);
+    check(helper.routed.size() == 1 && !core.replies.last().toObject()["applied"].toBool(),
+          "Invalid withdrawal reached the helper");
+    exclusion["exclude"] = "true";
+    emit core.dnsRoutesRequired(exclusion);
+    check(helper.routed.size() == 1 && !core.replies.last().toObject()["applied"].toBool(),
+          "Malformed exclusion direction reached the helper");
+    validExclusion = true; exclusion["exclude"] = true;
+    emit core.dnsRoutesRequired(exclusion);
+    emit helper.finished(Helper::Operation::Routes,{PlatformOperationResult::Status::Failed,"denied",true});
+    check(!core.replies.last().toObject()["applied"].toBool(),"Failed capture withdrawal acknowledged original DNS");
+    helper.current = Helper::State::Active;
+    emit core.dnsRoutesRequired(exclusion); emit core.finished(ConnectionError::NONE);
+    const auto afterStop = core.replies.size(); emit helper.finished(Helper::Operation::Routes,{});
+    check(helper.cancelled == 2 && core.replies.size() == afterStop,"Stopped withdrawal retained or acknowledged stale work");
+    Core unsupportedCore; Helper unsupportedHelper;
+    DNSRoutePublisher<Helper> unsupported(&unsupportedCore,&unsupportedHelper);
+    emit unsupportedCore.sessionStarted("two"); emit unsupportedCore.dnsRoutesRequired(exclusion);
+    check(unsupportedHelper.sent.isEmpty() && unsupportedHelper.routed.isEmpty()
+          && !unsupportedCore.replies.last().toObject()["applied"].toBool(),"Missing exclusion support fell back to capture");
     std::cout << "PASS: DNS publication correlation, serialization, helper failure/loss and generation cancellation\n";
     return 0;
 } catch (const std::exception &error) { std::cerr << error.what() << '\n'; return 1; }

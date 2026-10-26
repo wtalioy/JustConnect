@@ -264,7 +264,11 @@ int main(int argc, char **argv) {
     if (qgetenv("JC_NATIVE_NETWORK_SESSION") == "1") return exerciseApplicationNetworkAccess(profile);
     auto engine = std::make_unique<EmbeddedCoreEngine>();
     LinuxNetworkHelperClient helper;
-    DNSRoutePublisher<LinuxNetworkHelperClient> publisher(engine.get(), &helper);
+    DNSRoutePublisher<LinuxNetworkHelperClient> publisher(engine.get(), &helper, nullptr, {},
+        [&helper](const QStringList &addresses) -> std::optional<QStringList> {
+            const auto owned = helper.ownedConfiguration();
+            return owned ? excludeCampusCaptureAddresses(owned->capturePrefixes, addresses) : std::nullopt;
+        });
     QList<PlatformOperationResult> helperReplies;
     QList<PlatformOperationResult> helperLosses;
     QObject::connect(&helper, &LinuxNetworkHelperClient::finished, [&](LinuxNetworkHelperClient::Operation, PlatformOperationResult result) {

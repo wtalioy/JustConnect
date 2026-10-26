@@ -36,6 +36,11 @@ type tunFlow struct {
 	id       stack.TransportEndpointID
 }
 
+type dnsPublication struct {
+	address      netip.Addr
+	originalName string
+}
+
 type tunIngress struct {
 	owner            *Listeners
 	device           io.ReadWriteCloser
@@ -44,11 +49,11 @@ type tunIngress struct {
 	mu               sync.Mutex
 	closed           bool
 	flows            map[tunFlow]struct{}
-	publishingDNS    map[netip.Addr]int
+	publishingDNS    map[dnsPublication]int
 	workers          sync.WaitGroup
 	pumps            sync.WaitGroup
 	local, peer      netip.Addr
-	publishDNSRoutes func(context.Context, []netip.Addr) error
+	publishDNSRoutes func(context.Context, []netip.Addr, bool) error
 }
 
 // Hold routes for draining flows and pending DNS publication without extending authorization.
@@ -68,8 +73,10 @@ func (p *Listeners) ActiveTUNAddresses() []string {
 			addresses[address.String()] = struct{}{}
 		}
 	}
-	for address := range ingress.publishingDNS {
-		addresses[address.String()] = struct{}{}
+	for publication := range ingress.publishingDNS {
+		if publication.originalName == "" {
+			addresses[publication.address.String()] = struct{}{}
+		}
 	}
 	result := make([]string, 0, len(addresses))
 	for address := range addresses {
@@ -81,7 +88,8 @@ func (p *Listeners) ActiveTUNAddresses() []string {
 
 // AttachTUN takes ownership on success. Each read/write is one raw IPv4 packet;
 // Close must interrupt device I/O. Address, routes and DNS belong to the helper.
-func (p *Listeners) AttachTUN(device io.ReadWriteCloser, mtu uint32, publishDNSRoutes func(context.Context, []netip.Addr) error) error {
+// The publication callback receives true to exclude original DNS addresses from capture.
+func (p *Listeners) AttachTUN(device io.ReadWriteCloser, mtu uint32, publishDNSRoutes func(context.Context, []netip.Addr, bool) error) error {
 	if device == nil || mtu < header.IPv4MinimumProcessableDatagramSize || mtu > maxUDPPacket {
 		return errors.New("invalid IPv4 TUN device or MTU")
 	}

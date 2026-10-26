@@ -25,7 +25,17 @@ WindowsNetworkAccess::WindowsNetworkAccess(CoreEngine *core,NetworkPolicySession
         if(state!=HelperState::Idle && state!=HelperState::Ready && state!=HelperState::Active)
             this->policy->setNetworkBusy(generation,true);
     });
-    new DNSRoutePublisher<WindowsNetworkHelperClient>(core,&helper,this,[this]{return stage==Stage::Ready;});
+    new DNSRoutePublisher<WindowsNetworkHelperClient>(core, &helper, this, [this] { return stage == Stage::Ready; },
+        [this](const QStringList &addresses) -> std::optional<QStringList> {
+            const auto owned = helper.ownedConfiguration();
+            if (!owned["capture_prefixes"].isArray()) return {};
+            QStringList prefixes;
+            for (const auto &value : owned["capture_prefixes"].toArray()) {
+                if (!value.isString()) return {};
+                prefixes.append(value.toString());
+            }
+            return excludeCampusCaptureAddresses(prefixes, addresses);
+        });
     connect(policy,&NetworkPolicySession::changed,this,&WindowsNetworkAccess::prepareConfiguration);
     connect(policy,&NetworkPolicySession::changed,this,&WindowsNetworkAccess::observeModel,Qt::QueuedConnection);
     observation.setInterval(2000);

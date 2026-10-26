@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"slices"
 	"sync"
 	"sync/atomic"
 
@@ -43,10 +44,33 @@ func (p *Listeners) CampusDNSRecords() map[string][]string {
 }
 
 func (p *Listeners) OriginalDNSRecords() map[string][]string {
-	if p.resolver != nil {
-		return p.resolver.OriginalDNSRecords()
+	if p.closed.Load() {
+		return nil
 	}
-	return nil
+	// Read reservations before committed bindings to cover the acknowledgement handoff.
+	result := make(map[string][]string)
+	p.mu.Lock()
+	ingress := p.tun
+	p.mu.Unlock()
+	if ingress != nil {
+		ingress.mu.Lock()
+		for publication := range ingress.publishingDNS {
+			if publication.originalName != "" {
+				result[publication.originalName] = append(result[publication.originalName], publication.address.String())
+			}
+		}
+		ingress.mu.Unlock()
+	}
+	if p.resolver != nil {
+		for name, addresses := range p.resolver.OriginalDNSRecords() {
+			result[name] = append(result[name], addresses...)
+		}
+	}
+	for name := range result {
+		slices.Sort(result[name])
+		result[name] = slices.Compact(result[name])
+	}
+	return result
 }
 
 type ownedConn struct {

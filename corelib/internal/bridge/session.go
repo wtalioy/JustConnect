@@ -47,6 +47,7 @@ type event struct {
 	Stage         string               `json:"stage,omitempty"`
 	Result        string               `json:"result,omitempty"`
 	ObservedAt    string               `json:"observed_at,omitempty"`
+	Exclude       bool                 `json:"exclude,omitempty"`
 	Addresses     []string             `json:"addresses,omitempty"`
 }
 

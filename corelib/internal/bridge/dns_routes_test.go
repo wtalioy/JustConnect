@@ -28,58 +28,60 @@ func dnsRouteSession(t *testing.T) (*Engine, uint64, *Session, uint64) {
 }
 
 func TestDNSRoutesRequireDeliveredGenerationBoundAcknowledgement(t *testing.T) {
-	for _, applied := range []bool{true, false} {
-		t.Run(map[bool]string{true: "success", false: "failure"}[applied], func(t *testing.T) {
-			e, h, s, generation := dnsRouteSession(t)
-			done := make(chan Status, 1)
-			go func() {
-				done <- s.publishDNSRoutes(t.Context(), generation, []netip.Addr{netip.MustParseAddr("203.0.113.7")}, time.Second)
-			}()
-			// A size probe does not deliver the request or authorize an acknowledgement.
-			if _, _, status := e.Read(h, 0, 1000); status != BufferTooSmall {
-				t.Fatal(status)
-			}
-			s.mu.Lock()
-			request := s.dnsRoutes.id
-			s.mu.Unlock()
-			if status := e.AcknowledgeDNSRoutes(h, generation, request, true); status != StaleRequest {
-				t.Fatal(status)
-			}
-			event := read(t, e, h)
-			if event.Type != "dns_routes" || len(event.Addresses) != 1 || event.Addresses[0] != "203.0.113.7" {
-				t.Fatal(event)
-			}
-			select {
-			case result := <-done:
-				t.Fatal("DNS escaped without publication", result)
-			default:
-			}
-			for _, value := range [][2]uint64{{generation + 1, request}, {generation, request + 1}} {
-				if status := e.AcknowledgeDNSRoutes(h, value[0], value[1], true); status != StaleRequest {
+	for _, exclude := range []bool{false, true} {
+		for _, applied := range []bool{true, false} {
+			t.Run(map[bool]string{true: "success", false: "failure"}[applied], func(t *testing.T) {
+				e, h, s, generation := dnsRouteSession(t)
+				done := make(chan Status, 1)
+				go func() {
+					done <- s.publishDNSRoutes(t.Context(), generation, []netip.Addr{netip.MustParseAddr("203.0.113.7")}, exclude, time.Second)
+				}()
+				// A size probe does not deliver the request or authorize an acknowledgement.
+				if _, _, status := e.Read(h, 0, 1000); status != BufferTooSmall {
 					t.Fatal(status)
 				}
-			}
-			if status := e.AcknowledgeDNSRoutes(h, generation, request, applied); status != OK {
-				t.Fatal(status)
-			}
-			want := NetworkFailure
-			if applied {
-				want = OK
-			}
-			if result := <-done; result != want {
-				t.Fatal(result, want)
-			}
-			if status := e.AcknowledgeDNSRoutes(h, generation, request, applied); status != StaleRequest {
-				t.Fatal("duplicate result", status)
-			}
-		})
+				s.mu.Lock()
+				request := s.dnsRoutes.id
+				s.mu.Unlock()
+				if status := e.AcknowledgeDNSRoutes(h, generation, request, true); status != StaleRequest {
+					t.Fatal(status)
+				}
+				event := read(t, e, h)
+				if event.Type != "dns_routes" || event.Exclude != exclude || len(event.Addresses) != 1 || event.Addresses[0] != "203.0.113.7" {
+					t.Fatal(event)
+				}
+				select {
+				case result := <-done:
+					t.Fatal("DNS escaped without publication", result)
+				default:
+				}
+				for _, value := range [][2]uint64{{generation + 1, request}, {generation, request + 1}} {
+					if status := e.AcknowledgeDNSRoutes(h, value[0], value[1], true); status != StaleRequest {
+						t.Fatal(status)
+					}
+				}
+				if status := e.AcknowledgeDNSRoutes(h, generation, request, applied); status != OK {
+					t.Fatal(status)
+				}
+				want := NetworkFailure
+				if applied {
+					want = OK
+				}
+				if result := <-done; result != want {
+					t.Fatal(result, want)
+				}
+				if status := e.AcknowledgeDNSRoutes(h, generation, request, applied); status != StaleRequest {
+					t.Fatal("duplicate result", status)
+				}
+			})
+		}
 	}
 }
 
 func TestDNSRoutesTimeoutAndCancellationKeepQueueBounded(t *testing.T) {
 	e, h, s, generation := dnsRouteSession(t)
 	addresses := []netip.Addr{netip.MustParseAddr("203.0.113.7")}
-	if status := s.publishDNSRoutes(t.Context(), generation, addresses, time.Millisecond); status != Timeout {
+	if status := s.publishDNSRoutes(t.Context(), generation, addresses, false, time.Millisecond); status != Timeout {
 		t.Fatal(status)
 	}
 	s.mu.Lock()
@@ -94,7 +96,10 @@ func TestDNSRoutesTimeoutAndCancellationKeepQueueBounded(t *testing.T) {
 	results := make(chan Status, 64)
 	for index := 0; index < cap(results); index++ {
 		workers.Add(1)
-		go func() { defer workers.Done(); results <- s.publishDNSRoutes(ctx, generation, addresses, time.Minute) }()
+		go func() {
+			defer workers.Done()
+			results <- s.publishDNSRoutes(ctx, generation, addresses, false, time.Minute)
+		}()
 	}
 	if _, _, status := e.Read(h, 0, 1000); status != BufferTooSmall {
 		t.Fatal(status)
@@ -128,7 +133,10 @@ func TestDNSRoutesTimeoutAndCancellationKeepQueueBounded(t *testing.T) {
 	// Session cancellation also releases callers waiting for the one publication slot.
 	for index := 0; index < cap(results); index++ {
 		workers.Add(1)
-		go func() { defer workers.Done(); _ = s.publishDNSRoutes(t.Context(), generation, addresses, time.Minute) }()
+		go func() {
+			defer workers.Done()
+			_ = s.publishDNSRoutes(t.Context(), generation, addresses, false, time.Minute)
+		}()
 	}
 	if _, _, status := e.Read(h, 0, 1000); status != BufferTooSmall {
 		t.Fatal(status)
@@ -143,7 +151,7 @@ func TestDNSRoutesTimeoutAndCancellationKeepQueueBounded(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("stop did not release publication slot waiters")
 	}
-	if status := s.publishDNSRoutes(t.Context(), generation, addresses, time.Second); status != Cancelled {
+	if status := s.publishDNSRoutes(t.Context(), generation, addresses, false, time.Second); status != Cancelled {
 		t.Fatal("stopped generation published routes", status)
 	}
 }
