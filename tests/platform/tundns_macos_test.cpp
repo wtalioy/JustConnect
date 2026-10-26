@@ -9,6 +9,7 @@
 #include <QScopeGuard>
 #include <QThread>
 #include <iostream>
+#include <iterator>
 #include <stdexcept>
 #include <unistd.h>
 
@@ -17,8 +18,12 @@ static QJsonObject initialDns,lastDns;
 template<class Predicate> static void wait(Predicate predicate,const char *message)
 {
     QDeadlineTimer deadline(5000);
-    while (!predicate() && !deadline.hasExpired()) QThread::msleep(10);
-    check(predicate(),message);
+    while (!deadline.hasExpired()) {
+        // Keep both successful observations; an unstable pair still has the original budget.
+        if (predicate() && predicate()) return;
+        QThread::msleep(10);
+    }
+    check(predicate() && predicate(),message);
 }
 static QJsonObject dnsSnapshot()
 {
@@ -52,6 +57,13 @@ int main(int argc,char **argv) try
     }
     MacTunDns dns; UnixTunDevice device;
     if (argc == 1) {
+        const bool observations[]{false,true,false,true,true};
+        qsizetype next=0;
+        wait([&] {
+            check(next<qsizetype(std::size(observations)),"Snapshot wait read beyond a stable matching pair");
+            return observations[next++];
+        },"An unstable matching pair exhausted the snapshot wait early");
+        check(next==qsizetype(std::size(observations)),"Snapshot wait accepted fewer than two matching reads");
         check(::geteuid() != 0 && dns.apply(device,{"campus.test"}).status == PlatformOperationResult::Status::PermissionDenied,
             "Ordinary caller acquired DNS publication authority"); return 0;
     }
