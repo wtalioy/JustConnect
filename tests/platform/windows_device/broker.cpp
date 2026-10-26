@@ -15,6 +15,7 @@
 #include <thread>
 #include <vector>
 #include <chrono>
+#include <atomic>
 #include <psapi.h>
 
 namespace {
@@ -159,6 +160,7 @@ int exchange(WindowsTunDevice &device,const std::wstring &client,const std::wstr
     const auto udpBeforeStatus=GetUdpStatisticsEx(&udpBefore,AF_INET);
     MIB_IPSTATS ipBefore{};
     const auto ipBeforeStatus=GetIpStatisticsEx(&ipBefore,AF_INET);
+    std::atomic<unsigned int> writeStarted{0}, writeReturned{0};
     std::thread watchdog([&] {
         if (WaitForSingleObject(done.value,budget)!=WAIT_TIMEOUT) return;
         MIB_IF_ROW2 row{};row.InterfaceLuid=device.identity().luid;
@@ -173,7 +175,8 @@ int exchange(WindowsTunDevice &device,const std::wstring &client,const std::wstr
             <<", udp_status="<<udpBeforeStatus<<'/'<<udpAfterStatus<<", udp_in="<<udpBefore.dwInDatagrams<<'/'<<udpAfter.dwInDatagrams
             <<", udp_errors="<<udpBefore.dwInErrors<<'/'<<udpAfter.dwInErrors<<", udp_no_ports="<<udpBefore.dwNoPorts<<'/'<<udpAfter.dwNoPorts
             <<", ip_status="<<ipBeforeStatus<<'/'<<ipAfterStatus<<", ip_headers="<<ipBefore.dwInHdrErrors<<'/'<<ipAfter.dwInHdrErrors
-            <<", ip_addresses="<<ipBefore.dwInAddrErrors<<'/'<<ipAfter.dwInAddrErrors<<", ip_discards="<<ipBefore.dwInDiscards<<'/'<<ipAfter.dwInDiscards<<'\n';
+            <<", ip_addresses="<<ipBefore.dwInAddrErrors<<'/'<<ipAfter.dwInAddrErrors<<", ip_discards="<<ipBefore.dwInDiscards<<'/'<<ipAfter.dwInDiscards
+            <<", write_started="<<writeStarted.load(std::memory_order_relaxed)<<", write_returned="<<writeReturned.load(std::memory_order_relaxed)<<'\n';
         device.close();
     });
     struct Join { HANDLE done; std::thread &worker; ~Join() { SetEvent(done); worker.join(); } } join{done.value,watchdog};
@@ -192,7 +195,9 @@ int exchange(WindowsTunDevice &device,const std::wstring &client,const std::wstr
         transfer(output.value,response.data(),size,false);
         if (!validPacket(response,true) || std::memcmp(response.data()+28,"pong",4)!=0
             || response[22]!=packet[20] || response[23]!=packet[21]) return 23;
+        writeStarted.store(i+1,std::memory_order_relaxed);
         device.write(response.data(),response.size());
+        writeReturned.store(i+1,std::memory_order_relaxed);
     }
     CloseHandle(input.value);input.value=nullptr;
     if (WaitForSingleObject(process.value,budget+4000)!=WAIT_OBJECT_0) fail("ordinary consumer timeout",ERROR_TIMEOUT);
