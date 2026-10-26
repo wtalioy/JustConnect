@@ -1,4 +1,5 @@
 #include "infrastructure/routing/linux/ownedroutetable.h"
+#include "infrastructure/routing/linux/originalexit.h"
 #include "infrastructure/routing/linux/iprouteutility.h"
 #include <QJsonDocument>
 #include <QScopeGuard>
@@ -329,6 +330,13 @@ PlatformOperationResult LinuxOwnedRouteTable::extend(const QUuid &id, const QStr
         if (!covered) prefixes.append(address+"/32");
     }
     return ensurePrefixes(id, prefixes, checkpoint);
+}
+
+PlatformOperationResult LinuxOwnedRouteTable::verifyExit(const QStringList &prefixes) const
+{
+    if (role != Role::OriginalSource || owner.isNull())
+        return {Status::Failed, "Original exit verification requires active source ownership."};
+    return verifyLinuxOriginalExit(interfaceName, sourceAddress, gatewayAddress, prefixes, reader);
 }
 
 PlatformOperationResult LinuxOwnedRouteTable::ensurePrefixes(const QUuid &id, const QStringList &requested, const CheckpointWriter &checkpoint)
