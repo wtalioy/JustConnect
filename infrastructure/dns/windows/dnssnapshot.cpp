@@ -1,4 +1,5 @@
 #include "infrastructure/dns/windows/dnssnapshot.h"
+#include "infrastructure/dns/windows/dnscontract.h"
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QRegularExpression>
@@ -57,11 +58,11 @@ DnsSnapshot readWindowsDnsSnapshot(const PlatformCommandRunner &runner)
     if (!runner) return {{Status::Unsupported, "Windows DNS snapshot unavailable on this platform"}, {}};
 #endif
     const QStringList arguments;
-    const auto command = runner ? runner(program, arguments) : runPlatformCommand(program, arguments, 10000);
+    const auto command = runner ? runner(program, arguments) : runPlatformCommand(program, arguments, WindowsDNS::SnapshotTimeoutMs);
     if (!command.result.succeeded()) {
         auto result = command.result;
         const QRegularExpression phase(QStringLiteral("^JCDNS phase=([A-Za-z0-9_]{1,64}) elapsed_ms=([0-9]{1,8})$"));
-        const QStringList stages{"native", "local_session", "nrpt", "nrpt_rows", "doh_class", "serialize",
+        const QStringList stages{"native", "local_session", "nrpt_sources", "nrpt", "nrpt_rows", "nrpt_consistency", "doh_class", "serialize",
             "MSFT_DNSClientDohServerAddress", "MSFT_DNSClientServerAddress", "MSFT_DNSClient", "MSFT_DNSClientGlobalSetting"};
         QString last;
         for (const auto &line : command.standardError.split('\n')) {
@@ -73,7 +74,7 @@ DnsSnapshot readWindowsDnsSnapshot(const PlatformCommandRunner &runner)
         return {result, {}};
     }
     const auto bytes = command.output.toUtf8();
-    if (bytes.size() > 262144) return {{Status::Failed, "System resolver snapshot too large"}, {}};
+    if (bytes.size() > qsizetype(WindowsDNS::SnapshotBytes)) return {{Status::Failed, "System resolver snapshot too large"}, {}};
     QJsonParseError error{};
     const auto document = QJsonDocument::fromJson(bytes, &error);
     if (error.error != QJsonParseError::NoError || !document.isObject() || !valid(document.object()))

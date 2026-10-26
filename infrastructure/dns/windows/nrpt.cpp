@@ -1,4 +1,5 @@
 #include "infrastructure/dns/windows/nrpt.h"
+#include "infrastructure/dns/windows/dnscontract.h"
 #include "infrastructure/dns/domainlimits.h"
 #include <ws2tcpip.h>
 #include <objbase.h>
@@ -88,8 +89,8 @@ void ownedKey(HKEY key,const WindowsDnsRule &rule)
     trustedKey(key,true);
 }
 // MS-GPNRPT local policy; managed policy remains owned by the domain administrator.
-constexpr wchar_t LocalPolicy[]=L"SYSTEM\\CurrentControlSet\\Services\\Dnscache\\Parameters\\DnsPolicyConfig";
-constexpr wchar_t ManagedPolicy[]=L"SOFTWARE\\Policies\\Microsoft\\Windows NT\\DNSClient\\DnsPolicyConfig";
+using WindowsDNS::LocalPolicy;
+using WindowsDNS::ManagedPolicy;
 HKEY policyParent(bool create)
 {
     Key key;

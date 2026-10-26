@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <string>
 #include <initializer_list>
+#include "dnscontract.h"
 #ifdef _WIN32
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -14,10 +15,13 @@
 #include <mi.h>
 #include <cwchar>
 #include <limits>
+#include <set>
+#include <vector>
+#include "../domainlimits.h"
 #endif
 
 namespace {
-constexpr size_t limit = 262144;
+constexpr size_t limit = WindowsDNS::SnapshotBytes;
 void append(std::string &output, const std::string &text)
 {
     if (text.size() > limit || output.size() > limit - text.size()) throw std::runtime_error("snapshot size");
@@ -49,6 +53,26 @@ void trace(const char *stage)
 void require(MI_Result result)
 {
     if (result != MI_RESULT_OK) throw ProviderFailure{result};
+}
+struct NamespaceLess {
+    bool operator()(const std::wstring &left,const std::wstring &right) const {
+        const auto order=CompareStringOrdinal(left.c_str(),int(left.size()),right.c_str(),int(right.size()),TRUE);
+        if(!order)throw std::runtime_error("native namespace comparison");
+        return order==CSTR_LESS_THAN;
+    }
+};
+using Namespaces=std::set<std::wstring,NamespaceLess>;
+struct RegistryKey {
+    HKEY value=nullptr;
+    ~RegistryKey(){if(value)RegCloseKey(value);}
+};
+void registryChecked(LSTATUS status)
+{
+    if(status!=ERROR_SUCCESS)throw std::runtime_error("native NRPT policy source");
+}
+bool absentPolicyObject(LSTATUS status)
+{
+    return status==ERROR_FILE_NOT_FOUND || status==ERROR_KEY_DELETED;
 }
 std::string utf8(const wchar_t *text)
 {
@@ -85,6 +109,132 @@ std::string ip(const wchar_t *text)
     }
     return output;
 }
+void addNamespace(Namespaces &names,const wchar_t *name,size_t &bytes)
+{
+    if(!name || !*name)throw std::runtime_error("empty native namespace");
+    const auto encoded=utf8(name);
+    if(names.count(name))return;
+    if(encoded.size()>limit-bytes)throw std::runtime_error("native namespace size");
+    bytes+=encoded.size();
+    names.insert(name);
+    if(names.size()>NetworkDnsDomainLimit)throw std::runtime_error("native namespace count");
+}
+Namespaces policyNamespaces(HKEY parent)
+{
+    DWORD count=0,longest=0;
+    const auto inspected=RegQueryInfoKeyW(parent,nullptr,nullptr,nullptr,&count,&longest,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr);
+    if(absentPolicyObject(inspected))return {};
+    registryChecked(inspected);
+    if(count>NetworkDnsDomainLimit || longest>limit/sizeof(wchar_t))throw std::runtime_error("native NRPT source count");
+    std::vector<wchar_t> name(size_t(longest)+1);
+    Namespaces names;
+    size_t namespaceBytes=0,inputBytes=0;
+    for(DWORD i=0;i<count;++i){
+        DWORD length=DWORD(name.size());
+        const auto enumerated=RegEnumKeyExW(parent,i,name.data(),&length,nullptr,nullptr,nullptr,nullptr);
+        if(enumerated==ERROR_NO_MORE_ITEMS)break;
+        if(absentPolicyObject(enumerated))return {};
+        registryChecked(enumerated);
+        RegistryKey key;
+        const auto opened=RegOpenKeyExW(parent,name.data(),0,KEY_QUERY_VALUE|KEY_WOW64_64KEY,&key.value);
+        if(absentPolicyObject(opened))continue;
+        registryChecked(opened);
+        DWORD type=0,bytes=0;
+        const auto status=RegQueryValueExW(key.value,L"Name",nullptr,&type,nullptr,&bytes);
+        if(absentPolicyObject(status))continue; // A key without Name is not an active policy scope.
+        registryChecked(status);
+        if(type!=REG_MULTI_SZ || bytes<2*sizeof(wchar_t) || bytes>limit || bytes%sizeof(wchar_t))
+            throw std::runtime_error("native NRPT namespace storage");
+        if(bytes>limit-inputBytes)throw std::runtime_error("native namespace source size");
+        inputBytes+=bytes;
+        std::vector<wchar_t> data(bytes/sizeof(wchar_t));
+        const auto expectedBytes=bytes;
+        const auto read=RegQueryValueExW(key.value,L"Name",nullptr,&type,reinterpret_cast<BYTE *>(data.data()),&bytes);
+        if(absentPolicyObject(read))continue;
+        registryChecked(read);
+        if(type!=REG_MULTI_SZ || bytes!=expectedBytes || data[data.size()-1] || data[data.size()-2])
+            throw std::runtime_error("changed native NRPT namespace storage");
+        size_t offset=0;
+        while(offset<data.size() && data[offset]){
+            const auto size=wcsnlen(data.data()+offset,data.size()-offset);
+            addNamespace(names,data.data()+offset,namespaceBytes);
+            offset+=size+1;
+        }
+        for(;offset<data.size();++offset)if(data[offset])throw std::runtime_error("malformed native NRPT namespace storage");
+    }
+    return names;
+}
+Namespaces policySources()
+{
+    trace("nrpt_sources");
+    Namespaces names;
+    size_t namespaceBytes=0;
+    const wchar_t *paths[]{WindowsDNS::LocalPolicy,WindowsDNS::ManagedPolicy};
+    for(const auto *path:paths){
+        RegistryKey parent;
+        const auto status=RegOpenKeyExW(HKEY_LOCAL_MACHINE,path,0,KEY_READ|KEY_WOW64_64KEY,&parent.value);
+        if(absentPolicyObject(status))continue;
+        registryChecked(status);
+        const auto part=policyNamespaces(parent.value);
+        for(const auto &name:part)addNamespace(names,name.c_str(),namespaceBytes);
+        if(names.size()>NetworkDnsDomainLimit)throw std::runtime_error("native namespace count");
+    }
+    return names;
+}
+bool backedBySources(const Namespaces &effective,const Namespaces &sources)
+{
+    for(const auto &name:effective)if(!sources.count(name))return false;
+    return true;
+}
+#ifdef JC_DNS_READER_TESTING
+void verifyRegistryNamespaces()
+{
+    // Synthetic HKCU metadata only; the actual resolver policy stores are never changed.
+    const auto path=L"Software\\JustConnectDnsReaderCheck-"+std::to_wstring(GetCurrentProcessId())+L"-"+std::to_wstring(GetTickCount64());
+    RegistryKey parent;
+    DWORD disposition=0;
+    registryChecked(RegCreateKeyExW(HKEY_CURRENT_USER,path.c_str(),0,nullptr,REG_OPTION_VOLATILE,
+        KEY_ALL_ACCESS|KEY_WOW64_64KEY,nullptr,&parent.value,&disposition));
+    if(disposition!=REG_CREATED_NEW_KEY)throw std::runtime_error("existing namespace fixture preserved");
+    struct Cleanup {
+        RegistryKey &parent;const std::wstring &path;
+        ~Cleanup(){
+            if(parent.value){RegDeleteTreeW(parent.value,nullptr);RegCloseKey(parent.value);parent.value=nullptr;}
+            RegDeleteKeyExW(HKEY_CURRENT_USER,path.c_str(),KEY_WOW64_64KEY,0);
+        }
+    } cleanup{parent,path};
+    if(!policyNamespaces(parent.value).empty())throw std::runtime_error("empty namespace source");
+    RegistryKey rule;
+    registryChecked(RegCreateKeyExW(parent.value,L"rule",0,nullptr,REG_OPTION_VOLATILE,KEY_ALL_ACCESS|KEY_WOW64_64KEY,nullptr,&rule.value,nullptr));
+    const wchar_t values[]=L".Campus.Test\0host.original.test\0";
+    registryChecked(RegSetValueExW(rule.value,L"Name",0,REG_MULTI_SZ,reinterpret_cast<const BYTE *>(values),sizeof(values)));
+    Namespaces effective;size_t namespaceBytes=0;
+    addNamespace(effective,L".campus.test",namespaceBytes);addNamespace(effective,L"HOST.ORIGINAL.TEST",namespaceBytes);
+    const auto active=policyNamespaces(parent.value);
+    if(active.size()!=2 || !backedBySources(effective,active))throw std::runtime_error("native namespace case or array handling");
+    addNamespace(effective,L"deleted.original.test",namespaceBytes);
+    if(backedBySources(effective,active))throw std::runtime_error("unbacked effective namespace accepted");
+    registryChecked(RegDeleteValueW(rule.value,L"Name"));
+    const auto inactive=policyNamespaces(parent.value);
+    if(!inactive.empty() || backedBySources(effective,inactive))throw std::runtime_error("deleted namespace source remained active");
+    const DWORD malformed=1;
+    registryChecked(RegSetValueExW(rule.value,L"Name",0,REG_DWORD,reinterpret_cast<const BYTE *>(&malformed),sizeof(malformed)));
+    bool rejected=false;
+    try{policyNamespaces(parent.value);}catch(const std::runtime_error &){rejected=true;}
+    if(!rejected)throw std::runtime_error("malformed namespace source accepted");
+    registryChecked(RegSetValueExW(rule.value,L"Name",0,REG_MULTI_SZ,reinterpret_cast<const BYTE *>(values),sizeof(values)-sizeof(wchar_t)));
+    rejected=false;
+    try{policyNamespaces(parent.value);}catch(const std::runtime_error &){rejected=true;}
+    if(!rejected)throw std::runtime_error("unterminated namespace source accepted");
+    registryChecked(RegSetValueExW(rule.value,L"Name",0,REG_MULTI_SZ,reinterpret_cast<const BYTE *>(values),sizeof(values)));
+    registryChecked(RegDeleteKeyExW(parent.value,L"rule",KEY_WOW64_64KEY,0));
+    if(!policyNamespaces(parent.value).empty())throw std::runtime_error("delete-pending namespace source remained active");
+    registryChecked(RegCloseKey(rule.value));rule.value=nullptr;
+    registryChecked(RegDeleteTreeW(parent.value,nullptr));
+    registryChecked(RegCloseKey(parent.value));parent.value=nullptr;
+    registryChecked(RegDeleteKeyExW(HKEY_CURRENT_USER,path.c_str(),KEY_WOW64_64KEY,0));
+}
+#endif
 struct Element {
     MI_Value value{};
     MI_Type type = MI_BOOLEAN;
@@ -244,7 +394,8 @@ bool dohSupported(Session &session, const wchar_t *name)
     if (!type || more) throw std::runtime_error("native DoH class");
     return true;
 }
-std::string nrpt(Session &session, const wchar_t *name, bool emptyFixture)
+struct NrptResult {std::string json;Namespaces names;};
+NrptResult nrpt(Session &session, const wchar_t *name, bool emptyFixture)
 {
     trace("nrpt");
     MI_Instance *parameters = nullptr;
@@ -256,6 +407,8 @@ std::string nrpt(Session &session, const wchar_t *name, bool emptyFixture)
     Operation operation;
     MI_Session_Invoke(&session.handle, 0, nullptr, L"ROOT\\Microsoft\\Windows\\DNS", name, L"Get", nullptr, parameters, nullptr, &operation.handle);
     std::string output("[");
+    Namespaces namespaces;
+    size_t namespaceBytes=0;
     bool first = true, found = false;
     consume(operation, [&](const MI_Instance *instance) {
         if (found) throw std::runtime_error("native NRPT result count");
@@ -271,17 +424,32 @@ std::string nrpt(Session &session, const wchar_t *name, bool emptyFixture)
         for (MI_Uint32 i = 0; i < policies.value.instancea.size; ++i) {
             if (!first) append(output, ",");
             first = false;
+            const auto scope=element(policies.value.instancea.data[i],L"Namespace");
+            if(scope.flags&MI_FLAG_NULL)throw std::runtime_error("missing native NRPT namespace");
+            if(scope.type==MI_STRING)addNamespace(namespaces,scope.value.string,namespaceBytes);
+            else if(scope.type==MI_STRINGA && scope.value.stringa.size<=NetworkDnsDomainLimit){
+                for(MI_Uint32 n=0;n<scope.value.stringa.size;++n)addNamespace(namespaces,scope.value.stringa.data[n],namespaceBytes);
+            }else throw std::runtime_error("native NRPT namespace type");
             append(output, row(policies.value.instancea.data[i], {L"Namespace",L"NameServers",L"DirectAccessEnabled",L"DirectAccessDnsServers",L"DirectAccessIPsecCARestriction",L"DirectAccessProxyName",L"DirectAccessProxyType",L"DirectAccessQueryIPsecEncryption",L"DirectAccessQueryIPsecRequired",L"DnsSecIPsecCARestriction",L"DnsSecQueryIPsecEncryption",L"DnsSecQueryIPsecRequired",L"DnsSecValidationRequired",L"NameEncoding",L"QueryPolicy",L"SecureNameQueryFallback"}));
         }
     });
     append(output, "]");
-    return output;
+    return {output,namespaces};
 }
 std::string snapshot(const wchar_t *nrptClass, const wchar_t *dohClass, bool emptyFixture)
 {
     Session session;
     session.open();
-    const auto policies = nrpt(session, nrptClass, emptyFixture);
+    NrptResult policies;
+    for(;;){
+        if(GetTickCount64()-started>=WindowsDNS::SnapshotTimeoutMs)throw std::runtime_error("native NRPT source convergence timeout");
+        const auto before=policySources();
+        policies=nrpt(session,nrptClass,emptyFixture);
+        const auto after=policySources();
+        // The effective provider can lag deletion; do not adopt an unbacked scope as original policy.
+        if(before==after && backedBySources(policies.names,after))break;
+        trace("nrpt_consistency");Sleep(WindowsDNS::ConsistencyPollMs);
+    }
     const bool supported = dohSupported(session, dohClass);
     const auto doh = supported ? query(session,dohClass,"MSFT_DNSClientDohServerAddress",{L"ServerAddress",L"DohTemplate",L"AllowFallbackToUdp",L"AutoUpgrade"}) : "[]";
     const auto interfaces = query(session,L"MSFT_DNSClientServerAddress","MSFT_DNSClientServerAddress",{L"InterfaceIndex",L"AddressFamily",L"ServerAddresses"});
@@ -290,7 +458,7 @@ std::string snapshot(const wchar_t *nrptClass, const wchar_t *dohClass, bool emp
     std::string output("{\"interfaces\":");
     append(output,interfaces);append(output,",\"clients\":");append(output,clients);
     append(output,",\"global\":");append(output,globals);
-    append(output,",\"nrpt\":");append(output,policies);
+    append(output,",\"nrpt\":");append(output,policies.json);
     append(output,",\"doh_supported\":");append(output,supported ? "true" : "false");
     append(output,",\"doh\":");append(output,doh);append(output,"}");
     trace("serialize");
@@ -329,6 +497,7 @@ int main(int argc, char **argv) try
         MI_Char *names[] = {one,nullptr};
         item.flags = 0; item.type = MI_STRINGA; item.value.stringa = {names,2};
         if (strings(item,false) != "[\"private.test\"]" || value(item) != "[\"private.test\",null]") throw std::runtime_error("String arrays");
+        verifyRegistryNamespaces();
 #endif
         std::string output(limit, 'x');
         try { append(output,"x"); } catch (const std::runtime_error &) { std::puts("PASS: bounded DNS JSON and control/Unicode escaping"); return 0; }
