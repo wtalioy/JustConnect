@@ -107,8 +107,9 @@ func (e *Engine) Resources(handle, generation uint64) ([]byte, Status) {
 	if s.protocol == nil {
 		return bytes.Clone(s.resources), OK
 	}
-	records := s.protocol.CampusDNSRecords()
+	// A publication hold ends only after its DNS binding exists; read the hold side first.
 	active := s.protocol.ActiveTUNAddresses()
+	records := s.protocol.CampusDNSRecords()
 	if len(records) == 0 && len(active) == 0 {
 		return bytes.Clone(s.resources), OK
 	}

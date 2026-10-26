@@ -49,10 +49,7 @@ func (i *tunIngress) serveDNS(transport string, conn net.Conn) {
 			// shortcut: refuse AAAA until the transparent ingress can carry campus IPv6.
 			reply.Rcode = dns.RcodeNotImplemented
 		} else {
-			answer, err := i.owner.resolver.ExchangeCampus(i.owner.ctx, request, transport, i.owner.dialer.DialCampusIPPort,
-				func(ctx context.Context, addresses []netip.Addr) error {
-					return i.prepareDNSRoutes(ctx, request.Question[0].Name, addresses)
-				})
+			answer, err := i.exchangeDNS(request, transport)
 			if err == nil {
 				reply = answer
 			} else if errors.Is(err, resolve.ErrInvalidDNSQuestion) {
@@ -85,10 +82,47 @@ func (i *tunIngress) serveDNS(transport string, conn net.Conn) {
 	}
 }
 
-func (i *tunIngress) prepareDNSRoutes(ctx context.Context, host string, addresses []netip.Addr) error {
-	if i.publishDNSRoutes == nil {
-		return nil
-	}
+func (i *tunIngress) exchangeDNS(request *dns.Msg, transport string) (*dns.Msg, error) {
+	var held []netip.Addr
+	defer func() {
+		if len(held) == 0 {
+			return
+		}
+		i.mu.Lock()
+		defer i.mu.Unlock()
+		for _, address := range held {
+			i.publishingDNS[address]--
+			if i.publishingDNS[address] == 0 {
+				delete(i.publishingDNS, address)
+			}
+		}
+	}()
+	return i.owner.resolver.ExchangeCampus(i.owner.ctx, request, transport, i.owner.dialer.DialCampusIPPort,
+		func(ctx context.Context, addresses []netip.Addr) error {
+			if i.publishDNSRoutes == nil {
+				return nil
+			}
+			if err := i.checkDNSRoutes(request.Question[0].Name, addresses); err != nil {
+				return err
+			}
+			i.mu.Lock()
+			if i.closed {
+				i.mu.Unlock()
+				return net.ErrClosed
+			}
+			if i.publishingDNS == nil {
+				i.publishingDNS = make(map[netip.Addr]int)
+			}
+			for _, address := range addresses {
+				i.publishingDNS[address]++
+			}
+			held = append(held, addresses...)
+			i.mu.Unlock()
+			return i.publishDNSRoutes(ctx, addresses)
+		})
+}
+
+func (i *tunIngress) checkDNSRoutes(host string, addresses []netip.Addr) error {
 	var current *policy.ProtectionPolicy
 	if i.owner.dialer.ProtectionPolicy != nil {
 		current = i.owner.dialer.ProtectionPolicy()
@@ -108,5 +142,5 @@ func (i *tunIngress) prepareDNSRoutes(ctx context.Context, host string, addresse
 			}
 		}
 	}
-	return i.publishDNSRoutes(ctx, addresses)
+	return nil
 }
