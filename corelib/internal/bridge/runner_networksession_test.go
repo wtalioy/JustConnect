@@ -40,6 +40,7 @@ func nativeWindowsSession(t *testing.T, faults, policy bool) {
 	g.resourceIP.Store("198.18.0.6")
 	g.nativeDNS.Store(true)
 	g.probeDNS.Store(true)
+	enableNativeSSH(t, g)
 	var original *nativeOriginalPeer
 	if policy {
 		original = startWindowsOriginalPeer(t, g)
@@ -60,7 +61,7 @@ func nativeWindowsSession(t *testing.T, faults, policy bool) {
 	if err != nil {
 		t.Fatalf("actual ordinary Windows application session: %v; auth=%d TCP=%d UDP=%d DNS=%d\n%s", err, g.authCount.Load(), g.tcpCount.Load(), g.udpCount.Load(), g.nativeDNSQueries.Load(), output)
 	}
-	if g.authCount.Load() != rounds || g.tcpCount.Load() != 2*rounds || g.nativeDNSQueries.Load() < rounds || g.udpCount.Load() != 4*rounds+g.nativeDNSQueries.Load() {
+	if g.authCount.Load() != rounds || g.tcpCount.Load() != 4*rounds || g.sshCount.Load() != 2*rounds || g.nativeDNSQueries.Load() < rounds || g.udpCount.Load() != 4*rounds+g.nativeDNSQueries.Load() {
 		t.Fatalf("actual application exchanges auth=%d TCP=%d UDP=%d DNS=%d\n%s", g.authCount.Load(), g.tcpCount.Load(), g.udpCount.Load(), g.nativeDNSQueries.Load(), output)
 	}
 	if original != nil && (original.tcp.Load() != 2*rounds || original.udp.Load() != 4*rounds) {

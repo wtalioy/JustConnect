@@ -171,6 +171,7 @@ int main(int argc,char **argv)
         const auto resolved = lookup.get();
         for (const auto &address : resolved) check(address == "198.18.0.7","Actual CNAME campus DNS answer");
         exerciseNativeTUNTraffic(QHostAddress(resolved.first()));
+        exerciseNativeSSH(QHostAddress(resolved.first()));
         for (const auto &address : addresses("localhost")) check(QHostAddress(address).isLoopback(),"localhost remains on this computer");
         originalView();
         refresh(); originalView();

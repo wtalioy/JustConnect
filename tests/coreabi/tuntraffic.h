@@ -1,6 +1,9 @@
 #pragma once
 #include "proxycheck.h"
 #include <QUdpSocket>
+#include <QProcess>
+#include <QJsonDocument>
+#include <QFileInfo>
 
 inline void exerciseNativeTUNUDP()
 {
@@ -65,4 +68,25 @@ inline void exerciseOriginalNetworkTraffic()
     check(ProxyCheck::receive(tcp,payload.size()) == payload,"original TCP payload preserved");
     tcp.abort();
     exerciseOriginalNetworkUDP();
+}
+
+inline void exerciseNativeSSH(const QHostAddress &target)
+{
+    const auto encoded=qgetenv("JC_NATIVE_SSH_PROBE");
+    if(encoded.isEmpty())return;
+    const auto probe=QJsonDocument::fromJson(encoded).object();
+    const auto config=probe["config"].toString(),command=probe["command"].toString(),expected=probe["expected"].toString();
+    ProxyCheck::check(QFileInfo(config).isAbsolute() && QFileInfo(config).isFile() && !command.isEmpty() && !expected.isEmpty(),"private native SSH probe contract");
+    const auto hostname=probe["hostname"].toString();
+    ProxyCheck::check(!hostname.isEmpty(),"native SSH domain is supplied by the gateway fixture");
+    for(const auto &host:QStringList{target.toString(),hostname}){
+        QProcess process;
+        process.start("ssh",{"-F",config,host,command});
+        const bool finished=process.waitForStarted(5000) && process.waitForFinished(10000);
+        const auto output=process.readAllStandardOutput(),error=process.readAllStandardError();
+        if(!finished || process.exitStatus()!=QProcess::NormalExit || process.exitCode()!=0)
+            std::cerr<<"OpenSSH probe "<<host.toStdString()<<": "<<process.errorString().toStdString()<<" "<<error.toStdString()<<'\n';
+        ProxyCheck::check(finished && process.exitStatus()==QProcess::NormalExit && process.exitCode()==0
+            && output==expected.toUtf8(),"ordinary OpenSSH authenticates the pinned campus IP/domain and executes the exact command without a proxy");
+    }
 }

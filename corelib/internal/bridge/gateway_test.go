@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"bytes"
 	"crypto/tls"
 	"encoding/binary"
 	"encoding/json"
@@ -38,6 +39,8 @@ type gateway struct {
 	udpCount         atomic.Int32
 	delay            atomic.Int64
 	tcpCount         atomic.Int32
+	sshCount         atomic.Int32
+	sshHandler       atomic.Value
 	authCount        atomic.Int32
 	invalid          atomic.Bool
 	pauseIP          atomic.Bool
@@ -308,6 +311,12 @@ func (g *gateway) serveTunnel(conn net.Conn) {
 	first := true
 	for {
 		n, err := conn.Read(buf)
+		if first && n > 0 && bytes.HasPrefix(buf[:n], []byte("SSH-")) {
+			if handler, ok := g.sshHandler.Load().(func(net.Conn, []byte)); ok {
+				handler(conn, bytes.Clone(buf[:n]))
+				return
+			}
+		}
 		if first && n > 0 && strings.HasPrefix(string(buf[:n]), "GET ") {
 			_, _ = io.WriteString(conn, "HTTP/1.1 200 OK\r\nContent-Length: 12\r\nConnection: close\r\n\r\nvpn-response")
 			return
