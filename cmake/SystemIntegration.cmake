@@ -64,7 +64,7 @@ function(justconnect_system_integration TARGET)
         set_target_properties(${TARGET} PROPERTIES AUTOMOC ON OBJCXX_STANDARD 17 OBJCXX_STANDARD_REQUIRED ON)
         target_compile_options(${TARGET} PRIVATE -fblocks)
         target_link_libraries(${TARGET} PUBLIC justconnect_macos_network_helper
-            PRIVATE proc "-framework Foundation" "-framework ServiceManagement" "-framework SystemConfiguration")
+            PRIVATE "-framework Foundation" "-framework ServiceManagement" "-framework SystemConfiguration")
     elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         find_package(Qt6 REQUIRED COMPONENTS DBus)
         include("${REPO}/cmake/NetworkHelper.cmake")
