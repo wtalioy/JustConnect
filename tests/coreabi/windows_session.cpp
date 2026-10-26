@@ -127,6 +127,7 @@ int main(int argc,char **argv) try
     exerciseNativeTUNTraffic(QHostAddress("198.18.0.7"));
     until("finish original-network policy observation",[&]{return !policy.isBusy();});check(policy.refresh(),"refresh original view after DNS capture publication");until("finish original-network policy observation",[&]{return !policy.isBusy();});
     check(policy.status()==CoreEngine::RequestStatus::Success && policy.confirmedProtection()["protected"]==initialProtection["protected"],"new DNS captures remain excluded from original protection");
+    exerciseNativeTUNTraffic(QHostAddress("198.18.0.7"));
     session.stop();until("finish staged network/core restoration",[&]{return finished==3;},20000);
     check(authorizations==3 && approvals==1 && !session.isActive() && interfaceAddresses()==initialAddresses && dnsSnapshot()==initialDns,
         "single approval, owned device removal and complete original DNS/interface restoration");

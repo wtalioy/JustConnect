@@ -34,7 +34,7 @@ func TestNativeWindowsSessionHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("actual ordinary Windows application session: %v; auth=%d TCP=%d UDP=%d DNS=%d\n%s", err, g.authCount.Load(), g.tcpCount.Load(), g.udpCount.Load(), g.nativeDNSQueries.Load(), output)
 	}
-	if g.authCount.Load() != 2 || g.tcpCount.Load() != 2 || g.nativeDNSQueries.Load() < 2 || g.udpCount.Load() != 4+g.nativeDNSQueries.Load() {
+	if g.authCount.Load() != 2 || g.tcpCount.Load() != 4 || g.nativeDNSQueries.Load() < 2 || g.udpCount.Load() != 8+g.nativeDNSQueries.Load() {
 		t.Fatalf("actual application exchanges auth=%d TCP=%d UDP=%d DNS=%d\n%s", g.authCount.Load(), g.tcpCount.Load(), g.udpCount.Load(), g.nativeDNSQueries.Load(), output)
 	}
 	t.Log(string(output))
