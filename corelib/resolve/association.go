@@ -25,6 +25,7 @@ func (r *Resolver) CampusDNSRecords() map[string][]string {
 	return r.dnsRecords(false)
 }
 
+// Original direction remains observable while the session still owns its binding.
 func (r *Resolver) OriginalDNSRecords() map[string][]string {
 	return r.dnsRecords(true)
 }
@@ -42,7 +43,7 @@ func (r *Resolver) dnsRecords(original bool) map[string][]string {
 	now := time.Now()
 	for address, bindings := range r.dnsBindings {
 		for _, binding := range bindings {
-			if binding.expires.After(now) && (binding.originalInterface != "") == original {
+			if (original || binding.expires.After(now)) && (binding.originalInterface != "") == original {
 				result[binding.host] = append(result[binding.host], address.String())
 			}
 		}

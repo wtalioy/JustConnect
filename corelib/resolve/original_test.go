@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"reflect"
 	"slices"
 	"sync/atomic"
 	"testing"
@@ -282,12 +283,13 @@ func TestOriginalDNSBindingFailureExpiryAndExitConflict(t *testing.T) {
 			if r.dnsBindingCount != 2 || !slices.Equal(r.OriginalDNSRecords()["a.original.test"], []string{address.String()}) {
 				t.Fatal("native exit records were overwritten or exported duplicate addresses")
 			}
+			beforeExpiry := r.OriginalDNSRecords()
 			r.cacheMu.Lock()
 			for i := range r.dnsBindings[address] {
 				r.dnsBindings[address][i].expires = time.Now().Add(-time.Second)
 			}
 			r.cacheMu.Unlock()
-			if _, err := r.OriginalInterfaceForIP(t.Context(), address); !errors.Is(err, ErrOriginalDNSConflict) || len(r.OriginalDNSRecords()) != 0 {
+			if _, err := r.OriginalInterfaceForIP(t.Context(), address); !errors.Is(err, ErrOriginalDNSConflict) || !reflect.DeepEqual(r.OriginalDNSRecords(), beforeExpiry) {
 				t.Fatal("expired records lost their original direction protection", err)
 			}
 			r.Close()
@@ -358,5 +360,15 @@ func TestOriginalDNSDirectionSurvivesExpiryAndCachePressure(t *testing.T) {
 	}
 	if got, err := r.OriginalInterfaceForIP(t.Context(), address); err != nil || got != "original-exit" {
 		t.Fatal("cache reclamation changed original direction", got, err)
+	}
+	for address, bindings := range r.dnsBindings {
+		for n := range bindings {
+			bindings[n].expires = time.Time{}
+		}
+		r.dnsBindings[address] = bindings
+	}
+	if len(r.CampusDNSRecords()) != 0 || len(r.CampusResourcesForIP(t.Context(), address)) != 0 ||
+		!slices.Equal(r.OriginalDNSRecords()["a.original.test"], []string{address.String()}) {
+		t.Fatal("expired campus authorization or retained original direction was exported incorrectly")
 	}
 }
