@@ -19,6 +19,7 @@ function(justconnect_system_integration TARGET)
         "${REPO}/infrastructure/systemproxy/proxyjournal.cpp"
         "${REPO}/infrastructure/dns/dnssnapshot.cpp"
         "${REPO}/infrastructure/routing/originalexit.cpp"
+        "${REPO}/infrastructure/process/${PLATFORM}/running.cpp"
         "${REPO}/infrastructure/autostart/${PLATFORM}/autostart.cpp")
     target_include_directories(${TARGET} PUBLIC "${REPO}")
     target_link_libraries(${TARGET} PUBLIC Qt6::Core Qt6::Network)
@@ -63,7 +64,7 @@ function(justconnect_system_integration TARGET)
         set_target_properties(${TARGET} PROPERTIES AUTOMOC ON OBJCXX_STANDARD 17 OBJCXX_STANDARD_REQUIRED ON)
         target_compile_options(${TARGET} PRIVATE -fblocks)
         target_link_libraries(${TARGET} PUBLIC justconnect_macos_network_helper
-            PRIVATE "-framework Foundation" "-framework ServiceManagement" "-framework SystemConfiguration")
+            PRIVATE proc "-framework Foundation" "-framework ServiceManagement" "-framework SystemConfiguration")
     elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         find_package(Qt6 REQUIRED COMPONENTS DBus)
         include("${REPO}/cmake/NetworkHelper.cmake")
@@ -144,6 +145,10 @@ function(justconnect_system_integration_tests TARGET LIBRARY)
     target_link_libraries(platformcommand_test PRIVATE ${LIBRARY} Qt6::Core)
     add_test(NAME platformcommand_test COMMAND platformcommand_test)
     set_tests_properties(platformcommand_test PROPERTIES TIMEOUT 10)
+    add_executable(processrunning_test "${REPO}/tests/platform/processrunning_test.cpp")
+    target_link_libraries(processrunning_test PRIVATE ${LIBRARY} Qt6::Core)
+    add_test(NAME processrunning_test COMMAND processrunning_test)
+    set_tests_properties(processrunning_test PROPERTIES TIMEOUT 20)
     if(APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
         if(APPLE)
             set(DEVICE_TEST macos_tundevice_test)
