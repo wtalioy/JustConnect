@@ -155,7 +155,11 @@ static int exerciseApplicationNetworkAccess(const ConnectionProfile &profile)
         };
         const bool choose = qgetenv("JC_NATIVE_NETWORK_CHOICES") == "1";
         const bool originalDNS = qgetenv("JC_NATIVE_NETWORK_ORIGINAL_DNS") == "1";
+        const auto waitForPolicy = [&] {
+            until([&] { return !policy.isBusy() || !session.isActive(); });
+        };
         const auto chooseAddress = [&](const QString &address, bool campus) {
+            waitForPolicy();
             check(policy.setCampusAddress(address,campus),"submit a running campus/original address choice");
             until([&] { return !policy.isBusy() || !session.isActive(); });
             check(session.state() == ConnectionState::Running && policy.policyStatus() == CoreEngine::RequestStatus::Success
@@ -166,6 +170,7 @@ static int exerciseApplicationNetworkAccess(const ConnectionProfile &profile)
         if (originalPeer) exerciseOriginalNetworkTraffic();
         if (choose) for (const auto *address : {"198.18.0.6","198.18.0.7"}) chooseAddress(QString::fromLatin1(address),true);
         const auto chooseName = [&](bool campus) {
+            waitForPolicy();
             check(policy.setCampusName("campus.test",campus),"submit the overlapping native DNS name choice");
             until([&] { return !policy.isBusy() || !session.isActive(); });
             const bool confirmed = session.state() == ConnectionState::Running && policy.policyStatus() == CoreEngine::RequestStatus::Success
@@ -250,6 +255,7 @@ static int exerciseApplicationNetworkAccess(const ConnectionProfile &profile)
             if (withdrawalCrash) {
                 const auto proceed = QString::fromLocal8Bit(qgetenv("JC_NATIVE_TUN_READY")) + ".continue";
                 until([&] { return QFileInfo::exists(proceed); });
+                waitForPolicy();
                 check(policy.setCampusAddress("198.18.0.6",false),"start live route withdrawal after the external checkpoint observer attaches");
             }
             until([&] { return coreFinished == 1 && tunReferences() == 0; });
@@ -258,9 +264,11 @@ static int exerciseApplicationNetworkAccess(const ConnectionProfile &profile)
                   && !session.start(profile,{}),"helper loss releases the device but keeps unresolved responsibility and blocks restart");
             session.stop();
         }
-        if (choose && round == 0 && !helperLoss)
+        if (choose && round == 0 && !helperLoss) {
+            waitForPolicy();
             check(policy.setCampusAddress("198.18.0.6",true) && policy.isPolicyUpdating(),
                   "prepare a policy transaction cancelled before core application");
+        }
         session.stop();session.stop();
         until([&] { return !session.isActive(); });
         check(finished == (automaticExit ? 1 : round + 1) && tunReferences() == 0 && !QFileInfo::exists(hintPath),
