@@ -130,6 +130,48 @@ class IsolatedResolver:
                     print(name + ':\n' + path.read_text()[-4000:], file=sys.stderr)
 
 
+class LocalDnsEndpoint:
+    """A DNS listener at an already assigned test address and a kernel-selected port."""
+    def __init__(self, address, hostname):
+        self.address, self.hostname = address, hostname
+        self.stopped, self.errors = threading.Event(), []
+        self.queries = 0
+
+    def __enter__(self):
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            self.socket.bind((self.address, 0))
+            self.socket.settimeout(0.1)
+            self.port = self.socket.getsockname()[1]
+            self.thread = threading.Thread(target=self.serve)
+            self.thread.start()
+            return self
+        except BaseException:
+            self.socket.close()
+            raise
+
+    def serve(self):
+        try:
+            while not self.stopped.is_set():
+                try:
+                    query, peer = self.socket.recvfrom(65535)
+                except socket.timeout:
+                    continue
+                reply = dns_answer(query, self.hostname, ignore_unrelated=True)
+                if reply is not None:
+                    self.socket.sendto(reply, peer)
+                    self.queries += 1
+        except Exception as error:
+            self.errors.append(error)
+
+    def __exit__(self, kind, error, traceback):
+        self.stopped.set()
+        self.thread.join(timeout=2)
+        self.socket.close()
+        if kind is None:
+            assert not self.thread.is_alive() and not self.errors, self.errors
+
+
 class OriginalDnsServer:
     """An actual UDP DNS server on the fixture's original interface."""
     def __init__(self, resolver, interface):

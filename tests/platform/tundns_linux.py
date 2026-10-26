@@ -11,12 +11,10 @@ import socket
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 import uuid
 
-from tundns_fixture import IsolatedResolver, query_via_tun
-from dns_fixture import dns_answer
+from tundns_fixture import IsolatedResolver, LocalDnsEndpoint, query_via_tun
 
 
 def run(*args, **options):
@@ -43,37 +41,6 @@ def scope_descriptors():
 
 def probe(binary, *arguments):
     return ['/usr/bin/setpriv', '--bounding-set=-all,+net_admin', str(binary), *arguments]
-
-
-def exercise_existing_link(binary):
-    stop, failures = threading.Event(), []
-    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as server:
-        server.bind(('192.0.2.1', 0))
-        server.settimeout(0.1)
-
-        def answer():
-            try:
-                while not stop.is_set():
-                    try:
-                        query, peer = server.recvfrom(65535)
-                    except socket.timeout:
-                        continue
-                    reply = dns_answer(query, 'source-check.original.test', ignore_unrelated=True)
-                    if reply is not None:
-                        server.sendto(reply, peer)
-
-            except Exception as error:
-                failures.append(error)
-
-        worker = threading.Thread(target=answer)
-        worker.start()
-        try:
-            print(run(*probe(binary, '--link-dns-isolated', 'dnsoriginal0', '192.0.2.1', server.getsockname()[1])), end='', flush=True)
-        finally:
-            stop.set()
-            worker.join(timeout=2)
-            assert not worker.is_alive(), 'original DNS fixture failed to stop'
-            assert not failures, failures
 
 
 def exercise(binary, directory, phase, uid, environment):
@@ -205,10 +172,14 @@ def main():
                 run('/usr/bin/resolvectl', 'dns', 'dnsoriginal0', '192.0.2.53', env=environment)
                 run('/usr/bin/resolvectl', 'domain', 'dnsoriginal0', '~original.test', env=environment)
                 baseline = [run('/usr/bin/resolvectl', key, 'dnsoriginal0', env=environment) for key in ('dns', 'domain', 'default-route')]
-                exercise_existing_link(binary)
-                assert baseline == [run('/usr/bin/resolvectl', key, 'dnsoriginal0', env=environment) for key in ('dns', 'domain', 'default-route')]
-                print(run(sys.executable, '-B', Path(__file__).with_name('networkhelper_linux.py'),
-                          '--uid', args.uid, '--helper', helper, '--dns-probe', binary), end='', flush=True)
+                with LocalDnsEndpoint('192.0.2.1', 'source-check.original.test') as endpoint:
+                    print(run(*probe(binary, '--link-dns-isolated', 'dnsoriginal0', '192.0.2.1', endpoint.port)), end='', flush=True)
+                    assert baseline == [run('/usr/bin/resolvectl', key, 'dnsoriginal0', env=environment) for key in ('dns', 'domain', 'default-route')]
+                    before_helper = endpoint.queries
+                    print(run(sys.executable, '-B', Path(__file__).with_name('networkhelper_linux.py'),
+                              '--uid', args.uid, '--helper', helper, '--dns-probe', binary,
+                              '--original-dns-port', endpoint.port), end='', flush=True)
+                    assert endpoint.queries > before_helper, 'formal helper did not route the original scope to its prepared listener'
                 assert baseline == [run('/usr/bin/resolvectl', key, 'dnsoriginal0', env=environment) for key in ('dns', 'domain', 'default-route')]
                 exercise_foreign_provider(binary, environment)
                 output = run(*probe(binary, '--isolated'))

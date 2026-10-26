@@ -24,6 +24,10 @@ struct LinuxHelperRecoverySummary {
 };
 // No caller-supplied recovery JSON or path: callers provide the already authenticated private root directory.
 LinuxHelperRecoverySummary recoverLinuxHelperRecords(int trustedDirectory);
+struct LinuxHelperDnsLink {
+    QString interface, source;
+    quint16 port = 0;
+};
 struct LinuxHelperConfiguration {
     QString address, peer;
     int mtu = 0;
@@ -31,6 +35,7 @@ struct LinuxHelperConfiguration {
     QString originalInterface, originalSource, originalGateway;
     QStringList originalPrefixes;
     QStringList dnsDomains;
+    QList<LinuxHelperDnsLink> originalDns;
 };
 QJsonObject linuxHelperApplyRequest(const QUuid &owner, const LinuxHelperConfiguration &config);
 std::optional<LinuxHelperConfiguration> parseLinuxHelperApply(const QUuid &owner, const QJsonObject &request);

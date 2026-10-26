@@ -68,9 +68,26 @@ int main(int argc, char **argv) try
     configuration.originalInterface = "fixture0"; configuration.originalSource = "192.0.2.1";
     configuration.originalPrefixes = configuration.capturePrefixes;
     configuration.dnsDomains = {"campus.test", "research.test"};
+    configuration.originalDns = {{"fixture0", "192.0.2.1", 47321}, {"other0", "192.0.2.2", 39417}};
     const auto encoded = linuxHelperApplyRequest(owner, configuration);
     const auto parsed = parseLinuxHelperApply(owner, encoded);
     check(parsed && linuxHelperApplyRequest(owner, *parsed) == encoded, "Typed configuration lost validated input");
+    for (const auto &link : {QJsonObject{{"interface", "fixture0"}, {"source", "192.0.2.1"}, {"port", 0}},
+                             QJsonObject{{"interface", "fixture0"}, {"source", "192.0.2.1"}, {"port", 65536}},
+                             QJsonObject{{"interface", "fixture0"}, {"source", "192.0.2.1"}, {"port", 3.5}},
+                             QJsonObject{{"interface", "fixture0"}, {"source", "198.18.0.2"}, {"port", 47321}},
+                             QJsonObject{{"interface", "fixture0"}, {"source", "127.0.0.1"}, {"port", 47321}},
+                             QJsonObject{{"interface", "fixture0; id"}, {"source", "192.0.2.1"}, {"port", 47321}},
+                             QJsonObject{{"interface", "fixture0"}, {"source", "192.0.2.1"}, {"port", 47321}, {"path", "/tmp/foreign"}}}) {
+        auto invalid = encoded; invalid["original_dns"] = QJsonArray{link};
+        check(!parseLinuxHelperApply(owner, invalid), "Unsafe original DNS endpoint accepted");
+    }
+    auto repeatedDns = encoded;
+    const auto firstDns = encoded["original_dns"].toArray().first();
+    repeatedDns["original_dns"] = QJsonArray{firstDns, firstDns};
+    check(!parseLinuxHelperApply(owner, repeatedDns), "Repeated original DNS interface accepted");
+    repeatedDns.remove("original_dns");
+    check(!parseLinuxHelperApply(owner, repeatedDns), "Missing original DNS intent silently became a different operation");
     const auto extension = linuxHelperExtendRequest(owner,{"198.18.6.7","198.18.6.7"});
     const auto extended = parseLinuxHelperExtend(owner,extension);
     check(extended && *extended == QStringList{"198.18.6.7"},"Typed DNS route input lost or duplicated its address");
