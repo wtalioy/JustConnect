@@ -117,7 +117,10 @@ int main(int argc,char **argv) try
     int port=5353;const auto number=CFNumberCreate(nullptr,kCFNumberIntType,&port);CFDictionarySetValue(original,kSCPropNetDNSServerPort,number);CFRelease(number);
     const void *domain[]{CFSTR("original.test")};const auto domains=CFArrayCreate(nullptr,domain,1,&kCFTypeArrayCallBacks);
     CFDictionarySetValue(original,kSCPropNetDNSSupplementalMatchDomains,domains);CFRelease(domains);
-    const auto seed=[&]{SCPreferencesSynchronize(preferences);check(SCNetworkProtocolSetConfiguration(initial,original) && SCPreferencesCommitChanges(preferences),"Seed private DNS preferences");};
+    const auto seed=[&]{
+        check(SCNetworkProtocolSetConfiguration(initial,original),"Stage private DNS preferences");
+        check(SCPreferencesCommitChanges(preferences),"Commit private DNS preferences");
+    };
     seed();
     const auto id=QString::fromCFString(SCNetworkServiceGetServiceID(service));const auto owner=QUuid::createUuid();
     ifaddrs *addresses=nullptr;check(::getifaddrs(&addresses)==0,"Read actual local addresses");const auto freeAddresses=qScopeGuard([&]{::freeifaddrs(addresses);});QString local;
