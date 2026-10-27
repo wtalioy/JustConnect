@@ -150,7 +150,7 @@ int main(int argc,char **argv) try
         check(!MacOriginalDns::valid(owner,foreign),"Foreign recovery owner was accepted");
     }
     // Destruction leaves the durable redirect in place; independent recovery runs after capture release.
-    check(read()["ServerAddresses"]==QJsonArray{local} && !record.isEmpty(),"Redirect disappeared with its helper instance");
+    check(read()["ServerAddresses"].toArray()==QJsonArray{local} && !record.isEmpty(),"Redirect disappeared with its helper instance");
     {
         SCPreferencesSynchronize(preferences);const auto external=CFDictionaryCreateMutableCopy(nullptr,0,SCNetworkProtocolGetConfiguration(initial));
         const void *search[]{CFSTR("external.test")};const auto domains=CFArrayCreate(nullptr,search,1,&kCFTypeArrayCallBacks);
