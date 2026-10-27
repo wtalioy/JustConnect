@@ -157,6 +157,11 @@ func TestBoundedQueuePreservesAuthenticationAndTerminal(t *testing.T) {
 		if s.Ready() != OK || s.Ready() != Busy {
 			return Internal
 		}
+		for _, code := range []string{"local_controller_real_dns", "local_controller_unavailable", "local_controller_ambiguous"} {
+			if s.Diagnostic(code) != OK {
+				return Internal
+			}
+		}
 		for i := 0; i < 10000; i++ {
 			s.Diagnostic("keepalive_retry")
 		}

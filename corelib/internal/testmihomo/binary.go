@@ -1,0 +1,99 @@
+package testmihomo
+
+import (
+	"bytes"
+	"encoding/json"
+	"net"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"testing"
+	"time"
+)
+
+// StartBinary runs only an explicitly supplied test runtime, with no TUN or system changes.
+func StartBinary(t testing.TB, upstream string, ipc bool) *Fixture {
+	t.Helper()
+	source := os.Getenv("JC_TEST_MIHOMO_BINARY")
+	if source == "" {
+		t.Skip("set JC_TEST_MIHOMO_BINARY to run the official Mihomo integration")
+	}
+	directory, err := os.MkdirTemp("", "jcr-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(directory) })
+	name := "mihomo"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	binary := filepath.Join(directory, name)
+	data, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(binary, data, 0700); err != nil {
+		t.Fatal(err)
+	}
+	reserve := func(network string) string {
+		listener, err := net.Listen(network, "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		address := listener.Addr().String()
+		listener.Close()
+		return address
+	}
+	f := &Fixture{DNS: reserve("tcp"), Facts: Facts{Address: reserve("tcp"), Secret: filepath.Base(directory)}, Configuration: filepath.Join(directory, "config.json")}
+	config := map[string]any{
+		"external-controller": f.Address, "secret": f.Secret,
+		"port": 0, "socks-port": 0, "mixed-port": 0, "allow-lan": false,
+		"log-level": "silent", "tun": map[string]any{"enable": false},
+		"dns": map[string]any{"enable": true, "listen": f.DNS, "ipv6": true,
+			"enhanced-mode": "fake-ip", "fake-ip-range": "198.19.0.1/16", "fake-ip-filter": []string{},
+			"use-hosts": false, "use-system-hosts": false,
+			"nameserver": []string{upstream}, "default-nameserver": []string{"127.0.0.1"}},
+		"rules": []string{"MATCH,REJECT"},
+	}
+	if ipc {
+		key := "external-controller-unix"
+		f.IPC = filepath.Join(directory, "control.sock")
+		if runtime.GOOS == "windows" {
+			key = "external-controller-pipe"
+			f.IPC = `\\.\pipe\` + filepath.Base(directory)
+		}
+		config[key] = f.IPC
+	}
+	data, _ = json.Marshal(config)
+	if err = os.WriteFile(f.Configuration, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command(binary, "-d", directory, "-f", f.Configuration)
+	var log bytes.Buffer
+	command.Stdout, command.Stderr = &log, &log
+	if err = command.Start(); err != nil {
+		t.Fatal(err)
+	}
+	f.PID = command.Process.Pid
+	t.Cleanup(func() {
+		command.Process.Kill()
+		command.Wait()
+		if t.Failed() {
+			t.Logf("owned Mihomo log: %s", log.String())
+		}
+	})
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		connection, err := net.DialTimeout("tcp", f.Address, 100*time.Millisecond)
+		if err == nil {
+			connection.Close()
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("official Mihomo did not start its owned controller")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return f
+}

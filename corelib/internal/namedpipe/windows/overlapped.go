@@ -1,6 +1,6 @@
 //go:build windows
 
-package packetpipe
+package namedpipe
 
 import (
 	"io"

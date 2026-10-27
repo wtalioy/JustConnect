@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
+	nativepipe "github.com/wtalioy/JustConnect/corelib/internal/namedpipe/windows"
 	"github.com/wtalioy/JustConnect/corelib/internal/packetpipe"
-	nativepipe "github.com/wtalioy/JustConnect/corelib/internal/packetpipe/windows"
 	"golang.org/x/sys/windows"
 )
 

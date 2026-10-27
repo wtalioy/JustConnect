@@ -175,6 +175,9 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 	}
 	clientOptions := options.Client
 	if clientOptions.UnderlayDialer == nil {
+		if options.Underlay.Diagnostic == nil {
+			options.Underlay.Diagnostic = clientOptions.Diagnostic
+		}
 		ownedUnderlay, err = underlay.New(options.Underlay)
 		if err != nil {
 			return fmt.Errorf("underlay_failed: %w", err)

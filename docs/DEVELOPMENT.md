@@ -183,3 +183,13 @@ PR 不使用签名 Secrets；已配置的签名／公证失败时构建失败，
 ## 任务与验证记录
 
 每个工作单元先验证、独立提交，再更新任务状态；未完成要求不得提前勾选。CI、安装包自检、受控网关和真实校园／桌面结果分开记录。最新证据只维护在计划，历史过程由 Git 追溯，不在本文追加流水或另存重复历史文档。README 待 [S8](../plan.md#s8) 流程稳定后补写。
+
+
+<a id="mihomo-control-dns"></a>
+### Mihomo 控制连接真实解析
+
+Core ABI 六组原生检查使用 [测试运行时锁](../tests/platform/mihomo-runtime.json) 固定官方 Mihomo v1.19.32 发布资产及 SHA-256；[准备脚本](../tests/platform/setup_mihomo.py) 只写 `build/tools/test-mihomo`，不是产品依赖或安装入口。生产配置不固定 Mihomo 端口或 Fake-IP 网段。
+
+本地复现：`JC_TEST_MIHOMO_BINARY=/absolute/path/to/mihomo go -C corelib test -count=1 -run TestOfficialMihomoRealDNSControlTLS ./underlay`。未提供二进制的普通单元检查跳过该真实运行测试；Core ABI 先准备运行时，准备失败即失败。测试只启动自己的临时实例，关闭 TUN 与所有代理入口，使用自有回环 DNS 和随机控制端口；核对自定义 `198.19.0.0/16` Fake-IP 与 API 返回的真实地址、原域名 TLS 交换及系统解析未被调用，分别执行 TCP 与原生 Unix socket／Windows named pipe。结束只停止自有进程并清理临时文件，不改系统接口、路由或 DNS。
+
+相邻原生进程夹具覆盖端点／创建时间不匹配、密钥保护、重定向、响应上限、CNAME／AAAA、取消与并发初始化；underlay 的完整性测试覆盖认证方式、登录、网关、重连共用拨号路径以及错误 TLS 名称被拒绝。上述均不代表正在运行的 Clash TUN 已完成流量与原出口验证，也不替代桌面或校园验收。

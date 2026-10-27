@@ -3,7 +3,7 @@
 package packetpipe
 
 import (
-	native "github.com/wtalioy/JustConnect/corelib/internal/packetpipe/windows"
+	native "github.com/wtalioy/JustConnect/corelib/internal/namedpipe/windows"
 	"net/netip"
 )
 

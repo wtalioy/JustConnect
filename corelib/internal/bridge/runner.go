@@ -15,6 +15,7 @@ import (
 	"github.com/wtalioy/JustConnect/corelib/client/atrust"
 	"github.com/wtalioy/JustConnect/corelib/client/atrust/auth"
 	"github.com/wtalioy/JustConnect/corelib/client/authchallenge"
+	"github.com/wtalioy/JustConnect/corelib/internal/mihomo"
 	"github.com/wtalioy/JustConnect/corelib/underlay"
 )
 
@@ -96,6 +97,12 @@ func RunProtocol(ctx context.Context, config Config, host *Session) Status {
 	}
 	if errors.Is(err, context.Canceled) {
 		return Cancelled
+	}
+	if errors.Is(err, mihomo.ErrAmbiguous) {
+		return Unsupported
+	}
+	if mihomo.IsControllerError(err) {
+		return NetworkFailure
 	}
 	if errors.Is(err, authchallenge.ErrUnsupported) {
 		return AuthUnsupported

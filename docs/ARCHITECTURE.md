@@ -24,7 +24,9 @@ corelib/internal/
   dialer/        共有拨号流程；linux／macos／windows socket 绑定
   privatefile/   共有生命周期与 Unix 权限；windows 原生 DACL
   tundevice/     共有入口和 address；linux TUN／macos utun／windows Wintun
-  packetpipe/    共有 IPv4 包帧；windows HANDLE 与异步 I/O
+  packetpipe/    共有 IPv4 包帧及 Windows 设备桥接入
+  namedpipe/     windows 重叠管道 I/O，设备桥与本地控制 HTTP 共用
+  mihomo/        只读控制来源／真实解析；linux／macos／windows 进程与端点身份
   networkhelper/windows/  安装、特权操作与恢复；testsupport 仅供权限夹具
 ```
 
@@ -50,6 +52,10 @@ Go 的会话代次和请求 ID 全程保留为十进制字符串。`AuthDialogCo
 `Session.Run` 拥有 underlay、认证／隧道、gVisor、解析器及 SOCKS／HTTP（含 UDP association），所有清理结束后才释放活动会话名额。进程只允许一个活动连接或认证方式查询。查询界面等待清理终态后才允许确认选择。系统代理由单独用例拥有，仅在用户启用自动设置时于通道就绪后应用，也可手动设置；当前库不创建系统 TUN、不改变系统路由／DNS，GUI 无需为连接整体提权。核心 `ready` 目前只证明通道与本地代理初始化完成。
 
 `Listeners.Close` 先在所属锁下封闭并接管整张连接登记表，再取消会话；TUN 停止收发／移除 NIC 并停止 TCP 调度器后，关闭所属连接并加入流协程，最后关闭及等待完整协议栈；已进入关闭的连接／TUN 流不再逐项竞争共享登记锁，流表在所有流协程结束后整体清空。开放期间的登记／注销仍由同一锁保护，晚到连接被拒绝并关闭；TCP／UDP 入口与数据报中继检查取消，取消后不启动无用拨号、复制协程或大缓冲区分配。关闭仍等待泵、转发器、流协程及协议栈退出，不通过清空登记表推断线程已经结束。
+
+控制连接的 `underlay` 在认证方式、登录、节点探测、隧道及重连共用同一解析与出口生命周期。未指定显式本地 DNS 时，只读发现本地 Mihomo／Clash Meta 的实际启动参数和配置；根据 PID＋创建时间确认进程，TCP 先核对监听归属再发送密钥，Unix socket／Windows pipe 校验对端 PID。只接受回环控制地址，不猜默认端口、不读取订阅；拒绝重定向、歧义实例和不完整响应，不把密钥或配置原文写入错误。经核验的 `/dns/query` 回答经标准 Go resolver 保留 CNAME／AAAA 与地址竞争，HTTP／TLS 继续使用原域名；解析后为 loopback 的连接不绑定物理接口。控制请求无环境代理，只 GET，不改第三方配置；关闭会话取消查询并回收连接，无第二份解析缓存。
+
+当前只接入可从实际参数／普通配置核验的单个控制器。启动参数指向相对路径但 Windows 无法取得 cwd、仅环境变量覆盖、控制 API 关闭／不可读、私有 CA 未受信及多实例人工选择仍待支持，不静默回退到来源未知的 Fake-IP。检测到启用 TUN 时，拒绝其已知设备及无法确认的未绑定出口；这项保护不代替运行中 Clash TUN 的真实原出口验收。实际测试范围和复现见[开发说明](DEVELOPMENT.md#mihomo-control-dns)。
 
 当前非校园出口复用系统原路由的 `net.Dialer`。 必须走校园通道的拨号先匹配服务器授权资源，拒绝未知资源、未支持的 IPv6／协议及原网络 DNS 回落；IPv4 映射地址按 IPv4 授权匹配。校园专用解析复用 `ResolveCampus`，保留学校内置解析与域名授权。普通 HTTP／SOCKS 路径中，已匹配学校域名资源的解析也禁止公共 DNS／来源未知缓存和失败后原网络回落；尚未支持的校园 IPv6 返回拒绝。DNS 缓存标记隧道内解析来源，校园查询可复用该类回答而不复用未知来源；保持既有寿命、容量和会话隔离。旧上游 HTTP／SOCKS 串联构造参数没有产品调用，已与专属实现／测试一并删除；Clash 上游联动由 S6 的实际入口与恢复验证后接入，不保留第二套待用出口配置。
 

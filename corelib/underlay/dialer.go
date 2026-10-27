@@ -11,6 +11,7 @@ import (
 
 	tun "github.com/mythologyli/sing-tun"
 	socketdialer "github.com/wtalioy/JustConnect/corelib/internal/dialer"
+	"github.com/wtalioy/JustConnect/corelib/internal/mihomo"
 
 	"github.com/sagernet/sing/common/logger"
 )
@@ -33,6 +34,11 @@ type Dialer struct {
 	requireBound   bool
 	capture        *pcapCapture
 	localDNSServer string
+	controller     *mihomo.Client
+	controllerGate chan struct{}
+	resolver       *net.Resolver
+	tunDevice      string
+	diagnostic     func(string)
 }
 
 // Options configures a Dialer.
@@ -46,6 +52,7 @@ type Options struct {
 	// LocalDNSServer overrides the system DNS for VPN server hostname resolution.
 	// It must be an IP address with an optional port.
 	LocalDNSServer string
+	Diagnostic     func(string)
 }
 
 // New creates an underlay dialer. With no options, interface auto-detection is
@@ -56,7 +63,7 @@ func New(options ...Options) (*Dialer, error) {
 		option = options[0]
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	d := &Dialer{autoDetect: option.AutoDetect, lifecycleCtx: ctx, cancel: cancel}
+	d := &Dialer{autoDetect: option.AutoDetect, lifecycleCtx: ctx, cancel: cancel, diagnostic: option.Diagnostic}
 	localDNSServer, err := normalizeLocalDNSServer(option.LocalDNSServer)
 	if err != nil {
 		cancel()
@@ -104,6 +111,9 @@ func (d *Dialer) Close() error {
 		}
 		d.mu.Unlock()
 		d.active.Wait()
+		if d.controller != nil {
+			d.controller.Close()
+		}
 		if d.capture != nil {
 			d.closeErr = d.capture.Close()
 		}
@@ -145,6 +155,9 @@ func (d *Dialer) DialContext(ctx context.Context, network, address string) (net.
 		defer func() { stop(); cancel() }()
 		ctx = child
 	}
+	if err := d.prepareController(ctx, address); err != nil {
+		return nil, err
+	}
 	interfaceName := d.ensureInterface(ctx, address)
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -152,15 +165,19 @@ func (d *Dialer) DialContext(ctx context.Context, network, address string) (net.
 	d.mu.RLock()
 	autoDetect := d.autoDetect
 	requireBound := d.requireBound
+	controllerTunnel := d.controller != nil && d.controller.TunEnabled
 	d.mu.RUnlock()
-	if autoDetect && requireBound && interfaceName == "" {
+	if d.isTunnel(interfaceName) {
+		return nil, mihomo.ErrUnavailable
+	}
+	if requireBound && interfaceName == "" && (autoDetect || controllerTunnel) {
 		interfaceName = d.refreshInterface()
 		if interfaceName == "" {
 			return nil, fmt.Errorf("no usable underlay interface")
 		}
 	}
 
-	conn, err := dialOnInterface(ctx, network, address, interfaceName, d.localDNSServer)
+	conn, err := d.dial(ctx, network, address, interfaceName)
 	if err == nil {
 		return d.wrapCapture(conn), nil
 	}
@@ -173,7 +190,7 @@ func (d *Dialer) DialContext(ctx context.Context, network, address string) (net.
 		return nil, err
 	}
 
-	conn, retryErr := dialOnInterface(ctx, network, address, refreshedInterface, d.localDNSServer)
+	conn, retryErr := d.dial(ctx, network, address, refreshedInterface)
 	if retryErr != nil {
 		return nil, fmt.Errorf("dial underlay via %q failed after %q failed: %w", refreshedInterface, interfaceName, retryErr)
 	}
@@ -205,9 +222,12 @@ func (d *Dialer) ensureInterface(ctx context.Context, address string) string {
 }
 func (d *Dialer) detectOnce(ctx context.Context, address string, done chan struct{}) (name string) {
 	defer func() { d.mu.Lock(); d.detecting = nil; close(done); name = d.interfaceName; d.mu.Unlock() }()
-	detected := detectInterface(ctx, address)
+	d.mu.RLock()
+	resolver := d.resolver
+	d.mu.RUnlock()
+	detected := detectInterfaceWithResolver(ctx, address, resolver)
 	d.mu.Lock()
-	if ctx.Err() == nil && usableInterface(detected, d.excludedIPs) {
+	if ctx.Err() == nil && usableInterface(detected, d.excludedIPs) && !mihomo.SameInterface(detected, d.tunDevice) {
 		d.updateInterfaceName(detected)
 	}
 	d.mu.Unlock()
@@ -230,7 +250,7 @@ func (d *Dialer) wrapCapture(conn net.Conn) net.Conn {
 }
 
 func dialContextOnInterface(ctx context.Context, network, address, interfaceName, localDNSServer string) (net.Conn, error) {
-	dialer := &socketdialer.Dialer{InterfaceName: interfaceName}
+	dialer := &socketdialer.Dialer{InterfaceName: interfaceName, UnboundLoopback: true}
 	if interfaceName != "" || localDNSServer != "" {
 		dialer.Resolver = newUnderlayResolver(interfaceName, localDNSServer)
 	}
@@ -285,6 +305,10 @@ func normalizeLocalDNSServer(address string) (string, error) {
 var dialOnInterface = dialContextOnInterface
 
 func detectInterface(ctx context.Context, targetAddress string) string {
+	return detectInterfaceWithResolver(ctx, targetAddress, nil)
+}
+
+func detectInterfaceWithResolver(ctx context.Context, targetAddress string, resolver *net.Resolver) string {
 	if interfaceName := findDefaultInterface(); usableInterface(interfaceName, nil) {
 		return interfaceName
 	}
@@ -296,7 +320,7 @@ func detectInterface(ctx context.Context, targetAddress string) string {
 		host = targetAddress
 		port = "443"
 	}
-	conn, err := (&net.Dialer{Timeout: 3 * time.Second}).DialContext(ctx, "udp", net.JoinHostPort(host, port))
+	conn, err := (&net.Dialer{Timeout: 3 * time.Second, Resolver: resolver}).DialContext(ctx, "udp", net.JoinHostPort(host, port))
 	if err != nil {
 		return ""
 	}
@@ -342,7 +366,7 @@ func (d *Dialer) refreshInterface() string {
 	interfaceName := findDefaultInterface()
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if !usableInterface(interfaceName, d.excludedIPs) {
+	if !usableInterface(interfaceName, d.excludedIPs) || mihomo.SameInterface(interfaceName, d.tunDevice) {
 		return ""
 	}
 	d.updateInterfaceName(interfaceName)
