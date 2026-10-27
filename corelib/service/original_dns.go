@@ -95,7 +95,7 @@ func (p *Listeners) prepareOriginalDNS(original *resolve.OriginalDNS, startup bo
 	return nil
 }
 
-func (p *Listeners) openOriginalDNS(endpoints map[string]resolve.OriginalDNSRoute) ([]originalDNSListener, error) {
+func (p *Listeners) openOriginalDNS(endpoints map[string]resolve.OriginalDNSListener) ([]originalDNSListener, error) {
 	if len(endpoints) == 0 {
 		return nil, nil
 	}

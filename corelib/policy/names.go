@@ -47,6 +47,12 @@ func (r NameRule) matches(host string) bool {
 	return false
 }
 
+// Matches reports namespace membership; malformed names are not scope matches.
+func (r NameRule) Matches(host string) bool {
+	host = strings.TrimSuffix(strings.ToLower(host), ".")
+	return validName(host) && r.matches(host)
+}
+
 func (p *ProtectionPolicy) setNames(names []NameRule, campus []string) error {
 	if len(names) > 4096 || len(campus) > 4096 {
 		return fmt.Errorf("too many name protection entries")
