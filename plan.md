@@ -23,7 +23,7 @@
 | 全计划进度 | 64 项中已收尾 31 项，剩余 33 项；其中本轮目标 S3—S5 剩余 8 项，后续 S6—S8 仍按实施顺序推进 |
 | 剩余性质 | 仍需集中开发的主要为 S4-01／05、S5-03；S3-05、S4-04、S5-01／02／05 主要待真实桌面／校园、签名部署及矩阵汇总。按完整访问链合批开发、按各任务真实验收要求勾选，不把组件通过冒充整项完成 |
 | 最近整轮通过 | `66ba28c` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40423597409)和[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40423597412)全部通过，含 Linux 双架构原 DNS 自动来源／实际端点、原侧／校园同 IP 流量与撤回、三平台已实现的出口变化恢复、Windows 双架构原 SDK 4096 次门槛。六份同源码原始日志及逐项核对归 `build/reports/native-policy-66ba28c/summary.json`；历史 SDK 偶发停滞仍保留为风险 |
-| 本轮验证 | 上述 Linux 名称选择提交时序及 Windows 出口变化均已完成原生验收。新增 macOS 生效解析器视图已通过本地行为反例、应用构建与相关回归；统一由实际普通查询域／搜索列表生成保护，删除旧 State／NoSearch／DomainName 猜测，`40cdeef` 的 macOS 原生及对应矩阵运行中，不计为自动来源已完成 |
+| 本轮验证 | `40cdeef` 三平台 Tests 全部通过，macOS 两架构助手／独立恢复通过，正式 ABI／应用仍在验收；Windows x64 的两个 DNS 失败夹具误把 UDP 分配端口视为 TCP 可用，现复用已验证的成对分配器，全部原断言保留。本地相关 60 次测试及 Windows 双架构交叉编译通过，修正尚待原生验收；不计为自动来源已完成 |
 | 当前推进与下一步 | 收尾并验收当前 macOS 生效视图这一个完整单元，再集中补 macOS／Windows 原 DNS 自动来源及 Fake-IP／Clash 出口联动；低概率、小影响分支只记录。真实桌面／校园和签名部署作为独立验收缺口并行处理，复用已有结果，不继续拆成细碎 DNS 单元 |
 | CI 下载瓶颈 | Linux x64 的 Azure 依赖源下载 42.2 MB 用时 15 分 11 秒；三组工作流已统一接入 `setup-linux-apt`，使用 runner 现有 Ubuntu 官方替代源。本地镜像样例／幂等／缺少列表、workflow 检查及八种失败传播通过；`c14f931` 的 x64 依赖安装步骤已由运行时间确认在 51 秒完成，后续 `66ba28c` 完整九项通过；[依据与范围](docs/DEVELOPMENT.md#ci-apt-mirrors) |
 | 验收范围 | 仅要求 Fudan 实测；按用户决定取消另一台 aTrust 服务器的硬性要求，保留 Custom 实现与服务器／账户隔离回归 |
