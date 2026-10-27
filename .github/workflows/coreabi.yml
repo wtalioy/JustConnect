@@ -122,6 +122,15 @@ jobs:
         if: &collect_native_evidence ${{ !cancelled() && (success() || (runner.os == 'Windows' && steps.windows_device_probe.outcome == 'failure')) }}
         run: python tests/platform/setup_mihomo.py --target ${{ matrix.platform }}-${{ matrix.arch }}
 
+      - name: Verify ordinary control beneath a live rejecting Mihomo TUN
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          test -z "$(gofmt -l tests/platform/mihomo_tun_probe.go)"
+          go -C corelib vet ../tests/platform/mihomo_tun_probe.go
+          go -C corelib build -mod=readonly -o ../build/coreabi/mihomo-tun-probe ../tests/platform/mihomo_tun_probe.go
+          sudo unshare --net -- "$(command -v python)" tests/platform/mihomo_tun_linux.py --uid "$(id -u)" --probe build/coreabi/mihomo-tun-probe --mihomo "$JC_TEST_MIHOMO_BINARY" 2>&1 | tee build/coreabi/linux-mihomo-tun.log
+
       - name: Verify formal C ABI, protocol session and authentication
         if: *collect_native_evidence
         timeout-minutes: 20

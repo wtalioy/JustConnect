@@ -213,6 +213,37 @@ func TestControllerTunnelIsNotUsedAsUnderlay(t *testing.T) {
 	}
 }
 
+func TestControllerTunnelSelectsOriginalExitWithDefaultOptions(t *testing.T) {
+	name := findDefaultInterface()
+	if !usableInterface(name, nil) {
+		t.Skip("no original default interface is available")
+	}
+	controller, _ := ownedController(t, testmihomo.Options{Transport: "ipc", TunEnabled: true, TunDevice: "fixture-tun"})
+	useController(t, controller)
+	original := findDefaultInterface
+	findDefaultInterface = func() string { return name }
+	t.Cleanup(func() { findDefaultInterface = original })
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { io.WriteString(w, "original exit") }))
+	defer server.Close()
+	_, port, _ := net.SplitHostPort(server.Listener.Addr().String())
+	dialer, err := New(Options{AutoDetect: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dialer.Close()
+	transport := &http.Transport{Proxy: nil, DialContext: dialer.DialContext}
+	defer transport.CloseIdleConnections()
+	response, err := (&http.Client{Transport: transport}).Get("http://gateway.example.test:" + port)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil || string(body) != "original exit" || dialer.InterfaceName() != name {
+		t.Fatalf("default control did not select the original exit: interface=%q err=%v", dialer.InterfaceName(), err)
+	}
+}
+
 func TestControllerInitializationWaitIsCancelable(t *testing.T) {
 	original := discoverController
 	t.Cleanup(func() { discoverController = original })

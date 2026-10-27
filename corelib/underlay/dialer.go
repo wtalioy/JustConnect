@@ -46,7 +46,8 @@ type Options struct {
 	// InterfaceName explicitly selects the interface used by underlay sockets.
 	// It takes precedence over AutoDetect.
 	InterfaceName string
-	AutoDetect    bool
+	// A verified external TUN requires an original exit even when AutoDetect is false.
+	AutoDetect bool
 	// DebugPCAPFile records application-visible TCP traffic on underlay sockets.
 	DebugPCAPFile string
 	// LocalDNSServer overrides the system DNS for VPN server hostname resolution.

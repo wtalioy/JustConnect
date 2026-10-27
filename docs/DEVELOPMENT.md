@@ -193,3 +193,6 @@ Core ABI 六组原生检查使用 [测试运行时锁](../tests/platform/mihomo-
 本地复现：`JC_TEST_MIHOMO_BINARY=/absolute/path/to/mihomo go -C corelib test -count=1 -run TestOfficialMihomoRealDNSControlTLS ./underlay`。未提供二进制的普通单元检查跳过该真实运行测试；Core ABI 先准备运行时，准备失败即失败。测试只启动自己的临时实例，关闭 TUN 与所有代理入口，使用自有回环 DNS 和随机控制端口；核对自定义 `198.19.0.0/16` Fake-IP 与 API 返回的真实地址、原域名 TLS 交换及系统解析未被调用，分别执行 TCP 与原生 Unix socket／Windows named pipe。结束只停止自有进程并清理临时文件，不改系统接口、路由或 DNS。
 
 相邻原生进程夹具覆盖端点／创建时间不匹配、密钥保护、重定向、响应上限、CNAME／AAAA、取消与并发初始化；underlay 的完整性测试覆盖认证方式、登录、网关、重连共用拨号路径以及错误 TLS 名称被拒绝。上述均不代表正在运行的 Clash TUN 已完成流量与原出口验证，也不替代桌面或校园验收。
+
+
+Linux Core ABI 另在全新网络命名空间执行 `mihomo_tun_linux.py`：官方 Mihomo 实际创建 TUN 和捕获规则，独立对端提供真实 DNS／TLS，普通 UID 且零 capabilities 的探针先验证未绑定 TLS 被 TUN 捕获并拒绝，再使用正式 underlay 完成四阶段请求，核对原源地址、域名证书、接口和系统 DNS 未调用。保留 `rp_filter=1`，结束验证捕获解除。脚本拒绝宿主命名空间；只有 CI 隔离验证可运行提权部分，本地只构建探针及核对自有回环对端。结果归 `build/coreabi/linux-mihomo-tun.log`，不替代 macOS／Windows 的运行中 TUN 或真实校园验收。
