@@ -301,9 +301,9 @@ std::uint64_t plainGlobalPolicy(const std::vector<std::wstring> &servers)
     const auto value=settings.SettingFlags;FreeDnsSettings(base);
     if(!plainPolicy(value))fail(("original DNS transport requires native encrypted policy (flags="+std::to_string(value)+")").c_str(),ERROR_NOT_SUPPORTED);
     if((value&(DNS_ENABLE_DOH|DNS_ENABLE_DOT)) && !(value&DNS_DOH_POLICY_DISABLE)){
-        for(const auto &known:WindowsDNS::knownNrptDohServers()){
+        for(const auto &known:WindowsDNS::knownNrptEncryptedServers()){
             const auto address=canonicalIP(known);
-            if(std::find(servers.begin(),servers.end(),address)!=servers.end())fail("original NRPT server requires native DoH",ERROR_NOT_SUPPORTED);
+            if(std::find(servers.begin(),servers.end(),address)!=servers.end())fail("original NRPT server requires native encrypted DNS",ERROR_NOT_SUPPORTED);
         }
     }
     return value;

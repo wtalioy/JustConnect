@@ -3,6 +3,6 @@
 #include <vector>
 
 namespace WindowsDNS {
-// NRPT uses DoH for servers in the native known-server table, independently of namespace matching.
-std::vector<std::wstring> knownNrptDohServers();
+// Include built-in DoH and configured DoH/DoT entries before treating an NRPT upstream as plain DNS.
+std::vector<std::wstring> knownNrptEncryptedServers();
 }
