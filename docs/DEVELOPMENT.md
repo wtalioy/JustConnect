@@ -87,7 +87,7 @@ ctest --test-dir build/coreabi -C Release --output-on-failure
 
 支持 race 的矩阵串行测试包，保留平台默认的进程内并行度及原场景时限；矩阵在全量检查后额外执行五次 `TestTUNBoundsFlowsAndJoinsFullCapacityOnShutdown`，保留原 256 流容量及每次关闭一秒断言，日志归 `go-race-tun-shutdown.log`。DNS 夹具的异步查询将错误送回主测试线程，查询失败必须结束测试，避免工作协程 `t.Fatal` 留下主线程永久等待结果。满容量场景仍创建 256 条真实 UDP 流；其对端仅创建用到的 UDP 协议，TCP／UDP 混合收发继续使用完整真实对端；拒绝及未完成握手场景直接注入有效 SYN，检查实际 RST 元组、确认号与校验和，保留原一秒准备／关闭时限，避免用多余的客户端 TCP 栈竞争被测入口。race 全量与容量重复失败后仍收集独立 ABI 构建／宿主证据，步骤最终返回原失败；普通测试、配置、构建或宿主失败直接结束。`coreabi_workflow_test` 在临时目录用八种结果验证失败传播及 Windows ARM64 原有能力分支。关闭回归同时记录调度等待、实际清理及总用时；失败输出登记表状态与协程堆栈，不能把竞态检测下的偶发超时直接当作死锁，也不能以重跑代替重复失败的诊断。
 
-同一 Core ABI 工作流在一次性 runner 验证设备权限与正常／强杀清理，范围见[设备记录](CORELINK-PROBE.md#设备与权限边界)。Windows 设备检查先于完整 ABI 构建执行，尽早暴露驱动／权限问题；全部必需检查仍须通过。设备日志同时保留标准输出和错误输出，Windows 直接写入证据文件，超时也保留部分输出；失败不得靠扩大数据期限或放宽清理断言通过。
+同一 Core ABI 工作流在一次性 runner 验证设备权限与正常／强杀清理，范围见[设备记录](CORELINK-PROBE.md#设备与权限边界)。Windows 设备检查先于完整 ABI 构建执行，失败步骤直接保留失败状态；完整矩阵和 Windows 专用模式通过显式状态条件继续收集独立 ABI／应用证据，取消则停止。不能依据 `continue-on-error` 改写后的步骤 conclusion 宣称设备通过；最终强制门槛仍读取原始 outcome，全部必需检查仍须通过。工作流回归另外覆盖八种设备失败／前置失败／取消条件。设备日志同时保留标准输出和错误输出，Windows 直接写入证据文件，超时也保留部分输出；失败不得靠扩大数据期限或放宽清理断言通过。
 
 Windows 设备与普通 Qt／Go 数据面可用 `gh workflow run coreabi.yml --ref <源码引用> -f windows_packet_only=true` 单独验证双架构；该模式复用完整矩阵的同一驱动检查、正式数据面及应用会话目标，不代替最终六组 ABI／三平台 Tests。Wintun 版本、归档校验和、架构、签名者与包内名称由 `resource/network-helper-windows.json` 单一维护，`scripts/windows_helper_sdk.py` 只暂存已校验归档中的对应原生 DLL、许可证和官方头文件，不解压其他条目。实际文件路径由生产者传给测试，不依赖测试构建目录。原生构建、三处强杀／外部冲突检查和签名安装／真实 SCM 重启在 Qt／Go 下载前执行，保留原时限与数据断言。独立助手项目为 `infrastructure/networkhelper/windows/helper`，依赖 Windows SDK／C++20 及 `WINTUN_INCLUDE_DIR` 指向的已校验官方头文件；构建输入 `JC_HELPER_PUBLISHER_SHA256`、`JC_HELPER_DRIVER_SHA256`、`JC_HELPER_LICENSE_SHA256` 固定安装来源，未配置时拒绝安装。`--install` 安装当前签名映像及固定载荷并注册恢复服务，`--service` 进入 SCM；`--authorize` 是普通权限启动器，`--control` 仅服务绑定实际进程的固定协议。Qt 后置检查使用 `python tests/platform/run_windows_helper.py --qt-control`，与原生检查共用签名／安装夹具，但不重复无关恢复用例。当前主应用接管及真实桌面 UAC 状态见计划，不以原生部件检查代替产品可用。
 
@@ -145,7 +145,7 @@ Fudan Windows 实机验收步骤：启用记住认证并连接；分别测试普
 
 当前 `authentication_started` 不能单独证明重新登录，`transport_connected` 只表示通道／本地代理就绪。TLS 阶段及原因等固定诊断码见 [ABI 事件契约](CORE-ABI.md#事件与认证回应)；这些诊断不记录账号材料、原始证书或请求 URL。
 
-当前开发版仍需手动设置系统代理，或明确启用连接后自动设置，才能让遵循该设置的浏览器使用通道；Windows OpenSSH 需显式代理。下面仅为临时诊断，使用现有 Git for Windows `connect.exe`，替换 SSH 主机／别名、安装路径或已修改的 HTTP 端口，保留 SSH 自身信任检查：
+已交付的 `8fefd1c` 代理预览仍需手动设置系统代理，或明确启用连接后自动设置；该预览中的 Windows OpenSSH 需显式代理。开发分支的透明入口及未验收项按 plan 单独记录。下面仅为临时诊断，使用现有 Git for Windows `connect.exe`，替换 SSH 主机／别名、安装路径或已修改的 HTTP 端口，保留 SSH 自身信任检查：
 
 ```powershell
 ssh -o 'ProxyCommand="C:/Program Files/Git/mingw64/bin/connect.exe" -H 127.0.0.1:11081 %h %p' school-host

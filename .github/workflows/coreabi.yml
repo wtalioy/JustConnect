@@ -111,7 +111,6 @@ jobs:
         name: Probe Windows device broker in the disposable runner
         id: windows_device_probe
         if: runner.os == 'Windows'
-        continue-on-error: true
         run: python tests/platform/run_windows_packet.py --device-only
 
       - name: Verify signed macOS network helper and independent recovery
@@ -120,6 +119,7 @@ jobs:
         run: bash tests/platform/run_macos_networkhelper.sh
 
       - name: Verify formal C ABI, protocol session and authentication
+        if: &collect_native_evidence ${{ !cancelled() && (success() || (runner.os == 'Windows' && steps.windows_device_probe.outcome == 'failure')) }}
         timeout-minutes: 20
         shell: python
         run: |
@@ -294,6 +294,7 @@ jobs:
         run: python tests/platform/run_windows_helper.py --qt-control
       - *windows_device_probe
       - name: Verify ordinary Qt/core packets and application sessions
+        if: *collect_native_evidence
         run: python tests/platform/run_windows_packet.py --core-only
       - *windows_device_result
       - name: Upload native Windows evidence

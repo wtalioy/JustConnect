@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+from types import SimpleNamespace
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -78,3 +79,26 @@ for failed in ('normal', 'configure', 'build'):
 status, calls = scenario({}, runner='Windows')
 assert status == 0 and calls[-1] == 'host' and 'race' not in calls and 'shutdown' not in calls, calls
 print('PASS: 8 workflow outcomes; race failures collect ABI evidence and remain failures')
+
+# GitHub's continue-on-error changes the displayed conclusion; retain the actual device failure.
+probe = lines.index('      - &windows_device_probe')
+end = next(i for i in range(probe+1,len(lines)) if lines[i].startswith('      - '))
+assert not any(line.strip() == 'continue-on-error: true' for line in lines[probe:end]), 'Device failure would be displayed as success'
+condition = next(line.split('${{',1)[1].rsplit('}}',1)[0] for line in lines if 'if: &collect_native_evidence ' in line)
+condition = condition.replace('&&',' and ').replace('||',' or ').replace('!cancelled()','not cancelled()').strip()
+for runner, previous_success, outcome, cancelled, expected in (
+        ('Windows',False,'failure',False,True),
+        ('Windows',True,'success',False,True),
+        ('Windows',False,'skipped',False,False),
+        ('Windows',False,'cancelled',True,False),
+        ('Windows',False,'failure',True,False),
+        ('macOS',True,'skipped',False,True),
+        ('macOS',False,'skipped',False,False),
+        ('Linux',False,'skipped',False,False)):
+    actual=eval(condition,{'__builtins__':{}},{
+        'runner':SimpleNamespace(os=runner),
+        'steps':SimpleNamespace(windows_device_probe=SimpleNamespace(outcome=outcome)),
+        'success':lambda:previous_success,'cancelled':lambda:cancelled})
+    assert actual == expected,(runner,previous_success,outcome,cancelled,actual)
+assert '        if: *collect_native_evidence' in lines,'Packet-only checks lost independent evidence collection'
+print('PASS: device failures stay visible; 8 native evidence/cancellation conditions')

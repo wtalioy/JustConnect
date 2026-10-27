@@ -23,8 +23,8 @@
 | 全计划进度 | 64 项中已收尾 31 项，剩余 33 项；其中本轮目标 S3—S5 剩余 8 项，后续 S6—S8 仍按实施顺序推进 |
 | 剩余性质 | 仍需集中开发的主要为 S4-01／05、S5-03；S3-05、S4-04、S5-01／02／05 主要待真实桌面／校园、签名部署及矩阵汇总。按完整访问链合批开发、按各任务真实验收要求勾选，不把组件通过冒充整项完成 |
 | 最近整轮通过 | `758e0a8` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40462210681)和[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40462210734)全部通过；六份日志均核对新增 UDP／TCP 多范围分派及既有平台回归，报告 `build/reports/native-policy-758e0a8/summary.json`。SDK 历史停滞风险继续保留 |
-| 本轮验证 | `3d6c608` 的 Windows x64／ARM64 原生前置检查均通过：既有 NRPT 原端点替换、写前记录、捕获撤回后／设备消失后的恢复，实际缓存解析、DoH／DoT 来源拒绝及助手强杀／SCM 回归。完整 [Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40484016917)／[Tests](https://github.com/wtalioy/JustConnect/actions/runs/40484016703) 仍在运行；应用暂提交空来源，自动接管未完成。本地 5 项 CTest、22 项 Python 通过，另 1 项既有 Windows 签名检查跳过；报告 `build/reports/windows-original-dns-backend.json` |
-| 当前推进与下一步 | 先验本次 Windows NRPT 写入／恢复后端，随后合并完成自动来源选择、监听与应用原视图观察整链，再做 Fake-IP／Clash。Linux、macOS 普通原 DNS 及 Windows 读取已通过原生；临时／加密来源、真实桌面／校园与签名缺口保持待验收 |
+| 本轮验证 | `3d6c608` 的三平台 [Tests](https://github.com/wtalioy/JustConnect/actions/runs/40484016703)、六组正式 ABI 步骤、Windows 双架构新增 NRPT／实际缓存解析／DoH／DoT 拒绝及恢复回归均通过，各 40 项 CTest 通过。[整轮 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40484016917) 因 x64 原 SDK 第 57／4096 包停滞而失败（写入返回 57、设备收到 56），不算全绿；ARM64 4096 包通过。应用仍提交空原 DNS 来源，自动接管未完成；报告 `build/reports/windows-original-dns-backend.json`、`native-policy-3d6c608/summary.json` |
+| 当前推进与下一步 | Windows NRPT 后端已取得双架构受控证据；继续自动来源选择、监听与应用原视图观察整链，再做 Fake-IP／Clash。SDK 单包停滞仍是 Windows 数据面未验收风险，不绕过门槛；本次修正 CI 失败展示，使失败设备步骤保留红色且继续收集独立 ABI 证据，原 SDK／4096 次／30 秒不变。本地工作流八种原有结果及八种执行／取消条件、四项运行器检查通过；原生 CI 待验 |
 | CI 下载瓶颈 | Linux x64 的 Azure 依赖源下载 42.2 MB 用时 15 分 11 秒；三组工作流已统一接入 `setup-linux-apt`，使用 runner 现有 Ubuntu 官方替代源。本地镜像样例／幂等／缺少列表、workflow 检查及八种失败传播通过；`c14f931` 的 x64 依赖安装步骤已由运行时间确认在 51 秒完成，后续 `66ba28c` 完整九项通过；[依据与范围](docs/DEVELOPMENT.md#ci-apt-mirrors) |
 | 验收范围 | 仅要求 Fudan 实测；按用户决定取消另一台 aTrust 服务器的硬性要求，保留 Custom 实现与服务器／账户隔离回归 |
 | 剩余缺口 | S1-04 真实样本、正式签名／公证、真实桌面／校园透明访问、Clash 共存与剩余平台矩阵未验收；D2 的三平台设备／权限／正常及故障恢复已通过受控自动验证，边界与实机缺口见 S4／S5 |
