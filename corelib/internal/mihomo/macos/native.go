@@ -83,7 +83,7 @@ func OwnsTCP(ctx context.Context, p model.Process, target netip.AddrPort) bool {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	output, err := exec.CommandContext(ctx, "/usr/sbin/lsof", "-a", "-p", strconv.Itoa(p.PID), "-iTCP", "-sTCP:LISTEN", "-Fftn").Output()
+	output, err := exec.CommandContext(ctx, "/usr/sbin/lsof", "-nP", "-a", "-p", strconv.Itoa(p.PID), "-iTCP", "-sTCP:LISTEN", "-Fftn").Output()
 	if err != nil || len(output) > 1<<20 {
 		return false
 	}

@@ -27,7 +27,6 @@ corelib/internal/
   packetpipe/    共有 IPv4 包帧及 Windows 设备桥接入
   namedpipe/     windows 重叠管道 I/O，设备桥与本地控制 HTTP 共用
   mihomo/        只读控制来源／真实解析；linux／macos／windows 进程与端点身份
-  networkhelper/windows/  安装、特权操作与恢复；testsupport 仅供权限夹具
 ```
 
 Linux TUN、macOS utun 的创建仍由 C++ 平台助手完成；Go 原生实现接收、校验与持有 fd，并处理设备 I/O 语义。共有契约测试覆盖平台接入，原生解析和设备测试随实现存放。`tundevice/address` 是各后端与数据面的同一份地址契约，没有第二套默认值或解析状态。

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -57,6 +58,15 @@ func TestNativeControllerTCPAndIPC(t *testing.T) {
 					t.Fatalf("native real-DNS CNAME/AAAA response: %v", err)
 				}
 			}
+			var concurrent sync.WaitGroup
+			for range 8 {
+				concurrent.Go(func() {
+					if _, err := client.Query(t.Context(), dns.Question{Name: "parallel.example.test.", Qtype: dns.TypeA, Qclass: dns.ClassINET}); err != nil {
+						t.Errorf("concurrent native controller query: %v", err)
+					}
+				})
+			}
+			concurrent.Wait()
 			addresses, err := client.Resolver().LookupNetIP(t.Context(), "ip", "gateway.example.test")
 			if err != nil || len(addresses) != 2 {
 				t.Fatalf("Go resolver did not retain both real address families: %v %v", addresses, err)
