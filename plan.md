@@ -17,14 +17,14 @@
 
 | 项目 | 当前记录 |
 | --- | --- |
-| 当前任务 | 按 S3 → S4 → S5 推进；S3-01／02／03／04／06、S4-02／03／06、S5-04 已收尾。已统一职责布局与三平台 C++ 权限助手；三平台普通接管、助手故障及双杀自动验收、六组助手包链已通过。正式签名／桌面与校园实测、macOS 静态来源完整链的 双架构系统场景已通过，整轮仍待、其余来源／Windows 及真实平台要求保持待验收 |
+| 当前任务 | 按 S3 → S4 → S5 推进；S3-01／02／03／04／06、S4-02／03／06、S5-04 已收尾。已统一职责布局与三平台 C++ 权限助手；三平台普通接管、助手故障及双杀自动验收、六组助手包链已通过。macOS 静态原 DNS 正常接管／策略／恢复已通过双架构系统场景与 ABI；正式签名／桌面与校园、其余来源／Windows 及本轮 Windows ABI 仍待 |
 | 实测状态 | Windows Fudan `8fefd1c` 启用隧道证书例外后认证／隧道成功；Clash Verge TUN 开启时，用户确认手动设置系统代理后网页正常，普通断开及退出重启均无需再次认证，清除缓存后出现认证窗口、手动认证后连接成功。显式 SOCKS／HTTP 的校内 SSH 通信及 HTTP 代理密钥交换通过，未登录；该已交付版本的终端直连与自动接管未验收；开发分支的三平台接管／恢复自动结果见 S4 |
 | S3—S5 剩余 | **17 项中已收尾 9 项，剩余 8 项**：S3-05；S4-01／04／05；S5-01／02／03／05。剩余包含已有实现的待验收项，并非 8 项全部未实现；原生 IP／域名 SSH 已通过六组联验，当前集中完成已通过的原 DNS 应答排除基础上的自动来源／真实端点与出口联动，再补真实桌面／校园验收 |
 | 全计划进度 | 64 项中已收尾 31 项，剩余 33 项；其中本轮目标 S3—S5 剩余 8 项，后续 S6—S8 仍按实施顺序推进 |
 | 剩余性质 | 仍需集中开发的主要为 S4-01／05、S5-03；S3-05、S4-04、S5-01／02／05 主要待真实桌面／校园、签名部署及矩阵汇总。按完整访问链合批开发、按各任务真实验收要求勾选，不把组件通过冒充整项完成 |
 | 最近整轮通过 | `9a2b573` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40430121360)和[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40430121307)全部通过，含 Linux 双架构原 DNS 自动来源、macOS 生效视图与三平台已实现的出口变化、Windows 双架构原 SDK 4096 次门槛。它不包含下述新增 macOS 静态来源链；上游 SDK 偶发停滞风险继续保留 |
-| 本轮验证 | 新增 macOS 静态普通查询源的读取→核心监听确认→持久安装／回读→原视图／动态策略→恢复完整链；本地应用、来源／边界回归及核心 179 项 race 通过，Mac 双架构 Go 原生驱动交叉编译通过。macOS 双架构的助手完整系统场景已通过，覆盖私有 preferences、缓存预热、原生 AAAA／TCP 回退、同 IP 两侧流量与两轮恢复；三平台 Tests 与 Linux 双架构 ABI 已通过，本轮其余必需检查仍待，未宣称三平台可用；报告 `build/reports/macos-original-dns-application.json` |
-| 当前推进与下一步 | 将 macOS 静态来源完整单元合批验收，随后补其余原生来源／Windows 自动接入及 Fake-IP／Clash 出口链；真实桌面／校园和签名缺口独立验收。保留 SDK 原门槛，已有写入返回及上游修复依据后不再盲试重试／屏障绕行 |
+| 本轮验证 | 新增 macOS 静态普通查询源的读取→核心监听确认→持久安装／回读→原视图／动态策略→恢复完整链；本地应用、来源／边界回归及核心 179 项 race 通过，Mac 双架构 Go 原生驱动交叉编译通过。macOS 双架构的助手完整系统场景已通过，覆盖私有 preferences、缓存预热、原生 AAAA／TCP 回退、同 IP 两侧流量与两轮恢复；三平台 Tests、Linux／macOS 四组 ABI（macOS 各 37 项 CTest）已通过；原生日志已核对原 A／AAAA 各一次与上游 TCP 回退一次，本轮 Windows 两组 ABI 仍待，未宣称三平台可用；报告 `build/reports/macos-original-dns-application.json` |
+| 当前推进与下一步 | 继续 macOS State／DHCP 来源、Windows 自动接入及 Fake-IP／Clash 出口完整链；已通过平台按依赖推进，不重复原静态源回归；真实桌面／校园和签名缺口独立验收。保留 SDK 原门槛，已有写入返回及上游修复依据后不再盲试重试／屏障绕行 |
 | CI 下载瓶颈 | Linux x64 的 Azure 依赖源下载 42.2 MB 用时 15 分 11 秒；三组工作流已统一接入 `setup-linux-apt`，使用 runner 现有 Ubuntu 官方替代源。本地镜像样例／幂等／缺少列表、workflow 检查及八种失败传播通过；`c14f931` 的 x64 依赖安装步骤已由运行时间确认在 51 秒完成，后续 `66ba28c` 完整九项通过；[依据与范围](docs/DEVELOPMENT.md#ci-apt-mirrors) |
 | 验收范围 | 仅要求 Fudan 实测；按用户决定取消另一台 aTrust 服务器的硬性要求，保留 Custom 实现与服务器／账户隔离回归 |
 | 剩余缺口 | S1-04 真实样本、正式签名／公证、真实桌面／校园透明访问、Clash 共存与剩余平台矩阵未验收；D2 的三平台设备／权限／正常及故障恢复已通过受控自动验证，边界与实机缺口见 S4／S5 |
@@ -35,7 +35,7 @@ S3—S5 未收尾项按实际缺口归并如下；同一证据可覆盖多个 ID
 | 剩余任务 | 已有结果与待办 |
 | --- | --- |
 | S3-05 | 有序退出、授权取消、故障／双杀恢复已自动验收；补真实系统注销与桌面授权 |
-| S4-01／05、S5-03 | 地址保护／选择、系统校园 DNS／SSH、原 DNS 核心／监听准备与应答排除已自动验收；Linux 自动来源／实际端点联动已通过双架构原生，macOS 静态来源 双架构系统场景已通过、整轮仍待，其余来源／Windows 待实现；另补 MagicDNS／Fake-IP、剩余出口变化与实机 |
+| S4-01／05、S5-03 | 地址保护／选择、系统校园 DNS／SSH、原 DNS 核心／监听准备与应答排除已自动验收；Linux 自动来源／实际端点联动已通过双架构原生，macOS 静态来源已通过双架构系统场景与 ABI，其余来源／Windows 待实现；另补 MagicDNS／Fake-IP、剩余出口变化与实机 |
 | S4-04 | 三平台 C++ 助手与授权边界已自动验收；补正式签名／公证、受信部署和实际桌面授权 |
 | S5-01／02 | 代理基线、三平台透明入口与受控流量已验；补无 Clash 时真实校园网页／SSH／UDP、普通出口和已打开终端操作 |
 | S5-05 | 复用以上证据汇总 V1 三平台矩阵，补未测格，不另开发或重跑完整旧基线 |
@@ -244,10 +244,10 @@ Linux x64／ARM64 AppImage 分别减少约 2.07%／1.90%；macOS 安装体积基
 
 当前证据与保留结论（实现细节见架构及 Git，不再逐次累计 CI 历史）：
 
-- **当前基线**：`9a2b573` 三平台 Tests／六组 Core ABI 全部通过，链接见[当前工作](#当前工作)；六份原生日志及场景核对归 `build/reports/native-policy-9a2b573/summary.json`。包含 Linux 双架构原 DNS 自动来源／实际端点、macOS 生效视图及三平台已实现的出口变化；Windows 旧夹具失败已修复，原 SDK 偶发停滞风险保留。`478ac3b` 的 macOS 双架构助手系统场景与三平台 Tests 已通过，含普通地址选择保持不变及真实 AAAA；当前[Tests](https://github.com/wtalioy/JustConnect/actions/runs/40443652603)／[Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40443652579)仍在验收，不能替代真实桌面／校园或正式签名。
+- **当前基线**：`9a2b573` 三平台 Tests／六组 Core ABI 全部通过，链接见[当前工作](#当前工作)；六份原生日志及场景核对归 `build/reports/native-policy-9a2b573/summary.json`。包含 Linux 双架构原 DNS 自动来源／实际端点、macOS 生效视图及三平台已实现的出口变化；Windows 旧夹具失败已修复，原 SDK 偶发停滞风险保留。`478ac3b` 的三平台 Tests、Linux／macOS 四组 ABI 已通过；macOS 各 37 项 CTest，新增来源的 A／AAAA／TCP 回退、实际流量与恢复标记均已核对，含普通地址选择保持不变及真实 AAAA；当前[Tests](https://github.com/wtalioy/JustConnect/actions/runs/40443652603)／[Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40443652579)仍在验收，不能替代真实桌面／校园或正式签名。
 - **S4-01／S5-03 保护与读取**：地址／名称保护由实际接口、路由、DNS 和校园资源共同推导；原网络默认优先，精确选择仍受学校协议／端口授权，localhost 固定留在本机。模型保留来源及后缀／完整名称／NRPT 前缀／搜索语义，读取失败、畸形、超限不发布部分保护。Linux 全路由／resolved、Windows MI／NRPT／安全字段／DoH 已验；完整 NSS／最终解析边界见[只读契约](docs/CORE-ABI.md#原网络只读快照)。Windows 实际 70 项来源／规则、68 条 NRPT 引用及界面预览归 `build/reports/network-baseline-3f45114.json`、`windows-dns-native.json`、`network-name-choices.png`／`.dns.png`。
 - **S4-02 已收尾**：C／Go／Qt／初始与实时配置共用完整校验和不可变快照；修订递增、按代次双确认，失败／旧代／关闭不发布。并发更新、排队确认、取消及重启回归保留；全仓调用方、生成契约、夹具、构建／CI／文档已复查，无旧策略通道或配置轮询。[API 与边界](docs/CORE-ABI.md#保护策略更新)。
-- **S4-01／S5-03 当前增量**：生效 macOS 查询视图、共享撤回协调与两处 DNS 失败夹具已随 `9a2b573` 完整九项通过，原生快照 8／9 ms，原断言与门槛保留。当前新增静态源全链复用 Go DNS／路由发布、C++ 原生 preferences 和所属恢复记录；删除重复 CF 转换／标准端口值，不接管临时 State 会话，不新增缓存、观察器或逐包 IPC。源码与本地验证归 `build/reports/macos-original-dns-application.json`，新原生链待验；范围与未实现来源见[架构](docs/ARCHITECTURE.md#macos-original-dns-sources)。
+- **S4-01／S5-03 当前增量**：生效 macOS 查询视图、共享撤回协调与两处 DNS 失败夹具已随 `9a2b573` 完整九项通过，原生快照 8／9 ms，原断言与门槛保留。当前新增静态源全链复用 Go DNS／路由发布、C++ 原生 preferences 和所属恢复记录；删除重复 CF 转换／标准端口值，不接管临时 State 会话，不新增缓存、观察器或逐包 IPC。源码、清理及本地／双架构原生验证归 `build/reports/macos-original-dns-application.json`、`build/reports/native-policy-478ac3b/summary.json`，本轮 Windows ABI 仍待；范围与未实现来源见[架构](docs/ARCHITECTURE.md#macos-original-dns-sources)。
 - **S4-03／06 已收尾**：三平台写前快照、持久所有权、完整回读、部分回滚及独立恢复均已受控验收，只撤销自身修改；外部改值／同值重建、取消、EOF、强杀、未决责任和失败重试回归保留。Linux 专用源／捕获表保留 main／local，systemd 覆盖双杀；macOS 临时 DNS 会话、精确路由及 launchd 新进程恢复；Windows 精确 IP／PnP／NRPT、账户／UUID 门槛及 SCM 双杀。全仓调用方、日志、服务、部署、夹具和 CI 已复查，报告 `build/reports/linux-source-journal.json`、`linux-source-checkpoints.json`、`capture-table.json`、`macos-helper.json`、`macos-finish.json`、`windows-native-recovery.json`。
 - **S3-05／S4-06 系统代理恢复**：三平台锁、凭据、写前／恢复检查点、并发拒绝、EOF／强杀及新进程恢复已验；跨账户权限不由锁授予。Linux GNOME／KDE、Windows WinINet／Credential Manager、macOS Keychain／SystemConfiguration 保留平台独有回归。真实跨登录会话、系统注销、桌面授权和无人值守环境仍待；契约归[架构](docs/ARCHITECTURE.md)，证据 `build/reports/system-proxy-recovery.json`，历史同源码[六组包](https://github.com/wtalioy/JustConnect/actions/runs/39938150558)不冒充当前交付。
 - **S4-04 权限助手及职责**：三平台统一 C++ 提权／设备／恢复，Qt／Go 普通权限数据面；按职责分包，共有逻辑归所属模块，私有实现归 `linux`／`macos`／`windows`。Go 提权实现、手工 SDK 布局、总 platform 层及无用旧路径已删，无空壳或逐包 Qt 转发。固定部署、调用身份、签名／映像、对端 PID／创建时间／SID、所属 fd／句柄、单次授权、拒绝／迟到取消／EOF 均已自动验。结构与测量归[架构](docs/ARCHITECTURE.md#目录与依赖)／[Windows 助手](docs/ARCHITECTURE.md#windows-native-helper)，报告 `build/reports/capability-layout-*.log`、`windows-helper-cpp.json`、`linux-recovery-timer.json`；真实 UAC／polkit／Authorization、跨管理员账户及正式可信部署待验。
@@ -257,7 +257,7 @@ Linux x64／ARM64 AppImage 分别减少约 2.07%／1.90%；macOS 安装体积基
 - **包与稳定性边界**：`49bcd51` [六组实际包及源码](https://github.com/wtalioy/JustConnect/actions/runs/40255281719)通过，已下载核对同源码／架构／原生依赖，源码 612 文件逐字节匹配；Windows 原生驱动／许可证、协议 2／存储 1、安装链已验，但 `identity_ready=false`／`NotSigned`，macOS 亦为临时签名，正式签名／公证待验。报告 `build/reports/native-helper-package-49bcd51/summary.json`。原 Wintun SDK 0.14.1 的 4096 次／30 秒门槛在当前基线双架构通过；`40cdeef` ARM64 探针已确认写入返回后未送达，上游有吻合的唤醒竞态修复但未发布新版签名 SDK，因果对照仍待；保留原失败与探针，不增加重试或放宽门槛，不以应用成功替代 SDK 检查。
 - **D2／D3 与清理**：普通数据路径、严格 rp_filter、独立源表及设备强杀沿用已验链；Mihomo 1.19.32 自有实例已核对完整 PUT、无效更新保留、恢复回读及 Fake-IP 与 API 真实地址差别，真实配置所有权／运行中 TUN 仍待，见[设备](docs/CORELINK-PROBE.md#设备与权限边界)／[接口](docs/CORELINK-PROBE.md#mihomo-api-probe)。已删除被正式链替代的原型／上游串联、模型／后端副本、绕行逻辑及重复产物；保留独有安全／边界／失败／取消／平台回归、conntrack 原门槛、关键唯一失败与必要构建／工具／SDK。旧目录锁、Linux 已交付 schema 2 及捕获 v1 仅供现存遗留恢复，停止支持对应记录／进程后删除；包验收的 crash／managed 路径和旧 packet-relay 夹具仍有独有调用／断言。当前精简只合并计划流水，不删除有效证据或迁移条件。
 
-未完成：系统代理真实注销／无人值守恢复及桌面授权、复杂策略路由／在途流量迁移协调、正式签名／受信部署、各平台真实桌面／校园操作验收；重叠名称原 DNS 自动转发已通过 Linux 双架构，macOS 静态来源 双架构系统场景已通过、整轮仍待，其余来源／Windows 待实现。S4-03／06 的后端与受控恢复要求已满足；S3-05 的真实系统退出、S4-04 的桌面授权与可信部署及 S5 的最终可用性继续验收。受控结果不替代真实桌面／校园或解决 Windows SDK 停滞。
+未完成：系统代理真实注销／无人值守恢复及桌面授权、复杂策略路由／在途流量迁移协调、正式签名／受信部署、各平台真实桌面／校园操作验收；重叠名称原 DNS 自动转发已通过 Linux 双架构，macOS 静态来源已通过双架构系统场景与 ABI，其余来源／Windows 待实现。S4-03／06 的后端与受控恢复要求已满足；S3-05 的真实系统退出、S4-04 的桌面授权与可信部署及 S5 的最终可用性继续验收。受控结果不替代真实桌面／校园或解决 Windows SDK 停滞。
 完成条件：三平台具备原型需要的操作与恢复路径，故障注入证明只撤销自身修改；资源、出口和 DNS 规则可解释。记录原型环境与尚未覆盖的系统网络管理方式。
 
 
@@ -268,11 +268,11 @@ Linux x64／ARM64 AppImage 分别减少约 2.07%／1.90%；macOS 安装体积基
 
 - [ ] **S5-01**（补齐代理数据基线）：SOCKS5／HTTP 的实现、回环限制及受控 TCP／UDP 回归沿用 S1／S2，Windows Fudan 网页／SSH 的实测引用 S2-08。剩余为 Clash 未运行场景、非校园实际出口和校园 UDP 实测，核对实际监听／UDP 中继端口，并补其余平台结果；不重新实现代理，不把 TCP 或 `udp: true` 当成真实 UDP 已通。
 - [ ] **S5-02**（三平台正式透明入口与实际 IP／域名 SSH 已自动验；真实桌面已有终端、校园及其余出口行为待）：实现最小透明入口，使未设置代理的已打开终端在单次连接后可用普通 SSH 命令直接访问校园 IP，不设置 ProxyCommand／环境变量或重开终端；同时验证非校园 TCP／UDP、局域网和受保护网络行为，不强制使用系统代理覆盖终端。
-- [ ] **S5-03**（三平台系统校园 DNS／CNAME、应答前捕获确认、域名 SSH 及原 DNS 核心／排除已原生验，Linux 自动来源双架构已验；macOS 静态来源 双架构系统场景已验，整轮仍待，其余来源／Windows、MagicDNS／Fake-IP 与实机待）：复用已交付的核心内部解析器及回归，补系统 DNS 与透明入口的衔接，验证校园域名 SSH、网页、公共域名和 MagicDNS；覆盖 A／AAAA、CNAME、缓存和断开重连。Fake-IP 过滤、选择解析服务器和解析请求的转发分别验证，不清空用户整套 DNS 配置。
+- [ ] **S5-03**（三平台系统校园 DNS／CNAME、应答前捕获确认、域名 SSH 及原 DNS 核心／排除已原生验，Linux 自动来源双架构已验；macOS 静态来源已通过双架构原生，其余来源／Windows、MagicDNS／Fake-IP 与实机待）：复用已交付的核心内部解析器及回归，补系统 DNS 与透明入口的衔接，验证校园域名 SSH、网页、公共域名和 MagicDNS；覆盖 A／AAAA、CNAME、缓存和断开重连。Fake-IP 过滤、选择解析服务器和解析请求的转发分别验证，不清空用户整套 DNS 配置。
 - [x] **S5-04**（三平台默认保护、明确选择／撤回及同 IP 两侧实际流量已验，已收尾）：验证地址重叠的默认保护、选择校园侧、切回原网络及撤销；明确不能同时访问的相同 IP。保护范围不得扩大成所有私网，校园失败不得偷走直连。
 - [ ] **S5-05**（阶段汇总）：归并 S5-01—04 的 V1 三平台结果，记录实际入口／DNS／出口和关闭后的恢复证据，不另建重复测试轮次。确认 TCP／UDP 与相应 IPv6 能力，某平台缺少入口时补该项，不以其他平台代替。
 
-原 DNS 核心基线（S4-01／S5-03，完整应用接入待）：`2c0874a` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40309425987)与[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40309426226)覆盖原 DNS UDP／TCP、A／AAAA／CNAME、同名称／同 IP 刷新及撤回；共用有界绑定，TTL／容量回收不丢原方向，localhost 保留本机。当前业务方向已改为下述原生捕获排除，不再配置或猜测数据网卡。六份原始日志归 `build/reports/original-dns-2c0874a/summary.json`；唯一 SDK 失败证据保留。自动来源及端点的应用状态见[Linux 原接口 DNS](#linux-original-dns-acceptance)；macOS 静态来源链已实现且 双架构系统场景已通过，整轮仍待；其余来源／Windows 仍待，未支持来源继续明确拒绝重叠；接口及边界见[核心契约](docs/CORE-ABI.md)。
+原 DNS 核心基线（S4-01／S5-03，完整应用接入待）：`2c0874a` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40309425987)与[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40309426226)覆盖原 DNS UDP／TCP、A／AAAA／CNAME、同名称／同 IP 刷新及撤回；共用有界绑定，TTL／容量回收不丢原方向，localhost 保留本机。当前业务方向已改为下述原生捕获排除，不再配置或猜测数据网卡。六份原始日志归 `build/reports/original-dns-2c0874a/summary.json`；唯一 SDK 失败证据保留。自动来源及端点的应用状态见[Linux 原接口 DNS](#linux-original-dns-acceptance)；macOS 静态来源链已通过双架构原生；其余来源／Windows 仍待，未支持来源继续明确拒绝重叠；接口及边界见[核心契约](docs/CORE-ABI.md)。
 
 原 DNS 应答排除捕获（S4-01／S5-03，六组原生已验）：核心以 `exclude:true` 发布原 A 地址，三平台共享发布器从助手当前所属捕获扣除并等待 `Routes` 确认；资源规划同样扣除仍受原名称保护的地址，保留明确校园名称选择／撤回及共享 IP 优先级。原业务使用系统路由，已删除未交付的数据网卡参数、强制绑定转发和出口冲突分支；查询网卡仍独立校验。待发布原地址按名称／地址保留至绑定提交，校园发布取得原串行槽位后再查原方向，防止旧校验重新捕获；修复前真实协议回归稳定失败。共用前缀生成与原恢复后端，无新线程／定时器／缓存或依赖。完整 Go 30 包、解析／服务／bridge 三轮 race、vet、Linux 应用构建及相关 CTest 7/7、正式 ABI 宿主／准备 2/2、应用控制 1/1 通过；`8f61046` 上述九项矩阵全部通过。自动来源的分平台验收见[Linux 原接口 DNS](#linux-original-dns-acceptance)，验收证据归 `build/reports/original-dns-exclusions.json`。
 
