@@ -114,7 +114,7 @@ function(justconnect_system_integration_tests TARGET LIBRARY)
         add_executable(macos_networkhelper_protocol_test "${REPO}/tests/platform/networkhelper_macos_protocol_test.cpp"
             "${REPO}/infrastructure/networkhelper/macos/networkhelperpreparation.cpp" "${REPO}/application/networkprotection.cpp")
         if(NOT APPLE)
-            target_sources(macos_networkhelper_protocol_test PRIVATE "${REPO}/infrastructure/networkhelper/macos/networkhelperprotocol.cpp")
+            target_sources(macos_networkhelper_protocol_test PRIVATE "${REPO}/infrastructure/networkhelper/macos/networkhelperprotocol.cpp" "${REPO}/infrastructure/dns/macos/resolver.cpp")
         endif()
         target_include_directories(macos_networkhelper_protocol_test PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
         target_link_libraries(macos_networkhelper_protocol_test PRIVATE ${LIBRARY})

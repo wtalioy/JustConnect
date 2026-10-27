@@ -1,5 +1,6 @@
 #include "infrastructure/networkhelper/macos/networkhelper.h"
 #include "infrastructure/networkhelper/macos/networkhelperpreparation.h"
+#include "infrastructure/dns/macos/resolver.h"
 #include <QJsonDocument>
 #include <QCoreApplication>
 #include <QJsonArray>
@@ -88,7 +89,7 @@ int main(int argc,char **argv) try
     const auto sourceKey="Setup:/Network/Service/"+service+"/DNS";
     const QJsonObject sourceDns{{"dynamic_store",QJsonObject{{sourceKey,originalProperties}}},{"macos_resolvers",QJsonArray{resolver}}};
     auto protectedNames=protection;protectedNames["protected_names"]=QJsonArray{QJsonObject{{"kind","suffix"},{"value","campus.test"}}};
-    const QJsonObject sourceNetwork{{"interfaces",QJsonArray{QJsonObject{{"name","native-source"},{"up",true},{"addresses",QJsonArray{"192.0.2.1/24"}}}}},
+    const QJsonObject sourceNetwork{{"interfaces",QJsonArray{QJsonObject{{"name","native-source"},{"index",7},{"up",true},{"addresses",QJsonArray{"192.0.2.1/24"}}}}},
         {"routes",network["routes"]}};
     int reads=0;
     const MacOriginalDnsReader reader=[&](const QString &id){
@@ -114,11 +115,52 @@ int main(int argc,char **argv) try
             {{service,"192.0.2.1:65536"}},{{service,"host.invalid:54321"}},{{service,"192.0.2.1:54321"},{"extra","192.0.2.1:54322"}}})
         check(!completeMacOriginalDNS(original.configuration,invalid),"Incomplete or foreign native DNS endpoint was accepted");
     for(const auto &field:QStringList{"interface_index","options"}){
-        auto invalid=resolver;if(field=="interface_index")invalid[field]=7;else invalid[field]="encrypted";
+        auto invalid=resolver;if(field=="interface_index")invalid[field]=8;else invalid[field]="encrypted";
         auto facts=sourceDns;facts["macos_resolvers"]=QJsonArray{invalid};
         check(!prepareMacNetworkHelper(resources,protectedNames,sourceNetwork,facts,{},1400,reader).result.succeeded(),
             "Unsupported native binding or transport was downgraded to a plain unscoped relay");
     }
+    const auto stateKey="State:/Network/Service/"+service+"/DNS";
+    auto stateProperties=originalProperties;stateProperties["ServerAddresses"]=QJsonArray{"2001:db8::53","203.0.113.8","192.0.2.53"};
+    auto boundResolver=resolver;boundResolver["interface_index"]=7;boundResolver["interface_name"]="native-source";
+    const QJsonObject stateDns{{"dynamic_store",QJsonObject{{stateKey,stateProperties}}},{"macos_resolvers",QJsonArray{boundResolver}}};
+    const MacOriginalDnsReader automaticReader=[&](const QString &id){
+        check(id==service,"Dynamic source used another preferences service");
+        return DnsSnapshot{{},{{"original",QJsonValue(QJsonValue::Null)},{"properties",QJsonObject{}},{"interface","native-source"}}};
+    };
+    const auto automatic=prepareMacNetworkHelper(resources,protectedNames,sourceNetwork,stateDns,{},1400,automaticReader);
+    check(automatic.result.succeeded() && automatic.originalSources.first().toObject()["interface"]=="native-source"
+        && automatic.originalSources.first().toObject()["servers"]==selected["servers"]
+        && automatic.configuration.originalDns.first().toObject()["original"].isNull(),
+        "Dynamic source lost native ordering, binding or automatic preferences state");
+    const auto automaticComplete=completeMacOriginalDNS(automatic.configuration,{{service,"192.0.2.1:54321"}});
+    check(automaticComplete.has_value(),"Automatic DNS source did not accept the confirmed actual listener");
+    const auto context=automaticComplete->originalDns.first().toObject()["context"].toObject();
+    auto redirected=resolver;redirected["servers"]=QJsonArray{"192.0.2.1"};redirected["port"]=54321;
+    const auto projected=originalMacDnsResolver(redirected,context);
+    check(projected && (*projected)["servers"]==resolver["servers"] && (*projected)["port"]==5353
+        && (*projected)["interface_index"]==7 && (*projected)["interface_name"]=="native-source",
+        "Original view lost dynamic server order, port or the actual query interface");
+    redirected["scope"]="interface";redirected["interface_index"]=9;
+    const auto scopedView=originalMacDnsResolver(redirected,context);
+    check(scopedView && (*scopedView)["interface_index"]==9,"Original-view projection overwrote a distinct scoped context");
+    for(const auto &bad:QList<QJsonObject>{{{"port","5353"}},{{"interface_index",-1}},{{"domains",QJsonArray{"campus.test","campus.test"}}},{{"addresses",QJsonArray{}}},{{"state",true}}}){
+        auto invalid=context;for(auto it=bad.begin();it!=bad.end();++it)invalid[it.key()]=it.value();
+        auto config=*automaticComplete;auto entry=config.originalDns.first().toObject();entry["context"]=invalid;config.originalDns=QJsonArray{entry};
+        check(!parseMacHelperApply(macHelperApplyRequest(owner,request,config)),"Malformed native source context crossed the privilege boundary");
+    }
+    for(const auto &server:QStringList{"169.254.53.53","fe80::53"}){
+        auto properties=stateProperties;properties["ServerAddresses"]=QJsonArray{server};
+        auto native=boundResolver;native["servers"]=properties["ServerAddresses"];
+        auto facts=stateDns;facts["dynamic_store"]=QJsonObject{{stateKey,properties}};facts["macos_resolvers"]=QJsonArray{native};
+        const auto prepared=prepareMacNetworkHelper(resources,protectedNames,sourceNetwork,facts,{},1400,automaticReader);
+        check(prepared.result.succeeded() && prepared.originalSources.first().toObject().value("servers").toArray()==QJsonArray{server.contains(':')?"[fe80::53%native-source]:5353":"169.254.53.53:5353"},
+            "Link-local original DNS lost its actual native interface or was confused with an IPv6 zone");
+    }
+    auto encrypted=stateDns;auto unsafeState=stateProperties;unsafeState["Options"]="encrypted";encrypted["dynamic_store"]=QJsonObject{{stateKey,unsafeState}};
+    check(!prepareMacNetworkHelper(resources,protectedNames,sourceNetwork,encrypted,{},1400,automaticReader).result.succeeded(),"Dynamic encrypted DNS was downgraded through preferences");
+    auto overridden=stateDns;auto shadow=originalProperties;shadow["ServerAddresses"]=QJsonArray{"192.0.2.99"};overridden["dynamic_store"]=QJsonObject{{stateKey,stateProperties},{sourceKey,shadow}};
+    check(!prepareMacNetworkHelper(resources,protectedNames,sourceNetwork,overridden,{},1400,automaticReader).result.succeeded(),"A static override was ignored to guess a dynamic source");
     auto ambiguous=sourceDns;auto inputs=ambiguous["dynamic_store"].toObject();
     inputs["Setup:/Network/Service/"+QUuid::createUuid().toString(QUuid::WithoutBraces)+"/DNS"]=originalProperties;
     ambiguous["dynamic_store"]=inputs;

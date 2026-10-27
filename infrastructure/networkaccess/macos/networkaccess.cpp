@@ -165,7 +165,7 @@ void MacNetworkAccess::observeModel()
     const auto model = policy->model();
     const auto exit = macOriginalExitSnapshot(model["network"].toObject(),model["resources"].toObject()["underlay_interface"].toString());
     const auto owned = helper.ownedConfiguration();
-    if (!exit || *exit != originalExit || (owned && !macOriginalDnsSourcesMatch(*owned,model["dns"].toObject()))) {
+    if (!exit || *exit != originalExit || (owned && !macOriginalDnsSourcesMatch(*owned,model["network"].toObject(),model["dns"].toObject()))) {
         stage = Stage::Prepared; observation.stop(); emit restartRequired(attempt,QStringLiteral("原网络出口已变化，正在恢复网络后重新连接。")); return;
     }
     const auto prefixes = owned ? updatedMacCapturePrefixes(model["resources"].toObject(),policy->confirmedProtection(),*owned,originalSources) : std::nullopt;
