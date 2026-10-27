@@ -29,7 +29,7 @@ QJsonObject macHelperApplyRequest(const QUuid &owner, const QUuid &request, cons
     auto packet = macHelperRequest("apply",owner,request);
     packet["configuration"] = QJsonObject{{"address",configuration.address},{"peer",configuration.peer},
         {"mtu",configuration.mtu},{"prefixes",QJsonArray::fromStringList(configuration.capturePrefixes)},
-        {"dns_domains",QJsonArray::fromStringList(configuration.dnsDomains)}};
+        {"dns_domains",QJsonArray::fromStringList(configuration.dnsDomains)},{"original_dns",configuration.originalDns}};
     return packet;
 }
 bool validMacHelperRequest(const QJsonObject &packet)
@@ -79,13 +79,28 @@ std::optional<MacHelperConfiguration> parseMacHelperApply(const QJsonObject &pac
     if (!validMacHelperRequest(packet) || packet["operation"] != "apply") return {};
     const auto configuration = packet["configuration"].toObject();
     const auto mtu = configuration["mtu"].toInteger(-1);
-    if (configuration.size() != 5 || configuration["mtu"].toDouble(-1) != double(mtu)
+    if (configuration.size() != 6 || configuration["mtu"].toDouble(-1) != double(mtu)
         || !UnixTunDevice::validIpv4Configuration(configuration["address"].toString(),configuration["peer"].toString(),mtu)
         || !configuration["prefixes"].isArray() || configuration["prefixes"].toArray().isEmpty()
-        || configuration["prefixes"].toArray().size() > MacRouteSnapshotRows || !configuration["dns_domains"].isArray()) return {};
+        || configuration["prefixes"].toArray().size() > MacRouteSnapshotRows || !configuration["dns_domains"].isArray()
+        || !configuration["original_dns"].isArray() || configuration["original_dns"].toArray().size()>MacRouteSnapshotRows) return {};
     MacHelperConfiguration result{configuration["address"].toString(),configuration["peer"].toString(),int(mtu),{}};
     for (const auto &value : configuration["dns_domains"].toArray()) result.dnsDomains.append(value.toString());
     if (!result.dnsDomains.isEmpty() && !validTunDnsDomains(result.dnsDomains)) return {};
+    QSet<QString> services;
+    for(const auto &value:configuration["original_dns"].toArray()){
+        const auto source=value.toObject();const auto service=source["service"].toString();
+        const auto bytes=source["original"].toString().toLatin1();
+        const auto decoded=QByteArray::fromBase64Encoding(bytes,QByteArray::AbortOnBase64DecodingErrors);
+        const auto listener=source["listen"].toString();const auto separator=listener.lastIndexOf(':');
+        const auto number=listener.mid(separator+1);bool portValid=false;const auto port=number.toUInt(&portValid);
+        const QUuid serviceId(service);
+        const auto identity=serviceId.toString(QUuid::WithoutBraces);
+        if(source.size()!=3 || serviceId.isNull() || identity.compare(service,Qt::CaseInsensitive)!=0 || services.contains(identity)
+            || !source["original"].isString() || !decoded || decoded.decoded.isEmpty() || decoded.decoded.toBase64()!=bytes
+            || separator<1 || !canonicalUnicastIpv4(listener.first(separator)) || !portValid || !port || port>65535 || QString::number(port)!=number)return {};
+        services.insert(identity);result.originalDns.append(source);
+    }
     QSet<QString> unique;
     for (const auto &value : configuration["prefixes"].toArray()) {
         const auto prefix = value.toString();
@@ -114,9 +129,9 @@ std::optional<PlatformOperationResult> parseMacHelperResponse(const QJsonObject 
         || packet["status"].toDouble(-1) != double(status)
         || packet.size() != 7+int(packet.contains("device"))+int(owners)+int(network)
         || (packet.contains("device") && (request["operation"] != "apply" || status != 0 || !packet["device"].isObject()))) return {};
-    if (network != needsNetwork || (network && (!packet["network"].isObject() || packet["network"].toObject().size() != 3
+    if (network != needsNetwork || (network && (!packet["network"].isObject() || packet["network"].toObject().size() != 4
         || !packet["network"].toObject()["capture"].isObject() || !packet["network"].toObject()["dns"].isObject()
-        || !packet["network"].toObject()["device_routes"].isArray()))) return {};
+        || !packet["network"].toObject()["device_routes"].isArray() || !packet["network"].toObject()["original_dns"].isObject()))) return {};
     if (owners) {
         if (request["operation"] != "probe" || status != 0 || !packet["owners"].isArray() || packet["owners"].toArray().size() > MacRouteSnapshotRows) return {};
         QSet<QString> seen;

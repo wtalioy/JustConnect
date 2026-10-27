@@ -53,10 +53,14 @@ MacNetworkHelperState::~MacNetworkHelperState()
 }
 bool MacNetworkHelperState::valid(const QJsonObject &record) const
 {
-    if (record.size() != 6 || record["version"] != MacHelperStorageVersion || record["owner"] != connection.toString(QUuid::WithoutBraces)
-        || record["uid"].toDouble(-1) != double(user) || record["boot"] != macBootSession() || !record["device"].isObject()) return false;
+    if (record.size() != 7 || record["version"] != MacHelperStorageVersion || record["owner"] != connection.toString(QUuid::WithoutBraces)
+        || record["uid"].toDouble(-1) != double(user) || record["boot"] != macBootSession() || !record["device"].isObject()
+        || !record["original_dns"].isObject()) return false;
+    const auto original=record["original_dns"].toObject();
+    if(!original.isEmpty() && !MacOriginalDns::valid(connection,original))return false;
     const auto phase = record["phase"].toString();
     if (phase != "preparing" && phase != "active" && phase != "restored") return false;
+    if(phase=="restored" && !original.isEmpty())return false;
     const auto info = record["device"].toObject();
     if (info.isEmpty()) return phase != "active";
     const auto name = info["interface"].toString(); const auto index = info["index"].toInteger();
@@ -81,7 +85,7 @@ Result MacNetworkHelperState::open(int bootDirectory, uid_t uid, const QUuid &ow
     if (!result.succeeded()) return result;
     if (create) {
         metadata = {{"version",MacHelperStorageVersion},{"owner",owner.toString(QUuid::WithoutBraces)},{"uid",qint64(uid)},
-            {"boot",macBootSession()},{"phase","preparing"},{"device",QJsonObject{}}};
+            {"boot",macBootSession()},{"phase","preparing"},{"device",QJsonObject{}},{"original_dns",QJsonObject{}}};
         return commit(metadata);
     }
     QJsonObject saved;
@@ -119,6 +123,9 @@ Result MacNetworkHelperState::apply(const MacHelperConfiguration &configuration)
     if (result.succeeded()) result = capture.apply(device,configuration.capturePrefixes,[&](const QJsonObject &record) {
         return record.isEmpty() ? captureJournal.remove() : captureJournal.store(record);
     });
+    if(result.succeeded() && !configuration.originalDns.isEmpty())result=originalDns.apply(connection,configuration.originalDns,[&](const QJsonObject &record){
+        auto next=metadata;next["original_dns"]=record;return commit(next);
+    });
     if (result.succeeded() && !configuration.dnsDomains.isEmpty()) result = dns.apply(device,configuration.dnsDomains);
     if (result.succeeded()) result = store("active");
     if (result.succeeded()) {
@@ -146,7 +153,7 @@ QJsonObject MacNetworkHelperState::networkView() const
         if ((prefix == pair["source"].toString()+"/32" || prefix == pair["peer"].toString()+"/32")
             && (row["index"] == info["index"] || (prefix == pair["source"].toString()+"/32" && (row["flags"].toInteger() & RTF_LOCAL)))) related.append(row);
     }
-    return {{"capture",capture.snapshot()},{"dns",dns.snapshot()},{"device_routes",related}};
+    return {{"capture",capture.snapshot()},{"dns",dns.snapshot()},{"device_routes",related},{"original_dns",originalDns.snapshot()}};
 }
 Result MacNetworkHelperState::update(const QStringList &targets, bool replace)
 {
@@ -197,6 +204,12 @@ Result MacNetworkHelperState::restore()
             result = capture.snapshot().isEmpty() ? capture.recover(connection,saved,checkpoint) : capture.restore(connection,checkpoint);
         }
     } else if (!deviceAbsent()) result = failed("Capture ownership is absent while its device remains; responsibility is retained.");
+    if(result.succeeded() && !metadata["original_dns"].toObject().isEmpty()){
+        // Original DNS remains redirected until every owned capture has been released.
+        result=originalDns.restore(connection,metadata["original_dns"].toObject(),[&](const QJsonObject &record){
+            auto next=metadata;next["original_dns"]=record;return commit(next);
+        });
+    }
     if (result.succeeded()) result = store("restored");
     device.close();
     if (!result.succeeded()) result.mayHaveChanged = true;

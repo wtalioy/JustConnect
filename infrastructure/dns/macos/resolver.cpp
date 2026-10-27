@@ -1,15 +1,12 @@
 #include "infrastructure/dns/macos/resolver.h"
 #include "infrastructure/dns/domainlimits.h"
+#include "infrastructure/dns/dnssnapshot.h"
 #include <QDeadlineTimer>
 #include <QDebug>
 #include <QJsonObject>
 #include <QRegularExpression>
 #include <QSet>
 #include <QThread>
-
-namespace {
-constexpr int MacDnsDefaultPort = 53; // RFC 1035; scutil omits the standard plain-DNS port.
-}
 
 std::optional<QJsonArray> parseMacDnsResolvers(const QString &configuration)
 {
@@ -89,7 +86,7 @@ bool macDnsResolverUsesPeer(const QJsonObject &row,const QString &peer,quint32 i
 {
     const auto flags = row["flags"].toArray();
     if (peer.isEmpty() || row["servers"].toArray() != QJsonArray{peer}
-        || row["port"].toInteger(MacDnsDefaultPort) != MacDnsDefaultPort || !row["options"].toString().isEmpty()) return false;
+        || row["port"].toInteger(DnsServerPort) != DnsServerPort || !row["options"].toString().isEmpty()) return false;
     if (interfaceIndex) return row["scope"] == "interface" && row["interface_index"].toInteger() == interfaceIndex && flags.contains("Scoped");
     return row["scope"] == "unscoped" && flags.contains("Supplemental") && !flags.contains("Scoped") && !row["interface_index"].toInteger();
 }

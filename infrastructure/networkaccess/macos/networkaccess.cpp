@@ -42,7 +42,21 @@ MacNetworkAccess::MacNetworkAccess(CoreEngine *core,NetworkPolicySession *policy
         if (!value.result.succeeded()) {
             stage = Stage::Prepared; this->policy->setNetworkBusy(generation,false); emit ready(attempt,value.result); return;
         }
-        helper.apply(attempt,value.configuration);
+        originalSources=value.originalSources;
+        if(!originalSources.isEmpty()){
+            pendingConfiguration=value.configuration;
+            this->core->prepareOriginalDNS(generation,originalSources);
+        }else helper.apply(attempt,value.configuration);
+    });
+    connect(core,&CoreEngine::originalDNSPrepared,this,[this](const QString &id,const QJsonObject &listeners,CoreEngine::RequestStatus status){
+        if(stage!=Stage::Activating || id!=generation || !pendingConfiguration)return;
+        const auto configuration=status==CoreEngine::RequestStatus::Success?completeMacOriginalDNS(*pendingConfiguration,listeners):std::nullopt;
+        pendingConfiguration.reset();
+        if(!configuration){
+            stage=Stage::Prepared;this->policy->setNetworkBusy(generation,false);
+            emit ready(attempt,{Status::Failed,QStringLiteral("核心未确认原 DNS 的完整监听端点。")});return;
+        }
+        helper.apply(attempt,*configuration);
     });
     connect(core,&CoreEngine::tunAttached,this,[this](const QString &id,CoreEngine::RequestStatus status) {
         if (stage != Stage::Activating || !attaching || id != generation) return;
@@ -150,12 +164,12 @@ void MacNetworkAccess::observeModel()
     }
     const auto model = policy->model();
     const auto exit = macOriginalExitSnapshot(model["network"].toObject(),model["resources"].toObject()["underlay_interface"].toString());
-    if (!exit || *exit != originalExit) {
+    const auto owned = helper.ownedConfiguration();
+    if (!exit || *exit != originalExit || (owned && !macOriginalDnsSourcesMatch(*owned,model["dns"].toObject()))) {
         stage = Stage::Prepared; observation.stop(); emit restartRequired(attempt,QStringLiteral("原网络出口已变化，正在恢复网络后重新连接。")); return;
     }
-    const auto owned = helper.ownedConfiguration();
-    const auto prefixes = owned ? updatedCampusCapturePrefixes(model["resources"].toObject(),policy->confirmedProtection(),owned->dnsDomains) : std::nullopt;
-    if (!prefixes) { stage = Stage::Prepared; observation.stop(); emit lost(attempt,{Status::Failed,QStringLiteral("无法确认当前校园捕获范围。"),true}); return; }
+    const auto prefixes = owned ? updatedMacCapturePrefixes(model["resources"].toObject(),policy->confirmedProtection(),*owned,originalSources) : std::nullopt;
+    if (!prefixes) { stage = Stage::Prepared; observation.stop(); emit restartRequired(attempt,QStringLiteral("原 DNS 或校园范围已变化，正在恢复网络后重新连接。")); return; }
     auto actual = owned->capturePrefixes, expected = *prefixes; actual.sort(); expected.sort();
     if (actual != expected) { helper.reconcile(*prefixes); return; }
     automaticPolicy = true;
@@ -169,8 +183,8 @@ void MacNetworkAccess::observeModel()
 void MacNetworkAccess::applyPolicy(const QJsonObject &value)
 {
     const auto owned = helper.ownedConfiguration();
-    const auto prefixes = owned ? updatedCampusCapturePrefixes(policy->model()["resources"].toObject(),
-        value,owned->dnsDomains) : std::nullopt;
+    const auto prefixes = owned ? updatedMacCapturePrefixes(policy->model()["resources"].toObject(),
+        value,*owned,originalSources) : std::nullopt;
     if (stage != Stage::Ready || helper.state() != HelperState::Active || !prefixes) {
         const bool automatic = automaticPolicy; automaticPolicy = false;
         policy->completePolicy(value["generation"].toString(),value["revision"].toString(),CoreEngine::RequestStatus::Unavailable);
@@ -201,7 +215,7 @@ void MacNetworkAccess::driveStop()
     if (stage != Stage::Stopping || preparing) return;
     switch (helper.state()) {
     case HelperState::Idle:
-        lock.reset(); stage = Stage::Idle; generation.clear(); changingPolicy = {}; nextCapture.clear(); originalExit = {}; attaching = automaticPolicy = false;
+        lock.reset(); stage = Stage::Idle; generation.clear(); changingPolicy = {}; nextCapture.clear(); originalExit = {}; originalSources={};pendingConfiguration.reset();attaching = automaticPolicy = false;
         emit stopped(attempt,{}); return;
     case HelperState::Active: helper.restore(); return;
     case HelperState::RecoveryRequired: helper.recover(helper.owner()); return;

@@ -3,7 +3,10 @@
 #include "infrastructure/routing/macos/tunroutes.h"
 #include "infrastructure/dns/macos/tundns.h"
 #include "infrastructure/dns/macos/resolver.h"
+#include "infrastructure/dns/macos/originaldns.h"
+#include "infrastructure/dns/dnssnapshot.h"
 #include "infrastructure/networkaddress/ipv4.h"
+#include <QUrl>
 #include <algorithm>
 #include <SystemConfiguration/SystemConfiguration.h>
 #include <net/route.h>
@@ -32,6 +35,15 @@ std::optional<QJsonObject> macOriginalExitSnapshot(const QJsonObject &network,co
     normalized["routes"]=routes;
     return originalExitSnapshot(normalized,preferred);
 }
+bool macOriginalDnsSourcesMatch(const MacHelperConfiguration &configuration,const QJsonObject &dns)
+{
+    const auto entries=dns["dynamic_store"].toObject();
+    for(const auto &value:configuration.originalDns){
+        const auto source=value.toObject();const auto original=MacOriginalDns::properties(source,true);
+        if(!original || entries["Setup:/Network/Service/"+source["service"].toString()+"/DNS"]!=*original)return false;
+    }
+    return true;
+}
 NetworkPolicySession::OriginalViewFilter macOriginalNetworkView(const QUuid &owner,
     const MacHelperConfiguration &configuration,const QJsonObject &device,const QJsonObject &confirmed)
 {
@@ -46,7 +58,22 @@ NetworkPolicySession::OriginalViewFilter macOriginalNetworkView(const QUuid &own
     const auto dnsKey = QString::fromCFString(key); CFRelease(key); CFRelease(service);
     const QJsonValue expectedDns = confirmed.value("dns").toObject().value(dnsKey);
     if (!configuration.dnsDomains.isEmpty() && expectedDns.toObject() != MacTunDns::properties(configuration.peer,configuration.dnsDomains)) return {};
-    return [configuration,name,index,owned,dnsKey,expectedDns](QJsonObject network,QJsonObject dns)
+    const auto original=confirmed["original_dns"].toObject();
+    if(configuration.originalDns.isEmpty()!=original.isEmpty() || (!original.isEmpty() && !MacOriginalDns::valid(owner,original)))return {};
+    if(!original.isEmpty()){
+        const auto records=original["entries"].toArray();if(records.size()!=configuration.originalDns.size())return {};
+        for(const auto &value:configuration.originalDns){
+            const auto source=value.toObject();bool found=false;const QUrl endpoint("dns://"+source["listen"].toString());
+            for(const auto &entry:records){
+                const auto record=entry.toObject();if(record["service"]!=source["service"])continue;
+                const auto applied=MacOriginalDns::properties(record,false);
+                found=record["original"]==source["original"] && applied && (*applied)["ServerAddresses"]==QJsonArray{endpoint.host()}
+                    && (*applied)["ServerPort"]==endpoint.port();
+            }
+            if(!found)return {};
+        }
+    }
+    return [configuration,name,index,owned,dnsKey,expectedDns,original](QJsonObject network,QJsonObject dns)
         -> std::optional<NetworkPolicySession::OriginalView> {
         if (!assignedUnixTunPair(name,index,configuration.address,configuration.peer) || !network["interfaces"].isArray() || !network["routes"].isArray()) return {};
         const auto native = readMacRoutes(); if (!native.result.succeeded()) return {};
@@ -85,6 +112,27 @@ NetworkPolicySession::OriginalViewFilter macOriginalNetworkView(const QUuid &own
                 if (!owned) resolvers.append(value);
             }
             dns["macos_resolvers"] = resolvers;
+        }
+        for(const auto &value:original["entries"].toArray()){
+            const auto record=value.toObject();const auto before=MacOriginalDns::properties(record,true),applied=MacOriginalDns::properties(record,false);
+            if(!before || !applied)return {};
+            const auto key="Setup:/Network/Service/"+record["service"].toString()+"/DNS";
+            auto current=entries[key].toObject();
+            if(current["ServerAddresses"]!=(*applied)["ServerAddresses"] || current["ServerPort"]!=(*applied)["ServerPort"])continue;
+            for(const auto *field:{"ServerAddresses","ServerPort"}){
+                if(before->contains(field))current[field]=(*before)[field];else current.remove(field);
+            }
+            entries[key]=current;
+            QJsonArray resolvers;
+            for(const auto &value:dns["macos_resolvers"].toArray()){
+                auto row=value.toObject();
+                if(row["servers"]==(*applied)["ServerAddresses"] && row["port"].toInteger(DnsServerPort)==(*applied)["ServerPort"].toInteger()){
+                    row["servers"]=(*before)["ServerAddresses"];
+                    if(before->contains("ServerPort"))row["port"]=(*before)["ServerPort"];else row.remove("port");
+                }
+                resolvers.append(row);
+            }
+            dns["macos_resolvers"]=resolvers;
         }
         dns["dynamic_store"] = entries;
         return NetworkPolicySession::OriginalView{network,dns};

@@ -32,6 +32,8 @@ private:
     QUuid attempt;
     QString generation,localDNS;
     QJsonObject changingPolicy, originalExit;
+    QJsonArray originalSources;
+    std::optional<MacHelperConfiguration> pendingConfiguration;
     QStringList nextCapture;
     Stage stage = Stage::Idle;
     QTimer observation;

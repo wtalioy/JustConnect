@@ -136,7 +136,7 @@ func (p *Listeners) openOriginalDNS(endpoints map[string]resolve.OriginalDNSRout
 		if err != nil {
 			return nil, err
 		}
-		if !available[name] || !assigned[endpoint.Addr()] {
+		if (name != "" && !available[name]) || !assigned[endpoint.Addr()] {
 			return nil, errors.New("original DNS requires an available query interface and assigned local listener address")
 		}
 		listener, udp, err := dnslistener.Listen(p.ctx, address)

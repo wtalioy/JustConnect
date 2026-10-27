@@ -272,7 +272,7 @@ func TestOriginalDNSPreparationBeforeDeviceIsAtomicAndSealed(t *testing.T) {
 	}
 	defer p.Close()
 	base := resolve.OriginalDNSRoute{Name: policy.NameRule{Kind: "suffix", Value: "original.test"}, Servers: []string{upstream},
-		Interface: iface, Source: iface, Listen: net.JoinHostPort(local.String(), "0")}
+		Source: iface, Listen: net.JoinHostPort(local.String(), "0")}
 	compile := func(route resolve.OriginalDNSRoute) *resolve.OriginalDNS {
 		value, err := resolve.NewOriginalDNS([]resolve.OriginalDNSRoute{route})
 		if err != nil {

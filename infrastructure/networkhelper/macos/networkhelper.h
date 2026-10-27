@@ -20,6 +20,7 @@ struct MacHelperConfiguration {
     int mtu = 0;
     QStringList capturePrefixes;
     QStringList dnsDomains;
+    QJsonArray originalDns;
 };
 
 QJsonObject macHelperRequest(const char *operation, const QUuid &owner, const QUuid &request);

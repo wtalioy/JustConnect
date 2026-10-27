@@ -40,6 +40,8 @@ function(justconnect_mac_network_helper)
         "${REPO}/infrastructure/routing/macos/tunroutes.cpp"
         "${REPO}/infrastructure/dns/macos/tundns.cpp"
         "${REPO}/infrastructure/dns/macos/resolver.cpp"
+        "${REPO}/infrastructure/dns/macos/propertylist.cpp"
+        "${REPO}/infrastructure/dns/macos/originaldns.cpp"
         "${REPO}/infrastructure/tundevice/tundevice.cpp"
         "${REPO}/infrastructure/networkjournal/networkjournal.cpp"
         "${REPO}/infrastructure/process/command.cpp")
