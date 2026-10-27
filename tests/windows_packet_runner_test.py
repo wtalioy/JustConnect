@@ -1,7 +1,9 @@
 import importlib.util
+import json
 import os
 from pathlib import Path
 import sys
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -14,6 +16,28 @@ with patch.object(sys, 'path', [str(ROOT / 'tests/platform'), *sys.path]):
 
 
 class WindowsPacketRunnerTest(unittest.TestCase):
+    def test_early_dns_check_publishes_only_complete_successful_native_reads(self):
+        facts = {'interfaces': [], 'clients': [], 'global': {}, 'nrpt': [], 'doh_supported': False, 'doh': [],
+                 'adapters': [], 'native_global': {'Status': 87, 'Value': None}}
+        for result in (subprocess.CompletedProcess([], 1, b'', b'provider denied'),
+                       subprocess.CompletedProcess([], 0, b'{}', b''),
+                       subprocess.CompletedProcess([], 0, json.dumps(facts).encode(), b'')):
+            with self.subTest(result=result), tempfile.TemporaryDirectory() as directory:
+                folder = Path(directory)
+                (folder / 'JustConnectDnsReader.exe').touch()
+                report = folder / 'windows-native-dns.json'
+                valid = result.returncode == 0 and result.stdout != b'{}'
+                with patch.dict(os.environ, {'GITHUB_SHA': 'checked-source'}), \
+                        patch.object(runner.subprocess, 'run', side_effect=[subprocess.CompletedProcess([], 0), result]):
+                    if valid:
+                        runner.verify_native_dns(folder, folder, 'arm64')
+                        data = json.loads(report.read_text())
+                        self.assertEqual((data['source'], data['arch']), ('checked-source', 'arm64'))
+                    else:
+                        with self.assertRaises(RuntimeError):
+                            runner.verify_native_dns(folder, folder, 'arm64')
+                        self.assertFalse(report.exists())
+
     def test_core_only_refuses_non_disposable_host(self):
         with patch.object(sys, 'argv', ['runner', '--core-only']), \
                 patch.dict(os.environ, {}, clear=True), patch.object(runner.os, 'chdir'), \

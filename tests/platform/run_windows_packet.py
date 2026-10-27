@@ -36,6 +36,17 @@ def build_native(arch, metadata):
     return native / 'Release'
 
 
+def verify_native_dns(native, output, arch):
+    subprocess.run([str(native / 'windows_dnsreader_test.exe'), '--self-test'], check=True, timeout=10)
+    spec = importlib.util.spec_from_file_location('verify_package', ROOT / 'scripts/verify-package.py')
+    package = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(package)
+    report = package.check_windows_dns_reader(native, dict(os.environ))
+    report.update(source=os.environ['GITHUB_SHA'], arch=arch)
+    (output / 'windows-native-dns.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
+    print('PASS: native DNS reader and source facts verified before Qt/Go setup', flush=True)
+
+
 def device():
     output = pathlib.Path('build/coreabi').resolve()
     contract, arch, metadata = stage_sdk(output)
@@ -130,13 +141,14 @@ def main():
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument('--device-only', action='store_true')
     mode.add_argument('--core-only', action='store_true', help='Use the native inputs exported by the device step')
-    mode.add_argument('--build-only', action='store_true', help='Build and check native Windows recovery before installing Qt/Go')
+    mode.add_argument('--build-only', action='store_true', help='Build and check native Windows DNS and recovery before installing Qt/Go')
     args = parser.parse_args()
     os.chdir(ROOT)
     if args.build_only:
         output = pathlib.Path('build/coreabi').resolve()
         _, arch, metadata = stage_sdk(output)
         native = build_native(arch, metadata)
+        verify_native_dns(native, output, arch)
         subprocess.run([str(native / 'windows_session_test.exe')], check=True, timeout=15)
         subprocess.run([str(native / 'windows_installation_test.exe'), '--unconfigured'], check=True, timeout=15)
         verify_system_dns(native / 'windows_system_dns_test.exe')
