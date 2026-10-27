@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"testing"
 	"time"
+
+	"github.com/wtalioy/JustConnect/corelib/internal/dnslistener"
 )
 
 // StartBinary runs only an explicitly supplied test runtime, with no TUN or system changes.
@@ -45,11 +47,18 @@ func StartBinary(t testing.TB, upstream string, ipc bool) *Fixture {
 		listener.Close()
 		return address
 	}
-	f := &Fixture{DNS: reserve("tcp"), Facts: Facts{Address: reserve("tcp"), Secret: filepath.Base(directory)}, Configuration: filepath.Join(directory, "config.json")}
+	dnsTCP, dnsUDP, err := dnslistener.Listen(t.Context(), "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dnsAddress := dnsTCP.Addr().String()
+	dnsTCP.Close()
+	dnsUDP.Close()
+	f := &Fixture{DNS: dnsAddress, Facts: Facts{Address: reserve("tcp"), Secret: filepath.Base(directory)}, Configuration: filepath.Join(directory, "config.json")}
 	config := map[string]any{
 		"external-controller": f.Address, "secret": f.Secret,
 		"port": 0, "socks-port": 0, "mixed-port": 0, "allow-lan": false,
-		"log-level": "silent", "tun": map[string]any{"enable": false},
+		"log-level": "info", "tun": map[string]any{"enable": false},
 		"dns": map[string]any{"enable": true, "listen": f.DNS, "ipv6": true,
 			"enhanced-mode": "fake-ip", "fake-ip-range": "198.19.0.1/16", "fake-ip-filter": []string{},
 			"use-hosts": false, "use-system-hosts": false,

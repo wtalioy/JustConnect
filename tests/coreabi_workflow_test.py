@@ -11,18 +11,20 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 lines = (ROOT / '.github/workflows/coreabi.yml').read_text(encoding='utf-8').splitlines()
-for index, line in enumerate(lines):
-    if line.strip() != 'shell: python':
-        continue
-    end = index + 2
-    while end < len(lines) and (not lines[end].strip() or lines[end].startswith('          ')):
-        end += 1
-    body = textwrap.dedent('\n'.join(lines[index + 2:end]))
-    if 'race_status = shutdown_status' in body:
-        break
-else:
-    raise AssertionError('Formal ABI workflow body not found')
+def workflow_body(marker):
+    for index, line in enumerate(lines):
+        if line.strip() != 'shell: python':
+            continue
+        end = index + 2
+        while end < len(lines) and (not lines[end].strip() or lines[end].startswith('          ')):
+            end += 1
+        body = textwrap.dedent('\n'.join(lines[index + 2:end]))
+        if marker in body:
+            return body
+    raise AssertionError('Workflow Python body not found: ' + marker)
 
+
+body = workflow_body('race_status = shutdown_status')
 
 def scenario(failures, arch='ARM64', runner='macOS'):
     calls = []
@@ -102,3 +104,39 @@ for runner, previous_success, outcome, cancelled, expected in (
     assert actual == expected,(runner,previous_success,outcome,cancelled,actual)
 assert '        if: *collect_native_evidence' in lines,'Packet-only checks lost independent evidence collection'
 print('PASS: device failures stay visible; 8 native evidence/cancellation conditions')
+
+
+controller_body = workflow_body('build/controller-checks')
+
+def controller_scenario(runner, arch, failure):
+    calls = []
+    def run(command, **options):
+        kind = 'race' if '-race' in command else 'normal'
+        assert './underlay' in command and './internal/mihomo/...' in command, command
+        calls.append(kind)
+        options['stdout'].write(b'native controller evidence\n')
+        return SimpleNamespace(returncode=17 if kind == failure else 0)
+    previous = Path.cwd()
+    with tempfile.TemporaryDirectory() as directory, io.TextIOWrapper(io.BytesIO(), encoding='utf-8') as output:
+        try:
+            os.chdir(directory)
+            with patch.dict(os.environ, RUNNER_OS=runner, RUNNER_ARCH=arch), \
+                    patch.object(subprocess, 'run', run), patch.object(sys, 'stdout', output):
+                try:
+                    exec(compile(controller_body, str(ROOT / '.github/workflows/coreabi.yml'), 'exec'), {})
+                    status = 0
+                except SystemExit as result:
+                    status = result.code
+            assert (Path('build/controller-checks') / (calls[-1] + '.log')).read_bytes() == b'native controller evidence\n'
+        finally:
+            os.chdir(previous)
+    return status, calls
+
+for runner, arch in [('Windows', 'ARM64'), ('Windows', 'X64'), ('macOS', 'ARM64'), ('Linux', 'ARM64')]:
+    status, calls = controller_scenario(runner, arch, None)
+    expected = ['normal'] if (runner, arch) == ('Windows', 'ARM64') else ['normal', 'race']
+    assert status == 0 and calls == expected, (runner, arch, status, calls)
+for failure in ['normal', 'race']:
+    status, calls = controller_scenario('Windows', 'X64', failure)
+    assert status == 17 and calls[-1] == failure, (failure, status, calls)
+print('PASS: 6 native controller race-support/failure-propagation cases with actual evidence files')

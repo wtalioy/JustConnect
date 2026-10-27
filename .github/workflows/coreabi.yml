@@ -17,6 +17,10 @@ on:
         type: boolean
         default: false
         description: Run only the signed macOS permission helper checks (not the full ABI matrix)
+      controller_only:
+        type: boolean
+        default: false
+        description: Run six native Go controller/DNS/underlay checks without Qt or device mutation
 
 permissions:
   contents: read
@@ -63,13 +67,13 @@ jobs:
             build/coreabi/macos-helper/*.err
             build/coreabi/macos-helper/*.json
   probe:
-    if: github.event_name != 'workflow_dispatch' || (!inputs.macos_helper_only && !inputs.windows_packet_only)
+    if: github.event_name != 'workflow_dispatch' || (!inputs.macos_helper_only && !inputs.windows_packet_only && !inputs.controller_only)
     name: ${{ matrix.platform }}-${{ matrix.arch }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     strategy:
       fail-fast: false
-      matrix:
+      matrix: &native_platforms
         include:
           - &windows_x64 {os: windows-2025, platform: windows, arch: x64, qt_host: windows, qt_arch: win64_msvc2022_64}
           - &windows_arm64 {os: windows-11-vs2026-arm, platform: windows, arch: arm64, qt_host: windows_arm64, qt_arch: win64_msvc2022_arm64}
@@ -283,6 +287,50 @@ jobs:
             build/coreabi/macos-helper/*.out
             build/coreabi/macos-helper/*.err
             build/coreabi/macos-helper/*.json
+
+  controller:
+    if: github.event_name == 'workflow_dispatch' && inputs.controller_only
+    name: Controller ${{ matrix.platform }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix: *native_platforms
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: ./.github/actions/setup-core-toolchain
+      - name: Stage pinned Mihomo for native control-DNS integration
+        run: python tests/platform/setup_mihomo.py --target ${{ matrix.platform }}-${{ matrix.arch }}
+      - name: Verify native controller, DNS and shared underlay
+        shell: python
+        run: |
+          import os, pathlib, subprocess, sys
+          output = pathlib.Path('build/controller-checks')
+          output.mkdir(parents=True, exist_ok=True)
+          checks = [('normal', [])]
+          if not (os.environ['RUNNER_OS'] == 'Windows' and os.environ['RUNNER_ARCH'] == 'ARM64'):
+              checks.append(('race', ['-race']))
+          else:
+              print('UNSUPPORTED: Go race detector on Windows ARM64; native normal checks still run', flush=True)
+          for name, flags in checks:
+              print('RUN: native controller ' + name, flush=True)
+              path = output / (name + '.log')
+              command = ['go', '-C', 'corelib', 'test', '-json', '-mod=readonly', '-count=1', '-timeout=90s', *flags,
+                         './underlay', './internal/mihomo/...', './internal/dialer']
+              with path.open('wb') as log:
+                  result = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT)
+              sys.stdout.buffer.write(path.read_bytes())
+              sys.stdout.buffer.flush()
+              if result.returncode:
+                  sys.exit(result.returncode)
+      - name: Upload native controller evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: controller-${{ matrix.platform }}-${{ matrix.arch }}
+          retention-days: 14
+          if-no-files-found: error
+          path: build/controller-checks/*.log
 
   windows-packet:
     if: github.event_name == 'workflow_dispatch' && inputs.windows_packet_only
