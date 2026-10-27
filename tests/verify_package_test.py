@@ -88,11 +88,12 @@ class VerifyPackageTest(unittest.TestCase):
             reader = root / 'JustConnectDnsReader.exe'
             reader.touch()
             facts = {'interfaces': [], 'clients': [], 'global': {}, 'nrpt': [], 'doh_supported': False, 'doh': [],
-                     'adapters': [], 'native_global': {'Status': 0, 'Value': {'Flags': '0', 'SettingFlags': '0'}}}
+                     'nrpt_sources': [], 'configured_encryption': [], 'adapters': [], 'native_global': {'Status': 0, 'Value': {'Flags': '0', 'SettingFlags': '0'}}}
             with patch.object(package, 'run', return_value=json.dumps(facts)) as run:
                 self.assertEqual(package.check_windows_dns_reader(root, {}), {'interfaces': 0, 'effective_nrpt': 0, 'native_adapters': 0})
                 run.assert_called_once_with(reader, env={}, timeout=10)
             for invalid in ({'interfaces': [], 'nrpt': []}, dict(facts, doh_supported='false'),
+                            dict(facts, nrpt_sources=None), dict(facts, configured_encryption=None),
                             dict(facts, native_global={'Status': 0, 'Value': None}),
                             dict(facts, native_global={'Status': True, 'Value': None})):
                 with patch.object(package, 'run', return_value=json.dumps(invalid)), \

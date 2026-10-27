@@ -40,7 +40,7 @@ std::optional<WindowsNetworkOwnership> WindowsNetworkOwnership::capture(const QJ
     const auto adapter=ownedInterface(network,device);
     if(!adapter || device["index"].toInteger()<=0 || device["address"]!=configuration["address"]
         || device["peer"]!=configuration["peer"] || !configuration["capture_prefixes"].isArray()
-        || !configuration["dns_domains"].isArray() || !dns["nrpt"].isArray()
+        || !configuration["dns_domains"].isArray() || !dns["nrpt"].isArray() || !dns["nrpt_sources"].isArray()
         || !dns["interfaces"].isArray() || !dns["clients"].isArray() || !dns["adapters"].isArray())return {};
     WindowsNetworkOwnership result;result.device=device;result.interfaceSnapshot=*adapter;
     QJsonObject localRoute;
@@ -70,6 +70,23 @@ std::optional<WindowsNetworkOwnership> WindowsNetworkOwnership::capture(const QJ
         result.dnsPolicies.append(item);
     }
     if(!pending.isEmpty())return {};
+    const auto dnsId=QUuid(device["dns_id"].toString());
+    if(configuration["dns_domains"].toArray().isEmpty()!=dnsId.isNull())return {};
+    for(const auto &item:dns["nrpt_sources"].toArray()){
+        const auto row=item.toObject();
+        if(dnsId.isNull() || row["store"]!="local" || QUuid(row["id"].toString())!=dnsId)continue;
+        const auto prefix=QStringLiteral("JustConnect/");
+        const auto sourceClass=row["class"].toString();
+        if(!result.dnsSourceRecords.isEmpty() || row["servers"]!=configuration["peer"] || !row["owner"].isNull()
+            || row["version"]!=1 || row["options"]!=8 || !sourceClass.startsWith(prefix)
+            || QUuid(sourceClass.sliced(prefix.size())).isNull())return {};
+        QSet<QString> expected;
+        for(const auto &name:configuration["dns_domains"].toArray())expected.insert("."+name.toString());
+        for(const auto &name:row["namespaces"].toArray())if(!expected.remove(name.toString()))return {};
+        if(!expected.isEmpty())return {};
+        result.dnsSourceRecords.append(item);
+    }
+    if(!dnsId.isNull() && result.dnsSourceRecords.size()!=1)return {};
     for(const auto &item:dns["interfaces"].toArray())if(item.toObject()["InterfaceIndex"]==device["index"])result.dnsInterfaces.append(item);
     for(const auto &item:dns["clients"].toArray())if(item.toObject()["InterfaceIndex"]==device["index"])result.dnsClients.append(item);
     for(const auto &item:dns["adapters"].toArray()){
@@ -91,7 +108,7 @@ NetworkPolicySession::OriginalViewFilter WindowsNetworkOwnership::filter(const Q
         || configuration["peer"]!=device["peer"] || !configuration["capture_prefixes"].isArray())return {};
     const auto required=captures(configuration,peerRoute);
     return [owned=*this,required](QJsonObject network,QJsonObject dns)->std::optional<NetworkPolicySession::OriginalView>{
-        if(!ownedInterface(network,owned.device) || !dns["nrpt"].isArray() || !dns["interfaces"].isArray()
+        if(!ownedInterface(network,owned.device) || !dns["nrpt"].isArray() || !dns["nrpt_sources"].isArray() || !dns["interfaces"].isArray()
             || !dns["clients"].isArray() || !dns["adapters"].isArray())return {};
         auto routes=network["routes"].toArray();
         for(const auto &row:required){const auto at=std::find(routes.begin(),routes.end(),row);if(at==routes.end())return {};routes.erase(at);}
@@ -108,6 +125,9 @@ NetworkPolicySession::OriginalViewFilter WindowsNetworkOwnership::filter(const Q
         }
         network["interfaces"]=interfaces;
         dns["nrpt"]=subtract(dns["nrpt"].toArray(),owned.dnsPolicies);
+        const auto sources=dns["nrpt_sources"].toArray();
+        for(const auto &source:owned.dnsSourceRecords)if(!sources.contains(source))return {};
+        dns["nrpt_sources"]=subtract(sources,owned.dnsSourceRecords);
         dns["interfaces"]=subtract(dns["interfaces"].toArray(),owned.dnsInterfaces);
         dns["clients"]=subtract(dns["clients"].toArray(),owned.dnsClients);
         dns["adapters"]=subtract(dns["adapters"].toArray(),owned.dnsAdapters);

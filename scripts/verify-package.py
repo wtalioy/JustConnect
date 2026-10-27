@@ -33,8 +33,8 @@ def check_windows_dns_reader(root, env):
     if not reader.is_file():
         raise RuntimeError('Missing packaged native DNS reader')
     facts = json.loads(run(reader, env=env, timeout=10))
-    if (not isinstance(facts, dict) or set(facts) != {'interfaces', 'clients', 'global', 'nrpt', 'doh_supported', 'doh', 'adapters', 'native_global'}
-            or any(not isinstance(facts[key], list) for key in ('interfaces', 'clients', 'nrpt', 'doh', 'adapters'))
+    if (not isinstance(facts, dict) or set(facts) != {'interfaces', 'clients', 'global', 'nrpt', 'nrpt_sources', 'doh_supported', 'doh', 'adapters', 'native_global', 'configured_encryption'}
+            or any(not isinstance(facts[key], list) for key in ('interfaces', 'clients', 'nrpt', 'nrpt_sources', 'doh', 'adapters', 'configured_encryption'))
             or not isinstance(facts['global'], dict) or not isinstance(facts['doh_supported'], bool)
             or not isinstance(facts['native_global'], dict)
             or type(facts['native_global'].get('Status')) is not int

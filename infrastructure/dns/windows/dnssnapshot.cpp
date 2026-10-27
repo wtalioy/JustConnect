@@ -8,6 +8,7 @@
 #include <QDir>
 #include <QHostAddress>
 #include <QUuid>
+#include <QSet>
 #include <limits>
 
 namespace {
@@ -71,10 +72,28 @@ bool nativeSettings(const QJsonValue &value,bool adapter)
 
 bool valid(const QJsonObject &data)
 {
-    for (const auto &key : {"interfaces", "clients", "nrpt", "doh", "adapters"})
+    for (const auto &key : {"interfaces", "clients", "nrpt", "nrpt_sources", "doh", "adapters", "configured_encryption"})
         if (!data[key].isArray()) return false;
     if (!data["global"].isObject() || !strings(data["global"].toObject()["SuffixSearchList"])
         || !data["doh_supported"].isBool() || !nativeSettings(data["native_global"],false)) return false;
+    if(data["nrpt_sources"].toArray().size()>qsizetype(NetworkDnsDomainLimit)
+        || data["configured_encryption"].toArray().size()>qsizetype(NetworkDnsDomainLimit))return false;
+    QSet<QString> sourceIds;
+    for(const auto &item:data["nrpt_sources"].toArray()){
+        const auto row=item.toObject();
+        if(!item.isObject() || row.size()!=8 || (row["store"]!="local" && row["store"]!="managed")
+            || !row["id"].isString() || row["id"].toString().isEmpty() || row["id"].toString().size()>255
+            || !row["class"].isString() || row["class"].toString().size()>255 || !strings(row["namespaces"])
+            || row["namespaces"].toArray().isEmpty() || row["namespaces"].toArray().size()>qsizetype(NetworkDnsDomainLimit)
+            || !nullableText(row["servers"]) || !nullableText(row["owner"])
+            || (!row["version"].isNull() && !unsignedNumber(row["version"]))
+            || (!row["options"].isNull() && !unsignedNumber(row["options"])))return false;
+        const auto id=row["store"].toString()+'/'+row["id"].toString().toLower();
+        if(sourceIds.contains(id))return false;
+        sourceIds.insert(id);
+    }
+    for(const auto &server:data["configured_encryption"].toArray())
+        if(!server.isString() || QHostAddress(server.toString()).isNull())return false;
     if(data["adapters"].toArray().size()>qsizetype(NetworkDnsDomainLimit))return false;
     for(const auto &value:data["adapters"].toArray()){
         const auto row=value.toObject();

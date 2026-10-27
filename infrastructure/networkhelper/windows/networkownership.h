@@ -9,5 +9,5 @@ public:
     NetworkPolicySession::OriginalViewFilter filter(const QJsonObject &configuration) const;
 private:
     QJsonObject device,peerRoute,interfaceSnapshot;
-    QJsonArray automaticRoutes,dnsPolicies,dnsInterfaces,dnsClients,dnsAdapters;
+    QJsonArray automaticRoutes,dnsPolicies,dnsInterfaces,dnsClients,dnsAdapters,dnsSourceRecords;
 };

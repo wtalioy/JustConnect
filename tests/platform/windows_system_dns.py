@@ -1,6 +1,8 @@
 """Exercise native Windows DNS through real original and redirected endpoints."""
 from contextlib import ExitStack
+import json
 import os
+from pathlib import Path
 import socket
 import subprocess
 import threading
@@ -48,6 +50,9 @@ def verify(executable):
                             'dothost=dns.fixture.invalid:853', 'autoupgrade=yes', 'udpfallback=no'], check=True, timeout=10)
             # The native parent owns cleanup; this outer deadline only catches a stuck fixture.
             try:
+                facts = json.loads(subprocess.check_output([str(Path(executable).with_name('JustConnectDnsReader.exe'))], timeout=10))
+                if encrypted_server not in facts['configured_encryption']:
+                    raise RuntimeError('Native reader omitted the configured DoT-only server')
                 subprocess.run([str(executable), address, hostname, encrypted_server], check=True, timeout=50)
                 if len(received[0]) < 2 or not received[1] or failures:
                     raise RuntimeError(f'Native resolver did not follow both DNS endpoints and restoration: {received}, {failures}')
