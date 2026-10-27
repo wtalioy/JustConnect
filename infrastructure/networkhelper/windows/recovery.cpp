@@ -1,6 +1,7 @@
 #include "infrastructure/networkhelper/windows/recovery.h"
 #include "windowsnetworkcontract.h"
 #include "infrastructure/dns/domainlimits.h"
+#include <set>
 #include "infrastructure/tundevice/windows/recovery.h"
 #include <ws2tcpip.h>
 #include <aclapi.h>
@@ -116,6 +117,9 @@ std::string encodeWindowsNetworkRecord(const WindowsNetworkRecord &value)
     result.SetNamedValue(L"caller",process(value.caller));result.SetNamedValue(L"helper",process(value.helper));
     if (value.dns) result.SetNamedValue(L"dns",dns(*value.dns));
     else result.SetNamedValue(L"dns",JsonValue::CreateNullValue());
+    JsonArray original;
+    for(const auto &entry:value.originalDNS)original.Append(JsonObject::Parse(winrt::to_hstring(encodeWindowsNrptRedirect(entry))));
+    result.SetNamedValue(L"original_dns",original);
     const wchar_t *phase=nullptr;
     switch (value.phase) { case WindowsRecoveryPhase::Declared:phase=L"declared";break;case WindowsRecoveryPhase::Restoring:phase=L"restoring";break;case WindowsRecoveryPhase::Restored:phase=L"restored";break; }
     if (!phase) fail("invalid recovery phase",ERROR_INVALID_DATA);
@@ -126,13 +130,21 @@ WindowsNetworkRecord decodeWindowsNetworkRecord(const std::string &data) try
 {
     if (data.empty() || data.size()>WindowsNetworkContract::MaxRecordBytes) fail("invalid recovery record size",ERROR_INVALID_DATA);
     const auto object=JsonObject::Parse(winrt::to_hstring(data));
-    fields(object,{L"version",L"owner",L"adapter",L"caller",L"helper",L"dns",L"phase"});
+    fields(object,{L"version",L"owner",L"adapter",L"caller",L"helper",L"dns",L"phase",L"original_dns"});
     if (object.GetNamedNumber(L"version")!=WindowsNetworkContract::StorageVersion) fail("unknown recovery storage version",ERROR_NOT_SUPPORTED);
     WindowsNetworkRecord result;
     result.owner=parseGuid(object.GetNamedString(L"owner"));result.adapter=parseGuid(object.GetNamedString(L"adapter"));
     result.caller=process(object.GetNamedObject(L"caller"));result.helper=process(object.GetNamedObject(L"helper"));
     const auto rule=object.GetNamedValue(L"dns");
     if (rule.ValueType()!=JsonValueType::Null) result.dns=dns(rule.GetObject());
+    std::set<std::wstring> originalIds;
+    const auto original=object.GetNamedArray(L"original_dns");
+    if(original.Size()>NetworkDnsDomainLimit)fail("too many saved original DNS providers",ERROR_INVALID_DATA);
+    for(const auto &item:original){
+        auto entry=decodeWindowsNrptRedirect(winrt::to_string(item.Stringify()));
+        if(!originalIds.insert(guid(entry.id)).second)fail("duplicate original DNS provider",ERROR_INVALID_DATA);
+        result.originalDNS.push_back(std::move(entry));
+    }
     const auto phase=object.GetNamedString(L"phase");
     if (phase==L"declared") result.phase=WindowsRecoveryPhase::Declared;
     else if (phase==L"restoring") result.phase=WindowsRecoveryPhase::Restoring;
@@ -140,6 +152,47 @@ WindowsNetworkRecord decodeWindowsNetworkRecord(const std::string &data) try
     else fail("unknown recovery phase",ERROR_INVALID_DATA);
     return result;
 } catch (const winrt::hresult_error &) { fail("damaged native recovery record",ERROR_INVALID_DATA); }
+
+std::string encodeWindowsNrptRedirect(const WindowsNrptRedirect &value)
+{
+    if(!value.valid())fail("invalid original DNS record",ERROR_INVALID_DATA);
+    JsonObject result;
+    result.SetNamedValue(L"id",JsonValue::CreateStringValue(guid(value.id)));
+    result.SetNamedValue(L"marker",JsonValue::CreateStringValue(guid(value.marker)));
+    result.SetNamedValue(L"class",JsonValue::CreateStringValue(value.policyClass));
+    result.SetNamedValue(L"original",JsonValue::CreateStringValue(value.original));
+    JsonArray names;for(const auto &name:value.namespaces)names.Append(JsonValue::CreateStringValue(name));
+    result.SetNamedValue(L"namespaces",names);
+    wchar_t server[INET_ADDRSTRLEN]{};
+    if(!InetNtopW(AF_INET,&value.server,server,INET_ADDRSTRLEN))fail("format original DNS listener");
+    result.SetNamedValue(L"server",JsonValue::CreateStringValue(server));
+    result.SetNamedValue(L"global_policy",JsonValue::CreateStringValue(std::to_wstring(value.globalPolicy)));
+    result.SetNamedValue(L"released",JsonValue::CreateBooleanValue(value.released));
+    return winrt::to_string(result.Stringify());
+}
+WindowsNrptRedirect decodeWindowsNrptRedirect(const std::string &data) try
+{
+    if(data.empty() || data.size()>WindowsNetworkContract::MaxRecordBytes)fail("invalid original DNS record size",ERROR_INVALID_DATA);
+    const auto value=JsonObject::Parse(winrt::to_hstring(data));
+    fields(value,{L"id",L"marker",L"class",L"original",L"namespaces",L"server",L"global_policy",L"released"});
+    WindowsNrptRedirect result;
+    result.id=parseGuid(value.GetNamedString(L"id"));result.marker=parseGuid(value.GetNamedString(L"marker"));
+    result.policyClass=text(value.GetNamedString(L"class"));result.original=text(value.GetNamedString(L"original"));
+    const auto names=value.GetNamedArray(L"namespaces");
+    if(names.Size()>NetworkDnsDomainLimit)fail("too many original DNS namespaces",ERROR_INVALID_DATA);
+    for(const auto &name:names)result.namespaces.push_back(text(name.GetString()));
+    const auto server=value.GetNamedString(L"server");
+    wchar_t canonical[INET_ADDRSTRLEN]{};
+    if(InetPtonW(AF_INET,server.c_str(),&result.server)!=1 || !InetNtopW(AF_INET,&result.server,canonical,INET_ADDRSTRLEN) || server!=canonical)
+        fail("invalid original DNS listener",ERROR_INVALID_DATA);
+    const auto policy=winrt::to_string(value.GetNamedString(L"global_policy"));
+    const auto parsed=std::from_chars(policy.data(),policy.data()+policy.size(),result.globalPolicy);
+    if(parsed.ec!=std::errc{} || parsed.ptr!=policy.data()+policy.size() || std::to_string(result.globalPolicy)!=policy)
+        fail("invalid original DNS security record",ERROR_INVALID_DATA);
+    result.released=value.GetNamedBoolean(L"released");
+    if(!result.valid())fail("invalid original DNS record",ERROR_INVALID_DATA);
+    return result;
+}catch(const winrt::hresult_error &){fail("damaged original DNS record",ERROR_INVALID_DATA);}
 
 WindowsNetworkLock::WindowsNetworkLock()
 {
@@ -208,6 +261,20 @@ void WindowsNetworkRecovery::beginOwnedRestore(const GUID &owner)
     WindowsNetworkLock lock;auto record=ownedRecord(owner);
     if(record.phase!=WindowsRecoveryPhase::Restored){beginRestore(record);if(record.dns)record.dns->restoreSystem();}
 }
+void WindowsNetworkRecovery::restoreOriginalDNS(const GUID &owner)
+{
+    WindowsNetworkLock lock;auto record=ownedRecord(owner);
+    if(record.phase!=WindowsRecoveryPhase::Restoring)fail("original DNS requires released captures",ERROR_INVALID_STATE);
+    restoreOriginalDNS(record);
+}
+void WindowsNetworkRecovery::restoreOriginalDNS(WindowsNetworkRecord &record)
+{
+    for(auto &entry:record.originalDNS){
+        if(entry.released)continue;
+        entry.restoreSystem();entry.released=true;
+        journal.write(record.owner,encodeWindowsNetworkRecord(record));
+    }
+}
 void WindowsNetworkRecovery::beginRestore(WindowsNetworkRecord &record)
 {
     if (record.phase!=WindowsRecoveryPhase::Restoring) {
@@ -220,6 +287,8 @@ bool WindowsNetworkRecovery::restoreRecord(WindowsNetworkRecord &record,const st
     std::exception_ptr failure;
     try{if(record.dns)record.dns->restoreSystem();}catch(...){failure=std::current_exception();}
     try{release();}catch(...){if(!failure)failure=std::current_exception();}
+    // Restore original providers only after the owned captures/device have been released.
+    if(!windowsAdapterPresent(record.adapter))try{restoreOriginalDNS(record);}catch(...){if(!failure)failure=std::current_exception();}
     if(failure)std::rethrow_exception(failure);
     if (windowsAdapterPresent(record.adapter)) return false;
     record.phase=WindowsRecoveryPhase::Restored;journal.write(record.owner,encodeWindowsNetworkRecord(record));

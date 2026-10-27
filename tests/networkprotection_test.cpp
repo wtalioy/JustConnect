@@ -106,7 +106,8 @@ static void captureTargets()
     const QJsonObject dns{{"interfaces",QJsonArray{QJsonObject{{"ServerAddresses",QJsonArray{"172.17.0.1","172.17.0.2"}}}}}};
     const auto prepared=prepareWindowsNetworkHelper(resources,policy,allocationNetwork,dns,"172.17.0.3:53",1400);
     check(prepared.result.succeeded() && prepared.configuration["capture_prefixes"]==QJsonArray::fromStringList(plan->ipv4Prefixes)
-        && prepared.configuration["dns_domains"]==QJsonArray::fromStringList(plan->dnsDomains),"Windows preparation lost confirmed resource scopes");
+        && prepared.configuration["dns_domains"]==QJsonArray::fromStringList(plan->dnsDomains)
+        && prepared.configuration.value("original_dns").isArray() && prepared.configuration.value("original_dns").toArray().isEmpty(),"Windows preparation lost confirmed resource scopes or native source contract");
     for(const auto &field:{"address","peer"}){
         const QHostAddress address(prepared.configuration[field].toString());
         check(!address.isInSubnet(QHostAddress::parseSubnet("10.0.0.0/8"))

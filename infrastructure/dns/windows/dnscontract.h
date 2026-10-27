@@ -12,6 +12,7 @@ inline constexpr unsigned ConsistencyPollMs=50;
 inline constexpr unsigned ServerPort=53;
 // netioapi.h DNS_SERVER_PROPERTY_VERSION1 and DNS_SERVER_PROPERTY_TYPE; shared with the portable decoder.
 inline constexpr unsigned PropertyVersion=1, DohProperty=1, DotProperty=2;
+inline constexpr wchar_t RedirectOwner[]=L"JustConnectRedirectOwner";
 // WinError.h: absent settings or unsupported API version, never access/transport failures.
 inline constexpr bool settingsUnavailable(unsigned long status)
 {

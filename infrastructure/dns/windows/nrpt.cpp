@@ -6,11 +6,14 @@
 #include <aclapi.h>
 #include <sddl.h>
 #include <winternl.h>
+#include <iphlpapi.h>
+#include <cwctype>
 #include <algorithm>
 #include <cstring>
 #include <iterator>
 #include <set>
 #include <system_error>
+#include <limits>
 
 namespace {
 [[noreturn]] void fail(const char *stage,LONG error=GetLastError())
@@ -59,7 +62,7 @@ bool firewallService(PSID sid)
     }();
     return EqualSid(sid,const_cast<BYTE *>(service.data()))!=FALSE;
 }
-void trustedKey(HKEY key,bool requireProtected)
+void trustedKey(HKEY key,bool requireProtected,bool checkValues=false)
 {
     Security security;
     PSID owner=nullptr;
@@ -70,7 +73,7 @@ void trustedKey(HKEY key,bool requireProtected)
     if (!trusted(owner) || !GetSecurityDescriptorControl(security.value,&control,&revision) || (requireProtected && !(control&SE_DACL_PROTECTED)) || !acl || !IsValidAcl(acl))
         fail("untrusted NRPT owner or DACL",ERROR_ACCESS_DENIED);
     // The system parent permits network operators to add namespaces; our UUID child never inherits those rights.
-    const DWORD writes=DELETE|WRITE_DAC|WRITE_OWNER|GENERIC_WRITE|GENERIC_ALL|(requireProtected?(KEY_SET_VALUE|KEY_CREATE_SUB_KEY):0);
+    const DWORD writes=DELETE|WRITE_DAC|WRITE_OWNER|GENERIC_WRITE|GENERIC_ALL|((requireProtected||checkValues)?(KEY_SET_VALUE|KEY_CREATE_SUB_KEY):0);
     for (DWORD i=0;i<acl->AceCount;++i) {
         void *value=nullptr;
         if (!GetAce(acl,i,&value)) fail("read NRPT ACE");
@@ -156,6 +159,157 @@ void unchanged(HKEY key,const std::vector<Value> &values)
         if (type!=found->type || size!=data.size() || data!=found->data) fail("externally changed NRPT value",ERROR_INVALID_DATA);
     }
 }
+void unmanagedPolicy()
+{
+    Key managed;
+    const auto status=RegOpenKeyExW(HKEY_LOCAL_MACHINE,ManagedPolicy,REG_OPTION_OPEN_LINK,KEY_READ|KEY_WOW64_64KEY,&managed.value);
+    if(status!=ERROR_FILE_NOT_FOUND){checked(status,"inspect managed DNS policy");fail("managed DNS policy requires administrator coordination",ERROR_NOT_SUPPORTED);}
+}
+std::wstring stringValue(HKEY key,const wchar_t *name,bool optional=false)
+{
+    DWORD type=0,size=0;
+    const auto status=RegQueryValueExW(key,name,nullptr,&type,nullptr,&size);
+    if(optional && status==ERROR_FILE_NOT_FOUND)return {};
+    checked(status,"inspect native DNS string");
+    if(type!=REG_SZ || size<sizeof(wchar_t) || size>WindowsDNS::SnapshotBytes || size%sizeof(wchar_t))fail("invalid native DNS string",ERROR_INVALID_DATA);
+    std::vector<wchar_t> text(size/sizeof(wchar_t));const auto expected=size;
+    checked(RegQueryValueExW(key,name,nullptr,&type,reinterpret_cast<BYTE *>(text.data()),&size),"read native DNS string");
+    if(type!=REG_SZ || size!=expected || text.back()!=0 || wcsnlen(text.data(),text.size())!=text.size()-1)fail("changed native DNS string",ERROR_INVALID_DATA);
+    return {text.data(),text.size()-1};
+}
+void setString(HKEY key,const wchar_t *name,const std::wstring &value)
+{
+    checked(RegSetValueExW(key,name,0,REG_SZ,reinterpret_cast<const BYTE *>(value.c_str()),DWORD((value.size()+1)*sizeof(wchar_t))),"write native DNS string");
+    checked(RegFlushKey(key),"flush native DNS string");
+}
+std::wstring keyClass(HKEY key)
+{
+    std::vector<wchar_t> value(256);DWORD size=DWORD(value.size());
+    checked(RegQueryInfoKeyW(key,value.data(),&size,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr),"read native DNS provider class");
+    return {value.data(),size};
+}
+bool namespaceName(std::wstring value)
+{
+    for(auto &c:value)c=static_cast<wchar_t>(towlower(c));
+    if(value==L".")return true;
+    if(!value.empty() && value.front()==L'.')value.erase(0,1);
+    if(!value.empty() && value.back()==L'*')value.pop_back();
+    if(!value.empty() && value.back()==L'.')value.pop_back();
+    return domain(value);
+}
+std::set<std::wstring> nameSet(const std::vector<std::wstring> &names)
+{
+    if(names.empty() || names.size()>NetworkDnsDomainLimit)fail("invalid native DNS namespaces",ERROR_INVALID_DATA);
+    std::set<std::wstring> result;
+    for(auto name:names){
+        if(!namespaceName(name))fail("unsupported native DNS namespace",ERROR_NOT_SUPPORTED);
+        for(auto &c:name)c=static_cast<wchar_t>(towlower(c));
+        if(!result.insert(name).second)fail("duplicate native DNS namespace",ERROR_INVALID_DATA);
+    }
+    return result;
+}
+std::vector<std::wstring> namespaceValues(HKEY key)
+{
+    DWORD type=0,size=0;
+    checked(RegQueryValueExW(key,L"Name",nullptr,&type,nullptr,&size),"inspect native DNS namespaces");
+    if(type!=REG_MULTI_SZ || size<2*sizeof(wchar_t) || size>WindowsDNS::SnapshotBytes || size%sizeof(wchar_t))fail("invalid native DNS namespaces",ERROR_INVALID_DATA);
+    std::vector<wchar_t> values(size/sizeof(wchar_t));const auto expected=size;
+    checked(RegQueryValueExW(key,L"Name",nullptr,&type,reinterpret_cast<BYTE *>(values.data()),&size),"read native DNS namespaces");
+    if(type!=REG_MULTI_SZ || size!=expected || values.back()!=0 || values[values.size()-2]!=0)fail("changed native DNS namespaces",ERROR_INVALID_DATA);
+    std::vector<std::wstring> result;size_t at=0;
+    while(at<values.size() && values[at]){const auto count=wcsnlen(values.data()+at,values.size()-at);result.emplace_back(values.data()+at,count);at+=count+1;}
+    for(;at<values.size();++at)if(values[at])fail("malformed native DNS namespaces",ERROR_INVALID_DATA);
+    nameSet(result);return result;
+}
+DWORD numberValue(HKEY key,const wchar_t *name)
+{
+    DWORD value=0,type=0,size=sizeof(value);
+    checked(RegQueryValueExW(key,name,nullptr,&type,reinterpret_cast<BYTE *>(&value),&size),"read native DNS policy");
+    if(type!=REG_DWORD || size!=sizeof(value))fail("invalid native DNS policy",ERROR_INVALID_DATA);
+    return value;
+}
+std::wstring canonicalIP(std::wstring value)
+{
+    if(value.find(L'\0')!=std::wstring::npos)fail("invalid original DNS server string",ERROR_INVALID_DATA);
+    const auto first=value.find_first_not_of(L" \t"),last=value.find_last_not_of(L" \t");
+    if(first==std::wstring::npos)fail("empty original DNS server",ERROR_INVALID_DATA);
+    value=value.substr(first,last-first+1);
+    const auto separator=value.find(L'%');std::wstring zone;
+    if(separator!=std::wstring::npos){
+        const auto index=value.substr(separator+1);
+        if(index.empty() || index.size()>10 || index.find_first_not_of(L"0123456789")!=std::wstring::npos)fail("invalid original DNS scope",ERROR_INVALID_DATA);
+        const auto number=std::stoull(index);
+        if(number>std::numeric_limits<ULONG>::max())fail("invalid original DNS scope",ERROR_INVALID_DATA);
+        if(number)zone=L"%"+std::to_wstring(number);
+        value.resize(separator);
+    }
+    IN6_ADDR address{};wchar_t output[INET6_ADDRSTRLEN]{};
+    auto family=value.find(L':')==std::wstring::npos?AF_INET:AF_INET6;
+    if(InetPtonW(family,value.c_str(),&address)!=1)fail("original DNS requires literal servers",ERROR_NOT_SUPPORTED);
+    if(family==AF_INET){
+        const auto ip=ntohl(reinterpret_cast<IN_ADDR *>(&address)->S_un.S_addr);
+        if(!ip || ip==0xffffffffu || (ip>>28)==14 || !zone.empty())fail("invalid original DNS server",ERROR_INVALID_DATA);
+    }else{
+        if(IN6_IS_ADDR_UNSPECIFIED(&address) || IN6_IS_ADDR_MULTICAST(&address))fail("invalid original DNS server",ERROR_INVALID_DATA);
+        if(IN6_IS_ADDR_V4MAPPED(&address)){
+            if(!zone.empty())fail("invalid mapped DNS scope",ERROR_INVALID_DATA);
+            const auto mapped=*reinterpret_cast<const IN_ADDR *>(&address.u.Byte[12]);
+            if(!InetNtopW(AF_INET,&mapped,output,INET6_ADDRSTRLEN))fail("format original DNS server");
+            return canonicalIP(output);
+        }
+    }
+    if(!InetNtopW(family,&address,output,INET6_ADDRSTRLEN))fail("format original DNS server");
+    return std::wstring(output)+zone;
+}
+std::vector<std::wstring> serverList(const std::wstring &value)
+{
+    if(value.empty() || value.size()>WindowsDNS::SnapshotBytes/sizeof(wchar_t))fail("invalid original DNS server list",ERROR_INVALID_DATA);
+    std::vector<std::wstring> result;size_t at=0;
+    for(;;){
+        const auto end=value.find(L';',at);result.push_back(canonicalIP(value.substr(at,end==std::wstring::npos?end:end-at)));
+        if(result.size()>NetworkDnsDomainLimit)fail("too many original DNS servers",ERROR_INVALID_DATA);
+        if(end==std::wstring::npos)break;
+        at=end+1;
+    }
+    return result;
+}
+std::wstring redirectServer(IN_ADDR value)
+{
+    wchar_t text[INET_ADDRSTRLEN]{};
+    if(!InetNtopW(AF_INET,&value,text,INET_ADDRSTRLEN))fail("format original DNS listener");
+    return text;
+}
+void unchangedProvider(HKEY key,const WindowsNrptRedirect &value)
+{
+    trustedKey(key,false,true);
+    if(keyClass(key)!=value.policyClass || nameSet(namespaceValues(key))!=nameSet(value.namespaces)
+        || numberValue(key,L"Version")!=1 || numberValue(key,L"ConfigOptions")!=0x8)
+        fail("original DNS provider changed",ERROR_NOT_SUPPORTED);
+    if(RegQueryValueExW(key,L"SymbolicLinkValue",nullptr,nullptr,nullptr,nullptr)!=ERROR_FILE_NOT_FOUND)fail("linked original DNS provider",ERROR_ACCESS_DENIED);
+}
+std::uint64_t plainGlobalPolicy()
+{
+    DNS_SETTINGS2 settings{};settings.Version=DNS_SETTINGS_VERSION2;
+    auto *base=reinterpret_cast<DNS_SETTINGS *>(&settings);
+    checked(GetDnsSettings(base),"read global DNS security");
+    const auto value=settings.SettingFlags;FreeDnsSettings(base);
+    if(value && value!=DNS_DOH_POLICY_NOT_CONFIGURED && value!=DNS_DOH_POLICY_DISABLE)
+        fail("original DNS transport requires native encrypted policy",ERROR_NOT_SUPPORTED);
+    return value;
+}
+void localListener(IN_ADDR value)
+{
+    PMIB_UNICASTIPADDRESS_TABLE table=nullptr;
+    checked(GetUnicastIpAddressTable(AF_INET,&table),"read original DNS listener addresses");
+    struct Free {PMIB_UNICASTIPADDRESS_TABLE value;~Free(){FreeMibTable(value);}} free{table};
+    for(ULONG i=0;i<table->NumEntries;++i){
+        const auto &row=table->Table[i];
+        if(row.Address.Ipv4.sin_addr.S_un.S_addr!=value.S_un.S_addr || row.DadState!=IpDadStatePreferred)continue;
+        MIB_IF_ROW2 iface{};iface.InterfaceLuid=row.InterfaceLuid;
+        if(GetIfEntry2(&iface)==NO_ERROR && iface.OperStatus==IfOperStatusUp)return;
+    }
+    fail("original DNS listener is not assigned to an active local interface",ERROR_INVALID_PARAMETER);
+}
 }
 
 bool WindowsDnsRule::valid() const
@@ -215,12 +369,7 @@ void WindowsDnsRule::restore(HKEY parent) const
 
 void WindowsDnsRule::applySystem() const
 {
-    Key managed;
-    const auto status=RegOpenKeyExW(HKEY_LOCAL_MACHINE,ManagedPolicy,REG_OPTION_OPEN_LINK,KEY_READ|KEY_WOW64_64KEY,&managed.value);
-    if (status!=ERROR_FILE_NOT_FOUND) {
-        checked(status,"inspect managed DNS policy");
-        fail("managed DNS policy requires administrator coordination",ERROR_NOT_SUPPORTED);
-    }
+    unmanagedPolicy();
     Key parent;parent.value=policyParent(true);
     apply(parent.value);
     refresh();
@@ -229,5 +378,104 @@ void WindowsDnsRule::restoreSystem() const
 {
     Key parent;parent.value=policyParent(false);
     if (parent.value) restore(parent.value);
+    refresh();
+}
+
+bool WindowsNrptRedirect::valid() const try
+{
+    if(id==GUID{} || marker==GUID{} || policyClass.size()>255 || policyClass.find(L'\0')!=std::wstring::npos
+        || (globalPolicy && globalPolicy!=DNS_DOH_POLICY_NOT_CONFIGURED && globalPolicy!=DNS_DOH_POLICY_DISABLE))return false;
+    nameSet(namespaces);
+    const auto listen=canonicalIP(redirectServer(server));
+    const auto before=serverList(original);
+    return std::find(before.begin(),before.end(),listen)==before.end();
+}catch(const std::exception &){return false;}
+std::vector<std::wstring> WindowsNrptRedirect::servers() const{return serverList(original);}
+
+WindowsNrptRedirect WindowsNrptRedirect::prepare(HKEY parent,const std::vector<std::wstring> &names,
+    const std::vector<std::wstring> &servers,IN_ADDR listen)
+{
+    const auto wanted=nameSet(names);std::vector<std::wstring> expectedServers;
+    for(const auto &value:servers)expectedServers.push_back(canonicalIP(value));
+    if(expectedServers.empty() || expectedServers.size()>NetworkDnsDomainLimit)fail("missing original DNS servers",ERROR_INVALID_PARAMETER);
+    trustedKey(parent,false);
+    DWORD count=0,longest=0;checked(RegQueryInfoKeyW(parent,nullptr,nullptr,nullptr,&count,&longest,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr),"inspect original DNS providers");
+    if(count>NetworkDnsDomainLimit || longest>WindowsDNS::SnapshotBytes/sizeof(wchar_t))fail("too many original DNS providers",ERROR_INVALID_DATA);
+    std::vector<wchar_t> keyName(size_t(longest)+1);WindowsNrptRedirect result;
+    for(DWORD i=0;i<count;++i){
+        DWORD length=DWORD(keyName.size());checked(RegEnumKeyExW(parent,i,keyName.data(),&length,nullptr,nullptr,nullptr,nullptr),"enumerate original DNS providers");
+        Key key;checked(RegOpenKeyExW(parent,keyName.data(),REG_OPTION_OPEN_LINK,KEY_READ|KEY_WOW64_64KEY,&key.value),"inspect original DNS provider");
+        if(RegQueryValueExW(key.value,L"Name",nullptr,nullptr,nullptr,nullptr)==ERROR_FILE_NOT_FOUND)continue;
+        const auto current=namespaceValues(key.value);
+        if(nameSet(current)!=wanted)continue;
+        if(result.id!=GUID{})fail("ambiguous original DNS provider",ERROR_NOT_SUPPORTED);
+        if(FAILED(CLSIDFromString(keyName.data(),&result.id)) || result.id==GUID{})fail("unsupported original DNS provider identity",ERROR_NOT_SUPPORTED);
+        result.namespaces=current;result.policyClass=keyClass(key.value);result.original=stringValue(key.value,L"GenericDNSServers");result.server=listen;
+        if(RegQueryValueExW(key.value,WindowsDNS::RedirectOwner,nullptr,nullptr,nullptr,nullptr)!=ERROR_FILE_NOT_FOUND)
+            fail("original DNS already has an active owner",ERROR_ALREADY_EXISTS);
+        unchangedProvider(key.value,result);
+        if(serverList(result.original)!=expectedServers)fail("original DNS servers changed before preparation",ERROR_INVALID_DATA);
+    }
+    if(FAILED(CoCreateGuid(&result.marker)) || !result.valid())fail("cannot confirm original DNS provider",ERROR_INVALID_DATA);
+    return result;
+}
+WindowsNrptRedirect WindowsNrptRedirect::prepareSystem(const std::vector<std::wstring> &names,
+    const std::vector<std::wstring> &servers,IN_ADDR listen)
+{
+    unmanagedPolicy();localListener(listen);const auto policy=plainGlobalPolicy();
+    Key parent;parent.value=policyParent(false);
+    if(!parent.value)fail("original DNS provider disappeared",ERROR_NOT_FOUND);
+    auto result=prepare(parent.value,names,servers,listen);result.globalPolicy=policy;return result;
+}
+void WindowsNrptRedirect::apply(HKEY parent) const
+{
+    if(!valid() || released)fail("invalid original DNS redirect",ERROR_INVALID_PARAMETER);
+    Key key;checked(RegOpenKeyExW(parent,guid(id).c_str(),REG_OPTION_OPEN_LINK,KEY_QUERY_VALUE|KEY_SET_VALUE|READ_CONTROL|KEY_WOW64_64KEY,&key.value),"open original DNS redirect");
+    unchangedProvider(key.value,*this);
+    const auto owner=stringValue(key.value,WindowsDNS::RedirectOwner,true),current=stringValue(key.value,L"GenericDNSServers");
+    if(owner.empty() && RegQueryValueExW(key.value,WindowsDNS::RedirectOwner,nullptr,nullptr,nullptr,nullptr)!=ERROR_FILE_NOT_FOUND)
+        fail("invalid original DNS ownership marker",ERROR_ACCESS_DENIED);
+    if((!owner.empty() && owner!=guid(marker)) || (current!=original && !(owner==guid(marker) && current==redirectServer(server))))
+        fail("original DNS ownership changed",ERROR_ACCESS_DENIED);
+    if(owner.empty())setString(key.value,WindowsDNS::RedirectOwner,guid(marker));
+    setString(key.value,L"GenericDNSServers",redirectServer(server));
+    unchangedProvider(key.value,*this);
+    if(stringValue(key.value,WindowsDNS::RedirectOwner)!=guid(marker) || stringValue(key.value,L"GenericDNSServers")!=redirectServer(server))
+        fail("original DNS redirect readback changed",ERROR_INVALID_DATA);
+}
+void WindowsNrptRedirect::restore(HKEY parent) const
+{
+    if(released)return;
+    if(!valid())fail("invalid original DNS restoration",ERROR_INVALID_PARAMETER);
+    Key key;const auto opened=RegOpenKeyExW(parent,guid(id).c_str(),REG_OPTION_OPEN_LINK,KEY_QUERY_VALUE|KEY_SET_VALUE|READ_CONTROL|KEY_WOW64_64KEY,&key.value);
+    if(opened==ERROR_FILE_NOT_FOUND)return;
+    checked(opened,"open original DNS restoration");trustedKey(key.value,false,true);
+    const auto owner=stringValue(key.value,WindowsDNS::RedirectOwner,true);
+    if(owner.empty()){
+        if(RegQueryValueExW(key.value,WindowsDNS::RedirectOwner,nullptr,nullptr,nullptr,nullptr)!=ERROR_FILE_NOT_FOUND)
+            fail("invalid original DNS ownership marker",ERROR_ACCESS_DENIED);
+        if(stringValue(key.value,L"GenericDNSServers")==redirectServer(server))fail("original DNS listener lost its ownership marker",ERROR_ACCESS_DENIED);
+        return;
+    }
+    if(owner!=guid(marker) || keyClass(key.value)!=policyClass)fail("original DNS provider was replaced",ERROR_ACCESS_DENIED);
+    const auto current=stringValue(key.value,L"GenericDNSServers");
+    if(current==redirectServer(server))setString(key.value,L"GenericDNSServers",original);
+    // External endpoint and policy edits remain intact; release only this transaction's marker.
+    checked(RegDeleteValueW(key.value,WindowsDNS::RedirectOwner),"release original DNS ownership");
+    checked(RegFlushKey(key.value),"flush original DNS restoration");
+}
+void WindowsNrptRedirect::applySystem() const
+{
+    unmanagedPolicy();localListener(server);
+    if(plainGlobalPolicy()!=globalPolicy)fail("original DNS security changed before write",ERROR_NOT_SUPPORTED);
+    Key parent;parent.value=policyParent(false);
+    if(!parent.value)fail("original DNS provider disappeared",ERROR_NOT_FOUND);
+    apply(parent.value);refresh();
+    if(plainGlobalPolicy()!=globalPolicy)fail("original DNS security changed during write",ERROR_NOT_SUPPORTED);
+}
+void WindowsNrptRedirect::restoreSystem() const
+{
+    Key parent;parent.value=policyParent(false);
+    if(parent.value)restore(parent.value);
     refresh();
 }
