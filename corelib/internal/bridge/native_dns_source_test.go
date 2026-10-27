@@ -28,6 +28,13 @@ func startNativeOriginalDNSSource(t *testing.T) func() {
 	tcp, udp := testdns.ListenPair(t, os.Getenv("JC_NATIVE_ORIGINAL_DNS_ADDRESS"))
 	var mu sync.Mutex
 	queries := make(map[string]int)
+	t.Cleanup(func() {
+		if t.Failed() {
+			mu.Lock()
+			defer mu.Unlock()
+			t.Logf("CHECK: original native DNS requests after cache prewarm: %v", queries)
+		}
+	})
 	handler := dns.HandlerFunc(func(w dns.ResponseWriter, request *dns.Msg) {
 		reply := new(dns.Msg).SetReply(request)
 		reply.RecursionAvailable = true
