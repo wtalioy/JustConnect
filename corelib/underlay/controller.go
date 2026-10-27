@@ -62,6 +62,9 @@ func (d *Dialer) prepareController(ctx context.Context, address string) error {
 	if controller.TunEnabled {
 		d.tunDevice = controller.TunDevice
 		d.requireBound = true
+		if d.interfaceName == "" {
+			d.autoDetect = true
+		}
 		if d.autoDetect && mihomo.SameInterface(d.interfaceName, d.tunDevice) {
 			d.interfaceName = ""
 		}
