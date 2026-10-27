@@ -75,6 +75,28 @@ func TestNativeControllerTCPAndIPC(t *testing.T) {
 	}
 }
 
+func TestObservedIPCVerifiesPeerWithoutConfiguration(t *testing.T) {
+	owned := testmihomo.Start(t, testmihomo.Options{Transport: "ipc"})
+	other := testmihomo.Start(t, testmihomo.Options{Transport: "ipc"})
+	process := ownedProcess(t, owned.PID)
+	process.Args, process.Home, process.Directory = nil, "", ""
+	process.IPC = []string{other.IPC}
+	if client, err := Inspect(t.Context(), process); err == nil {
+		client.Close()
+		t.Fatal("observed socket from another PID acquired controller authority")
+	}
+	process.IPC = append(process.IPC, owned.IPC)
+	client, err := Inspect(t.Context(), process)
+	if err != nil {
+		t.Fatal("owned observed IPC required private process arguments or configuration", err)
+	}
+	defer client.Close()
+	answer, err := client.Query(t.Context(), dns.Question{Name: "gateway.example.test.", Qtype: dns.TypeA, Qclass: dns.ClassINET})
+	if err != nil || len(answer.Answer) != 2 {
+		t.Fatal("observed IPC could not resolve the real control address", err)
+	}
+}
+
 func TestUnownedPortAndReusedIdentityNeverReceiveCredentials(t *testing.T) {
 	first := testmihomo.Start(t, testmihomo.Options{Transport: "tcp"})
 	second := testmihomo.Start(t, testmihomo.Options{Transport: "tcp"})
