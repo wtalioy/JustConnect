@@ -391,10 +391,16 @@ def main(args):
                         ready = source_fixture.stdout.readline()
                         assert ready, source_fixture.stderr.read().decode(errors='replace')
                         source = json.loads(ready)['service']
-                        wait_for(lambda: any(row.get('domain') == 'campus.test' and row.get('servers') == [address]
-                                             and row.get('port', 53) == int(port) and row['scope'] == 'unscoped'
-                                             for row in json.loads(run(args.dns_probe, '--snapshot').stdout)['macos_resolvers']),
-                                 'Owned preferences DNS source did not become effective')
+                        try:
+                            wait_for(lambda: any(row.get('domain') == 'campus.test' and row.get('servers') == [address]
+                                                 and row.get('port', 53) == int(port) and row['scope'] == 'unscoped'
+                                                 for row in json.loads(run(args.dns_probe, '--snapshot').stdout)['macos_resolvers']),
+                                     'Owned preferences DNS source did not become effective')
+                        except AssertionError:
+                            observed = json.loads(run(args.dns_probe, '--snapshot').stdout)
+                            print('CHECK: original DNS source inventory', json.dumps(observed), flush=True)
+                            (output / 'original-dns-source.observed.json').write_text(json.dumps(observed, indent=2) + '\n')
+                            raise
                         for name in ('host.campus.test', 'withdrawn.campus.test'):
                             answers = {row[4][0] for row in socket.getaddrinfo(name, None, socket.AF_INET, socket.SOCK_STREAM)}
                             assert answers == {'198.18.0.6', '198.18.0.7'}, ('Cache prewarm did not use the native original source', name, answers)

@@ -88,6 +88,23 @@ static int fixtureSource(const QString &address,int port)
         const auto text=pair.second.toCFString();const void *item=text;const auto values=CFArrayCreate(nullptr,&item,1,&kCFTypeArrayCallBacks);CFRelease(text);
         CFDictionarySetValue(ipv4,pair.first,values);CFRelease(values);
     }
+    // Setup DNS is eligible only for a routable source; preserve the runner's actual gateway.
+    const auto global=SCDynamicStoreCopyValue(store,CFSTR("State:/Network/Global/IPv4"));
+    check(global && CFGetTypeID(global)==CFDictionaryGetTypeID(),"Read the actual default IPv4 service");
+    const auto freeGlobal=qScopeGuard([&]{CFRelease(global);});
+    const auto primary=CFDictionaryGetValue(static_cast<CFDictionaryRef>(global),kSCDynamicStorePropNetPrimaryService);
+    check(primary && CFGetTypeID(primary)==CFStringGetTypeID(),"Read the actual default service identity");
+    const auto primaryKey=SCDynamicStoreKeyCreateNetworkServiceEntity(nullptr,kSCDynamicStoreDomainState,static_cast<CFStringRef>(primary),kSCEntNetIPv4);
+    const auto freePrimaryKey=qScopeGuard([&]{CFRelease(primaryKey);});
+    const auto active=SCDynamicStoreCopyValue(store,primaryKey);
+    check(active && CFGetTypeID(active)==CFDictionaryGetTypeID(),"Read the actual default service IPv4 state");
+    const auto freeActive=qScopeGuard([&]{CFRelease(active);});
+    const auto gateway=CFDictionaryGetValue(static_cast<CFDictionaryRef>(active),kSCPropNetIPv4Router);
+    const auto activeInterface=CFDictionaryGetValue(static_cast<CFDictionaryRef>(active),kSCPropInterfaceName);
+    check(activeInterface && CFGetTypeID(activeInterface)==CFStringGetTypeID() && QString::fromCFString(static_cast<CFStringRef>(activeInterface))==name
+        && gateway && CFGetTypeID(gateway)==CFStringGetTypeID() && canonicalUnicastIpv4(QString::fromCFString(static_cast<CFStringRef>(gateway))),
+        "Fixture endpoint must belong to the actual routable default service");
+    CFDictionarySetValue(ipv4,kSCPropNetIPv4Router,gateway);
     check(SCDynamicStoreAddTemporaryValue(store,key,ipv4),"Publish the actual fixture source interface without configuring its kernel addresses");
     std::cout<<"{\"service\":\""<<QString::fromCFString(SCNetworkServiceGetServiceID(service)).toStdString()<<"\"}"<<std::endl;
     std::string command;check(bool(std::getline(std::cin,command)) && command=="restore","Owned fixture shutdown command");

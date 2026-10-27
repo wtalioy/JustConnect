@@ -61,6 +61,7 @@ jobs:
             build/coreabi/macos-tun-routes.log
             build/coreabi/macos-helper/*.out
             build/coreabi/macos-helper/*.err
+            build/coreabi/macos-helper/*.json
   probe:
     if: github.event_name != 'workflow_dispatch' || (!inputs.macos_helper_only && !inputs.windows_packet_only)
     name: ${{ matrix.platform }}-${{ matrix.arch }}
@@ -267,6 +268,7 @@ jobs:
             build/coreabi/Testing/Temporary/*.log
             build/coreabi/macos-helper/*.out
             build/coreabi/macos-helper/*.err
+            build/coreabi/macos-helper/*.json
 
   windows-packet:
     if: github.event_name == 'workflow_dispatch' && inputs.windows_packet_only
