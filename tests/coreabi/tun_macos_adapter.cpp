@@ -11,11 +11,17 @@
 #include <QElapsedTimer>
 #include <QJsonDocument>
 #include <QFileInfo>
+#include <QFile>
+#include <QDeadlineTimer>
+#include <QScopeGuard>
 #include <QSaveFile>
 #include <QStandardPaths>
 #include <future>
 #include <atomic>
 #include <netdb.h>
+#include <dns_sd.h>
+#include <poll.h>
+#include <arpa/inet.h>
 #include <unistd.h>
 
 using ProxyCheck::check;
@@ -43,6 +49,34 @@ static QStringList addresses(const char *hostname,int family=AF_INET)
         values.append(QString::fromLatin1(value));
     }
     ::freeaddrinfo(result); return values;
+}
+static QStringList ipv6Records(const char *hostname)
+{
+    struct Answer { QStringList addresses; DNSServiceErrorType error=kDNSServiceErr_NoError; bool ready=false; } answer;
+    const auto receive=[](DNSServiceRef,DNSServiceFlags flags,uint32_t,DNSServiceErrorType error,const char *,uint16_t type,
+        uint16_t klass,uint16_t length,const void *data,uint32_t,void *context){
+        auto &answer=*static_cast<Answer *>(context);answer.error=error;
+        if(error==kDNSServiceErr_NoError){
+            char address[INET6_ADDRSTRLEN]{};
+            if(!(flags&kDNSServiceFlagsAdd) || type!=kDNSServiceType_AAAA || klass!=kDNSServiceClass_IN || length!=16
+                || !data || !::inet_ntop(AF_INET6,data,address,sizeof(address)))answer.error=kDNSServiceErr_BadParam;
+            else if(!answer.addresses.contains(QString::fromLatin1(address)))answer.addresses.append(QString::fromLatin1(address));
+        }
+        answer.ready=answer.error!=kDNSServiceErr_NoError || !(flags&kDNSServiceFlagsMoreComing);
+    };
+    DNSServiceRef service=nullptr;
+    check(DNSServiceQueryRecord(&service,0,kDNSServiceInterfaceIndexAny,hostname,kDNSServiceType_AAAA,kDNSServiceClass_IN,receive,&answer)==kDNSServiceErr_NoError,
+        "Start an ordinary native AAAA record query");
+    const auto release=qScopeGuard([&]{DNSServiceRefDeallocate(service);});
+    const int descriptor=DNSServiceRefSockFD(service);check(descriptor>=0,"Native DNS query exposes its result descriptor");
+    QDeadlineTimer deadline(10000);
+    while(!answer.ready && !deadline.hasExpired()){
+        pollfd event{descriptor,POLLIN,0};
+        check(::poll(&event,1,int(deadline.remainingTime()))>0 && (event.revents&POLLIN),"Native AAAA record query completes within deadline");
+        check(DNSServiceProcessResult(service)==kDNSServiceErr_NoError,"Process native AAAA records");
+    }
+    check(answer.ready && answer.error==kDNSServiceErr_NoError && !answer.addresses.isEmpty(),"Original native AAAA record query succeeds");
+    return answer.addresses;
 }
 int main(int argc,char **argv)
 {
@@ -212,11 +246,16 @@ int main(int argc,char **argv)
             until([&]{return lookup.wait_for(std::chrono::milliseconds(0))==std::future_status::ready;});
             const auto original=lookup.get();
             check(original.contains("198.18.0.6") && original.contains("198.18.0.7"),"Prepared native source retained both original A answers after cache prewarm");
-            auto ipv6=std::async(std::launch::async,[]{return addresses("host.campus.test",AF_INET6);});
+            auto nativeAddresses=std::async(std::launch::async,[]{return addresses("host.campus.test",AF_INET6);});
+            until([&]{return nativeAddresses.wait_for(std::chrono::milliseconds(0))==std::future_status::ready;});
+            auto actualAddresses=nativeAddresses.get();actualAddresses.sort();
+            QFile baseline(marker+".dns-native-ipv6");check(baseline.open(QIODevice::ReadOnly),"Read the native address baseline before capture");
+            const auto expected=QJsonDocument::fromJson(baseline.readAll());check(expected.isArray(),"Valid native IPv6 address baseline");
+            QStringList expectedAddresses;for(const auto &value:expected.array()){check(value.isString(),"Native address baseline is complete");expectedAddresses.append(value.toString());}
+            expectedAddresses.sort();check(actualAddresses==expectedAddresses,"Original native address selection changed after DNS redirection");
+            auto ipv6=std::async(std::launch::async,[]{return ipv6Records("host.campus.test");});
             until([&]{return ipv6.wait_for(std::chrono::milliseconds(0))==std::future_status::ready;});
-            const auto originalIPv6=ipv6.get();
-            std::cerr<<"CHECK: original native AAAA "<<QJsonDocument(QJsonArray::fromStringList(originalIPv6)).toJson(QJsonDocument::Compact).constData()<<'\n';
-            check(originalIPv6==QStringList{"2001:db8::9"},"Original AAAA was replaced by the campus IPv4 restriction");
+            check(ipv6.get()==QStringList{"2001:db8::9"},"Original AAAA was replaced by the campus IPv4 restriction");
             publish(".original-ready");until([&]{return QFileInfo::exists(marker+".original-traffic");});
             exerciseOriginalNetworkTraffic();
             publish(".protected");until([&]{return QFileInfo::exists(marker+".select-campus");});
