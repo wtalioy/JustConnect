@@ -291,7 +291,7 @@ void unchangedProvider(HKEY key,const WindowsNrptRedirect &value)
 bool plainPolicy(std::uint64_t value)
 {
     constexpr auto policy=DNS_DOH_POLICY_NOT_CONFIGURED|DNS_DOH_POLICY_DISABLE;
-    return !(value&~std::uint64_t(DNS_ENABLE_DOH|policy)) && (value&policy)!=policy;
+    return !(value&~std::uint64_t(DNS_ENABLE_DOH|DNS_ENABLE_DOT|policy)) && (value&policy)!=policy;
 }
 std::uint64_t plainGlobalPolicy(const std::vector<std::wstring> &servers)
 {
@@ -300,7 +300,7 @@ std::uint64_t plainGlobalPolicy(const std::vector<std::wstring> &servers)
     checked(GetDnsSettings(base),"read global DNS security");
     const auto value=settings.SettingFlags;FreeDnsSettings(base);
     if(!plainPolicy(value))fail(("original DNS transport requires native encrypted policy (flags="+std::to_string(value)+")").c_str(),ERROR_NOT_SUPPORTED);
-    if((value&DNS_ENABLE_DOH) && !(value&DNS_DOH_POLICY_DISABLE)){
+    if((value&(DNS_ENABLE_DOH|DNS_ENABLE_DOT)) && !(value&DNS_DOH_POLICY_DISABLE)){
         for(const auto &known:WindowsDNS::knownNrptDohServers()){
             const auto address=canonicalIP(known);
             if(std::find(servers.begin(),servers.end(),address)!=servers.end())fail("original NRPT server requires native DoH",ERROR_NOT_SUPPORTED);

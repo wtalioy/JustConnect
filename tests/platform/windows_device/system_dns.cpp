@@ -56,7 +56,7 @@ int wmain(int argc,wchar_t **argv) try
         return 0;
     }
     wchar_t guarded[8]{};
-    check(argc==3 && GetEnvironmentVariableW(L"GITHUB_ACTIONS",guarded,8)==4 && std::wstring(guarded)==L"true","system DNS mutation requires disposable runner");
+    check(argc==4 && GetEnvironmentVariableW(L"GITHUB_ACTIONS",guarded,8)==4 && std::wstring(guarded)==L"true","system DNS mutation requires disposable runner");
     IN_ADDR server{};
     check(InetPtonW(AF_INET,argv[1],&server)==1,"invalid fixture DNS address");
     const auto rule=WindowsDnsRule::create({argv[2]},server);
@@ -69,18 +69,21 @@ int wmain(int argc,wchar_t **argv) try
     auto *base=reinterpret_cast<DNS_SETTINGS *>(&settings);
     check(GetDnsSettings(base)==NO_ERROR,"read fixture DNS security");
     const auto security=settings.SettingFlags;FreeDnsSettings(base);
-    if((security&DNS_ENABLE_DOH) && !(security&DNS_DOH_POLICY_DISABLE)){
+    if((security&(DNS_ENABLE_DOH|DNS_ENABLE_DOT)) && !(security&DNS_DOH_POLICY_DISABLE)){
         IN_ADDR known{};std::wstring endpoint;
         for(const auto &value:WindowsDNS::knownNrptDohServers())if(InetPtonW(AF_INET,value.c_str(),&known)==1){endpoint=value;break;}
         check(!endpoint.empty(),"native CI requires a known IPv4 DoH server for downgrade regression");
-        auto secure=WindowsDnsRule::create({L"secure."+std::wstring(argv[2])},known);
-        Restore restoreSecure{secure};secure.applySystem();
-        bool refused=false;
-        try{WindowsNrptRedirect::prepareSystem({L".secure."+std::wstring(argv[2])},{endpoint},listener);}
-        catch(const std::system_error &error){refused=error.code().value()==ERROR_NOT_SUPPORTED;}
-        check(refused,"known NRPT DoH upstream was downgraded to plaintext");
-        secure.restoreSystem();
-        std::cout<<"PASS: native known NRPT DoH upstream cannot be redirected as plaintext\n";
+        for(const auto &server:std::vector<std::wstring>{endpoint,argv[3]}){
+            check(InetPtonW(AF_INET,server.c_str(),&known)==1,"parse encrypted source fixture");
+            auto secure=WindowsDnsRule::create({L"secure."+std::wstring(argv[2])},known);
+            Restore restoreSecure{secure};secure.applySystem();
+            bool refused=false;
+            try{WindowsNrptRedirect::prepareSystem({L".secure."+std::wstring(argv[2])},{server},listener);}
+            catch(const std::system_error &error){refused=error.code().value()==ERROR_NOT_SUPPORTED;}
+            check(refused,"known NRPT DoH/DoT upstream was downgraded to plaintext");
+            secure.restoreSystem();
+        }
+        std::cout<<"PASS: native known NRPT DoH and DoT upstreams cannot be redirected as plaintext\n";
     }
     struct RestoreRedirect {const WindowsNrptRedirect &value;~RestoreRedirect(){try{value.restoreSystem();}catch(const std::exception &error){std::cerr<<"redirect cleanup: "<<error.what()<<'\n';}}} redirectCleanup{redirect};
     redirect.applySystem();
