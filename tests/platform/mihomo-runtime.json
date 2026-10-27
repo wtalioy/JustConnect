@@ -1,0 +1,30 @@
+{
+  "version": "v1.19.32",
+  "source": "https://github.com/MetaCubeX/mihomo/releases/tag/v1.19.32",
+  "assets": {
+    "macos-x64": {
+      "file": "mihomo-darwin-amd64-v1-v1.19.32.gz",
+      "sha256": "f6eef841308b682e48f9c3e4740af42f5644a53d2f18c4d4bf1ee6f8a7af7c8b"
+    },
+    "macos-arm64": {
+      "file": "mihomo-darwin-arm64-v1.19.32.gz",
+      "sha256": "3312a6780652c622890fd4357c6a853bbf865464fd047ac7b7f52dab8de18652"
+    },
+    "linux-x64": {
+      "file": "mihomo-linux-amd64-v1-v1.19.32.gz",
+      "sha256": "306f81e723e60ce6b828899a6fe83e1d00e9ecefb2dc8d4d849312a5bc00efdc"
+    },
+    "linux-arm64": {
+      "file": "mihomo-linux-arm64-v1.19.32.gz",
+      "sha256": "9dd862e28b46ff7d775f169cceebc28deccaa0a9e804237d421cd2571e0caba0"
+    },
+    "windows-x64": {
+      "file": "mihomo-windows-amd64-v1-v1.19.32.zip",
+      "sha256": "00549b347d8e124600e46cac67d59293358454f465e9d86d2511567da56b7029"
+    },
+    "windows-arm64": {
+      "file": "mihomo-windows-arm64-v1.19.32.zip",
+      "sha256": "7a4f6e58af9a120920935f2150cf642d945085fdb3e753314505b334234e1d1e"
+    }
+  }
+}

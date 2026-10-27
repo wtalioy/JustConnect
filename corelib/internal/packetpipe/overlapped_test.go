@@ -4,7 +4,7 @@ package packetpipe
 
 import (
 	"fmt"
-	nativepipe "github.com/wtalioy/JustConnect/corelib/internal/packetpipe/windows"
+	nativepipe "github.com/wtalioy/JustConnect/corelib/internal/namedpipe/windows"
 	"testing"
 	"time"
 

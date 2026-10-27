@@ -118,8 +118,12 @@ jobs:
         shell: bash
         run: bash tests/platform/run_macos_networkhelper.sh
 
-      - name: Verify formal C ABI, protocol session and authentication
+      - name: Stage pinned Mihomo for native control-DNS integration
         if: &collect_native_evidence ${{ !cancelled() && (success() || (runner.os == 'Windows' && steps.windows_device_probe.outcome == 'failure')) }}
+        run: python tests/platform/setup_mihomo.py --target ${{ matrix.platform }}-${{ matrix.arch }}
+
+      - name: Verify formal C ABI, protocol session and authentication
+        if: *collect_native_evidence
         timeout-minutes: 20
         shell: python
         run: |
@@ -140,6 +144,7 @@ jobs:
               if status and required:
                   sys.exit(status)
               return status
+          run('mihomo-runtime-unit', [sys.executable, '-m', 'unittest', 'discover', '-s', 'tests/platform', '-p', 'setup_mihomo_test.py'])
           run('go', ['go', 'version'])
           run('cgo-env', ['go', 'env', 'GOHOSTOS', 'GOHOSTARCH', 'CC', 'CGO_ENABLED'])
           run('cc', [os.environ['CC'], '--version'])
