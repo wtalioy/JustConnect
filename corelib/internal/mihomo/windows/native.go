@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"os"
 	"strings"
+	"time"
 	"unsafe"
 
 	"github.com/wtalioy/JustConnect/corelib/internal/mihomo/model"
@@ -90,6 +91,8 @@ func Read(ctx context.Context) ([]model.Process, error) {
 	return result, nil
 }
 
+var waitNamedPipe = windows.NewLazySystemDLL("kernel32.dll").NewProc("WaitNamedPipeW")
+
 var tcpTable = windows.NewLazySystemDLL("iphlpapi.dll").NewProc("GetExtendedTcpTable")
 
 func OwnsTCP(ctx context.Context, p model.Process, target netip.AddrPort) bool {
@@ -149,7 +152,25 @@ func DialIPC(ctx context.Context, p model.Process, address string) (net.Conn, er
 	if err != nil {
 		return nil, os.ErrPermission
 	}
-	handle, err := windows.CreateFile(path, windows.GENERIC_READ|windows.GENERIC_WRITE, 0, nil, windows.OPEN_EXISTING, windows.FILE_FLAG_OVERLAPPED|windows.SECURITY_SQOS_PRESENT|windows.SECURITY_IDENTIFICATION, 0)
+	var handle windows.Handle
+	for {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		handle, err = windows.CreateFile(path, windows.GENERIC_READ|windows.GENERIC_WRITE, 0, nil, windows.OPEN_EXISTING, windows.FILE_FLAG_OVERLAPPED|windows.SECURITY_SQOS_PRESENT|windows.SECURITY_IDENTIFICATION, 0)
+		if err != windows.ERROR_PIPE_BUSY {
+			break
+		}
+		// WaitNamedPipe cannot be canceled; bound each wait to keep context cancellation responsive.
+		wait := 50 * time.Millisecond
+		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < wait {
+			wait = max(time.Millisecond, time.Until(deadline))
+		}
+		available, _, waitErr := waitNamedPipe.Call(uintptr(unsafe.Pointer(path)), uintptr(wait.Milliseconds()))
+		if available == 0 && waitErr != windows.ERROR_SEM_TIMEOUT {
+			return nil, waitErr
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
