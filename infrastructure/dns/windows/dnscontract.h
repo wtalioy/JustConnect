@@ -5,6 +5,9 @@ namespace WindowsDNS {
 // MS-GPNRPT local and managed policy stores; neither is owned by the reader.
 inline constexpr wchar_t LocalPolicy[]=L"SYSTEM\\CurrentControlSet\\Services\\Dnscache\\Parameters\\DnsPolicyConfig";
 inline constexpr wchar_t ManagedPolicy[]=L"SOFTWARE\\Policies\\Microsoft\\Windows NT\\DNSClient\\DnsPolicyConfig";
+// MS-GPNRPT v1: generic DNS server list; UUID class marks a rule created by this helper.
+inline constexpr unsigned NrptVersion=1, GenericServersOption=0x8;
+inline constexpr wchar_t RuleClassPrefix[]=L"JustConnect/";
 inline constexpr std::size_t SnapshotBytes=262144;
 inline constexpr unsigned SnapshotTimeoutMs=10000;
 inline constexpr unsigned ConsistencyPollMs=50;

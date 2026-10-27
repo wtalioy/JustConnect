@@ -1,4 +1,5 @@
 #include "infrastructure/networkhelper/windows/networkownership.h"
+#include "infrastructure/dns/windows/dnscontract.h"
 #include <QSet>
 #include <QUuid>
 #include <algorithm>
@@ -75,10 +76,10 @@ std::optional<WindowsNetworkOwnership> WindowsNetworkOwnership::capture(const QJ
     for(const auto &item:dns["nrpt_sources"].toArray()){
         const auto row=item.toObject();
         if(dnsId.isNull() || row["store"]!="local" || QUuid(row["id"].toString())!=dnsId)continue;
-        const auto prefix=QStringLiteral("JustConnect/");
+        const auto prefix=QString::fromWCharArray(WindowsDNS::RuleClassPrefix);
         const auto sourceClass=row["class"].toString();
         if(!result.dnsSourceRecords.isEmpty() || row["servers"]!=configuration["peer"] || !row["owner"].isNull()
-            || row["version"]!=1 || row["options"]!=8 || !sourceClass.startsWith(prefix)
+            || row["version"].toInteger(-1)!=WindowsDNS::NrptVersion || row["options"].toInteger(-1)!=WindowsDNS::GenericServersOption || !sourceClass.startsWith(prefix)
             || QUuid(sourceClass.sliced(prefix.size())).isNull())return {};
         QSet<QString> expected;
         for(const auto &name:configuration["dns_domains"].toArray())expected.insert("."+name.toString());
