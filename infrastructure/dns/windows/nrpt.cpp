@@ -89,7 +89,7 @@ void ownedKey(HKEY key,const WindowsDnsRule &rule)
     wchar_t name[64]{};
     DWORD size=static_cast<DWORD>(std::size(name));
     checked(RegQueryInfoKeyW(key,name,&size,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr),"read atomic NRPT class");
-    if (std::wstring(name,size)!=L"JustConnect/"+guid(rule.marker)) fail("foreign NRPT ownership class",ERROR_ACCESS_DENIED);
+    if (std::wstring(name,size)!=WindowsDNS::RuleClassPrefix+guid(rule.marker)) fail("foreign NRPT ownership class",ERROR_ACCESS_DENIED);
     trustedKey(key,true);
 }
 // MS-GPNRPT local policy; managed policy remains owned by the domain administrator.
@@ -137,7 +137,7 @@ std::vector<Value> expected(const WindowsDnsRule &rule)
         names.push_back(L'.');names.insert(names.end(),name.begin(),name.end());names.push_back(0);
     }
     names.push_back(0);
-    const DWORD version=1,options=0x8; // MS-GPNRPT: generic DNS servers enabled.
+    const DWORD version=WindowsDNS::NrptVersion,options=WindowsDNS::GenericServersOption;
     return {{L"Version",REG_DWORD,bytes(&version,sizeof(version))},
         {L"GenericDNSServers",REG_SZ,bytes(address,(wcslen(address)+1)*sizeof(wchar_t))},
         {L"ConfigOptions",REG_DWORD,bytes(&options,sizeof(options))},
@@ -284,7 +284,7 @@ void unchangedProvider(HKEY key,const WindowsNrptRedirect &value)
 {
     trustedKey(key,false,true);
     if(keyClass(key)!=value.policyClass || nameSet(namespaceValues(key))!=nameSet(value.namespaces)
-        || numberValue(key,L"Version")!=1 || numberValue(key,L"ConfigOptions")!=0x8)
+        || numberValue(key,L"Version")!=WindowsDNS::NrptVersion || numberValue(key,L"ConfigOptions")!=WindowsDNS::GenericServersOption)
         fail("original DNS provider changed",ERROR_NOT_SUPPORTED);
     if(RegQueryValueExW(key,L"SymbolicLinkValue",nullptr,nullptr,nullptr,nullptr)!=ERROR_FILE_NOT_FOUND)fail("linked original DNS provider",ERROR_ACCESS_DENIED);
 }
@@ -348,7 +348,7 @@ void WindowsDnsRule::apply(HKEY parent) const
     Security security;
     if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(L"O:BAG:SYD:P(A;;KA;;;SY)(A;;KA;;;BA)(A;;KR;;;WD)",SDDL_REVISION_1,&security.value,nullptr)) fail("create NRPT security");
     SECURITY_ATTRIBUTES attributes{sizeof(attributes),security.value,FALSE};
-    auto className=L"JustConnect/"+guid(marker);
+    auto className=WindowsDNS::RuleClassPrefix+guid(marker);
     Key key;
     checked(RegCreateKeyExW(parent,guid(id).c_str(),0,className.data(),0,KEY_ALL_ACCESS|KEY_WOW64_64KEY,&attributes,&key.value,nullptr),"prepare owned NRPT key");
     ownedKey(key.value,*this);
