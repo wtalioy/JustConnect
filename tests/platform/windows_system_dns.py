@@ -15,6 +15,7 @@ def verify(executable):
     addresses = socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET, socket.SOCK_DGRAM)
     address = next(item[4][0] for item in addresses if not item[4][0].startswith(('127.', '169.254.')))
     hostname = uuid.uuid4().hex + '.invalid'
+    encrypted_server = '192.0.2.254'
     received, failures, stopped = [[], []], [], threading.Event()
     threads = []
     with ExitStack() as stack:
@@ -43,10 +44,15 @@ def verify(executable):
             thread.start()
             threads.append(thread)
         try:
+            subprocess.run(['netsh', 'dnsclient', 'add', 'encryption', f'server={encrypted_server}',
+                            'dothost=dns.fixture.invalid:853', 'autoupgrade=yes', 'udpfallback=no'], check=True, timeout=10)
             # The native parent owns cleanup; this outer deadline only catches a stuck fixture.
-            subprocess.run([str(executable), address, hostname], check=True, timeout=50)
-            if len(received[0]) < 2 or not received[1] or failures:
-                raise RuntimeError(f'Native resolver did not follow both DNS endpoints and restoration: {received}, {failures}')
+            try:
+                subprocess.run([str(executable), address, hostname, encrypted_server], check=True, timeout=50)
+                if len(received[0]) < 2 or not received[1] or failures:
+                    raise RuntimeError(f'Native resolver did not follow both DNS endpoints and restoration: {received}, {failures}')
+            finally:
+                subprocess.run(['netsh', 'dnsclient', 'delete', 'encryption', f'server={encrypted_server}', 'protocol=dot'], check=True, timeout=10)
         finally:
             stopped.set()
             for thread in threads:
