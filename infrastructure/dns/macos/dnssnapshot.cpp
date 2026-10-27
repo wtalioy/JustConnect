@@ -1,4 +1,6 @@
 #include "infrastructure/dns/macos/dnssnapshot.h"
+#include "infrastructure/dns/macos/resolver.h"
+#include "infrastructure/dns/domainlimits.h"
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QScopeGuard>
@@ -17,14 +19,14 @@ QJsonValue json(CFTypeRef value, int depth, bool &valid)
     } else if (type == CFArrayGetTypeID()) {
         const auto array = static_cast<CFArrayRef>(value);
         const auto count = CFArrayGetCount(array);
-        if (count > 4096) { valid = false; return {}; }
+        if (count > CFIndex(NetworkDnsDomainLimit)) { valid = false; return {}; }
         QJsonArray result;
         for (CFIndex i = 0; i < count && valid; ++i) result.append(json(CFArrayGetValueAtIndex(array, i), depth + 1, valid));
         return result;
     } else if (type == CFDictionaryGetTypeID()) {
         const auto dictionary = static_cast<CFDictionaryRef>(value);
         const auto count = CFDictionaryGetCount(dictionary);
-        if (count > 4096) { valid = false; return {}; }
+        if (count > CFIndex(NetworkDnsDomainLimit)) { valid = false; return {}; }
         std::vector<const void *> keys(count), values(count);
         CFDictionaryGetKeysAndValues(dictionary, keys.data(), values.data());
         QJsonObject result;
@@ -39,7 +41,7 @@ QJsonValue json(CFTypeRef value, int depth, bool &valid)
 }
 }
 
-DnsSnapshot readMacDnsSnapshot(MacDnsRead read)
+DnsSnapshot readMacDnsSnapshot(MacDnsRead read, PlatformCommandRunner inspect)
 {
     using Status = PlatformOperationResult::Status;
     const auto store = SCDynamicStoreCreate(nullptr, CFSTR("JustConnect DNS snapshot"), nullptr, nullptr);
@@ -56,8 +58,15 @@ DnsSnapshot readMacDnsSnapshot(MacDnsRead read)
     const auto entries = json(values, 0, valid).toObject();
     for (const auto &value : entries) if (!value.isObject()) valid = false;
     if (!valid) return {{Status::Failed, "Unsupported system resolver property"}, {}};
-    const QJsonObject data{{"dynamic_store", entries}};
-    if (QJsonDocument(data).toJson(QJsonDocument::Compact).size() > 262144)
+    if (QJsonDocument(entries).toJson(QJsonDocument::Compact).size() > MacDnsSnapshotBytes)
+        return {{Status::Failed,"System resolver snapshot too large"},{}};
+    if (!inspect) inspect = [](const QString &program,const QStringList &arguments) { return runPlatformCommand(program,arguments); };
+    const auto effective = inspect(QStringLiteral("/usr/sbin/scutil"),{QStringLiteral("--dns")});
+    if (!effective.result.succeeded()) return {effective.result,{}};
+    const auto resolvers = parseMacDnsResolvers(effective.output);
+    if (!resolvers) return {{Status::Failed,"Invalid effective system resolver configuration"},{}};
+    const QJsonObject data{{"dynamic_store",entries},{"macos_resolvers",*resolvers}};
+    if (QJsonDocument(data).toJson(QJsonDocument::Compact).size() > MacDnsSnapshotBytes)
         return {{Status::Failed, "System resolver snapshot too large"}, {}};
     return {{}, data};
 }

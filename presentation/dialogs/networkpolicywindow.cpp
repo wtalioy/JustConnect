@@ -99,6 +99,14 @@ QString dnsSource(const QJsonObject &model, const QJsonObject &source)
         const auto key = source["key"].toString();
         return (key.startsWith("State:") ? QStringLiteral("当前 DNS 配置：") : QStringLiteral("已保存 DNS 配置：")) + key;
     }
+    if (provider == "macos_resolver") {
+        const auto row = at(dns["macos_resolvers"].toArray(),source["row"]);
+        QString scope = QStringLiteral("普通查询");
+        if (row["scope"] == "interface") scope = QStringLiteral("接口查询：%1（%2）")
+            .arg(interfaceName(network,source["interface_index"].toInteger())).arg(source["interface_index"].toInteger());
+        else if (row["scope"] == "service") scope = QStringLiteral("服务专用查询");
+        return QStringLiteral("生效的系统解析器 %1；%2").arg(row["resolver"].toInteger()).arg(scope);
+    }
     return QStringLiteral("来源信息不可用");
 }
 QString dnsRole(const QString &role)
