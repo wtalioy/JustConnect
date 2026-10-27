@@ -56,6 +56,7 @@ type gateway struct {
 	probeDNS         atomic.Bool
 	nativeDNS        atomic.Bool
 	nativeDNSQueries atomic.Int32
+	originalDNSName  atomic.Bool
 	renewals         atomic.Int32
 	extraWANNode     atomic.Value
 	resourceIP       atomic.Value
@@ -186,6 +187,9 @@ func newGatewayWithNodeTLS(t *testing.T, nodeTLS *tls.Config) *gateway {
 			addresses := fmt.Sprintf(`{"protocol":"udp","port":"1-65535","host":%q},{"protocol":"tcp","port":"1-65535","host":%q},{"protocol":"tcp","port":"1-65535","host":"campus.test","IP":[%q]}`, resourceIP, resourceIP, resourceIP)
 			if g.nativeDNS.Load() {
 				addresses = fmt.Sprintf(`{"protocol":"udp","port":"1-65535","host":%q},{"protocol":"udp","port":"53","host":%q},{"protocol":"tcp","port":"80","host":"campus.test"}`, resourceIP, campusDNS)
+			}
+			if g.originalDNSName.Load() {
+				addresses += `,{"protocol":"tcp","port":"80","host":"host.campus.test"}`
 			}
 			fmt.Fprintf(w, `{"data":{%s"appList":{"data":{"appInfo":[{"apps":[{"ID":"fixture-app","nodeGroupID":"fixture-group","accessModel":"L3VPN","addressList":[%s%s]}]}],"config":{"nodeGroupConf":{"majorNodeGroup":{"ID":"fixture-group"},"nodeGroupList":[{"ID":"fixture-group","addressInfo":[{"type":"wan","address":%q}%s]}]}}}}}}`, dnsPolicy, addresses, extraResource, g.node.Addr().String(), extraNode)
 		default:
@@ -502,11 +506,14 @@ func (g *gateway) serveL3(conn net.Conn) {
 					if request.Unpack(udp.Payload()) == nil {
 						reply := new(dns.Msg)
 						reply.SetReply(request)
-						if g.nativeDNS.Load() && len(request.Question) == 1 && request.Question[0].Name == "campus.test." && request.Question[0].Qtype == dns.TypeA {
+						if g.nativeDNS.Load() && len(request.Question) == 1 && (request.Question[0].Name == "campus.test." || request.Question[0].Name == "host.campus.test.") && request.Question[0].Qtype == dns.TypeA {
 							resourceIP, _ := g.resourceIP.Load().(string)
 							reply.Answer = []dns.RR{
 								&dns.CNAME{Hdr: dns.RR_Header{Name: "campus.test.", Class: dns.ClassINET, Rrtype: dns.TypeCNAME, Ttl: 60}, Target: "target.campus.test."},
 								&dns.A{Hdr: dns.RR_Header{Name: "target.campus.test.", Class: dns.ClassINET, Rrtype: dns.TypeA, Ttl: 60}, A: net.IP(netip.MustParseAddr(resourceIP).Next().AsSlice())},
+							}
+							if request.Question[0].Name == "host.campus.test." {
+								reply.Answer = []dns.RR{&dns.A{Hdr: dns.RR_Header{Name: "host.campus.test.", Class: dns.ClassINET, Rrtype: dns.TypeA, Ttl: 60}, A: net.IP(netip.MustParseAddr(resourceIP).Next().AsSlice())}}
 							}
 							g.nativeDNSQueries.Add(1)
 						}

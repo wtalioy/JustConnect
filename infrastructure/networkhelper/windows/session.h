@@ -23,7 +23,7 @@ public:
     WindowsNetworkSession(const WindowsNetworkSession &)=delete;
     WindowsNetworkSession &operator=(const WindowsNetworkSession &)=delete;
     const WindowsTunIdentity &identity() const{return device->identity();}
-    void reconcile(const std::vector<WindowsTunPrefix> &captures);
+    void reconcile(const std::vector<WindowsTunPrefix> &captures,bool refreshDNS=false);
     void quiesce();
     void restore();
     bool isRestored() const{return restored;}

@@ -35,6 +35,9 @@ private:
     std::unique_ptr<QLockFile> lock;
     std::optional<WindowsNetworkOwnership> ownership;
     std::optional<PlatformOperationResult> pendingFailure;
+    std::optional<QJsonObject> pendingConfiguration;
+    QJsonArray originalSources;
+    QJsonObject originalContext;
     QUuid attempt,receipt;
     QString generation,localDNS;
     QJsonObject originalExit,ownedNetwork,changingPolicy;

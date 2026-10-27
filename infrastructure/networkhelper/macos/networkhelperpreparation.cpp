@@ -14,21 +14,6 @@
 #include <QUrl>
 
 namespace {
-QStringList nativeCampusDomains(const QStringList &domains,const QJsonArray &sources)
-{
-    QStringList result;
-    for(const auto &domain:domains){
-        bool covered=false;
-        for(const auto &value:sources){
-            const auto name=value.toObject()["name"].toObject();const auto scope=name["value"].toString();
-            covered|=(name["kind"]=="suffix" && (domain==scope || domain.endsWith('.'+scope)))
-                || (name["kind"]=="single_label" && !domain.contains('.'));
-        }
-        // The original native listener already dispatches campus choices; a second equal-scope resolver is ambiguous.
-        if(!covered)result.append(domain);
-    }
-    return result;
-}
 MacHelperPreparation prepareOriginalDNS(const QJsonArray &required,const QJsonObject &network,const QJsonObject &dns,MacOriginalDnsReader read)
 {
     using Status=PlatformOperationResult::Status;
@@ -168,7 +153,7 @@ MacHelperPreparation prepareMacNetworkHelper(const QJsonObject &resources,const 
     if (!parseMacHelperApply(macHelperApplyRequest(QUuid::createUuid(),QUuid::createUuid(),result)))
         return {{Status::Failed,"Invalid or unsupported macOS capture configuration."},{}};
     result.originalDns=original.configuration.originalDns;
-    result.dnsDomains=nativeCampusDomains(result.dnsDomains,original.originalSources);
+    result.dnsDomains=campusDnsDomainsToInstall(result.dnsDomains,original.originalSources);
     return {{},result,original.originalSources};
 }
 
@@ -176,7 +161,7 @@ std::optional<QStringList> updatedMacCapturePrefixes(const QJsonObject &resource
     const MacHelperConfiguration &configuration,const QJsonArray &originalSources)
 {
     const auto domains=campusDnsDomains(resources);
-    if(!domains || nativeCampusDomains(*domains,originalSources)!=configuration.dnsDomains)return {};
+    if(!domains || campusDnsDomainsToInstall(*domains,originalSources)!=configuration.dnsDomains)return {};
     return updatedCampusCapturePrefixes(resources,policy,*domains,originalSources);
 }
 

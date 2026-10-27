@@ -5,6 +5,8 @@
 #include <vector>
 #include <cstdint>
 
+namespace WindowsDNS { void refreshCache(); }
+
 struct WindowsDnsRule {
     GUID id{},marker{};
     std::vector<std::wstring> domains;

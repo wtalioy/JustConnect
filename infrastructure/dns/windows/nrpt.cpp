@@ -17,6 +17,8 @@
 #include <limits>
 
 namespace {
+static_assert(WindowsDNS::EnableDoh==DNS_ENABLE_DOH && WindowsDNS::EnableDot==DNS_ENABLE_DOT
+    && WindowsDNS::EncryptionNotConfigured==DNS_DOH_POLICY_NOT_CONFIGURED && WindowsDNS::EncryptionDisabled==DNS_DOH_POLICY_DISABLE);
 [[noreturn]] void fail(const char *stage,LONG error=GetLastError())
 {
     throw std::system_error(static_cast<int>(error),std::system_category(),stage);
@@ -290,8 +292,7 @@ void unchangedProvider(HKEY key,const WindowsNrptRedirect &value)
 }
 bool plainPolicy(std::uint64_t value)
 {
-    constexpr auto policy=DNS_DOH_POLICY_NOT_CONFIGURED|DNS_DOH_POLICY_DISABLE;
-    return !(value&~std::uint64_t(DNS_ENABLE_DOH|DNS_ENABLE_DOT|policy)) && (value&policy)!=policy;
+    return WindowsDNS::plainGlobalPolicy(value);
 }
 std::uint64_t plainGlobalPolicy(const std::vector<std::wstring> &servers)
 {
@@ -490,3 +491,5 @@ void WindowsNrptRedirect::restoreSystem() const
     if(parent.value)restore(parent.value);
     refresh();
 }
+
+void WindowsDNS::refreshCache(){refresh();}

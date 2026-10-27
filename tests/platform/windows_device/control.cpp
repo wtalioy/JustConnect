@@ -1,8 +1,11 @@
 #include <winsock2.h>
+#include <ws2tcpip.h>
 #include <ws2ipdef.h> // iphlpapi.h exposes NetIO declarations only after these IP types.
 #include "infrastructure/networkhelper/windows/control.h"
 #include "infrastructure/networkhelper/windows/recovery.h"
 #include "infrastructure/networkhelper/windows/installation.h"
+#include "infrastructure/networkhelper/windows/session.h"
+#include "infrastructure/dns/windows/dnscontract.h"
 #include "infrastructure/packetpipe/windows/stream.h"
 #include "ordinarytoken.h"
 #include "controlhandoff.h"
@@ -314,6 +317,30 @@ int wmain(int argc,wchar_t **argv) try
     const bool qt=argc==4 && std::wstring(argv[1])==L"--qt";
     const bool application=argc==4 && std::wstring(argv[1])==L"--qt-session";
     check((argc==2 || qt || application) && GetEnvironmentVariableW(L"GITHUB_ACTIONS",guarded,8)==4 && std::wstring(guarded)==L"true","control mutation requires disposable runner");
+    std::optional<WindowsDnsRule> originalDNS;
+    struct RestoreOriginal {std::optional<WindowsDnsRule> &rule;~RestoreOriginal(){if(rule)try{rule->restoreSystem();}catch(const std::exception &error){std::cerr<<"original DNS fixture cleanup: "<<error.what()<<'\n';}}} restoreOriginal{originalDNS};
+    wchar_t originalServer[INET_ADDRSTRLEN]{};
+    if(application && GetEnvironmentVariableW(L"JC_WINDOWS_SESSION_ORIGINAL_DNS_SERVER",originalServer,INET_ADDRSTRLEN)){
+        IN_ADDR address{};check(InetPtonW(AF_INET,originalServer,&address)==1,"actual original DNS fixture endpoint");
+        originalDNS=WindowsDnsRule::create({L"host.campus.test"},address);originalDNS->applySystem();
+        auto configuration=JsonObject::Parse(LR"({"address":"198.18.0.1","peer":"198.18.0.2","mtu":1400,"capture_prefixes":["198.18.0.6/32"],"dns_domains":[],"original_dns":[]})");
+        JsonObject snapshot;snapshot.SetNamedValue(L"store",JsonValue::CreateStringValue(L"local"));
+        snapshot.SetNamedValue(L"id",JsonValue::CreateStringValue(guid(originalDNS->id)));
+        snapshot.SetNamedValue(L"class",JsonValue::CreateStringValue(std::wstring(WindowsDNS::RuleClassPrefix)+guid(originalDNS->marker)));
+        JsonArray names;names.Append(JsonValue::CreateStringValue(L".host.campus.test"));snapshot.SetNamedValue(L"namespaces",names);
+        snapshot.SetNamedValue(L"servers",JsonValue::CreateStringValue(originalServer));snapshot.SetNamedValue(L"owner",JsonValue::CreateNullValue());
+        snapshot.SetNamedValue(L"version",JsonValue::CreateNumberValue(WindowsDNS::NrptVersion));snapshot.SetNamedValue(L"options",JsonValue::CreateNumberValue(WindowsDNS::GenericServersOption));
+        JsonObject source;source.SetNamedValue(L"source",snapshot);source.SetNamedValue(L"listen",JsonValue::CreateStringValue(L"127.0.0.1"));
+        JsonArray servers;servers.Append(JsonValue::CreateStringValue(originalServer));source.SetNamedValue(L"servers",servers);
+        const auto decode=[&]{JsonArray sources;sources.Append(source);configuration.SetNamedValue(L"original_dns",sources);return decodeWindowsNetworkConfiguration(winrt::to_string(configuration.Stringify()));};
+        check(decode().originalDNS.size()==1,"native session accepts the complete original source snapshot");
+        for(const auto field:{L"id",L"class",L"servers"}){
+            const auto saved=snapshot.GetNamedValue(field);snapshot.SetNamedValue(field,JsonValue::CreateStringValue(L"foreign"));
+            bool refused=false;try{decode();}catch(const std::system_error &){refused=true;}
+            snapshot.SetNamedValue(field,saved);check(refused,"stale original source reached native activation");
+        }
+        check(decode().originalDNS.size()==1,"refused source preflight left the original provider intact");
+    }
     if(application){
         wchar_t faults[8]{};
         if(GetEnvironmentVariableW(L"JC_WINDOWS_SESSION_FAULTS",faults,8)==4 && std::wstring(faults)==L"true"){

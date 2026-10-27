@@ -1,5 +1,6 @@
 #pragma once
 #include <cstddef>
+#include <cstdint>
 
 namespace WindowsDNS {
 // MS-GPNRPT local and managed policy stores; neither is owned by the reader.
@@ -13,6 +14,13 @@ inline constexpr unsigned SnapshotTimeoutMs=10000;
 inline constexpr unsigned ConsistencyPollMs=50;
 // DNS uses port 53 when IP Helper's server sockaddr leaves the port unspecified.
 inline constexpr unsigned ServerPort=53;
+// netioapi.h DNS_SETTINGS2::SettingFlags; capabilities alone do not select an encrypted server.
+inline constexpr std::uint64_t EnableDoh=0x1, EncryptionNotConfigured=0x4, EncryptionDisabled=0x8, EnableDot=0x80;
+inline constexpr bool plainGlobalPolicy(std::uint64_t flags)
+{
+    constexpr auto policy=EncryptionNotConfigured|EncryptionDisabled;
+    return !(flags&~(EnableDoh|EnableDot|policy)) && (flags&policy)!=policy;
+}
 // netioapi.h DNS_SERVER_PROPERTY_VERSION1 and DNS_SERVER_PROPERTY_TYPE; shared with the portable decoder.
 inline constexpr unsigned PropertyVersion=1, DohProperty=1, DotProperty=2;
 inline constexpr wchar_t RedirectOwner[]=L"JustConnectRedirectOwner";

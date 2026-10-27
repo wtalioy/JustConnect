@@ -8,9 +8,9 @@ int main(int argc,char **argv) try
 {
     QCoreApplication app(argc,argv);
     const QJsonObject configuration{{"address","10.222.0.1"},{"peer","10.222.0.2"},
-        {"capture_prefixes",QJsonArray{"198.18.0.6/32"}},{"dns_domains",QJsonArray{"campus.test"}}};
+        {"capture_prefixes",QJsonArray{"198.18.0.6/32"}},{"dns_domains",QJsonArray{"campus.test"}},{"original_dns",QJsonArray{}}};
     const QJsonObject device{{"index",91},{"name","JustConnect fixture"},{"address",configuration["address"]},{"peer",configuration["peer"]},
-        {"guid","{2717939F-2E6F-4F37-A293-8A4F3EDBC3E5}"},{"luid","9100"},{"dns_id","{45B2ED4A-5997-484A-A655-F8A53E311894}"}};
+        {"guid","{2717939F-2E6F-4F37-A293-8A4F3EDBC3E5}"},{"luid","9100"},{"dns_id","{45B2ED4A-5997-484A-A655-F8A53E311894}"},{"original_dns",QJsonArray{}}};
     const QJsonObject lan{{"index",7},{"name","original"},{"up",true},{"addresses",QJsonArray{"192.168.1.2/24"}}};
     const QJsonObject tun{{"index",91},{"name",device["name"]},{"up",true},{"addresses",QJsonArray{"10.222.0.1/32","fe80::1/64"}}};
     const QJsonObject peer{{"interface_index",91},{"destination","10.222.0.2/32"},{"gateway","0.0.0.0"},{"metric",1},{"protocol",3}};
@@ -36,6 +36,31 @@ int main(int argc,char **argv) try
     const auto clean=filter(network,dns);check(clean && clean->first["interfaces"]==QJsonArray{lan}
         && clean->first["routes"]==QJsonArray{originalRoute} && clean->second["nrpt"]==QJsonArray{originalPolicy}
         && clean->second["adapters"]==QJsonArray{originalAdapter} && clean->second["nrpt_sources"]==QJsonArray{originalSource},"original network was not restored in the read model");
+    auto borrowedConfiguration=configuration,borrowedDevice=device,borrowedDNS=dns;
+    borrowedConfiguration["original_dns"]=QJsonArray{QJsonObject{{"source",originalSource},{"servers",originalPolicy["NameServers"]},{"listen","127.0.0.1"}}};
+    const QJsonObject binding{{"id",originalSource["id"]},{"marker","{ED2C083A-0914-410C-A462-09FEC57B31FA}"},
+        {"class",originalSource["class"]},{"original",originalSource["servers"]},{"namespaces",originalSource["namespaces"]},
+        {"server","127.0.0.1"},{"global_policy","129"}};
+    borrowedDevice["original_dns"]=QJsonArray{binding};
+    auto redirectedSource=originalSource;redirectedSource["owner"]=binding["marker"];redirectedSource["servers"]=binding["server"];
+    auto redirectedPolicy=originalPolicy;redirectedPolicy["NameServers"]=QJsonArray{binding["server"]};
+    borrowedDNS["nrpt_sources"]=QJsonArray{redirectedSource,ownedSource};borrowedDNS["nrpt"]=QJsonArray{redirectedPolicy,ownedPolicy};
+    const auto borrowed=WindowsNetworkOwnership::capture(borrowedConfiguration,borrowedDevice,network,borrowedDNS);
+    check(borrowed.has_value(),"Confirmed borrowed NRPT source was rejected");
+    const auto borrowedFilter=borrowed->filter(borrowedConfiguration);const auto borrowedView=borrowedFilter(network,borrowedDNS);
+    check(borrowedView && borrowedView->second==clean->second,"Borrowed NRPT source was not projected back to its original query context");
+    for(const auto &field:{"class","original","server","global_policy"}){
+        auto changed=binding;changed[field]="foreign";
+        check(!WindowsNetworkOwnership::bindingsMatch(borrowedConfiguration,QJsonArray{changed}),"Unrelated helper binding was accepted");
+    }
+    check(!WindowsNetworkOwnership::bindingsMatch(borrowedConfiguration,QJsonArray{binding,binding}),"Duplicate borrowed source was accepted");
+    for(const auto &field:{"class","owner","servers"}){
+        auto changed=redirectedSource;changed[field]="external edit";auto external=borrowedDNS;external["nrpt_sources"]=QJsonArray{changed,ownedSource};
+        check(!borrowedFilter(network,external),"An external edit to a borrowed source was hidden");
+    }
+    auto changedEffective=redirectedPolicy;changedEffective["NameServers"]=QJsonArray{"203.0.113.53"};
+    auto effectiveDNS=borrowedDNS;effectiveDNS["nrpt"]=QJsonArray{changedEffective,ownedPolicy};
+    check(!borrowedFilter(network,effectiveDNS),"Foreign effective DNS acquired borrowed ownership");
     auto sourceChange=dns,foreignSource=ownedSource;
     foreignSource["class"]="JustConnect/{ED2C083A-0914-410C-A462-09FEC57B31FA}";
     sourceChange["nrpt_sources"]=QJsonArray{originalSource,foreignSource};

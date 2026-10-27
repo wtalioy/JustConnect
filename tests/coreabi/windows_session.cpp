@@ -1,3 +1,5 @@
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include "infrastructure/networkaccess/windows/networkaccess.h"
 #include "infrastructure/coreengine/embeddedcoreengine.h"
 #include "infrastructure/dns/dnssnapshot.h"
@@ -57,6 +59,8 @@ int main(int argc,char **argv) try
 {
     qInstallMessageHandler([](QtMsgType,const QMessageLogContext &,const QString &message){std::cerr<<"qt: "<<message.toStdString()<<'\n';});
     QCoreApplication app(argc,argv);QStandardPaths::setTestModeEnabled(true);
+    WSADATA sockets{};check(WSAStartup(MAKEWORD(2,2),&sockets)==0,"start ordinary system DNS sockets");
+    struct SocketCleanup {~SocketCleanup(){WSACleanup();}} socketCleanup;
     check((argc==5 || argc==6) && QByteArray(argv[1])=="--client" && QByteArray(argv[3])=="network" && qgetenv("GITHUB_ACTIONS")=="true","disposable Windows application fixture only");
     const auto fault=argc==6?QByteArray(argv[5]):QByteArray{};
     const bool policyChanges=qgetenv("JC_WINDOWS_SESSION_POLICY")=="true";
@@ -72,6 +76,22 @@ int main(int argc,char **argv) try
     check(inspected && !elevation.TokenIsElevated,"Qt, application and Go core remain ordinary");
     QLibrary runtime(QCoreApplication::applicationDirPath()+"/"+QStringLiteral(JC_SHARED_LIBRARY));runtime.setLoadHints(QLibrary::PreventUnloadHint);
     check(runtime.load(),"load the actual embedded Windows core runtime");
+    const bool originalDNS=!qgetenv("JC_WINDOWS_SESSION_ORIGINAL_DNS_SERVER").isEmpty();
+    const auto queryOriginal=[&](const QString &expected){
+        auto lookup=QtConcurrent::run([]{
+            ADDRINFOW hints{};hints.ai_family=AF_INET;hints.ai_socktype=SOCK_STREAM;ADDRINFOW *addresses=nullptr;
+            QStringList result;
+            if(GetAddrInfoW(L"host.campus.test",nullptr,&hints,&addresses)==0){
+                for(auto item=addresses;item;item=item->ai_next)
+                    result.append(QHostAddress(ntohl(reinterpret_cast<sockaddr_in *>(item->ai_addr)->sin_addr.s_addr)).toString());
+                FreeAddrInfoW(addresses);
+            }
+            return result;
+        });
+        until("ordinary protected-name lookup",[&]{return lookup.isFinished();});
+        check(lookup.result().contains(expected),"original/campus name choice follows its confirmed source");
+    };
+    if(originalDNS)queryOriginal("203.0.113.9"); // Prewarm the actual Windows DNS cache before connection.
     const auto initialDns=dnsSnapshot();const auto initialAddresses=interfaceAddresses();
     WindowsNetworkFingerprint baseline;
     const auto dnsHash=QCryptographicHash::hash(QJsonDocument(initialDns).toJson(QJsonDocument::Compact),QCryptographicHash::Sha256);
@@ -172,6 +192,15 @@ int main(int argc,char **argv) try
         }
     };
     traffic();
+    if(originalDNS){
+        queryOriginal("203.0.113.9");
+        for(const bool campus:{true,false}){
+            check(policy.setCampusName("host.campus.test",campus),"choose the overlapping original DNS name");
+            until("confirm original-name policy",[&]{return !policy.isBusy();});
+            check(policy.policyStatus()==CoreEngine::RequestStatus::Success,"core and helper confirm the name choice");
+            queryOriginal(campus?"198.18.0.7":"203.0.113.9");
+        }
+    }
     WindowsExitChangeFixtureInput changed;
     if(exitChange){
         const auto previousGeneration=policy.currentGeneration();const auto model=policy.model();
@@ -225,6 +254,7 @@ int main(int argc,char **argv) try
     const auto restored=sameNetwork(initialDns,dnsSnapshot(),initialAddresses,interfaceAddresses());
     check(authorizations==(exitChange?4:3) && approvals==(exitChange?2:1) && !session.isActive() && restored,
         "single approval, owned device removal and complete original DNS/interface restoration");
+    if(originalDNS){queryOriginal("203.0.113.9");std::cout<<"PASS: prewarmed Windows original NRPT source, automatic listener, name choice/withdrawal and exact restoration\n";}
     if(exitChange)std::cout<<"PASS: changed Windows original exit restores before automatic reconnect, fresh generation, system DNS/TCP/UDP/SSH and complete final restoration\n";
     if(policyChanges)std::cout<<"PASS: Windows same-IP original/campus/original TCP, UDP and empty datagrams without reauthentication\n";
     std::cout<<"PASS: ordinary Windows application/native helper/Go core system DNS, TCP/UDP and empty datagrams, staged stop and complete restore\n";

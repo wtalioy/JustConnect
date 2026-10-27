@@ -118,6 +118,36 @@ static void captureTargets()
     auto missingUnderlay=resources;missingUnderlay["underlay_interface"]="missing-underlay";
     check(!prepareWindowsNetworkHelper(missingUnderlay,policy,allocationNetwork,dns,{},1400).result.succeeded(),
         "Windows preparation ignored a missing selected underlay");
+    const QJsonObject preparedScope{{"kind","suffix"},{"value","campus.test"}};
+    auto nativePolicy=policy;nativePolicy["protected_names"]=QJsonArray{preparedScope};
+    auto nativeNetwork=allocationNetwork;auto nativeInterfaces=nativeNetwork["interfaces"].toArray();
+    nativeInterfaces.append(QJsonObject{{"up",true},{"addresses",QJsonArray{"127.0.0.1/8"}}});nativeNetwork["interfaces"]=nativeInterfaces;
+    const QJsonObject rawSource{{"store","local"},{"id","{F370639C-C387-4C4B-AC01-BF4C748A90C2}"},{"class","original provider"},
+        {"namespaces",QJsonArray{".campus.test"}},{"servers","192.168.25.1;192.168.25.2"},{"version",1},{"options",8},{"owner",QJsonValue::Null}};
+    QJsonObject nativeDNS{{"nrpt",QJsonArray{QJsonObject{{"Namespace",rawSource["namespaces"]},{"NameServers",QJsonArray{"192.168.25.1","192.168.25.2"}}}}},
+        {"nrpt_sources",QJsonArray{rawSource}},{"native_global",QJsonObject{{"Status",0},{"Value",QJsonObject{{"SettingFlags","129"}}}}},
+        {"configured_encryption",QJsonArray{}},{"doh_supported",true},{"doh",QJsonArray{}}};
+    const auto native=prepareWindowsNetworkHelper(resources,nativePolicy,nativeNetwork,nativeDNS,{},1400);
+    check(native.result.succeeded() && native.originalSources.size()==1 && native.configuration["dns_domains"].toArray().isEmpty(),
+        "Native NRPT source was not prepared without a competing campus namespace");
+    check(native.configuration["original_dns"].toArray().first().toObject()["source"]==rawSource
+        && native.originalSources.first().toObject().value("servers").toArray()==QJsonArray{"192.168.25.1:53","192.168.25.2:53"},
+        "Native source identity, raw formatting or ordered upstream group was lost");
+    check(completeWindowsOriginalDNS(native.configuration,{{"127.0.0.1:53","127.0.0.1:53"}}).has_value()
+        && !completeWindowsOriginalDNS(native.configuration,{{"127.0.0.1:53","127.0.0.1:5300"}}),"An unconfirmed native listener was accepted");
+    check(updatedWindowsCapturePrefixes(resources,nativePolicy,native.configuration,native.originalSources).has_value(),
+        "Prepared native namespaces could not reconcile campus captures");
+    const auto prefixes=native.configuration["capture_prefixes"].toArray();
+    check(!contains([&]{QStringList result;for(const auto &value:prefixes)result.append(value.toString());return result;}(),"192.168.25.1"),
+        "Original DNS server was recaptured by campus routing");
+    for(const auto &field:{"configured_encryption","doh"}){
+        auto encrypted=nativeDNS;encrypted[field]=field==QString("doh")?QJsonArray{QJsonObject{{"ServerAddress","192.168.25.1"}}}:QJsonArray{"192.168.25.1"};
+        check(!prepareWindowsNetworkHelper(resources,nativePolicy,nativeNetwork,encrypted,{},1400).result.succeeded(),"Native encryption was downgraded");
+    }
+    auto ambiguous=nativeDNS;auto foreign=rawSource;foreign["id"]="{ED2C083A-0914-410C-A462-09FEC57B31FA}";
+    ambiguous["nrpt_sources"]=QJsonArray{rawSource,foreign};
+    check(!prepareWindowsNetworkHelper(resources,nativePolicy,nativeNetwork,ambiguous,{},1400).result.succeeded(),"Ambiguous native provider acquired ownership");
+    check(!prepareWindowsNetworkHelper(resources,nativePolicy,allocationNetwork,nativeDNS,{},1400).result.succeeded(),"An unassigned loopback listener was invented");
     auto protectedPolicy = policy;
     protectedPolicy["protected_names"] = QJsonArray{QJsonObject{{"kind","exact"},{"value","host.campus.test"}}};
     check(!campusCaptureTargets(resources, protectedPolicy),"Protected descendant name reached a broad campus DNS route");
