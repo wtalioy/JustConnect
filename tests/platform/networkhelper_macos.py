@@ -404,6 +404,8 @@ def main(args):
                         for name in ('host.campus.test', 'withdrawn.campus.test'):
                             answers = {row[4][0] for row in socket.getaddrinfo(name, None, socket.AF_INET, socket.SOCK_STREAM)}
                             assert answers == {'198.18.0.6', '198.18.0.7'}, ('Cache prewarm did not use the native original source', name, answers)
+                        native_ipv6 = [row[4][0] for row in socket.getaddrinfo('host.campus.test', None, socket.AF_INET6, socket.SOCK_STREAM)]
+                        print('CHECK: original native AAAA before core', native_ipv6, flush=True)
                         dns_before = json.loads(run(args.dns_probe, '--snapshot').stdout)
                         (output / 'original-dns-source.before.json').write_text(json.dumps(dns_before, indent=2) + '\n')
                         Path(str(marker) + '.dns-source-ready').touch()

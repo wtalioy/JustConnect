@@ -214,7 +214,9 @@ int main(int argc,char **argv)
             check(original.contains("198.18.0.6") && original.contains("198.18.0.7"),"Prepared native source retained both original A answers after cache prewarm");
             auto ipv6=std::async(std::launch::async,[]{return addresses("host.campus.test",AF_INET6);});
             until([&]{return ipv6.wait_for(std::chrono::milliseconds(0))==std::future_status::ready;});
-            check(ipv6.get()==QStringList{"2001:db8::9"},"Original AAAA was replaced by the campus IPv4 restriction");
+            const auto originalIPv6=ipv6.get();
+            std::cerr<<"CHECK: original native AAAA "<<QJsonDocument(QJsonArray::fromStringList(originalIPv6)).toJson(QJsonDocument::Compact).constData()<<'\n';
+            check(originalIPv6==QStringList{"2001:db8::9"},"Original AAAA was replaced by the campus IPv4 restriction");
             publish(".original-ready");until([&]{return QFileInfo::exists(marker+".original-traffic");});
             exerciseOriginalNetworkTraffic();
             publish(".protected");until([&]{return QFileInfo::exists(marker+".select-campus");});
