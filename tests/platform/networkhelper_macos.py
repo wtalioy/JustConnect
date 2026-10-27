@@ -322,7 +322,7 @@ def main(args):
             shutil.copy2(args.core_client, core_bundle / 'Contents/MacOS/JustConnect')
             sign(core_bundle, identity, APP_ID)
             crashed_owner = None
-            for scenario in ('authorization-cancel', 'authorization-exit', 'process-crash', 'normal', 'network-policy', 'network-exit', 'helper-loss', 'helper-offline'):
+            for scenario in ('authorization-cancel', 'authorization-exit', 'process-crash', 'normal', 'network-policy', 'original-dns', 'network-exit', 'helper-loss', 'helper-offline'):
                 control = directory / ('core-' + scenario); control.mkdir(mode=0o700); os.chown(control, args.uid, account.pw_gid)
                 marker = control / 'ready'
                 authorization_mode = scenario.removeprefix('authorization-') if scenario.startswith('authorization-') else ''
@@ -331,6 +331,9 @@ def main(args):
                 read_fd, write_fd = os.pipe()
                 original_fd = -1
                 external_alias = None
+                source_fixture = None
+                original_dns_before = dns_before
+                original_routes = []
                 transcript = output / ('core-' + scenario + '.out')
                 try:
                     os.write(write_fd, b''.join(value.external.raw for value in authorizations)); os.close(write_fd); write_fd = -1
@@ -341,11 +344,18 @@ def main(args):
                         environment.update(JC_NATIVE_NETWORK_AUTHORIZATION=authorization_mode, JC_NATIVE_TUN_READY=str(marker))
                     elif scenario == 'network-exit':
                         environment.update(JC_NATIVE_NETWORK_EXIT_CHANGE='1', JC_NATIVE_TUN_READY=str(marker))
-                    elif scenario == 'network-policy':
+                    elif scenario in ('network-policy', 'original-dns'):
                         original_fd, original_interface, release_allocator = allocate_unix(Path(args.allocator).resolve())
                         release_allocator()
                         os.set_blocking(original_fd, False)
                         environment.update(JC_NATIVE_NETWORK_POLICY='1', JC_NATIVE_TUN_READY=str(marker), JC_NATIVE_ORIGINAL_FD=str(original_fd))
+                        if scenario == 'original-dns':
+                            default = run('/sbin/route', '-n', 'get', 'default').stdout.decode()
+                            match = re.search(r'^\s*interface:\s*(\S+)\s*$', default, re.M)
+                            assert match, 'Original DNS fixture requires an actual default interface'
+                            assigned = ipv4_addresses(match.group(1))
+                            assert assigned, 'Original DNS fixture interface has no assigned IPv4 address'
+                            environment.update(JC_NATIVE_ORIGINAL_DNS='1', JC_NATIVE_ORIGINAL_DNS_ADDRESS=sorted(assigned)[0])
                     elif scenario != 'normal':
                         environment.update(JC_NATIVE_NETWORK_HELPER_LOSS='1', JC_NATIVE_TUN_READY=str(marker),
                             JC_NATIVE_NETWORK_HELPER_OFFLINE='1' if scenario == 'helper-offline' else '0')
@@ -370,7 +380,50 @@ def main(args):
                         value = json.loads(owners[0].read_text()); assert value['phase'] == 'active', value
                         return value
 
-                    if authorization_mode:
+                    if scenario == 'original-dns':
+                        boundary('.dns-upstream')
+                        endpoint = json.loads(Path(str(marker) + '.dns-upstream').read_text())['endpoint']
+                        address, port = endpoint.rsplit(':', 1)
+                        source_fixture = subprocess.Popen([args.original_dns_probe, '--fixture-source', address, port],
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                        processes.append(source_fixture)
+                        assert select.select([source_fixture.stdout], [], [], 30)[0], 'Native fixture source did not publish its service'
+                        ready = source_fixture.stdout.readline()
+                        assert ready, source_fixture.stderr.read().decode(errors='replace')
+                        source = json.loads(ready)['service']
+                        wait_for(lambda: any(row.get('domain') == 'campus.test' and row.get('servers') == [address]
+                                             and row.get('port', 53) == int(port) and row['scope'] == 'unscoped'
+                                             for row in json.loads(run(args.dns_probe, '--snapshot').stdout)['macos_resolvers']),
+                                 'Owned preferences DNS source did not become effective')
+                        for name in ('host.campus.test', 'withdrawn.campus.test'):
+                            answers = {row[4][0] for row in socket.getaddrinfo(name, None, socket.AF_INET, socket.SOCK_STREAM)}
+                            assert answers == {'198.18.0.6', '198.18.0.7'}, ('Cache prewarm did not use the native original source', name, answers)
+                        dns_before = json.loads(run(args.dns_probe, '--snapshot').stdout)
+                        (output / 'original-dns-source.before.json').write_text(json.dumps(dns_before, indent=2) + '\n')
+                        Path(str(marker) + '.dns-source-ready').touch()
+                        boundary('.original-ready'); active = active_owner()
+                        original = active['original_dns']
+                        assert original['phase'] == 'active' and len(original['entries']) == 1 and original['entries'][0]['service'] == source
+                        assert not any(published(active['owner'], address) for address in ('198.18.0.6', '198.18.0.7')), \
+                            'Original DNS returned shared campus IPs before capture exclusion'
+                        for address in ('198.18.0.5', '198.18.0.6', '198.18.0.7'):
+                            route = ('-n', 'add', '-inet', '-host', address, '-interface', original_interface)
+                            run('/sbin/route', *route); original_routes.append(address)
+                        Path(str(marker) + '.original-traffic').touch(); boundary('.protected')
+                        for address in ('198.18.0.6', '198.18.0.7'):
+                            run('/sbin/route', '-n', 'delete', '-inet', '-host', address, '-interface', original_interface); original_routes.remove(address)
+                        Path(str(marker) + '.select-campus').touch(); boundary('.campus-selected')
+                        assert published(active['owner']), 'Explicit name choice did not release its original DNS exclusions'
+                        Path(str(marker) + '.select-original').touch(); boundary('.original-selected')
+                        assert not any(published(active['owner'], address) for address in ('198.18.0.6', '198.18.0.7')), \
+                            'Withdrawn name choice did not restore shared-IP exclusion'
+                        for address in ('198.18.0.6', '198.18.0.7'):
+                            run('/sbin/route', '-n', 'add', '-inet', '-host', address, '-interface', original_interface); original_routes.append(address)
+                        Path(str(marker) + '.original-traffic-again').touch(); boundary('.original-finished')
+                        for address in original_routes[:]:
+                            run('/sbin/route', '-n', 'delete', '-inet', '-host', address, '-interface', original_interface); original_routes.remove(address)
+                        Path(str(marker) + '.overlay-down').touch()
+                    elif authorization_mode:
                         boundary('.authorizing')
                         assert not list(user_state.iterdir()) and dns_restored(), 'Pending authorization changed native network ownership'
                         if authorization_mode == 'cancel':
@@ -490,6 +543,19 @@ def main(args):
                     finally:
                         print(transcript.read_text(), end='', flush=True)
                 finally:
+                    for address in original_routes:
+                        run('/sbin/route', '-n', 'delete', '-inet', '-host', address, '-interface', original_interface)
+                    if source_fixture:
+                        if core.poll() is None:
+                            core.kill(); core.wait(timeout=10)
+                        wait_for(lambda: not list(user_state.iterdir()) or all(receipt(path.name, 'restored') for path in user_state.iterdir()),
+                                 'Original DNS fixture source cannot end before owned capture recovery')
+                        if source_fixture.poll() is None:
+                            source_fixture.stdin.write(b'restore\n'); source_fixture.stdin.flush()
+                        source_output, source_error = source_fixture.communicate(timeout=20)
+                        assert source_fixture.returncode == 0 and b'PASS: owned native original DNS fixture removed' in source_output, (source_output, source_error)
+                        dns_before = original_dns_before
+                        wait_for(dns_restored, 'Owned DNS fixture cleanup changed the original resolver inventory')
                     if external_alias:
                         interface, address, before_addresses = external_alias
                         if address in ipv4_addresses(interface):
@@ -525,6 +591,6 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--uid', type=int, required=True)
-    for name in ('helper', 'client', 'plist', 'deploy-tool', 'revision', 'output', 'dns-probe', 'core-client', 'gateway', 'allocator'):
+    for name in ('helper', 'client', 'plist', 'deploy-tool', 'revision', 'output', 'dns-probe', 'original-dns-probe', 'core-client', 'gateway', 'allocator'):
         parser.add_argument('--' + name, required=True)
     main(parser.parse_args())

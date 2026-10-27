@@ -3,6 +3,7 @@
 #include "infrastructure/networkhelper/macos/networkhelper.h"
 #include "infrastructure/routing/macos/tunroutes.h"
 #include "infrastructure/dns/macos/tundns.h"
+#include "infrastructure/dns/macos/originaldns.h"
 #include <sys/types.h>
 
 class MacNetworkHelperState
@@ -34,6 +35,7 @@ private:
     UnixTunDevice device;
     MacTunRoutes capture;
     MacTunDns dns;
+    MacOriginalDns originalDns;
 };
 
 // The daemon scopes all callers to the current kernel boot, independently of request data.

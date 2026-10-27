@@ -68,7 +68,7 @@ ABI v1 与 JSON schema 版本同步。S2-02 以兼容增补导出 `jc_config_val
 
 `network` 支持 `interface/auto_detect/local_dns/secondary_dns/dns_cache_ttl/disable_remote_dns/language/original_dns`。接口、DNS 和语言显式传入；local DNS 允许 IP 或 IP:port，secondary DNS 为 IP。接口名优先于自动选择；自动选择默认关闭，避免悄悄改变宿主的网络策略。DNS 缓存寿命与维护间隔的默认值集中在 `corelib/session.go`，缓存不启动游离 janitor，且有容量上限。代理出口不读取系统 HTTP_PROXY 等环境配置；核心配置接口不修改系统网络；设备、路由和系统 DNS 由 C++ 助手按所有权接管，核心接收显式移交的 TUN。Clash 共存仍由后续阶段验证。
 
-`capabilities.original_dns_forwarding` 表示 TUN DNS 可使用宿主显式提供的原 DNS 来源，不代表应用已完成自动来源选择。可选 `network.original_dns` 是按原生优先级排列的数组，每项包含 `name:{kind,value}`（复用名称保护规则）、`servers:["IP:port",...]`、查询出口 `interface`。仅接受显式单播端点，不解析服务器主机名、不补公共 DNS；必须同时提供 `protection`。宿主须在接管前选定来源、保护服务器原出口，并确认原生安全／加密要求允许普通 DNS；未知来源或不支持的安全要求不能降级。来源变化时需恢复并重连，当前会话来源不可变。
+`capabilities.original_dns_forwarding` 表示 TUN DNS 可使用宿主显式提供的原 DNS 来源，不代表应用已完成自动来源选择。可选 `network.original_dns` 是按原生优先级排列的数组，每项包含 `name:{kind,value}`（复用名称保护规则）、`servers:["IP:port",...]`、查询出口 `interface`；空值或省略表示原生不绑定接口、保留系统路由，非空值仍严格绑定所指接口。宿主必须以实际原生查询上下文选择该值，不从监听地址或业务网卡推断。仅接受显式单播端点，不解析服务器主机名、不补公共 DNS；必须同时提供 `protection`。宿主须在接管前选定来源、保护服务器原出口，并确认原生安全／加密要求允许普通 DNS；未知来源或不支持的安全要求不能降级。来源变化时需恢复并重连，当前会话来源不可变。
 
 `capabilities.original_dns_preparation` 提供 `jc_session_prepare_original_dns`，允许宿主取得认证后的资源及原出口事实后、移交设备前一次性准备来源；输入为 `{schema_version:1,generation:"当前代次",sources:[...]}`，sources 与 `network.original_dns` 共用校验。启动配置已提供来源、准备成功或设备已交接后再次调用返回 `JC_BUSY`；尚未 ready 也返回 `JC_BUSY`，停止／旧代次返回 `JC_STALE_REQUEST`。失败将释放本次全部监听套接字，不改变已运行的代理或原来源，可修正后重试；成功后通过原资源快照读取实际端点。Qt 的 `prepareOriginalDNS` 在核心线程调用并以 `originalDNSPrepared` 在应用线程交付代次、端点及状态，停止后的回应清空端点并标过期。该接口只准备会话资源，不写系统 DNS；来源变化仍须恢复并重连。
 
@@ -76,7 +76,7 @@ ABI v1 与 JSON schema 版本同步。S2-02 以兼容增补导出 `jc_config_val
 
 原生监听复用相同授权、完整报文、路由确认及有界绑定：受保护名称保留原来源，明确校园选择沿校园 DNS／授权路径；公共查询（含 DNSSEC 根查询）和禁用校园 DNS 后的普通查询保留原来源，不为这些回答新增捕获或校园授权。该能力不修改系统 DNS，也不证明应用已选对原生上下文、安全模式或出口；宿主必须完成这些确认，来源在当前会话内保持不变。
 
-受保护的原名称先走原 DNS，原 AAAA 不受校园 IPv4 限制；`localhost` 永不转发上游。原 A 应答与校园应答复用同一有界绑定表，以名称和方向区分，同一名称／地址重复刷新不新增责任；分别导出 `resources.original_dns_records` 与校园 `dns_records`。`capabilities.original_dns_exclusions` 表示原应答使用 `dns_routes` 的 `exclude:true`，三平台宿主从所属助手当前捕获中扣除这些地址，等待 `Routes` 回读确认后才应答；缺少发布器或撤回失败不得交付可被校园捕获的原地址。业务流量随后使用系统原生路由，不从 DNS 查询网卡推断出口，也不由 Go 重新拨号转发；误入透明入口的已知原方向流量拒绝。原名称保护优先于同 IP 的校园授权／IP 选择；精确校园名称选择才释放该名称的排除，另一受保护名称共享 IP 时仍排除。原方向在 TTL 到期后仍随会话责任导出，校园记录只导出有效 TTL；缺少当前名称保护或容量不足时拒绝，不静默逐出原方向。原发布按名称／地址保留待确认责任，资源读取先取保留集合再取提交绑定，避免确认交接时被重新捕获；它不进入 `active_tun_addresses` 或产生校园授权。Linux 的重叠原生范围已接入自动来源和真实端点，原生增量待验；其他平台与未支持来源仍待，具体边界见[应用来源规划](ARCHITECTURE.md#linux-original-dns-sources)。
+受保护的原名称先走原 DNS，原 AAAA 不受校园 IPv4 限制；`localhost` 永不转发上游。原 A 应答与校园应答复用同一有界绑定表，以名称和方向区分，同一名称／地址重复刷新不新增责任；分别导出 `resources.original_dns_records` 与校园 `dns_records`。`capabilities.original_dns_exclusions` 表示原应答使用 `dns_routes` 的 `exclude:true`，三平台宿主从所属助手当前捕获中扣除这些地址，等待 `Routes` 回读确认后才应答；缺少发布器或撤回失败不得交付可被校园捕获的原地址。业务流量随后使用系统原生路由，不从 DNS 查询网卡推断出口，也不由 Go 重新拨号转发；误入透明入口的已知原方向流量拒绝。原名称保护优先于同 IP 的校园授权／IP 选择；精确校园名称选择才释放该名称的排除，另一受保护名称共享 IP 时仍排除。原方向在 TTL 到期后仍随会话责任导出，校园记录只导出有效 TTL；缺少当前名称保护或容量不足时拒绝，不静默逐出原方向。原发布按名称／地址保留待确认责任，资源读取先取保留集合再取提交绑定，避免确认交接时被重新捕获；它不进入 `active_tun_addresses` 或产生校园授权。Linux 的重叠原生范围及真实端点已通过双架构原生；macOS 静态普通查询源已有完整接入、原生待验，其他来源／Windows 仍待，边界见[Linux 来源](ARCHITECTURE.md#linux-original-dns-sources)及[macOS 来源](ARCHITECTURE.md#macos-original-dns-sources)。
 
 拒绝重复键、未知字段、非规范字段大小写、尾随 JSON、null、超深结构、无效 UTF-8、NUL 和 Unicode 替代字符。超限值不截断、不静默回退。无效输入只返回 `JC_INVALID_ARGUMENT`，不把账户、密码或输入片段写入错误。
 

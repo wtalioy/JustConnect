@@ -21,7 +21,6 @@ func TestOriginalDNSSourceValidationAndOrder(t *testing.T) {
 	base := OriginalDNSRoute{Name: policy.NameRule{Kind: "suffix", Value: "original.test"}, Servers: []string{"192.0.2.53:53"}, Interface: "native-query"}
 	for _, mutate := range []func(*OriginalDNSRoute){
 		func(r *OriginalDNSRoute) { r.Name.Value = ".invalid" },
-		func(r *OriginalDNSRoute) { r.Interface = "" },
 		func(r *OriginalDNSRoute) { r.Interface = "bad\x00interface" },
 		func(r *OriginalDNSRoute) { r.Servers = nil },
 		func(r *OriginalDNSRoute) { r.Servers = []string{"resolver.original.test:53"} },

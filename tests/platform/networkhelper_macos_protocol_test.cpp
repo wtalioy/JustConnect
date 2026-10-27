@@ -64,7 +64,7 @@ int main(int argc,char **argv) try
     check(!parseMacHelperApply(unexpected),"Noncanonical owner crossed the boundary");
     const auto successful = macHelperResponse(extension,{});
     check(!parseMacHelperResponse(successful,extension),"Success without confirmed network facts was accepted");
-    auto scoped = successful; scoped["network"] = QJsonObject{{"capture",QJsonObject{}},{"dns",QJsonObject{}},{"device_routes",QJsonArray{}}};
+    auto scoped = successful; scoped["network"] = QJsonObject{{"capture",QJsonObject{}},{"dns",QJsonObject{}},{"device_routes",QJsonArray{}},{"original_dns",QJsonObject{}}};
     check(parseMacHelperResponse(scoped,extension).has_value(),"Typed network-view envelope was rejected");
     scoped["operation"] = "restore";
     check(!parseMacHelperResponse(scoped,macHelperRequest("restore",owner,request)),"Restore acquired an unrelated active network view");
@@ -80,6 +80,55 @@ int main(int argc,char **argv) try
         check(address != "10.0.0.1" && address != "10.0.0.2" && address != "10.0.0.3","Mac preparation captured an existing DNS endpoint");
     auto missing = resources; missing["underlay_interface"] = "justconnect-nonexistent-interface";
     check(!prepareMacNetworkHelper(missing,protection,network,dns,{},1400).result.succeeded(),"Missing selected underlay was silently ignored");
+    const auto service=QUuid::createUuid().toString(QUuid::WithoutBraces).toUpper();
+    const QJsonObject originalProperties{{"ServerAddresses",QJsonArray{"203.0.113.8","2001:db8::53"}},{"ServerPort",5353},
+        {"SupplementalMatchDomains",QJsonArray{"campus.test"}}};
+    const QJsonObject resolver{{"scope","unscoped"},{"resolver",1},{"interface_index",0},{"domain","campus.test"},
+        {"search",QJsonArray{}},{"servers",originalProperties["ServerAddresses"]},{"port",5353},{"flags",QJsonArray{"Supplemental"}}};
+    const auto sourceKey="Setup:/Network/Service/"+service+"/DNS";
+    const QJsonObject sourceDns{{"dynamic_store",QJsonObject{{sourceKey,originalProperties}}},{"macos_resolvers",QJsonArray{resolver}}};
+    auto protectedNames=protection;protectedNames["protected_names"]=QJsonArray{QJsonObject{{"kind","suffix"},{"value","campus.test"}}};
+    const QJsonObject sourceNetwork{{"interfaces",QJsonArray{QJsonObject{{"name","native-source"},{"up",true},{"addresses",QJsonArray{"192.0.2.1/24"}}}}},
+        {"routes",network["routes"]}};
+    int reads=0;
+    const MacOriginalDnsReader reader=[&](const QString &id){
+        check(id==service,"Native service spelling was normalized instead of preserved");++reads;
+        return DnsSnapshot{{},{{"original",QString::fromLatin1(QByteArray("opaque native property list").toBase64())},
+            {"properties",originalProperties},{"interface","native-source"}}};
+    };
+    const auto original=prepareMacNetworkHelper(resources,protectedNames,sourceNetwork,sourceDns,{},1400,reader);
+    check(original.result.succeeded() && reads==1 && original.originalSources.size()==1 && original.configuration.originalDns.size()==1
+        && original.configuration.capturePrefixes==QStringList{"203.0.113.9/32","203.0.113.53/32"} && original.configuration.dnsDomains.isEmpty(),
+        "Native original DNS was not selected or its actual upstream was captured");
+    const auto selected=original.originalSources.first().toObject();
+    check(selected["interface"]=="" && selected["servers"]==QJsonArray{"203.0.113.8:5353","[2001:db8::53]:5353"}
+        && selected["source"]==service && selected["listen"]=="192.0.2.1:0","Native routing, server order, port or listener address was guessed");
+    const auto completed=completeMacOriginalDNS(original.configuration,{{service,"192.0.2.1:54321"}});
+    check(completed && completed->originalDns.first().toObject()["listen"]=="192.0.2.1:54321",
+        "Core-confirmed listener endpoint did not complete native ownership");
+    check(updatedMacCapturePrefixes(resources,protectedNames,*completed,original.originalSources)==std::optional(original.configuration.capturePrefixes),
+        "Native source dispatch required a conflicting second supplemental resolver or lost live capture updates");
+    auto duplicate=*completed;auto repeated=duplicate.originalDns.first().toObject();repeated["service"]=service.toLower();duplicate.originalDns.append(repeated);
+    check(!parseMacHelperApply(macHelperApplyRequest(owner,request,duplicate)),"Case variants duplicated one native DNS service at the privilege boundary");
+    for(const auto &invalid:QList<QJsonObject>{{},{{service,"192.0.2.2:54321"}},{{service,"192.0.2.1:0"}},
+            {{service,"192.0.2.1:65536"}},{{service,"host.invalid:54321"}},{{service,"192.0.2.1:54321"},{"extra","192.0.2.1:54322"}}})
+        check(!completeMacOriginalDNS(original.configuration,invalid),"Incomplete or foreign native DNS endpoint was accepted");
+    for(const auto &field:QStringList{"interface_index","options"}){
+        auto invalid=resolver;if(field=="interface_index")invalid[field]=7;else invalid[field]="encrypted";
+        auto facts=sourceDns;facts["macos_resolvers"]=QJsonArray{invalid};
+        check(!prepareMacNetworkHelper(resources,protectedNames,sourceNetwork,facts,{},1400,reader).result.succeeded(),
+            "Unsupported native binding or transport was downgraded to a plain unscoped relay");
+    }
+    auto ambiguous=sourceDns;auto inputs=ambiguous["dynamic_store"].toObject();
+    inputs["Setup:/Network/Service/"+QUuid::createUuid().toString(QUuid::WithoutBraces)+"/DNS"]=originalProperties;
+    ambiguous["dynamic_store"]=inputs;
+    check(!prepareMacNetworkHelper(resources,protectedNames,sourceNetwork,ambiguous,{},1400,reader).result.succeeded(),
+        "Ambiguous preferences sources were silently selected");
+    const auto changed=prepareMacNetworkHelper(resources,protectedNames,sourceNetwork,sourceDns,{},1400,[&](const QString &id){
+        auto value=reader(id);auto properties=originalProperties;properties["ServerAddresses"]=QJsonArray{"192.0.2.99"};
+        value.data["properties"]=properties;return value;
+    });
+    check(!changed.result.succeeded(),"Changed native DNS preferences were installed from an old effective view");
     const auto response = macHelperResponse(packet,{PlatformOperationResult::Status::PermissionDenied,"denied",true});
     const auto result = parseMacHelperResponse(response,packet);
     check(result && result->status == PlatformOperationResult::Status::PermissionDenied && result->mayHaveChanged,"Typed denial or retained responsibility was lost");

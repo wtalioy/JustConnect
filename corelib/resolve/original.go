@@ -16,11 +16,12 @@ import (
 // OriginalDNSRoute is an already selected native resolver scope. Routes are in
 // native precedence order; the host must not infer servers from captured DNS.
 type OriginalDNSRoute struct {
-	Name      policy.NameRule `json:"name"`
-	Servers   []string        `json:"servers"`
-	Interface string          `json:"interface"`
-	Listen    string          `json:"listen,omitempty"`
-	Source    string          `json:"source,omitempty"`
+	Name    policy.NameRule `json:"name"`
+	Servers []string        `json:"servers"`
+	// Empty preserves a native unscoped resolver's system routing.
+	Interface string `json:"interface,omitempty"`
+	Listen    string `json:"listen,omitempty"`
+	Source    string `json:"source,omitempty"`
 }
 
 type originalDNSRoute struct {
@@ -49,7 +50,7 @@ func NewOriginalDNS(routes []OriginalDNSRoute) (*OriginalDNS, error) {
 		if err != nil || len(route.Servers) == 0 || servers > maxDNSCacheEntries {
 			return nil, errors.New("invalid original DNS scope")
 		}
-		if route.Interface == "" || strings.ContainsAny(route.Interface, "\x00\r\n") {
+		if strings.ContainsAny(route.Interface, "\x00\r\n") {
 			return nil, errors.New("invalid original DNS interface")
 		}
 		for _, server := range route.Servers {

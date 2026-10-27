@@ -473,6 +473,7 @@ func runNativeTUNHost(t *testing.T, killed bool) (*gateway, []byte) {
 	}
 	g := newGateway(t)
 	g.resourceIP.Store("198.18.0.6")
+	verifyOriginalDNS := startNativeOriginalDNSSource(t)
 	original := startNativeOriginalPeer(t, g)
 	if macAuthorization != "" || os.Getenv("JC_NATIVE_NETWORK_SESSION") == "1" {
 		enableNativeSSH(t, g)
@@ -522,6 +523,7 @@ func runNativeTUNHost(t *testing.T, killed bool) (*gateway, []byte) {
 	if original != nil && (original.nonCampusTCP.Load() != 1 || original.nonCampusUDP.Load() != 2) {
 		t.Fatalf("missing non-campus original exchanges: TCP=%d UDP=%d\n%s", original.nonCampusTCP.Load(), original.nonCampusUDP.Load(), output)
 	}
+	verifyOriginalDNS()
 	return g, output
 }
 

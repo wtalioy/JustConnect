@@ -31,9 +31,9 @@ template<class Predicate> static void until(Predicate done,int timeout = 10000)
     while (!done() && timer.elapsed() < timeout) QCoreApplication::processEvents(QEventLoop::AllEvents,10);
     check(done(),"macOS Qt network operation completed within deadline");
 }
-static QStringList addresses(const char *hostname)
+static QStringList addresses(const char *hostname,int family=AF_INET)
 {
-    addrinfo hints{}; hints.ai_family = AF_INET; hints.ai_socktype = SOCK_STREAM; addrinfo *result = nullptr;
+    addrinfo hints{}; hints.ai_family = family; hints.ai_socktype = SOCK_STREAM; addrinfo *result = nullptr;
     const auto error = ::getaddrinfo(hostname,nullptr,&hints,&result);
     if (error || !result) std::cerr << "System DNS lookup for " << hostname << " failed: " << error << " (" << ::gai_strerror(error) << ")\n";
     check(error == 0 && result,"Ordinary macOS system DNS lookup succeeds");
@@ -85,6 +85,7 @@ int main(int argc,char **argv)
     QObject::connect(engine,&CoreEngine::initialProtectionApplied,[&](const QJsonObject &value) { initial = value; });
     const bool helperLoss = qgetenv("JC_NATIVE_NETWORK_HELPER_LOSS") == "1";
     const bool policyChanges = qgetenv("JC_NATIVE_NETWORK_POLICY") == "1";
+    const bool originalDNS = qgetenv("JC_NATIVE_ORIGINAL_DNS") == "1";
     const bool offline = qgetenv("JC_NATIVE_NETWORK_HELPER_OFFLINE") == "1";
     const bool exitChange = qgetenv("JC_NATIVE_NETWORK_EXIT_CHANGE") == "1";
     const auto marker = QString::fromLocal8Bit(qgetenv("JC_NATIVE_TUN_READY"));
@@ -171,6 +172,12 @@ int main(int argc,char **argv)
             changingNetwork = false;
         }
         originalView();
+        if(originalDNS){
+            until([&]{return !policy.isBusy();});
+            check(policy.setCampusName("campus.test",true),"Select the exact campus name within its original native namespace");
+            until([&]{return !policy.isBusy();});
+            check(policy.policyStatus()==CoreEngine::RequestStatus::Success,"Initial campus name selection completed both confirmations");
+        }
         if (exitChange && round == 1) {
             publish(".exit-reconnected"); until([&] { return QFileInfo::exists(marker+".traffic"); });
         }
@@ -199,7 +206,35 @@ int main(int argc,char **argv)
             check(coreFinished == 1 && session.state() == ConnectionState::Reconnecting,"Changed original exit stops its old core and preserves automatic restart");
             continue;
         }
-        if (policyChanges && round == 0) {
+        if(originalDNS && round==0){
+            changingNetwork=true;
+            auto lookup=std::async(std::launch::async,[]{return addresses("host.campus.test");});
+            until([&]{return lookup.wait_for(std::chrono::milliseconds(0))==std::future_status::ready;});
+            const auto original=lookup.get();
+            check(original.contains("198.18.0.6") && original.contains("198.18.0.7"),"Prepared native source retained both original A answers after cache prewarm");
+            auto ipv6=std::async(std::launch::async,[]{return addresses("host.campus.test",AF_INET6);});
+            until([&]{return ipv6.wait_for(std::chrono::milliseconds(0))==std::future_status::ready;});
+            check(ipv6.get()==QStringList{"2001:db8::9"},"Original AAAA was replaced by the campus IPv4 restriction");
+            publish(".original-ready");until([&]{return QFileInfo::exists(marker+".original-traffic");});
+            exerciseOriginalNetworkTraffic();
+            publish(".protected");until([&]{return QFileInfo::exists(marker+".select-campus");});
+            until([&]{return !policy.isBusy();});check(policy.setCampusName("host.campus.test",true),"Select a cached original DNS name for campus");
+            until([&]{return !policy.isBusy();});check(policy.policyStatus()==CoreEngine::RequestStatus::Success,"Campus name choice completed native and core confirmation");
+            exerciseNativeTUNTraffic(QHostAddress("198.18.0.7"));exerciseNonCampusNetworkTraffic();
+            publish(".campus-selected");until([&]{return QFileInfo::exists(marker+".select-original");});
+            until([&]{return !policy.isBusy();});check(policy.setCampusName("host.campus.test",false),"Withdraw the original DNS name's campus choice");
+            until([&]{return !policy.isBusy();});check(policy.policyStatus()==CoreEngine::RequestStatus::Success,"Name withdrawal completed both confirmations");
+            auto withdrawn=std::async(std::launch::async,[]{return addresses("withdrawn.campus.test");});
+            until([&]{return withdrawn.wait_for(std::chrono::milliseconds(0))==std::future_status::ready;});
+            check(withdrawn.get().contains("198.18.0.7"),"Native original DNS TCP fallback did not retain its answer");
+            publish(".original-selected");until([&]{return QFileInfo::exists(marker+".original-traffic-again");});
+            exerciseOriginalNetworkTraffic();publish(".original-finished");until([&]{return QFileInfo::exists(marker+".overlay-down");});
+            for(const auto *name:{"host.campus.test","withdrawn.campus.test"}){
+                until([&]{return !policy.isBusy();});check(policy.setCampusName(QString::fromLatin1(name),true),"Release the original name's retained DNS exclusions");
+                until([&]{return !policy.isBusy();});check(policy.policyStatus()==CoreEngine::RequestStatus::Success,"Retained DNS exclusion release completed both confirmations");
+            }
+            exerciseNativeTUNTraffic(QHostAddress("198.18.0.7"));changingNetwork=false;originalView();
+        }else if (policyChanges && round == 0) {
             const auto generation = policy.currentGeneration();
             changingNetwork = true; publish(".policy-ready");
             until([&] { return QFileInfo::exists(marker+".overlay-up"); });
@@ -257,5 +292,6 @@ int main(int argc,char **argv)
     if (offline) std::cout << "PASS: unavailable macOS helper retains restoration responsibility and blocks restart until explicit recovery\n";
     if (cancelAuthorization) std::cout << "PASS: pending macOS authorization cancels promptly and its late grant cannot approve a fresh connection\n";
     if (policyChanges) std::cout << "PASS: macOS live overlap protection, cached DNS campus selection, original-side withdrawal and overlay removal without reauthentication\n";
+    if(originalDNS)std::cout<<"PASS: macOS automatic original DNS source, actual endpoints, cache prewarm, TCP/AAAA, shared-IP name choices and complete restoration\n";
     std::cout << "PASS: ordinary native TCP/UDP via actual signed macOS helper, application readiness, system CNAME DNS, exact original views and ordered stop/restart\n";
 }
