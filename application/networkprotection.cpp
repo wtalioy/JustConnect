@@ -447,6 +447,21 @@ std::optional<QJsonArray> requiredOriginalDnsNames(const QJsonObject &resources,
     return result;
 }
 
+QStringList campusDnsDomainsToInstall(const QStringList &domains,const QJsonArray &sources)
+{
+    QStringList result;
+    for(const auto &domain:domains){
+        bool covered=false;
+        for(const auto &value:sources){
+            const auto name=value.toObject()["name"].toObject();const auto scope=name["value"].toString();
+            covered|=(name["kind"]=="suffix" && (domain==scope || domain.endsWith('.'+scope)))
+                || (name["kind"]=="single_label" && !domain.contains('.'));
+        }
+        if(!covered)result.append(domain);
+    }
+    return result;
+}
+
 std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &resources, const QJsonObject &policy, const QStringList &dynamicAddresses, const QJsonArray &originalDNS)
 {
     if (!resources["ip_resources"].isArray() || !resources["domain_resources"].isObject()

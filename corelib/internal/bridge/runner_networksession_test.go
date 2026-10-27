@@ -4,13 +4,17 @@ package bridge
 
 import (
 	"context"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/miekg/dns"
+	"github.com/wtalioy/JustConnect/corelib/internal/dnslistener"
 	"golang.org/x/sys/windows"
 )
 
@@ -30,6 +34,66 @@ func TestNativeWindowsSessionExitChange(t *testing.T) {
 	nativeWindowsSession(t, false, false, true)
 }
 
+func TestNativeWindowsSessionOriginalDNS(t *testing.T) {
+	nativeWindowsSession(t, false, false, false)
+}
+
+func windowsOriginalDNSServer(t *testing.T) (string, *atomic.Int32) {
+	t.Helper()
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var address string
+	for _, iface := range interfaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		values, err := iface.Addrs()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, value := range values {
+			ip, _, err := net.ParseCIDR(value.String())
+			if err == nil && ip.To4() != nil && !ip.IsLinkLocalUnicast() {
+				address = ip.String()
+				break
+			}
+		}
+		if address != "" {
+			break
+		}
+	}
+	if address == "" {
+		t.Fatal("no live IPv4 interface for original DNS fixture")
+	}
+	tcp, udp, err := dnslistener.Listen(t.Context(), net.JoinHostPort(address, "53"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { tcp.Close(); udp.Close() })
+	count := new(atomic.Int32)
+	handler := dns.HandlerFunc(func(w dns.ResponseWriter, request *dns.Msg) {
+		reply := new(dns.Msg).SetReply(request)
+		reply.RecursionAvailable = true
+		if len(request.Question) != 1 || request.Question[0].Name != "host.campus.test." {
+			reply.Rcode = dns.RcodeRefused
+		} else if request.Question[0].Qtype == dns.TypeA {
+			count.Add(1)
+			reply.Answer = []dns.RR{&dns.A{Hdr: dns.RR_Header{Name: "host.campus.test.", Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60}, A: net.IPv4(203, 0, 113, 9)}}
+		}
+		_ = w.WriteMsg(reply)
+	})
+	for _, server := range []*dns.Server{{Listener: tcp, Net: "tcp", Handler: handler}, {PacketConn: udp, Handler: handler}} {
+		ready := make(chan struct{})
+		server.NotifyStartedFunc = func() { close(ready) }
+		go func() { _ = server.ActivateAndServe() }()
+		<-ready
+		t.Cleanup(func() { _ = server.Shutdown() })
+	}
+	return address, count
+}
+
 func nativeWindowsSession(t *testing.T, faults, policy, exitChange bool) {
 	t.Helper()
 	host := os.Getenv("JC_NATIVE_WINDOWS_SESSION_HOST")
@@ -44,6 +108,7 @@ func nativeWindowsSession(t *testing.T, faults, policy, exitChange bool) {
 	g.resourceIP.Store("198.18.0.6")
 	g.nativeDNS.Store(true)
 	g.probeDNS.Store(true)
+	g.originalDNSName.Store(t.Name() == "TestNativeWindowsSessionOriginalDNS")
 	enableNativeSSH(t, g)
 	var original *nativeOriginalPeer
 	if policy {
@@ -55,6 +120,12 @@ func nativeWindowsSession(t *testing.T, faults, policy, exitChange bool) {
 	command.Env = append(os.Environ(), "JC_WINDOWS_SESSION_CONFIG="+string(configBytes(t, g.config(t))))
 	command.Env = append(command.Env, "JC_WINDOWS_SESSION_POLICY="+strconv.FormatBool(policy))
 	command.Env = append(command.Env, "JC_WINDOWS_SESSION_EXIT_CHANGE="+strconv.FormatBool(exitChange))
+	var originalQueries *atomic.Int32
+	if t.Name() == "TestNativeWindowsSessionOriginalDNS" {
+		address, count := windowsOriginalDNSServer(t)
+		originalQueries = count
+		command.Env = append(command.Env, "JC_WINDOWS_SESSION_ORIGINAL_DNS_SERVER="+address)
+	}
 	rounds := int32(2)
 	if faults {
 		command.Env = append(command.Env, "JC_WINDOWS_SESSION_FAULTS=true")
@@ -74,6 +145,9 @@ func nativeWindowsSession(t *testing.T, faults, policy, exitChange bool) {
 	}
 	if original != nil && (original.nonCampusTCP.Load() != rounds || original.nonCampusUDP.Load() != 2*rounds) {
 		t.Fatalf("non-campus original exchanges TCP=%d UDP=%d\n%s", original.nonCampusTCP.Load(), original.nonCampusUDP.Load(), output)
+	}
+	if originalQueries != nil && originalQueries.Load() < 6 {
+		t.Fatalf("original source was not queried before, during and after both application sessions: %d\n%s", originalQueries.Load(), output)
 	}
 	t.Log(string(output))
 }

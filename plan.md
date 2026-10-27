@@ -23,8 +23,8 @@
 | 全计划进度 | 64 项中已收尾 31 项，剩余 33 项；其中本轮目标 S3—S5 剩余 8 项，后续 S6—S8 仍按实施顺序推进 |
 | 剩余性质 | 仍需集中开发的主要为 S4-01／05、S5-03；S3-05、S4-04、S5-01／02／05 主要待真实桌面／校园、签名部署及矩阵汇总。按完整访问链合批开发、按各任务真实验收要求勾选，不把组件通过冒充整项完成 |
 | 最近整轮通过 | `7304509` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40492635540)与[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40492635392)全部通过，含来源身份／DoT 读取、实际应用所属投影及原设备门槛；报告 `build/reports/native-policy-7304509/summary.json`。历史 `3d6c608` 的 x64 第 57 包停滞失败保留，不以随后通过宣称 SDK 风险消失 |
-| 本轮验证 | `3d6c608` 的三平台 [Tests](https://github.com/wtalioy/JustConnect/actions/runs/40484016703)、六组正式 ABI 步骤、Windows 双架构新增 NRPT／实际缓存解析／DoH／DoT 拒绝及恢复回归均通过，各 40 项 CTest 通过。[整轮 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40484016917) 因 x64 原 SDK 第 57／4096 包停滞而失败（写入返回 57、设备收到 56），不算全绿；ARM64 4096 包通过。应用仍提交空原 DNS 来源，自动接管未完成；报告 `build/reports/windows-original-dns-backend.json`、`native-policy-3d6c608/summary.json` |
-| 当前推进与下一步 | `7304509` 的原来源身份／class／原值／标记、DoT 事实、严格 schema 与所属投影已通过完整矩阵；规则 class 前缀及 MS-GPNRPT 固定值已集中至 DNS 契约，相关本地投影回归通过，随下一批补原生。接着完成自动选源、监听与助手／应用观察整链，再做 Fake-IP／Clash；报告 `build/reports/windows-nrpt-source-contexts.json`。全项仍待验收，SDK 门槛不变 |
+| 本轮验证 | Windows 自动 NRPT 来源／监听／助手写前复核／所属投影／应用观察已接入；本地应用构建、5 项相关 CTest、Go bridge 108 项与新增增量 5 项、Windows Go 交叉编译及 7 项夹具／workflow 检查通过。新增预热缓存、名称选择／撤回及两轮恢复场景待原生 CI；报告 `build/reports/windows-original-dns-application.json`。组件通过不替代全链验收 |
+| 当前推进与下一步 | 合并推送当前完整调用链与已验证的契约值集中清理，检查三平台 Tests／六组 Core ABI，失败先修；通过后转 Fake-IP／Clash，继续补剩余真实桌面／校园验收。Windows 默认根、托管／加密来源尚不支持，SDK 原 4096 门槛及历史失败保持。全项仍待验收 |
 | CI 下载瓶颈 | Linux x64 的 Azure 依赖源下载 42.2 MB 用时 15 分 11 秒；三组工作流已统一接入 `setup-linux-apt`，使用 runner 现有 Ubuntu 官方替代源。本地镜像样例／幂等／缺少列表、workflow 检查及八种失败传播通过；`c14f931` 的 x64 依赖安装步骤已由运行时间确认在 51 秒完成，后续 `66ba28c` 完整九项通过；[依据与范围](docs/DEVELOPMENT.md#ci-apt-mirrors) |
 | 验收范围 | 仅要求 Fudan 实测；按用户决定取消另一台 aTrust 服务器的硬性要求，保留 Custom 实现与服务器／账户隔离回归 |
 | 剩余缺口 | S1-04 真实样本、正式签名／公证、真实桌面／校园透明访问、Clash 共存与剩余平台矩阵未验收；D2 的三平台设备／权限／正常及故障恢复已通过受控自动验证，边界与实机缺口见 S4／S5 |
@@ -35,7 +35,7 @@ S3—S5 未收尾项按实际缺口归并如下；同一证据可覆盖多个 ID
 | 剩余任务 | 已有结果与待办 |
 | --- | --- |
 | S3-05 | 有序退出、授权取消、故障／双杀恢复已自动验收；补真实系统注销与桌面授权 |
-| S4-01／05、S5-03 | 地址保护／选择、系统校园 DNS／SSH、原 DNS 核心／监听准备与应答排除已自动验收；Linux 自动来源／实际端点联动已通过双架构原生，macOS 静态及 State／DHCP 来源已通过双架构系统场景与 ABI，临时／加密来源及 Windows 待实现；另补 MagicDNS／Fake-IP、剩余出口变化与实机 |
+| S4-01／05、S5-03 | 地址保护／选择、系统校园 DNS／SSH、原 DNS 核心／监听准备与应答排除已自动验收；Linux 自动来源／实际端点联动已通过双架构原生，macOS 静态及 State／DHCP 来源已通过双架构系统场景与 ABI，临时／加密来源及 Windows 新增自动接入待验；另补 MagicDNS／Fake-IP、剩余出口变化与实机 |
 | S4-04 | 三平台 C++ 助手与授权边界已自动验收；补正式签名／公证、受信部署和实际桌面授权 |
 | S5-01／02 | 代理基线、三平台透明入口与受控流量已验；补无 Clash 时真实校园网页／SSH／UDP、普通出口和已打开终端操作 |
 | S5-05 | 复用以上证据汇总 V1 三平台矩阵，补未测格，不另开发或重跑完整旧基线 |
@@ -279,7 +279,7 @@ Linux x64／ARM64 AppImage 分别减少约 2.07%／1.90%；macOS 安装体积基
 原 DNS 应答排除（S4-01／S5-03，六组原生已验）：原 A 回答以 `exclude:true` 交给三平台共用发布器，扣除助手所属捕获并等 `Routes` 确认后才应答；资源规划同样扣除仍受保护的原地址，保留名称选择／撤回及共享 IP 优先级。待发布地址按名称／地址保留至提交，校园发布取得原串行槽位后重查原方向，避免旧校验重新捕获。业务仍由系统路由选出口，查询接口独立校验；不另建数据出口、缓存或观察器。`8f61046` 九项矩阵覆盖实际回归与原有失败／取消场景，证据 `build/reports/original-dns-exclusions.json`。
 
 <a id="linux-original-dns-acceptance"></a>
-Linux 原接口 DNS（S4-01／S5-03，双架构自动接入已验）：按实际 namespace→link 引用、live profile／安全模式和原预算准备，保留同名多上下文、有序 IPv4／IPv6 上游及端口，确认核心监听后才授权替换；原服务器从校园捕获排除。未映射、无可用监听 IPv4、`stub/static` 之外及不支持的加密上下文明确拒绝。恢复先预检全部记录、撤回捕获与临时源路由，再恢复原值并刷新缓存，保留外改／同值重建及权限门槛。`66ba28c` 的[双架构完整原生检查](https://github.com/wtalioy/JustConnect/actions/runs/40423597412)覆盖预热缓存后的系统 DNS、共享 IP 校园／原端 TCP／UDP、名称撤回及两轮连接恢复；本地与关键失败归 `build/reports/linux-original-dns-application.json`、`original-dns-view.json`。复用公共推导、观察与恢复，无新依赖或缓存；macOS 静态／State／DHCP 已验，Windows 自动接入、临时／加密来源及真实环境仍待。[长期架构与边界](docs/ARCHITECTURE.md#linux-original-dns-sources)。
+Linux 原接口 DNS（S4-01／S5-03，双架构自动接入已验）：按实际 namespace→link 引用、live profile／安全模式和原预算准备，保留同名多上下文、有序 IPv4／IPv6 上游及端口，确认核心监听后才授权替换；原服务器从校园捕获排除。未映射、无可用监听 IPv4、`stub/static` 之外及不支持的加密上下文明确拒绝。恢复先预检全部记录、撤回捕获与临时源路由，再恢复原值并刷新缓存，保留外改／同值重建及权限门槛。`66ba28c` 的[双架构完整原生检查](https://github.com/wtalioy/JustConnect/actions/runs/40423597412)覆盖预热缓存后的系统 DNS、共享 IP 校园／原端 TCP／UDP、名称撤回及两轮连接恢复；本地与关键失败归 `build/reports/linux-original-dns-application.json`、`original-dns-view.json`。复用公共推导、观察与恢复，无新依赖或缓存；macOS 静态／State／DHCP 已验，Windows 自动接入已实现待原生验收，临时／加密来源及真实环境仍待。[长期架构与边界](docs/ARCHITECTURE.md#linux-original-dns-sources)。
 
 DNS 扩展出口（S4-05／S5-03，双架构原生已验）：追加前核对实际源地址／接口／网关，歧义或不完整结果拒绝；前置拒绝、部分写入回滚、外部路由保留及描述符／所有权清理分别验收。`228a1ee` 的九项矩阵通过，复用所属路由模块，无配置副本或新依赖；证据 `build/reports/dns-exit-proof.json`。
 

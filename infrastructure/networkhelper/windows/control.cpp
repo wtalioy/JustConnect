@@ -29,7 +29,7 @@ GUID identifier(const winrt::hstring &value)
     if(FAILED(CLSIDFromString(value.c_str(),&id)) || guid(id)!=value.c_str())fail("noncanonical control identity");
     return id;
 }
-struct Request {std::wstring operation;GUID owner{};std::optional<WindowsNetworkConfiguration> configuration;std::vector<WindowsTunPrefix> captures;};
+struct Request {std::wstring operation;GUID owner{};std::optional<WindowsNetworkConfiguration> configuration;std::vector<WindowsTunPrefix> captures;bool refreshDNS=false;};
 Request request(const std::string &message,const GUID &session) try
 {
     const auto value=JsonObject::Parse(winrt::to_hstring(message));
@@ -39,14 +39,14 @@ Request request(const std::string &message,const GUID &session) try
     const auto operation=value.GetNamedString(L"operation");
     Request result{{operation.data(),operation.size()}};
     const bool payload=result.operation==L"apply" || result.operation==L"routes";
-    if(value.Size()!=(payload?5u:4u))fail("unknown control request fields");
+    if(value.Size()!=(result.operation==L"routes"?6u:payload?5u:4u))fail("unknown control request fields");
     const auto owner=value.GetNamedValue(L"owner");
     if(result.operation==L"inspect" || result.operation==L"close"){
         if(owner.ValueType()!=JsonValueType::Null)fail("unexpected control owner");
     }else if(result.operation==L"recover" || result.operation==L"acknowledge" || result.operation==L"apply" || result.operation==L"routes" || result.operation==L"quiesce" || result.operation==L"restore")result.owner=identifier(owner.GetString());
     else fail("unknown control operation");
     if(result.operation==L"apply")result.configuration=decodeWindowsNetworkConfiguration(winrt::to_string(value.GetNamedObject(L"configuration").Stringify()));
-    if(result.operation==L"routes")result.captures=decodeWindowsCapturePrefixes(winrt::to_string(value.GetNamedArray(L"capture_prefixes").Stringify()));
+    if(result.operation==L"routes"){result.captures=decodeWindowsCapturePrefixes(winrt::to_string(value.GetNamedArray(L"capture_prefixes").Stringify()));result.refreshDNS=value.GetNamedBoolean(L"refresh_dns");}
     return result;
 }catch(const winrt::hresult_error &){fail("invalid native control JSON");}
 JsonObject response(const GUID &session,const Request &request)
@@ -72,6 +72,13 @@ JsonObject metadata(const WindowsNetworkSession &session,const WindowsNetworkCon
     value.SetNamedValue(L"address",ip(configuration.source));value.SetNamedValue(L"peer",ip(configuration.peer));
     value.SetNamedValue(L"mtu",JsonValue::CreateNumberValue(configuration.mtu));
     value.SetNamedValue(L"dns_id",configuration.dns?JsonValue::CreateStringValue(guid(configuration.dns->id)):JsonValue::CreateNullValue());
+    JsonArray original;
+    for(const auto &entry:configuration.originalDNS){
+        auto binding=JsonObject::Parse(winrt::to_hstring(encodeWindowsNrptRedirect(entry)));
+        binding.Remove(L"released"); // Recovery progress belongs to the journal, not the activation snapshot.
+        original.Append(binding);
+    }
+    value.SetNamedValue(L"original_dns",original);
     return value;
 }
 }
@@ -132,7 +139,7 @@ int runWindowsNetworkControl(DWORD pid,std::uint64_t created,const GUID &session
                         active=WindowsNetworkSession::apply(installation->driver(),session,caller,*configuration,*pipe);
                     }else{
                         if(!active)fail("network session is not active",ERROR_NOT_FOUND);
-                        if(command.operation==L"routes")active->reconcile(command.captures);
+                        if(command.operation==L"routes")active->reconcile(command.captures,command.refreshDNS);
                         else if(command.operation==L"quiesce")active->quiesce();
                         else active->restore();
                     }

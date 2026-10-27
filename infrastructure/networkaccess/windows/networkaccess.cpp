@@ -46,7 +46,18 @@ WindowsNetworkAccess::WindowsNetworkAccess(CoreEngine *core,NetworkPolicySession
         if(stage!=Stage::Activating)return;
         const auto result=preparation.result();
         if(!result.result.succeeded()){fail(result.result);return;}
-        mutationPossible=true;helper.apply(result.configuration);
+        originalSources=result.originalSources;originalContext=result.originalContext;
+        if(!originalSources.isEmpty()){
+            pendingConfiguration=result.configuration;
+            this->core->prepareOriginalDNS(generation,originalSources);
+        }else{mutationPossible=true;helper.apply(result.configuration);}
+    });
+    connect(core,&CoreEngine::originalDNSPrepared,this,[this](const QString &id,const QJsonObject &listeners,CoreEngine::RequestStatus status){
+        if(stage!=Stage::Activating || id!=generation || !pendingConfiguration)return;
+        const auto configuration=status==CoreEngine::RequestStatus::Success?completeWindowsOriginalDNS(*pendingConfiguration,listeners):std::nullopt;
+        pendingConfiguration.reset();
+        if(!configuration){fail({Status::Failed,"The core did not confirm every original DNS listener."});return;}
+        mutationPossible=true;helper.apply(*configuration);
     });
     connect(&dnsReader,&QFutureWatcher<DnsSnapshot>::finished,this,[this]{
         readingDNS=false;
@@ -72,7 +83,7 @@ WindowsNetworkAccess::WindowsNetworkAccess(CoreEngine *core,NetworkPolicySession
     });
     connect(core,&CoreEngine::policyUpdated,this,[this](const QString &id,const QString &revision,CoreEngine::RequestStatus status){
         if(stage!=Stage::Updating || id!=generation || revision!=changingPolicy["revision"].toString())return;
-        if(status==CoreEngine::RequestStatus::Success)helper.reconcile(nextCapture);else finishPolicy(status);
+        if(status==CoreEngine::RequestStatus::Success)helper.reconcile(nextCapture,true);else finishPolicy(status);
     });
 }
 WindowsNetworkAccess::~WindowsNetworkAccess(){preparation.waitForFinished();dnsReader.waitForFinished();}
@@ -97,7 +108,7 @@ void WindowsNetworkAccess::activate(const QUuid &id,const ConnectionProfile &pro
 }
 void WindowsNetworkAccess::prepareConfiguration()
 {
-    if(stage!=Stage::Activating || preparing || attaching || readingDNS || readingNetwork || helper.state()!=HelperState::Ready)return;
+    if(stage!=Stage::Activating || preparing || pendingConfiguration || attaching || readingDNS || readingNetwork || helper.state()!=HelperState::Ready)return;
     if(policy->isBusy() || policy->status()==CoreEngine::RequestStatus::Pending)return;
     if(policy->status()!=CoreEngine::RequestStatus::Success || policy->currentGeneration()!=generation || policy->confirmedProtection().isEmpty()){
         fail({Status::Failed,"Cannot confirm complete original-network protection."});return;
@@ -195,7 +206,7 @@ void WindowsNetworkAccess::driveStop()
     switch(helper.state()){
     case HelperState::Idle:
         if(mutationPossible){helper.inspect(attempt);return;}
-        lock.reset();ownership.reset();generation.clear();receipt={};ownedNetwork=originalExit=changingPolicy={};nextCapture.clear();
+        lock.reset();ownership.reset();pendingConfiguration.reset();originalSources={};originalContext={};generation.clear();receipt={};ownedNetwork=originalExit=changingPolicy={};nextCapture.clear();
         preparing=readingNetwork=attaching=quiesceReported=automaticPolicy=false;stage=Stage::Idle;emit stopped(attempt,{});return;
     case HelperState::Ready:
         if(!receipt.isNull()){helper.cleanupRestored(receipt);return;}
@@ -216,8 +227,11 @@ void WindowsNetworkAccess::observeModel()
     const auto model=policy->model();
     const auto exit=originalExitSnapshot(model["network"].toObject(),model["resources"].toObject()["underlay_interface"].toString());
     if(!exit || *exit!=originalExit){stage=Stage::Prepared;observation.stop();emit restartRequired(attempt,"Original network exit changed; restoring before reconnecting.");return;}
-    QStringList domains;for(const auto &item:helper.ownedConfiguration()["dns_domains"].toArray())domains.append(item.toString());
-    const auto prefixes=updatedCampusCapturePrefixes(model["resources"].toObject(),policy->confirmedProtection(),domains);
+    const auto current=prepareWindowsNetworkHelper(model["resources"].toObject(),policy->confirmedProtection(),model["network"].toObject(),model["dns"].toObject(),localDNS,mtu);
+    if(!current.result.succeeded() || current.originalSources!=originalSources || current.originalContext!=originalContext){
+        stage=Stage::Prepared;observation.stop();emit restartRequired(attempt,"Original DNS source changed; restoring before reconnecting.");return;
+    }
+    const auto prefixes=updatedWindowsCapturePrefixes(model["resources"].toObject(),policy->confirmedProtection(),helper.ownedConfiguration(),originalSources);
     if(!prefixes){fail({Status::Failed,"Cannot confirm current campus capture scope.",true});return;}
     QStringList actual;for(const auto &item:helper.ownedConfiguration()["capture_prefixes"].toArray())actual.append(item.toString());actual.sort();auto expected=*prefixes;expected.sort();
     if(actual!=expected){qCDebug(windowsNetworkAccessLog)<<"reconcile captures"<<actual<<"to"<<expected;helper.reconcile(*prefixes);return;}
@@ -229,8 +243,7 @@ void WindowsNetworkAccess::observeModel()
 void WindowsNetworkAccess::applyPolicy(const QJsonObject &value)
 {
     qCDebug(windowsNetworkAccessLog)<<"apply policy"<<value;
-    QStringList domains;for(const auto &item:helper.ownedConfiguration()["dns_domains"].toArray())domains.append(item.toString());
-    const auto prefixes=updatedCampusCapturePrefixes(policy->model()["resources"].toObject(),value,domains);
+    const auto prefixes=updatedWindowsCapturePrefixes(policy->model()["resources"].toObject(),value,helper.ownedConfiguration(),originalSources);
     if(stage!=Stage::Ready || helper.state()!=HelperState::Active || !prefixes){
         const bool automatic=std::exchange(automaticPolicy,false);
         policy->completePolicy(value["generation"].toString(),value["revision"].toString(),CoreEngine::RequestStatus::Unavailable);

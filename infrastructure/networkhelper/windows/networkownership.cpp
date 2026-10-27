@@ -33,17 +33,76 @@ QJsonArray captures(const QJsonObject &configuration,const QJsonObject &peer)
     }
     return rows;
 }
+bool projectOriginalDNS(QJsonObject &dns,const QJsonObject &configuration,const QJsonArray &bindings)
+{
+    auto sources=dns["nrpt_sources"].toArray(),policies=dns["nrpt"].toArray();
+    for(const auto &item:bindings){
+        const auto binding=item.toObject();QJsonObject request;
+        for(const auto &value:configuration["original_dns"].toArray())
+            if(QUuid(value.toObject()["source"].toObject()["id"].toString())==QUuid(binding["id"].toString()))request=value.toObject();
+        auto expected=request["source"].toObject();expected["owner"]=binding["marker"];expected["servers"]=binding["server"];
+        int found=-1;
+        for(int i=0;i<sources.size();++i){
+            const auto row=sources[i].toObject();
+            if(row["store"]=="local" && QUuid(row["id"].toString())==QUuid(binding["id"].toString())){
+                if(found>=0 || row!=expected)return false;
+                found=i;
+            }
+        }
+        if(found<0)return false;
+        sources[found]=request["source"];
+        QSet<QString> pending,scopes;
+        for(const auto &name:binding["namespaces"].toArray())scopes.insert(name.toString().toLower());
+        pending=scopes;
+        for(int i=0;i<policies.size();++i){
+            auto row=policies[i].toObject();const auto names=row["Namespace"].toArray();bool belongs=false;
+            for(const auto &name:names)belongs|=scopes.contains(name.toString().toLower());
+            if(!belongs)continue;
+            if(row.value("NameServers").toArray()!=QJsonArray{binding["server"]})return false;
+            for(const auto &name:names)if(!scopes.contains(name.toString().toLower()) || !pending.remove(name.toString().toLower()))return false;
+            row["NameServers"]=request["servers"];policies[i]=row;
+        }
+        if(!pending.isEmpty())return false;
+    }
+    dns["nrpt_sources"]=sources;dns["nrpt"]=policies;return true;
+}
+}
+
+bool WindowsNetworkOwnership::bindingsMatch(const QJsonObject &configuration,const QJsonArray &bindings)
+{
+    if(!configuration["original_dns"].isArray() || configuration["original_dns"].toArray().size()!=bindings.size())return false;
+    QSet<QUuid> seen;
+    for(const auto &item:bindings){
+        const auto binding=item.toObject();const QUuid id(binding["id"].toString()),marker(binding["marker"].toString());
+        if(!item.isObject() || binding.size()!=7 || id.isNull() || marker.isNull() || seen.contains(id)
+            || id.toString(QUuid::WithBraces).toUpper()!=binding["id"] || marker.toString(QUuid::WithBraces).toUpper()!=binding["marker"]
+            || !binding["class"].isString() || !binding["original"].isString() || !binding["namespaces"].isArray())return false;
+        const auto text=binding["global_policy"].toString();bool valid=false;const auto flags=text.toULongLong(&valid);
+        if(!binding["global_policy"].isString() || !valid || QString::number(flags)!=text || !WindowsDNS::plainGlobalPolicy(flags))return false;
+        bool found=false;
+        for(const auto &request:configuration["original_dns"].toArray()){
+            const auto row=request.toObject(),source=row["source"].toObject();
+            if(QUuid(source["id"].toString())!=id)continue;
+            if(found || binding["class"]!=source["class"] || binding["original"]!=source["servers"]
+                || binding["namespaces"]!=source["namespaces"] || binding["server"]!=row["listen"])return false;
+            found=true;
+        }
+        if(!found)return false;
+        seen.insert(id);
+    }
+    return true;
 }
 
 std::optional<WindowsNetworkOwnership> WindowsNetworkOwnership::capture(const QJsonObject &configuration,
     const QJsonObject &device,const QJsonObject &network,const QJsonObject &dns)
 {
     const auto adapter=ownedInterface(network,device);
+    if(!device["original_dns"].isArray() || !bindingsMatch(configuration,device["original_dns"].toArray()))return {};
     if(!adapter || device["index"].toInteger()<=0 || device["address"]!=configuration["address"]
         || device["peer"]!=configuration["peer"] || !configuration["capture_prefixes"].isArray()
         || !configuration["dns_domains"].isArray() || !dns["nrpt"].isArray() || !dns["nrpt_sources"].isArray()
         || !dns["interfaces"].isArray() || !dns["clients"].isArray() || !dns["adapters"].isArray())return {};
-    WindowsNetworkOwnership result;result.device=device;result.interfaceSnapshot=*adapter;
+    WindowsNetworkOwnership result;result.device=device;result.interfaceSnapshot=*adapter;result.originalBindings=device["original_dns"].toArray();
     QJsonObject localRoute;
     for(const auto &item:network["routes"].toArray()){
         const auto row=item.toObject();
@@ -108,7 +167,8 @@ NetworkPolicySession::OriginalViewFilter WindowsNetworkOwnership::filter(const Q
     if(configuration["address"]!=device["address"]
         || configuration["peer"]!=device["peer"] || !configuration["capture_prefixes"].isArray())return {};
     const auto required=captures(configuration,peerRoute);
-    return [owned=*this,required](QJsonObject network,QJsonObject dns)->std::optional<NetworkPolicySession::OriginalView>{
+    if(!bindingsMatch(configuration,originalBindings))return {};
+    return [owned=*this,required,configuration](QJsonObject network,QJsonObject dns)->std::optional<NetworkPolicySession::OriginalView>{
         if(!ownedInterface(network,owned.device) || !dns["nrpt"].isArray() || !dns["nrpt_sources"].isArray() || !dns["interfaces"].isArray()
             || !dns["clients"].isArray() || !dns["adapters"].isArray())return {};
         auto routes=network["routes"].toArray();
@@ -129,6 +189,7 @@ NetworkPolicySession::OriginalViewFilter WindowsNetworkOwnership::filter(const Q
         const auto sources=dns["nrpt_sources"].toArray();
         for(const auto &source:owned.dnsSourceRecords)if(!sources.contains(source))return {};
         dns["nrpt_sources"]=subtract(sources,owned.dnsSourceRecords);
+        if(!projectOriginalDNS(dns,configuration,owned.originalBindings))return {};
         dns["interfaces"]=subtract(dns["interfaces"].toArray(),owned.dnsInterfaces);
         dns["clients"]=subtract(dns["clients"].toArray(),owned.dnsClients);
         dns["adapters"]=subtract(dns["adapters"].toArray(),owned.dnsAdapters);

@@ -29,7 +29,7 @@ public:
     void cleanupRestored(const QUuid &owner);
     void apply(const QJsonObject &configuration);
     void extend(const QStringList &addresses);
-    void reconcile(const QStringList &prefixes);
+    void reconcile(const QStringList &prefixes,bool refreshDNS=false);
     void quiesce();
     void restore();
     void close();

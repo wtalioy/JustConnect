@@ -4,6 +4,7 @@
 #include "infrastructure/packetpipe/windows/stream.h"
 #include "infrastructure/tundevice/windows/recovery.h"
 #include "infrastructure/dns/domainlimits.h"
+#include "infrastructure/dns/windows/dnscontract.h"
 #include "windowsnetworkcontract.h"
 #include <ws2tcpip.h>
 #include <objbase.h>
@@ -76,10 +77,20 @@ WindowsNetworkConfiguration decodeWindowsNetworkConfiguration(const std::string 
     for(const auto &item:originals){
         const auto source=item.GetObject();
         if(source.Size()!=3)fail("unknown original DNS source fields");
+        const auto snapshot=source.GetNamedObject(L"source");
+        if(snapshot.Size()!=8 || snapshot.GetNamedString(L"store")!=L"local"
+            || snapshot.GetNamedNumber(L"version")!=WindowsDNS::NrptVersion || snapshot.GetNamedNumber(L"options")!=WindowsDNS::GenericServersOption
+            || snapshot.GetNamedValue(L"owner").ValueType()!=JsonValueType::Null)fail("invalid original DNS source snapshot");
+        const auto expectedClass=snapshot.GetNamedString(L"class"),original=snapshot.GetNamedString(L"servers");
+        GUID expected{};
+        if(FAILED(CLSIDFromString(snapshot.GetNamedString(L"id").c_str(),&expected)) || expected==GUID{})fail("invalid original DNS provider identity");
         std::vector<std::wstring> names,servers;
-        for(const auto &name:source.GetNamedArray(L"namespaces")){const auto value=name.GetString();names.emplace_back(value.data(),value.size());}
+        for(const auto &name:snapshot.GetNamedArray(L"namespaces")){const auto value=name.GetString();names.emplace_back(value.data(),value.size());}
         for(const auto &server:source.GetNamedArray(L"servers")){const auto value=server.GetString();servers.emplace_back(value.data(),value.size());}
         auto entry=WindowsNrptRedirect::prepareSystem(names,servers,address(source.GetNamedString(L"listen")));
+        if(entry.id!=expected || entry.policyClass!=std::wstring(expectedClass.data(),expectedClass.size())
+            || entry.original!=std::wstring(original.data(),original.size()) || entry.namespaces!=names)
+            fail("original DNS source identity or values changed before activation");
         wchar_t key[39]{};if(!StringFromGUID2(entry.id,key,39) || !ids.insert(key).second)fail("duplicate original DNS provider");
         result.originalDNS.push_back(std::move(entry));
     }
@@ -122,11 +133,12 @@ void WindowsNetworkSession::stopData()
     if(device)device->close();
     if(relay.joinable())relay.join();
 }
-void WindowsNetworkSession::reconcile(const std::vector<WindowsTunPrefix> &captures)
+void WindowsNetworkSession::reconcile(const std::vector<WindowsTunPrefix> &captures,bool refreshDNS)
 {
     if(quiet || restored)fail("network session is no longer capturing",ERROR_OPERATION_ABORTED);
     originalDnsExclusions(record.originalDNS,captures);
     device->reconcile(captures);
+    if(refreshDNS)WindowsDNS::refreshCache();
 }
 void WindowsNetworkSession::quiesce()
 {

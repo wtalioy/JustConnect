@@ -1,4 +1,5 @@
 #include "infrastructure/networkhelper/windows/networkhelperclient.h"
+#include "infrastructure/networkhelper/windows/networkownership.h"
 #include "infrastructure/networkhelper/windows/control.h"
 #include "infrastructure/packetpipe/windows/stream.h"
 #include "infrastructure/process/windows/identity.h"
@@ -183,10 +184,12 @@ void WindowsNetworkHelperClient::request(Operation next,const QUuid &owner,const
                     const auto value=result.device["guid"].toString();const QUuid uuid(value);
                     bool valid=false;const auto luid=result.device["luid"].toString().toULongLong(&valid);
                     const auto index=result.device["index"].toInteger(0);
-                    if(result.device.size()!=8 || uuid.isNull() || text(uuid)!=value || !valid || !luid || QString::number(luid)!=result.device["luid"].toString()
+                    if(result.device.size()!=9 || uuid.isNull() || text(uuid)!=value || !valid || !luid || QString::number(luid)!=result.device["luid"].toString()
                         || index<=0 || index>MAXDWORD || result.device["name"].toString().isEmpty())throw std::runtime_error("Invalid owned device identity");
                     const auto dns=result.device["dns_id"];
                     if(!dns.isNull() && (QUuid(dns.toString()).isNull() || text(QUuid(dns.toString()))!=dns.toString()))throw std::runtime_error("Invalid owned DNS identity");
+                    if(!result.device["original_dns"].isArray() || !WindowsNetworkOwnership::bindingsMatch(candidate,result.device["original_dns"].toArray()))
+                        throw std::runtime_error("Original DNS bindings differ from the requested snapshot");
                 }
                 if(next==Operation::Apply){
                     const auto expected=payload["configuration"].toObject();
@@ -212,11 +215,11 @@ void WindowsNetworkHelperClient::request(Operation next,const QUuid &owner,const
 void WindowsNetworkHelperClient::recover(const QUuid &owner){request(Operation::Recover,owner);}
 void WindowsNetworkHelperClient::cleanupRestored(const QUuid &owner){request(Operation::Acknowledge,owner);}
 void WindowsNetworkHelperClient::apply(const QJsonObject &value){request(Operation::Apply,session,{{"configuration",value}});}
-void WindowsNetworkHelperClient::reconcile(const QStringList &prefixes){request(Operation::Routes,session,{{"capture_prefixes",QJsonArray::fromStringList(prefixes)}});}
+void WindowsNetworkHelperClient::reconcile(const QStringList &prefixes,bool refreshDNS){request(Operation::Routes,session,{{"capture_prefixes",QJsonArray::fromStringList(prefixes)},{"refresh_dns",refreshDNS}});}
 void WindowsNetworkHelperClient::extend(const QStringList &addresses){
     QStringList prefixes;for(const auto &item:configuration["capture_prefixes"].toArray())prefixes.append(item.toString());
     for(const auto &value:addresses)prefixes.append(value+"/32");prefixes.removeDuplicates();prefixes.sort();
-    request(Operation::Extend,session,{{"capture_prefixes",QJsonArray::fromStringList(prefixes)}});
+    request(Operation::Extend,session,{{"capture_prefixes",QJsonArray::fromStringList(prefixes)},{"refresh_dns",false}});
 }
 void WindowsNetworkHelperClient::quiesce(){request(Operation::Quiesce,session);}
 void WindowsNetworkHelperClient::restore(){request(Operation::Restore,session);}

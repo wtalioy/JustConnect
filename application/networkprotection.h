@@ -24,6 +24,8 @@ struct CampusCaptureTargets {
 // Read-only DNS ownership planning; overlap coverage must be prepared before capture.
 std::optional<QStringList> campusDnsDomains(const QJsonObject &resources);
 std::optional<QJsonArray> requiredOriginalDnsNames(const QJsonObject &resources, const QJsonObject &policy);
+// A native original listener already dispatches campus choices inside its namespace.
+QStringList campusDnsDomainsToInstall(const QStringList &domains,const QJsonArray &originalSources);
 
 // Derive IPv4 capture from resources, confirmed dynamic addresses and protection.
 std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &resources, const QJsonObject &policy, const QStringList &dynamicAddresses = {}, const QJsonArray &originalDNS = {});
