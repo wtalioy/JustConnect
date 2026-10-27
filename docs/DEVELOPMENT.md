@@ -196,3 +196,6 @@ Core ABI 六组原生检查使用 [测试运行时锁](../tests/platform/mihomo-
 
 
 Linux Core ABI 另在全新网络命名空间执行 `mihomo_tun_linux.py`：官方 Mihomo 实际创建 TUN 和捕获规则，独立对端提供真实 DNS／TLS，普通 UID 且零 capabilities 的探针先验证未绑定 TLS 被 TUN 捕获并拒绝，再使用正式 underlay 完成四阶段请求，核对原源地址、域名证书、接口和系统 DNS 未调用。保留 `rp_filter=1`，结束验证捕获解除。脚本拒绝宿主命名空间；只有 CI 隔离验证可运行提权部分，本地只构建探针及核对自有回环对端。结果归 `build/coreabi/linux-mihomo-tun.log`，不替代 macOS／Windows 的运行中 TUN 或真实校园验收。
+
+
+控制链的 Go 实现或自有 Mihomo 夹具可用六架构专项快速复验：`gh workflow run coreabi.yml -R wtalioy/JustConnect --ref develop -f controller_only=true`。专项复用正式平台矩阵、固定 Go／cgo 和 Mihomo 运行时，执行 underlay／Mihomo／接口绑定的完整普通及受支持 race 测试并上传实际日志；默认 push 仍执行完整 Core ABI。专项只提供控制链证据，ABI、设备、授权和路由等改动仍须对应正式检查，跳过不记为通过。DNS 测试运行时复用正式 UDP／TCP 配对分配器选择共同可用端口，避免 Windows 两种传输的保留区间不同导致监听失败。
