@@ -280,10 +280,9 @@ func TestOriginalDNSPreparationBeforeDeviceIsAtomicAndSealed(t *testing.T) {
 		}
 		return value
 	}
-	occupied, err := net.ListenPacket("udp4", base.Listen)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// Reserve both transports before leaving UDP occupied; their excluded port ranges can differ.
+	tcp, occupied := testdns.ListenPair(t, local.String())
+	tcp.Close()
 	defer occupied.Close()
 	bad := base
 	bad.Listen = occupied.LocalAddr().String()
@@ -303,7 +302,7 @@ func TestOriginalDNSPreparationBeforeDeviceIsAtomicAndSealed(t *testing.T) {
 		t.Fatal("proxy did not survive source failure", greeting, err)
 	}
 	proxy.Close()
-	tcp, err := net.Listen("tcp4", bad.Listen)
+	tcp, err = net.Listen("tcp4", bad.Listen)
 	if err != nil {
 		t.Fatal("failed preparation retained its TCP socket", err)
 	}
@@ -401,32 +400,26 @@ func TestOriginalDNSPreparationBeforeDeviceIsAtomicAndSealed(t *testing.T) {
 
 func TestOriginalDNSCloseBeforeTUNAndPartialBindFailure(t *testing.T) {
 	iface, local := originalDNSInterface(t)
-	occupied, err := net.ListenPacket("udp4", net.JoinHostPort(local.String(), "0"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	tcp, occupied := testdns.ListenPair(t, local.String())
 	defer occupied.Close()
 	endpoint := occupied.LocalAddr().String()
-	tcp, err := net.Listen("tcp4", endpoint)
-	if err != nil {
-		t.Fatal(err)
-	}
 	tcp.Close()
 	r := resolve.NewResolver(nil, "", "", 30, nil, nil, false)
 	defer r.Close()
 	configure := func(address string) {
-		r.OriginalDNS, err = resolve.NewOriginalDNS([]resolve.OriginalDNSRoute{{Name: policy.NameRule{Kind: "suffix", Value: "original.test"},
+		compiled, err := resolve.NewOriginalDNS([]resolve.OriginalDNSRoute{{Name: policy.NameRule{Kind: "suffix", Value: "original.test"},
 			Servers: []string{occupied.LocalAddr().String()}, Interface: iface, Source: iface, Listen: address}})
 		if err != nil {
 			t.Fatal(err)
 		}
+		r.OriginalDNS = compiled
 	}
 	configure(endpoint)
 	if p, err := NewListeners(t.Context(), "", "", nil, r); err == nil {
 		p.Close()
 		t.Fatal("occupied UDP endpoint did not fail DNS preparation")
 	}
-	tcp, err = net.Listen("tcp4", endpoint)
+	tcp, err := net.Listen("tcp4", endpoint)
 	if err != nil {
 		t.Fatal("failed DNS preparation retained its earlier TCP listener", err)
 	}
