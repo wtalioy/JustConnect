@@ -143,6 +143,10 @@ static void captureTargets()
     auto changedDNS=nativeDNS;changedDNS["nrpt_sources"]=QJsonArray{changedSource};
     check(!windowsOriginalDnsSourcesMatch(native.originalSources,native.originalContext,nativeNetwork,changedDNS),
         "Recreated original source retained the prepared query context");
+    auto changedPolicy=nativeDNS["nrpt"].toArray().first().toObject();changedPolicy["QueryPolicy"]="changed native security";
+    changedDNS=nativeDNS;changedDNS["nrpt"]=QJsonArray{changedPolicy};
+    check(!windowsOriginalDnsSourcesMatch(native.originalSources,native.originalContext,nativeNetwork,changedDNS),
+        "Native security policy change retained the prepared query context");
     const auto prefixes=native.configuration["capture_prefixes"].toArray();
     check(!contains([&]{QStringList result;for(const auto &value:prefixes)result.append(value.toString());return result;}(),"192.168.25.1"),
         "Original DNS server was recaptured by campus routing");

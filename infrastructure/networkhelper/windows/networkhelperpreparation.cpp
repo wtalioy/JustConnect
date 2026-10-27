@@ -87,7 +87,7 @@ WindowsHelperPreparation prepareOriginalDNS(const QJsonArray &required,const QJs
         }
         if(!found)return unsupported("The original Windows DNS requirements are not fully mapped.");
     }
-    WindowsHelperPreparation result;QJsonArray requests,contexts;QList<QJsonObject> routes;QMap<QString,QJsonArray> routed;
+    WindowsHelperPreparation result;QJsonArray requests,contexts,effective;QList<QJsonObject> routes;QMap<QString,QJsonArray> routed;
     qsizetype count=0;
     for(auto it=selected.begin();it!=selected.end();++it){
         const auto source=it.value();const auto servers=serverGroups[it.key()];QJsonArray endpoints;
@@ -102,6 +102,7 @@ WindowsHelperPreparation prepareOriginalDNS(const QJsonArray &required,const QJs
             for(const auto &value:policies){
                 const auto policy=value.toObject();if(!namespaces(policy["Namespace"].toArray()).contains(scope))continue;
                 if(policy["NameServers"]!=servers)return unsupported("The original Windows DNS source has a shadowed namespace.");
+                if(!effective.contains(value))effective.append(value);
                 represented=true;
             }
             if(!represented)return unsupported("The effective Windows DNS source changed during preparation.");
@@ -133,7 +134,7 @@ WindowsHelperPreparation prepareOriginalDNS(const QJsonArray &required,const QJs
     });
     for(const auto &route:routes)result.originalSources.append(route);
     result.configuration["original_dns"]=requests;
-    result.originalContext={{"sources",contexts},{"global",global},{"doh",dns["doh"]},{"configured_encryption",dns["configured_encryption"]}};
+    result.originalContext={{"sources",contexts},{"policies",effective},{"global",global},{"doh",dns["doh"]},{"configured_encryption",dns["configured_encryption"]}};
     return result;
 }
 }
