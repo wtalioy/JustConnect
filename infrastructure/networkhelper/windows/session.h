@@ -10,6 +10,7 @@ struct WindowsNetworkConfiguration {
     unsigned int mtu=0;
     std::vector<WindowsTunPrefix> captures;
     std::optional<WindowsDnsRule> dns;
+    std::vector<WindowsNrptRedirect> originalDNS;
 };
 WindowsNetworkConfiguration decodeWindowsNetworkConfiguration(const std::string &message);
 std::vector<WindowsTunPrefix> decodeWindowsCapturePrefixes(const std::string &message);

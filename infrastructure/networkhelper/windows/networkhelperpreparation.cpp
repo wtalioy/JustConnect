@@ -23,5 +23,5 @@ WindowsHelperPreparation prepareWindowsNetworkHelper(const QJsonObject &resource
     }
     return {{},{{"address",addresses->first},{"peer",addresses->second},{"mtu",mtu},
         {"capture_prefixes",QJsonArray::fromStringList(targets->ipv4Prefixes)},
-        {"dns_domains",QJsonArray::fromStringList(targets->dnsDomains)}}};
+        {"dns_domains",QJsonArray::fromStringList(targets->dnsDomains)},{"original_dns",QJsonArray{}}}};
 }

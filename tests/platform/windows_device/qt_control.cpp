@@ -92,7 +92,8 @@ int main(int argc,char **argv) try
         WSADATA sockets{};check(WSAStartup(MAKEWORD(2,2),&sockets)==0,"ordinary network fixture sockets");
         struct CleanupSockets{~CleanupSockets(){WSACleanup();}} cleanupSockets;
         const QJsonObject configuration{{"address","198.18.0.1"},{"peer","198.18.0.2"},{"mtu",1400},
-            {"capture_prefixes",QJsonArray{"198.18.0.6/32"}},{"dns_domains",QJsonArray{session.toString(QUuid::WithoutBraces)+".invalid"}}};
+            {"capture_prefixes",QJsonArray{"198.18.0.6/32"}},{"dns_domains",QJsonArray{session.toString(QUuid::WithoutBraces)+".invalid"}},
+            {"original_dns",QJsonArray{}}};
         client.apply(configuration);wait(WindowsNetworkHelperClient::Operation::Apply);
         const auto device=client.ownedDevice();
         check(client.state()==WindowsNetworkHelperClient::State::Active && client.packetPipeHandle() && client.helperPID(),"actual network attachment metadata");

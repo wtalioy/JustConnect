@@ -3,6 +3,7 @@
 #include "infrastructure/networkhelper/windows/packetrelay.h"
 #include "infrastructure/packetpipe/windows/stream.h"
 #include "infrastructure/tundevice/windows/recovery.h"
+#include "infrastructure/dns/domainlimits.h"
 #include "windowsnetworkcontract.h"
 #include <ws2tcpip.h>
 #include <objbase.h>
@@ -19,6 +20,23 @@ IN_ADDR address(const winrt::hstring &text){
     IN_ADDR result{};wchar_t canonical[INET_ADDRSTRLEN]{};
     if(InetPtonW(AF_INET,text.c_str(),&result)!=1 || !InetNtopW(AF_INET,&result,canonical,INET_ADDRSTRLEN) || text!=canonical)fail("noncanonical device IPv4 address");
     return result;
+}
+void originalDnsExclusions(const std::vector<WindowsNrptRedirect> &sources,const std::vector<WindowsTunPrefix> &captures)
+{
+    const auto allowed=[&](IN_ADDR value){
+        for(const auto &prefix:captures){
+            if(prefix.bits>32)fail("invalid original DNS capture length");
+            const auto mask=prefix.bits?0xffffffffu<<(32-prefix.bits):0;
+            if((ntohl(value.S_un.S_addr)&mask)==ntohl(prefix.address.S_un.S_addr))fail("original DNS endpoint overlaps campus capture");
+        }
+    };
+    for(const auto &source:sources){
+        allowed(source.server);
+        for(const auto &server:source.servers()){
+            IN_ADDR ipv4{};
+            if(InetPtonW(AF_INET,server.c_str(),&ipv4)==1)allowed(ipv4);
+        }
+    }
 }
 }
 std::vector<WindowsTunPrefix> decodeWindowsCapturePrefixes(const std::string &message) try
@@ -41,7 +59,7 @@ WindowsNetworkConfiguration decodeWindowsNetworkConfiguration(const std::string 
 {
     if(message.empty() || message.size()>WindowsNetworkContract::MaxMessageBytes)fail("invalid device configuration size");
     const auto value=JsonObject::Parse(winrt::to_hstring(message));
-    if(value.Size()!=5)fail("unknown device configuration fields");
+    if(value.Size()!=6)fail("unknown device configuration fields");
     WindowsNetworkConfiguration result;
     result.source=address(value.GetNamedString(L"address"));result.peer=address(value.GetNamedString(L"peer"));
     const auto mtu=value.GetNamedNumber(L"mtu");
@@ -52,23 +70,40 @@ WindowsNetworkConfiguration decodeWindowsNetworkConfiguration(const std::string 
     std::vector<std::wstring> domains;
     for(const auto &item:value.GetNamedArray(L"dns_domains")){const auto name=item.GetString();domains.emplace_back(name.data(),name.size());}
     if(!domains.empty())result.dns=WindowsDnsRule::create(domains,result.peer);
+    const auto originals=value.GetNamedArray(L"original_dns");
+    if(originals.Size()>NetworkDnsDomainLimit)fail("too many original DNS providers");
+    std::set<std::wstring> ids;
+    for(const auto &item:originals){
+        const auto source=item.GetObject();
+        if(source.Size()!=3)fail("unknown original DNS source fields");
+        std::vector<std::wstring> names,servers;
+        for(const auto &name:source.GetNamedArray(L"namespaces")){const auto value=name.GetString();names.emplace_back(value.data(),value.size());}
+        for(const auto &server:source.GetNamedArray(L"servers")){const auto value=server.GetString();servers.emplace_back(value.data(),value.size());}
+        auto entry=WindowsNrptRedirect::prepareSystem(names,servers,address(source.GetNamedString(L"listen")));
+        wchar_t key[39]{};if(!StringFromGUID2(entry.id,key,39) || !ids.insert(key).second)fail("duplicate original DNS provider");
+        result.originalDNS.push_back(std::move(entry));
+    }
+    originalDnsExclusions(result.originalDNS,result.captures);
     return result;
 }catch(const winrt::hresult_error &){fail("invalid native device configuration JSON");}
 
 std::unique_ptr<WindowsNetworkSession> WindowsNetworkSession::apply(const std::wstring &driver,const GUID &owner,
     const WindowsProcess &caller,const WindowsNetworkConfiguration &configuration,WindowsPacketPipe &control)
 {
+    WindowsNetworkLock lock;
     WindowsTunDevice::validate(configuration.source,configuration.peer,configuration.mtu,configuration.captures);
     if(configuration.dns && (!configuration.dns->valid() || configuration.dns->server.S_un.S_addr!=configuration.peer.S_un.S_addr))fail("DNS is not owned by the private device");
     auto session=std::unique_ptr<WindowsNetworkSession>(new WindowsNetworkSession);
     auto &record=session->record;
-    record.owner=owner;record.caller=caller.identity();record.dns=configuration.dns;
+    record.owner=owner;record.caller=caller.identity();record.dns=configuration.dns;record.originalDNS=configuration.originalDNS;
+    originalDnsExclusions(record.originalDNS,configuration.captures);
     WindowsProcess current(GetCurrentProcessId());record.helper=current.identity();
     if(FAILED(CoCreateGuid(&record.adapter)))fail("allocate owned adapter identity");
     session->recovery.declare(record);session->declared=true;
     session->device=WindowsTunDevice::create(driver,record.adapter,configuration.source,configuration.peer,configuration.mtu,configuration.captures,
         [&](const auto &identity){if(identity.guid!=record.adapter)fail("adapter departed from write-ahead ownership");});
     if(record.dns)record.dns->applySystem();
+    for(const auto &entry:record.originalDNS)entry.applySystem();
     session->packets=WindowsPacketPipe::create(windowsPacketPipeName(owner),caller);
     auto *active=session.get();
     session->relay=std::thread([active,&caller,&control,mtu=configuration.mtu]{
@@ -90,6 +125,7 @@ void WindowsNetworkSession::stopData()
 void WindowsNetworkSession::reconcile(const std::vector<WindowsTunPrefix> &captures)
 {
     if(quiet || restored)fail("network session is no longer capturing",ERROR_OPERATION_ABORTED);
+    originalDnsExclusions(record.originalDNS,captures);
     device->reconcile(captures);
 }
 void WindowsNetworkSession::quiesce()
@@ -97,7 +133,7 @@ void WindowsNetworkSession::quiesce()
     if(restored || quiet)return;
     // Keep the device/pipe alive until the ordinary core stops after capture release.
     recovery.beginOwnedRestore(record.owner);
-    device->reconcile({});quiet=true;
+    device->reconcile({});recovery.restoreOriginalDNS(record.owner);quiet=true;
 }
 void WindowsNetworkSession::restore()
 {

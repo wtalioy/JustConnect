@@ -12,10 +12,13 @@ struct WindowsNetworkRecord {
     WindowsProcessIdentity caller,helper;
     std::optional<WindowsDnsRule> dns;
     WindowsRecoveryPhase phase = WindowsRecoveryPhase::Declared;
+    std::vector<WindowsNrptRedirect> originalDNS;
 };
 
 std::string encodeWindowsNetworkRecord(const WindowsNetworkRecord &record);
 WindowsNetworkRecord decodeWindowsNetworkRecord(const std::string &data);
+std::string encodeWindowsNrptRedirect(const WindowsNrptRedirect &value);
+WindowsNrptRedirect decodeWindowsNrptRedirect(const std::string &data);
 
 // The service and active helper serialize every checkpoint and recovery under the same machine lock.
 class WindowsNetworkLock final {
@@ -38,10 +41,12 @@ public:
     // A live owner first releases DNS, then its private device, before publishing a durable receipt.
     bool restoreOwned(const GUID &owner,const std::function<void()> &release);
     void beginOwnedRestore(const GUID &owner);
+    void restoreOriginalDNS(const GUID &owner);
     void acknowledge(const GUID &owner,const std::wstring &callerSid);
 private:
     bool restoreRecord(WindowsNetworkRecord &record,const std::function<void()> &release);
     WindowsNetworkRecord ownedRecord(const GUID &owner);
     void beginRestore(WindowsNetworkRecord &record);
+    void restoreOriginalDNS(WindowsNetworkRecord &record);
     WindowsRegistryJournal journal;
 };

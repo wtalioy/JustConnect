@@ -12,7 +12,7 @@ template<class F>void refused(F operation){bool denied=false;try{operation();}ca
 int main() try
 {
     winrt::init_apartment(winrt::apartment_type::multi_threaded);
-    const std::string valid=R"({"address":"198.18.0.1","peer":"198.18.0.2","mtu":1400,"capture_prefixes":["198.18.0.6/32"],"dns_domains":["campus.invalid"]})";
+    const std::string valid=R"({"address":"198.18.0.1","peer":"198.18.0.2","mtu":1400,"capture_prefixes":["198.18.0.6/32"],"dns_domains":["campus.invalid"],"original_dns":[]})";
     const auto accepted=decodeWindowsNetworkConfiguration(valid);
     check(accepted.dns && accepted.dns->valid() && accepted.captures.size()==1,"valid complete network configuration was refused");
     for(const auto &address:{L"0.0.0.0",L"127.0.0.1",L"224.0.0.1",L"198.018.0.1",L"198.18.0.2"}){
@@ -33,6 +33,13 @@ int main() try
     refused([&]{decodeWindowsNetworkConfiguration(winrt::to_string(value.Stringify()));});
     refused([&]{decodeWindowsCapturePrefixes(R"(["198.18.0.6/32","198.18.0.6/32"])");});
     refused([&]{decodeWindowsCapturePrefixes(R"([false])");});
+    for(const auto &original:{L"null",L"{}",L"[{}]",L"[false]"}){
+        auto invalid=JsonObject::Parse(winrt::to_hstring(valid));
+        invalid.SetNamedValue(L"original_dns",JsonValue::Parse(original));
+        refused([&]{decodeWindowsNetworkConfiguration(winrt::to_string(invalid.Stringify()));});
+    }
+    value=JsonObject::Parse(winrt::to_hstring(valid));value.Remove(L"original_dns");
+    refused([&]{decodeWindowsNetworkConfiguration(winrt::to_string(value.Stringify()));});
     std::cout<<"PASS: bounded native session configuration, canonical captures, protected ranges, DNS and unknown-field rejection\n";
     return 0;
 }catch(const std::exception &error){std::cerr<<error.what()<<'\n';return 1;}
