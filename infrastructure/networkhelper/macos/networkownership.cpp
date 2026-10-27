@@ -2,6 +2,7 @@
 #include "infrastructure/routing/originalexit.h"
 #include "infrastructure/routing/macos/tunroutes.h"
 #include "infrastructure/dns/macos/tundns.h"
+#include "infrastructure/dns/macos/resolver.h"
 #include "infrastructure/networkaddress/ipv4.h"
 #include <algorithm>
 #include <SystemConfiguration/SystemConfiguration.h>
@@ -74,7 +75,17 @@ NetworkPolicySession::OriginalViewFilter macOriginalNetworkView(const QUuid &own
         if (!found) return {};
         network["interfaces"] = interfaces;
         auto entries = dns["dynamic_store"].toObject();
-        if (!expectedDns.isUndefined() && entries[dnsKey] == expectedDns) entries.remove(dnsKey);
+        if (!expectedDns.isUndefined() && entries[dnsKey] == expectedDns) {
+            entries.remove(dnsKey);
+            QJsonArray resolvers;
+            for (const auto &value : dns["macos_resolvers"].toArray()) {
+                const auto row = value.toObject();
+                const bool owned = (configuration.dnsDomains.contains(row["domain"].toString()) && macDnsResolverUsesPeer(row,configuration.peer))
+                    || macDnsResolverUsesPeer(row,configuration.peer,quint32(index));
+                if (!owned) resolvers.append(value);
+            }
+            dns["macos_resolvers"] = resolvers;
+        }
         dns["dynamic_store"] = entries;
         return NetworkPolicySession::OriginalView{network,dns};
     };

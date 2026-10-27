@@ -214,11 +214,30 @@ std::optional<QJsonArray> originalDnsNamespaces(const QJsonObject &dns)
                 {{"provider", "dynamic_store"}, {"key", it.key()}, {"field", "DomainName"}})) return std::nullopt;
         }
     }
+    if (dns.contains("macos_resolvers")) {
+        if (!dns["macos_resolvers"].isArray()) return std::nullopt;
+        const auto resolvers = dns["macos_resolvers"].toArray();
+        for (int i = 0; i < resolvers.size(); ++i) {
+            const auto row = resolvers[i].toObject(); const auto scope = row["scope"].toString();
+            const auto index = row["interface_index"].toInteger(-1);
+            const auto resolver = row["resolver"].toInteger(-1);
+            if (!resolvers[i].isObject() || (scope != "unscoped" && scope != "interface" && scope != "service")
+                || !row["resolver"].isDouble() || row["resolver"] != QJsonValue(resolver)
+                || resolver <= 0 || resolver > std::numeric_limits<quint32>::max()
+                || !row["interface_index"].isDouble() || row["interface_index"] != QJsonValue(index)
+                || index < 0 || index > std::numeric_limits<quint32>::max() || !row["search"].isArray()
+                || (!row["domain"].isUndefined() && !row["domain"].isString())) return std::nullopt;
+            const QJsonObject source{{"provider","macos_resolver"},{"row",i},{"scope",scope},{"interface_index",index}};
+            if ((!row["domain"].toString().isEmpty() && !add(row["domain"],"route",source))
+                || !list(row,"search","search",source)) return std::nullopt;
+        }
+    }
     return result;
 }
 
 std::optional<QJsonObject> originalDnsProtection(const QJsonObject &dns)
 {
+    if (dns.contains("dynamic_store") && !dns.contains("macos_resolvers")) return std::nullopt;
     const auto namespaces = originalDnsNamespaces(dns);
     if (!namespaces) return std::nullopt;
     QMap<std::pair<QString, QString>, QJsonArray> rules;
@@ -232,20 +251,10 @@ std::optional<QJsonObject> originalDnsProtection(const QJsonObject &dns)
     for (int i = 0; i < namespaces->size(); ++i) {
         const auto item = (*namespaces)[i].toObject(), origin = item["source"].toObject();
         const auto role = item["role"].toString(), provider = origin["provider"].toString();
-        bool search = role == "search" || role == "search_route" || role == "search_configuration";
-        if (provider == "dynamic_store") {
-            if (!origin["key"].toString().startsWith("State:")) continue;
-            const auto row = dns["dynamic_store"].toObject()[origin["key"].toString()].toObject();
-            const auto noSearch = row["SupplementalMatchDomainsNoSearch"];
-            // SystemConfiguration uses a CFNumber, not a CFBoolean, for this flag.
-            if (!noSearch.isUndefined() && (!noSearch.isDouble() || noSearch != QJsonValue(noSearch.toInteger())
-                || noSearch.toInteger() < std::numeric_limits<int>::min() || noSearch.toInteger() > std::numeric_limits<int>::max())) return std::nullopt;
-            if (role == "match_configuration")
-                search = noSearch.toInteger() == 0 && !row["ServerAddresses"].toArray().isEmpty();
-            else if (role == "domain_configuration") search = !row.contains("SearchDomains");
-            if ((role == "match_configuration" || role == "domain_configuration")
-                && (row["Options"] == "pdns" || row["Options"].toString().contains("interface="))) search = false;
-        }
+        // Interface/service-only resolvers do not claim ordinary unscoped queries.
+        if (provider == "macos_resolver" && origin["scope"] != "unscoped") continue;
+        if (provider == "dynamic_store") continue; // These are inputs; the native merged view owns macOS routing/search semantics.
+        const bool search = role == "search" || role == "search_route" || role == "search_configuration";
         const QJsonObject source{{"kind", "namespace"}, {"index", i}};
         auto text = item["name"].toString();
         if (text.isEmpty()) continue;
@@ -265,8 +274,6 @@ std::optional<QJsonObject> originalDnsProtection(const QJsonObject &dns)
         const auto canonical = canonicalProtectionName(text);
         if (!canonical) return std::nullopt;
         const auto name = *canonical;
-        if (provider == "dynamic_store" && role == "match_configuration"
-            && (name.endsWith(".in-addr.arpa") || name.endsWith(".ip6.arpa"))) search = false;
         if (!add(kind, name, source) || (search && !add("single_label", "", source))) return std::nullopt;
     }
     QJsonArray targets;

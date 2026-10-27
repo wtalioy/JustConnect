@@ -66,7 +66,11 @@ int main(int argc, char **argv) try
                         {"nrpt", QJsonArray{QJsonObject{{"Namespace", QJsonArray{"host", ".mesh.test"}}}}},
                         {"dynamic_store", QJsonObject{
                             {"State:/Network/Service/a/DNS", QJsonObject{{"SupplementalMatchDomains", QJsonArray{""}}}},
-                            {"Setup:/Network/Service/a/DNS", QJsonObject{{"SearchDomains", QJsonArray{"saved.test"}}}}}}}};
+                            {"Setup:/Network/Service/a/DNS", QJsonObject{{"SearchDomains", QJsonArray{"saved.test"}}}}}},
+                        {"macos_resolvers",QJsonArray{
+                            QJsonObject{{"scope","unscoped"},{"resolver",2},{"interface_index",0},{"domain","static.active.test"},{"search",QJsonArray{"active.search"}}},
+                            QJsonObject{{"scope","interface"},{"resolver",1},{"interface_index",qint64(2147483649LL)},
+                                {"domain","bound.test"},{"search",QJsonArray{}}}}}}};
     };
     NetworkPolicySession session(&engine, readDns);
     NetworkPolicyWindow window(&session);
@@ -92,7 +96,7 @@ int main(int argc, char **argv) try
           && lan->text(2).contains("ssh.campus.test") && lan->text(2).contains("192.168.24.53"),
           "Native source, protocol/port or DNS role lost in explanation");
     check(lan->toolTip(2)==lan->text(2), "Long overlap details became inaccessible in a narrow column");
-    check(dns && tabs && dns->topLevelItemCount() == 7, "Native and reserved DNS namespace sources are reachable in a separate tab");
+    check(dns && tabs && dns->topLevelItemCount() == 10, "Native and reserved DNS namespace sources are reachable in a separate tab");
     tabs->setCurrentIndex(1);
     check(dns->isVisible() && dns->topLevelItem(0)->text(0).contains("根域")
           && dns->topLevelItem(1)->text(1).contains("搜索后缀及路由域")
@@ -100,14 +104,18 @@ int main(int argc, char **argv) try
           && dns->topLevelItem(2)->text(0) == "host" && dns->topLevelItem(2)->text(1).contains("原生表达式"),
           "DNS root, native NRPT expression or original interface source misrepresented");
     check(dns->topLevelItem(0)->text(3).isEmpty() && dns->topLevelItem(2)->text(3).contains("host*")
-          && dns->topLevelItem(6)->text(0)=="localhost", "Root became blanket protection, prefix became exact or reserved loopback name was lost");
-    bool saved=false, current=false;
+          && dns->topLevelItem(9)->text(0)=="localhost", "Root became blanket protection, prefix became exact or reserved loopback name was lost");
+    bool saved=false, current=false,effective=false,scoped=false;
     for(int i=0;i<dns->topLevelItemCount();++i) {
         auto *item=dns->topLevelItem(i);
         if(item->text(0)=="saved.test") saved=item->text(2).startsWith("已保存 DNS 配置") && item->text(3).isEmpty();
         if(item->text(0).contains("根域") && item->text(2).contains("State:")) current=item->text(2).startsWith("当前 DNS 配置");
+        if(item->text(0)=="static.active.test")effective=item->text(2).contains("生效的系统解析器 2")
+            && item->text(2).contains("普通查询") && item->text(3).contains("static.active.test");
+        if(item->text(0)=="bound.test")scoped=item->text(2).contains("接口查询") && item->text(2).contains("LAN <bridge>&") && item->text(3).isEmpty();
     }
     check(saved && current,"Stored and current macOS resolver inputs collapsed into one active claim");
+    check(effective && scoped,"Effective ordinary/interface DNS scopes were hidden or misrepresented as the same name protection");
     auto *choose = window.findChild<QPushButton *>("chooseCampusAddress");
     auto *restore = window.findChild<QPushButton *>("restoreOriginalAddress");
     auto *preferenceStatus = window.findChild<QLabel *>("networkPolicyPreferenceStatus");
