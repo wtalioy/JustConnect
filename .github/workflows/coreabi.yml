@@ -56,6 +56,7 @@ jobs:
           path: |
             build/coreabi/*.txt
             build/coreabi/macos-helper.log
+            build/coreabi/macos-original-dns.log
             build/coreabi/macos-tun-dns.log
             build/coreabi/macos-tun-routes.log
             build/coreabi/macos-helper/*.out

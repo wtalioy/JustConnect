@@ -12,7 +12,10 @@
 #include <iostream>
 #include <stdexcept>
 
-static void check(bool value,const char *message) { if(!value)throw std::runtime_error(message); }
+static void check(bool value,const char *message)
+{
+    if(!value)throw std::runtime_error(std::string(message)+" (last SystemConfiguration status: "+std::to_string(SCError())+")");
+}
 static QString encoded(CFPropertyListRef value)
 {
     const auto data=CFPropertyListCreateData(nullptr,value,kCFPropertyListBinaryFormat_v1_0,0,nullptr);check(data,"Encode native fixture");
@@ -95,7 +98,11 @@ int main(int argc,char **argv) try
 {
     QCoreApplication app(argc,argv);
     if(argc==4 && app.arguments()[1]=="--fixture-source")return fixtureSource(app.arguments()[2],app.arguments()[3].toInt());
-    check(argc==1,"Known private DNS fixture arguments");QTemporaryDir directory;check(directory.isValid(),"Create private preferences directory");
+    check(argc==2 && app.arguments()[1]=="--isolated" && ::geteuid()==0
+        && qgetenv("GITHUB_ACTIONS")=="true" && qgetenv("RUNNER_OS")=="macOS",
+        "Private preferences writes require the disposable macOS root fixture");
+    ::alarm(20);
+    QTemporaryDir directory;check(directory.isValid(),"Create private preferences directory");
     const auto filename=directory.filePath("dns.plist").toCFString();
     const auto preferences=SCPreferencesCreate(nullptr,CFSTR("JustConnect DNS tests"),filename);CFRelease(filename);
     check(preferences,"Open private native preferences");const auto releasePrefs=qScopeGuard([&]{CFRelease(preferences);});
