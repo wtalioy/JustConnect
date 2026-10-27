@@ -1,5 +1,6 @@
 #include "infrastructure/networkhelper/windows/networkownership.h"
 #include <QSet>
+#include <QUuid>
 #include <algorithm>
 
 namespace {
@@ -40,7 +41,7 @@ std::optional<WindowsNetworkOwnership> WindowsNetworkOwnership::capture(const QJ
     if(!adapter || device["index"].toInteger()<=0 || device["address"]!=configuration["address"]
         || device["peer"]!=configuration["peer"] || !configuration["capture_prefixes"].isArray()
         || !configuration["dns_domains"].isArray() || !dns["nrpt"].isArray()
-        || !dns["interfaces"].isArray() || !dns["clients"].isArray())return {};
+        || !dns["interfaces"].isArray() || !dns["clients"].isArray() || !dns["adapters"].isArray())return {};
     WindowsNetworkOwnership result;result.device=device;result.interfaceSnapshot=*adapter;
     QJsonObject localRoute;
     for(const auto &item:network["routes"].toArray()){
@@ -71,6 +72,14 @@ std::optional<WindowsNetworkOwnership> WindowsNetworkOwnership::capture(const QJ
     if(!pending.isEmpty())return {};
     for(const auto &item:dns["interfaces"].toArray())if(item.toObject()["InterfaceIndex"]==device["index"])result.dnsInterfaces.append(item);
     for(const auto &item:dns["clients"].toArray())if(item.toObject()["InterfaceIndex"]==device["index"])result.dnsClients.append(item);
+    for(const auto &item:dns["adapters"].toArray()){
+        const auto row=item.toObject();
+        if(row["InterfaceIndex"]!=device["index"] && row["Ipv6IfIndex"]!=device["index"])continue;
+        const auto id=QUuid(row["Guid"].toString());
+        if(id.isNull() || id!=QUuid(device["guid"].toString()) || row["Luid"]!=device["luid"])return {};
+        result.dnsAdapters.append(item);
+    }
+    if(result.dnsAdapters.size()!=1)return {};
     const auto filter=result.filter(configuration);
     if(!filter || !filter(network,dns))return {};
     return result;
@@ -82,7 +91,8 @@ NetworkPolicySession::OriginalViewFilter WindowsNetworkOwnership::filter(const Q
         || configuration["peer"]!=device["peer"] || !configuration["capture_prefixes"].isArray())return {};
     const auto required=captures(configuration,peerRoute);
     return [owned=*this,required](QJsonObject network,QJsonObject dns)->std::optional<NetworkPolicySession::OriginalView>{
-        if(!ownedInterface(network,owned.device) || !dns["nrpt"].isArray() || !dns["interfaces"].isArray() || !dns["clients"].isArray())return {};
+        if(!ownedInterface(network,owned.device) || !dns["nrpt"].isArray() || !dns["interfaces"].isArray()
+            || !dns["clients"].isArray() || !dns["adapters"].isArray())return {};
         auto routes=network["routes"].toArray();
         for(const auto &row:required){const auto at=std::find(routes.begin(),routes.end(),row);if(at==routes.end())return {};routes.erase(at);}
         network["routes"]=subtract(routes,owned.automaticRoutes);
@@ -100,6 +110,7 @@ NetworkPolicySession::OriginalViewFilter WindowsNetworkOwnership::filter(const Q
         dns["nrpt"]=subtract(dns["nrpt"].toArray(),owned.dnsPolicies);
         dns["interfaces"]=subtract(dns["interfaces"].toArray(),owned.dnsInterfaces);
         dns["clients"]=subtract(dns["clients"].toArray(),owned.dnsClients);
+        dns["adapters"]=subtract(dns["adapters"].toArray(),owned.dnsAdapters);
         return NetworkPolicySession::OriginalView{network,dns};
     };
 }

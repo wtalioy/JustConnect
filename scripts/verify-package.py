@@ -33,11 +33,16 @@ def check_windows_dns_reader(root, env):
     if not reader.is_file():
         raise RuntimeError('Missing packaged native DNS reader')
     facts = json.loads(run(reader, env=env, timeout=10))
-    if (not isinstance(facts, dict) or set(facts) != {'interfaces', 'clients', 'global', 'nrpt', 'doh_supported', 'doh'}
-            or any(not isinstance(facts[key], list) for key in ('interfaces', 'clients', 'nrpt', 'doh'))
-            or not isinstance(facts['global'], dict) or not isinstance(facts['doh_supported'], bool)):
+    if (not isinstance(facts, dict) or set(facts) != {'interfaces', 'clients', 'global', 'nrpt', 'doh_supported', 'doh', 'adapters', 'native_global'}
+            or any(not isinstance(facts[key], list) for key in ('interfaces', 'clients', 'nrpt', 'doh', 'adapters'))
+            or not isinstance(facts['global'], dict) or not isinstance(facts['doh_supported'], bool)
+            or not isinstance(facts['native_global'], dict)
+            or type(facts['native_global'].get('Status')) is not int
+            or 'Value' not in facts['native_global']
+            or (facts['native_global']['Status'] == 0 and not isinstance(facts['native_global']['Value'], dict))
+            or (facts['native_global']['Status'] != 0 and facts['native_global']['Value'] is not None)):
         raise RuntimeError('Packaged DNS reader did not return complete native facts')
-    return {'interfaces': len(facts['interfaces']), 'effective_nrpt': len(facts['nrpt'])}
+    return {'interfaces': len(facts['interfaces']), 'effective_nrpt': len(facts['nrpt']), 'native_adapters': len(facts['adapters'])}
 
 
 def check_proxy_recovery(root, env):
