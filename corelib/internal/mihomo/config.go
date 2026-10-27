@@ -68,6 +68,31 @@ func absolute(path, directory string) (string, error) {
 }
 
 func endpoints(p model.Process) ([]endpoint, error) {
+	list, err := configuredEndpoints(p)
+	if len(p.IPC) == 0 {
+		return list, err
+	}
+	kind := "unix"
+	if runtime.GOOS == "windows" {
+		kind = "pipe"
+	}
+	for _, address := range p.IPC {
+		observed, observedErr := ipcEndpoint(p, kind, address, "")
+		if observedErr != nil {
+			return nil, observedErr
+		}
+		duplicate := false
+		for _, known := range list {
+			duplicate = duplicate || known.network == kind && known.address == observed[0].address
+		}
+		if !duplicate {
+			list = append(list, observed...)
+		}
+	}
+	return list, nil
+}
+
+func configuredEndpoints(p model.Process) ([]endpoint, error) {
 	args := arguments(p.Args)
 	home := args["d"]
 	if home == "" && p.Home != "" {

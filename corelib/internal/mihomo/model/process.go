@@ -12,6 +12,8 @@ type Process struct {
 	Started         uint64
 	Args            []string
 	Directory, Home string
+	// IPC contains observed native listener paths; the connector still verifies the peer PID.
+	IPC []string
 }
 
 func Recognized(name string) bool {
