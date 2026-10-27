@@ -406,6 +406,7 @@ def main(args):
                             assert answers == {'198.18.0.6', '198.18.0.7'}, ('Cache prewarm did not use the native original source', name, answers)
                         native_ipv6 = [row[4][0] for row in socket.getaddrinfo('host.campus.test', None, socket.AF_INET6, socket.SOCK_STREAM)]
                         print('CHECK: original native AAAA before core', native_ipv6, flush=True)
+                        Path(str(marker) + '.dns-native-ipv6').write_text(json.dumps(native_ipv6) + '\n')
                         dns_before = json.loads(run(args.dns_probe, '--snapshot').stdout)
                         (output / 'original-dns-source.before.json').write_text(json.dumps(dns_before, indent=2) + '\n')
                         Path(str(marker) + '.dns-source-ready').touch()

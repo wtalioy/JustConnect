@@ -86,7 +86,7 @@ if(APPLE)
         "${REPO}/core/connectionsessionstate.cpp")
     set_target_properties(coreabi_macos_tun_adapter_test PROPERTIES AUTOMOC ON INSTALL_RPATH "@executable_path/../Frameworks")
     target_include_directories(coreabi_macos_tun_adapter_test PRIVATE "${REPO}")
-    target_link_libraries(coreabi_macos_tun_adapter_test PRIVATE coreabi_engine Qt6::Network)
+    target_link_libraries(coreabi_macos_tun_adapter_test PRIVATE coreabi_engine Qt6::Network dns_sd)
     justconnect_core_runtime(coreabi_macos_tun_adapter_test coreabi)
 endif()
 
