@@ -12,12 +12,16 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
+#include <iphlpapi.h>
+#include <objbase.h>
 #include <mi.h>
 #include <cwchar>
 #include <limits>
 #include <set>
 #include <vector>
 #include "../domainlimits.h"
+static_assert(WindowsDNS::PropertyVersion==DNS_SERVER_PROPERTY_VERSION1
+    && WindowsDNS::DohProperty==DnsServerDohProperty && WindowsDNS::DotProperty==DnsServerDotProperty);
 #endif
 
 namespace {
@@ -108,6 +112,132 @@ std::string ip(const wchar_t *text)
         if (number) output += "%" + std::to_string(number);
     }
     return output;
+}
+std::string optionalText(const wchar_t *text)
+{
+    return text ? quote(utf8(text)) : "null";
+}
+std::string dnsEndpoint(const SOCKET_ADDRESS &socket)
+{
+    if(!socket.lpSockaddr || socket.iSockaddrLength<int(sizeof(ADDRESS_FAMILY)))
+        throw std::runtime_error("native DNS server socket");
+    const auto family=socket.lpSockaddr->sa_family;
+    char address[INET6_ADDRSTRLEN]{};
+    unsigned port=0,scope=0;
+    if(family==AF_INET && socket.iSockaddrLength>=int(sizeof(sockaddr_in))){
+        const auto &value=*reinterpret_cast<const sockaddr_in *>(socket.lpSockaddr);
+        if(!InetNtopA(AF_INET,&value.sin_addr,address,sizeof(address)))throw std::runtime_error("native DNS IPv4");
+        port=ntohs(value.sin_port);
+    }else if(family==AF_INET6 && socket.iSockaddrLength>=int(sizeof(sockaddr_in6))){
+        const auto &value=*reinterpret_cast<const sockaddr_in6 *>(socket.lpSockaddr);
+        if(!InetNtopA(AF_INET6,&value.sin6_addr,address,sizeof(address)))throw std::runtime_error("native DNS IPv6");
+        port=ntohs(value.sin6_port);scope=value.sin6_scope_id;
+    }else throw std::runtime_error("native DNS server family or size");
+    auto host=std::string(address);
+    if(scope)host+="%"+std::to_string(scope);
+    return "{\"Address\":"+quote(host)+",\"Port\":"+std::to_string(port ? port : WindowsDNS::ServerPort)+"}";
+}
+std::string serverProperties(ULONG count,const DNS_SERVER_PROPERTY *properties)
+{
+    if(count>NetworkDnsDomainLimit || (count && !properties))throw std::runtime_error("native DNS security properties");
+    std::string output("[");
+    for(ULONG i=0;i<count;++i){
+        const auto &value=properties[i];
+        if(i)append(output,",");
+        append(output,"{\"Version\":"+std::to_string(value.Version)+",\"ServerIndex\":"+std::to_string(value.ServerIndex)
+            +",\"Type\":"+std::to_string(value.Type)+",\"Settings\":");
+        if(value.Version==WindowsDNS::PropertyVersion && value.Type==DnsServerDohProperty){
+            if(!value.Property.DohSettings)throw std::runtime_error("native DoH settings");
+            const auto &settings=*value.Property.DohSettings;
+            append(output,"{\"Template\":"+optionalText(settings.Template)+",\"Flags\":"+quote(std::to_string(settings.Flags))+"}");
+        }else if(value.Version==WindowsDNS::PropertyVersion && value.Type==DnsServerDotProperty){
+            if(!value.Property.DotSettings)throw std::runtime_error("native DoT settings");
+            const auto &settings=*value.Property.DotSettings;
+            append(output,"{\"Hostname\":"+optionalText(settings.Hostname)+",\"Port\":"+std::to_string(settings.Port)
+                +",\"Flags\":"+quote(std::to_string(settings.Flags))+"}");
+        }else append(output,"null"); // Unknown security properties remain explicit, never plain-DNS permission.
+        append(output,"}");
+    }
+    append(output,"]");return output;
+}
+void checkSettingsStatus(ULONG status)
+{
+    // These statuses describe unavailable settings, not a confirmed unencrypted source.
+    if(status!=NO_ERROR && !WindowsDNS::settingsUnavailable(status))throw std::runtime_error("native DNS settings read failed");
+}
+std::string interfaceSettings(const GUID &id)
+{
+    DNS_INTERFACE_SETTINGS4 settings{};
+    settings.Version=DNS_INTERFACE_SETTINGS_VERSION4;
+    auto *base=reinterpret_cast<DNS_INTERFACE_SETTINGS *>(&settings);
+    const auto status=GetInterfaceDnsSettings(id,base);
+    struct Release {DNS_INTERFACE_SETTINGS *value;~Release(){if(value)FreeInterfaceDnsSettings(value);}} release{status==NO_ERROR?base:nullptr};
+    checkSettingsStatus(status);
+    std::string output("{\"Status\":"+std::to_string(status)+",\"Value\":");
+    if(status!=NO_ERROR)append(output,"null");
+    else{
+        append(output,"{\"Flags\":"+quote(std::to_string(settings.Flags))
+            +",\"Domain\":"+optionalText(settings.Domain)+",\"NameServer\":"+optionalText(settings.NameServer)
+            +",\"SearchList\":"+optionalText(settings.SearchList)+",\"ProfileNameServer\":"+optionalText(settings.ProfileNameServer)
+            +",\"SupplementalSearchList\":"+optionalText(settings.SupplementalSearchList)
+            +",\"DisableUnconstrainedQueries\":"+std::to_string(settings.DisableUnconstrainedQueries)
+            +",\"EncryptedDnsAdapterFlags\":"+std::to_string(settings.EncryptedDnsAdapterFlags)+",\"ServerProperties\":");
+        append(output,serverProperties(settings.cServerProperties,settings.ServerProperties));
+        append(output,",\"ProfileServerProperties\":");append(output,serverProperties(settings.cProfileServerProperties,settings.ProfileServerProperties));
+        append(output,"}");
+    }
+    append(output,"}");return output;
+}
+std::string globalSettings()
+{
+    trace("global_dns");
+    DNS_SETTINGS2 settings{};settings.Version=DNS_SETTINGS_VERSION2;
+    auto *base=reinterpret_cast<DNS_SETTINGS *>(&settings);
+    const auto status=GetDnsSettings(base);
+    struct Release {DNS_SETTINGS *value;~Release(){if(value)FreeDnsSettings(value);}} release{status==NO_ERROR?base:nullptr};
+    checkSettingsStatus(status);
+    std::string output("{\"Status\":"+std::to_string(status)+",\"Value\":");
+    if(status!=NO_ERROR)append(output,"null");
+    else append(output,"{\"Flags\":"+quote(std::to_string(settings.Flags))+",\"SettingFlags\":"+quote(std::to_string(settings.SettingFlags))
+        +",\"Domain\":"+optionalText(settings.Domain)+",\"SearchList\":"+optionalText(settings.SearchList)+"}");
+    append(output,"}");return output;
+}
+std::string adapterDns()
+{
+    trace("adapter_dns");
+    // IP Helper recommends a 15 KB initial buffer; grow only to its actual required size.
+    std::vector<unsigned char> buffer(15000);
+    IP_ADAPTER_ADDRESSES *adapters=nullptr;
+    for(;;){
+        ULONG size=ULONG(buffer.size());adapters=reinterpret_cast<IP_ADAPTER_ADDRESSES *>(buffer.data());
+        const auto status=GetAdaptersAddresses(AF_UNSPEC,GAA_FLAG_SKIP_UNICAST|GAA_FLAG_SKIP_ANYCAST|GAA_FLAG_SKIP_MULTICAST,
+            nullptr,adapters,&size);
+        if(status==ERROR_NO_DATA)return "[]";
+        if(status==NO_ERROR)break;
+        if(status!=ERROR_BUFFER_OVERFLOW || size<=buffer.size() || size>limit
+            || GetTickCount64()-started>=WindowsDNS::SnapshotTimeoutMs)throw std::runtime_error("native DNS adapter read");
+        buffer.resize(size);
+    }
+    std::string output("[");size_t count=0;
+    for(auto *adapter=adapters;adapter;adapter=adapter->Next){
+        if(++count>NetworkDnsDomainLimit)throw std::runtime_error("native DNS adapter count");
+        GUID id{};wchar_t guid[40]{};
+        if(ConvertInterfaceLuidToGuid(&adapter->Luid,&id)!=NO_ERROR || !StringFromGUID2(id,guid,40))
+            throw std::runtime_error("native DNS adapter identity");
+        if(count>1)append(output,",");
+        append(output,"{\"InterfaceIndex\":"+std::to_string(adapter->IfIndex)+",\"Ipv6IfIndex\":"+std::to_string(adapter->Ipv6IfIndex)
+            +",\"Guid\":"+quote(utf8(guid))+",\"Luid\":"+quote(std::to_string(adapter->Luid.Value))
+            +",\"IfType\":"+std::to_string(adapter->IfType)+",\"OperStatus\":"+std::to_string(adapter->OperStatus)
+            +",\"Ipv4Metric\":"+std::to_string(adapter->Ipv4Metric)+",\"Ipv6Metric\":"+std::to_string(adapter->Ipv6Metric)
+            +",\"DnsSuffix\":"+optionalText(adapter->DnsSuffix)+",\"DnsServers\":[");
+        size_t servers=0;
+        for(auto *server=adapter->FirstDnsServerAddress;server;server=server->Next){
+            if(++servers>NetworkDnsDomainLimit)throw std::runtime_error("native DNS server count");
+            if(servers>1)append(output,",");append(output,dnsEndpoint(server->Address));
+        }
+        append(output,"],\"Settings\":");append(output,interfaceSettings(id));append(output,"}");
+    }
+    append(output,"]");return output;
 }
 void addNamespace(Namespaces &names,const wchar_t *name,size_t &bytes)
 {
@@ -455,12 +585,15 @@ std::string snapshot(const wchar_t *nrptClass, const wchar_t *dohClass, bool emp
     const auto interfaces = query(session,L"MSFT_DNSClientServerAddress","MSFT_DNSClientServerAddress",{L"InterfaceIndex",L"AddressFamily",L"ServerAddresses"});
     const auto clients = query(session,L"MSFT_DNSClient","MSFT_DNSClient",{L"InterfaceIndex",L"ConnectionSpecificSuffix",L"ConnectionSpecificSuffixSearchList",L"RegisterThisConnectionsAddress",L"UseSuffixWhenRegistering"});
     const auto globals = query(session,L"MSFT_DNSClientGlobalSetting","MSFT_DNSClientGlobalSetting",{L"SuffixSearchList",L"UseDevolution",L"DevolutionLevel",L"AppendParentSuffixes",L"AppendPrimarySuffixes"},true);
+    const auto adapters=adapterDns(), nativeGlobal=globalSettings();
     std::string output("{\"interfaces\":");
     append(output,interfaces);append(output,",\"clients\":");append(output,clients);
     append(output,",\"global\":");append(output,globals);
     append(output,",\"nrpt\":");append(output,policies.json);
     append(output,",\"doh_supported\":");append(output,supported ? "true" : "false");
-    append(output,",\"doh\":");append(output,doh);append(output,"}");
+    append(output,",\"doh\":");append(output,doh);
+    append(output,",\"adapters\":");append(output,adapters);
+    append(output,",\"native_global\":");append(output,nativeGlobal);append(output,"}");
     trace("serialize");
     return output;
 }
@@ -487,6 +620,26 @@ int main(int argc, char **argv) try
         bool rejected = false;
         try { ip(L"2001:db8::1%4294967296"); } catch (const std::exception &) { rejected = true; }
         if (!rejected) throw std::runtime_error("IP scope limit");
+        sockaddr_in6 server{};server.sin6_family=AF_INET6;server.sin6_scope_id=7;server.sin6_port=htons(5353);
+        if(InetPtonW(AF_INET6,L"fe80::53",&server.sin6_addr)!=1)throw std::runtime_error("native DNS fixture address");
+        SOCKET_ADDRESS endpoint{reinterpret_cast<sockaddr *>(&server),sizeof(server)};
+        if(dnsEndpoint(endpoint)!="{\"Address\":\"fe80::53%7\",\"Port\":5353}")throw std::runtime_error("native DNS endpoint scope and port");
+        server.sin6_port=0;
+        if(dnsEndpoint(endpoint)!="{\"Address\":\"fe80::53%7\",\"Port\":53}")throw std::runtime_error("native DNS protocol port");
+        endpoint.iSockaddrLength=sizeof(ADDRESS_FAMILY);
+        rejected=false;try{dnsEndpoint(endpoint);}catch(const std::exception &){rejected=true;}
+        if(!rejected)throw std::runtime_error("truncated native DNS socket");
+        DNS_DOH_SERVER_SETTINGS encrypted{};encrypted.Flags=std::numeric_limits<ULONG64>::max();
+        DNS_SERVER_PROPERTY security[2]{};
+        security[0].Version=DNS_SERVER_PROPERTY_VERSION1;security[0].ServerIndex=1;
+        security[0].Type=DnsServerDohProperty;security[0].Property.DohSettings=&encrypted;
+        security[1].Version=2;security[1].Type=static_cast<DNS_SERVER_PROPERTY_TYPE>(99);
+        const auto encoded=serverProperties(2,security);
+        if(encoded.find("\"Template\":null,\"Flags\":\"18446744073709551615\"")==std::string::npos
+            || encoded.find("\"Type\":99,\"Settings\":null")==std::string::npos)
+            throw std::runtime_error("native security flags or unknown property lost");
+        rejected=false;try{checkSettingsStatus(ERROR_ACCESS_DENIED);}catch(const std::exception &){rejected=true;}
+        if(!rejected)throw std::runtime_error("DNS settings access failure downgraded to unavailable");
         const wchar_t invalid[] = {wchar_t(0xd800),0};
         rejected = false;
         try { utf8(invalid); } catch (const std::exception &) { rejected = true; }

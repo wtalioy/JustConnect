@@ -9,7 +9,8 @@ int main(int argc,char **argv) try
     QCoreApplication app(argc,argv);
     const QJsonObject configuration{{"address","10.222.0.1"},{"peer","10.222.0.2"},
         {"capture_prefixes",QJsonArray{"198.18.0.6/32"}},{"dns_domains",QJsonArray{"campus.test"}}};
-    const QJsonObject device{{"index",91},{"name","JustConnect fixture"},{"address",configuration["address"]},{"peer",configuration["peer"]}};
+    const QJsonObject device{{"index",91},{"name","JustConnect fixture"},{"address",configuration["address"]},{"peer",configuration["peer"]},
+        {"guid","{2717939F-2E6F-4F37-A293-8A4F3EDBC3E5}"},{"luid","9100"}};
     const QJsonObject lan{{"index",7},{"name","original"},{"up",true},{"addresses",QJsonArray{"192.168.1.2/24"}}};
     const QJsonObject tun{{"index",91},{"name",device["name"]},{"up",true},{"addresses",QJsonArray{"10.222.0.1/32","fe80::1/64"}}};
     const QJsonObject peer{{"interface_index",91},{"destination","10.222.0.2/32"},{"gateway","0.0.0.0"},{"metric",1},{"protocol",3}};
@@ -19,12 +20,25 @@ int main(int argc,char **argv) try
     const QJsonObject network{{"interfaces",QJsonArray{lan,tun}},{"routes",QJsonArray{originalRoute,peer,target,source}}};
     const QJsonObject originalPolicy{{"Namespace",QJsonArray{".original.test"}},{"NameServers",QJsonArray{"192.168.1.53"}}};
     const QJsonObject ownedPolicy{{"Namespace",QJsonArray{".campus.test"}},{"NameServers",QJsonArray{"10.222.0.2"}},{"QueryPolicy",""}};
-    const QJsonObject dns{{"nrpt",QJsonArray{originalPolicy,ownedPolicy}},{"interfaces",QJsonArray{}},{"clients",QJsonArray{}}};
+    const QJsonObject originalAdapter{{"InterfaceIndex",7},{"Ipv6IfIndex",7},{"Guid","{3B167A5B-284D-4E65-A202-5DD4B12743E4}"},
+        {"Luid","7000"},{"DnsServers",QJsonArray{QJsonObject{{"Address","192.168.1.53"},{"Port",53}}}}};
+    const QJsonObject ownedAdapter{{"InterfaceIndex",91},{"Ipv6IfIndex",91},{"Guid",device["guid"]},{"Luid",device["luid"]},
+        {"DnsServers",QJsonArray{}},{"Settings",QJsonObject{{"Status",2},{"Value",QJsonValue::Null}}}};
+    const QJsonObject dns{{"nrpt",QJsonArray{originalPolicy,ownedPolicy}},{"interfaces",QJsonArray{}},{"clients",QJsonArray{}},
+        {"adapters",QJsonArray{originalAdapter,ownedAdapter}}};
     const auto ownership=WindowsNetworkOwnership::capture(configuration,device,network,dns);
     check(ownership.has_value(),"confirmed owned snapshot was rejected");
     const auto filter=ownership->filter(configuration);check(bool(filter),"confirmed capture set was rejected");
     const auto clean=filter(network,dns);check(clean && clean->first["interfaces"]==QJsonArray{lan}
-        && clean->first["routes"]==QJsonArray{originalRoute} && clean->second["nrpt"]==QJsonArray{originalPolicy},"original network was not restored in the read model");
+        && clean->first["routes"]==QJsonArray{originalRoute} && clean->second["nrpt"]==QJsonArray{originalPolicy}
+        && clean->second["adapters"]==QJsonArray{originalAdapter},"original network was not restored in the read model");
+    auto foreignDns=dns, editedAdapter=ownedAdapter;
+    editedAdapter["DnsServers"]=QJsonArray{QJsonObject{{"Address","203.0.113.53"},{"Port",5353}}};
+    foreignDns["adapters"]=QJsonArray{originalAdapter,editedAdapter};
+    const auto nativeEdit=filter(network,foreignDns);
+    check(nativeEdit && nativeEdit->second["adapters"].toArray().contains(editedAdapter),"external native DNS source was hidden");
+    editedAdapter=ownedAdapter;editedAdapter["Luid"]="9101";foreignDns["adapters"]=QJsonArray{originalAdapter,editedAdapter};
+    check(!WindowsNetworkOwnership::capture(configuration,device,network,foreignDns),"reused interface index acquired native DNS ownership");
     auto changedNetwork=network,changedDns=dns;
     auto changedTun=tun;changedTun["addresses"]=QJsonArray{"10.222.0.1/32","fe80::1/64","203.0.113.8/32"};
     changedNetwork["interfaces"]=QJsonArray{lan,changedTun};

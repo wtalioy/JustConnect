@@ -61,10 +61,24 @@ int main(int argc, char **argv) try
         }
         check(snapshot.result.succeeded(), qPrintable(snapshot.result.detail));
         check(!snapshot.data["interfaces"].toArray().isEmpty(), "Native DNS interface facts missing");
+        const auto adapters=snapshot.data["adapters"].toArray();
+        check(!adapters.isEmpty(),"Native ordered DNS adapter facts missing");
+        bool source=false;
+        std::cout<<"Native DNS global settings status="<<snapshot.data["native_global"].toObject()["Status"].toInteger()<<'\n';
+        for(const auto &value:adapters){
+            const auto row=value.toObject();
+            if(row["OperStatus"]==1 && !row["DnsServers"].toArray().isEmpty())
+                std::cout<<"Active DNS source settings status="<<row["Settings"].toObject()["Status"].toInteger()
+                    <<", servers="<<row["DnsServers"].toArray().size()<<'\n';
+            source|=row["OperStatus"]==1 && !row["DnsServers"].toArray().isEmpty()
+                && row["Settings"].toObject()["Status"]==0;
+        }
+        check(source && snapshot.data["native_global"].toObject()["Status"]==0,
+              "Disposable runner did not expose an active native DNS source and global encryption settings");
         if (missing) check(snapshot.data["doh_supported"] == false && snapshot.data["doh"].toArray().isEmpty(),
                            "Missing optional DNS provider did not remain unavailable");
         if (emptyNrpt) check(snapshot.data["nrpt"].toArray().isEmpty(), "Successful empty NRPT provider result became an error or partial policy");
-        std::cout << "Native resolver interfaces, effective NRPT and DoH registrations inspected without writes\n";
+        std::cout << "Native resolver order/ports, adapter identity, DoH/DoT/DDR settings and effective NRPT inspected without writes\n";
         return 0;
     }
     auto data = QJsonDocument::fromJson(R"JSON({
@@ -72,7 +86,16 @@ int main(int argc, char **argv) try
         "clients":[{"InterfaceIndex":7,"ConnectionSpecificSuffix":"overlay.test","ConnectionSpecificSuffixSearchList":["overlay.test"]}],
         "global":{"SuffixSearchList":[]},
         "nrpt":[{"Namespace":[".overlay.test"],"NameServers":["192.0.2.53"],"DirectAccessEnabled":false,"DirectAccessDnsServers":[],"QueryPolicy":"QueryIPv6Only","SecureNameQueryFallback":"Disable","DnsSecValidationRequired":null}],
-        "doh_supported":false,"doh":[]
+        "doh_supported":false,"doh":[],
+        "native_global":{"Status":0,"Value":{"Flags":"0","SettingFlags":"18446744073709551615","Domain":null,"SearchList":"overlay.test"}},
+        "adapters":[{"InterfaceIndex":7,"Ipv6IfIndex":7,"Guid":"{2717939F-2E6F-4F37-A293-8A4F3EDBC3E5}","Luid":"18446744073709551615",
+            "IfType":6,"OperStatus":1,"Ipv4Metric":25,"Ipv6Metric":35,"DnsSuffix":"overlay.test",
+            "DnsServers":[{"Address":"fe80::53%7","Port":5353},{"Address":"192.0.2.53","Port":53}],
+            "Settings":{"Status":0,"Value":{"Flags":"8192","Domain":null,"NameServer":null,"SearchList":"overlay.test",
+                "ProfileNameServer":"192.0.2.53","SupplementalSearchList":null,"DisableUnconstrainedQueries":1,"EncryptedDnsAdapterFlags":3,
+                "ServerProperties":[{"Version":1,"ServerIndex":0,"Type":1,"Settings":{"Template":"https://resolver.test/dns-query","Flags":"2"}},
+                    {"Version":1,"ServerIndex":1,"Type":2,"Settings":{"Hostname":"resolver.test","Port":853,"Flags":"1"}},
+                    {"Version":2,"ServerIndex":1,"Type":99,"Settings":null}],"ProfileServerProperties":[]}}}]
     })JSON").object();
     PlatformOperationResult result;
     QString output;
@@ -83,6 +106,30 @@ int main(int argc, char **argv) try
     output = QString::fromUtf8(QJsonDocument(data).toJson());
     const auto snapshot = readWindowsDnsSnapshot(runner);
     check(snapshot.result.succeeded() && snapshot.data == data, "DNS source identity or NRPT security properties lost");
+    const auto complete=data;
+    auto rejects=[&](const QJsonObject &value){
+        output=QString::fromUtf8(QJsonDocument(value).toJson());
+        const auto read=readWindowsDnsSnapshot(runner);
+        check(!read.result.succeeded() && read.data.isEmpty(),"Incomplete or downgraded native source accepted");
+    };
+    auto adapters=data["adapters"].toArray();
+    auto adapter=adapters[0].toObject();
+    adapter["Settings"]=QJsonObject{{"Status",87},{"Value",QJsonValue::Null}};
+    adapters[0]=adapter;data["adapters"]=adapters;
+    output=QString::fromUtf8(QJsonDocument(data).toJson());
+    check(readWindowsDnsSnapshot(runner).result.succeeded(),"Unavailable API settings were guessed or lost");
+    adapter["Settings"]=QJsonObject{{"Status",5},{"Value",QJsonValue::Null}};
+    adapters[0]=adapter;data["adapters"]=adapters;rejects(data);
+    data=complete;data["native_global"]=QJsonObject{{"Status",0},{"Value",QJsonValue::Null}};rejects(data);
+    data=complete;data.remove("adapters");rejects(data);
+    data=complete;adapters=data["adapters"].toArray();adapter=adapters[0].toObject();
+    auto settings=adapter["Settings"].toObject(), details=settings["Value"].toObject();
+    details["Flags"]=8192;settings["Value"]=details;adapter["Settings"]=settings;adapters[0]=adapter;data["adapters"]=adapters;rejects(data);
+    details["Flags"]="18446744073709551616";settings["Value"]=details;adapter["Settings"]=settings;adapters[0]=adapter;data["adapters"]=adapters;rejects(data);
+    data=complete;adapters=data["adapters"].toArray();adapter=adapters[0].toObject();
+    auto servers=adapter["DnsServers"].toArray();auto endpoint=servers[0].toObject();endpoint["Port"]=0;
+    servers[0]=endpoint;adapter["DnsServers"]=servers;adapters[0]=adapter;data["adapters"]=adapters;rejects(data);
+    data=complete;output=QString::fromUtf8(QJsonDocument(data).toJson());
     for (const auto status : {PlatformOperationResult::Status::PermissionDenied, PlatformOperationResult::Status::TimedOut}) {
         result.status = status;
         const auto denied = readWindowsDnsSnapshot(runner);
@@ -90,7 +137,7 @@ int main(int argc, char **argv) try
     }
     result = {};
     result.status = PlatformOperationResult::Status::TimedOut;
-    for (const auto &stage : {QString("nrpt"), QString("native"), QString("nrpt_sources"), QString("nrpt_consistency")}) {
+    for (const auto &stage : {QString("nrpt"), QString("native"), QString("nrpt_sources"), QString("nrpt_consistency"), QString("adapter_dns"), QString("global_dns")}) {
         auto traced = [&](const QString &p, const QStringList &a) {
             auto command = runner(p,a);
             command.standardError = "private.campus.test\nJCDNS phase=" + stage + " elapsed_ms=321\nJCDNS phase=privatecorp elapsed_ms=999\n";
