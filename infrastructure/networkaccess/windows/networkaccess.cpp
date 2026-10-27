@@ -227,8 +227,7 @@ void WindowsNetworkAccess::observeModel()
     const auto model=policy->model();
     const auto exit=originalExitSnapshot(model["network"].toObject(),model["resources"].toObject()["underlay_interface"].toString());
     if(!exit || *exit!=originalExit){stage=Stage::Prepared;observation.stop();emit restartRequired(attempt,"Original network exit changed; restoring before reconnecting.");return;}
-    const auto current=prepareWindowsNetworkHelper(model["resources"].toObject(),policy->confirmedProtection(),model["network"].toObject(),model["dns"].toObject(),localDNS,mtu);
-    if(!current.result.succeeded() || current.originalSources!=originalSources || current.originalContext!=originalContext){
+    if(!windowsOriginalDnsSourcesMatch(originalSources,originalContext,model["network"].toObject(),model["dns"].toObject())){
         stage=Stage::Prepared;observation.stop();emit restartRequired(attempt,"Original DNS source changed; restoring before reconnecting.");return;
     }
     const auto prefixes=updatedWindowsCapturePrefixes(model["resources"].toObject(),policy->confirmedProtection(),helper.ownedConfiguration(),originalSources);

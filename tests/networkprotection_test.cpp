@@ -137,6 +137,12 @@ static void captureTargets()
         && !completeWindowsOriginalDNS(native.configuration,{{"127.0.0.1:53","127.0.0.1:5300"}}),"An unconfirmed native listener was accepted");
     check(updatedWindowsCapturePrefixes(resources,nativePolicy,native.configuration,native.originalSources).has_value(),
         "Prepared native namespaces could not reconcile campus captures");
+    check(windowsOriginalDnsSourcesMatch(native.originalSources,native.originalContext,nativeNetwork,nativeDNS),
+        "Confirmed source observation depended on current campus choices or nonempty captures");
+    auto changedSource=rawSource;changedSource["class"]="recreated provider";
+    auto changedDNS=nativeDNS;changedDNS["nrpt_sources"]=QJsonArray{changedSource};
+    check(!windowsOriginalDnsSourcesMatch(native.originalSources,native.originalContext,nativeNetwork,changedDNS),
+        "Recreated original source retained the prepared query context");
     const auto prefixes=native.configuration["capture_prefixes"].toArray();
     check(!contains([&]{QStringList result;for(const auto &value:prefixes)result.append(value.toString());return result;}(),"192.168.25.1"),
         "Original DNS server was recaptured by campus routing");
