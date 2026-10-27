@@ -5,6 +5,25 @@ import (
 	"testing"
 )
 
+func TestNameMembershipSeparatesMalformedInputFromProtection(t *testing.T) {
+	rule := NameRule{Kind: "suffix", Value: "original.test"}
+	p, err := NewProtectionPolicy(nil, nil, []NameRule{rule}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rule.Matches("Host.ORIGINAL.test.") || rule.Matches("other.test") {
+		t.Fatal("namespace membership changed canonical matching")
+	}
+	for _, host := range []string{"", ".", "bad..original.test", "-bad.original.test", "校园.original.test"} {
+		if rule.Matches(host) {
+			t.Fatal("malformed input selected a native scope", host)
+		}
+		if allowed, protected := p.CampusNameAllowed(host); allowed || !protected {
+			t.Fatal("malformed input bypassed name protection", host)
+		}
+	}
+}
+
 func TestNativeNameBoundariesAndExactCampusExceptions(t *testing.T) {
 	rules := []NameRule{{"suffix", "mesh.test"}, {"exact", "only.example"}, {"prefix", "corp"}, {"single_label", ""}}
 	choices := []string{"vpn.mesh.test"}

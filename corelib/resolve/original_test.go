@@ -59,12 +59,12 @@ func TestOriginalDNSSourceValidationAndOrder(t *testing.T) {
 	base.Source = "native-source"
 	exact = base
 	exact.Name = policy.NameRule{Kind: "exact", Value: "private.original.test"}
+	exact.Servers = []string{"192.0.2.54:53"}
 	if _, err := NewOriginalDNS([]OriginalDNSRoute{base, exact}); err != nil {
 		t.Fatal("native scopes could not share their one listener", err)
 	}
 	for _, mutate := range []func(*OriginalDNSRoute){
 		func(r *OriginalDNSRoute) { r.Listen = "192.0.2.2:0" },
-		func(r *OriginalDNSRoute) { r.Servers = []string{"192.0.2.54:53"} },
 		func(r *OriginalDNSRoute) { r.Interface = "different-exit" },
 	} {
 		other := exact

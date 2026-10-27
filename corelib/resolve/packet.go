@@ -61,11 +61,7 @@ func (r *Resolver) exchangeDNS(ctx context.Context, request *dns.Msg, transport 
 	}
 	var selected *originalDNSRoute
 	if source != "" {
-		if r.OriginalDNS != nil {
-			if index, found := r.OriginalDNS.listeners[source]; found {
-				selected = &r.OriginalDNS.routes[index]
-			}
-		}
+		selected = r.OriginalDNS.nativeRoute(source, host)
 		if selected == nil {
 			return nil, ErrOriginalDNSRequired
 		}
