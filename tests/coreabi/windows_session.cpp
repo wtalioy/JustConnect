@@ -195,6 +195,9 @@ int main(int argc,char **argv) try
     if(originalDNS){
         queryOriginal("203.0.113.9");
         for(const bool campus:{true,false}){
+            until("finish original DNS observation before choosing",[&]{return !policy.isBusy() || session.state()!=ConnectionState::Running;});
+            check(session.state()==ConnectionState::Running && policy.status()==CoreEngine::RequestStatus::Success,
+                "original DNS view is complete before a new choice");
             check(policy.setCampusName("host.campus.test",campus),"choose the overlapping original DNS name");
             until("confirm original-name policy",[&]{return !policy.isBusy();});
             check(policy.policyStatus()==CoreEngine::RequestStatus::Success,"core and helper confirm the name choice");

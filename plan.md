@@ -23,8 +23,8 @@
 | 全计划进度 | 64 项中已收尾 31 项，剩余 33 项；其中本轮目标 S3—S5 剩余 8 项，后续 S6—S8 仍按实施顺序推进 |
 | 剩余性质 | 仍需集中开发的主要为 S4-01／05、S5-03；S3-05、S4-04、S5-01／02／05 主要待真实桌面／校园、签名部署及矩阵汇总。按完整访问链合批开发、按各任务真实验收要求勾选，不把组件通过冒充整项完成 |
 | 最近整轮通过 | `7304509` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40492635540)与[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40492635392)全部通过，含来源身份／DoT 读取、实际应用所属投影及原设备门槛；报告 `build/reports/native-policy-7304509/summary.json`。历史 `3d6c608` 的 x64 第 57 包停滞失败保留，不以随后通过宣称 SDK 风险消失 |
-| 本轮验证 | Windows 自动 NRPT 来源／监听／助手写前复核／所属投影／应用观察已接入；本地应用构建、5 项相关 CTest、Go bridge 108 项与新增增量 5 项、Windows Go 交叉编译及 7 项夹具／workflow 检查通过。来源观察仅复核已准备的范围及完整原生策略，不依赖当前选择或非空捕获；规则重建和安全字段改值回归通过。`94dc687` 的 Tests 在 Linux／macOS 通过；Windows 两架构普通控制与应用构建同因缺少 Qt Network 声明失败，已修正，真实目标生成参数的本地编译通过。新增预热缓存、名称选择／撤回及两轮恢复场景仍待原生 CI；报告 `build/reports/windows-original-dns-application.json`。组件通过不替代全链验收 |
-| 当前推进与下一步 | 合并推送当前完整调用链与已验证的契约值集中清理，检查三平台 Tests／六组 Core ABI，失败先修；通过后转 Fake-IP／Clash，继续补剩余真实桌面／校园验收。Windows 默认根、托管／加密来源尚不支持，SDK 原 4096 门槛及历史失败保持。全项仍待验收 |
+| 本轮验证 | `b2616e7` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40505071221)及[四组 Linux／macOS 原生检查](https://github.com/wtalioy/JustConnect/actions/runs/40505071135)通过；Windows 两架构普通控制、原 4096 探针及各 39／40 项 CTest 通过，新增原 DNS 场景在查询后立即选择名称时失败。仅 Windows 夹具补完整回读就绪等待，本地 3 项相关回归通过，待双架构定向复验；未改产品门槛。完整日志和范围归 `build/reports/native-policy-b2616e7/`、`windows-original-dns-application.json` |
+| 当前推进与下一步 | Windows 自动 NRPT 来源、监听、写前复核、所属投影及完整来源／安全观察已实现；复用 `b2616e7` 未改范围，定向验证原 DNS 预热、名称选择／撤回及两轮恢复，通过后转 Fake-IP／Clash。Windows 默认根、托管／加密来源及真实桌面／校园仍待，SDK 原门槛和历史失败保持；全项仍待验收 |
 | CI 下载瓶颈 | Linux x64 的 Azure 依赖源下载 42.2 MB 用时 15 分 11 秒；三组工作流已统一接入 `setup-linux-apt`，使用 runner 现有 Ubuntu 官方替代源。本地镜像样例／幂等／缺少列表、workflow 检查及八种失败传播通过；`c14f931` 的 x64 依赖安装步骤已由运行时间确认在 51 秒完成，后续 `66ba28c` 完整九项通过；[依据与范围](docs/DEVELOPMENT.md#ci-apt-mirrors) |
 | 验收范围 | 仅要求 Fudan 实测；按用户决定取消另一台 aTrust 服务器的硬性要求，保留 Custom 实现与服务器／账户隔离回归 |
 | 剩余缺口 | S1-04 真实样本、正式签名／公证、真实桌面／校园透明访问、Clash 共存与剩余平台矩阵未验收；D2 的三平台设备／权限／正常及故障恢复已通过受控自动验证，边界与实机缺口见 S4／S5 |
