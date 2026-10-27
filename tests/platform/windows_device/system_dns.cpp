@@ -71,7 +71,7 @@ int wmain(int argc,wchar_t **argv) try
     const auto security=settings.SettingFlags;FreeDnsSettings(base);
     if((security&(DNS_ENABLE_DOH|DNS_ENABLE_DOT)) && !(security&DNS_DOH_POLICY_DISABLE)){
         IN_ADDR known{};std::wstring endpoint;
-        for(const auto &value:WindowsDNS::knownNrptDohServers())if(InetPtonW(AF_INET,value.c_str(),&known)==1){endpoint=value;break;}
+        for(const auto &value:WindowsDNS::knownNrptEncryptedServers())if(InetPtonW(AF_INET,value.c_str(),&known)==1){endpoint=value;break;}
         check(!endpoint.empty(),"native CI requires a known IPv4 DoH server for downgrade regression");
         for(const auto &server:std::vector<std::wstring>{endpoint,argv[3]}){
             check(InetPtonW(AF_INET,server.c_str(),&known)==1,"parse encrypted source fixture");

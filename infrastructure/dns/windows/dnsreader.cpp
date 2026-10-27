@@ -602,7 +602,7 @@ std::string snapshot(const wchar_t *nrptClass, const wchar_t *dohClass, bool emp
 }
 
 #ifdef JC_DNS_READER_LIBRARY
-std::vector<std::wstring> WindowsDNS::knownNrptDohServers() try
+std::vector<std::wstring> WindowsDNS::knownNrptEncryptedServers() try
 {
     started=GetTickCount64();
     Session session;session.open();
@@ -616,6 +616,20 @@ std::vector<std::wstring> WindowsDNS::knownNrptDohServers() try
         ip(server.value.string);
         result.emplace_back(server.value.string);
     });
+    RegistryKey configured;
+    const auto opened=RegOpenKeyExW(HKEY_LOCAL_MACHINE,EncryptedServers,REG_OPTION_OPEN_LINK,KEY_READ|KEY_WOW64_64KEY,&configured.value);
+    if(opened!=ERROR_FILE_NOT_FOUND){
+        registryChecked(opened);
+        DWORD count=0,longest=0;
+        registryChecked(RegQueryInfoKeyW(configured.value,nullptr,nullptr,nullptr,&count,&longest,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr));
+        if(count>NetworkDnsDomainLimit || longest>limit/sizeof(wchar_t))throw std::runtime_error("native encrypted server count");
+        std::vector<wchar_t> name(size_t(longest)+1);
+        for(DWORD i=0;i<count;++i){
+            DWORD size=DWORD(name.size());
+            registryChecked(RegEnumKeyExW(configured.value,i,name.data(),&size,nullptr,nullptr,nullptr,nullptr));
+            ip(name.data());result.emplace_back(name.data(),size);
+        }
+    }
     return result;
 }catch(const ProviderFailure &failure){
     throw std::runtime_error("native NRPT DoH provider failed: "+std::to_string(unsigned(failure.code)));
