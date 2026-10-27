@@ -14,5 +14,7 @@ struct WindowsHelperPreparation {
 WindowsHelperPreparation prepareWindowsNetworkHelper(const QJsonObject &resources,const QJsonObject &protection,
     const QJsonObject &network,const QJsonObject &dns,const QString &localDNS,int mtu);
 std::optional<QJsonObject> completeWindowsOriginalDNS(QJsonObject configuration,const QJsonObject &listeners);
+bool windowsOriginalDnsSourcesMatch(const QJsonArray &sources,const QJsonObject &context,
+    const QJsonObject &network,const QJsonObject &dns);
 std::optional<QStringList> updatedWindowsCapturePrefixes(const QJsonObject &resources,const QJsonObject &policy,
     const QJsonObject &configuration,const QJsonArray &originalSources);

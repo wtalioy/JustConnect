@@ -177,6 +177,14 @@ std::optional<QJsonObject> completeWindowsOriginalDNS(QJsonObject configuration,
     for(const auto &endpoint:expected)if(listeners[endpoint]!=endpoint)return {};
     return configuration;
 }
+bool windowsOriginalDnsSourcesMatch(const QJsonArray &sources,const QJsonObject &context,
+    const QJsonObject &network,const QJsonObject &dns)
+{
+    if(sources.isEmpty())return context.isEmpty();
+    QJsonArray names;for(const auto &value:sources)names.append(value.toObject()["name"]);
+    const auto current=prepareOriginalDNS(names,network,dns);
+    return current.result.succeeded() && current.originalSources==sources && current.originalContext==context;
+}
 std::optional<QStringList> updatedWindowsCapturePrefixes(const QJsonObject &resources,const QJsonObject &policy,
     const QJsonObject &configuration,const QJsonArray &originalSources)
 {

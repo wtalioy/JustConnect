@@ -23,7 +23,7 @@
 | 全计划进度 | 64 项中已收尾 31 项，剩余 33 项；其中本轮目标 S3—S5 剩余 8 项，后续 S6—S8 仍按实施顺序推进 |
 | 剩余性质 | 仍需集中开发的主要为 S4-01／05、S5-03；S3-05、S4-04、S5-01／02／05 主要待真实桌面／校园、签名部署及矩阵汇总。按完整访问链合批开发、按各任务真实验收要求勾选，不把组件通过冒充整项完成 |
 | 最近整轮通过 | `7304509` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40492635540)与[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40492635392)全部通过，含来源身份／DoT 读取、实际应用所属投影及原设备门槛；报告 `build/reports/native-policy-7304509/summary.json`。历史 `3d6c608` 的 x64 第 57 包停滞失败保留，不以随后通过宣称 SDK 风险消失 |
-| 本轮验证 | Windows 自动 NRPT 来源／监听／助手写前复核／所属投影／应用观察已接入；本地应用构建、5 项相关 CTest、Go bridge 108 项与新增增量 5 项、Windows Go 交叉编译及 7 项夹具／workflow 检查通过。新增预热缓存、名称选择／撤回及两轮恢复场景待原生 CI；报告 `build/reports/windows-original-dns-application.json`。组件通过不替代全链验收 |
+| 本轮验证 | Windows 自动 NRPT 来源／监听／助手写前复核／所属投影／应用观察已接入；本地应用构建、5 项相关 CTest、Go bridge 108 项与新增增量 5 项、Windows Go 交叉编译及 7 项夹具／workflow 检查通过。来源观察仅复核已准备的范围，不依赖当前选择或非空捕获，相关回归通过。新增预热缓存、名称选择／撤回及两轮恢复场景待原生 CI；报告 `build/reports/windows-original-dns-application.json`。组件通过不替代全链验收 |
 | 当前推进与下一步 | 合并推送当前完整调用链与已验证的契约值集中清理，检查三平台 Tests／六组 Core ABI，失败先修；通过后转 Fake-IP／Clash，继续补剩余真实桌面／校园验收。Windows 默认根、托管／加密来源尚不支持，SDK 原 4096 门槛及历史失败保持。全项仍待验收 |
 | CI 下载瓶颈 | Linux x64 的 Azure 依赖源下载 42.2 MB 用时 15 分 11 秒；三组工作流已统一接入 `setup-linux-apt`，使用 runner 现有 Ubuntu 官方替代源。本地镜像样例／幂等／缺少列表、workflow 检查及八种失败传播通过；`c14f931` 的 x64 依赖安装步骤已由运行时间确认在 51 秒完成，后续 `66ba28c` 完整九项通过；[依据与范围](docs/DEVELOPMENT.md#ci-apt-mirrors) |
 | 验收范围 | 仅要求 Fudan 实测；按用户决定取消另一台 aTrust 服务器的硬性要求，保留 Custom 实现与服务器／账户隔离回归 |
