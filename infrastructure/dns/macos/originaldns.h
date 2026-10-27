@@ -14,7 +14,8 @@ class MacOriginalDns
 {
 public:
     using Checkpoint = std::function<PlatformOperationResult(const QJsonObject &)>;
-    explicit MacOriginalDns(SCPreferencesRef preferences = nullptr,PlatformCommandRunner inspect = {});
+    using StateReader = std::function<std::optional<QJsonValue>(const QString &service)>;
+    explicit MacOriginalDns(SCPreferencesRef preferences = nullptr,PlatformCommandRunner inspect = {},StateReader readState = {});
     ~MacOriginalDns();
     MacOriginalDns(const MacOriginalDns &) = delete;
     MacOriginalDns &operator=(const MacOriginalDns &) = delete;
@@ -27,4 +28,5 @@ private:
     SCPreferencesRef preferences = nullptr;
     QJsonObject installed;
     PlatformCommandRunner inspect;
+    StateReader readState;
 };

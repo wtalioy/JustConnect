@@ -22,7 +22,7 @@ static QString encoded(CFPropertyListRef value)
     const auto result=QByteArray(reinterpret_cast<const char *>(CFDataGetBytePtr(data)),CFDataGetLength(data)).toBase64();CFRelease(data);
     return QString::fromLatin1(result);
 }
-static int fixtureSource(const QString &address,int port)
+static int fixtureSource(const QString &address,int port,bool dynamic)
 {
     check(::geteuid()==0 && qgetenv("GITHUB_ACTIONS")=="true" && qgetenv("RUNNER_OS")=="macOS",
         "System DNS fixture requires the disposable macOS runner");
@@ -77,7 +77,7 @@ static int fixtureSource(const QString &address,int port)
     const void *domain[]{CFSTR("campus.test")};const auto domains=CFArrayCreate(nullptr,domain,1,&kCFTypeArrayCallBacks);
     CFDictionarySetValue(properties,kSCPropNetDNSSupplementalMatchDomains,domains);CFRelease(domains);
     const int noSearch=1;const auto flag=CFNumberCreate(nullptr,kCFNumberIntType,&noSearch);CFDictionarySetValue(properties,CFSTR("SupplementalMatchDomainsNoSearch"),flag);CFRelease(flag);
-    check(SCNetworkProtocolSetConfiguration(dns,properties) && SCPreferencesCommitChanges(preferences) && SCPreferencesApplyChanges(preferences),"Commit owned fixture DNS service");
+    check(SCNetworkProtocolSetConfiguration(dns,dynamic?nullptr:properties) && SCPreferencesCommitChanges(preferences) && SCPreferencesApplyChanges(preferences),"Commit owned fixture DNS service");
     SCPreferencesUnlock(preferences);locked=false;
     store=SCDynamicStoreCreate(nullptr,CFSTR("JustConnect owned DNS source IPv4"),nullptr,nullptr);check(store,"Open fixture service state");
     const auto key=SCDynamicStoreKeyCreateNetworkServiceEntity(nullptr,kSCDynamicStoreDomainState,SCNetworkServiceGetServiceID(service),kSCEntNetIPv4);
@@ -106,6 +106,11 @@ static int fixtureSource(const QString &address,int port)
         "Fixture endpoint must belong to the actual routable default service");
     CFDictionarySetValue(ipv4,kSCPropNetIPv4Router,gateway);
     check(SCDynamicStoreAddTemporaryValue(store,key,ipv4),"Publish the actual fixture source interface without configuring its kernel addresses");
+    if(dynamic){
+        const auto dnsKey=SCDynamicStoreKeyCreateNetworkServiceEntity(nullptr,kSCDynamicStoreDomainState,SCNetworkServiceGetServiceID(service),kSCEntNetDNS);
+        const auto freeDNSKey=qScopeGuard([&]{CFRelease(dnsKey);});
+        check(SCDynamicStoreAddTemporaryValue(store,dnsKey,properties),"Publish only the owned dynamic DNS provider state");
+    }
     std::cout<<"{\"service\":\""<<QString::fromCFString(SCNetworkServiceGetServiceID(service)).toStdString()<<"\"}"<<std::endl;
     std::string command;check(bool(std::getline(std::cin,command)) && command=="restore","Owned fixture shutdown command");
     check(cleanup(),"Remove only the owned fixture service and temporary state");
@@ -114,7 +119,10 @@ static int fixtureSource(const QString &address,int port)
 int main(int argc,char **argv) try
 {
     QCoreApplication app(argc,argv);
-    if(argc==4 && app.arguments()[1]=="--fixture-source")return fixtureSource(app.arguments()[2],app.arguments()[3].toInt());
+    if(argc==5 && app.arguments()[1]=="--fixture-source"){
+        check(app.arguments()[4]=="static" || app.arguments()[4]=="state","Known owned DNS source kind");
+        return fixtureSource(app.arguments()[2],app.arguments()[3].toInt(),app.arguments()[4]=="state");
+    }
     check(argc==2 && app.arguments()[1]=="--isolated" && ::geteuid()==0
         && qgetenv("GITHUB_ACTIONS")=="true" && qgetenv("RUNNER_OS")=="macOS",
         "Private preferences writes require the disposable macOS root fixture");
@@ -147,14 +155,16 @@ int main(int argc,char **argv) try
     };
     seed();
     const auto id=QString::fromCFString(SCNetworkServiceGetServiceID(service));const auto owner=QUuid::createUuid();
-    ifaddrs *addresses=nullptr;check(::getifaddrs(&addresses)==0,"Read actual local addresses");const auto freeAddresses=qScopeGuard([&]{::freeifaddrs(addresses);});QString local;
+    ifaddrs *addresses=nullptr;check(::getifaddrs(&addresses)==0,"Read actual local addresses");const auto freeAddresses=qScopeGuard([&]{::freeifaddrs(addresses);});QString local,sourceInterface;
     for(auto *row=addresses;row;row=row->ifa_next){
         if(!row->ifa_addr || row->ifa_addr->sa_family!=AF_INET || !(row->ifa_flags&IFF_UP))continue;
         char text[INET_ADDRSTRLEN]{};const auto address=reinterpret_cast<sockaddr_in *>(row->ifa_addr)->sin_addr;
-        if(::inet_ntop(AF_INET,&address,text,sizeof(text)) && canonicalUnicastIpv4(QString::fromLatin1(text))){local=QString::fromLatin1(text);break;}
+        if(::inet_ntop(AF_INET,&address,text,sizeof(text)) && canonicalUnicastIpv4(QString::fromLatin1(text))){local=QString::fromLatin1(text);sourceInterface=QString::fromLatin1(row->ifa_name);break;}
     }
     check(!local.isEmpty(),"Find an assigned unicast IPv4 address");
-    const QJsonArray sources{QJsonObject{{"service",id},{"original",encoded(original)},{"listen",local+":54321"}}};
+    const QJsonObject context{{"servers",QJsonArray{"192.0.2.53","2001:db8::53"}},{"port",5353},{"interface_index",0},
+        {"interface",sourceInterface},{"domains",QJsonArray{"original.test"}},{"addresses",QJsonArray{local+"/32"}},{"state",QJsonValue(QJsonValue::Null)}};
+    const QJsonArray sources{QJsonObject{{"service",id},{"original",encoded(original)},{"listen",local+":54321"},{"context",context}}};
     QJsonObject record;bool rejectActive=false;
     const auto checkpoint=[&](const QJsonObject &value){
         if(rejectActive && value["phase"]=="active")return PlatformOperationResult{PlatformOperationResult::Status::Failed,"checkpoint refused",true};
@@ -213,5 +223,64 @@ int main(int argc,char **argv) try
             && read()["ServerAddresses"]==before["ServerAddresses"] && read()["ServerPort"]==before["ServerPort"],
             "Recovery re-enabled an external disable or left its own temporary endpoint behind");
     }
-    std::cout<<"PASS: private native DNS write-ahead, helper loss, exact endpoint recovery, external values and checkpoint failure\n";return 0;
+    check(SCNetworkProtocolSetEnabled(initial,true) && SCNetworkProtocolSetConfiguration(initial,nullptr) && SCPreferencesCommitChanges(preferences),
+        "Seed automatic DNS without static preferences");
+    QJsonValue dynamicState=macDnsProperties(original).value();auto dynamicContext=context;dynamicContext["state"]=dynamicState;
+    const QJsonArray dynamicSources{QJsonObject{{"service",id},{"original",QJsonValue(QJsonValue::Null)},{"listen",local+":54321"},{"context",dynamicContext}}};
+    const MacOriginalDns::StateReader state=[&](const QString &service)->std::optional<QJsonValue>{check(service==id,"Read only the private DNS source");return dynamicState;};
+    {
+        MacOriginalDns dns(preferences,inspect,state);check(dns.apply(owner,dynamicSources,checkpoint).succeeded(),"Apply a dynamic source without pinning its old servers");
+        auto updated=dynamicState.toObject();updated["ServerAddresses"]=QJsonArray{"192.0.2.99"};dynamicState=updated;
+        check(dns.restore(owner,record,checkpoint).succeeded() && !SCNetworkProtocolGetConfiguration(initial) && dynamicState==updated,
+            "Dynamic DNS recovery pinned stale DHCP servers or replaced its provider state");
+    }
+    dynamicState=macDnsProperties(original).value();
+    {
+        MacOriginalDns dns(preferences,inspect,state);
+        const auto changing=[&](const QJsonObject &value){
+            auto result=checkpoint(value);
+            if(value["phase"]=="applying"){auto updated=dynamicState.toObject();updated["ServerAddresses"]=QJsonArray{"192.0.2.100"};dynamicState=updated;}
+            return result;
+        };
+        check(!dns.apply(owner,dynamicSources,changing).succeeded() && record["phase"]=="applying" && !SCNetworkProtocolGetConfiguration(initial),
+            "A dynamic DNS update after write-ahead was silently applied using stale servers");
+        check(dns.restore(owner,record,checkpoint).succeeded() && !SCNetworkProtocolGetConfiguration(initial),"Recover rejected dynamic source preparation without changing automatic DNS");
+    }
+    dynamicState=macDnsProperties(original).value();
+    {
+        MacOriginalDns dns(preferences,inspect,state);check(dns.apply(owner,dynamicSources,checkpoint).succeeded(),"Apply automatic DNS before external preferences change");
+        const auto external=CFDictionaryCreateMutableCopy(nullptr,0,SCNetworkProtocolGetConfiguration(initial));
+        const void *search[]{CFSTR("external.test")};const auto names=CFArrayCreate(nullptr,search,1,&kCFTypeArrayCallBacks);
+        CFDictionarySetValue(external,kSCPropNetDNSSearchDomains,names);CFRelease(names);
+        check(SCNetworkProtocolSetConfiguration(initial,external) && SCPreferencesCommitChanges(preferences),"Add external automatic DNS search preferences");CFRelease(external);
+        check(dns.restore(owner,record,checkpoint).succeeded(),"Restore automatic DNS while preserving external preferences");
+        const auto after=read();check(!after.contains("ServerAddresses") && !after.contains("ServerPort") && after["SearchDomains"]==QJsonArray{"external.test"},
+            "Automatic DNS restoration removed external fields or retained a stale static endpoint");
+    }
+    check(SCNetworkProtocolSetConfiguration(initial,nullptr) && SCPreferencesCommitChanges(preferences),"Reset automatic DNS before a committed source change");
+    dynamicState=macDnsProperties(original).value();
+    {
+        const MacOriginalDns::StateReader changedAfterWrite=[&](const QString &service)->std::optional<QJsonValue>{
+            check(service==id,"Inspect only the private source during commit");
+            if(record["phase"]=="applying" && SCNetworkProtocolGetConfiguration(initial)){
+                auto updated=dynamicState.toObject();updated["ServerAddresses"]=QJsonArray{"192.0.2.101"};dynamicState=updated;
+            }
+            return dynamicState;
+        };
+        MacOriginalDns dns(preferences,inspect,changedAfterWrite);
+        check(!dns.apply(owner,dynamicSources,checkpoint).succeeded() && record["phase"]=="applying" && read()["ServerAddresses"].toArray()==QJsonArray{local},
+            "A committed temporary DNS value lost its write-ahead recovery after a source change");
+        check(dns.restore(owner,record,checkpoint).succeeded() && !SCNetworkProtocolGetConfiguration(initial)
+            && dynamicState.toObject().value("ServerAddresses").toArray()==QJsonArray{"192.0.2.101"},
+            "Committed source-change recovery pinned old DNS or replaced the new dynamic provider");
+    }
+    dynamicState=macDnsProperties(original).value();
+    check(SCNetworkProtocolSetConfiguration(initial,nullptr) && SCPreferencesCommitChanges(preferences),"Reset automatic DNS before external disable");
+    {
+        MacOriginalDns dns(preferences,inspect,state);check(dns.apply(owner,dynamicSources,checkpoint).succeeded(),"Apply automatic DNS before external disable");
+        check(SCNetworkProtocolSetEnabled(initial,false) && SCPreferencesCommitChanges(preferences),"Disable automatic DNS externally");
+        check(dns.restore(owner,record,checkpoint).succeeded() && !SCNetworkProtocolGetEnabled(initial) && !SCNetworkProtocolGetConfiguration(initial),
+            "Automatic DNS restoration failed readback or re-enabled the externally disabled protocol");
+    }
+    std::cout<<"PASS: private native DNS write-ahead, helper loss, exact endpoint recovery, external values, dynamic source changes and checkpoint failure\n";return 0;
 }catch(const std::exception &error){std::cerr<<error.what()<<'\n';return 1;}

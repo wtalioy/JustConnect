@@ -1,12 +1,60 @@
 #include "infrastructure/dns/macos/resolver.h"
 #include "infrastructure/dns/domainlimits.h"
 #include "infrastructure/dns/dnssnapshot.h"
+#include "infrastructure/dns/dnsdomains.h"
 #include <QDeadlineTimer>
 #include <QDebug>
 #include <QJsonObject>
 #include <QRegularExpression>
 #include <QSet>
 #include <QThread>
+#include <limits>
+
+bool macDnsServersBelongTo(const QJsonArray &effective,const QJsonArray &configured)
+{
+    if(effective.isEmpty())return false;
+    for(const auto &value:effective)if(!value.isString() || !configured.contains(value))return false;
+    return true;
+}
+
+bool validMacOriginalDnsContext(const QJsonObject &context)
+{
+    const auto index=context["interface_index"].toInteger(-1),port=context["port"].toInteger(-1);
+    const auto interface=context["interface"].toString();
+    if(context.size()!=7 || index<0 || index>std::numeric_limits<quint32>::max() || context["interface_index"]!=QJsonValue(index)
+        || port<1 || port>65535 || context["port"]!=QJsonValue(port) || interface.isEmpty() || interface.size()>63
+        || interface.contains(QChar::Null) || interface.contains('\n') || interface.contains('\r')
+        || !context["addresses"].isArray() || context["addresses"].toArray().isEmpty() || context["addresses"].toArray().size()>qsizetype(NetworkDnsDomainLimit)
+        || !context["servers"].isArray() || context["servers"].toArray().isEmpty() || context["servers"].toArray().size()>qsizetype(NetworkDnsDomainLimit)
+        || !context["domains"].isArray() || context["domains"].toArray().isEmpty() || context["domains"].toArray().size()>qsizetype(NetworkDnsDomainLimit)
+        || (!context["state"].isNull() && !context["state"].isObject()))return false;
+    for(const auto &server:context["servers"].toArray()){
+        const auto value=server.toString();
+        if(!server.isString() || value.isEmpty() || value.size()>253 || value.contains(QChar::Null) || value.contains('\n') || value.contains('\r'))return false;
+    }
+    for(const auto &address:context["addresses"].toArray()){
+        const auto value=address.toString();if(!address.isString() || value.isEmpty() || value.size()>253 || value.contains(QChar::Null) || value.contains('\n') || value.contains('\r'))return false;
+    }
+    QSet<QString> seen;
+    for(const auto &domain:context["domains"].toArray()){
+        const auto value=domain.toString();
+        if(!domain.isString() || (!value.isEmpty() && !canonicalDnsDomain(value)) || seen.contains(value))return false;
+        seen.insert(value);
+    }
+    return true;
+}
+
+std::optional<QJsonObject> originalMacDnsResolver(QJsonObject resolver,const QJsonObject &context)
+{
+    if(!validMacOriginalDnsContext(context))return {};
+    resolver["servers"]=context["servers"];resolver["port"]=context["port"];
+    if(resolver["scope"]=="unscoped"){
+        resolver["interface_index"]=context["interface_index"];
+        if(context["interface_index"].toInteger()>0)resolver["interface_name"]=context["interface"];
+        else resolver.remove("interface_name");
+    }
+    return resolver;
+}
 
 std::optional<QJsonArray> parseMacDnsResolvers(const QString &configuration)
 {

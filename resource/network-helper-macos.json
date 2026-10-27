@@ -1,6 +1,6 @@
 {
-  "protocol": 7,
-  "storage_version": 2,
+  "protocol": 8,
+  "storage_version": 3,
   "service_suffix": ".NetworkHelper",
   "executable": "JustConnectNetworkHelper",
   "authorization_right": "system.services.systemconfiguration.network",

@@ -322,7 +322,7 @@ def main(args):
             shutil.copy2(args.core_client, core_bundle / 'Contents/MacOS/JustConnect')
             sign(core_bundle, identity, APP_ID)
             crashed_owner = None
-            for scenario in ('authorization-cancel', 'authorization-exit', 'process-crash', 'normal', 'network-policy', 'original-dns', 'network-exit', 'helper-loss', 'helper-offline'):
+            for scenario in ('authorization-cancel', 'authorization-exit', 'process-crash', 'normal', 'network-policy', 'original-dns', 'original-dns-state', 'network-exit', 'helper-loss', 'helper-offline'):
                 control = directory / ('core-' + scenario); control.mkdir(mode=0o700); os.chown(control, args.uid, account.pw_gid)
                 marker = control / 'ready'
                 authorization_mode = scenario.removeprefix('authorization-') if scenario.startswith('authorization-') else ''
@@ -344,12 +344,12 @@ def main(args):
                         environment.update(JC_NATIVE_NETWORK_AUTHORIZATION=authorization_mode, JC_NATIVE_TUN_READY=str(marker))
                     elif scenario == 'network-exit':
                         environment.update(JC_NATIVE_NETWORK_EXIT_CHANGE='1', JC_NATIVE_TUN_READY=str(marker))
-                    elif scenario in ('network-policy', 'original-dns'):
+                    elif scenario in ('network-policy', 'original-dns', 'original-dns-state'):
                         original_fd, original_interface, release_allocator = allocate_unix(Path(args.allocator).resolve())
                         release_allocator()
                         os.set_blocking(original_fd, False)
                         environment.update(JC_NATIVE_NETWORK_POLICY='1', JC_NATIVE_TUN_READY=str(marker), JC_NATIVE_ORIGINAL_FD=str(original_fd))
-                        if scenario == 'original-dns':
+                        if scenario.startswith('original-dns'):
                             default = run('/sbin/route', '-n', 'get', 'default').stdout.decode()
                             match = re.search(r'^\s*interface:\s*(\S+)\s*$', default, re.M)
                             assert match, 'Original DNS fixture requires an actual default interface'
@@ -380,11 +380,11 @@ def main(args):
                         value = json.loads(owners[0].read_text()); assert value['phase'] == 'active', value
                         return value
 
-                    if scenario == 'original-dns':
+                    if scenario.startswith('original-dns'):
                         boundary('.dns-upstream')
                         endpoint = json.loads(Path(str(marker) + '.dns-upstream').read_text())['endpoint']
                         address, port = endpoint.rsplit(':', 1)
-                        source_fixture = subprocess.Popen([args.original_dns_probe, '--fixture-source', address, port],
+                        source_fixture = subprocess.Popen([args.original_dns_probe, '--fixture-source', address, port, 'state' if scenario.endswith('-state') else 'static'],
                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                         processes.append(source_fixture)
                         assert select.select([source_fixture.stdout], [], [], 30)[0], 'Native fixture source did not publish its service'
@@ -413,6 +413,9 @@ def main(args):
                         boundary('.original-ready'); active = active_owner()
                         original = active['original_dns']
                         assert original['phase'] == 'active' and len(original['entries']) == 1 and original['entries'][0]['service'] == source
+                        if scenario.endswith('-state'):
+                            entry = original['entries'][0]
+                            assert entry['original'] is None and entry['context']['state']['ServerAddresses'] == [address], entry
                         assert not any(published(active['owner'], address) for address in ('198.18.0.6', '198.18.0.7')), \
                             'Original DNS returned shared campus IPs before capture exclusion'
                         for address in ('198.18.0.5', '198.18.0.6', '198.18.0.7'):

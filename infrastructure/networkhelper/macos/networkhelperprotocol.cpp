@@ -1,4 +1,5 @@
 #include "infrastructure/networkhelper/macos/networkhelper.h"
+#include "infrastructure/dns/macos/resolver.h"
 #include "infrastructure/networkaddress/ipv4.h"
 #include "infrastructure/dns/dnsdomains.h"
 #include "infrastructure/tundevice/tundevice.h"
@@ -96,8 +97,8 @@ std::optional<MacHelperConfiguration> parseMacHelperApply(const QJsonObject &pac
         const auto number=listener.mid(separator+1);bool portValid=false;const auto port=number.toUInt(&portValid);
         const QUuid serviceId(service);
         const auto identity=serviceId.toString(QUuid::WithoutBraces);
-        if(source.size()!=3 || serviceId.isNull() || identity.compare(service,Qt::CaseInsensitive)!=0 || services.contains(identity)
-            || !source["original"].isString() || !decoded || decoded.decoded.isEmpty() || decoded.decoded.toBase64()!=bytes
+        if(source.size()!=4 || !validMacOriginalDnsContext(source["context"].toObject()) || serviceId.isNull() || identity.compare(service,Qt::CaseInsensitive)!=0 || services.contains(identity)
+            || (!source["original"].isNull() && (!source["original"].isString() || !decoded || decoded.decoded.isEmpty() || decoded.decoded.toBase64()!=bytes))
             || separator<1 || !canonicalUnicastIpv4(listener.first(separator)) || !portValid || !port || port>65535 || QString::number(port)!=number)return {};
         services.insert(identity);result.originalDns.append(source);
     }
