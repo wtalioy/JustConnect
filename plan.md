@@ -23,7 +23,7 @@
 | 全计划进度 | 64 项中已收尾 31 项，剩余 33 项；其中本轮目标 S3—S5 剩余 8 项，后续 S6—S8 仍按实施顺序推进 |
 | 剩余性质 | 仍需集中开发的主要为 S4-01／05、S5-03；S3-05、S4-04、S5-01／02／05 主要待真实桌面／校园、签名部署及矩阵汇总。按完整访问链合批开发、按各任务真实验收要求勾选，不把组件通过冒充整项完成 |
 | 最近整轮通过 | `478ac3b` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40443652603)和[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40443652579)全部通过，六份原生日志已核对；含 Linux 双架构自动来源、macOS 双架构静态原 DNS 全链及 Windows 双架构原 SDK 4096 次门槛。上游 SDK 偶发停滞风险继续保留 |
-| 本轮验证 | Windows 实际 DNS 来源读取已接入现有读取器、应用和包校验：保留混合顺序／端口／作用域、接口身份及 DoH／DoT／DDR 设置，无损交付安全标志并区分未知与权限失败。本地构建／读取回归及包校验通过，新增原生 API 待双架构 CI；macOS `09be4da` 双架构完整验收保留。报告 `build/reports/windows-native-dns-sources.json` |
+| 本轮验证 | Windows 实际 DNS 来源读取已接入现有读取器、应用和包校验：保留混合顺序／端口／作用域、接口身份及 DoH／DoT／DDR 设置，无损交付安全标志并区分未知与权限失败。本地构建／读取回归及包校验通过，三平台 Tests 已通过，双架构 ABI 待结束；macOS ARM64 的既有 TLS 诊断夹具在并发探测下先超时，已移除夹具并发，生产预算／断言不变，本地 race 两轮通过、原生待验。macOS DNS 的 `09be4da` 完整验收保留。报告 `build/reports/windows-native-dns-sources.json`、`tls-native-probe-serial.json` |
 | 当前推进与下一步 | macOS 普通静态／State／DHCP 原 DNS 增量已验收，停止扩展临时／加密边缘场景。Windows 原生来源读取本地已验，待对应 CI 后接监听／NRPT／所属恢复整链，再做 Fake-IP／Clash；复用现有模型、发布器及恢复，不重写数据路径 |
 | CI 下载瓶颈 | Linux x64 的 Azure 依赖源下载 42.2 MB 用时 15 分 11 秒；三组工作流已统一接入 `setup-linux-apt`，使用 runner 现有 Ubuntu 官方替代源。本地镜像样例／幂等／缺少列表、workflow 检查及八种失败传播通过；`c14f931` 的 x64 依赖安装步骤已由运行时间确认在 51 秒完成，后续 `66ba28c` 完整九项通过；[依据与范围](docs/DEVELOPMENT.md#ci-apt-mirrors) |
 | 验收范围 | 仅要求 Fudan 实测；按用户决定取消另一台 aTrust 服务器的硬性要求，保留 Custom 实现与服务器／账户隔离回归 |
