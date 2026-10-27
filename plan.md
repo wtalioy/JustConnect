@@ -23,7 +23,7 @@
 | 全计划进度 | 64 项中已收尾 31 项，剩余 33 项；其中本轮目标 S3—S5 剩余 8 项，后续 S6—S8 仍按实施顺序推进 |
 | 剩余性质 | 仍需集中开发的主要为 S4-01／05、S5-03；S3-05、S4-04、S5-01／02／05 主要待真实桌面／校园、签名部署及矩阵汇总。按完整访问链合批开发、按各任务真实验收要求勾选，不把组件通过冒充整项完成 |
 | 最近整轮通过 | `758e0a8` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40462210681)和[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40462210734)全部通过；六份日志均核对新增 UDP／TCP 多范围分派及既有平台回归，报告 `build/reports/native-policy-758e0a8/summary.json`。SDK 历史停滞风险继续保留 |
-| 本轮验证 | Windows 既有本地 NRPT 原端点替换、写前记录、捕获撤回后／设备消失后的恢复已实现，并补普通缓存解析、外部改值及助手强杀／SCM 回归；本地 5 项 CTest、22 项 Python 通过（另 1 项既有 Windows 签名检查跳过），报告 `build/reports/windows-original-dns-backend.json`；Windows 双架构原生待验。应用暂提交空来源，未自动接管；此前共用端点分派已由 `758e0a8` 六组通过 |
+| 本轮验证 | Windows 既有本地 NRPT 原端点替换、写前记录、捕获撤回后／设备消失后的恢复已实现，并补普通缓存解析、外部改值及助手强杀／SCM 回归；本地 5 项 CTest、22 项 Python 通过（另 1 项既有 Windows 签名检查跳过）；全局 DoH 能力与实际来源分开判定，已知加密 NRPT 来源保持拒绝，报告 `build/reports/windows-original-dns-backend.json`；Windows 双架构原生待验。应用暂提交空来源，未自动接管；此前共用端点分派已由 `758e0a8` 六组通过 |
 | 当前推进与下一步 | 先验本次 Windows NRPT 写入／恢复后端，随后合并完成自动来源选择、监听与应用原视图观察整链，再做 Fake-IP／Clash。Linux、macOS 普通原 DNS 及 Windows 读取已通过原生；临时／加密来源、真实桌面／校园与签名缺口保持待验收 |
 | CI 下载瓶颈 | Linux x64 的 Azure 依赖源下载 42.2 MB 用时 15 分 11 秒；三组工作流已统一接入 `setup-linux-apt`，使用 runner 现有 Ubuntu 官方替代源。本地镜像样例／幂等／缺少列表、workflow 检查及八种失败传播通过；`c14f931` 的 x64 依赖安装步骤已由运行时间确认在 51 秒完成，后续 `66ba28c` 完整九项通过；[依据与范围](docs/DEVELOPMENT.md#ci-apt-mirrors) |
 | 验收范围 | 仅要求 Fudan 实测；按用户决定取消另一台 aTrust 服务器的硬性要求，保留 Custom 实现与服务器／账户隔离回归 |

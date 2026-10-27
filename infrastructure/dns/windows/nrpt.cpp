@@ -1,5 +1,6 @@
 #include "infrastructure/dns/windows/nrpt.h"
 #include "infrastructure/dns/windows/dnscontract.h"
+#include "infrastructure/dns/windows/dnsreader.h"
 #include "infrastructure/dns/domainlimits.h"
 #include <ws2tcpip.h>
 #include <objbase.h>
@@ -287,14 +288,24 @@ void unchangedProvider(HKEY key,const WindowsNrptRedirect &value)
         fail("original DNS provider changed",ERROR_NOT_SUPPORTED);
     if(RegQueryValueExW(key,L"SymbolicLinkValue",nullptr,nullptr,nullptr,nullptr)!=ERROR_FILE_NOT_FOUND)fail("linked original DNS provider",ERROR_ACCESS_DENIED);
 }
-std::uint64_t plainGlobalPolicy()
+bool plainPolicy(std::uint64_t value)
+{
+    constexpr auto policy=DNS_DOH_POLICY_NOT_CONFIGURED|DNS_DOH_POLICY_DISABLE;
+    return !(value&~std::uint64_t(DNS_ENABLE_DOH|policy)) && (value&policy)!=policy;
+}
+std::uint64_t plainGlobalPolicy(const std::vector<std::wstring> &servers)
 {
     DNS_SETTINGS2 settings{};settings.Version=DNS_SETTINGS_VERSION2;
     auto *base=reinterpret_cast<DNS_SETTINGS *>(&settings);
     checked(GetDnsSettings(base),"read global DNS security");
     const auto value=settings.SettingFlags;FreeDnsSettings(base);
-    if(value && value!=DNS_DOH_POLICY_NOT_CONFIGURED && value!=DNS_DOH_POLICY_DISABLE)
-        fail("original DNS transport requires native encrypted policy",ERROR_NOT_SUPPORTED);
+    if(!plainPolicy(value))fail("original DNS transport requires native encrypted policy",ERROR_NOT_SUPPORTED);
+    if((value&DNS_ENABLE_DOH) && !(value&DNS_DOH_POLICY_DISABLE)){
+        for(const auto &known:WindowsDNS::knownNrptDohServers()){
+            const auto address=canonicalIP(known);
+            if(std::find(servers.begin(),servers.end(),address)!=servers.end())fail("original NRPT server requires native DoH",ERROR_NOT_SUPPORTED);
+        }
+    }
     return value;
 }
 void localListener(IN_ADDR value)
@@ -384,7 +395,7 @@ void WindowsDnsRule::restoreSystem() const
 bool WindowsNrptRedirect::valid() const try
 {
     if(id==GUID{} || marker==GUID{} || policyClass.size()>255 || policyClass.find(L'\0')!=std::wstring::npos
-        || (globalPolicy && globalPolicy!=DNS_DOH_POLICY_NOT_CONFIGURED && globalPolicy!=DNS_DOH_POLICY_DISABLE))return false;
+        || !plainPolicy(globalPolicy))return false;
     nameSet(namespaces);
     const auto listen=canonicalIP(redirectServer(server));
     const auto before=serverList(original);
@@ -422,10 +433,10 @@ WindowsNrptRedirect WindowsNrptRedirect::prepare(HKEY parent,const std::vector<s
 WindowsNrptRedirect WindowsNrptRedirect::prepareSystem(const std::vector<std::wstring> &names,
     const std::vector<std::wstring> &servers,IN_ADDR listen)
 {
-    unmanagedPolicy();localListener(listen);const auto policy=plainGlobalPolicy();
+    unmanagedPolicy();localListener(listen);
     Key parent;parent.value=policyParent(false);
     if(!parent.value)fail("original DNS provider disappeared",ERROR_NOT_FOUND);
-    auto result=prepare(parent.value,names,servers,listen);result.globalPolicy=policy;return result;
+    auto result=prepare(parent.value,names,servers,listen);result.globalPolicy=plainGlobalPolicy(result.servers());return result;
 }
 void WindowsNrptRedirect::apply(HKEY parent) const
 {
@@ -467,11 +478,11 @@ void WindowsNrptRedirect::restore(HKEY parent) const
 void WindowsNrptRedirect::applySystem() const
 {
     unmanagedPolicy();localListener(server);
-    if(plainGlobalPolicy()!=globalPolicy)fail("original DNS security changed before write",ERROR_NOT_SUPPORTED);
+    if(plainGlobalPolicy(servers())!=globalPolicy)fail("original DNS security changed before write",ERROR_NOT_SUPPORTED);
     Key parent;parent.value=policyParent(false);
     if(!parent.value)fail("original DNS provider disappeared",ERROR_NOT_FOUND);
     apply(parent.value);refresh();
-    if(plainGlobalPolicy()!=globalPolicy)fail("original DNS security changed during write",ERROR_NOT_SUPPORTED);
+    if(plainGlobalPolicy(servers())!=globalPolicy)fail("original DNS security changed during write",ERROR_NOT_SUPPORTED);
 }
 void WindowsNrptRedirect::restoreSystem() const
 {

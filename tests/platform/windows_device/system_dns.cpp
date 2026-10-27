@@ -1,7 +1,9 @@
 #include "infrastructure/dns/windows/nrpt.h"
+#include "infrastructure/dns/windows/dnsreader.h"
 #include "ordinarytoken.h"
 #include <ws2tcpip.h>
 #include <objbase.h>
+#include <iphlpapi.h>
 #include <iostream>
 #include <system_error>
 
@@ -63,6 +65,23 @@ int wmain(int argc,wchar_t **argv) try
     ordinaryQuery(argv[2],L"203.0.113.9");
     IN_ADDR listener{};check(InetPtonW(AF_INET,L"127.0.0.1",&listener)==1,"parse fixture listener");
     auto redirect=WindowsNrptRedirect::prepareSystem({L"."+std::wstring(argv[2])},{argv[1]},listener);
+    DNS_SETTINGS2 settings{};settings.Version=DNS_SETTINGS_VERSION2;
+    auto *base=reinterpret_cast<DNS_SETTINGS *>(&settings);
+    check(GetDnsSettings(base)==NO_ERROR,"read fixture DNS security");
+    const auto security=settings.SettingFlags;FreeDnsSettings(base);
+    if((security&DNS_ENABLE_DOH) && !(security&DNS_DOH_POLICY_DISABLE)){
+        IN_ADDR known{};std::wstring endpoint;
+        for(const auto &value:WindowsDNS::knownNrptDohServers())if(InetPtonW(AF_INET,value.c_str(),&known)==1){endpoint=value;break;}
+        check(!endpoint.empty(),"native CI requires a known IPv4 DoH server for downgrade regression");
+        auto secure=WindowsDnsRule::create({L"secure."+std::wstring(argv[2])},known);
+        Restore restoreSecure{secure};secure.applySystem();
+        bool refused=false;
+        try{WindowsNrptRedirect::prepareSystem({L".secure."+std::wstring(argv[2])},{endpoint},listener);}
+        catch(const std::system_error &error){refused=error.code().value()==ERROR_NOT_SUPPORTED;}
+        check(refused,"known NRPT DoH upstream was downgraded to plaintext");
+        secure.restoreSystem();
+        std::cout<<"PASS: native known NRPT DoH upstream cannot be redirected as plaintext\n";
+    }
     struct RestoreRedirect {const WindowsNrptRedirect &value;~RestoreRedirect(){try{value.restoreSystem();}catch(const std::exception &error){std::cerr<<"redirect cleanup: "<<error.what()<<'\n';}}} redirectCleanup{redirect};
     redirect.applySystem();
     ordinaryQuery(argv[2],L"203.0.113.10");

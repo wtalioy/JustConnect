@@ -5,6 +5,7 @@
 #include <string>
 #include <initializer_list>
 #include "dnscontract.h"
+#include "dnsreader.h"
 #ifdef _WIN32
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -600,6 +601,26 @@ std::string snapshot(const wchar_t *nrptClass, const wchar_t *dohClass, bool emp
 #endif
 }
 
+#ifdef JC_DNS_READER_LIBRARY
+std::vector<std::wstring> WindowsDNS::knownNrptDohServers() try
+{
+    started=GetTickCount64();
+    Session session;session.open();
+    if(!dohSupported(session,L"MSFT_DNSClientDohServerAddress"))throw std::runtime_error("native NRPT DoH table unavailable");
+    Operation operation;
+    MI_Session_QueryInstances(&session.handle,0,nullptr,L"ROOT\\StandardCimv2",L"WQL",L"SELECT * FROM MSFT_DNSClientDohServerAddress",nullptr,&operation.handle);
+    std::vector<std::wstring> result;
+    consume(operation,[&](const MI_Instance *instance){
+        const auto server=element(instance,L"ServerAddress");
+        if((server.flags&MI_FLAG_NULL) || server.type!=MI_STRING || !server.value.string)throw std::runtime_error("native NRPT DoH server missing");
+        ip(server.value.string);
+        result.emplace_back(server.value.string);
+    });
+    return result;
+}catch(const ProviderFailure &failure){
+    throw std::runtime_error("native NRPT DoH provider failed: "+std::to_string(unsigned(failure.code)));
+}
+#else
 int main(int argc, char **argv) try
 {
     const wchar_t *nrptClass = L"PS_DnsClientNrptPolicy", *dohClass = L"MSFT_DNSClientDohServerAddress";
@@ -680,3 +701,4 @@ int main(int argc, char **argv) try
     std::fputs("Native DNS snapshot failed; no partial snapshot published.\n", stderr);
     return 1;
 }
+#endif
