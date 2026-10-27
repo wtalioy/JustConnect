@@ -74,7 +74,9 @@ D2 的设备入口子方案已收敛：Linux／macOS 使用最小授权助手创
 | TUN 关闭时 PATCH 排除测试网段 | 回读包含指定范围，TUN 仍关闭；不代表开启时的实际绕行已验证 |
 | `PUT /configs?force=true` 提交完整 payload | 规则、mode 和 DNS 回答均切换；无效规则返回 400，保留上次有效版本；恢复初始完整配置后回读一致 |
 
-复现：在目标平台使用 Python 运行 `python tests/platform/mihomo_api_probe.py <mihomo可执行文件>`；当前本机结果保存在 `build/reports/mihomo-api-windows-v1.19.32.json`，进程、监听、临时配置和日志随测试结束清理。请求使用[官方 API](https://wiki.metacubex.one/api/)公开路径，不依据 HTTP 成功码推断所有字段可增量修改。`GET /configs` 没有完整规则／DNS／代理定义，因此不能用该响应拼出用户全量配置后盲目 PUT；正式联动仍须验证配置来源、外部改写与所有权恢复、运行中 TUN 实际流量，以及其余平台／目标版本。D3 保持待验收，不据此修改运行中的 Clash。
+2026-10-27 用同一隔离探针复验官方 Linux x64 `v1.19.32`，以上 API／Fake-IP／无效更新保留与恢复结果一致。发布压缩包 SHA-256 与 GitHub release 的 digest 匹配，解压后二进制 SHA-256 为 `6de241191ca39f9ac1cd6e3194fc9303c19055d3549c8bdb4ff1349c89173819`；报告 `build/reports/mihomo-api-linux-v1.19.32.json`。仅自建实例及回环替身参与，TUN 始终关闭，进程与临时配置已清理。Windows／Linux 的控制能力核对不替代 macOS、运行中 TUN、用户配置所有权或正式产品接入。
+
+复现：在目标平台使用 Python 运行 `python tests/platform/mihomo_api_probe.py <mihomo可执行文件>`；Windows 与 Linux 结果分别保存在 `build/reports/mihomo-api-windows-v1.19.32.json`、`build/reports/mihomo-api-linux-v1.19.32.json`，进程、监听、临时配置和日志随测试结束清理。请求使用[官方 API](https://wiki.metacubex.one/api/)公开路径，不依据 HTTP 成功码推断所有字段可增量修改。`GET /configs` 没有完整规则／DNS／代理定义，因此不能用该响应拼出用户全量配置后盲目 PUT；正式联动仍须验证配置来源、外部改写与所有权恢复、运行中 TUN 实际流量，以及其余平台／目标版本。D3 保持待验收，不据此修改运行中的 Clash。
 
 ### Linux 设备／fd 原型复现
 
