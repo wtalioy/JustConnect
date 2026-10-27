@@ -18,6 +18,7 @@
 #include <mi.h>
 #include <cwchar>
 #include <limits>
+#include <map>
 #include <set>
 #include <vector>
 #include "../domainlimits.h"
@@ -250,7 +251,30 @@ void addNamespace(Namespaces &names,const wchar_t *name,size_t &bytes)
     names.insert(name);
     if(names.size()>NetworkDnsDomainLimit)throw std::runtime_error("native namespace count");
 }
-Namespaces policyNamespaces(HKEY parent)
+std::string registryScalar(HKEY key,const wchar_t *name,DWORD expectedType)
+{
+    DWORD type=0,size=0;
+    const auto status=RegQueryValueExW(key,name,nullptr,&type,nullptr,&size);
+    if(status==ERROR_FILE_NOT_FOUND)return "null";
+    registryChecked(status);
+    if(type!=expectedType)throw std::runtime_error("unsupported native NRPT scalar type");
+    if(size>limit)throw std::runtime_error("native NRPT scalar size");
+    if(type==REG_DWORD){
+        if(size!=sizeof(DWORD))throw std::runtime_error("invalid native NRPT scalar size");
+        DWORD value=0;
+        registryChecked(RegQueryValueExW(key,name,nullptr,&type,reinterpret_cast<BYTE *>(&value),&size));
+        if(type!=REG_DWORD || size!=sizeof(value))throw std::runtime_error("changed native NRPT scalar");
+        return std::to_string(value);
+    }
+    if(size<sizeof(wchar_t) || size%sizeof(wchar_t))throw std::runtime_error("invalid native NRPT string size");
+    std::vector<wchar_t> value(size/sizeof(wchar_t));const auto before=size;
+    registryChecked(RegQueryValueExW(key,name,nullptr,&type,reinterpret_cast<BYTE *>(value.data()),&size));
+    if(type!=REG_SZ || size!=before || value.back()!=0 || wcsnlen(value.data(),value.size())!=value.size()-1)
+        throw std::runtime_error("changed native NRPT scalar");
+    return quote(utf8(value.data()));
+}
+using PolicyRecords=std::map<std::string,std::string>;
+Namespaces policyNamespaces(HKEY parent,PolicyRecords *records=nullptr,const char *store="local")
 {
     DWORD count=0,longest=0;
     const auto inspected=RegQueryInfoKeyW(parent,nullptr,nullptr,nullptr,&count,&longest,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr);
@@ -259,7 +283,8 @@ Namespaces policyNamespaces(HKEY parent)
     if(count>NetworkDnsDomainLimit || longest>limit/sizeof(wchar_t))throw std::runtime_error("native NRPT source count");
     std::vector<wchar_t> name(size_t(longest)+1);
     Namespaces names;
-    size_t namespaceBytes=0,inputBytes=0;
+    size_t namespaceBytes=0,inputBytes=0,recordBytes=0;
+    if(records)for(const auto &entry:*records)recordBytes+=entry.second.size();
     for(DWORD i=0;i<count;++i){
         DWORD length=DWORD(name.size());
         const auto enumerated=RegEnumKeyExW(parent,i,name.data(),&length,nullptr,nullptr,nullptr,nullptr);
@@ -285,28 +310,43 @@ Namespaces policyNamespaces(HKEY parent)
         registryChecked(read);
         if(type!=REG_MULTI_SZ || bytes!=expectedBytes || data[data.size()-1] || data[data.size()-2])
             throw std::runtime_error("changed native NRPT namespace storage");
-        size_t offset=0;
+        size_t offset=0;std::string rawNames("[");
         while(offset<data.size() && data[offset]){
             const auto size=wcsnlen(data.data()+offset,data.size()-offset);
             addNamespace(names,data.data()+offset,namespaceBytes);
+            if(rawNames.size()>1)append(rawNames,",");
+            append(rawNames,quote(utf8(data.data()+offset)));
             offset+=size+1;
         }
         for(;offset<data.size();++offset)if(data[offset])throw std::runtime_error("malformed native NRPT namespace storage");
+        if(records){
+            append(rawNames,"]");
+            wchar_t sourceClass[256]{};DWORD length=256;
+            registryChecked(RegQueryInfoKeyW(key.value,sourceClass,&length,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr));
+            std::string record="{\"store\":"+quote(store)+",\"id\":"+quote(utf8(name.data()))+",\"class\":"+quote(utf8(sourceClass))
+                +",\"namespaces\":"+rawNames+",\"servers\":"+registryScalar(key.value,L"GenericDNSServers",REG_SZ)
+                +",\"version\":"+registryScalar(key.value,L"Version",REG_DWORD)+",\"options\":"+registryScalar(key.value,L"ConfigOptions",REG_DWORD)
+                +",\"owner\":"+registryScalar(key.value,WindowsDNS::RedirectOwner,REG_SZ)+"}";
+            const auto identity=std::string(store)+"/"+utf8(name.data());
+            if(recordBytes>limit || record.size()>limit-recordBytes)throw std::runtime_error("native NRPT record size");
+            recordBytes+=record.size();
+            if(!records->emplace(identity,std::move(record)).second)throw std::runtime_error("changed native NRPT identity");
+        }
     }
     return names;
 }
-Namespaces policySources()
+Namespaces policySources(PolicyRecords *records=nullptr)
 {
     trace("nrpt_sources");
     Namespaces names;
     size_t namespaceBytes=0;
-    const wchar_t *paths[]{WindowsDNS::LocalPolicy,WindowsDNS::ManagedPolicy};
-    for(const auto *path:paths){
+    const std::pair<const wchar_t *,const char *> paths[]{{WindowsDNS::LocalPolicy,"local"},{WindowsDNS::ManagedPolicy,"managed"}};
+    for(const auto &[path,store]:paths){
         RegistryKey parent;
         const auto status=RegOpenKeyExW(HKEY_LOCAL_MACHINE,path,0,KEY_READ|KEY_WOW64_64KEY,&parent.value);
         if(absentPolicyObject(status))continue;
         registryChecked(status);
-        const auto part=policyNamespaces(parent.value);
+        const auto part=policyNamespaces(parent.value,records,store);
         for(const auto &name:part)addNamespace(names,name.c_str(),namespaceBytes);
         if(names.size()>NetworkDnsDomainLimit)throw std::runtime_error("native namespace count");
     }
@@ -316,6 +356,25 @@ bool backedBySources(const Namespaces &effective,const Namespaces &sources)
 {
     for(const auto &name:effective)if(!sources.count(name))return false;
     return true;
+}
+std::vector<std::wstring> configuredEncryption()
+{
+    RegistryKey configured;std::vector<std::wstring> result;
+    const auto opened=RegOpenKeyExW(HKEY_LOCAL_MACHINE,WindowsDNS::EncryptedServers,REG_OPTION_OPEN_LINK,KEY_READ|KEY_WOW64_64KEY,&configured.value);
+    if(opened==ERROR_FILE_NOT_FOUND)return result;
+    registryChecked(opened);
+    if(RegQueryValueExW(configured.value,L"SymbolicLinkValue",nullptr,nullptr,nullptr,nullptr)!=ERROR_FILE_NOT_FOUND)
+        throw std::runtime_error("linked native encrypted servers");
+    DWORD count=0,longest=0;
+    registryChecked(RegQueryInfoKeyW(configured.value,nullptr,nullptr,nullptr,&count,&longest,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr));
+    if(count>NetworkDnsDomainLimit || longest>limit/sizeof(wchar_t))throw std::runtime_error("native encrypted server count");
+    std::vector<wchar_t> name(size_t(longest)+1);
+    for(DWORD i=0;i<count;++i){
+        DWORD size=DWORD(name.size());
+        registryChecked(RegEnumKeyExW(configured.value,i,name.data(),&size,nullptr,nullptr,nullptr,nullptr));
+        ip(name.data());result.emplace_back(name.data(),size);
+    }
+    return result;
 }
 #ifdef JC_DNS_READER_TESTING
 void verifyRegistryNamespaces()
@@ -343,6 +402,28 @@ void verifyRegistryNamespaces()
     addNamespace(effective,L".campus.test",namespaceBytes);addNamespace(effective,L"HOST.ORIGINAL.TEST",namespaceBytes);
     const auto active=policyNamespaces(parent.value);
     if(active.size()!=2 || !backedBySources(effective,active))throw std::runtime_error("native namespace case or array handling");
+    const wchar_t originalServers[]=L" 192.0.2.53 ; 2001:db8::53 ",owner[]=L"{2717939F-2E6F-4F37-A293-8A4F3EDBC3E5}";
+    registryChecked(RegSetValueExW(rule.value,L"GenericDNSServers",0,REG_SZ,reinterpret_cast<const BYTE *>(originalServers),sizeof(originalServers)));
+    const DWORD version=1,options=8;
+    registryChecked(RegSetValueExW(rule.value,L"Version",0,REG_DWORD,reinterpret_cast<const BYTE *>(&version),sizeof(version)));
+    registryChecked(RegSetValueExW(rule.value,L"ConfigOptions",0,REG_DWORD,reinterpret_cast<const BYTE *>(&options),sizeof(options)));
+    PolicyRecords before,after;
+    if(policyNamespaces(parent.value,&before)!=active || before.size()!=1
+        || before.at("local/rule").find("\"servers\":\" 192.0.2.53 ; 2001:db8::53 \"")==std::string::npos
+        || before.at("local/rule").find("\"version\":1,\"options\":8,\"owner\":null")==std::string::npos)
+        throw std::runtime_error("native NRPT source identity or original formatting lost");
+    registryChecked(RegSetValueExW(rule.value,WindowsDNS::RedirectOwner,0,REG_SZ,reinterpret_cast<const BYTE *>(owner),sizeof(owner)));
+    if(policyNamespaces(parent.value,&after)!=active || before==after
+        || after.at("local/rule").find(quote(utf8(owner)))==std::string::npos)
+        throw std::runtime_error("same-namespace ownership change lost");
+    before=after;after.clear();
+    const wchar_t listener[]=L"127.0.0.1";
+    registryChecked(RegSetValueExW(rule.value,L"GenericDNSServers",0,REG_SZ,reinterpret_cast<const BYTE *>(listener),sizeof(listener)));
+    if(policyNamespaces(parent.value,&after)!=active || before==after)throw std::runtime_error("same-namespace endpoint change lost");
+    registryChecked(RegSetValueExW(rule.value,L"Version",0,REG_SZ,reinterpret_cast<const BYTE *>(listener),sizeof(listener)));
+    after.clear();bool typeRefused=false;
+    try{policyNamespaces(parent.value,&after);}catch(const std::runtime_error &){typeRefused=true;}
+    if(!typeRefused)throw std::runtime_error("unsupported native policy type became a configured version");
     addNamespace(effective,L"deleted.original.test",namespaceBytes);
     if(backedBySources(effective,active))throw std::runtime_error("unbacked effective namespace accepted");
     registryChecked(RegDeleteValueW(rule.value,L"Name"));
@@ -571,14 +652,15 @@ std::string snapshot(const wchar_t *nrptClass, const wchar_t *dohClass, bool emp
 {
     Session session;
     session.open();
-    NrptResult policies;
+    NrptResult policies;PolicyRecords records;
     for(;;){
         if(GetTickCount64()-started>=WindowsDNS::SnapshotTimeoutMs)throw std::runtime_error("native NRPT source convergence timeout");
-        const auto before=policySources();
+        PolicyRecords beforeRecords,afterRecords;
+        const auto before=policySources(&beforeRecords);
         policies=nrpt(session,nrptClass,emptyFixture);
-        const auto after=policySources();
+        const auto after=policySources(&afterRecords);
         // The effective provider can lag deletion; do not adopt an unbacked scope as original policy.
-        if(before==after && backedBySources(policies.names,after))break;
+        if(before==after && beforeRecords==afterRecords && backedBySources(policies.names,after)){records=std::move(afterRecords);break;}
         trace("nrpt_consistency");Sleep(WindowsDNS::ConsistencyPollMs);
     }
     const bool supported = dohSupported(session, dohClass);
@@ -591,8 +673,17 @@ std::string snapshot(const wchar_t *nrptClass, const wchar_t *dohClass, bool emp
     append(output,interfaces);append(output,",\"clients\":");append(output,clients);
     append(output,",\"global\":");append(output,globals);
     append(output,",\"nrpt\":");append(output,policies.json);
+    append(output,",\"nrpt_sources\":[");
+    bool firstSource=true;
+    for(const auto &entry:records){if(!firstSource)append(output,",");firstSource=false;append(output,entry.second);}
+    append(output,"]");
     append(output,",\"doh_supported\":");append(output,supported ? "true" : "false");
     append(output,",\"doh\":");append(output,doh);
+    append(output,",\"configured_encryption\":[");bool firstEncrypted=true;
+    for(const auto &server:configuredEncryption()){
+        if(!firstEncrypted)append(output,",");firstEncrypted=false;append(output,quote(ip(server.c_str())));
+    }
+    append(output,"]");
     append(output,",\"adapters\":");append(output,adapters);
     append(output,",\"native_global\":");append(output,nativeGlobal);append(output,"}");
     trace("serialize");
@@ -616,20 +707,7 @@ std::vector<std::wstring> WindowsDNS::knownNrptEncryptedServers() try
         ip(server.value.string);
         result.emplace_back(server.value.string);
     });
-    RegistryKey configured;
-    const auto opened=RegOpenKeyExW(HKEY_LOCAL_MACHINE,EncryptedServers,REG_OPTION_OPEN_LINK,KEY_READ|KEY_WOW64_64KEY,&configured.value);
-    if(opened!=ERROR_FILE_NOT_FOUND){
-        registryChecked(opened);
-        DWORD count=0,longest=0;
-        registryChecked(RegQueryInfoKeyW(configured.value,nullptr,nullptr,nullptr,&count,&longest,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr));
-        if(count>NetworkDnsDomainLimit || longest>limit/sizeof(wchar_t))throw std::runtime_error("native encrypted server count");
-        std::vector<wchar_t> name(size_t(longest)+1);
-        for(DWORD i=0;i<count;++i){
-            DWORD size=DWORD(name.size());
-            registryChecked(RegEnumKeyExW(configured.value,i,name.data(),&size,nullptr,nullptr,nullptr,nullptr));
-            ip(name.data());result.emplace_back(name.data(),size);
-        }
-    }
+    const auto configured=configuredEncryption();result.insert(result.end(),configured.begin(),configured.end());
     return result;
 }catch(const ProviderFailure &failure){
     throw std::runtime_error("native NRPT DoH provider failed: "+std::to_string(unsigned(failure.code)));

@@ -18,7 +18,7 @@ with patch.object(sys, 'path', [str(ROOT / 'tests/platform'), *sys.path]):
 class WindowsPacketRunnerTest(unittest.TestCase):
     def test_early_dns_check_publishes_only_complete_successful_native_reads(self):
         facts = {'interfaces': [], 'clients': [], 'global': {}, 'nrpt': [], 'doh_supported': False, 'doh': [],
-                 'adapters': [], 'native_global': {'Status': 87, 'Value': None}}
+                 'nrpt_sources': [], 'configured_encryption': [], 'adapters': [], 'native_global': {'Status': 87, 'Value': None}}
         for result in (subprocess.CompletedProcess([], 1, b'', b'provider denied'),
                        subprocess.CompletedProcess([], 0, b'{}', b''),
                        subprocess.CompletedProcess([], 0, json.dumps(facts).encode(), b'')):

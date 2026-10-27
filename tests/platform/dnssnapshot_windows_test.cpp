@@ -86,7 +86,9 @@ int main(int argc, char **argv) try
         "clients":[{"InterfaceIndex":7,"ConnectionSpecificSuffix":"overlay.test","ConnectionSpecificSuffixSearchList":["overlay.test"]}],
         "global":{"SuffixSearchList":[]},
         "nrpt":[{"Namespace":[".overlay.test"],"NameServers":["192.0.2.53"],"DirectAccessEnabled":false,"DirectAccessDnsServers":[],"QueryPolicy":"QueryIPv6Only","SecureNameQueryFallback":"Disable","DnsSecValidationRequired":null}],
-        "doh_supported":false,"doh":[],
+        "doh_supported":false,"doh":[],"configured_encryption":["192.0.2.53","2001:db8::53"],
+        "nrpt_sources":[{"store":"local","id":"{2717939F-2E6F-4F37-A293-8A4F3EDBC3E5}","class":"original provider",
+            "namespaces":[".overlay.test"],"servers":" 192.0.2.53 ; 2001:db8::53 ","version":1,"options":8,"owner":null}],
         "native_global":{"Status":0,"Value":{"Flags":"0","SettingFlags":"18446744073709551615","Domain":null,"SearchList":"overlay.test"}},
         "adapters":[{"InterfaceIndex":7,"Ipv6IfIndex":7,"Guid":"{2717939F-2E6F-4F37-A293-8A4F3EDBC3E5}","Luid":"18446744073709551615",
             "IfType":6,"OperStatus":1,"Ipv4Metric":25,"Ipv6Metric":35,"DnsSuffix":"overlay.test",
@@ -112,6 +114,17 @@ int main(int argc, char **argv) try
         const auto read=readWindowsDnsSnapshot(runner);
         check(!read.result.succeeded() && read.data.isEmpty(),"Incomplete or downgraded native source accepted");
     };
+    for(const auto &field:{"nrpt_sources","configured_encryption"}){
+        auto missing=complete;missing.remove(field);rejects(missing);
+    }
+    auto sourceRows=complete["nrpt_sources"].toArray();sourceRows.append(sourceRows[0]);
+    auto invalidSources=complete;invalidSources["nrpt_sources"]=sourceRows;rejects(invalidSources);
+    sourceRows=complete["nrpt_sources"].toArray();auto sourceRow=sourceRows[0].toObject();
+    sourceRow["version"]=QJsonValue::Null;sourceRow["options"]=QJsonValue::Null;sourceRows[0]=sourceRow;
+    auto unknownSource=complete;unknownSource["nrpt_sources"]=sourceRows;output=QString::fromUtf8(QJsonDocument(unknownSource).toJson());
+    check(readWindowsDnsSnapshot(runner).data.value("nrpt_sources").toArray()==sourceRows,"Unknown native NRPT policy was invented or discarded");
+    sourceRow["owner"]=false;sourceRows[0]=sourceRow;unknownSource["nrpt_sources"]=sourceRows;rejects(unknownSource);
+    invalidSources=complete;invalidSources["configured_encryption"]=QJsonArray{"not-an-IP"};rejects(invalidSources);
     auto adapters=data["adapters"].toArray();
     auto adapter=adapters[0].toObject();
     adapter["Settings"]=QJsonObject{{"Status",87},{"Value",QJsonValue::Null}};
