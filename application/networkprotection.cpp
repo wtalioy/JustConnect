@@ -39,12 +39,12 @@ std::optional<QJsonArray> originalNetworkProtection(const QJsonObject &network)
 {
     if (!network["interfaces"].isArray() || !network["routes"].isArray()) return std::nullopt;
     QMap<QString, QJsonArray> targets;
-    auto add = [&](const QString &value, const QJsonObject &source, bool route, bool cloned = false) {
+    auto add = [&](const QString &value, const QJsonObject &source, bool route, bool excluded = false) {
         const auto subnet = QHostAddress::parseSubnet(value);
         if (subnet.second < 0 || !subnet.first.scopeId().isEmpty()) return false;
         if (mapped(subnet.first)) return false;
-        // Kernel-derived host caches inherit their parent scope and do not create new protection.
-        if (cloned) return true;
+        // Host caches and routes bound only to disconnected links do not establish reachable networks.
+        if (excluded) return true;
         // Default and split-default routes describe exits, never protected destinations.
         if (subnet.second <= 1) return route;
         const QString prefix = subnet.first.toString() + '/' + QString::number(subnet.second);
@@ -53,11 +53,18 @@ std::optional<QJsonArray> originalNetworkProtection(const QJsonObject &network)
     };
     add("127.0.0.0/8", {{"kind", "loopback"}}, false);
     add("::1/128", {{"kind", "loopback"}}, false);
+    QSet<qint64> interfacesSeen, disconnected;
     const auto interfaces = network["interfaces"].toArray();
     for (int i = 0; i < interfaces.size(); ++i) {
         if (!interfaces[i].isObject()) return std::nullopt;
         const auto item = interfaces[i].toObject();
         if (!item["addresses"].isArray()) return std::nullopt;
+        const auto index = item["index"].toInteger(0);
+        if (index > 0) {
+            if (interfacesSeen.contains(index)) return std::nullopt;
+            interfacesSeen.insert(index);
+            if (item["up"] == false) disconnected.insert(index);
+        }
         const auto addresses = item["addresses"].toArray();
         for (int j = 0; j < addresses.size(); ++j) {
             if (!addresses[j].isString() || !add(addresses[j].toString(),
@@ -69,8 +76,14 @@ std::optional<QJsonArray> originalNetworkProtection(const QJsonObject &network)
         if (!routes[i].isObject()) return std::nullopt;
         const auto row = routes[i].toObject();
         const auto destination = row.value("destination");
+        bool inactive = disconnected.contains(row["interface_index"].toInteger(0));
+        if (row.contains("next_hops") && !row["next_hops"].isArray()) return std::nullopt;
+        for (const auto &hop : row["next_hops"].toArray()) {
+            if (!hop.isObject()) return std::nullopt;
+            inactive &= disconnected.contains(hop.toObject()["interface_index"].toInteger(0));
+        }
         if ((row.contains("cloned") && !row["cloned"].isBool()) || !destination.isString()
-            || !add(destination.toString(), {{"kind", "route"}, {"route", i}}, true,row["cloned"].toBool()))
+            || !add(destination.toString(), {{"kind", "route"}, {"route", i}}, true,row["cloned"].toBool() || inactive))
             return std::nullopt;
     }
     QJsonArray result;

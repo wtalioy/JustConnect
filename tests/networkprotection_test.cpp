@@ -245,6 +245,45 @@ static void captureTargets()
     protectedPolicy["protected"] = fragmented;
     protectedPolicy["campus"] = QJsonArray{};
     check(!campusCaptureTargets(wide, protectedPolicy),"Fragmented capture plan silently exceeded its output bound");
+
+    QJsonArray staleRoutes{
+        QJsonObject{{"destination","10.24.0.0/16"},{"interface_index",1}},
+        QJsonObject{{"destination","203.0.113.7/32"},{"interface_index",999}},
+        QJsonObject{{"destination","203.0.113.8/32"},{"interface_index",0}},
+        QJsonObject{{"destination","203.0.113.9/32"},{"interface_index",2},
+            {"next_hops",QJsonArray{QJsonObject{{"interface_index",1}}}}}
+    };
+    for (quint32 index=0;index<512;++index)
+        staleRoutes.append(QJsonObject{{"destination",QHostAddress(0x01000001u+index*65539).toString()+"/32"},{"interface_index",2}});
+    const QJsonObject staleNetwork{
+        {"interfaces",QJsonArray{
+            QJsonObject{{"index",1},{"up",true},{"addresses",QJsonArray{"192.168.24.1/24"}}},
+            QJsonObject{{"index",2},{"up",false},{"addresses",QJsonArray{"172.16.42.1/24"}}}}},
+        {"routes",staleRoutes}};
+    const auto reachable=originalNetworkProtection(staleNetwork);
+    check(reachable.has_value(),"Complete disconnected-link snapshot rejected");
+    const auto reachablePolicy=protectionConfiguration(*reachable,{});
+    const auto reachableCapture=campusCaptureTargets(wide,reachablePolicy);
+    check(reachableCapture.has_value(),"Disconnected native routes exhausted the capture rule budget");
+    for (const auto *address:{"192.168.24.2","172.16.42.1","10.24.0.1","203.0.113.7","203.0.113.8","203.0.113.9","127.0.0.1"})
+        check(!contains(reachableCapture->ipv4Prefixes,QString::fromLatin1(address)),"Active, assigned or unattributed original network lost protection");
+    check(contains(reachableCapture->ipv4Prefixes,"1.0.0.1"),"Unreachable stale route still blocked an authorized campus address");
+    auto reconnected=staleNetwork;
+    auto links=staleNetwork["interfaces"].toArray();auto link=links[1].toObject();link["up"]=true;links[1]=link;reconnected["interfaces"]=links;
+    const auto restored=originalNetworkProtection(reconnected);
+    check(restored && protectionConfiguration(*restored,{})["protected"].toArray().contains("1.0.0.1/32"),"Reconnected link did not regain its original route protection");
+    link.remove("up");links[1]=link;reconnected["interfaces"]=links;
+    const auto unknownState=originalNetworkProtection(reconnected);
+    check(unknownState && protectionConfiguration(*unknownState,{})["protected"].toArray().contains("1.0.0.1/32"),
+        "Unknown link state was assumed disconnected");
+    links.append(links[0]);reconnected["interfaces"]=links;
+    check(!originalNetworkProtection(reconnected),"Ambiguous interface identity silently removed route protection");
+    auto malformed=staleNetwork;auto invalidRoutes=staleRoutes;
+    auto invalidRoute=invalidRoutes[0].toObject();invalidRoute["next_hops"]=false;invalidRoutes[0]=invalidRoute;malformed["routes"]=invalidRoutes;
+    check(!originalNetworkProtection(malformed),"Malformed multipath state silently removed route protection");
+    const auto available=privateTUNAddresses(staleNetwork,{});
+    check(available && !QHostAddress(available->first).isInSubnet(QHostAddress::parseSubnet("172.16.42.0/24")),
+        "Disconnected interface's configured address space was reused for the private device");
 }
 
 int main(int argc, char **argv) try
