@@ -194,12 +194,14 @@ WindowsNrptRedirect decodeWindowsNrptRedirect(const std::string &data) try
     return result;
 }catch(const winrt::hresult_error &){fail("damaged original DNS record",ERROR_INVALID_DATA);}
 
-WindowsNetworkLock::WindowsNetworkLock()
+WindowsNetworkLock::WindowsNetworkLock(Scope scope)
 {
     PSECURITY_DESCRIPTOR security=nullptr;
     if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(L"O:BAG:SYD:P(A;;GA;;;SY)(A;;GA;;;BA)",SDDL_REVISION_1,&security,nullptr)) fail("create recovery lock security");
     SECURITY_ATTRIBUTES attributes{sizeof(attributes),security,FALSE};
-    mutex=CreateMutexExW(&attributes,WindowsNetworkContract::OwnershipMutex,0,MUTEX_ALL_ACCESS);
+    // Service replacement must serialize installers without blocking the old service's recovery lock.
+    const auto name=std::wstring(WindowsNetworkContract::OwnershipMutex)+(scope==Scope::ServiceInstallation?L".Service":L"");
+    mutex=CreateMutexExW(&attributes,name.c_str(),0,MUTEX_ALL_ACCESS);
     const auto error=GetLastError();LocalFree(security);
     if (!mutex) fail("open machine recovery lock",error);
     try {

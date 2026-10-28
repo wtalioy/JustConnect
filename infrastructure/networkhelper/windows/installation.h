@@ -14,6 +14,8 @@ public:
     static bool identityReady() noexcept;
     static std::unique_ptr<WindowsHelperInstallation> prepare();
     static std::unique_ptr<WindowsHelperInstallation> openInstalled();
+    // Pin an existing protected image for service replacement without executing it.
+    static std::unique_ptr<WindowsHelperInstallation> openInstalledImage(const std::wstring &executable);
     // Run in an ordinary launcher process; its lifetime isolates the GUI from the synchronous UAC API.
     static int authorizeControl(DWORD caller,std::uint64_t created,const GUID &session,const WindowsControlElevation &elevate={});
     ~WindowsHelperInstallation();
@@ -27,5 +29,5 @@ private:
     void pinDirectory(const std::wstring &path,bool create,bool allowNewChildren);
     void pinInstallation(const std::wstring &hash,bool create);
     std::wstring executable,library;
-    std::vector<HANDLE> directories;
+    std::vector<HANDLE> pins;
 };
