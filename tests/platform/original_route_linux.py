@@ -82,6 +82,7 @@ def probe(binary, uid, allocator, route_backend):
         remote('link', 'set', 'peer0', 'up')
         remote('addr', 'add', '198.18.0.6/32', 'dev', 'lo')
         ip('route', 'add', '198.18.0.0/24', 'via', '192.0.2.2', 'dev', 'original0')
+        ip('route', 'add', 'default', 'via', '192.0.2.2', 'dev', 'original0')
         tun, capture, cleanup_allocator = allocate_unix(allocator)
         original_routes = json.loads(subprocess.check_output(['ip', '-N', '-j', '-4', 'route', 'show', 'table', 'all'], text=True))
         original_rules = json.loads(subprocess.check_output(['ip', '-N', '-j', '-4', 'rule', 'show'], text=True))
@@ -118,6 +119,9 @@ def probe(binary, uid, allocator, route_backend):
         original = ordinary('original', 'original0')
         assert original.returncode == 0, original.stderr
         print(original.stdout, end='', flush=True)
+        automatic = ordinary('automatic', '')
+        assert automatic.returncode == 0, automatic.stderr
+        print(automatic.stdout, end='', flush=True)
         missing = ordinary('original', 'missing0')
         assert missing.returncode != 0, 'missing original interface silently fell back'
     finally:

@@ -129,8 +129,8 @@ def verify(args):
                     time.sleep(0.05)
                 ordinary.stdin.write(json.dumps({'Phase': 'test', 'FakeRange': str(ipaddress.ip_network(config['dns']['fake-ip-range'], strict=False))}) + '\n')
                 ordinary.stdin.flush()
-                controlled = read_facts(ordinary, 40)
-                assert controlled['phase'] == 'controlled' and controlled['stages'] == 4
+                controlled = read_facts(ordinary, 55)
+                assert controlled['phase'] == 'controlled' and controlled['stages'] == 4 and controlled['modes'] == 2
                 print(json.dumps(controlled), flush=True)
                 disable_tun(config)
                 ordinary.stdin.write(json.dumps({'Phase': 'restored'}) + '\n')
