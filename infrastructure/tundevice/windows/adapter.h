@@ -44,7 +44,7 @@ private:
     HMODULE module = nullptr;
     WINTUN_ADAPTER_HANDLE adapter = nullptr;
     WINTUN_SESSION_HANDLE session = nullptr;
-    HANDLE ready = nullptr, stop = nullptr;
+    HANDLE ready = nullptr, sendReady = nullptr, stop = nullptr;
     unsigned int mtu = 0;
     IN_ADDR source{},peer{};
     std::vector<WindowsTunPrefix> captures;
