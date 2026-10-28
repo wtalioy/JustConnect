@@ -43,6 +43,12 @@ security create-keychain -p "$password" "$keychain"
 security unlock-keychain -p "$password" "$keychain"
 security import "$signing_directory/identity.p12" -k "$keychain" -P "$password" -T /usr/bin/codesign
 security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" > /dev/null
+# codesign also resolves identities through the user's search list.
+python3 - "$keychain" <<'PY'
+import shlex, subprocess, sys
+current = shlex.split(subprocess.check_output(['security', 'list-keychains', '-d', 'user'], text=True))
+subprocess.run(['security', 'list-keychains', '-d', 'user', '-s', *current, sys.argv[1]], check=True)
+PY
 local_identity=$(/usr/bin/openssl x509 -in "$signing_directory/identity.pem" -noout -fingerprint -sha1 | cut -d= -f2 | tr -d ':')
 codesign --verbose --force --options runtime --keychain "$keychain" --sign "$local_identity" --entitlements "$QTWEBENGINE_PATH/Contents/Resources/QtWebEngineProcess.entitlements" "$QTWEBENGINE_PATH/Contents/MacOS/QtWebEngineProcess"
 read -r MAC_HELPER MAC_HELPER_ID < <(python3 -c 'import json,plistlib; c=json.load(open("resource/network-helper-macos.json")); p=plistlib.load(open("resource/Info.plist","rb")); print(c["executable"],p["CFBundleIdentifier"]+c["service_suffix"])')
