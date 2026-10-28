@@ -41,6 +41,16 @@ func listenIPC(name string) (net.Listener, error) {
 	return &pipeListener{name: name, pending: handle}, nil
 }
 func (l *pipeListener) Accept() (net.Conn, error) {
+	for {
+		connection, err := l.accept()
+		// Discovery opens and immediately closes a pipe to read its owner PID.
+		if err == windows.ERROR_NO_DATA || err == windows.ERROR_PIPE_NOT_CONNECTED || err == windows.ERROR_BROKEN_PIPE {
+			continue
+		}
+		return connection, err
+	}
+}
+func (l *pipeListener) accept() (net.Conn, error) {
 	l.mu.Lock()
 	if l.closed {
 		l.mu.Unlock()
