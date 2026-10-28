@@ -206,3 +206,7 @@ macOS 控制专项另验证普通用户从 PID 对应的系统套接字表发现
 Windows 使用现有进程句柄查询；权限拒绝时，通过 Windows 的公开 `SystemProcessInformation` 获取创建时间，不读取目标内存或提权。高权限 Clash Verge 的端点来自实际 NPFS 目录中的控制命名空间，依据 [Verge IPC 契约](https://github.com/clash-verge-rev/clash-verge-service-ipc/blob/v2.7.6/src/core/paths.rs)；不构造完整路径、枚举连接其他服务或猜测控制端口。打开候选只查询内核服务端 PID，发送 HTTP 前再次核验 PID／创建时间。其他高权限前端的私有 IPC 需要其公开发现契约，不能据此宣称通用支持。
 
 `TestProtectedWindowsControllerRealDNS` 仅限制自有官方实例的进程／配置 DACL，再启动普通权限调用方，必须确认进程查询与配置读取均拒绝、实际发现对应管道并查询原 DNS；结束恢复对象权限并停止自有实例。CI 管理员使用现有普通 token 夹具降低子进程权限；本地普通用户无需提权，不改系统接口、路由或 DNS。原生回归另验证公开创建时间与实际句柄一致、畸形／取消不发布部分身份、旧身份拒绝及无关单连接管道保持未连接。
+
+macOS／Windows 的控制专项另运行 `mihomo_tun_native.py` 与普通权限 `corelib/tests/mihomotun`。在一次性 runner 先直接验证显式测试 URL 的真实 IPv4／TLS、源地址及原路由，再启动关闭代理入口、开启 Fake-IP 与实际 TUN／`MATCH,REJECT` 的官方实例。普通探针核对同域 Fake-IP 和内核路由已进入实际 TUN、未绑定 TLS 被拒绝，然后以应用默认的 `AutoDetect=false` 创建正式 underlay，关闭系统 DNS 来源，验证四阶段各自的新 TLS 连接均保留真实地址、原域名证书、原接口及源地址。最后关闭自有 TUN，核对原路由及未绑定 TLS 恢复。四阶段使用公开测试资源演示同一控制拨号契约，不冒充真实校园认证。
+
+该步骤需要 CI 的系统权限及公开 HTTPS 资源，不能在日常主机运行；本地只编译、执行只读路由／URL 回归与无系统副作用的清理测试。提权设置进程只启动自己的官方实例，父进程 EOF 或看门狗到期均先通过自有控制器关闭 TUN，再停止自己创建的进程；关闭失败必须使步骤失败。控制命令与临时密钥仅属于自有实例，产品控制链继续只读。运行证据为控制专项的 `live-tun.log`，未影响原 SDK 4096 次／30 秒门槛；六组完整设备／ABI 工作流保持原有要求。
