@@ -18,7 +18,7 @@ spec.loader.exec_module(package)
 
 
 class VerifyPackageTest(unittest.TestCase):
-    def test_windows_unsigned_package_and_explicit_signed_distribution(self):
+    def test_windows_package_accepts_unsigned_and_rejects_invalid_signatures(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             host = root / 'JustConnect.exe'
@@ -46,25 +46,17 @@ class VerifyPackageTest(unittest.TestCase):
                     patch.object(package, 'windows_audit', return_value={}), \
                     patch.object(package.platform, 'machine', return_value='AMD64'), \
                     patch.object(package.sys, 'platform', 'win32'):
-                for signed, status, signer, valid in (
-                        (False, 'NotSigned', '', True),
-                        (True, 'NotSigned', '', False),
-                        (True, 'Valid', 'b' * 64, False),
-                        (True, 'Valid', 'A' * 64, True)):
-                    with self.subTest(signed=signed, status=status, signer=signer), \
-                            patch.object(package, 'check_windows_network_helper', return_value={
-                                'identity_ready': True, 'signer_sha256': 'a' * 64 if signed else ''}), \
-                            patch.object(package, 'windows_signature', return_value=status), \
-                            patch.object(package, 'run', return_value=signer):
-                        if valid:
-                            package.verify(root, host, 'revision', 'preview', output, archive,
-                                           signed=signed, webengine_probe=host)
+                for status in ('NotSigned', 'Valid', 'HashMismatch', 'NotTrusted'):
+                    with self.subTest(status=status), \
+                            patch.object(package, 'check_windows_network_helper', return_value={'identity_ready': True}), \
+                            patch.object(package, 'windows_signature', return_value=status):
+                        if status in ('NotSigned', 'Valid'):
+                            package.verify(root, host, 'revision', 'preview', output, archive, webengine_probe=host)
                             self.assertEqual(json.loads(output.read_text())['signatures'][host.name], status)
                             output.unlink()
                         else:
-                            with self.assertRaisesRegex(RuntimeError, 'application signer'):
-                                package.verify(root, host, 'revision', 'preview', output, archive,
-                                               signed=signed, webengine_probe=host)
+                            with self.assertRaisesRegex(RuntimeError, 'Invalid Authenticode signature'):
+                                package.verify(root, host, 'revision', 'preview', output, archive, webengine_probe=host)
                             self.assertFalse(output.exists())
 
     def test_windows_network_helper_checks_provenance_payloads_and_privileged_dependencies(self):
@@ -83,28 +75,29 @@ class VerifyPackageTest(unittest.TestCase):
                 return 'NotSigned' if path == helper else 'Valid'
             with patch.object(package, 'windows_signature', side_effect=signature), \
                     patch.object(package, 'run', side_effect=[json.dumps(facts), 'Name: KERNEL32.dll']):
-                self.assertTrue(package.check_windows_network_helper(root, {}, facts['revision'], False)['identity_ready'])
+                self.assertTrue(package.check_windows_network_helper(root, {}, facts['revision'])['identity_ready'])
             for key, value in [('revision', 'old'), ('protocol', True), ('source_state', 'dirty'),
                                ('identity_ready', False), ('identity_ready', 1)]:
                 with self.subTest(key=key), patch.object(package, 'run', return_value=json.dumps(dict(facts, **{key: value}))), \
                         self.assertRaisesRegex(RuntimeError, 'provenance or payload'):
-                    package.check_windows_network_helper(root, {}, facts['revision'], False)
+                    package.check_windows_network_helper(root, {}, facts['revision'])
             with patch.object(package, 'run', return_value=json.dumps(facts)), \
-                    patch.object(package, 'windows_signature', side_effect=signature), \
-                    self.assertRaisesRegex(RuntimeError, 'signature is invalid'):
-                package.check_windows_network_helper(root, {}, facts['revision'], True)
-            with patch.object(package, 'windows_signature', return_value='Valid'):
-                with patch.object(package, 'run', side_effect=[json.dumps(facts), 'Name: KERNEL32.dll', 'A' * 64]):
-                    self.assertEqual(package.check_windows_network_helper(root, {}, facts['revision'], True)['signer_sha256'], 'a' * 64)
+                    patch.object(package, 'windows_signature', return_value='HashMismatch'), \
+                    self.assertRaisesRegex(RuntimeError, 'helper signature is invalid'):
+                package.check_windows_network_helper(root, {}, facts['revision'])
+            with patch.object(package, 'run', return_value=json.dumps(facts)), \
+                    patch.object(package, 'windows_signature', return_value='NotSigned'), \
+                    self.assertRaisesRegex(RuntimeError, 'native driver signature is invalid'):
+                package.check_windows_network_helper(root, {}, facts['revision'])
             with patch.object(package, 'windows_signature', side_effect=signature):
                 for dependency in ('Qt6Core.dll', 'justconnect_core.dll'):
                     with patch.object(package, 'run', side_effect=[json.dumps(facts), 'Name: ' + dependency]), \
                             self.assertRaisesRegex(RuntimeError, 'application/data-plane'):
-                        package.check_windows_network_helper(root, {}, facts['revision'], False)
+                        package.check_windows_network_helper(root, {}, facts['revision'])
                 (root / layout['driver_license']).write_bytes(b'changed')
                 with patch.object(package, 'run', return_value=json.dumps(facts)), \
                         self.assertRaisesRegex(RuntimeError, 'payload hash mismatch'):
-                    package.check_windows_network_helper(root, {}, facts['revision'], False)
+                    package.check_windows_network_helper(root, {}, facts['revision'])
 
     def test_installed_proxy_recovery_worker_is_required_and_runs_with_a_budget(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -306,7 +299,7 @@ class VerifyPackageTest(unittest.TestCase):
                                                   if args[1] == '-l' else 'app:\n')}[args[0]]
             with patch.object(package, 'run', side_effect=run):
                 with self.assertRaisesRegex(RuntimeError, 'Invalid macOS floor'):
-                    package.macos_audit([root / 'app'], root, 'arm64', {}, False)
+                    package.macos_audit([root / 'app'], root, 'arm64', {})
 
     def test_macos_rejects_embedded_sdk_search_path(self):
         def run(*args, **kwargs):
@@ -314,7 +307,7 @@ class VerifyPackageTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder, patch.object(package, 'run', side_effect=run):
             root = Path(folder)
             with self.assertRaisesRegex(RuntimeError, 'Non-relocatable Mach-O search path'):
-                package.macos_audit([root / 'app'], root, 'arm64', {}, False)
+                package.macos_audit([root / 'app'], root, 'arm64', {})
 
     def test_macos_helper_resolves_its_own_executable_directory(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -337,10 +330,10 @@ class VerifyPackageTest(unittest.TestCase):
                     patch.object(package, 'check_macos_network_helper', return_value={}), \
                     patch.object(package.platform, 'mac_ver', return_value=('26.0', (), '')), \
                     patch.object(package.subprocess, 'run', return_value=SimpleNamespace(stderr=b'Signature=adhoc\nIdentifier=app.fixture')) as signature:
-                audit = package.macos_audit([helper], root, 'arm64', {}, False)
+                audit = package.macos_audit([helper], root, 'arm64', {})
                 signature.return_value = SimpleNamespace(stderr=b'Signature=adhoc\nIdentifier=foreign.fixture')
                 with self.assertRaisesRegex(RuntimeError, 'Application signing identifier'):
-                    package.macos_audit([helper], root, 'arm64', {}, False)
+                    package.macos_audit([helper], root, 'arm64', {})
             self.assertEqual(package.version(audit['binary_minimum']), package.version('14.4'))
 
     def test_macos_network_helper_rejects_privilege_provenance_and_dependency_drift(self):

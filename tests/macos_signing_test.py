@@ -56,9 +56,7 @@ elif name=='codesign':
                 with self.subTest(phase=phase):
                     log.unlink(missing_ok=True)
                     environment = dict(os.environ, PATH=str(tools)+os.pathsep+os.environ['PATH'],
-                        CODESIGN_IDENTITY='-', TMPDIR=str(scratch), SIGN_LOG=str(log), FAIL_PHASE=phase)
-                    if not phase:
-                        environment.pop('CODESIGN_IDENTITY')
+                        TMPDIR=str(scratch), SIGN_LOG=str(log), FAIL_PHASE=phase)
                     process = subprocess.Popen(['bash', str(ROOT / 'scripts/macos-sign-app.sh'), str(bundle)],
                         cwd=ROOT, env=environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
                     try:
