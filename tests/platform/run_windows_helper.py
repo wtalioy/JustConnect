@@ -26,31 +26,25 @@ def main():
     host = metadata['powershell_host']
     script = r'''
 $ErrorActionPreference = 'Stop'
-$certificate = $null
-$trusted = $false
 $ownedService = $false
 $ownedDirectory = $null
 $qtOnly = $env:JC_HELPER_QT_CONTROL -eq 'true'
 $qtOption = if ($qtOnly) { 'ON' } else { 'OFF' }
 try {
-    Write-Host 'RUN: create ephemeral signing key'
-    $certificate = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=JustConnect ephemeral helper validation" -CertStoreLocation Cert:\CurrentUser\My -NotAfter (Get-Date).AddDays(1)
-    Write-Host 'RUN: trust ephemeral signing certificate'
-    $root = [System.Security.Cryptography.X509Certificates.X509Store]::new('Root','LocalMachine')
-    $root.Open('ReadWrite')
-    try { $root.Add($certificate); $trusted = $true } finally { $root.Close() }
-    $publisher = [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($certificate.RawData)).ToLowerInvariant()
     Write-Host 'RUN: configure native C++ installation authority'
-    & cmake -S tests/platform/windows_device -B $env:JC_HELPER_NATIVE_BUILD '-DCMAKE_BUILD_TYPE=Release' "-DWINTUN_INCLUDE_DIR=$env:JC_HELPER_SDK_DIRECTORY" -A $env:JC_HELPER_CMAKE_ARCH "-DJC_HELPER_PUBLISHER_SHA256=$publisher" "-DJC_HELPER_DRIVER_SHA256=$env:JC_HELPER_DRIVER_SHA256" "-DJC_HELPER_LICENSE_SHA256=$env:JC_HELPER_LICENSE_SHA256" "-DJC_WINDOWS_QT_CONTROL_TEST=$qtOption"
+    & cmake -S tests/platform/windows_device -B $env:JC_HELPER_NATIVE_BUILD '-DCMAKE_BUILD_TYPE=Release' "-DWINTUN_INCLUDE_DIR=$env:JC_HELPER_SDK_DIRECTORY" -A $env:JC_HELPER_CMAKE_ARCH "-DJC_HELPER_DRIVER_SHA256=$env:JC_HELPER_DRIVER_SHA256" "-DJC_HELPER_LICENSE_SHA256=$env:JC_HELPER_LICENSE_SHA256" "-DJC_WINDOWS_QT_CONTROL_TEST=$qtOption"
     if ($LASTEXITCODE -ne 0) { throw 'Native helper configuration failed' }
     & cmake --build $env:JC_HELPER_NATIVE_BUILD --config Release --target windows_installation_test windows_helper windows_recovery_test windows_control_test --parallel 3
     if ($LASTEXITCODE -ne 0) { throw 'Native helper installation build failed' }
     $helperImage = Join-Path $env:JC_HELPER_NATIVE_BUILD "Release/$env:JC_HELPER_EXECUTABLE"
+    if ((Get-AuthenticodeSignature -LiteralPath $helperImage).Status -ne 'NotSigned') {
+        throw 'Certificate-free helper validation requires an unsigned image'
+    }
     $facts = & $helperImage --version | ConvertFrom-Json
     $layout = Get-Content -Raw resource/network-helper-windows.json | ConvertFrom-Json
     if ($LASTEXITCODE -ne 0 -or $facts.revision -ne $env:GITHUB_SHA -or $facts.source_state -ne 'clean' -or
         $facts.protocol -ne $layout.protocol -or $facts.storage_version -ne $layout.storage_version -or
-        $facts.identity_ready -ne $true -or $facts.publisher_sha256 -ne $publisher -or
+        $facts.identity_ready -ne $true -or
         $facts.driver_sha256 -ne $env:JC_HELPER_DRIVER_SHA256 -or $facts.license_sha256 -ne $env:JC_HELPER_LICENSE_SHA256) {
         throw 'Native helper read-only provenance or compiled authority mismatch'
     }
@@ -59,26 +53,34 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Ordinary Qt control build failed' }
     }
     Copy-Item -LiteralPath (Join-Path $env:JC_HELPER_NATIVE_BUILD 'Release/windows_control_test.exe') -Destination $env:JC_HELPER_CONTROL_IMAGE
-    $controlSignature = Set-AuthenticodeSignature -LiteralPath $env:JC_HELPER_CONTROL_IMAGE -Certificate $certificate -HashAlgorithm SHA256
-    if ($controlSignature.Status -ne 'Valid') { throw 'Control fixture signature failed' }
     if (-not $qtOnly) {
         Copy-Item -LiteralPath (Join-Path $env:JC_HELPER_NATIVE_BUILD 'Release/windows_installation_test.exe') -Destination $env:JC_HELPER_TEST_IMAGE
-        $nativeSignature = Set-AuthenticodeSignature -LiteralPath $env:JC_HELPER_TEST_IMAGE -Certificate $certificate -HashAlgorithm SHA256
-        if ($nativeSignature.Status -ne 'Valid') { throw "Native installation image signature: $($nativeSignature.Status)" }
-        Write-Host 'RUN: signed C++ installation and ordinary-user boundaries'
+        Write-Host 'RUN: unsigned C++ installation and ordinary-user boundaries'
         & $env:JC_HELPER_TEST_IMAGE
-        if ($LASTEXITCODE -ne 0) { throw 'Signed native C++ installation failed' }
+        if ($LASTEXITCODE -ne 0) { throw 'Unsigned native C++ installation failed' }
     }
     if (Get-Service -Name $env:JC_HELPER_SERVICE_NAME -ErrorAction SilentlyContinue) { throw 'Refuse pre-existing recovery service in fixture' }
     Copy-Item -LiteralPath (Join-Path $env:JC_HELPER_NATIVE_BUILD "Release/$env:JC_HELPER_EXECUTABLE") -Destination $env:JC_HELPER_SERVICE_IMAGE
-    $signature = Set-AuthenticodeSignature -LiteralPath $env:JC_HELPER_SERVICE_IMAGE -Certificate $certificate -HashAlgorithm SHA256
-    if ($signature.Status -ne 'Valid') { throw 'Recovery service fixture signature failed' }
     $hash = (Get-FileHash -LiteralPath $env:JC_HELPER_SERVICE_IMAGE -Algorithm SHA256).Hash.ToLowerInvariant()
     $directory = Join-Path ([Environment]::GetFolderPath('ProgramFiles')) (Join-Path $env:JC_HELPER_INSTALL_DIRECTORY $hash)
     if (Test-Path -LiteralPath $directory) { throw 'Refuse pre-existing service payload directory in fixture' }
     $ownedDirectory = $directory
     $ownedService = $true
-    Write-Host 'RUN: signed production C++ service install and idempotent reuse'
+    foreach ($payload in @($layout.driver_library, $layout.driver_license)) {
+        $path = Join-Path $env:JC_HELPER_SDK_DIRECTORY $payload
+        $original = [IO.File]::ReadAllBytes($path)
+        try {
+            $changed = [byte[]]$original.Clone()
+            $changed[0] = $changed[0] -bxor 1
+            [IO.File]::WriteAllBytes($path, $changed)
+            & $env:JC_HELPER_SERVICE_IMAGE --install
+            if ($LASTEXITCODE -eq 0 -or (Test-Path -LiteralPath $directory)) {
+                throw 'Altered helper payload reached protected installation'
+            }
+        } finally { [IO.File]::WriteAllBytes($path, $original) }
+    }
+    Write-Host 'PASS: unsigned helper rejects altered driver and license before machine installation'
+    Write-Host 'RUN: unsigned production C++ service install and idempotent reuse'
     $installed = & $env:JC_HELPER_SERVICE_IMAGE --install
     if ($LASTEXITCODE -ne 0 -or $installed -isnot [string]) { throw 'Recovery service installation failed' }
     $reused = & $env:JC_HELPER_SERVICE_IMAGE --install
@@ -102,9 +104,7 @@ try {
         Write-Host 'RUN: actual ordinary-user native control and account-scoped recovery'
         & $env:JC_HELPER_CONTROL_IMAGE $env:JC_HELPER_SERVICE_IMAGE
         if ($LASTEXITCODE -ne 0) { throw 'Native control identity or recovery boundary failed' }
-        Remove-Item -LiteralPath "Cert:\LocalMachine\Root\$($certificate.Thumbprint)" -Force
-        $trusted = $false
-        Write-Host 'RUN: actual SCM restart, independent owned recovery and ordinary-user control denial without installer trust'
+        Write-Host 'RUN: actual SCM restart, independent owned recovery and ordinary-user control denial without signing credentials'
         & (Join-Path $env:JC_HELPER_NATIVE_BUILD 'Release/windows_recovery_test.exe') --service (Join-Path $directory $env:JC_HELPER_DRIVER_NAME)
         if ($LASTEXITCODE -ne 0) { throw 'Independent SCM recovery failed' }
     } else {
@@ -118,17 +118,12 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Ordinary Qt native lifecycle failed' }
     }
 } finally {
-    try {
-        if ($ownedService -and (Get-Service -Name $env:JC_HELPER_SERVICE_NAME -ErrorAction SilentlyContinue)) {
-            Stop-Service -Name $env:JC_HELPER_SERVICE_NAME
-            & sc.exe delete $env:JC_HELPER_SERVICE_NAME
-            if ($LASTEXITCODE -ne 0) { throw 'Fixture service cleanup failed' }
-        }
-        if ($null -ne $ownedDirectory -and (Test-Path -LiteralPath $ownedDirectory)) { Remove-Item -LiteralPath $ownedDirectory -Recurse -Force }
-    } finally {
-        if ($trusted) { Remove-Item -LiteralPath "Cert:\LocalMachine\Root\$($certificate.Thumbprint)" -Force }
-        if ($null -ne $certificate) { Remove-Item -LiteralPath "Cert:\CurrentUser\My\$($certificate.Thumbprint)" -Force -DeleteKey }
+    if ($ownedService -and (Get-Service -Name $env:JC_HELPER_SERVICE_NAME -ErrorAction SilentlyContinue)) {
+        Stop-Service -Name $env:JC_HELPER_SERVICE_NAME
+        & sc.exe delete $env:JC_HELPER_SERVICE_NAME
+        if ($LASTEXITCODE -ne 0) { throw 'Fixture service cleanup failed' }
     }
+    if ($null -ne $ownedDirectory -and (Test-Path -LiteralPath $ownedDirectory)) { Remove-Item -LiteralPath $ownedDirectory -Recurse -Force }
 }
 '''
     env = dict(os.environ,

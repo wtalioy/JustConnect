@@ -18,7 +18,7 @@ spec.loader.exec_module(package)
 
 
 class VerifyPackageTest(unittest.TestCase):
-    def test_windows_package_caller_matches_helper_authority(self):
+    def test_windows_unsigned_package_and_explicit_signed_distribution(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             host = root / 'JustConnect.exe'
@@ -46,15 +46,14 @@ class VerifyPackageTest(unittest.TestCase):
                     patch.object(package, 'windows_audit', return_value={}), \
                     patch.object(package.platform, 'machine', return_value='AMD64'), \
                     patch.object(package.sys, 'platform', 'win32'):
-                for ready, signed, status, signer, valid in (
-                        (False, False, 'NotSigned', '', True),
-                        (True, True, 'NotSigned', '', False),
-                        (True, False, 'NotSigned', '', False),
-                        (True, True, 'Valid', 'b' * 64, False),
-                        (True, True, 'Valid', 'A' * 64, True)):
-                    with self.subTest(ready=ready, signed=signed, status=status, signer=signer), \
+                for signed, status, signer, valid in (
+                        (False, 'NotSigned', '', True),
+                        (True, 'NotSigned', '', False),
+                        (True, 'Valid', 'b' * 64, False),
+                        (True, 'Valid', 'A' * 64, True)):
+                    with self.subTest(signed=signed, status=status, signer=signer), \
                             patch.object(package, 'check_windows_network_helper', return_value={
-                                'identity_ready': ready, 'publisher_sha256': 'a' * 64 if ready else ''}), \
+                                'identity_ready': True, 'signer_sha256': 'a' * 64 if signed else ''}), \
                             patch.object(package, 'windows_signature', return_value=status), \
                             patch.object(package, 'run', return_value=signer):
                         if valid:
@@ -71,8 +70,8 @@ class VerifyPackageTest(unittest.TestCase):
     def test_windows_network_helper_checks_provenance_payloads_and_privileged_dependencies(self):
         layout = package.WINDOWS_HELPER
         facts = {'protocol': layout['protocol'], 'storage_version': layout['storage_version'],
-                 'revision': 'a' * 40, 'source_state': 'clean', 'identity_ready': False,
-                 'publisher_sha256': '', 'driver_sha256': hashlib.sha256(b'driver').hexdigest(),
+                 'revision': 'a' * 40, 'source_state': 'clean', 'identity_ready': True,
+                 'driver_sha256': hashlib.sha256(b'driver').hexdigest(),
                  'license_sha256': hashlib.sha256(b'license').hexdigest()}
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -84,22 +83,19 @@ class VerifyPackageTest(unittest.TestCase):
                 return 'NotSigned' if path == helper else 'Valid'
             with patch.object(package, 'windows_signature', side_effect=signature), \
                     patch.object(package, 'run', side_effect=[json.dumps(facts), 'Name: KERNEL32.dll']):
-                self.assertFalse(package.check_windows_network_helper(root, {}, facts['revision'], False)['identity_ready'])
+                self.assertTrue(package.check_windows_network_helper(root, {}, facts['revision'], False)['identity_ready'])
             for key, value in [('revision', 'old'), ('protocol', True), ('source_state', 'dirty'),
-                               ('identity_ready', True), ('publisher_sha256', 'bad'), ('publisher_sha256', 'a' * 64)]:
+                               ('identity_ready', False), ('identity_ready', 1)]:
                 with self.subTest(key=key), patch.object(package, 'run', return_value=json.dumps(dict(facts, **{key: value}))), \
-                        self.assertRaisesRegex(RuntimeError, 'provenance or signing'):
+                        self.assertRaisesRegex(RuntimeError, 'provenance or payload'):
                     package.check_windows_network_helper(root, {}, facts['revision'], False)
             with patch.object(package, 'run', return_value=json.dumps(facts)), \
-                    self.assertRaisesRegex(RuntimeError, 'provenance or signing'):
+                    patch.object(package, 'windows_signature', side_effect=signature), \
+                    self.assertRaisesRegex(RuntimeError, 'signature is invalid'):
                 package.check_windows_network_helper(root, {}, facts['revision'], True)
-            signed_facts = dict(facts, identity_ready=True, publisher_sha256='a' * 64)
             with patch.object(package, 'windows_signature', return_value='Valid'):
-                with patch.object(package, 'run', side_effect=[json.dumps(signed_facts), 'b' * 64]), \
-                        self.assertRaisesRegex(RuntimeError, 'compiled authority'):
-                    package.check_windows_network_helper(root, {}, facts['revision'], True)
-                with patch.object(package, 'run', side_effect=[json.dumps(signed_facts), 'a' * 64, 'Name: KERNEL32.dll']):
-                    self.assertTrue(package.check_windows_network_helper(root, {}, facts['revision'], True)['identity_ready'])
+                with patch.object(package, 'run', side_effect=[json.dumps(facts), 'Name: KERNEL32.dll', 'A' * 64]):
+                    self.assertEqual(package.check_windows_network_helper(root, {}, facts['revision'], True)['signer_sha256'], 'a' * 64)
             with patch.object(package, 'windows_signature', side_effect=signature):
                 for dependency in ('Qt6Core.dll', 'justconnect_core.dll'):
                     with patch.object(package, 'run', side_effect=[json.dumps(facts), 'Name: ' + dependency]), \

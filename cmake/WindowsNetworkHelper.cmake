@@ -29,7 +29,6 @@ function(justconnect_windows_network_helper TARGET)
     justconnect_windows_device(${TARGET}_device)
     add_library(${TARGET}_support STATIC
         "${REPO}/infrastructure/process/windows/identity.cpp"
-        "${REPO}/infrastructure/networkhelper/windows/publisher.cpp"
         "${REPO}/infrastructure/networkhelper/windows/installation.cpp"
         "${REPO}/infrastructure/networkhelper/windows/recovery.cpp"
         "${REPO}/infrastructure/networkhelper/windows/service.cpp"
@@ -46,7 +45,7 @@ function(justconnect_windows_network_helper TARGET)
     # Current Windows SDK projections use the standard coroutine headers.
     target_compile_features(${TARGET}_support PUBLIC cxx_std_20)
     target_compile_definitions(${TARGET}_support PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0A00 PRIVATE JC_DNS_READER_LIBRARY)
-    target_link_libraries(${TARGET}_support PUBLIC ${TARGET}_device advapi32 wintrust crypt32 ole32 windowsapp ws2_32 ntdll bcrypt shell32 uuid setupapi iphlpapi)
+    target_link_libraries(${TARGET}_support PUBLIC ${TARGET}_device advapi32 ole32 windowsapp ws2_32 ntdll bcrypt shell32 uuid setupapi iphlpapi)
     target_link_options(${TARGET}_support INTERFACE /DEPENDENTLOADFLAG:0x800 /DEBUG:FULL /OPT:REF /OPT:ICF "/PDBALTPATH:%_PDB%")
     add_executable(${TARGET} "${REPO}/infrastructure/networkhelper/windows/main.cpp")
     get_filename_component(OUTPUT_NAME "${WINDOWS_EXECUTABLE}" NAME_WE)

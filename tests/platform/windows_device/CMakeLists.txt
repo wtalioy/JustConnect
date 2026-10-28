@@ -16,7 +16,7 @@ target_link_libraries(windows_fixture_support PUBLIC windows_helper_support)
 add_executable(windows_device_broker broker.cpp)
 target_link_libraries(windows_device_broker PRIVATE windows_fixture_support setupapi uuid psapi)
 
-foreach(CASE IN ITEMS process_identity publisher registry_journal packet_frame nrpt installation recovery system_dns control session)
+foreach(CASE IN ITEMS process_identity registry_journal packet_frame nrpt installation recovery system_dns control session)
     add_executable(windows_${CASE}_test ${CASE}.cpp)
     target_link_libraries(windows_${CASE}_test PRIVATE windows_helper_support windows_fixture_support)
 endforeach()
