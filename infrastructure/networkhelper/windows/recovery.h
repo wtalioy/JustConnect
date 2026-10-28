@@ -23,7 +23,8 @@ WindowsNrptRedirect decodeWindowsNrptRedirect(const std::string &data);
 // The service and active helper serialize every checkpoint and recovery under the same machine lock.
 class WindowsNetworkLock final {
 public:
-    WindowsNetworkLock();
+    enum class Scope { Network, ServiceInstallation };
+    explicit WindowsNetworkLock(Scope scope = Scope::Network);
     ~WindowsNetworkLock();
     WindowsNetworkLock(const WindowsNetworkLock &) = delete;
     WindowsNetworkLock &operator=(const WindowsNetworkLock &) = delete;

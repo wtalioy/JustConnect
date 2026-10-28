@@ -58,7 +58,7 @@ struct File {
         }
         size=info.nFileSizeLow;
     }
-    ~File() { CloseHandle(value); }
+    ~File() { if(value)CloseHandle(value); }
     File(const File &)=delete;
     File &operator=(const File &)=delete;
     Sha256 hash() const
@@ -211,7 +211,7 @@ void WindowsHelperInstallation::pinDirectory(const std::wstring &path,bool creat
     if (!GetFileInformationByHandle(handle.value,&info)) fail("read pinned directory identity");
     if (!(info.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY) || (info.dwFileAttributes&FILE_ATTRIBUTE_REPARSE_POINT)) fail("unsafe installation directory",ERROR_ACCESS_DENIED);
     immutable(handle.value,allowNewChildren);
-    directories.push_back(handle.value);handle.value=nullptr;
+    pins.push_back(handle.value);handle.value=nullptr;
 }
 void WindowsHelperInstallation::pinInstallation(const std::wstring &hash,bool create)
 {
@@ -232,13 +232,18 @@ void WindowsHelperInstallation::pinInstallation(const std::wstring &hash,bool cr
 }
 std::unique_ptr<WindowsHelperInstallation> WindowsHelperInstallation::openInstalled()
 {
-    const auto executable=currentImage();
-    File image(executable);immutable(image.value,false);runningImage(image);
+    return openInstalledImage(currentImage());
+}
+std::unique_ptr<WindowsHelperInstallation> WindowsHelperInstallation::openInstalledImage(const std::wstring &executable)
+{
+    File image(executable);immutable(image.value,false);
+    if(_wcsicmp(executable.c_str(),currentImage().c_str())==0)runningImage(image);
     auto result=std::unique_ptr<WindowsHelperInstallation>(new WindowsHelperInstallation);
     result->pinInstallation(hex(image.hash()),false);
     if (_wcsicmp(executable.c_str(),result->image().c_str())!=0) fail("recovery must run from its protected installation",ERROR_ACCESS_DENIED);
     installed(result->library,decode(WindowsNetworkContract::DriverSHA256));
     installed((std::filesystem::path(result->image()).parent_path()/WindowsNetworkContract::DriverLicense).wstring(),decode(WindowsNetworkContract::LicenseSHA256));
+    result->pins.push_back(image.value);image.value=nullptr;
     return result;
 }
 std::unique_ptr<WindowsHelperInstallation> WindowsHelperInstallation::prepare()
@@ -315,8 +320,8 @@ int WindowsHelperInstallation::authorizeControl(DWORD pid,std::uint64_t created,
 }
 void WindowsHelperInstallation::close()
 {
-    for (auto it=directories.rbegin();it!=directories.rend();++it) CloseHandle(*it);
-    directories.clear();
+    for (auto it=pins.rbegin();it!=pins.rend();++it) CloseHandle(*it);
+    pins.clear();
 }
 bool WindowsHelperInstallation::identityReady() noexcept
 {

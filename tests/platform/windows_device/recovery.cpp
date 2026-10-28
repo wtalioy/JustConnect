@@ -273,6 +273,26 @@ void ownedRelease(const std::wstring &dll,bool externalChange)
     recovery.acknowledge(record.owner,record.caller.sid);
     std::cout<<"PASS: live owned restore, helper identity, DNS-before-device release"<<(externalChange?" and foreign DNS preservation":"")<<'\n';
 }
+void busyServiceReplacement(const wchar_t *helper)
+{
+    WindowsNetworkRecovery recovery;const auto record=fresh();
+    recovery.declare(record);
+    struct Cleanup {
+        GUID owner;
+        ~Cleanup(){try{WindowsNetworkLock lock;WindowsRegistryJournal journal;journal.remove(owner);}catch(const std::exception &error){std::cerr<<"busy upgrade record cleanup: "<<error.what()<<'\n';}}
+    }cleanup{record.owner};
+    std::wstring command=L"\""+std::wstring(helper)+L"\" --install";
+    STARTUPINFOW startup{sizeof(startup)};PROCESS_INFORMATION process{};
+    check(CreateProcessW(nullptr,command.data(),nullptr,nullptr,FALSE,0,nullptr,nullptr,&startup,&process),"launch replacement with live ownership");
+    Handle child,thread;child.value=process.hProcess;thread.value=process.hThread;
+    const auto state=WaitForSingleObject(child.value,30000);
+    if(state==WAIT_TIMEOUT){TerminateProcess(child.value,1);WaitForSingleObject(child.value,5000);}
+    check(state==WAIT_OBJECT_0,"replacement did not refuse live ownership before its deadline");
+    DWORD code=0;check(GetExitCodeProcess(child.value,&code) && code!=0,"replacement accepted live network ownership");
+    check(encodeWindowsNetworkRecord(recovery.read(record.owner))==encodeWindowsNetworkRecord(record),"refused replacement changed live ownership");
+    std::cout<<"PASS: service replacement refuses live network ownership without altering its record\n";
+}
+
 }
 
 int wmain(int argc,wchar_t **argv) try
@@ -284,6 +304,7 @@ int wmain(int argc,wchar_t **argv) try
         GUID owner{};check(SUCCEEDED(CLSIDFromString(argv[2],&owner)),"parse writer UUID");
         writer(owner,std::stoul(argv[3]),argv[4],argv[5]);return 0;
     }
+    if(argc==3 && std::wstring(argv[1])==L"--upgrade-busy"){busyServiceReplacement(argv[2]);return 0;}
     const bool managed=argc==3 && std::wstring(argv[1])==L"--service";
     check(argc==2 || managed,"recovery fixture requires the verified Wintun DLL");
     const auto dll=argv[managed?2:1];

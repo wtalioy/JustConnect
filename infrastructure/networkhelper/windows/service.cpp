@@ -6,6 +6,8 @@
 #include <winrt/base.h>
 #include <system_error>
 #include <vector>
+#include <exception>
+#include <string_view>
 
 namespace {
 constexpr DWORD RecoveryIntervalMs=1000,StartupTimeoutMs=30000,FailureResetSeconds=86400;
@@ -41,7 +43,7 @@ std::vector<BYTE> configuration(SC_HANDLE service,DWORD level)
     if(!QueryServiceConfig2W(service,level,data.data(),size,&size))fail("read recovery service settings");
     return data;
 }
-void validate(SC_HANDLE service,const std::wstring &command)
+std::wstring validatedCommand(SC_HANDLE service)
 {
     validateSecurity(service);
     DWORD size=0;QueryServiceConfigW(service,nullptr,0,&size);
@@ -50,7 +52,7 @@ void validate(SC_HANDLE service,const std::wstring &command)
     const auto value=reinterpret_cast<QUERY_SERVICE_CONFIGW *>(data.data());
     if(!QueryServiceConfigW(service,value,size,&size))fail("read recovery service configuration");
     if(value->dwServiceType!=SERVICE_WIN32_OWN_PROCESS||value->dwStartType!=SERVICE_AUTO_START
-        ||!value->lpBinaryPathName||command!=value->lpBinaryPathName||!value->lpServiceStartName||_wcsicmp(value->lpServiceStartName,L"LocalSystem")
+        ||!value->lpBinaryPathName||!*value->lpBinaryPathName||!value->lpServiceStartName||_wcsicmp(value->lpServiceStartName,L"LocalSystem")
         ||(value->lpDependencies&&*value->lpDependencies))fail("foreign recovery service configuration",ERROR_ACCESS_DENIED);
     const auto actions=configuration(service,SERVICE_CONFIG_FAILURE_ACTIONS);
     const auto recovery=reinterpret_cast<const SERVICE_FAILURE_ACTIONSW *>(actions.data());
@@ -59,6 +61,67 @@ void validate(SC_HANDLE service,const std::wstring &command)
         fail("foreign recovery service failure command",ERROR_ACCESS_DENIED);
     const auto flags=configuration(service,SERVICE_CONFIG_FAILURE_ACTIONS_FLAG);
     if(!reinterpret_cast<const SERVICE_FAILURE_ACTIONS_FLAG *>(flags.data())->fFailureActionsOnNonCrashFailures)fail("disabled recovery service restart",ERROR_ACCESS_DENIED);
+    return value->lpBinaryPathName;
+}
+void waitService(SC_HANDLE service,DWORD state)
+{
+    const auto deadline=GetTickCount64()+StartupTimeoutMs;
+    for(;;){
+        SERVICE_STATUS_PROCESS value{};DWORD size=0;
+        if(!QueryServiceStatusEx(service,SC_STATUS_PROCESS_INFO,reinterpret_cast<BYTE *>(&value),sizeof(value),&size))fail("read recovery service state");
+        if(value.dwCurrentState==state)return;
+        if(state==SERVICE_RUNNING && value.dwCurrentState!=SERVICE_START_PENDING)
+            fail("recovery service failed to initialize",value.dwWin32ExitCode?value.dwWin32ExitCode:ERROR_SERVICE_NOT_ACTIVE);
+        if(GetTickCount64()>=deadline)fail("recovery service transition deadline",ERROR_TIMEOUT);
+        Sleep(50);
+    }
+}
+void startService(SC_HANDLE service)
+{
+    if(!StartServiceW(service,0,nullptr)&&GetLastError()!=ERROR_SERVICE_ALREADY_RUNNING)fail("start independent recovery service");
+    waitService(service,SERVICE_RUNNING);
+}
+void stopService(SC_HANDLE service)
+{
+    SERVICE_STATUS value{};
+    if(!ControlService(service,SERVICE_CONTROL_STOP,&value)&&GetLastError()!=ERROR_SERVICE_NOT_ACTIVE)fail("stop owned recovery service for replacement");
+    waitService(service,SERVICE_STOPPED);
+}
+void requireRestoredOwners()
+{
+    WindowsNetworkLock lock;
+    WindowsNetworkRecovery recovery;
+    for(const auto &owner:recovery.owners())
+        if(recovery.read(owner).phase!=WindowsRecoveryPhase::Restored)
+            fail("restore previous network ownership before replacing its recovery service",ERROR_BUSY);
+}
+void changeImage(SC_HANDLE service,const std::wstring &command)
+{
+    if(!ChangeServiceConfigW(service,SERVICE_NO_CHANGE,SERVICE_NO_CHANGE,SERVICE_NO_CHANGE,command.c_str(),nullptr,nullptr,nullptr,nullptr,nullptr,nullptr))
+        fail("replace the owned recovery service image");
+}
+void replaceService(SC_HANDLE service,const std::wstring &previous,const std::wstring &next)
+{
+    constexpr std::wstring_view suffix=L"\" --service";
+    if(!previous.starts_with(L'"') || !previous.ends_with(suffix) || previous.size()<=suffix.size()+1)
+        fail("foreign recovery service command",ERROR_ACCESS_DENIED);
+    auto installed=WindowsHelperInstallation::openInstalledImage(previous.substr(1,previous.size()-suffix.size()-1));
+    requireRestoredOwners();
+    bool changed=false;
+    try{
+        stopService(service);
+        WindowsNetworkLock lock;
+        if(validatedCommand(service)!=previous)fail("recovery service changed during replacement",ERROR_ACCESS_DENIED);
+        requireRestoredOwners();
+        changeImage(service,next);changed=true;
+        startService(service);
+    }catch(...){
+        const auto failure=std::current_exception();
+        if(validatedCommand(service)!=(changed?next:previous))fail("recovery service changed before rollback",ERROR_ACCESS_DENIED);
+        if(changed){stopService(service);changeImage(service,previous);}
+        startService(service);
+        std::rethrow_exception(failure);
+    }
 }
 void status(DWORD state,DWORD error=NO_ERROR)
 {
@@ -105,6 +168,7 @@ void WINAPI serviceMain(DWORD,wchar_t **)
 
 void ensureWindowsRecoveryService(const WindowsHelperInstallation &installation)
 {
+    WindowsNetworkLock installationLock(WindowsNetworkLock::Scope::ServiceInstallation);
     const auto command=L"\""+installation.image()+L"\" --service";
     Service manager;manager.value=OpenSCManagerW(nullptr,nullptr,SC_MANAGER_CONNECT|SC_MANAGER_CREATE_SERVICE);
     if(!manager.value)fail("open native service manager");
@@ -127,18 +191,10 @@ void ensureWindowsRecoveryService(const WindowsHelperInstallation &installation)
         SERVICE_FAILURE_ACTIONS_FLAG flags{TRUE};
         if(!ChangeServiceConfig2W(service.value,SERVICE_CONFIG_FAILURE_ACTIONS,&actions)||!ChangeServiceConfig2W(service.value,SERVICE_CONFIG_FAILURE_ACTIONS_FLAG,&flags))fail("enable independent service restart");
     }
-    // shortcut: a different installed image needs explicit replacement after recovery; add upgrade handling before a production updater.
-    validate(service.value,command);
-    if(!StartServiceW(service.value,0,nullptr)&&GetLastError()!=ERROR_SERVICE_ALREADY_RUNNING)fail("start independent recovery service");
-    const auto deadline=GetTickCount64()+StartupTimeoutMs;
-    for(;;){
-        SERVICE_STATUS_PROCESS value{};DWORD size=0;
-        if(!QueryServiceStatusEx(service.value,SC_STATUS_PROCESS_INFO,reinterpret_cast<BYTE *>(&value),sizeof(value),&size))fail("read recovery service readiness");
-        if(value.dwCurrentState==SERVICE_RUNNING){created.value=nullptr;return;}
-        if(value.dwCurrentState!=SERVICE_START_PENDING)fail("recovery service failed to initialize",value.dwWin32ExitCode?value.dwWin32ExitCode:ERROR_SERVICE_NOT_ACTIVE);
-        if(GetTickCount64()>=deadline)fail("recovery service startup deadline",ERROR_TIMEOUT);
-        Sleep(50);
-    }
+    const auto previous=validatedCommand(service.value);
+    if(previous!=command)replaceService(service.value,previous,command);
+    else startService(service.value);
+    created.value=nullptr;
 }
 int runWindowsRecoveryService()
 {

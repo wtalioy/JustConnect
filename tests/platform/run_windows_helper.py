@@ -29,7 +29,8 @@ def main():
     script = r'''
 $ErrorActionPreference = 'Stop'
 $ownedService = $false
-$ownedDirectory = $null
+$ownedDirectories = @()
+$installers = @()
 $qtOnly = $env:JC_HELPER_QT_CONTROL -eq 'true'
 $qtOption = if ($qtOnly) { 'ON' } else { 'OFF' }
 try {
@@ -38,6 +39,10 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Native helper configuration failed' }
     & cmake --build $env:JC_HELPER_NATIVE_BUILD --config Release --target windows_installation_test windows_helper windows_recovery_test windows_control_test --parallel 3
     if ($LASTEXITCODE -ne 0) { throw 'Native helper installation build failed' }
+    if (-not $qtOnly) {
+        & cmake --build $env:JC_HELPER_NATIVE_BUILD --config Release --target windows_helper_previous windows_helper_startup_failure --parallel 3
+        if ($LASTEXITCODE -ne 0) { throw 'Service replacement fixture build failed' }
+    }
     $helperImage = Join-Path $env:JC_HELPER_NATIVE_BUILD "Release/$env:JC_HELPER_EXECUTABLE"
     if ((Get-AuthenticodeSignature -LiteralPath $helperImage).Status -ne 'NotSigned') {
         throw 'Certificate-free helper validation requires an unsigned image'
@@ -66,7 +71,7 @@ try {
     $hash = (Get-FileHash -LiteralPath $env:JC_HELPER_SERVICE_IMAGE -Algorithm SHA256).Hash.ToLowerInvariant()
     $directory = Join-Path ([Environment]::GetFolderPath('ProgramFiles')) (Join-Path $env:JC_HELPER_INSTALL_DIRECTORY $hash)
     if (Test-Path -LiteralPath $directory) { throw 'Refuse pre-existing service payload directory in fixture' }
-    $ownedDirectory = $directory
+    $ownedDirectories += $directory
     $ownedService = $true
     $tamperHelper = Join-Path $env:JC_HELPER_TAMPER_DIRECTORY $layout.executable
     Copy-Item -LiteralPath $helperImage -Destination $tamperHelper
@@ -84,6 +89,60 @@ try {
         } finally { [IO.File]::WriteAllBytes($path, $original) }
     }
     Write-Host 'PASS: unsigned helper rejects altered driver and license before machine installation'
+
+    if (-not $qtOnly) {
+        $variants = @{}
+        foreach ($variant in @('previous','startup_failure')) {
+            $image = Join-Path $env:JC_HELPER_NATIVE_BUILD "$variant/Release/$env:JC_HELPER_EXECUTABLE"
+            foreach ($payload in @($env:JC_HELPER_DRIVER_NAME,$layout.driver_license)) {
+                Copy-Item -LiteralPath (Join-Path $env:JC_HELPER_SDK_DIRECTORY $payload) -Destination (Join-Path (Split-Path $image) $payload)
+            }
+            $identity = (Get-FileHash -LiteralPath $image -Algorithm SHA256).Hash.ToLowerInvariant()
+            $installedDirectory = Join-Path ([Environment]::GetFolderPath('ProgramFiles')) (Join-Path $env:JC_HELPER_INSTALL_DIRECTORY $identity)
+            if (Test-Path -LiteralPath $installedDirectory) { throw 'Refuse pre-existing replacement fixture payload' }
+            $ownedDirectories += $installedDirectory
+            $variants[$variant] = @{source=$image;installed=(Join-Path $installedDirectory $env:JC_HELPER_EXECUTABLE)}
+        }
+        $previousInstalled = & $variants.previous.source --install
+        if ($LASTEXITCODE -ne 0 -or $previousInstalled -ne $variants.previous.installed) { throw 'Prior service image installation failed' }
+        $previousService = Get-CimInstance -ClassName Win32_Service -Filter "Name='$env:JC_HELPER_SERVICE_NAME'"
+        & (Join-Path $env:JC_HELPER_NATIVE_BUILD 'Release/windows_recovery_test.exe') --upgrade-busy $env:JC_HELPER_SERVICE_IMAGE
+        if ($LASTEXITCODE -ne 0) { throw 'Replacement did not preserve live ownership' }
+        $busyService = Get-CimInstance -ClassName Win32_Service -Filter "Name='$env:JC_HELPER_SERVICE_NAME'"
+        if ($busyService.PathName -ne $previousService.PathName -or $busyService.ProcessId -ne $previousService.ProcessId -or $busyService.State -ne 'Running') {
+            throw 'Refused replacement disrupted the active recovery service'
+        }
+        $failedLog = Join-Path $env:JC_HELPER_NATIVE_BUILD 'service-startup-failure.log'
+        $failed = Start-Process -FilePath $variants.startup_failure.source -ArgumentList '--install' -PassThru -NoNewWindow -RedirectStandardError $failedLog
+        $failed.Handle | Out-Null
+        $installers += $failed
+        if (-not $failed.WaitForExit(30000) -or $null -eq $failed.ExitCode -or $failed.ExitCode -eq 0) { throw 'Broken replacement unexpectedly started or exceeded its deadline' }
+        $rolledBack = Get-CimInstance -ClassName Win32_Service -Filter "Name='$env:JC_HELPER_SERVICE_NAME'"
+        if ($rolledBack.PathName -ne $previousService.PathName -or $rolledBack.ProcessId -eq $previousService.ProcessId -or $rolledBack.State -ne 'Running' -or
+            (Get-Process -Id $rolledBack.ProcessId).Path -ne $previousInstalled) { throw 'Failed replacement did not restore the actual previous service image' }
+        Write-Host 'PASS: new image startup failure rolls back the original service and restarts its actual protected image'
+        $firstLog = Join-Path $env:JC_HELPER_NATIVE_BUILD 'service-upgrade-first.txt'
+        $secondLog = Join-Path $env:JC_HELPER_NATIVE_BUILD 'service-upgrade-second.txt'
+        $first = Start-Process -FilePath $env:JC_HELPER_SERVICE_IMAGE -ArgumentList '--install' -PassThru -NoNewWindow -RedirectStandardOutput $firstLog
+        $first.Handle | Out-Null
+        $installers += $first
+        $second = Start-Process -FilePath $env:JC_HELPER_SERVICE_IMAGE -ArgumentList '--install' -PassThru -NoNewWindow -RedirectStandardOutput $secondLog
+        $second.Handle | Out-Null
+        $installers += $second
+        if (-not $first.WaitForExit(30000) -or -not $second.WaitForExit(30000) -or $first.ExitCode -ne 0 -or $second.ExitCode -ne 0) {
+            throw 'Concurrent service replacement/reuse failed'
+        }
+        $expectedInstalled = Join-Path $directory $env:JC_HELPER_EXECUTABLE
+        if ((Get-Content -Raw $firstLog).Trim() -ne $expectedInstalled -or (Get-Content -Raw $secondLog).Trim() -ne $expectedInstalled) {
+            throw 'Concurrent replacements returned different installation identities'
+        }
+        $upgraded = Get-CimInstance -ClassName Win32_Service -Filter "Name='$env:JC_HELPER_SERVICE_NAME'"
+        if ($upgraded.State -ne 'Running' -or (Get-Process -Id $upgraded.ProcessId).Path -ne $expectedInstalled) {
+            throw 'Service does not execute the current protected image after replacement'
+        }
+        Write-Host 'PASS: two concurrent installers replace a previous protected image with one current running service'
+    }
+
     Write-Host 'RUN: unsigned production C++ service install and idempotent reuse'
     $installed = & $env:JC_HELPER_SERVICE_IMAGE --install
     if ($LASTEXITCODE -ne 0 -or $installed -isnot [string]) { throw 'Recovery service installation failed' }
@@ -92,19 +151,20 @@ try {
     if (-not $qtOnly) {
         $service = Get-CimInstance -ClassName Win32_Service -Filter "Name='$env:JC_HELPER_SERVICE_NAME'"
         $originalCommand = $service.PathName
-        $foreignCommand = "$originalCommand --unowned"
-        $changed = Invoke-CimMethod -InputObject $service -MethodName Change -Arguments @{PathName=$foreignCommand}
-        if ($changed.ReturnValue -ne 0) { throw 'Could not prepare foreign service configuration fixture' }
-        try {
-            & $env:JC_HELPER_SERVICE_IMAGE --install
-            if ($LASTEXITCODE -eq 0) { throw 'Installer adopted foreign service configuration' }
-            $observed = Get-CimInstance -ClassName Win32_Service -Filter "Name='$env:JC_HELPER_SERVICE_NAME'"
-            if ($observed.PathName -ne $foreignCommand) { throw 'Refused installer overwrote external service configuration' }
-        } finally {
-            $restored = Invoke-CimMethod -InputObject $service -MethodName Change -Arguments @{PathName=$originalCommand}
-            if ($restored.ReturnValue -ne 0) { throw 'Could not restore fixture-owned service configuration' }
+        foreach ($foreignCommand in @("$originalCommand --unowned", ('"'+$env:JC_HELPER_SERVICE_IMAGE+'" --service'))) {
+            $changed = Invoke-CimMethod -InputObject $service -MethodName Change -Arguments @{PathName=$foreignCommand}
+            if ($changed.ReturnValue -ne 0) { throw 'Could not prepare foreign service configuration fixture' }
+            try {
+                & $env:JC_HELPER_SERVICE_IMAGE --install
+                if ($LASTEXITCODE -eq 0) { throw 'Installer adopted foreign service configuration' }
+                $observed = Get-CimInstance -ClassName Win32_Service -Filter "Name='$env:JC_HELPER_SERVICE_NAME'"
+                if ($observed.PathName -ne $foreignCommand) { throw 'Refused installer overwrote external service configuration' }
+            } finally {
+                $restored = Invoke-CimMethod -InputObject $service -MethodName Change -Arguments @{PathName=$originalCommand}
+                if ($restored.ReturnValue -ne 0) { throw 'Could not restore fixture-owned service configuration' }
+            }
         }
-        Write-Host 'PASS: foreign SCM configuration refused and preserved'
+        Write-Host 'PASS: foreign SCM arguments and unprotected image configuration refused and preserved'
         Write-Host 'RUN: actual ordinary-user native control and account-scoped recovery'
         & $env:JC_HELPER_CONTROL_IMAGE $env:JC_HELPER_SERVICE_IMAGE
         if ($LASTEXITCODE -ne 0) { throw 'Native control identity or recovery boundary failed' }
@@ -122,12 +182,16 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Ordinary Qt native lifecycle failed' }
     }
 } finally {
+    foreach ($installer in $installers) {
+        if (-not $installer.HasExited) { $installer.Kill(); $installer.WaitForExit(5000) | Out-Null }
+        $installer.Dispose()
+    }
     if ($ownedService -and (Get-Service -Name $env:JC_HELPER_SERVICE_NAME -ErrorAction SilentlyContinue)) {
         Stop-Service -Name $env:JC_HELPER_SERVICE_NAME
         & sc.exe delete $env:JC_HELPER_SERVICE_NAME
         if ($LASTEXITCODE -ne 0) { throw 'Fixture service cleanup failed' }
     }
-    if ($null -ne $ownedDirectory -and (Test-Path -LiteralPath $ownedDirectory)) { Remove-Item -LiteralPath $ownedDirectory -Recurse -Force }
+    foreach ($ownedDirectory in $ownedDirectories) { if (Test-Path -LiteralPath $ownedDirectory) { Remove-Item -LiteralPath $ownedDirectory -Recurse -Force } }
 }
 '''
     env = dict(os.environ,
