@@ -180,6 +180,16 @@ Windows 为 ZIP（完整解压并保留核心 DLL），macOS 为 DMG，Linux 为
 
 PR 不使用签名 Secrets；已配置的签名／公证失败时构建失败，不降级为成功发布。Windows 当前未配置代码签名。 Windows 包单独构建静态 CRT 的 C++ 网络助手，`WindowsNetworkHelper` 安装组件将助手、原生 Wintun DLL 与许可证放在应用旁；普通应用仍使用动态 Qt CRT。SDK 由固定归档暂存，发布工作流传入驱动／许可证哈希；`--version` 只读报告协议、来源和编译权限身份。未配置发布者的预览包保留 `identity_ready=false`，拒绝安装／授权；验包会校验实际助手、载荷、驱动签名及原生依赖，不将这类预览计为透明访问可用。
 
+### Windows 签名申请与接入准备
+
+选择 [SignPath Foundation 免费开源签名申请](https://signpath.org/apply)，由服务保管签名密钥，免于购买硬件令牌；项目是否符合条件由平台审核决定。目前尚未申请或获批，没有签名凭据，也未启用正式签名工作流。[EZ4Connect 的发布工作流](https://github.com/chenx-dust/EZ4Connect/blob/master/.github/workflows/build.yml)仅在 macOS 使用开发者签名／公证，Windows 未配置签名。
+
+申请资料使用：项目 JustConnect、仓库 `https://github.com/wtalioy/JustConnect`、维护账户 `wtalioy`、仓库 GPLv3 许可证及随包上游许可证；用途为用户授权的校园 VPN 连接、资源分流与可恢复的系统网络配置。提交前应补齐公开功能／下载说明，并请平台确认上游衍生代码的签名资格；不预先声称符合所有[申请条件](https://signpath.org/terms)。仓库所有者需自行注册／授权 GitHub、确认双因素认证，并确认提交者、审查者和每次发布的签名批准者；不向第三方转交现有 GitHub 凭据。
+
+获批后的接入顺序：取得平台实际项目／策略标识和受控提交令牌，读取正式签名证书 DER 的 SHA-256 并传入助手构建身份；为自有待签二进制设置统一产品名／版本，上传同一源码提交的 Actions 产物，按[官方 GitHub 接入](https://docs.signpath.io/trusted-build-systems/github)申请签名并等待人工批准，再下载、验签、验包后发布。仅签自有二进制，不重签 Qt 或 Wintun。主程序与助手必须使用同一编译发布者身份；验包拒绝未签名或发布者不符的主程序。未配置发布者的预览保留原行为，正式签名失败不能降级发布。
+
+公开 Code signing policy 与发布页署名在服务实际批准后填写，列明实际团队角色和隐私说明，不提前标记“已提供签名”。隐私说明须包含已启用时的启动版本检查：应用默认访问 GitHub Releases API，可在设置关闭；校园认证连接用户配置的服务器。正式 macOS 签名／公证仍需 Apple 凭据，SignPath 申请不替代该项。
+
 ## 任务与验证记录
 
 每个工作单元先验证、独立提交，再更新任务状态；未完成要求不得提前勾选。CI、安装包自检、受控网关和真实校园／桌面结果分开记录。最新证据只维护在计划，历史过程由 Git 追溯，不在本文追加流水或另存重复历史文档。README 待 [S8](../plan.md#s8) 流程稳定后补写。

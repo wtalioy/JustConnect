@@ -18,6 +18,56 @@ spec.loader.exec_module(package)
 
 
 class VerifyPackageTest(unittest.TestCase):
+    def test_windows_package_caller_matches_helper_authority(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            host = root / 'JustConnect.exe'
+            runtime = root / 'justconnect_core.dll'
+            reader = root / 'JustConnectDnsReader.exe'
+            archive = root / 'package.zip'
+            for path in (host, runtime, reader, archive):
+                path.touch()
+            (root / 'source-revision.txt').write_text('revision')
+            (root / 'core-toolchain.txt').write_text('CGO_ENABLED=1')
+            notices = root / 'licenses'
+            notices.mkdir()
+            for name in ('LICENSE', 'LICENSE.zju-connect', 'LICENSE.ping', 'UPSTREAM.md'):
+                (notices / name).touch()
+            output = root / 'report.json'
+            def self_test(*args, **kwargs):
+                return SimpleNamespace(returncode=0 if runtime.exists() else 1,
+                                       stdout=json.dumps({'runtime': runtime.name}).encode())
+            with patch.object(package, 'clean_environment', return_value={}), \
+                    patch.object(package.subprocess, 'run', side_effect=self_test), \
+                    patch.object(package, 'validate_report'), \
+                    patch.object(package, 'check_proxy_recovery', return_value={}), \
+                    patch.object(package, 'check_windows_dns_reader', return_value={}), \
+                    patch.object(package, 'check_windows_webengine', return_value={}), \
+                    patch.object(package, 'windows_audit', return_value={}), \
+                    patch.object(package.platform, 'machine', return_value='AMD64'), \
+                    patch.object(package.sys, 'platform', 'win32'):
+                for ready, signed, status, signer, valid in (
+                        (False, False, 'NotSigned', '', True),
+                        (True, True, 'NotSigned', '', False),
+                        (True, False, 'NotSigned', '', False),
+                        (True, True, 'Valid', 'b' * 64, False),
+                        (True, True, 'Valid', 'A' * 64, True)):
+                    with self.subTest(ready=ready, signed=signed, status=status, signer=signer), \
+                            patch.object(package, 'check_windows_network_helper', return_value={
+                                'identity_ready': ready, 'publisher_sha256': 'a' * 64 if ready else ''}), \
+                            patch.object(package, 'windows_signature', return_value=status), \
+                            patch.object(package, 'run', return_value=signer):
+                        if valid:
+                            package.verify(root, host, 'revision', 'preview', output, archive,
+                                           signed=signed, webengine_probe=host)
+                            self.assertEqual(json.loads(output.read_text())['signatures'][host.name], status)
+                            output.unlink()
+                        else:
+                            with self.assertRaisesRegex(RuntimeError, 'application signer'):
+                                package.verify(root, host, 'revision', 'preview', output, archive,
+                                               signed=signed, webengine_probe=host)
+                            self.assertFalse(output.exists())
+
     def test_windows_network_helper_checks_provenance_payloads_and_privileged_dependencies(self):
         layout = package.WINDOWS_HELPER
         facts = {'protocol': layout['protocol'], 'storage_version': layout['storage_version'],

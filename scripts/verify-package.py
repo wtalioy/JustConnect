@@ -244,6 +244,12 @@ def windows_signature(path):
     return run('pwsh', '-NoProfile', '-Command', command).strip()
 
 
+def windows_signer_sha256(path):
+    command = ("$s = Get-AuthenticodeSignature -LiteralPath '" + str(path).replace("'", "''")
+               + "'; [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($s.SignerCertificate.RawData))")
+    return run('pwsh', '-NoProfile', '-Command', command).strip().lower()
+
+
 def check_windows_network_helper(root, env, revision, signed):
     helper = root / WINDOWS_HELPER['executable']
     if not helper.is_file():
@@ -268,9 +274,7 @@ def check_windows_network_helper(root, env, revision, signed):
     if signature not in ('Valid', 'NotSigned') or (signed and signature != 'Valid'):
         raise RuntimeError('Packaged Windows network helper signature is invalid')
     if facts['identity_ready']:
-        command = ("$s = Get-AuthenticodeSignature -LiteralPath '" + str(helper).replace("'", "''")
-                   + "'; [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($s.SignerCertificate.RawData))")
-        if signature != 'Valid' or run('pwsh', '-NoProfile', '-Command', command).strip().lower() != facts['publisher_sha256'].lower():
+        if signature != 'Valid' or windows_signer_sha256(helper) != facts['publisher_sha256'].lower():
             raise RuntimeError('Packaged Windows helper signer differs from its compiled authority')
     if windows_signature(root / WINDOWS_HELPER['driver_library']) != 'Valid':
         raise RuntimeError('Packaged Windows native driver signature is invalid')
@@ -379,6 +383,9 @@ def verify(root, executable, revision, application_version, output, archive, sig
             report['sha256'][str(path.relative_to(root))] = hashlib.file_digest(stream, 'sha256').hexdigest()
         if system == 'windows':
             status = windows_signature(path)
+            if path == executable and report['network_helper']['identity_ready']:
+                if status != 'Valid' or windows_signer_sha256(path) != report['network_helper']['publisher_sha256'].lower():
+                    raise RuntimeError('Packaged Windows application signer differs from the helper authority')
             if status not in ('Valid', 'NotSigned'):
                 raise RuntimeError(f'Invalid Authenticode signature: {path}: {status}')
             report.setdefault('signatures', {})[path.name] = status
