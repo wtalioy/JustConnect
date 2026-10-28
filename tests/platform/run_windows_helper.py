@@ -3,7 +3,9 @@ import argparse
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -67,7 +69,7 @@ try {
     $ownedDirectory = $directory
     $ownedService = $true
     foreach ($payload in @($layout.driver_library, $layout.driver_license)) {
-        $path = Join-Path $env:JC_HELPER_SDK_DIRECTORY $payload
+        $path = Join-Path (Split-Path -Parent $env:JC_HELPER_SERVICE_IMAGE) $payload
         $original = [IO.File]::ReadAllBytes($path)
         try {
             $changed = [byte[]]$original.Clone()
@@ -134,16 +136,19 @@ try {
                JC_HELPER_CMAKE_ARCH='ARM64' if metadata['arch'] == 'arm64' else 'x64',
                JC_HELPER_QT_CONTROL='true' if args.qt_control else 'false',
                JC_HELPER_QT_SESSION_HOST=str(args.session_host) if args.session_host else '',
-               JC_HELPER_CONTROL_IMAGE=str(destination / 'control-validation.exe'),
-               JC_HELPER_TEST_IMAGE=str(destination / 'helper-validation.exe'),
-               JC_HELPER_SERVICE_IMAGE=str(destination / contract['executable']),
                JC_HELPER_SERVICE_NAME=contract['service'], JC_HELPER_DRIVER_NAME=contract['driver_library'],
                JC_HELPER_EXECUTABLE=contract['executable'], JC_HELPER_INSTALL_DIRECTORY=contract['install_directory'])
     suffix = '-session' if args.session_host else '-qt' if args.qt_control else ''
     script_path = output / ('validate-windows-helper' + suffix + '.ps1')
     script_path.write_text(script, encoding='utf-8')
     log_path = output / ('windows-helper' + suffix + '.log')
-    with log_path.open('w', encoding='utf-8') as log:
+    with tempfile.TemporaryDirectory(prefix='justconnect-helper-') as directory, log_path.open('w', encoding='utf-8') as log:
+        payload = Path(directory)
+        shutil.copy2(metadata['driver'], payload / contract['driver_library'])
+        shutil.copy2(metadata['license'], payload / contract['driver_license'])
+        env.update(JC_HELPER_CONTROL_IMAGE=str(payload / 'control-validation.exe'),
+                   JC_HELPER_TEST_IMAGE=str(payload / 'helper-validation.exe'),
+                   JC_HELPER_SERVICE_IMAGE=str(payload / contract['executable']))
         try:
             result = subprocess.run([host, '-NoProfile', '-NonInteractive', '-File', str(script_path)], env=env,
                                     stdout=log, stderr=subprocess.STDOUT, timeout=240)
