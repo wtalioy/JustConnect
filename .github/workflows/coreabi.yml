@@ -20,7 +20,7 @@ on:
       controller_only:
         type: boolean
         default: false
-        description: Run six native Go controller/DNS/underlay checks without Qt or device mutation
+        description: Run six native controller/DNS checks and owned live-TUN control on disposable runners
 
 permissions:
   contents: read
