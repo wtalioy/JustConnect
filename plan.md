@@ -24,11 +24,11 @@
 | 剩余性质 | 现有主链已通过自动验收，当前集中于 S5-03 的 MagicDNS／解析组件联验及 S3-05、S4-04、S5-01／02／05 的真实桌面／校园、授权和矩阵汇总；特殊 DNS 来源按 R15 保留／拒绝。按完整访问链合批开发、按各任务真实验收要求勾选，不把组件通过冒充整项完成 |
 | 当前有效验收 | `9a17359` 的[六架构完整原生运行](https://github.com/wtalioy/JustConnect/actions/runs/40675479494)和[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40675479435)全部通过，含零起点校园资源、Windows 双架构实际 SCM 换版／拒绝未恢复责任／失败回滚／并发安装、原 SDK 4096 包门槛与完整普通应用 DNS／恢复。`8662c04` 的六组旧包仅保留为历史基线；新包按下行逐平台核对，不把失败／未结束当通过 |
 | 原 DNS 基线 | Windows 本地明文 NRPT 原 DNS 自动选源、实际监听、写前身份／原值复核、所属投影与完整来源／安全观察已验；两架构各两轮普通应用验证预热缓存、原 DNS、名称选择／撤销、系统校园 DNS／TCP／UDP／SSH 和精确恢复。macOS／Windows 共用校园 DNS 域安装推导，无新缓存／产品地址常量；当前构建及必要工具保留，临时探针产物已清理，报告 `build/reports/windows-original-dns-application.json` |
-| 当前推进与下一步 | 修复 `8662c04` 的 Fudan 认证后接管失败：已复现服务器 `0-65535` 与捕获最小端口 1 的冲突，共享解析器只保留有效目的端口交集，三平台保留严格边界并给出具体失败原因；`9a17359` 同时支持安全替换本机已有旧恢复服务，以上均通过六组原生验收。仍无实际校园资源快照，候选根因须用户新包重验确认。Linux x64 新包另暴露原生夹具在 EOF 后抢先恢复的时序错误；已按正式应用的既有契约等待旧助手回收，恢复成功／清理断言不变，本地编译与 CTest 通过，原生故障场景补验待。报告 `build/reports/campus-capture-failure.json`；其他 S3—S5 仍按原 ID／R15 验收 |
+| 当前推进与下一步 | 修复 `8662c04` 的 Fudan 认证后接管失败：已复现服务器 `0-65535` 与捕获最小端口 1 的冲突，共享解析器只保留有效目的端口交集，三平台保留严格边界并给出具体失败原因；`9a17359` 同时支持安全替换本机已有旧恢复服务，以上均通过六组原生验收。仍无实际校园资源快照，候选根因须用户新包重验确认。Linux x64 新包另暴露原生夹具在 EOF 后抢先恢复的时序错误；已按正式应用的既有契约等待旧助手回收，恢复成功／清理断言不变，`997b56b` 本地编译与 CTest 通过，原生故障场景补验待。报告 `build/reports/campus-capture-failure.json`；其他 S3—S5 仍按原 ID／R15 验收 |
 | CI 下载瓶颈 | Linux x64 的 Azure 依赖源下载 42.2 MB 用时 15 分 11 秒；三组工作流已统一接入 `setup-linux-apt`，使用 runner 现有 Ubuntu 官方替代源。本地镜像样例／幂等／缺少列表、workflow 检查及八种失败传播通过；`c14f931` 的 x64 依赖安装步骤已由运行时间确认在 51 秒完成，后续 `66ba28c` 完整九项通过；[依据与范围](docs/DEVELOPMENT.md#ci-apt-mirrors) |
 | 验收范围 | 仅要求 Fudan 实测；按用户决定取消另一台 aTrust 服务器的硬性要求，保留 Custom 实现与服务器／账户隔离回归 |
 | 剩余缺口 | S1-04 真实样本、免外部证书的助手部署、真实桌面／校园透明访问、Clash 共存与剩余平台矩阵未验收；D2 的三平台设备／权限／正常及故障恢复已通过受控自动验证，边界与实机缺口见 S4／S5 |
-| 最新预览 | `9a17359` 的[Windows x64 修复包](https://github.com/wtalioy/JustConnect/actions/runs/40675955353/artifacts/12810537856)已构建及包内校验通过，核心／助手均为同源码 clean，免外部证书；[打包运行](https://github.com/wtalioy/JustConnect/actions/runs/40675955353)的 Linux x64 因独立恢复夹具时序失败，其他结果逐项核对，未称整组通过。`8662c04` 用户实测认证／隧道成功、接管规划失败，真实校园透明访问未通过；`9a17359` 的实际 Fudan、浏览器／已有终端／Codex SSH 与 MagicDNS 恢复待验。`8fefd1c` 代理网页／SSH 仅为历史基线 |
+| 最新预览 | `9a17359` 的[Windows x64 修复包](https://github.com/wtalioy/JustConnect/actions/runs/40675955353/artifacts/12810537856)已构建及包内校验通过，实际文件下载 SHA256 匹配，已在本机普通权限原生执行核心生命周期／助手事实自检；核心／助手均为同源码 clean，免外部证书。报告 `build/package-acceptance/9a17359/`；[打包运行](https://github.com/wtalioy/JustConnect/actions/runs/40675955353)的 Linux x64 因独立恢复夹具时序失败，其他结果逐项核对，未称整组通过。`8662c04` 用户实测认证／隧道成功、接管规划失败，真实校园透明访问未通过；`9a17359` 的实际 Fudan、浏览器／已有终端／Codex SSH 与 MagicDNS 恢复待验。`8fefd1c` 代理网页／SSH 仅为历史基线 |
 
 S3—S5 未收尾项按实际缺口归并如下；同一证据可覆盖多个 ID，不重复开发或重复安排实测：
 
