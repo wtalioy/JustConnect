@@ -1,4 +1,5 @@
 #include "infrastructure/tundevice/windows/adapter.h"
+#include "infrastructure/tundevice/windows/sessionwakeup.h"
 #include <ws2tcpip.h>
 #include <objbase.h>
 #include <algorithm>
@@ -121,6 +122,7 @@ std::unique_ptr<WindowsTunDevice> WindowsTunDevice::create(const std::wstring &d
     if (!device->session) fail("start owned Wintun rings");
     device->ready = getReady(device->session);
     if (!device->ready) fail("read owned ring event");
+    device->sendReady = Wintun0141::sendWakeEvent(device->session,WINTUN_MIN_RING_CAPACITY,device->ready);
     device->stop = CreateEventW(nullptr,TRUE,FALSE,nullptr);
     if (!device->stop) fail("create owned adapter stop event");
     device->configure(source,peer,targets);
@@ -244,6 +246,7 @@ void WindowsTunDevice::write(const unsigned char *packet, size_t size)
     }
     std::memcpy(data,packet,size);
     send(session,data);
+    Wintun0141::notify(sendReady);
 }
 
 void WindowsTunDevice::close()
