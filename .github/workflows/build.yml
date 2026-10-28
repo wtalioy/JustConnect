@@ -51,6 +51,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
 
+      - name: Verify local macOS signing without external credentials
+        if: runner.os == 'macOS'
+        run: python3 tests/macos_signing_smoke.py
+
       - uses: ./.github/actions/setup-linux-apt
         if: runner.os == 'Linux'
 
