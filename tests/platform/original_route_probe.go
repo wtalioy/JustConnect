@@ -15,14 +15,18 @@ import (
 )
 
 func run() error {
-	if len(os.Args) != 3 || os.Getuid() == 0 || os.Geteuid() == 0 || (os.Args[1] != "capture" && os.Args[1] != "original") {
+	if len(os.Args) != 3 || os.Getuid() == 0 || os.Geteuid() == 0 || (os.Args[1] != "capture" && os.Args[1] != "original" && os.Args[1] != "automatic") {
 		return fmt.Errorf("requires mode, interface and an ordinary receiving user")
 	}
 	status, err := os.ReadFile("/proc/self/status")
 	if err != nil || !strings.Contains(string(status), "CapEff:\t0000000000000000") {
 		return fmt.Errorf("receiver retained capabilities")
 	}
-	dialer, err := underlay.New(underlay.Options{InterfaceName: os.Args[2]})
+	options := underlay.Options{InterfaceName: os.Args[2]}
+	if os.Args[1] == "automatic" {
+		options = underlay.Options{AutoDetect: false}
+	}
+	dialer, err := underlay.New(options)
 	if err != nil {
 		return err
 	}
@@ -60,7 +64,11 @@ func run() error {
 			return fmt.Errorf("%s failed to retain original interface: %v", network, err)
 		}
 	}
-	fmt.Println("PASS: ordinary Go underlay TCP/UDP retained original interface with source routing beneath a more-specific capture route and strict rp_filter")
+	if os.Args[1] == "automatic" {
+		fmt.Println("PASS: default Go options and VPN address exclusion retained original TCP/UDP beneath the gateway capture prefix")
+	} else {
+		fmt.Println("PASS: ordinary Go underlay TCP/UDP retained original interface with source routing beneath a more-specific capture route and strict rp_filter")
+	}
 	return nil
 }
 

@@ -29,6 +29,7 @@ type Dialer struct {
 	closeOnce      sync.Once
 	closeErr       error
 	interfaceName  string
+	originalSource netip.Addr
 	autoDetect     bool
 	excludedIPs    []net.IP
 	requireBound   bool
@@ -46,7 +47,7 @@ type Options struct {
 	// InterfaceName explicitly selects the interface used by underlay sockets.
 	// It takes precedence over AutoDetect.
 	InterfaceName string
-	// A verified external TUN requires an original exit even when AutoDetect is false.
+	// Known VPN addresses or an external TUN require an original exit even when AutoDetect is false.
 	AutoDetect bool
 	// DebugPCAPFile records application-visible TCP traffic on underlay sockets.
 	DebugPCAPFile string
@@ -131,7 +132,15 @@ func (d *Dialer) ExcludeIP(ip net.IP) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.excludedIPs = append(d.excludedIPs, append(net.IP(nil), ip...))
+	d.requireOriginalExit()
+}
+
+// Caller holds mu. A known VPN path cannot leave its control sockets unbound.
+func (d *Dialer) requireOriginalExit() {
 	d.requireBound = true
+	if d.interfaceName == "" {
+		d.autoDetect = true
+	}
 }
 
 // DialContext connects through the selected underlay interface.
@@ -159,6 +168,13 @@ func (d *Dialer) DialContext(ctx context.Context, network, address string) (net.
 	if err := d.prepareController(ctx, address); err != nil {
 		return nil, err
 	}
+	if isLoopbackAddress(address) {
+		connection, err := d.dial(ctx, network, address, "")
+		if err != nil {
+			return nil, err
+		}
+		return d.observeConnection(connection), nil
+	}
 	interfaceName := d.ensureInterface(ctx, address)
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -180,7 +196,7 @@ func (d *Dialer) DialContext(ctx context.Context, network, address string) (net.
 
 	conn, err := d.dial(ctx, network, address, interfaceName)
 	if err == nil {
-		return d.wrapCapture(conn), nil
+		return d.observeConnection(conn), nil
 	}
 
 	if ctx.Err() != nil {
@@ -195,7 +211,7 @@ func (d *Dialer) DialContext(ctx context.Context, network, address string) (net.
 	if retryErr != nil {
 		return nil, fmt.Errorf("dial underlay via %q failed after %q failed: %w", refreshedInterface, interfaceName, retryErr)
 	}
-	return d.wrapCapture(conn), nil
+	return d.observeConnection(conn), nil
 }
 
 func (d *Dialer) ensureInterface(ctx context.Context, address string) string {
@@ -225,8 +241,14 @@ func (d *Dialer) detectOnce(ctx context.Context, address string, done chan struc
 	defer func() { d.mu.Lock(); d.detecting = nil; close(done); name = d.interfaceName; d.mu.Unlock() }()
 	d.mu.RLock()
 	resolver := d.resolver
+	source := d.originalSource
 	d.mu.RUnlock()
-	detected := detectInterfaceWithResolver(ctx, address, resolver)
+	var detected string
+	if source.IsValid() {
+		detected = interfaceForSource(source)
+	} else {
+		detected = detectInterfaceWithResolver(ctx, address, resolver)
+	}
 	d.mu.Lock()
 	if ctx.Err() == nil && usableInterface(detected, d.excludedIPs) && !mihomo.SameInterface(detected, d.tunDevice) {
 		d.updateInterfaceName(detected)
@@ -243,7 +265,17 @@ func (d *Dialer) updateInterfaceName(interfaceName string) {
 
 }
 
-func (d *Dialer) wrapCapture(conn net.Conn) net.Conn {
+func (d *Dialer) observeConnection(conn net.Conn) net.Conn {
+	if local, ok := conn.LocalAddr().(interface{ AddrPort() netip.AddrPort }); ok {
+		ip := local.AddrPort().Addr().Unmap()
+		if ip.IsGlobalUnicast() && !ip.IsLoopback() {
+			d.mu.Lock()
+			if !d.requireBound && d.interfaceName == "" {
+				d.originalSource = ip
+			}
+			d.mu.Unlock()
+		}
+	}
 	if d.capture == nil {
 		return conn
 	}
@@ -328,43 +360,28 @@ func detectInterfaceWithResolver(ctx context.Context, targetAddress string, reso
 	localIP := conn.LocalAddr().(*net.UDPAddr).IP
 	_ = conn.Close()
 
-	interfaces, err := net.Interfaces()
-	if err != nil {
+	source, ok := netip.AddrFromSlice(localIP)
+	if !ok {
 		return ""
 	}
-	for _, iface := range interfaces {
-		addrs, err := iface.Addrs()
-		if err != nil {
-			continue
-		}
-		for _, addr := range addrs {
-			var ip net.IP
-			switch value := addr.(type) {
-			case *net.IPNet:
-				ip = value.IP
-			case *net.IPAddr:
-				ip = value.IP
-			}
-			if ip != nil && ip.Equal(localIP) {
-				if usableInterface(iface.Name, nil) {
-					return iface.Name
-				}
-				return ""
-			}
-		}
-	}
-	return ""
+	return interfaceForSource(source.Unmap())
 }
 
 func (d *Dialer) refreshInterface() string {
 	d.mu.RLock()
 	autoDetect := d.autoDetect
+	source := d.originalSource
 	d.mu.RUnlock()
 	if !autoDetect {
 		return ""
 	}
 
-	interfaceName := findDefaultInterface()
+	var interfaceName string
+	if source.IsValid() {
+		interfaceName = interfaceForSource(source)
+	} else {
+		interfaceName = findDefaultInterface()
+	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if !usableInterface(interfaceName, d.excludedIPs) || mihomo.SameInterface(interfaceName, d.tunDevice) {
@@ -375,6 +392,34 @@ func (d *Dialer) refreshInterface() string {
 }
 
 var findDefaultInterface = detectDefaultInterface
+
+// The pre-VPN control socket identifies its real exit, including an overlay interface.
+func interfaceForSource(source netip.Addr) string {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+	var selected string
+	for _, iface := range interfaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addresses, err := iface.Addrs()
+		if err != nil {
+			return ""
+		}
+		for _, address := range addresses {
+			prefix, err := netip.ParsePrefix(address.String())
+			if err == nil && prefix.Addr().Unmap() == source {
+				if selected != "" && selected != iface.Name {
+					return ""
+				}
+				selected = iface.Name
+			}
+		}
+	}
+	return selected
+}
 
 func detectDefaultInterface() string {
 	networkMonitor, err := tun.NewNetworkUpdateMonitor(logger.NOP())

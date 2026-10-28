@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
+	vpnclient "github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/wtalioy/JustConnect/corelib/internal/dnslistener"
 	"github.com/wtalioy/JustConnect/corelib/internal/mihomo"
 	"github.com/wtalioy/JustConnect/corelib/underlay"
@@ -95,7 +96,7 @@ func prepare(ctx context.Context, u *url.URL) (facts, func(), error) {
 	return f, close, nil
 }
 
-func checkControl(ctx context.Context, u *url.URL, f facts, fakeRange string) error {
+func checkControl(ctx context.Context, u *url.URL, f facts, fakeRange string, original *underlay.Dialer) error {
 	controller, err := mihomo.Discover(ctx)
 	if err != nil || controller == nil {
 		return fmt.Errorf("live controller discovery: %v", err)
@@ -137,11 +138,44 @@ func checkControl(ctx context.Context, u *url.URL, f facts, fakeRange string) er
 		return nil, fmt.Errorf("system DNS cannot supply the control address")
 	}}
 	defer func() { net.DefaultResolver = originalResolver }()
-	dialer, err := underlay.New(underlay.Options{AutoDetect: false})
+	device, err := net.InterfaceByName(controller.TunDevice)
 	if err != nil {
 		return err
 	}
-	defer dialer.Close()
+	addresses, err := device.Addrs()
+	if err != nil {
+		return err
+	}
+	var virtual net.IP
+	for _, address := range addresses {
+		ip, _, err := net.ParseCIDR(address.String())
+		if err == nil && ip.To4() != nil {
+			virtual = ip
+			break
+		}
+	}
+	if virtual == nil {
+		return fmt.Errorf("active TUN omitted its assigned IPv4 address")
+	}
+	controllerDialer, err := underlay.New(underlay.Options{AutoDetect: false})
+	if err != nil {
+		return err
+	}
+	defer controllerDialer.Close()
+	original.ExcludeIP(virtual)
+	for _, dialer := range []*underlay.Dialer{controllerDialer, original} {
+		if err := checkOriginalHTTPS(ctx, u, f, dialer); err != nil {
+			return err
+		}
+	}
+	if systemQueries.Load() != 0 {
+		return fmt.Errorf("control used system DNS")
+	}
+	return json.NewEncoder(os.Stdout).Encode(map[string]any{"phase": "controlled", "tun": controller.TunDevice,
+		"interface": f.Interface, "source": f.Source, "stages": 4, "modes": 2})
+}
+
+func checkOriginalHTTPS(ctx context.Context, u *url.URL, f facts, dialer *underlay.Dialer) error {
 	transport := &http.Transport{Proxy: nil, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}, DialContext: func(ctx context.Context, _, address string) (net.Conn, error) {
 		connection, err := dialer.DialContext(ctx, "tcp4", address)
 		if err == nil {
@@ -169,10 +203,10 @@ func checkControl(ctx context.Context, u *url.URL, f facts, fakeRange string) er
 			return fmt.Errorf("verified original HTTPS response at %s: status=%d err=%v", stage, response.StatusCode, readErr)
 		}
 	}
-	if systemQueries.Load() != 0 || dialer.InterfaceName() != f.Interface {
-		return fmt.Errorf("control changed the original interface or used system DNS")
+	if dialer.InterfaceName() != f.Interface {
+		return fmt.Errorf("control changed the original interface")
 	}
-	return json.NewEncoder(os.Stdout).Encode(map[string]any{"phase": "controlled", "tun": controller.TunDevice, "interface": f.Interface, "source": f.Source, "stages": 4})
+	return nil
 }
 
 func run() error {
@@ -193,6 +227,18 @@ func run() error {
 		return err
 	}
 	defer close()
+	original, err := underlay.New(underlay.Options{AutoDetect: false, LocalDNSServer: f.Upstream})
+	if err != nil {
+		return err
+	}
+	defer original.Close()
+	_, port, _ := net.SplitHostPort(f.Address)
+	baseline, err := vpnclient.DialTLSContext(ctx, original.DialContext, "tcp4", net.JoinHostPort(u.Hostname(), port),
+		&tls.Config{ServerName: u.Hostname(), MinVersion: tls.VersionTLS12})
+	if err != nil {
+		return fmt.Errorf("pre-VPN original underlay TLS: %w", err)
+	}
+	baseline.Close()
 	if err := json.NewEncoder(os.Stdout).Encode(f); err != nil {
 		return err
 	}
@@ -201,7 +247,7 @@ func run() error {
 	if err := input.Decode(&command); err != nil || command.Phase != "test" {
 		return fmt.Errorf("owned TUN startup barrier: %v", err)
 	}
-	if err := checkControl(ctx, u, f, command.FakeRange); err != nil {
+	if err := checkControl(ctx, u, f, command.FakeRange, original); err != nil {
 		return err
 	}
 	if err := input.Decode(&command); err != nil || command.Phase != "restored" {

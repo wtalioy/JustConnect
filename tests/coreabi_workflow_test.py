@@ -106,7 +106,7 @@ assert '        if: *collect_native_evidence' in lines,'Packet-only checks lost 
 print('PASS: device failures stay visible; 8 native evidence/cancellation conditions')
 
 
-controller_body = workflow_body('build/controller-checks')
+controller_body = workflow_body("checks = [('normal', [])]")
 
 def controller_scenario(runner, arch, failure):
     calls = []
@@ -140,6 +140,11 @@ for failure in ['normal', 'race']:
     status, calls = controller_scenario('Windows', 'X64', failure)
     assert status == 17 and calls[-1] == failure, (failure, status, calls)
 print('PASS: 6 native controller race-support/failure-propagation cases with actual evidence files')
+
+live_index = lines.index('      - name: Verify control beneath a live rejecting Mihomo TUN')
+formal_index = lines.index('      - name: Verify formal C ABI, protocol session and authentication')
+enforce_index = lines.index('      - &windows_device_result')
+assert probe < formal_index < live_index < enforce_index, 'Upstream embedded driver ran before original SDK/native checks or hid their result'
 
 live_body = workflow_body('https://github.com/robots.txt')
 for failure in (None, 0, 1, 2):
