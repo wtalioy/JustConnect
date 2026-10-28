@@ -13,6 +13,7 @@
 #include <objbase.h>
 #include <iphlpapi.h>
 #include <set>
+#include <cstring>
 #include <winrt/Windows.Data.Json.h>
 #include <winrt/Windows.Foundation.Collections.h>
 #include <iostream>
@@ -115,6 +116,45 @@ bool contains(const JsonObject &reply,const GUID &owner){
     for(const auto &item:reply.GetNamedArray(L"owners"))if(item.GetObject().GetNamedString(L"owner")==guid(owner))return true;
     return false;
 }
+struct OriginalDNSFixture {
+    std::optional<WindowsDnsRule> rule;
+    std::wstring server;
+    bool root=false;
+    static constexpr wchar_t scopedNames[]=L".host.campus.test\0";
+    static constexpr wchar_t rootNames[]=L".\0.host.campus.test\0";
+    ~OriginalDNSFixture(){try{restore();}catch(const std::exception &error){std::cerr<<"original DNS fixture cleanup: "<<error.what()<<'\n';}}
+    void replaceNames(const wchar_t *before,DWORD beforeBytes,const wchar_t *after,DWORD afterBytes){
+        const auto path=std::wstring(WindowsDNS::LocalPolicy)+L"\\"+guid(rule->id);
+        struct Key{HKEY value=nullptr;~Key(){if(value)RegCloseKey(value);}}key;
+        check(RegOpenKeyExW(HKEY_LOCAL_MACHINE,path.c_str(),REG_OPTION_OPEN_LINK,KEY_QUERY_VALUE|KEY_SET_VALUE|KEY_WOW64_64KEY,&key.value)==ERROR_SUCCESS,
+            "open only the owned original DNS fixture");
+        std::vector<wchar_t> current(beforeBytes/sizeof(wchar_t));DWORD type=0,size=beforeBytes;
+        check(RegQueryValueExW(key.value,L"Name",nullptr,&type,reinterpret_cast<BYTE *>(current.data()),&size)==ERROR_SUCCESS
+            && type==REG_MULTI_SZ && size==beforeBytes && std::memcmp(current.data(),before,beforeBytes)==0,
+            "original DNS fixture scopes changed externally");
+        check(RegSetValueExW(key.value,L"Name",0,REG_MULTI_SZ,reinterpret_cast<const BYTE *>(after),afterBytes)==ERROR_SUCCESS,
+            "set only the owned fixture namespace");
+        root=after==rootNames;
+        check(RegFlushKey(key.value)==ERROR_SUCCESS,"flush original DNS fixture namespaces");
+    }
+    void apply(const wchar_t *endpoint){
+        server=endpoint;IN_ADDR address{};check(InetPtonW(AF_INET,endpoint,&address)==1,"actual original DNS fixture endpoint");
+        rule=WindowsDnsRule::create({L"host.campus.test"},address);rule->applySystem();
+        replaceNames(scopedNames,sizeof(scopedNames),rootNames,sizeof(rootNames));
+        WindowsDNS::refreshCache();
+    }
+    void restore(){
+        if(!rule)return;
+        if(root){
+            IN_ADDR listen{};check(InetPtonW(AF_INET,L"127.0.0.1",&listen)==1,"fixture listener");
+            const auto observed=WindowsNrptRedirect::prepareSystem({L".",L".host.campus.test"},{server},listen);
+            check(observed.id==rule->id && observed.policyClass==std::wstring(WindowsDNS::RuleClassPrefix)+guid(rule->marker)
+                && observed.original==server,"only the restored owned provider may lose its fixture root scope");
+            replaceNames(rootNames,sizeof(rootNames),scopedNames,sizeof(scopedNames));
+        }
+        rule->restoreSystem();rule.reset();
+    }
+};
 int client(const GUID &session,const std::wstring &mode){
     Handle token;check(OpenProcessToken(GetCurrentProcess(),TOKEN_QUERY,&token.value),"inspect actual control client token");
     TOKEN_ELEVATION elevation{};DWORD size=0;
@@ -317,17 +357,15 @@ int wmain(int argc,wchar_t **argv) try
     const bool qt=argc==4 && std::wstring(argv[1])==L"--qt";
     const bool application=argc==4 && std::wstring(argv[1])==L"--qt-session";
     check((argc==2 || qt || application) && GetEnvironmentVariableW(L"GITHUB_ACTIONS",guarded,8)==4 && std::wstring(guarded)==L"true","control mutation requires disposable runner");
-    std::optional<WindowsDnsRule> originalDNS;
-    struct RestoreOriginal {std::optional<WindowsDnsRule> &rule;~RestoreOriginal(){if(rule)try{rule->restoreSystem();}catch(const std::exception &error){std::cerr<<"original DNS fixture cleanup: "<<error.what()<<'\n';}}} restoreOriginal{originalDNS};
+    OriginalDNSFixture originalDNS;
     wchar_t originalServer[INET_ADDRSTRLEN]{};
     if(application && GetEnvironmentVariableW(L"JC_WINDOWS_SESSION_ORIGINAL_DNS_SERVER",originalServer,INET_ADDRSTRLEN)){
-        IN_ADDR address{};check(InetPtonW(AF_INET,originalServer,&address)==1,"actual original DNS fixture endpoint");
-        originalDNS=WindowsDnsRule::create({L"host.campus.test"},address);originalDNS->applySystem();
+        originalDNS.apply(originalServer);
         auto configuration=JsonObject::Parse(LR"({"address":"198.18.0.1","peer":"198.18.0.2","mtu":1400,"capture_prefixes":["198.18.0.6/32"],"dns_domains":[],"original_dns":[]})");
         JsonObject snapshot;snapshot.SetNamedValue(L"store",JsonValue::CreateStringValue(L"local"));
-        snapshot.SetNamedValue(L"id",JsonValue::CreateStringValue(guid(originalDNS->id)));
-        snapshot.SetNamedValue(L"class",JsonValue::CreateStringValue(std::wstring(WindowsDNS::RuleClassPrefix)+guid(originalDNS->marker)));
-        JsonArray names;names.Append(JsonValue::CreateStringValue(L".host.campus.test"));snapshot.SetNamedValue(L"namespaces",names);
+        snapshot.SetNamedValue(L"id",JsonValue::CreateStringValue(guid(originalDNS.rule->id)));
+        snapshot.SetNamedValue(L"class",JsonValue::CreateStringValue(std::wstring(WindowsDNS::RuleClassPrefix)+guid(originalDNS.rule->marker)));
+        JsonArray names;names.Append(JsonValue::CreateStringValue(L"."));names.Append(JsonValue::CreateStringValue(L".host.campus.test"));snapshot.SetNamedValue(L"namespaces",names);
         snapshot.SetNamedValue(L"servers",JsonValue::CreateStringValue(originalServer));snapshot.SetNamedValue(L"owner",JsonValue::CreateNullValue());
         snapshot.SetNamedValue(L"version",JsonValue::CreateNumberValue(WindowsDNS::NrptVersion));snapshot.SetNamedValue(L"options",JsonValue::CreateNumberValue(WindowsDNS::GenericServersOption));
         JsonObject source;source.SetNamedValue(L"source",snapshot);source.SetNamedValue(L"listen",JsonValue::CreateStringValue(L"127.0.0.1"));
@@ -361,6 +399,7 @@ int wmain(int argc,wchar_t **argv) try
         const bool exitChange=application && GetEnvironmentVariableW(L"JC_WINDOWS_SESSION_EXIT_CHANGE",changed,8)==4 && std::wstring(changed)==L"true";
         scenario(argv[2],application?L"network":L"normal",argv[3],application,{},nullptr,exitChange);
         if(!exitChange)scenario(argv[2],L"network",argv[3],application);
+        originalDNS.restore();
         return 0;
     }
     for(const auto mode:{L"normal",L"authorize",L"authorize-cancel",L"authorize-replaced",L"server-mismatch",L"replaced",L"session-mismatch",L"unknown-field",L"unknown-operation",L"oversized",L"io-timeout",L"eof"})scenario(argv[1],mode);

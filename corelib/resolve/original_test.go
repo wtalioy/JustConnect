@@ -33,6 +33,7 @@ func TestOriginalDNSSourceValidationAndOrder(t *testing.T) {
 		func(r *OriginalDNSRoute) { r.Source = "native-source"; r.Listen = "[::1]:0" },
 		func(r *OriginalDNSRoute) { r.Source = "native-source"; r.Listen = "192.0.2.1:65536" },
 		func(r *OriginalDNSRoute) { r.Listen = "192.0.2.1:0" },
+		func(r *OriginalDNSRoute) { r.Default = true },
 	} {
 		bad := base
 		mutate(&bad)
@@ -71,6 +72,40 @@ func TestOriginalDNSSourceValidationAndOrder(t *testing.T) {
 		mutate(&other)
 		if _, err := NewOriginalDNS([]OriginalDNSRoute{base, other}); err == nil {
 			t.Fatal("one native listener accepted inconsistent source identity")
+		}
+	}
+}
+
+func TestOriginalDNSExplicitDefaultKeepsScopedPrecedence(t *testing.T) {
+	base := OriginalDNSRoute{Name: policy.NameRule{Kind: "suffix", Value: "original.test"}, Servers: []string{"192.0.2.53:53"},
+		Source: "native", Listen: "127.0.0.1:0", Default: true}
+	special := base
+	special.Default = false
+	special.Name = policy.NameRule{Kind: "suffix", Value: "special.original.test"}
+	special.Servers = []string{"192.0.2.54:53"}
+	for _, routes := range [][]OriginalDNSRoute{{special, base}, {base, special}} {
+		compiled, err := NewOriginalDNS(routes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := compiled.nativeRoute("native", "outside.test"); got == nil || !got.Default {
+			t.Fatal("explicit default was lost among mixed upstreams", got)
+		}
+		if got := compiled.nativeRoute("native", ""); got == nil || !got.Default {
+			t.Fatal("root query lost the explicit native default", got)
+		}
+		if got := compiled.nativeRoute("foreign", "outside.test"); got != nil {
+			t.Fatal("default escaped its native context", got)
+		}
+	}
+	compiled, err := NewOriginalDNS([]OriginalDNSRoute{special, base})
+	if err != nil || compiled.nativeRoute("native", "host.special.original.test").Servers[0] != special.Servers[0] {
+		t.Fatal("explicit default changed ordered native scope precedence", err)
+	}
+	special.Default = true
+	for _, routes := range [][]OriginalDNSRoute{{base, special}, {special, base}} {
+		if _, err := NewOriginalDNS(routes); err == nil {
+			t.Fatal("conflicting native defaults were accepted")
 		}
 	}
 }

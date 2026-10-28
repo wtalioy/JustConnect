@@ -139,6 +139,17 @@ static void captureTargets()
         "Prepared native namespaces could not reconcile campus captures");
     check(windowsOriginalDnsSourcesMatch(native.originalSources,native.originalContext,nativeNetwork,nativeDNS),
         "Confirmed source observation depended on current campus choices or nonempty captures");
+    auto rootSource=rawSource;rootSource["namespaces"]=QJsonArray{".",".campus.test"};
+    auto rootDNS=nativeDNS;rootDNS["nrpt_sources"]=QJsonArray{rootSource};
+    auto rootPolicy=nativeDNS["nrpt"].toArray().first().toObject();rootPolicy["Namespace"]=rootSource["namespaces"];
+    rootDNS["nrpt"]=QJsonArray{rootPolicy};
+    const auto root=prepareWindowsNetworkHelper(resources,nativePolicy,nativeNetwork,rootDNS,{},1400);
+    check(root.result.succeeded() && root.originalSources.size()==1 && root.originalSources.first().toObject()["default"]==true
+        && root.originalSources.first().toObject()["name"]==preparedScope,
+        "An explicit root provider lost its default context or expanded name protection");
+    check(windowsOriginalDnsSourcesMatch(root.originalSources,root.originalContext,nativeNetwork,rootDNS)
+        && !windowsOriginalDnsSourcesMatch(root.originalSources,root.originalContext,nativeNetwork,nativeDNS),
+        "Native default changes did not invalidate their original context");
     auto changedSource=rawSource;changedSource["class"]="recreated provider";
     auto changedDNS=nativeDNS;changedDNS["nrpt_sources"]=QJsonArray{changedSource};
     check(!windowsOriginalDnsSourcesMatch(native.originalSources,native.originalContext,nativeNetwork,changedDNS),

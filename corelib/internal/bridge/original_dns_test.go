@@ -243,7 +243,7 @@ func TestNativeOriginalDNSPreparationHost(t *testing.T) {
 	config := g.config(t)
 	loopback := originalDNSLoopback(t)
 	config.Network.OriginalDNS = []resolve.OriginalDNSRoute{{Name: policy.NameRule{Kind: "suffix", Value: "original.test"},
-		Servers: []string{upstream.LocalAddr().String()}, Interface: loopback, Source: loopback, Listen: "127.0.0.1:0"}}
+		Servers: []string{upstream.LocalAddr().String()}, Interface: loopback, Source: loopback, Listen: "127.0.0.1:0", Default: true}}
 	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 	defer cancel()
 	output, err := exec.CommandContext(ctx, host, "--original-dns-gateway", string(configBytes(t, config))).CombinedOutput()

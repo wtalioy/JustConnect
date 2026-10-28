@@ -429,6 +429,11 @@ void EmbeddedCoreEngine::prepareOriginalDNS(const QString &generation, const QJs
         || !capabilities["original_dns_exclusions"].toBool()) {
         emit originalDNSPrepared(generation, {}, RequestStatus::Unavailable); return;
     }
+    for (const auto &source : sources) {
+        if (source.toObject()["default"].toBool() && !capabilities["original_dns_default"].toBool()) {
+            emit originalDNSPrepared(generation, {}, RequestStatus::Unavailable); return;
+        }
+    }
     auto bytes = QJsonDocument(QJsonObject{{"schema_version", int(JC_ABI_VERSION)}, {"generation", generation}, {"sources", sources}}).toJson(QJsonDocument::Compact);
     if (bytes.size() > JC_MAX_INPUT) bytes.clear();
     const auto id = serial;
