@@ -360,25 +360,24 @@ class VerifyPackageTest(unittest.TestCase):
             (root / 'Contents/Resources/source-revision.txt').write_text(facts['revision'])
             manifest = root / 'Contents/Library/LaunchDaemons' / (identifier + '.plist')
             manifest.write_bytes(plistlib.dumps(launch))
-            for signed in (False, True):
-                with patch.object(package, 'run', side_effect=[json.dumps(facts), 'QtCore']):
-                    self.assertEqual(package.check_macos_network_helper(root, {}, signed), facts)
+            with patch.object(package, 'run', side_effect=[json.dumps(facts), 'QtCore']):
+                self.assertEqual(package.check_macos_network_helper(root, {}), facts)
             for key, value in [('protocol', 999), ('protocol', True), ('storage_version', 999), ('revision', 'old'),
                                ('source_state', 'dirty'), ('identity_ready', False)]:
                 with self.subTest(key=key), patch.object(package, 'run', return_value=json.dumps(dict(facts, **{key: value}))), \
                         self.assertRaisesRegex(RuntimeError, 'provenance or signing'):
-                    package.check_macos_network_helper(root, {}, True)
+                    package.check_macos_network_helper(root, {})
             for dependency in ('QtNetwork', 'QtWidgets', 'QtWebEngine', 'justconnect_core'):
                 with patch.object(package, 'run', side_effect=[json.dumps(facts), dependency]), \
                         self.assertRaisesRegex(RuntimeError, 'application/data-plane'):
-                    package.check_macos_network_helper(root, {}, True)
+                    package.check_macos_network_helper(root, {})
             with patch.object(package, 'run', return_value=json.dumps(facts)), \
                     patch.object(package, 'macos_signature', return_value='Identifier=' + layout['executable']), \
                     self.assertRaisesRegex(RuntimeError, 'lost its signing identifier'):
-                package.check_macos_network_helper(root, {}, False)
+                package.check_macos_network_helper(root, {})
             manifest.write_bytes(plistlib.dumps(dict(launch, Program='/bin/sh')))
             with self.assertRaisesRegex(RuntimeError, 'fixed privilege contract'):
-                package.check_macos_network_helper(root, {}, False)
+                package.check_macos_network_helper(root, {})
 
 
 if __name__ == '__main__':

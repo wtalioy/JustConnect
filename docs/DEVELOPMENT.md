@@ -171,14 +171,14 @@ Windows 为 ZIP（完整解压并保留核心 DLL），macOS 为 DMG，Linux 为
 
 ## macOS 签名与公证
 
-普通构建无需 Secrets；缺少 Apple 凭据时使用 ad-hoc 临时签名，预览不声称已开发者签名或公证。需要正式发布时配置：
+普通构建无需 Secrets：缺少 Apple 凭据时，构建在私有临时目录自动生成本地签名身份，为应用、助手与 WebEngine 签名后销毁私钥和临时钥匙串；不向系统导入根证书，也不声称 Developer ID 或公证。本地叶证书有效期十年，仅绑定同一构建的组件，不提供公开发行者信任。可选的公开 Developer ID／公证使用以下 Secrets：
 
 | 用途 | Actions Secrets |
 | --- | --- |
 | 开发者签名 | `MACOS_CERT_P12`：证书及私钥 P12 的 Base64；`MACOS_CERT_PASSWORD`：导出密码；`MACOS_CERT_IDENTITY`：Developer ID Application 身份 |
 | 公证（另需签名凭据完整） | `APPLE_ID`：开发者账户；`APPLE_APP_SPECIFIC_PASSWORD`：应用专用密码；`APPLE_TEAM_ID`：团队 ID |
 
-PR 不使用签名 Secrets；显式要求的签名／公证失败时构建失败，不降级声称已签名。公开证书与公证属于可选发行增强，不作为 S3—S5 功能前置；不要求开发者或用户注册外部签名服务。macOS 当前运行身份仍要求证书签名，其无外部证书的身份／部署改造待原生验收，不能把 ad-hoc 包标为透明访问可用。
+PR 不使用签名 Secrets；显式要求的签名／公证失败时构建失败，不降级声称已签名。公开证书与公证属于可选发行增强，不作为 S3—S5 功能前置；不要求开发者或用户注册外部签名服务。macOS 保持相同叶证书、角色标识与 hardened runtime 校验，默认构建自动提供本地身份；新包的实际身份、系统服务注册及首次批准仍须原生验收，不能仅凭签名脚本通过宣称透明访问可用。
 
 ### 无外部证书的 Windows 助手部署
 

@@ -178,10 +178,10 @@ def macos_audit(files, root, arch, env, signed):
     if 'Identifier=' + app_id not in signature.splitlines():
         raise RuntimeError('Application signing identifier differs from its bundle')
     return {'minimum_macos': declared, 'binary_minimum': minimum, 'signature': signature, 'files': evidence,
-            'network_helper': check_macos_network_helper(root, env, signed)}
+            'network_helper': check_macos_network_helper(root, env)}
 
 
-def check_macos_network_helper(root, env, signed):
+def check_macos_network_helper(root, env):
     layout = json.loads((ROOT / 'resource/network-helper-macos.json').read_text())
     identifier = plistlib.loads((root / 'Contents/Info.plist').read_bytes())['CFBundleIdentifier'] + layout['service_suffix']
     helper = root / 'Contents/MacOS' / layout['executable']
@@ -194,7 +194,7 @@ def check_macos_network_helper(root, env, signed):
             or type(facts['protocol']) is not int or type(facts['storage_version']) is not int or type(facts['identity_ready']) is not bool
             or facts['protocol'] != layout['protocol'] or facts['storage_version'] != layout['storage_version']
             or facts['revision'] != (root / 'Contents/Resources/source-revision.txt').read_text().strip()
-            or facts['source_state'] != 'clean' or (signed and not facts['identity_ready'])):
+            or facts['source_state'] != 'clean' or not facts['identity_ready']):
         raise RuntimeError('Packaged network helper has mismatched provenance or signing identity')
     if 'Identifier=' + identifier not in macos_signature(helper, env).splitlines():
         raise RuntimeError('Packaged network helper lost its signing identifier')
@@ -379,7 +379,7 @@ def verify(root, executable, revision, application_version, output, archive, sig
             status = windows_signature(path)
             if path == executable and signed:
                 if status != 'Valid' or windows_signer_sha256(path) != report['network_helper']['signer_sha256']:
-                    raise RuntimeError('Packaged Windows application signer differs from the helper authority')
+                    raise RuntimeError('Packaged Windows application signer differs from the helper signer')
             if status not in ('Valid', 'NotSigned'):
                 raise RuntimeError(f'Invalid Authenticode signature: {path}: {status}')
             report.setdefault('signatures', {})[path.name] = status
