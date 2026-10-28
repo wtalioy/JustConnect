@@ -89,7 +89,7 @@ ctest --test-dir build/coreabi -C Release --output-on-failure
 
 同一 Core ABI 工作流在一次性 runner 验证设备权限与正常／强杀清理，范围见[设备记录](CORELINK-PROBE.md#设备与权限边界)。Windows 设备检查先于完整 ABI 构建执行，失败步骤直接保留失败状态；完整矩阵和 Windows 专用模式通过显式状态条件继续收集独立 ABI／应用证据，取消则停止。不能依据 `continue-on-error` 改写后的步骤 conclusion 宣称设备通过；最终强制门槛仍读取原始 outcome，全部必需检查仍须通过。工作流回归另外覆盖八种设备失败／前置失败／取消条件。设备日志同时保留标准输出和错误输出，Windows 直接写入证据文件，超时也保留部分输出；失败不得靠扩大数据期限或放宽清理断言通过。
 
-Windows 设备与普通 Qt／Go 数据面可用 `gh workflow run coreabi.yml --ref <源码引用> -f windows_packet_only=true` 单独验证双架构；该模式复用完整矩阵的同一驱动检查、正式数据面及应用会话目标，不代替最终六组 ABI／三平台 Tests。Wintun 版本、归档校验和、架构、签名者与包内名称由 `resource/network-helper-windows.json` 单一维护，`scripts/windows_helper_sdk.py` 只暂存已校验归档中的对应原生 DLL、许可证和官方头文件，不解压其他条目。实际文件路径由生产者传给测试，不依赖测试构建目录。原生构建、三处强杀／外部冲突检查和签名安装／真实 SCM 重启在 Qt／Go 下载前执行，保留原时限与数据断言。独立助手项目为 `infrastructure/networkhelper/windows/helper`，依赖 Windows SDK／C++20 及 `WINTUN_INCLUDE_DIR` 指向的已校验官方头文件；构建输入 `JC_HELPER_PUBLISHER_SHA256`、`JC_HELPER_DRIVER_SHA256`、`JC_HELPER_LICENSE_SHA256` 固定安装来源，未配置时拒绝安装。`--install` 安装当前签名映像及固定载荷并注册恢复服务，`--service` 进入 SCM；`--authorize` 是普通权限启动器，`--control` 仅服务绑定实际进程的固定协议。Qt 后置检查使用 `python tests/platform/run_windows_helper.py --qt-control`，与原生检查共用签名／安装夹具，但不重复无关恢复用例。当前主应用接管及真实桌面 UAC 状态见计划，不以原生部件检查代替产品可用。
+Windows 设备与普通 Qt／Go 数据面可用 `gh workflow run coreabi.yml --ref <源码引用> -f windows_packet_only=true` 单独验证双架构；该模式复用完整矩阵的同一驱动检查、正式数据面及应用会话目标，不代替最终六组 ABI／三平台 Tests。Wintun 版本、归档校验和、架构、签名者与包内名称由 `resource/network-helper-windows.json` 单一维护，`scripts/windows_helper_sdk.py` 只暂存已校验归档中的对应原生 DLL、许可证和官方头文件，不解压其他条目。实际文件路径由生产者传给测试，不依赖测试构建目录。原生构建、三处强杀／外部冲突检查和受保护安装／真实 SCM 重启在 Qt／Go 下载前执行，保留原时限与数据断言。独立助手项目为 `infrastructure/networkhelper/windows/helper`，依赖 Windows SDK／C++20 及 `WINTUN_INCLUDE_DIR` 指向的已校验官方头文件；构建输入 `JC_HELPER_DRIVER_SHA256`、`JC_HELPER_LICENSE_SHA256` 固定 SDK 载荷，缺失时拒绝安装。`--install` 在管理员授权后安装当前实际映像及固定载荷并注册恢复服务，`--service` 进入 SCM；`--authorize` 是普通权限启动器，`--control` 仅服务绑定实际进程的固定协议。Qt 后置检查使用 `python tests/platform/run_windows_helper.py --qt-control`，与原生检查共用无证书的安装夹具，但不重复无关恢复用例。当前主应用接管及真实桌面 UAC 状态见计划，不以原生部件检查代替产品可用。
 
 
 ## 平台结果契约与隔离验证
@@ -178,17 +178,13 @@ Windows 为 ZIP（完整解压并保留核心 DLL），macOS 为 DMG，Linux 为
 | 开发者签名 | `MACOS_CERT_P12`：证书及私钥 P12 的 Base64；`MACOS_CERT_PASSWORD`：导出密码；`MACOS_CERT_IDENTITY`：Developer ID Application 身份 |
 | 公证（另需签名凭据完整） | `APPLE_ID`：开发者账户；`APPLE_APP_SPECIFIC_PASSWORD`：应用专用密码；`APPLE_TEAM_ID`：团队 ID |
 
-PR 不使用签名 Secrets；已配置的签名／公证失败时构建失败，不降级为成功发布。Windows 当前未配置代码签名。 Windows 包单独构建静态 CRT 的 C++ 网络助手，`WindowsNetworkHelper` 安装组件将助手、原生 Wintun DLL 与许可证放在应用旁；普通应用仍使用动态 Qt CRT。SDK 由固定归档暂存，发布工作流传入驱动／许可证哈希；`--version` 只读报告协议、来源和编译权限身份。未配置发布者的预览包保留 `identity_ready=false`，拒绝安装／授权；验包会校验实际助手、载荷、驱动签名及原生依赖，不将这类预览计为透明访问可用。
+PR 不使用签名 Secrets；显式要求的签名／公证失败时构建失败，不降级声称已签名。公开证书与公证属于可选发行增强，不作为 S3—S5 功能前置；不要求开发者或用户注册外部签名服务。macOS 当前运行身份仍要求证书签名，其无外部证书的身份／部署改造待原生验收，不能把 ad-hoc 包标为透明访问可用。
 
-### Windows 签名申请与接入准备
+### 无外部证书的 Windows 助手部署
 
-选择 [SignPath Foundation 免费开源签名申请](https://signpath.org/apply)，由服务保管签名密钥，免于购买硬件令牌；项目是否符合条件由平台审核决定。目前尚未申请或获批，没有签名凭据，也未启用正式签名工作流。[EZ4Connect 的发布工作流](https://github.com/chenx-dust/EZ4Connect/blob/master/.github/workflows/build.yml)仅在 macOS 使用开发者签名／公证，Windows 未配置签名。
+Windows 包单独构建静态 CRT 的 C++ 助手，`WindowsNetworkHelper` 安装组件将助手、官方签名 Wintun DLL 与许可证放在应用旁；普通应用使用动态 Qt CRT。固定 SDK 归档及驱动／许可证 SHA-256 由构建传入，`--version` 的 `identity_ready` 只表示载荷配置完整，不表示已获得管理员授权或发行签名。管理员通过系统 UAC 批准本次助手，安装器固定当前运行映像与源文件身份，核对载荷哈希后复制到管理员／SYSTEM 控制的 Program Files 目录，再注册独立恢复服务。源文件、已安装文件及父目录的句柄、重解析点、所有者与写权限校验保持；同哈希但普通用户所有的文件仍拒绝接管。GUI／Go 不整体提权，控制端点继续绑定 PID／创建时间／SID／连接 UUID。
 
-申请资料使用：项目 JustConnect、仓库 `https://github.com/wtalioy/JustConnect`、维护账户 `wtalioy`、仓库 GPLv3 许可证及随包上游许可证；用途为用户授权的校园 VPN 连接、资源分流与可恢复的系统网络配置。提交前应补齐公开功能／下载说明，并请平台确认上游衍生代码的签名资格；不预先声称符合所有[申请条件](https://signpath.org/terms)。仓库所有者需自行注册／授权 GitHub、确认双因素认证，并确认提交者、审查者和每次发布的签名批准者；不向第三方转交现有 GitHub 凭据。
-
-获批后的接入顺序：取得平台实际项目／策略标识和受控提交令牌，读取正式签名证书 DER 的 SHA-256 并传入助手构建身份；为自有待签二进制设置统一产品名／版本，上传同一源码提交的 Actions 产物，按[官方 GitHub 接入](https://docs.signpath.io/trusted-build-systems/github)申请签名并等待人工批准，再下载、验签、验包后发布。仅签自有二进制，不重签 Qt 或 Wintun。主程序与助手必须使用同一编译发布者身份；验包拒绝未签名或发布者不符的主程序。未配置发布者的预览保留原行为，正式签名失败不能降级发布。
-
-公开 Code signing policy 与发布页署名在服务实际批准后填写，列明实际团队角色和隐私说明，不提前标记“已提供签名”。隐私说明须包含已启用时的启动版本检查：应用默认访问 GitHub Releases API，可在设置关闭；校园认证连接用户配置的服务器。正式 macOS 签名／公证仍需 Apple 凭据，SignPath 申请不替代该项。
+本地无需生成证书、导入根证书或配置 Secrets。CI 使用实际未签名助手验收受保护安装／复用、驱动与许可证被篡改时写入前拒绝、普通用户不可修改、授权拒绝／取消、独立 SCM 恢复和普通 Qt／Go 数据路径。包验证仍检查官方驱动签名、来源、哈希和依赖；可选 `--signed` 仅用于明确声称已签名的发行包，要求主程序和助手均有效且签名者一致。无证书不消除系统首次打开／未知发布者提示，真实 UAC 交互与实际安装包仍须验收。浏览器、已有终端与 Codex 的普通 SSH 通过同一透明接管访问校园，不要求额外代理或 SSH 配置。
 
 ## 任务与验证记录
 

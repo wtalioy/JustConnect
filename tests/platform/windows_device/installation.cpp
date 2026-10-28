@@ -59,7 +59,7 @@ void userOwnedEqualityTrap(const std::wstring &path)
 {
     std::ifstream input(self(),std::ios::binary);
     const std::vector<char> data((std::istreambuf_iterator<char>(input)),{});
-    check(!data.empty() && data.size()==std::filesystem::file_size(self()),"read signed source bytes for ownership trap");
+    check(!data.empty() && data.size()==std::filesystem::file_size(self()),"read source bytes for ownership trap");
     check(DeleteFileW(path.c_str()),"remove own installed equality fixture");
     WindowsProcess process(GetCurrentProcessId());
     const auto sid=process.identity().sid;
@@ -72,7 +72,7 @@ void userOwnedEqualityTrap(const std::wstring &path)
     LocalFree(security);
     check(file.value!=INVALID_HANDLE_VALUE,"create explicit user-owned equality fixture");
     DWORD written=0;
-    check(WriteFile(file.value,data.data(),static_cast<DWORD>(data.size()),&written,nullptr) && written==data.size() && FlushFileBuffers(file.value),"copy exact signed bytes to equality fixture");
+    check(WriteFile(file.value,data.data(),static_cast<DWORD>(data.size()),&written,nullptr) && written==data.size() && FlushFileBuffers(file.value),"copy exact source bytes to equality fixture");
     PSID owner=nullptr;PSECURITY_DESCRIPTOR descriptor=nullptr;
     check(GetSecurityInfo(file.value,SE_FILE_OBJECT,OWNER_SECURITY_INFORMATION,&owner,nullptr,nullptr,nullptr,&descriptor)==ERROR_SUCCESS,"read equality fixture owner");
     LPWSTR actual=nullptr;
@@ -95,7 +95,7 @@ int wmain(int argc,wchar_t **argv) try
     check(GetEnvironmentVariableW(L"GITHUB_ACTIONS",guarded,8)==4 && std::wstring(guarded)==L"true","installation checks require disposable runner");
     if(argc==2 && std::wstring(argv[1])==L"--ordinary") { ordinary();return 0; }
     if(argc==2 && std::wstring(argv[1])==L"--unconfigured") {
-        check(!WindowsNetworkContract::PublisherSHA256[0],"unconfigured check requires an unconfigured build");
+        check(!WindowsNetworkContract::DriverSHA256[0] || !WindowsNetworkContract::LicenseSHA256[0],"unconfigured check requires missing payload hashes");
         bool refused=false;
         try { WindowsHelperInstallation::prepare(); } catch(const std::system_error &error) { refused=error.code().value()==ERROR_NOT_SUPPORTED; }
         check(refused,"unconfigured build entered machine installation");
@@ -110,11 +110,11 @@ int wmain(int argc,wchar_t **argv) try
         ~Cleanup() { installation.close();for(const auto name:{WindowsNetworkContract::Executable,WindowsNetworkContract::DriverLibrary,WindowsNetworkContract::DriverLicense}) DeleteFileW((directory/name).c_str());RemoveDirectoryW(directory.c_str()); }
     } cleanup{*installation,directory};
     auto second=WindowsHelperInstallation::prepare();
-    check(second->image()==image && second->driver()==installation->driver(),"identical signed source changed protected installation identity");
+    check(second->image()==image && second->driver()==installation->driver(),"identical source changed protected installation identity");
     second->close();
     launchOrdinary(image);
     installation->close();
     userOwnedEqualityTrap(image);
-    std::cout<<"PASS: signed native installation, running-image identity, idempotent reuse, ordinary-user denial and equal-byte owner refusal\n";
+    std::cout<<"PASS: native installation, running-image identity, idempotent reuse, ordinary-user denial and equal-byte owner refusal\n";
     return 0;
 } catch(const std::exception &error) { std::cerr<<error.what()<<'\n';return 1; }

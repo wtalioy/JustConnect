@@ -25,7 +25,7 @@ int wmain(int argc,wchar_t **argv) try
         std::cout<<"{\"protocol\":"<<Protocol<<",\"storage_version\":"<<StorageVersion
             <<",\"revision\":\""<<JC_HELPER_REVISION<<"\",\"source_state\":\""<<JC_HELPER_SOURCE_STATE
             <<"\",\"identity_ready\":"<<(WindowsHelperInstallation::identityReady()?"true":"false")
-            <<",\"publisher_sha256\":\""<<PublisherSHA256<<"\",\"driver_sha256\":\""<<DriverSHA256
+            <<",\"driver_sha256\":\""<<DriverSHA256
             <<"\",\"license_sha256\":\""<<LicenseSHA256<<"\"}\n";
         return 0;
     }

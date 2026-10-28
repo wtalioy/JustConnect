@@ -1,5 +1,4 @@
 #include "infrastructure/networkhelper/windows/installation.h"
-#include "infrastructure/networkhelper/windows/publisher.h"
 #include "infrastructure/process/windows/identity.h"
 #include "windowsnetworkcontract.h"
 #include <aclapi.h>
@@ -18,6 +17,7 @@
 #include <system_error>
 
 namespace {
+using Sha256=std::array<unsigned char,32>;
 [[noreturn]] void fail(const char *stage,LONG error=GetLastError())
 {
     throw std::system_error(static_cast<int>(error),std::system_category(),stage);
@@ -29,15 +29,15 @@ SECURITY_ATTRIBUTES attributes(Security &security)
     if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(L"O:BAG:SYD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;GRGX;;;BU)",SDDL_REVISION_1,&security.value,nullptr)) fail("create protected installation security");
     return {sizeof(SECURITY_ATTRIBUTES),security.value,FALSE};
 }
-WindowsSha256 decode(std::string_view value)
+Sha256 decode(std::string_view value)
 {
-    WindowsSha256 result{};
+    Sha256 result{};
     if (value.size()!=result.size()*2) fail("unconfigured helper payload authority",ERROR_NOT_SUPPORTED);
     const auto digit=[](char c) { if(c>='0' && c<='9') return c-'0';if(c>='a' && c<='f') return c-'a'+10;if(c>='A' && c<='F') return c-'A'+10;fail("invalid compiled payload hash",ERROR_NOT_SUPPORTED); };
     for(size_t i=0;i<result.size();++i) result[i]=static_cast<unsigned char>((digit(value[i*2])<<4)|digit(value[i*2+1]));
     return result;
 }
-std::wstring hex(const WindowsSha256 &value)
+std::wstring hex(const Sha256 &value)
 {
     constexpr wchar_t digits[]=L"0123456789abcdef";
     std::wstring result;
@@ -61,14 +61,14 @@ struct File {
     ~File() { CloseHandle(value); }
     File(const File &)=delete;
     File &operator=(const File &)=delete;
-    WindowsSha256 hash() const
+    Sha256 hash() const
     {
         Handle mapping;
         mapping.value=CreateFileMappingW(value,nullptr,PAGE_READONLY,0,0,nullptr);
         if (!mapping.value) fail("map pinned helper payload");
         auto *data=static_cast<unsigned char *>(MapViewOfFile(mapping.value,FILE_MAP_READ,0,0,0));
         if (!data) fail("read pinned helper payload");
-        WindowsSha256 result{};
+        Sha256 result{};
         const auto status=BCryptHash(BCRYPT_SHA256_ALG_HANDLE,nullptr,0,data,size,result.data(),static_cast<ULONG>(result.size()));
         UnmapViewOfFile(data);
         if (status<0) fail("hash pinned helper payload",RtlNtStatusToDosError(status));
@@ -134,12 +134,12 @@ void runningImage(const File &file)
     }
     fail("running helper lacks CodeView linker identity",ERROR_NOT_SUPPORTED);
 }
-void installed(const std::wstring &path,const WindowsSha256 &hash)
+void installed(const std::wstring &path,const Sha256 &hash)
 {
     File existing(path);immutable(existing.value,false);
     if (existing.hash()!=hash) fail("unknown existing installation payload",ERROR_INVALID_DATA);
 }
-void install(const File &source,const std::wstring &path,const WindowsSha256 &hash)
+void install(const File &source,const std::wstring &path,const Sha256 &hash)
 {
     try { installed(path,hash);return; } catch (const std::system_error &error) { if (error.code().value()!=ERROR_FILE_NOT_FOUND) throw; }
     GUID id{};wchar_t suffix[39]{};
@@ -187,12 +187,12 @@ std::wstring currentImage()
 struct Source {
     std::wstring executable=currentImage();
     File image{executable};
-    WindowsSha256 publisher=decode(WindowsNetworkContract::PublisherSHA256),driverHash=decode(WindowsNetworkContract::DriverSHA256),licenseHash=decode(WindowsNetworkContract::LicenseSHA256);
+    Sha256 driverHash=decode(WindowsNetworkContract::DriverSHA256),licenseHash=decode(WindowsNetworkContract::LicenseSHA256);
     std::filesystem::path directory=std::filesystem::path(executable).parent_path();
     File driver{(directory/WindowsNetworkContract::DriverLibrary).wstring()},license{(directory/WindowsNetworkContract::DriverLicense).wstring()};
-    WindowsSha256 identity{};
+    Sha256 identity{};
     Source(){
-        verifyWindowsPublisher(executable,image.value,publisher);runningImage(image);identity=image.hash();
+        runningImage(image);identity=image.hash();
         if(driver.hash()!=driverHash || license.hash()!=licenseHash)fail("untrusted helper driver or license",ERROR_INVALID_DATA);
     }
 };
@@ -321,7 +321,6 @@ void WindowsHelperInstallation::close()
 bool WindowsHelperInstallation::identityReady() noexcept
 {
     try {
-        decode(WindowsNetworkContract::PublisherSHA256);
         decode(WindowsNetworkContract::DriverSHA256);
         decode(WindowsNetworkContract::LicenseSHA256);
         return true;
