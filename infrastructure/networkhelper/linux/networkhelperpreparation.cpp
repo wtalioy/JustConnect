@@ -138,7 +138,7 @@ LinuxHelperPreparation prepareLinuxNetworkHelper(const QJsonObject &resources, c
     }
     QString captureDiagnostic;
     const auto targets = campusCaptureTargets(resources, policy, {}, original.originalSources, &captureDiagnostic);
-    if (!targets || targets->ipv4Prefixes.isEmpty()) return {{Status::Unsupported, captureDiagnostic}, {}};
+    if (!targets || (targets->ipv4Prefixes.isEmpty() && targets->dnsDomains.isEmpty())) return {{Status::Unsupported, captureDiagnostic}, {}};
     if (!dns.result.succeeded()) return {dns.result, {}};
     const auto reserved = tunAddressReservations(targets->ipv4Prefixes,dns.data,localDNS);
     if (!reserved) return {{Status::Failed,"DNS address reservations exceed the complete input bound."},{}};

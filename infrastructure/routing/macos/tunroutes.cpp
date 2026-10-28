@@ -108,7 +108,7 @@ Result MacTunRoutes::change(const QString &operation, const QString &prefix, int
 }
 Result MacTunRoutes::apply(const UnixTunDevice &device, const QStringList &prefixes, const CheckpointWriter &checkpoint)
 {
-    if (!owner.isNull() || device.owner().isNull() || device.descriptor() < 0 || prefixes.isEmpty() || prefixes.size() > MacRouteSnapshotRows)
+    if (!owner.isNull() || device.owner().isNull() || device.descriptor() < 0 || prefixes.size() > MacRouteSnapshotRows)
         return {Status::Failed, "Inactive route ownership and a configured owned utun are required."};
     const auto ipv4 = device.snapshot()["configuration"].toObject()["applied"].toObject()["ipv4"].toArray();
     if (ipv4.size() != 1 || !utunName(device.name())) return {Status::Failed, "A verified point-to-point utun is required."};

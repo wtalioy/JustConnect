@@ -82,7 +82,8 @@ std::optional<MacHelperConfiguration> parseMacHelperApply(const QJsonObject &pac
     const auto mtu = configuration["mtu"].toInteger(-1);
     if (configuration.size() != 6 || configuration["mtu"].toDouble(-1) != double(mtu)
         || !UnixTunDevice::validIpv4Configuration(configuration["address"].toString(),configuration["peer"].toString(),mtu)
-        || !configuration["prefixes"].isArray() || configuration["prefixes"].toArray().isEmpty()
+        || !configuration["prefixes"].isArray()
+        || (configuration["prefixes"].toArray().isEmpty() && configuration["dns_domains"].toArray().isEmpty())
         || configuration["prefixes"].toArray().size() > MacRouteSnapshotRows || !configuration["dns_domains"].isArray()
         || !configuration["original_dns"].isArray() || configuration["original_dns"].toArray().size()>MacRouteSnapshotRows) return {};
     MacHelperConfiguration result{configuration["address"].toString(),configuration["peer"].toString(),int(mtu),{}};

@@ -15,6 +15,50 @@ import (
 	"github.com/wtalioy/JustConnect/corelib/resolve"
 )
 
+func TestInternalCampusDNSBypassesOnlyItsEndpointProtectionAndStillRequiresACL(t *testing.T) {
+	r := resolve.NewResolver(nil, "203.0.113.53", "", 60, nil, nil, true)
+	defer r.Close()
+	p, err := policy.NewProtectionPolicy([]string{"203.0.113.0/24"}, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &capturingStack{}
+	resource := client.IPResource{IPMin: net.ParseIP("203.0.113.53"), IPMax: net.ParseIP("203.0.113.53"), PortMin: 53, PortMax: 53, Protocol: "all"}
+	d := NewDialer(s, r, []client.IPResource{resource}, false)
+	d.ProtectionPolicy = func() *policy.ProtectionPolicy { return &p }
+	ctx := context.WithValue(t.Context(), resolve.ContextKeyProtectionPolicy, &p)
+	for _, network := range []string{"tcp", "udp"} {
+		if _, err := d.DialCampusIPPort(ctx, network, "203.0.113.53:53"); !errors.Is(err, policy.ErrProtectedTarget) {
+			t.Fatal("ordinary flow lost protection", err)
+		}
+		conn, err := d.DialCampusDNS(ctx, network, "203.0.113.53:53")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if conn != nil {
+			conn.Close()
+		}
+		for _, endpoint := range []string{"203.0.113.54:53", "203.0.113.53:54", "[::ffff:203.0.113.53]:53"} {
+			if _, err := d.DialCampusDNS(ctx, network, endpoint); !errors.Is(err, ErrACLDenied) {
+				t.Fatal("DNS exception escaped its fixed endpoint", endpoint, err)
+			}
+		}
+	}
+	if s.tcpCalls != 1 || s.udpCalls != 1 {
+		t.Fatal("unexpected tunnel connection", s)
+	}
+	denied := NewDialer(s, r, nil, false)
+	denied.ProtectionPolicy = d.ProtectionPolicy
+	for _, network := range []string{"tcp", "udp", "icmp"} {
+		if _, err := denied.DialCampusDNS(ctx, network, "203.0.113.53:53"); !errors.Is(err, ErrACLDenied) {
+			t.Fatal("DNS bypassed resource ACL", err)
+		}
+	}
+	if s.tcpCalls != 1 || s.udpCalls != 1 {
+		t.Fatal("denied DNS reached the tunnel")
+	}
+}
+
 func TestLiveProtectionOverridesCampusResourcesButNeverGrantsAuthorization(t *testing.T) {
 	listener, err := net.ListenPacket("udp4", "127.0.0.1:0")
 	if err != nil {

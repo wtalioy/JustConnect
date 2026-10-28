@@ -157,9 +157,9 @@ func (i *tunIngress) exchangeDNSOn(ctx context.Context, request *dns.Msg, transp
 		return i.publishDNSRoutes(ctx, addresses, original)
 	}
 	if source != "" {
-		return i.owner.resolver.ExchangeNative(ctx, request, transport, source, i.owner.dialer.DialCampusIPPort, publish)
+		return i.owner.resolver.ExchangeNative(ctx, request, transport, source, i.owner.dialer.DialCampusDNS, publish)
 	}
-	return i.owner.resolver.ExchangeTUN(ctx, request, transport, i.owner.dialer.DialCampusIPPort, publish)
+	return i.owner.resolver.ExchangeTUN(ctx, request, transport, i.owner.dialer.DialCampusDNS, publish)
 }
 
 func (i *tunIngress) checkDNSRoutes(ctx context.Context, host string, addresses []netip.Addr) error {
