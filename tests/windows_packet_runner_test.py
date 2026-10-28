@@ -38,10 +38,11 @@ class WindowsPacketRunnerTest(unittest.TestCase):
             for code in (0, 1):
                 payloads = []
                 def execute(*args, env, **kwargs):
-                    payload = Path(env['JC_HELPER_SERVICE_IMAGE']).parent
+                    payload = Path(env['JC_HELPER_TAMPER_DIRECTORY'])
                     payloads.append(payload)
                     self.assertNotEqual(payload, sdk)
                     self.assertEqual(Path(env['JC_HELPER_SDK_DIRECTORY']), sdk)
+                    self.assertEqual(Path(env['JC_HELPER_SERVICE_IMAGE']).parent, sdk)
                     self.assertEqual((payload / driver.name).read_bytes(), driver.read_bytes())
                     self.assertEqual((payload / license.name).read_bytes(), license.read_bytes())
                     (payload / driver.name).write_bytes(b'owned tamper fixture')

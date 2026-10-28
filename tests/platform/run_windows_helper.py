@@ -68,14 +68,16 @@ try {
     if (Test-Path -LiteralPath $directory) { throw 'Refuse pre-existing service payload directory in fixture' }
     $ownedDirectory = $directory
     $ownedService = $true
+    $tamperHelper = Join-Path $env:JC_HELPER_TAMPER_DIRECTORY $layout.executable
+    Copy-Item -LiteralPath $helperImage -Destination $tamperHelper
     foreach ($payload in @($layout.driver_library, $layout.driver_license)) {
-        $path = Join-Path (Split-Path -Parent $env:JC_HELPER_SERVICE_IMAGE) $payload
+        $path = Join-Path $env:JC_HELPER_TAMPER_DIRECTORY $payload
         $original = [IO.File]::ReadAllBytes($path)
         try {
             $changed = [byte[]]$original.Clone()
             $changed[0] = $changed[0] -bxor 1
             [IO.File]::WriteAllBytes($path, $changed)
-            & $env:JC_HELPER_SERVICE_IMAGE --install
+            & $tamperHelper --install
             if ($LASTEXITCODE -eq 0 -or (Test-Path -LiteralPath $directory)) {
                 throw 'Altered helper payload reached protected installation'
             }
@@ -136,6 +138,9 @@ try {
                JC_HELPER_CMAKE_ARCH='ARM64' if metadata['arch'] == 'arm64' else 'x64',
                JC_HELPER_QT_CONTROL='true' if args.qt_control else 'false',
                JC_HELPER_QT_SESSION_HOST=str(args.session_host) if args.session_host else '',
+               JC_HELPER_CONTROL_IMAGE=str(destination / 'control-validation.exe'),
+               JC_HELPER_TEST_IMAGE=str(destination / 'helper-validation.exe'),
+               JC_HELPER_SERVICE_IMAGE=str(destination / contract['executable']),
                JC_HELPER_SERVICE_NAME=contract['service'], JC_HELPER_DRIVER_NAME=contract['driver_library'],
                JC_HELPER_EXECUTABLE=contract['executable'], JC_HELPER_INSTALL_DIRECTORY=contract['install_directory'])
     suffix = '-session' if args.session_host else '-qt' if args.qt_control else ''
@@ -146,9 +151,7 @@ try {
         payload = Path(directory)
         shutil.copy2(metadata['driver'], payload / contract['driver_library'])
         shutil.copy2(metadata['license'], payload / contract['driver_license'])
-        env.update(JC_HELPER_CONTROL_IMAGE=str(payload / 'control-validation.exe'),
-                   JC_HELPER_TEST_IMAGE=str(payload / 'helper-validation.exe'),
-                   JC_HELPER_SERVICE_IMAGE=str(payload / contract['executable']))
+        env['JC_HELPER_TAMPER_DIRECTORY'] = str(payload)
         try:
             result = subprocess.run([host, '-NoProfile', '-NonInteractive', '-File', str(script_path)], env=env,
                                     stdout=log, stderr=subprocess.STDOUT, timeout=240)
