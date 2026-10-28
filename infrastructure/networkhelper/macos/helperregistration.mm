@@ -8,7 +8,7 @@ PlatformOperationResult registerMacNetworkHelper()
     using Status = PlatformOperationResult::Status;
     @autoreleasepool {
         auto *service = [SMAppService daemonServiceWithPlistName:[NSString stringWithUTF8String:MacHelperPlist]];
-        if (service.status == SMAppServiceStatusNotRegistered) {
+        if (service.status == SMAppServiceStatusNotRegistered || service.status == SMAppServiceStatusNotFound) {
             NSError *error = nil;
             if (![service registerAndReturnError:&error])
                 return {Status::PermissionDenied,QStringLiteral("Cannot register the network helper: ")+QString::fromUtf8(error.localizedDescription.UTF8String)};
