@@ -155,8 +155,9 @@ WindowsHelperPreparation prepareWindowsNetworkHelper(const QJsonObject &resource
     if(!required)return {{Status::Unsupported,"Cannot determine complete original DNS requirements."},{}};
     auto original=required->isEmpty()?WindowsHelperPreparation{}:prepareOriginalDNS(*required,network,dns);
     if(!original.result.succeeded())return original;
-    const auto targets=campusCaptureTargets(resources,protection,{},original.originalSources);
-    if(!targets || targets->ipv4Prefixes.isEmpty())return {{Status::Unsupported,"Cannot derive safe campus capture targets."},{}};
+    QString captureDiagnostic;
+    const auto targets=campusCaptureTargets(resources,protection,{},original.originalSources, &captureDiagnostic);
+    if(!targets || targets->ipv4Prefixes.isEmpty())return {{Status::Unsupported,captureDiagnostic},{}};
     const auto reserved=tunAddressReservations(targets->ipv4Prefixes,dns,localDNS);
     if(!reserved)return {{Status::Failed,"DNS address reservations exceed the complete input bound."},{}};
     const auto addresses=privateTUNAddresses(network,*reserved);

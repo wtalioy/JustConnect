@@ -24,11 +24,11 @@
 | 剩余性质 | 现有主链已通过自动验收，当前集中于 S5-03 的 MagicDNS／解析组件联验及 S3-05、S4-04、S5-01／02／05 的真实桌面／校园、授权和矩阵汇总；特殊 DNS 来源按 R15 保留／拒绝。按完整访问链合批开发、按各任务真实验收要求勾选，不把组件通过冒充整项完成 |
 | 当前有效验收 | `8662c04` 的[六架构完整原生运行](https://github.com/wtalioy/JustConnect/actions/runs/40648288173)和[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40648288217)全部通过，包含 Windows 根 DNS 两轮系统解析／恢复、控制器 TCP／IPC 正常及支持平台 race、无外部证书助手边界和未改 SDK 门槛。报告 `build/reports/verification-8662c04/summary.json`；[六组实际包与源码](https://github.com/wtalioy/JustConnect/actions/runs/40648356379)全部通过，Windows x64 已实际下载校验哈希并在本机原生执行核心／助手事实与只读 DNS 检查，未安装助手或改本机网络 |
 | 原 DNS 基线 | Windows 本地明文 NRPT 原 DNS 自动选源、实际监听、写前身份／原值复核、所属投影与完整来源／安全观察已验；两架构各两轮普通应用验证预热缓存、原 DNS、名称选择／撤销、系统校园 DNS／TCP／UDP／SSH 和精确恢复。macOS／Windows 共用校园 DNS 域安装推导，无新缓存／产品地址常量；当前构建及必要工具保留，临时探针产物已清理，报告 `build/reports/windows-original-dns-application.json` |
-| 当前推进与下一步 | S4-05 的统一控制出口、真实解析、六架构活跃 TUN、网关重叠及恢复已通过完整原生验收并收尾。继续 S5-03 的 MagicDNS 与主路径联验；特殊来源按 R15 保留／拒绝；按 R14 验收免外部证书的助手部署与实际包，macOS 本地签名及系统服务注册／撤销前置检查通过，首次注册分支已修正，实际应用／桌面授权仍待。不重复实现或重测未改路径 |
+| 当前推进与下一步 | 优先修复 `8662c04` 的 Fudan 实机接管失败：用户认证／隧道成功后报 Cannot derive safe campus capture targets。已复现服务器 `0-65535` 范围与捕获最小端口 1 的契约冲突，统一取有效目的端口交集，三平台共享明确失败原因；本地 Go race／vet、Qt 规划及实际 Qt／C ABI 零起点资源夹具已过，原生与新包及实际 Fudan 重验待。尚无实机资源快照，不把候选根因当作已确认。其他 S3—S5 验收仍按原 ID／R15 推进 |
 | CI 下载瓶颈 | Linux x64 的 Azure 依赖源下载 42.2 MB 用时 15 分 11 秒；三组工作流已统一接入 `setup-linux-apt`，使用 runner 现有 Ubuntu 官方替代源。本地镜像样例／幂等／缺少列表、workflow 检查及八种失败传播通过；`c14f931` 的 x64 依赖安装步骤已由运行时间确认在 51 秒完成，后续 `66ba28c` 完整九项通过；[依据与范围](docs/DEVELOPMENT.md#ci-apt-mirrors) |
 | 验收范围 | 仅要求 Fudan 实测；按用户决定取消另一台 aTrust 服务器的硬性要求，保留 Custom 实现与服务器／账户隔离回归 |
 | 剩余缺口 | S1-04 真实样本、免外部证书的助手部署、真实桌面／校园透明访问、Clash 共存与剩余平台矩阵未验收；D2 的三平台设备／权限／正常及故障恢复已通过受控自动验证，边界与实机缺口见 S4／S5 |
-| 最新预览 | `8662c04` 的[六组实际包及源码](https://github.com/wtalioy/JustConnect/actions/runs/40648356379)均已通过；[Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/40648356379/artifacts/12798962208)已下载核对并在本机普通权限执行离线核心、助手事实及实际 DNS 读取。无需申请签名，首次系统授权仍须用户正常批准。该版本真实校园透明访问待验；`8fefd1c` 的 Fudan 代理网页／SSH 是历史已验基线，不能替代此包的透明验收 |
+| 最新预览 | `8662c04` 的[六组实际包及源码](https://github.com/wtalioy/JustConnect/actions/runs/40648356379)均已通过；[Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/40648356379/artifacts/12798962208)已下载核对并在本机普通权限执行离线核心、助手事实及实际 DNS 读取。无需申请签名，首次系统授权仍须用户正常批准。用户已实测该版本认证／隧道成功、接管规划失败；真实校园透明访问未通过，修复与新包待验；`8fefd1c` 的 Fudan 代理网页／SSH 是历史已验基线，不能替代此包的透明验收 |
 
 S3—S5 未收尾项按实际缺口归并如下；同一证据可覆盖多个 ID，不重复开发或重复安排实测：
 

@@ -179,7 +179,9 @@ static void captureTargets()
     check(!campusCaptureTargets(resources, protectedPolicy),"One exact choice unprotected an entire namespace");
     protectedPolicy = policy;
     protectedPolicy["protected"] = QJsonArray{"203.0.113.53/32"};
-    check(!campusCaptureTargets(resources, protectedPolicy),"Protected campus DNS produced a partially usable plan");
+    QString dnsDiagnostic;
+    check(!campusCaptureTargets(resources, protectedPolicy, {}, {}, &dnsDiagnostic)
+        && dnsDiagnostic.contains("protected original network"),"Protected campus DNS lost its refusal or useful conflict reason");
     auto forwardedPolicy = policy;
     const QJsonObject nativeScope{{"kind","suffix"},{"value","campus.test"}};
     forwardedPolicy["protected_names"] = QJsonArray{nativeScope};
@@ -202,7 +204,12 @@ static void captureTargets()
                            QJsonObject{{"ip_min","203.0.113.7"},{"ip_max","203.0.113.7"},{"protocol","tcp"},{"port_min",0},{"port_max",22}}}) {
         auto invalid = resources;
         invalid["ip_resources"] = QJsonArray{bad};
-        check(!campusCaptureTargets(invalid, policy),"Invalid resource published a partial capture plan");
+        QString diagnostic;
+        check(!campusCaptureTargets(invalid, policy, {}, {}, &diagnostic) && !diagnostic.isEmpty(),
+              "Invalid resource published a partial plan or lost its failure reason");
+        const auto rejected = prepareWindowsNetworkHelper(invalid,policy,allocationNetwork,dns,{},1400);
+        check(!rejected.result.succeeded() && rejected.result.detail == diagnostic,
+              "Initial helper preparation replaced the capture failure reason");
     }
     auto wide = resources;
     wide["ip_resources"] = QJsonArray{QJsonObject{{"ip_min","0.0.0.0"},{"ip_max","255.255.255.255"},{"protocol","all"},{"port_min",1},{"port_max",65535}}};

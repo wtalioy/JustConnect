@@ -28,7 +28,7 @@ std::optional<QJsonArray> requiredOriginalDnsNames(const QJsonObject &resources,
 QStringList campusDnsDomainsToInstall(const QStringList &domains,const QJsonArray &originalSources);
 
 // Derive IPv4 capture from resources, confirmed dynamic addresses and protection.
-std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &resources, const QJsonObject &policy, const QStringList &dynamicAddresses = {}, const QJsonArray &originalDNS = {});
+std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &resources, const QJsonObject &policy, const QStringList &dynamicAddresses = {}, const QJsonArray &originalDNS = {}, QString *diagnostic = nullptr);
 
 // Withdraw original DNS addresses from the currently owned capture, without adding targets.
 std::optional<QStringList> excludeCampusCaptureAddresses(const QStringList &ownedPrefixes, const QStringList &addresses);

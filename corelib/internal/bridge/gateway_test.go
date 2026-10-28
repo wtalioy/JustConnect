@@ -182,11 +182,11 @@ func newGatewayWithNodeTLS(t *testing.T, nodeTLS *tls.Config) *gateway {
 			}
 			extraResource := ""
 			if g.loopbackResource.Load() {
-				extraResource = fmt.Sprintf(`,{"protocol":"tcp","port":"1-65535","host":"127.0.0.1"},{"protocol":"tcp","port":"1-65535","host":"localhost","IP":[%q]}`, resourceIP)
+				extraResource = fmt.Sprintf(`,{"protocol":"tcp","port":"0-65535","host":"127.0.0.1"},{"protocol":"tcp","port":"0-65535","host":"localhost","IP":[%q]}`, resourceIP)
 			}
-			addresses := fmt.Sprintf(`{"protocol":"udp","port":"1-65535","host":%q},{"protocol":"tcp","port":"1-65535","host":%q},{"protocol":"tcp","port":"1-65535","host":"campus.test","IP":[%q]}`, resourceIP, resourceIP, resourceIP)
+			addresses := fmt.Sprintf(`{"protocol":"udp","port":"0-65535","host":%q},{"protocol":"tcp","port":"0-65535","host":%q},{"protocol":"tcp","port":"0-65535","host":"campus.test","IP":[%q]}`, resourceIP, resourceIP, resourceIP)
 			if g.nativeDNS.Load() {
-				addresses = fmt.Sprintf(`{"protocol":"udp","port":"1-65535","host":%q},{"protocol":"udp","port":"53","host":%q},{"protocol":"tcp","port":"80","host":"campus.test"}`, resourceIP, campusDNS)
+				addresses = fmt.Sprintf(`{"protocol":"udp","port":"0-65535","host":%q},{"protocol":"udp","port":"53","host":%q},{"protocol":"tcp","port":"80","host":"campus.test"}`, resourceIP, campusDNS)
 			}
 			if g.originalDNSName.Load() {
 				addresses += `,{"protocol":"tcp","port":"80","host":"host.campus.test"}`
