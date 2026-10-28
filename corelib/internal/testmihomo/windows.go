@@ -12,7 +12,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func ipcName(string) string { return `\\.\pipe\jcm-` + rand.Text() }
+func ipcName(string) string { return `\\.\pipe\verge-mihomo-test-` + rand.Text() }
 
 type pipeListener struct {
 	mu      sync.Mutex

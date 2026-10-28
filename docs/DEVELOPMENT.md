@@ -202,3 +202,7 @@ Linux Core ABI 另在全新网络命名空间执行 `mihomo_tun_linux.py`：官�
 
 
 macOS 控制专项另验证普通用户从 PID 对应的系统套接字表发现监听，以及自有 root Mihomo 的实际查询。root 夹具仅在 `GITHUB_ACTIONS=true` 的 macOS runner、已准备固定运行时时启动，关闭 TUN／代理入口、私有配置置于 root 专属目录；Go 调用方保持普通 UID，必须不能读取配置。固定 CI Python 设置进程在 stdin EOF 后停止自己的 Mihomo 并删除临时目录，正常／race 两轮均执行；本地不运行提权部分。
+
+Windows 使用现有进程句柄查询；权限拒绝时，通过 Windows 的公开 `SystemProcessInformation` 获取创建时间，不读取目标内存或提权。高权限 Clash Verge 的端点来自实际 NPFS 目录中的控制命名空间，依据 [Verge IPC 契约](https://github.com/clash-verge-rev/clash-verge-service-ipc/blob/v2.7.6/src/core/paths.rs)；不构造完整路径、枚举连接其他服务或猜测控制端口。打开候选只查询内核服务端 PID，发送 HTTP 前再次核验 PID／创建时间。其他高权限前端的私有 IPC 需要其公开发现契约，不能据此宣称通用支持。
+
+`TestProtectedWindowsControllerRealDNS` 仅限制自有官方实例的进程／配置 DACL，再启动普通权限调用方，必须确认进程查询与配置读取均拒绝、实际发现对应管道并查询原 DNS；结束恢复对象权限并停止自有实例。CI 管理员使用现有普通 token 夹具降低子进程权限；本地普通用户无需提权，不改系统接口、路由或 DNS。原生回归另验证公开创建时间与实际句柄一致、畸形／取消不发布部分身份、旧身份拒绝及无关单连接管道保持未连接。

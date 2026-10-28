@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/miekg/dns"
 	"github.com/wtalioy/JustConnect/corelib/internal/mihomo/model"
+	"github.com/wtalioy/JustConnect/corelib/internal/testdns"
 	"github.com/wtalioy/JustConnect/corelib/internal/testmihomo"
 )
 
@@ -23,6 +25,23 @@ func TestMain(m *testing.M) {
 		os.Exit(0)
 	}
 	os.Exit(m.Run())
+}
+
+func originalControllerDNS(t *testing.T) string {
+	t.Helper()
+	tcp, udp := testdns.ListenPair(t, "127.0.0.1")
+	server := &dns.Server{PacketConn: udp, Handler: dns.HandlerFunc(func(w dns.ResponseWriter, request *dns.Msg) {
+		reply := new(dns.Msg).SetReply(request)
+		for _, q := range request.Question {
+			if q.Qtype == dns.TypeA {
+				reply.Answer = append(reply.Answer, &dns.A{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 37}, A: net.IPv4(192, 0, 2, 10)})
+			}
+		}
+		w.WriteMsg(reply)
+	})}
+	go server.ActivateAndServe()
+	t.Cleanup(func() { server.Shutdown() })
+	return tcp.Addr().String()
 }
 
 func ownedProcess(t *testing.T, pid int) model.Process {
