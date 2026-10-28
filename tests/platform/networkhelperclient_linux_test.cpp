@@ -169,10 +169,13 @@ int main(int argc, char **argv) try
                     && client->state() == Client::State::RecoveryRequired && client->descriptor() == -1,
                     "Helper loss did not revoke its descriptor and retain recovery responsibility");
                 check(!client->ownedConfiguration() && client->ownedDevice().isEmpty(), "Lost helper retained active ownership facts");
+                // Match the application: EOF can arrive before the exited helper has been reaped.
+                wait([&] { return !client->hasPendingProcess(); });
                 previous = results.size();
                 client->restore();
                 wait([&] { return results.size() == previous+1; });
-                check(results.last().succeeded() && client->state() == Client::State::Idle, "Fresh Qt-authorized recovery failed");
+                check(results.last().succeeded() && client->state() == Client::State::Idle,
+                      qPrintable(QStringLiteral("Fresh Qt-authorized recovery failed: %1").arg(results.last().detail)));
             } else if (scenario == "destroy") {
                 client.reset();
                 QDeadlineTimer settle(200);
