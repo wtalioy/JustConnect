@@ -54,12 +54,26 @@ func useController(t *testing.T, client *mihomo.Client) {
 	discoverController = func(context.Context) (*mihomo.Client, error) { return client, nil }
 }
 
+func refuseSystemDial(t *testing.T) *atomic.Int32 {
+	t.Helper()
+	var calls atomic.Int32
+	original := dialOnInterface
+	t.Cleanup(func() { dialOnInterface = original })
+	// Observe the fallback boundary without changing net.DefaultResolver during canceled HTTP dials.
+	dialOnInterface = func(context.Context, string, string, string, string) (net.Conn, error) {
+		calls.Add(1)
+		return nil, errors.New("system fallback must not supply the control connection")
+	}
+	return &calls
+}
+
 func TestControllerRealResolutionPreservesTLSIdentityAndLoopback(t *testing.T) {
 	for _, kind := range []string{"tcp", "ipc"} {
 		t.Run(kind, func(t *testing.T) {
 			controller, fixture := ownedController(t, testmihomo.Options{Transport: kind})
 			useController(t, controller)
-			var requests, systemDNS atomic.Int32
+			var requests atomic.Int32
+			systemDials := refuseSystemDial(t)
 			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.TLS.ServerName != "example.com" {
 					t.Error("logical TLS host was rewritten to an IP")
@@ -68,12 +82,6 @@ func TestControllerRealResolutionPreservesTLSIdentityAndLoopback(t *testing.T) {
 				io.WriteString(w, "verified gateway")
 			}))
 			defer server.Close()
-			original := net.DefaultResolver
-			t.Cleanup(func() { net.DefaultResolver = original })
-			net.DefaultResolver = &net.Resolver{PreferGo: true, Dial: func(context.Context, string, string) (net.Conn, error) {
-				systemDNS.Add(1)
-				return nil, errors.New("system Fake-IP resolver must not be consulted")
-			}}
 			_, port, _ := net.SplitHostPort(server.Listener.Addr().String())
 			for _, stage := range []string{"auth-methods", "login", "gateway", "reconnect"} {
 				dialer, err := New(Options{AutoDetect: true})
@@ -108,8 +116,8 @@ func TestControllerRealResolutionPreservesTLSIdentityAndLoopback(t *testing.T) {
 				}
 			}
 			queries, _ := fixture.Counts(t)
-			if requests.Load() != 4 || queries == 0 || systemDNS.Load() != 0 {
-				t.Fatalf("control exchanges=%d API DNS=%d system DNS=%d", requests.Load(), queries, systemDNS.Load())
+			if requests.Load() != 4 || queries == 0 || systemDials.Load() != 0 {
+				t.Fatalf("control exchanges=%d API DNS=%d system fallbacks=%d", requests.Load(), queries, systemDials.Load())
 			}
 		})
 	}
