@@ -22,6 +22,8 @@ def run(*args, **kwargs):
 
 def main():
     assert sys.platform == 'darwin', 'This signing check requires native macOS'
+    assert os.environ.get('GITHUB_ACTIONS') == 'true' and os.environ.get('RUNNER_OS') == 'macOS', \
+        'Service registration checks require a disposable runner'
     layout = json.loads((ROOT / 'resource/network-helper-macos.json').read_text())
     app_id = plistlib.loads((ROOT / 'resource/Info.plist').read_bytes())['CFBundleIdentifier']
     keychains = run('/usr/bin/security', 'list-keychains', '-d', 'user').stdout
@@ -31,7 +33,38 @@ def main():
         binaries = app / 'Contents/MacOS'
         binaries.mkdir(parents=True)
         host = binaries / 'JustConnect'
-        run('/usr/bin/clang', '-x', 'c', '-', '-o', host, input=b'int main(void) { return 0; }\n')
+        source = b'''
+#import <Foundation/Foundation.h>
+#import <ServiceManagement/ServiceManagement.h>
+#include <stdio.h>
+#include <string.h>
+int main(int argc, char **argv) {
+    if (argc != 3 || strcmp(argv[1], "--registration-probe")) return 0;
+    @autoreleasepool {
+        SMAppService *service = [SMAppService daemonServiceWithPlistName:[NSString stringWithUTF8String:argv[2]]];
+        if (service.status != SMAppServiceStatusNotRegistered) {
+            fprintf(stderr, "Refuse pre-existing service registration: %ld\\n", (long)service.status);
+            return 1;
+        }
+        NSError *error = nil;
+        BOOL registered = [service registerAndReturnError:&error];
+        SMAppServiceStatus status = service.status;
+        fprintf(stderr, "SMAppService registered=%d status=%ld error=%s\\n", registered, (long)status,
+            error ? error.description.UTF8String : "none");
+        BOOL accepted = status == SMAppServiceStatusEnabled || status == SMAppServiceStatusRequiresApproval;
+        if (registered || accepted) {
+            error = nil;
+            if (![service unregisterAndReturnError:&error]) {
+                fprintf(stderr, "Cannot remove owned registration: %s\\n", error.description.UTF8String);
+                return 1;
+            }
+        }
+        return accepted ? 0 : 1;
+    }
+}
+'''
+        run('/usr/bin/clang', '-x', 'objective-c', '-', '-framework', 'Foundation', '-framework', 'ServiceManagement',
+            '-o', host, input=source)
         helper = binaries / layout['executable']
         shutil.copy2(host, helper)
 
@@ -41,6 +74,12 @@ def main():
                 CFBundlePackageType=kind, CFBundleVersion='1', CFBundleShortVersionString='1')))
 
         info(app / 'Contents/Info.plist', app_id, host.name)
+        daemon_name = app_id+layout['service_suffix']+'.plist'
+        daemon = app / 'Contents/Library/LaunchDaemons' / daemon_name
+        daemon.parent.mkdir(parents=True)
+        launch = (ROOT / 'resource/network-helper-macos.plist.in').read_text().replace(
+            '@JC_MAC_HELPER_ID@', app_id+layout['service_suffix']).replace('@JC_MAC_HELPER_EXECUTABLE@', helper.name)
+        daemon.write_text(launch)
         framework = app / 'Contents/Frameworks/QtWebEngineCore.framework'
         version = framework / 'Versions/A'
         version.mkdir(parents=True)
@@ -76,8 +115,10 @@ def main():
             leaves.append(hashlib.sha256(Path(str(prefix)+'0').read_bytes()).hexdigest())
         assert len(set(leaves)) == 1, 'App/helper/WebEngine have different signing identities'
         assert not list(scratch.iterdir()), 'Private signing material survived'
+        registration = run(host, '--registration-probe', daemon_name)
+        print(registration.stderr.decode(), end='')
     assert run('/usr/bin/security', 'list-keychains', '-d', 'user').stdout == keychains
-    print('PASS: real local signing, same leaf, hardened roles, deep verification and key cleanup; no external credentials')
+    print('PASS: real local signing, same leaf, hardened roles, service registration and key cleanup; no external credentials')
 
 
 if __name__ == '__main__':
