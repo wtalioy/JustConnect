@@ -80,11 +80,12 @@ func TestCancelledPairDoesNotOpenSockets(t *testing.T) {
 }
 
 func TestExcludedUDPSelectionUsesTCPAllocatorWithoutGuessingPort(t *testing.T) {
-	occupied, err := net.Listen("tcp4", "127.0.0.1:0")
+	occupied, availableUDP, err := Listen(t.Context(), "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer occupied.Close()
+	availableUDP.Close()
 	var firstUDP *net.UDPConn
 	usedTCPAllocator := false
 	tcp, udp, err := listenPair(t.Context(), "127.0.0.1:0", func(network string, address *net.UDPAddr) (*net.UDPConn, error) {
