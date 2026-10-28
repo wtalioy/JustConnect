@@ -14,24 +14,11 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
-	"github.com/wtalioy/JustConnect/corelib/internal/testdns"
 	"github.com/wtalioy/JustConnect/corelib/internal/testmihomo"
 )
 
 func TestRootControllerUsesObservedIPCWithoutPrivateConfiguration(t *testing.T) {
-	tcp, udp := testdns.ListenPair(t, "127.0.0.1")
-	server := &dns.Server{PacketConn: udp, Handler: dns.HandlerFunc(func(w dns.ResponseWriter, request *dns.Msg) {
-		reply := new(dns.Msg).SetReply(request)
-		for _, q := range request.Question {
-			if q.Qtype == dns.TypeA {
-				reply.Answer = append(reply.Answer, &dns.A{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 37}, A: net.IPv4(192, 0, 2, 10)})
-			}
-		}
-		w.WriteMsg(reply)
-	})}
-	go server.ActivateAndServe()
-	t.Cleanup(func() { server.Shutdown() })
-	fixture := testmihomo.StartPrivilegedBinary(t, tcp.Addr().String())
+	fixture := testmihomo.StartPrivilegedBinary(t, originalControllerDNS(t))
 	if _, err := os.ReadFile(fixture.Configuration); !errors.Is(err, os.ErrPermission) {
 		t.Fatal("root configuration was not private", err)
 	}

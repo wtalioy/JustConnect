@@ -26,12 +26,19 @@ func creation(handle windows.Handle) uint64 {
 	return uint64(born.HighDateTime)<<32 | uint64(born.LowDateTime)
 }
 func Valid(p model.Process) bool {
+	if p.PID <= 0 || p.Started == 0 {
+		return false
+	}
 	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(p.PID))
+	if err == windows.ERROR_ACCESS_DENIED {
+		times, queryErr := processTimes(context.Background())
+		return queryErr == nil && times[uint32(p.PID)] == p.Started
+	}
 	if err != nil {
 		return false
 	}
 	defer windows.CloseHandle(handle)
-	return p.Started != 0 && creation(handle) == p.Started
+	return creation(handle) == p.Started
 }
 
 func Read(ctx context.Context) ([]model.Process, error) {
@@ -42,6 +49,7 @@ func Read(ctx context.Context) ([]model.Process, error) {
 	defer windows.CloseHandle(snapshot)
 	entry := windows.ProcessEntry32{Size: uint32(unsafe.Sizeof(windows.ProcessEntry32{}))}
 	var result []model.Process
+	var publicTimes map[uint32]uint64
 	for err = windows.Process32First(snapshot, &entry); err == nil; err = windows.Process32Next(snapshot, &entry) {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -50,9 +58,19 @@ func Read(ctx context.Context) ([]model.Process, error) {
 			continue
 		}
 		p := model.Process{PID: int(entry.ProcessID)}
-		handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, entry.ProcessID)
-		if err != nil {
-			if err != windows.ERROR_INVALID_PARAMETER {
+		handle, openErr := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, entry.ProcessID)
+		if openErr != nil {
+			if openErr == windows.ERROR_ACCESS_DENIED {
+				if publicTimes == nil {
+					times, queryErr := processTimes(ctx)
+					if queryErr != nil {
+						return nil, queryErr
+					}
+					publicTimes = times
+				}
+				p.Started = publicTimes[entry.ProcessID]
+			}
+			if openErr != windows.ERROR_INVALID_PARAMETER {
 				result = append(result, p)
 			}
 			continue
@@ -88,7 +106,7 @@ func Read(ctx context.Context) ([]model.Process, error) {
 	if err != windows.ERROR_NO_MORE_FILES {
 		return nil, err
 	}
-	return result, nil
+	return observeControllerPipes(ctx, result)
 }
 
 var waitNamedPipe = windows.NewLazySystemDLL("kernel32.dll").NewProc("WaitNamedPipeW")

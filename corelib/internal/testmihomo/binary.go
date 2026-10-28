@@ -67,10 +67,9 @@ func StartBinary(t testing.TB, upstream string, ipc bool) *Fixture {
 	}
 	if ipc {
 		key := "external-controller-unix"
-		f.IPC = filepath.Join(directory, "control.sock")
+		f.IPC = ipcName(directory)
 		if runtime.GOOS == "windows" {
 			key = "external-controller-pipe"
-			f.IPC = `\\.\pipe\` + filepath.Base(directory)
 		}
 		config[key] = f.IPC
 	}
