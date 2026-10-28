@@ -19,16 +19,16 @@
 | --- | --- |
 | 当前任务 | 按 S3 → S4 → S5 推进；S3-01／02／03／04／06、S4-01／02／03／05／06、S5-04 已收尾。已统一职责布局与三平台 C++ 权限助手；三平台普通接管、助手故障及双杀自动验收、六组助手包链已通过。macOS 静态及 State／DHCP 原 DNS 接管／策略／恢复已通过双架构系统场景与 ABI；Windows 本地 NRPT 原 DNS 已通过双架构自动接入／选择／恢复；免外部证书的助手部署／真实桌面与校园、不支持的临时／加密来源按 R15 保留并明确拒绝 |
 | 实测状态 | Windows Fudan `8fefd1c` 启用隧道证书例外后认证／隧道成功；Clash Verge TUN 开启时，用户确认手动设置系统代理后网页正常，普通断开及退出重启均无需再次认证，清除缓存后出现认证窗口、手动认证后连接成功。显式 SOCKS／HTTP 的校内 SSH 通信及 HTTP 代理密钥交换通过，未登录；该已交付版本的终端直连与自动接管未验收；开发分支的三平台接管／恢复自动结果见 S4 |
-| S3—S5 剩余 | **17 项的非实测工作均已收尾**；整项已验收 11 项，另外 6 项仅待用户实测：S3-05；S4-04；S5-01／02／03／05。各 ID 下已勾选实现／自动验证与清理分项，整项在用户实测通过前保持未勾选 |
+| S3—S5 剩余 | **16 项非实测工作已收尾，S5-03 因实测发现的校园 DNS 重叠拒绝重新修复中**；整项已验收 11 项，另外 6 项待用户验收，其中 S5-03 须先补修复与自动验证：S3-05；S4-04；S5-01／02／03／05。各 ID 下已勾选实现／自动验证与清理分项，整项在用户实测通过前保持未勾选 |
 | 全计划进度 | 64 项中已收尾 33 项，剩余 31 项；其中本轮目标 S3—S5 剩余 6 项，后续 S6—S8 仍按实施顺序推进 |
-| 剩余性质 | 本轮限定 S3—S5，不推进 S6—S8。代码、必要重构／清理、受控原生及实际包验证已完成；剩余为用户真实桌面／校园、授权／注销、普通出口、已有终端／Codex SSH 与 MagicDNS 接管／恢复。Windows 与 Apple Silicon Mac 已确认可实测，Linux 真实桌面尚未确认；不以 CI 代替实测 |
+| 剩余性质 | 本轮限定 S3—S5，不推进 S6—S8。优先修复 Windows 实测确认的校园 DNS 重叠启动拒绝；其余非实测工作复用已验基线，真实桌面／校园、授权／注销、普通出口、已有终端／Codex SSH 与 MagicDNS 接管／恢复。Windows 与 Apple Silicon Mac 已确认可实测，Linux 真实桌面尚未确认；不以 CI 代替实测 |
 | 当前有效验收 | `997b56b` 的[六架构完整原生运行](https://github.com/wtalioy/JustConnect/actions/runs/40678858353)和[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40678858484)全部通过；`60841f6` 的[六组实际包及源码](https://github.com/wtalioy/JustConnect/actions/runs/40680845488)全部通过，已下载核对六组包检查报告。两者仅差文档；相对已交付 `9a17359` 仅差 Linux 夹具／文档，无产品运行代码变化。含零起点校园资源、Windows 安全换版／失败回滚、原 SDK 4096 包及完整普通应用 DNS／恢复；报告 `build/reports/package-60841f6/summary.json`、`campus-capture-failure.json` |
 | 原 DNS 基线 | Windows 本地明文 NRPT 原 DNS 自动选源、实际监听、写前身份／原值复核、所属投影与完整来源／安全观察已验；两架构各两轮普通应用验证预热缓存、原 DNS、名称选择／撤销、系统校园 DNS／TCP／UDP／SSH 和精确恢复。macOS／Windows 共用校园 DNS 域安装推导，无新缓存／产品地址常量；当前构建及必要工具保留，临时探针产物已清理，报告 `build/reports/windows-original-dns-application.json` |
-| 当前推进与下一步 | S3—S5 非实测收尾完成。`0-65535` 资源归一化与三平台接管失败诊断、安全替换旧 Windows 恢复服务已自动验收；Linux 打包夹具已按正式应用契约等待旧助手回收，双架构实际日志确认 crash／恢复通过，断言未放宽。已精简计划、更新 V1 矩阵并清理旧包解压副本约 283 MiB；保留原归档、独有失败、当前构建／工具及关键报告。真实 Fudan 根因与连通由用户新包重验确认，尚未重试不当作成功 |
+| 当前推进与下一步 | Windows 新包实测已越过原端口范围问题，认证／真实控制 DNS／隧道成功后因校园 DNS 与原网络／原 DNS 重叠被拒绝。已复现并修复角色混淆：原地址不被捕获，内部 DNS 用固定校园端点和资源 ACL，名称／应答保护不变；域名先行启动不制造占位路由。本地完整 Go、resolve／dial／service race、vet、Qt 规划及正式 ABI 检查中；三平台原生与新包待验，不宣称 Fudan 已连通。报告 `build/reports/campus-dns-overlap.json` |
 | CI 下载瓶颈 | Linux x64 的 Azure 依赖源下载 42.2 MB 用时 15 分 11 秒；三组工作流已统一接入 `setup-linux-apt`，使用 runner 现有 Ubuntu 官方替代源。本地镜像样例／幂等／缺少列表、workflow 检查及八种失败传播通过；`c14f931` 的 x64 依赖安装步骤已由运行时间确认在 51 秒完成，后续 `66ba28c` 完整九项通过；[依据与范围](docs/DEVELOPMENT.md#ci-apt-mirrors) |
 | 验收范围 | 仅要求 Fudan 实测；按用户决定取消另一台 aTrust 服务器的硬性要求，保留 Custom 实现与服务器／账户隔离回归 |
 | 剩余缺口 | S1-04 真实样本、免外部证书的助手部署、真实桌面／校园透明访问、Clash 共存与剩余平台矩阵未验收；D2 的三平台设备／权限／正常及故障恢复已通过受控自动验证，边界与实机缺口见 S4／S5 |
-| 最新预览 | `60841f6` 的[六组实际包与源码](https://github.com/wtalioy/JustConnect/actions/runs/40680845488)均已通过；[Apple Silicon Mac](https://github.com/wtalioy/JustConnect/actions/runs/40680845488/artifacts/12813855081)已交用户，要求 macOS 14.4+。Windows 用户继续测试已下载、核对并原生自检的 [x64 `9a17359`](https://github.com/wtalioy/JustConnect/actions/runs/40675955353/artifacts/12810537856)，两包产品运行代码一致。无需申请签名，首次打开／助手批准仍须用户正常操作；真实校园透明访问尚未验收。旧 `8662c04` 的实机失败及 `8fefd1c` 代理网页／SSH 仅保留为历史证据 |
+| 最新预览 | `60841f6` 的[六组实际包与源码](https://github.com/wtalioy/JustConnect/actions/runs/40680845488)均已通过；[Apple Silicon Mac](https://github.com/wtalioy/JustConnect/actions/runs/40680845488/artifacts/12813855081)已交用户，要求 macOS 14.4+。Windows 用户已反馈同运行代码的预览在认证后因校园 DNS 重叠拒绝接管；[x64 `9a17359`](https://github.com/wtalioy/JustConnect/actions/runs/40675955353/artifacts/12810537856)，为已验证来源的旧基线；新修复包待验。无需申请签名，首次打开／助手批准仍须用户正常操作；真实校园透明访问尚未验收。旧 `8662c04` 的实机失败及 `8fefd1c` 代理网页／SSH 仅保留为历史证据 |
 
 S3—S5 未收尾项按实际缺口归并如下；同一证据可覆盖多个 ID，不重复开发或重复安排实测：
 
@@ -282,7 +282,7 @@ Linux x64／ARM64 AppImage 分别减少约 2.07%／1.90%；macOS 安装体积基
   - [x] 实现、自动验证与清理：三平台普通 Qt／正式核心／助手透明入口、校园 IP／域名 OpenSSH、非校园／保护与恢复自动验证及清理完成。
   - [ ] 用户实测：真实浏览器、已有终端／Codex SSH、校园／普通出口与受保护网络。
 - [ ] **S5-03**（三平台系统校园 DNS／CNAME、应答前捕获确认、域名 SSH 及原 DNS 核心／排除已原生验，Linux 自动来源双架构已验；macOS 静态及 State／DHCP、Windows 本地 NRPT 自动来源已通过双架构原生；不支持来源按 R15 保留／拒绝；MagicDNS／Fake-IP 隔离组件已自动验；实际接管／恢复待用户）：复用已交付的核心内部解析器及回归，补系统 DNS 与透明入口的衔接，验证校园域名 SSH、网页、公共域名和 MagicDNS；覆盖 A／AAAA、CNAME、缓存和断开重连。Fake-IP 过滤、选择解析服务器和解析请求的转发分别验证，不清空用户整套 DNS 配置。
-  - [x] 实现、自动验证与清理：系统校园 DNS、原 DNS 选源／转发／捕获确认、A／AAAA／CNAME／缓存／重连、MagicDNS／Fake-IP 隔离组件及 R15 拒绝边界的自动验证与清理完成。
+  - [ ] 实现、自动验证与清理：系统校园 DNS、原 DNS 选源／转发／捕获确认、A／AAAA／CNAME／缓存／重连、MagicDNS／Fake-IP 隔离组件及 R15 拒绝边界的自动验证与清理完成。 新增校园 DNS 重叠及空捕获启动修复须补当前源码原生／包验证。
   - [ ] 用户实测：真实校园／公共解析、MagicDNS 在实际接管中及断开后的行为；Clash 过滤模式联动仍归 S6。
 - [x] **S5-04**（三平台默认保护、明确选择／撤回及同 IP 两侧实际流量已验，已收尾）：验证地址重叠的默认保护、选择校园侧、切回原网络及撤销；明确不能同时访问的相同 IP。保护范围不得扩大成所有私网，校园失败不得偷走直连。
 - [ ] **S5-05**（受控结果已归并为 `build/reports/v1-matrix.json`；真实桌面／校园、授权／注销和 MagicDNS 接管恢复未测格待补）：归并 S5-01—04 的 V1 三平台结果，记录实际入口／DNS／出口和关闭后的恢复证据，不另建重复测试轮次。确认 TCP／UDP 与相应 IPv6 能力，某平台缺少入口时补该项，不以其他平台代替。

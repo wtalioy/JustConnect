@@ -171,6 +171,8 @@ Linux 系统助手由 `infrastructure/networkhelper/linux/helper` 独立构建�
 
 当前 Wintun 签名 SDK 0.14.1 的批量验收仍有单个入站包停滞，不能作为生产数据面稳定性通过。诊断已排除整批耗尽期限，失败报文 IPv4 校验和有效，接口和 IP 丢弃／错误计数为零。[上游源码](https://git.zx2c4.com/wintun/log/)于 2026-03-18 修复 Alertable 环形队列丢失唤醒，[官方签名下载](https://www.wintun.net/)仍为旧版；现象吻合，但本项目尚未最终隔离根因。接收环每秒重检的试验未消除同类停滞，已撤回；不发送伪造唤醒包、访问 DLL 私有结构或降低检查数量／预算。保留原 4096 次／30 秒检查，不修改签名 DLL 或依赖私有会话内存布局；当前检查及缺口见计划。
 
+校园 DNS 的内部连接与宿主网络捕获分开判定：认证服务给出的固定 IPv4 DNS 端点只在 aTrust 栈内建立查询连接，地址与原网络／原 DNS 相同不意味着必须截走原地址。普通应用流量仍遵守保护策略；TUN DNS 连接只对该固定端点临时取消宿主 IP 偏好，继续验证协议／端口及校园资源授权，名称与应答仍校验保护策略，失败不回退原网络或公共解析。原 DNS 上游继续从捕获范围排除。仅有域名且初始无需捕获地址时，三平台保留空捕获的设备／恢复所有权，收到有效 DNS 答案并确认路由后再交付地址；不制造占位路由。
+
 Windows 的 C++ 部件按职责放在 `tundevice/windows`、`packetpipe/windows`、`networkhelper/windows`、`networkjournal/windows`、`dns/windows` 与 `process/windows`。Wintun 使用同一已校验归档的官方头文件及原生结构；创建前拒绝已存在的身份，配置后回读，分配通知先于地址／路由修改。助手持有适配器与环，普通 Qt／Go 通过实际 PID／SID 校验的本地字节管道收发 IPv4；关闭取消并等待 I/O，再释放所属设备。C++ 两方向复用事件与包缓冲，Go 同样复用方向事件／OVERLAPPED 和发包缓冲，避免逐包创建内核事件与分配完整帧；Unix 仍直接移交 fd。
 
 原生 Windows 目标使用静态 CRT 和 [/DEPENDENTLOADFLAG:0x800](https://learn.microsoft.com/en-us/cpp/build/reference/dependentloadflag)，在进入 main 前约束静态依赖的搜索。安装由系统 UAC 明确批准，只复制本次运行映像及固定哈希的驱动／许可证，不要求开发者或用户申请代码签名。运行映像的 CodeView 链接身份与固定源文件分别核对；原生查询 Program Files，逐级固定目录句柄并检查所有者／写权限，不接管普通用户所有的同哈希文件。配置与 SDK 来源归 `resource/network-helper-windows.json`，构建生成原生常量；不加载 Qt／Go 运行时作为提权依赖。

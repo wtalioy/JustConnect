@@ -228,10 +228,10 @@ PlatformOperationResult LinuxOwnedRouteTable::recover(const QUuid &id, const QJs
     return restore(id,checkpoint);
 }
 PlatformOperationResult LinuxOwnedRouteTable::validate(const QString &interface, const QString &source,
-                                                   const QString &gateway, const QStringList &requested)
+                                                   const QString &gateway, const QStringList &requested, Role purpose)
 {
     if (!canonicalLinuxInterfaceName(interface)
-        || !canonicalUnicastIpv4(source) || (!gateway.isEmpty() && !canonicalUnicastIpv4(gateway)) || source == gateway || requested.isEmpty() || requested.size() > LinuxRouteSnapshotRows)
+        || !canonicalUnicastIpv4(source) || (!gateway.isEmpty() && !canonicalUnicastIpv4(gateway)) || source == gateway || (requested.isEmpty() && purpose != Role::Capture) || requested.size() > LinuxRouteSnapshotRows)
         return {Status::Failed,"Invalid original interface, source, gateway or target count."};
     for (const auto &prefix : requested)
         if (!canonicalIpv4Prefix(prefix) || prefix == gateway + "/32") return {Status::Failed,"Invalid original destination prefix."};
@@ -242,7 +242,7 @@ PlatformOperationResult LinuxOwnedRouteTable::apply(const QUuid &id, const QStri
                                                 const CheckpointWriter &writeAhead)
 {
     if (!owner.isNull() || id.isNull()) return {Status::Failed,"Source route ownership is missing or already active."};
-    const auto valid = validate(interface, source, gateway, requested);
+    const auto valid = validate(interface, source, gateway, requested, role);
     if (!valid.succeeded()) return valid;
     auto prefixes = requested;
     prefixes.removeDuplicates();

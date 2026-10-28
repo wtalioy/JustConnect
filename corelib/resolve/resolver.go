@@ -396,19 +396,22 @@ func (r *Resolver) Close() {
 	})
 }
 
+// CampusDNSEndpoint is the authenticated tunnel DNS endpoint, independent of OS address protection.
+func (r *Resolver) CampusDNSEndpoint() (netip.AddrPort, bool) {
+	address, err := netip.ParseAddr(r.remoteDNSServer)
+	if err != nil || !address.Is4() || !r.useRemoteDNS {
+		return netip.AddrPort{}, false
+	}
+	first := address.As4()[0]
+	if first == 0 || first == 127 || first >= 224 {
+		return netip.AddrPort{}, false
+	}
+	return netip.AddrPortFrom(address, DNSPort), true
+}
+
 func NewResolver(stack stack.Stack, remoteDNSServer, secondaryDNSServer string, ttl uint64, domainResources client.DomainResources, dnsResource map[string][]net.IP, useRemoteDNS bool) *Resolver {
 	lifecycle, cancel := context.WithCancel(context.Background())
 	var resolver *Resolver
-	allowed := func() bool {
-		if resolver.ProtectionPolicy != nil {
-			if snapshot := resolver.ProtectionPolicy(); snapshot != nil {
-				address, err := netip.ParseAddr(remoteDNSServer)
-				permit, _ := snapshot.CampusAllowed(address)
-				return err == nil && permit
-			}
-		}
-		return true
-	}
 	resolver = &Resolver{
 		remoteDNSServer: remoteDNSServer,
 		dnsTTL:          uint32(min(ttl, uint64(^uint32(0)))),
@@ -416,11 +419,12 @@ func NewResolver(stack stack.Stack, remoteDNSServer, secondaryDNSServer string, 
 		remoteUDPResolver: &net.Resolver{
 			PreferGo: true,
 			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-				if !allowed() {
-					return nil, policy.ErrProtectedTarget
+				endpoint, valid := resolver.CampusDNSEndpoint()
+				if !valid {
+					return nil, ErrCampusDNSUnavailable
 				}
 				return stack.DialUDP(ctx, &net.UDPAddr{
-					IP:   net.ParseIP(remoteDNSServer),
+					IP:   net.IP(endpoint.Addr().AsSlice()),
 					Port: DNSPort,
 				})
 			},
@@ -428,11 +432,12 @@ func NewResolver(stack stack.Stack, remoteDNSServer, secondaryDNSServer string, 
 		remoteTCPResolver: &net.Resolver{
 			PreferGo: true,
 			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-				if !allowed() {
-					return nil, policy.ErrProtectedTarget
+				endpoint, valid := resolver.CampusDNSEndpoint()
+				if !valid {
+					return nil, ErrCampusDNSUnavailable
 				}
 				return stack.DialTCP(ctx, &net.TCPAddr{
-					IP:   net.ParseIP(remoteDNSServer),
+					IP:   net.IP(endpoint.Addr().AsSlice()),
 					Port: DNSPort,
 				})
 			},

@@ -16,18 +16,44 @@ import (
 	"github.com/wtalioy/JustConnect/corelib/policy"
 )
 
-func TestProtectedCampusDNSCannotReachTunnelOrPublicResolver(t *testing.T) {
+type campusDNSStack struct {
+	calls    atomic.Int32
+	endpoint string
+	failure  error
+}
+
+func (s *campusDNSStack) DialTCP(_ context.Context, endpoint *net.TCPAddr) (net.Conn, error) {
+	s.calls.Add(1)
+	if endpoint.String() != s.endpoint {
+		return nil, fmt.Errorf("wrong campus DNS endpoint: %s", endpoint)
+	}
+	return nil, s.failure
+}
+func (s *campusDNSStack) DialUDP(_ context.Context, endpoint *net.UDPAddr) (net.Conn, error) {
+	s.calls.Add(1)
+	if endpoint.String() != s.endpoint {
+		return nil, fmt.Errorf("wrong campus DNS endpoint: %s", endpoint)
+	}
+	return nil, s.failure
+}
+
+func TestCampusDNSUsesOnlyItsTunnelEndpointEvenWhenTheOriginalNetworkOverlaps(t *testing.T) {
 	snapshot, err := policy.NewProtectionPolicy([]string{"192.0.2.0/24"}, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := NewResolver(nil, "192.0.2.53", "", 60, client.DomainResources{".campus.test": {{Protocol: "tcp", PortMin: 443, PortMax: 443}}}, nil, true)
+	failure := errors.New("campus-only transport failure")
+	tunnel := &campusDNSStack{failure: failure, endpoint: "192.0.2.53:53"}
+	r := NewResolver(tunnel, "192.0.2.53", "", 60, client.DomainResources{".campus.test": {{Protocol: "tcp", PortMin: 443, PortMax: 443}}}, nil, true)
 	defer r.Close()
 	r.ProtectionPolicy = func() *policy.ProtectionPolicy { return &snapshot }
 	for _, resolver := range []*net.Resolver{r.remoteUDPResolver, r.remoteTCPResolver} {
-		if _, err := resolver.Dial(t.Context(), "udp", "unused"); !errors.Is(err, policy.ErrProtectedTarget) {
-			t.Fatal(err)
+		if _, err := resolver.Dial(t.Context(), "udp", "unused"); !errors.Is(err, failure) {
+			t.Fatal("internal DNS did not use the campus transport", err)
 		}
+	}
+	if tunnel.calls.Load() != 2 || tunnel.endpoint != "192.0.2.53:53" {
+		t.Fatal("wrong internal DNS endpoint", tunnel)
 	}
 	var public atomic.Int32
 	r.secondaryResolver.Dial = func(context.Context, string, string) (net.Conn, error) {
@@ -35,7 +61,20 @@ func TestProtectedCampusDNSCannotReachTunnelOrPublicResolver(t *testing.T) {
 		return nil, errors.New("public escape")
 	}
 	if _, ip, err := r.Resolve(t.Context(), "www.campus.test"); err == nil || ip != nil || public.Load() != 0 {
-		t.Fatal("protected DNS escaped", ip, err, public.Load())
+		t.Fatal("campus DNS escaped", ip, err, public.Load())
+	}
+	for _, server := range []string{"0.0.0.53", "127.0.0.53", "224.0.0.53", "255.255.255.255", "::1", "invalid"} {
+		invalid := NewResolver(tunnel, server, "", 60, nil, nil, true)
+		before := tunnel.calls.Load()
+		for _, resolver := range []*net.Resolver{invalid.remoteUDPResolver, invalid.remoteTCPResolver} {
+			if _, err := resolver.Dial(t.Context(), "udp", "unused"); !errors.Is(err, ErrCampusDNSUnavailable) {
+				t.Fatal(server, err)
+			}
+		}
+		invalid.Close()
+		if tunnel.calls.Load() != before {
+			t.Fatal("invalid campus DNS reached a transport", server)
+		}
 	}
 }
 

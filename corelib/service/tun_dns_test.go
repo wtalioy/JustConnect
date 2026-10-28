@@ -258,12 +258,14 @@ func TestTUNDNSUsesOwnedPeerAndCampusACL(t *testing.T) {
 		t.Cleanup(func() { _ = server.Shutdown() })
 	}
 	campus := &ingressCampus{tcpAddress: tcpListener.Addr().String(), udpAddress: udpSocket.LocalAddr().String(), called: make(chan string, 32)}
-	r := resolve.NewResolver(campus, "203.0.113.7", "", 30,
+	r := resolve.NewResolver(campus, "203.0.113.253", "", 30,
 		client.DomainResources{"*.campus.test": {{Protocol: "tcp", PortMin: 80, PortMax: 80}}}, nil, true)
 	t.Cleanup(r.Close)
 	var protection atomic.Pointer[policy.ProtectionPolicy]
 	r.ProtectionPolicy = protection.Load
-	d := dial.NewDialer(campus, r, []client.IPResource{ingressResource("all", resolve.DNSPort)}, false)
+	dnsResource := ingressResource("all", resolve.DNSPort)
+	dnsResource.IPMin, dnsResource.IPMax = net.ParseIP("203.0.113.253"), net.ParseIP("203.0.113.253")
+	d := dial.NewDialer(campus, r, []client.IPResource{dnsResource}, false)
 	d.ProtectionPolicy = protection.Load
 	p, err := NewListeners(t.Context(), "", "", d, r)
 	if err != nil {
@@ -417,16 +419,24 @@ func TestTUNDNSUsesOwnedPeerAndCampusACL(t *testing.T) {
 			t.Fatalf("wrong DNS refusal: %v", reply)
 		}
 	}
-	blocked, err := policy.NewProtectionPolicy([]string{"203.0.113.7/32"}, nil, nil, nil)
+	blocked, err := policy.NewProtectionPolicy([]string{"203.0.113.253/32"}, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	protection.Store(&blocked)
-	if reply := query("tcp", target, request); reply.Rcode != dns.RcodeRefused {
-		t.Fatalf("protected DNS upstream was used: %v", reply)
-	}
 	if upstream.Load() != before {
 		t.Fatal("refused questions generated campus traffic")
+	}
+	for _, network := range []string{"tcp", "udp"} {
+		if _, err := d.DialCampusIPPort(t.Context(), network, "203.0.113.253:53"); !errors.Is(err, policy.ErrProtectedTarget) {
+			t.Fatal("ordinary shared endpoint was captured", err)
+		}
+	}
+	if reply := query("tcp", target, request); reply.Rcode != dns.RcodeSuccess || len(reply.Answer) != 81 {
+		t.Fatalf("internal tunnel DNS was blocked by an original address: %v", reply)
+	}
+	if upstream.Load() <= before || len(<-publications) != 80 {
+		t.Fatal("internal DNS did not use and publish its actual tunnel answer")
 	}
 	protection.Store(nil)
 	publicationMode.Store(1)

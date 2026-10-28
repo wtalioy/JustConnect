@@ -181,6 +181,12 @@ int main(int argc, char **argv) try
         nativeChange("delete",first,device.name());
     }
     {
+        MacTunRoutes empty;
+        check(empty.apply(device,{},checkpoint).succeeded() && empty.snapshot()["routes"].toArray().isEmpty(),"DNS-only startup could not own an empty capture set");
+        check(empty.extend(device,{"198.18.0.7"},checkpoint).succeeded(),"DNS-only startup could not publish its first address");
+        check(empty.restore(owner,checkpoint).succeeded() && routes("198.18.0.7/32").isEmpty(),"DNS-only startup left capture ownership");
+    }
+    {
         MacTunRoutes capture;
         check(capture.apply(device,{first},checkpoint).succeeded(), "Prepare shared-prefix capture");
         nativeChange("add",first,device.name(),{"-ifscope",device.name()});

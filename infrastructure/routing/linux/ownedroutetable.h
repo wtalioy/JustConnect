@@ -20,7 +20,7 @@ public:
     enum class Role { OriginalSource, Capture };
     explicit LinuxOwnedRouteTable(PlatformCommandRunner read = {}, Role purpose = Role::OriginalSource)
         : reader(std::move(read)), role(purpose) {}
-    static PlatformOperationResult validate(const QString &interface, const QString &source, const QString &gateway, const QStringList &prefixes);
+    static PlatformOperationResult validate(const QString &interface, const QString &source, const QString &gateway, const QStringList &prefixes, Role role = Role::OriginalSource);
     LinuxOwnedRouteTable(const LinuxOwnedRouteTable &) = delete;
     LinuxOwnedRouteTable &operator=(const LinuxOwnedRouteTable &) = delete;
     PlatformOperationResult apply(const QUuid &owner, const QString &interface, const QString &source,

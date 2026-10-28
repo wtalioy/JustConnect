@@ -43,6 +43,22 @@ func (d *Dialer) DialCampusIPPort(ctx context.Context, network, address string) 
 	return campus.DialIPPort(ctx, network, address)
 }
 
+// DialCampusDNS keeps the server-declared DNS socket in the tunnel while ordinary flows retain IP protection.
+func (d *Dialer) DialCampusDNS(ctx context.Context, network, address string) (net.Conn, error) {
+	if d.resolver == nil {
+		return nil, ErrACLDenied
+	}
+	endpoint, valid := d.resolver.CampusDNSEndpoint()
+	if !valid || address != endpoint.String() {
+		return nil, ErrACLDenied
+	}
+	campus := *d
+	campus.alwaysUseVPN, campus.ProtectionPolicy = true, nil
+	// This applies only to this fixed DNS connection; query names and answers keep the original policy.
+	ctx = context.WithValue(ctx, resolve.ContextKeyProtectionPolicy, (*policy.ProtectionPolicy)(nil))
+	return campus.DialIPPort(ctx, network, address)
+}
+
 // DialCapturedIPPort also accepts a live campus DNS binding; IP protection still applies.
 func (d *Dialer) DialCapturedIPPort(ctx context.Context, network, address string) (net.Conn, error) {
 	snapshot, captured := ctx.Value(resolve.ContextKeyProtectionPolicy).(*policy.ProtectionPolicy)

@@ -543,12 +543,14 @@ std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &reso
     }
     excluded = subtractRanges(mergedRanges(excluded), mergedRanges(selected));
     excluded.append(originalServers);
+    IPv4Ranges reserved;
     // Match the helper's unicast address boundary; campus choices cannot capture these ranges.
     for (const auto &prefix : {"0.0.0.0/8", "127.0.0.0/8", "224.0.0.0/3"}) {
         const auto subnet = QHostAddress::parseSubnet(QString::fromLatin1(prefix));
         const quint64 first = subnet.first.toIPv4Address();
-        excluded.append({first, first + (quint64(1) << (32 - subnet.second)) - 1});
+        reserved.append({first, first + (quint64(1) << (32 - subnet.second)) - 1});
     }
+    excluded.append(reserved);
     // Name protection takes precedence over an IP-only campus choice.
     if (resources.contains("original_dns_records")) {
         if (!resources["original_dns_records"].isObject()) return {};
@@ -586,11 +588,10 @@ std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &reso
     if (remoteDNS) {
         const auto server = resources["campus_dns"].toString();
         const auto address = ipv4Number(server);
-        if (!address || !add(server, server))
-            return fail(QStringLiteral("The campus DNS server is not a usable IPv4 address."));
-        if (std::any_of(excluded.begin(), excluded.end(),
+        if (!address || !add(server, server) || std::any_of(reserved.begin(), reserved.end(),
             [&](const IPv4Range &range) { return range.first <= *address && *address <= range.second; }))
-            return fail(QStringLiteral("The campus DNS server overlaps a protected original network or original DNS server."));
+            return fail(QStringLiteral("The campus DNS server is not a usable IPv4 address."));
+        // Internal DNS uses the existing campus tunnel; subtraction below preserves a shared original endpoint.
     }
     for (auto it = records.begin(); it != records.end(); ++it) {
         if (!it.value().isArray()) return {};
@@ -600,7 +601,7 @@ std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &reso
     const auto prefixes = prefixesForRanges(subtractRanges(mergedRanges(included), mergedRanges(excluded)));
     if (!prefixes) return fail(QStringLiteral("Campus capture prefixes exceed the rule limit after preserving original networks."));
     result.ipv4Prefixes = *prefixes;
-    if (diagnostic) *diagnostic = prefixes->isEmpty()
+    if (diagnostic) *diagnostic = prefixes->isEmpty() && result.dnsDomains.isEmpty()
         ? QStringLiteral("No usable campus IPv4 target remains after preserving original networks.") : QString{};
     return result;
 }

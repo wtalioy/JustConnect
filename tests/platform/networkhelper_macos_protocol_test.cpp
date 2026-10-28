@@ -25,6 +25,10 @@ int main(int argc,char **argv) try
     }
     auto noDns = packet; auto noDnsConfig = noDns["configuration"].toObject(); noDnsConfig["dns_domains"] = QJsonArray{}; noDns["configuration"] = noDnsConfig;
     check(parseMacHelperApply(noDns).has_value(),"Explicitly disabled system DNS was rejected");
+    auto dnsOnly = packet;auto dnsOnlyConfig=dnsOnly["configuration"].toObject();dnsOnlyConfig["prefixes"]=QJsonArray{};dnsOnly["configuration"]=dnsOnlyConfig;
+    check(parseMacHelperApply(dnsOnly).has_value(),"Domain-only DNS startup required an unrelated capture prefix");
+    dnsOnlyConfig["dns_domains"]=QJsonArray{};dnsOnly["configuration"]=dnsOnlyConfig;
+    check(!parseMacHelperApply(dnsOnly),"No-DNS no-capture request was accepted");
     const auto extension = macHelperExtendRequest(owner,request,{"198.18.0.7","198.18.0.7","198.18.0.6"});
     check(parseMacHelperExtend(extension) == std::optional(QStringList{"198.18.0.7","198.18.0.6"}),"DNS address request lost its canonical unique targets");
     for (const auto &addresses : {QJsonArray{},QJsonArray{1},QJsonArray{"127.0.0.1"},QJsonArray{"224.0.0.1"},QJsonArray{"198.18.0.7/32"},QJsonArray{"198.18.00.7"}}) {
@@ -55,7 +59,7 @@ int main(int argc,char **argv) try
     }
     for (const auto &prefixes : {QStringList{"127.0.0.1/32"},QStringList{"64.0.0.0/2"},QStringList{"192.0.0.0/2"},
              QStringList{"224.0.0.0/4"},QStringList{"0.0.0.0/8"},QStringList{"198.18.0.1/32"},
-             QStringList{"198.18.0.6/32","198.18.0.6/32"},QStringList{"198.18.0.7/31"},QStringList{}}) {
+             QStringList{"198.18.0.6/32","198.18.0.6/32"},QStringList{"198.18.0.7/31"}}) {
         auto broken = packet;auto config = broken["configuration"].toObject();config["prefixes"] = QJsonArray::fromStringList(prefixes);broken["configuration"] = config;
         check(!parseMacHelperApply(broken),"Unsafe, duplicate or noncanonical capture was accepted");
     }

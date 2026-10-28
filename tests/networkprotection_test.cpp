@@ -180,8 +180,18 @@ static void captureTargets()
     protectedPolicy = policy;
     protectedPolicy["protected"] = QJsonArray{"203.0.113.53/32"};
     QString dnsDiagnostic;
-    check(!campusCaptureTargets(resources, protectedPolicy, {}, {}, &dnsDiagnostic)
-        && dnsDiagnostic.contains("protected original network"),"Protected campus DNS lost its refusal or useful conflict reason");
+    const auto protectedDNS = campusCaptureTargets(resources, protectedPolicy, {}, {}, &dnsDiagnostic);
+    check(protectedDNS && dnsDiagnostic.isEmpty() && !contains(protectedDNS->ipv4Prefixes,"203.0.113.53")
+        && protectedDNS->dnsDomains == plan->dnsDomains,"Internal campus DNS stole or blocked a protected original endpoint");
+    auto domainOnly = resources;
+    domainOnly["ip_resources"] = QJsonArray{};domainOnly["dns_records"] = QJsonObject{};
+    const auto dnsOnly = prepareWindowsNetworkHelper(domainOnly,protectedPolicy,allocationNetwork,dns,{},1400);
+    check(dnsOnly.result.succeeded() && dnsOnly.configuration["capture_prefixes"].toArray().isEmpty()
+        && !dnsOnly.configuration["dns_domains"].toArray().isEmpty(),"Domain-only startup required stealing the shared DNS endpoint");
+    for(const auto &server:{"0.0.0.53","127.0.0.53","224.0.0.53","255.255.255.255"}){
+        auto invalidDNS=resources;invalidDNS["campus_dns"]=server;
+        check(!campusCaptureTargets(invalidDNS,policy),"Reserved campus DNS endpoint passed unicast validation");
+    }
     auto forwardedPolicy = policy;
     const QJsonObject nativeScope{{"kind","suffix"},{"value","campus.test"}};
     forwardedPolicy["protected_names"] = QJsonArray{nativeScope};
@@ -191,7 +201,9 @@ static void captureTargets()
         && !contains(forwarded->ipv4Prefixes,"192.168.25.1") && contains(forwarded->ipv4Prefixes,"192.168.25.2"),
         "Prepared native scope lost the campus DNS route or recaptured its original server");
     const QJsonArray collision{QJsonObject{{"name",nativeScope},{"servers",QJsonArray{"203.0.113.53:53"}}}};
-    check(!campusCaptureTargets(resources,forwardedPolicy,{},collision),"A shared original/campus DNS endpoint silently looped");
+    const auto sharedDNS=campusCaptureTargets(resources,forwardedPolicy,{},collision);
+    check(sharedDNS && !contains(sharedDNS->ipv4Prefixes,"203.0.113.53") && sharedDNS->dnsDomains==plan->dnsDomains,
+        "A shared original/campus DNS endpoint was captured or blocked tunnel DNS");
     const QJsonArray invalidSource{QJsonObject{{"name",nativeScope},{"servers",QJsonArray{"resolver.original.test:53"}}}};
     check(!campusCaptureTargets(resources,forwardedPolicy,{},invalidSource),"A hostname invented an original DNS route exclusion");
     auto disabled = resources;

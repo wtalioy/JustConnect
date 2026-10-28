@@ -215,6 +215,15 @@ int main(int argc, char **argv) try
           "Normal recovery changed the original route inventory");
     check(routes.restore(device).succeeded() && inventory() == baseline, "Repeated recovery changed an external route");
     {
+        LinuxTunRoutes empty;
+        QJsonObject durable;
+        const auto checkpoint = [&](const QJsonObject &value) { durable=value;return PlatformOperationResult{}; };
+        check(empty.apply(device,source,peer,{},checkpoint).succeeded() && empty.snapshot()["routes"].toArray().isEmpty(),"DNS-only startup could not own an empty capture set");
+        check(empty.extend(device,{"198.18.6.7"},checkpoint).succeeded(),"DNS-only startup could not publish its first address");
+        packets(device,source,"198.18.6.7");
+        check(empty.restore(device,checkpoint).succeeded() && inventory()==baseline,"DNS-only startup left capture ownership");
+    }
+    {
         LinuxTunRoutes changing;
         check(changing.apply(device,source,peer,prefixes).succeeded(),"Prepare live capture reconciliation");
         const QStringList next{prefixes[2],"198.18.6.7/32"};

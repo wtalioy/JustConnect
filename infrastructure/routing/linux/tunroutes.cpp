@@ -173,7 +173,6 @@ Result LinuxTunRoutes::apply(const UnixTunDevice &device, const QString &source,
         return {Status::Failed,"Capture requires an exclusively owned live TUN and its assigned endpoints."};
     sourceAddress = source;gatewayPeer = peer;
     if (auto valid = validatePrefixes(prefixes); !valid.succeeded()) return valid;
-    if (prefixes.isEmpty()) return {};
     return capture.apply(device.owner(),device.name(),source,{},prefixes,captureWriter(checkpoint));
 }
 Result LinuxTunRoutes::extend(const UnixTunDevice &device, const QStringList &addresses, const CheckpointWriter &checkpoint)
