@@ -140,3 +140,33 @@ for failure in ['normal', 'race']:
     status, calls = controller_scenario('Windows', 'X64', failure)
     assert status == 17 and calls[-1] == failure, (failure, status, calls)
 print('PASS: 6 native controller race-support/failure-propagation cases with actual evidence files')
+
+live_body = workflow_body('https://github.com/robots.txt')
+for failure in (None, 0, 1, 2):
+    calls = []
+
+    def run_live(command, **options):
+        assert options['check'] and options['timeout'] == 115
+        options['stdout'].write(b'owned live TUN evidence\n')
+        calls.append(command)
+        if failure == len(calls) - 1:
+            raise subprocess.CalledProcessError(17, command)
+        return SimpleNamespace(returncode=0)
+
+    previous = Path.cwd()
+    with tempfile.TemporaryDirectory() as directory, io.TextIOWrapper(io.BytesIO(), encoding='utf-8') as output:
+        try:
+            os.chdir(directory)
+            with patch.dict(os.environ, JC_TEST_MIHOMO_BINARY='owned-test-runtime'), \
+                    patch.object(subprocess, 'run', run_live), patch.object(sys, 'stdout', output):
+                try:
+                    exec(compile(live_body, str(ROOT / '.github/workflows/coreabi.yml'), 'exec'), {})
+                except subprocess.CalledProcessError as result:
+                    assert failure is not None and result.returncode == 17
+                else:
+                    assert failure is None
+            assert len(calls) == (3 if failure is None else failure + 1)
+            assert (Path('build/controller-checks') / 'live-tun.log').read_bytes() == b'owned live TUN evidence\n' * len(calls)
+        finally:
+            os.chdir(previous)
+print('PASS: 4 live TUN workflow outcomes preserve build/test/runtime failures and their evidence')

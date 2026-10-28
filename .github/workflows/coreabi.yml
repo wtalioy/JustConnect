@@ -323,6 +323,28 @@ jobs:
               sys.stdout.buffer.flush()
               if result.returncode:
                   sys.exit(result.returncode)
+      - name: Verify control beneath a live rejecting Mihomo TUN
+        if: matrix.platform == 'windows' || matrix.platform == 'macos'
+        shell: python
+        run: |
+          import os, pathlib, subprocess, sys
+          output = pathlib.Path('build/controller-checks')
+          output.mkdir(parents=True, exist_ok=True)
+          probe = (output / ('mihomo-tun-probe.exe' if os.name == 'nt' else 'mihomo-tun-probe')).resolve()
+          commands = [
+              ['go', '-C', 'corelib', 'test', '-mod=readonly', '-count=1', './tests/mihomotun'],
+              ['go', '-C', 'corelib', 'build', '-mod=readonly', '-o', str(probe), './tests/mihomotun'],
+              [sys.executable, 'tests/platform/mihomo_tun_native.py', '--probe', str(probe),
+               '--mihomo', os.environ['JC_TEST_MIHOMO_BINARY'], '--url', 'https://github.com/robots.txt'],
+          ]
+          path = output / 'live-tun.log'
+          try:
+              with path.open('wb') as log:
+                  for command in commands:
+                      subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=115)
+          finally:
+              sys.stdout.buffer.write(path.read_bytes())
+              sys.stdout.buffer.flush()
       - name: Upload native controller evidence
         if: always()
         uses: actions/upload-artifact@v7.0.2
