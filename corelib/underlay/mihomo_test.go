@@ -1,14 +1,11 @@
 package underlay
 
 import (
-	"context"
-	"errors"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -80,13 +77,7 @@ func TestOfficialMihomoRealDNSControlTLS(t *testing.T) {
 			}
 			t.Cleanup(controller.Close)
 			useController(t, controller)
-			var systemQueries atomic.Int32
-			original := net.DefaultResolver
-			t.Cleanup(func() { net.DefaultResolver = original })
-			net.DefaultResolver = &net.Resolver{PreferGo: true, Dial: func(context.Context, string, string) (net.Conn, error) {
-				systemQueries.Add(1)
-				return nil, errors.New("system DNS must not supply the control address")
-			}}
+			systemDials := refuseSystemDial(t)
 			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.TLS.ServerName != "example.com" {
 					t.Error("original TLS hostname was lost")
@@ -110,8 +101,8 @@ func TestOfficialMihomoRealDNSControlTLS(t *testing.T) {
 			}
 			data, err := io.ReadAll(response.Body)
 			response.Body.Close()
-			if err != nil || string(data) != "official runtime control" || systemQueries.Load() != 0 {
-				t.Fatalf("official runtime TLS exchange failed: %s %v system queries=%d", data, err, systemQueries.Load())
+			if err != nil || string(data) != "official runtime control" || systemDials.Load() != 0 {
+				t.Fatalf("official runtime TLS exchange failed: %s %v system fallbacks=%d", data, err, systemDials.Load())
 			}
 		})
 	}
