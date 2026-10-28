@@ -64,6 +64,7 @@ func buildInfo() []byte {
 			"original_dns_forwarding":  !testDriver && (tundevice.Supported || packetpipe.Supported),
 			"original_dns_exclusions":  !testDriver && (tundevice.Supported || packetpipe.Supported),
 			"original_dns_listeners":   !testDriver && (tundevice.Supported || packetpipe.Supported),
+			"original_dns_default":     !testDriver && (tundevice.Supported || packetpipe.Supported),
 			"original_dns_preparation": !testDriver && (tundevice.Supported || packetpipe.Supported),
 			"raw_ipv4_tun_fd":          !testDriver && tundevice.Supported,
 			"windows_ipv4_packet_pipe": !testDriver && packetpipe.Supported,

@@ -22,6 +22,8 @@ type OriginalDNSRoute struct {
 	Interface string `json:"interface,omitempty"`
 	Listen    string `json:"listen,omitempty"`
 	Source    string `json:"source,omitempty"`
+	// Default also supplies unmatched/root queries on this explicit native listener.
+	Default bool `json:"default,omitempty"`
 }
 
 type originalDNSRoute struct {
@@ -62,6 +64,9 @@ func NewOriginalDNS(routes []OriginalDNSRoute) (*OriginalDNS, error) {
 		if strings.ContainsAny(route.Interface, "\x00\r\n") {
 			return nil, errors.New("invalid original DNS interface")
 		}
+		if route.Default && route.Listen == "" {
+			return nil, errors.New("original DNS default requires a native listener")
+		}
 		for _, server := range route.Servers {
 			endpoint, err := netip.ParseAddrPort(server)
 			if err != nil || endpoint.Port() == 0 || (!endpoint.Addr().IsGlobalUnicast() && !endpoint.Addr().IsLoopback() && !endpoint.Addr().IsLinkLocalUnicast()) {
@@ -101,7 +106,12 @@ func NewOriginalDNS(routes []OriginalDNSRoute) (*OriginalDNS, error) {
 				if first.Listen != route.Listen {
 					return nil, errors.New("one native DNS source requires one listener")
 				}
-				if !slices.Equal(first.Servers, route.Servers) {
+				if route.Default {
+					if group.fallback >= 0 && compiled[group.fallback].Default {
+						return nil, errors.New("one native DNS listener requires one default")
+					}
+					group.fallback = index
+				} else if (group.fallback < 0 || !compiled[group.fallback].Default) && !slices.Equal(first.Servers, route.Servers) {
 					group.fallback = -1
 				}
 			}
@@ -141,8 +151,8 @@ func (o *OriginalDNS) nativeRoute(source, host string) *originalDNSRoute {
 			return &o.routes[index]
 		}
 	}
-	// Different native server lists cannot supply an implicit default for unrelated names or root queries.
-	if group.fallback < 0 {
+	// Mixed server lists require a host-confirmed default for unmatched names/root queries.
+	if group.fallback < 0 || (host != "" && !(policy.NameRule{Kind: "exact", Value: host}).Matches(host)) {
 		return nil
 	}
 	return &o.routes[group.fallback]

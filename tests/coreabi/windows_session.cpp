@@ -77,11 +77,11 @@ int main(int argc,char **argv) try
     QLibrary runtime(QCoreApplication::applicationDirPath()+"/"+QStringLiteral(JC_SHARED_LIBRARY));runtime.setLoadHints(QLibrary::PreventUnloadHint);
     check(runtime.load(),"load the actual embedded Windows core runtime");
     const bool originalDNS=!qgetenv("JC_WINDOWS_SESSION_ORIGINAL_DNS_SERVER").isEmpty();
-    const auto queryOriginal=[&](const QString &expected){
-        auto lookup=QtConcurrent::run([]{
+    const auto queryOriginal=[&](const QString &expected,const QString &name=QStringLiteral("host.campus.test")){
+        auto lookup=QtConcurrent::run([name]{
             ADDRINFOW hints{};hints.ai_family=AF_INET;hints.ai_socktype=SOCK_STREAM;ADDRINFOW *addresses=nullptr;
             QStringList result;
-            if(GetAddrInfoW(L"host.campus.test",nullptr,&hints,&addresses)==0){
+            if(GetAddrInfoW(reinterpret_cast<const wchar_t *>(name.utf16()),nullptr,&hints,&addresses)==0){
                 for(auto item=addresses;item;item=item->ai_next)
                     result.append(QHostAddress(ntohl(reinterpret_cast<sockaddr_in *>(item->ai_addr)->sin_addr.s_addr)).toString());
                 FreeAddrInfoW(addresses);
@@ -91,7 +91,10 @@ int main(int argc,char **argv) try
         until("ordinary protected-name lookup",[&]{return lookup.isFinished();});
         check(lookup.result().contains(expected),"original/campus name choice follows its confirmed source");
     };
-    if(originalDNS)queryOriginal("203.0.113.9"); // Prewarm the actual Windows DNS cache before connection.
+    const auto queryOriginalDefault=[&]{
+        queryOriginal("203.0.113.77","outside-"+QUuid::createUuid().toString(QUuid::WithoutBraces)+".original.test");
+    };
+    if(originalDNS){queryOriginal("203.0.113.9");queryOriginalDefault();} // Prewarm the actual Windows DNS cache before connection.
     const auto initialDns=dnsSnapshot();const auto initialAddresses=interfaceAddresses();
     WindowsNetworkFingerprint baseline;
     const auto dnsHash=QCryptographicHash::hash(QJsonDocument(initialDns).toJson(QJsonDocument::Compact),QCryptographicHash::Sha256);
@@ -194,6 +197,7 @@ int main(int argc,char **argv) try
     traffic();
     if(originalDNS){
         queryOriginal("203.0.113.9");
+        queryOriginalDefault();
         for(const bool campus:{true,false}){
             until("finish original DNS observation before choosing",[&]{return !policy.isBusy() || session.state()!=ConnectionState::Running;});
             check(session.state()==ConnectionState::Running && policy.status()==CoreEngine::RequestStatus::Success,
@@ -257,7 +261,7 @@ int main(int argc,char **argv) try
     const auto restored=sameNetwork(initialDns,dnsSnapshot(),initialAddresses,interfaceAddresses());
     check(authorizations==(exitChange?4:3) && approvals==(exitChange?2:1) && !session.isActive() && restored,
         "single approval, owned device removal and complete original DNS/interface restoration");
-    if(originalDNS){queryOriginal("203.0.113.9");std::cout<<"PASS: prewarmed Windows original NRPT source, automatic listener, name choice/withdrawal and exact restoration\n";}
+    if(originalDNS){queryOriginal("203.0.113.9");queryOriginalDefault();std::cout<<"PASS: prewarmed Windows root/scoped NRPT source, unmatched native default, automatic listener, name choice/withdrawal and exact restoration\n";}
     if(exitChange)std::cout<<"PASS: changed Windows original exit restores before automatic reconnect, fresh generation, system DNS/TCP/UDP/SSH and complete final restoration\n";
     if(policyChanges)std::cout<<"PASS: Windows same-IP original/campus/original TCP, UDP and empty datagrams without reauthentication\n";
     std::cout<<"PASS: ordinary Windows application/native helper/Go core system DNS, TCP/UDP and empty datagrams, staged stop and complete restore\n";

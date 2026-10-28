@@ -258,84 +258,114 @@ func TestOriginalDNSListenerPreservesSourceAndPublication(t *testing.T) {
 }
 
 func TestOriginalDNSListenerDispatchesNativeScopesWithoutGuessingFallback(t *testing.T) {
-	iface, local := originalDNSInterface(t)
-	upstream, queries := originalDNSUpstream(t, local.String(), 9)
-	specialUpstream, specialQueries := originalDNSUpstream(t, local.String(), 11)
-	r := resolve.NewResolver(nil, "", "", 30, nil, nil, false)
-	t.Cleanup(r.Close)
-	base := resolve.OriginalDNSRoute{Name: policy.NameRule{Kind: "suffix", Value: "original.test"},
-		Servers: []string{upstream}, Interface: iface, Source: "native-scopes", Listen: net.JoinHostPort(local.String(), "0")}
-	first, special := base, base
-	first.Name = policy.NameRule{Kind: "exact", Value: "first.original.test"}
-	special.Name = policy.NameRule{Kind: "suffix", Value: "special.original.test"}
-	special.Servers = []string{specialUpstream}
-	routes := []resolve.OriginalDNSRoute{first, special, base}
-	var err error
-	r.OriginalDNS, err = resolve.NewOriginalDNS(routes)
-	if err != nil {
-		t.Fatal(err)
-	}
-	routes[1].Servers[0] = upstream
-	protection, err := policy.NewProtectionPolicy(nil, nil, []policy.NameRule{base.Name}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	r.ProtectionPolicy = func() *policy.ProtectionPolicy { return &protection }
-	d := dial.NewDialer(nil, r, nil, false)
-	d.ProtectionPolicy = r.ProtectionPolicy
-	p, err := NewListeners(t.Context(), "", "", d, r)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(p.Close)
-	if err := p.AttachTUN(&dnsPacketDevice{newPacketDevice()}, 1400, func(_ context.Context, _ []netip.Addr, exclude bool) error {
-		if !exclude {
-			t.Error("original scope granted a campus capture")
-		}
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	endpoints := p.OriginalDNSListeners()
-	if len(endpoints) != 1 {
-		t.Fatal("native scopes did not share one listener", endpoints)
-	}
-	for _, transport := range []string{"udp", "tcp"} {
-		query := func(name string, qtype uint16) *dns.Msg {
-			reply, _, err := (&dns.Client{Net: transport, Timeout: 5 * time.Second}).ExchangeContext(t.Context(),
-				new(dns.Msg).SetQuestion(name, qtype), endpoints[base.Source])
+	for _, explicitDefault := range []bool{false, true} {
+		t.Run(map[bool]string{false: "no-default", true: "confirmed-default"}[explicitDefault], func(t *testing.T) {
+			iface, local := originalDNSInterface(t)
+			upstream, queries := originalDNSUpstream(t, local.String(), 9)
+			specialUpstream, specialQueries := originalDNSUpstream(t, local.String(), 11)
+			r := resolve.NewResolver(nil, "", "", 30, nil, nil, false)
+			t.Cleanup(r.Close)
+			base := resolve.OriginalDNSRoute{Name: policy.NameRule{Kind: "suffix", Value: "original.test"},
+				Servers: []string{upstream}, Interface: iface, Source: "native-scopes", Listen: net.JoinHostPort(local.String(), "0"), Default: explicitDefault}
+			first, special := base, base
+			first.Default = false
+			first.Name = policy.NameRule{Kind: "exact", Value: "first.original.test"}
+			special.Default = false
+			special.Name = policy.NameRule{Kind: "suffix", Value: "special.original.test"}
+			special.Servers = []string{specialUpstream}
+			routes := []resolve.OriginalDNSRoute{first, special, base}
+			var err error
+			r.OriginalDNS, err = resolve.NewOriginalDNS(routes)
 			if err != nil {
 				t.Fatal(err)
 			}
-			return reply
-		}
-		for _, target := range []struct{ name, address string }{
-			{"first.original.test.", "203.0.113.9"}, {"host.special.original.test.", "203.0.113.11"}, {"host.original.test.", "203.0.113.9"},
-		} {
-			reply := query(target.name, dns.TypeA)
-			if reply.Rcode != dns.RcodeSuccess || len(reply.Answer) != 1 || reply.Answer[0].(*dns.A).A.String() != target.address {
-				t.Fatal("native scope precedence or immutable upstream lost", target, reply)
+			routes[1].Servers[0] = upstream
+			protection, err := policy.NewProtectionPolicy(nil, nil, []policy.NameRule{base.Name}, nil)
+			if err != nil {
+				t.Fatal(err)
 			}
-		}
-		before, specialBefore := queries.Load(), specialQueries.Load()
-		if reply := query("failed.special.original.test.", dns.TypeA); reply.Rcode != dns.RcodeServerFailure || queries.Load() != before || specialQueries.Load() != specialBefore+1 {
-			t.Fatal("failed scope fell back to another native server", reply)
-		}
-		before, specialBefore = queries.Load(), specialQueries.Load()
-		for _, question := range []struct {
-			name  string
-			qtype uint16
-		}{{"outside.test.", dns.TypeA}, {".", dns.TypeDNSKEY}, {"localhost.", dns.TypeA}, {"-bad.original.test.", dns.TypeA}} {
-			if reply := query(question.name, question.qtype); reply.Rcode != dns.RcodeRefused {
-				t.Fatal("ambiguous unmatched native scope was guessed", question.name, reply)
+			r.ProtectionPolicy = func() *policy.ProtectionPolicy { return &protection }
+			d := dial.NewDialer(nil, r, nil, false)
+			d.ProtectionPolicy = r.ProtectionPolicy
+			p, err := NewListeners(t.Context(), "", "", d, r)
+			if err != nil {
+				t.Fatal(err)
 			}
-		}
-		if queries.Load() != before || specialQueries.Load() != specialBefore {
-			t.Fatal("unmatched question reached an arbitrary native upstream")
-		}
-	}
-	if queries.Load() != 4 || specialQueries.Load() != 4 {
-		t.Fatal("scope dispatch used a different original server", queries.Load(), specialQueries.Load())
+			t.Cleanup(p.Close)
+			var publications atomic.Int32
+			if err := p.AttachTUN(&dnsPacketDevice{newPacketDevice()}, 1400, func(_ context.Context, _ []netip.Addr, exclude bool) error {
+				if !exclude {
+					t.Error("original scope granted a campus capture")
+				}
+				publications.Add(1)
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			endpoints := p.OriginalDNSListeners()
+			if len(endpoints) != 1 {
+				t.Fatal("native scopes did not share one listener", endpoints)
+			}
+			for _, transport := range []string{"udp", "tcp"} {
+				query := func(name string, qtype uint16) *dns.Msg {
+					reply, _, err := (&dns.Client{Net: transport, Timeout: 5 * time.Second}).ExchangeContext(t.Context(),
+						new(dns.Msg).SetQuestion(name, qtype), endpoints[base.Source])
+					if err != nil {
+						t.Fatal(err)
+					}
+					return reply
+				}
+				for _, target := range []struct{ name, address string }{
+					{"first.original.test.", "203.0.113.9"}, {"host.special.original.test.", "203.0.113.11"}, {"host.original.test.", "203.0.113.9"},
+				} {
+					reply := query(target.name, dns.TypeA)
+					if reply.Rcode != dns.RcodeSuccess || len(reply.Answer) != 1 || reply.Answer[0].(*dns.A).A.String() != target.address {
+						t.Fatal("native scope precedence or immutable upstream lost", target, reply)
+					}
+				}
+				before, specialBefore := queries.Load(), specialQueries.Load()
+				if reply := query("failed.special.original.test.", dns.TypeA); reply.Rcode != dns.RcodeServerFailure || queries.Load() != before || specialQueries.Load() != specialBefore+1 {
+					t.Fatal("failed scope fell back to another native server", reply)
+				}
+				before, specialBefore = queries.Load(), specialQueries.Load()
+				published := publications.Load()
+				for _, question := range []struct {
+					name  string
+					qtype uint16
+				}{{"outside.test.", dns.TypeA}, {".", dns.TypeDNSKEY}} {
+					reply := query(question.name, question.qtype)
+					if explicitDefault {
+						if reply.Rcode != dns.RcodeSuccess || len(reply.Answer) != 1 || reply.Answer[0].Header().Rrtype != question.qtype {
+							t.Fatal("confirmed native default did not answer unmatched/root query", question, reply)
+						}
+						if question.qtype == dns.TypeA && reply.Answer[0].(*dns.A).A.String() != "203.0.113.77" {
+							t.Fatal("unmatched query reached another native server", reply)
+						}
+					} else if reply.Rcode != dns.RcodeRefused {
+						t.Fatal("ambiguous unmatched native scope was guessed", question, reply)
+					}
+				}
+				for _, name := range []string{"localhost.", "-bad.original.test."} {
+					if reply := query(name, dns.TypeA); reply.Rcode != dns.RcodeRefused {
+						t.Fatal("native default forwarded a local or malformed name", name, reply)
+					}
+				}
+				if explicitDefault {
+					before += 2
+				}
+				if queries.Load() != before || specialQueries.Load() != specialBefore || publications.Load() != published {
+					t.Fatal("native default changed scope, publication or invalid-name boundaries")
+				}
+			}
+			expected := int32(4)
+			if explicitDefault {
+				expected += 4
+			}
+			if queries.Load() != expected || specialQueries.Load() != 4 {
+				t.Fatal("scope dispatch used a different original server", queries.Load(), specialQueries.Load())
+			}
+
+		})
 	}
 }
 

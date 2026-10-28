@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -38,7 +39,7 @@ func TestNativeWindowsSessionOriginalDNS(t *testing.T) {
 	nativeWindowsSession(t, false, false, false)
 }
 
-func windowsOriginalDNSServer(t *testing.T) (string, *atomic.Int32) {
+func windowsOriginalDNSServer(t *testing.T) (string, *atomic.Int32, *atomic.Int32) {
 	t.Helper()
 	interfaces, err := net.Interfaces()
 	if err != nil {
@@ -73,14 +74,20 @@ func windowsOriginalDNSServer(t *testing.T) (string, *atomic.Int32) {
 	}
 	t.Cleanup(func() { tcp.Close(); udp.Close() })
 	count := new(atomic.Int32)
+	defaultQueries := new(atomic.Int32)
 	handler := dns.HandlerFunc(func(w dns.ResponseWriter, request *dns.Msg) {
 		reply := new(dns.Msg).SetReply(request)
 		reply.RecursionAvailable = true
-		if len(request.Question) != 1 || request.Question[0].Name != "host.campus.test." {
+		if len(request.Question) != 1 {
 			reply.Rcode = dns.RcodeRefused
-		} else if request.Question[0].Qtype == dns.TypeA {
+		} else if name := request.Question[0].Name; name == "host.campus.test." && request.Question[0].Qtype == dns.TypeA {
 			count.Add(1)
 			reply.Answer = []dns.RR{&dns.A{Hdr: dns.RR_Header{Name: "host.campus.test.", Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60}, A: net.IPv4(203, 0, 113, 9)}}
+		} else if strings.HasPrefix(name, "outside-") && strings.HasSuffix(name, ".original.test.") && request.Question[0].Qtype == dns.TypeA {
+			defaultQueries.Add(1)
+			reply.Answer = []dns.RR{&dns.A{Hdr: dns.RR_Header{Name: name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60}, A: net.IPv4(203, 0, 113, 77)}}
+		} else if name != "host.campus.test." && !(strings.HasPrefix(name, "outside-") && strings.HasSuffix(name, ".original.test.")) {
+			reply.Rcode = dns.RcodeRefused
 		}
 		_ = w.WriteMsg(reply)
 	})
@@ -91,7 +98,7 @@ func windowsOriginalDNSServer(t *testing.T) (string, *atomic.Int32) {
 		<-ready
 		t.Cleanup(func() { _ = server.Shutdown() })
 	}
-	return address, count
+	return address, count, defaultQueries
 }
 
 func nativeWindowsSession(t *testing.T, faults, policy, exitChange bool) {
@@ -120,10 +127,10 @@ func nativeWindowsSession(t *testing.T, faults, policy, exitChange bool) {
 	command.Env = append(os.Environ(), "JC_WINDOWS_SESSION_CONFIG="+string(configBytes(t, g.config(t))))
 	command.Env = append(command.Env, "JC_WINDOWS_SESSION_POLICY="+strconv.FormatBool(policy))
 	command.Env = append(command.Env, "JC_WINDOWS_SESSION_EXIT_CHANGE="+strconv.FormatBool(exitChange))
-	var originalQueries *atomic.Int32
+	var originalQueries, defaultQueries *atomic.Int32
 	if t.Name() == "TestNativeWindowsSessionOriginalDNS" {
-		address, count := windowsOriginalDNSServer(t)
-		originalQueries = count
+		address, count, defaults := windowsOriginalDNSServer(t)
+		originalQueries, defaultQueries = count, defaults
 		command.Env = append(command.Env, "JC_WINDOWS_SESSION_ORIGINAL_DNS_SERVER="+address)
 	}
 	rounds := int32(2)
@@ -148,6 +155,9 @@ func nativeWindowsSession(t *testing.T, faults, policy, exitChange bool) {
 	}
 	if originalQueries != nil && originalQueries.Load() < 6 {
 		t.Fatalf("original source was not queried before, during and after both application sessions: %d\n%s", originalQueries.Load(), output)
+	}
+	if defaultQueries != nil && defaultQueries.Load() < 6 {
+		t.Fatalf("native root provider did not answer fresh unmatched queries before, during and after both sessions: %d\n%s", defaultQueries.Load(), output)
 	}
 	t.Log(string(output))
 }

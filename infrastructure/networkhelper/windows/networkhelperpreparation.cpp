@@ -88,7 +88,7 @@ WindowsHelperPreparation prepareOriginalDNS(const QJsonArray &required,const QJs
         if(!found)return unsupported("The original Windows DNS requirements are not fully mapped.");
     }
     WindowsHelperPreparation result;QJsonArray requests,contexts,effective;QList<QJsonObject> routes;QMap<QString,QJsonArray> routed;
-    qsizetype count=0;
+    qsizetype count=0;QJsonArray defaultServers;
     for(auto it=selected.begin();it!=selected.end();++it){
         const auto source=it.value();const auto servers=serverGroups[it.key()];QJsonArray endpoints;
         for(const auto &server:servers){
@@ -96,7 +96,10 @@ WindowsHelperPreparation prepareOriginalDNS(const QJsonArray &required,const QJs
             endpoints.append((text.contains(':')?'['+text+']':text)+':'+QString::number(WindowsDNS::ServerPort));
         }
         const auto scopes=namespaces(source["namespaces"].toArray());
-        if(scopes.contains("."))return unsupported("A default Windows NRPT source requires an explicit default query context.");
+        if(scopes.contains(".")){
+            if(!defaultServers.isEmpty())return unsupported("The original Windows DNS default provider is ambiguous.");
+            defaultServers=endpoints;
+        }
         for(const auto &scope:scopes){
             bool represented=false;
             for(const auto &value:policies){
@@ -126,6 +129,11 @@ WindowsHelperPreparation prepareOriginalDNS(const QJsonArray &required,const QJs
             routes.append(QJsonObject{{"name",name},{"servers",endpoints},{"interface",""},{"source",endpoint},{"listen",endpoint}});
         }
         requests.append(QJsonObject{{"source",source},{"servers",servers},{"listen",listen}});contexts.append(source);
+    }
+    if(!defaultServers.isEmpty()){
+        auto route=std::find_if(routes.begin(),routes.end(),[&](const auto &value){return value["servers"]==defaultServers;});
+        if(route==routes.end())return unsupported("The original Windows DNS default has no confirmed query context.");
+        (*route)["default"]=true;
     }
     const auto priority=[](const QJsonObject &route){const auto kind=route["name"].toObject()["kind"].toString();return kind=="exact"?3:kind=="prefix"?2:1;};
     std::stable_sort(routes.begin(),routes.end(),[&](const auto &a,const auto &b){
