@@ -185,7 +185,7 @@ jobs:
           CODESIGN_IDENTITY: ${{ env.MACOS_SIGNING == 'true' && secrets.MACOS_CERT_IDENTITY || '-' }}
         run: |
           if [[ "$MACOS_SIGNING" != 'true' ]]; then
-            echo '::notice::No Apple signing credentials; creating an ad-hoc signed test build without notarization.'
+            echo '::notice::No external signing credentials; creating a local build identity without Developer ID or notarization.'
           fi
           ./scripts/macos-sign-app.sh "$TARGET_NAME.app"
           codesign --verify --deep --strict "$TARGET_NAME.app"
