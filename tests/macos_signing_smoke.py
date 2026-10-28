@@ -13,7 +13,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def run(*args, **kwargs):
-    return subprocess.run(list(map(str, args)), check=True, capture_output=True, timeout=60, **kwargs)
+    try:
+        return subprocess.run(list(map(str, args)), check=True, capture_output=True, timeout=60, **kwargs)
+    except subprocess.CalledProcessError as error:
+        sys.stderr.buffer.write(error.stdout+error.stderr)
+        raise
 
 
 def main():
@@ -58,12 +62,8 @@ def main():
 
         scratch = root / 'private-signing'
         scratch.mkdir()
-        try:
-            run('/bin/bash', ROOT / 'scripts/macos-sign-app.sh', app, cwd=ROOT,
-                         env=dict(os.environ, TMPDIR=str(scratch)))
-        except subprocess.CalledProcessError as error:
-            sys.stderr.buffer.write(error.stdout+error.stderr)
-            raise
+        run('/bin/bash', ROOT / 'scripts/macos-sign-app.sh', app, cwd=ROOT,
+            env=dict(os.environ, TMPDIR=str(scratch)))
         run('/usr/bin/codesign', '--verify', '--deep', '--strict', app)
         leaves = []
         for index, path in enumerate((app, helper, web_host)):
@@ -72,7 +72,7 @@ def main():
             if path == helper:
                 assert 'Identifier='+app_id+layout['service_suffix'] in facts, facts
             prefix = root / ('certificate-'+str(index))
-            run('/usr/bin/codesign', '--display', '--extract-certificates', prefix, path)
+            run('/usr/bin/codesign', '--display', '--extract-certificates='+str(prefix), path)
             leaves.append(hashlib.sha256(Path(str(prefix)+'0').read_bytes()).hexdigest())
         assert len(set(leaves)) == 1, 'App/helper/WebEngine have different signing identities'
         assert not list(scratch.iterdir()), 'Private signing material survived'
