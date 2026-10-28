@@ -48,8 +48,6 @@ jobs:
       ARCHIVE_NAME: JustConnect-${{ github.ref == 'refs/heads/develop' && format('preview-{0}', github.sha) || inputs.version || github.event.release.tag_name || 'nightly' }}-${{ matrix.platform }}-${{ matrix.arch }}
       NIGHTLY_BUILD: ${{ github.ref == 'refs/heads/develop' || (github.event_name == 'workflow_dispatch' && inputs.nightly) || (github.event_name != 'workflow_dispatch' && github.event_name != 'release') }}
       RELEASE_VERSION: ${{ inputs.version || github.event.release.tag_name }}
-      MACOS_SIGNING: ${{ github.ref != 'refs/heads/develop' && matrix.platform == 'macos' && secrets.MACOS_CERT_P12 != '' && secrets.MACOS_CERT_PASSWORD != '' && secrets.MACOS_CERT_IDENTITY != '' }}
-      MACOS_NOTARIZATION: ${{ github.ref != 'refs/heads/develop' && matrix.platform == 'macos' && secrets.MACOS_CERT_P12 != '' && secrets.MACOS_CERT_PASSWORD != '' && secrets.MACOS_CERT_IDENTITY != '' && secrets.APPLE_ID != '' && secrets.APPLE_APP_SPECIFIC_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
     steps:
       - uses: actions/checkout@v7.0.1
 
@@ -164,29 +162,10 @@ jobs:
           NATIVE_ARCH: ${{ matrix.native_arch }}
         run: ./scripts/deploy-macos.sh "$TARGET_NAME" build "$NATIVE_ARCH"
 
-      - name: Import macOS signing certificate
-        if: env.MACOS_SIGNING == 'true'
-        env:
-          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
-          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}-keychain
-        run: |
-          printf '%s' "$MACOS_CERT_P12" | base64 -D > "$RUNNER_TEMP/signing.p12"
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/signing.keychain-db"
-          security set-keychain-settings -lut 21600 "$RUNNER_TEMP/signing.keychain-db"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/signing.keychain-db"
-          security import "$RUNNER_TEMP/signing.p12" -P "$MACOS_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$RUNNER_TEMP/signing.keychain-db"
-          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/signing.keychain-db"
-          security list-keychains -d user -s "$RUNNER_TEMP/signing.keychain-db"
-
       - name: Sign macOS bundle
         if: runner.os == 'macOS'
-        env:
-          CODESIGN_IDENTITY: ${{ env.MACOS_SIGNING == 'true' && secrets.MACOS_CERT_IDENTITY || '-' }}
         run: |
-          if [[ "$MACOS_SIGNING" != 'true' ]]; then
-            echo '::notice::No external signing credentials; creating a local build identity without Developer ID or notarization.'
-          fi
+          echo '::notice::Using an automatic local build identity; no external signing account or notarization.'
           ./scripts/macos-sign-app.sh "$TARGET_NAME.app"
           codesign --verify --deep --strict "$TARGET_NAME.app"
 
@@ -200,24 +179,8 @@ jobs:
           hdiutil attach "$ARCHIVE_NAME.dmg" -readonly -nobrowse -mountpoint "$RUNNER_TEMP/dmg-check"
           test -x "$RUNNER_TEMP/dmg-check/$TARGET_NAME.app/Contents/MacOS/$TARGET_NAME"
           codesign --verify --deep --strict "$RUNNER_TEMP/dmg-check/$TARGET_NAME.app"
-          signature_args=()
-          if [[ "$MACOS_SIGNING" == 'true' ]]; then signature_args=(--signed); fi
-          python scripts/verify-package.py "$RUNNER_TEMP/dmg-check/$TARGET_NAME.app" "$RUNNER_TEMP/dmg-check/$TARGET_NAME.app/Contents/MacOS/$TARGET_NAME" --revision "$GITHUB_SHA" --version "$APP_VERSION" --archive "$ARCHIVE_NAME.dmg" --output "build/$ARCHIVE_NAME.json" "${signature_args[@]}"
+          python scripts/verify-package.py "$RUNNER_TEMP/dmg-check/$TARGET_NAME.app" "$RUNNER_TEMP/dmg-check/$TARGET_NAME.app/Contents/MacOS/$TARGET_NAME" --revision "$GITHUB_SHA" --version "$APP_VERSION" --archive "$ARCHIVE_NAME.dmg" --output "build/$ARCHIVE_NAME.json"
           hdiutil detach "$RUNNER_TEMP/dmg-check"
-
-      - name: Notarize macOS package
-        if: env.MACOS_NOTARIZATION == 'true'
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: ./scripts/macos-notarize-dmg.sh "$ARCHIVE_NAME.dmg"
-
-      - name: Remove temporary signing credentials
-        if: always() && env.MACOS_SIGNING == 'true'
-        run: |
-          security delete-keychain "$RUNNER_TEMP/signing.keychain-db"
-          rm -f "$RUNNER_TEMP/signing.p12"
 
       - name: Upload package
         uses: actions/upload-artifact@v7.0.2

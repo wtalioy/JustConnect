@@ -134,7 +134,7 @@ def macos_signature(path, env):
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE).stderr.decode('utf-8')
 
 
-def macos_audit(files, root, arch, env, signed):
+def macos_audit(files, root, arch, env):
     evidence, minimum = [], '0'
     for path in files:
         expected = 'arm64' if arch == 'arm64' else 'x86_64'
@@ -172,8 +172,6 @@ def macos_audit(files, root, arch, env, signed):
         raise RuntimeError(f'Invalid macOS floor: declared {declared}, binaries {minimum}')
     run('codesign', '--verify', '--deep', '--strict', root, env=env)
     signature = macos_signature(root, env)
-    if signed and ('Signature=adhoc' in signature or 'Authority=Developer ID Application:' not in signature):
-        raise RuntimeError('Developer ID signature required')
     app_id = plistlib.loads((root / 'Contents/Info.plist').read_bytes())['CFBundleIdentifier']
     if 'Identifier=' + app_id not in signature.splitlines():
         raise RuntimeError('Application signing identifier differs from its bundle')
@@ -244,13 +242,7 @@ def windows_signature(path):
     return run('pwsh', '-NoProfile', '-Command', command).strip()
 
 
-def windows_signer_sha256(path):
-    command = ("$s = Get-AuthenticodeSignature -LiteralPath '" + str(path).replace("'", "''")
-               + "'; [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($s.SignerCertificate.RawData))")
-    return run('pwsh', '-NoProfile', '-Command', command).strip().lower()
-
-
-def check_windows_network_helper(root, env, revision, signed):
+def check_windows_network_helper(root, env, revision):
     helper = root / WINDOWS_HELPER['executable']
     if not helper.is_file():
         raise RuntimeError('Missing packaged Windows network helper')
@@ -267,15 +259,14 @@ def check_windows_network_helper(root, env, revision, signed):
         if not payload.is_file() or hashlib.sha256(payload.read_bytes()).hexdigest() != facts[field]:
             raise RuntimeError('Packaged Windows network helper payload hash mismatch: ' + name)
     signature = windows_signature(helper)
-    if signature not in ('Valid', 'NotSigned') or (signed and signature != 'Valid'):
+    if signature not in ('Valid', 'NotSigned'):
         raise RuntimeError('Packaged Windows network helper signature is invalid')
     if windows_signature(root / WINDOWS_HELPER['driver_library']) != 'Valid':
         raise RuntimeError('Packaged Windows native driver signature is invalid')
     imports = run('llvm-readobj', '--coff-imports', helper)
     if re.search(r'Name:\s+(?:Qt6|justconnect_core)', imports, re.I):
         raise RuntimeError('Privileged Windows network helper links application/data-plane libraries')
-    return dict(facts, signature=signature,
-                signer_sha256=windows_signer_sha256(helper) if signed else '')
+    return dict(facts, signature=signature)
 
 
 def check_windows_webengine(root, probe, env):
@@ -302,7 +293,7 @@ def check_windows_webengine(root, probe, env):
     return list(languages)
 
 
-def verify(root, executable, revision, application_version, output, archive, signed=False, webengine_probe=None):
+def verify(root, executable, revision, application_version, output, archive, webengine_probe=None):
     root, executable = root.resolve(), executable.resolve()
     if not inside(executable, root):
         raise RuntimeError('Executable must be inside extracted package')
@@ -339,7 +330,7 @@ def verify(root, executable, revision, application_version, output, archive, sig
             if magic == b'\x7fELF' or magic in (b'\xcf\xfa\xed\xfe', b'\xca\xfe\xba\xbe', b'\xca\xfe\xba\xbf') or magic[:2] == b'MZ':
                 files.append(path)
     if system == 'windows':
-        report['network_helper'] = check_windows_network_helper(executable.parent, env, revision, signed)
+        report['network_helper'] = check_windows_network_helper(executable.parent, env, revision)
         reader = executable.parent / 'JustConnectDnsReader.exe'
         report['dns_reader'] = check_windows_dns_reader(executable.parent, env)
         runtime = executable.parent / report['runtime']
@@ -361,7 +352,7 @@ def verify(root, executable, revision, application_version, output, archive, sig
     elif report['runtime'] != 'static':
         raise RuntimeError('Unix packages must link the static core')
     elif system == 'darwin':
-        report['audit'] = macos_audit(files, root, arch, env, signed)
+        report['audit'] = macos_audit(files, root, arch, env)
     else:
         report['audit'] = linux_audit(files, root, arch, env)
     report['offline_self_test_wall_ms'] = startup_ms
@@ -377,9 +368,6 @@ def verify(root, executable, revision, application_version, output, archive, sig
             report['sha256'][str(path.relative_to(root))] = hashlib.file_digest(stream, 'sha256').hexdigest()
         if system == 'windows':
             status = windows_signature(path)
-            if path == executable and signed:
-                if status != 'Valid' or windows_signer_sha256(path) != report['network_helper']['signer_sha256']:
-                    raise RuntimeError('Packaged Windows application signer differs from the helper signer')
             if status not in ('Valid', 'NotSigned'):
                 raise RuntimeError(f'Invalid Authenticode signature: {path}: {status}')
             report.setdefault('signatures', {})[path.name] = status
@@ -395,7 +383,6 @@ if __name__ == '__main__':
     parser.add_argument('--version', required=True)
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--archive', required=True, type=Path)
-    parser.add_argument('--signed', action='store_true')
     parser.add_argument('--webengine-probe', type=Path)
     args = parser.parse_args()
-    verify(args.package, args.executable, args.revision, args.version, args.output, args.archive, args.signed, args.webengine_probe)
+    verify(args.package, args.executable, args.revision, args.version, args.output, args.archive, args.webengine_probe)

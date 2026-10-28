@@ -24,7 +24,7 @@
 | 剩余性质 | 仍需集中开发的主要为 S4-05、S5-03；S3-05、S4-04、S5-01／02／05 主要待真实桌面／校园、免外部证书的助手部署及矩阵汇总。按完整访问链合批开发、按各任务真实验收要求勾选，不把组件通过冒充整项完成 |
 | 当前有效验收 | `ea3da30` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40633557617)全部通过；[六架构完整原生运行](https://github.com/wtalioy/JustConnect/actions/runs/40633557599)中六组正式 ABI／应用测试、Linux 网关捕获及四组双模式活跃 TUN 均通过，五组 job 成功。Windows x64 官方 SDK 第 1742／4096 包超时导致整轮失败，不计全绿；源日志与逐项核对归 `build/reports/gateway-overlap/summary.json` |
 | 原 DNS 基线 | Windows 本地明文 NRPT 原 DNS 自动选源、实际监听、写前身份／原值复核、所属投影与完整来源／安全观察已验；两架构各两轮普通应用验证预热缓存、原 DNS、名称选择／撤销、系统校园 DNS／TCP／UDP／SSH 和精确恢复。macOS／Windows 共用校园 DNS 域安装推导，无新缓存／产品地址常量；当前构建及必要工具保留，临时探针产物已清理，报告 `build/reports/windows-original-dns-application.json` |
-| 当前推进与下一步 | S4-01 已收尾。S4-05 默认控制出口／网关重叠增量已获六架构原生证据：接管前实际源接口优先、丢失拒绝、回环留本机；SDK 稳定性门槛及真实桌面／校园仍待。继续 S5-03 剩余来源与 MagicDNS，不重复开发已验链。按 R14 优先移除证书作为运行门槛：Windows 改用系统管理员授权、载荷哈希与受保护部署，macOS 继续改造并原生验证；不申请 SignPath，也不降低自动校园访问目标。上一单元 `06b6c34` 的三平台 Tests 已通过 |
+| 当前推进与下一步 | S4-01 已收尾。S4-05 默认控制出口／网关重叠增量已获六架构原生证据：接管前实际源接口优先、丢失拒绝、回环留本机；SDK 稳定性门槛及真实桌面／校园仍待。继续 S5-03 剩余来源与 MagicDNS，不重复开发已验链。按 R14 优先移除证书作为运行门槛：Windows 改用系统管理员授权、载荷哈希与受保护部署，macOS 继续改造并原生验证；功能与发行签名解耦，不要求申请签名才能开发／发行或自动访问校园。上一单元 `06b6c34` 的三平台 Tests 已通过 |
 | CI 下载瓶颈 | Linux x64 的 Azure 依赖源下载 42.2 MB 用时 15 分 11 秒；三组工作流已统一接入 `setup-linux-apt`，使用 runner 现有 Ubuntu 官方替代源。本地镜像样例／幂等／缺少列表、workflow 检查及八种失败传播通过；`c14f931` 的 x64 依赖安装步骤已由运行时间确认在 51 秒完成，后续 `66ba28c` 完整九项通过；[依据与范围](docs/DEVELOPMENT.md#ci-apt-mirrors) |
 | 验收范围 | 仅要求 Fudan 实测；按用户决定取消另一台 aTrust 服务器的硬性要求，保留 Custom 实现与服务器／账户隔离回归 |
 | 剩余缺口 | S1-04 真实样本、免外部证书的助手部署、真实桌面／校园透明访问、Clash 共存与剩余平台矩阵未验收；D2 的三平台设备／权限／正常及故障恢复已通过受控自动验证，边界与实机缺口见 S4／S5 |
@@ -103,7 +103,7 @@ flowchart LR
 | R11 | 确认学校／服务器后一次连接完成认证、隧道、分流／DNS 和应用接管，浏览器、已有终端 SSH 与 Codex SSH 随即可用，无需另设系统代理、修改 SSH／终端配置或重开应用。仅保留必要认证、授权及冲突选择；接管就绪并通过有界检查后才显示“已连接”，失败撤销本次修改。窗口与托盘共用流程，关闭行为及认证保留按日常使用要求。 |
 | R12 | 应用界面与文案默认英文，可显式切换简体中文并保存选择；主窗口、托盘、设置、认证交互和应用生成的错误／通知使用同一语言。按钮文字由最终设计确定，不把本计划的示例当作固定文案。 |
 | R13 | 提供可发现的设置页面，至少包含语言与主窗口关闭行为；应用偏好与学校配置分开管理，保存后按约定生效并跨重启保留。本节需求是基本目标，允许继续完善信息结构、视觉与交互设计，扩展须有实际用途并保持日常操作简洁。 |
-| R14 | 开发者与用户均无需自行申请、购买或配置代码签名证书，S3—S5 的透明校园访问不依赖外部签名服务。保留必要的系统管理员授权、受保护安装、实际文件完整性、对端／会话身份及独立恢复；GUI／WebEngine 保持普通权限，不导入自建根证书或关闭系统安全。公开签名／公证仅为可选发行增强，首次打开／授权提示与平台限制按实际包验收。 |
+| R14 | 开发者与用户均无需自行申请、购买或配置代码签名证书，S3—S5 的透明校园访问不依赖外部签名服务。保留必要的系统管理员授权、受保护安装、实际文件完整性、对端／会话身份及独立恢复；GUI／WebEngine 保持普通权限，不导入自建根证书或关闭系统安全。公开签名／公证可在未来作为发行身份增强，不能成为功能、权限或网络链路的前置，首次打开／授权提示与平台限制按实际包验收。 |
 
 沿用 Qt Widgets 和轻量分层：`core/` 保存 C++ 规则与状态，`application/` 定义 `CoreEngine` 端口并组织用例，`infrastructure/` 的 `EmbeddedCoreEngine` 实现 C ABI／存储／系统能力，`presentation/` 展示结果并接收操作。`corelib/` 统一放 JustConnect 的 Go 会话、C ABI 入口及整合后的协议源码，使用单一 Go 模块，不保留独立上游模块或 `third_party/zju-connect/`。来源和许可证就地记录，源码可直接优化、重构与精简；模块路径迁移服务于一体化构建，包名和协议实现不做批量改名。Go 协议细节不混入 C++ 领域模型。应用层可继续使用 Qt Core、QObject 和定时器，不依赖 Widgets、WebEngine 或 Go 实现细节。状态机决定动作，会话执行动作；主窗口与托盘使用同一会话。上述名称和目录是迁移目标，当前实现仍见架构说明。
 
@@ -145,7 +145,7 @@ flowchart LR
 - [x] **S0-02**：独立仓库保留上游 remote，在 develop 开发；测试／预览／main 打包与 Release 规则见[开发说明](docs/DEVELOPMENT.md#分支与-actions)。
 - [x] **S0-03**：建立三平台测试与六组预览基线：[测试](https://github.com/wtalioy/JustConnect/actions/runs/39243039993)、[打包](https://github.com/wtalioy/JustConnect/actions/runs/39243056960)。
 
-README 暂留空，文件图标暂用系统默认；免外部证书的权限助手部署及用户旧网络设置恢复按后续任务验收；公开签名／公证不作为功能前置。
+README 暂留空，文件图标暂用系统默认；免外部证书的权限助手部署及用户旧网络设置恢复按后续任务验收；未来发行签名可单独附加，不作为功能前置。
 
 <a id="s1"></a>
 ## S1 核心库化与同进程集成
@@ -253,7 +253,7 @@ Linux x64／ARM64 AppImage 分别减少约 2.07%／1.90%；macOS 安装体积基
 - **S4-01／S5-03 macOS 增量已验收**：`09be4da` 双架构同时通过静态与 State／DHCP 的真实端点、缓存预热、TCP／AAAA、共享 IP 选边／撤回及两轮恢复，各 37 项 CTest 通过；私有 CF 覆盖写前／提交后动态改值、自动模式、外部搜索字段与禁用状态。上下文校验及原视图投影归原 resolver，复用监听／日志／观察／恢复链，无新缓存、观察器、IPC 或兼容层；全仓调用、协议、夹具、打包与说明已核对。保留唯一有效原生日志及 IPv4-only 地址选择证据；临时／加密提供者与实机仍待。证据 `build/reports/macos-dynamic-dns.json`；[架构及范围](docs/ARCHITECTURE.md#macos-original-dns-sources)。
 - **S4-03／06 已收尾**：三平台写前快照、持久所有权、完整回读、部分回滚及独立恢复均已受控验收，只撤销自身修改；外部改值／同值重建、取消、EOF、强杀、未决责任和失败重试回归保留。Linux 专用源／捕获表保留 main／local，systemd 覆盖双杀；macOS 临时 DNS 会话、精确路由及 launchd 新进程恢复；Windows 精确 IP／PnP／NRPT、账户／UUID 门槛及 SCM 双杀。全仓调用方、日志、服务、部署、夹具和 CI 已复查，报告 `build/reports/linux-source-journal.json`、`linux-source-checkpoints.json`、`capture-table.json`、`macos-helper.json`、`macos-finish.json`、`windows-native-recovery.json`。
 - **S3-05／S4-06 系统代理恢复**：三平台锁、凭据、写前／恢复检查点、并发拒绝、EOF／强杀及新进程恢复已验；跨账户权限不由锁授予。Linux GNOME／KDE、Windows WinINet／Credential Manager、macOS Keychain／SystemConfiguration 保留平台独有回归。真实跨登录会话、系统注销、桌面授权和无人值守环境仍待；契约归[架构](docs/ARCHITECTURE.md)，证据 `build/reports/system-proxy-recovery.json`，历史同源码[六组包](https://github.com/wtalioy/JustConnect/actions/runs/39938150558)不冒充当前交付。
-- **S4-04 权限助手及职责**：三平台统一 C++ 提权／设备／恢复，Qt／Go 普通权限数据面；按职责分包，共有逻辑归所属模块，私有实现归 `linux`／`macos`／`windows`。Go 提权实现、手工 SDK 布局、总 platform 层及无用旧路径已删，无空壳或逐包 Qt 转发。固定部署、调用身份、签名／映像、对端 PID／创建时间／SID、所属 fd／句柄、单次授权、拒绝／迟到取消／EOF 均已自动验。结构与测量归[架构](docs/ARCHITECTURE.md#目录与依赖)／[Windows 助手](docs/ARCHITECTURE.md#windows-native-helper)，报告 `build/reports/capability-layout-*.log`、`windows-helper-cpp.json`、`linux-recovery-timer.json`；真实 UAC／polkit／Authorization、跨管理员账户及正式可信部署待验。按 R14 取消 SignPath 申请及证书前置，Windows 复用原 UAC／PID／SID／UUID 与受保护目录链，移除编译发布者门槛和自签根证书夹具；保留原驱动签名／归档与载荷哈希、实际映像身份和独立恢复。本地 34 项 Python 检查通过（Windows 原生项待 CI），Windows PowerShell 实际解析通过；缺少本地 Windows C++ SDK，无证书安装、载荷篡改前置拒绝及普通权限边界待双架构 CI；macOS 默认构建现自动生成同构建本地签名身份，保留既有 XPC／叶证书／角色校验；本地成功／导入失败／签名失败／取消的密钥清理回归及 35 项脚本检查通过，实际 macOS 包与系统注册批准仍待。
+- **S4-04 权限助手及职责**：三平台统一 C++ 提权／设备／恢复，Qt／Go 普通权限数据面；按职责分包，共有逻辑归所属模块，私有实现归 `linux`／`macos`／`windows`。Go 提权实现、手工 SDK 布局、总 platform 层及无用旧路径已删，无空壳或逐包 Qt 转发。固定部署、调用身份、签名／映像、对端 PID／创建时间／SID、所属 fd／句柄、单次授权、拒绝／迟到取消／EOF 均已自动验。结构与测量归[架构](docs/ARCHITECTURE.md#目录与依赖)／[Windows 助手](docs/ARCHITECTURE.md#windows-native-helper)，报告 `build/reports/capability-layout-*.log`、`windows-helper-cpp.json`、`linux-recovery-timer.json`；真实 UAC／polkit／Authorization、跨管理员账户及正式可信部署待验。按 R14 删除外部签名／公证申请、凭据和运行门槛，Windows 复用原 UAC／PID／SID／UUID 与受保护目录链，移除编译发布者门槛和自签根证书夹具；保留原驱动签名／归档与载荷哈希、实际映像身份和独立恢复。本地 34 项 Python 检查通过（Windows 原生项待 CI），Windows PowerShell 实际解析通过；缺少本地 Windows C++ SDK，无证书安装、载荷篡改前置拒绝及普通权限边界待双架构 CI；macOS 默认构建现自动生成同构建本地签名身份，保留既有 XPC／叶证书／角色校验；本地成功／导入失败／签名失败／取消的密钥清理回归及 35 项脚本检查完成（1 项 Windows 原生检查在 Linux 跳过），实际 macOS 包与系统注册批准仍待。
 - **S3／S4／S5 正式应用链**：普通 Qt→C ABI→Go 与正式助手的两轮 UUID／代次、系统 CNAME、TCP／UDP／空包、校园 IP／域名 SSH、策略选边／撤回、助手丢失、宿主与助手双杀、旧责任续接及完整 DNS／接口恢复均有三平台受控证据。真实原网络与校园同 IP 用独立应答和计数核对；DNS 地址先经所属捕获确认再应答，失败返回 SERVFAIL。Windows 分段停止先撤 DNS／捕获，再停核心、释放设备／回执；Unix 单段停止及交接副本先关闭再应答均有回归。报告 `build/reports/helper-core-handoff.json`、`core-dns-original.json`、`dns-publication.json`、`network-access.json`、`windows-original-policy.json`、`queued-attachment-close.json`；[S5 原 DNS 增量](#linux-original-dns-acceptance)另列。
 - **S4-05 出口变化与网关重叠**：Linux 实际网关变化、macOS／Windows 默认接口地址变化已双架构原生验；先恢复旧责任再用新 UUID／代次重连，保留外部地址。默认配置的 VPN 地址排除现统一要求原出口，优先匹配接管前实际 socket 源接口，丢失／歧义拒绝，IPv4／IPv6 回环留本机；无新配置、缓存或路由层。`ea3da30` 六架构均实际通过四项回归，Linux 两组通过 C++ 真实捕获下默认 TCP／UDP，macOS／Windows 四组通过双模式四阶段实际 TUN 与关闭恢复。原 SDK 第 1742 包写入返回后未送达，Windows x64 整轮失败，未重跑或放宽门槛。报告 `build/reports/gateway-overlap/summary.json`；复杂策略路由／完整在途迁移与真实校园未覆盖，必要构建／工具及独有失败保留，临时交叉构建已清理。
 - **S4-05 控制连接真实解析已验**：只读发现与进程／端点身份、标准 Go CNAME／AAAA、原 TLS 名称、loopback、取消及歧义拒绝复用统一 underlay；Windows 管道 I/O 共用正式模块，无新增 DNS 缓存或第三方配置写入。`4981fc5` 的[六架构专项](https://github.com/wtalioy/JustConnect/actions/runs/40548399377)与[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40548255468)通过，官方 v1.19.32 的 TCP／原生 IPC 及支持平台 race 实际执行。正式 ABI 范围复用 `f183ba6` 的[六组检查](https://github.com/wtalioy/JustConnect/actions/runs/40530379728)；该次 Windows x64 整轮因原 SDK 1288／4096 超时失败，完整失败保留，不以组件通过覆盖 SDK 门槛。报告 `build/reports/mihomo-control-f183ba6/summary.json`；[范围与复现](docs/DEVELOPMENT.md#mihomo-control-dns)。
@@ -355,7 +355,7 @@ S5-03 发布交接增量已通过自动回归：同一 TUN 入口保留已校验
 - [ ] **S8-02**：汇总 S3-06／S4-06／S7-03—05 的故障证据并补 V6 缺项及最终集成后改变的行为，包括端口占用、认证取消、权限拒绝、固定代理／PAC／自定义 DNS 和路由、睡眠唤醒、网络切换、长期离线、外部设置改写、同进程宿主崩溃／强杀、库停止超时、带模态窗口退出。无静默重复登录、无限重试或遗留网络设置。
 - [ ] **S8-03**：复用 S7-10 的 V7 交互／视觉结果，补实际安装包、目标桌面及最终改动的检查：标准菜单／快捷键、键盘焦点、主题／字体／高 DPI、Dock／主窗口恢复及无托盘入口；目标 KDE／GNOME、X11／Wayland 行为可用。实际包按 S7-13 选定的浏览器入口验证认证（现为 WebEngine）、AppImage 最小权限路径及 Windows ARM64 宿主／核心库／所选透明入口的架构与运行；覆盖同进程权限边界。按 V7 实测托盘可用／缺失的桌面、单击恢复和上下文菜单、隐藏后的认证窗口激活及连接状态图标；覆盖默认英文、切换中文及重启后的语言选择。
 - [ ] **S8-04**：运行与改动相符的自动测试和三平台 CI；复用 S2-09 的实际包体积基线及采用 WebEngine 期间的 Windows 包内双语言页面／JavaScript 检查，新增运行库或资源时记录体积变化与必要性。手动生成同一提交的六组开发预览包，核对源码来源、库 ABI、实际宿主自检、动态依赖与可启动性。新增库或合入上游修改同时检查许可证，打包成功不代替 V1—V7。
-- [ ] **S8-05**：更新安装、认证、Clash 共存、冲突选择、恢复和诊断文档，明确已验证范围与限制；README 在使用流程稳定后补写真实内容。按开发说明执行 main／Release 工作流；未配置 Apple 凭据时仅标注临时签名预览，开发者签名与公证必须另有真实通过记录。
+- [ ] **S8-05**：更新安装、认证、Clash 共存、冲突选择、恢复和诊断文档，明确已验证范围与限制；README 在使用流程稳定后补写真实内容。按开发说明执行 main／Release 工作流；开发和发行均可使用 R14 的免申请部署／自动本地签名；若未来取得公开签名可作为独立发行增强，不改变功能验收。说明平台首次打开／授权提示并以实际包验收。
 
 完成条件：V1—V7 全部通过，当前安装包可追溯且文档匹配实际行为；尚未覆盖的系统／学校明确记录，不能以默认值或宣传文字替代验证。发布签名的配置与验证状态独立记录，不冒充已公证。
 
