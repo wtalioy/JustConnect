@@ -42,7 +42,7 @@ int main(int argc, char **argv) {
     if (argc != 3 || strcmp(argv[1], "--registration-probe")) return 0;
     @autoreleasepool {
         SMAppService *service = [SMAppService daemonServiceWithPlistName:[NSString stringWithUTF8String:argv[2]]];
-        if (service.status != SMAppServiceStatusNotRegistered) {
+        if (service.status != SMAppServiceStatusNotRegistered && service.status != SMAppServiceStatusNotFound) {
             fprintf(stderr, "Refuse pre-existing service registration: %ld\\n", (long)service.status);
             return 1;
         }
