@@ -135,6 +135,11 @@ func (c *Client) parseResource(resource []byte) error {
 						}
 						portMax = portMin // Single port means min and max are the same
 					}
+					// Keep exactly the usable destination ports authorized by the server range.
+					portMin, portMax = max(1, portMin), min(65535, portMax)
+					if portMin > portMax {
+						continue
+					}
 
 					// Handle host
 					hostStr := address.Host

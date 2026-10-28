@@ -127,3 +127,41 @@ func TestParseResourceIgnoresUnsupportedAccessModel(t *testing.T) {
 		t.Fatal("unsupported access model unexpectedly became an L3VPN resource")
 	}
 }
+
+func TestResourcePortRangesUseTheSameValidDestinationsAsCapture(t *testing.T) {
+	for _, test := range []struct {
+		port        string
+		first, last int
+	}{
+		{"0-65535", 1, 65535}, {"0-443", 1, 443}, {"65535-65536", 65535, 65535},
+		{"443", 443, 443}, {"0", 0, 0}, {"65536-70000", 0, 0}, {"443-80", 0, 0},
+	} {
+		t.Run(test.port, func(t *testing.T) {
+			policy := []byte(`{"data":{"appList":{"data":{"appInfo":[{"apps":[{"ID":"app","AccessModel":"L3VPN","AddressList":[{"Protocol":"all","Port":"` + test.port + `","Host":"192.0.2.10"},{"Protocol":"tcp","Port":"` + test.port + `","Host":"campus.test","IP":["192.0.2.11"]}]}]}]}}}}`)
+			c := &Client{}
+			if err := c.parseResource(policy); err != nil {
+				t.Fatal(err)
+			}
+			if test.first == 0 {
+				if len(c.ipResources) != 0 || len(c.domainResources) != 0 || len(c.dnsResource) != 0 {
+					t.Fatal("unusable port range published a capture resource")
+				}
+				return
+			}
+			if len(c.ipResources) != 2 || len(c.domainResources["campus.test"]) != 1 || len(c.dnsResource["campus.test"]) != 1 {
+				t.Fatal("valid destinations were lost from IP/domain/static DNS resources")
+			}
+			for _, resource := range c.ipResources {
+				if resource.PortMin != test.first || resource.PortMax != test.last || resource.AppID != "app" {
+					t.Fatal("server range disagrees with the capture contract", resource.PortMin, resource.PortMax)
+				}
+			}
+			for _, port := range []int{1, 80, 443, 65535} {
+				_, allowed := client.MatchDomainResource(c.domainResources["campus.test"], "tcp", port)
+				if allowed != (test.first <= port && port <= test.last) {
+					t.Fatal("normalization changed a valid destination permission", port)
+				}
+			}
+		})
+	}
+}

@@ -462,8 +462,13 @@ QStringList campusDnsDomainsToInstall(const QStringList &domains,const QJsonArra
     return result;
 }
 
-std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &resources, const QJsonObject &policy, const QStringList &dynamicAddresses, const QJsonArray &originalDNS)
+std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &resources, const QJsonObject &policy, const QStringList &dynamicAddresses, const QJsonArray &originalDNS, QString *diagnostic)
 {
+    const auto fail = [&](const QString &reason) -> std::optional<CampusCaptureTargets> {
+        if (diagnostic) *diagnostic = reason;
+        return {};
+    };
+    if (diagnostic) *diagnostic = QStringLiteral("Cannot derive safe campus capture targets: invalid resource or policy input.");
     if (!resources["ip_resources"].isArray() || !resources["domain_resources"].isObject()
         || !resources["dns_records"].isObject() || !resources["campus_dns"].isString()
         || !resources["campus_dns_enabled"].isBool() || !policy["protected"].isArray()
@@ -472,7 +477,7 @@ std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &reso
     const auto domains = resources["domain_resources"].toObject(), records = resources["dns_records"].toObject();
     const auto names = policy["protected_names"].toArray(), campusNames = policy["campus_names"].toArray();
     for (const auto size : {ips.size(), protectedIPs.size(), choices.size(), domains.size(), records.size(), names.size(), campusNames.size(), dynamicAddresses.size()})
-        if (size > MaxModelItems) return {};
+        if (size > MaxModelItems) return fail(QStringLiteral("Campus capture input exceeds the rule limit (%1 > %2).").arg(size).arg(MaxModelItems));
     const auto required = requiredOriginalDnsNames(resources,policy);
     if (!required || originalDNS.size() > MaxModelItems) return {};
     QJsonArray forwarded;
@@ -505,15 +510,19 @@ std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &reso
         }
         return included.size() <= MaxModelItems;
     };
-    for (const auto &entry : ips) {
+    for (qsizetype index = 0; index < ips.size(); ++index) {
+        const auto entry = ips[index];
         if (!entry.isObject()) return {};
         const auto row = entry.toObject();
         const auto protocol = row["protocol"].toString();
         if (protocol == "icmp") continue; // The current transparent ingress carries TCP/UDP only.
-        if (protocol != "all" && protocol != "tcp" && protocol != "udp") return {};
+        if (protocol != "all" && protocol != "tcp" && protocol != "udp")
+            return fail(QStringLiteral("Campus IP resource %1 has an unsupported transport.").arg(index));
         const int firstPort = row["port_min"].toInt(-1), lastPort = row["port_max"].toInt(-1);
-        if (firstPort < 1 || lastPort > 65535 || firstPort > lastPort
-            || !add(row["ip_min"].toString(), row["ip_max"].toString())) return {};
+        if (firstPort < 1 || lastPort > 65535 || firstPort > lastPort)
+            return fail(QStringLiteral("Campus IP resource %1 has an invalid destination port range (%2-%3).").arg(index).arg(firstPort).arg(lastPort));
+        if (!add(row["ip_min"].toString(), row["ip_max"].toString()))
+            return fail(QStringLiteral("Campus IP resource %1 has an invalid address range or exceeds the rule limit.").arg(index));
     }
     for (const auto &address : dynamicAddresses)
         if (!ipv4Number(address) || !add(address,address)) return {};
@@ -577,8 +586,11 @@ std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &reso
     if (remoteDNS) {
         const auto server = resources["campus_dns"].toString();
         const auto address = ipv4Number(server);
-        if (!address || !add(server, server) || std::any_of(excluded.begin(), excluded.end(),
-            [&](const IPv4Range &range) { return range.first <= *address && *address <= range.second; })) return {};
+        if (!address || !add(server, server))
+            return fail(QStringLiteral("The campus DNS server is not a usable IPv4 address."));
+        if (std::any_of(excluded.begin(), excluded.end(),
+            [&](const IPv4Range &range) { return range.first <= *address && *address <= range.second; }))
+            return fail(QStringLiteral("The campus DNS server overlaps a protected original network or original DNS server."));
     }
     for (auto it = records.begin(); it != records.end(); ++it) {
         if (!it.value().isArray()) return {};
@@ -586,8 +598,10 @@ std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &reso
             if (!value.isString() || !add(value.toString(), value.toString())) return {};
     }
     const auto prefixes = prefixesForRanges(subtractRanges(mergedRanges(included), mergedRanges(excluded)));
-    if (!prefixes) return {};
+    if (!prefixes) return fail(QStringLiteral("Campus capture prefixes exceed the rule limit after preserving original networks."));
     result.ipv4Prefixes = *prefixes;
+    if (diagnostic) *diagnostic = prefixes->isEmpty()
+        ? QStringLiteral("No usable campus IPv4 target remains after preserving original networks.") : QString{};
     return result;
 }
 
