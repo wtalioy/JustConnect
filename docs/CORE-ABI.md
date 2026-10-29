@@ -76,7 +76,7 @@ ABI v1 与 JSON schema 版本同步。S2-02 以兼容增补导出 `jc_config_val
 
 原生监听复用相同授权、完整报文、路由确认及有界绑定：受保护名称保留原来源，明确校园选择沿校园 DNS／授权路径；公共查询（含 DNSSEC 根查询）和禁用校园 DNS 后的普通查询保留原来源，不为这些回答新增捕获或校园授权。该能力不修改系统 DNS，也不证明应用已选对原生上下文、安全模式或出口；宿主必须完成这些确认，来源在当前会话内保持不变。
 
-受保护的原名称先走原 DNS，原 AAAA 不受校园 IPv4 限制；`localhost` 永不转发上游。原 A 应答与校园应答复用同一有界绑定表，以名称和方向区分，同一名称／地址重复刷新不新增责任；分别导出 `resources.original_dns_records` 与校园 `dns_records`。`capabilities.original_dns_exclusions` 表示原应答使用 `dns_routes` 的 `exclude:true`，三平台宿主从所属助手当前捕获中扣除这些地址，等待 `Routes` 回读确认后才应答；缺少发布器或撤回失败不得交付可被校园捕获的原地址。业务流量随后使用系统原生路由，不从 DNS 查询网卡推断出口，也不由 Go 重新拨号转发；误入透明入口的已知原方向流量拒绝。原名称保护优先于同 IP 的校园授权／IP 选择；精确校园名称选择才释放该名称的排除，另一受保护名称共享 IP 时仍排除。原方向在 TTL 到期后仍随会话责任导出，校园记录只导出有效 TTL；缺少当前名称保护或容量不足时拒绝，不静默逐出原方向。原发布按名称／地址保留待确认责任，资源读取先取保留集合再取提交绑定，避免确认交接时被重新捕获；它不进入 `active_tun_addresses` 或产生校园授权。Linux 的重叠原生范围及真实端点已通过双架构原生；macOS 静态及 State／DHCP 普通查询源已通过双架构原生，临时／加密来源及 Windows 仍待，边界见[Linux 来源](ARCHITECTURE.md#linux-original-dns-sources)及[macOS 来源](ARCHITECTURE.md#macos-original-dns-sources)。
+受保护的原名称先走原 DNS，原 AAAA 不受校园 IPv4 限制；`localhost` 永不转发上游。原 A 应答与校园应答复用同一有界绑定表，以名称和方向区分，同一名称／地址重复刷新不新增责任；分别导出 `resources.original_dns_records` 与校园 `dns_records`。`capabilities.original_dns_exclusions` 表示原应答使用 `dns_routes` 的 `exclude:true`，三平台宿主从所属助手当前捕获中扣除这些地址，等待 `Routes` 回读确认后才应答；缺少发布器或撤回失败不得交付可被校园捕获的原地址。业务流量随后使用系统原生路由，不从 DNS 查询网卡推断出口，也不由 Go 重新拨号转发；误入透明入口的已知原方向流量拒绝。原名称保护优先于同 IP 的校园授权／IP 选择；精确校园名称选择才释放该名称的排除，另一受保护名称共享 IP 时仍排除。原方向在 TTL 到期后仍随会话责任导出，校园记录只导出有效 TTL；缺少当前名称保护或容量不足时拒绝，不静默逐出原方向。原发布按名称／地址保留待确认责任，资源读取先取保留集合再取提交绑定，避免确认交接时被重新捕获；它不进入 `active_tun_addresses` 或产生校园授权。Linux 的重叠原生范围及真实端点已通过双架构原生；macOS 静态及 State／DHCP 普通查询源已通过双架构原生，临时／加密来源及 Windows 仍待，边界见[Linux 来源](ARCHITECTURE.md#linux-原-dns-来源)及[macOS 来源](ARCHITECTURE.md#macos-原-dns-来源)。
 
 拒绝重复键、未知字段、非规范字段大小写、尾随 JSON、null、超深结构、无效 UTF-8、NUL 和 Unicode 替代字符。超限值不截断、不静默回退。无效输入只返回 `JC_INVALID_ARGUMENT`，不把账户、密码或输入片段写入错误。
 
@@ -213,7 +213,6 @@ S2-03 的 `tls` 可省略（默认验证系统信任链及目标主机名）；`
 
 目标解析仅使用学校资源内置映射或获授权的校园 DNS，不使用来源未知的共享缓存或公共 DNS 回退。`disable_remote_dns` 同样约束保活，自动 DNS 探测报告不可用，指定目标仍可使用资源内置映射或 IP。连接必须命中校园 IP／域名、协议和端口授权，不走原网络。HTTPS 默认校验证书并复用显式学校 CA 策略。单次探测总预算 10 秒且随会话取消。`traffic` 与 `renewal` 结果独立：网页／DNS 探测成功不代表票据续期，临时续期失败保留有效缓存；明确失效报告 `renewal:required`／`authentication:required`，停止一次并交付 `JC_SESSION_INVALID`，不自动登录。
 
-<a id="raw-tun-fd"></a>
 ## 原始 IPv4 TUN fd 接入
 
 正式 Linux／macOS 后端通过 `raw_ipv4_tun_fd:true` 和 `jc_session_attach_tun` 兼容增补 ABI v1；其他平台和测试驱动返回 `JC_UNSUPPORTED`。macOS 原生验收状态见[计划](../plan.md#s4-策略与网络操作的恢复基础)。调用方先由权限助手验证设备来源、连接所有权与所在网络命名空间，完成地址／MTU／启用及所有权恢复准备，再向当前就绪连接代次交付 fd。该调用不配置地址、路由或 DNS，也不表示系统接管已经就绪。

@@ -172,7 +172,7 @@ S3—S5 已收尾，不重复开发或重跑已通过基线；A6 可随用户复
 - [x] **S5-04**：同 IP 默认保护、明确选择校园、撤回原网络及两侧真实受控流量通过；保护不扩大为全部私网，校园失败不偷走直连，不承诺相同 IP 两侧同时访问。
 - [x] **S5-05**：当前入口／DNS／出口／恢复、六架构自动结果和实际包身份已汇总至 `build/reports/v1-matrix.json`；Windows 阶段结论及 S8 未验证格分别记录，未宣称完整 V1 三平台通过。
 
-支持的原 DNS 来源：Linux resolved 静态／link，macOS 静态及 State／DHCP，Windows 本地明文 NRPT（含根／默认来源）。三平台选源、监听、实际解析及恢复已自动验；临时／加密／域管等不支持来源继续保留并明确拒绝。边界见[Linux](docs/ARCHITECTURE.md#linux-original-dns-sources)、[macOS](docs/ARCHITECTURE.md#macos-original-dns-sources)、[Windows](docs/ARCHITECTURE.md#windows-native-helper)。校园 IPv4 受控入口已验，不将其宣称为新增校园 IPv6 能力；原 IPv6／受保护网络继续保留。
+支持的原 DNS 来源：Linux resolved 静态／link，macOS 静态及 State／DHCP，Windows 本地明文 NRPT（含根／默认来源）。三平台选源、监听、实际解析及恢复已自动验；临时／加密／域管等不支持来源继续保留并明确拒绝。边界见[Linux](docs/ARCHITECTURE.md#linux-原-dns-来源)、[macOS](docs/ARCHITECTURE.md#macos-原-dns-来源)、[Windows](docs/ARCHITECTURE.md#windows-原生权限助手)。校园 IPv4 受控入口已验，不将其宣称为新增校园 IPv6 能力；原 IPv6／受保护网络继续保留。
 
 ## S6 Clash 共存原型
 
@@ -251,7 +251,7 @@ V7 逐项记录日常使用要求，包含首次确认服务器、窗口／托�
 | --- | --- |
 | D1 | 同仓 `corelib/` 单一模块直接维护固定上游基线，选择性审查合入，保留来源／许可证，无外部补丁队列 |
 | D2 | Linux TUN／macOS utun fd 交付，Windows 最小 Wintun 包 I/O 桥；三平台 C++ 助手与普通 Qt／Go 数据面已自动验。实机完整矩阵归 S8，共存归 S6 |
-| D3 | Mihomo 自有实例的读取／PATCH／完整 PUT／恢复基线见[接口记录](docs/CORELINK-PROBE.md#mihomo-api-probe)；真实配置来源／所有权、安全增量修改及动态联动仍须 S6／S7 验证，不盲目全量重载 |
+| D3 | Mihomo 自有实例的读取／PATCH／完整 PUT／恢复基线见[接口记录](docs/CORELINK-PROBE.md#mihomo-控制接口隔离核对d3-前置)；真实配置来源／所有权、安全增量修改及动态联动仍须 S6／S7 验证，不盲目全量重载 |
 | D4 | 共存策略用版本化原子库 API，生效代次有确认；旧文件轮询方案退出主路径 |
 | D5 | Unix c-archive／Windows 固定 c-shared DLL 与普通权限设备／独立恢复已验；不重复试探失败静态组合，其余平台实机部署归 S8 |
 
@@ -286,7 +286,7 @@ S0—S5 已有收尾复查覆盖调用方、测试／夹具、配置／资源、
 | 旧锁、Linux 已交付 schema 2／捕获 v1 恢复 | 仍承接旧进程／持久责任，只保留恢复；停止支持可能遗留这些记录的版本／进程后删除 |
 | 安全／边界／失败／取消／平台／真实协议回归 | 保留独有契约，仅合并重复与替身自检；不通过删失败断言或扩大跳过收尾 |
 | WebEngine、SingleApplication、Qt／gVisor 资源与隐式回调 | 当前有运行调用；WebEngine 仅在 S7-13 替代验证后删除对应依赖／资源／专属测试，跨后端安全回归保留 |
-| 固定 Wintun SDK 唤醒适配 | 官方包尚缺已定位修复；保持官方签名／固定哈希与严格布局验证，官方修复包发布并验收后删除，见[依据](docs/ARCHITECTURE.md#wintun-wakeup) |
+| 固定 Wintun SDK 唤醒适配 | 官方包尚缺已定位修复；保持官方签名／固定哈希与严格布局验证，官方修复包发布并验收后删除，见[依据](docs/ARCHITECTURE.md#wintun-唤醒适配) |
 | 原生设备／crash／managed／包交接夹具 | 仍被 CI 调用且有独有断言；正式替代验证并核对实际调用后再清理，不为目录对称增加后端 |
 | KDE 凭据 URL 的 CLI 限制 | 保留现有 shortcut，确需原生 writer 时再升级，不把凭据交给命令行 |
 
