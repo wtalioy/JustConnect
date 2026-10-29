@@ -12,6 +12,7 @@ import (
 	tun "github.com/mythologyli/sing-tun"
 	socketdialer "github.com/wtalioy/JustConnect/corelib/internal/dialer"
 	"github.com/wtalioy/JustConnect/corelib/internal/mihomo"
+	"github.com/wtalioy/JustConnect/corelib/internal/networkstate"
 
 	"github.com/sagernet/sing/common/logger"
 )
@@ -395,21 +396,17 @@ var findDefaultInterface = detectDefaultInterface
 
 // The pre-VPN control socket identifies its real exit, including an overlay interface.
 func interfaceForSource(source netip.Addr) string {
-	interfaces, err := net.Interfaces()
+	interfaces, err := networkstate.Interfaces()
 	if err != nil {
 		return ""
 	}
 	var selected string
 	for _, iface := range interfaces {
-		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+		if !iface.Up || iface.Loopback {
 			continue
 		}
-		addresses, err := iface.Addrs()
-		if err != nil {
-			return ""
-		}
-		for _, address := range addresses {
-			prefix, err := netip.ParsePrefix(address.String())
+		for _, address := range iface.Addresses {
+			prefix, err := netip.ParsePrefix(address)
 			if err == nil && prefix.Addr().Unmap() == source {
 				if selected != "" && selected != iface.Name {
 					return ""
@@ -449,30 +446,30 @@ func usableInterface(interfaceName string, excludedIPs []net.IP) bool {
 	if interfaceName == "" {
 		return false
 	}
-	iface, err := net.InterfaceByName(interfaceName)
-	if err != nil || iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
-		return false
-	}
-	if len(excludedIPs) == 0 {
-		return true
-	}
-	addresses, err := iface.Addrs()
+	interfaces, err := networkstate.Interfaces()
 	if err != nil {
 		return false
 	}
-	for _, address := range addresses {
-		var interfaceIP net.IP
-		switch value := address.(type) {
-		case *net.IPNet:
-			interfaceIP = value.IP
-		case *net.IPAddr:
-			interfaceIP = value.IP
+	for _, iface := range interfaces {
+		if iface.Name != interfaceName {
+			continue
 		}
-		for _, excludedIP := range excludedIPs {
-			if interfaceIP != nil && interfaceIP.Equal(excludedIP) {
+		if !iface.Up || iface.Loopback {
+			return false
+		}
+		for _, address := range iface.Addresses {
+			prefix, err := netip.ParsePrefix(address)
+			if err != nil {
 				return false
 			}
+			for _, excludedIP := range excludedIPs {
+				excluded, ok := netip.AddrFromSlice(excludedIP)
+				if ok && prefix.Addr().Unmap() == excluded.Unmap() {
+					return false
+				}
+			}
 		}
+		return true
 	}
-	return true
+	return false
 }

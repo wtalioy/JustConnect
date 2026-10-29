@@ -5,6 +5,7 @@ package dialer
 import (
 	"context"
 	"encoding/binary"
+	"golang.org/x/sys/windows"
 	"net"
 	"strings"
 	"syscall"
@@ -17,7 +18,7 @@ const (
 )
 
 func BindInterface(dialer *net.Dialer, interfaceName string) error {
-	iface, err := net.InterfaceByName(interfaceName)
+	index, err := interfaceIndex(interfaceName)
 	if err != nil {
 		return err
 	}
@@ -26,11 +27,11 @@ func BindInterface(dialer *net.Dialer, interfaceName string) error {
 		err := conn.Control(func(fd uintptr) {
 			handle := syscall.Handle(fd)
 			if strings.HasSuffix(network, "6") {
-				bindErr = syscall.SetsockoptInt(handle, syscall.IPPROTO_IPV6, ipv6UnicastIf, iface.Index)
+				bindErr = syscall.SetsockoptInt(handle, syscall.IPPROTO_IPV6, ipv6UnicastIf, int(index))
 				return
 			}
 			var bytes [4]byte
-			binary.BigEndian.PutUint32(bytes[:], uint32(iface.Index))
+			binary.BigEndian.PutUint32(bytes[:], index)
 			index := *(*uint32)(unsafe.Pointer(&bytes[0]))
 			bindErr = syscall.SetsockoptInt(handle, syscall.IPPROTO_IP, ipUnicastIf, int(index))
 		})
@@ -40,4 +41,30 @@ func BindInterface(dialer *net.Dialer, interfaceName string) error {
 		return bindErr
 	}
 	return nil
+}
+
+var ipHelper = windows.NewLazySystemDLL("iphlpapi.dll")
+var aliasToLuid = ipHelper.NewProc("ConvertInterfaceAliasToLuid")
+var luidToIndex = ipHelper.NewProc("ConvertInterfaceLuidToIndex")
+
+func interfaceIndex(name string) (uint32, error) {
+	if name == "" {
+		return 0, windows.ERROR_INVALID_PARAMETER
+	}
+	alias, err := windows.UTF16PtrFromString(name)
+	if err != nil {
+		return 0, err
+	}
+	var luid uint64
+	if status, _, _ := aliasToLuid.Call(uintptr(unsafe.Pointer(alias)), uintptr(unsafe.Pointer(&luid))); status != 0 {
+		return 0, syscall.Errno(status)
+	}
+	var index uint32
+	if status, _, _ := luidToIndex.Call(uintptr(unsafe.Pointer(&luid)), uintptr(unsafe.Pointer(&index))); status != 0 {
+		return 0, syscall.Errno(status)
+	}
+	if index == 0 {
+		return 0, windows.ERROR_INVALID_DATA
+	}
+	return index, nil
 }
