@@ -262,7 +262,8 @@ void ConnectionSession::stopCore()
 
 void ConnectionSession::networkFailure(const PlatformOperationResult &result)
 {
-    if (result.status != PlatformOperationResult::Status::Cancelled)
+    // User-requested teardown failures remain retryable; confirmed recovery resolves that error.
+    if (sessionState.wantsConnection() && result.status != PlatformOperationResult::Status::Cancelled)
         sessionState.recordError(result.status == PlatformOperationResult::Status::PermissionDenied
             ? ConnectionError::PERMISSION_DENIED : ConnectionError::OTHER);
     emit diagnostic(result.detail);
