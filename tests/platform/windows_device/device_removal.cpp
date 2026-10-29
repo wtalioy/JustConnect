@@ -14,8 +14,11 @@
 
 namespace Fixture {
 GUID owner{0x12345678,0x1234,0x5678,{1,2,3,4,5,6,7,8}};
-ULONGLONG now=0,detachedAt=100,interfaceGoneAt=150;
+ULONGLONG now=0,detachedAt=100,interfaceGoneAt=150,downAt=10000;
 bool node=true,veto=false,retainNode=false,foreign=false,abandoned=false;
+bool addressRemains=false,routeRemains=false;
+DWORD addressStatus=NO_ERROR,routeStatus=NO_ERROR;
+IF_OPER_STATUS detachedState=IfOperStatusDown;
 CONFIGRET locateStatus=CR_SUCCESS;
 CONFIGRET uninstallStatus=CR_SUCCESS,nodeStatus=CR_SUCCESS;
 int removals=0;
@@ -38,7 +41,19 @@ LSTATUS query(HKEY,LPCWSTR,LPDWORD,LPDWORD type,LPBYTE data,LPDWORD size){
     *type=REG_SZ;*size=sizeof(value);std::memcpy(data,value,sizeof(value));return ERROR_SUCCESS;
 }
 DWORD interfaces(MIB_IF_TABLE2 **out){
-    static MIB_IF_TABLE2 table{};table.NumEntries=now<interfaceGoneAt?1:0;table.Table[0].InterfaceGuid=owner;*out=&table;return NO_ERROR;
+    static MIB_IF_TABLE2 table{};table.NumEntries=now<interfaceGoneAt?1:0;table.Table[0].InterfaceGuid=owner;
+    table.Table[0].InterfaceLuid.Value=42;table.Table[0].OperStatus=now>=downAt?detachedState:IfOperStatusUp;
+    *out=&table;return NO_ERROR;
+}
+DWORD addresses(ADDRESS_FAMILY family,MIB_UNICASTIPADDRESS_TABLE **out){
+    check(family==AF_UNSPEC,"recovery ignored an address family");
+    static MIB_UNICASTIPADDRESS_TABLE table{};table.NumEntries=1;table.Table[0].InterfaceLuid.Value=addressRemains?42:99;
+    table.Table[0].Address.si_family=AF_INET6;*out=&table;return addressStatus;
+}
+DWORD routes(ADDRESS_FAMILY family,MIB_IPFORWARD_TABLE2 **out){
+    check(family==AF_UNSPEC,"recovery ignored a route family");
+    static MIB_IPFORWARD_TABLE2 table{};table.NumEntries=1;table.Table[0].InterfaceLuid.Value=routeRemains?42:99;
+    table.Table[0].DestinationPrefix.Prefix.si_family=AF_INET6;*out=&table;return routeStatus;
 }
 CONFIGRET locate(PDEVINST device,PWSTR name,ULONG flags){
     check(name==id() && flags==CM_LOCATE_DEVNODE_NORMAL,"detach query changed device identity or cancelled removal");
@@ -64,13 +79,14 @@ CONFIGRET status(PULONG,PULONG,DEVINST device,ULONG flags){
     return now<detachedAt?CR_SUCCESS:CR_NO_SUCH_DEVNODE;
 }
 CONFIGRET removePersistent(DEVINST device,ULONG flags){
-    check(device==2 && flags==0 && now>=detachedAt && now>=interfaceGoneAt,"persistent removal raced unplug or crossed owned identity");
+    check(device==2 && flags==0 && now>=detachedAt
+        && (now>=interfaceGoneAt || (now>=downAt && !addressRemains && !routeRemains)),"persistent removal raced unplug or crossed owned identity");
     ++removals;
     if(uninstallStatus!=CR_SUCCESS)return uninstallStatus;
     if(!retainNode)node=false;
     return CR_SUCCESS;
 }
-void reset(){now=0;detachedAt=100;interfaceGoneAt=150;node=true;veto=retainNode=foreign=abandoned=false;locateStatus=uninstallStatus=nodeStatus=CR_SUCCESS;removals=0;}
+void reset(){now=0;detachedAt=100;interfaceGoneAt=150;downAt=10000;detachedState=IfOperStatusDown;node=true;veto=retainNode=foreign=abandoned=addressRemains=routeRemains=false;addressStatus=routeStatus=NO_ERROR;locateStatus=uninstallStatus=nodeStatus=CR_SUCCESS;removals=0;}
 }
 
 // Substitute native calls only in this test translation unit; no host device/registry mutation.
@@ -82,6 +98,8 @@ void reset(){now=0;detachedAt=100;interfaceGoneAt=150;node=true;veto=retainNode=
 #define RegQueryValueExW Fixture::query
 #define RegCloseKey(...) ERROR_SUCCESS
 #define GetIfTable2Ex(level,table) Fixture::interfaces(table)
+#define GetUnicastIpAddressTable Fixture::addresses
+#define GetIpForwardTable2 Fixture::routes
 #define FreeMibTable(...) ((void)0)
 #define CM_Locate_DevNodeW Fixture::locate
 #define CM_Get_DevNode_Status Fixture::status
@@ -95,6 +113,26 @@ void reset(){now=0;detachedAt=100;interfaceGoneAt=150;node=true;veto=retainNode=
 int main() try
 {
     using namespace Fixture;
+    for(const auto state:{IfOperStatusDown,IfOperStatusNotPresent}){
+        reset();node=false;detachedAt=downAt=0;interfaceGoneAt=10000;detachedState=state;
+        finishWindowsAdapterClose(owner);
+        check(now==0 && !windowsAdapterPresent(owner),"empty disconnected interface bookkeeping delayed confirmed PnP removal");
+    }
+    reset();detachedAt=downAt=0;interfaceGoneAt=10000;
+    finishWindowsAdapterClose(owner);
+    check(!node && removals==1 && now==0,"empty bookkeeping blocked persistent phantom cleanup");
+    for(int scenario=0;scenario<4;++scenario){
+        reset();node=false;detachedAt=downAt=0;interfaceGoneAt=10000;
+        if(scenario==0)addressRemains=true;
+        if(scenario==1)routeRemains=true;
+        if(scenario==2)addressStatus=ERROR_ACCESS_DENIED;
+        if(scenario==3)routeStatus=ERROR_ACCESS_DENIED;
+        bool failed=false;
+        try{finishWindowsAdapterClose(owner);}catch(const std::system_error &error){
+            failed=true;check(error.code().value()==(scenario<2?ERROR_TIMEOUT:ERROR_ACCESS_DENIED),"detached interface lost failure classification");
+        }
+        check(failed && (scenario<2?now==5000:now==0),"interface configuration or unreadable state was accepted as restored");
+    }
     reset();finishWindowsAdapterClose(owner);
     check(!node && !veto && removals==1 && now==150,"uninstall raced asynchronous software-device unplug");
     reset();detachedAt=interfaceGoneAt=0;finishWindowsAdapterClose(owner);
@@ -103,7 +141,7 @@ int main() try
     check(removals==0 && now==150,"interface-only teardown was not confirmed");
     for(int scenario=0;scenario<4;++scenario){
         reset();
-        if(scenario==0)detachedAt=10000;
+        if(scenario==0){detachedAt=10000;downAt=0;}
         if(scenario==1)retainNode=true;
         if(scenario==2)foreign=true;
         if(scenario==3)locateStatus=CR_ACCESS_DENIED;
@@ -126,6 +164,6 @@ int main() try
     reset();nodeStatus=CR_ACCESS_DENIED;denied=false;
     try{finishWindowsAdapterClose(owner);}catch(const std::system_error &error){denied=error.code().value()==ERROR_ACCESS_DENIED;}
     check(denied && node && removals==0,"unreadable node state still triggered removal");
-    std::cout<<"PASS: live unplug and dead-helper recovery distinguish present removal from phantom state; one deadline, foreign identity, read/uninstall failures preserved\n";
+    std::cout<<"PASS: empty disconnected NSI records do not delay confirmed PnP removal; live nodes, active interfaces, IPv6 addresses/routes, foreign identity, failures and one deadline remain guarded\n";
     return 0;
 }catch(const std::exception &error){std::cerr<<error.what()<<'\n';return 1;}
