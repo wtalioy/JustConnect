@@ -32,6 +32,32 @@
 static void check(bool ok,const char *message) {
     if (!ok) {std::cerr << message << '\n';std::exit(1);}
 }
+class RecoveryNetwork : public NetworkAccess {
+public:
+    QUuid attempt;
+    void prepare(const QUuid &id) override {attempt=id;}
+    void activate(const QUuid &,const ConnectionProfile &) override {}
+    void stop(const QUuid &) override {}
+};
+static void recoveryStatus(ApplicationLogger &logger,ApplicationLogFile &log) {
+    MainWindow window(&logger,&log,nullptr,[](CoreEngine *,NetworkPolicySession *) -> NetworkAccess * {return new RecoveryNetwork;});
+    auto *session=window.findChild<ConnectionSession *>();auto *network=static_cast<RecoveryNetwork *>(session->findChild<NetworkAccess *>());
+    check(session->start({},{}),"start isolated network recovery presentation");
+    emit network->prepared(network->attempt,{PlatformOperationResult::Status::Failed,"fixture preparation failure",false});
+    emit network->stopped(network->attempt,{PlatformOperationResult::Status::TimedOut,"fixture recovery timeout",true});
+    auto *title=window.findChild<QLabel *>("statusTitleLabel");
+    check(title->text()=="网络恢复未完成" && session->isActive(),"unconfirmed recovery remains visible and active");
+    session->stop();
+    bool errorShown=false;QTimer acknowledgeError;
+    QObject::connect(&acknowledgeError,&QTimer::timeout,&window,[&]{
+        for(auto *widget:QApplication::topLevelWidgets())if(auto *box=qobject_cast<QMessageBox *>(widget);box && box->isVisible()){
+            errorShown=true;box->accept();
+        }
+    });acknowledgeError.start(1);
+    emit network->stopped(network->attempt,{});acknowledgeError.stop();
+    check(!session->isActive() && session->state()==ConnectionState::Failed && errorShown
+        && title->text()=="已断开","confirmed recovery distinguishes released capture from its retained earlier error");
+}
 int main(int argc,char **argv) {
     QApplication app(argc,argv);
 #ifdef Q_OS_UNIX
@@ -55,6 +81,7 @@ int main(int argc,char **argv) {
     {
         ProfileManager manager;
         QSettings settings(manager.profilePath(""),QSettings::IniFormat);DefaultSettings::reset(settings);settings.sync();
+        if(app.arguments().size()==1)recoveryStatus(logger,log);
         // UI preference tests retain the real core without requesting host network privileges.
         MainWindow window(&logger,&log,nullptr,[](CoreEngine *,NetworkPolicySession *) -> NetworkAccess * { return nullptr; });
         check(window.isVisible(),"normal startup must show the main window");

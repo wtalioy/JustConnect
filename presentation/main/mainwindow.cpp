@@ -538,8 +538,13 @@ void MainWindow::updateConnectionState(ConnectionState state)
         break;
     case ConnectionState::Failed:
         propertyValue = "failed";
-        title = connectionSession->phase()==ConnectionPhase::ReauthenticationRequired ? "需要重新认证" : "连接失败";
-        detail = "请查看右侧日志，确认网络与账户配置。";
+        if(connectionSession->phase()==ConnectionPhase::NetworkRestoring){
+            title="已断开";
+            detail="接管恢复已确认；此前的错误请查看右侧日志。";
+        }else{
+            title = connectionSession->phase()==ConnectionPhase::ReauthenticationRequired ? "需要重新认证" : "连接失败";
+            detail = "请查看右侧日志，确认网络与账户配置。";
+        }
         break;
     }
 

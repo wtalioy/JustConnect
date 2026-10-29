@@ -290,7 +290,12 @@ int wmain(int argc,wchar_t **argv) try
     }
     notice("configured",device->identity(),instance);
     if (mode==L"crash") { Sleep(INFINITE);return 1; }
-    return exchange(*device,argv[5],mode);
+    const auto result=exchange(*device,argv[5],mode);
+    device.reset();
+    HMODULE cleanup=nullptr;
+    if(!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,argv[2],&cleanup))
+        fail("Wintun cleanup code unloaded before the helper exited");
+    return result;
 } catch (const std::exception &error) {
     std::cerr << error.what() << '\n';
     return 1;

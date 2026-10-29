@@ -95,6 +95,11 @@ std::unique_ptr<WindowsTunDevice> WindowsTunDevice::create(const std::wstring &d
     device->release = procedure<WINTUN_RELEASE_RECEIVE_PACKET_FUNC>(device->module,"WintunReleaseReceivePacket");
     device->allocate = procedure<WINTUN_ALLOCATE_SEND_PACKET_FUNC>(device->module,"WintunAllocateSendPacket");
     device->send = procedure<WINTUN_SEND_PACKET_FUNC>(device->module,"WintunSendPacket");
+    // Wintun queues cleanup on close; its callbacks and heap must survive until this helper exits.
+    HMODULE resident=nullptr;
+    if(!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_PIN,
+        reinterpret_cast<LPCWSTR>(createAdapter),&resident))fail("retain Wintun cleanup code");
+    if(resident!=device->module)fail("Wintun cleanup module differs",ERROR_INVALID_DATA);
     wchar_t guid[39]{};
     if (!StringFromGUID2(owner, guid, static_cast<int>(std::size(guid)))) fail("format owned adapter identity",ERROR_INVALID_PARAMETER);
     device->owned.name = std::wstring(L"JustConnect ")+guid;
