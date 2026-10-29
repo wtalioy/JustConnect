@@ -261,7 +261,7 @@ WindowsNetworkRecord WindowsNetworkRecovery::ownedRecord(const GUID &owner)
 void WindowsNetworkRecovery::beginOwnedRestore(const GUID &owner)
 {
     WindowsNetworkLock lock;auto record=ownedRecord(owner);
-    if(record.phase!=WindowsRecoveryPhase::Restored){beginRestore(record);if(record.dns)record.dns->restoreSystem();}
+    if(record.phase!=WindowsRecoveryPhase::Restored){beginRestore(record);restoreCampusDNS(record);}
 }
 void WindowsNetworkRecovery::restoreOriginalDNS(const GUID &owner)
 {
@@ -271,11 +271,22 @@ void WindowsNetworkRecovery::restoreOriginalDNS(const GUID &owner)
 }
 void WindowsNetworkRecovery::restoreOriginalDNS(WindowsNetworkRecord &record)
 {
-    for(auto &entry:record.originalDNS){
-        if(entry.released)continue;
-        entry.restoreSystem();entry.released=true;
+    const auto released=[](const auto &entry){return entry.released;};
+    if(std::all_of(record.originalDNS.begin(),record.originalDNS.end(),released))return;
+    const auto before=std::count_if(record.originalDNS.begin(),record.originalDNS.end(),released);
+    std::exception_ptr failure;
+    try{WindowsDNS::restoreSystem(record.originalDNS);}catch(...){failure=std::current_exception();}
+    // Persist finished sources even if a later source fails; subsequent owners must remain untouched.
+    if(before!=std::count_if(record.originalDNS.begin(),record.originalDNS.end(),released))
         journal.write(record.owner,encodeWindowsNetworkRecord(record));
-    }
+    if(failure)std::rethrow_exception(failure);
+}
+void WindowsNetworkRecovery::restoreCampusDNS(WindowsNetworkRecord &record)
+{
+    if(!record.dns)return;
+    record.dns->restoreSystem();
+    record.dns.reset();
+    journal.write(record.owner,encodeWindowsNetworkRecord(record));
 }
 void WindowsNetworkRecovery::beginRestore(WindowsNetworkRecord &record)
 {
@@ -287,7 +298,7 @@ bool WindowsNetworkRecovery::restoreRecord(WindowsNetworkRecord &record,const st
 {
     beginRestore(record);
     std::exception_ptr failure;
-    try{if(record.dns)record.dns->restoreSystem();}catch(...){failure=std::current_exception();}
+    try{restoreCampusDNS(record);}catch(...){failure=std::current_exception();}
     try{release();}catch(...){if(!failure)failure=std::current_exception();}
     // Restore original providers only after the owned captures/device have been released.
     if(!windowsAdapterPresent(record.adapter))try{restoreOriginalDNS(record);}catch(...){if(!failure)failure=std::current_exception();}

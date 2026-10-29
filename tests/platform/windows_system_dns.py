@@ -36,7 +36,10 @@ def verify(executable):
                     except socket.timeout:
                         continue
                     try:
-                        endpoint.sendto(dns_answer(query, hostname, ipv4=answer_ip), sender)
+                        answer = dns_answer(query, hostname, ipv4=answer_ip, ignore_unrelated=True)
+                        if answer is None:
+                            answer = dns_answer(query, 'batch.' + hostname, ipv4=answer_ip)
+                        endpoint.sendto(answer, sender)
                         queries.append(hostname)
                     except BaseException as error:
                         failures.append(str(error))

@@ -48,6 +48,7 @@ private:
     bool restoreRecord(WindowsNetworkRecord &record,const std::function<void()> &release);
     WindowsNetworkRecord ownedRecord(const GUID &owner);
     void beginRestore(WindowsNetworkRecord &record);
+    void restoreCampusDNS(WindowsNetworkRecord &record);
     void restoreOriginalDNS(WindowsNetworkRecord &record);
     WindowsRegistryJournal journal;
 };

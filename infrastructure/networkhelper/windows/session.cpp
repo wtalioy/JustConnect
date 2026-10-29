@@ -116,8 +116,7 @@ std::unique_ptr<WindowsNetworkSession> WindowsNetworkSession::apply(const std::w
     session->device=WindowsTunDevice::create(driver,record.adapter,configuration.source,configuration.peer,configuration.mtu,configuration.captures,
         [&](const auto &identity){if(identity.guid!=record.adapter)fail("adapter departed from write-ahead ownership");});
     const auto configured=GetTickCount64();
-    if(record.dns)record.dns->applySystem();
-    for(const auto &entry:record.originalDNS)entry.applySystem();
+    WindowsDNS::applySystem(record.dns,record.originalDNS);
     session->setupTimes={declared-started,configured-declared,GetTickCount64()-configured};
     session->packets=WindowsPacketPipe::create(windowsPacketPipeName(owner),caller);
     auto *active=session.get();

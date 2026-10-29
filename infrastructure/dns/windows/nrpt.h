@@ -4,8 +4,7 @@
 #include <string>
 #include <vector>
 #include <cstdint>
-
-namespace WindowsDNS { void refreshCache(); }
+#include <optional>
 
 struct WindowsDnsRule {
     GUID id{},marker{};
@@ -38,3 +37,10 @@ struct WindowsNrptRedirect {
     void applySystem() const;
     void restoreSystem() const;
 };
+
+namespace WindowsDNS {
+void refreshCache();
+void applySystem(const std::optional<WindowsDnsRule> &campus,const std::vector<WindowsNrptRedirect> &originals);
+// Completed entries are marked only after cache refresh, including progress before a later failure.
+void restoreSystem(std::vector<WindowsNrptRedirect> &originals);
+}
