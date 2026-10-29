@@ -15,6 +15,7 @@
 #include <set>
 #include <system_error>
 #include <limits>
+#include <exception>
 
 namespace {
 static_assert(WindowsDNS::EnableDoh==DNS_ENABLE_DOH && WindowsDNS::EnableDot==DNS_ENABLE_DOT
@@ -381,10 +382,7 @@ void WindowsDnsRule::restore(HKEY parent) const
 
 void WindowsDnsRule::applySystem() const
 {
-    unmanagedPolicy();
-    Key parent;parent.value=policyParent(true);
-    apply(parent.value);
-    refresh();
+    WindowsDNS::applySystem(*this,{});
 }
 void WindowsDnsRule::restoreSystem() const
 {
@@ -478,18 +476,54 @@ void WindowsNrptRedirect::restore(HKEY parent) const
 }
 void WindowsNrptRedirect::applySystem() const
 {
-    unmanagedPolicy();localListener(server);
-    if(plainGlobalPolicy(servers())!=globalPolicy)fail("original DNS security changed before write",ERROR_NOT_SUPPORTED);
-    Key parent;parent.value=policyParent(false);
-    if(!parent.value)fail("original DNS provider disappeared",ERROR_NOT_FOUND);
-    apply(parent.value);refresh();
-    if(plainGlobalPolicy(servers())!=globalPolicy)fail("original DNS security changed during write",ERROR_NOT_SUPPORTED);
+    WindowsDNS::applySystem(std::nullopt,{*this});
 }
 void WindowsNrptRedirect::restoreSystem() const
 {
-    Key parent;parent.value=policyParent(false);
-    if(parent.value)restore(parent.value);
-    refresh();
+    std::vector<WindowsNrptRedirect> pending{*this};WindowsDNS::restoreSystem(pending);
 }
 
 void WindowsDNS::refreshCache(){refresh();}
+
+void WindowsDNS::applySystem(const std::optional<WindowsDnsRule> &campus,const std::vector<WindowsNrptRedirect> &originals)
+{
+    if(!campus && originals.empty())return;
+    bool writing=false;
+    try{
+        if(campus){
+            unmanagedPolicy();Key parent;parent.value=policyParent(true);
+            writing=true;campus->apply(parent.value);
+        }
+        for(const auto &entry:originals){
+            unmanagedPolicy();localListener(entry.server);
+            if(plainGlobalPolicy(entry.servers())!=entry.globalPolicy)fail("original DNS security changed before write",ERROR_NOT_SUPPORTED);
+            Key parent;parent.value=policyParent(false);
+            if(!parent.value)fail("original DNS provider disappeared",ERROR_NOT_FOUND);
+            writing=true;entry.apply(parent.value);
+            if(plainGlobalPolicy(entry.servers())!=entry.globalPolicy)fail("original DNS security changed during write",ERROR_NOT_SUPPORTED);
+        }
+    }catch(...){
+        if(writing)try{refresh();}catch(...){}
+        throw;
+    }
+    refresh();
+}
+
+void WindowsDNS::restoreSystem(std::vector<WindowsNrptRedirect> &originals)
+{
+    std::vector<size_t> completed;completed.reserve(originals.size());
+    std::exception_ptr failure;bool pending=false;
+    try{
+        for(size_t i=0;i<originals.size();++i){
+            if(originals[i].released)continue;
+            pending=true;Key parent;parent.value=policyParent(false);
+            if(parent.value)originals[i].restore(parent.value);
+            completed.push_back(i);
+        }
+    }catch(...){failure=std::current_exception();}
+    if(pending)try{
+        refresh();
+        for(const auto i:completed)originals[i].released=true;
+    }catch(...){if(!failure)failure=std::current_exception();}
+    if(failure)std::rethrow_exception(failure);
+}

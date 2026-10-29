@@ -216,9 +216,10 @@ void WindowsNetworkHelperClient::request(Operation next,const QUuid &owner,const
                     phase="connect packet channel";
                     connection->connectPackets(id);
                     const auto times=result.device["setup_ms"].toArray();
-                    qInfo().noquote()<<QStringLiteral("Windows network apply stages: ownership %1 ms, adapter/routes %2 ms, DNS %3 ms; %4 capture prefixes")
+                    qInfo().noquote()<<QStringLiteral("Windows network apply stages: ownership %1 ms, adapter/routes %2 ms, DNS %3 ms; %4 capture prefixes, %5 campus DNS scopes, %6 original DNS providers")
                         .arg(times[0].toInteger()).arg(times[1].toInteger()).arg(times[2].toInteger())
-                        .arg(expected["capture_prefixes"].toArray().size());
+                        .arg(expected["capture_prefixes"].toArray().size()).arg(expected["dns_domains"].toArray().size())
+                        .arg(expected["original_dns"].toArray().size());
                 }
                 if(next==Operation::Restore)connection->closePackets();
                 if(next==Operation::Close){

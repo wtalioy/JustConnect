@@ -86,11 +86,27 @@ int wmain(int argc,wchar_t **argv) try
         std::cout<<"PASS: native known NRPT DoH and DoT upstreams cannot be redirected as plaintext\n";
     }
     struct RestoreRedirect {const WindowsNrptRedirect &value;~RestoreRedirect(){try{value.restoreSystem();}catch(const std::exception &error){std::cerr<<"redirect cleanup: "<<error.what()<<'\n';}}} redirectCleanup{redirect};
-    redirect.applySystem();
+    const auto campusName=L"batch."+std::wstring(argv[2]);
+    const auto campus=WindowsDnsRule::create({campusName},listener);
+    Restore restoreCampus{campus};
+    ordinaryQuery(campusName.c_str(),L"203.0.113.9");
+    auto stale=redirect;stale.original=L"192.0.2.253";
+    bool refused=false;
+    try{WindowsDNS::applySystem(campus,{stale});}
+    catch(const std::system_error &error){refused=error.code().value()==ERROR_ACCESS_DENIED;}
+    check(refused,"batched DNS update accepted a stale original provider");
+    ordinaryQuery(argv[2],L"203.0.113.9");
+    ordinaryQuery(campusName.c_str(),L"203.0.113.10");
+    campus.restoreSystem();
+    ordinaryQuery(campusName.c_str(),L"203.0.113.9");
+    WindowsDNS::applySystem(campus,{redirect});
     ordinaryQuery(argv[2],L"203.0.113.10");
+    ordinaryQuery(campusName.c_str(),L"203.0.113.10");
     redirect.restoreSystem();
     ordinaryQuery(argv[2],L"203.0.113.9");
+    ordinaryQuery(campusName.c_str(),L"203.0.113.10");
+    campus.restoreSystem();
     rule.restoreSystem();
-    std::cout<<"PASS: ordinary cached GetAddrInfoW follows original NRPT, redirected listener and restored endpoint; localhost preserved\n";
+    std::cout<<"PASS: ordinary cached DNS follows batched campus/original updates, partial failure and restoration; localhost preserved\n";
     return 0;
 } catch(const std::exception &error){std::cerr<<error.what()<<'\n';return 1;}
