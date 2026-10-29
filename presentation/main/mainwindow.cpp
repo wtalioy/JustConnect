@@ -522,9 +522,9 @@ void MainWindow::updateConnectionState(ConnectionState state)
             : "通道与本地代理可用；校园访问接管尚未就绪。";
         break;
     case ConnectionState::Stopping:
-        propertyValue = "stopping";
-        title = "正在断开";
-        detail = "正在安全关闭当前连接。";
+        propertyValue = connectionSession->networkRecoveryFailed() ? "failed" : "stopping";
+        title = connectionSession->networkRecoveryFailed() ? "网络恢复未完成" : "正在断开";
+        detail = connectionSession->networkRecoveryFailed() ? "恢复未完成，请点击“重试恢复”。" : "正在安全关闭当前连接。";
         break;
     case ConnectionState::Reconnecting:
         propertyValue = "reconnecting";

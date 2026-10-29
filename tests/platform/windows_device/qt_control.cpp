@@ -91,13 +91,19 @@ int main(int argc,char **argv) try
     if(args[3]=="network"){
         WSADATA sockets{};check(WSAStartup(MAKEWORD(2,2),&sockets)==0,"ordinary network fixture sockets");
         struct CleanupSockets{~CleanupSockets(){WSACleanup();}} cleanupSockets;
+        auto scaled=[](const QString &first){
+            QStringList prefixes{first};
+            for(int i=1;i<=183;++i)prefixes.append(QStringLiteral("203.0.113.%1/32").arg(i));
+            return prefixes;
+        };
         const QJsonObject configuration{{"address","198.18.0.1"},{"peer","198.18.0.2"},{"mtu",1400},
-            {"capture_prefixes",QJsonArray{"198.18.0.6/32"}},{"dns_domains",QJsonArray{session.toString(QUuid::WithoutBraces)+".invalid"}},
+            {"capture_prefixes",QJsonArray::fromStringList(scaled("198.18.0.6/32"))},{"dns_domains",QJsonArray{session.toString(QUuid::WithoutBraces)+".invalid"}},
             {"original_dns",QJsonArray{}}};
         client.apply(configuration);wait(WindowsNetworkHelperClient::Operation::Apply);
         const auto device=client.ownedDevice();
         check(client.state()==WindowsNetworkHelperClient::State::Active && client.packetPipeHandle() && client.helperPID(),"actual network attachment metadata");
-        check(captured(device,L"198.18.0.6") && dnsPresent(device),"actual capture and DNS not active");
+        check(captured(device,L"198.18.0.6") && captured(device,L"203.0.113.1") && captured(device,L"203.0.113.183") && dnsPresent(device),"scaled capture and DNS not active");
+        client.reconcile({"198.18.0.6/32"});wait(WindowsNetworkHelperClient::Operation::Routes);
         HANDLE data=nullptr;check(DuplicateHandle(GetCurrentProcess(),reinterpret_cast<HANDLE>(quintptr(client.packetPipeHandle())),GetCurrentProcess(),&data,0,FALSE,DUPLICATE_SAME_ACCESS),"ordinary core packet pipe duplicate");
         std::exception_ptr error;std::atomic<int> packets=0;
         std::jthread pump([&]{try{while(packets<3){
@@ -124,8 +130,10 @@ int main(int argc,char **argv) try
         client.reconcile({"198.18.0.7/32"});wait(WindowsNetworkHelperClient::Operation::Routes);
         check(client.ownedConfiguration()["capture_prefixes"].toArray()==QJsonArray{"198.18.0.7/32"},"confirmed replacement was not retained by the ordinary client");
         check(!captured(device,L"198.18.0.6") && captured(device,L"198.18.0.7"),"capture replacement did not preserve its intended set");
+        client.reconcile(scaled("198.18.0.7/32"));wait(WindowsNetworkHelperClient::Operation::Routes);
+        check(captured(device,L"203.0.113.183"),"scaled capture replacement was not applied");
         client.quiesce();wait(WindowsNetworkHelperClient::Operation::Quiesce);
-        check(!captured(device,L"198.18.0.7") && !dnsPresent(device) && client.state()==WindowsNetworkHelperClient::State::Quiesced,"capture/DNS were not released before core stop");
+        check(!captured(device,L"198.18.0.7") && !captured(device,L"203.0.113.1") && !captured(device,L"203.0.113.183") && !dnsPresent(device) && client.state()==WindowsNetworkHelperClient::State::Quiesced,"scaled capture/DNS were not released before core stop");
         client.inspect(session);wait(WindowsNetworkHelperClient::Operation::Inspect);
         bool restoring=false;for(const auto &item:client.pendingOwners())if(QUuid(item.toObject()["owner"].toString())==session)restoring=item.toObject()["phase"]=="restoring";
         check(restoring,"capture release did not preserve its durable restore intent");

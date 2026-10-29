@@ -173,6 +173,27 @@ bool networkLossReleasesCoreWithoutRepeatingFailedRecovery()
     return !session.isActive() && finishes == 2 && engine->stopCalls == 1;
 }
 
+bool failedRecoveryCanRetryWhileCoreStopIsPending()
+{
+    auto *engine = new FakeCoreEngine;
+    auto *network = new FakeNetworkAccess;
+    ConnectionSession session(engine,nullptr,network);
+    int finishes=0;
+    QObject::connect(&session,&ConnectionSession::finished,[&](ConnectionError){++finishes;});
+    if(!session.start({},{}))return false;
+    emit network->prepared(network->attempt,{});
+    engine->establishConnection();emit network->ready(network->attempt,{});
+    emit network->lost(network->attempt,{PlatformOperationResult::Status::TimedOut,"helper operation timeout",true});
+    emit network->stopped(network->attempt,{PlatformOperationResult::Status::TimedOut,"recovery pending",true});
+    if(engine->stopCalls!=1 || network->stops!=1 || !session.networkRecoveryFailed())return false;
+    session.stop();session.stop();
+    if(network->stops!=2 || engine->stopCalls!=1 || session.networkRecoveryFailed()){qWarning()<<"Pending core stop prevented explicit recovery retry";return false;}
+    emit network->stopped(network->attempt,{});
+    if(!session.isActive() || finishes)return false;
+    engine->complete();
+    return !session.isActive() && finishes==1;
+}
+
 bool restoresBeforeReconnectAndDoesNotLoopAuthorization()
 {
     auto *engine = new FakeCoreEngine;
@@ -507,6 +528,7 @@ int main(int argc, char *argv[])
         && ordersNetworkOwnershipAroundTheCore()
         && stagedNetworkReleaseWaitsForCoreAndFinalReceipt()
         && networkLossReleasesCoreWithoutRepeatingFailedRecovery()
+        && failedRecoveryCanRetryWhileCoreStopIsPending()
         && restoresBeforeReconnectAndDoesNotLoopAuthorization()
         && progressUsesObservedEventsAndRejectsLateResults()
         && cancellingBackoffPreventsLateRestart()

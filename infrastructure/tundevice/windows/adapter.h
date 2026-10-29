@@ -38,6 +38,7 @@ public:
     void write(const unsigned char *packet, size_t size);
     void close();
 private:
+    friend struct WindowsTunDeviceTest;
     WindowsTunDevice() = default;
     void configure(IN_ADDR source, IN_ADDR peer, const std::vector<WindowsTunPrefix> &targets);
     WindowsTunIdentity owned;
@@ -50,7 +51,7 @@ private:
     std::vector<WindowsTunPrefix> captures;
     std::atomic<bool> closed{false};
     std::shared_mutex lifetime;
-    std::mutex readLock, writeLock;
+    std::mutex readLock, writeLock, routeLock;
     std::once_flag closedOnce;
     WINTUN_CLOSE_ADAPTER_FUNC *closeAdapter = nullptr;
     WINTUN_END_SESSION_FUNC *endSession = nullptr;

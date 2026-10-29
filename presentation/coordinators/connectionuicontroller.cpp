@@ -136,6 +136,9 @@ ConnectionUiController::ConnectionUiController(
     });
     connect(connectionSession, &ConnectionSession::progressChanged, this, [this] {
         if (this->connectionSession->phase() != ConnectionPhase::NetworkRestoring) return;
+        const auto label=this->connectionSession->networkRecoveryFailed()?"重试恢复":"断开服务器";
+        this->connectButton->setText(label);
+        this->trayConnectAction->setText(label);
         ++proxyGeneration;
         autoProxyPending = false;
         this->proxyButton->hide();

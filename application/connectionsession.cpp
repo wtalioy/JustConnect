@@ -169,7 +169,7 @@ void ConnectionSession::stop()
     }
 
     if (engineNeedsStop) emit stateChanged(sessionState.state());
-    if (state() != ConnectionState::Stopping || waitingCoreStop) return;
+    if (state() != ConnectionState::Stopping || (waitingCoreStop && networkRestore != NetworkRestoreState::Failed)) return;
     if (!networkStopped) stopNetwork();
     else stopCore();
 }

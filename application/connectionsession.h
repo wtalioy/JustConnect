@@ -52,6 +52,7 @@ public:
     ConnectionPhase phase() const { return currentPhase; }
     SessionObservation observation(const QString &stage) const { return observations.value(stage); }
     bool isActive() const;
+    bool networkRecoveryFailed() const { return networkRestore == NetworkRestoreState::Failed; }
     int reconnectAttempt() const { return sessionState.reconnectAttempt(); }
     ProxyOptions proxyOptions() const { return currentProfile.proxy; }
     KeepAliveOptions keepAliveOptions() const { return currentProfile.keepAlive; }
