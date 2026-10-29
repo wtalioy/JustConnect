@@ -20,9 +20,10 @@ func fixtureAdapters() *windows.IpAdapterAddresses {
 	name, _ := windows.UTF16PtrFromString("loopback fixture")
 	description, _ := windows.UTF16PtrFromString("native description")
 	second, _ := windows.UTF16PtrFromString("IPv6 only fixture")
-	v4 := &windows.RawSockaddrInet4{Family: windows.AF_INET, Addr: [4]byte{127, 0, 0, 1}}
-	v6 := &windows.RawSockaddrInet6{Family: windows.AF_INET6, Addr: [16]byte{0xfd, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9}}
-	addresses := &windows.IpAdapterUnicastAddress{OnLinkPrefixLength: 64, Address: windows.SocketAddress{Sockaddr: (*syscall.RawSockaddrAny)(unsafe.Pointer(v6)), SockaddrLength: int32(unsafe.Sizeof(*v6))}, Next: &windows.IpAdapterUnicastAddress{OnLinkPrefixLength: 8, Address: windows.SocketAddress{Sockaddr: (*syscall.RawSockaddrAny)(unsafe.Pointer(v4)), SockaddrLength: int32(unsafe.Sizeof(*v4))}}}
+	v4, v6 := &syscall.RawSockaddrAny{}, &syscall.RawSockaddrAny{}
+	*(*windows.RawSockaddrInet4)(unsafe.Pointer(v4)) = windows.RawSockaddrInet4{Family: windows.AF_INET, Addr: [4]byte{127, 0, 0, 1}}
+	*(*windows.RawSockaddrInet6)(unsafe.Pointer(v6)) = windows.RawSockaddrInet6{Family: windows.AF_INET6, Addr: [16]byte{0xfd, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9}}
+	addresses := &windows.IpAdapterUnicastAddress{OnLinkPrefixLength: 64, Address: windows.SocketAddress{Sockaddr: v6, SockaddrLength: int32(unsafe.Sizeof(windows.RawSockaddrInet6{}))}, Next: &windows.IpAdapterUnicastAddress{OnLinkPrefixLength: 8, Address: windows.SocketAddress{Sockaddr: v4, SockaddrLength: int32(unsafe.Sizeof(windows.RawSockaddrInet4{}))}}}
 	return &windows.IpAdapterAddresses{IfIndex: 7, FriendlyName: name, Description: description, OperStatus: windows.IfOperStatusUp, IfType: windows.IF_TYPE_SOFTWARE_LOOPBACK, FirstUnicastAddress: addresses, Next: &windows.IpAdapterAddresses{Ipv6IfIndex: 91, FriendlyName: second}}
 }
 
