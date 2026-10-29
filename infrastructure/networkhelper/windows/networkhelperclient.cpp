@@ -199,18 +199,26 @@ void WindowsNetworkHelperClient::request(Operation next,const QUuid &owner,const
                     const auto value=result.device["guid"].toString();const QUuid uuid(value);
                     bool valid=false;const auto luid=result.device["luid"].toString().toULongLong(&valid);
                     const auto index=result.device["index"].toInteger(0);
-                    if(result.device.size()!=9 || uuid.isNull() || text(uuid)!=value || !valid || !luid || QString::number(luid)!=result.device["luid"].toString()
+                    if(result.device.size()!=10 || uuid.isNull() || text(uuid)!=value || !valid || !luid || QString::number(luid)!=result.device["luid"].toString()
                         || index<=0 || index>MAXDWORD || result.device["name"].toString().isEmpty())throw std::runtime_error("Invalid owned device identity");
                     const auto dns=result.device["dns_id"];
                     if(!dns.isNull() && (QUuid(dns.toString()).isNull() || text(QUuid(dns.toString()))!=dns.toString()))throw std::runtime_error("Invalid owned DNS identity");
                     if(!result.device["original_dns"].isArray() || !WindowsNetworkOwnership::bindingsMatch(candidate,result.device["original_dns"].toArray()))
                         throw std::runtime_error("Original DNS bindings differ from the requested snapshot");
+                    const auto times=result.device["setup_ms"].toArray();
+                    if(times.size()!=3)throw std::runtime_error("Invalid Windows setup timings");
+                    for(const auto &time:times)if(time.toInteger(-1)<0 || time.toInteger(-1)>MAXDWORD)
+                        throw std::runtime_error("Invalid Windows setup timing");
                 }
                 if(next==Operation::Apply){
                     const auto expected=payload["configuration"].toObject();
                     if(result.device["address"]!=expected["address"] || result.device["peer"]!=expected["peer"] || result.device["mtu"]!=expected["mtu"])throw std::runtime_error("Applied device configuration differs");
                     phase="connect packet channel";
                     connection->connectPackets(id);
+                    const auto times=result.device["setup_ms"].toArray();
+                    qInfo().noquote()<<QStringLiteral("Windows network apply stages: ownership %1 ms, adapter/routes %2 ms, DNS %3 ms; %4 capture prefixes")
+                        .arg(times[0].toInteger()).arg(times[1].toInteger()).arg(times[2].toInteger())
+                        .arg(expected["capture_prefixes"].toArray().size());
                 }
                 if(next==Operation::Restore)connection->closePackets();
                 if(next==Operation::Close){

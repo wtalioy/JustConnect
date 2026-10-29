@@ -278,6 +278,25 @@ int wmain(int argc,wchar_t **argv) try
         notice("allocated",identity,instance);
     });
     if (instanceId(owner)!=instance) fail("configured PnP identity changed",ERROR_INVALID_DATA);
+    if(mode==L"connected"){
+        MIB_IPFORWARD_ROW2 foreign{};InitializeIpForwardEntry(&foreign);
+        foreign.InterfaceLuid=device->identity().luid;
+        foreign.DestinationPrefix.Prefix.Ipv4.sin_family=AF_INET;
+        foreign.DestinationPrefix.Prefix.Ipv4.sin_addr.S_un.S_addr=htonl(0xc61200fe);
+        foreign.DestinationPrefix.PrefixLength=32;
+        foreign.NextHop.Ipv4.sin_family=AF_INET;foreign.NextHop.Ipv4.sin_addr=peer;
+        foreign.Metric=7;foreign.Protocol=MIB_IPPROTO_NETMGMT;
+        foreign.Loopback=FALSE;foreign.AutoconfigureAddress=FALSE;foreign.Publish=FALSE;foreign.Immortal=TRUE;
+        if(CreateIpForwardEntry2(&foreign)!=NO_ERROR)fail("create foreign capture fixture",ERROR_INVALID_DATA);
+        bool rejected=false;
+        try{device->reconcile({{foreign.DestinationPrefix.Prefix.Ipv4.sin_addr,32}});}
+        catch(const std::system_error &error){rejected=error.code().value()==ERROR_OBJECT_ALREADY_EXISTS;}
+        device->reconcile({});
+        auto confirmed=foreign;
+        if(!rejected || GetIpForwardEntry2(&confirmed)!=NO_ERROR || confirmed.Metric!=foreign.Metric)
+            fail("capture creation adopted or changed a pre-existing route",ERROR_INVALID_DATA);
+        if(DeleteIpForwardEntry2(&foreign)!=NO_ERROR)fail("remove foreign capture fixture",ERROR_INVALID_DATA);
+    }
     if (mode==L"setup-failure") {
         MIB_IPFORWARD_TABLE2 *routes=nullptr;
         const auto status=GetIpForwardTable2(AF_INET,&routes);

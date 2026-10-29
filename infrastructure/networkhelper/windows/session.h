@@ -2,6 +2,7 @@
 #include "infrastructure/tundevice/windows/adapter.h"
 #include "infrastructure/networkhelper/windows/recovery.h"
 #include <atomic>
+#include <array>
 #include <thread>
 
 class WindowsPacketPipe;
@@ -23,6 +24,7 @@ public:
     WindowsNetworkSession(const WindowsNetworkSession &)=delete;
     WindowsNetworkSession &operator=(const WindowsNetworkSession &)=delete;
     const WindowsTunIdentity &identity() const{return device->identity();}
+    const std::array<ULONGLONG,3> &setupMilliseconds() const{return setupTimes;}
     void reconcile(const std::vector<WindowsTunPrefix> &captures,bool refreshDNS=false);
     void quiesce();
     void restore();
@@ -37,4 +39,5 @@ private:
     std::thread relay;
     std::atomic<bool> quiet{false},stopping{false};
     bool declared=false,restored=false;
+    std::array<ULONGLONG,3> setupTimes{};
 };
