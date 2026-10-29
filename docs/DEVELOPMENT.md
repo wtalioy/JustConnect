@@ -120,7 +120,7 @@ ctest --test-dir build/coreabi -C Release -R coreabi_performance_test --output-o
 
 ### S1-11 历史测量基线
 
-代码 `6db2c06` 的[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/39412404160)已通过。正常节点摘要如下；完整 CPU／时延、慢节点、重连和历史包体积见[固定版本原始测量](https://github.com/wtalioy/JustConnect/blob/9a3b729/docs/DEVELOPMENT.md#s1-11-历史测量基线)，当前包体积见 [S2-09](../plan.md#s2-09-closeout)。
+代码 `6db2c06` 的[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/39412404160)已通过。正常节点摘要如下；完整 CPU／时延、慢节点、重连和历史包体积见[固定版本原始测量](https://github.com/wtalioy/JustConnect/blob/9a3b729/docs/DEVELOPMENT.md#s1-11-历史测量基线)，S2-09 瘦身体积见[固定版本测量](https://github.com/wtalioy/JustConnect/blob/adc3c1f/plan.md#s2-09-closeout)，当前实际包报告见[计划基线](../plan.md#当前验收基线)。
 
 | 平台 | 峰值 RSS MiB | TCP／UDP MiB/s |
 | --- | ---: | ---: |
