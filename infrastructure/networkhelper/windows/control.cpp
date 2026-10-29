@@ -79,6 +79,9 @@ JsonObject metadata(const WindowsNetworkSession &session,const WindowsNetworkCon
         original.Append(binding);
     }
     value.SetNamedValue(L"original_dns",original);
+    JsonArray times;
+    for(const auto elapsed:session.setupMilliseconds())times.Append(JsonValue::CreateNumberValue(static_cast<double>(elapsed)));
+    value.SetNamedValue(L"setup_ms",times);
     return value;
 }
 }

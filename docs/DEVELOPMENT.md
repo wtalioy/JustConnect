@@ -192,6 +192,8 @@ Windows 包单独构建静态 CRT 的 C++ 助手，`WindowsNetworkHelper` 安装
 
 ### Windows MagicDNS 实测
 
+Windows 日志中的 `network apply stages` 给出所有权记录、设备／路由、DNS 三段耗时及捕获前缀数量；`network apply` 是完整助手操作耗时，认证和交互授权另计。比较同一机器的普通连接／断开，保留这些行即可定位耗时，不能用 CI 延迟代替校园实测。新增路由由系统创建 API 原子拒绝重复项，创建后的身份／属性回读和删除前核对继续保留。
+
 [MagicDNS](https://tailscale.com/docs/features/magicdns) 为 Tailscale 设备提供名称。保持 Tailscale 开启，先在 PowerShell 列出已有设备：
 
 ```powershell

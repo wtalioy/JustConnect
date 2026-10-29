@@ -101,6 +101,7 @@ WindowsNetworkConfiguration decodeWindowsNetworkConfiguration(const std::string 
 std::unique_ptr<WindowsNetworkSession> WindowsNetworkSession::apply(const std::wstring &driver,const GUID &owner,
     const WindowsProcess &caller,const WindowsNetworkConfiguration &configuration,WindowsPacketPipe &control)
 {
+    const auto started=GetTickCount64();
     WindowsNetworkLock lock;
     WindowsTunDevice::validate(configuration.source,configuration.peer,configuration.mtu,configuration.captures);
     if(configuration.dns && (!configuration.dns->valid() || configuration.dns->server.S_un.S_addr!=configuration.peer.S_un.S_addr))fail("DNS is not owned by the private device");
@@ -111,10 +112,13 @@ std::unique_ptr<WindowsNetworkSession> WindowsNetworkSession::apply(const std::w
     WindowsProcess current(GetCurrentProcessId());record.helper=current.identity();
     if(FAILED(CoCreateGuid(&record.adapter)))fail("allocate owned adapter identity");
     session->recovery.declare(record);session->declared=true;
+    const auto declared=GetTickCount64();
     session->device=WindowsTunDevice::create(driver,record.adapter,configuration.source,configuration.peer,configuration.mtu,configuration.captures,
         [&](const auto &identity){if(identity.guid!=record.adapter)fail("adapter departed from write-ahead ownership");});
+    const auto configured=GetTickCount64();
     if(record.dns)record.dns->applySystem();
     for(const auto &entry:record.originalDNS)entry.applySystem();
+    session->setupTimes={declared-started,configured-declared,GetTickCount64()-configured};
     session->packets=WindowsPacketPipe::create(windowsPacketPipeName(owner),caller);
     auto *active=session.get();
     session->relay=std::thread([active,&caller,&control,mtu=configuration.mtu]{

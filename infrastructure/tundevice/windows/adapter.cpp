@@ -187,7 +187,7 @@ void WindowsTunDevice::reconcile(const std::vector<WindowsTunPrefix> &targets)
         if(std::any_of(captures.begin(),captures.end(),[&](const auto &item){return same(item,target);}))continue;
         // Campus destinations are remote; on-link prefixes synthesize conflicting local broadcasts.
         auto route=ownedRoute(owned.luid,target,peer);
-        if(present(route))fail("refuse pre-existing capture route",ERROR_ALREADY_EXISTS);
+        // Creation rejects existing routes atomically; only its success grants ownership.
         checked(CreateIpForwardEntry2(&route),"create owned IPv4 capture");
         captures.push_back(target);
         if(!present(route))fail("new owned capture disappeared",ERROR_NOT_FOUND);
