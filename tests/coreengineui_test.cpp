@@ -557,6 +557,41 @@ static void authenticationSurvivesTunnelFailure() {
     emit engine->finished(ConnectionError::NONE);
 }
 
+static void failedNetworkRecoveryOffersRetryWhileCoreStops() {
+    class Network : public NetworkAccess {
+    public:
+        QUuid attempt;int stops=0;
+        void prepare(const QUuid &id) override {attempt=id;}
+        void activate(const QUuid &,const ConnectionProfile &) override {}
+        void stop(const QUuid &) override {++stops;}
+    };
+    QTemporaryDir folder;QSettings settings(folder.filePath("recovery.ini"),QSettings::IniFormat);DefaultSettings::reset(settings);
+    QWidget parent;QPushButton connectButton(&parent),proxyButton(&parent);QAction trayAction(&parent);
+    auto *engine=new QueryEngine;auto *network=new Network;
+    ConnectionSession session(engine,nullptr,network);SystemProxySession proxy(std::make_unique<ProxyBackend>());
+    AuthDialogCoordinator dialogs(&parent);ApplicationLogger logger;CredentialAccess access(std::make_unique<MemoryCredentialStore>());
+    ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,&access,
+        [&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},[](const QString &,const QString &,QSystemTrayIcon::MessageIcon){},nullptr,noOfficialClient);
+    check(session.start({},{}),"start network recovery UI fixture");
+    emit network->prepared(network->attempt,{});emit engine->connectionEstablished();emit network->ready(network->attempt,{});
+    connectButton.click();
+    check(network->stops==1,"one normal disconnect starts one recovery");
+    emit network->stopped(network->attempt,{PlatformOperationResult::Status::TimedOut,"helper timeout",true});
+    check(connectButton.text()=="重试恢复" && trayAction.text()=="重试恢复" && session.isActive(),"failed restore offers an explicit retry and keeps ownership");
+    connectButton.click();connectButton.click();
+    check(network->stops==2 && connectButton.text()=="断开服务器","retry starts once and replaces the failed presentation");
+    emit network->quiesced(network->attempt);
+    bool errorShown=false;QTimer closeError;
+    QObject::connect(&closeError,&QTimer::timeout,&parent,[&]{
+        for(auto *widget:QApplication::topLevelWidgets())if(auto *box=qobject_cast<QMessageBox *>(widget);box && box->isVisible()){
+            errorShown=true;box->accept();
+        }
+    });closeError.start(1);
+    emit engine->finished(ConnectionError::NONE);emit network->stopped(network->attempt,{});
+    closeError.stop();
+    check(errorShown && !session.isActive() && connectButton.text()=="连接服务器" && trayAction.text()=="连接服务器","successful retry completes ordered cleanup and preserves the original error");
+}
+
 static void quitWaitsForAuthenticationQueryWithoutBlockingTheGui() {
     QTemporaryDir folder;QSettings settings(folder.filePath("query-quit.ini"),QSettings::IniFormat);DefaultSettings::reset(settings);settings.sync();
     QWidget parent;QPushButton connectButton(&parent),proxyButton(&parent);QAction trayAction(&parent);
@@ -1229,5 +1264,5 @@ int main(int argc, char **argv) {
         qputenv("QT_QUICK_BACKEND", "software");
     QApplication app(argc, argv);
     if (argc == 3 && QByteArray(argv[1]) == "--gateway") gateway(QJsonDocument::fromJson(argv[2]).object());
-    else { browserCookiesStayInLoginDialog(); browserValidatesCallbackNavigation(); uiContracts(); proxyWaitsForReady(); manualCredentialsAndLateResults(); authenticationCacheLifecycle(); onlineExpiryOffersOneReauthentication(); officialClientWarningIsReadOnlyAndDropsCancelledResults(); authenticationSurvivesTunnelFailure(); quitWaitsForInitialSsoCache(); quitWaitsForAuthenticationQueryWithoutBlockingTheGui(); quitWaitsForNetworkInspectionWithoutBlockingTheGui(); }
+    else { failedNetworkRecoveryOffersRetryWhileCoreStops(); browserCookiesStayInLoginDialog(); browserValidatesCallbackNavigation(); uiContracts(); proxyWaitsForReady(); manualCredentialsAndLateResults(); authenticationCacheLifecycle(); onlineExpiryOffersOneReauthentication(); officialClientWarningIsReadOnlyAndDropsCancelledResults(); authenticationSurvivesTunnelFailure(); quitWaitsForInitialSsoCache(); quitWaitsForAuthenticationQueryWithoutBlockingTheGui(); quitWaitsForNetworkInspectionWithoutBlockingTheGui(); }
 }

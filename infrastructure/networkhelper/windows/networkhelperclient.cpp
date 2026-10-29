@@ -6,6 +6,8 @@
 #include "windowsnetworkcontract.h"
 #include <QCoreApplication>
 #include <QDir>
+#include <QElapsedTimer>
+#include <QDebug>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QPointer>
@@ -160,18 +162,31 @@ void WindowsNetworkHelperClient::request(Operation next,const QUuid &owner,const
     worker.setFuture(QtConcurrent::run([connection,id,owner,next,payload,candidate]{
         Reply result;
         result.configuration=candidate;
+        QElapsedTimer elapsed;elapsed.start();
+        const char *phase="connect control channel";
+        auto failed=[&](DWORD code){
+            auto value=failure(code);
+            value.detail=QStringLiteral("Windows network %1 failed during %2 (%3, %4 ms).")
+                .arg(name(next),phase).arg(code).arg(elapsed.elapsed());
+            return value;
+        };
         try{
             auto pipe=connection->connection(id);
             QJsonObject request{{"version",int(WindowsNetworkContract::Protocol)},{"session",text(id)},{"operation",name(next)},{"owner",owner.isNull()?QJsonValue(QJsonValue::Null):QJsonValue(text(owner))}};
             for(auto field=payload.begin();field!=payload.end();++field)request.insert(field.key(),field.value());
+            phase="send control request";
             sendWindowsControlMessage(*pipe,QJsonDocument(request).toJson(QJsonDocument::Compact).toStdString());
+            phase="await helper response";
             const auto response=receiveWindowsControlMessage(*pipe,WindowsNetworkContract::ControlTimeoutMs);
             const auto reply=QJsonDocument::fromJson(QByteArray::fromStdString(response)).object();
             if(reply.size()!=7 || reply["version"].toInteger(-1)!=WindowsNetworkContract::Protocol || reply["session"].toString()!=text(id)
                 || reply["operation"].toString()!=name(next) || !reply["ok"].isBool() || !reply["error"].isDouble() || !reply["owners"].isArray()
                 || (!reply["device"].isNull() && !reply["device"].isObject()))
                 throw std::runtime_error("Invalid Windows control response");
-            if(!reply["ok"].toBool())result.result=failure(static_cast<DWORD>(reply["error"].toInteger(ERROR_INVALID_DATA)));
+            if(!reply["ok"].toBool()){
+                phase="execute helper operation";
+                result.result=failed(static_cast<DWORD>(reply["error"].toInteger(ERROR_INVALID_DATA)));
+            }
             else{
                 if(reply["error"].toInteger(-1)!=0)throw std::runtime_error("Inconsistent Windows control response");
                 for(const auto &item:reply["owners"].toArray()){
@@ -194,10 +209,12 @@ void WindowsNetworkHelperClient::request(Operation next,const QUuid &owner,const
                 if(next==Operation::Apply){
                     const auto expected=payload["configuration"].toObject();
                     if(result.device["address"]!=expected["address"] || result.device["peer"]!=expected["peer"] || result.device["mtu"]!=expected["mtu"])throw std::runtime_error("Applied device configuration differs");
+                    phase="connect packet channel";
                     connection->connectPackets(id);
                 }
                 if(next==Operation::Restore)connection->closePackets();
                 if(next==Operation::Close){
+                    phase="confirm helper exit";
                     const unsigned char received=1;pipe->write(&received,1,WindowsNetworkContract::ControlTimeoutMs);
                     const HANDLE waits[]{connection->server,connection->cancelled};
                     const auto state=WaitForMultipleObjects(2,waits,FALSE,WindowsNetworkContract::ControlTimeoutMs);
@@ -205,9 +222,11 @@ void WindowsNetworkHelperClient::request(Operation next,const QUuid &owner,const
                     DWORD code=1;if(!GetExitCodeProcess(connection->server,&code) || code!=0)throw std::runtime_error("Windows control close failed");
                 }
             }
-        }catch(const std::system_error &error){result.result=failure(error.code().value());}
+        }catch(const std::system_error &error){result.result=failed(error.code().value());}
         catch(const std::exception &){result.result={Status::Failed,"Invalid Windows network control response."};}
         if(!result.result.succeeded())result.result.mayHaveChanged=next!=Operation::Inspect;
+        if(next!=Operation::Routes && next!=Operation::Extend)
+            qInfo().noquote()<<QStringLiteral("Windows network %1: %2, %3 ms").arg(name(next),result.result.succeeded()?"completed":"failed").arg(elapsed.elapsed());
         if(!result.result.succeeded() || next==Operation::Close)connection->stop();
         return result;
     }));

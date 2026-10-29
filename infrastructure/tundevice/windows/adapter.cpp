@@ -168,7 +168,8 @@ void WindowsTunDevice::configure(IN_ADDR source, IN_ADDR peer, const std::vector
 void WindowsTunDevice::reconcile(const std::vector<WindowsTunPrefix> &targets)
 {
     validate(source,peer,mtu,targets);
-    std::lock_guard<std::mutex> serial(writeLock);
+    // Capture withdrawal must remain possible while the data writer waits for ring capacity.
+    std::lock_guard<std::mutex> serial(routeLock);
     std::shared_lock<std::shared_mutex> active(lifetime);
     if(closed)fail("owned adapter stopped",ERROR_OPERATION_ABORTED);
     MIB_IF_ROW2 identity{};identity.InterfaceLuid=owned.luid;
