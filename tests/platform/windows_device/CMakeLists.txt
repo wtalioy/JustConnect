@@ -25,6 +25,12 @@ target_link_libraries(windows_fixture_support PUBLIC windows_helper_support)
 add_executable(windows_device_broker broker.cpp)
 target_link_libraries(windows_device_broker PRIVATE windows_fixture_support setupapi uuid psapi)
 
+add_executable(windows_device_removal_test device_removal.cpp)
+target_include_directories(windows_device_removal_test PRIVATE "${REPO}")
+target_compile_features(windows_device_removal_test PRIVATE cxx_std_17)
+target_compile_definitions(windows_device_removal_test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0A00)
+target_link_libraries(windows_device_removal_test PRIVATE ole32 cfgmgr32)
+
 foreach(CASE IN ITEMS process_identity registry_journal packet_frame nrpt installation recovery system_dns control session session_wakeup device_concurrency)
     add_executable(windows_${CASE}_test ${CASE}.cpp)
     target_link_libraries(windows_${CASE}_test PRIVATE windows_helper_support windows_fixture_support)

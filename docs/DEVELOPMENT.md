@@ -190,6 +190,23 @@ Windows 包单独构建静态 CRT 的 C++ 助手，`WindowsNetworkHelper` 安装
 
 在原生平台运行 `go -C corelib test -mod=readonly -count=1 -run '^TestNativeProtectedOriginalDNS$' -v ./service`；跨编译时使用 `go test -c` 并将同一环境变量交给目标机器上的测试程序。未提供快照时仅此项显式跳过；提供后必须真正执行。测试把同名校园映射设为不同地址，要求原源答案和原方向发布不被覆盖；各传输的记录数与直接上游比较，包括真实 NODATA，不由节点的 IPv6 地址推断它必有 AAAA。桌面实际接管／恢复仍另验。
 
+### Windows MagicDNS 实测
+
+[MagicDNS](https://tailscale.com/docs/features/magicdns) 为 Tailscale 设备提供名称。保持 Tailscale 开启，先在 PowerShell 列出已有设备：
+
+```powershell
+$ts = tailscale status --json | ConvertFrom-Json
+$ts.Peer.PSObject.Properties.Value | Select-Object HostName,DNSName
+```
+
+选一条实际 `DNSName`，在 JustConnect 连接前、校园接管就绪后、断开恢复确认后分别运行：
+
+```powershell
+Resolve-DnsName '替换为那条DNSName' -Type A -DnsOnly
+```
+
+三次应返回相同设备的 Tailscale 地址；若该设备提供 SSH，再用相同名称连接，验证实际访问。记录所用包版本和三个阶段的结果。若 `tailscale` 不在 PATH，可将首条命令中的它改为 `& "$env:ProgramFiles\Tailscale\tailscale.exe"`。此检查不替代校园／普通出口、桌面授权和注销验收。
+
 ## 任务与验证记录
 
 每个工作单元先验证、独立提交，再更新任务状态；未完成要求不得提前勾选。CI、安装包自检、受控网关和真实校园／桌面结果分开记录。最新证据只维护在计划，历史过程由 Git 追溯，不在本文追加流水或另存重复历史文档。README 待 [S8](../plan.md#s8) 流程稳定后补写。

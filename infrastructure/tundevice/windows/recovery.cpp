@@ -66,6 +66,21 @@ bool windowsAdapterPresent(const GUID &adapter)
 }
 void restoreWindowsAdapter(const GUID &adapter)
 {
+    const auto deadline=GetTickCount64()+RemovalTimeoutMs;
+    const auto pending=[&]{
+        if(GetTickCount64()>=deadline)fail("owned Wintun removal remains pending",ERROR_TIMEOUT);
+        Sleep(50);
+    };
+    auto identity=instance(adapter);
+    for(;;){
+        DEVINST device=0;
+        const auto status=CM_Locate_DevNodeW(&device,identity.data(),CM_LOCATE_DEVNODE_NORMAL);
+        if(status!=CR_SUCCESS && status!=CR_NO_SUCH_DEVNODE)
+            fail("read owned Wintun unplug state",CM_MapCrToWin32Err(status,ERROR_GEN_FAILURE));
+        // SwDeviceClose unplugs asynchronously; uninstalling mid-unplug can set a pending-reboot veto.
+        if(status==CR_NO_SUCH_DEVNODE && !interfacePresent(adapter))break;
+        pending();
+    }
     {
         Node node(adapter);
         if (node.found) {
@@ -77,10 +92,5 @@ void restoreWindowsAdapter(const GUID &adapter)
                 || !SetupDiCallClassInstaller(DIF_REMOVE,node.devices,&node.device)) fail("remove abandoned owned Wintun node");
         }
     }
-    // SwDeviceClose initiates asynchronous PnP removal; never publish a receipt before it settles.
-    const auto deadline=GetTickCount64()+RemovalTimeoutMs;
-    while(windowsAdapterPresent(adapter)) {
-        if(GetTickCount64()>=deadline)fail("owned Wintun removal remains pending",ERROR_TIMEOUT);
-        Sleep(50);
-    }
+    while(windowsAdapterPresent(adapter))pending();
 }

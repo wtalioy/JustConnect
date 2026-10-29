@@ -182,6 +182,8 @@ Linux 系统助手由 `infrastructure/networkhelper/linux/helper` 独立构建�
 
 Windows 的 C++ 部件按职责放在 `tundevice/windows`、`packetpipe/windows`、`networkhelper/windows`、`networkjournal/windows`、`dns/windows` 与 `process/windows`。Wintun 使用同一已校验归档的官方头文件及原生结构；创建前拒绝已存在的身份，配置后回读，分配通知先于地址／路由修改。助手持有适配器与环，普通 Qt／Go 通过实际 PID／SID 校验的本地字节管道收发 IPv4；关闭取消并等待 I/O，再释放所属设备。C++ 两方向复用事件与包缓冲，Go 同样复用方向事件／OVERLAPPED 和发包缓冲，避免逐包创建内核事件与分配完整帧；Unix 仍直接移交 fd。
 
+Wintun 的关闭会排队执行 SDK 清理回调，DLL 由助手固定至进程退出，避免提前卸载回调代码及全局堆；依据 [QueueUserWorkItem 的 DLL 生命周期要求](https://learn.microsoft.com/en-us/windows/win32/api/threadpoollegacyapiset/nf-threadpoollegacyapiset-queueuserworkitem)。[SwDeviceClose](https://learn.microsoft.com/en-us/windows/win32/api/swdevice/nf-swdevice-swdeviceclose) 发起异步拔除：恢复先确认指定实例不再配置且 IP 接口已消失，再按原 UUID／NetCfgInstanceId 验证并卸载非在场节点，最后回读完整消失后发布恢复回执。拔除与卸载确认共用原有五秒预算，权限错误、外部身份变化及未消失状态均保留责任。
+
 原生 Windows 目标使用静态 CRT 和 [/DEPENDENTLOADFLAG:0x800](https://learn.microsoft.com/en-us/cpp/build/reference/dependentloadflag)，在进入 main 前约束静态依赖的搜索。安装由系统 UAC 明确批准，只复制本次运行映像及固定哈希的驱动／许可证，不要求开发者或用户申请代码签名。运行映像的 CodeView 链接身份与固定源文件分别核对；原生查询 Program Files，逐级固定目录句柄并检查所有者／写权限，不接管普通用户所有的同哈希文件。配置与 SDK 来源归 `resource/network-helper-windows.json`，构建生成原生常量；不加载 Qt／Go 运行时作为提权依赖。
 
 `WindowsRegistryJournal` 在受保护的 64 位 HKLM 键保存有界 JSON 原子值，每次操作检查 SY／Administrators 所有者及受保护 DACL，写入后刷新。NRPT 部件在创建键时原子保存随机 class 身份，核对所有者、ACL、全部已存在的类型／字节及无未知值；准备值先刷新，匹配名称最后激活。恢复使用已验证的内核键句柄删除，外部修改保留。`WindowsNetworkRecovery` 在设备／DNS 修改前保存严格版本化的会话记录，以受保护的机器互斥量串行写入与恢复；调用方／助手均绑定实际 PID、创建时间和 SID。废弃记录仅在助手死亡后恢复，正常释放须核对当前助手身份；外部 DNS 修改保留；`tundevice/windows/recovery` 只清理记录 UUID 对应的 Wintun 软件节点，包含分配中崩溃留下的 phantom 节点，确认 IP／PnP 均消失后才保存恢复回执。同账户确认回执前拒绝新 UUID，其他活动 Wintun 不被清理。系统 NRPT 父键保留 Windows 自带的网络配置／防火墙服务权限，本助手规则子键仍只允许 SYSTEM／Administrators 修改，不覆盖域策略。
