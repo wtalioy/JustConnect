@@ -28,9 +28,9 @@ Qt 协议 UI 测试在 offscreen 且未指定 `QT_QUICK_BACKEND` 时使用 Qt �
 
 Linux 设备后端及隔离验证需要系统 `iproute2`。分配后端只使用固定系统目录中由 root 拥有、不可由组或其他用户写入的 `ip` 回读原生链路信息；缺失时返回不支持，不创建设备。
 
-Linux 路由后端与设备分配共用这一受信程序检查。批量命令通过标准输入交付并关闭写端，命令端口保留原有无输入调用；超过管道缓冲区的完整交付／EOF 及内核权限拒绝有针对性回归。路由隔离验证只允许私有网络命名空间，命令与边界见[设备记录](CORELINK-PROBE.md#linux-owned-routes)。
+Linux 路由后端与设备分配共用这一受信程序检查。批量命令通过标准输入交付并关闭写端，命令端口保留原有无输入调用；超过管道缓冲区的完整交付／EOF 及内核权限拒绝有针对性回归。路由隔离验证只允许私有网络命名空间，命令与边界见[设备记录](CORELINK-PROBE.md#linux-捕获路由后端)。
 
-Unix 原生分配测试通过同一后端在交付 fd 前配置 IPv4 点对点地址及非默认 MTU，Linux 捕获路由在分配方交付前由正式后端配置，接收方独立核对所属快照与实际全表；脚本保留数据交换，Linux 与 macOS 目的捕获路由均由正式后端管理。Linux 配置后回读故障验证真实接口及路由无残留；macOS 使用一次性 runner。宿主命名空间拒绝和原普通用户／收发／强杀清理断言保留，测试中的 SIGKILL 只针对持有测试设备 fd 的隔离接收进程。原出口探针新增 `--routes build/coreabi/linux_sourceroutes_test`，使用正式专用表／源规则后端；控制管道 EOF 后由持有进程恢复并独立回读原始状态。 受保护快照文件检查使用 `sudo unshare --net -- build/coreabi/linux_sourcejournal_test --isolated`；源路由检查覆盖写前准备、部分写入、应用确认和规则／路由删除前后强杀边界，由新进程从 root 私有记录恢复；删除结果不明且匹配对象仍存在时保留并报告，范围及尚缺的助手／自动恢复服务见[原出口边界](CORELINK-PROBE.md#linux-source-routes)。
+Unix 原生分配测试通过同一后端在交付 fd 前配置 IPv4 点对点地址及非默认 MTU，Linux 捕获路由在分配方交付前由正式后端配置，接收方独立核对所属快照与实际全表；脚本保留数据交换，Linux 与 macOS 目的捕获路由均由正式后端管理。Linux 配置后回读故障验证真实接口及路由无残留；macOS 使用一次性 runner。宿主命名空间拒绝和原普通用户／收发／强杀清理断言保留，测试中的 SIGKILL 只针对持有测试设备 fd 的隔离接收进程。原出口探针新增 `--routes build/coreabi/linux_sourceroutes_test`，使用正式专用表／源规则后端；控制管道 EOF 后由持有进程恢复并独立回读原始状态。 受保护快照文件检查使用 `sudo unshare --net -- build/coreabi/linux_sourcejournal_test --isolated`；源路由检查覆盖写前准备、部分写入、应用确认和规则／路由删除前后强杀边界，由新进程从 root 私有记录恢复；删除结果不明且匹配对象仍存在时保留并报告，范围及尚缺的助手／自动恢复服务见[原出口边界](CORELINK-PROBE.md#linux-原出口表规则后端)。
 
 macOS 权限／完整会话回归由 `bash tests/platform/run_macos_networkhelper.sh` 在一次性 runner 运行：同一临时证书签名的普通 Qt／Go 宿主覆盖正常、助手 SIGKILL、服务 `bootout`、授权等待、应用与助手双杀及运行中策略。双杀先停住助手再强杀整个 Qt／Go 与助手，独立守护进程恢复后保留回执，由新应用确认旧回执并取得新 UUID。策略场景复用正式分配器移交另一 utun，先按原检查点恢复其探针捕获，再通过普通进程中的既有 gVisor 处理原网络包；在该接口加入／移除重叠前缀，验证保护、校园选边、切回原网络、缓存地址重捕获及两侧 TCP／UDP。原网络响应带独立标记，并核对两次 TCP／四次 UDP（含空包）和独立校园计数；原始认证／流量计数仍按场景严格核对。root 观察真实回执与设备清单，服务不可用时核对核心结束、utun 释放、责任保留和新连接阻断；重新 `bootstrap` 后确认恢复与清理，再核对新 UUID 并重做系统 DNS／TCP／UDP。新故障等待复用助手操作预算，保留每组原有认证／校园流量计数；详细输出在 `macos-helper/core-*.out`，临时证书／服务不能代替真实桌面批准。 提权等待另测取消后重连与有序退出：提供者持有真实 `AuthorizationRef` 后暂停返回；父进程先交出旧授权的原始引用，并用外部形式回读确认提供者仍持有它；迟到结果释放后应无法重新导入，依据 [AuthorizationFree](https://developer.apple.com/documentation/security/authorizationfree%28_%3A_%3A%29) 的销毁语义确认引用释放，新请求获批前不得产生网络所有权。有序退出走实际 `ApplicationShutdown` 并要求单次认证、零校园数据，公共 TUN 驱动与收发回归共用启动；真实系统授权窗口的显示／关闭仍需桌面验收。
 
@@ -68,7 +68,8 @@ Go 入口校验固定工具链、模块锁、ABI 生成文件、gofmt、vet、�
 
 Tests／Core ABI 的 Linux 显式依赖安装传入 `sudo env NEEDRESTART_MODE=l apt-get install ...`，让 needrestart 按[官方说明](https://manpages.debian.org/testing/needrestart/needrestart.1.en.html#ENVIRONMENT)仅报告待重启服务；ARM64 原生日志已确认该步骤使用报告模式。仍执行依赖安装、库／内核扫描及原有构建、原生和设备检查；此设置只属于该 apt 子进程，不修改发布应用或宿主配置。Qt action 后续自行安装依赖不继承它，仍可能触发服务重启。
 
-<a id="ci-apt-mirrors"></a>
+### Linux CI 依赖源
+
 三组工作流的 Linux 依赖安装统一先运行 `setup-linux-apt`：从 hosted runner 已配置的镜像列表移除慢的 Azure 项，继续使用其中的 Ubuntu 官方 archive／security 来源；没有该列表的镜像保持原配置。`99a6b87` 的 x64 原生日志记录 Azure 下载 42.2 MB 耗时 15 分 11 秒（46.3 kB/s），原日志归 `build/reports/native-policy-99a6b87/linux-x64.log`。来源格式见 [runner-images 配置](https://github.com/actions/runner-images/blob/main/images/ubuntu/scripts/build/configure-apt-sources.sh)；依赖、签名校验和验收门槛不变，实际提速仍须当前 CI 日志确认。
 
 全量 Go 每包预算与正式 ABI CI 一致为 90 秒。S3 维护／失效回归扩展后，本机 bridge 包约 59 秒；单个网络、取消及退出场景仍保留原有短时限，包总预算留出累计用时和机器调度余量，不扩大场景的失败等待。
@@ -216,7 +217,6 @@ Resolve-DnsName '替换为那条DNSName' -Type A -DnsOnly
 每个工作单元先验证、独立提交，再更新任务状态；未完成要求不得提前勾选。CI、安装包自检、受控网关和真实校园／桌面结果分开记录。最新证据只维护在计划，历史过程由 Git 追溯，不在本文追加流水或另存重复历史文档。README 待 [S8](../plan.md#s8-实测与交付) 流程稳定后补写。
 
 
-<a id="mihomo-control-dns"></a>
 ### Mihomo 控制连接真实解析
 
 Core ABI 六组原生检查使用 [测试运行时锁](../tests/platform/mihomo-runtime.json) 固定官方 Mihomo v1.19.32 发布资产及 SHA-256；[准备脚本](../tests/platform/setup_mihomo.py) 只写 `build/tools/test-mihomo`，不是产品依赖或安装入口。生产配置不固定 Mihomo 端口或 Fake-IP 网段。
