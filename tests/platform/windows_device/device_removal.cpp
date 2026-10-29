@@ -15,7 +15,7 @@
 namespace Fixture {
 GUID owner{0x12345678,0x1234,0x5678,{1,2,3,4,5,6,7,8}};
 ULONGLONG now=0,detachedAt=100,interfaceGoneAt=150;
-bool node=true,veto=false,retainNode=false,foreign=false;
+bool node=true,veto=false,retainNode=false,foreign=false,abandoned=false;
 CONFIGRET locateStatus=CR_SUCCESS;
 int removals=0;
 void check(bool value,const char *why){if(!value)throw std::runtime_error(why);}
@@ -50,11 +50,12 @@ BOOL parameters(HDEVINFO,SP_DEVINFO_DATA *device,SP_CLASSINSTALL_HEADER *header,
 BOOL uninstall(DI_FUNCTION,HDEVINFO,SP_DEVINFO_DATA *){
     ++removals;
     // Matches the observed PNP_VetoAlreadyRemoved race: success can leave a pending-reboot node.
-    if(now<detachedAt || now<interfaceGoneAt)veto=true;
+    if(!abandoned && (now<detachedAt || now<interfaceGoneAt))veto=true;
+    if(abandoned)detachedAt=interfaceGoneAt=now;
     if(!veto && !retainNode)node=false;
     return TRUE;
 }
-void reset(){now=0;detachedAt=100;interfaceGoneAt=150;node=true;veto=retainNode=foreign=false;locateStatus=CR_SUCCESS;removals=0;}
+void reset(){now=0;detachedAt=100;interfaceGoneAt=150;node=true;veto=retainNode=foreign=abandoned=false;locateStatus=CR_SUCCESS;removals=0;}
 }
 
 // Substitute native calls only in this test translation unit; no host device/registry mutation.
@@ -77,11 +78,11 @@ void reset(){now=0;detachedAt=100;interfaceGoneAt=150;node=true;veto=retainNode=
 int main() try
 {
     using namespace Fixture;
-    reset();restoreWindowsAdapter(owner);
+    reset();finishWindowsAdapterClose(owner);
     check(!node && !veto && removals==1 && now==150,"uninstall raced asynchronous software-device unplug");
-    reset();detachedAt=interfaceGoneAt=0;restoreWindowsAdapter(owner);
+    reset();detachedAt=interfaceGoneAt=0;finishWindowsAdapterClose(owner);
     check(!node && removals==1 && now==0,"abandoned phantom device was not cleaned immediately");
-    reset();node=false;restoreWindowsAdapter(owner);
+    reset();node=false;finishWindowsAdapterClose(owner);
     check(removals==0 && now==150,"interface-only teardown was not confirmed");
     for(int scenario=0;scenario<4;++scenario){
         reset();
@@ -90,13 +91,15 @@ int main() try
         if(scenario==2)foreign=true;
         if(scenario==3)locateStatus=CR_ACCESS_DENIED;
         bool failed=false;
-        try{restoreWindowsAdapter(owner);}catch(const std::system_error &error){
+        try{finishWindowsAdapterClose(owner);}catch(const std::system_error &error){
             failed=true;
             check(error.code().value()==(scenario<2?ERROR_TIMEOUT:scenario==2?ERROR_INVALID_DATA:ERROR_ACCESS_DENIED),"removal lost native failure classification");
         }
         check(failed && (scenario<2?now==5000:removals==0),"removal published success or renewed its deadline");
         if(scenario==0)check(removals==0,"unplug timeout still tried uninstalling a present device");
     }
-    std::cout<<"PASS: asynchronous unplug precedes owned uninstall; phantom/interface-only cleanup, one deadline, foreign identity and read failures preserved\n";
+    reset();abandoned=true;detachedAt=interfaceGoneAt=10000;restoreWindowsAdapter(owner);
+    check(removals==1 && !node && now==0,"dead helper recovery waited for a missing SDK close");
+    std::cout<<"PASS: live close waits for unplug, dead helper uninstalls directly; phantom/interface-only cleanup, one deadline, foreign identity and read failures preserved\n";
     return 0;
 }catch(const std::exception &error){std::cerr<<error.what()<<'\n';return 1;}

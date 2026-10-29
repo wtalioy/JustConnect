@@ -151,7 +151,7 @@ void WindowsNetworkSession::restore()
 {
     if(!declared || restored)return;
     try{
-        if(!recovery.restoreOwned(record.owner,[&]{stopData();restoreWindowsAdapter(record.adapter);}))fail("owned device release remains pending",ERROR_TIMEOUT);
+        if(!recovery.restoreOwned(record.owner,[&]{stopData();finishWindowsAdapterClose(record.adapter);}))fail("owned device release remains pending",ERROR_TIMEOUT);
         restored=true;
     }catch(...){stopData();throw;}
 }

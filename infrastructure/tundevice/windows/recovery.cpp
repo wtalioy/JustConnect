@@ -64,7 +64,8 @@ bool windowsAdapterPresent(const GUID &adapter)
     const Node node(adapter);
     return node.found || interfacePresent(adapter);
 }
-void restoreWindowsAdapter(const GUID &adapter)
+namespace {
+void removeAdapter(const GUID &adapter,bool closed)
 {
     const auto deadline=GetTickCount64()+RemovalTimeoutMs;
     const auto pending=[&]{
@@ -72,7 +73,7 @@ void restoreWindowsAdapter(const GUID &adapter)
         Sleep(50);
     };
     auto identity=instance(adapter);
-    for(;;){
+    while(closed){
         DEVINST device=0;
         const auto status=CM_Locate_DevNodeW(&device,identity.data(),CM_LOCATE_DEVNODE_NORMAL);
         if(status!=CR_SUCCESS && status!=CR_NO_SUCH_DEVNODE)
@@ -94,3 +95,6 @@ void restoreWindowsAdapter(const GUID &adapter)
     }
     while(windowsAdapterPresent(adapter))pending();
 }
+}
+void restoreWindowsAdapter(const GUID &adapter){removeAdapter(adapter,false);}
+void finishWindowsAdapterClose(const GUID &adapter){removeAdapter(adapter,true);}

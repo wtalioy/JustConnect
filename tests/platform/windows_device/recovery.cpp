@@ -248,7 +248,7 @@ void ownedRelease(const std::wstring &dll,bool externalChange)
     WindowsRegistryJournal journal;
     auto replaced=record;++replaced.helper.created;journal.write(record.owner,encodeWindowsNetworkRecord(replaced));
     bool released=false;
-    const auto release=[&]{released=true;device->close();restoreWindowsAdapter(record.adapter);};
+    const auto release=[&]{released=true;device->close();finishWindowsAdapterClose(record.adapter);};
     refused([&]{recovery.restoreOwned(record.owner,release);},"another helper identity released live ownership");
     check(!released && windowsAdapterPresent(record.adapter),"refused live release still changed its device");
     journal.write(record.owner,encodeWindowsNetworkRecord(record));
