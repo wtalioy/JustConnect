@@ -132,6 +132,14 @@ ctest --test-dir build/coreabi -C Release -R coreabi_performance_test --output-o
 | Linux x64 | 68.43 | 107.678／4.949 |
 | Linux ARM64 | 86.04 | 225.030／5.295 |
 
+## Windows 网卡查询与 CPU 采样
+
+A6 的 `da23405` 实机记录中，DNS Client 峰值 86.3%，新增／删除路由各一批后仍有高占用尾部；WPR CPU 栈约 92.7% 的累计样本经过 NDIS，未取得该系统版本的公开函数符号，不据此确认 DNR 内部缺陷。记录归 `build/reports/windows-dns-cpu-da23405/summary.json`，原始 ETL 保留在用户临时目录。
+
+原网卡快照由 `net.Interfaces` 加逐接口 `Addrs` 组成，Windows 上每次都会整机枚举并查询未使用的 DNS 元数据。当前改为一次原生查询，跳过 DNS 服务器与后缀信息；出口校验复用这份读取，绑定 socket 则直接以别名查询 LUID／索引。[DNS 信息跳过标志](https://git.zx2c4.com/wireguard-windows/tree/tunnel/winipcfg/types.go)采用 WireGuard 同一平台固定值，不添加旧系统回退。正式 DNS 来源仍由 DNS 读取器完整收集，保持保护、恢复及观察频率。
+
+可用 `go -C corelib test -run '^TestReadInterfacesMatchesSystemInterfaces$' -bench BenchmarkInterfaces -benchtime=3x ./internal/networkstate/windows` 在 Windows 只读比较。i9-13900HX／32 逻辑处理器单次配对基线：旧查询平均 8489.8 ms，新查询 12.7 ms，各 3 次；实际全接口／双栈地址／状态与原查询一致，描述另与系统接口表核对。它衡量接口查询耗时，不代表整体 CPU 峰值或连接耗时降幅，更新包的校园访问、断开恢复和 CPU 仍需实测。
+
 ## aTrust 配置与升级
 
 设置页与引导共用 Fudan／Custom 入口。Fudan 只预填 `vpn.fudan.edu.cn:443`，认证方式从服务器查询，优先 UIS OAuth2；不写死登录 URL／认证编号。保存前使用实际 C ABI 的纯校验接口，不联网、不占用会话。公开字段映射、账户绑定及迁移由既有模块统一维护，详见[架构说明](ARCHITECTURE.md)。
