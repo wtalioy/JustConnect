@@ -85,12 +85,21 @@ void removeAdapter(const GUID &adapter,bool closed)
     {
         Node node(adapter);
         if (node.found) {
-            SP_REMOVEDEVICE_PARAMS removal{};
-            removal.ClassInstallHeader.cbSize=sizeof(SP_CLASSINSTALL_HEADER);
-            removal.ClassInstallHeader.InstallFunction=DIF_REMOVE;
-            removal.Scope=DI_REMOVEDEVICE_GLOBAL;
-            if (!SetupDiSetClassInstallParamsW(node.devices,&node.device,&removal.ClassInstallHeader,sizeof(removal))
-                || !SetupDiCallClassInstaller(DIF_REMOVE,node.devices,&node.device)) fail("remove abandoned owned Wintun node");
+            ULONG status=0,problem=0;
+            const auto present=CM_Get_DevNode_Status(&status,&problem,node.device.DevInst,0);
+            if(present==CR_NO_SUCH_DEVNODE){
+                // Unplugged software nodes need persistent-state removal, without a second query/remove.
+                const auto removed=CM_Uninstall_DevNode(node.device.DevInst,0);
+                if(removed!=CR_SUCCESS)fail("remove owned Wintun persistent state",CM_MapCrToWin32Err(removed,ERROR_GEN_FAILURE));
+            }else{
+                if(present!=CR_SUCCESS)fail("read owned Wintun node status",CM_MapCrToWin32Err(present,ERROR_GEN_FAILURE));
+                SP_REMOVEDEVICE_PARAMS removal{};
+                removal.ClassInstallHeader.cbSize=sizeof(SP_CLASSINSTALL_HEADER);
+                removal.ClassInstallHeader.InstallFunction=DIF_REMOVE;
+                removal.Scope=DI_REMOVEDEVICE_GLOBAL;
+                if (!SetupDiSetClassInstallParamsW(node.devices,&node.device,&removal.ClassInstallHeader,sizeof(removal))
+                    || !SetupDiCallClassInstaller(DIF_REMOVE,node.devices,&node.device)) fail("remove abandoned owned Wintun node");
+            }
         }
     }
     while(windowsAdapterPresent(adapter))pending();

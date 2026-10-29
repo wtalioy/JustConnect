@@ -17,6 +17,7 @@ GUID owner{0x12345678,0x1234,0x5678,{1,2,3,4,5,6,7,8}};
 ULONGLONG now=0,detachedAt=100,interfaceGoneAt=150;
 bool node=true,veto=false,retainNode=false,foreign=false,abandoned=false;
 CONFIGRET locateStatus=CR_SUCCESS;
+CONFIGRET uninstallStatus=CR_SUCCESS,nodeStatus=CR_SUCCESS;
 int removals=0;
 void check(bool value,const char *why){if(!value)throw std::runtime_error(why);}
 std::wstring id(){wchar_t value[39]{};StringFromGUID2(owner,value,39);return std::wstring(L"SWD\\WINTUN\\")+value;}
@@ -39,8 +40,9 @@ LSTATUS query(HKEY,LPCWSTR,LPDWORD,LPDWORD type,LPBYTE data,LPDWORD size){
 DWORD interfaces(MIB_IF_TABLE2 **out){
     static MIB_IF_TABLE2 table{};table.NumEntries=now<interfaceGoneAt?1:0;table.Table[0].InterfaceGuid=owner;*out=&table;return NO_ERROR;
 }
-CONFIGRET locate(PDEVINST,PWSTR name,ULONG flags){
+CONFIGRET locate(PDEVINST device,PWSTR name,ULONG flags){
     check(name==id() && flags==CM_LOCATE_DEVNODE_NORMAL,"detach query changed device identity or cancelled removal");
+    *device=2;
     return locateStatus!=CR_SUCCESS?locateStatus:now<detachedAt?CR_SUCCESS:CR_NO_SUCH_DEVNODE;
 }
 BOOL parameters(HDEVINFO,SP_DEVINFO_DATA *device,SP_CLASSINSTALL_HEADER *header,DWORD){
@@ -52,10 +54,23 @@ BOOL uninstall(DI_FUNCTION,HDEVINFO,SP_DEVINFO_DATA *){
     // Matches the observed PNP_VetoAlreadyRemoved race: success can leave a pending-reboot node.
     if(!abandoned && (now<detachedAt || now<interfaceGoneAt))veto=true;
     if(abandoned)detachedAt=interfaceGoneAt=now;
-    if(!veto && !retainNode)node=false;
+    // On 26H2, query/remove of an unplugged node succeeds but leaves CR_INVALID_DEVNODE in SetupAPI.
+    if(!veto && !retainNode && abandoned)node=false;
     return TRUE;
 }
-void reset(){now=0;detachedAt=100;interfaceGoneAt=150;node=true;veto=retainNode=foreign=abandoned=false;locateStatus=CR_SUCCESS;removals=0;}
+CONFIGRET status(PULONG,PULONG,DEVINST device,ULONG flags){
+    check(device==2 && flags==0,"presence query crossed owned identity");
+    if(nodeStatus!=CR_SUCCESS)return nodeStatus;
+    return now<detachedAt?CR_SUCCESS:CR_NO_SUCH_DEVNODE;
+}
+CONFIGRET removePersistent(DEVINST device,ULONG flags){
+    check(device==2 && flags==0 && now>=detachedAt && now>=interfaceGoneAt,"persistent removal raced unplug or crossed owned identity");
+    ++removals;
+    if(uninstallStatus!=CR_SUCCESS)return uninstallStatus;
+    if(!retainNode)node=false;
+    return CR_SUCCESS;
+}
+void reset(){now=0;detachedAt=100;interfaceGoneAt=150;node=true;veto=retainNode=foreign=abandoned=false;locateStatus=uninstallStatus=nodeStatus=CR_SUCCESS;removals=0;}
 }
 
 // Substitute native calls only in this test translation unit; no host device/registry mutation.
@@ -69,6 +84,8 @@ void reset(){now=0;detachedAt=100;interfaceGoneAt=150;node=true;veto=retainNode=
 #define GetIfTable2Ex(level,table) Fixture::interfaces(table)
 #define FreeMibTable(...) ((void)0)
 #define CM_Locate_DevNodeW Fixture::locate
+#define CM_Get_DevNode_Status Fixture::status
+#define CM_Uninstall_DevNode Fixture::removePersistent
 #define SetupDiSetClassInstallParamsW Fixture::parameters
 #define SetupDiCallClassInstaller Fixture::uninstall
 #define GetTickCount64() Fixture::now
@@ -100,6 +117,15 @@ int main() try
     }
     reset();abandoned=true;detachedAt=interfaceGoneAt=10000;restoreWindowsAdapter(owner);
     check(removals==1 && !node && now==0,"dead helper recovery waited for a missing SDK close");
-    std::cout<<"PASS: live close waits for unplug, dead helper uninstalls directly; phantom/interface-only cleanup, one deadline, foreign identity and read failures preserved\n";
+    reset();detachedAt=interfaceGoneAt=0;restoreWindowsAdapter(owner);
+    check(removals==1 && !node && now==0,"dead helper phantom state was not removed");
+    reset();uninstallStatus=CR_ACCESS_DENIED;
+    bool denied=false;
+    try{finishWindowsAdapterClose(owner);}catch(const std::system_error &error){denied=error.code().value()==ERROR_ACCESS_DENIED;}
+    check(denied && node && removals==1,"persistent uninstall failure was hidden");
+    reset();nodeStatus=CR_ACCESS_DENIED;denied=false;
+    try{finishWindowsAdapterClose(owner);}catch(const std::system_error &error){denied=error.code().value()==ERROR_ACCESS_DENIED;}
+    check(denied && node && removals==0,"unreadable node state still triggered removal");
+    std::cout<<"PASS: live unplug and dead-helper recovery distinguish present removal from phantom state; one deadline, foreign identity, read/uninstall failures preserved\n";
     return 0;
 }catch(const std::exception &error){std::cerr<<error.what()<<'\n';return 1;}

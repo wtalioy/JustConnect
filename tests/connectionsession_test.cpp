@@ -194,6 +194,29 @@ bool failedRecoveryCanRetryWhileCoreStopIsPending()
     return !session.isActive() && finishes==1;
 }
 
+bool recoveredDisconnectPreservesOnlyPrimaryErrors()
+{
+    for(const auto coreError:{ConnectionError::NONE,ConnectionError::NETWORK_FAILED,ConnectionError::SESSION_INVALID}){
+        auto *engine=new FakeCoreEngine;
+        auto *network=new FakeNetworkAccess;
+        ConnectionSession session(engine,nullptr,network);
+        ConnectionError reported=ConnectionError::OTHER;int finishes=0;
+        QObject::connect(&session,&ConnectionSession::finished,[&](ConnectionError error){reported=error;++finishes;});
+        if(!session.start({},{}))return false;
+        const auto id=network->attempt;
+        emit network->prepared(id,{});engine->establishConnection();emit network->ready(id,{});
+        session.stop();emit network->quiesced(id);
+        emit network->lost(id,{PlatformOperationResult::Status::TimedOut,"restore timed out",true});
+        emit network->stopped(id,{PlatformOperationResult::Status::TimedOut,"recovery receipt pending",true});
+        if(!session.isActive() || !session.networkRecoveryFailed() || finishes)return false;
+        engine->complete(coreError);
+        session.stop();emit network->stopped(id,{});
+        if(session.isActive() || finishes!=1 || reported!=coreError
+            || session.state()!=(coreError==ConnectionError::NONE?ConnectionState::Disconnected:ConnectionState::Failed))return false;
+    }
+    return true;
+}
+
 bool restoresBeforeReconnectAndDoesNotLoopAuthorization()
 {
     auto *engine = new FakeCoreEngine;
@@ -529,6 +552,7 @@ int main(int argc, char *argv[])
         && stagedNetworkReleaseWaitsForCoreAndFinalReceipt()
         && networkLossReleasesCoreWithoutRepeatingFailedRecovery()
         && failedRecoveryCanRetryWhileCoreStopIsPending()
+        && recoveredDisconnectPreservesOnlyPrimaryErrors()
         && restoresBeforeReconnectAndDoesNotLoopAuthorization()
         && progressUsesObservedEventsAndRejectsLateResults()
         && cancellingBackoffPreventsLateRestart()

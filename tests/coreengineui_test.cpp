@@ -589,7 +589,8 @@ static void failedNetworkRecoveryOffersRetryWhileCoreStops() {
     });closeError.start(1);
     emit engine->finished(ConnectionError::NONE);emit network->stopped(network->attempt,{});
     closeError.stop();
-    check(errorShown && !session.isActive() && connectButton.text()=="连接服务器" && trayAction.text()=="连接服务器","successful retry completes ordered cleanup and preserves the original error");
+    check(!errorShown && !session.isActive() && session.state()==ConnectionState::Disconnected
+        && connectButton.text()=="连接服务器" && trayAction.text()=="连接服务器","confirmed retry completes normal disconnect without a stale recovery error popup");
 }
 
 static void quitWaitsForAuthenticationQueryWithoutBlockingTheGui() {
