@@ -6,8 +6,10 @@
 #include <devguid.h>
 #include <cfgmgr32.h>
 #include <iterator>
+#include <algorithm>
 #include <string>
 #include <system_error>
+#include <vector>
 
 namespace {
 constexpr ULONGLONG RemovalTimeoutMs=5000;
@@ -24,9 +26,28 @@ bool interfacePresent(const GUID &adapter)
     MIB_IF_TABLE2 *table=nullptr;
     const auto status=GetIfTable2Ex(MibIfTableNormalWithoutStatistics,&table);
     if (status!=NO_ERROR) fail("read recovery interface identities",status);
-    bool present=false;
-    for (ULONG i=0;i<table->NumEntries;++i) present=present || table->Table[i].InterfaceGuid==adapter;
-    FreeMibTable(table);return present;
+    bool present=false;std::vector<ULONGLONG> detached;
+    for (ULONG i=0;i<table->NumEntries;++i) {
+        const auto &row=table->Table[i];
+        if(row.InterfaceGuid!=adapter)continue;
+        if(row.OperStatus==IfOperStatusDown || row.OperStatus==IfOperStatusNotPresent)detached.push_back(row.InterfaceLuid.Value);
+        else present=true;
+    }
+    FreeMibTable(table);
+    if(present || detached.empty())return present;
+    // NSI can retain an empty Down row after PnP removal; configured interfaces still block recovery.
+    const auto owned=[&](NET_LUID luid){return std::find(detached.begin(),detached.end(),luid.Value)!=detached.end();};
+    MIB_UNICASTIPADDRESS_TABLE *addresses=nullptr;
+    const auto addressStatus=GetUnicastIpAddressTable(AF_UNSPEC,&addresses);
+    if(addressStatus!=NO_ERROR)fail("read detached recovery addresses",addressStatus);
+    for(ULONG i=0;i<addresses->NumEntries;++i)present=present || owned(addresses->Table[i].InterfaceLuid);
+    FreeMibTable(addresses);
+    if(present)return true;
+    MIB_IPFORWARD_TABLE2 *routes=nullptr;
+    const auto routeStatus=GetIpForwardTable2(AF_UNSPEC,&routes);
+    if(routeStatus!=NO_ERROR)fail("read detached recovery routes",routeStatus);
+    for(ULONG i=0;i<routes->NumEntries;++i)present=present || owned(routes->Table[i].InterfaceLuid);
+    FreeMibTable(routes);return present;
 }
 struct Node {
     HDEVINFO devices=INVALID_HANDLE_VALUE;
