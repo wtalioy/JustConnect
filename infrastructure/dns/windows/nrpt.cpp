@@ -295,7 +295,7 @@ bool plainPolicy(std::uint64_t value)
 {
     return WindowsDNS::plainGlobalPolicy(value);
 }
-std::uint64_t plainGlobalPolicy(const std::vector<std::wstring> &servers)
+std::uint64_t readPlainGlobalPolicy(const std::vector<std::wstring> &servers)
 {
     DNS_SETTINGS2 settings{};settings.Version=DNS_SETTINGS_VERSION2;
     auto *base=reinterpret_cast<DNS_SETTINGS *>(&settings);
@@ -435,7 +435,7 @@ WindowsNrptRedirect WindowsNrptRedirect::prepareSystem(const std::vector<std::ws
     unmanagedPolicy();localListener(listen);
     Key parent;parent.value=policyParent(false);
     if(!parent.value)fail("original DNS provider disappeared",ERROR_NOT_FOUND);
-    auto result=prepare(parent.value,names,servers,listen);result.globalPolicy=plainGlobalPolicy(result.servers());return result;
+    auto result=prepare(parent.value,names,servers,listen);result.globalPolicy=readPlainGlobalPolicy(result.servers());return result;
 }
 void WindowsNrptRedirect::apply(HKEY parent) const
 {
@@ -496,11 +496,11 @@ void WindowsDNS::applySystem(const std::optional<WindowsDnsRule> &campus,const s
         }
         for(const auto &entry:originals){
             unmanagedPolicy();localListener(entry.server);
-            if(plainGlobalPolicy(entry.servers())!=entry.globalPolicy)fail("original DNS security changed before write",ERROR_NOT_SUPPORTED);
+            if(readPlainGlobalPolicy(entry.servers())!=entry.globalPolicy)fail("original DNS security changed before write",ERROR_NOT_SUPPORTED);
             Key parent;parent.value=policyParent(false);
             if(!parent.value)fail("original DNS provider disappeared",ERROR_NOT_FOUND);
             writing=true;entry.apply(parent.value);
-            if(plainGlobalPolicy(entry.servers())!=entry.globalPolicy)fail("original DNS security changed during write",ERROR_NOT_SUPPORTED);
+            if(readPlainGlobalPolicy(entry.servers())!=entry.globalPolicy)fail("original DNS security changed during write",ERROR_NOT_SUPPORTED);
         }
     }catch(...){
         if(writing)try{refresh();}catch(...){}
