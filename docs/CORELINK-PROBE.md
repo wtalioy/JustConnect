@@ -36,7 +36,7 @@ D2 的设备入口子方案已收敛：Linux／macOS 使用最小授权助手创
 | 平台 | 选定的设备与权限边界 | 已验证与剩余缺口 |
 | --- | --- | --- |
 | Linux | 非持久 TUN，助手创建／配置，通过 `SCM_RIGHTS` 交付 fd；普通宿主拥有数据 I/O，最后关闭 fd 结束设备。 | x64／ARM64 隔离内核原型及本机 WSL 通过普通 uid、零 capabilities、UDP 双向和正常／强杀后的设备及显式路由清理。直接创建仍需权限；正式 Go／Qt、发行版助手安装路径、受控授权及完整路由／DNS 独立恢复均已通过双架构原生自动验收；真实桌面批准仍归 S4-04。 |
-| macOS | utun kernel control，校验身份的 XPC 助手创建／配置并交付 fd；数据含四字节地址族头。 | 双架构普通权限真实收发、取消／强杀恢复及 supplemental DNS 原生检查已通过；完整 Qt／核心会话、系统 DNS、动态协调及双杀独立恢复已通过双架构原生自动验收；真实桌面批准仍待，证据见[计划](../plan.md#s4)。 |
+| macOS | utun kernel control，校验身份的 XPC 助手创建／配置并交付 fd；数据含四字节地址族头。 | 双架构普通权限真实收发、取消／强杀恢复及 supplemental DNS 原生检查已通过；完整 Qt／核心会话、系统 DNS、动态协调及双杀独立恢复已通过双架构原生自动验收；真实桌面批准仍待，证据见[计划](../plan.md#s4-策略与网络操作的恢复基础)。 |
 | Windows | 官方固定哈希／签名 Wintun 0.14.1；助手拥有适配器和 ring，同账户普通权限宿主通过私有 IPC 处理 IP 包，不跨进程强转会话指针。 | x64／ARM64 设备步骤通过真实普通权限回包、超大帧拒绝和按原始 PnP 实例／路由确认清理；源码 `1105671` 的完整六组 ABI 检查通过。普通 Qt／Go 与真实设备的完整数据链已验；正式 C++ 助手控制 IPC、受控授权及随包驱动均已通过双架构原生与实际包检查；正式发布签名／真实桌面 UAC 仍待。 |
 
 权限分析起于[导入基线](../corelib/UPSTREAM.md#导入基线)及其锁定依赖；S1-07 已删除无产品调用、直接修改宿主网络的旧系统 TUN 栈，不再恢复该实现或由核心直接改路由／DNS。新助手只承载实际需要的设备／网络操作，不能成为任意命令提权入口；具体操作必须回读并按所有权恢复。
@@ -102,9 +102,9 @@ wsl.exe --distribution archlinux --user root --exec unshare --net -- \
 
 当前 Linux 分配入口由 `UnixTunDevice` 的平台实现单独维护：连接 UUID 派生设备名，排他创建非持久原始 IP TUN，回读名称／索引／帧模式；`TUNGETIFF` 的 NO_PI 与 NOFILTER 位复用，因此通过受信系统 `iproute2` 的链路详情核对真实 PI／virtio 头部状态，复用已有平台命令端口，固定参数且不经 shell；对象仅拥有自己的 fd，不接管已有同名设备。创建后的回读失败关闭 fd 并报告可能已修改；原生回读失败及错误 PI／virtio 帧模式注入验证实际接口回滚，活动及无队列持久设备冲突均保留原设备。`SCM_RIGHTS` 接收端使用原子 CLOEXEC，两种 Linux 隔离检查复用此入口，已删除 Python 分配副本。最后一个 fd 关闭的内核生命周期依据 [TUN/TAP 文档](https://docs.kernel.org/networking/tuntap.html)；本地普通 uid 的双向 UDP、正常／强杀清理与原网络不变及 [`a0aec56` 的 Linux 双架构](https://github.com/wtalioy/JustConnect/actions/runs/39761802978)均已通过，不代替完整路由／DNS 恢复或助手授权。
 
-IPv4 配置增量复用 [`UnixTunDevice::createIpv4`](../infrastructure/tundevice/tundevice.cpp)，只配置这次新建、尚未交付的设备：源／对端须是不同的规范单播 IPv4，使用 `/32` 点对点掩码，MTU 为 68—65535；配置前记录原 MTU／标志／空 IPv4，配置后独立回读完整预期及设备索引。macOS [utun 创建时即可为 UP](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/net/if_utun.c)，不把初始 down 当作共有契约；实际状态由原生 ioctl／getifaddrs 读取。失败关闭私有 fd，不交付部分配置；当前不支持更改已交付设备或恢复已有接口。共享设备／原出口脚本及捕获路由检查已移除重复地址／启用命令；Linux 捕获路由由分配方在交付 fd 前调用正式后端，原出口表／规则由独立原生持有进程负责；macOS 目的路由改由正式捕获后端及保护日志管理，验证状态见[计划](../plan.md#s4)。
+IPv4 配置增量复用 [`UnixTunDevice::createIpv4`](../infrastructure/tundevice/tundevice.cpp)，只配置这次新建、尚未交付的设备：源／对端须是不同的规范单播 IPv4，使用 `/32` 点对点掩码，MTU 为 68—65535；配置前记录原 MTU／标志／空 IPv4，配置后独立回读完整预期及设备索引。macOS [utun 创建时即可为 UP](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/net/if_utun.c)，不把初始 down 当作共有契约；实际状态由原生 ioctl／getifaddrs 读取。失败关闭私有 fd，不交付部分配置；当前不支持更改已交付设备或恢复已有接口。共享设备／原出口脚本及捕获路由检查已移除重复地址／启用命令；Linux 捕获路由由分配方在交付 fd 前调用正式后端，原出口表／规则由独立原生持有进程负责；macOS 目的路由改由正式捕获后端及保护日志管理，验证状态见[计划](../plan.md#s4-策略与网络操作的恢复基础)。
 
-本地 Linux 应用及正式 ABI 构建均通过配置后普通用户双向 UDP、正常／强杀最终 fd 清理；真实配置后的回读错误／MTU 不符故障注入验证设备及全部 IPv4 路由回滚，宿主接口、全表路由／规则、DNS 与 rp_filter 不变。完整应用 45/45、正式 ABI 23/23 通过，报告 `build/reports/unix-tun-configuration.json`；Linux／macOS 双架构原生 CI 已通过，当前正式助手／会话接入状态见[计划](../plan.md#s4)；底层配置通过不代表整体透明接管已验收。
+本地 Linux 应用及正式 ABI 构建均通过配置后普通用户双向 UDP、正常／强杀最终 fd 清理；真实配置后的回读错误／MTU 不符故障注入验证设备及全部 IPv4 路由回滚，宿主接口、全表路由／规则、DNS 与 rp_filter 不变。完整应用 45/45、正式 ABI 23/23 通过，报告 `build/reports/unix-tun-configuration.json`；Linux／macOS 双架构原生 CI 已通过，当前正式助手／会话接入状态见[计划](../plan.md#s4-策略与网络操作的恢复基础)；底层配置通过不代表整体透明接管已验收。
 
 ### Linux 独立捕获路由表
 
@@ -157,7 +157,7 @@ sudo unshare --net -- python tests/platform/original_route_linux.py --uid "$(id 
 sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_OS="$RUNNER_OS" "$(command -v python)" tests/platform/unix_device_probe.py --uid "$(id -u)" --allocator build/coreabi/macos_tundevice_test
 ```
 
-[`a14ecba` 的六组 Core ABI／设备](https://github.com/wtalioy/JustConnect/actions/runs/39769154866)及[三平台应用测试](https://github.com/wtalioy/JustConnect/actions/runs/39769154825)全部通过。上述为 fd 交接基线。当前 Unix 创建方在接收方核对并确认后释放所有设备 fd，保留恢复控制与保护日志，实际流量由普通用户及核心处理；两平台的双向 UDP、正常／强杀最终引用清理及原八秒 fd 探针预算保留，最新捕获／恢复见[计划](../plan.md#s4)。本地拒绝确认的隔离检查无设备泄漏。早期未确认移交时序下的失败未作底层归因，独有失败片段保留在 `build/reports/unix-tun-backends.json` 的引用中；不将后续通过宣称为已证明某个 macOS 内核缺陷。普通权限设备创建拒绝、CLOEXEC、身份／帧模式、降权和来源检查保留；Linux 助手及系统恢复的后续验收见[权限入口](ARCHITECTURE.md#privileged-helper-entry)，macOS 助手及完整网络恢复仍待。
+[`a14ecba` 的六组 Core ABI／设备](https://github.com/wtalioy/JustConnect/actions/runs/39769154866)及[三平台应用测试](https://github.com/wtalioy/JustConnect/actions/runs/39769154825)全部通过。上述为 fd 交接基线。当前 Unix 创建方在接收方核对并确认后释放所有设备 fd，保留恢复控制与保护日志，实际流量由普通用户及核心处理；两平台的双向 UDP、正常／强杀最终引用清理及原八秒 fd 探针预算保留，最新捕获／恢复见[计划](../plan.md#s4-策略与网络操作的恢复基础)。本地拒绝确认的隔离检查无设备泄漏。早期未确认移交时序下的失败未作底层归因，独有失败片段保留在 `build/reports/unix-tun-backends.json` 的引用中；不将后续通过宣称为已证明某个 macOS 内核缺陷。普通权限设备创建拒绝、CLOEXEC、身份／帧模式、降权和来源检查保留；Linux 助手及系统恢复的后续验收见[权限入口](ARCHITECTURE.md#privileged-helper-entry)，macOS 助手及完整网络恢复仍待。
 
 <a id="linux-owned-routes"></a>
 ### Linux 捕获路由后端
@@ -168,6 +168,6 @@ sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_OS="$RUNNER_OS" "$(command -v p
 sudo unshare --net -- build/coreabi/linux_tunroutes_test --isolated
 ```
 
-原生回归保留严格 `rp_filter=1` 下实际 UDP、既有路由不变、连接与设备身份、部分失败、写前／回读／存储错误、同值重建保留、恢复重试，以及应用／删除前后强杀和新进程恢复。版本 1 专属回归继续验证已有 main 记录的恢复及歧义保留；停止支持可能遗留该记录的版本后删除。当前独立表后端和正式安装助手证据见[计划](../plan.md#s4)及 `build/reports/capture-table.json`，早期独有捕获／持久恢复证据保留于 `linux-owned-routes.json`、`linux-capture-handoff.json`、`linux-capture-recovery.json`。
+原生回归保留严格 `rp_filter=1` 下实际 UDP、既有路由不变、连接与设备身份、部分失败、写前／回读／存储错误、同值重建保留、恢复重试，以及应用／删除前后强杀和新进程恢复。版本 1 专属回归继续验证已有 main 记录的恢复及歧义保留；停止支持可能遗留该记录的版本后删除。当前独立表后端和正式安装助手证据见[计划](../plan.md#s4-策略与网络操作的恢复基础)及 `build/reports/capture-table.json`，早期独有捕获／持久恢复证据保留于 `linux-owned-routes.json`、`linux-capture-handoff.json`、`linux-capture-recovery.json`。
 
 Linux 分配方在交付 fd 前调用同一正式后端并交付实际元数据，接收方比对真实全表；原型夹具继续验证普通用户收发、正常／强杀最终 fd 清理与规则恢复。正式系统助手、Go 数据面及应用会话已接入；桌面授权／注销、实际校园、IPv6 透明入口及完整网络迁移仍待，未经相应 S4-06 验收不接管日常网络。macOS 手写捕获命令已由[正式后端](ARCHITECTURE.md#macos-owned-routes)取代，原 fd／收发／强杀检查保留。
