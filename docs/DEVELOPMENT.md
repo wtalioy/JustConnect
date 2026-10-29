@@ -190,9 +190,11 @@ Windows 包单独构建静态 CRT 的 C++ 助手，`WindowsNetworkHelper` 安装
 
 在原生平台运行 `go -C corelib test -mod=readonly -count=1 -run '^TestNativeProtectedOriginalDNS$' -v ./service`；跨编译时使用 `go test -c` 并将同一环境变量交给目标机器上的测试程序。未提供快照时仅此项显式跳过；提供后必须真正执行。测试把同名校园映射设为不同地址，要求原源答案和原方向发布不被覆盖；各传输的记录数与直接上游比较，包括真实 NODATA，不由节点的 IPv6 地址推断它必有 AAAA。桌面实际接管／恢复仍另验。
 
-### Windows MagicDNS 实测
+### Windows 连接耗时
 
 Windows 日志中的 `network apply stages` 给出所有权记录、设备／路由、DNS 三段耗时及捕获前缀数量；`network apply` 是完整助手操作耗时，认证和交互授权另计。比较同一机器的普通连接／断开，保留这些行即可定位耗时，不能用 CI 延迟代替校园实测。新增路由由系统创建 API 原子拒绝重复项，创建后的身份／属性回读和删除前核对继续保留。
+
+### Windows MagicDNS 实测
 
 [MagicDNS](https://tailscale.com/docs/features/magicdns) 为 Tailscale 设备提供名称。保持 Tailscale 开启，先在 PowerShell 列出已有设备：
 
