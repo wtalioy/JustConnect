@@ -15,16 +15,16 @@
 | --- | --- |
 | 阶段进度 | S3—S5 **17／17 全部勾选**；全计划 64 项已收尾 39 项、剩余 25 项。S1-04 真实样本、S2-06 真实注销仍待；S6—S8 按后续顺序推进 |
 | Windows 实测 | `929e24d`／Windows 11 26H2：校园浏览器、普通 SSH、单次正常断开通过；恢复 370 ms，无错误／重试。MagicDNS 两次 A 相同，未单独标记完整三阶段 |
-| 当前跟踪 | **A6 待新包复测**：`da23405` CPU 峰值 86.3%，WPR 栈约 92.7% 经过 NDIS；已消除重复整机／无用 DNS 查询，实机单次接口读取 8489.8→12.7 ms，整体 CPU 改善未验证，必需 CI 待验 |
-| 当前交付 | [`da23405` Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/40889382929/artifacts/12904688733)。全部必需自动检查与六组实际包通过，证据统一见下表 |
+| 当前跟踪 | **A6 自动检查通过，待 CPU 实测**：`70f90a5` 已消除重复整机／无用 DNS 查询，实机单次接口读取 8489.8→12.7 ms；整体 CPU 改善未验证 |
+| 当前交付 | [`70f90a5` Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/40915668930/artifacts/12917064120)。全部必需自动检查与六组实际包通过，证据统一见下表 |
 
 ## 当前验收基线
 
 | 范围 | 当前结论与证据 |
 | --- | --- |
-| 正式自动检查 | `b74a03e`：[六架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40890246453)、[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40890246488)全部通过。覆盖正式 Qt／Go／C++ 助手、系统 DNS、TCP／UDP／OpenSSH、保护／选边、正常／故障及独立恢复；Windows 原 SDK 4096 包／30 秒门槛保留 |
-| 实际包／源码 | `da23405`：[六组实际包及源码](https://github.com/wtalioy/JustConnect/actions/runs/40889382929)全部通过，已核对 clean 正式核心、架构、助手身份及对应产物。与 `b74a03e` 仅夹具／计划不同，产品／配置／工具链相同；`build/reports/package-da23405/summary.json` |
-| Windows 修复／性能 | 正常断开修复已实测；DNS 批量刷新、持久进度、部分失败和后续所有权已双架构原生验证。CPU 降幅仍待 A6；`build/reports/windows-restore-9d95b37/summary.json`、`build/reports/windows-dns-cpu-929e24d/summary.json` |
+| 正式自动检查 | `a28e9d7`：[六架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40919831613)、[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40919831621)全部通过。覆盖正式 Qt／Go／C++ 助手、系统 DNS、TCP／UDP／OpenSSH、保护／选边、正常／故障及独立恢复；Windows 原 SDK 4096 包／30 秒门槛保留 |
+| 实际包／源码 | `70f90a5`：[六组实际包及源码](https://github.com/wtalioy/JustConnect/actions/runs/40915668930)全部通过，已核对 clean 正式核心、架构、助手身份及对应产物。与 `a28e9d7` 仅测试夹具／说明不同，产品／配置／工具链相同；`build/reports/package-70f90a5/summary.json` |
+| Windows 修复／性能 | 正常断开修复已实测；DNS 批量刷新、持久进度、部分失败和后续所有权已双架构原生验证。接口查询优化已原生实测，整体 CPU 降幅仍待 A6；`build/reports/windows-restore-9d95b37/summary.json`、`build/reports/windows-dns-cpu-da23405/summary.json` |
 | 阶段矩阵 | `build/reports/v1-matrix.json` 汇总当前三平台受控证据及 Windows 实测；未测发布格保留在 V1—V7，阶段勾选不等于完整发布验收 |
 
 仅 Fudan 是学校实测门槛；Custom 和账户／学校隔离回归保留。当前测试／实际包已覆盖 S0—S5 未变实现；旧单元证据、独有失败与完整测量从报告、所属文档及 Git 追溯，不在计划重复列举。
@@ -266,7 +266,7 @@ V7 逐项记录日常使用要求，包含首次确认服务器、窗口／托�
 | A3 | 结构化事件、会话／认证请求标识及能力验证 | 已前移为 S1-03／04／08 必需交付；取消先稳定文本协议再考虑事件的旧顺序 |
 | A4 | SSO 自动填充：仅在有效认证恢复仍不能满足日常操作时评估；按配置／来源隔离，不覆盖输入或替代必要 MFA | 非主线，不作为交付门槛 |
 | A5 | 新核心或协议：当前只维护 aTrust 的内部库端口和必要 C ABI，不预建动态插件、通用多协议框架或多套前端。未来出现真实第二种核心时再适配，保留 Qt／Go 边界 | C ABI 已纳入 S1，其余按需 |
-| A6 | Windows DNS Client 性能与新包回归：沿实际热点验证接管／断开 CPU，保留正常网络／恢复边界；独立跟踪，不重复阻塞 S3—S5 阶段勾选 | **待 CI／新包实测**。`da23405` 峰值 86.3%，WPR 栈约 92.7% 经过 NDIS，无反复路由重建。网卡查询已收敛为一次且跳过无用 DNS 元数据，出口调用方共用，socket 直接查索引；实机全接口一致，读取 8489.8→12.7 ms。清理重复读取及试验代码，Windows 地址夹具补严格指针验证，正式 DNS／保护／恢复保持完整；[测量与边界](docs/DEVELOPMENT.md#windows-网卡查询与-cpu-采样)，`build/reports/windows-dns-cpu-da23405/summary.json`。整体 CPU 降幅尚未验收 |
+| A6 | Windows DNS Client 性能与新包回归：沿实际热点验证接管／断开 CPU，保留正常网络／恢复边界；独立跟踪，不重复阻塞 S3—S5 阶段勾选 | **自动检查通过，待 Windows CPU 实测**。`da23405` 峰值 86.3%，WPR 栈约 92.7% 经过 NDIS，无反复路由重建。网卡查询已收敛为一次且跳过无用 DNS 元数据，出口调用方共用，socket 直接查索引；实机全接口一致，读取 8489.8→12.7 ms。清理重复读取及试验代码，Windows 地址夹具补严格指针验证，正式 DNS／保护／恢复保持完整；[测量与边界](docs/DEVELOPMENT.md#windows-网卡查询与-cpu-采样)，`build/reports/windows-dns-cpu-da23405/summary.json`。整体 CPU 降幅尚未验收 |
 
 ## 上游问题转化为库化验收
 
