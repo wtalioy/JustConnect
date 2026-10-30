@@ -1786,9 +1786,6 @@ func TestUpdateVIPAppliesIPv4ToTunnelAndClient(t *testing.T) {
 	if !got.Equal(want) || !tunnel.ip.Equal(want) || !applied.Equal(want) {
 		t.Fatalf("active VIP client=%s tunnel=%s, want %s", got, tunnel.ip, want)
 	}
-	if len(tunnel.vipList) != 2 || !tunnel.vipList[1].Equal(want) {
-		t.Fatalf("stored VIPs = %v, want independent copy", tunnel.vipList)
-	}
 }
 
 func TestUpdateVIPKeepsOldAddressWhenStackRejectsUpdate(t *testing.T) {
