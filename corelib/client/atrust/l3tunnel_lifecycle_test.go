@@ -837,33 +837,33 @@ func TestReadFrameRejectsUnknownProtocolHeaders(t *testing.T) {
 	}
 }
 
-func TestSplitIncomingIPPacketsHandlesMultipleAndPartialPackets(t *testing.T) {
+func TestReadLoopHandlesMultipleAndPartialPackets(t *testing.T) {
 	first := makeUDPPacket(12345, 53)
 	second := makeUDPPacket(23456, 443)
-	stream := append(append([]byte{}, first...), second[:10]...)
-
-	packets, remaining, err := splitIncomingIPPackets(stream)
-	if err != nil || len(packets) != 1 || !bytes.Equal(packets[0], first) {
-		t.Fatalf("first split packets=%d err=%v", len(packets), err)
+	large := make([]byte, 2000)
+	large[0] = zctcpip.IPv4Version<<4 | 5
+	binary.BigEndian.PutUint16(large[2:4], uint16(len(large)))
+	fragments := [][]byte{
+		append(append([]byte(nil), first...), second[:10]...),
+		append(append([]byte(nil), second[10:]...), large[:1000]...),
+		large[1000:],
 	}
-	packets, remaining, err = splitIncomingIPPackets(append(remaining, second[10:]...))
-	if err != nil || len(packets) != 1 || !bytes.Equal(packets[0], second) || len(remaining) != 0 {
-		t.Fatalf("second split packets=%d remaining=%d err=%v", len(packets), len(remaining), err)
+	var stream []byte
+	for _, fragment := range fragments {
+		stream = append(stream, l3Version, cmdDataResp, byte(len(fragment)>>8), byte(len(fragment)))
+		stream = append(stream, fragment...)
+		stream = append(stream, l3Version, cmdHeartbeatResp, 0, 0)
 	}
-}
-
-func TestSplitIncomingIPPacketsAcceptsLargePacketAcrossFrames(t *testing.T) {
-	packet := make([]byte, 2000)
-	packet[0] = zctcpip.IPv4Version<<4 | 5
-	binary.BigEndian.PutUint16(packet[2:4], uint16(len(packet)))
-
-	packets, remaining, err := splitIncomingIPPackets(packet[:1000])
-	if err != nil || len(packets) != 0 || len(remaining) != 1000 {
-		t.Fatalf("partial split packets=%d remaining=%d err=%v", len(packets), len(remaining), err)
+	conn := &l3TunnelConn{reader: bufio.NewReader(bytes.NewReader(stream)),
+		incoming: make(chan []byte, 3), closeCh: make(chan struct{}), conntrackMgr: newConntrackMgr()}
+	conn.readLoop()
+	if len(conn.dataStream) != 0 || len(conn.incoming) != 3 {
+		t.Fatal("read loop lost packets or retained a complete fragment", len(conn.incoming), len(conn.dataStream))
 	}
-	packets, remaining, err = splitIncomingIPPackets(append(remaining, packet[1000:]...))
-	if err != nil || len(packets) != 1 || !bytes.Equal(packets[0], packet) || len(remaining) != 0 {
-		t.Fatalf("complete split packets=%d remaining=%d err=%v", len(packets), len(remaining), err)
+	for _, want := range [][]byte{first, second, large} {
+		if got := <-conn.incoming; !bytes.Equal(got, want) {
+			t.Fatalf("packet changed after later frames: got %d bytes, want %d", len(got), len(want))
+		}
 	}
 }
 
@@ -874,6 +874,28 @@ func BenchmarkGetDataPayload(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		payload := getDataPayload("connect-token", packet)
 		putDataPayload(payload)
+	}
+}
+
+func BenchmarkReadLoopPacket(b *testing.B) {
+	packet := append(makeUDPPacket(12345, 53), make([]byte, 1200-28)...)
+	binary.BigEndian.PutUint16(packet[2:4], uint16(len(packet)))
+	binary.BigEndian.PutUint16(packet[24:26], uint16(len(packet)-20))
+	frame := append([]byte{l3Version, cmdDataResp, byte(len(packet) >> 8), byte(len(packet))}, packet...)
+	reader, writer := io.Pipe()
+	conn := &l3TunnelConn{reader: bufio.NewReader(reader), incoming: make(chan []byte, 1),
+		closeCh: make(chan struct{}), conntrackMgr: newConntrackMgr()}
+	conn.startWorker(conn.readLoop)
+	b.Cleanup(func() { _ = writer.Close(); conn.Wait(); _ = reader.Close() })
+	b.ReportAllocs()
+	b.SetBytes(int64(len(packet)))
+	for b.Loop() {
+		if _, err := writer.Write(frame); err != nil {
+			b.Fatal(err)
+		}
+		if got := <-conn.incoming; !bytes.Equal(got, packet) {
+			b.Fatal("read loop changed the packet")
+		}
 	}
 }
 

@@ -266,7 +266,11 @@ func (c *l3TunnelConn) readLoop() {
 
 		switch fr.cmd {
 		case cmdDataResp:
-			c.dataStream = append(c.dataStream, fr.payload...)
+			if len(c.dataStream) == 0 {
+				c.dataStream = fr.payload
+			} else {
+				c.dataStream = append(c.dataStream, fr.payload...)
+			}
 			packets, remaining, err := splitIncomingIPPackets(c.dataStream)
 			if err != nil {
 
@@ -426,7 +430,7 @@ func (c *l3TunnelConn) WritePacket(meta packetMeta, appID, nodeGroupID string, p
 		if authErr != nil {
 			return authErr
 		}
-		return c.writeAuthenticatedPacket(ct, meta, appID, nodeGroupID, token, pkt)
+		return c.writeAuthenticatedPacket(token, pkt)
 	}
 
 	_, err := c.conntrackMgr.cachePacket(ct, meta, pkt)
@@ -441,7 +445,7 @@ func (c *l3TunnelConn) WritePacket(meta packetMeta, appID, nodeGroupID string, p
 	return nil
 }
 
-func (c *l3TunnelConn) writeAuthenticatedPacket(ct *conntrack, meta packetMeta, appID, nodeGroupID, token string, pkt []byte) error {
+func (c *l3TunnelConn) writeAuthenticatedPacket(token string, pkt []byte) error {
 	if len(token) > 0xFF {
 		return fmt.Errorf("l3-tunnel connect token too long: %d", len(token))
 	}
@@ -449,8 +453,7 @@ func (c *l3TunnelConn) writeAuthenticatedPacket(ct *conntrack, meta packetMeta, 
 	defer putDataPayload(frame)
 	payload := frame.payload
 
-	err := c.writeFrame(payload)
-	return err
+	return c.writeFrame(payload)
 }
 
 func (c *l3TunnelConn) notifyAuth() {
@@ -596,7 +599,7 @@ func (c *l3TunnelConn) completeAuthentication(authID uint64, token string, authE
 		return
 	}
 	for _, packet := range packets {
-		if err := c.writeAuthenticatedPacket(ct, ct.authMeta, ct.appID, ct.nodeGroupID, token, packet); err != nil {
+		if err := c.writeAuthenticatedPacket(token, packet); err != nil {
 
 			_ = c.Close()
 			return
@@ -639,7 +642,7 @@ func buildAuthRequest(info clientInfo, signKey []byte, meta packetMeta, ct *conn
 		return nil, err
 	}
 	url := fmt.Sprintf("%s:%s:%d", protoName(meta.proto), meta.dstIP.String(), meta.dstPort)
-	env := defaultEnv(info)
+	env := defaultEnv()
 
 	req := authRequestIP{
 		Sid:           sid,
@@ -671,7 +674,7 @@ func buildAuthRequest(info clientInfo, signKey []byte, meta packetMeta, ct *conn
 	return json.Marshal(req)
 }
 
-func defaultEnv(info clientInfo) *trustEnv {
+func defaultEnv() *trustEnv {
 	procPath := "/usr/bin/zju-connect"
 	procName := "zju-connect"
 	fingerprint := fmt.Sprintf("%X", sha256.Sum256([]byte(procPath)))
