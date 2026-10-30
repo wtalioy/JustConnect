@@ -20,12 +20,13 @@ function(justconnect_system_integration TARGET)
     elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         set(PLATFORM linux)
     else()
-        set(PLATFORM unsupported)
+        message(FATAL_ERROR "JustConnect supports Windows, macOS and Linux; found ${CMAKE_SYSTEM_NAME}")
     endif()
     add_library(${TARGET} STATIC "${REPO}/infrastructure/systemproxy/${PLATFORM}/systemproxybackend.cpp"
         "${REPO}/infrastructure/credentialstore/${PLATFORM}/credentialstore.cpp"
         "${REPO}/infrastructure/systemproxy/proxyrecovery.cpp"
         "${REPO}/infrastructure/systemproxy/proxyjournal.cpp"
+        "${REPO}/infrastructure/systemproxy/persistentproxy.cpp"
         "${REPO}/infrastructure/dns/dnssnapshot.cpp"
         "${REPO}/infrastructure/routing/originalexit.cpp"
         "${REPO}/infrastructure/process/${PLATFORM}/running.cpp"
@@ -43,13 +44,8 @@ function(justconnect_system_integration TARGET)
         set(PROXY_RECOVERY_DESTINATION "usr/bin")
     endif()
     install(TARGETS JustConnectProxyRecovery RUNTIME DESTINATION "${PROXY_RECOVERY_DESTINATION}" COMPONENT CoreRuntime)
-    if(NOT APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
-        target_sources(${TARGET} PRIVATE "${REPO}/infrastructure/process/command.cpp")
-    endif()
-    if(WIN32 OR APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Linux")
-        target_sources(${TARGET} PRIVATE "${REPO}/infrastructure/systemproxy/persistentproxy.cpp")
-    endif()
     if(WIN32)
+        target_sources(${TARGET} PRIVATE "${REPO}/infrastructure/process/command.cpp")
         include("${REPO}/cmake/WindowsNetworkHelper.cmake")
         justconnect_windows_network_client(justconnect_windows_network_client)
         target_link_libraries(${TARGET} PUBLIC justconnect_windows_network_client)

@@ -107,8 +107,6 @@ int main(int argc, char **argv) {
         {"-o",directory.filePath("login-item.scpt"),"-e",compilation}, int(compilationDeadline.remainingTime()));
     check(compiled.result.succeeded(), qPrintable("Compile actual AppleScript: " + compiled.result.detail + '\n' + compiled.standardError));
     std::cout << "UNVERIFIED: interactive System Events authorization; tests use an isolated command boundary\n";
-#else
-    check(AutoStart::setEnabled(true).status==Status::Unsupported,"unsupported autostart explicit");
 #endif
     app.setApplicationName("invalid/name");
     check(!AutoStart::setEnabled(true).succeeded(),"invalid item name rejected before mutation");
