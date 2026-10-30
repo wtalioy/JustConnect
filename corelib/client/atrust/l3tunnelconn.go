@@ -88,7 +88,6 @@ type l3TunnelConn struct {
 	onVIP              func([]net.IP)
 	heartbeatInterval  time.Duration
 	heartbeatMissLimit int32
-	heartbeatMisses    int32
 	heartbeatHasWrite  uint32
 	authWake           chan struct{}
 	writeFrameHook     func([]byte) error
@@ -294,7 +293,6 @@ func (c *l3TunnelConn) readLoop() {
 		case cmdHeartbeatResp:
 
 			atomic.StoreUint32(&c.heartbeatHasWrite, 0)
-			atomic.StoreInt32(&c.heartbeatMisses, 0)
 		default:
 
 		}
@@ -344,17 +342,9 @@ func (c *l3TunnelConn) heartbeatLoop() {
 		case <-ticker.C:
 			c.conntrackMgr.removeExpired()
 			if atomic.SwapUint32(&c.heartbeatHasWrite, 0) != 0 {
-				atomic.StoreInt32(&c.heartbeatMisses, 0)
 				continue
 			}
-			misses := atomic.LoadInt32(&c.heartbeatMisses)
-			if misses >= missLimit {
-
-				_ = c.Close()
-				return
-			}
-			atomic.AddInt32(&c.heartbeatMisses, 1)
-			if !c.sendHeartbeat() {
+			if !c.sendHeartbeat(interval * time.Duration(missLimit)) {
 				return
 			}
 		case <-c.closeCh:
@@ -363,7 +353,10 @@ func (c *l3TunnelConn) heartbeatLoop() {
 	}
 }
 
-func (c *l3TunnelConn) sendHeartbeat() bool {
+func (c *l3TunnelConn) sendHeartbeat(timeout time.Duration) bool {
+	// Bound the write and its mutex wait without adding a timer to every data packet.
+	deadline := time.AfterFunc(timeout, func() { _ = c.Close() })
+	defer deadline.Stop()
 	if err := c.writeFrame([]byte{l3Version, cmdHeartbeatReq, 0x00, 0x00}); err != nil {
 
 		_ = c.Close()
