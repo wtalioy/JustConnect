@@ -165,3 +165,58 @@ func TestResourcePortRangesUseTheSameValidDestinationsAsCapture(t *testing.T) {
 		})
 	}
 }
+
+func TestParseResourcePreservesHostShapes(t *testing.T) {
+	for _, test := range []struct {
+		host, first, last, domain string
+	}{
+		{host: "192.0.2.10", first: "192.0.2.10", last: "192.0.2.10"},
+		{host: "192.0.2.10/24", first: "192.0.2.0", last: "192.0.2.255"},
+		{host: "192.0.2.10-192.0.2.20", first: "192.0.2.10", last: "192.0.2.20"},
+		{host: "2001:db8::1"}, {host: "2001:db8::/64"}, {host: "2001:db8::1-2001:db8::2"},
+		{host: "campus-name.test", domain: "campus-name.test"},
+		{host: "*.campus.test", domain: ".campus.test"},
+		{host: "api.*.campus.test"},
+	} {
+		t.Run(test.host, func(t *testing.T) {
+			var policy ClientResource
+			policy.Data.AppList.Data.AppInfo = append(policy.Data.AppList.Data.AppInfo, struct{ Apps []resourceApp }{
+				Apps: []resourceApp{{ID: "app", NodeGroupID: "group", AccessModel: "L3VPN", EnableTCPPrefL3: true,
+					AddressList: []resourceAddress{{Protocol: "udp", Port: "80-443", Host: test.host, IP: []string{"192.0.2.42", "2001:db8::42", "invalid"}}}}},
+			})
+			data, err := json.Marshal(policy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			c := &Client{}
+			if err := c.parseResource(data); err != nil {
+				t.Fatal(err)
+			}
+			if test.domain != "" {
+				if len(c.domainResources) != 1 || len(c.domainResources[test.domain]) != 1 || len(c.dnsResource[test.host]) != 1 {
+					t.Fatal("domain or static IPv4 rule lost", c.domainResources, c.dnsResource)
+				}
+				resource := c.domainResources[test.domain][0]
+				if resource.AppID != "app" || resource.NodeGroupID != "group" || !resource.EnableTCPPrefL3 || !resource.AddrPretend || resource.Protocol != "udp" || resource.PortMin != 80 || resource.PortMax != 443 {
+					t.Fatal("domain permission metadata lost", resource)
+				}
+				test.first, test.last = "192.0.2.42", "192.0.2.42"
+			} else if len(c.domainResources) != 0 || len(c.dnsResource) != 0 {
+				t.Fatal("non-domain host gained DNS permissions", c.domainResources, c.dnsResource)
+			}
+			if test.first == "" {
+				if len(c.ipResources) != 0 {
+					t.Fatal("unsupported host gained IPv4 capture", c.ipResources)
+				}
+				return
+			}
+			if len(c.ipResources) != 1 {
+				t.Fatal("wrong IP resource count", c.ipResources)
+			}
+			resource := c.ipResources[0]
+			if !resource.IPMin.Equal(net.ParseIP(test.first)) || !resource.IPMax.Equal(net.ParseIP(test.last)) || resource.AppID != "app" || resource.NodeGroupID != "group" || !resource.EnableTCPPrefL3 || resource.Protocol != "udp" || resource.PortMin != 80 || resource.PortMax != 443 {
+				t.Fatal("host range or permission metadata changed", resource)
+			}
+		})
+	}
+}

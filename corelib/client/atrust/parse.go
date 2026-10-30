@@ -38,14 +38,6 @@ type ClientResource struct {
 		SDPPolicy struct {
 			Data struct {
 				ClientOption struct {
-					Tun0RTT struct {
-						MaxIdleConnNum    int64 `json:"maxIdleConnNum"`
-						MaxIdleLingerTime int64 `json:"maxIdleLingerTime"`
-						MinIdleConnNum    int64 `json:"minIdleConnNum"`
-						Enable            bool  `json:"enable"`
-						PreConnNum        int64 `json:"preConnNum"`
-					} `json:"tun0rtt"`
-
 					DNSOption struct {
 						FirstDNS  string
 						SecondDNS string
@@ -101,166 +93,79 @@ func (c *Client) parseResource(resource []byte) error {
 	for _, app := range clientResource.Data.AppList.Data.AppInfo {
 		for _, appItem := range app.Apps {
 			if appItem.AccessModel != "L3VPN" {
-
 				continue
 			}
 			for _, address := range appItem.AddressList {
-				if address.Protocol == "tcp" || address.Protocol == "udp" || address.Protocol == "all" {
-					// Handle port
-					portStr := address.Port
-					var portMin, portMax int
-					if strings.Contains(portStr, "-") {
-						// Handle port range
-						ports := strings.Split(portStr, "-")
-						if len(ports) != 2 {
-
-							continue
-						}
-						portMin, err = strconv.Atoi(ports[0])
-						if err != nil {
-
-							continue
-						}
-						portMax, err = strconv.Atoi(ports[1])
-						if err != nil {
-
-							continue
-						}
-					} else {
-						// Handle single port
-						portMin, err = strconv.Atoi(portStr)
-						if err != nil {
-
-							continue
-						}
-						portMax = portMin // Single port means min and max are the same
-					}
-					// Keep exactly the usable destination ports authorized by the server range.
-					portMin, portMax = max(1, portMin), min(65535, portMax)
-					if portMin > portMax {
+				if address.Protocol != "tcp" && address.Protocol != "udp" && address.Protocol != "all" {
+					continue
+				}
+				first, last, ranged := strings.Cut(address.Port, "-")
+				portMin, err := strconv.Atoi(first)
+				if err != nil {
+					continue
+				}
+				portMax := portMin
+				if ranged {
+					portMax, err = strconv.Atoi(last)
+					if err != nil {
 						continue
 					}
-
-					// Handle host
-					hostStr := address.Host
-					isDomain := false
-					// First, try to parse the host as an IP address
-					ip := net.ParseIP(hostStr)
-					if ip == nil {
-						// Try to parse as CIDR notation (e.g. 10.13.0.0/16)
-						if _, ipNet, cidrErr := net.ParseCIDR(hostStr); cidrErr == nil {
-							ip4 := ipNet.IP.To4()
-							if ip4 != nil {
-								ipMax4 := make(net.IP, len(ip4))
-								for i := range ip4 {
-									ipMax4[i] = ip4[i] | ^ipNet.Mask[i]
-								}
-
-								c.ipResources = append(c.ipResources, client.IPResource{
-									IPMin:           ip4.To16(),
-									IPMax:           ipMax4.To16(),
-									PortMin:         portMin,
-									PortMax:         portMax,
-									Protocol:        address.Protocol,
-									AppID:           appItem.ID,
-									NodeGroupID:     appItem.NodeGroupID,
-									EnableTCPPrefL3: appItem.EnableTCPPrefL3,
-								})
-
-							} else {
-
-							}
-						} else if ipParts := strings.Split(hostStr, "-"); len(ipParts) == 2 {
-							ipMin := net.ParseIP(ipParts[0])
-							ipMax := net.ParseIP(ipParts[1])
-							if ipMin != nil && ipMax != nil {
-								// It's a range of IP addresses
-								if ipMin.To4() != nil {
-
-									c.ipResources = append(c.ipResources, client.IPResource{
-										IPMin:           ipMin,
-										IPMax:           ipMax,
-										PortMin:         portMin,
-										PortMax:         portMax,
-										Protocol:        address.Protocol,
-										AppID:           appItem.ID,
-										NodeGroupID:     appItem.NodeGroupID,
-										EnableTCPPrefL3: appItem.EnableTCPPrefL3,
-									})
-
-								} else {
-
-								}
-							} else {
-								isDomain = true
-							}
-						} else {
-							isDomain = true
+				}
+				// Keep exactly the usable destination ports authorized by the server range.
+				portMin, portMax = max(1, portMin), min(65535, portMax)
+				if portMin > portMax {
+					continue
+				}
+				resource := client.IPResource{
+					PortMin: portMin, PortMax: portMax, Protocol: address.Protocol,
+					AppID: appItem.ID, NodeGroupID: appItem.NodeGroupID, EnableTCPPrefL3: appItem.EnableTCPPrefL3,
+				}
+				host := address.Host
+				isDomain := false
+				if ip := net.ParseIP(host); ip != nil {
+					if ip.To4() != nil {
+						resource.IPMin, resource.IPMax = ip, ip
+					}
+				} else if _, subnet, err := net.ParseCIDR(host); err == nil {
+					if ip := subnet.IP.To4(); ip != nil {
+						last := make(net.IP, len(ip))
+						for i := range ip {
+							last[i] = ip[i] | ^subnet.Mask[i]
+						}
+						resource.IPMin, resource.IPMax = ip.To16(), last.To16()
+					}
+				} else if first, last, ranged := strings.Cut(host, "-"); ranged {
+					minimum, maximum := net.ParseIP(first), net.ParseIP(last)
+					if minimum != nil && maximum != nil {
+						if minimum.To4() != nil {
+							resource.IPMin, resource.IPMax = minimum, maximum
 						}
 					} else {
-						// It's an IP address
-						if ip.To4() != nil {
-
-							c.ipResources = append(c.ipResources, client.IPResource{
-								IPMin:           ip,
-								IPMax:           ip,
-								PortMin:         portMin,
-								PortMax:         portMax,
-								Protocol:        address.Protocol,
-								AppID:           appItem.ID,
-								NodeGroupID:     appItem.NodeGroupID,
-								EnableTCPPrefL3: appItem.EnableTCPPrefL3,
-							})
-
-						} else {
-
-						}
+						isDomain = true
 					}
-
-					if isDomain {
-						domain := normalizePolicyDomain(hostStr)
-						if domain == "" {
-
-							continue
-						}
-						c.domainResources[domain] = append(c.domainResources[domain], client.DomainResource{
-							PortMin:         portMin,
-							PortMax:         portMax,
-							Protocol:        address.Protocol,
-							AppID:           appItem.ID,
-							NodeGroupID:     appItem.NodeGroupID,
-							EnableTCPPrefL3: appItem.EnableTCPPrefL3,
-							AddrPretend:     resourceAddrPretend(appItem.AddrPretend),
-						})
-
-					}
-
-					// Handle DNS rules
-					if address.IP != nil {
-						if !isDomain {
-
-							continue
-						}
-
-						for _, ipStr := range address.IP {
-							ip := net.ParseIP(ipStr)
-							if ip != nil {
-								if ip.To4() != nil {
-
-									c.dnsResource[hostStr] = append(c.dnsResource[hostStr], ip)
-									c.ipResources = append(c.ipResources, client.IPResource{
-										IPMin: ip, IPMax: ip, PortMin: portMin, PortMax: portMax,
-										Protocol: address.Protocol, AppID: appItem.ID, NodeGroupID: appItem.NodeGroupID,
-										EnableTCPPrefL3: appItem.EnableTCPPrefL3,
-									})
-
-								} else {
-
-								}
-							} else {
-
-							}
-						}
+				} else {
+					isDomain = true
+				}
+				if resource.IPMin != nil {
+					c.ipResources = append(c.ipResources, resource)
+				}
+				if !isDomain {
+					continue
+				}
+				domain := normalizePolicyDomain(host)
+				if domain == "" {
+					continue
+				}
+				c.domainResources[domain] = append(c.domainResources[domain], client.DomainResource{
+					PortMin: portMin, PortMax: portMax, Protocol: address.Protocol,
+					AppID: appItem.ID, NodeGroupID: appItem.NodeGroupID, EnableTCPPrefL3: appItem.EnableTCPPrefL3,
+					AddrPretend: resourceAddrPretend(appItem.AddrPretend),
+				})
+				for _, address := range address.IP {
+					if ip := net.ParseIP(address); ip != nil && ip.To4() != nil {
+						c.dnsResource[host] = append(c.dnsResource[host], ip)
+						resource.IPMin, resource.IPMax = ip, ip
+						c.ipResources = append(c.ipResources, resource)
 					}
 				}
 			}
