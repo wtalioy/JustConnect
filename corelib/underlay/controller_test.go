@@ -111,9 +111,7 @@ func TestControllerRealResolutionPreservesTLSIdentityAndLoopback(t *testing.T) {
 					}
 				}
 				transport.CloseIdleConnections()
-				if err = dialer.Close(); err != nil {
-					t.Fatal(err)
-				}
+				dialer.Close()
 			}
 			queries, _ := fixture.Counts(t)
 			if requests.Load() != 4 || queries == 0 || systemDials.Load() != 0 {
@@ -150,13 +148,10 @@ func TestCloseCancelsControllerDNSAndJoinsActiveDial(t *testing.T) {
 		}
 		time.Sleep(time.Millisecond)
 	}
-	closed := make(chan error, 1)
-	go func() { closed <- dialer.Close() }()
+	closed := make(chan struct{})
+	go func() { dialer.Close(); close(closed) }()
 	select {
-	case err = <-closed:
-		if err != nil {
-			t.Fatal(err)
-		}
+	case <-closed:
 	case <-time.After(time.Second):
 		t.Fatal("underlay close did not join controller requests")
 	}

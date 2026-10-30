@@ -1,4 +1,4 @@
-// Package privatefile creates diagnostic files accessible only to the current user.
+// Package privatefile creates files accessible only to the current user; native SSH fixtures use it for disposable keys.
 package privatefile
 
 import "os"

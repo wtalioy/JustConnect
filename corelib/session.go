@@ -15,7 +15,6 @@ import (
 	"github.com/wtalioy/JustConnect/corelib/client/atrust"
 	"github.com/wtalioy/JustConnect/corelib/client/atrust/auth"
 	"github.com/wtalioy/JustConnect/corelib/dial"
-	"github.com/wtalioy/JustConnect/corelib/internal/keylog"
 	"github.com/wtalioy/JustConnect/corelib/policy"
 	"github.com/wtalioy/JustConnect/corelib/resolve"
 	"github.com/wtalioy/JustConnect/corelib/service"
@@ -31,7 +30,6 @@ type Options struct {
 	Client           atrust.ClientOptions
 	Setup            atrust.SetupOptions
 	Underlay         underlay.Options
-	TLSKeyLogFile    string
 	SOCKS            string
 	HTTP             string
 	SecondaryDNS     string
@@ -61,7 +59,7 @@ type Resources struct {
 }
 
 // Session owns one protocol invocation; the ABI serializes starts and joins Run on stop.
-// An injected dialer/writer remains owned by its caller, as in atrust.ClientOptions.
+// An injected dialer remains owned by its caller, as in atrust.ClientOptions.
 type Session struct {
 	options   Options
 	listeners atomic.Pointer[service.Listeners]
@@ -123,23 +121,13 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 	}()
 	ctx, cancel := context.WithCancel(parent)
 	var ownedUnderlay *underlay.Dialer
-	var keyLog io.Closer
 	var vpn *atrust.Client
 	var network *gvisor.Stack
 	var resolver *resolve.Resolver
 	var listeners *service.Listeners
 	defer func() {
-		if keyLog != nil {
-			if closeErr := keyLog.Close(); closeErr != nil {
-				err = fmt.Errorf("keylog_close_failed: %w", closeErr)
-			}
-		}
-	}()
-	defer func() {
 		if ownedUnderlay != nil {
-			if closeErr := ownedUnderlay.Close(); closeErr != nil {
-				err = fmt.Errorf("capture_close_failed: %w", closeErr)
-			}
+			ownedUnderlay.Close()
 		}
 	}()
 	defer func() {
@@ -183,16 +171,6 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 			return fmt.Errorf("underlay_failed: %w", err)
 		}
 		clientOptions.UnderlayDialer = ownedUnderlay
-	}
-	if options.TLSKeyLogFile != "" {
-		if clientOptions.TLSKeyLogWriter != nil {
-			return errors.New("ambiguous_keylog_options")
-		}
-		file, openErr := keylog.Open(options.TLSKeyLogFile)
-		if openErr != nil {
-			return fmt.Errorf("keylog_failed: %w", openErr)
-		}
-		keyLog, clientOptions.TLSKeyLogWriter = file, file
 	}
 	vpn = atrust.NewClient(clientOptions)
 	if options.QueryAuthMethods {
