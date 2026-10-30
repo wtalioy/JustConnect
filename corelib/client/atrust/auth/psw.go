@@ -43,22 +43,10 @@ func (s *Session) loginAuthPsw(username, password, loginDomain string) error {
 
 func (s *Session) pswImpl(username, password, loginDomain, graphCheckCode string) (int, error) {
 
-	N, ok := new(big.Int).SetString(s.pubKey, 16)
-	if !ok {
-		return 0, fmt.Errorf("invalid RSA public key modulus")
-	}
-	E, err := strconv.Atoi(s.pubKeyExp)
-	if err != nil || E <= 0 {
-		return 0, fmt.Errorf("invalid RSA public key exponent %q", s.pubKeyExp)
-	}
-	pub := &rsa.PublicKey{N: N, E: E}
-
-	msg := []byte(password + "_" + s.antiReplayRand)
-	cipherBytes, err := encryptPKCS1v15Chunks(pub, msg)
+	encryptedPwd, err := s.encryptAuthSecret(password)
 	if err != nil {
 		return 0, err
 	}
-	encryptedPwd := hex.EncodeToString(cipherBytes)
 
 	s.username = username + "@" + loginDomain
 	data := map[string]interface{}{
@@ -143,8 +131,8 @@ func encryptPKCS1v15Chunks(pub *rsa.PublicKey, plaintext []byte) ([]byte, error)
 	return ciphertext, nil
 }
 
-// encryptChallengeResponse encrypts a code as "<code>_<antiReplayRand>" via PKCS#1 v1.5, like the password.
-func (s *Session) encryptChallengeResponse(code string) (string, error) {
+// Password and RADIUS challenge secrets share the same nonce and wire encryption.
+func (s *Session) encryptAuthSecret(secret string) (string, error) {
 	N, ok := new(big.Int).SetString(s.pubKey, 16)
 	if !ok {
 		return "", fmt.Errorf("invalid RSA public key modulus")
@@ -154,7 +142,7 @@ func (s *Session) encryptChallengeResponse(code string) (string, error) {
 		return "", fmt.Errorf("invalid RSA public key exponent %q", s.pubKeyExp)
 	}
 	pub := &rsa.PublicKey{N: N, E: E}
-	cipherBytes, err := encryptPKCS1v15Chunks(pub, []byte(code+"_"+s.antiReplayRand))
+	cipherBytes, err := encryptPKCS1v15Chunks(pub, []byte(secret+"_"+s.antiReplayRand))
 	if err != nil {
 		return "", err
 	}

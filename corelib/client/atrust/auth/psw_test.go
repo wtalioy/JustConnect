@@ -3,6 +3,7 @@ package auth
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -11,14 +12,19 @@ import (
 	"testing"
 )
 
-func TestEncryptPKCS1v15Chunks(t *testing.T) {
+func TestEncryptAuthSecretSpansRSAChunks(t *testing.T) {
 	privateKey, err := rsa.GenerateKey(rand.Reader, 1024)
 	if err != nil {
 		t.Fatal(err)
 	}
-	plaintext := []byte(strings.Repeat("long-password-", 20))
-
-	ciphertext, err := encryptPKCS1v15Chunks(&privateKey.PublicKey, plaintext)
+	secret := strings.Repeat("long-password-", 20)
+	session := &Session{pubKey: privateKey.N.Text(16), pubKeyExp: strconv.Itoa(privateKey.E), antiReplayRand: "fresh-nonce"}
+	plaintext := []byte(secret + "_" + session.antiReplayRand)
+	encrypted, err := session.encryptAuthSecret(secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ciphertext, err := hex.DecodeString(encrypted)
 	if err != nil {
 		t.Fatal(err)
 	}
