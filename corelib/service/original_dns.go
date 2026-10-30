@@ -9,6 +9,7 @@ import (
 
 	"github.com/miekg/dns"
 	"github.com/wtalioy/JustConnect/corelib/internal/dnslistener"
+	"github.com/wtalioy/JustConnect/corelib/internal/networkstate"
 	"github.com/wtalioy/JustConnect/corelib/resolve"
 )
 
@@ -109,23 +110,19 @@ func (p *Listeners) openOriginalDNS(endpoints map[string]resolve.OriginalDNSList
 			}
 		}
 	}()
-	interfaces, err := net.Interfaces()
+	interfaces, err := networkstate.Interfaces()
 	if err != nil {
 		return nil, err
 	}
 	available := make(map[string]bool)
 	assigned := make(map[netip.Addr]bool)
 	for _, iface := range interfaces {
-		if iface.Flags&net.FlagUp == 0 {
+		if !iface.Up {
 			continue
 		}
 		available[iface.Name] = true
-		addresses, err := iface.Addrs()
-		if err != nil {
-			return nil, err
-		}
-		for _, address := range addresses {
-			if prefix, err := netip.ParsePrefix(address.String()); err == nil {
+		for _, address := range iface.Addresses {
+			if prefix, err := netip.ParsePrefix(address); err == nil {
 				assigned[prefix.Addr().Unmap()] = true
 			}
 		}

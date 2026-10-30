@@ -397,6 +397,21 @@ func TestOriginalDNSPreparationBeforeDeviceIsAtomicAndSealed(t *testing.T) {
 		}
 		return value
 	}
+	for _, name := range []string{"unavailable interface", "unassigned address"} {
+		t.Run(name, func(t *testing.T) {
+			bad := base
+			if name == "unavailable interface" {
+				bad.Interface = "JustConnect-missing-query-interface"
+			} else {
+				bad.Listen = "192.0.2.254:0"
+			}
+			err := p.PrepareOriginalDNS(compile(bad))
+			if err == nil || err.Error() != "original DNS requires an available query interface and assigned local listener address" ||
+				r.OriginalDNS != nil || len(p.OriginalDNSListeners()) != 0 {
+				t.Fatal("invalid interface/address passed native DNS preparation or changed active sources", err)
+			}
+		})
+	}
 	// Reserve both transports before leaving UDP occupied; their excluded port ranges can differ.
 	tcp, occupied := testdns.ListenPair(t, local.String())
 	tcp.Close()
