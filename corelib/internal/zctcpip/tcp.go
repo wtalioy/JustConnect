@@ -38,7 +38,7 @@ func (p TCPPacket) SetDestinationPort(port uint16) {
 }
 
 func (p TCPPacket) Flags() uint16 {
-	return uint16(p[13] | (p[12] & 0x1))
+	return uint16(p[13]) | uint16(p[12]&1)<<8
 }
 
 func (p TCPPacket) Checksum() uint16 {
