@@ -29,8 +29,7 @@ type L3Tunnel struct {
 	connect           func(context.Context, string, *conntrackMgr) (*l3TunnelConn, error)
 	reconnectInterval time.Duration
 
-	vipMu   sync.Mutex
-	vipList []net.IP
+	vipMu sync.Mutex
 
 	dataChan      chan []byte
 	closeCh       chan struct{}
@@ -97,21 +96,16 @@ func NewL3Tunnel(aTrustClient *Client) (*L3Tunnel, error) {
 }
 
 func (t *L3Tunnel) updateVIP(ips []net.IP) {
-	updated := make([]net.IP, 0, len(ips))
 	var ipv4 net.IP
 	for _, ip := range ips {
-		if ip == nil {
-			continue
-		}
-		copyOfIP := append(net.IP(nil), ip...)
-		updated = append(updated, copyOfIP)
-		if ipv4 == nil && ip.To4() != nil {
-			ipv4 = append(net.IP(nil), ip.To4()...)
+		if ip := ip.To4(); ip != nil {
+			ipv4 = append(net.IP(nil), ip...)
+			break
 		}
 	}
+
 	t.vipMu.Lock()
 	changed := ipv4 != nil && !t.ip.Equal(ipv4)
-	t.vipList = updated
 	t.vipMu.Unlock()
 	if changed && t.client != nil {
 		if err := t.client.applyIPUpdate(ipv4); err != nil {
