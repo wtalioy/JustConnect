@@ -51,9 +51,8 @@ func TestParseResourceSeparatesWANAndLANNodes(t *testing.T) {
 }
 
 func TestNodeProbeScoreAcceptsPartialReachabilityWithLossPenalty(t *testing.T) {
-	target := &ping.Target{Counter: 3, Timeout: time.Second}
-	partial := &ping.Result{Counter: 3, SuccessCounter: 2, TotalDuration: 40 * time.Millisecond, Target: target}
-	stable := &ping.Result{Counter: 3, SuccessCounter: 3, TotalDuration: 150 * time.Millisecond, Target: target}
+	partial := ping.Result{Counter: 3, SuccessCounter: 2, TotalDuration: 40 * time.Millisecond}
+	stable := ping.Result{Counter: 3, SuccessCounter: 3, TotalDuration: 150 * time.Millisecond}
 	partialScore, reachable := nodeProbeScore(partial)
 	if !reachable {
 		t.Fatal("partially reachable node was rejected")
@@ -65,7 +64,7 @@ func TestNodeProbeScoreAcceptsPartialReachabilityWithLossPenalty(t *testing.T) {
 	if partialScore <= stableScore {
 		t.Fatalf("partial score %s should be worse than stable score %s", partialScore, stableScore)
 	}
-	if _, reachable := nodeProbeScore(&ping.Result{Counter: 3, Target: target}); reachable {
+	if _, reachable := nodeProbeScore(ping.Result{Counter: 3}); reachable {
 		t.Fatal("unreachable node was accepted")
 	}
 }

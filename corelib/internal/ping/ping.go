@@ -3,8 +3,7 @@ package ping
 import "time"
 
 type Target struct {
-	Host     string
-	Port     int
+	Address  string
 	Counter  int
 	Interval time.Duration
 	Timeout  time.Duration
@@ -14,9 +13,6 @@ type Result struct {
 	Err            error
 	Counter        int
 	SuccessCounter int
-	Target         *Target
-	MinDuration    time.Duration
-	MaxDuration    time.Duration
 	TotalDuration  time.Duration
 }
 
