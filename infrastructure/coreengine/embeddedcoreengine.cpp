@@ -174,6 +174,7 @@ public:
     uint64_t generation = 0;
     quint64 serial = 0;
     bool active = false;
+    QByteArray buffer;
     QJsonObject initialPolicy;
     std::atomic_bool cancelled{false};
     ~CoreEventPump() override {
@@ -296,7 +297,7 @@ public:
     }
     void poll() {
         if (!active || QThread::currentThread()->isInterruptionRequested()) return;
-        QByteArray buffer(JC_MAX_OUTPUT, Qt::Uninitialized);
+        buffer.resizeForOverwrite(JC_MAX_OUTPUT);
         uint32_t length = 0;
         const int status = library().jc_session_read(handle, 100,
             reinterpret_cast<uint8_t *>(buffer.data()), uint32_t(buffer.size()), &length);
@@ -312,11 +313,11 @@ public:
             || doc.object()["generation"].toString() != QString::number(generation)) {
             stop();
             while (library().jc_session_destroy(handle, JC_MAX_WAIT_MS) == JC_TIMEOUT) {}
-            handle = 0; active = false;
+            handle = 0; active = false; buffer.clear();
             emit failed(serial, JC_INTERNAL); return;
         }
         const auto event = doc.object();
-        if (event["type"] == "terminal") active = false;
+        if (event["type"] == "terminal") { active = false; buffer.clear(); }
         // The receiver acknowledges each event: at most one Qt event is in flight.
         const bool starting = event["type"] == "state" && event["state"] == "starting";
         const auto protection = starting ? initialPolicy : QJsonObject{};
