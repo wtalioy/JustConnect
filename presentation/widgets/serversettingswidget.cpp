@@ -10,6 +10,7 @@
 #include <QSpinBox>
 #include <QVBoxLayout>
 #include "application/applicationconstants.h"
+#include "core/connectionprofile.h"
 
 ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     auto *form = new QFormLayout(this);
@@ -28,7 +29,7 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     port->setRange(1,65535); port->setValue(443);
     form->addRow("入口",preset); form->addRow("服务器地址",address); form->addRow("服务器端口",port);
     verify=new QCheckBox("验证服务器证书（推荐）",this);
-    verify->setObjectName("tlsVerifyCheckBox"); verify->setChecked(true);
+    verify->setObjectName("tlsVerifyCheckBox"); verify->setChecked(TlsOptions{}.verify);
     auto *warning=new QLabel("关闭验证会失去服务器身份保护；不会因连接失败自动关闭。",this);
     warning->setObjectName("tlsWarningLabel"); warning->setWordWrap(true); warning->setVisible(false);
     allowUnverifiedNodes=new QCheckBox("跳过隧道证书校验",this);
@@ -56,9 +57,9 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
 }
 void ServerSettingsWidget::load(const QSettings &settings) {
     QSignalBlocker blocker(this), presetBlocker(preset);
-    verify->setChecked(settings.value("JustConnect/TLSVerify",true).toBool());
+    verify->setChecked(settings.value("JustConnect/TLSVerify",TlsOptions{}.verify).toBool());
     caPem->setPlainText(settings.value("JustConnect/TLSCAPEM").toString());
-    allowUnverifiedNodes->setChecked(settings.value("JustConnect/AllowUnverifiedNodes",false).toBool());
+    allowUnverifiedNodes->setChecked(settings.value("JustConnect/AllowUnverifiedNodes",TlsOptions{}.allowUnverifiedNodes).toBool());
     customAddress = settings.value("JustConnect/ServerAddress").toString();
     customPort = settings.value("JustConnect/ServerPort",443).toInt();
     QString kind = settings.value("JustConnect/ProfileKind","Custom").toString();

@@ -148,7 +148,7 @@ void SettingWindow::loadSettings(const QSettings &source) {
     ui->silentStartCheckBox->setChecked(manager.silentStartEnabled());
     serverEditor->load(source);
     ui->usernameLineEdit->setText(source.value("Credential/Username").toString());
-    rememberAuthentication->setChecked(source.value(DefaultSettings::RememberAuthentication,false).toBool());
+    rememberAuthentication->setChecked(source.value(DefaultSettings::RememberAuthentication,ConnectionBehavior{}.rememberAuthentication).toBool());
     clearDraftCredentials();
     const auto method=source.value("JustConnect/AuthType","psw").toString();
     int index=ui->authTypeComboBox->findData(method);
@@ -170,11 +170,11 @@ void SettingWindow::loadSettings(const QSettings &source) {
     ui->httpPortSpinBox->setValue(source.value("JustConnect/HTTPPort").toInt());
     ui->localDnsServerLineEdit->setText(source.value("JustConnect/LocalDNSServer").toString());
     ui->secondaryDnsLineEdit->setText(source.value("JustConnect/SecondaryDNS").toString());
-    ui->dnsTTLSpinBox->setValue(source.value("JustConnect/DNSTTL",3600).toInt());
+    ui->dnsTTLSpinBox->setValue(source.value("JustConnect/DNSTTL",DnsOptions{}.ttl).toInt());
     ui->bindInterfaceLineEdit->setText(source.value("JustConnect/BindInterface").toString());
-    ui->autoDetectInterfaceCheckBox->setChecked(source.value("JustConnect/AutoDetectInterface").toBool());
-    ui->disableDNSCheckBox->setChecked(source.value("JustConnect/DisableRemoteDNS").toBool());
-    const auto mode=source.value("JustConnect/KeepAliveMode","auto").toString();
+    ui->autoDetectInterfaceCheckBox->setChecked(source.value("JustConnect/AutoDetectInterface",ConnectionBehavior{}.autoDetectInterface).toBool());
+    ui->disableDNSCheckBox->setChecked(source.value("JustConnect/DisableRemoteDNS",DnsOptions{}.disableRemoteDns).toBool());
+    const auto mode=source.value("JustConnect/KeepAliveMode",KeepAliveOptions{}.mode).toString();
     int keepAliveIndex=ui->keepAliveModeComboBox->findData(mode);
     if (keepAliveIndex<0) {
         ui->keepAliveModeComboBox->addItem("无效模式（请选择）",mode);

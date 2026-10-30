@@ -8,13 +8,14 @@
 #include <QVariant>
 
 #include "application/applicationconstants.h"
+#include "core/connectionprofile.h"
 
 namespace {
 const QVariantMap &defaults()
 {
     static const QVariantMap values{
         {"Credential/Username", ""},
-        {DefaultSettings::RememberAuthentication, false},
+        {DefaultSettings::RememberAuthentication, ConnectionBehavior{}.rememberAuthentication},
 
         {"Common/ConnectAfterStart", false},
         {"Common/CheckUpdateAfterStart", false},
@@ -28,15 +29,15 @@ const QVariantMap &defaults()
         {"JustConnect/ProfileKind", "Custom"},
         {"JustConnect/ServerAddress", ""},
         {"JustConnect/ServerPort", 443},
-        {"JustConnect/TLSVerify", true},
+        {"JustConnect/TLSVerify", TlsOptions{}.verify},
         {"JustConnect/TLSCAPEM", ""},
-        {"JustConnect/AllowUnverifiedNodes", false},
+        {"JustConnect/AllowUnverifiedNodes", TlsOptions{}.allowUnverifiedNodes},
         {"JustConnect/SecondaryDNS", ""},
         {"JustConnect/LocalDNSServer", ""},
-        {"JustConnect/DNSTTL", 3600},
+        {"JustConnect/DNSTTL", DnsOptions{}.ttl},
         {"JustConnect/SOCKS5Port", 11080},
         {"JustConnect/HTTPPort", 11081},
-        {"JustConnect/KeepAliveMode", "auto"},
+        {"JustConnect/KeepAliveMode", KeepAliveOptions{}.mode},
         {"JustConnect/KeepAliveURL", ""},
 
         {"JustConnect/LoginDomain", ""},
@@ -47,9 +48,9 @@ const QVariantMap &defaults()
         {"JustConnect/PhoneNumber", ""},
 
         {"JustConnect/BindInterface", ""},
-        {"JustConnect/DisableRemoteDNS", false},
+        {"JustConnect/DisableRemoteDNS", DnsOptions{}.disableRemoteDns},
 
-        {"JustConnect/AutoDetectInterface", false},
+        {"JustConnect/AutoDetectInterface", ConnectionBehavior{}.autoDetectInterface},
 
     };
     return values;
