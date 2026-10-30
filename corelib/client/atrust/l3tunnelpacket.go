@@ -1,6 +1,7 @@
 package atrust
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +12,17 @@ import (
 	"github.com/wtalioy/JustConnect/corelib/internal/ipresource"
 	"github.com/wtalioy/JustConnect/corelib/internal/zctcpip"
 )
+
+func connTrackKey(meta packetMeta) string {
+	// Internal fixed-width keys avoid formatting validated packet tuples on every read/write.
+	var key [2 + 2*net.IPv6len + 4]byte
+	value := append(key[:0], byte(meta.atype), byte(meta.proto))
+	value = append(value, meta.srcIP.To16()...)
+	value = append(value, meta.dstIP.To16()...)
+	value = binary.BigEndian.AppendUint16(value, meta.srcPort)
+	value = binary.BigEndian.AppendUint16(value, meta.dstPort)
+	return string(value)
+}
 
 func (t *L3Tunnel) processIPV4(packet zctcpip.IPv4Packet) error {
 	protocol := ""
