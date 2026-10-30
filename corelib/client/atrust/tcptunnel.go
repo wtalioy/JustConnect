@@ -25,13 +25,14 @@ import (
 )
 
 type tcpTunnelConn struct {
-	tlsConn net.Conn
-	reader  *bufio.Reader
-	readMu  sync.Mutex
-	writeMu sync.Mutex
-	readBuf []byte
-	reuse   bool
-	raw     bool
+	tlsConn  net.Conn
+	reader   *bufio.Reader
+	readMu   sync.Mutex
+	writeMu  sync.Mutex
+	readBuf  []byte
+	writeBuf []byte
+	reuse    bool
+	raw      bool
 
 	owner          *Client
 	closeOnce      sync.Once
@@ -351,8 +352,11 @@ func (c *tcpTunnelConn) Write(b []byte) (int, error) {
 	for written < len(b) {
 		chunkSize := min(len(b)-written, 0xFFFF)
 		chunk := b[written : written+chunkSize]
-		frame := make([]byte, 4+chunkSize)
-		frame[0] = 0x01
+		if cap(c.writeBuf) < 4+chunkSize {
+			c.writeBuf = make([]byte, 4+chunkSize)
+		}
+		frame := c.writeBuf[:4+chunkSize]
+		frame[0], frame[1] = 0x01, 0x00
 		binary.BigEndian.PutUint16(frame[2:4], uint16(chunkSize))
 		copy(frame[4:], chunk)
 		if err := writeTCPTunnelHandshakeMessage(c.tlsConn, frame); err != nil {

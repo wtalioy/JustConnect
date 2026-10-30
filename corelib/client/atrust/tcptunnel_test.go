@@ -20,6 +20,22 @@ import (
 	"github.com/wtalioy/JustConnect/corelib/resolve"
 )
 
+func BenchmarkTCPTunnelWrite(b *testing.B) {
+	for _, size := range []int{128, 1200, 32768, 65536} {
+		b.Run(fmt.Sprint(size), func(b *testing.B) {
+			conn := &tcpTunnelConn{tlsConn: &trackingNetConn{}}
+			payload := bytes.Repeat([]byte{0x77}, size)
+			b.SetBytes(int64(size))
+			b.ReportAllocs()
+			for b.Loop() {
+				if n, err := conn.Write(payload); err != nil || n != len(payload) {
+					b.Fatal(n, err)
+				}
+			}
+		})
+	}
+}
+
 func TestTCPTunnelReadDecodesDownstreamFramesAcrossBufferSizes(t *testing.T) {
 	for _, bufferSize := range []int{2, 5, 16} {
 		t.Run(fmt.Sprintf("buffer_%d", bufferSize), func(t *testing.T) {
