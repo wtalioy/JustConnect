@@ -138,7 +138,9 @@ A6 的 `da23405` 实机记录中，DNS Client 峰值 86.3%，新增／删除路�
 
 原网卡快照由 `net.Interfaces` 加逐接口 `Addrs` 组成，Windows 上每次都会整机枚举并查询未使用的 DNS 元数据。当前改为一次原生查询，跳过 DNS 服务器与后缀信息；出口校验复用这份读取，绑定 socket 则直接以别名查询 LUID／索引。[DNS 信息跳过标志](https://git.zx2c4.com/wireguard-windows/tree/tunnel/winipcfg/types.go)采用 WireGuard 同一平台固定值，不添加旧系统回退。正式 DNS 来源仍由 DNS 读取器完整收集，保持保护、恢复及观察频率。
 
-可用 `go -C corelib test -run '^TestReadInterfacesMatchesSystemInterfaces$' -bench BenchmarkInterfaces -benchtime=3x ./internal/networkstate/windows` 在 Windows 只读比较。 地址夹具按完整通用 sockaddr 分配，另用 `go -C corelib test -gcflags=all=-d=checkptr=2 ./internal/networkstate/windows` 验证指针边界，保留双栈与失败断言。i9-13900HX／32 逻辑处理器单次配对基线：旧查询平均 8489.8 ms，新查询 12.7 ms，各 3 次；实际全接口／双栈地址／状态与原查询一致，描述另与系统接口表核对。它衡量接口查询耗时，不代表整体 CPU 峰值或连接耗时降幅，更新包的校园访问、断开恢复和 CPU 仍需实测。
+可用 `go -C corelib test -run '^TestReadInterfacesMatchesSystemInterfaces$' -bench BenchmarkInterfaces -benchtime=3x ./internal/networkstate/windows` 在 Windows 只读比较。 地址夹具按完整通用 sockaddr 分配，另用 `go -C corelib test -gcflags=all=-d=checkptr=2 ./internal/networkstate/windows` 验证指针边界，保留双栈与失败断言。i9-13900HX／32 逻辑处理器单次配对基线：旧查询平均 8489.8 ms，新查询 12.7 ms，各 3 次；实际全接口／双栈地址／状态与原查询一致，描述另与系统接口表核对。它只衡量接口查询耗时，不代表整体 CPU 峰值或连接耗时降幅。
+
+2026-10-30 用户在 Windows 11 26H2 实测 `70f90a5`：接管、断开正常，无恢复错误／重试；DNS Client 各约 15% CPU 持续 1—2 秒，原数十秒高占用尾部消失。日志记录接管 1722 ms（网卡／路由 1609 ms、DNS 94 ms；220 捕获前缀／6 校园 DNS／0 原 DNS 来源），解除接管 211 ms、恢复 134 ms、确认 15 ms、检查 0 ms、关闭 5 ms。峰值／持续时间来自用户任务管理器观察，非新一轮 WPR；前后前缀数和系统状态不同，不据此推定固定加速比例或其他机器结果。校园浏览器／SSH 与 MagicDNS A 不变仍引用此前 `929e24d` 实测，未新增完整发布矩阵结论。
 
 ## aTrust 配置与升级
 
