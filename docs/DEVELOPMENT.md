@@ -152,6 +152,8 @@ gVisor 出站端点复用依赖自带的 `PacketBuffer.ToView`／`View.Release`�
 
 空闲认证扫描按首个实际任务分配批次，并以当前连接数限制容量；扫描频率、重试、超时及批次上限保持原契约。`go -C corelib test -run '^$' -bench '^BenchmarkIdleAuthBatch$' -benchtime=1s -count=3 ./client/atrust` 在 256 条无待办连接下：Windows x64 1218—1465→461—482 ns／次，Linux 1783—1954→449—485 ns；每次 6528 B／1 次分配→0。它消除每条 L3 隧道每秒四次的空批次分配，不改变扫描复杂度，也不外推整体 CPU。日志归同目录的 `idle-auth-*.log`。
 
+域名规则索引在单条命中时复用不可变资源，多条重叠时按总量一次分配并保留更具体规则优先及同组顺序。`go -C corelib test -run '^$' -bench '^BenchmarkDomainResourceMatch$' -benchtime=1s -count=3 ./resolve` 在 1001 条域名规则下，Windows x64 单条命中 375—377→355—357 ns、80 B／1 次分配→0；重叠命中 482—494→477—480 ns、224 B／2 次分配→144 B／1 次分配。Linux 单条命中 384—387→364—368 ns，分配变化相同；未命中均约 12—14 ns／0 分配。此为纯索引查询，不代表整机 CPU／网络吞吐；旧线性扫描替身基准已由实际命中／未命中／重叠基准替换，原始样本归 `build/reports/review-0684a4b/domain-match-*.log`。
+
 复查按单个桌面用户、现有流量／DNS／事件上限进行，覆盖 Go 数据面／认证／分流、C ABI 调用方、C++ 助手／DNS／路由／恢复，以及 Qt 日志／状态／配置调用链。除上述已测改进外，原网络观察、所有权确认、必要的跨线程／IPC 拷贝及上游协议身份保持；未用减慢观察、扩大路由或冻结控制器发现来换性能。未测的全链路吞吐、RSS 与 macOS／Linux 实机仍按 S8 复核；不把有限检查称作全仓绝对最优。
 
 ## aTrust 配置与升级

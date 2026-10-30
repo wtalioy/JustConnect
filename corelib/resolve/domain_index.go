@@ -55,7 +55,9 @@ func (i *domainResourceIndex) Match(host string) (string, []client.DomainResourc
 		return "", nil, false
 	}
 	node := i.root
-	var matches []*domainResourceEntry
+	var mostSpecific *domainResourceEntry
+	var parents []*domainResourceEntry
+	total := 0
 	for pos := len(host) - 1; pos >= 0; pos-- {
 		node = node.children[host[pos]]
 		if node == nil {
@@ -63,16 +65,24 @@ func (i *domainResourceIndex) Match(host string) (string, []client.DomainResourc
 		}
 		boundary := pos == 0 || host[pos] == '.' || host[pos-1] == '.'
 		if node.entry != nil && boundary {
-			matches = append(matches, node.entry)
+			if mostSpecific != nil {
+				parents = append(parents, mostSpecific)
+			}
+			mostSpecific = node.entry
+			total += len(node.entry.resources)
 		}
 	}
-	if len(matches) == 0 {
+	if mostSpecific == nil {
 		return "", nil, false
 	}
-	mostSpecific := matches[len(matches)-1]
-	resources := make([]client.DomainResource, 0)
-	for pos := len(matches) - 1; pos >= 0; pos-- {
-		resources = append(resources, matches[pos].resources...)
+	// Entries and their resources are immutable after construction.
+	if len(parents) == 0 {
+		return mostSpecific.domain, mostSpecific.resources, true
+	}
+	resources := make([]client.DomainResource, 0, total)
+	resources = append(resources, mostSpecific.resources...)
+	for pos := len(parents) - 1; pos >= 0; pos-- {
+		resources = append(resources, parents[pos].resources...)
 	}
 	return mostSpecific.domain, resources, true
 }

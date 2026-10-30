@@ -264,44 +264,45 @@ func TestWildcardDomainResourceRequiresSubdomain(t *testing.T) {
 	}
 }
 
+var domainResourcePatternSink string
+var domainResourceResultsSink []client.DomainResource
+
 func BenchmarkDomainResourceMatch(b *testing.B) {
-	resources := make(client.DomainResources, 1000)
+	resources := make(client.DomainResources, 1001)
 	for i := 0; i < 1000; i++ {
 		resources[fmt.Sprintf(".resource-%04d.example", i)] = []client.DomainResource{{}}
 	}
+	resources["host.resource-0500.example"] = []client.DomainResource{{}}
 	index := newDomainResourceIndex(resources)
-	const host = "missing.example.com"
-
-	b.Run("index", func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			_, _, domainResourceMatchSink = index.Match(host)
-		}
-	})
-	b.Run("linear", func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			matched := false
-			for domain := range resources {
-				if strings.HasSuffix(host, normalizeHostname(domain)) {
-					matched = true
-					break
-				}
+	for _, test := range []struct{ name, host string }{
+		{"miss", "missing.invalid"},
+		{"single", "host.resource-0000.example"},
+		{"overlap", "host.resource-0500.example"},
+	} {
+		b.Run(test.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				domainResourcePatternSink, domainResourceResultsSink, domainResourceMatchSink = index.Match(test.host)
 			}
-			domainResourceMatchSink = matched
-		}
-	})
+		})
+	}
 }
 
 func TestDomainResourceMatchPrefersMostSpecificDomain(t *testing.T) {
 	index := newDomainResourceIndex(client.DomainResources{
+		".net":         {{Protocol: "udp", PortMin: 53, PortMax: 53, AppID: "root-dns"}, {Protocol: "tcp", PortMin: 22, PortMax: 22, AppID: "root-ssh"}},
 		".cnki.net":    {{PortMin: 443, PortMax: 443, Protocol: "tcp", AppID: "wildcard"}},
 		"www.cnki.net": {{PortMin: 80, PortMax: 80, Protocol: "tcp", AppID: "exact"}},
 	})
 
 	domain, resources, ok := index.Match("www.cnki.net")
-	if !ok || domain != "www.cnki.net" || len(resources) != 2 || resources[0].AppID != "exact" {
+	if !ok || domain != "www.cnki.net" || len(resources) != 4 {
 		t.Fatalf("Match() = (%q, %#v, %v), want exact domain resource", domain, resources, ok)
+	}
+	for i, appID := range []string{"exact", "wildcard", "root-dns", "root-ssh"} {
+		if resources[i].AppID != appID {
+			t.Fatalf("authorization precedence changed: %+v", resources)
+		}
 	}
 	if resource, matched := client.MatchDomainResource(resources, "tcp", 443); !matched || resource.AppID != "wildcard" {
 		t.Fatalf("443 match = (%#v, %v), want wildcard fallback", resource, matched)
