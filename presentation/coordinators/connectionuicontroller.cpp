@@ -65,7 +65,7 @@ ConnectionUiController::ConnectionUiController(
     proxyButton->hide();
 
     connect(connectionSession, &ConnectionSession::diagnostic, applicationLogger,
-        [applicationLogger](const QString &code) { applicationLogger->appendCoreOutput("[core] " + code + "\n"); });
+        [applicationLogger](const QString &code) { applicationLogger->appendCoreOutput("[core] " + code); });
     authenticationCache=new AuthenticationCacheCoordinator(connectionSession,credentials,this->credentialSourceProvider,this);
     shutdown=new ApplicationShutdown(connectionSession,systemProxySession, [this] {
         if (this->credentials->isBusy() || authenticationCache->isBinding()) return true;
