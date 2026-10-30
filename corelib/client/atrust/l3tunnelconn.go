@@ -976,7 +976,3 @@ func (c *l3TunnelConn) startWorker(work func()) {
 }
 
 func (c *l3TunnelConn) Wait() { c.workers.Wait() }
-
-func connTrackKey(meta packetMeta) string {
-	return fmt.Sprintf("%d:%d:%s:%d-%s:%d", meta.atype, meta.proto, meta.srcIP.String(), meta.srcPort, meta.dstIP.String(), meta.dstPort)
-}
