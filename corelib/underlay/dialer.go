@@ -28,13 +28,11 @@ type Dialer struct {
 	active         sync.WaitGroup
 	closed         bool
 	closeOnce      sync.Once
-	closeErr       error
 	interfaceName  string
 	originalSource netip.Addr
 	autoDetect     bool
 	excludedIPs    []net.IP
 	requireBound   bool
-	capture        *pcapCapture
 	localDNSServer string
 	controller     *mihomo.Client
 	controllerGate chan struct{}
@@ -50,8 +48,6 @@ type Options struct {
 	InterfaceName string
 	// Known VPN addresses or an external TUN require an original exit even when AutoDetect is false.
 	AutoDetect bool
-	// DebugPCAPFile records application-visible TCP traffic on underlay sockets.
-	DebugPCAPFile string
 	// LocalDNSServer overrides the system DNS for VPN server hostname resolution.
 	// It must be an IP address with an optional port.
 	LocalDNSServer string
@@ -77,14 +73,6 @@ func New(options ...Options) (*Dialer, error) {
 		d.updateInterfaceName(option.InterfaceName)
 		d.autoDetect = false
 	}
-	if option.DebugPCAPFile != "" {
-		capture, err := newPCAPCapture(option.DebugPCAPFile)
-		if err != nil {
-			cancel()
-			return nil, fmt.Errorf("initialize underlay PCAP capture: %w", err)
-		}
-		d.capture = capture
-	}
 	return d, nil
 }
 
@@ -101,10 +89,10 @@ func (d *Dialer) InterfaceName() string {
 	return d.interfaceName
 }
 
-// Close flushes and closes the optional packet capture.
-func (d *Dialer) Close() error {
+// Close cancels active control work and joins it before releasing the controller.
+func (d *Dialer) Close() {
 	if d == nil {
-		return nil
+		return
 	}
 	d.closeOnce.Do(func() {
 		d.mu.Lock()
@@ -117,11 +105,7 @@ func (d *Dialer) Close() error {
 		if d.controller != nil {
 			d.controller.Close()
 		}
-		if d.capture != nil {
-			d.closeErr = d.capture.Close()
-		}
 	})
-	return d.closeErr
 }
 
 // ExcludeIP prevents an interface carrying ip from being selected as the
@@ -277,10 +261,7 @@ func (d *Dialer) observeConnection(conn net.Conn) net.Conn {
 			d.mu.Unlock()
 		}
 	}
-	if d.capture == nil {
-		return conn
-	}
-	return d.capture.Wrap(conn)
+	return conn
 }
 
 func dialContextOnInterface(ctx context.Context, network, address, interfaceName, localDNSServer string) (net.Conn, error) {

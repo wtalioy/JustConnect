@@ -1,4 +1,4 @@
-package keylog
+package privatefile
 
 import (
 	"os"
@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-func TestOpen(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "tls-keys.log")
+func TestOpenWritesPrivateFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "identity")
 	if err := os.WriteFile(path, []byte("old data\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -16,7 +16,7 @@ func TestOpen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	line := "CLIENT_RANDOM 00010203 04050607\n"
+	line := "owned private fixture content\n"
 	if _, err := file.Write([]byte(line)); err != nil {
 		t.Fatal(err)
 	}
@@ -29,7 +29,7 @@ func TestOpen(t *testing.T) {
 		t.Fatal(err)
 	}
 	if string(data) != line {
-		t.Fatalf("key log = %q, want %q", data, line)
+		t.Fatalf("private content = %q, want %q", data, line)
 	}
 	info, err := os.Stat(path)
 	if err != nil {
@@ -37,22 +37,12 @@ func TestOpen(t *testing.T) {
 	}
 	// Windows FileMode reports the read-only attribute, not ACL permissions.
 	if got := info.Mode().Perm(); runtime.GOOS != "windows" && got != 0o600 {
-		t.Fatalf("key-log permissions = %o, want 600", got)
-	}
-}
-
-func TestOpenEmptyPath(t *testing.T) {
-	writer, err := Open("")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if writer != nil {
-		t.Fatalf("Open returned %T, want nil", writer)
+		t.Fatalf("private-file permissions = %o, want 600", got)
 	}
 }
 
 func TestOpenReportsError(t *testing.T) {
-	_, err := Open(filepath.Join(t.TempDir(), "missing", "tls-keys.log"))
+	_, err := Open(filepath.Join(t.TempDir(), "missing", "identity"))
 	if err == nil {
 		t.Fatal("Open succeeded for a missing parent directory")
 	}

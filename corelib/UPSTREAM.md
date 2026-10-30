@@ -20,7 +20,7 @@
 
 同时导入 `go.mod`、`go.sum`、根许可证、`internal/ping/LICENSE` 和两份上游 README。根许可证原文保存为 [LICENSE.zju-connect](LICENSE.zju-connect)，上游说明与致谢原文保存为 [UPSTREAM-README.md](UPSTREAM-README.md) 和 [UPSTREAM-README_en.md](UPSTREAM-README_en.md)。未导入上游 Actions、Docker／服务安装配置、示例配置及推广图片；当前源码没有依赖它们的嵌入资源。
 
-S1-05 迁移模块及 Go 导入路径、固定工具链、通过 `go mod tidy`／`go mod download` 重建依赖锁，并添加 JustConnect 的模块集成测试。首次 Windows 回归后，TLS 密钥日志与 PCAP 改用共享的 `internal/privatefile`：写入前收紧已有文件权限，Windows 使用仅当前账户可访问的受保护 DACL，Unix 使用 `0600`；协议实现不变。首次三平台 CI 暴露 Windows 不提供 Unix 权限位：`internal/keylog/keylog_test.go` 和 `underlay/pcap_test.go` 的 `0600` 断言仅在非 Windows 平台执行；文件内容、错误传播和抓包行为测试仍在全部平台执行。不维护指向上游源码的本地 `replace`。历史 `inet.af/netaddr` 替换已随无调用方的系统路由 IPSet 副本删除；当前没有模块替换。
+S1-05 迁移模块及 Go 导入路径、固定工具链并重建依赖锁；当前不维护上游源码 `replace` 或已删除路由副本的 `inet.af/netaddr` 替换。正式 C ABI／应用没有旧 CLI 的 PCAP 和 TLS 日志文件入口，对应采集器、文件选项和专属测试已删除；调用方提供的标准 `tls.Config.KeyLogWriter` 及 TLS 策略复制回归保留。`internal/privatefile` 仅供原生 OpenSSH 测试夹具创建临时私钥，正式核心不依赖该包。
 
 导入时逐文件验证了源码：除上述路径迁移和模块锁外，与校验过的归档一致；许可证和上游说明保持逐字节一致。以后直接提交这里的实际修改，利用本次导入提交和固定归档审查差异，有选择地合入上游修复，不重新下载覆盖源码、不维护外部补丁队列。Go 的外部依赖由 `go.sum` 和 module cache 管理，不提交整个缓存或 vendor。
 
@@ -54,7 +54,7 @@ S1-07 已将 aTrust 认证、IP／L3／TCP 隧道的会话失效退出改为错�
 
 导入代码 `1611e9c` 已通过来源核对及原 23 包的 Linux 限定基线，并验证新增认证编译错误不会被已知缺陷例外掩盖。[首次推送 CI](https://github.com/wtalioy/JustConnect/actions/runs/39279301877)的 Linux、macOS 限定基线及应用测试通过，Windows 因两处 Unix 权限断言失败；`197ea01` 已修正断言平台范围。2026-10-20 进一步实测发现 Windows 仍保留继承／已有 ACL，现已在共享文件入口修复。本机 Linux 的 24 包限定基线、Windows x64 的 17 个离线测试程序实际运行通过。修复提交 `f9b4111` 的[三平台 CI](https://github.com/wtalioy/JustConnect/actions/runs/39284985278)全部成功：Windows、Linux、macOS 均通过模块及依赖锁校验、全部源码构建、24 包限定离线基线与各 16 项应用测试；Windows ACL 回归也通过 CI。S1-05 源码整合已验收，认证包仍按上述 S1-07 缺陷单独标为受阻，不能把限定基线描述为完整认证套件通过。
 
-Windows 权限验收直接查询真实文件的 DACL，不从 Go `FileMode` 推断 ACL。`underlay/debug_permissions_windows_test.go` 对 TLS 密钥日志与 PCAP 各覆盖新文件、已有 Everyone 完全访问权限、拒绝写入三种情况：新建与重开后均禁止继承，只有当前用户 SID 的单条允许项；拒绝写入返回访问拒绝，原文件不被截断。修复前四个权限收紧用例均失败，修复后六个用例在本机 Windows 通过；同一测试进入 Windows CI。该实现复用现有 `golang.org/x/sys/windows`，无新增依赖；Windows 调试文件在打开期间独占，避免读者与已有文件 ACL 收紧竞争。权限建立失败即返回错误，不输出敏感数据。Unix 同时覆盖已有宽权限文件收紧和清空。
+私密文件权限回归集中在 `internal/privatefile`：Windows 的新建、已有宽权限文件收紧、拒绝写入三种情况直接检查真实 DACL，确认禁止继承、仅当前用户可读写；权限建立失败不能截断原文件。Unix 检查 `0600`、已有文件收紧和清空；跨平台保留实际写入内容与错误传播。它们保护原生 OpenSSH 夹具的临时密钥；不再为两个已删除的调试写入器重复同一份权限用例。
 
 Windows 实现使用微软规定的 [CreateFile 安全描述符](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew)和 [SetSecurityInfo](https://learn.microsoft.com/en-us/windows/win32/api/aclapi/nf-aclapi-setsecurityinfo) 设置当前用户 DACL，并禁止继承；不试图防御拥有接管所有权特权的系统管理员。
 

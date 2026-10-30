@@ -33,7 +33,6 @@ type ClientOptions struct {
 	Session              SessionOptions
 	UnderlayDialer       client.UnderlayDialer
 	TLSConfig            *tls.Config
-	TLSKeyLogWriter      io.Writer
 	AllowUnverifiedNodes bool
 	Language             string
 	Diagnostic           func(string)
@@ -113,7 +112,7 @@ type Client struct {
 
 func NewClient(options ClientOptions) *Client {
 	lifecycleCtx, lifecycleCancel := context.WithCancel(context.Background())
-	policy := tlsConfig(options.TLSConfig, options.TLSKeyLogWriter)
+	policy := tlsConfig(options.TLSConfig)
 	nodePolicy := policy.Clone()
 	nodePolicy.InsecureSkipVerify = policy.InsecureSkipVerify || options.AllowUnverifiedNodes
 	return &Client{
