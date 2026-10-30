@@ -44,7 +44,7 @@ public:
 private:
     bool syncCurrent();
     std::unique_ptr<ProfileBackend> profileBackend;
-    QSettings *currentSettings;
+    std::unique_ptr<QSettings> currentSettings;
     QString currentId;
     bool overrideConfiguration;
 };
