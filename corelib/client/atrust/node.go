@@ -6,13 +6,17 @@ import (
 	"errors"
 	"net"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/wtalioy/JustConnect/corelib/internal/ping"
 )
 
-const pingNum = 3
+const (
+	pingNum          = 3
+	nodeProbeTimeout = time.Second
+)
 
 type NodeGroup struct {
 	WAN []string
@@ -62,11 +66,12 @@ func getBestReachableNodes(ctx context.Context, nodeGroups map[string][]string, 
 	var probeErr error
 	for group, nodes := range nodeGroups {
 		if len(nodes) > 0 {
-			var pingList []*ping.TCPing
-			var probedNodes []string
-			var chList []<-chan struct{}
-
-			for _, node := range nodes {
+			probes := make([]struct {
+				node   string
+				result ping.Result
+			}, len(nodes))
+			var pending sync.WaitGroup
+			for i, node := range nodes {
 				host, portText, err := net.SplitHostPort(node)
 				if err != nil {
 					continue
@@ -75,41 +80,28 @@ func getBestReachableNodes(ctx context.Context, nodeGroups map[string][]string, 
 				if err != nil || port < 1 || port > 65535 {
 					continue
 				}
-
-				tcping := ping.NewTCPing()
-				tcping.SetDialContext(dialContext)
-				tcping.SetTLSConfig(tlsPolicy)
-				target := ping.Target{
-
-					Host:     host,
-					Port:     port,
-					Counter:  pingNum,
-					Interval: time.Duration(0.5 * float64(time.Second)),
-					Timeout:  time.Duration(1 * float64(time.Second)),
-				}
-				tcping.SetTarget(&target)
-
-				pingList = append(pingList, tcping)
-				probedNodes = append(probedNodes, node)
-				ch := tcping.StartWithContext(ctx)
-				chList = append(chList, ch)
+				probe := &probes[i]
+				probe.node = node
+				pending.Go(func() {
+					probe.result = ping.Probe(ctx, ping.Target{
+						Address: net.JoinHostPort(host, strconv.Itoa(port)), Counter: pingNum,
+						Interval: 500 * time.Millisecond, Timeout: nodeProbeTimeout,
+					}, dialContext, tlsPolicy)
+				})
 			}
-
-			for _, ch := range chList {
-				<-ch
-			}
+			pending.Wait()
 
 			bestScore := time.Duration(0)
 			bestNode := ""
-			for i, tcping := range pingList {
-				result := tcping.Result()
+			for _, probe := range probes {
+				result := probe.result
 				if result.Err != nil {
 					probeErr = errors.Join(probeErr, result.Err)
 					continue
 				}
 				score, reachable := nodeProbeScore(result)
 				if reachable && (bestScore == 0 || score < bestScore) {
-					bestNode = probedNodes[i]
+					bestNode = probe.node
 					bestScore = score
 				}
 			}
@@ -127,15 +119,11 @@ func getBestReachableNodes(ctx context.Context, nodeGroups map[string][]string, 
 	return bestNodes, probeErr
 }
 
-func nodeProbeScore(result *ping.Result) (time.Duration, bool) {
-	if result == nil || result.SuccessCounter == 0 {
+func nodeProbeScore(result ping.Result) (time.Duration, bool) {
+	if result.SuccessCounter == 0 {
 		return 0, false
 	}
-	penalty := time.Second
-	if result.Target != nil && result.Target.Timeout > 0 {
-		penalty = result.Target.Timeout
-	}
-	return result.Avg() + time.Duration(result.Failed())*penalty, true
+	return result.Avg() + time.Duration(result.Failed())*nodeProbeTimeout, true
 }
 
 func (c *Client) updateBestNodes(ctx context.Context, interval time.Duration) {
