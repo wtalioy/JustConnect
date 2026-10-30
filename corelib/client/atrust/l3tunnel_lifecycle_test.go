@@ -2053,3 +2053,21 @@ func TestTunnelRecoveryBudgetSurvivesShortLivedConnections(t *testing.T) {
 		})
 	}
 }
+
+var authBatchSink []conntrackAuthJob
+
+func BenchmarkIdleAuthBatch(b *testing.B) {
+	manager := newConntrackMgr()
+	for i := range 256 {
+		manager.getOrCreate(fmt.Sprint(i), "app", "group")
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		var more bool
+		authBatchSink, more = manager.nextAuthBatch(defaultAuthBatchSize)
+		if len(authBatchSink) != 0 || more {
+			b.Fatal("idle flows produced authentication work")
+		}
+	}
+}
