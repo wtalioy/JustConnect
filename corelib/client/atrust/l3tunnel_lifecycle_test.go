@@ -1663,6 +1663,12 @@ func TestTCPConntrackUsesDirectionalStateTimeouts(t *testing.T) {
 	if got := ct.expiresAt.Sub(now); got != tcpEstablishedTTL {
 		t.Fatalf("established timeout = %s, want %s", got, tcpEstablishedTTL)
 	}
+	extended := makeTCPPacket(zctcpip.TCPAck)
+	extended[zctcpip.IPv4HeaderSize+12] |= 1
+	manager.observePacket(ct.key, extended, false)
+	if ct.tcpState != tcpStateEstablished {
+		t.Fatal("extended TCP header bit was interpreted as FIN")
+	}
 	manager.observePacket(ct.key, makeTCPPacket(zctcpip.TCPFin|zctcpip.TCPAck), false)
 	if got := ct.expiresAt.Sub(now); got != tcpEstablishedTTL {
 		t.Fatalf("first FIN timeout = %s, want %s", got, tcpEstablishedTTL)
