@@ -1359,38 +1359,50 @@ func TestAuthResponseIgnoresJSONCode(t *testing.T) {
 	}
 }
 
-func TestAuthResponseFallsBackToIPTuple(t *testing.T) {
-	manager := newConntrackMgr()
-	conn := &l3TunnelConn{
-		closeCh: make(chan struct{}), conntrackMgr: manager,
-		writeFrameHook: func([]byte) error { return nil },
-	}
-	meta := packetMeta{
-		atype: 4, proto: 17,
-		srcIP: net.IPv4(192, 0, 2, 1), dstIP: net.IPv4(198, 51, 100, 2),
-		srcPort: 12345, dstPort: 53, key: "flow",
-	}
-	ct := manager.getOrCreate(meta.key, "app", "group")
-	if _, err := manager.cachePacket(ct, meta, nil); err != nil {
-		t.Fatal(err)
-	}
-	response, err := json.Marshal(authResponseIP{Data: authResponseIPData{
-		ConnectToken: "token",
-		IP: authIP{
-			Atype: authIPType(meta.atype), Protocol: meta.proto,
-			SrcAddr: meta.srcIP.String(), SrcPort: meta.srcPort,
-			DestAddr: meta.dstIP.String(), DestPort: meta.dstPort,
-		},
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	conn.handleAuthResp(0, response)
-
-	token, authErr, authenticated := manager.authResult(ct)
-	if !authenticated || authErr != nil || token != "token" {
-		t.Fatalf("auth result = token %q, err %v, authenticated %t", token, authErr, authenticated)
+func TestAuthResponseFallsBackOnlyToACompleteTuple(t *testing.T) {
+	for _, test := range []struct {
+		name                                    string
+		protocol                                int
+		staleHash, invalidSource, invalidFamily bool
+		authenticated                           bool
+	}{
+		{name: "complete tuple", protocol: 17, authenticated: true},
+		{name: "wrong protocol", protocol: 6},
+		{name: "missing protocol"},
+		{name: "wrapped protocol", protocol: 273},
+		{name: "stale explicit ID", protocol: 17, staleHash: true},
+		{name: "invalid source", protocol: 17, invalidSource: true},
+		{name: "invalid family", protocol: 17, invalidFamily: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			manager := newConntrackMgr()
+			conn := &l3TunnelConn{closeCh: make(chan struct{}), conntrackMgr: manager, writeFrameHook: func([]byte) error { return nil }}
+			meta := packetMeta{atype: 4, proto: 17, srcIP: net.IPv4(192, 0, 2, 1), dstIP: net.IPv4(198, 51, 100, 2), srcPort: 12345, dstPort: 53}
+			meta.key = connTrackKey(meta)
+			ct := manager.getOrCreate(meta.key, "app", "group")
+			if _, err := manager.cachePacket(ct, meta, nil); err != nil {
+				t.Fatal(err)
+			}
+			data := authResponseIPData{ConnectToken: "token", IP: authIP{Atype: authIPType(meta.atype), Protocol: test.protocol, SrcAddr: meta.srcIP.String(), SrcPort: meta.srcPort, DestAddr: meta.dstIP.String(), DestPort: meta.dstPort}}
+			if test.staleHash {
+				data.ConntrackHash = ct.authID + 1
+			}
+			if test.invalidSource {
+				data.IP.SrcAddr = "invalid"
+			}
+			if test.invalidFamily {
+				data.IP.Atype = 0
+			}
+			response, err := json.Marshal(authResponseIP{Data: data})
+			if err != nil {
+				t.Fatal(err)
+			}
+			conn.handleAuthResp(0, response)
+			token, authErr, authenticated := manager.authResult(ct)
+			if authenticated != test.authenticated || authErr != nil || (authenticated && token != "token") {
+				t.Fatalf("auth result = token %q, err %v, authenticated %t", token, authErr, authenticated)
+			}
+		})
 	}
 }
 
@@ -2074,6 +2086,26 @@ func BenchmarkIdleAuthBatch(b *testing.B) {
 		authBatchSink, more = manager.nextAuthBatch(defaultAuthBatchSize)
 		if len(authBatchSink) != 0 || more {
 			b.Fatal("idle flows produced authentication work")
+		}
+	}
+}
+
+func BenchmarkAuthResponseTupleLookup(b *testing.B) {
+	manager := newConntrackMgr()
+	var response authIP
+	for i := 0; i < 1024; i++ {
+		meta := packetMeta{atype: 4, proto: 17, srcIP: net.IPv4(192, 0, 2, 1), dstIP: net.IPv4(198, 51, 100, 2), srcPort: uint16(10000 + i), dstPort: 53}
+		meta.key = connTrackKey(meta)
+		ct := manager.getOrCreate(meta.key, "app", "group")
+		if _, err := manager.cachePacket(ct, meta, nil); err != nil {
+			b.Fatal(err)
+		}
+		response = authIP{Atype: authIPType(meta.atype), Protocol: meta.proto, SrcAddr: meta.srcIP.String(), DestAddr: meta.dstIP.String(), SrcPort: meta.srcPort, DestPort: meta.dstPort}
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		if manager.getByAuthResponseIP(response) == nil {
+			b.Fatal("missing pending flow")
 		}
 	}
 }

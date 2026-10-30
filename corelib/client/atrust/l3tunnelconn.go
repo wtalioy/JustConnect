@@ -523,9 +523,11 @@ func (c *l3TunnelConn) handleAuthResp(status byte, payload []byte) {
 		_ = c.Close()
 		return
 	}
-	ct := c.conntrackMgr.getByID(resp.Data.ConntrackHash)
-	if ct == nil {
+	var ct *conntrack
+	if resp.Data.ConntrackHash == 0 {
 		ct = c.conntrackMgr.getByAuthResponseIP(resp.Data.IP)
+	} else {
+		ct = c.conntrackMgr.getByID(resp.Data.ConntrackHash)
 	}
 	if ct == nil {
 		c.markAuthErrorFromPayload(payload, fmt.Errorf("missing conntrack hash"))
