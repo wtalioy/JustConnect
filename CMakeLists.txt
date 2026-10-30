@@ -148,6 +148,10 @@ endif()
 include(CTest)
 
 if(BUILD_TESTING)
+    add_executable(singleapplication_test tests/singleapplication_test.cpp)
+    target_link_libraries(singleapplication_test PRIVATE SingleApplication::SingleApplication)
+    add_test(NAME singleapplication_test COMMAND singleapplication_test)
+    set_tests_properties(singleapplication_test PROPERTIES TIMEOUT 20 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_executable(serversettingswidget_test tests/serversettingswidget_test.cpp
         presentation/widgets/serversettingswidget.cpp application/profileservice.cpp
         application/defaultsettings.cpp application/settingsmigrator.cpp application/profileconfiguration.cpp)
