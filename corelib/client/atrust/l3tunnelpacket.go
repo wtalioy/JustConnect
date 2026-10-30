@@ -25,30 +25,32 @@ func connTrackKey(meta packetMeta) string {
 }
 
 func (t *L3Tunnel) processIPV4(packet zctcpip.IPv4Packet) error {
+	meta, err := buildPacketMeta(packet)
+	if err != nil {
+		return err
+	}
 	protocol := ""
 	port := -1
 	switch packet.Protocol() {
 	case zctcpip.TCP:
 		protocol = "tcp"
-		port = int(zctcpip.TCPPacket(packet.Payload()).DestinationPort())
+		port = int(meta.dstPort)
 	case zctcpip.UDP:
 		protocol = "udp"
-		port = int(zctcpip.UDPPacket(packet.Payload()).DestinationPort())
+		port = int(meta.dstPort)
 	case zctcpip.ICMP:
 		protocol = "icmp"
-	default:
-		return fmt.Errorf("protocol %d: %w", packet.Protocol(), client.ErrResourceNotFound)
 	}
 
-	resource, ok := matchL3IPResource(t.resourceIndex, packet.DestinationIP(), protocol, port)
+	resource, ok := matchL3IPResource(t.resourceIndex, meta.dstIP, protocol, port)
 	if ok {
-		return t.writePacket(packet, resource.AppID, resource.NodeGroupID)
+		return t.writePacket(packet, meta, resource.AppID, resource.NodeGroupID)
 	}
 
 	if port != -1 {
-		return fmt.Errorf("%s:%d, [%s]: %w", packet.DestinationIP(), port, protocol, client.ErrResourceNotFound)
+		return fmt.Errorf("%s:%d, [%s]: %w", meta.dstIP, port, protocol, client.ErrResourceNotFound)
 	}
-	return fmt.Errorf("%s, [%s]: %w", packet.DestinationIP(), protocol, client.ErrResourceNotFound)
+	return fmt.Errorf("%s, [%s]: %w", meta.dstIP, protocol, client.ErrResourceNotFound)
 }
 
 func matchL3IPResource(index *ipresource.Index, destination net.IP, protocol string, port int) (client.IPResource, bool) {
@@ -57,11 +59,7 @@ func matchL3IPResource(index *ipresource.Index, destination net.IP, protocol str
 	})
 }
 
-func (t *L3Tunnel) writePacket(packet zctcpip.IPv4Packet, appID, nodeGroupID string) error {
-	meta, err := buildPacketMeta(packet)
-	if err != nil {
-		return err
-	}
+func (t *L3Tunnel) writePacket(packet zctcpip.IPv4Packet, meta packetMeta, appID, nodeGroupID string) error {
 	meta.key = connTrackKey(meta)
 
 	conn, err := t.getConn(nodeGroupID)
@@ -121,6 +119,9 @@ func isAuthTimeoutErr(err error) bool {
 }
 
 func buildPacketMeta(packet zctcpip.IPv4Packet) (packetMeta, error) {
+	if !packet.Valid() {
+		return packetMeta{}, zctcpip.ErrInvalidLength
+	}
 	if packet.Protocol() == zctcpip.ICMP {
 		return packetMeta{
 			atype:   4,
@@ -136,14 +137,20 @@ func buildPacketMeta(packet zctcpip.IPv4Packet) (packetMeta, error) {
 	switch packet.Protocol() {
 	case zctcpip.TCP:
 		tcpPacket := zctcpip.TCPPacket(packet.Payload())
+		if !tcpPacket.Valid() {
+			return packetMeta{}, zctcpip.ErrInvalidLength
+		}
 		srcPort = tcpPacket.SourcePort()
 		dstPort = tcpPacket.DestinationPort()
 	case zctcpip.UDP:
 		udpPacket := zctcpip.UDPPacket(packet.Payload())
+		if !udpPacket.Valid() {
+			return packetMeta{}, zctcpip.ErrInvalidLength
+		}
 		srcPort = udpPacket.SourcePort()
 		dstPort = udpPacket.DestinationPort()
 	default:
-		return packetMeta{}, fmt.Errorf("unsupported protocol %d", packet.Protocol())
+		return packetMeta{}, fmt.Errorf("protocol %d: %w", packet.Protocol(), client.ErrResourceNotFound)
 	}
 
 	return packetMeta{

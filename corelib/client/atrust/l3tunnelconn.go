@@ -298,11 +298,7 @@ func (c *l3TunnelConn) readLoop() {
 }
 
 func (c *l3TunnelConn) refreshIncomingConntrack(packet []byte) {
-	ipPacket := zctcpip.IPv4Packet(packet)
-	if !ipPacket.Valid() {
-		return
-	}
-	meta, err := buildPacketMeta(ipPacket)
+	meta, err := buildPacketMeta(packet)
 	if err != nil {
 		return
 	}
