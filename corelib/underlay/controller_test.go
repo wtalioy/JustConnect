@@ -21,7 +21,7 @@ func TestMain(m *testing.M) {
 	if testmihomo.Run() {
 		os.Exit(0)
 	}
-	// Binding/PCAP unit tests must not discover an unrelated desktop or another package's fixture.
+	// Binding unit tests must not discover an unrelated desktop or another package's fixture.
 	discoverController = func(context.Context) (*mihomo.Client, error) { return nil, nil }
 	os.Exit(m.Run())
 }
