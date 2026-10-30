@@ -150,6 +150,10 @@ gVisor 出站端点复用依赖自带的 `PacketBuffer.ToView`／`View.Release`�
 
 逐包连接跟踪键使用内部定长二进制元组，保留地址族、协议、源／目标 IP 和端口，不作为日志／IPC／持久化字段；取消对地址与端口的逐包字符串格式化。`go -C corelib test -run '^$' -bench '^BenchmarkConnTrackKey$' -benchtime=1s -count=3 ./client/atrust`：Windows x64 旧版 223—224 ns／112 B／6 次分配，改后 26—29 ns／48 B／1 次分配；Linux 241—245→22—25 ns，分配变化相同。字段隔离、IPv4 等价表示、认证回退及收发状态回归保留；基线不代表整体吞吐。日志归同报告目录的 `conntrack-key-*.log`。
 
+空闲认证扫描按首个实际任务分配批次，并以当前连接数限制容量；扫描频率、重试、超时及批次上限保持原契约。`go -C corelib test -run '^$' -bench '^BenchmarkIdleAuthBatch$' -benchtime=1s -count=3 ./client/atrust` 在 256 条无待办连接下：Windows x64 1218—1465→461—482 ns／次，Linux 1783—1954→449—485 ns；每次 6528 B／1 次分配→0。它消除每条 L3 隧道每秒四次的空批次分配，不改变扫描复杂度，也不外推整体 CPU。日志归同目录的 `idle-auth-*.log`。
+
+复查按单个桌面用户、现有流量／DNS／事件上限进行，覆盖 Go 数据面／认证／分流、C ABI 调用方、C++ 助手／DNS／路由／恢复，以及 Qt 日志／状态／配置调用链。除上述已测改进外，原网络观察、所有权确认、必要的跨线程／IPC 拷贝及上游协议身份保持；未用减慢观察、扩大路由或冻结控制器发现来换性能。未测的全链路吞吐、RSS 与 macOS／Linux 实机仍按 S8 复核；不把有限检查称作全仓绝对最优。
+
 ## aTrust 配置与升级
 
 设置页与引导共用 Fudan／Custom 入口。Fudan 只预填 `vpn.fudan.edu.cn:443`，认证方式从服务器查询，优先 UIS OAuth2；不写死登录 URL／认证编号。保存前使用实际 C ABI 的纯校验接口，不联网、不占用会话。公开字段映射、账户绑定及迁移由既有模块统一维护，详见[架构说明](ARCHITECTURE.md)。

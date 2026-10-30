@@ -325,7 +325,7 @@ func (m *conntrackMgr) authResult(ct *conntrack) (string, error, bool) {
 func (m *conntrackMgr) nextAuthBatch(limit int) ([]conntrackAuthJob, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	jobs := make([]conntrackAuthJob, 0, limit)
+	var jobs []conntrackAuthJob
 	more := false
 	for element := m.lru.Front(); element != nil; element = element.Next() {
 		ct := element.Value.(*conntrack)
@@ -337,6 +337,9 @@ func (m *conntrackMgr) nextAuthBatch(limit int) ([]conntrackAuthJob, bool) {
 			break
 		}
 		ct.authStarted = 1
+		if jobs == nil {
+			jobs = make([]conntrackAuthJob, 0, min(limit, len(m.byKey)))
+		}
 		jobs = append(jobs, conntrackAuthJob{conntrack: ct, meta: ct.authMeta})
 	}
 	return jobs, more
