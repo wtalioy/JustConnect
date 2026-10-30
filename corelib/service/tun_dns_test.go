@@ -278,8 +278,9 @@ func TestTUNDNSUsesOwnedPeerAndCampusACL(t *testing.T) {
 	release := make(chan bool)
 	publicationCancelled := make(chan struct{})
 	publish := func(ctx context.Context, addresses []netip.Addr, _ bool) error {
+		active := p.ActiveTUNAddresses()
 		for _, address := range addresses {
-			if !slices.Contains(p.ActiveTUNAddresses(), address.String()) {
+			if !slices.Contains(active, address.String()) {
 				t.Error("pending DNS publication is missing from the capture snapshot", address)
 				break
 			}
@@ -371,7 +372,9 @@ func TestTUNDNSUsesOwnedPeerAndCampusACL(t *testing.T) {
 		}
 		answer := <-result
 		if answer.err != nil {
-			t.Fatal(answer.err)
+			t.Fatalf("route acknowledgement applied=%t: %v; TCP retransmits peer=%d ingress=%d, invalid peer=%d ingress=%d",
+				applied, answer.err, peer.Stats().TCP.Retransmits.Value(), p.tun.stack.Stats().TCP.Retransmits.Value(),
+				peer.Stats().TCP.InvalidSegmentsReceived.Value(), p.tun.stack.Stats().TCP.InvalidSegmentsReceived.Value())
 		}
 		reply := answer.reply
 		want := dns.RcodeServerFailure
