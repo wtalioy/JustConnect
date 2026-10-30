@@ -645,6 +645,10 @@ void MainWindow::setupTrayIcon()
 void MainWindow::setupProfileMenu()
 {
     // 务必在 setupTrayIcon 之后调用，以确保 trayProfileMenu 已正确初始化
+    switchGroup = new QActionGroup(ui->profileMenu);
+    traySwitchGroup = new QActionGroup(trayProfileMenu);
+    switchGroup->setExclusive(true);
+    traySwitchGroup->setExclusive(true);
     ui->profileMenu->addSeparator();
     newProfileAction = ui->profileMenu->addAction("新建配置");
     renameProfileAction = ui->profileMenu->addAction("重命名当前配置");
@@ -689,17 +693,11 @@ void MainWindow::refreshProfileMenu()
         }
     }
 
-    QActionGroup *switchGroup = new QActionGroup(ui->profileMenu);
-    QActionGroup *traySwitchGroup = nullptr;
-
     if (trayProfileMenu != nullptr)
     {
         trayProfileMenu->clear();
-        traySwitchGroup = new QActionGroup(trayProfileMenu);
-        traySwitchGroup->setExclusive(true);
     }
 
-    switchGroup->setExclusive(true);
     QAction *action = ui->profileMenu->addAction("默认");
     action->setCheckable(true);
     action->setChecked(currentProfileId.isEmpty());

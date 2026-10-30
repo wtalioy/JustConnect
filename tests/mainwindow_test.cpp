@@ -8,6 +8,8 @@
 
 #include <QApplication>
 #include <QAction>
+#include <QActionGroup>
+#include <QMenu>
 #include <QDir>
 #include <QEvent>
 #include <QComboBox>
@@ -58,6 +60,33 @@ static void recoveryStatus(ApplicationLogger &logger,ApplicationLogFile &log) {
     check(!session->isActive() && session->state()==ConnectionState::Failed && errorShown
         && title->text()=="已断开","confirmed recovery distinguishes released capture from its retained earlier error");
 }
+static void profileMenusDoNotAccumulateGroups(MainWindow &window,const QString &profile) {
+    auto *menu=window.findChild<QMenu *>("profileMenu");
+    auto *tray=window.findChild<QSystemTrayIcon *>();
+    QMenu *trayMenu=nullptr;
+    for (auto *action:tray->contextMenu()->actions()) if (action->menu()) trayMenu=action->menu();
+    check(menu && trayMenu,"both profile menus are available");
+    const auto checked=[](QMenu *menu) {
+        QString result;
+        for (auto *action:menu->actions()) if (action->isCheckable() && action->isChecked()) {
+            check(result.isEmpty(),"profile selection remains exclusive");result=action->text();
+        }
+        return result;
+    };
+    const auto initial=checked(menu);
+    check(!initial.isEmpty() && checked(trayMenu)==initial,"profile menus start with the same selection");
+    const auto groups=window.findChildren<QActionGroup *>().size();
+    for (int i=0;i<10;++i) for (const auto &name:QStringList{profile,initial}) {
+        auto *source=i%2?trayMenu:menu;
+        QAction *choice=nullptr;
+        for (auto *action:source->actions()) if (action->isCheckable() && action->text()==name) choice=action;
+        check(choice,"target profile is present after rebuilding the menu");
+        choice->trigger();
+        check(checked(menu)==name && checked(trayMenu)==name,"main and tray profile selections stay synchronized");
+        check(window.findChildren<QActionGroup *>().size()==groups,"profile changes retained old menu groups");
+    }
+}
+
 int main(int argc,char **argv) {
     QApplication app(argc,argv);
 #ifdef Q_OS_UNIX
@@ -81,10 +110,16 @@ int main(int argc,char **argv) {
     {
         ProfileManager manager;
         QSettings settings(manager.profilePath(""),QSettings::IniFormat);DefaultSettings::reset(settings);settings.sync();
-        if(app.arguments().size()==1)recoveryStatus(logger,log);
+        QString menuProfile;
+        if(app.arguments().size()==1) {
+            menuProfile=manager.createProfile("menu-fixture",manager.profilePath(""));
+            check(!menuProfile.isEmpty(),"create an isolated profile for menu switching");
+            recoveryStatus(logger,log);
+        }
         // UI preference tests retain the real core without requesting host network privileges.
         MainWindow window(&logger,&log,nullptr,[](CoreEngine *,NetworkPolicySession *) -> NetworkAccess * { return nullptr; });
         check(window.isVisible(),"normal startup must show the main window");
+        if (app.arguments().size()==1) profileMenusDoNotAccumulateGroups(window,menuProfile);
         check(window.findChild<QLabel *>("statusTitleLabel")->text()!="已连接","disconnected cannot claim campus readiness");
         window.showMinimized();QCoreApplication::processEvents();
         check(window.isVisible(),"minimization must not hide the only window");
