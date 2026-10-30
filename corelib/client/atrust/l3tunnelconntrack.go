@@ -96,14 +96,25 @@ func (m *conntrackMgr) getByID(authID uint64) *conntrack {
 }
 
 func (m *conntrackMgr) getByAuthResponseIP(ip authIP) *conntrack {
+	meta := packetMeta{proto: ip.Protocol, srcPort: ip.SrcPort, dstPort: ip.DestPort,
+		srcIP: net.ParseIP(ip.SrcAddr), dstIP: net.ParseIP(ip.DestAddr)}
+	if meta.srcIP == nil || meta.dstIP == nil {
+		return nil
+	}
+	switch ip.Atype {
+	case authIPType(4):
+		meta.atype = 4
+	case authIPType(6):
+		meta.atype = 6
+	default:
+		return nil
+	}
+	var key [connTrackKeySize]byte
+	encodeConntrackKey(&key, &meta)
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for _, ct := range m.byKey {
-		meta := ct.authMeta
-		if authIPType(meta.atype) == ip.Atype && meta.srcPort == ip.SrcPort && meta.dstPort == ip.DestPort &&
-			meta.srcIP.Equal(net.ParseIP(ip.SrcAddr)) && meta.dstIP.Equal(net.ParseIP(ip.DestAddr)) {
-			return ct
-		}
+	if ct := m.byKey[string(key[:])]; ct != nil && ct.authMeta.key == string(key[:]) && ct.authMeta.proto == ip.Protocol {
+		return ct
 	}
 	return nil
 }
