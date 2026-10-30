@@ -1,7 +1,9 @@
 package auth
 
 import (
+	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -42,7 +44,17 @@ func TestServerVersionInfoFetchesAndValidatesManifest(t *testing.T) {
 	}))
 	defer server.Close()
 
-	got, err := newTLSTestSession(server).ServerVersionInfo()
+	policy := server.Client().Transport.(*http.Transport).TLSClientConfig.Clone()
+	policy.ServerName = "example.com"
+	session := NewSessionContext(t.Context(), "vpn.example.invalid:443", policy,
+		func(ctx context.Context, network, address string) (net.Conn, error) {
+			if address != "vpn.example.invalid:443" {
+				return nil, fmt.Errorf("unexpected dial: %s", address)
+			}
+			return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
+		})
+	defer session.Close()
+	got, err := session.ServerVersionInfo()
 	if err != nil {
 		t.Fatal(err)
 	}
