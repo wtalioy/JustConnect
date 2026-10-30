@@ -495,7 +495,7 @@ func TestTunnelRecoversFromDataWriteFailure(t *testing.T) {
 		}, nil
 	}
 
-	if err := tunnel.writePacket(packet, "app", "group"); err != nil {
+	if err := tunnel.writePacket(packet, meta, "app", "group"); err != nil {
 		t.Fatal(err)
 	}
 	select {

@@ -1,12 +1,51 @@
 package atrust
 
 import (
+	"encoding/binary"
+	"errors"
 	"fmt"
 	"net"
 	"testing"
+
+	"github.com/wtalioy/JustConnect/corelib/internal/zctcpip"
 )
 
 var conntrackKeySink string
+
+func TestPacketMetadataRejectsMalformedHeaders(t *testing.T) {
+	packet := makeUDPPacket(12345, 53)
+	wrongVersion := append([]byte(nil), packet...)
+	wrongVersion[0] = 0x65
+	shortHeader := append([]byte(nil), packet...)
+	shortHeader[0] = 0x44
+	longHeader := append([]byte(nil), packet...)
+	longHeader[0] = 0x4f
+	shortTCP := makeTCPPacket(zctcpip.TCPSyn)[:39]
+	binary.BigEndian.PutUint16(shortTCP[2:4], uint16(len(shortTCP)))
+	shortUDP := append([]byte(nil), packet[:27]...)
+	binary.BigEndian.PutUint16(shortUDP[2:4], uint16(len(shortUDP)))
+	invalidUDP := append([]byte(nil), packet...)
+	binary.BigEndian.PutUint16(invalidUDP[24:26], 7)
+	for _, test := range []struct {
+		name   string
+		packet []byte
+	}{
+		{"empty", nil}, {"short IP", packet[:19]}, {"wrong version", wrongVersion},
+		{"short IP header", shortHeader}, {"long IP header", longHeader},
+		{"truncated IP", packet[:27]}, {"short TCP", shortTCP},
+		{"short UDP", shortUDP}, {"invalid UDP length", invalidUDP},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := buildPacketMeta(test.packet); !errors.Is(err, zctcpip.ErrInvalidLength) {
+				t.Fatalf("malformed metadata = %v", err)
+			}
+			var tunnel L3Tunnel
+			if err := tunnel.processIPV4(test.packet); !errors.Is(err, zctcpip.ErrInvalidLength) {
+				t.Fatalf("malformed packet reached authorization: %v", err)
+			}
+		})
+	}
+}
 
 func TestConntrackKeySeparatesPacketTuples(t *testing.T) {
 	for _, family := range []int{4, 6} {
