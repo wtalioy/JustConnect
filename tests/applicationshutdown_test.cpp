@@ -154,15 +154,17 @@ static void pendingPlatformAndCredentialTimeoutsKeepEventLoopAlive() {
         if (platform) {
             proxy.enable({1081,1080,{}});until([&]{return !proxy.isBusy();});native->blockedClear=true;
         }
-        connection.start({},{});int failures=0,ready=0,ticks=0;
+        connection.start({},{});int failures=0,ready=0,events=0;
         ApplicationShutdown shutdown(&connection,&proxy,[&]{return !platform;},nullptr,25);
         QObject::connect(&shutdown,&ApplicationShutdown::failed,[&](const QString &code){check(code=="shutdown_timeout","pending work timeout reason");++failures;});
         QObject::connect(&shutdown,&ApplicationShutdown::ready,[&]{++ready;});
-        QTimer heartbeat;heartbeat.setInterval(1);QObject::connect(&heartbeat,&QTimer::timeout,[&]{++ticks;});heartbeat.start();
         shutdown.request();
+        for (int i=0;i<3;++i)
+            QMetaObject::invokeMethod(&shutdown,[&]{check(!ready,"pending shutdown became ready during event delivery");++events;},Qt::QueuedConnection);
         if (!platform) emit engine->finished(ConnectionError::NONE);
+        QThread::msleep(50); // Simulate a descheduled CI event loop.
         until([&]{return failures==1;});
-        check(!ready && ticks>2 && !connection.start({},{}),"timeout must remain responsive without false readiness");
+        check(!ready && events==3 && !connection.start({},{}),"timeout must remain responsive without false readiness");
         if (platform) {
             check(proxy.isBusy() && engine->stops==1,"timed out platform operation must retain its owner");
             native->proceed.release();until([&]{return !proxy.isBusy();});emit engine->finished(ConnectionError::NONE);
