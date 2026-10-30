@@ -32,10 +32,6 @@ func (p UDPPacket) Payload() []byte {
 	return p[UDPHeaderSize:p.Length()]
 }
 
-func (p UDPPacket) Checksum() uint16 {
-	return binary.BigEndian.Uint16(p[6:])
-}
-
 func (p UDPPacket) SetChecksum(sum [2]byte) {
 	p[6] = sum[0]
 	p[7] = sum[1]
