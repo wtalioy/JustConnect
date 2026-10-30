@@ -1,11 +1,15 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/netip"
+	"runtime/pprof"
 	"slices"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -18,13 +22,56 @@ import (
 	"github.com/wtalioy/JustConnect/corelib/resolve"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
+	"gvisor.dev/gvisor/pkg/tcpip/header"
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv4"
+	"gvisor.dev/gvisor/pkg/tcpip/transport/tcp"
 )
 
 type dnsPacketDevice struct{ *packetDevice }
 
 func (*dnsPacketDevice) TUNAddresses() (netip.Addr, netip.Addr) {
 	return netip.MustParseAddr("198.18.0.1"), netip.MustParseAddr("198.18.0.2")
+}
+
+type tracedDNSDevice struct {
+	*dnsPacketDevice
+	mu      sync.Mutex
+	packets []string
+}
+
+func (d *tracedDNSDevice) record(direction string, packet []byte) {
+	if len(packet) < header.IPv4MinimumSize || header.IPv4(packet).TransportProtocol() != tcp.ProtocolNumber {
+		return
+	}
+	segment := header.TCP(header.IPv4(packet).Payload())
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if len(d.packets) < 128 {
+		d.packets = append(d.packets, fmt.Sprintf("%s %s %d->%d seq=%d ack=%d flags=%s window=%d bytes=%d", time.Now().Format("15:04:05.000000"), direction,
+			segment.SourcePort(), segment.DestinationPort(), segment.SequenceNumber(), segment.AckNumber(), segment.Flags(), segment.WindowSize(), len(segment.Payload())))
+	}
+}
+func (d *tracedDNSDevice) Read(packet []byte) (int, error) {
+	n, err := d.packetDevice.Read(packet)
+	if err == nil {
+		d.record("host->ingress", packet[:n])
+	}
+	return n, err
+}
+func (d *tracedDNSDevice) Write(packet []byte) (int, error) {
+	d.record("ingress->host", packet)
+	return d.packetDevice.Write(packet)
+}
+func (d *tracedDNSDevice) diagnose(t *testing.T) {
+	t.Helper()
+	d.mu.Lock()
+	for _, packet := range d.packets {
+		t.Log(packet)
+	}
+	d.mu.Unlock()
+	var stacks bytes.Buffer
+	_ = pprof.Lookup("goroutine").WriteTo(&stacks, 2)
+	t.Log(stacks.String())
 }
 
 func originalDNSInterface(t *testing.T) (string, net.IP) {
@@ -272,7 +319,7 @@ func TestTUNDNSUsesOwnedPeerAndCampusACL(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(p.Close)
-	device := &dnsPacketDevice{newPacketDevice()}
+	device := &tracedDNSDevice{dnsPacketDevice: &dnsPacketDevice{newPacketDevice()}}
 	var publicationMode atomic.Int32
 	publications := make(chan []netip.Addr, 16)
 	release := make(chan bool)
@@ -385,6 +432,7 @@ func TestTUNDNSUsesOwnedPeerAndCampusACL(t *testing.T) {
 		}
 		answer := <-result
 		if answer.err != nil {
+			device.diagnose(t)
 			t.Fatalf("route acknowledgement applied=%t: %v; TCP retransmits peer=%d ingress=%d, invalid peer=%d ingress=%d",
 				applied, answer.err, peer.Stats().TCP.Retransmits.Value(), p.tun.stack.Stats().TCP.Retransmits.Value(),
 				peer.Stats().TCP.InvalidSegmentsReceived.Value(), p.tun.stack.Stats().TCP.InvalidSegmentsReceived.Value())
