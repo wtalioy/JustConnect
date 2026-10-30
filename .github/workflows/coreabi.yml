@@ -164,14 +164,14 @@ jobs:
           run('cc', [os.environ['CC'], '--version'])
           run('constants', [sys.executable, 'scripts/generate-core-abi.py', '--check'])
           run('go-test', ['go', '-C', 'corelib', 'test', '-json', '-timeout', '90s', './...'])
-          race_status = shutdown_status = 0
+          race_status = regression_status = 0
           if not (os.environ['RUNNER_OS'] == 'Windows' and os.environ['RUNNER_ARCH'] == 'ARM64'):
               # Collect independent ABI results even when a race regression fails; the step still fails below.
               # Serialize packages; retain the platform's CPU and parallel-test budgets.
               race_status = run('go-race', ['go', '-C', 'corelib', 'test', '-json', '-race', '-p', '1', '-timeout', '90s', './...'], required=False)
-              # Repeat the observed shutdown regression without relaxing its per-close deadline.
-              shutdown_status = run('go-race-tun-shutdown', ['go', '-C', 'corelib', 'test', '-json', '-race', '-count', '5',
-                  '-timeout', '90s', '-run', '^TestTUNBoundsFlowsAndJoinsFullCapacityOnShutdown$', './service'], required=False)
+              # Repeat observed shutdown/DNS regressions without relaxing their original deadlines.
+              regression_status = run('go-race-tun-regressions', ['go', '-C', 'corelib', 'test', '-json', '-race', '-count', '5',
+                  '-timeout', '90s', '-run', '^(TestTUNBoundsFlowsAndJoinsFullCapacityOnShutdown|TestTUNDNSUsesOwnedPeerAndCampusACL)$', './service'], required=False)
           else:
               print('UNSUPPORTED: Go race detector on Windows ARM64; normal Go and C ABI tests still run', flush=True)
           args = ['cmake', '-S', 'tests/coreabi', '-B', str(output), '-DCMAKE_BUILD_TYPE=Release']
@@ -180,7 +180,7 @@ jobs:
           run('configure', args)
           run('build', ['cmake', '--build', str(output), '--config', 'Release', '--parallel', '3', '--verbose'])
           run('host', ['ctest', '--test-dir', str(output), '-C', 'Release', '-V', '--output-on-failure'])
-          sys.exit(race_status or shutdown_status)
+          sys.exit(race_status or regression_status)
 
       - name: Check Linux TUN fd transfer and cleanup in an isolated network
         if: runner.os == 'Linux'
