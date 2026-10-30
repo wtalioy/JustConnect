@@ -146,7 +146,7 @@ A6 的 `da23405` 实机记录中，DNS Client 峰值 86.3%，新增／删除路�
 
 gVisor 出站端点复用依赖自带的 `PacketBuffer.ToView`／`View.Release`，与 TUN 回包链路一致，删除自维护的分片列表／拼包实现；正常、写失败及 panic 都归还临时缓冲。报文头／有效载荷、未读容量隔离、资源拒绝与取消／失败回归保留。
 
-`go -C corelib test -run '^$' -bench '^BenchmarkEndpointWritePackets$' -benchtime=1s -count=3 ./stack/gvisor` 比较 1200 字节分片包的同步空写端点；Go 1.27.2、i9-13900HX，Linux 旧版 400—434 ns／1330 B／2 次分配，改后 107—108 ns／0 B／0 次分配；Windows x64 旧版 328—390 ns，改后 109—122 ns，同样消除每包两次分配。该微基线不含 TLS／网络／路由，不能当作校园吞吐或整体 CPU 降幅；缓冲池冷启动／GC 后可重新分配。日志归 `build/reports/windows-dns-cpu-da23405/packet-write-*.log`。
+`go -C corelib test -run '^$' -bench '^BenchmarkEndpointWritePackets$' -benchtime=1s -count=3 ./stack/gvisor` 比较 1200 字节分片包的同步空写端点；Go 1.27.2、i9-13900HX，Linux 旧版 400—434 ns／1330 B／2 次分配，改后 107—108 ns／0 B／0 次分配；Windows x64 旧版 328—390 ns，改后 109—122 ns，同样消除每包两次分配。该微基线不含 TLS／网络／路由，不能当作校园吞吐或整体 CPU 降幅；缓冲池冷启动／GC 后可重新分配。日志归 `build/reports/performance-2d0bbd3/packet-write-*.log`。
 
 逐包连接跟踪键使用内部定长二进制元组，保留地址族、协议、源／目标 IP 和端口，不作为日志／IPC／持久化字段；取消对地址与端口的逐包字符串格式化。`go -C corelib test -run '^$' -bench '^BenchmarkConnTrackKey$' -benchtime=1s -count=3 ./client/atrust`：Windows x64 旧版 223—224 ns／112 B／6 次分配，改后 26—29 ns／48 B／1 次分配；Linux 241—245→22—25 ns，分配变化相同。字段隔离、IPv4 等价表示、认证回退及收发状态回归保留；基线不代表整体吞吐。日志归同报告目录的 `conntrack-key-*.log`。
 
