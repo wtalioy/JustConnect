@@ -19,6 +19,7 @@ namespace Ui
     class MainWindow;
 }
 
+class QActionGroup;
 class ApplicationLogger;
 class ApplicationLogFile;
 class ConnectionUiController;
@@ -107,6 +108,8 @@ private:
     QAction *trayConnectAction;
     QAction *trayShowAction;
     QAction *trayCloseAction;
+    QActionGroup *switchGroup;
+    QActionGroup *traySwitchGroup;
     QAction *newProfileAction;
     QAction *renameProfileAction;
     QAction *deleteProfileAction;
