@@ -27,13 +27,12 @@ ProfileService::ProfileService(
 )
     : QObject(parent),
       profileBackend(std::move(backend)),
-      currentSettings(nullptr),
       overrideConfiguration(!overrideConfigPath.isEmpty())
 {
     if (!overrideConfiguration)
     {
         currentId = profileBackend->activeProfile();
-        currentSettings = new QSettings(
+        currentSettings = std::make_unique<QSettings>(
             profileBackend->profilePath(currentId),
             QSettings::IniFormat
         );
@@ -41,19 +40,18 @@ ProfileService::ProfileService(
     else
     {
         currentId = "custom";
-        currentSettings = new QSettings(overrideConfigPath, QSettings::IniFormat);
+        currentSettings = std::make_unique<QSettings>(overrideConfigPath, QSettings::IniFormat);
     }
 }
 
 ProfileService::~ProfileService()
 {
     currentSettings->sync();
-    delete currentSettings;
 }
 
 QSettings *ProfileService::settings() const
 {
-    return currentSettings;
+    return currentSettings.get();
 }
 
 QString ProfileService::currentProfileId() const
@@ -85,8 +83,7 @@ bool ProfileService::switchTo(const QString &profileId)
         return false;
     }
 
-    delete currentSettings;
-    currentSettings = next.release();
+    currentSettings = std::move(next);
     currentId = profileId;
     overrideConfiguration = false;
     return true;
@@ -131,8 +128,7 @@ bool ProfileService::renameCurrent(const QString &newProfileId)
     }
 
     currentId = newProfileId;
-    delete currentSettings;
-    currentSettings = new QSettings(
+    currentSettings = std::make_unique<QSettings>(
         profileBackend->profilePath(currentId),
         QSettings::IniFormat
     );
@@ -160,8 +156,7 @@ bool ProfileService::removeCurrentAndSwitchToDefault()
         return false;
     }
 
-    delete currentSettings;
-    currentSettings = next.release();
+    currentSettings = std::move(next);
     currentId.clear();
     return true;
 }
