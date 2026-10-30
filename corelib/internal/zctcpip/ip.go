@@ -8,33 +8,17 @@ import (
 
 type IPProtocol = byte
 
-type IP interface {
-	Payload() []byte
-	SourceIP() net.IP
-	DestinationIP() net.IP
-	SetSourceIP(ip net.IP)
-	SetDestinationIP(ip net.IP)
-	Protocol() IPProtocol
-	DecTimeToLive()
-	ResetChecksum()
-	PseudoSum() uint32
-}
-
 // IPProtocol type
 const (
-	ICMP   IPProtocol = 0x01
-	TCP    IPProtocol = 0x06
-	UDP    IPProtocol = 0x11
-	ICMPv6 IPProtocol = 0x3a
+	ICMP IPProtocol = 0x01
+	TCP  IPProtocol = 0x06
+	UDP  IPProtocol = 0x11
 )
 
 const (
 	IPv4HeaderSize = 20
 
 	IPv4Version = 4
-
-	IPv4OptionsOffset   = 20
-	IPv4PacketMinLength = IPv4OptionsOffset
 )
 
 var (
@@ -85,17 +69,9 @@ func (p IPv4Packet) SetDestinationIP(ip net.IP) {
 	}
 }
 
-func (p IPv4Packet) Checksum() uint16 {
-	return binary.BigEndian.Uint16(p[10:])
-}
-
 func (p IPv4Packet) SetChecksum(sum [2]byte) {
 	p[10] = sum[0]
 	p[11] = sum[1]
-}
-
-func (p IPv4Packet) DecTimeToLive() {
-	p[8] = p[8] - uint8(1)
 }
 
 func (p IPv4Packet) ResetChecksum() {
@@ -117,7 +93,7 @@ func (p IPv4Packet) Valid() bool {
 }
 
 func (p IPv4Packet) Verify() error {
-	if len(p) < IPv4PacketMinLength {
+	if len(p) < IPv4HeaderSize {
 		return ErrInvalidLength
 	}
 
@@ -145,5 +121,3 @@ func (p IPv4Packet) Verify() error {
 
 	return nil
 }
-
-var _ IP = (*IPv4Packet)(nil)
