@@ -154,6 +154,8 @@ gVisor 出站端点复用依赖自带的 `PacketBuffer.ToView`／`View.Release`�
 
 域名规则索引在单条命中时复用不可变资源，多条重叠时按总量一次分配并保留更具体规则优先及同组顺序。`go -C corelib test -run '^$' -bench '^BenchmarkDomainResourceMatch$' -benchtime=1s -count=3 ./resolve` 在 1001 条域名规则下，Windows x64 单条命中 375—377→355—357 ns、80 B／1 次分配→0；重叠命中 482—494→477—480 ns、224 B／2 次分配→144 B／1 次分配。Linux 单条命中 384—387→364—368 ns，分配变化相同；未命中均约 12—14 ns／0 分配。此为纯索引查询，不代表整机 CPU／网络吞吐；旧线性扫描替身基准已由实际命中／未命中／重叠基准替换，原始样本归 `build/reports/review-0684a4b/domain-match-*.log`。
 
+完整元组的认证回退复用现有连接索引，只在网关省略请求身份时使用，并校验地址族、协议和初始化元数据；未知显式身份不降级回退。1024 条待认证连接下，`BenchmarkAuthResponseTupleLookup` 在 Windows／Linux 均约 4.4 µs→77—84 ns／0 分配；存储键仍约 22 ns／48 B／1 次分配。L3 接收直接使用响应帧独占缓冲区，仅跨帧残包再拼接；保留交付包的独立所有权。`BenchmarkReadLoopPacket` 经 `io.Pipe` 驱动实际读取／分包／跟踪／交付 1200 字节包，Linux 三次样本每包 3948 B／9 次分配→2668 B／8 次分配，约 2.27—2.35→1.83—1.92 µs；此为本机微基线，未测整体 CPU／网络吞吐。跨帧多包／2000 字节残包回归合并到实际读取循环检查；认证 wire、排队及失败回归保留。样本归 `build/reports/review-0684a4b/{auth-tuple,readloop}-*.log`。
+
 复查按单个桌面用户、现有流量／DNS／事件上限进行，覆盖 Go 数据面／认证／分流、C ABI 调用方、C++ 助手／DNS／路由／恢复，以及 Qt 日志／状态／配置调用链。除上述已测改进外，原网络观察、所有权确认、必要的跨线程／IPC 拷贝及上游协议身份保持；未用减慢观察、扩大路由或冻结控制器发现来换性能。未测的全链路吞吐、RSS 与 macOS／Linux 实机仍按 S8 复核；不把有限检查称作全仓绝对最优。
 
 ## aTrust 配置与升级
