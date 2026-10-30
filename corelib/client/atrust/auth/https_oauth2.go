@@ -1,9 +1,6 @@
 package auth
 
 import (
-	"fmt"
-	"io"
-	"net/http"
 	"net/url"
 
 	"github.com/wtalioy/JustConnect/corelib/client/authchallenge"
@@ -65,44 +62,5 @@ func (s *Session) interactiveHttpsOauth2(loginURL string) (string, error) {
 }
 
 func (s *Session) httpsOauth2(callback string) error {
-
-	callbackURL, err := parseAuthCallback(s.baseURL, callback, "/passport/v1/auth/httpsOauth2", "code")
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequest(http.MethodGet, callbackURL.String(), nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("User-Agent", UserAgent)
-	req.Header.Set("x-csrf-token", s.csrfToken)
-	req.Header.Set("x-sdp-traceid", s.randSdpId())
-
-	prevCheckRedirect := s.client.CheckRedirect
-	s.client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		return http.ErrUseLastResponse
-	}
-	defer func() { s.client.CheckRedirect = prevCheckRedirect }()
-
-	resp, err := s.request(req)
-	if err != nil {
-		return err
-	}
-	defer func(Body io.ReadCloser) {
-		_ = Body.Close()
-	}(resp.Body)
-
-	if resp.StatusCode != 302 {
-		return fmt.Errorf("invalid status code: %d", resp.StatusCode)
-	}
-
-	ticket, err := parsePortalTicketFromRedirect(resp.Header.Get("Location"), s.baseHost)
-	if err != nil {
-		return err
-	}
-
-	_, _ = io.Copy(io.Discard, resp.Body)
-
-	s.ticket = ticket
-	return nil
+	return s.exchangeAuthCallback(callback, "/passport/v1/auth/httpsOauth2", "code")
 }

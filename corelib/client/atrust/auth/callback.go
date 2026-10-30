@@ -2,6 +2,9 @@ package auth
 
 import (
 	"errors"
+	"fmt"
+	"io"
+	"net/http"
 	"net/netip"
 	"net/url"
 	"strconv"
@@ -43,4 +46,45 @@ func parseAuthCallback(baseURL, raw, path, token string) (*url.URL, error) {
 		return nil, invalid
 	}
 	return callback, nil
+}
+
+func (s *Session) exchangeAuthCallback(callback, path, token string) error {
+
+	callbackURL, err := parseAuthCallback(s.baseURL, callback, path, token)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest(http.MethodGet, callbackURL.String(), nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("User-Agent", UserAgent)
+	req.Header.Set("x-csrf-token", s.csrfToken)
+	req.Header.Set("x-sdp-traceid", s.randSdpId())
+
+	prevCheckRedirect := s.client.CheckRedirect
+	s.client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	defer func() { s.client.CheckRedirect = prevCheckRedirect }()
+
+	resp, err := s.request(req)
+	if err != nil {
+		return err
+	}
+	defer func(Body io.ReadCloser) {
+		_ = Body.Close()
+	}(resp.Body)
+	if resp.StatusCode != http.StatusFound {
+		return fmt.Errorf("invalid status code: %d", resp.StatusCode)
+	}
+	ticket, err := parsePortalTicketFromRedirect(resp.Header.Get("Location"), s.baseHost)
+	if err != nil {
+		return err
+	}
+
+	_, _ = io.Copy(io.Discard, resp.Body)
+
+	s.ticket = ticket
+	return nil
 }
