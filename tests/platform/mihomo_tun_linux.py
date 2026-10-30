@@ -117,10 +117,15 @@ def main():
                 connected = ordinary('control')
                 assert connected.returncode == 0, connected.stderr
                 print(captured.stdout + connected.stdout, end='', flush=True)
+                deadline = time.monotonic() + 5
                 mihomo.terminate()
-                mihomo.wait(timeout=5)
-                restored = json.loads(ip('-j', 'route', 'get', target, 'uid', str(args.uid), capture=True))
-                assert restored[0]['dev'] == original, 'owned Mihomo did not release its capture route'
+                mihomo.wait(timeout=max(0, deadline - time.monotonic()))
+                while True:
+                    restored = json.loads(ip('-j', 'route', 'get', target, 'uid', str(args.uid), capture=True))
+                    if restored and restored[0]['dev'] == original:
+                        break
+                    assert time.monotonic() < deadline, ('owned Mihomo did not release its capture route', restored)
+                    time.sleep(0.05)
                 print('PASS: owned Mihomo TUN stopped and original route restored', flush=True)
         finally:
             if mihomo is not None and mihomo.poll() is None:
