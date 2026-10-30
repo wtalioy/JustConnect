@@ -62,7 +62,7 @@ func (s *Session) completeRadius(service string) (authStep, error) {
 	// aTrust requires the RADIUS token RSA-encrypted on /auth/challenge, like the password.
 	payload := map[string]interface{}{}
 	if service == "auth/challenge" {
-		encryptedToken, err := s.encryptChallengeResponse(response.Code)
+		encryptedToken, err := s.encryptAuthSecret(response.Code)
 		if err != nil {
 			return authStep{}, fmt.Errorf("encrypt RADIUS token: %w", err)
 		}
