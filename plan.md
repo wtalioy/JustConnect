@@ -15,15 +15,15 @@
 | --- | --- |
 | 阶段进度 | S3—S5 **17／17 全部勾选**；全计划 64 项已收尾 39 项、剩余 25 项。S1-04 真实样本、S2-06 真实注销仍待；S6—S8 按后续顺序推进 |
 | Windows 实测 | `70f90a5`／Windows 11 26H2：接管、断开正常，无错误／重试；接管 1722 ms，恢复 134 ms，CPU 各约 15% 持续 1—2 秒。校园浏览器／SSH、MagicDNS A 不变沿用 `929e24d` 实测，未推定新增场景 |
-| 当前跟踪 | **A6 已通过 Windows 实测**；A7 继续全仓性能／精简复查：原 DNS 监听单次查询待 CI，出站包每包 1330 B／2 次分配已降为池化 0 分配，本地验证中 |
-| 当前交付 | [`70f90a5` Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/40915668930/artifacts/12917064120)。全部必需自动检查与六组实际包通过，证据统一见下表 |
+| 当前跟踪 | **A6 已通过 Windows 实测；A7 自动验证与复查收尾完成，待新包用户回归**。四项优化减少接口查询、逐包分配／格式化及空闲批次分配；未改变网络保护、恢复或观察频率，测量边界见 A7 |
+| 当前交付 | [`2d0bbd3` Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/41030191755/artifacts/12965458558)。全部必需自动检查与六组实际包通过；本版连接／断开、浏览器／SSH 与 CPU 用户复测待补 |
 
 ## 当前验收基线
 
 | 范围 | 当前结论与证据 |
 | --- | --- |
-| 正式自动检查 | `a28e9d7`：[六架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40919831613)、[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40919831621)全部通过。覆盖正式 Qt／Go／C++ 助手、系统 DNS、TCP／UDP／OpenSSH、保护／选边、正常／故障及独立恢复；Windows 原 SDK 4096 包／30 秒门槛保留 |
-| 实际包／源码 | `70f90a5`：[六组实际包及源码](https://github.com/wtalioy/JustConnect/actions/runs/40915668930)全部通过，已核对 clean 正式核心、架构、助手身份及对应产物。与 `a28e9d7` 仅测试夹具／说明不同，产品／配置／工具链相同；`build/reports/package-70f90a5/summary.json` |
+| 正式自动检查 | `2d0bbd3`：[六架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/41030190396)、[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/41030190212)全部通过。覆盖正式 Qt／Go／C++ 助手、系统 DNS、TCP／UDP／OpenSSH、保护／选边、正常／故障及独立恢复；Windows 原 SDK 4096 包／30 秒门槛保留 |
+| 实际包／源码 | 同一 `2d0bbd3`：[六组实际包及源码](https://github.com/wtalioy/JustConnect/actions/runs/41030191755)全部通过，已核对 clean 正式核心、架构、助手身份、产物摘要及对应版本；`build/reports/package-2d0bbd3/summary.json`。后续仅说明文档提交无需重新打包 |
 | Windows 修复／性能 | 正常断开修复已实测；DNS 批量刷新、持久进度、部分失败和后续所有权已双架构原生验证。接口查询及 `70f90a5` 接管／断开 CPU 优化已实测通过；`build/reports/windows-restore-9d95b37/summary.json`、`build/reports/windows-dns-cpu-da23405/summary.json` |
 | 阶段矩阵 | `build/reports/v1-matrix.json` 汇总当前三平台受控证据及 Windows 实测；未测发布格保留在 V1—V7，阶段勾选不等于完整发布验收 |
 
@@ -267,7 +267,7 @@ V7 逐项记录日常使用要求，包含首次确认服务器、窗口／托�
 | A4 | SSO 自动填充：仅在有效认证恢复仍不能满足日常操作时评估；按配置／来源隔离，不覆盖输入或替代必要 MFA | 非主线，不作为交付门槛 |
 | A5 | 新核心或协议：当前只维护 aTrust 的内部库端口和必要 C ABI，不预建动态插件、通用多协议框架或多套前端。未来出现真实第二种核心时再适配，保留 Qt／Go 边界 | C ABI 已纳入 S1，其余按需 |
 | A6 | Windows DNS Client 性能与新包回归：沿实际热点验证接管／断开 CPU，保留正常网络／恢复边界；独立跟踪，不重复阻塞 S3—S5 阶段勾选 | **已通过 Windows 实测**。`70f90a5`／Windows 11 26H2：接管、断开各约 15% CPU 持续 1—2 秒，原高占用尾部消失；接管 1722 ms（220 前缀／6 校园 DNS／0 原 DNS），恢复 134 ms，无错误／重试。一次原生网卡读取与直接 socket 索引消除重复查询；严格指针／双栈／保护／恢复回归保留。[测量与边界](docs/DEVELOPMENT.md#windows-网卡查询与-cpu-采样)，`build/reports/windows-dns-cpu-da23405/summary.json`。不同前缀数／机器不按耗时比例推定 |
-| A7 | 性能优先的全仓复查与持续精简：仅实现实际调用链有收益且可验证的改进，不为形式引入框架／兼容层 | **进行中**。原 DNS 监听准备复用单次网卡查询，本地完整／race／Windows 原生隔离与回滚通过，`6f1e23c` 跨平台 CI 待验。gVisor 出站包改用已有池化缓冲，Windows 微基线 328—390→109—122 ns／包，1330 B／2 次分配→0；连接跟踪键复用定长元组，Windows 223→26—29 ns／包、6→1 次分配；本地完整／原生／race 通过，空闲认证批次按需分配，6528 B／次→0；正式网络行为与最终 CI 继续验证，[基线与边界](docs/DEVELOPMENT.md#数据包转发分配基线) |
+| A7 | 性能优先的全仓复查与持续精简：仅实现实际调用链有收益且可验证的改进，不为形式引入框架／兼容层 | **自动验证与复查收尾完成，待新包用户回归**。原 DNS 监听复用一次接口查询；出站包复用现有缓冲池，Windows 微基线 328—390→109—122 ns／包、1330 B／2 次分配→0；连接键 223→26—29 ns、6→1 次分配；空闲认证批次 6528 B／次→0。本地完整／race／Windows 原生、上表三组 CI 与六组实际包通过。删除旧拼包助手／专属测试及本轮临时二进制，保留异步所有权拷贝、保护／恢复回归与唯一失败证据；复查 Go、C ABI、C++ 助手及 Qt 实际调用链，未发现另一处收益明确的优先热点，不声称绝对最优。[测量与边界](docs/DEVELOPMENT.md#数据包转发分配基线)，`build/reports/performance-2d0bbd3/summary.json`；整体 CPU／吞吐及本版用户回归未测 |
 
 ## 上游问题转化为库化验收
 
