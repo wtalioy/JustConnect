@@ -225,11 +225,16 @@ func Run() bool {
 		})
 	}
 	server := &http.Server{Handler: handler(true)}
-	go server.Serve(tcp)
+	serve := func(server *http.Server, listener net.Listener) {
+		if err := server.Serve(listener); err != http.ErrServerClosed {
+			panic(err)
+		}
+	}
+	go serve(server, tcp)
 	var ipcServer *http.Server
 	if ipc != nil {
 		ipcServer = &http.Server{Handler: handler(false)}
-		go ipcServer.Serve(ipc)
+		go serve(ipcServer, ipc)
 	}
 	json.NewEncoder(os.Stdout).Encode(facts)
 	io.Copy(io.Discard, os.Stdin)
