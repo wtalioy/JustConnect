@@ -43,16 +43,6 @@ bool waitFor(int socket, short events, QDeadlineTimer &deadline)
         return status > 0 && (item.revents & events);
     }
 }
-int privateDirectory(int parent, const QByteArray &name)
-{
-    if (::mkdirat(parent, name.constData(), 0700) != 0 && errno != EEXIST) return -1;
-    const int fd = ::openat(parent, name.constData(), O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
-    struct stat info{};
-    if (fd < 0) return -1;
-    if (::fstat(fd, &info) != 0 || !S_ISDIR(info.st_mode) || info.st_uid != 0 || (info.st_mode & 07777) != 0700
-        || ::fsync(parent) != 0) { ::close(fd); return -1; }
-    return fd;
-}
 bool present(int directory)
 {
     struct stat info{};
@@ -87,7 +77,7 @@ struct OwnedOperation {
             if (errno == ENOENT) { cleaned = true; return {}; }
             return invalid("Recovery ownership is absent or inaccessible.");
         }
-        directory = privateDirectory(parent, name);
+        directory = openPrivateNetworkDirectory(parent, name);
         if (directory < 0) return invalid("Cannot open the private connection directory.");
         const auto opened = metadata.open(directory, owner, alreadyOwned);
         if (!opened.succeeded()) return opened;
@@ -115,8 +105,8 @@ struct OwnedOperation {
                 return invalid("Recovery context does not match its privileged owner and current namespace.");
         }
         if (cleaning && context["phase"] != "restored") return invalid("An active connection cannot be cleaned as a receipt.");
-        captureDirectory = privateDirectory(directory, "capture");
-        sourceDirectory = privateDirectory(directory, "underlay");
+        captureDirectory = openPrivateNetworkDirectory(directory, "capture");
+        sourceDirectory = openPrivateNetworkDirectory(directory, "underlay");
         if (captureDirectory < 0 || sourceDirectory < 0) return invalid("Cannot open the private operation journals.");
         const auto captureOpened = captureJournal.open(captureDirectory, owner);
         if (!captureOpened.succeeded()) return captureOpened;
@@ -127,7 +117,7 @@ struct OwnedOperation {
             if (::fstatat(directory, "dns", &unexpected, AT_SYMLINK_NOFOLLOW) == 0 || errno != ENOENT)
                 return invalid("Legacy recovery metadata cannot own DNS operations.");
         } else {
-            dnsDirectory = privateDirectory(directory, "dns");
+            dnsDirectory = openPrivateNetworkDirectory(directory, "dns");
             if (dnsDirectory < 0) return invalid("Cannot open the private DNS journal.");
             const auto dnsOpened = dnsJournal.open(dnsDirectory, owner);
             if (!dnsOpened.succeeded()) return dnsOpened;
@@ -138,7 +128,7 @@ struct OwnedOperation {
             if (::fstatat(directory, "original-dns", &unexpected, AT_SYMLINK_NOFOLLOW) == 0 || errno != ENOENT)
                 return invalid("Legacy recovery metadata cannot own original DNS operations.");
         } else {
-            originalDnsDirectory = privateDirectory(directory, "original-dns");
+            originalDnsDirectory = openPrivateNetworkDirectory(directory, "original-dns");
             if (originalDnsDirectory < 0) return invalid("Cannot open the private original DNS journal.");
             const auto opened = originalDnsJournal.open(originalDnsDirectory, owner);
             if (!opened.succeeded()) return opened;
