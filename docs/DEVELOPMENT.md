@@ -142,6 +142,12 @@ A6 的 `da23405` 实机记录中，DNS Client 峰值 86.3%，新增／删除路�
 
 2026-10-30 用户在 Windows 11 26H2 实测 `70f90a5`：接管、断开正常，无恢复错误／重试；DNS Client 各约 15% CPU 持续 1—2 秒，原数十秒高占用尾部消失。日志记录接管 1722 ms（网卡／路由 1609 ms、DNS 94 ms；220 捕获前缀／6 校园 DNS／0 原 DNS 来源），解除接管 211 ms、恢复 134 ms、确认 15 ms、检查 0 ms、关闭 5 ms。峰值／持续时间来自用户任务管理器观察，非新一轮 WPR；前后前缀数和系统状态不同，不据此推定固定加速比例或其他机器结果。校园浏览器／SSH 与 MagicDNS A 不变仍引用此前 `929e24d` 实测，未新增完整发布矩阵结论。
 
+## 数据包转发分配基线
+
+gVisor 出站端点复用依赖自带的 `PacketBuffer.ToView`／`View.Release`，与 TUN 回包链路一致，删除自维护的分片列表／拼包实现；正常、写失败及 panic 都归还临时缓冲。报文头／有效载荷、未读容量隔离、资源拒绝与取消／失败回归保留。
+
+`go -C corelib test -run '^$' -bench '^BenchmarkEndpointWritePackets$' -benchtime=1s -count=3 ./stack/gvisor` 比较 1200 字节分片包的同步空写端点；Go 1.27.2、i9-13900HX，Linux 旧版 400—434 ns／1330 B／2 次分配，改后 107—108 ns／0 B／0 次分配；Windows x64 旧版 328—390 ns，改后 109—122 ns，同样消除每包两次分配。该微基线不含 TLS／网络／路由，不能当作校园吞吐或整体 CPU 降幅；缓冲池冷启动／GC 后可重新分配。日志归 `build/reports/windows-dns-cpu-da23405/packet-write-*.log`。
+
 ## aTrust 配置与升级
 
 设置页与引导共用 Fudan／Custom 入口。Fudan 只预填 `vpn.fudan.edu.cn:443`，认证方式从服务器查询，优先 UIS OAuth2；不写死登录 URL／认证编号。保存前使用实际 C ABI 的纯校验接口，不联网、不占用会话。公开字段映射、账户绑定及迁移由既有模块统一维护，详见[架构说明](ARCHITECTURE.md)。

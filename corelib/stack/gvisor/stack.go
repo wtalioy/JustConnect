@@ -54,14 +54,22 @@ func (*Endpoint) Close()                                       {}
 func (*Endpoint) SetOnCloseAction(func())                      {}
 
 func (ep *Endpoint) WritePackets(list stack.PacketBufferList) (written int, result tcpip.Error) {
+	var view *buffer.View
 	defer func() {
+		if view != nil {
+			view.Release()
+		}
 		if recover() != nil {
 			ep.fail(errors.New("network stack writer panicked"))
 			result = &tcpip.ErrAborted{}
 		}
 	}()
 	for _, packet := range list.AsSlice() {
-		if _, err := ep.l3Conn.Write(joinPacketSlices(packet.AsSlices())); err != nil {
+		view = packet.ToView()
+		_, err := ep.l3Conn.Write(view.AsSlice())
+		view.Release()
+		view = nil
+		if err != nil {
 			if errors.Is(err, clientpkg.ErrResourceNotFound) {
 				written++
 				continue
@@ -72,19 +80,6 @@ func (ep *Endpoint) WritePackets(list stack.PacketBufferList) (written int, resu
 		written++
 	}
 	return written, nil
-}
-
-func joinPacketSlices(slices [][]byte) []byte {
-	total := 0
-	for _, part := range slices {
-		total += len(part)
-	}
-	buf := make([]byte, total)
-	offset := 0
-	for _, part := range slices {
-		offset += copy(buf[offset:], part)
-	}
-	return buf
 }
 
 func NewStack(client clientpkg.Client) (*Stack, error) {
