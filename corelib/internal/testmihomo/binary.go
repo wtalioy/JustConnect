@@ -32,6 +32,18 @@ func (f *Fixture) WaitReady(t testing.TB, probe func() error) {
 	}
 }
 
+// ProxyPort selects a kernel-assigned port usable by both proxy transports.
+func ProxyPort(t testing.TB) int {
+	t.Helper()
+	tcp, udp, err := dnslistener.Listen(t.Context(), "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tcp.Close()
+	defer udp.Close()
+	return tcp.Addr().(*net.TCPAddr).Port
+}
+
 // StartBinary runs only an explicitly supplied test runtime, with no TUN or system changes.
 func StartBinary(t testing.TB, upstream string, ipc bool) *Fixture {
 	t.Helper()

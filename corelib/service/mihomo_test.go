@@ -81,12 +81,7 @@ func TestOfficialMihomoCampusIngressEnforcesSharedResources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reserved, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	mixedPort := reserved.Addr().(*net.TCPAddr).Port
-	reserved.Close()
+	mixedPort := testmihomo.ProxyPort(t)
 	fixture := testmihomo.StartConfiguredBinary(t, "127.0.0.1", true, map[string]any{
 		"mixed-port": mixedPort, "mode": "rule",
 		"proxies": []any{map[string]any{"name": "JC-CAMPUS", "type": "socks5", "server": "127.0.0.1", "port": port, "udp": true}},
