@@ -26,7 +26,7 @@ def run_matrix(binary, gateway, host, uid, environment):
     return json.loads(reports[0])
 
 
-def matrix(binary, gateway, host, uid, environment):
+def matrix(binary, gateway, host, uid, environment, filter_mode, filter_entries):
     assert os.geteuid() == 0 and uid != 0
     for kind in ('net', 'mnt'):
         assert os.stat('/proc/thread-self/ns/' + kind) != os.stat('/proc/1/ns/' + kind), 'refusing host namespaces'
@@ -35,6 +35,8 @@ def matrix(binary, gateway, host, uid, environment):
     account = pwd.getpwuid(uid)
     ordinary = dict(user=uid, group=account.pw_gid, extra_groups=())
     processes, logs = [], []
+    original_interface = 'helperorig0'
+    original_dns = None
     with tempfile.TemporaryDirectory(prefix='jcm-coexist-') as directory:
         root = Path(directory)
         root.chmod(0o711)
@@ -92,6 +94,9 @@ def matrix(binary, gateway, host, uid, environment):
             with socket.socket() as reserve:
                 reserve.bind(('127.0.0.1', 0))
                 port = reserve.getsockname()[1]
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as reserve:
+                reserve.bind(('127.0.0.1', 0))
+                dns_port = reserve.getsockname()[1]
             owned = runtime / 'mihomo'
             shutil.copyfile(binary, owned)
             owned.chmod(0o700)
@@ -100,10 +105,13 @@ def matrix(binary, gateway, host, uid, environment):
                       'port': 0, 'socks-port': 0, 'allow-lan': False, 'log-level': 'debug', 'mode': 'rule',
                       'tun': {'enable': False, 'stack': 'gvisor', 'auto-route': True, 'auto-detect-interface': True,
                               'inet4-address': ['198.18.255.1/30'], 'route-exclude-address': ['192.0.2.0/24'], 'dns-hijack': []},
-                      'dns': {'enable': True, 'enhanced-mode': 'fake-ip', 'fake-ip-range': '198.19.0.1/16',
+                      'dns': {'enable': True, 'listen': '127.0.0.1:' + str(dns_port), 'ipv6': False,
+                              'enhanced-mode': 'fake-ip', 'fake-ip-range': '198.19.0.1/16',
                               'use-hosts': False, 'use-system-hosts': False, 'nameserver': ['192.0.2.53']},
                       'proxy-groups': [{'name': 'GLOBAL', 'type': 'select', 'proxies': ['REJECT', 'DIRECT']}],
                       'rules': ['MATCH,DIRECT']}
+            config['dns']['fake-ip-filter-mode'] = filter_mode
+            config['dns']['fake-ip-filter'] = filter_entries
             path = runtime / 'config.json'
             source = json.dumps(config)
             path.write_text(source)
@@ -129,9 +137,16 @@ def matrix(binary, gateway, host, uid, environment):
             run(['gsettings', 'set', 'org.gnome.system.proxy', 'use-same-proxy', 'false'])
             run(['gsettings', 'set', 'org.gnome.system.proxy', 'mode', "'manual'"])
             assert run(['gsettings', 'get', 'org.gnome.system.proxy', 'mode']) == "'manual'", 'private desktop settings did not persist'
+            current_dns = subprocess.check_output(['/usr/bin/resolvectl', 'dns', original_interface], env=environment, text=True, timeout=5)
+            original_dns = current_dns.strip().split(': ', 1)[1].split()
+            assert original_dns, 'the private original DNS source is required'
+            subprocess.run(['/usr/bin/resolvectl', 'dns', original_interface, config['dns']['listen']], env=environment, check=True, timeout=5)
+            # Each filter starts independently; the application cache is populated only after this reset.
+            subprocess.run(['/usr/bin/resolvectl', 'flush-caches'], env=environment, check=True, timeout=5)
             matrix_env = {**env, 'JC_NATIVE_COEXISTENCE': '1', 'JC_NATIVE_TUN_HOST': str(host),
                           'JC_NATIVE_COEXISTENCE_RUNTIME': json.dumps({'pid': mihomo.pid, 'controller': str(controller), 'port': port,
-                                                                     'original_interface': 'helperorig0'})}
+                                                                     'original_interface': original_interface,
+                                                                     'fake_range': config['dns']['fake-ip-range']})}
             result = subprocess.run([str(gateway), '-test.v', '-test.timeout', '165s', '-test.run', '^TestNativeCoexistenceHost$'],
                                     env=matrix_env, capture_output=True, text=True, timeout=175, **ordinary)
             print(result.stdout, end='', flush=True)
@@ -149,13 +164,17 @@ def matrix(binary, gateway, host, uid, environment):
                     connection.close()
             assert result.returncode == 0, 'native coexistence matrix failed'
             assert path.read_text() == source, 'coexistence changed the owned Mihomo source configuration'
-            return {'cases': 12, 'entry': 'actual composed application/native helpers/private desktop/Secret Service',
+            return {'cases': 12, 'filter_mode': filter_mode,
+                    'entry': 'actual composed application/native helpers/private desktop/Secret Service',
                     'campus': 'actual DNS, HTTP, TCP, UDP/empty datagram, OpenSSH IP/domain',
                     'ordinary': 'actual original HTTP and SOCKS UDP/empty datagram; GLOBAL REJECT and both-off direct',
                     'initial_tun': 'second real session starts and restores with original TUN already active',
                     'live_exclusions': 'campus remains captured; ordinary native HTTP bypasses GLOBAL REJECT only while excluded; withdrawal restores Clash selection',
+                    'preexisting_cache': 'actual Qt application DNS cache prewarmed from the real original Fake-IP resolver before connection',
                     'protected': 'actual original network HTTP survives GLOBAL REJECT', 'source_configuration': 'unchanged'}
         finally:
+            if original_dns is not None:
+                subprocess.run(['/usr/bin/resolvectl', 'dns', original_interface, *original_dns], env=environment, check=True, timeout=5)
             # Keep the private keyring/settings alive until detached EOF restoration finishes.
             deadline = time.monotonic() + 5
             while True:
@@ -216,5 +235,11 @@ if __name__ == '__main__':
     subprocess.run(['mount', '--make-rprivate', '/'], check=True, timeout=5)
     # Isolate the production per-UID proxy lock as well as its desktop settings.
     subprocess.run(['mount', '-t', 'tmpfs', '-o', 'mode=1777', 'tmpfs', '/tmp'], check=True, timeout=5)
-    report = matrix(args.mihomo.resolve(strict=True), args.gateway.resolve(strict=True), args.host.resolve(strict=True), args.uid, os.environ)
+    reports = {}
+    for mode, entries in [('blacklist', []), ('whitelist', ['+.campus.test']),
+                          ('rule', ['DOMAIN-SUFFIX,campus.test,fake-ip', 'MATCH,real-ip'])]:
+        print('CHECK: actual preexisting Fake-IP cache with filter ' + mode, flush=True)
+        reports[mode] = matrix(args.mihomo.resolve(strict=True), args.gateway.resolve(strict=True),
+                               args.host.resolve(strict=True), args.uid, os.environ, mode, entries)
+    report = {'cases': sum(item['cases'] for item in reports.values()), 'filters': reports}
     print('COEXISTENCE REPORT: ' + json.dumps(report, sort_keys=True), flush=True)

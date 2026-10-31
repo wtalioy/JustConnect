@@ -8,6 +8,7 @@
 #include <QNetworkProxy>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QHostInfo>
 #include <sys/socket.h>
 
 static int exerciseCoexistenceNetworkAccess(const ConnectionProfile &profile)
@@ -98,6 +99,16 @@ static int exerciseCoexistenceNetworkAccess(const ConnectionProfile &profile)
     auto connectionProfile = profile;
     connectionProfile.proxy.socksBind = "127.0.0.1:0";
     connectionProfile.proxy.httpBind = "127.0.0.1:0";
+    QNetworkAccessManager browser;
+    bool cached = false;
+    QHostInfo before;
+    QHostInfo::lookupHost("campus.test",QCoreApplication::instance(),[&](const QHostInfo &value) { before = value; cached = true; });
+    until([&] { return cached; });
+    const auto fakeRange = QHostAddress::parseSubnet(fixture["fake_range"].toString());
+    check(fakeRange.second > 0 && before.error() == QHostInfo::NoError && !before.addresses().isEmpty(),
+        "preexisting application resolves campus through the actual original DNS");
+    for (const auto &address : before.addresses())
+        check(address.isInSubnet(fakeRange),"preconnection DNS cache contains actual original Fake-IP answers");
     QTimer startupDeadline;
     startupDeadline.setSingleShot(true);
     QObject::connect(&startupDeadline,&QTimer::timeout,[&] {
@@ -111,7 +122,6 @@ static int exerciseCoexistenceNetworkAccess(const ConnectionProfile &profile)
     startupDeadline.stop();
     check(session.state() == ConnectionState::Running && session.phase() == ConnectionPhase::CampusReady && tunReferences() == 2,
         "both actual network and browser ownership settle before readiness");
-    QNetworkAccessManager browser;
     const auto get = [&](const QString &address, bool proxyEnabled) {
         int httpPort = 0;
         if (proxyEnabled) {
@@ -194,6 +204,7 @@ static int exerciseCoexistenceNetworkAccess(const ConnectionProfile &profile)
             std::cout << "PASS: native coexistence case mode=" << mode << " system_proxy=" << proxyEnabled << " tun=" << tun << '\n' << std::flush;
         }
     }
+    std::cout << "PASS: preexisting application Fake-IP cache survives native takeover\n";
     configure("global",false,true,{"192.0.2.0/24","198.18.0.6/32","198.18.0.5/32"});
     traffic("global",false,true,true);
     std::cout << "PASS: native coexistence live exclusions preserve campus capture and ordinary bypass\n";
