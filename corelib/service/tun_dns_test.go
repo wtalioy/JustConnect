@@ -12,6 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/miekg/dns"
@@ -72,6 +73,54 @@ func (d *tracedDNSDevice) diagnose(t *testing.T) {
 	var stacks bytes.Buffer
 	_ = pprof.Lookup("goroutine").WriteTo(&stacks, 2)
 	t.Log(stacks.String())
+}
+
+func exchangeTUNDNS(ctx context.Context, transport string, request *dns.Msg, conn *dns.Conn) (*dns.Msg, error) {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return nil, errors.New("fixture query requires an explicit deadline")
+	}
+	// Use the remaining query budget instead of the DNS library's unrelated default timeout.
+	reply, _, err := (&dns.Client{Net: transport, Timeout: time.Until(deadline)}).ExchangeWithConnContext(ctx, request, conn)
+	return reply, err
+}
+
+func TestTUNDNSFixtureHonorsQueryDeadline(t *testing.T) {
+	for _, delay := range []time.Duration{3 * time.Second, 6 * time.Second} {
+		t.Run(delay.String(), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+				client, server := net.Pipe()
+				done := make(chan struct{})
+				defer func() { cancel(); client.Close(); server.Close(); <-done }()
+				go func() {
+					defer close(done)
+					stream := &dns.Conn{Conn: server}
+					request, err := stream.ReadMsg()
+					if err != nil {
+						return
+					}
+					select {
+					case <-time.After(delay):
+					case <-ctx.Done():
+						return
+					}
+					_ = stream.WriteMsg(new(dns.Msg).SetReply(request))
+				}()
+				started := time.Now()
+				reply, err := exchangeTUNDNS(ctx, "tcp", new(dns.Msg).SetQuestion("owned.campus.test.", dns.TypeA), &dns.Conn{Conn: client})
+				if delay < 5*time.Second {
+					if err != nil || reply == nil || !reply.Response || time.Since(started) != delay {
+						t.Fatal("query ended before its declared deadline", reply, err, time.Since(started))
+					}
+				} else {
+					if timeout, ok := err.(net.Error); !ok || !timeout.Timeout() || time.Since(started) != 5*time.Second {
+						t.Fatal("query did not stop at its declared deadline", reply, err, time.Since(started))
+					}
+				}
+			})
+		})
+	}
 }
 
 func originalDNSInterface(t *testing.T) (string, net.IP) {
@@ -184,7 +233,7 @@ func TestTUNOriginalDNSExcludesCaptureAndRejectsRecapturedData(t *testing.T) {
 				cancel()
 				t.Fatal(err)
 			}
-			reply, _, exchangeErr := (&dns.Client{Net: transport}).ExchangeWithConnContext(ctx, new(dns.Msg).SetQuestion(entry.host, dns.TypeA), &dns.Conn{Conn: conn})
+			reply, exchangeErr := exchangeTUNDNS(ctx, transport, new(dns.Msg).SetQuestion(entry.host, dns.TypeA), &dns.Conn{Conn: conn})
 			conn.Close()
 			cancel()
 			if exchangeErr != nil || reply.Rcode != dns.RcodeSuccess || len(reply.Answer) != 1 || !reply.Answer[0].(*dns.A).A.Equal(localIP) {
@@ -379,7 +428,7 @@ func TestTUNDNSUsesOwnedPeerAndCampusACL(t *testing.T) {
 		if conn != ownedDNS {
 			defer conn.Close()
 		}
-		reply, _, err := (&dns.Client{Net: transport}).ExchangeWithConnContext(ctx, message, &dns.Conn{Conn: conn, UDPSize: 4096})
+		reply, err := exchangeTUNDNS(ctx, transport, message, &dns.Conn{Conn: conn, UDPSize: 4096})
 		return reply, err
 	}
 	query := func(transport string, destination tcpip.FullAddress, message *dns.Msg) *dns.Msg {
