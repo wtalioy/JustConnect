@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -28,7 +29,7 @@ func StartPrivilegedBinary(t testing.TB, upstream string) *Fixture {
 	t.Cleanup(func() { os.RemoveAll(directory) })
 	path := filepath.Join(directory, "control.sock")
 	command := exec.Command("/usr/bin/sudo", "-n", "--", "/usr/bin/env", "GITHUB_ACTIONS="+os.Getenv("GITHUB_ACTIONS"), "python3", "-u", "-c", rootController,
-		os.Getenv("JC_TEST_MIHOMO_BINARY"), path, upstream)
+		os.Getenv("JC_TEST_MIHOMO_BINARY"), path, upstream, strconv.Itoa(ProxyPort(t)))
 	control, err := command.StdinPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -75,24 +76,30 @@ func StartPrivilegedBinary(t testing.TB, upstream string) *Fixture {
 }
 
 const rootController = `
-import json, os, pathlib, select, subprocess, sys, tempfile, time
+import json, os, pathlib, select, socket, subprocess, sys, tempfile, time
 assert os.geteuid() == 0 and os.environ.get('GITHUB_ACTIONS') == 'true'
-binary, endpoint, upstream = sys.argv[1:]
+binary, endpoint, upstream, port = sys.argv[1:]
 with tempfile.TemporaryDirectory(prefix='jcm-private-') as directory:
     root = pathlib.Path(directory)
     config = root / 'config.json'
     config.write_text(json.dumps({
-        'external-controller-unix': endpoint, 'port': 0, 'socks-port': 0, 'mixed-port': 0,
+        'external-controller-unix': endpoint, 'port': 0, 'socks-port': 0, 'mixed-port': int(port),
         'log-level': 'info', 'tun': {'enable': False},
         'dns': {'enable': True, 'use-hosts': False, 'use-system-hosts': False,
                 'nameserver': [upstream], 'default-nameserver': ['127.0.0.1']},
-        'rules': ['MATCH,REJECT']}), encoding='utf-8')
+        'rules': ['IP-CIDR,127.0.0.1/32,DIRECT,no-resolve', 'MATCH,REJECT']}), encoding='utf-8')
     config.chmod(0o600)
     with (root / 'process.log').open('w+') as log:
         process = subprocess.Popen([binary, '-d', directory, '-f', str(config)], stdout=log, stderr=log)
         try:
             deadline = time.monotonic() + 8
-            while not pathlib.Path(endpoint).exists():
+            while True:
+                if pathlib.Path(endpoint).exists():
+                    try:
+                        with socket.create_connection(('127.0.0.1', int(port)), timeout=0.2):
+                            break
+                    except OSError:
+                        pass
                 assert process.poll() is None, 'root-owned Mihomo exited before readiness'
                 assert time.monotonic() < deadline, 'root-owned Mihomo readiness deadline'
                 if select.select([sys.stdin], [], [], 0.02)[0] and not sys.stdin.buffer.read(1):
