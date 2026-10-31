@@ -22,7 +22,7 @@
 
 | 范围 | 当前结论与证据 |
 | --- | --- |
-| 正式自动检查 | 已提交基线 `d9e974c` 的[六架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/41198088448)与[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/41198088498)全部通过，包含 S6 自动代理交接、缓存普通出口、开关／取消／恢复与动态端口基础检查；完整共存矩阵仍待。Windows 原 SDK 4096 包／30 秒门槛、普通权限数据链、DNS／保护和独立恢复回归保留 |
+| 正式自动检查 | 已提交基线 `f442ac6` 的[六架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/41201722672)与[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/41201722678)全部通过，包含 S6 自动代理交接、缓存普通出口、开关／取消／恢复与动态端口基础检查；完整共存矩阵仍待。Windows 原 SDK 4096 包／30 秒门槛、普通权限数据链、DNS／保护和独立恢复回归保留 |
 | 实际包／源码 | 同一 `fcb324b` 的[六组实际包及源码](https://github.com/wtalioy/JustConnect/actions/runs/41095366283)全部通过；核对正式核心、架构、助手身份及产物摘要，下载的源码与 Git 中 683 份文件逐一一致。`build/reports/package-fcb324b/summary.json`；后续仅说明／注释提交复用本次证据 |
 | Windows 修复／性能 | 正常断开修复已实测；DNS 批量刷新、持久进度、部分失败和后续所有权已双架构原生验证。接口查询及 `70f90a5` 接管／断开 CPU 优化已实测通过；`build/reports/windows-restore-9d95b37/summary.json`、`build/reports/windows-dns-cpu-da23405/summary.json` |
 | 阶段矩阵 | `build/reports/v1-matrix.json` 汇总当前三平台受控证据及 Windows 实测；未测发布格保留在 V1—V7，阶段勾选不等于完整发布验收 |
@@ -178,7 +178,7 @@ S3—S5 已收尾，不重复开发或重跑已通过基线；A6 性能优化已
 
 前置：实际共存接入依赖对应平台无 Clash 的透明路径与恢复；S7-01／S6-03 的只读发现和控制能力调查不依赖 V1，可随会话工作提前做。转发／DNS／回环验证与 S7-04／05 增量联动同组实现；写入验证在具备恢复的隔离环境进行，手填端口／临时规则仅供诊断，不另维护手工版本。
 
-当前：`d9e974c` 六架构原生／三平台应用检查已全过；Linux 双架构完整应用联测通过三种模式乘四种开关组合、校园 DNS／网页／TCP／UDP／SSH、普通与保护出口、已有 TUN 启动及恢复，原助手 32 场景与独立恢复也通过。代理角色从已验证的进程／内核事实推导，保留地址分配避让，不增加数据路径 IPC；重复日志、旧助手 stage、临时源码／构建与遗留测试桌面已清理。运行中排除的追加／撤回已本地通过；故障夹具先回收仍持日志锁的暂停子进程再杀助手，原有删除前／后检查点与恢复断言通过，助手记录失败也返回具体原因，本批 CI 待验。旧缓存仍待补齐。macOS／Windows 完整组合、实际包与 Windows 实测仍待；架构／接口／夹具边界归[自动编排](docs/ARCHITECTURE.md#自动共存编排)、[核心契约](docs/CORE-ABI.md#原网络只读快照)、[开发说明](docs/DEVELOPMENT.md#共存监听所有权基准)，报告归 `build/reports/s6/`。
+当前：`d9e974c` 六架构原生／三平台应用检查已全过；Linux 双架构完整应用联测通过三种模式乘四种开关组合、校园 DNS／网页／TCP／UDP／SSH、普通与保护出口、已有 TUN 启动及恢复，原助手 32 场景与独立恢复也通过。代理角色从已验证的进程／内核事实推导，保留地址分配避让，不增加数据路径 IPC；重复日志、旧助手 stage、临时源码／构建与遗留测试桌面已清理。运行中排除的追加／撤回已本地通过；故障夹具先回收仍持日志锁的暂停子进程再杀助手，原有删除前／后检查点与恢复断言通过，助手记录失败也返回具体原因，对应 `f442ac6` 六架构／三平台 CI 已过。旧缓存与三种过滤模式的应用联测正在补齐。macOS／Windows 完整组合、实际包与 Windows 实测仍待；架构／接口／夹具边界归[自动编排](docs/ARCHITECTURE.md#自动共存编排)、[核心契约](docs/CORE-ABI.md#原网络只读快照)、[开发说明](docs/DEVELOPMENT.md#共存监听所有权基准)，报告归 `build/reports/s6/`。
 
 已确认：系统代理开启时允许 JustConnect 临时承接浏览器入口，校园走 VPN、普通请求回原 Clash；系统代理与 TUN 均关闭时普通流量直连。关闭系统代理后保留原生校园接管，不强制打开用户开关；Clash 模式／代理组／DNS 与过滤配置保持，临时系统代理按所有权恢复。此为用户于 2026-10-31 确认的 S6 实现方向，自动接入基础已过原生 CI，完整矩阵仍待。
 
