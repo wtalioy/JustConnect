@@ -107,8 +107,8 @@ func TestSessionOrdinaryExitFollowsObservedProxyAndTUN(t *testing.T) {
 		})
 	}
 	observationError = mihomo.ErrUnavailable
-	if err := s.RefreshCoexistence(t.Context(), info.Endpoints, true); err != nil || s.Coexistence().Active {
-		t.Fatal("unavailable upstream did not release routing", err)
+	if err := s.RefreshCoexistence(t.Context(), info.Endpoints, true); !errors.Is(err, observationError) || s.Coexistence().Available {
+		t.Fatal("unavailable controller was mistaken for a confirmed ordinary exit", err)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
@@ -128,14 +128,58 @@ func TestUnverifiedPrivilegedListenerCannotFallBackToDirect(t *testing.T) {
 		io.WriteString(w, "unexpected direct exit")
 	}))
 	defer server.Close()
-	upstream := &sessionUpstream{gate: make(chan struct{}, 1), source: observeProxy(func(context.Context) (mihomo.ProxyInfo, error) {
-		return mihomo.ProxyInfo{ListenerRequest: &mihomo.ListenerRequest{PID: 1, Started: 1, Endpoints: []string{"127.0.0.1:7897"}}}, nil
-	})}
+	for _, test := range []struct {
+		name                        string
+		info                        mihomo.ProxyInfo
+		observationError, wantError error
+	}{
+		{"pending ownership", mihomo.ProxyInfo{ListenerRequest: &mihomo.ListenerRequest{PID: 1, Started: 1, Endpoints: []string{"127.0.0.1:7897"}}}, nil, nil},
+		{"controller unavailable", mihomo.ProxyInfo{}, mihomo.ErrUnavailable, mihomo.ErrUnavailable},
+		{"controller timeout", mihomo.ProxyInfo{}, context.DeadlineExceeded, context.DeadlineExceeded},
+		{"TUN lacks proxy", mihomo.ProxyInfo{RuntimeState: mihomo.RuntimeState{TunEnabled: true}}, nil, mihomo.ErrUnavailable},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			upstream := &sessionUpstream{gate: make(chan struct{}, 1), source: observeProxy(func(context.Context) (mihomo.ProxyInfo, error) { return test.info, test.observationError })}
+			session := NewSession(Options{})
+			session.upstream.Store(upstream)
+			err := session.RefreshCoexistence(t.Context(), []string{"127.0.0.1:7897"}, true)
+			if !errors.Is(err, test.wantError) {
+				t.Errorf("wrong unconfirmed observation result: %v", err)
+			}
+			transport := &http.Transport{Proxy: nil, DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+				if selected := upstream.dialer(); selected != nil {
+					return selected(ctx, network, address)
+				}
+				return (&net.Dialer{}).DialContext(ctx, network, address)
+			}}
+			defer transport.CloseIdleConnections()
+			if response, err := (&http.Client{Transport: transport, Timeout: time.Second}).Get(server.URL); err == nil {
+				response.Body.Close()
+				t.Fatal("unconfirmed upstream escaped to direct traffic")
+			}
+		})
+	}
+	if directRequests.Load() != 0 {
+		t.Fatal("unverified ownership sent traffic to the native exit", directRequests.Load())
+	}
+}
+
+func TestFailedProxyObservationKeepsSelectedExitUntilConfirmedOff(t *testing.T) {
+	var directRequests, selectedRequests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		directRequests.Add(1)
+		io.WriteString(w, "confirmed direct exit")
+	}))
+	defer server.Close()
+	previousFailure := errors.New("selected proxy rejected request")
+	var observationError error
+	upstream := &sessionUpstream{gate: make(chan struct{}, 1), source: observeProxy(func(context.Context) (mihomo.ProxyInfo, error) { return mihomo.ProxyInfo{}, observationError })}
+	upstream.route.Store(&upstreamRoute{dial: func(context.Context, string, string) (net.Conn, error) {
+		selectedRequests.Add(1)
+		return nil, previousFailure
+	}})
 	session := NewSession(Options{})
 	session.upstream.Store(upstream)
-	if err := session.RefreshCoexistence(t.Context(), []string{"127.0.0.1:7897"}, true); err != nil {
-		t.Fatal(err)
-	}
 	transport := &http.Transport{Proxy: nil, DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
 		if selected := upstream.dialer(); selected != nil {
 			return selected(ctx, network, address)
@@ -143,11 +187,34 @@ func TestUnverifiedPrivilegedListenerCannotFallBackToDirect(t *testing.T) {
 		return (&net.Dialer{}).DialContext(ctx, network, address)
 	}}
 	defer transport.CloseIdleConnections()
-	if response, err := (&http.Client{Transport: transport}).Get(server.URL); err == nil {
-		response.Body.Close()
-		t.Fatal("pending privileged ownership escaped to direct traffic")
+	client := &http.Client{Transport: transport, Timeout: time.Second}
+	for _, failure := range []error{mihomo.ErrUnavailable, context.DeadlineExceeded} {
+		observationError = failure
+		if err := session.RefreshCoexistence(t.Context(), nil, true); !errors.Is(err, failure) {
+			t.Errorf("lost actual observation failure: %v", err)
+		}
+		response, err := client.Get(server.URL)
+		if err == nil {
+			response.Body.Close()
+		}
+		if !errors.Is(err, previousFailure) {
+			t.Fatal("request left its previously selected exit", err)
+		}
 	}
-	if directRequests.Load() != 0 {
-		t.Fatal("unverified ownership sent traffic to the native exit")
+	if directRequests.Load() != 0 || selectedRequests.Load() != 2 {
+		t.Fatal("unconfirmed observation bypassed the selected exit")
+	}
+	observationError = nil
+	if err := session.RefreshCoexistence(t.Context(), nil, false); err != nil {
+		t.Fatal(err)
+	}
+	response, err := client.Get(server.URL)
+	if err != nil {
+		t.Fatal("confirmed absence did not release ordinary routing", err)
+	}
+	body, err := io.ReadAll(response.Body)
+	response.Body.Close()
+	if err != nil || string(body) != "confirmed direct exit" || directRequests.Load() != 1 {
+		t.Fatal("confirmed direct response lost", err)
 	}
 }
