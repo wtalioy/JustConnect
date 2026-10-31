@@ -2,7 +2,6 @@ package corelib
 
 import (
 	"context"
-	"errors"
 	"net"
 	"slices"
 	"sync/atomic"
@@ -67,31 +66,23 @@ func (u *sessionUpstream) refresh(ctx context.Context, endpoints []string, manag
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	if err != nil {
-		u.route.Store(&upstreamRoute{state: CoexistenceState{Endpoints: []string{}}})
-		if errors.Is(err, mihomo.ErrUnavailable) {
-			return nil
-		}
-		return err
+	state := CoexistenceState{Endpoints: []string{}}
+	if err == nil {
+		state.Available, state.Mode, state.TUN, state.ListenerRequest = info.Proxy != nil, info.Mode, info.TunEnabled, info.ListenerRequest
+		state.Endpoints = append(state.Endpoints, info.Endpoints...)
+		state.Active = info.Proxy != nil && managed || info.TunEnabled || slices.ContainsFunc(endpoints, func(endpoint string) bool { return slices.Contains(info.Endpoints, endpoint) })
 	}
-	state := CoexistenceState{Available: info.Proxy != nil, Mode: info.Mode, TUN: info.TunEnabled, ListenerRequest: info.ListenerRequest, Endpoints: slices.Clone(info.Endpoints)}
-	if state.Endpoints == nil {
-		state.Endpoints = []string{}
+	if err == nil && state.Active && info.Proxy == nil && info.ListenerRequest == nil {
+		err = mihomo.ErrUnavailable
 	}
-	state.Active = info.Proxy != nil && managed || info.TunEnabled || slices.ContainsFunc(endpoints, func(endpoint string) bool { return slices.Contains(info.Endpoints, endpoint) })
-	if info.ListenerRequest != nil && info.Proxy == nil {
+	if err != nil || info.ListenerRequest != nil && info.Proxy == nil {
 		state.Active = false
 		route := &upstreamRoute{state: state, dial: func(context.Context, string, string) (net.Conn, error) { return nil, mihomo.ErrUnavailable }}
 		if previous := u.route.Load(); previous != nil && previous.dial != nil {
 			route.dial = previous.dial
 		}
 		u.route.Store(route)
-		return nil
-	}
-	if state.Active && info.Proxy == nil {
-		state.Active = false
-		u.route.Store(&upstreamRoute{state: state})
-		return mihomo.ErrUnavailable
+		return err
 	}
 	current := &upstreamRoute{state: state}
 	if state.Active {
