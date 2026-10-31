@@ -178,7 +178,7 @@ S3—S5 已收尾，不重复开发或重跑已通过基线；A6 性能优化已
 
 前置：实际共存接入依赖对应平台无 Clash 的透明路径与恢复；S7-01／S6-03 的只读发现和控制能力调查不依赖 V1，可随会话工作提前做。转发／DNS／回环验证与 S7-04／05 增量联动同组实现；写入验证在具备恢复的隔离环境进行，手填端口／临时规则仅供诊断，不另维护手工版本。
 
-当前：原型与正式系统代理交接后端已通过 `298f3f5` [六架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/41177492504)及[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/41177492508)。应用自动流程已接入同一网络生命周期，使用实际监听、原生代理观察和已验证 Mihomo 上游；新流读取缓存，无逐包查询，开关通知复用原生事件与已有网络观察。当前增量的本地 Go／race、C ABI／Qt 与切换／取消／恢复回归通过，跨平台 CI 待。职责与契约见[自动编排](docs/ARCHITECTURE.md#自动共存编排)、[共存接口](docs/CORE-ABI.md#共存出口更新)，关键结果在 `build/reports/s6/`。完整 V2—V5、旧应用 Fake-IP 缓存／运行中排除、实际包与 Windows 实测仍待，六项未整体验收。
+当前：原型与正式系统代理交接后端已通过 `298f3f5` [六架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/41177492504)及[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/41177492508)。应用自动流程已接入同一网络生命周期，使用实际监听、原生代理观察和已验证 Mihomo 上游；新流读取缓存，无逐包查询，开关通知复用原生事件与已有网络观察。当前增量的本地 Go／race、C ABI／Qt 与切换／取消／恢复回归通过；取消按最终撤销确认结算，部分写入失败的回归已验证。跨平台 CI 待。职责与契约见[自动编排](docs/ARCHITECTURE.md#自动共存编排)、[共存接口](docs/CORE-ABI.md#共存出口更新)，关键结果在 `build/reports/s6/`。完整 V2—V5、旧应用 Fake-IP 缓存／运行中排除、实际包与 Windows 实测仍待，六项未整体验收。
 
 已确认：系统代理开启时允许 JustConnect 临时承接浏览器入口，校园走 VPN、普通请求回原 Clash；系统代理与 TUN 均关闭时普通流量直连。关闭系统代理后保留原生校园接管，不强制打开用户开关；Clash 模式／代理组／DNS 与过滤配置保持，临时系统代理按所有权恢复。此为用户于 2026-10-31 确认的 S6 实现方向，自动接入增量待 CI，完整矩阵仍待。
 

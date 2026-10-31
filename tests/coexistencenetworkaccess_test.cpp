@@ -21,7 +21,7 @@ class Proxy final : public SystemProxyBackend {
 public:
     QMutex mutex;
     QStringList endpoints{"127.0.0.1:7890"}, original;
-    bool owned = false, clearFails = false, blockApply = false;
+    bool owned = false, clearFails = false, blockApply = false, applyFails = false;
     int applies = 0, clears = 0, inspections = 0;
     SystemProxyConfig installed;
     QSemaphore entered, release;
@@ -37,6 +37,7 @@ public:
         ::check(!owned && config.upstream.contains(endpoints.value(0)), "automatic apply must match current upstream");
         installed = config; ++applies; original = endpoints; owned = true;
         endpoints = {QString("127.0.0.1:%1").arg(config.httpPort)};
+        if (applyFails) return {PlatformOperationResult::Status::Failed, "apply failed after mutation", true};
         return {};
     }
     PlatformOperationResult clear() override {
@@ -154,8 +155,8 @@ void retainsRestoreResponsibility() {
     until([&] { return f.stopped == 2; });
     check(f.errors == 1 && f.native->stops == 1 && !f.proxy.needsCleanup(), "explicit restore retry failed");
 }
-void cancelsDuringApply() {
-    Fixture f; f.backend->blockApply = true; f.start();
+void cancelsDuringApply(bool applyFails) {
+    Fixture f; f.backend->blockApply = true; f.backend->applyFails = applyFails; f.start();
     until([&] { return f.backend->entered.tryAcquire(); });
     f.access.stop(f.attempt); f.backend->release.release();
     until([&] { return f.stopped == 1; });
@@ -184,6 +185,6 @@ void cancellationBeforeNativePreparationLeavesNoCapture() {
 }
 int main(int argc, char **argv) {
     QCoreApplication app(argc, argv);
-    followsSwitchesAndRestarts(); retainsRestoreResponsibility(); cancelsDuringApply();
+    followsSwitchesAndRestarts(); retainsRestoreResponsibility(); cancelsDuringApply(false); cancelsDuringApply(true);
     leavesUnrelatedProxyAndDisabledListenersAlone(); cancellationBeforeNativePreparationLeavesNoCapture();
 }
