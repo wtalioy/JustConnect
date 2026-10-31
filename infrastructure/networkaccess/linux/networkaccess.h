@@ -17,6 +17,7 @@ public:
     void prepare(const QUuid &attempt) override;
     void activate(const QUuid &attempt, const ConnectionProfile &profile) override;
     void stop(const QUuid &attempt) override;
+    bool inspectProxyListeners(const QUuid &attempt, const QJsonObject &query) override;
 private:
     enum class Stage { Idle, Preparing, Prepared, Activating, Ready, Updating, Stopping, Failed };
     void prepareConfiguration();

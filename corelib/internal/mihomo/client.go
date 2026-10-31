@@ -46,7 +46,7 @@ func newClient(e endpoint) *Client {
 		if err != nil {
 			return nil, ErrUnavailable
 		}
-		return dialOwnedTCP(ctx, e.process, address)
+		return dialOwnedTCP(ctx, e.process, address, nil)
 	}
 	return &Client{endpoint: e, http: &http.Client{Transport: transport, Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 }

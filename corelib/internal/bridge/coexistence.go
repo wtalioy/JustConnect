@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"net"
 	"net/netip"
 
@@ -13,10 +14,11 @@ import (
 
 func (e *Engine) UpdateCoexistence(handle uint64, input []byte) (uint64, Status) {
 	var request struct {
-		SchemaVersion int      `json:"schema_version"`
-		Generation    uint64   `json:"generation,string"`
-		Endpoints     []string `json:"system_proxy_endpoints"`
-		Managed       *bool    `json:"system_proxy_managed"`
+		SchemaVersion int                    `json:"schema_version"`
+		Generation    uint64                 `json:"generation,string"`
+		Endpoints     []string               `json:"system_proxy_endpoints"`
+		Managed       *bool                  `json:"system_proxy_managed"`
+		Proofs        []mihomo.ListenerProof `json:"listener_proofs,omitempty"`
 	}
 	if !decode(input, &request) || request.SchemaVersion != ABIVersion || request.Generation == 0 || (request.Endpoints == nil || request.Managed == nil) {
 		return 0, InvalidArgument
@@ -32,6 +34,18 @@ func (e *Engine) UpdateCoexistence(handle uint64, input []byte) (uint64, Status)
 		}
 		seen[value] = struct{}{}
 	}
+	if len(request.Proofs) > mihomo.MaxListenerProofs {
+		return 0, InvalidArgument
+	}
+	proven := make(map[string]bool, len(request.Proofs))
+	for _, proof := range request.Proofs {
+		endpoint, err := netip.ParseAddrPort(proof.Endpoint)
+		if proof.PID <= 0 || proof.PID > math.MaxInt32 || proof.Started == 0 || proof.Inode == 0 || err != nil || !endpoint.Addr().IsLoopback() || endpoint.Port() == 0 || endpoint.String() != proof.Endpoint || proven[proof.Endpoint] {
+			return 0, InvalidArgument
+		}
+		proven[proof.Endpoint] = true
+	}
+
 	s := e.lookup(handle)
 	if s == nil {
 		return 0, InvalidHandle
@@ -55,7 +69,7 @@ func (e *Engine) UpdateCoexistence(handle uint64, input []byte) (uint64, Status)
 	}
 	protocol, ctx := s.protocol, s.ctx
 	s.mu.Unlock()
-	err := protocol.RefreshCoexistence(ctx, request.Endpoints, *request.Managed)
+	err := protocol.RefreshCoexistence(ctx, request.Endpoints, *request.Managed, request.Proofs...)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.running || s.stopping || s.generation != request.Generation || s.protocol != protocol {

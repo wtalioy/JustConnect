@@ -26,7 +26,7 @@ public:
     virtual void updatePolicy(const QJsonObject &policy) {
         emit policyUpdated(policy["generation"].toString(), policy["revision"].toString(), RequestStatus::Unavailable);
     }
-    virtual void updateCoexistence(const QString &generation, const QStringList &, bool = false) {
+    virtual void updateCoexistence(const QString &generation, const QStringList &, bool = false, const QJsonArray & = {}) {
         emit coexistenceUpdated(generation, RequestStatus::Unavailable);
     }
     virtual void readSnapshot(Snapshot kind, const QString &generation) {

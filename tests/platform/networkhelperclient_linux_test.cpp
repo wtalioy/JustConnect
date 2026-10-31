@@ -7,6 +7,8 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QThread>
+#include <QTcpServer>
+#include <QHostAddress>
 #include <fcntl.h>
 #include <iostream>
 #include <memory>
@@ -80,6 +82,23 @@ int main(int argc, char **argv) try
             const auto beforeExtension = *client->ownedConfiguration();
             QProcess exchange;
             const int device = client->descriptor();
+            QTcpServer localListener;
+            QJsonObject listenerRequest;
+            QList<QJsonArray> listenerProofs;
+            if (scenario == "normal" || scenario == "extend-endpoint-rejected") {
+                check(localListener.listen(QHostAddress::LocalHost),"Open an actual local listener for the authenticated read-only query");
+                QFile stat("/proc/self/stat");check(stat.open(QIODevice::ReadOnly),"Read caller startup identity");
+                const auto bytes=stat.readAll();
+                listenerRequest={{"pid",QString::number(::getpid())},
+                    {"started",QString::fromLatin1(bytes.mid(bytes.lastIndexOf(')')+1).simplified().split(' ').value(19))},
+                    {"endpoints",QJsonArray{"127.0.0.1:"+QString::number(localListener.serverPort())}}};
+                QObject::connect(client.get(),&Client::listenersInspected,&app,
+                    [&](const QJsonObject &,const QJsonArray &proofs,PlatformOperationResult result) {
+                    check(result.succeeded() && !result.mayHaveChanged && client->descriptor()==device,
+                          "Listener observation changed ownership or the active device");
+                    listenerProofs.append(proofs);
+                });
+            }
             const int flags = ::fcntl(device, F_GETFL);
             check(flags >= 0 && (flags & O_NONBLOCK), "Borrowed TUN fd cannot provide interruptible core I/O");
             exchange.setChildProcessModifier([device] { ::fcntl(device, F_SETFD, 0); });
@@ -89,8 +108,23 @@ int main(int argc, char **argv) try
             check(exchange.waitForFinished(8000) && exchange.exitCode() == 0 && exchange.exitStatus() == QProcess::NormalExit,
                 qPrintable(QString::fromUtf8(exchange.readAllStandardError())));
             auto previous = results.size();
+            if (scenario == "normal") check(client->inspectListeners(listenerRequest),"Queue read-only observation alongside route publication");
             client->extend({scenario == "extend-endpoint-rejected" ? configuration.peer : QString("198.18.6.7")});
+            if (scenario == "extend-endpoint-rejected") check(client->inspectListeners(listenerRequest),"Queue observation during a failing route publication");
             wait([&] { return results.size() == previous+1; });
+            if (scenario == "normal") {
+                wait([&] { return listenerProofs.size()==1; });
+                check(listenerProofs.first().size()==1 && listenerProofs.first().first().toObject()["pid"]==listenerRequest["pid"],
+                      "Authenticated root helper did not prove the exact listening process");
+                auto stale=listenerRequest;stale["started"]="1";
+                check(client->inspectListeners(stale),"Read a stale listener identity without changing routes");
+                wait([&] { return listenerProofs.size()==2; });
+                check(listenerProofs.last().isEmpty() && client->state()==Client::State::Active,
+                      "Stale process gained ownership or interrupted active capture");
+                auto invalid=listenerRequest;invalid["path"]="/proc/1/fd";
+                check(!client->inspectListeners(invalid) && client->state()==Client::State::Active,
+                      "Caller supplied a privileged filesystem path");
+            }
             if (scenario == "extend-cancel" || scenario == "extend-endpoint-rejected") {
                 check(results.last().status == (scenario == "extend-cancel" ? Status::Cancelled : Status::Unsupported)
                       && client->state() == Client::State::Idle && client->descriptor() == -1,

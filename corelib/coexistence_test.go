@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -17,7 +18,9 @@ import (
 
 type observeProxy func(context.Context) (mihomo.ProxyInfo, error)
 
-func (f observeProxy) ObserveProxy(ctx context.Context) (mihomo.ProxyInfo, error) { return f(ctx) }
+func (f observeProxy) ObserveProxy(ctx context.Context, _ []mihomo.ListenerProof) (mihomo.ProxyInfo, error) {
+	return f(ctx)
+}
 
 func TestSessionOrdinaryExitFollowsObservedProxyAndTUN(t *testing.T) {
 	if os.Getenv("JC_TEST_MIHOMO_BINARY") == "" {
@@ -115,5 +118,36 @@ func TestSessionOrdinaryExitFollowsObservedProxyAndTUN(t *testing.T) {
 	s.upstream.Store(nil)
 	if err := s.RefreshCoexistence(t.Context(), nil, false); err == nil {
 		t.Fatal("stopped generation accepted an upstream change")
+	}
+}
+
+func TestUnverifiedPrivilegedListenerCannotFallBackToDirect(t *testing.T) {
+	var directRequests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		directRequests.Add(1)
+		io.WriteString(w, "unexpected direct exit")
+	}))
+	defer server.Close()
+	upstream := &sessionUpstream{gate: make(chan struct{}, 1), source: observeProxy(func(context.Context) (mihomo.ProxyInfo, error) {
+		return mihomo.ProxyInfo{ListenerRequest: &mihomo.ListenerRequest{PID: 1, Started: 1, Endpoints: []string{"127.0.0.1:7897"}}}, nil
+	})}
+	session := NewSession(Options{})
+	session.upstream.Store(upstream)
+	if err := session.RefreshCoexistence(t.Context(), []string{"127.0.0.1:7897"}, true); err != nil {
+		t.Fatal(err)
+	}
+	transport := &http.Transport{Proxy: nil, DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+		if selected := upstream.dialer(); selected != nil {
+			return selected(ctx, network, address)
+		}
+		return (&net.Dialer{}).DialContext(ctx, network, address)
+	}}
+	defer transport.CloseIdleConnections()
+	if response, err := (&http.Client{Transport: transport}).Get(server.URL); err == nil {
+		response.Body.Close()
+		t.Fatal("pending privileged ownership escaped to direct traffic")
+	}
+	if directRequests.Load() != 0 {
+		t.Fatal("unverified ownership sent traffic to the native exit")
 	}
 }

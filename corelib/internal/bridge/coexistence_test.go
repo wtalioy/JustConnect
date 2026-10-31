@@ -27,6 +27,21 @@ func TestCoexistenceRejectsUntrustedStateAndStaleGeneration(t *testing.T) {
 			t.Fatal("untrusted endpoint acquired routing authority", endpoints, status)
 		}
 	}
+	for _, proof := range []map[string]any{
+		{"pid": "0", "started": "1", "endpoint": "127.0.0.1:7897", "inode": "1"},
+		{"pid": "1", "started": "0", "endpoint": "127.0.0.1:7897", "inode": "1"},
+		{"pid": "1", "started": "1", "endpoint": "127.0.0.1:7897", "inode": "0"},
+		{"pid": "1", "started": "1", "endpoint": "192.0.2.1:7897", "inode": "1"},
+		{"pid": "1", "started": "1", "endpoint": "127.0.0.1:7897", "inode": "1", "path": "/proc/1/fd"},
+	} {
+		var request map[string]any
+		json.Unmarshal(input("7", []string{}), &request)
+		request["listener_proofs"] = []any{proof}
+		data, _ := json.Marshal(request)
+		if generation, status := e.UpdateCoexistence(h, data); status != InvalidArgument || generation != 0 {
+			t.Fatal("untrusted listener proof acquired routing authority", status)
+		}
+	}
 	if _, status := e.UpdateCoexistence(h, input("6", []string{})); status != StaleRequest {
 		t.Fatal(status)
 	}

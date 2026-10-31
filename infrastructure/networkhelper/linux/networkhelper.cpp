@@ -7,6 +7,7 @@
 #include "infrastructure/dns/linux/linkdns.h"
 #include "networkhelperpaths.h"
 #include "infrastructure/process/linux/trustedexecutable.h"
+#include "infrastructure/socketownership/linux/listenerproof.h"
 #include <QDeadlineTimer>
 #include <QJsonDocument>
 #include <QScopeGuard>
@@ -629,6 +630,21 @@ int runLinuxNetworkHelper(int socket, int trustedDirectory, uid_t uid, pid_t pid
         const bool authenticated = received.succeeded() && supplied < 0 && requestValid(request)
             && sameLinuxNetworkNamespace(callerNamespace);
         const bool changingRoutes = request["operation"] == "routes";
+        if (authenticated && request["operation"] == "listeners") {
+            const auto query = request["query"].toObject();
+            bool serialValid = false;
+            const auto serial = request["request"].toString().toULongLong(&serialValid);
+            const bool valid = fields(request,{"version","owner","operation","request","query"})
+                && serialValid && serial && QString::number(serial) == request["request"]
+                && request["query"].isObject() && validLinuxListenerRequest(query);
+            const auto proofs = valid ? readLinuxListenerProofs(query) : std::nullopt;
+            const Result observed = proofs ? Result{} : invalid("Cannot verify the requested local listeners.");
+            const QJsonObject response{{"version",LinuxHelperProtocol},{"owner",id},{"status",int(observed.status)},
+                {"detail",observed.detail},{"changed",false},{"state","listeners"},{"device",QJsonObject{}},
+                {"listeners",QJsonObject{{"request",request["request"]},{"proofs",proofs.value_or(QJsonArray{})}}}};
+            if (!sendLinuxHelperPacket(socket,response).succeeded()) return operation.restore().succeeded() ? LinuxHelperReceiptRetained : 1;
+            continue;
+        }
         if (authenticated && (request["operation"] == "extend" || changingRoutes)) {
             const auto targets = changingRoutes ? parseLinuxHelperRoutes(owner,request) : parseLinuxHelperExtend(owner,request);
             if (targets) {

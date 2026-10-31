@@ -25,6 +25,7 @@ public:
     virtual void prepare(const QUuid &attempt) = 0;
     virtual void activate(const QUuid &attempt, const ConnectionProfile &profile) = 0;
     virtual void stop(const QUuid &attempt) = 0;
+    virtual bool inspectProxyListeners(const QUuid &, const QJsonObject &) { return false; }
 signals:
     void prepared(const QUuid &attempt, PlatformOperationResult result);
     void ready(const QUuid &attempt, PlatformOperationResult result);
@@ -33,6 +34,7 @@ signals:
     void stopped(const QUuid &attempt, PlatformOperationResult result);
     void lost(const QUuid &attempt, PlatformOperationResult result);
     void restartRequired(const QUuid &attempt, const QString &detail);
+    void proxyListenersInspected(const QUuid &attempt, const QJsonObject &query, const QJsonArray &proofs, PlatformOperationResult result);
 };
 
 class ConnectionSession : public QObject

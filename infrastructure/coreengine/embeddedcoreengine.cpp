@@ -444,13 +444,13 @@ void EmbeddedCoreEngine::updatePolicy(const QJsonObject &policy) {
     const auto id = serial;
     QMetaObject::invokeMethod(pump, [this, id, bytes, generation, revision] { pump->updatePolicy(id, bytes, generation, revision); }, Qt::QueuedConnection);
 }
-void EmbeddedCoreEngine::updateCoexistence(const QString &generation,const QStringList &endpoints,bool managed) {
+void EmbeddedCoreEngine::updateCoexistence(const QString &generation,const QStringList &endpoints,bool managed,const QJsonArray &proofs) {
     if (!active || stopping) { emit coexistenceUpdated(generation,RequestStatus::Stale);return; }
     if (!library().jc_session_update_coexistence || !buildInfo()["capabilities"].toObject()["coexistence"].toBool()) {
         emit coexistenceUpdated(generation,RequestStatus::Unavailable);return;
     }
     auto bytes=QJsonDocument(QJsonObject{{"schema_version",int(JC_ABI_VERSION)},{"generation",generation},
-        {"system_proxy_endpoints",QJsonArray::fromStringList(endpoints)},{"system_proxy_managed",managed}}).toJson(QJsonDocument::Compact);
+        {"system_proxy_endpoints",QJsonArray::fromStringList(endpoints)},{"system_proxy_managed",managed},{"listener_proofs",proofs}}).toJson(QJsonDocument::Compact);
     if (bytes.size()>JC_MAX_INPUT) bytes.clear();
     const auto id=serial;
     QMetaObject::invokeMethod(pump,[this,id,generation,bytes] {pump->updateCoexistence(id,bytes,generation);},Qt::QueuedConnection);

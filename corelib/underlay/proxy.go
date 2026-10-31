@@ -8,7 +8,7 @@ import (
 )
 
 // ObserveProxy shares discovery and lifecycle with control DNS, independently of its DNS override.
-func (d *Dialer) ObserveProxy(parent context.Context) (mihomo.ProxyInfo, error) {
+func (d *Dialer) ObserveProxy(parent context.Context, proofs []mihomo.ListenerProof) (mihomo.ProxyInfo, error) {
 	ctx, finish, err := d.begin(parent)
 	if err != nil {
 		return mihomo.ProxyInfo{}, err
@@ -25,7 +25,7 @@ func (d *Dialer) ObserveProxy(parent context.Context) (mihomo.ProxyInfo, error) 
 	if controller == nil {
 		return mihomo.ProxyInfo{}, nil
 	}
-	info, err := controller.ObserveProxy(ctx)
+	info, err := controller.ObserveProxy(ctx, proofs...)
 	if err != nil {
 		return mihomo.ProxyInfo{}, err
 	}

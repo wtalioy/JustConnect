@@ -278,7 +278,7 @@ func TestControllerInitializationWaitIsCancelable(t *testing.T) {
 			go func() {
 				var err error
 				if observe {
-					_, err = dialer.ObserveProxy(ctx)
+					_, err = dialer.ObserveProxy(ctx, nil)
 				} else {
 					_, err = dialer.DialContext(ctx, "tcp", "other.example.test:443")
 				}

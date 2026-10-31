@@ -23,12 +23,14 @@ const maxProxyUDPPacket = 16 * 1024
 type Proxy struct {
 	process model.Process
 	address netip.AddrPort
+	proof   *ListenerProof
 }
 
 type ProxyInfo struct {
 	RuntimeState
-	Endpoints []string
-	Proxy     *Proxy
+	Endpoints       []string
+	Proxy           *Proxy
+	ListenerRequest *ListenerRequest
 }
 
 func (c *Client) Proxy(ctx context.Context) (*Proxy, error) {
@@ -43,7 +45,7 @@ func (c *Client) Proxy(ctx context.Context) (*Proxy, error) {
 }
 
 // ObserveProxy reads runtime state once and verifies each advertised local listener.
-func (c *Client) ObserveProxy(ctx context.Context) (ProxyInfo, error) {
+func (c *Client) ObserveProxy(ctx context.Context, proofs ...ListenerProof) (ProxyInfo, error) {
 	state, err := c.ReadState(ctx)
 	if err != nil {
 		return ProxyInfo{}, err
@@ -56,11 +58,27 @@ func (c *Client) ObserveProxy(ctx context.Context) (ProxyInfo, error) {
 		}
 		for _, host := range []netip.Addr{netip.AddrFrom4([4]byte{127, 0, 0, 1}), netip.IPv6Loopback()} {
 			address := netip.AddrPortFrom(host, port)
-			if ownsTCP(ctx, c.endpoint.process, address) {
+			var proof *ListenerProof
+			for _, candidate := range proofs {
+				if validListenerProof(ctx, c.endpoint.process, address, &candidate) {
+					proof = &candidate
+					break
+				}
+			}
+			owned := proof != nil
+			if !owned {
+				proof, owned = localListenerProof(ctx, c.endpoint.process, address)
+			}
+			if owned {
 				info.Endpoints = append(info.Endpoints, address.String())
 				if info.Proxy == nil && (port == state.SOCKSPort || port == state.MixedPort) {
-					info.Proxy = &Proxy{process: c.endpoint.process, address: address}
+					info.Proxy = &Proxy{process: c.endpoint.process, address: address, proof: proof}
 				}
+			} else if needsListenerProof(ctx, c.endpoint.process, address) {
+				if info.ListenerRequest == nil {
+					info.ListenerRequest = &ListenerRequest{PID: c.endpoint.process.PID, Started: c.endpoint.process.Started}
+				}
+				info.ListenerRequest.Endpoints = append(info.ListenerRequest.Endpoints, address.String())
 			}
 		}
 	}
@@ -70,18 +88,19 @@ func (c *Client) ObserveProxy(ctx context.Context) (ProxyInfo, error) {
 	return info, nil
 }
 
-func dialOwnedTCP(ctx context.Context, process model.Process, address netip.AddrPort) (net.Conn, error) {
+func dialOwnedTCP(ctx context.Context, process model.Process, address netip.AddrPort, proof *ListenerProof) (net.Conn, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if !address.Addr().IsLoopback() || !ownsTCP(ctx, process, address) {
+	owned := func() bool { return validListenerProof(ctx, process, address, proof) || ownsTCP(ctx, process, address) }
+	if !address.Addr().IsLoopback() || !owned() {
 		return nil, ErrUnavailable
 	}
 	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", address.String())
 	if err != nil {
 		return nil, ErrUnavailable
 	}
-	if !ownsTCP(ctx, process, address) {
+	if !owned() {
 		conn.Close()
 		return nil, ErrUnavailable
 	}
@@ -103,7 +122,7 @@ func (p *Proxy) DialContext(parent context.Context, network, address string) (re
 	}
 	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
 	defer cancel()
-	control, err := dialOwnedTCP(ctx, p.process, p.address)
+	control, err := dialOwnedTCP(ctx, p.process, p.address, p.proof)
 	if err != nil {
 		return nil, err
 	}
