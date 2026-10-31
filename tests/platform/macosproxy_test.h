@@ -7,6 +7,7 @@
 #include <QScopeGuard>
 #include <iostream>
 #include <cstdlib>
+#include <future>
 
 static void number(CFMutableDictionaryRef values, CFStringRef key, int value) {
     auto native=CFNumberCreate(nullptr,kCFNumberIntType,&value);CFDictionarySetValue(values,key,native);CFRelease(native);
@@ -137,6 +138,33 @@ static void backendTests() {
     check(!CFDictionaryContainsKey(active,CFSTR("HTTPProxyUsername")),"old authentication identity is absent from the local endpoint");
     check(backend.clear().succeeded(),"native private preferences restoration");restored();
     check(backend.clear().succeeded(),"repeated clear is a no-op");
+    {
+        seed(); PlatformSystemProxyBackend contended(api);
+        check(SCPreferencesLock(prefs,false),"hold the private native preferences lock");
+        auto applying=std::async(std::launch::async,[&] { return contended.apply(config); });
+        check(applying.wait_for(std::chrono::milliseconds(100))==std::future_status::timeout,
+            "a short external proxy commit must not immediately fail the connection");
+        check(SCPreferencesUnlock(prefs) && applying.get().succeeded(),"apply after the external commit releases its lock");
+        check(SCPreferencesLock(prefs,false),"hold the private native restoration lock");
+        auto clearing=std::async(std::launch::async,[&] { return contended.clear(); });
+        check(clearing.wait_for(std::chrono::milliseconds(100))==std::future_status::timeout,
+            "restoration waits for a short external commit");
+        check(SCPreferencesUnlock(prefs) && clearing.get().succeeded(),"restore after the external commit releases its lock");
+        restored();
+        check(SCPreferencesLock(prefs,false),"hold the private native lock beyond the operation budget");
+        const auto before=changes;
+        const auto timeout=contended.apply(config);
+        check(timeout.status==PlatformOperationResult::Status::TimedOut && !timeout.mayHaveChanged && changes==before,
+            "a busy lock has a bounded timeout and performs no writes");
+        check(SCPreferencesUnlock(prefs) && contended.apply(config).succeeded(),"a later apply can retry the released lock");
+        check(SCPreferencesLock(prefs,false),"hold an owned private proxy restoration");
+        const auto retained=contended.recoverySnapshot();
+        const auto restoreTimeout=contended.clear();
+        check(restoreTimeout.status==PlatformOperationResult::Status::TimedOut && restoreTimeout.mayHaveChanged
+            && contended.recoverySnapshot()==retained,"busy restoration retains the exact recovery responsibility");
+        check(SCPreferencesUnlock(prefs) && contended.clear().succeeded(),"retry restoration after releasing the external lock");
+        restored();
+    }
     QJsonObject record;
     {
         PlatformSystemProxyBackend owner(api);check(owner.apply(config).succeeded(),"Apply private native snapshot owner");
