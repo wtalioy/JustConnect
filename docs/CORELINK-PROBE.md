@@ -82,7 +82,7 @@ D2 的设备入口子方案已收敛：Linux／macOS 使用最小授权助手创
 
 同一实测中，规则允许的目标在 `GLOBAL` 选择 `REJECT` 时被拒绝：[上游 `resolveMetadata`](https://github.com/MetaCubeX/mihomo/blob/v1.19.32/tunnel/tunnel.go#L310) 在普通规则前处理 `global/direct`，因此追加校园规则不足以覆盖这些模式。入口级方案与自动恢复尚待接入，不能由当前代理传输测试推定自动共存完成。
 
-标准构建的 [UDP 接收缓冲区](https://github.com/MetaCubeX/mihomo/blob/v1.19.32/common/pool/buffer_standard.go) 为 16 KiB，实测更大 SOCKS UDP 请求被静默截短；本软件发送前明确拒绝超过该含头部边界的请求，不切换出口。非标准 low-memory 构建尚未验收。共有 SOCKS UDP 解析器保留空 IPv4／IPv6／域名报文，拒绝非零保留位、分片、无效类型／端口与截断；两侧复用同一边界，读写缓冲只在会话内按需分配／复用。证据：`build/reports/s6/proxy-corelib.log`（34 包）、`official-proxy-race.log`；独有上游截短记录保留在 `official-proxy-truncation.log`。
+标准构建的 [UDP 接收缓冲区](https://github.com/MetaCubeX/mihomo/blob/v1.19.32/common/pool/buffer_standard.go) 为 16 KiB，实测更大 SOCKS UDP 请求被静默截短；本软件读取实际 UDP socket 发送容量，并以它和上游缓冲区的较小值作为含头部上界；超界发送前明确拒绝，不切换出口。macOS 原生容量较小，不用放大系统缓冲区掩盖差异。非标准 low-memory 构建尚未验收。共有 SOCKS UDP 解析器保留空 IPv4／IPv6／域名报文，拒绝非零保留位、分片、无效类型／端口与截断；两侧复用同一边界，读写缓冲只在会话内按需分配／复用。证据：`build/reports/s6/proxy-corelib.log`（34 包）、`official-proxy-race.log`；独有上游截短记录保留在 `official-proxy-truncation.log`。
 
 ### Linux 设备／fd 原型复现
 

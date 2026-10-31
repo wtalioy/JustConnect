@@ -141,7 +141,7 @@ func TestOfficialProxyUsesActualListenersAndSelectedMode(t *testing.T) {
 							if n, err := conn.Write(payloads[1]); n != 0 || !errors.Is(err, io.ErrShortBuffer) {
 								t.Fatal("oversized UDP was allowed to be silently truncated by upstream", n, err)
 							}
-							payloads[1] = bytes.Repeat([]byte("x"), maxProxyUDPPacket-len(packet.Header()))
+							payloads[1] = bytes.Repeat([]byte("x"), conn.(*proxyUDP).limit-len(packet.Header()))
 							payloads = append(payloads, []byte{})
 						}
 						for _, payload := range payloads {
