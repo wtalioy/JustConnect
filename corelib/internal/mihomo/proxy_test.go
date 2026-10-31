@@ -90,12 +90,7 @@ func TestOfficialProxyUsesActualListenersAndSelectedMode(t *testing.T) {
 	tcp6, udp6 := proxyEchoTargets(t, "::1")
 	for _, kind := range []string{"socks-port", "mixed-port"} {
 		t.Run(kind, func(t *testing.T) {
-			reserved, err := net.Listen("tcp", "127.0.0.1:0")
-			if err != nil {
-				t.Fatal(err)
-			}
-			port := reserved.Addr().(*net.TCPAddr).Port
-			reserved.Close()
+			port := testmihomo.ProxyPort(t)
 			fixture := testmihomo.StartConfiguredBinary(t, originalControllerDNS(t), true, map[string]any{
 				kind: port, "mode": "rule",
 				"tun":          map[string]any{"enable": false, "route-exclude-address": []string{"192.0.2.128/25", "2001:db8::/48"}},
@@ -205,12 +200,7 @@ func TestOfficialProxyUsesActualListenersAndSelectedMode(t *testing.T) {
 					}
 				}
 			}
-			reserved, err = net.Listen("tcp", "127.0.0.1:0")
-			if err != nil {
-				t.Fatal(err)
-			}
-			newPort := reserved.Addr().(*net.TCPAddr).Port
-			reserved.Close()
+			newPort := testmihomo.ProxyPort(t)
 			patchOwnedProxy(t, c, fixture, map[string]any{kind: newPort})
 			var changed *Proxy
 			fixture.WaitReady(t, func() error {
