@@ -31,6 +31,13 @@ JC_API int32_t jc_session_read(uint64_t handle, uint32_t wait_ms, uint8_t *outpu
 JC_API int32_t jc_session_respond(uint64_t handle, const uint8_t *response, uint32_t length);
 /* Atomically replace protection rules for new connections; output the applied generation. */
 JC_API int32_t jc_session_update_policy(uint64_t handle, const uint8_t *policy, uint32_t length, uint64_t *generation);
+/* Refresh ordinary upstream selection from observed local system proxy endpoints.
+ * Input: {schema_version,generation,system_proxy_endpoints:[literal loopback IP:port],system_proxy_managed:boolean}.
+ * Discovery is bounded, cancellable and read-only; no system or Mihomo settings change.
+ * New flows use the selected exit. Read acknowledged facts with jc_session_coexistence.
+ */
+JC_API int32_t jc_session_update_coexistence(uint64_t handle, const uint8_t *state, uint32_t length, uint64_t *generation);
+JC_API int32_t jc_session_coexistence(uint64_t handle, uint64_t generation, uint8_t *output, uint32_t capacity, uint32_t *length);
 /* Prepare one immutable original-DNS source set for the ready generation, before
  * device attachment. Input: {schema_version,generation,sources:[...]}. The sources
  * use network.original_dns's schema. Read actual endpoints through resources.

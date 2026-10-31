@@ -97,6 +97,7 @@ type Session struct {
 	policy           *policy.ProtectionPolicy
 	policyRevision   uint64
 	connectOperation bool
+	coexistence      []byte
 	resources        []byte
 	resourcesStatus  Status
 }
@@ -167,6 +168,7 @@ func (e *Engine) Start(handle uint64, input []byte) (uint64, Status) {
 	s.auth = nil
 	s.policy, s.policyRevision, s.connectOperation = config.initialPolicy, 0, config.Operation != "auth_methods"
 	s.resources, s.resourcesStatus = nil, Busy
+	s.coexistence = nil
 	s.push(event{Type: "state", State: "starting"})
 	e.active = s
 	go e.execute(ctx, config, s)

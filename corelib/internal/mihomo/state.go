@@ -7,16 +7,17 @@ import (
 
 // RuntimeState contains observed control facts, not a complete reloadable configuration.
 type RuntimeState struct {
-	Mode                         string
-	SOCKSPort, MixedPort         uint16
-	TunEnabled                   bool
-	TunDevice, OutboundInterface string
-	RouteExcludes                []netip.Prefix
+	Mode                           string
+	HTTPPort, SOCKSPort, MixedPort uint16
+	TunEnabled                     bool
+	TunDevice, OutboundInterface   string
+	RouteExcludes                  []netip.Prefix
 }
 
 func (c *Client) ReadState(ctx context.Context) (RuntimeState, error) {
 	var config struct {
 		Mode      *string `json:"mode"`
+		HTTP      *int    `json:"port"`
 		SOCKS     *int    `json:"socks-port"`
 		Mixed     *int    `json:"mixed-port"`
 		Interface *string `json:"interface-name"`
@@ -32,12 +33,15 @@ func (c *Client) ReadState(ctx context.Context) (RuntimeState, error) {
 	if config.Mode == nil || config.Interface == nil || config.Tun == nil || config.Tun.Enable == nil {
 		return RuntimeState{}, ErrUnavailable
 	}
+	if *config.Tun.Enable && config.Tun.Device == "" {
+		return RuntimeState{}, ErrUnavailable
+	}
 	switch *config.Mode {
 	case "rule", "global", "direct":
 	default:
 		return RuntimeState{}, ErrUnavailable
 	}
-	for _, port := range []*int{config.SOCKS, config.Mixed} {
+	for _, port := range []*int{config.HTTP, config.SOCKS, config.Mixed} {
 		if port == nil || *port < 0 || *port > 65535 {
 			return RuntimeState{}, ErrUnavailable
 		}
@@ -47,7 +51,7 @@ func (c *Client) ReadState(ctx context.Context) (RuntimeState, error) {
 			return RuntimeState{}, ErrUnavailable
 		}
 	}
-	return RuntimeState{Mode: *config.Mode, SOCKSPort: uint16(*config.SOCKS), MixedPort: uint16(*config.Mixed),
+	return RuntimeState{Mode: *config.Mode, HTTPPort: uint16(*config.HTTP), SOCKSPort: uint16(*config.SOCKS), MixedPort: uint16(*config.Mixed),
 		TunEnabled: *config.Tun.Enable, TunDevice: config.Tun.Device, OutboundInterface: *config.Interface,
 		RouteExcludes: config.Tun.Excludes}, nil
 }

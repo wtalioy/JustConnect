@@ -26,7 +26,7 @@ static void check(bool ok, const char *message) {
     if (!ok) { std::cerr << "FAIL: " << message << '\n'; std::exit(1); }
 }
 #define ABI_FUNCTIONS(X) X(jc_abi_version) X(jc_build_info) X(jc_network_snapshot) X(jc_config_validate) X(jc_session_create) X(jc_session_start) \
-    X(jc_session_read) X(jc_session_respond) X(jc_session_update_policy) X(jc_session_prepare_original_dns) X(jc_session_resources) X(jc_session_attach_tun) X(jc_session_attach_tun_dns) X(jc_session_attach_windows_pipe) X(jc_session_ack_dns_routes) X(jc_session_stop) X(jc_session_destroy)
+    X(jc_session_read) X(jc_session_respond) X(jc_session_update_policy) X(jc_session_update_coexistence) X(jc_session_coexistence) X(jc_session_prepare_original_dns) X(jc_session_resources) X(jc_session_attach_tun) X(jc_session_attach_tun_dns) X(jc_session_attach_windows_pipe) X(jc_session_ack_dns_routes) X(jc_session_stop) X(jc_session_destroy)
 struct API {
 #define MEMBER(name) decltype(&::name) name;
     ABI_FUNCTIONS(MEMBER)
@@ -223,6 +223,17 @@ static void nativeProtocol(API &api, const QByteArray &input) {
     check(resources["generation"]==QString::number(generation)
         && !resources["resources"].toObject()["ip_resources"].toArray().isEmpty()
         && resources["resources"].toObject()["domain_resources"].toObject().contains("campus.test"),"actual protocol resources retain their generation and domain permissions");
+    auto coexistence=QJsonDocument(QJsonObject{{"schema_version",int(JC_ABI_VERSION)},{"generation",QString::number(generation)},
+        {"system_proxy_endpoints",QJsonArray{}},{"system_proxy_managed",false}}).toJson(QJsonDocument::Compact);
+    uint64_t coexistenceApplied=0;
+    check(api.jc_session_update_coexistence(handle,reinterpret_cast<const uint8_t *>(coexistence.constData()),uint32_t(coexistence.size()),&coexistenceApplied)==JC_OK
+        && coexistenceApplied==generation,"formal protocol session refreshes ordinary exit facts");
+    std::vector<uint8_t> coexistenceBytes(JC_MAX_OUTPUT+2,0x5a);uint32_t coexistenceLength=0;
+    check(api.jc_session_coexistence(handle,generation,coexistenceBytes.data()+1,JC_MAX_OUTPUT,&coexistenceLength)==JC_OK
+        && coexistenceBytes.front()==0x5a && coexistenceBytes.back()==0x5a,"bounded formal coexistence snapshot");
+    const auto coexistenceState=json(coexistenceBytes,coexistenceLength);
+    check(coexistenceState["generation"]==QString::number(generation) && coexistenceState["coexistence"].toObject()["active"].isBool()
+        && coexistenceState["coexistence"].toObject()["endpoints"].isArray(),"coexistence facts retain generation and typed observations");
     auto policy = QJsonDocument(QJsonObject{{"schema_version",1},{"generation",QString::number(generation)},
         {"revision","1"},{"protected",QJsonArray{"192.0.2.0/24"}},{"campus",QJsonArray{"192.0.2.10"}}}).toJson(QJsonDocument::Compact);
     uint64_t applied = 0;
@@ -268,6 +279,11 @@ static void nativeProtocol(API &api, const QByteArray &input) {
 int main(int argc, char **argv) {
     QApplication application(argc, argv);
     API api;
+    uint64_t coexistenceGeneration=99;
+    check(api.jc_session_update_coexistence(0,nullptr,0,&coexistenceGeneration)==JC_INVALID_ARGUMENT && coexistenceGeneration==0,"coexistence input clears the applied generation");
+    check(api.jc_session_update_coexistence(0,nullptr,0,nullptr)==JC_INVALID_ARGUMENT,"coexistence update requires generation output");
+    uint32_t coexistenceLength=99;
+    check(api.jc_session_coexistence(0,0,nullptr,0,&coexistenceLength)==JC_INVALID_ARGUMENT && coexistenceLength==0,"coexistence snapshot requires an active generation");
     uint64_t preparedGeneration = 99;
     check(api.jc_session_prepare_original_dns(0, nullptr, 0, &preparedGeneration) == JC_INVALID_ARGUMENT && preparedGeneration == 0,
           "original DNS preparation clears generation on invalid input");

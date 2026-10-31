@@ -67,10 +67,11 @@ func TestOfficialMihomoCampusIngressEnforcesSharedResources(t *testing.T) {
 		{IPMin: ip, IPMax: ip, PortMin: 53, PortMax: 53, Protocol: "udp"},
 	}, false)
 	d.ProtectionPolicy = current.Load
-	d.Upstream = func(context.Context, string, string) (net.Conn, error) {
+	ordinaryExit := func(context.Context, string, string) (net.Conn, error) {
 		originalCalls.Add(1)
 		return nil, errors.New("campus ingress must not return to ordinary upstream")
 	}
+	d.Upstream = func() client.DialContextFunc { return ordinaryExit }
 	listeners, err := NewListeners(t.Context(), "127.0.0.1:0", "", d.CampusOnly(), nil)
 	if err != nil {
 		t.Fatal(err)

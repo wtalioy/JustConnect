@@ -177,6 +177,13 @@ int main(int argc, char **argv) {
         check(QThread::currentThread() == app.thread() && value == generation, "TUN result preserves its generation on the GUI thread");
         tunReplies.append(status);
     });
+    QList<CoreEngine::RequestStatus> coexistenceReplies;
+    QObject::connect(&engine,&CoreEngine::coexistenceUpdated,[&](const QString &value,CoreEngine::RequestStatus status) {
+        check(QThread::currentThread()==app.thread() && !value.isEmpty(),"ordinary exit acknowledgement reaches its GUI generation");
+        coexistenceReplies.append(status);
+    });
+    engine.updateCoexistence("1",{});
+    check(coexistenceReplies.size()==1 && coexistenceReplies.last()==CoreEngine::RequestStatus::Stale,"idle adapter rejects ordinary exit updates");
     engine.attachTUN(generation, -1, 1400);
     check(tunReplies.size() == 1 && tunReplies.last() == CoreEngine::RequestStatus::Stale, "idle adapter rejects TUN handoff");
     QTimer heartbeat;
@@ -201,6 +208,9 @@ int main(int argc, char **argv) {
     readSnapshot(CoreEngine::Snapshot::Network,generation,CoreEngine::RequestStatus::Success);
     check(!lastSnapshot["network"].toObject()["interfaces"].toArray().isEmpty(), "native network snapshot reaches the Qt consumer");
     readSnapshot(CoreEngine::Snapshot::Resources,generation,CoreEngine::RequestStatus::Unavailable);
+    readSnapshot(CoreEngine::Snapshot::Coexistence,generation,CoreEngine::RequestStatus::Unavailable);
+    engine.updateCoexistence(generation,{});
+    check(coexistenceReplies.last()==CoreEngine::RequestStatus::Unavailable,"fixture adapter does not claim coexistence support");
     readSnapshot(CoreEngine::Snapshot::Network,"2",CoreEngine::RequestStatus::Stale);
     auto update = [&](QJsonObject fields, CoreEngine::RequestStatus expected) {
         const auto before = policyReplies.size();

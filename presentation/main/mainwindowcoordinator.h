@@ -45,8 +45,8 @@ private:
     ProfileService *profileService;
     CoreEngine *coreEngine; // Owned by ConnectionSession and shared with the collector.
     NetworkPolicySession *networkPolicySession;
-    ConnectionSession *connectionSession;
     SystemProxySession *systemProxySession;
+    ConnectionSession *connectionSession;
     UpdateChecker *updateChecker;
     AuthDialogCoordinator *authenticationCoordinator;
     CredentialAccess *credentialAccess;

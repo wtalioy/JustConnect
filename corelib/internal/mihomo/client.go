@@ -153,7 +153,8 @@ func Inspect(ctx context.Context, process model.Process) (*Client, error) {
 	return nil, ErrUnavailable
 }
 
-func (c *Client) Close() { c.http.CloseIdleConnections() }
+func (c *Client) Close()      { c.http.CloseIdleConnections() }
+func (c *Client) Alive() bool { return validProcess(c.endpoint.process) }
 
 func (c *Client) Query(ctx context.Context, question dns.Question) (*dns.Msg, error) {
 	if _, valid := dns.IsDomainName(question.Name); !valid || (question.Qtype != dns.TypeA && question.Qtype != dns.TypeAAAA) || question.Qclass != dns.ClassINET {

@@ -23,6 +23,7 @@ public:
     bool isEnabled() const;
     bool isBusy() const;
     bool needsCleanup() const;
+    bool isAutomatic() const { return automatic; }
 
 signals:
     void enabledChanged(bool enabled);
@@ -57,6 +58,7 @@ private:
     bool enabled = false;
     bool uncertain = false;
     bool restoreRequested = false;
+    bool automatic = false;
     void updateState(Operation operation, const PlatformOperationResult &result);
 };
 

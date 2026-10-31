@@ -10,7 +10,7 @@ import (
 )
 
 func TestNativeControllerRejectsIncompleteRuntimeState(t *testing.T) {
-	const base = `{"mode":"rule","socks-port":0,"mixed-port":0,"interface-name":"","tun":{"enable":false}}`
+	const base = `{"mode":"rule","port":0,"socks-port":0,"mixed-port":0,"interface-name":"","tun":{"enable":false}}`
 	for _, test := range []struct{ name, body string }{
 		{"missing mode", strings.Replace(base, `"mode":"rule",`, "", 1)},
 		{"unknown mode", strings.Replace(base, `"rule"`, `"unknown"`, 1)},

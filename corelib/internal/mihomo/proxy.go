@@ -25,23 +25,49 @@ type Proxy struct {
 	address netip.AddrPort
 }
 
+type ProxyInfo struct {
+	RuntimeState
+	Endpoints []string
+	Proxy     *Proxy
+}
+
 func (c *Client) Proxy(ctx context.Context) (*Proxy, error) {
-	state, err := c.ReadState(ctx)
+	info, err := c.ObserveProxy(ctx)
 	if err != nil {
 		return nil, err
 	}
-	for _, port := range []uint16{state.SOCKSPort, state.MixedPort} {
-		if port == 0 {
+	if info.Proxy == nil {
+		return nil, ErrUnavailable
+	}
+	return info.Proxy, nil
+}
+
+// ObserveProxy reads runtime state once and verifies each advertised local listener.
+func (c *Client) ObserveProxy(ctx context.Context) (ProxyInfo, error) {
+	state, err := c.ReadState(ctx)
+	if err != nil {
+		return ProxyInfo{}, err
+	}
+	info := ProxyInfo{RuntimeState: state, Endpoints: []string{}}
+	ports := []uint16{state.SOCKSPort, state.MixedPort, state.HTTPPort}
+	for i, port := range ports {
+		if port == 0 || i > 0 && port == ports[0] || i > 1 && port == ports[1] {
 			continue
 		}
 		for _, host := range []netip.Addr{netip.AddrFrom4([4]byte{127, 0, 0, 1}), netip.IPv6Loopback()} {
 			address := netip.AddrPortFrom(host, port)
 			if ownsTCP(ctx, c.endpoint.process, address) {
-				return &Proxy{process: c.endpoint.process, address: address}, nil
+				info.Endpoints = append(info.Endpoints, address.String())
+				if info.Proxy == nil && (port == state.SOCKSPort || port == state.MixedPort) {
+					info.Proxy = &Proxy{process: c.endpoint.process, address: address}
+				}
 			}
 		}
 	}
-	return nil, ErrUnavailable
+	if ctx.Err() != nil {
+		return ProxyInfo{}, ctx.Err()
+	}
+	return info, nil
 }
 
 func dialOwnedTCP(ctx context.Context, process model.Process, address netip.AddrPort) (net.Conn, error) {

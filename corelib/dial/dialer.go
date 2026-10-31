@@ -26,7 +26,7 @@ var ErrACLDenied = errors.New("destination not in sangfor IPResources whitelist 
 type Dialer struct {
 	ProtectionPolicy func() *policy.ProtectionPolicy
 	// Upstream handles ordinary traffic; protected targets retain their native path.
-	Upstream      client.DialContextFunc
+	Upstream      func() client.DialContextFunc
 	stack         stack.Stack
 	resolver      *resolve.Resolver
 	ipResources   []client.IPResource
@@ -47,12 +47,14 @@ func (d *Dialer) CampusOnly() *Dialer {
 
 func (d *Dialer) dialOrdinary(ctx context.Context, network, address string) (net.Conn, error) {
 	if d.Upstream != nil {
-		if host, ok := ctx.Value(resolve.ContextKeyResolveHost).(string); ok {
-			if _, port, err := net.SplitHostPort(address); err == nil {
-				address = net.JoinHostPort(host, port)
+		if upstream := d.Upstream(); upstream != nil {
+			if host, ok := ctx.Value(resolve.ContextKeyResolveHost).(string); ok {
+				if _, port, err := net.SplitHostPort(address); err == nil {
+					address = net.JoinHostPort(host, port)
+				}
 			}
+			return upstream(ctx, network, address)
 		}
-		return d.Upstream(ctx, network, address)
 	}
 	return dialDirect(ctx, network, address)
 }

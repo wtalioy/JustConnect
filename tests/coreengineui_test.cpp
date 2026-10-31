@@ -1014,7 +1014,7 @@ static void gateway(const QJsonObject &config) {
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     int responses = 0, completed = 0, ticks = 0;
     QString generation;
-    int networkSnapshots=0, resourceSnapshots=0;
+    int networkSnapshots=0, resourceSnapshots=0, coexistenceSnapshots=0, coexistenceAcks=0;
 
     QJsonObject initialProtection, readyResources;
     CoreEngine::RequestStatus resourceStatus=CoreEngine::RequestStatus::Unavailable;
@@ -1027,7 +1027,12 @@ static void gateway(const QJsonObject &config) {
     const auto snapshotObserver=QObject::connect(engine,&CoreEngine::snapshotReady,[&](CoreEngine::Snapshot kind,const QString &value,const QJsonObject &snapshot,CoreEngine::RequestStatus status){
         check(QThread::currentThread()==QApplication::instance()->thread() && value==generation,"real snapshots reach their GUI session generation");
         if(status!=CoreEngine::RequestStatus::Success) check(snapshot.isEmpty(),"pending or failed snapshot cannot expose old data");
-        if(kind==CoreEngine::Snapshot::Resources) {
+        if(kind==CoreEngine::Snapshot::Coexistence) {
+            check(status==CoreEngine::RequestStatus::Success && snapshot["coexistence"].toObject()["available"].isBool()
+                && snapshot["coexistence"].toObject()["active"].isBool() && snapshot["coexistence"].toObject()["endpoints"].isArray(),
+                "Qt receives acknowledged ordinary exit facts without untyped defaults");
+            ++coexistenceSnapshots;
+        } else if(kind==CoreEngine::Snapshot::Resources) {
             resourceStatus=status;++resourceSnapshots;
             if(status==CoreEngine::RequestStatus::Success) {
                 check(snapshot["resources"].toObject()["domain_resources"].toObject().contains("campus.test"),"Qt receives actual parsed campus permissions");
@@ -1037,6 +1042,11 @@ static void gateway(const QJsonObject &config) {
             check(status==CoreEngine::RequestStatus::Success && !snapshot["network"].toObject()["interfaces"].toArray().isEmpty(),"Qt receives the actual native network snapshot");
             ++networkSnapshots;
         }
+    });
+    QObject::connect(engine,&CoreEngine::coexistenceUpdated,[&](const QString &value,CoreEngine::RequestStatus status) {
+        check(QThread::currentThread()==QApplication::instance()->thread() && value==generation
+            && status==CoreEngine::RequestStatus::Success,"Qt ordinary exit update has its active generation and acknowledgement");
+        ++coexistenceAcks;
     });
     AuthenticationCache savedCache;
     QObject::connect(engine,&CoreEngine::authenticationCacheUpdated,[&](const AuthenticationCache &cache) {
@@ -1087,6 +1097,10 @@ static void gateway(const QJsonObject &config) {
     until([&] { return session.state() == ConnectionState::Running; });
     until([&]{return resourceSnapshots==2 && networkSnapshots==1 && networkPolicy.status()==CoreEngine::RequestStatus::Success;});
     check(resourceStatus==CoreEngine::RequestStatus::Success,"Qt receives ready resources without another authentication");
+    engine->updateCoexistence(generation,{});
+    until([&]{return coexistenceAcks==1;});
+    engine->readSnapshot(CoreEngine::Snapshot::Coexistence,generation);
+    until([&]{return coexistenceSnapshots==1;});
     const auto originalTargets=networkPolicy.model()["targets"].toArray();
     const auto conflicts=campusProtectionConflicts(originalTargets,readyResources);
     check(conflicts.has_value(),"actual parsed campus resources produce a complete conflict model");

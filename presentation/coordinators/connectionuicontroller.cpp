@@ -145,6 +145,7 @@ ConnectionUiController::ConnectionUiController(
         this->systemProxySession->disable();
     });
     connect(systemProxySession,&SystemProxySession::busyChanged,this,[this](bool busy) {
+        this->proxyButton->setEnabled(!busy && !this->systemProxySession->isAutomatic());
         // Deliver the old operation's result before starting the current session's request.
         if (!busy && autoProxyPending) QTimer::singleShot(0,this,&ConnectionUiController::applyPendingAutomaticProxy);
     });
@@ -314,7 +315,7 @@ void ConnectionUiController::applyPendingAutomaticProxy()
 
 void ConnectionUiController::handleProxyClicked()
 {
-    if (connectionSession->state() != ConnectionState::Running || connectionSession->phase()==ConnectionPhase::NetworkRestoring || systemProxySession->isBusy())
+    if (connectionSession->state() != ConnectionState::Running || connectionSession->phase()==ConnectionPhase::NetworkRestoring || systemProxySession->isBusy() || systemProxySession->isAutomatic())
     {
         return;
     }

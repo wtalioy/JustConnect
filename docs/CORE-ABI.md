@@ -96,6 +96,14 @@ Linux 使用独立限时 netlink 句柄读取所有 IP 路由表，包含 Tailsc
 
 DNS 内置记录只解释服务器提供的解析数据，不单独授予业务端口访问；校园 DNS 开关表示配置允许使用，不代表已探测可达。协议／端口与保护规则仍以共用拨号／解析层为准。该快照用于解释资源与原路由的冲突，读取本身不启用透明访问，也不写本地日志。
 
+## 共存出口更新
+
+`capabilities.coexistence` 提供 `jc_session_update_coexistence(handle,input,length,&generation)` 与只读 `jc_session_coexistence(handle,generation,output,capacity,&length)`。更新请求为 `{schema_version:1,generation:"当前代次",system_proxy_endpoints:["127.0.0.1:实际端口"],system_proxy_managed:false}`；两个状态字段必须显式提供。端点仅接受规范回环 IP 和非零端口，不接受主机名、凭据、路径或重复值。状态来自宿主的原生系统代理观察；`system_proxy_managed` 仅表示仍属于本软件的自动交接前端，用于原 Mihomo 端口变化后继续跟随已验证的新上游，不由普通代理开关或历史配置推断。
+
+更新复用会话已有的只读 Mihomo 发现与生命周期，核对当前进程、控制接口、开关和数据监听所有者；系统代理命中该实例、仍有自动前端所有权或 TUN 开启时，普通新流量使用其 SOCKS／mixed 出口。两开关关闭或实例不可用时选择原生直连；选定上游的连接失败不偷偷直连。校园与受保护目标仍由原有统一策略先行判定。新建普通流读取原子缓存，不逐包查询控制接口；关闭取消有界查询，旧代结果不提交。未就绪或尚无会话出口时返回 `JC_BUSY`，停止／代次变化返回过期，多实例歧义明确拒绝。
+
+成功更新后只读接口返回 `{schema_version:1,generation:"当前代次",coexistence:{available,active,tun,mode?,endpoints:[]}}`。容量查询和重读只读取最后确认的缓存，不触发发现或配置写入；新会话清空缓存，首次确认前返回 `JC_BUSY`。Qt 的 `updateCoexistence` 和 `readSnapshot(Coexistence,...)` 沿同一专属线程执行，确认按代次交付；Stop 可从应用线程直接取消 C ABI，避免排在控制查询之后。自动浏览器入口、原生接管和恢复由同一应用网络生命周期串联，实际验证状态见计划。
+
 ## 保护策略更新
 
 调用方须核对 `policy_update:true` 和 `jc_session_update_policy` 导出；ABI v1 兼容增补，不改变已有认证回应。连接代次由 Start 返回，修订在该代中严格递增，均使用十进制字符串。完整快照示例：

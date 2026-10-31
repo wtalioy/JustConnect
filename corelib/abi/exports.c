@@ -28,6 +28,12 @@ int32_t jc_session_respond(uint64_t h, const uint8_t *in, uint32_t len) {
 int32_t jc_session_update_policy(uint64_t h, const uint8_t *in, uint32_t len, uint64_t *generation) {
     return jc_go_session_update_policy(h, (uint8_t *)in, len, generation);
 }
+int32_t jc_session_update_coexistence(uint64_t h, const uint8_t *in, uint32_t len, uint64_t *generation) {
+    return jc_go_session_update_coexistence(h, (uint8_t *)in, len, generation);
+}
+int32_t jc_session_coexistence(uint64_t h, uint64_t generation, uint8_t *out, uint32_t cap, uint32_t *len) {
+    return jc_go_session_coexistence(h, generation, out, cap, len);
+}
 int32_t jc_session_resources(uint64_t h, uint64_t generation, uint8_t *out, uint32_t cap, uint32_t *len) {
     return jc_go_session_resources(h, generation, out, cap, len);
 }

@@ -4,6 +4,14 @@ add_test(NAME windows_helper_sdk_test COMMAND "${Python3_EXECUTABLE}" "${REPO}/t
 set_tests_properties(windows_helper_sdk_test PROPERTIES TIMEOUT 10)
 
 function(justconnect_core_ui_tests TARGET ENGINE LIBRARY PLATFORM)
+    add_executable(coexistencenetworkaccess_test "${REPO}/tests/coexistencenetworkaccess_test.cpp"
+        "${REPO}/application/coexistencenetworkaccess.cpp" "${REPO}/application/systemproxysession.cpp"
+        "${REPO}/application/networkpolicysession.cpp" "${REPO}/application/connectionsession.h")
+    set_target_properties(coexistencenetworkaccess_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(coexistencenetworkaccess_test PRIVATE ${ENGINE} Qt6::Concurrent)
+    justconnect_core_runtime(coexistencenetworkaccess_test ${LIBRARY})
+    add_test(NAME coexistencenetworkaccess_test COMMAND coexistencenetworkaccess_test)
+    set_tests_properties(coexistencenetworkaccess_test PROPERTIES TIMEOUT 30)
     add_executable(${TARGET}
         "${REPO}/tests/coreengineui_test.cpp"
         "${REPO}/application/applicationshutdown.cpp"

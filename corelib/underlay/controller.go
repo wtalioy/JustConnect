@@ -15,6 +15,10 @@ func (d *Dialer) prepareController(ctx context.Context, address string) error {
 	if d.localDNSServer != "" || isLoopbackAddress(address) {
 		return nil
 	}
+	return d.ensureController(ctx)
+}
+
+func (d *Dialer) ensureController(ctx context.Context) error {
 	d.mu.Lock()
 	if d.controllerGate == nil {
 		d.controllerGate = make(chan struct{}, 1)
@@ -28,11 +32,17 @@ func (d *Dialer) prepareController(ctx context.Context, address string) error {
 	}
 	defer func() { <-gate }()
 	d.mu.RLock()
-	ready := d.controller != nil
+	ready := d.controller != nil && d.controller.Alive()
 	d.mu.RUnlock()
 	if ready {
 		return nil
 	}
+	d.mu.Lock()
+	if d.controller != nil {
+		d.controller.Close()
+		d.controller, d.resolver, d.tunDevice = nil, nil, ""
+	}
+	d.mu.Unlock()
 	deadline, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	controller, err := discoverController(deadline)
@@ -52,13 +62,11 @@ func (d *Dialer) prepareController(ctx context.Context, address string) error {
 	if controller == nil {
 		return nil
 	}
-	if controller.TunEnabled && controller.TunDevice == "" {
-		controller.Close()
-		return mihomo.ErrUnavailable
-	}
 	d.mu.Lock()
 	d.controller = controller
-	d.resolver = controller.Resolver()
+	if d.localDNSServer == "" {
+		d.resolver = controller.Resolver()
+	}
 	if controller.TunEnabled {
 		d.tunDevice = controller.TunDevice
 		d.requireOriginalExit()
