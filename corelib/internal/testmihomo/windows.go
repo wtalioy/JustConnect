@@ -84,6 +84,14 @@ func (l *pipeListener) accept() (net.Conn, error) {
 	l.pending = 0
 	l.active = false
 	closed := l.closed
+	// Keep a listening instance alive before releasing a disconnected discovery probe.
+	if !closed {
+		var nextErr error
+		l.pending, nextErr = createPipe(l.name)
+		if nextErr != nil {
+			err = nextErr
+		}
+	}
 	l.mu.Unlock()
 	if closed || err != nil && err != windows.ERROR_PIPE_CONNECTED {
 		windows.CloseHandle(handle)
