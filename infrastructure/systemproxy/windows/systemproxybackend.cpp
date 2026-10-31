@@ -63,6 +63,22 @@ QString server(const SystemProxyConfig &config) {
     const auto http = "127.0.0.1:" + QString::number(config.httpPort);
     return "http=" + http + ";https=" + http + ";ftp=" + http + ";socks=127.0.0.1:" + QString::number(config.socksPort);
 }
+QStringList proxyEndpoints(const State &state) {
+    if (!(state.flags & PROXY_TYPE_PROXY) || (state.flags & (PROXY_TYPE_AUTO_PROXY_URL | PROXY_TYPE_AUTO_DETECT))) return {};
+    QStringList result;
+    for (auto part : state.server.split(';',Qt::SkipEmptyParts)) {
+        part=part.trimmed();
+        const auto equals=part.indexOf('=');
+        if (equals>=0) {
+            if (!QStringList{"http","https","ftp","socks"}.contains(part.left(equals))) return {};
+            part=part.mid(equals+1);
+        }
+        const auto endpoint=ProxyValidation::endpoint(part);
+        if (endpoint.isEmpty()) return {};
+        if (!result.contains(endpoint)) result.append(endpoint);
+    }
+    return result;
+}
 Result set(const WindowsProxyApi &api, const QString &name, const State &state,
            bool flags = true, bool proxy = true, bool bypass = true) {
     INTERNET_PER_CONN_OPTIONW options[3]{};
@@ -109,8 +125,7 @@ QJsonObject PlatformSystemProxyBackend::recoverySnapshot() const {
     return {{"schema_version",3},{"platform","windows"},
         {"machine",QString::fromLatin1(QSysInfo::machineUniqueId().toHex())},
         {"owner",snapshot->owner.toString(QUuid::WithoutBraces)},
-        {"config",QJsonObject{{"http_port",snapshot->config.httpPort},
-            {"socks_port",snapshot->config.socksPort},{"bypass",snapshot->config.bypass}}},
+        {"config",ProxyValidation::json(snapshot->config)},
         {"connections",connections}};
 }
 
@@ -130,11 +145,10 @@ PlatformOperationResult PlatformSystemProxyBackend::recover(const QJsonObject &r
         || record["schema_version"]!=3 || record["platform"]!="windows" || machine.isEmpty()
         || record["machine"]!=machine || owner.isNull() || owner.toString(QUuid::WithoutBraces)!=ownerText
         || !record["config"].isObject() || !record["connections"].isArray()) return invalid();
-    const auto config=record["config"].toObject();
-    const auto http=config["http_port"].toInteger(-1),socks=config["socks_port"].toInteger(-1);
-    if (config.size()!=3 || http<1 || http>65535 || socks<1 || socks>65535 || !config["bypass"].isString()) return invalid();
+    const auto config=ProxyValidation::parse(record["config"].toObject());
+    if (!config) return invalid();
     auto pending=std::make_shared<Snapshot>();pending->owner=owner;
-    pending->config={int(http),int(socks),config["bypass"].toString()};
+    pending->config=*config;
     if (!ProxyValidation::config(pending->config).succeeded()) return invalid();
     pending->installed={PROXY_TYPE_DIRECT|PROXY_TYPE_PROXY,server(pending->config),ProxyValidation::bypass(pending->config.bypass).join(';'),{}};
     const auto connections=record["connections"].toArray();
@@ -167,17 +181,28 @@ PlatformOperationResult PlatformSystemProxyBackend::recover(const QJsonObject &r
 
 SystemProxyCheck PlatformSystemProxyBackend::check(const SystemProxyConfig &config) {
     if (auto valid = ProxyValidation::config(config); !valid.succeeded()) return {valid};
-    QStringList names;
+    return observe(&config);
+}
+SystemProxyCheck PlatformSystemProxyBackend::inspect() { return observe(nullptr); }
+SystemProxyCheck PlatformSystemProxyBackend::observe(const SystemProxyConfig *config) {
+    QStringList names, endpoints;
     if (auto result = connections(api, names); !result.succeeded()) return {result};
-    bool active = false, conflict = false;
+    bool active = false, conflict = false, managed = false;
     for (const auto &name : names) {
         State state;
         if (auto result = query(api, name, state); !result.succeeded()) return {result};
-        active |= (state.flags & PROXY_TYPE_PROXY) != 0;
+        const bool enabled=(state.flags & PROXY_TYPE_PROXY)!=0;
+        active |= enabled;
         conflict |= (state.flags & (PROXY_TYPE_AUTO_PROXY_URL | PROXY_TYPE_AUTO_DETECT)) != 0
-            || ((state.flags & PROXY_TYPE_PROXY) && state.server != server(config));
+            || (config && enabled && state.server != server(*config));
+        if (!enabled) continue;
+        const bool own=snapshot && snapshot->connections.contains(name) && state.server==snapshot->installed.server
+            && state.flags==snapshot->installed.flags && state.pac==snapshot->connections[name].before.pac;
+        managed |= own;
+        for (const auto &endpoint:proxyEndpoints(own?snapshot->connections[name].before:state))
+            if (!endpoints.contains(endpoint)) endpoints.append(endpoint);
     }
-    return {{}, conflict, active};
+    return {{}, conflict, active, managed && active, endpoints};
 }
 PlatformOperationResult PlatformSystemProxyBackend::apply(const SystemProxyConfig &config) {
     if (auto valid = ProxyValidation::config(config); !valid.succeeded()) return valid;
@@ -189,8 +214,10 @@ PlatformOperationResult PlatformSystemProxyBackend::apply(const SystemProxyConfi
     for (const auto &name : names) {
         State state;
         if (auto result = query(api, name, state); !result.succeeded()) return result;
+        if (!config.upstream.isEmpty() && !ProxyValidation::matches(config.upstream,proxyEndpoints(state))) continue;
         pending->connections.insert(name, {state,0});
     }
+    if (pending->connections.isEmpty()) return {Status::Failed,"System proxy changed before automatic handoff"};
     pending->installed = {PROXY_TYPE_DIRECT | PROXY_TYPE_PROXY, server(config), ProxyValidation::bypass(config.bypass).join(';'), {}};
     snapshot = pending;
     if (auto result=checkpoint();!result.succeeded()) {
@@ -198,11 +225,11 @@ PlatformOperationResult PlatformSystemProxyBackend::apply(const SystemProxyConfi
         return result;
     }
     const auto fail = [this](Result result) { const auto restored = clear(); result.mayHaveChanged = !restored.succeeded(); return result; };
-    for (const auto &name : names) {
+    for (const auto &name : pending->connections.keys()) {
         auto &entry=pending->connections[name];
         entry.intent=(entry.before.flags!=pending->installed.flags?Snapshot::Flags:0)
             |(entry.before.server!=pending->installed.server?Snapshot::Proxy:0)
-            |(entry.before.bypass!=pending->installed.bypass?Snapshot::Bypass:0);
+            |(config.upstream.isEmpty() && entry.before.bypass!=pending->installed.bypass?Snapshot::Bypass:0);
         if (!entry.intent) continue;
         const auto abandon=[&](Result result) {entry.intent=0;entry.released=7;return fail(result);};
         if (auto result=checkpoint();!result.succeeded()) return abandon(result);
@@ -218,7 +245,7 @@ PlatformOperationResult PlatformSystemProxyBackend::apply(const SystemProxyConfi
         result = query(api, name, actual);
         if (!result.succeeded()) return fail(result);
         if (actual.flags != pending->installed.flags || actual.server != pending->installed.server
-            || actual.bypass != pending->installed.bypass || actual.pac != pending->connections[name].before.pac)
+            || actual.bypass != (config.upstream.isEmpty()?pending->installed.bypass:entry.before.bypass) || actual.pac != pending->connections[name].before.pac)
             return fail({Status::Failed, "WinINet proxy readback mismatch", true});
         entry.written=entry.intent;
         if (auto result=checkpoint();!result.succeeded()) return fail(result);

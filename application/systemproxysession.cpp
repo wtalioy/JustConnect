@@ -23,6 +23,7 @@ bool SystemProxySession::checkConflict(const SystemProxyConfig &config)
 {
     return startOperation(Operation::CheckConflict, config);
 }
+bool SystemProxySession::inspect() { return startOperation(Operation::Inspect); }
 
 bool SystemProxySession::enable(const SystemProxyConfig &config)
 {
@@ -32,7 +33,7 @@ bool SystemProxySession::enable(const SystemProxyConfig &config)
 
 bool SystemProxySession::disable()
 {
-    if (currentOperation==Operation::Enable || currentOperation==Operation::CheckConflict) {
+    if (currentOperation==Operation::Enable || currentOperation==Operation::CheckConflict || currentOperation==Operation::Inspect) {
         restoreRequested=true;return true;
     }
     if (!needsCleanup()) return false;
@@ -53,7 +54,7 @@ bool SystemProxySession::needsCleanup() const { return enabled || uncertain; }
 
 void SystemProxySession::updateState(Operation operation, const PlatformOperationResult &result)
 {
-    if (operation == Operation::CheckConflict) {
+    if (operation == Operation::CheckConflict || operation == Operation::Inspect) {
         uncertain |= result.mayHaveChanged;
         return;
     }
@@ -66,7 +67,7 @@ void SystemProxySession::updateState(Operation operation, const PlatformOperatio
 bool SystemProxySession::startOperation(Operation operation, const SystemProxyConfig &config)
 {
     const bool continuing=operation==Operation::Disable
-        && (currentOperation==Operation::Enable || currentOperation==Operation::CheckConflict) && operationWatcher.isFinished();
+        && (currentOperation==Operation::Enable || currentOperation==Operation::CheckConflict || currentOperation==Operation::Inspect) && operationWatcher.isFinished();
     if (isBusy() && !continuing) return false;
 
     currentOperation = operation;
@@ -81,6 +82,10 @@ bool SystemProxySession::startOperation(Operation operation, const SystemProxyCo
             {
             case Operation::CheckConflict:
                 result.check = proxyBackend->check(config);
+                result.result = result.check.result;
+                break;
+            case Operation::Inspect:
+                result.check = proxyBackend->inspect();
                 result.result = result.check.result;
                 break;
             case Operation::Enable:
@@ -118,6 +123,10 @@ void SystemProxySession::handleOperationFinished()
     if (result.operation == Operation::CheckConflict)
     {
         emit conflictCheckFinished(result.check);
+    }
+    else if (result.operation == Operation::Inspect)
+    {
+        emit inspectionFinished(result.check);
     }
     else
     {

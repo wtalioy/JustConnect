@@ -11,6 +11,11 @@
 static void number(CFMutableDictionaryRef values, CFStringRef key, int value) {
     auto native=CFNumberCreate(nullptr,kCFNumberIntType,&value);CFDictionarySetValue(values,key,native);CFRelease(native);
 }
+static bool enabled(CFDictionaryRef values, CFStringRef key) {
+    auto raw=values?CFDictionaryGetValue(values,key):nullptr;int flag=0;
+    return raw && CFGetTypeID(raw)==CFNumberGetTypeID()
+        && CFNumberGetValue(static_cast<CFNumberRef>(raw),kCFNumberIntType,&flag) && flag!=0;
+}
 static CFStringRef path(SCNetworkServiceRef service) {
     return CFStringCreateWithFormat(nullptr,nullptr,CFSTR("/%@/%@/%@"),kSCPrefNetworkServices,SCNetworkServiceGetServiceID(service),kSCEntNetProxies);
 }
@@ -81,6 +86,35 @@ static void backendTests() {
         check(!value(secondPath),"absent original proxy configuration restored without fabricated fields");
         check(value(disabledPath) && CFEqual(value(disabledPath),original),"disabled service remains untouched");
     };
+    for (const bool handoff:{false,true}) {
+        seed();
+        auto local=CFDictionaryCreateMutableCopy(nullptr,0,original);
+        const auto releaseLocal=qScopeGuard([&]{CFRelease(local);});
+        CFDictionarySetValue(local,kSCPropNetProxiesHTTPProxy,CFSTR("127.0.0.1"));number(local,kSCPropNetProxiesHTTPPort,7897);
+        number(local,CFSTR("HTTPProxyAuthenticated"),0);
+        number(local,kSCPropNetProxiesProxyAutoConfigEnable,0);number(local,kSCPropNetProxiesProxyAutoDiscoveryEnable,0);
+        check(SCPreferencesPathSetValue(prefs,firstPath,local) && nativeCommit(prefs),"Seed private local upstream");
+        auto automatic=config;automatic.upstream={"127.0.0.1:7897"};
+        PlatformSystemProxyBackend owner(api);
+        auto view=owner.inspect();
+        check(view.result.succeeded() && view.active && !view.managed && view.endpoints==automatic.upstream,"Observe native local upstream");
+        check(owner.apply(automatic).succeeded(),"Automatic native local upstream handoff");
+        view=owner.inspect();
+        auto installed=static_cast<CFDictionaryRef>(value(firstPath));
+        check(view.managed && view.endpoints==automatic.upstream && !enabled(installed,kSCPropNetProxiesHTTPSEnable)
+              && !enabled(installed,kSCPropNetProxiesSOCKSEnable) && !value(secondPath)
+              && CFEqual(CFDictionaryGetValue(installed,kSCPropNetProxiesExceptionsList),CFDictionaryGetValue(local,kSCPropNetProxiesExceptionsList)),
+              "Automatic native handoff changed inactive protocols, services or bypass");
+        if (handoff) {
+            PlatformSystemProxyBackend fresh(api);
+            check(fresh.recover(owner.recoverySnapshot()).succeeded() && CFEqual(value(firstPath),local),"Automatic native record recovery");
+        } else {
+            auto disabledProxy=CFDictionaryCreateMutableCopy(nullptr,0,installed);number(disabledProxy,kSCPropNetProxiesHTTPEnable,0);
+            check(SCPreferencesPathSetValue(prefs,firstPath,disabledProxy) && nativeCommit(prefs),"Externally disable the owned private frontend");CFRelease(disabledProxy);
+            check(!owner.inspect().active && owner.clear().succeeded() && !enabled(static_cast<CFDictionaryRef>(value(firstPath)),kSCPropNetProxiesHTTPEnable),
+                  "Automatic native restoration re-enabled an external OFF choice");
+        }
+    }
     seed();PlatformSystemProxyBackend backend(api);
     auto firstParent=CFStringCreateWithFormat(nullptr,nullptr,CFSTR("/%@/%@"),kSCPrefNetworkServices,SCNetworkServiceGetServiceID(first));
     const auto releaseFirstParent=qScopeGuard([&]{CFRelease(firstParent);});

@@ -63,16 +63,34 @@ const Endpoint endpoints[]{
     {kSCPropNetProxiesHTTPSEnable,kSCPropNetProxiesHTTPSProxy,kSCPropNetProxiesHTTPSPort,CFSTR("HTTPSProxyAuthenticated"),CFSTR("HTTPSProxyUsername"),CFSTR("HTTPSProxyPassword")},
     {kSCPropNetProxiesSOCKSEnable,kSCPropNetProxiesSOCKSProxy,kSCPropNetProxiesSOCKSPort,CFSTR("SOCKSProxyAuthenticated"),CFSTR("SOCKSProxyUsername"),CFSTR("SOCKSProxyPassword")}
 };
+QStringList proxyEndpoints(CFDictionaryRef values) {
+    for (const auto key:modes) if (enabled(values,key)) return {};
+    QStringList result;
+    for (const auto &endpoint:endpoints) {
+        if (!enabled(values,endpoint.enabled)) continue;
+        if (enabled(values,endpoint.authenticated)) return {};
+        auto host=CFDictionaryGetValue(values,endpoint.host), port=CFDictionaryGetValue(values,endpoint.port);
+        int number=0;
+        if (!host || !port || CFGetTypeID(host)!=CFStringGetTypeID() || CFGetTypeID(port)!=CFNumberGetTypeID()
+            || !CFNumberGetValue(static_cast<CFNumberRef>(port),kCFNumberIntType,&number)) return {};
+        const auto value=ProxyValidation::localEndpoint(QString::fromCFString(static_cast<CFStringRef>(host)),number);
+        if (value.isEmpty()) return {};
+        if (!result.contains(value)) result.append(value);
+    }
+    return result;
+}
 CFMutableDictionaryRef requested(CFDictionaryRef before, const SystemProxyConfig &config) {
     auto values = dictionary(before);
     for (int i = 0; i < 3; ++i) {
         const auto &endpoint = endpoints[i];
+        if (!config.upstream.isEmpty() && !enabled(before,endpoint.enabled)) continue;
         number(values, endpoint.enabled, 1); number(values, endpoint.port, i == 2 ? config.socksPort : config.httpPort);
         CFDictionarySetValue(values, endpoint.host, CFSTR("127.0.0.1"));
         // Keep old authentication material in the snapshot, never on the temporary local endpoint.
         number(values, endpoint.authenticated, 0);
         CFDictionaryRemoveValue(values, endpoint.username); CFDictionaryRemoveValue(values, endpoint.password);
     }
+    if (!config.upstream.isEmpty()) return values;
     for (const auto key : modes) number(values, key, 0);
     auto bypass = CFArrayCreateMutable(nullptr, 0, &kCFTypeArrayCallBacks);
     for (const auto &domain : ProxyValidation::bypass(config.bypass)) {
@@ -138,7 +156,7 @@ QJsonObject PlatformSystemProxyBackend::recoverySnapshot() const {
     }
     return {{"schema_version",2},{"platform","macos"},{"machine",QString::fromLatin1(QSysInfo::machineUniqueId().toHex())},
         {"uid",qint64(geteuid())},{"owner",snapshot->owner.toString(QUuid::WithoutBraces)},
-        {"config",QJsonObject{{"http_port",snapshot->config.httpPort},{"socks_port",snapshot->config.socksPort},{"bypass",snapshot->config.bypass}}},
+        {"config",ProxyValidation::json(snapshot->config)},
         {"services",services},{"restoration_committed",snapshot->restorationCommitted}};
 }
 
@@ -158,10 +176,9 @@ PlatformOperationResult PlatformSystemProxyBackend::recover(const QJsonObject &r
         || record["schema_version"]!=2 || record["platform"]!="macos" || machine.isEmpty() || record["machine"]!=machine
         || record["uid"].toInteger(-1)!=qint64(geteuid()) || owner.isNull() || owner.toString(QUuid::WithoutBraces)!=ownerText
         || !record["config"].isObject() || !record["services"].isArray() || !record["restoration_committed"].isBool()) return invalid();
-    const auto config=record["config"].toObject();
-    const auto http=config["http_port"].toInteger(-1),socks=config["socks_port"].toInteger(-1);
-    if (config.size()!=3 || http<1 || http>65535 || socks<1 || socks>65535 || !config["bypass"].isString()) return invalid();
-    auto pending=std::make_shared<Snapshot>();pending->owner=owner;pending->config={int(http),int(socks),config["bypass"].toString()};
+    const auto config=ProxyValidation::parse(record["config"].toObject());
+    if (!config) return invalid();
+    auto pending=std::make_shared<Snapshot>();pending->owner=owner;pending->config=*config;
     if (!ProxyValidation::config(pending->config).succeeded()) return invalid();
     pending->restorationCommitted=record["restoration_committed"].toBool();QSet<QString> ids;
     for (const auto &value:record["services"].toArray()) {
@@ -208,29 +225,45 @@ PlatformOperationResult PlatformSystemProxyBackend::recover(const QJsonObject &r
 
 SystemProxyCheck PlatformSystemProxyBackend::check(const SystemProxyConfig &config) {
     if (auto valid = ProxyValidation::config(config); !valid.succeeded()) return {valid};
+    return observe(&config);
+}
+SystemProxyCheck PlatformSystemProxyBackend::inspect() { return observe(nullptr); }
+SystemProxyCheck PlatformSystemProxyBackend::observe(const SystemProxyConfig *config) {
     Snapshot view; view.preferences = api.open(&view.authorization);
     if (!view.preferences) return {error("Open proxy preferences")};
     auto all = SCNetworkServiceCopyAll(view.preferences);
     if (!all) return {error("Read network services")};
     const auto release = qScopeGuard([&] { CFRelease(all); });
-    bool active = false, conflict = false, supported = false;
+    bool active = false, conflict = false, supported = false, managed=false;
+    QStringList observed;
     for (CFIndex i = 0; i < CFArrayGetCount(all); ++i) {
         auto service = static_cast<SCNetworkServiceRef>(CFArrayGetValueAtIndex(all, i));
         if (!SCNetworkServiceGetEnabled(service)) continue;
         auto location = path(service); const auto releasePath = qScopeGuard([&] { CFRelease(location); });
         CFDictionaryRef current = nullptr;
         if (auto result = read(view.preferences, location, current); !result.succeeded()) return {result};
-        const auto desired = requested(current, config);
+        const auto desired = config?requested(current,*config):dictionary(current);
         const auto releaseDesired = qScopeGuard([&] { CFRelease(desired); });
         supported = true;
         for (const auto &endpoint : endpoints) if (enabled(current, endpoint.enabled)) {
             active = true;
-            conflict |= !same(current, desired, endpoint.host) || !same(current, desired, endpoint.port) || enabled(current, endpoint.authenticated);
+            conflict |= config && (!same(current, desired, endpoint.host) || !same(current, desired, endpoint.port) || enabled(current, endpoint.authenticated));
         }
         for (const auto key : modes) conflict |= enabled(current, key);
+        CFDictionaryRef upstream=current;
+        bool own=false;
+        if (snapshot) for (const auto &saved:snapshot->services) if (CFEqual(saved.path,location)) {
+            own=true;
+            for (size_t group=0;group<3;++group) own &= sameGroup(current,saved.installed,group);
+            for (const auto key:modes) own &= same(current,saved.installed,key);
+            if (own) upstream=saved.before;
+        }
+        const auto actual=proxyEndpoints(current);
+        managed |= own && !actual.isEmpty();
+        for (const auto &value:proxyEndpoints(upstream)) if (!observed.contains(value)) observed.append(value);
     }
     if (!supported) return {{Status::Unsupported, "No enabled network services"}};
-    return {{}, conflict, active};
+    return {{}, conflict, active, managed && active, observed};
 }
 
 PlatformOperationResult PlatformSystemProxyBackend::apply(const SystemProxyConfig &config) {
@@ -253,6 +286,7 @@ PlatformOperationResult PlatformSystemProxyBackend::apply(const SystemProxyConfi
         auto location = path(service); CFDictionaryRef before = nullptr;
         const auto result = read(prefs, location, before);
         if (!result.succeeded()) { CFRelease(location); return result; }
+        if (!config.upstream.isEmpty() && !ProxyValidation::matches(config.upstream,proxyEndpoints(before))) { CFRelease(location);continue; }
         pending->services.push_back({location, before ? static_cast<CFDictionaryRef>(CFRetain(before)) : nullptr, requested(before, config)});
     }
     if (pending->services.empty()) return {Status::Unsupported, "No enabled network services"};
