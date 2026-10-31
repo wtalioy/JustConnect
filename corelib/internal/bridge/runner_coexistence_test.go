@@ -40,9 +40,9 @@ func TestNativeCoexistenceHost(t *testing.T) {
 		g.authCount.Load() != 2 ||
 		g.sshCount.Load() != 2*trafficCases ||
 		g.tcpCount.Load() != 4*trafficCases ||
-		g.udpCount.Load() != 2*trafficCases+g.nativeDNSQueries.Load() ||
+		g.udpCount.Load() != 2*trafficCases+g.dnsUDPPackets.Load() ||
 		g.nativeDNSQueries.Load() < 1 {
-		t.Fatalf("missing actual matrix traffic: auth=%d TCP=%d SSH=%d UDP=%d DNS=%d\n%s", g.authCount.Load(), g.tcpCount.Load(), g.sshCount.Load(), g.udpCount.Load(), g.nativeDNSQueries.Load(), output)
+		t.Fatalf("missing actual matrix traffic: auth=%d TCP=%d SSH=%d UDP=%d DNS-A=%d DNS-all=%d questions=%v\n%s", g.authCount.Load(), g.tcpCount.Load(), g.sshCount.Load(), g.udpCount.Load(), g.nativeDNSQueries.Load(), g.dnsUDPPackets.Load(), g.observedDNSQuestions(), output)
 	}
 	t.Log(string(output))
 }

@@ -18,9 +18,12 @@ inline std::optional<std::pair<QJsonObject,QJsonObject>> linuxOriginalProxyView(
     if (identity.size() != 2 || index <= 0 || !canonicalLinuxInterfaceName(name)
         || !network["interfaces"].isArray() || !network["routes"].isArray() || !network["policy_rules"].isArray()) return {};
     QJsonArray routes, rules;
+    QSet<QByteArray> loopbacks;
     bool found = false;
     for (const auto &value : network["interfaces"].toArray()) {
         const auto row = value.toObject();
+        if (row["loopback"] == true && row["up"] == true && canonicalLinuxInterfaceName(row["name"].toString()))
+            loopbacks.insert(row["name"].toString().toUtf8()+'\0');
         if (row["index"] != index) continue;
         if (found || row["name"] != name || row["up"] != true || row["loopback"] != false) return {};
         found = true;
@@ -76,7 +79,7 @@ inline std::optional<std::pair<QJsonObject,QJsonObject>> linuxOriginalProxyView(
         const int family = jump["family"].toInt();
         const auto range = priorities.constFind(family);
         const auto priority = jump["priority"].toInteger();
-        if (range == priorities.cend() || priority < range->first || priority > range->second
+        if (range == priorities.cend() || priority <= LinuxCaptureRulePriority || priority > range->second
             || jump["action"] != FR_ACT_GOTO || jump["flags"] != 0 || jump["tos"] != 0
             || jump.contains("source") || jump.contains("destination")) continue;
         const auto attrs = attributes(jump);
@@ -87,16 +90,19 @@ inline std::optional<std::pair<QJsonObject,QJsonObject>> linuxOriginalProxyView(
         const auto target = number(attrs->value(FRA_GOTO));
         if (!known || target <= range->second) continue;
         excluded.insert(i);
+        QList<qsizetype> localSources;
+        QSet<QString> halves;
         for (qsizetype j = 0; j < input.size(); ++j) {
             const auto row = input[j].toObject();
-            if (row["family"] != family || row["tos"] != 0 || row.contains("source") || row.contains("destination")) continue;
+            if (row["family"] != family || row["tos"] != 0 || row.contains("destination")) continue;
             const auto data = attributes(row);
             if (!data || data->value(FRA_PROTOCOL) != attrs->value(FRA_PROTOCOL)) continue;
             auto permitted = common;
-            bool linked = row["priority"] == target && row["action"] == FR_ACT_NOP && row["flags"] == 0 && row["table"] == 0;
+            const bool unsourced = !row.contains("source");
+            bool linked = unsourced && row["priority"] == target && row["action"] == FR_ACT_NOP && row["flags"] == 0 && row["table"] == 0;
             // Linux fib_rules.h: FRA_DPORT_MASK is 29, also on kernels with older build headers.
             constexpr int DestinationPortMask = 29;
-            if (row["priority"] == priority && row["action"] == FR_ACT_TO_TBL && row["table"].toInteger() == RT_TABLE_MAIN
+            if (unsourced && row["priority"] == priority && row["action"] == FR_ACT_TO_TBL && row["table"].toInteger() == RT_TABLE_MAIN
                 && row["flags"] == FIB_RULE_INVERT && number(data->value(FRA_SUPPRESS_PREFIXLEN)) == 0) {
                 const quint16 dnsPort = 53;
                 const QByteArray ports(reinterpret_cast<const char *>(&dnsPort),sizeof(dnsPort));
@@ -106,7 +112,20 @@ inline std::optional<std::pair<QJsonObject,QJsonObject>> linuxOriginalProxyView(
             }
             for (auto it = data->cbegin(); it != data->cend(); ++it) linked &= permitted.contains(it.key());
             if (linked) excluded.insert(j);
+            if (family != AF_INET6 || row["priority"] != priority || row["action"] != FR_ACT_GOTO || row["flags"] != 0
+                || row["table"] != 0 || !loopbacks.contains(data->value(FRA_IIFNAME)) || number(data->value(FRA_GOTO)) != target) continue;
+            const auto source = row["source"].toString();
+            QByteArray expected(16,char(0));
+            if (source == "8000::/1") expected[0] = char(0x80);
+            else if (source != "::/1") continue;
+            if (data->value(FRA_SRC) != expected) continue;
+            auto sourceAttributes = common; sourceAttributes.unite({FRA_IIFNAME,FRA_GOTO,FRA_SRC});
+            bool exact = true;
+            for (auto it = data->cbegin(); it != data->cend(); ++it) exact &= sourceAttributes.contains(it.key());
+            if (exact) { localSources.append(j); halves.insert(source); }
         }
+        // Only the complete, exact IPv6 source pair belongs to this linked proxy group.
+        if (localSources.size() == 2 && halves.size() == 2) for (const auto row : localSources) excluded.insert(row);
     }
     for (qsizetype i = 0; i < input.size(); ++i) if (!excluded.contains(i)) rules.append(input[i]);
     // Keep real interface addresses reserved for device allocation, without granting protection.

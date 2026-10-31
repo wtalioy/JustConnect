@@ -256,8 +256,8 @@ int main(int argc,char **argv)
         auto lookup = std::async(std::launch::async,[] { return addresses("campus.test"); });
         until([&] { return lookup.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready; });
         const auto resolved = lookup.get();
-        for (const auto &address : resolved) check(address == "198.18.0.7","Actual CNAME campus DNS answer");
-        exerciseNativeTUNTraffic(QHostAddress(resolved.first()));
+        for (const auto &address : resolved) check(QHostAddress(address) == (composed ? coexistence.campusTCP() : QHostAddress("198.18.0.7")),"Actual CNAME campus DNS answer");
+        exerciseNativeTUNTraffic(QHostAddress(resolved.first()),composed ? coexistence.campusUDP() : QHostAddress("198.18.0.6"));
         exerciseNativeSSH(QHostAddress(resolved.first()));
         for (const auto &address : addresses("localhost")) check(QHostAddress(address).isLoopback(),"localhost remains on this computer");
         originalView();

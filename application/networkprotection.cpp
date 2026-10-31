@@ -9,6 +9,8 @@
 #include <utility>
 #ifdef Q_OS_LINUX
 #include "infrastructure/routing/linux/proxyview.h"
+#elif defined(Q_OS_MACOS)
+#include "infrastructure/routing/macos/proxyview.h"
 #endif
 
 namespace {
@@ -42,6 +44,8 @@ std::optional<std::pair<QJsonObject,QJsonObject>> originalProxyNetworkView(QJson
 {
 #ifdef Q_OS_LINUX
     return linuxOriginalProxyView(std::move(network),std::move(dns));
+#elif defined(Q_OS_MACOS)
+    return macOriginalProxyView(std::move(network),std::move(dns));
 #else
     return {{network,dns}};
 #endif
@@ -70,7 +74,7 @@ std::optional<QJsonArray> originalNetworkProtection(const QJsonObject &snapshot)
     add("::1/128", {{"kind", "loopback"}}, false);
     QSet<qint64> interfacesSeen, disconnected;
     qint64 proxyIndex = 0;
-#ifdef Q_OS_LINUX
+#if defined(Q_OS_LINUX) || defined(Q_OS_MACOS)
     proxyIndex = network["proxy_tunnel"].toObject()["interface_index"].toInteger();
 #endif
     const auto interfaces = network["interfaces"].toArray();

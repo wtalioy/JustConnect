@@ -150,15 +150,17 @@ func nativeWindowsSession(t *testing.T, faults, policy, exitChange bool) {
 		t.Fatalf("actual ordinary Windows application session: %v; auth=%d TCP=%d UDP=%d DNS=%d\n%s", err, g.authCount.Load(), g.tcpCount.Load(), g.udpCount.Load(), g.nativeDNSQueries.Load(), output)
 	}
 	trafficRounds, tcpPerRound := rounds, int32(4)
+	dnsPackets := g.nativeDNSQueries.Load()
 	if composed {
+		dnsPackets = g.dnsUDPPackets.Load()
 		trafficRounds *= 12
 		tcpPerRound++ // One actual campus browser request in each matrix case.
 		if bytes.Count(output, []byte("PASS: Windows composed coexistence case ")) != int(trafficRounds) {
 			t.Fatalf("missing native composed matrix cases\n%s", output)
 		}
 	}
-	if g.authCount.Load() != rounds || g.tcpCount.Load() != tcpPerRound*trafficRounds || g.sshCount.Load() != 2*trafficRounds || g.nativeDNSQueries.Load() < rounds || g.udpCount.Load() != 4*trafficRounds+g.nativeDNSQueries.Load() {
-		t.Fatalf("actual application exchanges auth=%d TCP=%d UDP=%d DNS=%d\n%s", g.authCount.Load(), g.tcpCount.Load(), g.udpCount.Load(), g.nativeDNSQueries.Load(), output)
+	if g.authCount.Load() != rounds || g.tcpCount.Load() != tcpPerRound*trafficRounds || g.sshCount.Load() != 2*trafficRounds || g.nativeDNSQueries.Load() < rounds || g.udpCount.Load() != 4*trafficRounds+dnsPackets {
+		t.Fatalf("actual application exchanges auth=%d TCP=%d SSH=%d UDP=%d DNS-A=%d DNS-all=%d questions=%v\n%s", g.authCount.Load(), g.tcpCount.Load(), g.sshCount.Load(), g.udpCount.Load(), g.nativeDNSQueries.Load(), g.dnsUDPPackets.Load(), g.observedDNSQuestions(), output)
 	}
 	if original != nil && (original.tcp.Load() != 2*rounds || original.udp.Load() != 4*rounds) {
 		t.Fatalf("same-IP original exchanges TCP=%d UDP=%d\n%s", original.tcp.Load(), original.udp.Load(), output)

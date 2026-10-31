@@ -5,8 +5,6 @@ package bridge
 import (
 	"bytes"
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"testing"
 )
@@ -20,9 +18,9 @@ func TestNativeMacCoexistence(t *testing.T) {
 	if err := json.Unmarshal([]byte(input), &facts); err != nil {
 		t.Fatal(err)
 	}
-	protected := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("original-http")) }))
-	t.Cleanup(protected.Close)
-	facts["protected_url"] = protected.URL
+	for key, url := range protectedHTTPPeers(t) {
+		facts[key] = url
+	}
 	data, err := json.Marshal(facts)
 	if err != nil {
 		t.Fatal(err)
@@ -32,9 +30,9 @@ func TestNativeMacCoexistence(t *testing.T) {
 	const cases = 24
 	if bytes.Count(output, []byte("PASS: macOS composed coexistence case ")) != cases ||
 		g.authCount.Load() != 2 || g.tcpCount.Load() != 6+4*cases ||
-		g.sshCount.Load() != 4+2*cases || g.udpCount.Load() != 4+2*cases+g.nativeDNSQueries.Load() || g.nativeDNSQueries.Load() < 2 {
-		t.Fatalf("missing real macOS matrix traffic: auth=%d TCP=%d SSH=%d UDP=%d DNS=%d\n%s", g.authCount.Load(),
-			g.tcpCount.Load(), g.sshCount.Load(), g.udpCount.Load(), g.nativeDNSQueries.Load(), output)
+		g.sshCount.Load() != 4+2*cases || g.udpCount.Load() != 4+2*cases+g.dnsUDPPackets.Load() || g.nativeDNSQueries.Load() < 2 {
+		t.Fatalf("missing real macOS matrix traffic: auth=%d TCP=%d SSH=%d UDP=%d DNS-A=%d DNS-all=%d questions=%v\n%s", g.authCount.Load(),
+			g.tcpCount.Load(), g.sshCount.Load(), g.udpCount.Load(), g.nativeDNSQueries.Load(), g.dnsUDPPackets.Load(), g.observedDNSQuestions(), output)
 	}
 	t.Log(string(output))
 }

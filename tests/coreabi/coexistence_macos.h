@@ -20,11 +20,15 @@ public:
     int observations = 0;
     MacProxyApi api;
 
+    QHostAddress campusUDP() const { return QHostAddress(runtime["campus_udp"].toString()); }
+    QHostAddress campusTCP() const { return QHostAddress(campusUDP().toIPv4Address()+1); }
+
     explicit MacCoexistenceFixture(const AuthorizationExternalForm &grant)
     {
         if (runtime.isEmpty()) return;
         check(QFileInfo(runtime["controller"].toString()).isAbsolute() && runtime["pid"].toInteger() > 0
             && runtime["port"].toInt() > 0 && runtime["port"].toInt() <= 65535,"parent-owned native runtime facts");
+        check(campusUDP().protocol() == QAbstractSocket::IPv4Protocol && !campusUDP().isNull(),"owned campus IPv4 fixture");
         api.open = [grant](AuthorizationRef *authorization) {
             if (AuthorizationCreateFromExternalForm(&grant,authorization) != errAuthorizationSuccess) return SCPreferencesRef(nullptr);
             return SCPreferencesCreateWithAuthorization(nullptr,CFSTR("JustConnect disposable coexistence"),nullptr,*authorization);
@@ -90,8 +94,8 @@ public:
                 until([&] { return lookup.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready; });
                 const auto targets = lookup.get();
                 check(!targets.isEmpty(),"actual system campus DNS returns its fixture answer");
-                for (const auto &target : targets) check(target == "198.18.0.7","actual system campus DNS remains ahead of the original mode");
-                exerciseNativeTUNTraffic(QHostAddress(targets.first())); exerciseNativeSSH(QHostAddress(targets.first()));
+                for (const auto &target : targets) check(QHostAddress(target) == campusTCP(),"actual system campus DNS remains ahead of the original mode");
+                exerciseNativeTUNTraffic(QHostAddress(targets.first()),campusUDP()); exerciseNativeSSH(QHostAddress(targets.first()));
                 const auto campus = get("http://campus.test/",enabled);
                 check(campus.first && campus.second == "vpn-response","actual browser campus request reaches VPN before the original mode");
                 const auto ordinary = get(runtime["ordinary_url"].toString(),enabled);
@@ -99,6 +103,8 @@ public:
                 check(rejected ? !ordinary.first : ordinary.first,"ordinary web preserves selected Clash mode and both-off direct");
                 const auto protectedPeer = get(runtime["protected_url"].toString(),enabled);
                 check(protectedPeer.first && protectedPeer.second == "original-http","protected loopback HTTP retains its original peer under GLOBAL REJECT");
+                const auto protectedIPv6 = get(runtime["protected_ipv6_url"].toString(),enabled);
+                check(protectedIPv6.first && protectedIPv6.second == "original-http","protected IPv6 retains its original peer under GLOBAL REJECT");
                 std::cout << "PASS: macOS composed coexistence case mode=" << mode << " system_proxy=" << enabled << " tun=" << tun << '\n';
             }
         }

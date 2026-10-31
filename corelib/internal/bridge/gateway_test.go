@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -56,6 +57,8 @@ type gateway struct {
 	probeDNS         atomic.Bool
 	nativeDNS        atomic.Bool
 	nativeDNSQueries atomic.Int32
+	dnsUDPPackets    atomic.Int32
+	dnsQuestions     sync.Map
 	originalDNSName  atomic.Bool
 	renewals         atomic.Int32
 	extraWANNode     atomic.Value
@@ -504,6 +507,10 @@ func (g *gateway) serveL3(conn net.Conn) {
 				if g.probeDNS.Load() && udp.DestinationPort() == 53 {
 					request := new(dns.Msg)
 					if request.Unpack(udp.Payload()) == nil {
+						if !request.Response && request.Opcode == dns.OpcodeQuery && len(request.Question) == 1 {
+							g.dnsUDPPackets.Add(1)
+							g.dnsQuestions.Store(request.Question[0].String(), true)
+						}
 						reply := new(dns.Msg)
 						reply.SetReply(request)
 						if g.nativeDNS.Load() && len(request.Question) == 1 && (request.Question[0].Name == "campus.test." || request.Question[0].Name == "host.campus.test.") && request.Question[0].Qtype == dns.TypeA {
@@ -549,4 +556,11 @@ func (g *gateway) serveL3(conn net.Conn) {
 			return
 		}
 	}
+}
+
+func (g *gateway) observedDNSQuestions() []string {
+	var questions []string
+	g.dnsQuestions.Range(func(key, _ any) bool { questions = append(questions, key.(string)); return true })
+	sort.Strings(questions)
+	return questions
 }

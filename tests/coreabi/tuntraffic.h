@@ -6,12 +6,12 @@
 #include <QFileInfo>
 #include <QNetworkProxy>
 
-inline void exerciseNativeTUNUDP()
+inline void exerciseNativeTUNUDP(const QHostAddress &target = QHostAddress("198.18.0.6"))
 {
     using ProxyCheck::check;
     QUdpSocket udp;
     udp.setProxy(QNetworkProxy::NoProxy);
-    udp.connectToHost(QHostAddress("198.18.0.6"), 53);
+    udp.connectToHost(target, 53);
     for (const auto &packet : {QByteArray("native-tun-datagram"), QByteArray()}) {
         check(udp.write(packet) == packet.size(), "native UDP datagram sent");
         check(udp.waitForReadyRead(5000), "native UDP datagram returned through campus tunnel");
@@ -23,7 +23,8 @@ inline void exerciseNativeTUNUDP()
     }
 }
 
-inline void exerciseNativeTUNTraffic(const QHostAddress &tcpTarget = QHostAddress("198.18.0.6"))
+inline void exerciseNativeTUNTraffic(const QHostAddress &tcpTarget = QHostAddress("198.18.0.6"),
+    const QHostAddress &udpTarget = QHostAddress("198.18.0.6"))
 {
     using ProxyCheck::check;
     QTcpSocket tcp;
@@ -40,7 +41,7 @@ inline void exerciseNativeTUNTraffic(const QHostAddress &tcpTarget = QHostAddres
     }
     check(reply == payload, "multi-packet native TCP bytes preserved through campus tunnel");
     tcp.abort();
-    exerciseNativeTUNUDP();
+    exerciseNativeTUNUDP(udpTarget);
 }
 
 inline void exerciseOriginalNetworkUDP(const QHostAddress &target = QHostAddress("198.18.0.6"))

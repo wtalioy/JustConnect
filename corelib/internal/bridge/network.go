@@ -13,7 +13,7 @@ import (
 
 func (e *Engine) NetworkSnapshot() (model.Snapshot, error) {
 	snapshot, err := networkstate.Read()
-	if err != nil || snapshot.OS != "linux" {
+	if err != nil || (snapshot.OS != "linux" && snapshot.OS != "darwin") {
 		return snapshot, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

@@ -56,7 +56,7 @@ func Read(ctx context.Context) ([]model.Process, error) {
 		if !model.Recognized(unix.ByteSliceToString(entry.Proc.P_comm[:])) {
 			continue
 		}
-		p := model.Process{PID: int(entry.Proc.P_pid), Started: stamp(&entry)}
+		p := model.Process{PID: int(entry.Proc.P_pid), Started: stamp(&entry), NetworkAdmin: entry.Eproc.Ucred.Uid == 0}
 		data, err := unix.SysctlRaw("kern.procargs2", p.PID)
 		if err == nil && len(data) >= 4 && len(data) <= maxNativeReadBytes {
 			count := int(binary.NativeEndian.Uint32(data[:4]))
