@@ -170,7 +170,9 @@ void CoexistenceNetworkAccess::inspectFinished(const SystemProxyCheck &check) {
 }
 void CoexistenceNetworkAccess::proxyFinished(const Result &result) {
     if (stage == Stage::Stopping) {
-        if (!result.succeeded()) { stage = Stage::StopFailed; emit stopped(attempt, result); }
+        // A cancelled apply may already be followed by its queued restoration.
+        if (proxy->isBusy()) return;
+        if (!result.succeeded() && proxy->needsCleanup()) { stage = Stage::StopFailed; emit stopped(attempt, result); }
         else scheduled.start();
         return;
     }
