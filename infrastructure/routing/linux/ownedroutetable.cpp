@@ -91,7 +91,8 @@ LinuxOwnedRouteTable::ReadResult LinuxOwnedRouteTable::read(const QString &utili
             const bool implicitMain = !row.contains("table") && !(row["dev"] == interfaceName
                 && row["protocol"] == "4" && row["metric"].toInteger(-1) == metric);
             const auto action = row["action"].toString();
-            const bool terminal = action=="3" || action=="6" || action=="7" || action=="8";
+            const bool terminal = action=="3" || action=="6" || action=="7" || action=="8"
+                || (row.contains("nop") && row["nop"].isNull());
             const bool jump = row["goto"].toInteger(-1)>=0 && row["goto"].toInteger()<=0xffffffffLL;
             const bool validTable = rules ? (row.contains("table") ? table : terminal || jump) : table || implicitMain;
             if (!value.isObject() || !validTable

@@ -7,6 +7,9 @@
 #include <limits>
 #include <algorithm>
 #include <utility>
+#ifdef Q_OS_LINUX
+#include "infrastructure/routing/linux/proxyview.h"
+#endif
 
 namespace {
 constexpr qsizetype MaxModelItems = 4096;
@@ -35,8 +38,20 @@ int compare(const QHostAddress &a, const QHostAddress &b)
 }
 }
 
-std::optional<QJsonArray> originalNetworkProtection(const QJsonObject &network)
+std::optional<std::pair<QJsonObject,QJsonObject>> originalProxyNetworkView(QJsonObject network, QJsonObject dns)
 {
+#ifdef Q_OS_LINUX
+    return linuxOriginalProxyView(std::move(network),std::move(dns));
+#else
+    return {{network,dns}};
+#endif
+}
+
+std::optional<QJsonArray> originalNetworkProtection(const QJsonObject &snapshot)
+{
+    const auto view = originalProxyNetworkView(snapshot,{});
+    if (!view) return {};
+    const auto &network = view->first;
     if (!network["interfaces"].isArray() || !network["routes"].isArray()) return std::nullopt;
     QMap<QString, QJsonArray> targets;
     auto add = [&](const QString &value, const QJsonObject &source, bool route, bool excluded = false) {
@@ -54,6 +69,10 @@ std::optional<QJsonArray> originalNetworkProtection(const QJsonObject &network)
     add("127.0.0.0/8", {{"kind", "loopback"}}, false);
     add("::1/128", {{"kind", "loopback"}}, false);
     QSet<qint64> interfacesSeen, disconnected;
+    qint64 proxyIndex = 0;
+#ifdef Q_OS_LINUX
+    proxyIndex = network["proxy_tunnel"].toObject()["interface_index"].toInteger();
+#endif
     const auto interfaces = network["interfaces"].toArray();
     for (int i = 0; i < interfaces.size(); ++i) {
         if (!interfaces[i].isObject()) return std::nullopt;
@@ -68,7 +87,7 @@ std::optional<QJsonArray> originalNetworkProtection(const QJsonObject &network)
         const auto addresses = item["addresses"].toArray();
         for (int j = 0; j < addresses.size(); ++j) {
             if (!addresses[j].isString() || !add(addresses[j].toString(),
-                {{"kind", "interface_address"}, {"interface", i}, {"address", j}}, false)) return std::nullopt;
+                {{"kind", "interface_address"}, {"interface", i}, {"address", j}}, false,index > 0 && index == proxyIndex)) return std::nullopt;
         }
     }
     const auto routes = network["routes"].toArray();
@@ -652,6 +671,15 @@ std::optional<std::pair<QString, QString>> privateTUNAddresses(const QJsonObject
     };
     for (const auto &entry : *original) if (!exclude(entry.toObject()["prefix"].toString())) return {};
     for (const auto &prefix : reservedPrefixes) if (!exclude(prefix)) return {};
+    const auto proxyIndex = network["proxy_tunnel"].toObject()["interface_index"].toInteger();
+    for (const auto &value : network["interfaces"].toArray()) {
+        const auto row = value.toObject();
+        if (proxyIndex <= 0 || row["index"] != proxyIndex) continue;
+        for (const auto &address : row["addresses"].toArray()) {
+            const auto subnet = QHostAddress::parseSubnet(address.toString());
+            if (!exclude(subnet.first.toString()+'/'+QString::number(subnet.second))) return {};
+        }
+    }
     // A cache does not grant protection, but its currently used private address is unavailable for allocation.
     for (const auto &value : network["routes"].toArray()) {
         const auto row = value.toObject();

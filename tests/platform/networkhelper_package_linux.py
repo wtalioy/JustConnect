@@ -45,6 +45,7 @@ def main():
     parser.add_argument('--authorization-fixture', type=Path, help='namespace-only authorization broker fixture')
     parser.add_argument('--gateway', type=Path, help='native campus gateway test binary')
     parser.add_argument('--tun-adapter', type=Path, help='Qt/core TUN caller for the installed helper')
+    parser.add_argument('--coexistence-mihomo', type=Path, help='owned official runtime for the composed application matrix')
     args = parser.parse_args()
     assert os.geteuid() == 0 and args.uid != 0
     for name in ('net', 'mnt'):
@@ -52,6 +53,7 @@ def main():
     assert not (args.package and args.development_qt), 'release package must load the actual distribution runtime'
     assert bool(args.client) == bool(args.authorization_fixture)
     assert bool(args.gateway) == bool(args.tun_adapter) and (not args.gateway or args.client)
+    assert not args.coexistence_mihomo or args.gateway
     client = args.client.resolve(strict=True) if args.client else None
     broker = args.authorization_fixture.resolve(strict=True) if args.authorization_fixture else None
     gateway = args.gateway.resolve(strict=True) if args.gateway else None
@@ -71,11 +73,18 @@ def main():
 
     environment = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C.UTF-8', 'PYTHONDONTWRITEBYTECODE': '1'}
     account = pwd.getpwuid(args.uid)
+    machine_identity = Path('/etc/machine-id').read_bytes() if args.coexistence_mihomo else None
     with tempfile.TemporaryDirectory(prefix='JustConnect-helper-install-test-') as temporary:
         temporary = Path(temporary)
         upper, work, state = (temporary / name for name in ('upper', 'work', 'state'))
         for path in (upper, work, state):
             path.mkdir(mode=0o755)
+        if machine_identity is not None:
+            # Private /var/lib must not hide the original identity used by Qt's proxy journal.
+            assert re.fullmatch(b'[0-9a-f]{32}\n?', machine_identity)
+            (state / 'dbus').mkdir(mode=0o755)
+            (state / 'dbus/machine-id').write_bytes(machine_identity)
+            (state / 'dbus/machine-id').chmod(0o644)
         run('mount', '--make-rprivate', '/')
         run('mount', '-t', 'overlay', 'overlay', '-o', f'lowerdir=/usr,upperdir={upper},workdir={work}', '/usr')
         run('mount', '--bind', state, '/var/lib')
@@ -422,6 +431,12 @@ def main():
                                 print(output, end='', flush=True)
                                 client_cases.append('core-dns')
                                 application_environment = {**dns_environment, 'JC_NATIVE_NETWORK_SESSION': '1', 'JC_NATIVE_ORIGINAL_PEER': '1'}
+
+                                if args.coexistence_mihomo:
+                                    from mihomo_coexistence_linux import run_matrix
+                                    report['coexistence'] = run_matrix(args.coexistence_mihomo.resolve(strict=True), gateway, tun_adapter,
+                                                                      args.uid, application_environment)
+                                    assert inventory() == dns_baseline and original_dns() == dns_settings
 
                                 for change in ('overlay', 'exit', 'exit-reconnect'):
                                     observation_ready = Path(caller_runtime.name) / f'application-observation-{change}.json'

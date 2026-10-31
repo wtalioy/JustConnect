@@ -27,7 +27,7 @@ private:
     void finishPolicy(CoreEngine::RequestStatus status);
     void invalidateNetwork(const QString &detail);
     void driveStop();
-    void completeStop();
+    void completeStop(PlatformOperationResult result = {});
     void helperFinished(LinuxNetworkHelperClient::Operation operation, PlatformOperationResult result);
     PlatformOperationResult saveOwner(const QUuid &owner);
     CoreEngine *core;

@@ -37,6 +37,12 @@ type Snapshot struct {
 	Interfaces  []Interface  `json:"interfaces"`
 	Routes      []Route      `json:"routes"`
 	PolicyRules []PolicyRule `json:"policy_rules"`
+	ProxyTunnel *ProxyTunnel `json:"proxy_tunnel,omitempty"`
+}
+
+type ProxyTunnel struct {
+	InterfaceIndex int    `json:"interface_index"`
+	Name           string `json:"name"`
 }
 
 // Attributes retain native Linux selectors, including ones this version does not interpret.

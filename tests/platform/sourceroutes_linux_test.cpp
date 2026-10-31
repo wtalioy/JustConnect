@@ -696,9 +696,10 @@ int main(int argc, char **argv) try
 
     check(routes.apply(owner,"original0",source,gateway,{target}).succeeded(),"Apply non-lookup foreign rule fixture");
     ip({"rule","add","priority","100","blackhole"});ip({"rule","add","priority","101","goto","200"});
+    ip({"rule","add","priority","200","nop"});
     check(routes.restore(owner).succeeded(),"Valid terminal or goto rules were treated as malformed lookup data");
-    check(read({"rule","show"}).size()==baselineRuleCount+2,"Foreign terminal/goto rules were removed");
-    ip({"rule","del","priority","100"});ip({"rule","del","priority","101"});
+    check(read({"rule","show"}).size()==baselineRuleCount+3,"Foreign terminal/goto/nop rules were removed");
+    ip({"rule","del","priority","100"});ip({"rule","del","priority","101"});ip({"rule","del","priority","200"});
     check(inventory()==baseline,"Non-lookup foreign rule recovery changed unrelated state");
 
     check(routes.apply(owner,"original0",source,gateway,{target}).succeeded(),"Apply external route change fixture");

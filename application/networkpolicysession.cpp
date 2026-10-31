@@ -281,7 +281,8 @@ void NetworkPolicySession::buildModel()
                     : snapshot.result.status == NativeStatus::Cancelled ? Status::Stale : Status::Failed;
                 return ModelResult{request, status, {}};
             }
-            const auto view = filter ? filter(original, snapshot.data) : std::optional<OriginalView>{{original, snapshot.data}};
+            auto view = filter ? filter(original, snapshot.data) : std::optional<OriginalView>{{original, snapshot.data}};
+            if (view) view = originalProxyNetworkView(view->first,view->second);
             if (!view) return ModelResult{request, Status::Failed, {}};
             const auto targets = originalNetworkProtection(view->first);
             const auto conflicts = targets ? campusProtectionConflicts(*targets, campus) : std::nullopt;

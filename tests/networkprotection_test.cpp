@@ -7,9 +7,69 @@
 #include <QSet>
 #include <iostream>
 #include <stdexcept>
+#ifdef Q_OS_LINUX
+#include "infrastructure/routing/linux/proxyview.h"
+#endif
 
 static void check(bool ok, const char *message) { if (!ok) throw std::runtime_error(message); }
 
+#ifdef Q_OS_LINUX
+static void proxyTunnelView()
+{
+    const auto physical = QJsonObject{{"index",2},{"name","physical"},{"up",true},{"loopback",false},{"addresses",QJsonArray{"192.0.2.5/24"}}};
+    const auto tunnel = QJsonObject{{"index",7},{"name","other-tun"},{"up",true},{"loopback",false},{"addresses",QJsonArray{"198.18.0.1/30"}}};
+    const auto original = QJsonObject{{"destination","0.0.0.0/0"},{"interface_index",2},{"table",254},{"gateway","192.0.2.1"}};
+    const auto captured = QJsonObject{{"destination","128.0.0.0/2"},{"interface_index",7},{"table",54321}};
+    auto attribute = [](int type,QByteArray bytes) { return QJsonObject{{"type",type},{"value_hex",QString::fromLatin1(bytes.toHex())}}; };
+    auto integer = [&](int type,quint32 value) { return attribute(type,QByteArray(reinterpret_cast<const char *>(&value),sizeof(value))); };
+    auto rule = [](int priority,int table,int action,int flags,QJsonArray attrs) {
+        return QJsonObject{{"family",AF_INET},{"priority",priority},{"table",table},{"action",action},{"flags",flags},{"tos",0},{"attributes",attrs}};
+    };
+    const auto lookup = rule(501,54321,FR_ACT_TO_TBL,0,{});
+    const auto jump = rule(502,0,FR_ACT_GOTO,0,{attribute(FRA_IIFNAME,QByteArray("other-tun\0",10)),integer(FRA_GOTO,510)});
+    const auto terminal = rule(510,0,FR_ACT_NOP,0,{});
+    const quint16 port = 53;
+    const QByteArray portBytes(reinterpret_cast<const char *>(&port),sizeof(port));
+    const auto dnsRule = rule(502,254,FR_ACT_TO_TBL,FIB_RULE_INVERT,{integer(FRA_SUPPRESS_PREFIXLEN,0),attribute(FRA_DPORT_RANGE,portBytes+portBytes)});
+    const auto lastLookup = rule(503,54321,FR_ACT_TO_TBL,0,{});
+    const auto foreign = rule(520,65432,FR_ACT_TO_TBL,0,{});
+    QJsonObject network{{"os","linux"},{"interfaces",QJsonArray{physical,tunnel}},{"routes",QJsonArray{original,captured}},
+        {"policy_rules",QJsonArray{lookup,jump,dnsRule,lastLookup,terminal,foreign}},
+        {"proxy_tunnel",QJsonObject{{"interface_index",7},{"name","other-tun"}}}};
+    QJsonObject dns{{"resolved",QJsonObject{{"Links",QJsonArray{QJsonObject{{"interface_index",2},{"name","physical"}},QJsonObject{{"interface_index",7},{"name","other-tun"}}}},
+        {"Domains",QJsonArray{QJsonObject{{"interface_index",2},{"domain","original.test"}},QJsonObject{{"interface_index",7},{"domain","proxy.test"}}}}}}};
+    const auto view = originalProxyNetworkView(network,dns);
+    check(view && view->first["interfaces"].toArray() == QJsonArray{physical,tunnel} && view->first["routes"].toArray() == QJsonArray{original}
+        && view->first["policy_rules"].toArray() == QJsonArray{foreign},"Verified proxy routing was not separated from the original network");
+    check(view->second["resolved"].toObject()["Domains"].toArray() == QJsonArray{QJsonObject{{"interface_index",2},{"domain","original.test"}}},
+        "Proxy DNS projection changed the original namespace");
+    check(originalProxyNetworkView(view->first,view->second) == view,"Proxy projection was not idempotent");
+    check(originalNetworkProtection(network) == originalNetworkProtection(view->first),"Initial and runtime original protection disagree");
+    check(protectionConfiguration(*originalNetworkProtection(network),{})["protected"].toArray() == QJsonArray{"127.0.0.0/8","192.0.2.0/24","::1/128"},
+        "The proxy TUN address became an original protection grant");
+    auto occupied = network; auto privateTunnel = tunnel; privateTunnel["addresses"] = QJsonArray{"10.0.0.1/30"};
+    occupied["interfaces"] = QJsonArray{physical,privateTunnel};
+    const auto allocation = privateTUNAddresses(originalProxyNetworkView(occupied,{})->first,{});
+    check(allocation && allocation->first == "10.0.0.4" && allocation->second == "10.0.0.5",
+        "Separating proxy protection allowed allocation over an existing private TUN address");
+    auto unknown = network; unknown.remove("proxy_tunnel");
+    check(originalProxyNetworkView(unknown,dns)->first == unknown,"Unconfirmed overlay routing lost original protection");
+    auto mixed = network; auto rows = mixed["routes"].toArray(); auto shared = original; shared["table"] = 54321; rows.append(shared); mixed["routes"] = rows;
+    check(!originalProxyNetworkView(mixed,dns),"A table shared with a foreign interface authorized proxy exclusions");
+    for (const auto priority : {1,2}) {
+        auto early = network; auto rules = early["policy_rules"].toArray(); auto row = lookup; row["priority"] = priority; rules.append(row); early["policy_rules"] = rules;
+        check(!originalProxyNetworkView(early,dns),"Proxy projection hid a rule preceding the campus boundary");
+    }
+    auto reused = network; auto role = reused["proxy_tunnel"].toObject(); role["name"] = "physical"; reused["proxy_tunnel"] = role;
+    check(!originalProxyNetworkView(reused,dns),"A reused TUN index authorized proxy exclusions");
+    auto selectors = network; auto selected = dnsRule; auto attrs = selected["attributes"].toArray(); attrs.append(integer(FRA_FWMARK,123)); selected["attributes"] = attrs;
+    selectors["policy_rules"] = QJsonArray{lookup,jump,selected,lastLookup,terminal,foreign};
+    check(originalProxyNetworkView(selectors,dns)->first["policy_rules"].toArray() == QJsonArray{selected,foreign},
+        "Unknown or foreign rule selectors were hidden by the proxy projection");
+    auto gateway = view->first; auto changed = original; changed["gateway"] = "192.0.2.9"; gateway["routes"] = QJsonArray{changed};
+    check(originalProxyNetworkView(gateway,dns)->first != view->first,"A changed original gateway was hidden");
+}
+#endif
 
 static void captureTargets()
 {
@@ -290,6 +350,9 @@ int main(int argc, char **argv) try
 {
     QCoreApplication app(argc, argv);
     captureTargets();
+#ifdef Q_OS_LINUX
+    proxyTunnelView();
+#endif
     auto network = QJsonDocument::fromJson(R"({
         "interfaces":[
             {"name":"ethernet","addresses":["192.168.24.19/24","fe80::1/64"]},

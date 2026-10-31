@@ -62,6 +62,14 @@ func Read(ctx context.Context) ([]model.Process, error) {
 		if unix.Stat(root, &info) == nil && info.Uid == uint32(os.Getuid()) {
 			p.Home, _ = os.UserHomeDir()
 		}
+		if status, err := os.ReadFile(root + "/status"); err == nil {
+			for _, line := range strings.Split(string(status), "\n") {
+				if value, okay := strings.CutPrefix(line, "CapEff:\t"); okay {
+					capabilities, _ := strconv.ParseUint(strings.TrimSpace(value), 16, 64)
+					p.NetworkAdmin = capabilities&(1<<unix.CAP_NET_ADMIN) != 0
+				}
+			}
+		}
 		if Valid(p) {
 			result = append(result, p)
 		}

@@ -7,6 +7,24 @@ import (
 	"github.com/wtalioy/JustConnect/corelib/internal/mihomo"
 )
 
+func (d *Dialer) ObserveNetwork(parent context.Context) (mihomo.ControllerNetwork, error) {
+	ctx, finish, err := d.begin(parent)
+	if err != nil {
+		return mihomo.ControllerNetwork{}, err
+	}
+	defer finish()
+	if err := d.ensureController(ctx); err != nil {
+		return mihomo.ControllerNetwork{}, err
+	}
+	d.mu.RLock()
+	controller := d.controller
+	d.mu.RUnlock()
+	if controller == nil {
+		return mihomo.ControllerNetwork{}, nil
+	}
+	return controller.ObserveNetwork(ctx)
+}
+
 // ObserveProxy shares discovery and lifecycle with control DNS, independently of its DNS override.
 func (d *Dialer) ObserveProxy(parent context.Context, proofs []mihomo.ListenerProof) (mihomo.ProxyInfo, error) {
 	ctx, finish, err := d.begin(parent)

@@ -126,7 +126,7 @@ func jc_go_network_snapshot(abi C.uint32_t, output *C.uint8_t, capacity C.uint32
 	if abi != bridge.ABIVersion {
 		return C.int32_t(bridge.ABIMismatch)
 	}
-	snapshot, err := networkstate.Read()
+	snapshot, err := engine.NetworkSnapshot()
 	if errors.Is(err, networkstate.ErrUnsupported) {
 		return C.int32_t(bridge.Unsupported)
 	}

@@ -290,7 +290,7 @@ void LinuxNetworkAccess::helperFinished(Operation operation, Result result)
         if (!result.succeeded()) { stage = Stage::Failed; emit lost(attempt, result); }
         return;
     }
-    if (stage == Stage::Stopping) { completeStop(); return; }
+    if (stage == Stage::Stopping) { completeStop(result); return; }
     if (stage == Stage::Preparing) {
         if (result.succeeded() && helper.state() == HelperState::Idle) {
             QFile file(hint);
@@ -339,11 +339,12 @@ void LinuxNetworkAccess::driveStop()
     helper.restore();
 }
 
-void LinuxNetworkAccess::completeStop()
+void LinuxNetworkAccess::completeStop(Result result)
 {
     if (helper.state() != HelperState::Idle) {
         stage = Stage::Prepared;
-        emit stopped(attempt, {Status::Failed, QStringLiteral("网络恢复或完成证明尚未确认，责任记录已保留。"), true}); return;
+        emit stopped(attempt, {result.succeeded() ? Status::Failed : result.status,
+            result.detail.isEmpty() ? QStringLiteral("网络恢复或完成证明尚未确认，责任记录已保留。") : result.detail, true}); return;
     }
     if (!savedOwner.isNull()) {
         QFile file(hint);

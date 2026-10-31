@@ -256,7 +256,7 @@ jobs:
           package=(build/coreabi/system-helper/*.deb)
           test "${#package[@]}" -eq 1
           python scripts/network_helper_package.py "${package[0]}" --revision "$GITHUB_SHA" --output build/coreabi/linux-helper-package.json
-          sudo unshare --mount --net -- env PYTHONDONTWRITEBYTECODE=1 "$(command -v python)" tests/platform/networkhelper_package_linux.py --package "${package[0]}" --revision "$GITHUB_SHA" --uid "$(id -u)" --client build/coreabi/linux_networkhelperclient_test --authorization-fixture build/coreabi/linux_authorization_fixture --gateway build/coreabi/native-tun-host --tun-adapter build/coreabi/coreabi_tun_adapter_test 2>&1 | tee build/coreabi/linux-installed-helper.log
+          sudo unshare --mount --net -- env PYTHONDONTWRITEBYTECODE=1 "$(command -v python)" tests/platform/networkhelper_package_linux.py --package "${package[0]}" --revision "$GITHUB_SHA" --uid "$(id -u)" --client build/coreabi/linux_networkhelperclient_test --authorization-fixture build/coreabi/linux_authorization_fixture --gateway build/coreabi/native-tun-host --tun-adapter build/coreabi/coreabi_tun_adapter_test --coexistence-mihomo "$JC_TEST_MIHOMO_BINARY" 2>&1 | tee build/coreabi/linux-installed-helper.log
 
       - name: Check macOS utun fd transfer and cleanup in the disposable runner
         if: runner.os == 'macOS'

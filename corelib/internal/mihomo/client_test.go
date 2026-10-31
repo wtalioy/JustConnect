@@ -94,6 +94,33 @@ func TestNativeControllerTCPAndIPC(t *testing.T) {
 	}
 }
 
+func TestNetworkObservationRequiresLiveControllerAndRetainsAuthority(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		fixture := testmihomo.Start(t, testmihomo.Options{Transport: "ipc", TunEnabled: enabled, TunDevice: "observed-tun"})
+		process := ownedProcess(t, fixture.PID)
+		client, err := Inspect(t.Context(), process)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(client.Close)
+		for _, authority := range []bool{false, true} {
+			client.endpoint.process.NetworkAdmin = authority
+			observed, err := client.ObserveNetwork(t.Context())
+			expected := ControllerNetwork{}
+			if enabled {
+				expected = ControllerNetwork{Device: "observed-tun", NetworkAdmin: authority}
+			}
+			if err != nil || observed != expected {
+				t.Fatalf("network authority was invented or live TUN identity lost: %+v, %v", observed, err)
+			}
+		}
+		client.endpoint.process.Started++
+		if value, err := client.ObserveNetwork(t.Context()); err == nil || value != (ControllerNetwork{}) {
+			t.Fatal("reused process identity retained network projection authority", value, err)
+		}
+	}
+}
+
 func TestObservedIPCVerifiesPeerWithoutConfiguration(t *testing.T) {
 	owned := testmihomo.Start(t, testmihomo.Options{Transport: "ipc"})
 	other := testmihomo.Start(t, testmihomo.Options{Transport: "ipc"})
