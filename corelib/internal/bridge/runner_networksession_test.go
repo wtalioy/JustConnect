@@ -3,6 +3,7 @@
 package bridge
 
 import (
+	"bytes"
 	"context"
 	"net"
 	"os"
@@ -127,6 +128,10 @@ func nativeWindowsSession(t *testing.T, faults, policy, exitChange bool) {
 	command.Env = append(os.Environ(), "JC_WINDOWS_SESSION_CONFIG="+string(configBytes(t, g.config(t))))
 	command.Env = append(command.Env, "JC_WINDOWS_SESSION_POLICY="+strconv.FormatBool(policy))
 	command.Env = append(command.Env, "JC_WINDOWS_SESSION_EXIT_CHANGE="+strconv.FormatBool(exitChange))
+	composed := t.Name() == "TestNativeWindowsSessionCoexistence"
+	if composed {
+		command.Env = append(command.Env, "JC_WINDOWS_COEXISTENCE_RUNTIME="+windowsCoexistenceRuntime(t))
+	}
 	var originalQueries, defaultQueries *atomic.Int32
 	if t.Name() == "TestNativeWindowsSessionOriginalDNS" {
 		address, count, defaults := windowsOriginalDNSServer(t)
@@ -144,7 +149,15 @@ func nativeWindowsSession(t *testing.T, faults, policy, exitChange bool) {
 	if err != nil {
 		t.Fatalf("actual ordinary Windows application session: %v; auth=%d TCP=%d UDP=%d DNS=%d\n%s", err, g.authCount.Load(), g.tcpCount.Load(), g.udpCount.Load(), g.nativeDNSQueries.Load(), output)
 	}
-	if g.authCount.Load() != rounds || g.tcpCount.Load() != 4*rounds || g.sshCount.Load() != 2*rounds || g.nativeDNSQueries.Load() < rounds || g.udpCount.Load() != 4*rounds+g.nativeDNSQueries.Load() {
+	trafficRounds, tcpPerRound := rounds, int32(4)
+	if composed {
+		trafficRounds *= 12
+		tcpPerRound++ // One actual campus browser request in each matrix case.
+		if bytes.Count(output, []byte("PASS: Windows composed coexistence case ")) != int(trafficRounds) {
+			t.Fatalf("missing native composed matrix cases\n%s", output)
+		}
+	}
+	if g.authCount.Load() != rounds || g.tcpCount.Load() != tcpPerRound*trafficRounds || g.sshCount.Load() != 2*trafficRounds || g.nativeDNSQueries.Load() < rounds || g.udpCount.Load() != 4*trafficRounds+g.nativeDNSQueries.Load() {
 		t.Fatalf("actual application exchanges auth=%d TCP=%d UDP=%d DNS=%d\n%s", g.authCount.Load(), g.tcpCount.Load(), g.udpCount.Load(), g.nativeDNSQueries.Load(), output)
 	}
 	if original != nil && (original.tcp.Load() != 2*rounds || original.udp.Load() != 4*rounds) {
