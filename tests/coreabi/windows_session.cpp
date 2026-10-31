@@ -182,8 +182,8 @@ int main(int argc,char **argv) try
     check(finished==2 && session.phase()==ConnectionPhase::CampusReady,"application reports campus readiness only after authorized device attachment");
     const auto traffic=[&]{
         until("finish original-network policy observation",[&]{return !policy.isBusy();});
-        check(policy.status()==CoreEngine::RequestStatus::Success && policy.confirmedProtection()["protected"]==initialProtection["protected"]
-            && policy.confirmedProtection()["protected_names"]==initialProtection["protected_names"],"owned routes/DNS never become original protection");
+        check(policy.status()==CoreEngine::RequestStatus::Success && coexistence.protectionMatches(initialProtection,policy.confirmedProtection(),policy.model()["network"].toObject()),
+            "only the actual external proxy may add original protection; owned routes/DNS remain absent");
         const auto chooseCampus=[&](bool campus){
             for(const auto *address:{"198.18.0.6","198.18.0.7"}){
                 check(policy.setCampusAddress(QString::fromLatin1(address),campus),"choose each overlapping TCP/UDP target");
@@ -202,7 +202,8 @@ int main(int argc,char **argv) try
         exerciseNativeSSH(QHostAddress("198.18.0.7"));
         if(policyChanges)exerciseNonCampusNetworkTraffic();
         until("finish original-network policy observation",[&]{return !policy.isBusy();});check(policy.refresh(),"refresh original view after DNS capture publication");until("finish original-network policy observation",[&]{return !policy.isBusy();});
-        check(policy.status()==CoreEngine::RequestStatus::Success && policy.confirmedProtection()["protected"]==initialProtection["protected"],"new DNS captures remain excluded from original protection");
+        check(policy.status()==CoreEngine::RequestStatus::Success && coexistence.protectionMatches(initialProtection,policy.confirmedProtection(),policy.model()["network"].toObject()),
+            "new DNS captures remain excluded from original protection");
         exerciseNativeTUNTraffic(QHostAddress("198.18.0.7"));
         if(policyChanges){
             const auto generation=policy.currentGeneration();
