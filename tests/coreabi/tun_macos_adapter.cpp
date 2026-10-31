@@ -215,7 +215,6 @@ int main(int argc,char **argv)
             std::cout << "PASS: macOS ordered application exit while system authorization is still pending\n";
             return 0;
         }
-        if (composed) std::cerr << "CHECK: macOS composed stop round=" << round << '\n';
         session.stop(); session.stop(); until([&] { return !session.isActive(); });
         check(coreFinished == 1 && finished == 1 && session.state() == ConnectionState::Disconnected && !waiting->oldReturned,
             "Cancellation releases the real core and network responsibility before authorization returns");
@@ -355,6 +354,7 @@ int main(int argc,char **argv)
             } else publish(".released");
             until([&] { return QFileInfo::exists(marker+".continue"); });
         }
+        if (composed) std::cerr << "CHECK: macOS composed stop round=" << round << '\n';
         session.stop(); session.stop(); until([&] { return !session.isActive(); });
         const auto expected = helperLoss && round == 0 ? ConnectionState::Failed : ConnectionState::Disconnected;
         const int completed = round+1+(cancelAuthorization ? 1 : 0);
