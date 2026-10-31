@@ -92,8 +92,8 @@ def probe(binary, first_dns, second_dns):
         reply = request('GET', f'/dns/query?name={name}&type=A')
         return [entry['data'] for entry in reply.get('Answer', []) if entry['type'] == 1]
 
-    def listener_answer():
-        name = secrets.token_hex(4) + '.' + marker
+    def listener_answer(name=None):
+        name = name or secrets.token_hex(4) + '.' + marker
         labels = b''.join(bytes([len(label)]) + label.encode() for label in name.split('.')) + b'\0'
         identity = secrets.randbelow(65536)
         query = struct.pack('!6H', identity, 0x100, 1, 0, 0, 0) + labels + b'\0\1\0\1'
@@ -121,7 +121,10 @@ def probe(binary, first_dns, second_dns):
                     try:
                         api_version = request('GET', '/version')
                         rules = request('GET', '/rules')['rules']
-                        break
+                        if any(rule['payload'] == marker for rule in rules):
+                            break
+                        assert time.monotonic() < deadline, 'owned rules did not become ready'
+                        time.sleep(0.1)
                     except (urllib.error.URLError, TimeoutError):
                         assert time.monotonic() < deadline, 'owned API did not become ready'
                         time.sleep(0.1)
@@ -166,6 +169,34 @@ def probe(binary, first_dns, second_dns):
                 request('PUT', '/configs?force=true', {'payload': json.dumps(config)})
                 assert request('GET', '/configs')['mode'] == initial['mode']
                 assert request('GET', '/rules')['rules'] == rules and answer() == ['192.0.2.10']
+                filters = []
+                cached_name = 'cached.' + marker
+                cached = listener_answer(cached_name)
+                assert cached in ipaddress.ip_network('198.18.0.0/16')
+                for mode, entries, fake in (
+                        ('blacklist', ['+.' + marker], False),
+                        ('blacklist', [], True),
+                        ('whitelist', ['+.' + marker], True),
+                        ('whitelist', [], False),
+                        ('rule', [f'DOMAIN-SUFFIX,{marker},real-ip', 'MATCH,fake-ip'], False),
+                        ('rule', [f'DOMAIN-SUFFIX,{marker},fake-ip', 'MATCH,real-ip'], True)):
+                    dns_config = dict(config['dns'], **{'fake-ip-filter-mode': mode, 'fake-ip-filter': entries})
+                    changed = dict(config, dns=dns_config,
+                                   tun=dict(config['tun'], **{'route-exclude-address': exclusion}))
+                    request('PUT', '/configs?force=true', {'payload': json.dumps(changed)})
+                    facts = request('GET', '/configs')
+                    assert not facts['tun']['enable'] and facts['tun']['route-exclude-address'] == exclusion
+                    for name in (None, cached_name):
+                        result = listener_answer(name)
+                        assert (result in ipaddress.ip_network('198.18.0.0/16')) == fake, (mode, name, result)
+                        if not fake:
+                            assert result == ipaddress.ip_address('192.0.2.10'), (mode, result)
+                    assert answer() == ['192.0.2.10'], (mode, 'API returned Fake-IP')
+                    filters.append({'mode': mode, 'fake_ip': fake, 'live_and_cached_question': True,
+                                    'real_api_answer': True, 'existing_exclusion_retained': True})
+                request('PUT', '/configs?force=true', {'payload': json.dumps(config)})
+                assert request('GET', '/rules')['rules'] == rules and answer() == ['192.0.2.10']
+                assert json.loads(path.read_text(encoding='utf-8')) == config, 'runtime writes changed the source configuration'
                 report = {'binary_sha256': hashlib.sha256(binary.read_bytes()).hexdigest(),
                           'version': version, 'api_version': api_version,
                           'mode_patch_readback': True, 'rules_patch_applied': patched_rules != rules,
@@ -173,7 +204,8 @@ def probe(binary, first_dns, second_dns):
                           'dns_patch_applied': patched_answer != ['192.0.2.10'],
                           'disabled_tun_exclusion_patch_readback': patched_tun.get('route-exclude-address') == exclusion,
                           'put_rules_dns_readback': True, 'invalid_update_keeps_previous': True,
-                          'restore_readback': True, 'config_readback_keys': sorted(initial)}
+                          'restore_readback': True, 'config_readback_keys': sorted(initial),
+                          'fake_ip_filters': filters, 'source_configuration_unchanged': True}
             finally:
                 if process.poll() is None:
                     process.terminate()

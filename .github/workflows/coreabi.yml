@@ -159,6 +159,7 @@ jobs:
                   sys.exit(status)
               return status
           run('mihomo-runtime-unit', [sys.executable, '-m', 'unittest', 'discover', '-s', 'tests/platform', '-p', 'setup_mihomo_test.py'])
+          run('mihomo-api-capabilities', [sys.executable, 'tests/platform/mihomo_api_probe.py', os.environ['JC_TEST_MIHOMO_BINARY']])
           run('go', ['go', 'version'])
           run('cgo-env', ['go', 'env', 'GOHOSTOS', 'GOHOSTARCH', 'CC', 'CGO_ENABLED'])
           run('cc', [os.environ['CC'], '--version'])

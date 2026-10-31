@@ -84,6 +84,8 @@ D2 的设备入口子方案已收敛：Linux／macOS 使用最小授权助手创
 
 自有 Mihomo 夹具除端口监听外，须完成调用方提供的实际回包检查才进入正式断言，避免核心尚未接收流量时的提前就绪；正式断言／超时不变。Windows 命名管道夹具始终保留下一监听实例，在本机原生回归中旧实现稳定失败、修复后两项管道及控制解析／TLS 各重复 20 次通过；重建／清理不触碰用户实例和系统网络。证据 `build/reports/s6/official-campus-ingress-race.log`、`official-traffic-ready-race.log`、`traffic-ready-corelib.log`、`pipe-name-*.log`、`windows-controller-after.log`。这些结果证明受控传输／授权边界，不代表入口自动配置、运行中切换及恢复已交付。
 
+API 夹具另逐项验证 blacklist／whitelist／rule 的 Fake-IP 与真实回答、既有查询名、真实 `/dns/query` 结果、保留的排除地址及恢复，源配置文件保持不变；新查询与重新查询同名不等于验证浏览器／系统中尚未过期的旧 IP 缓存。Linux 固定官方运行时六种组合均通过（`build/reports/s6/api-filters-linux.json`），工作流已注册六架构能力检查，并保留该检查失败即失败的自动回归。操作仍仅对自有实例、关闭的 TUN 及回环 DNS，不代表生产配置联动或运行中 TUN 排除已完成。
+
 同一实测中，规则允许的目标在 `GLOBAL` 选择 `REJECT` 时被拒绝：[上游 `resolveMetadata`](https://github.com/MetaCubeX/mihomo/blob/v1.19.32/tunnel/tunnel.go#L310) 在普通规则前处理 `global/direct`，因此追加校园规则不足以覆盖这些模式。入口级方案与自动恢复尚待接入，不能由当前代理传输测试推定自动共存完成。
 
 标准构建的 [UDP 接收缓冲区](https://github.com/MetaCubeX/mihomo/blob/v1.19.32/common/pool/buffer_standard.go) 为 16 KiB，实测更大 SOCKS UDP 请求被静默截短；本软件读取实际 UDP socket 发送容量，并以它和上游缓冲区的较小值作为含头部上界；超界发送前明确拒绝，不切换出口。macOS 原生容量较小，不用放大系统缓冲区掩盖差异。非标准 low-memory 构建尚未验收。共有 SOCKS UDP 解析器保留空 IPv4／IPv6／域名报文，拒绝非零保留位、分片、无效类型／端口与截断；两侧复用同一边界，读写缓冲只在会话内按需分配／复用。证据：`build/reports/s6/proxy-corelib.log`（34 包）、`official-proxy-race.log`；独有上游截短记录保留在 `official-proxy-truncation.log`。
