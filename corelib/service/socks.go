@@ -7,22 +7,22 @@ import (
 
 	"github.com/things-go/go-socks5"
 	"github.com/things-go/go-socks5/statute"
-	"github.com/wtalioy/JustConnect/corelib/resolve"
+	"github.com/wtalioy/JustConnect/corelib/dial"
 )
 
 type sessionResolver struct {
-	ctx      context.Context
-	resolver *resolve.Resolver
+	ctx    context.Context
+	dialer *dial.Dialer
 }
 
 func (r sessionResolver) Resolve(_ context.Context, host string) (context.Context, net.IP, error) {
-	return r.resolver.Resolve(r.ctx, host)
+	return r.dialer.Resolve(r.ctx, host)
 }
 
-func (p *Listeners) socksServer(resolver *resolve.Resolver) *socks5.Server {
+func (p *Listeners) socksServer() *socks5.Server {
 	return socks5.NewServer(
 		socks5.WithAssociateHandle(p.handleSOCKSUDP),
-		socks5.WithResolver(sessionResolver{p.ctx, resolver}),
+		socks5.WithResolver(sessionResolver{p.ctx, p.dialer}),
 		socks5.WithConnectHandle(func(ctx context.Context, writer io.Writer, request *socks5.Request) error {
 			target, err := p.dial(ctx, "tcp", request.DestAddr.String())
 			if err != nil {
