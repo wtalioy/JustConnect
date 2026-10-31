@@ -57,7 +57,7 @@ D2 的设备入口子方案已收敛：Linux／macOS 使用最小授权助手创
 
 设备操作现复用 C++ `infrastructure/tundevice/windows/adapter.cpp`：以新 UUID／GUID 创建专属适配器，经原生 IP Helper 配置自身 IPv4 `/32`、MTU、对端与获选捕获路由并回读，助手持有环至停止，不调用 PowerShell 配置网络。`allocated` 仍在配置前确认 LUID／GUID 与原始 PnP 实例，`configured` 在实际回读后发布；失败不丢原清理身份。保留五组真实内核收发、超大帧、强杀及配置后失败的独有设备／PnP 清理断言。C++ 设备／权限夹具共用原生降权工具，Go 普通 Qt 宿主降权夹具归 `corelib/tests/windows`；旧 Go 设备后端及手工 IP Helper 布局已在同机对照后删除，保留相同的五组故障场景和 C++ 4096 次往返回归。前序独立原型的 [`5e51df0` 六组 Core ABI／设备](https://github.com/wtalioy/JustConnect/actions/runs/39807827167)及[三平台应用测试](https://github.com/wtalioy/JustConnect/actions/runs/39807827099)已通过；迁移后的原生结果见计划，不以旧原型证明新后端。产品设备／DNS／安装与恢复使用原生 C++；固定 pwsh 仅供 CI 签名、临时证书与 SCM 验收，原网络配置／查找脚本已删除。
 
-新增完整链路由普通权限 Qt／嵌入 Go 经正式 C ABI 连接受限字节管道，助手保留真实 Wintun 环；验证实际校园协议、TCP、UDP／空报文、关闭原句柄后继续收发、无效 PID／MTU／代次拒绝及两次停止重启。源／对端与捕获目标仅为隔离夹具输入，不成为产品默认。助手进程绑定与原生取消另有本机 Windows 回归；受保护安装、持久记录、所属 NRPT 与 SCM 独立恢复现有专门的 C++ 原生验收，机制与边界见[架构](ARCHITECTURE.md#windows-原生权限助手)；生产 UAC／控制 IPC、有效系统 DNS 与应用编排仍待，不能把设备夹具当作完整交付。
+新增完整链路由普通权限 Qt／嵌入 Go 经正式 C ABI 连接受限字节管道，助手保留真实 Wintun 环；验证实际校园协议、TCP、UDP／空报文、关闭原句柄后继续收发、无效 PID／MTU／代次拒绝及两次停止重启。源／对端与捕获目标仅为隔离夹具输入，不成为产品默认。助手进程绑定与原生取消另有本机 Windows 回归；受保护安装、持久记录、所属 NRPT 与 SCM 独立恢复现有专门的 C++ 原生验收，机制与边界见[架构](ARCHITECTURE.md#windows-原生权限助手)；正式入口已接入 UAC／控制 IPC、系统 DNS 与统一应用会话；受控自动检查、Windows 实测及未验证的发布格以[计划 S4—S5](../plan.md#s4-策略与网络操作的恢复基础)为准，设备夹具本身不证明完整交付。
 
 ### Mihomo 控制接口隔离核对（D3 前置）
 
@@ -66,7 +66,7 @@ D2 的设备入口子方案已收敛：Linux／macOS 使用最小授权助手创
 | 操作 | 实际回读 |
 | --- | --- |
 | 无密钥访问 | HTTP 401 |
-| Fake-IP DNS 监听与 `/dns/query` | 同一实例的实际 DNS 包返回测试 Fake-IP 范围，API 返回自有上游的真实 A 地址；可作为控制连接解析的候选，尚未接入产品 |
+| Fake-IP DNS 监听与 `/dns/query` | 同一实例的实际 DNS 包返回测试 Fake-IP 范围，API 返回自有上游的真实 A 地址；正式控制连接已复用真实解析；当前自动接入与边界见下节 |
 | `PATCH /configs` 修改 mode | 生效 |
 | 同一 PATCH 传入 rules／dns | 返回成功但均未生效；分别用规则列表和不同 DNS 替身的真实回答核对 |
 | TUN 关闭时 PATCH 排除测试网段 | 回读包含指定范围，TUN 仍关闭；不代表开启时的实际绕行已验证 |
@@ -74,7 +74,7 @@ D2 的设备入口子方案已收敛：Linux／macOS 使用最小授权助手创
 
 2026-10-27 用同一隔离探针复验官方 Linux x64 `v1.19.32`，以上 API／Fake-IP／无效更新保留与恢复结果一致。发布压缩包 SHA-256 与 GitHub release 的 digest 匹配，解压后二进制 SHA-256 为 `6de241191ca39f9ac1cd6e3194fc9303c19055d3549c8bdb4ff1349c89173819`；报告 `build/reports/mihomo-api-linux-v1.19.32.json`。仅自建实例及回环替身参与，TUN 始终关闭，进程与临时配置已清理。Windows／Linux 的控制能力核对不替代 macOS、运行中 TUN、用户配置所有权或正式产品接入。
 
-复现：在目标平台使用 Python 运行 `python tests/platform/mihomo_api_probe.py <mihomo可执行文件>`；Windows 与 Linux 结果分别保存在 `build/reports/mihomo-api-windows-v1.19.32.json`、`build/reports/mihomo-api-linux-v1.19.32.json`，进程、监听、临时配置和日志随测试结束清理。请求使用[官方 API](https://wiki.metacubex.one/api/)公开路径，不依据 HTTP 成功码推断所有字段可增量修改。`GET /configs` 没有完整规则／DNS／代理定义，因此不能用该响应拼出用户全量配置后盲目 PUT；正式联动仍须验证配置来源、外部改写与所有权恢复、运行中 TUN 实际流量，以及其余平台／目标版本。D3 保持待验收，不据此修改运行中的 Clash。
+复现：在目标平台使用 Python 运行 `python tests/platform/mihomo_api_probe.py <mihomo可执行文件>`；Windows 与 Linux 结果分别保存在 `build/reports/mihomo-api-windows-v1.19.32.json`、`build/reports/mihomo-api-linux-v1.19.32.json`，进程、监听、临时配置和日志随测试结束清理。请求使用[官方 API](https://wiki.metacubex.one/api/)公开路径，不依据 HTTP 成功码推断所有字段可增量修改。`GET /configs` 没有完整规则／DNS／代理定义，因此不能用该响应拼出用户全量配置后盲目 PUT；S6-03 已采用只读 Mihomo 加临时浏览器前置的正式联动，不需要获取完整订阅后重载；外部改写、所有权恢复和运行中流量按[当前 S6 状态](../plan.md#s6-clash-共存原型)验收，不据此修改运行中的 Clash。
 
 ### S6 真实代理入口与模式边界
 
