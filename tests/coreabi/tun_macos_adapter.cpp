@@ -157,6 +157,16 @@ int main(int argc,char **argv)
     if (composed) publish(".coexistence");
     int coreFinished = 0, finished = 0; bool wasPreparing = false;
     QObject::connect(engine,&CoreEngine::finished,[&] { ++coreFinished; });
+    if (composed) {
+        QObject::connect(&session,&ConnectionSession::progressChanged,[&] {
+            std::cerr << "CHECK: macOS composed phase=" << int(session.phase()) << " state=" << int(session.state())
+                << " policy_busy=" << policy.isBusy() << " proxy_busy=" << proxy.isBusy() << " proxy_owned=" << proxy.needsCleanup() << '\n';
+        });
+        QObject::connect(engine,&CoreEngine::finished,[&] { std::cerr << "CHECK: macOS composed core finished=" << coreFinished << '\n'; });
+        QObject::connect(access,&NetworkAccess::stopped,[](const QUuid &,PlatformOperationResult result) {
+            std::cerr << "CHECK: macOS composed native stopped=" << result.succeeded() << " detail=" << result.detail.toStdString() << '\n';
+        });
+    }
     QObject::connect(&session,&ConnectionSession::progressChanged,[&] { wasPreparing |= session.phase() == ConnectionPhase::NetworkPreparing; });
     QObject::connect(&session,&ConnectionSession::finished,[&](ConnectionError error) {
         const auto expected = helperLoss && finished == 0 ? ConnectionError::OTHER : ConnectionError::NONE;
@@ -176,7 +186,7 @@ int main(int argc,char **argv)
         return matches;
     };
     QObject::connect(&policy,&NetworkPolicySession::changed,[&] {
-        if (!changingNetwork && !initial.isEmpty() && !policy.isBusy() && policy.status() == CoreEngine::RequestStatus::Success) viewMatches();
+        if (!composed && !changingNetwork && !initial.isEmpty() && !policy.isBusy() && policy.status() == CoreEngine::RequestStatus::Success) viewMatches();
     });
     const auto originalView = [&] {
         until([&] { return !policy.isBusy(); });
@@ -205,6 +215,7 @@ int main(int argc,char **argv)
             std::cout << "PASS: macOS ordered application exit while system authorization is still pending\n";
             return 0;
         }
+        if (composed) std::cerr << "CHECK: macOS composed stop round=" << round << '\n';
         session.stop(); session.stop(); until([&] { return !session.isActive(); });
         check(coreFinished == 1 && finished == 1 && session.state() == ConnectionState::Disconnected && !waiting->oldReturned,
             "Cancellation releases the real core and network responsibility before authorization returns");
