@@ -15,6 +15,23 @@ import (
 	"github.com/wtalioy/JustConnect/corelib/internal/dnslistener"
 )
 
+// A bound SOCKS port can reply before Mihomo's tunnel accepts traffic.
+// Callers supply an owned end-to-end probe, independently of their actual assertions.
+func (f *Fixture) WaitReady(t testing.TB, probe func() error) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		err := probe()
+		if err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("owned Mihomo traffic readiness", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 // StartBinary runs only an explicitly supplied test runtime, with no TUN or system changes.
 func StartBinary(t testing.TB, upstream string, ipc bool) *Fixture {
 	t.Helper()
