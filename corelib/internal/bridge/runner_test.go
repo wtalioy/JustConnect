@@ -497,7 +497,11 @@ func runNativeTUNHost(t *testing.T, killed bool) (*gateway, []byte) {
 		g.nativeDNS.Store(true)
 		g.probeDNS.Store(true)
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
+	hostTimeout := 60 * time.Second
+	if t.Name() == "TestNativeMacCoexistence" {
+		hostTimeout = 150 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), hostTimeout)
 	defer cancel()
 	command := exec.CommandContext(ctx, host, "--tun-gateway", string(configBytes(t, g.config(t))))
 	if inherited != "" {

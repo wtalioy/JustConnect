@@ -78,20 +78,25 @@ static QStringList ipv6Records(const char *hostname)
     check(answer.ready && answer.error==kDNSServiceErr_NoError && !answer.addresses.isEmpty(),"Original native AAAA record query succeeds");
     return answer.addresses;
 }
+#include "coexistence_macos.h"
 int main(int argc,char **argv)
 {
     QCoreApplication app(argc,argv); QCoreApplication::setOrganizationName("JustConnectNativeFixture"); QStandardPaths::setTestModeEnabled(true);
     check(argc == 4 && QByteArray(argv[1]) == "--tun-gateway" && ::getuid() == ::geteuid() && ::getuid() != 0
         && qgetenv("GITHUB_ACTIONS") == "true" && qgetenv("RUNNER_OS") == "macOS","Disposable ordinary macOS Qt/core fixture only");
     const int authorizationFd = QByteArray(argv[3]).toInt(); check(authorizationFd >= 3,"Inherited network authorization pipe");
+    const bool composed = !qgetenv("JC_NATIVE_MAC_COEXISTENCE").isEmpty();
+    AuthorizationExternalForm initialGrant{};
+    if (composed) check(::read(authorizationFd,&initialGrant,sizeof(initialGrant)) == sizeof(initialGrant),"read the matrix's real initial network authorization");
     const auto authorizationMode = qgetenv("JC_NATIVE_NETWORK_AUTHORIZATION");
     const bool cancelAuthorization = authorizationMode == "cancel", exitAuthorization = authorizationMode == "exit";
     check(authorizationMode.isEmpty() || cancelAuthorization || exitAuthorization,"Known native authorization scenario");
     const auto waiting = std::make_shared<AuthorizationWait>();
-    auto authorization = [authorizationFd,waiting,cancelAuthorization,exitAuthorization](AuthorizationRef *reference) {
+    auto authorization = [authorizationFd,waiting,cancelAuthorization,exitAuthorization,composed,initialGrant](AuthorizationRef *reference) {
         const int call = ++waiting->calls;
         AuthorizationExternalForm external{};
-        if (::read(authorizationFd,&external,sizeof(external)) != sizeof(external)) return OSStatus(errAuthorizationDenied);
+        if (composed && call == 1) external = initialGrant;
+        else if (::read(authorizationFd,&external,sizeof(external)) != sizeof(external)) return OSStatus(errAuthorizationDenied);
         const auto status = AuthorizationCreateFromExternalForm(&external,reference);
         if (status != errAuthorizationSuccess) return status;
         waiting->entered = call;
@@ -107,10 +112,28 @@ int main(int argc,char **argv)
     profile.endpoint.authType = auth["method"].toString().mid(QStringLiteral("auth/").size());
     profile.endpoint.phone = auth["phone"].toString(); profile.endpoint.loginDomain = auth["domain"].toString();
     profile.tls.caPem = config["tls"].toObject()["ca_pem"].toString(); profile.keepAlive.mode = "off";
+    MacCoexistenceFixture coexistence(initialGrant);
+    if (composed) {
+        // The local authentication fixture cannot observe a physical transport socket.
+        profile.behavior.bindInterface = coexistence.runtime["original_interface"].toString();
+        check(!profile.behavior.bindInterface.isEmpty(),"actual original interface supplied by the private fixture");
+        profile.proxy.httpBind = "127.0.0.1:0"; profile.proxy.socksBind = "127.0.0.1:0";
+    }
     auto *engine = new EmbeddedCoreEngine;
+    if (composed) coexistence.observe(engine);
     NetworkPolicySession policy(engine,readSystemDnsSnapshot);
     auto *access = new MacNetworkAccess(engine,&policy,1400,nullptr,authorization);
-    ConnectionSession session(engine,nullptr,access);
+    std::unique_ptr<SystemProxyBackend> proxyBackend = composed
+        ? std::unique_ptr<SystemProxyBackend>(new PlatformSystemProxyBackend(coexistence.api))
+        : std::unique_ptr<SystemProxyBackend>(new ProxyRecoveryBackend);
+    SystemProxySession proxy(std::move(proxyBackend));
+    NetworkAccess *network = access;
+    if (composed) {
+        auto *handoff = new CoexistenceNetworkAccess(access,engine,&policy,&proxy); network = handoff;
+        auto *changes = new ProxyChanges(handoff);
+        QObject::connect(changes,&ProxyChanges::changed,handoff,&CoexistenceNetworkAccess::systemProxyChanged);
+    }
+    ConnectionSession session(engine,nullptr,network);
     QObject::connect(&session,&ConnectionSession::diagnostic,[](const QString &message) { std::cerr << message.toStdString() << '\n'; });
     QObject::connect(engine,&CoreEngine::authenticationRequired,[engine](const QJsonObject &request) {
         engine->respond(CoreEngine::responseFor(request,{{"action","submit"},{"code","fixture-code"}}));
@@ -131,6 +154,7 @@ int main(int argc,char **argv)
         const auto value = QJsonDocument(snapshot).toJson(QJsonDocument::Compact);
         check(file.open(QIODevice::WriteOnly) && file.write(value) == value.size() && file.commit(),"Publish actual Qt/core lifecycle boundary");
     };
+    if (composed) publish(".coexistence");
     int coreFinished = 0, finished = 0; bool wasPreparing = false;
     QObject::connect(engine,&CoreEngine::finished,[&] { ++coreFinished; });
     QObject::connect(&session,&ConnectionSession::progressChanged,[&] { wasPreparing |= session.phase() == ConnectionPhase::NetworkPreparing; });
@@ -215,7 +239,7 @@ int main(int argc,char **argv)
         if (exitChange && round == 1) {
             publish(".exit-reconnected"); until([&] { return QFileInfo::exists(marker+".traffic"); });
         }
-        if ((helperLoss && round == 1) || (!helperLoss && !policyChanges && !exitChange && authorizationMode.isEmpty() && !marker.isEmpty() && round == 0)) {
+        if ((helperLoss && round == 1) || (!composed && !helperLoss && !policyChanges && !exitChange && authorizationMode.isEmpty() && !marker.isEmpty() && round == 0)) {
             publish(".reconnected"); until([&] { return QFileInfo::exists(marker+".traffic"); });
         }
         auto lookup = std::async(std::launch::async,[] { return addresses("campus.test"); });
@@ -227,6 +251,7 @@ int main(int argc,char **argv)
         for (const auto &address : addresses("localhost")) check(QHostAddress(address).isLoopback(),"localhost remains on this computer");
         originalView();
         refresh(); originalView();
+        if (composed) coexistence.exercise(session,proxy,policy);
         if (exitChange && round == 0) {
             previousGeneration = policy.currentGeneration(); changingNetwork = true;
             const auto barrier = QObject::connect(&session,&ConnectionSession::reconnectScheduled,&session,[&](int) {
@@ -326,6 +351,10 @@ int main(int argc,char **argv)
         if (helperLoss && round == 0) {
             publish(".restored"); until([&] { return QFileInfo::exists(marker+".restart"); });
         }
+    }
+    if (composed) {
+        check(!proxy.isBusy() && !proxy.needsCleanup(),"release browser ownership before completing the composed matrix");
+        coexistence.restore();
     }
     ::close(authorizationFd);
     if (exitChange) std::cout << "PASS: changed macOS original exit restores before automatic reconnect with a fresh generation and ownership\n";

@@ -20,6 +20,7 @@ import tempfile
 import time
 import uuid
 from unix_device_probe import allocate_unix
+from mihomo_coexistence_macos import MacCoexistenceRuntime, MacProxyScope
 
 ROOT = Path(__file__).resolve().parents[2]
 LAYOUT = json.loads((ROOT / 'resource/network-helper-macos.json').read_text())
@@ -87,7 +88,7 @@ class Authorization:
     class Item(ctypes.Structure):
         _fields_ = [('name', ctypes.c_char_p), ('length', ctypes.c_size_t), ('value', ctypes.c_void_p), ('flags', ctypes.c_uint32)]
 
-    def __init__(self):
+    def __init__(self, *, preferences=False):
         class Rights(ctypes.Structure):
             _fields_ = [('count', ctypes.c_uint32), ('items', ctypes.POINTER(Authorization.Item))]
         self.security = ctypes.CDLL('/System/Library/Frameworks/Security.framework/Security')
@@ -98,8 +99,9 @@ class Authorization:
         self.security.AuthorizationCreateFromExternalForm.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
         self.security.AuthorizationFree.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
         assert self.security.AuthorizationCreate(None, None, 0, ctypes.byref(self.reference)) == 0
-        self.item = self.Item(LAYOUT['authorization_right'].encode(), 0, None, 0)
-        self.rights = Rights(1, ctypes.pointer(self.item))
+        names = [LAYOUT['authorization_right']] + (['system.preferences.network'] if preferences else [])
+        self.items = (self.Item * len(names))(*(self.Item(name.encode(), 0, None, 0) for name in names))
+        self.rights = Rights(len(names), self.items)
         # Root obtains the real existing system right without an interactive prompt.
         assert self.security.AuthorizationCopyRights(self.reference, ctypes.byref(self.rights), None, (1 << 1) | (1 << 4), None) == 0
         self.external = ctypes.create_string_buffer(32)  # Security.framework AuthorizationExternalForm ABI.
@@ -203,8 +205,8 @@ def main(args):
                 except (FileNotFoundError, json.JSONDecodeError):
                     return False
 
-            def finish(process):
-                status = process.wait(timeout=20)
+            def finish(process, timeout=20):
+                status = process.wait(timeout=timeout)
                 assert status == 0, f'Native client {process.pid} exited {status}'
 
             def helper_pid():
@@ -322,16 +324,17 @@ def main(args):
             shutil.copy2(args.core_client, core_bundle / 'Contents/MacOS/JustConnect')
             sign(core_bundle, identity, APP_ID)
             crashed_owner = None
-            for scenario in ('authorization-cancel', 'authorization-exit', 'process-crash', 'normal', 'network-policy', 'original-dns', 'original-dns-state', 'network-exit', 'helper-loss', 'helper-offline'):
+            for scenario in ('authorization-cancel', 'authorization-exit', 'process-crash', 'normal', 'network-policy', 'original-dns', 'original-dns-state', 'network-exit', 'helper-loss', 'helper-offline', 'coexistence'):
                 control = directory / ('core-' + scenario); control.mkdir(mode=0o700); os.chown(control, args.uid, account.pw_gid)
                 marker = control / 'ready'
                 authorization_mode = scenario.removeprefix('authorization-') if scenario.startswith('authorization-') else ''
                 authorization_count = 3 if authorization_mode == 'cancel' else 1 if authorization_mode == 'exit' or scenario == 'process-crash' else 2
-                authorizations = [Authorization() for _ in range(authorization_count)]; grants.extend(authorizations)
+                authorizations = [Authorization(preferences=scenario == 'coexistence') for _ in range(authorization_count)]; grants.extend(authorizations)
                 read_fd, write_fd = os.pipe()
                 original_fd = -1
                 external_alias = None
                 source_fixture = None
+                coexistence = proxy_scope = None
                 original_dns_before = dns_before
                 original_routes = []
                 transcript = output / ('core-' + scenario + '.out')
@@ -340,6 +343,11 @@ def main(args):
                     environment = {'HOME': account.pw_dir, 'PATH': '/usr/bin:/bin:/usr/sbin:/sbin', 'GITHUB_ACTIONS': 'true', 'RUNNER_OS': 'macOS',
                         'JC_NATIVE_TUN_HOST': str(core_bundle / 'Contents/MacOS/JustConnect'),
                         'JC_NATIVE_TUN_MAC_AUTH_FD': str(read_fd), 'JC_NATIVE_TUN_DNS': '1'}
+                    if scenario == 'coexistence':
+                        proxy_scope = MacProxyScope()
+                        coexistence = MacCoexistenceRuntime(Path(args.coexistence_mihomo).resolve(strict=True), directory / 'coexistence-runtime')
+                        environment['JC_NATIVE_MAC_COEXISTENCE'] = json.dumps(coexistence.facts)
+                        environment['JC_NATIVE_TUN_READY'] = str(marker)
                     if authorization_mode:
                         environment.update(JC_NATIVE_NETWORK_AUTHORIZATION=authorization_mode, JC_NATIVE_TUN_READY=str(marker))
                     elif scenario == 'network-exit':
@@ -362,9 +370,10 @@ def main(args):
                     elif crashed_owner:
                         assert receipt(crashed_owner, 'restored'), 'Restart must encounter the unacknowledged crash receipt'
                         environment['JC_NATIVE_TUN_READY'] = str(marker)
-                    test_name = 'TestNativeTUNAuthorizationExit' if authorization_mode == 'exit' else 'TestNativeTUNProcessCrash' if scenario == 'process-crash' else 'TestNativeTUNHost'
+                    test_name = 'TestNativeMacCoexistence' if scenario == 'coexistence' else 'TestNativeTUNAuthorizationExit' if authorization_mode == 'exit' else 'TestNativeTUNProcessCrash' if scenario == 'process-crash' else 'TestNativeTUNHost'
+                    timeout = '180s' if scenario == 'coexistence' else '75s'
                     with transcript.open('wb') as stream:
-                        core = subprocess.Popen([args.gateway, '-test.v', '-test.timeout', '75s', '-test.run', '^' + test_name + '$'],
+                        core = subprocess.Popen([args.gateway, '-test.v', '-test.timeout', timeout, '-test.run', '^' + test_name + '$'],
                             user=args.uid, group=account.pw_gid, extra_groups=(), pass_fds=(read_fd,) + ((original_fd,) if original_fd >= 0 else ()), env=environment,
                             stdout=stream, stderr=subprocess.STDOUT)
                     processes.append(core)
@@ -523,7 +532,7 @@ def main(args):
                         Path(str(marker) + '.traffic').touch()
                         print('CHECK: new application acknowledged crash recovery before fresh owner', fresh['owner'], flush=True)
                         crashed_owner = None
-                    elif scenario != 'normal':
+                    elif scenario not in ('normal', 'coexistence'):
                         boundary(''); active = active_owner()
                         assert published(active['owner']), 'Fault preceded actual DNS publication and data traffic'
                         if scenario == 'helper-offline':
@@ -551,10 +560,30 @@ def main(args):
                         Path(str(marker) + '.traffic').touch()
                         print('CHECK: full Qt/core', scenario, active['owner'], 'restored before fresh owner', fresh['owner'], flush=True)
                     try:
-                        finish(core)
+                        finish(core, timeout=175 if scenario == 'coexistence' else 20)
                     finally:
                         print(transcript.read_text(), end='', flush=True)
                 finally:
+                    if coexistence is not None or proxy_scope is not None:
+                        if 'core' in locals() and core.poll() is None:
+                            child = Path(str(marker) + '.coexistence')
+                            if child.exists():
+                                pid = int(json.loads(child.read_text())['pid'])
+                                observed = run('/bin/ps', '-p', pid, '-o', 'ppid=', '-o', 'uid=', check=False)
+                                if observed.returncode == 0:
+                                    assert tuple(map(int, observed.stdout.split())) == (core.pid, args.uid), 'refuse an unrelated matrix process'
+                                    os.kill(pid, signal.SIGTERM)
+                            core.kill(); core.wait(timeout=10)
+                        try:
+                            if coexistence is not None:
+                                coexistence.close()
+                        finally:
+                            if proxy_scope is not None:
+                                try:
+                                    wait_for(lambda: not user_state.exists() or all(receipt(path.name, 'restored') for path in user_state.iterdir()),
+                                             'matrix ownership must recover before root proxy cleanup')
+                                finally:
+                                    proxy_scope.close()
                     for address in original_routes:
                         run('/sbin/route', '-n', 'delete', '-inet', '-host', address, '-interface', original_interface)
                     if source_fixture:
@@ -603,6 +632,6 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--uid', type=int, required=True)
-    for name in ('helper', 'client', 'plist', 'deploy-tool', 'revision', 'output', 'dns-probe', 'original-dns-probe', 'core-client', 'gateway', 'allocator'):
+    for name in ('helper', 'client', 'plist', 'deploy-tool', 'revision', 'output', 'dns-probe', 'original-dns-probe', 'core-client', 'gateway', 'allocator', 'coexistence-mihomo'):
         parser.add_argument('--' + name, required=True)
     main(parser.parse_args())

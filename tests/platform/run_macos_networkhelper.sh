@@ -15,4 +15,5 @@ sudo env PYTHONDONTWRITEBYTECODE=1 GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_OS="$
     --plist "build/coreabi/$helper_id.plist" --deploy-tool "$(command -v macdeployqt)" \
     --core-client build/coreabi/coreabi_macos_tun_adapter_test --gateway build/coreabi/native-tun-host \
     --revision "$GITHUB_SHA" --dns-probe build/coreabi/macos_tundns_test --original-dns-probe build/coreabi/macos_originaldns_test --allocator build/coreabi/macos_tundevice_test \
+    --coexistence-mihomo "$JC_TEST_MIHOMO_BINARY" \
     --output build/coreabi/macos-helper 2>&1 | tee build/coreabi/macos-helper.log
