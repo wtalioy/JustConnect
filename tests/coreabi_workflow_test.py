@@ -31,7 +31,9 @@ def scenario(failures, arch='ARM64', runner='macOS'):
 
     class Process:
         def __init__(self, args, **options):
-            if args[0] == 'go' and 'test' in args:
+            if len(args) > 1 and args[1] == 'tests/platform/mihomo_api_probe.py':
+                name = 'mihomo-api'
+            elif args[0] == 'go' and 'test' in args:
                 name = 'regressions' if '-count' in args else 'race' if '-race' in args else 'normal'
             elif args[0] == 'ctest':
                 name = 'host'
@@ -58,7 +60,8 @@ def scenario(failures, arch='ARM64', runner='macOS'):
     with tempfile.TemporaryDirectory() as directory, io.TextIOWrapper(io.BytesIO(), encoding='utf-8') as output:
         try:
             os.chdir(directory)
-            with patch.dict(os.environ, CC='fixture-cc', RUNNER_OS=runner, RUNNER_ARCH=arch), \
+            with patch.dict(os.environ, CC='fixture-cc', RUNNER_OS=runner, RUNNER_ARCH=arch,
+                            JC_TEST_MIHOMO_BINARY='fixture-mihomo'), \
                     patch.object(subprocess, 'Popen', Process), patch.object(sys, 'stdout', output):
                 try:
                     exec(compile(body, str(ROOT / '.github/workflows/coreabi.yml'), 'exec'), {})
@@ -75,12 +78,12 @@ for failure in ({}, {'race': 7}, {'regressions': 8}, {'race': 7, 'regressions': 
     status, calls = scenario(failure)
     assert status == (failure.get('race') or failure.get('regressions') or 0), (failure, status)
     assert calls[-1] == 'host' and calls.index('race') < calls.index('regressions') < calls.index('configure'), calls
-for failed in ('normal', 'configure', 'build'):
+for failed in ('mihomo-api', 'normal', 'configure', 'build'):
     status, calls = scenario({failed: 9})
     assert status == 9 and 'host' not in calls, (failed, status, calls)
 status, calls = scenario({}, runner='Windows')
 assert status == 0 and calls[-1] == 'host' and 'race' not in calls and 'regressions' not in calls, calls
-print('PASS: 8 workflow outcomes; race failures collect ABI evidence and remain failures')
+print('PASS: 9 workflow outcomes; race failures collect ABI evidence and remain failures')
 
 # GitHub's continue-on-error changes the displayed conclusion; retain the actual device failure.
 probe = lines.index('      - &windows_device_probe')
