@@ -62,8 +62,11 @@ public:
             QNetworkRequest request{QUrl(url)}; request.setTransferTimeout(5000);
             request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,QNetworkRequest::ManualRedirectPolicy);
             request.setRawHeader("Connection","close");
-            // Pin the preflight's actual public peer so DNS caching cannot mimic GLOBAL rejection.
-            if (url == runtime["ordinary_url"].toString()) request.setRawHeader("Host",runtime["ordinary_host"].toString().toLatin1());
+            // Each exit assertion needs a new TCP flow, not a cached connection from the previous TUN state.
+            if (url == runtime["ordinary_url"].toString()) {
+                request.setRawHeader("Host",runtime["ordinary_host"].toString().toLatin1());
+                request.setAttribute(QNetworkRequest::ConnectionCacheExpiryTimeoutSecondsAttribute,-1);
+            }
             auto *reply = browser.get(request); until([&] { return reply->isFinished(); });
             const auto code = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             const auto body = reply->readAll();

@@ -303,3 +303,5 @@ macOS 的 `TestNativeMacCoexistence` 随原正式签名／XPC 助手夹具运行
 macOS 原生应用夹具使用正常 Qt 事件循环等待谓词，保持原操作超时；不以手工 `processEvents` 忙轮询替代事件循环。[Qt 的延迟销毁说明](https://doc.qt.io/qt-6/qcoreapplication.html#processEvents)指出该轮询不会处理 DeferredDelete，可能留下先前 HTTP 回复和连接状态。此修正仅用于夹具；正式应用原本使用事件循环。
 
 S6 Windows 集中复测：使用最终同版包，保留浏览器与终端开启；连接前先访问一次校园域名以覆盖原 Fake-IP 缓存，连接后分别在系统代理／TUN 的四种开关组合下访问校园网页、执行普通 IP／域名 SSH，并确认普通网站与原 MagicDNS。无需更改环境变量、ProxyCommand 或重启浏览器；保留原 Clash 模式。三个模式的组合覆盖引用对应自动证据。最后断开一次，记录接管／恢复耗时、错误与 CPU 峰值；macOS／Linux 实机仍留 S8。
+
+macOS 模式／开关出口断言为同一 HTTP 客户端的每次公网请求禁用 TCP 连接缓存（`ConnectionCacheExpiryTimeoutSecondsAttribute=-1`），确保新流验证当前出口；[Qt 属性契约](https://doc.qt.io/qt-6/qnetworkrequest.html#Attribute-enum)明确该值既不存储也不取用连接池。客户端及 DNS 缓存保留，未重启应用或清理用户 DNS。此格不宣称已建立 TCP 连接能在第三方 TUN 撤销后迁移；失败点的真实路由及独立 curl 结果另保留。
