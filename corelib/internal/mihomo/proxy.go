@@ -26,24 +26,16 @@ type Proxy struct {
 }
 
 func (c *Client) Proxy(ctx context.Context) (*Proxy, error) {
-	var config struct {
-		SOCKS *int `json:"socks-port"`
-		Mixed *int `json:"mixed-port"`
-	}
-	if err := c.read(ctx, "/configs", nil, &config); err != nil {
+	state, err := c.ReadState(ctx)
+	if err != nil {
 		return nil, err
 	}
-	for _, port := range []*int{config.SOCKS, config.Mixed} {
-		if port == nil || *port < 0 || *port > 65535 {
-			return nil, ErrUnavailable
-		}
-	}
-	for _, port := range []int{*config.SOCKS, *config.Mixed} {
+	for _, port := range []uint16{state.SOCKSPort, state.MixedPort} {
 		if port == 0 {
 			continue
 		}
 		for _, host := range []netip.Addr{netip.AddrFrom4([4]byte{127, 0, 0, 1}), netip.IPv6Loopback()} {
-			address := netip.AddrPortFrom(host, uint16(port))
+			address := netip.AddrPortFrom(host, port)
 			if ownsTCP(ctx, c.endpoint.process, address) {
 				return &Proxy{process: c.endpoint.process, address: address}, nil
 			}

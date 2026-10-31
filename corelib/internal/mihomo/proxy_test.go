@@ -3,13 +3,14 @@ package mihomo
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net"
 	"net/http"
 	"net/netip"
 	"os"
-	"strings"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -62,9 +63,13 @@ func proxyEchoTargets(t *testing.T, host string) (tcp, udp string) {
 	return stream.Addr().String(), packet.LocalAddr().String()
 }
 
-func setOwnedProxyMode(t *testing.T, c *Client, fixture *testmihomo.Fixture, mode string) {
+func patchOwnedProxy(t *testing.T, c *Client, fixture *testmihomo.Fixture, fields map[string]any) {
 	t.Helper()
-	request, _ := http.NewRequestWithContext(t.Context(), http.MethodPatch, "http://"+fixture.Address+"/configs", strings.NewReader(`{"mode":"`+mode+`"}`))
+	payload, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, _ := http.NewRequestWithContext(t.Context(), http.MethodPatch, "http://"+fixture.Address+"/configs", bytes.NewReader(payload))
 	request.Header.Set("Authorization", "Bearer "+fixture.Secret)
 	request.Header.Set("Content-Type", "application/json")
 	response, err := c.http.Do(request)
@@ -73,7 +78,7 @@ func setOwnedProxyMode(t *testing.T, c *Client, fixture *testmihomo.Fixture, mod
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusNoContent {
-		t.Fatal("owned mode update failed", response.StatusCode)
+		t.Fatal("owned config update failed", response.StatusCode)
 	}
 }
 
@@ -93,6 +98,7 @@ func TestOfficialProxyUsesActualListenersAndSelectedMode(t *testing.T) {
 			reserved.Close()
 			fixture := testmihomo.StartConfiguredBinary(t, originalControllerDNS(t), true, map[string]any{
 				kind: port, "mode": "rule",
+				"tun":          map[string]any{"enable": false, "route-exclude-address": []string{"192.0.2.128/25", "2001:db8::/48"}},
 				"hosts":        map[string]string{"owned.upstream.test": "127.0.0.1"},
 				"rules":        []string{"DOMAIN,owned.upstream.test,DIRECT", "IP-CIDR,127.0.0.1/32,DIRECT,no-resolve", "IP-CIDR6,::1/128,DIRECT,no-resolve", "MATCH,REJECT"},
 				"proxy-groups": []any{map[string]any{"name": "GLOBAL", "type": "select", "proxies": []string{"REJECT", "DIRECT"}}},
@@ -106,10 +112,10 @@ func TestOfficialProxyUsesActualListenersAndSelectedMode(t *testing.T) {
 			if err != nil || int(upstream.address.Port()) != port {
 				t.Fatal("actual proxy listener was not discovered", err)
 			}
-			fixture.WaitReady(t, func() error {
+			probeTCP := func(proxy *Proxy) error {
 				ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 				defer cancel()
-				conn, err := upstream.DialContext(ctx, "tcp", tcp)
+				conn, err := proxy.DialContext(ctx, "tcp", tcp)
 				if err != nil {
 					return err
 				}
@@ -126,9 +132,16 @@ func TestOfficialProxyUsesActualListenersAndSelectedMode(t *testing.T) {
 					return errors.New("owned traffic readiness payload changed")
 				}
 				return nil
-			})
+			}
+			fixture.WaitReady(t, func() error { return probeTCP(upstream) })
 			for _, mode := range []string{"rule", "global", "direct", "rule"} {
-				setOwnedProxyMode(t, c, fixture, mode)
+				patchOwnedProxy(t, c, fixture, map[string]any{"mode": mode})
+				state, err := c.ReadState(t.Context())
+				if err != nil || state.Mode != mode || state.TunEnabled || len(state.RouteExcludes) != 2 ||
+					!slices.Contains(state.RouteExcludes, netip.MustParsePrefix("192.0.2.128/25")) ||
+					!slices.Contains(state.RouteExcludes, netip.MustParsePrefix("2001:db8::/48")) {
+					t.Fatal("runtime state lost the live mode or existing exclusions", state, err)
+				}
 				for _, network := range []string{"tcp", "udp"} {
 					for _, host := range []string{"127.0.0.1", "owned.upstream.test", "::1"} {
 						address := tcp
@@ -192,6 +205,32 @@ func TestOfficialProxyUsesActualListenersAndSelectedMode(t *testing.T) {
 					}
 				}
 			}
+			reserved, err = net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			newPort := reserved.Addr().(*net.TCPAddr).Port
+			reserved.Close()
+			patchOwnedProxy(t, c, fixture, map[string]any{kind: newPort})
+			var changed *Proxy
+			fixture.WaitReady(t, func() error {
+				var err error
+				changed, err = c.Proxy(t.Context())
+				if err != nil {
+					return err
+				}
+				return probeTCP(changed)
+			})
+			if int(changed.address.Port()) != newPort {
+				t.Fatal("controller client retained an obsolete listener port")
+			}
+			if conn, err := upstream.DialContext(t.Context(), "tcp", tcp); !errors.Is(err, ErrUnavailable) {
+				if conn != nil {
+					conn.Close()
+				}
+				t.Fatal("retired proxy listener was reused", err)
+			}
+			upstream = changed
 			// The same port cannot be used through a recycled native process identity.
 			upstream.process.Started++
 			if conn, err := upstream.DialContext(t.Context(), "tcp", tcp); !errors.Is(err, ErrUnavailable) {

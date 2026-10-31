@@ -178,7 +178,7 @@ S3—S5 已收尾，不重复开发或重跑已通过基线；A6 性能优化已
 
 前置：实际共存接入依赖对应平台无 Clash 的透明路径与恢复；S7-01／S6-03 的只读发现和控制能力调查不依赖 V1，可随会话工作提前做。转发／DNS／回环验证与 S7-04／05 增量联动同组实现；写入验证在具备恢复的隔离环境进行，手填端口／临时规则仅供诊断，不另维护手工版本。
 
-当前：严格校园分流／解析、真实 Mihomo 双向 HTTP／UDP 与模式／Fake-IP 基础验证已实现，未授权请求不回落。实际 HTTP／SOCKS 监听端点已接既有资源快照，支持内核分配端口；本地全包 race 及五项 C ABI／宿主检查通过（`build/reports/s6/listener-endpoints-*.log`），跨平台验收待补。其余证据及 SDK／模式边界见[接口结论](docs/CORELINK-PROBE.md#s6-真实代理入口与模式边界)和 `build/reports/s6/`。自动入口、临时联动、恢复、旧应用缓存／运行中排除及 V2—V5 全矩阵仍待，六项未整体验收。
+当前：严格校园分流／解析、真实 Mihomo 双向 HTTP／UDP 与模式／Fake-IP 基础验证已实现，未授权请求不回落。实际 HTTP／SOCKS 端点接既有资源快照，支持内核分配端口；Mihomo 模式／端口／TUN／排除统一只读，验证端口切换和旧监听拒绝。端点全包 race、五项 C ABI／宿主及状态读取 race 本地通过（`build/reports/s6/{listener-endpoints-*,controller-state-race}.log`），新单元跨平台待验；前批 `e1f327a` 五架构通过、Windows x64 端口分配夹具失败待修。边界与证据见[接口结论](docs/CORELINK-PROBE.md#s6-真实代理入口与模式边界)和 `build/reports/s6/`。自动入口、临时联动、恢复、旧应用缓存／运行中排除及 V2—V5 全矩阵仍待，六项未整体验收。
 
 - [ ] **S6-01**：验证 JustConnect → Clash 的非校园出口和 Clash → JustConnect 的校园入口，两侧使用一致的校园资源策略。从 Clash 转入的校园请求若不匹配核心资源则返回错误，不能经上游送回 Clash；本地代理、认证端点和网关不递归进入校园链。
 - [ ] **S6-02**：逐项填写 V2—V5，覆盖网页先进入 Clash、终端直接连接以及两个开关运行中分别／同时切换。另测 `rule/global/direct`，不得通过强制切换用户模式或固定开关组合通过验收。

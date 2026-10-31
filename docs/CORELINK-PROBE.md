@@ -78,7 +78,7 @@ D2 的设备入口子方案已收敛：Linux／macOS 使用最小授权助手创
 
 ### S6 真实代理入口与模式边界
 
-固定的官方 Mihomo `v1.19.32` 在自有回环实例中验证：从实际 `/configs` 的 SOCKS／mixed 端口和原生 PID／启动身份共同确认入口，不猜端口；连接前后再次核对所属监听。普通 TCP／UDP 保留原域名交给该实例，IPv4／IPv6、空 UDP、控制连接关闭与 `rule → global → direct → rule` 切换已由 `TestOfficialProxyUsesActualListenersAndSelectedMode` 本地通过；六架构 CI 待补。测试配置、模式写入与进程终止只作用于自有夹具，不接触用户实例。
+固定的官方 Mihomo `v1.19.32` 在自有回环实例中验证：从实际 `/configs` 的 SOCKS／mixed 端口和原生 PID／启动身份共同确认入口，不猜端口；连接前后再次核对所属监听。`ReadState` 统一读取当前模式、端口、TUN、出口接口和已有排除前缀，不将部分状态当作完整可重载配置，也不增加轮询。普通 TCP／UDP 保留原域名交给该实例，IPv4／IPv6、空 UDP、控制连接关闭与 `rule → global → direct → rule` 切换，以及端口更换后重新发现、拒绝旧监听和已有排除保留，已由 `TestOfficialProxyUsesActualListenersAndSelectedMode` 本地通过；缺失／畸形状态不授予控制权限。跨平台 CI 待补。测试配置、模式写入与进程终止只作用于自有夹具，不接触用户实例。
 
 `TestOfficialMihomoCampusIngressEnforcesSharedResources` 进一步使用真实 Mihomo → JustConnect 严格 SOCKS → 自有 HTTP／UDP 对端，核对实际拨号目标、域名／IP 授权、端口／协议限制、空 UDP、本地监听自身／未知域名／IPv6 拒绝，以及保护策略增加和撤回；宽泛／陈旧外部规则不授予校园权限，拒绝时普通上游调用为零。本地 race 重复通过，三平台全矩阵仍待。
 

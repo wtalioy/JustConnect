@@ -137,20 +137,14 @@ func Inspect(ctx context.Context, process model.Process) (*Client, error) {
 			candidate.Close()
 			continue
 		}
-		var facts struct {
-			Interface *string `json:"interface-name"`
-			Tun       *struct {
-				Enable *bool
-				Device string
-			}
-		}
-		if candidate.read(ctx, "/configs", nil, &facts) != nil || facts.Interface == nil || facts.Tun == nil || facts.Tun.Enable == nil {
+		facts, err := candidate.ReadState(ctx)
+		if err != nil {
 			candidate.Close()
 			continue
 		}
-		candidate.TunEnabled = *facts.Tun.Enable
-		candidate.TunDevice = facts.Tun.Device
-		candidate.OutboundInterface = *facts.Interface
+		candidate.TunEnabled = facts.TunEnabled
+		candidate.TunDevice = facts.TunDevice
+		candidate.OutboundInterface = facts.OutboundInterface
 		return candidate, nil
 	}
 	if ctx.Err() != nil {
