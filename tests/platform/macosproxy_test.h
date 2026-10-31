@@ -100,7 +100,9 @@ static void backendTests() {
         check(view.result.succeeded() && view.active && !view.managed && view.endpoints==automatic.upstream,"Observe native local upstream");
         check(owner.apply(automatic).succeeded(),"Automatic native local upstream handoff");
         view=owner.inspect();
-        auto installed=static_cast<CFDictionaryRef>(value(firstPath));
+        // The next lookup synchronizes preferences and invalidates borrowed values.
+        auto installed=static_cast<CFDictionaryRef>(CFRetain(value(firstPath)));
+        const auto releaseInstalled=qScopeGuard([&]{CFRelease(installed);});
         check(view.managed && view.endpoints==automatic.upstream && !enabled(installed,kSCPropNetProxiesHTTPSEnable)
               && !enabled(installed,kSCPropNetProxiesSOCKSEnable) && !value(secondPath)
               && CFEqual(CFDictionaryGetValue(installed,kSCPropNetProxiesExceptionsList),CFDictionaryGetValue(local,kSCPropNetProxiesExceptionsList)),
