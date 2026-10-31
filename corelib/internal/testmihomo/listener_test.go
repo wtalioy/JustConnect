@@ -11,6 +11,40 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+func TestIPCListenerRetainsItsNameBetweenAccepts(t *testing.T) {
+	listener, err := listenIPC(ipcName(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	path, _ := windows.UTF16PtrFromString(listener.Addr().String())
+	for range 2 {
+		// A listening pipe must remain connectable even before the next Accept starts.
+		client, err := windows.CreateFile(path, windows.GENERIC_READ|windows.GENERIC_WRITE, 0, nil, windows.OPEN_EXISTING, windows.FILE_FLAG_OVERLAPPED, 0)
+		if err != nil {
+			t.Fatal("listener lost its public name between clients", err)
+		}
+		accepted := make(chan error, 1)
+		go func() {
+			connection, err := listener.Accept()
+			if connection != nil {
+				connection.Close()
+			}
+			accepted <- err
+		}()
+		select {
+		case err := <-accepted:
+			windows.CloseHandle(client)
+			if err != nil {
+				t.Fatal("pending owned client was not accepted", err)
+			}
+		case <-time.After(5 * time.Second):
+			windows.CloseHandle(client)
+			t.Fatal("pending owned client was not accepted")
+		}
+	}
+}
+
 func TestIPCListenerSurvivesAnAlreadyDisconnectedProbe(t *testing.T) {
 	listener, err := listenIPC(ipcName(""))
 	if err != nil {
