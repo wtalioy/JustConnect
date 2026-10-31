@@ -43,18 +43,10 @@ func newClient(e endpoint) *Client {
 			return dialIPC(ctx, e.process, e.address)
 		}
 		address, err := netip.ParseAddrPort(e.address)
-		if err != nil || !ownsTCP(ctx, e.process, address) {
-			return nil, ErrUnavailable
-		}
-		connection, err := (&net.Dialer{}).DialContext(ctx, "tcp", e.address)
 		if err != nil {
 			return nil, ErrUnavailable
 		}
-		if !validProcess(e.process) || !ownsTCP(ctx, e.process, address) {
-			connection.Close()
-			return nil, ErrUnavailable
-		}
-		return connection, nil
+		return dialOwnedTCP(ctx, e.process, address)
 	}
 	return &Client{endpoint: e, http: &http.Client{Transport: transport, Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 }

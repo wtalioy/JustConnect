@@ -8,6 +8,7 @@ import (
 
 	"github.com/things-go/go-socks5"
 	"github.com/things-go/go-socks5/statute"
+	"github.com/wtalioy/JustConnect/corelib/internal/socksudp"
 )
 
 const maxSOCKSUDPFlows = 256
@@ -71,10 +72,7 @@ func (p *Listeners) handleSOCKSUDP(ctx context.Context, writer io.Writer, reques
 			if source != nil && source.AddrPort() != sender.AddrPort() {
 				continue
 			}
-			if n < 4 || buf[0] != 0 || buf[1] != 0 || buf[2] != 0 {
-				continue
-			}
-			packet, err := statute.ParseDatagram(buf[:n])
+			packet, err := socksudp.Parse(buf[:n])
 			if err != nil {
 				continue
 			}

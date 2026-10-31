@@ -47,6 +47,11 @@ func (d *Dialer) CampusOnly() *Dialer {
 
 func (d *Dialer) dialOrdinary(ctx context.Context, network, address string) (net.Conn, error) {
 	if d.Upstream != nil {
+		if host, ok := ctx.Value(resolve.ContextKeyResolveHost).(string); ok {
+			if _, port, err := net.SplitHostPort(address); err == nil {
+				address = net.JoinHostPort(host, port)
+			}
+		}
 		return d.Upstream(ctx, network, address)
 	}
 	return dialDirect(ctx, network, address)
@@ -63,6 +68,13 @@ func (d *Dialer) Resolve(ctx context.Context, host string) (context.Context, net
 	if d.alwaysUseVPN {
 		return ctx, nil, ErrACLDenied
 	}
+	if d.ProtectionPolicy != nil {
+		if snapshot := d.ProtectionPolicy(); snapshot != nil {
+			if allowed, protected := snapshot.CampusNameAllowed(host); protected && allowed {
+				return ctx, nil, ErrACLDenied
+			}
+		}
+	}
 	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
 	if err != nil {
 		return ctx, nil, err
@@ -70,7 +82,7 @@ func (d *Dialer) Resolve(ctx context.Context, host string) (context.Context, net
 	if len(ips) == 0 {
 		return ctx, nil, errors.New("native DNS lookup returned no addresses")
 	}
-	return ctx, ips[0], nil
+	return context.WithValue(ctx, resolve.ContextKeyResolveHost, host), ips[0], nil
 }
 
 // DialCampusIPPort refuses fallback: a captured flow must never loop into its TUN.
