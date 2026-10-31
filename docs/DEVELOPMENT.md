@@ -293,3 +293,6 @@ macOS 的跨 UID 数据回归核对普通调用方 → root 官方实例 → 自
 Linux 安装助手验收的 `--coexistence-mihomo /absolute/path/to/mihomo` 在同一私有网络中启动 root 官方运行时、普通应用、真实 Secret Service 和私有桌面设置，验证 `CoexistenceNetworkAccess` 的完整调用链。分别启动 blacklist／whitelist／rule 三种 Fake-IP 过滤模式的独立实例：每组通过实际原 DNS 预热 QHostInfo 的 Fake-IP 缓存，再以预先创建的同一 Qt HTTP 客户端执行三种代理模式乘四种系统代理／TUN 组合，共 36 组，连同校园系统 DNS／HTTP／TCP／UDP／OpenSSH、普通 HTTP／SOCKS UDP、受保护网络和有序恢复。组间只在预热前清理隔离解析器的上一组缓存；另测运行中追加／撤回 TUN 排除：校园保持原生接管，普通原生 HTTP 只在排除生效时绕开 GLOBAL REJECT，撤回后恢复原选择；显式 SOCKS UDP 继续遵守代理模式。已有 TUN 的第二次启动显式绑定夹具提供的原接口，因为回环认证服务器没有物理传输套接字，不能冒充自动出口探测证据。私有 mount namespace 为自身网络挂载只读 sysfs，并隔离 `/tmp` 的正式代理锁；结束等待或精确清理自己的恢复进程，不改用户桌面。此为预热过 QHostInfo 缓存的真实 Qt 客户端与隔离系统验收；浏览器自身缓存、剩余平台 V2—V5 与用户实机继续依最终矩阵补验。
 
 Linux 捕获删除检查点的 ptrace 夹具在 fork／vfork 前后暂停所属助手与命令子进程，核对写前记录及内核路由存在／消失后才中断。清理先杀并回收暂停的子进程，再杀助手，沿用总计五秒的原清理预算；这些尚未 exec 的子进程仍继承日志锁，不能让夹具延长持锁时间并与应用恢复竞争。所属进程、两种路由状态、原恢复期限及所有权／无外部写入断言保留。
+
+
+Windows 的 `TestNativeWindowsSessionCoexistence` 复用普通权限应用／正式 C++ 助手夹具，在一次性提权 runner 启动自己的官方 Mihomo，并读取、切换实际 WinINet 设置。两次完整会话各测三模式乘四开关；每格核对实际内核普通出口接口、校园 DNS／TCP／UDP／OpenSSH 与 Qt HTTP 前置，以及公共 HTTP 基线、GLOBAL REJECT 和受保护回环 HTTP。公共探针沿用 `github.com/robots.txt`，拒绝结果必须先有同一目标的可达基线。回环认证夹具显式绑定事先由内核选出的原接口，不计自动网卡检测；控制写入只发送给核对过 PID 的自有命名管道。结束恢复应用所有权、夹具原 WinINet 标志／地址、DNS／网卡，并核对源配置未改。该新增矩阵当前只通过 Go 双架构交叉编译与工作流检查；Windows C++ 构建／实际运行待原生 CI。

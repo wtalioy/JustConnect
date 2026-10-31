@@ -28,6 +28,7 @@ template<class Predicate> static void until(const char *stage,Predicate done,int
     while(!done() && timer.elapsed()<timeout)QCoreApplication::processEvents(QEventLoop::AllEvents,10);
     check(done(),stage);
 }
+#include "coexistence_windows.h"
 static QJsonObject dnsSnapshot(){
     auto future=QtConcurrent::run(readSystemDnsSnapshot);until("complete native DNS snapshot",[&]{return future.isFinished();});
     const auto result=future.result();check(result.result.succeeded(),"ordinary application reads complete system DNS");
@@ -76,6 +77,9 @@ int main(int argc,char **argv) try
     check(inspected && !elevation.TokenIsElevated,"Qt, application and Go core remain ordinary");
     QLibrary runtime(QCoreApplication::applicationDirPath()+"/"+QStringLiteral(JC_SHARED_LIBRARY));runtime.setLoadHints(QLibrary::PreventUnloadHint);
     check(runtime.load(),"load the actual embedded Windows core runtime");
+    WindowsCoexistenceFixture coexistence;
+    const bool composed=!coexistence.runtime.isEmpty();
+    check(!composed || (!policyChanges && !exitChange && fault.isEmpty()),"composed matrix has its own native session scenario");
     const bool originalDNS=!qgetenv("JC_WINDOWS_SESSION_ORIGINAL_DNS_SERVER").isEmpty();
     const auto queryOriginal=[&](const QString &expected,const QString &name=QStringLiteral("host.campus.test")){
         auto lookup=QtConcurrent::run([name]{
@@ -107,9 +111,17 @@ int main(int argc,char **argv) try
     profile.endpoint.authType=auth["method"].toString().mid(QStringLiteral("auth/").size());
     profile.endpoint.phone=auth["phone"].toString();profile.endpoint.loginDomain=auth["domain"].toString();
     profile.tls.caPem=config["tls"].toObject()["ca_pem"].toString();profile.keepAlive.mode="off";
+    if(composed){
+        // The local authentication fixture cannot observe a physical transport socket.
+        profile.behavior.bindInterface=coexistence.runtime["original_interface"].toString();
+        check(!profile.behavior.bindInterface.isEmpty(),"bind the original kernel-selected fixture exit");
+        profile.proxy.httpBind="127.0.0.1:0";profile.proxy.socksBind="127.0.0.1:0";
+    }
     int authorizations=0,approvals=0;
     auto *engine=new EmbeddedCoreEngine;
+    if(composed)coexistence.observe(engine);
     NetworkPolicySession policy(engine,readSystemDnsSnapshot);
+    SystemProxySession proxy(std::make_unique<ProxyRecoveryBackend>());
     const auto mtu=EmbeddedCoreEngine::buildInfo()["capabilities"].toObject()["tunnel_mtu"].toInt();
     auto *access=new WindowsNetworkAccess(engine,&policy,mtu,nullptr,[&](const QUuid &id,auto ready){
         ++authorizations;
@@ -133,7 +145,13 @@ int main(int argc,char **argv) try
         check(result.succeeded() && (normal?coreStopped:!coreStarted),"final network release follows core shutdown, or no core started after refusal");
         if(normal)networkStopped=true;
     });
-    ConnectionSession session(engine,nullptr,access);
+    NetworkAccess *network=access;
+    if(composed){
+        auto *handoff=new CoexistenceNetworkAccess(access,engine,&policy,&proxy);network=handoff;
+        auto *changes=new ProxyChanges(handoff);
+        QObject::connect(changes,&ProxyChanges::changed,handoff,&CoexistenceNetworkAccess::systemProxyChanged);
+    }
+    ConnectionSession session(engine,nullptr,network);
     QObject::connect(&session,&ConnectionSession::diagnostic,[](const QString &value){std::cerr<<value.toStdString()<<'\n';});
     QObject::connect(&session,&ConnectionSession::progressChanged,[&]{std::cerr<<"application phase="<<int(session.phase())<<'\n';});
     QObject::connect(access,&NetworkAccess::ready,[](const QUuid &,PlatformOperationResult result){std::cerr<<"network ready="<<result.succeeded()<<" "<<result.detail.toStdString()<<'\n';});
@@ -194,7 +212,8 @@ int main(int argc,char **argv) try
             exerciseOriginalNetworkTraffic();
         }
     };
-    traffic();
+    if(composed)coexistence.exercise(session,proxy,policy,traffic);
+    else traffic();
     if(originalDNS){
         queryOriginal("203.0.113.9");
         queryOriginalDefault();
@@ -253,6 +272,10 @@ int main(int argc,char **argv) try
         std::cout<<"PASS: helper loss stops core, blocks new authorization and preserves responsibility through independent restoration\n";return 0;
     }
     session.stop();until("finish staged network/core restoration",[&]{return finished==3;},20000);
+    if(composed){
+        check(!proxy.isBusy() && !proxy.needsCleanup(),"composed stop restores browser ownership before the native session finishes");
+        coexistence.restore();
+    }
     if(exitChange){
         unsigned char complete=1;DWORD count=0;
         check(coreFinishes==2 && WriteFile(reply,&complete,1,&count,nullptr) && count==1,"both real cores and owned network generations finish before fixture cleanup");CloseHandle(reply);
