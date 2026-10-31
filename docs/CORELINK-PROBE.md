@@ -88,7 +88,7 @@ API 夹具另逐项验证 blacklist／whitelist／rule 的 Fake-IP 与真实回�
 
 同一实测中，规则允许的目标在 `GLOBAL` 选择 `REJECT` 时被拒绝：[上游 `resolveMetadata`](https://github.com/MetaCubeX/mihomo/blob/v1.19.32/tunnel/tunnel.go#L310) 在普通规则前处理 `global/direct`，因此追加校园规则不足以覆盖这些模式。入口级方案与自动恢复尚待接入，不能由当前代理传输测试推定自动共存完成。
 
-固定版本源码进一步确认：[自定义入口的 `proxy` 字段](https://github.com/MetaCubeX/mihomo/blob/v1.19.32/listener/inbound/base.go#L86) 可先于模式选择指定出口，但[增量配置接口](https://github.com/MetaCubeX/mihomo/blob/v1.19.32/hub/route/configs.go#L35) 不接受自定义入口／代理定义；[默认 mixed 监听重建](https://github.com/MetaCubeX/mihomo/blob/v1.19.32/listener/listener.go#L443) 也不提供这项覆盖。替换既有入口需重载完整配置，现有 GET 无法证明已取得完整运行配置，不能据此覆盖用户设置。临时由 JustConnect 承接浏览器代理、校园走 VPN／普通流量回原 Clash 是待用户选择的另一条路径，未实施；另待明确 Clash 两开关均关闭时，普通流量尊重关闭直连还是由 JustConnect 强制交给 Clash，R2／R3 未自行改写。
+固定版本源码进一步确认：[自定义入口的 `proxy` 字段](https://github.com/MetaCubeX/mihomo/blob/v1.19.32/listener/inbound/base.go#L86) 可先于模式选择指定出口，但[增量配置接口](https://github.com/MetaCubeX/mihomo/blob/v1.19.32/hub/route/configs.go#L35) 不接受自定义入口／代理定义；[默认 mixed 监听重建](https://github.com/MetaCubeX/mihomo/blob/v1.19.32/listener/listener.go#L443) 也不提供这项覆盖。替换既有入口需重载完整配置，现有 GET 无法证明已取得完整运行配置，不能据此覆盖用户设置。用户于 2026-10-31 已确认采用临时 JustConnect 浏览器入口：系统代理开启时校园走 VPN／普通流量回原 Clash，双开关均关闭时普通流量直连。实现须保留用户开关、模式、代理组、DNS／过滤配置和按所有权恢复；自动接入尚待完成。
 
 旧 Fake-IP 缓存仍须单独验证：[缓存接口](https://github.com/MetaCubeX/mihomo/blob/v1.19.32/hub/route/cache.go) 仅提供清理，[DNS 查询 API](https://github.com/MetaCubeX/mihomo/blob/v1.19.32/hub/route/dns.go#L49) 走真实解析器，不提供 Fake-IP 反查映射；[DNS 前端的 PTR](https://github.com/MetaCubeX/mihomo/blob/v1.19.32/dns/middleware.go#L149) 也不查询 Fake-IP 池。不能以刷新 Mihomo 池代替应用缓存恢复，否则应用持有的旧 IP 将失去映射；当前不清理用户池。
 
