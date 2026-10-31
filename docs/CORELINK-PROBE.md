@@ -84,7 +84,7 @@ D2 的设备入口子方案已收敛：Linux／macOS 使用最小授权助手创
 
 自有 Mihomo 夹具除端口监听外，须完成调用方提供的实际回包检查才进入正式断言，避免核心尚未接收流量时的提前就绪；正式断言／超时不变。代理端口复用正式 TCP／UDP 配对分配，避免 TCP 可用但 UDP 被系统排除；端口冲突夹具直接交付已持有的 UDP 候选，不依赖 Windows 能立即重绑。Linux race 与 Windows 原生端口分配 100 轮、实际代理模式／端口更换／校园入口通过（`build/reports/s6/paired-*.log`）。Windows 命名管道夹具始终保留下一监听实例，本机原生两项管道及控制解析／TLS 各重复 20 次通过；重建／清理不触碰用户实例和系统网络。其他传输证据归同目录。这些结果证明受控传输／授权边界，不代表入口自动配置、运行中切换及恢复已交付。
 
-API 夹具另逐项验证 blacklist／whitelist／rule 的 Fake-IP 与真实回答、既有查询名、真实 `/dns/query` 结果、保留的排除地址及恢复，源配置文件保持不变；新查询与重新查询同名不等于验证浏览器／系统中尚未过期的旧 IP 缓存。Linux 固定官方运行时六种组合及同提交六架构能力检查通过（`build/reports/s6/api-filters-linux.json`，CI 各组 `mihomo-api-capabilities.json`），保留该检查失败即失败的自动回归。操作仍仅对自有实例、关闭的 TUN 及回环 DNS，不代表生产配置联动或运行中 TUN 排除已完成。
+API 夹具另逐项验证 blacklist／whitelist／rule 的 Fake-IP 与真实回答、既有查询名、真实 `/dns/query` 结果、保留的排除地址及恢复，源配置文件保持不变；新查询与重新查询同名不等于验证浏览器／系统中尚未过期的旧 IP 缓存。Linux 固定官方运行时六种组合及同提交六架构能力检查通过（`build/reports/s6/api-filters-linux.json`，CI 各组 `mihomo-api-capabilities.log`），保留该检查失败即失败的自动回归。操作仍仅对自有实例、关闭的 TUN 及回环 DNS，不代表生产配置联动或运行中 TUN 排除已完成。
 
 同一实测中，规则允许的目标在 `GLOBAL` 选择 `REJECT` 时被拒绝：[上游 `resolveMetadata`](https://github.com/MetaCubeX/mihomo/blob/v1.19.32/tunnel/tunnel.go#L310) 在普通规则前处理 `global/direct`，因此追加校园规则不足以覆盖这些模式。入口级方案与自动恢复尚待接入，不能由当前代理传输测试推定自动共存完成。
 
