@@ -25,6 +25,7 @@ type Options struct {
 	Redirect                     string
 	Oversize                     bool
 	SOCKSPort                    int
+	RuntimeResponse              json.RawMessage `json:",omitempty"`
 }
 type Facts struct{ Address, IPC, Secret string }
 type Fixture struct {
@@ -193,7 +194,11 @@ func Run() bool {
 				}
 				json.NewEncoder(w).Encode(map[string]any{"meta": true, "version": "owned-fixture", "padding": padding})
 			case "/configs":
-				json.NewEncoder(w).Encode(map[string]any{"port": 0, "socks-port": options.SOCKSPort, "mixed-port": 0, "interface-name": options.OutboundInterface, "tun": map[string]any{"enable": options.TunEnabled, "device": options.TunDevice}})
+				if len(options.RuntimeResponse) != 0 {
+					w.Write(options.RuntimeResponse)
+					return
+				}
+				json.NewEncoder(w).Encode(map[string]any{"mode": "rule", "port": 0, "socks-port": options.SOCKSPort, "mixed-port": 0, "interface-name": options.OutboundInterface, "tun": map[string]any{"enable": options.TunEnabled, "device": options.TunDevice}})
 			case "/counts":
 				json.NewEncoder(w).Encode(map[string]int32{"Queries": queries.Load(), "Cancelled": cancelled.Load()})
 			case "/dns/query":
