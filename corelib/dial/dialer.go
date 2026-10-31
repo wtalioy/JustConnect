@@ -25,22 +25,57 @@ var ErrACLDenied = errors.New("destination not in sangfor IPResources whitelist 
 
 type Dialer struct {
 	ProtectionPolicy func() *policy.ProtectionPolicy
-	stack            stack.Stack
-	resolver         *resolve.Resolver
-	ipResources      []client.IPResource
-	resourceIndex    *ipresource.Index
-	alwaysUseVPN     bool
+	// Upstream handles ordinary traffic; protected targets retain their native path.
+	Upstream      client.DialContextFunc
+	stack         stack.Stack
+	resolver      *resolve.Resolver
+	ipResources   []client.IPResource
+	resourceIndex *ipresource.Index
+	alwaysUseVPN  bool
 }
 
 func dialDirect(ctx context.Context, network, address string) (net.Conn, error) {
 	return (&net.Dialer{}).DialContext(ctx, network, address)
 }
 
-// DialCampusIPPort refuses fallback: a captured flow must never loop into its TUN.
-func (d *Dialer) DialCampusIPPort(ctx context.Context, network, address string) (net.Conn, error) {
+// CampusOnly shares the resource indexes and live policy without an ordinary fallback.
+func (d *Dialer) CampusOnly() *Dialer {
 	campus := *d
 	campus.alwaysUseVPN = true
-	return campus.DialIPPort(ctx, network, address)
+	return &campus
+}
+
+func (d *Dialer) dialOrdinary(ctx context.Context, network, address string) (net.Conn, error) {
+	if d.Upstream != nil {
+		return d.Upstream(ctx, network, address)
+	}
+	return dialDirect(ctx, network, address)
+}
+
+// Resolve preserves the same DNS boundary for SOCKS and HTTP/domain dials.
+func (d *Dialer) Resolve(ctx context.Context, host string) (context.Context, net.IP, error) {
+	if d.resolver != nil {
+		if d.alwaysUseVPN {
+			return d.resolver.ResolveCampus(ctx, host, true)
+		}
+		return d.resolver.Resolve(ctx, host)
+	}
+	if d.alwaysUseVPN {
+		return ctx, nil, ErrACLDenied
+	}
+	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
+	if err != nil {
+		return ctx, nil, err
+	}
+	if len(ips) == 0 {
+		return ctx, nil, errors.New("native DNS lookup returned no addresses")
+	}
+	return ctx, ips[0], nil
+}
+
+// DialCampusIPPort refuses fallback: a captured flow must never loop into its TUN.
+func (d *Dialer) DialCampusIPPort(ctx context.Context, network, address string) (net.Conn, error) {
+	return d.CampusOnly().DialIPPort(ctx, network, address)
 }
 
 // DialCampusDNS keeps the server-declared DNS socket in the tunnel while ordinary flows retain IP protection.
@@ -157,7 +192,7 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 		if useVPN {
 			return nil, ErrACLDenied
 		}
-		return dialDirect(ctx, network, ipAddr)
+		return d.dialOrdinary(ctx, network, ipAddr)
 	}
 	target := &net.IPAddr{IP: net.IP(address.AsSlice())}
 
@@ -193,7 +228,7 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 			return nil, ErrACLDenied
 		}
 	} else {
-		return dialDirect(ctx, network, ipAddr)
+		return d.dialOrdinary(ctx, network, ipAddr)
 	}
 }
 
@@ -225,7 +260,7 @@ func (d *Dialer) Dial(ctx context.Context, network string, addr string) (net.Con
 		if d.alwaysUseVPN {
 			return nil, ErrACLDenied
 		}
-		return dialDirect(ctx, network, addr)
+		return d.dialOrdinary(ctx, network, addr)
 	}
 
 	if _, err := netip.ParseAddr(host); err == nil {
@@ -239,17 +274,14 @@ func (d *Dialer) Dial(ctx context.Context, network string, addr string) (net.Con
 			if snapshot := d.ProtectionPolicy(); snapshot != nil {
 				if allowed, protected := snapshot.CampusNameAllowed(host); protected && allowed {
 					return nil, ErrACLDenied
+				} else if protected {
+					return dialDirect(ctx, network, addr)
 				}
 			}
 		}
-		return dialDirect(ctx, network, addr)
+		return d.dialOrdinary(ctx, network, addr)
 	}
-	var ip net.IP
-	if d.alwaysUseVPN {
-		ctx, ip, err = d.resolver.ResolveCampus(ctx, host, true)
-	} else {
-		ctx, ip, err = d.resolver.Resolve(ctx, host)
-	}
+	ctx, ip, err := d.Resolve(ctx, host)
 	if err != nil {
 		// The resolver owns DNS fallback; a native hostname dial bypasses IP policy.
 		return nil, err

@@ -148,7 +148,7 @@ func NewListeners(ctx context.Context, socksAddr, httpAddr string, dialer *dial.
 		p.listeners = append(p.listeners, listener)
 	}
 	if socksListener != nil {
-		server := p.socksServer(resolver)
+		server := p.socksServer()
 		p.start(func() {
 			for {
 				conn, err := socksListener.Accept()
