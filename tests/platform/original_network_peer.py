@@ -86,6 +86,11 @@ def serve(uid):
             udp.bind((udp_address, 53))
             selector.register(tcp, selectors.EVENT_READ, 'accept')
             selector.register(udp, selectors.EVENT_READ, 'udp')
+        for address in ('198.18.0.5', '192.0.2.2'):
+            http = sockets.enter_context(socket.socket(socket.AF_INET, socket.SOCK_STREAM))
+            http.bind((address, 8080))
+            http.listen(4)
+            selector.register(http, selectors.EVENT_READ, 'accept-http')
         os.setgroups([])
         os.setgid(pwd.getpwuid(uid).pw_gid)
         os.setuid(uid)
@@ -94,18 +99,27 @@ def serve(uid):
         try:
             while True:
                 for key, _ in selector.select():
-                    if key.data == 'accept':
+                    if key.data in ('accept', 'accept-http'):
                         connection, _ = key.fileobj.accept()
                         connection.settimeout(3)
-                        connection.sendall(b'original:')
-                        selector.register(connection, selectors.EVENT_READ, 'tcp')
+                        if key.data == 'accept':
+                            connection.sendall(b'original:')
+                        selector.register(connection, selectors.EVENT_READ, 'tcp' if key.data == 'accept' else bytearray())
                     elif key.data == 'udp':
                         packet, address = key.fileobj.recvfrom(65536)
                         key.fileobj.sendto(b'original:' + packet, address)
                     else:
                         packet = key.fileobj.recv(65536)
                         if packet:
-                            key.fileobj.sendall(packet)
+                            if isinstance(key.data, bytearray):
+                                key.data.extend(packet)
+                                assert len(key.data) <= 8192, 'oversized owned HTTP request'
+                                if b'\r\n\r\n' in key.data:
+                                    key.fileobj.sendall(b'HTTP/1.1 200 OK\r\nContent-Length: 13\r\nConnection: close\r\n\r\noriginal-http')
+                                    selector.unregister(key.fileobj)
+                                    key.fileobj.close()
+                            else:
+                                key.fileobj.sendall(packet)
                         else:
                             selector.unregister(key.fileobj)
                             key.fileobj.close()

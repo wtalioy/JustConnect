@@ -42,6 +42,7 @@ endforeach()
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_executable(coreabi_tun_adapter_test tun_adapter.cpp
         "${REPO}/application/connectionsession.cpp" "${REPO}/application/networkpolicysession.cpp"
+        "${REPO}/application/coexistencenetworkaccess.cpp" "${REPO}/application/systemproxysession.cpp"
         "${REPO}/core/connectionsessionstate.cpp")
     set_target_properties(coreabi_tun_adapter_test PROPERTIES AUTOMOC ON)
     target_include_directories(coreabi_tun_adapter_test PRIVATE "${REPO}")

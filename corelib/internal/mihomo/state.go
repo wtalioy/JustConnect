@@ -5,6 +5,22 @@ import (
 	"net/netip"
 )
 
+type ControllerNetwork struct {
+	Device       string
+	NetworkAdmin bool
+}
+
+func (c *Client) ObserveNetwork(ctx context.Context) (ControllerNetwork, error) {
+	state, err := c.ReadState(ctx)
+	if err != nil {
+		return ControllerNetwork{}, err
+	}
+	if !state.TunEnabled || !c.Alive() {
+		return ControllerNetwork{}, nil
+	}
+	return ControllerNetwork{Device: state.TunDevice, NetworkAdmin: c.endpoint.process.NetworkAdmin}, nil
+}
+
 // RuntimeState contains observed control facts, not a complete reloadable configuration.
 type RuntimeState struct {
 	Mode                           string

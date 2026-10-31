@@ -23,6 +23,18 @@ type CoexistenceState struct {
 type proxyObserver interface {
 	ObserveProxy(context.Context, []mihomo.ListenerProof) (mihomo.ProxyInfo, error)
 }
+
+func (s *Session) ObserveNetwork(ctx context.Context) (mihomo.ControllerNetwork, error) {
+	if current := s.upstream.Load(); current != nil {
+		if source, okay := current.source.(interface {
+			ObserveNetwork(context.Context) (mihomo.ControllerNetwork, error)
+		}); okay {
+			return source.ObserveNetwork(ctx)
+		}
+	}
+	return mihomo.ControllerNetwork{}, net.ErrClosed
+}
+
 type upstreamRoute struct {
 	state CoexistenceState
 	dial  client.DialContextFunc

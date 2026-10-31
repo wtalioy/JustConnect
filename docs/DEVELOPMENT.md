@@ -289,3 +289,5 @@ Linux / WSL、i9-13900HX，同一真实监听前保留 128 个无关 fd，三次
 复现：`go -C corelib test -run '^$' -bench '^BenchmarkListenerOwnership$' -benchtime=100ms -count=3 ./internal/mihomo/linux`。本次原始输出：`build/reports/s6/listener-owner-benchmark.log`。
 
 macOS 的跨 UID 数据回归核对普通调用方 → root 官方实例 → 自有 TCP／UDP 对端，`d5ddf06` 六架构原生及三平台应用 CI 已通过。TCP 所有权观察改用系统内核 PID 清单；Apple M1 Virtual／darwin arm64 三次 100 ms 样本的中位耗时由旧 `lsof` 清单 13.33 ms 降至 4.72 ms（约 65%），Go 分配字节由约 21.0—21.3 KB 增至 43.2—43.7 KB，因为读取的是全局 TCP 清单。此为组件壁钟耗时和分配比较，不代表整体 CPU／吞吐；保留连接前后的实时 PID／启动身份／监听复验。复现基准：`go -C corelib test -run '^$' -bench '^BenchmarkNativeTCPOwnership$' -benchtime=100ms -count=3 ./internal/mihomo/macos`，CI 原始输出为 `macos-listener-ownership.log`。
+
+Linux 安装助手验收的 `--coexistence-mihomo /absolute/path/to/mihomo` 在同一私有网络中启动 root 官方运行时、普通应用、真实 Secret Service 和私有桌面设置，验证 `CoexistenceNetworkAccess` 的完整调用链。覆盖三种模式乘四种系统代理／TUN 组合、运行中切换、校园系统 DNS／HTTP／TCP／UDP／OpenSSH、普通 HTTP／SOCKS UDP、受保护网络和有序恢复；另测已有 TUN 的第二次启动。后者显式绑定夹具提供的原接口，因为回环认证服务器没有物理传输套接字，不能冒充自动出口探测证据。私有 mount namespace 为自身网络挂载只读 sysfs，并隔离 `/tmp` 的正式代理锁；结束等待或精确清理自己的恢复进程，不改用户桌面。此为真实 Qt HTTP 客户端与隔离系统验收，不等同旧浏览器缓存、三平台完整 V2—V5 或用户实机通过。

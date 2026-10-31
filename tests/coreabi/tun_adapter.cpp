@@ -59,6 +59,7 @@ static QStringList systemAddresses(const char *hostname, int family = AF_INET) {
     ::freeaddrinfo(answer);
     return addresses;
 }
+#include "coexistence_linux.h"
 static int exerciseApplicationNetworkAccess(const ConnectionProfile &profile)
 {
     auto *engine = new EmbeddedCoreEngine;
@@ -299,6 +300,7 @@ int main(int argc, char **argv) {
     profile.endpoint.loginDomain = auth["domain"].toString();
     profile.tls.caPem = config["tls"].toObject()["ca_pem"].toString();
     profile.keepAlive.mode = "off";
+    if (qgetenv("JC_NATIVE_COEXISTENCE") == "1") return exerciseCoexistenceNetworkAccess(profile);
     if (qgetenv("JC_NATIVE_NETWORK_SESSION") == "1") return exerciseApplicationNetworkAccess(profile);
     auto engine = std::make_unique<EmbeddedCoreEngine>();
     LinuxNetworkHelperClient helper;
