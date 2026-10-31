@@ -33,6 +33,7 @@ func TestNativeCoexistenceHost(t *testing.T) {
 	const cases = 12
 	const trafficCases = cases + 2 + 1 // Live exclusions/withdrawal and the initial-TUN session.
 	if bytes.Count(output, []byte("PASS: native coexistence case ")) != cases ||
+		!bytes.Contains(output, []byte("PASS: preexisting application Fake-IP cache survives native takeover")) ||
 		!bytes.Contains(output, []byte("PASS: native coexistence initial TUN startup and restoration")) ||
 		!bytes.Contains(output, []byte("PASS: native coexistence live exclusions preserve campus capture and ordinary bypass")) ||
 		!bytes.Contains(output, []byte("PASS: native coexistence exclusion withdrawal restores ordinary Clash selection")) ||
