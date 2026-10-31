@@ -48,6 +48,8 @@ jobs:
           host: mac
           arch: clang_64
       - uses: ./.github/actions/setup-core-toolchain
+      - name: Stage pinned Mihomo for native coexistence
+        run: python tests/platform/setup_mihomo.py --target macos-${{ matrix.arch }}
       - name: Verify signed helper and independent recovery
         run: bash tests/platform/run_macos_networkhelper.sh
       - name: Upload native helper evidence
@@ -118,14 +120,14 @@ jobs:
         if: runner.os == 'Windows'
         run: python tests/platform/run_windows_packet.py --device-only
 
+      - name: Stage pinned Mihomo for native control-DNS integration
+        if: &collect_native_evidence ${{ !cancelled() && (success() || (runner.os == 'Windows' && steps.windows_device_probe.outcome == 'failure')) }}
+        run: python tests/platform/setup_mihomo.py --target ${{ matrix.platform }}-${{ matrix.arch }}
+
       - name: Verify signed macOS network helper and independent recovery
         if: runner.os == 'macOS'
         shell: bash
         run: bash tests/platform/run_macos_networkhelper.sh
-
-      - name: Stage pinned Mihomo for native control-DNS integration
-        if: &collect_native_evidence ${{ !cancelled() && (success() || (runner.os == 'Windows' && steps.windows_device_probe.outcome == 'failure')) }}
-        run: python tests/platform/setup_mihomo.py --target ${{ matrix.platform }}-${{ matrix.arch }}
 
       - name: Verify ordinary control beneath a live rejecting Mihomo TUN
         if: runner.os == 'Linux'

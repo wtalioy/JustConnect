@@ -84,6 +84,7 @@ endif()
 if(APPLE)
     add_executable(coreabi_macos_tun_adapter_test tun_macos_adapter.cpp
         "${REPO}/application/connectionsession.cpp" "${REPO}/application/networkpolicysession.cpp"
+        "${REPO}/application/coexistencenetworkaccess.cpp"
         "${REPO}/application/applicationshutdown.cpp" "${REPO}/application/systemproxysession.cpp"
         "${REPO}/core/connectionsessionstate.cpp")
     set_target_properties(coreabi_macos_tun_adapter_test PROPERTIES AUTOMOC ON INSTALL_RPATH "@executable_path/../Frameworks")
