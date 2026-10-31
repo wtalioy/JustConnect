@@ -112,6 +112,17 @@ public:
                 }
                 const auto ordinary = get(runtime["ordinary_url"].toString(),enabled);
                 const bool rejected = QByteArray(mode) == "global" && (enabled || tun);
+                if (!rejected && !ordinary.first) {
+                    for (const auto &command : QList<QPair<QString,QStringList>>{
+                        {"/sbin/route",{"-n","get","-inet",runtime["ordinary_address"].toString()}},
+                        {"/usr/sbin/netstat",{"-anv","-p","tcp"}},
+                        {"/usr/bin/curl",{"--noproxy","*","--connect-timeout","2","--max-time","3","-sS","-I",
+                            "-H","Host: "+runtime["ordinary_host"].toString(),runtime["ordinary_url"].toString()}}}) {
+                        const auto result = runPlatformCommand(command.first,command.second);
+                        std::cerr << "CHECK: failed ordinary exit " << command.first.toStdString() << " success=" << result.result.succeeded()
+                            << '\n' << result.output.toStdString() << result.standardError.toStdString() << '\n';
+                    }
+                }
                 check(rejected ? !ordinary.first : ordinary.first,"ordinary web preserves selected Clash mode and both-off direct");
                 const auto protectedPeer = get(runtime["protected_url"].toString(),enabled);
                 check(protectedPeer.first && protectedPeer.second == "original-http","protected loopback HTTP retains its original peer under GLOBAL REJECT");
