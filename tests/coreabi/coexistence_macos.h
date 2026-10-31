@@ -102,6 +102,14 @@ public:
                 exerciseNativeTUNTraffic(QHostAddress(targets.first()),campusUDP()); exerciseNativeSSH(QHostAddress(targets.first()));
                 const auto campus = get("http://campus.test/",enabled);
                 check(campus.first && campus.second == "vpn-response","actual browser campus request reaches VPN before the original mode");
+                if (!enabled && !tun) {
+                    auto originalDNS = std::async(std::launch::async,[&] { return addresses(runtime["ordinary_host"].toString().toUtf8().constData()); });
+                    until([&] { return originalDNS.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready; });
+                    const auto answers = originalDNS.get();
+                    const auto fake = QHostAddress::parseSubnet(runtime["fake_range"].toString());
+                    check(!answers.isEmpty() && fake.second > 0,"both-off original system DNS answers the public hostname");
+                    for (const auto &answer : answers) check(!QHostAddress(answer).isInSubnet(fake),"both-off system DNS does not retain an original Fake-IP answer");
+                }
                 const auto ordinary = get(runtime["ordinary_url"].toString(),enabled);
                 const bool rejected = QByteArray(mode) == "global" && (enabled || tun);
                 check(rejected ? !ordinary.first : ordinary.first,"ordinary web preserves selected Clash mode and both-off direct");
