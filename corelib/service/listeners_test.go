@@ -20,8 +20,8 @@ func TestCloseInterruptsIdleProxyClientsAndAllowsRebind(t *testing.T) {
 	defer listeners.Close()
 	var clients []net.Conn
 	var addresses []string
-	for _, listener := range listeners.listeners {
-		address := listener.Addr().String()
+	bound := listeners.Addresses()
+	for _, address := range []string{bound.SOCKS, bound.HTTP} {
 		addresses = append(addresses, address)
 		conn, err := net.Dial("tcp", address)
 		if err != nil {
@@ -39,6 +39,9 @@ func TestCloseInterruptsIdleProxyClientsAndAllowsRebind(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("idle proxy workers did not stop")
+	}
+	if listeners.Addresses() != (ListenerAddresses{}) {
+		t.Fatal("closed listeners advertised live endpoints")
 	}
 	for _, client := range clients {
 		_ = client.SetReadDeadline(time.Now().Add(time.Second))

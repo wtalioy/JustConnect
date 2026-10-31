@@ -176,6 +176,7 @@ static QJsonObject protocolEvent(API &api, uint64_t handle) {
 
 static void nativeProtocol(API &api, const QByteArray &input) {
     auto config = QJsonDocument::fromJson(input).object();
+    config["listeners"] = QJsonObject{{"socks", "127.0.0.1:0"}, {"http", "127.0.0.1:0"}};
     config["authentication_cache"] = QJsonObject{{"enabled",true}};
     uint64_t handle = 0, generation = 0;
     check(api.jc_session_create(JC_ABI_VERSION, &handle) == JC_OK, "native protocol create");
@@ -227,7 +228,11 @@ static void nativeProtocol(API &api, const QByteArray &input) {
     uint64_t applied = 0;
     check(api.jc_session_update_policy(handle,reinterpret_cast<const uint8_t *>(policy.constData()),uint32_t(policy.size()),&applied)==JC_OK
         && applied==generation,"formal session accepts explicit campus choice before real SOCKS/HTTP traffic");
-    ProxyCheck::exercise(config["listeners"].toObject(), [&] {
+    const auto listeners=resources["resources"].toObject()["listeners"].toObject();
+    check(listeners["socks"].toString().startsWith("127.0.0.1:")
+        && listeners["http"].toString().startsWith("127.0.0.1:"),
+        "formal resource snapshot reports actual kernel-assigned loopback listeners");
+    ProxyCheck::exercise(listeners, [&] {
     check(api.jc_session_stop(handle, 5000) == JC_OK && api.jc_session_stop(handle, 1000) == JC_OK, "native protocol idempotent stop");
     resourceLength=99;
     check(api.jc_session_resources(handle,generation,nullptr,0,&resourceLength)==JC_STALE_REQUEST && resourceLength==0,

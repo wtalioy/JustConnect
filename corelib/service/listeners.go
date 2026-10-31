@@ -14,6 +14,11 @@ import (
 	"github.com/wtalioy/JustConnect/corelib/resolve"
 )
 
+type ListenerAddresses struct {
+	SOCKS string `json:"socks,omitempty"`
+	HTTP  string `json:"http,omitempty"`
+}
+
 // Listeners owns listeners, accepted and outgoing sockets, and proxy workers.
 type Listeners struct {
 	ctx         context.Context
@@ -24,6 +29,7 @@ type Listeners struct {
 	closed      atomic.Bool
 	connections map[io.Closer]struct{}
 	listeners   []net.Listener
+	addresses   ListenerAddresses
 	http        *http.Server
 	proxy       *httpProxy
 	tun         *tunIngress
@@ -34,6 +40,13 @@ type Listeners struct {
 	errors      chan error
 	failOnce    sync.Once
 	closeOnce   sync.Once
+}
+
+func (p *Listeners) Addresses() ListenerAddresses {
+	if p.closed.Load() {
+		return ListenerAddresses{}
+	}
+	return p.addresses
 }
 
 func (p *Listeners) CampusDNSRecords() map[string][]string {
@@ -131,7 +144,8 @@ func NewListeners(ctx context.Context, socksAddr, httpAddr string, dialer *dial.
 	for _, entry := range []struct {
 		address string
 		target  *net.Listener
-	}{{socksAddr, &socksListener}, {httpAddr, &httpListener}} {
+		bound   *string
+	}{{socksAddr, &socksListener, &p.addresses.SOCKS}, {httpAddr, &httpListener, &p.addresses.HTTP}} {
 		if entry.address == "" {
 			continue
 		}
@@ -145,6 +159,7 @@ func NewListeners(ctx context.Context, socksAddr, httpAddr string, dialer *dial.
 			return nil, err
 		}
 		*entry.target = listener
+		*entry.bound = listener.Addr().String()
 		p.listeners = append(p.listeners, listener)
 	}
 	if socksListener != nil {

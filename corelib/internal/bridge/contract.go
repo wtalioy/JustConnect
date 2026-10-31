@@ -8,6 +8,7 @@ import (
 	"github.com/wtalioy/JustConnect/corelib"
 	"github.com/wtalioy/JustConnect/corelib/policy"
 	"github.com/wtalioy/JustConnect/corelib/resolve"
+	"github.com/wtalioy/JustConnect/corelib/service"
 	"image"
 	_ "image/gif"
 	_ "image/jpeg"
@@ -98,10 +99,7 @@ type Config struct {
 		Mode string `json:"mode"`
 		URL  string `json:"url"`
 	} `json:"keepalive"`
-	Listeners struct {
-		SOCKS string `json:"socks"`
-		HTTP  string `json:"http"`
-	} `json:"listeners"`
+	Listeners service.ListenerAddresses `json:"listeners"`
 }
 
 // Decode rejects ambiguous objects and never returns parser text containing secrets.
@@ -264,7 +262,7 @@ func validListener(address string) bool {
 		return true
 	}
 	endpoint, err := netip.ParseAddrPort(address)
-	return err == nil && endpoint.Addr().IsLoopback() && endpoint.Port() != 0
+	return err == nil && endpoint.Addr().IsLoopback()
 }
 
 type Point struct {
