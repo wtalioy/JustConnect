@@ -128,16 +128,16 @@ static void backendTests() {
     check(backend.clear().succeeded(),"restore owned fields around external changes");
     check(states[""].proxy=="http=external.invalid:8899" && states[""].bypass=="external.invalid" && states[""].flags==(PROXY_TYPE_DIRECT|PROXY_TYPE_PROXY),"external fields and dependent mode retained");
     check(states["new connection"].proxy=="new.invalid:1234" && states["fixture connection"].proxy=="socks=old.invalid:1080","new connections untouched and original RAS restored");
-    for (const bool handoff:{false,true}) {
+    for (const DWORD flags:{DWORD(PROXY_TYPE_DIRECT|PROXY_TYPE_PROXY),DWORD(PROXY_TYPE_PROXY)}) for (const bool handoff:{false,true}) {
         states.clear();rasNames={"inactive"};
-        states[""]={PROXY_TYPE_DIRECT|PROXY_TYPE_PROXY,"http=127.0.0.1:7897;https=127.0.0.1:7897","keep.invalid",{}};
+        states[""]={flags,"http=127.0.0.1:7897;https=127.0.0.1:7897","keep.invalid",{}};
         states["inactive"]={PROXY_TYPE_DIRECT,"old.invalid:3128","other.invalid",{}};
         auto automatic=config;automatic.upstream={"127.0.0.1:7897"};
         PlatformSystemProxyBackend owner(WindowsProxyApi{query,set,entries});
         const auto observed=owner.inspect();
         check(observed.result.succeeded() && observed.active && !observed.managed && observed.endpoints==automatic.upstream,"Observe original local upstream without changing settings");
-        check(owner.apply(automatic).succeeded() && states[""].bypass=="keep.invalid" && states["inactive"].flags==PROXY_TYPE_DIRECT,
-              "Automatic handoff changed bypass or an inactive RAS connection");
+        check(owner.apply(automatic).succeeded() && states[""].flags==flags && states[""].bypass=="keep.invalid" && states["inactive"].flags==PROXY_TYPE_DIRECT,
+              "Automatic handoff changed mode flags, bypass or an inactive RAS connection");
         check(owner.inspect().managed && owner.inspect().endpoints==automatic.upstream,"Owned frontend obscured its original upstream");
         if (handoff) {
             PlatformSystemProxyBackend fresh(WindowsProxyApi{query,set,entries});

@@ -110,6 +110,9 @@ struct PlatformSystemProxyBackend::Snapshot {
     SystemProxyConfig config;
     QUuid owner = QUuid::createUuid();
     bool dirty = false, resumed = false;
+    DWORD flags(const Connection &connection) const {
+        return connection.intent & Flags ? installed.flags : connection.before.flags;
+    }
 };
 
 QJsonObject PlatformSystemProxyBackend::recoverySnapshot() const {
@@ -197,7 +200,7 @@ SystemProxyCheck PlatformSystemProxyBackend::observe(const SystemProxyConfig *co
             || (config && enabled && state.server != server(*config));
         if (!enabled) continue;
         const bool own=snapshot && snapshot->connections.contains(name) && state.server==snapshot->installed.server
-            && state.flags==snapshot->installed.flags && state.pac==snapshot->connections[name].before.pac;
+            && state.flags==snapshot->flags(snapshot->connections[name]) && state.pac==snapshot->connections[name].before.pac;
         managed |= own;
         for (const auto &endpoint:proxyEndpoints(own?snapshot->connections[name].before:state))
             if (!endpoints.contains(endpoint)) endpoints.append(endpoint);
@@ -227,7 +230,7 @@ PlatformOperationResult PlatformSystemProxyBackend::apply(const SystemProxyConfi
     const auto fail = [this](Result result) { const auto restored = clear(); result.mayHaveChanged = !restored.succeeded(); return result; };
     for (const auto &name : pending->connections.keys()) {
         auto &entry=pending->connections[name];
-        entry.intent=(entry.before.flags!=pending->installed.flags?Snapshot::Flags:0)
+        entry.intent=(config.upstream.isEmpty() && entry.before.flags!=pending->installed.flags?Snapshot::Flags:0)
             |(entry.before.server!=pending->installed.server?Snapshot::Proxy:0)
             |(config.upstream.isEmpty() && entry.before.bypass!=pending->installed.bypass?Snapshot::Bypass:0);
         if (!entry.intent) continue;
@@ -244,7 +247,7 @@ PlatformOperationResult PlatformSystemProxyBackend::apply(const SystemProxyConfi
         State actual;
         result = query(api, name, actual);
         if (!result.succeeded()) return fail(result);
-        if (actual.flags != pending->installed.flags || actual.server != pending->installed.server
+        if (actual.flags != pending->flags(entry) || actual.server != pending->installed.server
             || actual.bypass != (config.upstream.isEmpty()?pending->installed.bypass:entry.before.bypass) || actual.pac != pending->connections[name].before.pac)
             return fail({Status::Failed, "WinINet proxy readback mismatch", true});
         entry.written=entry.intent;
