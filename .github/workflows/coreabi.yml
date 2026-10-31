@@ -61,6 +61,7 @@ jobs:
           if-no-files-found: error
           path: |
             build/coreabi/*.txt
+            build/coreabi/Testing/Temporary/LastTest.log
             build/coreabi/macos-helper.log
             build/coreabi/macos-original-dns.log
             build/coreabi/macos-tun-dns.log

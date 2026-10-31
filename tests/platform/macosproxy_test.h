@@ -140,24 +140,25 @@ static void backendTests() {
     check(backend.clear().succeeded(),"repeated clear is a no-op");
     {
         seed(); PlatformSystemProxyBackend contended(api);
-        check(SCPreferencesLock(prefs,false),"hold the private native preferences lock");
+        const auto hold=[&](const char *message) { SCPreferencesSynchronize(prefs); check(SCPreferencesLock(prefs,false),message); };
+        hold("hold the private native preferences lock");
         auto applying=std::async(std::launch::async,[&] { return contended.apply(config); });
         check(applying.wait_for(std::chrono::milliseconds(100))==std::future_status::timeout,
             "a short external proxy commit must not immediately fail the connection");
         check(SCPreferencesUnlock(prefs) && applying.get().succeeded(),"apply after the external commit releases its lock");
-        check(SCPreferencesLock(prefs,false),"hold the private native restoration lock");
+        hold("hold the private native restoration lock");
         auto clearing=std::async(std::launch::async,[&] { return contended.clear(); });
         check(clearing.wait_for(std::chrono::milliseconds(100))==std::future_status::timeout,
             "restoration waits for a short external commit");
         check(SCPreferencesUnlock(prefs) && clearing.get().succeeded(),"restore after the external commit releases its lock");
         restored();
-        check(SCPreferencesLock(prefs,false),"hold the private native lock beyond the operation budget");
+        hold("hold the private native lock beyond the operation budget");
         const auto before=changes;
         const auto timeout=contended.apply(config);
         check(timeout.status==PlatformOperationResult::Status::TimedOut && !timeout.mayHaveChanged && changes==before,
             "a busy lock has a bounded timeout and performs no writes");
         check(SCPreferencesUnlock(prefs) && contended.apply(config).succeeded(),"a later apply can retry the released lock");
-        check(SCPreferencesLock(prefs,false),"hold an owned private proxy restoration");
+        hold("hold an owned private proxy restoration");
         const auto retained=contended.recoverySnapshot();
         const auto restoreTimeout=contended.clear();
         check(restoreTimeout.status==PlatformOperationResult::Status::TimedOut && restoreTimeout.mayHaveChanged
