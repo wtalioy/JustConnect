@@ -5,6 +5,7 @@ package mihomo
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -12,6 +13,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/wtalioy/JustConnect/corelib/internal/testmihomo"
 )
 
 func TestPrivilegedListenerOwnership(t *testing.T) {
@@ -51,20 +54,28 @@ func TestPrivilegedListenerOwnership(t *testing.T) {
 		if err != nil || state.Proxy == nil {
 			t.Fatal("privileged controller data listener was not verified")
 		}
-		connection, err := state.Proxy.DialContext(t.Context(), "tcp", os.Getenv("JC_OWNED_ECHO"))
-		if err != nil {
-			t.Fatal("verified privileged proxy data connection", err)
+		exchange := func() error {
+			connection, err := state.Proxy.DialContext(t.Context(), "tcp", os.Getenv("JC_OWNED_ECHO"))
+			if err != nil {
+				return err
+			}
+			defer connection.Close()
+			payload := []byte("owned privileged proxy payload")
+			connection.SetDeadline(time.Now().Add(time.Second))
+			if _, err := connection.Write(payload); err != nil {
+				return err
+			}
+			reply := make([]byte, len(payload))
+			if _, err := io.ReadFull(connection, reply); err != nil || !bytes.Equal(reply, payload) {
+				return fmt.Errorf("privileged proxy lost payload: %v", err)
+			}
+			return nil
 		}
-		payload := []byte("owned privileged proxy payload")
-		connection.SetDeadline(time.Now().Add(time.Second))
-		if _, err := connection.Write(payload); err != nil {
+		fixture := testmihomo.Fixture{PID: pid}
+		fixture.WaitReady(t, exchange)
+		if err := exchange(); err != nil {
 			t.Fatal(err)
 		}
-		reply := make([]byte, len(payload))
-		if _, err := io.ReadFull(connection, reply); err != nil || !bytes.Equal(reply, payload) {
-			t.Fatal("privileged proxy lost payload", err)
-		}
-		connection.Close()
 		// Only the fixture PID supplied by the root namespace launcher may be changed.
 		request, err := http.NewRequestWithContext(t.Context(), http.MethodPatch, "http://localhost/configs", bytes.NewBufferString(`{"mixed-port":0}`))
 		if err != nil {

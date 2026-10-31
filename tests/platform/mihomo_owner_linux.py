@@ -36,25 +36,30 @@ def verify(args):
         path.chmod(0o600)
         echo.bind(('127.0.0.1', 0))
         echo.listen(1)
-        echo.settimeout(10)
+        echo.settimeout(0.1)
         errors = []
+        stopped = threading.Event()
 
         def serve():
             try:
-                connection, _ = echo.accept()
-                with connection:
-                    connection.settimeout(5)
-                    while packet := connection.recv(65536):
-                        connection.sendall(packet)
+                while not stopped.is_set():
+                    try:
+                        connection, _ = echo.accept()
+                    except socket.timeout:
+                        continue
+                    with connection:
+                        connection.settimeout(5)
+                        while packet := connection.recv(65536):
+                            connection.sendall(packet)
             except BaseException as error:
                 errors.append(error)
 
         thread = threading.Thread(target=serve)
-        thread.start()
         with (root / 'mihomo.log').open('wb') as log:
             runtime = subprocess.Popen([str(owned), '-d', str(root), '-f', str(path), '-ext-ctl-unix', str(root / 'control.sock')],
                                        stdout=log, stderr=subprocess.STDOUT)
             try:
+                thread.start()
                 deadline = time.monotonic() + 10
                 while True:
                     rows = [line.split() for table in ('tcp', 'tcp6')
@@ -75,10 +80,12 @@ def verify(args):
                                'JC_LISTENER_PROOFS': result.stdout, 'JC_OWNED_ECHO': '127.0.0.1:' + str(echo.getsockname()[1])}
                 subprocess.run([str(probe), '-test.v', '-test.run', '^TestPrivilegedListenerOwnership$'],
                                env=environment, user=args.uid, group=account.pw_gid, extra_groups=[], check=True, timeout=20)
+                stopped.set()
                 thread.join(timeout=5)
                 assert not thread.is_alive() and not errors, errors
                 assert path.read_text(encoding='utf-8') == json.dumps(config), 'runtime changes altered the owned configuration source'
             finally:
+                stopped.set()
                 runtime.terminate()
                 try:
                     runtime.wait(timeout=5)
