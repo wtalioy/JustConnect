@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"testing"
 	"time"
 
@@ -16,6 +17,11 @@ import (
 
 // StartBinary runs only an explicitly supplied test runtime, with no TUN or system changes.
 func StartBinary(t testing.TB, upstream string, ipc bool) *Fixture {
+	t.Helper()
+	return StartConfiguredBinary(t, upstream, ipc, nil)
+}
+
+func StartConfiguredBinary(t testing.TB, upstream string, ipc bool, overrides map[string]any) *Fixture {
 	t.Helper()
 	source := os.Getenv("JC_TEST_MIHOMO_BINARY")
 	if source == "" {
@@ -65,6 +71,12 @@ func StartBinary(t testing.TB, upstream string, ipc bool) *Fixture {
 			"nameserver": []string{upstream}, "default-nameserver": []string{"127.0.0.1"}},
 		"rules": []string{"MATCH,REJECT"},
 	}
+	for key, value := range overrides {
+		config[key] = value
+	}
+	if tun, ok := config["tun"].(map[string]any); !ok || tun["enable"] != false {
+		t.Fatal("owned controller fixture must keep TUN disabled")
+	}
 	if ipc {
 		key := "external-controller-unix"
 		f.IPC = ipcName(directory)
@@ -102,6 +114,23 @@ func StartBinary(t testing.TB, upstream string, ipc bool) *Fixture {
 			t.Fatal("official Mihomo did not start its owned controller")
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+	for _, key := range []string{"socks-port", "mixed-port"} {
+		port, _ := config[key].(int)
+		if port == 0 {
+			continue
+		}
+		for {
+			connection, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), 100*time.Millisecond)
+			if err == nil {
+				connection.Close()
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("official Mihomo did not start its owned %s", key)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
 	}
 	return f
 }

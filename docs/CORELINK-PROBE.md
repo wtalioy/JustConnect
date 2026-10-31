@@ -76,6 +76,14 @@ D2 的设备入口子方案已收敛：Linux／macOS 使用最小授权助手创
 
 复现：在目标平台使用 Python 运行 `python tests/platform/mihomo_api_probe.py <mihomo可执行文件>`；Windows 与 Linux 结果分别保存在 `build/reports/mihomo-api-windows-v1.19.32.json`、`build/reports/mihomo-api-linux-v1.19.32.json`，进程、监听、临时配置和日志随测试结束清理。请求使用[官方 API](https://wiki.metacubex.one/api/)公开路径，不依据 HTTP 成功码推断所有字段可增量修改。`GET /configs` 没有完整规则／DNS／代理定义，因此不能用该响应拼出用户全量配置后盲目 PUT；正式联动仍须验证配置来源、外部改写与所有权恢复、运行中 TUN 实际流量，以及其余平台／目标版本。D3 保持待验收，不据此修改运行中的 Clash。
 
+### S6 真实代理入口与模式边界
+
+固定的官方 Mihomo `v1.19.32` 在自有回环实例中验证：从实际 `/configs` 的 SOCKS／mixed 端口和原生 PID／启动身份共同确认入口，不猜端口；连接前后再次核对所属监听。普通 TCP／UDP 保留原域名交给该实例，IPv4／IPv6、空 UDP、控制连接关闭与 `rule → global → direct → rule` 切换已由 `TestOfficialProxyUsesActualListenersAndSelectedMode` 本地通过；六架构 CI 待补。测试配置、模式写入与进程终止只作用于自有夹具，不接触用户实例。
+
+同一实测中，规则允许的目标在 `GLOBAL` 选择 `REJECT` 时被拒绝：[上游 `resolveMetadata`](https://github.com/MetaCubeX/mihomo/blob/v1.19.32/tunnel/tunnel.go#L310) 在普通规则前处理 `global/direct`，因此追加校园规则不足以覆盖这些模式。入口级方案与自动恢复尚待接入，不能由当前代理传输测试推定自动共存完成。
+
+标准构建的 [UDP 接收缓冲区](https://github.com/MetaCubeX/mihomo/blob/v1.19.32/common/pool/buffer_standard.go) 为 16 KiB，实测更大 SOCKS UDP 请求被静默截短；本软件发送前明确拒绝超过该含头部边界的请求，不切换出口。非标准 low-memory 构建尚未验收。共有 SOCKS UDP 解析器保留空 IPv4／IPv6／域名报文，拒绝非零保留位、分片、无效类型／端口与截断；两侧复用同一边界，读写缓冲只在会话内按需分配／复用。证据：`build/reports/s6/proxy-corelib.log`（34 包）、`official-proxy-race.log`；独有上游截短记录保留在 `official-proxy-truncation.log`。
+
 ### Linux 设备／fd 原型复现
 
 [unix_device_probe.py](../tests/platform/unix_device_probe.py) 复用正式 [Linux TUN 分配后端](../infrastructure/tundevice/linux/tundevice.cpp) 的原生测试程序，再使用 Python 标准库与现有 `ip` 命令验证权限和 fd 所有权；Linux 主应用及 Go／DNS 数据入口的本地联验已接入，跨平台 CI 与桌面验收仍待；Linux 系统助手的独立验收见[权限入口](ARCHITECTURE.md#正式权限助手入口)。脚本拒绝在宿主网络命名空间运行；隔离命名空间内只创建测试 TUN 及其直连测试网段，不配置 DNS 或外部出口。

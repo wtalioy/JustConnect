@@ -8,6 +8,7 @@ import (
 
 	"github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/wtalioy/JustConnect/corelib/policy"
+	"github.com/wtalioy/JustConnect/corelib/resolve"
 )
 
 func TestCampusIngressCannotReenterOrdinaryUpstream(t *testing.T) {
@@ -45,6 +46,30 @@ func TestCampusIngressCannotReenterOrdinaryUpstream(t *testing.T) {
 	}
 	if calls != 4 || campus.tcpCalls != 1 || campus.udpCalls != 0 {
 		t.Fatal("campus and ordinary exits were mixed", calls, campus)
+	}
+}
+
+func TestOrdinaryUpstreamRetainsDomainForClashRules(t *testing.T) {
+	r := resolve.NewResolver(nil, "", "", 60, nil, map[string][]net.IP{"ordinary.test": {net.ParseIP("203.0.113.9")}}, false)
+	defer r.Close()
+	d := NewDialer(nil, r, nil, false)
+	wantErr := errors.New("owned upstream result")
+	var target string
+	d.Upstream = func(_ context.Context, _, address string) (net.Conn, error) {
+		target = address
+		return nil, wantErr
+	}
+	for _, network := range []string{"tcp", "udp"} {
+		if _, err := d.Dial(t.Context(), network, "ordinary.test:443"); !errors.Is(err, wantErr) || target != "ordinary.test:443" {
+			t.Fatal("ordinary domain was replaced with its IP before Clash rule matching", target, err)
+		}
+		ctx, ip, err := d.Resolve(t.Context(), "ordinary.test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := d.DialIPPort(ctx, network, net.JoinHostPort(ip.String(), "443")); !errors.Is(err, wantErr) || target != "ordinary.test:443" {
+			t.Fatal("SOCKS resolution discarded the ordinary domain", target, err)
+		}
 	}
 }
 
