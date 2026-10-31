@@ -183,6 +183,11 @@ jobs:
           run('host', ['ctest', '--test-dir', str(output), '-C', 'Release', '-V', '--output-on-failure'])
           sys.exit(race_status or regression_status)
 
+      - name: Measure native macOS TCP listener ownership
+        if: runner.os == 'macOS'
+        shell: bash
+        run: go -C corelib test -run '^$' -bench '^BenchmarkNativeTCPOwnership$' -benchtime=100ms -count=3 ./internal/mihomo/macos 2>&1 | tee build/coreabi/macos-listener-ownership.log
+
       - name: Verify privileged Mihomo listener ownership and direct data I/O
         if: runner.os == 'Linux'
         shell: bash

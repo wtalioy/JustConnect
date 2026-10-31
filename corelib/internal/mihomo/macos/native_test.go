@@ -7,12 +7,17 @@ import (
 	"errors"
 	"io"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/wtalioy/JustConnect/corelib/internal/mihomo/model"
+	"golang.org/x/sys/unix"
 )
 
 func TestUnixListenersPreserveOwnedPathsAndExcludeConnections(t *testing.T) {
@@ -61,4 +66,57 @@ func TestCommandOutputIsBoundedAndCancelable(t *testing.T) {
 	if _, err := commandOutput(ctx, "/bin/sleep", "10"); err == nil || time.Since(started) > time.Second {
 		t.Fatal("canceled native read retained its child process", err)
 	}
+}
+
+func TestNativeTCPListenerOwnershipTracksActualSocket(t *testing.T) {
+	info, err := unix.SysctlKinfoProc("kern.proc.pid", os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	process := model.Process{PID: os.Getpid(), Started: stamp(info)}
+	for _, host := range []string{"127.0.0.1", "::1"} {
+		listener, err := net.Listen("tcp", net.JoinHostPort(host, "0"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		target := netip.MustParseAddrPort(listener.Addr().String())
+		owned := OwnsTCP(t.Context(), process, target)
+		listener.Close()
+		if !owned || OwnsTCP(t.Context(), process, target) {
+			t.Fatalf("native %s ownership did not track the actual listening socket", host)
+		}
+	}
+}
+
+func BenchmarkNativeTCPOwnership(b *testing.B) {
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer listener.Close()
+	info, err := unix.SysctlKinfoProc("kern.proc.pid", os.Getpid())
+	if err != nil {
+		b.Fatal(err)
+	}
+	process := model.Process{PID: os.Getpid(), Started: stamp(info)}
+	target := netip.MustParseAddrPort(listener.Addr().String())
+	b.Run("previous_lsof_inventory", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			ctx, cancel := context.WithTimeout(b.Context(), 3*time.Second)
+			output, err := commandOutput(ctx, "/usr/sbin/lsof", "-nP", "-a", "-p", strconv.Itoa(process.PID), "-iTCP", "-sTCP:LISTEN", "-Fftn")
+			cancel()
+			if err != nil || !strings.Contains(string(output), target.String()) {
+				b.Fatal("lsof inventory lost the actual listener", err)
+			}
+		}
+	})
+	b.Run("native_pid_tcp_inventory", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if !OwnsTCP(b.Context(), process, target) {
+				b.Fatal("native PID inventory lost the actual listener")
+			}
+		}
+	})
 }

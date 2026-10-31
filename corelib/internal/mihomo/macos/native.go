@@ -107,34 +107,8 @@ func OwnsTCP(ctx context.Context, p model.Process, target netip.AddrPort) bool {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	output, err := commandOutput(ctx, "/usr/sbin/lsof", "-nP", "-a", "-p", strconv.Itoa(p.PID), "-iTCP", "-sTCP:LISTEN", "-Fftn")
-	if err != nil {
-		return false
-	}
-	family := ""
-	for _, line := range strings.Split(string(output), "\n") {
-		if strings.HasPrefix(line, "f") {
-			family = ""
-		}
-		if strings.HasPrefix(line, "t") {
-			family = line[1:]
-		}
-		if !strings.HasPrefix(line, "n") {
-			continue
-		}
-		host, port, err := net.SplitHostPort(line[1:])
-		if err != nil || port != strconv.Itoa(int(target.Port())) {
-			continue
-		}
-		if host == "*" && ((family == "IPv4") == target.Addr().Unmap().Is4()) {
-			return Valid(p)
-		}
-		address, err := netip.ParseAddr(host)
-		if err == nil && model.ListenerMatches(address, target.Addr()) {
-			return Valid(p)
-		}
-	}
-	return false
+	output, err := commandOutput(ctx, "/usr/sbin/netstat", "-anv", "-p", "tcp")
+	return err == nil && tcpListenerOwned(bytes.NewReader(output), p.PID, target) && Valid(p)
 }
 
 func commandOutput(ctx context.Context, name string, args ...string) ([]byte, error) {
