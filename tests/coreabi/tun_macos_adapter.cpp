@@ -8,7 +8,8 @@
 #include "infrastructure/systemproxy/proxyrecovery.h"
 #include "tuntraffic.h"
 #include <QCoreApplication>
-#include <QElapsedTimer>
+#include <QEventLoop>
+#include <QTimer>
 #include <QJsonDocument>
 #include <QFileInfo>
 #include <QFile>
@@ -33,8 +34,14 @@ struct AuthorizationWait {
 };
 template<class Predicate> static void until(Predicate done,int timeout = 10000)
 {
-    QElapsedTimer timer; timer.start();
-    while (!done() && timer.elapsed() < timeout) QCoreApplication::processEvents(QEventLoop::AllEvents,10);
+    if (done()) return;
+    QEventLoop loop;
+    QTimer poll, deadline;
+    poll.setInterval(1); deadline.setSingleShot(true);
+    QObject::connect(&poll,&QTimer::timeout,&loop,[&] { if (done()) loop.quit(); });
+    QObject::connect(&deadline,&QTimer::timeout,&loop,&QEventLoop::quit);
+    poll.start(); deadline.start(timeout);
+    loop.exec();
     check(done(),"macOS Qt network operation completed within deadline");
 }
 static QStringList addresses(const char *hostname,int family=AF_INET)
