@@ -17,6 +17,7 @@ public:
         PlatformCommandRunner runner = [](const QString &p,const QStringList &a) { return runPlatformCommand(p,a); });
 #endif
     SystemProxyCheck check(const SystemProxyConfig &config) override;
+    SystemProxyCheck inspect() override;
     PlatformOperationResult apply(const SystemProxyConfig &config) override;
     PlatformOperationResult clear() override;
     PlatformOperationResult beginRecovery(const QString &owner, bool resume) override;

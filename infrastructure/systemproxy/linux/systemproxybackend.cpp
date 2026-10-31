@@ -177,12 +177,43 @@ Result notify(const PlatformCommandRunner &run,const Target &target) {
     if(!target.isKde())return {};
     return run("dbus-send",{"--session","--type=signal","/KIO/Scheduler","org.kde.KIO.Scheduler.reparseSlaveConfiguration","string:"}).result;
 }
+QStringList proxyEndpoints(const Target &target,const QVariantMap &values) {
+    if (values[target.modeKey()].toString()!=(target.isKde()?"1":"manual")) return {};
+    QStringList result;
+    for (const auto &protocol:protocols) {
+        if (!target.isKde() && values["use-same-proxy"].toBool() && protocol!="http") continue;
+        QString endpoint;
+        if (target.isKde()) {
+            auto raw=values[protocol+"Proxy"].toString();
+            if (raw.isEmpty()) continue;
+            const auto space=raw.lastIndexOf(' ');
+            if (space>=0) raw[space]=':';
+            endpoint=ProxyValidation::endpoint(raw);
+        } else {
+            const auto host=values[protocol+"/host"].toString();
+            const auto port=values[protocol+"/port"].toInt();
+            if (host.isEmpty() || !port) continue;
+            endpoint=ProxyValidation::localEndpoint(host,port);
+        }
+        if (endpoint.isEmpty()) return {};
+        if (!result.contains(endpoint)) result.append(endpoint);
+    }
+    return result;
+}
 QVariantMap requested(const Target &target,const QVariantMap &before,const SystemProxyConfig &config) {
     auto values=before;
+    const bool automatic=!config.upstream.isEmpty();
     for(const auto &protocol:protocols) {
+        if (automatic && (target.isKde()?before[protocol+"Proxy"].toString().isEmpty()
+            : before[protocol+"/host"].toString().isEmpty() || !before[protocol+"/port"].toInt()
+                || (before["use-same-proxy"].toBool() && protocol!="http"))) continue;
         const int port=protocol=="socks"?config.socksPort:config.httpPort;
         if(target.isKde())values[protocol+"Proxy"]=(protocol=="socks"?"socks://127.0.0.1 ":"http://127.0.0.1 ")+QString::number(port);
         else {values[protocol+"/host"]="127.0.0.1";values[protocol+"/port"]=port;}
+    }
+    if (automatic) {
+        if (!target.isKde()) values["http/use-authentication"]=false;
+        return values;
     }
     if(target.isKde()){values[target.modeKey()]=1;values["ReversedException"]=false;values[target.bypassKey()]=ProxyValidation::bypass(config.bypass).join(',');}
     else {values[target.modeKey()]="manual";values[target.bypassKey()]=ProxyValidation::bypass(config.bypass);values["use-same-proxy"]=false;values["http/use-authentication"]=false;}
@@ -210,7 +241,7 @@ QJsonObject PlatformSystemProxyBackend::recoverySnapshot() const {
     return {{"schema_version",3},{"platform","linux"},
         {"machine",QString::fromLatin1(QSysInfo::machineUniqueId().toHex())},
         {"owner",snapshot->owner.toString(QUuid::WithoutBraces)},{"context",snapshot->context},
-        {"config",QJsonObject{{"http_port",snapshot->config.httpPort},{"socks_port",snapshot->config.socksPort},{"bypass",snapshot->config.bypass}}},
+        {"config",ProxyValidation::json(snapshot->config)},
         {"before",QJsonObject::fromVariantMap(snapshot->before)},{"released",array(snapshot->released)},
         {"intent",array(snapshot->intent)},{"written",array(snapshot->written)},
         {"uncertain",array(snapshot->uncertain)},{"pending_restore",array(snapshot->pendingRestore)}};
@@ -235,11 +266,10 @@ PlatformOperationResult PlatformSystemProxyBackend::recover(const QJsonObject &r
         || !record["config"].isObject() || !record["before"].isObject() || !record["released"].isArray()
         || !record["intent"].isArray() || !record["written"].isArray() || !record["uncertain"].isArray()
         || (legacy?!record["pending_restore"].isString():!record["pending_restore"].isArray())) return invalid();
-    const auto config=record["config"].toObject();
-    const auto http=config["http_port"].toInteger(-1),socks=config["socks_port"].toInteger(-1);
-    if (config.size()!=3 || http<1 || http>65535 || socks<1 || socks>65535 || !config["bypass"].isString()) return invalid();
+    const auto config=ProxyValidation::parse(record["config"].toObject());
+    if (!config) return invalid();
     auto pending=std::make_shared<Snapshot>();pending->owner=owner;pending->context=record["context"].toObject();
-    pending->config={int(http),int(socks),config["bypass"].toString()};
+    pending->config=*config;
     if (!ProxyValidation::config(pending->config).succeeded()) return invalid();
     if (auto support=available();!support.succeeded()) return support;
     pending->target=currentTarget();const auto &target=pending->target;
@@ -293,16 +323,25 @@ PlatformOperationResult PlatformSystemProxyBackend::recover(const QJsonObject &r
 
 SystemProxyCheck PlatformSystemProxyBackend::check(const SystemProxyConfig &config) {
     if(auto valid=ProxyValidation::config(config);!valid.succeeded())return {valid};
+    return observe(&config);
+}
+SystemProxyCheck PlatformSystemProxyBackend::inspect() { return observe(nullptr); }
+SystemProxyCheck PlatformSystemProxyBackend::observe(const SystemProxyConfig *config) {
     if(auto support=available();!support.succeeded())return {support};
     const auto target=currentTarget();QVariantMap values;
     if(auto result=readState(runner,target,values);!result.succeeded())return {result};
     const auto mode=values[target.modeKey()].toString();
     if(mode!=(target.isKde()?"1":"manual"))return {{},mode!=(target.isKde()?"0":"none")};
-    const auto expected=requested(target,values,config);
     bool conflict=false;
-    for(const auto &protocol:protocols)for(const auto &key:target.endpointKeys(protocol))conflict|=values[key]!=expected[key];
-    conflict|=values[target.isKde()?"ReversedException":"use-same-proxy"].toBool();
-    return {{},conflict,true};
+    if (config) {
+        const auto expected=requested(target,values,*config);
+        for(const auto &protocol:protocols)for(const auto &key:target.endpointKeys(protocol))conflict|=values[key]!=expected[key];
+        conflict|=values[target.isKde()?"ReversedException":"use-same-proxy"].toBool();
+    }
+    auto endpoints=proxyEndpoints(target,values);
+    const bool managed=snapshot && !endpoints.isEmpty() && endpoints==proxyEndpoints(target,snapshot->installed);
+    if (managed) endpoints=proxyEndpoints(target,snapshot->before);
+    return {{},conflict,true,managed,endpoints};
 }
 
 PlatformOperationResult PlatformSystemProxyBackend::apply(const SystemProxyConfig &config) {
@@ -312,6 +351,8 @@ PlatformOperationResult PlatformSystemProxyBackend::apply(const SystemProxyConfi
     auto pending=std::make_shared<Snapshot>();pending->target=currentTarget();
     pending->config=config;pending->context=currentContext();
     if(auto result=readState(runner,pending->target,pending->before);!result.succeeded())return result;
+    if (!config.upstream.isEmpty() && !ProxyValidation::matches(config.upstream,proxyEndpoints(pending->target,pending->before)))
+        return {Status::Failed,"System proxy changed before automatic handoff"};
     // shortcut: KConfig CLI values use argv; credentialed URLs require a native KConfig writer.
     if(pending->target.isKde())for(const auto &protocol:protocols)
         if(pending->before[protocol+"Proxy"].toString().contains('@'))return {Status::Unsupported,"Credentialed KDE proxy URLs cannot be changed safely by the command-line backend"};

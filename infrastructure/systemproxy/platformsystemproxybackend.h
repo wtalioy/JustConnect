@@ -30,6 +30,7 @@ public:
     PlatformSystemProxyBackend(const PlatformSystemProxyBackend &) = delete;
     PlatformSystemProxyBackend &operator=(const PlatformSystemProxyBackend &) = delete;
     SystemProxyCheck check(const SystemProxyConfig &config) override;
+    SystemProxyCheck inspect() override;
     PlatformOperationResult apply(const SystemProxyConfig &config) override;
     PlatformOperationResult clear() override;
 #if defined(Q_OS_WIN) || defined(Q_OS_LINUX) || defined(Q_OS_MACOS)
@@ -38,6 +39,7 @@ public:
     PlatformOperationResult recover(const QJsonObject &record);
 #endif
 private:
+    SystemProxyCheck observe(const SystemProxyConfig *config);
     struct Snapshot;
     std::shared_ptr<Snapshot> snapshot;
 #ifdef Q_OS_WIN

@@ -3,7 +3,7 @@
 #include "application/systemproxybackend.h"
 #include <memory>
 
-inline constexpr int ProxyRecoveryProtocol = 2;
+inline constexpr int ProxyRecoveryProtocol = 3;
 
 #ifdef Q_OS_MACOS
 inline constexpr auto MacProxyRecoveryLockFile = "/var/tmp/JustConnect-system-proxy-recovery.lock";
@@ -15,6 +15,7 @@ public:
     explicit ProxyRecoveryBackend(QString executable = {});
     ~ProxyRecoveryBackend() override;
     SystemProxyCheck check(const SystemProxyConfig &config) override;
+    SystemProxyCheck inspect() override;
     PlatformOperationResult apply(const SystemProxyConfig &config) override;
     PlatformOperationResult clear() override;
 private:

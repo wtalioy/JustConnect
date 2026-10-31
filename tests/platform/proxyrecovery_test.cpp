@@ -7,6 +7,7 @@
 #include <QElapsedTimer>
 #include <QFile>
 #include <QJsonDocument>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QLocalServer>
 #include <QLocalSocket>
@@ -119,6 +120,12 @@ public:
         if(owner!=scope){prepared=confirmed=false;}
         owner=scope;resuming=resume;return {};
     }
+    SystemProxyCheck inspect() override {
+        if (auto result=prepare();!result.succeeded()) return {result};
+        auto values=state();
+        if (!owned) {values["completed_scope"]=owner;confirmed=true;store(values);}
+        return {{},false,true,owned,{"127.0.0.1:7897"}};
+    }
     SystemProxyCheck check(const SystemProxyConfig &config) override {
         if (mode=="invalid-state") return {{Status::Failed,"Rejected unowned recovery data"}};
         if(auto result=prepare();!result.succeeded())return {result};
@@ -134,10 +141,11 @@ public:
         if(!owned){values["completed_scope"]=owner;confirmed=true;}
         store(values);return {{},false,values["current"]==111};
     }
-    Result apply(const SystemProxyConfig &) override {
+    Result apply(const SystemProxyConfig &config) override {
         if(auto result=prepare();!result.succeeded())return result;
         if(owned)return {Status::Failed,"Already owned",true};
         auto values=state();before=values["current"].toInt();owned=true;
+        values["upstream"]=QJsonArray::fromStringList(config.upstream);
         values["pending_before"]=before;values["pending_scope"]=owner;
         values["current"]=111;values["applies"]=values["applies"].toInt()+1;store(values);
         if(mode=="worker-exit")std::_Exit(23);
@@ -248,6 +256,18 @@ int main(int argc, char **argv) try
         QFile::remove(root+"/apply-published");QFile::remove(root+"/clear-denied");
         QFile::remove(root+"/release");qputenv("JC_PROXY_RECOVERY_FIXTURE_MODE",mode);
     };
+    reset();
+    {
+        ProxyRecoveryBackend backend(QCoreApplication::applicationFilePath());
+        auto view=backend.inspect();
+        check(view.result.succeeded() && view.active && !view.managed && view.endpoints==QStringList{"127.0.0.1:7897"}
+              && state()["applies"]==0,"Read-only native endpoint observation did not survive the recovery channel");
+        auto automatic=config;automatic.upstream=view.endpoints;
+        check(backend.apply(automatic).succeeded() && state()["upstream"].toArray()==QJsonArray::fromStringList(view.endpoints),"Automatic upstream authority was lost across the recovery channel");
+        view=backend.inspect();
+        check(view.managed && view.endpoints==automatic.upstream && backend.clear().succeeded() && state()["current"]==17,
+              "Managed observation or independent automatic restoration failed");
+    }
     reset();
     {
         ProxyRecoveryBackend missing(directory.filePath("missing-worker"));

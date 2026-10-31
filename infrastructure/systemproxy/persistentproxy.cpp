@@ -154,6 +154,14 @@ SystemProxyCheck PersistentProxyBackend::check(const SystemProxyConfig &config) 
     }
     return result;
 }
+SystemProxyCheck PersistentProxyBackend::inspect() {
+    if (auto result=recover();!result.succeeded()) return {result};
+    const auto result=native.inspect();
+    if(native.recoverySnapshot().isEmpty()) {
+        if(auto completed=finishUnowned();!completed.succeeded()) {completed.mayHaveChanged=false;return {completed};}
+    }
+    return result;
+}
 PlatformOperationResult PersistentProxyBackend::apply(const SystemProxyConfig &config) {
     if(state==State::Complete)return {Status::Failed,"A new proxy application requires a fresh recovery owner"};
     if (auto result=recover();!result.succeeded()) return result;

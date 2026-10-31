@@ -16,6 +16,9 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 WINDOWS_HELPER = json.loads((ROOT / 'resource/network-helper-windows.json').read_text())
+PROXY_RECOVERY_PROTOCOL = int(re.search(
+    r'\bProxyRecoveryProtocol\s*=\s*(\d+)\s*;',
+    (ROOT / 'infrastructure/systemproxy/proxyrecovery.h').read_text()).group(1))
 
 
 def run(*args, env=None, cwd=None, timeout=60):
@@ -51,7 +54,7 @@ def check_proxy_recovery(root, env):
         raise RuntimeError('Missing packaged system proxy recovery worker')
     facts = json.loads(run(worker, '--version', env=env, timeout=5))
     if (not isinstance(facts, dict) or set(facts) != {'worker', 'protocol', 'qt'} or facts['worker'] != 'system-proxy-recovery'
-            or type(facts['protocol']) is not int or facts['protocol'] != 2
+            or type(facts['protocol']) is not int or facts['protocol'] != PROXY_RECOVERY_PROTOCOL
             or not isinstance(facts['qt'], str) or not facts['qt'].startswith('6.')):
         raise RuntimeError('Packaged system proxy recovery worker failed its runtime check')
     return facts

@@ -36,6 +36,8 @@ public:
         auto result = checkResult; result.conflict = conflict; return result;
     }
 
+    SystemProxyCheck inspect() override { return check({}); }
+
     PlatformOperationResult apply(const SystemProxyConfig &config) override
     {
         ++applyCalls;
@@ -243,12 +245,12 @@ bool reportsFailuresAndRetainsCleanupState()
 bool retainsQueryRecoveryAndRestoresWhenRequested()
 {
     using Status=PlatformOperationResult::Status;
-    for (bool pending : {false,true}) for (bool changed : {false,true}) {
+    for (bool inspecting : {false,true}) for (bool pending : {false,true}) for (bool changed : {false,true}) {
         auto backend=std::make_unique<FakeSystemProxyBackend>();auto *fake=backend.get();
         fake->blockChecks=pending;fake->checkResult.result={Status::PermissionDenied,"startup recovery unconfirmed",changed};
         SystemProxySession session(std::move(backend));int busy=0,idle=0;
         QObject::connect(&session,&SystemProxySession::busyChanged,[&](bool value){value?++busy:++idle;});
-        if (!session.checkConflict({1081,1080,{}})) return false;
+        if (!(inspecting?session.inspect():session.checkConflict({1081,1080,{}}))) return false;
         bool requested=true;
         if (pending) {
             if (!fake->operationStarted.tryAcquire(1,1000)) {fake->allowOperationToFinish.release();return false;}

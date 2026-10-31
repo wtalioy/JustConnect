@@ -17,6 +17,7 @@ public:
     ~SystemProxySession() override;
 
     bool checkConflict(const SystemProxyConfig &config);
+    bool inspect();
     bool enable(const SystemProxyConfig &config);
     bool disable();
     bool isEnabled() const;
@@ -27,6 +28,7 @@ signals:
     void enabledChanged(bool enabled);
     void busyChanged(bool busy);
     void conflictCheckFinished(const SystemProxyCheck &check);
+    void inspectionFinished(const SystemProxyCheck &check);
     void operationFinished(bool enabled, const PlatformOperationResult &result);
 
 private:
@@ -34,6 +36,7 @@ private:
     {
         None,
         CheckConflict,
+        Inspect,
         Enable,
         Disable
     };

@@ -1,4 +1,5 @@
 #include "infrastructure/systemproxy/platformsystemproxybackend.h"
+#include "infrastructure/systemproxy/proxyvalidation.h"
 #include "infrastructure/process/command.h"
 #include "infrastructure/systemproxy/proxyrecovery.h"
 #include <QCoreApplication>
@@ -127,6 +128,28 @@ static void backendTests() {
     check(backend.clear().succeeded(),"restore owned fields around external changes");
     check(states[""].proxy=="http=external.invalid:8899" && states[""].bypass=="external.invalid" && states[""].flags==(PROXY_TYPE_DIRECT|PROXY_TYPE_PROXY),"external fields and dependent mode retained");
     check(states["new connection"].proxy=="new.invalid:1234" && states["fixture connection"].proxy=="socks=old.invalid:1080","new connections untouched and original RAS restored");
+    for (const bool handoff:{false,true}) {
+        states.clear();rasNames={"inactive"};
+        states[""]={PROXY_TYPE_DIRECT|PROXY_TYPE_PROXY,"http=127.0.0.1:7897;https=127.0.0.1:7897","keep.invalid",{}};
+        states["inactive"]={PROXY_TYPE_DIRECT,"old.invalid:3128","other.invalid",{}};
+        auto automatic=config;automatic.upstream={"127.0.0.1:7897"};
+        PlatformSystemProxyBackend owner(WindowsProxyApi{query,set,entries});
+        const auto observed=owner.inspect();
+        check(observed.result.succeeded() && observed.active && !observed.managed && observed.endpoints==automatic.upstream,"Observe original local upstream without changing settings");
+        check(owner.apply(automatic).succeeded() && states[""].bypass=="keep.invalid" && states["inactive"].flags==PROXY_TYPE_DIRECT,
+              "Automatic handoff changed bypass or an inactive RAS connection");
+        check(owner.inspect().managed && owner.inspect().endpoints==automatic.upstream,"Owned frontend obscured its original upstream");
+        if (handoff) {
+            PlatformSystemProxyBackend fresh(WindowsProxyApi{query,set,entries});
+            check(fresh.recover(owner.recoverySnapshot()).succeeded() && states[""].proxy.contains(":7897") && states[""].bypass=="keep.invalid",
+                  "Automatic handoff record could not recover its original proxy");
+        } else {
+            states[""].flags=PROXY_TYPE_DIRECT;
+            check(!owner.inspect().active && owner.inspect().endpoints.isEmpty() && owner.clear().succeeded()
+                  && states[""].flags==PROXY_TYPE_DIRECT,"Automatic restore re-enabled a user-disabled system proxy");
+        }
+    }
+
 }
 
 static void recoveryRecordTests() {
@@ -469,6 +492,44 @@ static void backendTests() {
     qputenv("XDG_CURRENT_DESKTOP","unknown");
     check(backend.apply(config).status==Status::Unsupported,"unknown desktop explicit unsupported");
 #endif
+}
+#endif
+
+#ifdef Q_OS_LINUX
+static void automaticHandoffTests() {
+    for (const bool kde:{false,true}) for (const bool handoff:{false,true}) {
+        qputenv("XDG_CURRENT_DESKTOP",kde?"KDE":"GNOME");qputenv("KDE_SESSION_VERSION","6");
+        Fixture fixture;
+        if (kde) fixture.values={{"ProxyType","1"},{"httpProxy","http://127.0.0.1 7897"},{"NoProxyFor","keep.invalid"},{"ReversedException","true"}};
+        else fixture.values={{"org.gnome.system.proxy:mode","'manual'"},{"org.gnome.system.proxy.http:host","'127.0.0.1'"},
+            {"org.gnome.system.proxy.http:port","7897"},{"org.gnome.system.proxy:ignore-hosts","['keep.invalid']"},
+            {"org.gnome.system.proxy:use-same-proxy","true"}};
+        const auto original=fixture.values;
+        const auto run=[&](const QString &p,const QStringList &a){return fixture.run(p,a);};
+        PlatformSystemProxyBackend owner(run);
+        auto automatic=config;automatic.upstream={"127.0.0.1:7897"};
+        auto view=owner.inspect();
+        check(view.result.succeeded() && view.active && !view.managed && view.endpoints==automatic.upstream && !fixture.mutations,
+              "Observation did not identify the original local upstream");
+        auto stale=automatic;stale.upstream={"127.0.0.1:7898"};
+        check(!owner.apply(stale).succeeded() && !fixture.mutations,"Stale upstream authority changed system proxy settings");
+        check(owner.apply(automatic).succeeded(),"Automatic local upstream handoff");
+        view=owner.inspect();
+        check(view.active && view.managed && view.endpoints==automatic.upstream,"Managed frontend lost original upstream identity");
+        check(fixture.values[kde?"NoProxyFor":"org.gnome.system.proxy:ignore-hosts"]==original[kde?"NoProxyFor":"org.gnome.system.proxy:ignore-hosts"]
+              && fixture.values[kde?"ReversedException":"org.gnome.system.proxy:use-same-proxy"]==original[kde?"ReversedException":"org.gnome.system.proxy:use-same-proxy"]
+              && !fixture.values.contains(kde?"socksProxy":"org.gnome.system.proxy.socks:host"),
+              "Automatic handoff changed bypass semantics or enabled an absent protocol");
+        if (handoff) {
+            PlatformSystemProxyBackend fresh(run);
+            check(fresh.recover(owner.recoverySnapshot()).succeeded() && fixture.values==original,"Automatic ownership record did not restore exact original settings");
+        } else {
+            fixture.values[kde?"ProxyType":"org.gnome.system.proxy:mode"]=kde?"0":"'none'";
+            check(!owner.inspect().active && owner.inspect().endpoints.isEmpty() && owner.clear().succeeded()
+                  && fixture.values[kde?"ProxyType":"org.gnome.system.proxy:mode"]==(kde?"0":"'none'"),
+                  "Automatic restoration re-enabled an external OFF selection");
+        }
+    }
 }
 #endif
 
@@ -1086,6 +1147,9 @@ int main(int argc, char **argv) {
     check(runPlatformCommand(self,{"--child","denied"}).result.status==Status::PermissionDenied,"permission denial classified");
     check(!runPlatformCommand(self+".missing",{}).result.succeeded(),"failed process start rejected");
     backendTests();
+#ifdef Q_OS_LINUX
+    automaticHandoffTests();
+#endif
 #if defined(Q_OS_WIN) || defined(Q_OS_LINUX)
     recoveryRecordTests();
 #endif

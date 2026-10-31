@@ -46,17 +46,23 @@ std::optional<QJsonObject> receive(QLocalSocket &socket, const QDeadlineTimer &d
 QJsonObject response(const SystemProxyCheck &check)
 {
     return {{"status",int(check.result.status)},{"detail",check.result.detail.left(4096)},
-            {"changed",check.result.mayHaveChanged},{"conflict",check.conflict},{"active",check.active}};
+            {"changed",check.result.mayHaveChanged},{"conflict",check.conflict},{"active",check.active},{"managed",check.managed},
+            {"endpoints",QJsonArray::fromStringList(check.endpoints)}};
 }
 
 std::optional<SystemProxyCheck> decode(const QJsonObject &object)
 {
     const auto status = object["status"].toInteger(-1);
-    if (object.size()!=5 || status<0 || status>int(Status::TimedOut) || !object["detail"].isString()
+    if (object.size()!=7 || status<0 || status>int(Status::TimedOut) || !object["detail"].isString()
         || object["detail"].toString().size()>4096 || !object["changed"].isBool()
-        || !object["conflict"].isBool() || !object["active"].isBool()) return std::nullopt;
-    return SystemProxyCheck{{Status(status),object["detail"].toString(),object["changed"].toBool()},
-                            object["conflict"].toBool(),object["active"].toBool()};
+        || !object["conflict"].isBool() || !object["active"].isBool() || !object["managed"].isBool() || !object["endpoints"].isArray()) return std::nullopt;
+    SystemProxyCheck result{{Status(status),object["detail"].toString(),object["changed"].toBool()},
+                            object["conflict"].toBool(),object["active"].toBool(),object["managed"].toBool()};
+    for (const auto &entry : object["endpoints"].toArray()) {
+        if (!entry.isString() || entry.toString().isEmpty() || ProxyValidation::endpoint(entry.toString())!=entry.toString() || result.endpoints.contains(entry.toString())) return {};
+        result.endpoints.append(entry.toString());
+    }
+    return result;
 }
 }
 
@@ -134,7 +140,7 @@ struct ProxyRecoveryBackend::Worker {
     SystemProxyCheck request(const QString &operation, const SystemProxyConfig &config)
     {
         if (operation=="clear" && !dirty) return {};
-        if (operation!="clear") {
+        if (operation!="clear" && operation!="inspect") {
             const auto valid = ProxyValidation::config(config);
             if (!valid.succeeded()) return {valid};
         }
@@ -146,13 +152,13 @@ struct ProxyRecoveryBackend::Worker {
             auto connected = connect(deadline,operation=="clear");
             if (!connected.succeeded()) {connected.mayHaveChanged|=previousDirty;return {connected};}
             QJsonObject command{{"operation",operation}};
-            if (operation!="clear") {
+            if (operation!="clear" && operation!="inspect") {
                 command["owner"]=owner;
-                command["config"] = QJsonObject{{"http_port",config.httpPort},{"socks_port",config.socksPort},{"bypass",config.bypass}};
+                command["config"] = ProxyValidation::json(config);
             }
             if (QJsonDocument(command).toJson(QJsonDocument::Compact).size()+1>MaxFrame)
                 return {{Status::Failed,"System proxy request exceeds the recovery channel limit.",dirty}};
-            if (operation=="apply" || operation=="check") dirty = true;
+            if (operation=="apply" || operation=="check" || operation=="inspect") dirty = true;
             const auto object = send(*socket,command,deadline) ? receive(*socket,deadline) : std::nullopt;
             auto result = object ? decode(*object) : std::nullopt;
             if (!result) {
@@ -162,7 +168,7 @@ struct ProxyRecoveryBackend::Worker {
                          "System proxy recovery channel failed; the independent worker retains pending recovery.",dirty}};
             }
             if (operation=="apply") dirty = result->result.succeeded() || result->result.mayHaveChanged;
-            else if (operation=="check") dirty = previousDirty || result->result.mayHaveChanged;
+            else if ((operation=="check" || operation=="inspect")) dirty = previousDirty || result->result.mayHaveChanged;
             else if (operation=="clear" && result->result.succeeded()) dirty = false;
             if(operation=="clear" && !result->result.succeeded())result->result.mayHaveChanged|=previousDirty;
             return *result;
@@ -188,6 +194,7 @@ ProxyRecoveryBackend::ProxyRecoveryBackend(QString executable)
 }
 ProxyRecoveryBackend::~ProxyRecoveryBackend() = default;
 SystemProxyCheck ProxyRecoveryBackend::check(const SystemProxyConfig &config) { return worker->call("check",config); }
+SystemProxyCheck ProxyRecoveryBackend::inspect() { return worker->call("inspect"); }
 PlatformOperationResult ProxyRecoveryBackend::apply(const SystemProxyConfig &config) { return worker->call("apply",config).result; }
 PlatformOperationResult ProxyRecoveryBackend::clear() { return worker->call("clear").result; }
 
@@ -210,16 +217,14 @@ int runProxyRecoveryWorker(SystemProxyBackend &backend, const QString &endpoint,
     if (!send(channel,{{"protocol",ProxyRecoveryProtocol},{"ready",locked}},QDeadlineTimer(5000)) || !locked) return 1;
     while (const auto object = receive(channel,QDeadlineTimer(QDeadlineTimer::Forever))) {
         const auto operation = (*object)["operation"].toString();
-        if (operation!="check" && operation!="apply" && operation!="clear") break;
-        const bool clear = operation=="clear";
+        if (operation!="check" && operation!="apply" && operation!="clear" && operation!="inspect") break;
+        const bool clear = operation=="clear" || operation=="inspect";
         if (object->size()!=(clear ? 1 : 3)) break;
         SystemProxyConfig config;
         if (!clear) {
-            const auto values = (*object)["config"].toObject();
-            const auto http = values["http_port"].toInteger(-1), socks = values["socks_port"].toInteger(-1);
-            if (values.size()!=3 || http<1 || http>65535 || socks<1 || socks>65535 || !values["bypass"].isString()) break;
-            config = {int(http),int(socks),values["bypass"].toString()};
-            if (!ProxyValidation::config(config).succeeded()) break;
+            const auto parsed = ProxyValidation::parse((*object)["config"].toObject());
+            if (!parsed) break;
+            config = *parsed;
             const auto scope=(*object)["owner"].toString();const QUuid id(scope);
             if(id.isNull() || id.toString(QUuid::WithoutBraces)!=scope)break;
             const auto selected=backend.beginRecovery(scope,false);
@@ -229,6 +234,7 @@ int runProxyRecoveryWorker(SystemProxyBackend &backend, const QString &endpoint,
             }
         }
         const auto result = operation=="check" ? backend.check(config)
+            : operation=="inspect" ? backend.inspect()
             : SystemProxyCheck{clear ? backend.clear() : backend.apply(config)};
         if (!send(channel,response(result),QDeadlineTimer(OperationTimeout))) break;
     }
