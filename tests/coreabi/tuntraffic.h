@@ -4,11 +4,13 @@
 #include <QProcess>
 #include <QJsonDocument>
 #include <QFileInfo>
+#include <QNetworkProxy>
 
 inline void exerciseNativeTUNUDP()
 {
     using ProxyCheck::check;
     QUdpSocket udp;
+    udp.setProxy(QNetworkProxy::NoProxy);
     udp.connectToHost(QHostAddress("198.18.0.6"), 53);
     for (const auto &packet : {QByteArray("native-tun-datagram"), QByteArray()}) {
         check(udp.write(packet) == packet.size(), "native UDP datagram sent");
@@ -25,6 +27,7 @@ inline void exerciseNativeTUNTraffic(const QHostAddress &tcpTarget = QHostAddres
 {
     using ProxyCheck::check;
     QTcpSocket tcp;
+    tcp.setProxy(QNetworkProxy::NoProxy);
     tcp.connectToHost(tcpTarget, 80);
     check(tcp.waitForConnected(5000), "ordinary TCP reached campus through kernel capture and C ABI");
     const QByteArray payload(32768, 't');
@@ -45,6 +48,7 @@ inline void exerciseOriginalNetworkUDP(const QHostAddress &target = QHostAddress
     using ProxyCheck::check;
     const QByteArray tag("original:"), payload("same-ip-original-network");
     QUdpSocket udp;
+    udp.setProxy(QNetworkProxy::NoProxy);
     udp.connectToHost(target,53);
     for (const auto &packet : {payload,QByteArray{}}) {
         const auto expected = tag + packet;
@@ -62,6 +66,7 @@ inline void exerciseOriginalNetworkTraffic(const QHostAddress &tcpTarget = QHost
     using ProxyCheck::check;
     const QByteArray tag("original:"), payload("same-ip-original-network");
     QTcpSocket tcp;
+    tcp.setProxy(QNetworkProxy::NoProxy);
     tcp.connectToHost(tcpTarget,80);
     check(tcp.waitForConnected(5000),"ordinary TCP reaches the original network peer");
     check(ProxyCheck::receive(tcp,tag.size()) == tag,"TCP connected to the original peer rather than the campus tunnel");
