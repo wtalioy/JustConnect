@@ -63,7 +63,7 @@ if(WIN32)
         "${REPO}/application/coexistencenetworkaccess.cpp" "${REPO}/application/systemproxysession.cpp"
         "${REPO}/core/connectionsessionstate.cpp")
     set_target_properties(coreabi_windows_session_test PROPERTIES AUTOMOC ON)
-    target_link_libraries(coreabi_windows_session_test PRIVATE coreabi_engine Qt6::Network advapi32)
+    target_link_libraries(coreabi_windows_session_test PRIVATE coreabi_engine Qt6::Network advapi32 iphlpapi)
     justconnect_core_runtime(coreabi_windows_session_test coreabi)
     add_test(NAME coreabi_windows_session_test
         COMMAND "${CMAKE_COMMAND}" -E env "JC_NATIVE_WINDOWS_SESSION_HOST=$<TARGET_FILE:coreabi_windows_session_test>"
