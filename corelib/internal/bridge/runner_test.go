@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"os"
 	"os/exec"
@@ -66,7 +67,7 @@ func TestProtocolQueryProxyStopAndRestart(t *testing.T) {
 		t.Fatal(ev)
 	}
 	c.Operation = "connect"
-	c.Listeners.SOCKS, c.Listeners.HTTP = freeAddress(t), freeAddress(t)
+	c.Listeners.SOCKS, c.Listeners.HTTP = "127.0.0.1:0", "[::1]:0"
 	for round := 0; round < 2; round++ {
 		startProtocol(t, e, h, c)
 		ready := next(t, e, h)
@@ -87,12 +88,19 @@ func TestProtocolQueryProxyStopAndRestart(t *testing.T) {
 		if len(snapshot.Resources.IPs) < 2 || len(snapshot.Resources.Domains["campus.test"]) != 1 || len(snapshot.Resources.DNSRecords["campus.test"]) != 1 {
 			t.Fatal("actual parsed resource data missing")
 		}
+		listeners := snapshot.Resources.Listeners
+		for _, address := range []string{listeners.SOCKS, listeners.HTTP} {
+			endpoint, err := netip.ParseAddrPort(address)
+			if err != nil || !endpoint.Addr().IsLoopback() || endpoint.Port() == 0 {
+				t.Fatal("resource snapshot did not report a bound loopback endpoint", address, err)
+			}
+		}
 		for _, row := range snapshot.Resources.IPs {
 			if row.IPMin != "192.0.2.10" || row.IPMax != "192.0.2.10" || row.PortMin != 1 || row.PortMax != 65535 {
 				t.Fatal("unexpected resource scope")
 			}
 		}
-		socks, err := proxy.SOCKS5("tcp", c.Listeners.SOCKS, nil, &net.Dialer{})
+		socks, err := proxy.SOCKS5("tcp", listeners.SOCKS, nil, &net.Dialer{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -104,7 +112,7 @@ func TestProtocolQueryProxyStopAndRestart(t *testing.T) {
 		}
 		defer connection.Close()
 		echo(t, connection)
-		tunnel, err := net.Dial("tcp", c.Listeners.HTTP)
+		tunnel, err := net.Dial("tcp", listeners.HTTP)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -118,7 +126,7 @@ func TestProtocolQueryProxyStopAndRestart(t *testing.T) {
 			t.Fatalf("CONNECT = %v, %v", reply, err)
 		}
 		echo(t, tunnel)
-		proxyURL, _ := url.Parse("http://" + c.Listeners.HTTP)
+		proxyURL, _ := url.Parse("http://" + listeners.HTTP)
 		transport := &http.Transport{Proxy: http.ProxyURL(proxyURL)}
 		client := &http.Client{Transport: transport, Timeout: 5 * time.Second}
 		response, err := client.Get("http://campus.test/resource")
@@ -139,6 +147,13 @@ func TestProtocolQueryProxyStopAndRestart(t *testing.T) {
 		}
 		awaitClosed(t, connection)
 		awaitClosed(t, tunnel)
+		for _, address := range []string{listeners.SOCKS, listeners.HTTP} {
+			rebound, err := net.Listen("tcp", address)
+			if err != nil {
+				t.Fatal("reported listener was retained after session shutdown", address, err)
+			}
+			rebound.Close()
+		}
 		if _, err := device.Read(make([]byte, 1)); !errors.Is(err, net.ErrClosed) {
 			t.Fatalf("session retained TUN device: %v", err)
 		}

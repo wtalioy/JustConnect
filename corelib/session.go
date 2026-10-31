@@ -56,6 +56,7 @@ type Resources struct {
 	CampusDNS         string
 	CampusDNSEnabled  bool
 	UnderlayInterface string
+	Listeners         service.ListenerAddresses
 }
 
 // Session owns one protocol invocation; the ABI serializes starts and joins Run on stop.
@@ -231,14 +232,6 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 		return err
 	}
 	remoteDNS, _ := vpn.DNSServer()
-	if observer.Resources != nil {
-		var interfaceName string
-		if selected, ok := clientOptions.UnderlayDialer.(interface{ InterfaceName() string }); ok {
-			interfaceName = selected.InterfaceName()
-		}
-		observer.Resources(Resources{IPs: ips, Domains: domains, DNSRecords: dnsResource,
-			CampusDNS: remoteDNS, CampusDNSEnabled: !options.DisableRemoteDNS && remoteDNS != "", UnderlayInterface: interfaceName})
-	}
 	ttl := options.DNSCacheTTL
 	if ttl == 0 {
 		ttl = DefaultDNSCacheTTL
@@ -255,6 +248,15 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 	}
 	s.listeners.Store(listeners)
 	defer s.listeners.Store(nil)
+	if observer.Resources != nil {
+		var interfaceName string
+		if selected, ok := clientOptions.UnderlayDialer.(interface{ InterfaceName() string }); ok {
+			interfaceName = selected.InterfaceName()
+		}
+		observer.Resources(Resources{IPs: ips, Domains: domains, DNSRecords: dnsResource,
+			CampusDNS: remoteDNS, CampusDNSEnabled: !options.DisableRemoteDNS && remoteDNS != "", UnderlayInterface: interfaceName,
+			Listeners: listeners.Addresses()})
+	}
 	probeDNS := remoteDNS
 	if options.DisableRemoteDNS {
 		probeDNS = ""

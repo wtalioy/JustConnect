@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"github.com/wtalioy/JustConnect/corelib"
+	"github.com/wtalioy/JustConnect/corelib/service"
 )
 
 type resourcePermission struct {
@@ -27,6 +28,7 @@ type resourceSnapshot struct {
 	CampusDNS            string                          `json:"campus_dns"`
 	CampusDNSEnabled     bool                            `json:"campus_dns_enabled"`
 	UnderlayInterface    string                          `json:"underlay_interface"`
+	Listeners            service.ListenerAddresses       `json:"listeners"`
 	ActiveTUNAddresses   []string                        `json:"active_tun_addresses,omitempty"`
 	OriginalDNSRecords   map[string][]string             `json:"original_dns_records,omitempty"`
 	OriginalDNSListeners map[string]string               `json:"original_dns_listeners,omitempty"`
@@ -46,7 +48,7 @@ func (s *Session) setResources(resources corelib.Resources) Status {
 		return Cancelled
 	}
 	s.mu.Unlock()
-	snapshot := resourceSnapshot{IPs: []ipResource{}, Domains: map[string][]resourcePermission{}, DNSRecords: map[string][]string{}, CampusDNS: resources.CampusDNS, CampusDNSEnabled: resources.CampusDNSEnabled, UnderlayInterface: resources.UnderlayInterface}
+	snapshot := resourceSnapshot{IPs: []ipResource{}, Domains: map[string][]resourcePermission{}, DNSRecords: map[string][]string{}, CampusDNS: resources.CampusDNS, CampusDNSEnabled: resources.CampusDNSEnabled, UnderlayInterface: resources.UnderlayInterface, Listeners: resources.Listeners}
 	for _, row := range resources.IPs {
 		snapshot.IPs = append(snapshot.IPs, ipResource{row.IPMin.String(), row.IPMax.String(), resourcePermission{row.Protocol, row.PortMin, row.PortMax}})
 	}

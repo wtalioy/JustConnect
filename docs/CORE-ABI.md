@@ -60,7 +60,7 @@ ABI v1 与 JSON schema 版本同步。S2-02 以兼容增补导出 `jc_config_val
 }
 ~~~
 
-`schema_version/server.host/server.port` 必填。host 是 ASCII DNS 名或 IP，不是 URL／带端口地址，端口显式指定。其他字段可省略；`auth` 还接受 `phone/domain/totp_secret/auth_id/sub_type`，method 支持空值（按用户名／密码或手机号推导）、`auth/psw`、`auth/smsCheckCode`、`auth/cas`、`auth/httpsOauth2`。listener 空值不启用；非空必须是回环 IP:port。没有 CLI 附加参数、默认学校、TUN、路由／DNS 修改或原始调试输出开关。
+`schema_version/server.host/server.port` 必填。host 是 ASCII DNS 名或 IP，不是 URL／带端口地址，端口显式指定。其他字段可省略；`auth` 还接受 `phone/domain/totp_secret/auth_id/sub_type`，method 支持空值（按用户名／密码或手机号推导）、`auth/psw`、`auth/smsCheckCode`、`auth/cas`、`auth/httpsOauth2`。listener 空值不启用；非空必须是回环 IP:port，其中端口 0 请求内核分配空闲端口。资源快照交付实际绑定的端点，不从输入的 0 或固定默认值推断；服务器和 DNS 远端端口仍须非零。没有 CLI 附加参数、默认学校、TUN、路由／DNS 修改或原始调试输出开关。
 
 核对 `initial_protection` 能力后，connect 配置可附 `protection:{protected:[规范前缀],campus:[IPv4 地址]}`；两数组必填，使用与实时更新相同的完整校验。Start 在启动协议 Runner、保活和代理监听之前原子安装不可变规则，初始修订为 0，之后更新从 1 递增。无效配置不创建连接或消耗代次，省略字段维持原契约；每次新会话重新取本次配置，auth_methods 拒绝此字段。Qt 适配器在每次 connect（含重连）的工作线程中读取原网络与系统 DNS 快照，复用应用范围／名称推导并生成完整初始配置；同时核对 name_protection，默认不含校园例外。缺少能力、读取／推导失败或超限时不启动会话，取消会在读取返回后再次检查；auth_methods 不读保护快照。Qt 当前自动安装地址及名称保护，并通过应用协调及查看窗口接入明确 IPv4 选择／撤回；接管后端负责网络变化观察与保护／捕获确认，初始核心确认本身不代表系统接管就绪。
 
@@ -90,7 +90,7 @@ Linux 使用独立限时 netlink 句柄读取所有 IP 路由表，包含 Tailsc
 
 ## 校园资源只读快照
 
-`resource_snapshot` 由正式协议后端提供。`jc_session_resources` 需要活动句柄及 Start 返回的代次，返回 `{schema_version,generation,resources}`，代次为字符串。`resources` 包含 `ip_resources:[{ip_min,ip_max,protocol,port_min,port_max}]`、`domain_resources:{域名:[{protocol,port_min,port_max}]}`、`dns_records:{域名:[地址]}`、`campus_dns`、`campus_dns_enabled` 与 `underlay_interface`。`dns_records` 在每次读取时合并同一核心解析器中尚未到期的校园 DNS 绑定，TTL 到期或会话关闭后不再导出；可选 `active_tun_addresses` 读取现有 TUN 入口的流及校园 DNS 发布责任，保留仍在排空或已校验且等待路由确认／解析绑定提交的 IPv4 目的地址；发布失败／取消后释放引用，重叠发布各持一份责任。自身地址和 DNS peer 不导出，此字段不授予新连接权限。资源读取先取保留集合、再取有效绑定，避免发布确认与绑定提交之间漏掉地址。捕获撤回等待相应流结束，不在 Qt 或助手中维护第二份地址绑定。合并仍受原输出上限限制，超限返回失败而非截断。后者为资源建立时核心当前选用的原网络接口偏好，空字符串表示使用系统路由；它不代替内核出口查询，不证明实时路由或接管已就绪。注入的外部拨号器未提供该观测时同样为空。数据直接取自该代实际交给拨号／解析层的解析结果，不重新登录、不重复请求服务器、读取代理文件或重写授权匹配器；应用／节点标识、认证材料及服务器原始响应不导出。
+`resource_snapshot` 由正式协议后端提供。`jc_session_resources` 需要活动句柄及 Start 返回的代次，返回 `{schema_version,generation,resources}`，代次为字符串。`resources` 包含 `ip_resources:[{ip_min,ip_max,protocol,port_min,port_max}]`、`domain_resources:{域名:[{protocol,port_min,port_max}]}`、`dns_records:{域名:[地址]}`、`campus_dns`、`campus_dns_enabled`、`underlay_interface` 与 `listeners:{socks?,http?}`。监听端点在全部绑定成功后、核心 ready 前交付，未启用的项省略；均为实际回环地址及非零端口，不交付部分绑定失败的端点。停止后的快照读取返回过期，重连使用新代次和新绑定，不能缓存上一代端点继续接管。`dns_records` 在每次读取时合并同一核心解析器中尚未到期的校园 DNS 绑定，TTL 到期或会话关闭后不再导出；可选 `active_tun_addresses` 读取现有 TUN 入口的流及校园 DNS 发布责任，保留仍在排空或已校验且等待路由确认／解析绑定提交的 IPv4 目的地址；发布失败／取消后释放引用，重叠发布各持一份责任。自身地址和 DNS peer 不导出，此字段不授予新连接权限。资源读取先取保留集合、再取有效绑定，避免发布确认与绑定提交之间漏掉地址。捕获撤回等待相应流结束，不在 Qt 或助手中维护第二份地址绑定。合并仍受原输出上限限制，超限返回失败而非截断。后者为资源建立时核心当前选用的原网络接口偏好，空字符串表示使用系统路由；它不代替内核出口查询，不证明实时路由或接管已就绪。注入的外部拨号器未提供该观测时同样为空。数据直接取自该代实际交给拨号／解析层的解析结果，不重新登录、不重复请求服务器、读取代理文件或重写授权匹配器；应用／节点标识、认证材料及服务器原始响应不导出。
 
 资源尚未发布时返回 `JC_BUSY`，应用在核心 ready 后读取，无需文件轮询。零代次返回 `JC_INVALID_ARGUMENT`；其他代次、停止期间及已结束会话返回 `JC_STALE_REQUEST`，已销毁句柄返回 `JC_INVALID_HANDLE`；认证方式查询不提供该数据。输入和返回缓冲区均不被保留；同代数据不因调用方修改而改变，下一代清空，结束后释放。无效或超限结果只报告状态；超过 `MaxOutput` 返回 `JC_LIMIT`，不截断，当前本地代理会话仍可运行，透明入口不得据缺失数据应用规则。
 

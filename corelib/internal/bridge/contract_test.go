@@ -17,8 +17,10 @@ import (
 const configJSON = "{\"schema_version\":1,\"server\":{\"host\":\"vpn.example.invalid\",\"port\":443},\"auth\":{\"method\":\"auth/psw\",\"username\":\"alice\",\"password\":\"private-password\"},\"listeners\":{\"socks\":\"127.0.0.1:1080\",\"http\":\"[::1]:1081\"}}"
 
 func TestConfigBoundary(t *testing.T) {
-	if _, status := ParseConfig([]byte(configJSON)); status != OK {
-		t.Fatal(status)
+	for _, input := range []string{configJSON, strings.NewReplacer(":1080", ":0", ":1081", ":0").Replace(configJSON)} {
+		if _, status := ParseConfig([]byte(input)); status != OK {
+			t.Fatal(status)
+		}
 	}
 	for _, input := range []string{
 		"", "null", "[]", configJSON + " {}",
@@ -34,6 +36,9 @@ func TestConfigBoundary(t *testing.T) {
 		strings.Replace(configJSON, "auth/psw", "easyconnect", 1),
 		strings.Replace(configJSON, "127.0.0.1:1080", "0.0.0.0:1080", 1),
 		strings.Replace(configJSON, "127.0.0.1:1080", "localhost:1080", 1),
+		strings.Replace(configJSON, "127.0.0.1:1080", "0.0.0.0:0", 1),
+		strings.Replace(configJSON, "[::1]:1081", "[::]:0", 1),
+		strings.Replace(configJSON, "127.0.0.1:1080", "127.0.0.1:65536", 1),
 		strings.Replace(configJSON, "private-password", "\\u0000", 1),
 		strings.Replace(configJSON, "private-password", "\\ud800", 1),
 		strings.Replace(configJSON, "private-password", string([]byte{0xff}), 1),
