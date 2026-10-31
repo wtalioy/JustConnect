@@ -288,4 +288,4 @@ Linux / WSL、i9-13900HX，同一真实监听前保留 128 个无关 fd，三次
 
 复现：`go -C corelib test -run '^$' -bench '^BenchmarkListenerOwnership$' -benchtime=100ms -count=3 ./internal/mihomo/linux`。本次原始输出：`build/reports/s6/listener-owner-benchmark.log`。
 
-macOS 的跨 UID 数据回归核对普通调用方 → root 官方实例 → 自有 TCP／UDP 对端。TCP 所有权观察改用系统内核 PID 清单；本地只验证解析边界、race、交叉编译及 vet，实际系统行为和与旧 `lsof` 清单的耗时比较由原生 CI 验证，不宣称已有整体 CPU 改善。复现基准：`go -C corelib test -run '^$' -bench '^BenchmarkNativeTCPOwnership$' -benchtime=100ms -count=3 ./internal/mihomo/macos`，CI 原始输出为 `macos-listener-ownership.log`。
+macOS 的跨 UID 数据回归核对普通调用方 → root 官方实例 → 自有 TCP／UDP 对端，`d5ddf06` 六架构原生及三平台应用 CI 已通过。TCP 所有权观察改用系统内核 PID 清单；Apple M1 Virtual／darwin arm64 三次 100 ms 样本的中位耗时由旧 `lsof` 清单 13.33 ms 降至 4.72 ms（约 65%），Go 分配字节由约 21.0—21.3 KB 增至 43.2—43.7 KB，因为读取的是全局 TCP 清单。此为组件壁钟耗时和分配比较，不代表整体 CPU／吞吐；保留连接前后的实时 PID／启动身份／监听复验。复现基准：`go -C corelib test -run '^$' -bench '^BenchmarkNativeTCPOwnership$' -benchtime=100ms -count=3 ./internal/mihomo/macos`，CI 原始输出为 `macos-listener-ownership.log`。

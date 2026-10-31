@@ -22,7 +22,7 @@
 
 | 范围 | 当前结论与证据 |
 | --- | --- |
-| 正式自动检查 | 已提交基线 `7869cc9` 的[六架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/41182156082)与[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/41182156081)全部通过，包含 S6 自动代理交接、缓存普通出口、开关／取消／恢复与动态端口基础检查；完整共存矩阵仍待。Windows 原 SDK 4096 包／30 秒门槛、普通权限数据链、DNS／保护和独立恢复回归保留 |
+| 正式自动检查 | 已提交基线 `d5ddf06` 的[六架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/41191121592)与[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/41191121620)全部通过，包含 S6 自动代理交接、缓存普通出口、开关／取消／恢复与动态端口基础检查；完整共存矩阵仍待。Windows 原 SDK 4096 包／30 秒门槛、普通权限数据链、DNS／保护和独立恢复回归保留 |
 | 实际包／源码 | 同一 `fcb324b` 的[六组实际包及源码](https://github.com/wtalioy/JustConnect/actions/runs/41095366283)全部通过；核对正式核心、架构、助手身份及产物摘要，下载的源码与 Git 中 683 份文件逐一一致。`build/reports/package-fcb324b/summary.json`；后续仅说明／注释提交复用本次证据 |
 | Windows 修复／性能 | 正常断开修复已实测；DNS 批量刷新、持久进度、部分失败和后续所有权已双架构原生验证。接口查询及 `70f90a5` 接管／断开 CPU 优化已实测通过；`build/reports/windows-restore-9d95b37/summary.json`、`build/reports/windows-dns-cpu-da23405/summary.json` |
 | 阶段矩阵 | `build/reports/v1-matrix.json` 汇总当前三平台受控证据及 Windows 实测；未测发布格保留在 V1—V7，阶段勾选不等于完整发布验收 |
@@ -178,7 +178,7 @@ S3—S5 已收尾，不重复开发或重跑已通过基线；A6 性能优化已
 
 前置：实际共存接入依赖对应平台无 Clash 的透明路径与恢复；S7-01／S6-03 的只读发现和控制能力调查不依赖 V1，可随会话工作提前做。转发／DNS／回环验证与 S7-04／05 增量联动同组实现；写入验证在具备恢复的隔离环境进行，手填端口／临时规则仅供诊断，不另维护手工版本。
 
-当前：自动系统代理交接、缓存普通出口与有序恢复已通过 `7869cc9` 六架构 Core ABI／三平台 Tests（见基线）。Linux 提权 Mihomo 的只读监听证明已接入既有助手；本地真实代理／外部重占拒绝、Go race、34 组 Go 测试及 22 段安装助手／并行观察／恢复检查通过；Linux 增量保留真实回包就绪检查，本地三次隔离实传／外部重占拒绝及 `6242fff` 双架构原生 CI 通过；macOS 真实提权数据回归发现跨 UID 的 `lsof` 不可见，已改用系统 TCP／PID 清单；本地解析／race／交叉编译／vet 通过，原生行为与耗时复验待。连接复验改用内核监听身份，保留严格验证，不新增数据转发进程或逐包 IPC。职责与契约见[自动编排](docs/ARCHITECTURE.md#自动共存编排)、[共存接口](docs/CORE-ABI.md#共存出口更新)，证据在 `build/reports/s6/`。完整 V2—V5、旧应用 Fake-IP 缓存／运行中排除、实际包与 Windows 实测仍待，分别归其余五项。
+当前：自动系统代理交接、缓存普通出口、有序恢复及 Linux／macOS 提权 Mihomo 的真实数据出口已通过 `d5ddf06` 六架构 Core ABI／三平台 Tests（见基线）。Linux 复验缓存监听 inode；macOS 使用系统 TCP／PID 清单，保留严格身份验证，不新增数据转发进程或逐包 IPC。[自动编排](docs/ARCHITECTURE.md#自动共存编排)、[共存接口](docs/CORE-ABI.md#共存出口更新)与[组件测量](docs/DEVELOPMENT.md#共存监听所有权基准)记录职责、性能收益及内存取舍；证据在 `build/reports/s6/`。实际 Linux 应用矩阵已验证 rule／系统代理开／TUN 关的校园 HTTP／TCP／UDP／SSH 和普通／保护出口，但运行中开启 Mihomo TUN 会误触发原网络变化，正在修复；完整 V2—V5、旧应用 Fake-IP 缓存／运行中排除、实际包及 Windows 实测仍待，分别归其余五项。
 
 已确认：系统代理开启时允许 JustConnect 临时承接浏览器入口，校园走 VPN、普通请求回原 Clash；系统代理与 TUN 均关闭时普通流量直连。关闭系统代理后保留原生校园接管，不强制打开用户开关；Clash 模式／代理组／DNS 与过滤配置保持，临时系统代理按所有权恢复。此为用户于 2026-10-31 确认的 S6 实现方向，自动接入基础已过原生 CI，完整矩阵仍待。
 
