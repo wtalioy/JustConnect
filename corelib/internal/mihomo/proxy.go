@@ -10,6 +10,7 @@ import (
 
 	"github.com/miekg/dns"
 	"github.com/things-go/go-socks5/statute"
+	socketdialer "github.com/wtalioy/JustConnect/corelib/internal/dialer"
 	"github.com/wtalioy/JustConnect/corelib/internal/mihomo/model"
 	"github.com/wtalioy/JustConnect/corelib/internal/socksudp"
 )
@@ -145,7 +146,13 @@ func (p *Proxy) DialContext(parent context.Context, network, address string) (re
 		relay.Close()
 		return nil, ctx.Err()
 	}
-	conn := &proxyUDP{Conn: relay, control: control, target: target, header: (&statute.Datagram{DstAddr: target}).Header(), done: make(chan struct{})}
+	limit, err := socketdialer.SendBufferSize(relay.(*net.UDPConn))
+	if err != nil || limit <= 0 {
+		relay.Close()
+		return nil, ErrUnavailable
+	}
+	// Native datagram capacity can be smaller than the upstream's buffer (notably macOS).
+	conn := &proxyUDP{Conn: relay, control: control, target: target, limit: min(limit, maxProxyUDPPacket), header: (&statute.Datagram{DstAddr: target}).Header(), done: make(chan struct{})}
 	go func() {
 		defer close(conn.done)
 		var b [1]byte
@@ -161,6 +168,7 @@ type proxyUDP struct {
 	control           net.Conn
 	target            statute.AddrSpec
 	header            []byte
+	limit             int
 	readMu, writeMu   sync.Mutex
 	readBuf, writeBuf []byte
 	done              chan struct{}
@@ -193,7 +201,7 @@ func (c *proxyUDP) Write(data []byte) (int, error) {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 	size := len(c.header) + len(data)
-	if size > maxProxyUDPPacket {
+	if size > c.limit {
 		return 0, io.ErrShortBuffer
 	}
 	if cap(c.writeBuf) < size {
