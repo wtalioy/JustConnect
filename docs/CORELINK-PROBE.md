@@ -80,6 +80,10 @@ D2 的设备入口子方案已收敛：Linux／macOS 使用最小授权助手创
 
 固定的官方 Mihomo `v1.19.32` 在自有回环实例中验证：从实际 `/configs` 的 SOCKS／mixed 端口和原生 PID／启动身份共同确认入口，不猜端口；连接前后再次核对所属监听。普通 TCP／UDP 保留原域名交给该实例，IPv4／IPv6、空 UDP、控制连接关闭与 `rule → global → direct → rule` 切换已由 `TestOfficialProxyUsesActualListenersAndSelectedMode` 本地通过；六架构 CI 待补。测试配置、模式写入与进程终止只作用于自有夹具，不接触用户实例。
 
+`TestOfficialMihomoCampusIngressEnforcesSharedResources` 进一步使用真实 Mihomo → JustConnect 严格 SOCKS → 自有 HTTP／UDP 对端，核对实际拨号目标、域名／IP 授权、端口／协议限制、空 UDP、本地监听自身／未知域名／IPv6 拒绝，以及保护策略增加和撤回；宽泛／陈旧外部规则不授予校园权限，拒绝时普通上游调用为零。本地 race 重复通过，三平台全矩阵仍待。
+
+自有 Mihomo 夹具除端口监听外，须完成调用方提供的实际回包检查才进入正式断言，避免核心尚未接收流量时的提前就绪；正式断言／超时不变。Windows 命名管道夹具始终保留下一监听实例，在本机原生回归中旧实现稳定失败、修复后两项管道及控制解析／TLS 各重复 20 次通过；重建／清理不触碰用户实例和系统网络。证据 `build/reports/s6/official-campus-ingress-race.log`、`official-traffic-ready-race.log`、`traffic-ready-corelib.log`、`pipe-name-*.log`、`windows-controller-after.log`。这些结果证明受控传输／授权边界，不代表入口自动配置、运行中切换及恢复已交付。
+
 同一实测中，规则允许的目标在 `GLOBAL` 选择 `REJECT` 时被拒绝：[上游 `resolveMetadata`](https://github.com/MetaCubeX/mihomo/blob/v1.19.32/tunnel/tunnel.go#L310) 在普通规则前处理 `global/direct`，因此追加校园规则不足以覆盖这些模式。入口级方案与自动恢复尚待接入，不能由当前代理传输测试推定自动共存完成。
 
 标准构建的 [UDP 接收缓冲区](https://github.com/MetaCubeX/mihomo/blob/v1.19.32/common/pool/buffer_standard.go) 为 16 KiB，实测更大 SOCKS UDP 请求被静默截短；本软件读取实际 UDP socket 发送容量，并以它和上游缓冲区的较小值作为含头部上界；超界发送前明确拒绝，不切换出口。macOS 原生容量较小，不用放大系统缓冲区掩盖差异。非标准 low-memory 构建尚未验收。共有 SOCKS UDP 解析器保留空 IPv4／IPv6／域名报文，拒绝非零保留位、分片、无效类型／端口与截断；两侧复用同一边界，读写缓冲只在会话内按需分配／复用。证据：`build/reports/s6/proxy-corelib.log`（34 包）、`official-proxy-race.log`；独有上游截短记录保留在 `official-proxy-truncation.log`。

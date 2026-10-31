@@ -106,6 +106,27 @@ func TestOfficialProxyUsesActualListenersAndSelectedMode(t *testing.T) {
 			if err != nil || int(upstream.address.Port()) != port {
 				t.Fatal("actual proxy listener was not discovered", err)
 			}
+			fixture.WaitReady(t, func() error {
+				ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+				defer cancel()
+				conn, err := upstream.DialContext(ctx, "tcp", tcp)
+				if err != nil {
+					return err
+				}
+				defer conn.Close()
+				conn.SetDeadline(time.Now().Add(time.Second))
+				if _, err := conn.Write([]byte("ready")); err != nil {
+					return err
+				}
+				var reply [5]byte
+				if _, err := io.ReadFull(conn, reply[:]); err != nil {
+					return err
+				}
+				if string(reply[:]) != "ready" {
+					return errors.New("owned traffic readiness payload changed")
+				}
+				return nil
+			})
 			for _, mode := range []string{"rule", "global", "direct", "rule"} {
 				setOwnedProxyMode(t, c, fixture, mode)
 				for _, network := range []string{"tcp", "udp"} {
