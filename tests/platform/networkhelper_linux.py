@@ -255,6 +255,11 @@ def main():
                 assert inventory() == baseline, 'helper changed the original network inventory'
                 assert not list(Path(temporary).iterdir()), 'acknowledged operation left private state'
 
+            def refused(owner, state, changed, process):
+                packet = receive(owner, state, success=False)
+                assert packet['detail'] and packet['changed'] == changed and packet['device'] == {}, packet
+                assert process.wait(timeout=10) != 0, 'failed ownership inspection reported success'
+
             if args.uninstalled_helper:
                 assert args.installed
                 owner = str(uuid.uuid4())
@@ -432,7 +437,7 @@ def main():
             assert json.loads((Path(temporary) / f'{args.uid}-{owner}' / 'source.json').read_bytes())['version'] == LAYOUT['storage_version']
             process = start(owner)
             command('send', packet=application(owner))
-            assert command('receive')['packet'] is None and process.wait(timeout=10) != 0
+            refused(owner, 'prepared', False, process)
             assert all(path.read_bytes() == contents for path, contents in saved.items()), 'repeated apply replaced recovery authority'
             if not dns_probe:
                 # Delivered v2 has campus DNS storage but no original-link DNS directory.
@@ -460,7 +465,7 @@ def main():
             before_cleanup = inventory()
             process = start(owner)
             command('send', packet=request(owner, 'cleanup'))
-            assert command('receive')['packet'] is None and process.wait(timeout=10) != 0
+            refused(owner, 'active', True, process)
             assert inventory() == before_cleanup, 'receipt cleanup performed native recovery on an active connection'
             context_file = Path(temporary) / f'{args.uid}-{owner}' / 'source.json'
             if dns_probe:
@@ -601,7 +606,7 @@ def main():
             foreign.write_bytes(b'preserve unknown contents')
             process = start(owner)
             command('send', packet=request(owner, 'cleanup'))
-            assert command('receive')['packet'] is None and process.wait(timeout=10) != 0
+            refused(owner, 'prepared', True, process)
             assert foreign.read_bytes() == b'preserve unknown contents' and inventory() == baseline
             foreign.unlink()
             process = start(owner)
@@ -617,7 +622,7 @@ def main():
                 alias.symlink_to(outside, target_is_directory=True)
                 process = start(owner)
                 command('send', packet=request(owner, 'recover'))
-                assert command('receive')['packet'] is None and process.wait(timeout=10) != 0
+                refused(owner, 'prepared', True, process)
                 assert inventory() == baseline and foreign.read_bytes() == b'foreign ownership is not absence'
                 assert list(Path(outside).iterdir()) == [foreign]
                 alias.unlink()

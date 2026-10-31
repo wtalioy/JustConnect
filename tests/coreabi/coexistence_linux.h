@@ -132,7 +132,7 @@ static int exerciseCoexistenceNetworkAccess(const ConnectionProfile &profile)
         reply->deleteLater();
         return qMakePair(okay,body);
     };
-    const auto traffic = [&](const QString &mode, bool proxyEnabled, bool tun) {
+    const auto traffic = [&](const QString &mode, bool proxyEnabled, bool tun, bool nativeExcluded = false) {
         const auto campus = get("http://campus.test/",proxyEnabled);
         check(campus.first && campus.second == "vpn-response","campus web reaches VPN before the original Clash mode");
         auto addresses = std::async(std::launch::async,[] { return systemAddresses("campus.test"); });
@@ -143,7 +143,8 @@ static int exerciseCoexistenceNetworkAccess(const ConnectionProfile &profile)
         exerciseNativeSSH(QHostAddress(targets.first()));
         const bool rejected = mode == "global" && (proxyEnabled || tun);
         const auto ordinary = get("http://198.18.0.5:8080/",proxyEnabled);
-        check(rejected ? !ordinary.first : ordinary.first && ordinary.second == "original-http",
+        const bool ordinaryRejected = rejected && !(nativeExcluded && !proxyEnabled);
+        check(ordinaryRejected ? !ordinary.first : ordinary.first && ordinary.second == "original-http",
             "ordinary web preserves the selected Clash exit; both switches OFF remains direct");
         const auto protectedTarget = get("http://192.0.2.2:8080/",proxyEnabled);
         check(protectedTarget.first && protectedTarget.second == "original-http","protected original network bypasses campus and ordinary upstream selection");
@@ -163,31 +164,42 @@ static int exerciseCoexistenceNetworkAccess(const ConnectionProfile &profile)
                 "actual ordinary upstream preserves UDP and empty datagrams");
         }
     };
+    const auto configure = [&](const QString &mode, bool proxyEnabled, bool tun, const QJsonArray &exclusions = QJsonArray{}) {
+        const auto previous = observations;
+        std::cerr << "CHECK: coexistence mode=" << mode.toStdString() << " system_proxy=" << proxyEnabled << " tun=" << tun << '\n';
+        QJsonObject fields{{"enable",tun}};
+        if (!exclusions.isEmpty()) fields["route-exclude-address"] = exclusions;
+        patch({{"mode",mode},{"tun",fields}});
+        systemProxy(proxyEnabled);
+        startupDeadline.start(9000);
+        until([&] {
+            if (session.state() != ConnectionState::Running) return true;
+            if (observations <= previous || proxy.isBusy() || policy.isBusy() || coexistence["mode"] != mode
+                || coexistence["tun"].toBool() != tun || coexistence["active"].toBool() != (proxyEnabled || tun)
+                || proxy.isEnabled() != proxyEnabled || (proxyEnabled ? !proxy.isAutomatic() : proxy.needsCleanup())) return false;
+            const auto current = runPlatformCommand("gsettings",proxyEnabled
+                ? QStringList{"get","org.gnome.system.proxy.http","port"} : QStringList{"get","org.gnome.system.proxy","mode"});
+            return current.result.succeeded() && (proxyEnabled
+                ? resources["listeners"].toObject()["http"].toString() == "127.0.0.1:" + current.output
+                : current.output == "'none'");
+        });
+        startupDeadline.stop();
+        check(session.state() == ConnectionState::Running,"runtime mode and independent switches retain campus readiness");
+    };
     for (const auto *mode : {"rule","global","direct"}) {
         for (const auto &flags : {qMakePair(true,false),qMakePair(true,true),qMakePair(false,true),qMakePair(false,false)}) {
             const bool proxyEnabled = flags.first, tun = flags.second;
-            const auto previous = observations;
-            std::cerr << "CHECK: coexistence mode=" << mode << " system_proxy=" << proxyEnabled << " tun=" << tun << '\n';
-            patch({{"mode",mode},{"tun",QJsonObject{{"enable",tun}}}});
-            systemProxy(proxyEnabled);
-            startupDeadline.start(9000);
-            until([&] {
-                if (session.state() != ConnectionState::Running) return true;
-                if (observations <= previous || proxy.isBusy() || policy.isBusy() || coexistence["mode"] != mode
-                    || coexistence["tun"].toBool() != tun || coexistence["active"].toBool() != (proxyEnabled || tun)
-                    || proxy.isEnabled() != proxyEnabled || (proxyEnabled ? !proxy.isAutomatic() : proxy.needsCleanup())) return false;
-                const auto current = runPlatformCommand("gsettings",proxyEnabled
-                    ? QStringList{"get","org.gnome.system.proxy.http","port"} : QStringList{"get","org.gnome.system.proxy","mode"});
-                return current.result.succeeded() && (proxyEnabled
-                    ? resources["listeners"].toObject()["http"].toString() == "127.0.0.1:" + current.output
-                    : current.output == "'none'");
-            });
-            startupDeadline.stop();
-            check(session.state() == ConnectionState::Running,"runtime mode and independent switches retain campus readiness");
+            configure(mode,proxyEnabled,tun);
             traffic(mode,proxyEnabled,tun);
             std::cout << "PASS: native coexistence case mode=" << mode << " system_proxy=" << proxyEnabled << " tun=" << tun << '\n' << std::flush;
         }
     }
+    configure("global",false,true,{"192.0.2.0/24","198.18.0.6/32","198.18.0.5/32"});
+    traffic("global",false,true,true);
+    std::cout << "PASS: native coexistence live exclusions preserve campus capture and ordinary bypass\n";
+    configure("global",false,true,{"192.0.2.0/24"});
+    traffic("global",false,true);
+    std::cout << "PASS: native coexistence exclusion withdrawal restores ordinary Clash selection\n";
     session.stop();
     until([&] { return !session.isActive(); });
     check(finished == 1 && tunReferences() == 0 && !proxy.needsCleanup(),"composed stop restores browser settings before releasing native ownership");

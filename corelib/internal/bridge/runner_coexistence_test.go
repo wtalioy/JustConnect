@@ -31,8 +31,16 @@ func TestNativeCoexistenceHost(t *testing.T) {
 		t.Fatalf("native coexistence host: %v\n%s", err, output)
 	}
 	const cases = 12
-	const sessionsCases = cases + 1
-	if bytes.Count(output, []byte("PASS: native coexistence case ")) != cases || !bytes.Contains(output, []byte("PASS: native coexistence initial TUN startup and restoration")) || g.authCount.Load() != 2 || g.sshCount.Load() != 2*sessionsCases || g.tcpCount.Load() != 4*sessionsCases || g.udpCount.Load() != 2*sessionsCases+g.nativeDNSQueries.Load() || g.nativeDNSQueries.Load() < 1 {
+	const trafficCases = cases + 2 + 1 // Live exclusions/withdrawal and the initial-TUN session.
+	if bytes.Count(output, []byte("PASS: native coexistence case ")) != cases ||
+		!bytes.Contains(output, []byte("PASS: native coexistence initial TUN startup and restoration")) ||
+		!bytes.Contains(output, []byte("PASS: native coexistence live exclusions preserve campus capture and ordinary bypass")) ||
+		!bytes.Contains(output, []byte("PASS: native coexistence exclusion withdrawal restores ordinary Clash selection")) ||
+		g.authCount.Load() != 2 ||
+		g.sshCount.Load() != 2*trafficCases ||
+		g.tcpCount.Load() != 4*trafficCases ||
+		g.udpCount.Load() != 2*trafficCases+g.nativeDNSQueries.Load() ||
+		g.nativeDNSQueries.Load() < 1 {
 		t.Fatalf("missing actual matrix traffic: auth=%d TCP=%d SSH=%d UDP=%d DNS=%d\n%s", g.authCount.Load(), g.tcpCount.Load(), g.sshCount.Load(), g.udpCount.Load(), g.nativeDNSQueries.Load(), output)
 	}
 	t.Log(string(output))
