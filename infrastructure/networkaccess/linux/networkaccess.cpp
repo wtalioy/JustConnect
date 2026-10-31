@@ -26,6 +26,10 @@ LinuxNetworkAccess::LinuxNetworkAccess(CoreEngine *core, NetworkPolicySession *p
             return owned ? excludeCampusCaptureAddresses(owned->capturePrefixes, addresses) : std::nullopt;
         });
     connect(&helper, &LinuxNetworkHelperClient::finished, this, &LinuxNetworkAccess::helperFinished);
+    connect(&helper, &LinuxNetworkHelperClient::listenersInspected, this,
+        [this](const QJsonObject &query, const QJsonArray &proofs, Result result) {
+        if (stage == Stage::Ready || stage == Stage::Updating) emit proxyListenersInspected(attempt,query,proofs,result);
+    });
     connect(&helper, &LinuxNetworkHelperClient::stateChanged, this, [this](HelperState state) {
         if (state != HelperState::Idle && state != HelperState::Active)
             this->policy->setNetworkBusy(generation, true);
@@ -90,6 +94,11 @@ LinuxNetworkAccess::LinuxNetworkAccess(CoreEngine *core, NetworkPolicySession *p
             finishPolicy(status);
         }
     });
+}
+
+bool LinuxNetworkAccess::inspectProxyListeners(const QUuid &id, const QJsonObject &query)
+{
+    return id == attempt && (stage == Stage::Ready || stage == Stage::Updating) && helper.inspectListeners(query);
 }
 
 LinuxNetworkAccess::~LinuxNetworkAccess() { worker.waitForFinished(); }

@@ -3,6 +3,7 @@
 #include "infrastructure/networkhelper/linux/networkhelper.h"
 #include <QObject>
 #include <QProcess>
+#include <QJsonArray>
 #include <QSocketNotifier>
 #include <QTimer>
 
@@ -24,6 +25,7 @@ public:
     void cleanupRestored(const QUuid &owner);
     void restore();
     void cancel();
+    bool inspectListeners(const QJsonObject &query);
     State state() const { return current; }
     bool hasPendingProcess() const { return child > 0; }
     std::optional<LinuxHelperConfiguration> ownedConfiguration() const { return device >= 0 ? configuration : std::nullopt; }
@@ -35,6 +37,7 @@ signals:
     void stateChanged(LinuxNetworkHelperClient::State state);
     void finished(LinuxNetworkHelperClient::Operation operation, PlatformOperationResult result);
     void ownershipLost(PlatformOperationResult result);
+    void listenersInspected(const QJsonObject &query, const QJsonArray &proofs, PlatformOperationResult result);
 private:
     void begin(const QUuid &owner, Operation operation, QJsonObject request);
     void inspected(int exitCode, QProcess::ExitStatus status);
@@ -51,6 +54,7 @@ private:
     void failed(const QString &detail);
     State retryState() const;
     bool send(const QJsonObject &packet);
+    bool sendListenerQuery();
     QJsonObject command(const char *operation) const;
     QProcess probe;
     QTimer deadline;
@@ -65,4 +69,7 @@ private:
     std::optional<LinuxHelperConfiguration> configuration;
     QStringList pendingExtension;
     std::optional<PlatformOperationResult> outcome;
+    QTimer listenerDeadline;
+    quint64 listenerSerial = 0, pendingListenerSerial = 0;
+    QJsonObject listenerQuery;
 };

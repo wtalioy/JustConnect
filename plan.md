@@ -22,7 +22,7 @@
 
 | 范围 | 当前结论与证据 |
 | --- | --- |
-| 正式自动检查 | 已提交基线 `298f3f5` 的[六架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/41177492504)与[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/41177492508)全部通过，包含 S6 传输／控制能力、动态端口及系统代理交接／恢复检查；自动应用接入增量待 CI，整体验收仍待。Windows 原 SDK 4096 包／30 秒门槛、普通权限数据链、DNS／保护和独立恢复回归保留 |
+| 正式自动检查 | 已提交基线 `7869cc9` 的[六架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/41182156082)与[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/41182156081)全部通过，包含 S6 自动代理交接、缓存普通出口、开关／取消／恢复与动态端口基础检查；完整共存矩阵仍待。Windows 原 SDK 4096 包／30 秒门槛、普通权限数据链、DNS／保护和独立恢复回归保留 |
 | 实际包／源码 | 同一 `fcb324b` 的[六组实际包及源码](https://github.com/wtalioy/JustConnect/actions/runs/41095366283)全部通过；核对正式核心、架构、助手身份及产物摘要，下载的源码与 Git 中 683 份文件逐一一致。`build/reports/package-fcb324b/summary.json`；后续仅说明／注释提交复用本次证据 |
 | Windows 修复／性能 | 正常断开修复已实测；DNS 批量刷新、持久进度、部分失败和后续所有权已双架构原生验证。接口查询及 `70f90a5` 接管／断开 CPU 优化已实测通过；`build/reports/windows-restore-9d95b37/summary.json`、`build/reports/windows-dns-cpu-da23405/summary.json` |
 | 阶段矩阵 | `build/reports/v1-matrix.json` 汇总当前三平台受控证据及 Windows 实测；未测发布格保留在 V1—V7，阶段勾选不等于完整发布验收 |
@@ -178,9 +178,9 @@ S3—S5 已收尾，不重复开发或重跑已通过基线；A6 性能优化已
 
 前置：实际共存接入依赖对应平台无 Clash 的透明路径与恢复；S7-01／S6-03 的只读发现和控制能力调查不依赖 V1，可随会话工作提前做。转发／DNS／回环验证与 S7-04／05 增量联动同组实现；写入验证在具备恢复的隔离环境进行，手填端口／临时规则仅供诊断，不另维护手工版本。
 
-当前：原型与正式系统代理交接后端已通过 `298f3f5` [六架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/41177492504)及[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/41177492508)。应用自动流程已接入同一网络生命周期，使用实际监听、原生代理观察和已验证 Mihomo 上游；新流读取缓存，无逐包查询，开关通知复用原生事件与已有网络观察。当前增量的本地 Go／race、C ABI／Qt 与切换／取消／恢复回归通过；取消按最终撤销确认结算，部分写入失败的回归已验证。`11f1261` 三平台应用 CI 已通过，六架构核心 CI 进行中；后续取消／Windows 标志位修复待 CI，本地缺 Windows Qt SDK，标志位增量尚未原生验证。职责与契约见[自动编排](docs/ARCHITECTURE.md#自动共存编排)、[共存接口](docs/CORE-ABI.md#共存出口更新)，关键结果在 `build/reports/s6/`。完整 V2—V5、旧应用 Fake-IP 缓存／运行中排除、实际包与 Windows 实测仍待，六项未整体验收。
+当前：自动系统代理交接、缓存普通出口与有序恢复已通过 `7869cc9` 六架构 Core ABI／三平台 Tests（见基线）。Linux 提权 Mihomo 的只读监听证明已接入既有助手；本地真实代理／外部重占拒绝、Go race、34 组 Go 测试及 22 段安装助手／并行观察／恢复检查通过；新增量 CI 待。连接复验改用内核监听身份，保留严格验证，不新增数据转发进程或逐包 IPC。职责与契约见[自动编排](docs/ARCHITECTURE.md#自动共存编排)、[共存接口](docs/CORE-ABI.md#共存出口更新)，证据在 `build/reports/s6/`。完整 V2—V5、旧应用 Fake-IP 缓存／运行中排除、实际包与 Windows 实测仍待，六项未整体验收。
 
-已确认：系统代理开启时允许 JustConnect 临时承接浏览器入口，校园走 VPN、普通请求回原 Clash；系统代理与 TUN 均关闭时普通流量直连。关闭系统代理后保留原生校园接管，不强制打开用户开关；Clash 模式／代理组／DNS 与过滤配置保持，临时系统代理按所有权恢复。此为用户于 2026-10-31 确认的 S6 实现方向，自动接入增量待 CI，完整矩阵仍待。
+已确认：系统代理开启时允许 JustConnect 临时承接浏览器入口，校园走 VPN、普通请求回原 Clash；系统代理与 TUN 均关闭时普通流量直连。关闭系统代理后保留原生校园接管，不强制打开用户开关；Clash 模式／代理组／DNS 与过滤配置保持，临时系统代理按所有权恢复。此为用户于 2026-10-31 确认的 S6 实现方向，自动接入基础已过原生 CI，完整矩阵仍待。
 
 - [ ] **S6-01**：验证 JustConnect → Clash 的非校园出口和 Clash → JustConnect 的校园入口，两侧使用一致的校园资源策略。从 Clash 转入的校园请求若不匹配核心资源则返回错误，不能经上游送回 Clash；本地代理、认证端点和网关不递归进入校园链。
 - [ ] **S6-02**：逐项填写 V2—V5，覆盖系统代理开启时网页经 JustConnect 前置再按校园／普通分流、终端直接连接，以及两个开关运行中分别／同时切换。另测 `rule/global/direct`，不得通过强制切换用户模式或固定开关组合通过验收。

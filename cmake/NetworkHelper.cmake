@@ -2,6 +2,7 @@ function(justconnect_linux_network_helper)
     # Both development probes and the distribution package compile this one implementation.
     add_library(justconnect_network_helper STATIC
         "${REPO}/infrastructure/networkhelper/linux/networkhelper.cpp"
+        "${REPO}/infrastructure/socketownership/linux/listenerproof.cpp"
         "${REPO}/infrastructure/process/linux/trustedexecutable.cpp"
         "${REPO}/infrastructure/networkjournal/networkjournal.cpp"
         "${REPO}/infrastructure/routing/linux/ownedroutetable.cpp"
@@ -63,6 +64,10 @@ function(justconnect_linux_network_helper)
 endfunction()
 
 function(justconnect_linux_network_helper_tests)
+    add_executable(linux_listenerproof_test "${REPO}/tests/platform/listenerproof_linux_test.cpp")
+    target_link_libraries(linux_listenerproof_test PRIVATE justconnect_network_helper)
+    add_test(NAME linux_listenerproof_test COMMAND linux_listenerproof_test)
+    set_tests_properties(linux_listenerproof_test PROPERTIES TIMEOUT 15)
     add_executable(linux_networkhelper_test "${REPO}/tests/platform/networkhelper_linux_test.cpp")
     target_link_libraries(linux_networkhelper_test PRIVATE justconnect_network_helper)
     add_dependencies(linux_networkhelper_test JustConnectNetworkHelper)

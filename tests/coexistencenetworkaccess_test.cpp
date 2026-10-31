@@ -54,11 +54,15 @@ public:
     bool available = true, lastManaged = false, selected = false, listenersEnabled = true;
     int updates = 0;
     RequestStatus refreshStatus = RequestStatus::Success;
+    bool requireProof = false, ownershipPending = false;
+    QJsonArray receivedProofs;
     bool start(const ConnectionProfile &, Operation) override { return true; }
     void stop() override {}
     void respond(const QJsonObject &) override {}
-    void updateCoexistence(const QString &id, const QStringList &endpoints, bool managed) override {
+    void updateCoexistence(const QString &id, const QStringList &endpoints, bool managed, const QJsonArray &proofs = {}) override {
         ++updates; lastManaged = managed; lastEndpoints = endpoints;
+        receivedProofs = proofs;
+        ownershipPending = requireProof && proofs.isEmpty();
         selected = available && (managed || std::any_of(endpoints.begin(), endpoints.end(), [&](const QString &v) { return verified.contains(v); }));
         emit coexistenceUpdated(id, refreshStatus);
     }
@@ -70,6 +74,11 @@ public:
         else if (kind == Snapshot::Coexistence)
             data = {{"coexistence", QJsonObject{{"available", available}, {"active", selected}, {"endpoints", QJsonArray::fromStringList(verified)}}}};
         else { emit snapshotReady(kind, id, {}, RequestStatus::Unavailable); return; }
+        if (kind == Snapshot::Coexistence && ownershipPending) {
+            auto state = data["coexistence"].toObject();
+            state["listener_request"] = QJsonObject{{"pid","42"},{"started","7"},{"endpoints",QJsonArray{"127.0.0.1:7890"}}};
+            data["coexistence"] = state;
+        }
         emit snapshotReady(kind, id, data, RequestStatus::Success);
     }
 };
@@ -77,12 +86,25 @@ class Native final : public NetworkAccess {
 public:
     int prepares = 0, activations = 0, stops = 0;
     SystemProxySession *proxy;
+    int ownershipQueries = 0;
+    bool delayProof = false;
+    QJsonObject pendingQuery;
+    QUuid pendingAttempt;
     explicit Native(SystemProxySession *proxy) : proxy(proxy) {}
     void prepare(const QUuid &id) override { ++prepares; emit prepared(id, {}); }
     void activate(const QUuid &id, const ConnectionProfile &) override { ++activations; emit ready(id, {}); }
     void stop(const QUuid &id) override {
         check(!proxy->isBusy() && !proxy->needsCleanup(), "native capture released before browser restoration");
         ++stops; emit quiesced(id); emit stopped(id, {});
+    }
+    bool inspectProxyListeners(const QUuid &id, const QJsonObject &query) override {
+        ++ownershipQueries; pendingQuery = query; pendingAttempt = id;
+        if (!delayProof) deliverProof();
+        return true;
+    }
+    void deliverProof() {
+        emit proxyListenersInspected(pendingAttempt,pendingQuery,
+            {QJsonObject{{"pid","42"},{"started","7"},{"endpoint","127.0.0.1:7890"},{"inode","123"}}},{});
     }
 };
 struct Fixture {
@@ -182,9 +204,25 @@ void cancellationBeforeNativePreparationLeavesNoCapture() {
     check(!f.prepared && !f.native->prepares && !f.native->stops && !f.proxy.needsCleanup(),
           "late inspection started a cancelled native attempt");
 }
+void provesPrivilegedOwnerBeforeHandoff() {
+    Fixture f; f.core.requireProof = true; f.start(); until([&] { return f.ready == 1; });
+    check(f.native->ownershipQueries == 1 && f.core.receivedProofs.size() == 1 && f.proxy.isAutomatic(),
+          "privileged listener proof was not obtained once before browser handoff");
+    f.access.stop(f.attempt); until([&] { return f.stopped == 1; });
+}
+void ignoresProofAfterCancellation() {
+    Fixture f; f.core.requireProof = true; f.native->delayProof = true; f.start();
+    until([&] { return f.native->ownershipQueries == 1; });
+    f.access.stop(f.attempt); until([&] { return f.stopped == 1; });
+    const auto updates = f.core.updates;
+    f.native->deliverProof(); QCoreApplication::processEvents();
+    check(!f.ready && f.core.updates == updates && !f.backend->applies && !f.proxy.needsCleanup(),
+          "late privileged proof activated a cancelled handoff");
+}
 }
 int main(int argc, char **argv) {
     QCoreApplication app(argc, argv);
     followsSwitchesAndRestarts(); retainsRestoreResponsibility(); cancelsDuringApply(false); cancelsDuringApply(true);
     leavesUnrelatedProxyAndDisabledListenersAlone(); cancellationBeforeNativePreparationLeavesNoCapture();
+    provesPrivilegedOwnerBeforeHandoff(); ignoresProofAfterCancellation();
 }

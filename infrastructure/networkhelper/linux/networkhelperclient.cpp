@@ -2,6 +2,7 @@
 #include "networkhelperpaths.h"
 #include "infrastructure/process/linux/trustedexecutable.h"
 #include "infrastructure/routing/linux/iprouteutility.h"
+#include "infrastructure/socketownership/linux/listenerproof.h"
 #include <QCoreApplication>
 #include <QJsonDocument>
 #include <QPointer>
@@ -10,6 +11,7 @@
 #include <QScopeGuard>
 #include <cerrno>
 #include <cstring>
+#include <utility>
 #include <fcntl.h>
 #include <functional>
 #include <linux/if_tun.h>
@@ -79,6 +81,12 @@ private:
 
 LinuxNetworkHelperClient::LinuxNetworkHelperClient(QObject *parent) : QObject(parent)
 {
+    listenerDeadline.setSingleShot(true);
+    connect(&listenerDeadline, &QTimer::timeout, this, [this] {
+        pendingListenerSerial = 0;
+        const auto query = std::exchange(listenerQuery,{});
+        emit listenersInspected(query,{}, {Status::TimedOut,"Local listener observation timed out."});
+    });
     deadline.setSingleShot(true);
     connect(&deadline, &QTimer::timeout, this, &LinuxNetworkHelperClient::timeout);
     connect(&probe, &QProcess::finished, this, &LinuxNetworkHelperClient::inspected);
@@ -112,10 +120,30 @@ LinuxNetworkHelperClient::State LinuxNetworkHelperClient::retryState() const
 
 void LinuxNetworkHelperClient::closeChannels()
 {
+    listenerDeadline.stop(); pendingListenerSerial = 0; listenerQuery = {};
     deadline.stop();
     delete listener; listener = nullptr;
     delete receiver; receiver = nullptr;
     for (int *fd : {&server, &control, &device}) { if (*fd >= 0) ::close(*fd); *fd = -1; }
+}
+
+bool LinuxNetworkHelperClient::inspectListeners(const QJsonObject &query)
+{
+    if (device < 0 || control < 0 || pendingListenerSerial || !validLinuxListenerRequest(query)) return false;
+    pendingListenerSerial = ++listenerSerial;
+    listenerQuery = query;
+    return sendListenerQuery();
+}
+
+bool LinuxNetworkHelperClient::sendListenerQuery()
+{
+    // Never put an observation behind a mutation that may enter restoration/acknowledgement.
+    if (current != State::Active || !pendingListenerSerial || listenerDeadline.isActive()) return true;
+    auto request = command("listeners");
+    request["request"] = QString::number(pendingListenerSerial);
+    request["query"] = listenerQuery;
+    listenerDeadline.start(LinuxHelperPacketTimeoutMs);
+    return send(request);
 }
 
 void LinuxNetworkHelperClient::finish(Result result, State state)
@@ -126,6 +154,7 @@ void LinuxNetworkHelperClient::finish(Result result, State state)
     QPointer<LinuxNetworkHelperClient> guard(this);
     setState(state);
     if (guard) emit finished(completed, result);
+    if (guard && current == State::Active) sendListenerQuery();
 }
 
 QJsonObject LinuxNetworkHelperClient::command(const char *name) const
@@ -314,13 +343,25 @@ void LinuxNetworkHelperClient::receive()
     const auto result = receiveLinuxHelperPacket(control, packet, received, 0);
     const auto close = qScopeGuard([&] { if (received >= 0) ::close(received); });
     const auto code = packet["status"].toInteger(-1);
-    if (!result.succeeded() || packet.size() != 7 || packet["version"] != LinuxHelperProtocol
+    const bool listeners = packet["state"] == "listeners";
+    if (!result.succeeded() || packet.size() != (listeners ? 8 : 7) || packet["version"] != LinuxHelperProtocol
         || packet["owner"] != connection.toString(QUuid::WithoutBraces) || code < 0 || code > int(Status::TimedOut)
         || !packet["detail"].isString() || !packet["changed"].isBool() || !packet["device"].isObject()) {
         failed("Invalid network helper response or premature channel closure."); return;
     }
     Result returned{Status(code), packet["detail"].toString(), packet["changed"].toBool()};
     const auto phase = packet["state"].toString();
+    if (listeners) {
+        const auto observation = packet["listeners"].toObject();
+        if (received >= 0 || returned.mayHaveChanged || !packet["device"].toObject().isEmpty()
+            || observation.size() != 2 || !observation["proofs"].isArray()) { failed("Invalid local listener observation."); return; }
+        if (!pendingListenerSerial || observation["request"] != QString::number(pendingListenerSerial)) return;
+        if (!validLinuxListenerProofs(listenerQuery,observation["proofs"].toArray())) { failed("Listener proof did not match its request."); return; }
+        listenerDeadline.stop(); pendingListenerSerial = 0;
+        const auto query = std::exchange(listenerQuery,{});
+        emit listenersInspected(query,observation["proofs"].toArray(),returned);
+        return;
+    }
     if (phase == "active" && returned.succeeded() && (current == State::Applying || current == State::CancellingApply)) {
         if (child < 0) { failed("The helper exited before device handoff completed."); return; }
         const auto info = packet["device"].toObject();

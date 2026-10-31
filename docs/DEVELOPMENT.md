@@ -281,3 +281,9 @@ macOS／Windows 的控制专项另运行 `mihomo_tun_native.py` 与普通权限 
 该步骤需要 CI 的系统权限及公开 HTTPS 资源，不能在日常主机运行；本地只编译、执行只读路由／URL 回归与无系统副作用的清理测试。提权设置进程只启动自己的官方实例，父进程 EOF 或看门狗到期均先通过自有控制器关闭 TUN，再停止自己创建的进程；关闭失败必须使步骤失败。控制命令与临时密钥仅属于自有实例，产品控制链继续只读。运行证据为控制专项的 `live-tun.log`，未影响原 SDK 4096 次／30 秒门槛；六组完整设备／ABI 工作流保持原有要求。
 
 网关与校园捕获重叠回归补充默认配置：Linux 原 C++ 源规则／捕获夹具现在同时验证显式接口与 `AutoDetect=false` 加 VPN 地址排除，目标网关处于实际 `/32` 捕获内，仍需普通 UID／零 capabilities、TCP／UDP、严格 rp_filter、缺失接口拒绝和完整恢复。macOS／Windows 的实际 TUN 探针先通过正式 underlay 建立接管前 TLS，随后分别验证控制器真实解析和显式本地 DNS＋VPN 地址排除；两种模式各执行四阶段新 TLS 请求，原源地址／接口／证书与关闭恢复断言保留。它们与常规 Core ABI 共用同一执行体，Windows 始终先完成原签名 SDK 门槛及正式应用检查，再启动可能带有嵌入驱动的上游测试运行时；设备失败继续保留并使任务失败。
+
+### 共存监听所有权基准
+
+Linux / WSL、i9-13900HX，同一真实监听前保留 128 个无关 fd，三次 100 ms 样本的中位值：完整 fd 表复验 0.321 ms／34,559 字节／517 次分配，缓存 PID／监听 inode 的原生复验 0.242 ms／9,792 字节／31 次分配。单次耗时约降 25%，分配字节约降 72%；只度量所有权检查，不代表整体 CPU 或吞吐改善。权限证明只在监听身份变化时请求，真实收发和同端口外部重占拒绝另由隔离 root Mihomo 夹具验证。
+
+复现：`go -C corelib test -run '^$' -bench '^BenchmarkListenerOwnership$' -benchtime=100ms -count=3 ./internal/mihomo/linux`。本次原始输出：`build/reports/s6/listener-owner-benchmark.log`。

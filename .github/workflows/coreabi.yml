@@ -183,6 +183,13 @@ jobs:
           run('host', ['ctest', '--test-dir', str(output), '-C', 'Release', '-V', '--output-on-failure'])
           sys.exit(race_status or regression_status)
 
+      - name: Verify privileged Mihomo listener ownership and direct data I/O
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          go -C corelib test -race -c -o ../build/coreabi/mihomo-owner-probe ./internal/mihomo
+          sudo unshare --net -- "$(command -v python)" tests/platform/mihomo_owner_linux.py --uid "$(id -u)" --probe build/coreabi/mihomo-owner-probe --proof build/coreabi/linux_listenerproof_test --mihomo "$JC_TEST_MIHOMO_BINARY" 2>&1 | tee build/coreabi/mihomo-privileged-owner.log
+
       - name: Check Linux TUN fd transfer and cleanup in an isolated network
         if: runner.os == 'Linux'
         shell: bash

@@ -15,7 +15,7 @@ public:
     void stop() override;
     void respond(const QJsonObject &response) override;
     void updatePolicy(const QJsonObject &policy) override;
-    void updateCoexistence(const QString &generation, const QStringList &endpoints, bool managed = false) override;
+    void updateCoexistence(const QString &generation, const QStringList &endpoints, bool managed = false, const QJsonArray &proofs = {}) override;
     void readSnapshot(Snapshot kind, const QString &generation) override;
     void attachTUN(const QString &generation, qint32 descriptor, quint32 mtu, bool publishDNSRoutes = false) override;
     void attachWindowsPipe(const QString &generation, quint64 handle, quint32 helperPID, quint32 mtu,

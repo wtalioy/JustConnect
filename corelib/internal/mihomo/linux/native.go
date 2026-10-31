@@ -4,7 +4,6 @@ package linux
 
 import (
 	"context"
-	"encoding/hex"
 	"net"
 	"net/netip"
 	"os"
@@ -71,55 +70,32 @@ func Read(ctx context.Context) ([]model.Process, error) {
 }
 
 func OwnsTCP(ctx context.Context, p model.Process, target netip.AddrPort) bool {
+	return OwnedListenerInode(ctx, p, target) != 0
+}
+
+func OwnedListenerInode(ctx context.Context, p model.Process, target netip.AddrPort) uint64 {
 	if ctx.Err() != nil || !Valid(p) {
-		return false
+		return 0
 	}
-	var inode string
-	for _, name := range []string{"tcp", "tcp6"} {
-		data, err := os.ReadFile("/proc/net/" + name)
-		if err != nil {
-			continue
-		}
-		for _, line := range strings.Split(string(data), "\n") {
-			fields := strings.Fields(line)
-			if len(fields) < 10 || fields[3] != "0A" {
-				continue
+	inode := ListenerInode(ctx, target)
+	if inode == 0 {
+		return 0
+	}
+	entries, err := os.ReadDir(filepath.Join("/proc", strconv.Itoa(p.PID), "fd"))
+	if err != nil {
+		return 0
+	}
+	wanted := "socket:[" + strconv.FormatUint(inode, 10) + "]"
+	for _, entry := range entries {
+		link, _ := os.Readlink(filepath.Join("/proc", strconv.Itoa(p.PID), "fd", entry.Name()))
+		if link == wanted {
+			if Valid(p) {
+				return inode
 			}
-			parts := strings.Split(fields[1], ":")
-			if len(parts) != 2 {
-				continue
-			}
-			port, err := strconv.ParseUint(parts[1], 16, 16)
-			if err != nil || uint16(port) != target.Port() {
-				continue
-			}
-			bytes, err := hex.DecodeString(parts[0])
-			if err != nil || (len(bytes) != 4 && len(bytes) != 16) {
-				continue
-			}
-			// procfs writes each native uint32 in host byte order.
-			for offset := 0; offset < len(bytes); offset += 4 {
-				bytes[offset], bytes[offset+3] = bytes[offset+3], bytes[offset]
-				bytes[offset+1], bytes[offset+2] = bytes[offset+2], bytes[offset+1]
-			}
-			address, ok := netip.AddrFromSlice(bytes)
-			if !ok || !model.ListenerMatches(address, target.Addr()) {
-				continue
-			}
-			inode = "socket:[" + fields[9] + "]"
-			entries, err := os.ReadDir(filepath.Join("/proc", strconv.Itoa(p.PID), "fd"))
-			if err != nil {
-				return false
-			}
-			for _, entry := range entries {
-				link, _ := os.Readlink(filepath.Join("/proc", strconv.Itoa(p.PID), "fd", entry.Name()))
-				if link == inode {
-					return Valid(p)
-				}
-			}
+			return 0
 		}
 	}
-	return false
+	return 0
 }
 
 func DialIPC(ctx context.Context, p model.Process, address string) (net.Conn, error) {
