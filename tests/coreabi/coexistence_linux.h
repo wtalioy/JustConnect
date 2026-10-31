@@ -158,6 +158,8 @@ static int exerciseCoexistenceNetworkAccess(const ConnectionProfile &profile)
             "ordinary web preserves the selected Clash exit; both switches OFF remains direct");
         const auto protectedTarget = get("http://192.0.2.2:8080/",proxyEnabled);
         check(protectedTarget.first && protectedTarget.second == "original-http","protected original network bypasses campus and ordinary upstream selection");
+        const auto protectedIPv6 = get(fixture["protected_ipv6_url"].toString(),proxyEnabled);
+        check(protectedIPv6.first && protectedIPv6.second == "original-http","protected IPv6 retains its original peer under GLOBAL REJECT");
         const auto endpoint = resources["listeners"].toObject()["socks"].toString();
         const auto separator = endpoint.lastIndexOf(':');
         check(separator > 0,"actual SOCKS endpoint is published");

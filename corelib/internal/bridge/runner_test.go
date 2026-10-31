@@ -488,6 +488,19 @@ func runNativeTUNHost(t *testing.T, killed bool) (*gateway, []byte) {
 	}
 	g := newGateway(t)
 	g.resourceIP.Store("198.18.0.6")
+	if input := os.Getenv("JC_NATIVE_MAC_COEXISTENCE"); input != "" {
+		var facts struct {
+			CampusUDP string `json:"campus_udp"`
+		}
+		if err := json.Unmarshal([]byte(input), &facts); err != nil {
+			t.Fatal(err)
+		}
+		address, err := netip.ParseAddr(facts.CampusUDP)
+		if err != nil || !address.Is4() || !address.IsPrivate() {
+			t.Fatal("requires the owned private campus IPv4 fixture")
+		}
+		g.resourceIP.Store(address.String())
+	}
 	verifyOriginalDNS := startNativeOriginalDNSSource(t)
 	original := startNativeOriginalPeer(t, g)
 	if macAuthorization != "" || os.Getenv("JC_NATIVE_NETWORK_SESSION") == "1" {
@@ -534,7 +547,7 @@ func runNativeTUNHost(t *testing.T, killed bool) (*gateway, []byte) {
 			t.Fatalf("native host did not terminate by the injected signal: %v\n%s", err, output)
 		}
 	} else if err != nil {
-		t.Fatalf("native TUN/C ABI host: %v; auth=%d TCP=%d UDP=%d DNS=%d\n%s", err, g.authCount.Load(), g.tcpCount.Load(), g.udpCount.Load(), g.nativeDNSQueries.Load(), output)
+		t.Fatalf("native TUN/C ABI host: %v; auth=%d TCP=%d UDP=%d DNS-A=%d DNS-all=%d questions=%v\n%s", err, g.authCount.Load(), g.tcpCount.Load(), g.udpCount.Load(), g.nativeDNSQueries.Load(), g.dnsUDPPackets.Load(), g.observedDNSQuestions(), output)
 	}
 	if original != nil && (original.tcp.Load() != 2 || original.udp.Load() != 4) {
 		t.Fatalf("missing actual original-side exchanges: TCP=%d UDP=%d\n%s", original.tcp.Load(), original.udp.Load(), output)

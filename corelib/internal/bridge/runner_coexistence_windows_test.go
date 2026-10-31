@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
@@ -24,8 +23,7 @@ func TestNativeWindowsSessionCoexistence(t *testing.T) {
 
 func windowsCoexistenceRuntime(t *testing.T) string {
 	t.Helper()
-	protected := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("original-http")) }))
-	t.Cleanup(protected.Close)
+	protected := protectedHTTPPeers(t)
 	addresses, err := net.DefaultResolver.LookupIPAddr(t.Context(), "github.com")
 	if err != nil {
 		t.Fatal(err)
@@ -122,7 +120,7 @@ func windowsCoexistenceRuntime(t *testing.T) string {
 	})
 	data, err := json.Marshal(map[string]any{"controller": fixture.IPC, "pid": fixture.PID, "port": port,
 		"original_interface": original, "tun_device": device, "ordinary_address": target.String(), "ordinary_url": "http://github.com/robots.txt",
-		"protected_url": protected.URL})
+		"protected_url": protected["protected_url"], "protected_ipv6_url": protected["protected_ipv6_url"]})
 	if err != nil {
 		t.Fatal(err)
 	}

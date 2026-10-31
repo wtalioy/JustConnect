@@ -132,7 +132,7 @@ class MacCoexistenceRuntime:
         self.path.chmod(0o600)
         self.facts = {'controller': self.config['external-controller-unix'], 'port': mixed,
                       'original_interface': interface, 'ordinary_address': address,
-                      'tun_device': device,
+                      'tun_device': device, 'campus_udp': '10.18.0.6',
                       'ordinary_url': 'http://github.com/robots.txt'}
         try:
             self.process = subprocess.Popen([str(binary), '-d', str(directory), '-f', str(self.path)],

@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from original_network_peer import OriginalNetworkPeer
 
 
 def run_matrix(binary, gateway, host, uid, environment):
@@ -144,6 +145,7 @@ def matrix(binary, gateway, host, uid, environment, filter_mode, filter_entries)
             matrix_env = {**env, 'JC_NATIVE_COEXISTENCE': '1', 'JC_NATIVE_TUN_HOST': str(host),
                           'JC_NATIVE_COEXISTENCE_RUNTIME': json.dumps({'pid': mihomo.pid, 'controller': str(controller), 'port': port,
                                                                      'original_interface': original_interface,
+                                                                     'protected_ipv6_url': f'http://[{OriginalNetworkPeer.ipv6_peer}]:{OriginalNetworkPeer.http_port}/',
                                                                      'fake_range': config['dns']['fake-ip-range']})}
             result = subprocess.run([str(gateway), '-test.v', '-test.timeout', '165s', '-test.run', '^TestNativeCoexistenceHost$'],
                                     env=matrix_env, capture_output=True, text=True, timeout=175, **ordinary)
@@ -169,7 +171,7 @@ def matrix(binary, gateway, host, uid, environment, filter_mode, filter_entries)
                     'initial_tun': 'second real session starts and restores with original TUN already active',
                     'live_exclusions': 'campus remains captured; ordinary native HTTP bypasses GLOBAL REJECT only while excluded; withdrawal restores Clash selection',
                     'preexisting_cache': 'actual Qt application DNS cache prewarmed from the real original Fake-IP resolver before connection',
-                    'protected': 'actual original network HTTP survives GLOBAL REJECT', 'source_configuration': 'unchanged'}
+                    'protected': 'actual original IPv4/IPv6 HTTP survives GLOBAL REJECT', 'source_configuration': 'unchanged'}
         finally:
             if original_dns is not None:
                 subprocess.run(['/usr/bin/resolvectl', 'dns', original_interface, *original_dns], env=environment, check=True, timeout=5)

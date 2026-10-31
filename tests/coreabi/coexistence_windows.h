@@ -151,6 +151,8 @@ public:
                 check(reject ? !ordinary.first : ordinary.first,"actual ordinary request preserves GLOBAL REJECT, DIRECT/RULE and both-off direct");
                 const auto protectedPeer = get(runtime["protected_url"].toString(),enabled);
                 check(protectedPeer.first && protectedPeer.second == "original-http","protected loopback HTTP retains its original peer even under GLOBAL REJECT");
+                const auto protectedIPv6 = get(runtime["protected_ipv6_url"].toString(),enabled);
+                check(protectedIPv6.first && protectedIPv6.second == "original-http","protected IPv6 retains its original peer under GLOBAL REJECT");
                 std::cout << "PASS: Windows composed coexistence case mode=" << mode << " system_proxy=" << enabled << " tun=" << tun << '\n';
             }
         }

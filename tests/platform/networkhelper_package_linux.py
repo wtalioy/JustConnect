@@ -184,6 +184,7 @@ def main():
                 ip('-4', 'route', 'add', 'default', 'dev', 'helperorig0')
                 if gateway:
                     ip('link', 'set', 'lo', 'up')
+                    ip('-6', 'address', 'add', OriginalNetworkPeer.ipv6_local, 'dev', 'helperorig0', 'nodad')
                     # Settle the fixture's IPv6 DAD before capturing its original route inventory.
                     deadline = time.monotonic() + 5
                     while ip('-6', 'address', 'show', 'dev', 'helperorig0', 'tentative'):

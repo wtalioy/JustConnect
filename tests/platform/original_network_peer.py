@@ -1,6 +1,7 @@
 """An unprivileged original-network echo peer behind an isolated veth link."""
 
 import os
+import ipaddress
 from contextlib import ExitStack
 from pathlib import Path
 import pwd
@@ -12,6 +13,10 @@ import sys
 
 
 class OriginalNetworkPeer:
+    ipv6_network = ipaddress.ip_network('fd00:6:1::/64')
+    ipv6_local = str(ipv6_network.network_address + 1) + '/' + str(ipv6_network.prefixlen)
+    ipv6_peer = str(ipv6_network.network_address + 2)
+    http_port = 8080
     def __init__(self, uid, environment):
         self.uid, self.environment = uid, environment
         self.process = None
@@ -72,6 +77,7 @@ def serve(uid):
     print('NAMESPACE', flush=True)
     assert sys.stdin.readline() == 'LINK\n'
     for args in [('link', 'set', 'helperpeer0', 'up'), ('address', 'add', '192.0.2.2/24', 'dev', 'helperpeer0'),
+                 ('-6', 'address', 'add', OriginalNetworkPeer.ipv6_peer + '/' + str(OriginalNetworkPeer.ipv6_network.prefixlen), 'dev', 'helperpeer0', 'nodad'),
                  ('address', 'add', '198.18.0.5/32', 'dev', 'helperpeer0'),
                  ('address', 'add', '198.18.0.6/32', 'dev', 'helperpeer0'),
                  ('address', 'add', '198.18.0.7/32', 'dev', 'helperpeer0'),
@@ -86,9 +92,9 @@ def serve(uid):
             udp.bind((udp_address, 53))
             selector.register(tcp, selectors.EVENT_READ, 'accept')
             selector.register(udp, selectors.EVENT_READ, 'udp')
-        for address in ('198.18.0.5', '192.0.2.2'):
-            http = sockets.enter_context(socket.socket(socket.AF_INET, socket.SOCK_STREAM))
-            http.bind((address, 8080))
+        for address in ('198.18.0.5', '192.0.2.2', OriginalNetworkPeer.ipv6_peer):
+            http = sockets.enter_context(socket.socket(socket.AF_INET6 if ':' in address else socket.AF_INET, socket.SOCK_STREAM))
+            http.bind((address, OriginalNetworkPeer.http_port))
             http.listen(4)
             selector.register(http, selectors.EVENT_READ, 'accept-http')
         os.setgroups([])

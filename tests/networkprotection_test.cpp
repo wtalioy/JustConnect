@@ -1,4 +1,5 @@
 #include "application/networkprotection.h"
+#include "infrastructure/routing/macos/proxyview.h"
 #include "infrastructure/networkhelper/windows/networkhelperpreparation.h"
 #include <QCoreApplication>
 #include <algorithm>
@@ -12,6 +13,32 @@
 #endif
 
 static void check(bool ok, const char *message) { if (!ok) throw std::runtime_error(message); }
+
+static void macProxyTunnelView()
+{
+    const auto physical = QJsonObject{{"index",2},{"name","en0"},{"up",true},{"loopback",false},{"addresses",QJsonArray{"192.0.2.5/24"}}};
+    const auto tunnel = QJsonObject{{"index",7},{"name","utun5"},{"up",true},{"loopback",false},{"addresses",QJsonArray{"198.19.0.1/30"}}};
+    const auto original = QJsonObject{{"destination","192.0.2.0/24"},{"interface_index",2}};
+    const auto captured = QJsonObject{{"destination","8.0.0.0/5"},{"interface_index",7}};
+    const QJsonObject dns{{"original","retained"}};
+    const QJsonObject network{{"interfaces",QJsonArray{physical,tunnel}},{"routes",QJsonArray{original,captured}},
+        {"proxy_tunnel",QJsonObject{{"interface_index",7},{"name","utun5"}}}};
+    const auto view = macOriginalProxyView(network,dns);
+    check(view && view->first["routes"].toArray() == QJsonArray{original} && view->second == dns,
+        "Verified macOS proxy exit obscured a private campus or changed original DNS");
+    check(view->first["interfaces"] == network["interfaces"] && macOriginalProxyView(view->first,dns) == view,
+        "macOS projection lost allocation reservations or was not idempotent");
+    auto unknown = network; unknown.remove("proxy_tunnel");
+    check(macOriginalProxyView(unknown,dns)->first == unknown,"Unconfirmed macOS tunnel lost original protection");
+    for (const auto &field : {QString("name"),QString("up")}) {
+        auto stale = tunnel; stale[field] = field == "name" ? QJsonValue("utun6") : QJsonValue(false);
+        auto changed = network; changed["interfaces"] = QJsonArray{physical,stale};
+        check(!macOriginalProxyView(changed,dns),"Reused or down macOS tunnel authorized projection");
+    }
+    auto shared = captured; shared["next_hops"] = QJsonArray{QJsonObject{{"interface_index",2}}};
+    auto mixed = network; mixed["routes"] = QJsonArray{original,shared};
+    check(macOriginalProxyView(mixed,dns)->first["routes"] == mixed["routes"],"Foreign macOS multipath route lost protection");
+}
 
 #ifdef Q_OS_LINUX
 static void proxyTunnelView()
@@ -68,6 +95,35 @@ static void proxyTunnelView()
         "Unknown or foreign rule selectors were hidden by the proxy projection");
     auto gateway = view->first; auto changed = original; changed["gateway"] = "192.0.2.9"; gateway["routes"] = QJsonArray{changed};
     check(originalProxyNetworkView(gateway,dns)->first != view->first,"A changed original gateway was hidden");
+    auto ipv6 = [](QJsonObject row) { row["family"] = AF_INET6; return row; };
+    const auto loopback = QJsonObject{{"index",1},{"name","local0"},{"up",true},{"loopback",true},{"addresses",QJsonArray{"::1/128"}}};
+    auto dual = network; dual["interfaces"] = QJsonArray{loopback,physical,tunnel};
+    dual["routes"] = QJsonArray{original,captured,QJsonObject{{"destination","::/0"},{"interface_index",7},{"table",54321}}};
+    const auto jump6 = ipv6(rule(500,0,FR_ACT_GOTO,0,{attribute(FRA_IIFNAME,QByteArray("other-tun\0",10)),integer(FRA_GOTO,510)}));
+    auto dns6 = ipv6(dnsRule); dns6["priority"] = 500;
+    const auto lower = QByteArray(16,char(0)); auto upper = lower; upper[0] = char(0x80);
+    const auto loop = [&](const QString &source,const QByteArray &bytes) {
+        auto row = ipv6(rule(500,0,FR_ACT_GOTO,0,{attribute(FRA_IIFNAME,QByteArray("local0\0",7)),integer(FRA_GOTO,510),attribute(FRA_SRC,bytes)}));
+        row["source"] = source; return row;
+    };
+    const auto low = loop("::/1",lower), high = loop("8000::/1",upper), foreign6 = ipv6(foreign);
+    const auto dualRules = [&](const QJsonArray &loops) {
+        auto rules = network["policy_rules"].toArray(); rules.append(jump6); rules.append(dns6);
+        for (const auto &row : loops) rules.append(row);
+        rules.append(ipv6(lookup)); rules.append(ipv6(lastLookup)); rules.append(ipv6(terminal)); rules.append(foreign6); return rules;
+    };
+    dual["policy_rules"] = dualRules({low,high});
+    const auto dualView = originalProxyNetworkView(dual,dns);
+    check(dualView && dualView->first["policy_rules"].toArray() == QJsonArray{foreign,foreign6},
+        "IPv6 proxy jumps before its lookup range were mistaken for original routing");
+    check(originalProxyNetworkView(dualView->first,dualView->second) == dualView,"Dual-family projection was not idempotent");
+    auto incomplete = dual; incomplete["policy_rules"] = dualRules({low});
+    check(originalProxyNetworkView(incomplete,dns)->first["policy_rules"].toArray() == QJsonArray{foreign,low,foreign6},
+        "An unmatched original IPv6 source selector was hidden");
+    auto marked = low; auto markedAttrs = marked["attributes"].toArray(); markedAttrs.append(integer(FRA_FWMARK,321)); marked["attributes"] = markedAttrs;
+    auto unknownSource = dual; unknownSource["policy_rules"] = dualRules({marked,high});
+    check(originalProxyNetworkView(unknownSource,dns)->first["policy_rules"].toArray() == QJsonArray{foreign,marked,high,foreign6},
+        "An unknown IPv6 selector authorized removal of the source pair");
 }
 #endif
 
@@ -350,6 +406,7 @@ int main(int argc, char **argv) try
 {
     QCoreApplication app(argc, argv);
     captureTargets();
+    macProxyTunnelView();
 #ifdef Q_OS_LINUX
     proxyTunnelView();
 #endif
