@@ -133,7 +133,7 @@ class MacCoexistenceRuntime:
         self.facts = {'controller': self.config['external-controller-unix'], 'port': mixed,
                       'original_interface': interface, 'ordinary_address': address,
                       'tun_device': device, 'campus_udp': '10.18.0.6',
-                      'ordinary_url': 'http://github.com/robots.txt'}
+                      'ordinary_url': 'http://' + address + '/robots.txt', 'ordinary_host': 'github.com'}
         try:
             self.process = subprocess.Popen([str(binary), '-d', str(directory), '-f', str(self.path)],
                                             stdout=self.log, stderr=subprocess.STDOUT)
