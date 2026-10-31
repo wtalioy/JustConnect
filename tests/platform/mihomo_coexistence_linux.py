@@ -30,8 +30,6 @@ def matrix(binary, gateway, host, uid, environment, filter_mode, filter_entries)
     assert os.geteuid() == 0 and uid != 0
     for kind in ('net', 'mnt'):
         assert os.stat('/proc/thread-self/ns/' + kind) != os.stat('/proc/1/ns/' + kind), 'refusing host namespaces'
-    # sysfs is scoped to the network namespace in which it was mounted.
-    subprocess.run(['mount', '-t', 'sysfs', '-o', 'ro,nosuid,nodev,noexec', 'sysfs', '/sys'], check=True)
     account = pwd.getpwuid(uid)
     ordinary = dict(user=uid, group=account.pw_gid, extra_groups=())
     processes, logs = [], []
@@ -233,6 +231,8 @@ if __name__ == '__main__':
     for kind in ('net', 'mnt'):
         assert os.stat('/proc/thread-self/ns/' + kind) != os.stat('/proc/1/ns/' + kind), 'refusing host namespaces'
     subprocess.run(['mount', '--make-rprivate', '/'], check=True, timeout=5)
+    # One sysfs mount belongs to the shared private network, not each filter case.
+    subprocess.run(['mount', '-t', 'sysfs', '-o', 'ro,nosuid,nodev,noexec', 'sysfs', '/sys'], check=True, timeout=5)
     # Isolate the production per-UID proxy lock as well as its desktop settings.
     subprocess.run(['mount', '-t', 'tmpfs', '-o', 'mode=1777', 'tmpfs', '/tmp'], check=True, timeout=5)
     reports = {}
