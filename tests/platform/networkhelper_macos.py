@@ -364,7 +364,7 @@ def main(args):
                             assigned = ipv4_addresses(match.group(1))
                             assert assigned, 'Original DNS fixture interface has no assigned IPv4 address'
                             environment.update(JC_NATIVE_ORIGINAL_DNS='1', JC_NATIVE_ORIGINAL_DNS_ADDRESS=sorted(assigned)[0])
-                    elif scenario != 'normal':
+                    elif scenario in ('process-crash', 'helper-loss', 'helper-offline'):
                         environment.update(JC_NATIVE_NETWORK_HELPER_LOSS='1', JC_NATIVE_TUN_READY=str(marker),
                             JC_NATIVE_NETWORK_HELPER_OFFLINE='1' if scenario == 'helper-offline' else '0')
                     elif crashed_owner:
