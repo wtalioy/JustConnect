@@ -29,6 +29,7 @@ NetworkPolicySession::NetworkPolicySession(CoreEngine *engine, DnsReader reader,
     });
     connect(engine, &CoreEngine::snapshotReady, this,
         [this](CoreEngine::Snapshot kind, const QString &id, const QJsonObject &data, Status status) {
+            if (kind == CoreEngine::Snapshot::Coexistence) return;
             if (generation.isEmpty() || id != generation) return;
             const bool isNetwork = kind == CoreEngine::Snapshot::Network;
             auto &pending = isNetwork ? networkPending : resourcesPending;

@@ -60,6 +60,7 @@ func buildInfo() []byte {
 			"name_protection":          true,
 			"network_snapshot":         networkstate.Supported(),
 			"resource_snapshot":        !testDriver,
+			"coexistence":              !testDriver,
 			"tun_dns_routes":           !testDriver && (tundevice.Supported || packetpipe.Supported),
 			"original_dns_forwarding":  !testDriver && (tundevice.Supported || packetpipe.Supported),
 			"original_dns_exclusions":  !testDriver && (tundevice.Supported || packetpipe.Supported),
@@ -275,6 +276,33 @@ func jc_go_session_update_policy(handle C.uint64_t, input *C.uint8_t, length C.u
 	value, status := engine.UpdatePolicy(uint64(handle), data)
 	*generation = C.uint64_t(value)
 	return C.int32_t(status)
+}
+
+//export jc_go_session_update_coexistence
+func jc_go_session_update_coexistence(handle C.uint64_t, input *C.uint8_t, length C.uint32_t, generation *C.uint64_t) C.int32_t {
+	if generation == nil {
+		return C.int32_t(bridge.InvalidArgument)
+	}
+	*generation = 0
+	data, ok := inputBytes(input, length)
+	if !ok {
+		return C.int32_t(bridge.InvalidArgument)
+	}
+	value, status := engine.UpdateCoexistence(uint64(handle), data)
+	*generation = C.uint64_t(value)
+	return C.int32_t(status)
+}
+
+//export jc_go_session_coexistence
+func jc_go_session_coexistence(handle C.uint64_t, generation C.uint64_t, output *C.uint8_t, capacity C.uint32_t, length *C.uint32_t) C.int32_t {
+	if !outputValid(output, capacity, length) {
+		return C.int32_t(bridge.InvalidArgument)
+	}
+	data, status := engine.Coexistence(uint64(handle), uint64(generation))
+	if status != bridge.OK {
+		return C.int32_t(status)
+	}
+	return writeOutput(data, output, capacity, length)
 }
 
 //export jc_go_session_prepare_original_dns

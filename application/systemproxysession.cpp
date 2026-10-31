@@ -71,6 +71,7 @@ bool SystemProxySession::startOperation(Operation operation, const SystemProxyCo
     if (isBusy() && !continuing) return false;
 
     currentOperation = operation;
+    if (operation == Operation::Enable) automatic = !config.upstream.isEmpty();
     if (!continuing) emit busyChanged(true);
 
     SystemProxyBackend *proxyBackend = backend.get();
@@ -108,6 +109,7 @@ void SystemProxySession::handleOperationFinished()
     const OperationResult result = operationWatcher.result();
     const bool wasEnabled = enabled, wasUncertain = uncertain;
     updateState(result.operation, result.result);
+    if (!needsCleanup()) automatic = false;
     const bool stateChanged = enabled != wasEnabled || uncertain != wasUncertain;
 
     const bool restoring=std::exchange(restoreRequested,false) && needsCleanup();

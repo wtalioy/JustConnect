@@ -2,6 +2,7 @@
 
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QStringList>
 #include <QObject>
 #include <QDateTime>
 
@@ -16,7 +17,7 @@ public:
     enum class Operation { Connect, AuthMethods };
     enum class RequestStatus { Success, Pending, Stale, Invalid, Unavailable, Limit, Failed };
     Q_ENUM(RequestStatus)
-    enum class Snapshot { Network, Resources };
+    enum class Snapshot { Network, Resources, Coexistence };
     Q_ENUM(Snapshot)
     using QObject::QObject;
     virtual bool start(const ConnectionProfile &profile, Operation operation = Operation::Connect) = 0;
@@ -24,6 +25,9 @@ public:
     virtual void respond(const QJsonObject &response) = 0;
     virtual void updatePolicy(const QJsonObject &policy) {
         emit policyUpdated(policy["generation"].toString(), policy["revision"].toString(), RequestStatus::Unavailable);
+    }
+    virtual void updateCoexistence(const QString &generation, const QStringList &, bool = false) {
+        emit coexistenceUpdated(generation, RequestStatus::Unavailable);
     }
     virtual void readSnapshot(Snapshot kind, const QString &generation) {
         emit snapshotReady(kind, generation, {}, RequestStatus::Unavailable);
@@ -55,6 +59,7 @@ signals:
     void sessionStarted(const QString &generation);
     void initialProtectionApplied(const QJsonObject &policy);
     void policyUpdated(const QString &generation, const QString &revision, CoreEngine::RequestStatus status);
+    void coexistenceUpdated(const QString &generation, CoreEngine::RequestStatus status);
     void snapshotReady(CoreEngine::Snapshot kind, const QString &generation, const QJsonObject &snapshot, CoreEngine::RequestStatus status);
     void dnsRoutesRequired(const QJsonObject &request);
     void originalDNSPrepared(const QString &generation, const QJsonObject &listeners, CoreEngine::RequestStatus status);

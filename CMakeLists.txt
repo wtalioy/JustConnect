@@ -69,6 +69,7 @@ set(SOURCE_FILES
     application/profilecredentials.cpp
     application/settingsmigrator.cpp
     application/systemproxysession.cpp
+    application/coexistencenetworkaccess.cpp
     application/networkpolicysession.cpp
     presentation/dialogs/networkpolicywindow.cpp
     application/defaultsettings.cpp
@@ -275,6 +276,7 @@ if(BUILD_TESTING)
     target_include_directories(systemproxysession_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(systemproxysession_test Qt::Core Qt::Concurrent)
     add_test(NAME systemproxysession_test COMMAND systemproxysession_test)
+
 
     add_executable(updatechecker_test
         tests/updatechecker_test.cpp

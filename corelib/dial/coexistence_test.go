@@ -16,10 +16,11 @@ func TestCampusIngressCannotReenterOrdinaryUpstream(t *testing.T) {
 	d := NewDialer(campus, nil, []client.IPResource{{IPMin: net.ParseIP("203.0.113.7"), IPMax: net.ParseIP("203.0.113.7"), PortMin: 443, PortMax: 443, Protocol: "tcp"}}, false)
 	upstreamFailure := errors.New("owned ordinary upstream")
 	calls := 0
-	d.Upstream = func(context.Context, string, string) (net.Conn, error) {
+	ordinaryExit := func(context.Context, string, string) (net.Conn, error) {
 		calls++
 		return nil, upstreamFailure
 	}
+	d.Upstream = func() client.DialContextFunc { return ordinaryExit }
 	strict := d.CampusOnly()
 	for _, network := range []string{"tcp", "udp"} {
 		for _, address := range []string{"203.0.113.8:443", "[2001:db8::8]:443", "203.0.113.7:80", "not-an-endpoint", "localhost:443"} {
@@ -55,10 +56,11 @@ func TestOrdinaryUpstreamRetainsDomainForClashRules(t *testing.T) {
 	d := NewDialer(nil, r, nil, false)
 	wantErr := errors.New("owned upstream result")
 	var target string
-	d.Upstream = func(_ context.Context, _, address string) (net.Conn, error) {
+	ordinaryExit := func(_ context.Context, _, address string) (net.Conn, error) {
 		target = address
 		return nil, wantErr
 	}
+	d.Upstream = func() client.DialContextFunc { return ordinaryExit }
 	for _, network := range []string{"tcp", "udp"} {
 		if _, err := d.Dial(t.Context(), network, "ordinary.test:443"); !errors.Is(err, wantErr) || target != "ordinary.test:443" {
 			t.Fatal("ordinary domain was replaced with its IP before Clash rule matching", target, err)
@@ -73,6 +75,26 @@ func TestOrdinaryUpstreamRetainsDomainForClashRules(t *testing.T) {
 	}
 }
 
+func TestInactiveUpstreamPreservesAlreadyResolvedNativeAddress(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	d := NewDialer(nil, nil, nil, false)
+	selections := 0
+	d.Upstream = func() client.DialContextFunc { selections++; return nil }
+	ctx := context.WithValue(t.Context(), resolve.ContextKeyResolveHost, "would require another lookup")
+	conn, err := d.dialOrdinary(ctx, "tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatal("inactive upstream discarded the resolved native endpoint", err)
+	}
+	conn.Close()
+	if selections != 1 {
+		t.Fatal("ordinary exit was not selected once for this connection", selections)
+	}
+}
+
 func TestProtectedTargetsBypassOrdinaryUpstream(t *testing.T) {
 	protection, err := policy.NewProtectionPolicy([]string{"127.0.0.0/8", "::1/128"}, nil, []policy.NameRule{{Kind: "exact", Value: "localhost"}}, nil)
 	if err != nil {
@@ -80,10 +102,11 @@ func TestProtectedTargetsBypassOrdinaryUpstream(t *testing.T) {
 	}
 	d := NewDialer(nil, nil, nil, false)
 	d.ProtectionPolicy = func() *policy.ProtectionPolicy { return &protection }
-	d.Upstream = func(context.Context, string, string) (net.Conn, error) {
+	ordinaryExit := func(context.Context, string, string) (net.Conn, error) {
 		t.Error("protected target entered ordinary proxy")
 		return nil, errors.New("unexpected proxy")
 	}
+	d.Upstream = func() client.DialContextFunc { return ordinaryExit }
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

@@ -136,20 +136,11 @@ func (d *Dialer) DialContext(ctx context.Context, network, address string) (net.
 	if d == nil {
 		return (&net.Dialer{}).DialContext(ctx, network, address)
 	}
-	d.mu.Lock()
-	if d.closed {
-		d.mu.Unlock()
-		return nil, net.ErrClosed
+	ctx, finish, err := d.begin(ctx)
+	if err != nil {
+		return nil, err
 	}
-	d.active.Add(1)
-	d.mu.Unlock()
-	defer d.active.Done()
-	if d.lifecycleCtx != nil {
-		child, cancel := context.WithCancel(ctx)
-		stop := context.AfterFunc(d.lifecycleCtx, cancel)
-		defer func() { stop(); cancel() }()
-		ctx = child
-	}
+	defer finish()
 	if err := d.prepareController(ctx, address); err != nil {
 		return nil, err
 	}
@@ -167,7 +158,7 @@ func (d *Dialer) DialContext(ctx context.Context, network, address string) (net.
 	d.mu.RLock()
 	autoDetect := d.autoDetect
 	requireBound := d.requireBound
-	controllerTunnel := d.controller != nil && d.controller.TunEnabled
+	controllerTunnel := d.tunDevice != ""
 	d.mu.RUnlock()
 	if d.isTunnel(interfaceName) {
 		return nil, mihomo.ErrUnavailable

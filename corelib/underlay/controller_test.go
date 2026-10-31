@@ -3,6 +3,7 @@ package underlay
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -248,50 +249,63 @@ func TestControllerTunnelSelectsOriginalExitWithDefaultOptions(t *testing.T) {
 }
 
 func TestControllerInitializationWaitIsCancelable(t *testing.T) {
-	original := discoverController
-	t.Cleanup(func() { discoverController = original })
-	entered := make(chan struct{})
-	var calls atomic.Int32
-	discoverController = func(ctx context.Context) (*mihomo.Client, error) {
-		if calls.Add(1) == 1 {
-			close(entered)
-		}
-		<-ctx.Done()
-		return nil, ctx.Err()
-	}
-	dialer, err := New(Options{AutoDetect: false})
-	if err != nil {
-		t.Fatal(err)
-	}
-	first := make(chan error, 1)
-	go func() { _, err := dialer.DialContext(t.Context(), "tcp", "gateway.example.test:443"); first <- err }()
-	select {
-	case <-entered:
-	case <-time.After(time.Second):
-		t.Fatal("controller initialization did not start")
-	}
-	ctx, cancel := context.WithCancel(t.Context())
-	second := make(chan error, 1)
-	go func() { _, err := dialer.DialContext(ctx, "tcp", "other.example.test:443"); second <- err }()
-	cancel()
-	select {
-	case err = <-second:
-		if !errors.Is(err, context.Canceled) {
-			t.Fatal(err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("cancelled waiter retained the controller gate")
-	}
-	if calls.Load() != 1 {
-		t.Fatal("concurrent initialization was duplicated")
-	}
-	dialer.Close()
-	select {
-	case err = <-first:
-		if !errors.Is(err, context.Canceled) {
-			t.Fatal(err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("close did not cancel initialization")
+	for _, observe := range []bool{false, true} {
+		t.Run(fmt.Sprint("observe=", observe), func(t *testing.T) {
+			original := discoverController
+			t.Cleanup(func() { discoverController = original })
+			entered := make(chan struct{})
+			var calls atomic.Int32
+			discoverController = func(ctx context.Context) (*mihomo.Client, error) {
+				if calls.Add(1) == 1 {
+					close(entered)
+				}
+				<-ctx.Done()
+				return nil, ctx.Err()
+			}
+			dialer, err := New(Options{AutoDetect: false})
+			if err != nil {
+				t.Fatal(err)
+			}
+			first := make(chan error, 1)
+			go func() { _, err := dialer.DialContext(t.Context(), "tcp", "gateway.example.test:443"); first <- err }()
+			select {
+			case <-entered:
+			case <-time.After(time.Second):
+				t.Fatal("controller initialization did not start")
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			second := make(chan error, 1)
+			go func() {
+				var err error
+				if observe {
+					_, err = dialer.ObserveProxy(ctx)
+				} else {
+					_, err = dialer.DialContext(ctx, "tcp", "other.example.test:443")
+				}
+				second <- err
+			}()
+			cancel()
+			select {
+			case err = <-second:
+				if !errors.Is(err, context.Canceled) {
+					t.Fatal(err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("cancelled waiter retained the controller gate")
+			}
+			if calls.Load() != 1 {
+				t.Fatal("concurrent initialization was duplicated")
+			}
+			dialer.Close()
+			select {
+			case err = <-first:
+				if !errors.Is(err, context.Canceled) {
+					t.Fatal(err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("close did not cancel initialization")
+			}
+
+		})
 	}
 }

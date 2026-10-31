@@ -3,6 +3,8 @@
 #include <memory>
 
 #include "application/connectionsession.h"
+#include "application/coexistencenetworkaccess.h"
+#include "infrastructure/systemproxy/proxychanges.h"
 #ifdef Q_OS_LINUX
 #include "infrastructure/networkaccess/linux/networkaccess.h"
 #elif defined(Q_OS_MACOS)
@@ -24,20 +26,25 @@
 #include "presentation/coordinators/authdialogcoordinator.h"
 
 namespace {
-NetworkAccess *createNetworkAccess(CoreEngine *core, NetworkPolicySession *policy)
+NetworkAccess *createNetworkAccess(CoreEngine *core, NetworkPolicySession *policy, SystemProxySession *proxy)
 {
 #if defined(Q_OS_LINUX) || defined(Q_OS_MACOS) || defined(Q_OS_WIN)
     const auto mtu = EmbeddedCoreEngine::buildInfo()["capabilities"].toObject()["tunnel_mtu"].toInt();
 #ifdef Q_OS_LINUX
-    return new LinuxNetworkAccess(core, policy, mtu);
+    auto *native = new LinuxNetworkAccess(core, policy, mtu);
 #elif defined(Q_OS_MACOS)
-    return new MacNetworkAccess(core, policy, mtu);
+    auto *native = new MacNetworkAccess(core, policy, mtu);
 #else
-    return new WindowsNetworkAccess(core, policy, mtu);
+    auto *native = new WindowsNetworkAccess(core, policy, mtu);
 #endif
+    auto *network = new CoexistenceNetworkAccess(native, core, policy, proxy);
+    auto *changes = new ProxyChanges(network);
+    QObject::connect(changes, &ProxyChanges::changed, network, &CoexistenceNetworkAccess::systemProxyChanged);
+    return network;
 #else
     Q_UNUSED(core)
     Q_UNUSED(policy)
+    Q_UNUSED(proxy)
     return nullptr;
 #endif
 }
@@ -57,12 +64,13 @@ MainWindowCoordinator::MainWindowCoordinator(
       )),
       coreEngine(new EmbeddedCoreEngine()),
       networkPolicySession(new NetworkPolicySession(coreEngine, readSystemDnsSnapshot, this)),
-      connectionSession(new ConnectionSession(coreEngine, this,
-          (networkFactory ? networkFactory : createNetworkAccess)(coreEngine, networkPolicySession))),
       systemProxySession(new SystemProxySession(
           std::make_unique<ProxyRecoveryBackend>(),
           this
       )),
+      connectionSession(new ConnectionSession(coreEngine, this,
+          networkFactory ? networkFactory(coreEngine, networkPolicySession)
+                         : createNetworkAccess(coreEngine, networkPolicySession, systemProxySession))),
       updateChecker(new UpdateChecker(this)),
       authenticationCoordinator(new AuthDialogCoordinator(
           parentWidget,

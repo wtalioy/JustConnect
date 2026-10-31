@@ -64,6 +64,7 @@ type Resources struct {
 type Session struct {
 	options   Options
 	listeners atomic.Pointer[service.Listeners]
+	upstream  atomic.Pointer[sessionUpstream]
 }
 
 // AttachTUN takes device ownership only on success; Run closes it before returning.
@@ -242,6 +243,12 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 
 	dialer := dial.NewDialer(network, resolver, ips, false)
 	dialer.ProtectionPolicy = options.ProtectionPolicy
+	if ownedUnderlay != nil {
+		upstream := &sessionUpstream{source: ownedUnderlay, gate: make(chan struct{}, 1)}
+		dialer.Upstream = upstream.dialer
+		s.upstream.Store(upstream)
+		defer s.upstream.Store(nil)
+	}
 	listeners, err = service.NewListeners(ctx, options.SOCKS, options.HTTP, dialer, resolver)
 	if err != nil {
 		return fmt.Errorf("listeners_failed: %w", err)
