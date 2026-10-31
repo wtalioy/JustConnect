@@ -301,3 +301,5 @@ Windows 的 `TestNativeWindowsSessionCoexistence` 复用普通权限应用／正
 
 macOS 的 `TestNativeMacCoexistence` 随原正式签名／XPC 助手夹具运行，两次会话各验证 12 组合和实际内核出口、校园 DNS／HTTP／TCP／UDP／OpenSSH、公共出口与受保护回环 IPv4／IPv6 HTTP。父夹具只启动自己的 root Mihomo；普通应用复用真实预授权的网络权利和正式 `PlatformSystemProxyBackend`，不改授权数据库。矩阵使用进程内系统代理后端，独立代理恢复进程继续引用既有专项证据，不能把此格说成恢复进程的完整组合验收。父夹具仅在内存备份／恢复本 runner 的 Proxies 字段，不改 DNS／接口字段；失败时先终止可核对父子身份的测试进程、恢复网络责任，再清理自己实例和代理设置。回环认证显式绑定实际原接口，不计自动探测。06ca08f 双架构首轮 12 组合流量已过，停止超时仍待定位。后续夹具从父进程传入校园私网地址，并派生 DNS 应答／UDP 目标，用于验证 Mihomo 私网捕获不能成为原网络保护；IPv6 原出口另由独立回环服务核对。新增角色投影模型回归和 Go 双架构交叉编译通过，实际接管及停止仍待原生 CI。
 macOS 原生应用夹具使用正常 Qt 事件循环等待谓词，保持原操作超时；不以手工 `processEvents` 忙轮询替代事件循环。[Qt 的延迟销毁说明](https://doc.qt.io/qt-6/qcoreapplication.html#processEvents)指出该轮询不会处理 DeferredDelete，可能留下先前 HTTP 回复和连接状态。此修正仅用于夹具；正式应用原本使用事件循环。
+
+S6 Windows 集中复测：使用最终同版包，保留浏览器与终端开启；连接前先访问一次校园域名以覆盖原 Fake-IP 缓存，连接后分别在系统代理／TUN 的四种开关组合下访问校园网页、执行普通 IP／域名 SSH，并确认普通网站与原 MagicDNS。无需更改环境变量、ProxyCommand 或重启浏览器；保留原 Clash 模式。三个模式的组合覆盖引用对应自动证据。最后断开一次，记录接管／恢复耗时、错误与 CPU 峰值；macOS／Linux 实机仍留 S8。
