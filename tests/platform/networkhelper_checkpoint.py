@@ -1,4 +1,4 @@
-"""Stop only a verified fixture helper at its durable capture deletion boundary."""
+"""Stop a verified fixture operation at its durable capture deletion boundary."""
 
 import ctypes
 import json
@@ -68,18 +68,24 @@ def kill_during_capture_delete(worker, journal, owner, prefix, begin, route_pres
         raise AssertionError('capture deletion checkpoint was not reached')
     finally:
         if attached:
-            for descriptor in tracked.values():
-                try:
-                    signal.pidfd_send_signal(descriptor, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
             deadline = time.monotonic() + 5
-            while tracked and time.monotonic() < deadline:
-                for pid in tuple(tracked):
-                    observed, status = os.waitpid(pid, os.WNOHANG)
-                    if observed and (os.WIFEXITED(status) or os.WIFSIGNALED(status)):
-                        os.close(tracked.pop(pid))
-                time.sleep(0.001)
+            # Pre-exec children still inherit journal locks; release them before exposing helper death.
+            for group in (tuple(pid for pid in tracked if pid != worker), (worker,)):
+                for pid in group:
+                    if pid not in tracked:
+                        continue
+                    try:
+                        signal.pidfd_send_signal(tracked[pid], signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                while any(pid in tracked for pid in group) and time.monotonic() < deadline:
+                    for pid in group:
+                        if pid not in tracked:
+                            continue
+                        observed, status = os.waitpid(pid, os.WNOHANG)
+                        if observed and (os.WIFEXITED(status) or os.WIFSIGNALED(status)):
+                            os.close(tracked.pop(pid))
+                    time.sleep(0.001)
         for descriptor in tracked.values():
             os.close(descriptor)
         assert not attached or not tracked, 'traced fixture processes did not exit'

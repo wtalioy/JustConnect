@@ -602,8 +602,15 @@ int runLinuxNetworkHelper(int socket, int trustedDirectory, uid_t uid, pid_t pid
     } else if ((!cleaning && request["operation"] != "recover") || !fields(request, {"version", "owner", "operation"})) return 1;
 
     OwnedOperation operation(trustedDirectory, uid, owner);
+    const auto reply = [&](const Result &returned, bool withDevice) {
+        QJsonObject response{{"version", LinuxHelperProtocol}, {"owner", id}, {"status", int(returned.status)},
+            {"detail", returned.detail}, {"changed", returned.mayHaveChanged},
+            {"state", operation.context.value("phase").toString("prepared")},
+            {"device", withDevice ? operation.device.snapshot() : QJsonObject{}}};
+        return sendLinuxHelperPacket(socket, response, withDevice ? operation.device.descriptor() : -1);
+    };
     result = operation.open(applying, cleaning);
-    if (!result.succeeded()) return 1;
+    if (!result.succeeded()) { result.mayHaveChanged = !applying; reply(result, false); return 1; }
     if (operation.cleaned) return cleaned(operation.changed);
     if (cleaning) {
         if (!operation.removeReceipt()) return 1;
@@ -615,12 +622,6 @@ int runLinuxNetworkHelper(int socket, int trustedDirectory, uid_t uid, pid_t pid
         const auto restored = operation.restore();
         if (!restored.succeeded()) result = restored;
     }
-    const auto reply = [&](const Result &returned, bool withDevice) {
-        QJsonObject response{{"version", LinuxHelperProtocol}, {"owner", id}, {"status", int(returned.status)},
-            {"detail", returned.detail}, {"changed", returned.mayHaveChanged}, {"state", operation.context["phase"]},
-            {"device", withDevice ? operation.device.snapshot() : QJsonObject{}}};
-        return sendLinuxHelperPacket(socket, response, withDevice ? operation.device.descriptor() : -1);
-    };
     if (!reply(result, applying && result.succeeded()).succeeded()) return operation.restore().succeeded() ? LinuxHelperReceiptRetained : 1;
     if (!result.succeeded() && operation.context["phase"] != "restored") return 1;
     while (operation.context["phase"] == "active") {

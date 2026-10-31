@@ -153,6 +153,7 @@ def matrix(binary, gateway, host, uid, environment):
                     'campus': 'actual DNS, HTTP, TCP, UDP/empty datagram, OpenSSH IP/domain',
                     'ordinary': 'actual original HTTP and SOCKS UDP/empty datagram; GLOBAL REJECT and both-off direct',
                     'initial_tun': 'second real session starts and restores with original TUN already active',
+                    'live_exclusions': 'campus remains captured; ordinary native HTTP bypasses GLOBAL REJECT only while excluded; withdrawal restores Clash selection',
                     'protected': 'actual original network HTTP survives GLOBAL REJECT', 'source_configuration': 'unchanged'}
         finally:
             # Keep the private keyring/settings alive until detached EOF restoration finishes.
