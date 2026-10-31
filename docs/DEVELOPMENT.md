@@ -297,6 +297,6 @@ Linux 捕获删除检查点的 ptrace 夹具在 fork／vfork 前后暂停所属�
 
 原生 TCP／UDP 探针显式使用 `NoProxy`，避免 Qt 在 macOS／Windows 跟随系统 SOCKS 设置，把浏览器入口误计为内核直连。浏览器请求继续从实际系统设置回读入口后单独验证。
 
-Windows 的 `TestNativeWindowsSessionCoexistence` 复用普通权限应用／正式 C++ 助手夹具，在一次性提权 runner 启动自己的官方 Mihomo，并读取、切换实际 WinINet 设置。两次完整会话各测三模式乘四开关；每格核对实际内核普通出口接口、校园 DNS／TCP／UDP／OpenSSH 与 Qt HTTP 前置，以及公共 HTTP 基线、GLOBAL REJECT 和受保护回环 HTTP。公共探针沿用 `github.com/robots.txt`，拒绝结果必须先有同一目标的可达基线。回环认证夹具显式绑定事先由内核选出的原接口，不计自动网卡检测；控制写入只发送给核对过 PID 的自有命名管道。结束恢复应用所有权、夹具原 WinINet 标志／地址、DNS／网卡，并核对源配置未改。该新增矩阵当前只通过 Go 双架构交叉编译与工作流检查；Windows C++ 构建／实际运行待原生 CI。
+Windows 的 `TestNativeWindowsSessionCoexistence` 复用普通权限应用／正式 C++ 助手夹具，在一次性提权 runner 启动自己的官方 Mihomo，并读取、切换实际 WinINet 设置。两次完整会话各测三模式乘四开关；每格核对实际内核普通出口接口、校园 DNS／TCP／UDP／OpenSSH 与 Qt HTTP 前置，以及公共 HTTP 基线、GLOBAL REJECT 和受保护回环 HTTP。公共探针沿用 `github.com/robots.txt`，拒绝结果必须先有同一目标的可达基线。回环认证夹具显式绑定事先由内核选出的原接口，不计自动网卡检测；控制写入只发送给核对过 PID 的自有命名管道。结束恢复应用所有权、夹具原 WinINet 标志／地址、DNS／网卡，并核对源配置未改。Windows 原生编译／链接及首格已过；TUN 组合待复验。保护断言保留原有网络／名称，并只允许实际 Mihomo 网卡的窄地址／路由新增保护，不把它当作 JustConnect 自有路由。夹具在普通断言退出时也恢复原 WinINet 标志／地址，避免污染后续检查。
 
 macOS 的 `TestNativeMacCoexistence` 随原正式签名／XPC 助手夹具运行，两次会话各验证 12 组合和实际内核出口、校园 DNS／HTTP／TCP／UDP／OpenSSH、公共出口与受保护回环 HTTP。父夹具只启动自己的 root Mihomo；普通应用复用真实预授权的网络权利和正式 `PlatformSystemProxyBackend`，不改授权数据库。矩阵使用进程内系统代理后端，独立代理恢复进程继续引用既有专项证据，不能把此格说成恢复进程的完整组合验收。父夹具仅在内存备份／恢复本 runner 的 Proxies 字段，不改 DNS／接口字段；失败时先终止可核对父子身份的测试进程、恢复网络责任，再清理自己实例和代理设置。回环认证显式绑定实际原接口，不计自动探测。Go 双架构交叉编译、Python／shell／工作流检查通过；macOS SDK 不在本机，C++ 构建、真实授权和流量组合仍待原生 CI。

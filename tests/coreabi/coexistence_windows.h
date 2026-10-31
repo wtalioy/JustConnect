@@ -8,6 +8,7 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <functional>
+#include <cstdlib>
 #include <iphlpapi.h>
 #include <wininet.h>
 
@@ -26,11 +27,47 @@ public:
             "requires the parent-owned native runtime");
         const auto state = read();
         originalFlags = state.first; originalServer = state.second; owned = true;
+        current = this;
+        check(std::atexit(cleanup) == 0,"retain fixture proxy cleanup on assertion exit");
         systemProxy(true);
     }
     ~WindowsCoexistenceFixture()
     {
-        if (owned && !write(originalFlags,originalServer)) std::cerr << "FAIL: restore the fixture's original WinINet settings\n";
+        cleanup(); current = nullptr;
+    }
+    bool protectionMatches(const QJsonObject &initial,const QJsonObject &actual,const QJsonObject &network)
+    {
+        if (initial["protected_names"] != actual["protected_names"]) return false;
+        const auto before = initial["protected"].toArray(), after = actual["protected"].toArray();
+        if (runtime.isEmpty()) return before == after;
+        // The external proxy adds its own original network; JustConnect's owned scopes must stay absent.
+        QSet<int> indexes;
+        QList<QPair<QHostAddress,int>> originalPrefixes;
+        for (const auto &value : network["interfaces"].toArray()) {
+            const auto row = value.toObject();
+            if (row["name"] != runtime["tun_device"]) continue;
+            indexes.insert(row["index"].toInt());
+            for (const auto &address : row["addresses"].toArray()) originalPrefixes.append(QHostAddress::parseSubnet(address.toString()));
+        }
+        for (const auto &value : network["routes"].toArray()) {
+            const auto row = value.toObject();
+            const auto prefix = QHostAddress::parseSubnet(row["destination"].toString());
+            if (indexes.contains(row["interface_index"].toInt()) && prefix.second > 1) originalPrefixes.append(prefix);
+        }
+        for (const auto &prefix : before) if (!after.contains(prefix)) {
+            std::cerr << "missing original protection: " << prefix.toString().toStdString() << '\n'; return false;
+        }
+        for (const auto &value : after) {
+            if (before.contains(value)) continue;
+            const auto added = QHostAddress::parseSubnet(value.toString());
+            bool external = false;
+            for (const auto &prefix : originalPrefixes)
+                external |= prefix.second > 1 && added.second >= prefix.second && added.first.isInSubnet(prefix);
+            if (!external) {
+                std::cerr << "unexpected original protection: " << value.toString().toStdString() << '\n'; return false;
+            }
+        }
+        return true;
     }
     void observe(CoreEngine *engine)
     {
@@ -123,6 +160,15 @@ private:
     QString originalServer;
     bool owned = false;
     QNetworkAccessManager browser;
+    inline static WindowsCoexistenceFixture *current = nullptr;
+
+    static void cleanup()
+    {
+        if (current && current->owned) {
+            if (!write(current->originalFlags,current->originalServer)) std::cerr << "FAIL: restore the fixture's original WinINet settings\n";
+            current->owned = false;
+        }
+    }
 
     static QPair<DWORD,QString> read()
     {
