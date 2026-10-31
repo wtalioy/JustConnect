@@ -270,7 +270,7 @@ Linux Core ABI 另在全新网络命名空间执行 `mihomo_tun_linux.py`：官�
 控制链的 Go 实现或自有 Mihomo 夹具可用六架构专项快速复验：`gh workflow run coreabi.yml -R wtalioy/JustConnect --ref develop -f controller_only=true`。专项复用正式平台矩阵、固定 Go／cgo 和 Mihomo 运行时，执行 underlay／Mihomo／接口绑定的完整普通及受支持 race 测试并上传实际日志；默认 push 仍执行完整 Core ABI。专项只提供控制链证据，ABI、设备、授权和路由等改动仍须对应正式检查，跳过不记为通过。DNS 测试运行时复用正式 UDP／TCP 配对分配器选择共同可用端口，避免 Windows 两种传输的保留区间不同导致监听失败。
 
 
-macOS 控制专项另验证普通用户从 PID 对应的系统套接字表发现监听，以及自有 root Mihomo 的实际查询。root 夹具仅在 `GITHUB_ACTIONS=true` 的 macOS runner、已准备固定运行时时启动，关闭 TUN／代理入口、私有配置置于 root 专属目录；Go 调用方保持普通 UID，必须不能读取配置。固定 CI Python 设置进程在 stdin EOF 后停止自己的 Mihomo 并删除临时目录，正常／race 两轮均执行；本地不运行提权部分。
+macOS 控制专项另验证普通用户从 PID 对应的系统套接字表发现监听，以及自有 root Mihomo 的实际查询。root 夹具仅在 `GITHUB_ACTIONS=true` 的 macOS runner、已准备固定运行时时启动，关闭 TUN、仅开启自有回环 mixed 数据入口，私有配置置于 root 专属目录；Go 调用方保持普通 UID，必须不能读取配置，并通过核验的入口完成实际 TCP／UDP 回包。固定 CI Python 设置进程在 stdin EOF 后停止自己的 Mihomo 并删除临时目录，正常／race 两轮均执行；本地不运行提权部分。
 
 Windows 使用现有进程句柄查询；权限拒绝时，通过 Windows 的公开 `SystemProcessInformation` 获取创建时间，不读取目标内存或提权。高权限 Clash Verge 的端点来自实际 NPFS 目录中的控制命名空间，依据 [Verge IPC 契约](https://github.com/clash-verge-rev/clash-verge-service-ipc/blob/v2.7.6/src/core/paths.rs)；不构造完整路径、枚举连接其他服务或猜测控制端口。打开候选只查询内核服务端 PID，发送 HTTP 前再次核验 PID／创建时间。其他高权限前端的私有 IPC 需要其公开发现契约，不能据此宣称通用支持。
 
@@ -287,3 +287,5 @@ macOS／Windows 的控制专项另运行 `mihomo_tun_native.py` 与普通权限 
 Linux / WSL、i9-13900HX，同一真实监听前保留 128 个无关 fd，三次 100 ms 样本的中位值：完整 fd 表复验 0.321 ms／34,559 字节／517 次分配，缓存 PID／监听 inode 的原生复验 0.242 ms／9,792 字节／31 次分配。单次耗时约降 25%，分配字节约降 72%；只度量所有权检查，不代表整体 CPU 或吞吐改善。权限证明只在监听身份变化时请求，真实收发和同端口外部重占拒绝另由隔离 root Mihomo 夹具验证。
 
 复现：`go -C corelib test -run '^$' -bench '^BenchmarkListenerOwnership$' -benchtime=100ms -count=3 ./internal/mihomo/linux`。本次原始输出：`build/reports/s6/listener-owner-benchmark.log`。
+
+macOS 的跨 UID 数据回归核对普通调用方 → root 官方实例 → 自有 TCP／UDP 对端。TCP 所有权观察改用系统内核 PID 清单；本地只验证解析边界、race、交叉编译及 vet，实际系统行为和与旧 `lsof` 清单的耗时比较由原生 CI 验证，不宣称已有整体 CPU 改善。复现基准：`go -C corelib test -run '^$' -bench '^BenchmarkNativeTCPOwnership$' -benchtime=100ms -count=3 ./internal/mihomo/macos`，CI 原始输出为 `macos-listener-ownership.log`。
