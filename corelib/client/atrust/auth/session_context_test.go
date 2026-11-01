@@ -3,11 +3,14 @@ package auth
 import (
 	"compress/gzip"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -108,13 +111,7 @@ func TestAuthenticationResponseBodyIsBoundedAfterDecompression(t *testing.T) {
 				defer server.Close()
 				session := newTLSTestSession(server)
 				defer session.Close()
-				req, _ := http.NewRequest(http.MethodGet, server.URL, nil)
-				response, err := session.request(req)
-				if err != nil {
-					t.Fatal(err)
-				}
-				defer response.Body.Close()
-				data, err := io.ReadAll(response.Body)
+				data, err := session.ClientResource()
 				if size == limit {
 					if err != nil || len(data) != size {
 						t.Fatalf("valid boundary rejected: %d, %v", len(data), err)
@@ -127,5 +124,47 @@ func TestAuthenticationResponseBodyIsBoundedAfterDecompression(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestAuthenticationActionsRejectTruncatedResponse(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const payload = `{"code":0,"data":{"username":"student","phoneNumber":["123"],"ticket":"new-ticket"}}`
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", strconv.Itoa(len(payload)+1))
+		io.WriteString(w, payload)
+	}))
+	defer server.Close()
+	for name, action := range map[string]func(*Session) error{
+		"password":      func(s *Session) error { _, err := s.pswImpl("user", "password", "domain", ""); return err },
+		"send SMS":      func(s *Session) error { _, err := s.sendSms("123", "domain", ""); return err },
+		"SMS code":      func(s *Session) error { _, err := s.smsCheckCodeImpl("123456", "123", "domain", ""); return err },
+		"environment":   (*Session).reportEnv,
+		"auth check":    func(s *Session) error { _, err := s.authCheck(); return err },
+		"phone":         func(s *Session) error { _, err := s.phoneNumber("id"); return err },
+		"secondary SMS": func(s *Session) error { return s.authSms(authStep{SMSMode: smsWithoutAuthID}) },
+		"secondary code": func(s *Session) error {
+			_, err := s.secondarySMSCheckCodeImpl(authStep{SMSMode: smsWithoutAuthID}, "123456", false)
+			return err
+		},
+		"online info": func(s *Session) error { _, err := s.onlineInfo(); return err },
+		"resources":   func(s *Session) error { _, err := s.ClientResource(); return err },
+		"captcha":     func(s *Session) error { _, err := s.checkCode(); return err },
+	} {
+		t.Run(name, func(t *testing.T) {
+			session := newTLSTestSession(server)
+			defer session.Close()
+			session.ticket = "existing-ticket"
+			session.pubKey, session.pubKeyExp = key.N.Text(16), strconv.Itoa(key.E)
+			if err := action(session); !errors.Is(err, io.ErrUnexpectedEOF) {
+				t.Fatalf("truncated response accepted or hidden: %v", err)
+			}
+			if session.ticket != "existing-ticket" {
+				t.Fatal("incomplete response changed the authentication ticket")
+			}
+		})
 	}
 }
