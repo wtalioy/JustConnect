@@ -154,7 +154,13 @@ func (r *Resolver) resolve(ctx context.Context, host string, campusOnly, allowDN
 
 	if r.dnsResource != nil {
 		if ips, found := r.dnsResource[host]; found && len(ips) > 0 {
-			cursorValue, _ := r.dnsResourceCursor.LoadOrStore(host, &atomic.Uint64{})
+			if len(ips) == 1 {
+				return ctx, ips[0], nil
+			}
+			cursorValue, loaded := r.dnsResourceCursor.Load(host)
+			if !loaded {
+				cursorValue, _ = r.dnsResourceCursor.LoadOrStore(host, &atomic.Uint64{})
+			}
 			cursor := cursorValue.(*atomic.Uint64)
 			ip := ips[(cursor.Add(1)-1)%uint64(len(ips))]
 
