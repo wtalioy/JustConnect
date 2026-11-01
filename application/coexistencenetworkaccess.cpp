@@ -16,7 +16,7 @@ int listenerPort(const QJsonValue &value) {
 
 CoexistenceNetworkAccess::CoexistenceNetworkAccess(NetworkAccess *nativeAccess, CoreEngine *engine,
     NetworkPolicySession *policy, SystemProxySession *systemProxy, QObject *parent)
-    : NetworkAccess(parent), native(nativeAccess), core(engine), proxy(systemProxy)
+    : NetworkAccess(parent), native(nativeAccess), core(engine), policy(policy), proxy(systemProxy)
 {
     native->setParent(this);
     scheduled.setSingleShot(true);
@@ -149,6 +149,8 @@ void CoexistenceNetworkAccess::activate(const QUuid &id, const ConnectionProfile
 void CoexistenceNetworkAccess::stop(const QUuid &id) {
     if (id != attempt || stage == Stage::Idle || (stage == Stage::Stopping && nativeStopping)) return;
     stage = Stage::Stopping;
+    // Browser restoration changes the network before native teardown begins.
+    policy->setNetworkBusy(generation, true);
     pending = Pending::None;
     if (proxy->isBusy()) proxy->disable();
     driveStop();
