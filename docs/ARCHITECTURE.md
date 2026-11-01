@@ -92,6 +92,8 @@ macOS 的 `readMacDnsSnapshot` 通过公开的 [SCDynamicStoreCopyMultiple](http
 
 `UpdateChecker` 从已加载库读取提交、工作树状态、ABI、平台／架构和 Go 版本。应用更新随 JustConnect 发布；没有独立核心版本探测、上游版本比较或运行时后端回退。
 
+CMake 的 `justconnect_application` 统一编译应用用例、端口及连接状态，仅公开 Qt Core／Network／Concurrent 与项目头文件，不链接 Widgets、WebEngine 或 Go 库。`justconnect_engine` 只实现 C ABI 适配；原生网络接管由独立 `justconnect_network_access` 连接应用端口与系统能力。主程序和主窗口回归共用 `justconnect_desktop` 对象库，保留资源自动注册；应用及独立 Core ABI 回归链接同一应用库，不各自复制产品实现。
+
 ## 验证与迁移边界
 
 `tests/coreabi/` 验证实际 C11／C++17 导出、内存与生命周期、QThread／WebEngine 共存、测试驱动认证，以及受控 TLS 网关的真实协议。S1-11 性能基线通过正式宿主测量正常／慢节点的 CPU、峰值 RSS、TCP／UDP 和 20 次认证重连，实际安装包另记录体积及离线启动自检耗时；场景与限制见 [构建说明](DEVELOPMENT.md#atrust-性能基线)。Qt 适配器覆盖旧／重复回应、取消、重启与销毁竞态；`coreengineui_test` 验证实际窗口、会话和正式协议，运行认证方式查询、短信提交、SOCKS／HTTP 数据收发与活动停止。
