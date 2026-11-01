@@ -1,6 +1,6 @@
 # JustConnect 实施计划与进度
 
-更新日期：2026-11-01。S3—S6 已按 Windows／Fudan 阶段范围收尾；Windows DNS Client 高 CPU 优化已实测通过，A6 已验收；A9 全仓复查、优化及自动验收已完成，待新包实测。跨平台实机与完整发布矩阵仍归 S8，保持未验证。
+更新日期：2026-11-01。S3—S6 已按 Windows／Fudan 阶段范围收尾；A6 接管／断开 CPU 优化已实测通过，A9 全仓审查已收尾。A10 主动断开告警及 TUN 周期性 DNS Client CPU 修复已完成自动验收，待新包用户复测。跨平台实机与完整发布矩阵仍归 S8，保持未验证。
 
 ## 使用方式
 
@@ -15,15 +15,15 @@
 | --- | --- |
 | 阶段进度 | S3—S6 **23／23 全部勾选**；全计划 64 项已收尾 45 项、剩余 19 项（含最终验收）。S1-04 真实样本、S2-06 真实注销仍待；下一阶段 S7 |
 | Windows 实测 | `7696493`／Windows 11 26H2：系统代理开／TUN 关与系统代理关／TUN 开的接管、恢复均完成；接管 2154／2567 ms，恢复 124／103 ms。系统代理场景主动断开时原网络读取告警复现；TUN 场景每约 4—5 秒 DNS Client 升至约 30%、约 2 秒回落，A10 跟进，不记性能验收通过 |
-| 当前跟踪 | **A10：修复主动断开告警与 TUN 周期性 DNS Client CPU**。停止顺序回归已复现并修复，本地调用链通过，跨平台 CI 待；周期性 CPU 正在只读定位。S7 后续与跨平台实机／完整发布矩阵保持原安排 |
-| 当前交付 | [`7696493` Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/41300238462/artifacts/13081491011)。含 A9 优化及断开观察修复；六组实际包的正式核心、来源、架构、ABI、依赖与离线自检均已核对 |
+| 当前跟踪 | **A10 自动验收完成，待用户稍后复测**：主动断开先暂停观察，并忽略已清空策略的旧结果；Windows DNS 配置未变时复用完整快照。新包的告警及周期性 CPU 结果尚未验证；S7 后续与跨平台实机／完整发布矩阵保持原安排 |
+| 当前交付 | [`f8cdcee` Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/41319052175/artifacts/13089610008)。含 A10 修复；六组实际包的正式核心、来源、架构、ABI、依赖与离线自检均已核对 |
 
 ## 当前验收基线
 
 | 范围 | 当前结论与证据 |
 | --- | --- |
-| 正式自动检查 | `7696493` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/41300142649)与[六架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/41300142672)全部通过，覆盖共享构建、认证正文完整性、UDP／DNS、共存／保护／取消及正常／故障恢复；原 SDK 4096 包／30 秒门槛保留 |
-| 实际包／源码 | `7696493` 的[六组实际包及源码](https://github.com/wtalioy/JustConnect/actions/runs/41300238462)全部通过；已下载核对六份实际包报告及对应源码的 739 个文件。证据 `build/reports/review-2aedac8/{actual-package-summary,corresponding-source-check}.json`；本地额外 Windows 包镜像因下载慢停止，不代替上述原生实际包验证 |
+| 正式自动检查 | `f8cdcee` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/41318949893)与[六架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/41318949851)全部通过，包含 Windows 原生快照失效／失败回归及正式会话主动断开；原保护／恢复与 SDK 4096 包／30 秒门槛保留。macOS x64 首次拉取遇 runner DNS 故障，未改源码重跑通过 |
+| 实际包／源码 | `f8cdcee` 的[六组实际包及源码](https://github.com/wtalioy/JustConnect/actions/runs/41319052175)全部通过；已下载核对六份实际包报告及对应源码的 741 个文件。证据 `build/reports/windows-dns-poll-7696493/{coreabi-matrix,packages-summary}.json`；原生 CI 验证实际包，本地未另做 Windows 包离线启动 |
 | Windows 修复／性能 | 正常断开修复已实测；DNS 批量刷新、持久进度、部分失败和后续所有权已双架构原生验证。接口查询及 `70f90a5` 接管／断开 CPU 优化已实测通过；`build/reports/windows-restore-9d95b37/summary.json`、`build/reports/windows-dns-cpu-da23405/summary.json` |
 | 阶段矩阵 | `build/reports/v1-matrix.json` 汇总当前三平台受控证据及 Windows 实测；未测发布格保留在 V1—V7，阶段勾选不等于完整发布验收 |
 
@@ -277,7 +277,7 @@ V7 逐项记录日常使用要求，包含首次确认服务器、窗口／托�
 | A7 | 性能优先的全仓复查与持续精简：仅实现实际调用链有收益且可验证的改进，不为形式引入框架／兼容层 | **自动验证与复查收尾完成，待新包用户回归**。原 DNS 监听复用一次接口查询；出站包复用现有缓冲池，Windows 微基线 328—390→109—122 ns／包、1330 B／2 次分配→0；连接键 223→26—29 ns、6→1 次分配；空闲认证批次 6528 B／次→0。本地完整／race／Windows 原生、上表三组 CI 与六组实际包通过。删除旧拼包助手／专属测试及本轮临时二进制，保留异步所有权拷贝、保护／恢复回归与唯一失败证据；复查 Go、C ABI、C++ 助手及 Qt 实际调用链，未发现另一处收益明确的优先热点，不声称绝对最优。[测量与边界](docs/DEVELOPMENT.md#数据包转发分配基线)，`build/reports/performance-2d0bbd3/summary.json`；整体 CPU／吞吐及本版用户回归未测 |
 | A8 | 全仓源码／测试审查与优化重构，保留必要回归，最终自动检查与实际包通过后交付实测 | **审查、优化及自动验收已收尾，待用户实测**。维护源码、调用方、测试契约／注册及构建／CI 已复查；热路径分配／索引、节点探测、Qt 缓冲／对象复用、认证复用及职责清理已验，阻塞心跳和单实例 IPC 短帧越界已修复。删除重复烟测、无调用后端／报文 API／旧采集器及专属测试，清理 25 份重复本地审查产物；保留独有安全、取消、恢复及平台回归。最终证据见上表；macOS 历史 DNS 偶发超时根因未确认，严格回归本轮通过且保留有界失败诊断。迁移删除条件、[测量／审查边界](docs/DEVELOPMENT.md#全仓审查与测试保留范围)归开发说明，清单／证据 `build/reports/review-0684a4b/` |
 | A9 | 进一步全仓性能／职责／复用审查及必要测试精简；完成自动验证与实际包后交用户实测 | **审查、优化、清理及自动验收已收尾，用户复测问题续 A10**。修复 11 条认证响应读取错误；SOCKS UDP IPv4 基线 88 B／5 次分配→0，静态 DNS 每查询减 24 B／2 次分配。共享 C++ 应用／桌面实现将编译清单 316→225，应用源码 81→14 次；上表同版三平台 Tests／六架构 ABI／六组实际包通过；重复 Python 注册已清理，保留安全／取消／恢复／平台独有契约。范围、测量及保留理由见[开发说明](docs/DEVELOPMENT.md#全仓审查与测试保留范围)，临时程序、重复源码／采样和 272 个旧构建产物已清理；保留当前 SDK／构建及关键报告。清单／原始证据 `build/reports/review-2aedac8/`；整体 CPU／校园回归待实测。 |
-| A10 | Windows 主动断开原网络告警与 TUN 周期性 DNS Client CPU | **修复已实现，最终 CI／实际包及用户复测待验**。`3399bcf` 停止通知顺序已通过三平台 Tests／六架构 ABI；补齐三平台原生观察的策略代次校验，拒绝把主窗口主动清空当作读取失败。TUN 录制复现约 40% 峰值，稳定 346 路由期间约 43 秒观测到 22 个 DNS 读取进程；DNS 配置／接口未变时复用完整快照，变化／监听不全／读取失败仍走正式读取，网络两秒观察频率不变。17 项本地调用链及原生 Windows 注册表通知回归通过；Windows Qt 缓存／正式会话回归待 CI。证据 `build/reports/windows-dns-poll-7696493/` |
+| A10 | Windows 主动断开原网络告警与 TUN 周期性 DNS Client CPU | **实现、清理及自动验收完成，用户稍后补新包实测**。停止先暂停观察，三平台忽略已清空策略的旧结果；Windows DNS 配置／接口未变时复用完整快照，变化／监听不全／读取失败仍正式读取，两秒网络观察不变。17 项本地调用链、原生通知、Windows Qt 快照与正式会话回归、上表同版 CI／六组实际包通过。删除已完成测量的六份临时源码／二进制；保留有界只读录制器供复测，结束后删除。旧包 TUN 录制约 40% 峰值及测量边界见[开发说明](docs/DEVELOPMENT.md#windows-网卡查询与-cpu-采样)，证据 `build/reports/windows-dns-poll-7696493/`；不记新包 CPU 已通过 |
 
 ## 上游问题转化为库化验收
 
