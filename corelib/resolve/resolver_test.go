@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -326,24 +327,63 @@ func TestResolverReleasesCoordinationEntry(t *testing.T) {
 }
 
 func TestResolverRotatesConfiguredDNSAddresses(t *testing.T) {
-	first := net.ParseIP("192.0.2.1")
-	second := net.ParseIP("192.0.2.2")
-	resolver := &Resolver{
-		domainIndex: newDomainResourceIndex(nil),
-		dnsResource: map[string][]net.IP{"service.example": {first, second}},
-		dnsCache:    cache.New(time.Minute, 0),
+	for _, addresses := range [][]net.IP{{net.ParseIP("192.0.2.1")}, {net.ParseIP("192.0.2.1"), net.ParseIP("192.0.2.2")}} {
+		t.Run(fmt.Sprint(len(addresses)), func(t *testing.T) {
+			resolver := &Resolver{dnsResource: map[string][]net.IP{"service.example": addresses}, dnsCache: cache.New(time.Minute, 0)}
+			for i := 0; i < 4; i++ {
+				_, ip, err := resolver.Resolve(t.Context(), "service.example")
+				if err != nil || !ip.Equal(addresses[i%len(addresses)]) {
+					t.Fatalf("lookup %d: %v, %v", i, ip, err)
+				}
+			}
+			var counts [2]atomic.Int32
+			var workers sync.WaitGroup
+			for i := 0; i < 32; i++ {
+				workers.Go(func() {
+					for j := 0; j < 32; j++ {
+						_, ip, err := resolver.Resolve(t.Context(), "service.example")
+						if err != nil {
+							t.Error(err)
+							return
+						}
+						matched := false
+						for k, address := range addresses {
+							if ip.Equal(address) {
+								counts[k].Add(1)
+								matched = true
+								break
+							}
+						}
+						if !matched {
+							t.Errorf("foreign address %v", ip)
+							return
+						}
+					}
+				})
+			}
+			workers.Wait()
+			for i := range addresses {
+				if got := counts[i].Load(); got != 1024/int32(len(addresses)) {
+					t.Fatalf("address %d: %d replies", i, got)
+				}
+			}
+		})
 	}
+}
 
-	_, gotFirst, err := resolver.Resolve(context.Background(), "service.example")
-	if err != nil {
-		t.Fatalf("first Resolve() error = %v", err)
-	}
-	_, gotSecond, err := resolver.Resolve(context.Background(), "service.example")
-	if err != nil {
-		t.Fatalf("second Resolve() error = %v", err)
-	}
-	if !gotFirst.Equal(first) || !gotSecond.Equal(second) {
-		t.Fatalf("rotated addresses = %s, %s, want %s, %s", gotFirst, gotSecond, first, second)
+func BenchmarkConfiguredDNS(b *testing.B) {
+	for _, addresses := range [][]net.IP{{net.ParseIP("192.0.2.1")}, {net.ParseIP("192.0.2.1"), net.ParseIP("192.0.2.2")}} {
+		b.Run(fmt.Sprint(len(addresses)), func(b *testing.B) {
+			resolver := &Resolver{dnsResource: map[string][]net.IP{"service.example": addresses}, dnsCache: cache.New(time.Minute, 0)}
+			_, _, _ = resolver.Resolve(b.Context(), "service.example")
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				if _, ip, err := resolver.Resolve(b.Context(), "service.example"); err != nil || ip == nil {
+					b.Fatal(ip, err)
+				}
+			}
+		})
 	}
 }
 
