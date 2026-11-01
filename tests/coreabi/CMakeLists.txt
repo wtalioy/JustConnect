@@ -4,6 +4,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_C_STANDARD 11)
 find_package(Qt6 6.10 REQUIRED COMPONENTS WebEngineWidgets Concurrent)
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/CoreLibrary.cmake")
+include("${REPO}/cmake/Application.cmake")
 include(CTest)
 foreach(KIND coreabi coreabi_fixture)
     set(TAGS)
@@ -40,30 +41,22 @@ foreach(KIND coreabi coreabi_fixture)
 endforeach()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    add_executable(coreabi_tun_adapter_test tun_adapter.cpp
-        "${REPO}/application/connectionsession.cpp" "${REPO}/application/networkpolicysession.cpp"
-        "${REPO}/application/coexistencenetworkaccess.cpp" "${REPO}/application/systemproxysession.cpp"
-        "${REPO}/core/connectionsessionstate.cpp")
+    add_executable(coreabi_tun_adapter_test tun_adapter.cpp)
     set_target_properties(coreabi_tun_adapter_test PROPERTIES AUTOMOC ON)
     target_include_directories(coreabi_tun_adapter_test PRIVATE "${REPO}")
-    target_link_libraries(coreabi_tun_adapter_test PRIVATE coreabi_engine Qt6::Network)
+    target_link_libraries(coreabi_tun_adapter_test PRIVATE coreabi_engine Qt6::Network justconnect_network_access)
     justconnect_core_runtime(coreabi_tun_adapter_test coreabi)
-    add_executable(linux_networkaccess_test ../platform/networkaccess_linux_test.cpp
-        "${REPO}/application/connectionsession.cpp" "${REPO}/application/networkpolicysession.cpp"
-        "${REPO}/core/connectionsessionstate.cpp")
+    add_executable(linux_networkaccess_test ../platform/networkaccess_linux_test.cpp)
     set_target_properties(linux_networkaccess_test PROPERTIES AUTOMOC ON)
-    target_link_libraries(linux_networkaccess_test PRIVATE coreabi_engine)
+    target_link_libraries(linux_networkaccess_test PRIVATE coreabi_engine justconnect_network_access)
     add_test(NAME linux_networkaccess_test COMMAND linux_networkaccess_test)
     set_tests_properties(linux_networkaccess_test PROPERTIES TIMEOUT 15)
 endif()
 
 if(WIN32)
-    add_executable(coreabi_windows_session_test windows_session.cpp
-        "${REPO}/application/connectionsession.cpp" "${REPO}/application/networkpolicysession.cpp"
-        "${REPO}/application/coexistencenetworkaccess.cpp" "${REPO}/application/systemproxysession.cpp"
-        "${REPO}/core/connectionsessionstate.cpp")
+    add_executable(coreabi_windows_session_test windows_session.cpp)
     set_target_properties(coreabi_windows_session_test PROPERTIES AUTOMOC ON)
-    target_link_libraries(coreabi_windows_session_test PRIVATE coreabi_engine Qt6::Network advapi32 iphlpapi)
+    target_link_libraries(coreabi_windows_session_test PRIVATE coreabi_engine Qt6::Network advapi32 iphlpapi justconnect_network_access)
     justconnect_core_runtime(coreabi_windows_session_test coreabi)
     add_test(NAME coreabi_windows_session_test
         COMMAND "${CMAKE_COMMAND}" -E env "JC_NATIVE_WINDOWS_SESSION_HOST=$<TARGET_FILE:coreabi_windows_session_test>"
@@ -82,14 +75,10 @@ if(WIN32)
 endif()
 
 if(APPLE)
-    add_executable(coreabi_macos_tun_adapter_test tun_macos_adapter.cpp
-        "${REPO}/application/connectionsession.cpp" "${REPO}/application/networkpolicysession.cpp"
-        "${REPO}/application/coexistencenetworkaccess.cpp"
-        "${REPO}/application/applicationshutdown.cpp" "${REPO}/application/systemproxysession.cpp"
-        "${REPO}/core/connectionsessionstate.cpp")
+    add_executable(coreabi_macos_tun_adapter_test tun_macos_adapter.cpp)
     set_target_properties(coreabi_macos_tun_adapter_test PROPERTIES AUTOMOC ON INSTALL_RPATH "@executable_path/../Frameworks")
     target_include_directories(coreabi_macos_tun_adapter_test PRIVATE "${REPO}")
-    target_link_libraries(coreabi_macos_tun_adapter_test PRIVATE coreabi_engine Qt6::Network)
+    target_link_libraries(coreabi_macos_tun_adapter_test PRIVATE coreabi_engine Qt6::Network justconnect_network_access)
     justconnect_core_runtime(coreabi_macos_tun_adapter_test coreabi)
 endif()
 
@@ -118,6 +107,8 @@ include("${REPO}/tests/CoreEngineTests.cmake")
 
 include("${REPO}/cmake/SystemIntegration.cmake")
 justconnect_system_integration(coreabi_platform)
+include("${REPO}/cmake/NetworkAccess.cmake")
+justconnect_network_access(justconnect_network_access coreabi_platform)
 justconnect_core_ui_tests(coreabi_ui_test coreabi_engine coreabi coreabi_platform)
 justconnect_system_integration_tests(coreabi_platform_test coreabi_platform)
 justconnect_network_policy_tests()

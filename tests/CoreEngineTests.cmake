@@ -4,29 +4,16 @@ add_test(NAME windows_helper_sdk_test COMMAND "${Python3_EXECUTABLE}" "${REPO}/t
 set_tests_properties(windows_helper_sdk_test PROPERTIES TIMEOUT 10)
 
 function(justconnect_core_ui_tests TARGET ENGINE LIBRARY PLATFORM)
-    add_executable(coexistencenetworkaccess_test "${REPO}/tests/coexistencenetworkaccess_test.cpp"
-        "${REPO}/application/coexistencenetworkaccess.cpp" "${REPO}/application/systemproxysession.cpp"
-        "${REPO}/application/networkpolicysession.cpp" "${REPO}/application/connectionsession.h")
+    add_executable(coexistencenetworkaccess_test "${REPO}/tests/coexistencenetworkaccess_test.cpp")
     set_target_properties(coexistencenetworkaccess_test PROPERTIES AUTOMOC ON)
-    target_link_libraries(coexistencenetworkaccess_test PRIVATE ${ENGINE} Qt6::Concurrent)
+    target_link_libraries(coexistencenetworkaccess_test PRIVATE ${ENGINE} Qt6::Concurrent justconnect_application)
     justconnect_core_runtime(coexistencenetworkaccess_test ${LIBRARY})
     add_test(NAME coexistencenetworkaccess_test COMMAND coexistencenetworkaccess_test)
     set_tests_properties(coexistencenetworkaccess_test PROPERTIES TIMEOUT 30)
     add_executable(${TARGET}
         "${REPO}/tests/coreengineui_test.cpp"
-        "${REPO}/application/applicationshutdown.cpp"
-        "${REPO}/application/connectionsession.cpp"
-        "${REPO}/application/networkpolicysession.cpp"
         "${REPO}/presentation/dialogs/networkpolicywindow.cpp"
-        "${REPO}/application/applicationlogger.cpp"
-        "${REPO}/application/systemproxysession.cpp"
-        "${REPO}/application/profilecredentials.cpp"
-        "${REPO}/application/profileservice.cpp"
-        "${REPO}/application/defaultsettings.cpp"
-        "${REPO}/application/settingsmigrator.cpp"
         "${REPO}/infrastructure/settings/credentialaccess.cpp"
-        "${REPO}/application/profileconfiguration.cpp"
-        "${REPO}/core/connectionsessionstate.cpp"
         "${REPO}/presentation/coordinators/authdialogcoordinator.cpp"
         "${REPO}/presentation/coordinators/authenticationcachecoordinator.cpp"
         "${REPO}/presentation/coordinators/connectionuicontroller.cpp"
@@ -63,29 +50,27 @@ function(justconnect_network_policy_tests)
         target_link_libraries(linux_networkownership_test PRIVATE justconnect_network_helper Qt6::Network)
         add_test(NAME linux_networkownership_test COMMAND linux_networkownership_test)
         add_executable(linux_networkhelperpreparation_test "${REPO}/tests/platform/networkhelperpreparation_linux_test.cpp"
-            "${REPO}/infrastructure/networkhelper/linux/networkhelperpreparation.cpp" "${REPO}/application/networkprotection.cpp")
+            "${REPO}/infrastructure/networkhelper/linux/networkhelperpreparation.cpp")
         target_include_directories(linux_networkhelperpreparation_test PRIVATE "${REPO}")
-        target_link_libraries(linux_networkhelperpreparation_test PRIVATE justconnect_network_helper Qt6::Network)
+        target_link_libraries(linux_networkhelperpreparation_test PRIVATE justconnect_network_helper Qt6::Network justconnect_application)
         add_test(NAME linux_networkhelperpreparation_test COMMAND linux_networkhelperpreparation_test)
     endif()
-    add_executable(networkprotection_test "${REPO}/tests/networkprotection_test.cpp" "${REPO}/application/networkprotection.cpp"
+    add_executable(networkprotection_test "${REPO}/tests/networkprotection_test.cpp"
         "${REPO}/infrastructure/networkhelper/windows/networkhelperpreparation.cpp")
     target_include_directories(networkprotection_test PRIVATE "${REPO}")
-    target_link_libraries(networkprotection_test PRIVATE Qt6::Core Qt6::Network)
+    target_link_libraries(networkprotection_test PRIVATE Qt6::Core Qt6::Network justconnect_application)
     add_test(NAME networkprotection_test COMMAND networkprotection_test)
-    add_executable(networkpolicysession_test "${REPO}/tests/networkpolicysession_test.cpp"
-        "${REPO}/application/networkpolicysession.cpp" "${REPO}/application/networkprotection.cpp" "${REPO}/application/coreengine.h")
+    add_executable(networkpolicysession_test "${REPO}/tests/networkpolicysession_test.cpp")
     set_target_properties(networkpolicysession_test PROPERTIES AUTOMOC ON)
     target_include_directories(networkpolicysession_test PRIVATE "${REPO}")
-    target_link_libraries(networkpolicysession_test PRIVATE Qt6::Core Qt6::Network Qt6::Concurrent)
+    target_link_libraries(networkpolicysession_test PRIVATE Qt6::Core Qt6::Network Qt6::Concurrent justconnect_application)
     add_test(NAME networkpolicysession_test COMMAND networkpolicysession_test)
     set_tests_properties(networkpolicysession_test PROPERTIES TIMEOUT 15)
     add_executable(networkpolicywindow_test "${REPO}/tests/networkpolicywindow_test.cpp"
-        "${REPO}/presentation/dialogs/networkpolicywindow.cpp" "${REPO}/application/networkpolicysession.cpp"
-        "${REPO}/application/networkprotection.cpp" "${REPO}/application/coreengine.h")
+        "${REPO}/presentation/dialogs/networkpolicywindow.cpp")
     set_target_properties(networkpolicywindow_test PROPERTIES AUTOMOC ON)
     target_include_directories(networkpolicywindow_test PRIVATE "${REPO}")
-    target_link_libraries(networkpolicywindow_test PRIVATE Qt6::Widgets Qt6::Network Qt6::Concurrent)
+    target_link_libraries(networkpolicywindow_test PRIVATE Qt6::Widgets Qt6::Network Qt6::Concurrent justconnect_application)
     add_test(NAME networkpolicywindow_test COMMAND networkpolicywindow_test)
     set_tests_properties(networkpolicywindow_test PROPERTIES TIMEOUT 15 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endfunction()
