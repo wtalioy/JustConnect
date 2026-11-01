@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net"
+	"net/netip"
 	"sync"
 
 	"github.com/things-go/go-socks5"
@@ -20,6 +21,11 @@ func (p *Listeners) handleSOCKSUDP(ctx context.Context, writer io.Writer, reques
 	if !localOK || !peerOK {
 		return socks5.SendReply(writer, statute.RepServerFailure, nil)
 	}
+	peerIP, validPeer := netip.AddrFromSlice(peer.IP)
+	if !validPeer {
+		return socks5.SendReply(writer, statute.RepServerFailure, nil)
+	}
+	peerIP = peerIP.Unmap()
 	listener, err := net.ListenUDP("udp", &net.UDPAddr{IP: local.IP})
 	if err != nil {
 		_ = socks5.SendReply(writer, statute.RepServerFailure, nil)
@@ -60,35 +66,35 @@ func (p *Listeners) handleSOCKSUDP(ctx context.Context, writer io.Writer, reques
 	}
 	start(func() {
 		buf := make([]byte, maxUDPPacket)
-		var source *net.UDPAddr
+		var source netip.AddrPort
 		for {
-			n, sender, err := listener.ReadFromUDP(buf)
+			n, sender, err := listener.ReadFromUDPAddrPort(buf)
 			if err != nil {
 				return
 			}
-			if !sender.IP.Equal(peer.IP) || (request.DestAddr.Port != 0 && sender.Port != request.DestAddr.Port) {
+			if sender.Addr().Unmap().WithZone("") != peerIP || (request.DestAddr.Port != 0 && int(sender.Port()) != request.DestAddr.Port) {
 				continue
 			}
-			if source != nil && source.AddrPort() != sender.AddrPort() {
+			if source.IsValid() && source != sender {
 				continue
 			}
 			packet, err := socksudp.Parse(buf[:n])
 			if err != nil {
 				continue
 			}
-			if source == nil {
+			if !source.IsValid() {
 				source = sender
 			}
-			destination := packet.DstAddr.String()
+			encodedDestination := buf[:n-len(packet.Data)]
 			mu.Lock()
-			target := flows[destination]
+			target := flows[string(encodedDestination)]
 			full := len(flows) >= maxSOCKSUDPFlows
 			mu.Unlock()
 			if target == nil {
 				if full {
 					continue
 				}
-				target, err = p.dial(ctx, "udp", destination)
+				target, err = p.dial(ctx, "udp", packet.DstAddr.String())
 				if err != nil {
 					continue
 				}
@@ -98,28 +104,29 @@ func (p *Listeners) handleSOCKSUDP(ctx context.Context, writer io.Writer, reques
 					_ = target.Close()
 					return
 				}
-				flows[destination] = target
+				// Own the validated wire header once; packet storage is reused on the next read.
+				key := string(encodedDestination)
+				flows[key] = target
 				mu.Unlock()
-				header := packet.Header()
 				remote := target
 				replyTo := source
 				start(func() {
 					defer remote.Close()
 					defer func() {
 						mu.Lock()
-						if flows[destination] == remote {
-							delete(flows, destination)
+						if flows[key] == remote {
+							delete(flows, key)
 						}
 						mu.Unlock()
 					}()
 					reply := make([]byte, maxUDPPacket)
 					for {
-						n, err := remote.Read(reply[len(header):])
+						n, err := remote.Read(reply[len(key):])
 						if err != nil {
 							return
 						}
-						copy(reply, header)
-						if _, err := listener.WriteToUDP(reply[:len(header)+n], replyTo); err != nil {
+						copy(reply, key)
+						if _, err := listener.WriteToUDPAddrPort(reply[:len(key)+n], replyTo); err != nil {
 							return
 						}
 					}
