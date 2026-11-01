@@ -61,7 +61,7 @@ function(justconnect_system_integration TARGET)
         add_dependencies(${TARGET} JustConnectDnsReader)
         target_sources(${TARGET} PRIVATE "${REPO}/infrastructure/dns/windows/dnssnapshot.cpp"
             "${REPO}/infrastructure/systemproxy/windows/proxyrecoverylock.cpp")
-        target_link_libraries(${TARGET} PRIVATE wininet rasapi32 advapi32)
+        target_link_libraries(${TARGET} PRIVATE wininet rasapi32 advapi32 iphlpapi)
     elseif(APPLE)
         include("${REPO}/cmake/MacNetworkHelper.cmake")
         justconnect_mac_network_helper()

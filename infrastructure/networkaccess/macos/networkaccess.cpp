@@ -158,7 +158,7 @@ void MacNetworkAccess::helperFinished(Operation operation,Result result)
 }
 void MacNetworkAccess::observeModel()
 {
-    if (stage != Stage::Ready || automaticPolicy || policy->isBusy()) return;
+    if (stage != Stage::Ready || generation != policy->currentGeneration() || automaticPolicy || policy->isBusy()) return;
     if (policy->status() != CoreEngine::RequestStatus::Success) {
         stage = Stage::Prepared; observation.stop(); emit lost(attempt,{Status::Failed,QStringLiteral("无法完整读取原网络，正在恢复网络。"),true}); return;
     }

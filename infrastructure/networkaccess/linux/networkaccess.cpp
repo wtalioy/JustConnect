@@ -218,7 +218,7 @@ void LinuxNetworkAccess::applyPolicy(const QJsonObject &value)
 
 void LinuxNetworkAccess::observeModel()
 {
-    if (stage != Stage::Ready || automaticPolicy || policy->isBusy()) return;
+    if (stage != Stage::Ready || generation != policy->currentGeneration() || automaticPolicy || policy->isBusy()) return;
     const auto owned = helper.ownedConfiguration();
     const auto current = owned ? linuxOriginalExitSnapshot(policy->model()["network"].toObject(),*owned) : std::nullopt;
     if (policy->status() != CoreEngine::RequestStatus::Success || !owned) {
