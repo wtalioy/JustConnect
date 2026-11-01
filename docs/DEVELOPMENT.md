@@ -210,6 +210,8 @@ Windows 为 ZIP（完整解压并保留核心 DLL），macOS 为 DMG，Linux 为
 
 每次打包由 [archive-source.py](../scripts/archive-source.py) 导出同一干净提交的完整维护源码及摘要，附 `source-revision.txt`，支持无 `.git` 的 CMake 重建并标记 `source_state:archive`。包检查拒绝旧独立核心、旧来源目录与 Wintun。macOS 当前最低 14.4；Linux glibc／GLIBCXX 下限以实际包报告为准。静态字段检查不代替旧系统实机兼容验证。
 
+Linux AppImage 打包工具仍由 `scripts/linuxdeploy.json` 固定 SHA-256；continuous 重建导致摘要变化时先核对官方构建来源及两个架构的下载内容，不跳过校验。2026-11-01 固定值对应官方 [41273941025](https://github.com/linuxdeploy/linuxdeploy/actions/runs/41273941025) 的 `07333c6` 定时构建；Qt 插件固定值未变，审查记录归 `build/reports/s6/linuxdeploy-20261101-review.json`。
+
 ## 不需申请签名的开发与发行
 
 功能实现、权限助手、开发、预览、main 和 Release 均不依赖需要申请的公开签名或公证；当前工作流不配置签名 Secrets、不注册签名服务，也不向系统导入根证书。未来取得公开签名时，可作为独立发行步骤附加发布者身份，不改变功能、授权、网络或恢复逻辑，也不预建签名服务框架。Windows 使用管理员授权的受保护助手部署；macOS 构建在私有临时目录自动生成本地签名身份，为应用、助手与 WebEngine 签名后销毁私钥和临时钥匙串。本地叶证书有效期十年，仅绑定同一构建的组件，不提供公开发行者信任；成功、失败及取消均清理本次密钥材料。使用 macOS 自带 OpenSSL 导出系统钥匙串可接受的 PKCS#12；Tests 与打包流程在下载 Qt 前用真实 Mach-O 小包验证签名、hardened runtime、应用／助手角色和同一叶证书、深度校验、系统服务注册／撤销及密钥清理，完整 Qt 包另按实际产物验收。系统可能先报告服务未找到，首次连接仍应尝试注册并按真实结果提示用户批准；已有注册不重复安装。
