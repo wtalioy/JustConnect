@@ -222,7 +222,7 @@ void WindowsNetworkAccess::driveStop()
 }
 void WindowsNetworkAccess::observeModel()
 {
-    if(stage!=Stage::Ready || automaticPolicy || policy->isBusy())return;
+    if(stage!=Stage::Ready || generation!=policy->currentGeneration() || automaticPolicy || policy->isBusy())return;
     if(policy->status()!=CoreEngine::RequestStatus::Success){fail({Status::Failed,"Cannot completely read the original network; restoring ownership.",true});return;}
     const auto model=policy->model();
     const auto exit=originalExitSnapshot(model["network"].toObject(),model["resources"].toObject()["underlay_interface"].toString());

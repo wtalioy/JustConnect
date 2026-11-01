@@ -120,7 +120,7 @@ int main(int argc,char **argv) try
     int authorizations=0,approvals=0;
     auto *engine=new EmbeddedCoreEngine;
     if(composed)coexistence.observe(engine);
-    NetworkPolicySession policy(engine,readSystemDnsSnapshot);
+    NetworkPolicySession policy(engine,observeSystemDnsSnapshot());
     SystemProxySession proxy(std::make_unique<ProxyRecoveryBackend>());
     const auto mtu=EmbeddedCoreEngine::buildInfo()["capabilities"].toObject()["tunnel_mtu"].toInt();
     auto *access=new WindowsNetworkAccess(engine,&policy,mtu,nullptr,[&](const QUuid &id,auto ready){
@@ -152,7 +152,17 @@ int main(int argc,char **argv) try
         QObject::connect(changes,&ProxyChanges::changed,handoff,&CoexistenceNetworkAccess::systemProxyChanged);
     }
     ConnectionSession session(engine,nullptr,network);
-    QObject::connect(&session,&ConnectionSession::diagnostic,[](const QString &value){std::cerr<<value.toStdString()<<'\n';});
+    bool manualStop=false, teardownDiagnostic=false;
+    QObject::connect(&session,&ConnectionSession::stateChanged,[&](ConnectionState state){
+        if(state==ConnectionState::Stopping && manualStop){
+            policy.clear(); // Match the real coordinator before NetworkAccess::stop is entered.
+            QCoreApplication::processEvents();
+        }
+    });
+    QObject::connect(&session,&ConnectionSession::diagnostic,[&](const QString &value){
+        if(manualStop)teardownDiagnostic=true;
+        std::cerr<<value.toStdString()<<'\n';
+    });
     QObject::connect(&session,&ConnectionSession::progressChanged,[&]{std::cerr<<"application phase="<<int(session.phase())<<'\n';});
     QObject::connect(access,&NetworkAccess::ready,[](const QUuid &,PlatformOperationResult result){std::cerr<<"network ready="<<result.succeeded()<<" "<<result.detail.toStdString()<<'\n';});
 
@@ -272,7 +282,9 @@ int main(int argc,char **argv) try
         check(sameNetwork(initialDns,dnsSnapshot(),initialAddresses,interfaceAddresses()),"independent service restores complete DNS and interfaces while the application remains alive");
         std::cout<<"PASS: helper loss stops core, blocks new authorization and preserves responsibility through independent restoration\n";return 0;
     }
+    manualStop=true;
     session.stop();until("finish staged network/core restoration",[&]{return finished==3;},20000);
+    check(!teardownDiagnostic,"manual stop treated a cleared policy generation as a failed network read");
     if(composed){
         check(!proxy.isBusy() && !proxy.needsCleanup(),"composed stop restores browser ownership before the native session finishes");
         coexistence.restore();

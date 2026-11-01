@@ -63,7 +63,7 @@ MainWindowCoordinator::MainWindowCoordinator(
           this
       )),
       coreEngine(new EmbeddedCoreEngine()),
-      networkPolicySession(new NetworkPolicySession(coreEngine, readSystemDnsSnapshot, this)),
+      networkPolicySession(new NetworkPolicySession(coreEngine, observeSystemDnsSnapshot(), this)),
       systemProxySession(new SystemProxySession(
           std::make_unique<ProxyRecoveryBackend>(),
           this

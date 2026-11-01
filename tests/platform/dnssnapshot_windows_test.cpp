@@ -7,10 +7,60 @@
 #include <QFile>
 #include <iostream>
 #include <stdexcept>
+#ifdef Q_OS_WIN
+#include "infrastructure/dns/windows/observedsnapshot.h"
+#include <QUuid>
+#include <thread>
+#endif
 
 static void check(bool ok, const char *message) {
     if (!ok) throw std::runtime_error(message);
 }
+
+#ifdef Q_OS_WIN
+static void observedSnapshots()
+{
+    struct Registry {
+        std::wstring path = L"Software\\JustConnect-DnsObservation-" + QUuid::createUuid().toString(QUuid::WithoutBraces).toStdWString();
+        HKEY key = nullptr;
+        ~Registry() { if(key)RegCloseKey(key);RegDeleteTreeW(HKEY_CURRENT_USER,path.c_str()); }
+    } registry;
+    check(RegCreateKeyExW(HKEY_CURRENT_USER,registry.path.c_str(),0,nullptr,0,KEY_ALL_ACCESS,nullptr,&registry.key,nullptr)==ERROR_SUCCESS,
+        "create private DNS observation fixture");
+    std::shared_ptr<WindowsDNS::Changes> changes;
+    std::thread([&]{changes=std::make_shared<WindowsDNS::Changes>(std::initializer_list<WindowsDNS::Changes::Key>{{HKEY_CURRENT_USER,registry.path.c_str()}});}).join();
+    check(changes->available() && !changes->changed(),"DNS watches were unavailable or followed a finished worker thread");
+    DWORD value=0;
+    const auto change=[&]{++value;check(RegSetValueExW(registry.key,L"value",0,REG_DWORD,reinterpret_cast<const BYTE *>(&value),sizeof(value))==ERROR_SUCCESS,
+        "change private observation fixture");};
+    int reads=0;bool fail=false,changeDuringRead=false;
+    WindowsObservedDnsSnapshot observation([&]{
+        ++reads;
+        if(changeDuringRead){changeDuringRead=false;change();}
+        return fail ? DnsSnapshot{{PlatformOperationResult::Status::Failed,"read failed"},{}}
+            : DnsSnapshot{{},QJsonObject{{"value",int(value)}}};
+    },changes);
+    check(observation.read().result.succeeded() && reads==1,"first observation did not read native DNS");
+    check(observation.read().result.succeeded() && reads==1,"unchanged observation repeated the expensive read");
+    change();check(observation.read().data["value"].toInt()==int(value) && reads==2,"changed source returned a cached DNS view");
+    HKEY child=nullptr;
+    check(RegCreateKeyExW(registry.key,L"nested",0,nullptr,0,KEY_ALL_ACCESS,nullptr,&child,nullptr)==ERROR_SUCCESS,"create nested observation fixture");
+    RegCloseKey(child);observation.read();check(reads==3,"new nested source did not invalidate DNS");
+    check(RegDeleteTreeW(registry.key,L"nested")==ERROR_SUCCESS,"remove nested observation fixture");
+    fail=true;check(!observation.read().result.succeeded() && reads==4,"source read failure was hidden by the cache");
+    fail=false;check(observation.read().result.succeeded() && reads==5,"failed DNS read was cached");
+    change();changeDuringRead=true;observation.read();check(reads==6,"change before read was missed");
+    observation.read();check(reads==7,"change during read published a reusable stale snapshot");
+    std::thread first([&]{observation.read();}),second([&]{observation.read();});first.join();second.join();
+    check(reads==7,"concurrent readers repeated an unchanged native read");
+    check(RegDeleteKeyW(HKEY_CURRENT_USER,registry.path.c_str())==ERROR_SUCCESS,"remove watched observation fixture");
+    observation.read();observation.read();check(reads==9 && !changes->available(),"deleted source kept a reusable snapshot");
+    const auto missing=registry.path+L"-missing";
+    auto unavailable=std::make_shared<WindowsDNS::Changes>(std::initializer_list<WindowsDNS::Changes::Key>{{HKEY_CURRENT_USER,missing.c_str()}});
+    WindowsObservedDnsSnapshot uncached([&]{++reads;return DnsSnapshot{};},unavailable);
+    uncached.read();uncached.read();check(reads==11,"missing observation coverage reused unverified DNS data");
+}
+#endif
 
 int main(int argc, char **argv) try
 {
@@ -81,6 +131,9 @@ int main(int argc, char **argv) try
         std::cout << "Native resolver order/ports, adapter identity, DoH/DoT/DDR settings and effective NRPT inspected without writes\n";
         return 0;
     }
+#ifdef Q_OS_WIN
+    observedSnapshots();
+#endif
     auto data = QJsonDocument::fromJson(R"JSON({
         "interfaces":[{"InterfaceIndex":7,"AddressFamily":23,"ServerAddresses":["2001:db8::53"]}],
         "clients":[{"InterfaceIndex":7,"ConnectionSpecificSuffix":"overlay.test","ConnectionSpecificSuffixSearchList":["overlay.test"]}],
