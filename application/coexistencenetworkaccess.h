@@ -29,6 +29,7 @@ private:
     void driveStop();
     NetworkAccess *native;
     CoreEngine *core;
+    NetworkPolicySession *policy;
     SystemProxySession *proxy;
     QUuid attempt;
     QString generation;

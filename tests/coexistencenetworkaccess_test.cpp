@@ -21,7 +21,7 @@ class Proxy final : public SystemProxyBackend {
 public:
     QMutex mutex;
     QStringList endpoints{"127.0.0.1:7890"}, original;
-    bool owned = false, clearFails = false, blockApply = false, applyFails = false;
+    bool owned = false, clearFails = false, blockApply = false, applyFails = false, blockClear = false;
     int applies = 0, clears = 0, inspections = 0;
     SystemProxyConfig installed;
     QSemaphore entered, release;
@@ -41,6 +41,7 @@ public:
         return {};
     }
     PlatformOperationResult clear() override {
+        if (blockClear) { entered.release(); release.acquire(); }
         QMutexLocker lock(&mutex); ++clears;
         if (clearFails) return {PlatformOperationResult::Status::Failed, "restore failed", true};
         if (owned) endpoints = original;
@@ -52,7 +53,7 @@ class Engine final : public CoreEngine {
 public:
     QStringList verified{"127.0.0.1:7890"}, lastEndpoints;
     bool available = true, lastManaged = false, selected = false, listenersEnabled = true;
-    int updates = 0;
+    int updates = 0, networkReads = 0;
     RequestStatus refreshStatus = RequestStatus::Success;
     bool requireProof = false, ownershipPending = false;
     QJsonArray receivedProofs;
@@ -67,6 +68,7 @@ public:
         emit coexistenceUpdated(id, refreshStatus);
     }
     void readSnapshot(Snapshot kind, const QString &id) override {
+        if (kind == Snapshot::Network) ++networkReads;
         QJsonObject data;
         if (kind == Snapshot::Resources)
             data = {{"resources", QJsonObject{{"listeners", listenersEnabled
@@ -177,6 +179,22 @@ void retainsRestoreResponsibility() {
     until([&] { return f.stopped == 2; });
     check(f.errors == 1 && f.native->stops == 1 && !f.proxy.needsCleanup(), "explicit restore retry failed");
 }
+void pausesNetworkObservationBeforeBrowserRestore() {
+    Fixture f; f.start(); until([&] { return f.ready == 1; });
+    check(f.policy.refresh(), "active network observation was already blocked");
+    const auto reads = f.core.networkReads;
+    f.backend->blockClear = true;
+    f.access.stop(f.attempt);
+    until([&] { return f.backend->entered.tryAcquire(); });
+    const bool paused = f.policy.isBusy() && !f.policy.refresh() && f.core.networkReads == reads;
+    f.backend->release.release();
+    until([&] { return f.stopped == 1; });
+    check(paused, "disconnect read an intermediate network while restoring the browser proxy");
+    check(!f.errors && f.native->stops == 1, "paused observation prevented native restoration");
+    emit f.core.finished(ConnectionError::NONE);
+    emit f.core.sessionStarted("next");
+    check(f.policy.refresh(), "teardown observation pause leaked into the next connection");
+}
 void cancelsDuringApply(bool applyFails) {
     Fixture f; f.backend->blockApply = true; f.backend->applyFails = applyFails; f.start();
     until([&] { return f.backend->entered.tryAcquire(); });
@@ -222,7 +240,8 @@ void ignoresProofAfterCancellation() {
 }
 int main(int argc, char **argv) {
     QCoreApplication app(argc, argv);
-    followsSwitchesAndRestarts(); retainsRestoreResponsibility(); cancelsDuringApply(false); cancelsDuringApply(true);
+    followsSwitchesAndRestarts(); retainsRestoreResponsibility(); pausesNetworkObservationBeforeBrowserRestore();
+    cancelsDuringApply(false); cancelsDuringApply(true);
     leavesUnrelatedProxyAndDisabledListenersAlone(); cancellationBeforeNativePreparationLeavesNoCapture();
     provesPrivilegedOwnerBeforeHandoff(); ignoresProofAfterCancellation();
 }
