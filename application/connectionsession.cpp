@@ -249,8 +249,9 @@ void ConnectionSession::stopNetwork()
     if (networkRestore == NetworkRestoreState::Pending) return;
     networkRestore = NetworkRestoreState::Pending;
     currentPhase = ConnectionPhase::NetworkRestoring;
-    emit progressChanged();
+    // Pause the owner's observation before UI observers can start browser restoration.
     network->stop(attempt);
+    emit progressChanged();
 }
 
 void ConnectionSession::stopCore()

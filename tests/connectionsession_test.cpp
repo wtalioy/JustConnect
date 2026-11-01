@@ -81,7 +81,16 @@ bool ordersNetworkOwnershipAroundTheCore()
     if (session.state() != ConnectionState::Starting) return false;
     emit network->ready(first, {});
     if (session.state() != ConnectionState::Running || session.phase() != ConnectionPhase::CampusReady) return false;
+    bool restorationStarted = true;
+    QObject::connect(&session, &ConnectionSession::progressChanged, [&] {
+        if (session.phase() == ConnectionPhase::NetworkRestoring && network->stops == 0)
+            restorationStarted = false;
+    });
     session.stop();session.stop();
+    if (!restorationStarted) {
+        qCritical() << "restore progress allowed observers to mutate the network before its owner paused observation";
+        return false;
+    }
     if (network->stops != 1 || engine->stopCalls || !session.isActive()) return false;
     emit network->ready(first, {});
     emit network->stopped(first, {PlatformOperationResult::Status::Failed, "keep responsibility", true});
