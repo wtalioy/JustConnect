@@ -210,7 +210,7 @@ Windows 为 ZIP（完整解压并保留核心 DLL），macOS 为 DMG，Linux 为
 
 每次打包由 [archive-source.py](../scripts/archive-source.py) 导出同一干净提交的完整维护源码及摘要，附 `source-revision.txt`，支持无 `.git` 的 CMake 重建并标记 `source_state:archive`。包检查拒绝旧独立核心、旧来源目录与 Wintun。macOS 当前最低 14.4；Linux glibc／GLIBCXX 下限以实际包报告为准。静态字段检查不代替旧系统实机兼容验证。
 
-Linux AppImage 打包工具仍由 `scripts/linuxdeploy.json` 固定 SHA-256；continuous 重建导致摘要变化时先核对官方构建来源及两个架构的下载内容，不跳过校验。2026-11-01 固定值对应官方 [41273941025](https://github.com/linuxdeploy/linuxdeploy/actions/runs/41273941025) 的 `07333c6` 定时构建；Qt 插件固定值未变，审查记录归 `build/reports/s6/linuxdeploy-20261101-review.json`。
+Linux AppImage 打包工具仍由 `scripts/linuxdeploy.json` 固定 SHA-256；continuous 重建导致摘要变化时先核对官方构建来源及两个架构的下载内容，不跳过校验。2026-11-01 固定值对应官方 [41273941025](https://github.com/linuxdeploy/linuxdeploy/actions/runs/41273941025) 的 `07333c6` 定时构建；Qt 插件固定值未变，审查记录归 `build/reports/s6/linuxdeploy-20261101-review.json`。 AppImage 的 `.DirIcon` 使用构建目标 `linux_package_icon` 从唯一源 `resource/icon.svg` 渲染的 256×256 PNG；仅构建时使用现有 Qt SVG，不安装渲染工具或增加应用依赖。本地同版工具的 SVG 拒绝／PNG 成包解包回归及无效输入／写入失败记录归 `build/reports/s6/linux-icon-regression.json`。
 
 ## 不需申请签名的开发与发行
 

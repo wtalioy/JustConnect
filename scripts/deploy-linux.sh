@@ -45,6 +45,8 @@ fi
 
 # Copy icon
 cp resource/icon.svg "AppDir/usr/share/icons/hicolor/scalable/apps/$TARGET_NAME.svg"
+cp "$BUILD_DIR/icon.png" "AppDir/$TARGET_NAME.png"
+ln -sfn "$TARGET_NAME.png" AppDir/.DirIcon
 
 # Create desktop file
 cat > "AppDir/usr/share/applications/$TARGET_NAME.desktop" <<EOF

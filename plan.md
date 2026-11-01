@@ -178,7 +178,7 @@ S3—S5 已收尾，不重复开发或重跑已通过基线；A6 性能优化已
 
 前置：实际共存接入依赖对应平台无 Clash 的透明路径与恢复；S7-01／S6-03 的只读发现和控制能力调查不依赖 V1，可随会话工作提前做。转发／DNS／回环验证与 S7-04／05 增量联动同组实现；写入验证在具备恢复的隔离环境进行，手填端口／临时规则仅供诊断，不另维护手工版本。
 
-当前：**S6 非实测工作完成**。`0f203d5` 的[六架构原生](https://github.com/wtalioy/JustConnect/actions/runs/41221727962)与[三平台应用检查](https://github.com/wtalioy/JustConnect/actions/runs/41221727923)通过；Windows／macOS 各两次会话 × 12 组合，Linux 各三过滤 × 12 组合，包含校园私网、原 IPv6、DNS／TCP／UDP／SSH／网页及恢复。`dd1791a` 的[六组实际包](https://github.com/wtalioy/JustConnect/actions/runs/41221046254)已核验；与验收提交仅计划和父夹具不同，生产／打包输入一致。`dd1791a` 的 Windows V2—V4 浏览器／SSH、正常断开已由用户实测；第二轮为主动断开，恢复完整，出现原网络读取告警。断开前暂停策略观察的针对性修复本地回归通过，CI 待；S6-02／05／06 随该检查收尾。缓存专项、macOS／Linux 实机与完整发布矩阵留 S8。本轮 Linux 包因上游定时重建工具触发摘要拒绝；已核对官方构建及两架构下载摘要，更新固定值后待包复验，不放宽校验。证据与清理结论归 `build/reports/s6/summary.json`，操作与范围见[开发说明](docs/DEVELOPMENT.md#共存监听所有权基准)。
+当前：**S6 非实测工作完成**。`0f203d5` 的[六架构原生](https://github.com/wtalioy/JustConnect/actions/runs/41221727962)与[三平台应用检查](https://github.com/wtalioy/JustConnect/actions/runs/41221727923)通过；Windows／macOS 各两次会话 × 12 组合，Linux 各三过滤 × 12 组合，包含校园私网、原 IPv6、DNS／TCP／UDP／SSH／网页及恢复。`dd1791a` 的[六组实际包](https://github.com/wtalioy/JustConnect/actions/runs/41221046254)已核验；与验收提交仅计划和父夹具不同，生产／打包输入一致。`dd1791a` 的 Windows V2—V4 浏览器／SSH、正常断开已由用户实测；第二轮为主动断开，恢复完整，出现原网络读取告警。断开前暂停策略观察的针对性修复本地回归通过，CI 待；S6-02／05／06 随该检查收尾。缓存专项、macOS／Linux 实机与完整发布矩阵留 S8。Linux 工具摘要更新与新增位图图标契约已本地验证：同版工具拒绝 SVG 目录图标、生成 PNG 后实际成包并解包通过；正式包复验待，不放宽校验。证据与清理结论归 `build/reports/s6/summary.json`，操作与范围见[开发说明](docs/DEVELOPMENT.md#共存监听所有权基准)。
 
 已确认：系统代理开启时允许 JustConnect 临时承接浏览器入口，校园走 VPN、普通请求回原 Clash；系统代理与 TUN 均关闭时普通流量直连。关闭系统代理后保留原生校园接管，不强制打开用户开关；Clash 模式／代理组／DNS 与过滤配置保持，临时系统代理按所有权恢复。此为用户于 2026-10-31 确认的 S6 实现方向，完整自动矩阵已过，实际浏览器与学校实测范围仍按上述约定。
 
