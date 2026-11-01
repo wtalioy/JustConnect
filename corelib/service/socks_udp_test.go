@@ -14,6 +14,7 @@ import (
 	"github.com/things-go/go-socks5"
 	"github.com/things-go/go-socks5/statute"
 	"github.com/wtalioy/JustConnect/corelib/dial"
+	socketdialer "github.com/wtalioy/JustConnect/corelib/internal/dialer"
 	"github.com/wtalioy/JustConnect/corelib/internal/socksudp"
 )
 
@@ -130,6 +131,13 @@ func TestSOCKSUDPDatagramsAndActiveAssociationStop(t *testing.T) {
 		for _, bindSource := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/bind=%t", host, bindSource), func(t *testing.T) {
 				f := newSOCKSUDPFixture(t, host, bindSource)
+				capacity, err := socketdialer.SendBufferSize(f.client)
+				if err != nil || capacity <= 0 {
+					t.Fatalf("native UDP send capacity: %d, %v", capacity, err)
+				}
+				// Exercise a large valid packet without exceeding the host socket's native capacity.
+				large := bytes.Repeat([]byte("large"), min(6000, capacity/(2*len("large"))))
+				t.Logf("native UDP send capacity=%d; large payload=%d", capacity, len(large))
 				if bindSource {
 					foreign, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP(host)})
 					if err != nil {
@@ -145,7 +153,7 @@ func TestSOCKSUDPDatagramsAndActiveAssociationStop(t *testing.T) {
 					}
 				}
 				response := make([]byte, maxUDPPacket)
-				for round, payload := range [][]byte{[]byte("first"), {}, bytes.Repeat([]byte("large"), 6000), []byte("last"), {}} {
+				for round, payload := range [][]byte{[]byte("first"), {}, large, []byte("last"), {}} {
 					datagram, err := statute.NewDatagram(f.targets[round%len(f.targets)], payload)
 					if err != nil {
 						t.Fatal(err)
