@@ -148,6 +148,17 @@ endif()
 
 include(CTest)
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(JustConnectIconRenderer scripts/render-icon.cpp)
+    target_link_libraries(JustConnectIconRenderer PRIVATE Qt6::Svg Qt6::Gui)
+    add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/icon.png"
+        COMMAND JustConnectIconRenderer "${CMAKE_CURRENT_SOURCE_DIR}/resource/icon.svg" "${CMAKE_CURRENT_BINARY_DIR}/icon.png"
+        DEPENDS JustConnectIconRenderer "${CMAKE_CURRENT_SOURCE_DIR}/resource/icon.svg"
+        VERBATIM)
+    add_custom_target(linux_package_icon ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/icon.png")
+    add_dependencies(${PROJECT_NAME} linux_package_icon)
+endif()
+
 if(BUILD_TESTING)
     add_executable(singleapplication_test tests/singleapplication_test.cpp)
     target_link_libraries(singleapplication_test PRIVATE SingleApplication::SingleApplication)
