@@ -74,9 +74,7 @@ func (s *Session) authConfigContext(ctx context.Context, mod, needTicket, refres
 		return 0, nil, err
 	}
 
-	defer func(Body io.ReadCloser) {
-		_ = Body.Close()
-	}(resp.Body)
+	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 		return 0, nil, fmt.Errorf("%w: authConfig HTTP %d", ErrSessionInvalid, resp.StatusCode)
 	}
@@ -266,10 +264,11 @@ func (s *Session) reportEnv() error {
 	if err != nil {
 		return err
 	}
-	defer func(Body io.ReadCloser) {
-		_ = Body.Close()
-	}(resp.Body)
-	body, _ = io.ReadAll(resp.Body)
+	defer resp.Body.Close()
+	body, err = io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
 
 	var re struct {
 		Code int `json:"code"`
@@ -378,10 +377,11 @@ func (s *Session) authCheck() (authStep, error) {
 	if err != nil {
 		return authStep{}, err
 	}
-	defer func(Body io.ReadCloser) {
-		_ = Body.Close()
-	}(resp.Body)
-	body, _ := io.ReadAll(resp.Body)
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return authStep{}, err
+	}
 
 	var ac struct {
 		Code    int          `json:"code"`
@@ -416,10 +416,11 @@ func (s *Session) phoneNumber(authID string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer func(Body io.ReadCloser) {
-		_ = Body.Close()
-	}(resp.Body)
-	body, _ := io.ReadAll(resp.Body)
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
 
 	var re struct {
 		Code    int    `json:"code"`
@@ -498,10 +499,11 @@ func (s *Session) authSms(step authStep) error {
 	if err != nil {
 		return err
 	}
-	defer func(Body io.ReadCloser) {
-		_ = Body.Close()
-	}(resp.Body)
-	body, _ := io.ReadAll(resp.Body)
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
 
 	var re struct {
 		Code    int    `json:"code"`
@@ -581,10 +583,11 @@ func (s *Session) secondarySMSCheckCodeImpl(step authStep, code string, skipSeco
 	if err != nil {
 		return authStep{}, err
 	}
-	defer func(Body io.ReadCloser) {
-		_ = Body.Close()
-	}(resp.Body)
-	body, _ := io.ReadAll(resp.Body)
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return authStep{}, err
+	}
 
 	var re struct {
 		Code    int          `json:"code"`
@@ -616,10 +619,11 @@ func (s *Session) onlineInfo() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer func(Body io.ReadCloser) {
-		_ = Body.Close()
-	}(resp.Body)
-	body, _ := io.ReadAll(resp.Body)
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
 
 	var re struct {
 		Code int `json:"code"`
@@ -666,12 +670,8 @@ func (s *Session) ClientResource() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer func(Body io.ReadCloser) {
-		_ = Body.Close()
-	}(resp.Body)
-	body, _ := io.ReadAll(resp.Body)
-
-	return body, nil
+	defer resp.Body.Close()
+	return io.ReadAll(resp.Body)
 }
 
 func (s *Session) checkCode() ([]byte, error) {
@@ -688,12 +688,8 @@ func (s *Session) checkCode() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer func(Body io.ReadCloser) {
-		_ = Body.Close()
-	}(resp.Body)
-	body, _ := io.ReadAll(resp.Body)
-
-	return body, nil
+	defer resp.Body.Close()
+	return io.ReadAll(resp.Body)
 }
 
 func parsePortalTicketFromRedirect(redirectLocation, baseHost string) (string, error) {

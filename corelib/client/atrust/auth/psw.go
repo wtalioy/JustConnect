@@ -72,10 +72,11 @@ func (s *Session) pswImpl(username, password, loginDomain, graphCheckCode string
 	if err != nil {
 		return 0, err
 	}
-	defer func(Body io.ReadCloser) {
-		_ = Body.Close()
-	}(resp.Body)
-	body, _ := io.ReadAll(resp.Body)
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, err
+	}
 
 	var re struct {
 		Code    int    `json:"code"`
