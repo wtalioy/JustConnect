@@ -4,7 +4,6 @@ import argparse
 import json
 import os
 from pathlib import Path
-import pwd
 import shutil
 import socket
 import subprocess
@@ -13,7 +12,25 @@ import threading
 import time
 
 
+def wait_for_listener_proof(runtime, control, proof, request, deadline):
+    while True:
+        remaining = deadline - time.monotonic()
+        if runtime.poll() is not None or remaining <= 0:
+            raise TimeoutError('owned controller/data listener was not ready')
+        if control.is_socket():
+            result = subprocess.run([str(proof), '--prove', json.dumps(request)], check=True,
+                                    capture_output=True, text=True, timeout=min(5, remaining))
+            records = json.loads(result.stdout)
+            if not isinstance(records, list):
+                raise ValueError('native ownership proof must be an array')
+            if records:
+                return result.stdout
+        time.sleep(min(0.02, max(0, deadline - time.monotonic())))
+
+
 def verify(args):
+    import pwd
+
     assert os.geteuid() == 0 and args.uid != 0
     assert os.stat('/proc/self/ns/net') != os.stat('/proc/1/ns/net'), 'refusing the host network'
     binary, probe, proof = (path.resolve(strict=True) for path in (args.mihomo, args.probe, args.proof))
@@ -61,23 +78,13 @@ def verify(args):
             try:
                 thread.start()
                 deadline = time.monotonic() + 10
-                while True:
-                    rows = [line.split() for table in ('tcp', 'tcp6')
-                            for line in (Path('/proc/net') / table).read_text().splitlines()[1:]
-                            if line.split()[3] == '0A' and line.split()[1].split(':')[1] == format(port, '04X')]
-                    if (root / 'control.sock').is_socket() and rows:
-                        break
-                    assert runtime.poll() is None and time.monotonic() < deadline, 'owned controller/data listener was not ready'
-                    time.sleep(0.02)
                 stat = (Path('/proc') / str(runtime.pid) / 'stat').read_text()
                 started = stat[stat.rindex(')') + 1:].split()[19]
                 request = {'pid': str(runtime.pid), 'started': started,
                            'endpoints': ['127.0.0.1:' + str(port), '[::1]:' + str(port)]}
-                result = subprocess.run([str(proof), '--prove', json.dumps(request)], check=True,
-                                        capture_output=True, text=True, timeout=5)
-                assert json.loads(result.stdout), 'native helper returned no process/socket ownership proof'
+                proofs = wait_for_listener_proof(runtime, root / 'control.sock', proof, request, deadline)
                 environment = {**os.environ, 'JC_OWNED_MIHOMO_PID': str(runtime.pid),
-                               'JC_LISTENER_PROOFS': result.stdout, 'JC_OWNED_ECHO': '127.0.0.1:' + str(echo.getsockname()[1])}
+                               'JC_LISTENER_PROOFS': proofs, 'JC_OWNED_ECHO': '127.0.0.1:' + str(echo.getsockname()[1])}
                 subprocess.run([str(probe), '-test.v', '-test.run', '^TestPrivilegedListenerOwnership$'],
                                env=environment, user=args.uid, group=account.pw_gid, extra_groups=[], check=True, timeout=20)
                 stopped.set()
