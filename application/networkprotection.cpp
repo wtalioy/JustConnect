@@ -78,6 +78,9 @@ std::optional<QJsonArray> originalNetworkProtection(const QJsonObject &snapshot)
     proxyIndex = network["proxy_tunnel"].toObject()["interface_index"].toInteger();
 #endif
     const auto interfaces = network["interfaces"].toArray();
+    // Tailscale's reserved pools: https://tailscale.com/docs/reference/reserved-ip-addresses
+    static const auto overlay4 = QHostAddress::parseSubnet(QStringLiteral("100.64.0.0/10"));
+    static const auto overlay6 = QHostAddress::parseSubnet(QStringLiteral("fd7a:115c:a1e0::/48"));
     for (int i = 0; i < interfaces.size(); ++i) {
         if (!interfaces[i].isObject()) return std::nullopt;
         const auto item = interfaces[i].toObject();
@@ -89,9 +92,21 @@ std::optional<QJsonArray> originalNetworkProtection(const QJsonObject &snapshot)
             if (item["up"] == false) disconnected.insert(index);
         }
         const auto addresses = item["addresses"].toArray();
+        int overlayAddress4 = -1, overlayAddress6 = -1;
         for (int j = 0; j < addresses.size(); ++j) {
             if (!addresses[j].isString() || !add(addresses[j].toString(),
                 {{"kind", "interface_address"}, {"interface", i}, {"address", j}}, false,index > 0 && index == proxyIndex)) return std::nullopt;
+            const auto address = QHostAddress::parseSubnet(addresses[j].toString()).first;
+            if (address.isInSubnet(overlay4)) overlayAddress4 = j;
+            if (address.isInSubnet(overlay6)) overlayAddress6 = j;
+        }
+        // Both assigned families identify the live overlay without relying on its user-editable name.
+        if (index > 0 && index != proxyIndex && item["up"] == true && item["loopback"] == false
+            && overlayAddress4 >= 0 && overlayAddress6 >= 0) {
+            add(overlay4.first.toString()+'/'+QString::number(overlay4.second),
+                {{"kind", "interface_address"}, {"interface", i}, {"address", overlayAddress4}},false);
+            add(overlay6.first.toString()+'/'+QString::number(overlay6.second),
+                {{"kind", "interface_address"}, {"interface", i}, {"address", overlayAddress6}},false);
         }
     }
     const auto routes = network["routes"].toArray();

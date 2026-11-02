@@ -156,6 +156,8 @@ Windows `7696493` 后续实测：系统代理开启时主动断开仍报原网�
 
 Tailscale 正式验收保持开启：在同一对端与网络／Clash 配置下，先通过实际通信和 `tailscale ping` 确认可稳定直连，再比较 JustConnect 接管前／连接中／断开后的路径、连通与 CPU；保留控制面、中继、STUN／打洞及对端传输原出口，不硬编码对端／中继地址或端口替代真实发现。覆盖网路由、MagicDNS 解析相同不等于外层 UDP／TCP 路径未变；`status` 的 Relay 字段仅为配置事实，不能替代实际路径，初始探测短暂中继也不单独判为退化。当前用户 Mac 开启 aTrust，四次基线探测均中继；用户确认后续可准备可直连环境，未据此宣称 JustConnect 已导致／修复直连退化。基线归 `build/reports/windows-dns-poll-f8cdcee/path-baseline-summary.json`。
 
+地址池保护补充：同一实际活动接口的官方 IPv4／IPv6 地址特征识别 Tailscale，完整保护地址池，保留原接口来源及现有校园选择／撤回；不添加发现进程、IPC 或固定对端／中继列表。新回归在旧源码捕获未发现的对端，五条分散对端路由产生 102 个捕获前缀；修复后同一输入为 2 个，边界校园地址仍可达。缺少地址特征、状态／索引不明、回环及地址分属不同接口均不扩展保护，原始网络事实不变。19 项本地网络模型／策略／界面／会话调用链通过，跨平台 CI／实际包及整机 CPU／直连复测待验；不能以这个构造输入的前缀减少量推定整机性能。证据 `build/reports/windows-dns-poll-f8cdcee/overlay-scope-summary.json`。
+
 ## 数据包转发分配基线
 
 gVisor 出站端点复用依赖自带的 `PacketBuffer.ToView`／`View.Release`，与 TUN 回包链路一致，删除自维护的分片列表／拼包实现；正常、写失败及 panic 都归还临时缓冲。报文头／有效载荷、未读容量隔离、资源拒绝与取消／失败回归保留。
