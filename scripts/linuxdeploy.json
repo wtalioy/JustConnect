@@ -1,10 +1,16 @@
 {
   "linuxdeploy": {
-    "x86_64": "d900b99faf8656aa613038dafbd2cc23ca7f90794a9a00c9546f0ab572af94dd",
-    "aarch64": "5f3059c5d36894d5abdb27d1fde684e983fab967e8de591a550ee233a734bf1a"
+    "version": "1-alpha-20251107-1",
+    "sha256": {
+      "x86_64": "c20cd71e3a4e3b80c3483cef793cda3f4e990aca14014d23c544ca3ce1270b4d",
+      "aarch64": "620095110d693282b8ebeb244a95b5e911cf8f65f76c88b4b47d16ae6346fcff"
+    }
   },
   "linuxdeploy-plugin-qt": {
-    "x86_64": "cfc1055b2b9dbc08412b579f20990b7b41a17b61beaa5847dc9477c96c9e9617",
-    "aarch64": "d5b5a9020065cefda8c7af7c9500f686b23640eac50c88201a81752c6ee2e49c"
+    "version": "1-alpha-20250213-1",
+    "sha256": {
+      "x86_64": "15106be885c1c48a021198e7e1e9a48ce9d02a86dd0a1848f00bdbf3c1c92724",
+      "aarch64": "bf1c24aff6d749b5cf423afad6f15abd4440f81dec1aab95706b25f6667cdcf1"
+    }
   }
 }

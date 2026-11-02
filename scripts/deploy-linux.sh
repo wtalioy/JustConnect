@@ -9,24 +9,12 @@ DISPLAY_NAME="${2:-JustConnect}"
 BUILD_DIR="${3:-build}"
 ARCH="${4:-x86_64}"
 
-# Determine AppImage tool architecture
-if [ "$ARCH" = "x86_64" ]; then
-    APPIMAGE_ARCH="x86_64"
-else
-    APPIMAGE_ARCH="aarch64"
-fi
+case "$ARCH" in
+    x86_64|aarch64) APPIMAGE_ARCH="$ARCH" ;;
+    *) echo "Unsupported AppImage architecture: $ARCH" >&2; exit 1 ;;
+esac
 
-# Pin the packaging tools by content; a moved continuous tag must fail closed.
-python - "$APPIMAGE_ARCH" <<'PYTOOLS'
-import hashlib, json, pathlib, sys, urllib.request
-for name, hashes in json.loads(pathlib.Path('scripts/linuxdeploy.json').read_text()).items():
-    path = pathlib.Path(name)
-    url = f'https://github.com/linuxdeploy/{name}/releases/download/continuous/{name}-{sys.argv[1]}.AppImage'
-    contents = path.read_bytes() if path.exists() else urllib.request.urlopen(url, timeout=60).read()
-    if hashlib.sha256(contents).hexdigest() != hashes[sys.argv[1]]:
-        raise SystemExit(f'{name}: SHA-256 mismatch; review upstream before changing linuxdeploy.json')
-    path.write_bytes(contents)
-PYTOOLS
+python scripts/linuxdeploy_tools.py "$APPIMAGE_ARCH"
 export APPIMAGE_EXTRACT_AND_RUN=1
 
 chmod a+x linuxdeploy linuxdeploy-plugin-qt
@@ -61,7 +49,9 @@ EOF
 # Build AppImage
 export EXTRA_QT_PLUGINS="waylandcompositor"
 export EXTRA_PLATFORM_PLUGINS="libqwayland.so"
-./linuxdeploy --appdir AppDir --plugin qt
+# Use the native toolchain's strip so current ELF relocations remain supported.
+NO_STRIP=1 ./linuxdeploy --appdir AppDir --plugin qt
+python -c 'from scripts.linuxdeploy_tools import strip_elfs; strip_elfs("AppDir")'
 
 cmake --install "$BUILD_DIR" --config Release --component CoreRuntime --prefix "$PWD/AppDir"
 NO_STRIP=1 ./linuxdeploy --appdir AppDir --output appimage
