@@ -3,6 +3,7 @@ import importlib.util
 import io
 import json
 import ctypes
+import os
 import shutil
 import subprocess
 import sys
@@ -72,6 +73,30 @@ class LinuxDeployToolsTest(unittest.TestCase):
 
 @unittest.skipUnless(sys.platform.startswith('linux'), 'ELF packaging uses the native Linux toolchain')
 class LinuxDeployStripTest(unittest.TestCase):
+    def test_deployment_entry_maps_native_architecture_before_fetch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            arguments = root / 'arguments.json'
+            python = root / 'python'
+            python.write_text(f'#!{sys.executable}\nimport json, sys\n'
+                              f'open({str(arguments)!r}, "w").write(json.dumps(sys.argv[1:]))\n'
+                              'sys.exit(42)\n')
+            python.chmod(0o755)
+            for native, expected in (('x86_64', 'x86_64'), ('arm64', 'aarch64'),
+                                     ('aarch64', 'aarch64'), ('armv7', None)):
+                with self.subTest(native=native):
+                    arguments.unlink(missing_ok=True)
+                    result = subprocess.run(['bash', str(ROOT / 'scripts/deploy-linux.sh'),
+                                             'JustConnect', 'JustConnect', 'build', native],
+                                            env={**os.environ, 'PATH': f'{root}:{os.environ["PATH"]}'},
+                                            capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 42 if expected else 1, result.stderr)
+                    if expected:
+                        self.assertEqual(json.loads(arguments.read_text()),
+                                         ['scripts/linuxdeploy_tools.py', expected])
+                    else:
+                        self.assertFalse(arguments.exists())
+
     def test_strips_owned_elfs_preserving_exports_and_external_files(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
