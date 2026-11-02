@@ -1,6 +1,6 @@
 # JustConnect 实施计划与进度
 
-更新日期：2026-11-03。S3—S6 阶段范围及 A9／A11／A12 已收尾。`bf437ab` 首次校园浏览器／SSH／Tailscale 实测通过，但空闲后复用返回 5023，A10 保持待验收；已发现原生链路本地寻址仍开启、系统补入 APIPA，修复与延迟回归待原生检查。周期性 DNS Client CPU 仍待优化；公共节点探测 `66386bb` 已通过三平台／六架构检查，同机减少约 500 ms 空等。跨平台实机与完整发布矩阵仍归 S8。
+更新日期：2026-11-03。S3—S6 阶段范围及 A9／A11／A12 已收尾。`3ba3333` 已修复 `bf437ab` 空闲后 APIPA 导致的复用 5023，三平台 Tests、六架构 ABI、六组实际包及源码全部通过；新版两轮连接／断开与 DNS Client CPU 仍待用户复测，A10 保持待验收。新包同时包含已验证的公共节点探测优化，同机减少约 500 ms 空等。跨平台实机与完整发布矩阵仍归 S8。
 
 ## 使用方式
 
@@ -14,16 +14,16 @@
 | 项目 | 当前记录 |
 | --- | --- |
 | 阶段进度 | S3—S6 **23／23 全部勾选**；全计划 64 项已收尾 45 项、剩余 19 项（含最终验收）。S1-04 真实样本、S2-06 真实注销仍待；下一阶段 S7 |
-| Windows 实测 | `bf437ab` 首次校园浏览器／SSH／Tailscale 正常，158 前缀接管 2253 ms（设备／路由 2218 ms、DNS 32 ms）；断开 park 11 ms，第二次复用失败 5023，恢复确认后新建接管 2054 ms。DNS Client 有连接后的高占用尾部及周期峰值；既有 `73b734d` Tailscale 直连保持证据保留。 |
-| 当前跟踪 | **A10 优先修复复用回归，继续定位 CPU**。将所属新接口的自动寻址策略前移到首次绑定前，已有配置拒绝覆盖；延迟回归按实际系统窗口验证空闲及外部改写拒绝。修复原生检查／实际包／性能复测待完成；S7／S8 原安排不变。 |
-| 当前交付 | [`bf437ab` Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/41457806799/artifacts/13147974346) 已完成正式自动与实际包检查，但已知空闲后复用 5023，等待修复包；当前缺陷不以旧检查通过覆盖。 |
+| Windows 实测 | `bf437ab` 首次校园浏览器／SSH／Tailscale 正常，158 前缀接管 2253 ms；park 11 ms 后复用失败 5023，恢复确认后新建接管 2054 ms。只读采样仍有 DNS Client 周期峰值；新版 `3ba3333` 的重复连接及 CPU 待复测，既有 Tailscale 直连保持证据保留。 |
+| 当前跟踪 | **A10 修复及自动／包验收完成，等待新版性能复测**。所属新接口的自动寻址策略前移到首次绑定前，已有配置拒绝覆盖；按系统延迟验证空闲及外部改写拒绝。保留当前只读采样器用于新版对照，结束后删除；S7／S8 原安排不变。 |
+| 当前交付 | [`3ba3333` Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/41491505027/artifacts/13163974496) 已通过对应正式检查与实际包核对；先退出旧版，再在同一窗口实测两轮连接／断开及 DNS Client CPU。首次仍需创建网卡。 |
 
 ## 当前验收基线
 
 | 范围 | 当前结论与证据 |
 | --- | --- |
-| 正式自动检查 | 当前源码 `66386bb` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/41470973559)与[六架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/41470973528)全部通过；六份正式性能报告已逐一核对真实核心／干净源码版本，证据 `build/reports/node-probe-start/{tests,coreabi}-final.json`。交付包 `bf437ab` 的独立通过证据保留于 `build/reports/windows-network-cost-73b734d/{tests,coreabi}-bf437ab-final.json`。 |
-| 实际包／源码 | `bf437ab` 的[六组实际包及源码](https://github.com/wtalioy/JustConnect/actions/runs/41457806799)全部通过；六份原生包报告、核心／助手来源与依赖已逐份核对，对应源码 745 个文件已逐字节核对。证据同报告目录的 `{actual-reports-bf437ab-summary,source-bf437ab-summary,packages-bf437ab-final}.json`；本地未另做完整 Windows／macOS 包离线启动，实际包由原生 CI 验证。 |
+| 正式自动检查 | `3ba3333` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/41489531734)与[六架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/41489531688)全部通过；Windows 两架构各 41 项 CTest、官方 SDK 原包／时限及延迟复用回归保留并通过。证据 `build/reports/windows-runtime-bf437ab/{tests,coreabi}-3ba3333-final.json` 及两份原生成功日志。 |
+| 实际包／源码 | `3ba3333` 的[六组实际包及源码](https://github.com/wtalioy/JustConnect/actions/runs/41491505027)全部通过；六份展开后的原生包报告、核心／助手来源与依赖逐份核对，745 个源码文件及版本声明逐字节核对。证据同报告目录的 `{actual-package-reports-3ba3333-summary,source-3ba3333-summary,packages-3ba3333-final}.json`；本机未额外运行提权夹具／完整 Windows、macOS 包离线启动，实际包由原生 CI 验证。 |
 | Windows 修复／性能 | 正常断开修复已实测；DNS 批量刷新、持久进度、部分失败和后续所有权已双架构原生验证。接口查询及 `70f90a5` 接管／断开 CPU 优化已实测通过；`build/reports/windows-restore-9d95b37/summary.json`、`build/reports/windows-dns-cpu-da23405/summary.json` |
 | 阶段矩阵 | `build/reports/v1-matrix.json` 汇总当前三平台受控证据及 Windows 实测；未测发布格保留在 V1—V7，阶段勾选不等于完整发布验收 |
 
@@ -279,7 +279,7 @@ V7 逐项记录日常使用要求，包含首次确认服务器、窗口／托�
 | A7 | 性能优先的全仓复查与持续精简 | **复查及自动验收已收尾，Windows 功能回归通过；余留性能续 A10**。出站包每包 1330 B／2 次分配→0，连接键与空闲认证扫描已优化；保留异步所有权拷贝及安全／取消／恢复回归，删除旧拼包实现与临时程序。[测量与边界](docs/DEVELOPMENT.md#数据包转发分配基线)，`build/reports/performance-2d0bbd3/summary.json`；整体吞吐未测，跨平台实机留 S8。 |
 | A8 | 全仓源码／测试审查、优化与清理 | **审查及自动验收已收尾，Windows 功能回归通过**。认证、数据面、ABI、权限恢复、Qt 调用方、构建／CI 与测试契约已复查，删除无调用后端／API／采集器和重复烟测，保留独有平台与失败回归。macOS 历史 DNS 偶发超时根因仍未确认，有界诊断及严格回归保留；实机留 S8。[范围与保留依据](docs/DEVELOPMENT.md#全仓审查与测试保留范围)，`build/reports/review-0684a4b/`。 |
 | A9 | 进一步全仓性能／职责／复用审查 | **审查、优化及自动验收已收尾，Windows 校园访问与直连保持已实测；余留性能续 A10**。修复 11 条认证响应读取错误；SOCKS UDP IPv4 与静态 DNS 减少分配，共享编译清单 316→225。清理重复测试注册、临时程序及 272 个旧产物，保留 SDK／当前构建和独有回归。[范围与测量](docs/DEVELOPMENT.md#全仓审查与测试保留范围)，`build/reports/review-2aedac8/`。 |
-| A10 | Windows 主动断开告警、TUN／Tailscale 共存与性能 | **复用回归修复中，CPU 未验收**。`bf437ab` 首次主路径通过，第二次复用失败 5023；所属空闲接口出现 APIPA，原生延迟 6500 ms，旧回归只等 6000 ms。修复将自动寻址策略前移到新接口首次绑定前并回读，已有配置拒绝覆盖；按系统窗口验证空闲、重复启停和外部改写拒绝。本地交叉编译通过，原生检查／新包及实测待完成。既有取消／恢复／直连保护保持，跨平台实机归 S8。[测量与边界](docs/DEVELOPMENT.md#windows-网卡查询与-cpu-采样)，`build/reports/windows-runtime-bf437ab/summary.json`；旧基线及独有栈分别保留于 `windows-network-cost-73b734d/`、`windows-dns-poll-f8cdcee/` 报告目录。 |
+| A10 | Windows 主动断开告警、TUN／Tailscale 共存与性能 | **复用回归修复及自动／包验收完成，新版性能待实测**。`bf437ab` 空闲后补入 APIPA 导致 5023；`3ba3333` 将所属新接口策略前移到首次绑定前并回读，已有配置拒绝覆盖，保留延迟空闲、外部改写及实际核心重连回归。原 6000 ms 等待改为系统延迟＋余量；两架构原生、三平台 Tests、六架构 ABI 与六组实际包通过。临时程序／目录及重复源码包清理，保留当前采样器至新版 CPU 对照结束。既有恢复／直连保护保留，跨平台实机归 S8。[测量与边界](docs/DEVELOPMENT.md#windows-网卡查询与-cpu-采样)，`build/reports/windows-runtime-bf437ab/summary.json`；旧基线及独有栈保留。 |
 | A11 | 退出／取消错误及实际包链路故障 | **已收尾**。退出完成后延迟轮询不再误报超时，真实未完成／恢复失败仍拒绝退出；原生代理所有权校验保留取消原因。Linux 固定官方工具版本／双架构哈希及原生 strip，补齐工作流 ARM64 名称映射。确定性旧源码回归、13 项退出调用链、官方 Mihomo／核心竞态及 47 项 Python 检查均已验证，最终三平台 Tests／六架构 ABI／六组实际包及源码通过，见当前验收基线。已清理临时镜像、展开目录、完成的监视日志和重复源码包；保留工具／SDK／构建与关键报告 `build/reports/shutdown-package-ef0caa7/` |
 | A12 | 三平台节点选线启动耗时 | **已收尾**。首次 TLS 探测去掉一个 500 ms 空等周期，同机三次真实 TLS 握手中位耗时 1502.93→1002.64 ms；保留三次采样、后续间隔、证书策略、WAN／LAN 回退和取消。旧源码失败回归、本地竞态／完整 Go／正式协议宿主、三平台 Tests 及六架构 ABI 全部通过。临时测量源码已清理，保留关键报告，不重复打包；A10 用户 CPU 复测独立保留。[测量与边界](docs/DEVELOPMENT.md#节点探测启动等待)，`build/reports/node-probe-start/`。 |
 
