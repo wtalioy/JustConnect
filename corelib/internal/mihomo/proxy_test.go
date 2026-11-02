@@ -19,6 +19,31 @@ import (
 	"github.com/wtalioy/JustConnect/corelib/internal/testmihomo"
 )
 
+// A timer callback can lag behind the absolute deadline, especially under race instrumentation.
+type pendingDeadline struct {
+	context.Context
+	at time.Time
+}
+
+func (c pendingDeadline) Deadline() (time.Time, bool) { return c.at, true }
+
+func TestProxyPreservesDeadlineBeforeTimerDelivery(t *testing.T) {
+	p := &Proxy{address: netip.MustParseAddrPort("192.0.2.1:1080")}
+	for _, test := range []struct {
+		name  string
+		after time.Duration
+		want  error
+	}{{"elapsed", -time.Second, context.DeadlineExceeded}, {"future", time.Hour, ErrUnavailable}} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := pendingDeadline{Context: t.Context(), at: time.Now().Add(test.after)}
+			conn, err := p.DialContext(ctx, "tcp", "198.51.100.1:443")
+			if conn != nil || !errors.Is(err, test.want) {
+				t.Fatalf("deadline classification: connection=%v error=%v, want %v", conn, err, test.want)
+			}
+		})
+	}
+}
+
 func proxyEchoTargets(t *testing.T, host string) (tcp, udp string) {
 	t.Helper()
 	stream, err := net.Listen("tcp", net.JoinHostPort(host, "0"))
