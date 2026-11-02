@@ -281,12 +281,16 @@ func TestProxyRejectsUnownedAndDisabledListeners(t *testing.T) {
 	}
 	// An owned port with the wrong protocol must still be cancellable during negotiation.
 	p.address = netip.MustParseAddrPort(fixture.Address)
-	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
-	defer cancel()
-	if conn, err := p.DialContext(ctx, "udp", "127.0.0.1:443"); !errors.Is(err, context.DeadlineExceeded) {
-		if conn != nil {
-			conn.Close()
-		}
-		t.Fatal("stalled proxy handshake ignored cancellation", err)
+	for _, timeout := range []time.Duration{time.Nanosecond, time.Millisecond, 50 * time.Millisecond} {
+		t.Run(timeout.String(), func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), timeout)
+			defer cancel()
+			if conn, err := p.DialContext(ctx, "udp", "127.0.0.1:443"); !errors.Is(err, context.DeadlineExceeded) {
+				if conn != nil {
+					conn.Close()
+				}
+				t.Fatal("proxy negotiation lost deadline cancellation", err)
+			}
+		})
 	}
 }
