@@ -402,10 +402,64 @@ static void captureTargets()
         "Disconnected interface's configured address space was reused for the private device");
 }
 
+static void tailscaleAddressPools()
+{
+    const QJsonObject device{{"index",7},{"name","renamed-overlay"},{"up",true},{"loopback",false},
+        {"addresses",QJsonArray{"100.74.12.3/32","fd7a:115c:a1e0::1234/128"}}};
+    QJsonArray routes;
+    for (const auto *peer : {"100.65.1.9","100.74.12.8","100.85.33.2","100.99.8.3","100.117.9.7"})
+        routes.append(QJsonObject{{"destination",QString::fromLatin1(peer)+"/32"},{"interface_index",7}});
+    const QJsonObject network{{"interfaces",QJsonArray{device}},{"routes",routes}};
+    const QJsonObject resources{{"ip_resources",QJsonArray{QJsonObject{{"ip_min","100.0.0.0"},{"ip_max","100.255.255.255"},
+        {"protocol","all"},{"port_min",1},{"port_max",65535}}}}, {"domain_resources",QJsonObject{}},
+        {"dns_records",QJsonObject{}},{"campus_dns",""},{"campus_dns_enabled",false}};
+    const auto plan = [&](const QJsonObject &snapshot,const QJsonArray &choices = QJsonArray{}) {
+        const auto targets=originalNetworkProtection(snapshot);
+        check(targets.has_value(),"complete overlay network rejected");
+        auto policy=protectionConfiguration(*targets,{});policy["campus"]=choices;
+        return campusCaptureTargets(resources,policy);
+    };
+    const auto captured = [](const CampusCaptureTargets &targets,const QString &ip) {
+        return std::any_of(targets.ipv4Prefixes.begin(),targets.ipv4Prefixes.end(),[&](const QString &prefix) {
+            return QHostAddress(ip).isInSubnet(QHostAddress::parseSubnet(prefix));
+        });
+    };
+    const auto result=plan(network);
+    check(result.has_value(),"Tailscale overlap did not produce a capture plan");
+    std::cout<<"Tailscale overlap capture prefixes: "<<result->ipv4Prefixes.size()<<'\n';
+    check(!captured(*result,"100.100.100.7"),"an undiscovered Tailscale peer was captured as campus traffic");
+    check(result->ipv4Prefixes.size()<=2 && captured(*result,"100.63.255.255") && captured(*result,"100.128.0.1"),
+        "overlay peer routes fragmented capture or removed adjacent campus addresses");
+    const auto policy=protectionConfiguration(*originalNetworkProtection(network),{});
+    check(policy["protected"].toArray().contains("fd7a:115c:a1e0::/48"),"future IPv6 Tailscale peers lost original protection");
+    const auto chosen=plan(network,{"100.100.100.7"});
+    check(chosen && captured(*chosen,"100.100.100.7") && !captured(*chosen,"100.100.100.8"),
+        "explicit campus choice removed another overlay address's protection");
+    check(plan(network)->ipv4Prefixes==result->ipv4Prefixes,"withdrawing campus choice did not restore overlay scope");
+    for (const auto &change : {QJsonObject{{"up",false}},QJsonObject{{"up",QJsonValue{}}},
+        QJsonObject{{"loopback",true}},QJsonObject{{"index",0}},
+        QJsonObject{{"addresses",QJsonArray{"100.74.12.3/32","fd00::1234/128"}}},
+        QJsonObject{{"addresses",QJsonArray{"100.74.12.3/32"}}}}) {
+        auto unknown=device;
+        for(auto it=change.begin();it!=change.end();++it)unknown[it.key()]=it.value();
+        auto snapshot=network;snapshot["interfaces"]=QJsonArray{unknown};
+        const auto unconfirmed=plan(snapshot);
+        check(unconfirmed && captured(*unconfirmed,"100.100.100.7"),"unconfirmed overlay identity reserved an unrelated CGNAT address pool");
+    }
+    auto split=network, first=device, second=device;
+    first["addresses"]=QJsonArray{"100.74.12.3/32"};second["index"]=8;
+    second["addresses"]=QJsonArray{"fd7a:115c:a1e0::1234/128"};split["interfaces"]=QJsonArray{first,second};
+    check(captured(*plan(split),"100.100.100.7"),"addresses on different interfaces fabricated an overlay identity");
+    auto peersChanged=network;peersChanged["routes"]=QJsonArray{};
+    check(plan(peersChanged)->ipv4Prefixes==result->ipv4Prefixes,"peer churn changed reserved overlay protection or fragmented capture");
+    check(network["interfaces"]==QJsonArray{device} && network["routes"]==routes,"overlay discovery changed original network facts");
+}
+
 int main(int argc, char **argv) try
 {
     QCoreApplication app(argc, argv);
     captureTargets();
+    tailscaleAddressPools();
     macProxyTunnelView();
 #ifdef Q_OS_LINUX
     proxyTunnelView();
