@@ -154,6 +154,8 @@ Windows `7696493` 后续实测：系统代理开启时主动断开仍报原网�
 
 2026-11-02 `f8cdcee` 联合采样：稳定连接仍约每六秒出现 DNS Client／Tailscale 双峰，250 ms 进程计数采样峰值分别约 43.6%／40.1%，同期 JustConnect 约 2.3%。Tailscale 1.104.1 的函数采样及协程栈指向中继拨号 → `netns.defaultInterfaceIndex` → `GetWindowsDefault` → `GetAdaptersAddresses`，另有逐接口 `Addrs`；[对应源码](https://github.com/tailscale/tailscale/blob/v1.104.1/net/netmon/interfaces_windows.go)与此一致。读取进程已显著减少，稳定双峰期间原生路由订阅未见回调；Windows Go 采样会把部分原生等待归于 `cgocall`，不把其百分比当作精确 CPU 归因。经用户同意，保持 Clash TUN 开／系统代理关，临时断开 Tailscale 后再连接 JustConnect，稳定约 60 秒周期峰值消失：DNS Client 中位数 0%、95 分位约 2.3%、峰值约 7.4%，无 DNS 读取进程启动样本；启动仍有短暂高占用。用户随后断开 JustConnect 并恢复 Tailscale，已确认 Running／无健康告警。该对照同时改变路由、DNS 和活动连接，确认 Tailscale 参与触发，不单独证明[上游报告](https://github.com/tailscale/tailscale/issues/17772)所述 Windows DNR 根因；同时开启的 CPU 问题仍未解决。未改系统 DNS 设置；原样本／栈与路由记录保留，完成测量的探针／录制源码和二进制已清理。证据 `build/reports/windows-dns-poll-f8cdcee/{summary,counterfactual-summary}.json`。
 
+Tailscale 正式验收保持开启：在同一对端与网络／Clash 配置下，先通过实际通信和 `tailscale ping` 确认可稳定直连，再比较 JustConnect 接管前／连接中／断开后的路径、连通与 CPU；保留控制面、中继、STUN／打洞及对端传输原出口，不硬编码对端／中继地址或端口替代真实发现。覆盖网路由、MagicDNS 解析相同不等于外层 UDP／TCP 路径未变；`status` 的 Relay 字段仅为配置事实，不能替代实际路径，初始探测短暂中继也不单独判为退化。当前用户 Mac 开启 aTrust，四次基线探测均中继；用户确认后续可准备可直连环境，未据此宣称 JustConnect 已导致／修复直连退化。基线归 `build/reports/windows-dns-poll-f8cdcee/path-baseline-summary.json`。
+
 ## 数据包转发分配基线
 
 gVisor 出站端点复用依赖自带的 `PacketBuffer.ToView`／`View.Release`，与 TUN 回包链路一致，删除自维护的分片列表／拼包实现；正常、写失败及 panic 都归还临时缓冲。报文头／有效载荷、未读容量隔离、资源拒绝与取消／失败回归保留。
