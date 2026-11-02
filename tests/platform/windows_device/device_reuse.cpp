@@ -9,7 +9,6 @@
 #include <stdexcept>
 
 namespace {
-constexpr DWORD AutoconfigurationWindowMs=6000;
 void check(bool value,const char *message){if(!value)throw std::runtime_error(message);}
 IN_ADDR ip(const wchar_t *text){IN_ADDR result{};check(InetPtonW(AF_INET,text,&result)==1,"parse reuse fixture address");return result;}
 void sourcePresent(NET_LUID luid,IN_ADDR source,bool expected)
@@ -51,14 +50,19 @@ int wmain(int argc,wchar_t **argv)
         device=WindowsTunDevice::create(argv[1],owner,first,peer,1400,{},[&](const auto &){allocated=true;});
         const auto createMs=std::chrono::duration<double,std::milli>(Clock::now()-before).count();
         const auto identity=device->identity();
+        MIB_IPINTERFACE_ROW initial{};initial.Family=AF_INET;initial.InterfaceLuid=identity.luid;
+        check(GetIpInterfaceEntry(&initial)==NO_ERROR,"read native automatic-address configuration");
+        check(initial.LinkLocalAddressBehavior==LinkLocalAlwaysOff,"owned interface still allows delayed APIPA");
+        check(initial.LinkLocalAddressTimeout<=10000,"native autoconfiguration delay exceeds the 30-second fixture budget");
+        const auto autoconfigurationWindowMs=initial.LinkLocalAddressTimeout+2000;
         bool refused=false;try{device->activate(second,nextPeer,1300,{});}catch(const std::system_error &e){refused=e.code().value()==ERROR_INVALID_STATE;}
         check(refused,"an active ring session was silently reused");
-        Sleep(AutoconfigurationWindowMs);
+        Sleep(autoconfigurationWindowMs);
         std::cout<<"RUN: park\n"<<std::flush;
         device->interrupt();
         device->deactivate();WindowsDeviceCheck::idle(owner);check(windowsAdapterPresent(owner),"parking deleted the owned adapter");
         // Allow Windows' delayed address autoconfiguration to run while this interface stays empty.
-        Sleep(AutoconfigurationWindowMs);WindowsDeviceCheck::idle(owner);
+        Sleep(autoconfigurationWindowMs);WindowsDeviceCheck::idle(owner);
         unsigned char buffer[20]{};refused=false;
         try{device->read(buffer,sizeof(buffer));}catch(const std::system_error &e){refused=e.code().value()==ERROR_OPERATION_ABORTED;}
         check(refused,"parked adapter retained a readable ring");
@@ -75,7 +79,8 @@ int wmain(int argc,wchar_t **argv)
         check(device->identity().guid==identity.guid && device->identity().luid.Value==identity.luid.Value && device->identity().index==identity.index,"reconnection created another adapter");
         sourcePresent(identity.luid,first,false);sourcePresent(identity.luid,second,true);
         MIB_IPINTERFACE_ROW settings{};settings.Family=AF_INET;settings.InterfaceLuid=identity.luid;
-        check(GetIpInterfaceEntry(&settings)==NO_ERROR && settings.NlMtu==1300,"reused interface kept its previous MTU");
+        check(GetIpInterfaceEntry(&settings)==NO_ERROR && settings.NlMtu==1300
+            && settings.LinkLocalAddressBehavior==LinkLocalAlwaysOff,"reused interface kept its previous MTU or enabled APIPA");
         device->deactivate();WindowsDeviceCheck::idle(owner);
         device->activate(first,peer,1400,{});sourcePresent(identity.luid,second,false);sourcePresent(identity.luid,first,true);
         device->close();finishWindowsAdapterClose(owner);check(!windowsAdapterPresent(owner),"close retained the reusable adapter");allocated=false;
