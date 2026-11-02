@@ -37,11 +37,12 @@ void ApplicationShutdown::advance()
         coreStopRequested = true;
         connection->stop();
     }
-    if (!timedOut && (proxy->isBusy() || connection->isActive() || pendingWork())) return;
+    const bool pending = proxy->isBusy() || connection->isActive() || pendingWork();
+    if (!timedOut && pending) return;
     poll.stop();
     active = false;
-    if (timedOut || proxy->needsCleanup()) {
-        emit failed(timedOut ? QStringLiteral("shutdown_timeout") : QStringLiteral("shutdown_proxy_unrestored"));
+    if (pending || proxy->needsCleanup()) {
+        emit failed(pending ? QStringLiteral("shutdown_timeout") : QStringLiteral("shutdown_proxy_unrestored"));
         return;
     }
     complete = true;

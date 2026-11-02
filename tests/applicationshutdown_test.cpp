@@ -171,6 +171,18 @@ static void pendingPlatformAndCredentialTimeoutsKeepEventLoopAlive() {
         }
     }
 }
+static void completedCleanupSurvivesDelayedPoll() {
+    auto *engine=new Engine;ConnectionSession connection(engine);SystemProxySession proxy(std::make_unique<Proxy>());
+    connection.start({},{});int ready=0,failed=0;
+    ApplicationShutdown shutdown(&connection,&proxy,[]{return false;},nullptr,20);
+    QObject::connect(&shutdown,&ApplicationShutdown::ready,[&]{++ready;});
+    QObject::connect(&shutdown,&ApplicationShutdown::failed,[&]{++failed;});
+    shutdown.request();check(engine->stops==1,"shutdown did not request the active core stop");
+    emit engine->finished(ConnectionError::NONE);
+    QThread::msleep(50); // Cleanup completed before a descheduled event loop checks the deadline.
+    until([&]{return ready+failed>0;});
+    check(ready==1 && !failed && !connection.isActive(),"completed shutdown was reported as a timeout after delayed polling");
+}
 static void networkFailureRestoresProxyDuringBackoff() {
     auto *engine=new Engine;ConnectionSession connection(engine);
     auto backend=std::make_unique<Proxy>();auto *native=backend.get();SystemProxySession proxy(std::move(backend));
@@ -187,6 +199,7 @@ static void networkFailureRestoresProxyDuringBackoff() {
 }
 int main(int argc,char **argv) {
     QCoreApplication app(argc,argv);
+    completedCleanupSurvivesDelayedPoll();
     networkFailureRestoresProxyDuringBackoff();
     restoresPendingStartupQueryBeforeStopping();
     pendingPlatformAndCredentialTimeoutsKeepEventLoopAlive();
