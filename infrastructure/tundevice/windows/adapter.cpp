@@ -129,6 +129,22 @@ std::unique_ptr<WindowsTunDevice> WindowsTunDevice::create(const std::wstring &d
         fail("new adapter identity differs",ERROR_INVALID_DATA);
     device->owned.index = row.InterfaceIndex;
     allocated(device->owned);
+    // An addressless reusable device must not acquire a Windows APIPA address between sessions.
+    const auto settings=std::wstring(L"SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces\\")+guid;
+    HKEY key=nullptr;
+    checked(RegOpenKeyExW(HKEY_LOCAL_MACHINE,settings.c_str(),0,KEY_QUERY_VALUE|KEY_SET_VALUE|KEY_WOW64_64KEY,&key),"open owned IPv4 configuration");
+    struct CloseKey {HKEY key;~CloseKey(){RegCloseKey(key);}} closeKey{key};
+    const DWORD disabled=0;
+    for(const auto name:{L"EnableDHCP",L"IPAutoconfigurationEnabled"}){
+        DWORD current=1,bytes=sizeof(current);
+        const auto status=RegGetValueW(key,nullptr,name,RRF_RT_REG_DWORD,nullptr,&current,&bytes);
+        if(status!=ERROR_FILE_NOT_FOUND)checked(status,"read owned automatic IPv4 configuration");
+        if(status==ERROR_SUCCESS && current==disabled)continue;
+        checked(RegSetValueExW(key,name,0,REG_DWORD,reinterpret_cast<const BYTE *>(&disabled),sizeof(disabled)),"disable owned automatic IPv4 configuration");
+        DWORD value=1,size=sizeof(value);
+        checked(RegGetValueW(key,nullptr,name,RRF_RT_REG_DWORD,nullptr,&value,&size),"confirm owned automatic IPv4 configuration");
+        if(value!=disabled)fail("owned automatic IPv4 configuration differs",ERROR_INVALID_DATA);
+    }
     device->activate(source,peer,maximum,targets);
     return device;
 }

@@ -9,6 +9,7 @@
 #include <stdexcept>
 
 namespace {
+constexpr DWORD AutoconfigurationWindowMs=6000;
 void check(bool value,const char *message){if(!value)throw std::runtime_error(message);}
 IN_ADDR ip(const wchar_t *text){IN_ADDR result{};check(InetPtonW(AF_INET,text,&result)==1,"parse reuse fixture address");return result;}
 void sourcePresent(NET_LUID luid,IN_ADDR source,bool expected)
@@ -52,12 +53,22 @@ int wmain(int argc,wchar_t **argv)
         const auto identity=device->identity();
         bool refused=false;try{device->activate(second,nextPeer,1300,{});}catch(const std::system_error &e){refused=e.code().value()==ERROR_INVALID_STATE;}
         check(refused,"an active ring session was silently reused");
+        Sleep(AutoconfigurationWindowMs);
         std::cout<<"RUN: park\n"<<std::flush;
         device->interrupt();
         device->deactivate();WindowsDeviceCheck::idle(owner);check(windowsAdapterPresent(owner),"parking deleted the owned adapter");
+        // Allow Windows' delayed address autoconfiguration to run while this interface stays empty.
+        Sleep(AutoconfigurationWindowMs);WindowsDeviceCheck::idle(owner);
         unsigned char buffer[20]{};refused=false;
         try{device->read(buffer,sizeof(buffer));}catch(const std::system_error &e){refused=e.code().value()==ERROR_OPERATION_ABORTED;}
         check(refused,"parked adapter retained a readable ring");
+        MIB_UNICASTIPADDRESS_ROW external{};InitializeUnicastIpAddressEntry(&external);
+        external.InterfaceLuid=identity.luid;external.Address.Ipv4.sin_family=AF_INET;external.Address.Ipv4.sin_addr=first;
+        external.OnLinkPrefixLength=32;external.SkipAsSource=TRUE;external.DadState=IpDadStatePreferred;
+        check(CreateUnicastIpAddressEntry(&external)==NO_ERROR,"inject an external address on the fixture-owned idle adapter");
+        refused=false;try{device->activate(second,nextPeer,1300,{});}catch(const std::system_error &e){refused=e.code().value()==ERROR_INVALID_STATE;}
+        check(refused && GetUnicastIpAddressEntry(&external)==NO_ERROR && external.SkipAsSource,"reconnect changed an externally configured idle adapter");
+        check(DeleteUnicastIpAddressEntry(&external)==NO_ERROR,"remove only the fixture's external address");WindowsDeviceCheck::idle(owner);
         std::cout<<"RUN: resume\n"<<std::flush;
         before=Clock::now();device->activate(second,nextPeer,1300,{});
         const auto resumeMs=std::chrono::duration<double,std::milli>(Clock::now()-before).count();
