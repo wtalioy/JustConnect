@@ -27,10 +27,16 @@ func Probe(ctx context.Context, target Target, dial client.DialContextFunc, tlsP
 	ticker := time.NewTicker(target.Interval)
 	defer ticker.Stop()
 	for result.Counter < target.Counter {
-		select {
-		case <-ctx.Done():
+		if ctx.Err() != nil {
 			return
-		case <-ticker.C:
+		}
+		// Space repeated samples without delaying the first reachability check.
+		if result.Counter > 0 {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
 		}
 		duration, err := probeOnce(ctx, target, dial, tlsPolicy)
 		if ctx.Err() != nil {
