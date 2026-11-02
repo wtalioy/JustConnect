@@ -90,8 +90,12 @@ func (c *Client) ObserveProxy(ctx context.Context, proofs ...ListenerProof) (Pro
 
 func dialOwnedTCP(ctx context.Context, process model.Process, address netip.AddrPort, proof *ListenerProof) (result net.Conn, resultErr error) {
 	defer func() {
-		if resultErr != nil && ctx.Err() != nil {
-			resultErr = ctx.Err()
+		if resultErr != nil {
+			if err := ctx.Err(); err != nil {
+				resultErr = err
+			} else if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) {
+				resultErr = context.DeadlineExceeded
+			}
 		}
 	}()
 	if err := ctx.Err(); err != nil {
