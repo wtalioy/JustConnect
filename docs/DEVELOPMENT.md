@@ -150,7 +150,9 @@ Windows `7696493` 后续实测：系统代理开启时主动断开仍报原网�
 
 持续策略观察在 Windows 复用一个带原生变化监视的完整 DNS 读取器；核心启动保护、接管确认和恢复仍使用无缓存读取。监视 Dnscache／Tcpip／Tcpip6 与系统策略注册表树，以及接口／地址通知；沿用两秒网络观察，未变时复用完整事实，变化先重新订阅再读取，读取过程中再有变化不发布可复用快照。监听缺失／失败时每次正式读取，读取失败不缓存。注册表使用 [RegNotifyChangeKeyValue](https://learn.microsoft.com/en-us/windows/win32/api/winreg/nf-winreg-regnotifychangekeyvalue) 的线程无关注册，避免线程池退出制造假变更；原生回调只置位事件，取消后释放事件，不在回调或持有其等待的锁时注销。快照归观察者，无全局或磁盘缓存；临时／加密／域管来源的支持范围仍按 R15，不扩展提供者或关闭其策略。
 
-本地已验证原生 Windows 私有注册表修改／删除／重新订阅与线程退出，实际机器完整监视可建立；17 项本地调用链回归通过。Windows Qt 回归覆盖未变复用、子键变化、失败后重读、读取中变化、并发调用和监听失效；正式会话使用同一个工厂，并验证策略清空后主动断开无伪故障。`f8cdcee` 的三平台 Tests、六架构 Core ABI、六组实际包与对应源码已通过，具体链接见计划；新包告警／周期性 CPU 仍待用户稍后复测。已清理六份测量源码／二进制，仅保留有界只读录制器供复测结束后删除；录制、测量及保留边界归 `build/reports/windows-dns-poll-7696493/`。
+本地已验证原生 Windows 私有注册表修改／删除／重新订阅与线程退出，实际机器完整监视可建立；17 项本地调用链回归通过。Windows Qt 回归覆盖未变复用、子键变化、失败后重读、读取中变化、并发调用和监听失效；正式会话使用同一个工厂，并验证策略清空后主动断开无伪故障。`f8cdcee` 的三平台 Tests、六架构 Core ABI、六组实际包与对应源码已通过，具体链接见计划；2026-11-02 用户复测两主组合正常断开且无原网络读取告警；TUN 周期性 CPU 仍未解决。已清理六份测量源码／二进制，仅保留有界只读录制器供复测结束后删除；录制、测量及保留边界归 `build/reports/windows-dns-poll-7696493/`。
+
+2026-11-02 `f8cdcee` 联合只读采样：稳定连接仍约每六秒出现 DNS Client／Tailscale 双峰，250 ms 进程计数采样峰值分别约 43.6%／40.1%，同期 JustConnect 约 2.3%；断开后 15 秒 DNS Client 峰值约 2.7%。变化监视有效，稳定期读取进程已显著减少；另起原生路由订阅在双峰期间未见路由回调，不能把路由数量不变单独当作无写入证明。Tailscale 1.104.1 的 90 秒函数采样及协程栈指向中继拨号 → `netns.defaultInterfaceIndex` → `GetWindowsDefault` → `GetAdaptersAddresses`，另有逐接口 `Addrs`；[对应源码](https://github.com/tailscale/tailscale/blob/v1.104.1/net/netmon/interfaces_windows.go)与此一致。Windows Go 采样会把部分原生等待归于 `cgocall`，不把其百分比当作精确 CPU 归因；[上游同类报告](https://github.com/tailscale/tailscale/issues/17772)所述 DNR 根因仍未在本机确认。只读日志订阅未收到事件，不据此推定没有重连；第三方与系统 DNS 设置未改。保留 CPU 原样本／栈及路由记录，删除已完成探针和已归纳的设备状态；证据 `build/reports/windows-dns-poll-f8cdcee/summary.json`，对照与整体问题继续待验。
 
 ## 数据包转发分配基线
 
