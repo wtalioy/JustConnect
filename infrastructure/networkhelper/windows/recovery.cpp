@@ -275,10 +275,13 @@ void WindowsNetworkRecovery::resumeOwned(const WindowsNetworkRecord &record)
 {
     WindowsNetworkLock lock;
     const auto previous=ownedRecord(record.owner);
-    if(previous.phase!=WindowsRecoveryPhase::Parked || previous.dns || !previous.originalDNS.empty()
-        || previous.adapter!=record.adapter || !same(previous.helper,record.helper) || !same(previous.caller,record.caller) || !record.caller.alive()
-        || record.phase!=WindowsRecoveryPhase::Declared || !windowsAdapterPresent(record.adapter))
-        fail("parked network ownership differs",ERROR_ACCESS_DENIED);
+    if(previous.phase!=WindowsRecoveryPhase::Parked || previous.dns || !previous.originalDNS.empty())
+        fail("cached network is not empty and parked",ERROR_ACCESS_DENIED);
+    if(previous.adapter!=record.adapter || !windowsAdapterPresent(record.adapter))
+        fail("cached adapter identity differs",ERROR_ACCESS_DENIED);
+    if(!same(previous.helper,record.helper))fail("cached helper identity differs",ERROR_ACCESS_DENIED);
+    if(!same(previous.caller,record.caller) || !record.caller.alive())fail("cached caller identity differs",ERROR_ACCESS_DENIED);
+    if(record.phase!=WindowsRecoveryPhase::Declared)fail("cached activation lacks declared intent",ERROR_ACCESS_DENIED);
     for(const auto &owner:journal.owners())if(owner!=record.owner){
         const auto other=read(owner);
         if(other.phase!=WindowsRecoveryPhase::Restored && other.phase!=WindowsRecoveryPhase::Parked)
