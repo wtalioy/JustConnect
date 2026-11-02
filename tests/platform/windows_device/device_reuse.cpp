@@ -53,6 +53,7 @@ int wmain(int argc,wchar_t **argv)
         bool refused=false;try{device->activate(second,nextPeer,1300,{});}catch(const std::system_error &e){refused=e.code().value()==ERROR_INVALID_STATE;}
         check(refused,"an active ring session was silently reused");
         std::cout<<"RUN: park\n"<<std::flush;
+        device->interrupt();
         device->deactivate();WindowsDeviceCheck::idle(owner);check(windowsAdapterPresent(owner),"parking deleted the owned adapter");
         unsigned char buffer[20]{};refused=false;
         try{device->read(buffer,sizeof(buffer));}catch(const std::system_error &e){refused=e.code().value()==ERROR_OPERATION_ABORTED;}

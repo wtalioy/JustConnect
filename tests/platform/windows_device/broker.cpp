@@ -230,6 +230,7 @@ int packetRelay(const std::wstring &dll,const std::wstring &base,bool original)
         ready=1;
         pipe->write(&ready,1);
         relayWindowsPackets(*device,*pipe,1400);
+        device->close();
         const auto deadline=GetTickCount64()+5000;
         for (;;) {
             MIB_IF_ROW2 row{};
