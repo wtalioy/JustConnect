@@ -20,7 +20,7 @@ void relayWindowsPackets(WindowsTunDevice &device,WindowsPacketPipe &pipe,unsign
     std::mutex lock;
     const auto stop=[&] {
         { std::lock_guard<std::mutex> guard(lock); if (!error) error=std::current_exception(); }
-        pipe.close();device.close();
+        pipe.close();device.interrupt();
     };
     std::thread outgoing([&] {
         try {

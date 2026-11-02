@@ -179,8 +179,7 @@ void WindowsTunDevice::activate(IN_ADDR source,IN_ADDR peer,unsigned int maximum
 
 void WindowsTunDevice::deactivate()
 {
-    closed=true;
-    if(stop)SetEvent(stop);
+    interrupt();
     std::lock_guard<std::mutex> serial(routeLock);
     std::unique_lock<std::shared_mutex> exclusive(lifetime);
     for(const auto &target:captures){
@@ -327,11 +326,17 @@ void WindowsTunDevice::write(const unsigned char *packet, size_t size)
     Wintun0141::notify(sendReady);
 }
 
+void WindowsTunDevice::interrupt()
+{
+    std::shared_lock<std::shared_mutex> active(lifetime);
+    closed=true;
+    if(stop)SetEvent(stop);
+}
+
 void WindowsTunDevice::close()
 {
     std::call_once(closedOnce,[&] {
-        closed = true;
-        if (stop) SetEvent(stop);
+        interrupt();
         std::unique_lock<std::shared_mutex> exclusive(lifetime);
         if (session && endSession) endSession(session);
         if (adapter && closeAdapter) closeAdapter(adapter);

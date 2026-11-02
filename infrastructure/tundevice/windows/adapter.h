@@ -38,6 +38,7 @@ public:
     void deactivate();
     size_t read(unsigned char *packet, size_t capacity);
     void write(const unsigned char *packet, size_t size);
+    void interrupt();
     void close();
 private:
     friend struct WindowsTunDeviceTest;
