@@ -227,7 +227,7 @@ void WindowsTunDevice::configure(IN_ADDR source, IN_ADDR peer, const std::vector
     row.InterfaceLuid = owned.luid;
     checked(GetIpInterfaceEntry(&row),"read owned IPv4 interface");
     const bool update=row.UseAutomaticMetric || row.Metric!=1 || row.NlMtu!=mtu || row.DadTransmits!=0
-        || row.LinkLocalAddressBehavior!=LinkLocalAlwaysOff || !row.DisableDefaultRoutes;
+        || row.LinkLocalAddressBehavior!=LinkLocalAlwaysOff || row.LinkLocalAddressTimeout!=0 || !row.DisableDefaultRoutes;
     row.SitePrefixLength = 0; // SetIpInterfaceEntry requires zero for IPv4.
     row.UseAutomaticMetric = FALSE;
     row.Metric = 1;
@@ -235,6 +235,7 @@ void WindowsTunDevice::configure(IN_ADDR source, IN_ADDR peer, const std::vector
     row.DadTransmits = 0;
     // An empty parked interface must not acquire a delayed APIPA address.
     row.LinkLocalAddressBehavior = LinkLocalAlwaysOff;
+    row.LinkLocalAddressTimeout = 0;
     row.DisableDefaultRoutes = TRUE;
     if(update)checked(SetIpInterfaceEntry(&row),"configure owned IPv4 interface");
     MIB_IPINTERFACE_ROW confirmed{};
@@ -242,7 +243,8 @@ void WindowsTunDevice::configure(IN_ADDR source, IN_ADDR peer, const std::vector
     confirmed.InterfaceLuid = owned.luid;
     checked(GetIpInterfaceEntry(&confirmed),"confirm owned IPv4 interface");
     if (confirmed.NlMtu != mtu || confirmed.UseAutomaticMetric || confirmed.Metric != row.Metric
-        || confirmed.DadTransmits != 0 || confirmed.LinkLocalAddressBehavior != LinkLocalAlwaysOff || !confirmed.DisableDefaultRoutes)
+        || confirmed.DadTransmits != 0 || confirmed.LinkLocalAddressBehavior != LinkLocalAlwaysOff
+        || confirmed.LinkLocalAddressTimeout != 0 || !confirmed.DisableDefaultRoutes)
         fail("owned IPv4 interface differs",ERROR_INVALID_DATA);
     MIB_UNICASTIPADDRESS_ROW address{};
     InitializeUnicastIpAddressEntry(&address);
