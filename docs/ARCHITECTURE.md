@@ -90,6 +90,8 @@ macOS 的 `readMacDnsSnapshot` 通过公开的 [SCDynamicStoreCopyMultiple](http
 
 按 [R11／S3-01／S7-02](../plan.md)，三平台已由同一应用层会话汇总核心、分流／DNS 和网络接管的生效确认，再向主窗口与托盘发布校园就绪；失败逆向撤销自身修改。核心 `ready` 只是其中一个输入；普通流量、已有终端及真实校园验收仍按计划逐平台完成。界面不另建第二套就绪标志，也不维护分流／恢复规则。
 
+应用退出在代理恢复、连接停止及凭据续接均确认完成后才发布可退出；事件循环延迟检查不会把已完成的清理误报为超时。截止时间只对仍未完成的工作生效，未恢复责任仍保留并明确报错；超时不销毁活动对象，也不允许重连。
+
 `UpdateChecker` 从已加载库读取提交、工作树状态、ABI、平台／架构和 Go 版本。应用更新随 JustConnect 发布；没有独立核心版本探测、上游版本比较或运行时后端回退。
 
 CMake 的 `justconnect_application` 统一编译应用用例、端口及连接状态，仅公开 Qt Core／Network／Concurrent 与项目头文件，不链接 Widgets、WebEngine 或 Go 库。`justconnect_engine` 只实现 C ABI 适配；原生网络接管由独立 `justconnect_network_access` 连接应用端口与系统能力。主程序和主窗口回归共用 `justconnect_desktop` 对象库，保留资源自动注册；应用及独立 Core ABI 回归链接同一应用库，不各自复制产品实现。
