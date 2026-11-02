@@ -47,14 +47,20 @@ int wmain(int argc,wchar_t **argv)
         using Clock=std::chrono::steady_clock;
         auto before=Clock::now();
         std::cout<<"RUN: create\n"<<std::flush;
-        device=WindowsTunDevice::create(argv[1],owner,first,peer,1400,{},[&](const auto &){allocated=true;});
+        ULONG automaticAddressDelay=0;
+        device=WindowsTunDevice::create(argv[1],owner,first,peer,1400,{},[&](const auto &identity){
+            allocated=true;
+            MIB_IPINTERFACE_ROW initial{};initial.Family=AF_INET;initial.InterfaceLuid=identity.luid;
+            check(GetIpInterfaceEntry(&initial)==NO_ERROR,"read initial native automatic-address delay");
+            automaticAddressDelay=initial.LinkLocalAddressTimeout;
+        });
         const auto createMs=std::chrono::duration<double,std::milli>(Clock::now()-before).count();
         const auto identity=device->identity();
         MIB_IPINTERFACE_ROW initial{};initial.Family=AF_INET;initial.InterfaceLuid=identity.luid;
         check(GetIpInterfaceEntry(&initial)==NO_ERROR,"read native automatic-address configuration");
-        check(initial.LinkLocalAddressBehavior==LinkLocalAlwaysOff,"owned interface still allows delayed APIPA");
-        check(initial.LinkLocalAddressTimeout<=10000,"native autoconfiguration delay exceeds the 30-second fixture budget");
-        const auto autoconfigurationWindowMs=initial.LinkLocalAddressTimeout+2000;
+        check(initial.LinkLocalAddressBehavior==LinkLocalAlwaysOff && initial.LinkLocalAddressTimeout==0,"owned interface still allows delayed APIPA");
+        check(automaticAddressDelay<=10000,"native autoconfiguration delay exceeds the 30-second fixture budget");
+        const auto autoconfigurationWindowMs=automaticAddressDelay+2000;
         bool refused=false;try{device->activate(second,nextPeer,1300,{});}catch(const std::system_error &e){refused=e.code().value()==ERROR_INVALID_STATE;}
         check(refused,"an active ring session was silently reused");
         Sleep(autoconfigurationWindowMs);

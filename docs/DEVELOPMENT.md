@@ -172,7 +172,7 @@ Windows 原生设备基准使用同一固定官方签名 DLL：首次创建约 1
 
 `96a32f9` 原生 x64 回归在同一 CI 主机测得创建 224.8 ms、复用 66.7 ms；测试包含活动／空闲各等待 6 秒，空闲阶段确认无 IPv4 地址／捕获，并确认外部手动地址不会被重连覆盖。其使用文档地址和少量捕获，不能替代用户的 158 条捕获或整段连接／CPU 测量；不同主机与系统负载的数字不直接比较。
 
-2026-11-03 `bf437ab` 实测发现空闲后复用 5023：首次接管 2253 ms，park 11 ms，重复连接失败后需恢复确认，随后新建接管 2054 ms。只读检查发现所属空闲接口出现 `169.254.*` 地址，注册表 DHCP／自动寻址均已关闭，但原生接口 `LinkLocalAddressBehavior` 仍为 `LinkLocalDelayed`、超时 6500 ms，超过旧回归的 6000 ms。修复通过现有 `SetIpInterfaceEntry` 设置并回读 `LinkLocalAlwaysOff`，不增加进程／依赖；含义见 [Microsoft 接口契约](https://learn.microsoft.com/en-us/windows/win32/api/netioapi/ns-netioapi-mib_ipinterface_row)。测试按系统延迟加调度余量等待，并检查空闲后仍禁用自动地址、重复启停及外部地址拒绝；原生验证与新包尚待完成。
+2026-11-03 `bf437ab` 实测发现空闲后复用 5023：首次接管 2253 ms，park 11 ms，重复连接失败后需恢复确认，随后新建接管 2054 ms。只读检查发现所属空闲接口出现 `169.254.*` 地址，注册表 DHCP／自动寻址均已关闭，但原生接口 `LinkLocalAddressBehavior` 仍为 `LinkLocalDelayed`、超时 6500 ms，超过旧回归的 6000 ms。原生配置修复同时关闭该行为和计时器并回读，不增加进程／依赖；含义见 [Microsoft 接口契约](https://learn.microsoft.com/en-us/windows/win32/api/netioapi/ns-netioapi-mib_ipinterface_row)。测试在配置前读取系统延迟，据此加调度余量等待，并检查空闲后仍禁用自动地址、重复启停及外部地址拒绝；仅改行为标志的原生检查失败已保留，修正配置的原生验证与新包尚待完成。
 
 同轮 250 ms 原生进程采样中，连接约 95 秒的 DNS Client 峰值 7.23%、平均 0.47%，助手平均 0.002%；期间无路由变更、两次接口通知。后续断开尾部峰值约 41.86%，稳定空闲段仍有周期峰值；采样按 32 逻辑处理器归一，不能从时间相关性确认单一触发源，也不宣称 APIPA 修复已解决全部周期占用。证据归 `build/reports/windows-runtime-bf437ab/summary.json`；第二段观察结束早于第三次成功接管及最终断开，不覆盖这两次 CPU。
 
