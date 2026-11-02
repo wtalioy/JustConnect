@@ -11,6 +11,7 @@ ARCH="${4:-x86_64}"
 
 case "$ARCH" in
     x86_64|aarch64) APPIMAGE_ARCH="$ARCH" ;;
+    arm64) APPIMAGE_ARCH="aarch64" ;;
     *) echo "Unsupported AppImage architecture: $ARCH" >&2; exit 1 ;;
 esac
 
