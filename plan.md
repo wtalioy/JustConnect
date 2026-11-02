@@ -15,15 +15,15 @@
 | --- | --- |
 | 阶段进度 | S3—S6 **23／23 全部勾选**；全计划 64 项已收尾 45 项、剩余 19 项（含最终验收）。S1-04 真实样本、S2-06 真实注销仍待；下一阶段 S7 |
 | Windows 实测 | `f8cdcee`／Windows 11 26H2：系统代理开／TUN 关与系统代理关／TUN 开均正常接管、断开，无原网络读取告警；接管 1951／2259 ms，恢复 142／186 ms。TUN 周期性 CPU 仍在，联合采样显示 Tailscale 与 DNS Client 同步峰值，不记性能验收通过 |
-| 当前跟踪 | **A10 部分通过：主动断开告警已验，Tailscale 同开周期性 CPU／原直连保持仍待实测**。临时停用对照确认 Tailscale 参与触发，未确认 Windows DNR 单一根因；地址池保护已补回归。A11 修复退出／取消误报及打包链路，本地通过；`73b734d` 最终自动检查／实际包进行中。S7／S8 原安排保留 |
-| 当前交付 | 已验基线仍为 [`f8cdcee`](https://github.com/wtalioy/JustConnect/actions/runs/41319052175/artifacts/13089610008)；[`ef0caa7` Windows x64 CPU 候选](https://github.com/wtalioy/JustConnect/actions/runs/41383705266/artifacts/13114424500) 已交同开复测。最终 `73b734d` 的[Tests](https://github.com/wtalioy/JustConnect/actions/runs/41389111601)、[Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/41389111749)与[实际包](https://github.com/wtalioy/JustConnect/actions/runs/41389130166)待验；对应源码 744 个文件已与提交逐一比对 |
+| 当前跟踪 | **A10 部分通过：主动断开告警已验，地址池保护已完成自动验收，Tailscale 同开周期性 CPU／原直连保持仍待实测**。停用对照确认 Tailscale 参与触发，未确认 Windows DNR 单一根因；A11 已收尾。S7／S8 原安排保留 |
+| 当前交付 | [`73b734d` Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/41389130166/artifacts/13117505251) 为当前完整自动验收包；六组包见下表。Windows 校园接管／断开实测仍引用 `f8cdcee`；新包同开 CPU／直连复测待用户安排，不能用自动检查替代 |
 
 ## 当前验收基线
 
 | 范围 | 当前结论与证据 |
 | --- | --- |
-| 正式自动检查 | `f8cdcee` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/41318949893)与[六架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/41318949851)全部通过，包含 Windows 原生快照失效／失败回归及正式会话主动断开；原保护／恢复与 SDK 4096 包／30 秒门槛保留。macOS x64 首次拉取遇 runner DNS 故障，未改源码重跑通过 |
-| 实际包／源码 | `f8cdcee` 的[六组实际包及源码](https://github.com/wtalioy/JustConnect/actions/runs/41319052175)全部通过；已下载核对六份实际包报告及对应源码的 741 个文件。证据 `build/reports/windows-dns-poll-7696493/{coreabi-matrix,packages-summary}.json`；原生 CI 验证实际包，本地未另做 Windows 包离线启动 |
+| 正式自动检查 | `73b734d` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/41389111601)与[六架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/41389111749)全部通过；含退出延迟轮询、原生代理取消、真实助手／恢复／接管、Windows 官方 SDK 4096 包／30 秒及实际 Mihomo TUN 控制检查，未放宽超时或跳过必需项。证据 `build/reports/shutdown-package-ef0caa7/{tests,coreabi}-73b734d-final.json` |
+| 实际包／源码 | `73b734d` 的[六组实际包及源码](https://github.com/wtalioy/JustConnect/actions/runs/41389130166)全部通过；已核对六份实际包报告及对应源码的 744 个文件。证据 `build/reports/shutdown-package-ef0caa7/{actual-reports-73b734d-summary,source-73b734d-summary,packages-73b734d-final}.json`；原生 CI 验证实际包，本地未另做 Windows／macOS 包离线启动 |
 | Windows 修复／性能 | 正常断开修复已实测；DNS 批量刷新、持久进度、部分失败和后续所有权已双架构原生验证。接口查询及 `70f90a5` 接管／断开 CPU 优化已实测通过；`build/reports/windows-restore-9d95b37/summary.json`、`build/reports/windows-dns-cpu-da23405/summary.json` |
 | 阶段矩阵 | `build/reports/v1-matrix.json` 汇总当前三平台受控证据及 Windows 实测；未测发布格保留在 V1—V7，阶段勾选不等于完整发布验收 |
 
@@ -279,8 +279,8 @@ V7 逐项记录日常使用要求，包含首次确认服务器、窗口／托�
 | A7 | 性能优先的全仓复查与持续精简：仅实现实际调用链有收益且可验证的改进，不为形式引入框架／兼容层 | **自动验证与复查收尾完成，待新包用户回归**。原 DNS 监听复用一次接口查询；出站包复用现有缓冲池，Windows 微基线 328—390→109—122 ns／包、1330 B／2 次分配→0；连接键 223→26—29 ns、6→1 次分配；空闲认证批次 6528 B／次→0。本地完整／race／Windows 原生、上表三组 CI 与六组实际包通过。删除旧拼包助手／专属测试及本轮临时二进制，保留异步所有权拷贝、保护／恢复回归与唯一失败证据；复查 Go、C ABI、C++ 助手及 Qt 实际调用链，未发现另一处收益明确的优先热点，不声称绝对最优。[测量与边界](docs/DEVELOPMENT.md#数据包转发分配基线)，`build/reports/performance-2d0bbd3/summary.json`；整体 CPU／吞吐及本版用户回归未测 |
 | A8 | 全仓源码／测试审查与优化重构，保留必要回归，最终自动检查与实际包通过后交付实测 | **审查、优化及自动验收已收尾，待用户实测**。维护源码、调用方、测试契约／注册及构建／CI 已复查；热路径分配／索引、节点探测、Qt 缓冲／对象复用、认证复用及职责清理已验，阻塞心跳和单实例 IPC 短帧越界已修复。删除重复烟测、无调用后端／报文 API／旧采集器及专属测试，清理 25 份重复本地审查产物；保留独有安全、取消、恢复及平台回归。最终证据见上表；macOS 历史 DNS 偶发超时根因未确认，严格回归本轮通过且保留有界失败诊断。迁移删除条件、[测量／审查边界](docs/DEVELOPMENT.md#全仓审查与测试保留范围)归开发说明，清单／证据 `build/reports/review-0684a4b/` |
 | A9 | 进一步全仓性能／职责／复用审查及必要测试精简；完成自动验证与实际包后交用户实测 | **审查、优化、清理及自动验收已收尾，用户复测问题续 A10**。修复 11 条认证响应读取错误；SOCKS UDP IPv4 基线 88 B／5 次分配→0，静态 DNS 每查询减 24 B／2 次分配。共享 C++ 应用／桌面实现将编译清单 316→225，应用源码 81→14 次；上表同版三平台 Tests／六架构 ABI／六组实际包通过；重复 Python 注册已清理，保留安全／取消／恢复／平台独有契约。范围、测量及保留理由见[开发说明](docs/DEVELOPMENT.md#全仓审查与测试保留范围)，临时程序、重复源码／采样和 272 个旧构建产物已清理；保留当前 SDK／构建及关键报告。清单／原始证据 `build/reports/review-2aedac8/`；整体 CPU／校园回归待实测。 |
-| A10 | Windows 主动断开原网络告警与 TUN 周期性 DNS Client CPU | **部分通过：告警已实测修复，同开 CPU／直连保持未验**。`f8cdcee` 两主组合正常接管／断开已验；Tailscale 停用对照不算解决。活动双栈接口的官方地址池保护覆盖未发现对端，构造场景捕获前缀 102→2，旧实现回归失败、19 项本地调用链及 `ef0caa7` 三平台 Tests／六架构 ABI 通过；最终包见当前交付。直连基线待 Mac 调整 aTrust 后补验。[测量与边界](docs/DEVELOPMENT.md#windows-网卡查询与-cpu-采样)，证据 `build/reports/windows-dns-poll-f8cdcee/{summary,overlay-scope-summary,path-baseline-summary}.json`；临时探针已清理，关键样本／栈保留，未改全局 DNS |
-| A11 | 退出／取消错误及实际包链路故障 | **本地通过，最终 CI／实际包待**。退出完成后延迟轮询不再误报超时，真实未完成／恢复失败仍拒绝退出，确定性旧源码回归失败、13 项本地调用链通过；代理原生所有权校验保留取消原因，官方 Mihomo／核心调用方竞态回归通过，macOS x64 待复验。Linux 使用固定官方工具版本／双架构哈希及原生 strip，补齐工作流 ARM64 名称映射；47 项 Python 检查通过。原生 x64 AppImage 烟测通过（裸 WSL 的桌面系统库由私有 SDK 提供，Qt 来自包内），不替代最终精确源码／ARM64 包。已清理临时镜像和展开目录，保留工具／SDK／关键报告 `build/reports/shutdown-package-ef0caa7/`；最终检查见当前交付 |
+| A10 | Windows 主动断开原网络告警与 TUN 周期性 DNS Client CPU | **部分通过：告警已实测修复，同开 CPU／直连保持未验**。`f8cdcee` 两主组合正常接管／断开已验；Tailscale 停用对照不算解决。活动双栈接口的官方地址池保护覆盖未发现对端，构造场景捕获前缀 102→2，旧实现回归失败、19 项本地调用链及 `73b734d` 三平台 Tests／六架构 ABI／六组实际包通过；最终包见当前交付。直连基线待 Mac 调整 aTrust 后补验。[测量与边界](docs/DEVELOPMENT.md#windows-网卡查询与-cpu-采样)，证据 `build/reports/windows-dns-poll-f8cdcee/{summary,overlay-scope-summary,path-baseline-summary}.json`；临时探针已清理，关键样本／栈保留，未改全局 DNS |
+| A11 | 退出／取消错误及实际包链路故障 | **已收尾**。退出完成后延迟轮询不再误报超时，真实未完成／恢复失败仍拒绝退出；原生代理所有权校验保留取消原因。Linux 固定官方工具版本／双架构哈希及原生 strip，补齐工作流 ARM64 名称映射。确定性旧源码回归、13 项退出调用链、官方 Mihomo／核心竞态及 47 项 Python 检查均已验证，最终三平台 Tests／六架构 ABI／六组实际包及源码通过，见当前验收基线。已清理临时镜像、展开目录、完成的监视日志和重复源码包；保留工具／SDK／构建与关键报告 `build/reports/shutdown-package-ef0caa7/` |
 
 ## 上游问题转化为库化验收
 

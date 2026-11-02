@@ -156,7 +156,7 @@ Windows `7696493` 后续实测：系统代理开启时主动断开仍报原网�
 
 Tailscale 正式验收保持开启：在同一对端与网络／Clash 配置下，先通过实际通信和 `tailscale ping` 确认可稳定直连，再比较 JustConnect 接管前／连接中／断开后的路径、连通与 CPU；保留控制面、中继、STUN／打洞及对端传输原出口，不硬编码对端／中继地址或端口替代真实发现。覆盖网路由、MagicDNS 解析相同不等于外层 UDP／TCP 路径未变；`status` 的 Relay 字段仅为配置事实，不能替代实际路径，初始探测短暂中继也不单独判为退化。当前用户 Mac 开启 aTrust，四次基线探测均中继；用户确认后续可准备可直连环境，未据此宣称 JustConnect 已导致／修复直连退化。基线归 `build/reports/windows-dns-poll-f8cdcee/path-baseline-summary.json`。
 
-地址池保护补充：同一实际活动接口的官方 IPv4／IPv6 地址特征识别 Tailscale，完整保护地址池，保留原接口来源及现有校园选择／撤回；不添加发现进程、IPC 或固定对端／中继列表。新回归在旧源码捕获未发现的对端，五条分散对端路由产生 102 个捕获前缀；修复后同一输入为 2 个，边界校园地址仍可达。缺少地址特征、状态／索引不明、回环及地址分属不同接口均不扩展保护，原始网络事实不变。19 项本地网络模型／策略／界面／会话调用链通过，跨平台 CI／实际包及整机 CPU／直连复测待验；不能以这个构造输入的前缀减少量推定整机性能。证据 `build/reports/windows-dns-poll-f8cdcee/overlay-scope-summary.json`。
+地址池保护补充：同一实际活动接口的官方 IPv4／IPv6 地址特征识别 Tailscale，完整保护地址池，保留原接口来源及现有校园选择／撤回；不添加发现进程、IPC 或固定对端／中继列表。新回归在旧源码捕获未发现的对端，五条分散对端路由产生 102 个捕获前缀；修复后同一输入为 2 个，边界校园地址仍可达。缺少地址特征、状态／索引不明、回环及地址分属不同接口均不扩展保护，原始网络事实不变。19 项本地网络模型／策略／界面／会话调用链及 `73b734d` 三平台 Tests／六架构 ABI／六组实际包通过（链接见[当前验收基线](../plan.md#当前验收基线)）；整机 CPU／直连复测待验，不能以这个构造输入的前缀减少量推定整机性能。证据 `build/reports/windows-dns-poll-f8cdcee/overlay-scope-summary.json`。
 
 ## 数据包转发分配基线
 
@@ -234,7 +234,7 @@ Windows 为 ZIP（完整解压并保留核心 DLL），macOS 为 DMG，Linux 为
 
 每次打包由 [archive-source.py](../scripts/archive-source.py) 导出同一干净提交的完整维护源码及摘要，附 `source-revision.txt`，支持无 `.git` 的 CMake 重建并标记 `source_state:archive`。包检查拒绝旧独立核心、旧来源目录与 Wintun。macOS 当前最低 14.4；Linux glibc／GLIBCXX 下限以实际包报告为准。静态字段检查不代替旧系统实机兼容验证。
 
-Linux AppImage 工具由 `scripts/linuxdeploy.json` 固定官方版本标签及双架构 SHA-256，`linuxdeploy_tools.py` 核对下载和缓存字节；更新先审查官方发布，不使用移动的 continuous 下载地址。当前为 [linuxdeploy 1-alpha-20251107-1](https://github.com/linuxdeploy/linuxdeploy/releases/tag/1-alpha-20251107-1) 与 [Qt 插件 1-alpha-20250213-1](https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/tag/1-alpha-20250213-1)，四份实际文件已核对。打包器内置 strip 不支持当前 ELF `.relr.dyn`，依赖复制后由本机 `strip --strip-unneeded` 处理所属 ELF，跳过符号链接和非 ELF，失败直接终止；随后安装 CoreRuntime 并生成镜像，保持核心组件原有哈希／导出。原生小库验证符号保留／体积减少、外部链接不改及失败传播；缓存改写／来源变化与未知架构拒绝。构建检查及清理归 `build/reports/shutdown-package-ef0caa7/`，精确源码的六组实际包仍须通过 CI。 AppImage 的 `.DirIcon` 使用构建目标 `linux_package_icon` 从唯一源 `resource/icon.svg` 渲染的 256×256 PNG；仅构建时使用现有 Qt SVG，不安装渲染工具或增加应用依赖。本地同版工具的 SVG 拒绝／PNG 成包解包回归及无效输入／写入失败记录归 `build/reports/s6/linux-icon-regression.json`。
+Linux AppImage 工具由 `scripts/linuxdeploy.json` 固定官方版本标签及双架构 SHA-256，`linuxdeploy_tools.py` 核对下载和缓存字节；更新先审查官方发布，不使用移动的 continuous 下载地址。当前为 [linuxdeploy 1-alpha-20251107-1](https://github.com/linuxdeploy/linuxdeploy/releases/tag/1-alpha-20251107-1) 与 [Qt 插件 1-alpha-20250213-1](https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/tag/1-alpha-20250213-1)，四份实际文件已核对。打包器内置 strip 不支持当前 ELF `.relr.dyn`，依赖复制后由本机 `strip --strip-unneeded` 处理所属 ELF，跳过符号链接和非 ELF，失败直接终止；随后安装 CoreRuntime 并生成镜像，保持核心组件原有哈希／导出。原生小库验证符号保留／体积减少、外部链接不改及失败传播；缓存改写／来源变化与未知架构拒绝。构建检查及清理归 `build/reports/shutdown-package-ef0caa7/`，`73b734d` 精确源码的三平台 Tests／六架构 ABI／六组实际包已通过，ARM64 名称映射及原生打包已覆盖。 AppImage 的 `.DirIcon` 使用构建目标 `linux_package_icon` 从唯一源 `resource/icon.svg` 渲染的 256×256 PNG；仅构建时使用现有 Qt SVG，不安装渲染工具或增加应用依赖。本地同版工具的 SVG 拒绝／PNG 成包解包回归及无效输入／写入失败记录归 `build/reports/s6/linux-icon-regression.json`。
 
 ## 不需申请签名的开发与发行
 
