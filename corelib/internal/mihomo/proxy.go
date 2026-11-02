@@ -88,7 +88,12 @@ func (c *Client) ObserveProxy(ctx context.Context, proofs ...ListenerProof) (Pro
 	return info, nil
 }
 
-func dialOwnedTCP(ctx context.Context, process model.Process, address netip.AddrPort, proof *ListenerProof) (net.Conn, error) {
+func dialOwnedTCP(ctx context.Context, process model.Process, address netip.AddrPort, proof *ListenerProof) (result net.Conn, resultErr error) {
+	defer func() {
+		if resultErr != nil && ctx.Err() != nil {
+			resultErr = ctx.Err()
+		}
+	}()
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
