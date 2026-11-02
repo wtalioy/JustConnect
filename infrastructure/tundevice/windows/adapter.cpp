@@ -119,6 +119,20 @@ std::unique_ptr<WindowsTunDevice> WindowsTunDevice::create(const std::wstring &d
         present = present || table->Table[i].InterfaceGuid == owner || device->owned.name == table->Table[i].Alias;
     FreeMibTable(table);
     if (present) fail("refuse existing adapter identity",ERROR_ALREADY_EXISTS);
+    // TCP/IP reads automatic-address policy when the new interface first binds.
+    const auto settings=std::wstring(L"SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces\\")+guid;
+    HKEY key=nullptr;DWORD disposition=0;
+    checked(RegCreateKeyExW(HKEY_LOCAL_MACHINE,settings.c_str(),0,nullptr,0,
+        KEY_QUERY_VALUE|KEY_SET_VALUE|KEY_WOW64_64KEY,nullptr,&key,&disposition),"prepare owned IPv4 configuration");
+    if(disposition!=REG_CREATED_NEW_KEY){RegCloseKey(key);fail("refuse existing IPv4 configuration",ERROR_ALREADY_EXISTS);}
+    struct InitialConfiguration {
+        HKEY key;const std::wstring &path;bool attached=false;
+        ~InitialConfiguration(){RegCloseKey(key);if(!attached)RegDeleteKeyExW(HKEY_LOCAL_MACHINE,path.c_str(),KEY_WOW64_64KEY,0);}
+    } initial{key,settings};
+    const DWORD disabled=0;
+    for(const auto name:{L"EnableDHCP",L"IPAutoconfigurationEnabled"}){
+        checked(RegSetValueExW(key,name,0,REG_DWORD,reinterpret_cast<const BYTE *>(&disabled),sizeof(disabled)),"disable owned automatic IPv4 configuration");
+    }
     device->adapter = createAdapter(device->owned.name.c_str(),L"JustConnect",&owner);
     if (!device->adapter) fail("create owned adapter");
     getLuid(device->adapter,&device->owned.luid);
@@ -127,24 +141,14 @@ std::unique_ptr<WindowsTunDevice> WindowsTunDevice::create(const std::wstring &d
     checked(GetIfEntry2Ex(MibIfEntryNormalWithoutStatistics,&row),"confirm new adapter identity");
     if (row.InterfaceGuid != owner || device->owned.name != row.Alias)
         fail("new adapter identity differs",ERROR_INVALID_DATA);
+    initial.attached=true;
+    for(const auto name:{L"EnableDHCP",L"IPAutoconfigurationEnabled"}){
+        DWORD value=1,size=sizeof(value);
+        checked(RegGetValueW(key,nullptr,name,RRF_RT_REG_DWORD,nullptr,&value,&size),"confirm bound IPv4 configuration");
+        if(value!=disabled)fail("bound IPv4 configuration differs",ERROR_INVALID_DATA);
+    }
     device->owned.index = row.InterfaceIndex;
     allocated(device->owned);
-    // An addressless reusable device must not acquire a Windows APIPA address between sessions.
-    const auto settings=std::wstring(L"SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces\\")+guid;
-    HKEY key=nullptr;
-    checked(RegOpenKeyExW(HKEY_LOCAL_MACHINE,settings.c_str(),0,KEY_QUERY_VALUE|KEY_SET_VALUE|KEY_WOW64_64KEY,&key),"open owned IPv4 configuration");
-    struct CloseKey {HKEY key;~CloseKey(){RegCloseKey(key);}} closeKey{key};
-    const DWORD disabled=0;
-    for(const auto name:{L"EnableDHCP",L"IPAutoconfigurationEnabled"}){
-        DWORD current=1,bytes=sizeof(current);
-        const auto status=RegGetValueW(key,nullptr,name,RRF_RT_REG_DWORD,nullptr,&current,&bytes);
-        if(status!=ERROR_FILE_NOT_FOUND)checked(status,"read owned automatic IPv4 configuration");
-        if(status==ERROR_SUCCESS && current==disabled)continue;
-        checked(RegSetValueExW(key,name,0,REG_DWORD,reinterpret_cast<const BYTE *>(&disabled),sizeof(disabled)),"disable owned automatic IPv4 configuration");
-        DWORD value=1,size=sizeof(value);
-        checked(RegGetValueW(key,nullptr,name,RRF_RT_REG_DWORD,nullptr,&value,&size),"confirm owned automatic IPv4 configuration");
-        if(value!=disabled)fail("owned automatic IPv4 configuration differs",ERROR_INVALID_DATA);
-    }
     device->activate(source,peer,maximum,targets);
     return device;
 }
@@ -226,16 +230,12 @@ void WindowsTunDevice::configure(IN_ADDR source, IN_ADDR peer, const std::vector
     row.Family = AF_INET;
     row.InterfaceLuid = owned.luid;
     checked(GetIpInterfaceEntry(&row),"read owned IPv4 interface");
-    const bool update=row.UseAutomaticMetric || row.Metric!=1 || row.NlMtu!=mtu || row.DadTransmits!=0
-        || row.LinkLocalAddressBehavior!=LinkLocalAlwaysOff || row.LinkLocalAddressTimeout!=0 || !row.DisableDefaultRoutes;
+    const bool update=row.UseAutomaticMetric || row.Metric!=1 || row.NlMtu!=mtu || row.DadTransmits!=0 || !row.DisableDefaultRoutes;
     row.SitePrefixLength = 0; // SetIpInterfaceEntry requires zero for IPv4.
     row.UseAutomaticMetric = FALSE;
     row.Metric = 1;
     row.NlMtu = mtu;
     row.DadTransmits = 0;
-    // An empty parked interface must not acquire a delayed APIPA address.
-    row.LinkLocalAddressBehavior = LinkLocalAlwaysOff;
-    row.LinkLocalAddressTimeout = 0;
     row.DisableDefaultRoutes = TRUE;
     if(update)checked(SetIpInterfaceEntry(&row),"configure owned IPv4 interface");
     MIB_IPINTERFACE_ROW confirmed{};
@@ -243,8 +243,7 @@ void WindowsTunDevice::configure(IN_ADDR source, IN_ADDR peer, const std::vector
     confirmed.InterfaceLuid = owned.luid;
     checked(GetIpInterfaceEntry(&confirmed),"confirm owned IPv4 interface");
     if (confirmed.NlMtu != mtu || confirmed.UseAutomaticMetric || confirmed.Metric != row.Metric
-        || confirmed.DadTransmits != 0 || confirmed.LinkLocalAddressBehavior != LinkLocalAlwaysOff
-        || confirmed.LinkLocalAddressTimeout != 0 || !confirmed.DisableDefaultRoutes)
+        || confirmed.DadTransmits != 0 || !confirmed.DisableDefaultRoutes)
         fail("owned IPv4 interface differs",ERROR_INVALID_DATA);
     MIB_UNICASTIPADDRESS_ROW address{};
     InitializeUnicastIpAddressEntry(&address);
