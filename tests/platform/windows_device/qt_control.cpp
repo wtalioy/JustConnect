@@ -104,7 +104,7 @@ int main(int argc,char **argv) try
     });
     QTimer deadline;deadline.setSingleShot(true);
     QObject::connect(&deadline,&QTimer::timeout,&loop,&QEventLoop::quit);
-    auto wait=[&](auto operation){deadline.start(15000);if(!finished)loop.exec();deadline.stop();check(finished && completed==operation,"Qt control operation deadline");finished=false;check(result.succeeded(),"Qt native control operation failed");};
+    auto wait=[&](auto operation){deadline.start(15000);if(!finished)loop.exec();deadline.stop();check(finished && completed==operation,"Qt control operation deadline");finished=false;if(!result.succeeded())throw std::runtime_error(result.detail.toStdString());};
     client.inspect(session);wait(WindowsNetworkHelperClient::Operation::Inspect);
     if(args[3]=="network"){
         WSADATA sockets{};check(WSAStartup(MAKEWORD(2,2),&sockets)==0,"ordinary network fixture sockets");
