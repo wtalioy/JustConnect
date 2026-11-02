@@ -136,7 +136,9 @@ ctest --test-dir build/coreabi -C Release -R coreabi_performance_test --output-o
 
 节点选线保留三次真实 TLS 探测、500 ms 采样周期、1 秒单次超时、丢包惩罚和 WAN／LAN 回退；首次探测立即执行，避免认证后先空等一个采样周期。此公共路径同时用于三平台首次连接和节点维护，不更改证书策略、探测次数或错误处理。`TestProbeStartsImmediatelyAndWaitsOnlyBetweenAttempts` 在旧实现因首次等待而失败，修改后通过，并覆盖后续等待和取消；原有部分成功、信任失败和拨号／握手取消回归保留。
 
-本地 Linux x64 正式 C ABI 宿主仍执行正常／额外 5 ms 节点延迟、各 20 次认证连接／停止及 TCP／UDP 逐字节回显，连接中位数分别为 1008.16／1013.35 ms，停止中位数为 0.196／0.210 ms；结果归 `build/reports/node-probe-start/`。该测量不含系统网卡接管，不能用于推定校园认证、DNS Client CPU 或完整按钮响应时间。Windows 网卡复用包 `bf437ab` 的用户复测独立保留。
+同一 Linux x64 主机各测三轮、每轮三次真实 TLS 握手，中位耗时从 1502.93 ms 降为 1002.64 ms，减少 500.29 ms；前后只替换探测实现，临时测量源码已清理。本地正式 C ABI 宿主的正常／额外 5 ms 节点延迟场景，各执行 20 次认证连接／停止及 TCP／UDP 逐字节回显，连接中位数分别为 1008.16／1013.35 ms，停止中位数为 0.196／0.210 ms。
+
+`66386bb` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/41470973559)与[六架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/41470973528)全部通过；六份正式性能报告逐一核对干净源码版本及真实核心，正常节点连接中位数为 1008.59—1023.59 ms。结果归 `build/reports/node-probe-start/`。该测量不含系统网卡接管，不能用于推定校园认证、DNS Client CPU 或完整按钮响应时间；未重复打包，Windows 网卡复用交付包 `bf437ab` 的用户复测独立保留。
 
 ## Windows 网卡查询与 CPU 采样
 
