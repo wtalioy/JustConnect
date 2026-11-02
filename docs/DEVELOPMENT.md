@@ -166,7 +166,7 @@ Windows 原生设备基准使用同一固定官方签名 DLL：首次创建约 1
 
 同主机 JustConnect 已断开、Tailscale 与 Clash TUN 开启时的 60 秒原生进程 CPU 采样：DNS Client 所在服务进程中位 0%、P95 1.44%、峰值 2.45%。因此用户所见余留 2%—3% 不能全部归因 JustConnect；此对照与连接观察不是同一分钟，不据此认定无增量。原始样本、设备生命周期日志与测量边界归同报告目录；不通过降低网络观察频率或删除安全回读换取数字。
 
-代理拨号失败的取消归因同时检查 `ctx.Err()` 与绝对截止时间，避免 Windows／race 下计时器回调尚未交付时，把已到期请求归一成控制器不可用；成功路径不新增时钟读取或分配。可控上下文确定性验证“截止已到但回调未交付”及未来截止，旧实现前者失败，修复后 Linux race 十轮与 Windows 原生百轮通过；原 1 ns／1 ms／50 ms 实际协议协商回归保持。证据 `build/reports/windows-network-cost-73b734d/deadline-*.log`；新提交的完整 CI 待验。
+代理拨号失败的取消归因同时检查 `ctx.Err()` 与绝对截止时间，避免 Windows／race 下计时器回调尚未交付时，把已到期请求归一成控制器不可用；成功路径不新增时钟读取或分配。可控上下文确定性验证“截止已到但回调未交付”及未来截止，旧实现前者失败，修复后 Linux race 十轮与 Windows 原生百轮通过；原 1 ns／1 ms／50 ms 实际协议协商回归保持。证据 `build/reports/windows-network-cost-73b734d/deadline-*.log`；`bf437ab` 的三平台 Tests／六架构 Core ABI 已通过，实际包与交付状态见计划。
 
 ## 数据包转发分配基线
 
