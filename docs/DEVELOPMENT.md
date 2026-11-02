@@ -132,6 +132,12 @@ ctest --test-dir build/coreabi -C Release -R coreabi_performance_test --output-o
 | Linux x64 | 68.43 | 107.678／4.949 |
 | Linux ARM64 | 86.04 | 225.030／5.295 |
 
+## 节点探测启动等待
+
+节点选线保留三次真实 TLS 探测、500 ms 采样周期、1 秒单次超时、丢包惩罚和 WAN／LAN 回退；首次探测立即执行，避免认证后先空等一个采样周期。此公共路径同时用于三平台首次连接和节点维护，不更改证书策略、探测次数或错误处理。`TestProbeStartsImmediatelyAndWaitsOnlyBetweenAttempts` 在旧实现因首次等待而失败，修改后通过，并覆盖后续等待和取消；原有部分成功、信任失败和拨号／握手取消回归保留。
+
+本地 Linux x64 正式 C ABI 宿主仍执行正常／额外 5 ms 节点延迟、各 20 次认证连接／停止及 TCP／UDP 逐字节回显，连接中位数分别为 1008.16／1013.35 ms，停止中位数为 0.196／0.210 ms；结果归 `build/reports/node-probe-start/`。该测量不含系统网卡接管，不能用于推定校园认证、DNS Client CPU 或完整按钮响应时间。Windows 网卡复用包 `bf437ab` 的用户复测独立保留。
+
 ## Windows 网卡查询与 CPU 采样
 
 A6 的 `da23405` 实机记录中，DNS Client 峰值 86.3%，新增／删除路由各一批后仍有高占用尾部；WPR CPU 栈约 92.7% 的累计样本经过 NDIS，未取得该系统版本的公开函数符号，不据此确认 DNR 内部缺陷。记录归 `build/reports/windows-dns-cpu-da23405/summary.json`，原始 ETL 保留在用户临时目录。

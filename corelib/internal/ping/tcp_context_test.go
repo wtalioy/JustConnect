@@ -11,6 +11,39 @@ import (
 	"time"
 )
 
+func TestProbeStartsImmediatelyAndWaitsOnlyBetweenAttempts(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer server.Close()
+	policy := server.Client().Transport.(*http.Transport).TLSClientConfig
+	target := Target{Address: server.Listener.Addr().String(), Counter: 1, Interval: time.Hour, Timeout: time.Second}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	result := Probe(ctx, target, nil, policy)
+	if result.Counter != 1 || result.SuccessCounter != 1 || result.Err != nil {
+		t.Fatalf("first TLS probe waited for the interval: %+v", result)
+	}
+
+	ctx, cancel = context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	target.Counter = 3
+	attempts := 0
+	result = Probe(ctx, target, func(context.Context, string, string) (net.Conn, error) {
+		attempts++
+		return nil, errors.New("unreachable node")
+	}, policy)
+	if result.Counter != 1 || attempts != 1 || result.SuccessCounter != 0 {
+		t.Fatalf("probe did not wait between attempts or stop on cancellation: attempts=%d, result=%+v", attempts, result)
+	}
+
+	result = Probe(ctx, target, func(context.Context, string, string) (net.Conn, error) {
+		t.Fatal("cancelled probe started a dial")
+		return nil, nil
+	}, policy)
+	if result.Counter != 0 {
+		t.Fatalf("cancelled probe counted an attempt: %+v", result)
+	}
+}
+
 func TestProbeCancellationInterruptsBlockedDial(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
