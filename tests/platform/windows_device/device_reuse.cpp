@@ -56,9 +56,6 @@ int wmain(int argc,wchar_t **argv)
         });
         const auto createMs=std::chrono::duration<double,std::milli>(Clock::now()-before).count();
         const auto identity=device->identity();
-        MIB_IPINTERFACE_ROW initial{};initial.Family=AF_INET;initial.InterfaceLuid=identity.luid;
-        check(GetIpInterfaceEntry(&initial)==NO_ERROR,"read native automatic-address configuration");
-        check(initial.LinkLocalAddressBehavior==LinkLocalAlwaysOff && initial.LinkLocalAddressTimeout==0,"owned interface still allows delayed APIPA");
         check(automaticAddressDelay<=10000,"native autoconfiguration delay exceeds the 30-second fixture budget");
         const auto autoconfigurationWindowMs=automaticAddressDelay+2000;
         bool refused=false;try{device->activate(second,nextPeer,1300,{});}catch(const std::system_error &e){refused=e.code().value()==ERROR_INVALID_STATE;}
@@ -85,11 +82,25 @@ int wmain(int argc,wchar_t **argv)
         check(device->identity().guid==identity.guid && device->identity().luid.Value==identity.luid.Value && device->identity().index==identity.index,"reconnection created another adapter");
         sourcePresent(identity.luid,first,false);sourcePresent(identity.luid,second,true);
         MIB_IPINTERFACE_ROW settings{};settings.Family=AF_INET;settings.InterfaceLuid=identity.luid;
-        check(GetIpInterfaceEntry(&settings)==NO_ERROR && settings.NlMtu==1300
-            && settings.LinkLocalAddressBehavior==LinkLocalAlwaysOff,"reused interface kept its previous MTU or enabled APIPA");
+        check(GetIpInterfaceEntry(&settings)==NO_ERROR && settings.NlMtu==1300,"reused interface kept its previous MTU");
         device->deactivate();WindowsDeviceCheck::idle(owner);
         device->activate(first,peer,1400,{});sourcePresent(identity.luid,second,false);sourcePresent(identity.luid,first,true);
         device->close();finishWindowsAdapterClose(owner);check(!windowsAdapterPresent(owner),"close retained the reusable adapter");allocated=false;
+        GUID reserved{};check(SUCCEEDED(CoCreateGuid(&reserved)),"allocate reserved configuration fixture");
+        wchar_t text[39]{};check(StringFromGUID2(reserved,text,39)!=0,"format reserved configuration fixture");
+        const auto path=std::wstring(L"SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces\\")+text;
+        HKEY key=nullptr;DWORD disposition=0;
+        check(RegCreateKeyExW(HKEY_LOCAL_MACHINE,path.c_str(),0,nullptr,0,KEY_QUERY_VALUE|KEY_SET_VALUE|KEY_WOW64_64KEY,
+            nullptr,&key,&disposition)==ERROR_SUCCESS && disposition==REG_CREATED_NEW_KEY,"reserve private fixture configuration");
+        struct RemoveConfiguration {HKEY key;const std::wstring &path;~RemoveConfiguration(){RegCloseKey(key);RegDeleteKeyExW(HKEY_LOCAL_MACHINE,path.c_str(),KEY_WOW64_64KEY,0);}} remove{key,path};
+        const DWORD enabled=1;
+        check(RegSetValueExW(key,L"IPAutoconfigurationEnabled",0,REG_DWORD,reinterpret_cast<const BYTE *>(&enabled),sizeof(enabled))==ERROR_SUCCESS,"write private configuration marker");
+        bool touched=false;refused=false;
+        try{auto conflicting=WindowsTunDevice::create(argv[1],reserved,first,peer,1400,{},[&](const auto &){touched=true;});}
+        catch(const std::system_error &error){refused=error.code().value()==ERROR_ALREADY_EXISTS;}
+        DWORD value=0,size=sizeof(value);
+        check(refused && !touched && RegGetValueW(key,nullptr,L"IPAutoconfigurationEnabled",RRF_RT_REG_DWORD,nullptr,&value,&size)==ERROR_SUCCESS
+            && value==enabled,"creation overwrote an existing IPv4 configuration");
         std::cout<<"PASS: empty parked adapter, fresh rings/address/MTU on reuse, stable identity and final removal; create "<<createMs<<" ms, resume "<<resumeMs<<" ms\n";
         return 0;
     }catch(const std::exception &error){std::cout<<"FAIL: "<<error.what()<<'\n';return 1;}

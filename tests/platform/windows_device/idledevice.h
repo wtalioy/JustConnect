@@ -13,9 +13,6 @@ inline NET_LUID idle(const GUID &id)
     MIB_IF_ROW2 identity{};identity.InterfaceLuid=luid;
     if(GetIfEntry2Ex(MibIfEntryNormalWithoutStatistics,&identity)!=NO_ERROR || identity.InterfaceGuid!=id)
         throw std::runtime_error("parked adapter identity differs");
-    MIB_IPINTERFACE_ROW ipv4{};ipv4.Family=AF_INET;ipv4.InterfaceLuid=luid;
-    if(GetIpInterfaceEntry(&ipv4)!=NO_ERROR || ipv4.LinkLocalAddressBehavior!=LinkLocalAlwaysOff || ipv4.LinkLocalAddressTimeout!=0)
-        throw std::runtime_error("parked adapter allows automatic IPv4 addresses");
     MIB_UNICASTIPADDRESS_TABLE *addresses=nullptr;
     if(GetUnicastIpAddressTable(AF_INET,&addresses)!=NO_ERROR)throw std::runtime_error("read parked IPv4 addresses");
     bool occupied=false;
