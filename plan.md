@@ -1,6 +1,6 @@
 # JustConnect 实施计划与进度
 
-更新日期：2026-11-02。S3—S6 已按 Windows／Fudan 阶段范围收尾，A9 全仓审查及 A11 自动验收已收尾。`bf437ab` 已完成运行期助手／空闲网卡复用与共享代理截止时间修复，三平台 Tests、六架构 Core ABI、六组实际包及源码全部通过；用户下载后补测 CPU 与两轮连接耗时。跨平台实机与完整发布矩阵仍归 S8，保持未验证。
+更新日期：2026-11-02。S3—S6 已按 Windows／Fudan 阶段范围收尾，A9 全仓审查及 A11／A12 自动验收已收尾。交付包 `bf437ab` 的运行期助手／空闲网卡复用等待用户补测 CPU 与两轮连接耗时；公共节点探测优化 `66386bb` 已通过三平台 Tests 和六架构 Core ABI，同机减少约 500 ms 空等。跨平台实机与完整发布矩阵仍归 S8，保持未验证。
 
 ## 使用方式
 
@@ -22,7 +22,7 @@
 
 | 范围 | 当前结论与证据 |
 | --- | --- |
-| 正式自动检查 | `bf437ab` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/41457721609)与[六架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/41457721711)全部通过；Intel Mac 因 runner 环境异常重试后通过，同版其它五组有效结果保留。Windows 两架构各 41 项 CTest 及官方 SDK 4096 包／30 秒通过，x64 原 1 ns race 用例通过，期限／断言未放宽。证据 `build/reports/windows-network-cost-73b734d/{tests,coreabi}-bf437ab-final.json`。 |
+| 正式自动检查 | 当前源码 `66386bb` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/41470973559)与[六架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/41470973528)全部通过；六份正式性能报告已逐一核对真实核心／干净源码版本，证据 `build/reports/node-probe-start/{tests,coreabi}-final.json`。交付包 `bf437ab` 的独立通过证据保留于 `build/reports/windows-network-cost-73b734d/{tests,coreabi}-bf437ab-final.json`。 |
 | 实际包／源码 | `bf437ab` 的[六组实际包及源码](https://github.com/wtalioy/JustConnect/actions/runs/41457806799)全部通过；六份原生包报告、核心／助手来源与依赖已逐份核对，对应源码 745 个文件已逐字节核对。证据同报告目录的 `{actual-reports-bf437ab-summary,source-bf437ab-summary,packages-bf437ab-final}.json`；本地未另做完整 Windows／macOS 包离线启动，实际包由原生 CI 验证。 |
 | Windows 修复／性能 | 正常断开修复已实测；DNS 批量刷新、持久进度、部分失败和后续所有权已双架构原生验证。接口查询及 `70f90a5` 接管／断开 CPU 优化已实测通过；`build/reports/windows-restore-9d95b37/summary.json`、`build/reports/windows-dns-cpu-da23405/summary.json` |
 | 阶段矩阵 | `build/reports/v1-matrix.json` 汇总当前三平台受控证据及 Windows 实测；未测发布格保留在 V1—V7，阶段勾选不等于完整发布验收 |
@@ -281,7 +281,7 @@ V7 逐项记录日常使用要求，包含首次确认服务器、窗口／托�
 | A9 | 进一步全仓性能／职责／复用审查 | **审查、优化及自动验收已收尾，Windows 校园访问与直连保持已实测；余留性能续 A10**。修复 11 条认证响应读取错误；SOCKS UDP IPv4 与静态 DNS 减少分配，共享编译清单 316→225。清理重复测试注册、临时程序及 272 个旧产物，保留 SDK／当前构建和独有回归。[范围与测量](docs/DEVELOPMENT.md#全仓审查与测试保留范围)，`build/reports/review-2aedac8/`。 |
 | A10 | Windows 主动断开告警、TUN／Tailscale 共存与性能 | **功能／直连保持实测通过，运行期复用待新版性能复测**。已实现助手／空闲网卡复用，断开清接管及收发环，退出／崩溃清设备；关闭所属接口自动寻址，延迟空闲、外部改写拒绝与实际核心重连已双架构验证。代理建连／协商复用截止时间归因，确定性、race 与 Windows 原生回归通过；最终 CI／六组实际包通过，新包 CPU／两轮连接耗时待用户复测。临时程序、Windows 暂存目录及重复产物已清理，保留 SDK／关键报告。[测量、保留依据与边界](docs/DEVELOPMENT.md#windows-网卡查询与-cpu-采样)，`build/reports/windows-network-cost-73b734d/summary.json`；原独有栈／对照保留于 `build/reports/windows-dns-poll-f8cdcee/`。 |
 | A11 | 退出／取消错误及实际包链路故障 | **已收尾**。退出完成后延迟轮询不再误报超时，真实未完成／恢复失败仍拒绝退出；原生代理所有权校验保留取消原因。Linux 固定官方工具版本／双架构哈希及原生 strip，补齐工作流 ARM64 名称映射。确定性旧源码回归、13 项退出调用链、官方 Mihomo／核心竞态及 47 项 Python 检查均已验证，最终三平台 Tests／六架构 ABI／六组实际包及源码通过，见当前验收基线。已清理临时镜像、展开目录、完成的监视日志和重复源码包；保留工具／SDK／构建与关键报告 `build/reports/shutdown-package-ef0caa7/` |
-| A12 | 三平台节点选线启动耗时 | **本地验证通过，待正式检查**。首次 TLS 探测去掉一个 500 ms 空等周期；保留三次采样、后续间隔、证书策略、WAN／LAN 回退和取消。旧源码失败回归、新版竞态／完整 Go 测试及正式 C ABI 协议／性能宿主通过；不替代 A10 的用户 CPU 复测。[测量与边界](docs/DEVELOPMENT.md#节点探测启动等待)，`build/reports/node-probe-start/`。 |
+| A12 | 三平台节点选线启动耗时 | **已收尾**。首次 TLS 探测去掉一个 500 ms 空等周期，同机三次真实 TLS 握手中位耗时 1502.93→1002.64 ms；保留三次采样、后续间隔、证书策略、WAN／LAN 回退和取消。旧源码失败回归、本地竞态／完整 Go／正式协议宿主、三平台 Tests 及六架构 ABI 全部通过。临时测量源码已清理，保留关键报告，不重复打包；A10 用户 CPU 复测独立保留。[测量与边界](docs/DEVELOPMENT.md#节点探测启动等待)，`build/reports/node-probe-start/`。 |
 
 ## 上游问题转化为库化验收
 
