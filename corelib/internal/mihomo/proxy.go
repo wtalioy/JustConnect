@@ -88,14 +88,20 @@ func (c *Client) ObserveProxy(ctx context.Context, proofs ...ListenerProof) (Pro
 	return info, nil
 }
 
+func dialFailure(ctx context.Context, err error) error {
+	if cancelled := ctx.Err(); cancelled != nil {
+		return cancelled
+	}
+	if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) {
+		return context.DeadlineExceeded
+	}
+	return err
+}
+
 func dialOwnedTCP(ctx context.Context, process model.Process, address netip.AddrPort, proof *ListenerProof) (result net.Conn, resultErr error) {
 	defer func() {
 		if resultErr != nil {
-			if err := ctx.Err(); err != nil {
-				resultErr = err
-			} else if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) {
-				resultErr = context.DeadlineExceeded
-			}
+			resultErr = dialFailure(ctx, resultErr)
 		}
 	}()
 	if err := ctx.Err(); err != nil {
@@ -139,9 +145,7 @@ func (p *Proxy) DialContext(parent context.Context, network, address string) (re
 	defer func() {
 		if !success {
 			control.Close()
-			if ctx.Err() != nil {
-				resultErr = ctx.Err()
-			}
+			resultErr = dialFailure(ctx, resultErr)
 		}
 	}()
 	stop := context.AfterFunc(ctx, func() { control.Close() })
