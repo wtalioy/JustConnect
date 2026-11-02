@@ -4,6 +4,7 @@
 #include "infrastructure/dns/windows/dnscontract.h"
 #include "windowsnetworkcontract.h"
 #include "ordinarytoken.h"
+#include "idledevice.h"
 #include <ws2tcpip.h>
 #include <sddl.h>
 #include <objbase.h>
@@ -48,6 +49,14 @@ void parser()
     auto withDns=record;
     withDns.dns=WindowsDnsRule::create({L"fixture.invalid"},address(L"192.0.2.53"));
     const auto populated=encodeWindowsNetworkRecord(withDns);
+    auto parked=record;parked.phase=WindowsRecoveryPhase::Parked;
+    const auto idle=encodeWindowsNetworkRecord(parked);
+    check(encodeWindowsNetworkRecord(decodeWindowsNetworkRecord(idle))==idle,"idle resource ownership roundtrip changed");
+    parked.dns=withDns.dns;
+    refused([&]{encodeWindowsNetworkRecord(parked);},"parked resource concealed DNS ownership");
+    auto fakeIdle=winrt::Windows::Data::Json::JsonObject::Parse(winrt::to_hstring(populated));
+    fakeIdle.SetNamedValue(L"phase",winrt::Windows::Data::Json::JsonValue::CreateStringValue(L"parked"));
+    refused([&]{decodeWindowsNetworkRecord(winrt::to_string(fakeIdle.Stringify()));},"parked persisted state concealed DNS ownership");
     check(encodeWindowsNetworkRecord(decodeWindowsNetworkRecord(populated))==populated,"DNS ownership roundtrip changed");
     using namespace winrt::Windows::Data::Json;
     for (const auto &field:{L"version",L"owner",L"adapter",L"caller",L"helper",L"dns",L"phase",L"original_dns"}) {
@@ -130,6 +139,23 @@ void writer(const GUID &owner,DWORD callerPid,const std::wstring &mode,const std
         [&](const WindowsTunIdentity &identity){check(identity.guid==record.adapter,"device departed from persisted identity");if(mode==L"allocated")ready(owner);});
     record.dns->applySystem();
     for(const auto &entry:record.originalDNS)entry.applySystem();
+    if(mode==L"parked"){
+        recovery.parkOwned(owner,[&]{device->deactivate();});
+        const auto idle=recovery.read(owner);
+        check(idle.phase==WindowsRecoveryPhase::Parked && !idle.dns && idle.originalDNS.empty(),"parked resource retained network ownership");
+        WindowsDeviceCheck::idle(record.adapter);
+        auto next=idle;next.phase=WindowsRecoveryPhase::Declared;
+        auto wrong=next;++wrong.helper.created;
+        refused([&]{recovery.resumeOwned(wrong);},"another helper resumed the cached resource");
+        wrong=next;++wrong.caller.created;
+        refused([&]{recovery.resumeOwned(wrong);},"recycled caller identity resumed the cached resource");
+        const auto competing=fresh();recovery.declare(competing);
+        refused([&]{recovery.resumeOwned(next);},"cached device bypassed another active network owner");
+        check(recovery.restoreOwned(competing.owner,[]{}),"release competing declaration");
+        recovery.acknowledge(competing.owner,competing.caller.sid);
+        recovery.resumeOwned(next);device->activate(address(L"192.0.2.1"),address(L"192.0.2.2"),1400,{});
+        recovery.parkOwned(owner,[&]{device->deactivate();});WindowsDeviceCheck::idle(record.adapter);
+    }
     ready(owner);
 }
 HKEY systemRule(const WindowsDnsRule &rule)
@@ -173,7 +199,15 @@ void crash(const std::wstring &mode,const std::wstring &dll,bool externalChange,
     check(record.helper.pid==info.dwProcessId && record.caller.pid==GetCurrentProcessId(),"journal lost actual process owners");
     check(windowsAdapterPresent(record.adapter)==(mode!=L"declared"),"checkpoint has unexpected real device state");
     check(!recovery.restoreAbandoned(owner),"recovery competed with a live helper");
+    if(mode==L"parked"){
+        check(record.phase==WindowsRecoveryPhase::Parked && !record.dns && record.originalDNS.empty(),"parked writer retained network state");
+        WindowsDeviceCheck::idle(record.adapter);
+        refused([&]{recovery.acknowledge(owner,record.caller.sid);},"idle device lost its recovery responsibility");
+    }
     Key rule;
+    if(mode==L"parked"){
+        provider.applySystem();providerCleanup.active=true;rule.value=systemRule(provider);
+    }
     if(mode==L"active" || mode==L"original"){
         rule.value=systemRule(mode==L"original"?provider:*record.dns);
         // Retain a separately opened handle across process death and conflict recovery.
@@ -199,6 +233,11 @@ void crash(const std::wstring &mode,const std::wstring &dll,bool externalChange,
         check(RegQueryValueExW(rule.value,L"GenericDNSServers",nullptr,&type,reinterpret_cast<BYTE *>(value),&bytes)==ERROR_SUCCESS && std::wstring(value)==(externalChange?L"192.0.2.54":L"192.0.2.53"),"crash recovery lost original DNS or overwrote an external endpoint");
         check(recovery.read(owner).originalDNS.front().released,"original DNS release progress was not durable");
         server(rule.value,L"192.0.2.53");
+    }
+    if(mode==L"parked"){
+        wchar_t value[32]{};DWORD bytes=sizeof(value),type=0;
+        check(RegQueryValueExW(rule.value,L"GenericDNSServers",nullptr,&type,reinterpret_cast<BYTE *>(value),&bytes)==ERROR_SUCCESS
+            && std::wstring(value)==L"192.0.2.53","idle cleanup overwrote a later independent DNS rule");
     }
     if(mode==L"active"){
         DWORD type=0;check(RegQueryValueExW(rule.value,L"Name",nullptr,&type,nullptr,nullptr)==ERROR_KEY_DELETED,"owned system DNS key survives restoration");
@@ -359,7 +398,7 @@ int wmain(int argc,wchar_t **argv) try
     if(!managed){ownedRelease(dll,false);ownedRelease(dll,true);partialOriginalRelease();}
     if(managed)serviceBoundary();
     auto foreign=WindowsTunDevice::create(dll,uuid(),address(L"198.51.100.1"),address(L"198.51.100.2"),1400,{},[](const WindowsTunIdentity &){});
-    for(const auto &mode:{L"declared",L"allocated",L"active"}){
+    for(const auto &mode:{L"declared",L"allocated",L"active",L"parked"}){
         crash(mode,dll,false,managed);
         check(windowsAdapterPresent(foreign->identity().guid),"recovery removed another live Wintun device");
     }

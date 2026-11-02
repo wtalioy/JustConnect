@@ -9,6 +9,7 @@
 #include "infrastructure/packetpipe/windows/stream.h"
 #include "ordinarytoken.h"
 #include "controlhandoff.h"
+#include "idledevice.h"
 #include "windowsnetworkcontract.h"
 #include <objbase.h>
 #include <iphlpapi.h>
@@ -294,26 +295,25 @@ GUID scenario(const std::wstring &helper,const std::wstring &mode,const std::wst
             transfer(request.value,&changed,sizeof(changed),false);
             ExitAddress alias;changed.address=alias.apply(changed.interfaceIndex);
             const auto absent=[&](const GUID &owner){try{journal.read(owner);}catch(const std::system_error &error){if(error.code().value()==ERROR_FILE_NOT_FOUND)return true;throw;}return false;};
-            const auto previous=session;const auto deadline=GetTickCount64()+FixtureTimeoutMs;
-            while(!absent(previous) || WaitForSingleObject(elevated.process.value,0)!=WAIT_OBJECT_0){
-                check(GetTickCount64()<deadline && WaitForSingleObject(gui.process.value,0)==WAIT_TIMEOUT,"changed exit did not release old responsibility before reconnect");Sleep(10);
+            const auto deadline=GetTickCount64()+FixtureTimeoutMs;
+            WindowsNetworkRecovery recovery;
+            const auto originalAdapter=recovery.read(session).adapter;
+            while(recovery.read(session).phase!=WindowsRecoveryPhase::Parked){
+                check(GetTickCount64()<deadline && WaitForSingleObject(gui.process.value,0)==WAIT_TIMEOUT
+                    && WaitForSingleObject(elevated.process.value,0)==WAIT_TIMEOUT,"changed exit did not park old responsibility before reconnect");Sleep(10);
             }
-            check(elevated.wait()==0,"old authorized helper exits after complete restoration");
+            WindowsDeviceCheck::idle(originalAdapter);
             transfer(input.value,&changed,sizeof(changed),true);
-            awaitInput(request.value,sizeof(session),gui,WindowsNetworkContract::ControlTimeoutMs,"reconnect did not request a fresh authorization");
-            transfer(request.value,&session,sizeof(session),false);check(session!=GUID{} && session!=previous,"reconnect uses a fresh ownership UUID");cleanup.session=session;
-            Process reconnected;
-            reconnected.start(L"\""+helper+L"\" --control "+std::to_wstring(caller.identity().pid)+L" "+std::to_wstring(caller.identity().created)+L" "+guid(session));
-            retained=nullptr;
-            check(DuplicateHandle(GetCurrentProcess(),reconnected.process.value,gui.process.value,&retained,PROCESS_QUERY_LIMITED_INFORMATION|SYNCHRONIZE,FALSE,0),"handoff fresh authorized helper process");
-            payload.server=reinterpret_cast<std::uintptr_t>(retained);transfer(input.value,&payload,sizeof(payload),true);
             unsigned char complete=0;
             awaitInput(request.value,1,gui,FixtureTimeoutMs,"reconnected application did not finish real traffic and ordered restoration");
             transfer(request.value,&complete,1,false);
-            check(complete==1 && reconnected.wait()==0 && absent(previous) && absent(session),"both exit generations restore and acknowledge their complete ownership");
+            const auto parked=recovery.read(session);
+            check(complete==1 && parked.phase==WindowsRecoveryPhase::Parked && parked.adapter==originalAdapter
+                && WaitForSingleObject(elevated.process.value,0)==WAIT_TIMEOUT,"reconnect did not retain the same empty owned adapter and approval");
+            WindowsDeviceCheck::idle(originalAdapter);
             alias.restore();transfer(input.value,&complete,1,true);
-            check(gui.wait()==0,"application did not confirm original DNS and interface restoration after the exit change");
-            std::cout<<"PASS: actual Windows exit address change, old ownership release, fresh authorization and preserved external address\n";
+            check(gui.wait()==0 && elevated.wait()==0 && absent(session),"application exit did not release the cached device and restore exact original state");
+            std::cout<<"PASS: actual Windows exit change, empty owned adapter between generations, single approval and preserved external address\n";
         }else if(!fault.empty()){
             check(application && baseline,"fault injection requires the ordinary application fixture");
             WindowsNetworkFingerprint original;

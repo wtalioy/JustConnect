@@ -18,7 +18,7 @@ class WindowsNetworkHelperClient final : public QObject
 public:
     enum class State {Idle,Authorizing,Inspecting,Ready,Applying,Active,Extending,Reconciling,Quiescing,Quiesced,Restoring,Recovering,Acknowledging,Closing,Cancelling};
     Q_ENUM(State)
-    enum class Operation {Inspect,Apply,Extend,Routes,Quiesce,Restore,Recover,Acknowledge,Close};
+    enum class Operation {Inspect,Apply,Extend,Routes,Quiesce,Restore,Recover,Acknowledge,Close,Park,Release};
     Q_ENUM(Operation)
     // Providers deliver on this object's thread and transfer ownership of the approved process handle.
     using AuthorizationProvider=std::function<void(const QUuid &,std::function<void(HANDLE,DWORD)>)>;
@@ -32,6 +32,8 @@ public:
     void reconcile(const QStringList &prefixes,bool refreshDNS=false);
     void quiesce();
     void restore();
+    void park();
+    void release();
     void close();
     void cancel();
     State state() const{return current;}

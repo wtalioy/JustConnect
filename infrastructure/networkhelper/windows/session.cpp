@@ -12,6 +12,8 @@
 #include <winrt/Windows.Foundation.Collections.h>
 #include <charconv>
 #include <set>
+#include <iostream>
+#include <utility>
 #include <system_error>
 
 using namespace winrt::Windows::Data::Json;
@@ -118,34 +120,67 @@ std::unique_ptr<WindowsNetworkSession> WindowsNetworkSession::apply(const std::w
     const auto configured=GetTickCount64();
     WindowsDNS::applySystem(record.dns,record.originalDNS);
     session->setupTimes={declared-started,configured-declared,GetTickCount64()-configured};
-    session->packets=WindowsPacketPipe::create(windowsPacketPipeName(owner),caller);
-    auto *active=session.get();
-    session->relay=std::thread([active,&caller,&control,mtu=configuration.mtu]{
-        try{
-            active->packets->accept(caller,WindowsNetworkContract::ControlTimeoutMs);
-            relayWindowsPackets(*active->device,*active->packets,mtu);
-        }catch(...){}
-        if(!active->quiet && !active->stopping)control.close();
-    });
+    session->startData(caller,control,configuration.mtu);
     return session;
 }
-void WindowsNetworkSession::stopData()
+void WindowsNetworkSession::startData(const WindowsProcess &caller,WindowsPacketPipe &control,unsigned int mtu)
+{
+    stopping=false;quiet=false;
+    packets=WindowsPacketPipe::create(windowsPacketPipeName(record.owner),caller);
+    relay=std::thread([this,&caller,&control,mtu]{
+        try{
+            packets->accept(caller,WindowsNetworkContract::ControlTimeoutMs);
+            relayWindowsPackets(*device,*packets,mtu);
+        }catch(...){}
+        if(!quiet && !stopping)control.close();
+    });
+}
+void WindowsNetworkSession::stopData(bool retainAdapter)
 {
     stopping=true;
     if(packets)packets->close();
-    if(device)device->close();
+    std::exception_ptr failure;
+    try{if(device){if(retainAdapter)device->deactivate();else device->close();}}catch(...){failure=std::current_exception();}
     if(relay.joinable())relay.join();
+    packets.reset();
+    if(failure)std::rethrow_exception(failure);
+}
+void WindowsNetworkSession::park()
+{
+    if(!declared || restored || parked)return;
+    try{
+        recovery.parkOwned(record.owner,[&]{stopData(true);});
+        record=recovery.read(record.owner);parked=true;
+    }catch(const std::exception &error){
+        std::cerr<<"discarding unavailable idle adapter: "<<error.what()<<'\n';
+        restore();
+    }
+}
+void WindowsNetworkSession::resume(const WindowsProcess &caller,const WindowsNetworkConfiguration &configuration,WindowsPacketPipe &control)
+{
+    if(!hasCachedDevice())fail("network session has no idle adapter",ERROR_INVALID_STATE);
+    WindowsNetworkLock lock;
+    WindowsTunDevice::validate(configuration.source,configuration.peer,configuration.mtu,configuration.captures);
+    if(configuration.dns && (!configuration.dns->valid() || configuration.dns->server.S_un.S_addr!=configuration.peer.S_un.S_addr))fail("DNS is not owned by the private device");
+    originalDnsExclusions(configuration.originalDNS,configuration.captures);
+    auto next=record;next.caller=caller.identity();next.dns=configuration.dns;next.originalDNS=configuration.originalDNS;next.phase=WindowsRecoveryPhase::Declared;
+    const auto started=GetTickCount64();recovery.resumeOwned(next);record=std::move(next);parked=false;
+    const auto declaredAt=GetTickCount64();
+    device->activate(configuration.source,configuration.peer,configuration.mtu,configuration.captures);
+    const auto configured=GetTickCount64();WindowsDNS::applySystem(record.dns,record.originalDNS);
+    setupTimes={declaredAt-started,configured-declaredAt,GetTickCount64()-configured};
+    startData(caller,control,configuration.mtu);
 }
 void WindowsNetworkSession::reconcile(const std::vector<WindowsTunPrefix> &captures,bool refreshDNS)
 {
-    if(quiet || restored)fail("network session is no longer capturing",ERROR_OPERATION_ABORTED);
+    if(quiet || restored || parked)fail("network session is no longer capturing",ERROR_OPERATION_ABORTED);
     originalDnsExclusions(record.originalDNS,captures);
     device->reconcile(captures);
     if(refreshDNS)WindowsDNS::refreshCache();
 }
 void WindowsNetworkSession::quiesce()
 {
-    if(restored || quiet)return;
+    if(restored || parked || quiet)return;
     // Keep the device/pipe alive until the ordinary core stops after capture release.
     recovery.beginOwnedRestore(record.owner);
     device->reconcile({});recovery.restoreOriginalDNS(record.owner);quiet=true;
@@ -155,10 +190,14 @@ void WindowsNetworkSession::restore()
     if(!declared || restored)return;
     try{
         if(!recovery.restoreOwned(record.owner,[&]{stopData();finishWindowsAdapterClose(record.adapter);}))fail("owned device release remains pending",ERROR_TIMEOUT);
-        restored=true;
+        restored=true;parked=false;
     }catch(...){stopData();throw;}
 }
 WindowsNetworkSession::~WindowsNetworkSession()
 {
-    try{restore();}catch(...){stopData();}
+    const bool cached=parked;
+    try{
+        restore();
+        if(cached)recovery.acknowledge(record.owner,record.caller.sid);
+    }catch(...){stopData();}
 }

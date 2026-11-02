@@ -68,6 +68,7 @@ def device():
     native = build_native(arch, metadata)
     subprocess.run([str(native / 'windows_device_concurrency_test.exe')], check=True, timeout=15)
     subprocess.run([str(native / 'windows_device_removal_test.exe')], check=True, timeout=15)
+    subprocess.run([str(native / 'windows_device_reuse_test.exe'), str(dll)], env=env, check=True, timeout=30)
     subprocess.run([str(native / 'windows_session_wakeup_test.exe'), str(dll)], env=env, check=True, timeout=30)
     subprocess.run([str(native / 'windows_process_identity_test.exe')], check=True, timeout=15)
     subprocess.run([str(native / 'windows_registry_journal_test.exe')], env=env, check=True, timeout=30)

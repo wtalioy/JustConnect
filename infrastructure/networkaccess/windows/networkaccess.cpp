@@ -146,7 +146,7 @@ void WindowsNetworkAccess::helperFinished(Operation operation,Result result)
         if(operation==Operation::Inspect){inspectOwners();return;}
         if(operation==Operation::Recover){helper.cleanupRestored(receipt);return;}
         if(operation==Operation::Acknowledge){receipt={};helper.inspect(attempt);return;}
-        if(operation==Operation::Restore)receipt=attempt;
+        if(operation==Operation::Restore || operation==Operation::Park){helper.inspect(attempt);return;}
         driveStop();return;
     }
     if(operation==Operation::Apply && stage==Stage::Activating){
@@ -211,11 +211,11 @@ void WindowsNetworkAccess::driveStop()
     case HelperState::Ready:
         if(!receipt.isNull()){helper.cleanupRestored(receipt);return;}
         if(mutationPossible){helper.inspect(attempt);return;}
-        helper.close();return;
+        helper.release();return;
     case HelperState::Active:helper.quiesce();return;
     case HelperState::Quiesced:
         if(coreRunning){if(!quiesceReported){quiesceReported=true;emit quiesced(attempt);}return;}
-        helper.restore();return;
+        helper.park();return;
     default:
         if(!mutationPossible)helper.cancel();return;
     }

@@ -1,5 +1,7 @@
 #include "infrastructure/networkhelper/windows/networkhelperclient.h"
 #include "controlhandoff.h"
+#include "idledevice.h"
+#include "infrastructure/tundevice/windows/recovery.h"
 #include <QCoreApplication>
 #include <QEventLoop>
 #include <QTimer>
@@ -34,6 +36,22 @@ void transfer(HANDLE pipe,void *data,DWORD size,bool write){
             if(WaitForSingleObject(event,15000)!=WAIT_OBJECT_0){CancelIoEx(pipe,&operation);GetOverlappedResult(pipe,&operation,&count,TRUE);throw std::runtime_error("packet pump deadline");}
             if(!GetOverlappedResult(pipe,&operation,&count,FALSE))throw std::system_error(GetLastError(),std::system_category());}
         check(count>0,"empty packet pump transfer");bytes+=count;size-=count;
+    }
+}
+void echoPackets(HANDLE data,int count,std::atomic<int> &packets)
+{
+    while(packets<count){
+            unsigned char length[4]{};transfer(data,length,4,false);
+            const DWORD size=(DWORD(length[0])<<24)|(DWORD(length[1])<<16)|(DWORD(length[2])<<8)|length[3];
+            check(size>=20 && size<=1400,"bounded IPv4 packet frame");std::vector<unsigned char> packet(size);transfer(data,packet.data(),size,false);
+            if(size!=32 || packet[0]!=0x45 || packet[9]!=17 || ((packet[22]<<8)|packet[23])!=43877)continue;
+            check(std::string(reinterpret_cast<char *>(packet.data()+28),4)=="ping","actual UDP request frame");
+            for(int offset=0;offset<4;++offset)std::swap(packet[12+offset],packet[16+offset]);
+            std::swap(packet[20],packet[22]);std::swap(packet[21],packet[23]);packet[26]=packet[27]=0;
+            std::memcpy(packet.data()+28,"pong",4);packet[10]=packet[11]=0;
+            unsigned int sum=0;for(int offset=0;offset<20;offset+=2)sum+=(packet[offset]<<8)|packet[offset+1];while(sum>65535)sum=(sum&65535)+(sum>>16);
+            const auto checksum=static_cast<unsigned short>(~sum);packet[10]=static_cast<unsigned char>(checksum>>8);packet[11]=static_cast<unsigned char>(checksum);
+            transfer(data,length,4,true);transfer(data,packet.data(),size,true);++packets;
     }
 }
 void ping(const char *target){
@@ -106,19 +124,7 @@ int main(int argc,char **argv) try
         client.reconcile({"198.18.0.6/32"});wait(WindowsNetworkHelperClient::Operation::Routes);
         HANDLE data=nullptr;check(DuplicateHandle(GetCurrentProcess(),reinterpret_cast<HANDLE>(quintptr(client.packetPipeHandle())),GetCurrentProcess(),&data,0,FALSE,DUPLICATE_SAME_ACCESS),"ordinary core packet pipe duplicate");
         std::exception_ptr error;std::atomic<int> packets=0;
-        std::jthread pump([&]{try{while(packets<3){
-            unsigned char length[4]{};transfer(data,length,4,false);
-            const DWORD size=(DWORD(length[0])<<24)|(DWORD(length[1])<<16)|(DWORD(length[2])<<8)|length[3];
-            check(size>=20 && size<=1400,"bounded IPv4 packet frame");std::vector<unsigned char> packet(size);transfer(data,packet.data(),size,false);
-            if(size!=32 || packet[0]!=0x45 || packet[9]!=17 || ((packet[22]<<8)|packet[23])!=43877)continue;
-            check(std::string(reinterpret_cast<char *>(packet.data()+28),4)=="ping","actual UDP request frame");
-            for(int offset=0;offset<4;++offset)std::swap(packet[12+offset],packet[16+offset]);
-            std::swap(packet[20],packet[22]);std::swap(packet[21],packet[23]);packet[26]=packet[27]=0;
-            std::memcpy(packet.data()+28,"pong",4);packet[10]=packet[11]=0;
-            unsigned int sum=0;for(int offset=0;offset<20;offset+=2)sum+=(packet[offset]<<8)|packet[offset+1];while(sum>65535)sum=(sum&65535)+(sum>>16);
-            const auto checksum=static_cast<unsigned short>(~sum);packet[10]=static_cast<unsigned char>(checksum>>8);packet[11]=static_cast<unsigned char>(checksum);
-            transfer(data,length,4,true);transfer(data,packet.data(),size,true);++packets;
-        }}catch(...){error=std::current_exception();}});
+        std::jthread pump([&]{try{echoPackets(data,3,packets);}catch(...){error=std::current_exception();}});
         ping("198.18.0.6");
         client.extend({"198.18.0.7"});wait(WindowsNetworkHelperClient::Operation::Extend);
         check(client.ownedConfiguration()["capture_prefixes"].toArray()==QJsonArray{"198.18.0.6/32","198.18.0.7/32"},"confirmed extension was not retained by the ordinary client");
@@ -140,7 +146,35 @@ int main(int argc,char **argv) try
         client.restore();wait(WindowsNetworkHelperClient::Operation::Restore);
         check(client.packetPipeHandle()==0 && client.state()==WindowsNetworkHelperClient::State::Ready,"device was not released after core stop");
         client.cleanupRestored(session);wait(WindowsNetworkHelperClient::Operation::Acknowledge);
+        auto cachedConfiguration=configuration;
+        cachedConfiguration["capture_prefixes"]=QJsonArray{"198.18.0.6/32"};
+        client.apply(cachedConfiguration);wait(WindowsNetworkHelperClient::Operation::Apply);
+        const auto cachedDevice=client.ownedDevice();const auto approvedPid=client.helperPID();
+        client.quiesce();wait(WindowsNetworkHelperClient::Operation::Quiesce);
+        client.park();wait(WindowsNetworkHelperClient::Operation::Park);
+        GUID cachedId{};check(SUCCEEDED(CLSIDFromString(reinterpret_cast<LPCWSTR>(cachedDevice["guid"].toString().utf16()),&cachedId)),"cached adapter UUID");
+        WindowsDeviceCheck::idle(cachedId);
+        check(!dnsPresent(cachedDevice) && !client.packetPipeHandle(),"parked connection retained DNS or a data endpoint");
+        client.inspect(session);wait(WindowsNetworkHelperClient::Operation::Inspect);
+        check(client.pendingOwners().isEmpty(),"idle application device was reported as unconfirmed restoration");
+        client.release();wait(WindowsNetworkHelperClient::Operation::Release);
+        check(client.state()==WindowsNetworkHelperClient::State::Idle && client.helperPID()==approvedPid,"idle approval was not retained");
+        const auto warmAttempt=QUuid::createUuid();client.inspect(warmAttempt);wait(WindowsNetworkHelperClient::Operation::Inspect);
+        cachedConfiguration["capture_prefixes"]=QJsonArray{"198.18.0.7/32"};cachedConfiguration["mtu"]=1300;
+        cachedConfiguration["dns_domains"]=QJsonArray{"warm-"+session.toString(QUuid::WithoutBraces)+".invalid"};
+        client.apply(cachedConfiguration);wait(WindowsNetworkHelperClient::Operation::Apply);
+        const auto resumed=client.ownedDevice();
+        check(resumed["guid"]==cachedDevice["guid"] && resumed["index"]==cachedDevice["index"] && resumed["luid"]==cachedDevice["luid"]
+            && client.helperPID()==approvedPid && authorizations==1,"reconnect recreated a device or repeated authorization");
+        check(!captured(resumed,L"198.18.0.6") && captured(resumed,L"198.18.0.7") && !dnsPresent(cachedDevice) && dnsPresent(resumed),"warm connection retained old captures/DNS");
+        data=nullptr;check(DuplicateHandle(GetCurrentProcess(),reinterpret_cast<HANDLE>(quintptr(client.packetPipeHandle())),GetCurrentProcess(),&data,0,FALSE,DUPLICATE_SAME_ACCESS),"fresh reused packet endpoint");
+        packets=0;error={};pump=std::jthread([&]{try{echoPackets(data,1,packets);}catch(...){error=std::current_exception();}});
+        ping("198.18.0.7");pump.join();CloseHandle(data);if(error)std::rethrow_exception(error);
+        check(packets==1,"reused ring/pipe did not carry actual UDP");
+        client.quiesce();wait(WindowsNetworkHelperClient::Operation::Quiesce);client.park();wait(WindowsNetworkHelperClient::Operation::Park);
+        client.inspect(warmAttempt);wait(WindowsNetworkHelperClient::Operation::Inspect);client.release();wait(WindowsNetworkHelperClient::Operation::Release);
         client.close();wait(WindowsNetworkHelperClient::Operation::Close);
+        check(!windowsAdapterPresent(cachedId),"final close retained the cached adapter");
         check(authorizations==1,"network lifecycle repeated authorization");
         std::cout<<"PASS: ordinary Qt native write-ahead session, real UDP, dynamic captures, DNS release before core stop, device/receipt cleanup\n";return 0;
     }
