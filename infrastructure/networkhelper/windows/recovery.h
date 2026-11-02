@@ -6,7 +6,7 @@
 #include <optional>
 #include <functional>
 
-enum class WindowsRecoveryPhase { Declared, Restoring, Restored };
+enum class WindowsRecoveryPhase { Declared, Restoring, Restored, Parked };
 struct WindowsNetworkRecord {
     GUID owner{},adapter{};
     WindowsProcessIdentity caller,helper;
@@ -41,6 +41,8 @@ public:
     bool restoreAbandoned(const GUID &owner,const std::wstring &callerSid={});
     // A live owner first releases DNS, then its private device, before publishing a durable receipt.
     bool restoreOwned(const GUID &owner,const std::function<void()> &release);
+    void parkOwned(const GUID &owner,const std::function<void()> &release);
+    void resumeOwned(const WindowsNetworkRecord &record);
     void beginOwnedRestore(const GUID &owner);
     void restoreOriginalDNS(const GUID &owner);
     void acknowledge(const GUID &owner,const std::wstring &callerSid);

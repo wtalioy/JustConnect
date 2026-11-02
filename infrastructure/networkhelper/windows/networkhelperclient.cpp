@@ -33,7 +33,7 @@ const char *name(WindowsNetworkHelperClient::Operation operation){
     switch(operation){case WindowsNetworkHelperClient::Operation::Inspect:return "inspect";case WindowsNetworkHelperClient::Operation::Recover:return "recover";
         case WindowsNetworkHelperClient::Operation::Acknowledge:return "acknowledge";case WindowsNetworkHelperClient::Operation::Close:return "close";
         case WindowsNetworkHelperClient::Operation::Apply:return "apply";case WindowsNetworkHelperClient::Operation::Extend:
-        case WindowsNetworkHelperClient::Operation::Routes:return "routes";case WindowsNetworkHelperClient::Operation::Quiesce:return "quiesce";case WindowsNetworkHelperClient::Operation::Restore:return "restore";}
+        case WindowsNetworkHelperClient::Operation::Routes:return "routes";case WindowsNetworkHelperClient::Operation::Quiesce:return "quiesce";case WindowsNetworkHelperClient::Operation::Restore:return "restore";case WindowsNetworkHelperClient::Operation::Park:return "park";case WindowsNetworkHelperClient::Operation::Release:return "release";}
     return "";
 }
 }
@@ -76,16 +76,20 @@ WindowsNetworkHelperClient::WindowsNetworkHelperClient(QObject *parent,Authoriza
         const auto reply=worker.result();owners=reply.owners;device=reply.device;
         if(reply.result.succeeded() && (operation==Operation::Apply || operation==Operation::Extend || operation==Operation::Routes))configuration=reply.configuration;
         if(reply.result.succeeded() && operation==Operation::Quiesce)quiet=true;
-        if(operation==Operation::Apply || operation==Operation::Restore || operation==Operation::Close || !reply.result.succeeded())quiet=false;
-        if(operation==Operation::Restore || operation==Operation::Close || !reply.result.succeeded())configuration={};
+        if(operation==Operation::Apply || operation==Operation::Restore || operation==Operation::Park || operation==Operation::Close || !reply.result.succeeded())quiet=false;
+        if(operation==Operation::Restore || operation==Operation::Park || operation==Operation::Close || !reply.result.succeeded())configuration={};
         if(!reply.result.succeeded() || operation==Operation::Close){stopMonitoring();native.reset();}
         complete(reply.result);
     });
 }
 WindowsNetworkHelperClient::~WindowsNetworkHelperClient(){
-    stopMonitoring();
+    disconnect(this,nullptr,nullptr,nullptr);
     disconnect(&launcher,nullptr,this,nullptr);disconnect(&worker,nullptr,this,nullptr);
-    if(native)native->stop();
+    if(native && current==State::Idle && !worker.isRunning()){
+        current=State::Ready;request(Operation::Close);
+    }
+    stopMonitoring();
+    if(native && current!=State::Closing)native->stop();
     if(launcher.state()!=QProcess::NotRunning){launcher.kill();launcher.waitForFinished(1000);}
     worker.waitForFinished();native.reset();
 }
@@ -96,7 +100,11 @@ void WindowsNetworkHelperClient::complete(Result result){
     emit finished(operation,result);
 }
 void WindowsNetworkHelperClient::inspect(const QUuid &id){
-    if(id==session && (current==State::Ready || current==State::Active || current==State::Quiesced)){request(Operation::Inspect);return;}
+    if(!id.isNull() && native && (current==State::Idle || current==State::Ready || current==State::Active || current==State::Quiesced)){
+        // The approval/control lease is bound to this GUI process, independently of connection attempts.
+        if(current==State::Idle)setState(State::Ready);
+        request(Operation::Inspect);return;
+    }
     if(current!=State::Idle || id.isNull()){emit finished(Operation::Inspect,{Status::Failed,"Previous network permission operation is still active."});return;}
     session=id;owners={};operation=Operation::Inspect;launchOutput.clear();setState(State::Authorizing);const auto generation=++serial;
     if(authorization){
@@ -153,7 +161,7 @@ void WindowsNetworkHelperClient::request(Operation next,const QUuid &owner,const
     operation=next;
     if(next==Operation::Close)stopMonitoring();
     setState(next==Operation::Inspect?State::Inspecting:next==Operation::Apply?State::Applying:next==Operation::Extend?State::Extending:
-        next==Operation::Routes?State::Reconciling:next==Operation::Quiesce?State::Quiescing:next==Operation::Restore?State::Restoring:
+        next==Operation::Routes?State::Reconciling:next==Operation::Quiesce?State::Quiescing:(next==Operation::Restore || next==Operation::Park)?State::Restoring:
         next==Operation::Recover?State::Recovering:next==Operation::Acknowledge?State::Acknowledging:State::Closing);
     const auto connection=native;const auto id=session;
     auto candidate=configuration;
@@ -221,7 +229,7 @@ void WindowsNetworkHelperClient::request(Operation next,const QUuid &owner,const
                         .arg(expected["capture_prefixes"].toArray().size()).arg(expected["dns_domains"].toArray().size())
                         .arg(expected["original_dns"].toArray().size());
                 }
-                if(next==Operation::Restore)connection->closePackets();
+                if(next==Operation::Restore || next==Operation::Park)connection->closePackets();
                 if(next==Operation::Close){
                     phase="confirm helper exit";
                     const unsigned char received=1;pipe->write(&received,1,WindowsNetworkContract::ControlTimeoutMs);
@@ -251,9 +259,16 @@ void WindowsNetworkHelperClient::extend(const QStringList &addresses){
 }
 void WindowsNetworkHelperClient::quiesce(){request(Operation::Quiesce,session);}
 void WindowsNetworkHelperClient::restore(){request(Operation::Restore,session);}
+void WindowsNetworkHelperClient::park(){request(Operation::Park,session);}
+void WindowsNetworkHelperClient::release(){
+    if(current!=State::Ready || !device.isEmpty() || !configuration.isEmpty() || !owners.isEmpty()){
+        emit finished(Operation::Release,{Status::Failed,"Network ownership has not been released.",true});return;
+    }
+    setState(State::Idle);emit finished(Operation::Release,{});
+}
 quint64 WindowsNetworkHelperClient::packetPipeHandle() const{if(!native)return 0;std::lock_guard<std::mutex> guard(native->mutex);return native->packets?quint64(reinterpret_cast<quintptr>(native->packets->handle())):0;}
 quint32 WindowsNetworkHelperClient::helperPID() const{return native?GetProcessId(native->server):0;}
-void WindowsNetworkHelperClient::close(){if(current==State::Ready || current==State::Active || current==State::Quiesced)request(Operation::Close);else cancel();}
+void WindowsNetworkHelperClient::close(){if(current==State::Idle && native)setState(State::Ready);if(current==State::Ready || current==State::Active || current==State::Quiesced)request(Operation::Close);else cancel();}
 void WindowsNetworkHelperClient::cancel(){
     if(current==State::Idle)return;
     ++serial;

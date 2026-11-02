@@ -27,17 +27,21 @@ public:
     const std::array<ULONGLONG,3> &setupMilliseconds() const{return setupTimes;}
     void reconcile(const std::vector<WindowsTunPrefix> &captures,bool refreshDNS=false);
     void quiesce();
+    void park();
+    void resume(const WindowsProcess &caller,const WindowsNetworkConfiguration &configuration,WindowsPacketPipe &control);
     void restore();
-    bool isRestored() const{return restored;}
+    bool isRestored() const{return restored || parked;}
+    bool hasCachedDevice() const{return parked && !restored;}
 private:
     WindowsNetworkSession()=default;
-    void stopData();
+    void stopData(bool retainAdapter=false);
+    void startData(const WindowsProcess &caller,WindowsPacketPipe &control,unsigned int mtu);
     WindowsNetworkRecovery recovery;
     WindowsNetworkRecord record;
     std::unique_ptr<WindowsTunDevice> device;
     std::unique_ptr<WindowsPacketPipe> packets;
     std::thread relay;
     std::atomic<bool> quiet{false},stopping{false};
-    bool declared=false,restored=false;
+    bool declared=false,restored=false,parked=false;
     std::array<ULONGLONG,3> setupTimes{};
 };

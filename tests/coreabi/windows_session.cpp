@@ -126,7 +126,7 @@ int main(int argc,char **argv) try
     auto *access=new WindowsNetworkAccess(engine,&policy,mtu,nullptr,[&](const QUuid &id,auto ready){
         ++authorizations;
         if(authorizations<=2){const DWORD error=authorizations==1?ERROR_ACCESS_DENIED:ERROR_CANCELLED;QTimer::singleShot(0,&app,[ready,error]{ready(nullptr,error);});return;}
-        check(++approvals<=(exitChange?2:1),"one approved process per application connection");
+        check(++approvals<=1,"one approved helper process per GUI lifetime");
         GUID requested{};const auto text=id.toString(QUuid::WithBraces);DWORD count=0;
         check(SUCCEEDED(CLSIDFromString(reinterpret_cast<LPCOLESTR>(text.utf16()),&requested))
             && WriteFile(reply,&requested,sizeof(requested),&count,nullptr) && count==sizeof(requested),"actual application UUID reaches the approval fixture");
@@ -294,8 +294,11 @@ int main(int argc,char **argv) try
         check(coreFinishes==2 && WriteFile(reply,&complete,1,&count,nullptr) && count==1,"both real cores and owned network generations finish before fixture cleanup");CloseHandle(reply);
         check(ReadFile(GetStdHandle(STD_INPUT_HANDLE),&complete,1,&count,nullptr) && count==1 && complete==1,"external observer removes only its own exit alias after network restoration");
     }
+    if(originalDNS){queryOriginal("203.0.113.9");queryOriginalDefault();}
+    // Ending the application-owned network object releases its otherwise empty cached adapter.
+    delete network;network=nullptr;access=nullptr;
     const auto restored=sameNetwork(initialDns,dnsSnapshot(),initialAddresses,interfaceAddresses());
-    check(authorizations==(exitChange?4:3) && approvals==(exitChange?2:1) && !session.isActive() && restored,
+    check(authorizations==3 && approvals==1 && !session.isActive() && restored,
         "single approval, owned device removal and complete original DNS/interface restoration");
     if(originalDNS){queryOriginal("203.0.113.9");queryOriginalDefault();std::cout<<"PASS: prewarmed Windows root/scoped NRPT source, unmatched native default, automatic listener, name choice/withdrawal and exact restoration\n";}
     if(exitChange)std::cout<<"PASS: changed Windows original exit restores before automatic reconnect, fresh generation, system DNS/TCP/UDP/SSH and complete final restoration\n";

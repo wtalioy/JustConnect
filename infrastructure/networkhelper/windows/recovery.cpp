@@ -110,6 +110,8 @@ bool same(const WindowsProcessIdentity &a,const WindowsProcessIdentity &b) { ret
 
 std::string encodeWindowsNetworkRecord(const WindowsNetworkRecord &value)
 {
+    if(value.phase==WindowsRecoveryPhase::Parked && (value.dns || !value.originalDNS.empty()))
+        fail("parked record retains DNS ownership",ERROR_INVALID_DATA);
     JsonObject result;
     result.SetNamedValue(L"version",JsonValue::CreateNumberValue(WindowsNetworkContract::StorageVersion));
     result.SetNamedValue(L"owner",JsonValue::CreateStringValue(guid(value.owner)));
@@ -121,7 +123,7 @@ std::string encodeWindowsNetworkRecord(const WindowsNetworkRecord &value)
     for(const auto &entry:value.originalDNS)original.Append(JsonObject::Parse(winrt::to_hstring(encodeWindowsNrptRedirect(entry))));
     result.SetNamedValue(L"original_dns",original);
     const wchar_t *phase=nullptr;
-    switch (value.phase) { case WindowsRecoveryPhase::Declared:phase=L"declared";break;case WindowsRecoveryPhase::Restoring:phase=L"restoring";break;case WindowsRecoveryPhase::Restored:phase=L"restored";break; }
+    switch (value.phase) { case WindowsRecoveryPhase::Declared:phase=L"declared";break;case WindowsRecoveryPhase::Restoring:phase=L"restoring";break;case WindowsRecoveryPhase::Restored:phase=L"restored";break;case WindowsRecoveryPhase::Parked:phase=L"parked";break; }
     if (!phase) fail("invalid recovery phase",ERROR_INVALID_DATA);
     result.SetNamedValue(L"phase",JsonValue::CreateStringValue(phase));
     return winrt::to_string(result.Stringify());
@@ -149,7 +151,10 @@ WindowsNetworkRecord decodeWindowsNetworkRecord(const std::string &data) try
     if (phase==L"declared") result.phase=WindowsRecoveryPhase::Declared;
     else if (phase==L"restoring") result.phase=WindowsRecoveryPhase::Restoring;
     else if (phase==L"restored") result.phase=WindowsRecoveryPhase::Restored;
+    else if (phase==L"parked") result.phase=WindowsRecoveryPhase::Parked;
     else fail("unknown recovery phase",ERROR_INVALID_DATA);
+    if(result.phase==WindowsRecoveryPhase::Parked && (result.dns || !result.originalDNS.empty()))
+        fail("parked record retains DNS ownership",ERROR_INVALID_DATA);
     return result;
 } catch (const winrt::hresult_error &) { fail("damaged native recovery record",ERROR_INVALID_DATA); }
 
@@ -221,7 +226,7 @@ void WindowsNetworkRecovery::declare(const WindowsNetworkRecord &record)
     for (const auto &owner:journal.owners()) {
         const auto previous=decodeWindowsNetworkRecord(journal.read(owner));
         if (previous.owner!=owner) fail("recovery key and record differ",ERROR_INVALID_DATA);
-        if (owner==record.owner || previous.phase!=WindowsRecoveryPhase::Restored || previous.caller.sid==record.caller.sid) fail("previous network ownership requires recovery or acknowledgement",ERROR_ALREADY_EXISTS);
+        if (owner==record.owner || (previous.phase!=WindowsRecoveryPhase::Restored && previous.phase!=WindowsRecoveryPhase::Parked) || (previous.caller.sid==record.caller.sid && previous.phase!=WindowsRecoveryPhase::Parked)) fail("previous network ownership requires recovery or acknowledgement",ERROR_ALREADY_EXISTS);
     }
     journal.write(record.owner,encodeWindowsNetworkRecord(record));
 }
@@ -250,6 +255,36 @@ bool WindowsNetworkRecovery::restoreOwned(const GUID &owner,const std::function<
     if(!release)fail("missing owned device release",ERROR_INVALID_PARAMETER);
     if(record.phase==WindowsRecoveryPhase::Restored)return true;
     return restoreRecord(record,release);
+}
+void WindowsNetworkRecovery::parkOwned(const GUID &owner,const std::function<void()> &release)
+{
+    WindowsNetworkLock lock;
+    auto record=ownedRecord(owner);
+    if(!release)fail("missing parked device release",ERROR_INVALID_PARAMETER);
+    if(record.phase==WindowsRecoveryPhase::Parked)return;
+    if(record.phase==WindowsRecoveryPhase::Restored)fail("adapter is already released",ERROR_INVALID_STATE);
+    beginRestore(record);
+    restoreCampusDNS(record);
+    release();
+    // The trusted device release confirms there are no remaining unicast addresses or captures.
+    restoreOriginalDNS(record);
+    record.dns.reset();record.originalDNS.clear();record.phase=WindowsRecoveryPhase::Parked;
+    journal.write(record.owner,encodeWindowsNetworkRecord(record));
+}
+void WindowsNetworkRecovery::resumeOwned(const WindowsNetworkRecord &record)
+{
+    WindowsNetworkLock lock;
+    const auto previous=ownedRecord(record.owner);
+    if(previous.phase!=WindowsRecoveryPhase::Parked || previous.dns || !previous.originalDNS.empty()
+        || previous.adapter!=record.adapter || !same(previous.helper,record.helper) || !same(previous.caller,record.caller) || !record.caller.alive()
+        || record.phase!=WindowsRecoveryPhase::Declared || !windowsAdapterPresent(record.adapter))
+        fail("parked network ownership differs",ERROR_ACCESS_DENIED);
+    for(const auto &owner:journal.owners())if(owner!=record.owner){
+        const auto other=read(owner);
+        if(other.phase!=WindowsRecoveryPhase::Restored && other.phase!=WindowsRecoveryPhase::Parked)
+            fail("another network ownership requires recovery",ERROR_ALREADY_EXISTS);
+    }
+    journal.write(record.owner,encodeWindowsNetworkRecord(record));
 }
 WindowsNetworkRecord WindowsNetworkRecovery::ownedRecord(const GUID &owner)
 {

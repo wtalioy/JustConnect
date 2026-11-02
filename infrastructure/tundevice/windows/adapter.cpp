@@ -43,6 +43,14 @@ MIB_IPFORWARD_ROW2 ownedRoute(NET_LUID luid,const WindowsTunPrefix &target,IN_AD
     route.Loopback=FALSE;route.AutoconfigureAddress=FALSE;route.Publish=FALSE;route.Immortal=TRUE;
     route.NextHop=ipv4(gateway);route.Metric=1;route.Protocol=MIB_IPPROTO_NETMGMT;return route;
 }
+bool automaticNonunicast(const MIB_IPFORWARD_ROW2 &route)
+{
+    const auto address=ntohl(route.DestinationPrefix.Prefix.Ipv4.sin_addr.S_un.S_addr);
+    // Windows installs these local routes even on an otherwise unconfigured adapter.
+    return route.Protocol==MIB_IPPROTO_LOCAL && !route.NextHop.Ipv4.sin_addr.S_un.S_addr
+        && ((address==0xe0000000u && route.DestinationPrefix.PrefixLength==4 && route.Origin==NlroWellKnown)
+            || (address==INADDR_BROADCAST && route.DestinationPrefix.PrefixLength==32 && route.Origin==NlroManual));
+}
 bool present(const MIB_IPFORWARD_ROW2 &expected)
 {
     auto actual=expected;const auto status=GetIpForwardEntry2(&actual);
@@ -87,8 +95,8 @@ std::unique_ptr<WindowsTunDevice> WindowsTunDevice::create(const std::wstring &d
     if (!device->module) fail("load verified Wintun library");
     const auto createAdapter = procedure<WINTUN_CREATE_ADAPTER_FUNC>(device->module,"WintunCreateAdapter");
     const auto getLuid = procedure<WINTUN_GET_ADAPTER_LUID_FUNC>(device->module,"WintunGetAdapterLUID");
-    const auto start = procedure<WINTUN_START_SESSION_FUNC>(device->module,"WintunStartSession");
-    const auto getReady = procedure<WINTUN_GET_READ_WAIT_EVENT_FUNC>(device->module,"WintunGetReadWaitEvent");
+    device->startSession = procedure<WINTUN_START_SESSION_FUNC>(device->module,"WintunStartSession");
+    device->getReady = procedure<WINTUN_GET_READ_WAIT_EVENT_FUNC>(device->module,"WintunGetReadWaitEvent");
     device->closeAdapter = procedure<WINTUN_CLOSE_ADAPTER_FUNC>(device->module,"WintunCloseAdapter");
     device->endSession = procedure<WINTUN_END_SESSION_FUNC>(device->module,"WintunEndSession");
     device->receive = procedure<WINTUN_RECEIVE_PACKET_FUNC>(device->module,"WintunReceivePacket");
@@ -104,8 +112,6 @@ std::unique_ptr<WindowsTunDevice> WindowsTunDevice::create(const std::wstring &d
     if (!StringFromGUID2(owner, guid, static_cast<int>(std::size(guid)))) fail("format owned adapter identity",ERROR_INVALID_PARAMETER);
     device->owned.name = std::wstring(L"JustConnect ")+guid;
     device->owned.guid = owner;
-    device->mtu = maximum;
-    device->source=source;device->peer=peer;
     MIB_IF_TABLE2 *table = nullptr;
     checked(GetIfTable2Ex(MibIfTableNormalWithoutStatistics,&table),"read existing adapter identities");
     bool present = false;
@@ -123,15 +129,80 @@ std::unique_ptr<WindowsTunDevice> WindowsTunDevice::create(const std::wstring &d
         fail("new adapter identity differs",ERROR_INVALID_DATA);
     device->owned.index = row.InterfaceIndex;
     allocated(device->owned);
-    device->session = start(device->adapter,WINTUN_MIN_RING_CAPACITY);
-    if (!device->session) fail("start owned Wintun rings");
-    device->ready = getReady(device->session);
-    if (!device->ready) fail("read owned ring event");
-    device->sendReady = Wintun0141::sendWakeEvent(device->session,WINTUN_MIN_RING_CAPACITY,device->ready);
-    device->stop = CreateEventW(nullptr,TRUE,FALSE,nullptr);
-    if (!device->stop) fail("create owned adapter stop event");
-    device->configure(source,peer,targets);
+    device->activate(source,peer,maximum,targets);
     return device;
+}
+
+
+void WindowsTunDevice::confirmIdle() const
+{
+    MIB_IF_ROW2 identity{};identity.InterfaceLuid=owned.luid;
+    checked(GetIfEntry2Ex(MibIfEntryNormalWithoutStatistics,&identity),"confirm idle adapter identity");
+    if(identity.InterfaceGuid!=owned.guid || identity.InterfaceIndex!=owned.index || owned.name!=identity.Alias)
+        fail("idle adapter identity changed",ERROR_INVALID_DATA);
+    MIB_UNICASTIPADDRESS_TABLE *addresses=nullptr;
+    checked(GetUnicastIpAddressTable(AF_INET,&addresses),"inspect idle owned IPv4 addresses");
+    std::string reason;
+    bool occupied=false;
+    for(ULONG i=0;i<addresses->NumEntries;++i)if(addresses->Table[i].InterfaceLuid.Value==owned.luid.Value){
+        occupied=true;reason+=" address="+std::to_string(ntohl(addresses->Table[i].Address.Ipv4.sin_addr.S_un.S_addr));
+    }
+    FreeMibTable(addresses);
+    MIB_IPFORWARD_TABLE2 *routes=nullptr;
+    checked(GetIpForwardTable2(AF_INET,&routes),"inspect idle owned IPv4 routes");
+    for(ULONG i=0;i<routes->NumEntries;++i){
+        const auto &route=routes->Table[i];
+        if(route.InterfaceLuid.Value!=owned.luid.Value || automaticNonunicast(route))continue;
+        occupied=true;reason+=" route="+std::to_string(ntohl(route.DestinationPrefix.Prefix.Ipv4.sin_addr.S_un.S_addr))+"/"+std::to_string(route.DestinationPrefix.PrefixLength)
+            +" protocol="+std::to_string(route.Protocol)+" origin="+std::to_string(route.Origin)+" hop="+std::to_string(ntohl(route.NextHop.Ipv4.sin_addr.S_un.S_addr));
+    }
+    FreeMibTable(routes);
+    if(occupied)fail(("idle owned adapter was externally configured:"+reason).c_str(),ERROR_INVALID_STATE);
+}
+
+void WindowsTunDevice::activate(IN_ADDR source,IN_ADDR peer,unsigned int maximum,const std::vector<WindowsTunPrefix> &targets)
+{
+    validate(source,peer,maximum,targets);
+    if(!adapter || session || stop)fail("owned adapter cannot start another ring session",ERROR_INVALID_STATE);
+    confirmIdle();
+    this->source=source;this->peer=peer;mtu=maximum;
+    session=startSession(adapter,WINTUN_MIN_RING_CAPACITY);
+    if(!session)fail("start owned Wintun rings");
+    ready=getReady(session);
+    if(!ready)fail("read owned ring event");
+    sendReady=Wintun0141::sendWakeEvent(session,WINTUN_MIN_RING_CAPACITY,ready);
+    stop=CreateEventW(nullptr,TRUE,FALSE,nullptr);
+    if(!stop)fail("create owned adapter stop event");
+    closed=false;
+    configure(source,peer,targets);
+}
+
+void WindowsTunDevice::deactivate()
+{
+    closed=true;
+    if(stop)SetEvent(stop);
+    std::lock_guard<std::mutex> serial(routeLock);
+    std::unique_lock<std::shared_mutex> exclusive(lifetime);
+    for(const auto &target:captures){
+        const auto route=ownedRoute(owned.luid,target,peer);
+        if(!present(route))fail("capture changed before parking",ERROR_NOT_FOUND);
+        checked(DeleteIpForwardEntry2(&route),"release parked capture");
+    }
+    captures.clear();
+    const auto route=ownedRoute(owned.luid,{peer,32},IN_ADDR{});
+    if(!present(route))fail("peer route changed before parking",ERROR_NOT_FOUND);
+    checked(DeleteIpForwardEntry2(&route),"release parked peer route");
+    MIB_UNICASTIPADDRESS_ROW address{};
+    address.InterfaceLuid=owned.luid;address.Address=ipv4(source);
+    checked(GetUnicastIpAddressEntry(&address),"inspect parked source address");
+    if(address.OnLinkPrefixLength!=32 || address.DadState!=IpDadStatePreferred)
+        fail("source address changed before parking",ERROR_INVALID_DATA);
+    checked(DeleteUnicastIpAddressEntry(&address),"release parked source address");
+    // Validate/release the static address before ending rings changes the interface's address state.
+    if(session){endSession(session);session=nullptr;}
+    if(stop){CloseHandle(stop);stop=nullptr;}
+    ready=sendReady=nullptr;
+    confirmIdle();
 }
 
 void WindowsTunDevice::configure(IN_ADDR source, IN_ADDR peer, const std::vector<WindowsTunPrefix> &targets)
@@ -140,13 +211,14 @@ void WindowsTunDevice::configure(IN_ADDR source, IN_ADDR peer, const std::vector
     row.Family = AF_INET;
     row.InterfaceLuid = owned.luid;
     checked(GetIpInterfaceEntry(&row),"read owned IPv4 interface");
+    const bool update=row.UseAutomaticMetric || row.Metric!=1 || row.NlMtu!=mtu || row.DadTransmits!=0 || !row.DisableDefaultRoutes;
     row.SitePrefixLength = 0; // SetIpInterfaceEntry requires zero for IPv4.
     row.UseAutomaticMetric = FALSE;
     row.Metric = 1;
     row.NlMtu = mtu;
     row.DadTransmits = 0;
     row.DisableDefaultRoutes = TRUE;
-    checked(SetIpInterfaceEntry(&row),"configure owned IPv4 interface");
+    if(update)checked(SetIpInterfaceEntry(&row),"configure owned IPv4 interface");
     MIB_IPINTERFACE_ROW confirmed{};
     confirmed.Family = AF_INET;
     confirmed.InterfaceLuid = owned.luid;
@@ -265,6 +337,7 @@ void WindowsTunDevice::close()
         if (adapter && closeAdapter) closeAdapter(adapter);
         if (stop) CloseHandle(stop);
         if (module) FreeLibrary(module);
+        session=nullptr;adapter=nullptr;stop=ready=sendReady=nullptr;module=nullptr;
     });
 }
 WindowsTunDevice::~WindowsTunDevice() { close(); }

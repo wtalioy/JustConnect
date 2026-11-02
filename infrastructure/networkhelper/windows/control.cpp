@@ -43,7 +43,7 @@ Request request(const std::string &message,const GUID &session) try
     const auto owner=value.GetNamedValue(L"owner");
     if(result.operation==L"inspect" || result.operation==L"close"){
         if(owner.ValueType()!=JsonValueType::Null)fail("unexpected control owner");
-    }else if(result.operation==L"recover" || result.operation==L"acknowledge" || result.operation==L"apply" || result.operation==L"routes" || result.operation==L"quiesce" || result.operation==L"restore")result.owner=identifier(owner.GetString());
+    }else if(result.operation==L"recover" || result.operation==L"acknowledge" || result.operation==L"apply" || result.operation==L"routes" || result.operation==L"quiesce" || result.operation==L"restore" || result.operation==L"park")result.owner=identifier(owner.GetString());
     else fail("unknown control operation");
     if(result.operation==L"apply")result.configuration=decodeWindowsNetworkConfiguration(winrt::to_string(value.GetNamedObject(L"configuration").Stringify()));
     if(result.operation==L"routes"){result.captures=decodeWindowsCapturePrefixes(winrt::to_string(value.GetNamedArray(L"capture_prefixes").Stringify()));result.refreshDNS=value.GetNamedBoolean(L"refresh_dns");}
@@ -111,7 +111,10 @@ int runWindowsNetworkControl(DWORD pid,std::uint64_t created,const GUID &session
         first=false;
         auto reply=response(session,command);
         try{
-            if(command.operation==L"close" && active && !active->isRestored())active->restore();
+            if(command.operation==L"close" && active){
+                const bool cached=active->hasCachedDevice();active->restore();
+                if(cached){WindowsNetworkRecovery recovery;recovery.acknowledge(session,caller.identity().sid);}
+            }
             if(!installation && command.operation!=L"close"){
                 installation=WindowsHelperInstallation::prepare();
                 ensureWindowsRecoveryService(*installation);
@@ -123,6 +126,7 @@ int runWindowsNetworkControl(DWORD pid,std::uint64_t created,const GUID &session
                     for(const auto &id:recovery.owners()){
                         const auto record=recovery.read(id);
                         if(record.caller.sid!=caller.identity().sid)continue;
+                        if(record.phase==WindowsRecoveryPhase::Parked && record.helper.alive())continue;
                         JsonObject owner;
                         owner.SetNamedValue(L"owner",JsonValue::CreateStringValue(guid(id)));
                         const auto phase=record.phase==WindowsRecoveryPhase::Restored?L"restored":record.phase==WindowsRecoveryPhase::Restoring?L"restoring":L"declared";
@@ -137,13 +141,18 @@ int runWindowsNetworkControl(DWORD pid,std::uint64_t created,const GUID &session
                 else{
                     if(command.owner!=session)fail("network operation belongs to another session",ERROR_ACCESS_DENIED);
                     if(command.operation==L"apply"){
-                        if(active)fail("network session cannot be reused",ERROR_ALREADY_EXISTS);
+                        if(active && !active->isRestored())fail("network session is still active",ERROR_ALREADY_EXISTS);
                         configuration=command.configuration;
-                        active=WindowsNetworkSession::apply(installation->driver(),session,caller,*configuration,*pipe);
+                        if(active && active->hasCachedDevice())active->resume(caller,*configuration,*pipe);
+                        else{
+                            active.reset();
+                            active=WindowsNetworkSession::apply(installation->driver(),session,caller,*configuration,*pipe);
+                        }
                     }else{
                         if(!active)fail("network session is not active",ERROR_NOT_FOUND);
                         if(command.operation==L"routes")active->reconcile(command.captures,command.refreshDNS);
                         else if(command.operation==L"quiesce")active->quiesce();
+                        else if(command.operation==L"park")active->park();
                         else active->restore();
                     }
                 }

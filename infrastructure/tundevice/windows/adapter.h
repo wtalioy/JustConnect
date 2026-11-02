@@ -34,12 +34,15 @@ public:
     const WindowsTunIdentity &identity() const { return owned; }
     static void validate(IN_ADDR source,IN_ADDR peer,unsigned int mtu,const std::vector<WindowsTunPrefix> &targets);
     void reconcile(const std::vector<WindowsTunPrefix> &targets);
+    void activate(IN_ADDR source,IN_ADDR peer,unsigned int mtu,const std::vector<WindowsTunPrefix> &targets);
+    void deactivate();
     size_t read(unsigned char *packet, size_t capacity);
     void write(const unsigned char *packet, size_t size);
     void close();
 private:
     friend struct WindowsTunDeviceTest;
     WindowsTunDevice() = default;
+    void confirmIdle() const;
     void configure(IN_ADDR source, IN_ADDR peer, const std::vector<WindowsTunPrefix> &targets);
     WindowsTunIdentity owned;
     HMODULE module = nullptr;
@@ -55,6 +58,8 @@ private:
     std::once_flag closedOnce;
     WINTUN_CLOSE_ADAPTER_FUNC *closeAdapter = nullptr;
     WINTUN_END_SESSION_FUNC *endSession = nullptr;
+    WINTUN_START_SESSION_FUNC *startSession = nullptr;
+    WINTUN_GET_READ_WAIT_EVENT_FUNC *getReady = nullptr;
     WINTUN_RECEIVE_PACKET_FUNC *receive = nullptr;
     WINTUN_RELEASE_RECEIVE_PACKET_FUNC *release = nullptr;
     WINTUN_ALLOCATE_SEND_PACKET_FUNC *allocate = nullptr;
