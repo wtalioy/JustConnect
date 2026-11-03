@@ -9,7 +9,7 @@
 class WindowsNetworkAccess final : public NetworkAccess {
 public:
     WindowsNetworkAccess(CoreEngine *core,NetworkPolicySession *policy,int mtu,QObject *parent=nullptr,
-        WindowsNetworkHelperClient::AuthorizationProvider authorization={});
+        WindowsNetworkHelperClient::AuthorizationProvider authorization={},NetworkPolicySession::DnsReader readDns={});
     ~WindowsNetworkAccess() override;
     void prepare(const QUuid &attempt) override;
     void activate(const QUuid &attempt,const ConnectionProfile &profile) override;
@@ -19,6 +19,7 @@ private:
     void prepareConfiguration();
     void helperFinished(WindowsNetworkHelperClient::Operation operation,PlatformOperationResult result);
     void inspectOwners();
+    void readOwnership();
     void finishOwnership();
     bool updateOriginalView();
     void fail(PlatformOperationResult result);
@@ -30,6 +31,7 @@ private:
     NetworkPolicySession *policy;
     const int mtu;
     WindowsNetworkHelperClient helper;
+    NetworkPolicySession::DnsReader readDns;
     QFutureWatcher<WindowsHelperPreparation> preparation;
     QFutureWatcher<DnsSnapshot> dnsReader;
     std::unique_ptr<QLockFile> lock;
@@ -45,5 +47,6 @@ private:
     QTimer observation;
     Stage stage=Stage::Idle;
     bool preparing=false,readingDNS=false,readingNetwork=false,attaching=false;
+    bool ownershipRetried=false;
     bool mutationPossible=false,coreRunning=false,quiesceReported=false,automaticPolicy=false;
 };

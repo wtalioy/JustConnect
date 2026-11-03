@@ -18,6 +18,7 @@
 #include <QCryptographicHash>
 #include <QSet>
 #include <QtConcurrent>
+#include <atomic>
 #include <cstring>
 #include <iostream>
 #include <objbase.h>
@@ -123,6 +124,8 @@ int main(int argc,char **argv) try
     NetworkPolicySession policy(engine,observeSystemDnsSnapshot());
     SystemProxySession proxy(std::make_unique<ProxyRecoveryBackend>());
     const auto mtu=EmbeddedCoreEngine::buildInfo()["capabilities"].toObject()["tunnel_mtu"].toInt();
+    std::atomic<bool> delayEffectiveDns=false;
+    std::atomic<int> delayedReads=0;
     auto *access=new WindowsNetworkAccess(engine,&policy,mtu,nullptr,[&](const QUuid &id,auto ready){
         ++authorizations;
         if(authorizations<=2){const DWORD error=authorizations==1?ERROR_ACCESS_DENIED:ERROR_CANCELLED;QTimer::singleShot(0,&app,[ready,error]{ready(nullptr,error);});return;}
@@ -134,6 +137,15 @@ int main(int argc,char **argv) try
         check(ReadFile(GetStdHandle(STD_INPUT_HANDLE),&input,sizeof(input),&count,nullptr) && count==sizeof(input),"approved native process handoff");
         check(!input.hasBaseline || (input.baseline.dns==baseline.dns && input.baseline.interfaces==baseline.interfaces),"new ordinary application confirms complete pre-crash DNS and interface baseline");
         const auto handle=reinterpret_cast<HANDLE>(input.server);QTimer::singleShot(0,&app,[ready,handle]{ready(handle,0);});
+    },[&]{
+        auto snapshot=readSystemDnsSnapshot();
+        if(snapshot.result.succeeded() && delayEffectiveDns.exchange(false)){
+            // Model a fresh registry source whose effective DNS policy has not appeared yet.
+            check(!snapshot.data["nrpt"].toArray().isEmpty(),"reconnect fixture has effective campus DNS");
+            snapshot.data["nrpt"]=QJsonArray{};
+            ++delayedReads;
+        }
+        return snapshot;
     });
     QJsonObject initialProtection;bool coreStarted=false,coreStopped=false,quiesced=false,networkStopped=false,normal=false,recoveryBlocked=false;int finished=0,coreFinishes=0;
     QObject::connect(access,&NetworkAccess::quiesced,[&](const QUuid &){check(!networkStopped,"capture release precedes final network release");quiesced=true;});
@@ -255,6 +267,7 @@ int main(int argc,char **argv) try
             DWORD count=0;
             check(ReadFile(GetStdHandle(STD_INPUT_HANDLE),&changed,sizeof(changed),&count,nullptr) && count==sizeof(changed) && changed.address,
                 "native observer confirms old ownership release and the external exit alias");
+            delayEffectiveDns=true;
         });
         DWORD count=0;
         check(WriteFile(reply,&changed,sizeof(changed),&count,nullptr) && count==sizeof(changed),"actual default interface reaches the external change observer");
@@ -262,6 +275,7 @@ int main(int argc,char **argv) try
         QObject::disconnect(barrier);
         check(finished==2 && session.phase()==ConnectionPhase::CampusReady && session.reconnectAttempt()==1
             && policy.currentGeneration()!=previousGeneration,"changed exit reconnects once with a fresh generation");
+        check(delayedReads==1,"reconnect survived one incomplete effective DNS snapshot");
         until("complete changed original-network policy view",[&]{return !policy.isBusy();});
         bool adopted=false;
         for(const auto &value:policy.model()["network"].toObject()["interfaces"].toArray()){

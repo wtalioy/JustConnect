@@ -94,8 +94,9 @@ bool WindowsNetworkOwnership::bindingsMatch(const QJsonObject &configuration,con
 }
 
 std::optional<WindowsNetworkOwnership> WindowsNetworkOwnership::capture(const QJsonObject &configuration,
-    const QJsonObject &device,const QJsonObject &network,const QJsonObject &dns)
+    const QJsonObject &device,const QJsonObject &network,const QJsonObject &dns,const char **failedCheck)
 {
+    if(failedCheck)*failedCheck="interface or DNS snapshot shape";
     const auto adapter=ownedInterface(network,device);
     if(!device["original_dns"].isArray() || !bindingsMatch(configuration,device["original_dns"].toArray()))return {};
     if(!adapter || device["index"].toInteger()<=0 || device["address"]!=configuration["address"]
@@ -103,6 +104,7 @@ std::optional<WindowsNetworkOwnership> WindowsNetworkOwnership::capture(const QJ
         || !configuration["dns_domains"].isArray() || !dns["nrpt"].isArray() || !dns["nrpt_sources"].isArray()
         || !dns["interfaces"].isArray() || !dns["clients"].isArray() || !dns["adapters"].isArray())return {};
     WindowsNetworkOwnership result;result.device=device;result.interfaceSnapshot=*adapter;result.originalBindings=device["original_dns"].toArray();
+    if(failedCheck)*failedCheck="local or peer route";
     QJsonObject localRoute;
     for(const auto &item:network["routes"].toArray()){
         const auto row=item.toObject();
@@ -119,6 +121,7 @@ std::optional<WindowsNetworkOwnership> WindowsNetworkOwnership::capture(const QJ
     const auto owned=captures(configuration,result.peerRoute);
     for(const auto &item:network["routes"].toArray())
         if(item.toObject()["interface_index"]==device["index"] && item.toObject().value("protocol")==localRoute.value("protocol") && !owned.contains(item))result.automaticRoutes.append(item);
+    if(failedCheck)*failedCheck="effective DNS policy";
     QSet<QString> pending;
     for(const auto &name:configuration["dns_domains"].toArray())pending.insert("."+name.toString());
     for(const auto &item:dns["nrpt"].toArray()){
@@ -130,6 +133,7 @@ std::optional<WindowsNetworkOwnership> WindowsNetworkOwnership::capture(const QJ
         result.dnsPolicies.append(item);
     }
     if(!pending.isEmpty())return {};
+    if(failedCheck)*failedCheck="DNS policy source";
     const auto dnsId=QUuid(device["dns_id"].toString());
     if(configuration["dns_domains"].toArray().isEmpty()!=dnsId.isNull())return {};
     for(const auto &item:dns["nrpt_sources"].toArray()){
@@ -147,6 +151,7 @@ std::optional<WindowsNetworkOwnership> WindowsNetworkOwnership::capture(const QJ
         result.dnsSourceRecords.append(item);
     }
     if(!dnsId.isNull() && result.dnsSourceRecords.size()!=1)return {};
+    if(failedCheck)*failedCheck="DNS adapter identity";
     for(const auto &item:dns["interfaces"].toArray())if(item.toObject()["InterfaceIndex"]==device["index"])result.dnsInterfaces.append(item);
     for(const auto &item:dns["clients"].toArray())if(item.toObject()["InterfaceIndex"]==device["index"])result.dnsClients.append(item);
     for(const auto &item:dns["adapters"].toArray()){
@@ -157,8 +162,10 @@ std::optional<WindowsNetworkOwnership> WindowsNetworkOwnership::capture(const QJ
         result.dnsAdapters.append(item);
     }
     if(result.dnsAdapters.size()!=1)return {};
+    if(failedCheck)*failedCheck="capture routes or original DNS projection";
     const auto filter=result.filter(configuration);
     if(!filter || !filter(network,dns))return {};
+    if(failedCheck)*failedCheck=nullptr;
     return result;
 }
 
