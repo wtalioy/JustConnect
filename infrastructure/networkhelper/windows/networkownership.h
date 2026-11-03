@@ -6,7 +6,7 @@ class WindowsNetworkOwnership {
 public:
     static bool bindingsMatch(const QJsonObject &configuration,const QJsonArray &bindings);
     static std::optional<WindowsNetworkOwnership> capture(const QJsonObject &configuration,const QJsonObject &device,
-        const QJsonObject &network,const QJsonObject &dns);
+        const QJsonObject &network,const QJsonObject &dns,const char **failedCheck=nullptr);
     NetworkPolicySession::OriginalViewFilter filter(const QJsonObject &configuration) const;
 private:
     QJsonObject device,peerRoute,interfaceSnapshot;

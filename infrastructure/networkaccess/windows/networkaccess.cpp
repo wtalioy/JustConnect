@@ -3,6 +3,7 @@
 #include "infrastructure/routing/originalexit.h"
 #include "infrastructure/dns/dnsroutepublisher.h"
 #include "infrastructure/dns/dnssnapshot.h"
+#include "infrastructure/dns/windows/dnscontract.h"
 #include <QDir>
 #include <QStandardPaths>
 #include <QLoggingCategory>
@@ -16,8 +17,9 @@ using Operation=WindowsNetworkHelperClient::Operation;
 Q_LOGGING_CATEGORY(windowsNetworkAccessLog,"justconnect.networkaccess.windows",QtWarningMsg)
 
 WindowsNetworkAccess::WindowsNetworkAccess(CoreEngine *core,NetworkPolicySession *policy,int mtu,QObject *parent,
-    WindowsNetworkHelperClient::AuthorizationProvider authorization)
-    :NetworkAccess(parent),core(core),policy(policy),mtu(mtu),helper(nullptr,std::move(authorization))
+    WindowsNetworkHelperClient::AuthorizationProvider authorization,NetworkPolicySession::DnsReader readDns)
+    :NetworkAccess(parent),core(core),policy(policy),mtu(mtu),helper(nullptr,std::move(authorization)),
+      readDns(readDns?std::move(readDns):readSystemDnsSnapshot)
 {
     connect(&helper,&WindowsNetworkHelperClient::finished,this,&WindowsNetworkAccess::helperFinished);
     connect(&helper,&WindowsNetworkHelperClient::ownershipLost,this,&WindowsNetworkAccess::fail);
@@ -150,9 +152,8 @@ void WindowsNetworkAccess::helperFinished(Operation operation,Result result)
         driveStop();return;
     }
     if(operation==Operation::Apply && stage==Stage::Activating){
-        readingDNS=readingNetwork=true;
-        dnsReader.setFuture(QtConcurrent::run(readSystemDnsSnapshot));
-        core->readSnapshot(CoreEngine::Snapshot::Network,generation);return;
+        ownershipRetried=false;
+        readOwnership();return;
     }
     if(operation==Operation::Extend || operation==Operation::Routes){
         if(!updateOriginalView())return;
@@ -162,14 +163,32 @@ void WindowsNetworkAccess::helperFinished(Operation operation,Result result)
         }
     }
 }
+void WindowsNetworkAccess::readOwnership()
+{
+    readingDNS=readingNetwork=true;
+    dnsReader.setFuture(QtConcurrent::run(readDns));
+    core->readSnapshot(CoreEngine::Snapshot::Network,generation);
+}
 void WindowsNetworkAccess::finishOwnership()
 {
     if(stage!=Stage::Activating || readingNetwork || readingDNS || attaching)return;
-    ownership=WindowsNetworkOwnership::capture(helper.ownedConfiguration(),helper.ownedDevice(),ownedNetwork,dnsReader.result().data);
-    if(!ownership || !updateOriginalView()){
-        if(!ownership)fail({Status::Failed,"Cannot identify the confirmed private-device and DNS read scope.",true});
+    const char *check=nullptr;
+    ownership=WindowsNetworkOwnership::capture(helper.ownedConfiguration(),helper.ownedDevice(),ownedNetwork,dnsReader.result().data,&check);
+    if(!ownership){
+        const auto detail=QString::fromLatin1(check);
+        if(!ownershipRetried){
+            ownershipRetried=true;
+            qInfo().noquote()<<"Windows network ownership recheck ("+detail+").";
+            // IP Helper and effective DNS may publish the new state after the helper returns.
+            QTimer::singleShot(WindowsDNS::ConsistencyPollMs,this,[this,id=attempt]{
+                if(stage==Stage::Activating && attempt==id)readOwnership();
+            });
+            return;
+        }
+        fail({Status::Failed,QStringLiteral("Cannot identify the confirmed private-device and DNS read scope (%1).").arg(detail),true});
         return;
     }
+    if(!updateOriginalView())return;
     attaching=true;const auto device=helper.ownedDevice();
     core->attachWindowsPipe(generation,helper.packetPipeHandle(),helper.helperPID(),quint32(mtu),device["address"].toString(),device["peer"].toString(),true);
 }
