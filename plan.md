@@ -1,6 +1,6 @@
 # JustConnect 实施计划与进度
 
-更新日期：2026-11-03。S3—S6 阶段范围及 A9／A11／A12 已收尾。`3ba3333` 实测确认网卡复用提速和稳态 CPU 改善，另有一次接管后校验失败并自动恢复。A10 补读修复待原生检查和新版实测。跨平台实机与完整发布矩阵归 S8。
+更新日期：2026-11-03。S3—S6 阶段范围及 A9／A11／A12 已收尾。`3ba3333` 实测确认网卡复用提速和稳态 CPU 改善，另有一次接管后校验失败并自动恢复。A10 补读修复已通过自动检查，待新版实测。跨平台实机与完整发布矩阵归 S8。
 
 ## 使用方式
 
@@ -15,15 +15,15 @@
 | --- | --- |
 | 阶段进度 | S3—S6 **23／23 全部勾选**；全计划 64 项已收尾 45 项、剩余 19 项（含最终验收）。S1-04 真实样本、S2-06 真实注销仍待；下一阶段 S7 |
 | Windows 实测 | `3ba3333` 首次接管 2167 ms，两次复用接管 39／283 ms。39 ms 那轮在接管后校验失败，随后自动释放并断开。用户观察稳态 CPU 大致正常，连断时约三四秒超过 20%。 |
-| 当前跟踪 | **A10 复用提速已实测，接管后校验修复待验收**。校验不符时重新读取一次网络和 DNS，持续不符则恢复并记录失败环节。S7／S8 原安排不变。 |
-| 当前交付 | [`3ba3333` Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/41491505027/artifacts/13163974496) 已通过对应正式检查与实际包核对；先退出旧版，再在同一窗口实测两轮连接／断开及 DNS Client CPU。首次仍需创建网卡。 |
+| 当前跟踪 | **A10 复用提速已实测，接管后校验修复待新版实测**。校验不符时重新读取一次网络和 DNS，持续不符则恢复并记录失败环节。 |
+| 当前交付 | [`e9993aa` Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/41663014092/artifacts/13243882542) 已通过对应正式检查与实际包核对；先退出旧版，再在同一窗口实测两轮连接／断开。首次仍需创建网卡。 |
 
 ## 当前验收基线
 
 | 范围 | 当前结论与证据 |
 | --- | --- |
-| 正式自动检查 | `3ba3333` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/41489531734)与[六架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/41489531688)全部通过；Windows 两架构各 41 项 CTest、官方 SDK 原包／时限及延迟复用回归保留并通过。证据 `build/reports/windows-runtime-bf437ab/{tests,coreabi}-3ba3333-final.json` 及两份原生成功日志。 |
-| 实际包／源码 | `3ba3333` 的[六组实际包及源码](https://github.com/wtalioy/JustConnect/actions/runs/41491505027)全部通过；六份展开后的原生包报告、核心／助手来源与依赖逐份核对，745 个源码文件及版本声明逐字节核对。证据同报告目录的 `{actual-package-reports-3ba3333-summary,source-3ba3333-summary,packages-3ba3333-final}.json`；本机未额外运行提权夹具／完整 Windows、macOS 包离线启动，实际包由原生 CI 验证。 |
+| 正式自动检查 | `e9993aa` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/41662961204)与[六架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/41662961227)全部通过；Windows 两架构各 41 项 CTest，含首次有效 DNS 规则不完整的重连回归。 |
+| 实际包／源码 | `e9993aa` 的[六组实际包及源码](https://github.com/wtalioy/JustConnect/actions/runs/41663014092)全部通过；六份原生实际包报告、核心／助手来源和 745 个源码文件已核对。证据归 `build/reports/windows-ownership-recheck-e9993aa/`。 |
 | Windows 修复／性能 | 正常断开修复已实测；DNS 批量刷新、持久进度、部分失败和后续所有权已双架构原生验证。接口查询及 `70f90a5` 接管／断开 CPU 优化已实测通过；`build/reports/windows-restore-9d95b37/summary.json`、`build/reports/windows-dns-cpu-da23405/summary.json` |
 | 阶段矩阵 | `build/reports/v1-matrix.json` 汇总当前三平台受控证据及 Windows 实测；未测发布格保留在 V1—V7，阶段勾选不等于完整发布验收 |
 
@@ -279,7 +279,7 @@ V7 逐项记录日常使用要求，包含首次确认服务器、窗口／托�
 | A7 | 性能优先的全仓复查与持续精简 | **复查及自动验收已收尾，Windows 功能回归通过；余留性能续 A10**。出站包每包 1330 B／2 次分配→0，连接键与空闲认证扫描已优化；保留异步所有权拷贝及安全／取消／恢复回归，删除旧拼包实现与临时程序。[测量与边界](docs/DEVELOPMENT.md#数据包转发分配基线)，`build/reports/performance-2d0bbd3/summary.json`；整体吞吐未测，跨平台实机留 S8。 |
 | A8 | 全仓源码／测试审查、优化与清理 | **审查及自动验收已收尾，Windows 功能回归通过**。认证、数据面、ABI、权限恢复、Qt 调用方、构建／CI 与测试契约已复查，删除无调用后端／API／采集器和重复烟测，保留独有平台与失败回归。macOS 历史 DNS 偶发超时根因仍未确认，有界诊断及严格回归保留；实机留 S8。[范围与保留依据](docs/DEVELOPMENT.md#全仓审查与测试保留范围)，`build/reports/review-0684a4b/`。 |
 | A9 | 进一步全仓性能／职责／复用审查 | **审查、优化及自动验收已收尾，Windows 校园访问与直连保持已实测；余留性能续 A10**。修复 11 条认证响应读取错误；SOCKS UDP IPv4 与静态 DNS 减少分配，共享编译清单 316→225。清理重复测试注册、临时程序及 272 个旧产物，保留 SDK／当前构建和独有回归。[范围与测量](docs/DEVELOPMENT.md#全仓审查与测试保留范围)，`build/reports/review-2aedac8/`。 |
-| A10 | Windows 主动断开告警、TUN／Tailscale 共存与性能 | **复用提速已实测，接管后补读待原生检查及复测**。`3ba3333` 修复 APIPA 导致的 5023，用户记录首次接管 2167 ms、两次复用 39／283 ms。较快的一轮在所有权校验失败后自动恢复。新实现仅在校验不符时补读一次，增加失败环节诊断。Windows 会话夹具注入一次缺失的有效 DNS 规则，覆盖重新读取后继续连接。[测量与边界](docs/DEVELOPMENT.md#windows-网卡查询与-cpu-采样)，`build/reports/windows-runtime-bf437ab/summary.json`。 |
+| A10 | Windows 主动断开告警、TUN／Tailscale 共存与性能 | **复用提速已实测，接管后校验补读已通过原生回归，待新版实测**。`3ba3333` 首次接管 2167 ms、两次复用 39／283 ms。较快的一轮在接管后校验失败并自动恢复。`e9993aa` 校验不符时补读一次并记录失败环节。[测量与边界](docs/DEVELOPMENT.md#windows-网卡查询与-cpu-采样)。 |
 | A11 | 退出／取消错误及实际包链路故障 | **已收尾**。退出完成后延迟轮询不再误报超时，真实未完成／恢复失败仍拒绝退出；原生代理所有权校验保留取消原因。Linux 固定官方工具版本／双架构哈希及原生 strip，补齐工作流 ARM64 名称映射。确定性旧源码回归、13 项退出调用链、官方 Mihomo／核心竞态及 47 项 Python 检查均已验证，最终三平台 Tests／六架构 ABI／六组实际包及源码通过，见当前验收基线。已清理临时镜像、展开目录、完成的监视日志和重复源码包；保留工具／SDK／构建与关键报告 `build/reports/shutdown-package-ef0caa7/` |
 | A12 | 三平台节点选线启动耗时 | **已收尾**。首次 TLS 探测去掉一个 500 ms 空等周期，同机三次真实 TLS 握手中位耗时 1502.93→1002.64 ms；保留三次采样、后续间隔、证书策略、WAN／LAN 回退和取消。旧源码失败回归、本地竞态／完整 Go／正式协议宿主、三平台 Tests 及六架构 ABI 全部通过。临时测量源码已清理，保留关键报告，不重复打包；A10 用户 CPU 复测独立保留。[测量与边界](docs/DEVELOPMENT.md#节点探测启动等待)，`build/reports/node-probe-start/`。 |
 
