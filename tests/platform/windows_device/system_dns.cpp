@@ -1,5 +1,6 @@
 #include "infrastructure/dns/windows/nrpt.h"
 #include "infrastructure/dns/windows/dnsreader.h"
+#include "infrastructure/dns/windows/dnscontract.h"
 #include "ordinarytoken.h"
 #include <ws2tcpip.h>
 #include <objbase.h>
@@ -64,6 +65,14 @@ int wmain(int argc,wchar_t **argv) try
     rule.applySystem();
     ordinaryQuery(argv[2],L"203.0.113.9");
     IN_ADDR listener{};check(InetPtonW(AF_INET,L"127.0.0.1",&listener)==1,"parse fixture listener");
+    const auto exactName=L"exact."+std::wstring(argv[2]), childName=L"child."+exactName;
+    const auto exact=WindowsDnsRule::create({WindowsDNS::ExactDomainMarker+exactName},listener);
+    Restore restoreExact{exact};
+    exact.applySystem();
+    ordinaryQuery(exactName.c_str(),L"203.0.113.10");
+    ordinaryQuery(childName.c_str(),L"203.0.113.9");
+    exact.restoreSystem();
+    ordinaryQuery(exactName.c_str(),L"203.0.113.9");
     auto redirect=WindowsNrptRedirect::prepareSystem({L"."+std::wstring(argv[2])},{argv[1]},listener);
     DNS_SETTINGS2 settings{};settings.Version=DNS_SETTINGS_VERSION2;
     auto *base=reinterpret_cast<DNS_SETTINGS *>(&settings);

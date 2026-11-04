@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/netip"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -12,6 +13,53 @@ import (
 	"github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/wtalioy/JustConnect/corelib/policy"
 )
+
+func TestDomainDNSOverridesExactNamesWithoutCreatingGrants(t *testing.T) {
+	rules, err := ParseDomainDNSRules("gateway.test\nExplicit.Test. 192.0.2.53")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{"*.test", "a.test\nA.test.", "a.test 127.0.0.1", "a.test 192.0.2.53:53", "a.localhost"} {
+		if _, err := ParseDomainDNSRules(text); err == nil {
+			t.Fatalf("accepted malformed rule %q", text)
+		}
+	}
+	r := NewResolver(nil, "192.0.2.54", "", 30, nil, nil, true)
+	defer r.Close()
+	r.DomainDNS = rules
+	for host, endpoint := range map[string]string{"explicit.test.": "192.0.2.53:53", "gateway.test.": "192.0.2.54:53"} {
+		dial := func(_ context.Context, network, address string) (net.Conn, error) {
+			if network != "tcp" || address != endpoint {
+				t.Fatalf("DNS went to %s %s, wanted %s", network, address, endpoint)
+			}
+			left, right := net.Pipe()
+			go func() {
+				defer right.Close()
+				wire := &dns.Conn{Conn: right}
+				if request, err := wire.ReadMsg(); err == nil {
+					reply := new(dns.Msg).SetReply(request)
+					reply.Answer = []dns.RR{&dns.A{Hdr: dns.RR_Header{Name: host, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 30}, A: net.IPv4(203, 0, 113, 9)}}
+					_ = wire.WriteMsg(reply)
+				}
+			}()
+			return left, nil
+		}
+		request := new(dns.Msg).SetQuestion(host, dns.TypeA)
+		reply, err := r.ExchangeTUN(t.Context(), request, "tcp", dial, func(context.Context, []netip.Addr, bool) error {
+			t.Fatal("a DNS preference published a route for an unlisted name")
+			return nil
+		})
+		if err != nil || len(reply.Answer) != 1 {
+			t.Fatalf("override reply %v, %v", reply, err)
+		}
+		if _, err := r.ExchangeTUN(t.Context(), new(dns.Msg).SetQuestion("child."+host, dns.TypeA), "tcp", dial, nil); !errors.Is(err, ErrOriginalDNSRequired) {
+			t.Fatalf("override was inherited by a child: %v", err)
+		}
+	}
+	if len(r.CampusDNSRecords()) != 0 {
+		t.Fatal("unlisted names gained campus DNS authorization")
+	}
+}
 
 func TestCampusDNSPacketsPreserveRecordsAndRejectOriginalNames(t *testing.T) {
 	r := NewResolver(nil, "203.0.113.53", "", 30, client.DomainResources{"*.campus.test": {{Protocol: "all", PortMin: 1, PortMax: 65535}}},

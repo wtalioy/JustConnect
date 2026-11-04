@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net"
 	"net/netip"
-	"strconv"
 	"strings"
 
 	"github.com/miekg/dns"
@@ -106,10 +105,26 @@ func (r *Resolver) exchangeDNS(ctx context.Context, request *dns.Msg, transport 
 		prepare = func(addresses []netip.Addr) error { return publish(ctx, addresses, false) }
 	}
 	ips, known := r.dnsResource[host]
+	server, override := r.domainDNSServer(host)
+	_, _, granted := matchDomainResource(r.domainIndex, host)
+	if override {
+		if !campusOnly && question.Qtype == dns.TypeAAAA {
+			return nil, ErrCampusIPv6Unsupported
+		}
+		if server == "" || dial == nil {
+			return nil, ErrCampusDNSUnavailable
+		}
+		reply, err := exchangeDNSPacket(ctx, request, transport, server, dial)
+		if err == nil && granted {
+			_, err = r.bindCampusAnswer(request, reply, prepare)
+		}
+		// An override for an unlisted name relies solely on existing IP routes and grants.
+		return reply, err
+	}
 	if selected != nil && !r.useRemoteDNS && !known {
 		return r.exchangeOriginalRoute(ctx, request, transport, *selected, nil, false)
 	}
-	if _, _, granted := matchDomainResource(r.domainIndex, host); !granted && !known && !explicit {
+	if !granted && !known && !explicit {
 		if selected != nil {
 			return r.exchangeOriginalRoute(ctx, request, transport, *selected, nil, false)
 		}
@@ -132,10 +147,11 @@ func (r *Resolver) exchangeDNS(ctx context.Context, request *dns.Msg, transport 
 		_, err := r.bindCampusAnswer(request, reply, prepare)
 		return reply, err
 	}
-	if !r.useRemoteDNS || r.remoteDNSServer == "" || dial == nil {
+	endpoint, valid := r.CampusDNSEndpoint()
+	if !valid || dial == nil {
 		return nil, ErrCampusDNSUnavailable
 	}
-	reply, err := exchangeDNSPacket(ctx, request, transport, net.JoinHostPort(r.remoteDNSServer, strconv.Itoa(DNSPort)), dial)
+	reply, err := exchangeDNSPacket(ctx, request, transport, endpoint.String(), dial)
 	if err == nil {
 		_, err = r.bindCampusAnswer(request, reply, prepare)
 	}

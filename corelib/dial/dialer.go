@@ -108,6 +108,16 @@ func (d *Dialer) DialCampusDNS(ctx context.Context, network, address string) (ne
 	return campus.DialIPPort(ctx, network, address)
 }
 
+// DialDomainDNS applies the gateway endpoint exception only to the gateway's DNS.
+func (d *Dialer) DialDomainDNS(ctx context.Context, network, address string) (net.Conn, error) {
+	if d.resolver != nil {
+		if endpoint, valid := d.resolver.CampusDNSEndpoint(); valid && endpoint.String() == address {
+			return d.DialCampusDNS(ctx, network, address)
+		}
+	}
+	return d.DialCampusIPPort(ctx, network, address)
+}
+
 // DialCapturedIPPort also accepts a live campus DNS binding; IP protection still applies.
 func (d *Dialer) DialCapturedIPPort(ctx context.Context, network, address string) (net.Conn, error) {
 	snapshot, captured := ctx.Value(resolve.ContextKeyProtectionPolicy).(*policy.ProtectionPolicy)
@@ -156,6 +166,9 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 	}
 	address = address.Unmap()
 	useVPN := d.alwaysUseVPN
+	if !useVPN {
+		useVPN, _ = ctx.Value(resolve.ContextKeyDomainDNS).(bool)
+	}
 	snapshot, captured := ctx.Value(resolve.ContextKeyProtectionPolicy).(*policy.ProtectionPolicy)
 	if !captured && d.ProtectionPolicy != nil {
 		snapshot = d.ProtectionPolicy()
@@ -174,7 +187,7 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 			}
 		}
 		if allowed, scope := snapshot.CampusAllowed(address); !allowed && !namedCampus {
-			if d.alwaysUseVPN {
+			if useVPN {
 				return nil, policy.ErrProtectedTarget
 			}
 			return dialDirect(ctx, network, ipAddr)

@@ -61,6 +61,7 @@ type Config struct {
 	Protection    *ProtectionConfig `json:"protection,omitempty"`
 	initialPolicy *policy.ProtectionPolicy
 	originalDNS   *resolve.OriginalDNS
+	domainDNS     map[string]string
 	Server        struct {
 		Host string `json:"host"`
 		Port uint16 `json:"port"`
@@ -92,6 +93,7 @@ type Config struct {
 		SecondaryDNS     string                     `json:"secondary_dns"`
 		DNSCacheTTL      uint32                     `json:"dns_cache_ttl"`
 		DisableRemoteDNS bool                       `json:"disable_remote_dns"`
+		DomainDNSRules   string                     `json:"domain_dns_rules,omitempty"`
 		Language         string                     `json:"language"`
 		OriginalDNS      []resolve.OriginalDNSRoute `json:"original_dns,omitempty"`
 	} `json:"network"`
@@ -197,6 +199,13 @@ func ParseConfig(data []byte) (Config, Status) {
 	}
 	if len(c.Network.Interface) > MaxInterfaceName || len(c.Network.Language) > MaxLanguage || !validDNS(c.Network.LocalDNS) {
 		return Config{}, InvalidArgument
+	}
+	if c.Network.DomainDNSRules != "" {
+		var err error
+		c.domainDNS, err = resolve.ParseDomainDNSRules(c.Network.DomainDNSRules)
+		if err != nil || c.Operation == "auth_methods" {
+			return Config{}, InvalidArgument
+		}
 	}
 	if len(c.Network.OriginalDNS) != 0 {
 		if c.Operation == "auth_methods" || c.Protection == nil {

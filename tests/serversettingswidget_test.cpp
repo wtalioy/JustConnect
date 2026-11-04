@@ -1,6 +1,6 @@
 #include "application/profileservice.h"
 #include "presentation/widgets/serversettingswidget.h"
-#include "application/applicationconstants.h"
+#include "application/defaultsettings.h"
 #include <QApplication>
 #include <QComboBox>
 #include <QCheckBox>
@@ -28,6 +28,7 @@ int main(int argc,char **argv) {
     auto *port=editor.findChild<QSpinBox *>("serverPortSpinBox");
     auto *verify=editor.findChild<QCheckBox *>("tlsVerifyCheckBox");
     auto *ca=editor.findChild<QPlainTextEdit *>("tlsCaPemEdit");
+    auto *rules=editor.findChild<QPlainTextEdit *>("domainDnsRulesEdit");
     auto *warning=editor.findChild<QLabel *>("tlsWarningLabel");
     auto *allowNodes=editor.findChild<QCheckBox *>("allowUnverifiedNodesCheckBox");
     auto *nodeWarning=editor.findChild<QLabel *>("nodeTlsWarningLabel");
@@ -39,16 +40,21 @@ int main(int argc,char **argv) {
     verify->setChecked(false); ca->setPlainText("explicit private CA");
     check(!warning->isHidden(),"explicit unsafe choice shows an identity-protection warning");
     address->setText("draft.example.edu"); port->setValue(9443);
+    rules->setPlainText("service.custom.example 192.0.2.53");
     preset->setCurrentIndex(preset->findData("Fudan"));
-    check(editor.isFudan() && editor.serverAddress()==ApplicationConstants::FudanServer && editor.serverPort()==443,"Fudan selects its server");
+    check(editor.prefersOAuth() && editor.serverAddress()=="vpn.fudan.edu.cn" && editor.serverPort()==443,"Fudan selects its server");
+    check(rules->toPlainText()=="zb.fudan.edu.cn","preset supplies a name and uses the gateway DNS");
+    rules->clear();
     check(address->isReadOnly() && !port->isEnabled(),"Fudan cannot retain a conflicting manual endpoint");
     preset->setCurrentIndex(preset->findData("Custom"));
     check(editor.serverAddress()=="draft.example.edu" && editor.serverPort()==9443,"Custom draft survives preset switching");
+    check(rules->toPlainText()=="service.custom.example 192.0.2.53","preset DNS rules do not leak into Custom");
     QSettings unchanged(path,QSettings::IniFormat);
     check(unchanged.value("JustConnect/ServerAddress")=="custom.example.edu" && unchanged.value("JustConnect/ServerPort")==8443,"editing and cancelling do not save");
     if (!ProfileService::writePublic(settings,editor.settingsValues())) return 1;
     QSettings saved(path,QSettings::IniFormat);
     editor.load(saved);
+    check(ProfileService::load(saved).dns.domainDnsRules=="service.custom.example 192.0.2.53","custom DNS rules survive save and reload");
     check(allowNodes->isChecked() && !nodeWarning->isHidden(),"explicit node policy and warning survive save and reload");
     check(!editor.settingsValues().value("JustConnect/TLSVerify").toBool() && editor.settingsValues().value("JustConnect/TLSCAPEM").toString()=="explicit private CA" && !warning->isHidden(),"explicit TLS policy survives save and reload");
     check(saved.value("JustConnect/ServerAddress")=="draft.example.edu" && saved.value("JustConnect/ProfileKind")=="Custom","explicit apply saves selected endpoint");
@@ -60,6 +66,12 @@ int main(int argc,char **argv) {
     settings.setValue("Common/NeedsConfiguration",false);
     settings.setValue("JustConnect/ProfileKind","Fudan");
     editor.load(settings);
-    check(!editor.isFudan() && editor.serverAddress()=="draft.example.edu","inconsistent saved preset never overwrites a valid custom endpoint");
+    check(!editor.prefersOAuth() && editor.serverAddress()=="draft.example.edu","inconsistent saved preset never overwrites a valid custom endpoint");
+    settings.setValue("JustConnect/ServerAddress","vpn.fudan.edu.cn");
+    settings.setValue("JustConnect/ServerPort",443);
+    settings.setValue(DefaultSettings::DomainDnsRules,"");
+    editor.load(settings);
+    check(rules->toPlainText().isEmpty() && ProfileService::load(settings).dns.domainDnsRules.isEmpty(),
+        "an explicitly removed preset rule stays removed");
     std::cout<<"PASS: Fudan/Custom switching, draft preservation and explicit apply\n";
 }

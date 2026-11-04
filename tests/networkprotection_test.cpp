@@ -224,6 +224,17 @@ static void captureTargets()
     check(prepared.result.succeeded() && prepared.configuration["capture_prefixes"]==QJsonArray::fromStringList(plan->ipv4Prefixes)
         && prepared.configuration["dns_domains"]==QJsonArray::fromStringList(plan->dnsDomains)
         && prepared.configuration.value("original_dns").isArray() && prepared.configuration.value("original_dns").toArray().isEmpty(),"Windows preparation lost confirmed resource scopes or native source contract");
+    auto named=resources;
+    named["domain_dns_names"]=QJsonArray{"service.custom.test","peer.mesh.test"};
+    auto namePolicy=policy;
+    namePolicy["protected_names"]=QJsonArray{QJsonObject{{"kind","suffix"},{"value","mesh.test"}}};
+    const auto exact=prepareWindowsNetworkHelper(named,namePolicy,allocationNetwork,dns,{},1400);
+    auto expectedDns=prepared.configuration["dns_domains"].toArray();
+    expectedDns.append("=service.custom.test");
+    check(exact.result.succeeded() && exact.configuration["dns_domains"]==expectedDns
+        && exact.configuration["capture_prefixes"]==prepared.configuration["capture_prefixes"]
+        && updatedWindowsCapturePrefixes(named,namePolicy,exact.configuration,exact.originalSources).has_value(),
+        "An exact DNS rule must preserve protected names and must not add IP routes");
     for(const auto &field:{"address","peer"}){
         const QHostAddress address(prepared.configuration[field].toString());
         check(!address.isInSubnet(QHostAddress::parseSubnet("10.0.0.0/8"))

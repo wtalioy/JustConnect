@@ -123,7 +123,8 @@ std::optional<WindowsNetworkOwnership> WindowsNetworkOwnership::capture(const QJ
         if(item.toObject()["interface_index"]==device["index"] && item.toObject().value("protocol")==localRoute.value("protocol") && !owned.contains(item))result.automaticRoutes.append(item);
     if(failedCheck)*failedCheck="effective DNS policy";
     QSet<QString> pending;
-    for(const auto &name:configuration["dns_domains"].toArray())pending.insert("."+name.toString());
+    for(const auto &name:configuration["dns_domains"].toArray())
+        pending.insert(QString::fromStdWString(WindowsDNS::nativeNamespace(name.toString().toStdWString())));
     for(const auto &item:dns["nrpt"].toArray()){
         const auto row=item.toObject();
         if(row["NameServers"]!=QJsonArray{device["peer"]})continue;
@@ -145,7 +146,8 @@ std::optional<WindowsNetworkOwnership> WindowsNetworkOwnership::capture(const QJ
             || row["version"].toInteger(-1)!=WindowsDNS::NrptVersion || row["options"].toInteger(-1)!=WindowsDNS::GenericServersOption || !sourceClass.startsWith(prefix)
             || QUuid(sourceClass.sliced(prefix.size())).isNull())return {};
         QSet<QString> expected;
-        for(const auto &name:configuration["dns_domains"].toArray())expected.insert("."+name.toString());
+        for(const auto &name:configuration["dns_domains"].toArray())
+            expected.insert(QString::fromStdWString(WindowsDNS::nativeNamespace(name.toString().toStdWString())));
         for(const auto &name:row["namespaces"].toArray())if(!expected.remove(name.toString()))return {};
         if(!expected.isEmpty())return {};
         result.dnsSourceRecords.append(item);

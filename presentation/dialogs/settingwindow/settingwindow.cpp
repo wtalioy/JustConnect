@@ -102,7 +102,7 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
             ui->loginDomainLineEdit->setText(selection["domain"].toString()); ui->loginUrlLineEdit->setText(selection["login_url"].toString());
             selectedAuthId=selection["auth_id"].toString(); selectedAuthSubType=selection["sub_type"].toString();
         });
-        query->fetchAuthInfo(currentProfile(),serverEditor->isFudan()); query->show();
+        query->fetchAuthInfo(currentProfile(),serverEditor->prefersOAuth()); query->show();
     });
     connect(ui->buttonBox->button(QDialogButtonBox::Ok),&QPushButton::clicked,this,[this] {
         applySettings(true);

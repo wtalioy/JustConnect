@@ -77,8 +77,8 @@ SettingsMigrationAction SettingsMigrator::prepare(QSettings &settings)
         settings.setValue("Common/NeedsConfiguration",true);
     if (!settings.contains("JustConnect/ProfileKind"))
         settings.setValue("JustConnect/ProfileKind",
-            settings.value("JustConnect/ServerAddress").toString() == ApplicationConstants::FudanServer
-            && settings.value("JustConnect/ServerPort",443).toInt() == ApplicationConstants::FudanPort ? "Fudan" : "Custom");
+            DefaultSettings::profileKindForEndpoint(settings.value("JustConnect/ServerAddress").toString(),
+                settings.value("JustConnect/ServerPort",443).toInt()));
     if (!settings.contains("JustConnect/KeepAliveMode")) {
         const bool disabled=settings.contains("JustConnect/KeepAlive") && !settings.value("JustConnect/KeepAlive").toBool();
         settings.setValue("JustConnect/KeepAliveMode", disabled ? "off"

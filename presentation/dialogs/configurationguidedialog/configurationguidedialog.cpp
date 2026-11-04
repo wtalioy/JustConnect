@@ -374,7 +374,7 @@ void ConfigurationGuideDialog::fetchAuthenticationMethods()
         if (!closed && host==serverEditor->serverAddress() && port==serverEditor->serverPort())
             selectAuthenticationMethod(method);
     });
-    authInfoWindow->fetchAuthInfo(currentProfile(),serverEditor->isFudan());
+    authInfoWindow->fetchAuthInfo(currentProfile(),serverEditor->prefersOAuth());
     authInfoWindow->show();
 }
 

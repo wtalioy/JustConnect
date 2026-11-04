@@ -20,6 +20,8 @@ import (
 type Resolver struct {
 	ProtectionPolicy  func() *policy.ProtectionPolicy
 	OriginalDNS       *OriginalDNS
+	DomainDNS         map[string]string
+	DomainDNSDial     client.DialContextFunc
 	remoteDNSServer   string
 	dnsTTL            uint32
 	ctx               context.Context
@@ -145,6 +147,20 @@ func (r *Resolver) resolve(ctx context.Context, host string, campusOnly, allowDN
 	if _, resources, found := matchDomainResource(r.domainIndex, host); found {
 		ctx = context.WithValue(ctx, ContextKeyDomainResource, resources)
 		campusOnly = true
+	}
+
+	if server, configured := r.domainDNSServer(host); configured {
+		ctx = context.WithValue(ctx, ContextKeyDomainDNS, true)
+		if ip, found := r.getDNSCache(host, true); found {
+			return ctx, ip, nil
+		}
+		ip, err := r.resolveCoordinated(ctx, host, func(lookupCtx context.Context) (net.IP, error) {
+			if server == "" || r.DomainDNSDial == nil {
+				return nil, ErrCampusDNSUnavailable
+			}
+			return r.lookupDomainDNS(lookupCtx, host, server)
+		})
+		return ctx, ip, err
 	}
 
 	if cachedIP, found := r.getDNSCache(host, campusOnly); found {

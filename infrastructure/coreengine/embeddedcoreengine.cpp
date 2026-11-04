@@ -67,8 +67,14 @@ QJsonObject configuration(const ConnectionProfile &p, CoreEngine::Operation oper
         {"network", QJsonObject{{"interface", p.behavior.bindInterface}, {"auto_detect", p.behavior.autoDetectInterface},
             {"local_dns", p.dns.localDnsServer}, {"secondary_dns", p.dns.secondary},
             {"dns_cache_ttl", p.dns.ttl}, {"disable_remote_dns", p.dns.disableRemoteDns}}}};
-    if (operation==CoreEngine::Operation::Connect)
+    if (operation==CoreEngine::Operation::Connect) {
         config["keepalive"]=QJsonObject{{"mode",p.keepAlive.mode},{"url",p.keepAlive.url}};
+        if (!p.dns.domainDnsRules.isEmpty()) {
+            auto network=config["network"].toObject();
+            network["domain_dns_rules"]=p.dns.domainDnsRules;
+            config["network"]=network;
+        }
+    }
     if (operation==CoreEngine::Operation::Connect && p.behavior.rememberAuthentication) {
         QJsonObject cache{{"enabled",true}};
         if (!p.authenticationCache.data.isEmpty() || !p.authenticationCache.account.isEmpty()) {

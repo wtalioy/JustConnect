@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -35,6 +36,7 @@ type Options struct {
 	SecondaryDNS     string
 	DNSCacheTTL      uint64
 	DisableRemoteDNS bool
+	DomainDNS        map[string]string
 	KeepAliveMode    string
 	KeepAliveURL     string
 	QueryAuthMethods bool
@@ -55,6 +57,7 @@ type Resources struct {
 	DNSRecords        map[string][]net.IP
 	CampusDNS         string
 	CampusDNSEnabled  bool
+	DomainDNSNames    []string
 	UnderlayInterface string
 	Listeners         service.ListenerAddresses
 }
@@ -243,6 +246,8 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 
 	dialer := dial.NewDialer(network, resolver, ips, false)
 	dialer.ProtectionPolicy = options.ProtectionPolicy
+	resolver.DomainDNS = options.DomainDNS
+	resolver.DomainDNSDial = dialer.DialDomainDNS
 	if ownedUnderlay != nil {
 		upstream := &sessionUpstream{source: ownedUnderlay, gate: make(chan struct{}, 1)}
 		dialer.Upstream = upstream.dialer
@@ -256,12 +261,17 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 	s.listeners.Store(listeners)
 	defer s.listeners.Store(nil)
 	if observer.Resources != nil {
+		var domainDNSNames []string
+		for host := range options.DomainDNS {
+			domainDNSNames = append(domainDNSNames, host)
+		}
+		slices.Sort(domainDNSNames)
 		var interfaceName string
 		if selected, ok := clientOptions.UnderlayDialer.(interface{ InterfaceName() string }); ok {
 			interfaceName = selected.InterfaceName()
 		}
 		observer.Resources(Resources{IPs: ips, Domains: domains, DNSRecords: dnsResource,
-			CampusDNS: remoteDNS, CampusDNSEnabled: !options.DisableRemoteDNS && remoteDNS != "", UnderlayInterface: interfaceName,
+			CampusDNS: remoteDNS, CampusDNSEnabled: !options.DisableRemoteDNS && remoteDNS != "", DomainDNSNames: domainDNSNames, UnderlayInterface: interfaceName,
 			Listeners: listeners.Addresses()})
 	}
 	probeDNS := remoteDNS
