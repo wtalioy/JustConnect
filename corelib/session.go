@@ -52,14 +52,15 @@ type Observer struct {
 
 // Resources borrows the session's parsed data read-only for the observer call.
 type Resources struct {
-	IPs               []client.IPResource
-	Domains           client.DomainResources
-	DNSRecords        map[string][]net.IP
-	CampusDNS         string
-	CampusDNSEnabled  bool
-	DomainDNSNames    []string
-	UnderlayInterface string
-	Listeners         service.ListenerAddresses
+	IPs                           []client.IPResource
+	Domains                       client.DomainResources
+	DNSRecords                    map[string][]net.IP
+	CampusDNS                     string
+	CampusDNSEnabled              bool
+	DomainDNSNames                []string
+	UnderlayInterface             string
+	OriginalAuthenticationAddress netip.Addr
+	Listeners                     service.ListenerAddresses
 }
 
 // Session owns one protocol invocation; the ABI serializes starts and joins Run on stop.
@@ -246,6 +247,7 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 
 	dialer := dial.NewDialer(network, resolver, ips, false)
 	dialer.ProtectionPolicy = options.ProtectionPolicy
+	dialer.OriginalAuthenticationAddress = originalAuthenticationAddress(ctx, options.Setup.LoginMethod, clientOptions.TLSConfig, clientOptions.UnderlayDialer.DialContext)
 	resolver.DomainDNS = options.DomainDNS
 	resolver.DomainDNSDial = dialer.DialDomainDNS
 	if ownedUnderlay != nil {
@@ -272,7 +274,8 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 		}
 		observer.Resources(Resources{IPs: ips, Domains: domains, DNSRecords: dnsResource,
 			CampusDNS: remoteDNS, CampusDNSEnabled: !options.DisableRemoteDNS && remoteDNS != "", DomainDNSNames: domainDNSNames, UnderlayInterface: interfaceName,
-			Listeners: listeners.Addresses()})
+			OriginalAuthenticationAddress: dialer.OriginalAuthenticationAddress,
+			Listeners:                     listeners.Addresses()})
 	}
 	probeDNS := remoteDNS
 	if options.DisableRemoteDNS {
