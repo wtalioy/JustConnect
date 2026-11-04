@@ -59,7 +59,10 @@ void apply(QSettings &settings, bool overwrite)
 {
     for (auto it=defaults().cbegin();it!=defaults().cend();++it)
         if (overwrite || !settings.contains(it.key())) settings.setValue(it.key(),it.value());
-    if (overwrite) settings.setValue("Common/ConfigVersion", ApplicationConstants::ConfigVersion);
+    if (overwrite) {
+        settings.remove(DefaultSettings::DomainDnsRules);
+        settings.setValue("Common/ConfigVersion", ApplicationConstants::ConfigVersion);
+    }
 }
 }
 
@@ -68,7 +71,35 @@ void DefaultSettings::initialize(QSettings &settings) { apply(settings, false); 
 
 bool DefaultSettings::isPublicKey(const QString &key)
 {
-    return key=="Common/ConfigVersion" || defaults().contains(key);
+    return key=="Common/ConfigVersion" || key==DomainDnsRules || defaults().contains(key);
+}
+
+const QVariantMap &DefaultSettings::builtInProfile()
+{
+    static const auto values=[] {
+        const QSettings input(":/justconnect/default-profile.ini",QSettings::IniFormat);
+        auto values=publicValues(input);
+        if (input.status()!=QSettings::NoError || values.isEmpty()) qFatal("Cannot read the bundled default profile.");
+        return values;
+    }();
+    return values;
+}
+
+QString DefaultSettings::profileKindForEndpoint(const QString &host, int port)
+{
+    const auto &profile=builtInProfile();
+    if (profile.value("JustConnect/ServerAddress")==host && profile.value("JustConnect/ServerPort").toInt()==port)
+        return profile.value("JustConnect/ProfileKind").toString();
+    return "Custom";
+}
+
+QString DefaultSettings::domainDnsRules(const QVariantMap &settings)
+{
+    if (settings.contains(DomainDnsRules)) return settings.value(DomainDnsRules).toString();
+    const auto kind=settings.value("JustConnect/ProfileKind").toString();
+    if (kind!=profileKindForEndpoint(settings.value("JustConnect/ServerAddress").toString(),
+        settings.value("JustConnect/ServerPort").toInt())) return {};
+    return builtInProfile().value("JustConnect/ProfileKind")==kind ? builtInProfile().value(DomainDnsRules).toString() : QString();
 }
 
 QVariantMap DefaultSettings::publicValues(const QSettings &settings)

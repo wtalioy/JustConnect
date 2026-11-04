@@ -36,9 +36,12 @@ def verify(executable):
                     except socket.timeout:
                         continue
                     try:
-                        answer = dns_answer(query, hostname, ipv4=answer_ip, ignore_unrelated=True)
+                        for name in (hostname, 'batch.' + hostname, 'exact.' + hostname, 'child.exact.' + hostname):
+                            answer = dns_answer(query, name, ipv4=answer_ip, ignore_unrelated=True)
+                            if answer is not None:
+                                break
                         if answer is None:
-                            answer = dns_answer(query, 'batch.' + hostname, ipv4=answer_ip)
+                            raise ValueError('unexpected DNS question in the fixture namespace')
                         endpoint.sendto(answer, sender)
                         queries.append(hostname)
                     except BaseException as error:

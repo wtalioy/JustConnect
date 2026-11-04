@@ -54,6 +54,13 @@ func TestInternalCampusDNSBypassesOnlyItsEndpointProtectionAndStillRequiresACL(t
 			t.Fatal("DNS bypassed resource ACL", err)
 		}
 	}
+	if _, err := denied.DialDomainDNS(t.Context(), "udp", "192.0.2.53:53"); !errors.Is(err, ErrACLDenied) {
+		t.Fatal("a configured DNS endpoint gained tunnel access", err)
+	}
+	fromOverride := context.WithValue(t.Context(), resolve.ContextKeyDomainDNS, true)
+	if _, err := denied.DialIPPort(fromOverride, "tcp", "192.0.2.54:443"); !errors.Is(err, ErrACLDenied) {
+		t.Fatal("an address from a domain DNS rule gained tunnel access or fell back to the original network", err)
+	}
 	if s.tcpCalls != 1 || s.udpCalls != 1 {
 		t.Fatal("denied DNS reached the tunnel")
 	}

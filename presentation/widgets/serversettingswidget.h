@@ -1,5 +1,6 @@
 #pragma once
 #include <QWidget>
+#include <QMap>
 #include <QVariantMap>
 class QComboBox;
 class QCheckBox;
@@ -16,7 +17,7 @@ public:
     QVariantMap settingsValues() const;
     QString serverAddress() const;
     int serverPort() const;
-    bool isFudan() const;
+    bool prefersOAuth() const;
 signals:
     void serverChanged();
 private:
@@ -27,6 +28,8 @@ private:
     QCheckBox *verify;
     QCheckBox *allowUnverifiedNodes;
     QPlainTextEdit *caPem;
+    QPlainTextEdit *domainDnsRules;
     QString previousPreset, customAddress;
+    QMap<QString,QString> domainDnsDrafts;
     int customPort = 443;
 };

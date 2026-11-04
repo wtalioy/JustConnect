@@ -8,6 +8,10 @@ class QString;
 namespace DefaultSettings
 {
 inline constexpr const char *RememberAuthentication="JustConnect/RememberAuthentication";
+inline constexpr const char *DomainDnsRules="JustConnect/DomainDNSRules";
+const QVariantMap &builtInProfile();
+QString profileKindForEndpoint(const QString &host, int port);
+QString domainDnsRules(const QVariantMap &settings);
 void reset(QSettings &settings);
 void initialize(QSettings &settings);
 QVariantMap publicValues(const QSettings &settings);

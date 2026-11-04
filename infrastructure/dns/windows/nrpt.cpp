@@ -137,7 +137,8 @@ std::vector<Value> expected(const WindowsDnsRule &rule)
     if (!InetNtopW(AF_INET,&rule.server,address,static_cast<DWORD>(std::size(address)))) fail("format NRPT DNS server");
     std::vector<wchar_t> names;
     for (const auto &name:rule.domains) {
-        names.push_back(L'.');names.insert(names.end(),name.begin(),name.end());names.push_back(0);
+        const auto native=WindowsDNS::nativeNamespace(name);
+        names.insert(names.end(),native.begin(),native.end());names.push_back(0);
     }
     names.push_back(0);
     const DWORD version=WindowsDNS::NrptVersion,options=WindowsDNS::GenericServersOption;
@@ -333,7 +334,8 @@ bool WindowsDnsRule::valid() const
         || !value || value==0xffffffffu || first==127 || (first>=224 && first<=239) || (value>>16)==0xa9fe)
         return false;
     std::set<std::wstring> seen;
-    for (const auto &name:domains) if (!domain(name) || !seen.insert(name).second) return false;
+    for (const auto &name:domains)
+        if (!domain(WindowsDNS::isExactDomain(name)?name.substr(1):name) || !seen.insert(name).second) return false;
     return true;
 }
 WindowsDnsRule WindowsDnsRule::create(const std::vector<std::wstring> &names,IN_ADDR address)

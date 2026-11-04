@@ -66,7 +66,9 @@ ABI v1 与 JSON schema 版本同步。S2-02 以兼容增补导出 `jc_config_val
 
 `operation` 缺省为 `connect`；`auth_methods` 只查询认证方式，产生 `auth_methods` 结果（`methods:[{type,domain,name,login_url,auth_id,sub_type}]`）及终态，不建立数据栈或代理。结果数量、字段和整体事件大小均有界，超限返回 `JC_LIMIT`。
 
-`network` 支持 `interface/auto_detect/local_dns/secondary_dns/dns_cache_ttl/disable_remote_dns/language/original_dns`。接口、DNS 和语言显式传入；local DNS 允许 IP 或 IP:port，secondary DNS 为 IP。接口名优先于自动选择；自动选择默认关闭，避免悄悄改变宿主的网络策略。DNS 缓存寿命与维护间隔的默认值集中在 `corelib/session.go`，缓存不启动游离 janitor，且有容量上限。代理出口不读取系统 HTTP_PROXY 等环境配置；核心配置接口不修改系统网络；设备、路由和系统 DNS 由 C++ 助手按所有权接管，核心接收显式移交的 TUN。自动共存的受控验证与实机范围见[计划 S6](../plan.md#s6-clash-共存原型)。
+`network` 支持 `interface/auto_detect/local_dns/secondary_dns/dns_cache_ttl/disable_remote_dns/language/original_dns/domain_dns_rules`。接口、DNS 和语言显式传入；local DNS 允许 IP 或 IP:port，secondary DNS 为 IP。接口名优先于自动选择；自动选择默认关闭，避免悄悄改变宿主的网络策略。DNS 缓存寿命与维护间隔的默认值集中在 `corelib/session.go`，缓存不启动游离 janitor，且有容量上限。代理出口不读取系统 HTTP_PROXY 等环境配置；核心配置接口不修改系统网络；设备、路由和系统 DNS 由 C++ 助手按所有权接管，核心接收显式移交的 TUN。自动共存的受控验证与实机范围见[计划 S6](../plan.md#s6-clash-共存原型)。
+
+`network.domain_dns_rules` 是连接配置的可选文本，每行一个完整域名，之后可加空格和 DNS 服务器 IPv4。省略服务器时使用当前网关 DNS。精确匹配只改变查询目的地，DNS 服务器和应用流量仍受网关资源、协议与端口限制。资源快照的可选 `domain_dns_names` 用于 Windows 精确名称接管，现有 DNS 范围及保护策略保持各自语义。
 
 `capabilities.original_dns_forwarding` 表示 TUN DNS 可使用宿主显式提供的原 DNS 来源，不代表应用已完成自动来源选择。可选 `network.original_dns` 是按原生优先级排列的数组，每项包含 `name:{kind,value}`（复用名称保护规则）、`servers:["IP:port",...]`、查询出口 `interface`；空值或省略表示原生不绑定接口、保留系统路由，非空值仍严格绑定所指接口。宿主必须以实际原生查询上下文选择该值，不从监听地址或业务网卡推断。仅接受显式单播端点，不解析服务器主机名、不补公共 DNS；必须同时提供 `protection`。宿主须在接管前选定来源、保护服务器原出口，并确认原生安全／加密要求允许普通 DNS；未知来源或不支持的安全要求不能降级。来源变化时需恢复并重连，当前会话来源不可变。
 

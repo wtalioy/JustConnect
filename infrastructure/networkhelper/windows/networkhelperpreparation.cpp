@@ -2,6 +2,7 @@
 #include "application/networkprotection.h"
 #include "infrastructure/dns/windows/dnscontract.h"
 #include "infrastructure/dns/domainlimits.h"
+#include "infrastructure/dns/dnsdomains.h"
 #include <QHostAddress>
 #include <QMap>
 #include <QSet>
@@ -9,6 +10,31 @@
 #include <algorithm>
 
 namespace {
+std::optional<QStringList> windowsDnsDomains(const QStringList &scopes, const QJsonObject &resources,
+    const QJsonObject &policy, const QJsonArray &original)
+{
+    auto result=campusDnsDomainsToInstall(scopes,original);
+    const auto exact=resources.value("domain_dns_names");
+    if (!exact.isUndefined() && !exact.isArray()) return {};
+    const auto protectedNames=policy["protected_names"].toArray(), choices=policy["campus_names"].toArray();
+    QSet<QString> seen;
+    for (const auto &entry:exact.toArray()) {
+        const auto host=entry.toString();
+        if (!canonicalDnsDomain(host) || !host.contains('.') || seen.contains(host)) return {};
+        seen.insert(host);
+        if (!choices.contains(host) && std::any_of(protectedNames.begin(),protectedNames.end(),[&](const auto &item){
+            const auto rule=item.toObject();
+            const auto kind=rule["kind"].toString(), value=rule["value"].toString();
+            return (kind=="exact" && host==value) || (kind=="suffix" && (host==value || host.endsWith('.'+value)))
+                || (kind=="prefix" && host.startsWith(value));
+        })) continue;
+        if (std::any_of(result.begin(),result.end(),[&](const auto &scope){return host==scope || host.endsWith('.'+scope);})) continue;
+        result.append(QChar(ushort(WindowsDNS::ExactDomainMarker))+host);
+        if (result.size()>qsizetype(NetworkDnsDomainLimit)) return {};
+    }
+    return result;
+}
+
 QSet<QString> namespaces(const QJsonArray &values)
 {
     QSet<QString> result;
@@ -157,7 +183,9 @@ WindowsHelperPreparation prepareWindowsNetworkHelper(const QJsonObject &resource
     if(!original.result.succeeded())return original;
     QString captureDiagnostic;
     const auto targets=campusCaptureTargets(resources,protection,{},original.originalSources, &captureDiagnostic);
-    if(!targets || (targets->ipv4Prefixes.isEmpty() && targets->dnsDomains.isEmpty()))return {{Status::Unsupported,captureDiagnostic},{}};
+    if(!targets)return {{Status::Unsupported,captureDiagnostic},{}};
+    const auto domains=windowsDnsDomains(targets->dnsDomains,resources,protection,original.originalSources);
+    if(!domains || (targets->ipv4Prefixes.isEmpty() && domains->isEmpty()))return {{Status::Unsupported,captureDiagnostic},{}};
     const auto reserved=tunAddressReservations(targets->ipv4Prefixes,dns,localDNS);
     if(!reserved)return {{Status::Failed,"DNS address reservations exceed the complete input bound."},{}};
     const auto addresses=privateTUNAddresses(network,*reserved);
@@ -174,7 +202,7 @@ WindowsHelperPreparation prepareWindowsNetworkHelper(const QJsonObject &resource
     }
     return {{},{{"address",addresses->first},{"peer",addresses->second},{"mtu",mtu},
         {"capture_prefixes",QJsonArray::fromStringList(targets->ipv4Prefixes)},
-        {"dns_domains",QJsonArray::fromStringList(campusDnsDomainsToInstall(targets->dnsDomains,original.originalSources))},
+        {"dns_domains",QJsonArray::fromStringList(*domains)},
         {"original_dns",original.configuration.value("original_dns").toArray()}},original.originalSources,original.originalContext};
 }
 
@@ -199,6 +227,7 @@ std::optional<QStringList> updatedWindowsCapturePrefixes(const QJsonObject &reso
     const QJsonObject &configuration,const QJsonArray &originalSources)
 {
     const auto domains=campusDnsDomains(resources);if(!domains)return {};
-    if(QJsonArray::fromStringList(campusDnsDomainsToInstall(*domains,originalSources))!=configuration["dns_domains"])return {};
+    const auto installed=windowsDnsDomains(*domains,resources,policy,originalSources);
+    if(!installed || QJsonArray::fromStringList(*installed)!=configuration["dns_domains"])return {};
     return updatedCampusCapturePrefixes(resources,policy,*domains,originalSources);
 }

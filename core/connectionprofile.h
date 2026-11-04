@@ -14,6 +14,7 @@ struct DnsOptions {
     int ttl = 3600;
     bool disableRemoteDns = false;
     QString localDnsServer;
+    QString domainDnsRules;
 };
 struct ProxyOptions { QString socksBind, httpBind; };
 struct KeepAliveOptions { QString mode = "auto", url; };
