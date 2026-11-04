@@ -197,7 +197,7 @@ Windows 原生设备基准使用同一固定官方签名 DLL：首次创建约 1
 Windows 使用精确 NRPT 名称及现有所有权恢复。双架构原生回归验证同一域名的精确解析、子域保持原来源、撤回后恢复原解析。原保护的命名空间仍按原策略，规则不增加 IP／域名授权。macOS／Linux 当前在应用代理和已有原生校园 DNS 范围内使用该规则，新域名的系统接管需验证操作系统后缀路由下的原解析保留。
 
 
-2026-11-05 Windows `8784409` 实测确认精确规则使 `zb.fudan.edu.cn` 正常返回内网地址及 HTTPS 200。后续登录域名 `id.fudan.edu.cn` 在系统、校园 DNS 和 Mihomo 真实查询中均为同一地址 `175.186.248.2`，命中 JustConnect 捕获时无法连接；同址绑定 WLAN 可完成 TLS，经 Clash 的登录请求返回 HTTPS 200。修复以配置中的外部认证域名为依据，验证原出口 TLS 后只保留本次验证的 IPv4，连接重建时重新验证。实际浏览器登录仍待新版确认。
+2026-11-05 Windows `8784409` 实测确认精确规则使 `zb.fudan.edu.cn` 正常返回内网地址及 HTTPS 200。后续登录域名 `id.fudan.edu.cn` 在系统、校园 DNS 和 Mihomo 真实查询中均为同一地址 `175.186.248.2`，命中 JustConnect 捕获时无法连接；同址绑定 WLAN 或经 Clash 的登录请求返回 HTTPS 200。仅断开 JustConnect、保持 Clash TUN 后，同址走原默认出口也返回 200。`77b96da` 根据配置中的外部认证域名验证原出口 TLS，只保留本次验证的 IPv4，重连时重新验证。三平台 Tests、六架构 ABI、实际包和源码通过，浏览器完整登录仍待新版确认。证据归 `build/reports/authentication-route-77b96da/`。
 
 ## 数据包转发分配基线
 
