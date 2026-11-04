@@ -134,16 +134,6 @@
         </property>
        </widget>
       </item>
-      <item>
-       <widget class="QPushButton" name="settingPushButton">
-        <property name="toolTip">
-         <string>打开完整设置</string>
-        </property>
-        <property name="text">
-         <string>设置</string>
-        </property>
-       </widget>
-      </item>
      </layout>
     </item>
     <item>
@@ -294,11 +284,21 @@
           </widget>
          </item>
          <item>
-          <widget class="QLabel" name="profileNameLabel">
-           <property name="text">
-            <string>默认</string>
-           </property>
-          </widget>
+          <layout class="QHBoxLayout" name="profileHeadingLayout">
+           <item>
+            <widget class="QLabel" name="profileNameLabel">
+             <property name="text"><string>默认</string></property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QToolButton" name="profileMenuButton">
+             <property name="text"><string>管理配置</string></property>
+             <property name="autoRaise"><bool>true</bool></property>
+             <property name="popupMode"><enum>QToolButton::ToolButtonPopupMode::InstantPopup</enum></property>
+             <property name="toolTip"><string>编辑、新建或切换配置</string></property>
+            </widget>
+           </item>
+          </layout>
          </item>
          <item>
           <widget class="QLabel" name="profileDetailLabel">
@@ -509,10 +509,10 @@
   </action>
   <action name="settingAction">
    <property name="text">
-    <string>设置</string>
+    <string>编辑当前配置…</string>
    </property>
    <property name="menuRole">
-    <enum>QAction::MenuRole::PreferencesRole</enum>
+    <enum>QAction::MenuRole::NoRole</enum>
    </property>
   </action>
   <action name="configurationGuideAction">
@@ -562,9 +562,9 @@
  </widget>
  <tabstops>
   <tabstop>guidePushButton</tabstop>
-  <tabstop>settingPushButton</tabstop>
   <tabstop>pushButton1</tabstop>
   <tabstop>pushButton2</tabstop>
+  <tabstop>profileMenuButton</tabstop>
   <tabstop>logPlainTextEdit</tabstop>
   <tabstop>copyLogPushButton</tabstop>
   <tabstop>clearLogPushButton</tabstop>

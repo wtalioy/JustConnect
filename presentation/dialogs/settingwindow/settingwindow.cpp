@@ -26,12 +26,12 @@
 #include "presentation/presentationhelpers.h"
 #include "presentation/widgets/serversettingswidget.h"
 
-SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const CredentialSource &source)
+SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const CredentialSource &source,bool openProfileTab)
     : QDialog(parent),ui(new Ui::SettingWindow),settings(source.path,QSettings::IniFormat),credentials(credentials),credentialSource(source) {
     ui->setupUi(this);
     ui->reconnectTimeSpinBox->setMaximum(ConnectionSessionState::MaxReconnectDelayMs / 1000);
     ui->commonFormLabel5->setText(QString("初始重连间隔（秒，最多 %1 次）").arg(ConnectionSessionState::MaxReconnectAttempts));
-    const int currentTab=ui->tabWidget->currentIndex();
+    const int currentTab=openProfileTab ? ui->tabWidget->indexOf(ui->loginTab) : ui->tabWidget->currentIndex();
     for (int i=0;i<ui->tabWidget->count();++i) {
         auto *page=ui->tabWidget->widget(i);
         const auto title=ui->tabWidget->tabText(i);
