@@ -11,7 +11,7 @@ namespace Ui { class SettingWindow; }
 class SettingWindow : public QDialog {
     Q_OBJECT
 public:
-    SettingWindow(QWidget *parent,CredentialAccess *credentials,const CredentialSource &source);
+    SettingWindow(QWidget *parent,CredentialAccess *credentials,const CredentialSource &source,bool openProfileTab=false);
     ~SettingWindow() override;
     bool isSaving() const {return saving;}
 private:

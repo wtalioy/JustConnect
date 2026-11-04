@@ -1,5 +1,6 @@
 #include "presentation/main/mainwindow.h"
 #include "presentation/dialogs/networkpolicywindow.h"
+#include "presentation/dialogs/configurationguidedialog/configurationguidedialog.h"
 #include "application/applicationlogger.h"
 #include "application/defaultsettings.h"
 #include "infrastructure/process/terminationrequests.h"
@@ -15,6 +16,10 @@
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QPushButton>
+#include <QPlainTextEdit>
+#include <QInputDialog>
+#include <QTabWidget>
+#include <QToolButton>
 #include <QMessageBox>
 #include <QTcpServer>
 #include <QLabel>
@@ -66,6 +71,19 @@ static void profileMenusDoNotAccumulateGroups(MainWindow &window,const QString &
     QMenu *trayMenu=nullptr;
     for (auto *action:tray->contextMenu()->actions()) if (action->menu()) trayMenu=action->menu();
     check(menu && trayMenu,"both profile menus are available");
+    auto *menuButton=window.findChild<QToolButton *>("profileMenuButton");
+    auto *editAction=window.findChild<QAction *>("settingAction");
+    auto *addAction=window.findChild<QAction *>("newProfileAction");
+    check(menuButton && menuButton->menu()==menu && menu->actions().contains(editAction)
+        && menu->actions().contains(addAction),"profile menu exposes edit, add and selection together");
+    editAction->trigger();
+    auto *editor=window.findChild<SettingWindow *>();
+    check(editor && editor->isVisible(),"edit control opens the active profile");
+    auto *tabs=editor->findChild<QTabWidget *>("tabWidget");
+    auto *dns=editor->findChild<QPlainTextEdit *>("domainDnsRulesEdit");
+    check(tabs && dns && tabs->currentWidget()->isAncestorOf(dns),"profile editor opens on the tab containing domain DNS");
+    editor->reject();
+    QApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     const auto checked=[](QMenu *menu) {
         QString result;
         for (auto *action:menu->actions()) if (action->isCheckable() && action->isChecked()) {
@@ -85,6 +103,17 @@ static void profileMenusDoNotAccumulateGroups(MainWindow &window,const QString &
         check(checked(menu)==name && checked(trayMenu)==name,"main and tray profile selections stay synchronized");
         check(window.findChildren<QActionGroup *>().size()==groups,"profile changes retained old menu groups");
     }
+    QTimer::singleShot(0,&window,[&] {
+        auto *name=qobject_cast<QInputDialog *>(QApplication::activeModalWidget());
+        check(name,"add control asks for the profile name");
+        name->setTextValue("direct-add");
+        name->accept();
+    });
+    addAction->trigger();
+    auto *guide=window.findChild<ConfigurationGuideDialog *>();
+    check(guide && guide->isVisible() && checked(menu)=="direct-add" && checked(trayMenu)=="direct-add",
+        "new profile is active and opens the configuration guide");
+    guide->reject();
 }
 
 int main(int argc,char **argv) {

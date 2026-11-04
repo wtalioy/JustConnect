@@ -19,6 +19,7 @@
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QLabel>
+#include <QtAlgorithms>
 #include "infrastructure/settings/profilemanager.h"
 
 #include "mainwindow.h"
@@ -180,12 +181,11 @@ MainWindow::MainWindow(
                 if (guideWindow) {guideWindow->raise();guideWindow->activateWindow();return;}
                 if (connectionUiController->isConfigurationSaving()) {QMessageBox::information(this,"正在保存配置","请等待保存完成。");return;}
                 connectionUiController->cancelPendingCredentials();
-                settingWindow = new SettingWindow(this,coordinator->credentials(),coordinator->credentialSource());
+                settingWindow = new SettingWindow(this,coordinator->credentials(),coordinator->credentialSource(),true);
+                settingWindow->setWindowTitle(QStringLiteral("编辑配置 · %1").arg(ui->profileNameLabel->text()));
                 settingWindow->show();
             });
 
-    connect(ui->settingPushButton, &QPushButton::clicked,
-            ui->settingAction, &QAction::trigger);
     connect(ui->guidePushButton, &QPushButton::clicked,
             ui->configurationGuideAction, &QAction::trigger);
     connect(ui->openLogPushButton, &QPushButton::clicked,
@@ -649,6 +649,7 @@ void MainWindow::setupProfileMenu()
     traySwitchGroup = new QActionGroup(trayProfileMenu);
     switchGroup->setExclusive(true);
     traySwitchGroup->setExclusive(true);
+    ui->profileMenu->insertAction(ui->configurationGuideAction,ui->settingAction);
     ui->profileMenu->addSeparator();
     newProfileAction = ui->profileMenu->addAction("新建配置");
     renameProfileAction = ui->profileMenu->addAction("重命名当前配置");
@@ -662,6 +663,8 @@ void MainWindow::setupProfileMenu()
         &MainWindow::openConfigurationGuide
     );
     connect(newProfileAction, &QAction::triggered, this, &MainWindow::createProfile);
+    newProfileAction->setObjectName("newProfileAction");
+    ui->profileMenuButton->setMenu(ui->profileMenu);
     connect(renameProfileAction, &QAction::triggered, this, &MainWindow::renameCurrentProfile);
     connect(deleteProfileAction, &QAction::triggered, this, &MainWindow::deleteCurrentProfile);
 
@@ -670,28 +673,7 @@ void MainWindow::setupProfileMenu()
 
 void MainWindow::refreshProfileMenu()
 {
-    const QList<QAction *> actions = ui->profileMenu->actions();
-    bool remove = false;
-    for (QAction *action : actions)
-    {
-        if (action == ui->configurationGuideAction
-            || action == newProfileAction
-            || action == renameProfileAction
-            || action == deleteProfileAction)
-        {
-            continue;
-        }
-        if (action->isSeparator())
-        {
-            remove = true;
-            continue;
-        }
-        if (remove)
-        {
-            ui->profileMenu->removeAction(action);
-            delete action;
-        }
-    }
+    qDeleteAll(switchGroup->actions());
 
     if (trayProfileMenu != nullptr)
     {
@@ -803,7 +785,6 @@ void MainWindow::createProfile()
     if (connectionUiController->isConfigurationSaving() || (settingWindow && settingWindow->isSaving()) || (guideWindow && guideWindow->isSaving())) {
         QMessageBox::information(this,"正在保存配置","请等待保存完成后再创建配置。");return;
     }
-    if (guideWindow) guideWindow->close();
     if (connectionSession != nullptr && connectionSession->isActive())
     {
         QMessageBox::warning(this, "新建失败", "请先断开 VPN 连接，再新建配置。");
@@ -824,6 +805,7 @@ void MainWindow::createProfile()
         return;
     }
 
+    if (guideWindow) guideWindow->close();
     if (settingWindow != nullptr)
     {
         settingWindow->close();
@@ -844,10 +826,7 @@ void MainWindow::createProfile()
     clearLog();
     refreshProfileMenu();
 
-    promptConfigurationGuide(
-        "配置已创建",
-        "配置 \"" + newProfileId + "\" 已创建，是否现在使用配置引导完成设置？"
-    );
+    openConfigurationGuide();
 }
 
 void MainWindow::openConfigurationGuide()
@@ -869,7 +848,7 @@ void MainWindow::openConfigurationGuide()
         settingWindow->close();
     }
 
-    if (guideWindow) {guideWindow->raise();guideWindow->activateWindow();return;}
+    if (guideWindow && guideWindow->isVisible()) {guideWindow->raise();guideWindow->activateWindow();return;}
     connectionUiController->cancelPendingCredentials();
     const auto path=settings->fileName();
     guideWindow=new ConfigurationGuideDialog(this,coordinator->credentials(),coordinator->credentialSource());
