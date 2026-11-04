@@ -65,14 +65,6 @@ int wmain(int argc,wchar_t **argv) try
     rule.applySystem();
     ordinaryQuery(argv[2],L"203.0.113.9");
     IN_ADDR listener{};check(InetPtonW(AF_INET,L"127.0.0.1",&listener)==1,"parse fixture listener");
-    const auto exactName=L"exact."+std::wstring(argv[2]), childName=L"child."+exactName;
-    const auto exact=WindowsDnsRule::create({WindowsDNS::ExactDomainMarker+exactName},listener);
-    Restore restoreExact{exact};
-    exact.applySystem();
-    ordinaryQuery(exactName.c_str(),L"203.0.113.10");
-    ordinaryQuery(childName.c_str(),L"203.0.113.9");
-    exact.restoreSystem();
-    ordinaryQuery(exactName.c_str(),L"203.0.113.9");
     auto redirect=WindowsNrptRedirect::prepareSystem({L"."+std::wstring(argv[2])},{argv[1]},listener);
     DNS_SETTINGS2 settings{};settings.Version=DNS_SETTINGS_VERSION2;
     auto *base=reinterpret_cast<DNS_SETTINGS *>(&settings);
@@ -95,6 +87,17 @@ int wmain(int argc,wchar_t **argv) try
         std::cout<<"PASS: native known NRPT DoH and DoT upstreams cannot be redirected as plaintext\n";
     }
     struct RestoreRedirect {const WindowsNrptRedirect &value;~RestoreRedirect(){try{value.restoreSystem();}catch(const std::exception &error){std::cerr<<"redirect cleanup: "<<error.what()<<'\n';}}} redirectCleanup{redirect};
+    const auto exactName=L"exact."+std::wstring(argv[2]), childName=L"child."+exactName;
+    const auto exact=WindowsDnsRule::create({WindowsDNS::ExactDomainMarker+exactName},server);
+    Restore restoreExact{exact};
+    redirect.applySystem();
+    exact.applySystem();
+    ordinaryQuery(exactName.c_str(),L"203.0.113.9");
+    ordinaryQuery(childName.c_str(),L"203.0.113.10");
+    exact.restoreSystem();
+    ordinaryQuery(exactName.c_str(),L"203.0.113.10");
+    redirect.restoreSystem();
+    std::cout<<"PASS: exact NRPT override, original child resolution and withdrawal\n";
     const auto campusName=L"batch."+std::wstring(argv[2]);
     const auto campus=WindowsDnsRule::create({campusName},server);
     Restore restoreCampus{campus};
