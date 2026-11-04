@@ -21,7 +21,9 @@ add_library(justconnect_application STATIC
 set_target_properties(justconnect_application PROPERTIES AUTOMOC ON)
 target_include_directories(justconnect_application PUBLIC "${REPO}")
 target_link_libraries(justconnect_application PUBLIC Qt6::Core Qt6::Network Qt6::Concurrent)
-qt_add_resources(justconnect_application default_profile
+set(bundled_profile "profiles/fudan.ini")
+qt_add_resources(justconnect_application bundled_profile
     PREFIX "/justconnect"
     BASE "${REPO}/application"
-    FILES "${REPO}/application/default-profile.ini")
+    FILES "${REPO}/application/${bundled_profile}")
+target_compile_definitions(justconnect_application PRIVATE JC_BUNDLED_PROFILE=":/justconnect/${bundled_profile}")

@@ -77,9 +77,9 @@ bool DefaultSettings::isPublicKey(const QString &key)
 const QVariantMap &DefaultSettings::builtInProfile()
 {
     static const auto values=[] {
-        const QSettings input(":/justconnect/default-profile.ini",QSettings::IniFormat);
+        const QSettings input(QStringLiteral(JC_BUNDLED_PROFILE),QSettings::IniFormat);
         auto values=publicValues(input);
-        if (input.status()!=QSettings::NoError || values.isEmpty()) qFatal("Cannot read the bundled default profile.");
+        if (input.status()!=QSettings::NoError || values.isEmpty()) qFatal("Cannot read the bundled profile.");
         return values;
     }();
     return values;
