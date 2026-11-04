@@ -96,6 +96,8 @@ Linux／macOS 可选 `network.proxy_tunnel:{interface_index,name}` 标注已验�
 
 `resource_snapshot` 由正式协议后端提供。`jc_session_resources` 需要活动句柄及 Start 返回的代次，返回 `{schema_version,generation,resources}`，代次为字符串。`resources` 包含 `ip_resources:[{ip_min,ip_max,protocol,port_min,port_max}]`、`domain_resources:{域名:[{protocol,port_min,port_max}]}`、`dns_records:{域名:[地址]}`、`campus_dns`、`campus_dns_enabled`、`underlay_interface` 与 `listeners:{socks?,http?}`。监听端点在全部绑定成功后、核心 ready 前交付，未启用的项省略；均为实际回环地址及非零端口，不交付部分绑定失败的端点。停止后的快照读取返回过期，重连使用新代次和新绑定，不能缓存上一代端点继续接管。`dns_records` 在每次读取时合并同一核心解析器中尚未到期的校园 DNS 绑定，TTL 到期或会话关闭后不再导出；可选 `active_tun_addresses` 读取现有 TUN 入口的流及校园 DNS 发布责任，保留仍在排空或已校验且等待路由确认／解析绑定提交的 IPv4 目的地址；发布失败／取消后释放引用，重叠发布各持一份责任。自身地址和 DNS peer 不导出，此字段不授予新连接权限。资源读取先取保留集合、再取有效绑定，避免发布确认与绑定提交之间漏掉地址。捕获撤回等待相应流结束，不在 Qt 或助手中维护第二份地址绑定。合并仍受原输出上限限制，超限返回失败而非截断。后者为资源建立时核心当前选用的原网络接口偏好，空字符串表示使用系统路由；它不代替内核出口查询，不证明实时路由或接管已就绪。注入的外部拨号器未提供该观测时同样为空。数据直接取自该代实际交给拨号／解析层的解析结果，不重新登录、不重复请求服务器、读取代理文件或重写授权匹配器；应用／节点标识、认证材料及服务器原始响应不导出。
 
+可选 `original_authentication_address` 表示本代外部认证域名经原网络拨号、校验证书后实际使用的 IPv4。应用从校园捕获中减去该地址，核心代理按原网络处理该目标。验证失败时字段省略。该地址随会话重建，只作为路由保留依据。
+
 资源尚未发布时返回 `JC_BUSY`，应用在核心 ready 后读取，无需文件轮询。零代次返回 `JC_INVALID_ARGUMENT`；其他代次、停止期间及已结束会话返回 `JC_STALE_REQUEST`，已销毁句柄返回 `JC_INVALID_HANDLE`；认证方式查询不提供该数据。输入和返回缓冲区均不被保留；同代数据不因调用方修改而改变，下一代清空，结束后释放。无效或超限结果只报告状态；超过 `MaxOutput` 返回 `JC_LIMIT`，不截断，当前本地代理会话仍可运行，透明入口不得据缺失数据应用规则。
 
 DNS 内置记录只解释服务器提供的解析数据，不单独授予业务端口访问；校园 DNS 开关表示配置允许使用，不代表已探测可达。协议／端口与保护规则仍以共用拨号／解析层为准。该快照用于解释资源与原路由的冲突，读取本身不启用透明访问，也不写本地日志。

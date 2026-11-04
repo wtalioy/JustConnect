@@ -594,6 +594,13 @@ std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &reso
     }
     excluded = subtractRanges(mergedRanges(excluded), mergedRanges(selected));
     excluded.append(originalServers);
+    const auto authenticationAddress = resources.value("original_authentication_address");
+    if (!authenticationAddress.isUndefined()) {
+        if (!authenticationAddress.isString()) return {};
+        const auto address = ipv4Number(authenticationAddress.toString());
+        if (!address) return {};
+        excluded.append({*address, *address});
+    }
     IPv4Ranges reserved;
     // Match the helper's unicast address boundary; campus choices cannot capture these ranges.
     for (const auto &prefix : {"0.0.0.0/8", "127.0.0.0/8", "224.0.0.0/3"}) {

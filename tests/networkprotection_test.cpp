@@ -161,6 +161,13 @@ static void captureTargets()
     const auto contains = [](const QStringList &prefixes, const QString &address) {
         return std::any_of(prefixes.begin(),prefixes.end(),[&](const QString &prefix) { return QHostAddress(address).isInSubnet(QHostAddress::parseSubnet(prefix)); });
     };
+    auto externalAuth = originalAnswers;
+    externalAuth["original_authentication_address"] = "203.0.113.16";
+    const auto preserved = campusCaptureTargets(externalAuth,originalPolicy);
+    check(preserved && !contains(preserved->ipv4Prefixes,"203.0.113.16")
+        && contains(preserved->ipv4Prefixes,"203.0.113.15") && contains(preserved->ipv4Prefixes,"203.0.113.17")
+        && preserved->dnsDomains==originalCapture->dnsDomains,
+        "Verified original authentication must exclude only its address and preserve campus DNS");
     check(originalCapture && !contains(originalCapture->ipv4Prefixes,"203.0.113.9")
           && !contains(originalCapture->ipv4Prefixes,"192.168.24.253")
           && contains(originalCapture->ipv4Prefixes,"203.0.113.8") && contains(originalCapture->ipv4Prefixes,"203.0.113.10")

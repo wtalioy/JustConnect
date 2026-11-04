@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/netip"
 	"strconv"
 	"sync/atomic"
 	"testing"
@@ -63,6 +64,31 @@ func TestInternalCampusDNSBypassesOnlyItsEndpointProtectionAndStillRequiresACL(t
 	}
 	if s.tcpCalls != 1 || s.udpCalls != 1 {
 		t.Fatal("denied DNS reached the tunnel")
+	}
+}
+
+func TestOriginalAuthenticationAddressKeepsTheOrdinaryPath(t *testing.T) {
+	address := netip.MustParseAddr("192.0.2.7")
+	resource := client.IPResource{IPMin: net.IP(address.AsSlice()), IPMax: net.IP(address.AsSlice()),
+		PortMin: 443, PortMax: 443, Protocol: "tcp"}
+	stack := &capturingStack{}
+	d := NewDialer(stack, nil, []client.IPResource{resource}, false)
+	d.OriginalAuthenticationAddress = address
+	endpoint := netip.AddrPortFrom(address, 443).String()
+	ordinary := errors.New("ordinary upstream reached")
+	d.Upstream = func() client.DialContextFunc {
+		return func(_ context.Context, network, address string) (net.Conn, error) {
+			if network != "tcp" || address != endpoint {
+				t.Fatalf("unexpected upstream destination: %s %s", network, address)
+			}
+			return nil, ordinary
+		}
+	}
+	if _, err := d.DialIPPort(t.Context(), "tcp", endpoint); !errors.Is(err, ordinary) {
+		t.Fatalf("ordinary authentication was captured: %v", err)
+	}
+	if _, err := d.DialCapturedIPPort(t.Context(), "tcp", endpoint); !errors.Is(err, policy.ErrProtectedTarget) || stack.tcpCalls != 0 {
+		t.Fatalf("forced campus authentication escaped: %v", err)
 	}
 }
 

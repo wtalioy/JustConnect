@@ -24,7 +24,8 @@ import (
 var ErrACLDenied = errors.New("destination not in sangfor IPResources whitelist (would trigger tunnel SHUTDOWN)")
 
 type Dialer struct {
-	ProtectionPolicy func() *policy.ProtectionPolicy
+	ProtectionPolicy              func() *policy.ProtectionPolicy
+	OriginalAuthenticationAddress netip.Addr
 	// Upstream handles ordinary traffic; protected targets retain their native path.
 	Upstream      func() client.DialContextFunc
 	stack         stack.Stack
@@ -168,6 +169,12 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 	useVPN := d.alwaysUseVPN
 	if !useVPN {
 		useVPN, _ = ctx.Value(resolve.ContextKeyDomainDNS).(bool)
+	}
+	if address == d.OriginalAuthenticationAddress {
+		if useVPN {
+			return nil, policy.ErrProtectedTarget
+		}
+		return d.dialOrdinary(ctx, network, ipAddr)
 	}
 	snapshot, captured := ctx.Value(resolve.ContextKeyProtectionPolicy).(*policy.ProtectionPolicy)
 	if !captured && d.ProtectionPolicy != nil {
