@@ -10,7 +10,6 @@
 #include <QSslCertificate>
 #include <QTemporaryDir>
 #include <QTimer>
-#include <QUuid>
 #include <optional>
 #include <utility>
 #include <qt_windows.h>
@@ -109,8 +108,7 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &callbackUrl,const TlsOp
                 if (!self) return S_OK;
                 ComPtr<ICoreWebView2ControllerOptions> controllerOptions;
                 if (FAILED(modern->CreateCoreWebView2ControllerOptions(&controllerOptions))) {fail();return S_OK;}
-                const auto profile=QUuid::createUuid().toString(QUuid::Id128).toStdWString();
-                if (FAILED(controllerOptions->put_ProfileName(profile.c_str())) || FAILED(controllerOptions->put_IsInPrivateModeEnabled(TRUE))) {fail();return S_OK;}
+                if (FAILED(controllerOptions->put_IsInPrivateModeEnabled(TRUE))) {fail();return S_OK;}
                 const auto result=modern->CreateCoreWebView2ControllerWithOptions(reinterpret_cast<HWND>(self->winId()),controllerOptions.Get(),
                     Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>([self,callbackUrl,tls,navigation,fail](HRESULT status,ICoreWebView2Controller *controller)->HRESULT {
                         qCDebug(browserLog)<<"controller result"<<Qt::hex<<status;
