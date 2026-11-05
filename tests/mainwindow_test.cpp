@@ -123,6 +123,8 @@ static void nativeHome(MainWindow &window) {
     auto *log=window.findChild<QPlainTextEdit *>("logPlainTextEdit");
     auto *session=window.findChild<ConnectionSession *>();
     const auto state=session->state();
+    if (QGuiApplication::platformName()!="cocoa" && QGuiApplication::platformName()!="windows")
+        check(!window.property("nativeBackdrop").toBool() && !window.testAttribute(Qt::WA_TranslucentBackground),"non-native Qt plugins cannot use or reinterpret native window handles");
     check(details && details->isWindow() && !details->isVisible() && !log->isVisible(),"home keeps diagnostics in a separate closed native dialog");
     check(window.findChild<QPushButton *>("connectButton")->isVisible() && qApp->styleHints()->colorScheme()!=Qt::ColorScheme::Dark,
         "redesigned home retains one accessible main action and the light appearance");

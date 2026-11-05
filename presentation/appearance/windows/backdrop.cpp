@@ -1,9 +1,11 @@
 #include "../applicationappearance.h"
 #include <QWidget>
+#include <QGuiApplication>
 #include <qt_windows.h>
 #include <dwmapi.h>
 
 bool ApplicationAppearance::enableNativeBackdrop(QWidget *window) {
+    if (QGuiApplication::platformName()!="windows") return false;
     window->setAttribute(Qt::WA_TranslucentBackground);
     const auto handle=reinterpret_cast<HWND>(window->winId());
     const BOOL dark=FALSE;
