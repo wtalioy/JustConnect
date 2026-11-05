@@ -31,7 +31,7 @@ class VerifyPackageTest(unittest.TestCase):
             (root / 'core-toolchain.txt').write_text('CGO_ENABLED=1')
             notices = root / 'licenses'
             notices.mkdir()
-            for name in ('LICENSE', 'LICENSE.zju-connect', 'LICENSE.ping', 'UPSTREAM.md'):
+            for name in ('LICENSE', 'LICENSE.zju-connect', 'LICENSE.ping', 'UPSTREAM.md', 'LICENSE.WebView2'):
                 (notices / name).touch()
             output = root / 'report.json'
             def self_test(*args, **kwargs):
@@ -42,7 +42,7 @@ class VerifyPackageTest(unittest.TestCase):
                     patch.object(package, 'validate_report'), \
                     patch.object(package, 'check_proxy_recovery', return_value={}), \
                     patch.object(package, 'check_windows_dns_reader', return_value={}), \
-                    patch.object(package, 'check_windows_webengine', return_value={}), \
+                    patch.object(package, 'check_signin_browser', return_value={}), \
                     patch.object(package, 'windows_audit', return_value={}), \
                     patch.object(package.platform, 'machine', return_value='AMD64'), \
                     patch.object(package.sys, 'platform', 'win32'):
@@ -51,12 +51,12 @@ class VerifyPackageTest(unittest.TestCase):
                             patch.object(package, 'check_windows_network_helper', return_value={'identity_ready': True}), \
                             patch.object(package, 'windows_signature', return_value=status):
                         if status in ('NotSigned', 'Valid'):
-                            package.verify(root, host, 'revision', 'preview', output, archive, webengine_probe=host)
+                            package.verify(root, host, 'revision', 'preview', output, archive, browser_probe=host)
                             self.assertEqual(json.loads(output.read_text())['signatures'][host.name], status)
                             output.unlink()
                         else:
                             with self.assertRaisesRegex(RuntimeError, 'Invalid Authenticode signature'):
-                                package.verify(root, host, 'revision', 'preview', output, archive, webengine_probe=host)
+                                package.verify(root, host, 'revision', 'preview', output, archive, browser_probe=host)
                             self.assertFalse(output.exists())
 
     def test_windows_network_helper_checks_provenance_payloads_and_privileged_dependencies(self):
@@ -158,7 +158,7 @@ class VerifyPackageTest(unittest.TestCase):
             (root / 'core-toolchain.txt').write_bytes(b'CGO_ENABLED=1\r\n')
             notices = root / 'licenses'
             notices.mkdir()
-            for name in ('LICENSE', 'LICENSE.zju-connect', 'LICENSE.ping', 'UPSTREAM.md'):
+            for name in ('LICENSE', 'LICENSE.zju-connect', 'LICENSE.ping', 'UPSTREAM.md', 'LICENSE.WebView2'):
                 (notices / name).touch()
             nested = root / 'nested'
             nested.mkdir()
@@ -169,6 +169,7 @@ class VerifyPackageTest(unittest.TestCase):
                 return SimpleNamespace(returncode=0, stderr=b'', stdout=json.dumps(payload).encode())
             with patch.object(package.subprocess, 'run', side_effect=run), \
                     patch.object(package, 'validate_report'), \
+                    patch.object(package, 'check_signin_browser', return_value='WKWebView'), \
                     patch.object(package, 'macos_audit', return_value={}), \
                     patch.object(package.platform, 'machine', return_value='x86_64'), \
                     patch.object(package.sys, 'platform', 'darwin'):
@@ -197,34 +198,25 @@ class VerifyPackageTest(unittest.TestCase):
                         else:
                             obsolete.unlink()
 
-    def test_webengine_probe_uses_bundled_resources_and_cleans_up_on_failure(self):
+    def test_native_browser_probe_uses_installed_qt_and_cleans_up_on_failure(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
-            locales = root / 'translations/qtwebengine_locales'
-            locales.mkdir(parents=True)
             probe = root / 'source-probe.exe'
             probe.write_bytes(b'probe fixture')
-            with self.assertRaisesRegex(RuntimeError, 'Missing WebEngine locale'):
-                package.check_windows_webengine(root, probe, {})
-            for language in ('en-US', 'zh-CN'):
-                (locales / f'{language}.pak').touch()
             def run(args, **kwargs):
                 self.assertEqual(Path(args[0]).parent, root)
                 self.assertEqual(Path(args[0]).read_bytes(), probe.read_bytes())
                 self.assertNotEqual(Path(kwargs['cwd']), root)
-                env = kwargs['env']
-                for key in ('QTWEBENGINEPROCESS_PATH', 'QTWEBENGINE_RESOURCES_PATH',
-                            'QTWEBENGINE_LOCALES_PATH', 'QT_QPA_PLATFORM_PLUGIN_PATH'):
-                    self.assertTrue(Path(env[key]).is_relative_to(root))
-                self.assertNotIn('QT_PLUGIN_PATH', env)
+                self.assertEqual(kwargs['env']['QT_QPA_PLATFORM'], 'windows')
+                self.assertEqual(Path(kwargs['env']['QT_QPA_PLATFORM_PLUGIN_PATH']), root / 'platforms')
+                self.assertNotIn('QT_PLUGIN_PATH', kwargs['env'])
                 return SimpleNamespace(returncode=0, stdout=b'', stderr=b'')
-            with patch.object(package.subprocess, 'run', side_effect=run) as called:
-                self.assertEqual(package.check_windows_webengine(root, probe, {}), ['en-US', 'zh-CN'])
-                self.assertEqual([call.kwargs['env']['QTWEBENGINE_CHROMIUM_FLAGS'] for call in called.call_args_list],
-                                 ['--disable-gpu --lang=en-US', '--disable-gpu --lang=zh-CN'])
-            with patch.object(package.subprocess, 'run', side_effect=RuntimeError('probe failed')):
-                with self.assertRaisesRegex(RuntimeError, 'probe failed'):
-                    package.check_windows_webengine(root, probe, {})
+            with patch.object(package.sys, 'platform', 'win32'):
+                with patch.object(package.subprocess, 'run', side_effect=run):
+                    self.assertEqual(package.check_signin_browser(root, probe, probe, {}), 'WebView2')
+                with patch.object(package.subprocess, 'run', side_effect=RuntimeError('probe failed')):
+                    with self.assertRaisesRegex(RuntimeError, 'probe failed'):
+                        package.check_signin_browser(root, probe, probe, {})
             self.assertEqual(list(root.glob('*.exe')), [probe])
 
     def test_failed_native_command_preserves_utf8_diagnostics(self):

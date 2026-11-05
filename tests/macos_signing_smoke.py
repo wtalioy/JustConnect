@@ -80,32 +80,24 @@ int main(int argc, char **argv) {
         launch = (ROOT / 'resource/network-helper-macos.plist.in').read_text().replace(
             '@JC_MAC_HELPER_ID@', app_id+layout['service_suffix']).replace('@JC_MAC_HELPER_EXECUTABLE@', helper.name)
         daemon.write_text(launch)
-        framework = app / 'Contents/Frameworks/QtWebEngineCore.framework'
+        framework = app / 'Contents/Frameworks/QtCore.framework'
         version = framework / 'Versions/A'
         version.mkdir(parents=True)
-        library = version / 'QtWebEngineCore'
+        library = version / 'QtCore'
         run('/usr/bin/clang', '-dynamiclib', '-x', 'c', '-', '-o', library,
-            '-install_name', '@rpath/QtWebEngineCore.framework/Versions/A/QtWebEngineCore',
+            '-install_name', '@rpath/QtCore.framework/Versions/A/QtCore',
             input=b'int fixture(void) { return 0; }\n')
         info(version / 'Resources/Info.plist', app_id+'.signing.framework', library.name, 'FMWK')
         (framework / 'Versions/Current').symlink_to('A')
-        for name in ('QtWebEngineCore', 'Resources', 'Helpers'):
+        for name in ('QtCore', 'Resources'):
             (framework / name).symlink_to('Versions/Current/'+name)
-        web = version / 'Helpers/QtWebEngineProcess.app'
-        (web / 'Contents/MacOS').mkdir(parents=True)
-        (web / 'Contents/Resources').mkdir()
-        web_host = web / 'Contents/MacOS/QtWebEngineProcess'
-        shutil.copy2(host, web_host)
-        info(web / 'Contents/Info.plist', app_id+'.signing.webengine', web_host.name)
-        (web / 'Contents/Resources/QtWebEngineProcess.entitlements').write_bytes(plistlib.dumps({}))
-
         scratch = root / 'private-signing'
         scratch.mkdir()
         run('/bin/bash', ROOT / 'scripts/macos-sign-app.sh', app, cwd=ROOT,
             env=dict(os.environ, TMPDIR=str(scratch)))
         run('/usr/bin/codesign', '--verify', '--deep', '--strict', app)
         leaves = []
-        for index, path in enumerate((app, helper, web_host)):
+        for index, path in enumerate((app, helper, library)):
             facts = run('/usr/bin/codesign', '--display', '--verbose=4', path).stderr.decode()
             assert 'runtime' in facts, facts
             if path == helper:
@@ -113,7 +105,7 @@ int main(int argc, char **argv) {
             prefix = root / ('certificate-'+str(index))
             run('/usr/bin/codesign', '--display', '--extract-certificates='+str(prefix), path)
             leaves.append(hashlib.sha256(Path(str(prefix)+'0').read_bytes()).hexdigest())
-        assert len(set(leaves)) == 1, 'App/helper/WebEngine have different signing identities'
+        assert len(set(leaves)) == 1, 'App/helper/framework have different signing identities'
         assert not list(scratch.iterdir()), 'Private signing material survived'
         registration = run(host, '--registration-probe', daemon_name)
         print(registration.stderr.decode(), end='')

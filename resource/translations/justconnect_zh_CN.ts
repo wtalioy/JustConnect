@@ -2773,12 +2773,12 @@ Some settings may have changed. Check network recovery.</source>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="102"/>
-        <location filename="../../tests/settingwindow_test.cpp" line="168"/>
         <source>Reset draft</source>
         <translation>恢复默认值</translation>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="102"/>
+        <location filename="../../tests/settingwindow_test.cpp" line="172"/>
         <source>Reset this draft to its defaults? Changes take effect after saving.</source>
         <translation>恢复当前窗口的默认值，应用后生效。是否继续？</translation>
     </message>
@@ -2898,12 +2898,12 @@ Some settings may have changed. Check network recovery.</source>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="264"/>
-        <location filename="../../tests/settingwindow_test.cpp" line="213"/>
         <source>Clear saved credentials</source>
         <translation>清除已保存凭据</translation>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="264"/>
+        <location filename="../../tests/settingwindow_test.cpp" line="217"/>
         <source>Clear saved passwords and authenticator keys for %1? Other accounts are unaffected.</source>
         <translation>清除 %1 已保存的密码和验证器密钥？其他账号不受影响。</translation>
     </message>
@@ -2939,8 +2939,6 @@ Some settings may have changed. Check network recovery.</source>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="294"/>
-        <location filename="../../tests/settingwindow_test.cpp" line="125"/>
-        <location filename="../../tests/settingwindow_test.cpp" line="151"/>
         <source>Invalid profile</source>
         <translation>配置无效</translation>
     </message>
@@ -2951,19 +2949,19 @@ Some settings may have changed. Check network recovery.</source>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="295"/>
+        <location filename="../../tests/settingwindow_test.cpp" line="127"/>
+        <location filename="../../tests/settingwindow_test.cpp" line="153"/>
         <source>Check the server, sign-in method, ports, DNS and probe target. Nothing was saved.</source>
         <translation>请检查服务器、认证方式、本地端口、DNS 地址及保活目标。配置未保存。</translation>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="302"/>
-        <location filename="../../tests/settingwindow_test.cpp" line="157"/>
         <source>Could not update startup registration</source>
         <translation>自启动操作未完成</translation>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="303"/>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="306"/>
-        <location filename="../../tests/settingwindow_test.cpp" line="142"/>
         <source>Could not save startup preference</source>
         <translation>启动偏好未保存</translation>
     </message>
@@ -2974,6 +2972,7 @@ Some settings may have changed. Check network recovery.</source>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="306"/>
+        <location filename="../../tests/settingwindow_test.cpp" line="144"/>
         <source>Could not save background startup. Check the configuration folder and retry. This draft has not been applied.</source>
         <translation>无法保存静默启动偏好，请检查配置目录后重试。当前窗口修改尚未应用。</translation>
     </message>
@@ -3014,12 +3013,17 @@ Some settings may have changed. Check network recovery.</source>
         <translation>已关闭网关证书验证，该网关的账号与认证信息可能泄露。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/ssologinwebview/ssologinwebview.cpp" line="174"/>
+        <location filename="../../presentation/dialogs/ssologinwebview/ssologinwebview.cpp" line="143"/>
         <source>The sign-in page certificate is not trusted. Check the server, system time and campus CA.</source>
         <translation>登录页证书验证失败，请检查服务器、系统时间和学校 CA。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/ssologinwebview/ssologinwebview.cpp" line="175"/>
+        <location filename="../../presentation/dialogs/ssologinwebview/ssologinwebview.cpp" line="144"/>
+        <source>The system sign-in browser could not start. On Windows, install or update Microsoft Edge WebView2 Runtime.</source>
+        <translation>无法启动系统登录浏览器。Windows 请安装或更新 Microsoft Edge WebView2 Runtime。</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/ssologinwebview/ssologinwebview.cpp" line="145"/>
         <source>This sign-in address or callback is not allowed. Check your server and sign-in method.</source>
         <translation>不允许使用该登录地址或回调，请检查服务器和认证方式。</translation>
     </message>

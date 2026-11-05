@@ -123,7 +123,7 @@ jobs:
           Compress-Archive -Path $env:DISPLAY_NAME -DestinationPath "$env:ARCHIVE_NAME.zip"
           Expand-Archive -Path "$env:ARCHIVE_NAME.zip" -DestinationPath "$env:RUNNER_TEMP/package-check"
           $package = "$env:RUNNER_TEMP/package-check/$env:DISPLAY_NAME"
-          python scripts/verify-package.py $package "$package/$env:TARGET_NAME.exe" --revision $env:GITHUB_SHA --version $env:APP_VERSION --archive "$env:ARCHIVE_NAME.zip" --output "build/$env:ARCHIVE_NAME.json" --webengine-probe "build/Release/webengine_test.exe"
+          python scripts/verify-package.py $package "$package/$env:TARGET_NAME.exe" --revision $env:GITHUB_SHA --version $env:APP_VERSION --archive "$env:ARCHIVE_NAME.zip" --output "build/$env:ARCHIVE_NAME.json" --browser-probe "build/Release/signinbrowser_test.exe"
           if ($LASTEXITCODE -ne 0) { throw 'Packaged application verification failed' }
 
       - name: Prepare macOS bundle
@@ -149,7 +149,7 @@ jobs:
           hdiutil attach "$ARCHIVE_NAME.dmg" -readonly -nobrowse -mountpoint "$RUNNER_TEMP/dmg-check"
           test -x "$RUNNER_TEMP/dmg-check/$TARGET_NAME.app/Contents/MacOS/$TARGET_NAME"
           codesign --verify --deep --strict "$RUNNER_TEMP/dmg-check/$TARGET_NAME.app"
-          python scripts/verify-package.py "$RUNNER_TEMP/dmg-check/$TARGET_NAME.app" "$RUNNER_TEMP/dmg-check/$TARGET_NAME.app/Contents/MacOS/$TARGET_NAME" --revision "$GITHUB_SHA" --version "$APP_VERSION" --archive "$ARCHIVE_NAME.dmg" --output "build/$ARCHIVE_NAME.json"
+          python scripts/verify-package.py "$RUNNER_TEMP/dmg-check/$TARGET_NAME.app" "$RUNNER_TEMP/dmg-check/$TARGET_NAME.app/Contents/MacOS/$TARGET_NAME" --revision "$GITHUB_SHA" --version "$APP_VERSION" --archive "$ARCHIVE_NAME.dmg" --output "build/$ARCHIVE_NAME.json" --browser-probe "build/signinbrowser_test"
           hdiutil detach "$RUNNER_TEMP/dmg-check"
 
       - name: Upload package

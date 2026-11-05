@@ -235,31 +235,32 @@ def check_windows_network_helper(root, env, revision):
     return dict(facts, signature=signature)
 
 
-def check_windows_webengine(root, probe, env):
-    locales = root / 'translations/qtwebengine_locales'
-    languages = ('en-US', 'zh-CN')
-    for language in languages:
-        if not (locales / f'{language}.pak').is_file():
-            raise RuntimeError(f'Missing WebEngine locale: {language}')
-    descriptor, name = tempfile.mkstemp(prefix='webengine-check-', suffix='.exe', dir=root)
-    os.close(descriptor)
-    installed_probe = Path(name)
-    try:
-        shutil.copyfile(probe, installed_probe)
-        with tempfile.TemporaryDirectory() as working:
-            for language in languages:
-                probe_env = dict(env, QTWEBENGINEPROCESS_PATH=str(root / 'QtWebEngineProcess.exe'),
-                                 QTWEBENGINE_RESOURCES_PATH=str(root / 'resources'),
-                                 QTWEBENGINE_LOCALES_PATH=str(locales),
-                                 QT_QPA_PLATFORM_PLUGIN_PATH=str(root / 'platforms'),
-                                 QTWEBENGINE_CHROMIUM_FLAGS=f'--disable-gpu --lang={language}')
-                run(installed_probe, cwd=working, env=probe_env)
-    finally:
-        installed_probe.unlink()
-    return list(languages)
+def check_signin_browser(root, executable, probe, env):
+    if probe is None:
+        raise RuntimeError('Package verification requires the native sign-in browser probe')
+    with tempfile.TemporaryDirectory() as working:
+        directory = executable.parent if sys.platform == 'win32' else Path(working)
+        descriptor, name = tempfile.mkstemp(prefix='signin-browser-check-', suffix=executable.suffix, dir=directory)
+        os.close(descriptor)
+        installed_probe = Path(name)
+        try:
+            shutil.copyfile(probe, installed_probe)
+            installed_probe.chmod(0o755)
+            probe_env = dict(env, QT_QPA_PLATFORM='windows' if sys.platform == 'win32' else 'cocoa')
+            if sys.platform == 'win32':
+                probe_env['QT_QPA_PLATFORM_PLUGIN_PATH'] = str(root / 'platforms')
+            else:
+                # DMGs are mounted read-only; force the external probe to use the installed bundle.
+                frameworks = root / 'Contents/Frameworks'
+                probe_env.update(DYLD_FRAMEWORK_PATH=str(frameworks), DYLD_LIBRARY_PATH=str(frameworks),
+                                 QT_QPA_PLATFORM_PLUGIN_PATH=str(root / 'Contents/PlugIns/platforms'))
+            run(installed_probe, cwd=working, env=probe_env, timeout=30)
+        finally:
+            installed_probe.unlink()
+    return 'WebView2' if sys.platform == 'win32' else 'WKWebView'
 
 
-def verify(root, executable, revision, application_version, output, archive, webengine_probe=None):
+def verify(root, executable, revision, application_version, output, archive, browser_probe=None):
     root, executable = root.resolve(), executable.resolve()
     if not inside(executable, root):
         raise RuntimeError('Executable must be inside extracted package')
@@ -284,8 +285,12 @@ def verify(root, executable, revision, application_version, output, archive, web
     for name in ('LICENSE', 'LICENSE.zju-connect', 'LICENSE.ping', 'UPSTREAM.md'):
         if not (data / 'licenses' / name).is_file():
             raise RuntimeError(f'Missing license/source notice: {name}')
+    if system == 'windows' and not (data / 'licenses/LICENSE.WebView2').is_file():
+        raise RuntimeError('Missing WebView2 loader license')
     files = []
     for path in root.rglob('*'):
+        if 'webengine' in path.name.casefold() or path.name.casefold() == 'icudtl.dat':
+            raise RuntimeError(f'Obsolete bundled browser in package: {path}')
         if (path.name.casefold() in ('zju-connect', 'zju-connect.exe', 'core-provenance')
                 or (path.name.casefold() == WINDOWS_HELPER['driver_library'].casefold()
                     and not (system == 'windows' and path == executable.parent / WINDOWS_HELPER['driver_library']))):
@@ -311,14 +316,12 @@ def verify(root, executable, revision, application_version, output, archive, web
                 raise RuntimeError('Missing runtime unexpectedly succeeded')
         finally:
             hidden.rename(runtime)
-        if webengine_probe is None:
-            raise RuntimeError('Windows package verification requires the WebEngine probe')
-        report['webengine_locales'] = check_windows_webengine(root, webengine_probe, env)
         report['audit'] = windows_audit(files, root, arch)
     elif report['runtime'] != 'static':
-        raise RuntimeError('Unix packages must link the static core')
+        raise RuntimeError('macOS packages must link the static core')
     else:
         report['audit'] = macos_audit(files, root, arch, env)
+    report['sign_in_browser'] = check_signin_browser(root, executable, browser_probe, env)
     report['offline_self_test_wall_ms'] = startup_ms
     report['size_bytes'] = {
         'archive': archive_bytes,
@@ -326,6 +329,10 @@ def verify(root, executable, revision, application_version, output, archive, web
         'executable': executable.stat().st_size,
         'runtime_dll': runtime.stat().st_size if system == 'windows' else 0,
     }
+    report['largest_files'] = sorted(
+        ({'path': str(path.relative_to(root)), 'bytes': path.stat().st_size}
+         for path in root.rglob('*') if path.is_file() and not path.is_symlink()),
+        key=lambda item: item['bytes'], reverse=True)[:15]
     report['sha256'] = {}
     for path in [executable] + ([runtime, reader] if system == 'windows' else []):
         with path.open('rb') as stream:
@@ -347,6 +354,6 @@ if __name__ == '__main__':
     parser.add_argument('--version', required=True)
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--archive', required=True, type=Path)
-    parser.add_argument('--webengine-probe', type=Path)
+    parser.add_argument('--browser-probe', type=Path)
     args = parser.parse_args()
-    verify(args.package, args.executable, args.revision, args.version, args.output, args.archive, args.webengine_probe)
+    verify(args.package, args.executable, args.revision, args.version, args.output, args.archive, args.browser_probe)

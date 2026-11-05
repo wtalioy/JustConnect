@@ -4,9 +4,9 @@
 
 ## 本地构建
 
-需要 CMake ≥ 3.20、C++17、Python ≥ 3.11、[go.mod](../corelib/go.mod) 固定的 Go 及原生 cgo C 编译器。Windows 原生权限助手使用 C++20，以配合当前 Windows SDK 的 C++/WinRT 头文件；其余目标保留 C++17。Qt ≥ 6.10，组件为 Core、Concurrent、Gui、Widgets、Network、Svg、WebEngineWidgets 及 LinguistTools（构建时生成翻译）；先配置 Qt 的 CMake 搜索路径。 SSH 验收另需 PATH 中的 OpenSSH `ssh` 客户端；夹具在临时私有文件中生成一次性身份和已知主机配置，严格核对服务端密钥，不读取用户 SSH 配置。
+需要 CMake ≥ 3.20、C++17、Python ≥ 3.11、[go.mod](../corelib/go.mod) 固定的 Go 及原生 cgo C 编译器。Windows 原生权限助手使用 C++20，以配合当前 Windows SDK 的 C++/WinRT 头文件；其余目标保留 C++17。Qt ≥ 6.10，组件为 Core、Concurrent、Gui、Widgets、Network、Svg 及 LinguistTools（构建时生成翻译）；先配置 Qt 的 CMake 搜索路径。 SSH 验收另需 PATH 中的 OpenSSH `ssh` 客户端；夹具在临时私有文件中生成一次性身份和已知主机配置，严格核对服务端密钥，不读取用户 SSH 配置。
 
-当前固定 Qt 6.12.0／WebEngine 6.140.0-rc，WebEngine 构建编号 `6.12.0-0-202609281005`，尚非正式版，不与 WebEngine 6.11.2 混用。SDK、aqt 和校验规则统一由 [setup-qt](../.github/actions/setup-qt/action.yml)／[安装脚本](../scripts/install-webengine.py) 维护；Go／cgo 工具链由 [setup-core-toolchain](../.github/actions/setup-core-toolchain/action.yml) 维护，升级须验证两平台测试及四组包。
+当前固定 Qt 6.12.0，仅安装 Qt Widgets／SVG／工具和翻译 SDK。Windows 登录页使用共享 Evergreen WebView2 Runtime，构建固定校验和的 WebView2 SDK 静态加载器；macOS 使用系统 WebKit，无额外浏览器运行库。Windows 开发／运行机器须安装可用的 WebView2 Runtime。
 
 ```sh
 cmake -S . -B build -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release
@@ -16,7 +16,7 @@ ctest --test-dir build -C Release --output-on-failure
 
 界面翻译沿用 Qt TS／QM：英文为源码文案，简体中文目录为 `resource/translations/justconnect_zh_CN.ts`；CMake 用 SDK 的 `lrelease` 编译并嵌入应用，不依赖用户目录中的外置翻译。用 `cmake --build build --target update_translations` 更新目录，该目标同时扫描 C++ 与 `.ui`；完成中文翻译后再构建，不提交生成的 QM。全局语言及关闭行为保存在已有 `state.ini`，不写入学校 Profile。用户入口为主页齿轮菜单中的 `Application settings…`（应用偏好设置）；保存本身不关闭窗口或断开连接。当前整套原生窗口已接入；实现范围见 [UI 设计](UI-DESIGN.md)，自动检查与实际桌面验收分别按计划记录。
 
-Unix 使用 Go 静态归档；Windows 的 cgo 使用固定校验和的 LLVM-MinGW UCRT，Qt 宿主使用 MSVC，并从应用目录加载随包 DLL。共享 [CoreLibrary.cmake](../cmake/CoreLibrary.cmake) 构建同一份核心，记录来源及工具链到 `build/source-revision.txt`／`build/core-toolchain.txt`。
+macOS 使用 Go 静态归档；Windows 的 cgo 使用固定校验和的 LLVM-MinGW UCRT，Qt 宿主使用 MSVC，并从应用目录加载随包 DLL。共享 [CoreLibrary.cmake](../cmake/CoreLibrary.cmake) 构建同一份核心，记录来源及工具链到 `build/source-revision.txt`／`build/core-toolchain.txt`。
 
 正式应用可离线自检，不需要账号、网络、TUN 或显示服务器，也不创建应用配置／日志；检查启动必需的 VPN、原网络快照接口及初始保护能力，但不读取实际网络：
 
@@ -26,7 +26,7 @@ Unix 使用 Go 静态归档；Windows 的 cgo 使用固定校验和的 LLVM-MinG
 
 Windows 路径为 `build/Release/JustConnect.exe`，macOS 为 `build/JustConnect.app/Contents/MacOS/JustConnect`。离屏界面测试设置 `QT_QPA_PLATFORM=offscreen`；offscreen 通过不代替真实桌面验收。
 
-Qt 协议 UI 测试在 offscreen 且未指定 `QT_QUICK_BACKEND` 时使用 Qt 软件场景图；现有 `--disable-gpu` 仅约束 Chromium。真实页面、脚本、Cookie 及 TLS 断言继续执行，桌面应用的渲染选择不变；两层配置依据 [Qt 软件渲染说明](https://doc.qt.io/qt-6.10/qtwebengine-features.html#force-use-of-software-rendering)。
+真实网页、JavaScript、Cookie、TLS 与浏览器语言切换测试使用 `windows`／`cocoa` 原生桌面后端；其余模型与常规控件继续离屏执行。CMake 按实际测试设置后端，不用离屏通过代替原生网页验证。
 
 macOS 原生分配测试复用正式 utun、地址、MTU 与捕获后端，在交付 fd 前回读所属配置；普通接收方验证真实 TCP／UDP、系统 DNS、fd 独占及正常／强杀后的设备和路由恢复。脚本只允许一次性 macOS runner；运行入口见[设备与权限](CORELINK-PROBE.md#设备与权限边界)。
 
@@ -55,7 +55,7 @@ cmake --build build/coreabi --config Release --parallel 3
 ctest --test-dir build/coreabi -C Release --output-on-failure
 ```
 
-该项目验证正式 C11／C++17 宿主、Qt／WebEngine 共存、受控认证／隧道与代理收发及性能；配置、事件、常量生成和边界见 [CORE-ABI.md](CORE-ABI.md)。四组 CI 在支持的平台执行 Go race；Windows ARM64 不支持 race，普通 Go／FFI／Qt 检查仍执行。回环网关不访问学校账户，也不代替校园／透明接管验收。
+该项目验证正式 C11／C++17 宿主、Qt／原生网页共存、受控认证／隧道与代理收发及性能；配置、事件、常量生成和边界见 [CORE-ABI.md](CORE-ABI.md)。四组 CI 在支持的平台执行 Go race；Windows ARM64 不支持 race，普通 Go／FFI／Qt 检查仍执行。回环网关不访问学校账户，也不代替校园／透明接管验收。
 
 支持 race 的矩阵串行测试包，保留平台默认的进程内并行度及原场景时限；矩阵在全量检查后额外执行五次 `TestTUNBoundsFlowsAndJoinsFullCapacityOnShutdown` 与 `TestTUNDNSUsesOwnedPeerAndCampusACL`，保留原 256 流容量、每次关闭一秒及 DNS 查询五秒断言，日志归 `go-race-tun-regressions.log`。DNS 场景复用已建立的同一 owned-peer TCP 连接执行顺序查询，跨帧回复、路由确认、拒绝和关闭仍逐项检查；新握手／重传／转发由实际 TCP 回归覆盖，不为同一 DNS 断言重复建立连接。异步查询将错误送回主测试线程，查询失败必须结束测试，避免工作协程 `t.Fatal` 留下主线程永久等待结果。满容量场景仍创建 256 条真实 UDP 流；其对端仅创建用到的 UDP 协议，TCP／UDP 混合收发继续使用完整真实对端；拒绝及未完成握手场景直接注入有效 SYN，检查实际 RST 元组、确认号与校验和，保留原一秒准备／关闭时限，避免用多余的客户端 TCP 栈竞争被测入口。race 全量与回归集重复失败后仍收集独立 ABI 构建／宿主证据，步骤最终返回原失败；普通测试、配置、构建或宿主失败直接结束。`coreabi_workflow_test` 在临时目录用八种结果验证失败传播及 Windows ARM64 原有能力分支。关闭回归同时记录调度等待、实际清理及总用时；失败输出登记表状态与协程堆栈，不能把竞态检测下的偶发超时直接当作死锁，也不能以重跑代替重复失败的诊断。
 
@@ -243,13 +243,13 @@ ssh -o 'ProxyCommand="C:/Program Files/Git/mingw64/bin/connect.exe" -H 127.0.0.1
 
 Windows 为 ZIP（完整解压并保留核心 DLL），macOS 为 DMG；Actions artifact 保留 14 天。普通 job 仅 `contents: read`，上传 Release 的 job 才用 `contents: write`，无需额外 PAT。
 
-[打包工作流](../.github/workflows/build.yml) 统一安装 CoreRuntime、工具链／来源及许可证，解包后清除 SDK 环境并运行 [verify-package.py](../scripts/verify-package.py)。报告检查正式 ABI、版本／干净来源、架构／依赖／系统下限、哈希和签名；Windows 另测移走 DLL 后失败，以及包内 WebEngine en-US／zh-CN 页面和 JavaScript。Release 省略 Go DWARF，不裁掉运行资源；新增语言须同步部署及包验证。
+[打包工作流](../.github/workflows/build.yml) 统一安装 CoreRuntime、工具链／来源及许可证，解包后清除 SDK 环境并运行 [verify-package.py](../scripts/verify-package.py)。报告检查正式 ABI、版本／干净来源、架构／依赖／系统下限、哈希和签名；Windows 另测移走 DLL 后失败，；两平台均在清空 SDK 环境后启动包内原生浏览器页面及 JavaScript。Release 省略 Go DWARF，不裁掉运行资源；新增语言须同步部署及包验证。
 
 每次打包由 [archive-source.py](../scripts/archive-source.py) 导出同一干净提交的完整维护源码及摘要，附 `source-revision.txt`，支持无 `.git` 的 CMake 重建并标记 `source_state:archive`。包检查拒绝旧独立核心、旧来源目录与 Wintun。macOS 当前最低 14.4。静态字段检查不代替旧系统实机兼容验证。
 
 ## 不需申请签名的开发与发行
 
-功能实现、权限助手、开发、预览、main 和 Release 均不依赖需要申请的公开签名或公证；当前工作流不配置签名 Secrets、不注册签名服务，也不向系统导入根证书。未来取得公开签名时，可作为独立发行步骤附加发布者身份，不改变功能、授权、网络或恢复逻辑，也不预建签名服务框架。Windows 使用管理员授权的受保护助手部署；macOS 构建在私有临时目录自动生成本地签名身份，为应用、助手与 WebEngine 签名后销毁私钥和临时钥匙串。本地叶证书有效期十年，仅绑定同一构建的组件，不提供公开发行者信任；成功、失败及取消均清理本次密钥材料。使用 macOS 自带 OpenSSL 导出系统钥匙串可接受的 PKCS#12；Tests 与打包流程在下载 Qt 前用真实 Mach-O 小包验证签名、hardened runtime、应用／助手角色和同一叶证书、深度校验、系统服务注册／撤销及密钥清理，完整 Qt 包另按实际产物验收。系统可能先报告服务未找到，首次连接仍应尝试注册并按真实结果提示用户批准；已有注册不重复安装。
+功能实现、权限助手、开发、预览、main 和 Release 均不依赖需要申请的公开签名或公证；当前工作流不配置签名 Secrets、不注册签名服务，也不向系统导入根证书。未来取得公开签名时，可作为独立发行步骤附加发布者身份，不改变功能、授权、网络或恢复逻辑，也不预建签名服务框架。Windows 使用管理员授权的受保护助手部署；macOS 构建在私有临时目录自动生成本地签名身份，为应用、助手与 Qt 框架签名后销毁私钥和临时钥匙串。本地叶证书有效期十年，仅绑定同一构建的组件，不提供公开发行者信任；成功、失败及取消均清理本次密钥材料。使用 macOS 自带 OpenSSL 导出系统钥匙串可接受的 PKCS#12；Tests 与打包流程在下载 Qt 前用真实 Mach-O 小包验证签名、hardened runtime、应用／助手角色和同一叶证书、深度校验、系统服务注册／撤销及密钥清理，完整 Qt 包另按实际产物验收。系统可能先报告服务未找到，首次连接仍应尝试注册并按真实结果提示用户批准；已有注册不重复安装。
 
 macOS 仍校验相同叶证书、角色标识与 hardened runtime；系统管理员授权、受保护部署、对端身份和网络恢复校验保持。新包的实际身份与系统服务注册已通过原生检查，首次桌面批准仍须实测，不能仅凭脚本通过宣称透明访问可用。系统首次打开／未知发布者提示按平台实际行为记录，不通过关闭系统安全或导入自建根信任消除。
 

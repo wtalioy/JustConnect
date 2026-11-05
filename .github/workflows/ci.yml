@@ -62,8 +62,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         env:
-          QT_QPA_PLATFORM: offscreen
-          QTWEBENGINE_CHROMIUM_FLAGS: --disable-gpu
+          QT_QPA_PLATFORM: windows
           CGO_ENABLED: '1'
           GOEXPERIMENT: cgocheck2
           GOTOOLCHAIN: local

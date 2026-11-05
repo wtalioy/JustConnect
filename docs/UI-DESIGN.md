@@ -58,23 +58,8 @@ Windows 请求系统 Desktop Acrylic 并保留标准窗口边框；macOS 使用 
 
 ## 认证浏览器选择
 
-当前网关公开协议的核对已完成；在保持学校配置、正常浏览器信任及独立客户端边界的前提下，尚无可直接交付的系统默认浏览器替代路径。现有 WebEngine 继续作为可用基线。这是对当前配置与已公开机制的可交付性判断，不是“所有 aTrust 系统浏览器方案在任何条件下都不可能”。用户已明确以包体积为目标，取消其它系统支持；S7-13 改为移除随包浏览器并验证两平台系统引擎，保持未勾选。
+为减小包体积，登录窗口改用 Windows 共享 Evergreen WebView2 Runtime 与 macOS 系统 WKWebView，不再随包分发 Chromium。保留现有地址栏、前进／后退／刷新和认证会话接口；两种原生实现归 `presentation/browser/{windows,macos}`，回调校验仍由同一登录窗口及核心认证边界负责。Windows 缺少可用 WebView2 时明确提示安装／更新，不回退到另一套内置引擎。
 
-| 路线 | 已确认结果与边界 |
-| --- | --- |
-| 标准本机回调 | 保留原 `client_id`、回调路径和 `sfDomain` 查询，原地址返回 302；IPv4、localhost、IPv6、HTTPS localhost 及 JustConnect 自定义协议这五个候选回调均返回 `21004`。不据此声称穷尽全部潜在服务端注册。 |
-| 门户交给本机客户端 | 当前新门户与实际 OAuth 返回页均通过固定的厂商 HTTPS 本机端点交接；`ticketExchange` 取得 `sidTicket`，`/v1/service/start` 启动客户端。未发现可指定独立接收地址的门户参数。独立 JustConnect 接收端仍须解决那些域名／IP 的浏览器 TLS 信任，应用代码签名不能代替这个 TLS 身份。 |
-| 客户端 URL 协议 | 普通桌面的 `aTrust://browserStart` 只唤起程序，URI 不携带票据；观察到的带票据 `VPNUpdateStart` 分支受 `harmonyNextPC` 限定。不能把注册一个 JustConnect 协议当作两平台交接已经成立。 |
-| 本机网页中转 | OAuth 返回页没有向 `window.opener`／`postMessage` 回传票据的处理，并拒绝改变来源的绝对跳转地址。匿名接口未对测试的本机网页来源提供跨域读取授权；没有测试或宣称认证后的跨域请求已可用。 |
+每个窗口独立使用 InPrivate／非持久化数据存储，不读取默认浏览器 Cookie；学校 CA 与网关例外只作用于该窗口，不安装系统根、不改变全局信任。保留真实页面、JavaScript、Cookie 隔离、主框架回调拦截与 TLS 来源边界回归，并在原生桌面后端运行；离屏测试不能证明原生网页可用。实际包验证同时启动所选浏览器，报告压缩包、解压及主要文件体积。实现与原生／包验收状态只在 S7-13 维护。
 
-[深信服官方说明](https://bbs.sangfor.com.cn/atrustdeveloper/aTrustClient/docs/3.%E5%AE%A2%E6%88%B7%E7%AB%AF%E8%BF%9E%E6%8E%A5%E7%99%BB%E5%BD%95%E5%A4%B1%E8%B4%A5/3.3%E5%AE%A2%E6%88%B7%E7%AB%AF%E7%99%BB%E5%BD%95%E5%BC%82%E5%B8%B8.html)确实描述浏览器到官方客户端的本机通信，但不能由此推定独立客户端已具备相同的信任条件。系统认证代理也保留回调约束：[Apple 的 HTTPS 回调要求域名与应用关联](https://developer.apple.com/documentation/authenticationservices/aswebauthenticationsession/callback/https(host:path:))，[Windows OAuth API 使用应用回调与协议激活](https://learn.microsoft.com/en-us/windows/apps/develop/security/oauth2)，不能据此截获任意学校 HTTPS 回调。
-
-浏览器扩展或调试协议属于不同的集成选择，需要额外组件、浏览器控制权限及维护；并非直接打开正常默认浏览器即可交接。[Chrome 的调试接口约束](https://developer.chrome.com/blog/remote-debugging-port)还要求命令行调试使用非默认用户目录。若主要目标是减小随包浏览器体积，现已转向评估系统 WebView；它仍是在应用内显示登录页，不能承诺共享默认浏览器的登录状态，收益和两平台部署仍须验证。
-
-保持既有边界：无需申请外部代码签名，不导入自建根、不复用厂商私钥、不读取浏览器 Cookie 或手动搬运票据，不为这一目标搭建常驻核心控制服务。本轮未实现替代后端、未提交用户登录，也未证明真实 `sidTicket` 已能兑换为新的 JustConnect 会话；因此保留 WebEngine 资源、依赖与有效认证回归。
-
-证据位于 `build/reports/s7-browser-handoff/`：`browser-handoff-assessment.json` 汇总公开选项、完整静态模块范围／指纹及传输契约，`redirect-variants.json` 保留上述匿名回调对照。早期 `public-config.json`／`redirect-comparison.json` 仅作为原结论边界的记录。已合并中间报告并删除约 2.7 MB 临时网页／脚本；未保存 Cookie 值、凭据或真实会话票据。
-
-## 验收
-
-逐窗口验证中英文、键盘焦点与可访问名称、长文案／错误、高 DPI、取消及旧结果隔离。Windows 中途进行真实操作验收；macOS 桌面、实际注销等按既定约定留 S8。性能只按真实测量记录，不以原型流畅、微基准或编译成功代替实际网络、CPU／内存及操作验证。
+直接打开默认浏览器的公开交接调查已结束：当前网关拒绝测试过的独立回调，门户通过厂商 HTTPS 本机端点交换票据。独立客户端不能仅注册 URL 协议便取得该 TLS 身份；不为减包增加浏览器扩展、调试协议、常驻中转服务或手工票据操作。用户已同意以应用内系统引擎完成目标。
