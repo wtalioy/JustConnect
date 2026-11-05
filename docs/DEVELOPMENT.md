@@ -6,7 +6,7 @@
 
 需要 CMake ≥ 3.20、C++17、Python ≥ 3.11、[go.mod](../corelib/go.mod) 固定的 Go 及原生 cgo C 编译器。Windows 原生权限助手使用 C++20，以配合当前 Windows SDK 的 C++/WinRT 头文件；其余目标保留 C++17。Qt ≥ 6.10，组件为 Core、Concurrent、Gui、Widgets、Network、Svg 及 LinguistTools（构建时生成翻译）；先配置 Qt 的 CMake 搜索路径。 SSH 验收另需 PATH 中的 OpenSSH `ssh` 客户端；夹具在临时私有文件中生成一次性身份和已知主机配置，严格核对服务端密钥，不读取用户 SSH 配置。
 
-当前固定 Qt 6.12.0，仅安装 Qt Widgets／SVG／工具和翻译 SDK。Windows 登录页使用共享 Evergreen WebView2 Runtime，构建固定校验和的 WebView2 SDK 静态加载器；macOS 使用系统 WebKit，无额外浏览器运行库。Windows 开发／运行机器须安装可用的 WebView2 Runtime。
+当前固定 Qt 6.12.0，使用 Qt Widgets／SVG／工具和翻译 SDK；SDK 翻译工具依赖 QtQml，因此保留 qtdeclarative 开发归档，应用不链接或分发 QML／Quick。Windows 登录页使用共享 Evergreen WebView2 Runtime，构建固定校验和的 WebView2 SDK 静态加载器；macOS 使用系统 WebKit，无额外浏览器运行库。Windows 开发／运行机器须安装可用的 WebView2 Runtime。
 
 ```sh
 cmake -S . -B build -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release
