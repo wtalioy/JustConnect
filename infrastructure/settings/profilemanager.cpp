@@ -58,10 +58,6 @@ QStringList ProfileManager::listProfiles() const
     QStringList profiles;
     for (const QFileInfo &entry : profilesDir.entryInfoList(QStringList() << "*.ini", QDir::Files, QDir::Name))
     {
-        if (entry.fileName() == "state.ini")
-        {
-            continue;
-        }
         profiles << entry.baseName();
     }
     return profiles;
