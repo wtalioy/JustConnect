@@ -9,6 +9,7 @@
 #include "application/applicationlogger.h"
 #include "application/defaultsettings.h"
 #include "tests/credentialstorefixture.h"
+#include "tests/uiwait.h"
 #include "presentation/widgets/serversettingswidget.h"
 #include "infrastructure/process/terminationrequests.h"
 #include "infrastructure/logging/applicationlogfile.h"
@@ -42,7 +43,6 @@
 #include <QClipboard>
 #include <QBuffer>
 #include <QCheckBox>
-#include <QElapsedTimer>
 #include <QLineEdit>
 #include <QKeyEvent>
 #include <QTcpSocket>
@@ -195,11 +195,7 @@ static void languagePreferences(MainWindow &window) {
     details->reject();
 }
 
-template<class Predicate> static void waitForUi(Predicate ready) {
-    QElapsedTimer timer;timer.start();
-    while (!ready() && timer.elapsed()<10000) QApplication::processEvents(QEventLoop::AllEvents,10);
-    check(ready(),"UI operation completes within its deadline");
-}
+#define waitForUi(...) UiWait::until(__FILE__,__LINE__,__VA_ARGS__)
 static void authenticationLanguageChangesPreserveData(MainWindow &window) {
     const auto screenshot=[](QWidget *widget,const QString &name) {
         const auto report=qEnvironmentVariable("JC_UI_REPORT_DIR");
@@ -251,7 +247,7 @@ static void authenticationLanguageChangesPreserveData(MainWindow &window) {
     auto *view=browser->findChild<SignInBrowser *>();int loads=0;bool loaded=false;
     QObject::connect(view,&SignInBrowser::loadStarted,view,[&]{++loads;});
     QObject::connect(view,&SignInBrowser::loadFinished,view,[&](bool okay){check(okay,"load local browser translation fixture");loaded=true;});
-    browser->setInitialUrl(QUrl(origin+"/page"));waitForUi([&]{return loaded;});language("zh_CN");language("en");
+    browser->setInitialUrl(QUrl(origin+"/page"));waitForUi([&]{return loaded;},UiWait::BrowserStartupTimeoutMs);language("zh_CN");language("en");
     bool read=false;QString text;view->runJavaScript("document.querySelector('#typed').value",[&](const QVariant &value){text=value.toString();read=true;});waitForUi([&]{return read;});
     check(text=="typed-value" && loads==1 && browser->windowTitle()=="School sign-in","language switching preserves the school page without reloading it");
     screenshot(browser,"school-sign-in.png");

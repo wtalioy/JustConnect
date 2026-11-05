@@ -2,6 +2,7 @@
 #include <QTimer>
 #include <QVariant>
 #include "presentation/browser/signinbrowser.h"
+#include "tests/uiwait.h"
 
 #include <iostream>
 
@@ -34,7 +35,7 @@ int main(int argc, char *argv[])
             app.exit(matched ? 0 : 1);
         });
     });
-    timeout.start(15000);
+    timeout.start(UiWait::BrowserStartupTimeoutMs);
     std::cerr << "Loading HTML and JavaScript\n";
     view.setHtml("<!doctype html><title>JustConnect</title>"
                  "<script>document.title += ' ' + (6 * 7);</script>");
