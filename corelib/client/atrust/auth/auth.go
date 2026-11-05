@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/base64"
@@ -192,6 +193,32 @@ func (s *Session) request(req *http.Request) (*http.Response, error) {
 	}
 	response.Body = &responseBody{ReadCloser: http.MaxBytesReader(nil, response.Body, maxAuthResponseBytes), release: func() { stop(); cancel() }}
 	return response, nil
+}
+
+func (s *Session) postJSON(path string, payload, result any) error {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest(http.MethodPost, s.baseURL+path+"?"+WithSharedParams(nil).Encode(), bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("User-Agent", UserAgent)
+	req.Header.Set("Content-Type", "application/json;charset=utf-8")
+	req.Header.Set("x-csrf-token", s.csrfToken)
+	req.Header.Set("x-sdp-env", s.env)
+	req.Header.Set("x-sdp-traceid", s.randSdpId())
+	resp, err := s.request(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	body, err = io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(body, result)
 }
 
 // Keep cancellation attached until the caller has finished reading the body.

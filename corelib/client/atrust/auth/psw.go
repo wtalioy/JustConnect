@@ -1,15 +1,11 @@
 package auth
 
 import (
-	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"io"
 	"math/big"
-	"net/http"
 	"strconv"
 )
 
@@ -58,25 +54,6 @@ func (s *Session) pswImpl(username, password, loginDomain, graphCheckCode string
 	if graphCheckCode != "" {
 		data["graphCheckCode"] = graphCheckCode
 	}
-	postBody, _ := json.Marshal(data)
-
-	u := s.baseURL + "/passport/v1/auth/psw"
-	req, _ := http.NewRequest("POST", u+"?"+WithSharedParams(nil).Encode(), bytes.NewReader(postBody))
-	req.Header.Set("User-Agent", UserAgent)
-	req.Header.Set("Content-Type", "application/json;charset=utf-8")
-	req.Header.Set("x-csrf-token", s.csrfToken)
-	req.Header.Set("x-sdp-env", s.env)
-	req.Header.Set("x-sdp-traceid", s.randSdpId())
-
-	resp, err := s.request(req)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return 0, err
-	}
 
 	var re struct {
 		Code    int    `json:"code"`
@@ -88,7 +65,7 @@ func (s *Session) pswImpl(username, password, loginDomain, graphCheckCode string
 			AntiReplayRand       string `json:"antiReplayRand"`
 		} `json:"data"`
 	}
-	err = json.Unmarshal(body, &re)
+	err = s.postJSON("/passport/v1/auth/psw", data, &re)
 	if err != nil {
 		return 0, err
 	}
