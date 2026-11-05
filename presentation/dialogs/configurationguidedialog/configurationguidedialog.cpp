@@ -175,7 +175,9 @@ bool ConfigurationGuideDialog::applyTo() {
         if (closed) return;
         saving=false;pages->setEnabled(true);updateNavigation();
         if (!result.succeeded()) {QMessageBox::warning(this,"保存设置未完成",PresentationHelpers::credentialOperationMessage(result.status));return;}
-        if (sourceSettings.fileName()==source.path && sourceSettings.value(ProfileCredentials::ScopeSetting)==source.scope) accept();
+        if (sourceSettings.fileName()==source.path && sourceSettings.value(ProfileCredentials::ScopeSetting)==source.scope) {
+            emit connectRequested();accept();
+        }
     });
     return true;
 }
@@ -440,7 +442,7 @@ void ConfigurationGuideDialog::updateNavigation()
     backButton->setEnabled(!saving && pageIndex > 0);
     nextButton->setEnabled(!saving && (!loading || pageIndex < pages->count()-1));
     nextButton->setText(
-        pageIndex == pages->count() - 1 ? "保存" : "下一步"
+        pageIndex == pages->count() - 1 ? "保存并连接" : "下一步"
     );
     updateCredentialsPage();
 }

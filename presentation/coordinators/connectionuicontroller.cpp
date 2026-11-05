@@ -152,8 +152,9 @@ ConnectionUiController::ConnectionUiController(
         connectButton,
         &QPushButton::clicked,
         this,
-        &ConnectionUiController::handleConnectClicked
+        &ConnectionUiController::toggleCampusAccess
     );
+    connect(trayConnectAction,&QAction::triggered,this,&ConnectionUiController::toggleCampusAccess);
     connect(
         proxyButton,
         &QPushButton::clicked,
@@ -201,11 +202,16 @@ void ConnectionUiController::cancelPendingCredentials()
     authenticationDialogs->closeCredentialPrompts();
     if (!connectionSession->isActive()) {refreshActions();}
 }
-void ConnectionUiController::handleConnectClicked()
+void ConnectionUiController::toggleCampusAccess()
 {
     if (quitting) return;
     if (connectionSession->isActive()) {cancelPendingCredentials();connectionSession->stop();return;}
     if (credentialsPending) {cancelPendingCredentials();return;}
+    enableCampusAccess();
+}
+void ConnectionUiController::enableCampusAccess()
+{
+    if (quitting || connectionSession->isActive() || credentialsPending) return;
     if (auto *modal=QApplication::activeModalWidget()) {modal->raise();modal->activateWindow();return;}
     if (isConfigurationSaving()) {QMessageBox::information(parentWidget,tr("Saving profile"),tr("Wait for the save before connecting."));return;}
     cancelPendingCredentials();

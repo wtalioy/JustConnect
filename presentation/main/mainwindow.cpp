@@ -340,7 +340,7 @@ MainWindow::MainWindow(
             << "proxy_busy" << systemProxySession->isBusy() << "proxy_unrestored" << systemProxySession->needsCleanup()
             << "credential_work" << coordinator->credentials()->isBusy();
         if (property("systemShutdown").toBool()) return;
-        show();raise();activateWindow();
+        PresentationHelpers::activateWindow(this);
         auto *message=new QMessageBox(QMessageBox::Warning,tr("Exit incomplete"),
             tr("Cleanup failed or timed out. New connections and reconnection are stopped. Check network recovery and retry Exit. The application remains available while the core or storage work is still running."),
             QMessageBox::Retry|QMessageBox::Cancel,this);
@@ -358,7 +358,7 @@ MainWindow::MainWindow(
     }
     if (shouldConnect)
     {
-        ui->connectButton->click();
+        connectionUiController->enableCampusAccess();
     }
 
     if (settings->value("Common/CheckUpdateAfterStart", true).toBool())
@@ -413,7 +413,7 @@ void MainWindow::closeEvent(QCloseEvent *event)
         hide();
         showNotification("JustConnect", tr("JustConnect is running in the system tray. Click its icon to restore the window; use Exit to quit."), QSystemTrayIcon::Information);
     } else {
-        show();
+        PresentationHelpers::activateWindow(this);
         setProperty("trayUnavailable",true);
         ui->statusHintLabel->setText(tr("System tray unavailable. Use Exit in Settings to quit."));
         ui->statusHintLabel->show();
@@ -581,19 +581,14 @@ void MainWindow::setupTrayIcon()
         case QSystemTrayIcon::Context:
             break;
         default:
-            if (isHidden())
-            {
-                show();
-            }
-            setWindowState(Qt::WindowState::WindowActive);
-            setFocus();
+            PresentationHelpers::activateWindow(this);
             break;
         }
     });
 
     trayConnectAction = new QAction(tr("Connect"), this);
     trayProfileMenu = new QMenu(tr("Profiles"), this);
-    trayShowAction = new QAction(tr("Show window"), this);
+    trayShowAction = new QAction(tr("Show window"), this);trayShowAction->setObjectName("trayShowAction");
     trayCloseAction = new QAction(tr("Exit ") + QApplication::applicationName(), this);
     trayMenu = new QMenu(this);
     trayMenu->addAction(trayConnectAction);
@@ -602,11 +597,8 @@ void MainWindow::setupTrayIcon()
     trayMenu->addSeparator();
     trayMenu->addAction(trayShowAction);
     trayMenu->addAction(trayCloseAction);
-    connect(trayConnectAction, &QAction::triggered, this, [&]() { ui->connectButton->click(); });
     connect(trayShowAction, &QAction::triggered, this, [&]() {
-        show();
-        setWindowState(Qt::WindowState::WindowActive);
-        setFocus();
+        PresentationHelpers::activateWindow(this);
     });
     connect(trayCloseAction, &QAction::triggered, this, &MainWindow::gracefullyQuit);
     trayIcon->setContextMenu(trayMenu);
@@ -828,6 +820,9 @@ void MainWindow::openConfigurationGuide()
         if (settings->fileName()!=path) return;
         resetConnectionUi();clearLog();qInfo().noquote()<<tr("Current profile updated with the setup guide");
     });
+    connect(guideWindow,&ConfigurationGuideDialog::connectRequested,this,[this,path] {
+        if (profileService->settings()->fileName()==path) connectionUiController->enableCampusAccess();
+    },Qt::QueuedConnection);
     guideWindow->show();
 }
 
@@ -1009,8 +1004,7 @@ void MainWindow::showNotification(const QString &title, const QString &content, 
     {
         disconnect(trayIcon, &QSystemTrayIcon::messageClicked, nullptr, nullptr);
 
-        show();
-        setWindowState(Qt::WindowState::WindowActive);
+        PresentationHelpers::activateWindow(this);
     });
 }
 

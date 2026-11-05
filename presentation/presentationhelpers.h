@@ -12,6 +12,7 @@ namespace PresentationHelpers
 QString credentialOperationMessage(CredentialStatus status);
 QString platformOperationMessage(const PlatformOperationResult &result);
 void showAboutDialog(QWidget *parent = nullptr);
+void activateWindow(QWidget *window);
 bool confirmCredentials(const QString &username, const QString &password);
 }
 

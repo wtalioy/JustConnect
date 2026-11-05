@@ -28,6 +28,9 @@ public:
     bool applyTo();
     bool isSaving() const {return saving;}
 
+signals:
+    void connectRequested();
+
 private slots:
     void goBack();
 

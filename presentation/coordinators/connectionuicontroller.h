@@ -57,6 +57,8 @@ public:
     );
 
     bool isConfigurationSaving() const;
+    void enableCampusAccess();
+    void toggleCampusAccess();
     void refreshActions();
     void cancelPendingCredentials();
     void clearAuthenticationCache();
@@ -65,7 +67,6 @@ signals:
     void readyToQuit();
     void quitFailed(const QString &code);
 private:
-    void handleConnectClicked();
     void handleProxyClicked();
     void applyPendingAutomaticProxy();
     void startConnection(ConnectionProfile profile,const CredentialSource &source,quint64 cacheRevision);

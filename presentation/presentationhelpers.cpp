@@ -7,6 +7,13 @@
 
 #include "application/applicationconstants.h"
 
+void PresentationHelpers::activateWindow(QWidget *window)
+{
+    if (!window) return;
+    if (window->isMinimized()) window->setWindowState(window->windowState() & ~Qt::WindowMinimized);
+    window->show();window->raise();window->activateWindow();
+}
+
 void PresentationHelpers::showAboutDialog(QWidget *parent)
 {
     QMessageBox messageBox(parent);

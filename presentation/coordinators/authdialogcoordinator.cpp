@@ -1,4 +1,5 @@
 #include "authdialogcoordinator.h"
+#include "presentation/presentationhelpers.h"
 
 #include <QCheckBox>
 #include <QDebug>
@@ -52,8 +53,7 @@ void AuthDialogCoordinator::requestLogin(
 {
     if (loginWindow != nullptr)
     {
-        loginWindow->raise();
-        loginWindow->activateWindow();
+        PresentationHelpers::activateWindow(parentWidget);PresentationHelpers::activateWindow(loginWindow);
         return;
     }
 
@@ -69,7 +69,7 @@ void AuthDialogCoordinator::requestLogin(
         loginWindow=nullptr;
         if (result==QDialog::Rejected) emit credentialInputCancelled();
     });
-    loginWindow->show();
+    PresentationHelpers::activateWindow(parentWidget);PresentationHelpers::activateWindow(loginWindow);
 }
 
 void AuthDialogCoordinator::requestPhoneNumber(
@@ -79,8 +79,7 @@ void AuthDialogCoordinator::requestPhoneNumber(
 {
     if (phoneNumberDialog != nullptr)
     {
-        phoneNumberDialog->raise();
-        phoneNumberDialog->activateWindow();
+        PresentationHelpers::activateWindow(parentWidget);PresentationHelpers::activateWindow(phoneNumberDialog);
         return;
     }
 
@@ -162,7 +161,7 @@ void AuthDialogCoordinator::requestPhoneNumber(
         countryCodeEdit->setFocus();
     }
     dialog->resize(440,dialog->sizeHint().height());
-    dialog->show();
+    PresentationHelpers::activateWindow(parentWidget);PresentationHelpers::activateWindow(dialog);
 }
 
 void AuthDialogCoordinator::closeCredentialPrompts()
@@ -262,5 +261,5 @@ void AuthDialogCoordinator::requestAuthentication(const QJsonObject &request, co
     dialog->setAttribute(Qt::WA_DeleteOnClose);
     dialog->setWindowModality(Qt::WindowModal);
     connect(dialog, &QDialog::rejected, this, [submit] { submit({{"action", "cancel"}}); });
-    dialog->show();
+    PresentationHelpers::activateWindow(parentWidget);PresentationHelpers::activateWindow(dialog);
 }
