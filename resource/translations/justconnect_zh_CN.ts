@@ -262,6 +262,7 @@ This connection remains usable. You may need to sign in again later.</source>
     </message>
     <message>
         <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="177"/>
+        <location filename="../../tests/configurationguidedialog_test.cpp" line="243"/>
         <source>Check the server, sign-in method and connection settings. Nothing was saved.</source>
         <translation>请检查服务器、认证方式及连接设置。配置未保存。</translation>
     </message>
@@ -2796,6 +2797,7 @@ Some settings may have changed. Check network recovery.</source>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="102"/>
+        <location filename="../../tests/settingwindow_test.cpp" line="161"/>
         <source>Reset draft</source>
         <translation>恢复默认值</translation>
     </message>
@@ -2920,6 +2922,7 @@ Some settings may have changed. Check network recovery.</source>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="264"/>
+        <location filename="../../tests/settingwindow_test.cpp" line="206"/>
         <source>Clear saved credentials</source>
         <translation>清除已保存凭据</translation>
     </message>
@@ -2960,6 +2963,8 @@ Some settings may have changed. Check network recovery.</source>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="294"/>
+        <location filename="../../tests/settingwindow_test.cpp" line="118"/>
+        <location filename="../../tests/settingwindow_test.cpp" line="144"/>
         <source>Invalid profile</source>
         <translation>配置无效</translation>
     </message>
@@ -2975,12 +2980,14 @@ Some settings may have changed. Check network recovery.</source>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="302"/>
+        <location filename="../../tests/settingwindow_test.cpp" line="150"/>
         <source>Could not update startup registration</source>
         <translation>自启动操作未完成</translation>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="303"/>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="306"/>
+        <location filename="../../tests/settingwindow_test.cpp" line="135"/>
         <source>Could not save startup preference</source>
         <translation>启动偏好未保存</translation>
     </message>

@@ -61,6 +61,7 @@ add_library(justconnect_desktop OBJECT
     presentation/dialogs/applicationpreferences/applicationpreferencesdialog.cpp
     presentation/appearance/applicationappearance.cpp
     presentation/main/mainwindow.cpp
+    presentation/main/mainwindow.ui
     presentation/main/mainwindowcoordinator.cpp
     presentation/coordinators/authdialogcoordinator.cpp
     presentation/coordinators/authenticationcachecoordinator.cpp
@@ -75,11 +76,16 @@ add_library(justconnect_desktop OBJECT
     presentation/presentationhelpers.cpp
     presentation/widgets/serversettingswidget.cpp
     presentation/dialogs/settingwindow/settingwindow.cpp
+    presentation/dialogs/settingwindow/settingwindow.ui
     presentation/dialogs/loginwindow/loginwindow.cpp
+    presentation/dialogs/loginwindow/loginwindow.ui
     presentation/dialogs/ssologinwebview/ssologinwebview.cpp
+    presentation/dialogs/ssologinwebview/ssologinwebview.ui
     presentation/dialogs/authinfowindow/authinfowindow.cpp
+    presentation/dialogs/authinfowindow/authinfowindow.ui
     presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp
     presentation/dialogs/graphcaptchawindow/graphcaptchawindow.cpp
+    presentation/dialogs/graphcaptchawindow/graphcaptchawindow.ui
     presentation/dialogs/graphcaptchawindow/captchacanvas.cpp
     infrastructure/settings/profilemanager.cpp
     resource.qrc
