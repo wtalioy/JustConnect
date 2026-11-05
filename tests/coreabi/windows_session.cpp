@@ -4,6 +4,7 @@
 #include "infrastructure/coreengine/embeddedcoreengine.h"
 #include "infrastructure/dns/dnssnapshot.h"
 #include "infrastructure/dns/windows/dnscontract.h"
+#include "infrastructure/dns/windows/dnssnapshot.h"
 #include "infrastructure/process/command.h"
 #include "infrastructure/routing/originalexit.h"
 #include "tests/platform/windows_device/controlhandoff.h"
@@ -38,8 +39,16 @@ template<class Predicate> static void until(const char *stage,Predicate done,int
     check(done(),stage);
 }
 #include "coexistence_windows.h"
+static DnsSnapshot readNativeDns()
+{
+    return readWindowsDnsSnapshot([](const QString &program,const QStringList &arguments){
+        auto command=runPlatformCommand(program,arguments,WindowsDNS::SnapshotTimeoutMs);
+        if(!command.result.succeeded())std::cerr<<"native_dns_reader_stderr="<<command.standardError.toStdString()<<'\n';
+        return command;
+    });
+}
 static QJsonObject dnsSnapshot(){
-    auto future=QtConcurrent::run(readSystemDnsSnapshot);
+    auto future=QtConcurrent::run(readNativeDns);
     // Let the reader return its own bounded error and phase, including command cleanup.
     until("complete native DNS snapshot",[&]{return future.isFinished();},WindowsDNS::SnapshotTimeoutMs+PlatformCommandCleanupTimeoutMs);
     const auto result=future.result();
@@ -149,7 +158,7 @@ int main(int argc,char **argv) try
         check(!input.hasBaseline || (input.baseline.dns==baseline.dns && input.baseline.interfaces==baseline.interfaces),"new ordinary application confirms complete pre-crash DNS and interface baseline");
         const auto handle=reinterpret_cast<HANDLE>(input.server);QTimer::singleShot(0,&app,[ready,handle]{ready(handle,0);});
     },[&]{
-        auto snapshot=readSystemDnsSnapshot();
+        auto snapshot=readNativeDns();
         if(snapshot.result.succeeded() && delayEffectiveDns.exchange(false)){
             // Model a fresh registry source whose effective DNS policy has not appeared yet.
             check(!snapshot.data["nrpt"].toArray().isEmpty(),"reconnect fixture has effective campus DNS");
