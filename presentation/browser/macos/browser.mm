@@ -1,10 +1,13 @@
 #include "presentation/browser/origin.h"
 #include "presentation/browser/signinbrowser.h"
 
+#include <QDir>
 #include <QJsonArray>
+#include <QJsonObject>
 #include <QJsonDocument>
 #include <QPointer>
 #include <QSslCertificate>
+#include <QTemporaryDir>
 #include <QTimer>
 #import <AppKit/AppKit.h>
 #import <Security/Security.h>
@@ -77,7 +80,11 @@ bool trusted(SecTrustRef trust,const QString &pem,const QString &host) {
 struct SignInBrowser::Native {
     JCSignInView *view;
     JCSignInDelegate *delegate;
-    QUrl current;
+    QUrl current,pending;
+    QString html;
+    bool ready=false,failed=false,htmlPending=false;
+    WKContentRuleListStore *rulesStore;
+    std::shared_ptr<QTemporaryDir> rulesDirectory;
     ~Native() {
         delegate->navigate={};delegate->started={};delegate->finished={};delegate->changed={};delegate->certificate={};
         view->addressFocus={};view.navigationDelegate=nil;[view stopLoading];[view removeFromSuperview];
@@ -86,7 +93,7 @@ struct SignInBrowser::Native {
 
 SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &gateway,const TlsOptions &tls,NavigationPolicy navigation)
     :QWidget(parent),native(std::make_unique<Native>()) {
-    setAttribute(Qt::WA_NativeWindow);setFocusPolicy(Qt::StrongFocus);
+    setAttribute(Qt::WA_NativeWindow);setFocusPolicy(Qt::StrongFocus);setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Expanding);
     WKWebViewConfiguration *configuration=[[WKWebViewConfiguration alloc] init];
     configuration.websiteDataStore=[WKWebsiteDataStore nonPersistentDataStore];
     NSView *host=(__bridge NSView *)reinterpret_cast<void *>(winId());
@@ -119,14 +126,47 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &gateway,const TlsOption
     };
     native->view.navigationDelegate=native->delegate;
     [host addSubview:native->view];
+    if (tls.verify) {native->ready=true;return;}
+    // WebKit also caches host certificate exceptions across ports; block escaping resources before TLS.
+    auto hostname=gateway.host().contains(':')?"["+gateway.host()+"]":QString::fromLatin1(QUrl::toAce(gateway.host()));
+    const auto hostPattern=QString::fromNSString([NSRegularExpression escapedPatternForString:hostname.toNSString()]);
+    const auto prefix="^"+gateway.scheme()+"://([^/]*@)?"+hostPattern;
+    const int defaultPort=gateway.scheme()=="https"?443:80;
+    const int port=gateway.port(defaultPort);
+    const auto allowed=prefix+(port==defaultPort?"(:"+QString::number(port)+")?":":"+QString::number(port))+"(/|$)";
+    const QJsonArray rules{
+        QJsonObject{{"trigger",QJsonObject{{"url-filter","^https?://([^/]*@)?"+hostPattern+"([:/]|$)"}}},{"action",QJsonObject{{"type","block"}}}},
+        QJsonObject{{"trigger",QJsonObject{{"url-filter",allowed}}},{"action",QJsonObject{{"type","ignore-previous-rules"}}}}
+    };
+    auto directory=std::make_shared<QTemporaryDir>(QDir::tempPath()+"/JustConnect-signin-rules-XXXXXX");
+    if (!directory->isValid()) {
+        native->failed=true;QTimer::singleShot(0,this,[this]{emit initializationFailed();emit loadFinished(false);});return;
+    }
+    native->rulesDirectory=directory;
+    native->rulesStore=[WKContentRuleListStore storeWithURL:[NSURL fileURLWithPath:directory->path().toNSString() isDirectory:YES]];
+    const auto encoded=QString::fromUtf8(QJsonDocument(rules).toJson(QJsonDocument::Compact));
+    [native->rulesStore compileContentRuleListForIdentifier:@"gateway-certificate-scope" encodedContentRuleList:encoded.toNSString()
+        completionHandler:^(WKContentRuleList *list,NSError *error) {
+            Q_UNUSED(directory);
+            if (!self) return;
+            if (error || !list) {self->native->failed=true;emit self->initializationFailed();emit self->loadFinished(false);return;}
+            [self->native->view.configuration.userContentController addContentRuleList:list];
+            self->native->ready=true;
+            if(self->native->htmlPending)self->setHtml(self->native->html);
+            else if(!self->native->pending.isEmpty())self->load(self->native->pending);
+        }];
 }
 SignInBrowser::~SignInBrowser() {disconnect(this,nullptr,nullptr,nullptr);}
-void SignInBrowser::load(const QUrl &target) {[native->view loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:QString::fromLatin1(target.toEncoded()).toNSString()]]];}
+void SignInBrowser::load(const QUrl &target) {
+    native->pending=target;native->htmlPending=false;
+    if(native->failed){QTimer::singleShot(0,this,[this]{emit initializationFailed();emit loadFinished(false);});return;}
+    if(native->ready)[native->view loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:QString::fromLatin1(target.toEncoded()).toNSString()]]];
+}
 QUrl SignInBrowser::url() const {return native->current;}
 void SignInBrowser::back() {[native->view goBack];}
 void SignInBrowser::forward() {[native->view goForward];}
 void SignInBrowser::reload() {[native->view reload];}
-void SignInBrowser::setHtml(const QString &html) {[native->view loadHTMLString:html.toNSString() baseURL:nil];}
+void SignInBrowser::setHtml(const QString &html) {native->html=html;native->htmlPending=true;if(native->ready)[native->view loadHTMLString:html.toNSString() baseURL:nil];}
 void SignInBrowser::runJavaScript(const QString &script,std::function<void(const QVariant &)> result) {
     const QPointer<SignInBrowser> self(this);
     [native->view evaluateJavaScript:script.toNSString() completionHandler:^(id value,NSError *error) {

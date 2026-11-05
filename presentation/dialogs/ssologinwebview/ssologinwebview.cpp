@@ -30,7 +30,7 @@ SsoLoginWebView::SsoLoginWebView(QWidget *parent,const QUrl &callback,const TlsO
     ui->backButton->setIcon(style()->standardIcon(QStyle::SP_ArrowBack));
     ui->forwardButton->setIcon(style()->standardIcon(QStyle::SP_ArrowForward));
     ui->reloadButton->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
-    browser=new SignInBrowser(this,callbackUrl,tls,[this](const QUrl &url,bool mainFrame) {
+    browser=new SignInBrowser(ui->browserHost,callbackUrl,tls,[this](const QUrl &url,bool mainFrame) {
         if (!mainFrame && (url==QUrl("about:blank") || url==QUrl("about:srcdoc"))) return true;
         if (!isAllowedUrl(url)) {showNavigationError();return false;}
         if (!BrowserOrigin::same(url,callbackUrl) || url.path(QUrl::FullyEncoded)!=callbackUrl.path(QUrl::FullyEncoded)) return true;

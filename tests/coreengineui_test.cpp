@@ -699,7 +699,10 @@ static void browserCookiesStayInLoginDialog() {
                 }
                 const QByteArray body="<html><body>fixture</body></html>";
                 QByteArray response="HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: text/html\r\nCache-Control: no-store\r\n";
-                if (path=="/first") response+="Set-Cookie: jc_scope=first; Path=/; SameSite=Lax\r\n";
+                if (path=="/first") {
+                    std::cout<<"CHECK: controlled cookie response sent"<<std::endl;
+                    response+="Set-Cookie: jc_scope=first; Path=/; SameSite=Lax\r\n";
+                }
                 response+="Content-Length: "+QByteArray::number(body.size())+"\r\n\r\n"+body;
                 socket->write(response);socket->disconnectFromHost();
             });
@@ -721,10 +724,14 @@ static void browserCookiesStayInLoginDialog() {
     auto *first=qobject_cast<SsoLoginWebView *>(challenge(parent));
     check(first!=nullptr,"coordinator opens the initial SSO page");
     auto *firstView=first->findChild<SignInBrowser *>();
+    QObject::connect(firstView,&SignInBrowser::loadStarted,firstView,[]{std::cout<<"CHECK: initial SSO navigation started"<<std::endl;});
     bool initialCookie=false;
     const auto observed=QObject::connect(firstView,&SignInBrowser::loadFinished,[&](bool okay) {
         check(okay,"initial cookie page loads");
-        firstView->runJavaScript("document.cookie.includes('jc_scope=first')",[&](const QVariant &value){initialCookie=value.toBool();});
+        std::cout<<"CHECK: initial SSO cookie page loaded"<<std::endl;
+        firstView->runJavaScript("document.cookie.includes('jc_scope=first')",[&](const QVariant &value){
+            initialCookie=value.toBool();std::cout<<"CHECK: fixture cookie visible="<<initialCookie<<std::endl;
+        });
     });
     until([&]{return initialCookie;});QObject::disconnect(observed);
     visit(first,"/echo");
@@ -874,6 +881,28 @@ static void controllerSelectionContracts() {
     check(cancelled==1 && queuedReads==2 && ProfileManager(queuedRoot.path()).controllerAddress().isEmpty(),"late cancelled discovery cannot select or persist a new request's controller");
 }
 
+static void browserPreservesChallengeIdentity() {
+    QWidget parent;AuthDialogCoordinator dialogs(&parent);int responses=0;QJsonObject submitted;
+    QObject::connect(&dialogs,&AuthDialogCoordinator::responseSubmitted,[&](const QJsonObject &response){++responses;submitted=response;});
+    for (const QString &kind : {"cas", "oauth2"}) {
+        const QJsonObject request{{"schema_version", 1}, {"generation", "2"}, {"request_id", "4"},
+            {"challenge", QJsonObject{{"kind", kind}, {"login_url", "https://idp.example.invalid/login"}}}};
+        dialogs.requestAuthentication(request, QUrl("https://vpn.example.invalid"));
+        auto *web = qobject_cast<SsoLoginWebView *>(challenge(parent));
+        check(web != nullptr, "external login uses the challenge URL");
+        const auto callback=kind=="cas" ? "https://vpn.example.invalid/passport/v1/auth/cas?ticket=private-callback"
+            : "https://vpn.example.invalid/passport/v1/auth/httpsOauth2?code=private-callback";
+        emit web->loginCompleted(callback);
+        web->accept();
+        check(submitted["callback_url"] == callback
+            && submitted["request_id"] == "4", "external callback retains request identity");
+        const int before = responses;
+        dialogs.requestAuthentication(request, {});
+        challenge(parent)->close();
+        check(responses == before + 1 && submitted["action"] == "cancel", "closing external login cancels once");
+    }
+}
+
 static void uiContracts() {
     QWidget parent;
     AuthDialogCoordinator dialogs(&parent);
@@ -913,23 +942,6 @@ static void uiContracts() {
         buttons->button(confirm?QDialogButtonBox::Ok:QDialogButtonBox::Cancel)->click();
         check(responses==before+1 && submitted["action"]==(confirm?"confirm":"cancel")
             && submitted["generation"]=="3" && submitted["request_id"]=="19" && !submitted.contains("code"),"explicit device decision retains request identity");
-    }
-    for (const QString &kind : {"cas", "oauth2"}) {
-        const QJsonObject request{{"schema_version", 1}, {"generation", "2"}, {"request_id", "4"},
-            {"challenge", QJsonObject{{"kind", kind}, {"login_url", "https://idp.example.invalid/login"}}}};
-        dialogs.requestAuthentication(request, QUrl("https://vpn.example.invalid"));
-        auto *web = qobject_cast<SsoLoginWebView *>(challenge(parent));
-        check(web != nullptr, "external login uses the challenge URL");
-        const auto callback=kind=="cas" ? "https://vpn.example.invalid/passport/v1/auth/cas?ticket=private-callback"
-            : "https://vpn.example.invalid/passport/v1/auth/httpsOauth2?code=private-callback";
-        emit web->loginCompleted(callback);
-        web->accept();
-        check(submitted["callback_url"] == callback
-            && submitted["request_id"] == "4", "external callback retains request identity");
-        const int before = responses;
-        dialogs.requestAuthentication(request, {});
-        challenge(parent)->close();
-        check(responses == before + 1 && submitted["action"] == "cancel", "closing external login cancels once");
     }
     auto *selectedEngine=new QueryEngine;
     AuthMethodsQuery selectedQuery(selectedEngine);
@@ -1367,5 +1379,6 @@ static void gateway(const QJsonObject &config) {
 int main(int argc, char **argv) {
     QApplication app(argc, argv);
     if (argc == 3 && QByteArray(argv[1]) == "--gateway") gateway(QJsonDocument::fromJson(argv[2]).object());
-    else { campusIntentsShareOneController(); controllerSelectionContracts(); failedNetworkRecoveryOffersRetryWhileCoreStops(); browserCookiesStayInLoginDialog(); browserValidatesCallbackNavigation(); uiContracts(); proxyWaitsForReady(); manualCredentialsAndLateResults(); authenticationCacheLifecycle(); onlineExpiryOffersOneReauthentication(); officialClientWarningIsReadOnlyAndDropsCancelledResults(); authenticationSurvivesTunnelFailure(); quitWaitsForInitialSsoCache(); quitWaitsForAuthenticationQueryWithoutBlockingTheGui(); quitWaitsForNetworkInspectionWithoutBlockingTheGui(); }
+    else if (argc==2 && QByteArray(argv[1])=="--browser") { browserCookiesStayInLoginDialog();browserValidatesCallbackNavigation();browserPreservesChallengeIdentity(); }
+    else { campusIntentsShareOneController(); controllerSelectionContracts(); failedNetworkRecoveryOffersRetryWhileCoreStops(); uiContracts(); proxyWaitsForReady(); manualCredentialsAndLateResults(); authenticationCacheLifecycle(); onlineExpiryOffersOneReauthentication(); officialClientWarningIsReadOnlyAndDropsCancelledResults(); authenticationSurvivesTunnelFailure(); quitWaitsForInitialSsoCache(); quitWaitsForAuthenticationQueryWithoutBlockingTheGui(); quitWaitsForNetworkInspectionWithoutBlockingTheGui(); }
 }
