@@ -42,6 +42,7 @@
 #include <QCheckBox>
 #include <QElapsedTimer>
 #include <QLineEdit>
+#include <QKeyEvent>
 #include <QTcpSocket>
 #include <QWebEngineView>
 #include <QWebEnginePage>
@@ -357,6 +358,20 @@ static void nativeHome(MainWindow &window) {
     const auto original=window.size();window.resize(320,460);QCoreApplication::processEvents();
     auto *button=window.findChild<QPushButton *>("connectButton");
     check(window.width()==320 && window.rect().contains(button->geometry()) && button->height()>=44,"compact home keeps its main action in bounds at 320 logical pixels");
+    auto *profile=window.findChild<QToolButton *>("profileMenuButton");
+    const auto profileName=profile->text();
+    const auto longName=QString(64,QChar('W'));
+    profile->setText(longName);QCoreApplication::processEvents();window.resize(320,460);QCoreApplication::processEvents();
+    check(window.width()==320 && profile->text()==longName && profile->width()<=window.width(),
+        "a long profile name must keep its full value without expanding the compact window");
+    profile->setText(profileName);QCoreApplication::processEvents();
+    QApplication::setActiveWindow(&window);profile->setFocus();
+    for (int i=0;i<16 && QApplication::focusWidget()!=button;++i) {
+        QKeyEvent tab(QEvent::KeyPress,Qt::Key_Tab,Qt::NoModifier);
+        auto *focused=QApplication::focusWidget();check(focused,"home keeps an accessible keyboard focus");
+        QApplication::sendEvent(focused,&tab);
+    }
+    check(QApplication::focusWidget()==button,"Tab navigation reaches the main connection action without opening details");
     if (!report.isEmpty()) check(window.grab().save(QDir(report).filePath("home-320.png")),"save narrow Qt screenshot");
     window.resize(original);
 }
