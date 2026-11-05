@@ -64,7 +64,11 @@ ConnectionUiController::ConnectionUiController(
     proxyButton->hide();
 
     connect(connectionSession, &ConnectionSession::diagnostic, applicationLogger,
-        [applicationLogger](const QString &code) { applicationLogger->appendCoreOutput("[core] " + code); });
+        [this,applicationLogger](const QString &code) {
+            applicationLogger->appendCoreOutput("[core] " + code);
+            if (code == "browser_proxy_changed_externally")
+                this->notificationHandler(tr("Browser proxy changed"),tr("New proxy settings were detected. JustConnect will preserve them."),QSystemTrayIcon::Information);
+        });
     authenticationCache=new AuthenticationCacheCoordinator(connectionSession,credentials,this->credentialSourceProvider,this);
     controllerSelection=new ControllerSelectionCoordinator(parentWidget,this);
     shutdown=new ApplicationShutdown(connectionSession,systemProxySession, [this] {

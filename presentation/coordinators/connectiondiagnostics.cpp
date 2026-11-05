@@ -45,7 +45,8 @@ ConnectionDiagnostics::ConnectionDiagnostics(CoreEngine *core, ConnectionSession
                                          "local_controller_real_dns",      "local_controller_ambiguous",
                                          "local_controller_unavailable",   "coexistence_refresh_failed",
                                          "tls_node_verification_disabled", "tls_verification_disabled",
-                                         "tls_authentication_failed",      "persistence_failed"};
+                                         "tls_authentication_failed",      "persistence_failed",
+                                         "browser_proxy_changed_externally"};
         code = known.contains(value) ? value : QString();
         if (value == "coexistence_refresh_failed")
             exitKnown = false;

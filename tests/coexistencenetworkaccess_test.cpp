@@ -214,6 +214,23 @@ void leavesUnrelatedProxyAndDisabledListenersAlone() {
     check(f.backend->endpoints == QStringList{"127.0.0.1:9988"} && !f.backend->clears,
           "disconnect modified an unrelated proxy");
 }
+void preservesExternalProxyAfterHandoff() {
+    Fixture f; f.start(); until([&] { return f.ready == 1; });
+    int notices = 0;
+    QObject::connect(&f.core, &CoreEngine::diagnostic, [&](const QString &code) {
+        if (code == "browser_proxy_changed_externally") ++notices;
+    });
+    const QStringList external{"127.0.0.1:9988"};
+    f.change(external); until([&] { return !f.proxy.needsCleanup(); });
+    check(f.backend->endpoints == external && f.backend->applies == 1 && !f.native->stops && f.ready == 1,
+          "external proxy changes must retain their new value without stopping campus capture");
+    const auto updates = f.core.updates;
+    f.access.systemProxyChanged(); until([&] { return f.core.updates > updates && !f.proxy.isBusy(); });
+    check(notices == 1, "external ownership release must emit one notice without repeated warnings");
+    f.access.stop(f.attempt); until([&] { return f.stopped == 1; });
+    check(f.backend->endpoints == external && !f.errors,
+          "disconnect cannot restore over a proxy selected after handoff");
+}
 void cancellationBeforeNativePreparationLeavesNoCapture() {
     Fixture f;
     f.access.prepare(f.attempt);
@@ -243,5 +260,5 @@ int main(int argc, char **argv) {
     followsSwitchesAndRestarts(); retainsRestoreResponsibility(); pausesNetworkObservationBeforeBrowserRestore();
     cancelsDuringApply(false); cancelsDuringApply(true);
     leavesUnrelatedProxyAndDisabledListenersAlone(); cancellationBeforeNativePreparationLeavesNoCapture();
-    provesPrivilegedOwnerBeforeHandoff(); ignoresProofAfterCancellation();
+    preservesExternalProxyAfterHandoff(); provesPrivilegedOwnerBeforeHandoff(); ignoresProofAfterCancellation();
 }
