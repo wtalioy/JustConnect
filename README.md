@@ -5,3 +5,5 @@
 当前仍在开发；实际可用范围与未验收项见 [实施计划](plan.md)。构建、配置与测试入口见 [开发说明](docs/DEVELOPMENT.md)，模块职责见 [架构说明](docs/ARCHITECTURE.md)。
 
 无需自行申请代码签名证书；系统网络修改仍遵循正常管理员授权，恢复只撤销自身拥有的修改。
+
+登录窗口复用系统引擎：Windows 需 WebView2 Runtime，macOS 使用系统 WebKit，不随包分发 Chromium。

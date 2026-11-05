@@ -15,16 +15,15 @@
 | --- | --- |
 | 阶段进度 | S3—S6 **23／23 全部勾选**；全计划 64 项已收尾 50 项、剩余 14 项（含最终验收）。S1-04 真实样本、S2-06 真实注销仍待；S7 实施中 |
 | Windows 实测 | `b2fbdb3`／Windows 11 26H2：用户确认合并实测全部正常，含代理先开／后开、TUN 动态切换、校园网页／SSH／登录、Tailscale 直连与 CPU 观察。同窗首次／复用接管 2480／38 ms；所附断开日志 quiesce 53 ms、park 17 ms，无错误。未新增量化 CPU 或吞吐采样。 |
-| 当前跟踪 | **S7 实施中**：发现、统一会话、恢复守护及原型已收尾，减包优先；取消不再维护的平台，评估并替换随包浏览器引擎；动态联动已验，完整界面等待 Windows 合并验收。A13 跨平台原生接入缺口保留。 |
-| 当前交付 | [`1bb6d33` Windows x64 预览](https://github.com/wtalioy/JustConnect/actions/runs/42046435836/artifacts/13424708546)：整套原生界面、双语设置与诊断；自动／实际包检查通过，Windows 新界面操作待验。 |
+| 当前跟踪 | **S7 待 Windows 集中验收**：完整界面已接入；平台精简、原生浏览器替换及四架构自动／实际包检查通过。A13 原生接入缺口保留，macOS 实机仍归 S8。 |
+| 当前交付 | [`ca16758` Windows x64 小包](https://github.com/wtalioy/JustConnect/actions/runs/42125579273/artifacts/13461566823)：完整原生界面、WebView2 认证、双语设置与诊断，压缩 19.1 MiB；Windows 集中操作待验。 |
 
 ## 当前验收基线
 
 | 范围 | 当前结论与证据 |
 | --- | --- |
-| S7 自动检查 | `1bb6d33` 的[两平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/42046382241)及[四架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/42046382180)全部通过。应用 Windows／macOS 为 61／74／63 项，含 11 项关键 UI 检查；Windows 两架构原生各 41 项，覆盖真实重连／共存、权限与恢复。macOS x64 当前源码的助手、正式 ABI、实际 utun 及活跃 Mihomo TUN 检查均已通过，无需沿用旧源码证据。关键报告 `build/reports/s7-candidate/`。 |
-| 正式自动检查 | `b2fbdb3` 的[两平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/41973845429)与[四架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/41973845654)全部通过，包含真实代理／TUN、恢复、认证及本轮回归。 |
-| 实际包／源码 | `1bb6d33` 的[四组实际包及源码](https://github.com/wtalioy/JustConnect/actions/runs/42046435836)全部通过；六份报告核对版本、核心／助手来源、双语资源及本地签名，源码包与 771 个 Git 文件逐一一致。macOS 安装体积较 `b2fbdb3` 减少约 5.4 MiB，其余增加约 0.3 MiB，无新增运行依赖。证据 `build/reports/s7-candidate/`。 |
+| S7 自动检查 | `ca16758` [两平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/42124375797)与[四架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/42124375854)全部通过；包括原生网页、Cookie／回调／TLS、真实设备／代理／TUN、权限与恢复。原生 CI 环境及唯一临时措施见[链接与回归](docs/CORELINK-PROBE.md#链接与回归)。 |
+| 实际包／源码 | `ca16758` [四组实际包及对应源码](https://github.com/wtalioy/JustConnect/actions/runs/42125579273)全部通过；清除 SDK 环境后运行原生网页／JavaScript，并核对 ABI、架构、来源、依赖、许可证与签名。压缩 16.9—19.3 MiB，较原包减少约 85%—89%；[测量基线](docs/DEVELOPMENT.md#包体积基线)。本地 Windows x64 复制件的 CRC、来源、关键哈希、官方驱动／许可及实际离线自检通过，UI 未启动。报告 `build/reports/s7-native-browser-packages/ca16758/`。 |
 | Windows 修复／性能 | 正常断开修复已实测；DNS 批量刷新、持久进度、部分失败和后续所有权已双架构原生验证。接口查询及 `70f90a5` 接管／断开 CPU 优化已实测通过；`build/reports/windows-restore-9d95b37/summary.json`、`build/reports/windows-dns-cpu-da23405/summary.json` |
 | 阶段矩阵 | `build/reports/v1-matrix.json` 汇总当前两平台受控证据及 Windows 实测；未测发布格保留在 V1—V7，阶段勾选不等于完整发布验收 |
 
@@ -41,7 +40,7 @@
 | [S4](#s4-策略与网络操作的恢复基础) | 策略、权限助手与恢复基础 | 已完成阶段范围 |
 | [S5](#s5-无-clash-的透明原型) | 透明访问、DNS、保护及阶段矩阵 | 已完成阶段范围；CPU 优化 A6 已验收、完整实机矩阵 S8 |
 | [S6](#s6-clash-共存原型) | Clash 自动共存 | 6／6 已完成约定阶段范围；Windows 三主组合已实测，完整发布缺项归 S8 |
-| [S7](#s7-自动化ui-重设计与完整恢复) | 一键流程、完整 UI 与自动恢复 | 6／13 已收尾；完整界面已接入，6 项待 Windows 合并验收，S7-13 平台精简与减包实施中 |
+| [S7](#s7-自动化ui-重设计与完整恢复) | 一键流程、完整 UI 与自动恢复 | 6／13 已收尾；其余 7 项自动检查通过，待 Windows 新界面／认证合并验收 |
 | [S8](#s8-实测与交付) | 完整实测、实际包与交付 | 未开始；集中完成延期实机及打断工作环境的专项 |
 
 ## 后续实施顺序
@@ -224,8 +223,9 @@ S3—S6 已收尾，不重复开发或重跑已通过基线；A6 性能优化已
 - [ ] **S7-12**（统一原生设置及全局语言／关闭行为已通过两平台自动回归；Windows 整套界面联动待验）：随界面提供可发现的统一设置页，至少包含语言和关闭行为；复用现有存储／校验，应用偏好不混入学校 Profile，不新增并行配置框架。按日常使用要求落实默认隐藏到托盘／可选有序退出、明确 Exit 及无托盘回退；保存偏好本身不关闭或断开。迁移保留明确选择，无效值明确回退，写入失败保留原值并反馈；语言切换／重启、跨学校与活动连接的行为由 S7-10 统一验收。
 
 - [ ] **S7-13**：以减小包体积和简化代码为目标收敛认证浏览器。系统默认浏览器的公开交接调查已完成，现有网关不提供已验证的独立客户端回调；不再继续扩展浏览器插件或调试接口。产品仅支持 Windows／macOS x64／ARM64，删除被取消平台的实现、专属夹具、打包／CI 与文档；同时删除因此失去调用方的证明、状态与兼容分支。优先复用 Windows WebView2、macOS WKWebView，保持既有 authchallenge 结构、请求代次、取消与账户隔离；在请求到达网关前截获唯一有效 code／ticket。学校 CA、网关局部证书策略、正常系统信任、失败与重放边界必须保留，不申请代码签名、不导入根证书、不读取默认浏览器 Cookie。移除被替代的 WebEngine 库／资源／专属测试和安装链路；四架构检查实际打包的依赖、来源及登录页面，量化压缩包和解压体积。自动检查通过后集中提供 Windows 包供用户验收认证、界面与日常校园访问，macOS 实机留 S8。
-  - 平台清理：专属后端、设备／DNS／源路由夹具、部署元数据与矩阵已删除；移除无调用的监听证明、解析与多下一跳分支，合并 macOS 设备／接口读取、Windows UDP 微文件，删除已无目标的运行时平台兜底，保留配置窗口与跨平台边界回归。单实例组件固定 Qt 6／QApplication，删除无调用的旧 Qt／移动端分支和文档生成入口，既有 IPC 回归本地运行通过；原生检查待合并确认。`20f0b69` [两平台应用检查](https://github.com/wtalioy/JustConnect/actions/runs/42075402408)及[四架构原生检查](https://github.com/wtalioy/JustConnect/actions/runs/42075402415)通过。本地 4 项 C++ 实际运行、两平台 Go 交叉编译及契约／翻译／文档检查通过。
-  - 减包：WebView2／WKWebView 已替代 Chromium 及其安装、资源与签名分支；保留 Cookie、回调和 TLS 实际网页回归。Windows 核心裁除符号表减少 1,150,976 B，42 个导出一致；三组实际包压缩体积为 16.9—19.1 MiB。两平台应用回归通过，Windows x64／macOS ARM64 原生回归通过；Intel 卡住已由采样定位到运行器系统图标服务，Intel 包改用 macOS 15 构建；核心安全回归保留 macOS 26，仅在一次性运行器内处理上游图标服务故障，删除无效的网页加载排队。Windows 删除独立临时环境内重复的随机 profile 初始化，保持 InPrivate 和隔离回归，原冷启动期限不变，撤销无效的 macOS 拒绝事件夹具改动，保留原安全断言。32 项 Python（1 项平台限定跳过）及工作流／差异检查通过；四组最终 CI、实际包与 Windows 集中验收待完成。[浏览器边界](docs/UI-DESIGN.md#认证浏览器选择)，[原生 CI 环境](docs/CORELINK-PROBE.md#链接与回归)。
+  - 实现／精简：仅保留 Windows／macOS x64／ARM64；清理专属后端、夹具、部署元数据、失去调用方的证明／兜底和旧 Qt／移动端分支。WebView2／WKWebView 替代随包 Chromium；删除重复 profile 初始化与无效加载排队。保留认证协议身份、现用 IPC 格式、QtGui 的真实依赖及安全回归。
+  - 验证／清理：`ca16758` 的两平台应用、四架构原生、四组实际包和源码检查通过，链接见当前验收基线；32 项 Python（1 项平台限定跳过）与必要通用 C++／交叉编译检查通过。旧平台构建、比较 DLL、被替代日志及试验副本已清理；保留必要 SDK、测量／关键失败报告，交互原型保留至视觉验收。包体积与保留理由见[开发说明](docs/DEVELOPMENT.md#包体积基线)。
+  - 待验收：Windows 新包首次登录／取消、双语与毛玻璃／布局、同窗两轮连接／断开；macOS 实机及系统版本覆盖留 S8，不记为通过。
 
 完成条件：无需手工维护原型配置即可连接与共存，V6 自动回归与 Windows 主路径操作通过；新 UI／认证浏览器按 S7-08—13 验证。macOS 实机视觉／交互、真实注销及打断工作环境的专项统一 S8，未测格不记通过。完整恢复保障验证前不交付自动修改日常网络的版本。
 
