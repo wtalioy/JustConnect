@@ -542,6 +542,7 @@ void MainWindow::updateConnectionState(ConnectionState state)
     };
     for (QWidget *widget : styledWidgets)
     {
+        if (widget->property("connectionState").toString()==propertyValue) continue;
         widget->setProperty("connectionState", propertyValue);
         widget->style()->unpolish(widget);
         widget->style()->polish(widget);

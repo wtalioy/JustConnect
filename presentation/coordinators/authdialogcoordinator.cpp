@@ -3,6 +3,8 @@
 #include <QCheckBox>
 #include <QDebug>
 #include <QDialog>
+#include <QEvent>
+#include <functional>
 #include <QDialogButtonBox>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -17,6 +19,22 @@
 #include "presentation/dialogs/ssologinwebview/ssologinwebview.h"
 #include "application/coreengine.h"
 #include <QSignalBlocker>
+
+namespace {
+class AuthenticationDialog final : public QDialog {
+public:
+    using QDialog::QDialog;
+    void setTranslation(std::function<void()> translate) { translation=std::move(translate);translation(); }
+protected:
+    void changeEvent(QEvent *event) override {
+        QDialog::changeEvent(event);
+        if (event->type()==QEvent::LanguageChange && translation) translation();
+    }
+private:
+    std::function<void()> translation;
+};
+void spaceForm(QVBoxLayout *layout) {layout->setContentsMargins(24,24,24,24);layout->setSpacing(16);layout->parentWidget()->setMinimumWidth(320);}
+}
 
 AuthDialogCoordinator::AuthDialogCoordinator(
     QWidget *parentWidget,
@@ -66,30 +84,34 @@ void AuthDialogCoordinator::requestPhoneNumber(
         return;
     }
 
-    auto *dialog = new QDialog(parentWidget);
+    auto *dialog = new AuthenticationDialog(parentWidget);
     phoneNumberDialog = dialog;
     dialog->setAttribute(Qt::WA_DeleteOnClose);
     dialog->setWindowModality(Qt::WindowModal);
-    dialog->setWindowTitle("短信验证");
 
     auto *layout = new QVBoxLayout(dialog);
-    layout->addWidget(new QLabel("请输入接收验证码的手机号码：", dialog));
+    spaceForm(layout);
+    auto *phoneLabel=new QLabel(dialog);phoneLabel->setWordWrap(true);layout->addWidget(phoneLabel);
 
     auto *phoneLayout = new QHBoxLayout;
     phoneLayout->addWidget(new QLabel("+", dialog));
     auto *countryCodeEdit = new QLineEdit(countryCode, dialog);
     countryCodeEdit->setObjectName("countryCodeLineEdit");
-    countryCodeEdit->setMaximumWidth(60);
-    countryCodeEdit->setPlaceholderText("国家码");
+    countryCodeEdit->setMaximumWidth(88);
     phoneLayout->addWidget(countryCodeEdit);
     phoneLayout->addWidget(new QLabel("-", dialog));
     auto *phoneNumberEdit = new QLineEdit(phoneNumber, dialog);
     phoneNumberEdit->setObjectName("phoneNumberLineEdit");
-    phoneNumberEdit->setPlaceholderText("手机号码");
     phoneLayout->addWidget(phoneNumberEdit);
     layout->addLayout(phoneLayout);
 
-    auto *saveCheckBox = new QCheckBox("记住手机号码（可在设置中删除）", dialog);
+    auto *saveCheckBox = new QCheckBox(dialog);
+    phoneLabel->setBuddy(phoneNumberEdit);
+    dialog->setTranslation([dialog,phoneLabel,countryCodeEdit,phoneNumberEdit,saveCheckBox] {
+        dialog->setWindowTitle(tr("SMS verification"));phoneLabel->setText(tr("Phone number"));
+        countryCodeEdit->setPlaceholderText(tr("Country"));phoneNumberEdit->setPlaceholderText(tr("Phone number"));
+        saveCheckBox->setText(tr("Remember phone number"));
+    });
     layout->addWidget(saveCheckBox);
 
     auto *buttonBox = new QDialogButtonBox(
@@ -109,8 +131,8 @@ void AuthDialogCoordinator::requestPhoneNumber(
             {
                 QMessageBox::warning(
                     dialog,
-                    "警告",
-                    "国家码或手机号码不能为空。"
+                    tr("Warning"),
+                    tr("Country code and phone number are required.")
                 );
                 return;
             }
@@ -139,6 +161,7 @@ void AuthDialogCoordinator::requestPhoneNumber(
     {
         countryCodeEdit->setFocus();
     }
+    dialog->resize(440,dialog->sizeHint().height());
     dialog->show();
 }
 
@@ -186,29 +209,35 @@ void AuthDialogCoordinator::requestAuthentication(const QJsonObject &request, co
         });
         dialog = web;
     } else if (kind == "trusted_device") {
-        dialog = new QDialog(parentWidget);
-        dialog->setWindowTitle("确认可信设备");
+        auto *input=new AuthenticationDialog(parentWidget);dialog=input;
         auto *layout = new QVBoxLayout(dialog);
-        auto *label = new QLabel("服务器要求将当前设备登记为可信设备。是否确认？", dialog);
+        spaceForm(layout);
+        auto *label = new QLabel(dialog);
+        input->setTranslation([input,label] {input->setWindowTitle(tr("Trust this device?"));label->setText(tr("The server wants to remember this device as trusted. Allow it?"));});
         label->setWordWrap(true);
         layout->addWidget(label);
         auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, dialog);
-        buttons->button(QDialogButtonBox::Ok)->setText("确认登记");
         buttons->button(QDialogButtonBox::Ok)->setAutoDefault(false);
         buttons->button(QDialogButtonBox::Cancel)->setDefault(true);
         layout->addWidget(buttons);
         connect(buttons, &QDialogButtonBox::accepted, dialog, &QDialog::accept);
         connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
         connect(dialog, &QDialog::accepted, this, [submit] { submit({{"action", "confirm"}}); });
+        input->resize(440,input->sizeHint().height());
     } else if (kind == "sms" || kind == "totp" || kind == "radius") {
-        dialog = new QDialog(parentWidget);
-        dialog->setWindowTitle(kind == "sms" ? "短信验证码" : kind == "totp" ? "TOTP 验证码" : "RADIUS 动态口令");
+        auto *input=new AuthenticationDialog(parentWidget);dialog=input;
         auto *layout = new QVBoxLayout(dialog);
-        layout->addWidget(new QLabel("请输入验证码：", dialog));
+        spaceForm(layout);
+        auto *prompt=new QLabel(dialog);layout->addWidget(prompt);
         auto *code = new QLineEdit(dialog);
         code->setObjectName("authCodeEdit");
         layout->addWidget(code);
-        auto *skip = new QCheckBox("跳过以后的二次认证", dialog);
+        auto *skip = new QCheckBox(dialog);
+        prompt->setBuddy(code);
+        input->setTranslation([input,prompt,skip,kind] {
+            input->setWindowTitle(kind=="sms"?tr("SMS code"):kind=="totp"?tr("Authenticator code"):tr("RADIUS passcode"));
+            prompt->setText(tr("Verification code"));skip->setText(tr("Skip future verification"));
+        });
         skip->setObjectName("skipSecondaryAuthCheckBox");
         skip->setVisible(challenge["can_skip_secondary_auth"].toBool());
         layout->addWidget(skip);
@@ -224,6 +253,7 @@ void AuthDialogCoordinator::requestAuthentication(const QJsonObject &request, co
             submit({{"action", "submit"}, {"code", code->text()},
                 {"skip_secondary_auth", challenge["can_skip_secondary_auth"].toBool() && skip->isChecked()}});
         });
+        input->resize(440,input->sizeHint().height());
     } else {
         submit({{"action", "cancel"}});
         return;

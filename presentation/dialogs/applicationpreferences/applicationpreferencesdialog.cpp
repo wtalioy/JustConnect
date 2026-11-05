@@ -14,6 +14,7 @@ ApplicationPreferencesDialog::ApplicationPreferencesDialog(QWidget *parent) : QD
     setObjectName("applicationPreferencesDialog");
     setAttribute(Qt::WA_DeleteOnClose);setWindowModality(Qt::WindowModal);
     auto *layout=new QFormLayout(this);layout->setSpacing(16);layout->setContentsMargins(24,24,24,24);
+    layout->setRowWrapPolicy(QFormLayout::WrapAllRows);setMinimumWidth(320);
     language=new QComboBox(this);language->setObjectName("languageComboBox");
     language->addItem("English","en");language->addItem(QString::fromUtf8("简体中文"),"zh_CN");
     language->setCurrentIndex(language->findData(ApplicationLanguage::instance().current()));
@@ -29,16 +30,16 @@ ApplicationPreferencesDialog::ApplicationPreferencesDialog(QWidget *parent) : QD
         controller->setEnabled(false);
         selection->choose([this](std::optional<QString>){controller->setEnabled(true);},true);
     });
-    error=new QLabel(this);error->setObjectName("preferenceError");error->setWordWrap(true);layout->addRow(error);
+    error=new QLabel(this);error->setObjectName("preferenceError");error->setWordWrap(true);error->hide();layout->addRow(error);
     auto *buttons=new QDialogButtonBox(QDialogButtonBox::Save|QDialogButtonBox::Cancel,this);layout->addRow(buttons);
     connect(buttons,&QDialogButtonBox::rejected,this,&QDialog::reject);
     connect(buttons,&QDialogButtonBox::accepted,this,[this] {
         if (!ApplicationLanguage::instance().savePreferences(language->currentData().toString(),behavior->currentData().toBool())) {
-            error->setText(tr("Could not save preferences. Your previous settings are unchanged."));return;
+            error->setText(tr("Could not save preferences. Your previous settings are unchanged."));error->show();return;
         }
         accept();
     });
-    retranslate();
+    retranslate();resize(440,sizeHint().height());
 }
 void ApplicationPreferencesDialog::retranslate() {
     setWindowTitle(tr("Application settings"));

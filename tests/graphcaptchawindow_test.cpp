@@ -6,6 +6,7 @@
 #include <QJsonObject>
 #include <QLineEdit>
 #include <QMouseEvent>
+#include <QKeyEvent>
 #include <QPixmap>
 #include <QPushButton>
 #include <QBuffer>
@@ -123,6 +124,26 @@ bool rejectsUnsupportedOrOversizedImagesBeforeDecode()
     return true;
 }
 
+bool keyboardSelectionRetainsImageCoordinatesAndLimits()
+{
+    GraphCaptchaWindow window;window.setGraph(createCaptchaImage(12,8),false);
+    auto *canvas=window.findChild<CaptchaCanvas *>();canvas->resize(240,160);
+    const auto key=[&](int value,Qt::KeyboardModifiers modifiers=Qt::NoModifier) {
+        QKeyEvent event(QEvent::KeyPress,value,modifiers);QApplication::sendEvent(canvas,&event);
+    };
+    for(int i=0;i<4;++i)key(Qt::Key_Right,Qt::ShiftModifier);
+    for(int i=0;i<4;++i)key(Qt::Key_Down,Qt::ShiftModifier);
+    key(Qt::Key_Space);
+    if(canvas->pointsPx()!=QVector<QPointF>{QPointF(11,7)})return false;
+    canvas->resize(480,320);key(Qt::Key_Left);key(Qt::Key_Up);key(Qt::Key_Space);
+    if(canvas->pointsPx().last()!=QPointF(10,6))return false;
+    key(Qt::Key_Backspace);if(canvas->pointsPx().size()!=1)return false;
+    for(int i=0;i<JC_MAX_AUTH_POINTS+2;++i)key(Qt::Key_Space);
+    if(canvas->pointsPx().size()!=JC_MAX_AUTH_POINTS)return false;
+    window.setGraph(createCaptchaImage(),true);key(Qt::Key_Space);
+    return canvas->pointsPx().isEmpty();
+}
+
 bool limitsCapturedPoints()
 {
     GraphCaptchaWindow window;
@@ -149,6 +170,7 @@ int main(int argc, char *argv[])
         && cancelsWithoutSubmittingPlaceholder()
         && preservesCoordinateCaptchaResponse()
         && rejectsUnsupportedOrOversizedImagesBeforeDecode()
+        && keyboardSelectionRetainsImageCoordinatesAndLimits()
         && limitsCapturedPoints()
         ? 0
         : 1;

@@ -25,8 +25,11 @@ signals:
 
 protected:
     void done(int result) override;
+    void changeEvent(QEvent *event) override;
 
 private:
+    void setStatus(const char *source);
+    const char *statusText=nullptr;
 	Ui::AuthInfoWindow *ui;
     AuthMethodsQuery *query;
     ControllerSelectionCoordinator *controllerSelection;
