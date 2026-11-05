@@ -288,6 +288,34 @@ static void profileSetupLanguageChangesPreserveData(MainWindow &window) {
     check(connections==0 && settings.value("Credential/Username").toString().isEmpty()
         && settings.value("JustConnect/AuthID")=="opaque-method","cancelling translated setup neither saves its draft nor starts a connection");
     language("en");
+    auto *editor=new SettingWindow(&window,&access,CredentialAccess::source(settings,{}),true);
+    editor->show();waitForUi([&]{return !access.isBusy(settings.fileName());});
+    auto *tabs=editor->findChild<QTabWidget *>("tabWidget");
+    auto *user=editor->findChild<QLineEdit *>("usernameLineEdit");
+    auto *secret=editor->findChild<QLineEdit *>("passwordLineEdit");
+    auto *method=editor->findChild<QComboBox *>("authTypeComboBox");
+    auto *mode=editor->findChild<QComboBox *>("keepAliveModeComboBox");
+    auto *target=editor->findChild<QLineEdit *>("keepAliveUrlLineEdit");
+    auto *show=editor->findChild<QCheckBox *>("passwordVisibleCheckBox");
+    user->setText("editor-user");secret->setText("editor-password");show->setChecked(true);
+    mode->setCurrentIndex(mode->findData("target"));target->setText("https://campus.example/status");
+    const auto methodValue=method->currentData();auto *currentTab=tabs->currentWidget();
+    language("zh_CN");
+    check(editor->windowTitle()==QString::fromUtf8("连接配置") && tabs->currentWidget()==currentTab
+        && tabs->tabText(tabs->currentIndex())==QString::fromUtf8("账号")
+        && method->currentData()==methodValue && mode->currentData()=="target"
+        && target->text()=="https://campus.example/status" && secret->text()=="editor-password"
+        && user->text()=="editor-user" && show->isChecked() && secret->echoMode()==QLineEdit::Normal,
+        "profile editor translation preserves its tab, method identity, probe target and secret draft");
+    const auto report=qEnvironmentVariable("JC_UI_REPORT_DIR");
+    if(!report.isEmpty())check(editor->grab().save(QDir(report).filePath("profile-editor.png")),"save synthetic native profile editor screenshot");
+    language("en");
+    editor->findChild<QDialogButtonBox *>("buttonBox")->button(QDialogButtonBox::Apply)->click();
+    waitForUi([&]{return !editor->isSaving();});
+    check(settings.value("JustConnect/AuthID")=="opaque-method" && settings.value("Credential/Username")=="editor-user"
+        && settings.value("JustConnect/KeepAliveMode")=="target" && settings.value("JustConnect/KeepAliveURL")=="https://campus.example/status",
+        "saving a translated draft preserves the opaque authentication identity and actual field values");
+    editor->reject();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
 }
 
 static void nativeHome(MainWindow &window) {

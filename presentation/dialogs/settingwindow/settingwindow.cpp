@@ -5,13 +5,14 @@
 #include <QDesktopServices>
 #include <QDialogButtonBox>
 #include <QFormLayout>
+#include <QEvent>
+#include <QSignalBlocker>
 #include <QLabel>
 #include <QFile>
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSettings>
-#include <QScrollArea>
 #include <QTemporaryDir>
 #include <QVBoxLayout>
 #include "application/defaultsettings.h"
@@ -30,18 +31,7 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
     : QDialog(parent),ui(new Ui::SettingWindow),settings(source.path,QSettings::IniFormat),credentials(credentials),credentialSource(source) {
     ui->setupUi(this);
     ui->reconnectTimeSpinBox->setMaximum(ConnectionSessionState::MaxReconnectDelayMs / 1000);
-    ui->commonFormLabel5->setText(QString("初始重连间隔（秒，最多 %1 次）").arg(ConnectionSessionState::MaxReconnectAttempts));
-    const int currentTab=openProfileTab ? ui->tabWidget->indexOf(ui->loginTab) : ui->tabWidget->currentIndex();
-    for (int i=0;i<ui->tabWidget->count();++i) {
-        auto *page=ui->tabWidget->widget(i);
-        const auto title=ui->tabWidget->tabText(i);
-        ui->tabWidget->removeTab(i);
-        auto *scroll=new QScrollArea;
-        scroll->setFrameShape(QFrame::NoFrame); scroll->setWidgetResizable(true);
-        scroll->setWidget(page);
-        ui->tabWidget->insertTab(i,scroll,title);
-    }
-    ui->tabWidget->setCurrentIndex(currentTab);
+    if(openProfileTab)ui->tabWidget->setCurrentWidget(ui->loginTab);
     setWindowModality(Qt::WindowModal); setAttribute(Qt::WA_DeleteOnClose);
     serverEditor = new ServerSettingsWidget(ui->serverSettingsContainer);
     auto *layout = new QVBoxLayout(ui->serverSettingsContainer);
@@ -54,15 +44,13 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
         ui->keepAliveUrlLineEdit->setEnabled(ui->keepAliveModeComboBox->currentData()=="target");
     });
     ui->loginUrlLineEdit->setReadOnly(true);
-    ui->loginUrlLineEdit->setToolTip("认证查询结果预览；连接时使用当前会话返回的地址。");
     credentialStatus=new QLabel(ui->credentialsGroup);credentialStatus->setObjectName("credentialStatusLabel");credentialStatus->setWordWrap(true);
     ui->credentialsForm->addRow(credentialStatus);
-    rememberAuthentication=new QCheckBox("使用系统凭据库记住认证",ui->credentialsGroup);
+    rememberAuthentication=new QCheckBox(ui->credentialsGroup);
     rememberAuthentication->setObjectName("rememberAuthenticationCheckBox");
-    rememberAuthentication->setToolTip("允许断开和重启后恢复认证，有效期由服务器决定。关闭后停止恢复与保存；删除已有材料请使用文件菜单的“清除当前账户认证缓存”。");
     ui->credentialsForm->addRow(rememberAuthentication);
-    auto *hint=new QLabel("留空保留已保存凭据；删除请使用下方按钮。",ui->credentialsGroup);hint->setWordWrap(true);ui->credentialsForm->addRow(hint);
-    clearCredentialButton=new QPushButton("清除已保存的密码和 TOTP",ui->credentialsGroup);clearCredentialButton->setObjectName("clearCredentialButton");
+    credentialHint=new QLabel(ui->credentialsGroup);credentialHint->setWordWrap(true);ui->credentialsForm->addRow(credentialHint);
+    clearCredentialButton=new QPushButton(ui->credentialsGroup);clearCredentialButton->setObjectName("clearCredentialButton");
     ui->credentialsForm->addRow(clearCredentialButton);
     connect(clearCredentialButton,&QPushButton::clicked,this,&SettingWindow::clearCredentials);
     connect(this,&QDialog::finished,this,[this]{closed=true;++loadGeneration;});
@@ -87,7 +75,7 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
     });
     connect(ui->openLogDirectoryPushButton,&QPushButton::clicked,this,[this] {
         if (!QDesktopServices::openUrl(QUrl::fromLocalFile(ApplicationPaths::logDirectory())))
-            QMessageBox::warning(this,"日志目录","无法打开日志目录。");
+            QMessageBox::warning(this,tr("Log folder"),tr("Could not open the log folder."));
     });
     connect(ui->authSelectPushButton,&QPushButton::clicked,this,[this] {
         const auto host=serverEditor->serverAddress(); const auto port=serverEditor->serverPort();
@@ -111,35 +99,55 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
         applySettings(false);
     });
     connect(ui->resetDefaultPushButton,&QPushButton::clicked,this,[this] {
-        if (QMessageBox::question(this,"恢复默认值","恢复当前窗口的默认值，应用后生效。是否继续？")!=QMessageBox::Yes) return;
+        if (QMessageBox::question(this,tr("Reset draft"),tr("Reset this draft to its defaults? Changes take effect after saving."))!=QMessageBox::Yes) return;
         QTemporaryDir folder;
-        if (!folder.isValid()) { QMessageBox::warning(this,"重置失败","无法创建临时配置。"); return; }
+        if (!folder.isValid()) { QMessageBox::warning(this,tr("Reset failed"),tr("Could not create a temporary profile.")); return; }
         QSettings draft(folder.filePath("defaults.ini"),QSettings::IniFormat);
         DefaultSettings::reset(draft); loadSettings(draft);
     });
     connect(ui->importPushButton,&QPushButton::clicked,this,[this] {
-        const auto path=QFileDialog::getOpenFileName(this,"导入配置",{},"Config Ini (*.ini)");
+        const auto path=QFileDialog::getOpenFileName(this,tr("Import profile"),{},tr("INI profiles (*.ini)"));
         if (path.isEmpty()) return;
         QTemporaryDir folder;
         QSettings source(path,QSettings::IniFormat);
-        if (!folder.isValid() || source.status()!=QSettings::NoError) { QMessageBox::warning(this,"导入失败","无法读取配置。"); return; }
+        if (!folder.isValid() || source.status()!=QSettings::NoError) { QMessageBox::warning(this,tr("Import failed"),tr("Could not read this profile.")); return; }
         QSettings draft(folder.filePath("import.ini"),QSettings::IniFormat);
         if (!SettingsMigrator::publicDraft(source,draft)) {
-            QMessageBox::warning(this,"导入失败","无法准备配置，当前设置未修改。"); return;
+            QMessageBox::warning(this,tr("Import failed"),tr("Could not prepare this profile. The current draft is unchanged.")); return;
         }
         loadSettings(draft);
     });
     connect(ui->exportPushButton,&QPushButton::clicked,this,[this] {
-        const auto path=QFileDialog::getSaveFileName(this,"导出已保存配置",{},"Config Ini (*.ini)");
+        const auto path=QFileDialog::getSaveFileName(this,tr("Export saved profile"),{},tr("INI profiles (*.ini)"));
         if (path.isEmpty()) return;
         settings.sync();
         if (settings.status()!=QSettings::NoError || !SettingsMigrator::readableFile(settings.fileName()) || !DefaultSettings::exportTo(settings,path))
-            QMessageBox::warning(this,"导出失败","无法提交导出文件；不能覆盖当前配置。");
+            QMessageBox::warning(this,tr("Export failed"),tr("Could not write the export. The current profile cannot be overwritten."));
     });
+    retranslate();
     readCredentials();
 
 }
 SettingWindow::~SettingWindow() { delete ui; }
+
+void SettingWindow::changeEvent(QEvent *event) {
+    QDialog::changeEvent(event);
+    if(event->type()==QEvent::LanguageChange) retranslate();
+}
+void SettingWindow::retranslate() {
+    QSignalBlocker authBlocker(ui->authTypeComboBox),modeBlocker(ui->keepAliveModeComboBox);
+    ui->retranslateUi(this);
+    ui->commonFormLabel5->setText(tr("Initial reconnect delay (s; up to %1 attempts)").arg(ConnectionSessionState::MaxReconnectAttempts));
+    ui->loginUrlLineEdit->setToolTip(tr("Preview from the sign-in query. Connections use the URL returned by the current session."));
+    rememberAuthentication->setText(tr("Remember authentication"));
+    rememberAuthentication->setToolTip(tr("Use the system credential store to resume after disconnecting or restarting, for as long as the server allows. Turning this off stops saving and resuming. Use Clear current account authentication cache to delete existing data."));
+    credentialHint->setText(tr("Leave empty to keep saved credentials. Use the button below to remove them."));
+    clearCredentialButton->setText(tr("Clear saved password and key"));
+    credentialStatus->setText(credentialStatusText ? tr(credentialStatusText) : PresentationHelpers::credentialOperationMessage(credentialLoadStatus));
+    const auto mode=ui->keepAliveModeComboBox->currentData().toString();
+    if(!QStringList{"auto","target","off"}.contains(mode))
+        ui->keepAliveModeComboBox->setItemText(ui->keepAliveModeComboBox->currentIndex(),tr("Invalid mode — choose another"));
+}
 
 void SettingWindow::loadSettings(const QSettings &source) {
     ++loadGeneration;loading=false;updateBusy();
@@ -177,7 +185,7 @@ void SettingWindow::loadSettings(const QSettings &source) {
     const auto mode=source.value("JustConnect/KeepAliveMode",KeepAliveOptions{}.mode).toString();
     int keepAliveIndex=ui->keepAliveModeComboBox->findData(mode);
     if (keepAliveIndex<0) {
-        ui->keepAliveModeComboBox->addItem("无效模式（请选择）",mode);
+        ui->keepAliveModeComboBox->addItem(tr("Invalid mode — choose another"),mode);
         keepAliveIndex=ui->keepAliveModeComboBox->count()-1;
     }
     ui->keepAliveModeComboBox->setCurrentIndex(keepAliveIndex);
@@ -215,7 +223,8 @@ ConnectionProfile SettingWindow::currentProfile() const {
 void SettingWindow::clearDraftCredentials() {
     loadedCredentials={};
     ui->passwordLineEdit->setText({});ui->totpSecretLineEdit->setText({});
-    credentialStatus->setText("可留空，连接时使用该帐号已保存的凭据或手动输入。");
+    credentialStatusText=QT_TR_NOOP("Leave empty to use this account’s saved credentials or enter them when connecting.");
+    credentialStatus->setText(tr(credentialStatusText));
 }
 void SettingWindow::updateBusy() {
     ui->tabWidget->setEnabled(!saving);
@@ -229,8 +238,12 @@ void SettingWindow::readCredentials() {
     credentials->load(source).then(this,[this,source,generation](const CredentialLoadResult &loaded) {
         if (closed || generation!=loadGeneration) return;
         loading=false;updateBusy();
-        if (!CredentialAccess::matches(source,settings)) {credentialStatus->setText("已保存配置已变化，请重新打开设置。");return;}
-        credentialStatus->setText(PresentationHelpers::credentialOperationMessage(loaded.result.status));
+        if (!CredentialAccess::matches(source,settings)) {
+            credentialStatusText=QT_TR_NOOP("The saved profile changed. Reopen the editor.");
+            credentialStatus->setText(tr(credentialStatusText));return;
+        }
+        credentialStatusText=nullptr;credentialLoadStatus=loaded.result.status;
+        credentialStatus->setText(PresentationHelpers::credentialOperationMessage(credentialLoadStatus));
         if (loaded.result.succeeded() && currentProfile().authenticationIdentity()==source.profile.authenticationIdentity()) {
             const bool passwordUntouched=ui->passwordLineEdit->text()==loadedCredentials.password;
             const bool totpUntouched=ui->totpSecretLineEdit->text()==loadedCredentials.totpSecret;
@@ -243,28 +256,29 @@ void SettingWindow::readCredentials() {
 void SettingWindow::clearCredentials() {
     if (closed || loading || saving) return;
     if (!CredentialAccess::matches(credentialSource,settings)) {
-        QMessageBox::warning(this,"配置已变化","请重新打开设置后再清除凭据。");return;
+        QMessageBox::warning(this,tr("Profile changed"),tr("Reopen the editor before clearing credentials."));return;
     }
     auto account=credentialSource.profile.credentials.username;
     if (account.isEmpty()) account=credentialSource.profile.endpoint.phone;
-    if (account.isEmpty()) account="当前配置";
-    if (QMessageBox::question(this,"清除已保存凭据","清除已保存配置中 "+account+" 的密码和 TOTP？其他帐号不受影响。")!=QMessageBox::Yes) return;
+    if (account.isEmpty()) account=tr("the current profile");
+    if (QMessageBox::question(this,tr("Clear saved credentials"),tr("Clear saved passwords and authenticator keys for %1? Other accounts are unaffected.").arg(account))!=QMessageBox::Yes) return;
     const auto source=credentialSource;++loadGeneration;saving=true;updateBusy();
     credentials->clear(source).then(this,[this](const CredentialResult &result) {
         if (closed) return;
         saving=false;updateBusy();
-        if (!result.succeeded()) {QMessageBox::warning(this,"清除未完成",PresentationHelpers::credentialOperationMessage(result.status));return;}
+        if (!result.succeeded()) {QMessageBox::warning(this,tr("Could not clear credentials"),PresentationHelpers::credentialOperationMessage(result.status));return;}
         if (ui->passwordLineEdit->text()==loadedCredentials.password) ui->passwordLineEdit->setText({});
         if (ui->totpSecretLineEdit->text()==loadedCredentials.totpSecret) ui->totpSecretLineEdit->setText({});
         loadedCredentials={};
-        credentialStatus->setText("已清除保存的密码和 TOTP，未应用的输入保持不变。");
+        credentialStatusText=QT_TR_NOOP("Saved passwords and authenticator keys were cleared. Unsaved input is unchanged.");
+        credentialStatus->setText(tr(credentialStatusText));
         credentialSource=CredentialAccess::source(settings,credentialSource.legacyCachePath);
     });
 }
 void SettingWindow::applySettings(bool closeAfter) {
     if (closed || loading || saving) return;
     if (!CredentialAccess::matches(credentialSource,settings) || credentialSource.publicValues!=DefaultSettings::publicValues(settings)) {
-        QMessageBox::warning(this,"配置已变化","请重新打开设置后再应用修改。");return;
+        QMessageBox::warning(this,tr("Profile changed"),tr("Reopen the editor before applying changes."));return;
     }
     auto profile=currentProfile();
     if (profile.authenticationIdentity()==credentialSource.profile.authenticationIdentity()) {
@@ -272,24 +286,24 @@ void SettingWindow::applySettings(bool closeAfter) {
         if (profile.credentials.totpSecret.isEmpty()) profile.credentials.totpSecret=loadedCredentials.totpSecret;
     }
     if (profile.endpoint.authType.isEmpty()) {
-        QMessageBox::warning(this,"请选择认证方式","请选择认证方式；可从当前服务器获取可用列表。");return;
+        QMessageBox::warning(this,tr("Choose a sign-in method"),tr("Choose a method from the list provided by your server."));return;
     }
     const auto validation=EmbeddedCoreEngine::validateConfiguration(profile);
     if (validation!=ConnectionError::NONE) {
         const bool unavailable=validation==ConnectionError::CORE_UNAVAILABLE;
-        QMessageBox::warning(this,unavailable ? "核心不可用" : "配置无效",
-            unavailable ? "无法校验配置，请检查应用安装是否完整。配置未保存。" : "请检查服务器、认证方式、本地端口、DNS 地址及保活目标。配置未保存。");return;
+        QMessageBox::warning(this,unavailable ? tr("Core unavailable") : tr("Invalid profile"),
+            unavailable ? tr("Cannot validate this profile. Check the application installation. Nothing was saved.") : tr("Check the server, sign-in method, ports, DNS and probe target. Nothing was saved."));return;
     }
     saving=true;updateBusy();
     ProfileManager manager;
     const bool autoStart=ui->autoStartCheckBox->isChecked();
     if (manager.autoStartEnabled()!=autoStart) {
         const auto result=AutoStart::setEnabled(autoStart);
-        if (!result.succeeded()) {saving=false;updateBusy();QMessageBox::warning(this,"自启动操作未完成",PresentationHelpers::platformOperationMessage(result));return;}
-        if (!manager.setAutoStartEnabled(autoStart)) {saving=false;updateBusy();QMessageBox::warning(this,"自启动偏好未保存","系统项已修改，但偏好保存失败，请检查后重试。");return;}
+        if (!result.succeeded()) {saving=false;updateBusy();QMessageBox::warning(this,tr("Could not update startup registration"),PresentationHelpers::platformOperationMessage(result));return;}
+        if (!manager.setAutoStartEnabled(autoStart)) {saving=false;updateBusy();QMessageBox::warning(this,tr("Could not save startup preference"),tr("Startup registration changed, but its preference could not be saved. Check it before retrying."));return;}
     }
     if (!manager.setSilentStartEnabled(ui->silentStartCheckBox->isChecked())) {
-        saving=false;updateBusy();QMessageBox::warning(this,"启动偏好未保存","无法保存静默启动偏好，请检查配置目录后重试。当前窗口修改尚未应用。");return;
+        saving=false;updateBusy();QMessageBox::warning(this,tr("Could not save startup preference"),tr("Could not save background startup. Check the configuration folder and retry. This draft has not been applied."));return;
     }
     const auto changes=publicChanges();
     const bool edited=(!ui->passwordLineEdit->text().isEmpty() && ui->passwordLineEdit->text()!=loadedCredentials.password)
@@ -298,7 +312,7 @@ void SettingWindow::applySettings(bool closeAfter) {
     credentials->save(source,profile,edited,changes).then(this,[this,source,profile,closeAfter](const CredentialResult &result) {
         if (closed) return;
         saving=false;updateBusy();
-        if (!result.succeeded()) {QMessageBox::warning(this,"保存设置未完成",PresentationHelpers::credentialOperationMessage(result.status));return;}
+        if (!result.succeeded()) {QMessageBox::warning(this,tr("Could not save profile"),PresentationHelpers::credentialOperationMessage(result.status));return;}
         if (settings.fileName()!=source.path || settings.value(ProfileCredentials::ScopeSetting)!=source.scope) return;
         credentialSource=CredentialAccess::source(settings,source.legacyCachePath);
         if (closeAfter) accept();
