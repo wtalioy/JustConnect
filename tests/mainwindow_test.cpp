@@ -77,6 +77,9 @@ static void recoveryStatus(ApplicationLogger &logger,ApplicationLogFile &log) {
     emit network->stopped(network->attempt,{PlatformOperationResult::Status::TimedOut,"fixture recovery timeout",true});
     auto *title=window.findChild<QLabel *>("statusTitleLabel");
     check(title->text()=="Recovery incomplete" && session->isActive(),"unconfirmed recovery remains visible and active");
+    const auto accessible=QAccessible::queryAccessibleInterface(title);
+    check(accessible && accessible->text(QAccessible::Name)==title->text(),
+        "a screen reader receives the actual incomplete-recovery state");
     session->stop();
     bool errorShown=false;QTimer acknowledgeError;
     QObject::connect(&acknowledgeError,&QTimer::timeout,&window,[&]{
@@ -87,6 +90,7 @@ static void recoveryStatus(ApplicationLogger &logger,ApplicationLogFile &log) {
     emit network->stopped(network->attempt,{});acknowledgeError.stop();
     check(!session->isActive() && session->state()==ConnectionState::Failed && errorShown
         && title->text()=="Disconnected","confirmed recovery distinguishes released capture from its retained earlier error");
+    check(accessible->text(QAccessible::Name)==title->text(),"the accessible state follows confirmed recovery");
 }
 static void profileMenusDoNotAccumulateGroups(MainWindow &window,const QString &profile) {
     auto *menu=window.findChild<QMenu *>("profileMenu");

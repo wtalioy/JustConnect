@@ -1033,7 +1033,7 @@ Open the release page?</source>
 是否前往 Github 发布页面查看？</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="500"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="497"/>
         <location filename="../../presentation/main/mainwindow.cpp" line="227"/>
         <source>Clear system proxy</source>
         <translation>清除系统代理</translation>
@@ -1118,7 +1118,7 @@ Open the release page?</source>
         <translation>请等待操作完成后再清理旧版缓存。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="533"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="530"/>
         <location filename="../../presentation/main/mainwindow.cpp" line="261"/>
         <source>Clear legacy data</source>
         <translation>清理旧版缓存</translation>
@@ -1162,7 +1162,7 @@ Open the release page?</source>
         <translation>默认</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="181"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="178"/>
         <location filename="../../presentation/main/mainwindow.cpp" line="598"/>
         <source>Connect</source>
         <translation>连接</translation>
@@ -1174,7 +1174,7 @@ Open the release page?</source>
         <translation>尚未连接</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="281"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="278"/>
         <location filename="../../presentation/main/mainwindow.cpp" line="461"/>
         <source>Connect to access campus resources.</source>
         <translation>连接后即可访问网络资源。</translation>
@@ -1408,7 +1408,7 @@ No authorized probe resource or campus DNS is available. Check the target and ga
         <translation>尚未配置服务器</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="442"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="439"/>
         <location filename="../../presentation/main/mainwindow.cpp" line="396"/>
         <location filename="../../presentation/main/mainwindow.cpp" line="599"/>
         <source>Profiles</source>
@@ -1665,138 +1665,138 @@ Complete the legacy credential migration first, or create a new profile.</source
         <translation>未能保存升级后的配置，已保留旧版本以便重试。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="219"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="216"/>
         <source>Version dev</source>
         <translation>版本 dev</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="229"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="226"/>
         <source>aTrust · Not connected</source>
         <translation>aTrust · 等待连接</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="248"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="245"/>
         <source>Connection diagnostics</source>
         <translation>连接诊断</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="258"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="255"/>
         <source>Refresh</source>
         <translation>刷新</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="265"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="262"/>
         <source>Rules and DNS</source>
         <translation>规则与 DNS</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="272"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="269"/>
         <source>Copy diagnostics</source>
         <translation>复制诊断</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="322"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="319"/>
         <source>Activity log</source>
         <translation>运行日志</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="344"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="341"/>
         <source>Open the full log file</source>
         <translation>在系统中打开完整日志文件</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="347"/>
-        <location filename="../../presentation/main/mainwindow.ui" line="520"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="344"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="517"/>
         <source>Open log file</source>
         <translation>打开日志文件</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="354"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="351"/>
         <source>Copy log to clipboard</source>
         <translation>复制日志到剪贴板</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="357"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="354"/>
         <source>Copy</source>
         <translation>复制</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="364"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="361"/>
         <source>Clear the displayed log</source>
         <translation>清空窗口中的日志</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="367"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="364"/>
         <source>Clear</source>
         <translation>清空</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="382"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="379"/>
         <source>Connection logs appear here</source>
         <translation>连接日志将在这里显示</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="392"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="389"/>
         <source>Set system proxy (advanced)</source>
         <translation>设置系统代理（高级）</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="427"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="424"/>
         <source>File</source>
         <translation>文件</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="448"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="445"/>
         <source>Help</source>
         <translation>帮助</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="460"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="457"/>
         <source>About JustConnect</source>
         <translation>关于本软件</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="468"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="465"/>
         <source>Application settings…</source>
         <translation>应用偏好设置…</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="476"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="473"/>
         <source>Exit</source>
         <translation>退出</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="484"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="481"/>
         <source>Edit current profile…</source>
         <translation>编辑当前配置…</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="492"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="489"/>
         <source>Setup guide</source>
         <translation>配置引导</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="505"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="502"/>
         <source>Network scope and conflicts…</source>
         <translation>网络范围与校园地址重叠…</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="510"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="507"/>
         <source>Check for updates</source>
         <translation>检查更新</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="515"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="512"/>
         <source>Project website</source>
         <translation>项目主页</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="523"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="520"/>
         <source>Open the application log file</source>
         <translation>打开应用日志文件</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="528"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="525"/>
         <source>Clear current account cache</source>
         <translation>清除当前账户认证缓存</translation>
     </message>
@@ -1812,28 +1812,23 @@ Complete the legacy credential migration first, or create a new profile.</source
         <translation>连接配置</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="161"/>
-        <source>Connection status</source>
-        <translation>连接状态</translation>
-    </message>
-    <message>
         <location filename="../../presentation/main/mainwindow.ui" line="98"/>
         <source>Choose a profile</source>
         <translation>选择配置</translation>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.ui" line="52"/>
-        <location filename="../../presentation/main/mainwindow.ui" line="414"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="411"/>
         <source>JustConnect</source>
         <translation>JustConnect</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="203"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="200"/>
         <source>Details</source>
         <translation>详情</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="210"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="207"/>
         <source>Connection details</source>
         <translation>连接详情</translation>
     </message>
