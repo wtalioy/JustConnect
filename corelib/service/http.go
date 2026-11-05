@@ -5,11 +5,11 @@ import (
 	stdlog "log"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/wtalioy/JustConnect/corelib/client"
-	"github.com/wtalioy/JustConnect/corelib/dial"
 )
 
 const (
@@ -57,9 +57,9 @@ type httpProxy struct {
 	tunnels     map[*httpTunnel]struct{}
 }
 
-func newHTTPProxy(dialer *dial.Dialer) *httpProxy {
+func newHTTPProxy(dialContext client.DialContextFunc) *httpProxy {
 	proxy := &httpProxy{
-		dialContext: dialer.Dial,
+		dialContext: dialContext,
 		tunnels:     make(map[*httpTunnel]struct{}),
 	}
 	transport := &http.Transport{
@@ -86,6 +86,7 @@ func (p *httpProxy) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 
 	req.RequestURI = ""
+	removeHopHeaders(req.Header)
 
 	resp, err := p.client.Do(req)
 	if err != nil {
@@ -95,6 +96,7 @@ func (p *httpProxy) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	defer resp.Body.Close()
+	removeHopHeaders(resp.Header)
 
 	hdr := w.Header()
 	for k, v := range resp.Header {
@@ -105,6 +107,18 @@ func (p *httpProxy) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	_, _ = io.Copy(w, resp.Body)
 
+}
+
+func removeHopHeaders(header http.Header) {
+	for _, connection := range header.Values("Connection") {
+		for _, name := range strings.Split(connection, ",") {
+			header.Del(strings.TrimSpace(name))
+		}
+	}
+	// RFC 9110 section 7.6.1: connection-specific fields stop at this proxy.
+	for _, name := range [...]string{"Connection", "Proxy-Connection", "Keep-Alive", "Proxy-Authenticate", "Proxy-Authorization", "Te", "Trailer", "Transfer-Encoding", "Upgrade"} {
+		header.Del(name)
+	}
 }
 
 func (p *httpProxy) handleConnect(w http.ResponseWriter, req *http.Request) {

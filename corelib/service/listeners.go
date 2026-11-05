@@ -182,9 +182,7 @@ func NewListeners(ctx context.Context, socksAddr, httpAddr string, dialer *dial.
 		})
 	}
 	if httpListener != nil {
-		p.proxy = newHTTPProxy(dialer)
-		p.proxy.dialContext = p.dial
-		p.proxy.client.Transport.(*http.Transport).DialContext = p.dial
+		p.proxy = newHTTPProxy(p.dial)
 		p.proxy.failure = p.fail
 		p.http = newHTTPServer(httpAddr, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !p.begin() {
