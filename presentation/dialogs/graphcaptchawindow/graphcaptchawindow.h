@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ui_graphcaptchawindow.h"
+namespace Ui { class GraphCaptchaWindow; }
 #include <QDialog>
 #include <QJsonObject>
 

@@ -1,3 +1,4 @@
+#include "ui_graphcaptchawindow.h"
 #include "graphcaptchawindow.h"
 #include <QEvent>
 

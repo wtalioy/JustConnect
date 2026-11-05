@@ -1,7 +1,7 @@
 #pragma once
 
 #include <QDialog>
-#include "ui_loginwindow.h"
+namespace Ui { class LoginWindow; }
 
 class LoginWindow : public QDialog
 {

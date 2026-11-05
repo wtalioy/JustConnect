@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ui_authinfowindow.h"
+namespace Ui { class AuthInfoWindow; }
 #include <QDialog>
 #include <QJsonObject>
 #include "core/connectionprofile.h"
