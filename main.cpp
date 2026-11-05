@@ -50,10 +50,6 @@ int main(int argc, char *argv[])
     );
 
 #if defined(Q_OS_WINDOWS)
-    QApplication::setFont(QFont("Microsoft YaHei UI", QApplication::font().pointSize()));
-#endif
-
-#if defined(Q_OS_WINDOWS)
     QString translateModule = "qt";
 #else
     QString translateModule = "qtbase";

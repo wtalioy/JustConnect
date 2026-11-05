@@ -57,6 +57,7 @@ install(FILES "${CORE}/internal/ping/LICENSE"
 
 add_library(justconnect_desktop OBJECT
     infrastructure/process/terminationrequests.cpp
+    presentation/appearance/applicationappearance.cpp
     presentation/main/mainwindow.cpp
     presentation/main/mainwindowcoordinator.cpp
     presentation/coordinators/authdialogcoordinator.cpp
@@ -80,6 +81,14 @@ add_library(justconnect_desktop OBJECT
     infrastructure/settings/profilemanager.cpp
     resource.qrc
 )
+
+if(WIN32)
+    target_sources(justconnect_desktop PRIVATE presentation/appearance/windows/backdrop.cpp)
+    target_link_libraries(justconnect_desktop PUBLIC dwmapi)
+elseif(APPLE)
+    target_sources(justconnect_desktop PRIVATE presentation/appearance/macos/backdrop.mm)
+    target_link_libraries(justconnect_desktop PUBLIC "-framework AppKit")
+endif()
 
 if (WIN32)
     message("Building for Windows")

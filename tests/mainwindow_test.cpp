@@ -28,6 +28,8 @@
 #include <QTimer>
 #include <QThread>
 #include <QProcess>
+#include <QClipboard>
+#include <QStyleHints>
 #include <QFile>
 #ifdef Q_OS_UNIX
 #include <unistd.h>
@@ -116,6 +118,29 @@ static void profileMenusDoNotAccumulateGroups(MainWindow &window,const QString &
     guide->reject();
 }
 
+static void nativeHome(MainWindow &window) {
+    auto *details=window.findChild<QDialog *>("detailsDialog");
+    auto *log=window.findChild<QPlainTextEdit *>("logPlainTextEdit");
+    auto *session=window.findChild<ConnectionSession *>();
+    const auto state=session->state();
+    check(details && details->isWindow() && !details->isVisible() && !log->isVisible(),"home keeps diagnostics in a separate closed native dialog");
+    check(window.findChild<QPushButton *>("connectButton")->isVisible() && qApp->styleHints()->colorScheme()!=Qt::ColorScheme::Dark,
+        "redesigned home retains one accessible main action and the light appearance");
+    window.findChild<QPushButton *>("detailsButton")->click();QCoreApplication::processEvents();
+    check(details->isVisible() && log->isVisible() && session->state()==state,"opening diagnostics cannot change connection state");
+    window.findChild<QPushButton *>("copyLogPushButton")->click();
+    check(QApplication::clipboard()->text()==log->toPlainText(),"diagnostics copy the same bounded live log");
+    details->reject();QCoreApplication::processEvents();
+    check(window.isVisible() && !details->isVisible() && session->state()==state,"closing details preserves the accessible home and connection");
+    const auto report=qEnvironmentVariable("JC_UI_REPORT_DIR");
+    if (!report.isEmpty()) check(window.grab().save(QDir(report).filePath("home.png")),"save actual Qt home screenshot");
+    const auto original=window.size();window.resize(320,460);QCoreApplication::processEvents();
+    auto *button=window.findChild<QPushButton *>("connectButton");
+    check(window.width()==320 && window.rect().contains(button->geometry()) && button->height()>=44,"compact home keeps its main action in bounds at 320 logical pixels");
+    if (!report.isEmpty()) check(window.grab().save(QDir(report).filePath("home-320.png")),"save narrow Qt screenshot");
+    window.resize(original);
+}
+
 int main(int argc,char **argv) {
     QApplication app(argc,argv);
 #ifdef Q_OS_UNIX
@@ -132,6 +157,7 @@ int main(int argc,char **argv) {
     }
 #endif
     QApplication::setApplicationName("JustConnect-window-test-"+QUuid::createUuid().toString(QUuid::Id128));
+    QApplication::setApplicationDisplayName("JustConnect");
     QStandardPaths::setTestModeEnabled(true);
     const auto configRoot=QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
     QTemporaryDir folder;
@@ -148,7 +174,7 @@ int main(int argc,char **argv) {
         // UI preference tests retain the real core without requesting host network privileges.
         MainWindow window(&logger,&log,nullptr,[](CoreEngine *,NetworkPolicySession *) -> NetworkAccess * { return nullptr; });
         check(window.isVisible(),"normal startup must show the main window");
-        if (app.arguments().size()==1) profileMenusDoNotAccumulateGroups(window,menuProfile);
+        if (app.arguments().size()==1) {nativeHome(window);profileMenusDoNotAccumulateGroups(window,menuProfile);}
         check(window.findChild<QLabel *>("statusTitleLabel")->text()!="已连接","disconnected cannot claim campus readiness");
         window.showMinimized();QCoreApplication::processEvents();
         check(window.isVisible(),"minimization must not hide the only window");

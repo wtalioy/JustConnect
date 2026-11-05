@@ -1,0 +1,52 @@
+QMainWindow, QDialog { background: #f5f7fa; color: #192638; }
+QMainWindow[nativeBackdrop="true"], QDialog[nativeBackdrop="true"] { background: transparent; }
+QWidget#centralWidget { background: transparent; }
+QLabel { color: #192638; background: transparent; }
+QPushButton, QToolButton, QComboBox {
+    min-height: 44px; border: 1px solid #d3dce9; border-radius: 10px;
+    padding: 0 16px; background: rgba(255,255,255,190); color: #23314a;
+}
+QPushButton:hover, QToolButton:hover, QComboBox:hover { background: #eef3ff; border-color: #9bb1df; }
+QPushButton:pressed, QToolButton:pressed { background: #dce7ff; }
+QPushButton:focus, QToolButton:focus, QComboBox:focus, QLineEdit:focus, QSpinBox:focus, QPlainTextEdit:focus, QTreeWidget:focus, QListWidget:focus { border: 2px solid #315dd7; }
+QPushButton:disabled, QToolButton:disabled, QComboBox:disabled { color: #7b8798; background: #e9edf3; border-color: #dce2ea; }
+QPushButton:default, QPushButton#connectButton { color: white; background: #315dd7; border-color: #315dd7; font-weight: 600; }
+QPushButton:default:hover, QPushButton#connectButton:hover { background: #234dc2; }
+QPushButton#connectButton[connectionState="connected"], QPushButton#connectButton[connectionState="starting"], QPushButton#connectButton[connectionState="stopping"], QPushButton#connectButton[connectionState="reconnecting"] { color: #33435b; background: rgba(255,255,255,190); border-color: #c4cedd; }
+QPushButton:flat { border-color: transparent; background: transparent; color: #4a5a72; }
+QPushButton:flat:hover { background: rgba(219,229,249,170); }
+QToolButton#preferencesButton { padding: 0; min-width: 44px; border-color: transparent; background: transparent; }
+QToolButton#preferencesButton::menu-indicator { image: none; }
+QToolButton#profileMenuButton { text-align: left; padding-right: 40px; font-weight: 600; }
+QToolButton#profileMenuButton::menu-indicator, QComboBox::down-arrow { image: url(:/resource/chevron.svg); width: 16px; height: 16px; }
+QToolButton#profileMenuButton::menu-indicator { subcontrol-origin: padding; subcontrol-position: right center; right: 16px; }
+QComboBox { border-radius: 8px; padding-right: 36px; }
+QComboBox::drop-down { border: none; width: 32px; }
+QComboBox QAbstractItemView { background: white; color: #192638; selection-background-color: #e2eaff; selection-color: #213b76; }
+QLineEdit, QSpinBox, QPlainTextEdit, QListWidget, QTreeWidget {
+    border: 1px solid #cbd6e5; border-radius: 8px; background: rgba(255,255,255,215); color: #192638; padding: 8px;
+    selection-background-color: #315dd7; selection-color: white;
+}
+QLineEdit { min-height: 28px; }
+QSpinBox { min-height: 28px; }
+QCheckBox, QRadioButton { spacing: 8px; color: #26354b; min-height: 36px; }
+QGroupBox { border: 1px solid #d6dfed; border-radius: 12px; margin-top: 16px; padding: 16px; color: #34445e; }
+QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 12px; padding: 0 6px; }
+QTabWidget::pane { border: none; }
+QTabBar::tab { padding: 12px 16px; color: #52617a; border-bottom: 2px solid transparent; }
+QTabBar::tab:selected { color: #234dc2; border-bottom-color: #315dd7; }
+QScrollArea { border: none; background: transparent; }
+QMenu { border: 1px solid #d3dce9; border-radius: 8px; padding: 6px; background: #f9fbff; color: #192638; }
+QMenu::item { padding: 10px 28px 10px 16px; border-radius: 6px; }
+QMenu::item:selected { background: #e2eaff; }
+QMenu::item:disabled { color: #8792a3; }
+QMenu::separator { height: 1px; background: #d9e0ec; margin: 5px 10px; }
+QLabel#applicationNameLabel { font-size: 18px; font-weight: 600; }
+QLabel#statusTitleLabel { font-size: 30px; font-weight: 600; }
+QLabel#statusHintLabel { color: #835b1d; font-size: 14px; }
+QLabel#statusIndicator { border-radius: 44px; background: rgba(224,233,250,170); border: 1px solid rgba(151,172,212,80); }
+QLabel#statusIndicator[connectionState="connected"] { background: rgba(203,238,227,180); border-color: #9bd5c0; }
+QLabel#statusIndicator[connectionState="failed"] { background: #fbe6e6; border-color: #e6b6b6; }
+QLabel#statusDetailLabel, QLabel#profileDetailLabel, QLabel#versionLabel { font-size: 14px; color: #52617a; }
+QPlainTextEdit#logPlainTextEdit { font-size: 13px; }
+QFrame#logPanel { background: transparent; border: none; }
