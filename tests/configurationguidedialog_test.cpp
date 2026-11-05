@@ -76,6 +76,8 @@ bool savesPasswordCredentials(const QString &settingsPath)
     CredentialAccess access(std::move(backend));
     const auto source=CredentialAccess::source(settings,{});
     ConfigurationGuideDialog dialog(nullptr,&access,source);
+    int connectionIntents=0;
+    QObject::connect(&dialog,&ConfigurationGuideDialog::connectRequested,[&]{++connectionIntents;});
     ready(access,settings);
     QStackedWidget *pages = credentialPages(dialog);
     QLineEdit *username = lineEdit(dialog, "guideUsernameLineEdit");
@@ -102,7 +104,7 @@ bool savesPasswordCredentials(const QString &settingsPath)
     ConnectionCredentials saved;ProfileCredentials vault(*store);
     if (!vault.load(source.scope,ProfileService::load(settings),saved).succeeded()) return false;
     const auto reloaded=ProfileService::load(settings);
-    const bool passed = reloaded.proxy.socksBind.isEmpty() && reloaded.proxy.httpBind=="127.0.0.1:19443"
+    const bool passed = connectionIntents==1 && !dialog.applyTo() && reloaded.proxy.socksBind.isEmpty() && reloaded.proxy.httpBind=="127.0.0.1:19443"
         && reloaded.dns.ttl==61 && reloaded.dns.secondary=="10.0.0.2"
         && settings.value("Credential/Username") == "alice"
         && saved.password == "secret" && saved.totpSecret == "totp-key"
@@ -204,13 +206,15 @@ bool ownsConfigurationAndRejectsClosedResults(const QString &root)
     };
     ConfigurationGuideDialog old(nullptr,&access,alice);
     if (!entered.tryAcquire(1,1000)) {qCritical()<<"Delayed guide read did not start";std::exit(1);}
+    int staleIntents=0;
+    QObject::connect(&old,&ConfigurationGuideDialog::connectRequested,[&]{++staleIntents;});
     old.reject();
     ConfigurationGuideDialog current(nullptr,&access,bob);
     lineEdit(current,"guidePasswordLineEdit")->setText("manual-draft");
     resume.release();
     until([&]{return !access.isBusy(alice.path) && !access.isBusy(bob.path);});
     QApplication::processEvents();store->beforeRead={};
-    if (!lineEdit(old,"guidePasswordLineEdit")->text().isEmpty() || old.applyTo()
+    if (staleIntents!=0 || !lineEdit(old,"guidePasswordLineEdit")->text().isEmpty() || old.applyTo()
         || lineEdit(current,"guideUsernameLineEdit")->text()!="bob"
         || lineEdit(current,"guidePasswordLineEdit")->text()!="manual-draft") return false;
     if (!current.applyTo()) return false;
@@ -232,21 +236,24 @@ bool rejectsInvalidCoreSettingsAndFailedSaves(const QString &root)
     settings.setValue("OtherAccount/Ticket","retained-ticket");
     CredentialAccess access(std::make_unique<MemoryCredentialStore>());
     ConfigurationGuideDialog invalid(nullptr,&access,CredentialAccess::source(settings,{}));
+    int failedIntents=0;
+    QObject::connect(&invalid,&ConfigurationGuideDialog::connectRequested,[&]{++failedIntents;});
     ready(access,settings);
     lineEdit(invalid,"guideUsernameLineEdit")->setText("draft-user");
     expectedMessage="请检查服务器、认证方式及连接设置。配置未保存。"; messageShown=false;
-    if (invalid.applyTo() || !messageShown || settings.value("Credential/Username")!="retained-user"
+    if (invalid.applyTo() || failedIntents!=0 || !messageShown || settings.value("Credential/Username")!="retained-user"
         || settings.value("OtherAccount/Ticket")!="retained-ticket") return false;
     const auto path=root+"/write-failure.ini";
     QSettings failed(path,QSettings::IniFormat);DefaultSettings::reset(failed);
     failed.setValue("JustConnect/ServerAddress","vpn.example.edu");failed.setValue("Credential/Username","fixture-user");
     ConfigurationGuideDialog dialog(nullptr,&access,CredentialAccess::source(failed,{}));dialog.show();ready(access,failed);
+    QObject::connect(&dialog,&ConfigurationGuideDialog::connectRequested,[&]{++failedIntents;});
     if (!QFile::rename(path,path+".backup") || !QDir().mkdir(path)) return false;
     QMetaObject::invokeMethod(&dialog,"goNext");QMetaObject::invokeMethod(&dialog,"goNext");
     expectedMessage=PresentationHelpers::credentialOperationMessage(CredentialStatus::Failed);messageShown=false;
     if (!dialog.applyTo()) return false;
     until([&]{return !dialog.isSaving();});QApplication::processEvents();
-    const bool passed=messageShown && dialog.isVisible() && dialog.result()!=QDialog::Accepted;
+    const bool passed=failedIntents==0 && messageShown && dialog.isVisible() && dialog.result()!=QDialog::Accepted;
     QDir().rmdir(path);QFile::rename(path+".backup",path);
     expectedMessage.clear(); return passed;
 }

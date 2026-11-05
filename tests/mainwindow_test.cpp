@@ -306,6 +306,9 @@ int main(int argc,char **argv) {
         check(window.findChild<QLabel *>("statusTitleLabel")->text()!="Connected","disconnected cannot claim campus readiness");
         window.showMinimized();QCoreApplication::processEvents();
         check(window.isVisible(),"minimization must not hide the only window");
+        window.showMaximized();window.showMinimized();
+        window.findChild<QAction *>("trayShowAction")->trigger();QCoreApplication::processEvents();
+        check(window.isVisible() && !window.isMinimized() && window.isMaximized(),"tray restoration preserves the user's maximized state");
         window.showNormal();window.close();QCoreApplication::processEvents();
         const bool tray=QSystemTrayIcon::isSystemTrayAvailable();
         check(tray ? window.isHidden() : window.isVisible(),"default close must use an available tray or keep the window reachable");

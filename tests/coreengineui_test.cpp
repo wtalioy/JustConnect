@@ -797,6 +797,27 @@ static void browserValidatesCallbackNavigation() {
     check(responses==1 && callback==base+"/passport/v1/auth/cas?ticket=fixture" && callbackRequests==0,"CAS uses its own exact callback path and ticket");delete dialog;
 }
 
+static void campusIntentsShareOneController() {
+    QTemporaryDir folder;QSettings settings(folder.filePath("intents.ini"),QSettings::IniFormat);DefaultSettings::reset(settings);
+    settings.setValue("JustConnect/ProfileKind","Custom");settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");
+    settings.setValue("JustConnect/AuthType","cas");settings.setValue("Common/NeedsConfiguration",false);settings.sync();
+    QWidget parent;QPushButton button(&parent),proxyButton(&parent);QAction tray(&parent);
+    auto *engine=new QueryEngine;ConnectionSession session(engine);SystemProxySession proxy(std::make_unique<ProxyBackend>());
+    AuthDialogCoordinator dialogs(&parent);ApplicationLogger logger;CredentialAccess credentials(std::make_unique<MemoryCredentialStore>());
+    ConnectionUiController controller(&parent,&button,&proxyButton,&tray,&session,&proxy,nullptr,&dialogs,&logger,
+        &credentials,[&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
+        [](const QString &,const QString &,QSystemTrayIcon::MessageIcon){},nullptr,noOfficialClient);
+    int clicked=0;QObject::connect(&button,&QPushButton::clicked,[&]{++clicked;});
+    controller.enableCampusAccess();controller.enableCampusAccess();until([&]{return engine->starts==1;});
+    check(clicked==0 && !parent.isVisible(),"idempotent direct start does not synthesize a click or show an ordinary background operation");
+    tray.trigger();check(engine->stops==1 && clicked==0,"tray sends the same stop intent without simulating the main button");
+    emit engine->finished(ConnectionError::NONE);
+    controller.enableCampusAccess();until([&]{return engine->starts==2;});
+    parent.showMinimized();parent.hide();dialogs.requestLogin("alice",{});
+    check(parent.isVisible() && !parent.isMinimized(),"necessary authentication restores the hidden or minimized parent");
+    dialogs.closeCredentialPrompts();tray.trigger();emit engine->finished(ConnectionError::NONE);
+}
+
 static void controllerSelectionContracts() {
     QWidget parent;QTemporaryDir root;
     const QJsonArray candidates{
@@ -1362,5 +1383,5 @@ int main(int argc, char **argv) {
         qputenv("QT_QUICK_BACKEND", "software");
     QApplication app(argc, argv);
     if (argc == 3 && QByteArray(argv[1]) == "--gateway") gateway(QJsonDocument::fromJson(argv[2]).object());
-    else { controllerSelectionContracts(); failedNetworkRecoveryOffersRetryWhileCoreStops(); browserCookiesStayInLoginDialog(); browserValidatesCallbackNavigation(); uiContracts(); proxyWaitsForReady(); manualCredentialsAndLateResults(); authenticationCacheLifecycle(); onlineExpiryOffersOneReauthentication(); officialClientWarningIsReadOnlyAndDropsCancelledResults(); authenticationSurvivesTunnelFailure(); quitWaitsForInitialSsoCache(); quitWaitsForAuthenticationQueryWithoutBlockingTheGui(); quitWaitsForNetworkInspectionWithoutBlockingTheGui(); }
+    else { campusIntentsShareOneController(); controllerSelectionContracts(); failedNetworkRecoveryOffersRetryWhileCoreStops(); browserCookiesStayInLoginDialog(); browserValidatesCallbackNavigation(); uiContracts(); proxyWaitsForReady(); manualCredentialsAndLateResults(); authenticationCacheLifecycle(); onlineExpiryOffersOneReauthentication(); officialClientWarningIsReadOnlyAndDropsCancelledResults(); authenticationSurvivesTunnelFailure(); quitWaitsForInitialSsoCache(); quitWaitsForAuthenticationQueryWithoutBlockingTheGui(); quitWaitsForNetworkInspectionWithoutBlockingTheGui(); }
 }
