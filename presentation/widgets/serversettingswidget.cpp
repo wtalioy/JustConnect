@@ -25,7 +25,7 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     preset = new QComboBox(this);
     preset->setObjectName("profileKindComboBox");
     preset->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
-    preset->setMinimumContentsLength(12);
+    preset->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Fixed);
     preset->addItem(QString(), "");
     const auto builtInKind=DefaultSettings::builtInProfile().value("JustConnect/ProfileKind").toString();
     preset->addItem(builtInKind,builtInKind);
