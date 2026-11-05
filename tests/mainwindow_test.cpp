@@ -15,6 +15,7 @@
 
 #include <QApplication>
 #include <QAction>
+#include <QAccessible>
 #include <QActionGroup>
 #include <QMenu>
 #include <QDir>
@@ -117,6 +118,13 @@ static void profileMenusDoNotAccumulateGroups(MainWindow &window,const QString &
     };
     const auto initial=checked(menu);
     check(!initial.isEmpty() && checked(trayMenu)==initial,"profile menus start with the same selection");
+    ProfileManager storage;
+    QSettings defaultProfile(storage.profilePath(""),QSettings::IniFormat);
+    defaultProfile.setValue("JustConnect/ProfileKind","Fudan");
+    defaultProfile.setValue("JustConnect/ServerAddress","vpn.fudan.edu.cn");defaultProfile.sync();
+    QSettings namedProfile(storage.profilePath(profile),QSettings::IniFormat);
+    namedProfile.setValue("JustConnect/ProfileKind","Custom");
+    namedProfile.setValue("JustConnect/ServerAddress","vpn.other-campus.invalid");namedProfile.sync();
     const auto groups=window.findChildren<QActionGroup *>().size();
     for (int i=0;i<10;++i) for (const auto &name:QStringList{profile,initial}) {
         auto *source=i%2?trayMenu:menu;
@@ -125,8 +133,16 @@ static void profileMenusDoNotAccumulateGroups(MainWindow &window,const QString &
         check(choice,"target profile is present after rebuilding the menu");
         choice->trigger();
         check(checked(menu)==name && checked(trayMenu)==name,"main and tray profile selections stay synchronized");
+        check(name==profile ? menuButton->text().contains("vpn.other-campus.invalid") && menuButton->text().contains(profile)
+                            : menuButton->text()=="Fudan",
+            "home identifies the selected school or server together with a named profile");
+        const auto accessible=QAccessible::queryAccessibleInterface(menuButton);
+        check(accessible && accessible->text(QAccessible::Name).contains(name==profile ? "vpn.other-campus.invalid" : "Fudan"),
+            "the current school or server is also available to a screen reader");
         check(window.findChildren<QActionGroup *>().size()==groups,"profile changes retained old menu groups");
     }
+    const auto report=qEnvironmentVariable("JC_UI_REPORT_DIR");
+    if (!report.isEmpty()) check(window.grab().save(QDir(report).filePath("home-configured.png")),"save the configured school identity on the actual home");
     QTimer::singleShot(0,&window,[&] {
         auto *name=qobject_cast<QInputDialog *>(QApplication::activeModalWidget());
         check(name,"add control asks for the profile name");
