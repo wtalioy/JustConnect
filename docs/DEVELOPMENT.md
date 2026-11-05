@@ -223,13 +223,7 @@ Fudan Windows 实机验收步骤：启用记住认证并连接；分别测试普
 
 当前 `authentication_started` 不能单独证明重新登录，`transport_connected` 只表示通道／本地代理就绪。TLS 阶段及原因等固定诊断码见 [ABI 事件契约](CORE-ABI.md#事件与认证回应)；这些诊断不记录账号材料、原始证书或请求 URL。
 
-已交付的 `8fefd1c` 代理预览仍需手动设置系统代理，或明确启用连接后自动设置；该预览中的 Windows OpenSSH 需显式代理。开发分支的透明入口及未验收项按 plan 单独记录。下面仅为临时诊断，使用现有 Git for Windows `connect.exe`，替换 SSH 主机／别名、安装路径或已修改的 HTTP 端口，保留 SSH 自身信任检查：
-
-```powershell
-ssh -o 'ProxyCommand="C:/Program Files/Git/mingw64/bin/connect.exe" -H 127.0.0.1:11081 %h %p' school-host
-```
-
-当前统一连接入口按 R11 完成认证、分流／DNS 与网络接管，确认就绪后才发布校园可用。Windows／Fudan 的浏览器和已有终端 SSH 已按三种主要组合实测通过；新包性能复测、macOS 实机及最终发布矩阵按计划验收。上面的旧预览诊断命令不属于当前日常使用流程。
+当前统一连接入口按 R11 完成认证、分流／DNS 与网络接管，确认就绪后才发布校园可用。Windows／Fudan 的浏览器和已有终端 SSH 已按三种主要组合实测通过；新界面及认证浏览器的集中复测、macOS 实机与最终发布矩阵按计划验收。日常访问无需另设 SSH 代理。
 
 ## 分支与 Actions
 
@@ -243,7 +237,7 @@ ssh -o 'ProxyCommand="C:/Program Files/Git/mingw64/bin/connect.exe" -H 127.0.0.1
 
 Windows 为 ZIP（完整解压并保留核心 DLL），macOS 为 DMG；Actions artifact 保留 14 天。普通 job 仅 `contents: read`，上传 Release 的 job 才用 `contents: write`，无需额外 PAT。
 
-[打包工作流](../.github/workflows/build.yml) 统一安装 CoreRuntime、工具链／来源及许可证，解包后清除 SDK 环境并运行 [verify-package.py](../scripts/verify-package.py)。报告检查正式 ABI、版本／干净来源、架构／依赖／系统下限、哈希和签名；Windows 另测移走 DLL 后失败，；两平台均在清空 SDK 环境后启动包内原生浏览器页面及 JavaScript。Release 省略 Go DWARF；Windows 共享库另去掉本地符号表，保留正式 C ABI 导出及 Go 运行时回溯数据，macOS 静态归档保留链接所需符号。新增语言须同步部署及包验证。
+[打包工作流](../.github/workflows/build.yml) 统一安装 CoreRuntime、工具链／来源及许可证，解包后清除 SDK 环境并运行 [verify-package.py](../scripts/verify-package.py)。报告检查正式 ABI、版本／干净来源、架构／依赖／系统下限、哈希和签名；Windows 另测移走 DLL 后失败；两平台均在清空 SDK 环境后启动包内原生浏览器页面及 JavaScript。Release 省略 Go DWARF；Windows 共享库另去掉本地符号表，保留正式 C ABI 导出及 Go 运行时回溯数据，macOS 静态归档保留链接所需符号。新增语言须同步部署及包验证。
 
 每次打包由 [archive-source.py](../scripts/archive-source.py) 导出同一干净提交的完整维护源码及摘要，附 `source-revision.txt`，支持无 `.git` 的 CMake 重建并标记 `source_state:archive`。包检查拒绝旧独立核心、旧来源目录与 Wintun。macOS 当前最低 14.4。静态字段检查不代替旧系统实机兼容验证。
 
