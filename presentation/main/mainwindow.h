@@ -64,8 +64,6 @@ private:
 
     void resetConnectionUi();
 
-    void applyColorScheme(Qt::ColorScheme scheme);
-
     void updateConnectionState(ConnectionState state);
 
     void updateProfileSummary();

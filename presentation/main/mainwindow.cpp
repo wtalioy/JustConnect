@@ -13,7 +13,6 @@
 #include <QInputDialog>
 #include <QMargins>
 #include <QStyle>
-#include <QStyleHints>
 #include <QTimer>
 #include <QFormLayout>
 #include <QComboBox>
@@ -24,6 +23,7 @@
 #include "infrastructure/settings/profilemanager.h"
 
 #include "mainwindow.h"
+#include "presentation/appearance/applicationappearance.h"
 #include "presentation/dialogs/networkpolicywindow.h"
 
 #include "application/applicationlogger.h"
@@ -37,23 +37,6 @@
 #include "presentation/dialogs/configurationguidedialog/configurationguidedialog.h"
 #include "presentation/presentationhelpers.h"
 #include "ui_mainwindow.h"
-
-namespace
-{
-bool appendStyleSheet(const QString &path, QString &styleSheet)
-{
-    QFile styleFile(path);
-    if (!styleFile.open(QIODevice::ReadOnly | QIODevice::Text))
-    {
-        qWarning().noquote() << "无法加载样式资源：" << path;
-        return false;
-    }
-
-    styleSheet.append(QString::fromUtf8(styleFile.readAll()));
-    styleSheet.append('\n');
-    return true;
-}
-}
 
 MainWindow::MainWindow(
     ApplicationLogger *logger,
@@ -77,7 +60,11 @@ MainWindow::MainWindow(
         !settings->contains("Common/ConfigVersion");
     upgradeSettings();
 
+    ApplicationAppearance::install();
     ui->setupUi(this);
+    ui->detailsDialog->resize(680,620);
+    connect(ui->detailsButton,&QPushButton::clicked,this,[this] {ui->detailsDialog->show();ui->detailsDialog->raise();ui->detailsDialog->activateWindow();});
+    connect(ui->closeButton,&QPushButton::clicked,this,&QWidget::close);
 #ifdef Q_OS_MACOS
     const QMargins centralMargins = ui->centralWidget->contentsMargins();
     ui->centralWidget->setContentsMargins(centralMargins.left(), 12, centralMargins.right(), centralMargins.bottom());
@@ -85,10 +72,6 @@ MainWindow::MainWindow(
     ui->logPlainTextEdit->setFont(
         QFontDatabase::systemFont(QFontDatabase::FixedFont)
     );
-    QStyleHints *styleHints = QGuiApplication::styleHints();
-    applyColorScheme(styleHints->colorScheme());
-    connect(styleHints, &QStyleHints::colorSchemeChanged,
-            this, &MainWindow::applyColorScheme);
     authenticationDialogs = coordinator->authenticationDialogs();
     connectionSession = coordinator->connection();
     systemProxySession = coordinator->systemProxy();
@@ -132,17 +115,17 @@ MainWindow::MainWindow(
     connect(systemProxySession, &SystemProxySession::busyChanged, this,
             [this](bool busy)
             {
-                ui->pushButton2->setEnabled(!busy);
+                ui->proxyButton->setEnabled(!busy);
                 ui->disableProxyAction->setEnabled(!busy && systemProxySession->needsCleanup());
             });
     connect(systemProxySession, &SystemProxySession::enabledChanged, this,
             [this](bool enabled)
             {
                 ui->disableProxyAction->setEnabled(!systemProxySession->isBusy() && systemProxySession->needsCleanup());
-                ui->pushButton2->setText(systemProxySession->needsCleanup() ? "清除系统代理" : "设置系统代理");
+                ui->proxyButton->setText(systemProxySession->needsCleanup() ? "清除系统代理" : "设置系统代理");
                 if (!systemProxySession->needsCleanup() && connectionSession != nullptr && !connectionSession->isActive())
                 {
-                    ui->pushButton2->hide();
+                    ui->proxyButton->hide();
                 }
                 updateProfileSummary();
                 updateConnectionState(connectionSession->state());
@@ -154,6 +137,24 @@ MainWindow::MainWindow(
         });
     setupTrayIcon();
     setupProfileMenu();
+    auto *more=new QMenu(this);
+    more->addAction(ui->preferencesAction);
+    more->addAction(ui->configurationGuideAction);
+    more->addAction(ui->inspectNetworkAction);
+    more->addMenu(ui->helpMenu);
+    more->addSeparator();
+    more->addAction(ui->clearAuthenticationCacheAction);
+    more->addAction(ui->clearClientDataAction);
+    more->addAction(ui->exitAction);
+    ui->preferencesButton->setMenu(more);
+    ui->exitAction->setShortcut(QKeySequence::Quit);
+    ui->preferencesAction->setShortcut(QKeySequence::Preferences);
+    addAction(ui->exitAction);
+    addAction(ui->preferencesAction);
+#ifndef Q_OS_MACOS
+    ui->menubar->hide();
+#endif
+
 
     setWindowIcon(QIcon(QPixmap(":/resource/icon.svg").scaled(
         512, 512, Qt::KeepAspectRatio, Qt::SmoothTransformation
@@ -184,12 +185,10 @@ MainWindow::MainWindow(
                 if (connectionUiController->isConfigurationSaving()) {QMessageBox::information(this,"正在保存配置","请等待保存完成。");return;}
                 connectionUiController->cancelPendingCredentials();
                 settingWindow = new SettingWindow(this,coordinator->credentials(),coordinator->credentialSource(),true);
-                settingWindow->setWindowTitle(QStringLiteral("编辑配置 · %1").arg(ui->profileNameLabel->text()));
+                settingWindow->setWindowTitle(QStringLiteral("编辑配置 · %1").arg(ui->profileMenuButton->text()));
                 settingWindow->show();
             });
 
-    connect(ui->guidePushButton, &QPushButton::clicked,
-            ui->configurationGuideAction, &QAction::trigger);
     connect(ui->openLogPushButton, &QPushButton::clicked,
             ui->openLogAction, &QAction::trigger);
 
@@ -311,8 +310,8 @@ MainWindow::MainWindow(
     clearLog();
     connectionUiController = new ConnectionUiController(
         this,
-        ui->pushButton1,
-        ui->pushButton2,
+        ui->connectButton,
+        ui->proxyButton,
         trayConnectAction,
         connectionSession,
         systemProxySession,
@@ -362,7 +361,7 @@ MainWindow::MainWindow(
     }
     if (shouldConnect)
     {
-        ui->pushButton1->click();
+        ui->connectButton->click();
     }
 
     if (settings->value("Common/CheckUpdateAfterStart", true).toBool())
@@ -407,7 +406,9 @@ void MainWindow::closeEvent(QCloseEvent *event)
         showNotification("JustConnect", "程序继续在系统托盘运行，单击图标可恢复窗口；退出请使用菜单。", QSystemTrayIcon::Information);
     } else {
         show();
-        ui->statusDetailLabel->setText("系统托盘不可用，已保留窗口。退出请使用文件菜单中的退出。");
+        setProperty("trayUnavailable",true);
+        ui->statusHintLabel->setText(tr("System tray unavailable. Use Exit in Settings to quit."));
+        ui->statusHintLabel->show();
     }
 }
 
@@ -464,28 +465,12 @@ void MainWindow::clearLog()
 void MainWindow::resetConnectionUi()
 {
     if (connectionUiController) connectionUiController->cancelPendingCredentials();
-    ui->pushButton1->setText("连接服务器");
+    ui->connectButton->setText("连接服务器");
     trayConnectAction->setText("连接服务器");
-    ui->pushButton2->setText("设置系统代理");
-    ui->pushButton2->hide();
+    ui->proxyButton->setText("设置系统代理");
+    ui->proxyButton->hide();
     updateConnectionState(ConnectionState::Disconnected);
     updateProfileSummary();
-}
-
-void MainWindow::applyColorScheme(Qt::ColorScheme scheme)
-{
-    const QString themePath = scheme == Qt::ColorScheme::Dark
-        ? QStringLiteral(":/resource/mainwindow-dark.qss")
-        : QStringLiteral(":/resource/mainwindow-light.qss");
-
-    QString styleSheet;
-    if (!appendStyleSheet(QStringLiteral(":/resource/mainwindow.qss"), styleSheet)
-        || !appendStyleSheet(themePath, styleSheet))
-    {
-        return;
-    }
-
-    setStyleSheet(styleSheet);
 }
 
 void MainWindow::updateConnectionState(ConnectionState state)
@@ -557,6 +542,10 @@ void MainWindow::updateConnectionState(ConnectionState state)
         break;
     }
 
+    const bool needsAttention=state==ConnectionState::Failed || state==ConnectionState::Interrupted || connectionSession->networkRecoveryFailed();
+    const bool noTray=property("trayUnavailable").toBool();
+    ui->statusHintLabel->setText(noTray ? tr("System tray unavailable. Use Exit in Settings to quit.") : needsAttention ? detail : QString());
+    ui->statusHintLabel->setVisible(noTray || needsAttention);
     const QMap<QString,QString> results{{"running","进行中"},{"succeeded","成功"},{"failed","失败"},{"required","需要重新认证"},{"disabled","已关闭"},{"unavailable","不可用"}};
     const auto traffic=connectionSession->observation("traffic");
     const auto mode=connectionSession->keepAliveOptions().mode;
@@ -578,7 +567,7 @@ void MainWindow::updateConnectionState(ConnectionState state)
 
     const QList<QWidget *> styledWidgets{
         ui->statusIndicator,
-        ui->pushButton1
+        ui->connectButton
     };
     for (QWidget *widget : styledWidgets)
     {
@@ -602,7 +591,8 @@ void MainWindow::updateProfileSummary()
     QStringList details{protocol};
     details.append(server.isEmpty() ? QStringLiteral("尚未配置服务器") : server);
 
-    ui->profileNameLabel->setText(profileName);
+    ui->profileMenuButton->setText(profileName);
+    ui->profileMenuButton->setToolTip(profileName+"\n"+server);
     ui->profileDetailLabel->setText(details.join(QStringLiteral(" · ")));
 }
 
@@ -640,7 +630,7 @@ void MainWindow::setupTrayIcon()
     trayMenu->addSeparator();
     trayMenu->addAction(trayShowAction);
     trayMenu->addAction(trayCloseAction);
-    connect(trayConnectAction, &QAction::triggered, this, [&]() { ui->pushButton1->click(); });
+    connect(trayConnectAction, &QAction::triggered, this, [&]() { ui->connectButton->click(); });
     connect(trayShowAction, &QAction::triggered, this, [&]() {
         show();
         setWindowState(Qt::WindowState::WindowActive);

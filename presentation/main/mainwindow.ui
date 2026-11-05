@@ -2,39 +2,22 @@
 <ui version="4.0">
  <class>MainWindow</class>
  <widget class="QMainWindow" name="MainWindow">
-  <property name="geometry">
-   <rect>
-    <x>0</x>
-    <y>0</y>
-    <width>822</width>
-    <height>583</height>
-   </rect>
-  </property>
-  <property name="minimumSize">
-   <size>
-    <width>600</width>
-    <height>400</height>
-   </size>
-  </property>
-  <property name="windowTitle">
-   <string>JustConnect</string>
-  </property>
   <widget class="QWidget" name="centralWidget">
    <layout class="QVBoxLayout" name="pageLayout">
     <property name="spacing">
-     <number>12</number>
+     <number>24</number>
     </property>
     <property name="leftMargin">
-     <number>16</number>
-    </property>
-    <property name="topMargin">
-     <number>2</number>
+     <number>28</number>
     </property>
     <property name="rightMargin">
+     <number>28</number>
+    </property>
+    <property name="topMargin">
      <number>16</number>
     </property>
     <property name="bottomMargin">
-     <number>16</number>
+     <number>20</number>
     </property>
     <item>
      <layout class="QHBoxLayout" name="headerLayout">
@@ -45,18 +28,18 @@
        <widget class="QLabel" name="applicationIconLabel">
         <property name="minimumSize">
          <size>
-          <width>44</width>
-          <height>44</height>
+          <width>28</width>
+          <height>28</height>
          </size>
         </property>
         <property name="maximumSize">
          <size>
-          <width>44</width>
-          <height>44</height>
+          <width>28</width>
+          <height>28</height>
          </size>
         </property>
         <property name="pixmap">
-         <pixmap resource="../../resource.qrc">:/resource/icon.svg</pixmap>
+         <pixmap>:/resource/icon.svg</pixmap>
         </property>
         <property name="scaledContents">
          <bool>true</bool>
@@ -64,31 +47,275 @@
        </widget>
       </item>
       <item>
-       <layout class="QVBoxLayout" name="brandLayout">
+       <widget class="QLabel" name="applicationNameLabel">
+        <property name="text">
+         <string>JustConnect</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="headerSpacer">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+        <property name="sizeHint">
+         <size>
+          <width>0</width>
+          <height>0</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+      <item>
+       <widget class="QToolButton" name="preferencesButton">
+        <property name="toolTip">
+         <string>Settings and more</string>
+        </property>
+        <property name="accessibleName">
+         <string>Settings and more</string>
+        </property>
+        <property name="icon">
+         <iconset>
+          <normaloff>:/resource/settings.svg</normaloff>
+         </iconset>
+        </property>
+        <property name="iconSize">
+         <size>
+          <width>20</width>
+          <height>20</height>
+         </size>
+        </property>
+        <property name="popupMode">
+         <enum>QToolButton::InstantPopup</enum>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+    <item>
+     <widget class="QToolButton" name="profileMenuButton">
+      <property name="text">
+       <string>Choose a profile</string>
+      </property>
+      <property name="accessibleName">
+       <string>Connection profile</string>
+      </property>
+      <property name="popupMode">
+       <enum>QToolButton::InstantPopup</enum>
+      </property>
+      <property name="sizePolicy">
+       <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+        <horstretch>0</horstretch>
+        <verstretch>0</verstretch>
+       </sizepolicy>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <spacer name="topSpacer">
+      <property name="orientation">
+       <enum>Qt::Vertical</enum>
+      </property>
+      <property name="sizeHint">
+       <size>
+        <width>0</width>
+        <height>16</height>
+       </size>
+      </property>
+     </spacer>
+    </item>
+    <item alignment="Qt::AlignHCenter">
+     <widget class="QLabel" name="statusIndicator">
+      <property name="minimumSize">
+       <size>
+        <width>88</width>
+        <height>88</height>
+       </size>
+      </property>
+      <property name="maximumSize">
+       <size>
+        <width>88</width>
+        <height>88</height>
+       </size>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+      <property name="pixmap">
+       <pixmap>:/resource/power.svg</pixmap>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <widget class="QLabel" name="statusTitleLabel">
+      <property name="text">
+       <string>Not connected</string>
+      </property>
+      <property name="wordWrap">
+       <bool>true</bool>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+      <property name="accessibleName">
+       <string>Connection status</string>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <widget class="QLabel" name="statusHintLabel">
+      <property name="text">
+       <string />
+      </property>
+      <property name="wordWrap">
+       <bool>true</bool>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <widget class="QPushButton" name="connectButton">
+      <property name="text">
+       <string>Connect</string>
+      </property>
+      <property name="default">
+       <bool>true</bool>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <spacer name="bottomSpacer">
+      <property name="orientation">
+       <enum>Qt::Vertical</enum>
+      </property>
+      <property name="sizeHint">
+       <size>
+        <width>0</width>
+        <height>16</height>
+       </size>
+      </property>
+     </spacer>
+    </item>
+    <item>
+     <layout class="QHBoxLayout" name="footerLayout">
+      <item>
+       <widget class="QPushButton" name="detailsButton">
+        <property name="text">
+         <string>Details</string>
+        </property>
+        <property name="flat">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="footerSpacer">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+        <property name="sizeHint">
+         <size>
+          <width>0</width>
+          <height>0</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+      <item>
+       <widget class="QPushButton" name="closeButton">
+        <property name="text">
+         <string>Close</string>
+        </property>
+        <property name="flat">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+   </layout>
+   <widget class="QDialog" name="detailsDialog">
+    <property name="windowTitle">
+     <string>Connection details</string>
+    </property>
+    <layout class="QVBoxLayout" name="detailsLayout">
+     <property name="spacing">
+      <number>16</number>
+     </property>
+     <item>
+      <widget class="QLabel" name="versionLabel">
+       <property name="text">
+        <string>版本 dev</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignmentFlag::AlignCenter</set>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="profileDetailLabel">
+       <property name="text">
+        <string>aTrust · 等待连接</string>
+       </property>
+       <property name="wordWrap">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="statusDetailLabel">
+       <property name="text">
+        <string>连接后即可访问网络资源。</string>
+       </property>
+       <property name="wordWrap">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QFrame" name="logPanel">
+       <property name="frameShape">
+        <enum>QFrame::Shape::StyledPanel</enum>
+       </property>
+       <layout class="QVBoxLayout" name="logPanelLayout">
         <property name="spacing">
-         <number>1</number>
+         <number>14</number>
+        </property>
+        <property name="leftMargin">
+         <number>16</number>
+        </property>
+        <property name="topMargin">
+         <number>16</number>
+        </property>
+        <property name="rightMargin">
+         <number>16</number>
+        </property>
+        <property name="bottomMargin">
+         <number>16</number>
         </property>
         <item>
-         <layout class="QHBoxLayout" name="horizontalLayout">
+         <layout class="QHBoxLayout" name="logHeaderLayout">
+          <property name="spacing">
+           <number>8</number>
+          </property>
           <item>
-           <widget class="QLabel" name="applicationNameLabel">
-            <property name="text">
-             <string>JustConnect</string>
+           <layout class="QVBoxLayout" name="logTitleLayout">
+            <property name="spacing">
+             <number>2</number>
             </property>
-           </widget>
+            <item>
+             <widget class="QLabel" name="logTitleLabel">
+              <property name="text">
+               <string>运行日志</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
           </item>
           <item>
-           <widget class="QLabel" name="versionLabel">
-            <property name="text">
-             <string>版本 dev</string>
-            </property>
-            <property name="alignment">
-             <set>Qt::AlignmentFlag::AlignCenter</set>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <spacer name="horizontalSpacer">
+           <spacer name="logHeaderSpacer">
             <property name="orientation">
              <enum>Qt::Orientation::Horizontal</enum>
             </property>
@@ -100,351 +327,81 @@
             </property>
            </spacer>
           </item>
+          <item>
+           <widget class="QPushButton" name="openLogPushButton">
+            <property name="toolTip">
+             <string>在系统中打开完整日志文件</string>
+            </property>
+            <property name="text">
+             <string>打开日志文件</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="copyLogPushButton">
+            <property name="toolTip">
+             <string>复制日志到剪贴板</string>
+            </property>
+            <property name="text">
+             <string>复制</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="clearLogPushButton">
+            <property name="toolTip">
+             <string>清空窗口中的日志</string>
+            </property>
+            <property name="text">
+             <string>清空</string>
+            </property>
+           </widget>
+          </item>
          </layout>
         </item>
         <item>
-         <widget class="QLabel" name="applicationSubtitleLabel">
-          <property name="text">
-           <string>支持 aTrust 协议</string>
+         <widget class="QPlainTextEdit" name="logPlainTextEdit">
+          <property name="readOnly">
+           <bool>true</bool>
+          </property>
+          <property name="maximumBlockCount">
+           <number>1000</number>
+          </property>
+          <property name="placeholderText">
+           <string>连接日志将在这里显示</string>
           </property>
          </widget>
         </item>
        </layout>
-      </item>
-      <item>
-       <spacer name="headerSpacer">
-        <property name="orientation">
-         <enum>Qt::Orientation::Horizontal</enum>
-        </property>
-        <property name="sizeHint" stdset="0">
-         <size>
-          <width>40</width>
-          <height>20</height>
-         </size>
-        </property>
-       </spacer>
-      </item>
-      <item>
-       <widget class="QPushButton" name="guidePushButton">
-        <property name="toolTip">
-         <string>打开配置引导</string>
-        </property>
-        <property name="text">
-         <string>配置引导</string>
-        </property>
-       </widget>
-      </item>
-     </layout>
-    </item>
-    <item>
-     <layout class="QHBoxLayout" name="workspaceLayout" stretch="0,1">
-      <property name="spacing">
-       <number>12</number>
-      </property>
-      <item>
-       <widget class="QFrame" name="controlPanel">
-        <property name="minimumSize">
-         <size>
-          <width>280</width>
-          <height>0</height>
-         </size>
-        </property>
-        <property name="maximumSize">
-         <size>
-          <width>336</width>
-          <height>16777215</height>
-         </size>
-        </property>
-        <property name="frameShape">
-         <enum>QFrame::Shape::StyledPanel</enum>
-        </property>
-        <layout class="QVBoxLayout" name="controlLayout">
-         <property name="spacing">
-          <number>12</number>
-         </property>
-         <property name="leftMargin">
-          <number>16</number>
-         </property>
-         <property name="topMargin">
-          <number>16</number>
-         </property>
-         <property name="rightMargin">
-          <number>16</number>
-         </property>
-         <property name="bottomMargin">
-          <number>16</number>
-         </property>
-         <item>
-          <widget class="QLabel" name="connectionEyebrowLabel">
-           <property name="text">
-            <string>VPN 连接</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <layout class="QHBoxLayout" name="statusLayout">
-           <property name="spacing">
-            <number>9</number>
-           </property>
-           <item>
-            <widget class="QLabel" name="statusIndicator">
-             <property name="minimumSize">
-              <size>
-               <width>10</width>
-               <height>10</height>
-              </size>
-             </property>
-             <property name="maximumSize">
-              <size>
-               <width>10</width>
-               <height>10</height>
-              </size>
-             </property>
-             <property name="text">
-              <string/>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QLabel" name="statusTitleLabel">
-             <property name="text">
-              <string>尚未连接</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <spacer name="statusSpacer">
-             <property name="orientation">
-              <enum>Qt::Orientation::Horizontal</enum>
-             </property>
-             <property name="sizeHint" stdset="0">
-              <size>
-               <width>20</width>
-               <height>20</height>
-              </size>
-             </property>
-            </spacer>
-           </item>
-          </layout>
-         </item>
-         <item>
-          <widget class="QLabel" name="statusDetailLabel">
-           <property name="text">
-            <string>连接后即可访问网络资源。</string>
-           </property>
-           <property name="wordWrap">
-            <bool>true</bool>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QPushButton" name="pushButton1">
-           <property name="minimumSize">
-            <size>
-             <width>0</width>
-             <height>48</height>
-            </size>
-           </property>
-           <property name="text">
-            <string>连接服务器</string>
-           </property>
-           <property name="default">
-            <bool>true</bool>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QPushButton" name="pushButton2">
-           <property name="minimumSize">
-            <size>
-             <width>0</width>
-             <height>42</height>
-            </size>
-           </property>
-           <property name="text">
-            <string>设置系统代理</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QFrame" name="controlDivider">
-           <property name="frameShape">
-            <enum>QFrame::Shape::HLine</enum>
-           </property>
-           <property name="frameShadow">
-            <enum>QFrame::Shadow::Sunken</enum>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QLabel" name="profileEyebrowLabel">
-           <property name="text">
-            <string>当前配置</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <layout class="QHBoxLayout" name="profileHeadingLayout">
-           <item>
-            <widget class="QLabel" name="profileNameLabel">
-             <property name="text"><string>默认</string></property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QToolButton" name="profileMenuButton">
-             <property name="text"><string>管理配置</string></property>
-             <property name="autoRaise"><bool>true</bool></property>
-             <property name="popupMode"><enum>QToolButton::ToolButtonPopupMode::InstantPopup</enum></property>
-             <property name="toolTip"><string>编辑、新建或切换配置</string></property>
-            </widget>
-           </item>
-          </layout>
-         </item>
-         <item>
-          <widget class="QLabel" name="profileDetailLabel">
-           <property name="text">
-            <string>aTrust · 等待连接</string>
-           </property>
-           <property name="wordWrap">
-            <bool>true</bool>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <spacer name="controlBottomSpacer">
-           <property name="orientation">
-            <enum>Qt::Orientation::Vertical</enum>
-           </property>
-           <property name="sizeHint" stdset="0">
-            <size>
-             <width>20</width>
-             <height>40</height>
-            </size>
-           </property>
-          </spacer>
-         </item>
-         <item>
-          <widget class="QLabel" name="qqGroupLabel">
-           <property name="text">
-            <string>如遇问题加 QQ 群反馈：1037726410</string>
-           </property>
-          </widget>
-         </item>
-        </layout>
-       </widget>
-      </item>
-      <item>
-       <widget class="QFrame" name="logPanel">
-        <property name="frameShape">
-         <enum>QFrame::Shape::StyledPanel</enum>
-        </property>
-        <layout class="QVBoxLayout" name="logPanelLayout">
-         <property name="spacing">
-          <number>14</number>
-         </property>
-         <property name="leftMargin">
-          <number>16</number>
-         </property>
-         <property name="topMargin">
-          <number>16</number>
-         </property>
-         <property name="rightMargin">
-          <number>16</number>
-         </property>
-         <property name="bottomMargin">
-          <number>16</number>
-         </property>
-         <item>
-          <layout class="QHBoxLayout" name="logHeaderLayout">
-           <property name="spacing">
-            <number>8</number>
-           </property>
-           <item>
-            <layout class="QVBoxLayout" name="logTitleLayout">
-             <property name="spacing">
-              <number>2</number>
-             </property>
-             <item>
-              <widget class="QLabel" name="logTitleLabel">
-               <property name="text">
-                <string>运行日志</string>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QLabel" name="logSubtitleLabel">
-               <property name="text">
-                <string>连接过程与诊断信息</string>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </item>
-           <item>
-            <spacer name="logHeaderSpacer">
-             <property name="orientation">
-              <enum>Qt::Orientation::Horizontal</enum>
-             </property>
-             <property name="sizeHint" stdset="0">
-              <size>
-               <width>40</width>
-               <height>20</height>
-              </size>
-             </property>
-            </spacer>
-           </item>
-           <item>
-            <widget class="QPushButton" name="openLogPushButton">
-             <property name="toolTip">
-              <string>在系统中打开完整日志文件</string>
-             </property>
-             <property name="text">
-              <string>打开日志文件</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QPushButton" name="copyLogPushButton">
-             <property name="toolTip">
-              <string>复制日志到剪贴板</string>
-             </property>
-             <property name="text">
-              <string>复制</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QPushButton" name="clearLogPushButton">
-             <property name="toolTip">
-              <string>清空窗口中的日志</string>
-             </property>
-             <property name="text">
-              <string>清空</string>
-             </property>
-            </widget>
-           </item>
-          </layout>
-         </item>
-         <item>
-          <widget class="QPlainTextEdit" name="logPlainTextEdit">
-           <property name="readOnly">
-            <bool>true</bool>
-           </property>
-           <property name="maximumBlockCount">
-            <number>1000</number>
-           </property>
-           <property name="placeholderText">
-            <string>连接日志将在这里显示</string>
-           </property>
-          </widget>
-         </item>
-        </layout>
-       </widget>
-      </item>
-     </layout>
-    </item>
-   </layout>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="proxyButton">
+       <property name="text">
+        <string>Set system proxy (advanced)</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </widget>
   </widget>
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>440</width>
+    <height>560</height>
+   </rect>
+  </property>
+  <property name="minimumSize">
+   <size>
+    <width>320</width>
+    <height>460</height>
+   </size>
+  </property>
+  <property name="windowTitle">
+   <string>JustConnect</string>
+  </property>
   <widget class="QMenuBar" name="menubar">
    <property name="geometry">
     <rect>
@@ -458,34 +415,34 @@
     <property name="title">
      <string>文件</string>
     </property>
-    <addaction name="disableProxyAction"/>
-    <addaction name="inspectNetworkAction"/>
-    <addaction name="clearAuthenticationCacheAction"/>
-    <addaction name="clearClientDataAction"/>
-    <addaction name="separator"/>
-    <addaction name="separator"/>
-    <addaction name="openLogAction"/>
-    <addaction name="preferencesAction"/>
-    <addaction name="settingAction"/>
-    <addaction name="exitAction"/>
+    <addaction name="disableProxyAction" />
+    <addaction name="inspectNetworkAction" />
+    <addaction name="clearAuthenticationCacheAction" />
+    <addaction name="clearClientDataAction" />
+    <addaction name="separator" />
+    <addaction name="separator" />
+    <addaction name="openLogAction" />
+    <addaction name="preferencesAction" />
+    <addaction name="settingAction" />
+    <addaction name="exitAction" />
    </widget>
    <widget class="QMenu" name="profileMenu">
     <property name="title">
      <string>配置</string>
     </property>
-    <addaction name="configurationGuideAction"/>
+    <addaction name="configurationGuideAction" />
    </widget>
    <widget class="QMenu" name="helpMenu">
     <property name="title">
      <string>帮助</string>
     </property>
-    <addaction name="checkUpdateAction"/>
-    <addaction name="projectAction"/>
-    <addaction name="aboutAction"/>
+    <addaction name="checkUpdateAction" />
+    <addaction name="projectAction" />
+    <addaction name="aboutAction" />
    </widget>
-   <addaction name="fileMenu"/>
-   <addaction name="profileMenu"/>
-   <addaction name="helpMenu"/>
+   <addaction name="fileMenu" />
+   <addaction name="profileMenu" />
+   <addaction name="helpMenu" />
   </widget>
   <action name="aboutAction">
    <property name="text">
@@ -496,8 +453,12 @@
    </property>
   </action>
   <action name="preferencesAction">
-   <property name="text"><string>应用偏好设置…</string></property>
-   <property name="menuRole"><enum>QAction::MenuRole::PreferencesRole</enum></property>
+   <property name="text">
+    <string>应用偏好设置…</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::MenuRole::PreferencesRole</enum>
+   </property>
   </action>
   <action name="exitAction">
    <property name="text">
@@ -529,7 +490,9 @@
    </property>
   </action>
   <action name="inspectNetworkAction">
-   <property name="text"><string>网络范围与校园地址重叠…</string></property>
+   <property name="text">
+    <string>网络范围与校园地址重叠…</string>
+   </property>
   </action>
   <action name="checkUpdateAction">
    <property name="text">
@@ -560,17 +523,15 @@
    </property>
   </action>
  </widget>
- <tabstops>
-  <tabstop>guidePushButton</tabstop>
-  <tabstop>pushButton1</tabstop>
-  <tabstop>pushButton2</tabstop>
-  <tabstop>profileMenuButton</tabstop>
-  <tabstop>logPlainTextEdit</tabstop>
-  <tabstop>copyLogPushButton</tabstop>
-  <tabstop>clearLogPushButton</tabstop>
- </tabstops>
  <resources>
-  <include location="../../resource.qrc"/>
+  <include location="../../resource.qrc" />
  </resources>
- <connections/>
+ <connections />
+ <tabstops>
+  <tabstop>preferencesButton</tabstop>
+  <tabstop>profileMenuButton</tabstop>
+  <tabstop>connectButton</tabstop>
+  <tabstop>detailsButton</tabstop>
+  <tabstop>closeButton</tabstop>
+ </tabstops>
 </ui>
