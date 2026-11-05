@@ -241,6 +241,19 @@ Windows 为 ZIP（完整解压并保留核心 DLL），macOS 为 DMG；Actions a
 
 每次打包由 [archive-source.py](../scripts/archive-source.py) 导出同一干净提交的完整维护源码及摘要，附 `source-revision.txt`，支持无 `.git` 的 CMake 重建并标记 `source_state:archive`。包检查拒绝旧独立核心、旧来源目录与 Wintun。macOS 当前最低 14.4。静态字段检查不代替旧系统实机兼容验证。
 
+## 包体积基线
+
+比较 `1bb6d33` 的随包 Chromium 与 `ca16758` 的 WebView2／WKWebView，均为各平台实际产物；Windows 使用 ZIP、macOS 使用 DMG。MiB = 1,048,576 字节，解压体积按包内文件求和；[四组实际包检查](https://github.com/wtalioy/JustConnect/actions/runs/42125579273)同时验证来源、依赖及原生网页运行。
+
+| 平台 | 压缩包 MiB | 解压 MiB | 减少（压缩／解压） |
+| --- | --- | --- | --- |
+| Windows x64 | 127.8 → 19.1 | 283.1 → 45.3 | 85.0%／84.0% |
+| Windows ARM64 | 110.4 → 16.9 | 261.2 → 43.2 | 84.7%／83.5% |
+| macOS x64 | 170.4 → 19.3 | 411.2 → 42.5 | 88.7%／89.7% |
+| macOS ARM64 | 144.9 → 16.9 | 345.8 → 39.3 | 88.3%／88.6% |
+
+不再分发 WebEngine、Chromium 资源、QML 或 Quick。macOS 的 QtGui 仍硬链接 QtDBus，保留该实际依赖；翻译 SDK 的 qtdeclarative 用途见本地构建说明。Windows 核心省略本地符号表，正式 C ABI 导出和 Go 回溯仍保留。关键报告与原始字节对比在 `build/reports/s7-native-browser-packages/ca16758/`，未代替校园登录和桌面视觉实测。
+
 ## 不需申请签名的开发与发行
 
 功能实现、权限助手、开发、预览、main 和 Release 均不依赖需要申请的公开签名或公证；当前工作流不配置签名 Secrets、不注册签名服务，也不向系统导入根证书。未来取得公开签名时，可作为独立发行步骤附加发布者身份，不改变功能、授权、网络或恢复逻辑，也不预建签名服务框架。Windows 使用管理员授权的受保护助手部署；macOS 构建在私有临时目录自动生成本地签名身份，为应用、助手与 Qt 框架签名后销毁私钥和临时钥匙串。本地叶证书有效期十年，仅绑定同一构建的组件，不提供公开发行者信任；成功、失败及取消均清理本次密钥材料。使用 macOS 自带 OpenSSL 导出系统钥匙串可接受的 PKCS#12；Tests 与打包流程在下载 Qt 前用真实 Mach-O 小包验证签名、hardened runtime、应用／助手角色和同一叶证书、深度校验、系统服务注册／撤销及密钥清理，完整 Qt 包另按实际产物验收。系统可能先报告服务未找到，首次连接仍应尝试注册并按真实结果提示用户批准；已有注册不重复安装。
