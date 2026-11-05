@@ -6,8 +6,10 @@ get_filename_component(REPO "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 set(CORE "${REPO}/corelib")
 if(WIN32)
     set(ABI_MODE c-shared)
+    set(CORE_RELEASE_FLAGS "-s -w")
 else()
     set(ABI_MODE c-archive)
+    set(CORE_RELEASE_FLAGS "-w")
 endif()
 file(STRINGS "${CORE}/go.mod" GO_VERSION_LINE REGEX "^go ")
 string(REPLACE "go " "go" REQUIRED_GO "${GO_VERSION_LINE}")
@@ -50,11 +52,11 @@ function(justconnect_core_library KIND)
     set(CORE_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>")
     set(LIBRARY "${CORE_OUTPUT}/${LIBRARY_NAME}")
     file(GENERATE OUTPUT "${CORE_OUTPUT}/${KIND}-options.txt"
-        CONTENT "${REVISION}\n${SOURCE_STATE}\n${TAGS}\n${ABI_MODE}\n${GO_EXECUTABLE}\n$<CONFIG>\n$ENV{CC}\n$ENV{CGO_CFLAGS}\n$ENV{CGO_LDFLAGS}\n${CMAKE_OSX_DEPLOYMENT_TARGET}\n")
+        CONTENT "${REVISION}\n${SOURCE_STATE}\n${TAGS}\n${ABI_MODE}\n${CORE_RELEASE_FLAGS}\n${GO_EXECUTABLE}\n$<CONFIG>\n$ENV{CC}\n$ENV{CGO_CFLAGS}\n$ENV{CGO_LDFLAGS}\n${CMAKE_OSX_DEPLOYMENT_TARGET}\n")
     add_custom_command(OUTPUT "${LIBRARY}" "${CORE_OUTPUT}/${KIND}.h"
         COMMAND "${CMAKE_COMMAND}" -E env CGO_ENABLED=1 GOTOOLCHAIN=local GOWORK=off GOENV=off
             GOEXPERIMENT=cgocheck2 ${CGO_PLATFORM_ENV} "${GO_EXECUTABLE}" build -mod=readonly -trimpath -buildvcs=false ${TAGS}
-            "-ldflags=$<$<CONFIG:Release>:-w> -X main.revision=${REVISION} -X main.sourceState=${SOURCE_STATE}"
+            "-ldflags=$<$<CONFIG:Release>:${CORE_RELEASE_FLAGS}> -X main.revision=${REVISION} -X main.sourceState=${SOURCE_STATE}"
             "-buildmode=${ABI_MODE}" -o "${LIBRARY}" ./abi
         WORKING_DIRECTORY "${CORE}"
         DEPENDS ${ABI_SOURCES} "${CORE}/go.mod" "${CORE}/go.sum" "${CORE_OUTPUT}/${KIND}-options.txt" "${CMAKE_BINARY_DIR}/CMakeCache.txt"
@@ -67,12 +69,7 @@ function(justconnect_core_library KIND)
         target_compile_definitions(${KIND} INTERFACE JC_SHARED_LIBRARY="${LIBRARY_NAME}")
         set_property(TARGET ${KIND} PROPERTY JC_RUNTIME_LIBRARY "${LIBRARY}")
     else()
-        target_link_libraries(${KIND} INTERFACE "${LIBRARY}" Threads::Threads)
-        if(APPLE)
-            target_link_libraries(${KIND} INTERFACE "-framework CoreFoundation" "-framework Security" resolv)
-        else()
-            target_link_libraries(${KIND} INTERFACE ${CMAKE_DL_LIBS} m resolv)
-        endif()
+        target_link_libraries(${KIND} INTERFACE "${LIBRARY}" Threads::Threads "-framework CoreFoundation" "-framework Security" resolv)
     endif()
 endfunction()
 
