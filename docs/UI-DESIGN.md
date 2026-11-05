@@ -36,9 +36,11 @@
 
 首页已改为紧凑单列：学校选择、真实状态和主按钮，设置收在齿轮入口；日志、维护观察和高级代理操作移入独立详情窗口。详情与托盘仍读取同一个会话，打开／关闭详情不改变连接。公共浅色样式统一按钮、箭头、字号、输入及焦点反馈，替换并删除旧的三份主窗口样式，移除 Windows 固定字体。
 
-Windows 请求系统 Desktop Acrylic 并保留标准窗口边框；macOS 使用 NSVisualEffectView，Linux 当前使用清晰浅色回退。没有应用侧屏幕采集、逐帧模糊或持续动画。实现依据为 [DWM 背景材质](https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/ne-dwmapi-dwm_systembackdrop_type)及系统 AppKit；Windows 不支持该能力时回退浅色，不叠加旧版本私有 API。系统效果尚待对应桌面验证，不能用 Linux 离屏截图证明毛玻璃已生效。
+Windows 请求系统 Desktop Acrylic 并保留标准窗口边框；macOS 使用 NSVisualEffectView，Linux 当前使用清晰浅色回退。只在实际 Windows／Cocoa Qt 后端使用原生句柄，离屏等后端走清晰浅色回退。没有应用侧屏幕采集、逐帧模糊或持续动画。实现依据为 [DWM 背景材质](https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/ne-dwmapi-dwm_systembackdrop_type)及系统 AppKit；Windows 不支持该能力时回退浅色，不叠加旧版本私有 API。系统效果尚待对应桌面验证，不能用 Linux 离屏截图证明毛玻璃已生效。
 
-本地已验证 9 项主窗口操作回归、详情／日志复制及 320 px 首页布局；截图归 `build/reports/s7-native-ui/`。当前不是完整 UI 验收：配套窗口、默认英文／实时切换、诊断汇总与 Windows 实机操作仍按 S7-06—12 继续推进。
+本地已验证 9 项主窗口操作回归、详情／日志复制及 320 px 首页布局；截图归 `build/reports/s7-native-ui/`。当前不是完整 UI 验收：配套窗口、诊断汇总与 Windows 实机操作仍按 S7-06—12 继续推进。
+
+应用设置现独立为一个原生窗口，语言与关闭行为由现有全局存储一次保存；失败保留两项原值。主窗口、详情、托盘与实例选择已使用英文源码／Qt 简体中文目录，默认英文、运行中切换及重启恢复已做操作回归；切换不改学校配置或连接。移除了全局固定中文 locale，Qt 标准对话框随语言切换。连接／取消／断开／恢复动作由原有协调器中的单一状态映射维护，避免主窗口与托盘文案漂移。其余窗口继续迁移，不将当前局部覆盖记成全套双语完成。
 
 ## 认证浏览器选择
 

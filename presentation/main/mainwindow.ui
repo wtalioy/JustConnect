@@ -247,7 +247,7 @@
      <item>
       <widget class="QLabel" name="versionLabel">
        <property name="text">
-        <string>版本 dev</string>
+        <string>Version dev</string>
        </property>
        <property name="alignment">
         <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -257,7 +257,7 @@
      <item>
       <widget class="QLabel" name="profileDetailLabel">
        <property name="text">
-        <string>aTrust · 等待连接</string>
+        <string>aTrust · Not connected</string>
        </property>
        <property name="wordWrap">
         <bool>true</bool>
@@ -267,7 +267,7 @@
      <item>
       <widget class="QLabel" name="statusDetailLabel">
        <property name="text">
-        <string>连接后即可访问网络资源。</string>
+        <string>Connect to access campus resources.</string>
        </property>
        <property name="wordWrap">
         <bool>true</bool>
@@ -308,7 +308,7 @@
             <item>
              <widget class="QLabel" name="logTitleLabel">
               <property name="text">
-               <string>运行日志</string>
+               <string>Activity log</string>
               </property>
              </widget>
             </item>
@@ -330,30 +330,30 @@
           <item>
            <widget class="QPushButton" name="openLogPushButton">
             <property name="toolTip">
-             <string>在系统中打开完整日志文件</string>
+             <string>Open the full log file</string>
             </property>
             <property name="text">
-             <string>打开日志文件</string>
+             <string>Open log file</string>
             </property>
            </widget>
           </item>
           <item>
            <widget class="QPushButton" name="copyLogPushButton">
             <property name="toolTip">
-             <string>复制日志到剪贴板</string>
+             <string>Copy log to clipboard</string>
             </property>
             <property name="text">
-             <string>复制</string>
+             <string>Copy</string>
             </property>
            </widget>
           </item>
           <item>
            <widget class="QPushButton" name="clearLogPushButton">
             <property name="toolTip">
-             <string>清空窗口中的日志</string>
+             <string>Clear the displayed log</string>
             </property>
             <property name="text">
-             <string>清空</string>
+             <string>Clear</string>
             </property>
            </widget>
           </item>
@@ -368,7 +368,7 @@
            <number>1000</number>
           </property>
           <property name="placeholderText">
-           <string>连接日志将在这里显示</string>
+           <string>Connection logs appear here</string>
           </property>
          </widget>
         </item>
@@ -413,7 +413,7 @@
    </property>
    <widget class="QMenu" name="fileMenu">
     <property name="title">
-     <string>文件</string>
+     <string>File</string>
     </property>
     <addaction name="disableProxyAction" />
     <addaction name="inspectNetworkAction" />
@@ -428,13 +428,13 @@
    </widget>
    <widget class="QMenu" name="profileMenu">
     <property name="title">
-     <string>配置</string>
+     <string>Profiles</string>
     </property>
     <addaction name="configurationGuideAction" />
    </widget>
    <widget class="QMenu" name="helpMenu">
     <property name="title">
-     <string>帮助</string>
+     <string>Help</string>
     </property>
     <addaction name="checkUpdateAction" />
     <addaction name="projectAction" />
@@ -446,7 +446,7 @@
   </widget>
   <action name="aboutAction">
    <property name="text">
-    <string>关于本软件</string>
+    <string>About JustConnect</string>
    </property>
    <property name="menuRole">
     <enum>QAction::MenuRole::AboutRole</enum>
@@ -454,7 +454,7 @@
   </action>
   <action name="preferencesAction">
    <property name="text">
-    <string>应用偏好设置…</string>
+    <string>Application settings…</string>
    </property>
    <property name="menuRole">
     <enum>QAction::MenuRole::PreferencesRole</enum>
@@ -462,7 +462,7 @@
   </action>
   <action name="exitAction">
    <property name="text">
-    <string>退出</string>
+    <string>Exit</string>
    </property>
    <property name="menuRole">
     <enum>QAction::MenuRole::QuitRole</enum>
@@ -470,7 +470,7 @@
   </action>
   <action name="settingAction">
    <property name="text">
-    <string>编辑当前配置…</string>
+    <string>Edit current profile…</string>
    </property>
    <property name="menuRole">
     <enum>QAction::MenuRole::NoRole</enum>
@@ -478,7 +478,7 @@
   </action>
   <action name="configurationGuideAction">
    <property name="text">
-    <string>配置引导</string>
+    <string>Setup guide</string>
    </property>
    <property name="menuRole">
     <enum>QAction::MenuRole::NoRole</enum>
@@ -486,40 +486,40 @@
   </action>
   <action name="disableProxyAction">
    <property name="text">
-    <string>清理系统代理</string>
+    <string>Clear system proxy</string>
    </property>
   </action>
   <action name="inspectNetworkAction">
    <property name="text">
-    <string>网络范围与校园地址重叠…</string>
+    <string>Network scope and conflicts…</string>
    </property>
   </action>
   <action name="checkUpdateAction">
    <property name="text">
-    <string>检查更新</string>
+    <string>Check for updates</string>
    </property>
   </action>
   <action name="projectAction">
    <property name="text">
-    <string>项目主页</string>
+    <string>Project website</string>
    </property>
   </action>
   <action name="openLogAction">
    <property name="text">
-    <string>打开日志文件</string>
+    <string>Open log file</string>
    </property>
    <property name="toolTip">
-    <string>打开应用日志文件</string>
+    <string>Open the application log file</string>
    </property>
   </action>
   <action name="clearAuthenticationCacheAction">
    <property name="text">
-    <string>清除当前账户认证缓存</string>
+    <string>Clear current account cache</string>
    </property>
   </action>
   <action name="clearClientDataAction">
    <property name="text">
-    <string>清理旧版缓存</string>
+    <string>Clear legacy data</string>
    </property>
   </action>
  </widget>

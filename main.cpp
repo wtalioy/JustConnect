@@ -4,9 +4,6 @@
 #include <QJsonDocument>
 #include <cstring>
 #include "infrastructure/coreengine/embeddedcoreengine.h"
-#include <QLibraryInfo>
-#include <QLocale>
-#include <QTranslator>
 #include <QSessionManager>
 #include "infrastructure/process/terminationrequests.h"
 
@@ -38,7 +35,6 @@ int main(int argc, char *argv[])
     QApplication::setApplicationName(ApplicationConstants::ApplicationName);
     QApplication::setApplicationDisplayName(ApplicationConstants::ApplicationName);
     QApplication::setApplicationVersion(PROJ_VER);
-    QLocale::setDefault(QLocale(QLocale::Chinese, QLocale::SimplifiedChineseScript, QLocale::China));
 
     ApplicationLogFile applicationLogFile(ApplicationPaths::logFile());
     ApplicationLogger applicationLogger;
@@ -48,20 +44,6 @@ int main(int argc, char *argv[])
         &applicationLogFile,
         &ApplicationLogFile::appendEntry
     );
-
-#if defined(Q_OS_WINDOWS)
-    QString translateModule = "qt";
-#else
-    QString translateModule = "qtbase";
-#endif
-    QTranslator qtTranslator;
-    QString translationsPath = QLibraryInfo::path(QLibraryInfo::TranslationsPath);
-    qDebug() << "Translations path:" << translationsPath << "module:" << translateModule;
-    if (qtTranslator.load(QLocale(QLocale::Chinese, QLocale::SimplifiedChineseScript, QLocale::China),
-                          translateModule, QString("_"), translationsPath))
-        app.installTranslator(&qtTranslator);
-    else
-        qDebug() << "Failed to load transaction file for" << translateModule;
 
     MainWindow mainWindow(&applicationLogger, &applicationLogFile);
 

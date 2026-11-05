@@ -11,20 +11,31 @@
 
 namespace
 {
-bool writeState(const QString &path,const QString &key,const QVariant &value)
+bool writeState(const QString &path,const QVariantMap &values)
 {
     if (QFileInfo::exists(path) && !SettingsMigrator::readableFile(path)) return false;
     QSettings state(path,QSettings::IniFormat);
     state.sync();
-    const auto previous=state.value(key);
     if (state.status()!=QSettings::NoError) return false;
-    state.setValue(key,value);
+    QVariantMap previous;
+    for (auto it=values.begin();it!=values.end();++it) {
+        previous.insert(it.key(),state.value(it.key()));
+        state.setValue(it.key(),it.value());
+    }
     state.sync();
-    if (state.status()==QSettings::NoError && state.value(key)==value) return true;
-    if (previous.isValid()) state.setValue(key,previous);
-    else state.remove(key);
+    bool saved=state.status()==QSettings::NoError;
+    for (auto it=values.begin();it!=values.end();++it) saved=saved && state.value(it.key())==it.value();
+    if (saved) return true;
+    for (auto it=previous.begin();it!=previous.end();++it) {
+        if (it.value().isValid()) state.setValue(it.key(),it.value());
+        else state.remove(it.key());
+    }
     state.sync();
     return false;
+}
+bool writeState(const QString &path,const QString &key,const QVariant &value)
+{
+    return writeState(path,{{key,value}});
 }
 
 bool createEmptyFile(const QString &path)
@@ -250,4 +261,19 @@ void ProfileManager::ensureStorage() const
     {
         profilesDir.mkpath(".");
     }
+}
+
+QString ProfileManager::language() const
+{
+    return QSettings(statePath,QSettings::IniFormat).value("Global/Language","en").toString();
+}
+bool ProfileManager::setApplicationPreferences(const QString &language,bool closeToTray) const
+{
+    if (!supportsLanguage(language)) return false;
+    return writeState(statePath,{{"Global/Language",language},{"Global/CloseToTray",closeToTray}});
+}
+
+bool ProfileManager::supportsLanguage(const QString &language)
+{
+    return language=="en" || language=="zh_CN";
 }

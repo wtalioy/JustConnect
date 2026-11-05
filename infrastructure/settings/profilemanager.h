@@ -37,6 +37,9 @@ public:
     bool silentStartEnabled() const override;
 
     bool setSilentStartEnabled(bool enabled) const;
+    QString language() const;
+    static bool supportsLanguage(const QString &language);
+    bool setApplicationPreferences(const QString &language, bool closeToTray) const;
     QString controllerAddress() const;
     bool setControllerAddress(const QString &address) const;
     bool closeToTray() const;

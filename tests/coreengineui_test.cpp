@@ -184,7 +184,7 @@ static void proxyWaitsForReady() {
     bool confirmed=false;QTimer confirm;
     QObject::connect(&confirm,&QTimer::timeout,[&]{
         for(auto *widget:QApplication::topLevelWidgets())if(auto *message=qobject_cast<QMessageBox *>(widget)) {
-            if(!message->text().contains("当前已存在系统代理"))continue;
+            if(!message->text().contains("A system proxy is already configured"))continue;
             confirm.stop();message->checkBox()->setChecked(true);
             session.stop();emit engine->finished(ConnectionError::NONE);
             check(session.start(engine->profile,{}),"another session starts while override confirmation is open");
@@ -219,7 +219,7 @@ static void proxyWaitsForReady() {
         if (changed) {systemProxy.disable();until([&]{return !systemProxy.isBusy();});}
         session.stop();emit engine->finished(ConnectionError::NONE);
     }
-    settings.setValue("JustConnect/HTTPPort",0);shown=false;expectedWarning="同时启用";
+    settings.setValue("JustConnect/HTTPPort",0);shown=false;expectedWarning="Both local HTTP";
     const int previousChecks=proxy->checks;
     connectButton.click();until([&]{return session.state()==ConnectionState::Starting;});emit engine->connectionEstablished();
     until([&]{return shown;});
@@ -286,8 +286,8 @@ static void manualCredentialsAndLateResults() {
         && loaded.password=="manual-secret" && !settings.contains("Credential/Password"),"checked remember stores account and native credentials without plaintext fallback");finish();
     int warnings=0;QTimer dismiss;
     QStringList expectedWarnings{
-        "系统凭据存储权限被拒绝，请检查授权。\n本次仍可手动登录。",
-        "系统凭据存储权限被拒绝，请检查授权。\n本次仍可手动登录。"
+        "系统凭据存储权限被拒绝，请检查授权。\nYou can sign in manually for this connection.",
+        "系统凭据存储权限被拒绝，请检查授权。\nYou can sign in manually for this connection."
     };
     QObject::connect(&dismiss,&QTimer::timeout,[&] {
         for (auto *widget:QApplication::topLevelWidgets()) if (auto *message=qobject_cast<QMessageBox *>(widget);message && message->isVisible()) {
@@ -305,7 +305,7 @@ static void manualCredentialsAndLateResults() {
     QSemaphore entered,resume;store->beforeRead=[&]{entered.release();check(resume.tryAcquire(1,5000),"release blocked UI native read");};
     const auto starts=engine->starts;connectButton.click();check(entered.tryAcquire(1,1000),"pending UI native read");
     controller.cancelPendingCredentials();resume.release();until([&]{return !access.isBusy(settings.fileName());});
-    check(engine->starts==starts && connectButton.text()=="连接服务器","cancelled read cannot start a late connection");
+    check(engine->starts==starts && connectButton.text()=="Connect","cancelled read cannot start a late connection");
     connectButton.click();check(entered.tryAcquire(1,1000),"fresh pending native read");
     settings.setValue("JustConnect/TLSVerify",false);settings.setValue("JustConnect/TLSCAPEM","new policy");settings.sync();resume.release();
     until([&]{return session.state()==ConnectionState::Starting;});
@@ -315,7 +315,7 @@ static void manualCredentialsAndLateResults() {
     check(engine->starts==starts+1 && !session.isActive(),"late account read does not start or deliver old account secrets");
     store->beforeRead={};
     settings.remove("JustConnect/TLSCAPEM");settings.setValue(ProfileCredentials::ScopeSetting,"invalid-existing-namespace");settings.sync();
-    warnings=0;expectedWarnings={"配置或凭据已变化，请重新打开设置或重试。\n本次仍可手动登录。"};
+    warnings=0;expectedWarnings={"配置或凭据已变化，请重新打开设置或重试。\nYou can sign in manually for this connection."};
     dismiss.start(1);login(false,"manual-without-storage");
     check(engine->profile.credentials.username=="manual-without-storage" && settings.value(ProfileCredentials::ScopeSetting)=="invalid-existing-namespace"
         && !settings.contains("Credential/Password"),"invalid storage namespace still permits explicit manual login without overwriting the namespace");
@@ -339,7 +339,7 @@ static void manualCredentialsAndLateResults() {
     const auto startsBeforeMalformed=engine->starts;const auto nativeBeforeMalformed=store->values;
     const QByteArray malformed="[unclosed section\n";
     {QFile file(settings.fileName());check(file.open(QIODevice::Append) && file.write(malformed)==malformed.size(),"malformed active configuration");}
-    warnings=0;expectedWarnings={"无法读取当前配置，请检查文件权限与内容后重新打开配置。","无法读取当前配置，请检查文件权限与内容后重新打开配置。"};
+    warnings=0;expectedWarnings={"The current profile could not be read. Check file permissions and contents, then reopen it.","The current profile could not be read. Check file permissions and contents, then reopen it."};
     dismiss.start(1);connectButton.click();connectButton.click();dismiss.stop();
     check(warnings==2 && engine->starts==startsBeforeMalformed && !session.isActive() && store->values==nativeBeforeMalformed,
         "repeated malformed configuration attempts cannot start authentication or change native credentials");
@@ -423,7 +423,7 @@ static void authenticationCacheLifecycle() {
     bool deferredClear=false;QTimer bindingNotice;
     QObject::connect(&bindingNotice,&QTimer::timeout,[&]{
         for(auto *widget:QApplication::topLevelWidgets()) if(auto *box=qobject_cast<QMessageBox *>(widget);box && box->isVisible()) {
-            check(box->icon()==QMessageBox::Information && box->text()=="请等待保存完成后再清除认证缓存。",
+            check(box->icon()==QMessageBox::Information && box->text()=="Wait for the save before clearing authentication caches.",
                 "unfinished account binding reports clear as deferred");box->button(QMessageBox::Ok)->click();
         }
     });bindingNotice.start(1);
@@ -480,7 +480,7 @@ static void onlineExpiryOffersOneReauthentication() {
     int errors=0;QTimer dismiss;
     QObject::connect(&dismiss,&QTimer::timeout,[&] {
         for (auto *widget:QApplication::topLevelWidgets()) if (auto *box=qobject_cast<QMessageBox *>(widget);box && box->isVisible()) {
-            check(box->text().contains("重新认证"),"online expiry explains the manual reauthentication action");++errors;box->accept();
+            check(box->text().contains("sign in again"),"online expiry explains the manual reauthentication action");++errors;box->accept();
         }
     });dismiss.start(1);
     emit engine->authenticationCacheInvalidated();emit engine->finished(ConnectionError::SESSION_INVALID);
@@ -512,7 +512,7 @@ static void officialClientWarningIsReadOnlyAndDropsCancelledResults() {
     ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,
         &access,[&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
         [&](const QString &title,const QString &text,QSystemTrayIcon::MessageIcon icon){
-            check(title.contains("aTrust") && text.contains("DNS") && text.contains("不会结束") && icon==QSystemTrayIcon::Warning,
+            check(title.contains("aTrust") && text.contains("DNS") && text.contains("will not terminate") && icon==QSystemTrayIcon::Warning,
                 "official client warning explains a possible conflict without claiming an authenticated connection");++warnings;
         },nullptr,[&]() -> std::optional<bool>{++scans;release.acquire();return true;});
     struct FinishProbe{QSemaphore &release;~FinishProbe(){release.release(4);QThreadPool::globalInstance()->waitForDone(1000);}} finish{release};
@@ -541,7 +541,7 @@ static void authenticationSurvivesTunnelFailure() {
     bool errorShown=false;QTimer closeError;
     QObject::connect(&closeError,&QTimer::timeout,[&]{
         for(auto *widget:QApplication::topLevelWidgets()) if(auto *box=qobject_cast<QMessageBox *>(widget);box && box->isVisible()) {
-            check(box->text().contains("服务器证书"),"tunnel certificate rejection remains visible");
+            check(box->text().contains("certificate"),"tunnel certificate rejection remains visible");
             errorShown=true;box->accept();
         }
     });closeError.start(1);
@@ -580,9 +580,9 @@ static void failedNetworkRecoveryOffersRetryWhileCoreStops() {
     connectButton.click();
     check(network->stops==1,"one normal disconnect starts one recovery");
     emit network->stopped(network->attempt,{PlatformOperationResult::Status::TimedOut,"helper timeout",true});
-    check(connectButton.text()=="重试恢复" && trayAction.text()=="重试恢复" && session.isActive(),"failed restore offers an explicit retry and keeps ownership");
+    check(connectButton.text()=="Retry recovery" && trayAction.text()=="Retry recovery" && session.isActive(),"failed restore offers an explicit retry and keeps ownership");
     connectButton.click();connectButton.click();
-    check(network->stops==2 && connectButton.text()=="断开服务器","retry starts once and replaces the failed presentation");
+    check(network->stops==2 && connectButton.text()=="Disconnecting…" && !connectButton.isEnabled(),"retry starts once and replaces the failed presentation");
     emit network->quiesced(network->attempt);
     bool errorShown=false;QTimer closeError;
     QObject::connect(&closeError,&QTimer::timeout,&parent,[&]{
@@ -593,7 +593,7 @@ static void failedNetworkRecoveryOffersRetryWhileCoreStops() {
     emit engine->finished(ConnectionError::NONE);emit network->stopped(network->attempt,{});
     closeError.stop();
     check(!errorShown && !session.isActive() && session.state()==ConnectionState::Disconnected
-        && connectButton.text()=="连接服务器" && trayAction.text()=="连接服务器","confirmed retry completes normal disconnect without a stale recovery error popup");
+        && connectButton.text()=="Connect" && trayAction.text()=="Connect","confirmed retry completes normal disconnect without a stale recovery error popup");
 }
 
 static void quitWaitsForAuthenticationQueryWithoutBlockingTheGui() {
