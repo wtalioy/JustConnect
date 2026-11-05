@@ -13,5 +13,5 @@ private:
     explicit ApplicationLanguage(QObject *parent);
     bool activate(const QString &language,bool save,bool closeToTray);
     QString language;
-    std::unique_ptr<QTranslator> application,standard;
+    std::unique_ptr<QTranslator> application;
 };

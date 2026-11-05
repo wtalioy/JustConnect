@@ -89,7 +89,9 @@ find_package(Qt6 REQUIRED COMPONENTS LinguistTools)
 set(justconnect_desktop_catalog "${CMAKE_CURRENT_SOURCE_DIR}/resource/translations/justconnect_zh_CN.ts")
 qt_add_translations(justconnect_desktop
     TS_FILES "${justconnect_desktop_catalog}"
-    RESOURCE_PREFIX "/i18n")
+    RESOURCE_PREFIX "/i18n"
+    MERGE_QT_TRANSLATIONS
+    QT_TRANSLATION_CATALOGS qtbase)
 
 if(WIN32)
     target_sources(justconnect_desktop PRIVATE presentation/appearance/windows/backdrop.cpp)
