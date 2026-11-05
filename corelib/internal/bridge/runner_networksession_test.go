@@ -148,7 +148,7 @@ func nativeWindowsSession(t *testing.T, faults, policy, exitChange bool) {
 	}
 	output, err := command.CombinedOutput()
 	if err != nil {
-		t.Fatalf("actual ordinary Windows application session: %v; auth=%d TCP=%d UDP=%d DNS=%d\n%s", err, g.authCount.Load(), g.tcpCount.Load(), g.udpCount.Load(), g.nativeDNSQueries.Load(), output)
+		t.Fatalf("actual ordinary Windows application session: %v; auth=%d TCP=%d UDP=%d DNS=%d questions=%v\n%s", err, g.authCount.Load(), g.tcpCount.Load(), g.udpCount.Load(), g.nativeDNSQueries.Load(), g.observedDNSQuestions(), output)
 	}
 	trafficRounds, tcpPerRound := rounds, int32(4)
 	dnsPackets := g.nativeDNSQueries.Load()

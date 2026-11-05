@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/miekg/dns"
 	"github.com/wtalioy/JustConnect/corelib/internal/zctcpip"
 )
 
@@ -29,9 +30,8 @@ func tunDatagram(t *testing.T) (*net.UDPConn, *net.UDPConn) {
 	return device, peer
 }
 
-func tunDatagramEcho(t *testing.T, peer *net.UDPConn, address *net.UDPAddr) {
+func exchangeProtocolTUN(t *testing.T, peer *net.UDPConn, address *net.UDPAddr, payload []byte) []byte {
 	t.Helper()
-	payload := []byte("session-owned-campus-datagram")
 	packet := make([]byte, zctcpip.IPv4HeaderSize+zctcpip.UDPHeaderSize+len(payload))
 	packet[0], packet[8], packet[9] = 0x45, 64, zctcpip.UDP
 	binary.BigEndian.PutUint16(packet[2:], uint16(len(packet)))
@@ -64,9 +64,10 @@ func tunDatagramEcho(t *testing.T, peer *net.UDPConn, address *net.UDPAddr) {
 		t.Fatal("packet did not return from the campus tunnel")
 	}
 	data := zctcpip.UDPPacket(reply.Payload())
-	if !data.Valid() || data.SourcePort() != udp.DestinationPort() || data.DestinationPort() != udp.SourcePort() || !bytes.Equal(data.Payload(), payload) {
+	if !data.Valid() || data.SourcePort() != udp.DestinationPort() || data.DestinationPort() != udp.SourcePort() {
 		t.Fatal("campus datagram changed")
 	}
+	return data.Payload()
 }
 
 func exerciseProtocolTUN(t *testing.T, e *Engine, h, generation uint64, publish bool) *net.UDPConn {
@@ -99,7 +100,10 @@ func exerciseProtocolTUN(t *testing.T, e *Engine, h, generation uint64, publish 
 	if n, _, err := extraPeer.ReadFromUDP(marker); err != nil || string(marker[:n]) != "caller-owned" {
 		t.Fatalf("rejected device ownership: %q %v", marker[:n], err)
 	}
-	tunDatagramEcho(t, peer, address)
+	payload := []byte("session-owned-campus-datagram")
+	if !bytes.Equal(exchangeProtocolTUN(t, peer, address, payload), payload) {
+		t.Fatal("campus datagram payload changed")
+	}
 	return device
 }
 
@@ -199,5 +203,55 @@ func TestProtocolTUNReadinessAndDeviceFailure(t *testing.T) {
 				t.Fatal("failed session retained resources")
 			}
 		})
+	}
+}
+
+func TestProtocolDNSCanonicalFollowup(t *testing.T) {
+	g := newGateway(t)
+	g.resourceIP.Store("192.0.2.10")
+	g.nativeDNS.Store(true)
+	g.probeDNS.Store(true)
+	engine := New(RunProtocol)
+	handle := create(t, engine)
+	startProtocol(t, engine, handle, g.config(t))
+	ready := next(t, engine, handle)
+	if ready.State != "ready" {
+		t.Fatal(ready)
+	}
+	device, peer := tunDatagram(t)
+	if status := engine.AttachTUN(handle, ready.Generation, device, 1400, false); status != OK {
+		t.Fatal(status)
+	}
+	query := func(name string, kind uint16) *dns.Msg {
+		t.Helper()
+		request := new(dns.Msg).SetQuestion(name, kind)
+		wire, err := request.Pack()
+		if err != nil {
+			t.Fatal(err)
+		}
+		response := new(dns.Msg)
+		err = response.Unpack(exchangeProtocolTUN(t, peer, device.LocalAddr().(*net.UDPAddr), wire))
+		if err != nil || response.Id != request.Id || response.Rcode != dns.RcodeSuccess {
+			t.Fatalf("DNS exchange %s/%d: %v, %v", name, kind, response, err)
+		}
+		return response
+	}
+	original := query("campus.test.", dns.TypeA)
+	if len(original.Answer) != 2 {
+		t.Fatal("missing campus CNAME and address", original)
+	}
+	canonical, ok := original.Answer[0].(*dns.CNAME)
+	if !ok {
+		t.Fatal("missing CNAME", original)
+	}
+	answer := query(canonical.Target, dns.TypeA)
+	if len(answer.Answer) != 1 || answer.Answer[0].String() != original.Answer[1].String() {
+		t.Fatal("canonical follow-up lost its advertised address", answer)
+	}
+	if answer := query(canonical.Target, dns.TypeAAAA); len(answer.Answer) != 0 {
+		t.Fatal("IPv4-only name invented an IPv6 address", answer)
+	}
+	if engine.Stop(handle, 3000) != OK {
+		t.Fatal("DNS session failed to stop")
 	}
 }

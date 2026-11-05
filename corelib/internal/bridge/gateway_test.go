@@ -518,14 +518,14 @@ func (g *gateway) serveL3(conn net.Conn) {
 						}
 						reply := new(dns.Msg)
 						reply.SetReply(request)
-						if g.nativeDNS.Load() && len(request.Question) == 1 && (request.Question[0].Name == "campus.test." || request.Question[0].Name == "host.campus.test.") && request.Question[0].Qtype == dns.TypeA {
+						if g.nativeDNS.Load() && len(request.Question) == 1 && (request.Question[0].Name == "campus.test." || request.Question[0].Name == "host.campus.test." || request.Question[0].Name == "target.campus.test.") && request.Question[0].Qtype == dns.TypeA {
 							resourceIP, _ := g.resourceIP.Load().(string)
 							reply.Answer = []dns.RR{
 								&dns.CNAME{Hdr: dns.RR_Header{Name: "campus.test.", Class: dns.ClassINET, Rrtype: dns.TypeCNAME, Ttl: 60}, Target: "target.campus.test."},
 								&dns.A{Hdr: dns.RR_Header{Name: "target.campus.test.", Class: dns.ClassINET, Rrtype: dns.TypeA, Ttl: 60}, A: net.IP(netip.MustParseAddr(resourceIP).Next().AsSlice())},
 							}
-							if request.Question[0].Name == "host.campus.test." {
-								reply.Answer = []dns.RR{&dns.A{Hdr: dns.RR_Header{Name: "host.campus.test.", Class: dns.ClassINET, Rrtype: dns.TypeA, Ttl: 60}, A: net.IP(netip.MustParseAddr(resourceIP).Next().AsSlice())}}
+							if request.Question[0].Name != "campus.test." {
+								reply.Answer = []dns.RR{&dns.A{Hdr: dns.RR_Header{Name: request.Question[0].Name, Class: dns.ClassINET, Rrtype: dns.TypeA, Ttl: 60}, A: net.IP(netip.MustParseAddr(resourceIP).Next().AsSlice())}}
 							}
 							g.nativeDNSQueries.Add(1)
 						}
