@@ -156,7 +156,8 @@ func nativeWindowsSession(t *testing.T, faults, policy, exitChange bool) {
 		dnsPackets = g.dnsUDPPackets.Load()
 		trafficRounds *= 12
 		tcpPerRound++ // One actual campus browser request in each matrix case.
-		if bytes.Count(output, []byte("PASS: Windows composed coexistence case ")) != int(trafficRounds) {
+		if bytes.Count(output, []byte("PASS: Windows composed coexistence case ")) != int(trafficRounds) ||
+			bytes.Count(output, []byte("PASS: Windows system proxy enabled before the campus connection")) != 1 {
 			t.Fatalf("missing native composed matrix cases\n%s", output)
 		}
 	}
