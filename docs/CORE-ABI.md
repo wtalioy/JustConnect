@@ -215,7 +215,7 @@ S1-07 与 S1-08 的受控网关及四架构宿主已验证正式会话、Qt 认�
 
 配置模型仅保留 aTrust 与 ABI 支持字段，端口零关闭对应监听、监听固定在回环。S2-02 已删除 EasyConnect、TUN／路由、额外 CLI 参数及旧转发等控件／运行字段；旧协议要求显式确认 aTrust 入口。设置页与向导保存前调用 `jc_config_validate`，与启动复用同一 JSON 映射与 Go 严格解析；非法地址／认证／非回环监听、超限值及未知 JSON 字段仍被拒绝，不自动退回进程。构建显示使用实际已加载库的来源信息。共享 CMake 入口见 `cmake/CoreLibrary.cmake`；真实窗口／正式网关回归在根 CTest 和四架构原生宿主中使用同一 `tests/CoreEngineTests.cmake`。
 
-S1-09 已验收：`a729296` 的[两平台应用回归](https://github.com/wtalioy/JustConnect/actions/runs/39383282228)与[四组实际包自检](https://github.com/wtalioy/JustConnect/actions/runs/39383294934)全部通过。同一最终源码的[四组原生回归](https://github.com/wtalioy/JustConnect/actions/runs/39383282309)全部通过。包内实际调用版本／ABI、无效启动拒绝、创建／停止／销毁；来源归档逐文件一致，脱离 Git 完整重建的应用也通过同一自检。实际 glibc／macOS 下限、预览签名与正式签名边界见计划及开发说明。
+S1-09 已验收：`a729296` 的[两平台应用回归](https://github.com/wtalioy/JustConnect/actions/runs/39383282228)与[四组实际包自检](https://github.com/wtalioy/JustConnect/actions/runs/39383294934)全部通过。同一最终源码的[四组原生回归](https://github.com/wtalioy/JustConnect/actions/runs/39383282309)全部通过。包内实际调用版本／ABI、无效启动拒绝、创建／停止／销毁；来源归档逐文件一致，脱离 Git 完整重建的应用也通过同一自检。实际 macOS 下限、预览签名与正式签名边界见计划及开发说明。
 
 S2-03 为认证配置与查询事件兼容增补 `auth_id`／`sub_type` 字段；原始登录域与 URL 仍由服务器提供。新选择按完整身份匹配，旧配置只有唯一类型／登录域匹配时才继续；过期或歧义身份以 `JC_AUTH_METHOD_CHANGED` 结束，要求重新查询，不能退回列表第一项。
 
