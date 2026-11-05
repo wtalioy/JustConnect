@@ -201,7 +201,6 @@ PlatformOperationResult ProxyRecoveryBackend::clear() { return worker->call("cle
 int runProxyRecoveryWorker(SystemProxyBackend &backend, const QString &endpoint, const QString &lockFile,
                            const QString &legacyLockFile, bool userOwnership, const QString &owner, bool resume)
 {
-    // shortcut: unattended startup/logoff recovery is pending, integrate it with the application lifecycle.
     QLocalSocket channel;
     channel.setReadBufferSize(MaxFrame+1);
     channel.connectToServer(endpoint);
