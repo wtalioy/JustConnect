@@ -4,7 +4,6 @@
 set -euo pipefail
 
 APP_PATH="${1:-}"
-QTWEBENGINE_PATH="$APP_PATH/Contents/Frameworks/QtWebEngineCore.framework/Helpers/QtWebEngineProcess.app"
 
 if [[ -z "$APP_PATH" || ! -d "$APP_PATH" ]]; then
   echo "App not found: $APP_PATH"
@@ -50,7 +49,6 @@ current = shlex.split(subprocess.check_output(['security', 'list-keychains', '-d
 subprocess.run(['security', 'list-keychains', '-d', 'user', '-s', *current, sys.argv[1]], check=True)
 PY
 local_identity=$(/usr/bin/openssl x509 -in "$signing_directory/identity.pem" -noout -fingerprint -sha1 | cut -d= -f2 | tr -d ':')
-codesign --verbose --force --options runtime --keychain "$keychain" --sign "$local_identity" --entitlements "$QTWEBENGINE_PATH/Contents/Resources/QtWebEngineProcess.entitlements" "$QTWEBENGINE_PATH/Contents/MacOS/QtWebEngineProcess"
 read -r MAC_HELPER MAC_HELPER_ID < <(python3 -c 'import json,plistlib; c=json.load(open("resource/network-helper-macos.json")); p=plistlib.load(open("resource/Info.plist","rb")); print(c["executable"],p["CFBundleIdentifier"]+c["service_suffix"])')
 codesign --verbose --force --options runtime --keychain "$keychain" --identifier "$MAC_HELPER_ID" --sign "$local_identity" "$APP_PATH/Contents/MacOS/$MAC_HELPER"
 codesign --verbose --force --options runtime --keychain "$keychain" --deep --preserve-metadata=entitlements,identifier --sign "$local_identity" "$APP_PATH"

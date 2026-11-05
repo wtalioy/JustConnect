@@ -1,5 +1,5 @@
 name: Set up Qt
-description: Install Qt 6.12 and its compatible WebEngine candidate
+description: Install the Qt Widgets SDK
 inputs:
   host:
     description: aqt host
@@ -22,21 +22,9 @@ runs:
         host: ${{ inputs.host }}
         target: desktop
         arch: ${{ inputs.arch }}
-        archives: qtbase qtsvg qtdeclarative qttools qttranslations icu
-        modules: qtshadertools qtpositioning qtserialport qtwebchannel
+        archives: qtbase qtsvg qttools qttranslations
         # Extension repositories and native ARM64 support are not in aqt 3.3.0.
         aqtsource: git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7
         py7zrversion: '==1.1.4'
         cache: true
-        cache-key-prefix: qt-6.12.0-v2-${{ inputs.host }}-${{ inputs.arch }}
-
-    - name: Check WebEngine installer
-      shell: bash
-      run: python -m unittest discover -s tests -p install_webengine_test.py
-
-    - name: Install compatible WebEngine candidate
-      shell: bash
-      env:
-        QT_INSTALL_HOST: ${{ inputs.host }}
-        QT_INSTALL_ARCH: ${{ inputs.arch }}
-      run: python scripts/install-webengine.py
+        cache-key-prefix: qt-6.12.0-widgets-v3-${{ inputs.host }}-${{ inputs.arch }}

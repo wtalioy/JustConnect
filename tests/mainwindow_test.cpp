@@ -1,3 +1,4 @@
+#include "presentation/browser/signinbrowser.h"
 #include "presentation/main/mainwindow.h"
 #include "presentation/i18n/applicationlanguage.h"
 #include "presentation/dialogs/loginwindow/loginwindow.h"
@@ -45,8 +46,6 @@
 #include <QLineEdit>
 #include <QKeyEvent>
 #include <QTcpSocket>
-#include <QWebEngineView>
-#include <QWebEnginePage>
 #include <QStyleHints>
 #include <QStyle>
 #include <QStyleOption>
@@ -249,11 +248,11 @@ static void authenticationLanguageChangesPreserveData(MainWindow &window) {
     });
     const auto origin="http://127.0.0.1:"+QString::number(page.serverPort());
     auto *browser=new SsoLoginWebView(&window,QUrl(origin+"/passport/v1/auth/httpsOauth2"));browser->show();
-    auto *view=browser->findChild<QWebEngineView *>();int loads=0;bool loaded=false;
-    QObject::connect(view,&QWebEngineView::loadStarted,view,[&]{++loads;});
-    QObject::connect(view,&QWebEngineView::loadFinished,view,[&](bool okay){check(okay,"load local browser translation fixture");loaded=true;});
+    auto *view=browser->findChild<SignInBrowser *>();int loads=0;bool loaded=false;
+    QObject::connect(view,&SignInBrowser::loadStarted,view,[&]{++loads;});
+    QObject::connect(view,&SignInBrowser::loadFinished,view,[&](bool okay){check(okay,"load local browser translation fixture");loaded=true;});
     browser->setInitialUrl(QUrl(origin+"/page"));waitForUi([&]{return loaded;});language("zh_CN");language("en");
-    bool read=false;QString text;view->page()->runJavaScript("document.querySelector('#typed').value",[&](const QVariant &value){text=value.toString();read=true;});waitForUi([&]{return read;});
+    bool read=false;QString text;view->runJavaScript("document.querySelector('#typed').value",[&](const QVariant &value){text=value.toString();read=true;});waitForUi([&]{return read;});
     check(text=="typed-value" && loads==1 && browser->windowTitle()=="School sign-in","language switching preserves the school page without reloading it");
     screenshot(browser,"school-sign-in.png");
     browser->reject();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
@@ -397,7 +396,6 @@ static void nativeHome(MainWindow &window) {
 }
 
 int main(int argc,char **argv) {
-    if (qgetenv("QT_QPA_PLATFORM")=="offscreen" && qEnvironmentVariableIsEmpty("QT_QUICK_BACKEND")) qputenv("QT_QUICK_BACKEND","software");
     QApplication app(argc,argv);
 #ifdef Q_OS_UNIX
     if (app.arguments().contains("--external-signal")) {

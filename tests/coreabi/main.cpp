@@ -1,3 +1,4 @@
+#include "presentation/browser/signinbrowser.h"
 #include "justconnect.h"
 #include "proxycheck.h"
 #include <QApplication>
@@ -11,8 +12,6 @@
 #include <QTcpSocket>
 #include <QHostAddress>
 #include <QTimer>
-#include <QWebEnginePage>
-#include <QWebEngineView>
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>
@@ -477,11 +476,12 @@ int main(int argc, char **argv) {
         QObject::connect(workers.back().get(), &QThread::finished, &application, [&] { ++finished; finish(); });
         workers.back()->start();
     }
-    QWebEngineView view;
-    QObject::connect(&view, &QWebEngineView::loadFinished, &application, [&](bool ok) {
-        check(ok, "WebEngine page load");
-        view.page()->runJavaScript("document.title", [&](const QVariant &value) {
-            check(value.toString() == "JustConnect 42", "WebEngine JavaScript");
+    SignInBrowser view(nullptr,{},TlsOptions{},[](const QUrl &,bool){return true;});
+    view.show();
+    QObject::connect(&view, &SignInBrowser::loadFinished, &application, [&](bool ok) {
+        check(ok, "native sign-in browser page load");
+        view.runJavaScript("document.title", [&](const QVariant &value) {
+            check(value.toString() == "JustConnect 42", "native sign-in browser JavaScript");
             pageLoaded = true;
             finish();
         });
@@ -490,6 +490,6 @@ int main(int argc, char **argv) {
     const int result = application.exec();
     for (auto &worker : workers) worker->wait();
     std::cout << "PASS: production C ABI v1, provenance, 257 lifecycles, buffers, four QThreads, "
-                 "WebEngine JavaScript, heartbeat=" << ticks << '\n';
+                 "native sign-in browser JavaScript, heartbeat=" << ticks << '\n';
     return result;
 }

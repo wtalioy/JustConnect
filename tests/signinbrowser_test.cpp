@@ -1,35 +1,35 @@
 #include <QApplication>
 #include <QTimer>
 #include <QVariant>
-#include <QWebEnginePage>
-#include <QWebEngineView>
+#include "presentation/browser/signinbrowser.h"
 
 #include <iostream>
 
 int main(int argc, char *argv[])
 {
-    std::cerr << "Starting WebEngine runtime check\n";
+    std::cerr << "Starting system sign-in browser runtime check\n";
     QApplication app(argc, argv);
-    std::cerr << "Creating WebEngine view\n";
-    QWebEngineView view;
+    std::cerr << "Creating system sign-in browser view\n";
+    SignInBrowser view(nullptr,{},TlsOptions{},[](const QUrl &,bool){return true;});
+    view.show();
     QTimer timeout;
     timeout.setSingleShot(true);
     QObject::connect(&timeout, &QTimer::timeout, &app, [&app]() {
-        std::cerr << "WebEngine page load timed out\n";
+        std::cerr << "system sign-in browser page load timed out\n";
         app.exit(1);
     });
-    QObject::connect(&view, &QWebEngineView::loadFinished, &app, [&](bool ok) {
+    QObject::connect(&view, &SignInBrowser::loadFinished, &app, [&](bool ok) {
         if (!ok)
         {
-            std::cerr << "WebEngine page load failed\n";
+            std::cerr << "system sign-in browser page load failed\n";
             app.exit(1);
             return;
         }
-        view.page()->runJavaScript("document.title", [&app](const QVariant &value) {
+        view.runJavaScript("document.title", [&app](const QVariant &value) {
             const bool matched = value.toString() == "JustConnect 42";
             if (!matched)
             {
-                std::cerr << "WebEngine JavaScript result mismatch\n";
+                std::cerr << "system sign-in browser JavaScript result mismatch\n";
             }
             app.exit(matched ? 0 : 1);
         });

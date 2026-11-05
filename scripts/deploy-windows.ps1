@@ -25,14 +25,10 @@ cmake --install "../$BuildDir/windows-helper" --config Release --component Windo
 if ($LASTEXITCODE -ne 0) { throw "Native network helper installation failed" }
 
 # Run windeployqt
-& windeployqt.exe --release --translations "en,zh_CN" --skip-plugin-types qmltooling "$TargetName.exe"
+& windeployqt.exe --release --no-translations "$TargetName.exe"
 if ($LASTEXITCODE -ne 0) {
     throw "windeployqt failed with exit code $LASTEXITCODE"
 }
-
-# windeployqt's language filter does not apply to Chromium locale packs.
-Get-ChildItem -Path 'translations/qtwebengine_locales' -Filter '*.pak' |
-    Where-Object { $_.Name -notin @('en-US.pak', 'zh-CN.pak') } | Remove-Item
 
 Copy-Item -Path "../resource/qt.conf" -Destination .
 Get-ChildItem -Filter 'vc_redist.*.exe' | Remove-Item

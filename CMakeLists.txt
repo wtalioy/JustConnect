@@ -30,12 +30,13 @@ find_package(Qt6 6.10 COMPONENTS
     Widgets
     Network
     Svg
-    WebEngineWidgets
     REQUIRED
 )
 
 include(cmake/CoreLibrary.cmake)
 include(cmake/Application.cmake)
+include(cmake/SignInBrowser.cmake)
+justconnect_signin_browser(justconnect_signin_browser)
 justconnect_core_library(justconnect_core)
 justconnect_core_engine(justconnect_engine justconnect_core justconnect_platform)
 include(cmake/SystemIntegration.cmake)
@@ -138,7 +139,7 @@ target_link_libraries(justconnect_desktop
         Qt::Widgets
         Qt::Network
         Qt::Svg
-        Qt::WebEngineWidgets
+        justconnect_signin_browser
         justconnect_engine
         justconnect_network_access
         justconnect_platform
@@ -178,7 +179,7 @@ if(BUILD_TESTING)
         presentation/presentationhelpers.cpp
         infrastructure/settings/profilemanager.cpp
         infrastructure/storage/applicationpaths.cpp infrastructure/settings/credentialaccess.cpp)
-    target_link_libraries(settingwindow_test PRIVATE justconnect_engine justconnect_platform Qt6::WebEngineWidgets Qt6::Concurrent justconnect_application)
+    target_link_libraries(settingwindow_test PRIVATE justconnect_engine justconnect_platform Qt6::Widgets Qt6::Concurrent justconnect_application)
     add_test(NAME settingwindow_test COMMAND settingwindow_test)
     set_tests_properties(settingwindow_test PROPERTIES TIMEOUT 30 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_test(NAME core_self_test COMMAND ${PROJECT_NAME} --core-self-test)
@@ -198,7 +199,7 @@ if(BUILD_TESTING)
     justconnect_core_runtime(mainwindow_test justconnect_core)
     add_test(NAME mainwindow_test COMMAND mainwindow_test)
     add_test(NAME mainwindow_auth_language_test COMMAND mainwindow_test --auth-language)
-    set_tests_properties(mainwindow_auth_language_test PROPERTIES TIMEOUT 60 ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu;QT_SCALE_FACTOR=2")
+    set_tests_properties(mainwindow_auth_language_test PROPERTIES TIMEOUT 60 ENVIRONMENT "QT_QPA_PLATFORM=${JC_BROWSER_QPA};QT_SCALE_FACTOR=2")
     add_test(NAME mainwindow_chinese_startup_test COMMAND mainwindow_test --chinese-startup)
     add_test(NAME mainwindow_invalid_language_test COMMAND mainwindow_test --invalid-language)
     add_test(NAME mainwindow_active_preferences_test COMMAND mainwindow_test --active-preferences)
@@ -215,12 +216,11 @@ if(BUILD_TESTING)
         set_tests_properties(mainwindow_interrupt_test mainwindow_hangup_test mainwindow_external_signal_test PROPERTIES TIMEOUT 30 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     endif()
     set_tests_properties(mainwindow_test mainwindow_chinese_startup_test mainwindow_invalid_language_test mainwindow_active_preferences_test mainwindow_close_exit_test mainwindow_preferences_failure_test mainwindow_termination_test mainwindow_system_session_test PROPERTIES TIMEOUT 30 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
-    add_executable(webengine_test tests/webengine_test.cpp)
-    target_link_libraries(webengine_test Qt::WebEngineWidgets)
-    add_test(NAME webengine_test COMMAND webengine_test)
-    set_tests_properties(webengine_test PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu"
-        TIMEOUT 20)
+    add_executable(signinbrowser_test tests/signinbrowser_test.cpp)
+    target_link_libraries(signinbrowser_test PRIVATE justconnect_signin_browser)
+    add_test(NAME signinbrowser_test COMMAND signinbrowser_test)
+    set_tests_properties(signinbrowser_test PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=${JC_BROWSER_QPA}" TIMEOUT 30)
 
     add_executable(applicationlogger_test
         tests/applicationlogger_test.cpp)

@@ -6,6 +6,8 @@
 #include <QString>
 #include "core/connectionprofile.h"
 
+class SignInBrowser;
+
 namespace Ui
 {
 class SsoLoginWebView;
@@ -31,12 +33,13 @@ private:
     void setupConnections();
     void showNavigationError();
     void updateWarning();
-    enum class NavigationFailure { None, Address, Certificate };
+    enum class NavigationFailure { None, Address, Certificate, Runtime };
     NavigationFailure failure=NavigationFailure::None;
     bool isCallbackUrl(const QUrl &url) const;
     bool isAllowedUrl(const QUrl &url) const;
 
     Ui::SsoLoginWebView *ui;
+    SignInBrowser *browser=nullptr;
     const QUrl callbackUrl;
     const TlsOptions tls;
     bool loginCompletedEmitted = false;

@@ -5,9 +5,11 @@ if(NOT WIN32 AND NOT APPLE)
 endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_C_STANDARD 11)
-find_package(Qt6 6.10 REQUIRED COMPONENTS WebEngineWidgets Concurrent)
+find_package(Qt6 6.10 REQUIRED COMPONENTS Widgets Network Concurrent)
 include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/CoreLibrary.cmake")
 include("${REPO}/cmake/Application.cmake")
+include("${REPO}/cmake/SignInBrowser.cmake")
+justconnect_signin_browser(justconnect_signin_browser)
 include(CTest)
 add_test(NAME coreabi_workflow_test COMMAND "${Python3_EXECUTABLE}" "${REPO}/tests/coreabi_workflow_test.py")
 set_tests_properties(coreabi_workflow_test PROPERTIES TIMEOUT 10)
@@ -24,7 +26,7 @@ foreach(KIND coreabi coreabi_fixture)
     set(HOST "${KIND}_test")
     add_executable(${HOST} main.cpp header_smoke.c)
     target_include_directories(${HOST} PRIVATE "${CORE}/abi")
-    target_link_libraries(${HOST} PRIVATE Qt6::WebEngineWidgets ${KIND})
+    target_link_libraries(${HOST} PRIVATE justconnect_signin_browser ${KIND})
     if(KIND STREQUAL "coreabi_fixture")
         target_compile_definitions(${HOST} PRIVATE ABI_FIXTURE)
     endif()
@@ -45,7 +47,7 @@ foreach(KIND coreabi coreabi_fixture)
     set_tests_properties(${ADAPTER} PROPERTIES TIMEOUT 60)
     add_test(NAME ${HOST} COMMAND ${HOST})
     set_tests_properties(${HOST} PROPERTIES TIMEOUT 60
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu")
+        ENVIRONMENT "QT_QPA_PLATFORM=${JC_BROWSER_QPA}")
 endforeach()
 
 
@@ -83,7 +85,7 @@ add_test(NAME coreabi_protocol_test
         GOTOOLCHAIN=local GOWORK=off GOENV=off CGO_ENABLED=1 GOEXPERIMENT=cgocheck2
         "${GO_EXECUTABLE}" test -mod=readonly -count=1 -timeout 60s -run "^TestNativeProtocolHost$" -v ./internal/bridge)
 set_tests_properties(coreabi_protocol_test PROPERTIES TIMEOUT 90 WORKING_DIRECTORY "${CORE}"
-    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu")
+    ENVIRONMENT "QT_QPA_PLATFORM=${JC_BROWSER_QPA}")
 
 add_test(NAME coreabi_performance_test
     COMMAND "${CMAKE_COMMAND}" -E env "JC_NATIVE_PROTOCOL_HOST=$<TARGET_FILE:coreabi_test>"
@@ -91,7 +93,7 @@ add_test(NAME coreabi_performance_test
         GOTOOLCHAIN=local GOWORK=off GOENV=off CGO_ENABLED=1 GOEXPERIMENT=cgocheck2
         "${GO_EXECUTABLE}" test -mod=readonly -count=1 -timeout 120s -run "^TestNativePerformanceHost$" -v ./internal/bridge)
 set_tests_properties(coreabi_performance_test PROPERTIES TIMEOUT 150 WORKING_DIRECTORY "${CORE}"
-    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu")
+    ENVIRONMENT "QT_QPA_PLATFORM=${JC_BROWSER_QPA}")
 
 add_test(NAME coreabi_original_dns_preparation_test
     COMMAND "${CMAKE_COMMAND}" -E env "JC_NATIVE_ORIGINAL_DNS_HOST=$<TARGET_FILE:coreabi_adapter_test>"
