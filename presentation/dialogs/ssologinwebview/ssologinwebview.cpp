@@ -33,7 +33,7 @@ SsoLoginWebView::SsoLoginWebView(QWidget *parent,const QUrl &callback,const TlsO
     browser=new SignInBrowser(ui->browserHost,callbackUrl,tls,[this](const QUrl &url,bool mainFrame) {
         if (!mainFrame && (url==QUrl("about:blank") || url==QUrl("about:srcdoc"))) return true;
         if (!isAllowedUrl(url)) {showNavigationError();return false;}
-        if (!BrowserOrigin::same(url,callbackUrl) || url.path(QUrl::FullyEncoded)!=callbackUrl.path(QUrl::FullyEncoded)) return true;
+        if (!BrowserOrigin::sameEndpoint(url,callbackUrl)) return true;
         if (mainFrame && isCallbackUrl(url)) {
             if (!loginCompletedEmitted) {
                 loginCompletedEmitted=true;emit loginCompleted(QString::fromLatin1(url.toEncoded()));
@@ -112,14 +112,13 @@ bool SsoLoginWebView::isAllowedUrl(const QUrl &url) const
     if (callbackUrl.scheme()!="https" && !localGateway) return false;
     if (!url.isValid() || url.host().isEmpty() || url.authority().contains('@') || url.port(443)==0) return false;
     if (!tls.verify && BrowserOrigin::escapesCertificateScope(url,callbackUrl)) return false;
-    if (authCallbackPath(url.path(QUrl::FullyEncoded)) && (!BrowserOrigin::same(url,callbackUrl) || url.path(QUrl::FullyEncoded)!=path)) return false;
+    if (authCallbackPath(url.path(QUrl::FullyEncoded)) && !BrowserOrigin::sameEndpoint(url,callbackUrl)) return false;
     return url.scheme()=="https" || (localGateway && BrowserOrigin::same(url,callbackUrl));
 }
 
 bool SsoLoginWebView::isCallbackUrl(const QUrl &url) const
 {
-    if (url.toEncoded().size()>JC_MAX_URL || !isAllowedUrl(url) || !BrowserOrigin::same(url,callbackUrl) || url.hasFragment()
-        || url.path(QUrl::FullyEncoded)!=callbackUrl.path(QUrl::FullyEncoded) || url.query(QUrl::FullyEncoded).contains(';')) return false;
+    if (url.toEncoded().size()>JC_MAX_URL || !isAllowedUrl(url) || !BrowserOrigin::sameEndpoint(url,callbackUrl) || url.hasFragment() || url.query(QUrl::FullyEncoded).contains(';')) return false;
     const auto token=callbackUrl.path()=="/passport/v1/auth/cas" ? QString("ticket") : QString("code");
     int count=0;
     for (const auto &item:QUrlQuery(url).queryItems(QUrl::FullyDecoded)) {

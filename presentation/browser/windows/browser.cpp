@@ -83,11 +83,11 @@ struct SignInBrowser::Native {
     ~Native() {if(controller)controller->Close();view.Reset();controller.Reset();storage.reset();if(SUCCEEDED(apartment))CoUninitialize();}
 };
 
-SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &gateway,const TlsOptions &tls,NavigationPolicy navigation)
+SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &callbackUrl,const TlsOptions &tls,NavigationPolicy navigation)
     :QWidget(parent),native(std::make_unique<Native>()) {
     setAttribute(Qt::WA_NativeWindow);setFocusPolicy(Qt::StrongFocus);setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Expanding);
     const QPointer<SignInBrowser> self(this);
-    QTimer::singleShot(0,this,[self,gateway,tls,navigation] {
+    QTimer::singleShot(0,this,[self,callbackUrl,tls,navigation] {
         const auto fail=[self] {if(self){self->native->failed=true;emit self->initializationFailed();emit self->loadFinished(false);}};
         auto *state=self->native.get();
         qCDebug(browserLog)<<"environment start"<<state->pending.isEmpty();
@@ -95,7 +95,7 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &gateway,const TlsOption
         const auto folder=state->storage->directory.path().toStdWString();
         auto storage=state->storage;
         const auto result=CreateCoreWebView2EnvironmentWithOptions(nullptr,folder.c_str(),nullptr,
-            Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>([self,gateway,tls,navigation,fail,storage](HRESULT status,ICoreWebView2Environment *environment)->HRESULT {
+            Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>([self,callbackUrl,tls,navigation,fail,storage](HRESULT status,ICoreWebView2Environment *environment)->HRESULT {
                 qCDebug(browserLog)<<"environment result"<<Qt::hex<<status;
                 if (FAILED(status) || !environment) {fail();return S_OK;}
                 ComPtr<ICoreWebView2Environment10> modern;
@@ -109,7 +109,7 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &gateway,const TlsOption
                 const auto profile=QUuid::createUuid().toString(QUuid::Id128).toStdWString();
                 if (FAILED(controllerOptions->put_ProfileName(profile.c_str())) || FAILED(controllerOptions->put_IsInPrivateModeEnabled(TRUE))) {fail();return S_OK;}
                 const auto result=modern->CreateCoreWebView2ControllerWithOptions(reinterpret_cast<HWND>(self->winId()),controllerOptions.Get(),
-                    Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>([self,gateway,tls,navigation,fail](HRESULT status,ICoreWebView2Controller *controller)->HRESULT {
+                    Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>([self,callbackUrl,tls,navigation,fail](HRESULT status,ICoreWebView2Controller *controller)->HRESULT {
                         qCDebug(browserLog)<<"controller result"<<Qt::hex<<status;
                         if (!self) {if(controller)controller->Close();return S_OK;}
                         if (FAILED(status) || !controller) {fail();return S_OK;}
@@ -155,12 +155,12 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &gateway,const TlsOption
                                 self->native->navigation.reset();emit self->loadFinished(okay);
                             }return S_OK;
                         }).Get(),&token);
-                        if (SUCCEEDED(configured)) configured=certificates->add_ServerCertificateErrorDetected(Callback<ICoreWebView2ServerCertificateErrorDetectedEventHandler>([self,gateway,tls](ICoreWebView2 *,ICoreWebView2ServerCertificateErrorDetectedEventArgs *event)->HRESULT {
+                        if (SUCCEEDED(configured)) configured=certificates->add_ServerCertificateErrorDetected(Callback<ICoreWebView2ServerCertificateErrorDetectedEventHandler>([self,callbackUrl,tls](ICoreWebView2 *,ICoreWebView2ServerCertificateErrorDetectedEventArgs *event)->HRESULT {
                             LPWSTR text=nullptr;event->get_RequestUri(&text);const QUrl target(takeString(text));
                             ComPtr<ICoreWebView2Certificate> certificate;event->get_ServerCertificate(&certificate);
                             COREWEBVIEW2_WEB_ERROR_STATUS error=COREWEBVIEW2_WEB_ERROR_STATUS_UNKNOWN;event->get_ErrorStatus(&error);
                             const bool overridable=error!=COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_REVOKED && error!=COREWEBVIEW2_WEB_ERROR_STATUS_CLIENT_CERTIFICATE_CONTAINS_ERRORS;
-                            const bool okay=overridable && ((!tls.verify && BrowserOrigin::same(target,gateway)) || (certificate && trusted(certificate.Get(),tls.caPem,target.host())));
+                            const bool okay=overridable && ((!tls.verify && BrowserOrigin::same(target,callbackUrl)) || (certificate && trusted(certificate.Get(),tls.caPem,target.host())));
                             event->put_Action(okay?COREWEBVIEW2_SERVER_CERTIFICATE_ERROR_ACTION_ALWAYS_ALLOW:COREWEBVIEW2_SERVER_CERTIFICATE_ERROR_ACTION_CANCEL);
                             if (!okay && self) {
                                 emit self->certificateRejected();
@@ -169,13 +169,13 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &gateway,const TlsOption
                                 }
                             }return S_OK;
                         }).Get(),&token);
-                        // Chromium caches exceptions by host; guard subresources as well as navigations.
-                        if (SUCCEEDED(configured) && !tls.verify) {
+                        // Frame cancellation alone can be too late to prevent a one-time callback request.
+                        if (SUCCEEDED(configured)) {
                             configured=state->view->AddWebResourceRequestedFilter(L"*",COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
-                            if (SUCCEEDED(configured)) configured=state->view->add_WebResourceRequested(Callback<ICoreWebView2WebResourceRequestedEventHandler>([self,gateway](ICoreWebView2 *,ICoreWebView2WebResourceRequestedEventArgs *event)->HRESULT {
+                            if (SUCCEEDED(configured)) configured=state->view->add_WebResourceRequested(Callback<ICoreWebView2WebResourceRequestedEventHandler>([self,callbackUrl,tls](ICoreWebView2 *,ICoreWebView2WebResourceRequestedEventArgs *event)->HRESULT {
                                 if(!self)return S_OK;
                                 ComPtr<ICoreWebView2WebResourceRequest> request;event->get_Request(&request);LPWSTR text=nullptr;request->get_Uri(&text);const QUrl target(takeString(text));
-                                if (BrowserOrigin::escapesCertificateScope(target,gateway)) {
+                                if (BrowserOrigin::sameEndpoint(target,callbackUrl) || (!tls.verify && BrowserOrigin::escapesCertificateScope(target,callbackUrl))) {
                                     ComPtr<ICoreWebView2WebResourceResponse> response;
                                     self->native->storage->environment->CreateWebResourceResponse(nullptr,403,L"Forbidden",L"",&response);event->put_Response(response.Get());
                                 }return S_OK;

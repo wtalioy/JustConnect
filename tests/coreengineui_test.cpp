@@ -779,7 +779,10 @@ static void browserValidatesCallbackNavigation() {
         dialog->setInitialUrl(QUrl(base+path));until([&]{return done || responses>0;});QObject::disconnect(connection);
     };
     visit("/redirect-unrelated");check(responses==0 && dialog->isVisible() && view->url().path()=="/unrelated","a same-origin redirect to another path cannot complete SSO");
-    visit("/frame");check(responses==0 && dialog->isVisible() && callbackRequests==0,"iframe callbacks neither complete SSO nor consume the callback in the browser");
+    visit("/frame");
+    check(responses==0,"iframe callbacks cannot complete SSO");
+    check(dialog->isVisible(),"a rejected iframe leaves the sign-in window open");
+    check(callbackRequests==0,"iframe callbacks cannot consume a ticket through HTTP");
     bool localFrame=false;
     view->runJavaScript("window.fixtureConsole===true && document.querySelector('iframe').contentDocument.body.textContent==='local frame'",[&](const QVariant &value){localFrame=value.toBool();});
     until([&]{return localFrame;});
