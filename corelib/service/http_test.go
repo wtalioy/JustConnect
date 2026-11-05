@@ -10,8 +10,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/wtalioy/JustConnect/corelib/dial"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -32,7 +30,7 @@ func (b *trackingBody) Close() error {
 
 func TestHTTPProxyClosesUpstreamResponseBody(t *testing.T) {
 	body := &trackingBody{Reader: bytes.NewBufferString("response")}
-	proxy := newHTTPProxy(dial.NewDialer(nil, nil, nil, false))
+	proxy := newHTTPProxy((&net.Dialer{}).DialContext)
 	proxy.client.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return &http.Response{
 			StatusCode: http.StatusOK,
@@ -51,7 +49,7 @@ func TestHTTPProxyClosesUpstreamResponseBody(t *testing.T) {
 }
 
 func TestHTTPProxyTransportHasBoundedPool(t *testing.T) {
-	proxy := newHTTPProxy(dial.NewDialer(nil, nil, nil, false))
+	proxy := newHTTPProxy((&net.Dialer{}).DialContext)
 	transport, ok := proxy.client.Transport.(*http.Transport)
 	if !ok {
 		t.Fatalf("transport type = %T, want *http.Transport", proxy.client.Transport)
@@ -95,7 +93,7 @@ func TestHTTPConnectClosesTargetWhenClientDisconnects(t *testing.T) {
 		}
 	}()
 
-	proxy := httptest.NewServer(newHTTPProxy(dial.NewDialer(nil, nil, nil, false)))
+	proxy := httptest.NewServer(newHTTPProxy((&net.Dialer{}).DialContext))
 	defer proxy.Close()
 
 	clientConn, err := net.Dial("tcp", proxy.Listener.Addr().String())
@@ -125,5 +123,42 @@ func TestHTTPConnectClosesTargetWhenClientDisconnects(t *testing.T) {
 		t.Fatal("target connection remained readable after proxy client disconnected")
 	} else if timeoutErr, ok := err.(net.Error); ok && timeoutErr.Timeout() {
 		t.Fatal("target connection was not closed after proxy client disconnected")
+	}
+}
+
+func TestHTTPProxyKeepsCredentialsAndHopHeadersOnTheirOwnConnection(t *testing.T) {
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for _, name := range []string{"Proxy-Authorization", "Proxy-Connection", "X-Request-Hop"} {
+			if value := r.Header.Get(name); value != "" {
+				t.Errorf("origin received %s: %q", name, value)
+			}
+		}
+		if r.Header.Get("Authorization") != "Bearer origin-token" {
+			t.Error("end-to-end authorization was removed")
+		}
+		w.Header().Set("Connection", "X-Response-Hop")
+		w.Header().Set("X-Response-Hop", "private")
+		w.Header().Set("Proxy-Authenticate", "Basic")
+		w.Header().Set("X-Origin", "preserved")
+		_, _ = io.WriteString(w, "response")
+	}))
+	defer origin.Close()
+	proxy := newHTTPProxy((&net.Dialer{}).DialContext)
+	defer proxy.close()
+	req := httptest.NewRequest(http.MethodGet, origin.URL, nil)
+	req.Header.Set("Proxy-Authorization", "Basic local-secret")
+	req.Header.Set("Proxy-Connection", "keep-alive")
+	req.Header.Set("Connection", "X-Request-Hop")
+	req.Header.Set("X-Request-Hop", "private")
+	req.Header.Set("Authorization", "Bearer origin-token")
+	recorder := httptest.NewRecorder()
+	proxy.ServeHTTP(recorder, req)
+	for _, name := range []string{"Connection", "X-Response-Hop", "Proxy-Authenticate"} {
+		if value := recorder.Header().Get(name); value != "" {
+			t.Errorf("client received %s: %q", name, value)
+		}
+	}
+	if recorder.Code != http.StatusOK || recorder.Body.String() != "response" || recorder.Header().Get("X-Origin") != "preserved" {
+		t.Fatalf("response changed: status %d, headers %v, body %q", recorder.Code, recorder.Header(), recorder.Body.String())
 	}
 }
