@@ -17,7 +17,6 @@ import (
 
 	"github.com/wtalioy/JustConnect/corelib/internal/bridge"
 	"github.com/wtalioy/JustConnect/corelib/internal/mihomo"
-	"github.com/wtalioy/JustConnect/corelib/internal/networkstate"
 	"github.com/wtalioy/JustConnect/corelib/internal/packetpipe"
 	"github.com/wtalioy/JustConnect/corelib/internal/tundevice"
 	"github.com/wtalioy/JustConnect/corelib/stack/gvisor"
@@ -60,7 +59,7 @@ func buildInfo() []byte {
 		"capabilities": map[string]any{"embedded_vpn": !testDriver, "auth_method_query": !testDriver, "authentication_cache": !testDriver, "policy_update": true,
 			"initial_protection":       true,
 			"name_protection":          true,
-			"network_snapshot":         networkstate.Supported(),
+			"network_snapshot":         true,
 			"controller_discovery":     true,
 			"resource_snapshot":        !testDriver,
 			"coexistence":              !testDriver,
@@ -172,9 +171,6 @@ func jc_go_network_snapshot(abi C.uint32_t, output *C.uint8_t, capacity C.uint32
 		return C.int32_t(bridge.ABIMismatch)
 	}
 	snapshot, err := engine.NetworkSnapshot()
-	if errors.Is(err, networkstate.ErrUnsupported) {
-		return C.int32_t(bridge.Unsupported)
-	}
 	if err != nil {
 		return C.int32_t(bridge.Internal)
 	}

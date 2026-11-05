@@ -5,5 +5,6 @@ package networkstate
 import native "github.com/wtalioy/JustConnect/corelib/internal/networkstate/macos"
 
 var readRoutes = native.ReadRoutes
+var readInterfaces = native.ReadInterfaces
 
 var ObserveProxyTunnel = native.ObserveProxyTunnel

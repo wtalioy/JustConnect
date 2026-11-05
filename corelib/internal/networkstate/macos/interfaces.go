@@ -1,4 +1,4 @@
-//go:build !windows
+//go:build darwin
 
 package networkstate
 
@@ -9,7 +9,7 @@ import (
 	"slices"
 )
 
-func readInterfaces() ([]model.Interface, error) {
+func ReadInterfaces() ([]model.Interface, error) {
 	interfaces, err := net.Interfaces()
 	if err != nil {
 		return nil, err
