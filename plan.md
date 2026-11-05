@@ -15,15 +15,15 @@
 | --- | --- |
 | 阶段进度 | S3—S6 **23／23 全部勾选**；全计划 64 项已收尾 45 项、剩余 19 项（含最终验收）。S1-04 真实样本、S2-06 真实注销仍待；下一阶段 S7 |
 | Windows 实测 | `e9993aa` 同一窗口两轮正常连断，首次接管 2149 ms，复用 63 ms；两轮均正常释放。此前稳态 CPU 大致正常，连断时约三四秒超过 20%。 |
-| 当前跟踪 | **A13 域名专用 DNS**。`8784409` 的 `zb.fudan.edu.cn` 原生解析与 HTTPS 200 已实测；后续统一身份认证的原出口修复已通过正式检查，待新版完整登录复测。 |
-| 当前交付 | [`77b96da` Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/41870248539/artifacts/13344224557) 保留已验证的外部认证地址，已通过正式检查与实际包核对。 |
+| 当前跟踪 | **A13／A14 合并实测**：系统代理先开／后开、连接中切换 TUN、校园域名完整登录、浏览器／SSH／Tailscale 直连、同窗重连与 CPU；实现及正式检查已完成。 |
+| 当前交付 | [`b2fbdb3` Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/41973869366/artifacts/13391821203)：含运行中代理／TUN 共存修复及本轮全仓精简，实际包已核对，等待合并实测。 |
 
 ## 当前验收基线
 
 | 范围 | 当前结论与证据 |
 | --- | --- |
-| 正式自动检查 | `77b96da` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/41870248254)与[六架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/41870248739)全部通过，含原出口 TLS 身份验证和单地址排除回归。 |
-| 实际包／源码 | `77b96da` 的[六组实际包及源码](https://github.com/wtalioy/JustConnect/actions/runs/41870248539)全部通过。六份原生实际包、核心／助手来源及 749 个源码文件已核对。证据归 `build/reports/authentication-route-77b96da/`。 |
+| 正式自动检查 | `b2fbdb3` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/41973845429)与[六架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/41973845654)全部通过，包含真实代理／TUN、恢复、认证及本轮回归。 |
+| 实际包／源码 | `b2fbdb3` 的[六组实际包及源码](https://github.com/wtalioy/JustConnect/actions/runs/41973869366)全部通过；六份原生实际包报告、核心／助手来源及 752 个源码文件已核对。关键报告 `build/reports/review-whole-repo/`。 |
 | Windows 修复／性能 | 正常断开修复已实测；DNS 批量刷新、持久进度、部分失败和后续所有权已双架构原生验证。接口查询及 `70f90a5` 接管／断开 CPU 优化已实测通过；`build/reports/windows-restore-9d95b37/summary.json`、`build/reports/windows-dns-cpu-da23405/summary.json` |
 | 阶段矩阵 | `build/reports/v1-matrix.json` 汇总当前三平台受控证据及 Windows 实测；未测发布格保留在 V1—V7，阶段勾选不等于完整发布验收 |
 
@@ -203,7 +203,7 @@ S3—S6 已收尾，不重复开发或重跑已通过基线；A6 性能优化已
   - 收尾：`2c0874a` 的[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40309426226)与[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/40309425987)通过普通应用真实会话、系统 DNS／SSH、授权拒绝／取消、助手故障及恢复。全仓复查确认主窗口／托盘复用同一 ConnectionSession，核心就绪不提前发布 CampusReady，旧代结果无效，恢复未确认禁止重连；调用方、夹具、构建／CI 与契约一致，无重复会话后端或本任务专属废弃产物。Clash 联动、原 DNS 重叠扩展与实机缺口仍归其对应任务。
 - [ ] **S7-03**（三平台独立守护、双杀及恢复进程重启已自动验；真实注销归 S8-02，独立人工授权专项取消，完整集成待）：随 S4 网络操作实现独立于 Qt／Go 宿主的最小恢复守护，复用同一快照／所有权后端；先保证将要交付的接管可恢复，再随功能扩展，覆盖宿主崩溃／强杀、库不可恢复故障、系统会话结束、超时关闭及恢复进程重启；同进程核心不再配置独立 Job Object。必要权限助手的生命周期另行约束，不能把“核心不再是子进程”视为不需恢复。只恢复仍属于本软件的设置，不终止其他软件或其核心实例。后续评估复用受保护安装的助手，减少重复管理员提示；首次安装仍按系统要求授权，不削弱调用者验证。
 - [ ] **S7-04**：自动响应 Clash 启停、端口变化、订阅刷新、核心重启、出口和系统代理／TUN 切换，幂等更新有效策略，必要时重连校园隧道。普通用户切换 Clash 不导致争抢设置或关闭校园访问；其他外部修改只停止争抢受影响的项并提示，恢复不覆盖对方的新值。
-  - `648063d` 的[六架构原生检查](https://github.com/wtalioy/JustConnect/actions/runs/41967603978)、[三平台应用测试](https://github.com/wtalioy/JustConnect/actions/runs/41967603979)和[六组实际包](https://github.com/wtalioy/JustConnect/actions/runs/41967605624)通过；Linux ARM64 已记录的 GLOBAL UDP 偶发项同源码重跑通过。覆盖宽授权下系统代理先开和连接后再开、Clash TUN 实时加入／撤回、真实原出口变更和恢复。Fudan 已确认三段宽授权及地址空洞，新包 Windows 实机待复测。
+  - `b2fbdb3` 的六架构原生检查、三平台应用测试和六组实际包通过，见当前验收基线。覆盖宽授权下系统代理先开／后开、Clash TUN 实时加入／撤回、真实原出口变更和恢复；Fudan 三段宽授权及地址空洞已有真实样本。当前新包的 Windows 合并实测待完成。
 - [ ] **S7-05**：接入已验证的临时联动与按所有权撤销；重复开启／关闭不积累代理、规则或 DNS 项，订阅刷新后重新核对，退出保留用户期间的新选择。清理确认属于旧版本的网络／自启动遗留，无法判定的项目明确提示。
 - [ ] **S7-06**：主窗口与托盘共用 S7-02 的“开启／关闭校园访问”，按 R11 一次完成连接与接管，不另设系统代理或终端配置。按日常使用要求处理主操作、进度／取消、失败／冲突、配置切换及关闭／退出；普通后台成功不强制弹窗，必要认证才恢复窗口。UI 只派生状态和交付意图，复用／收拢已有 controller／coordinator，不模拟点击或复制业务状态；手工代理入口仅供诊断／高级用途。
 - [ ] **S7-07**：复用现有固定诊断码，各组接入网络步骤时补齐监听、DNS、规则、回环和恢复结果，界面组负责统一展示；包含入口、解析来源、命中规则和出口并脱敏，不另造诊断后端或要求读完整抓包。操作异步可取消，旧代次不能修改新状态。
@@ -283,8 +283,8 @@ V7 逐项记录日常使用要求，包含首次确认服务器、窗口／托�
 | A10 | Windows 主动断开告警、TUN／Tailscale 共存与性能 | **已收尾**。`e9993aa` 同窗两轮正常连断，接管 2149→63 ms；此前稳态 CPU 已大致正常，Tailscale 直连保持已有实测证据。新发现的未发布校园域名 Fake-IP 冲突独立归 V4。[测量与边界](docs/DEVELOPMENT.md#windows-网卡查询与-cpu-采样)。 |
 | A11 | 退出／取消错误及实际包链路故障 | **已收尾**。退出完成后延迟轮询不再误报超时，真实未完成／恢复失败仍拒绝退出；原生代理所有权校验保留取消原因。Linux 固定官方工具版本／双架构哈希及原生 strip，补齐工作流 ARM64 名称映射。确定性旧源码回归、13 项退出调用链、官方 Mihomo／核心竞态及 47 项 Python 检查均已验证，最终三平台 Tests／六架构 ABI／六组实际包及源码通过，见当前验收基线。已清理临时镜像、展开目录、完成的监视日志和重复源码包；保留工具／SDK／构建与关键报告 `build/reports/shutdown-package-ef0caa7/` |
 | A12 | 三平台节点选线启动耗时 | **已收尾**。首次 TLS 探测去掉一个 500 ms 空等周期，同机三次真实 TLS 握手中位耗时 1502.93→1002.64 ms；保留三次采样、后续间隔、证书策略、WAN／LAN 回退和取消。旧源码失败回归、本地竞态／完整 Go／正式协议宿主、三平台 Tests 及六架构 ABI 全部通过。临时测量源码已清理，保留关键报告，不重复打包。[测量与边界](docs/DEVELOPMENT.md#节点探测启动等待)，`build/reports/node-probe-start/`。 |
-| A13 | 配置级域名专用 DNS | **Windows 解析与站点已实测，完整登录待复测**。精确 NRPT 和撤回双架构通过。`77b96da` 保留通过原出口 TLS 验证的登录地址，正式检查及实际包通过。macOS／Linux 新域名的独立原生范围仍待实现与验收。[实测和配置](docs/DEVELOPMENT.md#域名专用-dns)。 |
-| A14 | 按职责与实际开销复查全仓 | **实现与本地验证完成，正式检查／包及合并实测待完成**。六个独立单元修复缓存、HTTP 转发、UDP 回收及配置缺陷，合并认证／数据报职责并减少 Windows 原生查询。Go 完整构建／静态检查／35 包测试／全包竞态、Python 工具检查及本机 Windows 原生双栈通过；Qt 全量构建及 68 项桌面／系统检查通过（补齐私有凭据／KDE 工具环境后重验首轮失败的 5 项）。[范围、测量和保留依据](docs/DEVELOPMENT.md#全仓审查与测试保留范围)，关键报告 `build/reports/review-whole-repo/`。 |
+| A13 | 配置级域名专用 DNS | **Windows 解析与站点已实测，完整登录待复测**。精确 NRPT 和撤回双架构通过。当前交付保留通过原出口 TLS 验证的登录地址，正式检查及实际包通过。macOS／Linux 新域名的独立原生范围仍待实现与验收。[实测和配置](docs/DEVELOPMENT.md#域名专用-dns)。 |
+| A14 | 按职责与实际开销复查全仓 | **代码与自动验收已收尾，Windows 合并实测待完成**。六个独立单元修复缓存、HTTP 转发、UDP 回收及配置缺陷，合并认证／数据报职责并减少 Windows 原生查询；删除专用缓存依赖。完整本地／竞态、三平台应用、六架构 ABI 和六组实际包通过，来源核对见当前验收基线。[范围、测量和保留依据](docs/DEVELOPMENT.md#全仓审查与测试保留范围)。 |
 
 ## 上游问题转化为库化验收
 
