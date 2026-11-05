@@ -1382,6 +1382,13 @@ static void gateway(const QJsonObject &config) {
 int main(int argc, char **argv) {
     QApplication app(argc, argv);
     if (argc == 3 && QByteArray(argv[1]) == "--gateway") gateway(QJsonDocument::fromJson(argv[2]).object());
-    else if (argc==2 && QByteArray(argv[1])=="--browser") { browserCookiesStayInLoginDialog();browserValidatesCallbackNavigation();browserPreservesChallengeIdentity(); }
+    else if (argc==2 && QByteArray(argv[1])=="--browser") {
+        // Native WebViews use the same application message loop as the desktop host.
+        app.setQuitOnLastWindowClosed(false);
+        QTimer::singleShot(0,&app,[&] {
+            browserCookiesStayInLoginDialog();browserValidatesCallbackNavigation();browserPreservesChallengeIdentity();app.quit();
+        });
+        return app.exec();
+    }
     else { campusIntentsShareOneController(); controllerSelectionContracts(); failedNetworkRecoveryOffersRetryWhileCoreStops(); uiContracts(); proxyWaitsForReady(); manualCredentialsAndLateResults(); authenticationCacheLifecycle(); onlineExpiryOffersOneReauthentication(); officialClientWarningIsReadOnlyAndDropsCancelledResults(); authenticationSurvivesTunnelFailure(); quitWaitsForInitialSsoCache(); quitWaitsForAuthenticationQueryWithoutBlockingTheGui(); quitWaitsForNetworkInspectionWithoutBlockingTheGui(); }
 }

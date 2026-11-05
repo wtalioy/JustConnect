@@ -50,11 +50,17 @@ jobs:
         shell: bash
         run: cmake -S . -B build -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release -DNIGHTLY_BUILD=ON "-DGIT_HASH=$(git rev-parse --short=7 HEAD)"
 
+      - name: Build and verify native sign-in
+        shell: bash
+        run: |
+          cmake --build build --config Release --target coreengineui_test --parallel 3
+          ctest --test-dir build --build-config Release --output-on-failure --tests-regex '^coreengineui_test_browser$'
+
       - name: Build
         run: cmake --build build --config Release --parallel 3
 
       - name: Run tests
-        run: ctest --test-dir build --build-config Release --output-on-failure
+        run: ctest --test-dir build --build-config Release --output-on-failure --exclude-regex '^coreengineui_test_browser$'
         env:
           QT_QPA_PLATFORM: offscreen
 
