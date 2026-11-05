@@ -41,11 +41,7 @@
 #include <QtNetwork/QLocalServer>
 #include <QtNetwork/QLocalSocket>
 
-#if QT_VERSION >= QT_VERSION_CHECK(5, 10, 0)
 #include <QtCore/QRandomGenerator>
-#else
-#include <QtCore/QDateTime>
-#endif
 
 #include "singleapplication.h"
 #include "singleapplication_p.h"
@@ -105,11 +101,7 @@ QString SingleApplicationPrivate::getUsername()
       DWORD usernameLength = UNLEN + 1;
       if( GetUserNameW( username, &usernameLength ) )
           return QString::fromWCharArray( username );
-#if QT_VERSION < QT_VERSION_CHECK(5, 10, 0)
-      return QString::fromLocal8Bit( qgetenv( "USERNAME" ) );
-#else
       return qEnvironmentVariable( "USERNAME" );
-#endif
 #endif
 #if defined(Q_OS_UNIX)
       QString username;
@@ -118,11 +110,7 @@ QString SingleApplicationPrivate::getUsername()
       if( pw )
           username = QString::fromLocal8Bit( pw->pw_name );
       if ( username.isEmpty() ){
-#if QT_VERSION < QT_VERSION_CHECK(5, 10, 0)
-          username = QString::fromLocal8Bit( qgetenv( "USER" ) );
-#else
           username = qEnvironmentVariable( "USER" );
-#endif
       }
       return username;
 #endif
@@ -131,27 +119,23 @@ QString SingleApplicationPrivate::getUsername()
 void SingleApplicationPrivate::genBlockServerName()
 {
     QCryptographicHash appData( QCryptographicHash::Sha256 );
-#if QT_VERSION < QT_VERSION_CHECK(6, 3, 0)
-    appData.addData( "SingleApplication", 17 );
-#else
     appData.addData( QByteArrayView{"SingleApplication"} );    
-#endif
-    appData.addData( SingleApplication::app_t::applicationName().toUtf8() );
-    appData.addData( SingleApplication::app_t::organizationName().toUtf8() );
-    appData.addData( SingleApplication::app_t::organizationDomain().toUtf8() );
+    appData.addData( QCoreApplication::applicationName().toUtf8() );
+    appData.addData( QCoreApplication::organizationName().toUtf8() );
+    appData.addData( QCoreApplication::organizationDomain().toUtf8() );
 
     if ( ! appDataList.isEmpty() )
         appData.addData( appDataList.join(QString()).toUtf8() );
 
     if( ! (options & SingleApplication::Mode::ExcludeAppVersion) ){
-        appData.addData( SingleApplication::app_t::applicationVersion().toUtf8() );
+        appData.addData( QCoreApplication::applicationVersion().toUtf8() );
     }
 
     if( ! (options & SingleApplication::Mode::ExcludeAppPath) ){
 #if defined(Q_OS_WIN)
-        appData.addData( SingleApplication::app_t::applicationFilePath().toLower().toUtf8() );
+        appData.addData( QCoreApplication::applicationFilePath().toLower().toUtf8() );
 #else
-        appData.addData( SingleApplication::app_t::applicationFilePath().toUtf8() );
+        appData.addData( QCoreApplication::applicationFilePath().toUtf8() );
 #endif
     }
 
@@ -253,18 +237,12 @@ bool SingleApplicationPrivate::connectToPrimary( int msecs, ConnectionType conne
     QByteArray initMsg;
     QDataStream writeStream(&initMsg, QIODevice::WriteOnly);
 
-#if (QT_VERSION >= QT_VERSION_CHECK(5, 6, 0))
     writeStream.setVersion(QDataStream::Qt_5_6);
-#endif
 
     writeStream << blockServerName.toLatin1();
     writeStream << static_cast<quint8>(connectionType);
     writeStream << instanceNumber;
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     quint16 checksum = qChecksum(QByteArray(initMsg.constData(), static_cast<quint32>(initMsg.length())));
-#else
-    quint16 checksum = qChecksum(initMsg.constData(), static_cast<quint32>(initMsg.length()));
-#endif
     writeStream << checksum;
 
     return writeConfirmedMessage( static_cast<int>(msecs - time.elapsed()), initMsg );
@@ -283,9 +261,7 @@ bool SingleApplicationPrivate::writeConfirmedMessage (int msecs, const QByteArra
     QByteArray header;
     QDataStream headerStream(&header, QIODevice::WriteOnly);
 
-#if (QT_VERSION >= QT_VERSION_CHECK(5, 6, 0))
     headerStream.setVersion(QDataStream::Qt_5_6);
-#endif
     headerStream << static_cast <quint64>( msg.length() );
 
     if( ! writeConfirmedFrame( static_cast<int>(msecs - time.elapsed()), header ))
@@ -317,11 +293,7 @@ bool SingleApplicationPrivate::writeConfirmedFrame( int msecs, const QByteArray 
 
 quint16 SingleApplicationPrivate::blockChecksum() const
 {
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     quint16 checksum = qChecksum(QByteArray(static_cast<const char*>(memory->constData()), offsetof(InstancesInfo, checksum)));
-#else
-    quint16 checksum = qChecksum(static_cast<const char*>(memory->constData()), offsetof(InstancesInfo, checksum));
-#endif
     return checksum;
 }
 
@@ -407,9 +379,7 @@ void SingleApplicationPrivate::readMessageHeader( QLocalSocket *sock, SingleAppl
 
     QDataStream headerStream( sock );
 
-#if (QT_VERSION >= QT_VERSION_CHECK(5, 6, 0))
     headerStream.setVersion( QDataStream::Qt_5_6 );
-#endif
 
     // Read the header to know the message length
     quint64 msgLen = 0;
@@ -446,9 +416,7 @@ void SingleApplicationPrivate::readInitMessageBody( QLocalSocket *sock )
     QByteArray msgBytes = sock->readAll();
     QDataStream readStream(msgBytes);
 
-#if (QT_VERSION >= QT_VERSION_CHECK(5, 6, 0))
     readStream.setVersion( QDataStream::Qt_5_6 );
-#endif
 
     // server name
     QByteArray latin1Name;
@@ -472,11 +440,7 @@ void SingleApplicationPrivate::readInitMessageBody( QLocalSocket *sock )
         return;
     }
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     const quint16 actualChecksum = qChecksum(QByteArray(msgBytes.constData(), static_cast<quint32>(msgBytes.length() - sizeof(quint16))));
-#else
-    const quint16 actualChecksum = qChecksum(msgBytes.constData(), static_cast<quint32>(msgBytes.length() - sizeof(quint16)));
-#endif
 
     bool isValid = QLatin1String(latin1Name) == blockServerName &&
                    msgChecksum == actualChecksum;
@@ -525,12 +489,7 @@ void SingleApplicationPrivate::slotClientConnectionClosed( QLocalSocket *closedS
 
 void SingleApplicationPrivate::randomSleep()
 {
-#if QT_VERSION >= QT_VERSION_CHECK( 5, 10, 0 )
     QThread::msleep( QRandomGenerator::global()->bounded( 8u, 18u ));
-#else
-    qsrand( QDateTime::currentMSecsSinceEpoch() % std::numeric_limits<uint>::max() );
-    QThread::msleep( qrand() % 11 + 8);
-#endif
 }
 
 void SingleApplicationPrivate::addAppData(const QString &data)

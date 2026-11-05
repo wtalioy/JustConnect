@@ -127,8 +127,6 @@ else()
         PROPERTIES MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/resource/Info.plist")
 endif()
 
-set(QAPPLICATION_CLASS QApplication CACHE STRING "Inheritance class for SingleApplication")
-
 add_subdirectory(singleapplication)
 
 target_link_libraries(justconnect_desktop
