@@ -60,9 +60,7 @@ ConnectionUiController::ConnectionUiController(
       notificationHandler(std::move(notificationHandler)),
       officialClientProbe(officialClientProbe?std::move(officialClientProbe):[] {return isProcessRunning(QStringLiteral("aTrustAgent"));})
 {
-    connectButton->setText("连接服务器");
-    trayConnectAction->setText("连接服务器");
-    proxyButton->setText("设置系统代理");
+    refreshActions();
     proxyButton->hide();
 
     connect(connectionSession, &ConnectionSession::diagnostic, applicationLogger,
@@ -78,7 +76,7 @@ ConnectionUiController::ConnectionUiController(
     connect(shutdown,&ApplicationShutdown::ready,this,&ConnectionUiController::readyToQuit);
     connect(shutdown,&ApplicationShutdown::failed,this,&ConnectionUiController::quitFailed);
     connect(authenticationCache,&AuthenticationCacheCoordinator::warning,this,[this](const QString &message) {
-        this->notificationHandler("认证缓存未保存",message,QSystemTrayIcon::Warning);
+        this->notificationHandler(tr("Authentication cache was not saved"),message,QSystemTrayIcon::Warning);
     });
     connect(authenticationCache,&AuthenticationCacheCoordinator::forgotten,this,[this] { cacheCredentialsRequired=false; });
     connect(authenticationDialogs,&AuthDialogCoordinator::loginSubmitted,this,&ConnectionUiController::submitLogin);
@@ -89,7 +87,7 @@ ConnectionUiController::ConnectionUiController(
         &ConnectionSession::reconnectScheduled,
         this,
         [this](int delayMs) {
-            qInfo().noquote() << QString("重连 %1/%2，将在 %3 秒后尝试")
+            qInfo().noquote() << tr("Reconnect %1/%2 in %3 seconds")
                 .arg(this->connectionSession->reconnectAttempt()).arg(ConnectionSessionState::MaxReconnectAttempts).arg(delayMs / 1000.0);
         }
     );
@@ -99,13 +97,13 @@ ConnectionUiController::ConnectionUiController(
         this,
         [this](ConnectionError error)
         {
-            qInfo().noquote() << "VPN 断开！";
+            qInfo().noquote() << tr("VPN disconnected");
             if (quitting) return;
             if (error==ConnectionError::CREDENTIALS_REQUIRED && cacheCredentialsRequired && authenticationCache->source()
                 && sourceStillCurrent(*authenticationCache->source()) && CredentialAccess::matches(*authenticationCache->source(),*settings())) {
                 cacheCredentialsRequired=false;
                 promptSource=this->credentialSourceProvider();
-                this->connectButton->setText("连接服务器");this->trayConnectAction->setText("连接服务器");
+                refreshActions();
                 this->authenticationDialogs->requestLogin(promptSource->profile.credentials.username,{});
                 return;
             }
@@ -114,12 +112,11 @@ ConnectionUiController::ConnectionUiController(
             {
                 this->notificationHandler(
                     "VPN",
-                    "VPN 意外断开！",
+                    tr("VPN disconnected unexpectedly"),
                     QSystemTrayIcon::MessageIcon::Warning
                 );
             }
-            this->connectButton->setText("连接服务器");
-            this->trayConnectAction->setText("连接服务器");
+            refreshActions();
             this->proxyButton->hide();
             if (this->connectionSession->state() != ConnectionState::Interrupted)
             {
@@ -128,6 +125,7 @@ ConnectionUiController::ConnectionUiController(
         }
     );
     connect(connectionSession, &ConnectionSession::stateChanged, this, [this](ConnectionState state) {
+        refreshActions();
         if (state == ConnectionState::Running) {
             promptCredentials={};
             this->proxyButton->show();
@@ -138,14 +136,13 @@ ConnectionUiController::ConnectionUiController(
     });
     connect(connectionSession, &ConnectionSession::progressChanged, this, [this] {
         if (this->connectionSession->phase() != ConnectionPhase::NetworkRestoring) return;
-        const auto label=this->connectionSession->networkRecoveryFailed()?"重试恢复":"断开服务器";
-        this->connectButton->setText(label);
-        this->trayConnectAction->setText(label);
+        refreshActions();
         ++proxyGeneration;
         autoProxyPending = false;
         this->proxyButton->hide();
         this->systemProxySession->disable();
     });
+    connect(systemProxySession,&SystemProxySession::enabledChanged,this,[this]{refreshActions();});
     connect(systemProxySession,&SystemProxySession::busyChanged,this,[this](bool busy) {
         this->proxyButton->setEnabled(!busy && !this->systemProxySession->isAutomatic());
         // Deliver the old operation's result before starting the current session's request.
@@ -164,6 +161,20 @@ ConnectionUiController::ConnectionUiController(
         &ConnectionUiController::handleProxyClicked
     );
 
+}
+
+void ConnectionUiController::refreshActions()
+{
+    const auto action=connectionSession->networkRecoveryFailed()?tr("Retry recovery")
+        : connectionSession->state()==ConnectionState::Stopping?tr("Disconnecting…")
+        : connectionSession->state()==ConnectionState::Starting || connectionSession->state()==ConnectionState::Reconnecting?tr("Cancel")
+        : connectionSession->isActive()?tr("Disconnect")
+        : credentialsPending?tr("Cancel"):tr("Connect");
+    connectButton->setText(action);trayConnectAction->setText(action);
+    const bool enabled=!quitting && (connectionSession->state()!=ConnectionState::Stopping || connectionSession->networkRecoveryFailed());
+    connectButton->setEnabled(enabled);trayConnectAction->setEnabled(enabled);
+    proxyButton->setEnabled(!systemProxySession->isBusy() && !systemProxySession->isAutomatic());
+    proxyButton->setText(systemProxySession->needsCleanup()?tr("Clear system proxy"):tr("Set system proxy"));
 }
 
 QSettings *ConnectionUiController::settings() const
@@ -188,7 +199,7 @@ void ConnectionUiController::cancelPendingCredentials()
     ++credentialGeneration;credentialsPending=false;promptSource.reset();promptCredentials={};
     controllerSelection->cancel();
     authenticationDialogs->closeCredentialPrompts();
-    if (!connectionSession->isActive()) {connectButton->setText("连接服务器");trayConnectAction->setText("连接服务器");}
+    if (!connectionSession->isActive()) {refreshActions();}
 }
 void ConnectionUiController::handleConnectClicked()
 {
@@ -196,32 +207,32 @@ void ConnectionUiController::handleConnectClicked()
     if (connectionSession->isActive()) {cancelPendingCredentials();connectionSession->stop();return;}
     if (credentialsPending) {cancelPendingCredentials();return;}
     if (auto *modal=QApplication::activeModalWidget()) {modal->raise();modal->activateWindow();return;}
-    if (isConfigurationSaving()) {QMessageBox::information(parentWidget,"正在保存配置","请等待保存完成后再连接。");return;}
+    if (isConfigurationSaving()) {QMessageBox::information(parentWidget,tr("Saving profile"),tr("Wait for the save before connecting."));return;}
     cancelPendingCredentials();
     if (settings()->value("Common/NeedsConfiguration",false).toBool()) {
-        QMessageBox::warning(parentWidget,"配置需要更新","请选择 Fudan 或确认 Custom 的 aTrust 服务器后保存配置。");return;
+        QMessageBox::warning(parentWidget,tr("Profile needs updating"),tr("Choose a bundled profile or confirm your custom aTrust server, then save it."));return;
     }
-    if (settings()->value("JustConnect/ServerAddress").toString().isEmpty()) {QMessageBox::critical(parentWidget,"错误","服务器地址不能为空");return;}
+    if (settings()->value("JustConnect/ServerAddress").toString().isEmpty()) {QMessageBox::critical(parentWidget,tr("Error"),tr("The server address cannot be empty."));return;}
     if (ProfileService::load(*settings()).endpoint.authType.isEmpty()) {
-        QMessageBox::warning(parentWidget,"请选择认证方式","请在设置中确认认证方式；可从当前服务器获取可用列表。");return;
+        QMessageBox::warning(parentWidget,tr("Choose a sign-in method"),tr("Confirm a sign-in method in profile settings. You can query the available methods from your server."));return;
     }
     const auto source=credentialSourceProvider();const auto generation=credentialGeneration;
     if (!SettingsMigrator::readableFile(source.path)) {
-        QMessageBox::warning(parentWidget,"配置不可用","无法读取当前配置，请检查文件权限与内容后重新打开配置。");return;
+        QMessageBox::warning(parentWidget,tr("Profile unavailable"),tr("The current profile could not be read. Check file permissions and contents, then reopen it."));return;
     }
-    credentialsPending=true;connectButton->setText("取消连接");trayConnectAction->setText("取消连接");
+    credentialsPending=true;refreshActions();
     // The vendor's three desktop clients use aTrustAgent; this is advisory, never ownership or authentication evidence.
     QtConcurrent::run(officialClientProbe).then(this,[this,generation](std::optional<bool> running) {
         if(quitting || generation!=credentialGeneration)return;
         if(!running){qWarning()<<"Cannot inspect the official aTrust core process.";return;}
-        if(*running)notificationHandler("检测到官方 aTrust 正在运行",
-            "官方客户端可能与 JustConnect 的路由或 DNS 设置冲突。请先手动断开官方连接；JustConnect 不会结束它的进程。",QSystemTrayIcon::Warning);
+        if(*running)notificationHandler(tr("The official aTrust client is running"),
+            tr("Its routes or DNS may conflict with JustConnect. Disconnect it manually first. JustConnect will not terminate its processes."),QSystemTrayIcon::Warning);
     });
     credentials->load(source).then(this,[this,source,generation](const CredentialLoadResult &loaded) {
         if (generation!=credentialGeneration) return;
         if (!sourceStillCurrent(source) || (loaded.result.succeeded() && !CredentialAccess::matches(source,*settings()))) {cancelPendingCredentials();return;}
         if (!loaded.result.succeeded() && loaded.result.status!=CredentialStatus::NotFound) {
-            QMessageBox::warning(parentWidget,"无法读取已保存凭据",PresentationHelpers::credentialOperationMessage(loaded.result.status)+"\n本次仍可手动登录。");
+            QMessageBox::warning(parentWidget,tr("Saved credentials unavailable"),PresentationHelpers::credentialOperationMessage(loaded.result.status)+tr("\nYou can sign in manually for this connection."));
         }
         if (generation!=credentialGeneration || !sourceStillCurrent(source)) return;
         auto profile=ProfileService::load(*settings());
@@ -230,7 +241,7 @@ void ConnectionUiController::handleConnectClicked()
         if (profile.behavior.rememberAuthentication && !current.scope.isEmpty()) loadAuthenticationCache(current,profile,generation);
         else {
             credentialsPending=false;
-            connectButton->setText("连接服务器");trayConnectAction->setText("连接服务器");
+            refreshActions();
             requestConnection(current,profile,credentials->authenticationCacheRevision(current));
         }
     });
@@ -245,8 +256,8 @@ void ConnectionUiController::loadAuthenticationCache(const CredentialSource &sou
         credentialsPending=false;
         if (loaded.result.succeeded()) profile.authenticationCache=loaded.cache;
         else if (loaded.result.status!=CredentialStatus::NotFound)
-            notificationHandler("认证缓存未恢复",PresentationHelpers::credentialOperationMessage(loaded.result.status)+"\n本次将重新认证。",QSystemTrayIcon::Warning);
-        connectButton->setText("连接服务器");trayConnectAction->setText("连接服务器");
+            notificationHandler(tr("Authentication cache was not restored"),PresentationHelpers::credentialOperationMessage(loaded.result.status)+tr("\nYou will sign in again for this connection."),QSystemTrayIcon::Warning);
+        refreshActions();
         requestConnection(source,profile,loaded.revision);
     });
 }
@@ -288,13 +299,13 @@ void ConnectionUiController::submitManual(const CredentialSource &source,const C
     if (validation!=ConnectionError::NONE) {showConnectionError(validation);return;}
     if (!save) {const auto current=credentialSourceProvider();startConnection(profile,current,credentials->authenticationCacheRevision(current));return;}
     const auto generation=++credentialGeneration;
-    credentialsPending=true;connectButton->setText("取消连接");trayConnectAction->setText("取消连接");
+    credentialsPending=true;refreshActions();
     credentials->save(source,profile,updateCredentials,changes).then(this,[this,source,profile,generation](const CredentialResult &result) {
         if (generation!=credentialGeneration) return;
         credentialsPending=false;
         const bool sameFile=settings()->fileName()==source.path;
         if (!sameFile) {cancelPendingCredentials();return;}
-        if (!result.succeeded()) QMessageBox::warning(parentWidget,"未能记住登录信息",PresentationHelpers::credentialOperationMessage(result.status)+"\n本次仍可手动登录。");
+        if (!result.succeeded()) QMessageBox::warning(parentWidget,tr("Login details were not saved"),PresentationHelpers::credentialOperationMessage(result.status)+tr("\nYou can sign in manually for this connection."));
         if (generation!=credentialGeneration) return;
         const auto current=ProfileService::load(*settings());
         const auto expected=result.succeeded() ? profile.authenticationIdentity() : source.profile.authenticationIdentity();
@@ -334,7 +345,7 @@ void ConnectionUiController::handleProxyClicked()
     const int httpPort = http.host() == "127.0.0.1" ? http.port(0) : 0;
     const int socksPort = socks.host() == "127.0.0.1" ? socks.port(0) : 0;
     if (httpPort < 1 || socksPort < 1) {
-        QMessageBox::warning(parentWidget,"无法设置系统代理","设置系统代理需要同时启用本地 HTTP 和 SOCKS5 监听。请修改配置后重新连接。");
+        QMessageBox::warning(parentWidget,tr("Cannot set system proxy"),tr("Both local HTTP and SOCKS5 listeners are required. Update the profile and reconnect."));
         return;
     }
     const auto generation = ++proxyGeneration;
@@ -357,7 +368,7 @@ void ConnectionUiController::handleProxyClicked()
             if (!current()) return;
 
             if (!check.result.succeeded()) {
-                QMessageBox::warning(parentWidget, "无法检查系统代理", PresentationHelpers::platformOperationMessage(check.result));
+                QMessageBox::warning(parentWidget, tr("Cannot inspect system proxy"), PresentationHelpers::platformOperationMessage(check.result));
                 return;
             }
             const auto canApply = [&] { return current() && !systemProxySession->needsCleanup(); };
@@ -371,13 +382,12 @@ void ConnectionUiController::handleProxyClicked()
             {
                 QMessageBox messageBox(
                     QMessageBox::Warning,
-                    "警告",
-                    "当前已存在系统代理配置（可能是 Clash 或其它代理软件）\n"
-                    "是否覆盖当前系统代理配置？",
+                    tr("Warning"),
+                    tr("A system proxy is already configured (possibly Clash or another proxy application).\nReplace the current system proxy?"),
                     QMessageBox::Yes | QMessageBox::No,
                     parentWidget
                 );
-                auto *dontShowCheckBox = new QCheckBox("不再提示");
+                auto *dontShowCheckBox = new QCheckBox(tr("Do not ask again"));
                 messageBox.setCheckBox(dontShowCheckBox);
                 if (messageBox.exec() != QMessageBox::Yes || !canApply())
                 {
@@ -394,13 +404,13 @@ void ConnectionUiController::handleProxyClicked()
             }
             else if (conflict)
             {
-                qInfo().noquote() << "跳过系统代理覆盖警告，因为已设置了不再提示";
+                qInfo().noquote() << tr("System proxy replacement warning skipped by preference");
             }
 
             if (!canApply()) return;
             qInfo().noquote()
-                << "设置系统代理：HTTP端口 " + QString::number(httpPort)
-                       + "，SOCKS5 端口 " + QString::number(socksPort);
+                << tr("Set system proxy: HTTP port ") + QString::number(httpPort)
+                       + tr(", SOCKS5 port ") + QString::number(socksPort);
             systemProxySession->enable(proxyConfig);
         },
         Qt::SingleShotConnection
@@ -411,7 +421,7 @@ void ConnectionUiController::handleProxyClicked()
 void ConnectionUiController::startConnection(ConnectionProfile profile,const CredentialSource &source,quint64 revision)
 {
     const auto generation=credentialGeneration;
-    credentialsPending=true;connectButton->setText("取消连接");trayConnectAction->setText("取消连接");
+    credentialsPending=true;refreshActions();
     controllerSelection->choose([this,profile=std::move(profile),source,revision,generation](std::optional<QString> address) mutable {
         if (generation!=credentialGeneration || quitting) return;
         credentialsPending=false;
@@ -430,8 +440,7 @@ void ConnectionUiController::startConnection(ConnectionProfile profile,const Cre
             return;
         }
 
-        connectButton->setText("断开服务器");
-        trayConnectAction->setText("断开服务器");
+        refreshActions();
 
     });
 }
@@ -441,18 +450,18 @@ void ConnectionUiController::clearAuthenticationCache()
     if (quitting) return;
     const auto source=credentialSourceProvider();
     if (isConfigurationSaving()) {
-        QMessageBox::information(parentWidget,"正在保存配置","请等待保存完成后再清除认证缓存。");return;
+        QMessageBox::information(parentWidget,tr("Saving profile"),tr("Wait for the save before clearing authentication caches."));return;
     }
     if (ProfileCredentials::authenticationCacheKey(source.scope,source.profile).isEmpty()) {
-        QMessageBox::information(parentWidget,"认证缓存","当前配置尚无可清除的已绑定账户。");return;
+        QMessageBox::information(parentWidget,tr("Authentication cache"),tr("This profile has no bound account cache to clear."));return;
     }
     const auto account=source.profile.credentials.username.isEmpty() ? source.profile.endpoint.phone : source.profile.credentials.username;
-    QMessageBox confirm(QMessageBox::Question,"清除认证缓存",source.profile.endpoint.server+"\n清除 "+account+" 的认证缓存？下次连接可能需要重新认证，密码、TOTP 和其他账户保持不变。",QMessageBox::Yes|QMessageBox::No,parentWidget);
+    QMessageBox confirm(QMessageBox::Question,tr("Clear authentication cache"),source.profile.endpoint.server+tr("\nClear the authentication cache for ")+account+tr("? The next connection may require sign-in. Passwords, TOTP and other accounts are preserved."),QMessageBox::Yes|QMessageBox::No,parentWidget);
     confirm.setTextFormat(Qt::PlainText);confirm.setDefaultButton(QMessageBox::No);
     if (confirm.exec()!=QMessageBox::Yes) return;
     if (credentialsPending) cancelPendingCredentials();
     authenticationCache->clear(source).then(this,[this](const CredentialResult &result) {
-        if (!result.succeeded()) QMessageBox::warning(parentWidget,"认证缓存清除未完成",PresentationHelpers::credentialOperationMessage(result.status));
+        if (!result.succeeded()) QMessageBox::warning(parentWidget,tr("Authentication cache cleanup incomplete"),PresentationHelpers::credentialOperationMessage(result.status));
     });
 }
 
@@ -480,46 +489,46 @@ void ConnectionUiController::showConnectionError(ConnectionError error)
     switch (error)
     {
     case ConnectionError::PERMISSION_DENIED:
-        message="网络操作权限不足，请检查接口访问或授权结果后重试。";
+        message=tr("Network permission was denied. Check interface access or authorization, then retry.");
         break;
     case ConnectionError::SESSION_INVALID:
-        message="服务器已明确终止会话。请点击连接完成一次重新认证。";
+        message=tr("The server ended the session. Select Connect to sign in again.");
         break;
     case ConnectionError::CREDENTIALS_REQUIRED:
-        message="认证已失效或无法恢复，请输入登录凭据后重试。";
+        message=tr("Authentication expired or could not be restored. Enter your credentials and retry.");
         break;
     case ConnectionError::AUTHENTICATION_UNSUPPORTED:
-        message="服务器要求的后续认证步骤暂不支持，请联系管理员确认认证策略。";
+        message=tr("The next sign-in step is not supported. Ask your administrator to confirm the authentication policy.");
         break;
     case ConnectionError::AUTHENTICATION_CHANGED:
-        message = "认证方式已变化或不唯一，请重新获取并选择认证方式。";
+        message = tr("Sign-in methods changed or are ambiguous. Query and select the method again.");
         break;
     case ConnectionError::TLS_TRUST:
-        message="服务器证书不受信任或与地址不匹配。请检查服务器地址、系统时间和学校 CA。";
+        message=tr("The certificate is not trusted or does not match the server. Check the address, system time and campus CA.");
         break;
     case ConnectionError::TLS_PROTOCOL:
-        message="TLS 协议协商失败。请检查服务器端口与 TLS 兼容性。";
+        message=tr("TLS negotiation failed. Check the server port and TLS compatibility.");
         break;
     case ConnectionError::NETWORK_FAILED:
-        message="网络连接失败。请检查 DNS、网络与服务器地址。";
+        message=tr("The network connection failed. Check DNS, connectivity and the server address.");
         break;
     case ConnectionError::TIMED_OUT:
-        message="连接或认证操作超时，请重试。";
+        message=tr("The connection or sign-in timed out. Please retry.");
         break;
     case ConnectionError::CLIENT_FAILED:
-        message = "连接失败！\n可能是响应超时，请检查本地网络配置是否正常，服务器设置是否正确。";
+        message = tr("Connection failed. Check your network and server settings.");
         break;
     case ConnectionError::CORE_UNAVAILABLE:
-        message = "核心库不可用！\n请检查安装包是否完整及核心 ABI 是否匹配。";
+        message = tr("The core library is unavailable. Check that the package is complete and its ABI matches.");
         break;
     case ConnectionError::INVALID_CONFIGURATION:
-        message = "配置无效或含有当前核心不支持的旧选项。\n请使用 aTrust 和受支持的网络设置。";
+        message = tr("The profile is invalid or has unsupported legacy options. Use aTrust and supported network settings.");
         break;
     case ConnectionError::OTHER:
-        message = "其它错误！\n未知原因，可将日志反馈给开发者以便调查。";
+        message = tr("Unexpected error. Share the diagnostic log with the developer for investigation.");
         break;
     case ConnectionError::NONE:
         return;
     }
-    QMessageBox::critical(parentWidget, "错误", message);
+    QMessageBox::critical(parentWidget, tr("Error"), message);
 }

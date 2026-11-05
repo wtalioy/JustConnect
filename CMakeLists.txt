@@ -57,6 +57,8 @@ install(FILES "${CORE}/internal/ping/LICENSE"
 
 add_library(justconnect_desktop OBJECT
     infrastructure/process/terminationrequests.cpp
+    presentation/i18n/applicationlanguage.cpp
+    presentation/dialogs/applicationpreferences/applicationpreferencesdialog.cpp
     presentation/appearance/applicationappearance.cpp
     presentation/main/mainwindow.cpp
     presentation/main/mainwindowcoordinator.cpp
@@ -81,6 +83,11 @@ add_library(justconnect_desktop OBJECT
     infrastructure/settings/profilemanager.cpp
     resource.qrc
 )
+
+find_package(Qt6 REQUIRED COMPONENTS LinguistTools)
+qt_add_translations(justconnect_desktop
+    TS_FILES resource/translations/justconnect_zh_CN.ts
+    RESOURCE_PREFIX "/i18n")
 
 if(WIN32)
     target_sources(justconnect_desktop PRIVATE presentation/appearance/windows/backdrop.cpp)
@@ -190,6 +197,8 @@ if(BUILD_TESTING)
     target_link_libraries(mainwindow_test PRIVATE justconnect_desktop)
     justconnect_core_runtime(mainwindow_test justconnect_core)
     add_test(NAME mainwindow_test COMMAND mainwindow_test)
+    add_test(NAME mainwindow_chinese_startup_test COMMAND mainwindow_test --chinese-startup)
+    add_test(NAME mainwindow_invalid_language_test COMMAND mainwindow_test --invalid-language)
     add_test(NAME mainwindow_active_preferences_test COMMAND mainwindow_test --active-preferences)
     add_test(NAME mainwindow_close_exit_test COMMAND mainwindow_test --close-exits)
     add_test(NAME mainwindow_preferences_failure_test COMMAND mainwindow_test --preferences-failure)
@@ -201,7 +210,7 @@ if(BUILD_TESTING)
         add_test(NAME mainwindow_hangup_test COMMAND mainwindow_test --hangup)
         set_tests_properties(mainwindow_interrupt_test mainwindow_hangup_test mainwindow_external_signal_test PROPERTIES TIMEOUT 30 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     endif()
-    set_tests_properties(mainwindow_test mainwindow_active_preferences_test mainwindow_close_exit_test mainwindow_preferences_failure_test mainwindow_termination_test mainwindow_system_session_test PROPERTIES TIMEOUT 30 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    set_tests_properties(mainwindow_test mainwindow_chinese_startup_test mainwindow_invalid_language_test mainwindow_active_preferences_test mainwindow_close_exit_test mainwindow_preferences_failure_test mainwindow_termination_test mainwindow_system_session_test PROPERTIES TIMEOUT 30 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_executable(webengine_test tests/webengine_test.cpp)
     target_link_libraries(webengine_test Qt::WebEngineWidgets)
     add_test(NAME webengine_test COMMAND webengine_test)

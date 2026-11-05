@@ -57,6 +57,7 @@ public:
     );
 
     bool isConfigurationSaving() const;
+    void refreshActions();
     void cancelPendingCredentials();
     void clearAuthenticationCache();
     void prepareForQuit();

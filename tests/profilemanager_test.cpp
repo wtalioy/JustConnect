@@ -92,6 +92,19 @@ bool closeBehaviorIsGlobalAndFailedWritesRetainThePreference()
     return !ProfileManager(directory.path()).closeToTray() && manager.setCloseToTray(true) && ProfileManager(directory.path()).closeToTray();
 }
 
+bool languageAndClosePreferencesAreGlobalAndSavedTogether()
+{
+    QTemporaryDir directory;ProfileManager manager(directory.path());
+    if (manager.language()!="en" || !manager.setApplicationPreferences("zh_CN",false)) return false;
+    const auto profile=manager.createProfile("other");
+    if (profile.isEmpty() || !manager.setActiveProfile(profile) || ProfileManager(directory.path()).language()!="zh_CN" || manager.closeToTray()) return false;
+    const auto before=read(directory.filePath("state.ini"));
+    if (manager.setApplicationPreferences("unsupported",true) || read(directory.filePath("state.ini"))!=before) return false;
+    const auto state=directory.filePath("state.ini");const QByteArray broken="[broken";
+    {QFile file(state);if (!file.open(QIODevice::WriteOnly|QIODevice::Truncate) || file.write(broken)!=broken.size())return false;}
+    return !manager.setApplicationPreferences("en",true) && read(state)==broken;
+}
+
 bool controllerChoiceIsGlobalAndFailedWritesPreserveIt()
 {
     QTemporaryDir directory;ProfileManager manager(directory.path());
@@ -152,5 +165,5 @@ bool createsPhysicalFilesForEmptyProfiles()
 int main(int argc, char *argv[])
 {
     QCoreApplication application(argc, argv);
-    return controllerChoiceIsGlobalAndFailedWritesPreserveIt() && closeBehaviorIsGlobalAndFailedWritesRetainThePreference() && copiesOnlyPublicConfiguration() && createsPhysicalFilesForEmptyProfiles() && rejectsMalformedStateAndRecovers() ? 0 : 1;
+    return languageAndClosePreferencesAreGlobalAndSavedTogether() && controllerChoiceIsGlobalAndFailedWritesPreserveIt() && closeBehaviorIsGlobalAndFailedWritesRetainThePreference() && copiesOnlyPublicConfiguration() && createsPhysicalFilesForEmptyProfiles() && rejectsMalformedStateAndRecovers() ? 0 : 1;
 }

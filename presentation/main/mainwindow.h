@@ -53,10 +53,12 @@ signals:
 protected:
     void closeEvent(QCloseEvent *e) override;
     bool eventFilter(QObject *watched, QEvent *event) override;
+    void changeEvent(QEvent *event) override;
 
 
 private:
     bool exitReady=false;
+    bool viewsInitialized=false;
     void upgradeSettings();
     void showApplicationPreferences();
 

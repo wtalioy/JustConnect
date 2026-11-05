@@ -1,4 +1,5 @@
 #include "presentation/main/mainwindow.h"
+#include "presentation/i18n/applicationlanguage.h"
 #include "presentation/dialogs/networkpolicywindow.h"
 #include "presentation/dialogs/configurationguidedialog/configurationguidedialog.h"
 #include "application/applicationlogger.h"
@@ -30,6 +31,7 @@
 #include <QProcess>
 #include <QClipboard>
 #include <QStyleHints>
+#include <QLocale>
 #include <QFile>
 #ifdef Q_OS_UNIX
 #include <unistd.h>
@@ -55,7 +57,7 @@ static void recoveryStatus(ApplicationLogger &logger,ApplicationLogFile &log) {
     emit network->prepared(network->attempt,{PlatformOperationResult::Status::Failed,"fixture preparation failure",false});
     emit network->stopped(network->attempt,{PlatformOperationResult::Status::TimedOut,"fixture recovery timeout",true});
     auto *title=window.findChild<QLabel *>("statusTitleLabel");
-    check(title->text()=="网络恢复未完成" && session->isActive(),"unconfirmed recovery remains visible and active");
+    check(title->text()=="Recovery incomplete" && session->isActive(),"unconfirmed recovery remains visible and active");
     session->stop();
     bool errorShown=false;QTimer acknowledgeError;
     QObject::connect(&acknowledgeError,&QTimer::timeout,&window,[&]{
@@ -65,7 +67,7 @@ static void recoveryStatus(ApplicationLogger &logger,ApplicationLogFile &log) {
     });acknowledgeError.start(1);
     emit network->stopped(network->attempt,{});acknowledgeError.stop();
     check(!session->isActive() && session->state()==ConnectionState::Failed && errorShown
-        && title->text()=="已断开","confirmed recovery distinguishes released capture from its retained earlier error");
+        && title->text()=="Disconnected","confirmed recovery distinguishes released capture from its retained earlier error");
 }
 static void profileMenusDoNotAccumulateGroups(MainWindow &window,const QString &profile) {
     auto *menu=window.findChild<QMenu *>("profileMenu");
@@ -118,6 +120,35 @@ static void profileMenusDoNotAccumulateGroups(MainWindow &window,const QString &
     guide->reject();
 }
 
+static void changeLanguageFromSettings(MainWindow &window,const QString &language,bool save=true) {
+    window.findChild<QAction *>("preferencesAction")->trigger();
+    auto *dialog=window.findChild<QDialog *>("applicationPreferencesDialog");
+    auto *choice=dialog->findChild<QComboBox *>("languageComboBox");
+    check(choice && choice->findData(language)>=0,"settings expose the requested language");
+    if (ApplicationLanguage::instance().current()=="zh_CN")
+        check(dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->text().contains(QString::fromUtf8("保存")),"standard Qt dialog buttons use the selected Chinese translation");
+    choice->setCurrentIndex(choice->findData(language));
+    dialog->findChild<QDialogButtonBox *>()->button(save?QDialogButtonBox::Save:QDialogButtonBox::Cancel)->click();
+    QCoreApplication::processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    check(!window.findChild<QDialog *>("applicationPreferencesDialog"),"successful language save or cancel closes the settings dialog");
+}
+static void languagePreferences(MainWindow &window) {
+    auto *action=window.findChild<QPushButton *>("connectButton");
+    const auto initial=ProfileManager().language();
+    check(initial=="en" && ApplicationLanguage::instance().current()=="en" && action->text()=="Connect","a fresh application defaults to English");
+    changeLanguageFromSettings(window,"zh_CN",false);
+    check(ProfileManager().language()==initial && action->text()=="Connect","cancelled language selection cannot alter runtime or storage");
+    changeLanguageFromSettings(window,"zh_CN");
+    check(ApplicationLanguage::instance().current()=="zh_CN" && ProfileManager().language()=="zh_CN" && action->text()==QString::fromUtf8("连接")
+        && window.findChild<QSystemTrayIcon *>()->toolTip().contains(QString::fromUtf8("尚未连接")),"saving Chinese updates the existing main window and tray without recreating them");
+    window.findChild<QPushButton *>("detailsButton")->click();
+    auto *details=window.findChild<QDialog *>("detailsDialog");
+    check(details->isVisible() && details->windowTitle()==QString::fromUtf8("连接详情"),"subsequent details use the selected language");
+    changeLanguageFromSettings(window,"en");
+    check(details->isVisible() && details->windowTitle()=="Connection details" && action->text()=="Connect","switching back updates an already open details window");
+    details->reject();
+}
+
 static void nativeHome(MainWindow &window) {
     auto *details=window.findChild<QDialog *>("detailsDialog");
     auto *log=window.findChild<QPlainTextEdit *>("logPlainTextEdit");
@@ -167,6 +198,11 @@ int main(int argc,char **argv) {
     {
         ProfileManager manager;
         QSettings settings(manager.profilePath(""),QSettings::IniFormat);DefaultSettings::reset(settings);settings.sync();
+        if (app.arguments().contains("--chinese-startup")) check(manager.setApplicationPreferences("zh_CN",true),"prepare persisted Chinese preference");
+        if (app.arguments().contains("--invalid-language")) {
+            QSettings state(QDir(configRoot).filePath("state.ini"),QSettings::IniFormat);state.setValue("Global/Language","unsupported");state.sync();
+        }
+        QLocale::setDefault(QLocale(QLocale::Chinese,QLocale::China));
         QString menuProfile;
         if(app.arguments().size()==1) {
             menuProfile=manager.createProfile("menu-fixture",manager.profilePath(""));
@@ -176,8 +212,19 @@ int main(int argc,char **argv) {
         // UI preference tests retain the real core without requesting host network privileges.
         MainWindow window(&logger,&log,nullptr,[](CoreEngine *,NetworkPolicySession *) -> NetworkAccess * { return nullptr; });
         check(window.isVisible(),"normal startup must show the main window");
-        if (app.arguments().size()==1) {nativeHome(window);profileMenusDoNotAccumulateGroups(window,menuProfile);}
-        check(window.findChild<QLabel *>("statusTitleLabel")->text()!="已连接","disconnected cannot claim campus readiness");
+        if (app.arguments().contains("--chinese-startup")) {
+            check(ApplicationLanguage::instance().current()=="zh_CN" && window.findChild<QPushButton *>("connectButton")->text()==QString::fromUtf8("连接"),"a new process restores the saved Chinese preference");
+            changeLanguageFromSettings(window,"en");
+        }
+        if (app.arguments().contains("--invalid-language")) {
+            check(ApplicationLanguage::instance().current()=="en" && manager.language()=="unsupported","invalid preferences fall back to English without overwriting evidence");
+            window.findChild<QAction *>("preferencesAction")->trigger();
+            auto *invalid=window.findChild<QDialog *>("applicationPreferencesDialog");
+            bool explained=false;for (auto *label:invalid->findChildren<QLabel *>()) explained|=label->text().contains("saved language is invalid");
+            check(explained,"invalid language fallback is visible in settings");invalid->reject();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+        }
+        if (app.arguments().size()==1) {nativeHome(window);languagePreferences(window);profileMenusDoNotAccumulateGroups(window,menuProfile);}
+        check(window.findChild<QLabel *>("statusTitleLabel")->text()!="Connected","disconnected cannot claim campus readiness");
         window.showMinimized();QCoreApplication::processEvents();
         check(window.isVisible(),"minimization must not hide the only window");
         window.showNormal();window.close();QCoreApplication::processEvents();
@@ -207,8 +254,8 @@ int main(int argc,char **argv) {
             emit core->observation("renewal","succeeded",observedAt);
             emit core->observation("traffic","unavailable",observedAt);
             const auto detail=window.findChild<QLabel *>("statusDetailLabel")->text();
-            check(detail.contains("最近会话续期：成功") && detail.contains("最近流量保活（校园 DNS）：不可用")
-                && detail.contains("获授权") && detail.contains(observedAt.toLocalTime().toString(Qt::ISODate))
+            check(detail.contains("Last Session renewal: Succeeded") && detail.contains("Last Traffic keepalive (campus DNS): Unavailable")
+                && detail.contains("authorized") && detail.contains(observedAt.toLocalTime().toString(Qt::ISODate))
                 && window.findChild<QSystemTrayIcon *>()->toolTip().contains(detail),
                 "window and tray distinguish observed renewal from unavailable traffic probing and show its time");
         }
@@ -232,9 +279,9 @@ int main(int argc,char **argv) {
             const auto state=QDir(configRoot).filePath("state.ini");
             QFile input(state);check(input.open(QIODevice::ReadOnly),"read original preference");const auto original=input.readAll();input.close();
             check(QFile::remove(state) && QDir().mkdir(state),"inject isolated preference storage failure");
-            QTimer::singleShot(0,&app,[&]{for(auto *widget:app.topLevelWidgets()) if(auto *message=qobject_cast<QMessageBox *>(widget))message->accept();});
+            preferences->findChild<QComboBox *>("languageComboBox")->setCurrentIndex(1);
             preferences->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->click();
-            check(preferences->isVisible(),"failed preference save must keep the dialog open");
+            check(ApplicationLanguage::instance().current()=="en" && preferences->isVisible() && !preferences->findChild<QLabel *>("preferenceError")->text().isEmpty(),"failed preference save must keep the dialog open with an explicit error");
             check(QDir().rmdir(state),"remove isolated failure fixture");
             QFile restore(state);check(restore.open(QIODevice::WriteOnly) && restore.write(original)==original.size(),"restore original preference fixture");restore.close();
             preferences->reject();
@@ -246,6 +293,13 @@ int main(int argc,char **argv) {
         }
         QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
         if (activePreferences) {
+            const auto state=connection->state();
+            const auto source=manager.profilePath("");QFile profileFile(source);check(profileFile.open(QIODevice::ReadOnly),"read active public profile");
+            const auto unchanged=profileFile.readAll();profileFile.close();
+            changeLanguageFromSettings(window,"zh_CN");
+            check(connection->isActive() && connection->state()==state && window.findChild<QPushButton *>("connectButton")->text()==QString::fromUtf8("取消"),"language changes preserve an active pending connection and its cancel action");
+            changeLanguageFromSettings(window,"en");
+            check(profileFile.open(QIODevice::ReadOnly) && profileFile.readAll()==unchanged,"global language changes do not rewrite the school profile");profileFile.close();
             check(connection->isActive() && connection->state()==ConnectionState::Starting,"preference saves must not stop or restart the active session");
             connection->stop();
         }
