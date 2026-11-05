@@ -114,46 +114,48 @@ var waitNamedPipe = windows.NewLazySystemDLL("kernel32.dll").NewProc("WaitNamedP
 var tcpTable = windows.NewLazySystemDLL("iphlpapi.dll").NewProc("GetExtendedTcpTable")
 
 func OwnsTCP(ctx context.Context, p model.Process, target netip.AddrPort) bool {
-	if ctx.Err() != nil || !Valid(p) {
+	if ctx.Err() != nil || !target.IsValid() || !Valid(p) {
 		return false
 	}
 	// TCP_TABLE_OWNER_PID_LISTENER and MIB_TCP{,6}ROW_OWNER_PID from iprtrmib.h.
-	for _, family := range []uintptr{windows.AF_INET, windows.AF_INET6} {
-		var size uint32
-		status, _, _ := tcpTable.Call(0, uintptr(unsafe.Pointer(&size)), 0, family, 3, 0)
-		if status != uintptr(windows.ERROR_INSUFFICIENT_BUFFER) || size < 4 || size > 4<<20 {
-			continue
+	family := uintptr(windows.AF_INET)
+	if target.Addr().Unmap().Is6() {
+		family = windows.AF_INET6
+	}
+	var size uint32
+	status, _, _ := tcpTable.Call(0, uintptr(unsafe.Pointer(&size)), 0, family, 3, 0)
+	if status != uintptr(windows.ERROR_INSUFFICIENT_BUFFER) || size < 4 || size > 4<<20 {
+		return false
+	}
+	buffer := make([]byte, size)
+	status, _, _ = tcpTable.Call(uintptr(unsafe.Pointer(&buffer[0])), uintptr(unsafe.Pointer(&size)), 0, family, 3, 0)
+	if status != 0 || size > uint32(len(buffer)) || size < 4 {
+		return false
+	}
+	width := 24
+	if family == windows.AF_INET6 {
+		width = 56
+	}
+	count := binary.LittleEndian.Uint32(buffer[:4])
+	if uint64(count)*uint64(width) > uint64(size-4) {
+		return false
+	}
+	for at := 4; at < 4+int(count)*width; at += width {
+		row := buffer[at : at+width]
+		var address netip.Addr
+		var port uint16
+		var pid uint32
+		if family == windows.AF_INET {
+			address = netip.AddrFrom4([4]byte(row[4:8]))
+			port = binary.BigEndian.Uint16(row[8:10])
+			pid = binary.LittleEndian.Uint32(row[20:24])
+		} else {
+			address = netip.AddrFrom16([16]byte(row[:16]))
+			port = binary.BigEndian.Uint16(row[20:22])
+			pid = binary.LittleEndian.Uint32(row[52:56])
 		}
-		buffer := make([]byte, size)
-		status, _, _ = tcpTable.Call(uintptr(unsafe.Pointer(&buffer[0])), uintptr(unsafe.Pointer(&size)), 0, family, 3, 0)
-		if status != 0 || size > uint32(len(buffer)) || size < 4 {
-			continue
-		}
-		width := 24
-		if family == windows.AF_INET6 {
-			width = 56
-		}
-		count := binary.LittleEndian.Uint32(buffer[:4])
-		if uint64(count)*uint64(width) > uint64(size-4) {
-			continue
-		}
-		for at := 4; at < 4+int(count)*width; at += width {
-			row := buffer[at : at+width]
-			var address netip.Addr
-			var port uint16
-			var pid uint32
-			if family == windows.AF_INET {
-				address = netip.AddrFrom4([4]byte(row[4:8]))
-				port = binary.BigEndian.Uint16(row[8:10])
-				pid = binary.LittleEndian.Uint32(row[20:24])
-			} else {
-				address = netip.AddrFrom16([16]byte(row[:16]))
-				port = binary.BigEndian.Uint16(row[20:22])
-				pid = binary.LittleEndian.Uint32(row[52:56])
-			}
-			if pid == uint32(p.PID) && port == target.Port() && model.ListenerMatches(address, target.Addr()) {
-				return Valid(p)
-			}
+		if pid == uint32(p.PID) && port == target.Port() && model.ListenerMatches(address, target.Addr()) {
+			return Valid(p)
 		}
 	}
 	return false
