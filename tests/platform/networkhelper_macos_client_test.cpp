@@ -11,7 +11,9 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <iostream>
+#include <memory>
 #include <cstring>
+#include <dispatch/dispatch.h>
 #include <poll.h>
 #include <stdexcept>
 #include <sys/socket.h>
@@ -30,6 +32,15 @@ public:
 static void check(bool ok, const char *message) { if (!ok) throw std::runtime_error(message); }
 static void report(const QJsonObject &value) { std::cout << QJsonDocument(value).toJson(QJsonDocument::Compact).constData() << std::endl; }
 static const MacHelperConfiguration configuration{"198.18.0.1","198.18.0.2",1400,{"198.18.0.6/32"},{"campus.justconnect-fixture.test"}};
+struct WireReply {
+    dispatch_semaphore_t ready=dispatch_semaphore_create(0);
+    xpc_object_t value=nullptr;
+    ~WireReply() {if(value)xpc_release(value);dispatch_release(ready);}
+    void receive(xpc_object_t message) {
+        if(value)return;
+        value=xpc_retain(message);dispatch_semaphore_signal(ready);
+    }
+};
 static void checkOriginalView(const MacNetworkHelperClient &client)
 {
     const auto configuration = client.ownedConfiguration(); check(configuration.has_value(),"Confirmed configuration for original view");
@@ -107,8 +118,14 @@ int main(int argc,char **argv) try
         const bool routes = arguments[1] == "--wire-live-routes";
         const bool recover = arguments[1] == "--wire-foreign" || arguments[1] == "--wire-live" || extension || routes;
         check(arguments.size() == (recover ? 3 : 2),"Invalid wire boundary arguments");
-        const auto connection = xpc_connection_create_mach_service(MacHelperIdentifier,nullptr,XPC_CONNECTION_MACH_SERVICE_PRIVILEGED);
-        check(connection,"Create native XPC connection"); xpc_connection_set_event_handler(connection,^(xpc_object_t) {}); xpc_connection_resume(connection);
+        const auto queue=dispatch_queue_create("JustConnect.fixture.wire",DISPATCH_QUEUE_SERIAL);
+        const auto received=std::make_shared<WireReply>();
+        const auto connection = xpc_connection_create_mach_service(MacHelperIdentifier,queue,XPC_CONNECTION_MACH_SERVICE_PRIVILEGED);
+        check(connection,"Create native XPC connection");
+        xpc_connection_set_event_handler(connection,^(xpc_object_t event) {
+            if(xpc_get_type(event)==XPC_TYPE_ERROR)received->receive(event);
+        });
+        xpc_connection_resume(connection);
         const auto request = extension ? macHelperExtendRequest(QUuid(arguments[2]),QUuid::createUuid(),{"198.18.0.8"})
             : routes ? macHelperRoutesRequest(QUuid(arguments[2]),QUuid::createUuid(),{"198.18.0.8/32"})
             : recover ? macHelperRequest("recover",QUuid(arguments[2]),QUuid::createUuid())
@@ -122,7 +139,11 @@ int main(int argc,char **argv) try
                 "Negative fixture must not currently be authorized by system policy");
         }
         const auto message = macHelperMessage(request,-1,(arguments[1] == "--wire-invalid-auth" || ungranted) ? &external : nullptr);
-        const auto reply = xpc_connection_send_message_with_reply_sync(connection,message);
+        // Peer signature rejection can arrive on the connection instead of the reply channel.
+        xpc_connection_send_message_with_reply(connection,message,queue,^(xpc_object_t reply) {received->receive(reply);});
+        check(dispatch_semaphore_wait(received->ready,dispatch_time(DISPATCH_TIME_NOW,int64_t(MacHelperOperationTimeoutMs)*NSEC_PER_MSEC))==0,
+              "Native XPC boundary did not complete within the helper operation budget");
+        const auto reply=received->value;
         if (arguments[1] == "--wire-untrusted") check(xpc_get_type(reply) == XPC_TYPE_ERROR,"Untrusted signed identity received a privileged reply");
         else {
             MacHelperIdentity identity(MacHelperAppIdentifier,MacHelperIdentifier); QJsonObject response; int descriptor = -1;
@@ -135,7 +156,7 @@ int main(int argc,char **argv) try
                 "Signed client without administrator right changed the network or received a device");
         }
         if (ungranted) AuthorizationFree(ungranted,kAuthorizationFlagDefaults);
-        xpc_release(reply); xpc_release(message); xpc_connection_cancel(connection); xpc_release(connection);
+        xpc_release(message); xpc_connection_cancel(connection); xpc_release(connection);dispatch_release(queue);
         report({{"event","wire-denied"}}); return 0;
     }
     check(arguments.size() == 3 || arguments.size() == 4,"Invalid native client fixture arguments");
