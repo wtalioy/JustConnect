@@ -811,7 +811,9 @@ static void browserValidatesCallbackNavigation() {
     QObject::connect(dialog,&SsoLoginWebView::loginCompleted,[&](const QString &value){++responses;callback=value;});
     auto *address=dialog->findChild<QLineEdit *>("addressLineEdit");address->setText(base+"/passport/v1/auth/cas?ticket=fixture");
     check(QMetaObject::invokeMethod(address,"returnPressed"),"submit a main-frame callback from the address bar");until([&]{return responses==1;});
-    check(responses==1 && callback==base+"/passport/v1/auth/cas?ticket=fixture" && callbackRequests==0,"CAS uses its own exact callback path and ticket");delete dialog;
+    check(responses==1,"valid CAS callback is delivered once");
+    check(callback==base+"/passport/v1/auth/cas?ticket=fixture","CAS returns the exact callback path and ticket");
+    check(callbackRequests==0,"the CAS callback is intercepted before HTTP submission");delete dialog;
 }
 
 static void campusIntentsShareOneController() {
