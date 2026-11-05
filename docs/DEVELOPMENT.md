@@ -142,6 +142,8 @@ ctest --test-dir build/coreabi -C Release -R coreabi_performance_test --output-o
 
 ## Windows 网卡查询与 CPU 采样
 
+当前 Windows 基线：2026-11-05 用户用 `b2fbdb3`／Windows 11 26H2 确认代理先开／后开、连接中开关 TUN、校园网页／SSH／完整登录、Tailscale 直连、同窗重连与 CPU 观察全部正常。所附日志首次／复用接管 2480／38 ms，已记录断开 quiesce 53 ms、park 17 ms，59 个捕获前缀、7 个校园 DNS 范围；未提供新的量化 CPU／吞吐采样，不能从接管步骤推定完整登录耗时。关键证据 `build/reports/review-whole-repo/windows-manual.json`；下方旧样本保留测量来源与独有边界，不代表当前未解决项。
+
 A6 的 `da23405` 实机记录中，DNS Client 峰值 86.3%，新增／删除路由各一批后仍有高占用尾部；WPR CPU 栈约 92.7% 的累计样本经过 NDIS，未取得该系统版本的公开函数符号，不据此确认 DNR 内部缺陷。记录归 `build/reports/windows-dns-cpu-da23405/summary.json`，原始 ETL 保留在用户临时目录。
 
 原网卡快照由 `net.Interfaces` 加逐接口 `Addrs` 组成，Windows 上每次都会整机枚举并查询未使用的 DNS 元数据。当前改为一次原生查询，跳过 DNS 服务器与后缀信息；出口校验和原 DNS 监听准备复用这份读取，绑定 socket 则直接以别名查询 LUID／索引。[DNS 信息跳过标志](https://git.zx2c4.com/wireguard-windows/tree/tunnel/winipcfg/types.go)采用 WireGuard 同一平台固定值，不添加旧系统回退。正式 DNS 来源仍由 DNS 读取器完整收集，保持保护、恢复及观察频率。
@@ -197,7 +199,7 @@ Windows 原生设备基准使用同一固定官方签名 DLL：首次创建约 1
 Windows 使用精确 NRPT 名称及现有所有权恢复。双架构原生回归验证同一域名的精确解析、子域保持原来源、撤回后恢复原解析。原保护的命名空间仍按原策略，规则不增加 IP／域名授权。macOS／Linux 当前在应用代理和已有原生校园 DNS 范围内使用该规则，新域名的系统接管需验证操作系统后缀路由下的原解析保留。
 
 
-2026-11-05 Windows `8784409` 实测确认精确规则使 `zb.fudan.edu.cn` 正常返回内网地址及 HTTPS 200。后续登录域名 `id.fudan.edu.cn` 在系统、校园 DNS 和 Mihomo 真实查询中均为同一地址 `175.186.248.2`，命中 JustConnect 捕获时无法连接；同址绑定 WLAN 或经 Clash 的登录请求返回 HTTPS 200。仅断开 JustConnect、保持 Clash TUN 后，同址走原默认出口也返回 200。`77b96da` 根据配置中的外部认证域名验证原出口 TLS，只保留本次验证的 IPv4，重连时重新验证。三平台 Tests、六架构 ABI、实际包和源码通过，浏览器完整登录仍待新版确认。证据归 `build/reports/authentication-route-77b96da/`。
+2026-11-05 Windows `8784409` 实测确认精确规则使 `zb.fudan.edu.cn` 正常返回内网地址及 HTTPS 200。后续登录域名 `id.fudan.edu.cn` 在系统、校园 DNS 和 Mihomo 真实查询中均为同一地址 `175.186.248.2`，命中 JustConnect 捕获时无法连接；同址绑定 WLAN 或经 Clash 的登录请求返回 HTTPS 200。仅断开 JustConnect、保持 Clash TUN 后，同址走原默认出口也返回 200。`77b96da` 根据配置中的外部认证域名验证原出口 TLS，只保留本次验证的 IPv4，重连时重新验证。三平台 Tests、六架构 ABI、实际包和源码通过；2026-11-05 用户在 `b2fbdb3` 合并实测确认 `zb`／统一认证完整登录正常，Windows 阶段已收尾。证据归 `build/reports/authentication-route-77b96da/`。
 
 ## 数据包转发分配基线
 
@@ -229,7 +231,7 @@ A14 按应用／界面、认证与数据面、原生网络／DNS／权限恢复�
 
 本轮修复满容量 DNS 缓存不能刷新已有域名、HTTP 代理泄露代理凭据／逐跳头、SOCKS UDP 闲置目标不回收、正常命名 `state` 配置被隐藏四项问题；四项均先用针对性回归复现旧行为。解析缓存改用单锁类型化存储并删除 `go-cache` 依赖，饱和后仅在到期时回收；同机微基准满缓存拒绝写入约 31—35 µs→63 ns，命中保持几十纳秒，均零分配，仅代表该微基准。密码／短信／令牌复用同一 JSON 请求处理；HTTP 直接接入受管拨号器；数据报预算和转发归共有职责；Windows 监听归属只查询目标地址族，仍复核进程生命周期。无新增依赖、缓存后台线程或兼容开关。 SOCKS UDP 1.2 KB 回环转发约 7.9→8.3 µs／包，仍零分配；增加约 0.4 µs 的期限刷新开销以回收闲置资源，不将其记为提速。
 
-旧配置／恢复记录、原生权限与网络所有权验证、异步边界拷贝和有效失败／取消回归仍有现存调用，继续保留。Windows 双栈监听证明已在本机实际运行；整体校园吞吐、CPU 及代理／TUN 运行中切换按新包合并实测，macOS／Linux 桌面仍归 S8。源码、正式检查与包的最终状态见 [plan.md](../plan.md#当前验收基线)。
+旧配置／恢复记录、原生权限与网络所有权验证、异步边界拷贝和有效失败／取消回归仍有现存调用，继续保留。Windows 双栈监听证明已在本机实际运行；`b2fbdb3` 的 Windows 合并实测已由用户确认全部正常，A14 收尾。整体吞吐及量化 CPU 未新增测量，macOS／Linux 桌面仍归 S8。源码、正式检查与包的最终状态见 [plan.md](../plan.md#当前验收基线)。
 
 A8 从 `0684a4b` 起，按单个桌面用户及现有容量上限审查维护源码、实际调用方、构建／CI 和测试注册。产品代码按认证、分流／数据面、ABI、系统助手与 Qt 调用链复查；测试按独有行为、失败／取消、安全、恢复和平台契约核对，必要处深入夹具实现，不以文件数量或逐行形式验证代替运行证据。完整清单和本地原始证据归 `build/reports/review-0684a4b/`，交付版本及必需原生／实际包结果由 [plan.md](../plan.md#当前验收基线)维护。
 
