@@ -227,7 +227,14 @@ int main(int argc,char **argv) try
             chooseCampus(true);
         }
         auto lookup=QtConcurrent::run([]{return QHostInfo::fromName("campus.test");});until("complete system campus DNS lookup",[&]{return lookup.isFinished();});
-        const auto answer=lookup.result();check(answer.error()==QHostInfo::NoError && answer.addresses().contains(QHostAddress("198.18.0.7")),"ordinary Windows system DNS follows campus CNAME through the actual core");
+        const auto answer=lookup.result();
+        const bool campusResolved=answer.error()==QHostInfo::NoError && answer.addresses().contains(QHostAddress("198.18.0.7"));
+        if(!campusResolved){
+            QJsonArray addresses;for(const auto &address:answer.addresses())addresses.append(address.toString());
+            const QJsonObject failure{{"error",int(answer.error())},{"detail",answer.errorString()},{"addresses",addresses}};
+            std::cerr<<"system_campus_dns="<<QJsonDocument(failure).toJson(QJsonDocument::Compact).constData()<<'\n';
+        }
+        check(campusResolved,"ordinary Windows system DNS follows campus CNAME through the actual core");
         exerciseNativeTUNTraffic(QHostAddress("198.18.0.7"));
         exerciseNativeSSH(QHostAddress("198.18.0.7"));
         if(policyChanges)exerciseNonCampusNetworkTraffic();
