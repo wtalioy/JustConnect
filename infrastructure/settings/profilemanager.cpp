@@ -193,6 +193,17 @@ bool ProfileManager::setSilentStartEnabled(bool enabled) const
     return writeState(statePath,"Global/SilentStart",enabled);
 }
 
+QString ProfileManager::controllerAddress() const
+{
+    QSettings state(statePath,QSettings::IniFormat);
+    return state.value("Global/ControllerAddress").toString();
+}
+
+bool ProfileManager::setControllerAddress(const QString &address) const
+{
+    return writeState(statePath,"Global/ControllerAddress",address);
+}
+
 bool ProfileManager::closeToTray() const
 {
     QSettings state(statePath,QSettings::IniFormat);

@@ -292,3 +292,32 @@ func TestKeepAliveConfigurationBoundary(t *testing.T) {
 		t.Fatal("unknown probe mode accepted")
 	}
 }
+
+func TestControllerChoiceConfigurationIsLocalAndPure(t *testing.T) {
+	for _, address := range []string{"", "http://127.0.0.1:12345", "https://[::1]:12345"} {
+		var config map[string]any
+		if json.Unmarshal([]byte(configJSON), &config) != nil {
+			t.Fatal("fixture JSON")
+		}
+		config["network"] = map[string]any{"controller_address": address}
+		data, _ := json.Marshal(config)
+		parsed, status := ParseConfig(data)
+		if status != OK || parsed.Network.ControllerAddress != address {
+			t.Fatalf("local controller choice rejected: %s %v", address, status)
+		}
+		config["operation"] = "auth_methods"
+		data, _ = json.Marshal(config)
+		if _, status := ParseConfig(data); status != OK {
+			t.Fatal("authentication method lookup lost the selected controller", status)
+		}
+	}
+	for _, address := range []string{"http://192.0.2.1:12345", "http://secret@127.0.0.1:12345", "http://127.0.0.1:12345?secret=private"} {
+		var config map[string]any
+		_ = json.Unmarshal([]byte(configJSON), &config)
+		config["network"] = map[string]any{"controller_address": address}
+		data, _ := json.Marshal(config)
+		if _, status := ParseConfig(data); status != InvalidArgument {
+			t.Fatal("controller trust boundary accepted unsafe configuration", status)
+		}
+	}
+}

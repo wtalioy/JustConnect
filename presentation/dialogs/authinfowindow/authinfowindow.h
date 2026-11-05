@@ -7,6 +7,7 @@
 
 class CoreEngine;
 class AuthMethodsQuery;
+class ControllerSelectionCoordinator;
 
 class AuthInfoWindow : public QDialog
 {
@@ -28,6 +29,8 @@ protected:
 private:
 	Ui::AuthInfoWindow *ui;
     AuthMethodsQuery *query;
+    ControllerSelectionCoordinator *controllerSelection;
+    quint64 lookup = 0;
     bool preferOAuth = false;
     bool queryCompleted = false;
 };

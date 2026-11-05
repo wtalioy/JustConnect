@@ -1,6 +1,7 @@
 #include "connectionuicontroller.h"
 #include "application/networkpolicysession.h"
 #include "authenticationcachecoordinator.h"
+#include "controllerselectioncoordinator.h"
 #include "presentation/presentationhelpers.h"
 
 #include <QAction>
@@ -67,8 +68,9 @@ ConnectionUiController::ConnectionUiController(
     connect(connectionSession, &ConnectionSession::diagnostic, applicationLogger,
         [applicationLogger](const QString &code) { applicationLogger->appendCoreOutput("[core] " + code); });
     authenticationCache=new AuthenticationCacheCoordinator(connectionSession,credentials,this->credentialSourceProvider,this);
+    controllerSelection=new ControllerSelectionCoordinator(parentWidget,this);
     shutdown=new ApplicationShutdown(connectionSession,systemProxySession, [this] {
-        if (this->credentials->isBusy() || authenticationCache->isBinding()) return true;
+        if (this->credentials->isBusy() || authenticationCache->isBinding() || controllerSelection->isReading()) return true;
         if (this->networkPolicy && this->networkPolicy->isBusy()) return true;
         for (auto *query:this->parentWidget->findChildren<AuthMethodsQuery *>()) if (query->isActive()) return true;
         return false;
@@ -184,6 +186,7 @@ bool ConnectionUiController::isConfigurationSaving() const
 void ConnectionUiController::cancelPendingCredentials()
 {
     ++credentialGeneration;credentialsPending=false;promptSource.reset();promptCredentials={};
+    controllerSelection->cancel();
     authenticationDialogs->closeCredentialPrompts();
     if (!connectionSession->isActive()) {connectButton->setText("连接服务器");trayConnectAction->setText("连接服务器");}
 }
@@ -407,22 +410,30 @@ void ConnectionUiController::handleProxyClicked()
 
 void ConnectionUiController::startConnection(ConnectionProfile profile,const CredentialSource &source,quint64 revision)
 {
-    promptSource.reset();promptCredentials=profile.credentials;
-    profile=authenticationCache->prepare(std::move(profile),source,revision);
-    cacheCredentialsRequired=profile.endpoint.authType=="psw" && profile.credentials.password.isEmpty() && !profile.authenticationCache.data.isEmpty();
-    const ReconnectPolicy reconnectPolicy{
-        settings()->value("Common/AutoReconnect", false).toBool(),
-        qBound(1, settings()->value("Common/ReconnectTime", 1).toInt(), ConnectionSessionState::MaxReconnectDelayMs / 1000) * 1000
-    };
-    if (!connectionSession->start(profile, reconnectPolicy)
-        || !connectionSession->isActive())
-    {
-        return;
-    }
+    const auto generation=credentialGeneration;
+    credentialsPending=true;connectButton->setText("取消连接");trayConnectAction->setText("取消连接");
+    controllerSelection->choose([this,profile=std::move(profile),source,revision,generation](std::optional<QString> address) mutable {
+        if (generation!=credentialGeneration || quitting) return;
+        credentialsPending=false;
+        if (!address || !sourceStillCurrent(source)) { cancelPendingCredentials();return; }
+        profile.behavior.controllerAddress=*address;
+        promptSource.reset();promptCredentials=profile.credentials;
+        profile=authenticationCache->prepare(std::move(profile),source,revision);
+        cacheCredentialsRequired=profile.endpoint.authType=="psw" && profile.credentials.password.isEmpty() && !profile.authenticationCache.data.isEmpty();
+        const ReconnectPolicy reconnectPolicy{
+            settings()->value("Common/AutoReconnect", false).toBool(),
+            qBound(1, settings()->value("Common/ReconnectTime", 1).toInt(), ConnectionSessionState::MaxReconnectDelayMs / 1000) * 1000
+        };
+        if (!connectionSession->start(profile, reconnectPolicy)
+            || !connectionSession->isActive())
+        {
+            return;
+        }
 
-    connectButton->setText("断开服务器");
-    trayConnectAction->setText("断开服务器");
+        connectButton->setText("断开服务器");
+        trayConnectAction->setText("断开服务器");
 
+    });
 }
 
 void ConnectionUiController::clearAuthenticationCache()

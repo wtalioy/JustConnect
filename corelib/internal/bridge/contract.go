@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"github.com/wtalioy/JustConnect/corelib"
+	"github.com/wtalioy/JustConnect/corelib/internal/mihomo"
 	"github.com/wtalioy/JustConnect/corelib/policy"
 	"github.com/wtalioy/JustConnect/corelib/resolve"
 	"github.com/wtalioy/JustConnect/corelib/service"
@@ -87,15 +88,16 @@ type Config struct {
 		Data    []byte `json:"data,omitempty"`
 	} `json:"authentication_cache"`
 	Network struct {
-		Interface        string                     `json:"interface"`
-		AutoDetect       bool                       `json:"auto_detect"`
-		LocalDNS         string                     `json:"local_dns"`
-		SecondaryDNS     string                     `json:"secondary_dns"`
-		DNSCacheTTL      uint32                     `json:"dns_cache_ttl"`
-		DisableRemoteDNS bool                       `json:"disable_remote_dns"`
-		DomainDNSRules   string                     `json:"domain_dns_rules,omitempty"`
-		Language         string                     `json:"language"`
-		OriginalDNS      []resolve.OriginalDNSRoute `json:"original_dns,omitempty"`
+		ControllerAddress string                     `json:"controller_address,omitempty"`
+		Interface         string                     `json:"interface"`
+		AutoDetect        bool                       `json:"auto_detect"`
+		LocalDNS          string                     `json:"local_dns"`
+		SecondaryDNS      string                     `json:"secondary_dns"`
+		DNSCacheTTL       uint32                     `json:"dns_cache_ttl"`
+		DisableRemoteDNS  bool                       `json:"disable_remote_dns"`
+		DomainDNSRules    string                     `json:"domain_dns_rules,omitempty"`
+		Language          string                     `json:"language"`
+		OriginalDNS       []resolve.OriginalDNSRoute `json:"original_dns,omitempty"`
 	} `json:"network"`
 	KeepAlive struct {
 		Mode string `json:"mode"`
@@ -197,7 +199,7 @@ func ParseConfig(data []byte) (Config, Status) {
 		}
 		c.initialPolicy = &initial
 	}
-	if len(c.Network.Interface) > MaxInterfaceName || len(c.Network.Language) > MaxLanguage || !validDNS(c.Network.LocalDNS) {
+	if !mihomo.ValidateControllerAddress(c.Network.ControllerAddress) || len(c.Network.Interface) > MaxInterfaceName || len(c.Network.Language) > MaxLanguage || !validDNS(c.Network.LocalDNS) {
 		return Config{}, InvalidArgument
 	}
 	if c.Network.DomainDNSRules != "" {

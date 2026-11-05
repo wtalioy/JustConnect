@@ -1,4 +1,5 @@
 #include "application/connectionsession.h"
+#include "application/authmethodsquery.h"
 #include "application/networkprotection.h"
 #include "application/networkpolicysession.h"
 #include "presentation/dialogs/networkpolicywindow.h"
@@ -11,6 +12,7 @@
 #include "infrastructure/dns/dnssnapshot.h"
 #include "presentation/coordinators/authdialogcoordinator.h"
 #include "presentation/coordinators/connectionuicontroller.h"
+#include "presentation/coordinators/controllerselectioncoordinator.h"
 #include "presentation/dialogs/authinfowindow/authinfowindow.h"
 #include "presentation/dialogs/ssologinwebview/ssologinwebview.h"
 #include "coreabi/proxycheck.h"
@@ -18,6 +20,7 @@
 #include <QApplication>
 #include <QAction>
 #include <QCheckBox>
+#include <QComboBox>
 #include <QDialogButtonBox>
 #include <QElapsedTimer>
 #include <QJsonDocument>
@@ -601,7 +604,7 @@ static void quitWaitsForAuthenticationQueryWithoutBlockingTheGui() {
     ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,&access,
         [&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},[](const QString &,const QString &,QSystemTrayIcon::MessageIcon){},nullptr,noOfficialClient);
     auto *queryEngine=new QueryEngine;QPointer<QueryEngine> guarded=queryEngine;
-    auto *window=new AuthInfoWindow(&parent,queryEngine);window->fetchAuthInfo({});window->show();window->close();
+    auto *window=new AuthInfoWindow(&parent,queryEngine);window->fetchAuthInfo({});window->show();until([&]{return queryEngine->starts==1;});window->close();
     QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     check(guarded && guarded->stops==1,"closing a query cancels it without destroying its running thread");
     int ready=0;QObject::connect(&controller,&ConnectionUiController::readyToQuit,[&]{++ready;});
@@ -794,6 +797,65 @@ static void browserValidatesCallbackNavigation() {
     check(responses==1 && callback==base+"/passport/v1/auth/cas?ticket=fixture" && callbackRequests==0,"CAS uses its own exact callback path and ticket");delete dialog;
 }
 
+static void controllerSelectionContracts() {
+    QWidget parent;QTemporaryDir root;
+    const QJsonArray candidates{
+        QJsonObject{{"pid",101},{"name","Mihomo A"},{"endpoint","http://127.0.0.1:31001"}},
+        QJsonObject{{"pid",102},{"name","Mihomo B"},{"endpoint","http://127.0.0.1:31002"}}};
+    int reads=0;
+    ControllerSelectionCoordinator selection(&parent,&parent,root.path(),[&] {
+        ++reads;return EmbeddedCoreEngine::ControllerDiscovery{CoreEngine::RequestStatus::Success,candidates};
+    });
+    int callbacks=0;std::optional<QString> chosen;
+    selection.choose([&](std::optional<QString> address){++callbacks;chosen=std::move(address);});
+    until([&]{return parent.findChild<QDialog *>("controllerSelectionDialog")!=nullptr;});
+    auto *dialog=parent.findChild<QDialog *>("controllerSelectionDialog");
+    auto *choices=dialog->findChild<QComboBox *>("controllerChoices");
+    choices->setCurrentIndex(2);
+    dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+    check(callbacks==1 && chosen==QString("http://127.0.0.1:31002")
+        && ProfileManager(root.path()).controllerAddress()==*chosen,"multiple controllers require explicit selection and persist only the endpoint");
+    selection.choose([&](std::optional<QString> address){++callbacks;chosen=std::move(address);});
+    check(callbacks==2 && reads==1 && chosen==QString("http://127.0.0.1:31002"),"a stored choice does not repeat discovery or show a dialog");
+    QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    selection.choose([&](std::optional<QString> address){++callbacks;chosen=std::move(address);},true);
+    until([&]{return parent.findChild<QDialog *>("controllerSelectionDialog")!=nullptr;});
+    dialog=parent.findChild<QDialog *>("controllerSelectionDialog");choices=dialog->findChild<QComboBox *>("controllerChoices");
+    choices->setCurrentIndex(choices->count()-1);
+    auto *address=dialog->findChild<QLineEdit *>("controllerAddress");
+    check(address->isVisible(),"manual endpoint entry is visible on selection");
+    address->setText("http://secret@127.0.0.1:31003");
+    auto *save=dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok);save->click();
+    check(callbacks==2 && !dialog->findChild<QLabel *>("controllerError")->text().isEmpty()
+        && ProfileManager(root.path()).controllerAddress()=="http://127.0.0.1:31002","credentials in a manual URL cannot be saved or selected");
+    address->setText("https://[::1]:31003");save->click();
+    check(callbacks==3 && chosen==QString("https://[::1]:31003"),"valid manual local endpoints use shared core validation");
+    QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    selection.choose([&](std::optional<QString> address){++callbacks;chosen=std::move(address);},true);
+    until([&]{return parent.findChild<QDialog *>("controllerSelectionDialog")!=nullptr;});
+    dialog=parent.findChild<QDialog *>("controllerSelectionDialog");choices=dialog->findChild<QComboBox *>("controllerChoices");
+    choices->setCurrentIndex(1);
+    const auto statePath=QDir(root.path()).filePath("state.ini");
+    QFile state(statePath);check(state.open(QIODevice::WriteOnly|QIODevice::Truncate),"prepare an unreadable preference file");
+    state.write("[broken");state.close();
+    dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+    check(callbacks==3 && !dialog->findChild<QLabel *>("controllerError")->text().isEmpty(),"failed preference save cannot start a connection or report success");
+    selection.cancel();check(callbacks==4 && !chosen,"failed save can be cancelled");
+    QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    QTemporaryDir queuedRoot;QSemaphore entered,release;std::atomic<int> queuedReads=0;
+    ControllerSelectionCoordinator queued(&parent,&parent,queuedRoot.path(),[&] {
+        if (++queuedReads==1) {entered.release();release.acquire();return EmbeddedCoreEngine::ControllerDiscovery{CoreEngine::RequestStatus::Success,candidates};}
+        return EmbeddedCoreEngine::ControllerDiscovery{CoreEngine::RequestStatus::Success,{}};
+    });
+    int cancelled=0,newResult=0;
+    queued.choose([&](std::optional<QString> address){check(!address,"cancelled discovery has no selected endpoint");++cancelled;});
+    until([&]{return entered.available()==1;});entered.acquire();queued.cancel();
+    queued.choose([&](std::optional<QString> address){check(address && address->isEmpty(),"new discovery uses its own empty candidate result");++newResult;});
+    release.release();until([&]{return newResult==1;});
+    check(cancelled==1 && queuedReads==2 && ProfileManager(queuedRoot.path()).controllerAddress().isEmpty(),"late cancelled discovery cannot select or persist a new request's controller");
+}
+
 static void uiContracts() {
     QWidget parent;
     AuthDialogCoordinator dialogs(&parent);
@@ -851,12 +913,22 @@ static void uiContracts() {
         challenge(parent)->close();
         check(responses == before + 1 && submitted["action"] == "cancel", "closing external login cancels once");
     }
+    auto *selectedEngine=new QueryEngine;
+    AuthMethodsQuery selectedQuery(selectedEngine);
+    ConnectionProfile selectedProfile;selectedProfile.endpoint.server="query.example.invalid";
+    selectedProfile.behavior.controllerAddress="http://127.0.0.1:31002";
+    selectedProfile.credentials.password="private";selectedProfile.authenticationCache={"private-account","private-cache"};
+    check(selectedQuery.start(selectedProfile) && selectedEngine->profile.behavior.controllerAddress==selectedProfile.behavior.controllerAddress
+        && selectedEngine->profile.credentials.password.isEmpty() && selectedEngine->profile.authenticationCache.data.isEmpty(),
+        "authentication queries preserve the selected controller while removing credentials and cached sessions");
+    selectedQuery.stop();emit selectedEngine->finished(ConnectionError::NONE);
     auto *fake = new QueryEngine;
     auto *query = new AuthInfoWindow(&parent, fake);
     ConnectionProfile queryProfile; queryProfile.endpoint.server="vpn.example.invalid"; queryProfile.endpoint.port=8443;
     queryProfile.credentials.password="must-not-be-queried"; queryProfile.tls={false,"query CA"};
     queryProfile.behavior.rememberAuthentication=true;queryProfile.authenticationCache={"private-account","private-cache"};
     query->fetchAuthInfo(queryProfile);
+    until([&]{return fake->starts==1;});
     check(fake->operation == CoreEngine::Operation::AuthMethods && fake->profile.endpoint.port == 8443 && fake->profile.credentials.password.isEmpty()
         && fake->profile.authenticationCache.data.isEmpty() && fake->profile.authenticationCache.account.isEmpty() && !fake->profile.behavior.rememberAuthentication
         && !fake->profile.tls.verify && fake->profile.tls.caPem=="query CA",
@@ -881,6 +953,7 @@ static void uiContracts() {
     auto *fudan = new AuthInfoWindow(&parent,fudanEngine);
     queryProfile.endpoint.server="configured.example.invalid"; queryProfile.endpoint.port=443;
     fudan->fetchAuthInfo(queryProfile,true);
+    until([&]{return fudanEngine->starts==1;});
     emit fudanEngine->authMethodsReady({
         QJsonObject{{"type","auth/psw"},{"name","Password"}},
         QJsonObject{{"type","auth/httpsOauth2"},{"name","Other OAuth2"},{"domain","other"}},
@@ -895,7 +968,7 @@ static void uiContracts() {
     fudan->reject(); QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     auto *cancelEngine=new QueryEngine;
     auto *cancelled=new AuthInfoWindow(&parent,cancelEngine);
-    cancelled->fetchAuthInfo(queryProfile); cancelled->reject();
+    cancelled->fetchAuthInfo(queryProfile);until([&]{return cancelEngine->starts==1;}); cancelled->reject();
     emit cancelEngine->authMethodsReady({QJsonObject{{"type","auth/psw"},{"domain","late"}}});
     emit cancelEngine->finished(ConnectionError::NONE);
     check(cancelled->findChild<QListWidget *>()->count()==0,"closed query rejects late results");
@@ -903,6 +976,7 @@ static void uiContracts() {
     auto *failedEngine=new QueryEngine;
     auto *failed=new AuthInfoWindow(&parent,failedEngine);
     failed->fetchAuthInfo(queryProfile);
+    until([&]{return failedEngine->starts==1;});
     emit failedEngine->authMethodsReady({QJsonObject{{"type","auth/psw"}}});
     emit failedEngine->finished(ConnectionError::CLIENT_FAILED);
     check(failed->findChild<QListWidget *>()->count()==0 && !failed->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->isEnabled(),"failed cleanup discards partial query results");
@@ -1279,5 +1353,5 @@ int main(int argc, char **argv) {
         qputenv("QT_QUICK_BACKEND", "software");
     QApplication app(argc, argv);
     if (argc == 3 && QByteArray(argv[1]) == "--gateway") gateway(QJsonDocument::fromJson(argv[2]).object());
-    else { failedNetworkRecoveryOffersRetryWhileCoreStops(); browserCookiesStayInLoginDialog(); browserValidatesCallbackNavigation(); uiContracts(); proxyWaitsForReady(); manualCredentialsAndLateResults(); authenticationCacheLifecycle(); onlineExpiryOffersOneReauthentication(); officialClientWarningIsReadOnlyAndDropsCancelledResults(); authenticationSurvivesTunnelFailure(); quitWaitsForInitialSsoCache(); quitWaitsForAuthenticationQueryWithoutBlockingTheGui(); quitWaitsForNetworkInspectionWithoutBlockingTheGui(); }
+    else { controllerSelectionContracts(); failedNetworkRecoveryOffersRetryWhileCoreStops(); browserCookiesStayInLoginDialog(); browserValidatesCallbackNavigation(); uiContracts(); proxyWaitsForReady(); manualCredentialsAndLateResults(); authenticationCacheLifecycle(); onlineExpiryOffersOneReauthentication(); officialClientWarningIsReadOnlyAndDropsCancelledResults(); authenticationSurvivesTunnelFailure(); quitWaitsForInitialSsoCache(); quitWaitsForAuthenticationQueryWithoutBlockingTheGui(); quitWaitsForNetworkInspectionWithoutBlockingTheGui(); }
 }

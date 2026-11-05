@@ -23,6 +23,10 @@ public:
     void acknowledgeDNSRoutes(const QString &generation, const QString &request, bool applied) override;
     void prepareOriginalDNS(const QString &generation, const QJsonArray &sources) override;
     static ConnectionError validateConfiguration(const ConnectionProfile &profile);
+    struct ControllerDiscovery { RequestStatus status = RequestStatus::Unavailable; QJsonArray candidates; };
+    // Blocking read-only query; call from a worker.
+    static ControllerDiscovery discoverControllers();
+    static bool validControllerAddress(const QString &address);
     static QJsonObject buildInfo();
     static QJsonObject selfTest();
 

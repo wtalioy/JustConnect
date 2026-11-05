@@ -62,6 +62,7 @@ add_library(justconnect_desktop OBJECT
     presentation/coordinators/authdialogcoordinator.cpp
     presentation/coordinators/authenticationcachecoordinator.cpp
     presentation/coordinators/connectionuicontroller.cpp
+    presentation/coordinators/controllerselectioncoordinator.cpp
     presentation/dialogs/networkpolicywindow.cpp
     infrastructure/logging/applicationlogfile.cpp
     infrastructure/settings/credentialaccess.cpp
@@ -163,6 +164,7 @@ if(BUILD_TESTING)
             presentation/widgets/serversettingswidget.cpp
             presentation/dialogs/settingwindow/settingwindow.cpp
             presentation/dialogs/authinfowindow/authinfowindow.cpp
+            presentation/coordinators/controllerselectioncoordinator.cpp
             presentation/presentationhelpers.cpp
             infrastructure/settings/profilemanager.cpp
             infrastructure/storage/applicationpaths.cpp infrastructure/settings/credentialaccess.cpp)
@@ -284,7 +286,9 @@ if(BUILD_TESTING)
         presentation/presentationhelpers.cpp
         presentation/widgets/serversettingswidget.cpp
         presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp
-        presentation/dialogs/authinfowindow/authinfowindow.cpp)
+        presentation/dialogs/authinfowindow/authinfowindow.cpp
+        presentation/coordinators/controllerselectioncoordinator.cpp
+        infrastructure/settings/profilemanager.cpp)
     target_include_directories(configurationguidedialog_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(configurationguidedialog_test
         justconnect_engine
