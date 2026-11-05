@@ -5,7 +5,6 @@ go 1.27.2
 require (
 	github.com/miekg/dns v1.1.72
 	github.com/mythologyli/sing-tun v0.0.0-20260201144630-c04d9db95dc7
-	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/pquerna/otp v1.5.0
 	github.com/sagernet/netlink v0.0.0-20240916134442-83396419aa8b
 	github.com/sagernet/sing v0.7.18
