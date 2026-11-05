@@ -68,7 +68,6 @@ MainWindow::MainWindow(
     connect(coordinator->diagnostics(),&ConnectionDiagnostics::changed,this,[this]{if(ui->detailsDialog->isVisible())updateDiagnostics();});
     connect(ui->refreshDiagnosticsButton,&QPushButton::clicked,this,[this]{coordinator->networkPolicy()->refresh();updateDiagnostics();});
     connect(ui->copyDiagnosticsButton,&QPushButton::clicked,this,[this]{QApplication::clipboard()->setText(QApplication::applicationVersion()+"\n"+coordinator->diagnostics()->report());});
-    connect(ui->closeButton,&QPushButton::clicked,this,&QWidget::close);
 #ifdef Q_OS_MACOS
     const QMargins centralMargins = ui->centralWidget->contentsMargins();
     ui->centralWidget->setContentsMargins(centralMargins.left(), 12, centralMargins.right(), centralMargins.bottom());
@@ -559,7 +558,8 @@ void MainWindow::updateProfileSummary()
     const QString profileName = currentProfileId.isEmpty()
         ? tr("Default")
         : currentProfileId;
-    const QString protocol = "aTrust · " + settings->value("JustConnect/ProfileKind","Custom").toString();
+    const auto kind = settings->value("JustConnect/ProfileKind","Custom").toString();
+    const QString protocol = "aTrust · " + kind;
     const QString server = settings->value(
         "JustConnect/ServerAddress"
     ).toString().trimmed();
@@ -567,7 +567,12 @@ void MainWindow::updateProfileSummary()
     QStringList details{protocol};
     details.append(server.isEmpty() ? tr("No server configured") : server);
 
-    ui->profileMenuButton->setText(profileName);
+    const auto school = kind == "Custom" ? server : kind;
+    auto caption = school.isEmpty() ? profileName : school;
+    if (!school.isEmpty() && !currentProfileId.isEmpty() && profileName != school)
+        caption += QStringLiteral(" · ") + profileName;
+    ui->profileMenuButton->setText(caption);
+    ui->profileMenuButton->setAccessibleName(tr("Connection profile: %1").arg(caption));
     ui->profileMenuButton->setToolTip(profileName+"\n"+server);
     ui->profileDetailLabel->setText(details.join(QStringLiteral(" · ")));
 }

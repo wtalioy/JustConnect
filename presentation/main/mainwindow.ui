@@ -199,41 +199,10 @@
      </spacer>
     </item>
     <item>
-     <layout class="QHBoxLayout" name="footerLayout">
-      <item>
-       <widget class="QPushButton" name="detailsButton">
-        <property name="text">
-         <string>Details</string>
-        </property>
-        <property name="flat">
-         <bool>true</bool>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <spacer name="footerSpacer">
-        <property name="orientation">
-         <enum>Qt::Horizontal</enum>
-        </property>
-        <property name="sizeHint">
-         <size>
-          <width>0</width>
-          <height>0</height>
-         </size>
-        </property>
-       </spacer>
-      </item>
-      <item>
-       <widget class="QPushButton" name="closeButton">
-        <property name="text">
-         <string>Close</string>
-        </property>
-        <property name="flat">
-         <bool>true</bool>
-        </property>
-       </widget>
-      </item>
-     </layout>
+     <widget class="QPushButton" name="detailsButton">
+      <property name="text"><string>Details</string></property>
+      <property name="flat"><bool>true</bool></property>
+     </widget>
     </item>
    </layout>
    <widget class="QDialog" name="detailsDialog">
@@ -574,6 +543,5 @@
   <tabstop>profileMenuButton</tabstop>
   <tabstop>connectButton</tabstop>
   <tabstop>detailsButton</tabstop>
-  <tabstop>closeButton</tabstop>
  </tabstops>
 </ui>
