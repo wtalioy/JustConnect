@@ -794,7 +794,8 @@ static void browserValidatesCallbackNavigation() {
     check(!logs.contains("private-console-token"),"identity provider console output cannot enter application logs");
     auto *warning=dialog->findChild<QLabel *>("navigationWarningLabel");
     for (const auto &path:QStringList{"/passport/v1/auth/httpsOauth2?code=a&code=b","/passport/v1/auth/httpsOauth2?code=fixture#fragment"}) {
-        visit(path);check(responses==0 && warning->isVisible() && callbackRequests==0,"ambiguous, fragment or other-method callbacks remain rejected");
+        visit(path);until([&]{return warning->isVisible() || responses>0;});
+        check(responses==0 && warning->isVisible() && callbackRequests==0,"ambiguous, fragment or other-method callbacks remain rejected");
     }
     dialog->setInitialUrl(QUrl(base+"/passport/v1/auth/cas?ticket=wrong-kind"));
     check(responses==0 && warning->isVisible() && callbackRequests==0,"another authentication method is rejected before loading");

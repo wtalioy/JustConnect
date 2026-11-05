@@ -188,13 +188,12 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &callbackUrl,const TlsOp
                                     if(SUCCEEDED(status))status=event->put_Response(response.Get());
                                     if(FAILED(status)){self->native->controller->Close();fail();return status;}
                                     if(callback) {
-                                        ComPtr<ICoreWebView2HttpRequestHeaders> headers;request->get_Headers(&headers);LPWSTR destination=nullptr;
-                                        if(headers)headers->GetHeader(L"Sec-Fetch-Dest",&destination);
-                                        // Sec-Fetch-Dest is browser-generated; iframe and script requests cannot complete sign-in.
-                                        const bool main=takeString(destination)=="document";
+                                        COREWEBVIEW2_WEB_RESOURCE_CONTEXT context;
+                                        const bool document=SUCCEEDED(event->get_ResourceContext(&context)) && context==COREWEBVIEW2_WEB_RESOURCE_CONTEXT_DOCUMENT;
+                                        // Only a recorded main-frame navigation supplies the callback, including its fragment.
                                         const auto original=self->native->callbackNavigation;
-                                        qCDebug(browserLog)<<"callback resource"<<main<<bool(original);
-                                        if(main && original && target.query(QUrl::FullyEncoded)==original->query(QUrl::FullyEncoded)) {
+                                        qCDebug(browserLog)<<"callback resource"<<document<<bool(original);
+                                        if(document && original && target.query(QUrl::FullyEncoded)==original->query(QUrl::FullyEncoded)) {
                                             self->native->callbackNavigation.reset();
                                             QTimer::singleShot(0,self,[self,navigation,original]{if(self)navigation(*original,true);});
                                         }
