@@ -111,7 +111,7 @@ S2-03 将 TLS 信任策略收敛到会话配置，查询用例只复制端点与
 
 基础设施同样按职责分组：`autostart`、`credentialstore`、`systemproxy`、`dns`、`tundevice`、`routing`、`networkhelper`、`networkaccess`、`networkjournal`、`networkaddress` 和 `process`。模块根目录维护共有端口适配、校验／生命周期和真实共有的 Unix／POSIX 逻辑；系统私有实现放在模块内的 `macos`／`windows`，显式不支持的端口仍返回 Unsupported。`cmake/SystemIntegration.cmake` 组合现有能力并按目标系统选择实现，主应用与原生测试复用同一入口；macOS 授权服务的源码／签名／安装契约保持原有职责，不另建兼容层。
 
-macOS 的 `MacTunDevice` 统一维护所属 fd、设备名／索引及完整连接 UUID，分配并回读后才交付：macOS 由内核自动分配新 utun，核对四字节地址族帧模式，均不附着已有设备。失败关闭私有 fd，回读未确认时保守报告可能已修改；共享隔离测试核对 fd 所有权、普通用户收发和正常／强杀清理。测试程序不安装为助手；macOS 主应用会话均已接入正式 Go／TUN／DNS 数据面；macOS 完整矩阵及 Mac 双架构原生检查已通过，真实桌面验收状态见[权限入口](#正式权限助手入口)和计划。运行中模型协调须结合后端所有权排除自身 TUN／路由，不能把本软件的捕获范围重新当作原网络保护目标。验证状态及剩余范围见[设备记录](CORELINK-PROBE.md#设备与权限边界)。
+macOS 的 `MacTunDevice` 统一维护所属 fd、设备名／索引及完整连接 UUID，分配并回读后才交付：macOS 由内核自动分配新 utun，核对四字节地址族帧模式，均不附着已有设备。失败关闭私有 fd，回读未确认时保守报告可能已修改；共享隔离测试核对 fd 所有权、普通用户收发和正常／强杀清理。测试程序不安装为助手；macOS 主应用会话均已接入正式 Go／TUN／DNS 数据面；macOS 完整矩阵及 Mac 双架构原生检查已通过，真实桌面验收状态见[macOS 捕获与恢复](#macos-捕获路由)和计划。运行中模型协调须结合后端所有权排除自身 TUN／路由，不能把本软件的捕获范围重新当作原网络保护目标。验证状态及剩余范围见[设备记录](CORELINK-PROBE.md#设备与权限边界)。
 
 ### Wintun 唤醒适配
 
