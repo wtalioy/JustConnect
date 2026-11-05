@@ -219,6 +219,24 @@ class VerifyPackageTest(unittest.TestCase):
                         package.check_signin_browser(root, probe, probe, {})
             self.assertEqual(list(root.glob('*.exe')), [probe])
 
+    def test_macos_browser_probe_does_not_write_the_mounted_bundle(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder) / 'JustConnect.app'
+            executable = root / 'Contents/MacOS/JustConnect'
+            probe = Path(folder) / 'native-probe'
+            probe.write_bytes(b'probe fixture')
+            def run(*args, **kwargs):
+                self.assertFalse(Path(args[0]).is_relative_to(root))
+                self.assertEqual(Path(args[0]).read_bytes(), probe.read_bytes())
+                env = kwargs['env']
+                self.assertEqual(env['QT_QPA_PLATFORM'], 'cocoa')
+                self.assertEqual(Path(env['DYLD_FRAMEWORK_PATH']), root / 'Contents/Frameworks')
+                self.assertEqual(Path(env['QT_QPA_PLATFORM_PLUGIN_PATH']), root / 'Contents/PlugIns/platforms')
+                return ''
+            with patch.object(package.sys, 'platform', 'darwin'), patch.object(package, 'run', side_effect=run):
+                self.assertEqual(package.check_signin_browser(root, executable, probe, {}), 'WKWebView')
+            self.assertFalse(root.exists())
+
     def test_failed_native_command_preserves_utf8_diagnostics(self):
         with self.assertRaisesRegex(RuntimeError, '签名失败'):
             package.run(sys.executable, '-c',
