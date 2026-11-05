@@ -77,6 +77,7 @@ struct SignInBrowser::Native {
     QUrl current,pending;
     QString html;
     std::optional<UINT64> navigation;
+    std::optional<QUrl> callbackNavigation;
     bool htmlPending=false,certificatePending=false,failed=false;
     HRESULT apartment=CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED);
     void resize(HWND window) {if(controller){RECT bounds{};GetClientRect(window,&bounds);controller->put_Bounds(bounds);}}
@@ -115,26 +116,26 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &callbackUrl,const TlsOp
                         if (FAILED(status) || !controller) {fail();return S_OK;}
                         auto *state=self->native.get();state->controller=controller;
                         if (FAILED(controller->get_CoreWebView2(&state->view))) {fail();return S_OK;}
-                        ComPtr<ICoreWebView2_14> certificates;
-                        if (FAILED(state->view.As(&certificates))) {fail();return S_OK;}
+                        ComPtr<ICoreWebView2_22> modernView;
+                        if (FAILED(state->view.As(&modernView))) {fail();return S_OK;}
                         ComPtr<ICoreWebView2Settings> settings;state->view->get_Settings(&settings);
                         if (!settings || FAILED(settings->put_AreDevToolsEnabled(FALSE)) || FAILED(settings->put_IsStatusBarEnabled(FALSE))) {fail();return S_OK;}
-                        const auto onNavigation=[self,navigation](bool main) {
-                            return Callback<ICoreWebView2NavigationStartingEventHandler>([self,navigation,main](ICoreWebView2 *,ICoreWebView2NavigationStartingEventArgs *event)->HRESULT {
+                        const auto onNavigation=[self,callbackUrl,navigation](bool main) {
+                            return Callback<ICoreWebView2NavigationStartingEventHandler>([self,callbackUrl,navigation,main](ICoreWebView2 *,ICoreWebView2NavigationStartingEventArgs *event)->HRESULT {
                                 if (!self) {event->put_Cancel(TRUE);return S_OK;}
                                 LPWSTR text=nullptr;event->get_Uri(&text);const QUrl target(takeString(text));
                                 qCDebug(browserLog)<<"navigation requested"<<main;
-                                // The policy can close the dialog and reenter the native message loop.
-                                event->put_Cancel(TRUE);
-                                const bool allowed=(main && self->native->htmlPending && target==QUrl("about:blank")) || navigation(target,main);
+                                const bool callback=BrowserOrigin::sameEndpoint(target,callbackUrl);
+                                if(main)self->native->callbackNavigation=callback?std::optional<QUrl>(target):std::nullopt;
+                                // Navigation cancellation alone permits speculative GETs; intercept callbacks at the request boundary.
+                                const bool allowed=callback || (main && self->native->htmlPending && target==QUrl("about:blank")) || navigation(target,main);
                                 if (!allowed) {
+                                    event->put_Cancel(TRUE);
                                     if(main && self) {
                                         UINT64 id=0;event->get_NavigationId(&id);
                                         self->native->navigation=id;self->native->certificatePending=false;
                                     }
-                                } else if (self) {
-                                    event->put_Cancel(FALSE);
-                                    if (!main) return S_OK;
+                                } else if (main && self) {
                                     UINT64 id=0;event->get_NavigationId(&id);
                                     const bool started=self->native->navigation!=id;
                                     self->native->navigation=id;self->native->htmlPending=false;self->native->certificatePending=false;
@@ -161,7 +162,7 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &callbackUrl,const TlsOp
                                 self->native->navigation.reset();emit self->loadFinished(okay);
                             }return S_OK;
                         }).Get(),&token);
-                        if (SUCCEEDED(configured)) configured=certificates->add_ServerCertificateErrorDetected(Callback<ICoreWebView2ServerCertificateErrorDetectedEventHandler>([self,callbackUrl,tls](ICoreWebView2 *,ICoreWebView2ServerCertificateErrorDetectedEventArgs *event)->HRESULT {
+                        if (SUCCEEDED(configured)) configured=modernView->add_ServerCertificateErrorDetected(Callback<ICoreWebView2ServerCertificateErrorDetectedEventHandler>([self,callbackUrl,tls](ICoreWebView2 *,ICoreWebView2ServerCertificateErrorDetectedEventArgs *event)->HRESULT {
                             LPWSTR text=nullptr;event->get_RequestUri(&text);const QUrl target(takeString(text));
                             ComPtr<ICoreWebView2Certificate> certificate;event->get_ServerCertificate(&certificate);
                             COREWEBVIEW2_WEB_ERROR_STATUS error=COREWEBVIEW2_WEB_ERROR_STATUS_UNKNOWN;event->get_ErrorStatus(&error);
@@ -175,15 +176,29 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &callbackUrl,const TlsOp
                                 }
                             }return S_OK;
                         }).Get(),&token);
-                        // Frame cancellation alone can be too late to prevent a one-time callback request.
                         if (SUCCEEDED(configured)) {
-                            configured=state->view->AddWebResourceRequestedFilter(L"*",COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
-                            if (SUCCEEDED(configured)) configured=state->view->add_WebResourceRequested(Callback<ICoreWebView2WebResourceRequestedEventHandler>([self,callbackUrl,tls](ICoreWebView2 *,ICoreWebView2WebResourceRequestedEventArgs *event)->HRESULT {
+                            configured=modernView->AddWebResourceRequestedFilterWithRequestSourceKinds(L"*",COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_ALL);
+                            if (SUCCEEDED(configured)) configured=state->view->add_WebResourceRequested(Callback<ICoreWebView2WebResourceRequestedEventHandler>([self,callbackUrl,tls,navigation,fail](ICoreWebView2 *,ICoreWebView2WebResourceRequestedEventArgs *event)->HRESULT {
                                 if(!self)return S_OK;
                                 ComPtr<ICoreWebView2WebResourceRequest> request;event->get_Request(&request);LPWSTR text=nullptr;request->get_Uri(&text);const QUrl target(takeString(text));
-                                if (BrowserOrigin::sameEndpoint(target,callbackUrl) || (!tls.verify && BrowserOrigin::escapesCertificateScope(target,callbackUrl))) {
+                                const bool callback=BrowserOrigin::sameEndpoint(target,callbackUrl);
+                                if (callback || (!tls.verify && BrowserOrigin::escapesCertificateScope(target,callbackUrl))) {
                                     ComPtr<ICoreWebView2WebResourceResponse> response;
-                                    self->native->storage->environment->CreateWebResourceResponse(nullptr,403,L"Forbidden",L"",&response);event->put_Response(response.Get());
+                                    HRESULT status=self->native->storage->environment->CreateWebResourceResponse(nullptr,403,L"Forbidden",L"",&response);
+                                    if(SUCCEEDED(status))status=event->put_Response(response.Get());
+                                    if(FAILED(status)){self->native->controller->Close();fail();return status;}
+                                    if(callback) {
+                                        ComPtr<ICoreWebView2HttpRequestHeaders> headers;request->get_Headers(&headers);LPWSTR destination=nullptr;
+                                        if(headers)headers->GetHeader(L"Sec-Fetch-Dest",&destination);
+                                        // Sec-Fetch-Dest is browser-generated; iframe and script requests cannot complete sign-in.
+                                        const bool main=takeString(destination)=="document";
+                                        const auto original=self->native->callbackNavigation;
+                                        qCDebug(browserLog)<<"callback resource"<<main<<bool(original);
+                                        if(main && original && target.query(QUrl::FullyEncoded)==original->query(QUrl::FullyEncoded)) {
+                                            self->native->callbackNavigation.reset();
+                                            QTimer::singleShot(0,self,[self,navigation,original]{if(self)navigation(*original,true);});
+                                        }
+                                    }
                                 }return S_OK;
                             }).Get(),&token);
                         }
