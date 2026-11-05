@@ -133,9 +133,10 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &gateway,const TlsOption
     const auto prefix="^"+gateway.scheme()+"://([^/]*@)?"+hostPattern;
     const int defaultPort=gateway.scheme()=="https"?443:80;
     const int port=gateway.port(defaultPort);
-    const auto allowed=prefix+(port==defaultPort?"(:"+QString::number(port)+")?":":"+QString::number(port))+"(/|$)";
+    // Content blockers exclude regex alternation; canonical HTTP URLs include the path slash.
+    const auto allowed=prefix+(port==defaultPort?"(:"+QString::number(port)+")?":":"+QString::number(port))+"/";
     const QJsonArray rules{
-        QJsonObject{{"trigger",QJsonObject{{"url-filter","^https?://([^/]*@)?"+hostPattern+"([:/]|$)"}}},{"action",QJsonObject{{"type","block"}}}},
+        QJsonObject{{"trigger",QJsonObject{{"url-filter","^https?://([^/]*@)?"+hostPattern+"[:/]"}}},{"action",QJsonObject{{"type","block"}}}},
         QJsonObject{{"trigger",QJsonObject{{"url-filter",allowed}}},{"action",QJsonObject{{"type","ignore-previous-rules"}}}}
     };
     auto directory=std::make_shared<QTemporaryDir>(QDir::tempPath()+"/JustConnect-signin-rules-XXXXXX");
