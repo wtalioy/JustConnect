@@ -45,7 +45,7 @@ func (d *Dialer) ensureController(ctx context.Context) error {
 	d.mu.Unlock()
 	deadline, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	controller, err := discoverController(deadline)
+	controller, err := discoverController(deadline, d.controllerAddress)
 	if err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()

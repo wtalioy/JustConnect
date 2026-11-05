@@ -97,7 +97,7 @@ func prepare(ctx context.Context, u *url.URL) (facts, func(), error) {
 }
 
 func checkControl(ctx context.Context, u *url.URL, f facts, fakeRange string, original *underlay.Dialer) error {
-	controller, err := mihomo.Discover(ctx)
+	controller, err := mihomo.Discover(ctx, "")
 	if err != nil || controller == nil {
 		return fmt.Errorf("live controller discovery: %v", err)
 	}
