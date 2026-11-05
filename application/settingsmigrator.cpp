@@ -65,7 +65,7 @@ SettingsMigrationAction SettingsMigrator::prepare(QSettings &settings)
         }
         else
         {
-            qWarning() << "配置分组改名未能保存，已保留原配置";
+            qWarning() << "Could not save the renamed configuration group; original configuration retained";
             return SettingsMigrationAction::Failed;
         }
     }
