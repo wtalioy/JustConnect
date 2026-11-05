@@ -1037,6 +1037,7 @@ static void browserTlsPolicy(const ConnectionProfile &gatewayProfile) {
         emit engine->authenticationRequired(request);
         auto *dialog=qobject_cast<SsoLoginWebView *>(challenge(parent));check(dialog!=nullptr,"SSO uses the active session browser");
         auto *view=dialog->findChild<SignInBrowser *>();bool done=false,okay=false;
+        QObject::connect(view,&SignInBrowser::initializationFailed,view,[]{check(false,"initialize the native sign-in browser and its scope policy");});
         auto connection=QObject::connect(view,&SignInBrowser::loadFinished,[&](bool success){done=true;okay=success;});
         // Subscribe before navigation; a rejected certificate can finish while the dialog opens.
         dialog->setInitialUrl(loginTarget);
