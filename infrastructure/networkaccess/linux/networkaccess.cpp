@@ -72,7 +72,7 @@ LinuxNetworkAccess::LinuxNetworkAccess(CoreEngine *core, NetworkPolicySession *p
         pendingConfiguration.reset();
         if (!configuration) {
             stage = Stage::Prepared; this->policy->setNetworkBusy(generation,false);
-            emit ready(attempt,{Status::Failed,QStringLiteral("核心未确认原 DNS 的完整监听端点。")}); return;
+            emit ready(attempt,{Status::Failed,QStringLiteral("Core did not confirm the complete original DNS listener endpoints.")}); return;
         }
         applyPreparedConfiguration(*configuration);
     });
@@ -85,7 +85,7 @@ LinuxNetworkAccess::LinuxNetworkAccess(CoreEngine *core, NetworkPolicySession *p
             observation.start();
         }
         emit ready(attempt, status == CoreEngine::RequestStatus::Success ? Result{}
-            : Result{Status::Failed, QStringLiteral("核心未能接收已授权的网络设备。")});
+            : Result{Status::Failed, QStringLiteral("Core could not receive the authorized network device.")});
     });
     connect(core, &CoreEngine::policyUpdated, this, [this](const QString &id, const QString &revision, CoreEngine::RequestStatus status) {
         if (stage != Stage::Updating || id != generation || revision != changingPolicy["revision"].toString()) return;
@@ -106,7 +106,7 @@ LinuxNetworkAccess::~LinuxNetworkAccess() { worker.waitForFinished(); }
 void LinuxNetworkAccess::prepare(const QUuid &id)
 {
     if (stage != Stage::Idle || id.isNull()) {
-        emit prepared(id, {Status::Failed, QStringLiteral("上一连接的网络恢复尚未完成。"), true}); return;
+        emit prepared(id, {Status::Failed, QStringLiteral("Previous network recovery is incomplete."), true}); return;
     }
     attempt = id;
     stage = Stage::Preparing;
@@ -116,7 +116,7 @@ void LinuxNetworkAccess::prepare(const QUuid &id)
         || QFileInfo(directory).ownerId() != ::getuid()
         || !QFile::setPermissions(directory, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner)) {
         stage = Stage::Prepared;
-        emit prepared(id, {Status::Failed, QStringLiteral("无法创建当前账户的网络责任记录目录。")}); return;
+        emit prepared(id, {Status::Failed, QStringLiteral("Cannot create the network ownership directory for this account.")}); return;
     }
     const auto key = QCryptographicHash::hash(scope.toUtf8(), QCryptographicHash::Sha256).toHex();
     hint = QDir(directory).filePath(QString::fromLatin1(key) + ".owner");
@@ -124,7 +124,7 @@ void LinuxNetworkAccess::prepare(const QUuid &id)
     lock->setStaleLockTime(0);
     if (!lock->tryLock()) {
         stage = Stage::Prepared;
-        emit prepared(id, {Status::Failed, QStringLiteral("当前网络命名空间已有 JustConnect 连接或恢复操作。")}); return;
+        emit prepared(id, {Status::Failed, QStringLiteral("This network namespace already has a JustConnect connection or recovery operation.")}); return;
     }
     QFile file(hint);
     const auto info = QFileInfo(hint);
@@ -132,14 +132,14 @@ void LinuxNetworkAccess::prepare(const QUuid &id)
     if (!info.isFile() || info.isSymLink() || info.ownerId() != ::getuid() || info.size() != 36
         || !file.open(QIODevice::ReadOnly)) {
         stage = Stage::Failed;
-        emit prepared(id, {Status::Failed, QStringLiteral("网络责任记录无效，请保留记录并检查安装。"), true}); return;
+        emit prepared(id, {Status::Failed, QStringLiteral("Invalid network ownership record; retain it and check the installation."), true}); return;
     }
     const auto text = file.read(37);
     savedOwner = QUuid(text);
     if (savedOwner.isNull() || savedOwner.toByteArray(QUuid::WithoutBraces) != text) {
         savedOwner = {};
         stage = Stage::Failed;
-        emit prepared(id, {Status::Failed, QStringLiteral("网络责任记录包含无效的连接标识。"), true}); return;
+        emit prepared(id, {Status::Failed, QStringLiteral("Network ownership record contains an invalid connection identifier."), true}); return;
     }
     // This UUID is only a hint; the privileged helper validates its own ownership journals.
     helper.recover(savedOwner);
@@ -147,13 +147,13 @@ void LinuxNetworkAccess::prepare(const QUuid &id)
 
 Result LinuxNetworkAccess::saveOwner(const QUuid &owner)
 {
-    if (!lock || !lock->isLocked()) return {Status::Failed, QStringLiteral("未取得网络责任锁。")};
+    if (!lock || !lock->isLocked()) return {Status::Failed, QStringLiteral("Network ownership lock is not held.")};
     QSaveFile file(hint);
     file.setDirectWriteFallback(false);
     const auto bytes = owner.toByteArray(QUuid::WithoutBraces);
     if (!file.open(QIODevice::WriteOnly) || !file.setPermissions(QFile::ReadOwner | QFile::WriteOwner)
         || file.write(bytes) != bytes.size() || !file.commit())
-        return {Status::Failed, QStringLiteral("无法在接管前保存网络责任标识。")};
+        return {Status::Failed, QStringLiteral("Cannot save network ownership before capture.")};
     savedOwner = owner;
     return {};
 }
@@ -161,7 +161,7 @@ Result LinuxNetworkAccess::saveOwner(const QUuid &owner)
 void LinuxNetworkAccess::activate(const QUuid &id, const ConnectionProfile &profile)
 {
     if (id != attempt || stage != Stage::Prepared || !lock || !lock->isLocked()) {
-        emit ready(id, {Status::Failed, QStringLiteral("网络准备阶段尚未完成。")}); return;
+        emit ready(id, {Status::Failed, QStringLiteral("Network preparation is incomplete.")}); return;
     }
     stage = Stage::Activating;
     localDNS = profile.dns.localDnsServer;
@@ -176,7 +176,7 @@ void LinuxNetworkAccess::prepareConfiguration()
     if (policy->status() != CoreEngine::RequestStatus::Success || policy->currentGeneration() != generation
         || policy->confirmedProtection().isEmpty()) {
         stage = Stage::Prepared;
-        emit ready(attempt, {Status::Failed, QStringLiteral("无法取得完整且已确认的原网络保护策略。")}); return;
+        emit ready(attempt, {Status::Failed, QStringLiteral("Cannot obtain a complete confirmed original-network protection policy.")}); return;
     }
     const auto model = policy->model(), confirmed = policy->confirmedProtection();
     activationNetwork = model["network"].toObject();
@@ -192,7 +192,7 @@ void LinuxNetworkAccess::applyPreparedConfiguration(const LinuxHelperConfigurati
 {
     const auto exit = linuxOriginalExitSnapshot(activationNetwork,configuration);
     if (!exit) { stage = Stage::Prepared; policy->setNetworkBusy(generation,false);
-        emit ready(attempt,{Status::Failed,QStringLiteral("无法确认原网络出口的完整读取范围。")}); return; }
+        emit ready(attempt,{Status::Failed,QStringLiteral("Cannot confirm the complete original-exit read scope.")}); return; }
     originalExit = *exit; activationNetwork = {};
     const auto saved = saveOwner(attempt);
     if (!saved.succeeded()) { stage = Stage::Prepared; policy->setNetworkBusy(generation,false); emit ready(attempt,saved); return; }
@@ -222,19 +222,19 @@ void LinuxNetworkAccess::observeModel()
     const auto owned = helper.ownedConfiguration();
     const auto current = owned ? linuxOriginalExitSnapshot(policy->model()["network"].toObject(),*owned) : std::nullopt;
     if (policy->status() != CoreEngine::RequestStatus::Success || !owned) {
-        invalidateNetwork(QStringLiteral("无法完整读取原网络，正在恢复网络。"));
+        invalidateNetwork(QStringLiteral("Cannot completely read the original network; restoring ownership."));
         return;
     }
     if (!current || *current != originalExit || !linuxOriginalDnsSourcesMatch(*owned,
         policy->model()["network"].toObject(), policy->model()["dns"].toObject())) {
         observation.stop();
         stage = Stage::Prepared;
-        emit restartRequired(attempt,QStringLiteral("原网络出口或 DNS 来源已变化，正在恢复网络。"));
+        emit restartRequired(attempt,QStringLiteral("Original network exit or DNS source changed; restoring before reconnecting."));
         return;
     }
     const auto prefixes = updatedCampusCapturePrefixes(policy->model()["resources"].toObject(),policy->confirmedProtection(),
         owned->dnsDomains,originalSources,{owned->address,owned->peer});
-    if (!prefixes) { invalidateNetwork(QStringLiteral("无法确认当前校园捕获范围。")); return; }
+    if (!prefixes) { invalidateNetwork(QStringLiteral("Cannot confirm the current campus capture scope.")); return; }
     auto actual = owned->capturePrefixes, expected = *prefixes; actual.sort(); expected.sort();
     if (actual != expected) { helper.reconcile(*prefixes); return; }
     automaticPolicy = true;
@@ -242,7 +242,7 @@ void LinuxNetworkAccess::observeModel()
     if (result == CoreEngine::RequestStatus::Pending) return;
     automaticPolicy = false;
     if (result != CoreEngine::RequestStatus::Success)
-        invalidateNetwork(QStringLiteral("新的网络或 DNS 保护范围无法安全生效，正在恢复原网络。"));
+        invalidateNetwork(QStringLiteral("Cannot safely apply updated network or DNS protection; restoring ownership."));
 }
 
 void LinuxNetworkAccess::finishPolicy(CoreEngine::RequestStatus status)
@@ -254,7 +254,7 @@ void LinuxNetworkAccess::finishPolicy(CoreEngine::RequestStatus status)
     policy->completePolicy(generation,revision,status);
     automaticPolicy = false;
     if (automatic && status != CoreEngine::RequestStatus::Success && stage == Stage::Ready)
-        invalidateNetwork(QStringLiteral("新的网络或 DNS 保护策略未能确认，正在恢复原网络。"));
+        invalidateNetwork(QStringLiteral("Cannot confirm the updated network or DNS protection; restoring ownership."));
 }
 
 void LinuxNetworkAccess::invalidateNetwork(const QString &detail)
@@ -275,7 +275,7 @@ void LinuxNetworkAccess::helperFinished(Operation operation, Result result)
         const auto configuration = helper.ownedConfiguration();
         const auto filter = configuration ? linuxOriginalNetworkView(helper.owner(), *configuration, helper.ownedDevice(),
             int(::if_nametoindex(configuration->originalInterface.toLatin1().constData()))) : NetworkPolicySession::OriginalViewFilter{};
-        if (!filter) { stage = Stage::Failed; emit lost(attempt, {Status::Failed, QStringLiteral("无法识别活动网络接管的读取范围。"), true}); return; }
+        if (!filter) { stage = Stage::Failed; emit lost(attempt, {Status::Failed, QStringLiteral("Cannot identify the active network capture read scope."), true}); return; }
         policy->setOriginalViewFilter(generation, filter);
         policy->setNetworkBusy(generation, false);
     }
@@ -296,7 +296,7 @@ void LinuxNetworkAccess::helperFinished(Operation operation, Result result)
         if (result.succeeded() && helper.state() == HelperState::Idle) {
             QFile file(hint);
             if (!file.open(QIODevice::ReadOnly) || file.read(37) != savedOwner.toByteArray(QUuid::WithoutBraces)
-                || !file.remove()) result = {Status::Failed, QStringLiteral("原网络已恢复，但责任标识未能清理。"), true};
+                || !file.remove()) result = {Status::Failed, QStringLiteral("Original network restored, but ownership cleanup failed."), true};
             else savedOwner = {};
         }
         stage = result.succeeded() ? Stage::Prepared : Stage::Failed;
@@ -310,7 +310,7 @@ void LinuxNetworkAccess::helperFinished(Operation operation, Result result)
 
 void LinuxNetworkAccess::stop(const QUuid &id)
 {
-    if (id != attempt) { emit stopped(id, {Status::Failed, QStringLiteral("恢复请求不属于当前连接。"), true}); return; }
+    if (id != attempt) { emit stopped(id, {Status::Failed, QStringLiteral("Recovery request does not belong to the current connection."), true}); return; }
     if (stage == Stage::Stopping) return;
     observation.stop();
     const bool failedRecovery = stage == Stage::Failed;
@@ -319,7 +319,7 @@ void LinuxNetworkAccess::stop(const QUuid &id)
     // A denied recovery is retried only through the next explicit stop request.
     if (failedRecovery) {
         stage = Stage::Prepared;
-        emit stopped(id, {Status::Failed, QStringLiteral("网络责任尚未解除；请重试断开并完成系统授权。"), true}); return;
+        emit stopped(id, {Status::Failed, QStringLiteral("Network ownership remains; retry disconnect and complete system authorization."), true}); return;
     }
     driveStop();
 }
@@ -332,7 +332,7 @@ void LinuxNetworkAccess::driveStop()
         && helper.hasPendingProcess()) {
         if (stopElapsed.elapsed() >= LinuxRouteOperationTimeoutMs) {
             stage = Stage::Prepared;
-            emit stopped(attempt, {Status::TimedOut, QStringLiteral("等待网络助手结束超时，责任记录已保留。"), true}); return;
+            emit stopped(attempt, {Status::TimedOut, QStringLiteral("Timed out waiting for the network helper to exit; ownership record retained."), true}); return;
         }
         QTimer::singleShot(20, this, &LinuxNetworkAccess::driveStop);
         return;
@@ -345,18 +345,18 @@ void LinuxNetworkAccess::completeStop(Result result)
     if (helper.state() != HelperState::Idle) {
         stage = Stage::Prepared;
         emit stopped(attempt, {result.succeeded() ? Status::Failed : result.status,
-            result.detail.isEmpty() ? QStringLiteral("网络恢复或完成证明尚未确认，责任记录已保留。") : result.detail, true}); return;
+            result.detail.isEmpty() ? QStringLiteral("Network restoration or completion proof is unconfirmed; ownership record retained.") : result.detail, true}); return;
     }
     if (!savedOwner.isNull()) {
         QFile file(hint);
         if (!file.open(QIODevice::ReadOnly) || file.read(37) != savedOwner.toByteArray(QUuid::WithoutBraces) || !file.remove()) {
             stage = Stage::Prepared;
-            emit stopped(attempt, {Status::Failed, QStringLiteral("网络已恢复，责任标识清理失败。"), true}); return;
+            emit stopped(attempt, {Status::Failed, QStringLiteral("Network restored, but ownership cleanup failed."), true}); return;
         }
         savedOwner = {};
     } else if (stage == Stage::Stopping && lock && lock->isLocked() && (QFileInfo::exists(hint) || QFileInfo(hint).isSymLink())) {
         stage = Stage::Prepared;
-        emit stopped(attempt, {Status::Failed, QStringLiteral("未知网络责任记录已保留，未猜测恢复。"), true}); return;
+        emit stopped(attempt, {Status::Failed, QStringLiteral("Unknown network ownership record retained; no speculative restoration performed."), true}); return;
     }
     lock.reset();
     stage = Stage::Idle;
