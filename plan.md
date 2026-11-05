@@ -22,6 +22,7 @@
 
 | 范围 | 当前结论与证据 |
 | --- | --- |
+| S7 自动检查 | `f885e42` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/42027798852)与[六架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/42027798884)全部通过；含真实 Mihomo 重载／停止／同入口重启及原生恢复，诊断／界面通过应用检查。后续翻译资源合并、缩放与旧自启动补验随最终候选包复验；未记 Windows 新 UI 实测通过。 |
 | 正式自动检查 | `b2fbdb3` 的[三平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/41973845429)与[六架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/41973845654)全部通过，包含真实代理／TUN、恢复、认证及本轮回归。 |
 | 实际包／源码 | `b2fbdb3` 的[六组实际包及源码](https://github.com/wtalioy/JustConnect/actions/runs/41973869366)全部通过；六份原生实际包报告、核心／助手来源及 752 个源码文件已核对。关键报告 `build/reports/review-whole-repo/`。 |
 | Windows 修复／性能 | 正常断开修复已实测；DNS 批量刷新、持久进度、部分失败和后续所有权已双架构原生验证。接口查询及 `70f90a5` 接管／断开 CPU 优化已实测通过；`build/reports/windows-restore-9d95b37/summary.json`、`build/reports/windows-dns-cpu-da23405/summary.json` |
