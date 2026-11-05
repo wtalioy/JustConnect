@@ -115,7 +115,7 @@ int main(int argc,char **argv) {
     auto *keepAlive=window->findChild<QComboBox *>("keepAliveModeComboBox");
     auto *target=window->findChild<QLineEdit *>("keepAliveUrlLineEdit");
     target->setText("ssh://campus.example.invalid:22");
-    expectedMessage="配置无效";shown=false;buttons(window)->button(QDialogButtonBox::Apply)->click();ready();
+    expectedMessage=QCoreApplication::translate("SettingWindow","Invalid profile");shown=false;buttons(window)->button(QDialogButtonBox::Apply)->click();ready();
     check(shown && window && settings.value("JustConnect/KeepAliveURL")=="https://campus.example.invalid/status",
         "unsafe traffic targets are rejected before saving");
     target->setText("https://campus.example.invalid/status");
@@ -132,7 +132,7 @@ int main(int argc,char **argv) {
     check(QFile::rename(statePath,statePath+".backup") && QDir().mkdir(statePath),"simulate global preference write failure");
     window->findChild<QCheckBox *>("silentStartCheckBox")->setChecked(true);
     window->findChild<QSpinBox *>("dnsTTLSpinBox")->setValue(77);
-    expectedMessage="启动偏好未保存";shown=false;
+    expectedMessage=QCoreApplication::translate("SettingWindow","Could not save startup preference");shown=false;
     buttons(window)->button(QDialogButtonBox::Ok)->click();ready();
     check(shown && window && window->isVisible() && settings.value("JustConnect/DNSTTL")==retainedTTL
         && window->findChild<QCheckBox *>("silentStartCheckBox")->isChecked(),
@@ -141,13 +141,13 @@ int main(int argc,char **argv) {
     check(!ProfileManager().silentStartEnabled(),"failed preference write preserves the previous choice");
     expectedMessage.clear();window->reject();ready();window=open();
     window->findChild<QLineEdit *>("secondaryDnsLineEdit")->setText("not-an-address");
-    expectedMessage="配置无效"; buttons(window)->button(QDialogButtonBox::Ok)->click();
+    expectedMessage=QCoreApplication::translate("SettingWindow","Invalid profile"); buttons(window)->button(QDialogButtonBox::Ok)->click();
     check(shown && window->isVisible() && settings.value("JustConnect/SecondaryDNS").toString().isEmpty() && !QFileInfo::exists(cache) && store->values.value(ProfileCredentials::legacyCacheKey(settings.value(ProfileCredentials::ScopeSetting).toString()))=="current authentication","core validation rejects bad DNS before persistence or cache changes");
     window->findChild<QLineEdit *>("secondaryDnsLineEdit")->clear();
     window->findChild<QCheckBox *>("autoStartCheckBox")->setChecked(true);
     window->findChild<QLineEdit *>("serverAddressLineEdit")->setText("changed.example.invalid");
     auto *method=window->findChild<QComboBox *>("authTypeComboBox");method->setCurrentIndex(method->findData("psw"));
-    expectedMessage="自启动操作未完成"; shown=false; buttons(window)->button(QDialogButtonBox::Ok)->click();
+    expectedMessage=QCoreApplication::translate("SettingWindow","Could not update startup registration"); shown=false; buttons(window)->button(QDialogButtonBox::Ok)->click();
     check(shown && window->isVisible() && !ProfileManager().autoStartEnabled(),"autostart failure leaves settings open without enabling preference");
     check(settings.value("JustConnect/ServerAddress")=="vpn.example.invalid" && !QFileInfo::exists(cache) && store->values.value(ProfileCredentials::legacyCacheKey(settings.value(ProfileCredentials::ScopeSetting).toString()))=="current authentication","failed apply preserves settings and authentication");
     expectedMessage.clear(); window->findChild<QCheckBox *>("autoStartCheckBox")->setChecked(false);
@@ -158,7 +158,7 @@ int main(int argc,char **argv) {
     window->findChild<QLineEdit *>("loginUrlLineEdit")->setText("https://returned.example.invalid/?nonce=changed");
     buttons(window)->button(QDialogButtonBox::Ok)->click(); ready();
     check(!settings.contains("JustConnect/ExtraArguments") && settings.value("JustConnect/DNSTTL")==123 && read(cache)=="preserved authentication","obsolete-field cleanup, network edits and refreshed URL previews retain valid authentication");
-    window=open(); expectedMessage="恢复默认值"; messageResult=QMessageBox::Yes;
+    window=open(); expectedMessage=QCoreApplication::translate("SettingWindow","Reset draft"); messageResult=QMessageBox::Yes;
     window->findChild<QPushButton *>("resetDefaultPushButton")->click(); expectedMessage.clear(); messageResult=QMessageBox::Ok;
     check(window->findChild<QLineEdit *>("serverAddressLineEdit")->text().isEmpty()
         && !window->findChild<QCheckBox *>("rememberAuthenticationCheckBox")->isChecked(),"reset changes the window draft and clears cache consent in the draft");
@@ -203,7 +203,7 @@ int main(int argc,char **argv) {
     window->findChild<QLineEdit *>("passwordLineEdit")->clear();window->findChild<QLineEdit *>("totpSecretLineEdit")->setText("replacement-totp");
     buttons(window)->button(QDialogButtonBox::Apply)->click();ready();
     check(vault.load(source.scope,secured,loaded).succeeded() && loaded.password=="saved-password" && loaded.totpSecret=="replacement-totp","editing TOTP while leaving password blank preserves the password");
-    expectedMessage="清除已保存凭据";messageResult=QMessageBox::Yes;
+    expectedMessage=QCoreApplication::translate("SettingWindow","Clear saved credentials");messageResult=QMessageBox::Yes;
     window->findChild<QPushButton *>("clearCredentialButton")->click();ready();expectedMessage.clear();messageResult=QMessageBox::Ok;
     check(vault.load(source.scope,secured,loaded).status==CredentialStatus::NotFound
         && vault.load(source.scope,other,loaded).succeeded() && loaded.password=="saved-password"

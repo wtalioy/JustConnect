@@ -14,7 +14,10 @@ public:
     SettingWindow(QWidget *parent,CredentialAccess *credentials,const CredentialSource &source,bool openProfileTab=false);
     ~SettingWindow() override;
     bool isSaving() const {return saving;}
+protected:
+    void changeEvent(QEvent *event) override;
 private:
+    void retranslate();
     void loadSettings(const QSettings &source);
     void readCredentials();
     void clearCredentials();
@@ -28,7 +31,9 @@ private:
     CredentialAccess *credentials;
     CredentialSource credentialSource;
     ConnectionCredentials loadedCredentials;
-    QLabel *credentialStatus;
+    QLabel *credentialStatus, *credentialHint;
+    const char *credentialStatusText=nullptr;
+    CredentialStatus credentialLoadStatus=CredentialStatus::NotFound;
     QPushButton *clearCredentialButton;
     QCheckBox *rememberAuthentication;
     bool loading=false,saving=false,closed=false;

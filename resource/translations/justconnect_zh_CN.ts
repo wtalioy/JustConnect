@@ -196,206 +196,206 @@
 <context>
     <name>ConfigurationGuideDialog</name>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="132"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="137"/>
         <source>Leave empty to use saved credentials or enter them when connecting.</source>
         <translation>可留空，连接时使用已保存的凭据或手动输入。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="141"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="146"/>
         <source>The saved profile changed. Reopen setup.</source>
         <translation>已保存配置已变化，请重新打开引导。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="158"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="163"/>
         <source>Profile changed</source>
         <translation>配置已变化</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="158"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="163"/>
         <source>Reopen setup before saving.</source>
         <translation>请重新打开引导后再保存。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="166"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="171"/>
         <source>Choose a sign-in method</source>
         <translation>选择认证方式</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="166"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="171"/>
         <source>Choose a method from the list provided by your server.</source>
         <translation>请从服务器提供的列表选择认证方式。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="171"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="176"/>
         <source>Core unavailable</source>
         <translation>核心不可用</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="171"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="176"/>
         <source>Invalid profile</source>
         <translation>配置无效</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="172"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="177"/>
         <source>Cannot validate this profile. Check the application installation. Nothing was saved.</source>
         <translation>无法校验配置，请检查应用安装是否完整。配置未保存。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="172"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="177"/>
         <source>Check the server, sign-in method and connection settings. Nothing was saved.</source>
         <translation>请检查服务器、认证方式及连接设置。配置未保存。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="182"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="187"/>
         <source>Could not save profile</source>
         <translation>保存设置未完成</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="397"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="402"/>
         <source>Invalid server</source>
         <translation>服务器地址无效</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="397"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="402"/>
         <source>Enter a server address.</source>
         <translation>请输入服务器地址。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="407"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="412"/>
         <source>No sign-in method selected</source>
         <translation>尚未选择认证方式</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="408"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="413"/>
         <source>Get the available sign-in methods and choose one.</source>
         <translation>请先获取并选择服务器支持的认证方式。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="421"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="426"/>
         <source>Incomplete phone number</source>
         <translation>手机号不完整</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="422"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="427"/>
         <source>Enter the country code and phone number.</source>
         <translation>请填写国家代码和手机号码。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="433"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="438"/>
         <source>School and server</source>
         <translation>学校与服务器</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="433"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="438"/>
         <source>Sign-in method</source>
         <translation>认证方式</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="433"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="438"/>
         <source>Account</source>
         <translation>账号</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="435"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="440"/>
         <source>%1 / %2</source>
         <translation>%1 / %2</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="437"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="442"/>
         <source>Back</source>
         <translation>上一步</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="441"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="447"/>
         <source>Save and connect</source>
         <translation>保存并连接</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="441"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="447"/>
         <source>Next</source>
         <translation>下一步</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="460"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="466"/>
         <source>
 Domain: %1</source>
         <translation>
 登录域：%1</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="462"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="468"/>
         <source>Get sign-in methods</source>
         <translation>获取认证方式</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="462"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="468"/>
         <source>Change sign-in method</source>
         <translation>更改认证方式</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="473"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="479"/>
         <source>Connection setup</source>
         <translation>连接引导</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="474"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="480"/>
         <source>Username</source>
         <translation>账号</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="475"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="481"/>
         <source>Password</source>
         <translation>密码</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="476"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="482"/>
         <source>Authenticator key (optional)</source>
         <translation>验证器密钥（可选）</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="477"/>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="481"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="483"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="487"/>
         <source>Phone number</source>
         <translation>手机号码</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="478"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="484"/>
         <source>VPN account</source>
         <translation>VPN 账号</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="479"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="485"/>
         <source>Enter when connecting</source>
         <translation>连接时再输入</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="480"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="486"/>
         <source>TOTP secret</source>
         <translation>TOTP 密钥</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="482"/>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="483"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="488"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="489"/>
         <source>Show</source>
         <translation>显示</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="484"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="490"/>
         <source>Your school&apos;s sign-in page opens when you connect.</source>
         <translation>连接时将打开学校登录页面。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="496"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="502"/>
         <source>Username and password</source>
         <translation>账号密码</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="500"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="506"/>
         <source>SMS code</source>
         <translation>短信验证码</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="510"/>
+        <location filename="../../presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp" line="516"/>
         <source>Not selected</source>
         <translation>尚未选择</translation>
     </message>
@@ -1923,6 +1923,502 @@ Some settings may have changed. Check network recovery.</source>
         <location filename="../../presentation/widgets/serversettingswidget.cpp" line="126"/>
         <source>Tunnel identity verification is off.</source>
         <translation>隧道身份验证已关闭。</translation>
+    </message>
+</context>
+<context>
+    <name>SettingWindow</name>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="6"/>
+        <source>Connection profile</source>
+        <translation>连接配置</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="13"/>
+        <source>Behavior</source>
+        <translation>行为</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="26"/>
+        <source>Profile file</source>
+        <translation>当前配置</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="32"/>
+        <source>Import…</source>
+        <translation>导入到当前窗口</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="39"/>
+        <source>Export saved…</source>
+        <translation>导出已保存配置</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="46"/>
+        <source>Reset draft…</source>
+        <translation>恢复当前窗口默认值</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="56"/>
+        <source>Startup and connection</source>
+        <translation>应用偏好</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="62"/>
+        <source>Check for updates at startup</source>
+        <translation>启动后检查更新</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="69"/>
+        <source>Launch at sign-in</source>
+        <translation>开机自动启动</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="76"/>
+        <source>Start in the background</source>
+        <translation>静默启动</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="83"/>
+        <source>Connect at startup</source>
+        <translation>启动后连接</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="90"/>
+        <source>Reconnect automatically</source>
+        <translation>自动重连</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="97"/>
+        <source>Initial reconnect delay (s)</source>
+        <translation>初始重连间隔（秒）</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="131"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="291"/>
+        <source>Account</source>
+        <translation>账号</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="144"/>
+        <source>School and server</source>
+        <translation>学校与服务器</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="156"/>
+        <source>Sign-in method</source>
+        <translation>认证</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="162"/>
+        <source>Get sign-in methods</source>
+        <translation>从服务器获取认证方式</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="171"/>
+        <source>Method</source>
+        <translation>认证方式</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="185"/>
+        <source>Choose a method</source>
+        <translation>请选择认证方式</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="190"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="313"/>
+        <source>Password</source>
+        <translation>密码</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="195"/>
+        <source>SMS code</source>
+        <translation>短信</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="200"/>
+        <source>CAS</source>
+        <translation>CAS</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="205"/>
+        <source>OAuth2</source>
+        <translation>OAuth2</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="213"/>
+        <source>Domain</source>
+        <translation>登录域</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="229"/>
+        <source>Sign-in URL preview</source>
+        <translation>登录地址预览</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="245"/>
+        <source>Country code</source>
+        <translation>国家／地区代码</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="261"/>
+        <source>Phone number</source>
+        <translation>手机号</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="297"/>
+        <source>Username</source>
+        <translation>账号</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="348"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="396"/>
+        <source>Show</source>
+        <translation>显示</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="351"/>
+        <source>Show password</source>
+        <translation>显示密码</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="361"/>
+        <source>Authenticator key (optional)</source>
+        <translation>TOTP 密钥</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="399"/>
+        <source>Show authenticator key</source>
+        <translation>显示 TOTP 密钥</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="423"/>
+        <source>Advanced</source>
+        <translation>高级</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="436"/>
+        <source>Local proxies are optional and only accessible on this computer. Set a port to 0 to disable it.</source>
+        <translation>本地代理仅供本机访问，端口设为 0 可关闭对应监听。</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="448"/>
+        <source>SOCKS5 port</source>
+        <translation>SOCKS5 端口</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="471"/>
+        <source>HTTP port</source>
+        <translation>HTTP 端口</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="494"/>
+        <source>Local DNS</source>
+        <translation>本地 DNS</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="510"/>
+        <source>Fallback DNS</source>
+        <translation>备用 DNS 地址</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="526"/>
+        <source>DNS cache TTL (s)</source>
+        <translation>DNS 缓存 TTL（秒）</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="549"/>
+        <source>Bind interface</source>
+        <translation>绑定网口</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="565"/>
+        <source>Detect interface automatically</source>
+        <translation>自动检测网口</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="572"/>
+        <source>Disable internal DNS</source>
+        <translation>禁用内部 DNS</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="579"/>
+        <source>Traffic keep-alive</source>
+        <translation>流量保活</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="592"/>
+        <source>Automatic mode probes authorized campus DNS. Off stops traffic probes; session renewal and node maintenance continue.</source>
+        <translation>自动模式探测获授权的校园 DNS；关闭只停止流量探测，会话续期与节点维护继续运行。</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="596"/>
+        <source>Automatic (campus DNS)</source>
+        <translation>自动（校园 DNS）</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="601"/>
+        <source>Custom target (HTTP GET)</source>
+        <translation>指定目标（HTTP GET）</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="606"/>
+        <source>Off</source>
+        <translation>关闭</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="614"/>
+        <source>Probe target</source>
+        <translation>保活目标</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="627"/>
+        <source>https://campus.example/status</source>
+        <translation>https://校园服务/status</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="630"/>
+        <source>Use an authorized HTTP (80) or HTTPS (443) resource that allows repeated GET requests. Do not use sign-in, sign-out, action or SSH endpoints. Usernames, queries, fragments and redirects are not allowed.</source>
+        <translation>仅填写获授权、允许重复 GET 的 HTTP(80)／HTTPS(443) 资源。不要使用登录、退出、操作接口或 SSH 服务；不允许账号、查询参数、片段及重定向。</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="648"/>
+        <source>Manual proxy</source>
+        <translation>手工代理</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="654"/>
+        <source>Set a manual system proxy</source>
+        <translation>连接后设置系统代理</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="661"/>
+        <source>Proxy bypass list</source>
+        <translation>系统代理绕过项</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="677"/>
+        <source>Skip proxy override warnings</source>
+        <translation>不再提示覆盖已有代理</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="696"/>
+        <source>Open log folder</source>
+        <translation>打开日志目录</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="78"/>
+        <source>Log folder</source>
+        <translation>日志目录</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="78"/>
+        <source>Could not open the log folder.</source>
+        <translation>无法打开日志目录。</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="102"/>
+        <source>Reset draft</source>
+        <translation>恢复默认值</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="102"/>
+        <source>Reset this draft to its defaults? Changes take effect after saving.</source>
+        <translation>恢复当前窗口的默认值，应用后生效。是否继续？</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="104"/>
+        <source>Reset failed</source>
+        <translation>重置失败</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="104"/>
+        <source>Could not create a temporary profile.</source>
+        <translation>无法创建临时配置。</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="109"/>
+        <source>Import profile</source>
+        <translation>导入配置</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="109"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="121"/>
+        <source>INI profiles (*.ini)</source>
+        <translation>INI 配置文件 (*.ini)</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="113"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="116"/>
+        <source>Import failed</source>
+        <translation>导入失败</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="113"/>
+        <source>Could not read this profile.</source>
+        <translation>无法读取配置。</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="116"/>
+        <source>Could not prepare this profile. The current draft is unchanged.</source>
+        <translation>无法准备配置，当前设置未修改。</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="121"/>
+        <source>Export saved profile</source>
+        <translation>导出已保存配置</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="125"/>
+        <source>Export failed</source>
+        <translation>导出失败</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="125"/>
+        <source>Could not write the export. The current profile cannot be overwritten.</source>
+        <translation>无法提交导出文件；不能覆盖当前配置。</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="140"/>
+        <source>Initial reconnect delay (s; up to %1 attempts)</source>
+        <translation>初始重连间隔（秒，最多 %1 次）</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="141"/>
+        <source>Preview from the sign-in query. Connections use the URL returned by the current session.</source>
+        <translation>认证查询结果预览；连接时使用当前会话返回的地址。</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="142"/>
+        <source>Remember authentication</source>
+        <translation>记住认证</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="143"/>
+        <source>Use the system credential store to resume after disconnecting or restarting, for as long as the server allows. Turning this off stops saving and resuming. Use Clear current account authentication cache to delete existing data.</source>
+        <translation>通过系统凭据库在断开和重启后恢复认证，有效期由服务器决定。关闭后停止保存与恢复，删除已有材料请使用“清除当前账户认证缓存”。</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="144"/>
+        <source>Leave empty to keep saved credentials. Use the button below to remove them.</source>
+        <translation>留空保留已保存凭据，删除请使用下方按钮。</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="145"/>
+        <source>Clear saved password and key</source>
+        <translation>清除保存的密码和密钥</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="149"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="188"/>
+        <source>Invalid mode — choose another</source>
+        <translation>无效模式（请选择）</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="226"/>
+        <source>Leave empty to use this account’s saved credentials or enter them when connecting.</source>
+        <translation>可留空，连接时使用该账号已保存的凭据或手动输入。</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="242"/>
+        <source>The saved profile changed. Reopen the editor.</source>
+        <translation>已保存配置已变化，请重新打开编辑窗口。</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="259"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="281"/>
+        <source>Profile changed</source>
+        <translation>配置已变化</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="259"/>
+        <source>Reopen the editor before clearing credentials.</source>
+        <translation>请重新打开设置后再清除凭据。</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="263"/>
+        <source>the current profile</source>
+        <translation>当前配置</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="264"/>
+        <source>Clear saved credentials</source>
+        <translation>清除已保存凭据</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="264"/>
+        <source>Clear saved passwords and authenticator keys for %1? Other accounts are unaffected.</source>
+        <translation>清除 %1 已保存的密码和验证器密钥？其他账号不受影响。</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="269"/>
+        <source>Could not clear credentials</source>
+        <translation>清除未完成</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="273"/>
+        <source>Saved passwords and authenticator keys were cleared. Unsaved input is unchanged.</source>
+        <translation>已清除保存的密码和验证器密钥，未保存的输入保持不变。</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="281"/>
+        <source>Reopen the editor before applying changes.</source>
+        <translation>请重新打开设置后再应用修改。</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="289"/>
+        <source>Choose a sign-in method</source>
+        <translation>请选择认证方式</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="289"/>
+        <source>Choose a method from the list provided by your server.</source>
+        <translation>请选择认证方式；可从当前服务器获取可用列表。</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="294"/>
+        <source>Core unavailable</source>
+        <translation>核心不可用</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="294"/>
+        <source>Invalid profile</source>
+        <translation>配置无效</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="295"/>
+        <source>Cannot validate this profile. Check the application installation. Nothing was saved.</source>
+        <translation>无法校验配置，请检查应用安装是否完整。配置未保存。</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="295"/>
+        <source>Check the server, sign-in method, ports, DNS and probe target. Nothing was saved.</source>
+        <translation>请检查服务器、认证方式、本地端口、DNS 地址及保活目标。配置未保存。</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="302"/>
+        <source>Could not update startup registration</source>
+        <translation>自启动操作未完成</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="303"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="306"/>
+        <source>Could not save startup preference</source>
+        <translation>启动偏好未保存</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="303"/>
+        <source>Startup registration changed, but its preference could not be saved. Check it before retrying.</source>
+        <translation>系统项已修改，但偏好保存失败，请检查后重试。</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="306"/>
+        <source>Could not save background startup. Check the configuration folder and retry. This draft has not been applied.</source>
+        <translation>无法保存静默启动偏好，请检查配置目录后重试。当前窗口修改尚未应用。</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="315"/>
+        <source>Could not save profile</source>
+        <translation>保存设置未完成</translation>
     </message>
 </context>
 <context>
