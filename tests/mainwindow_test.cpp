@@ -165,11 +165,13 @@ static void languagePreferences(MainWindow &window) {
     window.findChild<QPushButton *>("detailsButton")->click();
     auto *details=window.findChild<QDialog *>("detailsDialog");
     check(details->isVisible() && details->windowTitle()==QString::fromUtf8("连接详情")
-        && window.findChild<QLabel *>("versionLabel")->toolTip().contains(QString::fromUtf8("已禁用")),
+        && window.findChild<QLabel *>("versionLabel")->toolTip().contains(QString::fromUtf8("已禁用"))
+        && window.findChild<QPlainTextEdit *>("diagnosticReport")->toPlainText().contains(QString::fromUtf8("解析来源")),
         "subsequent details and update status use the selected language without a network check");
     changeLanguageFromSettings(window,"en");
     check(details->isVisible() && details->windowTitle()=="Connection details" && action->text()=="Connect"
-        && window.findChild<QLabel *>("versionLabel")->toolTip().contains("Disabled"),"switching back updates an already open details window");
+        && window.findChild<QLabel *>("versionLabel")->toolTip().contains("Disabled")
+        && window.findChild<QPlainTextEdit *>("diagnosticReport")->toPlainText().contains("DNS sources"),"switching back updates an already open details window");
     details->reject();
 }
 
@@ -337,6 +339,15 @@ static void nativeHome(MainWindow &window) {
         "redesigned home retains one accessible main action and the light appearance");
     window.findChild<QPushButton *>("detailsButton")->click();QCoreApplication::processEvents();
     check(details->isVisible() && log->isVisible() && session->state()==state,"opening diagnostics cannot change connection state");
+    window.findChild<QPushButton *>("copyDiagnosticsButton")->click();
+    check(QApplication::clipboard()->text().contains("DNS sources: Unknown") && !window.findChild<QPushButton *>("refreshDiagnosticsButton")->isEnabled(),
+        "offline diagnostics copy real unknown states and do not offer network refresh");
+    window.findChild<QPushButton *>("diagnosticRulesButton")->click();
+    auto *rules=window.findChild<NetworkPolicyWindow *>();
+    check(rules && rules->isVisible(),"diagnostics reuse the original policy and DNS detail window");
+    rules->close();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    const auto detailsReport=qEnvironmentVariable("JC_UI_REPORT_DIR");
+    if (!detailsReport.isEmpty()) check(details->grab().save(QDir(detailsReport).filePath("diagnostics.png")),"save the native diagnostic layout");
     window.findChild<QPushButton *>("copyLogPushButton")->click();
     check(QApplication::clipboard()->text()==log->toPlainText(),"diagnostics copy the same bounded live log");
     details->reject();QCoreApplication::processEvents();

@@ -64,6 +64,7 @@ add_library(justconnect_desktop OBJECT
     presentation/main/mainwindowcoordinator.cpp
     presentation/coordinators/authdialogcoordinator.cpp
     presentation/coordinators/authenticationcachecoordinator.cpp
+    presentation/coordinators/connectiondiagnostics.cpp
     presentation/coordinators/connectionuicontroller.cpp
     presentation/coordinators/controllerselectioncoordinator.cpp
     presentation/dialogs/networkpolicywindow.cpp
@@ -196,6 +197,10 @@ if(BUILD_TESTING)
     get_filename_component(justconnect_catalog_name "${justconnect_desktop_catalog}" NAME_WE)
     add_test(NAME networkpolicywindow_language_test COMMAND networkpolicywindow_test --catalog "${CMAKE_CURRENT_BINARY_DIR}/${justconnect_catalog_name}.qm")
     set_tests_properties(networkpolicywindow_language_test PROPERTIES TIMEOUT 15 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    add_executable(connectiondiagnostics_test tests/connectiondiagnostics_test.cpp presentation/coordinators/connectiondiagnostics.cpp)
+    target_link_libraries(connectiondiagnostics_test PRIVATE justconnect_application)
+    add_test(NAME connectiondiagnostics_test COMMAND connectiondiagnostics_test)
+    set_tests_properties(connectiondiagnostics_test PROPERTIES TIMEOUT 15)
     add_executable(mainwindow_test tests/mainwindow_test.cpp)
     add_dependencies(mainwindow_test JustConnectProxyRecovery)
     target_link_libraries(mainwindow_test PRIVATE justconnect_desktop)

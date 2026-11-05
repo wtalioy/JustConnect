@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version='1.0' encoding='utf-8'?>
 <ui version="4.0">
  <class>MainWindow</class>
  <widget class="QMainWindow" name="MainWindow">
@@ -263,6 +263,48 @@
         <bool>true</bool>
        </property>
       </widget>
+     </item>
+     <item>
+      <widget class="QPlainTextEdit" name="diagnosticReport">
+       <property name="readOnly">
+        <bool>true</bool>
+       </property>
+       <property name="minimumHeight">
+        <number>210</number>
+       </property>
+       <property name="maximumHeight">
+        <number>230</number>
+       </property>
+       <property name="accessibleName">
+        <string>Connection diagnostics</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <layout class="QHBoxLayout" name="diagnosticActions">
+       <item>
+        <widget class="QPushButton" name="refreshDiagnosticsButton">
+         <property name="autoDefault"><bool>false</bool></property>
+         <property name="text">
+          <string>Refresh</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="diagnosticRulesButton">
+         <property name="autoDefault"><bool>false</bool></property>
+         <property name="text"><string>Rules and DNS</string></property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="copyDiagnosticsButton">
+         <property name="autoDefault"><bool>false</bool></property>
+         <property name="text">
+          <string>Copy diagnostics</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
      </item>
      <item>
       <widget class="QLabel" name="statusDetailLabel">
