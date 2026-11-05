@@ -39,11 +39,3 @@ while IFS= read -r -d '' binary; do
         mv "$thin_output" "$binary"
 
 done < <(find "$APP_PATH" -type f -print0)
-
-# macdeployqt has a bug that it doesn't copy the Qt translations to the bundle
-# so we need to copy them manually
-QT_TRANSLATIONS=$(qmake -query QT_INSTALL_TRANSLATIONS)
-mkdir -p "$APP_PATH/Contents/translations"
-if [ -d "$QT_TRANSLATIONS" ]; then
-    cp -R "$QT_TRANSLATIONS"/qtbase_*.qm "$APP_PATH/Contents/translations"
-fi
