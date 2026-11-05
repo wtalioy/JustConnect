@@ -91,7 +91,7 @@ struct SignInBrowser::Native {
     }
 };
 
-SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &gateway,const TlsOptions &tls,NavigationPolicy navigation)
+SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &callbackUrl,const TlsOptions &tls,NavigationPolicy navigation)
     :QWidget(parent),native(std::make_unique<Native>()) {
     setAttribute(Qt::WA_NativeWindow);setFocusPolicy(Qt::StrongFocus);setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Expanding);
     WKWebViewConfiguration *configuration=[[WKWebViewConfiguration alloc] init];
@@ -106,14 +106,14 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &gateway,const TlsOption
     native->delegate->started=[self]{if(self)emit self->loadStarted();};
     native->delegate->finished=[self](bool okay){if(self)emit self->loadFinished(okay);};
     native->delegate->changed=[self](const QUrl &target){if(self){self->native->current=target;emit self->urlChanged(target);}};
-    native->delegate->certificate=[self,gateway,tls](NSURLAuthenticationChallenge *challenge) {
+    native->delegate->certificate=[self,callbackUrl,tls](NSURLAuthenticationChallenge *challenge) {
         const auto space=challenge.protectionSpace;
         QUrl origin;origin.setScheme(QString::fromNSString(space.protocol));origin.setHost(QString::fromNSString(space.host));origin.setPort(int(space.port));
         const auto trust=space.serverTrust;
         bool okay=SecTrustEvaluateWithError(trust,nullptr);
         SecTrustResultType status=kSecTrustResultInvalid;
         if (!okay && SecTrustGetTrustResult(trust,&status)==errSecSuccess && status==kSecTrustResultRecoverableTrustFailure) {
-            if (!tls.verify && BrowserOrigin::same(origin,gateway)) {
+            if (!tls.verify && BrowserOrigin::same(origin,callbackUrl)) {
                 CFDataRef exceptions=SecTrustCopyExceptions(trust);
                 if (exceptions) {
                     okay=SecTrustSetExceptions(trust,exceptions) && SecTrustEvaluateWithError(trust,nullptr);
@@ -128,11 +128,11 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &gateway,const TlsOption
     [host addSubview:native->view];
     if (tls.verify) {native->ready=true;return;}
     // WebKit also caches host certificate exceptions across ports; block escaping resources before TLS.
-    auto hostname=gateway.host().contains(':')?"["+gateway.host()+"]":QString::fromLatin1(QUrl::toAce(gateway.host()));
+    auto hostname=callbackUrl.host().contains(':')?"["+callbackUrl.host()+"]":QString::fromLatin1(QUrl::toAce(callbackUrl.host()));
     const auto hostPattern=QString::fromNSString([NSRegularExpression escapedPatternForString:hostname.toNSString()]);
-    const auto prefix="^"+gateway.scheme()+"://([^/]*@)?"+hostPattern;
-    const int defaultPort=gateway.scheme()=="https"?443:80;
-    const int port=gateway.port(defaultPort);
+    const auto prefix="^"+callbackUrl.scheme()+"://([^/]*@)?"+hostPattern;
+    const int defaultPort=callbackUrl.scheme()=="https"?443:80;
+    const int port=callbackUrl.port(defaultPort);
     // Content blockers exclude regex alternation; canonical HTTP URLs include the path slash.
     const auto allowed=prefix+(port==defaultPort?"(:"+QString::number(port)+")?":":"+QString::number(port))+"/";
     const QJsonArray rules{
@@ -146,7 +146,7 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &gateway,const TlsOption
     native->rulesDirectory=directory;
     native->rulesStore=[WKContentRuleListStore storeWithURL:[NSURL fileURLWithPath:directory->path().toNSString() isDirectory:YES]];
     const auto encoded=QString::fromUtf8(QJsonDocument(rules).toJson(QJsonDocument::Compact));
-    [native->rulesStore compileContentRuleListForIdentifier:@"gateway-certificate-scope" encodedContentRuleList:encoded.toNSString()
+    [native->rulesStore compileContentRuleListForIdentifier:@"signin-certificate-scope" encodedContentRuleList:encoded.toNSString()
         completionHandler:^(WKContentRuleList *list,NSError *error) {
             Q_UNUSED(directory);
             if (!self) return;

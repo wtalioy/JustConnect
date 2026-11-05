@@ -12,7 +12,7 @@ class SignInBrowser final : public QWidget {
     Q_OBJECT
 public:
     using NavigationPolicy=std::function<bool(const QUrl &,bool)>;
-    SignInBrowser(QWidget *parent,const QUrl &gateway,const TlsOptions &tls,NavigationPolicy navigation);
+    SignInBrowser(QWidget *parent,const QUrl &callbackUrl,const TlsOptions &tls,NavigationPolicy navigation);
     ~SignInBrowser() override;
     void load(const QUrl &url);
     QUrl url() const;
