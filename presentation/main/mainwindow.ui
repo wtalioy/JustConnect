@@ -157,9 +157,6 @@
       <property name="alignment">
        <set>Qt::AlignCenter</set>
       </property>
-      <property name="accessibleName">
-       <string>Connection status</string>
-      </property>
      </widget>
     </item>
     <item>
