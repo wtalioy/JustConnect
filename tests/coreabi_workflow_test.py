@@ -35,7 +35,7 @@ def scenario(failures, arch='ARM64', runner='macOS'):
                 name = 'mihomo-api'
             elif args[0] == 'go' and 'test' in args:
                 name = 'regressions' if '-count' in args else 'race' if '-race' in args else 'normal'
-            elif args[0] == 'ctest':
+            elif len(args) > 1 and args[1] == 'tests/platform/run_ctest.py':
                 name = 'host'
             elif args[:2] == ['cmake', '--build']:
                 name = 'build'
@@ -81,9 +81,11 @@ for failure in ({}, {'race': 7}, {'regressions': 8}, {'race': 7, 'regressions': 
 for failed in ('mihomo-api', 'normal', 'configure', 'build'):
     status, calls = scenario({failed: 9})
     assert status == 9 and 'host' not in calls, (failed, status, calls)
+status, calls = scenario({'host': 8})
+assert status == 8 and calls[-1] == 'host', (status, calls)
 status, calls = scenario({}, runner='Windows')
 assert status == 0 and calls[-1] == 'host' and 'race' not in calls and 'regressions' not in calls, calls
-print('PASS: 9 workflow outcomes; race failures collect ABI evidence and remain failures')
+print('PASS: 10 workflow outcomes; race and native host failures remain failures')
 
 # GitHub's continue-on-error changes the displayed conclusion; retain the actual device failure.
 probe = lines.index('      - &windows_device_probe')
