@@ -189,7 +189,8 @@ func newGatewayWithNodeTLS(t *testing.T, nodeTLS *tls.Config) *gateway {
 				extraResource = fmt.Sprintf(`,{"protocol":"tcp","port":"0-65535","host":"127.0.0.1"},{"protocol":"tcp","port":"0-65535","host":"localhost","IP":[%q]}`, resourceIP)
 			}
 			if g.fullIPv4Resource.Load() {
-				extraResource += `,{"protocol":"all","port":"1-65535","host":"0.0.0.0/0"}`
+				// Exercise broad HTTP authorization without introducing a TCP DNS server.
+				extraResource += `,{"protocol":"tcp","port":"80","host":"0.0.0.0/0"}`
 			}
 			addresses := fmt.Sprintf(`{"protocol":"udp","port":"0-65535","host":%q},{"protocol":"tcp","port":"0-65535","host":%q},{"protocol":"tcp","port":"0-65535","host":"campus.test","IP":[%q]}`, resourceIP, resourceIP, resourceIP)
 			if g.nativeDNS.Load() {

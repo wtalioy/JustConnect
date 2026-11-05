@@ -29,7 +29,7 @@ public:
         originalFlags = state.first; originalServer = state.second; owned = true;
         current = this;
         check(std::atexit(cleanup) == 0,"retain fixture proxy cleanup on assertion exit");
-        systemProxy(false);
+        systemProxy(proxyFirst);
     }
     ~WindowsCoexistenceFixture()
     {
@@ -109,8 +109,16 @@ public:
             reply->deleteLater();
             return qMakePair(okay,body);
         };
-        check(!proxy.needsCleanup() && resources["underlay_interface"] == "",
-            "start without proxy ownership or a pinned original interface");
+        check(resources["underlay_interface"] == "","start without a pinned original interface");
+        if (proxyFirst) {
+            check(proxy.isAutomatic() && proxy.isEnabled() && get(runtime["ordinary_url"].toString(),true).first,
+                "the preexisting system proxy retains the ordinary exit after campus connection");
+            std::cout << "PASS: Windows system proxy enabled before the campus connection\n";
+            systemProxy(false);
+            until("release the startup browser frontend", [&] { return !proxy.isBusy() && !proxy.needsCleanup(); });
+        } else {
+            check(!proxy.needsCleanup(),"start without system proxy ownership");
+        }
         check(get(runtime["ordinary_url"].toString(),false).first,"actual public HTTP baseline is reachable");
         for (const auto *mode : {"rule","global","direct"}) {
             for (const auto &flags : {qMakePair(true,false),qMakePair(true,true),qMakePair(false,true),qMakePair(false,false)}) {
@@ -161,6 +169,7 @@ public:
         }
     }
 private:
+    const bool proxyFirst = qgetenv("JC_WINDOWS_COEXISTENCE_PROXY_FIRST") == "true";
     DWORD originalFlags = 0;
     QString originalServer;
     bool owned = false;

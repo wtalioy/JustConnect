@@ -398,7 +398,11 @@ int wmain(int argc,wchar_t **argv) try
         wchar_t changed[8]{};
         const bool exitChange=application && GetEnvironmentVariableW(L"JC_WINDOWS_SESSION_EXIT_CHANGE",changed,8)==4 && std::wstring(changed)==L"true";
         scenario(argv[2],application?L"network":L"normal",argv[3],application,{},nullptr,exitChange);
-        if(!exitChange)scenario(argv[2],L"network",argv[3],application);
+        if(!exitChange){
+            if(application && GetEnvironmentVariableW(L"JC_WINDOWS_COEXISTENCE_RUNTIME",nullptr,0))
+                check(SetEnvironmentVariableW(L"JC_WINDOWS_COEXISTENCE_PROXY_FIRST",L"true"),"start the second coexistence session with the external proxy already enabled");
+            scenario(argv[2],L"network",argv[3],application);
+        }
         originalDNS.restore();
         return 0;
     }
