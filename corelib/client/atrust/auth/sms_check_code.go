@@ -1,11 +1,7 @@
 package auth
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 
 	"github.com/wtalioy/JustConnect/corelib/client/authchallenge"
 )
@@ -64,26 +60,6 @@ func (s *Session) sendSms(phone, loginDomain, graphCheckCode string) (int, error
 		"graphCheckCode": graphCheckCode,
 	}
 
-	postBody, _ := json.Marshal(data)
-
-	u := s.baseURL + "/passport/v1/public/sendSms"
-	req, _ := http.NewRequest("POST", u+"?"+WithSharedParams(nil).Encode(), bytes.NewReader(postBody))
-	req.Header.Set("User-Agent", UserAgent)
-	req.Header.Set("Content-Type", "application/json;charset=utf-8")
-	req.Header.Set("x-csrf-token", s.csrfToken)
-	req.Header.Set("x-sdp-env", s.env)
-	req.Header.Set("x-sdp-traceid", s.randSdpId())
-
-	resp, err := s.request(req)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return 0, err
-	}
-
 	var re struct {
 		Code    int    `json:"code"`
 		Message string `json:"message"`
@@ -93,7 +69,7 @@ func (s *Session) sendSms(phone, loginDomain, graphCheckCode string) (int, error
 			GraphCheckCodeEnable int    `json:"graphCheckCodeEnable"`
 		} `json:"data"`
 	}
-	err = json.Unmarshal(body, &re)
+	err := s.postJSON("/passport/v1/public/sendSms", data, &re)
 	if err != nil {
 		return 0, err
 	}
@@ -118,25 +94,6 @@ func (s *Session) smsCheckCodeImpl(code, phone, loginDomain, graphCheckCode stri
 	if graphCheckCode != "" {
 		data["graphCheckCode"] = graphCheckCode
 	}
-	postBody, _ := json.Marshal(data)
-
-	u := s.baseURL + "/passport/v1/auth/smsCheckCode"
-	req, _ := http.NewRequest("POST", u+"?"+WithSharedParams(nil).Encode(), bytes.NewReader(postBody))
-	req.Header.Set("User-Agent", UserAgent)
-	req.Header.Set("Content-Type", "application/json;charset=utf-8")
-	req.Header.Set("x-csrf-token", s.csrfToken)
-	req.Header.Set("x-sdp-env", s.env)
-	req.Header.Set("x-sdp-traceid", s.randSdpId())
-
-	resp, err := s.request(req)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return 0, err
-	}
 
 	var re struct {
 		Code    int    `json:"code"`
@@ -146,7 +103,7 @@ func (s *Session) smsCheckCodeImpl(code, phone, loginDomain, graphCheckCode stri
 			GraphCheckCodeEnable int    `json:"graphCheckCodeEnable"`
 		} `json:"data"`
 	}
-	err = json.Unmarshal(body, &re)
+	err := s.postJSON("/passport/v1/auth/smsCheckCode", data, &re)
 	if err != nil {
 		return 0, err
 	}

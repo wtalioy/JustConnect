@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -98,36 +97,8 @@ func (s *Session) submitTokenAt(service string, payload map[string]interface{}) 
 		return authStep{}, fmt.Errorf("%w: token service %s", authchallenge.ErrUnsupported, service)
 	}
 
-	postBody, err := json.Marshal(payload)
-	if err != nil {
-		return authStep{}, err
-	}
-
-	path := "/passport/v1/" + service
-
-	u := s.baseURL + path
-	req, err := http.NewRequest("POST", u+"?"+WithSharedParams(nil).Encode(), bytes.NewReader(postBody))
-	if err != nil {
-		return authStep{}, err
-	}
-	req.Header.Set("User-Agent", UserAgent)
-	req.Header.Set("Content-Type", "application/json;charset=utf-8")
-	req.Header.Set("x-csrf-token", s.csrfToken)
-	req.Header.Set("x-sdp-env", s.env)
-	req.Header.Set("x-sdp-traceid", s.randSdpId())
-
-	resp, err := s.request(req)
-	if err != nil {
-		return authStep{}, err
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return authStep{}, err
-	}
-
 	var result tokenResponse
-	if err := json.Unmarshal(body, &result); err != nil {
+	if err := s.postJSON("/passport/v1/"+service, payload, &result); err != nil {
 		return authStep{}, err
 	}
 	if result.Code != 0 {

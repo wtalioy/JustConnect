@@ -41,6 +41,14 @@ func TestSubmitTOTPToken(t *testing.T) {
 		if r.Method != http.MethodPost || r.URL.Path != "/passport/v1/auth/token" {
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
+		for name, want := range map[string]string{"User-Agent": UserAgent, "Content-Type": "application/json;charset=utf-8", "x-csrf-token": "csrf-fixture", "x-sdp-env": "environment-fixture"} {
+			if got := r.Header.Get(name); got != want {
+				t.Errorf("header %s = %q, want %q", name, got, want)
+			}
+		}
+		if r.Header.Get("x-sdp-traceid") == "" || r.URL.Query().Get("clientType") != "SDPClient" || r.URL.Query().Get("lang") != "zh-CN" {
+			t.Error("session headers or shared parameters were lost")
+		}
 		var payload requestPayload
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			t.Error(err)
@@ -55,6 +63,9 @@ func TestSubmitTOTPToken(t *testing.T) {
 
 	session := newTLSTestSession(server)
 	session.username = "user@domain"
+	session.csrfToken = "csrf-fixture"
+	session.env = "environment-fixture"
+	session.Language = "zh-CN"
 	step, err := session.submitToken(map[string]interface{}{
 		"username":          session.username,
 		"action":            "auth",
