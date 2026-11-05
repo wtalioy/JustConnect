@@ -127,7 +127,10 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &callbackUrl,const TlsOp
                                 const bool allowed=(main && self->native->htmlPending && target==QUrl("about:blank")) || navigation(target,main);
                                 if (!allowed) {
                                     event->put_Cancel(TRUE);
-                                    if(main && self){self->native->navigation.reset();emit self->loadFinished(false);}
+                                    if(main && self) {
+                                        UINT64 id=0;event->get_NavigationId(&id);
+                                        self->native->navigation=id;self->native->certificatePending=false;
+                                    }
                                 } else if (main && self) {
                                     UINT64 id=0;event->get_NavigationId(&id);
                                     const bool started=self->native->navigation!=id;

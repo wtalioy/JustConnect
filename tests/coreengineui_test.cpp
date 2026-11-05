@@ -803,7 +803,10 @@ static void browserValidatesCallbackNavigation() {
         dialog->setInitialUrl(QUrl(url));QApplication::processEvents();
         check(warning->isVisible() && view->url()==current && responses==0,"unsafe initial navigation does not replace the login page");
     }
-    visit("/redirect-oauth");check(responses==1 && callback==base+"/passport/v1/auth/httpsOauth2?code=fixture" && callbackRequests==0,"valid OAuth redirect is delivered once and intercepted before HTTP submission");delete dialog;
+    visit("/redirect-oauth");
+    check(responses==1,"valid OAuth redirect is delivered once");
+    check(callback==base+"/passport/v1/auth/httpsOauth2?code=fixture","OAuth returns the exact callback URL");
+    check(callbackRequests==0,"the OAuth callback is intercepted before HTTP submission");delete dialog;
     dialog=new SsoLoginWebView(nullptr,QUrl(base+"/passport/v1/auth/cas"));dialog->setAttribute(Qt::WA_DeleteOnClose,false);dialog->show();view=dialog->findChild<SignInBrowser *>();responses=0;
     QObject::connect(dialog,&SsoLoginWebView::loginCompleted,[&](const QString &value){++responses;callback=value;});
     auto *address=dialog->findChild<QLineEdit *>("addressLineEdit");address->setText(base+"/passport/v1/auth/cas?ticket=fixture");
