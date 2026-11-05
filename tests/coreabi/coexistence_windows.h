@@ -1,5 +1,6 @@
 #pragma once
 #include "application/coexistencenetworkaccess.h"
+#include "tests/platform/networksnapshotcheck.h"
 #include "infrastructure/systemproxy/proxychanges.h"
 #include "infrastructure/systemproxy/proxyrecovery.h"
 #include <QLocalSocket>
@@ -40,34 +41,15 @@ public:
         if (initial["protected_names"] != actual["protected_names"]) return false;
         const auto before = initial["protected"].toArray(), after = actual["protected"].toArray();
         if (runtime.isEmpty()) return before == after;
-        // The external proxy adds its own original network; JustConnect's owned scopes must stay absent.
-        QSet<int> indexes;
-        QList<QPair<QHostAddress,int>> originalPrefixes;
-        for (const auto &value : network["interfaces"].toArray()) {
-            const auto row = value.toObject();
-            if (row["name"] != runtime["tun_device"]) continue;
-            indexes.insert(row["index"].toInt());
-            for (const auto &address : row["addresses"].toArray()) originalPrefixes.append(QHostAddress::parseSubnet(address.toString()));
+        QJsonArray campus=resources["active_tun_addresses"].toArray();
+        for(const auto &entry:resources["dns_records"].toObject())
+            for(const auto &address:entry.toArray())if(!campus.contains(address))campus.append(address);
+        const auto mismatch=NetworkSnapshotCheck::protectionMismatch(before,after,network,campus);
+        if(!mismatch.isEmpty()){
+            const QJsonObject facts{{"before",before},{"after",after},{"network",network},{"campus_addresses",campus}};
+            std::cerr<<mismatch.toStdString()<<" original_protection="<<QJsonDocument(facts).toJson(QJsonDocument::Compact).constData()<<'\n';
         }
-        for (const auto &value : network["routes"].toArray()) {
-            const auto row = value.toObject();
-            const auto prefix = QHostAddress::parseSubnet(row["destination"].toString());
-            if (indexes.contains(row["interface_index"].toInt()) && prefix.second > 1) originalPrefixes.append(prefix);
-        }
-        for (const auto &prefix : before) if (!after.contains(prefix)) {
-            std::cerr << "missing original protection: " << prefix.toString().toStdString() << '\n'; return false;
-        }
-        for (const auto &value : after) {
-            if (before.contains(value)) continue;
-            const auto added = QHostAddress::parseSubnet(value.toString());
-            bool external = false;
-            for (const auto &prefix : originalPrefixes)
-                external |= prefix.second > 1 && added.second >= prefix.second && added.first.isInSubnet(prefix);
-            if (!external) {
-                std::cerr << "unexpected original protection: " << value.toString().toStdString() << '\n'; return false;
-            }
-        }
-        return true;
+        return mismatch.isEmpty();
     }
     void observe(CoreEngine *engine)
     {

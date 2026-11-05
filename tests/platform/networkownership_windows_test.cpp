@@ -1,12 +1,38 @@
 #include "infrastructure/networkhelper/windows/networkownership.h"
+#include "tests/platform/networksnapshotcheck.h"
 #include <QCoreApplication>
 #include <iostream>
 #include <stdexcept>
 
 static void check(bool value,const char *message){if(!value)throw std::runtime_error(message);}
+static void checksProtectionProvenance()
+{
+    const QJsonArray before{"192.168.1.0/24"};
+    const QJsonArray after{"192.168.1.0/24","fe80::1234/128"};
+    QJsonObject network{{"interfaces",QJsonArray{
+        QJsonObject{{"index",7},{"addresses",QJsonArray{"192.168.1.2/24"}}},
+        QJsonObject{{"index",91},{"addresses",QJsonArray{"fe80::1234/128"}}}}},
+        {"routes",QJsonArray{}}};
+    check(NetworkSnapshotCheck::protectionMismatch(before,after,network,{}).isEmpty(),
+        "a later native IPv6 address must retain original protection");
+    check(!NetworkSnapshotCheck::protectionMismatch(before,QJsonArray{"fe80::1234/128"},network,{}).isEmpty(),
+        "a native addition cannot hide lost original protection");
+    auto unknown=after;unknown.append("203.0.113.8/32");
+    check(!NetworkSnapshotCheck::protectionMismatch(before,unknown,network,{}).isEmpty(),
+        "additional protection requires a real original-network source");
+    auto capture=after;capture.append("198.18.0.7/32");
+    network["routes"]=QJsonArray{QJsonObject{{"destination","198.18.0.7/32"}}};
+    check(!NetworkSnapshotCheck::protectionMismatch(before,capture,network,QJsonArray{"198.18.0.7"}).isEmpty(),
+        "a leaked campus capture must fail even when it appears in the kernel view");
+    auto routed=after;routed.append("10.44.0.0/24");
+    network["routes"]=QJsonArray{QJsonObject{{"destination","10.44.0.0/24"}}};
+    check(NetworkSnapshotCheck::protectionMismatch(before,routed,network,{}).isEmpty(),
+        "a new original route is justified by its native source");
+}
 int main(int argc,char **argv) try
 {
     QCoreApplication app(argc,argv);
+    checksProtectionProvenance();
     const QJsonObject configuration{{"address","10.222.0.1"},{"peer","10.222.0.2"},
         {"capture_prefixes",QJsonArray{"198.18.0.6/32"}},{"dns_domains",QJsonArray{"campus.test"}},{"original_dns",QJsonArray{}}};
     const QJsonObject device{{"index",91},{"name","JustConnect fixture"},{"address",configuration["address"]},{"peer",configuration["peer"]},
