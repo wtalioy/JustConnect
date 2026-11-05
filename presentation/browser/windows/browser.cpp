@@ -124,14 +124,17 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &callbackUrl,const TlsOp
                                 if (!self) {event->put_Cancel(TRUE);return S_OK;}
                                 LPWSTR text=nullptr;event->get_Uri(&text);const QUrl target(takeString(text));
                                 qCDebug(browserLog)<<"navigation requested"<<main;
+                                // The policy can close the dialog and reenter the native message loop.
+                                event->put_Cancel(TRUE);
                                 const bool allowed=(main && self->native->htmlPending && target==QUrl("about:blank")) || navigation(target,main);
                                 if (!allowed) {
-                                    event->put_Cancel(TRUE);
                                     if(main && self) {
                                         UINT64 id=0;event->get_NavigationId(&id);
                                         self->native->navigation=id;self->native->certificatePending=false;
                                     }
-                                } else if (main && self) {
+                                } else if (self) {
+                                    event->put_Cancel(FALSE);
+                                    if (!main) return S_OK;
                                     UINT64 id=0;event->get_NavigationId(&id);
                                     const bool started=self->native->navigation!=id;
                                     self->native->navigation=id;self->native->htmlPending=false;self->native->certificatePending=false;
