@@ -54,7 +54,7 @@ Windows 请求系统 Desktop Acrylic 并保留标准窗口边框；macOS 使用 
 
 诊断详情复用现有会话、网络保护与核心共存快照，展示本地入口端口、校园 DNS、规则／重叠与校园例外、已确认出口策略和恢复状态；“规则与 DNS”打开同一来源／重叠详情。它展示确认过的策略，不将规则数量当作某条流量的命中证明。无结果、查询失败及旧代次明确显示未知，不新增周期查询或数据面日志；详情关闭时不刷新显示，复制仅含允许字段与固定诊断码。诊断脱敏、失效观察、语言切换、复制及无额外读取由已有应用测试覆盖；宽字体窄窗口、长配置名和首页 Tab 到主操作保留回归。现有认证／配置操作回归分别按 200%／150% 缩放运行，不另加重复测试。
 
-验证基线：`deec272` 的[三平台应用检查](https://github.com/wtalioy/JustConnect/actions/runs/42030890152)与[六架构实际包检查](https://github.com/wtalioy/JustConnect/actions/runs/42030891372)通过，包括双语与 WebEngine 资源。后续首页修订在本地完整重建及 74 项回归通过；当前源码、原生共存失败与最终交付状态仅在计划维护。Windows 集中验收前保留交互原型；macOS／Linux 桌面仍留 S8。
+验证基线：`1bb6d33` 的[三平台应用检查](https://github.com/wtalioy/JustConnect/actions/runs/42046382241)与[六架构实际包检查](https://github.com/wtalioy/JustConnect/actions/runs/42046435836)通过，包括双语、Qt 标准按钮、WebEngine 资源及运行库／助手来源。本地完整构建及 74 项回归通过；当前原生范围证据与未验收项仅在计划维护。Windows 集中操作及毛玻璃效果尚待用户实测；交互原型保留到这项视觉验收通过，macOS／Linux 桌面留 S8。
 
 ## 认证浏览器选择
 
