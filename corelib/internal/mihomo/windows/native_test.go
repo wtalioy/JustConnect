@@ -6,6 +6,8 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"net"
+	"net/netip"
 	"os"
 	"testing"
 	"time"
@@ -41,5 +43,24 @@ func TestBusyControllerPipeHonorsCancellation(t *testing.T) {
 	}
 	if !errors.Is(err, context.DeadlineExceeded) || time.Since(started) > time.Second {
 		t.Fatalf("busy pipe did not wait within its cancellation budget: %v", err)
+	}
+}
+
+func TestNativeTCPListenerOwnershipTracksActualSocket(t *testing.T) {
+	process := model.Process{PID: os.Getpid(), Started: creation(windows.CurrentProcess())}
+	for _, host := range []string{"127.0.0.1", "::1"} {
+		listener, err := net.Listen("tcp", net.JoinHostPort(host, "0"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		target := netip.MustParseAddrPort(listener.Addr().String())
+		owned := OwnsTCP(t.Context(), process, target)
+		listener.Close()
+		if !owned || OwnsTCP(t.Context(), process, target) {
+			t.Fatalf("native %s ownership did not track the listening socket", host)
+		}
+	}
+	if OwnsTCP(t.Context(), process, netip.AddrPort{}) || OwnsTCP(t.Context(), model.Process{}, netip.MustParseAddrPort("127.0.0.1:1")) {
+		t.Fatal("invalid endpoint or process was accepted")
 	}
 }

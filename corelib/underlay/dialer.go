@@ -310,10 +310,6 @@ func normalizeLocalDNSServer(address string) (string, error) {
 
 var dialOnInterface = dialContextOnInterface
 
-func detectInterface(ctx context.Context, targetAddress string) string {
-	return detectInterfaceWithResolver(ctx, targetAddress, nil)
-}
-
 func detectInterfaceWithResolver(ctx context.Context, targetAddress string, resolver *net.Resolver) string {
 	if interfaceName := findDefaultInterface(); usableInterface(interfaceName, nil) {
 		return interfaceName
