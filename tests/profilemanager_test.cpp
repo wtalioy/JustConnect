@@ -114,6 +114,14 @@ bool createsPhysicalFilesForEmptyProfiles()
         qCritical() << "empty named profile file was not created";
         return false;
     }
+    const auto stateProfile = manager.createProfile("state");
+    if (stateProfile != "state" || !manager.listProfiles().contains(stateProfile)
+        || !manager.setActiveProfile(stateProfile)
+        || ProfileManager(directory.path()).activeProfile() != stateProfile)
+    {
+        qCritical() << "named state profile was confused with the global state file";
+        return false;
+    }
     if (!manager.setAutoStartEnabled(true) || !ProfileManager(directory.path()).autoStartEnabled()
         || !manager.setSilentStartEnabled(true) || !ProfileManager(directory.path()).silentStartEnabled()) return false;
     // A directory in place of the state file is a real storage failure on every platform.
