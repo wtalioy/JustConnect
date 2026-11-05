@@ -47,6 +47,13 @@ int main(int argc, char **argv) {
     check(previous.open(QIODevice::ReadOnly) && previous.readAll()==contents,"failed enable preserved existing entry"); previous.close();
     check(AutoStart::setEnabled(false).succeeded() && !QFileInfo::exists(entry),"disable verified without requiring old executable");
     check(AutoStart::setEnabled(false).succeeded(),"repeated disable idempotent");
+    QFile legacy(entry);check(legacy.open(QIODevice::WriteOnly),"create the former application's desktop entry");
+    const auto legacyText=("[Desktop Entry]\nType=Application\nName="+app.applicationName()+"\nExec="+app.applicationFilePath()+"\nX-GNOME-Autostart-enabled=true\n").toUtf8();
+    check(legacy.write(legacyText)==legacyText.size(),"write the former unquoted desktop command");legacy.close();
+    const auto unrelated=directory.filePath("autostart/other.desktop");
+    QFile other(unrelated);check(other.open(QIODevice::WriteOnly) && other.write("other application")==17,"create another application's startup item");other.close();
+    check(AutoStart::setEnabled(false).succeeded() && !QFileInfo::exists(entry) && QFileInfo::exists(unrelated),
+        "the same withdrawal path removes the old owned entry and preserves other applications");
     check(QFile::link(executable,entry),"symlink fixture");
     check(!AutoStart::setEnabled(true).succeeded(),"symlink entry rejected"); QFile::remove(entry);
     qputenv("APPIMAGE",executable.toUtf8());
@@ -61,7 +68,7 @@ int main(int argc, char **argv) {
     static const QString ownedName = app.applicationName();
     std::atexit([] {
         QSettings cleanup(R"(HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run)", QSettings::NativeFormat);
-        cleanup.remove(ownedName); cleanup.sync();
+        cleanup.remove(ownedName); cleanup.remove(ownedName+"-other"); cleanup.sync();
     });
     auto result=AutoStart::setEnabled(true);
     check(result.succeeded(),qPrintable(result.detail));
@@ -70,6 +77,16 @@ int main(int argc, char **argv) {
     result=AutoStart::setEnabled(false); run.sync();
     check(result.succeeded() && !run.contains(app.applicationName()),"only test Run value removed");
     check(AutoStart::setEnabled(false).succeeded(),"disable idempotent");
+    const auto legacyCommand=QDir::toNativeSeparators(app.applicationFilePath());
+    const auto unrelated=app.applicationName()+"-other";
+    run.setValue(app.applicationName(),legacyCommand);run.setValue(unrelated,"other application");run.sync();
+    const auto upgraded=AutoStart::setEnabled(true);run.sync();
+    check(upgraded.succeeded() && run.value(app.applicationName()).toString()==('"'+legacyCommand+'"'),
+        "the same update path replaces the former unquoted Run command");
+    const auto cleaned=AutoStart::setEnabled(false);run.sync();
+    check(cleaned.succeeded() && !run.contains(app.applicationName()) && run.value(unrelated).toString()=="other application",
+        "owned startup cleanup preserves unrelated Run entries");
+    run.remove(unrelated);run.sync();
 #elif defined(Q_OS_MACOS)
     int calls=0, count=0;
     bool deny=false, ignore=false, malformed=false;
