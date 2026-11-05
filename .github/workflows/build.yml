@@ -40,7 +40,7 @@ jobs:
         include:
           - {os: windows-2025, platform: windows, arch: x64, qt_host: windows, qt_arch: win64_msvc2022_64}
           - {os: windows-11-vs2026-arm, platform: windows, arch: arm64, qt_host: windows_arm64, qt_arch: win64_msvc2022_arm64}
-          - {os: macos-26-intel, platform: macos, arch: x64, native_arch: x86_64, qt_host: mac, qt_arch: clang_64}
+          - {os: macos-15-intel, platform: macos, arch: x64, native_arch: x86_64, qt_host: mac, qt_arch: clang_64}
           - {os: macos-26, platform: macos, arch: arm64, native_arch: arm64, qt_host: mac, qt_arch: clang_64}
     env:
       ARCHIVE_NAME: JustConnect-${{ github.ref == 'refs/heads/develop' && format('preview-{0}', github.sha) || inputs.version || github.event.release.tag_name || 'nightly' }}-${{ matrix.platform }}-${{ matrix.arch }}

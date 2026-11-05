@@ -9,7 +9,6 @@
 #include <QSslCertificate>
 #include <QTemporaryDir>
 #include <QTimer>
-#include <utility>
 #import <AppKit/AppKit.h>
 #import <Security/Security.h>
 #import <WebKit/WebKit.h>
@@ -83,25 +82,9 @@ struct SignInBrowser::Native {
     JCSignInDelegate *delegate;
     QUrl current,pending;
     QString html;
-    bool ready=false,failed=false,htmlPending=false,loadQueued=false;
+    bool ready=false,failed=false,htmlPending=false;
     WKContentRuleListStore *rulesStore;
     std::shared_ptr<QTemporaryDir> rulesDirectory;
-    void scheduleLoad(SignInBrowser *host) {
-        if(loadQueued)return;
-        loadQueued=true;
-        QTimer::singleShot(0,host,[host] {
-            auto *state=host->native.get();state->loadQueued=false;
-            if(!state->ready || state->failed || !host->isVisible())return;
-            // WebKit must start loading from the shown window's application event loop.
-            if(std::exchange(state->htmlPending,false)) {
-                const auto html=std::exchange(state->html,QString());
-                [state->view loadHTMLString:html.toNSString() baseURL:nil];
-            } else if(!state->pending.isEmpty()) {
-                const auto target=std::exchange(state->pending,QUrl());
-                [state->view loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:QString::fromLatin1(target.toEncoded()).toNSString()]]];
-            }
-        });
-    }
     ~Native() {
         delegate->navigate={};delegate->started={};delegate->finished={};delegate->changed={};delegate->certificate={};
         view->addressFocus={};view.navigationDelegate=nil;[view stopLoading];[view removeFromSuperview];
@@ -170,20 +153,21 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &callbackUrl,const TlsOp
             if (error || !list) {self->native->failed=true;emit self->initializationFailed();emit self->loadFinished(false);return;}
             [self->native->view.configuration.userContentController addContentRuleList:list];
             self->native->ready=true;
-            self->native->scheduleLoad(self);
+            if(self->native->htmlPending)self->setHtml(self->native->html);
+            else if(!self->native->pending.isEmpty())self->load(self->native->pending);
         }];
 }
 SignInBrowser::~SignInBrowser() {disconnect(this,nullptr,nullptr,nullptr);}
 void SignInBrowser::load(const QUrl &target) {
-    native->pending=target;native->htmlPending=false;native->html.clear();
+    native->pending=target;native->htmlPending=false;
     if(native->failed){QTimer::singleShot(0,this,[this]{emit initializationFailed();emit loadFinished(false);});return;}
-    native->scheduleLoad(this);
+    if(native->ready)[native->view loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:QString::fromLatin1(target.toEncoded()).toNSString()]]];
 }
 QUrl SignInBrowser::url() const {return native->current;}
 void SignInBrowser::back() {[native->view goBack];}
 void SignInBrowser::forward() {[native->view goForward];}
 void SignInBrowser::reload() {[native->view reload];}
-void SignInBrowser::setHtml(const QString &html) {native->html=html;native->htmlPending=true;native->pending=QUrl();native->scheduleLoad(this);}
+void SignInBrowser::setHtml(const QString &html) {native->html=html;native->htmlPending=true;if(native->ready)[native->view loadHTMLString:html.toNSString() baseURL:nil];}
 void SignInBrowser::runJavaScript(const QString &script,std::function<void(const QVariant &)> result) {
     const QPointer<SignInBrowser> self(this);
     [native->view evaluateJavaScript:script.toNSString() completionHandler:^(id value,NSError *error) {
@@ -194,6 +178,6 @@ void SignInBrowser::runJavaScript(const QString &script,std::function<void(const
     }];
 }
 void SignInBrowser::resizeEvent(QResizeEvent *) {}
-void SignInBrowser::showEvent(QShowEvent *) {native->view.hidden=NO;native->scheduleLoad(this);}
+void SignInBrowser::showEvent(QShowEvent *) {native->view.hidden=NO;}
 void SignInBrowser::hideEvent(QHideEvent *) {native->view.hidden=YES;}
 void SignInBrowser::focusInEvent(QFocusEvent *) {[native->view.window makeFirstResponder:native->view];}
