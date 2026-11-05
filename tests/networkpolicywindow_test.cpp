@@ -8,6 +8,8 @@
 #include <QPointer>
 #include <QPixmap>
 #include <QThread>
+#include <QTranslator>
+#include <QDialogButtonBox>
 #include <QTreeWidget>
 #include <QTabWidget>
 #include <atomic>
@@ -98,21 +100,21 @@ int main(int argc, char **argv) try
     check(lan->toolTip(2)==lan->text(2), "Long overlap details became inaccessible in a narrow column");
     check(dns && tabs && dns->topLevelItemCount() == 10, "Native and reserved DNS namespace sources are reachable in a separate tab");
     tabs->setCurrentIndex(1);
-    check(dns->isVisible() && dns->topLevelItem(0)->text(0).contains("根域")
-          && dns->topLevelItem(1)->text(1).contains("搜索后缀及路由域")
+    check(dns->isVisible() && dns->topLevelItem(0)->text(0).contains("root")
+          && dns->topLevelItem(1)->text(1).contains("Search suffix and routed domain")
           && dns->topLevelItem(1)->text(2).contains("LAN <bridge>&")
-          && dns->topLevelItem(2)->text(0) == "host" && dns->topLevelItem(2)->text(1).contains("原生表达式"),
+          && dns->topLevelItem(2)->text(0) == "host" && dns->topLevelItem(2)->text(1).contains("native expression"),
           "DNS root, native NRPT expression or original interface source misrepresented");
     check(dns->topLevelItem(0)->text(3).isEmpty() && dns->topLevelItem(2)->text(3).contains("host*")
           && dns->topLevelItem(9)->text(0)=="localhost", "Root became blanket protection, prefix became exact or reserved loopback name was lost");
     bool saved=false, current=false,effective=false,scoped=false;
     for(int i=0;i<dns->topLevelItemCount();++i) {
         auto *item=dns->topLevelItem(i);
-        if(item->text(0)=="saved.test") saved=item->text(2).startsWith("已保存 DNS 配置") && item->text(3).isEmpty();
-        if(item->text(0).contains("根域") && item->text(2).contains("State:")) current=item->text(2).startsWith("当前 DNS 配置");
-        if(item->text(0)=="static.active.test")effective=item->text(2).contains("生效的系统解析器 2")
-            && item->text(2).contains("普通查询") && item->text(3).contains("static.active.test");
-        if(item->text(0)=="bound.test")scoped=item->text(2).contains("接口查询") && item->text(2).contains("LAN <bridge>&") && item->text(3).isEmpty();
+        if(item->text(0)=="saved.test") saved=item->text(2).startsWith("Stored DNS:") && item->text(3).isEmpty();
+        if(item->text(0).contains("root") && item->text(2).contains("State:")) current=item->text(2).startsWith("Active DNS:");
+        if(item->text(0)=="static.active.test")effective=item->text(2).contains("Effective resolver 2")
+            && item->text(2).contains("Ordinary queries") && item->text(3).contains("static.active.test");
+        if(item->text(0)=="bound.test")scoped=item->text(2).contains("Interface queries") && item->text(2).contains("LAN <bridge>&") && item->text(3).isEmpty();
     }
     check(saved && current,"Stored and current macOS resolver inputs collapsed into one active claim");
     check(effective && scoped,"Effective ordinary/interface DNS scopes were hidden or misrepresented as the same name protection");
@@ -155,7 +157,20 @@ int main(int argc, char **argv) try
     check(engine.policies==0 && preferenceStatus->text().contains("192.168.24.0/24"),
           "Input escaped its selected original scope");
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-    choose->click(); input=activeInput(); input->setTextValue("192.168.24.12"); input->accept();
+    choose->click(); input=activeInput(); input->setTextValue("192.168.24.12");
+    if(app.arguments().size()==3 && app.arguments()[1]=="--catalog"){
+        QTranslator translation;check(translation.load(app.arguments()[2]),"load the actual application catalog");
+        check(app.installTranslator(&translation),"activate Chinese with an address draft open");QCoreApplication::processEvents();
+        check(window.windowTitle()==QString::fromUtf8("网络保护")
+            && input->findChild<QDialogButtonBox *>()->standardButtons()==(QDialogButtonBox::Ok|QDialogButtonBox::Cancel)
+            && input->windowTitle()==QString::fromUtf8("选择校园地址") && input->textValue()=="192.168.24.12"
+            && tree->currentItem() && tree->currentItem()->text(0)=="192.168.24.0/24"
+            && engine.policies==0 && input->isVisible(),"language switching preserves the address draft, scope and policy generation without applying it");
+        app.removeTranslator(&translation);QCoreApplication::processEvents();
+        check(input->windowTitle()=="Use campus address" && input->textValue()=="192.168.24.12"
+            && window.windowTitle()=="Network protection","English is restored without replacing the active editor");
+    }
+    input->accept();
     check(engine.policies==1 && session.isPolicyUpdating() && session.campusAddresses().isEmpty()
           && !choose->isEnabled() && !restore->isEnabled() && lanRow()->text(3).isEmpty(),
           "UI published or allowed another unconfirmed preference");
@@ -168,7 +183,7 @@ int main(int argc, char **argv) try
     check(engine.policies==2, "Second explicit selection did not reach the core");
     acknowledge(CoreEngine::RequestStatus::Failed);
     check(session.campusAddresses()==QJsonArray{"192.168.24.12"} && !lanRow()->text(3).contains("192.168.24.13")
-          && preferenceStatus->text().contains("未能应用"), "Failed preference replaced the confirmed UI state");
+          && preferenceStatus->text().contains("could not be applied"), "Failed preference replaced the confirmed UI state");
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     fail = true;
     refresh->click();
@@ -200,7 +215,7 @@ int main(int argc, char **argv) try
     input=activeInput(); input->setTextValue("192.168.24.15"); input->accept();
     acknowledge(CoreEngine::RequestStatus::Unavailable);
     check(engine.policies==4 && session.campusAddresses().isEmpty() && !restore->isEnabled()
-          && preferenceStatus->text().contains("无法更新"), "Unavailable first update was hidden as an untouched policy");
+          && preferenceStatus->text().contains("cannot be updated"), "Unavailable first update was hidden as an untouched policy");
     engine.stop();
     check(tree->topLevelItemCount() == 0 && dns->topLevelItemCount() == 0 && !refresh->isEnabled() && engine.policies == 4,
           "Stop changed routing preference or retained disconnected facts");
@@ -239,7 +254,7 @@ int main(int argc, char **argv) try
     tabs->setCurrentIndex(1);restoreName->click();input=activeInput();
     check(input->textValue()=="host.mesh.test","Name recovery offered unowned names");input->accept();
     acknowledge(CoreEngine::RequestStatus::Failed);
-    check(restoreName->isEnabled() && nameChoices->text().contains("host.mesh.test") && preferenceStatus->text().contains("未能应用"),
+    check(restoreName->isEnabled() && nameChoices->text().contains("host.mesh.test") && preferenceStatus->text().contains("could not be applied"),
           "Failed name recovery discarded the effective choice");
     QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     restoreName->click();input=activeInput();input->accept();acknowledge(CoreEngine::RequestStatus::Success);

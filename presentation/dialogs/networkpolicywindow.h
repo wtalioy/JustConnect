@@ -1,19 +1,30 @@
 #pragma once
 #include <QDialog>
 #include <QPointer>
+#include <functional>
 
 class NetworkPolicySession;
 class QLabel;
 class QPushButton;
 class QTreeWidget;
 class QInputDialog;
+class QTabWidget;
 
 class NetworkPolicyWindow : public QDialog
 {
     Q_OBJECT
 public:
     explicit NetworkPolicyWindow(NetworkPolicySession *session, QWidget *parent = nullptr);
+protected:
+    void changeEvent(QEvent *event) override;
 private:
+    void retranslate();
+    QInputDialog *createEditor(std::function<void(QInputDialog *)> translate);
+    void setInputError(const char *source,const QString &scope={});
+    const char *inputErrorText=nullptr;
+    QString inputErrorScope;
+    QTabWidget *tabs;
+    QLabel *explanation;
     void updateModel();
     void updateActions();
     void updatePolicyMessage();
