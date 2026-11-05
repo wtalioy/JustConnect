@@ -4,6 +4,7 @@
 #include <QDir>
 #include <QFocusEvent>
 #include <QJsonArray>
+#include <QLoggingCategory>
 #include <QJsonDocument>
 #include <QPointer>
 #include <QSslCertificate>
@@ -19,6 +20,7 @@
 using Microsoft::WRL::Callback;
 using Microsoft::WRL::ComPtr;
 namespace {
+Q_LOGGING_CATEGORY(browserLog,"justconnect.signin",QtWarningMsg)
 QString takeString(LPWSTR value) {const auto result=QString::fromWCharArray(value);CoTaskMemFree(value);return result;}
 
 void addCertificates(HCERTSTORE store,const QByteArray &pem) {
@@ -88,11 +90,13 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &gateway,const TlsOption
     QTimer::singleShot(0,this,[self,gateway,tls,navigation] {
         const auto fail=[self] {if(self){self->native->failed=true;emit self->initializationFailed();emit self->loadFinished(false);}};
         auto *state=self->native.get();
+        qCDebug(browserLog)<<"environment start"<<state->pending.isEmpty();
         if (FAILED(state->apartment) || !state->storage->directory.isValid()) {fail();return;}
         const auto folder=state->storage->directory.path().toStdWString();
         auto storage=state->storage;
         const auto result=CreateCoreWebView2EnvironmentWithOptions(nullptr,folder.c_str(),nullptr,
             Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>([self,gateway,tls,navigation,fail,storage](HRESULT status,ICoreWebView2Environment *environment)->HRESULT {
+                qCDebug(browserLog)<<"environment result"<<Qt::hex<<status;
                 if (FAILED(status) || !environment) {fail();return S_OK;}
                 ComPtr<ICoreWebView2Environment10> modern;
                 if (FAILED(environment->QueryInterface(IID_PPV_ARGS(&modern))) || FAILED(environment->QueryInterface(IID_PPV_ARGS(&storage->environment)))) {fail();return S_OK;}
@@ -106,6 +110,7 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &gateway,const TlsOption
                 if (FAILED(controllerOptions->put_ProfileName(profile.c_str())) || FAILED(controllerOptions->put_IsInPrivateModeEnabled(TRUE))) {fail();return S_OK;}
                 const auto result=modern->CreateCoreWebView2ControllerWithOptions(reinterpret_cast<HWND>(self->winId()),controllerOptions.Get(),
                     Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>([self,gateway,tls,navigation,fail](HRESULT status,ICoreWebView2Controller *controller)->HRESULT {
+                        qCDebug(browserLog)<<"controller result"<<Qt::hex<<status;
                         if (!self) {if(controller)controller->Close();return S_OK;}
                         if (FAILED(status) || !controller) {fail();return S_OK;}
                         auto *state=self->native.get();state->controller=controller;
@@ -118,6 +123,7 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &gateway,const TlsOption
                             return Callback<ICoreWebView2NavigationStartingEventHandler>([self,navigation,main](ICoreWebView2 *,ICoreWebView2NavigationStartingEventArgs *event)->HRESULT {
                                 if (!self) {event->put_Cancel(TRUE);return S_OK;}
                                 LPWSTR text=nullptr;event->get_Uri(&text);const QUrl target(takeString(text));
+                                qCDebug(browserLog)<<"navigation requested"<<main;
                                 const bool allowed=(main && self->native->htmlPending && target==QUrl("about:blank")) || navigation(target,main);
                                 if (!allowed) {
                                     event->put_Cancel(TRUE);
@@ -192,6 +198,7 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &gateway,const TlsOption
                         }).Get(),&token);
                         if (FAILED(configured)) {fail();return S_OK;}
                         state->resize(reinterpret_cast<HWND>(self->winId()));controller->put_IsVisible(self->isVisible());
+                        qCDebug(browserLog)<<"controller ready"<<self->isVisible()<<state->pending.isEmpty();
                         if(state->htmlPending)self->setHtml(state->html);else if(!state->pending.isEmpty())self->load(state->pending);
                         return S_OK;
                     }).Get());
@@ -202,6 +209,7 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &gateway,const TlsOption
 }
 SignInBrowser::~SignInBrowser() {disconnect(this,nullptr,nullptr,nullptr);}
 void SignInBrowser::load(const QUrl &target) {
+    qCDebug(browserLog)<<"load requested"<<bool(native->view)<<target.isEmpty();
     native->pending=target;native->htmlPending=false;
     if(native->failed){QTimer::singleShot(0,this,[this]{emit initializationFailed();emit loadFinished(false);});return;}
     if(native->view && FAILED(native->view->Navigate(QString::fromLatin1(target.toEncoded()).toStdWString().c_str())))emit loadFinished(false);
