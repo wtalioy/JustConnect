@@ -103,6 +103,7 @@
    </item>
    <item>
     <widget class="QWidget" name="browserHost">
+     <property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Expanding"><horstretch>0</horstretch><verstretch>0</verstretch></sizepolicy></property>
      <layout class="QVBoxLayout" name="browserLayout">
       <property name="leftMargin"><number>0</number></property>
       <property name="topMargin"><number>0</number></property>

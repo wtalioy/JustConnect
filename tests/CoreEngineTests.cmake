@@ -24,8 +24,9 @@ function(justconnect_core_ui_tests TARGET ENGINE LIBRARY PLATFORM)
     target_link_libraries(${TARGET} PRIVATE ${ENGINE} ${PLATFORM} justconnect_signin_browser Qt6::Concurrent)
     justconnect_core_runtime(${TARGET} ${LIBRARY})
     add_test(NAME ${TARGET} COMMAND ${TARGET})
-    set_tests_properties(${TARGET} PROPERTIES TIMEOUT 60
-        ENVIRONMENT "QT_QPA_PLATFORM=${JC_BROWSER_QPA}")
+    set_tests_properties(${TARGET} PROPERTIES TIMEOUT 60 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    add_test(NAME ${TARGET}_browser COMMAND ${TARGET} --browser)
+    set_tests_properties(${TARGET}_browser PROPERTIES TIMEOUT 60 ENVIRONMENT "QT_QPA_PLATFORM=${JC_BROWSER_QPA}")
     add_test(NAME ${TARGET}_protocol
         COMMAND "${CMAKE_COMMAND}" -E env "JC_NATIVE_PROTOCOL_HOST=$<TARGET_FILE:${TARGET}>"
             GOTOOLCHAIN=local GOWORK=off GOENV=off CGO_ENABLED=1 GOEXPERIMENT=cgocheck2

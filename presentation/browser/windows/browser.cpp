@@ -81,7 +81,7 @@ struct SignInBrowser::Native {
 
 SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &gateway,const TlsOptions &tls,NavigationPolicy navigation)
     :QWidget(parent),native(std::make_unique<Native>()) {
-    setAttribute(Qt::WA_NativeWindow);setFocusPolicy(Qt::StrongFocus);
+    setAttribute(Qt::WA_NativeWindow);setFocusPolicy(Qt::StrongFocus);setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Expanding);
     const QPointer<SignInBrowser> self(this);
     QTimer::singleShot(0,this,[self,gateway,tls,navigation] {
         const auto fail=[self] {if(self){self->native->failed=true;emit self->initializationFailed();emit self->loadFinished(false);}};
@@ -193,7 +193,7 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &gateway,const TlsOption
 SignInBrowser::~SignInBrowser() {disconnect(this,nullptr,nullptr,nullptr);}
 void SignInBrowser::load(const QUrl &target) {
     native->pending=target;native->htmlPending=false;
-    if(native->failed){QTimer::singleShot(0,this,[this]{emit loadFinished(false);});return;}
+    if(native->failed){QTimer::singleShot(0,this,[this]{emit initializationFailed();emit loadFinished(false);});return;}
     if(native->view && FAILED(native->view->Navigate(QString::fromLatin1(target.toEncoded()).toStdWString().c_str())))emit loadFinished(false);
 }
 QUrl SignInBrowser::url() const {return native->current;}
