@@ -423,125 +423,125 @@ Domain: %1</source>
 <context>
     <name>ConnectionDiagnostics</name>
     <message>
-        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="63"/>
+        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="64"/>
         <source>Unknown</source>
         <translation>未知</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="77"/>
-        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="97"/>
-        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="119"/>
+        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="78"/>
+        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="98"/>
+        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="120"/>
         <source>Off</source>
         <translation>关闭</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="87"/>
+        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="88"/>
         <source>Recovery required</source>
         <translation>需要恢复</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="88"/>
+        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="89"/>
         <source>Ready</source>
         <translation>就绪</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="89"/>
-        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="124"/>
+        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="90"/>
+        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="125"/>
         <source>In progress</source>
         <translation>进行中</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="90"/>
+        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="91"/>
         <source>Not active</source>
         <translation>未启用</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="91"/>
+        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="92"/>
         <source>System capture: %1</source>
         <translation>系统接管：%1</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="92"/>
+        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="93"/>
         <source>Local entry ports: HTTP %1 · SOCKS %2</source>
         <translation>本地入口端口：HTTP %1 · SOCKS %2</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="100"/>
+        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="101"/>
         <source>campus %1 · %2 original scopes · %3 domain DNS rules</source>
         <translation>校园 %1 · %2 个原网络范围 · %3 条域名 DNS 规则</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="105"/>
+        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="106"/>
         <source>DNS sources: %1</source>
         <translation>解析来源：%1</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="106"/>
+        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="107"/>
         <source>%1 IP rules · %2 domain patterns · %3 protected scopes · %4 overlaps</source>
         <translation>%1 条 IP 规则 · %2 个域名模式 · %3 个保护范围 · %4 处重叠</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="112"/>
+        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="113"/>
         <source>Confirmed routing policy: %1</source>
         <translation>已确认分流策略：%1</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="114"/>
+        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="115"/>
         <source>Campus exceptions: %1 addresses · %2 names</source>
         <translation>校园例外：%1 个地址 · %2 个名称</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="117"/>
+        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="118"/>
         <source>Campus exit: %1</source>
         <translation>校园出口：%1</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="117"/>
+        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="118"/>
         <source>Campus tunnel</source>
         <translation>校园隧道</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="119"/>
+        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="120"/>
         <source>Clash %1 · TUN %2</source>
         <translation>Clash %1 · TUN %2</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="119"/>
+        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="120"/>
         <source>On</source>
         <translation>开启</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="120"/>
+        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="121"/>
         <source>System routing</source>
         <translation>系统路由</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="121"/>
+        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="122"/>
         <source>Ordinary exit: %1</source>
         <translation>普通出口：%1</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="122"/>
+        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="123"/>
         <source>Retry network recovery</source>
         <translation>重试网络恢复</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="125"/>
+        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="126"/>
         <source>Browser proxy ownership retained</source>
         <translation>仍持有浏览器代理设置</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="126"/>
+        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="127"/>
         <source>No pending browser restoration</source>
         <translation>无需恢复浏览器代理</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="127"/>
+        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="128"/>
         <source>Recovery: %1</source>
         <translation>恢复状态：%1</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="129"/>
+        <location filename="../../presentation/coordinators/connectiondiagnostics.cpp" line="130"/>
         <source>Diagnostic code: %1</source>
         <translation>诊断码：%1</translation>
     </message>
@@ -549,303 +549,313 @@ Domain: %1</source>
 <context>
     <name>ConnectionUiController</name>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="173"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="177"/>
         <source>Connect</source>
         <translation>连接</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="178"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="182"/>
         <source>Set system proxy</source>
         <translation>设置系统代理</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="79"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="83"/>
         <source>Authentication cache was not saved</source>
         <translation>认证缓存未保存</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="90"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="94"/>
         <source>Reconnect %1/%2 in %3 seconds</source>
         <translation>重连 %1/%2，将在 %3 秒后尝试</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="100"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="104"/>
         <source>VPN disconnected</source>
         <translation>VPN 断开！</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="115"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="119"/>
         <source>VPN disconnected unexpectedly</source>
         <translation>VPN 意外断开！</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="169"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="173"/>
         <source>Retry recovery</source>
         <translation>重试恢复</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="172"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="176"/>
         <source>Disconnect</source>
         <translation>断开</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="178"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="182"/>
         <source>Clear system proxy</source>
         <translation>清除系统代理</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="216"/>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="459"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="220"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="463"/>
         <source>Saving profile</source>
         <translation>正在保存配置</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="216"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="220"/>
         <source>Wait for the save before connecting.</source>
         <translation>请等待保存完成后再连接。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="219"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="223"/>
         <source>Profile needs updating</source>
         <translation>配置需要更新</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="219"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="223"/>
         <source>Choose a bundled profile or confirm your custom aTrust server, then save it.</source>
         <translation>请选择 Fudan 或确认 Custom 的 aTrust 服务器后保存配置。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="221"/>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="539"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="225"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="543"/>
         <source>Error</source>
         <translation>错误</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="221"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="225"/>
         <source>The server address cannot be empty.</source>
         <translation>服务器地址不能为空</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="223"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="227"/>
         <source>Choose a sign-in method</source>
         <translation>请选择认证方式</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="223"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="227"/>
         <source>Confirm a sign-in method in profile settings. You can query the available methods from your server.</source>
         <translation>请在设置中确认认证方式；可从当前服务器获取可用列表。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="227"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="231"/>
         <source>Profile unavailable</source>
         <translation>配置不可用</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="227"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="231"/>
         <source>The current profile could not be read. Check file permissions and contents, then reopen it.</source>
         <translation>无法读取当前配置，请检查文件权限与内容后重新打开配置。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="171"/>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="173"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="175"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="177"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="234"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="70"/>
+        <source>Browser proxy changed</source>
+        <translation>浏览器代理已改变</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="70"/>
+        <source>New proxy settings were detected. JustConnect will preserve them.</source>
+        <translation>检测到新的代理设置，JustConnect 将保留这些设置。</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="238"/>
         <source>The official aTrust client is running</source>
         <translation>检测到官方 aTrust 正在运行</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="235"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="239"/>
         <source>Its routes or DNS may conflict with JustConnect. Disconnect it manually first. JustConnect will not terminate its processes.</source>
         <translation>官方客户端可能与 JustConnect 的路由或 DNS 设置冲突。请先手动断开官方连接；JustConnect 不会结束它的进程。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="241"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="245"/>
         <source>Saved credentials unavailable</source>
         <translation>无法读取已保存凭据</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="241"/>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="314"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="245"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="318"/>
         <source>
 You can sign in manually for this connection.</source>
         <translation>
 本次仍可手动登录。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="265"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="269"/>
         <source>Authentication cache was not restored</source>
         <translation>认证缓存未恢复</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="265"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="269"/>
         <source>
 You will sign in again for this connection.</source>
         <translation>
 本次将重新认证。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="314"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="318"/>
         <source>Login details were not saved</source>
         <translation>未能记住登录信息</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="354"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="358"/>
         <source>Cannot set system proxy</source>
         <translation>无法设置系统代理</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="354"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="358"/>
         <source>Both local HTTP and SOCKS5 listeners are required. Update the profile and reconnect.</source>
         <translation>设置系统代理需要同时启用本地 HTTP 和 SOCKS5 监听。请修改配置后重新连接。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="377"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="381"/>
         <source>Cannot inspect system proxy</source>
         <translation>无法检查系统代理</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="391"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="395"/>
         <source>Warning</source>
         <translation>警告</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="396"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="400"/>
         <source>Do not ask again</source>
         <translation>不再提示</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="413"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="417"/>
         <source>System proxy replacement warning skipped by preference</source>
         <translation>跳过系统代理覆盖警告，因为已设置了不再提示</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="418"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="422"/>
         <source>Set system proxy: HTTP port </source>
         <translation>设置系统代理：HTTP端口 </translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="419"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="423"/>
         <source>, SOCKS5 port </source>
         <translation>，SOCKS5 端口 </translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="459"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="463"/>
         <source>Wait for the save before clearing authentication caches.</source>
         <translation>请等待保存完成后再清除认证缓存。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="462"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="466"/>
         <source>Authentication cache</source>
         <translation>认证缓存</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="462"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="466"/>
         <source>This profile has no bound account cache to clear.</source>
         <translation>当前配置尚无可清除的已绑定账户。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="465"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="469"/>
         <source>Clear authentication cache</source>
         <translation>清除认证缓存</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="465"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="469"/>
         <source>
 Clear the authentication cache for </source>
         <translation>
 清除 </translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="465"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="469"/>
         <source>? The next connection may require sign-in. Passwords, TOTP and other accounts are preserved.</source>
         <translation> 的认证缓存？下次连接可能需要重新认证，密码、TOTP 和其他账户保持不变。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="470"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="474"/>
         <source>Authentication cache cleanup incomplete</source>
         <translation>认证缓存清除未完成</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="498"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="502"/>
         <source>Network permission was denied. Check interface access or authorization, then retry.</source>
         <translation>网络操作权限不足，请检查接口访问或授权结果后重试。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="501"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="505"/>
         <source>The server ended the session. Select Connect to sign in again.</source>
         <translation>服务器已明确终止会话。请点击连接完成一次重新认证。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="504"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="508"/>
         <source>Authentication expired or could not be restored. Enter your credentials and retry.</source>
         <translation>认证已失效或无法恢复，请输入登录凭据后重试。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="507"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="511"/>
         <source>The next sign-in step is not supported. Ask your administrator to confirm the authentication policy.</source>
         <translation>服务器要求的后续认证步骤暂不支持，请联系管理员确认认证策略。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="510"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="514"/>
         <source>Sign-in methods changed or are ambiguous. Query and select the method again.</source>
         <translation>认证方式已变化或不唯一，请重新获取并选择认证方式。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="513"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="517"/>
         <source>The certificate is not trusted or does not match the server. Check the address, system time and campus CA.</source>
         <translation>服务器证书不受信任或与地址不匹配。请检查服务器地址、系统时间和学校 CA。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="516"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="520"/>
         <source>TLS negotiation failed. Check the server port and TLS compatibility.</source>
         <translation>TLS 协议协商失败。请检查服务器端口与 TLS 兼容性。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="519"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="523"/>
         <source>The network connection failed. Check DNS, connectivity and the server address.</source>
         <translation>网络连接失败。请检查 DNS、网络与服务器地址。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="522"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="526"/>
         <source>The connection or sign-in timed out. Please retry.</source>
         <translation>连接或认证操作超时，请重试。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="525"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="529"/>
         <source>Connection failed. Check your network and server settings.</source>
         <translation>连接失败！
 可能是响应超时，请检查本地网络配置是否正常，服务器设置是否正确。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="528"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="532"/>
         <source>The core library is unavailable. Check that the package is complete and its ABI matches.</source>
         <translation>核心库不可用！
 请检查安装包是否完整及核心 ABI 是否匹配。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="531"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="535"/>
         <source>The profile is invalid or has unsupported legacy options. Use aTrust and supported network settings.</source>
         <translation>配置无效或含有当前核心不支持的旧选项。
 请使用 aTrust 和受支持的网络设置。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="534"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="538"/>
         <source>Unexpected error. Share the diagnostic log with the developer for investigation.</source>
         <translation>其它错误！
 未知原因，可将日志反馈给开发者以便调查。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="392"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="396"/>
         <source>A system proxy is already configured (possibly Clash or another proxy application).
 Replace the current system proxy?</source>
         <translation>当前已存在系统代理配置（可能是 Clash 或其它代理软件）
 是否覆盖当前系统代理配置？</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="170"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="174"/>
         <source>Disconnecting…</source>
         <translation>正在断开…</translation>
     </message>

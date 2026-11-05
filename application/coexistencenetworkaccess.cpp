@@ -100,13 +100,16 @@ CoexistenceNetworkAccess::CoexistenceNetworkAccess(NetworkAccess *nativeAccess, 
             }
             QStringList upstream;
             for (const auto &value : state["endpoints"].toArray()) upstream.append(value.toString());
+            const bool recognizedUpstream = std::any_of(observed.endpoints.begin(), observed.endpoints.end(),
+                [&](const QString &endpoint) { return upstream.contains(endpoint); });
             if (proxy->isAutomatic() && proxy->needsCleanup() && !observed.managed) {
+                if (observed.active && !recognizedUpstream) emit core->diagnostic("browser_proxy_changed_externally");
                 pending = Pending::Clear;
                 if (!proxy->disable()) { pending = Pending::None; fail(failed("Cannot release the changed browser proxy.")); }
                 return;
             }
             if (!proxy->needsCleanup() && observed.active && state["available"].toBool()
-                && std::any_of(observed.endpoints.begin(), observed.endpoints.end(), [&](const QString &endpoint) { return upstream.contains(endpoint); })) {
+                && recognizedUpstream) {
                 if (frontend.httpPort < 1 || frontend.socksPort < 1) {
                     fail({Result::Status::Unsupported, "Automatic browser coexistence requires both local HTTP and SOCKS listeners."}); return;
                 }
