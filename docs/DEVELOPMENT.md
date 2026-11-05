@@ -14,7 +14,7 @@ cmake --build build --config Release --parallel 3
 ctest --test-dir build -C Release --output-on-failure
 ```
 
-界面翻译沿用 Qt TS／QM：英文为源码文案，简体中文目录为 `resource/translations/justconnect_zh_CN.ts`；CMake 用 SDK 的 `lrelease` 编译并嵌入应用，不依赖用户目录中的外置翻译。用 SDK 的 `lupdate` 更新目录、完成中文翻译后再构建；不提交生成的 QM。全局语言及关闭行为保存在已有 `state.ini`，不写入学校 Profile。当前逐窗口迁移状态见 [UI 设计](UI-DESIGN.md)，尚未迁移的窗口不计为已验收。
+界面翻译沿用 Qt TS／QM：英文为源码文案，简体中文目录为 `resource/translations/justconnect_zh_CN.ts`；CMake 用 SDK 的 `lrelease` 编译并嵌入应用，不依赖用户目录中的外置翻译。用 `cmake --build build --target update_translations` 更新目录，该目标同时扫描 C++ 与 `.ui`；完成中文翻译后再构建，不提交生成的 QM。全局语言及关闭行为保存在已有 `state.ini`，不写入学校 Profile。用户入口为主页齿轮菜单中的 `Application settings…`（应用偏好设置）；保存本身不关闭窗口或断开连接。当前整套原生窗口已接入；实现范围见 [UI 设计](UI-DESIGN.md)，自动检查与实际桌面验收分别按计划记录。
 
 Unix 使用 Go 静态归档；Windows 的 cgo 使用固定校验和的 LLVM-MinGW UCRT，Qt 宿主使用 MSVC，并从应用目录加载随包 DLL。共享 [CoreLibrary.cmake](../cmake/CoreLibrary.cmake) 构建同一份核心，记录来源及工具链到 `build/source-revision.txt`／`build/core-toolchain.txt`。
 
@@ -194,7 +194,7 @@ Windows 原生设备基准使用同一固定官方签名 DLL：首次创建约 1
 
 ## 域名专用 DNS
 
-主界面「当前配置」旁的「管理配置」菜单提供编辑、新建、切换、重命名和删除。编辑直接打开 aTrust 配置页，填入域名专用 DNS 后应用。新建时输入名称即可打开配置引导。规则每行一个完整域名，可用空格追加 DNS 服务器 IPv4。省略服务器时使用当前会话的网关 DNS，重新连接后应用。Fudan 的随包配置为 `application/profiles/fudan.ini`，使用与用户配置相同的 INI 格式。默认配置写入 `config.ini`，其他配置分别写入 `profiles/<名称>.ini`，清空并保存后不会补回预填条目。
+点击主页显示学校／服务器的配置按钮，可编辑、新建、切换、重命名或删除配置。编辑前先断开连接；选择 `Edit current profile…` 后，展开服务器表单的 `Advanced`，在 `Domain DNS`（域名专用 DNS）中编辑并应用。新建时输入名称即可打开配置引导。规则每行一个完整域名，可用空格追加 DNS 服务器 IPv4。省略服务器时使用当前会话的网关 DNS，重新连接后应用。Fudan 的随包配置为 `application/profiles/fudan.ini`，使用与用户配置相同的 INI 格式。默认配置写入 `config.ini`，其他配置分别写入 `profiles/<名称>.ini`，清空并保存后不会补回预填条目。
 
 2026-11-04 用实际 Fudan 登录验证网关下发的 `202.120.224.6`。在现有网关 ACL 下，通过隧道查询 `zb.fudan.edu.cn` 返回 `10.108.67.94`，保留域名与 TLS 验证访问返回 HTTPS 200。经同一隧道显式查询复旦信息办公布的 `202.120.224.26` 也返回同一结果。预设因此只提供域名，由会话选择网关 DNS。[复旦校园网 DNS 说明](https://xxb.fudan.edu.cn/wlgzpc/list.htm)
 
