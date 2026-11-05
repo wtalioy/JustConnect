@@ -103,6 +103,7 @@ func StartConfiguredBinary(t testing.TB, upstream string, ipc bool, overrides ma
 	for key, value := range overrides {
 		config[key] = value
 	}
+	f.Address, _ = config["external-controller"].(string)
 	if tun, ok := config["tun"].(map[string]any); !ok || tun["enable"] != false {
 		t.Fatal("owned controller fixture must keep TUN disabled")
 	}
@@ -125,9 +126,9 @@ func StartConfiguredBinary(t testing.TB, upstream string, ipc bool, overrides ma
 		t.Fatal(err)
 	}
 	f.PID = command.Process.Pid
+	f.stop = func() { command.Process.Kill(); command.Wait() }
 	t.Cleanup(func() {
-		command.Process.Kill()
-		command.Wait()
+		f.Stop()
 		if t.Failed() {
 			t.Logf("owned Mihomo log: %s", log.String())
 		}

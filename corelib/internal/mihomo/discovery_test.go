@@ -90,6 +90,11 @@ func TestManualControllerRejectsUnownedLoopbackServer(t *testing.T) {
 	if !errors.Is(err, ErrUnavailable) || controller != nil || requests.Load() != 0 {
 		t.Fatal("manual address bypassed native listener ownership", err, requests.Load())
 	}
+	Processes = func(context.Context) ([]model.Process, error) { return nil, nil }
+	controller, err = Discover(t.Context(), foreign.URL)
+	if err != nil || controller != nil || requests.Load() != 0 {
+		t.Fatal("an absent runtime must not contact or trust an unrelated listener", err, requests.Load())
+	}
 }
 
 func TestControllerAddressTrustBoundary(t *testing.T) {
