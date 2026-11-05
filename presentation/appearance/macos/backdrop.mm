@@ -1,8 +1,10 @@
 #include "../applicationappearance.h"
 #include <QWidget>
+#include <QGuiApplication>
 #import <AppKit/AppKit.h>
 
 bool ApplicationAppearance::enableNativeBackdrop(QWidget *window) {
+    if (QGuiApplication::platformName()!="cocoa") return false;
     window->setAttribute(Qt::WA_TranslucentBackground);
     auto *view=reinterpret_cast<NSView *>(window->winId());
     auto *native=view.window;
