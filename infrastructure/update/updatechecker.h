@@ -12,9 +12,11 @@ class QNetworkReply;
 
 struct VersionInfo
 {
+    enum class UpdateState { Checking, Disabled, Failed, Ready };
     QString uiVersion;
     QString uiLatest;
     QString coreVersion;
+    UpdateState updateState=UpdateState::Checking;
 };
 
 class UpdateChecker : public QObject
@@ -34,7 +36,6 @@ public:
 
 signals:
     void versionInfoChanged(const VersionInfo &versionInfo);
-    void checkFailed(const QString &reason);
     void uiUpdateAvailable(const QString &version);
 
 private:

@@ -128,7 +128,7 @@ UpdateChecker::UpdateChecker(QObject *parent)
     : QObject(parent),
       versions{
           QApplication::applicationVersion(),
-          QStringLiteral("正在检查"),
+          QString(),
           QString()
       },
       uiNetworkManager(new QNetworkAccessManager(this))
@@ -137,7 +137,7 @@ UpdateChecker::UpdateChecker(QObject *parent)
             this, &UpdateChecker::handleUiReply);
     const auto info = EmbeddedCoreEngine::buildInfo();
     const auto build = info["build"].toObject();
-    versions.coreVersion = info.isEmpty() ? QStringLiteral("不可用")
+    versions.coreVersion = info.isEmpty() ? QString()
         : build["local_version"].toString() + " / ABI " + QString::number(info["abi_version"].toInt())
             + " / " + build["os"].toString() + "-" + build["arch"].toString()
             + " / " + build["go_version"].toString();
@@ -150,12 +150,15 @@ const VersionInfo &UpdateChecker::versionInfo() const
 
 void UpdateChecker::markDisabled()
 {
-    versions.uiLatest = QStringLiteral("已禁用");
+    versions.uiLatest.clear();
+    versions.updateState=VersionInfo::UpdateState::Disabled;
     emit versionInfoChanged(versions);
 }
 
 void UpdateChecker::check()
 {
+    versions.uiLatest.clear();versions.updateState=VersionInfo::UpdateState::Checking;
+    emit versionInfoChanged(versions);
     uiNetworkManager->get(QNetworkRequest(
         QUrl(
             "https://api.github.com/repos/" +
@@ -226,10 +229,9 @@ void UpdateChecker::handleUiReply(QNetworkReply *reply)
     if (reply->error() != QNetworkReply::NoError)
     {
         const QString reason = reply->errorString();
-        qWarning().noquote() << "检查 UI 更新失败。原因是：" + reason;
-        versions.uiLatest = QStringLiteral("检查失败");
+        qWarning().noquote() << "UI update check failed: " + reason;
+        versions.uiLatest.clear();versions.updateState=VersionInfo::UpdateState::Failed;
         reply->deleteLater();
-        emit checkFailed(reason);
         emit versionInfoChanged(versions);
         return;
     }
@@ -240,17 +242,17 @@ void UpdateChecker::handleUiReply(QNetworkReply *reply)
     if (!latestVersion.has_value())
     {
         const QString reason =
-            QStringLiteral("响应中缺少有效的版本标签");
-        qWarning().noquote() << "检查 UI 更新失败。原因是：" + reason;
-        versions.uiLatest = QStringLiteral("检查失败");
-        emit checkFailed(reason);
+            QStringLiteral("The release response has no valid version tag.");
+        qWarning().noquote() << "UI update check failed: " + reason;
+        versions.uiLatest.clear();versions.updateState=VersionInfo::UpdateState::Failed;
         emit versionInfoChanged(versions);
         return;
     }
 
     qInfo().noquote()
-        << "检查 UI 更新成功。最新版本：" + *latestVersion;
+        << "UI update check succeeded. Latest version: " + *latestVersion;
     versions.uiLatest = *latestVersion;
+    versions.updateState=VersionInfo::UpdateState::Ready;
     emit versionInfoChanged(versions);
 
     if (isNewerVersion(versions.uiVersion, *latestVersion))

@@ -79,10 +79,6 @@ MainWindow::MainWindow(
     });
     connect(updateChecker, &UpdateChecker::versionInfoChanged, this,
             [this](const VersionInfo &) { updateVersionInfo(); });
-    connect(updateChecker, &UpdateChecker::checkFailed, this,
-            [this](const QString &) {
-                ui->versionLabel->setToolTip(ui->versionLabel->toolTip() + tr("\nUpdate check failed"));
-            });
     connect(updateChecker, &UpdateChecker::uiUpdateAvailable, this,
             [this](const QString &latestVersion)
             {
@@ -980,8 +976,15 @@ void MainWindow::updateVersionInfo()
 {
     const VersionInfo &versionInfo = updateChecker->versionInfo();
     ui->versionLabel->setText(tr("Version %1").arg(versionInfo.uiVersion));
+    QString latest;
+    switch(versionInfo.updateState){
+    case VersionInfo::UpdateState::Checking:latest=tr("Checking…");break;
+    case VersionInfo::UpdateState::Disabled:latest=tr("Disabled");break;
+    case VersionInfo::UpdateState::Failed:latest=tr("Check failed");break;
+    case VersionInfo::UpdateState::Ready:latest=versionInfo.uiLatest;break;
+    }
     ui->versionLabel->setToolTip(tr("Application: %1 (latest: %2)\nCore: %3")
-        .arg(versionInfo.uiVersion,versionInfo.uiLatest,versionInfo.coreVersion));
+        .arg(versionInfo.uiVersion,latest,versionInfo.coreVersion.isEmpty() ? tr("Unavailable") : versionInfo.coreVersion));
     updateProfileSummary();
 }
 
