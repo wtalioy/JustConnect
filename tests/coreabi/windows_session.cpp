@@ -7,6 +7,7 @@
 #include "infrastructure/dns/windows/dnssnapshot.h"
 #include "infrastructure/process/command.h"
 #include "infrastructure/routing/originalexit.h"
+#include "application/networkprotection.h"
 #include "tests/platform/windows_device/controlhandoff.h"
 #include "tests/platform/networksnapshotcheck.h"
 #include "tuntraffic.h"
@@ -223,7 +224,14 @@ int main(int argc,char **argv) try
     until("reach CampusReady after native attachment",[&]{return session.state()==ConnectionState::Running || finished>2;},20000);
     check(finished==2 && session.phase()==ConnectionPhase::CampusReady,"application reports campus readiness only after authorized device attachment");
     const auto traffic=[&]{
-        until("finish original-network policy observation",[&]{return !policy.isBusy();});
+        until("finish original-network policy observation and confirmation",[&]{
+            if(policy.isBusy())return false;
+            if(policy.status()!=CoreEngine::RequestStatus::Success)return true;
+            const auto model=policy.model();
+            const auto observed=protectionConfiguration(model["targets"].toArray(),model["name_targets"].toArray());
+            const auto confirmed=policy.confirmedProtection();
+            return observed["protected"]==confirmed["protected"] && observed["protected_names"]==confirmed["protected_names"];
+        });
         check(policy.status()==CoreEngine::RequestStatus::Success && coexistence.protectionMatches(initialProtection,policy.confirmedProtection(),policy.model()["network"].toObject()),
             "only the actual external proxy may add original protection; owned routes/DNS remain absent");
         const auto chooseCampus=[&](bool campus){
@@ -257,7 +265,14 @@ int main(int argc,char **argv) try
         exerciseNativeTUNTraffic(QHostAddress("198.18.0.7"));
         exerciseNativeSSH(QHostAddress("198.18.0.7"));
         if(policyChanges)exerciseNonCampusNetworkTraffic();
-        until("finish original-network policy observation",[&]{return !policy.isBusy();});check(policy.refresh(),"refresh original view after DNS capture publication");until("finish original-network policy observation",[&]{return !policy.isBusy();});
+        until("finish original-network policy observation and confirmation",[&]{
+            if(policy.isBusy())return false;
+            if(policy.status()!=CoreEngine::RequestStatus::Success)return true;
+            const auto model=policy.model();
+            const auto observed=protectionConfiguration(model["targets"].toArray(),model["name_targets"].toArray());
+            const auto confirmed=policy.confirmedProtection();
+            return observed["protected"]==confirmed["protected"] && observed["protected_names"]==confirmed["protected_names"];
+        });check(policy.refresh(),"refresh original view after DNS capture publication");until("finish original-network policy observation",[&]{return !policy.isBusy();});
         check(policy.status()==CoreEngine::RequestStatus::Success && coexistence.protectionMatches(initialProtection,policy.confirmedProtection(),policy.model()["network"].toObject()),
             "new DNS captures remain excluded from original protection");
         exerciseNativeTUNTraffic(QHostAddress("198.18.0.7"));
