@@ -803,7 +803,7 @@ static void browserValidatesCallbackNavigation() {
         dialog->setInitialUrl(QUrl(url));QApplication::processEvents();
         check(warning->isVisible() && view->url()==current && responses==0,"unsafe initial navigation does not replace the login page");
     }
-    visit("/redirect-oauth");
+    visit("/redirect-oauth");until([&]{return responses==1;});
     check(responses==1,"valid OAuth redirect is delivered once");
     check(callback==base+"/passport/v1/auth/httpsOauth2?code=fixture","OAuth returns the exact callback URL");
     check(callbackRequests==0,"the OAuth callback is intercepted before HTTP submission");delete dialog;
