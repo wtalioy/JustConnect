@@ -12,6 +12,7 @@ import (
 type ipv4Range struct{ first, last uint32 }
 
 const firstUnicastIPv4, lastUnicastIPv4 = 0x01000000, 0xdfffffff
+const publicSubnetSize = 1 << (32 - 24)
 
 // RFC 1918 scopes are the only implicit campus destinations for unscoped grants.
 var privateRanges = [...]ipv4Range{
@@ -21,7 +22,8 @@ var privateRanges = [...]ipv4Range{
 }
 
 // ScopedRanges separates concrete campus ranges from grants covering the full
-// IPv4 unicast space. A grant can leave holes in its private subnets.
+// IPv4 unicast space. A grant can leave holes in private subnets and omit
+// individual public infrastructure hosts.
 func ScopedRanges(resources []client.IPResource) ([]client.IPResource, [][2]netip.Addr) {
 	type permission struct {
 		app, node, protocol string
@@ -52,13 +54,18 @@ func ScopedRanges(resources []client.IPResource) ([]client.IPResource, [][2]neti
 			return cmp.Compare(b.last, a.last)
 		})
 		next := uint64(firstUnicastIPv4)
+		var omittedPublic uint64
 		covered := make([]interval, 0, len(group))
 		for _, row := range group {
 			if uint64(row.last) < next {
 				continue
 			}
 			if uint64(row.first) > next && !nonPublicGap(uint32(next), row.first-1) {
-				break
+				omittedPublic += uint64(row.first) - next
+				// A missing public subnet is a scope boundary, not a host exemption.
+				if omittedPublic >= publicSubnetSize {
+					break
+				}
 			}
 			covered = append(covered, row)
 			next = uint64(row.last) + 1

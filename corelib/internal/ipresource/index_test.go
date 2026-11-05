@@ -13,8 +13,9 @@ import (
 func TestScopedRangesPreservePrivateHolesAndNarrowGrants(t *testing.T) {
 	ranges := []client.IPResource{
 		{IPMin: net.ParseIP("10.7.0.1"), IPMax: net.ParseIP("10.7.0.1"), AppID: "default", Protocol: "all", PortMin: 1, PortMax: 65535},
-		{IPMin: net.ParseIP("10.8.0.0"), IPMax: net.ParseIP("255.255.255.255"), AppID: "default", Protocol: "all", PortMin: 1, PortMax: 65535},
-		{IPMin: net.ParseIP("0.0.0.0"), IPMax: net.ParseIP("10.6.255.255"), AppID: "default", Protocol: "all", PortMin: 1, PortMax: 65535},
+		{IPMin: net.ParseIP("10.8.0.0"), IPMax: net.ParseIP("198.51.100.33"), AppID: "default", Protocol: "all", PortMin: 1, PortMax: 65535},
+		{IPMin: net.ParseIP("1.0.0.0"), IPMax: net.ParseIP("10.6.255.255"), AppID: "default", Protocol: "all", PortMin: 1, PortMax: 65535},
+		{IPMin: net.ParseIP("198.51.100.41"), IPMax: net.ParseIP("255.255.255.255"), AppID: "default", Protocol: "all", PortMin: 1, PortMax: 65535},
 	}
 	scoped, private := ScopedRanges(ranges)
 	if len(scoped) != 1 || !scoped[0].IPMin.Equal(ranges[0].IPMin) {
@@ -29,6 +30,12 @@ func TestScopedRangesPreservePrivateHolesAndNarrowGrants(t *testing.T) {
 	if !slices.Equal(private, expected) {
 		t.Fatal("private capture widened the grant or lost destinations", private)
 	}
+	lastStart := ranges[3].IPMin
+	ranges[3].IPMin = net.ParseIP("198.51.101.41")
+	if scoped, private := ScopedRanges(ranges); len(scoped) != len(ranges) || len(private) != 0 {
+		t.Fatal("a public subnet outside the grant was mistaken for a host exemption", scoped, private)
+	}
+	ranges[3].IPMin = lastStart
 	ranges[2].PortMax = 443
 	if scoped, private := ScopedRanges(ranges); len(scoped) != len(ranges) || len(private) != 0 {
 		t.Fatal("independent authorizations were mistaken for one complete grant", scoped, private)
