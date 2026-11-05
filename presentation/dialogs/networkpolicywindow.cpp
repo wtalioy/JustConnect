@@ -1,6 +1,8 @@
 #include "networkpolicywindow.h"
+#include "presentation/widgets/localizeddialog.h"
 #include "application/networkpolicysession.h"
 #include <QDialogButtonBox>
+#include <QEvent>
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QHostAddress>
@@ -29,12 +31,12 @@ QString interfaceName(const QJsonObject &network, qint64 index)
 QString originalSource(const QJsonObject &network, const QJsonObject &source)
 {
     const auto kind = source["kind"].toString();
-    if (kind == "loopback") return QStringLiteral("回环");
+    if (kind == "loopback") return NetworkPolicyWindow::tr("Loopback");
     if (kind == "interface_address") {
         const auto item = at(network["interfaces"].toArray(), source["interface"]);
         QString name = item["name"].toString();
-        if (item["up"].isBool() && !item["up"].toBool()) name += QStringLiteral("（未启用）");
-        return QStringLiteral("接口：%1").arg(name);
+        if (item["up"].isBool() && !item["up"].toBool()) name += NetworkPolicyWindow::tr(" (inactive)");
+        return NetworkPolicyWindow::tr("Interface: %1").arg(name);
     }
     if (kind == "route") {
         const auto route = at(network["routes"].toArray(), source["route"]);
@@ -44,11 +46,11 @@ QString originalSource(const QJsonObject &network, const QJsonObject &source)
             names.append(interfaceName(network, hop.toObject()["interface_index"].toInteger()));
         names.removeAll(QString());
         names.removeDuplicates();
-        QString label = route["table"].toInteger() > 0 ? QStringLiteral("路由表 %1").arg(route["table"].toInteger()) : QStringLiteral("路由记录");
-        if (!names.isEmpty()) label += QStringLiteral("：") + names.join(QStringLiteral("、"));
+        QString label = route["table"].toInteger() > 0 ? NetworkPolicyWindow::tr("Route table %1").arg(route["table"].toInteger()) : NetworkPolicyWindow::tr("Route");
+        if (!names.isEmpty()) label += QStringLiteral(": ") + names.join(QStringLiteral(", "));
         return label;
     }
-    return QStringLiteral("来源信息不可用");
+    return NetworkPolicyWindow::tr("Source unavailable");
 }
 QString campusSource(const QJsonObject &resources, const QJsonObject &conflict)
 {
@@ -58,90 +60,89 @@ QString campusSource(const QJsonObject &resources, const QJsonObject &conflict)
         QString ip = item["ip_min"].toString();
         if (item["ip_max"] != item["ip_min"]) ip += QStringLiteral("—") + item["ip_max"].toString();
         QString protocol = item["protocol"].toString().toUpper();
-        if (protocol == "ALL") protocol = QStringLiteral("全部协议");
+        if (protocol == "ALL") protocol = NetworkPolicyWindow::tr("All protocols");
         QString port = QString::number(item["port_min"].toInt());
         if (item["port_min"] != item["port_max"]) port += QStringLiteral("—") + QString::number(item["port_max"].toInt());
-        return QStringLiteral("%1，%2，端口 %3").arg(ip, protocol, port);
+        return NetworkPolicyWindow::tr("%1, %2, port %3").arg(ip, protocol, port);
     }
     if (kind == "dns_record") {
         const auto domain = conflict["domain"].toString();
         const auto records = resources["dns_records"].toObject()[domain].toArray();
         const auto i = conflict["record"].toInteger(-1);
         const auto address = i >= 0 && i < records.size() ? records[int(i)].toString() : QString();
-        return QStringLiteral("内置解析：%1 → %2").arg(domain, address);
+        return NetworkPolicyWindow::tr("Published DNS: %1 → %2").arg(domain, address);
     }
     if (kind == "campus_dns") {
-        QString label = QStringLiteral("校园 DNS：%1").arg(resources["campus_dns"].toString());
-        if (!resources["campus_dns_enabled"].toBool()) label += QStringLiteral("（当前关闭）");
+        QString label = NetworkPolicyWindow::tr("Campus DNS: %1").arg(resources["campus_dns"].toString());
+        if (!resources["campus_dns_enabled"].toBool()) label += NetworkPolicyWindow::tr(" (off)");
         return label;
     }
-    return QStringLiteral("资源信息不可用");
+    return NetworkPolicyWindow::tr("Resource unavailable");
 }
 QString dnsSource(const QJsonObject &model, const QJsonObject &source)
 {
     const auto provider = source["provider"].toString();
     const auto network = model["network"].toObject(), dns = model["dns"].toObject();
-    if (provider == "resolv_conf") return QStringLiteral("解析器文件：%1，第 %2 行")
+    if (provider == "resolv_conf") return NetworkPolicyWindow::tr("Resolver file: %1, line %2")
         .arg(dns["resolv_conf"].toObject()["path"].toString()).arg(source["line"].toInteger() + 1);
     if (provider == "resolved") {
         const auto index = source["interface_index"].toInteger();
-        return index == 0 ? QStringLiteral("系统解析服务：全局")
-            : QStringLiteral("系统解析服务：%1（%2）").arg(interfaceName(network, index)).arg(index);
+        return index == 0 ? NetworkPolicyWindow::tr("System resolver: global")
+            : NetworkPolicyWindow::tr("System resolver: %1 (%2)").arg(interfaceName(network, index)).arg(index);
     }
-    if (provider == "nrpt") return QStringLiteral("生效的系统名称规则 %1").arg(source["row"].toInteger() + 1);
-    if (provider == "global") return QStringLiteral("系统搜索列表");
+    if (provider == "nrpt") return NetworkPolicyWindow::tr("Effective system name rule %1").arg(source["row"].toInteger() + 1);
+    if (provider == "global") return NetworkPolicyWindow::tr("System search list");
     if (provider == "clients") {
         const auto row = at(dns["clients"].toArray(), source["row"]);
         const auto index = row["InterfaceIndex"].toInteger();
-        return QStringLiteral("接口：%1（%2）").arg(interfaceName(network, index)).arg(index);
+        return NetworkPolicyWindow::tr("Interface: %1 (%2)").arg(interfaceName(network, index)).arg(index);
     }
     if (provider == "dynamic_store") {
         const auto key = source["key"].toString();
-        return (key.startsWith("State:") ? QStringLiteral("当前 DNS 配置：") : QStringLiteral("已保存 DNS 配置：")) + key;
+        return (key.startsWith("State:") ? NetworkPolicyWindow::tr("Active DNS: ") : NetworkPolicyWindow::tr("Stored DNS: ")) + key;
     }
     if (provider == "macos_resolver") {
         const auto row = at(dns["macos_resolvers"].toArray(),source["row"]);
-        QString scope = QStringLiteral("普通查询");
-        if (row["scope"] == "interface") scope = QStringLiteral("接口查询：%1（%2）")
+        QString scope = NetworkPolicyWindow::tr("Ordinary queries");
+        if (row["scope"] == "interface") scope = NetworkPolicyWindow::tr("Interface queries: %1 (%2)")
             .arg(interfaceName(network,source["interface_index"].toInteger())).arg(source["interface_index"].toInteger());
-        else if (row["scope"] == "service") scope = QStringLiteral("服务专用查询");
-        return QStringLiteral("生效的系统解析器 %1；%2").arg(row["resolver"].toInteger()).arg(scope);
+        else if (row["scope"] == "service") scope = NetworkPolicyWindow::tr("Service queries");
+        return NetworkPolicyWindow::tr("Effective resolver %1; %2").arg(row["resolver"].toInteger()).arg(scope);
     }
-    return QStringLiteral("来源信息不可用");
+    return NetworkPolicyWindow::tr("Source unavailable");
 }
 QString dnsRole(const QString &role)
 {
-    if (role == "search") return QStringLiteral("搜索后缀");
-    if (role == "route") return QStringLiteral("路由域");
-    if (role == "search_route") return QStringLiteral("搜索后缀及路由域");
-    if (role == "nrpt") return QStringLiteral("系统名称规则（原生表达式）");
-    if (role == "search_configuration") return QStringLiteral("搜索后缀配置");
-    if (role == "match_configuration") return QStringLiteral("名称匹配配置");
-    if (role == "domain_configuration") return QStringLiteral("主域配置");
-    return QStringLiteral("用途未知");
+    if (role == "search") return NetworkPolicyWindow::tr("Search suffix");
+    if (role == "route") return NetworkPolicyWindow::tr("Routed domain");
+    if (role == "search_route") return NetworkPolicyWindow::tr("Search suffix and routed domain");
+    if (role == "nrpt") return NetworkPolicyWindow::tr("System name rule (native expression)");
+    if (role == "search_configuration") return NetworkPolicyWindow::tr("Search suffix configuration");
+    if (role == "match_configuration") return NetworkPolicyWindow::tr("Name matching configuration");
+    if (role == "domain_configuration") return NetworkPolicyWindow::tr("Primary domain configuration");
+    return NetworkPolicyWindow::tr("Unknown role");
 }
 QString nameRule(const QJsonObject &rule)
 {
     const auto kind = rule["kind"].toString(), value = rule["value"].toString();
-    if (kind == "suffix") return QStringLiteral("%1（含子域）").arg(value);
-    if (kind == "exact") return QStringLiteral("%1（完整名称）").arg(value);
-    if (kind == "prefix") return QStringLiteral("%1*（名称前缀）").arg(value);
-    if (kind == "single_label") return QStringLiteral("无点名称（搜索后缀）");
-    return QStringLiteral("未知名称规则");
+    if (kind == "suffix") return NetworkPolicyWindow::tr("%1 (including subdomains)").arg(value);
+    if (kind == "exact") return NetworkPolicyWindow::tr("%1 (exact name)").arg(value);
+    if (kind == "prefix") return NetworkPolicyWindow::tr("%1* (name prefix)").arg(value);
+    if (kind == "single_label") return NetworkPolicyWindow::tr("Single-label name (search suffix)");
+    return NetworkPolicyWindow::tr("Unknown name rule");
 }
 }
 
 NetworkPolicyWindow::NetworkPolicyWindow(NetworkPolicySession *input, QWidget *parent)
     : QDialog(parent), session(input), status(new QLabel(this)), targets(new QTreeWidget(this)), namespaces(new QTreeWidget(this))
 {
-    setWindowTitle(QStringLiteral("网络范围与校园地址重叠"));
-    resize(920, 560);
+    resize(760, 560);
+    setMinimumSize(480,400);
     status->setObjectName("networkPolicyStatus");
     status->setTextFormat(Qt::PlainText);
     status->setWordWrap(true);
     targets->setObjectName("networkPolicyTargets");
     targets->setRootIsDecorated(false);
-    targets->setHeaderLabels({QStringLiteral("原网络范围"), QStringLiteral("来源"), QStringLiteral("重叠的校园地址"), QStringLiteral("已确认的校园例外")});
     targets->setWordWrap(true);
     targets->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     targets->header()->setSectionResizeMode(1, QHeaderView::Stretch);
@@ -149,7 +150,6 @@ NetworkPolicyWindow::NetworkPolicyWindow(NetworkPolicySession *input, QWidget *p
     targets->header()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
     namespaces->setObjectName("networkPolicyDnsNamespaces");
     namespaces->setRootIsDecorated(false);
-    namespaces->setHeaderLabels({QStringLiteral("名称／表达式"), QStringLiteral("用途"), QStringLiteral("来源"), QStringLiteral("名称规则模型")});
     namespaces->setWordWrap(true);
     namespaces->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     namespaces->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
@@ -160,8 +160,8 @@ NetworkPolicyWindow::NetworkPolicyWindow(NetworkPolicySession *input, QWidget *p
     addressLayout->setContentsMargins(0, 0, 0, 0);
     addressLayout->addWidget(targets);
     auto *actions = new QHBoxLayout;
-    campus = new QPushButton(QStringLiteral("选择校园地址…"), addressPage);
-    original = new QPushButton(QStringLiteral("恢复原网络…"), addressPage);
+    campus = new QPushButton(addressPage);
+    original = new QPushButton(addressPage);
     campus->setObjectName("chooseCampusAddress");
     original->setObjectName("restoreOriginalAddress");
     actions->addWidget(campus);
@@ -182,24 +182,25 @@ NetworkPolicyWindow::NetworkPolicyWindow(NetworkPolicySession *input, QWidget *p
     nameChoices->setWordWrap(true);
     nameLayout->addWidget(nameChoices);
     auto *nameActions = new QHBoxLayout;
-    campusName = new QPushButton(QStringLiteral("选择校园名称…"), namePage);
-    originalName = new QPushButton(QStringLiteral("恢复原网络名称…"), namePage);
+    campusName = new QPushButton(namePage);
+    originalName = new QPushButton(namePage);
     campusName->setObjectName("chooseCampusName");
     originalName->setObjectName("restoreOriginalName");
     nameActions->addWidget(campusName);
     nameActions->addWidget(originalName);
     nameActions->addStretch();
     nameLayout->addLayout(nameActions);
-    auto *tabs = new QTabWidget(this);
-    tabs->addTab(addressPage, QStringLiteral("地址范围"));
-    tabs->addTab(namePage, QStringLiteral("DNS 名称与来源"));
-    auto *buttons = new QDialogButtonBox(this);
-    refresh = buttons->addButton(QStringLiteral("刷新"), QDialogButtonBox::ActionRole);
+    tabs = new QTabWidget(this);
+    tabs->addTab(addressPage, QString());
+    tabs->addTab(namePage, QString());
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close,this);
+    refresh = buttons->addButton(QString(), QDialogButtonBox::ActionRole);
     refresh->setObjectName("refreshNetworkPolicy");
-    buttons->addButton(QStringLiteral("关闭"), QDialogButtonBox::RejectRole);
-    auto *explanation = new QLabel(QStringLiteral("这里展示最近读取的模型，刷新不自动应用；实际访问按已确认的网络策略及学校授权判断。"), this);
+    explanation = new QLabel(this);
     explanation->setWordWrap(true);
     auto *layout = new QVBoxLayout(this);
+    layout->setContentsMargins(24,24,24,24);
+    layout->setSpacing(16);
     layout->addWidget(status);
     layout->addWidget(tabs);
     layout->addWidget(policyMessage);
@@ -213,13 +214,47 @@ NetworkPolicyWindow::NetworkPolicyWindow(NetworkPolicySession *input, QWidget *p
     connect(originalName, &QPushButton::clicked, this, [this] { editName(false); });
     connect(targets, &QTreeWidget::currentItemChanged, this, &NetworkPolicyWindow::updateActions);
     connect(input, &NetworkPolicySession::changed, this, [this] {
-        updateModel(); updateActions(); updatePolicyMessage();
+        inputErrorText=nullptr;updateModel(); updateActions(); updatePolicyMessage();
     });
     connect(input, &QObject::destroyed, this, [this] {
         if (editor) editor->reject();
         updateModel(); updateActions(); updatePolicyMessage(); reject();
     });
+    retranslate();
     updateModel(); updateActions(); updatePolicyMessage();
+}
+
+void NetworkPolicyWindow::changeEvent(QEvent *event)
+{
+    QDialog::changeEvent(event);
+    if(event->type()==QEvent::LanguageChange){
+        retranslate();updateModel();updateActions();updatePolicyMessage();
+    }
+}
+void NetworkPolicyWindow::retranslate()
+{
+    setWindowTitle(tr("Network protection"));
+    targets->setHeaderLabels({tr("Original network"),tr("Source"),tr("Campus overlap"),tr("Campus exceptions")});
+    namespaces->setHeaderLabels({tr("Name or expression"),tr("Role"),tr("Source"),tr("Name matching")});
+    campus->setText(tr("Use campus…"));original->setText(tr("Use original…"));
+    campusName->setText(tr("Use campus…"));originalName->setText(tr("Use original…"));
+    tabs->setTabText(0,tr("Addresses"));tabs->setTabText(1,tr("DNS sources"));refresh->setText(tr("Refresh"));
+    explanation->setText(tr("Refreshing only reads the network. Choices do not expand school authorization. Switching sides may interrupt existing connections; a target cannot use both sides at once."));
+}
+QInputDialog *NetworkPolicyWindow::createEditor(std::function<void(QInputDialog *)> translate)
+{
+    auto *input=new LocalizedDialog<QInputDialog>(this);editor=input;
+    input->setTranslation([input,translate=std::move(translate)]{translate(input);});
+    input->setAttribute(Qt::WA_DeleteOnClose);input->setWindowModality(Qt::WindowModal);
+    input->setMinimumWidth(320);input->resize(440,input->sizeHint().height());
+    connect(input,&QDialog::finished,this,[this,input]{
+        if(editor==input)editor=nullptr;updateActions();
+    });
+    return input;
+}
+void NetworkPolicyWindow::setInputError(const char *source,const QString &scope)
+{
+    inputErrorText=source;inputErrorScope=scope;updatePolicyMessage();
 }
 
 void NetworkPolicyWindow::updateActions()
@@ -245,16 +280,17 @@ void NetworkPolicyWindow::updatePolicyMessage()
     if (!session || session->currentGeneration().isEmpty()) { policyMessage->clear(); return; }
     QStringList names;
     for (const auto &value : session->campusNames()) names.append(value.toString());
-    nameChoices->setText(names.isEmpty() ? QStringLiteral("当前没有已确认的校园名称例外。")
-        : QStringLiteral("已确认的校园名称例外：%1").arg(names.join(QStringLiteral("、"))));
+    nameChoices->setText(names.isEmpty() ? NetworkPolicyWindow::tr("No confirmed campus name exceptions.")
+        : NetworkPolicyWindow::tr("Campus name exceptions: %1").arg(names.join(QStringLiteral(", "))));
+    if(inputErrorText){policyMessage->setText(inputErrorScope.isEmpty() ? tr(inputErrorText) : tr(inputErrorText).arg(inputErrorScope));return;}
     const auto count = session->campusAddresses().size();
-    QString text = QStringLiteral("已确认 %1 个校园 IPv4 例外、%2 个名称例外。选择仍需学校授权；切换地址侧可能中断该地址的已有连接，相同目标不能同时选择两侧。").arg(count).arg(names.size());
+    QString text = NetworkPolicyWindow::tr("Confirmed: %1 campus IPv4 and %2 name exceptions.").arg(count).arg(names.size());
     const auto result = session->policyStatus();
-    if (session->isPolicyUpdating()) text = QStringLiteral("正在确认校园选择，请稍候。") + text;
-    else if (result == Status::Pending) text = QStringLiteral("当前连接正忙，可以稍后重试。") + text;
-    else if (result == Status::Invalid) text = QStringLiteral("校园选择无效，请检查保护范围及具体 IPv4 地址／名称。") + text;
-    else if (result == Status::Unavailable) text = QStringLiteral("当前连接无法更新校园选择。") + text;
-    else if (result && result != Status::Success) text = QStringLiteral("校园选择未能应用，请检查连接状态后重试。") + text;
+    if (session->isPolicyUpdating()) text = NetworkPolicyWindow::tr("Confirming campus choices. ") + text;
+    else if (result == Status::Pending) text = NetworkPolicyWindow::tr("The connection is busy. Try again shortly. ") + text;
+    else if (result == Status::Invalid) text = NetworkPolicyWindow::tr("Invalid choice. Check the protected scope and exact address or name. ") + text;
+    else if (result == Status::Unavailable) text = NetworkPolicyWindow::tr("Campus choices cannot be updated for this connection. ") + text;
+    else if (result && result != Status::Success) text = NetworkPolicyWindow::tr("Campus choices could not be applied. Check the connection and retry. ") + text;
     policyMessage->setText(text);
 }
 
@@ -262,26 +298,22 @@ void NetworkPolicyWindow::chooseCampusAddress()
 {
     if (!campus->isEnabled() || !session || !targets->currentItem()) return;
     const auto id = session->currentGeneration(), prefix = targets->currentItem()->text(0);
-    auto *input = new QInputDialog(this);
-    editor = input;
-    input->setAttribute(Qt::WA_DeleteOnClose);
-    input->setWindowModality(Qt::WindowModal);
-    input->setWindowTitle(QStringLiteral("选择校园地址"));
-    input->setLabelText(QStringLiteral("请输入 %1 内需要改走校园的单个 IPv4 地址：\n相同地址不能同时访问两侧，业务仍需学校授权。").arg(prefix));
-    input->setOkButtonText(QStringLiteral("选择校园侧"));
+    auto *input = createEditor([this,prefix](QInputDialog *input) {
+        input->setWindowTitle(NetworkPolicyWindow::tr("Use campus address"));
+        input->setLabelText(NetworkPolicyWindow::tr("One IPv4 address in %1:\nThe same address cannot use both networks. School authorization still applies.").arg(prefix));
+    });
     connect(input, &QInputDialog::textValueSelected, this, [this, id, prefix](const QString &value) {
         if (!session || session->currentGeneration() != id) return;
         const auto text = value.trimmed();
         const QHostAddress address(text);
         if (address.protocol() != QAbstractSocket::IPv4Protocol || address.toString() != text
             || !address.isInSubnet(QHostAddress::parseSubnet(prefix))) {
-            policyMessage->setText(QStringLiteral("请输入 %1 内的完整 IPv4 地址，未改变原选择。").arg(prefix));
+            setInputError(QT_TR_NOOP("Enter a complete IPv4 address in %1. Nothing was changed."),prefix);
             return;
         }
         if (!session->setCampusAddress(text, true))
-            policyMessage->setText(QStringLiteral("当前无法应用这个选择，请检查网络结果并重试。"));
+            setInputError(QT_TR_NOOP("This choice cannot be applied. Check the network results and retry."));
     });
-    connect(input, &QDialog::finished, this, [this, input] { if (editor == input) editor = nullptr; updateActions(); });
     input->open();
     updateActions();
 }
@@ -292,21 +324,17 @@ void NetworkPolicyWindow::restoreOriginalAddress()
     const auto id = session->currentGeneration();
     QStringList addresses;
     for (const auto &value : session->campusAddresses()) addresses.append(value.toString());
-    auto *input = new QInputDialog(this);
-    editor = input;
-    input->setAttribute(Qt::WA_DeleteOnClose);
-    input->setWindowModality(Qt::WindowModal);
-    input->setWindowTitle(QStringLiteral("恢复原网络"));
-    input->setLabelText(QStringLiteral("请选择要撤回校园例外的地址："));
+    auto *input = createEditor([this](QInputDialog *input) {
+        input->setWindowTitle(NetworkPolicyWindow::tr("Use original network"));
+        input->setLabelText(NetworkPolicyWindow::tr("Choose the campus address exception to remove:"));
+    });
     input->setComboBoxItems(addresses);
     input->setComboBoxEditable(false);
-    input->setOkButtonText(QStringLiteral("恢复原网络"));
     connect(input, &QInputDialog::textValueSelected, this, [this, id](const QString &value) {
         if (!session || session->currentGeneration() != id) return;
         if (!session->setCampusAddress(value, false))
-            policyMessage->setText(QStringLiteral("当前无法恢复这个地址，请稍后重试。"));
+            setInputError(QT_TR_NOOP("This address cannot be restored now. Try again shortly."));
     });
-    connect(input, &QDialog::finished, this, [this, input] { if (editor == input) editor = nullptr; updateActions(); });
     input->open();
     updateActions();
 }
@@ -315,28 +343,23 @@ void NetworkPolicyWindow::editName(bool campus)
 {
     if (!session || !(campus ? campusName : originalName)->isEnabled()) return;
     const auto id = session->currentGeneration();
-    auto *input = new QInputDialog(this);
-    editor = input;
-    input->setAttribute(Qt::WA_DeleteOnClose);
-    input->setWindowModality(Qt::WindowModal);
-    input->setWindowTitle(campus ? QStringLiteral("选择校园名称") : QStringLiteral("恢复原网络名称"));
-    if (campus) {
-        input->setLabelText(QStringLiteral("请输入需要改走校园的单个受保护名称：\n不接受通配符或整个范围，业务仍须学校授权。"));
-        input->setOkButtonText(QStringLiteral("选择校园侧"));
-    } else {
-        QStringList names;
-        for (const auto &value : session->campusNames()) names.append(value.toString());
-        input->setLabelText(QStringLiteral("请选择要撤回校园例外的名称："));
-        input->setComboBoxItems(names);
-        input->setComboBoxEditable(false);
-        input->setOkButtonText(QStringLiteral("恢复原网络"));
+    auto *input = createEditor([this,campus](QInputDialog *input) {
+        input->setWindowTitle(campus ? NetworkPolicyWindow::tr("Use campus name") : NetworkPolicyWindow::tr("Use original name"));
+        if (campus) {
+            input->setLabelText(NetworkPolicyWindow::tr("One protected name to use through campus:\nWildcards and whole scopes are not accepted. School authorization still applies."));
+        } else {
+            input->setLabelText(NetworkPolicyWindow::tr("Choose the campus name exception to remove:"));
+        }
+    });
+    if(!campus){
+        QStringList names;for(const auto &value:session->campusNames())names.append(value.toString());
+        input->setComboBoxItems(names);input->setComboBoxEditable(false);
     }
     connect(input, &QInputDialog::textValueSelected, this, [this, id, campus](const QString &value) {
         if (!session || session->currentGeneration() != id) return;
         if (!session->setCampusName(value.trimmed(), campus))
-            policyMessage->setText(QStringLiteral("当前无法应用这个名称选择，请检查完整名称及网络结果后重试。"));
+            setInputError(QT_TR_NOOP("This name choice cannot be applied. Check the full name and network results, then retry."));
     });
-    connect(input, &QDialog::finished, this, [this, input] { if (editor == input) editor = nullptr; updateActions(); });
     input->open();
     updateActions();
 }
@@ -350,14 +373,14 @@ void NetworkPolicyWindow::updateModel()
     }
     if (editor && (!session || session->status() == CoreEngine::RequestStatus::Stale)) editor->reject();
     refresh->setEnabled(false);
-    if (!session) { status->setText(QStringLiteral("连接已结束。")); return; }
+    if (!session) { status->setText(NetworkPolicyWindow::tr("The connection has ended.")); return; }
     using Status = CoreEngine::RequestStatus;
     const auto result = session->status();
-    if (result == Status::Stale) { status->setText(QStringLiteral("连接已结束。")); return; }
-    if (result == Status::Unavailable) { status->setText(QStringLiteral("当前没有完整的网络检查结果。请先连接，或确认系统支持读取网络信息。")); return; }
+    if (result == Status::Stale) { status->setText(NetworkPolicyWindow::tr("The connection has ended.")); return; }
+    if (result == Status::Unavailable) { status->setText(NetworkPolicyWindow::tr("No complete network results. Connect first, or check that network inspection is supported.")); return; }
     refresh->setEnabled(!session->isBusy());
-    if (result == Status::Pending) { status->setText(QStringLiteral("正在读取原网络与校园资源…")); return; }
-    if (result != Status::Success) { status->setText(QStringLiteral("网络信息无法完整读取或表示，可以刷新重试。")); return; }
+    if (result == Status::Pending) { status->setText(NetworkPolicyWindow::tr("Reading original networks and campus resources…")); return; }
+    if (result != Status::Success) { status->setText(NetworkPolicyWindow::tr("Could not read complete network information. Refresh to retry.")); return; }
     const auto model = session->model();
     const auto network = model["network"].toObject(), resources = model["resources"].toObject();
     const auto scopes = model["targets"].toArray(), conflicts = model["conflicts"].toArray();
@@ -398,14 +421,14 @@ void NetworkPolicyWindow::updateModel()
     for (int i = 0; i < domains.size(); ++i) {
         const auto item = domains[i].toObject();
         auto name = item["name"].toString();
-        if (name.isEmpty() || name == ".") name = QStringLiteral("默认查询范围（根域）");
+        if (name.isEmpty() || name == ".") name = NetworkPolicyWindow::tr("Default query scope (root)");
         auto *row = new QTreeWidgetItem(namespaces, {name, dnsRole(item["role"].toString()), dnsSource(model, item["source"].toObject()), namePatterns.value(i).join('\n')});
         for (int column = 0; column < namespaces->columnCount(); ++column) row->setToolTip(column, row->text(column));
     }
     for (const auto &value : reservedNames) {
         const auto rule = value.toObject();
-        new QTreeWidgetItem(namespaces, {rule["value"].toString(), QStringLiteral("系统保留名称"), QStringLiteral("回环"), nameRule(rule)});
+        new QTreeWidgetItem(namespaces, {rule["value"].toString(), NetworkPolicyWindow::tr("System reserved name"), NetworkPolicyWindow::tr("Loopback"), nameRule(rule)});
     }
-    status->setText(QStringLiteral("检测到 %1 个原网络范围、%2 项校园地址重叠、%3 项 DNS 名称来源。")
+    status->setText(NetworkPolicyWindow::tr("%1 original scopes · %2 campus overlaps · %3 DNS sources")
         .arg(scopes.size()).arg(conflicts.size()).arg(namespaces->topLevelItemCount()));
 }

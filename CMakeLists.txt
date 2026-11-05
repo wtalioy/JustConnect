@@ -85,8 +85,9 @@ add_library(justconnect_desktop OBJECT
 )
 
 find_package(Qt6 REQUIRED COMPONENTS LinguistTools)
+set(justconnect_desktop_catalog "${CMAKE_CURRENT_SOURCE_DIR}/resource/translations/justconnect_zh_CN.ts")
 qt_add_translations(justconnect_desktop
-    TS_FILES resource/translations/justconnect_zh_CN.ts
+    TS_FILES "${justconnect_desktop_catalog}"
     RESOURCE_PREFIX "/i18n")
 
 if(WIN32)
@@ -192,6 +193,9 @@ if(BUILD_TESTING)
     set_tests_properties(core_self_test PROPERTIES TIMEOUT 30 PASS_REGULAR_EXPRESSION "\"ok\":true")
     include(tests/CoreEngineTests.cmake)
     justconnect_core_ui_tests(coreengineui_test justconnect_engine justconnect_core justconnect_platform)
+    get_filename_component(justconnect_catalog_name "${justconnect_desktop_catalog}" NAME_WE)
+    add_test(NAME networkpolicywindow_language_test COMMAND networkpolicywindow_test --catalog "${CMAKE_CURRENT_BINARY_DIR}/${justconnect_catalog_name}.qm")
+    set_tests_properties(networkpolicywindow_language_test PROPERTIES TIMEOUT 15 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_executable(mainwindow_test tests/mainwindow_test.cpp)
     add_dependencies(mainwindow_test JustConnectProxyRecovery)
     target_link_libraries(mainwindow_test PRIVATE justconnect_desktop)

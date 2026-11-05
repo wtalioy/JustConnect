@@ -1,4 +1,5 @@
 #include "authdialogcoordinator.h"
+#include "presentation/widgets/localizeddialog.h"
 #include "presentation/presentationhelpers.h"
 
 #include <QCheckBox>
@@ -22,18 +23,6 @@
 #include <QSignalBlocker>
 
 namespace {
-class AuthenticationDialog final : public QDialog {
-public:
-    using QDialog::QDialog;
-    void setTranslation(std::function<void()> translate) { translation=std::move(translate);translation(); }
-protected:
-    void changeEvent(QEvent *event) override {
-        QDialog::changeEvent(event);
-        if (event->type()==QEvent::LanguageChange && translation) translation();
-    }
-private:
-    std::function<void()> translation;
-};
 void spaceForm(QVBoxLayout *layout) {layout->setContentsMargins(24,24,24,24);layout->setSpacing(16);layout->parentWidget()->setMinimumWidth(320);}
 }
 
@@ -83,7 +72,7 @@ void AuthDialogCoordinator::requestPhoneNumber(
         return;
     }
 
-    auto *dialog = new AuthenticationDialog(parentWidget);
+    auto *dialog = new LocalizedDialog<QDialog>(parentWidget);
     phoneNumberDialog = dialog;
     dialog->setAttribute(Qt::WA_DeleteOnClose);
     dialog->setWindowModality(Qt::WindowModal);
@@ -208,7 +197,7 @@ void AuthDialogCoordinator::requestAuthentication(const QJsonObject &request, co
         });
         dialog = web;
     } else if (kind == "trusted_device") {
-        auto *input=new AuthenticationDialog(parentWidget);dialog=input;
+        auto *input=new LocalizedDialog<QDialog>(parentWidget);dialog=input;
         auto *layout = new QVBoxLayout(dialog);
         spaceForm(layout);
         auto *label = new QLabel(dialog);
@@ -224,7 +213,7 @@ void AuthDialogCoordinator::requestAuthentication(const QJsonObject &request, co
         connect(dialog, &QDialog::accepted, this, [submit] { submit({{"action", "confirm"}}); });
         input->resize(440,input->sizeHint().height());
     } else if (kind == "sms" || kind == "totp" || kind == "radius") {
-        auto *input=new AuthenticationDialog(parentWidget);dialog=input;
+        auto *input=new LocalizedDialog<QDialog>(parentWidget);dialog=input;
         auto *layout = new QVBoxLayout(dialog);
         spaceForm(layout);
         auto *prompt=new QLabel(dialog);layout->addWidget(prompt);
