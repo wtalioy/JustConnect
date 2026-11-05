@@ -13,6 +13,7 @@
 #include "application/profileservice.h"
 #include <cstdlib>
 #include "application/defaultsettings.h"
+#include "presentation/presentationhelpers.h"
 #include <QSettings>
 #include <QStackedWidget>
 #include <QTemporaryDir>
@@ -242,7 +243,7 @@ bool rejectsInvalidCoreSettingsAndFailedSaves(const QString &root)
     ConfigurationGuideDialog dialog(nullptr,&access,CredentialAccess::source(failed,{}));dialog.show();ready(access,failed);
     if (!QFile::rename(path,path+".backup") || !QDir().mkdir(path)) return false;
     QMetaObject::invokeMethod(&dialog,"goNext");QMetaObject::invokeMethod(&dialog,"goNext");
-    expectedMessage="安全存储或配置操作未完成，请检查后重试。";messageShown=false;
+    expectedMessage=PresentationHelpers::credentialOperationMessage(CredentialStatus::Failed);messageShown=false;
     if (!dialog.applyTo()) return false;
     until([&]{return !dialog.isSaving();});QApplication::processEvents();
     const bool passed=messageShown && dialog.isVisible() && dialog.result()!=QDialog::Accepted;
