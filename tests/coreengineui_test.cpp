@@ -761,7 +761,10 @@ static void browserValidatesCallbackNavigation() {
                 const auto request=socket->property("request").toByteArray()+socket->readAll();socket->setProperty("request",request);
                 if (!request.contains("\r\n\r\n")) return;
                 socket->setProperty("handled",true);const auto path=request.split(' ').value(1);
-                if (path.startsWith("/passport/v1/auth/")) ++callbackRequests;
+                if (path.startsWith("/passport/v1/auth/")) {
+                    ++callbackRequests;
+                    std::cerr<<"Unexpected fixture callback HTTP: "<<request.left(request.indexOf('\r')).toStdString()<<std::endl;
+                }
                 QByteArray response;
                 if (path=="/redirect-unrelated" || path=="/redirect-oauth") {
                     const auto target=path=="/redirect-unrelated" ? "/unrelated?code=fixture" : "/passport/v1/auth/httpsOauth2?code=fixture";

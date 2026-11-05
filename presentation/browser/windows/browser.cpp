@@ -12,6 +12,7 @@
 #include <QTimer>
 #include <QUuid>
 #include <optional>
+#include <utility>
 #include <qt_windows.h>
 #include <wincrypt.h>
 #include <wrl.h>
@@ -21,6 +22,7 @@ using Microsoft::WRL::Callback;
 using Microsoft::WRL::ComPtr;
 namespace {
 Q_LOGGING_CATEGORY(browserLog,"justconnect.signin",QtWarningMsg)
+constexpr int CallbackResponseStatus=200;
 QString takeString(LPWSTR value) {const auto result=QString::fromWCharArray(value);CoTaskMemFree(value);return result;}
 
 void addCertificates(HCERTSTORE store,const QByteArray &pem) {
@@ -78,7 +80,7 @@ struct SignInBrowser::Native {
     QString html;
     std::optional<UINT64> navigation;
     std::optional<QUrl> callbackNavigation;
-    bool htmlPending=false,certificatePending=false,failed=false;
+    bool htmlPending=false,certificatePending=false,callbackIntercepted=false,failed=false;
     HRESULT apartment=CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED);
     void resize(HWND window) {if(controller){RECT bounds{};GetClientRect(window,&bounds);controller->put_Bounds(bounds);}}
     ~Native() {if(controller)controller->Close();view.Reset();controller.Reset();storage.reset();if(SUCCEEDED(apartment))CoUninitialize();}
@@ -126,7 +128,7 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &callbackUrl,const TlsOp
                                 LPWSTR text=nullptr;event->get_Uri(&text);const QUrl target(takeString(text));
                                 qCDebug(browserLog)<<"navigation requested"<<main;
                                 const bool callback=BrowserOrigin::sameEndpoint(target,callbackUrl);
-                                if(main)self->native->callbackNavigation=callback?std::optional<QUrl>(target):std::nullopt;
+                                if(main){self->native->callbackNavigation=callback?std::optional<QUrl>(target):std::nullopt;self->native->callbackIntercepted=false;}
                                 // Navigation cancellation alone permits speculative GETs; intercept callbacks at the request boundary.
                                 const bool allowed=callback || (main && self->native->htmlPending && target==QUrl("about:blank")) || navigation(target,main);
                                 if (!allowed) {
@@ -150,7 +152,7 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &callbackUrl,const TlsOp
                         if (SUCCEEDED(configured)) configured=state->view->add_SourceChanged(Callback<ICoreWebView2SourceChangedEventHandler>([self](ICoreWebView2 *view,ICoreWebView2SourceChangedEventArgs *)->HRESULT {
                             if(self){LPWSTR text=nullptr;view->get_Source(&text);self->native->current=QUrl(takeString(text));emit self->urlChanged(self->native->current);}return S_OK;
                         }).Get(),&token);
-                        if (SUCCEEDED(configured)) configured=state->view->add_NavigationCompleted(Callback<ICoreWebView2NavigationCompletedEventHandler>([self](ICoreWebView2 *,ICoreWebView2NavigationCompletedEventArgs *event)->HRESULT {
+                        if (SUCCEEDED(configured)) configured=state->view->add_NavigationCompleted(Callback<ICoreWebView2NavigationCompletedEventHandler>([self,navigation](ICoreWebView2 *,ICoreWebView2NavigationCompletedEventArgs *event)->HRESULT {
                             UINT64 id=0;event->get_NavigationId(&id);
                             if (self && self->native->navigation==id) {
                                 BOOL okay=FALSE;event->get_IsSuccess(&okay);
@@ -159,7 +161,15 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &callbackUrl,const TlsOp
                                 if (!okay && error>=COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_COMMON_NAME_IS_INCORRECT && error<=COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_IS_INVALID) {
                                     self->native->certificatePending=true;return S_OK;
                                 }
-                                self->native->navigation.reset();emit self->loadFinished(okay);
+                                self->native->navigation.reset();
+                                if(self->native->callbackIntercepted) {
+                                    ComPtr<ICoreWebView2NavigationCompletedEventArgs2> completed;int status=0;
+                                    if(SUCCEEDED(event->QueryInterface(IID_PPV_ARGS(&completed))))completed->get_HttpStatusCode(&status);
+                                    const auto original=std::exchange(self->native->callbackNavigation,std::nullopt);
+                                    self->native->callbackIntercepted=false;
+                                    if(status==CallbackResponseStatus && original)QTimer::singleShot(0,self,[self,navigation,original]{if(self)navigation(*original,true);});
+                                }
+                                emit self->loadFinished(okay);
                             }return S_OK;
                         }).Get(),&token);
                         if (SUCCEEDED(configured)) configured=modernView->add_ServerCertificateErrorDetected(Callback<ICoreWebView2ServerCertificateErrorDetectedEventHandler>([self,callbackUrl,tls](ICoreWebView2 *,ICoreWebView2ServerCertificateErrorDetectedEventArgs *event)->HRESULT {
@@ -178,13 +188,14 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &callbackUrl,const TlsOp
                         }).Get(),&token);
                         if (SUCCEEDED(configured)) {
                             configured=modernView->AddWebResourceRequestedFilterWithRequestSourceKinds(L"*",COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_ALL);
-                            if (SUCCEEDED(configured)) configured=state->view->add_WebResourceRequested(Callback<ICoreWebView2WebResourceRequestedEventHandler>([self,callbackUrl,tls,navigation,fail](ICoreWebView2 *,ICoreWebView2WebResourceRequestedEventArgs *event)->HRESULT {
+                            if (SUCCEEDED(configured)) configured=state->view->add_WebResourceRequested(Callback<ICoreWebView2WebResourceRequestedEventHandler>([self,callbackUrl,tls,fail](ICoreWebView2 *,ICoreWebView2WebResourceRequestedEventArgs *event)->HRESULT {
                                 if(!self)return S_OK;
                                 ComPtr<ICoreWebView2WebResourceRequest> request;event->get_Request(&request);LPWSTR text=nullptr;request->get_Uri(&text);const QUrl target(takeString(text));
                                 const bool callback=BrowserOrigin::sameEndpoint(target,callbackUrl);
                                 if (callback || (!tls.verify && BrowserOrigin::escapesCertificateScope(target,callbackUrl))) {
                                     ComPtr<ICoreWebView2WebResourceResponse> response;
-                                    HRESULT status=self->native->storage->environment->CreateWebResourceResponse(nullptr,403,L"Forbidden",L"",&response);
+                                    HRESULT status=self->native->storage->environment->CreateWebResourceResponse(nullptr,callback?CallbackResponseStatus:403,
+                                        callback?L"OK":L"Forbidden",L"Content-Type: text/html\r\nContent-Length: 0\r\n",&response);
                                     if(SUCCEEDED(status))status=event->put_Response(response.Get());
                                     if(FAILED(status)){self->native->controller->Close();fail();return status;}
                                     if(callback) {
@@ -194,8 +205,7 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &callbackUrl,const TlsOp
                                         const auto original=self->native->callbackNavigation;
                                         qCDebug(browserLog)<<"callback resource"<<document<<bool(original);
                                         if(document && original && target.query(QUrl::FullyEncoded)==original->query(QUrl::FullyEncoded)) {
-                                            self->native->callbackNavigation.reset();
-                                            QTimer::singleShot(0,self,[self,navigation,original]{if(self)navigation(*original,true);});
+                                            self->native->callbackIntercepted=true;
                                         }
                                     }
                                 }return S_OK;
