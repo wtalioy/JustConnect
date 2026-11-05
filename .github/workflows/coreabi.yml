@@ -163,7 +163,7 @@ jobs:
               args += ['-A', 'ARM64' if os.environ['RUNNER_ARCH'] == 'ARM64' else 'x64']
           run('configure', args)
           run('build', ['cmake', '--build', str(output), '--config', 'Release', '--parallel', '3', '--verbose'])
-          run('host', ['ctest', '--test-dir', str(output), '-C', 'Release', '-V', '--output-on-failure'])
+          run('host', [sys.executable, 'tests/platform/run_ctest.py', '--test-dir', str(output), '-C', 'Release', '-V', '--output-on-failure'])
           sys.exit(race_status or regression_status)
 
       - name: Measure native macOS TCP listener ownership
@@ -235,6 +235,7 @@ jobs:
             build/coreabi/*.txt
             build/coreabi/*.json
             build/coreabi/Testing/Temporary/*.log
+            build/coreabi/Testing/Temporary/*.sample.txt
             build/coreabi/macos-helper/*.out
             build/coreabi/macos-helper/*.err
             build/coreabi/macos-helper/*.json
