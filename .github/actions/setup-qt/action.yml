@@ -22,9 +22,10 @@ runs:
         host: ${{ inputs.host }}
         target: desktop
         arch: ${{ inputs.arch }}
-        archives: qtbase qtsvg qttools qttranslations
+        # lrelease in the SDK links QtQml; the application does not.
+        archives: qtbase qtsvg qtdeclarative qttools qttranslations
         # Extension repositories and native ARM64 support are not in aqt 3.3.0.
         aqtsource: git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7
         py7zrversion: '==1.1.4'
         cache: true
-        cache-key-prefix: qt-6.12.0-widgets-v3-${{ inputs.host }}-${{ inputs.arch }}
+        cache-key-prefix: qt-6.12.0-widgets-v4-${{ inputs.host }}-${{ inputs.arch }}
