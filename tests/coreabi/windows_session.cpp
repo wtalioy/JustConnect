@@ -69,6 +69,16 @@ static bool sameNetwork(const QJsonObject &beforeDns,const QJsonObject &afterDns
     std::cerr<<"network_restoration_difference="<<QJsonDocument(difference).toJson(QJsonDocument::Compact).constData()<<'\n';
     return false;
 }
+static QJsonObject systemIPv4(const QString &name)
+{
+    ADDRINFOW hints{};hints.ai_family=AF_INET;hints.ai_socktype=SOCK_STREAM;
+    ADDRINFOW *addresses=nullptr;QJsonArray result;
+    const int status=GetAddrInfoW(reinterpret_cast<const wchar_t *>(name.utf16()),nullptr,&hints,&addresses);
+    if(status==0)for(auto item=addresses;item;item=item->ai_next)
+        result.append(QHostAddress(ntohl(reinterpret_cast<sockaddr_in *>(item->ai_addr)->sin_addr.s_addr)).toString());
+    if(addresses)FreeAddrInfoW(addresses);
+    return {{"status",status},{"addresses",result}};
+}
 int main(int argc,char **argv) try
 {
     qInstallMessageHandler([](QtMsgType,const QMessageLogContext &,const QString &message){std::cerr<<"qt: "<<message.toStdString()<<'\n';});
@@ -95,18 +105,10 @@ int main(int argc,char **argv) try
     check(!composed || (!policyChanges && !exitChange && fault.isEmpty()),"composed matrix has its own native session scenario");
     const bool originalDNS=!qgetenv("JC_WINDOWS_SESSION_ORIGINAL_DNS_SERVER").isEmpty();
     const auto queryOriginal=[&](const QString &expected,const QString &name=QStringLiteral("host.campus.test")){
-        auto lookup=QtConcurrent::run([name]{
-            ADDRINFOW hints{};hints.ai_family=AF_INET;hints.ai_socktype=SOCK_STREAM;ADDRINFOW *addresses=nullptr;
-            QStringList result;
-            if(GetAddrInfoW(reinterpret_cast<const wchar_t *>(name.utf16()),nullptr,&hints,&addresses)==0){
-                for(auto item=addresses;item;item=item->ai_next)
-                    result.append(QHostAddress(ntohl(reinterpret_cast<sockaddr_in *>(item->ai_addr)->sin_addr.s_addr)).toString());
-                FreeAddrInfoW(addresses);
-            }
-            return result;
-        });
+        auto lookup=QtConcurrent::run([name]{return systemIPv4(name);});
         until("ordinary protected-name lookup",[&]{return lookup.isFinished();});
-        check(lookup.result().contains(expected),"original/campus name choice follows its confirmed source");
+        const auto result=lookup.result();
+        check(result["status"].toInt()==0 && result["addresses"].toArray().contains(expected),"original/campus name choice follows its confirmed source");
     };
     const auto queryOriginalDefault=[&]{
         queryOriginal("203.0.113.77","outside-"+QUuid::createUuid().toString(QUuid::WithoutBraces)+".original.test");
@@ -232,8 +234,15 @@ int main(int argc,char **argv) try
         const bool campusResolved=answer.error()==QHostInfo::NoError && answer.addresses().contains(QHostAddress("198.18.0.7"));
         if(!campusResolved){
             QJsonArray addresses;for(const auto &address:answer.addresses())addresses.append(address.toString());
-            const QJsonObject failure{{"error",int(answer.error())},{"detail",answer.errorString()},{"addresses",addresses}};
-            std::cerr<<"system_campus_dns="<<QJsonDocument(failure).toJson(QJsonDocument::Compact).constData()<<'\n';
+            const QJsonObject originalFailure{{"error",int(answer.error())},{"detail",answer.errorString()},{"addresses",addresses}};
+            std::cerr<<"system_campus_dns="<<QJsonDocument(originalFailure).toJson(QJsonDocument::Compact).constData()<<'\n';
+            auto ipv4=QtConcurrent::run([]{return systemIPv4(QStringLiteral("campus.test"));});
+            until("inspect the failed system IPv4 lookup",[&]{return ipv4.isFinished();});
+            const auto native=dnsSnapshot();
+            const QJsonObject failure{{"error",int(answer.error())},{"detail",answer.errorString()},{"addresses",addresses},
+                {"ipv4",ipv4.result()},{"nrpt",native["nrpt"]},{"interfaces",native["interfaces"]},
+                {"network",policy.model()["network"]}};
+            std::cerr<<"system_campus_dns_observation="<<QJsonDocument(failure).toJson(QJsonDocument::Compact).constData()<<'\n';
         }
         check(campusResolved,"ordinary Windows system DNS follows campus CNAME through the actual core");
         exerciseNativeTUNTraffic(QHostAddress("198.18.0.7"));
