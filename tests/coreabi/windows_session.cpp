@@ -3,12 +3,15 @@
 #include "infrastructure/networkaccess/windows/networkaccess.h"
 #include "infrastructure/coreengine/embeddedcoreengine.h"
 #include "infrastructure/dns/dnssnapshot.h"
+#include "infrastructure/dns/windows/dnscontract.h"
+#include "infrastructure/process/command.h"
 #include "infrastructure/routing/originalexit.h"
 #include "tests/platform/windows_device/controlhandoff.h"
 #include "tests/platform/networksnapshotcheck.h"
 #include "tuntraffic.h"
 #include <QCoreApplication>
-#include <QElapsedTimer>
+#include <QEventLoop>
+#include <QTimer>
 #include <QHostInfo>
 #include <QJsonDocument>
 #include <QLibrary>
@@ -25,14 +28,22 @@
 
 using ProxyCheck::check;
 template<class Predicate> static void until(const char *stage,Predicate done,int timeout=10000){
-    QElapsedTimer timer;timer.start();
-    while(!done() && timer.elapsed()<timeout)QCoreApplication::processEvents(QEventLoop::AllEvents,10);
-    check(done(),stage);
+    if(done())return;
+    QEventLoop loop;QTimer poll,deadline;bool completed=false;
+    poll.setInterval(1);deadline.setSingleShot(true);
+    QObject::connect(&poll,&QTimer::timeout,&loop,[&]{if(done()){completed=true;loop.quit();}});
+    QObject::connect(&deadline,&QTimer::timeout,&loop,&QEventLoop::quit);
+    poll.start();deadline.start(timeout);loop.exec();
+    check(completed || done(),stage);
 }
 #include "coexistence_windows.h"
 static QJsonObject dnsSnapshot(){
-    auto future=QtConcurrent::run(readSystemDnsSnapshot);until("complete native DNS snapshot",[&]{return future.isFinished();});
-    const auto result=future.result();check(result.result.succeeded(),"ordinary application reads complete system DNS");
+    auto future=QtConcurrent::run(readSystemDnsSnapshot);
+    // Let the reader return its own bounded error and phase, including command cleanup.
+    until("complete native DNS snapshot",[&]{return future.isFinished();},WindowsDNS::SnapshotTimeoutMs+PlatformCommandCleanupTimeoutMs);
+    const auto result=future.result();
+    if(!result.result.succeeded())std::cerr<<"DNS_snapshot_status="<<int(result.result.status)<<" detail="<<result.result.detail.toStdString()<<'\n';
+    check(result.result.succeeded(),"ordinary application reads complete system DNS");
     auto data=result.data;
     for(const auto &key:{"interfaces","clients","nrpt","doh"}){
         QMultiMap<QByteArray,QJsonValue> sorted;
