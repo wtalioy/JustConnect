@@ -164,9 +164,12 @@ static void languagePreferences(MainWindow &window) {
         && window.findChild<QSystemTrayIcon *>()->toolTip().contains(QString::fromUtf8("尚未连接")),"saving Chinese updates the existing main window and tray without recreating them");
     window.findChild<QPushButton *>("detailsButton")->click();
     auto *details=window.findChild<QDialog *>("detailsDialog");
-    check(details->isVisible() && details->windowTitle()==QString::fromUtf8("连接详情"),"subsequent details use the selected language");
+    check(details->isVisible() && details->windowTitle()==QString::fromUtf8("连接详情")
+        && window.findChild<QLabel *>("versionLabel")->toolTip().contains(QString::fromUtf8("已禁用")),
+        "subsequent details and update status use the selected language without a network check");
     changeLanguageFromSettings(window,"en");
-    check(details->isVisible() && details->windowTitle()=="Connection details" && action->text()=="Connect","switching back updates an already open details window");
+    check(details->isVisible() && details->windowTitle()=="Connection details" && action->text()=="Connect"
+        && window.findChild<QLabel *>("versionLabel")->toolTip().contains("Disabled"),"switching back updates an already open details window");
     details->reject();
 }
 

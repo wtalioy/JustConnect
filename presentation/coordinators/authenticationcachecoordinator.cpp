@@ -12,7 +12,7 @@ AuthenticationCacheCoordinator::AuthenticationCacheCoordinator(ConnectionSession
     connect(session,&ConnectionSession::diagnostic,this,[this](const QString &code) {
         if (code=="persistence_failed" && cacheSource && !cacheWarningShown) {
             cacheWarningShown=true;
-            emit warning("核心未能提供可安全保存的认证材料，后续可能需要重新认证。");
+            emit warning(tr("The core could not provide authentication data that can be saved safely. You may need to sign in again later."));
         }
     });
 }
@@ -32,7 +32,7 @@ void AuthenticationCacheCoordinator::reportCacheFailure(CredentialStatus status)
 {
     if (cacheWarningShown || status==CredentialStatus::Success || status==CredentialStatus::Cancelled) return;
     cacheWarningShown=true;
-    emit warning(PresentationHelpers::credentialOperationMessage(status)+"\n本次连接仍可使用，后续可能需要重新认证。");
+    emit warning(PresentationHelpers::credentialOperationMessage(status)+tr("\nThis connection remains usable. You may need to sign in again later."));
 }
 void AuthenticationCacheCoordinator::rememberAuthentication(const AuthenticationCache &cache)
 {
@@ -41,7 +41,7 @@ void AuthenticationCacheCoordinator::rememberAuthentication(const Authentication
     const bool external=source.profile.endpoint.authType=="cas" || source.profile.endpoint.authType=="httpsOauth2";
     if (external && !source.profile.credentials.username.isEmpty() && !source.profile.matchesCacheAccount(cache.account)) {
         connectionSession->forgetAuthenticationCache();cacheSource.reset();++cacheGeneration;emit forgotten();
-        emit warning("本次登录账户与配置中选定的账户不同，请确认账户后重新连接。");return;
+        emit warning(tr("The signed-in account differs from the selected profile. Confirm the account before reconnecting."));return;
     }
     if (external && source.profile.credentials.username.isEmpty()) {
         pendingCache=cache;
