@@ -3,7 +3,7 @@ name: Core ABI
 on:
   push:
     branches: [develop]
-    paths: &coreabi_paths ['.gitattributes', 'tests/coreabi/**', 'tests/embeddedcoreengine_test.cpp', 'infrastructure/**', 'application/**', 'presentation/**', 'core/**', 'tests/coreengineui_test.cpp', 'tests/uiwait.h', 'tests/credentialstorefixture.h', 'tests/CoreEngineTests.cmake', 'cmake/**', '.github/actions/setup-core-toolchain/**', 'corelib/**', 'scripts/generate-core-abi.py', 'scripts/windows_helper_sdk.py', 'tests/windows_helper_sdk_test.py', 'resource/network-helper*', 'tests/platform/**', '.github/workflows/coreabi.yml', '.github/actions/setup-qt/**']
+    paths: &coreabi_paths ['.gitattributes', 'tests/coreabi/**', 'tests/embeddedcoreengine_test.cpp', 'infrastructure/**', 'application/**', 'presentation/**', 'core/**', 'tests/coreengineui_test.cpp', 'tests/uiwait.h', 'tests/coreabi_workflow_test.py', 'tests/credentialstorefixture.h', 'tests/CoreEngineTests.cmake', 'cmake/**', '.github/actions/setup-core-toolchain/**', 'corelib/**', 'scripts/generate-core-abi.py', 'scripts/windows_helper_sdk.py', 'tests/windows_helper_sdk_test.py', 'resource/network-helper*', 'tests/platform/**', '.github/workflows/coreabi.yml', '.github/actions/setup-qt/**']
   pull_request:
     branches: [main, develop]
     paths: *coreabi_paths
@@ -40,7 +40,7 @@ jobs:
       matrix:
         include:
           - {os: macos-26, arch: arm64}
-          - {os: macos-26-intel, arch: x64}
+          - {os: macos-15-intel, arch: x64}
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: ./.github/actions/setup-qt
@@ -81,7 +81,7 @@ jobs:
         include:
           - &windows_x64 {os: windows-2025, platform: windows, arch: x64, qt_host: windows, qt_arch: win64_msvc2022_64}
           - &windows_arm64 {os: windows-11-vs2026-arm, platform: windows, arch: arm64, qt_host: windows_arm64, qt_arch: win64_msvc2022_arm64}
-          - {os: macos-26-intel, platform: macos, arch: x64, qt_host: mac, qt_arch: clang_64}
+          - {os: macos-15-intel, platform: macos, arch: x64, qt_host: mac, qt_arch: clang_64}
           - {os: macos-26, platform: macos, arch: arm64, qt_host: mac, qt_arch: clang_64}
     steps:
       - uses: actions/checkout@v7.0.1
