@@ -37,16 +37,9 @@
  * @param timeout Maximum time blocking functions are allowed during app load
  */
 SingleApplication::SingleApplication( int &argc, char *argv[], bool allowSecondary, Options options, int timeout, const QString &userData )
-    : app_t( argc, argv ), d_ptr( new SingleApplicationPrivate( this ) )
+    : QApplication( argc, argv ), d_ptr( new SingleApplicationPrivate( this ) )
 {
     Q_D( SingleApplication );
-
-#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
-    // On Android and iOS since the library is not supported fallback to
-    // standard QApplication behaviour by simply returning at this point.
-    qWarning() << "SingleApplication is not supported on Android and iOS systems.";
-    return;
-#endif
 
     // Store the current mode of the program
     d->options = options;

@@ -26,9 +26,7 @@
 #include <QtCore/QtGlobal>
 #include <QtNetwork/QLocalSocket>
 
-#define QAPPLICATION_CLASS QApplication
-
-#include QT_STRINGIFY(QAPPLICATION_CLASS)
+#include <QApplication>
 
 class SingleApplicationPrivate;
 
@@ -37,11 +35,9 @@ class SingleApplicationPrivate;
  * Application
  * @see QCoreApplication
  */
-class SingleApplication : public QAPPLICATION_CLASS
+class SingleApplication : public QApplication
 {
     Q_OBJECT
-
-    using app_t = QAPPLICATION_CLASS;
 
 public:
     /**
@@ -95,7 +91,7 @@ public:
      * operations. It does not guarantee that the `SingleApplication`
      * initialisation will be completed in given time, though is a good hint.
      * Usually 4*timeout would be the worst case (fail) scenario.
-     * @see See the corresponding `QAPPLICATION_CLASS` constructor for reference
+     * @see See the corresponding `QApplication` constructor for reference
      */
     explicit SingleApplication( int &argc, char *argv[], bool allowSecondary = false, Options options = Mode::User, int timeout = 1000, const QString &userData = {} );
     ~SingleApplication() override;
