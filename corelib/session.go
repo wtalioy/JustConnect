@@ -53,6 +53,7 @@ type Observer struct {
 // Resources borrows the session's parsed data read-only for the observer call.
 type Resources struct {
 	IPs                           []client.IPResource
+	PrivateIPRanges               [][2]netip.Addr
 	Domains                       client.DomainResources
 	DNSRecords                    map[string][]net.IP
 	CampusDNS                     string
@@ -272,7 +273,8 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 		if selected, ok := clientOptions.UnderlayDialer.(interface{ InterfaceName() string }); ok {
 			interfaceName = selected.InterfaceName()
 		}
-		observer.Resources(Resources{IPs: dialer.CaptureIPResources(), Domains: domains, DNSRecords: dnsResource,
+		scopedIPs, privateRanges := dialer.CaptureIPResources()
+		observer.Resources(Resources{IPs: scopedIPs, PrivateIPRanges: privateRanges, Domains: domains, DNSRecords: dnsResource,
 			CampusDNS: remoteDNS, CampusDNSEnabled: !options.DisableRemoteDNS && remoteDNS != "", DomainDNSNames: domainDNSNames, UnderlayInterface: interfaceName,
 			OriginalAuthenticationAddress: dialer.OriginalAuthenticationAddress,
 			Listeners:                     listeners.Addresses()})

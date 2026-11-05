@@ -186,10 +186,8 @@ WindowsHelperPreparation prepareWindowsNetworkHelper(const QJsonObject &resource
     if(!targets)return {{Status::Unsupported,captureDiagnostic},{}};
     const auto domains=windowsDnsDomains(targets->dnsDomains,resources,protection,original.originalSources);
     if(!domains || (targets->ipv4Prefixes.isEmpty() && domains->isEmpty()))return {{Status::Unsupported,captureDiagnostic},{}};
-    const auto reserved=tunAddressReservations(targets->ipv4Prefixes,dns,localDNS);
-    if(!reserved)return {{Status::Failed,"DNS address reservations exceed the complete input bound."},{}};
-    const auto addresses=privateTUNAddresses(network,*reserved);
-    if(!addresses)return {{Status::Unsupported,"No unused private IPv4 address pair is available."},{}};
+    const auto capture=prepareCampusTunCapture(*targets,network,dns,localDNS);
+    if(!capture.result.succeeded())return {capture.result,{}};
     if(!resources["underlay_interface"].isString())return {{Status::Failed,"Missing original underlay preference."},{}};
     const auto preferred=resources["underlay_interface"].toString();
     if(!preferred.isEmpty()){
@@ -200,8 +198,8 @@ WindowsHelperPreparation prepareWindowsNetworkHelper(const QJsonObject &resource
         }
         if(!available)return {{Status::Failed,"The confirmed underlay interface is no longer available."},{}};
     }
-    return {{},{{"address",addresses->first},{"peer",addresses->second},{"mtu",mtu},
-        {"capture_prefixes",QJsonArray::fromStringList(targets->ipv4Prefixes)},
+    return {{},{{"address",capture.address},{"peer",capture.peer},{"mtu",mtu},
+        {"capture_prefixes",QJsonArray::fromStringList(capture.prefixes)},
         {"dns_domains",QJsonArray::fromStringList(*domains)},
         {"original_dns",original.configuration.value("original_dns").toArray()}},original.originalSources,original.originalContext};
 }
@@ -229,5 +227,6 @@ std::optional<QStringList> updatedWindowsCapturePrefixes(const QJsonObject &reso
     const auto domains=campusDnsDomains(resources);if(!domains)return {};
     const auto installed=windowsDnsDomains(*domains,resources,policy,originalSources);
     if(!installed || QJsonArray::fromStringList(*installed)!=configuration["dns_domains"])return {};
-    return updatedCampusCapturePrefixes(resources,policy,*domains,originalSources);
+    return updatedCampusCapturePrefixes(resources,policy,*domains,originalSources,
+        {configuration["address"].toString(),configuration["peer"].toString()});
 }

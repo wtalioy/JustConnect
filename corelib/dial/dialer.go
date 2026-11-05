@@ -30,8 +30,9 @@ type Dialer struct {
 	Upstream      func() client.DialContextFunc
 	stack         stack.Stack
 	resolver      *resolve.Resolver
-	captureRanges []client.IPResource
-	captureIndex  *ipresource.Index
+	scopedRanges  []client.IPResource
+	privateRanges [][2]netip.Addr
+	scopedIndex   *ipresource.Index
 	resourceIndex *ipresource.Index
 	alwaysUseVPN  bool
 }
@@ -232,8 +233,8 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 	target := &net.IPAddr{IP: net.IP(address.AsSlice())}
 
 	if !matchedResource {
-		index := d.captureIndex
-		if useVPN {
+		index := d.scopedIndex
+		if useVPN || address.IsPrivate() {
 			index = d.resourceIndex
 		}
 		if resource, matched := matchIPResourceForTunnel(index, target.IP, network, port); matched {
@@ -329,20 +330,23 @@ func (d *Dialer) Dial(ctx context.Context, network string, addr string) (net.Con
 	return d.DialIPPort(ctx, network, net.JoinHostPort(ip.String(), port))
 }
 
-func (d *Dialer) CaptureIPResources() []client.IPResource { return d.captureRanges }
+func (d *Dialer) CaptureIPResources() ([]client.IPResource, [][2]netip.Addr) {
+	return d.scopedRanges, d.privateRanges
+}
 
 func NewDialer(stack stack.Stack, resolver *resolve.Resolver, ipResources []client.IPResource, alwaysUseVPN bool) *Dialer {
-	captureRanges, narrowed := ipresource.CaptureRanges(ipResources)
+	scopedRanges, privateRanges := ipresource.ScopedRanges(ipResources)
 	resourceIndex := ipresource.New(ipResources)
-	captureIndex := resourceIndex
-	if narrowed {
-		captureIndex = ipresource.New(captureRanges)
+	scopedIndex := resourceIndex
+	if len(scopedRanges) != len(ipResources) {
+		scopedIndex = ipresource.New(scopedRanges)
 	}
 	return &Dialer{
 		stack:         stack,
 		resolver:      resolver,
-		captureRanges: captureRanges,
-		captureIndex:  captureIndex,
+		scopedRanges:  scopedRanges,
+		privateRanges: privateRanges,
+		scopedIndex:   scopedIndex,
 		resourceIndex: resourceIndex,
 		alwaysUseVPN:  alwaysUseVPN,
 	}

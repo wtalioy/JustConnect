@@ -139,10 +139,8 @@ MacHelperPreparation prepareMacNetworkHelper(const QJsonObject &resources,const 
     QString captureDiagnostic;
     const auto targets = campusCaptureTargets(resources,protection,{},original.originalSources, &captureDiagnostic);
     if (!targets || (targets->ipv4Prefixes.isEmpty() && targets->dnsDomains.isEmpty())) return {{Status::Unsupported,captureDiagnostic},{}};
-    const auto reserved = tunAddressReservations(targets->ipv4Prefixes,dns,localDNS);
-    if (!reserved) return {{Status::Failed,"DNS address reservations exceed the complete input bound."},{}};
-    const auto addresses = privateTUNAddresses(network,*reserved);
-    if (!addresses) return {{Status::Unsupported,"No unused private IPv4 address pair is available."},{}};
+    const auto capture = prepareCampusTunCapture(*targets,network,dns,localDNS);
+    if (!capture.result.succeeded()) return {capture.result,{}};
     if (!resources["underlay_interface"].isString()) return {{Status::Failed,"Missing original underlay preference."},{}};
     const auto interface = resources["underlay_interface"].toString();
     if (!interface.isEmpty()) {
@@ -150,7 +148,7 @@ MacHelperPreparation prepareMacNetworkHelper(const QJsonObject &resources,const 
         if (!actual.isValid() || !(actual.flags() & QNetworkInterface::IsUp))
             return {{Status::Failed,"The confirmed underlay interface is no longer available."},{}};
     }
-    MacHelperConfiguration result{addresses->first,addresses->second,mtu,targets->ipv4Prefixes,targets->dnsDomains};
+    MacHelperConfiguration result{capture.address,capture.peer,mtu,capture.prefixes,targets->dnsDomains};
     if (!parseMacHelperApply(macHelperApplyRequest(QUuid::createUuid(),QUuid::createUuid(),result)))
         return {{Status::Failed,"Invalid or unsupported macOS capture configuration."},{}};
     result.originalDns=original.configuration.originalDns;
@@ -163,7 +161,7 @@ std::optional<QStringList> updatedMacCapturePrefixes(const QJsonObject &resource
 {
     const auto domains=campusDnsDomains(resources);
     if(!domains || campusDnsDomainsToInstall(*domains,originalSources)!=configuration.dnsDomains)return {};
-    return updatedCampusCapturePrefixes(resources,policy,*domains,originalSources);
+    return updatedCampusCapturePrefixes(resources,policy,*domains,originalSources,{configuration.address,configuration.peer});
 }
 
 std::optional<MacHelperConfiguration> completeMacOriginalDNS(MacHelperConfiguration configuration,const QJsonObject &listeners)

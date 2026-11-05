@@ -3,6 +3,7 @@ package bridge
 import (
 	"bytes"
 	"encoding/json"
+	"net/netip"
 	"slices"
 
 	"github.com/wtalioy/JustConnect/corelib"
@@ -23,6 +24,7 @@ type ipResource struct {
 
 type resourceSnapshot struct {
 	IPs                           []ipResource                    `json:"ip_resources"`
+	PrivateIPRanges               [][2]netip.Addr                 `json:"private_ip_ranges,omitempty"`
 	Domains                       map[string][]resourcePermission `json:"domain_resources"`
 	DNSRecords                    map[string][]string             `json:"dns_records"`
 	CampusDNS                     string                          `json:"campus_dns"`
@@ -50,7 +52,7 @@ func (s *Session) setResources(resources corelib.Resources) Status {
 		return Cancelled
 	}
 	s.mu.Unlock()
-	snapshot := resourceSnapshot{IPs: []ipResource{}, Domains: map[string][]resourcePermission{}, DNSRecords: map[string][]string{}, CampusDNS: resources.CampusDNS, CampusDNSEnabled: resources.CampusDNSEnabled, DomainDNSNames: resources.DomainDNSNames, UnderlayInterface: resources.UnderlayInterface, Listeners: resources.Listeners}
+	snapshot := resourceSnapshot{IPs: []ipResource{}, PrivateIPRanges: resources.PrivateIPRanges, Domains: map[string][]resourcePermission{}, DNSRecords: map[string][]string{}, CampusDNS: resources.CampusDNS, CampusDNSEnabled: resources.CampusDNSEnabled, DomainDNSNames: resources.DomainDNSNames, UnderlayInterface: resources.UnderlayInterface, Listeners: resources.Listeners}
 	if resources.OriginalAuthenticationAddress.IsValid() {
 		snapshot.OriginalAuthenticationAddress = resources.OriginalAuthenticationAddress.String()
 	}

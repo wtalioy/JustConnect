@@ -159,7 +159,7 @@ func TestLiveProtectionOverridesCampusResourcesButNeverGrantsAuthorization(t *te
 	if s.tcpCalls != 3 || s.udpCalls != 3 {
 		t.Fatal("explicit campus choice was not applied")
 	}
-	d.captureIndex, d.resourceIndex = nil, nil
+	d.scopedIndex, d.resourceIndex = nil, nil
 	d.resolver = resolve.NewResolver(nil, "", "", 1, nil, nil, false)
 	defer d.resolver.Close()
 	for _, forced := range []bool{false, true} {
