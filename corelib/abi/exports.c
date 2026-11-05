@@ -10,6 +10,12 @@ int32_t jc_build_info(uint32_t abi, uint8_t *out, uint32_t cap, uint32_t *len) {
 int32_t jc_network_snapshot(uint32_t abi, uint8_t *out, uint32_t cap, uint32_t *len) {
     return jc_go_network_snapshot(abi, out, cap, len);
 }
+int32_t jc_controller_validate(uint32_t abi, const uint8_t *in, uint32_t len) {
+    return jc_go_controller_validate(abi, (uint8_t *)in, len);
+}
+int32_t jc_controller_snapshot(uint32_t abi, uint8_t *out, uint32_t cap, uint32_t *len) {
+    return jc_go_controller_snapshot(abi, out, cap, len);
+}
 int32_t jc_config_validate(uint32_t abi, const uint8_t *in, uint32_t len) {
     return jc_go_config_validate(abi, (uint8_t *)in, len);
 }

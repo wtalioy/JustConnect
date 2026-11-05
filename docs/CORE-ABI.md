@@ -8,9 +8,17 @@
 
 构建提交与工作树状态由 Git 查询注入，不填写开发机目录、学校地址或账户。`jc_build_info` 返回当前 Go 版本、目标 OS／架构、JustConnect 完整提交、上游基线和由提交／工作树状态组成的本地版本。直接手动构建而没有 VCS 信息时明确返回 `unversioned/unknown`，不能作为可追溯发布产物。
 
-正式库返回 `embedded_vpn:true`、`auth_method_query:true`、`authentication_cache:true`、`policy_update:true`、`initial_protection:true`、`name_protection:true`、`network_snapshot:true`、`resource_snapshot:true`。Start 使用真实会话：认证、资源、选线、IP 握手、解析、gVisor 和监听均成功后才产生 `ready`，失败或取消在清理完成后产生终态。该事件仅表示核心通道／本地代理就绪；系统接管与系统 DNS 不在其契约内，产品“已连接”须由应用层按 [R11／S7-02](../plan.md) 汇总完整就绪条件。只有测试驱动和未安装 Runner 的纯传输引擎没有 VPN 能力；测试驱动始终标记 `test_driver:true`。
+正式库返回 `embedded_vpn:true`、`auth_method_query:true`、`authentication_cache:true`、`policy_update:true`、`initial_protection:true`、`name_protection:true`、`network_snapshot:true`、`controller_discovery:true`、`resource_snapshot:true`。Start 使用真实会话：认证、资源、选线、IP 握手、解析、gVisor 和监听均成功后才产生 `ready`，失败或取消在清理完成后产生终态。该事件仅表示核心通道／本地代理就绪；系统接管与系统 DNS 不在其契约内，产品“已连接”须由应用层按 [R11／S7-02](../plan.md) 汇总完整就绪条件。只有测试驱动和未安装 Runner 的纯传输引擎没有 VPN 能力；测试驱动始终标记 `test_driver:true`。
 
 `capabilities.tunnel_mtu` 返回当前核心校园 L3 栈的 MTU，直接来自栈实现；测试驱动返回 0。需要配置原始 IPv4 TUN 的调用方先核对 `raw_ipv4_tun_fd`，再使用该值准备设备，不在宿主复制核心默认值。它不替代内核 MTU 回读或设备接收校验，也不表示其他平台已支持原始 fd。
+
+## 本地控制接口发现
+
+`jc_controller_snapshot` 是有界的只读调用（最长 5 秒），应在工作线程运行。成功输出 `{schema_version:1,controllers:[{pid,name,endpoint}]}`，无候选时为成功的空数组；发现失败／超时分别返回 `JC_NETWORK_FAILURE/JC_TIMEOUT`，不返回未经确认的部分结果。候选只有已核对的进程身份及本地监听地址，不包含控制密钥、配置内容或会话信息。
+
+`jc_controller_validate` 纯校验带长度的 UTF-8 地址，不访问进程或网络；空值代表自动发现。允许当前平台支持的字面回环 HTTP(S)、Unix socket 或 Windows named pipe，拒绝远端地址、凭据、查询及 fragment。实际连接仍重新核验进程、控制接口与监听归属，不把地址校验成功视为可用或可信。
+
+应用将选择保存在独立的全局偏好，并在运行配置的 `network.controller_address` 传入；不写入学校 Profile，不保存密钥。多实例首次连接须显式选择；失败可重试或手填受验证的本地地址。取消／切换配置后旧发现结果不可启动连接或更改选择。
 
 ## C 边界与生命周期
 
@@ -25,6 +33,8 @@ UTF-8 JSON 不带结尾 NUL。输入仅借用至调用返回，库在返回前�
 | `jc_abi_version()` | 返回 ABI 版本 |
 | `jc_build_info(abi, output, capacity, length)` | 校验版本，返回构建来源和实际能力 JSON |
 | `jc_network_snapshot(abi, output, capacity, length)` | 只读返回当前接口／IP 路由及观察时间，不创建会话或改网络 |
+| `jc_controller_snapshot(abi, output, capacity, length)` | 只读发现经核验的本地控制接口，最多等待 5 秒，不输出密钥 |
+| `jc_controller_validate(abi, address, length)` | 纯校验本地控制地址，空值为自动发现，不读进程或联网 |
 | `jc_config_validate(abi, config, length)` | 使用启动时同一解析器作纯配置校验，不创建会话、不监听或联网；同样限制输入长度／未知字段 |
 | `jc_session_create(abi, handle)` | 校验版本，创建空闲句柄；保留数量受契约限制 |
 | `jc_session_start(handle, config, length, generation)` | 同步严格校验并复制配置，异步启动；返回代次 |
@@ -66,7 +76,7 @@ ABI v1 与 JSON schema 版本同步。S2-02 以兼容增补导出 `jc_config_val
 
 `operation` 缺省为 `connect`；`auth_methods` 只查询认证方式，产生 `auth_methods` 结果（`methods:[{type,domain,name,login_url,auth_id,sub_type}]`）及终态，不建立数据栈或代理。结果数量、字段和整体事件大小均有界，超限返回 `JC_LIMIT`。
 
-`network` 支持 `interface/auto_detect/local_dns/secondary_dns/dns_cache_ttl/disable_remote_dns/language/original_dns/domain_dns_rules`。接口、DNS 和语言显式传入；local DNS 允许 IP 或 IP:port，secondary DNS 为 IP。接口名优先于自动选择；自动选择默认关闭，避免悄悄改变宿主的网络策略。DNS 缓存寿命与维护间隔的默认值集中在 `corelib/session.go`，缓存不启动游离 janitor，且有容量上限。代理出口不读取系统 HTTP_PROXY 等环境配置；核心配置接口不修改系统网络；设备、路由和系统 DNS 由 C++ 助手按所有权接管，核心接收显式移交的 TUN。自动共存的受控验证与实机范围见[计划 S6](../plan.md#s6-clash-共存原型)。
+`network` 支持 `controller_address/interface/auto_detect/local_dns/secondary_dns/dns_cache_ttl/disable_remote_dns/language/original_dns/domain_dns_rules`。接口、DNS 和语言显式传入；local DNS 允许 IP 或 IP:port，secondary DNS 为 IP。接口名优先于自动选择；自动选择默认关闭，避免悄悄改变宿主的网络策略。DNS 缓存寿命与维护间隔的默认值集中在 `corelib/session.go`，缓存不启动游离 janitor，且有容量上限。代理出口不读取系统 HTTP_PROXY 等环境配置；核心配置接口不修改系统网络；设备、路由和系统 DNS 由 C++ 助手按所有权接管，核心接收显式移交的 TUN。自动共存的受控验证与实机范围见[计划 S6](../plan.md#s6-clash-共存原型)。
 
 `network.domain_dns_rules` 是连接配置的可选文本，每行一个完整域名，之后可加空格和 DNS 服务器 IPv4。省略服务器时使用当前网关 DNS。精确匹配只改变查询目的地，DNS 服务器和应用流量仍受网关资源、协议与端口限制。资源快照的可选 `domain_dns_names` 用于 Windows 精确名称接管，现有 DNS 范围及保护策略保持各自语义。
 

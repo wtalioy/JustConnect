@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/wtalioy/JustConnect/corelib/internal/mihomo/model"
 )
@@ -27,7 +28,7 @@ func (e endpoint) identifier() string {
 }
 
 func controllerEndpoint(address string) (endpoint, error) {
-	if address == "" || strings.TrimSpace(address) != address || strings.ContainsAny(address, "\x00\r\n") || len(address) > 4096 {
+	if address == "" || !utf8.ValidString(address) || strings.TrimSpace(address) != address || strings.ContainsAny(address, "\x00\r\n") || len(address) > 4096 {
 		return endpoint{}, ErrUnavailable
 	}
 	for _, kind := range []string{"unix", "pipe"} {

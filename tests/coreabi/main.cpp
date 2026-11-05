@@ -25,7 +25,7 @@ extern "C" int32_t jc_c_header_smoke(uint32_t (*query)(void));
 static void check(bool ok, const char *message) {
     if (!ok) { std::cerr << "FAIL: " << message << '\n'; std::exit(1); }
 }
-#define ABI_FUNCTIONS(X) X(jc_abi_version) X(jc_build_info) X(jc_network_snapshot) X(jc_config_validate) X(jc_session_create) X(jc_session_start) \
+#define ABI_FUNCTIONS(X) X(jc_abi_version) X(jc_build_info) X(jc_network_snapshot) X(jc_controller_snapshot) X(jc_controller_validate) X(jc_config_validate) X(jc_session_create) X(jc_session_start) \
     X(jc_session_read) X(jc_session_respond) X(jc_session_update_policy) X(jc_session_update_coexistence) X(jc_session_coexistence) X(jc_session_prepare_original_dns) X(jc_session_resources) X(jc_session_attach_tun) X(jc_session_attach_tun_dns) X(jc_session_attach_windows_pipe) X(jc_session_ack_dns_routes) X(jc_session_stop) X(jc_session_destroy)
 struct API {
 #define MEMBER(name) decltype(&::name) name;
@@ -345,6 +345,31 @@ int main(int argc, char **argv) {
     check(api.jc_session_ack_dns_routes(0, 1, 1, 1) == JC_UNSUPPORTED, "fixture DNS publication is explicit");
 #endif
     networkSnapshot(api);
+    check(api.jc_controller_validate(99,nullptr,0)==JC_ABI_MISMATCH,"controller validation version boundary");
+    check(api.jc_controller_validate(JC_ABI_VERSION,nullptr,0)==JC_OK,"automatic controller needs no endpoint");
+    check(api.jc_controller_validate(JC_ABI_VERSION,nullptr,1)==JC_INVALID_ARGUMENT,"controller validation pointer boundary");
+    for (const auto &address:std::vector<std::string>{"http://127.0.0.1:1","https://[::1]:1"})
+        check(api.jc_controller_validate(JC_ABI_VERSION,reinterpret_cast<const uint8_t *>(address.data()),uint32_t(address.size()))==JC_OK,"local address validation is independent of listener availability");
+    for (const auto &address:std::vector<std::string>{"http://192.0.2.1:1","http://secret@127.0.0.1:1","http://127.0.0.1:1?secret=private",std::string(1,char(0xff))})
+        check(api.jc_controller_validate(JC_ABI_VERSION,reinterpret_cast<const uint8_t *>(address.data()),uint32_t(address.size()))==JC_INVALID_ARGUMENT,"controller validation rejects remote/credential/malformed addresses");
+
+    {
+        uint32_t length=99;
+        check(api.jc_controller_snapshot(99,nullptr,0,&length)==JC_ABI_MISMATCH && length==0,"controller snapshot ABI boundary");
+        check(api.jc_controller_snapshot(JC_ABI_VERSION,nullptr,1,&length)==JC_INVALID_ARGUMENT && length==0,"controller snapshot pointer boundary");
+        std::vector<uint8_t> output(JC_MAX_OUTPUT+2,0x5a);
+        const auto status=api.jc_controller_snapshot(JC_ABI_VERSION,output.data()+1,JC_MAX_OUTPUT,&length);
+        check(output.front()==0x5a && output.back()==0x5a,"controller snapshot output bounds");
+        if(status==JC_OK) {
+            const auto data=json(output,length);
+            check(data["schema_version"].toInt()==JC_ABI_VERSION && data["controllers"].isArray(),"controller candidate wire schema");
+            for(const auto &value:data["controllers"].toArray()) {
+                const auto candidate=value.toObject();
+                check(candidate.size()==3 && candidate["pid"].toInt()>0 && !candidate["name"].toString().isEmpty()
+                    && !candidate["endpoint"].toString().isEmpty(),"candidate contains only identity and endpoint");
+            }
+        } else check((status==JC_NETWORK_FAILURE || status==JC_TIMEOUT) && length==0,"unavailable discovery reports a bounded failure without partial output");
+    }
     check(metadata.front() == 0x5a && metadata.back() == 0x5a, "metadata bounds");
 #ifdef ABI_FIXTURE
     check(info["test_driver"].toBool(), "fixture build must identify itself");

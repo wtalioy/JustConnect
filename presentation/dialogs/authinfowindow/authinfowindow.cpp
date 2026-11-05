@@ -1,3 +1,4 @@
+#include "presentation/coordinators/controllerselectioncoordinator.h"
 #include "authinfowindow.h"
 
 #include "infrastructure/coreengine/embeddedcoreengine.h"
@@ -11,6 +12,7 @@ AuthInfoWindow::AuthInfoWindow(QWidget *parent, CoreEngine *inputEngine)
     ui(new Ui::AuthInfoWindow),
     query(new AuthMethodsQuery(inputEngine ? inputEngine : new EmbeddedCoreEngine,this))
 {
+    controllerSelection=new ControllerSelectionCoordinator(this,this);
     ui->setupUi(this);
     ui->label->setWordWrap(true);
 
@@ -78,17 +80,23 @@ AuthInfoWindow::~AuthInfoWindow()
 
 void AuthInfoWindow::fetchAuthInfo(const ConnectionProfile &profile, bool preferOAuth)
 {
+    const auto request=++lookup;
     this->preferOAuth = preferOAuth;
     queryCompleted = false;
     ui->authInfoListWidget->clear();
     ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(false);
     ui->label->setText("正在获取认证方式，请稍候...");
-    if (!query->start(profile))
-        ui->label->setText("正在查询，请稍候或关闭窗口后重试。");
+    controllerSelection->choose([this,profile=ConnectionProfile(profile),request](std::optional<QString> address) mutable {
+        if (request!=lookup) return;
+        if (!address) {ui->label->setText(tr("Controller selection cancelled."));return;}
+        profile.behavior.controllerAddress=*address;
+        if (!query->start(profile)) ui->label->setText("正在查询，请稍候或关闭窗口后重试。");
+    });
 }
 
 void AuthInfoWindow::done(int result)
 {
+    ++lookup;controllerSelection->cancel();
     if (query->isActive()) {
         setAttribute(Qt::WA_DeleteOnClose,false);
         connect(query,&AuthMethodsQuery::settled,this,&QObject::deleteLater,Qt::SingleShotConnection);

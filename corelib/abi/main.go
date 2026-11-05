@@ -6,6 +6,7 @@ package main
 import "C"
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/netip"
@@ -15,6 +16,7 @@ import (
 	"unsafe"
 
 	"github.com/wtalioy/JustConnect/corelib/internal/bridge"
+	"github.com/wtalioy/JustConnect/corelib/internal/mihomo"
 	"github.com/wtalioy/JustConnect/corelib/internal/networkstate"
 	"github.com/wtalioy/JustConnect/corelib/internal/packetpipe"
 	"github.com/wtalioy/JustConnect/corelib/internal/tundevice"
@@ -59,6 +61,7 @@ func buildInfo() []byte {
 			"initial_protection":       true,
 			"name_protection":          true,
 			"network_snapshot":         networkstate.Supported(),
+			"controller_discovery":     true,
 			"resource_snapshot":        !testDriver,
 			"coexistence":              !testDriver,
 			"tun_dns_routes":           !testDriver && (tundevice.Supported || packetpipe.Supported),
@@ -116,6 +119,48 @@ func jc_go_build_info(abi C.uint32_t, output *C.uint8_t, capacity C.uint32_t, le
 		return C.int32_t(bridge.ABIMismatch)
 	}
 	return writeOutput(buildInfo(), output, capacity, length)
+}
+
+//export jc_go_controller_validate
+func jc_go_controller_validate(abi C.uint32_t, input *C.uint8_t, length C.uint32_t) C.int32_t {
+	if abi != bridge.ABIVersion {
+		return C.int32_t(bridge.ABIMismatch)
+	}
+	if length == 0 {
+		return C.int32_t(bridge.OK)
+	}
+	data, ok := inputBytes(input, length)
+	if !ok || !mihomo.ValidateControllerAddress(string(data)) {
+		return C.int32_t(bridge.InvalidArgument)
+	}
+	return C.int32_t(bridge.OK)
+}
+
+//export jc_go_controller_snapshot
+func jc_go_controller_snapshot(abi C.uint32_t, output *C.uint8_t, capacity C.uint32_t, length *C.uint32_t) C.int32_t {
+	if !outputValid(output, capacity, length) {
+		return C.int32_t(bridge.InvalidArgument)
+	}
+	if abi != bridge.ABIVersion {
+		return C.int32_t(bridge.ABIMismatch)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	candidates, err := mihomo.Candidates(ctx)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return C.int32_t(bridge.Timeout)
+		}
+		return C.int32_t(bridge.NetworkFailure)
+	}
+	data, err := json.Marshal(map[string]any{"schema_version": bridge.ABIVersion, "controllers": candidates})
+	if err != nil {
+		return C.int32_t(bridge.Internal)
+	}
+	if len(data) > bridge.MaxOutput {
+		return C.int32_t(bridge.Limit)
+	}
+	return writeOutput(data, output, capacity, length)
 }
 
 //export jc_go_network_snapshot

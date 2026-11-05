@@ -284,7 +284,7 @@ int main(int argc, char **argv) {
     }
 #endif
     check(EmbeddedCoreEngine::validateConfiguration(profile) == ConnectionError::NONE, "pure Qt configuration validation");
-    for (int i = 0; i < 13; ++i) {
+    for (int i = 0; i < 14; ++i) {
         auto invalid = profile;
         switch (i) {
         case 0: invalid.endpoint.server = "https://invalid.example.edu"; break;
@@ -300,6 +300,7 @@ int main(int argc, char **argv) {
         case 10: invalid.keepAlive.mode="unsupported";break;
         case 11: invalid.keepAlive={"target","ssh://campus.example.invalid:22"};break;
         case 12: invalid.keepAlive={"target","https://campus.example.invalid/logout?token=private-value"};break;
+        case 13: invalid.behavior.controllerAddress="http://private@127.0.0.1:31000";break;
         }
         check(EmbeddedCoreEngine::validateConfiguration(invalid) == ConnectionError::INVALID_CONFIGURATION, "saving and starting share strict configuration rules");
         const int before = finished;

@@ -17,6 +17,7 @@
 #include <QTimer>
 #include <QFormLayout>
 #include <QComboBox>
+#include <QPushButton>
 #include <QDialogButtonBox>
 #include <QLabel>
 #include <QtAlgorithms>
@@ -32,6 +33,7 @@
 #include "infrastructure/logging/applicationlogfile.h"
 #include "infrastructure/update/updatechecker.h"
 #include "presentation/coordinators/connectionuicontroller.h"
+#include "presentation/coordinators/controllerselectioncoordinator.h"
 #include "presentation/dialogs/configurationguidedialog/configurationguidedialog.h"
 #include "presentation/presentationhelpers.h"
 #include "ui_mainwindow.h"
@@ -428,6 +430,13 @@ void MainWindow::showApplicationPreferences()
         ? "保存后在下次关闭主窗口时生效；菜单中的退出始终有序退出。"
         : "系统托盘不可用。选择隐藏时将保留可访问窗口；仍可通过菜单退出。",dialog);
     hint->setWordWrap(true);layout->addRow(hint);
+    auto *controllerButton=new QPushButton(tr("Clash coexistence…"),dialog);
+    controllerButton->setObjectName("controllerSettingsButton");layout->addRow(controllerButton);
+    auto *selection=new ControllerSelectionCoordinator(dialog,dialog);
+    connect(controllerButton,&QPushButton::clicked,selection,[selection,controllerButton] {
+        controllerButton->setEnabled(false);
+        selection->choose([controllerButton](std::optional<QString>){controllerButton->setEnabled(true);},true);
+    });
     auto *buttons=new QDialogButtonBox(QDialogButtonBox::Save|QDialogButtonBox::Cancel,dialog);
     layout->addRow(buttons);
     connect(buttons,&QDialogButtonBox::rejected,dialog,&QDialog::reject);

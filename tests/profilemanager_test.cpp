@@ -92,6 +92,21 @@ bool closeBehaviorIsGlobalAndFailedWritesRetainThePreference()
     return !ProfileManager(directory.path()).closeToTray() && manager.setCloseToTray(true) && ProfileManager(directory.path()).closeToTray();
 }
 
+bool controllerChoiceIsGlobalAndFailedWritesPreserveIt()
+{
+    QTemporaryDir directory;ProfileManager manager(directory.path());
+    const QString address="http://127.0.0.1:12345";
+    if (!manager.controllerAddress().isEmpty() || !manager.setControllerAddress(address)) return false;
+    const auto profile=manager.createProfile("campus");
+    if (profile.isEmpty() || !manager.setActiveProfile(profile) || ProfileManager(directory.path()).controllerAddress()!=address) return false;
+    QSettings campus(manager.profilePath(profile),QSettings::IniFormat);
+    if (campus.contains("Global/ControllerAddress")) return false;
+    const auto state=directory.filePath("state.ini");
+    const QByteArray malformed="[unclosed group\nGlobal/ControllerAddress=unchanged\n";
+    {QFile file(state);if(!file.open(QIODevice::WriteOnly|QIODevice::Truncate) || file.write(malformed)!=malformed.size())return false;}
+    return !manager.setControllerAddress(QString()) && read(state)==malformed;
+}
+
 bool createsPhysicalFilesForEmptyProfiles()
 {
     QTemporaryDir directory;
@@ -137,5 +152,5 @@ bool createsPhysicalFilesForEmptyProfiles()
 int main(int argc, char *argv[])
 {
     QCoreApplication application(argc, argv);
-    return closeBehaviorIsGlobalAndFailedWritesRetainThePreference() && copiesOnlyPublicConfiguration() && createsPhysicalFilesForEmptyProfiles() && rejectsMalformedStateAndRecovers() ? 0 : 1;
+    return controllerChoiceIsGlobalAndFailedWritesPreserveIt() && closeBehaviorIsGlobalAndFailedWritesRetainThePreference() && copiesOnlyPublicConfiguration() && createsPhysicalFilesForEmptyProfiles() && rejectsMalformedStateAndRecovers() ? 0 : 1;
 }

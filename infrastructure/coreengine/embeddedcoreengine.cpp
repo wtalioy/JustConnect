@@ -22,7 +22,7 @@
 namespace {
 #define CORE_FUNCTIONS(X) X(jc_abi_version) X(jc_build_info) X(jc_config_validate) X(jc_session_create) X(jc_session_start) \
     X(jc_session_read) X(jc_session_respond) X(jc_session_stop) X(jc_session_destroy)
-#define CORE_EXTENSIONS(X) X(jc_session_update_policy) X(jc_network_snapshot) X(jc_session_resources) X(jc_session_attach_tun) X(jc_session_attach_tun_dns) X(jc_session_attach_windows_pipe) X(jc_session_ack_dns_routes) X(jc_session_prepare_original_dns) X(jc_session_update_coexistence) X(jc_session_coexistence)
+#define CORE_EXTENSIONS(X) X(jc_session_update_policy) X(jc_network_snapshot) X(jc_controller_snapshot) X(jc_controller_validate) X(jc_session_resources) X(jc_session_attach_tun) X(jc_session_attach_tun_dns) X(jc_session_attach_windows_pipe) X(jc_session_ack_dns_routes) X(jc_session_prepare_original_dns) X(jc_session_update_coexistence) X(jc_session_coexistence)
 struct Library {
 #define MEMBER(name) decltype(&::name) name = nullptr;
     CORE_FUNCTIONS(MEMBER)
@@ -67,6 +67,11 @@ QJsonObject configuration(const ConnectionProfile &p, CoreEngine::Operation oper
         {"network", QJsonObject{{"interface", p.behavior.bindInterface}, {"auto_detect", p.behavior.autoDetectInterface},
             {"local_dns", p.dns.localDnsServer}, {"secondary_dns", p.dns.secondary},
             {"dns_cache_ttl", p.dns.ttl}, {"disable_remote_dns", p.dns.disableRemoteDns}}}};
+    if (!p.behavior.controllerAddress.isEmpty()) {
+        auto network=config["network"].toObject();
+        network["controller_address"]=p.behavior.controllerAddress;
+        config["network"]=network;
+    }
     if (operation==CoreEngine::Operation::Connect) {
         config["keepalive"]=QJsonObject{{"mode",p.keepAlive.mode},{"url",p.keepAlive.url}};
         if (!p.dns.domainDnsRules.isEmpty()) {
@@ -430,6 +435,33 @@ ConnectionError EmbeddedCoreEngine::validateConfiguration(const ConnectionProfil
         reinterpret_cast<const uint8_t *>(bytes.constData()), uint32_t(bytes.size()));
     bytes.fill('\0');
     return connectionError(status);
+}
+EmbeddedCoreEngine::ControllerDiscovery EmbeddedCoreEngine::discoverControllers() {
+    auto &api=library();
+    if (!api.available || !api.jc_controller_snapshot || !buildInfo()["capabilities"].toObject()["controller_discovery"].toBool()) return {};
+    QByteArray bytes(JC_MAX_OUTPUT,Qt::Uninitialized);
+    uint32_t length=0;
+    const int status=api.jc_controller_snapshot(JC_ABI_VERSION,reinterpret_cast<uint8_t *>(bytes.data()),uint32_t(bytes.size()),&length);
+    if (status!=JC_OK) return {requestStatus(status),{}};
+    QJsonParseError error{};
+    const auto doc=length<=uint32_t(bytes.size())?QJsonDocument::fromJson(bytes.first(length),&error):QJsonDocument();
+    if (error.error!=QJsonParseError::NoError || !doc.isObject() || doc.object()["schema_version"].toInt()!=JC_ABI_VERSION
+        || !doc.object()["controllers"].isArray()) return {RequestStatus::Failed,{}};
+    const auto candidates=doc.object()["controllers"].toArray();
+    for (const auto &value:candidates) {
+        const auto item=value.toObject();
+        if (!value.isObject() || item.size()!=3 || !item["pid"].isDouble() || item["pid"].toDouble()<1
+            || item["pid"].toDouble()!=item["pid"].toInt() || !item["name"].isString() || item["name"].toString().isEmpty()
+            || !item["endpoint"].isString() || item["endpoint"].toString().isEmpty() || !validControllerAddress(item["endpoint"].toString()))
+            return {RequestStatus::Failed,{}};
+    }
+    return {RequestStatus::Success,candidates};
+}
+bool EmbeddedCoreEngine::validControllerAddress(const QString &address) {
+    auto &api=library();
+    if (!api.available || !api.jc_controller_validate) return false;
+    const auto bytes=address.toUtf8();
+    return api.jc_controller_validate(JC_ABI_VERSION,reinterpret_cast<const uint8_t *>(bytes.constData()),uint32_t(bytes.size()))==JC_OK;
 }
 void EmbeddedCoreEngine::stop() {
     if (!active || stopping) return;

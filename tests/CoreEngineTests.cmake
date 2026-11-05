@@ -12,6 +12,8 @@ function(justconnect_core_ui_tests TARGET ENGINE LIBRARY PLATFORM)
         "${REPO}/presentation/coordinators/authdialogcoordinator.cpp"
         "${REPO}/presentation/coordinators/authenticationcachecoordinator.cpp"
         "${REPO}/presentation/coordinators/connectionuicontroller.cpp"
+        "${REPO}/presentation/coordinators/controllerselectioncoordinator.cpp"
+        "${REPO}/infrastructure/settings/profilemanager.cpp"
         "${REPO}/presentation/dialogs/authinfowindow/authinfowindow.cpp"
         "${REPO}/presentation/dialogs/graphcaptchawindow/graphcaptchawindow.cpp"
         "${REPO}/presentation/dialogs/graphcaptchawindow/captchacanvas.cpp"

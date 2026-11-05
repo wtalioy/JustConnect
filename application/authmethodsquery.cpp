@@ -20,6 +20,7 @@ bool AuthMethodsQuery::start(const ConnectionProfile &profile) {
     if (active) return false;
     ConnectionProfile query;
     query.tls=profile.tls;
+    query.behavior.controllerAddress=profile.behavior.controllerAddress;
     query.endpoint.server=profile.endpoint.server; query.endpoint.port=profile.endpoint.port;
     active=true; cancelled=received=false; methods={};
     if (engine->start(query,CoreEngine::Operation::AuthMethods)) return true;

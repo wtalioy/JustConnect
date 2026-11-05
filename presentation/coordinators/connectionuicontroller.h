@@ -12,6 +12,7 @@
 #include "core/connectionerror.h"
 
 class ApplicationShutdown;
+class ControllerSelectionCoordinator;
 class QAction;
 class ApplicationLogger;
 class AuthDialogCoordinator;
@@ -93,6 +94,7 @@ private:
     bool cacheCredentialsRequired=false;
     bool quitting=false;
     ApplicationShutdown *shutdown;
+    ControllerSelectionCoordinator *controllerSelection;
     quint64 credentialGeneration=0;
     quint64 proxyGeneration=0;
     bool autoProxyPending=false;
