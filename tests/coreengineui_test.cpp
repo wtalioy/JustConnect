@@ -684,6 +684,7 @@ static void quitWaitsForInitialSsoCache() {
 }
 
 static void browserCookiesStayInLoginDialog() {
+    ApplicationLogger logger;
     QList<bool> cookies;
     QTcpServer server;
     check(server.listen(QHostAddress::LocalHost),"isolated SSO cookie server");
@@ -731,16 +732,13 @@ static void browserCookiesStayInLoginDialog() {
     auto *firstView=first->findChild<SignInBrowser *>();
     check(first->findChild<QLabel *>("navigationWarningLabel")->isHidden(),"initial local sign-in address is accepted");
     QObject::connect(firstView,&SignInBrowser::initializationFailed,firstView,[]{check(false,"initialize isolated native browser");});
-    // Observe actual cookie state even if the page completed during native window activation.
-    bool initialCookie=false,readingCookie=false;QTimer cookieProbe;
-    QObject::connect(&cookieProbe,&QTimer::timeout,firstView,[&] {
-        if (readingCookie) return;
-        readingCookie=true;
-        firstView->runJavaScript("document.cookie.includes('jc_scope=first')",[&](const QVariant &value){
-            readingCookie=false;initialCookie=value.toBool();
-        });
+    // The committed URL is observable even if activation already completed the load.
+    until([&]{return firstView->url()==QUrl(base+"/first");});
+    bool cookieRead=false,initialCookie=false;
+    firstView->runJavaScript("document.cookie.includes('jc_scope=first')",[&](const QVariant &value){
+        cookieRead=true;initialCookie=value.toBool();
     });
-    cookieProbe.start(20);until([&]{return initialCookie;});cookieProbe.stop();
+    until([&]{return cookieRead;});check(initialCookie,"the first real SSO page stores its cookie");
     visit(first,"/echo");
     check(cookies.size()==1 && cookies[0],"cookie works within the current login dialog");
     auto *second=new SsoLoginWebView(nullptr,QUrl(base+"/passport/v1/auth/cas"));second->show();visit(second,"/echo");
