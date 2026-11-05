@@ -77,6 +77,7 @@ private:
     );
 
     void updateVersionInfo();
+    void updateDiagnostics();
 
     void setupTrayIcon();
 

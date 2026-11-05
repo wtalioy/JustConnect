@@ -1,4 +1,5 @@
 #include "mainwindowcoordinator.h"
+#include "presentation/coordinators/connectiondiagnostics.h"
 
 #include <memory>
 
@@ -76,7 +77,8 @@ MainWindowCoordinator::MainWindowCoordinator(
           parentWidget,
           this
       )),
-      credentialAccess(new CredentialAccess(createSystemCredentialStore(),this))
+      credentialAccess(new CredentialAccess(createSystemCredentialStore(),this)),
+      connectionDiagnostics(new ConnectionDiagnostics(coreEngine,connectionSession,networkPolicySession,systemProxySession,this))
 {
     connect(coreEngine, &CoreEngine::finished, systemProxySession, &SystemProxySession::disable);
     connect(connectionSession, &ConnectionSession::authenticationRequired,
@@ -129,3 +131,5 @@ MainWindowCoordinator::authenticationDialogs() const
 {
     return authenticationCoordinator;
 }
+
+ConnectionDiagnostics *MainWindowCoordinator::diagnostics() const { return connectionDiagnostics; }

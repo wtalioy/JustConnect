@@ -23,6 +23,7 @@
 #include "presentation/dialogs/networkpolicywindow.h"
 
 #include "application/applicationlogger.h"
+#include "application/networkpolicysession.h"
 #include "application/applicationconstants.h"
 #include "application/commandlineoptions.h"
 #include "application/settingsmigrator.h"
@@ -33,6 +34,7 @@
 #include "presentation/i18n/applicationlanguage.h"
 #include "presentation/dialogs/configurationguidedialog/configurationguidedialog.h"
 #include "presentation/presentationhelpers.h"
+#include "presentation/coordinators/connectiondiagnostics.h"
 #include "ui_mainwindow.h"
 
 MainWindow::MainWindow(
@@ -60,8 +62,12 @@ MainWindow::MainWindow(
 
     ApplicationAppearance::install();
     ui->setupUi(this);
-    ui->detailsDialog->resize(680,620);
-    connect(ui->detailsButton,&QPushButton::clicked,this,[this] {ui->detailsDialog->show();ui->detailsDialog->raise();ui->detailsDialog->activateWindow();});
+    ui->detailsDialog->resize(720,700);
+    connect(ui->detailsButton,&QPushButton::clicked,this,[this] {updateDiagnostics();PresentationHelpers::activateWindow(ui->detailsDialog);});
+    ui->diagnosticReport->document()->setMaximumBlockCount(32);
+    connect(coordinator->diagnostics(),&ConnectionDiagnostics::changed,this,[this]{if(ui->detailsDialog->isVisible())updateDiagnostics();});
+    connect(ui->refreshDiagnosticsButton,&QPushButton::clicked,this,[this]{coordinator->networkPolicy()->refresh();updateDiagnostics();});
+    connect(ui->copyDiagnosticsButton,&QPushButton::clicked,this,[this]{QApplication::clipboard()->setText(QApplication::applicationVersion()+"\n"+coordinator->diagnostics()->report());});
     connect(ui->closeButton,&QPushButton::clicked,this,&QWidget::close);
 #ifdef Q_OS_MACOS
     const QMargins centralMargins = ui->centralWidget->contentsMargins();
@@ -193,6 +199,8 @@ MainWindow::MainWindow(
         networkPolicyWindow->raise();
         networkPolicyWindow->activateWindow();
     });
+
+    connect(ui->diagnosticRulesButton, &QPushButton::clicked, ui->inspectNetworkAction, &QAction::trigger);
 
     // 文件-打开日志文件
     connect(ui->openLogAction, &QAction::triggered, this,
@@ -388,7 +396,7 @@ void MainWindow::changeEvent(QEvent *event)
     newProfileAction->setText(tr("New profile"));renameProfileAction->setText(tr("Rename profile"));deleteProfileAction->setText(tr("Delete profile"));
     trayProfileMenu->setTitle(tr("Profiles"));trayShowAction->setText(tr("Show window"));
     trayCloseAction->setText(tr("Exit %1").arg(QApplication::applicationName()));
-    connectionUiController->refreshActions();refreshProfileMenu();updateVersionInfo();updateConnectionState(connectionSession->state());
+    connectionUiController->refreshActions();refreshProfileMenu();updateVersionInfo();updateConnectionState(connectionSession->state());updateDiagnostics();
 }
 
 bool MainWindow::eventFilter(QObject *watched,QEvent *event)
@@ -1046,4 +1054,12 @@ void MainWindow::endSystemSession()
     if (!settled) {deadline.start();cleanup.exec();}
     setProperty("systemShutdown",false);
     disconnect(finished);
+}
+
+void MainWindow::updateDiagnostics()
+{
+    const auto report = coordinator->diagnostics()->report();
+    if (ui->diagnosticReport->toPlainText() != report) ui->diagnosticReport->setPlainText(report);
+    auto *policy = coordinator->networkPolicy();
+    ui->refreshDiagnosticsButton->setEnabled(!policy->currentGeneration().isEmpty() && !policy->isBusy());
 }

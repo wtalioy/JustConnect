@@ -10,8 +10,8 @@ QPushButton:hover, QToolButton:hover, QComboBox:hover { background: #eef3ff; bor
 QPushButton:pressed, QToolButton:pressed { background: #dce7ff; }
 QPushButton:focus, QToolButton:focus, QComboBox:focus, QLineEdit:focus, QSpinBox:focus, QPlainTextEdit:focus, QTreeWidget:focus, QListWidget:focus { border: 2px solid #315dd7; }
 QPushButton:disabled, QToolButton:disabled, QComboBox:disabled { color: #7b8798; background: #e9edf3; border-color: #dce2ea; }
-QPushButton:default, QPushButton#connectButton { color: white; background: #315dd7; border-color: #315dd7; font-weight: 600; }
-QPushButton:default:hover, QPushButton#connectButton:hover { background: #234dc2; }
+QPushButton:default:enabled, QPushButton#connectButton:enabled { color: white; background: #315dd7; border-color: #315dd7; font-weight: 600; }
+QPushButton:default:enabled:hover, QPushButton#connectButton:enabled:hover { background: #234dc2; }
 QPushButton#connectButton[connectionState="connected"], QPushButton#connectButton[connectionState="starting"], QPushButton#connectButton[connectionState="stopping"], QPushButton#connectButton[connectionState="reconnecting"] { color: #33435b; background: rgba(255,255,255,190); border-color: #c4cedd; }
 QPushButton:flat { border-color: transparent; background: transparent; color: #4a5a72; }
 QPushButton:flat:hover { background: rgba(219,229,249,170); }

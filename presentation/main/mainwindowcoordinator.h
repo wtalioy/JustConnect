@@ -5,6 +5,7 @@
 
 class AuthDialogCoordinator;
 class ConnectionSession;
+class ConnectionDiagnostics;
 class CoreEngine;
 class NetworkAccess;
 class NetworkPolicySession;
@@ -35,6 +36,7 @@ public:
     CredentialAccess *credentials() const;
     CredentialSource credentialSource();
     ConnectionSession *connection() const;
+    ConnectionDiagnostics *diagnostics() const;
     NetworkPolicySession *networkPolicy() const;
     SystemProxySession *systemProxy() const;
     UpdateChecker *updates() const;
@@ -50,6 +52,7 @@ private:
     UpdateChecker *updateChecker;
     AuthDialogCoordinator *authenticationCoordinator;
     CredentialAccess *credentialAccess;
+    ConnectionDiagnostics *connectionDiagnostics;
 };
 
 #endif // MAINWINDOWCOORDINATOR_H
