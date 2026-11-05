@@ -6,6 +6,7 @@
 #include "presentation/dialogs/networkpolicywindow.h"
 #include <QTreeWidget>
 #include "tests/credentialstorefixture.h"
+#include "tests/uiwait.h"
 #include "application/applicationlogger.h"
 #include "application/defaultsettings.h"
 #include "application/systemproxysession.h"
@@ -47,22 +48,7 @@
 
 using ProxyCheck::check;
 static std::optional<bool> noOfficialClient(){return false;}
-template<class Predicate> static void waitUntil(const char *file, int line, Predicate done) {
-    QElapsedTimer elapsed;
-    elapsed.start();
-    if (!done()) {
-        QEventLoop loop;QTimer poll;
-        QObject::connect(&poll,&QTimer::timeout,&loop,[&] {
-            if (done() || elapsed.elapsed()>=10000) loop.quit();
-        });
-        poll.start(5);loop.exec();
-    }
-    if (!done()) {
-        std::cerr << file << ':' << line << ": ";
-        check(false, "Qt UI operation timed out");
-    }
-}
-#define until(...) waitUntil(__FILE__, __LINE__, __VA_ARGS__)
+#define until(...) UiWait::until(__FILE__, __LINE__, __VA_ARGS__)
 static QDialog *challenge(QWidget &parent) {
     for (auto *dialog : parent.findChildren<QDialog *>())
         if (dialog->isVisible()) return dialog;
@@ -718,9 +704,10 @@ static void browserCookiesStayInLoginDialog() {
     const auto base="http://127.0.0.1:"+QString::number(server.serverPort());
     const auto visit=[&](SsoLoginWebView *dialog,const QString &path) {
         auto *view=dialog->findChild<SignInBrowser *>();
+        const auto timeout=view->url().isEmpty()?UiWait::BrowserStartupTimeoutMs:UiWait::OperationTimeoutMs;
         bool done=false,okay=false;
         const auto connection=QObject::connect(view,&SignInBrowser::loadFinished,view,[&](bool success){okay=success;done=true;});
-        dialog->setInitialUrl(QUrl(base+path));until([&]{return done;});QObject::disconnect(connection);
+        dialog->setInitialUrl(QUrl(base+path));until([&]{return done;},timeout);QObject::disconnect(connection);
         check(okay,"actual SSO page loads from controlled HTTP server");
     };
     QWidget parent;
@@ -733,7 +720,7 @@ static void browserCookiesStayInLoginDialog() {
     check(first->findChild<QLabel *>("navigationWarningLabel")->isHidden(),"initial local sign-in address is accepted");
     QObject::connect(firstView,&SignInBrowser::initializationFailed,firstView,[]{check(false,"initialize isolated native browser");});
     // The committed URL is observable even if activation already completed the load.
-    until([&]{return firstView->url()==QUrl(base+"/first");});
+    until([&]{return firstView->url()==QUrl(base+"/first");},UiWait::BrowserStartupTimeoutMs);
     bool cookieRead=false,initialCookie=false;
     firstView->runJavaScript("document.cookie.includes('jc_scope=first')",[&](const QVariant &value){
         cookieRead=true;initialCookie=value.toBool();
@@ -781,8 +768,9 @@ static void browserValidatesCallbackNavigation() {
     auto *view=dialog->findChild<SignInBrowser *>();int responses=0;QString callback;
     QObject::connect(dialog,&SsoLoginWebView::loginCompleted,[&](const QString &value){++responses;callback=value;});
     auto visit=[&](const QString &path) {
+        const auto timeout=view->url().isEmpty()?UiWait::BrowserStartupTimeoutMs:UiWait::OperationTimeoutMs;
         bool done=false;const auto connection=QObject::connect(view,&SignInBrowser::loadFinished,[&](bool){done=true;});
-        dialog->setInitialUrl(QUrl(base+path));until([&]{return done || responses>0;});QObject::disconnect(connection);
+        dialog->setInitialUrl(QUrl(base+path));until([&]{return done || responses>0;},timeout);QObject::disconnect(connection);
     };
     visit("/redirect-unrelated");check(responses==0 && dialog->isVisible() && view->url().path()=="/unrelated","a same-origin redirect to another path cannot complete SSO");
     visit("/frame");
@@ -812,7 +800,7 @@ static void browserValidatesCallbackNavigation() {
     dialog=new SsoLoginWebView(nullptr,QUrl(base+"/passport/v1/auth/cas"));dialog->setAttribute(Qt::WA_DeleteOnClose,false);dialog->show();view=dialog->findChild<SignInBrowser *>();responses=0;
     QObject::connect(dialog,&SsoLoginWebView::loginCompleted,[&](const QString &value){++responses;callback=value;});
     auto *address=dialog->findChild<QLineEdit *>("addressLineEdit");address->setText(base+"/passport/v1/auth/cas?ticket=fixture");
-    check(QMetaObject::invokeMethod(address,"returnPressed"),"submit a main-frame callback from the address bar");until([&]{return responses==1;});
+    check(QMetaObject::invokeMethod(address,"returnPressed"),"submit a main-frame callback from the address bar");until([&]{return responses==1;},UiWait::BrowserStartupTimeoutMs);
     check(responses==1,"valid CAS callback is delivered once");
     check(callback==base+"/passport/v1/auth/cas?ticket=fixture","CAS returns the exact callback path and ticket");
     check(callbackRequests==0,"the CAS callback is intercepted before HTTP submission");delete dialog;
@@ -1058,7 +1046,7 @@ static void browserTlsPolicy(const ConnectionProfile &gatewayProfile) {
         auto connection=QObject::connect(view,&SignInBrowser::loadFinished,[&](bool success){done=true;okay=success;});
         // Subscribe before navigation; a rejected certificate can finish while the dialog opens.
         dialog->setInitialUrl(loginTarget);
-        until([&]{return done;});QObject::disconnect(connection);
+        until([&]{return done;},UiWait::BrowserStartupTimeoutMs);QObject::disconnect(connection);
         const bool trusted=!policy.verify || !policy.caPem.isEmpty();
         check(okay==trusted,"browser honors the active session CA and verification policy without changing another profile");
         if (okay) {
