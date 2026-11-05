@@ -1,5 +1,7 @@
 #include "serversettingswidget.h"
 #include <QComboBox>
+#include <QEvent>
+#include <QToolButton>
 #include <QCheckBox>
 #include <QPlainTextEdit>
 #include <QLabel>
@@ -13,62 +15,117 @@
 #include "core/connectionprofile.h"
 
 ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
-    auto *form = new QFormLayout(this);
-    form->setContentsMargins(0,0,0,0);
-    form->setFormAlignment(Qt::AlignLeft|Qt::AlignTop);
+    auto *layout = new QVBoxLayout(this);
+    layout->setContentsMargins(0,0,0,0);
+    layout->setSpacing(16);
+    form = new QFormLayout;
+    form->setRowWrapPolicy(QFormLayout::WrapAllRows);
+    form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+    form->setVerticalSpacing(8);
     preset = new QComboBox(this);
     preset->setObjectName("profileKindComboBox");
-    preset->addItem("请选择入口", "");
+    preset->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    preset->setMinimumContentsLength(12);
+    preset->addItem(QString(), "");
     const auto builtInKind=DefaultSettings::builtInProfile().value("JustConnect/ProfileKind").toString();
     preset->addItem(builtInKind,builtInKind);
-    preset->addItem("Custom", "Custom");
+    preset->addItem(QString(), "Custom");
     address = new QLineEdit(this);
     address->setObjectName("serverAddressLineEdit");
     address->setPlaceholderText("vpn.example.edu.cn");
     port = new QSpinBox(this);
     port->setObjectName("serverPortSpinBox");
     port->setRange(1,65535); port->setValue(443);
-    form->addRow("入口",preset); form->addRow("服务器地址",address); form->addRow("服务器端口",port);
-    verify=new QCheckBox("验证服务器证书（推荐）",this);
+    form->addRow(new QLabel(this),preset); form->addRow(new QLabel(this),address); form->addRow(new QLabel(this),port);
+    layout->addLayout(form);
+
+    securitySummary = new QLabel(this);
+    securitySummary->setObjectName("securitySummaryLabel");
+    securitySummary->setWordWrap(true);
+    layout->addWidget(securitySummary);
+    advancedButton = new QToolButton(this);
+    advancedButton->setObjectName("advancedServerButton");
+    advancedButton->setCheckable(true);
+    advancedButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    advancedButton->setArrowType(Qt::RightArrow);
+    layout->addWidget(advancedButton,0,Qt::AlignLeft);
+    auto *advanced = new QWidget(this);
+    advanced->hide();
+    advancedForm = new QFormLayout(advanced);
+    advancedForm->setContentsMargins(0,0,0,0);
+    advancedForm->setRowWrapPolicy(QFormLayout::WrapAllRows);
+    advancedForm->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+    advancedForm->setVerticalSpacing(8);
+    layout->addWidget(advanced);
+    connect(advancedButton,&QToolButton::toggled,advanced,[this,advanced](bool expanded){
+        advanced->setVisible(expanded);
+        advancedButton->setArrowType(expanded ? Qt::DownArrow : Qt::RightArrow);
+    });
+    verify=new QCheckBox(this);
     verify->setObjectName("tlsVerifyCheckBox"); verify->setChecked(TlsOptions{}.verify);
-    auto *warning=new QLabel("关闭验证会失去服务器身份保护；不会因连接失败自动关闭。",this);
-    warning->setObjectName("tlsWarningLabel"); warning->setWordWrap(true); warning->setVisible(false);
-    allowUnverifiedNodes=new QCheckBox("跳过隧道证书校验",this);
+    warning=new QLabel(this);
+    warning->setObjectName("tlsWarningLabel"); warning->setWordWrap(true); warning->hide();
+    allowUnverifiedNodes=new QCheckBox(this);
     allowUnverifiedNodes->setObjectName("allowUnverifiedNodesCheckBox");
-    auto *nodeWarning=new QLabel("隧道仍加密，但不验证对端身份。登录与资源请求的校验设置保持不变。",this);
+    nodeWarning=new QLabel(this);
     nodeWarning->setObjectName("nodeTlsWarningLabel"); nodeWarning->setWordWrap(true); nodeWarning->hide();
     auto *tlsOptions=new QVBoxLayout;
-    tlsOptions->setAlignment(Qt::AlignTop);
     tlsOptions->addWidget(verify); tlsOptions->addWidget(warning);
-    auto *nodeException=new QVBoxLayout;
-    nodeException->setAlignment(Qt::AlignTop);
-    nodeException->setContentsMargins(20,0,0,0);
-    nodeException->addWidget(allowUnverifiedNodes); nodeException->addWidget(nodeWarning);
-    tlsOptions->addLayout(nodeException);
-    form->addRow("TLS",tlsOptions);
-    caPem=new QPlainTextEdit(this); caPem->setObjectName("tlsCaPemEdit"); caPem->setMaximumHeight(72);
-    caPem->setPlaceholderText("可选：学校提供的 PEM 格式 CA 证书；留空使用系统信任。");
-    form->addRow("附加 CA",caPem);
+    tlsOptions->addWidget(allowUnverifiedNodes); tlsOptions->addWidget(nodeWarning);
+    advancedForm->addRow("TLS",tlsOptions);
+    caPem=new QPlainTextEdit(this); caPem->setObjectName("tlsCaPemEdit"); caPem->setMaximumHeight(96);
+    advancedForm->addRow(new QLabel(this),caPem);
     domainDnsRules=new QPlainTextEdit(this);
     domainDnsRules->setObjectName("domainDnsRulesEdit");
-    domainDnsRules->setMaximumHeight(90);
+    domainDnsRules->setMaximumHeight(112);
     domainDnsRules->setPlaceholderText("host.example.edu\nother.example.edu 192.0.2.53");
-    QString help="每行一个完整域名。用空格追加 DNS 服务器的 IPv4 地址，或留空使用当前网关 DNS。";
-#ifndef Q_OS_WIN
-    help+=" 对网关未发布的域名，请通过应用的本地代理访问。";
-#endif
-    auto *rulesHelp=new QLabel(help,this);
+    rulesHelp=new QLabel(this);
     rulesHelp->setWordWrap(true);
     auto *rulesLayout=new QVBoxLayout;
     rulesLayout->addWidget(domainDnsRules);
     rulesLayout->addWidget(rulesHelp);
-    form->addRow("域名专用 DNS",rulesLayout);
-    connect(verify,&QCheckBox::toggled,warning,[warning](bool checked){warning->setVisible(!checked);});
-    connect(allowUnverifiedNodes,&QCheckBox::toggled,nodeWarning,&QLabel::setVisible);
+    domainDnsLabel=new QLabel(this);
+    advancedForm->addRow(domainDnsLabel,rulesLayout);
+    connect(verify,&QCheckBox::toggled,this,[this](bool checked){warning->setVisible(!checked);updateSecuritySummary();});
+    connect(allowUnverifiedNodes,&QCheckBox::toggled,this,[this](bool checked){nodeWarning->setVisible(checked);updateSecuritySummary();});
     connect(preset,&QComboBox::currentIndexChanged,this,&ServerSettingsWidget::selectPreset);
     connect(address,&QLineEdit::textChanged,this,&ServerSettingsWidget::serverChanged);
     connect(port,&QSpinBox::valueChanged,this,&ServerSettingsWidget::serverChanged);
+    retranslate();
     selectPreset();
+}
+void ServerSettingsWidget::changeEvent(QEvent *event) {
+    QWidget::changeEvent(event);
+    if(event->type()==QEvent::LanguageChange) retranslate();
+}
+void ServerSettingsWidget::retranslate() {
+    QSignalBlocker blocker(preset);
+    preset->setItemText(0,tr("Choose a school or server"));
+    preset->setItemText(preset->findData("Custom"),tr("Custom"));
+    qobject_cast<QLabel *>(form->labelForField(preset))->setText(tr("School"));
+    qobject_cast<QLabel *>(form->labelForField(address))->setText(tr("Server"));
+    qobject_cast<QLabel *>(form->labelForField(port))->setText(tr("Port"));
+    advancedButton->setText(tr("Advanced"));
+    verify->setText(tr("Verify server certificate"));
+    warning->setText(tr("Disabling verification removes server identity protection. A connection failure never disables it automatically."));
+    allowUnverifiedNodes->setText(tr("Skip tunnel verification"));
+    nodeWarning->setText(tr("The tunnel stays encrypted, but its peer is not verified. Sign-in and resource verification stay unchanged."));
+    qobject_cast<QLabel *>(advancedForm->labelForField(caPem))->setText(tr("Additional CA"));
+    caPem->setPlaceholderText(tr("Optional school CA in PEM format. Leave empty to use system trust."));
+    domainDnsLabel->setText(tr("Domain DNS"));
+    QString help=tr("One full domain per line. Append IPv4 DNS servers separated by spaces, or leave them out to use gateway DNS.");
+#ifndef Q_OS_WIN
+    help+=" "+tr("Use the local application proxy for domains not published by the gateway.");
+#endif
+    rulesHelp->setText(help);
+    updateSecuritySummary();
+}
+void ServerSettingsWidget::updateSecuritySummary() {
+    QStringList warnings;
+    if(!verify->isChecked()) warnings.append(tr("Server identity verification is off."));
+    if(allowUnverifiedNodes->isChecked()) warnings.append(tr("Tunnel identity verification is off."));
+    securitySummary->setText(warnings.join(' '));
+    securitySummary->setVisible(!warnings.isEmpty());
 }
 void ServerSettingsWidget::load(const QSettings &settings) {
     QSignalBlocker blocker(this), presetBlocker(preset);

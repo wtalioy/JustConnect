@@ -7,6 +7,8 @@
 #include "presentation/dialogs/configurationguidedialog/configurationguidedialog.h"
 #include "application/applicationlogger.h"
 #include "application/defaultsettings.h"
+#include "tests/credentialstorefixture.h"
+#include "presentation/widgets/serversettingswidget.h"
 #include "infrastructure/process/terminationrequests.h"
 #include "infrastructure/logging/applicationlogfile.h"
 #include "infrastructure/settings/profilemanager.h"
@@ -23,6 +25,9 @@
 #include <QPlainTextEdit>
 #include <QInputDialog>
 #include <QTabWidget>
+#include <QStackedWidget>
+#include <QScrollArea>
+#include <QScrollBar>
 #include <QToolButton>
 #include <QMessageBox>
 #include <QTcpServer>
@@ -98,6 +103,8 @@ static void profileMenusDoNotAccumulateGroups(MainWindow &window,const QString &
     auto *tabs=editor->findChild<QTabWidget *>("tabWidget");
     auto *dns=editor->findChild<QPlainTextEdit *>("domainDnsRulesEdit");
     check(tabs && dns && tabs->currentWidget()->isAncestorOf(dns),"profile editor opens on the tab containing domain DNS");
+    editor->findChild<QToolButton *>("advancedServerButton")->click();
+    check(dns->isVisibleTo(editor),"domain DNS is reachable by expanding advanced server settings");
     editor->reject();
     QApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     const auto checked=[](QMenu *menu) {
@@ -226,6 +233,63 @@ static void authenticationLanguageChangesPreserveData(MainWindow &window) {
     browser->reject();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
 }
 
+static void profileSetupLanguageChangesPreserveData(MainWindow &window) {
+    QTemporaryDir directory;QSettings settings(directory.filePath("profile.ini"),QSettings::IniFormat);
+    DefaultSettings::reset(settings);
+    settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");
+    settings.setValue("JustConnect/AuthID","opaque-method");
+    settings.setValue("JustConnect/AllowUnverifiedNodes",true);
+    CredentialAccess access(std::make_unique<MemoryCredentialStore>());
+    ConfigurationGuideDialog guide(&window,&access,CredentialAccess::source(settings,{}));
+    guide.show();waitForUi([&]{return !access.isBusy(settings.fileName());});
+    auto *server=guide.findChild<ServerSettingsWidget *>();
+    auto *pages=guide.findChild<QStackedWidget *>("guidePages");
+    auto *username=guide.findChild<QLineEdit *>("guideUsernameLineEdit");
+    auto *password=guide.findChild<QLineEdit *>("guidePasswordLineEdit");
+    auto *totp=guide.findChild<QLineEdit *>("guideTotpSecretLineEdit");
+    auto *next=guide.findChild<QPushButton *>("guideNextButton");
+    auto *advanced=guide.findChild<QToolButton *>("advancedServerButton");
+    auto *dns=guide.findChild<QPlainTextEdit *>("domainDnsRulesEdit");
+    auto *summary=guide.findChild<QLabel *>("securitySummaryLabel");
+    check(!dns->isVisibleTo(&guide) && summary->isVisibleTo(&guide),"advanced fields start closed while an unsafe certificate choice remains visible");
+    const auto language=[&](const QString &value){
+        check(ApplicationLanguage::instance().savePreferences(value,ProfileManager().closeToTray()),"change language with a profile draft open");
+        QCoreApplication::processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::LayoutRequest);QCoreApplication::processEvents();
+    };
+    const auto screenshot=[&](const QString &name){
+        const auto report=qEnvironmentVariable("JC_UI_REPORT_DIR");
+        if(!report.isEmpty()) check(guide.grab().save(QDir(report).filePath(name)),"save synthetic profile setup screenshot");
+    };
+    language("en");screenshot("setup-server.png");
+    advanced->click();check(dns->isVisibleTo(&guide),"advanced server settings can be expanded");
+    dns->setPlainText("service.example.invalid 192.0.2.53");
+    const auto draft=server->settingsValues();int serverChanges=0;
+    QObject::connect(server,&ServerSettingsWidget::serverChanged,[&]{++serverChanges;});
+    language("zh_CN");
+    check(guide.windowTitle()==QString::fromUtf8("连接引导") && serverChanges==0 && draft==server->settingsValues()
+        && advanced->isChecked() && pages->currentIndex()==0,"translation preserves the selected endpoint, DNS draft, advanced expansion and guide step");
+    screenshot("setup-advanced.png");
+    advanced->click();guide.resize(320,560);language("en");
+    check(guide.width()==320 && guide.rect().contains(next->mapTo(&guide,QPoint(next->width(),next->height()))),"narrow setup keeps navigation inside the window");
+    auto *serverScroll=qobject_cast<QScrollArea *>(pages->currentWidget());
+    check(serverScroll && serverScroll->horizontalScrollBar()->maximum()==0,"narrow server settings reflow without horizontal clipping");
+    screenshot("setup-320.png");
+    guide.resize(440,560);next->click();next->click();
+    check(pages->currentIndex()==2,"valid existing method reaches the credential step");
+    username->setText("draft-user");password->setText("draft-password");totp->setText("draft-totp");
+    for(auto *box:guide.findChildren<QCheckBox *>())if(box->text()=="Show")box->setChecked(true);
+    language("zh_CN");
+    check(password->text()=="draft-password" && totp->text()=="draft-totp" && username->text()=="draft-user"
+        && password->echoMode()==QLineEdit::Normal && serverChanges==0 && draft==server->settingsValues()
+        && pages->currentIndex()==2 && next->text()==QString::fromUtf8("保存并连接"),"translation does not reset credentials, visibility choices or the selected authentication method");
+    screenshot("setup-account.png");
+    int connections=0;QObject::connect(&guide,&ConfigurationGuideDialog::connectRequested,[&]{++connections;});
+    guide.reject();
+    check(connections==0 && settings.value("Credential/Username").toString().isEmpty()
+        && settings.value("JustConnect/AuthID")=="opaque-method","cancelling translated setup neither saves its draft nor starts a connection");
+    language("en");
+}
+
 static void nativeHome(MainWindow &window) {
     auto *details=window.findChild<QDialog *>("detailsDialog");
     auto *log=window.findChild<QPlainTextEdit *>("logPlainTextEdit");
@@ -291,6 +355,7 @@ int main(int argc,char **argv) {
         MainWindow window(&logger,&log,nullptr,[](CoreEngine *,NetworkPolicySession *) -> NetworkAccess * { return nullptr; });
         check(window.isVisible(),"normal startup must show the main window");
         if (app.arguments().contains("--auth-language")) authenticationLanguageChangesPreserveData(window);
+        if (app.arguments().contains("--profile-language")) profileSetupLanguageChangesPreserveData(window);
         if (app.arguments().contains("--chinese-startup")) {
             check(ApplicationLanguage::instance().current()=="zh_CN" && window.findChild<QPushButton *>("connectButton")->text()==QString::fromUtf8("连接"),"a new process restores the saved Chinese preference");
             changeLanguageFromSettings(window,"en");

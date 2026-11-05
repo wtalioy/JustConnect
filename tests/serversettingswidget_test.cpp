@@ -9,6 +9,7 @@
 #include <QLineEdit>
 #include <QSettings>
 #include <QSpinBox>
+#include <QToolButton>
 #include <QTemporaryDir>
 #include <cstdlib>
 #include <iostream>
@@ -34,9 +35,17 @@ int main(int argc,char **argv) {
     auto *nodeWarning=editor.findChild<QLabel *>("nodeTlsWarningLabel");
     check(editor.settingsValues().value("JustConnect/TLSVerify").toBool() && warning->isHidden(),"legacy server settings enable certificate verification");
     check(!allowNodes->isChecked() && nodeWarning->isHidden(),"node verification remains enabled by default");
+    editor.show();
+    auto *advanced=editor.findChild<QToolButton *>("advancedServerButton");
+    check(!rules->isVisibleTo(&editor),"advanced settings start collapsed");
+    advanced->click();
+    check(rules->isVisibleTo(&editor),"domain DNS remains editable inside advanced settings");
     allowNodes->setChecked(true);
     const auto nodePolicy=ProfileService::load(editor.settingsValues());
     check(nodePolicy.tls.verify && nodePolicy.tls.allowUnverifiedNodes && !nodeWarning->isHidden() && warning->isHidden(),"node exception is explicit and leaves authentication verification enabled");
+    advanced->click();
+    check(editor.findChild<QLabel *>("securitySummaryLabel")->isVisibleTo(&editor),"an unsafe node setting is visible while advanced options are collapsed");
+    advanced->click();
     verify->setChecked(false); ca->setPlainText("explicit private CA");
     check(!warning->isHidden(),"explicit unsafe choice shows an identity-protection warning");
     address->setText("draft.example.edu"); port->setValue(9443);

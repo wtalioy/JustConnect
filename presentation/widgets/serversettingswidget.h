@@ -3,6 +3,9 @@
 #include <QMap>
 #include <QVariantMap>
 class QComboBox;
+class QFormLayout;
+class QLabel;
+class QToolButton;
 class QCheckBox;
 class QPlainTextEdit;
 class QLineEdit;
@@ -20,8 +23,15 @@ public:
     bool prefersOAuth() const;
 signals:
     void serverChanged();
+protected:
+    void changeEvent(QEvent *event) override;
 private:
+    void retranslate();
+    void updateSecuritySummary();
     void selectPreset();
+    QFormLayout *form, *advancedForm;
+    QToolButton *advancedButton;
+    QLabel *warning, *nodeWarning, *rulesHelp, *securitySummary, *domainDnsLabel;
     QComboBox *preset;
     QLineEdit *address;
     QSpinBox *port;

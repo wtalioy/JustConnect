@@ -240,7 +240,7 @@ bool rejectsInvalidCoreSettingsAndFailedSaves(const QString &root)
     QObject::connect(&invalid,&ConfigurationGuideDialog::connectRequested,[&]{++failedIntents;});
     ready(access,settings);
     lineEdit(invalid,"guideUsernameLineEdit")->setText("draft-user");
-    expectedMessage="请检查服务器、认证方式及连接设置。配置未保存。"; messageShown=false;
+    expectedMessage=QCoreApplication::translate("ConfigurationGuideDialog","Check the server, sign-in method and connection settings. Nothing was saved."); messageShown=false;
     if (invalid.applyTo() || failedIntents!=0 || !messageShown || settings.value("Credential/Username")!="retained-user"
         || settings.value("OtherAccount/Ticket")!="retained-ticket") return false;
     const auto path=root+"/write-failure.ini";
