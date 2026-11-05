@@ -75,6 +75,39 @@ func TestOrdinaryUpstreamRetainsDomainForClashRules(t *testing.T) {
 	}
 }
 
+func TestFullIPv4GrantDoesNotCaptureOrdinaryPublicTraffic(t *testing.T) {
+	grant := client.IPResource{IPMin: net.IPv4(0, 0, 0, 0), IPMax: net.IPv4(255, 255, 255, 255), PortMin: 443, PortMax: 443, Protocol: "tcp"}
+	narrow := grant
+	narrow.IPMin, narrow.IPMax = net.IPv4(203, 0, 113, 9), net.IPv4(203, 0, 113, 9)
+	campus := &capturingStack{}
+	d := NewDialer(campus, nil, []client.IPResource{grant, narrow}, false)
+	ordinary := errors.New("original Clash exit")
+	d.Upstream = func() client.DialContextFunc {
+		return func(_ context.Context, _, address string) (net.Conn, error) {
+			if address != "ordinary.test:443" {
+				t.Fatalf("Clash received %q instead of the original hostname", address)
+			}
+			return nil, ordinary
+		}
+	}
+	ctx := context.WithValue(t.Context(), resolve.ContextKeyResolveHost, "ordinary.test")
+	if _, err := d.DialIPPort(ctx, "tcp", "203.0.113.8:443"); !errors.Is(err, ordinary) {
+		t.Fatal("a public destination authorized only by the full grant left the ordinary exit", err)
+	}
+	for _, endpoint := range []string{"10.176.42.14:443", "203.0.113.9:443"} {
+		if _, err := d.DialIPPort(t.Context(), "tcp", endpoint); err != nil {
+			t.Fatal("private or explicitly scoped campus destination lost access", err)
+		}
+	}
+	campusDNS := context.WithValue(t.Context(), resolve.ContextKeyDomainDNS, true)
+	if _, err := d.DialIPPort(campusDNS, "tcp", "203.0.113.8:443"); err != nil {
+		t.Fatal("an explicit campus DNS answer lost authorization", err)
+	}
+	if _, err := d.DialIPPort(campusDNS, "tcp", "203.0.113.8:80"); !errors.Is(err, ErrACLDenied) || campus.tcpCalls != 3 {
+		t.Fatal("explicit campus DNS widened the permitted port or changed the selected path", err)
+	}
+}
+
 func TestInactiveUpstreamPreservesAlreadyResolvedNativeAddress(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

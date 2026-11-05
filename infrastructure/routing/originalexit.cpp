@@ -8,6 +8,7 @@
 std::optional<QJsonObject> originalExitSnapshot(const QJsonObject &network,const QString &preferred)
 {
     if (!network["interfaces"].isArray() || !network["routes"].isArray()) return {};
+    const auto proxyTunnel = network["os"] == "windows" ? network["proxy_tunnel"].toObject()["interface_index"].toInt() : 0;
     QSet<int> indexes;
     for (const auto &value : network["interfaces"].toArray()) {
         const auto row = value.toObject();
@@ -18,9 +19,11 @@ std::optional<QJsonObject> originalExitSnapshot(const QJsonObject &network,const
     for (const auto &value : network["routes"].toArray()) {
         auto row = value.toObject();
         const auto subnet = QHostAddress::parseSubnet(row["destination"].toString());
-        if (subnet.second < 0 || subnet.second > 1 || (!preferred.isEmpty() && !indexes.contains(row["interface_index"].toInt()))) continue;
+        const auto index = row["interface_index"].toInt();
+        if (subnet.second < 0 || subnet.second > 1 || (proxyTunnel > 0 && index == proxyTunnel)
+            || (!preferred.isEmpty() && !indexes.contains(index))) continue;
         routes[QJsonDocument(row).toJson(QJsonDocument::Compact)] = row;
-        indexes.insert(row["interface_index"].toInt());
+        indexes.insert(index);
     }
     QMap<QString,QJsonObject> interfaces;
     for (const auto &value : network["interfaces"].toArray()) {

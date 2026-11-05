@@ -130,6 +130,7 @@ func nativeWindowsSession(t *testing.T, faults, policy, exitChange bool) {
 	command.Env = append(command.Env, "JC_WINDOWS_SESSION_EXIT_CHANGE="+strconv.FormatBool(exitChange))
 	composed := t.Name() == "TestNativeWindowsSessionCoexistence"
 	if composed {
+		g.fullIPv4Resource.Store(true)
 		command.Env = append(command.Env, "JC_WINDOWS_COEXISTENCE_RUNTIME="+windowsCoexistenceRuntime(t))
 	}
 	var originalQueries, defaultQueries *atomic.Int32

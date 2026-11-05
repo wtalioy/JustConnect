@@ -13,7 +13,7 @@ import (
 
 func (e *Engine) NetworkSnapshot() (model.Snapshot, error) {
 	snapshot, err := networkstate.Read()
-	if err != nil || (snapshot.OS != "linux" && snapshot.OS != "darwin") {
+	if err != nil {
 		return snapshot, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -44,7 +44,7 @@ func (e *Engine) NetworkSnapshot() (model.Snapshot, error) {
 		}
 	}
 	// Unconfirmed local controllers never remove original-network protection.
-	if err != nil || !observation.NetworkAdmin || observation.Device == "" {
+	if err != nil || observation.Device == "" || (snapshot.OS != "windows" && !observation.NetworkAdmin) {
 		return snapshot, nil
 	}
 	snapshot.ProxyTunnel = networkstate.ObserveProxyTunnel(snapshot, observation.Device)

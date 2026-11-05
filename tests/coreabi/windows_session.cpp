@@ -113,9 +113,6 @@ int main(int argc,char **argv) try
     profile.endpoint.phone=auth["phone"].toString();profile.endpoint.loginDomain=auth["domain"].toString();
     profile.tls.caPem=config["tls"].toObject()["ca_pem"].toString();profile.keepAlive.mode="off";
     if(composed){
-        // The local authentication fixture cannot observe a physical transport socket.
-        profile.behavior.bindInterface=coexistence.runtime["original_interface"].toString();
-        check(!profile.behavior.bindInterface.isEmpty(),"bind the original kernel-selected fixture exit");
         profile.proxy.httpBind="127.0.0.1:0";profile.proxy.socksBind="127.0.0.1:0";
     }
     int authorizations=0,approvals=0;

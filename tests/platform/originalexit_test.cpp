@@ -22,6 +22,16 @@ int main(int argc,char **argv) try
     check(originalExitSnapshot(changedNetwork,{})!=originalExit,"Actual address addition on the default exit was hidden");
     auto changedRoute=defaultRoute;changedRoute["gateway"]="192.168.1.254";reorderedExit["routes"]=QJsonArray{changedRoute};
     check(originalExitSnapshot(reorderedExit,"original")!=originalExit,"Actual gateway change was hidden");
+    const QJsonObject tunnel{{"index",8},{"name","proxy"},{"up",true},{"addresses",QJsonArray{"198.18.0.1/30"}}};
+    auto tunnelRoute=defaultRoute;tunnelRoute["interface_index"]=8;tunnelRoute["destination"]="0.0.0.0/1";
+    auto withTunnel=exitNetwork;
+    withTunnel["os"]="windows";
+    withTunnel["interfaces"]=QJsonArray{exitInterface,tunnel};withTunnel["routes"]=QJsonArray{defaultRoute,tunnelRoute};
+    check(originalExitSnapshot(withTunnel,{})!=originalExit,"An unconfirmed overlay was hidden");
+    withTunnel["proxy_tunnel"]=QJsonObject{{"interface_index",8},{"name","proxy"}};
+    check(originalExitSnapshot(withTunnel,{})==originalExit,"A confirmed proxy overlay changed the original exit");
+    withTunnel["routes"]=QJsonArray{changedRoute,tunnelRoute};
+    check(originalExitSnapshot(withTunnel,{})!=originalExit,"A confirmed overlay hid a real gateway change");
     check(!originalExitSnapshot(exitNetwork,"missing"),"Missing selected exit was accepted");
     std::cout<<"PASS: standalone platform exit snapshot, stable order, actual gateway and missing-exit rejection\n";
     return 0;
