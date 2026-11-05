@@ -30,7 +30,7 @@ using ProxyCheck::check;
 template<class Predicate> static void until(const char *stage,Predicate done,int timeout=10000){
     if(done())return;
     QEventLoop loop;QTimer poll,deadline;bool completed=false;
-    poll.setInterval(1);deadline.setSingleShot(true);
+    poll.setInterval(1);deadline.setSingleShot(true);deadline.setTimerType(Qt::PreciseTimer);
     QObject::connect(&poll,&QTimer::timeout,&loop,[&]{if(done()){completed=true;loop.quit();}});
     QObject::connect(&deadline,&QTimer::timeout,&loop,&QEventLoop::quit);
     poll.start();deadline.start(timeout);loop.exec();
