@@ -5,11 +5,11 @@
 #include <atomic>
 #include <memory>
 #include <utility>
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN)
 #include <windows.h>
 #include <QHostAddress>
 #endif
-#if defined(Q_OS_LINUX) || defined(Q_OS_MACOS)
+#if defined(Q_OS_MACOS)
 #include <fcntl.h>
 #include <unistd.h>
 #endif
@@ -31,7 +31,7 @@ struct Library {
     QLibrary library;
     bool available = false;
     Library() {
-#ifdef JC_SHARED_LIBRARY
+#if defined(JC_SHARED_LIBRARY)
         library.setFileName(QCoreApplication::applicationDirPath() + "/" + QStringLiteral(JC_SHARED_LIBRARY));
         library.setLoadHints(QLibrary::PreventUnloadHint);
         if (!library.load()) return;
@@ -41,7 +41,7 @@ struct Library {
 #endif
         CORE_FUNCTIONS(LOAD)
 #undef LOAD
-#ifdef JC_SHARED_LIBRARY
+#if defined(JC_SHARED_LIBRARY)
 #define LOAD_OPTIONAL(name) name = reinterpret_cast<decltype(name)>(library.resolve(#name));
 #else
 #define LOAD_OPTIONAL(name) name = &::name;
@@ -482,13 +482,13 @@ void EmbeddedCoreEngine::updatePolicy(const QJsonObject &policy) {
     const auto id = serial;
     QMetaObject::invokeMethod(pump, [this, id, bytes, generation, revision] { pump->updatePolicy(id, bytes, generation, revision); }, Qt::QueuedConnection);
 }
-void EmbeddedCoreEngine::updateCoexistence(const QString &generation,const QStringList &endpoints,bool managed,const QJsonArray &proofs) {
+void EmbeddedCoreEngine::updateCoexistence(const QString &generation,const QStringList &endpoints,bool managed) {
     if (!active || stopping) { emit coexistenceUpdated(generation,RequestStatus::Stale);return; }
     if (!library().jc_session_update_coexistence || !buildInfo()["capabilities"].toObject()["coexistence"].toBool()) {
         emit coexistenceUpdated(generation,RequestStatus::Unavailable);return;
     }
     auto bytes=QJsonDocument(QJsonObject{{"schema_version",int(JC_ABI_VERSION)},{"generation",generation},
-        {"system_proxy_endpoints",QJsonArray::fromStringList(endpoints)},{"system_proxy_managed",managed},{"listener_proofs",proofs}}).toJson(QJsonDocument::Compact);
+        {"system_proxy_endpoints",QJsonArray::fromStringList(endpoints)},{"system_proxy_managed",managed}}).toJson(QJsonDocument::Compact);
     if (bytes.size()>JC_MAX_INPUT) bytes.clear();
     const auto id=serial;
     QMetaObject::invokeMethod(pump,[this,id,generation,bytes] {pump->updateCoexistence(id,bytes,generation);},Qt::QueuedConnection);
@@ -517,7 +517,7 @@ void EmbeddedCoreEngine::prepareOriginalDNS(const QString &generation, const QJs
 }
 void EmbeddedCoreEngine::attachTUN(const QString &generation, qint32 descriptor, quint32 mtu, bool publishDNSRoutes) {
     if (!active || stopping) { emit tunAttached(generation, RequestStatus::Stale); return; }
-#if defined(Q_OS_LINUX) || defined(Q_OS_MACOS)
+#if defined(Q_OS_MACOS)
     if (!library().jc_session_attach_tun || !buildInfo()["capabilities"].toObject()["raw_ipv4_tun_fd"].toBool()
         || (publishDNSRoutes && (!library().jc_session_attach_tun_dns || !library().jc_session_ack_dns_routes
             || !buildInfo()["capabilities"].toObject()["tun_dns_routes"].toBool()))) {
@@ -540,7 +540,7 @@ void EmbeddedCoreEngine::attachTUN(const QString &generation, qint32 descriptor,
 void EmbeddedCoreEngine::attachWindowsPipe(const QString &generation, quint64 handle, quint32 helperPID, quint32 mtu,
     const QString &source, const QString &peer, bool publishDNSRoutes) {
     if (!active || stopping) { emit tunAttached(generation, RequestStatus::Stale); return; }
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN)
     const auto capabilities = buildInfo()["capabilities"].toObject();
     if (!library().jc_session_attach_windows_pipe || !capabilities["windows_ipv4_packet_pipe"].toBool()
         || (publishDNSRoutes && (!library().jc_session_ack_dns_routes || !capabilities["tun_dns_routes"].toBool()))) {
@@ -654,7 +654,7 @@ QJsonObject EmbeddedCoreEngine::selfTest() {
         }
     }
     return {{"ok", ok}, {"core", info},
-#ifdef JC_SHARED_LIBRARY
+#if defined(JC_SHARED_LIBRARY)
         {"runtime", QStringLiteral(JC_SHARED_LIBRARY)}
 #else
         {"runtime", "static"}

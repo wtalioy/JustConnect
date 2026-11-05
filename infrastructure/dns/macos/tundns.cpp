@@ -36,7 +36,7 @@ void MacTunDns::restore()
     store = nullptr; applied = {};
 }
 
-PlatformOperationResult MacTunDns::apply(const UnixTunDevice &device, const QStringList &domains)
+PlatformOperationResult MacTunDns::apply(const MacTunDevice &device, const QStringList &domains)
 {
     using Status = PlatformOperationResult::Status;
     if (::geteuid() != 0) return {Status::PermissionDenied,"TUN DNS requires its privileged owner."};

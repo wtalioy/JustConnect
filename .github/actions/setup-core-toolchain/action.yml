@@ -35,8 +35,8 @@ runs:
         "$env:RUNNER_TEMP/cgo/$name/bin" >> $env:GITHUB_PATH
         "CC=$hostArch-w64-mingw32-clang" >> $env:GITHUB_ENV
 
-    - name: Select Unix cgo compiler
-      if: runner.os != 'Windows'
+    - name: Select macOS cgo compiler
+      if: runner.os == 'macOS'
       shell: bash
       run: |
-        if [[ "$RUNNER_OS" == 'macOS' ]]; then echo 'CC=clang' >> "$GITHUB_ENV"; else echo 'CC=gcc' >> "$GITHUB_ENV"; fi
+        echo 'CC=clang' >> "$GITHUB_ENV"

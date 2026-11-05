@@ -19,7 +19,7 @@ import sys
 import tempfile
 import time
 import uuid
-from unix_device_probe import allocate_unix
+from macos_device_probe import allocate_macos
 from mihomo_coexistence_macos import MacCoexistenceRuntime, MacProxyScope
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -353,7 +353,7 @@ def main(args):
                     elif scenario == 'network-exit':
                         environment.update(JC_NATIVE_NETWORK_EXIT_CHANGE='1', JC_NATIVE_TUN_READY=str(marker))
                     elif scenario in ('network-policy', 'original-dns', 'original-dns-state'):
-                        original_fd, original_interface, release_allocator = allocate_unix(Path(args.allocator).resolve())
+                        original_fd, original_interface, release_allocator = allocate_macos(Path(args.allocator).resolve())
                         release_allocator()
                         os.set_blocking(original_fd, False)
                         environment.update(JC_NATIVE_NETWORK_POLICY='1', JC_NATIVE_TUN_READY=str(marker), JC_NATIVE_ORIGINAL_FD=str(original_fd))

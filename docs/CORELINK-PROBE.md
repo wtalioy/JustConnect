@@ -1,187 +1,28 @@
-# S1-06：Go／Qt 链接与权限原型
+# Go／Qt 链接与权限验证
 
-本文件保留 S1-06 的工具链结论与设备权限证据。S1-03 已交付正式 ABI，旧模拟 ABI 原型已被替代并删除；后续链接回归统一测试真实库。S1-08 将应用接入正式内嵌库；校园会话和新安装包仍按各自阶段验收。
+当前支持 Windows x64／ARM64、macOS x64／ARM64；产品进程保持普通权限。正式 ABI、来源与生命周期契约见 [CORE-ABI.md](CORE-ABI.md)，平台实现与恢复边界见 [ARCHITECTURE.md](ARCHITECTURE.md)。历史选型可从 Git 追溯，不保留失效命令。
 
 ## 链接与回归
 
-唯一宿主入口为 [tests/coreabi](../tests/coreabi/CMakeLists.txt)，构建命令和契约检查见 [CORE-ABI.md](CORE-ABI.md)。Go 版本从 `corelib/go.mod` 读取，Qt 复用应用 SDK。正式库检查头文件、版本、来源、缓冲区所有权、257 轮生命周期及四个 QThread 并发调用，同时执行 GUI 定时器和 WebEngine HTML／JavaScript。认证驱动复用相同导出与传输，验证输入覆盖／Go GC、回应、取消与重启。Release 中检查仍生效，构建启用 `GOEXPERIMENT=cgocheck2`。
+[Core ABI](../.github/workflows/coreabi.yml) 在四组原生 runner 验证同一源码。macOS 固定 Go `c-archive`，Windows 固定随包 `c-shared` DLL；Windows 首次 archive 调用超时的历史结论仍有效，不重复试探。Windows cgo 使用固定哈希的 LLVM-MinGW UCRT，Qt 宿主使用 MSVC。支持 Go race 的三组目标执行竞态检查，Windows ARM64 继续执行普通 Go、ABI 与 Qt 检查。
 
-[Core ABI](../.github/workflows/coreabi.yml) 在六组原生 runner 上执行宿主和 Go 回归；支持 race 的五组平台运行 race，Windows ARM64 的限制单独记录。Unix 固定 `c-archive`，Windows 固定随包 `c-shared` DLL，不再每次重试已经确认会超时的 Windows archive。Windows cgo 沿用 SHA-256 固定的 LLVM-MinGW UCRT，C++ 仍用 Qt 对应的 MSVC／Visual Studio 链接器；DLL 从可执行目录加载并保持到进程退出，不跨 CRT 分配／释放。工具链、构建、宿主与 Linux 设备日志统一上传为 `coreabi-平台-架构` artifact。
-
-### 历史链接选型证据
-
-以下是旧原型在删除前的原始验证记录，保留用于解释 D5 的选择；源码可从对应提交读取。
-
-| 目标 | 链接结论 | 证据 |
-| --- | --- | --- |
-| Linux x64 | `c-archive` 本地及 CI 通过 | WSL2 本地 GCC 16.2.1；原生 ubuntu-26.04 GCC 15.2.0 |
-| Linux ARM64 | `c-archive` CI 通过 | 原生 ubuntu-26.04-arm，GCC 15.2.0 |
-| macOS x64 | `c-archive` CI 通过 | 原生 macos-26-intel，AppleClang 21.0.0.21000101 |
-| macOS ARM64 | `c-archive` CI 通过 | 原生 macos-26，AppleClang 21.0.0.21000101 |
-| Windows x64 | `c-shared` CI 通过；静态链接成功，但首次 Go 调用 60 秒超时 | LLVM-MinGW Clang 23.1.3 UCRT → MSVC 19.51.36260／VS 18；[定位及 DLL CI](https://github.com/wtalioy/JustConnect/actions/runs/39272524508)，257 轮检查与 WebEngine JavaScript 通过 |
-| Windows ARM64 | `c-shared` CI 通过；静态链接成功，但首次 Go 调用 60 秒超时 | 原生 windows-11-vs2026-arm，LLVM-MinGW Clang 23.1.3 UCRT → MSVC 19.51.36260／VS 18 |
-
-以上六组均对应代码提交 `481c61b` 的[链接原型 CI](https://github.com/wtalioy/JustConnect/actions/runs/39272524508)，均使用 Go 1.27.2，并实际通过前述 257 轮、4 QThread、GC、缓冲区与 WebEngine 检查。同提交的[三平台应用 CI](https://github.com/wtalioy/JustConnect/actions/runs/39272524710) 也全部通过，每平台 16 项 CTest。本地 `go vet`、actionlint 1.7.12（仅忽略其目录尚未收录的 runner 标签）与差异空白检查通过。
-
-Windows 静态路径的已知线索：固定 Go 的 [PE 链接器 `addInitArray`](https://go.dev/src/cmd/link/internal/ld/pe.go) 生成 `.ctors`，而 [MSVC CRT 初始化](https://learn.microsoft.com/en-us/cpp/c-runtime-library/crt-initialization?view=msvc-170) 使用 `.CRT$XCU`。两组定位日志均已确认静态宿主完成 Qt 初始化后，卡在首次 Go ABI 调用且不返回；构造段约定的归因仍属源码推断。不调用 Go 的私有启动符号或改写 archive 的节区来作为正式方案。DLL 初始化及同一份回归在两组均通过，故 D5 的原型选择为 Unix 静态、Windows 固定随包 DLL；正式核心及打包仍由 S1-05—09 复验。
-
-上述历史原型没有执行 race detector。当前契约与 FFI 的覆盖、race 支持范围统一记录在 [CORE-ABI.md](CORE-ABI.md)；它们仍不能代替正式协议、网络吞吐、权限或安装包验收。
+[当前基线](../plan.md#当前验收基线) 区分自动原生检查、实际包和真实校园测试。回环网关与一次性 runner 不能代替桌面批准、校园访问或真实系统注销。
 
 ## 设备与权限边界
 
-S1-06 已完成链接与设备边界验收：`2c0874a` 的[六组 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/40309426226)及[三平台应用检查](https://github.com/wtalioy/JustConnect/actions/runs/40309425987)全部通过，覆盖真实设备、普通权限 Qt／Go 数据链及正常／故障恢复。正式发布签名、真实桌面批准与校园访问分别由 S4／S5 验收；原型已由正式实现替代，无旧链接／设备后端保留。
-
-D2 的设备入口子方案已收敛：Linux／macOS 使用最小授权助手创建 TUN／utun，再将 fd 交给普通宿主；Windows 使用 Wintun 设备助手持有 ring，仅传递受限 IP 包。认证、aTrust、资源分流与核心仍留在 Qt 进程。Clash 的 TUN／系统代理开关不作为此入口的前提。三平台正式助手、普通应用系统校园 DNS／数据面与独立恢复的自动验收已归 S4；剩余路由／DNS／共存行为及真实浏览器／终端验收见 S5／S6，不以原型回包代表实机完成。
-
-| 平台 | 选定的设备与权限边界 | 已验证与剩余缺口 |
+| 平台 | 正式路径 | 核对范围 |
 | --- | --- | --- |
-| Linux | 非持久 TUN，助手创建／配置，通过 `SCM_RIGHTS` 交付 fd；普通宿主拥有数据 I/O，最后关闭 fd 结束设备。 | x64／ARM64 隔离内核原型及本机 WSL 通过普通 uid、零 capabilities、UDP 双向和正常／强杀后的设备及显式路由清理。直接创建仍需权限；正式 Go／Qt、发行版助手安装路径、受控授权及完整路由／DNS 独立恢复均已通过双架构原生自动验收；真实桌面批准仍归 S4-04。 |
-| macOS | utun kernel control，校验身份的 XPC 助手创建／配置并交付 fd；数据含四字节地址族头。 | 双架构普通权限真实收发、取消／强杀恢复及 supplemental DNS 原生检查已通过；完整 Qt／核心会话、系统 DNS、动态协调及双杀独立恢复已通过双架构原生自动验收；真实桌面批准仍待，证据见[计划](../plan.md#s4-策略与网络操作的恢复基础)。 |
-| Windows | 官方固定哈希／签名 Wintun 0.14.1；助手拥有适配器和 ring，同账户普通权限宿主通过私有 IPC 处理 IP 包，不跨进程强转会话指针。 | x64／ARM64 设备步骤通过真实普通权限回包、超大帧拒绝和按原始 PnP 实例／路由确认清理；源码 `1105671` 的完整六组 ABI 检查通过。普通 Qt／Go 与真实设备的完整数据链已验；正式 C++ 助手控制 IPC、受控授权及随包驱动均已通过双架构原生与实际包检查；正式发布签名／真实桌面 UAC 仍待。 |
+| Windows | C++ 助手创建官方固定哈希／签名 Wintun 设备和 ring；普通 Qt／Go 经所属私有通道处理 IP 包 | 原 SDK 4096 包／30 秒、正常／强杀恢复、安装与来源、实际路由／DNS、普通进程身份 |
+| macOS | C++ 助手创建并配置独有 utun，经 XPC／SCM_RIGHTS 交付 fd；Go 校验并持有自己的副本 | 内核地址／MTU／帧、普通用户 TCP／UDP／DNS／SSH、所有权、助手丢失与独立恢复 |
 
-权限分析起于[导入基线](../corelib/UPSTREAM.md#导入基线)及其锁定依赖；S1-07 已删除无产品调用、直接修改宿主网络的旧系统 TUN 栈，不再恢复该实现或由核心直接改路由／DNS。新助手只承载实际需要的设备／网络操作，不能成为任意命令提权入口；具体操作必须回读并按所有权恢复。
+macOS 运行 `bash tests/platform/run_macos_networkhelper.sh`；设备与正式 ABI 探针分别为 [macos_device_probe.py](../tests/platform/macos_device_probe.py) 和 [tun_coreabi_macos.py](../tests/platform/tun_coreabi_macos.py)。这些写网络的检查只允许一次性 macOS Actions runner，不在日常主机运行。分配器在普通接收方确认后释放自身设备 fd，保留捕获恢复控制与受保护日志；最后引用关闭后核对设备与路由消失。
 
-2026-10-22 只读复查确认：当前 [Wintun 驱动](https://git.zx2c4.com/wintun/tree/driver/wintun.c) 在注册 ring 的 IOCTL 内再次按调用者执行 `SeAccessCheck`，使用只授予 SYSTEM／Administrators 的固定描述符；[StartSession](https://git.zx2c4.com/wintun/tree/api/session.c) 还在本进程分配 ring 内存。因而只传递设备 HANDLE 不能证明普通宿主能注册 ring。隔离实验验证最小设备助手拥有 ring、仅交付受限 IP 包 I/O 的路径；认证、aTrust 与分流继续留在 Qt 宿主。已选择该设备 I/O 路径，正式 Qt 数据面、原 4096 次设备门槛及受控授权已验，实际校园负载性能与真实桌面 UAC 仍待，不恢复已删除的旧 TUN 栈。当前 Windows 只读发现 Sangfor 虚拟接口处于 Up，另有 Meta、Tailscale、WSL 和其他覆盖接口；未修改日常网络，接口存在不作为认证有效的证据。
+Windows 使用 `python tests/platform/run_windows_packet.py` 与 `python tests/platform/run_windows_helper.py --qt-control`；固定 SDK、签名检查、普通 token 和实际应用会话共用生产后端，失败不得通过重跑或放宽超时掩盖。
 
-数据接入须复用现有分流语义：[gVisor 拨号](../corelib/stack/gvisor/dial.go)分别保留 aTrust TCP 与 L3 路径，授权规则由[共用拨号层](../corelib/dial/dialer.go)按域名、IP、协议和端口匹配。现有 gVisor 已独占读取 [L3Conn](../corelib/client/atrust/l3conn.go) 的共享入站队列，不能另开一个连接给 TUN 竞争同一队列。系统 IP 路由本身不能区分端口；透明前端还须处理捕获范围内不走校园的流量，并保持其实际原出口及保护范围，不能全部绑定物理网卡或直接将每个包写入校园 L3。设备探测通过只解决入口权限／生命周期，这些接入与策略仍须另验。原型保留直连与显式主机路由两种数据路径，显式路由只绑定新设备，回读后才发送测试数据，并沿用关闭／强杀后的全路由清理断言；清理同时要求实际设备消失和原接口零路由，不能以“接口 down”代替清理。
+## Mihomo 控制接口隔离核对
 
-本机只读快照 `build/reports/windows-original-network.json` 保留实际接口／地址、路由与 DNS，含 26 条接口／地址族记录、608 条路由和两条既有 NRPT 规则。Tailscale、WSL 和 Meta 均有 IPv4／IPv6 路径；Meta 包含两条分割默认路由，不能把它们当成目标保护范围。Sangfor 接口处于 Up，关联 518 条活动路由，接口别名并不包含厂商名，须结合接口索引与硬件描述核对。此快照只作调查证据，正式应用前仍需重新读取并校验；既有规则／接口不得被猜测归属或自动清空，接口存在不证明认证有效。
+官方版本及四架构哈希统一在 [mihomo-runtime.json](../tests/platform/mihomo-runtime.json)。`python tests/platform/mihomo_api_probe.py <mihomo可执行文件>` 在自有实例验证真实解析、Fake-IP 过滤、配置更新失败保留与恢复；控制请求不能扩大校园授权，不修改用户配置文件。
 
-### Windows 设备助手隔离实验（S4-01／D2）
+正式控制来源必须核对进程、启动身份及当前监听所有权；Windows 使用原生进程／命名管道身份，macOS 使用内核进程与 TCP 清单。不接受控制器自报地址作为所有权证明。连接前后再次核验监听，端口被外部进程重占时拒绝。
 
-[设备验收夹具](../corelib/tests/windows/device/main.go) 仅在一次性 CI 中创建随机名称的专用适配器，使用官方 Wintun 0.14.1 的公开 API。下载包固定 SHA-256 为 `07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51`，运行前核对 WireGuard 签名并保留随包许可证；不修改 DLL 或提取内嵌驱动，应用交付尚未引入该运行库。
-
-助手只持有 ring 和新设备；同账户的普通权限／medium integrity 子进程通过继承的匿名管道处理一组限定测试 IP／UDP 端口的数据包，不加载 Qt 或 aTrust。根据 [CreateRestrictedToken](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-createrestrictedtoken) 的句柄权限继承语义，显式取得创建进程和降低完整性所需权限；使用 `LUA_TOKEN` 降为普通用户令牌，取消管理员 SID 的允许权限并移除可删除特权；仅手动降低完整性和移除特权不足以证明 UAC 降权。验证原始 UDP socket 经设备、普通进程及助手回注收到回包，拒绝超大 IPC 帧，检查正常关闭和助手被终止后的设备／路由消失。
-
-独立控制进程先安装只约束设备助手的 Job 生命周期，再恢复其主线程；异常时仅清理本次随机名称及创建时捕获的 Wintun PnP 实例。此 Job 不管理 VPN 核心，原型不修改既有接口、DNS 或默认路由。本机只运行七项原生只读／令牌／帧／协议边界检查及拒绝本机设备操作的入口检查。日志／SDK 来源元数据随各组 artifact 保存。
-
-设备操作现复用 C++ `infrastructure/tundevice/windows/adapter.cpp`：以新 UUID／GUID 创建专属适配器，经原生 IP Helper 配置自身 IPv4 `/32`、MTU、对端与获选捕获路由并回读，助手持有环至停止，不调用 PowerShell 配置网络。`allocated` 仍在配置前确认 LUID／GUID 与原始 PnP 实例，`configured` 在实际回读后发布；失败不丢原清理身份。保留五组真实内核收发、超大帧、强杀及配置后失败的独有设备／PnP 清理断言。C++ 设备／权限夹具共用原生降权工具，Go 普通 Qt 宿主降权夹具归 `corelib/tests/windows`；旧 Go 设备后端及手工 IP Helper 布局已在同机对照后删除，保留相同的五组故障场景和 C++ 4096 次往返回归。前序独立原型的 [`5e51df0` 六组 Core ABI／设备](https://github.com/wtalioy/JustConnect/actions/runs/39807827167)及[三平台应用测试](https://github.com/wtalioy/JustConnect/actions/runs/39807827099)已通过；迁移后的原生结果见计划，不以旧原型证明新后端。产品设备／DNS／安装与恢复使用原生 C++；固定 pwsh 仅供 CI 签名、临时证书与 SCM 验收，原网络配置／查找脚本已删除。
-
-新增完整链路由普通权限 Qt／嵌入 Go 经正式 C ABI 连接受限字节管道，助手保留真实 Wintun 环；验证实际校园协议、TCP、UDP／空报文、关闭原句柄后继续收发、无效 PID／MTU／代次拒绝及两次停止重启。源／对端与捕获目标仅为隔离夹具输入，不成为产品默认。助手进程绑定与原生取消另有本机 Windows 回归；受保护安装、持久记录、所属 NRPT 与 SCM 独立恢复现有专门的 C++ 原生验收，机制与边界见[架构](ARCHITECTURE.md#windows-原生权限助手)；正式入口已接入 UAC／控制 IPC、系统 DNS 与统一应用会话；受控自动检查、Windows 实测及未验证的发布格以[计划 S4—S5](../plan.md#s4-策略与网络操作的恢复基础)为准，设备夹具本身不证明完整交付。
-
-### Mihomo 控制接口隔离核对（D3 前置）
-
-2026-10-22 使用本机 Clash Verge 所带的 Mihomo `v1.19.32 windows amd64`（Go 1.26.8，`with_gvisor`），二进制 SHA-256 为 `3c107d54ef1b895e4980b53f517d52f3c1137101fa2637347c9ce343fc50d7b2`。[探测脚本](../tests/platform/mihomo_api_probe.py) 只启动并管理自己的临时实例：随机回环控制端口及密钥、关闭 TUN 和代理入口、两个自有回环 DNS 替身，不读取用户配置、订阅或控制密钥，不修改系统路由／DNS。控制端口即使碰撞，也须先通过随机规则标记核对所属实例后才允许写入。
-
-| 操作 | 实际回读 |
-| --- | --- |
-| 无密钥访问 | HTTP 401 |
-| Fake-IP DNS 监听与 `/dns/query` | 同一实例的实际 DNS 包返回测试 Fake-IP 范围，API 返回自有上游的真实 A 地址；正式控制连接已复用真实解析；当前自动接入与边界见下节 |
-| `PATCH /configs` 修改 mode | 生效 |
-| 同一 PATCH 传入 rules／dns | 返回成功但均未生效；分别用规则列表和不同 DNS 替身的真实回答核对 |
-| TUN 关闭时 PATCH 排除测试网段 | 回读包含指定范围，TUN 仍关闭；不代表开启时的实际绕行已验证 |
-| `PUT /configs?force=true` 提交完整 payload | 规则、mode 和 DNS 回答均切换；无效规则返回 400，保留上次有效版本；恢复初始完整配置后回读一致 |
-
-2026-10-27 用同一隔离探针复验官方 Linux x64 `v1.19.32`，以上 API／Fake-IP／无效更新保留与恢复结果一致。发布压缩包 SHA-256 与 GitHub release 的 digest 匹配，解压后二进制 SHA-256 为 `6de241191ca39f9ac1cd6e3194fc9303c19055d3549c8bdb4ff1349c89173819`；报告 `build/reports/mihomo-api-linux-v1.19.32.json`。仅自建实例及回环替身参与，TUN 始终关闭，进程与临时配置已清理。Windows／Linux 的控制能力核对不替代 macOS、运行中 TUN、用户配置所有权或正式产品接入。
-
-复现：在目标平台使用 Python 运行 `python tests/platform/mihomo_api_probe.py <mihomo可执行文件>`；Windows 与 Linux 结果分别保存在 `build/reports/mihomo-api-windows-v1.19.32.json`、`build/reports/mihomo-api-linux-v1.19.32.json`，进程、监听、临时配置和日志随测试结束清理。请求使用[官方 API](https://wiki.metacubex.one/api/)公开路径，不依据 HTTP 成功码推断所有字段可增量修改。`GET /configs` 没有完整规则／DNS／代理定义，因此不能用该响应拼出用户全量配置后盲目 PUT；S6-03 已采用只读 Mihomo 加临时浏览器前置的正式联动，不需要获取完整订阅后重载；外部改写、所有权恢复和运行中流量按[当前 S6 状态](../plan.md#s6-clash-共存原型)验收，不据此修改运行中的 Clash。
-
-### S6 真实代理入口与模式边界
-
-固定的官方 Mihomo `v1.19.32` 在自有回环实例中验证：从实际 `/configs` 的 SOCKS／mixed 端口和原生 PID／启动身份共同确认入口，不猜端口；连接前后再次核对所属监听。`ReadState` 统一读取当前模式、端口、TUN、出口接口和已有排除前缀，不将部分状态当作完整可重载配置，也不增加轮询。普通 TCP／UDP 保留原域名交给该实例，IPv4／IPv6、空 UDP、控制连接关闭与 `rule → global → direct → rule` 切换，以及端口更换后重新发现、拒绝旧监听和已有排除保留，已由 `TestOfficialProxyUsesActualListenersAndSelectedMode` 本地及 `a338294` [六架构 CI](https://github.com/wtalioy/JustConnect/actions/runs/41169660664)通过；缺失／畸形状态不授予控制权限。测试配置、模式写入与进程终止只作用于自有夹具，不接触用户实例。
-
-`TestOfficialMihomoCampusIngressEnforcesSharedResources` 进一步使用真实 Mihomo → JustConnect 严格 SOCKS → 自有 HTTP／UDP 对端，核对实际拨号目标、域名／IP 授权、端口／协议限制、空 UDP、本地监听自身／未知域名／IPv6 拒绝，以及保护策略增加和撤回；宽泛／陈旧外部规则不授予校园权限，拒绝时普通上游调用为零。本地 race 重复与同提交六架构夹具通过，产品 V2—V5 全矩阵仍待。
-
-自有 Mihomo 夹具除端口监听外，须完成调用方提供的实际回包检查才进入正式断言，避免核心尚未接收流量时的提前就绪；正式断言／超时不变。代理端口复用正式 TCP／UDP 配对分配，避免 TCP 可用但 UDP 被系统排除；端口冲突夹具直接交付已持有的 UDP 候选，不依赖 Windows 能立即重绑。Linux race 与 Windows 原生端口分配 100 轮、实际代理模式／端口更换／校园入口通过（`build/reports/s6/paired-*.log`）。Windows 命名管道夹具始终保留下一监听实例，本机原生两项管道及控制解析／TLS 各重复 20 次通过；重建／清理不触碰用户实例和系统网络。其他传输证据归同目录。这些结果证明受控传输／授权边界，不代表入口自动配置、运行中切换及恢复已交付。
-
-API 夹具另逐项验证 blacklist／whitelist／rule 的 Fake-IP 与真实回答、既有查询名、真实 `/dns/query` 结果、保留的排除地址及恢复，源配置文件保持不变；新查询与重新查询同名不等于验证浏览器／系统中尚未过期的旧 IP 缓存。Linux 固定官方运行时六种组合及同提交六架构能力检查通过（`build/reports/s6/api-filters-linux.json`，CI 各组 `mihomo-api-capabilities.log`），保留该检查失败即失败的自动回归。操作仍仅对自有实例、关闭的 TUN 及回环 DNS，不代表生产配置联动或运行中 TUN 排除已完成。
-
-同一实测中，规则允许的目标在 `GLOBAL` 选择 `REJECT` 时被拒绝：[上游 `resolveMetadata`](https://github.com/MetaCubeX/mihomo/blob/v1.19.32/tunnel/tunnel.go#L310) 在普通规则前处理 `global/direct`，因此追加校园规则不足以覆盖这些模式。已据此采用下述临时浏览器前置方案；传输测试本身不代表完整共存矩阵通过。
-
-固定版本源码进一步确认：[自定义入口的 `proxy` 字段](https://github.com/MetaCubeX/mihomo/blob/v1.19.32/listener/inbound/base.go#L86) 可先于模式选择指定出口，但[增量配置接口](https://github.com/MetaCubeX/mihomo/blob/v1.19.32/hub/route/configs.go#L35) 不接受自定义入口／代理定义；[默认 mixed 监听重建](https://github.com/MetaCubeX/mihomo/blob/v1.19.32/listener/listener.go#L443) 也不提供这项覆盖。替换既有入口需重载完整配置，现有 GET 无法证明已取得完整运行配置，不能据此覆盖用户设置。用户于 2026-10-31 已确认采用临时 JustConnect 浏览器入口：系统代理开启时校园走 VPN／普通流量回原 Clash，双开关均关闭时普通流量直连。实现保留用户开关、模式、代理组、DNS／过滤配置并按所有权恢复，产品只读 Mihomo，不重载其配置。完整调用链的三平台原生组合、控制与数据出口证据、旧 Qt 缓存及实际浏览器范围见[计划 S6](../plan.md#s6-clash-共存原型)。
-
-旧 Fake-IP 缓存仍须单独验证：[缓存接口](https://github.com/MetaCubeX/mihomo/blob/v1.19.32/hub/route/cache.go) 仅提供清理，[DNS 查询 API](https://github.com/MetaCubeX/mihomo/blob/v1.19.32/hub/route/dns.go#L49) 走真实解析器，不提供 Fake-IP 反查映射；[DNS 前端的 PTR](https://github.com/MetaCubeX/mihomo/blob/v1.19.32/dns/middleware.go#L149) 也不查询 Fake-IP 池。不能以刷新 Mihomo 池代替应用缓存恢复，否则应用持有的旧 IP 将失去映射；当前不清理用户池。
-
-标准构建的 [UDP 接收缓冲区](https://github.com/MetaCubeX/mihomo/blob/v1.19.32/common/pool/buffer_standard.go) 为 16 KiB，实测更大 SOCKS UDP 请求被静默截短；本软件读取实际 UDP socket 发送容量，并以它和上游缓冲区的较小值作为含头部上界；超界发送前明确拒绝，不切换出口。macOS 原生容量较小，不用放大系统缓冲区掩盖差异。非标准 low-memory 构建尚未验收。共有 SOCKS UDP 解析器保留空 IPv4／IPv6／域名报文，拒绝非零保留位、分片、无效类型／端口与截断；两侧复用同一边界，读写缓冲只在会话内按需分配／复用。证据：`build/reports/s6/proxy-corelib.log`（34 包）、`official-proxy-race.log`；独有上游截短记录保留在 `official-proxy-truncation.log`。
-
-### Linux 设备／fd 原型复现
-
-[unix_device_probe.py](../tests/platform/unix_device_probe.py) 复用正式 [Linux TUN 分配后端](../infrastructure/tundevice/linux/tundevice.cpp) 的原生测试程序，再使用 Python 标准库与现有 `ip` 命令验证权限和 fd 所有权；Linux 主应用及 Go／DNS 数据入口的本地联验已接入，跨平台 CI 与桌面验收仍待；Linux 系统助手的独立验收见[权限入口](ARCHITECTURE.md#正式权限助手入口)。脚本拒绝在宿主网络命名空间运行；隔离命名空间内只创建测试 TUN 及其直连测试网段，不配置 DNS 或外部出口。
-
-```sh
-sudo unshare --net -- "$(command -v python)" tests/platform/unix_device_probe.py --uid "$(id -u)" --allocator build/coreabi/linux_tundevice_test
-```
-
-当前 WSL 本机不依赖 sudo，可从普通用户 shell 使用 WSL 自带的 root 启动入口执行同一测试：
-
-```sh
-wsl.exe --distribution archlinux --user root --exec unshare --net -- \
-    python /home/lioy/JustConnect/tests/platform/unix_device_probe.py --uid 1000 \
-    --allocator /home/lioy/JustConnect/build/local/linux_tundevice_test
-```
-
-父进程创建 TUN 并配置隔离地址后，接收进程先清空补充组并降为普通 uid／gid，再接收 fd；父进程关闭原 fd。接收进程读取内核发出的 UDP 包，再经 TUN 注入合法 IPv4／UDP 回包，由普通 UDP socket 验证收到预期数据。分别验证主动关闭与持有 fd 时被 SIGKILL 后的设备／自动路由清理。本地另验证了宿主命名空间／非 root 调用及测试设备名已存在时会被拒绝，以及测试前后宿主接口、全表路由和 `/etc/resolv.conf` 一致。代码 `7a910de` 的 [Linux x64／ARM64 CI](https://github.com/wtalioy/JustConnect/actions/runs/39275742177) 两组均通过同一隔离测试，日志保存在各组 artifact 的 `linux-device.log`。
-
-同提交的[六组库链接／宿主检查](https://github.com/wtalioy/JustConnect/actions/runs/39275742177)和[三平台应用回归](https://github.com/wtalioy/JustConnect/actions/runs/39275741690)均通过；Windows／macOS 在本次仅重跑链接与宿主回归，没有执行设备权限测试。
-
-该测试只覆盖内核设备与 fd 生命周期；直连路由随设备删除不等于已经实现任意路由／DNS 的所有权恢复。它没有验证提权界面、助手身份认证、Go fd 接收、TCP 转发、校园隧道或 Clash 共存。Windows 本机为 x64 普通用户，WSL root 不代表 Windows 管理员权限；没有据此进行 Windows 驱动安装或 UAC 提权。
-
-当前 Linux 分配入口由 `UnixTunDevice` 的平台实现单独维护：连接 UUID 派生设备名，排他创建非持久原始 IP TUN，回读名称／索引／帧模式；`TUNGETIFF` 的 NO_PI 与 NOFILTER 位复用，因此通过受信系统 `iproute2` 的链路详情核对真实 PI／virtio 头部状态，复用已有平台命令端口，固定参数且不经 shell；对象仅拥有自己的 fd，不接管已有同名设备。创建后的回读失败关闭 fd 并报告可能已修改；原生回读失败及错误 PI／virtio 帧模式注入验证实际接口回滚，活动及无队列持久设备冲突均保留原设备。`SCM_RIGHTS` 接收端使用原子 CLOEXEC，两种 Linux 隔离检查复用此入口，已删除 Python 分配副本。最后一个 fd 关闭的内核生命周期依据 [TUN/TAP 文档](https://docs.kernel.org/networking/tuntap.html)；本地普通 uid 的双向 UDP、正常／强杀清理与原网络不变及 [`a0aec56` 的 Linux 双架构](https://github.com/wtalioy/JustConnect/actions/runs/39761802978)均已通过，不代替完整路由／DNS 恢复或助手授权。
-
-IPv4 配置增量复用 [`UnixTunDevice::createIpv4`](../infrastructure/tundevice/tundevice.cpp)，只配置这次新建、尚未交付的设备：源／对端须是不同的规范单播 IPv4，使用 `/32` 点对点掩码，MTU 为 68—65535；配置前记录原 MTU／标志／空 IPv4，配置后独立回读完整预期及设备索引。macOS [utun 创建时即可为 UP](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/net/if_utun.c)，不把初始 down 当作共有契约；实际状态由原生 ioctl／getifaddrs 读取。失败关闭私有 fd，不交付部分配置；当前不支持更改已交付设备或恢复已有接口。共享设备／原出口脚本及捕获路由检查已移除重复地址／启用命令；Linux 捕获路由由分配方在交付 fd 前调用正式后端，原出口表／规则由独立原生持有进程负责；macOS 目的路由改由正式捕获后端及保护日志管理，验证状态见[计划](../plan.md#s4-策略与网络操作的恢复基础)。
-
-本地 Linux 应用及正式 ABI 构建均通过配置后普通用户双向 UDP、正常／强杀最终 fd 清理；真实配置后的回读错误／MTU 不符故障注入验证设备及全部 IPv4 路由回滚，宿主接口、全表路由／规则、DNS 与 rp_filter 不变。完整应用 45/45、正式 ABI 23/23 通过，报告 `build/reports/unix-tun-configuration.json`；Linux／macOS 双架构原生 CI 已通过，当前正式助手／会话接入状态见[计划](../plan.md#s4-策略与网络操作的恢复基础)；底层配置通过不代表整体透明接管已验收。
-
-### Linux 独立捕获路由表
-
-Linux 的原出口与校园捕获共用 `LinuxOwnedRouteTable` 的写前记录、回读、恢复与歧义保护。原出口使用 priority 1 的精确源规则；校园捕获使用 priority 2 的全源规则、UUID 派生的另一张专用表与直连 TUN 路由，表范围互不相交。priority 0 的 local 表保持最先，因此本机地址和 localhost 不被捕获；目标不在校园表时继续原规则。既有 main 表中的精确 `/32` 保持原样，选择校园后走 TUN，撤回捕获后回到原网络。
-
-协议 11 要求客户端与助手同时更新。捕获日志 v2 使用同一表后端的结构并附版本；原网络投影精确排除所属表、规则与设备路由，不隐藏原 main 路由或外部变化。最后一个 TUN fd 关闭可使路由消失，恢复仍须释放所属查表规则；接口改名或索引复用不能解释为设备消失。分配器夹具保留原生恢复控制通道，释放自身 fd 后由最终持有者完成流量，再调用正式恢复入口清理规则，无 Python 路由删除副本。
-
-旧 v1 仅保留受保护记录的主表恢复，不再提供主表应用、追加或运行中撤回。停止支持仍可能留有 v1 未恢复记录的版本后，删除该恢复分支及专属迁移测试。现有边界、失败、取消、外部改写与强杀回归继续验证 v2；另验证实际 v1 记录恢复和中断／同值保留。当前本地证据与未验收项见 `build/reports/capture-table.json`，不代替桌面授权、校园实测或其他平台验收。
-
-### Linux 原出口与更具体的捕获路由
-
-[隔离检查](../tests/platform/original_route_linux.py)只在新的网络命名空间中创建 veth 原网络、独立 TCP／UDP 回显端点，并通过同一原生分配后端取得非持久 TUN。目标的 `/32` 捕获路由优先于原网络 `/24`；接口绑定单独使用在严格反向路径检查下已复现超时，因此测试保留 `rp_filter=1`，仅为所选原地址增加源规则与专用目标路由表。先回读两类选路并实际读取 TUN 包及捕获源地址，再由零 capabilities 的普通用户运行[生产 underlay 探针](../tests/platform/original_route_probe.go)，验证指定原接口的 TCP／UDP 往返及原地址，接口缺失必须报错。两端命名空间退出即释放设备和规则；宿主接口、全表路由、规则、DNS 及反向路径设置保持不变。
-
-本地 WSL 隔离内核及 [Linux 双架构 CI](https://github.com/wtalioy/JustConnect/actions/runs/39732640460) 已通过，日志为 `linux-original-route.log`，关键结果归并至计划引用的当前报告。该结果验证出口绑定与定向源规则的组合，这组操作已由下述正式原出口后端接管，并通过当前双架构原生检查；未覆盖其他策略路由选择器、自动选择、IPv6、Windows／macOS 的竞争路由或正式助手恢复，不能据此接管日常网络。
-
-Linux 路由恢复另在私有命名空间核对了内核删除匹配：`ip route del <prefix> dev <owned> proto <owned> scope link` 拒绝删除设备或协议已变化的路由，但首选源地址被改写时仍会删除，不能视为完整快照的原子比较。正式后端须记录所属资源身份和实际应用结果，恢复前核对完整回读，遇到外部改写保留并报告；回读与删除间的竞争仍需故障验证，不以命令成功代替所有权证明。实验结果已归并至计划引用的当前基线报告。
-
-### Linux 原出口表／规则后端
-
-[`LinuxOwnedRouteTable`](../infrastructure/routing/linux/ownedroutetable.cpp) 为明确原接口及实际所属 IPv4 源地址新建连接专用表和精确源规则；空网关表示直连，非零网关另建所属 `/32` 链路路由。只接受规范 `/2`—`/32`，不改原接口、既有路由或 DNS。记录连接 UUID、接口名／索引、源／网关、派生表／metric、原先不存在及完整应用值。priority 1 冲突、未知更早规则或候选表已有路由／引用时拒绝；接口名限安全 ASCII token，支持实际地址别名。
-
-后端与捕获路由共用规范前缀和受信 iproute2 检查；数字全表／规则各限 4096 行、1 MiB，写前检查容量，索引所属路由。接受原生省略 main 表和合法 blackhole／goto，所属项缺少表身份则拒绝。应用／恢复各有十秒命令预算，失败回滚独立计时。恢复先删除源规则并确认没有表引用，再按设备、协议、scope、metric、源和适用下一跳删除路由；外部引用／改写、重复身份或未确认值保留并报告，只忽略派生 linkdown／默认 unicast 差异。
-
-`recover` 仅接受同一启动 UUID／调用线程网络命名空间的完整可信记录；严格校验结构、规范所有者、派生表／metric、实际接口身份和路由／规则值，拒绝畸形、重复、跨启动／命名空间或超过 2 MiB 的记录，不替换活动实例。**调用方必须先认证权限所有者的受保护记录；用户 JSON 不授予恢复权限。**
-
-[`UnixNetworkJournal`](../infrastructure/networkjournal/networkjournal.cpp) 只接受已打开的 root 0700 私有目录 fd，以独立打开描述持有非阻塞独占锁，操作固定 `source.json`。文件须为 root 0600 单链接普通文件，完整 UTF-8 JSON 最多 2 MiB；符号／硬链接、错连接、超限及已知外部改写拒绝。私有临时文件完整写入并 fsync 后原子发布，再同步目录；首次发布不替换，更新／删除比对文件身份及完整原字节，同值替换或确认删除后重建不接管。删除目录同步失败保留已删除事实供重试，关闭／进程结束只释放锁。
-
-`apply`、`restore` 和 `recover` 共用同步 `CheckpointWriter`：非空对象提交完整状态，空对象持久移除记录。首次内核写入前同步完整意图，拒绝且确认未发布则清空内存，可能已发布则保留责任；存储后重验容量、表／早期规则及接口／源身份。成功应用值确认、规则删除前、规则释放后和路由批次删除前均由后端提交，失败回滚沿用同一端口，调用方不重复维护状态机；每次删除前重验存储等待期间的完整值、表引用及接口身份。存储失败不继续下一次内核修改，最后同步移除失败可重试而不接管新引用。删除标记与内核操作不具备跨资源原子性：新进程看到标记且匹配对象仍在时保留并报告未决，不猜测它是否被外部同值重建；对象缺失或完整值已改变时可解除该项责任。已确认释放的规则不重新接管。
-
-```sh
-sudo unshare --net -- build/coreabi/linux_sourceroutes_test --isolated
-sudo unshare --net -- build/coreabi/linux_sourcejournal_test --isolated
-sudo unshare --net -- python tests/platform/original_route_linux.py --uid "$(id -u)" \
-    --probe build/coreabi/original-route-probe --allocator build/coreabi/linux_tundevice_test \
-    --routes build/coreabi/linux_sourceroutes_test
-```
-
-已验基础覆盖直连／网关、别名、所有者／接口身份、已有表／外部引用、部分批次、读回故障／重试、同值重建、linkdown、4096 行完整记录、永久降权拒绝，以及记录锁／权限／文件身份／同步故障。实际持有者在准备、部分写入、应用后未读回和应用确认四个边界被 SIGKILL，新进程从保护文件恢复；跨命名空间拒绝，实际外部路由保留。原出口脚本复用同一后端，实际普通 Go TCP／UDP 保持严格 rp_filter，控制管道 EOF 后核对完整原始表／规则。证据 `build/reports/linux-source-routes.json`、`linux-source-journal.json`、`linux-source-checkpoints.json`，本地双构建及 [`fb8fd38` 六组原生](https://github.com/wtalioy/JustConnect/actions/runs/39833344656)／[三平台应用](https://github.com/wtalioy/JustConnect/actions/runs/39833344469)通过。
-
-恢复检查点增量 `c2d3570` 覆盖规则／路由删除前后恢复进程强杀、匹配原项及外部同值重建保留、对象消失后完成、各阶段存储拒绝、写记录期间改写及最终移除重试。双构建隔离内核／实际 Go 流量和应用 48/48、正式 ABI 26/26 通过；[六组原生](https://github.com/wtalioy/JustConnect/actions/runs/39839399033)／[三平台应用 CI](https://github.com/wtalioy/JustConnect/actions/runs/39839399050)均通过，证据 `build/reports/linux-source-checkpoints.json`。
-
-测试统一使用受保护文件和 `--recover-journal`，旧标准输入恢复、父进程事后写快照及 Python 专用表／源规则命令已删除；root 临时目录在永久降权前销毁。未知对象由创建它的夹具显式清理，无强制接管模式；未配置存储的底层调用仅保留独有流量回归。测试程序保留隔离回归用途；正式 Linux 系统助手与周期恢复已复用同一后端，见[权限入口](ARCHITECTURE.md#正式权限助手入口)。实际桌面授权／注销、出口自动选择、其他策略选择器、IPv6 或任意属性原子比较仍待；已有系统代理恢复不代替完整透明网络恢复。S2-06／S3-05／S4-03／04／06／S7-03 的相应要求保持未完成，S4-06 前不应用于日常网络。
-
-### macOS utun／fd 隔离实验
-
-同一 [Unix 检查脚本](../tests/platform/unix_device_probe.py) 在 macOS 复用 [utun 平台实现](../infrastructure/tundevice/macos/tundevice.cpp)，由内核自动分配新接口，按 [Apple 公开定义](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/net/if_utun.h)回读名称／索引及零外部标志，使用四字节地址族头。Unix 后端共用所有权声明与原生测试，已删除 Python 的 macOS 分配副本；普通权限创建须拒绝，重复创建保留原 fd／身份。仅允许一次性 GitHub macOS runner，以 root 创建／配置测试点对点地址，再经 `SCM_RIGHTS` 将 fd 交给已设置普通 uid／gid 和明确附加组后 exec 的全新 Python 进程；复用 Linux 的实际 UDP 双向、主动关闭及持有 fd 时 SIGKILL 检查。macOS 控制通道使用 Unix 数据报；单线程测试接收后立即设置 CLOEXEC，Linux 仍使用原子接收，不将前者宣称为原子保证。测试目的已有非默认路由时拒绝运行，结束后检查接口和其全部路由消失，不改系统 DNS／默认路由。接收方逐阶段确认权限、两条路由通信及最终 fd 所有权，共用原八秒预算；避免 [macOS 上不安全的 fork 后原生调用](https://docs.python.org/3/library/os.html#os.fork)，不延长等待或跳过数据与清理检查。
-
-```sh
-sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_OS="$RUNNER_OS" "$(command -v python)" tests/platform/unix_device_probe.py --uid "$(id -u)" --allocator build/coreabi/macos_tundevice_test
-```
-
-[`a14ecba` 的六组 Core ABI／设备](https://github.com/wtalioy/JustConnect/actions/runs/39769154866)及[三平台应用测试](https://github.com/wtalioy/JustConnect/actions/runs/39769154825)全部通过。上述为 fd 交接基线。当前 Unix 创建方在接收方核对并确认后释放所有设备 fd，保留恢复控制与保护日志，实际流量由普通用户及核心处理；两平台的双向 UDP、正常／强杀最终引用清理及原八秒 fd 探针预算保留，最新捕获／恢复见[计划](../plan.md#s4-策略与网络操作的恢复基础)。本地拒绝确认的隔离检查无设备泄漏。早期未确认移交时序下的失败未作底层归因，独有失败片段保留在 `build/reports/unix-tun-backends.json` 的引用中；不将后续通过宣称为已证明某个 macOS 内核缺陷。普通权限设备创建拒绝、CLOEXEC、身份／帧模式、降权和来源检查保留；Linux 助手及系统恢复的后续验收见[权限入口](ARCHITECTURE.md#正式权限助手入口)，macOS 助手及完整网络恢复仍待。
-
-### Linux 捕获路由后端
-
-[`LinuxTunRoutes`](../infrastructure/routing/linux/tunroutes.cpp) 负责验证已拥有且配置非零点对点地址的 TUN，再将当前捕获操作交给共享独立表后端；当前协议 11、日志 v2 和 `/32` 选择行为见[独立捕获路由表](#linux-独立捕获路由表)，完整写前／回读／恢复职责见[架构](ARCHITECTURE.md#正式权限助手入口)。不再创建或运行中修改旧 main 表捕获路由，v1 仅供受保护遗留记录恢复。
-
-```sh
-sudo unshare --net -- build/coreabi/linux_tunroutes_test --isolated
-```
-
-原生回归保留严格 `rp_filter=1` 下实际 UDP、既有路由不变、连接与设备身份、部分失败、写前／回读／存储错误、同值重建保留、恢复重试，以及应用／删除前后强杀和新进程恢复。版本 1 专属回归继续验证已有 main 记录的恢复及歧义保留；停止支持可能遗留该记录的版本后删除。当前独立表后端和正式安装助手证据见[计划](../plan.md#s4-策略与网络操作的恢复基础)及 `build/reports/capture-table.json`，早期独有捕获／持久恢复证据保留于 `linux-owned-routes.json`、`linux-capture-handoff.json`、`linux-capture-recovery.json`。
-
-Linux 分配方在交付 fd 前调用同一正式后端并交付实际元数据，接收方比对真实全表；原型夹具继续验证普通用户收发、正常／强杀最终 fd 清理与规则恢复。正式系统助手、Go 数据面及应用会话已接入；桌面授权／注销、实际校园、IPv6 透明入口及完整网络迁移仍待，未经相应 S4-06 验收不接管日常网络。macOS 手写捕获命令已由[正式后端](ARCHITECTURE.md#macos-捕获路由)取代，原 fd／收发／强杀检查保留。
+`mihomo_tun_native.py` 与 `corelib/tests/mihomotun` 仅在一次性 runner 创建自有的真实 TUN，先证明未绑定连接被 REJECT，再核对正式 underlay 仍保留真实 DNS、TLS、源地址与原接口；结束撤销自有 TUN 并验证恢复。代理端口的 TCP／UDP 配对、真实收发、受保护网络、原 DNS 与共存切换另由正式应用会话回归覆盖。浏览器自身预热缓存与实际 Tailscale 直连仍按发布矩阵实测。

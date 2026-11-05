@@ -42,8 +42,7 @@ function(justconnect_mac_network_helper)
         "${REPO}/infrastructure/dns/macos/resolver.cpp"
         "${REPO}/infrastructure/dns/macos/propertylist.cpp"
         "${REPO}/infrastructure/dns/macos/originaldns.cpp"
-        "${REPO}/infrastructure/tundevice/tundevice.cpp"
-        "${REPO}/infrastructure/networkjournal/networkjournal.cpp"
+        "${REPO}/infrastructure/networkjournal/macos/networkjournal.cpp"
         "${REPO}/infrastructure/process/command.cpp")
     target_include_directories(justconnect_macos_network_helper PUBLIC "${REPO}" "${CMAKE_CURRENT_BINARY_DIR}")
     target_compile_options(justconnect_macos_network_helper PRIVATE -fblocks)

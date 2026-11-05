@@ -3,7 +3,7 @@ name: Core ABI
 on:
   push:
     branches: [develop]
-    paths: &coreabi_paths ['.gitattributes', 'tests/coreabi/**', 'tests/embeddedcoreengine_test.cpp', 'infrastructure/**', 'application/**', 'presentation/**', 'core/**', 'tests/coreengineui_test.cpp', 'tests/credentialstorefixture.h', 'tests/CoreEngineTests.cmake', 'cmake/**', '.github/actions/setup-core-toolchain/**', 'corelib/**', 'scripts/generate-core-abi.py', 'scripts/build-system-network-helper.sh', 'scripts/network_helper_package.py', 'scripts/windows_helper_sdk.py', 'tests/windows_helper_sdk_test.py', 'resource/network-helper*', 'tests/network_helper_package_test.py', 'tests/platform/**', '.github/workflows/coreabi.yml', '.github/actions/setup-qt/**', '.github/actions/setup-linux-apt/**']
+    paths: &coreabi_paths ['.gitattributes', 'tests/coreabi/**', 'tests/embeddedcoreengine_test.cpp', 'infrastructure/**', 'application/**', 'presentation/**', 'core/**', 'tests/coreengineui_test.cpp', 'tests/credentialstorefixture.h', 'tests/CoreEngineTests.cmake', 'cmake/**', '.github/actions/setup-core-toolchain/**', 'corelib/**', 'scripts/generate-core-abi.py', 'scripts/windows_helper_sdk.py', 'tests/windows_helper_sdk_test.py', 'resource/network-helper*', 'tests/platform/**', '.github/workflows/coreabi.yml', '.github/actions/setup-qt/**']
   pull_request:
     branches: [main, develop]
     paths: *coreabi_paths
@@ -20,7 +20,7 @@ on:
       controller_only:
         type: boolean
         default: false
-        description: Run six native controller/DNS checks and owned live-TUN control on disposable runners
+        description: Run four native controller/DNS checks and owned live-TUN control on disposable runners
 
 permissions:
   contents: read
@@ -83,8 +83,6 @@ jobs:
           - &windows_arm64 {os: windows-11-vs2026-arm, platform: windows, arch: arm64, qt_host: windows_arm64, qt_arch: win64_msvc2022_arm64}
           - {os: macos-26-intel, platform: macos, arch: x64, qt_host: mac, qt_arch: clang_64}
           - {os: macos-26, platform: macos, arch: arm64, qt_host: mac, qt_arch: clang_64}
-          - {os: ubuntu-26.04, platform: linux, arch: x64, qt_host: linux, qt_arch: linux_gcc_64}
-          - {os: ubuntu-26.04-arm, platform: linux, arch: arm64, qt_host: linux_arm64, qt_arch: linux_gcc_arm64}
     steps:
       - uses: actions/checkout@v7.0.1
 
@@ -94,15 +92,6 @@ jobs:
           New-Item -ItemType Directory -Force build/coreabi | Out-Null
           python tests/platform/run_windows_packet.py --build-only 2>&1 | Tee-Object -FilePath build/coreabi/windows-native-build.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - uses: ./.github/actions/setup-linux-apt
-        if: runner.os == 'Linux'
-
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo env NEEDRESTART_MODE=l apt-get install -y --no-install-recommends libgl1 libegl1 libxkbcommon-x11-0 libxcb-cursor0 libnss3 libevent-dev libminizip-dev gsettings-desktop-schemas gnome-keyring dbus-daemon dbus-bin libglib2.0-bin libkf6config-bin qt6-base-dev dpkg-dev systemd-resolved
 
       - uses: ./.github/actions/setup-qt
         with:
@@ -129,15 +118,6 @@ jobs:
         if: runner.os == 'macOS'
         shell: bash
         run: bash tests/platform/run_macos_networkhelper.sh
-
-      - name: Verify ordinary control beneath a live rejecting Mihomo TUN
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          test -z "$(gofmt -l tests/platform/mihomo_tun_probe.go)"
-          go -C corelib vet ../tests/platform/mihomo_tun_probe.go
-          go -C corelib build -mod=readonly -o ../build/coreabi/mihomo-tun-probe ../tests/platform/mihomo_tun_probe.go
-          sudo unshare --net -- "$(command -v python)" tests/platform/mihomo_tun_linux.py --uid "$(id -u)" --probe build/coreabi/mihomo-tun-probe --mihomo "$JC_TEST_MIHOMO_BINARY" 2>&1 | tee build/coreabi/linux-mihomo-tun.log
 
       - name: Verify formal C ABI, protocol session and authentication
         if: *collect_native_evidence
@@ -191,82 +171,12 @@ jobs:
         shell: bash
         run: go -C corelib test -run '^$' -bench '^BenchmarkNativeTCPOwnership$' -benchtime=100ms -count=3 ./internal/mihomo/macos 2>&1 | tee build/coreabi/macos-listener-ownership.log
 
-      - name: Verify privileged Mihomo listener ownership and direct data I/O
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          go -C corelib test -race -c -o ../build/coreabi/mihomo-owner-probe ./internal/mihomo
-          sudo unshare --net -- "$(command -v python)" tests/platform/mihomo_owner_linux.py --uid "$(id -u)" --probe build/coreabi/mihomo-owner-probe --proof build/coreabi/linux_listenerproof_test --mihomo "$JC_TEST_MIHOMO_BINARY" 2>&1 | tee build/coreabi/mihomo-privileged-owner.log
-
-      - name: Check Linux TUN fd transfer and cleanup in an isolated network
-        if: runner.os == 'Linux'
-        shell: bash
-        run: sudo unshare --net -- "$(command -v python)" tests/platform/unix_device_probe.py --uid "$(id -u)" --allocator build/coreabi/linux_tundevice_test 2>&1 | tee build/coreabi/linux-device.log
-
-      - name: Verify ordinary native TUN traffic through the formal C ABI
-        if: runner.os == 'Linux'
-        shell: bash
-        env:
-          CGO_ENABLED: '1'
-          GOEXPERIMENT: cgocheck2
-          GOTOOLCHAIN: local
-          GOWORK: 'off'
-          GOENV: 'off'
-        run: |
-          go -C corelib test -c -o ../build/coreabi/native-tun-host ./internal/bridge
-          go -C corelib test -race -c -o ../build/coreabi/native-tun-fd ./internal/tundevice/linux
-          sudo unshare --net -- env PYTHONDONTWRITEBYTECODE=1 "$(command -v python)" tests/platform/tun_coreabi_unix.py --uid "$(id -u)" --allocator build/coreabi/linux_tundevice_test --gateway build/coreabi/native-tun-host --host build/coreabi/coreabi_test --fd-test build/coreabi/native-tun-fd 2>&1 | tee build/coreabi/linux-tun-coreabi.log
-
-      - name: Check original Go underlay beneath a competing Linux TUN route
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          test -z "$(gofmt -l tests/platform/original_route_probe.go)"
-          go -C corelib vet ../tests/platform/original_route_probe.go
-          go -C corelib build -mod=readonly -o ../build/coreabi/original-route-probe ../tests/platform/original_route_probe.go
-          sudo unshare --net -- "$(command -v python)" tests/platform/original_route_linux.py --uid "$(id -u)" --probe build/coreabi/original-route-probe --allocator build/coreabi/linux_tundevice_test --routes build/coreabi/linux_sourceroutes_test 2>&1 | tee build/coreabi/linux-original-route.log
-
-      - name: Check owned Linux source tables and rules in an isolated network
-        if: runner.os == 'Linux'
-        shell: bash
-        run: sudo unshare --net -- build/coreabi/linux_sourceroutes_test --isolated 2>&1 | tee build/coreabi/linux-source-routes.log
-
-      - name: Check protected Linux source ownership journal in an isolated network
-        if: runner.os == 'Linux'
-        shell: bash
-        run: sudo unshare --net -- build/coreabi/linux_sourcejournal_test --isolated 2>&1 | tee build/coreabi/linux-source-journal.log
-
-      - name: Check owned Linux capture routes and partial recovery in an isolated network
-        if: runner.os == 'Linux'
-        shell: bash
-        run: sudo unshare --net -- build/coreabi/linux_tunroutes_test --isolated 2>&1 | tee build/coreabi/linux-owned-routes.log
-
-      - name: Check authenticated Linux helper fd handoff and independent recovery
-        if: runner.os == 'Linux'
-        shell: bash
-        run: sudo unshare --net -- env PYTHONDONTWRITEBYTECODE=1 "$(command -v python)" tests/platform/networkhelper_linux.py --uid "$(id -u)" --helper build/coreabi/linux_networkhelper_test 2>&1 | tee build/coreabi/linux-network-helper.log
-
-      - name: Check owned Linux DNS and crash recovery with an isolated system resolver
-        if: runner.os == 'Linux'
-        shell: bash
-        run: sudo unshare --mount --net -- env PYTHONDONTWRITEBYTECODE=1 "$(command -v python)" tests/platform/tundns_linux.py --uid "$(id -u)" --probe build/coreabi/linux_tundns_test --helper build/coreabi/linux_networkhelper_test 2>&1 | tee build/coreabi/linux-tun-dns.log
-
-      - name: Build and verify the distribution-owned Linux permission helper
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          bash scripts/build-system-network-helper.sh build/coreabi/system-helper
-          package=(build/coreabi/system-helper/*.deb)
-          test "${#package[@]}" -eq 1
-          python scripts/network_helper_package.py "${package[0]}" --revision "$GITHUB_SHA" --output build/coreabi/linux-helper-package.json
-          sudo unshare --mount --net -- env PYTHONDONTWRITEBYTECODE=1 "$(command -v python)" tests/platform/networkhelper_package_linux.py --package "${package[0]}" --revision "$GITHUB_SHA" --uid "$(id -u)" --client build/coreabi/linux_networkhelperclient_test --authorization-fixture build/coreabi/linux_authorization_fixture --gateway build/coreabi/native-tun-host --tun-adapter build/coreabi/coreabi_tun_adapter_test --coexistence-mihomo "$JC_TEST_MIHOMO_BINARY" 2>&1 | tee build/coreabi/linux-installed-helper.log
-
       - name: Check macOS utun fd transfer and cleanup in the disposable runner
         if: runner.os == 'macOS'
         shell: bash
         run: |
           sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_OS="$RUNNER_OS" build/coreabi/macos_tunroutes_test --isolated 2>&1 | tee build/coreabi/macos-routes.log
-          sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_OS="$RUNNER_OS" "$(command -v python)" tests/platform/unix_device_probe.py --uid "$(id -u)" --allocator build/coreabi/macos_tundevice_test 2>&1 | tee build/coreabi/macos-device.log
+          sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_OS="$RUNNER_OS" "$(command -v python)" tests/platform/macos_device_probe.py --uid "$(id -u)" --allocator build/coreabi/macos_tundevice_test 2>&1 | tee build/coreabi/macos-device.log
 
       - name: Verify ordinary macOS utun traffic through the formal C ABI
         if: runner.os == 'macOS'
@@ -280,11 +190,11 @@ jobs:
         run: |
           go -C corelib test -c -o ../build/coreabi/native-tun-host ./internal/bridge
           go -C corelib test -race -c -o ../build/coreabi/native-tun-fd ./internal/tundevice/macos
-          sudo env PYTHONDONTWRITEBYTECODE=1 GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_OS="$RUNNER_OS" "$(command -v python)" tests/platform/tun_coreabi_unix.py --uid "$(id -u)" --allocator build/coreabi/macos_tundevice_test --gateway build/coreabi/native-tun-host --host build/coreabi/coreabi_test --fd-test build/coreabi/native-tun-fd 2>&1 | tee build/coreabi/macos-tun-coreabi.log
+          sudo env PYTHONDONTWRITEBYTECODE=1 GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_OS="$RUNNER_OS" "$(command -v python)" tests/platform/tun_coreabi_macos.py --uid "$(id -u)" --allocator build/coreabi/macos_tundevice_test --gateway build/coreabi/native-tun-host --host build/coreabi/coreabi_test --fd-test build/coreabi/native-tun-fd 2>&1 | tee build/coreabi/macos-tun-coreabi.log
 
       # Run the upstream runtime only after the original signed SDK and native application checks.
       - name: Verify control beneath a live rejecting Mihomo TUN
-        if: ${{ !cancelled() && (matrix.platform == 'windows' || matrix.platform == 'macos') && (success() || (runner.os == 'Windows' && steps.windows_device_probe.outcome == 'failure')) }}
+        if: ${{ !cancelled() && (success() || (runner.os == 'Windows' && steps.windows_device_probe.outcome == 'failure')) }}
         shell: python
         run: &native_control_tun |
           import os, pathlib, subprocess, sys
@@ -365,7 +275,6 @@ jobs:
               if result.returncode:
                   sys.exit(result.returncode)
       - name: Verify control beneath a live rejecting Mihomo TUN
-        if: matrix.platform == 'windows' || matrix.platform == 'macos'
         shell: python
         run: *native_control_tun
       - name: Upload native controller evidence

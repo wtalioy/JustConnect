@@ -1,6 +1,6 @@
 #pragma once
 
-#if defined(Q_OS_LINUX) || defined(Q_OS_MACOS)
+#if defined(Q_OS_MACOS)
 #include "tuntraffic.h"
 #include <fcntl.h>
 #include <unistd.h>

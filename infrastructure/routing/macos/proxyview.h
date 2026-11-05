@@ -27,7 +27,7 @@ inline std::optional<std::pair<QJsonObject,QJsonObject>> macOriginalProxyView(QJ
     QJsonArray routes;
     for (const auto &value : network["routes"].toArray()) {
         const auto row = value.toObject();
-        if (row["interface_index"] != index || !row["next_hops"].toArray().isEmpty()) routes.append(value);
+        if (row["interface_index"] != index) routes.append(value);
     }
     // Retain addresses for collision-free allocation and leave original DNS providers untouched.
     network["routes"] = routes;

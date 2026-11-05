@@ -40,18 +40,6 @@ function(justconnect_network_policy_tests)
     target_include_directories(windows_networkownership_test PRIVATE "${REPO}")
     target_link_libraries(windows_networkownership_test PRIVATE Qt6::Core Qt6::Network)
     add_test(NAME windows_networkownership_test COMMAND windows_networkownership_test)
-    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-        add_executable(linux_networkownership_test "${REPO}/tests/platform/networkownership_linux_test.cpp"
-            "${REPO}/infrastructure/networkhelper/linux/networkownership.cpp")
-        target_include_directories(linux_networkownership_test PRIVATE "${REPO}")
-        target_link_libraries(linux_networkownership_test PRIVATE justconnect_network_helper Qt6::Network)
-        add_test(NAME linux_networkownership_test COMMAND linux_networkownership_test)
-        add_executable(linux_networkhelperpreparation_test "${REPO}/tests/platform/networkhelperpreparation_linux_test.cpp"
-            "${REPO}/infrastructure/networkhelper/linux/networkhelperpreparation.cpp")
-        target_include_directories(linux_networkhelperpreparation_test PRIVATE "${REPO}")
-        target_link_libraries(linux_networkhelperpreparation_test PRIVATE justconnect_network_helper Qt6::Network justconnect_application)
-        add_test(NAME linux_networkhelperpreparation_test COMMAND linux_networkhelperpreparation_test)
-    endif()
     add_executable(networkprotection_test "${REPO}/tests/networkprotection_test.cpp"
         "${REPO}/infrastructure/networkhelper/windows/networkhelperpreparation.cpp")
     target_include_directories(networkprotection_test PRIVATE "${REPO}")

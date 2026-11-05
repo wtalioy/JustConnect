@@ -36,7 +36,7 @@
 
 首页已改为紧凑单列：学校／服务器、真实状态和主按钮，命名配置与可访问名称从当前设置派生，设置收在齿轮入口；日志、维护观察和高级代理操作移入独立详情窗口。详情与托盘仍读取同一个会话，打开／关闭详情不改变连接；底部只保留完整的详情入口，关闭复用原生窗口按钮，明确退出仍在菜单。公共浅色样式统一按钮、箭头、字号、输入及焦点反馈，替换并删除旧的三份主窗口样式，移除 Windows 固定字体。
 
-Windows 请求系统 Desktop Acrylic 并保留标准窗口边框；macOS 使用 NSVisualEffectView，Linux 当前使用清晰浅色回退。只在实际 Windows／Cocoa Qt 后端使用原生句柄，离屏等后端走清晰浅色回退。没有应用侧屏幕采集、逐帧模糊或持续动画。实现依据为 [DWM 背景材质](https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/ne-dwmapi-dwm_systembackdrop_type)及系统 AppKit；Windows 不支持该能力时回退浅色，不叠加旧版本私有 API。系统效果尚待对应桌面验证，不能用 Linux 离屏截图证明毛玻璃已生效。
+Windows 请求系统 Desktop Acrylic 并保留标准窗口边框；macOS 使用 NSVisualEffectView。只在实际 Windows／Cocoa Qt 后端使用原生句柄，离屏等后端走清晰浅色回退。没有应用侧屏幕采集、逐帧模糊或持续动画。实现依据为 [DWM 背景材质](https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/ne-dwmapi-dwm_systembackdrop_type)及系统 AppKit；Windows 不支持该能力时回退浅色，不叠加旧版本私有 API。系统效果尚待对应桌面验证，不能用 离屏截图证明毛玻璃已生效。
 
 首页、详情及认证窗口的合成数据截图归 `build/reports/s7-native-ui/`；学校／配置名称、长文案和配置操作截图归 `build/reports/s7-profile-ui/`。它们证明离屏布局与交互，不证明实际桌面效果。
 
@@ -54,22 +54,22 @@ Windows 请求系统 Desktop Acrylic 并保留标准窗口边框；macOS 使用 
 
 诊断详情复用现有会话、网络保护与核心共存快照，展示本地入口端口、校园 DNS、规则／重叠与校园例外、已确认出口策略和恢复状态；“规则与 DNS”打开同一来源／重叠详情。它展示确认过的策略，不将规则数量当作某条流量的命中证明。无结果、查询失败及旧代次明确显示未知，不新增周期查询或数据面日志；详情关闭时不刷新显示，复制仅含允许字段与固定诊断码。诊断脱敏、失效观察、语言切换、复制及无额外读取由已有应用测试覆盖；宽字体窄窗口、长配置名和首页 Tab 到主操作保留回归。现有认证／配置操作回归分别按 200%／150% 缩放运行，不另加重复测试。
 
-验证基线：`1bb6d33` 的[三平台应用检查](https://github.com/wtalioy/JustConnect/actions/runs/42046382241)与[六架构实际包检查](https://github.com/wtalioy/JustConnect/actions/runs/42046435836)通过，包括双语、Qt 标准按钮、WebEngine 资源及运行库／助手来源。本地完整构建及 74 项回归通过；当前原生范围证据与未验收项仅在计划维护。Windows 集中操作及毛玻璃效果尚待用户实测；交互原型保留到这项视觉验收通过，macOS／Linux 桌面留 S8。
+验证基线：`1bb6d33` 的[两平台应用检查](https://github.com/wtalioy/JustConnect/actions/runs/42046382241)与[四架构实际包检查](https://github.com/wtalioy/JustConnect/actions/runs/42046435836)通过，包括双语、Qt 标准按钮、WebEngine 资源及运行库／助手来源。本地完整构建及 74 项回归通过；当前原生范围证据与未验收项仅在计划维护。Windows 集中操作及毛玻璃效果尚待用户实测；交互原型保留到这项视觉验收通过，macOS 桌面留 S8。
 
 ## 认证浏览器选择
 
-当前网关公开协议的核对已完成；在保持学校配置、正常浏览器信任及独立客户端边界的前提下，尚无可直接交付的系统默认浏览器替代路径。现有 WebEngine 继续作为可用基线。这是对当前配置与已公开机制的可交付性判断，不是“所有 aTrust 系统浏览器方案在任何条件下都不可能”。替代实现的选择仍待确定，S7-13 保持未勾选。
+当前网关公开协议的核对已完成；在保持学校配置、正常浏览器信任及独立客户端边界的前提下，尚无可直接交付的系统默认浏览器替代路径。现有 WebEngine 继续作为可用基线。这是对当前配置与已公开机制的可交付性判断，不是“所有 aTrust 系统浏览器方案在任何条件下都不可能”。用户已明确以包体积为目标，取消其它系统支持；S7-13 改为移除随包浏览器并验证两平台系统引擎，保持未勾选。
 
 | 路线 | 已确认结果与边界 |
 | --- | --- |
 | 标准本机回调 | 保留原 `client_id`、回调路径和 `sfDomain` 查询，原地址返回 302；IPv4、localhost、IPv6、HTTPS localhost 及 JustConnect 自定义协议这五个候选回调均返回 `21004`。不据此声称穷尽全部潜在服务端注册。 |
 | 门户交给本机客户端 | 当前新门户与实际 OAuth 返回页均通过固定的厂商 HTTPS 本机端点交接；`ticketExchange` 取得 `sidTicket`，`/v1/service/start` 启动客户端。未发现可指定独立接收地址的门户参数。独立 JustConnect 接收端仍须解决那些域名／IP 的浏览器 TLS 信任，应用代码签名不能代替这个 TLS 身份。 |
-| 客户端 URL 协议 | 普通桌面的 `aTrust://browserStart` 只唤起程序，URI 不携带票据；观察到的带票据 `VPNUpdateStart` 分支受 `harmonyNextPC` 限定。不能把注册一个 JustConnect 协议当作三平台交接已经成立。 |
+| 客户端 URL 协议 | 普通桌面的 `aTrust://browserStart` 只唤起程序，URI 不携带票据；观察到的带票据 `VPNUpdateStart` 分支受 `harmonyNextPC` 限定。不能把注册一个 JustConnect 协议当作两平台交接已经成立。 |
 | 本机网页中转 | OAuth 返回页没有向 `window.opener`／`postMessage` 回传票据的处理，并拒绝改变来源的绝对跳转地址。匿名接口未对测试的本机网页来源提供跨域读取授权；没有测试或宣称认证后的跨域请求已可用。 |
 
 [深信服官方说明](https://bbs.sangfor.com.cn/atrustdeveloper/aTrustClient/docs/3.%E5%AE%A2%E6%88%B7%E7%AB%AF%E8%BF%9E%E6%8E%A5%E7%99%BB%E5%BD%95%E5%A4%B1%E8%B4%A5/3.3%E5%AE%A2%E6%88%B7%E7%AB%AF%E7%99%BB%E5%BD%95%E5%BC%82%E5%B8%B8.html)确实描述浏览器到官方客户端的本机通信，但不能由此推定独立客户端已具备相同的信任条件。系统认证代理也保留回调约束：[Apple 的 HTTPS 回调要求域名与应用关联](https://developer.apple.com/documentation/authenticationservices/aswebauthenticationsession/callback/https(host:path:))，[Windows OAuth API 使用应用回调与协议激活](https://learn.microsoft.com/en-us/windows/apps/develop/security/oauth2)，不能据此截获任意学校 HTTPS 回调。
 
-浏览器扩展或调试协议属于不同的集成选择，需要额外组件、浏览器控制权限及维护；并非直接打开正常默认浏览器即可交接。[Chrome 的调试接口约束](https://developer.chrome.com/blog/remote-debugging-port)还要求命令行调试使用非默认用户目录。若主要目标是减小随包浏览器体积，可另行评估系统 WebView；它仍是在应用内显示登录页，不能承诺共享默认浏览器的登录状态，收益和三平台部署仍须验证。
+浏览器扩展或调试协议属于不同的集成选择，需要额外组件、浏览器控制权限及维护；并非直接打开正常默认浏览器即可交接。[Chrome 的调试接口约束](https://developer.chrome.com/blog/remote-debugging-port)还要求命令行调试使用非默认用户目录。若主要目标是减小随包浏览器体积，现已转向评估系统 WebView；它仍是在应用内显示登录页，不能承诺共享默认浏览器的登录状态，收益和两平台部署仍须验证。
 
 保持既有边界：无需申请外部代码签名，不导入自建根、不复用厂商私钥、不读取浏览器 Cookie 或手动搬运票据，不为这一目标搭建常驻核心控制服务。本轮未实现替代后端、未提交用户登录，也未证明真实 `sidTicket` 已能兑换为新的 JustConnect 会话；因此保留 WebEngine 资源、依赖与有效认证回归。
 
@@ -77,4 +77,4 @@ Windows 请求系统 Desktop Acrylic 并保留标准窗口边框；macOS 使用 
 
 ## 验收
 
-逐窗口验证中英文、键盘焦点与可访问名称、长文案／错误、高 DPI、取消及旧结果隔离。Windows 中途进行真实操作验收；macOS／Linux 桌面、实际注销等按既定约定留 S8。性能只按真实测量记录，不以原型流畅、微基准或编译成功代替实际网络、CPU／内存及操作验证。
+逐窗口验证中英文、键盘焦点与可访问名称、长文案／错误、高 DPI、取消及旧结果隔离。Windows 中途进行真实操作验收；macOS 桌面、实际注销等按既定约定留 S8。性能只按真实测量记录，不以原型流畅、微基准或编译成功代替实际网络、CPU／内存及操作验证。

@@ -2,7 +2,7 @@
 #include "infrastructure/dns/macos/resolver.h"
 #include "infrastructure/networkaddress/ipv4.h"
 #include "infrastructure/dns/dnsdomains.h"
-#include "infrastructure/tundevice/tundevice.h"
+#include "infrastructure/tundevice/macos/tundevice.h"
 #include "infrastructure/routing/macos/tunroutes.h"
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -81,7 +81,7 @@ std::optional<MacHelperConfiguration> parseMacHelperApply(const QJsonObject &pac
     const auto configuration = packet["configuration"].toObject();
     const auto mtu = configuration["mtu"].toInteger(-1);
     if (configuration.size() != 6 || configuration["mtu"].toDouble(-1) != double(mtu)
-        || !UnixTunDevice::validIpv4Configuration(configuration["address"].toString(),configuration["peer"].toString(),mtu)
+        || !MacTunDevice::validIpv4Configuration(configuration["address"].toString(),configuration["peer"].toString(),mtu)
         || !configuration["prefixes"].isArray()
         || (configuration["prefixes"].toArray().isEmpty() && configuration["dns_domains"].toArray().isEmpty())
         || configuration["prefixes"].toArray().size() > MacRouteSnapshotRows || !configuration["dns_domains"].isArray()

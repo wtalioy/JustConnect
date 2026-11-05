@@ -50,14 +50,14 @@
 #include "singleapplication.h"
 #include "singleapplication_p.h"
 
-#ifdef Q_OS_UNIX
+#if defined(Q_OS_UNIX)
     #include <unistd.h>
     #include <sys/types.h>
     #include <pwd.h>
 #endif
 
-#ifdef Q_OS_WIN
-    #ifndef NOMINMAX
+#if defined(Q_OS_WIN)
+    #if !defined(NOMINMAX)
         #define NOMINMAX 1
     #endif
     #include <windows.h>
@@ -99,7 +99,7 @@ SingleApplicationPrivate::~SingleApplicationPrivate()
 
 QString SingleApplicationPrivate::getUsername()
 {
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN)
       wchar_t username[UNLEN + 1];
       // Specifies size of the buffer on input
       DWORD usernameLength = UNLEN + 1;
@@ -111,7 +111,7 @@ QString SingleApplicationPrivate::getUsername()
       return qEnvironmentVariable( "USERNAME" );
 #endif
 #endif
-#ifdef Q_OS_UNIX
+#if defined(Q_OS_UNIX)
       QString username;
       uid_t uid = geteuid();
       struct passwd *pw = getpwuid( uid );
@@ -150,15 +150,6 @@ void SingleApplicationPrivate::genBlockServerName()
     if( ! (options & SingleApplication::Mode::ExcludeAppPath) ){
 #if defined(Q_OS_WIN)
         appData.addData( SingleApplication::app_t::applicationFilePath().toLower().toUtf8() );
-#elif defined(Q_OS_LINUX)
-        // If the application is running as an AppImage then the APPIMAGE env var should be used
-        // instead of applicationPath() as each instance is launched with its own executable path
-        const QByteArray appImagePath = qgetenv( "APPIMAGE" );
-        if( appImagePath.isEmpty() ){ // Not running as AppImage: use path to executable file
-            appData.addData( SingleApplication::app_t::applicationFilePath().toUtf8() );
-        } else { // Running as AppImage: Use absolute path to AppImage file
-            appData.addData( appImagePath );
-        };
 #else
         appData.addData( SingleApplication::app_t::applicationFilePath().toUtf8() );
 #endif

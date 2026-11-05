@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.20)
 project(JustConnect)
 
+if(NOT WIN32 AND NOT APPLE)
+    message(FATAL_ERROR "JustConnect supports only Windows and macOS")
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
@@ -43,10 +47,8 @@ if(WIN32)
 endif()
 if(APPLE)
     set(CORE_DATA_DESTINATION "${PROJECT_NAME}.app/Contents/Resources")
-elseif(WIN32)
-    set(CORE_DATA_DESTINATION ".")
 else()
-    set(CORE_DATA_DESTINATION "usr/share/${PROJECT_NAME}")
+    set(CORE_DATA_DESTINATION ".")
 endif()
 install(FILES "${CMAKE_BINARY_DIR}/core-toolchain.txt" "${CMAKE_BINARY_DIR}/source-revision.txt"
     DESTINATION "${CORE_DATA_DESTINATION}" COMPONENT CoreRuntime)
@@ -102,19 +104,19 @@ qt_add_translations(justconnect_desktop
 if(WIN32)
     target_sources(justconnect_desktop PRIVATE presentation/appearance/windows/backdrop.cpp)
     target_link_libraries(justconnect_desktop PUBLIC dwmapi)
-elseif(APPLE)
+else()
     target_sources(justconnect_desktop PRIVATE presentation/appearance/macos/backdrop.mm)
     target_link_libraries(justconnect_desktop PUBLIC "-framework AppKit")
 endif()
 
-if (WIN32)
+if(WIN32)
     message("Building for Windows")
 
     add_executable(${PROJECT_NAME} WIN32
         main.cpp)
 
     set(PLATFORM_LIBS shell32)
-elseif(APPLE)
+else()
     message("Building for MacOS")
 
     add_executable(${PROJECT_NAME} MACOSX_BUNDLE
@@ -122,13 +124,6 @@ elseif(APPLE)
 
     set_target_properties(${PROJECT_NAME}
         PROPERTIES MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/resource/Info.plist")
-else()
-    add_executable(${PROJECT_NAME}
-        main.cpp)
-
-    install(
-        TARGETS ${PROJECT_NAME}
-        RUNTIME DESTINATION bin)
 endif()
 
 set(QAPPLICATION_CLASS QApplication CACHE STRING "Inheritance class for SingleApplication")
@@ -161,16 +156,6 @@ endif()
 
 include(CTest)
 
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    add_executable(JustConnectIconRenderer scripts/render-icon.cpp)
-    target_link_libraries(JustConnectIconRenderer PRIVATE Qt6::Svg Qt6::Gui)
-    add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/icon.png"
-        COMMAND JustConnectIconRenderer "${CMAKE_CURRENT_SOURCE_DIR}/resource/icon.svg" "${CMAKE_CURRENT_BINARY_DIR}/icon.png"
-        DEPENDS JustConnectIconRenderer "${CMAKE_CURRENT_SOURCE_DIR}/resource/icon.svg"
-        VERBATIM)
-    add_custom_target(linux_package_icon ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/icon.png")
-    add_dependencies(${PROJECT_NAME} linux_package_icon)
-endif()
 
 if(BUILD_TESTING)
     add_executable(singleapplication_test tests/singleapplication_test.cpp)
@@ -185,19 +170,17 @@ if(BUILD_TESTING)
     justconnect_system_integration_tests(platformbackend_test justconnect_platform)
     justconnect_credential_tests(credentialstore_test justconnect_platform)
     justconnect_autostart_tests(autostart_test justconnect_platform)
-    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-        add_executable(settingwindow_test tests/settingwindow_test.cpp
-            presentation/widgets/serversettingswidget.cpp
-            presentation/dialogs/settingwindow/settingwindow.cpp
-            presentation/dialogs/authinfowindow/authinfowindow.cpp
-            presentation/coordinators/controllerselectioncoordinator.cpp
-            presentation/presentationhelpers.cpp
-            infrastructure/settings/profilemanager.cpp
-            infrastructure/storage/applicationpaths.cpp infrastructure/settings/credentialaccess.cpp)
-        target_link_libraries(settingwindow_test PRIVATE justconnect_engine justconnect_platform Qt6::WebEngineWidgets Qt6::Concurrent justconnect_application)
-        add_test(NAME settingwindow_test COMMAND settingwindow_test)
-        set_tests_properties(settingwindow_test PROPERTIES TIMEOUT 30 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
-    endif()
+    add_executable(settingwindow_test tests/settingwindow_test.cpp
+        presentation/widgets/serversettingswidget.cpp
+        presentation/dialogs/settingwindow/settingwindow.cpp
+        presentation/dialogs/authinfowindow/authinfowindow.cpp
+        presentation/coordinators/controllerselectioncoordinator.cpp
+        presentation/presentationhelpers.cpp
+        infrastructure/settings/profilemanager.cpp
+        infrastructure/storage/applicationpaths.cpp infrastructure/settings/credentialaccess.cpp)
+    target_link_libraries(settingwindow_test PRIVATE justconnect_engine justconnect_platform Qt6::WebEngineWidgets Qt6::Concurrent justconnect_application)
+    add_test(NAME settingwindow_test COMMAND settingwindow_test)
+    set_tests_properties(settingwindow_test PROPERTIES TIMEOUT 30 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_test(NAME core_self_test COMMAND ${PROJECT_NAME} --core-self-test)
     set_tests_properties(core_self_test PROPERTIES TIMEOUT 30 PASS_REGULAR_EXPRESSION "\"ok\":true")
     include(tests/CoreEngineTests.cmake)

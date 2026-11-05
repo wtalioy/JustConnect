@@ -5,6 +5,7 @@ package testmihomo
 import (
 	"bytes"
 	"encoding/json"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -117,3 +118,6 @@ with tempfile.TemporaryDirectory(prefix='jcm-private-') as directory:
             log.seek(0)
             sys.stderr.write(log.read())
 `
+
+func ipcName(directory string) string                { return filepath.Join(directory, "api.sock") }
+func listenIPC(address string) (net.Listener, error) { return net.Listen("unix", address) }

@@ -32,7 +32,7 @@ ConnectionDiagnostics::ConnectionDiagnostics(CoreEngine *core, ConnectionSession
                 const auto observed = state["mode"].toString();
                 exitKnown = status == CoreEngine::RequestStatus::Success &&
                             snapshot["schema_version"].toInteger() > 0 && state["active"].isBool() &&
-                            state["tun"].isBool() && !state.contains("listener_request") &&
+                            state["tun"].isBool() &&
                             (!state["active"].toBool() || (state["available"].toBool() && !observed.isEmpty())) &&
                             (observed.isEmpty() || observed == "rule" || observed == "global" || observed == "direct");
                 mode = exitKnown ? observed : QString();

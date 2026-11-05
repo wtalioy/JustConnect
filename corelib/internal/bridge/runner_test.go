@@ -475,17 +475,6 @@ func runNativeTUNHost(t *testing.T, killed bool) (*gateway, []byte) {
 	if os.Getuid() == 0 || os.Getuid() != os.Geteuid() {
 		t.Fatal("requires an ordinary caller")
 	}
-	if runtime.GOOS == "linux" {
-		status, err := os.ReadFile("/proc/self/status")
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, line := range strings.Split(string(status), "\n") {
-			if strings.HasPrefix(line, "CapEff:") && strings.TrimSpace(strings.TrimPrefix(line, "CapEff:")) != "0000000000000000" {
-				t.Fatal("native data plane retained capabilities")
-			}
-		}
-	}
 	g := newGateway(t)
 	g.resourceIP.Store("198.18.0.6")
 	if input := os.Getenv("JC_NATIVE_MAC_COEXISTENCE"); input != "" {

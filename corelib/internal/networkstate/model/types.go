@@ -10,55 +10,24 @@ type Interface struct {
 	Addresses   []string `json:"addresses"`
 }
 
-type NextHop struct {
+type Route struct {
+	Destination    string `json:"destination"`
 	InterfaceIndex int    `json:"interface_index"`
 	Gateway        string `json:"gateway,omitempty"`
-	Weight         int    `json:"weight,omitempty"`
+	Metric         int    `json:"metric,omitempty"`
+	Protocol       int    `json:"protocol,omitempty"`
 	Flags          int    `json:"flags,omitempty"`
-}
-
-type Route struct {
-	Destination    string    `json:"destination"`
-	InterfaceIndex int       `json:"interface_index"`
-	Gateway        string    `json:"gateway,omitempty"`
-	Source         string    `json:"source,omitempty"`
-	Table          int       `json:"table,omitempty"`
-	Metric         int       `json:"metric,omitempty"`
-	Scope          int       `json:"scope,omitempty"`
-	Protocol       int       `json:"protocol,omitempty"`
-	Kind           int       `json:"kind,omitempty"`
-	Flags          int       `json:"flags,omitempty"`
-	Cloned         bool      `json:"cloned,omitempty"`
-	NextHops       []NextHop `json:"next_hops,omitempty"`
+	Cloned         bool   `json:"cloned,omitempty"`
 }
 
 type Snapshot struct {
 	OS          string       `json:"os"`
 	Interfaces  []Interface  `json:"interfaces"`
 	Routes      []Route      `json:"routes"`
-	PolicyRules []PolicyRule `json:"policy_rules"`
 	ProxyTunnel *ProxyTunnel `json:"proxy_tunnel,omitempty"`
 }
 
 type ProxyTunnel struct {
 	InterfaceIndex int    `json:"interface_index"`
 	Name           string `json:"name"`
-}
-
-// Attributes retain native Linux selectors, including ones this version does not interpret.
-type RuleAttribute struct {
-	Type  uint16 `json:"type"`
-	Value string `json:"value_hex"`
-}
-
-type PolicyRule struct {
-	Family      int             `json:"family"`
-	Priority    uint32          `json:"priority"`
-	Table       uint32          `json:"table"`
-	Action      uint8           `json:"action"`
-	Flags       uint32          `json:"flags"`
-	TOS         uint8           `json:"tos"`
-	Source      string          `json:"source,omitempty"`
-	Destination string          `json:"destination,omitempty"`
-	Attributes  []RuleAttribute `json:"attributes"`
 }

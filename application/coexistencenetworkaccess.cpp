@@ -47,16 +47,6 @@ CoexistenceNetworkAccess::CoexistenceNetworkAccess(NetworkAccess *nativeAccess, 
     });
     connect(native, &NetworkAccess::lost, this, &NetworkAccess::lost);
     connect(native, &NetworkAccess::restartRequired, this, &NetworkAccess::restartRequired);
-    connect(native, &NetworkAccess::proxyListenersInspected, this,
-        [this](const QUuid &id, const QJsonObject &query, const QJsonArray &proofs, Result result) {
-        if (id != attempt || pending != Pending::Owners || query != attemptedListenerRequest
-            || (stage != Stage::Synchronizing && stage != Stage::Ready)) return;
-        pending = Pending::None;
-        if (!result.succeeded()) { failObservation(result); return; }
-        listenerProofs = proofs;
-        refreshRequested = true;
-        drive();
-    });
     connect(proxy, &SystemProxySession::inspectionFinished, this, &CoexistenceNetworkAccess::inspectFinished);
     connect(proxy, &SystemProxySession::operationFinished, this, [this](bool, const Result &result) { proxyFinished(result); });
     connect(proxy, &SystemProxySession::busyChanged, this, [this](bool busy) {
@@ -87,17 +77,6 @@ CoexistenceNetworkAccess::CoexistenceNetworkAccess(NetworkAccess *nativeAccess, 
             pending = Pending::None;
             if (status != Status::Success) { failObservation(failed("Cannot confirm the Clash coexistence state.")); return; }
             const auto state = data["coexistence"].toObject();
-            if (state["listener_request"].isObject()) {
-                const auto query = state["listener_request"].toObject();
-                if (query == attemptedListenerRequest) { failObservation(failed("Cannot verify privileged Clash listeners.")); return; }
-                attemptedListenerRequest = query;
-                pending = Pending::Owners;
-                if (!native->inspectProxyListeners(attempt,query)) {
-                    pending = Pending::None;
-                    failObservation({Result::Status::Unsupported,"Privileged Clash listener observation is unavailable."});
-                }
-                return;
-            }
             QStringList upstream;
             for (const auto &value : state["endpoints"].toArray()) upstream.append(value.toString());
             const bool recognizedUpstream = std::any_of(observed.endpoints.begin(), observed.endpoints.end(),
@@ -135,8 +114,6 @@ void CoexistenceNetworkAccess::prepare(const QUuid &id) {
     generation.clear();
     frontend = {};
     observed = {};
-    listenerProofs = {};
-    attemptedListenerRequest = {};
     pending = Pending::None;
     dirty = true;
     refreshRequested = nativeStopping = false;
@@ -180,7 +157,7 @@ void CoexistenceNetworkAccess::drive() {
     }
     refreshRequested = false;
     pending = Pending::Update;
-    core->updateCoexistence(generation, observed.endpoints, observed.managed && proxy->isAutomatic(), listenerProofs);
+    core->updateCoexistence(generation, observed.endpoints, observed.managed && proxy->isAutomatic());
 }
 void CoexistenceNetworkAccess::inspectFinished(const SystemProxyCheck &check) {
     if (pending != Pending::Inspect || stage == Stage::Stopping || stage == Stage::StopFailed) return;
@@ -210,7 +187,6 @@ void CoexistenceNetworkAccess::proxyFinished(const Result &result) {
     scheduled.start();
 }
 void CoexistenceNetworkAccess::finishCycle() {
-    attemptedListenerRequest = {};
     if (stage == Stage::Synchronizing) { stage = Stage::Ready; emit ready(attempt, {}); }
     if (dirty || refreshRequested) scheduled.start();
 }

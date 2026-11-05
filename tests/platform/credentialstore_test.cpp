@@ -7,9 +7,9 @@
 #include <QUuid>
 #include <iostream>
 #include <stdexcept>
-#ifdef Q_OS_MACOS
+#if defined(Q_OS_MACOS)
 #include "infrastructure/credentialstore/macos/credentialstore.h"
-#elif defined(Q_OS_WIN)
+#else
 #include <windows.h>
 #endif
 
@@ -34,7 +34,7 @@ void prepare(CredentialStore &store,const QString &a,const QString &b) {
     result=store.read(a);expect(result,CredentialStatus::Success,"read replacement");
     require(result.value==updated,"replacement did not persist");
     expect(store.write(a,QByteArray(CredentialStore::MaxBytes+1,'x')),CredentialStatus::Limit,"oversized write");
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN)
     expect(store.write(a,QByteArray(3000,'x')),CredentialStatus::Limit,"Credential Manager blob limit");
 #endif
     require(store.read(a).value==updated && store.read(b).value==other,"failed writes damaged stored values or another scope");
@@ -76,14 +76,10 @@ int main(int argc,char **argv) {
     QCoreApplication app(argc,argv);
     try {
         const auto arguments=app.arguments();
-#if defined(Q_OS_MACOS) || defined(Q_OS_WIN) || defined(Q_OS_LINUX)
         const auto mode=arguments.value(1,"smoke");
-#else
-        const auto mode=arguments.value(1,"unavailable");
-#endif
         const auto a=arguments.size()>2 ? arguments[2] : digest(QUuid::createUuid().toRfc4122());
         const auto b=digest(a.toUtf8()+"other");
-#ifdef Q_OS_MACOS
+#if defined(Q_OS_MACOS)
         QTemporaryDir folder;require(folder.isValid(),"isolated keychain directory");
         const auto path=folder.filePath("fixture.keychain-db").toUtf8();const QByteArray password="fixture keychain password";
         SecKeychainRef keychain=nullptr;
@@ -112,10 +108,10 @@ int main(int argc,char **argv) {
             expect(store->read(b),CredentialStatus::NotFound,"unique second fixture key");
             const auto cleanup=qScopeGuard([&]{store->remove(a);store->remove(b);store->remove(proxyKey(a));});
             prepare(*store,a,b);
-#ifdef Q_OS_MACOS
+#if defined(Q_OS_MACOS)
             require(SecKeychainLock(keychain)==errSecSuccess,"lock isolated keychain");locked(*store,a);
             require(SecKeychainUnlock(keychain,UInt32(password.size()),password.constData(),true)==errSecSuccess,"unlock isolated keychain");
-#elif defined(Q_OS_WIN)
+#else
             require(ImpersonateAnonymousToken(GetCurrentThread()),"anonymous logon boundary");
             {
                 const auto revert=qScopeGuard([]{RevertToSelf();});

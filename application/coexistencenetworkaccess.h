@@ -19,7 +19,7 @@ public:
     void systemProxyChanged();
 private:
     enum class Stage { Idle, Recovering, Preparing, Prepared, Activating, Synchronizing, Ready, Stopping, StopFailed };
-    enum class Pending { None, Inspect, Resources, Update, Snapshot, Owners, Enable, Clear };
+    enum class Pending { None, Inspect, Resources, Update, Snapshot, Enable, Clear };
     void drive();
     void inspectFinished(const SystemProxyCheck &check);
     void proxyFinished(const PlatformOperationResult &result);
@@ -37,8 +37,6 @@ private:
     Pending pending = Pending::None;
     SystemProxyCheck observed;
     SystemProxyConfig frontend;
-    QJsonArray listenerProofs;
-    QJsonObject attemptedListenerRequest;
     QTimer scheduled;
     bool dirty = true, refreshRequested = false, nativeStopping = false, nativeEngaged = false, listenersKnown = false;
 };

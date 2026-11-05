@@ -22,7 +22,7 @@ runs:
         host: ${{ inputs.host }}
         target: desktop
         arch: ${{ inputs.arch }}
-        archives: qtbase qtsvg qtdeclarative qttools qttranslations qtwayland icu
+        archives: qtbase qtsvg qtdeclarative qttools qttranslations icu
         modules: qtshadertools qtpositioning qtserialport qtwebchannel
         # Extension repositories and native ARM64 support are not in aqt 3.3.0.
         aqtsource: git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7
