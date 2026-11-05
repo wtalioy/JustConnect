@@ -276,6 +276,10 @@ static void profileSetupLanguageChangesPreserveData(MainWindow &window) {
     check(guide.width()==320 && guide.rect().contains(next->mapTo(&guide,QPoint(next->width(),next->height()))),"narrow setup keeps navigation inside the window");
     auto *serverScroll=qobject_cast<QScrollArea *>(pages->currentWidget());
     check(serverScroll && serverScroll->horizontalScrollBar()->maximum()==0,"narrow server settings reflow without horizontal clipping");
+    const auto normalFont=server->font();auto wideFont=normalFont;wideFont.setStretch(200);server->setFont(wideFont);
+    language("en");
+    check(guide.width()==320 && serverScroll->horizontalScrollBar()->maximum()==0,"wide fallback font metrics cannot force the server selector beyond the viewport");
+    server->setFont(normalFont);language("en");
     screenshot("setup-320.png");
     guide.resize(440,560);next->click();next->click();
     check(pages->currentIndex()==2,"valid existing method reaches the credential step");
