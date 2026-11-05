@@ -26,7 +26,7 @@ func (i *tunIngress) serveDNS(transport string, conn net.Conn) {
 	}
 	buffer := make([]byte, maxUDPPacket)
 	for {
-		if err := conn.SetDeadline(time.Now().Add(tunUDPIdleTimeout)); err != nil {
+		if err := conn.SetDeadline(time.Now().Add(udpIdleTimeout)); err != nil {
 			return
 		}
 		n, err := conn.Read(buffer)
@@ -52,7 +52,7 @@ func (i *tunIngress) serveDNS(transport string, conn net.Conn) {
 func serveDNSTCP(conn net.Conn, exchange func(*dns.Msg) (*dns.Msg, error)) {
 	stream := &dns.Conn{Conn: conn}
 	for {
-		if conn.SetDeadline(time.Now().Add(tunUDPIdleTimeout)) != nil {
+		if conn.SetDeadline(time.Now().Add(udpIdleTimeout)) != nil {
 			return
 		}
 		request, err := stream.ReadMsg()
@@ -94,7 +94,7 @@ func dnsDatagram(request, reply *dns.Msg) ([]byte, error) {
 }
 
 func (i *tunIngress) exchangeDNS(request *dns.Msg, transport string) (*dns.Msg, error) {
-	ctx, cancel := context.WithTimeout(i.owner.ctx, tunUDPIdleTimeout)
+	ctx, cancel := context.WithTimeout(i.owner.ctx, udpIdleTimeout)
 	defer cancel()
 	return i.exchangeDNSOn(ctx, request, transport, "")
 }

@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"sync"
+	"time"
 
 	"github.com/things-go/go-socks5"
 	"github.com/things-go/go-socks5/statute"
@@ -13,7 +14,6 @@ import (
 )
 
 const maxSOCKSUDPFlows = 256
-const maxUDPPacket = 1<<16 - 1
 
 func (p *Listeners) handleSOCKSUDP(ctx context.Context, writer io.Writer, request *socks5.Request) error {
 	local, localOK := request.LocalAddr.(*net.TCPAddr)
@@ -121,6 +121,9 @@ func (p *Listeners) handleSOCKSUDP(ctx context.Context, writer io.Writer, reques
 					}()
 					reply := make([]byte, maxUDPPacket)
 					for {
+						if err := remote.SetDeadline(time.Now().Add(udpIdleTimeout)); err != nil {
+							return
+						}
 						n, err := remote.Read(reply[len(key):])
 						if err != nil {
 							return
@@ -131,6 +134,10 @@ func (p *Listeners) handleSOCKSUDP(ctx context.Context, writer io.Writer, reques
 						}
 					}
 				})
+			}
+			if err := target.SetDeadline(time.Now().Add(udpIdleTimeout)); err != nil {
+				_ = target.Close()
+				continue
 			}
 			if _, err := target.Write(packet.Data); err != nil {
 				_ = target.Close()

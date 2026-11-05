@@ -6,8 +6,11 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/wtalioy/JustConnect/corelib/client"
 	"io"
 	"net"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -64,7 +67,7 @@ type socksUDPFixture struct {
 	targets [2]string
 }
 
-func newSOCKSUDPFixture(t testing.TB, host string, bindSource bool) socksUDPFixture {
+func newSOCKSUDPFixture(t testing.TB, host string, bindSource bool, upstream ...client.DialContextFunc) socksUDPFixture {
 	t.Helper()
 	var targets [2]string
 	for index := range targets {
@@ -87,7 +90,11 @@ func newSOCKSUDPFixture(t testing.TB, host string, bindSource bool) socksUDPFixt
 		t.Cleanup(func() { _ = target.Close(); <-served })
 		targets[index] = target.LocalAddr().String()
 	}
-	p, err := NewListeners(context.Background(), net.JoinHostPort(host, "0"), "", dial.NewDialer(nil, nil, nil, false), nil)
+	d := dial.NewDialer(nil, nil, nil, false)
+	if len(upstream) > 0 {
+		d.Upstream = func() client.DialContextFunc { return upstream[0] }
+	}
+	p, err := NewListeners(context.Background(), net.JoinHostPort(host, "0"), "", d, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,5 +225,65 @@ func BenchmarkSOCKSUDPDatagrams(b *testing.B) {
 	b.ResetTimer()
 	for b.Loop() {
 		exchange()
+	}
+}
+
+type shortUDPDeadline struct {
+	net.Conn
+	closed chan struct{}
+	once   sync.Once
+}
+
+func (c *shortUDPDeadline) SetDeadline(deadline time.Time) error {
+	// Scale the real 90-second budget to 200 ms without a product test option.
+	return c.Conn.SetDeadline(time.Now().Add(time.Until(deadline) / 450))
+}
+func (c *shortUDPDeadline) Close() error {
+	c.once.Do(func() { close(c.closed) })
+	return c.Conn.Close()
+}
+
+func TestSOCKSUDPReleasesIdleFlowsAndRedials(t *testing.T) {
+	connections := make(chan *shortUDPDeadline, 2)
+	var dials atomic.Int32
+	f := newSOCKSUDPFixture(t, "127.0.0.1", false, func(ctx context.Context, network, address string) (net.Conn, error) {
+		conn, err := (&net.Dialer{}).DialContext(ctx, network, address)
+		if err != nil {
+			return nil, err
+		}
+		remote := &shortUDPDeadline{Conn: conn, closed: make(chan struct{})}
+		dials.Add(1)
+		connections <- remote
+		return remote, nil
+	})
+	exchange := func() {
+		t.Helper()
+		packet, err := statute.NewDatagram(f.targets[0], []byte("payload"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.client.WriteToUDP(packet.Bytes(), f.address); err != nil {
+			t.Fatal(err)
+		}
+		response := make([]byte, maxUDPPacket)
+		n, _, err := f.client.ReadFromUDPAddrPort(response)
+		if err != nil || !bytes.Equal(response[:n], packet.Bytes()) {
+			t.Fatalf("UDP exchange: %d, %v", n, err)
+		}
+	}
+	exchange()
+	remote := <-connections
+	exchange()
+	if dials.Load() != 1 {
+		t.Fatal("active UDP destination was not reused")
+	}
+	select {
+	case <-remote.closed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("idle UDP destination retained its socket and flow slot")
+	}
+	exchange()
+	if dials.Load() != 2 {
+		t.Fatal("expired destination was not redialed")
 	}
 }

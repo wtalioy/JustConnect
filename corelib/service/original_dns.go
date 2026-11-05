@@ -201,7 +201,7 @@ func (p *Listeners) serveOriginalDNS(conn net.Conn, source string) {
 }
 
 func (p *Listeners) exchangeOriginalDNS(request *dns.Msg, transport, source string) (*dns.Msg, error) {
-	ctx, cancel := context.WithTimeout(p.ctx, tunUDPIdleTimeout)
+	ctx, cancel := context.WithTimeout(p.ctx, udpIdleTimeout)
 	defer cancel()
 	select {
 	case <-p.dnsReady:

@@ -27,8 +27,7 @@ import (
 const (
 	tunNIC = 1
 	// Bound pending handshakes, active relays and queued response packets.
-	maxTUNFlows       = 256
-	tunUDPIdleTimeout = 90 * time.Second
+	maxTUNFlows = 256
 )
 
 type tunFlow struct {
@@ -257,51 +256,12 @@ func (i *tunIngress) forwardUDP(id stack.TransportEndpointID, packet *stack.Pack
 			return
 		}
 		defer target.Close()
-		relayDatagrams(i.owner.ctx, guest, target, tunUDPIdleTimeout, i.owner.fail)
+		relayDatagrams(i.owner.ctx, guest, target, udpIdleTimeout, i.owner.fail)
 	}()
 	return true
 }
 
 // The owner interrupts I/O on close; cancellation also prevents starting unused relay work.
-func relayDatagrams(ctx context.Context, left, right net.Conn, idle time.Duration, fail func(error)) {
-	if ctx.Err() != nil {
-		_ = left.Close()
-		_ = right.Close()
-		return
-	}
-	refresh := func() {
-		deadline := time.Now().Add(idle)
-		_ = left.SetDeadline(deadline)
-		_ = right.SetDeadline(deadline)
-	}
-	refresh()
-	copyPackets := func(dst, src net.Conn) {
-		defer func() { _ = left.Close(); _ = right.Close() }()
-		defer func() {
-			if recover() != nil {
-				fail(errors.New("TUN datagram relay panicked"))
-			}
-		}()
-		if ctx.Err() != nil {
-			return
-		}
-		buf := make([]byte, maxUDPPacket)
-		for ctx.Err() == nil {
-			n, err := src.Read(buf)
-			if err != nil || ctx.Err() != nil {
-				return
-			}
-			refresh()
-			if written, err := dst.Write(buf[:n]); err != nil || written != n {
-				return
-			}
-		}
-	}
-	done := make(chan struct{})
-	go func() { defer close(done); copyPackets(left, right) }()
-	copyPackets(right, left)
-	<-done
-}
 
 func (i *tunIngress) readPackets(mtu uint32) {
 	buf := make([]byte, mtu+1)
