@@ -10,6 +10,7 @@
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QUuid>
+#include <optional>
 #include <qt_windows.h>
 #include <wincrypt.h>
 #include <wrl.h>
@@ -73,7 +74,8 @@ struct SignInBrowser::Native {
     std::shared_ptr<BrowserStorage> storage=std::make_shared<BrowserStorage>();
     QUrl current,pending;
     QString html;
-    bool htmlPending=false,navigating=false,certificatePending=false,failed=false;
+    std::optional<UINT64> navigation;
+    bool htmlPending=false,certificatePending=false,failed=false;
     HRESULT apartment=CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED);
     void resize(HWND window) {if(controller){RECT bounds{};GetClientRect(window,&bounds);controller->put_Bounds(bounds);}}
     ~Native() {if(controller)controller->Close();view.Reset();controller.Reset();storage.reset();if(SUCCEEDED(apartment))CoUninitialize();}
@@ -117,8 +119,15 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &gateway,const TlsOption
                                 if (!self) {event->put_Cancel(TRUE);return S_OK;}
                                 LPWSTR text=nullptr;event->get_Uri(&text);const QUrl target(takeString(text));
                                 const bool allowed=(main && self->native->htmlPending && target==QUrl("about:blank")) || navigation(target,main);
-                                if (!allowed) {event->put_Cancel(TRUE);if(main && self)emit self->loadFinished(false);}
-                                else if (main && self) {self->native->htmlPending=false;self->native->certificatePending=false;self->native->navigating=true;emit self->loadStarted();}
+                                if (!allowed) {
+                                    event->put_Cancel(TRUE);
+                                    if(main && self){self->native->navigation.reset();emit self->loadFinished(false);}
+                                } else if (main && self) {
+                                    UINT64 id=0;event->get_NavigationId(&id);
+                                    const bool started=self->native->navigation!=id;
+                                    self->native->navigation=id;self->native->htmlPending=false;self->native->certificatePending=false;
+                                    if(started)emit self->loadStarted();
+                                }
                                 return S_OK;
                             });
                         };
@@ -129,14 +138,15 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &gateway,const TlsOption
                             if(self){LPWSTR text=nullptr;view->get_Source(&text);self->native->current=QUrl(takeString(text));emit self->urlChanged(self->native->current);}return S_OK;
                         }).Get(),&token);
                         if (SUCCEEDED(configured)) configured=state->view->add_NavigationCompleted(Callback<ICoreWebView2NavigationCompletedEventHandler>([self](ICoreWebView2 *,ICoreWebView2NavigationCompletedEventArgs *event)->HRESULT {
-                            if (self && self->native->navigating) {
+                            UINT64 id=0;event->get_NavigationId(&id);
+                            if (self && self->native->navigation==id) {
                                 BOOL okay=FALSE;event->get_IsSuccess(&okay);
                                 COREWEBVIEW2_WEB_ERROR_STATUS error=COREWEBVIEW2_WEB_ERROR_STATUS_UNKNOWN;event->get_WebErrorStatus(&error);
                                 // WebView2 reports TLS failure before asking the host to evaluate the certificate.
                                 if (!okay && error>=COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_COMMON_NAME_IS_INCORRECT && error<=COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_IS_INVALID) {
                                     self->native->certificatePending=true;return S_OK;
                                 }
-                                self->native->navigating=false;emit self->loadFinished(okay);
+                                self->native->navigation.reset();emit self->loadFinished(okay);
                             }return S_OK;
                         }).Get(),&token);
                         if (SUCCEEDED(configured)) configured=certificates->add_ServerCertificateErrorDetected(Callback<ICoreWebView2ServerCertificateErrorDetectedEventHandler>([self,gateway,tls](ICoreWebView2 *,ICoreWebView2ServerCertificateErrorDetectedEventArgs *event)->HRESULT {
@@ -149,7 +159,7 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &gateway,const TlsOption
                             if (!okay && self) {
                                 emit self->certificateRejected();
                                 if (self && self->native->certificatePending) {
-                                    self->native->certificatePending=false;self->native->navigating=false;emit self->loadFinished(false);
+                                    self->native->certificatePending=false;self->native->navigation.reset();emit self->loadFinished(false);
                                 }
                             }return S_OK;
                         }).Get(),&token);
