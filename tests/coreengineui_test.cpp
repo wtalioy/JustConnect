@@ -50,8 +50,13 @@ static std::optional<bool> noOfficialClient(){return false;}
 template<class Predicate> static void waitUntil(const char *file, int line, Predicate done) {
     QElapsedTimer elapsed;
     elapsed.start();
-    while (!done() && elapsed.elapsed() < 10000)
-        QApplication::processEvents(QEventLoop::AllEvents, 10);
+    if (!done()) {
+        QEventLoop loop;QTimer poll;
+        QObject::connect(&poll,&QTimer::timeout,&loop,[&] {
+            if (done() || elapsed.elapsed()>=10000) loop.quit();
+        });
+        poll.start(5);loop.exec();
+    }
     if (!done()) {
         std::cerr << file << ':' << line << ": ";
         check(false, "Qt UI operation timed out");
@@ -1384,10 +1389,10 @@ static void gateway(const QJsonObject &config) {
 }
 int main(int argc, char **argv) {
     QApplication app(argc, argv);
+    app.setQuitOnLastWindowClosed(false);
     if (argc == 3 && QByteArray(argv[1]) == "--gateway") gateway(QJsonDocument::fromJson(argv[2]).object());
     else if (argc==2 && QByteArray(argv[1])=="--browser") {
         // Native WebViews use the same application message loop as the desktop host.
-        app.setQuitOnLastWindowClosed(false);
         QTimer::singleShot(0,&app,[&] {
             browserCookiesStayInLoginDialog();browserValidatesCallbackNavigation();browserPreservesChallengeIdentity();app.quit();
         });

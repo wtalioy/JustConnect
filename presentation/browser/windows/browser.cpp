@@ -218,13 +218,17 @@ QUrl SignInBrowser::url() const {return native->current;}
 void SignInBrowser::back() {if(native->view)native->view->GoBack();}
 void SignInBrowser::forward() {if(native->view)native->view->GoForward();}
 void SignInBrowser::reload() {if(native->view)native->view->Reload();}
-void SignInBrowser::setHtml(const QString &html) {native->html=html;native->htmlPending=true;if(native->view)native->view->NavigateToString(html.toStdWString().c_str());}
+void SignInBrowser::setHtml(const QString &html) {
+    native->html=html;native->htmlPending=true;
+    if(native->view && FAILED(native->view->NavigateToString(html.toStdWString().c_str())))emit loadFinished(false);
+}
 void SignInBrowser::runJavaScript(const QString &script,std::function<void(const QVariant &)> result) {
     if(!native->view){result({});return;}
     const QPointer<SignInBrowser> self(this);
-    native->view->ExecuteScript(script.toStdWString().c_str(),Callback<ICoreWebView2ExecuteScriptCompletedHandler>([self,result](HRESULT status,LPCWSTR json)->HRESULT {
+    const HRESULT started=native->view->ExecuteScript(script.toStdWString().c_str(),Callback<ICoreWebView2ExecuteScriptCompletedHandler>([self,result](HRESULT status,LPCWSTR json)->HRESULT {
         if(self){const auto document=QJsonDocument::fromJson("["+QString::fromWCharArray(json).toUtf8()+"]");result(SUCCEEDED(status) && !document.array().isEmpty()?document.array().first().toVariant():QVariant());}return S_OK;
     }).Get());
+    if (FAILED(started) && self) {qCDebug(browserLog)<<"script start failed"<<Qt::hex<<started;result({});}
 }
 void SignInBrowser::resizeEvent(QResizeEvent *) {native->resize(reinterpret_cast<HWND>(winId()));}
 void SignInBrowser::showEvent(QShowEvent *) {if(native->controller)native->controller->put_IsVisible(TRUE);}
