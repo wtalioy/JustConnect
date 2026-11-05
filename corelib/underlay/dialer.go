@@ -21,24 +21,25 @@ import (
 // server before the TUN interface was installed. This prevents VPN underlay
 // connections from being captured by the TUN interface itself.
 type Dialer struct {
-	mu             sync.RWMutex
-	detecting      chan struct{}
-	lifecycleCtx   context.Context
-	cancel         context.CancelFunc
-	active         sync.WaitGroup
-	closed         bool
-	closeOnce      sync.Once
-	interfaceName  string
-	originalSource netip.Addr
-	autoDetect     bool
-	excludedIPs    []net.IP
-	requireBound   bool
-	localDNSServer string
-	controller     *mihomo.Client
-	controllerGate chan struct{}
-	resolver       *net.Resolver
-	tunDevice      string
-	diagnostic     func(string)
+	mu                sync.RWMutex
+	detecting         chan struct{}
+	lifecycleCtx      context.Context
+	cancel            context.CancelFunc
+	active            sync.WaitGroup
+	closed            bool
+	closeOnce         sync.Once
+	interfaceName     string
+	originalSource    netip.Addr
+	autoDetect        bool
+	excludedIPs       []net.IP
+	requireBound      bool
+	localDNSServer    string
+	controllerAddress string
+	controller        *mihomo.Client
+	controllerGate    chan struct{}
+	resolver          *net.Resolver
+	tunDevice         string
+	diagnostic        func(string)
 }
 
 // Options configures a Dialer.
@@ -50,8 +51,9 @@ type Options struct {
 	AutoDetect bool
 	// LocalDNSServer overrides the system DNS for VPN server hostname resolution.
 	// It must be an IP address with an optional port.
-	LocalDNSServer string
-	Diagnostic     func(string)
+	LocalDNSServer    string
+	ControllerAddress string
+	Diagnostic        func(string)
 }
 
 // New creates an underlay dialer. With no options, interface auto-detection is
@@ -68,6 +70,11 @@ func New(options ...Options) (*Dialer, error) {
 		cancel()
 		return nil, err
 	}
+	if !mihomo.ValidateControllerAddress(option.ControllerAddress) {
+		cancel()
+		return nil, mihomo.ErrUnavailable
+	}
+	d.controllerAddress = option.ControllerAddress
 	d.localDNSServer = localDNSServer
 	if option.InterfaceName != "" {
 		d.updateInterfaceName(option.InterfaceName)

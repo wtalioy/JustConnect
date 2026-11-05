@@ -23,7 +23,7 @@ func TestMain(m *testing.M) {
 		os.Exit(0)
 	}
 	// Binding unit tests must not discover an unrelated desktop or another package's fixture.
-	discoverController = func(context.Context) (*mihomo.Client, error) { return nil, nil }
+	discoverController = func(context.Context, string) (*mihomo.Client, error) { return nil, nil }
 	os.Exit(m.Run())
 }
 
@@ -52,7 +52,7 @@ func useController(t *testing.T, client *mihomo.Client) {
 	t.Helper()
 	original := discoverController
 	t.Cleanup(func() { discoverController = original })
-	discoverController = func(context.Context) (*mihomo.Client, error) { return client, nil }
+	discoverController = func(context.Context, string) (*mihomo.Client, error) { return client, nil }
 }
 
 func refuseSystemDial(t *testing.T) *atomic.Int32 {
@@ -255,7 +255,7 @@ func TestControllerInitializationWaitIsCancelable(t *testing.T) {
 			t.Cleanup(func() { discoverController = original })
 			entered := make(chan struct{})
 			var calls atomic.Int32
-			discoverController = func(ctx context.Context) (*mihomo.Client, error) {
+			discoverController = func(ctx context.Context, _ string) (*mihomo.Client, error) {
 				if calls.Add(1) == 1 {
 					close(entered)
 				}
@@ -307,5 +307,32 @@ func TestControllerInitializationWaitIsCancelable(t *testing.T) {
 			}
 
 		})
+	}
+}
+
+func TestExplicitControllerSelectionReachesTheOwnedInstance(t *testing.T) {
+	_, fixture := ownedController(t, testmihomo.Options{Transport: "tcp"})
+	wanted := "http://" + fixture.Address
+	original := discoverController
+	t.Cleanup(func() { discoverController = original })
+	var selected string
+	discoverController = func(ctx context.Context, address string) (*mihomo.Client, error) {
+		selected = address
+		return mihomo.Discover(ctx, address)
+	}
+	dialer, err := New(Options{AutoDetect: false, ControllerAddress: wanted})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dialer.Close()
+	state, err := dialer.ObserveProxy(t.Context(), nil)
+	if err != nil || selected != wanted || state.Mode != "rule" {
+		t.Fatalf("explicit controller did not supply the observed runtime: selected=%q mode=%q err=%v", selected, state.Mode, err)
+	}
+	if rejected, err := New(Options{ControllerAddress: "http://192.0.2.1:1234"}); rejected != nil || err == nil {
+		if rejected != nil {
+			rejected.Close()
+		}
+		t.Fatal("remote controller bypassed underlay validation")
 	}
 }

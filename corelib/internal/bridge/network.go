@@ -37,7 +37,7 @@ func (e *Engine) NetworkSnapshot() (model.Snapshot, error) {
 		}
 	}
 	if active == nil || errors.Is(err, net.ErrClosed) {
-		controller, discoveryErr := mihomo.Discover(ctx)
+		controller, discoveryErr := mihomo.Discover(ctx, "")
 		if discoveryErr == nil && controller != nil {
 			defer controller.Close()
 			observation, err = controller.ObserveNetwork(ctx)

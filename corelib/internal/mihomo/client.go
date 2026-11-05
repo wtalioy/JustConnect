@@ -88,45 +88,16 @@ func (c *Client) read(ctx context.Context, path string, query url.Values, target
 	return nil
 }
 
-func Discover(ctx context.Context) (*Client, error) {
-	processes, err := Processes(ctx)
-	if err != nil {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-		return nil, ErrUnavailable
-	}
-	var selected *Client
-	for _, process := range processes {
-		if ctx.Err() != nil {
-			if selected != nil {
-				selected.Close()
-			}
-			return nil, ctx.Err()
-		}
-		candidate, err := Inspect(ctx, process)
-		if err != nil {
-			continue
-		}
-		if selected != nil {
-			candidate.Close()
-			selected.Close()
-			return nil, ErrAmbiguous
-		}
-		selected = candidate
-	}
-	if selected == nil && len(processes) != 0 {
-		return nil, ErrUnavailable
-	}
-	return selected, nil
-}
-
 // Inspect verifies one process's actual controller and current listener facts.
 func Inspect(ctx context.Context, process model.Process) (*Client, error) {
 	list, err := endpoints(process)
 	if err != nil {
 		return nil, err
 	}
+	return inspectEndpoints(ctx, list)
+}
+
+func inspectEndpoints(ctx context.Context, list []endpoint) (*Client, error) {
 	for _, e := range list {
 		candidate := newClient(e)
 		var version struct {

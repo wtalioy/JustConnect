@@ -237,7 +237,7 @@ func TestControllerCancellationAndAmbiguity(t *testing.T) {
 	original := Processes
 	t.Cleanup(func() { Processes = original })
 	Processes = func(context.Context) ([]model.Process, error) { return []model.Process{process, other}, nil }
-	if c, err := Discover(t.Context()); !errors.Is(err, ErrAmbiguous) {
+	if c, err := Discover(t.Context(), ""); !errors.Is(err, ErrAmbiguous) {
 		if c != nil {
 			c.Close()
 		}
