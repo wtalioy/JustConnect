@@ -29,7 +29,7 @@ public:
         originalFlags = state.first; originalServer = state.second; owned = true;
         current = this;
         check(std::atexit(cleanup) == 0,"retain fixture proxy cleanup on assertion exit");
-        systemProxy(true);
+        systemProxy(false);
     }
     ~WindowsCoexistenceFixture()
     {
@@ -109,9 +109,8 @@ public:
             reply->deleteLater();
             return qMakePair(okay,body);
         };
-        // A rejected request is meaningful only after the same public peer answered directly.
-        systemProxy(false);
-        until("release original frontend before the public baseline",[&] { return !proxy.isBusy() && !proxy.needsCleanup(); });
+        check(!proxy.needsCleanup() && resources["underlay_interface"] == "",
+            "start without proxy ownership or a pinned original interface");
         check(get(runtime["ordinary_url"].toString(),false).first,"actual public HTTP baseline is reachable");
         for (const auto *mode : {"rule","global","direct"}) {
             for (const auto &flags : {qMakePair(true,false),qMakePair(true,true),qMakePair(false,true),qMakePair(false,false)}) {
@@ -132,6 +131,10 @@ public:
                         : !(state.first & PROXY_TYPE_PROXY);
                 });
                 check(session.state() == ConnectionState::Running,"mode and independent switches retain the authenticated campus session");
+                until("confirm the native proxy interface in the original-network observation",[&] {
+                    const auto view = policy.model()["network"].toObject()["proxy_tunnel"].toObject();
+                    return !policy.isBusy() && (tun ? view["name"] == runtime["tun_device"] : view.isEmpty());
+                });
                 until("kernel route follows the actual TUN switch",[&] {
                     SOCKADDR_INET destination{},source{}; destination.si_family = AF_INET;
                     const auto address = runtime["ordinary_address"].toString();

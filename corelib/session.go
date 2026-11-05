@@ -272,7 +272,7 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 		if selected, ok := clientOptions.UnderlayDialer.(interface{ InterfaceName() string }); ok {
 			interfaceName = selected.InterfaceName()
 		}
-		observer.Resources(Resources{IPs: ips, Domains: domains, DNSRecords: dnsResource,
+		observer.Resources(Resources{IPs: dialer.CaptureIPResources(), Domains: domains, DNSRecords: dnsResource,
 			CampusDNS: remoteDNS, CampusDNSEnabled: !options.DisableRemoteDNS && remoteDNS != "", DomainDNSNames: domainDNSNames, UnderlayInterface: interfaceName,
 			OriginalAuthenticationAddress: dialer.OriginalAuthenticationAddress,
 			Listeners:                     listeners.Addresses()})

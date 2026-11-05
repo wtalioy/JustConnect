@@ -159,7 +159,7 @@ func TestLiveProtectionOverridesCampusResourcesButNeverGrantsAuthorization(t *te
 	if s.tcpCalls != 3 || s.udpCalls != 3 {
 		t.Fatal("explicit campus choice was not applied")
 	}
-	d.ipResources, d.resourceIndex = nil, nil
+	d.captureIndex, d.resourceIndex = nil, nil
 	d.resolver = resolve.NewResolver(nil, "", "", 1, nil, nil, false)
 	defer d.resolver.Close()
 	for _, forced := range []bool{false, true} {
@@ -365,7 +365,7 @@ func TestRequiredCampusPathPreservesAuthorizedResources(t *testing.T) {
 		Protocol: "udp", PortMin: 9, PortMax: 9, AppID: "authorized-udp"}
 	for _, address := range []string{"127.0.0.1:9", "[::ffff:127.0.0.1]:9"} {
 		stack := &capturingStack{}
-		dialer := &Dialer{stack: stack, alwaysUseVPN: true, ipResources: []client.IPResource{resource}, resourceIndex: ipresource.New([]client.IPResource{resource})}
+		dialer := NewDialer(stack, nil, []client.IPResource{resource}, true)
 		conn, err := dialer.DialIPPort(t.Context(), "udp", address)
 		if conn != nil {
 			conn.Close()
@@ -454,7 +454,7 @@ func TestDialIPPortCarriesTCPPrefL3IPResource(t *testing.T) {
 		Protocol: "tcp", AppID: "l3", EnableTCPPrefL3: true,
 	}
 	stack := &capturingStack{}
-	dialer := &Dialer{stack: stack, ipResources: []client.IPResource{resource}, resourceIndex: ipresource.New([]client.IPResource{resource})}
+	dialer := NewDialer(stack, nil, []client.IPResource{resource}, false)
 
 	if _, err := dialer.DialIPPort(context.Background(), "tcp", "10.0.0.42:443"); err != nil {
 		t.Fatalf("DialIPPort() error = %v", err)
