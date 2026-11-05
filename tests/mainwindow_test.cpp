@@ -1,5 +1,8 @@
 #include "presentation/main/mainwindow.h"
 #include "presentation/i18n/applicationlanguage.h"
+#include "presentation/dialogs/loginwindow/loginwindow.h"
+#include "presentation/dialogs/graphcaptchawindow/graphcaptchawindow.h"
+#include "presentation/dialogs/ssologinwebview/ssologinwebview.h"
 #include "presentation/dialogs/networkpolicywindow.h"
 #include "presentation/dialogs/configurationguidedialog/configurationguidedialog.h"
 #include "application/applicationlogger.h"
@@ -30,7 +33,16 @@
 #include <QThread>
 #include <QProcess>
 #include <QClipboard>
+#include <QBuffer>
+#include <QCheckBox>
+#include <QElapsedTimer>
+#include <QLineEdit>
+#include <QTcpSocket>
+#include <QWebEngineView>
+#include <QWebEnginePage>
 #include <QStyleHints>
+#include <QStyle>
+#include <QStyleOption>
 #include <QLocale>
 #include <QFile>
 #ifdef Q_OS_UNIX
@@ -125,6 +137,8 @@ static void changeLanguageFromSettings(MainWindow &window,const QString &languag
     auto *dialog=window.findChild<QDialog *>("applicationPreferencesDialog");
     auto *choice=dialog->findChild<QComboBox *>("languageComboBox");
     check(choice && choice->findData(language)>=0,"settings expose the requested language");
+    const auto report=qEnvironmentVariable("JC_UI_REPORT_DIR");
+    if (!report.isEmpty()) check(dialog->grab().save(QDir(report).filePath("settings-"+ApplicationLanguage::instance().current()+".png")),"save native preferences screenshot");
     if (ApplicationLanguage::instance().current()=="zh_CN")
         check(dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->text().contains(QString::fromUtf8("保存")),"standard Qt dialog buttons use the selected Chinese translation");
     choice->setCurrentIndex(choice->findData(language));
@@ -147,6 +161,69 @@ static void languagePreferences(MainWindow &window) {
     changeLanguageFromSettings(window,"en");
     check(details->isVisible() && details->windowTitle()=="Connection details" && action->text()=="Connect","switching back updates an already open details window");
     details->reject();
+}
+
+template<class Predicate> static void waitForUi(Predicate ready) {
+    QElapsedTimer timer;timer.start();
+    while (!ready() && timer.elapsed()<10000) QApplication::processEvents(QEventLoop::AllEvents,10);
+    check(ready(),"UI operation completes within its deadline");
+}
+static void authenticationLanguageChangesPreserveData(MainWindow &window) {
+    const auto screenshot=[](QWidget *widget,const QString &name) {
+        const auto report=qEnvironmentVariable("JC_UI_REPORT_DIR");
+        if (!report.isEmpty()) check(widget->grab().save(QDir(report).filePath(name)),"save synthetic native authentication UI screenshot");
+    };
+    const auto language=[](const QString &next) {
+        check(ApplicationLanguage::instance().savePreferences(next,ProfileManager().closeToTray()),"save the active authentication language");
+        QCoreApplication::processEvents();
+        QCoreApplication::sendPostedEvents(nullptr,QEvent::LayoutRequest);
+        QCoreApplication::processEvents();
+    };
+    auto *dialogs=window.findChild<AuthDialogCoordinator *>();dialogs->requestLogin("alice","typed-password");
+    auto *login=window.findChild<LoginWindow *>();auto *remember=login->findChild<QCheckBox *>("saveLoginDetailCheckBox");remember->setChecked(true);
+    language("zh_CN");
+    check(login->windowTitle()==QString::fromUtf8("登录") && login->findChild<QLineEdit *>("usernameLineEdit")->text()=="alice"
+        && login->findChild<QLineEdit *>("passwordLineEdit")->text()=="typed-password" && remember->isChecked(),"language switching preserves login input and consent");
+    screenshot(login,"sign-in.png");
+    dialogs->closeCredentialPrompts();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    dialogs->requestAuthentication({{"generation","1"},{"request_id","1"},{"challenge",QJsonObject{{"kind","sms"},{"can_skip_secondary_auth",true}}}},{});
+    auto *code=window.findChild<QLineEdit *>("authCodeEdit");auto *skip=window.findChild<QCheckBox *>("skipSecondaryAuthCheckBox");code->setText("654321");skip->setChecked(true);
+    language("en");
+    check(code->text()=="654321" && skip->isChecked() && code->window()->windowTitle()=="SMS code","active MFA translation preserves the code, choices and challenge window");
+    for (auto *button:code->window()->findChildren<QPushButton *>()) {
+        QStyleOptionButton option;option.initFrom(button);
+        const auto contents=button->style()->subElementRect(QStyle::SE_PushButtonContents,&option,button);
+        auto text=button->text();text.remove('&');
+        check(contents.width()>=button->fontMetrics().horizontalAdvance(text),"translated verification buttons keep their labels inside the padded content area");
+    }
+    screenshot(code->window(),"verification.png");
+    dialogs->closeAuthentication();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    QPixmap image(40,24);image.fill(Qt::white);QByteArray png;QBuffer buffer(&png);check(buffer.open(QIODevice::WriteOnly) && image.save(&buffer,"PNG"),"prepare a bounded captcha fixture");
+    auto *captcha=new GraphCaptchaWindow(&window);captcha->setGraph(png,true);captcha->show();captcha->findChild<QLineEdit *>("codeEdit")->setText("typed-code");
+    language("zh_CN");
+    check(captcha->windowTitle()==QString::fromUtf8("图形验证码") && captcha->findChild<QLineEdit *>("codeEdit")->text()=="typed-code","captcha translation never reloads the image or clears entered text");
+    screenshot(captcha,"captcha.png");
+    captcha->reject();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);language("en");
+    QTcpServer page;check(page.listen(QHostAddress::LocalHost),"listen on a temporary local sign-in fixture");
+    QObject::connect(&page,&QTcpServer::newConnection,&page,[&] {
+        while (auto *socket=page.nextPendingConnection()) {
+            QObject::connect(socket,&QTcpSocket::readyRead,socket,[socket] {
+                socket->readAll();const QByteArray html="<!doctype html><input id='typed' value='typed-value'>";
+                socket->write("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\nContent-Length: "+QByteArray::number(html.size())+"\r\n\r\n"+html);socket->disconnectFromHost();
+            });
+            QObject::connect(socket,&QTcpSocket::disconnected,socket,&QObject::deleteLater);
+        }
+    });
+    const auto origin="http://127.0.0.1:"+QString::number(page.serverPort());
+    auto *browser=new SsoLoginWebView(&window,QUrl(origin+"/passport/v1/auth/httpsOauth2"));browser->show();
+    auto *view=browser->findChild<QWebEngineView *>();int loads=0;bool loaded=false;
+    QObject::connect(view,&QWebEngineView::loadStarted,view,[&]{++loads;});
+    QObject::connect(view,&QWebEngineView::loadFinished,view,[&](bool okay){check(okay,"load local browser translation fixture");loaded=true;});
+    browser->setInitialUrl(QUrl(origin+"/page"));waitForUi([&]{return loaded;});language("zh_CN");language("en");
+    bool read=false;QString text;view->page()->runJavaScript("document.querySelector('#typed').value",[&](const QVariant &value){text=value.toString();read=true;});waitForUi([&]{return read;});
+    check(text=="typed-value" && loads==1 && browser->windowTitle()=="School sign-in","language switching preserves the school page without reloading it");
+    screenshot(browser,"school-sign-in.png");
+    browser->reject();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
 }
 
 static void nativeHome(MainWindow &window) {
@@ -175,6 +252,7 @@ static void nativeHome(MainWindow &window) {
 }
 
 int main(int argc,char **argv) {
+    if (qgetenv("QT_QPA_PLATFORM")=="offscreen" && qEnvironmentVariableIsEmpty("QT_QUICK_BACKEND")) qputenv("QT_QUICK_BACKEND","software");
     QApplication app(argc,argv);
 #ifdef Q_OS_UNIX
     if (app.arguments().contains("--external-signal")) {
@@ -212,6 +290,7 @@ int main(int argc,char **argv) {
         // UI preference tests retain the real core without requesting host network privileges.
         MainWindow window(&logger,&log,nullptr,[](CoreEngine *,NetworkPolicySession *) -> NetworkAccess * { return nullptr; });
         check(window.isVisible(),"normal startup must show the main window");
+        if (app.arguments().contains("--auth-language")) authenticationLanguageChangesPreserveData(window);
         if (app.arguments().contains("--chinese-startup")) {
             check(ApplicationLanguage::instance().current()=="zh_CN" && window.findChild<QPushButton *>("connectButton")->text()==QString::fromUtf8("连接"),"a new process restores the saved Chinese preference");
             changeLanguageFromSettings(window,"en");

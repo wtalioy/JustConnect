@@ -50,3 +50,5 @@ QLabel#statusIndicator[connectionState="failed"] { background: #fbe6e6; border-c
 QLabel#statusDetailLabel, QLabel#profileDetailLabel, QLabel#versionLabel { font-size: 14px; color: #52617a; }
 QPlainTextEdit#logPlainTextEdit { font-size: 13px; }
 QFrame#logPanel { background: transparent; border: none; }
+
+QListWidget::item { min-height: 24px; padding: 10px 8px; }

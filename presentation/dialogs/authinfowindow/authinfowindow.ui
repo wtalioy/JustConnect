@@ -7,22 +7,29 @@
     <x>0</x>
     <y>0</y>
     <width>450</width>
-    <height>250</height>
+    <height>360</height>
    </rect>
   </property>
   <property name="windowTitle">
-   <string>认证方式</string>
+   <string>Sign-in methods</string>
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <item>
     <widget class="QLabel" name="label">
      <property name="text">
-      <string>可用的认证方式：</string>
+      <string>Choose how to sign in.</string>
      </property>
     </widget>
    </item>
    <item>
-    <widget class="QListWidget" name="authInfoListWidget"/>
+    <widget class="QListWidget" name="authInfoListWidget">
+     <property name="wordWrap">
+      <bool>true</bool>
+     </property>
+     <property name="accessibleName">
+      <string>Sign-in methods</string>
+     </property>
+    </widget>
    </item>
    <item>
     <widget class="QDialogButtonBox" name="buttonBox">
@@ -34,9 +41,24 @@
      </property>
     </widget>
    </item>
+   <property name="spacing">
+    <number>16</number>
+   </property>
+   <property name="leftMargin">
+    <number>24</number>
+   </property>
+   <property name="rightMargin">
+    <number>24</number>
+   </property>
+   <property name="topMargin">
+    <number>24</number>
+   </property>
+   <property name="bottomMargin">
+    <number>24</number>
+   </property>
   </layout>
  </widget>
- <resources/>
+ <resources />
  <connections>
   <connection>
    <sender>buttonBox</sender>

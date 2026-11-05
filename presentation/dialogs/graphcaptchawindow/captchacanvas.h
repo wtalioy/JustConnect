@@ -28,10 +28,16 @@ public:
 protected:
     void paintEvent(QPaintEvent *) override;
     void mousePressEvent(QMouseEvent *ev) override;
+    void keyPressEvent(QKeyEvent *event) override;
+    void focusInEvent(QFocusEvent *event) override;
+    void focusOutEvent(QFocusEvent *event) override;
 
 private:
     QRectF imageRect() const;
+    void addPoint(const QPointF &point);
 
     QPixmap m_img;
     QVector<QPointF> m_pointsPx;
+    QPoint m_keyboardPoint;
+    bool m_keyboardCursor=false;
 };

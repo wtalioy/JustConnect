@@ -1,4 +1,5 @@
 #include "loginwindow.h"
+#include <QEvent>
 
 #include "presentation/presentationhelpers.h"
 
@@ -55,4 +56,10 @@ void LoginWindow::keyPressEvent(QKeyEvent *event)
 		reject();
 	else
 		QDialog::keyPressEvent(event);
+}
+
+void LoginWindow::changeEvent(QEvent *event)
+{
+    QDialog::changeEvent(event);
+    if (event->type()==QEvent::LanguageChange) ui->retranslateUi(this);
 }

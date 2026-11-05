@@ -198,7 +198,7 @@ static void proxyWaitsForReady() {
     session.stop();emit engine->finished(ConnectionError::NONE);
     settings.setValue("Common/AutoSetProxy",true);proxy->checkResult.conflict=false;
     bool shown = false;
-    QString expectedWarning="权限被拒绝";
+    QString expectedWarning="Permission denied";
     QTimer dismiss;
     QObject::connect(&dismiss, &QTimer::timeout, [&] {
         for (auto *widget : QApplication::topLevelWidgets()) {
@@ -286,8 +286,8 @@ static void manualCredentialsAndLateResults() {
         && loaded.password=="manual-secret" && !settings.contains("Credential/Password"),"checked remember stores account and native credentials without plaintext fallback");finish();
     int warnings=0;QTimer dismiss;
     QStringList expectedWarnings{
-        "系统凭据存储权限被拒绝，请检查授权。\nYou can sign in manually for this connection.",
-        "系统凭据存储权限被拒绝，请检查授权。\nYou can sign in manually for this connection."
+        "Secure storage permission was denied. Check authorization.\nYou can sign in manually for this connection.",
+        "Secure storage permission was denied. Check authorization.\nYou can sign in manually for this connection."
     };
     QObject::connect(&dismiss,&QTimer::timeout,[&] {
         for (auto *widget:QApplication::topLevelWidgets()) if (auto *message=qobject_cast<QMessageBox *>(widget);message && message->isVisible()) {
@@ -315,7 +315,7 @@ static void manualCredentialsAndLateResults() {
     check(engine->starts==starts+1 && !session.isActive(),"late account read does not start or deliver old account secrets");
     store->beforeRead={};
     settings.remove("JustConnect/TLSCAPEM");settings.setValue(ProfileCredentials::ScopeSetting,"invalid-existing-namespace");settings.sync();
-    warnings=0;expectedWarnings={"配置或凭据已变化，请重新打开设置或重试。\nYou can sign in manually for this connection."};
+    warnings=0;expectedWarnings={"The profile or credentials changed. Reopen settings or retry.\nYou can sign in manually for this connection."};
     dismiss.start(1);login(false,"manual-without-storage");
     check(engine->profile.credentials.username=="manual-without-storage" && settings.value(ProfileCredentials::ScopeSetting)=="invalid-existing-namespace"
         && !settings.contains("Credential/Password"),"invalid storage namespace still permits explicit manual login without overwriting the namespace");
@@ -949,23 +949,32 @@ static void uiContracts() {
     query->accept();
     check(selected, "selection preserves all method fields");
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-    auto *fudanEngine = new QueryEngine;
-    auto *fudan = new AuthInfoWindow(&parent,fudanEngine);
+    auto *oauthEngine = new QueryEngine;
+    auto *oauth = new AuthInfoWindow(&parent,oauthEngine);
     queryProfile.endpoint.server="configured.example.invalid"; queryProfile.endpoint.port=443;
-    fudan->fetchAuthInfo(queryProfile,true);
-    until([&]{return fudanEngine->starts==1;});
-    emit fudanEngine->authMethodsReady({
+    oauth->fetchAuthInfo(queryProfile,true);
+    until([&]{return oauthEngine->starts==1;});
+    emit oauthEngine->authMethodsReady({
         QJsonObject{{"type","auth/psw"},{"name","Password"}},
         QJsonObject{{"type","auth/httpsOauth2"},{"name","Other OAuth2"},{"domain","other"}},
-        QJsonObject{{"type","auth/httpsOauth2"},{"name","Fudan UIS"},{"auth_id","selected-opaque-id"},{"sub_type","https"},{"domain","returned-domain"},{"login_url","https://returned.example.invalid/uis"}}
+        QJsonObject{{"type","auth/httpsOauth2"},{"name","Campus sign-in"},{"auth_id","selected-opaque-id"},{"sub_type","https"},{"domain","returned-domain"},{"login_url","https://returned.example.invalid/uis"}}
     });
-    check(fudan->findChild<QListWidget *>()->count()==0,"preferred query also waits for terminal cleanup");
-    emit fudanEngine->finished(ConnectionError::NONE);
-    auto *preferred=fudan->findChild<QListWidget *>()->currentItem();
+    check(oauth->findChild<QListWidget *>()->count()==0,"preferred query also waits for terminal cleanup");
+    emit oauthEngine->finished(ConnectionError::NONE);
+    auto *methods=oauth->findChild<QListWidget *>();
+    check(!methods->currentItem() && !oauth->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->isEnabled(),"multiple OAuth methods require an explicit choice without school-name heuristics");
+    methods->setCurrentRow(2);
+    auto *preferred=methods->currentItem();
     const auto choice=preferred ? preferred->data(Qt::UserRole).toJsonObject() : QJsonObject{};
     check(choice["domain"]=="returned-domain" && choice["login_url"]=="https://returned.example.invalid/uis"
-        && choice["auth_id"]=="selected-opaque-id" && choice["sub_type"]=="https","Fudan selection retains complete returned identity");
-    fudan->reject(); QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+        && choice["auth_id"]=="selected-opaque-id" && choice["sub_type"]=="https","explicit selection retains complete returned identity");
+    oauth->fetchAuthInfo(queryProfile,true);until([&]{return oauthEngine->starts==2;});
+    emit oauthEngine->authMethodsReady({QJsonObject{{"type","auth/psw"},{"name","Password"}},
+        QJsonObject{{"type","auth/httpsOauth2"},{"name","Federated sign-in"},{"auth_id","single-id"}}});
+    emit oauthEngine->finished(ConnectionError::NONE);
+    preferred=oauth->findChild<QListWidget *>()->currentItem();
+    check(preferred && preferred->data(Qt::UserRole).toJsonObject()["auth_id"]=="single-id","a unique preferred OAuth method is selected without inspecting school names");
+    oauth->reject(); QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     auto *cancelEngine=new QueryEngine;
     auto *cancelled=new AuthInfoWindow(&parent,cancelEngine);
     cancelled->fetchAuthInfo(queryProfile);until([&]{return cancelEngine->starts==1;}); cancelled->reject();
@@ -1061,7 +1070,7 @@ static void gateway(const QJsonObject &config) {
     untrustedProfile.tls.allowUnverifiedNodes=true;
     untrustedQuery->fetchAuthInfo(untrustedProfile);
     until([&]{return trustFailure;});
-    check(untrustedQuery->findChild<QLabel *>("label")->text().contains("证书")
+    check(untrustedQuery->findChild<QLabel *>("label")->text().contains("certificate")
         && untrustedQuery->findChild<QListWidget *>()->count()==0,"real query reports certificate failure without delivering methods");
     check(trustDiagnostics==QStringList{"tls_authentication_failed","tls_unknown_authority","tls_peer_chain_leaf_only","tls_peer_self_signed"},
         "real ABI delivers bounded certificate diagnostics before the trust failure");

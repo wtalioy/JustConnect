@@ -21,7 +21,11 @@ signals:
 public slots:
     void accept() override;
 
+protected:
+    void changeEvent(QEvent *event) override;
+
 private:
+    void updatePrompt();
     Ui::GraphCaptchaWindow *ui;
     bool textInputMode = false;
 };

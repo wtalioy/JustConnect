@@ -6,6 +6,7 @@
 #include <QDialogButtonBox>
 #include <QJsonArray>
 #include <QPushButton>
+#include <QEvent>
 
 AuthInfoWindow::AuthInfoWindow(QWidget *parent, CoreEngine *inputEngine)
     : QDialog(parent),
@@ -41,33 +42,36 @@ AuthInfoWindow::AuthInfoWindow(QWidget *parent, CoreEngine *inputEngine)
 
     connect(query, &AuthMethodsQuery::ready, this, [this](const QJsonArray &methods) {
         QListWidgetItem *preferred = nullptr;
+        int oauthCount=0;
         for (const auto &value : methods) {
             const auto method = value.toObject();
             const auto type = method["type"].toString();
-            auto *item = new QListWidgetItem(method["name"].toString() + " - " + type + " - " + method["domain"].toString());
+            auto *item = new QListWidgetItem(method["name"].toString().isEmpty()?type:method["name"].toString());
+            item->setToolTip(type+" · "+method["domain"].toString());
             item->setData(Qt::UserRole,method);
             ui->authInfoListWidget->addItem(item);
+            if (type=="auth/httpsOauth2") ++oauthCount;
             if (preferOAuth && type == "auth/httpsOauth2"
-                && (!preferred || method["name"].toString().contains("UIS",Qt::CaseInsensitive))) preferred = item;
+                && !preferred) preferred = item;
         }
         queryCompleted=true;
-        if (preferred) ui->authInfoListWidget->setCurrentItem(preferred);
-        ui->label->setText(methods.isEmpty() ? "服务器没有返回可用的认证方式。" : "请选择可用的认证方式：");
+        if (preferred && oauthCount==1) ui->authInfoListWidget->setCurrentItem(preferred);
+        setStatus(methods.isEmpty() ? QT_TR_NOOP("No sign-in methods are available.") : QT_TR_NOOP("Choose how to sign in."));
     });
     connect(query,&AuthMethodsQuery::failed,this,[this](ConnectionError error) {
         queryCompleted=false;
         ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(false);
-        QString message;
+        const char *message=nullptr;
         switch(error) {
-        case ConnectionError::PERMISSION_DENIED: message="网络操作权限不足，请检查接口绑定或授权结果。"; break;
-        case ConnectionError::TLS_TRUST: message="服务器证书不受信任或地址不匹配。请检查地址、系统时间和学校 CA。"; break;
-        case ConnectionError::TLS_PROTOCOL: message="TLS 协议协商失败，请检查服务器端口与 TLS 兼容性。"; break;
-        case ConnectionError::NETWORK_FAILED: message="网络连接失败，请检查 DNS、网络和服务器地址。"; break;
-        case ConnectionError::TIMED_OUT: message="查询超时，请检查网络后重试。"; break;
-        case ConnectionError::AUTHENTICATION_CHANGED: message="认证方式已变化，请重新查询。"; break;
-        default: message="获取认证方式失败，请检查服务器信息及当前连接状态后重试。"; break;
+        case ConnectionError::PERMISSION_DENIED: message=QT_TR_NOOP("Network permission was denied. Check interface access or authorization."); break;
+        case ConnectionError::TLS_TRUST: message=QT_TR_NOOP("The server certificate is not trusted or does not match. Check the address, system time and campus CA."); break;
+        case ConnectionError::TLS_PROTOCOL: message=QT_TR_NOOP("TLS negotiation failed. Check the server port and TLS compatibility."); break;
+        case ConnectionError::NETWORK_FAILED: message=QT_TR_NOOP("Connection failed. Check DNS, connectivity and the server address."); break;
+        case ConnectionError::TIMED_OUT: message=QT_TR_NOOP("The query timed out. Check your network and retry."); break;
+        case ConnectionError::AUTHENTICATION_CHANGED: message=QT_TR_NOOP("Sign-in methods changed. Query them again."); break;
+        default: message=QT_TR_NOOP("Could not query sign-in methods. Check the server and connection, then retry."); break;
         }
-        ui->label->setText(message);
+        setStatus(message);
     });
     connect(this,&QDialog::finished,query,&AuthMethodsQuery::stop);
 
@@ -85,12 +89,12 @@ void AuthInfoWindow::fetchAuthInfo(const ConnectionProfile &profile, bool prefer
     queryCompleted = false;
     ui->authInfoListWidget->clear();
     ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(false);
-    ui->label->setText("正在获取认证方式，请稍候...");
+    setStatus(QT_TR_NOOP("Loading sign-in methods…"));
     controllerSelection->choose([this,profile=ConnectionProfile(profile),request](std::optional<QString> address) mutable {
         if (request!=lookup) return;
-        if (!address) {ui->label->setText(tr("Controller selection cancelled."));return;}
+        if (!address) {setStatus(QT_TR_NOOP("Controller selection cancelled."));return;}
         profile.behavior.controllerAddress=*address;
-        if (!query->start(profile)) ui->label->setText("正在查询，请稍候或关闭窗口后重试。");
+        if (!query->start(profile)) setStatus(QT_TR_NOOP("A query is already running. Wait or close this window and retry."));
     });
 }
 
@@ -102,4 +106,16 @@ void AuthInfoWindow::done(int result)
         connect(query,&AuthMethodsQuery::settled,this,&QObject::deleteLater,Qt::SingleShotConnection);
     }
     QDialog::done(result);
+}
+
+void AuthInfoWindow::setStatus(const char *source)
+{
+    statusText=source;ui->label->setText(tr(source));
+}
+void AuthInfoWindow::changeEvent(QEvent *event)
+{
+    QDialog::changeEvent(event);
+    if (event->type()!=QEvent::LanguageChange) return;
+    ui->retranslateUi(this);
+    if (statusText) ui->label->setText(tr(statusText));
 }

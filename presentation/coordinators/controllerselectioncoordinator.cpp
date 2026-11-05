@@ -56,12 +56,14 @@ void ControllerSelectionCoordinator::showChoice(const EmbeddedCoreEngine::Contro
     auto *view=new QDialog(window);dialog=view;
     view->setObjectName("controllerSelectionDialog");view->setWindowTitle(tr("Clash coexistence"));
     view->setWindowModality(Qt::WindowModal);view->setAttribute(Qt::WA_DeleteOnClose);
-    auto *layout=new QFormLayout(view);
+    auto *layout=new QFormLayout(view);layout->setRowWrapPolicy(QFormLayout::WrapAllRows);
+    layout->setContentsMargins(24,24,24,24);layout->setSpacing(16);view->setMinimumWidth(320);
     auto *hint=new QLabel(result.status==CoreEngine::RequestStatus::Success
         ? tr("Choose the local controller to use. Changes apply to the next connection.")
         : tr("Automatic discovery is unavailable. Retry or enter a local controller address."),view);
     hint->setWordWrap(true);layout->addRow(hint);
     auto *choices=new QComboBox(view);choices->setObjectName("controllerChoices");
+    choices->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
     choices->addItem(tr("Automatically discover"),QString());
     for (const auto &value:result.candidates) {
         const auto item=value.toObject();
@@ -80,6 +82,7 @@ void ControllerSelectionCoordinator::showChoice(const EmbeddedCoreEngine::Contro
     const auto update=[choices,address,addressLabel,manualIndex] {
         address->setVisible(choices->currentIndex()==manualIndex);
         addressLabel->setVisible(address->isVisibleTo(address->parentWidget()));
+        choices->setToolTip(choices->currentData().toString());
     };
     connect(choices,&QComboBox::currentIndexChanged,view,update);update();
     auto *error=new QLabel(view);error->setObjectName("controllerError");error->setWordWrap(true);layout->addRow(error);
@@ -105,5 +108,5 @@ void ControllerSelectionCoordinator::showChoice(const EmbeddedCoreEngine::Contro
         }
         finish(selected);
     });
-    view->show();
+    view->resize(520,view->sizeHint().height());view->show();
 }

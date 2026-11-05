@@ -1,4 +1,5 @@
 #include "graphcaptchawindow.h"
+#include <QEvent>
 
 #include "captchacanvas.h"
 
@@ -49,7 +50,7 @@ void GraphCaptchaWindow::setGraph(const QByteArray &image, bool useTextInput)
     }
     ui->canvas->setImage(graph);
     ui->canvas->setEnabled(!textInputMode);
-    ui->codeLabel->setVisible(textInputMode);
+    updatePrompt();
     ui->codeEdit->setVisible(textInputMode);
     ui->buttonBox->button(QDialogButtonBox::Reset)->setVisible(!textInputMode);
     if (textInputMode)
@@ -63,7 +64,7 @@ void GraphCaptchaWindow::accept()
 {
     if (ui->canvas->image().isNull())
     {
-        QMessageBox::warning(this, "图形验证码", "验证码图片加载失败，请重试连接。");
+        QMessageBox::warning(this, tr("Image verification"), tr("The verification image could not be loaded. Retry the connection."));
         return;
     }
 
@@ -72,7 +73,7 @@ void GraphCaptchaWindow::accept()
         const QString code = ui->codeEdit->text().trimmed();
         if (code.isEmpty())
         {
-            QMessageBox::warning(this, "图形验证码", "请输入图片中的字符验证码。");
+            QMessageBox::warning(this, tr("Image verification"), tr("Enter the characters shown in the image."));
             ui->codeEdit->setFocus();
             return;
         }
@@ -81,7 +82,7 @@ void GraphCaptchaWindow::accept()
     else
     {
         if (ui->canvas->pointsPx().isEmpty() || ui->canvas->pointsPx().size() > JC_MAX_AUTH_POINTS) {
-            QMessageBox::warning(this, "图形验证码", "请按图片提示点选验证码。");
+            QMessageBox::warning(this, tr("Image verification"), tr("Select the points requested in the image."));
             return;
         }
         QJsonObject obj;
@@ -97,4 +98,16 @@ void GraphCaptchaWindow::accept()
     }
 
     QDialog::accept();
+}
+
+void GraphCaptchaWindow::changeEvent(QEvent *event)
+{
+    QDialog::changeEvent(event);
+    if (event->type()==QEvent::LanguageChange) {ui->retranslateUi(this);updatePrompt();}
+}
+
+void GraphCaptchaWindow::updatePrompt()
+{
+    ui->codeLabel->setVisible(true);
+    ui->codeLabel->setText(textInputMode?tr("Enter the characters in the image."):tr("Select the requested points. Arrow keys move; Space selects."));
 }

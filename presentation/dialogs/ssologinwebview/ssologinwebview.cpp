@@ -3,6 +3,9 @@
 #include "corelib/abi/constants.h"
 
 #include <QDialogButtonBox>
+#include <QEvent>
+#include <QStyle>
+#include <QShortcut>
 #include <QLineEdit>
 #include <QToolButton>
 #include <QWebEngineHistory>
@@ -54,6 +57,15 @@ SsoLoginWebView::SsoLoginWebView(QWidget *parent,const QUrl &callback,const TlsO
     , tls(policy)
 {
     ui->setupUi(this);
+    ui->backButton->setIcon(style()->standardIcon(QStyle::SP_ArrowBack));
+    ui->forwardButton->setIcon(style()->standardIcon(QStyle::SP_ArrowForward));
+    ui->reloadButton->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
+    connect(new QShortcut(QKeySequence::Back,this),&QShortcut::activated,ui->webEngineView,&QWebEngineView::back);
+    connect(new QShortcut(QKeySequence::Forward,this),&QShortcut::activated,ui->webEngineView,&QWebEngineView::forward);
+    connect(new QShortcut(QKeySequence::Refresh,this),&QShortcut::activated,ui->webEngineView,&QWebEngineView::reload);
+    connect(new QShortcut(QKeySequence(QKeyCombination(Qt::ControlModifier,Qt::Key_L)),this),&QShortcut::activated,this,[this] {
+        ui->addressLineEdit->setFocus();ui->addressLineEdit->selectAll();
+    });
     QWebEngineProfileBuilder builder;
     builder.setAdditionalTrustedCertificates(QSslCertificate::fromData(tls.caPem.toUtf8()));
     auto *profile=builder.createProfile(QString(),this);
@@ -69,8 +81,7 @@ SsoLoginWebView::SsoLoginWebView(QWidget *parent,const QUrl &callback,const TlsO
         if (!tls.verify && sameOrigin(error.url(),callbackUrl) && error.isOverridable()) {
             error.acceptCertificate();return;
         }
-        ui->navigationWarningLabel->setText("登录页面的证书验证失败，请检查服务器地址、系统时间和学校 CA。");
-        ui->navigationWarningLabel->show();error.rejectCertificate();
+        failure=NavigationFailure::Certificate;updateWarning();error.rejectCertificate();
     });
 }
 
@@ -117,15 +128,14 @@ void SsoLoginWebView::setupConnections()
 
 void SsoLoginWebView::showNavigationError()
 {
-    ui->navigationWarningLabel->setText("该登录地址或回调不被允许。请检查服务器地址和认证方式。");
-    ui->navigationWarningLabel->show();
+    failure=NavigationFailure::Address;updateWarning();
 }
 
 void SsoLoginWebView::setInitialUrl(const QUrl &url)
 {
     ui->addressLineEdit->setText(url.toString());
     if (!isAllowedUrl(url)) {showNavigationError();return;}
-    ui->navigationWarningLabel->hide();
+    failure=NavigationFailure::None;updateWarning();
     ui->webEngineView->load(url);
 }
 
@@ -155,4 +165,18 @@ bool SsoLoginWebView::isCallbackUrl(const QUrl &url) const
         ++count;
     }
     return count==1;
+}
+
+void SsoLoginWebView::updateWarning()
+{
+    ui->navigationWarningLabel->setVisible(failure!=NavigationFailure::None);
+    ui->navigationWarningLabel->setText(failure==NavigationFailure::Certificate
+        ? tr("The sign-in page certificate is not trusted. Check the server, system time and campus CA.")
+        : failure==NavigationFailure::Address?tr("This sign-in address or callback is not allowed. Check your server and sign-in method."):QString());
+}
+void SsoLoginWebView::changeEvent(QEvent *event)
+{
+    QDialog::changeEvent(event);
+    if (event->type()!=QEvent::LanguageChange) return;
+    ui->retranslateUi(this);updateWarning();
 }
