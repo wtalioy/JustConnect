@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
-	"github.com/patrickmn/go-cache"
 	"github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/wtalioy/JustConnect/corelib/policy"
 )
@@ -136,7 +135,7 @@ func TestNativeNamespaceIgnoresCampusRecordsCacheAndDNSFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r.dnsCache.Flush()
+	clear(r.dnsCache)
 	ctx, ip, err = r.Resolve(t.Context(), "host.mesh.test")
 	if err != nil || !ip.Equal(net.IPv4(198, 51, 100, 1)) || ctx.Value(ContextKeyDomainResource) == nil || original.Load() != queries {
 		t.Fatal("exact campus choice did not use authorized campus resolution", ip, err)
@@ -316,7 +315,7 @@ func TestResolverReleasesCoordinationEntry(t *testing.T) {
 		remoteUDPResolver: failing,
 		remoteTCPResolver: failing,
 		secondaryResolver: failing,
-		dnsCache:          cache.New(time.Minute, 0),
+		dnsCacheTTL:       time.Minute,
 		useRemoteDNS:      true,
 	}
 
@@ -329,7 +328,7 @@ func TestResolverReleasesCoordinationEntry(t *testing.T) {
 func TestResolverRotatesConfiguredDNSAddresses(t *testing.T) {
 	for _, addresses := range [][]net.IP{{net.ParseIP("192.0.2.1")}, {net.ParseIP("192.0.2.1"), net.ParseIP("192.0.2.2")}} {
 		t.Run(fmt.Sprint(len(addresses)), func(t *testing.T) {
-			resolver := &Resolver{dnsResource: map[string][]net.IP{"service.example": addresses}, dnsCache: cache.New(time.Minute, 0)}
+			resolver := &Resolver{dnsResource: map[string][]net.IP{"service.example": addresses}, dnsCacheTTL: time.Minute}
 			for i := 0; i < 4; i++ {
 				_, ip, err := resolver.Resolve(t.Context(), "service.example")
 				if err != nil || !ip.Equal(addresses[i%len(addresses)]) {
@@ -374,7 +373,7 @@ func TestResolverRotatesConfiguredDNSAddresses(t *testing.T) {
 func BenchmarkConfiguredDNS(b *testing.B) {
 	for _, addresses := range [][]net.IP{{net.ParseIP("192.0.2.1")}, {net.ParseIP("192.0.2.1"), net.ParseIP("192.0.2.2")}} {
 		b.Run(fmt.Sprint(len(addresses)), func(b *testing.B) {
-			resolver := &Resolver{dnsResource: map[string][]net.IP{"service.example": addresses}, dnsCache: cache.New(time.Minute, 0)}
+			resolver := &Resolver{dnsResource: map[string][]net.IP{"service.example": addresses}, dnsCacheTTL: time.Minute}
 			_, _, _ = resolver.Resolve(b.Context(), "service.example")
 			b.ReportAllocs()
 			b.ResetTimer()
@@ -404,7 +403,7 @@ func TestResolverWaitingCallerHonorsContext(t *testing.T) {
 		remoteUDPResolver: blocking,
 		remoteTCPResolver: blocking,
 		secondaryResolver: failingNetResolver(),
-		dnsCache:          cache.New(time.Minute, 0),
+		dnsCacheTTL:       time.Minute,
 		useRemoteDNS:      true,
 	}
 
@@ -643,18 +642,49 @@ func TestDNSCacheRemainsBoundedAndReusesExpiredSlots(t *testing.T) {
 		r.setDNSCache(fmt.Sprint(i), ip, false)
 	}
 	r.setDNSCache("overflow", ip, false)
-	if r.dnsCache.ItemCount() != maxDNSCacheEntries {
+	if len(r.dnsCache) != maxDNSCacheEntries {
 		t.Fatal("DNS cache exceeded its capacity")
 	}
 	if _, found := r.getDNSCache("overflow", false); found {
 		t.Fatal("overflow entry displaced a live record")
 	}
-	items := r.dnsCache.Items()
-	items["0"] = cache.Item{Object: ip, Expiration: time.Now().Add(-time.Second).UnixNano()}
-	r.dnsCache = cache.NewFrom(time.Minute, 0, items)
+	updated := net.IPv4(192, 0, 2, 2)
+	r.setDNSCache("0", updated, true)
+	if actual, found := r.getDNSCache("0", true); !found || !actual.Equal(updated) {
+		t.Fatal("a full cache refused to refresh an existing answer and its campus provenance", actual, found)
+	}
+	expired := r.dnsCache["0"]
+	expired.expires = time.Now().Add(-time.Second).UnixNano()
+	r.dnsCache["0"] = expired
+	r.nextDNSExpiry = expired.expires
 	r.setDNSCache("new", ip, false)
 	if _, found := r.getDNSCache("new", false); !found {
 		t.Fatal("expired slot was not reclaimed")
+	}
+}
+
+func BenchmarkDNSCacheHit(b *testing.B) {
+	r := NewResolver(nil, "", "", 60, nil, nil, false)
+	defer r.Close()
+	r.setDNSCache("campus.test", net.IPv4(192, 0, 2, 1), true)
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, found := r.getDNSCache("campus.test", true); !found {
+			b.Fatal("cached answer was lost")
+		}
+	}
+}
+
+func BenchmarkDNSCacheFullMiss(b *testing.B) {
+	r := NewResolver(nil, "", "", 60, nil, nil, false)
+	defer r.Close()
+	ip := net.IPv4(192, 0, 2, 1)
+	for i := 0; i < maxDNSCacheEntries; i++ {
+		r.setDNSCache(fmt.Sprint(i), ip, true)
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		r.setDNSCache("overflow.test", ip, false)
 	}
 }
 

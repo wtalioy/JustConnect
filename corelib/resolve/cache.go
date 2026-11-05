@@ -2,37 +2,58 @@ package resolve
 
 import (
 	"net"
-
-	"github.com/patrickmn/go-cache"
+	"time"
 )
 
 const maxDNSCacheEntries = 4096
 
 type cachedDNSAnswer struct {
-	ip     net.IP
-	campus bool
+	ip      net.IP
+	campus  bool
+	expires int64
 }
 
 func (r *Resolver) getDNSCache(host string, campusOnly bool) (net.IP, bool) {
 	host = normalizeHostname(host)
-	if item, found := r.dnsCache.Get(host); found {
-		if answer, ok := item.(cachedDNSAnswer); ok && (!campusOnly || answer.campus) {
-			return answer.ip, true
-		}
+	r.cacheMu.RLock()
+	answer, found := r.dnsCache[host]
+	r.cacheMu.RUnlock()
+	if !found || (campusOnly && !answer.campus) || (answer.expires > 0 && time.Now().UnixNano() >= answer.expires) {
+		return nil, false
 	}
-	return nil, false
+	return answer.ip, true
 }
 
 func (r *Resolver) setDNSCache(host string, ip net.IP, campus bool) {
 	host = normalizeHostname(host)
 	r.cacheMu.Lock()
 	defer r.cacheMu.Unlock()
-	// No unowned janitor goroutine; discard expired entries when the cache fills.
-	if r.dnsCache.ItemCount() >= maxDNSCacheEntries {
-		r.dnsCache.DeleteExpired()
-		if r.dnsCache.ItemCount() >= maxDNSCacheEntries {
+	now := time.Now().UnixNano()
+	if _, found := r.dnsCache[host]; !found && len(r.dnsCache) >= maxDNSCacheEntries {
+		if r.nextDNSExpiry == 0 || now < r.nextDNSExpiry {
+			return
+		}
+		r.nextDNSExpiry = 0
+		for name, answer := range r.dnsCache {
+			if answer.expires > 0 && now >= answer.expires {
+				delete(r.dnsCache, name)
+			} else if answer.expires > 0 && (r.nextDNSExpiry == 0 || answer.expires < r.nextDNSExpiry) {
+				r.nextDNSExpiry = answer.expires
+			}
+		}
+		if len(r.dnsCache) >= maxDNSCacheEntries {
 			return
 		}
 	}
-	r.dnsCache.Set(host, cachedDNSAnswer{ip: ip, campus: campus}, cache.DefaultExpiration)
+	var expires int64
+	if r.dnsCacheTTL > 0 {
+		expires = now + int64(r.dnsCacheTTL)
+		if r.nextDNSExpiry == 0 || expires < r.nextDNSExpiry {
+			r.nextDNSExpiry = expires
+		}
+	}
+	if r.dnsCache == nil {
+		r.dnsCache = make(map[string]cachedDNSAnswer)
+	}
+	r.dnsCache[host] = cachedDNSAnswer{ip: ip, campus: campus, expires: expires}
 }

@@ -13,7 +13,6 @@ import (
 	"github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/wtalioy/JustConnect/corelib/policy"
 
-	"github.com/patrickmn/go-cache"
 	"github.com/wtalioy/JustConnect/corelib/stack"
 )
 
@@ -34,7 +33,9 @@ type Resolver struct {
 	dnsResourceCursor sync.Map
 	useRemoteDNS      bool
 
-	dnsCache        *cache.Cache
+	dnsCache        map[string]cachedDNSAnswer
+	dnsCacheTTL     time.Duration
+	nextDNSExpiry   int64
 	dnsBindings     map[netip.Addr][]dnsBinding
 	dnsBindingCount int
 
@@ -48,7 +49,7 @@ type Resolver struct {
 	activeResolutions atomic.Int64
 
 	workers   sync.WaitGroup
-	cacheMu   sync.Mutex
+	cacheMu   sync.RWMutex
 	closeOnce sync.Once
 }
 
@@ -466,7 +467,7 @@ func NewResolver(stack stack.Stack, remoteDNSServer, secondaryDNSServer string, 
 		},
 		domainIndex:  newDomainResourceIndex(domainResources),
 		dnsResource:  dnsResource,
-		dnsCache:     cache.New(time.Duration(ttl)*time.Second, 0),
+		dnsCacheTTL:  time.Duration(ttl) * time.Second,
 		useRemoteDNS: useRemoteDNS,
 	}
 
