@@ -140,11 +140,9 @@ LinuxHelperPreparation prepareLinuxNetworkHelper(const QJsonObject &resources, c
     const auto targets = campusCaptureTargets(resources, policy, {}, original.originalSources, &captureDiagnostic);
     if (!targets || (targets->ipv4Prefixes.isEmpty() && targets->dnsDomains.isEmpty())) return {{Status::Unsupported, captureDiagnostic}, {}};
     if (!dns.result.succeeded()) return {dns.result, {}};
-    const auto reserved = tunAddressReservations(targets->ipv4Prefixes,dns.data,localDNS);
-    if (!reserved) return {{Status::Failed,"DNS address reservations exceed the complete input bound."},{}};
-    const auto addresses = privateTUNAddresses(network,*reserved);
-    if (!addresses) return {{Status::Unsupported, "No unused private IPv4 address pair is available."}, {}};
-    if (!UnixTunDevice::validIpv4Configuration(addresses->first, addresses->second, mtu)
+    const auto capture = prepareCampusTunCapture(*targets,network,dns.data,localDNS);
+    if (!capture.result.succeeded()) return {capture.result,{}};
+    if (!UnixTunDevice::validIpv4Configuration(capture.address, capture.peer, mtu)
         || !resources["underlay_interface"].isString())
         return {{Status::Failed, "Invalid TUN MTU or missing underlay preference."}, {}};
     const auto preferred = resources["underlay_interface"].toString();
@@ -152,7 +150,7 @@ LinuxHelperPreparation prepareLinuxNetworkHelper(const QJsonObject &resources, c
         return {{Status::Failed, "Invalid underlay interface name."}, {}};
     const auto utility = trustedIpRouteUtility();
     if (utility.isEmpty()) return {{Status::Unsupported, "A trusted system iproute2 executable is required."}, {}};
-    const auto queries = linuxRouteEndpoints(targets->ipv4Prefixes);
+    const auto queries = linuxRouteEndpoints(capture.prefixes);
     if (!queries) return {{Status::Failed,"Invalid route query endpoints."},{}};
     QByteArray batch;
     for (const auto &address : *queries) {
@@ -171,10 +169,10 @@ LinuxHelperPreparation prepareLinuxNetworkHelper(const QJsonObject &resources, c
     const auto lines = read.output.split('\n', Qt::SkipEmptyParts);
     if (lines.size() != queries->size()) return {{Status::Failed, "Incomplete original route query results."}, {}};
     LinuxHelperConfiguration config;
-    config.address = addresses->first;
-    config.peer = addresses->second;
+    config.address = capture.address;
+    config.peer = capture.peer;
     config.mtu = mtu;
-    config.capturePrefixes = config.originalPrefixes = targets->ipv4Prefixes;
+    config.capturePrefixes = config.originalPrefixes = capture.prefixes;
     config.dnsDomains = targets->dnsDomains;
     config.originalDns = original.configuration.originalDns;
     for (qsizetype index=0; index<lines.size(); ++index) {

@@ -203,7 +203,7 @@ void LinuxNetworkAccess::applyPolicy(const QJsonObject &value)
 {
     const auto owned = helper.ownedConfiguration();
     const auto capture = owned ? updatedCampusCapturePrefixes(policy->model()["resources"].toObject(),
-        value,owned->dnsDomains,originalSources) : std::nullopt;
+        value,owned->dnsDomains,originalSources,{owned->address,owned->peer}) : std::nullopt;
     if (stage != Stage::Ready || helper.state() != HelperState::Active || !capture) {
         policy->completePolicy(value["generation"].toString(),value["revision"].toString(),CoreEngine::RequestStatus::Unavailable);
         return;
@@ -232,7 +232,8 @@ void LinuxNetworkAccess::observeModel()
         emit restartRequired(attempt,QStringLiteral("原网络出口或 DNS 来源已变化，正在恢复网络。"));
         return;
     }
-    const auto prefixes = updatedCampusCapturePrefixes(policy->model()["resources"].toObject(),policy->confirmedProtection(),owned->dnsDomains,originalSources);
+    const auto prefixes = updatedCampusCapturePrefixes(policy->model()["resources"].toObject(),policy->confirmedProtection(),
+        owned->dnsDomains,originalSources,{owned->address,owned->peer});
     if (!prefixes) { invalidateNetwork(QStringLiteral("无法确认当前校园捕获范围。")); return; }
     auto actual = owned->capturePrefixes, expected = *prefixes; actual.sort(); expected.sort();
     if (actual != expected) { helper.reconcile(*prefixes); return; }

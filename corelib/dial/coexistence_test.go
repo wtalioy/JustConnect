@@ -80,7 +80,7 @@ func TestFullIPv4GrantDoesNotCaptureOrdinaryPublicTraffic(t *testing.T) {
 	narrow := grant
 	narrow.IPMin, narrow.IPMax = net.IPv4(203, 0, 113, 9), net.IPv4(203, 0, 113, 9)
 	campus := &capturingStack{}
-	d := NewDialer(campus, nil, []client.IPResource{grant, narrow}, false)
+	d := NewDialer(campus, nil, []client.IPResource{grant, grant, narrow}, false)
 	ordinary := errors.New("original Clash exit")
 	d.Upstream = func() client.DialContextFunc {
 		return func(_ context.Context, _, address string) (net.Conn, error) {

@@ -231,6 +231,22 @@ static void captureTargets()
     check(prepared.result.succeeded() && prepared.configuration["capture_prefixes"]==QJsonArray::fromStringList(plan->ipv4Prefixes)
         && prepared.configuration["dns_domains"]==QJsonArray::fromStringList(plan->dnsDomains)
         && prepared.configuration.value("original_dns").isArray() && prepared.configuration.value("original_dns").toArray().isEmpty(),"Windows preparation lost confirmed resource scopes or native source contract");
+    auto fallback = resources;
+    fallback["private_ip_ranges"] = QJsonArray{QJsonArray{"10.0.0.0","10.255.255.255"},
+        QJsonArray{"172.16.0.0","172.31.255.255"},QJsonArray{"192.168.0.0","192.168.255.255"}};
+    auto fallbackPolicy = policy;
+    auto protectedIPs = policy["protected"].toArray();
+    protectedIPs.append("172.16.0.0/16");
+    fallbackPolicy["protected"] = protectedIPs;
+    const auto withFallback = prepareWindowsNetworkHelper(fallback,fallbackPolicy,allocationNetwork,dns,"172.17.0.3:53",1400);
+    check(withFallback.result.succeeded(),"An unscoped authorization exhausted the tunnel's private address pool");
+    const auto updatedFallback = updatedWindowsCapturePrefixes(fallback,fallbackPolicy,withFallback.configuration,{});
+    check(updatedFallback && QJsonArray::fromStringList(*updatedFallback) == withFallback.configuration["capture_prefixes"],
+        "Live recomputation recaptured the owned private addresses");
+    check(contains(*updatedFallback,"192.168.7.9") && !contains(*updatedFallback,"172.16.0.1")
+        && !contains(*updatedFallback,withFallback.configuration["address"].toString())
+        && !contains(*updatedFallback,withFallback.configuration["peer"].toString()),
+        "Private fallback lost campus IP access or captured the original network or the owned device");
     auto named=resources;
     named["domain_dns_names"]=QJsonArray{"service.custom.test","peer.mesh.test"};
     auto namePolicy=policy;

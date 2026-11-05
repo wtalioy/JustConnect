@@ -367,6 +367,20 @@ namespace {
 using IPv4Range = std::pair<quint64, quint64>;
 using IPv4Ranges = QList<IPv4Range>;
 
+const IPv4Ranges &privateIPv4Ranges()
+{
+    static const auto ranges = [] {
+        IPv4Ranges result;
+        for (const auto *prefix : {"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}) {
+            const auto subnet = QHostAddress::parseSubnet(QString::fromLatin1(prefix));
+            const quint64 start = subnet.first.toIPv4Address();
+            result.append({start, start + (quint64(1) << (32-subnet.second)) - 1});
+        }
+        return result;
+    }();
+    return ranges;
+}
+
 std::optional<quint64> ipv4Number(const QString &text)
 {
     const QHostAddress address(text);
@@ -656,7 +670,27 @@ std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &reso
         for (const auto &value : it.value().toArray())
             if (!value.isString() || !add(value.toString(), value.toString())) return {};
     }
-    const auto prefixes = prefixesForRanges(subtractRanges(mergedRanges(included), mergedRanges(excluded)));
+    const auto fallback = resources.value("private_ip_ranges");
+    if (!fallback.isUndefined() && !fallback.isArray()) return {};
+    const auto fallbackRanges = fallback.toArray();
+    if (fallbackRanges.size() > MaxModelItems) return {};
+    const auto reservedRanges = subtractRanges(mergedRanges(included), mergedRanges(excluded));
+    const auto reservedPrefixes = prefixesForRanges(reservedRanges);
+    if (!reservedPrefixes) return fail(QStringLiteral("Campus capture prefixes exceed the rule limit after preserving original networks."));
+    result.privateFallback = !fallbackRanges.isEmpty();
+    result.reservedPrefixes = *reservedPrefixes;
+    for (const auto &value : fallbackRanges) {
+        const auto bounds = value.toArray();
+        if (bounds.size() != 2) return {};
+        const auto first = ipv4Number(bounds[0].toString()), last = ipv4Number(bounds[1].toString());
+        if (!first || !last || *first > *last
+            || !std::any_of(privateIPv4Ranges().begin(), privateIPv4Ranges().end(), [&](const auto &pool) {
+                return pool.first <= *first && *last <= pool.second;
+            })) return {};
+        included.append({*first, *last});
+    }
+    const auto prefixes = result.privateFallback
+        ? prefixesForRanges(subtractRanges(mergedRanges(included), mergedRanges(excluded))) : reservedPrefixes;
     if (!prefixes) return fail(QStringLiteral("Campus capture prefixes exceed the rule limit after preserving original networks."));
     result.ipv4Prefixes = *prefixes;
     if (diagnostic) *diagnostic = prefixes->isEmpty() && result.dnsDomains.isEmpty()
@@ -665,7 +699,7 @@ std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &reso
 }
 
 std::optional<QStringList> updatedCampusCapturePrefixes(const QJsonObject &resources, const QJsonObject &policy,
-    const QStringList &dnsDomains, const QJsonArray &originalDNS)
+    const QStringList &dnsDomains, const QJsonArray &originalDNS, const QStringList &deviceAddresses)
 {
     QStringList active;
     const auto addresses = resources.value("active_tun_addresses");
@@ -678,7 +712,23 @@ std::optional<QStringList> updatedCampusCapturePrefixes(const QJsonObject &resou
     }
     const auto result = campusCaptureTargets(resources,policy,active,originalDNS);
     if (!result || result->dnsDomains != dnsDomains) return {};
+    if (result->privateFallback) return excludeCampusCaptureAddresses(result->ipv4Prefixes, deviceAddresses);
     return result->ipv4Prefixes;
+}
+
+CampusTunCapture prepareCampusTunCapture(const CampusCaptureTargets &targets,
+    const QJsonObject &network, const QJsonObject &dns, const QString &localDNS)
+{
+    using Status = PlatformOperationResult::Status;
+    const auto reserved = tunAddressReservations(targets.reservedPrefixes, dns, localDNS);
+    if (!reserved) return {{Status::Failed, QStringLiteral("DNS address reservations exceed the complete input bound.")}};
+    const auto addresses = privateTUNAddresses(network, *reserved);
+    if (!addresses) return {{Status::Unsupported, QStringLiteral("No unused private IPv4 address pair is available.")}};
+    const auto prefixes = targets.privateFallback
+        ? excludeCampusCaptureAddresses(targets.ipv4Prefixes, {addresses->first, addresses->second})
+        : std::optional{targets.ipv4Prefixes};
+    if (!prefixes) return {{Status::Unsupported, QStringLiteral("Campus capture prefixes exceed the rule limit after excluding the private device.")}};
+    return {{}, addresses->first, addresses->second, *prefixes};
 }
 
 std::optional<std::pair<QString, QString>> privateTUNAddresses(const QJsonObject &network, const QStringList &reservedPrefixes)
@@ -713,10 +763,8 @@ std::optional<std::pair<QString, QString>> privateTUNAddresses(const QJsonObject
         if (row["cloned"] == true && QHostAddress::parseSubnet(prefix).second > 1 && !exclude(prefix)) return {};
     }
     blocked = mergedRanges(blocked);
-    // RFC 1918 candidate pools are fixed protocol ranges, not fixed device addresses.
-    for (const auto *pool : {"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}) {
-        const auto subnet = QHostAddress::parseSubnet(QString::fromLatin1(pool));
-        const quint64 start = subnet.first.toIPv4Address(), end = start+(quint64(1) << (32-subnet.second))-2;
+    for (const auto &[start, broadcast] : privateIPv4Ranges()) {
+        const auto end = broadcast - 1;
         auto candidate = start+1;
         for (const auto &range : blocked) {
             if (range.second < candidate) continue;

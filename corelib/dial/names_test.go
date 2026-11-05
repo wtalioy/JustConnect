@@ -101,7 +101,7 @@ func TestProtectedHostRetainsNativeTCPAndResolvedSOCKSContext(t *testing.T) {
 		t.Fatal("name exception also captured direct IP traffic", err)
 	}
 	conn.Close()
-	d.captureIndex, d.resourceIndex = nil, nil
+	d.scopedIndex, d.resourceIndex = nil, nil
 	r2 := resolve.NewResolver(nil, "", "", 60, nil, map[string][]net.IP{"localhost": {net.IPv4(127, 0, 0, 2)}}, false)
 	defer r2.Close()
 	r2.ProtectionPolicy = r.ProtectionPolicy
