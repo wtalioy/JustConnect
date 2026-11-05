@@ -8,6 +8,7 @@
 #include "infrastructure/settings/credentialaccess.h"
 
 class QLabel;
+class QCheckBox;
 class QLineEdit;
 class QPushButton;
 class ServerSettingsWidget;
@@ -31,6 +32,9 @@ public:
 signals:
     void connectRequested();
 
+protected:
+    void changeEvent(QEvent *event) override;
+
 private slots:
     void goBack();
 
@@ -39,6 +43,8 @@ private slots:
     void fetchAuthenticationMethods();
 
 private:
+    void retranslate();
+    void updateAuthenticationSelection();
     QVariantMap publicChanges() const;
     ConnectionProfile currentProfile() const;
     void readCredentials();
@@ -69,7 +75,10 @@ private:
 
     QLabel *stepLabel;
     QLabel *titleLabel;
-    QLabel *descriptionLabel;
+    QLabel *usernameLabel, *passwordLabel, *totpLabel, *phoneLabel, *ssoLabel;
+    QCheckBox *showPasswordCheckBox, *showTotpCheckBox;
+    const char *credentialStatusText=nullptr;
+    CredentialStatus credentialLoadStatus=CredentialStatus::NotFound;
     QStackedWidget *pages;
     QPushButton *backButton;
     QPushButton *nextButton;
