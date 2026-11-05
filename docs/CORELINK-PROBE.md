@@ -6,7 +6,7 @@
 
 [Core ABI](../.github/workflows/coreabi.yml) 在四组原生 runner 验证同一源码。macOS 固定 Go `c-archive`，Windows 固定随包 `c-shared` DLL；Windows 首次 archive 调用超时的历史结论仍有效，不重复试探。Windows cgo 使用固定哈希的 LLVM-MinGW UCRT，Qt 宿主使用 MSVC。支持 Go race 的三组目标执行竞态检查，Windows ARM64 继续执行普通 Go、ABI 与 Qt 检查。
 
-Intel CI 使用 macOS 15，Apple Silicon 使用 macOS 26。Intel macOS 26 运行器的系统图标服务故障会阻塞 Qt 首次窗口聚焦，已由线程采样确认，与[上游问题](https://github.com/actions/runner-images/issues/14751)一致；因此选择可用的原生镜像，不修改产品图标、浏览器或系统服务。该镜像恢复正常后可重新评估，Intel macOS 26 桌面验证仍归 S8。Core ABI 对长时间运行的 macOS 原生测试保留一次线程采样，原超时和失败状态不变。
+核心安全回归使用 macOS 26；Intel 实际包在 macOS 15 构建并运行原生网页回归。Intel macOS 26 运行器的图标服务故障已由线程采样确认，与[上游问题](https://github.com/actions/runner-images/issues/14751)一致：Core ABI 仅在一次性运行器内按上游方案停用崩溃服务，不改变产品图标或浏览器；镜像修复后删除这两条环境准备命令。macOS 15 不向错误签名客户端返回本夹具要求的显式拒绝结果，因此不以超时作为通过，也不改写产品信任策略。Mac 实机和系统版本覆盖仍归 S8。Core ABI 为长时间运行的 macOS 原生测试保留一次线程采样，原超时和失败状态不变。
 
 [当前基线](../plan.md#当前验收基线) 区分自动原生检查、实际包和真实校园测试。回环网关与一次性 runner 不能代替桌面批准、校园访问或真实系统注销。
 
