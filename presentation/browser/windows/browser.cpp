@@ -2,6 +2,7 @@
 #include "presentation/browser/signinbrowser.h"
 
 #include <QDir>
+#include <QFocusEvent>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QPointer>
@@ -13,7 +14,6 @@
 #include <wincrypt.h>
 #include <wrl.h>
 #include <WebView2.h>
-#include <WebView2EnvironmentOptions.h>
 
 using Microsoft::WRL::Callback;
 using Microsoft::WRL::ComPtr;
@@ -73,7 +73,7 @@ struct SignInBrowser::Native {
     std::shared_ptr<BrowserStorage> storage=std::make_shared<BrowserStorage>();
     QUrl current,pending;
     QString html;
-    bool htmlPending=false,navigating=false,failed=false;
+    bool htmlPending=false,navigating=false,certificatePending=false,failed=false;
     HRESULT apartment=CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED);
     void resize(HWND window) {if(controller){RECT bounds{};GetClientRect(window,&bounds);controller->put_Bounds(bounds);}}
     ~Native() {if(controller)controller->Close();view.Reset();controller.Reset();storage.reset();if(SUCCEEDED(apartment))CoUninitialize();}
@@ -88,10 +88,8 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &gateway,const TlsOption
         auto *state=self->native.get();
         if (FAILED(state->apartment) || !state->storage->directory.isValid()) {fail();return;}
         const auto folder=state->storage->directory.path().toStdWString();
-        auto options=Microsoft::WRL::Make<CoreWebView2EnvironmentOptions>();
-        options->put_AllowSingleSignOnUsingOSPrimaryAccount(FALSE);
         auto storage=state->storage;
-        const auto result=CreateCoreWebView2EnvironmentWithOptions(nullptr,folder.c_str(),options.Get(),
+        const auto result=CreateCoreWebView2EnvironmentWithOptions(nullptr,folder.c_str(),nullptr,
             Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>([self,gateway,tls,navigation,fail,storage](HRESULT status,ICoreWebView2Environment *environment)->HRESULT {
                 if (FAILED(status) || !environment) {fail();return S_OK;}
                 ComPtr<ICoreWebView2Environment10> modern;
@@ -120,7 +118,7 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &gateway,const TlsOption
                                 LPWSTR text=nullptr;event->get_Uri(&text);const QUrl target(takeString(text));
                                 const bool allowed=(main && self->native->htmlPending && target==QUrl("about:blank")) || navigation(target,main);
                                 if (!allowed) {event->put_Cancel(TRUE);if(main && self)emit self->loadFinished(false);}
-                                else if (main && self) {self->native->htmlPending=false;self->native->navigating=true;emit self->loadStarted();}
+                                else if (main && self) {self->native->htmlPending=false;self->native->certificatePending=false;self->native->navigating=true;emit self->loadStarted();}
                                 return S_OK;
                             });
                         };
@@ -131,14 +129,29 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &gateway,const TlsOption
                             if(self){LPWSTR text=nullptr;view->get_Source(&text);self->native->current=QUrl(takeString(text));emit self->urlChanged(self->native->current);}return S_OK;
                         }).Get(),&token);
                         if (SUCCEEDED(configured)) configured=state->view->add_NavigationCompleted(Callback<ICoreWebView2NavigationCompletedEventHandler>([self](ICoreWebView2 *,ICoreWebView2NavigationCompletedEventArgs *event)->HRESULT {
-                            if(self && self->native->navigating){self->native->navigating=false;BOOL okay=FALSE;event->get_IsSuccess(&okay);emit self->loadFinished(okay);}return S_OK;
+                            if (self && self->native->navigating) {
+                                BOOL okay=FALSE;event->get_IsSuccess(&okay);
+                                COREWEBVIEW2_WEB_ERROR_STATUS error=COREWEBVIEW2_WEB_ERROR_STATUS_UNKNOWN;event->get_WebErrorStatus(&error);
+                                // WebView2 reports TLS failure before asking the host to evaluate the certificate.
+                                if (!okay && error>=COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_COMMON_NAME_IS_INCORRECT && error<=COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_IS_INVALID) {
+                                    self->native->certificatePending=true;return S_OK;
+                                }
+                                self->native->navigating=false;emit self->loadFinished(okay);
+                            }return S_OK;
                         }).Get(),&token);
                         if (SUCCEEDED(configured)) configured=certificates->add_ServerCertificateErrorDetected(Callback<ICoreWebView2ServerCertificateErrorDetectedEventHandler>([self,gateway,tls](ICoreWebView2 *,ICoreWebView2ServerCertificateErrorDetectedEventArgs *event)->HRESULT {
                             LPWSTR text=nullptr;event->get_RequestUri(&text);const QUrl target(takeString(text));
                             ComPtr<ICoreWebView2Certificate> certificate;event->get_ServerCertificate(&certificate);
-                            const bool okay=(!tls.verify && BrowserOrigin::same(target,gateway)) || (certificate && trusted(certificate.Get(),tls.caPem,target.host()));
+                            COREWEBVIEW2_WEB_ERROR_STATUS error=COREWEBVIEW2_WEB_ERROR_STATUS_UNKNOWN;event->get_ErrorStatus(&error);
+                            const bool overridable=error!=COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_REVOKED && error!=COREWEBVIEW2_WEB_ERROR_STATUS_CLIENT_CERTIFICATE_CONTAINS_ERRORS;
+                            const bool okay=overridable && ((!tls.verify && BrowserOrigin::same(target,gateway)) || (certificate && trusted(certificate.Get(),tls.caPem,target.host())));
                             event->put_Action(okay?COREWEBVIEW2_SERVER_CERTIFICATE_ERROR_ACTION_ALWAYS_ALLOW:COREWEBVIEW2_SERVER_CERTIFICATE_ERROR_ACTION_CANCEL);
-                            if(!okay && self)emit self->certificateRejected();return S_OK;
+                            if (!okay && self) {
+                                emit self->certificateRejected();
+                                if (self && self->native->certificatePending) {
+                                    self->native->certificatePending=false;self->native->navigating=false;emit self->loadFinished(false);
+                                }
+                            }return S_OK;
                         }).Get(),&token);
                         // Chromium caches exceptions by host; guard subresources as well as navigations.
                         if (SUCCEEDED(configured) && !tls.verify) {
@@ -159,6 +172,12 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &gateway,const TlsOption
                                 if ((GetKeyState(VK_CONTROL)&0x8000) && key=='L') {event->put_Handled(TRUE);emit self->addressFocusRequested();}
                                 else if (key==VK_F5) {event->put_Handled(TRUE);self->reload();}
                                 else if ((GetKeyState(VK_MENU)&0x8000) && (key==VK_LEFT || key==VK_RIGHT)) {event->put_Handled(TRUE);if(key==VK_LEFT)self->back();else self->forward();}
+                            }return S_OK;
+                        }).Get(),&token);
+                        if (SUCCEEDED(configured)) configured=controller->add_MoveFocusRequested(Callback<ICoreWebView2MoveFocusRequestedEventHandler>([self](ICoreWebView2Controller *,ICoreWebView2MoveFocusRequestedEventArgs *event)->HRESULT {
+                            if (self) {
+                                COREWEBVIEW2_MOVE_FOCUS_REASON reason;event->get_Reason(&reason);
+                                event->put_Handled(TRUE);self->focusNextPrevChild(reason==COREWEBVIEW2_MOVE_FOCUS_REASON_NEXT);
                             }return S_OK;
                         }).Get(),&token);
                         if (FAILED(configured)) {fail();return S_OK;}
@@ -192,4 +211,7 @@ void SignInBrowser::runJavaScript(const QString &script,std::function<void(const
 void SignInBrowser::resizeEvent(QResizeEvent *) {native->resize(reinterpret_cast<HWND>(winId()));}
 void SignInBrowser::showEvent(QShowEvent *) {if(native->controller)native->controller->put_IsVisible(TRUE);}
 void SignInBrowser::hideEvent(QHideEvent *) {if(native->controller)native->controller->put_IsVisible(FALSE);}
-void SignInBrowser::focusInEvent(QFocusEvent *) {if(native->controller)native->controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);}
+void SignInBrowser::focusInEvent(QFocusEvent *event) {
+    if(native->controller)native->controller->MoveFocus(event->reason()==Qt::TabFocusReason?COREWEBVIEW2_MOVE_FOCUS_REASON_NEXT
+        :event->reason()==Qt::BacktabFocusReason?COREWEBVIEW2_MOVE_FOCUS_REASON_PREVIOUS:COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+}

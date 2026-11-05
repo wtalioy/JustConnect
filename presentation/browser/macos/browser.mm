@@ -102,8 +102,18 @@ SignInBrowser::SignInBrowser(QWidget *parent,const QUrl &gateway,const TlsOption
     native->delegate->certificate=[self,gateway,tls](NSURLAuthenticationChallenge *challenge) {
         const auto space=challenge.protectionSpace;
         QUrl origin;origin.setScheme(QString::fromNSString(space.protocol));origin.setHost(QString::fromNSString(space.host));origin.setPort(int(space.port));
-        const bool okay=(!tls.verify && BrowserOrigin::same(origin,gateway))
-            || SecTrustEvaluateWithError(space.serverTrust,nullptr) || trusted(space.serverTrust,tls.caPem,origin.host());
+        const auto trust=space.serverTrust;
+        bool okay=SecTrustEvaluateWithError(trust,nullptr);
+        SecTrustResultType status=kSecTrustResultInvalid;
+        if (!okay && SecTrustGetTrustResult(trust,&status)==errSecSuccess && status==kSecTrustResultRecoverableTrustFailure) {
+            if (!tls.verify && BrowserOrigin::same(origin,gateway)) {
+                CFDataRef exceptions=SecTrustCopyExceptions(trust);
+                if (exceptions) {
+                    okay=SecTrustSetExceptions(trust,exceptions) && SecTrustEvaluateWithError(trust,nullptr);
+                    CFRelease(exceptions);
+                }
+            } else okay=trusted(trust,tls.caPem,origin.host());
+        }
         if (!okay && self) emit self->certificateRejected();
         return okay;
     };
