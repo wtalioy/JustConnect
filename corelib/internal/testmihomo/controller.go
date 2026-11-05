@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -34,6 +35,8 @@ type Fixture struct {
 	PID           int
 	Configuration string
 	DNS           string
+	stop          func()
+	stopped       sync.Once
 }
 
 func Start(t testing.TB, options Options) *Fixture {
@@ -88,7 +91,7 @@ func Start(t testing.TB, options Options) *Fixture {
 	}
 	done := make(chan error, 1)
 	go func() { done <- command.Wait() }()
-	t.Cleanup(func() {
+	stop := func() {
 		control.Close()
 		select {
 		case err := <-done:
@@ -100,7 +103,9 @@ func Start(t testing.TB, options Options) *Fixture {
 			<-done
 			t.Error("owned controller did not release its listeners")
 		}
-	})
+	}
+	fixture := &Fixture{Options: options, PID: command.Process.Pid, Configuration: configuration, stop: stop}
+	t.Cleanup(fixture.Stop)
 	var facts Facts
 	ready := make(chan error, 1)
 	go func() { ready <- json.NewDecoder(reader).Decode(&facts) }()
@@ -112,7 +117,15 @@ func Start(t testing.TB, options Options) *Fixture {
 	case <-time.After(5 * time.Second):
 		t.Fatal("owned controller readiness deadline")
 	}
-	return &Fixture{Options: options, Facts: facts, PID: command.Process.Pid, Configuration: configuration}
+	fixture.Facts = facts
+	return fixture
+}
+
+// Stop releases and reaps the owned runtime before it can be replaced.
+func (f *Fixture) Stop() {
+	if f.stop != nil {
+		f.stopped.Do(f.stop)
+	}
 }
 
 func (f *Fixture) Counts(t testing.TB) (queries, cancelled int) {

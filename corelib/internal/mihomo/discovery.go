@@ -142,7 +142,8 @@ func scanControllers(ctx context.Context, address string) (*Client, []Controller
 		}
 		return nil, candidates, ErrAmbiguous
 	}
-	if selected == nil && (address != "" || len(processes) != 0) {
+	// A saved selection does not require Clash to remain running.
+	if selected == nil && len(processes) != 0 {
 		return nil, candidates, ErrUnavailable
 	}
 	return selected, candidates, nil

@@ -1,7 +1,9 @@
 package underlay
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -9,12 +11,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/wtalioy/JustConnect/corelib/internal/mihomo"
+	"github.com/wtalioy/JustConnect/corelib/internal/mihomo/model"
 	"github.com/wtalioy/JustConnect/corelib/internal/testmihomo"
 )
 
@@ -334,5 +338,87 @@ func TestExplicitControllerSelectionReachesTheOwnedInstance(t *testing.T) {
 			rejected.Close()
 		}
 		t.Fatal("remote controller bypassed underlay validation")
+	}
+}
+
+func TestOwnedRuntimeReloadStopAndRestart(t *testing.T) {
+	fixture := testmihomo.StartConfiguredBinary(t, "127.0.0.1:53", false, map[string]any{"mixed-port": testmihomo.ProxyPort(t)})
+	originalDiscovery, originalProcesses := discoverController, mihomo.Processes
+	t.Cleanup(func() { discoverController = originalDiscovery; mihomo.Processes = originalProcesses })
+	allowed := map[int]bool{fixture.PID: true}
+	mihomo.Processes = func(ctx context.Context) ([]model.Process, error) {
+		list, err := originalProcesses(ctx)
+		result := list[:0]
+		for _, process := range list {
+			if allowed[process.PID] {
+				result = append(result, process)
+			}
+		}
+		return result, err
+	}
+	discoverController = mihomo.Discover
+	dialer, err := New(Options{ControllerAddress: "http://" + fixture.Address})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dialer.Close()
+	state, err := dialer.ObserveProxy(t.Context(), nil)
+	if err != nil || state.Mode != "rule" || state.MixedPort == 0 || len(state.Endpoints) == 0 {
+		t.Fatalf("initial runtime: %+v %v", state, err)
+	}
+	initialPort := state.MixedPort
+	data, err := os.ReadFile(fixture.Configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config map[string]any
+	if err = json.Unmarshal(data, &config); err != nil {
+		t.Fatal(err)
+	}
+	port := testmihomo.ProxyPort(t)
+	config["mixed-port"] = port
+	config["mode"] = "direct"
+	data, err = json.Marshal(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(map[string]string{"payload": string(data)})
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodPut, "http://"+fixture.Address+"/configs?force=true", bytes.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Authorization", "Bearer "+fixture.Secret)
+	request.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Transport: &http.Transport{Proxy: nil}, Timeout: 5 * time.Second}
+	defer client.CloseIdleConnections()
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusNoContent {
+		t.Fatal("owned config reload", response.Status)
+	}
+	expected := fmt.Sprintf("127.0.0.1:%d", port)
+	fixture.WaitReady(t, func() error {
+		state, err = dialer.ObserveProxy(t.Context(), nil)
+		if err != nil {
+			return err
+		}
+		if state.Mode != "direct" || state.MixedPort != uint16(port) || !slices.Contains(state.Endpoints, expected) || state.MixedPort == initialPort {
+			return fmt.Errorf("reload not observed: %+v", state)
+		}
+		return nil
+	})
+	fixture.Stop()
+	state, err = dialer.ObserveProxy(t.Context(), nil)
+	if err != nil || state.Mode != "" || len(state.Endpoints) != 0 || state.Proxy != nil || dialer.controller != nil {
+		t.Fatalf("stopped selected runtime must become absent: %+v %v", state, err)
+	}
+	restarted := testmihomo.StartConfiguredBinary(t, "127.0.0.1:53", false, map[string]any{"external-controller": fixture.Address, "mixed-port": testmihomo.ProxyPort(t)})
+	allowed[restarted.PID] = true
+	state, err = dialer.ObserveProxy(t.Context(), nil)
+	if err != nil || state.Mode != "rule" || state.MixedPort == 0 || len(state.Endpoints) == 0 || dialer.controller == nil {
+		t.Fatalf("restarted runtime: %+v %v", state, err)
 	}
 }
