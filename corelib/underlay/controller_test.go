@@ -282,7 +282,7 @@ func TestControllerInitializationWaitIsCancelable(t *testing.T) {
 			go func() {
 				var err error
 				if observe {
-					_, err = dialer.ObserveProxy(ctx, nil)
+					_, err = dialer.ObserveProxy(ctx)
 				} else {
 					_, err = dialer.DialContext(ctx, "tcp", "other.example.test:443")
 				}
@@ -329,7 +329,7 @@ func TestExplicitControllerSelectionReachesTheOwnedInstance(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer dialer.Close()
-	state, err := dialer.ObserveProxy(t.Context(), nil)
+	state, err := dialer.ObserveProxy(t.Context())
 	if err != nil || selected != wanted || state.Mode != "rule" {
 		t.Fatalf("explicit controller did not supply the observed runtime: selected=%q mode=%q err=%v", selected, state.Mode, err)
 	}
@@ -362,7 +362,7 @@ func TestOwnedRuntimeReloadStopAndRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer dialer.Close()
-	state, err := dialer.ObserveProxy(t.Context(), nil)
+	state, err := dialer.ObserveProxy(t.Context())
 	if err != nil || state.Mode != "rule" || state.MixedPort == 0 || len(state.Endpoints) == 0 {
 		t.Fatalf("initial runtime: %+v %v", state, err)
 	}
@@ -401,7 +401,7 @@ func TestOwnedRuntimeReloadStopAndRestart(t *testing.T) {
 	}
 	expected := fmt.Sprintf("127.0.0.1:%d", port)
 	fixture.WaitReady(t, func() error {
-		state, err = dialer.ObserveProxy(t.Context(), nil)
+		state, err = dialer.ObserveProxy(t.Context())
 		if err != nil {
 			return err
 		}
@@ -411,13 +411,13 @@ func TestOwnedRuntimeReloadStopAndRestart(t *testing.T) {
 		return nil
 	})
 	fixture.Stop()
-	state, err = dialer.ObserveProxy(t.Context(), nil)
+	state, err = dialer.ObserveProxy(t.Context())
 	if err != nil || state.Mode != "" || len(state.Endpoints) != 0 || state.Proxy != nil || dialer.controller != nil {
 		t.Fatalf("stopped selected runtime must become absent: %+v %v", state, err)
 	}
 	restarted := testmihomo.StartConfiguredBinary(t, "127.0.0.1:53", false, map[string]any{"external-controller": fixture.Address, "mixed-port": testmihomo.ProxyPort(t)})
 	allowed[restarted.PID] = true
-	state, err = dialer.ObserveProxy(t.Context(), nil)
+	state, err = dialer.ObserveProxy(t.Context())
 	if err != nil || state.Mode != "rule" || state.MixedPort == 0 || len(state.Endpoints) == 0 || dialer.controller == nil {
 		t.Fatalf("restarted runtime: %+v %v", state, err)
 	}

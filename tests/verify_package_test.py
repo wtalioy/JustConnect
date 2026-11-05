@@ -103,7 +103,7 @@ class VerifyPackageTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             facts = {'worker': 'system-proxy-recovery', 'protocol': package.PROXY_RECOVERY_PROTOCOL, 'qt': '6.12.0'}
-            for platform_name in ('win32', 'darwin', 'linux'):
+            for platform_name in ('win32', 'darwin'):
                 with self.subTest(platform=platform_name), patch.object(package.sys, 'platform', platform_name):
                     worker = root / ('JustConnectProxyRecovery.exe' if platform_name == 'win32' else 'JustConnectProxyRecovery')
                     with self.assertRaisesRegex(RuntimeError, 'Missing packaged system proxy recovery worker'):
@@ -169,9 +169,9 @@ class VerifyPackageTest(unittest.TestCase):
                 return SimpleNamespace(returncode=0, stderr=b'', stdout=json.dumps(payload).encode())
             with patch.object(package.subprocess, 'run', side_effect=run), \
                     patch.object(package, 'validate_report'), \
-                    patch.object(package, 'linux_audit', return_value={}), \
+                    patch.object(package, 'macos_audit', return_value={}), \
                     patch.object(package.platform, 'machine', return_value='x86_64'), \
-                    patch.object(package.sys, 'platform', 'linux'):
+                    patch.object(package.sys, 'platform', 'darwin'):
                 package.verify(root, host, 'revision', 'preview', output, archive)
                 report = json.loads(output.read_text())
                 self.assertEqual(report['size_bytes']['archive'], archive.stat().st_size)
@@ -246,8 +246,8 @@ class VerifyPackageTest(unittest.TestCase):
             'test_driver': False, 'abi_version': contract['abi_version'],
             'capabilities': {'embedded_vpn': True}, 'build': {
                 'revision': 'a' * 40, 'source_state': 'clean', 'upstream_commit': contract['upstream_commit'],
-                'go_version': 'go' + go + '-X:cgocheck2', 'os': 'linux', 'arch': 'arm64'}}}
-        package.validate_report(report, 'a' * 40, 'preview', 'linux', 'arm64')
+                'go_version': 'go' + go + '-X:cgocheck2', 'os': 'darwin', 'arch': 'arm64'}}}
+        package.validate_report(report, 'a' * 40, 'preview', 'darwin', 'arm64')
         for path, value in [('ok', False), ('application_version', 'old'), ('core.test_driver', True),
                             ('core.abi_version', 999), ('core.capabilities.embedded_vpn', False),
                             ('core.build.source_state', 'dirty'), ('core.build.revision', 'b' * 40),
@@ -261,7 +261,7 @@ class VerifyPackageTest(unittest.TestCase):
                     target = target[key]
                 target[keys[-1]] = value
                 with self.assertRaises(RuntimeError):
-                    package.validate_report(changed, 'a' * 40, 'preview', 'linux', 'arm64')
+                    package.validate_report(changed, 'a' * 40, 'preview', 'darwin', 'arm64')
 
     def test_sdk_environment_cannot_supply_runtime_dependencies(self):
         with patch.dict(os.environ, {'QT_PLUGIN_PATH': '/sdk', 'QML2_IMPORT_PATH': '/sdk',
@@ -273,21 +273,6 @@ class VerifyPackageTest(unittest.TestCase):
             self.assertNotIn(name, env)
         self.assertNotIn('/sdk', env['PATH'])
 
-    def test_linux_rejects_missing_and_sdk_supplied_qt(self):
-        with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder)
-            host = root / 'app'
-            def run(*args, **kwargs):
-                if args[:2] == ('readelf', '-h'):
-                    return 'Machine: AArch64'
-                if args[:2] == ('readelf', '-d'):
-                    return '(NEEDED) Qt6Core'
-                return dependencies
-            for dependencies in ('libQt6Core => not found', 'libQt6Core => /usr/lib/libQt6Core.so (0x1)',
-                                 'libQt6Core => /opt/sdk/libQt6Core.so (0x1)'):
-                with self.subTest(dependencies=dependencies), patch.object(package, 'run', side_effect=run):
-                    with self.assertRaises(RuntimeError):
-                        package.linux_audit([host], root, 'arm64', {})
 
     def test_macos_binary_cannot_require_newer_system_than_bundle_declares(self):
         with tempfile.TemporaryDirectory() as folder:

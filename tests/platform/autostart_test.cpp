@@ -16,7 +16,7 @@
 
 static void check(bool ok, const char *message) { if (!ok) { std::cerr << message << '\n'; std::exit(1); } }
 int main(int argc, char **argv) {
-#ifdef Q_OS_MACOS
+#if defined(Q_OS_MACOS)
     QDeadlineTimer compilationDeadline(JC_AUTOSTART_TEST_BUDGET_MS - PlatformCommandCleanupTimeoutMs);
 #endif
     QCoreApplication app(argc,argv);
@@ -24,45 +24,7 @@ int main(int argc, char **argv) {
     using Status = PlatformOperationResult::Status;
     QTemporaryDir directory;
     check(directory.isValid(), "isolated autostart storage");
-#ifdef Q_OS_LINUX
-    qputenv("XDG_CONFIG_HOME", directory.path().toUtf8());
-    const auto executable = directory.filePath("Application \"quote\" $cash `tick` %f \\ slash.AppImage");
-    const auto marker = directory.filePath("launched");
-    QFile script(executable);
-    check(script.open(QIODevice::WriteOnly),"create application script");
-    script.write(("#!/bin/sh\nprintf '%s' \"$0\" > '" + marker + "'\n").toUtf8()); script.close();
-    check(script.setPermissions(QFileDevice::ReadOwner|QFileDevice::WriteOwner|QFileDevice::ExeOwner), "executable script");
-    qputenv("APPIMAGE", executable.toUtf8());
-    auto result = AutoStart::setEnabled(true);
-    check(result.succeeded(),qPrintable(result.detail));
-    const auto entry = directory.filePath("autostart/"+app.applicationName()+".desktop");
-    check(runPlatformCommand("gio",{"launch",entry}).result.succeeded(),"actual desktop Exec parser accepts escaped path");
-    QElapsedTimer timer; timer.start();
-    while (!QFileInfo::exists(marker) && timer.elapsed()<5000) QThread::msleep(10);
-    QFile launched(marker);
-    check(launched.open(QIODevice::ReadOnly) && launched.readAll()==executable.toUtf8(),"desktop launch used exact executable path, not shell expansions");
-    QFile previous(entry); check(previous.open(QIODevice::ReadOnly),"read saved entry"); const auto contents=previous.readAll(); previous.close();
-    qputenv("APPIMAGE",directory.filePath("missing").toUtf8());
-    check(!AutoStart::setEnabled(true).succeeded(),"invalid executable rejected");
-    check(previous.open(QIODevice::ReadOnly) && previous.readAll()==contents,"failed enable preserved existing entry"); previous.close();
-    check(AutoStart::setEnabled(false).succeeded() && !QFileInfo::exists(entry),"disable verified without requiring old executable");
-    check(AutoStart::setEnabled(false).succeeded(),"repeated disable idempotent");
-    QFile legacy(entry);check(legacy.open(QIODevice::WriteOnly),"create the former application's desktop entry");
-    const auto legacyText=("[Desktop Entry]\nType=Application\nName="+app.applicationName()+"\nExec="+app.applicationFilePath()+"\nX-GNOME-Autostart-enabled=true\n").toUtf8();
-    check(legacy.write(legacyText)==legacyText.size(),"write the former unquoted desktop command");legacy.close();
-    const auto unrelated=directory.filePath("autostart/other.desktop");
-    QFile other(unrelated);check(other.open(QIODevice::WriteOnly) && other.write("other application")==17,"create another application's startup item");other.close();
-    check(AutoStart::setEnabled(false).succeeded() && !QFileInfo::exists(entry) && QFileInfo::exists(unrelated),
-        "the same withdrawal path removes the old owned entry and preserves other applications");
-    check(QFile::link(executable,entry),"symlink fixture");
-    check(!AutoStart::setEnabled(true).succeeded(),"symlink entry rejected"); QFile::remove(entry);
-    qputenv("APPIMAGE",executable.toUtf8());
-    check(QFile(entry).open(QIODevice::WriteOnly),"existing entry fixture");
-    const auto folder = directory.filePath("autostart");
-    check(QFile::setPermissions(folder,QFileDevice::ReadOwner|QFileDevice::ExeOwner),"restrict autostart directory");
-    check(!AutoStart::setEnabled(true).succeeded(),"unwritable directory failure propagated");
-    QFile::setPermissions(folder,QFileDevice::ReadOwner|QFileDevice::WriteOwner|QFileDevice::ExeOwner);
-#elif defined(Q_OS_WIN)
+#if defined(Q_OS_WIN)
     QSettings run(R"(HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run)",QSettings::NativeFormat);
     check(!run.contains(app.applicationName()), "test owns a fresh Run value");
     static const QString ownedName = app.applicationName();
@@ -87,7 +49,7 @@ int main(int argc, char **argv) {
     check(cleaned.succeeded() && !run.contains(app.applicationName()) && run.value(unrelated).toString()=="other application",
         "owned startup cleanup preserves unrelated Run entries");
     run.remove(unrelated);run.sync();
-#elif defined(Q_OS_MACOS)
+#else
     int calls=0, count=0;
     bool deny=false, ignore=false, malformed=false;
     QSet<QString> scripts;

@@ -11,16 +11,15 @@ import (
 )
 
 type CoexistenceState struct {
-	Available       bool                    `json:"available"`
-	Active          bool                    `json:"active"`
-	TUN             bool                    `json:"tun"`
-	Mode            string                  `json:"mode,omitempty"`
-	Endpoints       []string                `json:"endpoints"`
-	ListenerRequest *mihomo.ListenerRequest `json:"listener_request,omitempty"`
+	Available bool     `json:"available"`
+	Active    bool     `json:"active"`
+	TUN       bool     `json:"tun"`
+	Mode      string   `json:"mode,omitempty"`
+	Endpoints []string `json:"endpoints"`
 }
 
 type proxyObserver interface {
-	ObserveProxy(context.Context, []mihomo.ListenerProof) (mihomo.ProxyInfo, error)
+	ObserveProxy(context.Context) (mihomo.ProxyInfo, error)
 }
 
 func (s *Session) ObserveNetwork(ctx context.Context) (mihomo.ControllerNetwork, error) {
@@ -42,7 +41,6 @@ type sessionUpstream struct {
 	source proxyObserver
 	gate   chan struct{}
 	route  atomic.Pointer[upstreamRoute]
-	proofs []mihomo.ListenerProof
 }
 
 func (u *sessionUpstream) dialer() client.DialContextFunc {
@@ -52,30 +50,27 @@ func (u *sessionUpstream) dialer() client.DialContextFunc {
 	return nil
 }
 
-func (u *sessionUpstream) refresh(ctx context.Context, endpoints []string, managed bool, proofs []mihomo.ListenerProof) error {
+func (u *sessionUpstream) refresh(ctx context.Context, endpoints []string, managed bool) error {
 	select {
 	case u.gate <- struct{}{}:
 	case <-ctx.Done():
 		return ctx.Err()
 	}
 	defer func() { <-u.gate }()
-	if proofs != nil {
-		u.proofs = slices.Clone(proofs)
-	}
-	info, err := u.source.ObserveProxy(ctx, u.proofs)
+	info, err := u.source.ObserveProxy(ctx)
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
 	state := CoexistenceState{Endpoints: []string{}}
 	if err == nil {
-		state.Available, state.Mode, state.TUN, state.ListenerRequest = info.Proxy != nil, info.Mode, info.TunEnabled, info.ListenerRequest
+		state.Available, state.Mode, state.TUN = info.Proxy != nil, info.Mode, info.TunEnabled
 		state.Endpoints = append(state.Endpoints, info.Endpoints...)
 		state.Active = info.Proxy != nil && managed || info.TunEnabled || slices.ContainsFunc(endpoints, func(endpoint string) bool { return slices.Contains(info.Endpoints, endpoint) })
 	}
-	if err == nil && state.Active && info.Proxy == nil && info.ListenerRequest == nil {
+	if err == nil && state.Active && info.Proxy == nil {
 		err = mihomo.ErrUnavailable
 	}
-	if err != nil || info.ListenerRequest != nil && info.Proxy == nil {
+	if err != nil {
 		state.Active = false
 		route := &upstreamRoute{state: state, dial: func(context.Context, string, string) (net.Conn, error) { return nil, mihomo.ErrUnavailable }}
 		if previous := u.route.Load(); previous != nil && previous.dial != nil {
@@ -92,9 +87,9 @@ func (u *sessionUpstream) refresh(ctx context.Context, endpoints []string, manag
 	return nil
 }
 
-func (s *Session) RefreshCoexistence(ctx context.Context, endpoints []string, managed bool, proofs ...mihomo.ListenerProof) error {
+func (s *Session) RefreshCoexistence(ctx context.Context, endpoints []string, managed bool) error {
 	if current := s.upstream.Load(); current != nil {
-		return current.refresh(ctx, endpoints, managed, proofs)
+		return current.refresh(ctx, endpoints, managed)
 	}
 	return net.ErrClosed
 }
@@ -104,11 +99,6 @@ func (s *Session) Coexistence() CoexistenceState {
 		if route := current.route.Load(); route != nil {
 			state := route.state
 			state.Endpoints = slices.Clone(state.Endpoints)
-			if state.ListenerRequest != nil {
-				request := *state.ListenerRequest
-				request.Endpoints = slices.Clone(request.Endpoints)
-				state.ListenerRequest = &request
-			}
 			return state
 		}
 	}

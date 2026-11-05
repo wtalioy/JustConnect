@@ -3,7 +3,7 @@
 #include <QProcess>
 #include <QProcessEnvironment>
 
-PlatformCommandResult runPlatformCommand(const QString &program, const QStringList &arguments, int timeoutMs, const QByteArray &input,
+PlatformCommandResult runPlatformCommand(const QString &program, const QStringList &arguments, int timeoutMs,
                                         const QProcessEnvironment &inherited)
 {
     using Status = PlatformOperationResult::Status;
@@ -17,14 +17,6 @@ PlatformCommandResult runPlatformCommand(const QString &program, const QStringLi
         const auto status = process.error() == QProcess::Timedout ? Status::TimedOut : Status::Failed;
         if (process.state() != QProcess::NotRunning) { process.kill(); process.waitForFinished(PlatformCommandCleanupTimeoutMs); }
         return {{status, program + ": " + process.errorString()}, {}};
-    }
-    if (!input.isEmpty()) {
-        if (process.write(input) != input.size()) {
-            process.kill();
-            process.waitForFinished(PlatformCommandCleanupTimeoutMs);
-            return {{Status::Failed, program + ": cannot submit command input"}, {}};
-        }
-        process.closeWriteChannel();
     }
     if (!process.waitForFinished(int(deadline.remainingTime()))) {
         process.kill();

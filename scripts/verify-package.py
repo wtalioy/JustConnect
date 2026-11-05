@@ -95,43 +95,6 @@ def validate_report(report, revision, application_version, system, arch):
         raise RuntimeError('Packaged ABI, production capability or build provenance mismatch')
 
 
-def linux_audit(files, root, arch, env):
-    evidence, required = [], set()
-    loader_env = dict(env, LD_LIBRARY_PATH=str(root / 'usr/lib'))
-    for path in files:
-        header = run('readelf', '-h', path, env=env)
-        expected = 'AArch64' if arch == 'arm64' else 'Advanced Micro Devices X86-64'
-        if expected not in header:
-            raise RuntimeError(f'Wrong ELF architecture: {path}')
-        dynamic = run('readelf', '-d', path, env=env)
-        for entry in re.findall(r'\((?:RUNPATH|RPATH)\).*?\[(.*?)\]', dynamic):
-            if any(item.startswith('/') for item in entry.split(':')):
-                raise RuntimeError(f'Non-relocatable ELF search path: {path}: {entry}')
-        dependencies = ''
-        if '(NEEDED)' in dynamic:
-            dependencies = run('ldd', path, env=loader_env)
-            if 'not found' in dependencies:
-                raise RuntimeError(f'Missing dependency: {path}\n{dependencies}')
-            for dependency in re.findall(r'(?:=>\s*)?(/[^\s]+)', dependencies):
-                resolved = Path(dependency).resolve()
-                if not inside(resolved, root):
-                    if not (inside(resolved, Path('/usr/lib')) or inside(resolved, Path('/lib'))):
-                        raise RuntimeError(f'Dependency outside package/system: {dependency}')
-                    if resolved.name.startswith('libQt'):
-                        raise RuntimeError(f'Qt dependency supplied by host: {dependency}')
-        versions = run('readelf', '--version-info', '-W', path, env=env)
-        needs = versions.partition('Version needs section')[2]
-        required.update(re.findall(r'Name: (GLIBC(?:XX)?_[0-9.]+)', needs))
-        evidence.append({'file': str(path.relative_to(root)), 'dependencies': dependencies})
-    glibc = max((x.removeprefix('GLIBC_') for x in required if x.startswith('GLIBC_')),
-                key=version, default='0')
-    host = run('getconf', 'GNU_LIBC_VERSION', env=env).split()[1]
-    if version(glibc) > version(host):
-        raise RuntimeError(f'Package needs glibc {glibc}; host has {host}')
-    return {'minimum_glibc': glibc, 'host_glibc': host,
-            'required_symbol_versions': sorted(required), 'files': evidence}
-
-
 def macos_signature(path, env):
     return subprocess.run(['codesign', '-dv', '--verbose=4', str(path)], env=env, check=True,
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE).stderr.decode('utf-8')
@@ -309,7 +272,7 @@ def verify(root, executable, revision, application_version, output, archive, web
     startup_ms = (time.perf_counter() - started) * 1000
     report = json.loads(result.stdout)
     arch = {'AMD64': 'amd64', 'x86_64': 'amd64', 'aarch64': 'arm64', 'ARM64': 'arm64', 'arm64': 'arm64'}[platform.machine()]
-    system = {'win32': 'windows', 'darwin': 'darwin', 'linux': 'linux'}[sys.platform]
+    system = {'win32': 'windows', 'darwin': 'darwin'}[sys.platform]
     validate_report(report, revision, application_version, system, arch)
     report['proxy_recovery_worker'] = check_proxy_recovery(executable.parent, env)
     revisions = list(root.rglob('source-revision.txt'))
@@ -330,7 +293,7 @@ def verify(root, executable, revision, application_version, output, archive, web
         if path.is_file() and not path.is_symlink():
             with path.open('rb') as stream:
                 magic = stream.read(4)
-            if magic == b'\x7fELF' or magic in (b'\xcf\xfa\xed\xfe', b'\xca\xfe\xba\xbe', b'\xca\xfe\xba\xbf') or magic[:2] == b'MZ':
+            if magic in (b'\xcf\xfa\xed\xfe', b'\xca\xfe\xba\xbe', b'\xca\xfe\xba\xbf') or magic[:2] == b'MZ':
                 files.append(path)
     if system == 'windows':
         report['network_helper'] = check_windows_network_helper(executable.parent, env, revision)
@@ -354,10 +317,8 @@ def verify(root, executable, revision, application_version, output, archive, web
         report['audit'] = windows_audit(files, root, arch)
     elif report['runtime'] != 'static':
         raise RuntimeError('Unix packages must link the static core')
-    elif system == 'darwin':
-        report['audit'] = macos_audit(files, root, arch, env)
     else:
-        report['audit'] = linux_audit(files, root, arch, env)
+        report['audit'] = macos_audit(files, root, arch, env)
     report['offline_self_test_wall_ms'] = startup_ms
     report['size_bytes'] = {
         'archive': archive_bytes,

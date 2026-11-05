@@ -12,7 +12,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 
 
-@unittest.skipUnless(sys.platform == 'linux' and shutil.which('openssl'), 'Linux signing lifecycle check')
+@unittest.skipUnless(os.name == 'posix' and shutil.which('openssl'), 'Requires a POSIX shell and OpenSSL')
 class MacSigningLifecycleTest(unittest.TestCase):
     def test_local_identity_cleanup_on_success_import_and_sign_failure(self):
         with tempfile.TemporaryDirectory() as directory:

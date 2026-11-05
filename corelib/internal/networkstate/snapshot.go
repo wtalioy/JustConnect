@@ -1,4 +1,4 @@
-// Package networkstate reads original interfaces, routes and policy rules without changing them.
+// Package networkstate reads original interfaces and routes without changing them.
 package networkstate
 
 import (
@@ -10,7 +10,7 @@ import (
 var ErrUnsupported = errors.New("unsupported route snapshot platform")
 
 func Supported() bool {
-	return runtime.GOOS == "linux" || runtime.GOOS == "darwin" || runtime.GOOS == "windows"
+	return runtime.GOOS == "darwin" || runtime.GOOS == "windows"
 }
 
 func Read() (model.Snapshot, error) {
@@ -20,10 +20,6 @@ func Read() (model.Snapshot, error) {
 	}
 	snapshot := model.Snapshot{OS: runtime.GOOS, Interfaces: interfaces}
 	snapshot.Routes, err = readRoutes(snapshot.Interfaces)
-	if err != nil {
-		return model.Snapshot{}, err
-	}
-	snapshot.PolicyRules, err = readPolicyRules()
 	if err != nil {
 		return model.Snapshot{}, err
 	}

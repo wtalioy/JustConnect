@@ -24,14 +24,14 @@ static void nativeChange(const QString &operation, const QString &prefix, const 
 {
     QStringList args{"-n", operation, "-inet", "-net", prefix, "-interface", interface};
     args += extra;
-    const auto result = runPlatformCommand("/sbin/route", args, 5000, {}, QProcessEnvironment{});
+    const auto result = runPlatformCommand("/sbin/route", args, 5000, QProcessEnvironment{});
     check(result.result.succeeded(), qPrintable(result.result.detail+result.standardError));
 }
 static void journalBoundary(int directory, const QString &path, const QUuid &owner)
 {
-    UnixNetworkJournal journal;
+    MacNetworkJournal journal;
     check(journal.open(directory, owner).succeeded(), "Open the root-private journal");
-    UnixNetworkJournal duplicate;
+    MacNetworkJournal duplicate;
     bool active = false;
     check(!duplicate.open(directory, owner, &active).succeeded() && active, "Independent guardian obtained the same lock");
     const QJsonObject record{{"owner", owner.toString(QUuid::WithoutBraces)}, {"state", 1}};
@@ -65,10 +65,10 @@ int main(int argc, char **argv) try
     check(initial.result.succeeded() && !macBootSession().isEmpty(), "Read complete native routing and boot identity");
     if (argc == 1) {
         check(::geteuid() != 0, "Ordinary boundary check must not run as root");
-        UnixNetworkJournal journal;
+        MacNetworkJournal journal;
         check(journal.open(AT_FDCWD, QUuid::createUuid()).status == PlatformOperationResult::Status::PermissionDenied,
             "Ordinary caller gained privileged journal authority");
-        UnixTunDevice device; MacTunRoutes capture;
+        MacTunDevice device; MacTunRoutes capture;
         check(!capture.apply(device, {"198.18.0.6/32"}).succeeded() && capture.snapshot().isEmpty(), "Unowned device gained capture authority");
         return 0;
     }
@@ -76,7 +76,7 @@ int main(int argc, char **argv) try
         "Native network changes require the disposable macOS runner");
     if (argc == 4 && app.arguments()[1] == "--recover") {
         const int directory = ::open(QFile::encodeName(app.arguments()[2]).constData(), O_RDONLY|O_DIRECTORY|O_CLOEXEC|O_NOFOLLOW);
-        const QUuid owner(app.arguments()[3]); UnixNetworkJournal journal; QJsonObject saved;
+        const QUuid owner(app.arguments()[3]); MacNetworkJournal journal; QJsonObject saved;
         check(directory >= 0 && journal.open(directory, owner).succeeded() && journal.load(saved).succeeded(), "Load authenticated new-process ownership");
         MacTunRoutes recovery;
         const auto result = recovery.recover(owner, saved, [&](const QJsonObject &record) { return record.isEmpty() ? journal.remove() : journal.store(record); });
@@ -95,7 +95,7 @@ int main(int argc, char **argv) try
     check(directory >= 0 && ::fchmod(directory,0700) == 0, "Open private native storage");
     const auto owner = QUuid::createUuid(); const auto path = temporary.filePath("source.json");
     journalBoundary(directory, path, owner);
-    UnixNetworkJournal journal;
+    MacNetworkJournal journal;
     check(journal.open(directory, owner).succeeded(), "Open actual route checkpoints");
     const auto checkpoint = [&](const QJsonObject &record) { return record.isEmpty() ? journal.remove() : journal.store(record); };
     const auto recoverInNewProcess = [&] {
@@ -108,7 +108,7 @@ int main(int argc, char **argv) try
             qPrintable(QString::fromUtf8(recovery.readAllStandardError())));
         check(journal.open(directory,owner).succeeded(), "Reopen storage after independent recovery");
     };
-    UnixTunDevice device;
+    MacTunDevice device;
     const auto configured = device.createIpv4(owner,"198.18.0.1","198.18.0.2",1400);
     check(configured.succeeded(),qPrintable(configured.detail));
     const QString first("198.18.0.6/32"), second("198.18.1.0/24");
@@ -120,7 +120,7 @@ int main(int argc, char **argv) try
         if (!applied.succeeded()) std::cerr << QJsonDocument(readMacRoutes().rows).toJson().constData();
         check(applied.succeeded(),qPrintable(applied.detail));
         check(capture.snapshot()["routes"].toArray().size() == 2 && routes(first).size() == 1 && routes(second).size() == 1, "Applied captures differ from their ownership record");
-        const auto lookup = runPlatformCommand("/sbin/route", {"-n","get","198.18.1.1"},5000,{},QProcessEnvironment{});
+        const auto lookup = runPlatformCommand("/sbin/route", {"-n","get","198.18.1.1"},5000, QProcessEnvironment{});
         check(lookup.result.succeeded() && lookup.output.contains("interface: "+device.name()), "The actual subnet destination did not select the owned utun");
         check(capture.extend(device,{"198.18.0.7","198.18.0.7","198.18.1.1"},checkpoint).succeeded()
             && capture.snapshot()["routes"].toArray().size() == 3 && routes("198.18.0.7/32").size() == 1,
@@ -159,7 +159,7 @@ int main(int argc, char **argv) try
         int additions = 0;
         MacTunRoutes capture([&](const QString &program,const QStringList &arguments) {
             if (arguments.contains("add") && ++additions == 3) return PlatformCommandResult{{PlatformOperationResult::Status::Failed,"injected extension failure"},{},{}};
-            return runPlatformCommand(program,arguments,5000,{},QProcessEnvironment{});
+            return runPlatformCommand(program,arguments,5000, QProcessEnvironment{});
         });
         check(capture.apply(device,{first},checkpoint).succeeded(),"Prepare partially applied DNS extension");
         check(!capture.extend(device,{"198.18.0.7","198.18.0.8"},checkpoint).succeeded()
@@ -212,7 +212,7 @@ int main(int argc, char **argv) try
     {
         int writes = 0; bool deny = true;
         MacTunRoutes capture([&](const QString &program, const QStringList &args) {
-            ++writes; return runPlatformCommand(program,args,5000,{},QProcessEnvironment{});
+            ++writes; return runPlatformCommand(program,args,5000, QProcessEnvironment{});
         });
         const auto denied = capture.apply(device,{first},[&](const QJsonObject &record) {
             if (deny) { deny = false; return PlatformOperationResult{PlatformOperationResult::Status::PermissionDenied,"checkpoint denied"}; }
@@ -225,7 +225,7 @@ int main(int argc, char **argv) try
         int adds = 0;
         MacTunRoutes capture([&](const QString &program, const QStringList &args) {
             if (args.contains("add") && ++adds == 2) return PlatformCommandResult{{PlatformOperationResult::Status::Failed,"injected second command failure"},{},{}};
-            return runPlatformCommand(program,args,5000,{},QProcessEnvironment{});
+            return runPlatformCommand(program,args,5000, QProcessEnvironment{});
         });
         check(!capture.apply(device,{first,second},checkpoint).succeeded() && capture.snapshot().isEmpty()
             && routes(first).isEmpty() && routes(second).isEmpty() && !QFile::exists(path), "Partial application did not roll back only its completed route");

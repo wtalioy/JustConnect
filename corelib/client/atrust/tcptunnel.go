@@ -543,7 +543,7 @@ func (c *Client) DialTCP(ctx context.Context, addr *net.TCPAddr) (net.Conn, erro
 	authRequest.Env.Application.Runtime.Process = tcpTunnelProcess{
 		Name:             procName,
 		DigitalSignature: "TrustAppClosed",
-		Platform:         "Linux",
+		Platform:         auth.ClientPlatform,
 		Fingerprint:      procHash,
 		Description:      "TrustAppClosed",
 		Path:             procPath,

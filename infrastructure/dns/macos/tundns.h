@@ -1,5 +1,5 @@
 #pragma once
-#include "infrastructure/tundevice/tundevice.h"
+#include "infrastructure/tundevice/macos/tundevice.h"
 #include "infrastructure/process/command.h"
 #include <SystemConfiguration/SystemConfiguration.h>
 #include <QStringList>
@@ -18,7 +18,7 @@ public:
         : add(add),inspect(std::move(inspect)) {}
     MacTunDns(const MacTunDns &) = delete;
     MacTunDns &operator=(const MacTunDns &) = delete;
-    PlatformOperationResult apply(const UnixTunDevice &device, const QStringList &domains);
+    PlatformOperationResult apply(const MacTunDevice &device, const QStringList &domains);
     // Closing this dedicated session removes only its still-owned temporary keys.
     void restore();
     static QJsonObject properties(const QString &peer,const QStringList &domains);

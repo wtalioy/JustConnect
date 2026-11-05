@@ -10,11 +10,11 @@
 #include <QTcpSocket>
 #include <QTcpServer>
 #include <QUdpSocket>
-#if defined(Q_OS_LINUX) || defined(Q_OS_MACOS)
+#if defined(Q_OS_MACOS)
 #include <fcntl.h>
 #include <unistd.h>
 #include <cerrno>
-#elif defined(Q_OS_WIN)
+#else
 #include <windows.h>
 #endif
 #include <cstdlib>
@@ -38,10 +38,10 @@ static QJsonObject policy(const QString &generation, const QString &revision) {
     return {{"schema_version",int(JC_ABI_VERSION)},{"generation",generation},{"revision",revision},
         {"protected",QJsonArray{"192.168.50.0/24"}},{"campus",QJsonArray{}}};
 }
-#if (defined(Q_OS_LINUX) || defined(Q_OS_MACOS) || defined(Q_OS_WIN)) && !defined(ABI_FIXTURE)
+#if (defined(Q_OS_MACOS) || defined(Q_OS_WIN)) && !defined(ABI_FIXTURE)
 static void rejectedDeviceHandoffReleasesItsBorrowedHandle(const ConnectionProfile &profile) {
     EmbeddedCoreEngine engine;int finished=0,replies=0;
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN)
     HANDLE reading=nullptr;
 #else
     int reading=-1;
@@ -49,7 +49,7 @@ static void rejectedDeviceHandoffReleasesItsBorrowedHandle(const ConnectionProfi
     QObject::connect(&engine,&CoreEngine::finished,[&]{++finished;});
     QObject::connect(&engine,&CoreEngine::tunAttached,[&](const QString &value,CoreEngine::RequestStatus status){
         check(value=="0" && status!=CoreEngine::RequestStatus::Success,"invalid-generation device handoff is rejected");
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN)
         DWORD available=0;
         const bool released=!::PeekNamedPipe(reading,nullptr,0,nullptr,&available,nullptr) && ::GetLastError()==ERROR_BROKEN_PIPE;
 #else
@@ -61,7 +61,7 @@ static void rejectedDeviceHandoffReleasesItsBorrowedHandle(const ConnectionProfi
     });
     for(int attempt=0;attempt<64;++attempt){
         check(engine.start(profile),"start before a rejected queued handoff");
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN)
         HANDLE writing=nullptr;check(::CreatePipe(&reading,&writing,nullptr,0),"owned rejection fixture pipe");
         engine.attachWindowsPipe("0",quint64(quintptr(writing)),::GetCurrentProcessId(),1400,"192.0.2.1","192.0.2.2");::CloseHandle(writing);
 #else
@@ -70,7 +70,7 @@ static void rejectedDeviceHandoffReleasesItsBorrowedHandle(const ConnectionProfi
         engine.attachTUN("0",descriptors[1],1400);::close(descriptors[1]);
 #endif
         until([&]{return replies==attempt+1;});
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN)
         ::CloseHandle(reading);
 #else
         ::close(reading);
@@ -79,7 +79,7 @@ static void rejectedDeviceHandoffReleasesItsBorrowedHandle(const ConnectionProfi
     }
 }
 #endif
-#ifndef ABI_FIXTURE
+#if !defined(ABI_FIXTURE)
 static int originalDNSPreparation(const QJsonObject &config) {
     const auto server = config["server"].toObject(), auth = config["auth"].toObject();
     const auto sources = config["network"].toObject()["original_dns"].toArray();
@@ -134,7 +134,7 @@ static int originalDNSPreparation(const QJsonObject &config) {
 #endif
 int main(int argc, char **argv) {
     QCoreApplication app(argc, argv);
-#ifndef ABI_FIXTURE
+#if !defined(ABI_FIXTURE)
     if (argc == 3 && QByteArray(argv[1]) == "--original-dns-gateway") return originalDNSPreparation(QJsonDocument::fromJson(argv[2]).object());
 #endif
     const auto info = EmbeddedCoreEngine::buildInfo();
@@ -189,7 +189,7 @@ int main(int argc, char **argv) {
     QTimer heartbeat;
     QObject::connect(&heartbeat, &QTimer::timeout, [&] { ++ticks; });
     heartbeat.start(1);
-#ifdef ABI_FIXTURE
+#if defined(ABI_FIXTURE)
     check(info["test_driver"].toBool(), "explicit test driver");
     check(info["capabilities"].toObject()["policy_update"].toBool(), "policy capability advertised");
     engine.updatePolicy(policy("1","1"));
@@ -274,9 +274,7 @@ int main(int argc, char **argv) {
     }
 #else
     check(!info["test_driver"].toBool() && info["capabilities"].toObject()["embedded_vpn"].toBool(), "production backend");
-#if defined(Q_OS_LINUX) || defined(Q_OS_MACOS) || defined(Q_OS_WIN)
     rejectedDeviceHandoffReleasesItsBorrowedHandle(profile);
-#endif
     for (int i = 0; i < 16; ++i) {
         check(engine.start(profile), "production asynchronous start");
         engine.stop();

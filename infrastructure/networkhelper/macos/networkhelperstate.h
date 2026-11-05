@@ -31,8 +31,8 @@ private:
     QUuid connection;
     QJsonObject metadata;
     int userDirectory = -1, directory = -1, captureDirectory = -1;
-    UnixNetworkJournal guardian, captureJournal;
-    UnixTunDevice device;
+    MacNetworkJournal guardian, captureJournal;
+    MacTunDevice device;
     MacTunRoutes capture;
     MacTunDns dns;
     MacOriginalDns originalDns;

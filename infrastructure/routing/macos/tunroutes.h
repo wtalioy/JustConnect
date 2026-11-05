@@ -1,8 +1,8 @@
 #pragma once
 
 #include "infrastructure/process/command.h"
-#include "infrastructure/tundevice/tundevice.h"
-#include "infrastructure/networkjournal/networkjournal.h"
+#include "infrastructure/tundevice/macos/tundevice.h"
+#include "infrastructure/networkjournal/macos/networkjournal.h"
 #include <QJsonArray>
 #include <functional>
 #include <utility>
@@ -21,10 +21,10 @@ public:
     explicit MacTunRoutes(PlatformCommandRunner command = {}) : runner(std::move(command)) {}
     MacTunRoutes(const MacTunRoutes &) = delete;
     MacTunRoutes &operator=(const MacTunRoutes &) = delete;
-    PlatformOperationResult apply(const UnixTunDevice &device, const QStringList &prefixes, const CheckpointWriter &checkpoint = {});
+    PlatformOperationResult apply(const MacTunDevice &device, const QStringList &prefixes, const CheckpointWriter &checkpoint = {});
     // Failure retains the full ownership record; the caller restores DNS before capture.
-    PlatformOperationResult extend(const UnixTunDevice &device, const QStringList &addresses, const CheckpointWriter &checkpoint = {});
-    PlatformOperationResult reconcile(const UnixTunDevice &device, const QStringList &prefixes, const CheckpointWriter &checkpoint = {});
+    PlatformOperationResult extend(const MacTunDevice &device, const QStringList &addresses, const CheckpointWriter &checkpoint = {});
+    PlatformOperationResult reconcile(const MacTunDevice &device, const QStringList &prefixes, const CheckpointWriter &checkpoint = {});
     PlatformOperationResult restore(const QUuid &owner, const CheckpointWriter &checkpoint = {});
     // The privileged caller must authenticate the saved record and its connection owner.
     PlatformOperationResult recover(const QUuid &owner, const QJsonObject &saved, const CheckpointWriter &checkpoint = {});

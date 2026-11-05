@@ -40,15 +40,8 @@ QString originalSource(const QJsonObject &network, const QJsonObject &source)
     }
     if (kind == "route") {
         const auto route = at(network["routes"].toArray(), source["route"]);
-        QStringList names;
-        names.append(interfaceName(network, route["interface_index"].toInteger()));
-        for (const auto &hop : route["next_hops"].toArray())
-            names.append(interfaceName(network, hop.toObject()["interface_index"].toInteger()));
-        names.removeAll(QString());
-        names.removeDuplicates();
-        QString label = route["table"].toInteger() > 0 ? NetworkPolicyWindow::tr("Route table %1").arg(route["table"].toInteger()) : NetworkPolicyWindow::tr("Route");
-        if (!names.isEmpty()) label += QStringLiteral(": ") + names.join(QStringLiteral(", "));
-        return label;
+        const auto name = interfaceName(network, route["interface_index"].toInteger());
+        return name.isEmpty() ? NetworkPolicyWindow::tr("Route") : NetworkPolicyWindow::tr("Route")+QStringLiteral(": ")+name;
     }
     return NetworkPolicyWindow::tr("Source unavailable");
 }
@@ -83,13 +76,6 @@ QString dnsSource(const QJsonObject &model, const QJsonObject &source)
 {
     const auto provider = source["provider"].toString();
     const auto network = model["network"].toObject(), dns = model["dns"].toObject();
-    if (provider == "resolv_conf") return NetworkPolicyWindow::tr("Resolver file: %1, line %2")
-        .arg(dns["resolv_conf"].toObject()["path"].toString()).arg(source["line"].toInteger() + 1);
-    if (provider == "resolved") {
-        const auto index = source["interface_index"].toInteger();
-        return index == 0 ? NetworkPolicyWindow::tr("System resolver: global")
-            : NetworkPolicyWindow::tr("System resolver: %1 (%2)").arg(interfaceName(network, index)).arg(index);
-    }
     if (provider == "nrpt") return NetworkPolicyWindow::tr("Effective system name rule %1").arg(source["row"].toInteger() + 1);
     if (provider == "global") return NetworkPolicyWindow::tr("System search list");
     if (provider == "clients") {
@@ -115,7 +101,6 @@ QString dnsRole(const QString &role)
 {
     if (role == "search") return NetworkPolicyWindow::tr("Search suffix");
     if (role == "route") return NetworkPolicyWindow::tr("Routed domain");
-    if (role == "search_route") return NetworkPolicyWindow::tr("Search suffix and routed domain");
     if (role == "nrpt") return NetworkPolicyWindow::tr("System name rule (native expression)");
     if (role == "search_configuration") return NetworkPolicyWindow::tr("Search suffix configuration");
     if (role == "match_configuration") return NetworkPolicyWindow::tr("Name matching configuration");

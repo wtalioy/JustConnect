@@ -7,9 +7,7 @@
 #include <limits>
 #include <algorithm>
 #include <utility>
-#ifdef Q_OS_LINUX
-#include "infrastructure/routing/linux/proxyview.h"
-#elif defined(Q_OS_MACOS)
+#if defined(Q_OS_MACOS)
 #include "infrastructure/routing/macos/proxyview.h"
 #endif
 
@@ -42,9 +40,7 @@ int compare(const QHostAddress &a, const QHostAddress &b)
 
 std::optional<std::pair<QJsonObject,QJsonObject>> originalProxyNetworkView(QJsonObject network, QJsonObject dns)
 {
-#ifdef Q_OS_LINUX
-    return linuxOriginalProxyView(std::move(network),std::move(dns));
-#elif defined(Q_OS_MACOS)
+#if defined(Q_OS_MACOS)
     return macOriginalProxyView(std::move(network),std::move(dns));
 #else
     return {{network,dns}};
@@ -74,7 +70,7 @@ std::optional<QJsonArray> originalNetworkProtection(const QJsonObject &snapshot)
     add("::1/128", {{"kind", "loopback"}}, false);
     QSet<qint64> interfacesSeen, disconnected;
     qint64 proxyIndex = 0;
-#if defined(Q_OS_LINUX) || defined(Q_OS_MACOS)
+#if defined(Q_OS_MACOS)
     proxyIndex = network["proxy_tunnel"].toObject()["interface_index"].toInteger();
 #endif
     const auto interfaces = network["interfaces"].toArray();
@@ -115,11 +111,6 @@ std::optional<QJsonArray> originalNetworkProtection(const QJsonObject &snapshot)
         const auto row = routes[i].toObject();
         const auto destination = row.value("destination");
         bool inactive = disconnected.contains(row["interface_index"].toInteger(0));
-        if (row.contains("next_hops") && !row["next_hops"].isArray()) return std::nullopt;
-        for (const auto &hop : row["next_hops"].toArray()) {
-            if (!hop.isObject()) return std::nullopt;
-            inactive &= disconnected.contains(hop.toObject()["interface_index"].toInteger(0));
-        }
         if ((row.contains("cloned") && !row["cloned"].isBool()) || !destination.isString()
             || !add(destination.toString(), {{"kind", "route"}, {"route", i}}, true,row["cloned"].toBool() || inactive))
             return std::nullopt;
@@ -197,40 +188,6 @@ std::optional<QJsonArray> originalDnsNamespaces(const QJsonObject &dns)
         }
         return true;
     };
-    if (dns.contains("resolv_conf")) {
-        if (!dns["resolv_conf"].isObject()) return std::nullopt;
-        const auto contents = dns["resolv_conf"].toObject().value("contents");
-        if (!contents.isString()) return std::nullopt;
-        const auto lines = contents.toString().split('\n');
-        QStringList names;
-        int sourceLine = -1;
-        const QRegularExpression whitespace(QStringLiteral("[ \\t]+"));
-        for (int i = 0; i < lines.size(); ++i) {
-            const auto &line = lines[i];
-            if (!line.startsWith("search ") && !line.startsWith("search\t")
-                && !line.startsWith("domain ") && !line.startsWith("domain\t")) continue;
-            const auto words = line.split(whitespace, Qt::SkipEmptyParts);
-            if (words.size() < 2) continue;
-            names = words.mid(1, words[0] == "domain" ? 1 : -1);
-            sourceLine = i;
-        }
-        for (int i = 0; i < names.size(); ++i)
-            if (!add(names[i], "search_configuration", {{"provider", "resolv_conf"}, {"line", sourceLine}, {"item", i}})) return std::nullopt;
-    }
-    if (dns.contains("resolved")) {
-        if (!dns["resolved"].isObject()) return std::nullopt;
-        const auto resolved = dns["resolved"].toObject();
-        if (resolved["status"] == "available") {
-            if (!resolved["Domains"].isArray()) return std::nullopt;
-            const auto domains = resolved["Domains"].toArray();
-            for (int i = 0; i < domains.size(); ++i) {
-                const auto row = domains[i].toObject();
-                if (!row["route_only"].isBool() || row["interface_index"].toInteger(-1) < 0
-                    || !add(row["domain"], row["route_only"].toBool() ? "route" : "search_route",
-                            {{"provider", "resolved"}, {"row", i}, {"interface_index", row["interface_index"]}})) return std::nullopt;
-            }
-        } else if (resolved["status"] != "unavailable") return std::nullopt;
-    }
     for (const auto &table : {QStringLiteral("nrpt"), QStringLiteral("clients")}) {
         if (!dns.contains(table)) continue;
         if (!dns[table].isArray()) return std::nullopt;
@@ -305,13 +262,12 @@ std::optional<QJsonObject> originalDnsProtection(const QJsonObject &dns)
         // Interface/service-only resolvers do not claim ordinary unscoped queries.
         if (provider == "macos_resolver" && origin["scope"] != "unscoped") continue;
         if (provider == "dynamic_store") continue; // These are inputs; the native merged view owns macOS routing/search semantics.
-        const bool search = role == "search" || role == "search_route" || role == "search_configuration";
+        const bool search = role == "search";
         const QJsonObject source{{"kind", "namespace"}, {"index", i}};
         auto text = item["name"].toString();
         if (text.isEmpty()) continue;
         if (text == ".") {
-            if (search && role != "match_configuration" && role != "domain_configuration"
-                && !add("single_label", "", source)) return std::nullopt;
+            if (search && !add("single_label", "", source)) return std::nullopt;
             continue;
         }
         QString kind = "suffix";

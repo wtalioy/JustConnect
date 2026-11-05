@@ -6,11 +6,9 @@
 #include "application/connectionsession.h"
 #include "application/coexistencenetworkaccess.h"
 #include "infrastructure/systemproxy/proxychanges.h"
-#ifdef Q_OS_LINUX
-#include "infrastructure/networkaccess/linux/networkaccess.h"
-#elif defined(Q_OS_MACOS)
+#if defined(Q_OS_MACOS)
 #include "infrastructure/networkaccess/macos/networkaccess.h"
-#elif defined(Q_OS_WIN)
+#else
 #include "infrastructure/networkaccess/windows/networkaccess.h"
 #endif
 #include "application/networkpolicysession.h"
@@ -29,11 +27,8 @@
 namespace {
 NetworkAccess *createNetworkAccess(CoreEngine *core, NetworkPolicySession *policy, SystemProxySession *proxy)
 {
-#if defined(Q_OS_LINUX) || defined(Q_OS_MACOS) || defined(Q_OS_WIN)
     const auto mtu = EmbeddedCoreEngine::buildInfo()["capabilities"].toObject()["tunnel_mtu"].toInt();
-#ifdef Q_OS_LINUX
-    auto *native = new LinuxNetworkAccess(core, policy, mtu);
-#elif defined(Q_OS_MACOS)
+#if defined(Q_OS_MACOS)
     auto *native = new MacNetworkAccess(core, policy, mtu);
 #else
     auto *native = new WindowsNetworkAccess(core, policy, mtu);
@@ -42,12 +37,6 @@ NetworkAccess *createNetworkAccess(CoreEngine *core, NetworkPolicySession *polic
     auto *changes = new ProxyChanges(network);
     QObject::connect(changes, &ProxyChanges::changed, network, &CoexistenceNetworkAccess::systemProxyChanged);
     return network;
-#else
-    Q_UNUSED(core)
-    Q_UNUSED(policy)
-    Q_UNUSED(proxy)
-    return nullptr;
-#endif
 }
 }
 

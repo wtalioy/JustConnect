@@ -55,7 +55,7 @@ int main(int argc,char **argv) try
     if (app.arguments().value(1) == "--snapshot") {
         std::cout << QJsonDocument(dnsSnapshot()).toJson(QJsonDocument::Compact).constData() << std::endl; return 0;
     }
-    MacTunDns dns; UnixTunDevice device;
+    MacTunDns dns; MacTunDevice device;
     if (argc == 1) {
         const bool observations[]{false,true,false,true,true};
         qsizetype next=0;

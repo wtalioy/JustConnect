@@ -20,7 +20,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <thread>
-#ifdef Q_OS_UNIX
+#if defined(Q_OS_UNIX)
 #include <sys/socket.h>
 #endif
 
@@ -70,7 +70,7 @@ static QByteArray frame(QLocalSocket &socket)
     check(line.size()<=64*1024 && line.endsWith('\n'),"Fixture response frame exceeded its bound");
     return line;
 }
-#ifdef Q_OS_MACOS
+#if defined(Q_OS_MACOS)
 static SCPreferencesRef privatePreferences()
 {
     const auto filename = root+"/preferences.plist";
@@ -210,15 +210,7 @@ int main(int argc, char **argv) try
             }
             return 0;
         }
-#ifdef Q_OS_LINUX
-        if (qEnvironmentVariable("JC_PROXY_RECOVERY_FIXTURE_MODE")=="native") {
-            check(qEnvironmentVariable("GSETTINGS_BACKEND")=="keyfile" && qEnvironmentVariable("XDG_CONFIG_HOME")==root+"/native-config",
-                  "Refuse daily desktop proxy settings");
-            PlatformSystemProxyBackend native;
-            return runProxyRecoveryWorker(native,application.arguments()[1],root+"/owner.lock",{},true,owner,resume);
-        }
-#endif
-#ifdef Q_OS_MACOS
+#if defined(Q_OS_MACOS)
         if (qEnvironmentVariable("JC_PROXY_RECOVERY_FIXTURE_MODE")=="native") {
             MacProxyApi api;
             api.open = [](AuthorizationRef *authorization) { *authorization=nullptr;return privatePreferences(); };
@@ -235,7 +227,7 @@ int main(int argc, char **argv) try
         ProxyRecoveryBackend backend(QCoreApplication::applicationFilePath());
         check(backend.check(config).result.succeeded() && backend.apply(config).succeeded(),"Owned host failed to apply through its recovery worker");
         std::cout << "READY";
-#ifndef Q_OS_WIN
+#if !defined(Q_OS_WIN)
         if (application.arguments()[2]=="crlf-ready") std::cout << '\r';
 #endif
         std::cout << '\n' << std::flush;
@@ -428,7 +420,7 @@ int main(int argc, char **argv) try
         reset();
         QLocalServer server;
         server.setSocketOptions(QLocalServer::UserAccessOption);
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN)
         const auto endpoint = "jcpr-test-"+QString::number(QCoreApplication::applicationPid());
 #else
         const auto endpoint = directory.filePath("p");
@@ -437,7 +429,7 @@ int main(int argc, char **argv) try
         QProcess worker;worker.start(QCoreApplication::applicationFilePath(),{endpoint});
         check(worker.waitForStarted(5000) && server.waitForNewConnection(5000),"Start owned protocol worker");
         auto *socket = server.nextPendingConnection();
-#ifdef Q_OS_UNIX
+#if defined(Q_OS_UNIX)
         const int sendBuffer = 4096;
         check(::setsockopt(int(socket->socketDescriptor()),SOL_SOCKET,SO_SNDBUF,&sendBuffer,sizeof(sendBuffer))==0,
               "Constrain only the owned fixture socket write buffer");
@@ -453,7 +445,7 @@ int main(int argc, char **argv) try
               qPrintable(QString("Invalid frame (%1 bytes), pending output=%2, worker error: %3")
                   .arg(invalid.size()).arg(socket->bytesToWrite()).arg(QString::fromUtf8(worker.readAllStandardError()))));
     }
-#ifdef Q_OS_MACOS
+#if defined(Q_OS_MACOS)
     reset("native");
     auto prefs = privatePreferences();const auto releasePrefs = qScopeGuard([&] { CFRelease(prefs); });
     auto interfaces = SCNetworkInterfaceCopyAll();check(interfaces,"Read native interfaces for private proxy fixture");
@@ -493,26 +485,6 @@ int main(int argc, char **argv) try
         return !QFile::exists(root+"/owner.lock") && current && CFEqual(current,original);
     },"Private SystemConfiguration was not restored after host SIGKILL");
     std::cout << "PASS: native private SystemConfiguration restored exactly after Qt host SIGKILL\n";
-#endif
-#ifdef Q_OS_LINUX
-    reset("native");
-    qputenv("XDG_CURRENT_DESKTOP","GNOME");qputenv("GSETTINGS_BACKEND","keyfile");qputenv("XDG_CONFIG_HOME",(root+"/native-config").toUtf8());
-    const auto get = [](const QStringList &args) {
-        const auto result = runPlatformCommand("gsettings",args);
-        check(result.result.succeeded(),"Native private GSettings operation");return result.output;
-    };
-    get({"set","org.gnome.system.proxy","mode","'auto'"});
-    get({"set","org.gnome.system.proxy","autoconfig-url","'https://pac.invalid/original.pac'"});
-    get({"set","org.gnome.system.proxy.http","host","'prior.invalid'"});
-    get({"set","org.gnome.system.proxy.http","port","3128"});
-    const auto original = get({"list-recursively","org.gnome.system.proxy"});
-    QProcess holder;holder.start(QCoreApplication::applicationFilePath(),{"--hold","native",root},QIODevice::ReadWrite|QIODevice::Text);
-    check(holder.waitForStarted(5000) && holder.waitForReadyRead(5000) && holder.readLine()=="READY\n","Start native private proxy owner");
-    check(get({"get","org.gnome.system.proxy","mode"})=="'manual'","Native worker did not apply actual GSettings");
-    holder.kill();check(holder.waitForFinished(5000),"Kill only the native private fixture host");
-    until([&] { return !QFile::exists(root+"/owner.lock") && get({"list-recursively","org.gnome.system.proxy"})==original; },
-          "Private GSettings was not restored after host SIGKILL");
-    std::cout << "PASS: native private GSettings restored exactly after Qt host SIGKILL\n";
 #endif
     std::cout << "PASS: independent proxy ownership, normal/partial recovery, external preservation, single owner and bounded command validation\n";
     return 0;

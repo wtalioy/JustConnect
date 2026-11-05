@@ -12,6 +12,9 @@
 #include <QPointer>
 #include <QPushButton>
 #include <QSettings>
+#include <QStandardPaths>
+#include <QUuid>
+#include <QScopeGuard>
 #include <QSpinBox>
 #include <QScrollArea>
 #include <QScrollBar>
@@ -39,10 +42,14 @@ template<class P> static void until(P done) {
 }
 int main(int argc,char **argv) {
     QTemporaryDir directory; check(directory.isValid(),"isolated settings");
-    qputenv("XDG_CONFIG_HOME",directory.path().toUtf8()); qputenv("XDG_DATA_HOME",directory.path().toUtf8());
-    qputenv("APPIMAGE",directory.filePath("missing.AppImage").toUtf8());
+    QStandardPaths::setTestModeEnabled(true);
     QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
-    QApplication app(argc,argv); app.setApplicationName("JustConnect-settings-test"); app.setOrganizationName("JustConnect-test");
+    QApplication app(argc,argv);
+    app.setApplicationName("JustConnect settings test-"+QUuid::createUuid().toString(QUuid::Id128));
+    app.setOrganizationName("JustConnect-test");
+    const auto configRoot=QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+    const auto dataRoot=QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+    const auto cleanup=qScopeGuard([&] { QDir(configRoot).removeRecursively(); QDir(dataRoot).removeRecursively(); });
     QSettings settings(directory.filePath("profile.ini"),QSettings::IniFormat); DefaultSettings::reset(settings);
     settings.setValue("Credential/Username","fixture-user");
     settings.setValue("Credential/Password",QString::fromLatin1(QByteArray("fixture-password").toBase64()));

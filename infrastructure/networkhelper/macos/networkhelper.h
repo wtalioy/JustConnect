@@ -2,7 +2,7 @@
 
 #include "application/platformoperationresult.h"
 #include "macosnetworkhelperpaths.h"
-#include "infrastructure/networkjournal/networkjournal.h"
+#include "infrastructure/networkjournal/macos/networkjournal.h"
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QStringList>

@@ -50,7 +50,7 @@ JC_API int32_t jc_session_coexistence(uint64_t handle, uint64_t generation, uint
 JC_API int32_t jc_session_prepare_original_dns(uint64_t handle, const uint8_t *sources, uint32_t length, uint64_t *generation);
 /* Read parsed campus resources for the requested active generation. */
 JC_API int32_t jc_session_resources(uint64_t handle, uint64_t generation, uint8_t *output, uint32_t capacity, uint32_t *length);
-/* Borrow a validated, nonblocking Linux TUN or macOS utun fd for the ready generation.
+/* Borrow a validated, nonblocking macOS utun fd for the ready generation.
  * Success owns a CLOEXEC duplicate until stop; the original fd and its flags remain
  * caller-owned. Address/routes/DNS and fd namespace ownership belong to the helper.
  * Packets retain native framing; other platforms and the fixture driver return JC_UNSUPPORTED.

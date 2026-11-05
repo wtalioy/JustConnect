@@ -1898,7 +1898,7 @@ Core: %3</source>
     <name>NetworkPolicyWindow</name>
     <message>
         <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="34"/>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="430"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="415"/>
         <source>Loopback</source>
         <translation>回环</translation>
     </message>
@@ -1913,386 +1913,362 @@ Core: %3</source>
         <translation>接口：%1</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="49"/>
-        <source>Route table %1</source>
-        <translation>路由表 %1</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="49"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="44"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="44"/>
         <source>Route</source>
         <translation>路由记录</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="53"/>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="112"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="46"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="98"/>
         <source>Source unavailable</source>
         <translation>来源信息不可用</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="63"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="56"/>
         <source>All protocols</source>
         <translation>全部协议</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="66"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="59"/>
         <source>%1, %2, port %3</source>
         <translation>%1，%2，端口 %3</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="73"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="66"/>
         <source>Published DNS: %1 → %2</source>
         <translation>内置解析：%1 → %2</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="76"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="69"/>
         <source>Campus DNS: %1</source>
         <translation>校园 DNS：%1</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="77"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="70"/>
         <source> (off)</source>
         <translation>（当前关闭）</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="80"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="73"/>
         <source>Resource unavailable</source>
         <translation>资源信息不可用</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="86"/>
-        <source>Resolver file: %1, line %2</source>
-        <translation>解析器文件：%1，第 %2 行</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="90"/>
-        <source>System resolver: global</source>
-        <translation>系统解析服务：全局</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="91"/>
-        <source>System resolver: %1 (%2)</source>
-        <translation>系统解析服务：%1（%2）</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="93"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="79"/>
         <source>Effective system name rule %1</source>
         <translation>生效的系统名称规则 %1</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="94"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="80"/>
         <source>System search list</source>
         <translation>系统搜索列表</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="98"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="84"/>
         <source>Interface: %1 (%2)</source>
         <translation>接口：%1（%2）</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="102"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="88"/>
         <source>Active DNS: </source>
         <translation>当前 DNS 配置：</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="102"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="88"/>
         <source>Stored DNS: </source>
         <translation>已保存 DNS 配置：</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="106"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="92"/>
         <source>Ordinary queries</source>
         <translation>普通查询</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="107"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="93"/>
         <source>Interface queries: %1 (%2)</source>
         <translation>接口查询：%1（%2）</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="109"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="95"/>
         <source>Service queries</source>
         <translation>服务专用查询</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="110"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="96"/>
         <source>Effective resolver %1; %2</source>
         <translation>生效的系统解析器 %1；%2</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="116"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="102"/>
         <source>Search suffix</source>
         <translation>搜索后缀</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="117"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="103"/>
         <source>Routed domain</source>
         <translation>路由域</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="118"/>
-        <source>Search suffix and routed domain</source>
-        <translation>搜索后缀及路由域</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="119"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="104"/>
         <source>System name rule (native expression)</source>
         <translation>系统名称规则（原生表达式）</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="120"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="105"/>
         <source>Search suffix configuration</source>
         <translation>搜索后缀配置</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="121"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="106"/>
         <source>Name matching configuration</source>
         <translation>名称匹配配置</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="122"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="107"/>
         <source>Primary domain configuration</source>
         <translation>主域配置</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="123"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="108"/>
         <source>Unknown role</source>
         <translation>用途未知</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="128"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="113"/>
         <source>%1 (including subdomains)</source>
         <translation>%1（含子域）</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="129"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="114"/>
         <source>%1 (exact name)</source>
         <translation>%1（完整名称）</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="130"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="115"/>
         <source>%1* (name prefix)</source>
         <translation>%1*（名称前缀）</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="131"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="116"/>
         <source>Single-label name (search suffix)</source>
         <translation>无点名称（搜索后缀）</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="132"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="117"/>
         <source>Unknown name rule</source>
         <translation>未知名称规则</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="236"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="221"/>
         <source>Network protection</source>
         <translation>网络保护</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="237"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="222"/>
         <source>Original network</source>
         <translation>原网络范围</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="237"/>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="238"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="222"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="223"/>
         <source>Source</source>
         <translation>来源</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="237"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="222"/>
         <source>Campus overlap</source>
         <translation>重叠的校园地址</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="237"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="222"/>
         <source>Campus exceptions</source>
         <translation>已确认的校园例外</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="238"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="223"/>
         <source>Name or expression</source>
         <translation>名称／表达式</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="238"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="223"/>
         <source>Role</source>
         <translation>用途</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="238"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="223"/>
         <source>Name matching</source>
         <translation>名称规则模型</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="239"/>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="240"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="224"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="225"/>
         <source>Use campus…</source>
         <translation>使用校园侧…</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="239"/>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="240"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="224"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="225"/>
         <source>Use original…</source>
         <translation>使用原网络…</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="241"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="226"/>
         <source>Addresses</source>
         <translation>地址范围</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="241"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="226"/>
         <source>DNS sources</source>
         <translation>DNS 名称与来源</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="241"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="226"/>
         <source>Refresh</source>
         <translation>刷新</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="242"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="227"/>
         <source>Refreshing only reads the network. Choices do not expand school authorization. Switching sides may interrupt existing connections; a target cannot use both sides at once.</source>
         <translation>这里展示最近读取的模型，刷新不自动应用；实际访问按已确认的网络策略及学校授权判断。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="283"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="268"/>
         <source>No confirmed campus name exceptions.</source>
         <translation>当前没有已确认的校园名称例外。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="284"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="269"/>
         <source>Campus name exceptions: %1</source>
         <translation>已确认的校园名称例外：%1</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="287"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="272"/>
         <source>Confirmed: %1 campus IPv4 and %2 name exceptions.</source>
         <translation>已确认 %1 个校园 IPv4 例外、%2 个名称例外。选择仍需学校授权；切换地址侧可能中断该地址的已有连接，相同目标不能同时选择两侧。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="289"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="274"/>
         <source>Confirming campus choices. </source>
         <translation>正在确认校园选择，请稍候。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="290"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="275"/>
         <source>The connection is busy. Try again shortly. </source>
         <translation>当前连接正忙，可以稍后重试。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="291"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="276"/>
         <source>Invalid choice. Check the protected scope and exact address or name. </source>
         <translation>校园选择无效，请检查保护范围及具体 IPv4 地址／名称。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="292"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="277"/>
         <source>Campus choices cannot be updated for this connection. </source>
         <translation>当前连接无法更新校园选择。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="293"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="278"/>
         <source>Campus choices could not be applied. Check the connection and retry. </source>
         <translation>校园选择未能应用，请检查连接状态后重试。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="302"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="287"/>
         <source>Use campus address</source>
         <translation>选择校园地址</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="303"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="288"/>
         <source>One IPv4 address in %1:
 The same address cannot use both networks. School authorization still applies.</source>
         <translation>请输入 %1 内需要改走校园的单个 IPv4 地址：
 相同地址不能同时访问两侧，业务仍需学校授权。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="311"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="296"/>
         <source>Enter a complete IPv4 address in %1. Nothing was changed.</source>
         <translation>请输入 %1 内的完整 IPv4 地址，未改变原选择。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="315"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="300"/>
         <source>This choice cannot be applied. Check the network results and retry.</source>
         <translation>当前无法应用这个选择，请检查网络结果并重试。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="328"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="313"/>
         <source>Use original network</source>
         <translation>恢复原网络</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="329"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="314"/>
         <source>Choose the campus address exception to remove:</source>
         <translation>请选择要撤回校园例外的地址：</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="336"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="321"/>
         <source>This address cannot be restored now. Try again shortly.</source>
         <translation>当前无法恢复这个地址，请稍后重试。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="347"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="332"/>
         <source>Use campus name</source>
         <translation>选择校园名称</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="347"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="332"/>
         <source>Use original name</source>
         <translation>恢复原网络名称</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="349"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="334"/>
         <source>One protected name to use through campus:
 Wildcards and whole scopes are not accepted. School authorization still applies.</source>
         <translation>请输入需要改走校园的单个受保护名称：
 不接受通配符或整个范围，业务仍须学校授权。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="351"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="336"/>
         <source>Choose the campus name exception to remove:</source>
         <translation>请选择要撤回校园例外的名称：</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="361"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="346"/>
         <source>This name choice cannot be applied. Check the full name and network results, then retry.</source>
         <translation>当前无法应用这个名称选择，请检查完整名称及网络结果后重试。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="376"/>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="379"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="361"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="364"/>
         <source>The connection has ended.</source>
         <translation>连接已结束。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="380"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="365"/>
         <source>No complete network results. Connect first, or check that network inspection is supported.</source>
         <translation>当前没有完整的网络检查结果。请先连接，或确认系统支持读取网络信息。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="382"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="367"/>
         <source>Reading original networks and campus resources…</source>
         <translation>正在读取原网络与校园资源…</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="383"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="368"/>
         <source>Could not read complete network information. Refresh to retry.</source>
         <translation>网络信息无法完整读取或表示，可以刷新重试。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="424"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="409"/>
         <source>Default query scope (root)</source>
         <translation>默认查询范围（根域）</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="430"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="415"/>
         <source>System reserved name</source>
         <translation>系统保留名称</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="432"/>
+        <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="417"/>
         <source>%1 original scopes · %2 campus overlaps · %3 DNS sources</source>
         <translation>检测到 %1 个原网络范围、%2 项校园地址重叠、%3 项 DNS 名称来源。</translation>
     </message>
@@ -2797,7 +2773,7 @@ Some settings may have changed. Check network recovery.</source>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="102"/>
-        <location filename="../../tests/settingwindow_test.cpp" line="161"/>
+        <location filename="../../tests/settingwindow_test.cpp" line="168"/>
         <source>Reset draft</source>
         <translation>恢复默认值</translation>
     </message>
@@ -2922,7 +2898,7 @@ Some settings may have changed. Check network recovery.</source>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="264"/>
-        <location filename="../../tests/settingwindow_test.cpp" line="206"/>
+        <location filename="../../tests/settingwindow_test.cpp" line="213"/>
         <source>Clear saved credentials</source>
         <translation>清除已保存凭据</translation>
     </message>
@@ -2963,8 +2939,8 @@ Some settings may have changed. Check network recovery.</source>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="294"/>
-        <location filename="../../tests/settingwindow_test.cpp" line="118"/>
-        <location filename="../../tests/settingwindow_test.cpp" line="144"/>
+        <location filename="../../tests/settingwindow_test.cpp" line="125"/>
+        <location filename="../../tests/settingwindow_test.cpp" line="151"/>
         <source>Invalid profile</source>
         <translation>配置无效</translation>
     </message>
@@ -2980,14 +2956,14 @@ Some settings may have changed. Check network recovery.</source>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="302"/>
-        <location filename="../../tests/settingwindow_test.cpp" line="150"/>
+        <location filename="../../tests/settingwindow_test.cpp" line="157"/>
         <source>Could not update startup registration</source>
         <translation>自启动操作未完成</translation>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="303"/>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="306"/>
-        <location filename="../../tests/settingwindow_test.cpp" line="135"/>
+        <location filename="../../tests/settingwindow_test.cpp" line="142"/>
         <source>Could not save startup preference</source>
         <translation>启动偏好未保存</translation>
     </message>

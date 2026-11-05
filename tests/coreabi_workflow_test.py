@@ -99,7 +99,7 @@ for runner, previous_success, outcome, cancelled, expected in (
         ('Windows',False,'failure',True,False),
         ('macOS',True,'skipped',False,True),
         ('macOS',False,'skipped',False,False),
-        ('Linux',False,'skipped',False,False)):
+        ('macOS',False,'cancelled',True,False)):
     actual=eval(condition,{'__builtins__':{}},{
         'runner':SimpleNamespace(os=runner),
         'steps':SimpleNamespace(windows_device_probe=SimpleNamespace(outcome=outcome)),
@@ -135,7 +135,7 @@ def controller_scenario(runner, arch, failure):
             os.chdir(previous)
     return status, calls
 
-for runner, arch in [('Windows', 'ARM64'), ('Windows', 'X64'), ('macOS', 'ARM64'), ('Linux', 'ARM64')]:
+for runner, arch in [('Windows', 'ARM64'), ('Windows', 'X64'), ('macOS', 'ARM64'), ('macOS', 'X64')]:
     status, calls = controller_scenario(runner, arch, None)
     expected = ['normal'] if (runner, arch) == ('Windows', 'ARM64') else ['normal', 'race']
     assert status == 0 and calls == expected, (runner, arch, status, calls)

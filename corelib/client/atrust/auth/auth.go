@@ -20,7 +20,9 @@ import (
 	"github.com/wtalioy/JustConnect/corelib/client/authchallenge"
 )
 
+// Keep the proven gateway client identity independent of the host OS.
 const (
+	ClientPlatform       = "Linux"
 	Language             = "en-US"
 	UserAgent            = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) aTrustTray/2.4.10.50 Chrome/83.0.4103.94 Electron/9.0.2 Safari/537.36 aTrustTray-Linux-Plat-Ubuntu-x64 SPCClientType"
 	maxAttempts          = 5
@@ -30,7 +32,7 @@ const (
 
 var sharedParams = url.Values{
 	"clientType": {"SDPClient"},
-	"platform":   {"Linux"},
+	"platform":   {ClientPlatform},
 	"lang":       {Language},
 }
 

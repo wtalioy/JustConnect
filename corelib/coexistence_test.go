@@ -18,7 +18,7 @@ import (
 
 type observeProxy func(context.Context) (mihomo.ProxyInfo, error)
 
-func (f observeProxy) ObserveProxy(ctx context.Context, _ []mihomo.ListenerProof) (mihomo.ProxyInfo, error) {
+func (f observeProxy) ObserveProxy(ctx context.Context) (mihomo.ProxyInfo, error) {
 	return f(ctx)
 }
 
@@ -133,7 +133,6 @@ func TestUnverifiedPrivilegedListenerCannotFallBackToDirect(t *testing.T) {
 		info                        mihomo.ProxyInfo
 		observationError, wantError error
 	}{
-		{"pending ownership", mihomo.ProxyInfo{ListenerRequest: &mihomo.ListenerRequest{PID: 1, Started: 1, Endpoints: []string{"127.0.0.1:7897"}}}, nil, nil},
 		{"controller unavailable", mihomo.ProxyInfo{}, mihomo.ErrUnavailable, mihomo.ErrUnavailable},
 		{"controller timeout", mihomo.ProxyInfo{}, context.DeadlineExceeded, context.DeadlineExceeded},
 		{"TUN lacks proxy", mihomo.ProxyInfo{RuntimeState: mihomo.RuntimeState{TunEnabled: true}}, nil, mihomo.ErrUnavailable},

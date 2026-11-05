@@ -33,7 +33,7 @@ struct API {
 #undef MEMBER
     QLibrary library;
     API() {
-#ifdef ABI_SHARED
+#if defined(ABI_SHARED)
         library.setFileName(QCoreApplication::applicationDirPath() + "/" + QString::fromUtf8(ABI_LIBRARY_NAME));
         library.setLoadHints(QLibrary::PreventUnloadHint);
         check(library.load(), "load executable-directory ABI library");
@@ -81,14 +81,6 @@ static void networkSnapshot(API &api) {
     check(!network["interfaces"].toArray().isEmpty() && !network["routes"].toArray().isEmpty()
         && QDateTime::fromString(snapshot["observed_at"].toString(),Qt::ISODateWithMs).isValid(), "actual interfaces, routes and observation time");
     check(bytes.front() == 0x5a && bytes.back() == 0x5a, "network snapshot output bounds");
-    if (network["os"] == "linux") {
-        bool local = false;
-        for (const auto &value : network["policy_rules"].toArray()) {
-            const auto rule = value.toObject();
-            local |= rule["family"] == 2 && rule["table"] == 255 && rule["action"] == 1 && rule["attributes"].isArray();
-        }
-        check(local, "native Linux policy rules through actual C ABI");
-    } else check(network["policy_rules"].isNull(), "unavailable native policy rules remain explicit");
     std::cout << "PASS: native read-only interface and route snapshot through C ABI\n";
 }
 
@@ -289,7 +281,7 @@ int main(int argc, char **argv) {
           "original DNS preparation clears generation on invalid input");
     check(api.jc_session_prepare_original_dns(0, nullptr, 0, nullptr) == JC_INVALID_ARGUMENT,
           "original DNS preparation requires a caller-owned generation output");
-#if defined(Q_OS_LINUX) || defined(Q_OS_MACOS)
+#if defined(Q_OS_MACOS)
     if (argc == 4 && QByteArray(argv[1]) == "--tun-gateway") {
         bool valid = false;
         const int descriptor = QByteArray(argv[3]).toInt(&valid);
@@ -322,7 +314,7 @@ int main(int argc, char **argv) {
     check(info["capabilities"].toObject()["name_protection"].toBool(), "name protection capability matches validated policy input");
     check(info["capabilities"].toObject()["network_snapshot"].toBool(), "native network snapshot capability");
     check(info["capabilities"].toObject()["resource_snapshot"].toBool() == !info["test_driver"].toBool(), "campus resource capability requires the protocol backend");
-#if (defined(Q_OS_LINUX) || defined(Q_OS_MACOS)) && !defined(ABI_FIXTURE)
+#if (defined(Q_OS_MACOS)) && !defined(ABI_FIXTURE)
     check(info["capabilities"].toObject()["raw_ipv4_tun_fd"].toBool(), "native fd capability requires the protocol backend");
     check(api.jc_session_attach_tun(0, 1, -1, 1400) == JC_INVALID_ARGUMENT, "invalid borrowed fd is rejected");
     check(api.jc_session_attach_tun_dns(0, 1, -1, 1400) == JC_INVALID_ARGUMENT, "DNS-publishing attach retains fd guards");
@@ -338,7 +330,7 @@ int main(int argc, char **argv) {
     check(!info["capabilities"].toObject()["windows_ipv4_packet_pipe"].toBool(), "other platforms and fixtures do not advertise Windows pipes");
     check(api.jc_session_attach_windows_pipe(0, 1, 0, 0, 1400, 0xc0000201, 0xc0000202, 0) == JC_UNSUPPORTED, "unsupported packet transport is explicit");
 #endif
-#ifndef ABI_FIXTURE
+#if !defined(ABI_FIXTURE)
     check(api.jc_session_ack_dns_routes(0, 1, 1, 2) == JC_INVALID_ARGUMENT, "DNS publication boolean is strict on every native transport");
     check(api.jc_session_ack_dns_routes(0, 1, 1, 1) == JC_INVALID_HANDLE, "DNS publication validates every native transport handle");
 #else
@@ -371,7 +363,7 @@ int main(int argc, char **argv) {
         } else check((status==JC_NETWORK_FAILURE || status==JC_TIMEOUT) && length==0,"unavailable discovery reports a bounded failure without partial output");
     }
     check(metadata.front() == 0x5a && metadata.back() == 0x5a, "metadata bounds");
-#ifdef ABI_FIXTURE
+#if defined(ABI_FIXTURE)
     check(info["test_driver"].toBool(), "fixture build must identify itself");
     authentication(api);
     return 0;

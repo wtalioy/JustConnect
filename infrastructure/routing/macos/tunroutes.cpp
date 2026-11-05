@@ -104,9 +104,9 @@ Result MacTunRoutes::change(const QString &operation, const QString &prefix, int
         return {Status::Unsupported, "A trusted system route utility is required."};
     const QStringList arguments{"-n", operation, "-inet", "-net", prefix, "-interface", interfaceName, "-static", "-proto1"};
     return (runner ? runner(program.absoluteFilePath(), arguments)
-        : runPlatformCommand(program.absoluteFilePath(), arguments, timeoutMs, {}, QProcessEnvironment{})).result;
+        : runPlatformCommand(program.absoluteFilePath(), arguments, timeoutMs, QProcessEnvironment{})).result;
 }
-Result MacTunRoutes::apply(const UnixTunDevice &device, const QStringList &prefixes, const CheckpointWriter &checkpoint)
+Result MacTunRoutes::apply(const MacTunDevice &device, const QStringList &prefixes, const CheckpointWriter &checkpoint)
 {
     if (!owner.isNull() || device.owner().isNull() || device.descriptor() < 0 || prefixes.size() > MacRouteSnapshotRows)
         return {Status::Failed, "Inactive route ownership and a configured owned utun are required."};
@@ -138,7 +138,7 @@ Result MacTunRoutes::apply(const UnixTunDevice &device, const QStringList &prefi
     return result;
 }
 
-Result MacTunRoutes::extend(const UnixTunDevice &device, const QStringList &addresses, const CheckpointWriter &checkpoint)
+Result MacTunRoutes::extend(const MacTunDevice &device, const QStringList &addresses, const CheckpointWriter &checkpoint)
 {
     if (owner.isNull() || device.owner() != owner || device.descriptor() < 0 || device.name() != interfaceName
         || device.index() != interfaceIndex || !identity() || addresses.isEmpty() || addresses.size() > MacRouteSnapshotRows)
@@ -166,7 +166,7 @@ Result MacTunRoutes::extend(const UnixTunDevice &device, const QStringList &addr
     return append(additions,checkpoint);
 }
 
-Result MacTunRoutes::reconcile(const UnixTunDevice &device, const QStringList &prefixes, const CheckpointWriter &checkpoint)
+Result MacTunRoutes::reconcile(const MacTunDevice &device, const QStringList &prefixes, const CheckpointWriter &checkpoint)
 {
     if (owner.isNull() || device.owner() != owner || device.descriptor() < 0 || device.name() != interfaceName
         || device.index() != interfaceIndex || !identity() || prefixes.size() > MacRouteSnapshotRows)
