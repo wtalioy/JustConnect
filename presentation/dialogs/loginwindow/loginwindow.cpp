@@ -1,3 +1,4 @@
+#include "ui_loginwindow.h"
 #include "loginwindow.h"
 #include <QEvent>
 

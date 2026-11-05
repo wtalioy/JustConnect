@@ -1,3 +1,4 @@
+#include "ui_authinfowindow.h"
 #include "presentation/coordinators/controllerselectioncoordinator.h"
 #include "authinfowindow.h"
 
