@@ -23,7 +23,7 @@ GraphCaptchaWindow::GraphCaptchaWindow(QWidget *parent) : QDialog(parent), ui(ne
     setWindowModality(Qt::WindowModal);
     setAttribute(Qt::WA_DeleteOnClose);
     auto *reset=ui->buttonBox->button(QDialogButtonBox::Reset);
-    reset->setIcon(QIcon(":/resource/undo.svg"));reset->setIconSize(QSize(18,18));reset->setProperty("iconOnly",true);reset->setAutoDefault(false);
+    reset->setIcon(QIcon(":/resource/undo.svg"));reset->setIconSize(QSize(18,18));reset->setProperty("iconOnly",true);reset->setAutoDefault(false);reset->setFlat(true);
     reset->style()->unpolish(reset);reset->style()->polish(reset);
     updatePrompt();
 
@@ -64,6 +64,8 @@ void GraphCaptchaWindow::setGraph(const QByteArray &image, bool useTextInput)
     {
         ui->codeEdit->clear();
         ui->codeEdit->setFocus();
+    } else {
+        ui->canvas->setFocus();
     }
 }
 

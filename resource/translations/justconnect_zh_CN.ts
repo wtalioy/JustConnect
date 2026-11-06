@@ -625,36 +625,36 @@ Clear the authentication cache for </source>
     <name>GraphCaptchaWindow</name>
     <message>
         <location filename="../../presentation/dialogs/graphcaptchawindow/graphcaptchawindow.ui" line="14"/>
-        <location filename="../../presentation/dialogs/graphcaptchawindow/graphcaptchawindow.cpp" line="74"/>
-        <location filename="../../presentation/dialogs/graphcaptchawindow/graphcaptchawindow.cpp" line="83"/>
-        <location filename="../../presentation/dialogs/graphcaptchawindow/graphcaptchawindow.cpp" line="92"/>
+        <location filename="../../presentation/dialogs/graphcaptchawindow/graphcaptchawindow.cpp" line="76"/>
+        <location filename="../../presentation/dialogs/graphcaptchawindow/graphcaptchawindow.cpp" line="85"/>
+        <location filename="../../presentation/dialogs/graphcaptchawindow/graphcaptchawindow.cpp" line="94"/>
         <source>Image verification</source>
         <translation>图形验证码</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/graphcaptchawindow/graphcaptchawindow.cpp" line="74"/>
+        <location filename="../../presentation/dialogs/graphcaptchawindow/graphcaptchawindow.cpp" line="76"/>
         <source>The verification image could not be loaded. Retry the connection.</source>
         <translation>验证码图片加载失败，请重试连接。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/graphcaptchawindow/graphcaptchawindow.cpp" line="83"/>
+        <location filename="../../presentation/dialogs/graphcaptchawindow/graphcaptchawindow.cpp" line="85"/>
         <source>Enter the characters shown in the image.</source>
         <translation>请输入图片中的字符验证码。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/graphcaptchawindow/graphcaptchawindow.cpp" line="92"/>
+        <location filename="../../presentation/dialogs/graphcaptchawindow/graphcaptchawindow.cpp" line="94"/>
         <source>Select the points requested in the image.</source>
         <translation>请按图片提示点选验证码。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/graphcaptchawindow/graphcaptchawindow.cpp" line="119"/>
-        <location filename="../../presentation/dialogs/graphcaptchawindow/graphcaptchawindow.cpp" line="119"/>
+        <location filename="../../presentation/dialogs/graphcaptchawindow/graphcaptchawindow.cpp" line="121"/>
+        <location filename="../../presentation/dialogs/graphcaptchawindow/graphcaptchawindow.cpp" line="121"/>
         <source>Clear points</source>
         <translation>清空选点</translation>
     </message>
     <message>
         <location filename="../../presentation/dialogs/graphcaptchawindow/graphcaptchawindow.ui" line="20"/>
-        <location filename="../../presentation/dialogs/graphcaptchawindow/graphcaptchawindow.cpp" line="121"/>
+        <location filename="../../presentation/dialogs/graphcaptchawindow/graphcaptchawindow.cpp" line="123"/>
         <source>Enter the characters in the image.</source>
         <translation>请输入图片中的字符验证码：</translation>
     </message>
@@ -669,7 +669,7 @@ Clear the authentication cache for </source>
         <translation>方向键移动，Shift 加速；空格选点，退格撤销上一点。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/graphcaptchawindow/graphcaptchawindow.cpp" line="121"/>
+        <location filename="../../presentation/dialogs/graphcaptchawindow/graphcaptchawindow.cpp" line="123"/>
         <source>Select the requested points. Arrow keys move; Space selects.</source>
         <translation>按图片提示选点，也可用方向键移动、空格选点。</translation>
     </message>
@@ -741,7 +741,7 @@ Clear the authentication cache for </source>
         <translation>请等待操作完成后再清理旧版缓存。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="739"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="757"/>
         <location filename="../../presentation/main/mainwindow.cpp" line="194"/>
         <source>Clear legacy data</source>
         <translation>清理旧版缓存</translation>
@@ -785,31 +785,31 @@ Clear the authentication cache for </source>
         <translation>默认</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="157"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="160"/>
         <location filename="../../presentation/main/mainwindow.cpp" line="544"/>
         <source>Connect</source>
         <translation>连接</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="114"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="117"/>
         <location filename="../../presentation/main/mainwindow.cpp" line="404"/>
         <source>Not connected</source>
         <translation>尚未连接</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="453"/>
-        <location filename="../../presentation/main/mainwindow.ui" line="470"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="465"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="482"/>
         <source>Copy log</source>
         <translation>复制日志</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="483"/>
-        <location filename="../../presentation/main/mainwindow.ui" line="500"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="498"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="515"/>
         <source>Clear displayed log</source>
         <translation>清空显示的日志</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="543"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="561"/>
         <location filename="../../presentation/main/mainwindow.cpp" line="405"/>
         <source>Connect to access campus resources.</source>
         <translation>连接后即可访问网络资源。</translation>
@@ -1043,7 +1043,7 @@ No authorized probe resource or campus DNS is available. Check the target and ga
         <translation>尚未配置服务器</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="662"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="680"/>
         <location filename="../../presentation/main/mainwindow.cpp" line="326"/>
         <location filename="../../presentation/main/mainwindow.cpp" line="545"/>
         <source>Profiles</source>
@@ -1299,116 +1299,116 @@ Complete the legacy credential migration first, or create a new profile.</source
         <translation>未能保存升级后的配置，已保留旧版本以便重试。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="574"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="592"/>
         <source>Version dev</source>
         <translation>版本 dev</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="217"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="220"/>
         <source>Overview</source>
         <translation>概览</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="223"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="226"/>
         <source>aTrust · Not connected</source>
         <translation>aTrust · 等待连接</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="233"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="236"/>
         <source>Connection diagnostics</source>
         <translation>连接诊断</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="286"/>
         <location filename="../../presentation/main/mainwindow.ui" line="289"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="292"/>
         <source>Refresh</source>
         <translation>刷新</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="339"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="348"/>
         <source>Rules and DNS</source>
         <translation>规则与 DNS</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="305"/>
-        <location filename="../../presentation/main/mainwindow.ui" line="308"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="311"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="314"/>
         <source>Copy diagnostics</source>
         <translation>复制诊断</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="364"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="373"/>
         <source>Logs</source>
         <translation>日志</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="401"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="410"/>
         <source>Activity log</source>
         <translation>运行日志</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="423"/>
-        <location filename="../../presentation/main/mainwindow.ui" line="440"/>
-        <location filename="../../presentation/main/mainwindow.ui" line="726"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="432"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="449"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="744"/>
         <source>Open log file</source>
         <translation>打开日志文件</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="533"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="551"/>
         <source>Connection logs appear here</source>
         <translation>连接日志将在这里显示</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="648"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="666"/>
         <source>File</source>
         <translation>文件</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="667"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="685"/>
         <source>Help</source>
         <translation>帮助</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="679"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="697"/>
         <source>About JustConnect</source>
         <translation>关于本软件</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="687"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="705"/>
         <source>Application settings…</source>
         <translation>应用偏好设置…</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="695"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="713"/>
         <source>Exit</source>
         <translation>退出</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="703"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="721"/>
         <source>Edit current profile…</source>
         <translation>编辑当前配置…</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="711"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="729"/>
         <source>Network scope and conflicts…</source>
         <translation>网络范围与校园地址重叠…</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="716"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="734"/>
         <source>Check for updates</source>
         <translation>检查更新</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="721"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="739"/>
         <source>Project website</source>
         <translation>项目主页</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="729"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="747"/>
         <source>Open the application log file</source>
         <translation>打开应用日志文件</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="734"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="752"/>
         <source>Clear current account cache</source>
         <translation>清除当前账户认证缓存</translation>
     </message>
@@ -1429,17 +1429,17 @@ Complete the legacy credential migration first, or create a new profile.</source
         <translation>选择配置</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="635"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="653"/>
         <source>JustConnect</source>
         <translation>JustConnect</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="179"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="182"/>
         <source>Details</source>
         <translation>详情</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="207"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="210"/>
         <source>Connection details</source>
         <translation>连接详情</translation>
     </message>
@@ -2432,19 +2432,19 @@ Some settings may have changed. Check network recovery.</source>
         <translation>后退</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/ssologinwebview/ssologinwebview.ui" line="48"/>
-        <location filename="../../presentation/dialogs/ssologinwebview/ssologinwebview.ui" line="54"/>
+        <location filename="../../presentation/dialogs/ssologinwebview/ssologinwebview.ui" line="51"/>
+        <location filename="../../presentation/dialogs/ssologinwebview/ssologinwebview.ui" line="57"/>
         <source>Forward</source>
         <translation>前进</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/ssologinwebview/ssologinwebview.ui" line="61"/>
         <location filename="../../presentation/dialogs/ssologinwebview/ssologinwebview.ui" line="67"/>
+        <location filename="../../presentation/dialogs/ssologinwebview/ssologinwebview.ui" line="73"/>
         <source>Reload</source>
         <translation>重新载入</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/ssologinwebview/ssologinwebview.ui" line="90"/>
+        <location filename="../../presentation/dialogs/ssologinwebview/ssologinwebview.ui" line="99"/>
         <source>Gateway certificate verification is off. Your login information may be exposed.</source>
         <translation>已关闭网关证书验证，该网关的账号与认证信息可能泄露。</translation>
     </message>
@@ -2464,7 +2464,7 @@ Some settings may have changed. Check network recovery.</source>
         <translation>不允许使用该登录地址或回调，请检查服务器和认证方式。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/ssologinwebview/ssologinwebview.ui" line="74"/>
+        <location filename="../../presentation/dialogs/ssologinwebview/ssologinwebview.ui" line="83"/>
         <source>Page address</source>
         <translation>页面地址</translation>
     </message>

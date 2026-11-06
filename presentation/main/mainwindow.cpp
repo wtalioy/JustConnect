@@ -113,7 +113,7 @@ MainWindow::MainWindow(
     setupTrayIcon();
     setupProfileMenu();
     auto *tools=new QToolButton(ui->detailsDialog);
-    tools->setObjectName("detailsToolsButton");
+    tools->setObjectName("detailsToolsButton");tools->setAutoRaise(true);
     tools->setIcon(QIcon(":/resource/more.svg"));tools->setIconSize(QSize(18,18));
     tools->setPopupMode(QToolButton::InstantPopup);
     auto *menu=new QMenu(tools);

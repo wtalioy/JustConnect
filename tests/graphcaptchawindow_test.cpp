@@ -84,6 +84,9 @@ bool preservesCoordinateCaptchaResponse()
     window.setGraph(createCaptchaImage(), false);
 
     auto *canvas = window.findChild<CaptchaCanvas *>();
+    if (window.focusWidget()!=canvas) {
+        qCritical()<<"point captcha starts in the image instead of focusing a toolbar action";return false;
+    }
     canvas->resize(240, 160);
     const QPointF position(120, 80);
     QMouseEvent click(QEvent::MouseButtonPress, position, position, position,
@@ -141,7 +144,9 @@ bool keyboardSelectionRetainsImageCoordinatesAndLimits()
     for(int i=0;i<JC_MAX_AUTH_POINTS+2;++i)key(Qt::Key_Space);
     if(canvas->pointsPx().size()!=JC_MAX_AUTH_POINTS)return false;
     window.setGraph(createCaptchaImage(),true);key(Qt::Key_Space);
-    return canvas->pointsPx().isEmpty();
+    if (!canvas->pointsPx().isEmpty() || window.focusWidget()!=window.findChild<QLineEdit *>("codeEdit"))return false;
+    window.setGraph(createCaptchaImage(),false);
+    return window.focusWidget()==canvas;
 }
 
 bool limitsCapturedPoints()
