@@ -183,6 +183,7 @@ void SettingWindow::loadSettings(const QSettings &source) {
     resetAuthChoices();
     ++loadGeneration;loading=false;updateBusy();
     draftValues=DefaultSettings::publicValues(source);
+    draftValues.remove("Common/ConfigVersion"); // Schema revisions belong to SettingsMigrator.
     serverEditor->load(source);
     ui->usernameLineEdit->setText(source.value("Credential/Username").toString());
     rememberAuthentication->setChecked(source.value(DefaultSettings::RememberAuthentication,ConnectionBehavior{}.rememberAuthentication).toBool());

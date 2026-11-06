@@ -1,4 +1,5 @@
 #include "presentation/browser/signinbrowser.h"
+#include "presentation/presentationhelpers.h"
 #include "presentation/main/mainwindow.h"
 #include "presentation/i18n/applicationlanguage.h"
 #include "presentation/dialogs/loginwindow/loginwindow.h"
@@ -251,6 +252,12 @@ static void authenticationLanguageChangesPreserveData(MainWindow &window) {
 }
 
 static void profileSetupLanguageChangesPreserveData(MainWindow &window) {
+    QTimer unexpectedMessage;
+    QObject::connect(&unexpectedMessage,&QTimer::timeout,[&] {
+        for (auto *widget:QApplication::topLevelWidgets()) if(auto *box=qobject_cast<QMessageBox *>(widget);box && box->isVisible()) {
+            std::cerr<<"Unexpected profile translation message: "<<box->text().toStdString()<<'\n';std::exit(1);
+        }
+    });unexpectedMessage.start(10);
     QTemporaryDir directory;QSettings settings(directory.filePath("profile.ini"),QSettings::IniFormat);
     DefaultSettings::reset(settings);
     settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");
@@ -347,7 +354,8 @@ static void nativeHome(MainWindow &window) {
     check(window.width()==320 && profile->text()==longName && profile->width()<=window.width(),
         "a long profile name must keep its full value without expanding the compact window");
     profile->setText(profileName);QCoreApplication::processEvents();
-    QApplication::setActiveWindow(&window);profile->setFocus();
+    PresentationHelpers::activateWindow(&window);profile->setFocus();
+    waitForUi([&]{return QApplication::focusWidget()==profile;});
     for (int i=0;i<16 && QApplication::focusWidget()!=button;++i) {
         QKeyEvent tab(QEvent::KeyPress,Qt::Key_Tab,Qt::NoModifier);
         auto *focused=QApplication::focusWidget();check(focused,"home keeps an accessible keyboard focus");
