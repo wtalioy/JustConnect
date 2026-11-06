@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <QFileDialog>
 #include <QLabel>
+#include <QFormLayout>
 #include <QLineEdit>
 #include <QPlainTextEdit>
 #include <QKeyEvent>
@@ -39,6 +40,20 @@
 #include "infrastructure/storage/applicationpaths.h"
 #include "application/defaultsettings.h"
 static void check(bool ok,const char *message) { if (!ok) { std::cerr<<message<<'\n'; std::exit(1); } }
+static int checkFormRows(QWidget *view) {
+    int checked=0;
+    for(auto *form:view->findChildren<QFormLayout *>()) {
+        for(int row=0;row<form->rowCount();++row) {
+            auto *labelItem=form->itemAt(row,QFormLayout::LabelRole),*fieldItem=form->itemAt(row,QFormLayout::FieldRole);
+            auto *label=labelItem?labelItem->widget():nullptr,*field=fieldItem?fieldItem->widget():nullptr;
+            if(!label || !field || !label->isVisible() || !field->isVisible() || label->geometry().right()>=field->x()) continue;
+            check(std::abs(label->geometry().center().y()-field->geometry().center().y())<=1,
+                "visible form labels are vertically centered beside their fields");
+            ++checked;
+        }
+    }
+    return checked;
+}
 static void write(const QString &path,const QByteArray &data) { check(QDir().mkpath(QFileInfo(path).absolutePath()),"create fixture directory"); QFile f(path); check(f.open(QIODevice::WriteOnly) && f.write(data)==data.size(),"write fixture"); }
 static QByteArray read(const QString &path) { QFile f(path); check(f.open(QIODevice::ReadOnly),"read fixture"); return f.readAll(); }
 template<class P> static void until(P done) {
@@ -78,6 +93,7 @@ int main(int argc,char **argv) {
     // Saving an unrelated change must preserve the selected opaque identity.
     { auto *initial=new SettingWindow(nullptr,&access,CredentialAccess::source(settings,ApplicationPaths::clientDataFile("fixture"))); initial->show();ready();
       initial->resize(640,480); app.processEvents();
+      check(checkFormRows(initial)>=3,"check real connection, sign-in and account rows");
       check(initial->height()<=480,"settings fit a short screen without forcing the dialog beyond its bounds");
       check(!initial->findChild<QComboBox *>("languageComboBox") && initial->findChild<QLineEdit *>("serverAddressLineEdit"),
           "connection settings contain connection fields without global preferences");
@@ -143,6 +159,8 @@ int main(int argc,char **argv) {
         "simplifying the editor preserves a disabled traffic mode and its saved target");
     window=open();
     ApplicationPreferencesWidget preferences(nullptr);
+    preferences.resize(540,560);preferences.show();app.processEvents();
+    check(checkFormRows(&preferences)==2,"check both global preference dropdown rows");preferences.hide();
     const auto statePath=QDir(QFileInfo(ProfileManager().profilePath("")).absolutePath()).filePath("state.ini");
     const auto retainedTTL=settings.value("JustConnect/DNSTTL");
     check(ProfileManager().setSilentStartEnabled(false),"seed an existing global preference before injecting its write failure");

@@ -6,6 +6,8 @@
 #include <QCheckBox>
 #include <QPlainTextEdit>
 #include <QLabel>
+#include <QFile>
+#include <QFormLayout>
 #include <QLineEdit>
 #include <QSettings>
 #include <QSpinBox>
@@ -16,6 +18,8 @@
 static void check(bool ok,const char *message) { if (!ok) { std::cerr<<message<<'\n'; std::exit(1); } }
 int main(int argc,char **argv) {
     QApplication app(argc,argv);
+    QFile style(":/resource/appearance.qss");check(style.open(QIODevice::ReadOnly),"load the real shared input styles");
+    app.setStyleSheet(QString::fromUtf8(style.readAll()));
     QTemporaryDir directory;
     check(directory.isValid(),"isolated server settings");
     const auto path=directory.filePath("profile.ini");
@@ -35,7 +39,13 @@ int main(int argc,char **argv) {
     auto *nodeWarning=editor.findChild<QLabel *>("nodeTlsWarningLabel");
     check(editor.settingsValues().value("JustConnect/TLSVerify").toBool() && warning->isHidden(),"legacy server settings enable certificate verification");
     check(!allowNodes->isChecked() && nodeWarning->isHidden(),"node verification remains enabled by default");
-    editor.show();
+    editor.resize(540,560);editor.show();app.processEvents();
+    auto *form=editor.findChild<QFormLayout *>();
+    for(auto *field:QList<QWidget *>{preset,address,port}) {
+        auto *label=qobject_cast<QLabel *>(form->labelForField(field));
+        check(label && label->buddy()==field && std::abs(label->geometry().center().y()-field->geometry().center().y())<=1,
+            "school, server and port labels are centered beside their styled fields");
+    }
     check(rules->isVisibleTo(&editor),"domain DNS is directly editable without another settings layer");
     allowNodes->setChecked(true);
     const auto nodePolicy=ProfileService::load(editor.settingsValues());
@@ -61,6 +71,10 @@ int main(int argc,char **argv) {
     check(allowNodes->isChecked() && !nodeWarning->isHidden(),"explicit node policy and warning survive save and reload");
     check(!editor.settingsValues().value("JustConnect/TLSVerify").toBool() && editor.settingsValues().value("JustConnect/TLSCAPEM").toString()=="explicit private CA" && !warning->isHidden(),"explicit TLS policy survives save and reload");
     auto *caToggle=editor.findChild<QToolButton *>("schoolCaToggle");
+    app.processEvents();auto *caLabel=editor.findChild<QLabel *>("schoolCaLabel");
+    check(caLabel && caLabel->buddy()==caToggle && caLabel->x()==ca->x() && ca->x()==rules->x()
+        && std::abs(caLabel->geometry().center().y()-caToggle->geometry().center().y())<=1,
+        "CA disclosure title, trailing action and expanded editor align with the DNS section");
     check(caToggle->isChecked() && ca->isVisibleTo(&editor),"a saved private CA is immediately visible for review");
     caToggle->click();
     check(ca->isHidden() && editor.settingsValues().value("JustConnect/TLSCAPEM")=="explicit private CA",

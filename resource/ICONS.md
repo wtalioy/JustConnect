@@ -22,7 +22,6 @@ Selected Lucide SVGs from [`53fab88ff9d1b48f4704b5b5b560d6b4d560bf4c`](https://g
 | `more.svg` | `ellipsis.svg` |
 | `eye.svg` | `eye.svg` |
 | `eye-off.svg` | `eye-off.svg` |
-| `chevron-right.svg` | `chevron-right.svg` |
 | `chevron.svg` | `chevron-down.svg` |
 | `chevron-up.svg` | `chevron-up.svg` |
 | `arrow-right.svg` | `arrow-right.svg` |

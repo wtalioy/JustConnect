@@ -22,9 +22,12 @@ QPushButton:flat:hover { background: rgba(229,233,255,170); }
 QPushButton:flat:focus { border-color: #5367e8; }
 QToolButton#preferencesButton { padding: 0; min-width: 38px; border-color: transparent; background: transparent; }
 QToolButton#preferencesButton:hover { background: rgba(225,230,240,180); }
+QToolButton#preferencesButton:focus { border-color: #5367e8; }
 QToolButton#preferencesButton::menu-indicator { image: none; }
 QToolButton#detailsToolsButton::menu-indicator { image: none; }
-QToolButton#schoolCaToggle { border: none; background: transparent; padding: 0 8px 0 0; min-height: 28px; color: #616b7c; }
+QToolButton#schoolCaToggle { border-color: transparent; background: transparent; padding: 0; min-height: 26px; max-height: 26px; min-width: 26px; max-width: 26px; }
+QToolButton#schoolCaToggle:hover { background: rgba(225,230,240,180); }
+QToolButton#schoolCaToggle:focus { border-color: #5367e8; }
 QToolButton#backButton, QToolButton#forwardButton, QToolButton#reloadButton { padding: 0; min-width: 38px; max-width: 38px; }
 QToolButton#profileMenuButton { min-height: 34px; max-height: 34px; padding: 0; font-size: 16px; font-weight: 600; color: #263143; border-color: #e0e5ed; background: #eef1f6; }
 QToolButton#profileMenuButton:hover { background: #e5eaf3; border-color: #cbd4e3; }

@@ -12,6 +12,7 @@
 #include <QSignalBlocker>
 #include <QSpinBox>
 #include <QVBoxLayout>
+#include <QHBoxLayout>
 #include "application/defaultsettings.h"
 #include "core/connectionprofile.h"
 
@@ -40,8 +41,14 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     port = new QSpinBox(this);
     port->setObjectName("serverPortSpinBox");
     port->setRange(1,65535); port->setValue(443);
-    form->addRow(new QLabel(this),preset); form->addRow(new QLabel(this),address); form->addRow(new QLabel(this),port);
+    for(auto *field:QList<QWidget *>{preset,address,port}) {
+        auto *label=new QLabel(this);label->setBuddy(field);
+        // QFormLayout otherwise caps label height at 7/4 of its text height, above our taller inputs.
+        label->setSizePolicy(QSizePolicy::Preferred,QSizePolicy::Expanding);
+        form->addRow(label,field);
+    }
     layout->addLayout(form);
+    layout->addSpacing(8);
 
     verify=new QCheckBox(this);
     verify->setObjectName("tlsVerifyCheckBox"); verify->setChecked(TlsOptions{}.verify);
@@ -58,13 +65,20 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     tlsOptions->addWidget(verify); tlsOptions->addWidget(warning);
     tlsOptions->addWidget(allowUnverifiedNodes); tlsOptions->addWidget(nodeWarning);
     layout->addLayout(tlsOptions);
+    auto *caSection=new QVBoxLayout;caSection->setContentsMargins(0,0,0,0);caSection->setSpacing(8);
+    auto *caHeader=new QHBoxLayout;caHeader->setContentsMargins(0,0,0,0);caHeader->setSpacing(8);
+    caLabel=new QLabel(this);caLabel->setObjectName("schoolCaLabel");caLabel->setWordWrap(true);
     caToggle=new QToolButton(this);caToggle->setObjectName("schoolCaToggle");
-    caToggle->setCheckable(true);caToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    PresentationHelpers::setButtonIcon(caToggle,":/resource/chevron-right.svg");
-    layout->addWidget(caToggle,0,Qt::AlignLeft);
+    caToggle->setCheckable(true);caToggle->setAutoRaise(true);
+    caToggle->setIcon(QIcon(":/resource/chevron.svg"));caToggle->setIconSize(QSize(16,16));
+    caLabel->setBuddy(caToggle);caHeader->addWidget(caLabel);caHeader->addStretch();caHeader->addWidget(caToggle);
+    caSection->addLayout(caHeader);
     caPem=new QPlainTextEdit(this); caPem->setObjectName("tlsCaPemEdit"); caPem->setMaximumHeight(88);caPem->hide();
-    layout->addWidget(caPem);
-    connect(caToggle,&QToolButton::toggled,this,[this](bool open) {caPem->setVisible(open);PresentationHelpers::setButtonIcon(caToggle,open?":/resource/chevron.svg":":/resource/chevron-right.svg");});
+    caSection->addWidget(caPem);layout->addLayout(caSection);
+    connect(caToggle,&QToolButton::toggled,this,[this](bool open) {
+        caPem->setVisible(open);caToggle->setIcon(QIcon(open?":/resource/chevron-up.svg":":/resource/chevron.svg"));
+    });
+    layout->addSpacing(8);
     domainDnsRules=new QPlainTextEdit(this);
     domainDnsRules->setObjectName("domainDnsRulesEdit");
     domainDnsRules->setMaximumHeight(112);
@@ -72,8 +86,11 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     rulesHelp=new QLabel(this);
     rulesHelp->setWordWrap(true);rulesHelp->setProperty("secondary",true);
     domainDnsLabel=new QLabel(this);
+    domainDnsLabel->setMinimumHeight(28);
     domainDnsLabel->setBuddy(domainDnsRules);
-    layout->addWidget(domainDnsLabel);layout->addWidget(domainDnsRules);layout->addWidget(rulesHelp);
+    auto *dnsSection=new QVBoxLayout;dnsSection->setContentsMargins(0,0,0,0);dnsSection->setSpacing(8);
+    dnsSection->addWidget(domainDnsLabel);dnsSection->addWidget(domainDnsRules);dnsSection->addWidget(rulesHelp);
+    layout->addLayout(dnsSection);
     layout->addStretch();
     connect(verify,&QCheckBox::toggled,warning,[this](bool checked){warning->setVisible(!checked);});
     connect(allowUnverifiedNodes,&QCheckBox::toggled,nodeWarning,&QLabel::setVisible);
@@ -100,7 +117,8 @@ void ServerSettingsWidget::retranslate() {
     warning->setText(tr("The server's identity will not be verified."));
     allowUnverifiedNodes->setText(tr("Skip tunnel verification"));
     nodeWarning->setText(tr("The tunnel peer will not be verified. Sign-in verification is unchanged."));
-    caToggle->setText(tr("School CA (optional)"));
+    caLabel->setText(tr("School CA (optional)"));
+    caToggle->setAccessibleName(tr("School CA (optional)"));caToggle->setToolTip(tr("School CA (optional)"));
     caPem->setAccessibleName(tr("School CA (optional)"));
     caPem->setPlaceholderText(tr("Optional school CA in PEM format. Leave empty to use system trust."));
     domainDnsLabel->setText(tr("Domain DNS"));

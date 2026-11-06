@@ -31,6 +31,7 @@ ApplicationPreferencesWidget::ApplicationPreferencesWidget(QWidget *parent) : QW
     behavior->addItem(QString(),true);behavior->addItem(QString(),false);
     behavior->setCurrentIndex(ProfileManager().closeToTray()?0:1);
     behaviorLabel=new QLabel(this);behaviorLabel->setBuddy(behavior);form->addRow(behaviorLabel,behavior);
+    for(auto *label:{languageLabel,behaviorLabel}) label->setSizePolicy(QSizePolicy::Preferred,QSizePolicy::Expanding);
     startupGroup=new QGroupBox(this);layout->addWidget(startupGroup);
     auto *startup=new QVBoxLayout(startupGroup);startup->setContentsMargins(0,0,0,0);startup->setSpacing(4);
     autoStart=new QCheckBox(this);autoStart->setObjectName("autoStartCheckBox");

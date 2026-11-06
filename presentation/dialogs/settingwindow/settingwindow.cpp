@@ -152,6 +152,7 @@ void SettingWindow::retranslate() {
             auto *item=form->itemAt(row,QFormLayout::LabelRole);
             if (auto *label=item ? item->widget() : nullptr) {
                 label->setMinimumWidth(0);
+                label->setSizePolicy(QSizePolicy::Preferred,QSizePolicy::Expanding);
                 labels.append(label);labelWidth=qMax(labelWidth,label->sizeHint().width());
             }
         }
