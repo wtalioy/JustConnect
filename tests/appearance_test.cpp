@@ -139,5 +139,13 @@ int main(int argc,char **argv) {
     school.setText(longName);QCoreApplication::processEvents();
     check(inputs.width()==windowWidth && school.text()==longName,
         "long school captions fit the window while retaining their full accessible text");
+    layout.removeWidget(&school);school.setText("Default");
+    auto fractionalFont=school.font();fractionalFont.setLetterSpacing(QFont::AbsoluteSpacing,0.2);school.setFont(fractionalFont);
+    school.resize(school.sizeHint());const auto caption=school.grab().toImage();
+    const int captionWidth=school.width()-40;school.resize(school.width()+20,school.height());
+    const auto roomy=school.grab().toImage();const auto scale=caption.devicePixelRatio();
+    check(caption.copy(10*scale,4*scale,captionWidth*scale,(school.height()-8)*scale)
+        ==roomy.copy(20*scale,4*scale,captionWidth*scale,(school.height()-8)*scale),
+        "natural-width captions render fully, matching a roomier button even with fractional glyph advances");
     std::cout<<"PASS: transparent repaint, dialog reopening, and input action alignment\n";
 }

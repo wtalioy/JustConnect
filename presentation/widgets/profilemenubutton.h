@@ -3,6 +3,7 @@
 #include <QStyleOptionToolButton>
 #include <QStylePainter>
 #include <QToolButton>
+#include <QtMath>
 
 class ProfileMenuButton final : public QToolButton {
 public:
@@ -13,7 +14,7 @@ public:
     }
     QSize sizeHint() const override {
         ensurePolished();
-        return {qMax(MinimumWidth,fontMetrics().horizontalAdvance(text())+2*Padding+Gap+Arrow),QToolButton::sizeHint().height()};
+        return {qMax(MinimumWidth,qCeil(QFontMetricsF(font()).horizontalAdvance(text()))+2*Padding+Gap+Arrow),QToolButton::sizeHint().height()};
     }
     QSize minimumSizeHint() const override {return {MinimumWidth,sizeHint().height()};}
 protected:
@@ -24,8 +25,9 @@ protected:
         QStylePainter painter(this);painter.drawComplexControl(QStyle::CC_ToolButton,option);
         // Keep the caption and chevron together; native menu-indicator padding varies by style.
         const int available=qMax(0,width()-2*Padding-Gap-Arrow);
-        const auto label=fontMetrics().elidedText(text(),Qt::ElideRight,available);
-        const int labelWidth=fontMetrics().horizontalAdvance(label);
+        const QFontMetricsF metrics(font());
+        const auto label=metrics.elidedText(text(),Qt::ElideRight,available);
+        const int labelWidth=qCeil(metrics.horizontalAdvance(label));
         const int left=(width()-labelWidth-Gap-Arrow)/2;
         style()->drawItemText(&painter,QRect(left,0,labelWidth,height()),Qt::AlignLeft|Qt::AlignVCenter|Qt::TextSingleLine,
             option.palette,isEnabled(),label,QPalette::ButtonText);
