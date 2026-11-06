@@ -28,6 +28,7 @@
 #include <QSemaphore>
 #include <atomic>
 #include "application/profileservice.h"
+#include "presentation/appearance/applicationappearance.h"
 #include "infrastructure/autostart/autostart.h"
 #include "presentation/presentationhelpers.h"
 #include "tests/credentialstorefixture.h"
@@ -49,6 +50,7 @@ int main(int argc,char **argv) {
     QStandardPaths::setTestModeEnabled(true);
     QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
     QApplication app(argc,argv);
+    ApplicationAppearance::install();
     app.setApplicationName("JustConnect settings test-"+QUuid::createUuid().toString(QUuid::Id128));
     app.setOrganizationName("JustConnect-test");
     const auto configRoot=QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
@@ -89,6 +91,7 @@ int main(int argc,char **argv) {
       auto *password=initial->findChild<QLineEdit *>("passwordLineEdit");
       check(QApplication::focusWidget()==password && scroll->viewport()->rect().contains(password->mapTo(scroll->viewport(),QPoint(0,0))),"keyboard focus brings lower settings into view");
       auto *footer=initial->findChild<QDialogButtonBox *>("buttonBox");
+      check(footer->buttons().size()==2,"connection settings have exactly one save action and one cancel action");
       check(initial->rect().contains(footer->geometry()),"apply and cancel remain visible outside the scrolling settings");
       auto *remember=initial->findChild<QCheckBox *>("rememberAuthenticationCheckBox");
       check(remember && !remember->isChecked(),"new profiles do not persist authentication without consent");
@@ -98,7 +101,7 @@ int main(int argc,char **argv) {
           "technical proxy and traffic-probe controls are absent from everyday settings");
       initial->setConnectAfterSave(true);int intents=0;
       QObject::connect(initial,&SettingWindow::connectRequested,[&]{++intents;});
-      initial->findChild<QDialogButtonBox *>("buttonBox")->button(QDialogButtonBox::Ok)->click(); ready();
+      initial->findChild<QPushButton *>("saveProfileButton")->click(); ready();
       check(intents==1,"implicit setup resumes the requested connection once after a successful save");
       check(settings.value("JustConnect/AuthID")=="persisted-id" && settings.value("JustConnect/AuthSubType")=="password","selected authentication identity survives settings reload/apply");
       const auto reloaded=ProfileService::load(settings);
@@ -127,18 +130,18 @@ int main(int argc,char **argv) {
         }
     }); dismiss.start(1);
     auto open=[&] { auto *window=new SettingWindow(nullptr,&access,CredentialAccess::source(settings,ApplicationPaths::clientDataFile("fixture")),true); window->show();ready(); return window; };
-    auto buttons=[](SettingWindow *w) { return w->findChild<QDialogButtonBox *>("buttonBox"); };
     settings.setValue("JustConnect/KeepAliveURL","ssh://campus.example.invalid:22");settings.sync();
     QPointer<SettingWindow> window=open();
     expectedText=QCoreApplication::translate("SettingWindow","Check the server, sign-in method, ports, DNS and probe target. Nothing was saved.");shown=false;
-    buttons(window)->button(QDialogButtonBox::Apply)->click();ready();
+    window->findChild<QPushButton *>("saveProfileButton")->click();ready();
     check(shown && window && settings.value("JustConnect/KeepAliveURL")=="ssh://campus.example.invalid:22",
         "hidden advanced settings still pass core validation before any save");
     window->reject();ready();settings.setValue("JustConnect/KeepAliveURL","https://campus.example.invalid/status");
     settings.setValue("JustConnect/KeepAliveMode","off");settings.sync();
-    window=open();expectedText.clear();buttons(window)->button(QDialogButtonBox::Apply)->click();ready();
+    window=open();expectedText.clear();window->findChild<QPushButton *>("saveProfileButton")->click();ready();
     check(settings.value("JustConnect/KeepAliveMode")=="off" && settings.value("JustConnect/KeepAliveURL")=="https://campus.example.invalid/status",
         "simplifying the editor preserves a disabled traffic mode and its saved target");
+    window=open();
     const auto statePath=QDir(QFileInfo(ProfileManager().profilePath("")).absolutePath()).filePath("state.ini");
     const auto retainedTTL=settings.value("JustConnect/DNSTTL");
     check(ProfileManager().setSilentStartEnabled(false),"seed an existing global preference before injecting its write failure");
@@ -152,7 +155,7 @@ int main(int argc,char **argv) {
     check(!ProfileManager().silentStartEnabled(),"failed preference write preserves the previous choice");
     expectedText.clear();window->reject();ready();
     settings.setValue("JustConnect/SecondaryDNS","not-an-address");settings.sync();window=open();
-    expectedText=QCoreApplication::translate("SettingWindow","Check the server, sign-in method, ports, DNS and probe target. Nothing was saved."); buttons(window)->button(QDialogButtonBox::Ok)->click();
+    expectedText=QCoreApplication::translate("SettingWindow","Check the server, sign-in method, ports, DNS and probe target. Nothing was saved."); window->findChild<QPushButton *>("saveProfileButton")->click();
     check(shown && window->isVisible() && settings.value("JustConnect/SecondaryDNS")=="not-an-address" && !QFileInfo::exists(cache) && store->values.value(ProfileCredentials::legacyCacheKey(settings.value(ProfileCredentials::ScopeSetting).toString()))=="current authentication","core validation rejects bad DNS before persistence or cache changes");
     window->reject();ready();settings.setValue("JustConnect/SecondaryDNS","");settings.sync();window=open();
     window->findChild<QLineEdit *>("serverAddressLineEdit")->setText("changed.example.invalid");
@@ -168,17 +171,17 @@ int main(int argc,char **argv) {
         && store->values.value(ProfileCredentials::legacyCacheKey(settings.value(ProfileCredentials::ScopeSetting).toString()))=="current authentication",
         "failed startup operation does not mutate profile settings or authentication");
     expectedText.clear();
-    buttons(window)->button(QDialogButtonBox::Ok)->click(); ready();
+    window->findChild<QPushButton *>("saveProfileButton")->click(); ready();
     check(settings.value("JustConnect/ServerAddress")=="changed.example.invalid" && !QFileInfo::exists(cache) && read(otherCache)=="other authentication","legacy cache is sealed and other profiles remain unchanged after saving");
     write(cache,"preserved authentication"); settings.setValue("JustConnect/ExtraArguments","obsolete-argument");
     window=open(); window->findChild<QPlainTextEdit *>("domainDnsRulesEdit")->setPlainText("service.example.invalid");
-    buttons(window)->button(QDialogButtonBox::Ok)->click(); ready();
+    window->findChild<QPushButton *>("saveProfileButton")->click(); ready();
     check(!settings.contains("JustConnect/ExtraArguments") && settings.value("JustConnect/DNSTTL")==61 && settings.value(DefaultSettings::DomainDnsRules)=="service.example.invalid" && read(cache)=="preserved authentication","obsolete-field cleanup, network edits and refreshed URL previews retain valid authentication");
     window=open();window->setConnectAfterSave(true);int cancelledIntents=0;QObject::connect(window,&SettingWindow::connectRequested,[&]{++cancelledIntents;}); expectedText=QCoreApplication::translate("SettingWindow","Reset this draft to its defaults? Changes take effect after saving."); messageResult=QMessageBox::Yes;
     window->findChild<QPushButton *>("resetDefaultPushButton")->click(); expectedText.clear(); messageResult=QMessageBox::Ok;
     check(window->findChild<QLineEdit *>("serverAddressLineEdit")->text().isEmpty()
         && !window->findChild<QCheckBox *>("rememberAuthenticationCheckBox")->isChecked(),"reset changes the window draft and clears cache consent in the draft");
-    buttons(window)->button(QDialogButtonBox::Cancel)->click(); ready();
+    window->findChild<QPushButton *>("dismissSettingsButton")->click(); ready();
     check(cancelledIntents==0 && settings.value("JustConnect/ServerAddress")=="changed.example.invalid" && read(cache)=="preserved authentication"
         && ProfileService::load(settings).behavior.rememberAuthentication,"cancelled reset preserves configuration, cache consent and pending legacy archive");
     const auto imported=directory.filePath("import.ini");
@@ -187,7 +190,7 @@ int main(int argc,char **argv) {
     const auto originalImport=read(imported);
     window=open(); fileSelection=imported; window->findChild<QPushButton *>("importPushButton")->click();
     check(fileSelection.isEmpty() && window->findChild<QLineEdit *>("usernameLineEdit")->text()=="imported-user","file import populates the window draft");
-    buttons(window)->button(QDialogButtonBox::Cancel)->click(); ready();
+    window->findChild<QPushButton *>("dismissSettingsButton")->click(); ready();
     check(settings.value("Credential/Username")=="fixture-user" && read(imported)==originalImport && read(cache)=="preserved authentication","cancelled import changes neither source file nor saved profile/cache");
     window=open(); const auto exported=directory.filePath("export.ini"); fileSelection=exported;
     window->findChild<QPushButton *>("exportPushButton")->click();
@@ -207,15 +210,16 @@ int main(int argc,char **argv) {
     // The deliberately conflicting old cache is retained, without preventing a public-only edit.
     window=open();window->findChild<QLineEdit *>("passwordLineEdit")->clear();
     window->findChild<QPlainTextEdit *>("domainDnsRulesEdit")->setPlainText("other.example.invalid");
-    buttons(window)->button(QDialogButtonBox::Ok)->click();ready();
+    window->findChild<QPushButton *>("saveProfileButton")->click();ready();
     ConnectionCredentials loaded;
     check(vault.load(source.scope,secured,loaded).succeeded() && loaded.password=="saved-password"
         && loaded.totpSecret=="saved-totp" && settings.value(DefaultSettings::DomainDnsRules)=="other.example.invalid" && settings.value("JustConnect/DNSTTL")==61,"blank secret fields do not erase secure credentials when an unrelated public field changes");
     QFile::remove(cache);
     window=open();check(window->findChild<QLineEdit *>("passwordLineEdit")->text()=="saved-password","secure credentials populate the real settings window");
     window->findChild<QLineEdit *>("passwordLineEdit")->clear();window->findChild<QLineEdit *>("totpSecretLineEdit")->setText("replacement-totp");
-    buttons(window)->button(QDialogButtonBox::Apply)->click();ready();
+    window->findChild<QPushButton *>("saveProfileButton")->click();ready();
     check(vault.load(source.scope,secured,loaded).succeeded() && loaded.password=="saved-password" && loaded.totpSecret=="replacement-totp","editing TOTP while leaving password blank preserves the password");
+    window=open();
     expectedText=QCoreApplication::translate("SettingWindow","Clear saved passwords and authenticator keys for %1? Other accounts are unaffected.").arg("fixture-user");messageResult=QMessageBox::Yes;
     window->findChild<QPushButton *>("clearCredentialButton")->click();ready();expectedText.clear();messageResult=QMessageBox::Ok;
     check(vault.load(source.scope,secured,loaded).status==CredentialStatus::NotFound
@@ -246,10 +250,28 @@ int main(int argc,char **argv) {
     check(current->findChild<QLineEdit *>("usernameLineEdit")->text()=="bob"
         && current->findChild<QLineEdit *>("passwordLineEdit")->text()=="manual-draft",
         "closed settings result cannot replace another profile or an edited secret");
-    buttons(current)->button(QDialogButtonBox::Ok)->click();
+    current->findChild<QPushButton *>("saveProfileButton")->click();
     until([&]{return !access.isBusy(bob.path);});app.processEvents();
     check(vault.load(alice.scope,alice.profile,loaded).succeeded() && loaded.password=="alice-secret"
         && vault.load(bob.scope,bob.profile,loaded).succeeded() && loaded.password=="manual-draft",
         "settings save remains scoped after the source object and old window are released");
+    // Retain the SMS/SSO contracts of the removed wizard in the shared editor.
+    for (const auto &method:QStringList{"smsCheckCode","cas","httpsOauth2"}) {
+        QSettings account(directory.filePath(method+".ini"),QSettings::IniFormat);DefaultSettings::reset(account);
+        account.setValue("JustConnect/ServerAddress","vpn.example.invalid");account.setValue("JustConnect/AuthType",method);
+        account.setValue("JustConnect/AuthID","selected-method");account.setValue("JustConnect/LoginDomain","campus");
+        account.setValue("JustConnect/PhoneCountryCode","86");account.setValue("JustConnect/PhoneNumber","123456");account.sync();
+        auto *editor=new SettingWindow(nullptr,&access,CredentialAccess::source(account,{}),true);editor->show();
+        until([&]{return !access.isBusy(account.fileName());});app.processEvents();
+        auto *country=editor->findChild<QLineEdit *>("countryCodeLineEdit");auto *phone=editor->findChild<QLineEdit *>("phoneNumberLineEdit");
+        check(!editor->findChild<QLineEdit *>("passwordLineEdit")->isVisibleTo(editor)
+            && phone->isVisibleTo(editor)==(method=="smsCheckCode"),"the editor exposes only the selected method's credential fields");
+        if (method=="smsCheckCode") {country->setText("852");phone->setText("98765432");}
+        editor->findChild<QPushButton *>("saveProfileButton")->click();until([&]{return !access.isBusy(account.fileName());});app.processEvents();
+        check(account.value("JustConnect/AuthType")==method && account.value("JustConnect/AuthID")=="selected-method"
+            && ProfileService::load(account).endpoint.phone==(method=="smsCheckCode" ? "852-98765432" : "86-123456"),
+            "SMS editing and credential-free SSO saves retain their method identity and hidden phone values");
+        QApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    }
     std::cout<<"PASS: real settings validation, failures, verified legacy quarantine, import/reset cancellation and export\n";
 }

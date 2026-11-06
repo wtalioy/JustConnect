@@ -16,6 +16,7 @@
 ApplicationPreferencesWidget::ApplicationPreferencesWidget(QWidget *parent) : QWidget(parent) {
     auto *layout=new QFormLayout(this);layout->setSpacing(12);layout->setContentsMargins(0,0,0,0);
     layout->setRowWrapPolicy(QFormLayout::WrapAllRows);
+    layout->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
     language=new QComboBox(this);language->setObjectName("languageComboBox");
     language->addItem("English","en");language->addItem(QString::fromUtf8("简体中文"),"zh_CN");
     language->setCurrentIndex(language->findData(ApplicationLanguage::instance().current()));
@@ -68,11 +69,12 @@ void ApplicationPreferencesWidget::retranslate() {
     const QSignalBlocker blocker(behavior);
     behavior->setItemText(0,tr("Keep running in the system tray"));behavior->setItemText(1,tr("Disconnect and exit"));
     autoStart->setText(tr("Launch at sign-in"));silentStart->setText(tr("Start in the background"));
-    hint->setText(!ProfileManager::supportsLanguage(ProfileManager().language())
-        ? tr("The saved language is invalid. English is being used.")
-        : QSystemTrayIcon::isSystemTrayAvailable()
-        ? tr("Changes take effect immediately. Exit always restores your network.")
-        : tr("No system tray is available. Use Exit in Details to quit."));
+    QString explanation=tr("General settings save automatically.");
+    if (!ProfileManager::supportsLanguage(ProfileManager().language()))
+        explanation+='\n'+tr("The saved language is invalid. English is being used.");
+    else if (!QSystemTrayIcon::isSystemTrayAvailable())
+        explanation+='\n'+tr("No system tray is available. Use Exit in Details to quit.");
+    hint->setText(explanation);
     controller->setText(tr("Clash coexistence…"));
     if (errorText) error->setText(tr(errorText));
 }

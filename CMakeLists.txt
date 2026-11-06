@@ -178,16 +178,9 @@ if(BUILD_TESTING)
     justconnect_system_integration_tests(platformbackend_test justconnect_platform)
     justconnect_credential_tests(credentialstore_test justconnect_platform)
     justconnect_autostart_tests(autostart_test justconnect_platform)
-    add_executable(settingwindow_test tests/settingwindow_test.cpp
-        presentation/widgets/applicationpreferenceswidget.cpp
-        presentation/i18n/applicationlanguage.cpp
-        presentation/widgets/serversettingswidget.cpp
-        presentation/dialogs/settingwindow/settingwindow.cpp
-        presentation/coordinators/controllerselectioncoordinator.cpp
-        presentation/presentationhelpers.cpp
-        infrastructure/settings/profilemanager.cpp
-        infrastructure/storage/applicationpaths.cpp infrastructure/settings/credentialaccess.cpp)
-    target_link_libraries(settingwindow_test PRIVATE justconnect_engine justconnect_platform Qt6::Widgets Qt6::Concurrent justconnect_application)
+    add_executable(settingwindow_test tests/settingwindow_test.cpp)
+    target_link_libraries(settingwindow_test PRIVATE justconnect_desktop)
+    justconnect_core_runtime(settingwindow_test justconnect_core)
     add_test(NAME settingwindow_test COMMAND settingwindow_test)
     set_tests_properties(settingwindow_test PROPERTIES TIMEOUT 30 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_test(NAME core_self_test COMMAND ${PROJECT_NAME} --core-self-test)

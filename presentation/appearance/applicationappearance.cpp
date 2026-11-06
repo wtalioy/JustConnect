@@ -42,7 +42,6 @@ void ApplicationAppearance::install(QWidget *initialWindow) {
     qApp->setProperty("appearanceInstalled",true);
     qApp->styleHints()->setColorScheme(Qt::ColorScheme::Light);
     qApp->styleHints()->setTabFocusBehavior(Qt::TabFocusAllControls);
-    auto font=qApp->font();font.setPixelSize(16);qApp->setFont(font);
     auto palette=qApp->palette();
     palette.setColor(QPalette::Window,QColor("#f5f7fa"));
     palette.setColor(QPalette::WindowText,QColor("#192638"));

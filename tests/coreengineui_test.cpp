@@ -867,7 +867,7 @@ static void uiContracts() {
     emit fake->authMethodsReady({QJsonObject{{"type", "auth/cas"}, {"domain", "campus"}, {"name", "校园登录"}, {"login_url", "https://vpn.example.invalid/login"}}});
     auto *list=queryChoices(query);
     check(returnedMethods(query)==0, "query results are buffered until cleanup succeeds");
-    auto *ok = query->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok);
+    auto *ok = query->findChild<QPushButton *>("saveProfileButton");
     check(!ok->isEnabled(), "method selection waits for query cleanup before releasing the global slot");
     emit fake->finished(ConnectionError::NONE);
     check(returnedMethods(query)==1,"successful query delivers its methods inside settings");

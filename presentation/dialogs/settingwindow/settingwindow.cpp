@@ -28,10 +28,14 @@
 SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const CredentialSource &source,bool openProfileTab,CoreEngine *queryEngine)
     : QDialog(parent),ui(new Ui::SettingWindow),settings(source.path,QSettings::IniFormat),credentials(credentials),credentialSource(source) {
     ui->setupUi(this);
+    saveButton=ui->buttonBox->addButton(QString(),QDialogButtonBox::AcceptRole);
+    saveButton->setObjectName("saveProfileButton");saveButton->setDefault(true);
+    dismissButton=ui->buttonBox->addButton(QString(),QDialogButtonBox::RejectRole);
+    dismissButton->setObjectName("dismissSettingsButton");
     auto *preferencesLayout=new QVBoxLayout(ui->preferencesContainer);
     preferencesLayout->setContentsMargins(0,0,0,0);
     preferencesLayout->addWidget(new ApplicationPreferencesWidget(ui->preferencesContainer));
-    profileHint=new QLabel(this);profileHint->setObjectName("profileReadOnlyHint");profileHint->setWordWrap(true);profileHint->hide();
+    profileHint=new QLabel(this);profileHint->setObjectName("profileReadOnlyHint");profileHint->setWordWrap(true);profileHint->setProperty("secondary",true);profileHint->hide();
     ui->dialogLayout->insertWidget(0,profileHint);
     showPage(openProfileTab);
     connect(ui->tabWidget,&QTabWidget::currentChanged,this,&SettingWindow::updateBusy);
@@ -113,12 +117,7 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
         ui->totpSecretLineEdit->setEchoMode(on ? QLineEdit::Normal : QLineEdit::Password);
     });
     connect(ui->authSelectPushButton,&QPushButton::clicked,this,&SettingWindow::queryMethods);
-    connect(ui->buttonBox->button(QDialogButtonBox::Ok),&QPushButton::clicked,this,[this] {
-        applySettings(true);
-    });
-    connect(ui->buttonBox->button(QDialogButtonBox::Apply),&QPushButton::clicked,this,[this] {
-        applySettings(false);
-    });
+    connect(saveButton,&QPushButton::clicked,this,&SettingWindow::saveSettings);
     connect(ui->resetDefaultPushButton,&QPushButton::clicked,this,[this] {
         if (QMessageBox::question(this,tr("Reset draft"),tr("Reset this draft to its defaults? Changes take effect after saving."))!=QMessageBox::Yes) return;
         QTemporaryDir folder;
@@ -165,9 +164,6 @@ void SettingWindow::retranslate() {
         const int known=types.indexOf(ui->authTypeComboBox->itemData(i).toString());
         if (known>=0 && !ui->authTypeComboBox->itemData(i,Qt::UserRole+1).isValid()) ui->authTypeComboBox->setItemText(i,names[known]);
     }
-    ui->buttonBox->button(QDialogButtonBox::Ok)->setText(connectAfterSave ? tr("Save and connect") : tr("Save"));
-    ui->buttonBox->button(QDialogButtonBox::Cancel)->setText(tr("Close"));
-    profileHint->setText(tr("Disconnect to edit this connection. General settings remain available."));
     if (queryStatusText) queryStatus->setText(tr(queryStatusText));
     rememberAuthentication->setText(tr("Remember authentication"));
     rememberAuthentication->setToolTip(tr("Use the system credential store to resume after disconnecting or restarting, for as long as the server allows. Turning this off stops saving and resuming. Use Clear current account authentication cache to delete existing data."));
@@ -260,12 +256,13 @@ void SettingWindow::setProfileEditable(bool editable) {
 }
 void SettingWindow::updateBusy() {
     ui->loginTabContents->setEnabled(profileEditable && !saving);
-    profileHint->setVisible(!profileEditable && ui->tabWidget->currentWidget()==ui->loginTab);
     const bool connection=ui->tabWidget->currentWidget()==ui->loginTab;
-    for (auto button:{QDialogButtonBox::Ok,QDialogButtonBox::Apply}) {
-        ui->buttonBox->button(button)->setVisible(connection && profileEditable);
-        ui->buttonBox->button(button)->setEnabled(!loading && !saving && !querying);
-    }
+    profileHint->setVisible(connection);
+    profileHint->setText(profileEditable ? tr("Save changes for the next connection.") : tr("Disconnect to edit this connection. General settings remain available."));
+    saveButton->setVisible(connection && profileEditable);
+    saveButton->setEnabled(!loading && !saving && !querying);
+    saveButton->setText(connectAfterSave ? tr("Save and connect") : tr("Save"));
+    dismissButton->setText(connection && profileEditable ? tr("Cancel") : tr("Close"));
     serverEditor->setEnabled(profileEditable && !saving && !querying);
     ui->authTypeComboBox->setEnabled(profileEditable && !saving && !querying);
     ui->authSelectPushButton->setEnabled(profileEditable && !saving);
@@ -342,7 +339,7 @@ void SettingWindow::clearCredentials() {
         credentialSource=CredentialAccess::source(settings,credentialSource.legacyCachePath);
     });
 }
-void SettingWindow::applySettings(bool closeAfter) {
+void SettingWindow::saveSettings() {
     if (closed || !profileEditable || loading || saving) return;
     if (!CredentialAccess::matches(credentialSource,settings) || credentialSource.publicValues!=DefaultSettings::publicValues(settings)) {
         QMessageBox::warning(this,tr("Profile changed"),tr("Reopen the editor before applying changes."));return;
@@ -366,13 +363,12 @@ void SettingWindow::applySettings(bool closeAfter) {
     const bool edited=(!ui->passwordLineEdit->text().isEmpty() && ui->passwordLineEdit->text()!=loadedCredentials.password)
         || (!ui->totpSecretLineEdit->text().isEmpty() && ui->totpSecretLineEdit->text()!=loadedCredentials.totpSecret);
     saving=true;updateBusy();const auto source=credentialSource;
-    credentials->save(source,profile,edited,changes).then(this,[this,source,profile,closeAfter](const CredentialResult &result) {
+    credentials->save(source,profile,edited,changes).then(this,[this,source,profile](const CredentialResult &result) {
         if (closed) return;
         saving=false;updateBusy();
         if (!result.succeeded()) {QMessageBox::warning(this,tr("Could not save profile"),PresentationHelpers::credentialOperationMessage(result.status));return;}
         if (settings.fileName()!=source.path || settings.value(ProfileCredentials::ScopeSetting)!=source.scope) return;
         credentialSource=CredentialAccess::source(settings,source.legacyCachePath);
-        if (closeAfter) {accept();if(connectAfterSave)emit connectRequested();}
-        else {loadSettings(settings);readCredentials();}
+        accept();if(connectAfterSave)emit connectRequested();
     });
 }

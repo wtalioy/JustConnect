@@ -34,7 +34,7 @@ private:
     void clearCredentials();
     void updateBusy();
     void clearDraftCredentials();
-    void applySettings(bool closeAfter);
+    void saveSettings();
     void queryMethods();
     void cancelQuery();
     QVariantMap publicChanges() const;
@@ -47,7 +47,7 @@ private:
     QLabel *credentialStatus, *credentialHint;
     const char *credentialStatusText=nullptr;
     CredentialStatus credentialLoadStatus=CredentialStatus::NotFound;
-    QPushButton *clearCredentialButton;
+    QPushButton *clearCredentialButton,*saveButton,*dismissButton;
     QCheckBox *rememberAuthentication;
     bool loading=false,saving=false,closed=false,profileEditable=true,querying=false,connectAfterSave=false;
     quint64 loadGeneration=0;

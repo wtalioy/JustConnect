@@ -34,7 +34,7 @@
 
 ## 原生实装进度
 
-首页已改为紧凑单列：学校／服务器、真实状态和主按钮，命名配置与可访问名称从当前设置派生，设置收在齿轮入口；日志与维护观察移入独立详情窗口。详情与托盘仍读取同一个会话，打开／关闭详情不改变连接；底部只保留完整的详情入口，关闭复用原生窗口按钮，明确退出仍在菜单。公共浅色样式统一按钮、箭头、字号、输入及焦点反馈，替换并删除旧的三份主窗口样式，移除 Windows 固定字体。
+首页沿用原生标题栏显示一次应用身份，内容区去掉重复 Logo／名称，顶部合并为学校／服务器与设置按钮，下面是实时状态和主操作；参考 [qBittorrent 主窗口](https://github.com/qbittorrent/qBittorrent/blob/master/src/gui/mainwindow.ui)与 [KeePassXC 主窗口](https://github.com/keepassxreboot/keepassxc/blob/develop/src/gui/MainWindow.ui)的标题栏／工作区分工，命名配置与可访问名称从当前设置派生，设置收在齿轮入口；日志与维护观察移入独立详情窗口。详情与托盘仍读取同一个会话，打开／关闭详情不改变连接；底部只保留完整的详情入口，关闭复用原生窗口按钮，明确退出仍在菜单。公共浅色样式统一按钮、箭头、字号、输入及焦点反馈，替换并删除旧的三份主窗口样式，移除 Windows 固定字体。
 
 Windows 请求系统 Desktop Acrylic 并保留标准窗口边框；macOS 使用 NSVisualEffectView。只在实际 Windows／Cocoa Qt 后端使用原生句柄，离屏等后端走清晰浅色回退。没有应用侧屏幕采集、逐帧模糊或持续动画。实现依据为 [DWM 背景材质](https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/ne-dwmapi-dwm_systembackdrop_type)及系统 AppKit；Windows 不支持该能力时回退浅色，不叠加旧版本私有 API。系统效果尚待对应桌面验证，不能用 离屏截图证明毛玻璃已生效。
 
@@ -44,11 +44,11 @@ Windows 请求系统 Desktop Acrylic 并保留标准窗口边框；macOS 使用 
 
 认证窗口统一控件、间距和操作尺寸，保留输入、勾选与挑战代次；切换语言不重载学校页面。移除了根据学校名称猜测 OAuth 项的逻辑，唯一方式可预选、多项须明确选择。点选验证码支持方向键、空格、退格和有界原图坐标，鼠标与键盘复用同一选点上限。回调／TLS／Cookie／取消回归与实时翻译、控件边界和键盘检查共同保留。
 
-设置集中在一个原生窗口的“通用／连接”两个同级页，齿轮直接打开通用页，配置菜单的编辑直接定位连接页。语言、关闭行为、开机／后台启动与 Clash 实例属于全局偏好，更改立即保存，失败回退控件和存储。连接期间通用偏好可改，当前连接配置只读；连接页显式保存草稿，域名专用 DNS 直接可见，认证方式在当前页查询和选择，查询时锁定服务器与证书条件，可原地取消／重试，手机号仅在短信方式显示。导入／导出／重置仍属当前连接，安全校验与凭据所有权不变。
+设置集中在一个原生窗口的“通用／连接”两个同级页，齿轮直接打开通用页，配置菜单的编辑直接定位连接页。语言、关闭行为、开机／后台启动与 Clash 实例属于全局偏好，更改立即保存，失败回退控件和存储。连接期间通用偏好可改，当前连接配置只读；连接页只提供“保存／取消”，保存成功后关闭并用于下次连接，没有“确定／应用”的平行操作；域名专用 DNS 直接可见，认证方式在当前页查询和选择，查询时锁定服务器与证书条件，可原地取消／重试，手机号仅在短信方式显示。导入／导出／重置仍属当前连接，安全校验与凭据所有权不变。
 
 删除独立三步配置引导及认证方式弹窗。首次缺少配置时点击连接会直接打开同一个连接页，保存成功后继续原连接意图；取消或保存失败不连接，也不再弹欢迎确认。删除端口、网卡绑定、DNS 缓存／备用来源、手工系统代理、重连时间与自定义保活等日常控件；完整公开配置草稿仍由既有配置模块维护，编辑可见字段不会重置已保存的高级值。独立界面的专属测试退出，保留并迁移实际查询／取消／TLS、凭据隔离、保存失败、导入／导出／重置、短屏和双语回归。
 
-原生毛玻璃采用 Windows DWM／macOS NSVisualEffectView，无自绘模糊或持续动画。统一窗口外观在 widget 构造完成的 Create 事件准备透明属性，早于原生句柄创建；安装外观时已存在的主窗口也显式准备。Qt 据此创建 alpha 缓冲并清除局部旧帧，不依赖过晚的 Polish／Show 或额外背景绘制；显示时重新应用当前原生句柄的背景，macOS 复用同一效果视图。回归直接检查已绘制的 backing store，避免 `grab()` 的重新绘制掩盖残影；Details 连续开关与高 DPI 首页走真实桌面后端。实现依据为 [Qt 的透明窗口格式时序](https://github.com/qt/qtbase/blob/v6.12.0/src/widgets/kernel/qwidget.cpp)及 [Windows backing-store 清屏条件](https://github.com/qt/qtbase/blob/v6.12.0/src/plugins/platforms/windows/qwindowsbackingstore.cpp)。
+原生毛玻璃采用 Windows DWM／macOS NSVisualEffectView，无自绘模糊或持续动画。统一窗口外观在 widget 构造完成的 Create 事件准备透明属性，早于原生句柄创建；安装外观时已存在的主窗口也显式准备。Qt 据此创建 alpha 缓冲并清除局部旧帧，不依赖过晚的 Polish／Show 或额外背景绘制；显示时重新应用当前原生句柄的背景，macOS 复用同一效果视图。回归只在真实 Paint 期间复制已绘制区域；macOS IOSurface 在绘制结束后会解锁／轮换，不能在此后将 paintDevice 当成当前帧读取。它直接检查 backing store，避免 `grab()` 的重新绘制掩盖残影；Details 连续开关与高 DPI 首页走真实桌面后端。实现依据为 [Qt 的透明窗口格式时序](https://github.com/qt/qtbase/blob/v6.12.0/src/widgets/kernel/qwidget.cpp)及 [Windows backing-store 清屏条件](https://github.com/qt/qtbase/blob/v6.12.0/src/plugins/platforms/windows/qwindowsbackingstore.cpp)。
 
 网络保护窗口已统一地址／DNS 来源页、操作与提示；英文／中文切换保留选中范围、已输入地址及当前策略代次。确认／取消采用 Qt 标准按钮，认证与保护输入复用对话框重翻译组件，保留严格地址／名称校验、旧代次拒绝、失败恢复及原始来源区分。公开头文件不再包含生成的 UI 头。
 
