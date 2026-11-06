@@ -58,7 +58,7 @@ MainWindow::MainWindow(
     upgradeSettings();
 
     ui->setupUi(this);
-    ui->detailsDialog->resize(720,700);
+    ui->detailsDialog->resize(640,600);
     connect(ui->detailsButton,&QPushButton::clicked,this,[this] {updateDiagnostics();PresentationHelpers::activateWindow(ui->detailsDialog);});
     ui->diagnosticReport->document()->setMaximumBlockCount(32);
     connect(coordinator->diagnostics(),&ConnectionDiagnostics::changed,this,[this]{if(ui->detailsDialog->isVisible())updateDiagnostics();});
@@ -107,27 +107,9 @@ MainWindow::MainWindow(
             {
                 ui->logPlainTextEdit->appendPlainText(entry);
             });
-    connect(systemProxySession, &SystemProxySession::busyChanged, this,
-            [this](bool busy)
-            {
-                ui->disableProxyAction->setEnabled(!busy && systemProxySession->needsCleanup());
-            });
-    connect(systemProxySession, &SystemProxySession::enabledChanged, this,
-            [this](bool enabled)
-            {
-                ui->disableProxyAction->setEnabled(!systemProxySession->isBusy() && systemProxySession->needsCleanup());
-                if (!systemProxySession->needsCleanup() && connectionSession != nullptr && !connectionSession->isActive())
-                {
-                    ui->proxyButton->hide();
-                }
-                updateProfileSummary();
-                updateConnectionState(connectionSession->state());
-            });
-    connect(systemProxySession, &SystemProxySession::operationFinished, this,
-        [this](bool, const PlatformOperationResult &result) {
-            if (!result.succeeded()) QMessageBox::warning(this, tr("System proxy operation incomplete"),
-                PresentationHelpers::platformOperationMessage(result));
-        });
+    connect(systemProxySession,&SystemProxySession::enabledChanged,this,[this] {
+        updateProfileSummary();updateConnectionState(connectionSession->state());
+    });
     setupTrayIcon();
     setupProfileMenu();
     auto *tools=new QToolButton(ui->detailsDialog);
@@ -204,37 +186,6 @@ MainWindow::MainWindow(
                 }
             });
 
-    // 文件-清除系统代理
-    ui->disableProxyAction->setEnabled(false);
-    connect(ui->disableProxyAction, &QAction::triggered,
-            [&]()
-            {
-                QMessageBox messageBox(this);
-                messageBox.setWindowTitle(tr("Clear system proxy"));
-                messageBox.setText(tr("Clear the system proxy owned by JustConnect?"));
-
-                messageBox.addButton(QMessageBox::Yes)->setText(tr("Yes"));
-                messageBox.addButton(QMessageBox::No)->setText(tr("No"));
-                messageBox.setDefaultButton(QMessageBox::Yes);
-
-                if (messageBox.exec() == QMessageBox::No)
-                {
-                    return;
-                }
-
-                if (systemProxySession->isBusy() || !systemProxySession->needsCleanup()) return;
-                connect(systemProxySession, &SystemProxySession::operationFinished, this,
-                        [this](bool enabled, const PlatformOperationResult &result)
-                        {
-                            if (result.succeeded() && !enabled)
-                            {
-                                qInfo().noquote() << tr("System proxy cleared");
-                            }
-                        },
-                        Qt::SingleShotConnection);
-                systemProxySession->disable();
-            });
-
     connect(ui->clearAuthenticationCacheAction,&QAction::triggered,this,[this] {
         connectionUiController->clearAuthenticationCache();
     });
@@ -296,7 +247,6 @@ MainWindow::MainWindow(
     connectionUiController = new ConnectionUiController(
         this,
         ui->connectButton,
-        ui->proxyButton,
         trayConnectAction,
         connectionSession,
         systemProxySession,
@@ -440,7 +390,6 @@ void MainWindow::resetConnectionUi()
 {
     if (connectionUiController) connectionUiController->cancelPendingCredentials();
     if (connectionUiController) connectionUiController->refreshActions();
-    ui->proxyButton->hide();
     updateConnectionState(ConnectionState::Disconnected);
     updateProfileSummary();
 }

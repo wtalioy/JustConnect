@@ -225,181 +225,192 @@
       </widget>
      </item>
      <item>
-      <widget class="QLabel" name="profileDetailLabel">
-       <property name="text">
-        <string>aTrust · Not connected</string>
-       </property>
-       <property name="wordWrap">
-        <bool>true</bool>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QPlainTextEdit" name="diagnosticReport">
-       <property name="readOnly">
-        <bool>true</bool>
-       </property>
-       <property name="minimumHeight">
-        <number>210</number>
-       </property>
-       <property name="maximumHeight">
-        <number>230</number>
-       </property>
-       <property name="accessibleName">
-        <string>Connection diagnostics</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <layout class="QHBoxLayout" name="diagnosticActions">
-       <item>
-        <widget class="QPushButton" name="refreshDiagnosticsButton">
-         <property name="autoDefault">
-          <bool>false</bool>
-         </property>
-         <property name="text">
-          <string>Refresh</string>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QPushButton" name="diagnosticRulesButton">
-         <property name="autoDefault">
-          <bool>false</bool>
-         </property>
-         <property name="text">
-          <string>Rules and DNS</string>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QPushButton" name="copyDiagnosticsButton">
-         <property name="autoDefault">
-          <bool>false</bool>
-         </property>
-         <property name="text">
-          <string>Copy diagnostics</string>
-         </property>
-        </widget>
-       </item>
-      </layout>
-     </item>
-     <item>
-      <widget class="QLabel" name="statusDetailLabel">
-       <property name="text">
-        <string>Connect to access campus resources.</string>
-       </property>
-       <property name="wordWrap">
-        <bool>true</bool>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QFrame" name="logPanel">
-       <property name="frameShape">
-        <enum>QFrame::Shape::StyledPanel</enum>
-       </property>
-       <layout class="QVBoxLayout" name="logPanelLayout">
-        <property name="spacing">
-         <number>14</number>
-        </property>
-        <property name="leftMargin">
-         <number>16</number>
-        </property>
-        <property name="topMargin">
-         <number>16</number>
-        </property>
-        <property name="rightMargin">
-         <number>16</number>
-        </property>
-        <property name="bottomMargin">
-         <number>16</number>
-        </property>
-        <item>
-         <layout class="QHBoxLayout" name="logHeaderLayout">
-          <property name="spacing">
-           <number>8</number>
-          </property>
-          <item>
-           <layout class="QVBoxLayout" name="logTitleLayout">
+      <widget class="QTabWidget" name="detailsTabs">
+       <widget class="QWidget" name="overviewTab">
+        <attribute name="title">
+         <string>Overview</string>
+        </attribute>
+        <layout class="QVBoxLayout" name="overviewTabLayout">
+         <item>
+          <widget class="QLabel" name="profileDetailLabel">
+           <property name="text">
+            <string>aTrust · Not connected</string>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPlainTextEdit" name="diagnosticReport">
+           <property name="readOnly">
+            <bool>true</bool>
+           </property>
+           <property name="minimumHeight">
+            <number>210</number>
+           </property>
+           <property name="maximumHeight">
+            <number>230</number>
+           </property>
+           <property name="accessibleName">
+            <string>Connection diagnostics</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <layout class="QHBoxLayout" name="diagnosticActions">
+           <item>
+            <widget class="QPushButton" name="refreshDiagnosticsButton">
+             <property name="autoDefault">
+              <bool>false</bool>
+             </property>
+             <property name="text">
+              <string>Refresh</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="diagnosticRulesButton">
+             <property name="autoDefault">
+              <bool>false</bool>
+             </property>
+             <property name="text">
+              <string>Rules and DNS</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="copyDiagnosticsButton">
+             <property name="autoDefault">
+              <bool>false</bool>
+             </property>
+             <property name="text">
+              <string>Copy diagnostics</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <widget class="QLabel" name="statusDetailLabel">
+           <property name="text">
+            <string>Connect to access campus resources.</string>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+       <widget class="QWidget" name="logsTab">
+        <attribute name="title">
+         <string>Logs</string>
+        </attribute>
+        <layout class="QVBoxLayout" name="logsTabLayout">
+         <item>
+          <widget class="QFrame" name="logPanel">
+           <property name="frameShape">
+            <enum>QFrame::Shape::StyledPanel</enum>
+           </property>
+           <layout class="QVBoxLayout" name="logPanelLayout">
             <property name="spacing">
-             <number>2</number>
+             <number>14</number>
+            </property>
+            <property name="leftMargin">
+             <number>16</number>
+            </property>
+            <property name="topMargin">
+             <number>16</number>
+            </property>
+            <property name="rightMargin">
+             <number>16</number>
+            </property>
+            <property name="bottomMargin">
+             <number>16</number>
             </property>
             <item>
-             <widget class="QLabel" name="logTitleLabel">
-              <property name="text">
-               <string>Activity log</string>
+             <layout class="QHBoxLayout" name="logHeaderLayout">
+              <property name="spacing">
+               <number>8</number>
+              </property>
+              <item>
+               <layout class="QVBoxLayout" name="logTitleLayout">
+                <property name="spacing">
+                 <number>2</number>
+                </property>
+                <item>
+                 <widget class="QLabel" name="logTitleLabel">
+                  <property name="text">
+                   <string>Activity log</string>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </item>
+              <item>
+               <spacer name="logHeaderSpacer">
+                <property name="orientation">
+                 <enum>Qt::Orientation::Horizontal</enum>
+                </property>
+                <property name="sizeHint" stdset="0">
+                 <size>
+                  <width>40</width>
+                  <height>20</height>
+                 </size>
+                </property>
+               </spacer>
+              </item>
+              <item>
+               <widget class="QPushButton" name="openLogPushButton">
+                <property name="toolTip">
+                 <string>Open the full log file</string>
+                </property>
+                <property name="text">
+                 <string>Open log file</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="copyLogPushButton">
+                <property name="toolTip">
+                 <string>Copy log to clipboard</string>
+                </property>
+                <property name="text">
+                 <string>Copy</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="clearLogPushButton">
+                <property name="toolTip">
+                 <string>Clear the displayed log</string>
+                </property>
+                <property name="text">
+                 <string>Clear</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <widget class="QPlainTextEdit" name="logPlainTextEdit">
+              <property name="readOnly">
+               <bool>true</bool>
+              </property>
+              <property name="maximumBlockCount">
+               <number>1000</number>
+              </property>
+              <property name="placeholderText">
+               <string>Connection logs appear here</string>
               </property>
              </widget>
             </item>
            </layout>
-          </item>
-          <item>
-           <spacer name="logHeaderSpacer">
-            <property name="orientation">
-             <enum>Qt::Orientation::Horizontal</enum>
-            </property>
-            <property name="sizeHint" stdset="0">
-             <size>
-              <width>40</width>
-              <height>20</height>
-             </size>
-            </property>
-           </spacer>
-          </item>
-          <item>
-           <widget class="QPushButton" name="openLogPushButton">
-            <property name="toolTip">
-             <string>Open the full log file</string>
-            </property>
-            <property name="text">
-             <string>Open log file</string>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QPushButton" name="copyLogPushButton">
-            <property name="toolTip">
-             <string>Copy log to clipboard</string>
-            </property>
-            <property name="text">
-             <string>Copy</string>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QPushButton" name="clearLogPushButton">
-            <property name="toolTip">
-             <string>Clear the displayed log</string>
-            </property>
-            <property name="text">
-             <string>Clear</string>
-            </property>
-           </widget>
-          </item>
-         </layout>
-        </item>
-        <item>
-         <widget class="QPlainTextEdit" name="logPlainTextEdit">
-          <property name="readOnly">
-           <bool>true</bool>
-          </property>
-          <property name="maximumBlockCount">
-           <number>1000</number>
-          </property>
-          <property name="placeholderText">
-           <string>Connection logs appear here</string>
-          </property>
-         </widget>
-        </item>
-       </layout>
-      </widget>
-     </item>
-     <item>
-      <widget class="QPushButton" name="proxyButton">
-       <property name="text">
-        <string>Set system proxy (advanced)</string>
-       </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
       </widget>
      </item>
     </layout>
@@ -435,7 +446,6 @@
     <property name="title">
      <string>File</string>
     </property>
-    <addaction name="disableProxyAction" />
     <addaction name="inspectNetworkAction" />
     <addaction name="clearAuthenticationCacheAction" />
     <addaction name="clearClientDataAction" />
@@ -493,11 +503,6 @@
    </property>
    <property name="menuRole">
     <enum>QAction::MenuRole::NoRole</enum>
-   </property>
-  </action>
-  <action name="disableProxyAction">
-   <property name="text">
-    <string>Clear system proxy</string>
    </property>
   </action>
   <action name="inspectNetworkAction">

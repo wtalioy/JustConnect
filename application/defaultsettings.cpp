@@ -19,11 +19,8 @@ const QVariantMap &defaults()
 
         {"Common/ConnectAfterStart", false},
         {"Common/CheckUpdateAfterStart", false},
-        {"Common/AutoSetProxy", false},
         {"Common/ReconnectTime", 1},
         {"Common/AutoReconnect", false},
-        {"Common/SystemProxyBypass", ""},
-        {"Common/SuppressProxyOverrideWarning", false},
 
         {"Common/NeedsConfiguration", false},
         {"JustConnect/ProfileKind", "Custom"},

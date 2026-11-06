@@ -7,7 +7,7 @@ struct SystemProxyConfig
     int httpPort = 0;
     int socksPort = 0;
     QString bypass;
-    // Nonempty only for automatic handoff from verified local upstream listeners.
+    // Verified original local listeners are required for a new browser handoff.
     QStringList upstream;
 };
 

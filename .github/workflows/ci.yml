@@ -85,3 +85,11 @@ jobs:
           $env:JC_NATIVE_PROTOCOL_HOST = Join-Path $destination 'coreengineui_test.exe'
           go -C corelib test -mod=readonly -count=1 -timeout 60s -run '^TestNativeProtocolHost$' -v ./internal/bridge
           if ($LASTEXITCODE -ne 0) { throw 'Installed runtime protocol test failed' }
+
+      - name: Upload native UI layouts
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: UI-${{ runner.os }}-${{ runner.arch }}
+          path: build/ui-report
+          if-no-files-found: ignore

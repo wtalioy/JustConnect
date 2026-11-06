@@ -87,7 +87,7 @@ public:
                     if (session.state() != ConnectionState::Running) return true;
                     return observations > previous && !policy.isBusy() && !proxy.isBusy() && coexistence["mode"] == mode
                         && coexistence["tun"].toBool() == tun && coexistence["active"].toBool() == (enabled || tun)
-                        && proxy.isEnabled() == enabled && (enabled ? proxy.isAutomatic() : !proxy.needsCleanup())
+                        && proxy.isEnabled() == enabled && (enabled || !proxy.needsCleanup())
                         && (enabled ? resources["listeners"].toObject()["http"].toString() == "127.0.0.1:"+QString::number(httpPort()) : httpPort() == 0);
                 });
                 check(session.state() == ConnectionState::Running,"independent switches retain the authenticated campus session");

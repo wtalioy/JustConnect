@@ -238,6 +238,12 @@ void SettingWindow::resetAuthChoices() {
 }
 void SettingWindow::updateAuthFields() {
     const bool sms=ui->authTypeComboBox->currentData()=="smsCheckCode";
+    const bool password=ui->authTypeComboBox->currentData()=="psw";
+    ui->credentialsForm->setRowVisible(ui->usernameLineEdit,password);
+    ui->credentialsForm->setRowVisible(ui->passwordLineEditRow,password);
+    ui->credentialsForm->setRowVisible(ui->totpSecretLineEditRow,password);
+    credentialHint->setVisible(password);clearCredentialButton->setVisible(password);
+    credentialStatus->setVisible(password || (credentialLoadStatus!=CredentialStatus::Success && credentialLoadStatus!=CredentialStatus::NotFound));
     ui->authForm->setRowVisible(ui->countryCodeLineEdit,sms);
     ui->authForm->setRowVisible(ui->phoneNumberLineEdit,sms);
 }
@@ -299,7 +305,7 @@ void SettingWindow::readCredentials() {
             credentialStatusText=QT_TR_NOOP("The saved profile changed. Reopen the editor.");
             credentialStatus->setText(tr(credentialStatusText));return;
         }
-        credentialStatusText=nullptr;credentialLoadStatus=loaded.result.status;
+        credentialStatusText=nullptr;credentialLoadStatus=loaded.result.status;updateAuthFields();
         credentialStatus->setText(PresentationHelpers::credentialOperationMessage(credentialLoadStatus));
         if (loaded.result.succeeded() && currentProfile().authenticationIdentity()==source.profile.authenticationIdentity()) {
             const bool passwordUntouched=ui->passwordLineEdit->text()==loadedCredentials.password;

@@ -22,7 +22,7 @@ bool copiesOnlyPublicConfiguration()
     ProfileManager manager(folder.path());
     QSettings source(manager.profilePath(""),QSettings::IniFormat);
     source.setValue("Common/ConfigVersion",9);
-    source.setValue("Common/SuppressProxyOverrideWarning",true);
+    source.setValue("Common/AutoReconnect",true);
     source.setValue("Credential/Username","alice");
     source.setValue("Credential/Password","encoded private password");
     source.setValue("Credential/TOTPSecret","private TOTP");
@@ -37,7 +37,7 @@ bool copiesOnlyPublicConfiguration()
     const auto original=read(source.fileName());
     if (original.isEmpty() || manager.createProfile("copy",source.fileName())!="copy") return false;
     QSettings copy(manager.profilePath("copy"),QSettings::IniFormat);
-    if (!copy.value("Common/SuppressProxyOverrideWarning").toBool() || copy.value("Credential/Username")!="alice" || copy.value("JustConnect/ServerAddress")!="vpn.example.invalid"
+    if (!copy.value("Common/AutoReconnect").toBool() || copy.value("Credential/Username")!="alice" || copy.value("JustConnect/ServerAddress")!="vpn.example.invalid"
         || copy.value("JustConnect/ServerPort")!=8443 || copy.value("JustConnect/AuthID")!="selected-id"
         || copy.value("JustConnect/AuthSubType")!="https" || copy.value("JustConnect/LoginDomain")!="id.example.invalid"
         || copy.value("JustConnect/SOCKS5Port")!=0 || copy.value("JustConnect/TLSVerify").toBool()) return false;
