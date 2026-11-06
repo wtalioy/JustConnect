@@ -24,9 +24,12 @@ public:
         if (auto *spin=qobject_cast<QAbstractSpinBox *>(window)) {
             if (event->type()!=QEvent::Create) {
                 QStyleOptionFrame option;option.initFrom(spin);
+                auto *field=spin->findChild<QLineEdit *>();
+                QStyleOptionFrame editor;editor.initFrom(field);
+                const auto content=field->style()->subElementRect(QStyle::SE_LineEditContents,&editor,field);
                 // Qt places the embedded editor at x=0 when spin buttons are styled; restore the shared content inset.
-                spin->findChild<QLineEdit *>()->setTextMargins(
-                    spin->style()->subElementRect(QStyle::SE_LineEditContents,&option,spin).left(),0,0,0);
+                field->setTextMargins(spin->style()->subElementRect(QStyle::SE_LineEditContents,&option,spin).left()
+                    -field->geometry().left()-content.left(),0,0,0);
             }
         }
         if (!window || !window->isWindow() || (window->windowType()!=Qt::Window && window->windowType()!=Qt::Dialog)) return false;
