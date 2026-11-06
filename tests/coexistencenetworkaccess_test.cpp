@@ -117,7 +117,7 @@ struct Fixture {
 };
 void followsSwitchesAndRestarts() {
     Fixture f; f.start(); until([&] { return f.ready == 1; });
-    check(f.backend->applies == 1 && f.proxy.isAutomatic() && f.core.selected && f.core.lastManaged,
+    check(f.backend->applies == 1 && f.proxy.isEnabled() && f.core.selected && f.core.lastManaged,
           "startup did not install one owned frontend and select Clash");
     check(f.backend->installed.httpPort == 19381 && f.backend->installed.socksPort == 19380,
           "handoff did not use active core listeners");

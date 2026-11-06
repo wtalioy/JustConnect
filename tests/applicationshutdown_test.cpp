@@ -34,6 +34,7 @@ public:
         if (blockedCheck) {entered.release();proceed.acquire();}
         return checkChanged ? SystemProxyCheck{{PlatformOperationResult::Status::PermissionDenied,"startup recovery unconfirmed",true}} : SystemProxyCheck{};
     }
+    SystemProxyCheck inspect() override { return check({}); }
     PlatformOperationResult apply(const SystemProxyConfig &) override {
         ++applies;if (blockedApply) {entered.release();proceed.acquire();}return {};
     }
@@ -80,7 +81,7 @@ static void restoresBeforeStoppingAndWaitsForWrites() {
     auto *engine=new Engine;ConnectionSession connection(engine);
     auto backend=std::make_unique<Proxy>();auto *native=backend.get();SystemProxySession proxy(std::move(backend));
     native->blockedApply=true;native->blockedClear=true;
-    connection.start({},{});proxy.enable({1081,1080,{}});
+    connection.start({},{});proxy.handoff({1081,1080,{}, {"127.0.0.1:7890"}});
     check(native->entered.tryAcquire(1,1000),"apply did not start");
     bool pending=true;int ready=0,failed=0;
     ApplicationShutdown shutdown(&connection,&proxy,[&]{return pending;});
@@ -102,7 +103,7 @@ static void restoresPendingStartupQueryBeforeStopping() {
         auto *engine=new Engine;ConnectionSession connection(engine);
         auto backend=std::make_unique<Proxy>();auto *native=backend.get();SystemProxySession proxy(std::move(backend));
         native->blockedCheck=true;native->checkChanged=changed;native->blockedClear=true;
-        connection.start({},{});proxy.checkConflict({1081,1080,{}});
+        connection.start({},{});proxy.inspect();
         check(native->entered.tryAcquire(1,1000),"startup query did not start");
         int ready=0,failed=0;ApplicationShutdown shutdown(&connection,&proxy,[]{return false;});
         QObject::connect(&shutdown,&ApplicationShutdown::ready,[&]{++ready;});
@@ -135,7 +136,7 @@ static void timeoutRetainsLiveObjectsAndBlocksReconnect() {
 static void failedRestoreIsReportedAndCanBeRetriedExplicitly() {
     auto *engine=new Engine;ConnectionSession connection(engine);
     auto backend=std::make_unique<Proxy>();auto *native=backend.get();SystemProxySession proxy(std::move(backend));
-    proxy.enable({1081,1080,{}});until([&]{return !proxy.isBusy();});
+    proxy.handoff({1081,1080,{}, {"127.0.0.1:7890"}});until([&]{return !proxy.isBusy();});
     connection.start({},{});native->failClear=true;
     int failed=0,ready=0;
     ApplicationShutdown shutdown(&connection,&proxy,[]{return false;});
@@ -152,7 +153,7 @@ static void pendingPlatformAndCredentialTimeoutsKeepEventLoopAlive() {
         auto *engine=new Engine;ConnectionSession connection(engine);
         auto backend=std::make_unique<Proxy>();auto *native=backend.get();SystemProxySession proxy(std::move(backend));
         if (platform) {
-            proxy.enable({1081,1080,{}});until([&]{return !proxy.isBusy();});native->blockedClear=true;
+            proxy.handoff({1081,1080,{}, {"127.0.0.1:7890"}});until([&]{return !proxy.isBusy();});native->blockedClear=true;
         }
         connection.start({},{});int failures=0,ready=0,events=0;
         ApplicationShutdown shutdown(&connection,&proxy,[&]{return !platform;},nullptr,25);
@@ -187,7 +188,7 @@ static void networkFailureRestoresProxyDuringBackoff() {
     auto *engine=new Engine;ConnectionSession connection(engine);
     auto backend=std::make_unique<Proxy>();auto *native=backend.get();SystemProxySession proxy(std::move(backend));
     ApplicationShutdown shutdown(&connection,&proxy,[]{return false;});
-    proxy.enable({1081,1080,{}});until([&]{return !proxy.isBusy();});
+    proxy.handoff({1081,1080,{}, {"127.0.0.1:7890"}});until([&]{return !proxy.isBusy();});
     connection.start({},{true,1000});emit engine->connectionEstablished();emit engine->finished(ConnectionError::NETWORK_FAILED);
     check(connection.state()==ConnectionState::Reconnecting,"network failure should enter bounded backoff");
     until([&]{return !proxy.isBusy();});

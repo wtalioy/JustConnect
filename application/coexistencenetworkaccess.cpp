@@ -81,7 +81,7 @@ CoexistenceNetworkAccess::CoexistenceNetworkAccess(NetworkAccess *nativeAccess, 
             for (const auto &value : state["endpoints"].toArray()) upstream.append(value.toString());
             const bool recognizedUpstream = std::any_of(observed.endpoints.begin(), observed.endpoints.end(),
                 [&](const QString &endpoint) { return upstream.contains(endpoint); });
-            if (proxy->isAutomatic() && proxy->needsCleanup() && !observed.managed) {
+            if (proxy->needsCleanup() && !observed.managed) {
                 if (observed.active && !recognizedUpstream) emit core->diagnostic("browser_proxy_changed_externally");
                 pending = Pending::Clear;
                 if (!proxy->disable()) { pending = Pending::None; fail(failed("Cannot release the changed browser proxy.")); }
@@ -94,7 +94,7 @@ CoexistenceNetworkAccess::CoexistenceNetworkAccess(NetworkAccess *nativeAccess, 
                 }
                 frontend.upstream = upstream;
                 pending = Pending::Enable;
-                if (!proxy->enable(frontend)) { pending = Pending::None; fail(failed("Cannot hand off the browser proxy.")); }
+                if (!proxy->handoff(frontend)) { pending = Pending::None; fail(failed("Cannot hand off the browser proxy.")); }
                 return;
             }
             finishCycle();
@@ -157,7 +157,7 @@ void CoexistenceNetworkAccess::drive() {
     }
     refreshRequested = false;
     pending = Pending::Update;
-    core->updateCoexistence(generation, observed.endpoints, observed.managed && proxy->isAutomatic());
+    core->updateCoexistence(generation, observed.endpoints, observed.managed);
 }
 void CoexistenceNetworkAccess::inspectFinished(const SystemProxyCheck &check) {
     if (pending != Pending::Inspect || stage == Stage::Stopping || stage == Stage::StopFailed) return;

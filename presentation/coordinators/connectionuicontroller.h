@@ -41,7 +41,6 @@ public:
     ConnectionUiController(
         QWidget *parentWidget,
         QPushButton *connectButton,
-        QPushButton *proxyButton,
         QAction *trayConnectAction,
         ConnectionSession *connectionSession,
         SystemProxySession *systemProxySession,
@@ -68,8 +67,6 @@ signals:
     void readyToQuit();
     void quitFailed(const QString &code);
 private:
-    void handleProxyClicked();
-    void applyPendingAutomaticProxy();
     void startConnection(ConnectionProfile profile,const CredentialSource &source,quint64 cacheRevision);
     void requestConnection(const CredentialSource &source,ConnectionProfile profile,quint64 cacheRevision);
     void loadAuthenticationCache(const CredentialSource &source,ConnectionProfile profile,quint64 generation);
@@ -82,10 +79,8 @@ private:
 
     QWidget *parentWidget;
     QPushButton *connectButton;
-    QPushButton *proxyButton;
     QAction *trayConnectAction;
     ConnectionSession *connectionSession;
-    SystemProxySession *systemProxySession;
     QPointer<NetworkPolicySession> networkPolicy;
     AuthDialogCoordinator *authenticationDialogs;
     SettingsProvider settingsProvider;
@@ -99,8 +94,6 @@ private:
     ApplicationShutdown *shutdown;
     ControllerSelectionCoordinator *controllerSelection;
     quint64 credentialGeneration=0;
-    quint64 proxyGeneration=0;
-    bool autoProxyPending=false;
     bool credentialsPending=false;
     NotificationHandler notificationHandler;
     OfficialClientProbe officialClientProbe;

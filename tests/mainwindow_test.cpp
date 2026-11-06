@@ -174,8 +174,7 @@ static void changeLanguageFromSettings(MainWindow &window,const QString &languag
 }
 static void languagePreferences(MainWindow &window) {
     auto *action=window.findChild<QPushButton *>("connectButton");
-    const auto initial=ProfileManager().language();
-    check(initial=="en" && ApplicationLanguage::instance().current()=="en" && action->text()=="Connect","a fresh application defaults to English");
+    check(ProfileManager().language()=="en" && ApplicationLanguage::instance().current()=="en" && action->text()=="Connect","a fresh application defaults to English");
     changeLanguageFromSettings(window,"zh_CN");
     check(ApplicationLanguage::instance().current()=="zh_CN" && ProfileManager().language()=="zh_CN" && action->text()==QString::fromUtf8("连接")
         && window.findChild<QSystemTrayIcon *>()->toolTip().contains(QString::fromUtf8("尚未连接")),"saving Chinese updates the existing main window and tray without recreating them");
@@ -307,7 +306,9 @@ static void nativeHome(MainWindow &window) {
     check(window.findChild<QPushButton *>("connectButton")->isVisible() && qApp->styleHints()->colorScheme()!=Qt::ColorScheme::Dark,
         "redesigned home retains one accessible main action and the light appearance");
     window.findChild<QPushButton *>("detailsButton")->click();QCoreApplication::processEvents();
-    check(details->isVisible() && log->isVisible() && session->state()==state,"opening diagnostics cannot change connection state");
+    check(details->isVisible() && !log->isVisible() && session->state()==state,"details opens its overview without exposing the live log or changing the session");
+    auto *detailTabs=details->findChild<QTabWidget *>("detailsTabs");
+    check(detailTabs && detailTabs->count()==2 && !details->findChild<QPushButton *>("proxyButton"),"details separates overview and logs and has no manual proxy action");
     window.findChild<QPushButton *>("copyDiagnosticsButton")->click();
     check(QApplication::clipboard()->text().contains("DNS sources: Unknown") && !window.findChild<QPushButton *>("refreshDiagnosticsButton")->isEnabled(),
         "offline diagnostics copy real unknown states and do not offer network refresh");
@@ -317,6 +318,7 @@ static void nativeHome(MainWindow &window) {
     rules->close();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     const auto detailsReport=qEnvironmentVariable("JC_UI_REPORT_DIR");
     if (!detailsReport.isEmpty()) check(details->grab().save(QDir(detailsReport).filePath("diagnostics.png")),"save the native diagnostic layout");
+    detailTabs->setCurrentIndex(1);check(log->isVisible(),"the bounded log is available in one tab change");
     window.findChild<QPushButton *>("copyLogPushButton")->click();
     check(QApplication::clipboard()->text()==log->toPlainText(),"diagnostics copy the same bounded live log");
     details->reject();QCoreApplication::processEvents();

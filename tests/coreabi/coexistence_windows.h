@@ -93,7 +93,7 @@ public:
         };
         check(resources["underlay_interface"] == "","start without a pinned original interface");
         if (proxyFirst) {
-            check(proxy.isAutomatic() && proxy.isEnabled() && get(runtime["ordinary_url"].toString(),true).first,
+            check(proxy.isEnabled() && get(runtime["ordinary_url"].toString(),true).first,
                 "the preexisting system proxy retains the ordinary exit after campus connection");
             std::cout << "PASS: Windows system proxy enabled before the campus connection\n";
             systemProxy(false);
@@ -114,7 +114,7 @@ public:
                     if (!(observations > previous && !policy.isBusy()
                         && !proxy.isBusy() && coexistence["mode"] == mode && coexistence["tun"].toBool() == tun
                         && coexistence["active"].toBool() == (enabled || tun) && proxy.isEnabled() == enabled
-                        && (enabled ? proxy.isAutomatic() : !proxy.needsCleanup()))) return false;
+                        && (enabled || !proxy.needsCleanup()))) return false;
                     const auto state = read();
                     return enabled ? (state.first & PROXY_TYPE_PROXY)
                         && state.second.contains("http="+resources["listeners"].toObject()["http"].toString())

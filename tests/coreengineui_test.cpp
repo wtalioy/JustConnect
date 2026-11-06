@@ -113,142 +113,16 @@ public:
     }
     PlatformOperationResult clear() override { ++clears;return clearResult; }
 };
-static void proxyWaitsForReady() {
-    QTemporaryDir directory;
-    QSettings settings(directory.filePath("profile.ini"), QSettings::IniFormat);
-    settings.setValue("JustConnect/ServerAddress", "vpn.example.invalid");
-    settings.setValue("JustConnect/ServerPort",443);
-    settings.setValue("JustConnect/AuthType", "psw");
-    settings.setValue("Credential/Username", "fixture-user");
-    settings.setValue("Credential/Password", QByteArray("fixture-password").toBase64());
-    settings.setValue("Common/AutoSetProxy", true);
-    settings.setValue("JustConnect/HTTPPort",13081);settings.setValue("JustConnect/SOCKS5Port",13080);
-    QWidget parent;
-    QPushButton connectButton(&parent), proxyButton(&parent);
-    QAction trayAction(&parent);
-    auto *engine = new QueryEngine;
-    ConnectionSession session(engine);
-    auto backend = std::make_unique<ProxyBackend>();
-    auto *proxy = backend.get();
-    SystemProxySession systemProxy(std::move(backend));
-    QObject::connect(&systemProxy,&SystemProxySession::operationFinished,&parent,[&](bool,const PlatformOperationResult &result) {
-        if(result.succeeded())return;
-        QMessageBox message(QMessageBox::Warning,"proxy failure","fixture failure",QMessageBox::Ok,&parent);
-        QTimer::singleShot(0,&message,&QDialog::accept);message.exec();
-    });
-    AuthDialogCoordinator dialogs(&parent);
-    ApplicationLogger logger;
-    CredentialAccess credentials(std::make_unique<MemoryCredentialStore>());
-    ConnectionUiController controller(&parent, &connectButton, &proxyButton, &trayAction,
-        &session, &systemProxy, nullptr, &dialogs, &logger, &credentials, [&] { return &settings; },
-        [&] {return CredentialAccess::source(settings,{});},
-        [](const QString &, const QString &, QSystemTrayIcon::MessageIcon) {},nullptr,noOfficialClient);
-    connectButton.click();
-    until([&] {return session.state()==ConnectionState::Starting;});
-    check(session.state() == ConnectionState::Starting && proxyButton.isHidden() && proxy->checks == 0,
-        "connect button waits for actual ready before applying automatic proxy");
-    proxyButton.click();
-    check(proxy->checks == 0, "early proxy requests cannot change system state");
-    settings.setValue("JustConnect/HTTPPort",23081);settings.setValue("JustConnect/SOCKS5Port",23080);
-    emit engine->connectionEstablished();
-    until([&] { return systemProxy.isEnabled(); });
-    check(proxy->checkedConfig.httpPort==13081 && proxy->appliedConfig.httpPort==13081 && proxy->appliedConfig.socksPort==13080,
-        "system proxy must use active listeners when the public configuration changes");
-    check(proxy->applied == 1 && !proxyButton.isHidden(), "ready enables the configured automatic proxy once");
-    proxy->clearResult={PlatformOperationResult::Status::PermissionDenied,"fixture restore denial",true};
-    session.stop();emit engine->finished(ConnectionError::NONE);
-    check(session.start(engine->profile,{}),"new session while original proxy restoration is pending");emit engine->connectionEstablished();
-    until([&]{return !systemProxy.isBusy();});QApplication::processEvents();
-    check(!systemProxy.isBusy() && proxy->clears==1 && systemProxy.needsCleanup(),
-        "failed restoration retains ownership without an automatic retry loop");
-    proxy->clearResult={};
-    systemProxy.disable();
-    until([&] { return !systemProxy.isBusy(); });
-    session.stop();
-    emit engine->finished(ConnectionError::NONE);
-    proxy->block = true;
-    connectButton.click();
-    until([&] {return session.state()==ConnectionState::Starting;});
-    emit engine->connectionEstablished();
-    check(proxy->entered.tryAcquire(1, 1000), "conflict check is asynchronous");
-    session.stop();
-    proxy->proceed.release();
-    until([&] { return !systemProxy.isBusy(); });
-    check(proxy->applied == 1, "late conflict result cannot apply a proxy to a stopping connection");
-    emit engine->finished(ConnectionError::NONE);
-    connectButton.click();until([&]{return session.state()==ConnectionState::Starting;});emit engine->connectionEstablished();
-    check(proxy->entered.tryAcquire(1,1000),"second delayed conflict query");
-    session.stop();emit engine->finished(ConnectionError::NONE);
-    settings.setValue("JustConnect/HTTPPort",33081);settings.setValue("JustConnect/SOCKS5Port",33080);
-    connectButton.click();until([&]{return session.state()==ConnectionState::Starting;});emit engine->connectionEstablished();
-    const int oldChecks=proxy->checks;
-    proxy->block=false;proxy->proceed.release();until([&]{return systemProxy.isEnabled() && !systemProxy.isBusy();});
-    check(proxy->applied==2 && proxy->checks==oldChecks+1 && proxy->appliedConfig.httpPort==33081 && proxy->appliedConfig.socksPort==33080,
-        "new running session uses a fresh conflict check and its own active listeners");
-    systemProxy.disable();until([&]{return !systemProxy.isBusy();});
-    session.stop();emit engine->finished(ConnectionError::NONE);
-    settings.setValue("Common/AutoSetProxy",false);
-    connectButton.click();until([&]{return session.state()==ConnectionState::Starting;});emit engine->connectionEstablished();
-    proxy->checkResult.conflict=true;
-    bool confirmed=false;QTimer confirm;
-    QObject::connect(&confirm,&QTimer::timeout,[&]{
-        for(auto *widget:QApplication::topLevelWidgets())if(auto *message=qobject_cast<QMessageBox *>(widget)) {
-            if(!message->text().contains("A system proxy is already configured"))continue;
-            confirm.stop();message->checkBox()->setChecked(true);
-            session.stop();emit engine->finished(ConnectionError::NONE);
-            check(session.start(engine->profile,{}),"another session starts while override confirmation is open");
-            emit engine->connectionEstablished();
-            confirmed=true;message->done(QMessageBox::Yes);
-        }
-    });
-    confirm.start(1);proxyButton.click();until([&]{return confirmed && !systemProxy.isBusy();});
-    check(proxy->applied==2 && !settings.value("Common/SuppressProxyOverrideWarning",false).toBool(),
-        "late override confirmation cannot change another running session or its preferences");
-    session.stop();emit engine->finished(ConnectionError::NONE);
-    settings.setValue("Common/AutoSetProxy",true);proxy->checkResult.conflict=false;
-    bool shown = false;
-    QString expectedWarning="Permission denied";
-    QTimer dismiss;
-    QObject::connect(&dismiss, &QTimer::timeout, [&] {
-        for (auto *widget : QApplication::topLevelWidgets()) {
-            if (auto *message = qobject_cast<QMessageBox *>(widget)) {
-                check(message->text().contains(expectedWarning), "UI displays the actionable proxy failure");
-                shown = true; message->accept();
-            }
-        }
-    });
-    dismiss.start(1);
-    for (bool changed : {false,true}) {
-        shown=false;
-        proxy->checkResult.result={PlatformOperationResult::Status::PermissionDenied,"fixture query denial",changed};
-        connectButton.click(); until([&] {return session.state()==ConnectionState::Starting;}); emit engine->connectionEstablished();
-        until([&] { return shown && !systemProxy.isBusy(); });
-        check(proxy->applied==2 && systemProxy.needsCleanup()==changed,
-              "failed conflict query must show its error, retain recovery responsibility and prevent a new apply");
-        if (changed) {systemProxy.disable();until([&]{return !systemProxy.isBusy();});}
-        session.stop();emit engine->finished(ConnectionError::NONE);
-    }
-    settings.setValue("JustConnect/HTTPPort",0);shown=false;expectedWarning="Both local HTTP";
-    const int previousChecks=proxy->checks;
-    connectButton.click();until([&]{return session.state()==ConnectionState::Starting;});emit engine->connectionEstablished();
-    until([&]{return shown;});
-    check(proxy->checks==previousChecks && proxy->applied==2 && engine->profile.proxy.httpBind.isEmpty(),
-        "disabled active listener blocks system proxy changes before the backend query");
-    dismiss.stop(); session.stop(); emit engine->finished(ConnectionError::NONE);
-    settings.setValue("JustConnect/HTTPPort",44081);proxy->checkResult={};proxy->blockApply=true;
-    for(bool partial:{false,true}) {
-        proxy->applyResult=partial?PlatformOperationResult{PlatformOperationResult::Status::PermissionDenied,"partial native apply",true}:PlatformOperationResult{};
-        connectButton.click();until([&]{return session.state()==ConnectionState::Starting;});emit engine->connectionEstablished();
-        until([&]{return proxy->applyEntered.available()>0;});
-        check(proxy->applyEntered.tryAcquire(),"proxy apply reached its controlled wait");
-        const int priorClears=proxy->clears;
-        session.stop();emit engine->finished(ConnectionError::NONE);
-        check(systemProxy.isBusy() && proxy->clears==priorClears,"stop waits for the in-flight proxy mutation before restoration");
-        proxy->applyProceed.release();until([&]{return !systemProxy.isBusy();});
-        check(!systemProxy.needsCleanup() && proxy->clears==priorClears+1,
-            "finished connection restores successful or partial in-flight proxy changes exactly once");
-    }
-    settings.setValue("Common/AutoSetProxy",false);settings.setValue("Common/AutoReconnect",true);
+static void reconnectDelayBounds() {
+    QTemporaryDir folder;QSettings settings(folder.filePath("reconnect.ini"),QSettings::IniFormat);DefaultSettings::reset(settings);
+    settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");settings.setValue("JustConnect/AuthType","cas");
+    QWidget parent;QPushButton connectButton(&parent);QAction trayAction(&parent);
+    auto *engine=new QueryEngine;ConnectionSession session(engine);SystemProxySession systemProxy(std::make_unique<ProxyBackend>());
+    AuthDialogCoordinator dialogs(&parent);ApplicationLogger logger;CredentialAccess credentials(std::make_unique<MemoryCredentialStore>());
+    ConnectionUiController controller(&parent,&connectButton,&trayAction,&session,&systemProxy,nullptr,&dialogs,&logger,&credentials,
+        [&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
+        [](const QString &,const QString &,QSystemTrayIcon::MessageIcon){},nullptr,noOfficialClient);
+    settings.setValue("Common/AutoReconnect",true);
     int scheduled=0;
     const auto observer=QObject::connect(&session,&ConnectionSession::reconnectScheduled,&parent,[&](int delay){scheduled=delay;});
     for (const auto &[seconds,expected]:QList<QPair<int,int>>{{std::numeric_limits<int>::max(),30000},{3600,30000},{0,1000},{-1,1000}}) {
@@ -265,12 +139,12 @@ static void manualCredentialsAndLateResults() {
     QTemporaryDir folder;QSettings settings(folder.filePath("manual.ini"),QSettings::IniFormat);
     settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");settings.setValue("JustConnect/ServerPort",443);
     settings.setValue("JustConnect/AuthType","psw");settings.setValue("Credential/Username","alice");
-    QWidget parent;QPushButton connectButton(&parent),proxyButton(&parent);QAction trayAction(&parent);
+    QWidget parent;QPushButton connectButton(&parent);QAction trayAction(&parent);
     auto *engine=new QueryEngine;ConnectionSession session(engine);SystemProxySession proxy(std::make_unique<ProxyBackend>());
     AuthDialogCoordinator dialogs(&parent);ApplicationLogger logger;QString logs;
     QObject::connect(&logger,&ApplicationLogger::entryAdded,[&](const QString &entry){logs+=entry;});
     auto backend=std::make_unique<MemoryCredentialStore>();auto *store=backend.get();CredentialAccess access(std::move(backend));
-    ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,
+    ConnectionUiController controller(&parent,&connectButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,
         &access,[&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
         [](const QString &,const QString &,QSystemTrayIcon::MessageIcon){},nullptr,noOfficialClient);
     auto login=[&](bool save,const QString &name) {
@@ -359,12 +233,12 @@ static void authenticationCacheLifecycle() {
     settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");settings.setValue("JustConnect/ServerPort",443);
     settings.setValue("JustConnect/AuthType","psw");settings.setValue("Credential/Username","login-alias");
     settings.setValue(DefaultSettings::RememberAuthentication,true);settings.sync();
-    QWidget parent;QPushButton connectButton(&parent),proxyButton(&parent);QAction trayAction(&parent);
+    QWidget parent;QPushButton connectButton(&parent);QAction trayAction(&parent);
     auto *engine=new QueryEngine;ConnectionSession session(engine);SystemProxySession proxy(std::make_unique<ProxyBackend>());
     AuthDialogCoordinator dialogs(&parent);ApplicationLogger logger;QString logs;QStringList notices;
     QObject::connect(&logger,&ApplicationLogger::entryAdded,[&](const QString &entry){logs+=entry;});
     auto backend=std::make_unique<MemoryCredentialStore>();auto *store=backend.get();CredentialAccess access(std::move(backend));
-    ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,
+    ConnectionUiController controller(&parent,&connectButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,
         &access,[&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
         [&](const QString &title,const QString &body,QSystemTrayIcon::MessageIcon){notices.append(title+body);},nullptr,noOfficialClient);
     auto source=CredentialAccess::source(settings,{});ProfileCredentials vault(*store);
@@ -472,14 +346,14 @@ static void onlineExpiryOffersOneReauthentication() {
             ++responses;emit responseAccepted();emit connectionEstablished();
         }
     };
-    QWidget parent;QPushButton connectButton(&parent),proxyButton(&parent);QAction trayAction(&parent);
+    QWidget parent;QPushButton connectButton(&parent);QAction trayAction(&parent);
     auto *engine=new ReauthEngine;ConnectionSession session(engine);SystemProxySession proxy(std::make_unique<ProxyBackend>());
     AuthDialogCoordinator dialogs(&parent);ApplicationLogger logger;
     QObject::connect(&session,&ConnectionSession::authenticationRequired,&dialogs,&AuthDialogCoordinator::requestAuthentication);
     QObject::connect(&dialogs,&AuthDialogCoordinator::responseSubmitted,&session,&ConnectionSession::submitResponse);
     auto backend=std::make_unique<MemoryCredentialStore>();auto *store=backend.get();CredentialAccess access(std::move(backend));
     int notices=0,finishes=0;
-    ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,
+    ConnectionUiController controller(&parent,&connectButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,
         &access,[&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
         [&](const QString &,const QString &,QSystemTrayIcon::MessageIcon){++notices;},nullptr,noOfficialClient);
     QObject::connect(&session,&ConnectionSession::finished,[&](ConnectionError){++finishes;});
@@ -514,11 +388,11 @@ static void onlineExpiryOffersOneReauthentication() {
 static void officialClientWarningIsReadOnlyAndDropsCancelledResults() {
     QTemporaryDir folder;QSettings settings(folder.filePath("official-client.ini"),QSettings::IniFormat);
     settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");settings.setValue("JustConnect/AuthType","httpsOauth2");settings.sync();
-    QWidget parent;QPushButton connectButton(&parent),proxyButton(&parent);QAction trayAction(&parent);
+    QWidget parent;QPushButton connectButton(&parent);QAction trayAction(&parent);
     auto *engine=new QueryEngine;ConnectionSession session(engine);SystemProxySession proxy(std::make_unique<ProxyBackend>());
     AuthDialogCoordinator dialogs(&parent);ApplicationLogger logger;CredentialAccess access(std::make_unique<MemoryCredentialStore>());
     QSemaphore release;std::atomic<int> scans=0;int warnings=0;
-    ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,
+    ConnectionUiController controller(&parent,&connectButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,
         &access,[&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
         [&](const QString &title,const QString &text,QSystemTrayIcon::MessageIcon icon){
             check(title.contains("aTrust") && text.contains("DNS") && text.contains("will not terminate") && icon==QSystemTrayIcon::Warning,
@@ -539,11 +413,11 @@ static void authenticationSurvivesTunnelFailure() {
     QTemporaryDir folder;QSettings settings(folder.filePath("failed-tunnel-cache.ini"),QSettings::IniFormat);
     settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");settings.setValue("JustConnect/ServerPort",443);
     settings.setValue("JustConnect/AuthType","httpsOauth2");settings.setValue(DefaultSettings::RememberAuthentication,true);settings.sync();
-    QWidget parent;QPushButton connectButton(&parent),proxyButton(&parent);QAction trayAction(&parent);
+    QWidget parent;QPushButton connectButton(&parent);QAction trayAction(&parent);
     auto *engine=new QueryEngine;ConnectionSession session(engine);SystemProxySession proxy(std::make_unique<ProxyBackend>());
     AuthDialogCoordinator dialogs(&parent);ApplicationLogger logger;
     auto backend=std::make_unique<MemoryCredentialStore>();auto *store=backend.get();CredentialAccess access(std::move(backend));
-    ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,
+    ConnectionUiController controller(&parent,&connectButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,
         &access,[&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
         [](const QString &,const QString &,QSystemTrayIcon::MessageIcon){},nullptr,noOfficialClient);
     connectButton.click();until([&]{return engine->starts==1;});
@@ -578,11 +452,11 @@ static void failedNetworkRecoveryOffersRetryWhileCoreStops() {
         void stop(const QUuid &) override {++stops;}
     };
     QTemporaryDir folder;QSettings settings(folder.filePath("recovery.ini"),QSettings::IniFormat);DefaultSettings::reset(settings);
-    QWidget parent;QPushButton connectButton(&parent),proxyButton(&parent);QAction trayAction(&parent);
+    QWidget parent;QPushButton connectButton(&parent);QAction trayAction(&parent);
     auto *engine=new QueryEngine;auto *network=new Network;
     ConnectionSession session(engine,nullptr,network);SystemProxySession proxy(std::make_unique<ProxyBackend>());
     AuthDialogCoordinator dialogs(&parent);ApplicationLogger logger;CredentialAccess access(std::make_unique<MemoryCredentialStore>());
-    ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,&access,
+    ConnectionUiController controller(&parent,&connectButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,&access,
         [&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},[](const QString &,const QString &,QSystemTrayIcon::MessageIcon){},nullptr,noOfficialClient);
     check(session.start({},{}),"start network recovery UI fixture");
     emit network->prepared(network->attempt,{});emit engine->connectionEstablished();emit network->ready(network->attempt,{});
@@ -607,10 +481,10 @@ static void failedNetworkRecoveryOffersRetryWhileCoreStops() {
 
 static void quitWaitsForAuthenticationQueryWithoutBlockingTheGui() {
     QTemporaryDir folder;QSettings settings(folder.filePath("query-quit.ini"),QSettings::IniFormat);DefaultSettings::reset(settings);settings.sync();
-    QWidget parent;QPushButton connectButton(&parent),proxyButton(&parent);QAction trayAction(&parent);
+    QWidget parent;QPushButton connectButton(&parent);QAction trayAction(&parent);
     auto *engine=new QueryEngine;ConnectionSession session(engine);SystemProxySession proxy(std::make_unique<ProxyBackend>());
     AuthDialogCoordinator dialogs(&parent);ApplicationLogger logger;CredentialAccess access(std::make_unique<MemoryCredentialStore>());
-    ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,&access,
+    ConnectionUiController controller(&parent,&connectButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,&access,
         [&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},[](const QString &,const QString &,QSystemTrayIcon::MessageIcon){},nullptr,noOfficialClient);
     auto *queryEngine=new QueryEngine;QPointer<QueryEngine> guarded=queryEngine;
     auto *window=openQuery(&parent,{},queryEngine);until([&]{return queryEngine->starts==1;});window->close();
@@ -634,14 +508,14 @@ static void quitWaitsForNetworkInspectionWithoutBlockingTheGui() {
         }
     };
     QTemporaryDir folder;QSettings settings(folder.filePath("network-quit.ini"),QSettings::IniFormat);DefaultSettings::reset(settings);
-    QWidget parent;QPushButton connectButton(&parent),proxyButton(&parent);QAction trayAction(&parent);
+    QWidget parent;QPushButton connectButton(&parent);QAction trayAction(&parent);
     auto *engine=new SnapshotEngine;ConnectionSession session(engine);SystemProxySession proxy(std::make_unique<ProxyBackend>());
     QSemaphore entered,resume;
     NetworkPolicySession networkPolicy(engine,[&] {
         entered.release();check(resume.tryAcquire(1,2000),"release owned network query before its deadline");return DnsSnapshot{{},{}};
     });
     AuthDialogCoordinator dialogs(&parent);ApplicationLogger logger;CredentialAccess access(std::make_unique<MemoryCredentialStore>());
-    ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,&networkPolicy,&dialogs,&logger,&access,
+    ConnectionUiController controller(&parent,&connectButton,&trayAction,&session,&proxy,&networkPolicy,&dialogs,&logger,&access,
         [&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},[](const QString &,const QString &,QSystemTrayIcon::MessageIcon){},nullptr,noOfficialClient);
     int ready=0;QObject::connect(&controller,&ConnectionUiController::readyToQuit,[&]{++ready;});
     check(session.start({},{}),"start network inspection exit fixture");
@@ -663,11 +537,11 @@ static void quitWaitsForInitialSsoCache() {
     QTemporaryDir folder;QSettings settings(folder.filePath("quit-cache.ini"),QSettings::IniFormat);
     settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");settings.setValue("JustConnect/ServerPort",443);
     settings.setValue("JustConnect/AuthType","httpsOauth2");settings.setValue(DefaultSettings::RememberAuthentication,true);settings.sync();
-    QWidget parent;QPushButton connectButton(&parent),proxyButton(&parent);QAction trayAction(&parent);
+    QWidget parent;QPushButton connectButton(&parent);QAction trayAction(&parent);
     auto *engine=new QueryEngine;ConnectionSession session(engine);SystemProxySession proxy(std::make_unique<ProxyBackend>());
     AuthDialogCoordinator dialogs(&parent);ApplicationLogger logger;
     auto backend=std::make_unique<MemoryCredentialStore>();auto *store=backend.get();CredentialAccess access(std::move(backend));
-    ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,
+    ConnectionUiController controller(&parent,&connectButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,
         &access,[&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
         [](const QString &,const QString &,QSystemTrayIcon::MessageIcon){check(false,"exit preserves authorized SSO cache persistence");},nullptr,noOfficialClient);
     int ready=0;
@@ -832,10 +706,10 @@ static void campusIntentsShareOneController() {
     QTemporaryDir folder;QSettings settings(folder.filePath("intents.ini"),QSettings::IniFormat);DefaultSettings::reset(settings);
     settings.setValue("JustConnect/ProfileKind","Custom");settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");
     settings.setValue("JustConnect/AuthType","cas");settings.setValue("Common/NeedsConfiguration",false);settings.sync();
-    QWidget parent;QPushButton button(&parent),proxyButton(&parent);QAction tray(&parent);
+    QWidget parent;QPushButton button(&parent);QAction tray(&parent);
     auto *engine=new QueryEngine;ConnectionSession session(engine);SystemProxySession proxy(std::make_unique<ProxyBackend>());
     AuthDialogCoordinator dialogs(&parent);ApplicationLogger logger;CredentialAccess credentials(std::make_unique<MemoryCredentialStore>());
-    ConnectionUiController controller(&parent,&button,&proxyButton,&tray,&session,&proxy,nullptr,&dialogs,&logger,
+    ConnectionUiController controller(&parent,&button,&tray,&session,&proxy,nullptr,&dialogs,&logger,
         &credentials,[&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
         [](const QString &,const QString &,QSystemTrayIcon::MessageIcon){},nullptr,noOfficialClient);
     int clicked=0;QObject::connect(&button,&QPushButton::clicked,[&]{++clicked;});
@@ -1187,10 +1061,10 @@ static void gateway(const QJsonObject &config) {
     settings.setValue("JustConnect/SOCKS5Port",QUrl("http://"+p.proxy.socksBind).port());
     settings.setValue("JustConnect/HTTPPort",QUrl("http://"+p.proxy.httpBind).port());settings.sync();
     auto backend=std::make_unique<MemoryCredentialStore>();auto *store=backend.get();CredentialAccess access(std::move(backend));
-    QPushButton connectButton(&parent),proxyButton(&parent);QAction trayAction(&parent);ApplicationLogger logger;
+    QPushButton connectButton(&parent);QAction trayAction(&parent);ApplicationLogger logger;
     SystemProxySession systemProxy(std::make_unique<ProxyBackend>());
     NetworkPolicySession networkPolicy(engine, readSystemDnsSnapshot);
-    ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&systemProxy,&networkPolicy,&dialogs,&logger,
+    ConnectionUiController controller(&parent,&connectButton,&trayAction,&session,&systemProxy,&networkPolicy,&dialogs,&logger,
         &access,[&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
         [](const QString &,const QString &,QSystemTrayIcon::MessageIcon){check(false,"real gateway authentication cache must save successfully");},nullptr,noOfficialClient);
     QTimer heartbeat;
@@ -1364,8 +1238,8 @@ static void gateway(const QJsonObject &config) {
         QSettings restartedSettings(settings.fileName(),QSettings::IniFormat);
         ConnectionSession restarted(new EmbeddedCoreEngine);AuthDialogCoordinator restoredDialogs(&parent);
         SystemProxySession restoredProxy(std::make_unique<ProxyBackend>());
-        QPushButton restoredConnect(&parent),restoredProxyButton(&parent);QAction restoredTray(&parent);
-        ConnectionUiController restoredController(&parent,&restoredConnect,&restoredProxyButton,&restoredTray,&restarted,&restoredProxy,nullptr,
+        QPushButton restoredConnect(&parent);QAction restoredTray(&parent);
+        ConnectionUiController restoredController(&parent,&restoredConnect,&restoredTray,&restarted,&restoredProxy,nullptr,
             &restoredDialogs,&logger,&access,[&]{return &restartedSettings;},[&]{return CredentialAccess::source(restartedSettings,{});},
             [](const QString &,const QString &,QSystemTrayIcon::MessageIcon){check(false,"restored native cache remains usable");},nullptr,noOfficialClient);
         bool done=false;
@@ -1397,5 +1271,5 @@ int main(int argc, char **argv) {
         });
         return app.exec();
     }
-    else { campusIntentsShareOneController(); controllerSelectionContracts(); failedNetworkRecoveryOffersRetryWhileCoreStops(); uiContracts(); proxyWaitsForReady(); manualCredentialsAndLateResults(); authenticationCacheLifecycle(); onlineExpiryOffersOneReauthentication(); officialClientWarningIsReadOnlyAndDropsCancelledResults(); authenticationSurvivesTunnelFailure(); quitWaitsForInitialSsoCache(); quitWaitsForAuthenticationQueryWithoutBlockingTheGui(); quitWaitsForNetworkInspectionWithoutBlockingTheGui(); }
+    else { campusIntentsShareOneController(); controllerSelectionContracts(); failedNetworkRecoveryOffersRetryWhileCoreStops(); uiContracts(); reconnectDelayBounds(); manualCredentialsAndLateResults(); authenticationCacheLifecycle(); onlineExpiryOffersOneReauthentication(); officialClientWarningIsReadOnlyAndDropsCancelledResults(); authenticationSurvivesTunnelFailure(); quitWaitsForInitialSsoCache(); quitWaitsForAuthenticationQueryWithoutBlockingTheGui(); quitWaitsForNetworkInspectionWithoutBlockingTheGui(); }
 }

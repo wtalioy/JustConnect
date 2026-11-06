@@ -33,7 +33,6 @@
 ConnectionUiController::ConnectionUiController(
     QWidget *parentWidget,
     QPushButton *connectButton,
-    QPushButton *proxyButton,
     QAction *trayConnectAction,
     ConnectionSession *connectionSession,
     SystemProxySession *systemProxySession,
@@ -50,10 +49,8 @@ ConnectionUiController::ConnectionUiController(
     : QObject(parent),
       parentWidget(parentWidget),
       connectButton(connectButton),
-      proxyButton(proxyButton),
       trayConnectAction(trayConnectAction),
       connectionSession(connectionSession),
-      systemProxySession(systemProxySession),
       networkPolicy(networkPolicy),
       authenticationDialogs(authenticationDialogs),
       settingsProvider(std::move(settingsProvider)),credentials(credentials),credentialSourceProvider(std::move(credentialSourceProvider)),
@@ -61,7 +58,6 @@ ConnectionUiController::ConnectionUiController(
       officialClientProbe(officialClientProbe?std::move(officialClientProbe):[] {return isProcessRunning(QStringLiteral("aTrustAgent"));})
 {
     refreshActions();
-    proxyButton->hide();
 
     connect(connectionSession, &ConnectionSession::diagnostic, applicationLogger,
         [this,applicationLogger](const QString &code) {
@@ -121,37 +117,14 @@ ConnectionUiController::ConnectionUiController(
                 );
             }
             refreshActions();
-            this->proxyButton->hide();
             if (this->connectionSession->state() != ConnectionState::Interrupted)
             {
                 showConnectionError(error);
             }
         }
     );
-    connect(connectionSession, &ConnectionSession::stateChanged, this, [this](ConnectionState state) {
-        refreshActions();
-        if (state == ConnectionState::Running) {
-            promptCredentials={};
-            this->proxyButton->show();
-            autoProxyPending=settings()->value("Common/AutoSetProxy",false).toBool()
-                && (!this->systemProxySession->isEnabled() || this->systemProxySession->isBusy());
-            applyPendingAutomaticProxy();
-        } else { ++proxyGeneration;autoProxyPending=false;this->proxyButton->hide(); }
-    });
-    connect(connectionSession, &ConnectionSession::progressChanged, this, [this] {
-        if (this->connectionSession->phase() != ConnectionPhase::NetworkRestoring) return;
-        refreshActions();
-        ++proxyGeneration;
-        autoProxyPending = false;
-        this->proxyButton->hide();
-        this->systemProxySession->disable();
-    });
-    connect(systemProxySession,&SystemProxySession::enabledChanged,this,[this]{refreshActions();});
-    connect(systemProxySession,&SystemProxySession::busyChanged,this,[this](bool busy) {
-        this->proxyButton->setEnabled(!busy && !this->systemProxySession->isAutomatic());
-        // Deliver the old operation's result before starting the current session's request.
-        if (!busy && autoProxyPending) QTimer::singleShot(0,this,&ConnectionUiController::applyPendingAutomaticProxy);
-    });
+    connect(connectionSession,&ConnectionSession::stateChanged,this,[this] { refreshActions(); });
+    connect(connectionSession,&ConnectionSession::progressChanged,this,[this] { refreshActions(); });
     connect(
         connectButton,
         &QPushButton::clicked,
@@ -159,12 +132,6 @@ ConnectionUiController::ConnectionUiController(
         &ConnectionUiController::toggleCampusAccess
     );
     connect(trayConnectAction,&QAction::triggered,this,&ConnectionUiController::toggleCampusAccess);
-    connect(
-        proxyButton,
-        &QPushButton::clicked,
-        this,
-        &ConnectionUiController::handleProxyClicked
-    );
 
 }
 
@@ -178,8 +145,6 @@ void ConnectionUiController::refreshActions()
     connectButton->setText(action);trayConnectAction->setText(action);
     const bool enabled=!quitting && (connectionSession->state()!=ConnectionState::Stopping || connectionSession->networkRecoveryFailed());
     connectButton->setEnabled(enabled);trayConnectAction->setEnabled(enabled);
-    proxyButton->setEnabled(!systemProxySession->isBusy() && !systemProxySession->isAutomatic());
-    proxyButton->setText(systemProxySession->needsCleanup()?tr("Clear system proxy"):tr("Set system proxy"));
 }
 
 QSettings *ConnectionUiController::settings() const
@@ -322,109 +287,6 @@ void ConnectionUiController::submitManual(const CredentialSource &source,const C
     });
 }
 
-void ConnectionUiController::applyPendingAutomaticProxy()
-{
-    if (!autoProxyPending) return;
-    if (connectionSession->state()!=ConnectionState::Running || connectionSession->phase()==ConnectionPhase::NetworkRestoring || !settings()->value("Common/AutoSetProxy",false).toBool()) {
-        autoProxyPending=false;return;
-    }
-    if (systemProxySession->isBusy()) return;
-    autoProxyPending=false;
-    if (systemProxySession->needsCleanup()) return;
-    handleProxyClicked();
-}
-
-void ConnectionUiController::handleProxyClicked()
-{
-    if (connectionSession->state() != ConnectionState::Running || connectionSession->phase()==ConnectionPhase::NetworkRestoring || systemProxySession->isBusy() || systemProxySession->isAutomatic())
-    {
-        return;
-    }
-    autoProxyPending=false;
-    if (systemProxySession->needsCleanup())
-    {
-        systemProxySession->disable();
-        return;
-    }
-
-    const auto listeners = connectionSession->proxyOptions();
-    const QUrl http("http://" + listeners.httpBind), socks("http://" + listeners.socksBind);
-    const int httpPort = http.host() == "127.0.0.1" ? http.port(0) : 0;
-    const int socksPort = socks.host() == "127.0.0.1" ? socks.port(0) : 0;
-    if (httpPort < 1 || socksPort < 1) {
-        QMessageBox::warning(parentWidget,tr("Cannot set system proxy"),tr("Both local HTTP and SOCKS5 listeners are required. Update the profile and reconnect."));
-        return;
-    }
-    const auto generation = ++proxyGeneration;
-    const SystemProxyConfig proxyConfig{
-        httpPort,
-        socksPort,
-        settings()->value("Common/SystemProxyBypass").toString()
-    };
-    connect(
-        systemProxySession,
-        &SystemProxySession::conflictCheckFinished,
-        this,
-        [this, proxyConfig, httpPort, socksPort, generation](const SystemProxyCheck &check)
-        {
-            const auto current = [this,generation] {
-                return generation == proxyGeneration && connectionSession->state() == ConnectionState::Running
-                    && connectionSession->phase() != ConnectionPhase::NetworkRestoring
-                    && !systemProxySession->isBusy();
-            };
-            if (!current()) return;
-
-            if (!check.result.succeeded()) {
-                QMessageBox::warning(parentWidget, tr("Cannot inspect system proxy"), PresentationHelpers::platformOperationMessage(check.result));
-                return;
-            }
-            const auto canApply = [&] { return current() && !systemProxySession->needsCleanup(); };
-            if (!canApply()) return;
-            const bool conflict = check.conflict;
-            if (conflict &&
-                !settings()->value(
-                    "Common/SuppressProxyOverrideWarning",
-                    false
-                ).toBool())
-            {
-                QMessageBox messageBox(
-                    QMessageBox::Warning,
-                    tr("Warning"),
-                    tr("A system proxy is already configured (possibly Clash or another proxy application).\nReplace the current system proxy?"),
-                    QMessageBox::Yes | QMessageBox::No,
-                    parentWidget
-                );
-                auto *dontShowCheckBox = new QCheckBox(tr("Do not ask again"));
-                messageBox.setCheckBox(dontShowCheckBox);
-                if (messageBox.exec() != QMessageBox::Yes || !canApply())
-                {
-                    return;
-                }
-                if (dontShowCheckBox->isChecked())
-                {
-                    settings()->setValue(
-                        "Common/SuppressProxyOverrideWarning",
-                        true
-                    );
-                    settings()->sync();
-                }
-            }
-            else if (conflict)
-            {
-                qInfo().noquote() << tr("System proxy replacement warning skipped by preference");
-            }
-
-            if (!canApply()) return;
-            qInfo().noquote()
-                << tr("Set system proxy: HTTP port ") + QString::number(httpPort)
-                       + tr(", SOCKS5 port ") + QString::number(socksPort);
-            systemProxySession->enable(proxyConfig);
-        },
-        Qt::SingleShotConnection
-    );
-    systemProxySession->checkConflict(proxyConfig);
-}
-
 void ConnectionUiController::startConnection(ConnectionProfile profile,const CredentialSource &source,quint64 revision)
 {
     const auto generation=credentialGeneration;
@@ -478,14 +340,11 @@ void ConnectionUiController::prepareForQuit()
         quitting=true;
         if (networkPolicy) networkPolicy->clear();
         cancelPendingCredentials();
-        autoProxyPending=false;
-        ++proxyGeneration;
         for (auto *query:parentWidget->findChildren<AuthMethodsQuery *>()) query->stop();
         authenticationDialogs->closeAuthentication();
         authenticationDialogs->closeCredentialPrompts();
         connectButton->setEnabled(false);
         trayConnectAction->setEnabled(false);
-        proxyButton->setEnabled(false);
     }
     shutdown->request();
 }

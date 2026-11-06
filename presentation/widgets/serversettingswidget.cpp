@@ -139,6 +139,7 @@ void ServerSettingsWidget::selectPreset() {
     address->setText(builtIn ? defaults.value("JustConnect/ServerAddress").toString() : customAddress);
     port->setValue(builtIn ? defaults.value("JustConnect/ServerPort").toInt() : customPort);
     address->setReadOnly(kind != "Custom"); port->setEnabled(kind == "Custom");
+    form->setRowVisible(address,kind=="Custom");form->setRowVisible(port,kind=="Custom");
     domainDnsRules->setPlainText(domainDnsDrafts.value(kind,builtIn ? defaults.value(DefaultSettings::DomainDnsRules).toString() : QString()));
     domainDnsRules->setEnabled(!kind.isEmpty());
     previousPreset = kind;

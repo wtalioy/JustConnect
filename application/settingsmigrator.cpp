@@ -130,7 +130,10 @@ bool SettingsMigrator::finish(QSettings &settings)
             "JustConnect/ExtraArguments",
             "Credential/CertFile",
             "Credential/CertPassword",
-            "Common/AutoStart"
+            "Common/AutoStart",
+            "Common/AutoSetProxy",
+            "Common/SystemProxyBypass",
+            "Common/SuppressProxyOverrideWarning"
         };
         for (const auto &key:obsolete) {
             if (settings.contains(key)) removed.insert(key,settings.value(key));

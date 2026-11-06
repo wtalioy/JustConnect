@@ -287,287 +287,230 @@ This connection remains usable. You may need to sign in again later.</source>
 <context>
     <name>ConnectionUiController</name>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="177"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="144"/>
         <source>Connect</source>
         <translation>连接</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="182"/>
-        <source>Set system proxy</source>
-        <translation>设置系统代理</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="83"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="79"/>
         <source>Authentication cache was not saved</source>
         <translation>认证缓存未保存</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="94"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="90"/>
         <source>Reconnect %1/%2 in %3 seconds</source>
         <translation>重连 %1/%2，将在 %3 秒后尝试</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="104"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="100"/>
         <source>VPN disconnected</source>
         <translation>VPN 断开！</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="119"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="115"/>
         <source>VPN disconnected unexpectedly</source>
         <translation>VPN 意外断开！</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="173"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="140"/>
         <source>Retry recovery</source>
         <translation>重试恢复</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="176"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="143"/>
         <source>Disconnect</source>
         <translation>断开</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="182"/>
-        <source>Clear system proxy</source>
-        <translation>清除系统代理</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="220"/>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="460"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="185"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="322"/>
         <source>Saving profile</source>
         <translation>正在保存配置</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="220"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="185"/>
         <source>Wait for the save before connecting.</source>
         <translation>请等待保存完成后再连接。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="540"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="399"/>
         <source>Error</source>
         <translation>错误</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="228"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="193"/>
         <source>Profile unavailable</source>
         <translation>配置不可用</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="228"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="193"/>
         <source>The current profile could not be read. Check file permissions and contents, then reopen it.</source>
         <translation>无法读取当前配置，请检查文件权限与内容后重新打开配置。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="175"/>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="177"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="142"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="144"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="70"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="66"/>
         <source>Browser proxy changed</source>
         <translation>浏览器代理已改变</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="70"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="66"/>
         <source>New proxy settings were detected. JustConnect will preserve them.</source>
         <translation>检测到新的代理设置，JustConnect 将保留这些设置。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="235"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="200"/>
         <source>The official aTrust client is running</source>
         <translation>检测到官方 aTrust 正在运行</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="236"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="201"/>
         <source>Its routes or DNS may conflict with JustConnect. Disconnect it manually first. JustConnect will not terminate its processes.</source>
         <translation>官方客户端可能与 JustConnect 的路由或 DNS 设置冲突。请先手动断开官方连接；JustConnect 不会结束它的进程。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="242"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="207"/>
         <source>Saved credentials unavailable</source>
         <translation>无法读取已保存凭据</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="242"/>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="315"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="207"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="280"/>
         <source>
 You can sign in manually for this connection.</source>
         <translation>
 本次仍可手动登录。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="266"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="231"/>
         <source>Authentication cache was not restored</source>
         <translation>认证缓存未恢复</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="266"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="231"/>
         <source>
 You will sign in again for this connection.</source>
         <translation>
 本次将重新认证。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="315"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="280"/>
         <source>Login details were not saved</source>
         <translation>未能记住登录信息</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="355"/>
-        <source>Cannot set system proxy</source>
-        <translation>无法设置系统代理</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="355"/>
-        <source>Both local HTTP and SOCKS5 listeners are required. Update the profile and reconnect.</source>
-        <translation>设置系统代理需要同时启用本地 HTTP 和 SOCKS5 监听。请修改配置后重新连接。</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="378"/>
-        <source>Cannot inspect system proxy</source>
-        <translation>无法检查系统代理</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="392"/>
-        <source>Warning</source>
-        <translation>警告</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="397"/>
-        <source>Do not ask again</source>
-        <translation>不再提示</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="414"/>
-        <source>System proxy replacement warning skipped by preference</source>
-        <translation>跳过系统代理覆盖警告，因为已设置了不再提示</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="419"/>
-        <source>Set system proxy: HTTP port </source>
-        <translation>设置系统代理：HTTP端口 </translation>
-    </message>
-    <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="420"/>
-        <source>, SOCKS5 port </source>
-        <translation>，SOCKS5 端口 </translation>
-    </message>
-    <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="460"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="322"/>
         <source>Wait for the save before clearing authentication caches.</source>
         <translation>请等待保存完成后再清除认证缓存。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="463"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="325"/>
         <source>Authentication cache</source>
         <translation>认证缓存</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="463"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="325"/>
         <source>This profile has no bound account cache to clear.</source>
         <translation>当前配置尚无可清除的已绑定账户。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="466"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="328"/>
         <source>Clear authentication cache</source>
         <translation>清除认证缓存</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="466"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="328"/>
         <source>
 Clear the authentication cache for </source>
         <translation>
 清除 </translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="466"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="328"/>
         <source>? The next connection may require sign-in. Passwords, TOTP and other accounts are preserved.</source>
         <translation> 的认证缓存？下次连接可能需要重新认证，密码、TOTP 和其他账户保持不变。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="471"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="333"/>
         <source>Authentication cache cleanup incomplete</source>
         <translation>认证缓存清除未完成</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="499"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="358"/>
         <source>Network permission was denied. Check interface access or authorization, then retry.</source>
         <translation>网络操作权限不足，请检查接口访问或授权结果后重试。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="502"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="361"/>
         <source>The server ended the session. Select Connect to sign in again.</source>
         <translation>服务器已明确终止会话。请点击连接完成一次重新认证。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="505"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="364"/>
         <source>Authentication expired or could not be restored. Enter your credentials and retry.</source>
         <translation>认证已失效或无法恢复，请输入登录凭据后重试。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="508"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="367"/>
         <source>The next sign-in step is not supported. Ask your administrator to confirm the authentication policy.</source>
         <translation>服务器要求的后续认证步骤暂不支持，请联系管理员确认认证策略。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="511"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="370"/>
         <source>Sign-in methods changed or are ambiguous. Query and select the method again.</source>
         <translation>认证方式已变化或不唯一，请重新获取并选择认证方式。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="514"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="373"/>
         <source>The certificate is not trusted or does not match the server. Check the address, system time and campus CA.</source>
         <translation>服务器证书不受信任或与地址不匹配。请检查服务器地址、系统时间和学校 CA。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="517"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="376"/>
         <source>TLS negotiation failed. Check the server port and TLS compatibility.</source>
         <translation>TLS 协议协商失败。请检查服务器端口与 TLS 兼容性。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="520"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="379"/>
         <source>The network connection failed. Check DNS, connectivity and the server address.</source>
         <translation>网络连接失败。请检查 DNS、网络与服务器地址。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="523"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="382"/>
         <source>The connection or sign-in timed out. Please retry.</source>
         <translation>连接或认证操作超时，请重试。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="526"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="385"/>
         <source>Connection failed. Check your network and server settings.</source>
         <translation>连接失败！
 可能是响应超时，请检查本地网络配置是否正常，服务器设置是否正确。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="529"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="388"/>
         <source>The core library is unavailable. Check that the package is complete and its ABI matches.</source>
         <translation>核心库不可用！
 请检查安装包是否完整及核心 ABI 是否匹配。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="532"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="391"/>
         <source>The profile is invalid or has unsupported legacy options. Use aTrust and supported network settings.</source>
         <translation>配置无效或含有当前核心不支持的旧选项。
 请使用 aTrust 和受支持的网络设置。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="535"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="394"/>
         <source>Unexpected error. Share the diagnostic log with the developer for investigation.</source>
         <translation>其它错误！
 未知原因，可将日志反馈给开发者以便调查。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="393"/>
-        <source>A system proxy is already configured (possibly Clash or another proxy application).
-Replace the current system proxy?</source>
-        <translation>当前已存在系统代理配置（可能是 Clash 或其它代理软件）
-是否覆盖当前系统代理配置？</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="174"/>
+        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="141"/>
         <source>Disconnecting…</source>
         <translation>正在断开…</translation>
     </message>
@@ -745,593 +688,570 @@ Open the release page?</source>
 是否前往 Github 发布页面查看？</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="500"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="213"/>
-        <source>Clear system proxy</source>
-        <translation>清除系统代理</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="128"/>
-        <source>System proxy operation incomplete</source>
-        <translation>系统代理操作未完成</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="415"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="721"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="750"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="365"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="670"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="699"/>
         <source>Saving profile</source>
         <translation>正在保存配置</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="415"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="365"/>
         <source>Wait for the save to finish.</source>
         <translation>请等待保存完成。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="203"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="185"/>
         <source>Log file</source>
         <translation>日志文件</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="203"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="185"/>
         <source>The log file could not be created.</source>
         <translation>日志文件创建失败。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="214"/>
-        <source>Clear the system proxy owned by JustConnect?</source>
-        <translation>是否清理系统代理？</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="216"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="854"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="803"/>
         <source>Yes</source>
         <translation>是</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="217"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="855"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="804"/>
         <source>No</source>
         <translation>否</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="231"/>
-        <source>System proxy cleared</source>
-        <translation>已清理系统代理设置</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="244"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="798"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="842"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="195"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="747"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="791"/>
         <source>Secure storage is busy</source>
         <translation>安全存储操作进行中</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="244"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="195"/>
         <source>Wait for the current operation before clearing legacy data.</source>
         <translation>请等待操作完成后再清理旧版缓存。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="533"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="247"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="538"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="198"/>
         <source>Clear legacy data</source>
         <translation>清理旧版缓存</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="248"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="199"/>
         <source>Delete this profile&apos;s legacy cache and its quarantined copy in secure storage? This unbound data is not used for login. Current account caches, passwords, TOTP and other profiles are preserved.</source>
         <translation>删除当前配置的旧版缓存文件及其系统凭据库隔离副本？这些材料未绑定账户，不用于登录。当前账户认证缓存、密码、TOTP 和其他配置保持不变。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="253"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="204"/>
         <source>Legacy data cleanup incomplete</source>
         <translation>旧版缓存清理未完成</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="254"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="205"/>
         <source>Legacy data cleared for the current profile</source>
         <translation>已清理当前配置的旧版缓存</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="337"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="287"/>
         <source>Exit incomplete</source>
         <translation>退出未完成</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="338"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="288"/>
         <source>Cleanup failed or timed out. New connections and reconnection are stopped. Check network recovery and retry Exit. The application remains available while the core or storage work is still running.</source>
         <translation>清理失败或超时。已停止重连及新连接；请检查代理残留，完成清理后重试退出或重启系统。程序将保留事件循环，不强制销毁仍在运行的核心或存储线程。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="401"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="351"/>
         <source>JustConnect is running in the system tray. Click its icon to restore the window; use Exit to quit.</source>
         <translation>程序继续在系统托盘运行，单击图标可恢复窗口；退出请使用菜单。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="436"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="558"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="648"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="658"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="386"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="507"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="597"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="607"/>
         <source>Default</source>
         <translation>默认</translation>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.ui" line="178"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="597"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="546"/>
         <source>Connect</source>
         <translation>连接</translation>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.ui" line="152"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="459"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="408"/>
         <source>Not connected</source>
         <translation>尚未连接</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="290"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="460"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="297"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="409"/>
         <source>Connect to access campus resources.</source>
         <translation>连接后即可访问网络资源。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="465"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="414"/>
         <source>Initializing</source>
         <translation>正在初始化核心库</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="466"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="415"/>
         <source>Starting session</source>
         <translation>正在启动会话</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="467"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="416"/>
         <source>Restoring authentication</source>
         <translation>正在恢复认证</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="468"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="417"/>
         <source>Waiting for sign-in</source>
         <translation>等待认证</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="469"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="418"/>
         <source>Establishing tunnel</source>
         <translation>认证成功，正在建立通道</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="470"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="512"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="522"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="419"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="461"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="471"/>
         <source>Sign in again</source>
         <translation>需要重新认证</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="471"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="482"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="420"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="431"/>
         <source>Tunnel ready</source>
         <translation>通道就绪</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="472"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="421"/>
         <source>Checking network recovery</source>
         <translation>正在检查并恢复原网络</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="473"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="422"/>
         <source>Preparing campus access</source>
         <translation>正在授权并接管校园访问</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="474"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="482"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="423"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="431"/>
         <source>Restoring network</source>
         <translation>正在恢复原网络</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="475"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="424"/>
         <source>Campus access ready</source>
         <translation>校园访问就绪</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="477"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="426"/>
         <source>Campus access is not ready yet.</source>
         <translation>校园访问接管尚未就绪。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="481"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="430"/>
         <source>Connected</source>
         <translation>已连接</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="483"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="432"/>
         <source>Campus IPv4 access is ready.</source>
         <translation>校园 IPv4 接管已就绪。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="484"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="433"/>
         <source>Campus access is paused until network recovery is confirmed.</source>
         <translation>校园访问已暂停，等待原网络恢复确认。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="486"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="435"/>
         <source>System proxy state is unconfirmed. Check remaining settings.</source>
         <translation>系统代理状态未确认，请检查残留设置。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="488"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="437"/>
         <source>Tunnel and system proxy are available; campus access is not ready yet.</source>
         <translation>通道与系统代理已启用；校园访问接管尚未就绪。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="489"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="438"/>
         <source>Tunnel and local proxy are available; campus access is not ready yet.</source>
         <translation>通道与本地代理可用；校园访问接管尚未就绪。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="493"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="442"/>
         <source>Recovery incomplete</source>
         <translation>网络恢复未完成</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="493"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="442"/>
         <source>Disconnecting</source>
         <translation>正在断开</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="494"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="443"/>
         <source>Select Retry recovery to finish restoring your network.</source>
         <translation>恢复未完成，请点击“重试恢复”。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="494"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="443"/>
         <source>Safely closing this connection.</source>
         <translation>正在安全关闭当前连接。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="498"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="447"/>
         <source>Reconnecting</source>
         <translation>正在重连</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="499"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="448"/>
         <source>Reconnect %1/%2 is waiting for its next attempt.</source>
         <translation>重连 %1/%2，等待下一次尝试。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="503"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="452"/>
         <source>Connection interrupted</source>
         <translation>连接已断开</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="504"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="453"/>
         <source>The core stopped unexpectedly. See Details for the log.</source>
         <translation>VPN 核心意外退出，请查看右侧日志。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="509"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="458"/>
         <source>Disconnected</source>
         <translation>已断开</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="510"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="459"/>
         <source>Network recovery is confirmed. See Details for the earlier error.</source>
         <translation>接管恢复已确认；此前的错误请查看右侧日志。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="512"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="461"/>
         <source>Connection failed</source>
         <translation>连接失败</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="513"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="462"/>
         <source>Check your network and account settings. See Details for the log.</source>
         <translation>请查看右侧日志，确认网络与账户配置。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="522"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="471"/>
         <source>In progress</source>
         <translation>进行中</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="522"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="471"/>
         <source>Succeeded</source>
         <translation>成功</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="522"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="471"/>
         <source>Failed</source>
         <translation>失败</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="522"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="916"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="471"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="865"/>
         <source>Disabled</source>
         <translation>已禁用</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="522"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="921"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="471"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="870"/>
         <source>Unavailable</source>
         <translation>不可用</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="525"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="474"/>
         <source>Session renewal</source>
         <translation>会话续期</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="526"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="475"/>
         <source>Traffic keepalive (HTTP GET)</source>
         <translation>流量保活（HTTP GET）</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="526"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="475"/>
         <source>Traffic keepalive</source>
         <translation>流量保活</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="526"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="475"/>
         <source>Traffic keepalive (campus DNS)</source>
         <translation>流量保活（校园 DNS）</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="527"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="476"/>
         <source>Node maintenance</source>
         <translation>节点维护</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="527"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="476"/>
         <source>Tunnel maintenance</source>
         <translation>隧道维护</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="530"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="479"/>
         <source>Unknown</source>
         <translation>未知</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="533"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="482"/>
         <source>
 No authorized probe resource or campus DNS is available. Check the target and gateway authorization.</source>
         <translation>
 缺少获授权的探测资源或校园解析能力，请检查目标与学校授权。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="567"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="516"/>
         <source>No server configured</source>
         <translation>尚未配置服务器</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="451"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="380"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="598"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="461"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="330"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="547"/>
         <source>Profiles</source>
         <translation>配置选择</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="380"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="599"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="330"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="548"/>
         <source>Show window</source>
         <translation>显示主界面</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="600"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="549"/>
         <source>Exit </source>
         <translation>退出 </translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="379"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="625"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="761"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="329"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="574"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="710"/>
         <source>New profile</source>
         <translation>新建配置</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="142"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="378"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="124"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="328"/>
         <source>Tools</source>
         <translation>工具</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="379"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="626"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="801"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="329"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="575"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="750"/>
         <source>Rename profile</source>
         <translation>重命名当前配置</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="379"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="627"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="851"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="329"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="576"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="800"/>
         <source>Delete profile</source>
         <translation>删除当前配置</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="405"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="520"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="355"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="469"/>
         <source>System tray unavailable. Use Exit in Details to quit.</source>
         <translation>系统托盘不可用，可在详情中选择“退出”。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="574"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="523"/>
         <source>Connection profile: %1</source>
         <translation>连接配置：%1</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="715"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="730"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="664"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="679"/>
         <source>Could not switch profile</source>
         <translation>切换失败</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="715"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="664"/>
         <source>Disconnect before switching profiles.</source>
         <translation>请先断开 VPN 连接，再切换配置。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="721"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="670"/>
         <source>Wait for the save before switching profiles.</source>
         <translation>请等待保存完成后再切换。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="730"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="679"/>
         <source>Could not save the current profile or read the selected profile. Check file permissions and contents. Your selection is unchanged.</source>
         <translation>无法保存当前配置或读取目标配置，请检查文件权限及内容后重试。当前选择未改变。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="743"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="692"/>
         <source>Switched profile: </source>
         <translation>已切换到配置：</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="750"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="699"/>
         <source>Wait for the save before creating a profile.</source>
         <translation>请等待保存完成后再创建配置。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="754"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="780"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="703"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="729"/>
         <source>Could not create profile</source>
         <translation>新建失败</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="754"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="703"/>
         <source>Disconnect before creating a profile.</source>
         <translation>请先断开 VPN 连接，再新建配置。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="762"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="711"/>
         <source>Profile name:
 Use letters, numbers, underscores or hyphens.</source>
         <translation>请输入配置名称：
 （仅支持字母、数字、下划线和连字符）</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="780"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="729"/>
         <source>The new profile could not be created.</source>
         <translation>无法创建新配置。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="798"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="747"/>
         <source>Wait for the current operation before renaming.</source>
         <translation>请等待操作完成后再重命名。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="801"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="750"/>
         <source>New profile name:
 Use letters, numbers or underscores.</source>
         <translation>请输入新配置名称：
 （仅支持字母、数字、下划线）</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="810"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="819"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="832"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="759"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="768"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="781"/>
         <source>Could not rename profile</source>
         <translation>重命名失败</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="810"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="759"/>
         <source>The profile name cannot be empty.</source>
         <translation>配置名称不能为空。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="819"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="768"/>
         <source>Disconnect before renaming a profile.</source>
         <translation>请先断开 VPN 连接，再重命名配置。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="831"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="780"/>
         <source>Rename incomplete</source>
         <translation>重命名未完成</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="831"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="780"/>
         <source>
 Complete the legacy credential migration first, or create a new profile.</source>
         <translation>
 请先完成旧凭据／缓存迁移，或创建新配置。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="832"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="781"/>
         <source>The destination exists or this profile cannot be renamed.</source>
         <translation>目标配置已存在，或当前配置不可重命名。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="834"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="783"/>
         <source>Profile renamed to: </source>
         <translation>当前配置已重命名为：</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="840"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="846"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="865"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="879"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="789"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="795"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="814"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="828"/>
         <source>Could not delete profile</source>
         <translation>删除失败</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="840"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="789"/>
         <source>External profiles cannot be deleted here.</source>
         <translation>外部配置不能在此删除。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="842"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="791"/>
         <source>Wait for the current operation before deleting a profile.</source>
         <translation>请等待操作完成后再删除配置。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="846"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="795"/>
         <source>The default profile cannot be deleted.</source>
         <translation>默认配置不可删除。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="852"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="801"/>
         <source>The profile file and legacy cache will be deleted. Passwords, TOTP, account caches and quarantined copies in secure storage are preserved. To remove them, first clear passwords and TOTP in profile settings, then clear account and legacy caches from Settings.</source>
         <translation>将删除配置文件及其旧版缓存。系统凭据库中的密码、TOTP、认证缓存及隔离副本保留；如需清除，请先在设置中删除密码／TOTP，并用文件菜单清除当前账户认证缓存及旧版缓存。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="865"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="814"/>
         <source>Disconnect before deleting a profile.</source>
         <translation>请先断开 VPN 连接，再删除配置。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="875"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="824"/>
         <source>Delete incomplete</source>
         <translation>删除未完成</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="875"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="824"/>
         <source>The legacy cache could not be removed, so the profile was preserved. Check access permissions and retry.</source>
         <translation>旧版缓存未能删除，配置文件已保留。请检查访问权限后重试。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="879"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="828"/>
         <source>The profile file could not be deleted.</source>
         <translation>无法删除该配置文件。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="890"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="839"/>
         <source>Deleted profile: </source>
         <translation>已删除配置：</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="899"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="848"/>
         <source>Startup preference migration failed</source>
         <translation>自启动设置迁移失败</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="899"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="848"/>
         <source>The previous startup preference could not be saved. The old configuration is preserved for retry.</source>
         <translation>未能保存原有自启动偏好，已保留旧配置以便重试。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="905"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="854"/>
         <source>Profile migration incomplete</source>
         <translation>配置迁移未完成</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="905"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="854"/>
         <source>The upgraded profile could not be saved. The old version is preserved for retry.</source>
         <translation>未能保存升级后的配置，已保留旧版本以便重试。</translation>
     </message>
@@ -1341,128 +1261,133 @@ Complete the legacy credential migration first, or create a new profile.</source
         <translation>版本 dev</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="230"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="231"/>
+        <source>Overview</source>
+        <translation>概览</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/main/mainwindow.ui" line="237"/>
         <source>aTrust · Not connected</source>
         <translation>aTrust · 等待连接</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="249"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="256"/>
         <source>Connection diagnostics</source>
         <translation>连接诊断</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="261"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="268"/>
         <source>Refresh</source>
         <translation>刷新</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="271"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="278"/>
         <source>Rules and DNS</source>
         <translation>规则与 DNS</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="281"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="288"/>
         <source>Copy diagnostics</source>
         <translation>复制诊断</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="331"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="308"/>
+        <source>Logs</source>
+        <translation>日志</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/main/mainwindow.ui" line="345"/>
         <source>Activity log</source>
         <translation>运行日志</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="353"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="367"/>
         <source>Open the full log file</source>
         <translation>在系统中打开完整日志文件</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="356"/>
-        <location filename="../../presentation/main/mainwindow.ui" line="520"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="370"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="525"/>
         <source>Open log file</source>
         <translation>打开日志文件</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="363"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="377"/>
         <source>Copy log to clipboard</source>
         <translation>复制日志到剪贴板</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="366"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="380"/>
         <source>Copy</source>
         <translation>复制</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="373"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="387"/>
         <source>Clear the displayed log</source>
         <translation>清空窗口中的日志</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="376"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="390"/>
         <source>Clear</source>
         <translation>清空</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="391"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="405"/>
         <source>Connection logs appear here</source>
         <translation>连接日志将在这里显示</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="401"/>
-        <source>Set system proxy (advanced)</source>
-        <translation>设置系统代理（高级）</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="436"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="447"/>
         <source>File</source>
         <translation>文件</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="456"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="466"/>
         <source>Help</source>
         <translation>帮助</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="468"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="478"/>
         <source>About JustConnect</source>
         <translation>关于本软件</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="476"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="486"/>
         <source>Application settings…</source>
         <translation>应用偏好设置…</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="484"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="494"/>
         <source>Exit</source>
         <translation>退出</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="492"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="502"/>
         <source>Edit current profile…</source>
         <translation>编辑当前配置…</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="505"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="510"/>
         <source>Network scope and conflicts…</source>
         <translation>网络范围与校园地址重叠…</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="510"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="515"/>
         <source>Check for updates</source>
         <translation>检查更新</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="515"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="520"/>
         <source>Project website</source>
         <translation>项目主页</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="523"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="528"/>
         <source>Open the application log file</source>
         <translation>打开应用日志文件</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="528"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="533"/>
         <source>Clear current account cache</source>
         <translation>清除当前账户认证缓存</translation>
     </message>
@@ -1484,7 +1409,7 @@ Complete the legacy credential migration first, or create a new profile.</source
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.ui" line="52"/>
-        <location filename="../../presentation/main/mainwindow.ui" line="423"/>
+        <location filename="../../presentation/main/mainwindow.ui" line="434"/>
         <source>JustConnect</source>
         <translation>JustConnect</translation>
     </message>
@@ -1499,12 +1424,12 @@ Complete the legacy credential migration first, or create a new profile.</source
         <translation>连接详情</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="381"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="331"/>
         <source>Exit %1</source>
         <translation>退出 %1</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="434"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="384"/>
         <source>Welcome to %1
 Version: %2
 System: %3
@@ -1519,36 +1444,36 @@ Configuration: %5
 </translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="530"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="479"/>
         <source>
 Last %1: %2</source>
         <translation>
 最近%1：%2</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="912"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="861"/>
         <source>Version %1</source>
         <translation>版本 %1</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="915"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="864"/>
         <source>Checking…</source>
         <translation>正在检查…</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="917"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="866"/>
         <source>Check failed</source>
         <translation>检查失败</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="920"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="869"/>
         <source>Application: %1 (latest: %2)
 Core: %3</source>
         <translation>应用版本：%1（最新：%2）
 内置核心：%3</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="853"/>
+        <location filename="../../presentation/main/mainwindow.cpp" line="802"/>
         <source>Delete profile &quot;%1&quot;?</source>
         <translation>确认删除配置“%1”？</translation>
     </message>
@@ -2423,98 +2348,98 @@ Some settings may have changed. Check network recovery.</source>
         <translation>断开后可编辑此连接，通用设置仍可修改。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="229"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="230"/>
         <source>Leave empty to use this account’s saved credentials or enter them when connecting.</source>
         <translation>可留空，连接时使用该账号已保存的凭据或手动输入。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="273"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="280"/>
         <source>Loading sign-in methods…</source>
         <translation>正在获取认证方式，请稍候...</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="278"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="285"/>
         <source>Query cancelled. Try again when ready.</source>
         <translation>查询已取消，可稍后重试。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="298"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="305"/>
         <source>The saved profile changed. Reopen the editor.</source>
         <translation>已保存配置已变化，请重新打开编辑窗口。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="315"/>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="337"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="322"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="344"/>
         <source>Profile changed</source>
         <translation>配置已变化</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="315"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="322"/>
         <source>Reopen the editor before clearing credentials.</source>
         <translation>请重新打开设置后再清除凭据。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="319"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="326"/>
         <source>the current profile</source>
         <translation>当前配置</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="320"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="327"/>
         <source>Clear saved credentials</source>
         <translation>清除已保存凭据</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="320"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="327"/>
         <source>Clear saved passwords and authenticator keys for %1? Other accounts are unaffected.</source>
         <translation>清除 %1 已保存的密码和验证器密钥？其他账号不受影响。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="325"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="332"/>
         <source>Could not clear credentials</source>
         <translation>清除未完成</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="329"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="336"/>
         <source>Saved passwords and authenticator keys were cleared. Unsaved input is unchanged.</source>
         <translation>已清除保存的密码和验证器密钥，未保存的输入保持不变。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="337"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="344"/>
         <source>Reopen the editor before applying changes.</source>
         <translation>请重新打开设置后再应用修改。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="345"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="352"/>
         <source>Choose a sign-in method</source>
         <translation>请选择认证方式</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="345"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="352"/>
         <source>Choose a method from the list provided by your server.</source>
         <translation>请选择认证方式；可从当前服务器获取可用列表。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="350"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="357"/>
         <source>Core unavailable</source>
         <translation>核心不可用</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="350"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="357"/>
         <source>Invalid profile</source>
         <translation>配置无效</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="351"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="358"/>
         <source>Cannot validate this profile. Check the application installation. Nothing was saved.</source>
         <translation>无法校验配置，请检查应用安装是否完整。配置未保存。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="351"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="358"/>
         <source>Check the server, sign-in method, ports, DNS and probe target. Nothing was saved.</source>
         <translation>请检查服务器、认证方式、本地端口、DNS 地址及保活目标。配置未保存。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="361"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="368"/>
         <source>Could not save profile</source>
         <translation>保存设置未完成</translation>
     </message>
