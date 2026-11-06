@@ -6,6 +6,7 @@ function(justconnect_core_ui_tests TARGET ENGINE LIBRARY PLATFORM)
     add_test(NAME coexistencenetworkaccess_test COMMAND coexistencenetworkaccess_test)
     set_tests_properties(coexistencenetworkaccess_test PROPERTIES TIMEOUT 30)
     add_executable(${TARGET}
+        "${REPO}/resource.qrc"
         "${REPO}/tests/coreengineui_test.cpp"
         "${REPO}/presentation/dialogs/networkpolicywindow.cpp"
         "${REPO}/infrastructure/settings/credentialaccess.cpp"
@@ -24,7 +25,7 @@ function(justconnect_core_ui_tests TARGET ENGINE LIBRARY PLATFORM)
         "${REPO}/presentation/dialogs/ssologinwebview/ssologinwebview.cpp"
         "${REPO}/presentation/dialogs/loginwindow/loginwindow.cpp"
         "${REPO}/presentation/presentationhelpers.cpp")
-    set_target_properties(${TARGET} PROPERTIES AUTOMOC ON AUTOUIC ON)
+    set_target_properties(${TARGET} PROPERTIES AUTOMOC ON AUTOUIC ON AUTORCC ON)
     target_link_libraries(${TARGET} PRIVATE ${ENGINE} ${PLATFORM} justconnect_signin_browser Qt6::Concurrent)
     justconnect_core_runtime(${TARGET} ${LIBRARY})
     add_test(NAME ${TARGET} COMMAND ${TARGET})
@@ -60,7 +61,7 @@ function(justconnect_network_policy_tests)
     add_executable(networkpolicywindow_test "${REPO}/tests/networkpolicywindow_test.cpp"
         "${REPO}/resource.qrc"
         "${REPO}/presentation/dialogs/networkpolicywindow.cpp")
-    set_target_properties(networkpolicywindow_test PROPERTIES AUTOMOC ON)
+    set_target_properties(networkpolicywindow_test PROPERTIES AUTOMOC ON AUTORCC ON)
     target_include_directories(networkpolicywindow_test PRIVATE "${REPO}")
     target_link_libraries(networkpolicywindow_test PRIVATE Qt6::Widgets Qt6::Network Qt6::Concurrent justconnect_application)
     add_test(NAME networkpolicywindow_test COMMAND networkpolicywindow_test)
