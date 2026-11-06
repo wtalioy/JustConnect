@@ -88,12 +88,12 @@ func TestTUNCampusSharesAuthenticationAddress(t *testing.T) {
 	if got := r.CampusDNSRecords()["example.com"]; len(got) != 1 || got[0] != shared.String() {
 		t.Fatal("alias replaced the actual authorization binding", got)
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-	defer cancel()
 	roots := x509.NewCertPool()
 	roots.AddCert(server.Certificate())
 	for _, mode := range []string{"transparent", "named"} {
 		t.Run(mode, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
 			var conn net.Conn
 			var err error
 			if mode == "transparent" {
@@ -109,7 +109,8 @@ func TestTUNCampusSharesAuthenticationAddress(t *testing.T) {
 			if err := secure.HandshakeContext(ctx); err != nil {
 				t.Fatal(err)
 			}
-			secure.SetDeadline(time.Now().Add(5 * time.Second))
+			deadline, _ := ctx.Deadline()
+			secure.SetDeadline(deadline)
 			io.WriteString(secure, "GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n")
 			response, err := http.ReadResponse(bufio.NewReader(secure), nil)
 			if err != nil {

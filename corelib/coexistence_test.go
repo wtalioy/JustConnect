@@ -29,20 +29,20 @@ func TestSessionOrdinaryExitFollowsObservedProxyAndTUN(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { io.WriteString(w, "owned ordinary exit") }))
 	defer server.Close()
 	fixture := testmihomo.StartConfiguredBinary(t, "127.0.0.1:9", true, map[string]any{"mixed-port": testmihomo.ProxyPort(t)})
-	processes, err := mihomo.Processes(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
 	var controller *mihomo.Client
-	for _, process := range processes {
-		if process.PID == fixture.PID {
-			controller, err = mihomo.Inspect(t.Context(), process)
-			break
+	fixture.WaitReady(t, func() error {
+		processes, err := mihomo.Processes(t.Context())
+		if err != nil {
+			return err
 		}
-	}
-	if err != nil || controller == nil {
-		t.Fatal("owned controller was not identified", err)
-	}
+		for _, process := range processes {
+			if process.PID == fixture.PID {
+				controller, err = mihomo.Inspect(t.Context(), process)
+				return err
+			}
+		}
+		return mihomo.ErrUnavailable
+	})
 	defer controller.Close()
 	info, err := controller.ObserveProxy(t.Context())
 	if err != nil || info.Proxy == nil || len(info.Endpoints) == 0 {
