@@ -5,7 +5,7 @@
 
 #include <QDialogButtonBox>
 #include <QEvent>
-#include <QStyle>
+#include <QIcon>
 #include <QShortcut>
 #include <QLineEdit>
 #include <QToolButton>
@@ -27,9 +27,10 @@ SsoLoginWebView::SsoLoginWebView(QWidget *parent,const QUrl &callback,const TlsO
     , tls(policy)
 {
     ui->setupUi(this);
-    ui->backButton->setIcon(style()->standardIcon(QStyle::SP_ArrowBack));
-    ui->forwardButton->setIcon(style()->standardIcon(QStyle::SP_ArrowForward));
-    ui->reloadButton->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
+    ui->backButton->setIcon(QIcon(":/resource/arrow-left.svg"));
+    ui->forwardButton->setIcon(QIcon(":/resource/arrow-right.svg"));
+    ui->reloadButton->setIcon(QIcon(":/resource/refresh.svg"));
+    for (auto *button:{ui->backButton,ui->forwardButton,ui->reloadButton}) button->setIconSize(QSize(18,18));
     browser=new SignInBrowser(ui->browserHost,callbackUrl,tls,[this](const QUrl &url,bool mainFrame) {
         if (!mainFrame && (url==QUrl("about:blank") || url==QUrl("about:srcdoc"))) return true;
         if (!isAllowedUrl(url)) {showNavigationError();return false;}

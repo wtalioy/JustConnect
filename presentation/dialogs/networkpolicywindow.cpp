@@ -176,8 +176,8 @@ NetworkPolicyWindow::NetworkPolicyWindow(NetworkPolicySession *input, QWidget *p
     nameActions->setSpacing(8);
     campusName = new QPushButton(namePage);
     originalName = new QPushButton(namePage);
-    for (auto *button:{campus,campusName}) PresentationHelpers::setButtonIcon(button,":/resource/school.svg");
-    for (auto *button:{original,originalName}) PresentationHelpers::setButtonIcon(button,":/resource/network.svg");
+    for (auto *button:{campus,campusName}) {button->setAutoDefault(false);PresentationHelpers::setButtonIcon(button,":/resource/school.svg");}
+    for (auto *button:{original,originalName}) {button->setAutoDefault(false);PresentationHelpers::setButtonIcon(button,":/resource/network.svg");}
     campusName->setObjectName("chooseCampusName");
     originalName->setObjectName("restoreOriginalName");
     nameActions->addWidget(campusName);
@@ -190,7 +190,7 @@ NetworkPolicyWindow::NetworkPolicyWindow(NetworkPolicySession *input, QWidget *p
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close,this);
     refresh = buttons->addButton(QString(), QDialogButtonBox::ActionRole);
     refresh->setObjectName("refreshNetworkPolicy");
-    refresh->setIcon(QIcon(":/resource/refresh.svg"));refresh->setIconSize(QSize(18,18));refresh->setProperty("iconOnly",true);
+    refresh->setIcon(QIcon(":/resource/refresh.svg"));refresh->setIconSize(QSize(18,18));refresh->setProperty("iconOnly",true);refresh->setAutoDefault(false);
     refresh->style()->unpolish(refresh);refresh->style()->polish(refresh);
     explanation = new QLabel(this);
     explanation->setWordWrap(true);

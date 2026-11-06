@@ -38,7 +38,7 @@ ApplicationPreferencesWidget::ApplicationPreferencesWidget(QWidget *parent) : QW
     silentStart->setChecked(ProfileManager().silentStartEnabled());startup->addWidget(silentStart);
     clashGroup=new QGroupBox(this);layout->addWidget(clashGroup);
     auto *clash=new QVBoxLayout(clashGroup);clash->setContentsMargins(0,0,0,0);clash->setSpacing(8);
-    controller=new QPushButton(this);controller->setObjectName("controllerSettingsButton");clash->addWidget(controller,0,Qt::AlignLeft);
+    controller=new QPushButton(this);controller->setObjectName("controllerSettingsButton");controller->setAutoDefault(false);clash->addWidget(controller,0,Qt::AlignLeft);
     PresentationHelpers::setButtonIcon(controller,":/resource/controller.svg");
     hint=new QLabel(this);hint->setWordWrap(true);hint->setProperty("secondary",true);layout->addWidget(hint);
     auto *selection=new ControllerSelectionCoordinator(this,this);

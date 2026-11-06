@@ -390,6 +390,10 @@ static void nativeHome(MainWindow &window) {
     const auto detailsReport=qEnvironmentVariable("JC_UI_REPORT_DIR");
     if (!detailsReport.isEmpty()) check(details->grab().save(QDir(detailsReport).filePath("diagnostics.png")),"save the native diagnostic layout");
     detailTabs->setCurrentIndex(1);check(log->isVisible(),"the bounded log is available in one tab change");
+    QCoreApplication::processEvents();
+    for (const auto *name:{"openLogPushButton","copyLogPushButton","clearLogPushButton"})
+        check(!window.findChild<QPushButton *>(name)->isDefault(),"opening logs does not turn a toolbar icon into the dialog's submit action");
+    if (!detailsReport.isEmpty()) check(details->grab().save(QDir(detailsReport).filePath("details-logs.png")),"save the native log layout and toolbar");
     window.findChild<QPushButton *>("copyLogPushButton")->click();
     check(QApplication::clipboard()->text()==log->toPlainText(),"diagnostics copy the same bounded live log");
     details->reject();QCoreApplication::processEvents();
@@ -420,6 +424,8 @@ static void nativeHome(MainWindow &window) {
     const auto original=window.size();window.resize(320,460);QCoreApplication::processEvents();
     auto *button=window.findChild<QPushButton *>("connectButton");
     check(window.width()==320 && window.rect().contains(button->geometry()) && button->height()>=44,"compact home keeps its main action in bounds at 320 logical pixels");
+    check(button->width()*3<window.width()*2 && qAbs(button->geometry().center().x()-window.rect().center().x())<=1,
+        "connect and disconnect use a centered compact action instead of stretching across the home");
     auto *profile=window.findChild<QPushButton *>("profileMenuButton");
     const auto profileName=profile->text();
     const auto longName=QString(64,QChar('W'));
