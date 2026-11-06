@@ -60,7 +60,6 @@ MainWindow::MainWindow(
 
     ui->setupUi(this);
     ui->detailsDialog->resize(640,620);
-    PresentationHelpers::setButtonIcon(ui->detailsButton,":/resource/arrow-right.svg");
     PresentationHelpers::setButtonIcon(ui->diagnosticRulesButton,":/resource/rules.svg");
     connect(ui->detailsButton,&QPushButton::clicked,this,[this] {updateDiagnostics();PresentationHelpers::activateWindow(ui->detailsDialog);});
     ui->diagnosticReport->header()->setSectionResizeMode(0,QHeaderView::ResizeToContents);

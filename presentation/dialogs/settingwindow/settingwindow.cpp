@@ -88,7 +88,7 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
     rememberAuthentication=new QCheckBox(ui->credentialsGroup);
     rememberAuthentication->setObjectName("rememberAuthenticationCheckBox");
     ui->credentialsForm->addRow(rememberAuthentication);
-    clearCredentialButton=new QPushButton(ui->credentialsGroup);clearCredentialButton->setObjectName("clearCredentialButton");
+    clearCredentialButton=new QPushButton(ui->credentialsGroup);clearCredentialButton->setObjectName("clearCredentialButton");clearCredentialButton->setAutoDefault(false);
     ui->credentialsForm->addRow(clearCredentialButton);
     connect(clearCredentialButton,&QPushButton::clicked,this,&SettingWindow::clearCredentials);
     connect(this,&QDialog::finished,this,[this]{closed=true;++loadGeneration;});

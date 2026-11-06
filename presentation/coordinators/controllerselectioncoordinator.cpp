@@ -92,7 +92,7 @@ void ControllerSelectionCoordinator::showChoice(const EmbeddedCoreEngine::Contro
     buttons->button(QDialogButtonBox::Ok)->setText(settings?tr("Save"):tr("Use controller"));
     auto *retry=buttons->addButton(tr("Refresh"),QDialogButtonBox::ActionRole);layout->addRow(buttons);
     retry->setText({});retry->setIcon(QIcon(":/resource/refresh.svg"));retry->setIconSize(QSize(18,18));
-    retry->setToolTip(tr("Refresh"));retry->setAccessibleName(tr("Refresh"));retry->setProperty("iconOnly",true);
+    retry->setToolTip(tr("Refresh"));retry->setAccessibleName(tr("Refresh"));retry->setProperty("iconOnly",true);retry->setAutoDefault(false);
     retry->style()->unpolish(retry);retry->style()->polish(retry);
     const auto generation=request;
     connect(view,&QDialog::rejected,this,[this,view,generation] {if (dialog==view && request==generation) finish(std::nullopt);});

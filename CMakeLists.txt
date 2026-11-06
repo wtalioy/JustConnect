@@ -53,7 +53,7 @@ else()
 endif()
 install(FILES "${CMAKE_BINARY_DIR}/core-toolchain.txt" "${CMAKE_BINARY_DIR}/source-revision.txt"
     DESTINATION "${CORE_DATA_DESTINATION}" COMPONENT CoreRuntime)
-install(FILES "${CORE}/UPSTREAM.md" "${CORE}/LICENSE.zju-connect" "${REPO}/LICENSE"
+install(FILES "${CORE}/UPSTREAM.md" "${CORE}/LICENSE.zju-connect" "${REPO}/LICENSE" "${REPO}/resource/LICENSE.lucide"
     DESTINATION "${CORE_DATA_DESTINATION}/licenses" COMPONENT CoreRuntime)
 install(FILES "${CORE}/internal/ping/LICENSE"
     DESTINATION "${CORE_DATA_DESTINATION}/licenses" RENAME LICENSE.ping COMPONENT CoreRuntime)

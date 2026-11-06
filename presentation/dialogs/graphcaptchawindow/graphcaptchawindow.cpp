@@ -23,7 +23,7 @@ GraphCaptchaWindow::GraphCaptchaWindow(QWidget *parent) : QDialog(parent), ui(ne
     setWindowModality(Qt::WindowModal);
     setAttribute(Qt::WA_DeleteOnClose);
     auto *reset=ui->buttonBox->button(QDialogButtonBox::Reset);
-    reset->setIcon(QIcon(":/resource/undo.svg"));reset->setIconSize(QSize(18,18));reset->setProperty("iconOnly",true);
+    reset->setIcon(QIcon(":/resource/undo.svg"));reset->setIconSize(QSize(18,18));reset->setProperty("iconOnly",true);reset->setAutoDefault(false);
     reset->style()->unpolish(reset);reset->style()->polish(reset);
     updatePrompt();
 
