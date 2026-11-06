@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version='1.0' encoding='utf-8'?>
 <ui version="4.0">
  <class>GraphCaptchaWindow</class>
  <widget class="QDialog" name="GraphCaptchaWindow">
@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>300</width>
-    <height>300</height>
+    <width>420</width>
+    <height>320</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -15,22 +15,22 @@
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <item>
-    <widget class="CaptchaCanvas" name="canvas">
-     <property name="accessibleName">
-      <string>Verification image</string>
-     </property>
-     <property name="accessibleDescription">
-      <string>Arrow keys move; Shift moves faster. Space selects a point; Backspace removes the last point.</string>
-     </property>
-    </widget>
-   </item>
-   <item>
     <widget class="QLabel" name="codeLabel">
      <property name="text">
       <string>Enter the characters in the image.</string>
      </property>
      <property name="wordWrap">
       <bool>true</bool>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="CaptchaCanvas" name="canvas">
+     <property name="accessibleName">
+      <string>Verification image</string>
+     </property>
+     <property name="accessibleDescription">
+      <string>Arrow keys move; Shift moves faster. Space selects a point; Backspace removes the last point.</string>
      </property>
     </widget>
    </item>
@@ -52,7 +52,7 @@
     </widget>
    </item>
    <property name="spacing">
-    <number>16</number>
+    <number>12</number>
    </property>
    <property name="leftMargin">
     <number>24</number>

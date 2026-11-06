@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version='1.0' encoding='utf-8'?>
 <ui version="4.0">
  <class>SsoLoginWebView</class>
  <widget class="QDialog" name="SsoLoginWebView">
@@ -6,7 +6,7 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>960</width>
+    <width>880</width>
     <height>640</height>
    </rect>
   </property>
@@ -89,6 +89,9 @@
      <property name="wordWrap">
       <bool>true</bool>
      </property>
+     <property name="warning" stdset="0">
+      <bool>true</bool>
+     </property>
     </widget>
    </item>
    <item>
@@ -99,16 +102,32 @@
      <property name="wordWrap">
       <bool>true</bool>
      </property>
+     <property name="warning" stdset="0">
+      <bool>true</bool>
+     </property>
     </widget>
    </item>
    <item>
     <widget class="QWidget" name="browserHost">
-     <property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Expanding"><horstretch>0</horstretch><verstretch>0</verstretch></sizepolicy></property>
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+       <horstretch>0</horstretch>
+       <verstretch>0</verstretch>
+      </sizepolicy>
+     </property>
      <layout class="QVBoxLayout" name="browserLayout">
-      <property name="leftMargin"><number>0</number></property>
-      <property name="topMargin"><number>0</number></property>
-      <property name="rightMargin"><number>0</number></property>
-      <property name="bottomMargin"><number>0</number></property>
+      <property name="leftMargin">
+       <number>0</number>
+      </property>
+      <property name="topMargin">
+       <number>0</number>
+      </property>
+      <property name="rightMargin">
+       <number>0</number>
+      </property>
+      <property name="bottomMargin">
+       <number>0</number>
+      </property>
      </layout>
     </widget>
    </item>
@@ -118,7 +137,7 @@
       <enum>Qt::Orientation::Horizontal</enum>
      </property>
      <property name="standardButtons">
-      <set>QDialogButtonBox::StandardButton::Close</set>
+      <set>QDialogButtonBox::StandardButton::Cancel</set>
      </property>
     </widget>
    </item>
@@ -126,16 +145,16 @@
     <number>16</number>
    </property>
    <property name="leftMargin">
-    <number>24</number>
+    <number>16</number>
    </property>
    <property name="rightMargin">
-    <number>24</number>
+    <number>16</number>
    </property>
    <property name="topMargin">
-    <number>24</number>
+    <number>16</number>
    </property>
    <property name="bottomMargin">
-    <number>24</number>
+    <number>16</number>
    </property>
   </layout>
  </widget>

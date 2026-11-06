@@ -7,6 +7,7 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QEvent>
+#include <QIcon>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QLabel>
@@ -38,6 +39,7 @@ ApplicationPreferencesWidget::ApplicationPreferencesWidget(QWidget *parent) : QW
     clashGroup=new QGroupBox(this);layout->addWidget(clashGroup);
     auto *clash=new QVBoxLayout(clashGroup);clash->setContentsMargins(0,8,0,0);
     controller=new QPushButton(this);controller->setObjectName("controllerSettingsButton");clash->addWidget(controller,0,Qt::AlignLeft);
+    controller->setIcon(QIcon(":/resource/rules.svg"));controller->setIconSize(QSize(18,18));
     hint=new QLabel(this);hint->setWordWrap(true);hint->setProperty("secondary",true);layout->addWidget(hint);
     auto *selection=new ControllerSelectionCoordinator(this,this);
     connect(controller,&QPushButton::clicked,selection,[this,selection] {

@@ -200,38 +200,10 @@
             </widget>
            </item>
            <item row="1" column="1">
-            <widget class="QWidget" name="passwordLineEditRow">
-             <layout class="QHBoxLayout" name="passwordLineEditLayout">
-              <property name="leftMargin">
-               <number>0</number>
-              </property>
-              <property name="topMargin">
-               <number>0</number>
-              </property>
-              <property name="rightMargin">
-               <number>0</number>
-              </property>
-              <property name="bottomMargin">
-               <number>0</number>
-              </property>
-              <item>
-               <widget class="QLineEdit" name="passwordLineEdit">
-                <property name="echoMode">
-                 <enum>QLineEdit::Password</enum>
-                </property>
-               </widget>
-              </item>
-              <item>
-               <widget class="QCheckBox" name="passwordVisibleCheckBox">
-                <property name="text">
-                 <string>Show</string>
-                </property>
-                <property name="accessibleName">
-                 <string>Show password</string>
-                </property>
-               </widget>
-              </item>
-             </layout>
+            <widget class="QLineEdit" name="passwordLineEdit">
+             <property name="echoMode">
+              <enum>QLineEdit::Password</enum>
+             </property>
             </widget>
            </item>
            <item row="3" column="0">
@@ -248,38 +220,10 @@
             </widget>
            </item>
            <item row="3" column="1">
-            <widget class="QWidget" name="totpSecretLineEditRow">
-             <layout class="QHBoxLayout" name="totpSecretLineEditLayout">
-              <property name="leftMargin">
-               <number>0</number>
-              </property>
-              <property name="topMargin">
-               <number>0</number>
-              </property>
-              <property name="rightMargin">
-               <number>0</number>
-              </property>
-              <property name="bottomMargin">
-               <number>0</number>
-              </property>
-              <item>
-               <widget class="QLineEdit" name="totpSecretLineEdit">
-                <property name="echoMode">
-                 <enum>QLineEdit::Password</enum>
-                </property>
-               </widget>
-              </item>
-              <item>
-               <widget class="QCheckBox" name="totpSecretVisibleCheckBox">
-                <property name="text">
-                 <string>Show</string>
-                </property>
-                <property name="accessibleName">
-                 <string>Show authenticator key</string>
-                </property>
-               </widget>
-              </item>
-             </layout>
+            <widget class="QLineEdit" name="totpSecretLineEdit">
+             <property name="echoMode">
+              <enum>QLineEdit::Password</enum>
+             </property>
             </widget>
            </item>
            <property name="rowWrapPolicy">
@@ -351,7 +295,7 @@
            <item>
             <widget class="QPushButton" name="importPushButton">
              <property name="text">
-              <string>Import…</string>
+              <string />
              </property>
              <property name="toolTip">
               <string>Import profile</string>
@@ -359,12 +303,29 @@
              <property name="flat">
               <bool>true</bool>
              </property>
+             <property name="icon">
+              <iconset>
+               <normaloff>:/resource/import.svg</normaloff>
+              </iconset>
+             </property>
+             <property name="iconSize">
+              <size>
+               <width>18</width>
+               <height>18</height>
+              </size>
+             </property>
+             <property name="accessibleName">
+              <string>Import profile</string>
+             </property>
+             <property name="iconOnly" stdset="0">
+              <bool>true</bool>
+             </property>
             </widget>
            </item>
            <item>
             <widget class="QPushButton" name="exportPushButton">
              <property name="text">
-              <string>Export…</string>
+              <string />
              </property>
              <property name="toolTip">
               <string>Export saved profile</string>
@@ -372,17 +333,51 @@
              <property name="flat">
               <bool>true</bool>
              </property>
+             <property name="icon">
+              <iconset>
+               <normaloff>:/resource/export.svg</normaloff>
+              </iconset>
+             </property>
+             <property name="iconSize">
+              <size>
+               <width>18</width>
+               <height>18</height>
+              </size>
+             </property>
+             <property name="accessibleName">
+              <string>Export saved profile</string>
+             </property>
+             <property name="iconOnly" stdset="0">
+              <bool>true</bool>
+             </property>
             </widget>
            </item>
            <item>
             <widget class="QPushButton" name="resetDefaultPushButton">
              <property name="text">
-              <string>Reset…</string>
+              <string />
              </property>
              <property name="toolTip">
               <string>Reset draft</string>
              </property>
              <property name="flat">
+              <bool>true</bool>
+             </property>
+             <property name="icon">
+              <iconset>
+               <normaloff>:/resource/undo.svg</normaloff>
+              </iconset>
+             </property>
+             <property name="iconSize">
+              <size>
+               <width>18</width>
+               <height>18</height>
+              </size>
+             </property>
+             <property name="accessibleName">
+              <string>Reset draft</string>
+             </property>
+             <property name="iconOnly" stdset="0">
               <bool>true</bool>
              </property>
             </widget>
@@ -399,6 +394,13 @@
            <property name="bottomMargin">
             <number>0</number>
            </property>
+           <item>
+            <spacer name="fileActionsSpacer">
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+            </spacer>
+           </item>
           </layout>
          </widget>
         </item>

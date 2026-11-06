@@ -182,6 +182,10 @@ static void languagePreferences(MainWindow &window) {
         && window.findChild<QSystemTrayIcon *>()->toolTip().contains(QString::fromUtf8("尚未连接")),"saving Chinese updates the existing main window and tray without recreating them");
     window.findChild<QPushButton *>("detailsButton")->click();
     auto *details=window.findChild<QDialog *>("detailsDialog");
+    auto *copy=window.findChild<QPushButton *>("copyDiagnosticsButton");
+    check(copy->text().isEmpty() && copy->toolTip()==QCoreApplication::translate("MainWindow","Copy diagnostics")
+        && copy->accessibleName()==copy->toolTip() && !copy->icon().pixmap(18,18).isNull(),
+        "icon actions retain translated hover text, accessibility and a rendered glyph");
     check(details->isVisible() && details->windowTitle()==QString::fromUtf8("连接详情")
         && window.findChild<QLabel *>("versionLabel")->toolTip().contains(QString::fromUtf8("已禁用"))
         && window.findChild<QTreeWidget *>("diagnosticReport")->topLevelItem(2)->text(0)==QString::fromUtf8("解析来源"),
@@ -211,6 +215,34 @@ static void authenticationLanguageChangesPreserveData(MainWindow &window) {
     check(login->windowTitle()==QString::fromUtf8("登录") && login->findChild<QLineEdit *>("usernameLineEdit")->text()=="alice"
         && login->findChild<QLineEdit *>("passwordLineEdit")->text()=="typed-password" && remember->isChecked(),"language switching preserves login input and consent");
     screenshot(login,"sign-in.png");
+    auto *passwordField=login->findChild<QLineEdit *>("passwordLineEdit");
+    auto *visibility=passwordField->findChild<QAction *>("visibilityAction");
+    const auto concealed=visibility->icon().pixmap(18,18).toImage();visibility->trigger();
+    const auto revealed=visibility->icon().pixmap(18,18).toImage();
+    check(passwordField->echoMode()==QLineEdit::Normal && passwordField->text()=="typed-password"
+        && !concealed.isNull() && !revealed.isNull() && revealed!=concealed,
+        "the trailing eye toggles the rendered glyph and visibility without changing the password");
+    visibility->trigger();check(passwordField->echoMode()==QLineEdit::Password,"the trailing eye conceals the password again");
+    passwordField->setFocus();waitForUi([&]{return QApplication::focusWidget()==passwordField;});
+    const auto toggleFromKeyboard=[&] {
+        QKeyEvent key(QEvent::KeyPress,Qt::Key_H,Qt::ControlModifier|Qt::ShiftModifier);
+        QApplication::sendEvent(passwordField,&key);
+    };
+    toggleFromKeyboard();check(passwordField->echoMode()==QLineEdit::Normal,"the eye action remains available from the focused field's keyboard shortcut");
+    toggleFromKeyboard();check(passwordField->echoMode()==QLineEdit::Password,"the same shortcut conceals the password");
+    auto *signIn=login->findChild<QDialogButtonBox *>("buttonBox")->button(QDialogButtonBox::Ok);
+    int submissions=0;QString submittedAccount,submittedPassword;
+    QObject::connect(login,&LoginWindow::login,login,[&](const QString &account,const QString &password,bool) {
+        ++submissions;submittedAccount=account;submittedPassword=password;
+    });
+    login->findChild<QLineEdit *>("passwordLineEdit")->clear();signIn->click();
+    check(!signIn->isEnabled() && submissions==0 && login->isVisible(),"empty credentials cannot submit or open another confirmation dialog");
+    login->setDetail({},"nonempty");signIn->click();
+    check(!signIn->isEnabled() && submissions==0,"an empty account also keeps sign-in disabled");
+    const auto unicodeAccount=QString::fromUtf8("测试用户"),unicodePassword=QString::fromUtf8("päss word");
+    login->setDetail(unicodeAccount,unicodePassword);signIn->click();
+    check(submissions==1 && submittedAccount==unicodeAccount && submittedPassword==unicodePassword,
+        "Unicode credentials submit once without a character-set warning or input rewriting");
     dialogs->closeCredentialPrompts();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     dialogs->requestAuthentication({{"generation","1"},{"request_id","1"},{"challenge",QJsonObject{{"kind","sms"},{"can_skip_secondary_auth",true}}}},{});
     auto *code=window.findChild<QLineEdit *>("authCodeEdit");auto *skip=window.findChild<QCheckBox *>("skipSecondaryAuthCheckBox");code->setText("654321");skip->setChecked(true);
@@ -276,11 +308,19 @@ static void profileSetupLanguageChangesPreserveData(MainWindow &window) {
     auto *user=editor->findChild<QLineEdit *>("usernameLineEdit");
     auto *secret=editor->findChild<QLineEdit *>("passwordLineEdit");
     auto *method=editor->findChild<QComboBox *>("authTypeComboBox");
-    auto *show=editor->findChild<QCheckBox *>("passwordVisibleCheckBox");
+    auto *show=secret->findChild<QAction *>("visibilityAction");
+    const auto visibilityActions=secret->actions().size();
+    auto *key=editor->findChild<QLineEdit *>("totpSecretLineEdit");
+    auto *keyVisibility=key->findChild<QAction *>("visibilityAction");keyVisibility->trigger();
+    check(key->echoMode()==QLineEdit::Normal && secret->echoMode()==QLineEdit::Password,"password and authenticator-key visibility are independent");
+    keyVisibility->trigger();
     user->setText("editor-user");secret->setText("editor-password");show->setChecked(true);
     editor->findChild<QPlainTextEdit *>("domainDnsRulesEdit")->setPlainText("service.example.invalid");
     const auto methodValue=method->currentData();auto *currentTab=tabs->currentWidget();
     language("zh_CN");
+    check(secret->actions().size()==visibilityActions && show->text()==QString::fromUtf8("隐藏")
+        && !show->shortcut().isEmpty() && !secret->accessibleDescription().isEmpty(),
+        "language changes keep one trailing visibility action, its state and keyboard description");
     check(editor->windowTitle()==QString::fromUtf8("设置") && tabs->currentWidget()==currentTab
         && tabs->tabText(tabs->currentIndex())==QString::fromUtf8("连接")
         && editor->findChild<QPushButton *>("saveProfileButton")->text()==QString::fromUtf8("保存")

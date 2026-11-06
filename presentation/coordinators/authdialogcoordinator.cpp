@@ -23,7 +23,7 @@
 #include <QSignalBlocker>
 
 namespace {
-void spaceForm(QVBoxLayout *layout) {layout->setContentsMargins(24,24,24,24);layout->setSpacing(16);layout->parentWidget()->setMinimumWidth(320);}
+void spaceForm(QVBoxLayout *layout) {layout->setContentsMargins(24,24,24,24);layout->setSpacing(12);layout->parentWidget()->setMinimumWidth(320);}
 }
 
 AuthDialogCoordinator::AuthDialogCoordinator(
@@ -149,7 +149,7 @@ void AuthDialogCoordinator::requestPhoneNumber(
     {
         countryCodeEdit->setFocus();
     }
-    dialog->resize(440,dialog->sizeHint().height());
+    dialog->resize(400,dialog->sizeHint().height());
     PresentationHelpers::activateWindow(parentWidget);PresentationHelpers::activateWindow(dialog);
 }
 
@@ -211,7 +211,7 @@ void AuthDialogCoordinator::requestAuthentication(const QJsonObject &request, co
         connect(buttons, &QDialogButtonBox::accepted, dialog, &QDialog::accept);
         connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
         connect(dialog, &QDialog::accepted, this, [submit] { submit({{"action", "confirm"}}); });
-        input->resize(440,input->sizeHint().height());
+        input->resize(400,input->sizeHint().height());
     } else if (kind == "sms" || kind == "totp" || kind == "radius") {
         auto *input=new LocalizedDialog<QDialog>(parentWidget);dialog=input;
         auto *layout = new QVBoxLayout(dialog);
@@ -241,7 +241,7 @@ void AuthDialogCoordinator::requestAuthentication(const QJsonObject &request, co
             submit({{"action", "submit"}, {"code", code->text()},
                 {"skip_secondary_auth", challenge["can_skip_secondary_auth"].toBool() && skip->isChecked()}});
         });
-        input->resize(440,input->sizeHint().height());
+        input->resize(400,input->sizeHint().height());
     } else {
         submit({{"action", "cancel"}});
         return;

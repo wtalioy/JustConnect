@@ -1,5 +1,7 @@
 #include "controllerselectioncoordinator.h"
 #include <QComboBox>
+#include <QIcon>
+#include <QStyle>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFormLayout>
@@ -89,6 +91,9 @@ void ControllerSelectionCoordinator::showChoice(const EmbeddedCoreEngine::Contro
     auto *buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel,view);
     buttons->button(QDialogButtonBox::Ok)->setText(settings?tr("Save"):tr("Use controller"));
     auto *retry=buttons->addButton(tr("Refresh"),QDialogButtonBox::ActionRole);layout->addRow(buttons);
+    retry->setText({});retry->setIcon(QIcon(":/resource/refresh.svg"));retry->setIconSize(QSize(18,18));
+    retry->setToolTip(tr("Refresh"));retry->setAccessibleName(tr("Refresh"));retry->setProperty("iconOnly",true);
+    retry->style()->unpolish(retry);retry->style()->polish(retry);
     const auto generation=request;
     connect(view,&QDialog::rejected,this,[this,view,generation] {if (dialog==view && request==generation) finish(std::nullopt);});
     connect(retry,&QPushButton::clicked,this,[this,generation] {if (request!=generation || !completion) return;++request;closeDialog();read();});

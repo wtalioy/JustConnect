@@ -1,6 +1,8 @@
 #include "ui_graphcaptchawindow.h"
 #include "graphcaptchawindow.h"
 #include <QEvent>
+#include <QIcon>
+#include <QStyle>
 
 #include "captchacanvas.h"
 
@@ -20,6 +22,10 @@ GraphCaptchaWindow::GraphCaptchaWindow(QWidget *parent) : QDialog(parent), ui(ne
 
     setWindowModality(Qt::WindowModal);
     setAttribute(Qt::WA_DeleteOnClose);
+    auto *reset=ui->buttonBox->button(QDialogButtonBox::Reset);
+    reset->setIcon(QIcon(":/resource/clear.svg"));reset->setIconSize(QSize(18,18));reset->setProperty("iconOnly",true);
+    reset->style()->unpolish(reset);reset->style()->polish(reset);
+    updatePrompt();
 
     connect(ui->buttonBox->button(QDialogButtonBox::Reset), &QAbstractButton::clicked, [&]() {
         ui->canvas->clearAll();
@@ -109,6 +115,8 @@ void GraphCaptchaWindow::changeEvent(QEvent *event)
 
 void GraphCaptchaWindow::updatePrompt()
 {
+    auto *reset=ui->buttonBox->button(QDialogButtonBox::Reset);
+    reset->setText({});reset->setToolTip(tr("Clear points"));reset->setAccessibleName(tr("Clear points"));
     ui->codeLabel->setVisible(true);
     ui->codeLabel->setText(textInputMode?tr("Enter the characters in the image."):tr("Select the requested points. Arrow keys move; Space selects."));
 }

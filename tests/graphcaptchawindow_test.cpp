@@ -149,6 +149,9 @@ bool limitsCapturedPoints()
     GraphCaptchaWindow window;
     window.setGraph(createCaptchaImage(),false);
     auto *canvas=window.findChild<CaptchaCanvas *>();
+    auto *reset=window.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Reset);
+    if(!reset->text().isEmpty() || reset->toolTip()!="Clear points" || reset->accessibleName()!=reset->toolTip()
+        || reset->icon().pixmap(18,18).isNull())return false;
     canvas->resize(240,160);
     const QPointF position(120,80);
     for(int i=0;i<JC_MAX_AUTH_POINTS+5;++i) {

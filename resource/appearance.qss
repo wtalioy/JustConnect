@@ -9,28 +9,39 @@ QPushButton, QToolButton, QComboBox {
 }
 QPushButton:hover, QToolButton:hover, QComboBox:hover { background: #f0f2ff; border-color: #a9b1e7; }
 QPushButton:pressed, QToolButton:pressed { background: #e5e9ff; }
-QPushButton:focus, QToolButton:focus, QComboBox:focus, QLineEdit:focus, QSpinBox:focus, QPlainTextEdit:focus, QTreeWidget:focus, QListWidget:focus { border: 2px solid #5367e8; }
+QPushButton:focus, QToolButton:focus, QComboBox:focus, QLineEdit:focus, QSpinBox:focus, QPlainTextEdit:focus, QTreeWidget:focus, QListWidget:focus { border: 1px solid #5367e8; }
+QPushButton[iconOnly="true"], QToolButton#detailsToolsButton { min-width: 38px; max-width: 38px; padding: 0; }
 QPushButton:disabled, QToolButton:disabled, QComboBox:disabled { color: #8a92a1; background: #f0f1f5; border-color: #e4e7ed; }
 QPushButton:default:enabled, QPushButton#connectButton:enabled { color: white; background: #5367e8; border-color: #5367e8; font-weight: 600; }
 QPushButton:default:enabled:hover, QPushButton#connectButton:enabled:hover { background: #4458d5; }
+QPushButton:default:focus, QPushButton#connectButton:focus { border-color: #182132; }
 QPushButton#connectButton { min-height: 44px; }
 QPushButton#connectButton[connectionState="connected"], QPushButton#connectButton[connectionState="starting"], QPushButton#connectButton[connectionState="stopping"], QPushButton#connectButton[connectionState="reconnecting"] { color: #5367e8; background: rgba(255,255,255,200); border-color: #a9b1e7; }
 QPushButton:flat { border-color: transparent; background: transparent; color: #616b7c; }
 QPushButton:flat:hover { background: rgba(229,233,255,170); }
 QToolButton#preferencesButton { padding: 0; min-width: 38px; border-color: transparent; background: transparent; }
 QToolButton#preferencesButton::menu-indicator { image: none; }
+QToolButton#detailsToolsButton::menu-indicator { image: none; }
 QToolButton#schoolCaToggle { border: none; background: transparent; padding: 0 8px 0 0; min-height: 28px; color: #616b7c; }
+QToolButton#backButton, QToolButton#forwardButton, QToolButton#reloadButton { border: none; background: transparent; padding: 0; min-width: 32px; }
 QPushButton#profileMenuButton { text-align: left; padding: 0 32px 0 0; font-size: 16px; font-weight: 600; border-color: transparent; background: transparent; }
 QPushButton#profileMenuButton::menu-indicator, QComboBox::down-arrow { image: url(:/resource/chevron.svg); width: 16px; height: 16px; }
 QPushButton#profileMenuButton::menu-indicator { subcontrol-origin: padding; subcontrol-position: right center; right: 12px; }
 QComboBox { border-radius: 8px; padding-right: 36px; }
-QComboBox::drop-down { border: none; width: 32px; }
+QComboBox::drop-down { border: none; width: 32px; subcontrol-origin: padding; subcontrol-position: right center; }
+QComboBox::down-arrow { subcontrol-position: center; }
 QComboBox QAbstractItemView { background: white; color: #182132; selection-background-color: #e9ecff; selection-color: #3546ad; }
 QLineEdit, QSpinBox, QPlainTextEdit, QListWidget, QTreeWidget {
     border: 1px solid #d8dce5; border-radius: 6px; background: rgba(255,255,255,225); color: #182132; padding: 7px;
     selection-background-color: #5367e8; selection-color: white;
 }
 QLineEdit, QSpinBox { min-height: 24px; }
+QLineEdit QAbstractButton { min-height: 0; min-width: 0; padding: 0; border: none; background: transparent; }
+QSpinBox { padding-right: 36px; }
+QSpinBox::up-button { subcontrol-origin: border; subcontrol-position: top right; width: 32px; height: 19px; border: none; background: transparent; }
+QSpinBox::down-button { subcontrol-origin: border; subcontrol-position: bottom right; width: 32px; height: 19px; border: none; background: transparent; }
+QSpinBox::up-arrow { image: url(:/resource/chevron-up.svg); width: 12px; height: 12px; }
+QSpinBox::down-arrow { image: url(:/resource/chevron.svg); width: 12px; height: 12px; }
 QCheckBox, QRadioButton { spacing: 8px; color: #263143; min-height: 30px; }
 QGroupBox { font-weight: 600; background: transparent; border: none; border-top: 1px solid #dfe3eb; border-radius: 0; margin-top: 18px; padding: 20px 0 0 0; color: #182132; }
 QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 0; padding: 0 0 6px 0; }

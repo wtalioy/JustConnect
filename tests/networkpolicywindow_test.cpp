@@ -80,6 +80,8 @@ int main(int argc, char **argv) try
     auto *dns = window.findChild<QTreeWidget *>("networkPolicyDnsNamespaces");
     auto *tabs = window.findChild<QTabWidget *>();
     check(tree && refresh && status && tree->topLevelItemCount() == 0 && !refresh->isEnabled(), "Inactive model became actionable");
+    check(refresh->text().isEmpty() && refresh->toolTip()=="Refresh" && refresh->accessibleName()==refresh->toolTip()
+        && !refresh->icon().pixmap(18,18).isNull(),"the refresh icon renders and retains hover and screen-reader meaning");
     emit engine.sessionStarted("1");
     check(tree->topLevelItemCount() == 0, "Pending model retained rows");
     emit engine.connectionEstablished();
@@ -165,6 +167,7 @@ int main(int argc, char **argv) try
         QTranslator translation;check(translation.load(app.arguments()[2]),"load the actual application catalog");
         check(app.installTranslator(&translation),"activate Chinese with an address draft open");QCoreApplication::processEvents();
         check(window.windowTitle()==QString::fromUtf8("网络保护")
+            && refresh->toolTip()==QString::fromUtf8("刷新") && refresh->accessibleName()==refresh->toolTip()
             && input->findChild<QDialogButtonBox *>()->standardButtons()==(QDialogButtonBox::Ok|QDialogButtonBox::Cancel)
             && input->windowTitle()==QString::fromUtf8("选择校园地址") && input->textValue()=="192.168.24.12"
             && tree->currentItem() && tree->currentItem()->text(0)=="192.168.24.0/24"
