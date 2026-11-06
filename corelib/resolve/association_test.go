@@ -20,6 +20,43 @@ func bindingResolver() *Resolver {
 	return NewResolver(nil, "", "", 30, client.DomainResources{"*.campus.test": {{Protocol: "tcp", PortMin: 80, PortMax: 80}}}, nil, false)
 }
 
+func TestCampusAliasKeepsRealBindingAndExpiresWithIt(t *testing.T) {
+	r := bindingResolver()
+	t.Cleanup(r.Close)
+	request := new(dns.Msg).SetQuestion("course.campus.test.", dns.TypeA)
+	reply := new(dns.Msg).SetReply(request)
+	reply.AuthenticatedData = true
+	reply.Answer = []dns.RR{
+		&dns.CNAME{Hdr: dns.RR_Header{Name: request.Question[0].Name, Class: dns.ClassINET, Rrtype: dns.TypeCNAME, Ttl: 30}, Target: "shared.test."},
+		&dns.A{Hdr: dns.RR_Header{Name: "shared.test.", Class: dns.ClassINET, Rrtype: dns.TypeA, Ttl: 30}, A: net.IPv4(192, 0, 2, 7)},
+		&dns.RRSIG{Hdr: dns.RR_Header{Name: "shared.test.", Class: dns.ClassINET, Rrtype: dns.TypeRRSIG, Ttl: 30}, TypeCovered: dns.TypeA},
+	}
+	address, alias := netip.MustParseAddr("192.0.2.7"), netip.MustParseAddr("198.18.0.2")
+	if _, err := r.bindCampusAnswer(request, reply, nil); err != nil {
+		t.Fatal(err)
+	}
+	r.cacheMu.Lock()
+	r.dnsBindings[address][0].expires = time.Now().Add(2 * time.Second)
+	r.cacheMu.Unlock()
+	result := r.AliasCampusAnswer(t.Context(), request, reply, address, alias)
+	if result.AuthenticatedData || len(result.Answer) != 2 || result.Answer[1].(*dns.A).A.String() != alias.String() || result.Answer[1].Header().Ttl > 2 {
+		t.Fatal("alias retained a DNSSEC claim or outlived its live grant", result)
+	}
+	if !reply.AuthenticatedData || len(reply.Answer) != 3 || reply.Answer[1].(*dns.A).A.String() != address.String() || r.CampusDNSRecords()["course.campus.test"][0] != address.String() {
+		t.Fatal("alias changed the resolver answer or its real authorization address")
+	}
+	unbound := new(dns.Msg).SetQuestion("other.campus.test.", dns.TypeA)
+	if r.AliasCampusAnswer(t.Context(), unbound, reply, address, alias) != reply {
+		t.Fatal("another name borrowed the shared address binding")
+	}
+	r.cacheMu.Lock()
+	r.dnsBindings[address][0].expires = time.Now().Add(-time.Second)
+	r.cacheMu.Unlock()
+	if r.AliasCampusAnswer(t.Context(), request, reply, address, alias) != reply {
+		t.Fatal("expired binding still produced a private alias")
+	}
+}
+
 func TestCampusDNSBindingsFollowCNAMEExpiryAndCurrentProtection(t *testing.T) {
 	r := bindingResolver()
 	defer r.Close()

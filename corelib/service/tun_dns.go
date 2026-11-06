@@ -159,7 +159,16 @@ func (i *tunIngress) exchangeDNSOn(ctx context.Context, request *dns.Msg, transp
 	if source != "" {
 		return i.owner.resolver.ExchangeNative(ctx, request, transport, source, i.owner.dialer.DialDomainDNS, publish)
 	}
-	return i.owner.resolver.ExchangeTUN(ctx, request, transport, i.owner.dialer.DialDomainDNS, publish)
+	reply, err := i.owner.resolver.ExchangeTUN(ctx, request, transport, i.owner.dialer.DialDomainDNS, publish)
+	if err != nil || reply == nil || !i.peer.IsValid() {
+		return reply, err
+	}
+	origin := i.owner.dialer.OriginalAuthentication
+	name := strings.TrimSuffix(strings.ToLower(request.Question[0].Name), ".")
+	if !origin.Address.IsValid() || origin.Name == "" || name == origin.Name {
+		return reply, nil
+	}
+	return i.owner.resolver.AliasCampusAnswer(ctx, request, reply, origin.Address, i.peer), nil
 }
 
 func (i *tunIngress) checkDNSRoutes(ctx context.Context, host string, addresses []netip.Addr) error {

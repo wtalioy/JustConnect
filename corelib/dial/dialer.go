@@ -23,9 +23,14 @@ import (
 // client does and keeps the tunnel alive.
 var ErrACLDenied = errors.New("destination not in sangfor IPResources whitelist (would trigger tunnel SHUTDOWN)")
 
+type AuthenticationOrigin struct {
+	Name    string
+	Address netip.Addr
+}
+
 type Dialer struct {
-	ProtectionPolicy              func() *policy.ProtectionPolicy
-	OriginalAuthenticationAddress netip.Addr
+	ProtectionPolicy       func() *policy.ProtectionPolicy
+	OriginalAuthentication AuthenticationOrigin
 	// Upstream handles ordinary traffic; protected targets retain their native path.
 	Upstream      func() client.DialContextFunc
 	stack         stack.Stack
@@ -138,8 +143,10 @@ func (d *Dialer) DialCapturedIPPort(ctx context.Context, network, address string
 				if original {
 					return nil, policy.ErrProtectedTarget
 				}
-				if resources := d.resolver.CampusResourcesForIP(ctx, ip); len(resources) != 0 {
-					ctx = context.WithValue(ctx, resolve.ContextKeyDomainResource, resources)
+				if ctx.Value(resolve.ContextKeyDomainResource) == nil {
+					if resources := d.resolver.CampusResourcesForIP(ctx, ip); len(resources) != 0 {
+						ctx = context.WithValue(ctx, resolve.ContextKeyDomainResource, resources)
+					}
 				}
 			}
 		}
@@ -172,7 +179,8 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 	if !useVPN {
 		useVPN, _ = ctx.Value(resolve.ContextKeyDomainDNS).(bool)
 	}
-	if address == d.OriginalAuthenticationAddress {
+	host, _ := ctx.Value(resolve.ContextKeyResolveHost).(string)
+	if address == d.OriginalAuthentication.Address && (host == d.OriginalAuthentication.Name || ctx.Value(resolve.ContextKeyDomainResource) == nil) {
 		if useVPN {
 			return nil, policy.ErrProtectedTarget
 		}
