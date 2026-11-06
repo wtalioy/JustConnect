@@ -859,6 +859,7 @@ static void uiContracts() {
     queryProfile.behavior.rememberAuthentication=true;queryProfile.authenticationCache={"private-account","private-cache"};
     auto *query=openQuery(&parent,queryProfile,fake);
     until([&]{return fake->starts==1;});
+    check(!query->findChild<QCheckBox *>("tlsVerifyCheckBox")->isEnabled(),"a running query locks its server trust policy until completion or cancellation");
     check(fake->operation == CoreEngine::Operation::AuthMethods && fake->profile.endpoint.port == 8443 && fake->profile.credentials.password.isEmpty()
         && fake->profile.authenticationCache.data.isEmpty() && fake->profile.authenticationCache.account.isEmpty() && !fake->profile.behavior.rememberAuthentication
         && !fake->profile.tls.verify && fake->profile.tls.caPem=="query CA",
@@ -902,10 +903,18 @@ static void uiContracts() {
     check(methods->currentData(Qt::UserRole+1).toJsonObject()["auth_id"]=="single-id","a unique preferred OAuth method is selected without inspecting school names");
     oauth->reject(); QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     auto *cancelEngine=new QueryEngine;
-    auto *cancelled=openQuery(&parent,queryProfile,cancelEngine);until([&]{return cancelEngine->starts==1;}); cancelled->reject();
+    auto *cancelled=openQuery(&parent,queryProfile,cancelEngine);
+    until([&]{return cancelEngine->starts==1;});
+    cancelled->findChild<QPushButton *>("authSelectPushButton")->click();
+    check(cancelEngine->stops==1 && cancelled->isVisible(),"the inline query can be cancelled without closing settings");
     emit cancelEngine->authMethodsReady({QJsonObject{{"type","auth/psw"},{"domain","late"}}});
     emit cancelEngine->finished(ConnectionError::NONE);
-    check(returnedMethods(cancelled)==0,"closed query rejects late results");
+    check(returnedMethods(cancelled)==0 && cancelled->findChild<QCheckBox *>("tlsVerifyCheckBox")->isEnabled(),
+        "cancelled results are rejected and server trust controls are released");
+    cancelled->findChild<QPushButton *>("authSelectPushButton")->click();until([&]{return cancelEngine->starts==2;});
+    cancelled->reject();emit cancelEngine->authMethodsReady({QJsonObject{{"type","auth/psw"},{"domain","closed"}}});
+    emit cancelEngine->finished(ConnectionError::NONE);
+    check(returnedMethods(cancelled)==0,"closed settings reject a retried query's late results");
     QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     auto *failedEngine=new QueryEngine;
     auto *failed=openQuery(&parent,queryProfile,failedEngine);

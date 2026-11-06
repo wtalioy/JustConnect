@@ -4,26 +4,25 @@
 #include <QFile>
 #include <QPalette>
 #include <QStyleHints>
-#include <QPainter>
-#include <QPaintEvent>
 #include <QStyle>
 #include <QWidget>
 
 namespace {
+void prepareWindow(QWidget *window) {
+    if (QGuiApplication::platformName()=="windows" || QGuiApplication::platformName()=="cocoa")
+        window->setAttribute(Qt::WA_TranslucentBackground);
+}
 class WindowAppearance final : public QObject {
 public:
     using QObject::QObject;
     bool eventFilter(QObject *object,QEvent *event) override {
+        if (event->type()!=QEvent::Create && event->type()!=QEvent::Polish && event->type()!=QEvent::Show) return false;
         auto *window=qobject_cast<QWidget *>(object);
         if (!window || !window->isWindow() || (window->windowType()!=Qt::Window && window->windowType()!=Qt::Dialog)) return false;
-        if (event->type()==QEvent::Paint && window->property("nativeBackdrop").toBool()) {
-            // A DWM/AppKit backdrop keeps native chrome; replace damaged alpha instead of blending over the previous frame.
-            QPainter painter(window);
-            painter.setCompositionMode(QPainter::CompositionMode_Source);
-            for (const auto &rect:static_cast<QPaintEvent *>(event)->region()) painter.fillRect(rect,QColor(245,248,252,36));
-            return false;
+        if (event->type()==QEvent::Create) {
+            // Widget construction precedes native creation; Polish/Show can already be too late for alpha.
+            prepareWindow(window);return false;
         }
-        if (event->type()!=QEvent::Polish && event->type()!=QEvent::Show) return false;
         const bool enabled=ApplicationAppearance::enableNativeBackdrop(window);
         if (window->property("nativeBackdrop")!=QVariant(enabled)) {
             window->setProperty("nativeBackdrop",enabled);
@@ -37,7 +36,8 @@ public:
 };
 }
 
-void ApplicationAppearance::install() {
+void ApplicationAppearance::install(QWidget *initialWindow) {
+    if (initialWindow) prepareWindow(initialWindow);
     if (qApp->property("appearanceInstalled").toBool()) return;
     qApp->setProperty("appearanceInstalled",true);
     qApp->styleHints()->setColorScheme(Qt::ColorScheme::Light);

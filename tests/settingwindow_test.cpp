@@ -141,6 +141,7 @@ int main(int argc,char **argv) {
         "simplifying the editor preserves a disabled traffic mode and its saved target");
     const auto statePath=QDir(QFileInfo(ProfileManager().profilePath("")).absolutePath()).filePath("state.ini");
     const auto retainedTTL=settings.value("JustConnect/DNSTTL");
+    check(ProfileManager().setSilentStartEnabled(false),"seed an existing global preference before injecting its write failure");
     check(QFile::rename(statePath,statePath+".backup") && QDir().mkdir(statePath),"simulate global preference write failure");
     window->findChild<QCheckBox *>("silentStartCheckBox")->setChecked(true);
     check(window && window->isVisible() && settings.value("JustConnect/DNSTTL")==retainedTTL
