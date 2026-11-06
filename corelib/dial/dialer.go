@@ -175,12 +175,12 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 		return nil, errors.New("Invalid address: " + ipAddr)
 	}
 	address = address.Unmap()
+	resource, host, matchedResource := matchContextDomainResource(ctx, network, port)
 	useVPN := d.alwaysUseVPN
 	if !useVPN {
 		useVPN, _ = ctx.Value(resolve.ContextKeyDomainDNS).(bool)
 	}
-	host, _ := ctx.Value(resolve.ContextKeyResolveHost).(string)
-	if address == d.OriginalAuthentication.Address && (host == d.OriginalAuthentication.Name || ctx.Value(resolve.ContextKeyDomainResource) == nil) {
+	if address == d.OriginalAuthentication.Address && (host == d.OriginalAuthentication.Name || !matchedResource) {
 		if useVPN {
 			return nil, policy.ErrProtectedTarget
 		}
@@ -192,13 +192,13 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 	}
 	if snapshot != nil {
 		namedCampus := false
-		if host, ok := ctx.Value(resolve.ContextKeyResolveHost).(string); ok {
-			if allowed, protected := snapshot.CampusNameAllowed(host); protected {
+		if requestedHost, ok := ctx.Value(resolve.ContextKeyResolveHost).(string); ok {
+			if allowed, protected := snapshot.CampusNameAllowed(requestedHost); protected {
 				if !allowed {
 					if d.alwaysUseVPN {
 						return nil, policy.ErrProtectedTarget
 					}
-					return dialDirect(ctx, network, net.JoinHostPort(host, portStr))
+					return dialDirect(ctx, network, net.JoinHostPort(requestedHost, portStr))
 				}
 				namedCampus, useVPN = true, true
 			}
@@ -214,21 +214,12 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 	}
 
 	// Every campus path, including an explicit choice, still requires server authorization.
-	matchedResource := false
-
-	if res := ctx.Value(resolve.ContextKeyDomainResource); res != nil {
-		var resource client.DomainResource
-		var matched bool
-		switch resources := res.(type) {
-		case []client.DomainResource:
-			resource, matched = matchDomainResourceForTunnel(resources, network, port)
-		case client.DomainResource:
-			resource, matched = matchDomainResourceForTunnel([]client.DomainResource{resources}, network, port)
-		}
-		if matched {
-			ctx = context.WithValue(ctx, resolve.ContextKeyDomainResource, resource)
-			useVPN = true
-			matchedResource = true
+	useVPN = useVPN || matchedResource
+	// Attach DNS-derived names after checking original IP protection.
+	if matchedResource {
+		ctx = context.WithValue(ctx, resolve.ContextKeyDomainResource, resource)
+		if host != "" {
+			ctx = context.WithValue(ctx, resolve.ContextKeyResolveHost, host)
 		}
 	}
 
@@ -278,6 +269,38 @@ func (d *Dialer) DialIPPort(ctx context.Context, network, ipAddr string) (net.Co
 	} else {
 		return d.dialOrdinary(ctx, network, ipAddr)
 	}
+}
+
+func matchContextDomainResource(ctx context.Context, network string, port int) (resource client.DomainResource, host string, matched bool) {
+	host, _ = ctx.Value(resolve.ContextKeyResolveHost).(string)
+	switch resources := ctx.Value(resolve.ContextKeyDomainResource).(type) {
+	case []client.DomainResource:
+		resource, matched = matchDomainResourceForTunnel(resources, network, port)
+	case client.DomainResource:
+		resource, matched = matchDomainResourceForTunnel([]client.DomainResource{resources}, network, port)
+	case client.DomainResources:
+		if host != "" {
+			resource, matched = matchDomainResourceForTunnel(resources[host], network, port)
+			return
+		}
+		for name, candidates := range resources {
+			candidate, allowed := matchDomainResourceForTunnel(candidates, network, port)
+			if !allowed {
+				continue
+			}
+			if matched {
+				if network == "tcp" && candidate.EnableTCPPrefL3 != resource.EnableTCPPrefL3 {
+					if candidate.EnableTCPPrefL3 {
+						continue
+					}
+				} else if name >= host {
+					continue
+				}
+			}
+			resource, host, matched = candidate, name, true
+		}
+	}
+	return
 }
 
 func matchDomainResourceForTunnel(resources []client.DomainResource, network string, port int) (client.DomainResource, bool) {
