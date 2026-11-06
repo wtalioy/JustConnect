@@ -190,7 +190,7 @@ NetworkPolicyWindow::NetworkPolicyWindow(NetworkPolicySession *input, QWidget *p
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close,this);
     refresh = buttons->addButton(QString(), QDialogButtonBox::ActionRole);
     refresh->setObjectName("refreshNetworkPolicy");
-    refresh->setIcon(QIcon(":/resource/refresh.svg"));refresh->setIconSize(QSize(18,18));refresh->setProperty("iconOnly",true);refresh->setAutoDefault(false);
+    refresh->setIcon(QIcon(":/resource/refresh.svg"));refresh->setIconSize(QSize(18,18));refresh->setProperty("iconOnly",true);refresh->setAutoDefault(false);refresh->setFlat(true);
     refresh->style()->unpolish(refresh);refresh->style()->polish(refresh);
     explanation = new QLabel(this);
     explanation->setWordWrap(true);

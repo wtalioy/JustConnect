@@ -62,6 +62,9 @@
         <property name="popupMode">
          <enum>QToolButton::DelayedPopup</enum>
         </property>
+        <property name="autoRaise">
+         <bool>true</bool>
+        </property>
        </widget>
       </item>
      </layout>
@@ -291,6 +294,9 @@
              <property name="iconOnly" stdset="0">
               <bool>true</bool>
              </property>
+             <property name="flat">
+              <bool>true</bool>
+             </property>
             </widget>
            </item>
            <item>
@@ -319,6 +325,9 @@
               </size>
              </property>
              <property name="iconOnly" stdset="0">
+              <bool>true</bool>
+             </property>
+             <property name="flat">
               <bool>true</bool>
              </property>
             </widget>
@@ -445,6 +454,9 @@
                 <property name="autoDefault">
                  <bool>false</bool>
                 </property>
+                <property name="flat">
+                 <bool>true</bool>
+                </property>
                </widget>
               </item>
               <item>
@@ -475,6 +487,9 @@
                 <property name="autoDefault">
                  <bool>false</bool>
                 </property>
+                <property name="flat">
+                 <bool>true</bool>
+                </property>
                </widget>
               </item>
               <item>
@@ -504,6 +519,9 @@
                 </property>
                 <property name="autoDefault">
                  <bool>false</bool>
+                </property>
+                <property name="flat">
+                 <bool>true</bool>
                 </property>
                </widget>
               </item>
