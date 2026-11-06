@@ -48,6 +48,7 @@ MainWindow::MainWindow(
     applicationLogger(logger),
     applicationLogFile(logFile)
 {
+    ApplicationAppearance::install();
     ApplicationLanguage::instance();
     const QString overrideConfigPath =
         CommandLineOptions::value(QCoreApplication::arguments(), "--config-path");
@@ -60,7 +61,6 @@ MainWindow::MainWindow(
         !settings->contains("Common/ConfigVersion");
     upgradeSettings();
 
-    ApplicationAppearance::install();
     ui->setupUi(this);
     ui->detailsDialog->resize(720,700);
     connect(ui->detailsButton,&QPushButton::clicked,this,[this] {updateDiagnostics();PresentationHelpers::activateWindow(ui->detailsDialog);});
