@@ -4,6 +4,7 @@ class QComboBox;
 class QCheckBox;
 class QLabel;
 class QPushButton;
+class QGroupBox;
 
 class ApplicationPreferencesWidget final : public QWidget {
     Q_OBJECT
@@ -18,5 +19,6 @@ private:
     QCheckBox *autoStart,*silentStart;
     QLabel *languageLabel,*behaviorLabel,*hint,*error;
     QPushButton *controller;
+    QGroupBox *behaviorGroup,*startupGroup,*clashGroup;
     const char *errorText=nullptr;
 };

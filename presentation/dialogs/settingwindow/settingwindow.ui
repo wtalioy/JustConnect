@@ -26,6 +26,9 @@
         <property name="sizeConstraint">
          <enum>QLayout::SetMinAndMaxSize</enum>
         </property>
+        <property name="spacing">
+         <number>20</number>
+        </property>
        </layout>
       </widget>
      </widget>
@@ -50,6 +53,12 @@
            <item>
             <widget class="QWidget" name="serverSettingsContainer" />
            </item>
+           <property name="leftMargin">
+            <number>0</number>
+           </property>
+           <property name="rightMargin">
+            <number>0</number>
+           </property>
           </layout>
          </widget>
         </item>
@@ -59,13 +68,6 @@
            <string>Sign-in method</string>
           </property>
           <layout class="QVBoxLayout" name="authLayout">
-           <item>
-            <widget class="QPushButton" name="authSelectPushButton">
-             <property name="text">
-              <string>Get sign-in methods</string>
-             </property>
-            </widget>
-           </item>
            <item>
             <layout class="QFormLayout" name="authForm">
              <item row="0" column="0">
@@ -82,8 +84,33 @@
               </widget>
              </item>
              <item row="0" column="1">
-              <widget class="QComboBox" name="authTypeComboBox">
+              <widget class="QWidget" name="authMethodRow">
+               <layout class="QHBoxLayout" name="authMethodLayout">
+                <property name="leftMargin">
+                 <number>0</number>
+                </property>
+                <property name="topMargin">
+                 <number>0</number>
+                </property>
+                <property name="rightMargin">
+                 <number>0</number>
+                </property>
+                <property name="bottomMargin">
+                 <number>0</number>
+                </property>
+                <item>
+                 <widget class="QComboBox" name="authTypeComboBox">
                </widget>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="authSelectPushButton">
+                  <property name="text">
+                   <string>Get sign-in methods</string>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </widget>
              </item>
              <item row="3" column="0">
               <widget class="QLabel" name="authFormLabel3">
@@ -118,7 +145,7 @@
               <widget class="QLineEdit" name="phoneNumberLineEdit" />
              </item>
              <property name="rowWrapPolicy">
-              <enum>QFormLayout::WrapAllRows</enum>
+              <enum>QFormLayout::WrapLongRows</enum>
              </property>
              <property name="fieldGrowthPolicy">
               <enum>QFormLayout::AllNonFixedFieldsGrow</enum>
@@ -128,6 +155,12 @@
              </property>
             </layout>
            </item>
+           <property name="leftMargin">
+            <number>0</number>
+           </property>
+           <property name="rightMargin">
+            <number>0</number>
+           </property>
           </layout>
          </widget>
         </item>
@@ -250,13 +283,19 @@
             </widget>
            </item>
            <property name="rowWrapPolicy">
-            <enum>QFormLayout::WrapAllRows</enum>
+            <enum>QFormLayout::WrapLongRows</enum>
            </property>
            <property name="fieldGrowthPolicy">
             <enum>QFormLayout::AllNonFixedFieldsGrow</enum>
            </property>
            <property name="verticalSpacing">
             <number>8</number>
+           </property>
+           <property name="leftMargin">
+            <number>0</number>
+           </property>
+           <property name="rightMargin">
+            <number>0</number>
            </property>
           </layout>
          </widget>
@@ -289,7 +328,7 @@
             </widget>
            </item>
            <property name="rowWrapPolicy">
-            <enum>QFormLayout::WrapAllRows</enum>
+            <enum>QFormLayout::WrapLongRows</enum>
            </property>
            <property name="fieldGrowthPolicy">
             <enum>QFormLayout::AllNonFixedFieldsGrow</enum>
@@ -297,42 +336,85 @@
            <property name="verticalSpacing">
             <number>8</number>
            </property>
+           <property name="leftMargin">
+            <number>0</number>
+           </property>
+           <property name="rightMargin">
+            <number>0</number>
+           </property>
           </layout>
          </widget>
         </item>
         <item>
-         <widget class="QGroupBox" name="profileGroup">
-          <property name="title">
-           <string>Profile file</string>
-          </property>
-          <layout class="QVBoxLayout" name="profileActions">
+         <widget class="QWidget" name="profileGroup">
+          <layout class="QHBoxLayout" name="profileActions">
            <item>
             <widget class="QPushButton" name="importPushButton">
              <property name="text">
               <string>Import…</string>
+             </property>
+             <property name="toolTip">
+              <string>Import profile</string>
+             </property>
+             <property name="flat">
+              <bool>true</bool>
              </property>
             </widget>
            </item>
            <item>
             <widget class="QPushButton" name="exportPushButton">
              <property name="text">
-              <string>Export saved…</string>
+              <string>Export…</string>
+             </property>
+             <property name="toolTip">
+              <string>Export saved profile</string>
+             </property>
+             <property name="flat">
+              <bool>true</bool>
              </property>
             </widget>
            </item>
            <item>
             <widget class="QPushButton" name="resetDefaultPushButton">
              <property name="text">
-              <string>Reset draft…</string>
+              <string>Reset…</string>
+             </property>
+             <property name="toolTip">
+              <string>Reset draft</string>
+             </property>
+             <property name="flat">
+              <bool>true</bool>
              </property>
             </widget>
            </item>
+           <property name="leftMargin">
+            <number>0</number>
+           </property>
+           <property name="topMargin">
+            <number>0</number>
+           </property>
+           <property name="rightMargin">
+            <number>0</number>
+           </property>
+           <property name="bottomMargin">
+            <number>0</number>
+           </property>
           </layout>
          </widget>
         </item>
         <property name="sizeConstraint">
          <enum>QLayout::SetMinAndMaxSize</enum>
         </property>
+        <property name="spacing">
+         <number>20</number>
+        </property>
+        <item>
+         <spacer name="connectionPageSpacer">
+          <property name="orientation">
+           <enum>Qt::Vertical</enum>
+          </property>
+         </spacer>
+        </item>
        </layout>
       </widget>
      </widget>
