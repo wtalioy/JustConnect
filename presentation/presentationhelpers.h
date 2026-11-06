@@ -18,6 +18,7 @@ void showAboutDialog(QWidget *parent = nullptr);
 void activateWindow(QWidget *window);
 QAction *passwordVisibilityAction(QLineEdit *field);
 void setButtonIcon(QAbstractButton *button,const QString &path);
+QString profileKindLabel(const QString &kind);
 }
 
 #endif // PRESENTATIONHELPERS_H

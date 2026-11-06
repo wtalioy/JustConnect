@@ -505,7 +505,8 @@ void MainWindow::updateProfileSummary()
         ? tr("Default")
         : currentProfileId;
     const auto kind = settings->value("JustConnect/ProfileKind","Custom").toString();
-    const QString protocol = "aTrust · " + kind;
+    const auto kindLabel=PresentationHelpers::profileKindLabel(kind);
+    const QString protocol = "aTrust · " + kindLabel;
     const QString server = settings->value(
         "JustConnect/ServerAddress"
     ).toString().trimmed();
@@ -513,7 +514,7 @@ void MainWindow::updateProfileSummary()
     QStringList details{protocol};
     details.append(server.isEmpty() ? tr("No server configured") : server);
 
-    const auto school = kind == "Custom" ? server : kind;
+    const auto school = kind == "Custom" ? server : kindLabel;
     auto caption = school.isEmpty() ? profileName : school;
     if (!school.isEmpty() && !currentProfileId.isEmpty() && profileName != school)
         caption += QStringLiteral(" · ") + profileName;

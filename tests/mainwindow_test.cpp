@@ -344,6 +344,10 @@ static void profileSetupLanguageChangesPreserveData(MainWindow &window) {
     const auto methodValue=method->currentData();auto *currentTab=tabs->currentWidget();
     language("zh_CN");
     checkColumns();
+    auto *schools=editor->findChild<QComboBox *>("profileKindComboBox");
+    check(schools->itemText(schools->findData("Fudan"))==QString::fromUtf8("复旦大学")
+        && schools->itemText(schools->findData("Custom"))==QString::fromUtf8("自定义"),
+        "built-in school labels follow the selected language without changing their stored identities");
     check(secret->actions().size()==visibilityActions && show->text()==QString::fromUtf8("隐藏")
         && !show->shortcut().isEmpty() && !secret->accessibleDescription().isEmpty(),
         "language changes keep one trailing visibility action, its state and keyboard description");
@@ -427,6 +431,8 @@ static void nativeHome(MainWindow &window) {
     check(button->width()*3<window.width()*2 && qAbs(button->geometry().center().x()-window.rect().center().x())<=1,
         "connect and disconnect use a centered compact action instead of stretching across the home");
     auto *profile=window.findChild<QPushButton *>("profileMenuButton");
+    check(profile->width()<=profile->sizeHint().width()+1,
+        "the school selector uses its natural width instead of stretching toward the settings gear");
     const auto profileName=profile->text();
     const auto longName=QString(64,QChar('W'));
     profile->setText(longName);QCoreApplication::processEvents();window.resize(320,460);QCoreApplication::processEvents();
