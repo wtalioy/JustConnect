@@ -1,6 +1,6 @@
 # JustConnect 实施计划与进度
 
-更新日期：2026-11-06。产品支持范围已按用户要求收敛为 Windows／macOS x64／ARM64；平台清理及包体积优化已通过自动与实际包检查；当前修复校园资源与认证共用 IP 的访问回归。S3—S6 阶段范围及 A9—A12、A14 已收尾。`b2fbdb3` Windows／Fudan 合并实测通过，S7 已完成发现、统一会话、恢复守护与原型，整套原生 UI 已接入，动态联动自动范围已收尾，继续 Windows 界面合并验收。A13 的 macOS 原生范围接入仍待实现；跨平台实机与完整发布矩阵归 S8。
+更新日期：2026-11-06。产品支持范围已按用户要求收敛为 Windows／macOS x64／ARM64；平台清理及包体积优化已通过自动与实际包检查；校园资源与认证共用 IP 的访问回归已通过自动检查，待校园复测。S3—S6 阶段范围及 A9—A12、A14 已收尾。`b2fbdb3` Windows／Fudan 合并实测通过，S7 已完成发现、统一会话、恢复守护与原型，整套原生 UI 已接入，动态联动自动范围已收尾，继续 Windows 界面合并验收。A13 的 macOS 原生范围接入仍待实现；跨平台实机与完整发布矩阵归 S8。
 
 ## 使用方式
 
@@ -15,15 +15,15 @@
 | --- | --- |
 | 阶段进度 | S3—S6 **23／23 全部勾选**；全计划 64 项已收尾 50 项、剩余 14 项（含最终验收）。S1-04 真实样本、S2-06 真实注销仍待；S7 实施中 |
 | Windows 实测 | `b2fbdb3`／Windows 11 26H2：用户确认合并实测全部正常，含代理先开／后开、TUN 动态切换、校园网页／SSH／登录、Tailscale 直连与 CPU 观察。同窗首次／复用接管 2480／38 ms；所附断开日志 quiesce 53 ms、park 17 ms，无错误。未新增量化 CPU 或吞吐采样。 |
-| 当前跟踪 | **S7 待 Windows 集中验收**：完整界面已接入；平台精简、原生浏览器替换及四架构自动／实际包检查通过。A13 的 `icourse` 共用认证 IP 修复已通过 Windows 本机回归，原生 CI／实际包／校园复测待完成；macOS 新域名原生接入缺口保留，实机仍归 S8。 |
-| 当前交付 | [`ca16758` Windows x64 小包](https://github.com/wtalioy/JustConnect/actions/runs/42125579273/artifacts/13461566823)：完整原生界面、WebView2 认证、双语设置与诊断，压缩 19.1 MiB；Windows 集中操作待验。 |
+| 当前跟踪 | **S7 待 Windows 集中验收**：完整界面已接入；平台精简、原生浏览器替换及四架构自动／实际包检查通过。A13 的 `icourse` 共用认证 IP 修复已通过原生自动及实际包检查，待用户下载后补测课程页面／统一认证；macOS 新域名原生接入缺口保留，实机仍归 S8。 |
+| 当前交付 | [`c215da2` Windows x64 小包](https://github.com/wtalioy/JustConnect/actions/runs/42160006956/artifacts/13476662715)：包含共用认证 IP 的校园域名分流修复，压缩 19.1 MiB；用户下载后补测，完整 Windows 界面操作仍待验。 |
 
 ## 当前验收基线
 
 | 范围 | 当前结论与证据 |
 | --- | --- |
-| S7 自动检查 | `ca16758` [两平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/42124375797)与[四架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/42124375854)全部通过；包括原生网页、Cookie／回调／TLS、真实设备／代理／TUN、权限与恢复。原生 CI 环境及唯一临时措施见[链接与回归](docs/CORELINK-PROBE.md#链接与回归)。 |
-| 实际包／源码 | `ca16758` [四组实际包及对应源码](https://github.com/wtalioy/JustConnect/actions/runs/42125579273)全部通过；清除 SDK 环境后运行原生网页／JavaScript，并核对 ABI、架构、来源、依赖、许可证与签名。压缩 16.9—19.3 MiB，较原包减少约 85%—89%；[测量基线](docs/DEVELOPMENT.md#包体积基线)。本地 Windows x64 复制件的 CRC、来源、关键哈希、官方驱动／许可及实际离线自检通过，UI 未启动。报告 `build/reports/s7-native-browser-packages/ca16758/`。 |
+| S7 自动检查 | `c215da2` [两平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/42159982487)与[四架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/42159982519)全部通过；包括原生网页、Cookie／回调／TLS、真实设备／代理／TUN、权限与恢复。原生 CI 环境及唯一临时措施见[链接与回归](docs/CORELINK-PROBE.md#链接与回归)。 |
+| 实际包／源码 | `c215da2` [四组实际包及对应源码](https://github.com/wtalioy/JustConnect/actions/runs/42160006956)全部通过；清除 SDK 环境后运行原生网页／JavaScript，并核对 ABI、架构、来源、依赖、许可证与签名。压缩 16.9—19.3 MiB，较原包减少约 85%—89%；[测量基线](docs/DEVELOPMENT.md#包体积基线)。四组实际包报告的来源、架构及成功状态已核对，证据 `build/reports/domain-dns-icourse/`；本机新包下载未完成，以 CI 实际包检查为准。 |
 | Windows 修复／性能 | 正常断开修复已实测；DNS 批量刷新、持久进度、部分失败和后续所有权已双架构原生验证。接口查询及 `70f90a5` 接管／断开 CPU 优化已实测通过；`build/reports/windows-restore-9d95b37/summary.json`、`build/reports/windows-dns-cpu-da23405/summary.json` |
 | 阶段矩阵 | `build/reports/v1-matrix.json` 汇总当前两平台受控证据及 Windows 实测；未测发布格保留在 V1—V7，阶段勾选不等于完整发布验收 |
 
@@ -224,7 +224,7 @@ S3—S6 已收尾，不重复开发或重跑已通过基线；A6 性能优化已
 
 - [ ] **S7-13**：以减小包体积和简化代码为目标收敛认证浏览器。系统默认浏览器的公开交接调查已完成，现有网关不提供已验证的独立客户端回调；不再继续扩展浏览器插件或调试接口。产品仅支持 Windows／macOS x64／ARM64，删除被取消平台的实现、专属夹具、打包／CI 与文档；同时删除因此失去调用方的证明、状态与兼容分支。优先复用 Windows WebView2、macOS WKWebView，保持既有 authchallenge 结构、请求代次、取消与账户隔离；在请求到达网关前截获唯一有效 code／ticket。学校 CA、网关局部证书策略、正常系统信任、失败与重放边界必须保留，不申请代码签名、不导入根证书、不读取默认浏览器 Cookie。移除被替代的 WebEngine 库／资源／专属测试和安装链路；四架构检查实际打包的依赖、来源及登录页面，量化压缩包和解压体积。自动检查通过后集中提供 Windows 包供用户验收认证、界面与日常校园访问，macOS 实机留 S8。
   - 实现／精简：仅保留 Windows／macOS x64／ARM64；清理专属后端、夹具、部署元数据、失去调用方的证明／兜底和旧 Qt／移动端分支。WebView2／WKWebView 替代随包 Chromium；删除重复 profile 初始化与无效加载排队。保留认证协议身份、现用 IPC 格式、QtGui 的真实依赖及安全回归。
-  - 验证／清理：`ca16758` 的两平台应用、四架构原生、四组实际包和源码检查通过，链接见当前验收基线；32 项 Python（1 项平台限定跳过）与必要通用 C++／交叉编译检查通过。旧平台构建、比较 DLL、被替代日志及试验副本已清理；保留必要 SDK、测量／关键失败报告，交互原型保留至视觉验收。包体积与保留理由见[开发说明](docs/DEVELOPMENT.md#包体积基线)。
+  - 验证／清理：`c215da2` 的两平台应用、四架构原生、四组实际包和源码检查通过，链接见当前验收基线；32 项 Python（1 项平台限定跳过）与必要通用 C++／交叉编译检查通过。旧平台构建、比较 DLL、被替代日志及试验副本已清理；保留必要 SDK、测量／关键失败报告，交互原型保留至视觉验收。包体积与保留理由见[开发说明](docs/DEVELOPMENT.md#包体积基线)。
   - 待验收：Windows 新包首次登录／取消、双语与毛玻璃／布局、同窗两轮连接／断开；macOS 实机及系统版本覆盖留 S8，不记为通过。
 
 完成条件：无需手工维护原型配置即可连接与共存，V6 自动回归与 Windows 主路径操作通过；新 UI／认证浏览器按 S7-08—13 验证。macOS 实机视觉／交互、真实注销及打断工作环境的专项统一 S8，未测格不记通过。完整恢复保障验证前不交付自动修改日常网络的版本。
@@ -294,7 +294,7 @@ V7 逐项记录日常使用要求，包含首次确认服务器、窗口／托�
 | A10 | Windows 主动断开告警、TUN／Tailscale 共存与性能 | **已收尾**。`e9993aa` 同窗两轮正常连断，接管 2149→63 ms；此前稳态 CPU 已大致正常，Tailscale 直连保持已有实测证据。新发现的未发布校园域名 Fake-IP 冲突独立归 V4。[测量与边界](docs/DEVELOPMENT.md#windows-网卡查询与-cpu-采样)。 |
 | A11 | 退出／取消错误及实际包链路故障 | **已收尾**。退出完成后延迟轮询不再误报超时，真实未完成／恢复失败仍拒绝退出；原生代理所有权校验保留取消原因。确定性旧源码回归、13 项退出调用链、官方 Mihomo／核心竞态及 47 项 Python 检查均已验证，最终两平台 Tests／四架构 ABI／四组实际包及源码通过，见当前验收基线。已清理临时镜像、展开目录、完成的监视日志和重复源码包；保留工具／SDK／构建与关键报告 `build/reports/shutdown-package-ef0caa7/` |
 | A12 | 两平台节点选线启动耗时 | **已收尾**。首次 TLS 探测去掉一个 500 ms 空等周期，同机三次真实 TLS 握手中位耗时 1502.93→1002.64 ms；保留三次采样、后续间隔、证书策略、WAN／LAN 回退和取消。旧源码失败回归、本地竞态／完整 Go／正式协议宿主、两平台 Tests 及四架构 ABI 全部通过。临时测量源码已清理，保留关键报告，不重复打包。[测量与边界](docs/DEVELOPMENT.md#节点探测启动等待)，`build/reports/node-probe-start/`。 |
-| A13 | 配置级域名专用 DNS | **Windows 阶段已收尾**。`b2fbdb3` 用户确认 `zb`／统一认证完整登录通过，精确 NRPT／撤回及原出口 TLS 验证已有双架构自动检查与实际包证据。新增 `icourse` 共用认证 IP 回归已定位并修复，本机 HTTPS／代理／TUN／授权及期限检查通过，原生 CI／实际包／校园复测待验；不以拒绝页的 HTTP 200 作为成功。macOS 新域名的独立原生范围仍待实现与验收。[实测和配置](docs/DEVELOPMENT.md#域名专用-dns)。 |
+| A13 | 配置级域名专用 DNS | **Windows 既有范围已收尾；icourse 补验待实测**。`b2fbdb3` 用户确认 `zb`／统一认证完整登录通过，精确 NRPT／撤回及原出口 TLS 验证已有证据。`c215da2` 按域名区分共用认证 IP，HTTPS／代理／TUN／授权及期限回归、两平台 Tests、四架构 ABI 和实际包均通过；用户下载后补测，不以拒绝页的 HTTP 200 作为成功。macOS 新域名的独立原生范围仍待实现与验收。[实测和配置](docs/DEVELOPMENT.md#域名专用-dns)。 |
 | A14 | 按职责与实际开销复查全仓 | **已收尾**。六个独立单元修复缓存、HTTP 转发、UDP 回收及配置缺陷，合并认证／数据报职责并减少 Windows 原生查询；删除专用缓存依赖。完整本地／竞态、两平台应用、四架构 ABI、四组实际包及 `b2fbdb3` Windows 合并实测通过；清理重复初验输出，保留当前构建／工具与关键报告。[范围、测量和保留依据](docs/DEVELOPMENT.md#全仓审查与测试保留范围)。 |
 
 ## 上游问题转化为库化验收
