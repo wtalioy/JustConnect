@@ -15,6 +15,7 @@
 #include <QTimer>
 #include <QPushButton>
 #include <QLabel>
+#include <QHeaderView>
 #include <QtAlgorithms>
 #include "infrastructure/settings/profilemanager.h"
 
@@ -58,9 +59,11 @@ MainWindow::MainWindow(
     upgradeSettings();
 
     ui->setupUi(this);
-    ui->detailsDialog->resize(640,600);
+    ui->detailsDialog->resize(640,620);
     connect(ui->detailsButton,&QPushButton::clicked,this,[this] {updateDiagnostics();PresentationHelpers::activateWindow(ui->detailsDialog);});
-    ui->diagnosticReport->document()->setMaximumBlockCount(32);
+    ui->diagnosticReport->header()->setSectionResizeMode(0,QHeaderView::ResizeToContents);
+    ui->diagnosticReport->header()->setSectionResizeMode(1,QHeaderView::Stretch);
+    ui->diagnosticReport->setSelectionMode(QAbstractItemView::NoSelection);
     connect(coordinator->diagnostics(),&ConnectionDiagnostics::changed,this,[this]{if(ui->detailsDialog->isVisible())updateDiagnostics();});
     connect(ui->refreshDiagnosticsButton,&QPushButton::clicked,this,[this]{coordinator->networkPolicy()->refresh();updateDiagnostics();});
     connect(ui->copyDiagnosticsButton,&QPushButton::clicked,this,[this]{QApplication::clipboard()->setText(QApplication::applicationVersion()+"\n"+coordinator->diagnostics()->report());});
@@ -120,7 +123,7 @@ MainWindow::MainWindow(
     menu->addAction(ui->clearAuthenticationCacheAction);
     menu->addAction(ui->clearClientDataAction);
     menu->addSeparator();menu->addAction(ui->exitAction);
-    tools->setMenu(menu);ui->diagnosticActions->addWidget(tools);
+    tools->setMenu(menu);ui->detailsFooter->addWidget(tools);
     tools->setText(tr("Tools"));
     connect(ui->preferencesButton,&QToolButton::clicked,ui->preferencesAction,&QAction::trigger);
     ui->exitAction->setShortcut(QKeySequence::Quit);
@@ -930,8 +933,15 @@ void MainWindow::endSystemSession()
 
 void MainWindow::updateDiagnostics()
 {
-    const auto report = coordinator->diagnostics()->report();
-    if (ui->diagnosticReport->toPlainText() != report) ui->diagnosticReport->setPlainText(report);
+    const auto fields=coordinator->diagnostics()->fields();
+    while (ui->diagnosticReport->topLevelItemCount()>fields.size())
+        delete ui->diagnosticReport->takeTopLevelItem(fields.size());
+    for (int i=0;i<fields.size();++i) {
+        auto *row=ui->diagnosticReport->topLevelItem(i);
+        if (!row) row=new QTreeWidgetItem(ui->diagnosticReport);
+        const auto &[label,value]=fields[i];
+        row->setText(0,label);row->setText(1,value);row->setToolTip(1,value);
+    }
     auto *policy = coordinator->networkPolicy();
     ui->refreshDiagnosticsButton->setEnabled(!policy->currentGeneration().isEmpty() && !policy->isBusy());
 }

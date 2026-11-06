@@ -28,6 +28,7 @@
 #include <QPlainTextEdit>
 #include <QInputDialog>
 #include <QTabWidget>
+#include <QTreeWidget>
 #include <QStackedWidget>
 #include <QScrollArea>
 #include <QScrollBar>
@@ -183,12 +184,12 @@ static void languagePreferences(MainWindow &window) {
     auto *details=window.findChild<QDialog *>("detailsDialog");
     check(details->isVisible() && details->windowTitle()==QString::fromUtf8("连接详情")
         && window.findChild<QLabel *>("versionLabel")->toolTip().contains(QString::fromUtf8("已禁用"))
-        && window.findChild<QPlainTextEdit *>("diagnosticReport")->toPlainText().contains(QString::fromUtf8("解析来源")),
+        && window.findChild<QTreeWidget *>("diagnosticReport")->topLevelItem(2)->text(0)==QString::fromUtf8("解析来源"),
         "subsequent details and update status use the selected language without a network check");
     changeLanguageFromSettings(window,"en");
     check(details->isVisible() && details->windowTitle()=="Connection details" && action->text()=="Connect"
         && window.findChild<QLabel *>("versionLabel")->toolTip().contains("Disabled")
-        && window.findChild<QPlainTextEdit *>("diagnosticReport")->toPlainText().contains("DNS sources"),"switching back updates an already open details window");
+        && window.findChild<QTreeWidget *>("diagnosticReport")->topLevelItem(2)->text(0)=="DNS sources","switching back updates an already open details window");
     details->reject();
 }
 
