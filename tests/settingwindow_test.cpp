@@ -20,7 +20,8 @@
 #include <QSpinBox>
 #include <QScrollArea>
 #include <QScrollBar>
-#include <QTabWidget>
+#include "presentation/widgets/applicationpreferenceswidget.h"
+#include "presentation/i18n/applicationlanguage.h"
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QElapsedTimer>
@@ -78,13 +79,12 @@ int main(int argc,char **argv) {
     { auto *initial=new SettingWindow(nullptr,&access,CredentialAccess::source(settings,ApplicationPaths::clientDataFile("fixture"))); initial->show();ready();
       initial->resize(640,480); app.processEvents();
       check(initial->height()<=480,"settings fit a short screen without forcing the dialog beyond its bounds");
-      auto *tabs=initial->findChild<QTabWidget *>("tabWidget");
-      check(tabs->currentWidget()->isAncestorOf(initial->findChild<QComboBox *>("languageComboBox")) && tabs->count()==2,"unified settings start on general preferences and have two same-level pages");
-      tabs->setCurrentIndex(1);
+      check(!initial->findChild<QComboBox *>("languageComboBox") && initial->findChild<QLineEdit *>("serverAddressLineEdit"),
+          "connection settings contain connection fields without global preferences");
       initial->findChild<QCheckBox *>("tlsVerifyCheckBox")->setChecked(false);
       initial->findChild<QCheckBox *>("allowUnverifiedNodesCheckBox")->setChecked(true);
       app.processEvents();
-      auto *scroll=qobject_cast<QScrollArea *>(tabs->currentWidget());
+      auto *scroll=initial->findChild<QScrollArea *>("loginTab");
       check(scroll && scroll->verticalScrollBar()->maximum()>0 && initial->height()<=480,"long settings and TLS warnings scroll within the dialog");
       auto *username=initial->findChild<QLineEdit *>("usernameLineEdit"); username->setFocus();
       QKeyEvent tab(QEvent::KeyPress,Qt::Key_Tab,Qt::NoModifier); QApplication::sendEvent(username,&tab);app.processEvents();
@@ -129,7 +129,7 @@ int main(int argc,char **argv) {
             }
         }
     }); dismiss.start(1);
-    auto open=[&] { auto *window=new SettingWindow(nullptr,&access,CredentialAccess::source(settings,ApplicationPaths::clientDataFile("fixture")),true); window->show();ready(); return window; };
+    auto open=[&] { auto *window=new SettingWindow(nullptr,&access,CredentialAccess::source(settings,ApplicationPaths::clientDataFile("fixture"))); window->show();ready(); return window; };
     settings.setValue("JustConnect/KeepAliveURL","ssh://campus.example.invalid:22");settings.sync();
     QPointer<SettingWindow> window=open();
     expectedText=QCoreApplication::translate("SettingWindow","Check the server, sign-in method, ports, DNS and probe target. Nothing was saved.");shown=false;
@@ -142,14 +142,15 @@ int main(int argc,char **argv) {
     check(settings.value("JustConnect/KeepAliveMode")=="off" && settings.value("JustConnect/KeepAliveURL")=="https://campus.example.invalid/status",
         "simplifying the editor preserves a disabled traffic mode and its saved target");
     window=open();
+    ApplicationPreferencesWidget preferences(nullptr);
     const auto statePath=QDir(QFileInfo(ProfileManager().profilePath("")).absolutePath()).filePath("state.ini");
     const auto retainedTTL=settings.value("JustConnect/DNSTTL");
     check(ProfileManager().setSilentStartEnabled(false),"seed an existing global preference before injecting its write failure");
     check(QFile::rename(statePath,statePath+".backup") && QDir().mkdir(statePath),"simulate global preference write failure");
-    window->findChild<QCheckBox *>("silentStartCheckBox")->setChecked(true);
+    preferences.findChild<QCheckBox *>("silentStartCheckBox")->setChecked(true);
     check(window && window->isVisible() && settings.value("JustConnect/DNSTTL")==retainedTTL
-        && !window->findChild<QCheckBox *>("silentStartCheckBox")->isChecked()
-        && !window->findChild<QLabel *>("preferenceError")->isHidden(),
+        && !preferences.findChild<QCheckBox *>("silentStartCheckBox")->isChecked()
+        && !preferences.findChild<QLabel *>("preferenceError")->isHidden(),
         "global preference failure restores its control and leaves the profile unchanged");
     check(QDir().rmdir(statePath) && QFile::rename(statePath+".backup",statePath),"repair global preference storage");
     check(!ProfileManager().silentStartEnabled(),"failed preference write preserves the previous choice");
@@ -162,11 +163,19 @@ int main(int argc,char **argv) {
     auto *method=window->findChild<QComboBox *>("authTypeComboBox");method->setCurrentIndex(method->findData("psw"));
     const auto startup=AutoStart::setEnabled(true);
     check(!startup.succeeded() && !startup.mayHaveChanged,"invalid test startup identity is rejected before mutation");
-    window->findChild<QCheckBox *>("autoStartCheckBox")->setChecked(true);
+    preferences.findChild<QCheckBox *>("autoStartCheckBox")->setChecked(true);
     check(window->isVisible() && !ProfileManager().autoStartEnabled()
-        && !window->findChild<QCheckBox *>("autoStartCheckBox")->isChecked()
-        && window->findChild<QLabel *>("preferenceError")->text()==PresentationHelpers::platformOperationMessage(startup),
+        && !preferences.findChild<QCheckBox *>("autoStartCheckBox")->isChecked()
+        && preferences.findChild<QLabel *>("preferenceError")->text()==PresentationHelpers::platformOperationMessage(startup),
         "autostart failure is inline, restores the choice, and keeps the connection draft");
+    const auto startupMessage=preferences.findChild<QLabel *>("preferenceError")->text();
+    check(!startup.detail.isEmpty() && !startupMessage.contains(startup.detail),"raw platform diagnostics do not mix with localized user hints");
+    check(ApplicationLanguage::instance().savePreferences("zh_CN",ProfileManager().closeToTray()),"switch language while an operation error is visible");
+    app.processEvents();
+    check(preferences.findChild<QLabel *>("preferenceError")->text()==PresentationHelpers::platformOperationMessage(startup)
+        && preferences.findChild<QLabel *>("preferenceError")->text()!=startupMessage,"visible operation errors retranslate from their stored typed result");
+    check(ApplicationLanguage::instance().savePreferences("en",ProfileManager().closeToTray()),"restore English after the inline error language check");
+    app.processEvents();
     check(settings.value("JustConnect/ServerAddress")=="vpn.example.invalid" && !QFileInfo::exists(cache)
         && store->values.value(ProfileCredentials::legacyCacheKey(settings.value(ProfileCredentials::ScopeSetting).toString()))=="current authentication",
         "failed startup operation does not mutate profile settings or authentication");
@@ -262,7 +271,7 @@ int main(int argc,char **argv) {
         account.setValue("JustConnect/ServerAddress","vpn.example.invalid");account.setValue("JustConnect/AuthType",method);
         account.setValue("JustConnect/AuthID","selected-method");account.setValue("JustConnect/LoginDomain","campus");
         account.setValue("JustConnect/PhoneCountryCode","86");account.setValue("JustConnect/PhoneNumber","123456");account.sync();
-        auto *editor=new SettingWindow(nullptr,&access,CredentialAccess::source(account,{}),true);editor->show();
+        auto *editor=new SettingWindow(nullptr,&access,CredentialAccess::source(account,{}));editor->show();
         until([&]{return !access.isBusy(account.fileName());});app.processEvents();
         auto *country=editor->findChild<QLineEdit *>("countryCodeLineEdit");auto *phone=editor->findChild<QLineEdit *>("phoneNumberLineEdit");
         check(!editor->findChild<QLineEdit *>("passwordLineEdit")->isVisibleTo(editor)

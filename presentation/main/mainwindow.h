@@ -60,7 +60,7 @@ private:
     bool viewsInitialized=false;
     void upgradeSettings();
     void showApplicationPreferences();
-    void showSettings(bool connection);
+    void showConnectionSettings();
 
     void clearLog();
 
@@ -118,6 +118,7 @@ private:
     QString currentProfileId;
 
     QPointer<SettingWindow> settingWindow;
+    QPointer<QDialog> preferencesWindow;
     QPointer<NetworkPolicyWindow> networkPolicyWindow;
 
 };

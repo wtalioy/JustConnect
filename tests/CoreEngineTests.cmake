@@ -17,7 +17,6 @@ function(justconnect_core_ui_tests TARGET ENGINE LIBRARY PLATFORM)
         "${REPO}/infrastructure/settings/profilemanager.cpp"
         "${REPO}/presentation/dialogs/settingwindow/settingwindow.cpp"
         "${REPO}/presentation/widgets/serversettingswidget.cpp"
-        "${REPO}/presentation/widgets/applicationpreferenceswidget.cpp"
         "${REPO}/presentation/i18n/applicationlanguage.cpp"
         "${REPO}/infrastructure/storage/applicationpaths.cpp"
         "${REPO}/presentation/dialogs/graphcaptchawindow/graphcaptchawindow.cpp"

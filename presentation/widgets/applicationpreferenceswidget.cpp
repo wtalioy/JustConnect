@@ -7,6 +7,7 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QEvent>
+#include <QDebug>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QLabel>
@@ -60,6 +61,8 @@ ApplicationPreferencesWidget::ApplicationPreferencesWidget(QWidget *parent) : QW
         const auto result=AutoStart::setEnabled(enabled);
         if (result.succeeded() && ProfileManager().setAutoStartEnabled(enabled)) {error->hide();return;}
         QSignalBlocker blocker(autoStart);autoStart->setChecked(ProfileManager().autoStartEnabled());
+        operationError=result;
+        if (!result.detail.isEmpty()) qWarning().noquote()<<"Startup preference:"<<result.detail;
         errorText=result.succeeded() ? QT_TR_NOOP("Startup registration changed, but its preference could not be saved. Check it before retrying.") : nullptr;
         error->setText(errorText ? tr(errorText) : PresentationHelpers::platformOperationMessage(result));error->show();
     });
@@ -81,7 +84,7 @@ void ApplicationPreferencesWidget::retranslate() {
     const QSignalBlocker blocker(behavior);
     behavior->setItemText(0,tr("Keep running in the system tray"));behavior->setItemText(1,tr("Disconnect and exit"));
     autoStart->setText(tr("Launch at sign-in"));silentStart->setText(tr("Start in the background"));
-    QString explanation=tr("General settings save automatically.");
+    QString explanation=tr("Changes save automatically.");
     if (!ProfileManager::supportsLanguage(ProfileManager().language()))
         explanation+='\n'+tr("The saved language is invalid. English is being used.");
     else if (!QSystemTrayIcon::isSystemTrayAvailable())
@@ -89,6 +92,7 @@ void ApplicationPreferencesWidget::retranslate() {
     hint->setText(explanation);
     controller->setText(tr("Choose instance…"));
     if (errorText) error->setText(tr(errorText));
+    else if (!error->isHidden()) error->setText(PresentationHelpers::platformOperationMessage(operationError));
 }
 void ApplicationPreferencesWidget::changeEvent(QEvent *event) {
     QWidget::changeEvent(event);

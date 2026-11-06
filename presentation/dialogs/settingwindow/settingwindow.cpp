@@ -21,24 +21,18 @@
 #include "application/profileservice.h"
 #include "application/authmethodsquery.h"
 #include "presentation/coordinators/controllerselectioncoordinator.h"
-#include "presentation/widgets/applicationpreferenceswidget.h"
 #include "presentation/presentationhelpers.h"
 #include "presentation/widgets/serversettingswidget.h"
 
-SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const CredentialSource &source,bool openProfileTab,CoreEngine *queryEngine)
+SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const CredentialSource &source,CoreEngine *queryEngine)
     : QDialog(parent),ui(new Ui::SettingWindow),settings(source.path,QSettings::IniFormat),credentials(credentials),credentialSource(source) {
     ui->setupUi(this);
     saveButton=ui->buttonBox->addButton(QString(),QDialogButtonBox::AcceptRole);
     saveButton->setObjectName("saveProfileButton");saveButton->setDefault(true);
     dismissButton=ui->buttonBox->addButton(QString(),QDialogButtonBox::RejectRole);
     dismissButton->setObjectName("dismissSettingsButton");
-    auto *preferencesLayout=new QVBoxLayout(ui->preferencesContainer);
-    preferencesLayout->setContentsMargins(0,0,0,0);
-    preferencesLayout->addWidget(new ApplicationPreferencesWidget(ui->preferencesContainer));
     profileHint=new QLabel(this);profileHint->setObjectName("profileReadOnlyHint");profileHint->setWordWrap(true);profileHint->setProperty("secondary",true);profileHint->hide();
     ui->dialogLayout->insertWidget(0,profileHint);
-    showPage(openProfileTab);
-    connect(ui->tabWidget,&QTabWidget::currentChanged,this,&SettingWindow::updateBusy);
     setWindowModality(Qt::WindowModal); setAttribute(Qt::WA_DeleteOnClose);
     serverEditor = new ServerSettingsWidget(ui->serverSettingsContainer);
     auto *layout = new QVBoxLayout(ui->serverSettingsContainer);
@@ -253,9 +247,6 @@ void SettingWindow::updateAuthFields() {
 void SettingWindow::setConnectAfterSave(bool connect) {
     connectAfterSave=connect;retranslate();
 }
-void SettingWindow::showPage(bool connection) {
-    ui->tabWidget->setCurrentWidget(connection ? ui->loginTab : ui->generalTab);
-}
 void SettingWindow::setProfileEditable(bool editable) {
     profileEditable=editable;
     if (!editable) cancelQuery();
@@ -263,13 +254,12 @@ void SettingWindow::setProfileEditable(bool editable) {
 }
 void SettingWindow::updateBusy() {
     ui->loginTabContents->setEnabled(profileEditable && !saving);
-    const bool connection=ui->tabWidget->currentWidget()==ui->loginTab;
-    profileHint->setVisible(connection && !profileEditable);
+    profileHint->setVisible(!profileEditable);
     profileHint->setText(tr("Disconnect to edit this connection."));
-    saveButton->setVisible(connection && profileEditable);
+    saveButton->setVisible(profileEditable);
     saveButton->setEnabled(!loading && !saving && !querying);
     saveButton->setText(connectAfterSave ? tr("Save and connect") : tr("Save"));
-    dismissButton->setText(connection && profileEditable ? tr("Cancel") : tr("Close"));
+    dismissButton->setText(profileEditable ? tr("Cancel") : tr("Close"));
     serverEditor->setEnabled(profileEditable && !saving && !querying);
     ui->authTypeComboBox->setEnabled(profileEditable && !saving && !querying);
     ui->authSelectPushButton->setEnabled(profileEditable && !saving);
