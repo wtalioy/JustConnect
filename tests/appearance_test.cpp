@@ -1,4 +1,5 @@
 #include "presentation/appearance/applicationappearance.h"
+#include "presentation/widgets/profilemenubutton.h"
 #include "tests/uiwait.h"
 #include <QApplication>
 #include <QBackingStore>
@@ -113,5 +114,30 @@ int main(int argc,char **argv) {
         std::cerr<<"text starts: line="<<lineStart<<" combo="<<comboStart<<" spin="<<spinStart<<'\n';
     check(std::abs(lineStart-comboStart)<=1 && std::abs(lineStart-spinStart)<=1,
         "line edits, dropdowns and numeric inputs align their text, not just their outer borders");
+    ProfileMenuButton school;school.setObjectName("profileMenuButton");school.setText("MMM");
+    layout.addWidget(&school);school.show();QCoreApplication::processEvents();
+    const auto shortWidth=school.width();
+    const auto frame=school.grab().toImage();const auto ratio=frame.devicePixelRatio();
+    const auto inkColumn=[&](int x) {
+        for(int y=4*ratio;y<frame.height()-4*ratio;++y) {
+            const auto color=frame.pixelColor(x,y);
+            if(color.alpha()>100 && qMax(color.red(),qMax(color.green(),color.blue()))<180) return true;
+        }
+        return false;
+    };
+    int x=frame.width()-1;
+    while(x>=0 && !inkColumn(x)) --x;
+    check(x>=0,"the school selector paints its chevron");
+    while(x>=0 && inkColumn(x)) --x;
+    const int arrowStart=x+1;
+    while(x>=0 && !inkColumn(x)) --x;
+    const auto gap=(arrowStart-x-1)/ratio;
+    check(x>=0 && gap>=8 && gap<=16,"the school caption and chevron have a visible, balanced gap at every scale");
+    school.setText("A longer school");QCoreApplication::processEvents();
+    check(school.width()>shortWidth,"the selector grows naturally with its caption");
+    const auto windowWidth=inputs.width();const QString longName(100,'W');
+    school.setText(longName);QCoreApplication::processEvents();
+    check(inputs.width()==windowWidth && school.text()==longName,
+        "long school captions fit the window while retaining their full accessible text");
     std::cout<<"PASS: transparent repaint, dialog reopening, and input action alignment\n";
 }
