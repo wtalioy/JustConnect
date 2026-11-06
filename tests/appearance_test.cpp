@@ -26,13 +26,13 @@ int main(int argc,char **argv) {
     QLabel title(&dialog);
     title.setGeometry(24,60,370,70);
     auto font=title.font();font.setPixelSize(32);title.setFont(font);
-    const bool native=QGuiApplication::platformName()=="windows" || QGuiApplication::platformName()=="cocoa";
     for (int cycle=0;cycle<3;++cycle) {
         title.clear();dialog.show();
         UiWait::until(__FILE__,__LINE__,[&]{return dialog.backingStore() && dialog.isVisible();});
         dialog.repaint();
         const auto clean=paintedFrame(dialog);
-        if (native) check(dialog.windowHandle()->format().hasAlpha(),"native alpha must be requested before the first window creation");
+        if (dialog.property("nativeBackdrop").toBool())
+            check(clean.hasAlphaChannel() && clean.pixelColor(2,2).alpha()<255,"the actual painted frame retains transparency for the system backdrop");
         if (dialog.property("nativeBackdrop").toBool()) check(dialog.testAttribute(Qt::WA_TranslucentBackground),"native glass retains transparent painting");
         title.setText("MMMMMMMMMM");title.repaint();
         title.clear();title.repaint();

@@ -66,6 +66,12 @@ int main(int argc,char **argv) {
     settings.setValue("JustConnect/KeepAliveURL","https://campus.example.invalid/status");settings.sync();
     auto backend=std::make_unique<MemoryCredentialStore>();auto *store=backend.get();CredentialAccess access(std::move(backend));
     auto ready=[&] {until([&]{return !access.isBusy(settings.fileName());});app.processEvents();};
+    QTimer unexpectedMessage;
+    QObject::connect(&unexpectedMessage,&QTimer::timeout,[&] {
+        for (auto *widget:QApplication::topLevelWidgets()) if(auto *box=qobject_cast<QMessageBox *>(widget);box && box->isVisible()) {
+            std::cerr<<"Unexpected initial settings message: "<<box->text().toStdString()<<'\n';std::exit(1);
+        }
+    });unexpectedMessage.start(10);
     // Saving an unrelated change must preserve the selected opaque identity.
     { auto *initial=new SettingWindow(nullptr,&access,CredentialAccess::source(settings,ApplicationPaths::clientDataFile("fixture"))); initial->show();ready();
       initial->resize(640,480); app.processEvents();
@@ -100,6 +106,7 @@ int main(int argc,char **argv) {
           && reloaded.proxy.httpBind=="127.0.0.1:19443" && reloaded.dns.ttl==61 && reloaded.behavior.rememberAuthentication
           && reloaded.keepAlive.mode=="target" && reloaded.keepAlive.url=="https://campus.example.invalid/status",
           "validated settings draft and reloaded connection share TLS, disabled listener, port and DNS values"); }
+    unexpectedMessage.stop();
     const auto cache=ApplicationPaths::clientDataFile("fixture"),otherCache=ApplicationPaths::clientDataFile("other");
     check(!QFileInfo::exists(cache) && !QFileInfo::exists(otherCache),"locating legacy cache creates no plaintext files");
     write(cache,"current authentication"); write(otherCache,"other authentication");

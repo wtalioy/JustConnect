@@ -48,7 +48,7 @@ Windows 请求系统 Desktop Acrylic 并保留标准窗口边框；macOS 使用 
 
 删除独立三步配置引导及认证方式弹窗。首次缺少配置时点击连接会直接打开同一个连接页，保存成功后继续原连接意图；取消或保存失败不连接，也不再弹欢迎确认。删除端口、网卡绑定、DNS 缓存／备用来源、手工系统代理、重连时间与自定义保活等日常控件；完整公开配置草稿仍由既有配置模块维护，编辑可见字段不会重置已保存的高级值。独立界面的专属测试退出，保留并迁移实际查询／取消／TLS、凭据隔离、保存失败、导入／导出／重置、短屏和双语回归。
 
-原生毛玻璃采用 Windows DWM／macOS NSVisualEffectView，无自绘模糊或持续动画。透明 raster 的 alpha 格式在任何原生窗口创建前确定，确保 Qt 对局部刷新先清除旧像素；显示时重新应用当前原生句柄的背景，macOS 复用同一效果视图。回归直接检查已绘制的 backing store，避免 `grab()` 的重新绘制掩盖残影；Details 连续开关与高 DPI 首页走真实桌面后端。实现依据为 [Qt 的透明窗口格式时序](https://github.com/qt/qtbase/blob/v6.12.0/src/widgets/kernel/qwidget.cpp)及 [Windows backing-store 清屏条件](https://github.com/qt/qtbase/blob/v6.12.0/src/plugins/platforms/windows/qwindowsbackingstore.cpp)。
+原生毛玻璃采用 Windows DWM／macOS NSVisualEffectView，无自绘模糊或持续动画。统一窗口背景在局部绘制时替换损坏区域的像素与 alpha，避免原生窗口保留标题栏时透明样式反复混合旧帧；显示时重新应用当前原生句柄的背景，macOS 复用同一效果视图。回归直接检查已绘制的 backing store，避免 `grab()` 的重新绘制掩盖残影；Details 连续开关与高 DPI 首页走真实桌面后端。实现依据为 [Qt 的透明窗口格式时序](https://github.com/qt/qtbase/blob/v6.12.0/src/widgets/kernel/qwidget.cpp)及 [Windows backing-store 清屏条件](https://github.com/qt/qtbase/blob/v6.12.0/src/plugins/platforms/windows/qwindowsbackingstore.cpp)。
 
 网络保护窗口已统一地址／DNS 来源页、操作与提示；英文／中文切换保留选中范围、已输入地址及当前策略代次。确认／取消采用 Qt 标准按钮，认证与保护输入复用对话框重翻译组件，保留严格地址／名称校验、旧代次拒绝、失败恢复及原始来源区分。公开头文件不再包含生成的 UI 头。
 
