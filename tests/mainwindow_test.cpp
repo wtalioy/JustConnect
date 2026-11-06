@@ -164,11 +164,12 @@ static void changeLanguageFromSettings(MainWindow &window,const QString &languag
     auto *dialog=window.findChild<QDialog *>("settingsDialog");
     auto *choice=dialog->findChild<QComboBox *>("languageComboBox");
     check(choice && choice->findData(language)>=0,"settings expose the requested language");
+    QCoreApplication::processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::LayoutRequest);QCoreApplication::processEvents();
     const auto report=qEnvironmentVariable("JC_UI_REPORT_DIR");
     if (!report.isEmpty()) check(dialog->grab().save(QDir(report).filePath("settings-"+ApplicationLanguage::instance().current()+".png")),"save native preferences screenshot");
     check(dialog->findChild<QTabWidget *>("tabWidget")->currentIndex()==0,"settings shortcut opens the general page directly");
     choice->setCurrentIndex(choice->findData(language));
-    dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Cancel)->click();
+    dialog->findChild<QPushButton *>("dismissSettingsButton")->click();
     QCoreApplication::processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     check(!window.findChild<QDialog *>("settingsDialog"),"closing unified settings releases the dialog");
 }
@@ -268,7 +269,7 @@ static void profileSetupLanguageChangesPreserveData(MainWindow &window) {
         QCoreApplication::processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::LayoutRequest);QCoreApplication::processEvents();
     };
     language("en");
-    auto *editor=new SettingWindow(&window,&access,CredentialAccess::source(settings,{}),true);
+    QPointer<SettingWindow> editor=new SettingWindow(&window,&access,CredentialAccess::source(settings,{}),true);
     editor->show();waitForUi([&]{return !access.isBusy(settings.fileName());});
     auto *tabs=editor->findChild<QTabWidget *>("tabWidget");
     auto *user=editor->findChild<QLineEdit *>("usernameLineEdit");
@@ -281,18 +282,20 @@ static void profileSetupLanguageChangesPreserveData(MainWindow &window) {
     language("zh_CN");
     check(editor->windowTitle()==QString::fromUtf8("设置") && tabs->currentWidget()==currentTab
         && tabs->tabText(tabs->currentIndex())==QString::fromUtf8("连接")
+        && editor->findChild<QPushButton *>("saveProfileButton")->text()==QString::fromUtf8("保存")
+        && editor->findChild<QPushButton *>("dismissSettingsButton")->text()==QString::fromUtf8("取消")
         && method->currentData()==methodValue && editor->findChild<QPlainTextEdit *>("domainDnsRulesEdit")->toPlainText()=="service.example.invalid" && secret->text()=="editor-password"
         && user->text()=="editor-user" && show->isChecked() && secret->echoMode()==QLineEdit::Normal,
         "profile editor translation preserves its tab, method identity, probe target and secret draft");
     const auto report=qEnvironmentVariable("JC_UI_REPORT_DIR");
     if(!report.isEmpty())check(editor->grab().save(QDir(report).filePath("profile-editor.png")),"save synthetic native profile editor screenshot");
     language("en");
-    editor->findChild<QDialogButtonBox *>("buttonBox")->button(QDialogButtonBox::Apply)->click();
-    waitForUi([&]{return !editor->isSaving();});
+    editor->findChild<QPushButton *>("saveProfileButton")->click();
+    waitForUi([&]{return !editor || !editor->isSaving();});
     check(settings.value("JustConnect/AuthID")=="opaque-method" && settings.value("Credential/Username")=="editor-user"
         && settings.value(DefaultSettings::DomainDnsRules)=="service.example.invalid",
         "saving a translated draft preserves the opaque authentication identity and actual field values");
-    editor->reject();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
 }
 
 static void nativeHome(MainWindow &window) {
@@ -303,6 +306,7 @@ static void nativeHome(MainWindow &window) {
     if (QGuiApplication::platformName()!="cocoa" && QGuiApplication::platformName()!="windows")
         check(!window.property("nativeBackdrop").toBool() && !window.testAttribute(Qt::WA_TranslucentBackground),"non-native Qt plugins cannot use or reinterpret native window handles");
     check(details && details->isWindow() && !details->isVisible() && !log->isVisible(),"home keeps diagnostics in a separate closed native dialog");
+    check(!window.findChild<QLabel *>("applicationNameLabel") && !window.windowIcon().isNull(),"branding appears once in the native window frame");
     check(window.findChild<QPushButton *>("connectButton")->isVisible() && qApp->styleHints()->colorScheme()!=Qt::ColorScheme::Dark,
         "redesigned home retains one accessible main action and the light appearance");
     window.findChild<QPushButton *>("detailsButton")->click();QCoreApplication::processEvents();
@@ -331,7 +335,7 @@ static void nativeHome(MainWindow &window) {
     window.findChild<QPushButton *>("connectButton")->click();QCoreApplication::processEvents();
     auto *initial=window.findChild<SettingWindow *>();
     check(initial && initial->isVisible() && initial->findChild<QTabWidget *>("tabWidget")->currentIndex()==1
-        && initial->findChild<QDialogButtonBox *>("buttonBox")->button(QDialogButtonBox::Ok)->text()=="Save and connect",
+        && initial->findChild<QPushButton *>("saveProfileButton")->text()=="Save and connect",
         "an unconfigured connection opens the shared editor without a welcome dialog or wizard");
     initial->reject();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     check(session->state()==state,"cancelling implicit setup never starts a session");

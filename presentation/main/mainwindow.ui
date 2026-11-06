@@ -25,46 +25,23 @@
        <number>12</number>
       </property>
       <item>
-       <widget class="QLabel" name="applicationIconLabel">
-        <property name="minimumSize">
-         <size>
-          <width>28</width>
-          <height>28</height>
-         </size>
-        </property>
-        <property name="maximumSize">
-         <size>
-          <width>28</width>
-          <height>28</height>
-         </size>
-        </property>
-        <property name="pixmap">
-         <pixmap>:/resource/icon.svg</pixmap>
-        </property>
-        <property name="scaledContents">
-         <bool>true</bool>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QLabel" name="applicationNameLabel">
+       <widget class="QToolButton" name="profileMenuButton">
         <property name="text">
-         <string>JustConnect</string>
+         <string>Choose a profile</string>
+        </property>
+        <property name="accessibleName">
+         <string>Connection profile</string>
+        </property>
+        <property name="popupMode">
+         <enum>QToolButton::InstantPopup</enum>
+        </property>
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
         </property>
        </widget>
-      </item>
-      <item>
-       <spacer name="headerSpacer">
-        <property name="orientation">
-         <enum>Qt::Horizontal</enum>
-        </property>
-        <property name="sizeHint">
-         <size>
-          <width>0</width>
-          <height>0</height>
-         </size>
-        </property>
-       </spacer>
       </item>
       <item>
        <widget class="QToolButton" name="preferencesButton">
@@ -91,25 +68,6 @@
        </widget>
       </item>
      </layout>
-    </item>
-    <item>
-     <widget class="QToolButton" name="profileMenuButton">
-      <property name="text">
-       <string>Choose a profile</string>
-      </property>
-      <property name="accessibleName">
-       <string>Connection profile</string>
-      </property>
-      <property name="popupMode">
-       <enum>QToolButton::InstantPopup</enum>
-      </property>
-      <property name="sizePolicy">
-       <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-        <horstretch>0</horstretch>
-        <verstretch>0</verstretch>
-       </sizepolicy>
-      </property>
-     </widget>
     </item>
     <item>
      <spacer name="topSpacer">

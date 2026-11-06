@@ -132,11 +132,10 @@ MainWindow::MainWindow(
 #endif
 
 
-    setWindowIcon(QIcon(QPixmap(":/resource/icon.svg").scaled(
-        512, 512, Qt::KeepAspectRatio, Qt::SmoothTransformation
-    )));
+    setWindowIcon(QIcon(":/resource/icon.svg"));
+    const auto powerSize=ui->statusIndicator->pixmap().deviceIndependentSize().toSize();
+    ui->statusIndicator->setPixmap(QIcon(":/resource/power.svg").pixmap(powerSize,devicePixelRatioF()));
 
-    ui->applicationNameLabel->setText(QApplication::applicationDisplayName());
 
     updateVersionInfo();
     updateConnectionState(connectionSession->state());
