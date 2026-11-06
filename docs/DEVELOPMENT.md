@@ -258,7 +258,7 @@ Windows 为 ZIP（完整解压并保留核心 DLL），macOS 为 DMG；Actions a
 | macOS x64 | 170.4 → 19.3 | 411.2 → 42.5 | 88.7%／89.7% |
 | macOS ARM64 | 144.9 → 16.9 | 345.8 → 39.3 | 88.3%／88.6% |
 
-当前 UI 收敛源码 `cdc4e70` 的[四组实际包](https://github.com/wtalioy/JustConnect/actions/runs/42193677938)再次通过相同检查：Windows x64／ARM64 压缩 19.1／16.9 MiB、解压 45.3／43.2 MiB；macOS x64／ARM64 压缩 19.3／16.9 MiB、解压 42.4／39.3 MiB。字节值及来源核对见 `build/reports/s7-ui-consolidation/verification.json`；外层 Actions artifact 封装体积不作安装归档测量。后续 `47d835e` 仅改变布局测试后端，程序实现与包保持该源码。
+当前 UI 重设计源码 `0d628e0` 的[四组实际包](https://github.com/wtalioy/JustConnect/actions/runs/42270490482)通过相同检查：Windows x64／ARM64 压缩 19.1／16.9 MiB、解压 45.3／43.2 MiB；macOS x64／ARM64 压缩 19.3／16.9 MiB、解压 42.5／39.3 MiB。字节值、四份包报告及来源核对归 `build/reports/ui-redesign/verification.json`；对应源码实际归档已验证摘要及全部 Git 文件内容／可执行位。包内包含界面图标的 Lucide 完整许可及 SVG 图标插件；外层 Actions artifact 封装体积不作安装归档测量。
 
 不再分发 WebEngine、Chromium 资源、QML 或 Quick。macOS 的 QtGui 仍硬链接 QtDBus，保留该实际依赖；翻译 SDK 的 qtdeclarative 用途见本地构建说明。Windows 核心省略本地符号表，正式 C ABI 导出和 Go 回溯仍保留。关键报告与原始字节对比在 `build/reports/s7-native-browser-packages/ca16758/`，未代替校园登录和桌面视觉实测。
 
