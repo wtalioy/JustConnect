@@ -14,10 +14,10 @@
      <number>24</number>
     </property>
     <property name="topMargin">
-     <number>16</number>
+     <number>24</number>
     </property>
     <property name="bottomMargin">
-     <number>20</number>
+     <number>24</number>
     </property>
     <item>
      <layout class="QHBoxLayout" name="headerLayout">
@@ -25,30 +25,12 @@
        <number>12</number>
       </property>
       <item>
-       <widget class="QToolButton" name="profileMenuButton">
+       <widget class="ProfileMenuButton" name="profileMenuButton">
         <property name="text">
          <string>Choose a profile</string>
         </property>
         <property name="accessibleName">
          <string>Connection profile</string>
-        </property>
-        <property name="sizePolicy">
-         <sizepolicy hsizetype="Maximum" vsizetype="Fixed">
-          <horstretch>0</horstretch>
-          <verstretch>0</verstretch>
-         </sizepolicy>
-        </property>
-        <property name="minimumSize">
-         <size>
-          <width>64</width>
-          <height>0</height>
-         </size>
-        </property>
-        <property name="popupMode">
-         <enum>QToolButton::InstantPopup</enum>
-        </property>
-        <property name="toolButtonStyle">
-         <enum>Qt::ToolButtonTextOnly</enum>
         </property>
        </widget>
       </item>
@@ -74,8 +56,8 @@
         </property>
         <property name="iconSize">
          <size>
-          <width>20</width>
-          <height>20</height>
+          <width>22</width>
+          <height>22</height>
          </size>
         </property>
         <property name="popupMode">
@@ -770,6 +752,13 @@
    </property>
   </action>
  </widget>
+ <customwidgets>
+  <customwidget>
+   <class>ProfileMenuButton</class>
+   <extends>QToolButton</extends>
+   <header>presentation/widgets/profilemenubutton.h</header>
+  </customwidget>
+ </customwidgets>
  <resources>
   <include location="../../resource.qrc" />
  </resources>
