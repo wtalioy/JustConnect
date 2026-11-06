@@ -29,7 +29,7 @@ private:
     void retranslate();
     void selectPreset();
     QFormLayout *form;
-    QLabel *warning, *nodeWarning, *rulesHelp, *domainDnsLabel;
+    QLabel *warning, *nodeWarning, *rulesHelp, *domainDnsLabel, *caLabel;
     QToolButton *caToggle;
     QComboBox *preset;
     QLineEdit *address;
