@@ -19,12 +19,16 @@ QPushButton#connectButton { min-height: 44px; }
 QPushButton#connectButton[connectionState="connected"], QPushButton#connectButton[connectionState="starting"], QPushButton#connectButton[connectionState="stopping"], QPushButton#connectButton[connectionState="reconnecting"] { color: #5367e8; background: rgba(255,255,255,200); border-color: #a9b1e7; }
 QPushButton:flat { border-color: transparent; background: transparent; color: #616b7c; }
 QPushButton:flat:hover { background: rgba(229,233,255,170); }
+QPushButton:flat:focus { border-color: #5367e8; }
 QToolButton#preferencesButton { padding: 0; min-width: 38px; border-color: transparent; background: transparent; }
 QToolButton#preferencesButton::menu-indicator { image: none; }
 QToolButton#detailsToolsButton::menu-indicator { image: none; }
 QToolButton#schoolCaToggle { border: none; background: transparent; padding: 0 8px 0 0; min-height: 28px; color: #616b7c; }
 QToolButton#backButton, QToolButton#forwardButton, QToolButton#reloadButton { padding: 0; min-width: 38px; max-width: 38px; }
-QPushButton#profileMenuButton { text-align: left; padding: 0 32px 0 0; font-size: 16px; font-weight: 600; border-color: transparent; background: transparent; }
+QPushButton#profileMenuButton { text-align: left; padding: 0 28px 0 12px; font-size: 16px; font-weight: 600; border-color: transparent; background: transparent; }
+QPushButton#profileMenuButton:hover { background: rgba(225,230,240,180); }
+QPushButton#profileMenuButton:pressed { background: #dfe5fa; }
+QPushButton#profileMenuButton:focus { border-color: #5367e8; }
 QPushButton#profileMenuButton::menu-indicator, QComboBox::down-arrow { image: url(:/resource/chevron.svg); width: 16px; height: 16px; }
 QPushButton#profileMenuButton::menu-indicator { subcontrol-origin: padding; subcontrol-position: right center; right: 12px; }
 QComboBox { max-height: 38px; border-radius: 8px; padding-left: 12px; padding-right: 36px; }

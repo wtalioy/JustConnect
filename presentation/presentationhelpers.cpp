@@ -13,6 +13,7 @@
 #include <QPainter>
 
 #include "application/applicationconstants.h"
+#include "application/defaultsettings.h"
 
 namespace {
 class ButtonIcon final : public QIconEngine {
@@ -36,6 +37,14 @@ void PresentationHelpers::setButtonIcon(QAbstractButton *button,const QString &p
 {
     // Qt's button label adds 4 px; reserve another 4 px while preserving an 18 px vector glyph at every scale.
     button->setIcon(QIcon(new ButtonIcon(path)));button->setIconSize(QSize(22,18));
+}
+
+QString PresentationHelpers::profileKindLabel(const QString &kind)
+{
+    if (kind==DefaultSettings::builtInProfile().value("JustConnect/ProfileKind").toString())
+        return QCoreApplication::translate("PresentationHelpers","Fudan");
+    if (kind=="Custom") return QCoreApplication::translate("PresentationHelpers","Custom");
+    return kind;
 }
 
 QAction *PresentationHelpers::passwordVisibilityAction(QLineEdit *field)

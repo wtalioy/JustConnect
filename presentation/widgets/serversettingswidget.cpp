@@ -90,7 +90,9 @@ void ServerSettingsWidget::changeEvent(QEvent *event) {
 void ServerSettingsWidget::retranslate() {
     QSignalBlocker blocker(preset);
     preset->setItemText(0,tr("Choose a school or server"));
-    preset->setItemText(preset->findData("Custom"),tr("Custom"));
+    const auto builtIn=DefaultSettings::builtInProfile().value("JustConnect/ProfileKind").toString();
+    preset->setItemText(preset->findData(builtIn),PresentationHelpers::profileKindLabel(builtIn));
+    preset->setItemText(preset->findData("Custom"),PresentationHelpers::profileKindLabel("Custom"));
     qobject_cast<QLabel *>(form->labelForField(preset))->setText(tr("School"));
     qobject_cast<QLabel *>(form->labelForField(address))->setText(tr("Server"));
     qobject_cast<QLabel *>(form->labelForField(port))->setText(tr("Port"));

@@ -33,12 +33,28 @@
          <string>Connection profile</string>
         </property>
         <property name="sizePolicy">
-         <sizepolicy hsizetype="Ignored" vsizetype="Fixed">
+         <sizepolicy hsizetype="Maximum" vsizetype="Fixed">
           <horstretch>0</horstretch>
           <verstretch>0</verstretch>
          </sizepolicy>
         </property>
+        <property name="minimumSize">
+         <size>
+          <width>64</width>
+          <height>0</height>
+         </size>
+        </property>
+        <property name="flat">
+         <bool>true</bool>
+        </property>
        </widget>
+      </item>
+      <item>
+       <spacer name="headerSpacer">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+       </spacer>
       </item>
       <item>
        <widget class="QToolButton" name="preferencesButton">
@@ -68,13 +84,6 @@
        </widget>
       </item>
      </layout>
-    </item>
-    <item>
-     <widget class="QFrame" name="headerDivider">
-      <property name="divider" stdset="0">
-       <bool>true</bool>
-      </property>
-     </widget>
     </item>
     <item>
      <spacer name="topSpacer">
