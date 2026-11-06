@@ -157,13 +157,15 @@ Windows 原生设备基准使用同一固定官方签名 DLL：首次创建约 1
 
 ## 域名专用 DNS
 
-点击主页显示学校／服务器的配置按钮，可编辑、新建、切换、重命名或删除配置。编辑前先断开连接；选择 `Edit current profile…` 后，展开服务器表单的 `Advanced`，在 `Domain DNS`（域名专用 DNS）中编辑并应用。新建时输入名称即可打开配置引导。规则每行一个完整域名，可用空格追加 DNS 服务器 IPv4。省略服务器时使用当前会话的网关 DNS，重新连接后应用。Fudan 的随包配置为 `application/profiles/fudan.ini`，使用与用户配置相同的 INI 格式。默认配置写入 `config.ini`，其他配置分别写入 `profiles/<名称>.ini`，清空并保存后不会补回预填条目。
+点击主页显示学校／服务器的配置按钮，可编辑、新建、切换、重命名或删除配置。编辑前先断开连接；选择 `Edit current profile…` 后，在 `Account` 页展开学校／服务器表单的 `Advanced`，在 `Domain DNS`（域名专用 DNS）中编辑并应用。新建时输入名称即可打开配置引导。规则每行一个完整域名，可用空格追加 DNS 服务器 IPv4。省略服务器时使用当前会话的网关 DNS，重新连接后应用。Fudan 的随包配置为 `application/profiles/fudan.ini`，使用与用户配置相同的 INI 格式。默认配置写入 `config.ini`，其他配置分别写入 `profiles/<名称>.ini`，清空并保存后不会补回预填条目。
 
 2026-11-04 用实际 Fudan 登录验证网关下发的 `202.120.224.6`。在现有网关 ACL 下，通过隧道查询 `zb.fudan.edu.cn` 返回 `10.108.67.94`，保留域名与 TLS 验证访问返回 HTTPS 200。经同一隧道显式查询复旦信息办公布的 `202.120.224.26` 也返回同一结果。预设因此只提供域名，由会话选择网关 DNS。[复旦校园网 DNS 说明](https://xxb.fudan.edu.cn/wlgzpc/list.htm)
 
 Windows 使用精确 NRPT 名称及现有所有权恢复。双架构原生回归验证同一域名的精确解析、子域保持原来源、撤回后恢复原解析。原保护的命名空间仍按原策略，规则不增加 IP／域名授权。macOS 当前在应用代理和已有原生校园 DNS 范围内使用该规则，新域名的系统接管需验证操作系统后缀路由下的原解析保留。
 
 2026-11-05 Windows `8784409` 实测确认精确规则使 `zb.fudan.edu.cn` 正常返回内网地址及 HTTPS 200。后续登录域名 `id.fudan.edu.cn` 在系统、校园 DNS 和 Mihomo 真实查询中均为同一地址 `175.186.248.2`，命中 JustConnect 捕获时无法连接；同址绑定 WLAN 或经 Clash 的登录请求返回 HTTPS 200。仅断开 JustConnect、保持 Clash TUN 后，同址走原默认出口也返回 200。`77b96da` 根据配置中的外部认证域名验证原出口 TLS，只保留本次验证的 IPv4，重连时重新验证。两平台 Tests、四架构 ABI、实际包和源码通过；2026-11-05 用户在 `b2fbdb3` 合并实测确认 `zb`／统一认证完整登录正常，Windows 阶段已收尾。证据归 `build/reports/authentication-route-77b96da/`。
+
+2026-11-06 `ca16758` 对照确认：`icourse.fudan.edu.cn` 已有网关 DNS 资源；默认网关、显式 `.26` 及删除自定义规则后均返回与统一认证共用的 `175.186.248.2`。原出口返回的 HTTPS 200 实为“禁止访问”页，不能作为成功证据。修复按域名授权区分共用 IP，校园名称复用已有 TUN 私有对端，认证继续原出口；不新增地址池、进程或学校特例。Windows 本机的真实 HTTPS／TLS、命名代理和内存 TUN 回归已通过，覆盖端口、来源、保护撤回、绑定寿命与停止；原生 CI、实际包及真实校园复测待完成。用户配置仅保留原有 `zb` 行，无需添加 `icourse`。诊断与验证归 `build/reports/domain-dns-icourse/`。
 
 ## 数据包转发分配基线
 

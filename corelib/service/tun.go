@@ -12,6 +12,7 @@ import (
 	"time"
 
 	deviceaddr "github.com/wtalioy/JustConnect/corelib/internal/tundevice/address"
+	"github.com/wtalioy/JustConnect/corelib/resolve"
 	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
@@ -166,11 +167,22 @@ func (i *tunIngress) release(key tunFlow) {
 }
 
 func (i *tunIngress) dial(protocol string, id stack.TransportEndpointID) (net.Conn, error) {
+	ctx := i.owner.ctx
+	host := id.LocalAddress.String()
 	if i.peer.IsValid() && id.LocalAddress.String() == i.peer.String() {
-		return nil, errors.New("the owned TUN peer is reserved for DNS")
+		origin := i.owner.dialer.OriginalAuthentication
+		if id.RemoteAddress.String() != i.local.String() || !origin.Address.IsValid() || origin.Name == "" || i.owner.resolver == nil {
+			return nil, errors.New("the owned TUN peer has no campus destination")
+		}
+		resources := i.owner.resolver.CampusResourcesExcludingName(ctx, origin.Address, origin.Name)
+		if len(resources) == 0 {
+			return nil, errors.New("the owned TUN peer has no live campus binding")
+		}
+		ctx = context.WithValue(ctx, resolve.ContextKeyDomainResource, resources)
+		host = origin.Address.String()
 	}
-	address := net.JoinHostPort(id.LocalAddress.String(), strconv.Itoa(int(id.LocalPort)))
-	conn, err := i.owner.dialer.DialCapturedIPPort(i.owner.ctx, protocol, address)
+	address := net.JoinHostPort(host, strconv.Itoa(int(id.LocalPort)))
+	conn, err := i.owner.dialer.DialCapturedIPPort(ctx, protocol, address)
 	if err != nil {
 		return nil, err
 	}

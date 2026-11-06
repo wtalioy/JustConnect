@@ -37,13 +37,13 @@ func TestOriginalAuthenticationRequiresVerifiedExternalTLS(t *testing.T) {
 		return authenticationPeer{conn, net.TCPAddrFromAddrPort(netip.AddrPortFrom(address, 443))}, nil
 	}
 	external := auth.HTTPSOauth2Login{Domain: "example.com"}
-	if got := originalAuthenticationAddress(t.Context(), external, &tls.Config{RootCAs: roots}, dial); got != address {
+	if got := originalAuthenticationOrigin(t.Context(), external, &tls.Config{RootCAs: roots}, dial); got.Address != address || got.Name != "example.com" {
 		t.Fatalf("trusted original authentication peer was omitted: %v", got)
 	}
-	if got := originalAuthenticationAddress(t.Context(), external, &tls.Config{InsecureSkipVerify: true}, dial); got.IsValid() {
+	if got := originalAuthenticationOrigin(t.Context(), external, &tls.Config{InsecureSkipVerify: true}, dial); got.Address.IsValid() {
 		t.Fatal("authentication bypass accepted untrusted TLS")
 	}
-	if got := originalAuthenticationAddress(t.Context(), auth.PasswordLogin{Domain: "example.com"}, nil, nil); got.IsValid() {
+	if got := originalAuthenticationOrigin(t.Context(), auth.PasswordLogin{Domain: "example.com"}, nil, nil); got.Address.IsValid() {
 		t.Fatal("password authentication reserved an external peer")
 	}
 }

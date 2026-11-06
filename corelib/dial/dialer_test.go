@@ -73,7 +73,7 @@ func TestOriginalAuthenticationAddressKeepsTheOrdinaryPath(t *testing.T) {
 		PortMin: 443, PortMax: 443, Protocol: "tcp"}
 	stack := &capturingStack{}
 	d := NewDialer(stack, nil, []client.IPResource{resource}, false)
-	d.OriginalAuthenticationAddress = address
+	d.OriginalAuthentication = AuthenticationOrigin{Name: "authentication.test", Address: address}
 	endpoint := netip.AddrPortFrom(address, 443).String()
 	ordinary := errors.New("ordinary upstream reached")
 	d.Upstream = func() client.DialContextFunc {
@@ -89,6 +89,30 @@ func TestOriginalAuthenticationAddressKeepsTheOrdinaryPath(t *testing.T) {
 	}
 	if _, err := d.DialCapturedIPPort(t.Context(), "tcp", endpoint); !errors.Is(err, policy.ErrProtectedTarget) || stack.tcpCalls != 0 {
 		t.Fatalf("forced campus authentication escaped: %v", err)
+	}
+}
+
+func TestAuthenticationOriginDoesNotReserveAnotherGrantedName(t *testing.T) {
+	address := netip.MustParseAddr("192.0.2.7")
+	campus := &capturingStack{}
+	d := NewDialer(campus, nil, nil, false)
+	d.OriginalAuthentication = AuthenticationOrigin{Name: "login.test", Address: address}
+	ordinary := errors.New("ordinary path")
+	d.Upstream = func() client.DialContextFunc {
+		return func(context.Context, string, string) (net.Conn, error) { return nil, ordinary }
+	}
+	resource := client.DomainResource{Protocol: "tcp", PortMin: 443, PortMax: 443, AppID: "course"}
+	named := context.WithValue(t.Context(), resolve.ContextKeyDomainResource, []client.DomainResource{resource})
+	named = context.WithValue(named, resolve.ContextKeyResolveHost, "course.test")
+	if _, err := d.DialIPPort(named, "tcp", "192.0.2.7:443"); err != nil || campus.tcpCalls != 1 || campus.domainResource.AppID != "course" {
+		t.Fatal("shared campus name lost its route", err, campus.tcpCalls)
+	}
+	auth := context.WithValue(named, resolve.ContextKeyResolveHost, "login.test")
+	if _, err := d.DialIPPort(auth, "tcp", "192.0.2.7:443"); !errors.Is(err, ordinary) || campus.tcpCalls != 1 {
+		t.Fatal("authentication left original network", err)
+	}
+	if _, err := d.DialIPPort(named, "tcp", "192.0.2.7:444"); err == nil || campus.tcpCalls != 1 {
+		t.Fatal("shared name expanded port authorization", err)
 	}
 }
 

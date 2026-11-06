@@ -3,6 +3,7 @@ package resolve
 import (
 	"context"
 	"errors"
+	"net"
 	"net/netip"
 	"slices"
 	"time"
@@ -205,11 +206,21 @@ func (r *Resolver) bindDNSAnswer(request, reply *dns.Msg, publish func([]netip.A
 
 // CampusResourcesForIP only uses live DNS bindings and the caller's current name policy.
 func (r *Resolver) CampusResourcesForIP(ctx context.Context, address netip.Addr) []client.DomainResource {
+	resources, _ := r.campusResources(ctx, address, "", "")
+	return resources
+}
+
+func (r *Resolver) CampusResourcesExcludingName(ctx context.Context, address netip.Addr, name string) []client.DomainResource {
+	resources, _ := r.campusResources(ctx, address, "", normalizeHostname(name))
+	return resources
+}
+
+func (r *Resolver) campusResources(ctx context.Context, address netip.Addr, name, excluded string) ([]client.DomainResource, uint32) {
 	r.resolutionMu.Lock()
 	closed := r.resolutionClosed
 	r.resolutionMu.Unlock()
 	if closed {
-		return nil
+		return nil, 0
 	}
 	snapshot, captured := ctx.Value(ContextKeyProtectionPolicy).(*policy.ProtectionPolicy)
 	if !captured && r.ProtectionPolicy != nil {
@@ -218,9 +229,13 @@ func (r *Resolver) CampusResourcesForIP(ctx context.Context, address netip.Addr)
 	r.cacheMu.Lock()
 	defer r.cacheMu.Unlock()
 	var result []client.DomainResource
+	ttl := r.dnsTTL
 	seen := make(map[string]bool)
 	now := time.Now()
 	for _, binding := range r.dnsBindings[address.Unmap()] {
+		if (name != "" && binding.host != name) || (excluded != "" && binding.host == excluded) {
+			continue
+		}
 		if !binding.expires.After(now) {
 			continue
 		}
@@ -229,13 +244,51 @@ func (r *Resolver) CampusResourcesForIP(ctx context.Context, address netip.Addr)
 		}
 		if snapshot != nil {
 			if allowed, protected := snapshot.CampusNameAllowed(binding.host); protected && !allowed {
-				return nil
+				return nil, 0
 			}
 		}
 		if pattern, resources, granted := matchDomainResource(r.domainIndex, binding.host); granted && !seen[pattern] {
 			seen[pattern] = true
 			result = append(result, resources...)
+			if name != "" {
+				ttl = min(ttl, uint32(max(binding.expires.Sub(now)/time.Second, 0)))
+			}
 		}
 	}
-	return result
+	return result, ttl
+}
+
+// AliasCampusAnswer presents a live campus binding without taking over its shared original IP.
+func (r *Resolver) AliasCampusAnswer(ctx context.Context, request, reply *dns.Msg, address, alias netip.Addr) *dns.Msg {
+	if request == nil || reply == nil || len(request.Question) != 1 {
+		return reply
+	}
+	host := normalizeHostname(request.Question[0].Name)
+	if host == "" {
+		return reply
+	}
+	resources, ttl := r.campusResources(ctx, address, host, "")
+	if len(resources) == 0 {
+		return reply
+	}
+	for _, record := range reply.Answer {
+		if answer, ok := record.(*dns.A); ok && answer.A.Equal(net.IP(address.AsSlice())) {
+			copy := reply.Copy()
+			copy.AuthenticatedData = false
+			kept := copy.Answer[:0]
+			for _, record := range copy.Answer {
+				if signature, ok := record.(*dns.RRSIG); ok && signature.TypeCovered == dns.TypeA {
+					continue
+				}
+				if answer, ok := record.(*dns.A); ok && answer.A.Equal(net.IP(address.AsSlice())) {
+					answer.A = net.IP(alias.AsSlice())
+					answer.Hdr.Ttl = min(answer.Hdr.Ttl, ttl)
+				}
+				kept = append(kept, record)
+			}
+			copy.Answer = kept
+			return copy
+		}
+	}
+	return reply
 }

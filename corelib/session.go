@@ -248,7 +248,7 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 
 	dialer := dial.NewDialer(network, resolver, ips, false)
 	dialer.ProtectionPolicy = options.ProtectionPolicy
-	dialer.OriginalAuthenticationAddress = originalAuthenticationAddress(ctx, options.Setup.LoginMethod, clientOptions.TLSConfig, clientOptions.UnderlayDialer.DialContext)
+	dialer.OriginalAuthentication = originalAuthenticationOrigin(ctx, options.Setup.LoginMethod, clientOptions.TLSConfig, clientOptions.UnderlayDialer.DialContext)
 	resolver.DomainDNS = options.DomainDNS
 	resolver.DomainDNSDial = dialer.DialDomainDNS
 	if ownedUnderlay != nil {
@@ -276,7 +276,7 @@ func (s *Session) Run(parent context.Context, observer Observer) (err error) {
 		scopedIPs, privateRanges := dialer.CaptureIPResources()
 		observer.Resources(Resources{IPs: scopedIPs, PrivateIPRanges: privateRanges, Domains: domains, DNSRecords: dnsResource,
 			CampusDNS: remoteDNS, CampusDNSEnabled: !options.DisableRemoteDNS && remoteDNS != "", DomainDNSNames: domainDNSNames, UnderlayInterface: interfaceName,
-			OriginalAuthenticationAddress: dialer.OriginalAuthenticationAddress,
+			OriginalAuthenticationAddress: dialer.OriginalAuthentication.Address,
 			Listeners:                     listeners.Addresses()})
 	}
 	probeDNS := remoteDNS
