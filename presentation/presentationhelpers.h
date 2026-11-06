@@ -8,6 +8,7 @@
 class QWidget;
 class QLineEdit;
 class QAction;
+class QAbstractButton;
 
 namespace PresentationHelpers
 {
@@ -16,6 +17,7 @@ QString platformOperationMessage(const PlatformOperationResult &result);
 void showAboutDialog(QWidget *parent = nullptr);
 void activateWindow(QWidget *window);
 QAction *passwordVisibilityAction(QLineEdit *field);
+void setButtonIcon(QAbstractButton *button,const QString &path);
 }
 
 #endif // PRESENTATIONHELPERS_H

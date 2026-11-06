@@ -1,4 +1,5 @@
 #include "serversettingswidget.h"
+#include "presentation/presentationhelpers.h"
 #include <QComboBox>
 #include <QEvent>
 #include <QToolButton>
@@ -58,11 +59,12 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     tlsOptions->addWidget(allowUnverifiedNodes); tlsOptions->addWidget(nodeWarning);
     layout->addLayout(tlsOptions);
     caToggle=new QToolButton(this);caToggle->setObjectName("schoolCaToggle");
-    caToggle->setCheckable(true);caToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);caToggle->setArrowType(Qt::RightArrow);
+    caToggle->setCheckable(true);caToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    PresentationHelpers::setButtonIcon(caToggle,":/resource/chevron-right.svg");
     layout->addWidget(caToggle,0,Qt::AlignLeft);
     caPem=new QPlainTextEdit(this); caPem->setObjectName("tlsCaPemEdit"); caPem->setMaximumHeight(88);caPem->hide();
     layout->addWidget(caPem);
-    connect(caToggle,&QToolButton::toggled,this,[this](bool open) {caPem->setVisible(open);caToggle->setArrowType(open?Qt::DownArrow:Qt::RightArrow);});
+    connect(caToggle,&QToolButton::toggled,this,[this](bool open) {caPem->setVisible(open);PresentationHelpers::setButtonIcon(caToggle,open?":/resource/chevron.svg":":/resource/chevron-right.svg");});
     domainDnsRules=new QPlainTextEdit(this);
     domainDnsRules->setObjectName("domainDnsRulesEdit");
     domainDnsRules->setMaximumHeight(112);

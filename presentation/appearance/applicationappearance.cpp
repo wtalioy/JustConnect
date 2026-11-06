@@ -6,6 +6,9 @@
 #include <QStyleHints>
 #include <QStyle>
 #include <QWidget>
+#include <QAbstractSpinBox>
+#include <QLineEdit>
+#include <QStyleOptionFrame>
 
 namespace {
 void prepareWindow(QWidget *window) {
@@ -18,6 +21,14 @@ public:
     bool eventFilter(QObject *object,QEvent *event) override {
         if (event->type()!=QEvent::Create && event->type()!=QEvent::Polish && event->type()!=QEvent::Show) return false;
         auto *window=qobject_cast<QWidget *>(object);
+        if (auto *spin=qobject_cast<QAbstractSpinBox *>(window)) {
+            if (event->type()!=QEvent::Create) {
+                QStyleOptionFrame option;option.initFrom(spin);
+                // Qt places the embedded editor at x=0 when spin buttons are styled; restore the shared content inset.
+                spin->findChild<QLineEdit *>()->setTextMargins(
+                    spin->style()->subElementRect(QStyle::SE_LineEditContents,&option,spin).left(),0,0,0);
+            }
+        }
         if (!window || !window->isWindow() || (window->windowType()!=Qt::Window && window->windowType()!=Qt::Dialog)) return false;
         if (event->type()==QEvent::Create) {
             // Widget construction precedes native creation; Polish/Show can already be too late for alpha.

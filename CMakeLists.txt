@@ -173,6 +173,8 @@ if(BUILD_TESTING)
     add_test(NAME singleapplication_test COMMAND singleapplication_test)
     set_tests_properties(singleapplication_test PROPERTIES TIMEOUT 20 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_executable(serversettingswidget_test tests/serversettingswidget_test.cpp
+        resource.qrc
+        presentation/presentationhelpers.cpp
         presentation/widgets/serversettingswidget.cpp)
     target_link_libraries(serversettingswidget_test PRIVATE Qt6::Widgets justconnect_application)
     add_test(NAME serversettingswidget_test COMMAND serversettingswidget_test)

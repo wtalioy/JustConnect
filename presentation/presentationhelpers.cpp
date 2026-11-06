@@ -8,8 +8,35 @@
 #include <QIcon>
 #include <QLineEdit>
 #include <QKeySequence>
+#include <QAbstractButton>
+#include <QIconEngine>
+#include <QPainter>
 
 #include "application/applicationconstants.h"
+
+namespace {
+class ButtonIcon final : public QIconEngine {
+public:
+    explicit ButtonIcon(const QString &path) : icon(path) {}
+    QIconEngine *clone() const override {return new ButtonIcon(*this);}
+    void paint(QPainter *painter,const QRect &rect,QIcon::Mode mode,QIcon::State state) override {
+        auto glyph=rect;glyph.setWidth(qRound(rect.width()*18.0/22.0));
+        icon.paint(painter,glyph,Qt::AlignCenter,mode,state);
+    }
+    QPixmap pixmap(const QSize &size,QIcon::Mode mode,QIcon::State state) override {
+        QPixmap result(size);result.fill(Qt::transparent);QPainter painter(&result);
+        paint(&painter,QRect(QPoint(),size),mode,state);return result;
+    }
+private:
+    QIcon icon;
+};
+}
+
+void PresentationHelpers::setButtonIcon(QAbstractButton *button,const QString &path)
+{
+    // Qt's button label adds 4 px; reserve another 4 px while preserving an 18 px vector glyph at every scale.
+    button->setIcon(QIcon(new ButtonIcon(path)));button->setIconSize(QSize(22,18));
+}
 
 QAction *PresentationHelpers::passwordVisibilityAction(QLineEdit *field)
 {

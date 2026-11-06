@@ -183,6 +183,21 @@ static void languagePreferences(MainWindow &window) {
     window.findChild<QPushButton *>("detailsButton")->click();
     auto *details=window.findChild<QDialog *>("detailsDialog");
     auto *copy=window.findChild<QPushButton *>("copyDiagnosticsButton");
+    auto *refresh=window.findChild<QPushButton *>("refreshDiagnosticsButton");
+    auto *rules=window.findChild<QPushButton *>("diagnosticRulesButton");
+    check(copy->x()>refresh->x() && copy->x()-refresh->geometry().right()<=9 && rules->x()>copy->x(),
+        "refresh and copy form one compact icon group before the rules action");
+    for (const qreal ratio:{1.0,1.5,2.0}) {
+        const auto glyph=rules->icon().pixmap(rules->iconSize(),ratio).toImage();
+        check(!glyph.isNull(),"the spaced button icon renders at every supported test scale");
+        bool hasInk=false;
+        for (int x=0;x<glyph.width();++x) for (int y=0;y<glyph.height();++y)
+            hasInk|=glyph.pixelColor(x,y).alpha()>0;
+        check(hasInk,"the gap check also observes a visible icon");
+        for (int x=glyph.width()-qRound(4*glyph.devicePixelRatio());x<glyph.width();++x)
+            for (int y=0;y<glyph.height();++y)
+                check(glyph.pixelColor(x,y).alpha()==0,"text buttons reserve a consistent gap after the vector icon");
+    }
     check(copy->text().isEmpty() && copy->toolTip()==QCoreApplication::translate("MainWindow","Copy diagnostics")
         && copy->accessibleName()==copy->toolTip() && !copy->icon().pixmap(18,18).isNull(),
         "icon actions retain translated hover text, accessibility and a rendered glyph");

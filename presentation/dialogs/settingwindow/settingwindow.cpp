@@ -5,7 +5,6 @@
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QEvent>
-#include <QIcon>
 #include <QSignalBlocker>
 #include <QLabel>
 #include <QFile>
@@ -275,8 +274,7 @@ void SettingWindow::updateBusy() {
     ui->authTypeComboBox->setEnabled(profileEditable && !saving && !querying);
     ui->authSelectPushButton->setEnabled(profileEditable && !saving);
     ui->authSelectPushButton->setText(querying ? tr("Cancel") : tr("Get methods"));
-    ui->authSelectPushButton->setIcon(QIcon(querying ? ":/resource/close.svg" : ":/resource/refresh.svg"));
-    ui->authSelectPushButton->setIconSize(QSize(18,18));
+    PresentationHelpers::setButtonIcon(ui->authSelectPushButton,querying ? ":/resource/close.svg" : ":/resource/search.svg");
     clearCredentialButton->setEnabled(profileEditable && !loading && !saving);
 }
 void SettingWindow::cancelQuery() {

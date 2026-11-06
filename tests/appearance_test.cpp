@@ -75,6 +75,8 @@ int main(int argc,char **argv) {
     QComboBox choice;choice.addItem("School");layout.addWidget(&choice);
     QSpinBox port;port.setRange(1,65535);port.setValue(443);layout.addWidget(&port);
     inputs.resize(360,160);inputs.show();QCoreApplication::processEvents();
+    check(secret.height()==choice.height() && choice.height()==port.height(),
+        "single-line input types share a consistent outer height");
     const auto actions=secret.findChildren<QAbstractButton *>(QString(),Qt::FindDirectChildrenOnly);
     check(actions.size()==2,"the alignment check covers both the eye and clear actions");
     for (auto *button:actions) {
@@ -92,5 +94,24 @@ int main(int argc,char **argv) {
     check(port.rect().contains(up) && port.rect().contains(down) && up.width()==down.width()
         && up.x()==down.x() && std::abs(up.center().y()+down.center().y()-2*port.rect().center().y())<=1,
         "numeric controls share the same trailing alignment and balanced hit areas");
+    secret.setEchoMode(QLineEdit::Normal);secret.setText("MMM");secret.setClearButtonEnabled(false);
+    choice.setItemText(0,"MMM");port.setSpecialValueText("MMM");port.setValue(port.minimum());
+    QCoreApplication::processEvents();
+    const auto textStart=[](QWidget *field) {
+        const auto frame=field->grab().toImage();const auto ratio=frame.devicePixelRatio();
+        for (int x=1;x<50*ratio;++x) {
+            for (int y=8*ratio;y<frame.height()-8*ratio;++y) {
+                const auto color=frame.pixelColor(x,y);
+                if (color.alpha()>100 && color.red()<70 && color.green()<80 && color.blue()<100)
+                    return x/ratio;
+            }
+        }
+        check(false,"the text-alignment check observes actual rendered glyphs");return -1.0;
+    };
+    const auto lineStart=textStart(&secret),comboStart=textStart(&choice),spinStart=textStart(&port);
+    if (std::abs(lineStart-comboStart)>1 || std::abs(lineStart-spinStart)>1)
+        std::cerr<<"text starts: line="<<lineStart<<" combo="<<comboStart<<" spin="<<spinStart<<'\n';
+    check(std::abs(lineStart-comboStart)<=1 && std::abs(lineStart-spinStart)<=1,
+        "line edits, dropdowns and numeric inputs align their text, not just their outer borders");
     std::cout<<"PASS: transparent repaint, dialog reopening, and input action alignment\n";
 }
