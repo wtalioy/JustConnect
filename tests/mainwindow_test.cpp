@@ -310,6 +310,16 @@ static void profileSetupLanguageChangesPreserveData(MainWindow &window) {
     auto *method=editor->findChild<QComboBox *>("authTypeComboBox");
     auto *show=secret->findChild<QAction *>("visibilityAction");
     const auto visibilityActions=secret->actions().size();
+    const auto checkColumns=[&] {
+        const auto originalSize=editor->size();editor->resize(800,originalSize.height());
+        QCoreApplication::processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::LayoutRequest);QCoreApplication::processEvents();
+        auto *school=editor->findChild<QComboBox *>("profileKindComboBox");
+        check(school->mapTo(editor,QPoint()).x()==method->mapTo(editor,QPoint()).x()
+            && method->mapTo(editor,QPoint()).x()==user->mapTo(editor,QPoint()).x(),
+            "school, authentication and credential fields share a column across settings groups");
+        editor->resize(originalSize);QCoreApplication::processEvents();
+    };
+    checkColumns();
     auto *key=editor->findChild<QLineEdit *>("totpSecretLineEdit");
     auto *keyVisibility=key->findChild<QAction *>("visibilityAction");keyVisibility->trigger();
     check(key->echoMode()==QLineEdit::Normal && secret->echoMode()==QLineEdit::Password,"password and authenticator-key visibility are independent");
@@ -318,6 +328,7 @@ static void profileSetupLanguageChangesPreserveData(MainWindow &window) {
     editor->findChild<QPlainTextEdit *>("domainDnsRulesEdit")->setPlainText("service.example.invalid");
     const auto methodValue=method->currentData();auto *currentTab=tabs->currentWidget();
     language("zh_CN");
+    checkColumns();
     check(secret->actions().size()==visibilityActions && show->text()==QString::fromUtf8("隐藏")
         && !show->shortcut().isEmpty() && !secret->accessibleDescription().isEmpty(),
         "language changes keep one trailing visibility action, its state and keyboard description");

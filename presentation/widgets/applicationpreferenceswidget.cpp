@@ -19,7 +19,8 @@
 ApplicationPreferencesWidget::ApplicationPreferencesWidget(QWidget *parent) : QWidget(parent) {
     auto *layout=new QVBoxLayout(this);layout->setSpacing(20);layout->setContentsMargins(0,0,0,0);
     behaviorGroup=new QGroupBox(this);layout->addWidget(behaviorGroup);
-    auto *form=new QFormLayout(behaviorGroup);form->setSpacing(12);form->setContentsMargins(0,8,0,0);
+    auto *form=new QFormLayout(behaviorGroup);form->setHorizontalSpacing(12);form->setVerticalSpacing(8);form->setContentsMargins(0,0,0,0);
+    form->setLabelAlignment(Qt::AlignLeft|Qt::AlignVCenter);
     form->setRowWrapPolicy(QFormLayout::WrapLongRows);
     form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
     language=new QComboBox(this);language->setObjectName("languageComboBox");
@@ -31,13 +32,13 @@ ApplicationPreferencesWidget::ApplicationPreferencesWidget(QWidget *parent) : QW
     behavior->setCurrentIndex(ProfileManager().closeToTray()?0:1);
     behaviorLabel=new QLabel(this);behaviorLabel->setBuddy(behavior);form->addRow(behaviorLabel,behavior);
     startupGroup=new QGroupBox(this);layout->addWidget(startupGroup);
-    auto *startup=new QVBoxLayout(startupGroup);startup->setContentsMargins(0,8,0,0);startup->setSpacing(4);
+    auto *startup=new QVBoxLayout(startupGroup);startup->setContentsMargins(0,0,0,0);startup->setSpacing(4);
     autoStart=new QCheckBox(this);autoStart->setObjectName("autoStartCheckBox");
     autoStart->setChecked(ProfileManager().autoStartEnabled());startup->addWidget(autoStart);
     silentStart=new QCheckBox(this);silentStart->setObjectName("silentStartCheckBox");
     silentStart->setChecked(ProfileManager().silentStartEnabled());startup->addWidget(silentStart);
     clashGroup=new QGroupBox(this);layout->addWidget(clashGroup);
-    auto *clash=new QVBoxLayout(clashGroup);clash->setContentsMargins(0,8,0,0);
+    auto *clash=new QVBoxLayout(clashGroup);clash->setContentsMargins(0,0,0,0);clash->setSpacing(8);
     controller=new QPushButton(this);controller->setObjectName("controllerSettingsButton");clash->addWidget(controller,0,Qt::AlignLeft);
     controller->setIcon(QIcon(":/resource/rules.svg"));controller->setIconSize(QSize(18,18));
     hint=new QLabel(this);hint->setWordWrap(true);hint->setProperty("secondary",true);layout->addWidget(hint);

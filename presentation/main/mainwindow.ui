@@ -320,8 +320,38 @@
              </property>
             </widget>
            </item>
+           <property name="leftMargin">
+            <number>0</number>
+           </property>
+           <property name="topMargin">
+            <number>0</number>
+           </property>
+           <property name="rightMargin">
+            <number>0</number>
+           </property>
+           <property name="bottomMargin">
+            <number>0</number>
+           </property>
+           <property name="spacing">
+            <number>8</number>
+           </property>
           </layout>
          </item>
+         <property name="leftMargin">
+          <number>0</number>
+         </property>
+         <property name="topMargin">
+          <number>0</number>
+         </property>
+         <property name="rightMargin">
+          <number>0</number>
+         </property>
+         <property name="bottomMargin">
+          <number>0</number>
+         </property>
+         <property name="spacing">
+          <number>12</number>
+         </property>
         </layout>
        </widget>
        <widget class="QWidget" name="logsTab">
@@ -336,19 +366,19 @@
            </property>
            <layout class="QVBoxLayout" name="logPanelLayout">
             <property name="spacing">
-             <number>14</number>
+             <number>12</number>
             </property>
             <property name="leftMargin">
-             <number>16</number>
+             <number>0</number>
             </property>
             <property name="topMargin">
-             <number>16</number>
+             <number>0</number>
             </property>
             <property name="rightMargin">
-             <number>16</number>
+             <number>0</number>
             </property>
             <property name="bottomMargin">
-             <number>16</number>
+             <number>0</number>
             </property>
             <item>
              <layout class="QHBoxLayout" name="logHeaderLayout">
@@ -463,6 +493,18 @@
                 </property>
                </widget>
               </item>
+              <property name="leftMargin">
+               <number>0</number>
+              </property>
+              <property name="topMargin">
+               <number>0</number>
+              </property>
+              <property name="rightMargin">
+               <number>0</number>
+              </property>
+              <property name="bottomMargin">
+               <number>0</number>
+              </property>
              </layout>
             </item>
             <item>
@@ -491,6 +533,21 @@
            </property>
           </widget>
          </item>
+         <property name="leftMargin">
+          <number>0</number>
+         </property>
+         <property name="topMargin">
+          <number>0</number>
+         </property>
+         <property name="rightMargin">
+          <number>0</number>
+         </property>
+         <property name="bottomMargin">
+          <number>0</number>
+         </property>
+         <property name="spacing">
+          <number>12</number>
+         </property>
         </layout>
        </widget>
       </widget>
@@ -514,8 +571,35 @@
          </property>
         </spacer>
        </item>
+       <property name="leftMargin">
+        <number>0</number>
+       </property>
+       <property name="topMargin">
+        <number>0</number>
+       </property>
+       <property name="rightMargin">
+        <number>0</number>
+       </property>
+       <property name="bottomMargin">
+        <number>0</number>
+       </property>
+       <property name="spacing">
+        <number>8</number>
+       </property>
       </layout>
      </item>
+     <property name="leftMargin">
+      <number>24</number>
+     </property>
+     <property name="topMargin">
+      <number>24</number>
+     </property>
+     <property name="rightMargin">
+      <number>24</number>
+     </property>
+     <property name="bottomMargin">
+      <number>24</number>
+     </property>
     </layout>
    </widget>
   </widget>

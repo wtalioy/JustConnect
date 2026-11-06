@@ -145,8 +145,10 @@ NetworkPolicyWindow::NetworkPolicyWindow(NetworkPolicySession *input, QWidget *p
     auto *addressPage = new QWidget(this);
     auto *addressLayout = new QVBoxLayout(addressPage);
     addressLayout->setContentsMargins(0, 0, 0, 0);
+    addressLayout->setSpacing(12);
     addressLayout->addWidget(targets);
     auto *actions = new QHBoxLayout;
+    actions->setSpacing(8);
     campus = new QPushButton(addressPage);
     original = new QPushButton(addressPage);
     campus->setObjectName("chooseCampusAddress");
@@ -162,6 +164,7 @@ NetworkPolicyWindow::NetworkPolicyWindow(NetworkPolicySession *input, QWidget *p
     auto *namePage = new QWidget(this);
     auto *nameLayout = new QVBoxLayout(namePage);
     nameLayout->setContentsMargins(0, 0, 0, 0);
+    nameLayout->setSpacing(12);
     nameLayout->addWidget(namespaces);
     nameChoices = new QLabel(namePage);
     nameChoices->setObjectName("networkPolicyCampusNames");
@@ -169,6 +172,7 @@ NetworkPolicyWindow::NetworkPolicyWindow(NetworkPolicySession *input, QWidget *p
     nameChoices->setWordWrap(true);
     nameLayout->addWidget(nameChoices);
     auto *nameActions = new QHBoxLayout;
+    nameActions->setSpacing(8);
     campusName = new QPushButton(namePage);
     originalName = new QPushButton(namePage);
     for (auto *button:{campus,campusName}) {button->setIcon(QIcon(":/resource/rules.svg"));button->setIconSize(QSize(18,18));}

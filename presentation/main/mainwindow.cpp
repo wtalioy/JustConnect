@@ -67,10 +67,6 @@ MainWindow::MainWindow(
     connect(coordinator->diagnostics(),&ConnectionDiagnostics::changed,this,[this]{if(ui->detailsDialog->isVisible())updateDiagnostics();});
     connect(ui->refreshDiagnosticsButton,&QPushButton::clicked,this,[this]{coordinator->networkPolicy()->refresh();updateDiagnostics();});
     connect(ui->copyDiagnosticsButton,&QPushButton::clicked,this,[this]{QApplication::clipboard()->setText(QApplication::applicationVersion()+"\n"+coordinator->diagnostics()->report());});
-#ifdef Q_OS_MACOS
-    const QMargins centralMargins = ui->centralWidget->contentsMargins();
-    ui->centralWidget->setContentsMargins(centralMargins.left(), 12, centralMargins.right(), centralMargins.bottom());
-#endif
     ui->logPlainTextEdit->setFont(
         QFontDatabase::systemFont(QFontDatabase::FixedFont)
     );

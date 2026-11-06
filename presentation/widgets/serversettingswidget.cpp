@@ -18,11 +18,13 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0,0,0,0);
     layout->setSpacing(12);
-    layout->setAlignment(Qt::AlignTop);
     form = new QFormLayout;
     form->setRowWrapPolicy(QFormLayout::WrapLongRows);
     form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+    form->setContentsMargins(0,0,0,0);
+    form->setHorizontalSpacing(12);
     form->setVerticalSpacing(8);
+    form->setLabelAlignment(Qt::AlignLeft|Qt::AlignVCenter);
     preset = new QComboBox(this);
     preset->setObjectName("profileKindComboBox");
     preset->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
@@ -51,6 +53,7 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     nodeWarning->setObjectName("nodeTlsWarningLabel"); nodeWarning->setWordWrap(true); nodeWarning->hide();
     nodeWarning->setProperty("warning",true);
     auto *tlsOptions=new QVBoxLayout;
+    tlsOptions->setContentsMargins(0,0,0,0);tlsOptions->setSpacing(4);
     tlsOptions->addWidget(verify); tlsOptions->addWidget(warning);
     tlsOptions->addWidget(allowUnverifiedNodes); tlsOptions->addWidget(nodeWarning);
     layout->addLayout(tlsOptions);
@@ -69,6 +72,7 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     domainDnsLabel=new QLabel(this);
     domainDnsLabel->setBuddy(domainDnsRules);
     layout->addWidget(domainDnsLabel);layout->addWidget(domainDnsRules);layout->addWidget(rulesHelp);
+    layout->addStretch();
     connect(verify,&QCheckBox::toggled,warning,[this](bool checked){warning->setVisible(!checked);});
     connect(allowUnverifiedNodes,&QCheckBox::toggled,nodeWarning,&QLabel::setVisible);
     connect(preset,&QComboBox::currentIndexChanged,this,&ServerSettingsWidget::selectPreset);
