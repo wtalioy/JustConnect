@@ -1,0 +1,437 @@
+{
+  "mode": "built-in image_gen",
+  "status": "visual proposals, not implemented or approved",
+  "source_revision": "2c3830f74e20ca9f44bde37de030369d5ddf8be7",
+  "language": "zh-CN for visual review; application default remains English",
+  "synthetic_data": true,
+  "review_notes": [
+    "学校网页登录内容仅为示例，学校页面本身不在应用重设计范围。",
+    "图中文字和控件细节是生成式视觉提案，具体翻译、尺寸、字体与各平台原生窗口行为须在实装时校准。",
+    "普通信息／错误／缓存确认复用输入和确认样式；系统文件选择器与管理员授权沿用操作系统界面。"
+  ],
+  "pages": [
+    {
+      "id": "01-home-disconnected",
+      "title": "首页 · 未连接",
+      "file": "01-home-disconnected.png",
+      "content": "学校／配置选择、真实连接状态、连接按钮、设置和详情入口。",
+      "source_files": [
+        "presentation/main/mainwindow.ui",
+        "presentation/main/mainwindow.cpp"
+      ],
+      "generation": {
+        "prompt": "Use case: ui-mockup.\nAsset type: high fidelity desktop app UI concept for JustConnect, a Windows/macOS campus network client.\nCreate ONE polished, plausible, implementation-ready interface screenshot, front-on, all edges visible, no perspective or hardware, no collage, no marketing headings outside the window. Render sharp readable simplified Chinese typography, with Latin technical values intact. Light theme only. Warm near-white canvas #F3F4F6, white content surfaces, dark ink #182132, muted gray #7B8290, ONE restrained indigo accent #5367E8, semantic green/amber only for statuses. Elegant modern native desktop utility, quiet and confident, generous purposeful whitespace, disciplined alignment, slim dividers, minimal flat line icons, subtle 12px window radius, restrained shadow, clear focus and generous 44px targets. Natural Chinese sans font comparable to PingFang/Source Han Sans, large strong title then smaller labels; no tiny illegible dense text. Avoid gradients, neon, glass blobs, giant power buttons, illustrations, sidebars on small dialogs, dashboard metrics invented for decoration, excessive nested cards, fake throughput/latency/connection duration. Preserve every requested control and safety boundary. Product label \"JustConnect\" only once in native top titlebar. All data supplied below are synthetic examples, not real measurements or defaults.\n\nCompact 440x540 desktop window centered in a nearly square image. Top native titlebar JustConnect and discreet native window buttons. Content top line school selector \"复旦大学\" with small dropdown chevron and tiny school icon, right settings gear. In the spacious central area a beautiful small thin-line linked-rings mark in pale indigo with a detached gap, then large title \"未连接\". One single wide indigo primary button \"连接校园网\". At bottom separated by a subtle line, quiet full-width navigation \"连接详情\" and right arrow. No subtitle, no extra metrics, no extra logo or product name, no footer boilerplate. Prioritize exceptional balance, typography and whitespace.",
+        "style_reference": null
+      },
+      "refinement": null
+    },
+    {
+      "id": "02-home-connected",
+      "title": "首页 · 已连接",
+      "file": "02-home-connected.png",
+      "content": "与未连接首页保持同一布局，主操作切换为断开连接。",
+      "source_files": [
+        "presentation/main/mainwindow.ui",
+        "presentation/main/mainwindow.cpp"
+      ],
+      "generation": {
+        "prompt": "Use case: ui-mockup.\nAsset type: high fidelity desktop app UI concept for JustConnect, a Windows/macOS campus network client.\nCreate ONE polished, plausible, implementation-ready interface screenshot, front-on, all edges visible, no perspective or hardware, no collage, no marketing headings outside the window. Render sharp readable simplified Chinese typography, with Latin technical values intact. Light theme only. Warm near-white canvas #F3F4F6, white content surfaces, dark ink #182132, muted gray #7B8290, ONE restrained indigo accent #5367E8, semantic green/amber only for statuses. Elegant modern native desktop utility, quiet and confident, generous purposeful whitespace, disciplined alignment, slim dividers, minimal flat line icons, subtle 12px window radius, restrained shadow, clear focus and generous 44px targets. Natural Chinese sans font comparable to PingFang/Source Han Sans, large strong title then smaller labels; no tiny illegible dense text. Avoid gradients, neon, glass blobs, giant power buttons, illustrations, sidebars on small dialogs, dashboard metrics invented for decoration, excessive nested cards, fake throughput/latency/connection duration. Preserve every requested control and safety boundary. Product label \"JustConnect\" only once in native top titlebar. All data supplied below are synthetic examples, not real measurements or defaults.\nInput image role: STYLE REFERENCE ONLY. Match the reference's palette, typography, line weights and native window treatment; replace content and window proportions according to this screen, do not repeat its homepage layout.\n\nSame compact 440x540 homepage as disconnected design: school dropdown \"复旦大学\", settings gear, centered thin-line linked-rings mark now joined with tiny green status tick, large \"已连接\", one quiet outlined button \"断开连接\". Bottom divider and \"连接详情\" with right arrow. Positive status readable through text not only color. No fabricated speed, duration, traffic or location. Same exact layout and spacing as disconnected screen.",
+        "style_reference": "01-home-disconnected.png"
+      },
+      "refinement": null
+    },
+    {
+      "id": "03-profiles",
+      "title": "配置切换与管理",
+      "file": "03-profiles.png",
+      "content": "切换配置，以及新建、编辑、重命名和删除入口。",
+      "source_files": [
+        "presentation/main/mainwindow.ui",
+        "presentation/main/mainwindow.cpp"
+      ],
+      "generation": {
+        "prompt": "Use case: ui-mockup.\nAsset type: high fidelity desktop app UI concept for JustConnect, a Windows/macOS campus network client.\nCreate ONE polished, plausible, implementation-ready interface screenshot, front-on, all edges visible, no perspective or hardware, no collage, no marketing headings outside the window. Render sharp readable simplified Chinese typography, with Latin technical values intact. Light theme only. Warm near-white canvas #F3F4F6, white content surfaces, dark ink #182132, muted gray #7B8290, ONE restrained indigo accent #5367E8, semantic green/amber only for statuses. Elegant modern native desktop utility, quiet and confident, generous purposeful whitespace, disciplined alignment, slim dividers, minimal flat line icons, subtle 12px window radius, restrained shadow, clear focus and generous 44px targets. Natural Chinese sans font comparable to PingFang/Source Han Sans, large strong title then smaller labels; no tiny illegible dense text. Avoid gradients, neon, glass blobs, giant power buttons, illustrations, sidebars on small dialogs, dashboard metrics invented for decoration, excessive nested cards, fake throughput/latency/connection duration. Preserve every requested control and safety boundary. Product label \"JustConnect\" only once in native top titlebar. All data supplied below are synthetic examples, not real measurements or defaults.\nInput image role: STYLE REFERENCE ONLY. Match the reference's palette, typography, line weights and native window treatment; replace content and window proportions according to this screen, do not repeat its homepage layout.\n\nCompact homepage behind a floating open profile selector menu, sharp and readable. Menu anchored below school selector. Top small label \"连接配置\"; list \"复旦大学\" selected with a checkmark and secondary \"当前配置\", \"复旦大学 · 备用\" unselected. Below divider actions with subtle line icons \"新建配置\", \"编辑当前配置\", \"重命名\", and \"删除配置\" in subdued red. This is a menu, not a new management dashboard. Behind it homepage shows \"未连接\", button \"连接校园网\" and \"连接详情\".",
+        "style_reference": "01-home-disconnected.png"
+      },
+      "refinement": null
+    },
+    {
+      "id": "04-settings-general",
+      "title": "设置 · 通用",
+      "file": "04-settings-general.png",
+      "content": "语言、关闭行为、开机／后台启动和 Clash 实例入口；自动保存。",
+      "source_files": [
+        "presentation/widgets/applicationpreferenceswidget.cpp",
+        "presentation/dialogs/settingwindow/settingwindow.cpp"
+      ],
+      "generation": {
+        "prompt": "Use case: ui-mockup.\nAsset type: high fidelity desktop app UI concept for JustConnect, a Windows/macOS campus network client.\nCreate ONE polished, plausible, implementation-ready interface screenshot, front-on, all edges visible, no perspective or hardware, no collage, no marketing headings outside the window. Render sharp readable simplified Chinese typography, with Latin technical values intact. Light theme only. Warm near-white canvas #F3F4F6, white content surfaces, dark ink #182132, muted gray #7B8290, ONE restrained indigo accent #5367E8, semantic green/amber only for statuses. Elegant modern native desktop utility, quiet and confident, generous purposeful whitespace, disciplined alignment, slim dividers, minimal flat line icons, subtle 12px window radius, restrained shadow, clear focus and generous 44px targets. Natural Chinese sans font comparable to PingFang/Source Han Sans, large strong title then smaller labels; no tiny illegible dense text. Avoid gradients, neon, glass blobs, giant power buttons, illustrations, sidebars on small dialogs, dashboard metrics invented for decoration, excessive nested cards, fake throughput/latency/connection duration. Preserve every requested control and safety boundary. Product label \"JustConnect\" only once in native top titlebar. All data supplied below are synthetic examples, not real measurements or defaults.\n\nMedium 640x620 native Settings window; title \"设置\", two understated horizontal tabs \"通用\" selected and \"连接\". Grouped form rows with short section headings and hairlines. Section \"外观与行为\": label \"语言\" dropdown \"简体中文\"; label \"关闭窗口时\" dropdown \"在系统托盘中继续运行\", small helper \"连接将在后台保持。\". Section \"启动\": rows \"登录系统时启动\" switch off, \"在后台启动\" switch on. Section \"网络共存\": row \"Clash 共存\" secondary \"自动发现本地实例\" trailing \"选择实例\" chevron. Small quiet helper \"通用设置自动保存\"; bottom single secondary button \"关闭\". No Save or Apply button on this page.",
+        "style_reference": null
+      },
+      "refinement": null
+    },
+    {
+      "id": "05-settings-connection",
+      "title": "设置 · 连接",
+      "file": "05-settings-connection.png",
+      "content": "学校、服务器、证书、域名 DNS、认证、凭据、连接偏好与配置文件操作。",
+      "source_files": [
+        "presentation/dialogs/settingwindow/settingwindow.ui",
+        "presentation/dialogs/settingwindow/settingwindow.cpp",
+        "presentation/widgets/serversettingswidget.cpp"
+      ],
+      "generation": {
+        "prompt": "Use case: ui-mockup.\nAsset type: high fidelity desktop app UI concept for JustConnect, a Windows/macOS campus network client.\nCreate ONE polished, plausible, implementation-ready interface screenshot, front-on, all edges visible, no perspective or hardware, no collage, no marketing headings outside the window. Render sharp readable simplified Chinese typography, with Latin technical values intact. Light theme only. Warm near-white canvas #F3F4F6, white content surfaces, dark ink #182132, muted gray #7B8290, ONE restrained indigo accent #5367E8, semantic green/amber only for statuses. Elegant modern native desktop utility, quiet and confident, generous purposeful whitespace, disciplined alignment, slim dividers, minimal flat line icons, subtle 12px window radius, restrained shadow, clear focus and generous 44px targets. Natural Chinese sans font comparable to PingFang/Source Han Sans, large strong title then smaller labels; no tiny illegible dense text. Avoid gradients, neon, glass blobs, giant power buttons, illustrations, sidebars on small dialogs, dashboard metrics invented for decoration, excessive nested cards, fake throughput/latency/connection duration. Preserve every requested control and safety boundary. Product label \"JustConnect\" only once in native top titlebar. All data supplied below are synthetic examples, not real measurements or defaults.\n\nTall but balanced 760x1120 native Settings window shown fully in portrait image; two tabs \"通用\" and selected \"连接\". Top profile \"复旦大学\" plus small helper \"保存后用于下次连接\". Use spacious two-column form where sensible with sections separated by hairlines, no nested outlined boxes. Section \"学校与服务器\": dropdown 学校 \"复旦大学\"; server input \"vpn.example.edu\" and port \"443\"; checked \"验证服务器证书\"; unchecked \"跳过隧道身份验证\"; collapsed disclosure \"附加学校 CA（可选）\". Directly visible \"域名专用 DNS\" multiline field \"portal.example.edu 192.0.2.53\", helper \"每行一个完整域名，可在后方填写 IPv4 DNS。\". Section \"认证方式\": dropdown \"密码登录\" next to quiet \"重新获取\"; show Username \"student\", masked Password with eye, optional masked or empty \"验证器密钥（可选）\"; checked \"记住认证状态\", helper \"留空可保留已保存的凭据\", quiet destructive \"清除已保存的密码与密钥\". Section \"连接偏好\": 3 compact checkbox rows \"启动时检查更新\", \"启动时连接\", \"自动重连\". Footer utility text buttons \"导入\" \"导出已保存配置\" \"重置草稿\"; sticky bottom \"取消\" secondary and \"保存\" indigo. All example domains fake. Full form readable, no invented fields, no permanent credential secret visible.",
+        "style_reference": null
+      },
+      "refinement": null
+    },
+    {
+      "id": "06-clash",
+      "title": "Clash 实例选择",
+      "file": "06-clash.png",
+      "content": "自动发现、选择本地实例或填写本地控制地址；不保存控制密钥。",
+      "source_files": [
+        "presentation/coordinators/controllerselectioncoordinator.cpp"
+      ],
+      "generation": {
+        "prompt": "Use case: ui-mockup.\nAsset type: high fidelity desktop app UI concept for JustConnect, a Windows/macOS campus network client.\nCreate ONE polished, plausible, implementation-ready interface screenshot, front-on, all edges visible, no perspective or hardware, no collage, no marketing headings outside the window. Render sharp readable simplified Chinese typography, with Latin technical values intact. Light theme only. Warm near-white canvas #F3F4F6, white content surfaces, dark ink #182132, muted gray #7B8290, ONE restrained indigo accent #5367E8, semantic green/amber only for statuses. Elegant modern native desktop utility, quiet and confident, generous purposeful whitespace, disciplined alignment, slim dividers, minimal flat line icons, subtle 12px window radius, restrained shadow, clear focus and generous 44px targets. Natural Chinese sans font comparable to PingFang/Source Han Sans, large strong title then smaller labels; no tiny illegible dense text. Avoid gradients, neon, glass blobs, giant power buttons, illustrations, sidebars on small dialogs, dashboard metrics invented for decoration, excessive nested cards, fake throughput/latency/connection duration. Preserve every requested control and safety boundary. Product label \"JustConnect\" only once in native top titlebar. All data supplied below are synthetic examples, not real measurements or defaults.\nInput image role: STYLE REFERENCE ONLY. Match the reference's palette, typography, line weights and native window treatment; replace content and window proportions according to this screen, do not repeat its homepage layout.\n\n560x520 dialog \"Clash 共存\". Intro \"选择用于校园连接的本地实例\", smaller \"更改将在下次连接时生效\". Choice list with radio controls: selected \"自动发现\" caption \"推荐\"; second \"Mihomo\" caption \"PID 4280 · 127.0.0.1:9090\"; third \"输入本地地址\". Below third, inactive address input placeholder \"http://127.0.0.1:9090\". Small helper \"仅支持本地地址，不包含密钥或账号信息。\". Bottom left quiet \"刷新\", bottom right \"取消\" and \"保存\". No API key field, no cloud controller.",
+        "style_reference": "01-home-disconnected.png"
+      },
+      "refinement": {
+        "prompt": "Use case: ui-mockup. Edit this UI concept with exactly ONE targeted improvement: completely REMOVE the redundant entire school selector toolbar row underneath the native JustConnect titlebar, including the school building icon, 复旦大学 dropdown, settings gear, and its bottom separator. Move the dialog content upward to close the gap and reduce total window height by the removed row. This is a focused child dialog, so it must have NO profile selector and NO settings gear. Preserve the native titlebar and ALL other typography, content, controls, colors, alignment and bottom actions exactly. Flat front-on screenshot with all window edges visible.",
+        "input": "initial generated concept for this page"
+      }
+    },
+    {
+      "id": "07-details-overview",
+      "title": "连接详情 · 概览",
+      "file": "07-details-overview.png",
+      "content": "现有会话、入口、DNS、规则／重叠、例外、出口和恢复状态。",
+      "source_files": [
+        "presentation/coordinators/connectiondiagnostics.cpp",
+        "presentation/main/mainwindow.ui"
+      ],
+      "generation": {
+        "prompt": "Use case: ui-mockup.\nAsset type: high fidelity desktop app UI concept for JustConnect, a Windows/macOS campus network client.\nCreate ONE polished, plausible, implementation-ready interface screenshot, front-on, all edges visible, no perspective or hardware, no collage, no marketing headings outside the window. Render sharp readable simplified Chinese typography, with Latin technical values intact. Light theme only. Warm near-white canvas #F3F4F6, white content surfaces, dark ink #182132, muted gray #7B8290, ONE restrained indigo accent #5367E8, semantic green/amber only for statuses. Elegant modern native desktop utility, quiet and confident, generous purposeful whitespace, disciplined alignment, slim dividers, minimal flat line icons, subtle 12px window radius, restrained shadow, clear focus and generous 44px targets. Natural Chinese sans font comparable to PingFang/Source Han Sans, large strong title then smaller labels; no tiny illegible dense text. Avoid gradients, neon, glass blobs, giant power buttons, illustrations, sidebars on small dialogs, dashboard metrics invented for decoration, excessive nested cards, fake throughput/latency/connection duration. Preserve every requested control and safety boundary. Product label \"JustConnect\" only once in native top titlebar. All data supplied below are synthetic examples, not real measurements or defaults.\n\n760x760 window \"连接详情\", top slim tabs \"概览\" selected, \"日志\". Heading row \"复旦大学\" green text badge \"已连接\". Below display existing confirmed diagnosis data in clean aligned label/value rows with thin section dividers: \"系统接管\" / \"已就绪\"; \"本地入口\" / \"HTTP 17890 · SOCKS 17891\"; \"DNS 来源\" / \"校园 DNS 192.0.2.53\"; secondary \"3 个原网络范围 · 1 条域名 DNS\"; \"路由策略\" / \"24 条 IP 规则 · 8 个域名模式\"; secondary \"2 个受保护范围 · 1 处重叠\"; \"校园例外\" / \"1 个地址 · 0 个域名\"; \"校园出口\" / \"校园隧道\"; \"普通出口\" / \"Clash · Rule · TUN 已开启\"; \"恢复状态\" / \"无待恢复项\". One subdued note \"显示已确认的策略，不代表某条流量的实际命中。\". Bottom \"刷新\" \"规则与 DNS\" and primary \"复制诊断\"; discreet trailing tools ellipsis. Small \"示例数据\" footer. No charts, no invented tests or performance metrics.",
+        "style_reference": null
+      },
+      "refinement": null
+    },
+    {
+      "id": "08-details-logs",
+      "title": "连接详情 · 日志",
+      "file": "08-details-logs.png",
+      "content": "有界活动日志，打开文件、复制、清空及工具入口。",
+      "source_files": [
+        "presentation/main/mainwindow.ui",
+        "presentation/main/mainwindow.cpp"
+      ],
+      "generation": {
+        "prompt": "Use case: ui-mockup.\nAsset type: high fidelity desktop app UI concept for JustConnect, a Windows/macOS campus network client.\nCreate ONE polished, plausible, implementation-ready interface screenshot, front-on, all edges visible, no perspective or hardware, no collage, no marketing headings outside the window. Render sharp readable simplified Chinese typography, with Latin technical values intact. Light theme only. Warm near-white canvas #F3F4F6, white content surfaces, dark ink #182132, muted gray #7B8290, ONE restrained indigo accent #5367E8, semantic green/amber only for statuses. Elegant modern native desktop utility, quiet and confident, generous purposeful whitespace, disciplined alignment, slim dividers, minimal flat line icons, subtle 12px window radius, restrained shadow, clear focus and generous 44px targets. Natural Chinese sans font comparable to PingFang/Source Han Sans, large strong title then smaller labels; no tiny illegible dense text. Avoid gradients, neon, glass blobs, giant power buttons, illustrations, sidebars on small dialogs, dashboard metrics invented for decoration, excessive nested cards, fake throughput/latency/connection duration. Preserve every requested control and safety boundary. Product label \"JustConnect\" only once in native top titlebar. All data supplied below are synthetic examples, not real measurements or defaults.\nInput image role: STYLE REFERENCE ONLY. Match the reference's palette, typography, line weights and native window treatment; replace content and window proportions according to this screen, do not repeat its homepage layout.\n\n760x650 window \"连接详情\", tabs \"概览\" and selected \"日志\". Title \"活动日志\"; right toolbar \"打开文件\" \"复制\" \"清空\". Large elegant light-gray tinted log region with monospaced 14px lines, six readable synthetic rows: \"10:24:01  INFO   authentication_started\"; \"10:24:03  INFO   transport_connected\"; \"10:24:03  INFO   local_controller_real_dns\"; \"10:24:04  INFO   Campus access ready\"; blank whitespace below. Semantic level label subdued green, timestamps gray. Do not show cookies, passwords, tokens or actual account identifiers. Bottom small \"示例日志 · 敏感信息已隐藏\", tools ellipsis. No fake search/filter/export features.",
+        "style_reference": "01-home-disconnected.png"
+      },
+      "refinement": {
+        "prompt": "Use case: ui-mockup. Edit this UI concept with exactly ONE targeted improvement: completely REMOVE the redundant entire school selector toolbar row underneath the native JustConnect titlebar, including the school building icon, 复旦大学 dropdown, settings gear, and its bottom separator. Move the dialog content upward to close the gap and reduce total window height by the removed row. This is a focused child dialog, so it must have NO profile selector and NO settings gear. Preserve the native titlebar and ALL other typography, content, controls, colors, alignment and bottom actions exactly. Flat front-on screenshot with all window edges visible.",
+        "input": "initial generated concept for this page"
+      }
+    },
+    {
+      "id": "09-protection-addresses",
+      "title": "网络保护 · 地址范围",
+      "file": "09-protection-addresses.png",
+      "content": "原网络来源、校园重叠、地址例外，以及恢复原网络入口。",
+      "source_files": [
+        "presentation/dialogs/networkpolicywindow.cpp"
+      ],
+      "generation": {
+        "prompt": "Use case: ui-mockup.\nAsset type: high fidelity desktop app UI concept for JustConnect, a Windows/macOS campus network client.\nCreate ONE polished, plausible, implementation-ready interface screenshot, front-on, all edges visible, no perspective or hardware, no collage, no marketing headings outside the window. Render sharp readable simplified Chinese typography, with Latin technical values intact. Light theme only. Warm near-white canvas #F3F4F6, white content surfaces, dark ink #182132, muted gray #7B8290, ONE restrained indigo accent #5367E8, semantic green/amber only for statuses. Elegant modern native desktop utility, quiet and confident, generous purposeful whitespace, disciplined alignment, slim dividers, minimal flat line icons, subtle 12px window radius, restrained shadow, clear focus and generous 44px targets. Natural Chinese sans font comparable to PingFang/Source Han Sans, large strong title then smaller labels; no tiny illegible dense text. Avoid gradients, neon, glass blobs, giant power buttons, illustrations, sidebars on small dialogs, dashboard metrics invented for decoration, excessive nested cards, fake throughput/latency/connection duration. Preserve every requested control and safety boundary. Product label \"JustConnect\" only once in native top titlebar. All data supplied below are synthetic examples, not real measurements or defaults.\nInput image role: STYLE REFERENCE ONLY. Match the reference's palette, typography, line weights and native window treatment; replace content and window proportions according to this screen, do not repeat its homepage layout.\n\n900x650 window \"规则与 DNS\". Brief header \"保留原网络，按需使用校园资源\". Tabs \"地址范围\" selected, \"DNS 来源\". Clean table with four headers \"受保护范围\", \"原网络来源\", \"校园重叠\", \"校园例外\". Two rows: \"100.64.0.0/10\" | \"Tailscale\" | \"100.80.0.0/16\" | \"100.80.1.8/32\"; \"192.168.0.0/16\" | \"Wi-Fi · 本地路由\" | \"无\" | \"无\". First row selected with faint indigo tint. Table generous spacing no dense grid. Beneath table two actions \"使用校园地址…\" and \"恢复原网络…\". Visible safety note \"默认保留原网络。同一地址不能同时走两个网络，校园访问仍需学校授权。\". Bottom status \"2 个原网络范围 · 1 处校园重叠 · 示例数据\", buttons \"刷新\" and \"关闭\". Do not imply whole scope can be sent to campus.",
+        "style_reference": "01-home-disconnected.png"
+      },
+      "refinement": {
+        "prompt": "Use case: ui-mockup. Edit this UI concept with exactly ONE targeted improvement: completely REMOVE the redundant entire school selector toolbar row underneath the native JustConnect titlebar, including the school building icon, 复旦大学 dropdown, settings gear, and its bottom separator. Move the dialog content upward to close the gap and reduce total window height by the removed row. This is a focused child dialog, so it must have NO profile selector and NO settings gear. Preserve the native titlebar and ALL other typography, content, controls, colors, alignment and bottom actions exactly. Flat front-on screenshot with all window edges visible.",
+        "input": "initial generated concept for this page"
+      }
+    },
+    {
+      "id": "10-protection-dns",
+      "title": "网络保护 · DNS 来源",
+      "file": "10-protection-dns.png",
+      "content": "域名范围、DNS 作用／来源、保护规则及校园域名例外。",
+      "source_files": [
+        "presentation/dialogs/networkpolicywindow.cpp"
+      ],
+      "generation": {
+        "prompt": "Use case: ui-mockup.\nAsset type: high fidelity desktop app UI concept for JustConnect, a Windows/macOS campus network client.\nCreate ONE polished, plausible, implementation-ready interface screenshot, front-on, all edges visible, no perspective or hardware, no collage, no marketing headings outside the window. Render sharp readable simplified Chinese typography, with Latin technical values intact. Light theme only. Warm near-white canvas #F3F4F6, white content surfaces, dark ink #182132, muted gray #7B8290, ONE restrained indigo accent #5367E8, semantic green/amber only for statuses. Elegant modern native desktop utility, quiet and confident, generous purposeful whitespace, disciplined alignment, slim dividers, minimal flat line icons, subtle 12px window radius, restrained shadow, clear focus and generous 44px targets. Natural Chinese sans font comparable to PingFang/Source Han Sans, large strong title then smaller labels; no tiny illegible dense text. Avoid gradients, neon, glass blobs, giant power buttons, illustrations, sidebars on small dialogs, dashboard metrics invented for decoration, excessive nested cards, fake throughput/latency/connection duration. Preserve every requested control and safety boundary. Product label \"JustConnect\" only once in native top titlebar. All data supplied below are synthetic examples, not real measurements or defaults.\nInput image role: STYLE REFERENCE ONLY. Match the reference's palette, typography, line weights and native window treatment; replace content and window proportions according to this screen, do not repeat its homepage layout.\n\n900x650 window \"规则与 DNS\" matching address screen. Tabs \"地址范围\", selected \"DNS 来源\". Table headers \"域名范围\", \"作用\", \"来源\", \"保护规则\". Rows \"tailnet.example\" | \"路由域名\" | \"Tailscale\" | \"包含子域名\"; \"example.lan\" | \"搜索后缀\" | \"Wi-Fi\" | \"单标签名称\"; \"localhost\" | \"系统保留\" | \"回环\" | \"精确名称\". Section below \"校园域名例外\" value \"暂无\". Two actions \"使用校园域名…\" and \"恢复原域名…\". Small note \"仅为完整域名设置例外，不接受通配符或整个范围。\". Footer \"示例数据\", \"刷新\" \"关闭\". No DNS charts or per-flow match claims.",
+        "style_reference": "01-home-disconnected.png"
+      },
+      "refinement": {
+        "prompt": "Use case: ui-mockup. Edit this UI concept with exactly ONE targeted improvement: completely REMOVE the redundant entire school selector toolbar row underneath the native JustConnect titlebar, including the school building icon, 复旦大学 dropdown, settings gear, and its bottom separator. Move the dialog content upward to close the gap and reduce total window height by the removed row. This is a focused child dialog, so it must have NO profile selector and NO settings gear. Preserve the native titlebar and ALL other typography, content, controls, colors, alignment and bottom actions exactly. Flat front-on screenshot with all window edges visible.",
+        "input": "initial generated concept for this page"
+      }
+    },
+    {
+      "id": "11-campus-address",
+      "title": "校园地址例外输入",
+      "file": "11-campus-address.png",
+      "content": "指定受保护范围内的一个校园 IPv4 地址；保留选边提示。",
+      "source_files": [
+        "presentation/dialogs/networkpolicywindow.cpp"
+      ],
+      "generation": {
+        "prompt": "Use case: ui-mockup.\nAsset type: high fidelity desktop app UI concept for JustConnect, a Windows/macOS campus network client.\nCreate ONE polished, plausible, implementation-ready interface screenshot, front-on, all edges visible, no perspective or hardware, no collage, no marketing headings outside the window. Render sharp readable simplified Chinese typography, with Latin technical values intact. Light theme only. Warm near-white canvas #F3F4F6, white content surfaces, dark ink #182132, muted gray #7B8290, ONE restrained indigo accent #5367E8, semantic green/amber only for statuses. Elegant modern native desktop utility, quiet and confident, generous purposeful whitespace, disciplined alignment, slim dividers, minimal flat line icons, subtle 12px window radius, restrained shadow, clear focus and generous 44px targets. Natural Chinese sans font comparable to PingFang/Source Han Sans, large strong title then smaller labels; no tiny illegible dense text. Avoid gradients, neon, glass blobs, giant power buttons, illustrations, sidebars on small dialogs, dashboard metrics invented for decoration, excessive nested cards, fake throughput/latency/connection duration. Preserve every requested control and safety boundary. Product label \"JustConnect\" only once in native top titlebar. All data supplied below are synthetic examples, not real measurements or defaults.\nInput image role: STYLE REFERENCE ONLY. Match reference palette, typography and native window treatment; use the requested screen layout instead of homepage composition.\n\nSmall 500x340 focused dialog \"使用校园地址\". Subtitle \"从 100.64.0.0/10 中指定一个 IPv4 地址\". Label \"校园地址\"; single input focused \"100.80.1.8\". Pale amber inline note with small icon \"同一地址不能同时使用两个网络，校园访问仍需学校授权。\". Bottom \"取消\" and indigo \"确认\". All clear and generously spaced, no entire-subnet toggle. Synthetic example in small footer \"示例地址\".",
+        "style_reference": "01-home-disconnected.png"
+      },
+      "refinement": {
+        "prompt": "Use case: ui-mockup. Edit this UI concept with exactly ONE targeted improvement: completely REMOVE the redundant entire school selector toolbar row underneath the native JustConnect titlebar, including the school building icon, 复旦大学 dropdown, settings gear, and its bottom separator. Move the dialog content upward to close the gap and reduce total window height by the removed row. This is a focused child dialog, so it must have NO profile selector and NO settings gear. Preserve the native titlebar and ALL other typography, content, controls, colors, alignment and bottom actions exactly. Flat front-on screenshot with all window edges visible.",
+        "input": "initial generated concept for this page"
+      }
+    },
+    {
+      "id": "12-campus-name",
+      "title": "校园域名例外输入",
+      "file": "12-campus-name.png",
+      "content": "为完整域名设置校园例外；不接受通配符或整个范围。",
+      "source_files": [
+        "presentation/dialogs/networkpolicywindow.cpp"
+      ],
+      "generation": {
+        "prompt": "Use case: ui-mockup.\nAsset type: high fidelity desktop app UI concept for JustConnect, a Windows/macOS campus network client.\nCreate ONE polished, plausible, implementation-ready interface screenshot, front-on, all edges visible, no perspective or hardware, no collage, no marketing headings outside the window. Render sharp readable simplified Chinese typography, with Latin technical values intact. Light theme only. Warm near-white canvas #F3F4F6, white content surfaces, dark ink #182132, muted gray #7B8290, ONE restrained indigo accent #5367E8, semantic green/amber only for statuses. Elegant modern native desktop utility, quiet and confident, generous purposeful whitespace, disciplined alignment, slim dividers, minimal flat line icons, subtle 12px window radius, restrained shadow, clear focus and generous 44px targets. Natural Chinese sans font comparable to PingFang/Source Han Sans, large strong title then smaller labels; no tiny illegible dense text. Avoid gradients, neon, glass blobs, giant power buttons, illustrations, sidebars on small dialogs, dashboard metrics invented for decoration, excessive nested cards, fake throughput/latency/connection duration. Preserve every requested control and safety boundary. Product label \"JustConnect\" only once in native top titlebar. All data supplied below are synthetic examples, not real measurements or defaults.\nInput image role: STYLE REFERENCE ONLY. Match reference palette, typography and native window treatment; use the requested screen layout instead of homepage composition.\n\nSmall 500x340 focused dialog \"使用校园域名\". Subtitle \"为一个完整域名添加校园例外\". Label \"完整域名\"; input focused \"portal.example.edu\". Small helper \"不接受通配符或整个域名范围。\"; pale amber note \"校园访问仍需学校授权。\". Bottom \"取消\" and indigo \"确认\". Tiny \"示例域名\". No wildcard presets, no broad override.",
+        "style_reference": "01-home-disconnected.png"
+      },
+      "refinement": null
+    },
+    {
+      "id": "13-password-login",
+      "title": "账号密码登录",
+      "file": "13-password-login.png",
+      "content": "账号、密码、显示密码和记住登录信息。",
+      "source_files": [
+        "presentation/dialogs/loginwindow/loginwindow.ui",
+        "presentation/dialogs/loginwindow/loginwindow.cpp"
+      ],
+      "generation": {
+        "prompt": "Use case: ui-mockup.\nAsset type: high fidelity desktop app UI concept for JustConnect, a Windows/macOS campus network client.\nCreate ONE polished, plausible, implementation-ready interface screenshot, front-on, all edges visible, no perspective or hardware, no collage, no marketing headings outside the window. Render sharp readable simplified Chinese typography, with Latin technical values intact. Light theme only. Warm near-white canvas #F3F4F6, white content surfaces, dark ink #182132, muted gray #7B8290, ONE restrained indigo accent #5367E8, semantic green/amber only for statuses. Elegant modern native desktop utility, quiet and confident, generous purposeful whitespace, disciplined alignment, slim dividers, minimal flat line icons, subtle 12px window radius, restrained shadow, clear focus and generous 44px targets. Natural Chinese sans font comparable to PingFang/Source Han Sans, large strong title then smaller labels; no tiny illegible dense text. Avoid gradients, neon, glass blobs, giant power buttons, illustrations, sidebars on small dialogs, dashboard metrics invented for decoration, excessive nested cards, fake throughput/latency/connection duration. Preserve every requested control and safety boundary. Product label \"JustConnect\" only once in native top titlebar. All data supplied below are synthetic examples, not real measurements or defaults.\nInput image role: STYLE REFERENCE ONLY. Match reference palette, typography and native window treatment; use the requested screen layout instead of homepage composition.\n\n460x510 dialog \"登录\". Main heading \"登录校园账号\". Small context \"复旦大学\". Label \"账号\" input \"student\"; label \"密码\" masked input with eye visibility icon. Under form one checkbox checked \"记住登录信息\". Strong bottom row \"取消\" and primary \"登录\". Quiet line lock icon \"凭据保存在系统安全存储中\". Minimal adult typography no illustration, no social login, no signup or forgotten-password features.",
+        "style_reference": "01-home-disconnected.png"
+      },
+      "refinement": {
+        "prompt": "Use case: ui-mockup. Edit this UI concept with exactly ONE targeted improvement: completely REMOVE the redundant entire school selector toolbar row underneath the native JustConnect titlebar, including the school building icon, 复旦大学 dropdown, settings gear, and its bottom separator. Move the dialog content upward to close the gap and reduce total window height by the removed row. This is a focused child dialog, so it must have NO profile selector and NO settings gear. Preserve the native titlebar and ALL other typography, content, controls, colors, alignment and bottom actions exactly. Flat front-on screenshot with all window edges visible.",
+        "input": "initial generated concept for this page"
+      }
+    },
+    {
+      "id": "14-school-sso",
+      "title": "学校网页登录",
+      "file": "14-school-sso.png",
+      "content": "应用内浏览器的前进／后退／刷新、地址与学校认证页面；示例网页不代表真实学校页面。",
+      "source_files": [
+        "presentation/dialogs/ssologinwebview/ssologinwebview.ui",
+        "presentation/dialogs/ssologinwebview/ssologinwebview.cpp"
+      ],
+      "generation": {
+        "prompt": "Use case: ui-mockup.\nAsset type: high fidelity desktop app UI concept for JustConnect, a Windows/macOS campus network client.\nCreate ONE polished, plausible, implementation-ready interface screenshot, front-on, all edges visible, no perspective or hardware, no collage, no marketing headings outside the window. Render sharp readable simplified Chinese typography, with Latin technical values intact. Light theme only. Warm near-white canvas #F3F4F6, white content surfaces, dark ink #182132, muted gray #7B8290, ONE restrained indigo accent #5367E8, semantic green/amber only for statuses. Elegant modern native desktop utility, quiet and confident, generous purposeful whitespace, disciplined alignment, slim dividers, minimal flat line icons, subtle 12px window radius, restrained shadow, clear focus and generous 44px targets. Natural Chinese sans font comparable to PingFang/Source Han Sans, large strong title then smaller labels; no tiny illegible dense text. Avoid gradients, neon, glass blobs, giant power buttons, illustrations, sidebars on small dialogs, dashboard metrics invented for decoration, excessive nested cards, fake throughput/latency/connection duration. Preserve every requested control and safety boundary. Product label \"JustConnect\" only once in native top titlebar. All data supplied below are synthetic examples, not real measurements or defaults.\nInput image role: STYLE REFERENCE ONLY. Match reference palette, typography and native window treatment; use the requested screen layout instead of homepage composition.\n\n880x720 desktop web authentication window \"学校登录\". Native titlebar then restrained browser chrome: back arrow, forward arrow disabled, reload, rounded address bar with small lock and \"https://sso.example.edu/login\". Content area show a simple neutral school-controlled webpage facsimile, clearly labeled top \"学校统一身份认证\", no invented official crest, generous margins, white centered form \"账号\" and \"密码\" masked, blue \"登录\". Bottom application-owned thin strip \"登录页面由学校提供\" with \"取消登录\" at right. Distinguish browser chrome from webpage, this is a sample page, not a redesign of actual Fudan portal. No app reading saved browser cookies or trust claims. Tiny label \"示例学校页面\".",
+        "style_reference": "01-home-disconnected.png"
+      },
+      "refinement": {
+        "prompt": "Use case: ui-mockup. Edit this UI concept with exactly ONE targeted improvement: completely REMOVE the redundant entire school selector toolbar row underneath the native JustConnect titlebar, including the school building icon, 复旦大学 dropdown, settings gear, and its bottom separator. Move the dialog content upward to close the gap and reduce total window height by the removed row. This is a focused child dialog, so it must have NO profile selector and NO settings gear. Preserve the native titlebar and ALL other typography, content, controls, colors, alignment and bottom actions exactly. Flat front-on screenshot with all window edges visible.",
+        "input": "initial generated concept for this page"
+      }
+    },
+    {
+      "id": "15-phone-number",
+      "title": "短信登录 · 手机号",
+      "file": "15-phone-number.png",
+      "content": "国家码、手机号和记住手机号。",
+      "source_files": [
+        "presentation/coordinators/authdialogcoordinator.cpp"
+      ],
+      "generation": {
+        "prompt": "Use case: ui-mockup.\nAsset type: high fidelity desktop app UI concept for JustConnect, a Windows/macOS campus network client.\nCreate ONE polished, plausible, implementation-ready interface screenshot, front-on, all edges visible, no perspective or hardware, no collage, no marketing headings outside the window. Render sharp readable simplified Chinese typography, with Latin technical values intact. Light theme only. Warm near-white canvas #F3F4F6, white content surfaces, dark ink #182132, muted gray #7B8290, ONE restrained indigo accent #5367E8, semantic green/amber only for statuses. Elegant modern native desktop utility, quiet and confident, generous purposeful whitespace, disciplined alignment, slim dividers, minimal flat line icons, subtle 12px window radius, restrained shadow, clear focus and generous 44px targets. Natural Chinese sans font comparable to PingFang/Source Han Sans, large strong title then smaller labels; no tiny illegible dense text. Avoid gradients, neon, glass blobs, giant power buttons, illustrations, sidebars on small dialogs, dashboard metrics invented for decoration, excessive nested cards, fake throughput/latency/connection duration. Preserve every requested control and safety boundary. Product label \"JustConnect\" only once in native top titlebar. All data supplied below are synthetic examples, not real measurements or defaults.\nInput image role: STYLE REFERENCE ONLY. Match reference palette, typography and native window treatment; use the requested screen layout instead of homepage composition.\n\n460x390 dialog \"短信验证\". Heading \"输入手机号\". Label \"手机号\"; single horizontal input group country dropdown or short country field \"+86\" and phone field \"138 0000 0000\". Checkbox \"记住手机号\". Buttons \"取消\" and primary \"继续\". Small context \"复旦大学\". This screen submits phone number only; do not add send-code countdown or code entry here. No illustration.",
+        "style_reference": "01-home-disconnected.png"
+      },
+      "refinement": {
+        "prompt": "Use case: ui-mockup. Edit this UI concept with exactly ONE targeted improvement: completely REMOVE the redundant entire school selector toolbar row underneath the native JustConnect titlebar, including the school building icon, 复旦大学 dropdown, settings gear, and its bottom separator. Move the dialog content upward to close the gap and reduce total window height by the removed row. This is a focused child dialog, so it must have NO profile selector and NO settings gear. Preserve the native titlebar and ALL other typography, content, controls, colors, alignment and bottom actions exactly. Flat front-on screenshot with all window edges visible.",
+        "input": "initial generated concept for this page"
+      }
+    },
+    {
+      "id": "16-sms-code",
+      "title": "短信验证码",
+      "file": "16-sms-code.png",
+      "content": "短信验证码输入；跳过二次验证仅在服务端允许时出现。",
+      "source_files": [
+        "presentation/coordinators/authdialogcoordinator.cpp"
+      ],
+      "generation": {
+        "prompt": "Use case: ui-mockup.\nAsset type: high fidelity desktop app UI concept for JustConnect, a Windows/macOS campus network client.\nCreate ONE polished, plausible, implementation-ready interface screenshot, front-on, all edges visible, no perspective or hardware, no collage, no marketing headings outside the window. Render sharp readable simplified Chinese typography, with Latin technical values intact. Light theme only. Warm near-white canvas #F3F4F6, white content surfaces, dark ink #182132, muted gray #7B8290, ONE restrained indigo accent #5367E8, semantic green/amber only for statuses. Elegant modern native desktop utility, quiet and confident, generous purposeful whitespace, disciplined alignment, slim dividers, minimal flat line icons, subtle 12px window radius, restrained shadow, clear focus and generous 44px targets. Natural Chinese sans font comparable to PingFang/Source Han Sans, large strong title then smaller labels; no tiny illegible dense text. Avoid gradients, neon, glass blobs, giant power buttons, illustrations, sidebars on small dialogs, dashboard metrics invented for decoration, excessive nested cards, fake throughput/latency/connection duration. Preserve every requested control and safety boundary. Product label \"JustConnect\" only once in native top titlebar. All data supplied below are synthetic examples, not real measurements or defaults.\nInput image role: STYLE REFERENCE ONLY. Match reference palette, typography and native window treatment; use the requested screen layout instead of homepage composition.\n\n460x370 dialog \"短信验证码\". Heading \"输入短信验证码\"; one small line \"完成验证后继续连接\". Label \"验证码\"; ONE wide ordinary text input with placeholder \"输入验证码\", not six isolated boxes because code length is not fixed. Optional server-offered checkbox \"以后跳过二次验证\" unchecked with subtle helper \"仅在学校允许时生效\". Footer \"取消\" and primary \"验证\". No resend button or fake countdown, no fabricated recipient phone.",
+        "style_reference": "01-home-disconnected.png"
+      },
+      "refinement": {
+        "prompt": "Use case: ui-mockup. Edit this UI concept with exactly ONE targeted improvement: completely REMOVE the redundant entire school selector toolbar row underneath the native JustConnect titlebar, including the school building icon, 复旦大学 dropdown, settings gear, and its bottom separator. Move the dialog content upward to close the gap and reduce total window height by the removed row. This is a focused child dialog, so it must have NO profile selector and NO settings gear. Preserve the native titlebar and ALL other typography, content, controls, colors, alignment and bottom actions exactly. Flat front-on screenshot with all window edges visible.",
+        "input": "initial generated concept for this page"
+      }
+    },
+    {
+      "id": "17-totp-code",
+      "title": "验证器验证码",
+      "file": "17-totp-code.png",
+      "content": "验证器验证码输入；不固定长度、不展示验证器密钥。",
+      "source_files": [
+        "presentation/coordinators/authdialogcoordinator.cpp"
+      ],
+      "generation": {
+        "prompt": "Use case: ui-mockup.\nAsset type: high fidelity desktop app UI concept for JustConnect, a Windows/macOS campus network client.\nCreate ONE polished, plausible, implementation-ready interface screenshot, front-on, all edges visible, no perspective or hardware, no collage, no marketing headings outside the window. Render sharp readable simplified Chinese typography, with Latin technical values intact. Light theme only. Warm near-white canvas #F3F4F6, white content surfaces, dark ink #182132, muted gray #7B8290, ONE restrained indigo accent #5367E8, semantic green/amber only for statuses. Elegant modern native desktop utility, quiet and confident, generous purposeful whitespace, disciplined alignment, slim dividers, minimal flat line icons, subtle 12px window radius, restrained shadow, clear focus and generous 44px targets. Natural Chinese sans font comparable to PingFang/Source Han Sans, large strong title then smaller labels; no tiny illegible dense text. Avoid gradients, neon, glass blobs, giant power buttons, illustrations, sidebars on small dialogs, dashboard metrics invented for decoration, excessive nested cards, fake throughput/latency/connection duration. Preserve every requested control and safety boundary. Product label \"JustConnect\" only once in native top titlebar. All data supplied below are synthetic examples, not real measurements or defaults.\nInput image role: STYLE REFERENCE ONLY. Match reference palette, typography and native window treatment; use the requested screen layout instead of homepage composition.\n\n460x370 dialog \"验证器验证码\". Heading \"打开验证器，输入验证码\". Label \"验证码\"; ONE wide focused text input placeholder \"输入当前验证码\". Optional unchecked checkbox \"以后跳过二次验证\", small helper \"仅在学校允许时生效\". Footer \"取消\" and primary \"验证\". No QR code setup, no countdown, no forced six-digit UI, no secrets displayed.",
+        "style_reference": "01-home-disconnected.png"
+      },
+      "refinement": {
+        "prompt": "Use case: ui-mockup. Edit this UI concept with exactly ONE targeted improvement: completely REMOVE the redundant entire school selector toolbar row underneath the native JustConnect titlebar, including the school building icon, 复旦大学 dropdown, settings gear, and its bottom separator. Move the dialog content upward to close the gap and reduce total window height by the removed row. This is a focused child dialog, so it must have NO profile selector and NO settings gear. Preserve the native titlebar and ALL other typography, content, controls, colors, alignment and bottom actions exactly. Flat front-on screenshot with all window edges visible.",
+        "input": "initial generated concept for this page"
+      }
+    },
+    {
+      "id": "18-radius-code",
+      "title": "RADIUS 口令",
+      "file": "18-radius-code.png",
+      "content": "RADIUS 口令输入，与数字验证码区分。",
+      "source_files": [
+        "presentation/coordinators/authdialogcoordinator.cpp"
+      ],
+      "generation": {
+        "prompt": "Use case: ui-mockup.\nAsset type: high fidelity desktop app UI concept for JustConnect, a Windows/macOS campus network client.\nCreate ONE polished, plausible, implementation-ready interface screenshot, front-on, all edges visible, no perspective or hardware, no collage, no marketing headings outside the window. Render sharp readable simplified Chinese typography, with Latin technical values intact. Light theme only. Warm near-white canvas #F3F4F6, white content surfaces, dark ink #182132, muted gray #7B8290, ONE restrained indigo accent #5367E8, semantic green/amber only for statuses. Elegant modern native desktop utility, quiet and confident, generous purposeful whitespace, disciplined alignment, slim dividers, minimal flat line icons, subtle 12px window radius, restrained shadow, clear focus and generous 44px targets. Natural Chinese sans font comparable to PingFang/Source Han Sans, large strong title then smaller labels; no tiny illegible dense text. Avoid gradients, neon, glass blobs, giant power buttons, illustrations, sidebars on small dialogs, dashboard metrics invented for decoration, excessive nested cards, fake throughput/latency/connection duration. Preserve every requested control and safety boundary. Product label \"JustConnect\" only once in native top titlebar. All data supplied below are synthetic examples, not real measurements or defaults.\nInput image role: STYLE REFERENCE ONLY. Match reference palette, typography and native window treatment; use the requested screen layout instead of homepage composition.\n\n460x340 dialog \"RADIUS 验证\". Heading \"输入 RADIUS 口令\". Label \"验证口令\"; ONE wide ordinary text input placeholder \"输入验证口令\" with neutral outline. Footer \"取消\" and primary \"验证\". Clean minimal compact, small school context \"复旦大学\"; support arbitrary text length, do not force numeric-only code or six boxes. No QR code or new setup feature.",
+        "style_reference": "01-home-disconnected.png"
+      },
+      "refinement": {
+        "prompt": "Use case: ui-mockup. Edit this UI concept with exactly ONE targeted improvement: completely REMOVE the redundant entire school selector toolbar row underneath the native JustConnect titlebar, including the school building icon, 复旦大学 dropdown, settings gear, and its bottom separator. Move the dialog content upward to close the gap and reduce total window height by the removed row. This is a focused child dialog, so it must have NO profile selector and NO settings gear. Preserve the native titlebar and ALL other typography, content, controls, colors, alignment and bottom actions exactly. Flat front-on screenshot with all window edges visible.",
+        "input": "initial generated concept for this page"
+      }
+    },
+    {
+      "id": "19-text-captcha",
+      "title": "图形验证码 · 文字输入",
+      "file": "19-text-captcha.png",
+      "content": "服务端图片、字符输入和确认／取消；示例图片不进入产品。",
+      "source_files": [
+        "presentation/dialogs/graphcaptchawindow/graphcaptchawindow.cpp",
+        "presentation/dialogs/graphcaptchawindow/captchacanvas.cpp"
+      ],
+      "generation": {
+        "prompt": "Use case: ui-mockup.\nAsset type: high fidelity desktop app UI concept for JustConnect, a Windows/macOS campus network client.\nCreate ONE polished, plausible, implementation-ready interface screenshot, front-on, all edges visible, no perspective or hardware, no collage, no marketing headings outside the window. Render sharp readable simplified Chinese typography, with Latin technical values intact. Light theme only. Warm near-white canvas #F3F4F6, white content surfaces, dark ink #182132, muted gray #7B8290, ONE restrained indigo accent #5367E8, semantic green/amber only for statuses. Elegant modern native desktop utility, quiet and confident, generous purposeful whitespace, disciplined alignment, slim dividers, minimal flat line icons, subtle 12px window radius, restrained shadow, clear focus and generous 44px targets. Natural Chinese sans font comparable to PingFang/Source Han Sans, large strong title then smaller labels; no tiny illegible dense text. Avoid gradients, neon, glass blobs, giant power buttons, illustrations, sidebars on small dialogs, dashboard metrics invented for decoration, excessive nested cards, fake throughput/latency/connection duration. Preserve every requested control and safety boundary. Product label \"JustConnect\" only once in native top titlebar. All data supplied below are synthetic examples, not real measurements or defaults.\nInput image role: STYLE REFERENCE ONLY. Match reference palette, typography and native window treatment; use the requested screen layout instead of homepage composition.\n\n500x420 dialog \"图形验证\". Heading \"输入图片中的字符\". A large centered neutral captcha image inset on very light gray: mildly warped alphanumeric \"K7M2\" with sparse thin crossing lines, readable but recognizable as a captcha. Under it label \"验证码\" and full-width focused empty input. Footer \"取消\" and primary \"确认\". Tiny muted \"示例验证码\". Do not invent refresh, audio challenge, resend or countdown controls.",
+        "style_reference": "01-home-disconnected.png"
+      },
+      "refinement": {
+        "prompt": "Use case: ui-mockup. Edit this UI concept with exactly ONE targeted improvement: completely REMOVE the redundant entire school selector toolbar row underneath the native JustConnect titlebar, including the school building icon, 复旦大学 dropdown, settings gear, and its bottom separator. Move the dialog content upward to close the gap and reduce total window height by the removed row. This is a focused child dialog, so it must have NO profile selector and NO settings gear. Preserve the native titlebar and ALL other typography, content, controls, colors, alignment and bottom actions exactly. Flat front-on screenshot with all window edges visible.",
+        "input": "initial generated concept for this page"
+      }
+    },
+    {
+      "id": "20-click-captcha",
+      "title": "图形验证码 · 按序点选",
+      "file": "20-click-captcha.png",
+      "content": "服务端图片、按序选点和键盘操作提示；示例图片不进入产品。",
+      "source_files": [
+        "presentation/dialogs/graphcaptchawindow/graphcaptchawindow.cpp",
+        "presentation/dialogs/graphcaptchawindow/captchacanvas.cpp"
+      ],
+      "generation": {
+        "prompt": "Use case: ui-mockup.\nAsset type: high fidelity desktop app UI concept for JustConnect, a Windows/macOS campus network client.\nCreate ONE polished, plausible, implementation-ready interface screenshot, front-on, all edges visible, no perspective or hardware, no collage, no marketing headings outside the window. Render sharp readable simplified Chinese typography, with Latin technical values intact. Light theme only. Warm near-white canvas #F3F4F6, white content surfaces, dark ink #182132, muted gray #7B8290, ONE restrained indigo accent #5367E8, semantic green/amber only for statuses. Elegant modern native desktop utility, quiet and confident, generous purposeful whitespace, disciplined alignment, slim dividers, minimal flat line icons, subtle 12px window radius, restrained shadow, clear focus and generous 44px targets. Natural Chinese sans font comparable to PingFang/Source Han Sans, large strong title then smaller labels; no tiny illegible dense text. Avoid gradients, neon, glass blobs, giant power buttons, illustrations, sidebars on small dialogs, dashboard metrics invented for decoration, excessive nested cards, fake throughput/latency/connection duration. Preserve every requested control and safety boundary. Product label \"JustConnect\" only once in native top titlebar. All data supplied below are synthetic examples, not real measurements or defaults.\nInput image role: STYLE REFERENCE ONLY. Match reference palette, typography and native window treatment; use the requested screen layout instead of homepage composition.\n\n560x530 dialog \"图形验证\". Heading \"按图片要求依次点选\". Central supplied-challenge placeholder image: light gray image with top instruction \"请依次点击：山、水、月\", scattered Chinese characters 山 水 月 木 日 rendered at different positions. Show two small indigo numbered point markers 1 and 2 on selected 山 and 水. Below plain progress \"已选择 2 个点\", helper \"方向键移动 · 空格选点 · 退格撤销\". Footer \"取消\" and primary \"确认\". Small \"示例验证码\". Preserve mouse and keyboard affordance, no drag puzzle or invented refresh button.",
+        "style_reference": "01-home-disconnected.png"
+      },
+      "refinement": {
+        "prompt": "Use case: ui-mockup. Edit this UI concept with exactly ONE targeted improvement: completely REMOVE the redundant entire school selector toolbar row underneath the native JustConnect titlebar, including the school building icon, 复旦大学 dropdown, settings gear, and its bottom separator. Move the dialog content upward to close the gap and reduce total window height by the removed row. This is a focused child dialog, so it must have NO profile selector and NO settings gear. Preserve the native titlebar and ALL other typography, content, controls, colors, alignment and bottom actions exactly. Flat front-on screenshot with all window edges visible.",
+        "input": "initial generated concept for this page"
+      }
+    },
+    {
+      "id": "21-trusted-device",
+      "title": "信任设备确认",
+      "file": "21-trusted-device.png",
+      "content": "服务器请求信任当前设备；取消为安全默认操作。",
+      "source_files": [
+        "presentation/coordinators/authdialogcoordinator.cpp"
+      ],
+      "generation": {
+        "prompt": "Use case: ui-mockup.\nAsset type: high fidelity desktop app UI concept for JustConnect, a Windows/macOS campus network client.\nCreate ONE polished, plausible, implementation-ready interface screenshot, front-on, all edges visible, no perspective or hardware, no collage, no marketing headings outside the window. Render sharp readable simplified Chinese typography, with Latin technical values intact. Light theme only. Warm near-white canvas #F3F4F6, white content surfaces, dark ink #182132, muted gray #7B8290, ONE restrained indigo accent #5367E8, semantic green/amber only for statuses. Elegant modern native desktop utility, quiet and confident, generous purposeful whitespace, disciplined alignment, slim dividers, minimal flat line icons, subtle 12px window radius, restrained shadow, clear focus and generous 44px targets. Natural Chinese sans font comparable to PingFang/Source Han Sans, large strong title then smaller labels; no tiny illegible dense text. Avoid gradients, neon, glass blobs, giant power buttons, illustrations, sidebars on small dialogs, dashboard metrics invented for decoration, excessive nested cards, fake throughput/latency/connection duration. Preserve every requested control and safety boundary. Product label \"JustConnect\" only once in native top titlebar. All data supplied below are synthetic examples, not real measurements or defaults.\nInput image role: STYLE REFERENCE ONLY. Match reference palette, typography and native window treatment; use the requested screen layout instead of homepage composition.\n\n480x320 confirmation dialog \"信任此设备？\". Small restrained shield-outline icon. Heading \"允许学校记住这台设备？\". Body \"服务器请求将当前设备设为可信设备。请仅在你自己的设备上允许。\". Two footer buttons \"取消\" and \"允许\". Safe default focus ring on Cancel, not Allow. No checkbox preselected, no countdown, no claim of permanent verification bypass.",
+        "style_reference": "01-home-disconnected.png"
+      },
+      "refinement": {
+        "prompt": "Use case: ui-mockup. Edit this UI concept with exactly ONE targeted improvement: completely REMOVE the redundant entire school selector toolbar row underneath the native JustConnect titlebar, including the school building icon, 复旦大学 dropdown, settings gear, and its bottom separator. Move the dialog content upward to close the gap and reduce total window height by the removed row. This is a focused child dialog, so it must have NO profile selector and NO settings gear. Preserve the native titlebar and ALL other typography, content, controls, colors, alignment and bottom actions exactly. Flat front-on screenshot with all window edges visible.",
+        "input": "initial generated concept for this page"
+      }
+    },
+    {
+      "id": "22-recovery-failed",
+      "title": "网络恢复失败",
+      "file": "22-recovery-failed.png",
+      "content": "清理失败／超时暂停新连接，提供重试恢复并保持应用打开。",
+      "source_files": [
+        "presentation/main/mainwindow.ui",
+        "presentation/main/mainwindow.cpp"
+      ],
+      "generation": {
+        "prompt": "Use case: ui-mockup.\nAsset type: high fidelity desktop app UI concept for JustConnect, a Windows/macOS campus network client.\nCreate ONE polished, plausible, implementation-ready interface screenshot, front-on, all edges visible, no perspective or hardware, no collage, no marketing headings outside the window. Render sharp readable simplified Chinese typography, with Latin technical values intact. Light theme only. Warm near-white canvas #F3F4F6, white content surfaces, dark ink #182132, muted gray #7B8290, ONE restrained indigo accent #5367E8, semantic green/amber only for statuses. Elegant modern native desktop utility, quiet and confident, generous purposeful whitespace, disciplined alignment, slim dividers, minimal flat line icons, subtle 12px window radius, restrained shadow, clear focus and generous 44px targets. Natural Chinese sans font comparable to PingFang/Source Han Sans, large strong title then smaller labels; no tiny illegible dense text. Avoid gradients, neon, glass blobs, giant power buttons, illustrations, sidebars on small dialogs, dashboard metrics invented for decoration, excessive nested cards, fake throughput/latency/connection duration. Preserve every requested control and safety boundary. Product label \"JustConnect\" only once in native top titlebar. All data supplied below are synthetic examples, not real measurements or defaults.\nInput image role: STYLE REFERENCE ONLY. Match reference palette, typography and native window treatment; use the requested screen layout instead of homepage composition.\n\n560x410 warning dialog \"网络恢复未完成\". Elegant small amber outlined warning icon not giant red alarm. Heading \"请先完成网络恢复\". Body two short paragraphs \"清理失败或超时，新的连接与自动重连已暂停。\" and \"请重试恢复。完成前应用将保持打开。\". Footer \"取消\" neutral and primary \"重试恢复\". Background is plain off-white; no decorative terminal output, no raw stack trace, no unsafe force-exit button. Clear safety significance through wording and icon.",
+        "style_reference": "01-home-disconnected.png"
+      },
+      "refinement": null
+    },
+    {
+      "id": "23-update",
+      "title": "更新提示",
+      "file": "23-update.png",
+      "content": "打开现有发布页面；不承诺自动下载或安装。",
+      "source_files": [
+        "presentation/main/mainwindow.ui",
+        "presentation/main/mainwindow.cpp"
+      ],
+      "generation": {
+        "prompt": "Use case: ui-mockup.\nAsset type: high fidelity desktop app UI concept for JustConnect, a Windows/macOS campus network client.\nCreate ONE polished, plausible, implementation-ready interface screenshot, front-on, all edges visible, no perspective or hardware, no collage, no marketing headings outside the window. Render sharp readable simplified Chinese typography, with Latin technical values intact. Light theme only. Warm near-white canvas #F3F4F6, white content surfaces, dark ink #182132, muted gray #7B8290, ONE restrained indigo accent #5367E8, semantic green/amber only for statuses. Elegant modern native desktop utility, quiet and confident, generous purposeful whitespace, disciplined alignment, slim dividers, minimal flat line icons, subtle 12px window radius, restrained shadow, clear focus and generous 44px targets. Natural Chinese sans font comparable to PingFang/Source Han Sans, large strong title then smaller labels; no tiny illegible dense text. Avoid gradients, neon, glass blobs, giant power buttons, illustrations, sidebars on small dialogs, dashboard metrics invented for decoration, excessive nested cards, fake throughput/latency/connection duration. Preserve every requested control and safety boundary. Product label \"JustConnect\" only once in native top titlebar. All data supplied below are synthetic examples, not real measurements or defaults.\nInput image role: STYLE REFERENCE ONLY. Match reference palette, typography and native window treatment; use the requested screen layout instead of homepage composition.\n\n480x320 native information dialog \"发现新版本\". Small simple upward-arrow line icon; heading \"JustConnect 有更新\". Body \"是否打开发布页面查看新版本？\". Small neutral version tag \"新版本（示例）\". Footer secondary \"稍后\" and indigo primary \"打开发布页\" with tiny external link mark. No download progress or auto-install, no fictional changelog, no fake numerical version.",
+        "style_reference": "01-home-disconnected.png"
+      },
+      "refinement": null
+    },
+    {
+      "id": "24-profile-name",
+      "title": "新建／重命名配置",
+      "file": "24-profile-name.png",
+      "content": "新建与重命名共享的单字段对话框；遵循配置名称字符规则。",
+      "source_files": [
+        "presentation/main/mainwindow.ui",
+        "presentation/main/mainwindow.cpp"
+      ],
+      "generation": {
+        "prompt": "Use case: ui-mockup.\nAsset type: high fidelity desktop app UI concept for JustConnect, a Windows/macOS campus network client.\nCreate ONE polished, plausible, implementation-ready interface screenshot, front-on, all edges visible, no perspective or hardware, no collage, no marketing headings outside the window. Render sharp readable simplified Chinese typography, with Latin technical values intact. Light theme only. Warm near-white canvas #F3F4F6, white content surfaces, dark ink #182132, muted gray #7B8290, ONE restrained indigo accent #5367E8, semantic green/amber only for statuses. Elegant modern native desktop utility, quiet and confident, generous purposeful whitespace, disciplined alignment, slim dividers, minimal flat line icons, subtle 12px window radius, restrained shadow, clear focus and generous 44px targets. Natural Chinese sans font comparable to PingFang/Source Han Sans, large strong title then smaller labels; no tiny illegible dense text. Avoid gradients, neon, glass blobs, giant power buttons, illustrations, sidebars on small dialogs, dashboard metrics invented for decoration, excessive nested cards, fake throughput/latency/connection duration. Preserve every requested control and safety boundary. Product label \"JustConnect\" only once in native top titlebar. All data supplied below are synthetic examples, not real measurements or defaults.\nInput image role: STYLE REFERENCE ONLY. Match reference palette, typography and native window treatment; use the requested screen layout instead of homepage composition.\n\n480x320 dialog \"重命名配置\". Heading \"为配置取个名字\". Label \"配置名称\"; focused single input \"Fudan-Backup\". Small helper \"使用字母、数字、下划线或连字符。\". Footer \"取消\" and indigo \"保存\". No school/server fields here; those live in connection settings. Quiet compact native input dialog.",
+        "style_reference": "01-home-disconnected.png"
+      },
+      "refinement": null
+    },
+    {
+      "id": "25-delete-confirmation",
+      "title": "删除与数据清理确认",
+      "file": "25-delete-confirmation.png",
+      "content": "删除配置文件和旧版缓存；安全存储凭据保留，避免误导删除范围。",
+      "source_files": [
+        "presentation/main/mainwindow.ui",
+        "presentation/main/mainwindow.cpp"
+      ],
+      "generation": {
+        "prompt": "Use case: ui-mockup.\nAsset type: high fidelity desktop app UI concept for JustConnect, a Windows/macOS campus network client.\nCreate ONE polished, plausible, implementation-ready interface screenshot, front-on, all edges visible, no perspective or hardware, no collage, no marketing headings outside the window. Render sharp readable simplified Chinese typography, with Latin technical values intact. Light theme only. Warm near-white canvas #F3F4F6, white content surfaces, dark ink #182132, muted gray #7B8290, ONE restrained indigo accent #5367E8, semantic green/amber only for statuses. Elegant modern native desktop utility, quiet and confident, generous purposeful whitespace, disciplined alignment, slim dividers, minimal flat line icons, subtle 12px window radius, restrained shadow, clear focus and generous 44px targets. Natural Chinese sans font comparable to PingFang/Source Han Sans, large strong title then smaller labels; no tiny illegible dense text. Avoid gradients, neon, glass blobs, giant power buttons, illustrations, sidebars on small dialogs, dashboard metrics invented for decoration, excessive nested cards, fake throughput/latency/connection duration. Preserve every requested control and safety boundary. Product label \"JustConnect\" only once in native top titlebar. All data supplied below are synthetic examples, not real measurements or defaults.\nInput image role: STYLE REFERENCE ONLY. Match reference palette, typography and native window treatment; use the requested screen layout instead of homepage composition.\n\n560x420 native destructive confirmation dialog \"删除配置\". Small restrained trash line icon; title \"删除“Fudan-Backup”？\". Body \"将删除配置文件和旧版缓存。\". Secondary paragraph IMPORTANT preserve exact semantics: \"系统安全存储中的密码、验证器密钥和认证缓存仍会保留。如需删除，请先清除对应凭据和缓存。\". Footer neutral \"取消\" with safe default focus and red destructive \"删除配置\". No checked confirmation box, no countdown. Keep strong hierarchy and ample whitespace. Do not claim saved secure credentials will be deleted.",
+        "style_reference": "01-home-disconnected.png"
+      },
+      "refinement": null
+    },
+    {
+      "id": "26-tray",
+      "title": "系统托盘菜单",
+      "file": "26-tray.png",
+      "content": "连接／断开、配置子菜单、显示窗口和有序退出。",
+      "source_files": [
+        "presentation/main/mainwindow.ui",
+        "presentation/main/mainwindow.cpp"
+      ],
+      "generation": {
+        "prompt": "Use case: ui-mockup.\nAsset type: high fidelity desktop app UI concept for JustConnect, a Windows/macOS campus network client.\nCreate ONE polished, plausible, implementation-ready interface screenshot, front-on, all edges visible, no perspective or hardware, no collage, no marketing headings outside the window. Render sharp readable simplified Chinese typography, with Latin technical values intact. Light theme only. Warm near-white canvas #F3F4F6, white content surfaces, dark ink #182132, muted gray #7B8290, ONE restrained indigo accent #5367E8, semantic green/amber only for statuses. Elegant modern native desktop utility, quiet and confident, generous purposeful whitespace, disciplined alignment, slim dividers, minimal flat line icons, subtle 12px window radius, restrained shadow, clear focus and generous 44px targets. Natural Chinese sans font comparable to PingFang/Source Han Sans, large strong title then smaller labels; no tiny illegible dense text. Avoid gradients, neon, glass blobs, giant power buttons, illustrations, sidebars on small dialogs, dashboard metrics invented for decoration, excessive nested cards, fake throughput/latency/connection duration. Preserve every requested control and safety boundary. Product label \"JustConnect\" only once in native top titlebar. All data supplied below are synthetic examples, not real measurements or defaults.\nInput image role: STYLE REFERENCE ONLY. Match reference palette, typography and native window treatment; use the requested screen layout instead of homepage composition.\n\nA close-up of a native system tray context menu on plain light desktop background. Show small taskbar strip and thin-line JustConnect tray glyph at bottom right. Above it open a beautifully restrained native light menu, 320px wide. Action rows in this order: \"断开连接\", divider, \"配置\" with right submenu arrow, divider, \"显示窗口\", final \"退出 JustConnect\". Tiny green mark on the tray icon indicates a connected session. This is a tray/menu concept only, no full app window or dashboard, all text readable. No settings action added, no extra functions. The current connection action is derived from the same session as the main window.",
+        "style_reference": "01-home-disconnected.png"
+      },
+      "refinement": null
+    }
+  ]
+}
