@@ -25,7 +25,7 @@
        <number>12</number>
       </property>
       <item>
-       <widget class="QPushButton" name="profileMenuButton">
+       <widget class="QToolButton" name="profileMenuButton">
         <property name="text">
          <string>Choose a profile</string>
         </property>
@@ -44,8 +44,11 @@
           <height>0</height>
          </size>
         </property>
-        <property name="flat">
-         <bool>true</bool>
+        <property name="popupMode">
+         <enum>QToolButton::InstantPopup</enum>
+        </property>
+        <property name="toolButtonStyle">
+         <enum>Qt::ToolButtonTextOnly</enum>
         </property>
        </widget>
       </item>
@@ -59,10 +62,10 @@
       <item>
        <widget class="QToolButton" name="preferencesButton">
         <property name="toolTip">
-         <string>Settings and more</string>
+         <string>App settings</string>
         </property>
         <property name="accessibleName">
-         <string>Settings and more</string>
+         <string>App settings</string>
         </property>
         <property name="icon">
          <iconset>
@@ -711,7 +714,7 @@
   </action>
   <action name="preferencesAction">
    <property name="text">
-    <string>Application settings…</string>
+    <string>App settings</string>
    </property>
    <property name="menuRole">
     <enum>QAction::MenuRole::PreferencesRole</enum>
@@ -727,7 +730,7 @@
   </action>
   <action name="settingAction">
    <property name="text">
-    <string>Edit current profile…</string>
+    <string>Edit connection…</string>
    </property>
    <property name="menuRole">
     <enum>QAction::MenuRole::NoRole</enum>

@@ -3,524 +3,483 @@
  <class>SettingWindow</class>
  <widget class="QDialog" name="SettingWindow">
   <property name="windowTitle">
-   <string>Settings</string>
+   <string>Connection settings</string>
   </property>
   <layout class="QVBoxLayout" name="dialogLayout">
    <item>
-    <widget class="QTabWidget" name="tabWidget">
-     <widget class="QScrollArea" name="generalTab">
-      <attribute name="title">
-       <string>General</string>
-      </attribute>
-      <property name="widgetResizable">
-       <bool>true</bool>
-      </property>
-      <property name="frameShape">
-       <enum>QFrame::NoFrame</enum>
-      </property>
-      <widget class="QWidget" name="generalTabContents">
-       <layout class="QVBoxLayout" name="generalTabLayout">
-        <item>
-         <widget class="QWidget" name="preferencesContainer" />
-        </item>
-        <property name="sizeConstraint">
-         <enum>QLayout::SetMinAndMaxSize</enum>
-        </property>
-        <property name="spacing">
-         <number>20</number>
-        </property>
-        <property name="leftMargin">
-         <number>0</number>
-        </property>
-        <property name="topMargin">
-         <number>0</number>
-        </property>
-        <property name="rightMargin">
-         <number>0</number>
-        </property>
-        <property name="bottomMargin">
-         <number>0</number>
-        </property>
-       </layout>
-      </widget>
-     </widget>
-     <widget class="QScrollArea" name="loginTab">
-      <attribute name="title">
-       <string>Connection</string>
-      </attribute>
-      <property name="widgetResizable">
-       <bool>true</bool>
-      </property>
-      <property name="frameShape">
-       <enum>QFrame::NoFrame</enum>
-      </property>
-      <widget class="QWidget" name="loginTabContents">
-       <layout class="QVBoxLayout" name="loginTabLayout">
-        <item>
-         <widget class="QGroupBox" name="serverGroup">
-          <property name="title">
-           <string>School and server</string>
+    <widget class="QScrollArea" name="loginTab">
+     <property name="widgetResizable">
+      <bool>true</bool>
+     </property>
+     <property name="frameShape">
+      <enum>QFrame::NoFrame</enum>
+     </property>
+     <widget class="QWidget" name="loginTabContents">
+      <layout class="QVBoxLayout" name="loginTabLayout">
+       <item>
+        <widget class="QGroupBox" name="serverGroup">
+         <property name="title">
+          <string>School and server</string>
+         </property>
+         <layout class="QVBoxLayout" name="serverLayout">
+          <item>
+           <widget class="QWidget" name="serverSettingsContainer" />
+          </item>
+          <property name="leftMargin">
+           <number>0</number>
           </property>
-          <layout class="QVBoxLayout" name="serverLayout">
-           <item>
-            <widget class="QWidget" name="serverSettingsContainer" />
-           </item>
-           <property name="leftMargin">
-            <number>0</number>
-           </property>
-           <property name="rightMargin">
-            <number>0</number>
-           </property>
-           <property name="topMargin">
-            <number>0</number>
-           </property>
-           <property name="bottomMargin">
-            <number>0</number>
-           </property>
-           <property name="spacing">
-            <number>12</number>
-           </property>
-          </layout>
-         </widget>
-        </item>
-        <item>
-         <widget class="QGroupBox" name="authInfoGroupBox">
-          <property name="title">
-           <string>Sign-in method</string>
+          <property name="rightMargin">
+           <number>0</number>
           </property>
-          <layout class="QVBoxLayout" name="authLayout">
-           <item>
-            <layout class="QFormLayout" name="authForm">
-             <item row="0" column="0">
-              <widget class="QLabel" name="authFormLabel0">
-               <property name="text">
-                <string>Method</string>
+          <property name="topMargin">
+           <number>0</number>
+          </property>
+          <property name="bottomMargin">
+           <number>0</number>
+          </property>
+          <property name="spacing">
+           <number>12</number>
+          </property>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="authInfoGroupBox">
+         <property name="title">
+          <string>Sign-in method</string>
+         </property>
+         <layout class="QVBoxLayout" name="authLayout">
+          <item>
+           <layout class="QFormLayout" name="authForm">
+            <item row="0" column="0">
+             <widget class="QLabel" name="authFormLabel0">
+              <property name="text">
+               <string>Method</string>
+              </property>
+              <property name="buddy">
+               <cstring>authTypeComboBox</cstring>
+              </property>
+              <property name="wordWrap">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="1">
+             <widget class="QWidget" name="authMethodRow">
+              <layout class="QHBoxLayout" name="authMethodLayout">
+               <property name="leftMargin">
+                <number>0</number>
                </property>
-               <property name="buddy">
-                <cstring>authTypeComboBox</cstring>
+               <property name="topMargin">
+                <number>0</number>
                </property>
-               <property name="wordWrap">
-                <bool>true</bool>
+               <property name="rightMargin">
+                <number>0</number>
                </property>
-              </widget>
-             </item>
-             <item row="0" column="1">
-              <widget class="QWidget" name="authMethodRow">
-               <layout class="QHBoxLayout" name="authMethodLayout">
-                <property name="leftMargin">
-                 <number>0</number>
-                </property>
-                <property name="topMargin">
-                 <number>0</number>
-                </property>
-                <property name="rightMargin">
-                 <number>0</number>
-                </property>
-                <property name="bottomMargin">
-                 <number>0</number>
-                </property>
-                <item>
-                 <widget class="QComboBox" name="authTypeComboBox">
+               <property name="bottomMargin">
+                <number>0</number>
+               </property>
+               <item>
+                <widget class="QComboBox" name="authTypeComboBox">
                </widget>
-                </item>
-                <item>
-                 <widget class="QPushButton" name="authSelectPushButton">
-                  <property name="text">
-                   <string>Get sign-in methods</string>
-                  </property>
-                  <property name="autoDefault">
-                   <bool>false</bool>
-                  </property>
-                 </widget>
-                </item>
-                <property name="spacing">
-                 <number>8</number>
-                </property>
-               </layout>
-              </widget>
-             </item>
-             <item row="3" column="0">
-              <widget class="QLabel" name="authFormLabel3">
-               <property name="text">
-                <string>Country code</string>
+               </item>
+               <item>
+                <widget class="QPushButton" name="authSelectPushButton">
+                 <property name="text">
+                  <string>Get sign-in methods</string>
+                 </property>
+                 <property name="autoDefault">
+                  <bool>false</bool>
+                 </property>
+                </widget>
+               </item>
+               <property name="spacing">
+                <number>8</number>
                </property>
-               <property name="buddy">
-                <cstring>countryCodeLineEdit</cstring>
-               </property>
-               <property name="wordWrap">
-                <bool>true</bool>
-               </property>
-              </widget>
-             </item>
-             <item row="3" column="1">
-              <widget class="QLineEdit" name="countryCodeLineEdit" />
-             </item>
-             <item row="4" column="0">
-              <widget class="QLabel" name="authFormLabel4">
-               <property name="text">
-                <string>Phone number</string>
-               </property>
-               <property name="buddy">
-                <cstring>phoneNumberLineEdit</cstring>
-               </property>
-               <property name="wordWrap">
-                <bool>true</bool>
-               </property>
-              </widget>
-             </item>
-             <item row="4" column="1">
-              <widget class="QLineEdit" name="phoneNumberLineEdit" />
-             </item>
-             <property name="rowWrapPolicy">
-              <enum>QFormLayout::WrapLongRows</enum>
-             </property>
-             <property name="fieldGrowthPolicy">
-              <enum>QFormLayout::AllNonFixedFieldsGrow</enum>
-             </property>
-             <property name="verticalSpacing">
-              <number>8</number>
-             </property>
-             <property name="leftMargin">
-              <number>0</number>
-             </property>
-             <property name="topMargin">
-              <number>0</number>
-             </property>
-             <property name="rightMargin">
-              <number>0</number>
-             </property>
-             <property name="bottomMargin">
-              <number>0</number>
-             </property>
-             <property name="horizontalSpacing">
-              <number>12</number>
-             </property>
-             <property name="labelAlignment">
-              <set>Qt::AlignLeft|Qt::AlignVCenter</set>
-             </property>
-            </layout>
-           </item>
-           <property name="leftMargin">
-            <number>0</number>
-           </property>
-           <property name="rightMargin">
-            <number>0</number>
-           </property>
-           <property name="topMargin">
-            <number>0</number>
-           </property>
-           <property name="bottomMargin">
-            <number>0</number>
-           </property>
-           <property name="spacing">
-            <number>12</number>
-           </property>
-          </layout>
-         </widget>
-        </item>
-        <item>
-         <widget class="QGroupBox" name="credentialsGroup">
-          <property name="title">
-           <string>Account</string>
+              </layout>
+             </widget>
+            </item>
+            <item row="3" column="0">
+             <widget class="QLabel" name="authFormLabel3">
+              <property name="text">
+               <string>Country code</string>
+              </property>
+              <property name="buddy">
+               <cstring>countryCodeLineEdit</cstring>
+              </property>
+              <property name="wordWrap">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item row="3" column="1">
+             <widget class="QLineEdit" name="countryCodeLineEdit" />
+            </item>
+            <item row="4" column="0">
+             <widget class="QLabel" name="authFormLabel4">
+              <property name="text">
+               <string>Phone number</string>
+              </property>
+              <property name="buddy">
+               <cstring>phoneNumberLineEdit</cstring>
+              </property>
+              <property name="wordWrap">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item row="4" column="1">
+             <widget class="QLineEdit" name="phoneNumberLineEdit" />
+            </item>
+            <property name="rowWrapPolicy">
+             <enum>QFormLayout::WrapLongRows</enum>
+            </property>
+            <property name="fieldGrowthPolicy">
+             <enum>QFormLayout::AllNonFixedFieldsGrow</enum>
+            </property>
+            <property name="verticalSpacing">
+             <number>8</number>
+            </property>
+            <property name="leftMargin">
+             <number>0</number>
+            </property>
+            <property name="topMargin">
+             <number>0</number>
+            </property>
+            <property name="rightMargin">
+             <number>0</number>
+            </property>
+            <property name="bottomMargin">
+             <number>0</number>
+            </property>
+            <property name="horizontalSpacing">
+             <number>12</number>
+            </property>
+            <property name="labelAlignment">
+             <set>Qt::AlignLeft|Qt::AlignVCenter</set>
+            </property>
+           </layout>
+          </item>
+          <property name="leftMargin">
+           <number>0</number>
           </property>
-          <layout class="QFormLayout" name="credentialsForm">
-           <item row="0" column="0">
-            <widget class="QLabel" name="credentialsFormLabel0">
-             <property name="text">
-              <string>Username</string>
-             </property>
-             <property name="buddy">
-              <cstring>usernameLineEdit</cstring>
-             </property>
-             <property name="wordWrap">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-           <item row="0" column="1">
-            <widget class="QLineEdit" name="usernameLineEdit" />
-           </item>
-           <item row="1" column="0">
-            <widget class="QLabel" name="credentialsFormLabel1">
-             <property name="text">
-              <string>Password</string>
-             </property>
-             <property name="buddy">
-              <cstring>passwordLineEdit</cstring>
-             </property>
-             <property name="wordWrap">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-           <item row="1" column="1">
-            <widget class="QLineEdit" name="passwordLineEdit">
-             <property name="echoMode">
-              <enum>QLineEdit::Password</enum>
-             </property>
-            </widget>
-           </item>
-           <item row="3" column="0">
-            <widget class="QLabel" name="credentialsFormLabel3">
-             <property name="text">
-              <string>Authenticator key (optional)</string>
-             </property>
-             <property name="buddy">
-              <cstring>totpSecretLineEdit</cstring>
-             </property>
-             <property name="wordWrap">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-           <item row="3" column="1">
-            <widget class="QLineEdit" name="totpSecretLineEdit">
-             <property name="echoMode">
-              <enum>QLineEdit::Password</enum>
-             </property>
-            </widget>
-           </item>
-           <property name="rowWrapPolicy">
-            <enum>QFormLayout::WrapLongRows</enum>
-           </property>
-           <property name="fieldGrowthPolicy">
-            <enum>QFormLayout::AllNonFixedFieldsGrow</enum>
-           </property>
-           <property name="verticalSpacing">
-            <number>8</number>
-           </property>
-           <property name="leftMargin">
-            <number>0</number>
-           </property>
-           <property name="rightMargin">
-            <number>0</number>
-           </property>
-           <property name="topMargin">
-            <number>0</number>
-           </property>
-           <property name="bottomMargin">
-            <number>0</number>
-           </property>
-           <property name="horizontalSpacing">
-            <number>12</number>
-           </property>
-           <property name="labelAlignment">
-            <set>Qt::AlignLeft|Qt::AlignVCenter</set>
-           </property>
-          </layout>
-         </widget>
-        </item>
-        <item>
-         <widget class="QGroupBox" name="commonGroup">
-          <property name="title">
-           <string>Startup and connection</string>
+          <property name="rightMargin">
+           <number>0</number>
           </property>
-          <layout class="QFormLayout" name="commonForm">
-           <item row="0" column="0" colspan="2">
-            <widget class="QCheckBox" name="checkUpdateAfterStartCheckBox">
-             <property name="text">
-              <string>Check for updates at startup</string>
-             </property>
-            </widget>
-           </item>
-           <item row="1" column="0" colspan="2">
-            <widget class="QCheckBox" name="connectAfterStartCheckBox">
-             <property name="text">
-              <string>Connect at startup</string>
-             </property>
-            </widget>
-           </item>
-           <item row="2" column="0" colspan="2">
-            <widget class="QCheckBox" name="autoReconnectCheckBox">
-             <property name="text">
-              <string>Reconnect automatically</string>
-             </property>
-            </widget>
-           </item>
-           <property name="rowWrapPolicy">
-            <enum>QFormLayout::WrapLongRows</enum>
-           </property>
-           <property name="fieldGrowthPolicy">
-            <enum>QFormLayout::AllNonFixedFieldsGrow</enum>
-           </property>
-           <property name="verticalSpacing">
-            <number>4</number>
-           </property>
-           <property name="leftMargin">
-            <number>0</number>
-           </property>
-           <property name="rightMargin">
-            <number>0</number>
-           </property>
-           <property name="topMargin">
-            <number>0</number>
-           </property>
-           <property name="bottomMargin">
-            <number>0</number>
-           </property>
-           <property name="horizontalSpacing">
-            <number>12</number>
-           </property>
-           <property name="labelAlignment">
-            <set>Qt::AlignLeft|Qt::AlignVCenter</set>
-           </property>
-          </layout>
-         </widget>
-        </item>
-        <item>
-         <widget class="QWidget" name="profileGroup">
-          <layout class="QHBoxLayout" name="profileActions">
-           <item>
-            <widget class="QPushButton" name="importPushButton">
-             <property name="text">
-              <string />
-             </property>
-             <property name="toolTip">
-              <string>Import profile</string>
-             </property>
-             <property name="flat">
-              <bool>true</bool>
-             </property>
-             <property name="icon">
-              <iconset>
-               <normaloff>:/resource/import.svg</normaloff>
-              </iconset>
-             </property>
-             <property name="iconSize">
-              <size>
-               <width>18</width>
-               <height>18</height>
-              </size>
-             </property>
-             <property name="accessibleName">
-              <string>Import profile</string>
-             </property>
-             <property name="iconOnly" stdset="0">
-              <bool>true</bool>
-             </property>
-             <property name="autoDefault">
-              <bool>false</bool>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QPushButton" name="exportPushButton">
-             <property name="text">
-              <string />
-             </property>
-             <property name="toolTip">
-              <string>Export saved profile</string>
-             </property>
-             <property name="flat">
-              <bool>true</bool>
-             </property>
-             <property name="icon">
-              <iconset>
-               <normaloff>:/resource/export.svg</normaloff>
-              </iconset>
-             </property>
-             <property name="iconSize">
-              <size>
-               <width>18</width>
-               <height>18</height>
-              </size>
-             </property>
-             <property name="accessibleName">
-              <string>Export saved profile</string>
-             </property>
-             <property name="iconOnly" stdset="0">
-              <bool>true</bool>
-             </property>
-             <property name="autoDefault">
-              <bool>false</bool>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QPushButton" name="resetDefaultPushButton">
-             <property name="text">
-              <string />
-             </property>
-             <property name="toolTip">
-              <string>Reset draft</string>
-             </property>
-             <property name="flat">
-              <bool>true</bool>
-             </property>
-             <property name="icon">
-              <iconset>
-               <normaloff>:/resource/undo.svg</normaloff>
-              </iconset>
-             </property>
-             <property name="iconSize">
-              <size>
-               <width>18</width>
-               <height>18</height>
-              </size>
-             </property>
-             <property name="accessibleName">
-              <string>Reset draft</string>
-             </property>
-             <property name="iconOnly" stdset="0">
-              <bool>true</bool>
-             </property>
-             <property name="autoDefault">
-              <bool>false</bool>
-             </property>
-            </widget>
-           </item>
-           <property name="leftMargin">
-            <number>0</number>
-           </property>
-           <property name="topMargin">
-            <number>0</number>
-           </property>
-           <property name="rightMargin">
-            <number>0</number>
-           </property>
-           <property name="bottomMargin">
-            <number>0</number>
-           </property>
-           <item>
-            <spacer name="fileActionsSpacer">
-             <property name="orientation">
-              <enum>Qt::Horizontal</enum>
-             </property>
-            </spacer>
-           </item>
-           <property name="spacing">
-            <number>8</number>
-           </property>
-          </layout>
-         </widget>
-        </item>
-        <property name="sizeConstraint">
-         <enum>QLayout::SetMinAndMaxSize</enum>
-        </property>
-        <property name="spacing">
-         <number>20</number>
-        </property>
-        <item>
-         <spacer name="connectionPageSpacer">
-          <property name="orientation">
-           <enum>Qt::Vertical</enum>
+          <property name="topMargin">
+           <number>0</number>
           </property>
-         </spacer>
-        </item>
-        <property name="leftMargin">
-         <number>0</number>
-        </property>
-        <property name="topMargin">
-         <number>0</number>
-        </property>
-        <property name="rightMargin">
-         <number>0</number>
-        </property>
-        <property name="bottomMargin">
-         <number>0</number>
-        </property>
-       </layout>
-      </widget>
+          <property name="bottomMargin">
+           <number>0</number>
+          </property>
+          <property name="spacing">
+           <number>12</number>
+          </property>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="credentialsGroup">
+         <property name="title">
+          <string>Account</string>
+         </property>
+         <layout class="QFormLayout" name="credentialsForm">
+          <item row="0" column="0">
+           <widget class="QLabel" name="credentialsFormLabel0">
+            <property name="text">
+             <string>Username</string>
+            </property>
+            <property name="buddy">
+             <cstring>usernameLineEdit</cstring>
+            </property>
+            <property name="wordWrap">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QLineEdit" name="usernameLineEdit" />
+          </item>
+          <item row="1" column="0">
+           <widget class="QLabel" name="credentialsFormLabel1">
+            <property name="text">
+             <string>Password</string>
+            </property>
+            <property name="buddy">
+             <cstring>passwordLineEdit</cstring>
+            </property>
+            <property name="wordWrap">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QLineEdit" name="passwordLineEdit">
+            <property name="echoMode">
+             <enum>QLineEdit::Password</enum>
+            </property>
+           </widget>
+          </item>
+          <item row="3" column="0">
+           <widget class="QLabel" name="credentialsFormLabel3">
+            <property name="text">
+             <string>Authenticator key (optional)</string>
+            </property>
+            <property name="buddy">
+             <cstring>totpSecretLineEdit</cstring>
+            </property>
+            <property name="wordWrap">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+          <item row="3" column="1">
+           <widget class="QLineEdit" name="totpSecretLineEdit">
+            <property name="echoMode">
+             <enum>QLineEdit::Password</enum>
+            </property>
+           </widget>
+          </item>
+          <property name="rowWrapPolicy">
+           <enum>QFormLayout::WrapLongRows</enum>
+          </property>
+          <property name="fieldGrowthPolicy">
+           <enum>QFormLayout::AllNonFixedFieldsGrow</enum>
+          </property>
+          <property name="verticalSpacing">
+           <number>8</number>
+          </property>
+          <property name="leftMargin">
+           <number>0</number>
+          </property>
+          <property name="rightMargin">
+           <number>0</number>
+          </property>
+          <property name="topMargin">
+           <number>0</number>
+          </property>
+          <property name="bottomMargin">
+           <number>0</number>
+          </property>
+          <property name="horizontalSpacing">
+           <number>12</number>
+          </property>
+          <property name="labelAlignment">
+           <set>Qt::AlignLeft|Qt::AlignVCenter</set>
+          </property>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="commonGroup">
+         <property name="title">
+          <string>Startup and connection</string>
+         </property>
+         <layout class="QFormLayout" name="commonForm">
+          <item row="0" column="0" colspan="2">
+           <widget class="QCheckBox" name="checkUpdateAfterStartCheckBox">
+            <property name="text">
+             <string>Check for updates at startup</string>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="0" colspan="2">
+           <widget class="QCheckBox" name="connectAfterStartCheckBox">
+            <property name="text">
+             <string>Connect at startup</string>
+            </property>
+           </widget>
+          </item>
+          <item row="2" column="0" colspan="2">
+           <widget class="QCheckBox" name="autoReconnectCheckBox">
+            <property name="text">
+             <string>Reconnect automatically</string>
+            </property>
+           </widget>
+          </item>
+          <property name="rowWrapPolicy">
+           <enum>QFormLayout::WrapLongRows</enum>
+          </property>
+          <property name="fieldGrowthPolicy">
+           <enum>QFormLayout::AllNonFixedFieldsGrow</enum>
+          </property>
+          <property name="verticalSpacing">
+           <number>4</number>
+          </property>
+          <property name="leftMargin">
+           <number>0</number>
+          </property>
+          <property name="rightMargin">
+           <number>0</number>
+          </property>
+          <property name="topMargin">
+           <number>0</number>
+          </property>
+          <property name="bottomMargin">
+           <number>0</number>
+          </property>
+          <property name="horizontalSpacing">
+           <number>12</number>
+          </property>
+          <property name="labelAlignment">
+           <set>Qt::AlignLeft|Qt::AlignVCenter</set>
+          </property>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QWidget" name="profileGroup">
+         <layout class="QHBoxLayout" name="profileActions">
+          <item>
+           <widget class="QPushButton" name="importPushButton">
+            <property name="text">
+             <string />
+            </property>
+            <property name="toolTip">
+             <string>Import profile</string>
+            </property>
+            <property name="flat">
+             <bool>true</bool>
+            </property>
+            <property name="icon">
+             <iconset>
+              <normaloff>:/resource/import.svg</normaloff>
+             </iconset>
+            </property>
+            <property name="iconSize">
+             <size>
+              <width>18</width>
+              <height>18</height>
+             </size>
+            </property>
+            <property name="accessibleName">
+             <string>Import profile</string>
+            </property>
+            <property name="iconOnly" stdset="0">
+             <bool>true</bool>
+            </property>
+            <property name="autoDefault">
+             <bool>false</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="exportPushButton">
+            <property name="text">
+             <string />
+            </property>
+            <property name="toolTip">
+             <string>Export saved profile</string>
+            </property>
+            <property name="flat">
+             <bool>true</bool>
+            </property>
+            <property name="icon">
+             <iconset>
+              <normaloff>:/resource/export.svg</normaloff>
+             </iconset>
+            </property>
+            <property name="iconSize">
+             <size>
+              <width>18</width>
+              <height>18</height>
+             </size>
+            </property>
+            <property name="accessibleName">
+             <string>Export saved profile</string>
+            </property>
+            <property name="iconOnly" stdset="0">
+             <bool>true</bool>
+            </property>
+            <property name="autoDefault">
+             <bool>false</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="resetDefaultPushButton">
+            <property name="text">
+             <string />
+            </property>
+            <property name="toolTip">
+             <string>Reset draft</string>
+            </property>
+            <property name="flat">
+             <bool>true</bool>
+            </property>
+            <property name="icon">
+             <iconset>
+              <normaloff>:/resource/undo.svg</normaloff>
+             </iconset>
+            </property>
+            <property name="iconSize">
+             <size>
+              <width>18</width>
+              <height>18</height>
+             </size>
+            </property>
+            <property name="accessibleName">
+             <string>Reset draft</string>
+            </property>
+            <property name="iconOnly" stdset="0">
+             <bool>true</bool>
+            </property>
+            <property name="autoDefault">
+             <bool>false</bool>
+            </property>
+           </widget>
+          </item>
+          <property name="leftMargin">
+           <number>0</number>
+          </property>
+          <property name="topMargin">
+           <number>0</number>
+          </property>
+          <property name="rightMargin">
+           <number>0</number>
+          </property>
+          <property name="bottomMargin">
+           <number>0</number>
+          </property>
+          <item>
+           <spacer name="fileActionsSpacer">
+            <property name="orientation">
+             <enum>Qt::Horizontal</enum>
+            </property>
+           </spacer>
+          </item>
+          <property name="spacing">
+           <number>8</number>
+          </property>
+         </layout>
+        </widget>
+       </item>
+       <property name="sizeConstraint">
+        <enum>QLayout::SetMinAndMaxSize</enum>
+       </property>
+       <property name="spacing">
+        <number>20</number>
+       </property>
+       <item>
+        <spacer name="connectionPageSpacer">
+         <property name="orientation">
+          <enum>Qt::Vertical</enum>
+         </property>
+        </spacer>
+       </item>
+       <property name="leftMargin">
+        <number>0</number>
+       </property>
+       <property name="topMargin">
+        <number>0</number>
+       </property>
+       <property name="rightMargin">
+        <number>0</number>
+       </property>
+       <property name="bottomMargin">
+        <number>0</number>
+       </property>
+      </layout>
      </widget>
     </widget>
    </item>

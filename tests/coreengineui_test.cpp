@@ -61,7 +61,7 @@ static SettingWindow *openQuery(QWidget *parent,const ConnectionProfile &profile
     settings.setValue("JustConnect/TLSCAPEM",profile.tls.caPem);
     settings.setValue("JustConnect/AllowUnverifiedNodes",profile.tls.allowUnverifiedNodes);settings.sync();
     auto *access=new CredentialAccess(std::make_unique<MemoryCredentialStore>(),parent);
-    auto *window=new SettingWindow(parent,access,CredentialAccess::source(settings,{}),true,engine);
+    auto *window=new SettingWindow(parent,access,CredentialAccess::source(settings,{}),engine);
     window->show();window->findChild<QPushButton *>("authSelectPushButton")->click();
     return window;
 }

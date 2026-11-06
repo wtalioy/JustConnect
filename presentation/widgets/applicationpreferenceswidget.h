@@ -1,5 +1,6 @@
 #pragma once
 #include <QWidget>
+#include "application/platformoperationresult.h"
 class QComboBox;
 class QCheckBox;
 class QLabel;
@@ -21,4 +22,5 @@ private:
     QPushButton *controller;
     QGroupBox *behaviorGroup,*startupGroup,*clashGroup;
     const char *errorText=nullptr;
+    PlatformOperationResult operationError;
 };

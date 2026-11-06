@@ -109,8 +109,7 @@ QString PresentationHelpers::platformOperationMessage(const PlatformOperationRes
     case Status::Unsupported: text = QCoreApplication::translate("PresentationHelpers","This operation is not supported by this system or desktop."); break;
     case Status::TimedOut: text = QCoreApplication::translate("PresentationHelpers","Operation timed out"); break;
     }
-    if (!result.detail.isEmpty()) text += "\n" + result.detail;
-    if (result.mayHaveChanged && !result.succeeded()) text += QCoreApplication::translate("PresentationHelpers","\nSome settings may have changed. Check network recovery.");
+    if (result.mayHaveChanged && !result.succeeded()) text += QCoreApplication::translate("PresentationHelpers","\nSome system settings may have changed. Check them before retrying.");
     return text;
 }
 

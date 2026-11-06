@@ -10,12 +10,16 @@
 #include <QGuiApplication>
 #include <QActionGroup>
 #include <QInputDialog>
-#include <QMargins>
 #include <QStyle>
 #include <QTimer>
 #include <QPushButton>
 #include <QLabel>
 #include <QHeaderView>
+#include <QDialogButtonBox>
+#include <QScrollArea>
+#include <QVBoxLayout>
+#include "presentation/widgets/applicationpreferenceswidget.h"
+#include "presentation/widgets/localizeddialog.h"
 #include <QtAlgorithms>
 #include "infrastructure/settings/profilemanager.h"
 
@@ -148,7 +152,7 @@ MainWindow::MainWindow(
     connect(ui->preferencesAction,&QAction::triggered,this,&MainWindow::showApplicationPreferences);
 
     // 文件-设置
-    connect(ui->settingAction,&QAction::triggered,this,[this]{showSettings(true);});
+    connect(ui->settingAction,&QAction::triggered,this,[this]{showConnectionSettings();});
 
     connect(ui->openLogPushButton, &QPushButton::clicked,
             ui->openLogAction, &QAction::trigger);
@@ -263,7 +267,7 @@ MainWindow::MainWindow(
         this
     );
     connect(connectionUiController,&ConnectionUiController::configurationRequested,this,[this] {
-        showSettings(true);
+        showConnectionSettings();
         if (settingWindow) settingWindow->setConnectAfterSave(true);
     });
     qApp->installEventFilter(this);
@@ -354,23 +358,37 @@ void MainWindow::closeEvent(QCloseEvent *event)
 }
 
 
-void MainWindow::showApplicationPreferences() { showSettings(false); }
+void MainWindow::showApplicationPreferences() {
+    if (!preferencesWindow) {
+        auto *view=new LocalizedDialog<QDialog>(this);preferencesWindow=view;
+        view->setObjectName("applicationSettingsDialog");view->setAttribute(Qt::WA_DeleteOnClose);
+        view->setWindowModality(Qt::WindowModal);
+        auto *layout=new QVBoxLayout(view);layout->setContentsMargins(24,24,24,24);layout->setSpacing(16);
+        auto *scroll=new QScrollArea(view);scroll->setWidgetResizable(true);scroll->setFrameShape(QFrame::NoFrame);
+        auto *contents=new ApplicationPreferencesWidget(scroll);contents->setObjectName("applicationPreferencesContents");
+        scroll->setWidget(contents);layout->addWidget(scroll);
+        auto *buttons=new QDialogButtonBox(QDialogButtonBox::Close,view);buttons->setObjectName("applicationSettingsButtons");
+        connect(buttons,&QDialogButtonBox::rejected,view,&QDialog::reject);layout->addWidget(buttons);
+        view->setTranslation([view,this]{view->setWindowTitle(tr("App settings"));});
+        view->setMinimumSize(320,360);view->resize(560,560);
+    }
+    PresentationHelpers::activateWindow(preferencesWindow);
+}
 
-void MainWindow::showSettings(bool connection) {
+void MainWindow::showConnectionSettings() {
     if (connectionUiController->isConfigurationSaving()) {
         QMessageBox::information(this,tr("Saving profile"),tr("Wait for the save to finish."));return;
     }
     if (!settingWindow) {
         if (!connectionSession->isActive()) connectionUiController->cancelPendingCredentials();
-        settingWindow=new SettingWindow(this,coordinator->credentials(),coordinator->credentialSource(),connection && !connectionSession->isActive());
-        settingWindow->setObjectName("settingsDialog");
+        settingWindow=new SettingWindow(this,coordinator->credentials(),coordinator->credentialSource());
+        settingWindow->setObjectName("connectionSettingsDialog");
         const auto path=settings->fileName();
         connect(settingWindow,&SettingWindow::connectRequested,this,[this,path] {
             if (settings->fileName()==path) connectionUiController->enableCampusAccess();
         },Qt::QueuedConnection);
     }
     settingWindow->setProfileEditable(!connectionSession->isActive());
-    settingWindow->showPage(connection);
     PresentationHelpers::activateWindow(settingWindow);
 }
 
@@ -545,7 +563,7 @@ void MainWindow::setupTrayIcon()
     trayConnectAction = new QAction(tr("Connect"), this);
     trayProfileMenu = new QMenu(tr("Profiles"), this);
     trayShowAction = new QAction(tr("Show window"), this);trayShowAction->setObjectName("trayShowAction");
-    trayCloseAction = new QAction(tr("Exit ") + QApplication::applicationName(), this);
+    trayCloseAction = new QAction(tr("Exit %1").arg(QApplication::applicationName()), this);
     trayMenu = new QMenu(this);
     trayMenu->addAction(trayConnectAction);
     trayMenu->addSeparator();
@@ -737,7 +755,7 @@ void MainWindow::createProfile()
     clearLog();
     refreshProfileMenu();
 
-    showSettings(true);
+    showConnectionSettings();
 }
 
 void MainWindow::renameCurrentProfile()
@@ -797,7 +815,7 @@ void MainWindow::deleteCurrentProfile()
 
     QMessageBox messageBox(this);
     messageBox.setWindowTitle(tr("Delete profile"));
-    messageBox.setInformativeText(tr("The profile file and legacy cache will be deleted. Passwords, TOTP, account caches and quarantined copies in secure storage are preserved. To remove them, first clear passwords and TOTP in profile settings, then clear account and legacy caches from Settings."));
+    messageBox.setInformativeText(tr("The profile file and legacy cache will be deleted. Passwords, TOTP, account caches and quarantined copies in secure storage are preserved. To remove them, first clear passwords and TOTP in Connection settings, then clear account and legacy caches from Details > Tools."));
     messageBox.setText(tr("Delete profile \"%1\"?").arg(currentProfileId));
     auto *remove=messageBox.addButton(QMessageBox::Yes);remove->setText(tr("Delete"));
     PresentationHelpers::setButtonIcon(remove,":/resource/file-remove.svg");

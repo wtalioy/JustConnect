@@ -25,12 +25,12 @@ QToolButton#preferencesButton::menu-indicator { image: none; }
 QToolButton#detailsToolsButton::menu-indicator { image: none; }
 QToolButton#schoolCaToggle { border: none; background: transparent; padding: 0 8px 0 0; min-height: 28px; color: #616b7c; }
 QToolButton#backButton, QToolButton#forwardButton, QToolButton#reloadButton { padding: 0; min-width: 38px; max-width: 38px; }
-QPushButton#profileMenuButton { text-align: left; padding: 0 28px 0 12px; font-size: 16px; font-weight: 600; border-color: transparent; background: transparent; }
-QPushButton#profileMenuButton:hover { background: rgba(225,230,240,180); }
-QPushButton#profileMenuButton:pressed { background: #dfe5fa; }
-QPushButton#profileMenuButton:focus { border-color: #5367e8; }
-QPushButton#profileMenuButton::menu-indicator, QComboBox::down-arrow { image: url(:/resource/chevron.svg); width: 16px; height: 16px; }
-QPushButton#profileMenuButton::menu-indicator { subcontrol-origin: padding; subcontrol-position: right center; right: 12px; }
+QToolButton#profileMenuButton { min-height: 30px; max-height: 30px; padding: 0 20px 0 4px; font-size: 14px; font-weight: 600; color: #263143; border-color: #e0e5ed; background: #eef1f6; }
+QToolButton#profileMenuButton:hover { background: #e5eaf3; border-color: #cbd4e3; }
+QToolButton#profileMenuButton:pressed { background: #dfe5fa; }
+QToolButton#profileMenuButton:focus { border-color: #5367e8; }
+QToolButton#profileMenuButton::menu-indicator, QComboBox::down-arrow { image: url(:/resource/chevron.svg); width: 16px; height: 16px; }
+QToolButton#profileMenuButton::menu-indicator { subcontrol-origin: padding; subcontrol-position: right center; right: 12px; }
 QComboBox { max-height: 38px; border-radius: 8px; padding-left: 12px; padding-right: 36px; }
 QComboBox::drop-down { border: none; width: 32px; subcontrol-origin: padding; subcontrol-position: right center; }
 QComboBox::down-arrow { subcontrol-position: center; }
@@ -85,7 +85,7 @@ QListWidget::item { min-height: 24px; padding: 10px 8px; }
 
 QLabel[secondary="true"] { color: #737c8b; font-size: 12px; }
 QLabel[warning="true"] { color: #835b1d; }
-QWidget#generalTabContents, QWidget#loginTabContents, QWidget#overviewTab, QWidget#logsTab { background: rgba(250,251,252,235); }
+QWidget#applicationPreferencesContents, QWidget#loginTabContents, QWidget#overviewTab, QWidget#logsTab { background: rgba(250,251,252,235); border-radius: 8px; }
 QScrollBar:vertical { width: 10px; background: transparent; margin: 0; }
 QScrollBar::handle:vertical { background: #b5c2d4; border-radius: 4px; min-height: 28px; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
