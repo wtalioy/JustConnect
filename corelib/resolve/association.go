@@ -204,18 +204,18 @@ func (r *Resolver) bindDNSAnswer(request, reply *dns.Msg, publish func([]netip.A
 	return result, nil
 }
 
-// CampusResourcesForIP only uses live DNS bindings and the caller's current name policy.
-func (r *Resolver) CampusResourcesForIP(ctx context.Context, address netip.Addr) []client.DomainResource {
+// CampusResourcesForIP keeps the name with each live grant for the tunnel authorization request.
+func (r *Resolver) CampusResourcesForIP(ctx context.Context, address netip.Addr) client.DomainResources {
 	resources, _ := r.campusResources(ctx, address, "", "")
 	return resources
 }
 
-func (r *Resolver) CampusResourcesExcludingName(ctx context.Context, address netip.Addr, name string) []client.DomainResource {
+func (r *Resolver) CampusResourcesExcludingName(ctx context.Context, address netip.Addr, name string) client.DomainResources {
 	resources, _ := r.campusResources(ctx, address, "", normalizeHostname(name))
 	return resources
 }
 
-func (r *Resolver) campusResources(ctx context.Context, address netip.Addr, name, excluded string) ([]client.DomainResource, uint32) {
+func (r *Resolver) campusResources(ctx context.Context, address netip.Addr, name, excluded string) (client.DomainResources, uint32) {
 	r.resolutionMu.Lock()
 	closed := r.resolutionClosed
 	r.resolutionMu.Unlock()
@@ -228,9 +228,8 @@ func (r *Resolver) campusResources(ctx context.Context, address netip.Addr, name
 	}
 	r.cacheMu.Lock()
 	defer r.cacheMu.Unlock()
-	var result []client.DomainResource
+	var result client.DomainResources
 	ttl := r.dnsTTL
-	seen := make(map[string]bool)
 	now := time.Now()
 	for _, binding := range r.dnsBindings[address.Unmap()] {
 		if (name != "" && binding.host != name) || (excluded != "" && binding.host == excluded) {
@@ -247,9 +246,11 @@ func (r *Resolver) campusResources(ctx context.Context, address netip.Addr, name
 				return nil, 0
 			}
 		}
-		if pattern, resources, granted := matchDomainResource(r.domainIndex, binding.host); granted && !seen[pattern] {
-			seen[pattern] = true
-			result = append(result, resources...)
+		if _, resources, granted := matchDomainResource(r.domainIndex, binding.host); granted {
+			if result == nil {
+				result = make(client.DomainResources)
+			}
+			result[binding.host] = resources
 			if name != "" {
 				ttl = min(ttl, uint32(max(binding.expires.Sub(now)/time.Second, 0)))
 			}

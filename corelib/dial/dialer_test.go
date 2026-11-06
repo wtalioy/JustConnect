@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/miekg/dns"
 	"github.com/wtalioy/JustConnect/corelib/client"
 	"github.com/wtalioy/JustConnect/corelib/internal/ipresource"
 	"github.com/wtalioy/JustConnect/corelib/policy"
@@ -113,6 +114,48 @@ func TestAuthenticationOriginDoesNotReserveAnotherGrantedName(t *testing.T) {
 	}
 	if _, err := d.DialIPPort(named, "tcp", "192.0.2.7:444"); err == nil || campus.tcpCalls != 1 {
 		t.Fatal("shared name expanded port authorization", err)
+	}
+}
+
+func TestCapturedDNSKeepsNamePortAndTransportTogether(t *testing.T) {
+	address := net.IPv4(192, 0, 2, 7)
+	resources := client.DomainResources{
+		"http.campus.test":  {{Protocol: "tcp", PortMin: 80, PortMax: 80, AppID: "http"}},
+		"https.campus.test": {{Protocol: "tcp", PortMin: 443, PortMax: 443, AppID: "https"}},
+		"a-l3.campus.test":  {{Protocol: "tcp", PortMin: 443, PortMax: 443, AppID: "l3", EnableTCPPrefL3: true}},
+		"udp.campus.test":   {{Protocol: "udp", PortMin: 443, PortMax: 443, AppID: "udp"}},
+	}
+	records := make(map[string][]net.IP)
+	for name := range resources {
+		records[name] = []net.IP{address}
+	}
+	r := resolve.NewResolver(nil, "", "", 60, resources, records, false)
+	t.Cleanup(r.Close)
+	for name := range resources {
+		if _, err := r.ExchangeTUN(t.Context(), new(dns.Msg).SetQuestion(name+".", dns.TypeA), "udp", nil, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	campus := &capturingStack{}
+	d := NewDialer(campus, r, nil, false)
+	for _, test := range []struct{ network, port, name, app string }{
+		{"tcp", "80", "http.campus.test", "http"},
+		{"tcp", "443", "https.campus.test", "https"},
+		{"udp", "443", "udp.campus.test", "udp"},
+	} {
+		if _, err := d.DialCapturedIPPort(t.Context(), test.network, "192.0.2.7:"+test.port); err != nil {
+			t.Fatal(err)
+		}
+		if campus.resolvedHost != test.name || campus.domainResource.AppID != test.app {
+			t.Fatal("captured grant lost its name, port or transport", test, campus.resolvedHost, campus.domainResource)
+		}
+	}
+	known := context.WithValue(t.Context(), resolve.ContextKeyResolveHost, "http.campus.test")
+	if _, err := d.DialCapturedIPPort(known, "tcp", "192.0.2.7:443"); err == nil || campus.tcpCalls != 2 {
+		t.Fatal("known name borrowed another name's port grant", err, campus.tcpCalls)
+	}
+	if _, err := d.DialCapturedIPPort(t.Context(), "tcp", "192.0.2.7:444"); err == nil || campus.tcpCalls != 2 {
+		t.Fatal("DNS binding expanded the authorized ports", err, campus.tcpCalls)
 	}
 }
 
@@ -489,26 +532,30 @@ func TestDialIPPortCarriesTCPPrefL3IPResource(t *testing.T) {
 }
 
 type capturingStack struct {
+	resolvedHost   string
 	domainResource client.DomainResource
 	ipResource     client.IPResource
 	udpCalls       int
 	tcpCalls       int
 }
 
-func (s *capturingStack) DialTCP(ctx context.Context, _ *net.TCPAddr) (net.Conn, error) {
-	s.tcpCalls++
+func (s *capturingStack) record(ctx context.Context) {
+	s.resolvedHost, _ = ctx.Value(resolve.ContextKeyResolveHost).(string)
 	if resource, ok := ctx.Value(resolve.ContextKeyDomainResource).(client.DomainResource); ok {
 		s.domainResource = resource
 	}
 	if resource, ok := ctx.Value(resolve.ContextKeyIPResource).(client.IPResource); ok {
 		s.ipResource = resource
 	}
+}
+
+func (s *capturingStack) DialTCP(ctx context.Context, _ *net.TCPAddr) (net.Conn, error) {
+	s.tcpCalls++
+	s.record(ctx)
 	return nil, nil
 }
 func (s *capturingStack) DialUDP(ctx context.Context, _ *net.UDPAddr) (net.Conn, error) {
 	s.udpCalls++
-	if resource, ok := ctx.Value(resolve.ContextKeyIPResource).(client.IPResource); ok {
-		s.ipResource = resource
-	}
+	s.record(ctx)
 	return nil, nil
 }

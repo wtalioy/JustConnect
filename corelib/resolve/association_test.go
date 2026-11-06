@@ -93,8 +93,8 @@ func TestCampusDNSBindingsFollowCNAMEExpiryAndCurrentProtection(t *testing.T) {
 	}
 	var original *policy.ProtectionPolicy
 	ctx := context.WithValue(t.Context(), ContextKeyProtectionPolicy, original)
-	if len(r.CampusResourcesForIP(ctx, ip)) != 1 {
-		t.Fatal("in-flight request lost its captured policy")
+	if resources := r.CampusResourcesForIP(ctx, ip); len(resources) != 2 || len(resources["alias.campus.test"]) != 1 || len(resources["other.campus.test"]) != 1 {
+		t.Fatal("in-flight request lost a bound name or its captured policy", resources)
 	}
 	time.Sleep(1100 * time.Millisecond)
 	if len(r.CampusResourcesForIP(ctx, ip)) != 0 {
@@ -180,8 +180,8 @@ func TestCampusDNSBindingsConcurrentLookupAndClose(t *testing.T) {
 			if _, err := r.ExchangeCampus(t.Context(), request, "udp", nil, nil); err != nil {
 				t.Error(err)
 			}
-			if len(r.CampusResourcesForIP(t.Context(), netip.MustParseAddr("203.0.113.7"))) != 1 {
-				t.Error("concurrent names lost or duplicated their shared domain authorization")
+			if resources := r.CampusResourcesForIP(t.Context(), netip.MustParseAddr("203.0.113.7")); len(resources[host]) != 1 {
+				t.Error("concurrent lookup lost or duplicated its own named authorization", host)
 			}
 			ready <- struct{}{}
 			<-proceed
@@ -196,6 +196,9 @@ func TestCampusDNSBindingsConcurrentLookupAndClose(t *testing.T) {
 	}
 	for range records {
 		<-ready
+	}
+	if resources := r.CampusResourcesForIP(t.Context(), netip.MustParseAddr("203.0.113.7")); len(resources) != len(records) {
+		t.Fatal("concurrent lookups lost bound names", len(resources), len(records))
 	}
 	close(proceed)
 	r.Close()
