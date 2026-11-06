@@ -61,7 +61,7 @@ install(FILES "${CORE}/internal/ping/LICENSE"
 add_library(justconnect_desktop OBJECT
     infrastructure/process/terminationrequests.cpp
     presentation/i18n/applicationlanguage.cpp
-    presentation/dialogs/applicationpreferences/applicationpreferencesdialog.cpp
+    presentation/widgets/applicationpreferenceswidget.cpp
     presentation/appearance/applicationappearance.cpp
     presentation/main/mainwindow.cpp
     presentation/main/mainwindow.ui
@@ -84,9 +84,6 @@ add_library(justconnect_desktop OBJECT
     presentation/dialogs/loginwindow/loginwindow.ui
     presentation/dialogs/ssologinwebview/ssologinwebview.cpp
     presentation/dialogs/ssologinwebview/ssologinwebview.ui
-    presentation/dialogs/authinfowindow/authinfowindow.cpp
-    presentation/dialogs/authinfowindow/authinfowindow.ui
-    presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp
     presentation/dialogs/graphcaptchawindow/graphcaptchawindow.cpp
     presentation/dialogs/graphcaptchawindow/graphcaptchawindow.ui
     presentation/dialogs/graphcaptchawindow/captchacanvas.cpp
@@ -168,7 +165,7 @@ if(BUILD_TESTING)
     endif()
     target_include_directories(appearance_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME appearance_test COMMAND appearance_test)
-    set_tests_properties(appearance_test PROPERTIES TIMEOUT 30)
+    set_tests_properties(appearance_test PROPERTIES TIMEOUT 30 ENVIRONMENT "QT_QPA_PLATFORM=${JC_BROWSER_QPA}")
     add_executable(singleapplication_test tests/singleapplication_test.cpp)
     target_link_libraries(singleapplication_test PRIVATE SingleApplication::SingleApplication)
     add_test(NAME singleapplication_test COMMAND singleapplication_test)
@@ -182,9 +179,10 @@ if(BUILD_TESTING)
     justconnect_credential_tests(credentialstore_test justconnect_platform)
     justconnect_autostart_tests(autostart_test justconnect_platform)
     add_executable(settingwindow_test tests/settingwindow_test.cpp
+        presentation/widgets/applicationpreferenceswidget.cpp
+        presentation/i18n/applicationlanguage.cpp
         presentation/widgets/serversettingswidget.cpp
         presentation/dialogs/settingwindow/settingwindow.cpp
-        presentation/dialogs/authinfowindow/authinfowindow.cpp
         presentation/coordinators/controllerselectioncoordinator.cpp
         presentation/presentationhelpers.cpp
         infrastructure/settings/profilemanager.cpp
@@ -208,6 +206,8 @@ if(BUILD_TESTING)
     target_link_libraries(mainwindow_test PRIVATE justconnect_desktop)
     justconnect_core_runtime(mainwindow_test justconnect_core)
     add_test(NAME mainwindow_test COMMAND mainwindow_test)
+    add_test(NAME mainwindow_native_test COMMAND mainwindow_test --native-home)
+    set_tests_properties(mainwindow_native_test PROPERTIES TIMEOUT 45 ENVIRONMENT "QT_QPA_PLATFORM=${JC_BROWSER_QPA};QT_SCALE_FACTOR=1.5")
     add_test(NAME mainwindow_auth_language_test COMMAND mainwindow_test --auth-language)
     set_tests_properties(mainwindow_auth_language_test PROPERTIES TIMEOUT 60 ENVIRONMENT "QT_QPA_PLATFORM=${JC_BROWSER_QPA};QT_SCALE_FACTOR=2")
     add_test(NAME mainwindow_chinese_startup_test COMMAND mainwindow_test --chinese-startup)
@@ -311,29 +311,6 @@ if(BUILD_TESTING)
     target_include_directories(profilemanager_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(profilemanager_test Qt::Core justconnect_application)
     add_test(NAME profilemanager_test COMMAND profilemanager_test)
-
-    add_executable(configurationguidedialog_test
-        tests/configurationguidedialog_test.cpp
-        infrastructure/settings/credentialaccess.cpp
-        presentation/presentationhelpers.cpp
-        presentation/widgets/serversettingswidget.cpp
-        presentation/dialogs/configurationguidedialog/configurationguidedialog.cpp
-        presentation/dialogs/authinfowindow/authinfowindow.cpp
-        presentation/coordinators/controllerselectioncoordinator.cpp
-        infrastructure/settings/profilemanager.cpp)
-    target_include_directories(configurationguidedialog_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(configurationguidedialog_test
-        justconnect_engine
-        Qt6::Concurrent
-        Qt::Core
-        Qt::Gui
-        Qt::Widgets
-        justconnect_application)
-    justconnect_core_runtime(configurationguidedialog_test justconnect_core)
-    add_test(NAME configurationguidedialog_test COMMAND configurationguidedialog_test)
-    set_tests_properties(configurationguidedialog_test PROPERTIES
-        TIMEOUT 30
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     add_executable(graphcaptchawindow_test
         tests/graphcaptchawindow_test.cpp

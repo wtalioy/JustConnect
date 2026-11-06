@@ -15,7 +15,7 @@
 #include "presentation/coordinators/authdialogcoordinator.h"
 #include "presentation/coordinators/connectionuicontroller.h"
 #include "presentation/coordinators/controllerselectioncoordinator.h"
-#include "presentation/dialogs/authinfowindow/authinfowindow.h"
+#include "presentation/dialogs/settingwindow/settingwindow.h"
 #include "presentation/dialogs/ssologinwebview/ssologinwebview.h"
 #include "coreabi/proxycheck.h"
 
@@ -49,6 +49,28 @@
 using ProxyCheck::check;
 static std::optional<bool> noOfficialClient(){return false;}
 #define until(...) UiWait::until(__FILE__, __LINE__, __VA_ARGS__)
+static SettingWindow *openQuery(QWidget *parent,const ConnectionProfile &profile,CoreEngine *engine=nullptr) {
+    static QTemporaryDir folder;
+    check(folder.isValid(),"isolated inline authentication queries");
+    QSettings settings(folder.filePath(QUuid::createUuid().toString(QUuid::Id128)+".ini"),QSettings::IniFormat);
+    DefaultSettings::reset(settings);
+    settings.setValue("JustConnect/ServerAddress",profile.endpoint.server);
+    settings.setValue("JustConnect/ServerPort",profile.endpoint.port);
+    settings.setValue("JustConnect/AuthType",profile.endpoint.authType);
+    settings.setValue("JustConnect/TLSVerify",profile.tls.verify);
+    settings.setValue("JustConnect/TLSCAPEM",profile.tls.caPem);
+    settings.setValue("JustConnect/AllowUnverifiedNodes",profile.tls.allowUnverifiedNodes);settings.sync();
+    auto *access=new CredentialAccess(std::make_unique<MemoryCredentialStore>(),parent);
+    auto *window=new SettingWindow(parent,access,CredentialAccess::source(settings,{}),true,engine);
+    window->show();window->findChild<QPushButton *>("authSelectPushButton")->click();
+    return window;
+}
+static QComboBox *queryChoices(SettingWindow *window) { return window->findChild<QComboBox *>("authTypeComboBox"); }
+static int returnedMethods(SettingWindow *window) {
+    auto *choices=queryChoices(window);int count=0;
+    for(int i=0;i<choices->count();++i) if(choices->itemData(i,Qt::UserRole+1).isValid()) ++count;
+    return count;
+}
 static QDialog *challenge(QWidget &parent) {
     for (auto *dialog : parent.findChildren<QDialog *>())
         if (dialog->isVisible()) return dialog;
@@ -591,7 +613,7 @@ static void quitWaitsForAuthenticationQueryWithoutBlockingTheGui() {
     ConnectionUiController controller(&parent,&connectButton,&proxyButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,&access,
         [&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},[](const QString &,const QString &,QSystemTrayIcon::MessageIcon){},nullptr,noOfficialClient);
     auto *queryEngine=new QueryEngine;QPointer<QueryEngine> guarded=queryEngine;
-    auto *window=new AuthInfoWindow(&parent,queryEngine);window->fetchAuthInfo({});window->show();until([&]{return queryEngine->starts==1;});window->close();
+    auto *window=openQuery(&parent,{},queryEngine);until([&]{return queryEngine->starts==1;});window->close();
     QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     check(guarded && guarded->stops==1,"closing a query cancels it without destroying its running thread");
     int ready=0;QObject::connect(&controller,&ConnectionUiController::readyToQuit,[&]{++ready;});
@@ -958,72 +980,65 @@ static void uiContracts() {
         "authentication queries preserve the selected controller while removing credentials and cached sessions");
     selectedQuery.stop();emit selectedEngine->finished(ConnectionError::NONE);
     auto *fake = new QueryEngine;
-    auto *query = new AuthInfoWindow(&parent, fake);
     ConnectionProfile queryProfile; queryProfile.endpoint.server="vpn.example.invalid"; queryProfile.endpoint.port=8443;
     queryProfile.credentials.password="must-not-be-queried"; queryProfile.tls={false,"query CA"};
     queryProfile.behavior.rememberAuthentication=true;queryProfile.authenticationCache={"private-account","private-cache"};
-    query->fetchAuthInfo(queryProfile);
+    auto *query=openQuery(&parent,queryProfile,fake);
     until([&]{return fake->starts==1;});
     check(fake->operation == CoreEngine::Operation::AuthMethods && fake->profile.endpoint.port == 8443 && fake->profile.credentials.password.isEmpty()
         && fake->profile.authenticationCache.data.isEmpty() && fake->profile.authenticationCache.account.isEmpty() && !fake->profile.behavior.rememberAuthentication
         && !fake->profile.tls.verify && fake->profile.tls.caPem=="query CA",
         "query uses the engine port and configured server");
     emit fake->authMethodsReady({QJsonObject{{"type", "auth/cas"}, {"domain", "campus"}, {"name", "校园登录"}, {"login_url", "https://vpn.example.invalid/login"}}});
-    auto *list = query->findChild<QListWidget *>();
-    check(list->count() == 0, "query results are buffered until cleanup succeeds");
-    bool selected = false;
-    QObject::connect(query, &AuthInfoWindow::finishAuthInfo, [&](const QJsonObject &method) {
-        selected = method["type"] == "auth/cas" && method["domain"] == "campus" && method["login_url"] == "https://vpn.example.invalid/login";
-    });
+    auto *list=queryChoices(query);
+    check(returnedMethods(query)==0, "query results are buffered until cleanup succeeds");
     auto *ok = query->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok);
     check(!ok->isEnabled(), "method selection waits for query cleanup before releasing the global slot");
     emit fake->finished(ConnectionError::NONE);
-    check(list->count()==1,"successful query delivers its methods");
-    list->setCurrentRow(0);
-    check(ok->isEnabled(), "completed query can be selected");
-    query->accept();
-    check(selected, "selection preserves all method fields");
+    check(returnedMethods(query)==1,"successful query delivers its methods inside settings");
+    list->setCurrentIndex(1);
+    until([&]{return ok->isEnabled();});
+    const auto selected=list->currentData(Qt::UserRole+1).toJsonObject();
+    check(selected["type"]=="auth/cas" && selected["domain"]=="campus" && selected["login_url"]=="https://vpn.example.invalid/login",
+        "inline selection preserves all returned method fields");
+    query->reject();
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     auto *oauthEngine = new QueryEngine;
-    auto *oauth = new AuthInfoWindow(&parent,oauthEngine);
     queryProfile.endpoint.server="configured.example.invalid"; queryProfile.endpoint.port=443;
-    oauth->fetchAuthInfo(queryProfile,true);
+    queryProfile.endpoint.authType="httpsOauth2";
+    auto *oauth=openQuery(&parent,queryProfile,oauthEngine);
     until([&]{return oauthEngine->starts==1;});
     emit oauthEngine->authMethodsReady({
         QJsonObject{{"type","auth/psw"},{"name","Password"}},
         QJsonObject{{"type","auth/httpsOauth2"},{"name","Other OAuth2"},{"domain","other"}},
         QJsonObject{{"type","auth/httpsOauth2"},{"name","Campus sign-in"},{"auth_id","selected-opaque-id"},{"sub_type","https"},{"domain","returned-domain"},{"login_url","https://returned.example.invalid/uis"}}
     });
-    check(oauth->findChild<QListWidget *>()->count()==0,"preferred query also waits for terminal cleanup");
+    check(returnedMethods(oauth)==0,"preferred query also waits for terminal cleanup");
     emit oauthEngine->finished(ConnectionError::NONE);
-    auto *methods=oauth->findChild<QListWidget *>();
-    check(!methods->currentItem() && !oauth->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->isEnabled(),"multiple OAuth methods require an explicit choice without school-name heuristics");
-    methods->setCurrentRow(2);
-    auto *preferred=methods->currentItem();
-    const auto choice=preferred ? preferred->data(Qt::UserRole).toJsonObject() : QJsonObject{};
+    auto *methods=queryChoices(oauth);
+    check(methods->currentData().toString().isEmpty(),"multiple OAuth methods require an explicit choice without school-name heuristics");
+    methods->setCurrentIndex(3);
+    const auto choice=methods->currentData(Qt::UserRole+1).toJsonObject();
     check(choice["domain"]=="returned-domain" && choice["login_url"]=="https://returned.example.invalid/uis"
         && choice["auth_id"]=="selected-opaque-id" && choice["sub_type"]=="https","explicit selection retains complete returned identity");
-    oauth->fetchAuthInfo(queryProfile,true);until([&]{return oauthEngine->starts==2;});
+    oauth->findChild<QPushButton *>("authSelectPushButton")->click();until([&]{return oauthEngine->starts==2;});
     emit oauthEngine->authMethodsReady({QJsonObject{{"type","auth/psw"},{"name","Password"}},
         QJsonObject{{"type","auth/httpsOauth2"},{"name","Federated sign-in"},{"auth_id","single-id"}}});
     emit oauthEngine->finished(ConnectionError::NONE);
-    preferred=oauth->findChild<QListWidget *>()->currentItem();
-    check(preferred && preferred->data(Qt::UserRole).toJsonObject()["auth_id"]=="single-id","a unique preferred OAuth method is selected without inspecting school names");
+    check(methods->currentData(Qt::UserRole+1).toJsonObject()["auth_id"]=="single-id","a unique preferred OAuth method is selected without inspecting school names");
     oauth->reject(); QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     auto *cancelEngine=new QueryEngine;
-    auto *cancelled=new AuthInfoWindow(&parent,cancelEngine);
-    cancelled->fetchAuthInfo(queryProfile);until([&]{return cancelEngine->starts==1;}); cancelled->reject();
+    auto *cancelled=openQuery(&parent,queryProfile,cancelEngine);until([&]{return cancelEngine->starts==1;}); cancelled->reject();
     emit cancelEngine->authMethodsReady({QJsonObject{{"type","auth/psw"},{"domain","late"}}});
     emit cancelEngine->finished(ConnectionError::NONE);
-    check(cancelled->findChild<QListWidget *>()->count()==0,"closed query rejects late results");
+    check(returnedMethods(cancelled)==0,"closed query rejects late results");
     QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     auto *failedEngine=new QueryEngine;
-    auto *failed=new AuthInfoWindow(&parent,failedEngine);
-    failed->fetchAuthInfo(queryProfile);
+    auto *failed=openQuery(&parent,queryProfile,failedEngine);
     until([&]{return failedEngine->starts==1;});
     emit failedEngine->authMethodsReady({QJsonObject{{"type","auth/psw"}}});
     emit failedEngine->finished(ConnectionError::CLIENT_FAILED);
-    check(failed->findChild<QListWidget *>()->count()==0 && !failed->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->isEnabled(),"failed cleanup discards partial query results");
+    check(returnedMethods(failed)==0 && !failed->findChild<QLabel *>("authQueryStatus")->isHidden(),"failed cleanup discards partial query results");
     failed->reject(); QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
 
 }
@@ -1087,40 +1102,29 @@ static void gateway(const QJsonObject &config) {
     p.proxy.socksBind = listeners["socks"].toString();
     p.proxy.httpBind = listeners["http"].toString();
     auto *untrustedEngine=new EmbeddedCoreEngine;
-    auto *untrustedQuery=new AuthInfoWindow(&parent,untrustedEngine);
     bool trustFailure=false;
     QStringList trustDiagnostics;
     QObject::connect(untrustedEngine,&CoreEngine::diagnostic,[&](const QString &code){trustDiagnostics.append(code);});
     QObject::connect(untrustedEngine,&CoreEngine::finished,[&](ConnectionError error){trustFailure=error==ConnectionError::TLS_TRUST;});
     auto untrustedProfile=p; untrustedProfile.tls.caPem.clear();
     untrustedProfile.tls.allowUnverifiedNodes=true;
-    untrustedQuery->fetchAuthInfo(untrustedProfile);
+    auto *untrustedQuery=openQuery(&parent,untrustedProfile,untrustedEngine);
     until([&]{return trustFailure;});
-    check(untrustedQuery->findChild<QLabel *>("label")->text().contains("certificate")
-        && untrustedQuery->findChild<QListWidget *>()->count()==0,"real query reports certificate failure without delivering methods");
+    check(untrustedQuery->findChild<QLabel *>("authQueryStatus")->text().contains("certificate")
+        && returnedMethods(untrustedQuery)==0,"real query reports certificate failure without delivering methods");
     check(trustDiagnostics==QStringList{"tls_authentication_failed","tls_unknown_authority","tls_peer_chain_leaf_only","tls_peer_self_signed"},
         "real ABI delivers bounded certificate diagnostics before the trust failure");
     untrustedQuery->close(); QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
-    auto *queryWindow = new AuthInfoWindow(&parent);
-    bool selected = false;
-    QObject::connect(queryWindow, &AuthInfoWindow::finishAuthInfo,
-        [&](const QJsonObject &method) {
-            p.endpoint.authType = method["type"].toString().mid(QString("auth/").size());
-            p.endpoint.loginDomain = method["domain"].toString();
-            p.endpoint.authId=method["auth_id"].toString(); p.endpoint.authSubType=method["sub_type"].toString();
-            selected = method["type"] == "auth/smsCheckCode" && method["domain"] == "fixture"
-                && p.endpoint.authId=="fixture-primary" && p.endpoint.authSubType=="sms";
-        });
-    queryWindow->fetchAuthInfo(p);
-    queryWindow->show();
-    auto *methodsList = queryWindow->findChild<QListWidget *>();
-    until([&] { return methodsList->count() != 0; });
-    methodsList->setCurrentRow(0);
-    auto *selectMethod = queryWindow->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok);
-    until([&] { return selectMethod->isEnabled(); });
-    selectMethod->click();
-    check(selected, "actual query selection supplies authentication settings");
-    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    auto *queryWindow=openQuery(&parent,p);
+    until([&]{return returnedMethods(queryWindow)>0;});
+    auto *methodsList=queryChoices(queryWindow);methodsList->setCurrentIndex(1);
+    const auto method=methodsList->currentData(Qt::UserRole+1).toJsonObject();
+    p.endpoint.authType=method["type"].toString().mid(QString("auth/").size());
+    p.endpoint.loginDomain=method["domain"].toString();
+    p.endpoint.authId=method["auth_id"].toString();p.endpoint.authSubType=method["sub_type"].toString();
+    check(p.endpoint.authType=="smsCheckCode" && p.endpoint.loginDomain=="fixture" && p.endpoint.authId=="fixture-primary"
+        && p.endpoint.authSubType=="sms","actual inline query selection supplies complete authentication settings");
+    queryWindow->reject();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     int responses = 0, completed = 0, ticks = 0;
     QString generation;
     int networkSnapshots=0, resourceSnapshots=0, coexistenceSnapshots=0, coexistenceAcks=0;

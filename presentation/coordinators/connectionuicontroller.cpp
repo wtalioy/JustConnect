@@ -219,12 +219,9 @@ void ConnectionUiController::enableCampusAccess()
     if (auto *modal=QApplication::activeModalWidget()) {modal->raise();modal->activateWindow();return;}
     if (isConfigurationSaving()) {QMessageBox::information(parentWidget,tr("Saving profile"),tr("Wait for the save before connecting."));return;}
     cancelPendingCredentials();
-    if (settings()->value("Common/NeedsConfiguration",false).toBool()) {
-        QMessageBox::warning(parentWidget,tr("Profile needs updating"),tr("Choose a bundled profile or confirm your custom aTrust server, then save it."));return;
-    }
-    if (settings()->value("JustConnect/ServerAddress").toString().isEmpty()) {QMessageBox::critical(parentWidget,tr("Error"),tr("The server address cannot be empty."));return;}
-    if (ProfileService::load(*settings()).endpoint.authType.isEmpty()) {
-        QMessageBox::warning(parentWidget,tr("Choose a sign-in method"),tr("Confirm a sign-in method in profile settings. You can query the available methods from your server."));return;
+    const auto profile=ProfileService::load(*settings());
+    if (settings()->value("Common/NeedsConfiguration",false).toBool() || profile.endpoint.server.isEmpty() || profile.endpoint.authType.isEmpty()) {
+        emit configurationRequested();return;
     }
     const auto source=credentialSourceProvider();const auto generation=credentialGeneration;
     if (!SettingsMigrator::readableFile(source.path)) {

@@ -5,7 +5,6 @@
 class QComboBox;
 class QFormLayout;
 class QLabel;
-class QToolButton;
 class QCheckBox;
 class QPlainTextEdit;
 class QLineEdit;
@@ -30,7 +29,6 @@ private:
     void updateSecuritySummary();
     void selectPreset();
     QFormLayout *form, *advancedForm;
-    QToolButton *advancedButton;
     QLabel *warning, *nodeWarning, *rulesHelp, *securitySummary, *domainDnsLabel;
     QComboBox *preset;
     QLineEdit *address;

@@ -30,9 +30,7 @@
 #include "infrastructure/logging/applicationlogfile.h"
 #include "infrastructure/update/updatechecker.h"
 #include "presentation/coordinators/connectionuicontroller.h"
-#include "presentation/dialogs/applicationpreferences/applicationpreferencesdialog.h"
 #include "presentation/i18n/applicationlanguage.h"
-#include "presentation/dialogs/configurationguidedialog/configurationguidedialog.h"
 #include "presentation/presentationhelpers.h"
 #include "presentation/coordinators/connectiondiagnostics.h"
 #include "ui_mainwindow.h"
@@ -57,8 +55,6 @@ MainWindow::MainWindow(
     currentProfileId = profileService->currentProfileId();
     settings = profileService->settings();
 
-    const bool isFirstLaunch =
-        !settings->contains("Common/ConfigVersion");
     upgradeSettings();
 
     ui->setupUi(this);
@@ -134,16 +130,17 @@ MainWindow::MainWindow(
         });
     setupTrayIcon();
     setupProfileMenu();
-    auto *more=new QMenu(this);
-    more->addAction(ui->preferencesAction);
-    more->addAction(ui->configurationGuideAction);
-    more->addAction(ui->inspectNetworkAction);
-    more->addMenu(ui->helpMenu);
-    more->addSeparator();
-    more->addAction(ui->clearAuthenticationCacheAction);
-    more->addAction(ui->clearClientDataAction);
-    more->addAction(ui->exitAction);
-    ui->preferencesButton->setMenu(more);
+    auto *tools=new QToolButton(ui->detailsDialog);
+    tools->setObjectName("detailsToolsButton");
+    tools->setPopupMode(QToolButton::InstantPopup);
+    auto *menu=new QMenu(tools);
+    menu->addMenu(ui->helpMenu);
+    menu->addAction(ui->clearAuthenticationCacheAction);
+    menu->addAction(ui->clearClientDataAction);
+    menu->addSeparator();menu->addAction(ui->exitAction);
+    tools->setMenu(menu);ui->diagnosticActions->addWidget(tools);
+    tools->setText(tr("Tools"));
+    connect(ui->preferencesButton,&QToolButton::clicked,ui->preferencesAction,&QAction::trigger);
     ui->exitAction->setShortcut(QKeySequence::Quit);
     ui->preferencesAction->setShortcut(QKeySequence::Preferences);
     addAction(ui->exitAction);
@@ -173,18 +170,7 @@ MainWindow::MainWindow(
     connect(ui->preferencesAction,&QAction::triggered,this,&MainWindow::showApplicationPreferences);
 
     // 文件-设置
-    connect(ui->settingAction, &QAction::triggered, this,
-            [&]()
-            {
-                if (connectionSession->isActive()) {QMessageBox::warning(this,tr("Profile is in use"),tr("Disconnect before editing this profile."));return;}
-                if (settingWindow) {settingWindow->raise();settingWindow->activateWindow();return;}
-                if (guideWindow) {guideWindow->raise();guideWindow->activateWindow();return;}
-                if (connectionUiController->isConfigurationSaving()) {QMessageBox::information(this,tr("Saving profile"),tr("Wait for the save to finish."));return;}
-                connectionUiController->cancelPendingCredentials();
-                settingWindow = new SettingWindow(this,coordinator->credentials(),coordinator->credentialSource(),true);
-                settingWindow->setWindowTitle(tr("Edit profile · %1").arg(ui->profileMenuButton->text()));
-                settingWindow->show();
-            });
+    connect(ui->settingAction,&QAction::triggered,this,[this]{showSettings(true);});
 
     connect(ui->openLogPushButton, &QPushButton::clicked,
             ui->openLogAction, &QAction::trigger);
@@ -330,6 +316,10 @@ MainWindow::MainWindow(
         },
         this
     );
+    connect(connectionUiController,&ConnectionUiController::configurationRequested,this,[this] {
+        showSettings(true);
+        if (settingWindow) settingWindow->setConnectAfterSave(true);
+    });
     qApp->installEventFilter(this);
     QApplication::setQuitOnLastWindowClosed(false);
     connect(connectionUiController,&ConnectionUiController::readyToQuit,this,[this] {
@@ -376,14 +366,7 @@ MainWindow::MainWindow(
     if (!profileService->silentStartEnabled() || !QSystemTrayIcon::isSystemTrayAvailable())
     {
         show();
-        if (isFirstLaunch)
-        {
-            QTimer::singleShot(
-                0,
-                this,
-                &MainWindow::promptFirstLaunchGuide
-            );
-        }
+
     }
 }
 
@@ -392,6 +375,7 @@ void MainWindow::changeEvent(QEvent *event)
     QMainWindow::changeEvent(event);
     if (event->type()!=QEvent::LanguageChange || !viewsInitialized) return;
     ui->retranslateUi(this);
+    if(auto *tools=findChild<QToolButton *>("detailsToolsButton")) tools->setText(tr("Tools"));
     newProfileAction->setText(tr("New profile"));renameProfileAction->setText(tr("Rename profile"));deleteProfileAction->setText(tr("Delete profile"));
     trayProfileMenu->setTitle(tr("Profiles"));trayShowAction->setText(tr("Show window"));
     trayCloseAction->setText(tr("Exit %1").arg(QApplication::applicationName()));
@@ -418,16 +402,30 @@ void MainWindow::closeEvent(QCloseEvent *event)
     } else {
         PresentationHelpers::activateWindow(this);
         setProperty("trayUnavailable",true);
-        ui->statusHintLabel->setText(tr("System tray unavailable. Use Exit in Settings to quit."));
+        ui->statusHintLabel->setText(tr("System tray unavailable. Use Exit in Details to quit."));
         ui->statusHintLabel->show();
     }
 }
 
 
-void MainWindow::showApplicationPreferences()
-{
-    if (auto *existing=findChild<ApplicationPreferencesDialog *>()) {existing->show();existing->raise();existing->activateWindow();return;}
-    (new ApplicationPreferencesDialog(this))->show();
+void MainWindow::showApplicationPreferences() { showSettings(false); }
+
+void MainWindow::showSettings(bool connection) {
+    if (connectionUiController->isConfigurationSaving()) {
+        QMessageBox::information(this,tr("Saving profile"),tr("Wait for the save to finish."));return;
+    }
+    if (!settingWindow) {
+        if (!connectionSession->isActive()) connectionUiController->cancelPendingCredentials();
+        settingWindow=new SettingWindow(this,coordinator->credentials(),coordinator->credentialSource(),connection && !connectionSession->isActive());
+        settingWindow->setObjectName("settingsDialog");
+        const auto path=settings->fileName();
+        connect(settingWindow,&SettingWindow::connectRequested,this,[this,path] {
+            if (settings->fileName()==path) connectionUiController->enableCampusAccess();
+        },Qt::QueuedConnection);
+    }
+    settingWindow->setProfileEditable(!connectionSession->isActive());
+    settingWindow->showPage(connection);
+    PresentationHelpers::activateWindow(settingWindow);
 }
 
 void MainWindow::clearLog()
@@ -449,6 +447,7 @@ void MainWindow::resetConnectionUi()
 
 void MainWindow::updateConnectionState(ConnectionState state)
 {
+    if (settingWindow) settingWindow->setProfileEditable(!connectionSession->isActive());
     QString propertyValue;
     QString title;
     QString detail;
@@ -518,7 +517,7 @@ void MainWindow::updateConnectionState(ConnectionState state)
 
     const bool needsAttention=state==ConnectionState::Failed || state==ConnectionState::Interrupted || connectionSession->networkRecoveryFailed();
     const bool noTray=property("trayUnavailable").toBool();
-    ui->statusHintLabel->setText(noTray ? tr("System tray unavailable. Use Exit in Settings to quit.") : needsAttention ? detail : QString());
+    ui->statusHintLabel->setText(noTray ? tr("System tray unavailable. Use Exit in Details to quit.") : needsAttention ? detail : QString());
     ui->statusHintLabel->setVisible(noTray || needsAttention);
     const QMap<QString,QString> results{{"running",tr("In progress")},{"succeeded",tr("Succeeded")},{"failed",tr("Failed")},{"required",tr("Sign in again")},{"disabled",tr("Disabled")},{"unavailable",tr("Unavailable")}};
     const auto traffic=connectionSession->observation("traffic");
@@ -621,19 +620,13 @@ void MainWindow::setupProfileMenu()
     traySwitchGroup = new QActionGroup(trayProfileMenu);
     switchGroup->setExclusive(true);
     traySwitchGroup->setExclusive(true);
-    ui->profileMenu->insertAction(ui->configurationGuideAction,ui->settingAction);
+    ui->profileMenu->addAction(ui->settingAction);
     ui->profileMenu->addSeparator();
     newProfileAction = ui->profileMenu->addAction(tr("New profile"));
     renameProfileAction = ui->profileMenu->addAction(tr("Rename profile"));
     deleteProfileAction = ui->profileMenu->addAction(tr("Delete profile"));
     ui->profileMenu->addSeparator();
 
-    connect(
-        ui->configurationGuideAction,
-        &QAction::triggered,
-        this,
-        &MainWindow::openConfigurationGuide
-    );
     connect(newProfileAction, &QAction::triggered, this, &MainWindow::createProfile);
     newProfileAction->setObjectName("newProfileAction");
     ui->profileMenuButton->setMenu(ui->profileMenu);
@@ -724,10 +717,9 @@ bool MainWindow::switchProfile(const QString &profileId)
         return false;
     }
 
-    if (connectionUiController->isConfigurationSaving() || (settingWindow && settingWindow->isSaving()) || (guideWindow && guideWindow->isSaving())) {
+    if (connectionUiController->isConfigurationSaving() || (settingWindow && settingWindow->isSaving())) {
         QMessageBox::information(this,tr("Saving profile"),tr("Wait for the save before switching profiles."));refreshProfileMenu();return false;
     }
-    if (guideWindow) guideWindow->close();
     if (settingWindow != nullptr)
     {
         settingWindow->close();
@@ -754,7 +746,7 @@ bool MainWindow::switchProfile(const QString &profileId)
 
 void MainWindow::createProfile()
 {
-    if (connectionUiController->isConfigurationSaving() || (settingWindow && settingWindow->isSaving()) || (guideWindow && guideWindow->isSaving())) {
+    if (connectionUiController->isConfigurationSaving() || (settingWindow && settingWindow->isSaving())) {
         QMessageBox::information(this,tr("Saving profile"),tr("Wait for the save before creating a profile."));return;
     }
     if (connectionSession != nullptr && connectionSession->isActive())
@@ -777,7 +769,6 @@ void MainWindow::createProfile()
         return;
     }
 
-    if (guideWindow) guideWindow->close();
     if (settingWindow != nullptr)
     {
         settingWindow->close();
@@ -798,80 +789,12 @@ void MainWindow::createProfile()
     clearLog();
     refreshProfileMenu();
 
-    openConfigurationGuide();
-}
-
-void MainWindow::openConfigurationGuide()
-{
-    if (connectionSession != nullptr && connectionSession->isActive())
-    {
-        QMessageBox::warning(
-            this,
-            tr("Profile is in use"),
-            tr("Disconnect before using the setup guide.")
-        );
-        return;
-    }
-
-    if (connectionUiController->isConfigurationSaving() || (settingWindow && settingWindow->isSaving())) {QMessageBox::information(this,tr("Saving profile"),tr("Wait for the save to finish."));return;}
-
-    if (settingWindow != nullptr)
-    {
-        settingWindow->close();
-    }
-
-    if (guideWindow && guideWindow->isVisible()) {guideWindow->raise();guideWindow->activateWindow();return;}
-    connectionUiController->cancelPendingCredentials();
-    const auto path=settings->fileName();
-    guideWindow=new ConfigurationGuideDialog(this,coordinator->credentials(),coordinator->credentialSource());
-    guideWindow->setAttribute(Qt::WA_DeleteOnClose);
-    connect(guideWindow,&QDialog::accepted,this,[this,path] {
-        if (settings->fileName()!=path) return;
-        resetConnectionUi();clearLog();qInfo().noquote()<<tr("Current profile updated with the setup guide");
-    });
-    connect(guideWindow,&ConfigurationGuideDialog::connectRequested,this,[this,path] {
-        if (profileService->settings()->fileName()==path) connectionUiController->enableCampusAccess();
-    },Qt::QueuedConnection);
-    guideWindow->show();
-}
-
-void MainWindow::promptFirstLaunchGuide()
-{
-    promptConfigurationGuide(
-        tr("Welcome to JustConnect"),
-        tr("Set up your VPN server now?")
-    );
-}
-
-void MainWindow::promptConfigurationGuide(
-    const QString &windowTitle,
-    const QString &text
-)
-{
-    QMessageBox messageBox(this);
-    messageBox.setWindowTitle(windowTitle);
-    messageBox.setText(text);
-    messageBox.setInformativeText(
-        tr("The guide helps you choose a server, sign-in method and credentials.")
-    );
-
-    QPushButton *startButton = messageBox.addButton(
-        tr("Set up"),
-        QMessageBox::AcceptRole
-    );
-    messageBox.addButton(tr("Later"), QMessageBox::RejectRole);
-    messageBox.setDefaultButton(startButton);
-    messageBox.exec();
-
-    if (messageBox.clickedButton() == startButton)
-    {
-        openConfigurationGuide();
-    }
+    showSettings(true);
 }
 
 void MainWindow::renameCurrentProfile()
 {
-    if (coordinator->credentials()->isBusy(settings->fileName()) || connectionUiController->isConfigurationSaving() || (settingWindow && settingWindow->isSaving()) || (guideWindow && guideWindow->isSaving())) {
+    if (coordinator->credentials()->isBusy(settings->fileName()) || connectionUiController->isConfigurationSaving() || (settingWindow && settingWindow->isSaving())) {
         QMessageBox::information(this,tr("Secure storage is busy"),tr("Wait for the current operation before renaming."));return;
     }
     bool ok = false;
@@ -901,7 +824,6 @@ void MainWindow::renameCurrentProfile()
     {
         settingWindow->close();
     }
-    if (guideWindow) guideWindow->close();
     connectionUiController->cancelPendingCredentials();
     const auto source=coordinator->credentialSource();
     coordinator->credentials()->migrate(source).then(this,[this,source,normalizedName](const CredentialResult &result) {
@@ -916,7 +838,7 @@ void MainWindow::renameCurrentProfile()
 void MainWindow::deleteCurrentProfile()
 {
     if (profileService->usesOverrideConfiguration()) {QMessageBox::warning(this,tr("Could not delete profile"),tr("External profiles cannot be deleted here."));return;}
-    if (coordinator->credentials()->isBusy(settings->fileName()) || connectionUiController->isConfigurationSaving() || (settingWindow && settingWindow->isSaving()) || (guideWindow && guideWindow->isSaving())) {
+    if (coordinator->credentials()->isBusy(settings->fileName()) || connectionUiController->isConfigurationSaving() || (settingWindow && settingWindow->isSaving())) {
         QMessageBox::information(this,tr("Secure storage is busy"),tr("Wait for the current operation before deleting a profile."));return;
     }
     if (currentProfileId.isEmpty())
@@ -947,7 +869,6 @@ void MainWindow::deleteCurrentProfile()
     {
         settingWindow->close();
     }
-    if (guideWindow) guideWindow->close();
     connectionUiController->cancelPendingCredentials();
     const auto legacy=coordinator->credentialSource().legacyCachePath;
     if (!legacy.isEmpty() && QFileInfo::exists(legacy) && !QFile::remove(legacy)) {

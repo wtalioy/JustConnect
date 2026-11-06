@@ -5,7 +5,6 @@
 #include "presentation/dialogs/graphcaptchawindow/graphcaptchawindow.h"
 #include "presentation/dialogs/ssologinwebview/ssologinwebview.h"
 #include "presentation/dialogs/networkpolicywindow.h"
-#include "presentation/dialogs/configurationguidedialog/configurationguidedialog.h"
 #include "application/applicationlogger.h"
 #include "application/defaultsettings.h"
 #include "tests/credentialstorefixture.h"
@@ -108,8 +107,7 @@ static void profileMenusDoNotAccumulateGroups(MainWindow &window,const QString &
     auto *tabs=editor->findChild<QTabWidget *>("tabWidget");
     auto *dns=editor->findChild<QPlainTextEdit *>("domainDnsRulesEdit");
     check(tabs && dns && tabs->currentWidget()->isAncestorOf(dns),"profile editor opens on the tab containing domain DNS");
-    editor->findChild<QToolButton *>("advancedServerButton")->click();
-    check(dns->isVisibleTo(editor),"domain DNS is reachable by expanding advanced server settings");
+    check(dns->isVisibleTo(editor),"domain DNS is directly available on the connection page");
     editor->reject();
     QApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     const auto checked=[](QMenu *menu) {
@@ -153,32 +151,30 @@ static void profileMenusDoNotAccumulateGroups(MainWindow &window,const QString &
         name->accept();
     });
     addAction->trigger();
-    auto *guide=window.findChild<ConfigurationGuideDialog *>();
-    check(guide && guide->isVisible() && checked(menu)=="direct-add" && checked(trayMenu)=="direct-add",
-        "new profile is active and opens the configuration guide");
-    guide->reject();
+    auto *created=window.findChild<SettingWindow *>();
+    check(created && created->isVisible() && checked(menu)=="direct-add" && checked(trayMenu)=="direct-add"
+        && created->findChild<QTabWidget *>("tabWidget")->currentIndex()==1,
+        "new profile is active and opens the existing connection editor directly");
+    created->reject();
 }
 
-static void changeLanguageFromSettings(MainWindow &window,const QString &language,bool save=true) {
+static void changeLanguageFromSettings(MainWindow &window,const QString &language) {
     window.findChild<QAction *>("preferencesAction")->trigger();
-    auto *dialog=window.findChild<QDialog *>("applicationPreferencesDialog");
+    auto *dialog=window.findChild<QDialog *>("settingsDialog");
     auto *choice=dialog->findChild<QComboBox *>("languageComboBox");
     check(choice && choice->findData(language)>=0,"settings expose the requested language");
     const auto report=qEnvironmentVariable("JC_UI_REPORT_DIR");
     if (!report.isEmpty()) check(dialog->grab().save(QDir(report).filePath("settings-"+ApplicationLanguage::instance().current()+".png")),"save native preferences screenshot");
-    if (ApplicationLanguage::instance().current()=="zh_CN")
-        check(dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->text().contains(QString::fromUtf8("保存")),"standard Qt dialog buttons use the selected Chinese translation");
+    check(dialog->findChild<QTabWidget *>("tabWidget")->currentIndex()==0,"settings shortcut opens the general page directly");
     choice->setCurrentIndex(choice->findData(language));
-    dialog->findChild<QDialogButtonBox *>()->button(save?QDialogButtonBox::Save:QDialogButtonBox::Cancel)->click();
+    dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Cancel)->click();
     QCoreApplication::processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
-    check(!window.findChild<QDialog *>("applicationPreferencesDialog"),"successful language save or cancel closes the settings dialog");
+    check(!window.findChild<QDialog *>("settingsDialog"),"closing unified settings releases the dialog");
 }
 static void languagePreferences(MainWindow &window) {
     auto *action=window.findChild<QPushButton *>("connectButton");
     const auto initial=ProfileManager().language();
     check(initial=="en" && ApplicationLanguage::instance().current()=="en" && action->text()=="Connect","a fresh application defaults to English");
-    changeLanguageFromSettings(window,"zh_CN",false);
-    check(ProfileManager().language()==initial && action->text()=="Connect","cancelled language selection cannot alter runtime or storage");
     changeLanguageFromSettings(window,"zh_CN");
     check(ApplicationLanguage::instance().current()=="zh_CN" && ProfileManager().language()=="zh_CN" && action->text()==QString::fromUtf8("连接")
         && window.findChild<QSystemTrayIcon *>()->toolTip().contains(QString::fromUtf8("尚未连接")),"saving Chinese updates the existing main window and tray without recreating them");
@@ -261,57 +257,10 @@ static void profileSetupLanguageChangesPreserveData(MainWindow &window) {
     settings.setValue("JustConnect/AuthID","opaque-method");
     settings.setValue("JustConnect/AllowUnverifiedNodes",true);
     CredentialAccess access(std::make_unique<MemoryCredentialStore>());
-    ConfigurationGuideDialog guide(&window,&access,CredentialAccess::source(settings,{}));
-    guide.show();waitForUi([&]{return !access.isBusy(settings.fileName());});
-    auto *server=guide.findChild<ServerSettingsWidget *>();
-    auto *pages=guide.findChild<QStackedWidget *>("guidePages");
-    auto *username=guide.findChild<QLineEdit *>("guideUsernameLineEdit");
-    auto *password=guide.findChild<QLineEdit *>("guidePasswordLineEdit");
-    auto *totp=guide.findChild<QLineEdit *>("guideTotpSecretLineEdit");
-    auto *next=guide.findChild<QPushButton *>("guideNextButton");
-    auto *advanced=guide.findChild<QToolButton *>("advancedServerButton");
-    auto *dns=guide.findChild<QPlainTextEdit *>("domainDnsRulesEdit");
-    auto *summary=guide.findChild<QLabel *>("securitySummaryLabel");
-    check(!dns->isVisibleTo(&guide) && summary->isVisibleTo(&guide),"advanced fields start closed while an unsafe certificate choice remains visible");
-    const auto language=[&](const QString &value){
+    const auto language=[&](const QString &value) {
         check(ApplicationLanguage::instance().savePreferences(value,ProfileManager().closeToTray()),"change language with a profile draft open");
         QCoreApplication::processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::LayoutRequest);QCoreApplication::processEvents();
     };
-    const auto screenshot=[&](const QString &name){
-        const auto report=qEnvironmentVariable("JC_UI_REPORT_DIR");
-        if(!report.isEmpty()) check(guide.grab().save(QDir(report).filePath(name)),"save synthetic profile setup screenshot");
-    };
-    language("en");screenshot("setup-server.png");
-    advanced->click();check(dns->isVisibleTo(&guide),"advanced server settings can be expanded");
-    dns->setPlainText("service.example.invalid 192.0.2.53");
-    const auto draft=server->settingsValues();int serverChanges=0;
-    QObject::connect(server,&ServerSettingsWidget::serverChanged,[&]{++serverChanges;});
-    language("zh_CN");
-    check(guide.windowTitle()==QString::fromUtf8("连接引导") && serverChanges==0 && draft==server->settingsValues()
-        && advanced->isChecked() && pages->currentIndex()==0,"translation preserves the selected endpoint, DNS draft, advanced expansion and guide step");
-    screenshot("setup-advanced.png");
-    advanced->click();guide.resize(320,560);language("en");
-    check(guide.width()==320 && guide.rect().contains(next->mapTo(&guide,QPoint(next->width(),next->height()))),"narrow setup keeps navigation inside the window");
-    auto *serverScroll=qobject_cast<QScrollArea *>(pages->currentWidget());
-    check(serverScroll && serverScroll->horizontalScrollBar()->maximum()==0,"narrow server settings reflow without horizontal clipping");
-    const auto normalFont=server->font();auto wideFont=normalFont;wideFont.setStretch(200);server->setFont(wideFont);
-    language("en");
-    check(guide.width()==320 && serverScroll->horizontalScrollBar()->maximum()==0,"wide fallback font metrics cannot force the server selector beyond the viewport");
-    server->setFont(normalFont);language("en");
-    screenshot("setup-320.png");
-    guide.resize(440,560);next->click();next->click();
-    check(pages->currentIndex()==2,"valid existing method reaches the credential step");
-    username->setText("draft-user");password->setText("draft-password");totp->setText("draft-totp");
-    for(auto *box:guide.findChildren<QCheckBox *>())if(box->text()=="Show")box->setChecked(true);
-    language("zh_CN");
-    check(password->text()=="draft-password" && totp->text()=="draft-totp" && username->text()=="draft-user"
-        && password->echoMode()==QLineEdit::Normal && serverChanges==0 && draft==server->settingsValues()
-        && pages->currentIndex()==2 && next->text()==QString::fromUtf8("保存并连接"),"translation does not reset credentials, visibility choices or the selected authentication method");
-    screenshot("setup-account.png");
-    int connections=0;QObject::connect(&guide,&ConfigurationGuideDialog::connectRequested,[&]{++connections;});
-    guide.reject();
-    check(connections==0 && settings.value("Credential/Username").toString().isEmpty()
-        && settings.value("JustConnect/AuthID")=="opaque-method","cancelling translated setup neither saves its draft nor starts a connection");
     language("en");
     auto *editor=new SettingWindow(&window,&access,CredentialAccess::source(settings,{}),true);
     editor->show();waitForUi([&]{return !access.isBusy(settings.fileName());});
@@ -319,17 +268,14 @@ static void profileSetupLanguageChangesPreserveData(MainWindow &window) {
     auto *user=editor->findChild<QLineEdit *>("usernameLineEdit");
     auto *secret=editor->findChild<QLineEdit *>("passwordLineEdit");
     auto *method=editor->findChild<QComboBox *>("authTypeComboBox");
-    auto *mode=editor->findChild<QComboBox *>("keepAliveModeComboBox");
-    auto *target=editor->findChild<QLineEdit *>("keepAliveUrlLineEdit");
     auto *show=editor->findChild<QCheckBox *>("passwordVisibleCheckBox");
     user->setText("editor-user");secret->setText("editor-password");show->setChecked(true);
-    mode->setCurrentIndex(mode->findData("target"));target->setText("https://campus.example/status");
+    editor->findChild<QPlainTextEdit *>("domainDnsRulesEdit")->setPlainText("service.example.invalid");
     const auto methodValue=method->currentData();auto *currentTab=tabs->currentWidget();
     language("zh_CN");
-    check(editor->windowTitle()==QString::fromUtf8("连接配置") && tabs->currentWidget()==currentTab
-        && tabs->tabText(tabs->currentIndex())==QString::fromUtf8("账号")
-        && method->currentData()==methodValue && mode->currentData()=="target"
-        && target->text()=="https://campus.example/status" && secret->text()=="editor-password"
+    check(editor->windowTitle()==QString::fromUtf8("设置") && tabs->currentWidget()==currentTab
+        && tabs->tabText(tabs->currentIndex())==QString::fromUtf8("连接")
+        && method->currentData()==methodValue && editor->findChild<QPlainTextEdit *>("domainDnsRulesEdit")->toPlainText()=="service.example.invalid" && secret->text()=="editor-password"
         && user->text()=="editor-user" && show->isChecked() && secret->echoMode()==QLineEdit::Normal,
         "profile editor translation preserves its tab, method identity, probe target and secret draft");
     const auto report=qEnvironmentVariable("JC_UI_REPORT_DIR");
@@ -338,7 +284,7 @@ static void profileSetupLanguageChangesPreserveData(MainWindow &window) {
     editor->findChild<QDialogButtonBox *>("buttonBox")->button(QDialogButtonBox::Apply)->click();
     waitForUi([&]{return !editor->isSaving();});
     check(settings.value("JustConnect/AuthID")=="opaque-method" && settings.value("Credential/Username")=="editor-user"
-        && settings.value("JustConnect/KeepAliveMode")=="target" && settings.value("JustConnect/KeepAliveURL")=="https://campus.example/status",
+        && settings.value(DefaultSettings::DomainDnsRules)=="service.example.invalid",
         "saving a translated draft preserves the opaque authentication identity and actual field values");
     editor->reject();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
 }
@@ -368,6 +314,27 @@ static void nativeHome(MainWindow &window) {
     check(QApplication::clipboard()->text()==log->toPlainText(),"diagnostics copy the same bounded live log");
     details->reject();QCoreApplication::processEvents();
     check(window.isVisible() && !details->isVisible() && session->state()==state,"closing details preserves the accessible home and connection");
+    for (int i=0;i<2;++i) {
+        window.findChild<QPushButton *>("detailsButton")->click();QCoreApplication::processEvents();
+        check(details->isVisible() && session->state()==state,"reopening details preserves the session");
+        details->reject();QCoreApplication::processEvents();
+    }
+    window.findChild<QPushButton *>("connectButton")->click();QCoreApplication::processEvents();
+    auto *initial=window.findChild<SettingWindow *>();
+    check(initial && initial->isVisible() && initial->findChild<QTabWidget *>("tabWidget")->currentIndex()==1
+        && initial->findChild<QDialogButtonBox *>("buttonBox")->button(QDialogButtonBox::Ok)->text()=="Save and connect",
+        "an unconfigured connection opens the shared editor without a welcome dialog or wizard");
+    initial->reject();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    check(session->state()==state,"cancelling implicit setup never starts a session");
+    auto *gear=window.findChild<QToolButton *>("preferencesButton");
+    check(!gear->menu(),"the settings gear opens settings without an extra menu layer");
+    gear->click();QCoreApplication::processEvents();
+    auto *settings=window.findChild<SettingWindow *>();
+    check(settings && settings->isVisible(),"the gear opens unified settings directly");
+    window.findChild<QAction *>("settingAction")->trigger();
+    check(window.findChildren<SettingWindow *>().size()==1 && settings->findChild<QTabWidget *>("tabWidget")->currentIndex()==1,
+        "profile edit reuses the same window and switches directly to its connection page");
+    settings->reject();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     const auto report=qEnvironmentVariable("JC_UI_REPORT_DIR");
     if (!report.isEmpty()) check(window.grab().save(QDir(report).filePath("home.png")),"save actual Qt home screenshot");
     const auto original=window.size();window.resize(320,460);QCoreApplication::processEvents();
@@ -421,7 +388,7 @@ int main(int argc,char **argv) {
         }
         QLocale::setDefault(QLocale(QLocale::Chinese,QLocale::China));
         QString menuProfile;
-        if(app.arguments().size()==1) {
+        if(app.arguments().size()==1 || app.arguments().contains("--native-home")) {
             menuProfile=manager.createProfile("menu-fixture",manager.profilePath(""));
             check(!menuProfile.isEmpty(),"create an isolated profile for menu switching");
             recoveryStatus(logger,log);
@@ -438,11 +405,11 @@ int main(int argc,char **argv) {
         if (app.arguments().contains("--invalid-language")) {
             check(ApplicationLanguage::instance().current()=="en" && manager.language()=="unsupported","invalid preferences fall back to English without overwriting evidence");
             window.findChild<QAction *>("preferencesAction")->trigger();
-            auto *invalid=window.findChild<QDialog *>("applicationPreferencesDialog");
+            auto *invalid=window.findChild<QDialog *>("settingsDialog");
             bool explained=false;for (auto *label:invalid->findChildren<QLabel *>()) explained|=label->text().contains("saved language is invalid");
             check(explained,"invalid language fallback is visible in settings");invalid->reject();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
         }
-        if (app.arguments().size()==1) {nativeHome(window);languagePreferences(window);profileMenusDoNotAccumulateGroups(window,menuProfile);}
+        if (app.arguments().size()==1 || app.arguments().contains("--native-home")) {nativeHome(window);languagePreferences(window);profileMenusDoNotAccumulateGroups(window,menuProfile);}
         check(window.findChild<QLabel *>("statusTitleLabel")->text()!="Connected","disconnected cannot claim campus readiness");
         window.showMinimized();QCoreApplication::processEvents();
         check(window.isVisible(),"minimization must not hide the only window");
@@ -485,34 +452,41 @@ int main(int argc,char **argv) {
         check(preferencesAction,"application preferences must be discoverable without a school configuration");
         const auto openPreferences=[&] {
             preferencesAction->trigger();
-            auto *dialog=window.findChild<QDialog *>("applicationPreferencesDialog");
+            auto *dialog=window.findChild<QDialog *>("settingsDialog");
             check(dialog && dialog->isVisible(),"application preferences open independently of school settings");
             return dialog;
         };
         auto *preferences=openPreferences();
-        preferences->findChild<QComboBox *>("closeBehaviorComboBox")->setCurrentIndex(1);
-        preferences->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Cancel)->click();
-        QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
-        check(ProfileManager().closeToTray(),"cancelling preferences cannot change close behavior");
-        preferences=openPreferences();
-        preferences->findChild<QComboBox *>("closeBehaviorComboBox")->setCurrentIndex(1);
+        if (activePreferences) {
+            auto *editor=qobject_cast<SettingWindow *>(preferences);
+            editor->showPage(true);
+            check(!editor->findChild<QLineEdit *>("usernameLineEdit")->isEnabled()
+                && editor->findChild<QLabel *>("profileReadOnlyHint")->isVisible(),
+                "an active profile cannot be edited through the unified settings shortcut");
+            editor->showPage(false);
+            check(editor->findChild<QComboBox *>("languageComboBox")->isEnabled(),"global preferences remain editable during a connection");
+        }
         if (app.arguments().contains("--preferences-failure")) {
             check(ProfileManager().setCloseToTray(true),"prepare previous global preference");
             const auto state=QDir(configRoot).filePath("state.ini");
             QFile input(state);check(input.open(QIODevice::ReadOnly),"read original preference");const auto original=input.readAll();input.close();
             check(QFile::remove(state) && QDir().mkdir(state),"inject isolated preference storage failure");
             preferences->findChild<QComboBox *>("languageComboBox")->setCurrentIndex(1);
-            preferences->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->click();
-            check(ApplicationLanguage::instance().current()=="en" && preferences->isVisible() && !preferences->findChild<QLabel *>("preferenceError")->text().isEmpty(),"failed preference save must keep the dialog open with an explicit error");
+            preferences->findChild<QComboBox *>("closeBehaviorComboBox")->setCurrentIndex(1);
+            check(ApplicationLanguage::instance().current()=="en" && preferences->isVisible()
+                && preferences->findChild<QComboBox *>("closeBehaviorComboBox")->currentIndex()==0
+                && preferences->findChild<QComboBox *>("languageComboBox")->currentIndex()==0
+                && !preferences->findChild<QLabel *>("preferenceError")->isHidden(),
+                "failed immediate preference saves restore both controls and show the error");
             check(QDir().rmdir(state),"remove isolated failure fixture");
             QFile restore(state);check(restore.open(QIODevice::WriteOnly) && restore.write(original)==original.size(),"restore original preference fixture");restore.close();
-            preferences->reject();
             check(ProfileManager().closeToTray(),"failed save cannot replace the previous preference");
         } else {
-            preferences->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Save)->click();
-            check(window.isVisible() && !ProfileManager().closeToTray(),"saving close behavior must persist without immediately closing the window");
+            preferences->findChild<QComboBox *>("closeBehaviorComboBox")->setCurrentIndex(1);
+            check(window.isVisible() && !ProfileManager().closeToTray(),"general preferences persist immediately without closing or disconnecting");
             if (!app.arguments().contains("--close-exits")) check(ProfileManager().setCloseToTray(true),"restore default preference for explicit exit tests");
         }
+        preferences->reject();
         QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
         if (activePreferences) {
             const auto state=connection->state();

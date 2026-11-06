@@ -6,7 +6,9 @@
 #include <QFileInfo>
 #include <cstdlib>
 #include <QFileDialog>
+#include <QLabel>
 #include <QLineEdit>
+#include <QPlainTextEdit>
 #include <QKeyEvent>
 #include <QMessageBox>
 #include <QPointer>
@@ -59,6 +61,9 @@ int main(int argc,char **argv) {
     settings.setValue("JustConnect/AuthID","persisted-id"); settings.setValue("JustConnect/AuthSubType","password");
     settings.setValue("Credential/OtherAccount/Ticket","retained-ticket");
     settings.setValue("OtherApplication/Value","retained-value"); settings.sync();
+    settings.setValue("JustConnect/SOCKS5Port",0);settings.setValue("JustConnect/HTTPPort",19443);
+    settings.setValue("JustConnect/DNSTTL",61);settings.setValue("JustConnect/KeepAliveMode","target");
+    settings.setValue("JustConnect/KeepAliveURL","https://campus.example.invalid/status");settings.sync();
     auto backend=std::make_unique<MemoryCredentialStore>();auto *store=backend.get();CredentialAccess access(std::move(backend));
     auto ready=[&] {until([&]{return !access.isBusy(settings.fileName());});app.processEvents();};
     // Saving an unrelated change must preserve the selected opaque identity.
@@ -66,7 +71,7 @@ int main(int argc,char **argv) {
       initial->resize(640,480); app.processEvents();
       check(initial->height()<=480,"settings fit a short screen without forcing the dialog beyond its bounds");
       auto *tabs=initial->findChild<QTabWidget *>("tabWidget");
-      check(tabs->currentWidget()->isAncestorOf(initial->findChild<QPushButton *>("importPushButton")),"settings retain the initial general tab");
+      check(tabs->currentWidget()->isAncestorOf(initial->findChild<QComboBox *>("languageComboBox")) && tabs->count()==2,"unified settings start on general preferences and have two same-level pages");
       tabs->setCurrentIndex(1);
       initial->findChild<QCheckBox *>("tlsVerifyCheckBox")->setChecked(false);
       initial->findChild<QCheckBox *>("allowUnverifiedNodesCheckBox")->setChecked(true);
@@ -83,16 +88,12 @@ int main(int argc,char **argv) {
       check(remember && !remember->isChecked(),"new profiles do not persist authentication without consent");
       remember->setChecked(true);
       initial->findChild<QCheckBox *>("tlsVerifyCheckBox")->setChecked(false);
-      initial->findChild<QSpinBox *>("socks5PortSpinBox")->setValue(0);
-      initial->findChild<QSpinBox *>("httpPortSpinBox")->setValue(19443);
-      initial->findChild<QSpinBox *>("dnsTTLSpinBox")->setValue(61);
-      auto *keepAlive=initial->findChild<QComboBox *>("keepAliveModeComboBox");
-      auto *target=initial->findChild<QLineEdit *>("keepAliveUrlLineEdit");
-      check(keepAlive->currentData()=="auto" && !target->isEnabled(),"new profiles use automatic traffic keepalive without a manual target");
-      keepAlive->setCurrentIndex(keepAlive->findData("target"));
-      check(target->isEnabled(),"target mode enables the URL draft");
-      target->setText("https://campus.example.invalid/status");
+      check(!initial->findChild<QSpinBox *>("socks5PortSpinBox") && !initial->findChild<QComboBox *>("keepAliveModeComboBox"),
+          "technical proxy and traffic-probe controls are absent from everyday settings");
+      initial->setConnectAfterSave(true);int intents=0;
+      QObject::connect(initial,&SettingWindow::connectRequested,[&]{++intents;});
       initial->findChild<QDialogButtonBox *>("buttonBox")->button(QDialogButtonBox::Ok)->click(); ready();
+      check(intents==1,"implicit setup resumes the requested connection once after a successful save");
       check(settings.value("JustConnect/AuthID")=="persisted-id" && settings.value("JustConnect/AuthSubType")=="password","selected authentication identity survives settings reload/apply");
       const auto reloaded=ProfileService::load(settings);
       check(!reloaded.tls.verify && reloaded.proxy.socksBind.isEmpty()
@@ -118,63 +119,59 @@ int main(int argc,char **argv) {
             }
         }
     }); dismiss.start(1);
-    auto open=[&] { auto *window=new SettingWindow(nullptr,&access,CredentialAccess::source(settings,ApplicationPaths::clientDataFile("fixture"))); window->show();ready(); return window; };
+    auto open=[&] { auto *window=new SettingWindow(nullptr,&access,CredentialAccess::source(settings,ApplicationPaths::clientDataFile("fixture")),true); window->show();ready(); return window; };
     auto buttons=[](SettingWindow *w) { return w->findChild<QDialogButtonBox *>("buttonBox"); };
+    settings.setValue("JustConnect/KeepAliveURL","ssh://campus.example.invalid:22");settings.sync();
     QPointer<SettingWindow> window=open();
-    auto *keepAlive=window->findChild<QComboBox *>("keepAliveModeComboBox");
-    auto *target=window->findChild<QLineEdit *>("keepAliveUrlLineEdit");
-    target->setText("ssh://campus.example.invalid:22");
-    expectedText=QCoreApplication::translate("SettingWindow","Check the server, sign-in method, ports, DNS and probe target. Nothing was saved.");shown=false;buttons(window)->button(QDialogButtonBox::Apply)->click();ready();
-    check(shown && window && settings.value("JustConnect/KeepAliveURL")=="https://campus.example.invalid/status",
-        "unsafe traffic targets are rejected before saving");
-    target->setText("https://campus.example.invalid/status");
-    keepAlive->setCurrentIndex(keepAlive->findData("off"));
-    check(!target->isEnabled() && !target->text().isEmpty(),"disabling traffic keepalive retains the target draft");
-    expectedText.clear();buttons(window)->button(QDialogButtonBox::Apply)->click();ready();
-    check(settings.value("JustConnect/KeepAliveMode")=="off" && settings.value("JustConnect/KeepAliveURL")==target->text(),
-        "disabled traffic mode and retained target survive apply");
-    keepAlive->setCurrentIndex(keepAlive->findData("auto"));window->reject();ready();
-    check(settings.value("JustConnect/KeepAliveMode")=="off","cancel does not enable traffic keepalive");
-    window=open();
+    expectedText=QCoreApplication::translate("SettingWindow","Check the server, sign-in method, ports, DNS and probe target. Nothing was saved.");shown=false;
+    buttons(window)->button(QDialogButtonBox::Apply)->click();ready();
+    check(shown && window && settings.value("JustConnect/KeepAliveURL")=="ssh://campus.example.invalid:22",
+        "hidden advanced settings still pass core validation before any save");
+    window->reject();ready();settings.setValue("JustConnect/KeepAliveURL","https://campus.example.invalid/status");
+    settings.setValue("JustConnect/KeepAliveMode","off");settings.sync();
+    window=open();expectedText.clear();buttons(window)->button(QDialogButtonBox::Apply)->click();ready();
+    check(settings.value("JustConnect/KeepAliveMode")=="off" && settings.value("JustConnect/KeepAliveURL")=="https://campus.example.invalid/status",
+        "simplifying the editor preserves a disabled traffic mode and its saved target");
     const auto statePath=QDir(QFileInfo(ProfileManager().profilePath("")).absolutePath()).filePath("state.ini");
     const auto retainedTTL=settings.value("JustConnect/DNSTTL");
     check(QFile::rename(statePath,statePath+".backup") && QDir().mkdir(statePath),"simulate global preference write failure");
     window->findChild<QCheckBox *>("silentStartCheckBox")->setChecked(true);
-    window->findChild<QSpinBox *>("dnsTTLSpinBox")->setValue(77);
-    expectedText=QCoreApplication::translate("SettingWindow","Could not save background startup. Check the configuration folder and retry. This draft has not been applied.");shown=false;
-    buttons(window)->button(QDialogButtonBox::Ok)->click();ready();
-    check(shown && window && window->isVisible() && settings.value("JustConnect/DNSTTL")==retainedTTL
-        && window->findChild<QCheckBox *>("silentStartCheckBox")->isChecked(),
-        "global preference failure preserves the window, draft and saved configuration");
+    check(window && window->isVisible() && settings.value("JustConnect/DNSTTL")==retainedTTL
+        && !window->findChild<QCheckBox *>("silentStartCheckBox")->isChecked()
+        && !window->findChild<QLabel *>("preferenceError")->isHidden(),
+        "global preference failure restores its control and leaves the profile unchanged");
     check(QDir().rmdir(statePath) && QFile::rename(statePath+".backup",statePath),"repair global preference storage");
     check(!ProfileManager().silentStartEnabled(),"failed preference write preserves the previous choice");
-    expectedText.clear();window->reject();ready();window=open();
-    window->findChild<QLineEdit *>("secondaryDnsLineEdit")->setText("not-an-address");
+    expectedText.clear();window->reject();ready();
+    settings.setValue("JustConnect/SecondaryDNS","not-an-address");settings.sync();window=open();
     expectedText=QCoreApplication::translate("SettingWindow","Check the server, sign-in method, ports, DNS and probe target. Nothing was saved."); buttons(window)->button(QDialogButtonBox::Ok)->click();
-    check(shown && window->isVisible() && settings.value("JustConnect/SecondaryDNS").toString().isEmpty() && !QFileInfo::exists(cache) && store->values.value(ProfileCredentials::legacyCacheKey(settings.value(ProfileCredentials::ScopeSetting).toString()))=="current authentication","core validation rejects bad DNS before persistence or cache changes");
-    window->findChild<QLineEdit *>("secondaryDnsLineEdit")->clear();
-    window->findChild<QCheckBox *>("autoStartCheckBox")->setChecked(true);
+    check(shown && window->isVisible() && settings.value("JustConnect/SecondaryDNS")=="not-an-address" && !QFileInfo::exists(cache) && store->values.value(ProfileCredentials::legacyCacheKey(settings.value(ProfileCredentials::ScopeSetting).toString()))=="current authentication","core validation rejects bad DNS before persistence or cache changes");
+    window->reject();ready();settings.setValue("JustConnect/SecondaryDNS","");settings.sync();window=open();
     window->findChild<QLineEdit *>("serverAddressLineEdit")->setText("changed.example.invalid");
     auto *method=window->findChild<QComboBox *>("authTypeComboBox");method->setCurrentIndex(method->findData("psw"));
     const auto startup=AutoStart::setEnabled(true);
     check(!startup.succeeded() && !startup.mayHaveChanged,"invalid test startup identity is rejected before mutation");
-    expectedText=PresentationHelpers::platformOperationMessage(startup); shown=false; buttons(window)->button(QDialogButtonBox::Ok)->click();
-    check(shown && window->isVisible() && !ProfileManager().autoStartEnabled(),"autostart failure leaves settings open without enabling preference");
-    check(settings.value("JustConnect/ServerAddress")=="vpn.example.invalid" && !QFileInfo::exists(cache) && store->values.value(ProfileCredentials::legacyCacheKey(settings.value(ProfileCredentials::ScopeSetting).toString()))=="current authentication","failed apply preserves settings and authentication");
-    expectedText.clear(); window->findChild<QCheckBox *>("autoStartCheckBox")->setChecked(false);
+    window->findChild<QCheckBox *>("autoStartCheckBox")->setChecked(true);
+    check(window->isVisible() && !ProfileManager().autoStartEnabled()
+        && !window->findChild<QCheckBox *>("autoStartCheckBox")->isChecked()
+        && window->findChild<QLabel *>("preferenceError")->text()==PresentationHelpers::platformOperationMessage(startup),
+        "autostart failure is inline, restores the choice, and keeps the connection draft");
+    check(settings.value("JustConnect/ServerAddress")=="vpn.example.invalid" && !QFileInfo::exists(cache)
+        && store->values.value(ProfileCredentials::legacyCacheKey(settings.value(ProfileCredentials::ScopeSetting).toString()))=="current authentication",
+        "failed startup operation does not mutate profile settings or authentication");
+    expectedText.clear();
     buttons(window)->button(QDialogButtonBox::Ok)->click(); ready();
     check(settings.value("JustConnect/ServerAddress")=="changed.example.invalid" && !QFileInfo::exists(cache) && read(otherCache)=="other authentication","legacy cache is sealed and other profiles remain unchanged after saving");
     write(cache,"preserved authentication"); settings.setValue("JustConnect/ExtraArguments","obsolete-argument");
-    window=open(); window->findChild<QSpinBox *>("dnsTTLSpinBox")->setValue(123);
-    window->findChild<QLineEdit *>("loginUrlLineEdit")->setText("https://returned.example.invalid/?nonce=changed");
+    window=open(); window->findChild<QPlainTextEdit *>("domainDnsRulesEdit")->setPlainText("service.example.invalid");
     buttons(window)->button(QDialogButtonBox::Ok)->click(); ready();
-    check(!settings.contains("JustConnect/ExtraArguments") && settings.value("JustConnect/DNSTTL")==123 && read(cache)=="preserved authentication","obsolete-field cleanup, network edits and refreshed URL previews retain valid authentication");
-    window=open(); expectedText=QCoreApplication::translate("SettingWindow","Reset this draft to its defaults? Changes take effect after saving."); messageResult=QMessageBox::Yes;
+    check(!settings.contains("JustConnect/ExtraArguments") && settings.value("JustConnect/DNSTTL")==61 && settings.value(DefaultSettings::DomainDnsRules)=="service.example.invalid" && read(cache)=="preserved authentication","obsolete-field cleanup, network edits and refreshed URL previews retain valid authentication");
+    window=open();window->setConnectAfterSave(true);int cancelledIntents=0;QObject::connect(window,&SettingWindow::connectRequested,[&]{++cancelledIntents;}); expectedText=QCoreApplication::translate("SettingWindow","Reset this draft to its defaults? Changes take effect after saving."); messageResult=QMessageBox::Yes;
     window->findChild<QPushButton *>("resetDefaultPushButton")->click(); expectedText.clear(); messageResult=QMessageBox::Ok;
     check(window->findChild<QLineEdit *>("serverAddressLineEdit")->text().isEmpty()
         && !window->findChild<QCheckBox *>("rememberAuthenticationCheckBox")->isChecked(),"reset changes the window draft and clears cache consent in the draft");
     buttons(window)->button(QDialogButtonBox::Cancel)->click(); ready();
-    check(settings.value("JustConnect/ServerAddress")=="changed.example.invalid" && read(cache)=="preserved authentication"
+    check(cancelledIntents==0 && settings.value("JustConnect/ServerAddress")=="changed.example.invalid" && read(cache)=="preserved authentication"
         && ProfileService::load(settings).behavior.rememberAuthentication,"cancelled reset preserves configuration, cache consent and pending legacy archive");
     const auto imported=directory.filePath("import.ini");
     { QSettings source(imported,QSettings::IniFormat); DefaultSettings::reset(source); source.setValue("Credential/Username","imported-user"); source.setValue("JustConnect/ServerAddress","imported.example.invalid");
@@ -182,9 +179,6 @@ int main(int argc,char **argv) {
     const auto originalImport=read(imported);
     window=open(); fileSelection=imported; window->findChild<QPushButton *>("importPushButton")->click();
     check(fileSelection.isEmpty() && window->findChild<QLineEdit *>("usernameLineEdit")->text()=="imported-user","file import populates the window draft");
-    check(window->findChild<QComboBox *>("keepAliveModeComboBox")->currentData()=="off"
-        && window->findChild<QLineEdit *>("keepAliveUrlLineEdit")->text()=="https://imported.example.invalid/status",
-        "import preserves a legacy disabled choice and its target");
     buttons(window)->button(QDialogButtonBox::Cancel)->click(); ready();
     check(settings.value("Credential/Username")=="fixture-user" && read(imported)==originalImport && read(cache)=="preserved authentication","cancelled import changes neither source file nor saved profile/cache");
     window=open(); const auto exported=directory.filePath("export.ini"); fileSelection=exported;
@@ -204,11 +198,11 @@ int main(int argc,char **argv) {
     auto other=secured;other.credentials.username="other-user";check(vault.save(source.scope,other).succeeded(),"fixture other secure account");
     // The deliberately conflicting old cache is retained, without preventing a public-only edit.
     window=open();window->findChild<QLineEdit *>("passwordLineEdit")->clear();
-    window->findChild<QSpinBox *>("dnsTTLSpinBox")->setValue(321);
+    window->findChild<QPlainTextEdit *>("domainDnsRulesEdit")->setPlainText("other.example.invalid");
     buttons(window)->button(QDialogButtonBox::Ok)->click();ready();
     ConnectionCredentials loaded;
     check(vault.load(source.scope,secured,loaded).succeeded() && loaded.password=="saved-password"
-        && loaded.totpSecret=="saved-totp" && settings.value("JustConnect/DNSTTL")==321,"blank secret fields do not erase secure credentials when an unrelated public field changes");
+        && loaded.totpSecret=="saved-totp" && settings.value(DefaultSettings::DomainDnsRules)=="other.example.invalid" && settings.value("JustConnect/DNSTTL")==61,"blank secret fields do not erase secure credentials when an unrelated public field changes");
     QFile::remove(cache);
     window=open();check(window->findChild<QLineEdit *>("passwordLineEdit")->text()=="saved-password","secure credentials populate the real settings window");
     window->findChild<QLineEdit *>("passwordLineEdit")->clear();window->findChild<QLineEdit *>("totpSecretLineEdit")->setText("replacement-totp");

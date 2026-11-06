@@ -23,7 +23,6 @@ class QActionGroup;
 class ApplicationLogger;
 class ApplicationLogFile;
 class ConnectionUiController;
-class ConfigurationGuideDialog;
 class NetworkPolicyWindow;
 class UpdateChecker;
 
@@ -61,6 +60,7 @@ private:
     bool viewsInitialized=false;
     void upgradeSettings();
     void showApplicationPreferences();
+    void showSettings(bool connection);
 
     void clearLog();
 
@@ -88,15 +88,6 @@ private:
     bool switchProfile(const QString &profileId);
 
     void createProfile();
-
-    void openConfigurationGuide();
-
-    void promptConfigurationGuide(
-        const QString &windowTitle,
-        const QString &text
-    );
-
-    void promptFirstLaunchGuide();
 
     void renameCurrentProfile();
 
@@ -127,7 +118,6 @@ private:
     QString currentProfileId;
 
     QPointer<SettingWindow> settingWindow;
-    QPointer<ConfigurationGuideDialog> guideWindow;
     QPointer<NetworkPolicyWindow> networkPolicyWindow;
 
 };

@@ -1,5 +1,5 @@
 QMainWindow, QDialog { background: #f5f7fa; color: #192638; }
-QMainWindow[nativeBackdrop="true"], QDialog[nativeBackdrop="true"] { background: transparent; }
+QMainWindow[nativeBackdrop="true"], QDialog[nativeBackdrop="true"] { background: rgba(245,248,252,36); }
 QWidget#centralWidget { background: transparent; }
 QLabel { color: #192638; background: transparent; }
 QPushButton, QToolButton, QComboBox {
@@ -30,7 +30,7 @@ QLineEdit, QSpinBox, QPlainTextEdit, QListWidget, QTreeWidget {
 QLineEdit { min-height: 28px; }
 QSpinBox { min-height: 28px; }
 QCheckBox, QRadioButton { spacing: 8px; color: #26354b; min-height: 36px; }
-QGroupBox { border: 1px solid #d6dfed; border-radius: 12px; margin-top: 16px; padding: 16px; color: #34445e; }
+QGroupBox { background: rgba(255,255,255,52); border: 1px solid rgba(190,205,226,150); border-radius: 12px; margin-top: 16px; padding: 16px; color: #34445e; }
 QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 12px; padding: 0 6px; }
 QTabWidget::pane { border: none; }
 QTabBar::tab { padding: 12px 16px; color: #52617a; border-bottom: 2px solid transparent; }
@@ -42,7 +42,7 @@ QMenu::item:selected { background: #e2eaff; }
 QMenu::item:disabled { color: #8792a3; }
 QMenu::separator { height: 1px; background: #d9e0ec; margin: 5px 10px; }
 QLabel#applicationNameLabel { font-size: 18px; font-weight: 600; }
-QLabel#statusTitleLabel { font-size: 30px; font-weight: 600; }
+QLabel#statusTitleLabel { font-size: 28px; font-weight: 600; }
 QLabel#statusHintLabel { color: #835b1d; font-size: 14px; }
 QLabel#statusIndicator { border-radius: 44px; background: rgba(224,233,250,170); border: 1px solid rgba(151,172,212,80); }
 QLabel#statusIndicator[connectionState="connected"] { background: rgba(203,238,227,180); border-color: #9bd5c0; }
@@ -52,3 +52,12 @@ QPlainTextEdit#logPlainTextEdit { font-size: 13px; }
 QFrame#logPanel { background: transparent; border: none; }
 
 QListWidget::item { min-height: 24px; padding: 10px 8px; }
+
+QLabel[secondary="true"] { color: #5e6c82; font-size: 14px; }
+QLabel[warning="true"], QLabel#profileReadOnlyHint { color: #835b1d; }
+QTabBar::tab { min-width: 80px; font-weight: 600; }
+QWidget#generalTabContents, QWidget#loginTabContents { background: transparent; }
+QScrollBar:vertical { width: 10px; background: transparent; margin: 0; }
+QScrollBar::handle:vertical { background: #b5c2d4; border-radius: 4px; min-height: 28px; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }

@@ -86,7 +86,7 @@
          </size>
         </property>
         <property name="popupMode">
-         <enum>QToolButton::InstantPopup</enum>
+         <enum>QToolButton::DelayedPopup</enum>
         </property>
        </widget>
       </item>
@@ -197,8 +197,12 @@
     </item>
     <item>
      <widget class="QPushButton" name="detailsButton">
-      <property name="text"><string>Details</string></property>
-      <property name="flat"><bool>true</bool></property>
+      <property name="text">
+       <string>Details</string>
+      </property>
+      <property name="flat">
+       <bool>true</bool>
+      </property>
      </widget>
     </item>
    </layout>
@@ -250,7 +254,9 @@
       <layout class="QHBoxLayout" name="diagnosticActions">
        <item>
         <widget class="QPushButton" name="refreshDiagnosticsButton">
-         <property name="autoDefault"><bool>false</bool></property>
+         <property name="autoDefault">
+          <bool>false</bool>
+         </property>
          <property name="text">
           <string>Refresh</string>
          </property>
@@ -258,13 +264,19 @@
        </item>
        <item>
         <widget class="QPushButton" name="diagnosticRulesButton">
-         <property name="autoDefault"><bool>false</bool></property>
-         <property name="text"><string>Rules and DNS</string></property>
+         <property name="autoDefault">
+          <bool>false</bool>
+         </property>
+         <property name="text">
+          <string>Rules and DNS</string>
+         </property>
         </widget>
        </item>
        <item>
         <widget class="QPushButton" name="copyDiagnosticsButton">
-         <property name="autoDefault"><bool>false</bool></property>
+         <property name="autoDefault">
+          <bool>false</bool>
+         </property>
          <property name="text">
           <string>Copy diagnostics</string>
          </property>
@@ -438,7 +450,6 @@
     <property name="title">
      <string>Profiles</string>
     </property>
-    <addaction name="configurationGuideAction" />
    </widget>
    <widget class="QMenu" name="helpMenu">
     <property name="title">
@@ -479,14 +490,6 @@
   <action name="settingAction">
    <property name="text">
     <string>Edit current profile…</string>
-   </property>
-   <property name="menuRole">
-    <enum>QAction::MenuRole::NoRole</enum>
-   </property>
-  </action>
-  <action name="configurationGuideAction">
-   <property name="text">
-    <string>Setup guide</string>
    </property>
    <property name="menuRole">
     <enum>QAction::MenuRole::NoRole</enum>

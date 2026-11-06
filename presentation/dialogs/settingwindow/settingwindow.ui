@@ -3,14 +3,14 @@
  <class>SettingWindow</class>
  <widget class="QDialog" name="SettingWindow">
   <property name="windowTitle">
-   <string>Connection profile</string>
+   <string>Settings</string>
   </property>
   <layout class="QVBoxLayout" name="dialogLayout">
    <item>
     <widget class="QTabWidget" name="tabWidget">
      <widget class="QScrollArea" name="generalTab">
       <attribute name="title">
-       <string>Behavior</string>
+       <string>General</string>
       </attribute>
       <property name="widgetResizable">
        <bool>true</bool>
@@ -21,114 +21,14 @@
       <widget class="QWidget" name="generalTabContents">
        <layout class="QVBoxLayout" name="generalTabLayout">
         <item>
-         <widget class="QGroupBox" name="profileGroup">
-          <property name="title">
-           <string>Profile file</string>
-          </property>
-          <layout class="QVBoxLayout" name="profileActions">
-           <item>
-            <widget class="QPushButton" name="importPushButton">
-             <property name="text">
-              <string>Import…</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QPushButton" name="exportPushButton">
-             <property name="text">
-              <string>Export saved…</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QPushButton" name="resetDefaultPushButton">
-             <property name="text">
-              <string>Reset draft…</string>
-             </property>
-            </widget>
-           </item>
-          </layout>
-         </widget>
-        </item>
-        <item>
-         <widget class="QGroupBox" name="commonGroup">
-          <property name="title">
-           <string>Startup and connection</string>
-          </property>
-          <layout class="QFormLayout" name="commonForm">
-           <item row="0" column="0" colspan="2">
-            <widget class="QCheckBox" name="checkUpdateAfterStartCheckBox">
-             <property name="text">
-              <string>Check for updates at startup</string>
-             </property>
-            </widget>
-           </item>
-           <item row="1" column="0" colspan="2">
-            <widget class="QCheckBox" name="autoStartCheckBox">
-             <property name="text">
-              <string>Launch at sign-in</string>
-             </property>
-            </widget>
-           </item>
-           <item row="2" column="0" colspan="2">
-            <widget class="QCheckBox" name="silentStartCheckBox">
-             <property name="text">
-              <string>Start in the background</string>
-             </property>
-            </widget>
-           </item>
-           <item row="3" column="0" colspan="2">
-            <widget class="QCheckBox" name="connectAfterStartCheckBox">
-             <property name="text">
-              <string>Connect at startup</string>
-             </property>
-            </widget>
-           </item>
-           <item row="4" column="0" colspan="2">
-            <widget class="QCheckBox" name="autoReconnectCheckBox">
-             <property name="text">
-              <string>Reconnect automatically</string>
-             </property>
-            </widget>
-           </item>
-           <item row="5" column="0">
-            <widget class="QLabel" name="commonFormLabel5">
-             <property name="text">
-              <string>Initial reconnect delay (s)</string>
-             </property>
-             <property name="buddy">
-              <cstring>reconnectTimeSpinBox</cstring>
-             </property>
-             <property name="wordWrap">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-           <item row="5" column="1">
-            <widget class="QSpinBox" name="reconnectTimeSpinBox">
-             <property name="minimum">
-              <number>1</number>
-             </property>
-            </widget>
-           </item>
-           <property name="rowWrapPolicy">
-            <enum>QFormLayout::WrapAllRows</enum>
-           </property>
-           <property name="fieldGrowthPolicy">
-            <enum>QFormLayout::AllNonFixedFieldsGrow</enum>
-           </property>
-           <property name="verticalSpacing">
-            <number>8</number>
-           </property>
-          </layout>
-         </widget>
+         <widget class="QWidget" name="preferencesContainer" />
         </item>
        </layout>
       </widget>
      </widget>
      <widget class="QScrollArea" name="loginTab">
       <attribute name="title">
-       <string>Account</string>
+       <string>Connection</string>
       </attribute>
       <property name="widgetResizable">
        <bool>true</bool>
@@ -180,64 +80,7 @@
              </item>
              <item row="0" column="1">
               <widget class="QComboBox" name="authTypeComboBox">
-               <item>
-                <property name="text">
-                 <string>Choose a method</string>
-                </property>
-               </item>
-               <item>
-                <property name="text">
-                 <string>Password</string>
-                </property>
-               </item>
-               <item>
-                <property name="text">
-                 <string>SMS code</string>
-                </property>
-               </item>
-               <item>
-                <property name="text">
-                 <string>CAS</string>
-                </property>
-               </item>
-               <item>
-                <property name="text">
-                 <string>OAuth2</string>
-                </property>
-               </item>
-              </widget>
-             </item>
-             <item row="1" column="0">
-              <widget class="QLabel" name="authFormLabel1">
-               <property name="text">
-                <string>Domain</string>
-               </property>
-               <property name="buddy">
-                <cstring>loginDomainLineEdit</cstring>
-               </property>
-               <property name="wordWrap">
-                <bool>true</bool>
-               </property>
-              </widget>
-             </item>
-             <item row="1" column="1">
-              <widget class="QLineEdit" name="loginDomainLineEdit" />
-             </item>
-             <item row="2" column="0">
-              <widget class="QLabel" name="authFormLabel2">
-               <property name="text">
-                <string>Sign-in URL preview</string>
-               </property>
-               <property name="buddy">
-                <cstring>loginUrlLineEdit</cstring>
-               </property>
-               <property name="wordWrap">
-                <bool>true</bool>
-               </property>
-              </widget>
-             </item>
-             <item row="2" column="1">
-              <widget class="QLineEdit" name="loginUrlLineEdit" />
+               </widget>
              </item>
              <item row="3" column="0">
               <widget class="QLabel" name="authFormLabel3">
@@ -415,266 +258,30 @@
           </layout>
          </widget>
         </item>
-       </layout>
-      </widget>
-     </widget>
-     <widget class="QScrollArea" name="connectionTab">
-      <attribute name="title">
-       <string>Advanced</string>
-      </attribute>
-      <property name="widgetResizable">
-       <bool>true</bool>
-      </property>
-      <property name="frameShape">
-       <enum>QFrame::NoFrame</enum>
-      </property>
-      <widget class="QWidget" name="connectionTabContents">
-       <layout class="QVBoxLayout" name="connectionTabLayout">
         <item>
-         <widget class="QLabel" name="listenersHint">
-          <property name="text">
-           <string>Local proxies are optional and only accessible on this computer. Set a port to 0 to disable it.</string>
-          </property>
-          <property name="wordWrap">
-           <bool>true</bool>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <layout class="QFormLayout" name="networkForm">
-          <item row="0" column="0">
-           <widget class="QLabel" name="networkFormLabel0">
-            <property name="text">
-             <string>SOCKS5 port</string>
-            </property>
-            <property name="buddy">
-             <cstring>socks5PortSpinBox</cstring>
-            </property>
-            <property name="wordWrap">
-             <bool>true</bool>
-            </property>
-           </widget>
-          </item>
-          <item row="0" column="1">
-           <widget class="QSpinBox" name="socks5PortSpinBox">
-            <property name="minimum">
-             <number>0</number>
-            </property>
-            <property name="maximum">
-             <number>65535</number>
-            </property>
-           </widget>
-          </item>
-          <item row="1" column="0">
-           <widget class="QLabel" name="networkFormLabel1">
-            <property name="text">
-             <string>HTTP port</string>
-            </property>
-            <property name="buddy">
-             <cstring>httpPortSpinBox</cstring>
-            </property>
-            <property name="wordWrap">
-             <bool>true</bool>
-            </property>
-           </widget>
-          </item>
-          <item row="1" column="1">
-           <widget class="QSpinBox" name="httpPortSpinBox">
-            <property name="minimum">
-             <number>0</number>
-            </property>
-            <property name="maximum">
-             <number>65535</number>
-            </property>
-           </widget>
-          </item>
-          <item row="2" column="0">
-           <widget class="QLabel" name="networkFormLabel2">
-            <property name="text">
-             <string>Local DNS</string>
-            </property>
-            <property name="buddy">
-             <cstring>localDnsServerLineEdit</cstring>
-            </property>
-            <property name="wordWrap">
-             <bool>true</bool>
-            </property>
-           </widget>
-          </item>
-          <item row="2" column="1">
-           <widget class="QLineEdit" name="localDnsServerLineEdit" />
-          </item>
-          <item row="3" column="0">
-           <widget class="QLabel" name="networkFormLabel3">
-            <property name="text">
-             <string>Fallback DNS</string>
-            </property>
-            <property name="buddy">
-             <cstring>secondaryDnsLineEdit</cstring>
-            </property>
-            <property name="wordWrap">
-             <bool>true</bool>
-            </property>
-           </widget>
-          </item>
-          <item row="3" column="1">
-           <widget class="QLineEdit" name="secondaryDnsLineEdit" />
-          </item>
-          <item row="4" column="0">
-           <widget class="QLabel" name="networkFormLabel4">
-            <property name="text">
-             <string>DNS cache TTL (s)</string>
-            </property>
-            <property name="buddy">
-             <cstring>dnsTTLSpinBox</cstring>
-            </property>
-            <property name="wordWrap">
-             <bool>true</bool>
-            </property>
-           </widget>
-          </item>
-          <item row="4" column="1">
-           <widget class="QSpinBox" name="dnsTTLSpinBox">
-            <property name="minimum">
-             <number>0</number>
-            </property>
-            <property name="maximum">
-             <number>2147483647</number>
-            </property>
-           </widget>
-          </item>
-          <item row="5" column="0">
-           <widget class="QLabel" name="networkFormLabel5">
-            <property name="text">
-             <string>Bind interface</string>
-            </property>
-            <property name="buddy">
-             <cstring>bindInterfaceLineEdit</cstring>
-            </property>
-            <property name="wordWrap">
-             <bool>true</bool>
-            </property>
-           </widget>
-          </item>
-          <item row="5" column="1">
-           <widget class="QLineEdit" name="bindInterfaceLineEdit" />
-          </item>
-          <item row="6" column="0" colspan="2">
-           <widget class="QCheckBox" name="autoDetectInterfaceCheckBox">
-            <property name="text">
-             <string>Detect interface automatically</string>
-            </property>
-           </widget>
-          </item>
-          <item row="7" column="0" colspan="2">
-           <widget class="QCheckBox" name="disableDNSCheckBox">
-            <property name="text">
-             <string>Disable internal DNS</string>
-            </property>
-           </widget>
-          </item>
-          <item row="8" column="0">
-           <widget class="QLabel" name="keepAliveModeLabel">
-            <property name="text">
-             <string>Traffic keep-alive</string>
-            </property>
-            <property name="buddy">
-             <cstring>keepAliveModeComboBox</cstring>
-            </property>
-            <property name="wordWrap">
-             <bool>true</bool>
-            </property>
-           </widget>
-          </item>
-          <item row="8" column="1">
-           <widget class="QComboBox" name="keepAliveModeComboBox">
-            <property name="toolTip">
-             <string>Automatic mode probes authorized campus DNS. Off stops traffic probes; session renewal and node maintenance continue.</string>
-            </property>
-            <item>
-             <property name="text">
-              <string>Automatic (campus DNS)</string>
-             </property>
-            </item>
-            <item>
-             <property name="text">
-              <string>Custom target (HTTP GET)</string>
-             </property>
-            </item>
-            <item>
-             <property name="text">
-              <string>Off</string>
-             </property>
-            </item>
-           </widget>
-          </item>
-          <item row="9" column="0">
-           <widget class="QLabel" name="keepAliveUrlLabel">
-            <property name="text">
-             <string>Probe target</string>
-            </property>
-            <property name="buddy">
-             <cstring>keepAliveUrlLineEdit</cstring>
-            </property>
-            <property name="wordWrap">
-             <bool>true</bool>
-            </property>
-           </widget>
-          </item>
-          <item row="9" column="1">
-           <widget class="QLineEdit" name="keepAliveUrlLineEdit">
-            <property name="placeholderText">
-             <string>https://campus.example/status</string>
-            </property>
-            <property name="toolTip">
-             <string>Use an authorized HTTP (80) or HTTPS (443) resource that allows repeated GET requests. Do not use sign-in, sign-out, action or SSH endpoints. Usernames, queries, fragments and redirects are not allowed.</string>
-            </property>
-           </widget>
-          </item>
-          <property name="rowWrapPolicy">
-           <enum>QFormLayout::WrapAllRows</enum>
-          </property>
-          <property name="fieldGrowthPolicy">
-           <enum>QFormLayout::AllNonFixedFieldsGrow</enum>
-          </property>
-          <property name="verticalSpacing">
-           <number>8</number>
-          </property>
-         </layout>
-        </item>
-        <item>
-         <widget class="QGroupBox" name="manualProxyGroup">
+         <widget class="QGroupBox" name="commonGroup">
           <property name="title">
-           <string>Manual proxy</string>
+           <string>Startup and connection</string>
           </property>
-          <layout class="QFormLayout" name="manualProxyForm">
+          <layout class="QFormLayout" name="commonForm">
            <item row="0" column="0" colspan="2">
-            <widget class="QCheckBox" name="autoSetProxyCheckBox">
+            <widget class="QCheckBox" name="checkUpdateAfterStartCheckBox">
              <property name="text">
-              <string>Set a manual system proxy</string>
+              <string>Check for updates at startup</string>
              </property>
             </widget>
            </item>
-           <item row="1" column="0">
-            <widget class="QLabel" name="commonFormLabel7">
+           <item row="1" column="0" colspan="2">
+            <widget class="QCheckBox" name="connectAfterStartCheckBox">
              <property name="text">
-              <string>Proxy bypass list</string>
-             </property>
-             <property name="buddy">
-              <cstring>systemProxyBypassLineEdit</cstring>
-             </property>
-             <property name="wordWrap">
-              <bool>true</bool>
+              <string>Connect at startup</string>
              </property>
             </widget>
-           </item>
-           <item row="1" column="1">
-            <widget class="QLineEdit" name="systemProxyBypassLineEdit" />
            </item>
            <item row="2" column="0" colspan="2">
-            <widget class="QCheckBox" name="suppressProxyOverrideWarningCheckBox">
+            <widget class="QCheckBox" name="autoReconnectCheckBox">
              <property name="text">
-              <string>Skip proxy override warnings</string>
+              <string>Reconnect automatically</string>
              </property>
             </widget>
            </item>
@@ -691,10 +298,33 @@
          </widget>
         </item>
         <item>
-         <widget class="QPushButton" name="openLogDirectoryPushButton">
-          <property name="text">
-           <string>Open log folder</string>
+         <widget class="QGroupBox" name="profileGroup">
+          <property name="title">
+           <string>Profile file</string>
           </property>
+          <layout class="QVBoxLayout" name="profileActions">
+           <item>
+            <widget class="QPushButton" name="importPushButton">
+             <property name="text">
+              <string>Import…</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="exportPushButton">
+             <property name="text">
+              <string>Export saved…</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="resetDefaultPushButton">
+             <property name="text">
+              <string>Reset draft…</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
          </widget>
         </item>
        </layout>
@@ -705,7 +335,7 @@
    <item>
     <widget class="QDialogButtonBox" name="buttonBox">
      <property name="standardButtons">
-      <set>QDialogButtonBox::Apply|QDialogButtonBox::Cancel|QDialogButtonBox::Ok</set>
+      <set>QDialogButtonBox::Cancel|QDialogButtonBox::Apply|QDialogButtonBox::Ok</set>
      </property>
     </widget>
    </item>

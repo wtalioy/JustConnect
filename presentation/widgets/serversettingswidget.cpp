@@ -43,24 +43,11 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     securitySummary->setObjectName("securitySummaryLabel");
     securitySummary->setWordWrap(true);
     layout->addWidget(securitySummary);
-    advancedButton = new QToolButton(this);
-    advancedButton->setObjectName("advancedServerButton");
-    advancedButton->setCheckable(true);
-    advancedButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    advancedButton->setArrowType(Qt::RightArrow);
-    layout->addWidget(advancedButton,0,Qt::AlignLeft);
-    auto *advanced = new QWidget(this);
-    advanced->hide();
-    advancedForm = new QFormLayout(advanced);
-    advancedForm->setContentsMargins(0,0,0,0);
+    advancedForm = new QFormLayout;
     advancedForm->setRowWrapPolicy(QFormLayout::WrapAllRows);
     advancedForm->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
     advancedForm->setVerticalSpacing(8);
-    layout->addWidget(advanced);
-    connect(advancedButton,&QToolButton::toggled,advanced,[this,advanced](bool expanded){
-        advanced->setVisible(expanded);
-        advancedButton->setArrowType(expanded ? Qt::DownArrow : Qt::RightArrow);
-    });
+    layout->addLayout(advancedForm);
     verify=new QCheckBox(this);
     verify->setObjectName("tlsVerifyCheckBox"); verify->setChecked(TlsOptions{}.verify);
     warning=new QLabel(this);
@@ -85,7 +72,7 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     rulesLayout->addWidget(domainDnsRules);
     rulesLayout->addWidget(rulesHelp);
     domainDnsLabel=new QLabel(this);
-    advancedForm->addRow(domainDnsLabel,rulesLayout);
+    form->addRow(domainDnsLabel,rulesLayout);
     connect(verify,&QCheckBox::toggled,this,[this](bool checked){warning->setVisible(!checked);updateSecuritySummary();});
     connect(allowUnverifiedNodes,&QCheckBox::toggled,this,[this](bool checked){nodeWarning->setVisible(checked);updateSecuritySummary();});
     connect(preset,&QComboBox::currentIndexChanged,this,&ServerSettingsWidget::selectPreset);
@@ -105,7 +92,6 @@ void ServerSettingsWidget::retranslate() {
     qobject_cast<QLabel *>(form->labelForField(preset))->setText(tr("School"));
     qobject_cast<QLabel *>(form->labelForField(address))->setText(tr("Server"));
     qobject_cast<QLabel *>(form->labelForField(port))->setText(tr("Port"));
-    advancedButton->setText(tr("Advanced"));
     verify->setText(tr("Verify server certificate"));
     warning->setText(tr("Disabling verification removes server identity protection. A connection failure never disables it automatically."));
     allowUnverifiedNodes->setText(tr("Skip tunnel verification"));
