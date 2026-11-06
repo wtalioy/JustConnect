@@ -6,24 +6,37 @@ class QLabel;
 class QCheckBox;
 class QPushButton;
 class ServerSettingsWidget;
+class CoreEngine;
+class AuthMethodsQuery;
+class ControllerSelectionCoordinator;
 namespace Ui { class SettingWindow; }
 
 class SettingWindow : public QDialog {
     Q_OBJECT
 public:
-    SettingWindow(QWidget *parent,CredentialAccess *credentials,const CredentialSource &source,bool openProfileTab=false);
+    SettingWindow(QWidget *parent,CredentialAccess *credentials,const CredentialSource &source,bool openProfileTab=false,CoreEngine *queryEngine=nullptr);
+    void showPage(bool connection);
+    void setProfileEditable(bool editable);
+    void setConnectAfterSave(bool connect);
     ~SettingWindow() override;
     bool isSaving() const {return saving;}
+signals:
+    void connectRequested();
 protected:
     void changeEvent(QEvent *event) override;
+    void done(int result) override;
 private:
     void retranslate();
+    void updateAuthFields();
+    void resetAuthChoices();
     void loadSettings(const QSettings &source);
     void readCredentials();
     void clearCredentials();
     void updateBusy();
     void clearDraftCredentials();
     void applySettings(bool closeAfter);
+    void queryMethods();
+    void cancelQuery();
     QVariantMap publicChanges() const;
     ConnectionProfile currentProfile() const;
     Ui::SettingWindow *ui;
@@ -36,8 +49,14 @@ private:
     CredentialStatus credentialLoadStatus=CredentialStatus::NotFound;
     QPushButton *clearCredentialButton;
     QCheckBox *rememberAuthentication;
-    bool loading=false,saving=false,closed=false;
+    bool loading=false,saving=false,closed=false,profileEditable=true,querying=false,connectAfterSave=false;
     quint64 loadGeneration=0;
     ServerSettingsWidget *serverEditor;
-    QString selectedAuthId, selectedAuthSubType;
+    QString selectedAuthId, selectedAuthSubType, selectedAuthDomain, selectedAuthType;
+    QVariantMap draftValues;
+    AuthMethodsQuery *authQuery;
+    ControllerSelectionCoordinator *controllerSelection;
+    QLabel *queryStatus,*profileHint;
+    const char *queryStatusText=nullptr;
+    quint64 queryGeneration=0;
 };

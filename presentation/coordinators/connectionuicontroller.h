@@ -64,6 +64,7 @@ public:
     void clearAuthenticationCache();
     void prepareForQuit();
 signals:
+    void configurationRequested();
     void readyToQuit();
     void quitFailed(const QString &code);
 private:
