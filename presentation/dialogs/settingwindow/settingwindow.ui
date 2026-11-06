@@ -29,6 +29,18 @@
         <property name="spacing">
          <number>20</number>
         </property>
+        <property name="leftMargin">
+         <number>0</number>
+        </property>
+        <property name="topMargin">
+         <number>0</number>
+        </property>
+        <property name="rightMargin">
+         <number>0</number>
+        </property>
+        <property name="bottomMargin">
+         <number>0</number>
+        </property>
        </layout>
       </widget>
      </widget>
@@ -58,6 +70,15 @@
            </property>
            <property name="rightMargin">
             <number>0</number>
+           </property>
+           <property name="topMargin">
+            <number>0</number>
+           </property>
+           <property name="bottomMargin">
+            <number>0</number>
+           </property>
+           <property name="spacing">
+            <number>12</number>
            </property>
           </layout>
          </widget>
@@ -109,6 +130,9 @@
                   </property>
                  </widget>
                 </item>
+                <property name="spacing">
+                 <number>8</number>
+                </property>
                </layout>
               </widget>
              </item>
@@ -153,6 +177,24 @@
              <property name="verticalSpacing">
               <number>8</number>
              </property>
+             <property name="leftMargin">
+              <number>0</number>
+             </property>
+             <property name="topMargin">
+              <number>0</number>
+             </property>
+             <property name="rightMargin">
+              <number>0</number>
+             </property>
+             <property name="bottomMargin">
+              <number>0</number>
+             </property>
+             <property name="horizontalSpacing">
+              <number>12</number>
+             </property>
+             <property name="labelAlignment">
+              <set>Qt::AlignLeft|Qt::AlignVCenter</set>
+             </property>
             </layout>
            </item>
            <property name="leftMargin">
@@ -160,6 +202,15 @@
            </property>
            <property name="rightMargin">
             <number>0</number>
+           </property>
+           <property name="topMargin">
+            <number>0</number>
+           </property>
+           <property name="bottomMargin">
+            <number>0</number>
+           </property>
+           <property name="spacing">
+            <number>12</number>
            </property>
           </layout>
          </widget>
@@ -241,6 +292,18 @@
            <property name="rightMargin">
             <number>0</number>
            </property>
+           <property name="topMargin">
+            <number>0</number>
+           </property>
+           <property name="bottomMargin">
+            <number>0</number>
+           </property>
+           <property name="horizontalSpacing">
+            <number>12</number>
+           </property>
+           <property name="labelAlignment">
+            <set>Qt::AlignLeft|Qt::AlignVCenter</set>
+           </property>
           </layout>
          </widget>
         </item>
@@ -278,13 +341,25 @@
             <enum>QFormLayout::AllNonFixedFieldsGrow</enum>
            </property>
            <property name="verticalSpacing">
-            <number>8</number>
+            <number>4</number>
            </property>
            <property name="leftMargin">
             <number>0</number>
            </property>
            <property name="rightMargin">
             <number>0</number>
+           </property>
+           <property name="topMargin">
+            <number>0</number>
+           </property>
+           <property name="bottomMargin">
+            <number>0</number>
+           </property>
+           <property name="horizontalSpacing">
+            <number>12</number>
+           </property>
+           <property name="labelAlignment">
+            <set>Qt::AlignLeft|Qt::AlignVCenter</set>
            </property>
           </layout>
          </widget>
@@ -401,6 +476,9 @@
              </property>
             </spacer>
            </item>
+           <property name="spacing">
+            <number>8</number>
+           </property>
           </layout>
          </widget>
         </item>
@@ -417,6 +495,18 @@
           </property>
          </spacer>
         </item>
+        <property name="leftMargin">
+         <number>0</number>
+        </property>
+        <property name="topMargin">
+         <number>0</number>
+        </property>
+        <property name="rightMargin">
+         <number>0</number>
+        </property>
+        <property name="bottomMargin">
+         <number>0</number>
+        </property>
        </layout>
       </widget>
      </widget>

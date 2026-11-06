@@ -152,6 +152,18 @@ void SettingWindow::changeEvent(QEvent *event) {
 void SettingWindow::retranslate() {
     QSignalBlocker authBlocker(ui->authTypeComboBox);
     ui->retranslateUi(this);
+    const auto forms=ui->loginTabContents->findChildren<QFormLayout *>();
+    QList<QWidget *> labels;int labelWidth=0;
+    for (auto *form:forms) {
+        for (int row=0;row<form->rowCount();++row) {
+            auto *item=form->itemAt(row,QFormLayout::LabelRole);
+            if (auto *label=item ? item->widget() : nullptr) {
+                label->setMinimumWidth(0);
+                labels.append(label);labelWidth=qMax(labelWidth,label->sizeHint().width());
+            }
+        }
+    }
+    for (auto *label:labels) label->setMinimumWidth(labelWidth);
     PresentationHelpers::passwordVisibilityAction(ui->passwordLineEdit);
     PresentationHelpers::passwordVisibilityAction(ui->totpSecretLineEdit);
     const QStringList types{"","psw","smsCheckCode","cas","httpsOauth2"};

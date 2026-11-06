@@ -59,7 +59,7 @@ void ControllerSelectionCoordinator::showChoice(const EmbeddedCoreEngine::Contro
     view->setObjectName("controllerSelectionDialog");view->setWindowTitle(tr("Clash coexistence"));
     view->setWindowModality(Qt::WindowModal);view->setAttribute(Qt::WA_DeleteOnClose);
     auto *layout=new QFormLayout(view);layout->setRowWrapPolicy(QFormLayout::WrapAllRows);
-    layout->setContentsMargins(24,24,24,24);layout->setSpacing(16);view->setMinimumWidth(320);
+    layout->setContentsMargins(24,24,24,24);layout->setSpacing(12);view->setMinimumWidth(320);
     auto *hint=new QLabel(result.status==CoreEngine::RequestStatus::Success
         ? tr("Choose the local controller to use. Changes apply to the next connection.")
         : tr("Automatic discovery is unavailable. Retry or enter a local controller address."),view);

@@ -75,6 +75,9 @@
         </property>
        </widget>
       </item>
+      <property name="spacing">
+       <number>8</number>
+      </property>
      </layout>
     </widget>
    </item>
