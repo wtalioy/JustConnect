@@ -174,7 +174,7 @@ void SettingWindow::retranslate() {
     credentialHint->setText(tr("Leave empty to keep saved credentials. Use the button below to remove them."));
     clearCredentialButton->setText(tr("Clear saved password and key"));
     credentialStatus->setText(credentialStatusText ? tr(credentialStatusText) : PresentationHelpers::credentialOperationMessage(credentialLoadStatus));
-
+    updateBusy();
 }
 
 void SettingWindow::loadSettings(const QSettings &source) {
@@ -266,7 +266,10 @@ void SettingWindow::updateBusy() {
         ui->buttonBox->button(button)->setVisible(connection && profileEditable);
         ui->buttonBox->button(button)->setEnabled(!loading && !saving && !querying);
     }
-    ui->authSelectPushButton->setEnabled(!saving && !querying);
+    serverEditor->setEnabled(profileEditable && !saving && !querying);
+    ui->authTypeComboBox->setEnabled(profileEditable && !saving && !querying);
+    ui->authSelectPushButton->setEnabled(profileEditable && !saving);
+    ui->authSelectPushButton->setText(querying ? tr("Cancel query") : tr("Get sign-in methods"));
     clearCredentialButton->setEnabled(profileEditable && !loading && !saving);
 }
 void SettingWindow::cancelQuery() {
@@ -275,7 +278,8 @@ void SettingWindow::cancelQuery() {
     queryStatusText=nullptr;queryStatus->hide();updateBusy();
 }
 void SettingWindow::queryMethods() {
-    if (!profileEditable || saving || querying) return;
+    if (!profileEditable || saving) return;
+    if (querying) {cancelQuery();return;}
     querying=true;updateBusy();const auto generation=++queryGeneration;
     queryStatusText=QT_TR_NOOP("Loading sign-in methods…");queryStatus->setText(tr(queryStatusText));queryStatus->show();
     controllerSelection->choose([this,generation,profile=currentProfile()](std::optional<QString> address) mutable {

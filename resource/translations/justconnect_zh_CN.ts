@@ -2134,6 +2134,7 @@ Some settings may have changed. Check network recovery.</source>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="62"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="272"/>
         <source>Get sign-in methods</source>
         <translation>从服务器获取认证方式</translation>
     </message>
@@ -2353,93 +2354,98 @@ Some settings may have changed. Check network recovery.</source>
         <translation>可留空，连接时使用该账号已保存的凭据或手动输入。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="280"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="272"/>
+        <source>Cancel query</source>
+        <translation>取消查询</translation>
+    </message>
+    <message>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="284"/>
         <source>Loading sign-in methods…</source>
         <translation>正在获取认证方式，请稍候...</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="285"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="289"/>
         <source>Query cancelled. Try again when ready.</source>
         <translation>查询已取消，可稍后重试。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="305"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="309"/>
         <source>The saved profile changed. Reopen the editor.</source>
         <translation>已保存配置已变化，请重新打开编辑窗口。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="322"/>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="344"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="326"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="348"/>
         <source>Profile changed</source>
         <translation>配置已变化</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="322"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="326"/>
         <source>Reopen the editor before clearing credentials.</source>
         <translation>请重新打开设置后再清除凭据。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="326"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="330"/>
         <source>the current profile</source>
         <translation>当前配置</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="327"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="331"/>
         <source>Clear saved credentials</source>
         <translation>清除已保存凭据</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="327"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="331"/>
         <source>Clear saved passwords and authenticator keys for %1? Other accounts are unaffected.</source>
         <translation>清除 %1 已保存的密码和验证器密钥？其他账号不受影响。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="332"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="336"/>
         <source>Could not clear credentials</source>
         <translation>清除未完成</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="336"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="340"/>
         <source>Saved passwords and authenticator keys were cleared. Unsaved input is unchanged.</source>
         <translation>已清除保存的密码和验证器密钥，未保存的输入保持不变。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="344"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="348"/>
         <source>Reopen the editor before applying changes.</source>
         <translation>请重新打开设置后再应用修改。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="352"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="356"/>
         <source>Choose a sign-in method</source>
         <translation>请选择认证方式</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="352"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="356"/>
         <source>Choose a method from the list provided by your server.</source>
         <translation>请选择认证方式；可从当前服务器获取可用列表。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="357"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="361"/>
         <source>Core unavailable</source>
         <translation>核心不可用</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="357"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="361"/>
         <source>Invalid profile</source>
         <translation>配置无效</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="358"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="362"/>
         <source>Cannot validate this profile. Check the application installation. Nothing was saved.</source>
         <translation>无法校验配置，请检查应用安装是否完整。配置未保存。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="358"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="362"/>
         <source>Check the server, sign-in method, ports, DNS and probe target. Nothing was saved.</source>
         <translation>请检查服务器、认证方式、本地端口、DNS 地址及保活目标。配置未保存。</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="368"/>
+        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="372"/>
         <source>Could not save profile</source>
         <translation>保存设置未完成</translation>
     </message>

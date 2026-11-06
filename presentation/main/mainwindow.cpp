@@ -46,7 +46,7 @@ MainWindow::MainWindow(
     applicationLogger(logger),
     applicationLogFile(logFile)
 {
-    ApplicationAppearance::install();
+    ApplicationAppearance::install(this);
     ApplicationLanguage::instance();
     const QString overrideConfigPath =
         CommandLineOptions::value(QCoreApplication::arguments(), "--config-path");
