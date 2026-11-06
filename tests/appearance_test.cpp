@@ -6,6 +6,13 @@
 #include <QImage>
 #include <QLabel>
 #include <QWindow>
+#include <QLineEdit>
+#include <QComboBox>
+#include <QSpinBox>
+#include <QAbstractButton>
+#include <QStyleOption>
+#include <QStyle>
+#include <QVBoxLayout>
 #include <cstdlib>
 #include <iostream>
 
@@ -62,5 +69,28 @@ int main(int argc,char **argv) {
         check(title.frame==clean,"clearing a status label erases its old pixels, including on reopened dialogs");
         dialog.close();QCoreApplication::processEvents();
     }
-    std::cout<<"PASS: incremental transparent repaint and three native dialog opens\n";
+    QDialog inputs;QVBoxLayout layout(&inputs);
+    QLineEdit secret;secret.setEchoMode(QLineEdit::Password);secret.setText("sample");secret.setClearButtonEnabled(true);
+    secret.addAction(QIcon(":/resource/eye.svg"),QLineEdit::TrailingPosition);layout.addWidget(&secret);
+    QComboBox choice;choice.addItem("School");layout.addWidget(&choice);
+    QSpinBox port;port.setRange(1,65535);port.setValue(443);layout.addWidget(&port);
+    inputs.resize(360,160);inputs.show();QCoreApplication::processEvents();
+    const auto actions=secret.findChildren<QAbstractButton *>(QString(),Qt::FindDirectChildrenOnly);
+    check(actions.size()==2,"the alignment check covers both the eye and clear actions");
+    for (auto *button:actions) {
+        check(secret.rect().contains(button->geometry()),"line edit actions stay inside the input at the current scale");
+        check(std::abs(button->geometry().center().y()-secret.rect().center().y())<=1,
+            "eye and clear actions are vertically centered instead of inheriting full-size button minimums");
+    }
+    QStyleOptionComboBox combo;combo.initFrom(&choice);combo.rect=choice.rect();
+    const auto arrow=choice.style()->subControlRect(QStyle::CC_ComboBox,&combo,QStyle::SC_ComboBoxArrow,&choice);
+    check(choice.rect().contains(arrow) && std::abs(arrow.center().y()-choice.rect().center().y())<=1,
+        "the dropdown action is centered and contained in its input");
+    QStyleOptionSpinBox spin;spin.initFrom(&port);spin.rect=port.rect();
+    const auto up=port.style()->subControlRect(QStyle::CC_SpinBox,&spin,QStyle::SC_SpinBoxUp,&port);
+    const auto down=port.style()->subControlRect(QStyle::CC_SpinBox,&spin,QStyle::SC_SpinBoxDown,&port);
+    check(port.rect().contains(up) && port.rect().contains(down) && up.width()==down.width()
+        && up.x()==down.x() && std::abs(up.center().y()+down.center().y()-2*port.rect().center().y())<=1,
+        "numeric controls share the same trailing alignment and balanced hit areas");
+    std::cout<<"PASS: transparent repaint, dialog reopening, and input action alignment\n";
 }

@@ -165,6 +165,8 @@ if(BUILD_TESTING)
     endif()
     target_include_directories(appearance_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME appearance_test COMMAND appearance_test)
+    add_test(NAME appearance_scaled_test COMMAND appearance_test)
+    set_tests_properties(appearance_scaled_test PROPERTIES TIMEOUT 30 ENVIRONMENT "QT_QPA_PLATFORM=${JC_BROWSER_QPA};QT_SCALE_FACTOR=2")
     set_tests_properties(appearance_test PROPERTIES TIMEOUT 30 ENVIRONMENT "QT_QPA_PLATFORM=${JC_BROWSER_QPA}")
     add_executable(singleapplication_test tests/singleapplication_test.cpp)
     target_link_libraries(singleapplication_test PRIVATE SingleApplication::SingleApplication)
@@ -310,6 +312,7 @@ if(BUILD_TESTING)
 
     add_executable(graphcaptchawindow_test
         tests/graphcaptchawindow_test.cpp
+        resource.qrc
         presentation/dialogs/graphcaptchawindow/graphcaptchawindow.cpp
         presentation/dialogs/graphcaptchawindow/captchacanvas.cpp)
     target_include_directories(graphcaptchawindow_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

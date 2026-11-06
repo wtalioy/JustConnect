@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version='1.0' encoding='utf-8'?>
 <ui version="4.0">
  <class>LoginWindow</class>
  <widget class="QDialog" name="LoginWindow">
@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>440</width>
-    <height>360</height>
+    <width>400</width>
+    <height>300</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -45,16 +45,9 @@
     </widget>
    </item>
    <item>
-    <widget class="QCheckBox" name="passwordVisibleCheckBox">
-     <property name="text">
-      <string>Show password</string>
-     </property>
-    </widget>
-   </item>
-   <item>
     <widget class="QCheckBox" name="saveLoginDetailCheckBox">
      <property name="text">
-      <string>Remember login details</string>
+      <string>Remember login</string>
      </property>
     </widget>
    </item>
@@ -69,7 +62,7 @@
     </widget>
    </item>
    <property name="spacing">
-    <number>16</number>
+    <number>12</number>
    </property>
    <property name="leftMargin">
     <number>24</number>

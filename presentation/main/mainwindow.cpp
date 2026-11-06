@@ -87,11 +87,11 @@ MainWindow::MainWindow(
             [this](const QString &latestVersion)
             {
                 QMessageBox msgBox(this);
-                msgBox.setText(tr("Update available"));
-                msgBox.setInformativeText(
-                    tr("A new version is available: ") + latestVersion + tr("\nOpen the release page?")
-                );
+                msgBox.setWindowTitle(tr("Update available"));
+                msgBox.setTextFormat(Qt::PlainText);
+                msgBox.setText(tr("Version %1 is available.").arg(latestVersion));
                 msgBox.setStandardButtons(QMessageBox::Ok | QMessageBox::Cancel);
+                msgBox.button(QMessageBox::Ok)->setText(tr("Open page"));
                 msgBox.setDefaultButton(QMessageBox::Ok);
 
                 if (msgBox.exec() == QMessageBox::Ok)
@@ -117,6 +117,7 @@ MainWindow::MainWindow(
     setupProfileMenu();
     auto *tools=new QToolButton(ui->detailsDialog);
     tools->setObjectName("detailsToolsButton");
+    tools->setIcon(QIcon(":/resource/more.svg"));tools->setIconSize(QSize(18,18));
     tools->setPopupMode(QToolButton::InstantPopup);
     auto *menu=new QMenu(tools);
     menu->addMenu(ui->helpMenu);
@@ -124,7 +125,7 @@ MainWindow::MainWindow(
     menu->addAction(ui->clearClientDataAction);
     menu->addSeparator();menu->addAction(ui->exitAction);
     tools->setMenu(menu);ui->detailsFooter->addWidget(tools);
-    tools->setText(tr("Tools"));
+    tools->setToolTip(tr("Tools"));tools->setAccessibleName(tr("Tools"));
     connect(ui->preferencesButton,&QToolButton::clicked,ui->preferencesAction,&QAction::trigger);
     ui->exitAction->setShortcut(QKeySequence::Quit);
     ui->preferencesAction->setShortcut(QKeySequence::Preferences);
@@ -323,7 +324,7 @@ void MainWindow::changeEvent(QEvent *event)
     QMainWindow::changeEvent(event);
     if (event->type()!=QEvent::LanguageChange || !viewsInitialized) return;
     ui->retranslateUi(this);
-    if(auto *tools=findChild<QToolButton *>("detailsToolsButton")) tools->setText(tr("Tools"));
+    if(auto *tools=findChild<QToolButton *>("detailsToolsButton")) {tools->setToolTip(tr("Tools"));tools->setAccessibleName(tr("Tools"));}
     newProfileAction->setText(tr("New profile"));renameProfileAction->setText(tr("Rename profile"));deleteProfileAction->setText(tr("Delete profile"));
     trayProfileMenu->setTitle(tr("Profiles"));trayShowAction->setText(tr("Show window"));
     trayCloseAction->setText(tr("Exit %1").arg(QApplication::applicationName()));
@@ -800,8 +801,9 @@ void MainWindow::deleteCurrentProfile()
     messageBox.setWindowTitle(tr("Delete profile"));
     messageBox.setInformativeText(tr("The profile file and legacy cache will be deleted. Passwords, TOTP, account caches and quarantined copies in secure storage are preserved. To remove them, first clear passwords and TOTP in profile settings, then clear account and legacy caches from Settings."));
     messageBox.setText(tr("Delete profile \"%1\"?").arg(currentProfileId));
-    messageBox.addButton(QMessageBox::Yes)->setText(tr("Yes"));
-    messageBox.addButton(QMessageBox::No)->setText(tr("No"));
+    auto *remove=messageBox.addButton(QMessageBox::Yes);remove->setText(tr("Delete"));
+    remove->setIcon(QIcon(":/resource/clear.svg"));remove->setIconSize(QSize(18,18));
+    messageBox.addButton(QMessageBox::No)->setText(tr("Cancel"));
     messageBox.setDefaultButton(QMessageBox::No);
     if (messageBox.exec() != QMessageBox::Yes)
     {

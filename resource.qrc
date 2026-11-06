@@ -6,5 +6,19 @@
         <file>resource/connection.svg</file>
         <file>resource/connection-ready.svg</file>
         <file>resource/chevron.svg</file>
+        <file>resource/refresh.svg</file>
+        <file>resource/copy.svg</file>
+        <file>resource/folder.svg</file>
+        <file>resource/clear.svg</file>
+        <file>resource/more.svg</file>
+        <file>resource/rules.svg</file>
+        <file>resource/arrow-right.svg</file>
+        <file>resource/import.svg</file>
+        <file>resource/export.svg</file>
+        <file>resource/undo.svg</file>
+        <file>resource/close.svg</file>
+        <file>resource/eye.svg</file>
+        <file>resource/eye-off.svg</file>
+        <file>resource/chevron-up.svg</file>
     </qresource>
 </RCC>

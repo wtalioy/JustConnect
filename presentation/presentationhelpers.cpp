@@ -4,8 +4,34 @@
 #include <QMessageBox>
 #include <QPixmap>
 #include <QWidget>
+#include <QAction>
+#include <QIcon>
+#include <QLineEdit>
+#include <QKeySequence>
 
 #include "application/applicationconstants.h"
+
+QAction *PresentationHelpers::passwordVisibilityAction(QLineEdit *field)
+{
+    auto *action=field->findChild<QAction *>("visibilityAction",Qt::FindDirectChildrenOnly);
+    if (!action) {
+        action=field->addAction(QIcon(":/resource/eye.svg"),QLineEdit::TrailingPosition);
+        action->setObjectName("visibilityAction");action->setCheckable(true);
+        action->setShortcut(QKeySequence(QKeyCombination(Qt::ControlModifier|Qt::ShiftModifier,Qt::Key_H)));
+        action->setShortcutContext(Qt::WidgetShortcut);
+        QObject::connect(action,&QAction::toggled,field,[field](bool visible) {
+            field->setEchoMode(visible ? QLineEdit::Normal : QLineEdit::Password);
+            passwordVisibilityAction(field);
+        });
+    }
+    const auto label=action->isChecked() ? QCoreApplication::translate("PresentationHelpers","Hide")
+        : QCoreApplication::translate("PresentationHelpers","Show");
+    action->setIcon(QIcon(action->isChecked()?":/resource/eye-off.svg":":/resource/eye.svg"));
+    action->setText(label);
+    action->setToolTip(label+" ("+action->shortcut().toString(QKeySequence::NativeText)+")");
+    field->setAccessibleDescription(action->toolTip());
+    return action;
+}
 
 void PresentationHelpers::activateWindow(QWidget *window)
 {
@@ -33,46 +59,6 @@ void PresentationHelpers::showAboutDialog(QWidget *parent)
         Qt::SmoothTransformation
     ));
     messageBox.exec();
-}
-
-bool PresentationHelpers::confirmCredentials(
-    const QString &username,
-    const QString &password
-)
-{
-    if (username.isEmpty() || password.isEmpty())
-    {
-        return QMessageBox::warning(
-            nullptr,
-            QCoreApplication::translate("PresentationHelpers","Warning"),
-            QCoreApplication::translate("PresentationHelpers","The account or password is empty.\n\nContinue?"),
-            QMessageBox::Ok,
-            QMessageBox::Cancel
-        ) == QMessageBox::Ok;
-    }
-
-    const auto containsNonAscii = [](const QString &value)
-    {
-        for (const QChar character : value)
-        {
-            if (character.unicode() > 127)
-            {
-                return true;
-            }
-        }
-        return false;
-    };
-    if (containsNonAscii(username) || containsNonAscii(password))
-    {
-        return QMessageBox::warning(
-            nullptr,
-            QCoreApplication::translate("PresentationHelpers","Warning"),
-            QCoreApplication::translate("PresentationHelpers","The account or password contains non-ASCII characters. Check your input method.\n\nContinue?"),
-            QMessageBox::Ok,
-            QMessageBox::Cancel
-        ) == QMessageBox::Ok;
-    }
-    return true;
 }
 
 QString PresentationHelpers::platformOperationMessage(const PlatformOperationResult &result)

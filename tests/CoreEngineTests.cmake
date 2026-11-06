@@ -58,6 +58,7 @@ function(justconnect_network_policy_tests)
     add_test(NAME networkpolicysession_test COMMAND networkpolicysession_test)
     set_tests_properties(networkpolicysession_test PROPERTIES TIMEOUT 15)
     add_executable(networkpolicywindow_test "${REPO}/tests/networkpolicywindow_test.cpp"
+        "${REPO}/resource.qrc"
         "${REPO}/presentation/dialogs/networkpolicywindow.cpp")
     set_target_properties(networkpolicywindow_test PROPERTIES AUTOMOC ON)
     target_include_directories(networkpolicywindow_test PRIVATE "${REPO}")

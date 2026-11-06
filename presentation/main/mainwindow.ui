@@ -172,6 +172,17 @@
       <property name="flat">
        <bool>true</bool>
       </property>
+      <property name="icon">
+       <iconset>
+        <normaloff>:/resource/arrow-right.svg</normaloff>
+       </iconset>
+      </property>
+      <property name="iconSize">
+       <size>
+        <width>18</width>
+        <height>18</height>
+       </size>
+      </property>
      </widget>
     </item>
    </layout>
@@ -227,7 +238,27 @@
               <bool>false</bool>
              </property>
              <property name="text">
+              <string />
+             </property>
+             <property name="icon">
+              <iconset>
+               <normaloff>:/resource/refresh.svg</normaloff>
+              </iconset>
+             </property>
+             <property name="iconSize">
+              <size>
+               <width>18</width>
+               <height>18</height>
+              </size>
+             </property>
+             <property name="toolTip">
               <string>Refresh</string>
+             </property>
+             <property name="accessibleName">
+              <string>Refresh</string>
+             </property>
+             <property name="iconOnly" stdset="0">
+              <bool>true</bool>
              </property>
             </widget>
            </item>
@@ -239,7 +270,25 @@
              <property name="text">
               <string>Rules and DNS</string>
              </property>
+             <property name="icon">
+              <iconset>
+               <normaloff>:/resource/rules.svg</normaloff>
+              </iconset>
+             </property>
+             <property name="iconSize">
+              <size>
+               <width>18</width>
+               <height>18</height>
+              </size>
+             </property>
             </widget>
+           </item>
+           <item>
+            <spacer name="diagnosticActionsSpacer">
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+            </spacer>
            </item>
            <item>
             <widget class="QPushButton" name="copyDiagnosticsButton">
@@ -247,13 +296,27 @@
               <bool>false</bool>
              </property>
              <property name="text">
-              <string>Copy</string>
+              <string />
              </property>
              <property name="toolTip">
               <string>Copy diagnostics</string>
              </property>
              <property name="accessibleName">
               <string>Copy diagnostics</string>
+             </property>
+             <property name="icon">
+              <iconset>
+               <normaloff>:/resource/copy.svg</normaloff>
+              </iconset>
+             </property>
+             <property name="iconSize">
+              <size>
+               <width>18</width>
+               <height>18</height>
+              </size>
+             </property>
+             <property name="iconOnly" stdset="0">
+              <bool>true</bool>
              </property>
             </widget>
            </item>
@@ -322,30 +385,81 @@
               <item>
                <widget class="QPushButton" name="openLogPushButton">
                 <property name="toolTip">
-                 <string>Open the full log file</string>
+                 <string>Open log file</string>
                 </property>
                 <property name="text">
+                 <string />
+                </property>
+                <property name="icon">
+                 <iconset>
+                  <normaloff>:/resource/folder.svg</normaloff>
+                 </iconset>
+                </property>
+                <property name="iconSize">
+                 <size>
+                  <width>18</width>
+                  <height>18</height>
+                 </size>
+                </property>
+                <property name="accessibleName">
                  <string>Open log file</string>
+                </property>
+                <property name="iconOnly" stdset="0">
+                 <bool>true</bool>
                 </property>
                </widget>
               </item>
               <item>
                <widget class="QPushButton" name="copyLogPushButton">
                 <property name="toolTip">
-                 <string>Copy log to clipboard</string>
+                 <string>Copy log</string>
                 </property>
                 <property name="text">
-                 <string>Copy</string>
+                 <string />
+                </property>
+                <property name="icon">
+                 <iconset>
+                  <normaloff>:/resource/copy.svg</normaloff>
+                 </iconset>
+                </property>
+                <property name="iconSize">
+                 <size>
+                  <width>18</width>
+                  <height>18</height>
+                 </size>
+                </property>
+                <property name="accessibleName">
+                 <string>Copy log</string>
+                </property>
+                <property name="iconOnly" stdset="0">
+                 <bool>true</bool>
                 </property>
                </widget>
               </item>
               <item>
                <widget class="QPushButton" name="clearLogPushButton">
                 <property name="toolTip">
-                 <string>Clear the displayed log</string>
+                 <string>Clear displayed log</string>
                 </property>
                 <property name="text">
-                 <string>Clear</string>
+                 <string />
+                </property>
+                <property name="icon">
+                 <iconset>
+                  <normaloff>:/resource/clear.svg</normaloff>
+                 </iconset>
+                </property>
+                <property name="iconSize">
+                 <size>
+                  <width>18</width>
+                  <height>18</height>
+                 </size>
+                </property>
+                <property name="accessibleName">
+                 <string>Clear displayed log</string>
+                </property>
+                <property name="iconOnly" stdset="0">
+                 <bool>true</bool>
                 </property>
                </widget>
               </item>

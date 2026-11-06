@@ -3,6 +3,8 @@
 #include "application/networkpolicysession.h"
 #include <QDialogButtonBox>
 #include <QEvent>
+#include <QIcon>
+#include <QStyle>
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QHostAddress>
@@ -169,6 +171,8 @@ NetworkPolicyWindow::NetworkPolicyWindow(NetworkPolicySession *input, QWidget *p
     auto *nameActions = new QHBoxLayout;
     campusName = new QPushButton(namePage);
     originalName = new QPushButton(namePage);
+    for (auto *button:{campus,campusName}) {button->setIcon(QIcon(":/resource/rules.svg"));button->setIconSize(QSize(18,18));}
+    for (auto *button:{original,originalName}) {button->setIcon(QIcon(":/resource/undo.svg"));button->setIconSize(QSize(18,18));}
     campusName->setObjectName("chooseCampusName");
     originalName->setObjectName("restoreOriginalName");
     nameActions->addWidget(campusName);
@@ -181,6 +185,8 @@ NetworkPolicyWindow::NetworkPolicyWindow(NetworkPolicySession *input, QWidget *p
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close,this);
     refresh = buttons->addButton(QString(), QDialogButtonBox::ActionRole);
     refresh->setObjectName("refreshNetworkPolicy");
+    refresh->setIcon(QIcon(":/resource/refresh.svg"));refresh->setIconSize(QSize(18,18));refresh->setProperty("iconOnly",true);
+    refresh->style()->unpolish(refresh);refresh->style()->polish(refresh);
     explanation = new QLabel(this);
     explanation->setWordWrap(true);
     auto *layout = new QVBoxLayout(this);
@@ -223,7 +229,8 @@ void NetworkPolicyWindow::retranslate()
     namespaces->setHeaderLabels({tr("Name or expression"),tr("Role"),tr("Source"),tr("Name matching")});
     campus->setText(tr("Use campus…"));original->setText(tr("Use original…"));
     campusName->setText(tr("Use campus…"));originalName->setText(tr("Use original…"));
-    tabs->setTabText(0,tr("Addresses"));tabs->setTabText(1,tr("DNS sources"));refresh->setText(tr("Refresh"));
+    tabs->setTabText(0,tr("Addresses"));tabs->setTabText(1,tr("DNS sources"));
+    refresh->setToolTip(tr("Refresh"));refresh->setAccessibleName(tr("Refresh"));
     explanation->setText(tr("Refreshing only reads the network. Choices do not expand school authorization. Switching sides may interrupt existing connections; a target cannot use both sides at once."));
 }
 QInputDialog *NetworkPolicyWindow::createEditor(std::function<void(QInputDialog *)> translate)

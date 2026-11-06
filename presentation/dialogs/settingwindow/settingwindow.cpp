@@ -5,6 +5,7 @@
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QEvent>
+#include <QIcon>
 #include <QSignalBlocker>
 #include <QLabel>
 #include <QFile>
@@ -109,12 +110,6 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
         selectedAuthId=id;selectedAuthSubType=subtype;selectedAuthDomain=domain;
         selectedAuthType=ui->authTypeComboBox->currentData().toString();updateAuthFields();
     });
-    connect(ui->passwordVisibleCheckBox,&QCheckBox::toggled,this,[this](bool on) {
-        ui->passwordLineEdit->setEchoMode(on ? QLineEdit::Normal : QLineEdit::Password);
-    });
-    connect(ui->totpSecretVisibleCheckBox,&QCheckBox::toggled,this,[this](bool on) {
-        ui->totpSecretLineEdit->setEchoMode(on ? QLineEdit::Normal : QLineEdit::Password);
-    });
     connect(ui->authSelectPushButton,&QPushButton::clicked,this,&SettingWindow::queryMethods);
     connect(saveButton,&QPushButton::clicked,this,&SettingWindow::saveSettings);
     connect(ui->resetDefaultPushButton,&QPushButton::clicked,this,[this] {
@@ -157,6 +152,8 @@ void SettingWindow::changeEvent(QEvent *event) {
 void SettingWindow::retranslate() {
     QSignalBlocker authBlocker(ui->authTypeComboBox);
     ui->retranslateUi(this);
+    PresentationHelpers::passwordVisibilityAction(ui->passwordLineEdit);
+    PresentationHelpers::passwordVisibilityAction(ui->totpSecretLineEdit);
     const QStringList types{"","psw","smsCheckCode","cas","httpsOauth2"};
     const QStringList names{tr("Choose a method"),tr("Password"),tr("SMS code"),tr("CAS"),tr("Web sign-in")};
     for (int i=0;i<ui->authTypeComboBox->count();++i) {
@@ -235,8 +232,8 @@ void SettingWindow::updateAuthFields() {
     const bool sms=ui->authTypeComboBox->currentData()=="smsCheckCode";
     const bool password=ui->authTypeComboBox->currentData()=="psw";
     ui->credentialsForm->setRowVisible(ui->usernameLineEdit,password);
-    ui->credentialsForm->setRowVisible(ui->passwordLineEditRow,password);
-    ui->credentialsForm->setRowVisible(ui->totpSecretLineEditRow,password);
+    ui->credentialsForm->setRowVisible(ui->passwordLineEdit,password);
+    ui->credentialsForm->setRowVisible(ui->totpSecretLineEdit,password);
     clearCredentialButton->setVisible(password);
     credentialStatus->setVisible(credentialStatusText || (credentialLoadStatus!=CredentialStatus::Success && credentialLoadStatus!=CredentialStatus::NotFound));
     ui->authForm->setRowVisible(ui->countryCodeLineEdit,sms);
@@ -266,6 +263,8 @@ void SettingWindow::updateBusy() {
     ui->authTypeComboBox->setEnabled(profileEditable && !saving && !querying);
     ui->authSelectPushButton->setEnabled(profileEditable && !saving);
     ui->authSelectPushButton->setText(querying ? tr("Cancel") : tr("Get methods"));
+    ui->authSelectPushButton->setIcon(QIcon(querying ? ":/resource/close.svg" : ":/resource/refresh.svg"));
+    ui->authSelectPushButton->setIconSize(QSize(18,18));
     clearCredentialButton->setEnabled(profileEditable && !loading && !saving);
 }
 void SettingWindow::cancelQuery() {
