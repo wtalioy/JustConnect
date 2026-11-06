@@ -27,7 +27,7 @@ QToolButton#backButton, QToolButton#forwardButton, QToolButton#reloadButton { bo
 QPushButton#profileMenuButton { text-align: left; padding: 0 32px 0 0; font-size: 16px; font-weight: 600; border-color: transparent; background: transparent; }
 QPushButton#profileMenuButton::menu-indicator, QComboBox::down-arrow { image: url(:/resource/chevron.svg); width: 16px; height: 16px; }
 QPushButton#profileMenuButton::menu-indicator { subcontrol-origin: padding; subcontrol-position: right center; right: 12px; }
-QComboBox { border-radius: 8px; padding-right: 36px; }
+QComboBox { max-height: 38px; border-radius: 8px; padding-left: 12px; padding-right: 36px; }
 QComboBox::drop-down { border: none; width: 32px; subcontrol-origin: padding; subcontrol-position: right center; }
 QComboBox::down-arrow { subcontrol-position: center; }
 QComboBox QAbstractItemView { background: white; color: #182132; selection-background-color: #e9ecff; selection-color: #3546ad; }
@@ -35,9 +35,10 @@ QLineEdit, QSpinBox, QPlainTextEdit, QListWidget, QTreeWidget {
     border: 1px solid #d8dce5; border-radius: 6px; background: rgba(255,255,255,225); color: #182132; padding: 7px;
     selection-background-color: #5367e8; selection-color: white;
 }
-QLineEdit, QSpinBox { min-height: 24px; }
+QLineEdit, QSpinBox { min-height: 24px; max-height: 24px; }
+QLineEdit { padding-left: 10px; padding-right: 10px; }
 QLineEdit QAbstractButton { min-height: 0; min-width: 0; padding: 0; border: none; background: transparent; }
-QSpinBox { padding-right: 36px; }
+QSpinBox { padding-left: 10px; padding-right: 36px; }
 QSpinBox::up-button { subcontrol-origin: border; subcontrol-position: top right; width: 32px; height: 19px; border: none; background: transparent; }
 QSpinBox::down-button { subcontrol-origin: border; subcontrol-position: bottom right; width: 32px; height: 19px; border: none; background: transparent; }
 QSpinBox::up-arrow { image: url(:/resource/chevron-up.svg); width: 12px; height: 12px; }

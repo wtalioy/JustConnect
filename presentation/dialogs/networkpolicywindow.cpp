@@ -1,4 +1,5 @@
 #include "networkpolicywindow.h"
+#include "presentation/presentationhelpers.h"
 #include "presentation/widgets/localizeddialog.h"
 #include "application/networkpolicysession.h"
 #include <QDialogButtonBox>
@@ -175,8 +176,8 @@ NetworkPolicyWindow::NetworkPolicyWindow(NetworkPolicySession *input, QWidget *p
     nameActions->setSpacing(8);
     campusName = new QPushButton(namePage);
     originalName = new QPushButton(namePage);
-    for (auto *button:{campus,campusName}) {button->setIcon(QIcon(":/resource/rules.svg"));button->setIconSize(QSize(18,18));}
-    for (auto *button:{original,originalName}) {button->setIcon(QIcon(":/resource/undo.svg"));button->setIconSize(QSize(18,18));}
+    for (auto *button:{campus,campusName}) PresentationHelpers::setButtonIcon(button,":/resource/school.svg");
+    for (auto *button:{original,originalName}) PresentationHelpers::setButtonIcon(button,":/resource/network.svg");
     campusName->setObjectName("chooseCampusName");
     originalName->setObjectName("restoreOriginalName");
     nameActions->addWidget(campusName);

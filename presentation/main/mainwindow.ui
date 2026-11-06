@@ -172,17 +172,6 @@
       <property name="flat">
        <bool>true</bool>
       </property>
-      <property name="icon">
-       <iconset>
-        <normaloff>:/resource/arrow-right.svg</normaloff>
-       </iconset>
-      </property>
-      <property name="iconSize">
-       <size>
-        <width>18</width>
-        <height>18</height>
-       </size>
-      </property>
      </widget>
     </item>
    </layout>
@@ -232,6 +221,21 @@
          </item>
          <item>
           <layout class="QHBoxLayout" name="diagnosticActions">
+           <property name="leftMargin">
+            <number>0</number>
+           </property>
+           <property name="topMargin">
+            <number>0</number>
+           </property>
+           <property name="rightMargin">
+            <number>0</number>
+           </property>
+           <property name="bottomMargin">
+            <number>0</number>
+           </property>
+           <property name="spacing">
+            <number>8</number>
+           </property>
            <item>
             <widget class="QPushButton" name="refreshDiagnosticsButton">
              <property name="autoDefault">
@@ -263,34 +267,6 @@
             </widget>
            </item>
            <item>
-            <widget class="QPushButton" name="diagnosticRulesButton">
-             <property name="autoDefault">
-              <bool>false</bool>
-             </property>
-             <property name="text">
-              <string>Rules and DNS</string>
-             </property>
-             <property name="icon">
-              <iconset>
-               <normaloff>:/resource/rules.svg</normaloff>
-              </iconset>
-             </property>
-             <property name="iconSize">
-              <size>
-               <width>18</width>
-               <height>18</height>
-              </size>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <spacer name="diagnosticActionsSpacer">
-             <property name="orientation">
-              <enum>Qt::Horizontal</enum>
-             </property>
-            </spacer>
-           </item>
-           <item>
             <widget class="QPushButton" name="copyDiagnosticsButton">
              <property name="autoDefault">
               <bool>false</bool>
@@ -320,21 +296,23 @@
              </property>
             </widget>
            </item>
-           <property name="leftMargin">
-            <number>0</number>
-           </property>
-           <property name="topMargin">
-            <number>0</number>
-           </property>
-           <property name="rightMargin">
-            <number>0</number>
-           </property>
-           <property name="bottomMargin">
-            <number>0</number>
-           </property>
-           <property name="spacing">
-            <number>8</number>
-           </property>
+           <item>
+            <spacer name="diagnosticActionsSpacer">
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+            </spacer>
+           </item>
+           <item>
+            <widget class="QPushButton" name="diagnosticRulesButton">
+             <property name="autoDefault">
+              <bool>false</bool>
+             </property>
+             <property name="text">
+              <string>Rules and DNS</string>
+             </property>
+            </widget>
+           </item>
           </layout>
          </item>
          <property name="leftMargin">

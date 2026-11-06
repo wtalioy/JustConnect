@@ -60,6 +60,8 @@ MainWindow::MainWindow(
 
     ui->setupUi(this);
     ui->detailsDialog->resize(640,620);
+    PresentationHelpers::setButtonIcon(ui->detailsButton,":/resource/arrow-right.svg");
+    PresentationHelpers::setButtonIcon(ui->diagnosticRulesButton,":/resource/rules.svg");
     connect(ui->detailsButton,&QPushButton::clicked,this,[this] {updateDiagnostics();PresentationHelpers::activateWindow(ui->detailsDialog);});
     ui->diagnosticReport->header()->setSectionResizeMode(0,QHeaderView::ResizeToContents);
     ui->diagnosticReport->header()->setSectionResizeMode(1,QHeaderView::Stretch);
@@ -798,7 +800,7 @@ void MainWindow::deleteCurrentProfile()
     messageBox.setInformativeText(tr("The profile file and legacy cache will be deleted. Passwords, TOTP, account caches and quarantined copies in secure storage are preserved. To remove them, first clear passwords and TOTP in profile settings, then clear account and legacy caches from Settings."));
     messageBox.setText(tr("Delete profile \"%1\"?").arg(currentProfileId));
     auto *remove=messageBox.addButton(QMessageBox::Yes);remove->setText(tr("Delete"));
-    remove->setIcon(QIcon(":/resource/clear.svg"));remove->setIconSize(QSize(18,18));
+    PresentationHelpers::setButtonIcon(remove,":/resource/file-remove.svg");
     messageBox.addButton(QMessageBox::No)->setText(tr("Cancel"));
     messageBox.setDefaultButton(QMessageBox::No);
     if (messageBox.exec() != QMessageBox::Yes)
