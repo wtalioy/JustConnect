@@ -159,7 +159,8 @@ int main(int argc,char **argv) {
         "simplifying the editor preserves a disabled traffic mode and its saved target");
     window=open();
     ApplicationPreferencesWidget preferences(nullptr);
-    preferences.resize(540,560);preferences.show();app.processEvents();
+    // Use the content's preferred width to exercise side-by-side rows; narrow wrapping has separate coverage.
+    preferences.resize(preferences.sizeHint().expandedTo(QSize(540,560)));preferences.show();app.processEvents();
     check(checkFormRows(&preferences)==2,"check both global preference dropdown rows");preferences.hide();
     const auto statePath=QDir(QFileInfo(ProfileManager().profilePath("")).absolutePath()).filePath("state.ini");
     const auto retainedTTL=settings.value("JustConnect/DNSTTL");
