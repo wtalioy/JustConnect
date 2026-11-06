@@ -56,13 +56,14 @@ QHeaderView::section { padding: 10px 8px; background: #f1f3f8; color: #616b7c; b
 QTreeWidget { padding: 0; alternate-background-color: #f6f7fb; }
 QTreeWidget::item { padding: 10px 8px; border-bottom: 1px solid #edf0f5; }
 QTreeWidget::item:selected { background: #e9ecff; color: #182132; }
+QTreeWidget#diagnosticReport { border: none; background: rgba(255,255,255,235); }
 
 QListWidget::item { min-height: 24px; padding: 10px 8px; }
 
 QLabel[secondary="true"] { color: #737c8b; font-size: 12px; }
 QLabel[warning="true"] { color: #835b1d; }
 QTabBar::tab { min-width: 80px; font-weight: 600; }
-QWidget#generalTabContents, QWidget#loginTabContents { background: transparent; }
+QWidget#generalTabContents, QWidget#loginTabContents, QWidget#overviewTab, QWidget#logsTab { background: rgba(250,251,252,235); }
 QScrollBar:vertical { width: 10px; background: transparent; margin: 0; }
 QScrollBar::handle:vertical { background: #b5c2d4; border-radius: 4px; min-height: 28px; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }

@@ -68,7 +68,9 @@
     </item>
     <item>
      <widget class="QFrame" name="headerDivider">
-      <property name="divider" stdset="0"><bool>true</bool></property>
+      <property name="divider" stdset="0">
+       <bool>true</bool>
+      </property>
      </widget>
     </item>
     <item>
@@ -157,7 +159,9 @@
     </item>
     <item>
      <widget class="QFrame" name="footerDivider">
-      <property name="divider" stdset="0"><bool>true</bool></property>
+      <property name="divider" stdset="0">
+       <bool>true</bool>
+      </property>
      </widget>
     </item>
     <item>
@@ -180,16 +184,6 @@
       <number>16</number>
      </property>
      <item>
-      <widget class="QLabel" name="versionLabel">
-       <property name="text">
-        <string>Version dev</string>
-       </property>
-       <property name="alignment">
-        <set>Qt::AlignmentFlag::AlignCenter</set>
-       </property>
-      </widget>
-     </item>
-     <item>
       <widget class="QTabWidget" name="detailsTabs">
        <widget class="QWidget" name="overviewTab">
         <attribute name="title">
@@ -207,18 +201,21 @@
           </widget>
          </item>
          <item>
-          <widget class="QPlainTextEdit" name="diagnosticReport">
-           <property name="readOnly">
-            <bool>true</bool>
-           </property>
-           <property name="minimumHeight">
-            <number>210</number>
-           </property>
-           <property name="maximumHeight">
-            <number>230</number>
-           </property>
+          <widget class="QTreeWidget" name="diagnosticReport">
            <property name="accessibleName">
             <string>Connection diagnostics</string>
+           </property>
+           <property name="rootIsDecorated">
+            <bool>false</bool>
+           </property>
+           <property name="headerHidden">
+            <bool>true</bool>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+           <property name="columnCount">
+            <number>2</number>
            </property>
           </widget>
          </item>
@@ -250,21 +247,17 @@
               <bool>false</bool>
              </property>
              <property name="text">
+              <string>Copy</string>
+             </property>
+             <property name="toolTip">
+              <string>Copy diagnostics</string>
+             </property>
+             <property name="accessibleName">
               <string>Copy diagnostics</string>
              </property>
             </widget>
            </item>
           </layout>
-         </item>
-         <item>
-          <widget class="QLabel" name="statusDetailLabel">
-           <property name="text">
-            <string>Connect to access campus resources.</string>
-           </property>
-           <property name="wordWrap">
-            <bool>true</bool>
-           </property>
-          </widget>
          </item>
         </layout>
        </widget>
@@ -374,9 +367,40 @@
            </layout>
           </widget>
          </item>
+         <item>
+          <widget class="QLabel" name="statusDetailLabel">
+           <property name="text">
+            <string>Connect to access campus resources.</string>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
         </layout>
        </widget>
       </widget>
+     </item>
+     <item>
+      <layout class="QHBoxLayout" name="detailsFooter">
+       <item>
+        <widget class="QLabel" name="versionLabel">
+         <property name="text">
+          <string>Version dev</string>
+         </property>
+         <property name="alignment">
+          <set>Qt::AlignLeft|Qt::AlignVCenter</set>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <spacer name="detailsFooterSpacer">
+         <property name="orientation">
+          <enum>Qt::Horizontal</enum>
+         </property>
+        </spacer>
+       </item>
+      </layout>
      </item>
     </layout>
    </widget>

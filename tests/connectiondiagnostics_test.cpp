@@ -109,9 +109,12 @@ try
     check(policy.status() == CoreEngine::RequestStatus::Success, "confirm the actual shared policy model");
     auto report = diagnostics.report();
     check(report.contains("System capture: Ready") && report.contains("HTTP 18080") &&
-              report.contains("campus 192.0.2.53") && report.contains("Confirmed routing policy:") &&
+              report.contains("campus 192.0.2.53") && report.contains("Routing policy:") &&
               !report.contains("do-not-export"),
           "diagnostics must show confirmed ports, DNS and policy while excluding credentials and unrecognized fields");
+    QStringList visible;
+    for (const auto &[label,value]:diagnostics.fields()) visible.append(label+": "+value);
+    check(visible.join('\n')==report,"the visible fields and copied report use the same redacted evidence");
     const auto observation = [](const QString &mode) {
         return QJsonObject{
             {"schema_version", 1},

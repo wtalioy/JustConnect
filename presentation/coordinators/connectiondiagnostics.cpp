@@ -59,11 +59,11 @@ ConnectionDiagnostics::ConnectionDiagnostics(CoreEngine *core, ConnectionSession
     connect(proxy, &SystemProxySession::enabledChanged, this, &ConnectionDiagnostics::changed);
 }
 
-QString ConnectionDiagnostics::report() const
+QList<QPair<QString,QString>> ConnectionDiagnostics::fields() const
 {
     const auto unknown = tr("Unknown");
     if (!connection || !policy || !proxy)
-        return unknown;
+        return {};
     const auto model = policy->model();
     const bool confirmed = !generation.isEmpty() && policy->currentGeneration() == generation &&
                            policy->status() == CoreEngine::RequestStatus::Success &&
@@ -89,8 +89,8 @@ QString ConnectionDiagnostics::report() const
                          : ready                             ? tr("Ready")
                          : connection->isActive()            ? tr("In progress")
                                                              : tr("Not active");
-    QStringList lines{tr("System capture: %1").arg(capture),
-                      tr("Local entry ports: HTTP %1 · SOCKS %2").arg(endpoint("http"), endpoint("socks"))};
+    QList<QPair<QString,QString>> result{{tr("System capture"),capture},
+        {tr("Local entry"),tr("HTTP %1 · SOCKS %2").arg(endpoint("http"),endpoint("socks"))}};
     QString dns = unknown;
     if (confirmed)
     {
@@ -103,30 +103,36 @@ QString ConnectionDiagnostics::report() const
                   .arg(model["dns_namespaces"].toArray().size())
                   .arg(resources["domain_dns_names"].toArray().size());
     }
-    lines.append(tr("DNS sources: %1").arg(dns));
+    result.append({tr("DNS sources"),dns});
     const auto rules = confirmed ? tr("%1 IP rules · %2 domain patterns · %3 protected scopes · %4 overlaps")
                                        .arg(resources["ip_resources"].toArray().size())
                                        .arg(resources["domain_resources"].toObject().size())
                                        .arg(model["targets"].toArray().size())
                                        .arg(model["conflicts"].toArray().size())
                                  : unknown;
-    lines.append(tr("Confirmed routing policy: %1").arg(rules));
+    result.append({tr("Routing policy"),rules});
     if (confirmed)
-        lines.append(tr("Campus exceptions: %1 addresses · %2 names")
-                         .arg(policy->campusAddresses().size())
-                         .arg(policy->campusNames().size()));
-    lines.append(tr("Campus exit: %1").arg(ready ? tr("Campus tunnel") : unknown));
+        result.append({tr("Campus exceptions"),tr("%1 addresses · %2 names")
+                         .arg(policy->campusAddresses().size()).arg(policy->campusNames().size())});
+    result.append({tr("Campus exit"),ready ? tr("Campus tunnel") : unknown});
     const auto ordinary = !exitKnown    ? unknown
                           : clashActive ? tr("Clash %1 · TUN %2").arg(mode, tun ? tr("On") : tr("Off"))
                                         : tr("System routing");
-    lines.append(tr("Ordinary exit: %1").arg(ordinary));
+    result.append({tr("Ordinary exit"),ordinary});
     const auto recovery = connection->networkRecoveryFailed() ? tr("Retry network recovery")
                           : proxy->isBusy() || connection->phase() == ConnectionPhase::NetworkRestoring
                               ? tr("In progress")
                           : proxy->needsCleanup() ? tr("Browser proxy ownership retained")
                                                   : tr("No pending browser restoration");
-    lines.append(tr("Recovery: %1").arg(recovery));
+    result.append({tr("Recovery"),recovery});
     if (!code.isEmpty())
-        lines.append(tr("Diagnostic code: %1").arg(code));
-    return lines.join('\n');
+        result.append({tr("Diagnostic code"),code});
+    return result;
+}
+
+QString ConnectionDiagnostics::report() const
+{
+    QStringList lines;
+    for (const auto &[label,value]:fields()) lines.append(label+": "+value);
+    return lines.isEmpty() ? tr("Unknown") : lines.join('\n');
 }
