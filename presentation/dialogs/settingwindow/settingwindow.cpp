@@ -88,7 +88,6 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
     rememberAuthentication=new QCheckBox(ui->credentialsGroup);
     rememberAuthentication->setObjectName("rememberAuthenticationCheckBox");
     ui->credentialsForm->addRow(rememberAuthentication);
-    credentialHint=new QLabel(ui->credentialsGroup);credentialHint->setWordWrap(true);ui->credentialsForm->addRow(credentialHint);
     clearCredentialButton=new QPushButton(ui->credentialsGroup);clearCredentialButton->setObjectName("clearCredentialButton");
     ui->credentialsForm->addRow(clearCredentialButton);
     connect(clearCredentialButton,&QPushButton::clicked,this,&SettingWindow::clearCredentials);
@@ -146,7 +145,7 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
     });
     retranslate();
     readCredentials();
-    resize(520,620);
+    resize(600,680);
 
 }
 SettingWindow::~SettingWindow() { delete ui; }
@@ -167,8 +166,9 @@ void SettingWindow::retranslate() {
     if (queryStatusText) queryStatus->setText(tr(queryStatusText));
     rememberAuthentication->setText(tr("Remember authentication"));
     rememberAuthentication->setToolTip(tr("Use the system credential store to resume after disconnecting or restarting, for as long as the server allows. Turning this off stops saving and resuming. Use Clear current account authentication cache to delete existing data."));
-    credentialHint->setText(tr("Leave empty to keep saved credentials. Use the button below to remove them."));
-    clearCredentialButton->setText(tr("Clear saved password and key"));
+    ui->passwordLineEdit->setPlaceholderText(tr("Leave blank to keep saved"));
+    ui->totpSecretLineEdit->setPlaceholderText(tr("Leave blank to keep saved"));
+    clearCredentialButton->setText(tr("Clear saved credentials…"));
     credentialStatus->setText(credentialStatusText ? tr(credentialStatusText) : PresentationHelpers::credentialOperationMessage(credentialLoadStatus));
     updateBusy();
 }
@@ -223,8 +223,7 @@ ConnectionProfile SettingWindow::currentProfile() const {
 void SettingWindow::clearDraftCredentials() {
     loadedCredentials={};
     ui->passwordLineEdit->setText({});ui->totpSecretLineEdit->setText({});
-    credentialStatusText=QT_TR_NOOP("Leave empty to use this account’s saved credentials or enter them when connecting.");
-    credentialStatus->setText(tr(credentialStatusText));
+    credentialStatusText=nullptr;credentialStatus->clear();credentialStatus->hide();
 }
 void SettingWindow::resetAuthChoices() {
     const QSignalBlocker blocker(ui->authTypeComboBox);
@@ -238,8 +237,8 @@ void SettingWindow::updateAuthFields() {
     ui->credentialsForm->setRowVisible(ui->usernameLineEdit,password);
     ui->credentialsForm->setRowVisible(ui->passwordLineEditRow,password);
     ui->credentialsForm->setRowVisible(ui->totpSecretLineEditRow,password);
-    credentialHint->setVisible(password);clearCredentialButton->setVisible(password);
-    credentialStatus->setVisible(password || (credentialLoadStatus!=CredentialStatus::Success && credentialLoadStatus!=CredentialStatus::NotFound));
+    clearCredentialButton->setVisible(password);
+    credentialStatus->setVisible(credentialStatusText || (credentialLoadStatus!=CredentialStatus::Success && credentialLoadStatus!=CredentialStatus::NotFound));
     ui->authForm->setRowVisible(ui->countryCodeLineEdit,sms);
     ui->authForm->setRowVisible(ui->phoneNumberLineEdit,sms);
 }
@@ -257,8 +256,8 @@ void SettingWindow::setProfileEditable(bool editable) {
 void SettingWindow::updateBusy() {
     ui->loginTabContents->setEnabled(profileEditable && !saving);
     const bool connection=ui->tabWidget->currentWidget()==ui->loginTab;
-    profileHint->setVisible(connection);
-    profileHint->setText(profileEditable ? tr("Save changes for the next connection.") : tr("Disconnect to edit this connection. General settings remain available."));
+    profileHint->setVisible(connection && !profileEditable);
+    profileHint->setText(tr("Disconnect to edit this connection."));
     saveButton->setVisible(connection && profileEditable);
     saveButton->setEnabled(!loading && !saving && !querying);
     saveButton->setText(connectAfterSave ? tr("Save and connect") : tr("Save"));
@@ -266,7 +265,7 @@ void SettingWindow::updateBusy() {
     serverEditor->setEnabled(profileEditable && !saving && !querying);
     ui->authTypeComboBox->setEnabled(profileEditable && !saving && !querying);
     ui->authSelectPushButton->setEnabled(profileEditable && !saving);
-    ui->authSelectPushButton->setText(querying ? tr("Cancel query") : tr("Get sign-in methods"));
+    ui->authSelectPushButton->setText(querying ? tr("Cancel") : tr("Get methods"));
     clearCredentialButton->setEnabled(profileEditable && !loading && !saving);
 }
 void SettingWindow::cancelQuery() {
@@ -304,7 +303,7 @@ void SettingWindow::readCredentials() {
         loading=false;updateBusy();
         if (!CredentialAccess::matches(source,settings)) {
             credentialStatusText=QT_TR_NOOP("The saved profile changed. Reopen the editor.");
-            credentialStatus->setText(tr(credentialStatusText));return;
+            credentialStatus->setText(tr(credentialStatusText));updateAuthFields();return;
         }
         credentialStatusText=nullptr;credentialLoadStatus=loaded.result.status;updateAuthFields();
         credentialStatus->setText(PresentationHelpers::credentialOperationMessage(credentialLoadStatus));
@@ -336,6 +335,7 @@ void SettingWindow::clearCredentials() {
         loadedCredentials={};
         credentialStatusText=QT_TR_NOOP("Saved passwords and authenticator keys were cleared. Unsaved input is unchanged.");
         credentialStatus->setText(tr(credentialStatusText));
+        updateAuthFields();
         credentialSource=CredentialAccess::source(settings,credentialSource.legacyCachePath);
     });
 }
@@ -358,7 +358,6 @@ void SettingWindow::saveSettings() {
         QMessageBox::warning(this,unavailable ? tr("Core unavailable") : tr("Invalid profile"),
             unavailable ? tr("Cannot validate this profile. Check the application installation. Nothing was saved.") : tr("Check the server, sign-in method, ports, DNS and probe target. Nothing was saved."));return;
     }
-    saving=true;updateBusy();
     const auto changes=publicChanges();
     const bool edited=(!ui->passwordLineEdit->text().isEmpty() && ui->passwordLineEdit->text()!=loadedCredentials.password)
         || (!ui->totpSecretLineEdit->text().isEmpty() && ui->totpSecretLineEdit->text()!=loadedCredentials.totpSecret);

@@ -40,7 +40,6 @@ int main(int argc,char **argv) {
     allowNodes->setChecked(true);
     const auto nodePolicy=ProfileService::load(editor.settingsValues());
     check(nodePolicy.tls.verify && nodePolicy.tls.allowUnverifiedNodes && !nodeWarning->isHidden() && warning->isHidden(),"node exception is explicit and leaves authentication verification enabled");
-    check(editor.findChild<QLabel *>("securitySummaryLabel")->isVisibleTo(&editor),"an unsafe node setting is visible alongside the editable security options");
     verify->setChecked(false); ca->setPlainText("explicit private CA");
     check(!warning->isHidden(),"explicit unsafe choice shows an identity-protection warning");
     address->setText("draft.example.edu"); port->setValue(9443);
@@ -61,6 +60,13 @@ int main(int argc,char **argv) {
     check(ProfileService::load(saved).dns.domainDnsRules=="service.custom.example 192.0.2.53","custom DNS rules survive save and reload");
     check(allowNodes->isChecked() && !nodeWarning->isHidden(),"explicit node policy and warning survive save and reload");
     check(!editor.settingsValues().value("JustConnect/TLSVerify").toBool() && editor.settingsValues().value("JustConnect/TLSCAPEM").toString()=="explicit private CA" && !warning->isHidden(),"explicit TLS policy survives save and reload");
+    auto *caToggle=editor.findChild<QToolButton *>("schoolCaToggle");
+    check(caToggle->isChecked() && ca->isVisibleTo(&editor),"a saved private CA is immediately visible for review");
+    caToggle->click();
+    check(ca->isHidden() && editor.settingsValues().value("JustConnect/TLSCAPEM")=="explicit private CA",
+        "collapsing optional CA settings never changes the saved trust draft");
+    caToggle->click();
+    check(ca->isVisibleTo(&editor) && ca->toPlainText()=="explicit private CA","reopening optional CA preserves the draft");
     check(saved.value("JustConnect/ServerAddress")=="draft.example.edu" && saved.value("JustConnect/ProfileKind")=="Custom","explicit apply saves selected endpoint");
     settings.setValue("Common/NeedsConfiguration",true);
     editor.load(settings);

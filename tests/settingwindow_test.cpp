@@ -224,7 +224,8 @@ int main(int argc,char **argv) {
     window->findChild<QPushButton *>("clearCredentialButton")->click();ready();expectedText.clear();messageResult=QMessageBox::Ok;
     check(vault.load(source.scope,secured,loaded).status==CredentialStatus::NotFound
         && vault.load(source.scope,other,loaded).succeeded() && loaded.password=="saved-password"
-        && !settings.contains("Credential/Password") && window->findChild<QLineEdit *>("passwordLineEdit")->text().isEmpty(),"explicit settings deletion clears only the saved account and its displayed secrets");
+        && !settings.contains("Credential/Password") && window->findChild<QLineEdit *>("passwordLineEdit")->text().isEmpty()
+        && window->findChild<QLabel *>("credentialStatusLabel")->isVisibleTo(window),"explicit settings deletion clears only the saved account and its displayed secrets, with visible confirmation");
     window->reject();ready();
     // Only the source value survives; neither window borrows the originating QSettings.
     const auto seed=[&](const QString &name,const QString &password) {

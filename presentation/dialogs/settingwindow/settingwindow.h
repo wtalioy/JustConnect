@@ -44,7 +44,7 @@ private:
     CredentialAccess *credentials;
     CredentialSource credentialSource;
     ConnectionCredentials loadedCredentials;
-    QLabel *credentialStatus, *credentialHint;
+    QLabel *credentialStatus;
     const char *credentialStatusText=nullptr;
     CredentialStatus credentialLoadStatus=CredentialStatus::NotFound;
     QPushButton *clearCredentialButton,*saveButton,*dismissButton;

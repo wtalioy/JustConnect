@@ -17,9 +17,10 @@
 ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0,0,0,0);
-    layout->setSpacing(16);
+    layout->setSpacing(12);
+    layout->setAlignment(Qt::AlignTop);
     form = new QFormLayout;
-    form->setRowWrapPolicy(QFormLayout::WrapAllRows);
+    form->setRowWrapPolicy(QFormLayout::WrapLongRows);
     form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
     form->setVerticalSpacing(8);
     preset = new QComboBox(this);
@@ -39,42 +40,37 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     form->addRow(new QLabel(this),preset); form->addRow(new QLabel(this),address); form->addRow(new QLabel(this),port);
     layout->addLayout(form);
 
-    securitySummary = new QLabel(this);
-    securitySummary->setObjectName("securitySummaryLabel");
-    securitySummary->setWordWrap(true);
-    layout->addWidget(securitySummary);
-    advancedForm = new QFormLayout;
-    advancedForm->setRowWrapPolicy(QFormLayout::WrapAllRows);
-    advancedForm->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
-    advancedForm->setVerticalSpacing(8);
-    layout->addLayout(advancedForm);
     verify=new QCheckBox(this);
     verify->setObjectName("tlsVerifyCheckBox"); verify->setChecked(TlsOptions{}.verify);
     warning=new QLabel(this);
     warning->setObjectName("tlsWarningLabel"); warning->setWordWrap(true); warning->hide();
+    warning->setProperty("warning",true);
     allowUnverifiedNodes=new QCheckBox(this);
     allowUnverifiedNodes->setObjectName("allowUnverifiedNodesCheckBox");
     nodeWarning=new QLabel(this);
     nodeWarning->setObjectName("nodeTlsWarningLabel"); nodeWarning->setWordWrap(true); nodeWarning->hide();
+    nodeWarning->setProperty("warning",true);
     auto *tlsOptions=new QVBoxLayout;
     tlsOptions->addWidget(verify); tlsOptions->addWidget(warning);
     tlsOptions->addWidget(allowUnverifiedNodes); tlsOptions->addWidget(nodeWarning);
-    advancedForm->addRow("TLS",tlsOptions);
-    caPem=new QPlainTextEdit(this); caPem->setObjectName("tlsCaPemEdit"); caPem->setMaximumHeight(96);
-    advancedForm->addRow(new QLabel(this),caPem);
+    layout->addLayout(tlsOptions);
+    caToggle=new QToolButton(this);caToggle->setObjectName("schoolCaToggle");
+    caToggle->setCheckable(true);caToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);caToggle->setArrowType(Qt::RightArrow);
+    layout->addWidget(caToggle,0,Qt::AlignLeft);
+    caPem=new QPlainTextEdit(this); caPem->setObjectName("tlsCaPemEdit"); caPem->setMaximumHeight(88);caPem->hide();
+    layout->addWidget(caPem);
+    connect(caToggle,&QToolButton::toggled,this,[this](bool open) {caPem->setVisible(open);caToggle->setArrowType(open?Qt::DownArrow:Qt::RightArrow);});
     domainDnsRules=new QPlainTextEdit(this);
     domainDnsRules->setObjectName("domainDnsRulesEdit");
     domainDnsRules->setMaximumHeight(112);
     domainDnsRules->setPlaceholderText("host.example.edu\nother.example.edu 192.0.2.53");
     rulesHelp=new QLabel(this);
-    rulesHelp->setWordWrap(true);
-    auto *rulesLayout=new QVBoxLayout;
-    rulesLayout->addWidget(domainDnsRules);
-    rulesLayout->addWidget(rulesHelp);
+    rulesHelp->setWordWrap(true);rulesHelp->setProperty("secondary",true);
     domainDnsLabel=new QLabel(this);
-    form->addRow(domainDnsLabel,rulesLayout);
-    connect(verify,&QCheckBox::toggled,this,[this](bool checked){warning->setVisible(!checked);updateSecuritySummary();});
-    connect(allowUnverifiedNodes,&QCheckBox::toggled,this,[this](bool checked){nodeWarning->setVisible(checked);updateSecuritySummary();});
+    domainDnsLabel->setBuddy(domainDnsRules);
+    layout->addWidget(domainDnsLabel);layout->addWidget(domainDnsRules);layout->addWidget(rulesHelp);
+    connect(verify,&QCheckBox::toggled,warning,[this](bool checked){warning->setVisible(!checked);});
+    connect(allowUnverifiedNodes,&QCheckBox::toggled,nodeWarning,&QLabel::setVisible);
     connect(preset,&QComboBox::currentIndexChanged,this,&ServerSettingsWidget::selectPreset);
     connect(address,&QLineEdit::textChanged,this,&ServerSettingsWidget::serverChanged);
     connect(port,&QSpinBox::valueChanged,this,&ServerSettingsWidget::serverChanged);
@@ -93,30 +89,24 @@ void ServerSettingsWidget::retranslate() {
     qobject_cast<QLabel *>(form->labelForField(address))->setText(tr("Server"));
     qobject_cast<QLabel *>(form->labelForField(port))->setText(tr("Port"));
     verify->setText(tr("Verify server certificate"));
-    warning->setText(tr("Disabling verification removes server identity protection. A connection failure never disables it automatically."));
+    warning->setText(tr("The server's identity will not be verified."));
     allowUnverifiedNodes->setText(tr("Skip tunnel verification"));
-    nodeWarning->setText(tr("The tunnel stays encrypted, but its peer is not verified. Sign-in and resource verification stay unchanged."));
-    qobject_cast<QLabel *>(advancedForm->labelForField(caPem))->setText(tr("Additional CA"));
+    nodeWarning->setText(tr("The tunnel peer will not be verified. Sign-in verification is unchanged."));
+    caToggle->setText(tr("School CA (optional)"));
+    caPem->setAccessibleName(tr("School CA (optional)"));
     caPem->setPlaceholderText(tr("Optional school CA in PEM format. Leave empty to use system trust."));
     domainDnsLabel->setText(tr("Domain DNS"));
-    QString help=tr("One full domain per line. Append IPv4 DNS servers separated by spaces, or leave them out to use gateway DNS.");
+    QString help=tr("One domain per line; optional IPv4 DNS servers after it. Otherwise use gateway DNS.");
 #ifndef Q_OS_WIN
     help+=" "+tr("Use the local application proxy for domains not published by the gateway.");
 #endif
     rulesHelp->setText(help);
-    updateSecuritySummary();
-}
-void ServerSettingsWidget::updateSecuritySummary() {
-    QStringList warnings;
-    if(!verify->isChecked()) warnings.append(tr("Server identity verification is off."));
-    if(allowUnverifiedNodes->isChecked()) warnings.append(tr("Tunnel identity verification is off."));
-    securitySummary->setText(warnings.join(' '));
-    securitySummary->setVisible(!warnings.isEmpty());
 }
 void ServerSettingsWidget::load(const QSettings &settings) {
     QSignalBlocker blocker(this), presetBlocker(preset);
     verify->setChecked(settings.value("JustConnect/TLSVerify",TlsOptions{}.verify).toBool());
     caPem->setPlainText(settings.value("JustConnect/TLSCAPEM").toString());
+    caToggle->setChecked(!caPem->toPlainText().isEmpty());
     allowUnverifiedNodes->setChecked(settings.value("JustConnect/AllowUnverifiedNodes",TlsOptions{}.allowUnverifiedNodes).toBool());
     customAddress = settings.value("JustConnect/ServerAddress").toString();
     customPort = settings.value("JustConnect/ServerPort",443).toInt();

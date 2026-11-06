@@ -10,6 +10,7 @@ class QPlainTextEdit;
 class QLineEdit;
 class QSettings;
 class QSpinBox;
+class QToolButton;
 
 class ServerSettingsWidget : public QWidget {
     Q_OBJECT
@@ -26,10 +27,10 @@ protected:
     void changeEvent(QEvent *event) override;
 private:
     void retranslate();
-    void updateSecuritySummary();
     void selectPreset();
-    QFormLayout *form, *advancedForm;
-    QLabel *warning, *nodeWarning, *rulesHelp, *securitySummary, *domainDnsLabel;
+    QFormLayout *form;
+    QLabel *warning, *nodeWarning, *rulesHelp, *domainDnsLabel;
+    QToolButton *caToggle;
     QComboBox *preset;
     QLineEdit *address;
     QSpinBox *port;

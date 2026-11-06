@@ -8,35 +8,44 @@
 #include <QComboBox>
 #include <QEvent>
 #include <QFormLayout>
+#include <QGroupBox>
 #include <QLabel>
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QSystemTrayIcon>
+#include <QVBoxLayout>
 
 ApplicationPreferencesWidget::ApplicationPreferencesWidget(QWidget *parent) : QWidget(parent) {
-    auto *layout=new QFormLayout(this);layout->setSpacing(12);layout->setContentsMargins(0,0,0,0);
-    layout->setRowWrapPolicy(QFormLayout::WrapAllRows);
-    layout->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+    auto *layout=new QVBoxLayout(this);layout->setSpacing(20);layout->setContentsMargins(0,0,0,0);
+    behaviorGroup=new QGroupBox(this);layout->addWidget(behaviorGroup);
+    auto *form=new QFormLayout(behaviorGroup);form->setSpacing(12);form->setContentsMargins(0,8,0,0);
+    form->setRowWrapPolicy(QFormLayout::WrapLongRows);
+    form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
     language=new QComboBox(this);language->setObjectName("languageComboBox");
     language->addItem("English","en");language->addItem(QString::fromUtf8("简体中文"),"zh_CN");
     language->setCurrentIndex(language->findData(ApplicationLanguage::instance().current()));
-    languageLabel=new QLabel(this);languageLabel->setBuddy(language);layout->addRow(languageLabel,language);
+    languageLabel=new QLabel(this);languageLabel->setBuddy(language);form->addRow(languageLabel,language);
     behavior=new QComboBox(this);behavior->setObjectName("closeBehaviorComboBox");
     behavior->addItem(QString(),true);behavior->addItem(QString(),false);
     behavior->setCurrentIndex(ProfileManager().closeToTray()?0:1);
-    behaviorLabel=new QLabel(this);behaviorLabel->setBuddy(behavior);layout->addRow(behaviorLabel,behavior);
+    behaviorLabel=new QLabel(this);behaviorLabel->setBuddy(behavior);form->addRow(behaviorLabel,behavior);
+    startupGroup=new QGroupBox(this);layout->addWidget(startupGroup);
+    auto *startup=new QVBoxLayout(startupGroup);startup->setContentsMargins(0,8,0,0);startup->setSpacing(4);
     autoStart=new QCheckBox(this);autoStart->setObjectName("autoStartCheckBox");
-    autoStart->setChecked(ProfileManager().autoStartEnabled());layout->addRow(autoStart);
+    autoStart->setChecked(ProfileManager().autoStartEnabled());startup->addWidget(autoStart);
     silentStart=new QCheckBox(this);silentStart->setObjectName("silentStartCheckBox");
-    silentStart->setChecked(ProfileManager().silentStartEnabled());layout->addRow(silentStart);
-    hint=new QLabel(this);hint->setWordWrap(true);hint->setProperty("secondary",true);layout->addRow(hint);
-    controller=new QPushButton(this);controller->setObjectName("controllerSettingsButton");layout->addRow(controller);
+    silentStart->setChecked(ProfileManager().silentStartEnabled());startup->addWidget(silentStart);
+    clashGroup=new QGroupBox(this);layout->addWidget(clashGroup);
+    auto *clash=new QVBoxLayout(clashGroup);clash->setContentsMargins(0,8,0,0);
+    controller=new QPushButton(this);controller->setObjectName("controllerSettingsButton");clash->addWidget(controller,0,Qt::AlignLeft);
+    hint=new QLabel(this);hint->setWordWrap(true);hint->setProperty("secondary",true);layout->addWidget(hint);
     auto *selection=new ControllerSelectionCoordinator(this,this);
     connect(controller,&QPushButton::clicked,selection,[this,selection] {
         controller->setEnabled(false);
         selection->choose([this](std::optional<QString>){controller->setEnabled(true);},true);
     });
-    error=new QLabel(this);error->setObjectName("preferenceError");error->setWordWrap(true);error->setProperty("warning",true);error->hide();layout->addRow(error);
+    error=new QLabel(this);error->setObjectName("preferenceError");error->setWordWrap(true);error->setProperty("warning",true);error->hide();layout->addWidget(error);
+    layout->addStretch();
     connect(language,&QComboBox::currentIndexChanged,this,&ApplicationPreferencesWidget::savePreferences);
     connect(behavior,&QComboBox::currentIndexChanged,this,&ApplicationPreferencesWidget::savePreferences);
     connect(silentStart,&QCheckBox::toggled,this,[this](bool enabled) {
@@ -65,6 +74,7 @@ void ApplicationPreferencesWidget::savePreferences() {
     error->setText(tr(errorText));error->show();
 }
 void ApplicationPreferencesWidget::retranslate() {
+    behaviorGroup->setTitle(tr("Behavior"));startupGroup->setTitle(tr("Startup"));clashGroup->setTitle(tr("Clash coexistence"));
     languageLabel->setText(tr("Language"));behaviorLabel->setText(tr("When closing the window"));
     const QSignalBlocker blocker(behavior);
     behavior->setItemText(0,tr("Keep running in the system tray"));behavior->setItemText(1,tr("Disconnect and exit"));
@@ -75,7 +85,7 @@ void ApplicationPreferencesWidget::retranslate() {
     else if (!QSystemTrayIcon::isSystemTrayAvailable())
         explanation+='\n'+tr("No system tray is available. Use Exit in Details to quit.");
     hint->setText(explanation);
-    controller->setText(tr("Clash coexistence…"));
+    controller->setText(tr("Choose instance…"));
     if (errorText) error->setText(tr(errorText));
 }
 void ApplicationPreferencesWidget::changeEvent(QEvent *event) {
