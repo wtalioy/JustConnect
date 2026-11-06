@@ -133,10 +133,6 @@ MainWindow::MainWindow(
 
 
     setWindowIcon(QIcon(":/resource/icon.svg"));
-    const auto powerSize=ui->statusIndicator->pixmap().deviceIndependentSize().toSize();
-    ui->statusIndicator->setPixmap(QIcon(":/resource/power.svg").pixmap(powerSize,devicePixelRatioF()));
-
-
     updateVersionInfo();
     updateConnectionState(connectionSession->state());
 
@@ -480,6 +476,8 @@ void MainWindow::updateConnectionState(ConnectionState state)
     }
     if (traffic.result=="unavailable") detail += tr("\nNo authorized probe resource or campus DNS is available. Check the target and gateway authorization.");
     ui->statusTitleLabel->setText(title);
+    ui->statusIndicator->setPixmap(QIcon(propertyValue=="connected" ? ":/resource/connection-ready.svg" : ":/resource/connection.svg")
+        .pixmap(ui->statusIndicator->size(),devicePixelRatioF()));
     if (trayIcon) {
         trayIcon->setToolTip(QApplication::applicationName()+" · "+title+"\n"+detail);
         trayIcon->setIcon(style()->standardIcon(connectionSession->phase()==ConnectionPhase::CampusReady && state==ConnectionState::Running ? QStyle::SP_MediaPlay : QStyle::SP_MediaStop));

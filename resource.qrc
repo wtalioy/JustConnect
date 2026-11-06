@@ -3,7 +3,8 @@
         <file>resource/icon.svg</file>
         <file>resource/appearance.qss</file>
         <file>resource/settings.svg</file>
-        <file>resource/power.svg</file>
+        <file>resource/connection.svg</file>
+        <file>resource/connection-ready.svg</file>
         <file>resource/chevron.svg</file>
     </qresource>
 </RCC>
