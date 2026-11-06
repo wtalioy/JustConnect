@@ -97,7 +97,7 @@ static void profileMenusDoNotAccumulateGroups(MainWindow &window,const QString &
     QMenu *trayMenu=nullptr;
     for (auto *action:tray->contextMenu()->actions()) if (action->menu()) trayMenu=action->menu();
     check(menu && trayMenu,"both profile menus are available");
-    auto *menuButton=window.findChild<QToolButton *>("profileMenuButton");
+    auto *menuButton=window.findChild<QPushButton *>("profileMenuButton");
     auto *editAction=window.findChild<QAction *>("settingAction");
     auto *addAction=window.findChild<QAction *>("newProfileAction");
     check(menuButton && menuButton->menu()==menu && menu->actions().contains(editAction)
@@ -353,7 +353,7 @@ static void nativeHome(MainWindow &window) {
     const auto original=window.size();window.resize(320,460);QCoreApplication::processEvents();
     auto *button=window.findChild<QPushButton *>("connectButton");
     check(window.width()==320 && window.rect().contains(button->geometry()) && button->height()>=44,"compact home keeps its main action in bounds at 320 logical pixels");
-    auto *profile=window.findChild<QToolButton *>("profileMenuButton");
+    auto *profile=window.findChild<QPushButton *>("profileMenuButton");
     const auto profileName=profile->text();
     const auto longName=QString(64,QChar('W'));
     profile->setText(longName);QCoreApplication::processEvents();window.resize(320,460);QCoreApplication::processEvents();
