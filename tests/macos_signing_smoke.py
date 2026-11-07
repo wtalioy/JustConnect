@@ -38,7 +38,9 @@ def main():
 #import <ServiceManagement/ServiceManagement.h>
 #include <stdio.h>
 #include <string.h>
+extern int fixture(void);
 int main(int argc, char **argv) {
+    if (fixture() != 42) return 2;
     if (argc != 3 || strcmp(argv[1], "--registration-probe")) return 0;
     @autoreleasepool {
         SMAppService *service = [SMAppService daemonServiceWithPlistName:[NSString stringWithUTF8String:argv[2]]];
@@ -63,10 +65,7 @@ int main(int argc, char **argv) {
     }
 }
 '''
-        run('/usr/bin/clang', '-x', 'objective-c', '-', '-framework', 'Foundation', '-framework', 'ServiceManagement',
-            '-o', host, input=source)
         helper = binaries / layout['executable']
-        shutil.copy2(host, helper)
 
         def info(path, identifier, executable, kind='APPL'):
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -86,7 +85,11 @@ int main(int argc, char **argv) {
         library = version / 'QtCore'
         run('/usr/bin/clang', '-dynamiclib', '-x', 'c', '-', '-o', library,
             '-install_name', '@rpath/QtCore.framework/Versions/A/QtCore',
-            input=b'int fixture(void) { return 0; }\n')
+            input=b'int fixture(void) { return 42; }\n')
+        run('/usr/bin/clang', '-x', 'objective-c', '-', '-x', 'none', library,
+            '-Wl,-rpath,@executable_path/../Frameworks', '-framework', 'Foundation',
+            '-framework', 'ServiceManagement', '-o', host, input=source)
+        shutil.copy2(host, helper)
         info(version / 'Resources/Info.plist', app_id+'.signing.framework', library.name, 'FMWK')
         (framework / 'Versions/Current').symlink_to('A')
         for name in ('QtCore', 'Resources'):
@@ -107,10 +110,11 @@ int main(int argc, char **argv) {
             leaves.append(hashlib.sha256(Path(str(prefix)+'0').read_bytes()).hexdigest())
         assert len(set(leaves)) == 1, 'App/helper/framework have different signing identities'
         assert not list(scratch.iterdir()), 'Private signing material survived'
+        run(helper)
         registration = run(host, '--registration-probe', daemon_name)
         print(registration.stderr.decode(), end='')
     assert run('/usr/bin/security', 'list-keychains', '-d', 'user').stdout == keychains
-    print('PASS: real local signing, same leaf, hardened roles, service registration and key cleanup; no external credentials')
+    print('PASS: local signing, same leaf, hardened roles, library loading, service registration and key cleanup')
 
 
 if __name__ == '__main__':
