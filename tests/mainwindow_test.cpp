@@ -177,6 +177,10 @@ static void changeLanguageFromSettings(MainWindow &window,const QString &languag
         auto *behavior=dialog->findChild<QComboBox *>("closeBehaviorComboBox");
         check(choice->width()<behavior->width() && behavior->width()<=behavior->sizeHint().width(),
             "application preference dropdowns use their content width instead of filling the column");
+        QLabel *languageLabel=nullptr;
+        for (auto *label:dialog->findChildren<QLabel *>()) if (label->buddy()==choice) languageLabel=label;
+        check(languageLabel && languageLabel->mapTo(viewport,QPoint()).x()<=4,
+            "the compact fields keep their labels aligned with the left edge of the settings page");
         auto *controller=dialog->findChild<QPushButton *>("controllerSettingsButton");
         check(viewport->rect().contains(QRect(controller->mapTo(viewport,QPoint()),controller->size())),
             "the default native settings size exposes the complete Clash chooser");
