@@ -512,17 +512,14 @@ void MainWindow::updateConnectionState(ConnectionState state)
     }
     ui->statusDetailLabel->setText(detail);
 
-    const QList<QWidget *> styledWidgets{
-        ui->statusIndicator,
-        ui->connectButton
-    };
-    for (QWidget *widget : styledWidgets)
-    {
-        if (widget->property("connectionState").toString()==propertyValue) continue;
-        widget->setProperty("connectionState", propertyValue);
-        widget->style()->unpolish(widget);
-        widget->style()->polish(widget);
-        widget->update();
+    const bool primary = propertyValue == "disconnected" || propertyValue == "failed";
+    auto *button = ui->connectButton;
+    const auto oldPrimary = button->property("primaryAction");
+    if (!oldPrimary.isValid() || oldPrimary.toBool() != primary) {
+        button->setProperty("primaryAction",primary);
+        button->style()->unpolish(button);
+        button->style()->polish(button);
+        button->update();
     }
 }
 
