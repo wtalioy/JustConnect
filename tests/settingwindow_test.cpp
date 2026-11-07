@@ -8,6 +8,7 @@
 #include <QFileDialog>
 #include <QLabel>
 #include <QFormLayout>
+#include <QGroupBox>
 #include <QLineEdit>
 #include <QPlainTextEdit>
 #include <QKeyEvent>
@@ -109,6 +110,17 @@ int main(int argc,char **argv) {
       auto *footer=initial->findChild<QDialogButtonBox *>("buttonBox");
       check(footer->buttons().size()==2,"connection settings have exactly one save action and one cancel action");
       check(initial->rect().contains(footer->geometry()),"apply and cancel remain visible outside the scrolling settings");
+      for (const auto *name:{"importPushButton","exportPushButton","resetDefaultPushButton"}) {
+          auto *action=initial->findChild<QPushButton *>(name);
+          check(action && action->isVisible() && !action->text().isEmpty() && !scroll->isAncestorOf(action)
+              && initial->rect().contains(QRect(action->mapTo(initial,QPoint()),action->size())),
+              "labeled profile actions stay visible in the fixed footer");
+      }
+      auto *query=initial->findChild<QPushButton *>("authSelectPushButton");
+      check(query->width()<=query->sizeHint().width() && query->height()==initial->findChild<QComboBox *>("authTypeComboBox")->height(),
+          "the method query action fits its label and aligns with the dropdown");
+      check(initial->findChild<QGroupBox *>("serverGroup")->font().pointSizeF()>query->font().pointSizeF(),
+          "section headings have a larger type size than form controls");
       auto *remember=initial->findChild<QCheckBox *>("rememberAuthenticationCheckBox");
       check(remember && !remember->isChecked(),"new profiles do not persist authentication without consent");
       remember->setChecked(true);
