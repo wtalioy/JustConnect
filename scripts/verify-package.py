@@ -133,15 +133,22 @@ def macos_audit(files, root, arch, env):
             if not any(candidate.exists() and inside(candidate, root) for candidate in candidates):
                 raise RuntimeError(f'Dependency outside bundle/system: {path}: {dependency}')
         evidence.append({'file': str(path.relative_to(root)), 'dependencies': dependencies, 'rpaths': rpaths})
-    declared = plistlib.loads((root / 'Contents/Info.plist').read_bytes())['LSMinimumSystemVersion']
-    if version(minimum) > version(declared) or version(declared) > version(platform.mac_ver()[0]):
+    info = plistlib.loads((root / 'Contents/Info.plist').read_bytes())
+    declared = info['LSMinimumSystemVersion']
+    host_macos = platform.mac_ver()[0]
+    if version(minimum) > version(declared) or version(declared) > version(host_macos):
         raise RuntimeError(f'Invalid macOS floor: declared {declared}, binaries {minimum}')
+    source_icon = ROOT / 'resource/JustConnect.icns'
+    installed_icon = root / 'Contents/Resources' / source_icon.name
+    if (info.get('CFBundleIconFile') != source_icon.name or not installed_icon.is_file()
+            or installed_icon.read_bytes() != source_icon.read_bytes()):
+        raise RuntimeError('Packaged macOS app icon is missing or differs from its bundle declaration')
     run('codesign', '--verify', '--deep', '--strict', root, env=env)
     signature = macos_signature(root, env)
-    app_id = plistlib.loads((root / 'Contents/Info.plist').read_bytes())['CFBundleIdentifier']
-    if 'Identifier=' + app_id not in signature.splitlines():
+    if 'Identifier=' + info['CFBundleIdentifier'] not in signature.splitlines():
         raise RuntimeError('Application signing identifier differs from its bundle')
-    return {'minimum_macos': declared, 'binary_minimum': minimum, 'signature': signature, 'files': evidence,
+    return {'host_macos': host_macos, 'minimum_macos': declared, 'binary_minimum': minimum,
+            'icon': source_icon.name, 'signature': signature, 'files': evidence,
             'network_helper': check_macos_network_helper(root, env)}
 
 

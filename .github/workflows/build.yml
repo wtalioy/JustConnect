@@ -17,6 +17,10 @@ on:
         type: string
         default: ''
         description: Version for a non-nightly main build (e.g. v0.1.0)
+      verify_macos_27:
+        type: boolean
+        default: false
+        description: Open the Apple Silicon DMG preview on macOS 27
 
 permissions:
   contents: read
@@ -170,6 +174,43 @@ jobs:
           retention-days: 14
           path: |
             build/${{ env.ARCHIVE_NAME }}.json
+
+  macos_preview_launch:
+    name: Open macOS 27 Apple Silicon preview
+    if: github.ref == 'refs/heads/develop' && inputs.verify_macos_27
+    needs: build
+    runs-on: xcode-27
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: JustConnect-preview-${{ github.sha }}-macos-arm64
+          path: ${{ runner.temp }}/preview
+
+      - name: Install and open with Gatekeeper enabled
+        run: |
+          set -euo pipefail
+          sw_vers
+          spctl --status | grep -Fx 'assessments enabled'
+          mount="$RUNNER_TEMP/preview-dmg"
+          app=/Applications/JustConnect.app
+          test ! -e "$app"
+          hdiutil attach "$RUNNER_TEMP/preview"/*.dmg -readonly -nobrowse -mountpoint "$mount"
+          ditto "$mount/JustConnect.app" "$app"
+          hdiutil detach "$mount"
+          codesign --verify --deep --strict "$app"
+          exe="$app/Contents/MacOS/JustConnect"
+          "$exe" --core-self-test | jq -e --arg rev "$GITHUB_SHA" '.ok and .core.build.revision == $rev'
+          open -n -a "$app"
+          for attempt in {1..10}; do
+            pid=$(pgrep -fx "$exe" || true)
+            if [[ -n "$pid" ]]; then break; fi
+            sleep 1
+          done
+          test -n "$pid"
+          sleep 3
+          kill -0 "$pid"
+          kill -TERM "$pid"
 
   source:
     if: github.ref == 'refs/heads/main' || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/develop')

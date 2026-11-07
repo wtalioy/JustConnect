@@ -266,7 +266,17 @@ Windows 为 ZIP（完整解压并保留核心 DLL），macOS 为 DMG；Actions a
 
 功能实现、权限助手、开发、预览、main 和 Release 均不依赖需要申请的公开签名或公证；当前工作流不配置签名 Secrets、不注册签名服务，也不向系统导入根证书。未来取得公开签名时，可作为独立发行步骤附加发布者身份，不改变功能、授权、网络或恢复逻辑，也不预建签名服务框架。Windows 使用管理员授权的受保护助手部署；macOS 构建在私有临时目录自动生成本地签名身份，为应用、助手与 Qt 框架签名后销毁私钥和临时钥匙串。本地叶证书有效期十年，仅绑定同一构建的组件，不提供公开发行者信任；成功、失败及取消均清理本次密钥材料。使用 macOS 自带 OpenSSL 导出系统钥匙串可接受的 PKCS#12；Tests 与打包流程在下载 Qt 前用真实 Mach-O 小包验证签名、hardened runtime、应用／助手角色和同一叶证书、深度校验、系统服务注册／撤销及密钥清理，完整 Qt 包另按实际产物验收。系统可能先报告服务未找到，首次连接仍应尝试注册并按真实结果提示用户批准；已有注册不重复安装。
 
-macOS 仍校验相同叶证书、角色标识与 hardened runtime；系统管理员授权、受保护部署、对端身份和网络恢复校验保持。新包的实际身份与系统服务注册已通过原生检查，首次桌面批准仍须实测，不能仅凭脚本通过宣称透明访问可用。系统首次打开／未知发布者提示按平台实际行为记录，不通过关闭系统安全或导入自建根信任消除。
+macOS 仍校验相同叶证书、角色标识与 hardened runtime；系统管理员授权、受保护部署、对端身份和网络恢复校验保持。签名夹具还运行实际链接包内动态库的应用和助手。系统服务的首次桌面批准与真实网络仍须实测。
+
+macOS 27.0.1 上，浏览器下载后带隔离标记的 `85c5064` 安装在一台实机上通过 `codesign --verify --deep --strict`，但启动时系统拒绝加载 QtSvg。同一 DMG 的应用和 QtSvg 由同一本地叶证书签名，两者均无 Apple Team ID。通过 GitHub CLI 下载同一产物并安装到 `/Applications` 后，[同版本原生 CI](https://github.com/wtalioy/JustConnect/actions/runs/42357245026)在 Gatekeeper 启用时成功打开应用。浏览器下载后的首次打开路径仍待验收。
+
+对本仓库的可信开发预览，可用 GitHub CLI 从指定打包运行下载 DMG。将下方 `RUN_ID` 替换为对应的打包运行编号，Intel Mac 把 `arm64` 换成 `x64`。挂载后可对卷内的 `JustConnect.app` 运行 `codesign --verify --deep --strict`，再用 Finder 将旧 App 移出「应用程序」并拷入新的完整 App。此流程保留系统安全设置与已有用户配置。
+
+```bash
+download_dir=$(mktemp -d)
+gh run download RUN_ID --repo wtalioy/JustConnect --pattern 'JustConnect-preview-*-macos-arm64' --dir "$download_dir"
+hdiutil attach "$download_dir"/*.dmg -readonly
+```
 
 ### 无外部证书的 Windows 助手部署
 
