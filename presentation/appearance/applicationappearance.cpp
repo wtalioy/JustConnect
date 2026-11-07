@@ -9,10 +9,13 @@
 #include <QAbstractSpinBox>
 #include <QLineEdit>
 #include <QStyleOptionFrame>
+#include <QPushButton>
+#include <QToolButton>
 
 namespace {
 void prepareWindow(QWidget *window) {
-    if (QGuiApplication::platformName()=="windows" || QGuiApplication::platformName()=="cocoa")
+    if (window->property("nativeBackdropRequested").toBool()
+        && (QGuiApplication::platformName()=="windows" || QGuiApplication::platformName()=="cocoa"))
         window->setAttribute(Qt::WA_TranslucentBackground);
 }
 class WindowAppearance final : public QObject {
@@ -21,6 +24,12 @@ public:
     bool eventFilter(QObject *object,QEvent *event) override {
         if (event->type()!=QEvent::Create && event->type()!=QEvent::Polish && event->type()!=QEvent::Show) return false;
         auto *window=qobject_cast<QWidget *>(object);
+        if(event->type()==QEvent::Polish) {
+            auto *push=qobject_cast<QPushButton *>(window);
+            auto *tool=qobject_cast<QToolButton *>(window);
+            if(((push && push->isFlat()) || (tool && tool->autoRaise()))
+                && (window->focusPolicy() & Qt::ClickFocus)) window->setFocusPolicy(Qt::TabFocus);
+        }
         if (auto *spin=qobject_cast<QAbstractSpinBox *>(window)) {
             if (event->type()!=QEvent::Create) {
                 QStyleOptionFrame option;option.initFrom(spin);
@@ -37,7 +46,8 @@ public:
             // Widget construction precedes native creation; Polish/Show can already be too late for alpha.
             prepareWindow(window);return false;
         }
-        const bool enabled=ApplicationAppearance::enableNativeBackdrop(window);
+        const bool enabled=window->property("nativeBackdropRequested").toBool()
+            && ApplicationAppearance::enableNativeBackdrop(window);
         if (window->property("nativeBackdrop")!=QVariant(enabled)) {
             window->setProperty("nativeBackdrop",enabled);
             if (event->type()==QEvent::Show) {
@@ -51,7 +61,10 @@ public:
 }
 
 void ApplicationAppearance::install(QWidget *initialWindow) {
-    if (initialWindow) prepareWindow(initialWindow);
+    if (initialWindow) {
+        initialWindow->setProperty("nativeBackdropRequested",true);
+        prepareWindow(initialWindow);
+    }
     if (qApp->property("appearanceInstalled").toBool()) return;
     qApp->setProperty("appearanceInstalled",true);
     qApp->styleHints()->setColorScheme(Qt::ColorScheme::Light);
@@ -64,8 +77,8 @@ void ApplicationAppearance::install(QWidget *initialWindow) {
     palette.setColor(QPalette::Text,QColor("#182132"));
     palette.setColor(QPalette::Button,QColor("#ffffff"));
     palette.setColor(QPalette::ButtonText,QColor("#182132"));
-    palette.setColor(QPalette::Highlight,QColor("#5367e8"));
-    palette.setColor(QPalette::HighlightedText,Qt::white);
+    palette.setColor(QPalette::Highlight,QColor("#c8ced6"));
+    palette.setColor(QPalette::HighlightedText,QColor("#182132"));
     qApp->setPalette(palette);
     QFile sheet(":/resource/appearance.qss");
     if (sheet.open(QIODevice::ReadOnly)) qApp->setStyleSheet(QString::fromUtf8(sheet.readAll()));

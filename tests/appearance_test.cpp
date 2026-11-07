@@ -4,6 +4,11 @@
 #include <QApplication>
 #include <QBackingStore>
 #include <QDialog>
+#include <QMainWindow>
+#include <QPushButton>
+#include <QToolButton>
+#include <QMouseEvent>
+#include <QKeyEvent>
 #include <QImage>
 #include <QLabel>
 #include <QWindow>
@@ -42,15 +47,20 @@ protected:
 int main(int argc,char **argv) {
     QApplication app(argc,argv);
     ApplicationAppearance::install();
-    QDialog dialog;
+    QMainWindow dialog;
+    ApplicationAppearance::install(&dialog);
     dialog.resize(420,240);
+    QWidget body(&dialog);body.setObjectName("homeBody");body.setGeometry(0,100,420,140);
     ObservedLabel title(&dialog);
-    title.setGeometry(24,60,370,70);
+    title.setGeometry(24,8,370,70);
+    ObservedLabel content(&body);content.setGeometry(24,16,370,70);
     for (int cycle=0;cycle<3;++cycle) {
         title.clear();const int beforeShow=title.paints;dialog.show();dialog.update();
         UiWait::until(__FILE__,__LINE__,[&]{return title.paints>beforeShow;});
         const auto clean=title.frame;
         check(!clean.isNull(),"capture the actual exposed content instead of repainting it with QWidget::grab");
+        check(!content.frame.isNull() && content.frame.pixelColor(content.frame.width()/2,content.frame.height()/2).alpha()==255,
+            "main content stays opaque while the header alone can reveal a native material");
         if (dialog.property("nativeBackdrop").toBool()) {
             const int alpha=clean.pixelColor(clean.width()/2,clean.height()/2).alpha();
             if (!clean.hasAlphaChannel() || alpha==255)
@@ -76,6 +86,9 @@ int main(int argc,char **argv) {
     QComboBox choice;choice.addItem("School");layout.addWidget(&choice);
     QSpinBox port;port.setRange(1,65535);port.setValue(443);layout.addWidget(&port);
     inputs.resize(360,160);inputs.show();QCoreApplication::processEvents();
+    check(!inputs.property("nativeBackdrop").toBool() && !inputs.testAttribute(Qt::WA_TranslucentBackground)
+        && inputs.grab().toImage().pixelColor(2,2).alpha()==255,
+        "ordinary dialogs never inherit the main window's backdrop or translucency");
     check(secret.height()==choice.height() && choice.height()==port.height(),
         "single-line input types share a consistent outer height");
     const auto actions=secret.findChildren<QAbstractButton *>(QString(),Qt::FindDirectChildrenOnly);
@@ -147,5 +160,18 @@ int main(int argc,char **argv) {
     check(caption.copy(10*scale,4*scale,captionWidth*scale,(school.height()-8)*scale)
         ==roomy.copy(20*scale,4*scale,captionWidth*scale,(school.height()-8)*scale),
         "natural-width captions render fully, matching a roomier button even with fractional glyph advances");
+    QPushButton details("Details");details.setObjectName("detailsButton");details.setFlat(true);layout.addWidget(&details);details.show();
+    QToolButton tool;tool.setAutoRaise(true);tool.setFocusPolicy(Qt::StrongFocus);layout.addWidget(&tool);tool.show();
+    QWidget::setTabOrder(&secret,&details);QCoreApplication::processEvents();secret.setFocus();
+    UiWait::until(__FILE__,__LINE__,[&]{return secret.hasFocus();});
+    check(details.focusPolicy()==Qt::TabFocus && tool.focusPolicy()==Qt::TabFocus,
+        "flat and icon tools keep keyboard focus without mouse click focus");
+    const auto point=details.rect().center();
+    QMouseEvent press(QEvent::MouseButtonPress,point,details.mapToGlobal(point),Qt::LeftButton,Qt::LeftButton,Qt::NoModifier);
+    QMouseEvent release(QEvent::MouseButtonRelease,point,details.mapToGlobal(point),Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+    QApplication::sendEvent(&details,&press);QApplication::sendEvent(&details,&release);
+    check(secret.hasFocus(),"clicking Details does not leave a persistent focus frame on the tool");
+    QKeyEvent tab(QEvent::KeyPress,Qt::Key_Tab,Qt::NoModifier);QApplication::sendEvent(&secret,&tab);
+    UiWait::until(__FILE__,__LINE__,[&]{return details.hasFocus();});
     std::cout<<"PASS: transparent repaint, dialog reopening, and input action alignment\n";
 }
