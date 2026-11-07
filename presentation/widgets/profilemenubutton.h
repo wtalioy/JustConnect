@@ -34,10 +34,10 @@ protected:
             option.palette,isEnabled(),label,QPalette::ButtonText);
         painter.setRenderHint(QPainter::Antialiasing);
         painter.setPen(QPen(option.palette.color(isEnabled()?QPalette::Active:QPalette::Disabled,QPalette::ButtonText),
-            1.8,Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin));
+            1.6,Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin));
         painter.translate(left+labelWidth+Gap,(height()-Arrow)/2.0);
-        painter.drawPolyline(QPolygonF{QPointF(2,5),QPointF(8,11),QPointF(14,5)});
+        painter.drawPolyline(QPolygonF{QPointF(2,4.5),QPointF(7,9.5),QPointF(12,4.5)});
     }
 private:
-    static constexpr int Padding=10,Gap=8,Arrow=16,MinimumWidth=64;
+    static constexpr int Padding=10,Gap=8,Arrow=14,MinimumWidth=64;
 };
