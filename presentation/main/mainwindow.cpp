@@ -369,7 +369,7 @@ void MainWindow::showApplicationPreferences() {
         view->setWindowModality(Qt::WindowModal);
         auto *layout=new QVBoxLayout(view);layout->setContentsMargins(24,24,24,24);layout->setSpacing(16);
         auto *scroll=new QScrollArea(view);scroll->setWidgetResizable(true);scroll->setFrameShape(QFrame::NoFrame);
-        auto *contents=new ApplicationPreferencesWidget(scroll);contents->setObjectName("applicationPreferencesContents");
+        auto *contents=new ApplicationPreferencesWidget(scroll);
         scroll->setWidget(contents);layout->addWidget(scroll);
         auto *buttons=new QDialogButtonBox(QDialogButtonBox::Close,view);buttons->setObjectName("applicationSettingsButtons");
         connect(buttons,&QDialogButtonBox::rejected,view,&QDialog::reject);layout->addWidget(buttons);
