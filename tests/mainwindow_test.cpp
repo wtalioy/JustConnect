@@ -394,9 +394,10 @@ static void nativeHome(MainWindow &window) {
     window.findChild<QPushButton *>("detailsButton")->click();QCoreApplication::processEvents();
     check(details->isVisible() && !log->isVisible() && session->state()==state,"details opens its overview without exposing the live log or changing the session");
     auto *body=window.findChild<QWidget *>("homeBody");
-    check(body && body->grab().toImage().pixelColor(2,2).alpha()==255
+    check(body && body->x()==8 && body->parentWidget()->width()-body->geometry().right()-1==8
+        && body->grab().toImage().pixelColor(12,12).alpha()==255
         && !details->property("nativeBackdrop").toBool() && !details->testAttribute(Qt::WA_TranslucentBackground),
-        "home content and detail dialogs remain opaque instead of extending header glass across every page");
+        "the rounded home panel keeps an even material rim, with opaque content and detail dialogs");
     auto *detailTabs=details->findChild<QTabWidget *>("detailsTabs");
     check(detailTabs && detailTabs->count()==2 && !details->findChild<QPushButton *>("proxyButton"),"details separates overview and logs and has no manual proxy action");
     window.findChild<QPushButton *>("copyDiagnosticsButton")->click();
