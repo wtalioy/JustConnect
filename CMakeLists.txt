@@ -100,25 +100,22 @@ qt_add_translations(justconnect_desktop
     QT_TRANSLATION_CATALOGS qtbase)
 
 if(WIN32)
-    target_sources(justconnect_desktop PRIVATE presentation/appearance/windows/backdrop.cpp)
-    target_link_libraries(justconnect_desktop PUBLIC dwmapi)
-else()
-    target_sources(justconnect_desktop PRIVATE presentation/appearance/macos/backdrop.mm)
-    target_link_libraries(justconnect_desktop PUBLIC "-framework AppKit")
-endif()
-
-if(WIN32)
     message("Building for Windows")
 
+    enable_language(RC)
+    configure_file(resource/app-icon.rc.in app-icon.rc @ONLY)
     add_executable(${PROJECT_NAME} WIN32
-        main.cpp)
+        main.cpp
+        "${CMAKE_CURRENT_BINARY_DIR}/app-icon.rc")
 
     set(PLATFORM_LIBS shell32)
 else()
     message("Building for MacOS")
 
+    set_source_files_properties(resource/JustConnect.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
     add_executable(${PROJECT_NAME} MACOSX_BUNDLE
-        main.cpp)
+        main.cpp
+        resource/JustConnect.icns)
 
     set_target_properties(${PROJECT_NAME}
         PROPERTIES MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/resource/Info.plist")
@@ -156,13 +153,6 @@ include(CTest)
 if(BUILD_TESTING)
     add_executable(appearance_test tests/appearance_test.cpp presentation/appearance/applicationappearance.cpp resource.qrc)
     target_link_libraries(appearance_test PRIVATE Qt6::Widgets)
-    if(WIN32)
-        target_sources(appearance_test PRIVATE presentation/appearance/windows/backdrop.cpp)
-        target_link_libraries(appearance_test PRIVATE dwmapi)
-    else()
-        target_sources(appearance_test PRIVATE presentation/appearance/macos/backdrop.mm)
-        target_link_libraries(appearance_test PRIVATE "-framework AppKit")
-    endif()
     target_include_directories(appearance_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME appearance_test COMMAND appearance_test)
     add_test(NAME appearance_scaled_test COMMAND appearance_test)

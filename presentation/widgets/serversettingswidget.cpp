@@ -67,8 +67,8 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     layout->addLayout(tlsOptions);
     auto *caSection=new QVBoxLayout;caSection->setContentsMargins(0,0,0,0);caSection->setSpacing(8);
     auto *caHeader=new QHBoxLayout;caHeader->setContentsMargins(0,0,0,0);caHeader->setSpacing(8);
-    caLabel=new QLabel(this);caLabel->setObjectName("schoolCaLabel");caLabel->setWordWrap(true);
-    caToggle=new QToolButton(this);caToggle->setObjectName("schoolCaToggle");
+    caLabel=new QLabel(this);caLabel->setObjectName("serverCaLabel");caLabel->setWordWrap(true);
+    caToggle=new QToolButton(this);caToggle->setObjectName("serverCaToggle");
     caToggle->setCheckable(true);caToggle->setAutoRaise(true);
     caToggle->setIcon(QIcon(":/resource/chevron.svg"));caToggle->setIconSize(QSize(16,16));
     caLabel->setBuddy(caToggle);caHeader->addWidget(caLabel);caHeader->addStretch();caHeader->addWidget(caToggle);
@@ -106,21 +106,21 @@ void ServerSettingsWidget::changeEvent(QEvent *event) {
 }
 void ServerSettingsWidget::retranslate() {
     QSignalBlocker blocker(preset);
-    preset->setItemText(0,tr("Choose a school or server"));
+    preset->setItemText(0,tr("Choose a preset or custom server"));
     const auto builtIn=DefaultSettings::builtInProfile().value("JustConnect/ProfileKind").toString();
     preset->setItemText(preset->findData(builtIn),PresentationHelpers::profileKindLabel(builtIn));
     preset->setItemText(preset->findData("Custom"),PresentationHelpers::profileKindLabel("Custom"));
-    qobject_cast<QLabel *>(form->labelForField(preset))->setText(tr("School"));
+    qobject_cast<QLabel *>(form->labelForField(preset))->setText(tr("Server preset"));
     qobject_cast<QLabel *>(form->labelForField(address))->setText(tr("Server"));
     qobject_cast<QLabel *>(form->labelForField(port))->setText(tr("Port"));
     verify->setText(tr("Verify server certificate"));
     warning->setText(tr("The server's identity will not be verified."));
     allowUnverifiedNodes->setText(tr("Skip tunnel verification"));
     nodeWarning->setText(tr("The tunnel peer will not be verified. Sign-in verification is unchanged."));
-    caLabel->setText(tr("School CA (optional)"));
-    caToggle->setAccessibleName(tr("School CA (optional)"));caToggle->setToolTip(tr("School CA (optional)"));
-    caPem->setAccessibleName(tr("School CA (optional)"));
-    caPem->setPlaceholderText(tr("Optional school CA in PEM format. Leave empty to use system trust."));
+    caLabel->setText(tr("Server CA (optional)"));
+    caToggle->setAccessibleName(tr("Server CA (optional)"));caToggle->setToolTip(tr("Server CA (optional)"));
+    caPem->setAccessibleName(tr("Server CA (optional)"));
+    caPem->setPlaceholderText(tr("Optional server CA in PEM format. Leave empty to use system trust."));
     domainDnsLabel->setText(tr("Domain DNS"));
     QString help=tr("One domain per line; optional IPv4 DNS servers after it. Otherwise use gateway DNS.");
 #ifndef Q_OS_WIN

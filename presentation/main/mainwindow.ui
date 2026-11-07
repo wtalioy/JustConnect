@@ -46,7 +46,7 @@
        <item>
         <layout class="QHBoxLayout" name="headerLayout">
          <property name="spacing">
-          <number>12</number>
+          <number>4</number>
          </property>
          <item>
           <widget class="ProfileMenuButton" name="profileMenuButton">
@@ -86,6 +86,33 @@
            </property>
            <property name="popupMode">
             <enum>QToolButton::DelayedPopup</enum>
+           </property>
+           <property name="autoRaise">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QToolButton" name="applicationMenuButton">
+           <property name="toolTip">
+            <string>Application menu</string>
+           </property>
+           <property name="accessibleName">
+            <string>Application menu</string>
+           </property>
+           <property name="icon">
+            <iconset>
+             <normaloff>:/resource/menu.svg</normaloff>
+            </iconset>
+           </property>
+           <property name="iconSize">
+            <size>
+             <width>20</width>
+             <height>20</height>
+            </size>
+           </property>
+           <property name="popupMode">
+            <enum>QToolButton::InstantPopup</enum>
            </property>
            <property name="autoRaise">
             <bool>true</bool>
@@ -209,13 +236,13 @@
            </property>
            <property name="minimumSize">
             <size>
-             <width>156</width>
+             <width>152</width>
              <height>0</height>
             </size>
            </property>
            <property name="maximumSize">
             <size>
-             <width>196</width>
+             <width>152</width>
              <height>16777215</height>
             </size>
            </property>
@@ -231,6 +258,18 @@
            </property>
            <property name="autoDefault">
             <bool>false</bool>
+           </property>
+           <property name="minimumSize">
+            <size>
+             <width>152</width>
+             <height>0</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>152</width>
+             <height>16777215</height>
+            </size>
            </property>
           </widget>
          </item>
@@ -632,42 +671,6 @@
        </widget>
       </widget>
      </item>
-     <item>
-      <layout class="QHBoxLayout" name="detailsFooter">
-       <item>
-        <widget class="QLabel" name="versionLabel">
-         <property name="text">
-          <string>Version dev</string>
-         </property>
-         <property name="alignment">
-          <set>Qt::AlignLeft|Qt::AlignVCenter</set>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <spacer name="detailsFooterSpacer">
-         <property name="orientation">
-          <enum>Qt::Horizontal</enum>
-         </property>
-        </spacer>
-       </item>
-       <property name="leftMargin">
-        <number>0</number>
-       </property>
-       <property name="topMargin">
-        <number>0</number>
-       </property>
-       <property name="rightMargin">
-        <number>0</number>
-       </property>
-       <property name="bottomMargin">
-        <number>0</number>
-       </property>
-       <property name="spacing">
-        <number>8</number>
-       </property>
-      </layout>
-     </item>
      <property name="leftMargin">
       <number>24</number>
      </property>
@@ -727,6 +730,13 @@
     <property name="title">
      <string>Profiles</string>
     </property>
+    <widget class="QMenu" name="profileMaintenanceMenu">
+     <property name="title">
+      <string>Profile maintenance</string>
+     </property>
+     <addaction name="clearAuthenticationCacheAction" />
+     <addaction name="clearClientDataAction" />
+    </widget>
    </widget>
    <widget class="QMenu" name="helpMenu">
     <property name="title">
@@ -820,6 +830,7 @@
  <tabstops>
   <tabstop>preferencesButton</tabstop>
   <tabstop>profileMenuButton</tabstop>
+  <tabstop>applicationMenuButton</tabstop>
   <tabstop>connectButton</tabstop>
   <tabstop>detailsButton</tabstop>
  </tabstops>

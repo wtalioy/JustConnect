@@ -43,7 +43,7 @@ QString newScope() {return QUuid::createUuid().toString(QUuid::WithoutBraces);}
 ConnectionProfile profile() {
     ConnectionProfile p;
     p.endpoint.server="vpn.example.invalid";p.endpoint.port=443;p.endpoint.authType="psw";
-    p.endpoint.loginDomain="school";p.endpoint.authId="opaque-id";p.endpoint.authSubType="password";
+    p.endpoint.loginDomain="preset";p.endpoint.authId="opaque-id";p.endpoint.authSubType="password";
     p.credentials={"alice",QString("fixture password")+QChar(0)+QString::fromUtf8("\xe5\xaf\x86\xe7\xa0\x81"),"fixture TOTP"};
     return p;
 }

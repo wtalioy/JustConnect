@@ -10,6 +10,8 @@
 	<string>JustConnect</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.github.wtalioy.JustConnect</string>
+	<key>CFBundleIconFile</key>
+	<string>JustConnect.icns</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleLongVersionString</key>

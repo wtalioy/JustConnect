@@ -14,7 +14,7 @@ cmake --build build --config Release --parallel 3
 ctest --test-dir build -C Release --output-on-failure
 ```
 
-界面翻译沿用 Qt TS／QM：英文为源码文案，简体中文目录为 `resource/translations/justconnect_zh_CN.ts`；CMake 用 SDK 的 `lrelease` 编译并嵌入应用，不依赖用户目录中的外置翻译。用 `cmake --build build --target update_translations` 更新目录，该目标同时扫描 C++ 与 `.ui`；完成中文翻译后再构建，不提交生成的 QM。全局语言及关闭行为保存在已有 `state.ini`，不写入学校 Profile。用户入口为主页齿轮菜单中的 `Application settings…`（应用偏好设置）；保存本身不关闭窗口或断开连接。当前整套原生窗口已接入；实现范围见 [UI 设计](UI-DESIGN.md)，自动检查与实际桌面验收分别按计划记录。
+界面翻译沿用 Qt TS／QM：英文为源码文案，简体中文目录为 `resource/translations/justconnect_zh_CN.ts`；CMake 用 SDK 的 `lrelease` 编译并嵌入应用，不依赖用户目录中的外置翻译。用 `cmake --build build --target update_translations` 更新目录，该目标同时扫描 C++ 与 `.ui`；完成中文翻译后再构建，不提交生成的 QM。全局语言及关闭行为保存在已有 `state.ini`，不写入连接配置。用户入口为首页齿轮按钮；保存本身不关闭窗口或断开连接。当前整套原生窗口已接入；实现范围见 [UI 设计](UI-DESIGN.md)，自动检查与实际桌面验收分别按计划记录。
 
 macOS 使用 Go 静态归档；Windows 的 cgo 使用固定校验和的 LLVM-MinGW UCRT，Qt 宿主使用 MSVC，并从应用目录加载随包 DLL。共享 [CoreLibrary.cmake](../cmake/CoreLibrary.cmake) 构建同一份核心，记录来源及工具链到 `build/source-revision.txt`／`build/core-toolchain.txt`。
 
@@ -258,7 +258,7 @@ Windows 为 ZIP（完整解压并保留核心 DLL），macOS 为 DMG；Actions a
 | macOS x64 | 170.4 → 19.3 | 411.2 → 42.5 | 88.7%／89.7% |
 | macOS ARM64 | 144.9 → 16.9 | 345.8 → 39.3 | 88.3%／88.6% |
 
-当前 UI 源码 `85c5064` 的[四组实际包](https://github.com/wtalioy/JustConnect/actions/runs/42335326002)通过相同检查：Windows x64／ARM64 压缩 19.1／16.9 MiB、解压 45.3／43.2 MiB；macOS x64／ARM64 压缩 19.3／16.9 MiB、解压 42.5／39.3 MiB。字节值、四份包报告及来源核对归 `build/reports/ui-feedback/verification.json`；源码归档已核对摘要、Git 文件内容、链接及可执行位。包内含 Lucide 完整许可及 SVG 图标插件；外层 Actions artifact 封装体积不作安装归档测量。
+此前交付源码 `85c5064` 的[四组实际包](https://github.com/wtalioy/JustConnect/actions/runs/42335326002)通过相同检查：Windows x64／ARM64 压缩 19.1／16.9 MiB、解压 45.3／43.2 MiB；macOS x64／ARM64 压缩 19.3／16.9 MiB、解压 42.5／39.3 MiB。字节值、四份包报告及来源核对归 `build/reports/ui-feedback/verification.json`；源码归档已核对摘要、Git 文件内容、链接及可执行位。包内含 Lucide 完整许可及 SVG 图标插件；外层 Actions artifact 封装体积不作安装归档测量。
 
 不再分发 WebEngine、Chromium 资源、QML 或 Quick。macOS 的 QtGui 仍硬链接 QtDBus，保留该实际依赖；翻译 SDK 的 qtdeclarative 用途见本地构建说明。Windows 核心省略本地符号表，正式 C ABI 导出和 Go 回溯仍保留。关键报告与原始字节对比在 `build/reports/s7-native-browser-packages/ca16758/`，未代替校园登录和桌面视觉实测。
 

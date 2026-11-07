@@ -19,7 +19,7 @@
        <item>
         <widget class="QGroupBox" name="serverGroup">
          <property name="title">
-          <string>School and server</string>
+          <string>Server settings</string>
          </property>
          <layout class="QVBoxLayout" name="serverLayout">
           <item>

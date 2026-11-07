@@ -17,7 +17,7 @@ namespace PresentationHelpers
 {
 QString credentialOperationMessage(CredentialStatus status);
 QString platformOperationMessage(const PlatformOperationResult &result);
-void showAboutDialog(QWidget *parent = nullptr);
+void showAboutDialog(QWidget *parent, const QString &coreVersion);
 void activateWindow(QWidget *window);
 QAction *passwordVisibilityAction(QLineEdit *field);
 void setButtonIcon(QAbstractButton *button,const QString &path);

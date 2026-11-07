@@ -50,31 +50,21 @@ int main(int argc,char **argv) {
     QApplication app(argc,argv);
     ApplicationAppearance::install();
     QMainWindow dialog;
-    ApplicationAppearance::install(&dialog);
     dialog.resize(420,240);
     QWidget body(&dialog);body.setObjectName("homeBody");body.setGeometry(0,100,420,140);
     ObservedLabel title(&dialog);
     title.setGeometry(24,8,370,70);
     ObservedLabel content(&body);content.setGeometry(24,16,370,70);
-    ObservedLabel corner(&body);corner.setGeometry(0,0,4,4);
     for (int cycle=0;cycle<3;++cycle) {
         title.clear();const int beforeShow=title.paints;dialog.show();dialog.update();
         UiWait::until(__FILE__,__LINE__,[&]{return title.paints>beforeShow;});
         const auto clean=title.frame;
         check(!clean.isNull(),"capture the actual exposed content instead of repainting it with QWidget::grab");
         check(!content.frame.isNull() && content.frame.pixelColor(content.frame.width()/2,content.frame.height()/2).alpha()==255,
-            "main content stays opaque while the surrounding surface can reveal a native material");
-        check(!corner.frame.isNull() && corner.frame.pixelColor(0,0)!=content.frame.pixelColor(content.frame.width()/2,content.frame.height()/2),
-            "the content panel has rounded corners that reveal the continuous outer surface");
-        if (dialog.property("nativeBackdrop").toBool()) {
-            const int alpha=clean.pixelColor(clean.width()/2,clean.height()/2).alpha();
-            if (!clean.hasAlphaChannel() || alpha==255)
-                std::cerr<<"backdrop format="<<int(clean.format())<<" content alpha="<<alpha
-                    <<" requested alpha="<<dialog.windowHandle()->requestedFormat().alphaBufferSize()
-                    <<" translucent="<<dialog.testAttribute(Qt::WA_TranslucentBackground)<<'\n';
-            check(clean.hasAlphaChannel() && alpha<255,"the painted content retains transparency for the system backdrop");
-            check(dialog.testAttribute(Qt::WA_TranslucentBackground),"native glass retains transparent painting");
-        }
+            "main content stays opaque");
+        check(clean.pixelColor(clean.width()/2,clean.height()/2).alpha()==255
+            && !dialog.testAttribute(Qt::WA_TranslucentBackground),
+            "the exposed header is opaque at every scale");
         auto paint=[&](const QString &text) {
             const int previous=title.paints;title.setText(text);title.repaint();
             UiWait::until(__FILE__,__LINE__,[&]{return title.paints>previous;});
@@ -88,12 +78,12 @@ int main(int argc,char **argv) {
     QDialog inputs;QVBoxLayout layout(&inputs);
     QLineEdit secret;secret.setEchoMode(QLineEdit::Password);secret.setText("sample");secret.setClearButtonEnabled(true);
     secret.addAction(QIcon(":/resource/eye.svg"),QLineEdit::TrailingPosition);layout.addWidget(&secret);
-    QComboBox choice;choice.addItem("School");layout.addWidget(&choice);
+    QComboBox choice;choice.addItem("Server preset");layout.addWidget(&choice);
     QSpinBox port;port.setRange(1,65535);port.setValue(443);layout.addWidget(&port);
     inputs.resize(360,160);inputs.show();QCoreApplication::processEvents();
-    check(!inputs.property("nativeBackdrop").toBool() && !inputs.testAttribute(Qt::WA_TranslucentBackground)
+    check(!inputs.testAttribute(Qt::WA_TranslucentBackground)
         && inputs.grab().toImage().pixelColor(2,2).alpha()==255,
-        "ordinary dialogs never inherit the main window's backdrop or translucency");
+        "ordinary dialogs retain an opaque surface");
     check(secret.height()==choice.height() && choice.height()==port.height(),
         "single-line input types share a consistent outer height");
     const auto actions=secret.findChildren<QAbstractButton *>(QString(),Qt::FindDirectChildrenOnly);
@@ -132,7 +122,7 @@ int main(int argc,char **argv) {
         std::cerr<<"text starts: line="<<lineStart<<" combo="<<comboStart<<" spin="<<spinStart<<'\n';
     check(std::abs(lineStart-comboStart)<=1 && std::abs(lineStart-spinStart)<=1,
         "line edits, dropdowns and numeric inputs align their text, not just their outer borders");
-    choice.addItem("Unavailable");choice.addItem("Another school");
+    choice.addItem("Unavailable");choice.addItem("Another preset");
     qobject_cast<QStandardItemModel *>(choice.model())->item(1)->setEnabled(false);
     QApplication::setEffectEnabled(Qt::UI_General,true);
     QApplication::setEffectEnabled(Qt::UI_AnimateCombo,true);
@@ -157,10 +147,11 @@ int main(int argc,char **argv) {
     UiWait::until(__FILE__,__LINE__,[&]{return choice.currentIndex()==2 && !options->isVisible();});
     check(choice.currentIndex()==2 && !options->isVisible(),
         "styled dropdowns retain keyboard selection and skip disabled choices");
-    ProfileMenuButton school;school.setObjectName("profileMenuButton");school.setText("MMM");
-    layout.addWidget(&school);school.show();QCoreApplication::processEvents();
-    const auto shortWidth=school.width();
-    const auto frame=school.grab().toImage();const auto ratio=frame.devicePixelRatio();
+    ProfileMenuButton preset;preset.setObjectName("profileMenuButton");preset.setText("MMM");
+    layout.addWidget(&preset);preset.show();QCoreApplication::processEvents();
+    check(preset.font().pointSize()>0,"menu tools supply the native style with a valid point size");
+    const auto shortWidth=preset.width();
+    const auto frame=preset.grab().toImage();const auto ratio=frame.devicePixelRatio();
     const auto inkColumn=[&](int x) {
         for(int y=4*ratio;y<frame.height()-4*ratio;++y) {
             const auto color=frame.pixelColor(x,y);
@@ -170,26 +161,26 @@ int main(int argc,char **argv) {
     };
     int x=frame.width()-1;
     while(x>=0 && !inkColumn(x)) --x;
-    check(x>=0,"the school selector paints its chevron");
+    check(x>=0,"the preset selector paints its chevron");
     while(x>=0 && inkColumn(x)) --x;
     const int arrowStart=x+1;
     while(x>=0 && !inkColumn(x)) --x;
     const auto gap=(arrowStart-x-1)/ratio;
-    check(x>=0 && gap>=8 && gap<=16,"the school caption and chevron have a visible, balanced gap at every scale");
-    school.setText("A longer school");QCoreApplication::processEvents();
-    check(school.width()>shortWidth,"the selector grows naturally with its caption");
+    check(x>=0 && gap>=8 && gap<=16,"the preset caption and chevron have a visible, balanced gap at every scale");
+    preset.setText("A longer preset");QCoreApplication::processEvents();
+    check(preset.width()>shortWidth,"the selector grows naturally with its caption");
     const auto windowWidth=inputs.width();const QString longName(100,'W');
-    school.setText(longName);QCoreApplication::processEvents();
-    check(inputs.width()==windowWidth && school.text()==longName,
-        "long school captions fit the window while retaining their full accessible text");
-    layout.removeWidget(&school);school.setText("Default");
-    auto fractionalFont=school.font();fractionalFont.setLetterSpacing(QFont::AbsoluteSpacing,0.2);school.setFont(fractionalFont);
-    school.resize(school.sizeHint());const auto caption=school.grab().toImage();
-    const int captionWidth=qCeil(QFontMetricsF(school.font()).horizontalAdvance(school.text()));
-    school.resize(school.width()+20,school.height());
-    const auto roomy=school.grab().toImage();const auto scale=caption.devicePixelRatio();
-    check(caption.copy(10*scale,4*scale,captionWidth*scale,(school.height()-8)*scale)
-        ==roomy.copy(20*scale,4*scale,captionWidth*scale,(school.height()-8)*scale),
+    preset.setText(longName);QCoreApplication::processEvents();
+    check(inputs.width()==windowWidth && preset.text()==longName,
+        "long preset captions fit the window while retaining their full accessible text");
+    layout.removeWidget(&preset);preset.setText("Default");
+    auto fractionalFont=preset.font();fractionalFont.setLetterSpacing(QFont::AbsoluteSpacing,0.2);preset.setFont(fractionalFont);
+    preset.resize(preset.sizeHint());const auto caption=preset.grab().toImage();
+    const int captionWidth=qCeil(QFontMetricsF(preset.font()).horizontalAdvance(preset.text()));
+    preset.resize(preset.width()+20,preset.height());
+    const auto roomy=preset.grab().toImage();const auto scale=caption.devicePixelRatio();
+    check(caption.copy(10*scale,4*scale,captionWidth*scale,(preset.height()-8)*scale)
+        ==roomy.copy(20*scale,4*scale,captionWidth*scale,(preset.height()-8)*scale),
         "natural-width captions render fully, matching a roomier button even with fractional glyph advances");
     QPushButton details("Details");details.setObjectName("detailsButton");details.setFlat(true);layout.addWidget(&details);details.show();
     QToolButton tool;tool.setAutoRaise(true);tool.setFocusPolicy(Qt::StrongFocus);layout.addWidget(&tool);tool.show();
