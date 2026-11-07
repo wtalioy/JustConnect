@@ -22,7 +22,7 @@ ApplicationPreferencesWidget::ApplicationPreferencesWidget(QWidget *parent) : QW
     auto *form=new QFormLayout(behaviorGroup);form->setHorizontalSpacing(12);form->setVerticalSpacing(8);form->setContentsMargins(0,0,0,0);
     form->setLabelAlignment(Qt::AlignLeft|Qt::AlignVCenter);
     form->setRowWrapPolicy(QFormLayout::WrapLongRows);
-    form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+    form->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
     language=new QComboBox(this);language->setObjectName("languageComboBox");
     language->addItem("English","en");language->addItem(QString::fromUtf8("简体中文"),"zh_CN");
     language->setCurrentIndex(language->findData(ApplicationLanguage::instance().current()));
@@ -31,6 +31,7 @@ ApplicationPreferencesWidget::ApplicationPreferencesWidget(QWidget *parent) : QW
     behavior->addItem(QString(),true);behavior->addItem(QString(),false);
     behavior->setCurrentIndex(ProfileManager().closeToTray()?0:1);
     behaviorLabel=new QLabel(this);behaviorLabel->setBuddy(behavior);form->addRow(behaviorLabel,behavior);
+    for (auto *choice:{language,behavior}) choice->setSizeAdjustPolicy(QComboBox::AdjustToContents);
     for(auto *label:{languageLabel,behaviorLabel}) label->setSizePolicy(QSizePolicy::Preferred,QSizePolicy::Expanding);
     startupGroup=new QGroupBox(this);layout->addWidget(startupGroup);
     auto *startup=new QVBoxLayout(startupGroup);startup->setContentsMargins(0,0,0,0);startup->setSpacing(4);
