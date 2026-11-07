@@ -134,9 +134,16 @@ int main(int argc,char **argv) {
         "line edits, dropdowns and numeric inputs align their text, not just their outer borders");
     choice.addItem("Unavailable");choice.addItem("Another school");
     qobject_cast<QStandardItemModel *>(choice.model())->item(1)->setEnabled(false);
-    choice.showPopup();QCoreApplication::processEvents();
+    QApplication::setEffectEnabled(Qt::UI_General,true);
+    QApplication::setEffectEnabled(Qt::UI_AnimateCombo,true);
+    choice.showPopup();
     auto *options=choice.view();
-    check(options->isVisible() && options->viewport()->rect().contains(options->visualRect(choice.model()->index(2,0))),
+    // The opening animation shows a temporary surface before exposing the actual list.
+    UiWait::until(__FILE__,__LINE__,[&]{
+        const auto *surface=options->window()->windowHandle();
+        return options->isVisible() && surface && surface->isExposed();
+    });
+    check(options->viewport()->rect().contains(options->visualRect(choice.model()->index(2,0))),
         "the dropdown sizes its popup for padded rows without clipping the final option");
     QKeyEvent next(QEvent::KeyPress,Qt::Key_Down,Qt::NoModifier);
     QKeyEvent selectOverride(QEvent::ShortcutOverride,Qt::Key_Return,Qt::NoModifier);
