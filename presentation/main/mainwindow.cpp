@@ -952,14 +952,9 @@ void MainWindow::endSystemSession()
 void MainWindow::updateDiagnostics()
 {
     const auto fields=coordinator->diagnostics()->fields();
-    while (ui->diagnosticReport->topLevelItemCount()>fields.size())
-        delete ui->diagnosticReport->takeTopLevelItem(fields.size());
-    for (int i=0;i<fields.size();++i) {
-        auto *row=ui->diagnosticReport->topLevelItem(i);
-        if (!row) row=new QTreeWidgetItem(ui->diagnosticReport);
-        const auto &[label,value]=fields[i];
-        row->setText(0,label);row->setText(1,value);row->setToolTip(1,value);
-    }
+    QList<QStringList> rows;
+    for(const auto &[label,value]:fields) rows.append(QStringList{label,value});
+    PresentationHelpers::setTreeRows(ui->diagnosticReport,rows);
     auto *policy = coordinator->networkPolicy();
     ui->refreshDiagnosticsButton->setEnabled(!policy->currentGeneration().isEmpty() && !policy->isBusy());
 }

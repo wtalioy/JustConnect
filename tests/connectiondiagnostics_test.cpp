@@ -17,6 +17,7 @@ class Engine final : public CoreEngine
 {
   public:
     int starts = 0, reads = 0;
+    bool failNetwork=false;
     bool start(const ConnectionProfile &, Operation) override
     {
         emit sessionStarted(QString::number(++starts));
@@ -32,6 +33,9 @@ class Engine final : public CoreEngine
     void readSnapshot(Snapshot kind, const QString &id) override
     {
         ++reads;
+        if(kind==Snapshot::Network && failNetwork) {
+            emit snapshotReady(kind,id,{},RequestStatus::Failed);return;
+        }
         if (kind == Snapshot::Network)
             emit snapshotReady(kind, id,
                                {{"schema_version", 1},
@@ -115,6 +119,21 @@ try
     QStringList visible;
     for (const auto &[label,value]:diagnostics.fields()) visible.append(label+": "+value);
     check(visible.join('\n')==report,"the visible fields and copied report use the same redacted evidence");
+    const auto confirmedFields=diagnostics.fields();
+    check(policy.refresh() && policy.status()==CoreEngine::RequestStatus::Pending && policy.model().isEmpty()
+        && diagnostics.fields()==confirmedFields,
+        "an in-flight read retains confirmed display rows without publishing an incomplete policy model");
+    const auto settle=[&] {
+        QElapsedTimer timer;timer.start();
+        while(policy.isBusy() && timer.elapsed()<5000){app.processEvents();QThread::msleep(1);}
+        check(!policy.isBusy(),"bounded diagnostic refresh");
+    };
+    settle();check(diagnostics.fields()==confirmedFields,"an unchanged refresh does not change visible text or row count");
+    engine->failNetwork=true;check(policy.refresh(),"request failed-read regression");settle();
+    check(!diagnostics.report().contains("HTTP 18080") && !diagnostics.report().contains("campus 192.0.2.53"),
+        "a failed read immediately invalidates previously confirmed display data");
+    engine->failNetwork=false;check(policy.refresh(),"retry the failed read");settle();
+    check(diagnostics.fields()==confirmedFields,"a successful retry restores confirmed display rows");
     const auto observation = [](const QString &mode) {
         return QJsonObject{
             {"schema_version", 1},
@@ -148,6 +167,9 @@ try
     report = diagnostics.report();
     check(report.contains("System capture: Not active") && !report.contains("HTTP 18080"),
           "disconnect clears stale entry and policy evidence");
+    check(connection.start({}, {}) && !diagnostics.report().contains("HTTP 18080"),
+        "a new generation cannot borrow a previous connection's display snapshot");
+    connection.stop();
     std::cout << "PASS: current-generation diagnostic evidence, redaction, failed observation and passive rendering\n";
     return 0;
 }

@@ -364,9 +364,9 @@ void NetworkPolicyWindow::editName(bool campus)
 void NetworkPolicyWindow::updateModel()
 {
     const auto selected = targets->currentItem() ? targets->currentItem()->text(0) : QString();
-    if (!session || session->status() != CoreEngine::RequestStatus::Pending) {
-        targets->clear();
-        namespaces->clear();
+    if (!session || (session->status() != CoreEngine::RequestStatus::Pending && session->status() != CoreEngine::RequestStatus::Success)) {
+        PresentationHelpers::setTreeRows(targets,{});
+        PresentationHelpers::setTreeRows(namespaces,{});
     }
     if (editor && (!session || session->status() == CoreEngine::RequestStatus::Stale)) editor->reject();
     refresh->setEnabled(false);
@@ -382,6 +382,7 @@ void NetworkPolicyWindow::updateModel()
     const auto network = model["network"].toObject(), resources = model["resources"].toObject();
     const auto scopes = model["targets"].toArray(), conflicts = model["conflicts"].toArray();
     QMap<int, QStringList> overlapText;
+    QList<QStringList> targetRows,dnsRows;
     for (const auto &value : conflicts) {
         const auto conflict = value.toObject();
         const int index = conflict["target"].toInt(-1);
@@ -398,9 +399,12 @@ void NetworkPolicyWindow::updateModel()
         for (const auto &address : session->campusAddresses())
             if (QHostAddress(address.toString()).isInSubnet(QHostAddress::parseSubnet(scope["prefix"].toString())))
                 exceptions.append(address.toString() + "/32");
-        auto *row = new QTreeWidgetItem(targets, {scope["prefix"].toString(), origins.join('\n'), overlaps.join('\n'), exceptions.join('\n')});
-        for (int column=1; column<targets->columnCount(); ++column) row->setToolTip(column, row->text(column));
-        if (scope["prefix"].toString() == selected) targets->setCurrentItem(row);
+        targetRows.append(QStringList{scope["prefix"].toString(), origins.join('\n'), overlaps.join('\n'), exceptions.join('\n')});
+    }
+    if(PresentationHelpers::setTreeRows(targets,targetRows)) {
+        targets->setCurrentItem(nullptr);
+        for(int i=0;i<targets->topLevelItemCount();++i)
+            if(targets->topLevelItem(i)->text(0)==selected) targets->setCurrentItem(targets->topLevelItem(i));
     }
     const auto domains = model["dns_namespaces"].toArray();
     QMap<int, QStringList> namePatterns;
@@ -419,13 +423,13 @@ void NetworkPolicyWindow::updateModel()
         const auto item = domains[i].toObject();
         auto name = item["name"].toString();
         if (name.isEmpty() || name == ".") name = NetworkPolicyWindow::tr("Default query scope (root)");
-        auto *row = new QTreeWidgetItem(namespaces, {name, dnsRole(item["role"].toString()), dnsSource(model, item["source"].toObject()), namePatterns.value(i).join('\n')});
-        for (int column = 0; column < namespaces->columnCount(); ++column) row->setToolTip(column, row->text(column));
+        dnsRows.append(QStringList{name, dnsRole(item["role"].toString()), dnsSource(model, item["source"].toObject()), namePatterns.value(i).join('\n')});
     }
     for (const auto &value : reservedNames) {
         const auto rule = value.toObject();
-        new QTreeWidgetItem(namespaces, {rule["value"].toString(), NetworkPolicyWindow::tr("System reserved name"), NetworkPolicyWindow::tr("Loopback"), nameRule(rule)});
+        dnsRows.append(QStringList{rule["value"].toString(), NetworkPolicyWindow::tr("System reserved name"), NetworkPolicyWindow::tr("Loopback"), nameRule(rule)});
     }
+    PresentationHelpers::setTreeRows(namespaces,dnsRows);
     status->setText(NetworkPolicyWindow::tr("%1 original scopes · %2 campus overlaps · %3 DNS sources")
         .arg(scopes.size()).arg(conflicts.size()).arg(namespaces->topLevelItemCount()));
 }
