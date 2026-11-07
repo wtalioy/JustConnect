@@ -71,7 +71,7 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     caToggle=new QToolButton(this);caToggle->setObjectName("serverCaToggle");
     caToggle->setCheckable(true);caToggle->setAutoRaise(true);
     caToggle->setIcon(QIcon(":/resource/chevron.svg"));caToggle->setIconSize(QSize(16,16));
-    caLabel->setBuddy(caToggle);caHeader->addWidget(caLabel);caHeader->addStretch();caHeader->addWidget(caToggle);
+    caLabel->setBuddy(caToggle);caHeader->addWidget(caLabel);caHeader->addWidget(caToggle);caHeader->addStretch();
     caSection->addLayout(caHeader);
     caPem=new QPlainTextEdit(this); caPem->setObjectName("tlsCaPemEdit"); caPem->setMaximumHeight(88);caPem->hide();
     caSection->addWidget(caPem);layout->addLayout(caSection);

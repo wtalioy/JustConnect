@@ -112,7 +112,8 @@ int main(int argc,char **argv) {
       check(initial->rect().contains(footer->geometry()),"apply and cancel remain visible outside the scrolling settings");
       for (const auto *name:{"importPushButton","exportPushButton","resetDefaultPushButton"}) {
           auto *action=initial->findChild<QPushButton *>(name);
-          check(action && action->isVisible() && !action->text().isEmpty() && !scroll->isAncestorOf(action)
+          check(action && action->isVisible() && !action->text().isEmpty() && !action->icon().isNull()
+              && !action->isFlat() && !scroll->isAncestorOf(action)
               && initial->rect().contains(QRect(action->mapTo(initial,QPoint()),action->size())),
               "labeled profile actions stay visible in the fixed footer");
       }
