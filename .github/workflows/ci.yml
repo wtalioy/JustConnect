@@ -93,3 +93,10 @@ jobs:
           name: UI-${{ runner.os }}-${{ runner.arch }}
           path: build/ui-report
           if-no-files-found: ignore
+
+      - name: Diagnose macOS window test crash
+        if: failure() && runner.os == 'macOS'
+        env:
+          QT_QPA_PLATFORM: cocoa
+          QT_SCALE_FACTOR: '1.5'
+        run: lldb --batch -o run -k 'thread backtrace' -- build/mainwindow_test --profile-language
