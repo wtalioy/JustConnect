@@ -20,6 +20,7 @@ ApplicationPreferencesWidget::ApplicationPreferencesWidget(QWidget *parent) : QW
     auto *layout=new QVBoxLayout(this);layout->setSpacing(16);layout->setContentsMargins(0,0,0,0);
     behaviorGroup=new QGroupBox(this);layout->addWidget(behaviorGroup);
     auto *form=new QFormLayout(behaviorGroup);form->setHorizontalSpacing(12);form->setVerticalSpacing(8);form->setContentsMargins(0,0,0,0);
+    form->setFormAlignment(Qt::AlignLeft|Qt::AlignTop);
     form->setLabelAlignment(Qt::AlignLeft|Qt::AlignVCenter);
     form->setRowWrapPolicy(QFormLayout::WrapLongRows);
     form->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);

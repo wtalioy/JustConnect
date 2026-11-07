@@ -92,7 +92,7 @@ QHeaderView::section { padding: 10px 8px; background: #f1f3f8; color: #616b7c; b
 QTreeWidget { padding: 0; alternate-background-color: #f6f7fb; }
 QTreeWidget::item { padding: 10px 8px; border-bottom: 1px solid #edf0f5; }
 QTreeWidget::item:selected { background: #dce0e6; color: #182132; }
-QTreeWidget#diagnosticReport::item { padding: 12px; }
+QTreeWidget#diagnosticReport::item { padding: 8px 12px; }
 QTreeWidget#diagnosticReport { outline: none; border: 1px solid transparent; background: #ffffff; }
 QTreeWidget#diagnosticReport:focus { border-color: #9aa3af; }
 
