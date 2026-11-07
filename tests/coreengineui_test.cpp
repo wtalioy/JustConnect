@@ -737,6 +737,12 @@ static void controllerSelectionContracts() {
     until([&]{return parent.findChild<QDialog *>("controllerSelectionDialog")!=nullptr;});
     auto *dialog=parent.findChild<QDialog *>("controllerSelectionDialog");
     auto *choices=dialog->findChild<QComboBox *>("controllerChoices");
+    auto *retry=dialog->findChild<QPushButton *>("refreshControllersButton");
+    auto *footer=dialog->findChild<QDialogButtonBox *>();
+    check(retry && !footer->buttons().contains(retry)
+        && qAbs(retry->geometry().center().y()-choices->geometry().center().y())<=1
+        && retry->x()>choices->geometry().right(),
+        "refresh sits beside the controller field, away from confirmation actions");
     choices->setCurrentIndex(2);
     dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
     check(callbacks==1 && chosen==QString("http://127.0.0.1:31002")
@@ -891,7 +897,7 @@ static void uiContracts() {
     check(returnedMethods(oauth)==0,"preferred query also waits for terminal cleanup");
     emit oauthEngine->finished(ConnectionError::NONE);
     auto *methods=queryChoices(oauth);
-    check(methods->currentData().toString().isEmpty(),"multiple OAuth methods require an explicit choice without school-name heuristics");
+    check(methods->currentData().toString().isEmpty(),"multiple OAuth methods require an explicit choice without preset-name heuristics");
     methods->setCurrentIndex(3);
     const auto choice=methods->currentData(Qt::UserRole+1).toJsonObject();
     check(choice["domain"]=="returned-domain" && choice["login_url"]=="https://returned.example.invalid/uis"
@@ -900,7 +906,7 @@ static void uiContracts() {
     emit oauthEngine->authMethodsReady({QJsonObject{{"type","auth/psw"},{"name","Password"}},
         QJsonObject{{"type","auth/httpsOauth2"},{"name","Federated sign-in"},{"auth_id","single-id"}}});
     emit oauthEngine->finished(ConnectionError::NONE);
-    check(methods->currentData(Qt::UserRole+1).toJsonObject()["auth_id"]=="single-id","a unique preferred OAuth method is selected without inspecting school names");
+    check(methods->currentData(Qt::UserRole+1).toJsonObject()["auth_id"]=="single-id","a unique preferred OAuth method is selected without inspecting preset names");
     oauth->reject(); QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     auto *cancelEngine=new QueryEngine;
     auto *cancelled=openQuery(&parent,queryProfile,cancelEngine);

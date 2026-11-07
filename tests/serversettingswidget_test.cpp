@@ -44,7 +44,7 @@ int main(int argc,char **argv) {
     for(auto *field:QList<QWidget *>{preset,address,port}) {
         auto *label=qobject_cast<QLabel *>(form->labelForField(field));
         check(label && label->buddy()==field && std::abs(label->geometry().center().y()-field->geometry().center().y())<=1,
-            "school, server and port labels are centered beside their styled fields");
+            "preset, server and port labels are centered beside their styled fields");
     }
     check(rules->isVisibleTo(&editor),"domain DNS is directly editable without another settings layer");
     allowNodes->setChecked(true);
@@ -70,8 +70,8 @@ int main(int argc,char **argv) {
     check(ProfileService::load(saved).dns.domainDnsRules=="service.custom.example 192.0.2.53","custom DNS rules survive save and reload");
     check(allowNodes->isChecked() && !nodeWarning->isHidden(),"explicit node policy and warning survive save and reload");
     check(!editor.settingsValues().value("JustConnect/TLSVerify").toBool() && editor.settingsValues().value("JustConnect/TLSCAPEM").toString()=="explicit private CA" && !warning->isHidden(),"explicit TLS policy survives save and reload");
-    auto *caToggle=editor.findChild<QToolButton *>("schoolCaToggle");
-    app.processEvents();auto *caLabel=editor.findChild<QLabel *>("schoolCaLabel");
+    auto *caToggle=editor.findChild<QToolButton *>("serverCaToggle");
+    app.processEvents();auto *caLabel=editor.findChild<QLabel *>("serverCaLabel");
     check(caLabel && caLabel->buddy()==caToggle && caLabel->x()==ca->x() && ca->x()==rules->x()
         && std::abs(caLabel->geometry().center().y()-caToggle->geometry().center().y())<=1,
         "CA disclosure title, trailing action and expanded editor align with the DNS section");

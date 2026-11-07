@@ -89,7 +89,7 @@ void ApplicationPreferencesWidget::retranslate() {
     if (!ProfileManager::supportsLanguage(ProfileManager().language()))
         explanation+='\n'+tr("The saved language is invalid. English is being used.");
     else if (!QSystemTrayIcon::isSystemTrayAvailable())
-        explanation+='\n'+tr("No system tray is available. Use Exit in Details to quit.");
+        explanation+='\n'+tr("No system tray is available. Use Exit in the application menu to quit.");
     hint->setText(explanation);
     controller->setText(tr("Choose instance…"));
     if (errorText) error->setText(tr(errorText));

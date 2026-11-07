@@ -176,7 +176,7 @@ NetworkPolicyWindow::NetworkPolicyWindow(NetworkPolicySession *input, QWidget *p
     nameActions->setSpacing(8);
     campusName = new QPushButton(namePage);
     originalName = new QPushButton(namePage);
-    for (auto *button:{campus,campusName}) {button->setAutoDefault(false);PresentationHelpers::setButtonIcon(button,":/resource/school.svg");}
+    for (auto *button:{campus,campusName}) {button->setAutoDefault(false);PresentationHelpers::setButtonIcon(button,":/resource/campus.svg");}
     for (auto *button:{original,originalName}) {button->setAutoDefault(false);PresentationHelpers::setButtonIcon(button,":/resource/network.svg");}
     campusName->setObjectName("chooseCampusName");
     originalName->setObjectName("restoreOriginalName");
@@ -236,7 +236,7 @@ void NetworkPolicyWindow::retranslate()
     campusName->setText(tr("Use campus…"));originalName->setText(tr("Use original…"));
     tabs->setTabText(0,tr("Addresses"));tabs->setTabText(1,tr("DNS sources"));
     refresh->setToolTip(tr("Refresh"));refresh->setAccessibleName(tr("Refresh"));
-    explanation->setText(tr("Refreshing only reads the network. Choices do not expand school authorization. Switching sides may interrupt existing connections; a target cannot use both sides at once."));
+    explanation->setText(tr("Refreshing only reads the network. Choices do not expand server authorization. Switching sides may interrupt existing connections; a target cannot use both sides at once."));
 }
 QInputDialog *NetworkPolicyWindow::createEditor(std::function<void(QInputDialog *)> translate)
 {
@@ -297,7 +297,7 @@ void NetworkPolicyWindow::chooseCampusAddress()
     const auto id = session->currentGeneration(), prefix = targets->currentItem()->text(0);
     auto *input = createEditor([this,prefix](QInputDialog *input) {
         input->setWindowTitle(NetworkPolicyWindow::tr("Use campus address"));
-        input->setLabelText(NetworkPolicyWindow::tr("One IPv4 address in %1:\nThe same address cannot use both networks. School authorization still applies.").arg(prefix));
+        input->setLabelText(NetworkPolicyWindow::tr("One IPv4 address in %1:\nThe same address cannot use both networks. Server authorization still applies.").arg(prefix));
     });
     connect(input, &QInputDialog::textValueSelected, this, [this, id, prefix](const QString &value) {
         if (!session || session->currentGeneration() != id) return;
@@ -343,7 +343,7 @@ void NetworkPolicyWindow::editName(bool campus)
     auto *input = createEditor([this,campus](QInputDialog *input) {
         input->setWindowTitle(campus ? NetworkPolicyWindow::tr("Use campus name") : NetworkPolicyWindow::tr("Use original name"));
         if (campus) {
-            input->setLabelText(NetworkPolicyWindow::tr("One protected name to use through campus:\nWildcards and whole scopes are not accepted. School authorization still applies."));
+            input->setLabelText(NetworkPolicyWindow::tr("One protected name to use through campus:\nWildcards and whole scopes are not accepted. Server authorization still applies."));
         } else {
             input->setLabelText(NetworkPolicyWindow::tr("Choose the campus name exception to remove:"));
         }

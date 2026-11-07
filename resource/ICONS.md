@@ -13,13 +13,12 @@ Selected Lucide SVGs from [`53fab88ff9d1b48f4704b5b5b560d6b4d560bf4c`](https://g
 | `import.svg` | `file-input.svg` |
 | `export.svg` | `file-output.svg` |
 | `rules.svg` | `list.svg` |
-| `school.svg` | `university.svg` |
+| `campus.svg` | `university.svg` |
 | `network.svg` | `globe.svg` |
 | `controller.svg` | `server.svg` |
 | `search.svg` | `search.svg` |
 | `file-remove.svg` | `file-minus-corner.svg` |
 | `close.svg` | `x.svg` |
-| `more.svg` | `ellipsis.svg` |
 | `eye.svg` | `eye.svg` |
 | `eye-off.svg` | `eye-off.svg` |
 | `chevron.svg` | `chevron-down.svg` |
@@ -27,4 +26,6 @@ Selected Lucide SVGs from [`53fab88ff9d1b48f4704b5b5b560d6b4d560bf4c`](https://g
 | `arrow-right.svg` | `arrow-right.svg` |
 | `arrow-left.svg` | `arrow-left.svg` |
 
-`chevron-right.svg` rotates the existing Lucide chevron. `check.svg` is a matching geometric selection mark drawn for the application. `icon.svg` and the connection-state illustrations are JustConnect artwork.
+`chevron-right.svg` rotates the existing Lucide chevron. `check.svg` and `menu.svg` are geometric marks drawn for the application. `icon.svg` and the connection-state illustrations are JustConnect artwork.
+
+`JustConnect.ico` and `JustConnect.icns` package RGBA PNG renders of `icon.svg` at native icon sizes. The tray uses the same SVG at rest and `connection-ready.svg` when connected.

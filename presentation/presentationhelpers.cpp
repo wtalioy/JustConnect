@@ -100,7 +100,7 @@ void PresentationHelpers::activateWindow(QWidget *window)
     window->show();window->raise();window->activateWindow();
 }
 
-void PresentationHelpers::showAboutDialog(QWidget *parent)
+void PresentationHelpers::showAboutDialog(QWidget *parent, const QString &coreVersion)
 {
     QMessageBox messageBox(parent);
     messageBox.setWindowTitle(QCoreApplication::translate("PresentationHelpers","About"));
@@ -112,12 +112,10 @@ void PresentationHelpers::showAboutDialog(QWidget *parent)
         "<br><br>Upstream contributors: <a href='https://github.com/chenx-dust'>Chenx Dust</a>, "
         "<a href='https://github.com/Mythologyli'>Myth</a>, <a href='https://github.com/lyc8503'>lyc8503</a>")
         .arg(QApplication::applicationDisplayName().toHtmlEscaped(),QApplication::applicationVersion().toHtmlEscaped(),ApplicationConstants::RepositoryName));
-    messageBox.setIconPixmap(QPixmap(":/resource/icon.svg").scaled(
-        100,
-        100,
-        Qt::KeepAspectRatio,
-        Qt::SmoothTransformation
-    ));
+    if (!coreVersion.isEmpty())
+        messageBox.setInformativeText(QCoreApplication::translate("PresentationHelpers", "Core version: %1")
+            .arg(coreVersion.toHtmlEscaped()));
+    messageBox.setIconPixmap(QApplication::windowIcon().pixmap(QSize(80,80),messageBox.devicePixelRatioF()));
     messageBox.exec();
 }
 

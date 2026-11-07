@@ -14,6 +14,7 @@
 #include <QPushButton>
 #include <QLabel>
 #include <QHeaderView>
+#include <QTabBar>
 #include <QDialogButtonBox>
 #include <QScrollArea>
 #include <QVBoxLayout>
@@ -50,7 +51,7 @@ MainWindow::MainWindow(
     applicationLogger(logger),
     applicationLogFile(logFile)
 {
-    ApplicationAppearance::install(this);
+    ApplicationAppearance::install();
     ApplicationLanguage::instance();
     const QString overrideConfigPath =
         CommandLineOptions::value(QCoreApplication::arguments(), "--config-path");
@@ -61,13 +62,22 @@ MainWindow::MainWindow(
 
     upgradeSettings();
 
+    QApplication::setWindowIcon(QIcon(":/resource/icon.svg"));
     ui->setupUi(this);
-    ui->detailsDialog->resize(640,620);
+    ui->detailsDialog->resize(640,568);
     PresentationHelpers::setButtonIcon(ui->diagnosticRulesButton,":/resource/rules.svg");
-    connect(ui->detailsButton,&QPushButton::clicked,this,[this] {updateDiagnostics();PresentationHelpers::activateWindow(ui->detailsDialog);});
+    connect(ui->detailsButton,&QPushButton::clicked,this,[this] {
+        if (!ui->detailsDialog->isVisible()) {
+            ui->detailsTabs->setCurrentIndex(0);
+            ui->detailsTabs->tabBar()->setFocus();
+        }
+        updateDiagnostics();
+        PresentationHelpers::activateWindow(ui->detailsDialog);
+    });
     ui->diagnosticReport->header()->setSectionResizeMode(0,QHeaderView::ResizeToContents);
     ui->diagnosticReport->header()->setSectionResizeMode(1,QHeaderView::Stretch);
     ui->diagnosticReport->setSelectionMode(QAbstractItemView::NoSelection);
+    ui->diagnosticReport->setFocusPolicy(Qt::TabFocus);
     connect(coordinator->diagnostics(),&ConnectionDiagnostics::changed,this,[this]{if(ui->detailsDialog->isVisible())updateDiagnostics();});
     connect(ui->refreshDiagnosticsButton,&QPushButton::clicked,this,[this]{coordinator->networkPolicy()->refresh();updateDiagnostics();});
     connect(ui->copyDiagnosticsButton,&QPushButton::clicked,this,[this]{QApplication::clipboard()->setText(QApplication::applicationVersion()+"\n"+coordinator->diagnostics()->report());});
@@ -112,17 +122,14 @@ MainWindow::MainWindow(
     });
     setupTrayIcon();
     setupProfileMenu();
-    auto *tools=new QToolButton(ui->detailsDialog);
-    tools->setObjectName("detailsToolsButton");tools->setAutoRaise(true);
-    tools->setIcon(QIcon(":/resource/more.svg"));tools->setIconSize(QSize(18,18));
-    tools->setPopupMode(QToolButton::InstantPopup);
-    auto *menu=new QMenu(tools);
-    menu->addMenu(ui->helpMenu);
-    menu->addAction(ui->clearAuthenticationCacheAction);
-    menu->addAction(ui->clearClientDataAction);
-    menu->addSeparator();menu->addAction(ui->exitAction);
-    tools->setMenu(menu);ui->detailsFooter->addWidget(tools);
-    tools->setToolTip(tr("Tools"));tools->setAccessibleName(tr("Tools"));
+    auto *applicationMenu = new QMenu(ui->applicationMenuButton);
+    applicationMenu->setToolTipsVisible(true);
+    applicationMenu->addAction(ui->checkUpdateAction);
+    applicationMenu->addAction(ui->projectAction);
+    applicationMenu->addAction(ui->aboutAction);
+    applicationMenu->addSeparator();
+    applicationMenu->addAction(ui->exitAction);
+    ui->applicationMenuButton->setMenu(applicationMenu);
     connect(ui->preferencesButton,&QToolButton::clicked,ui->preferencesAction,&QAction::trigger);
     ui->exitAction->setShortcut(QKeySequence::Quit);
     ui->preferencesAction->setShortcut(QKeySequence::Preferences);
@@ -133,7 +140,7 @@ MainWindow::MainWindow(
 #endif
 
 
-    setWindowIcon(QIcon(":/resource/icon.svg"));
+    updateProfileSummary();
     updateVersionInfo();
     updateConnectionState(connectionSession->state());
 
@@ -219,7 +226,7 @@ MainWindow::MainWindow(
     connect(ui->aboutAction, &QAction::triggered,
             [&]()
             {
-                PresentationHelpers::showAboutDialog(this);
+                PresentationHelpers::showAboutDialog(this, updateChecker->versionInfo().coreVersion);
             });
 
     // 复制日志
@@ -321,11 +328,10 @@ void MainWindow::changeEvent(QEvent *event)
     QMainWindow::changeEvent(event);
     if (event->type()!=QEvent::LanguageChange || !viewsInitialized) return;
     ui->retranslateUi(this);
-    if(auto *tools=findChild<QToolButton *>("detailsToolsButton")) {tools->setToolTip(tr("Tools"));tools->setAccessibleName(tr("Tools"));}
     newProfileAction->setText(tr("New profile"));renameProfileAction->setText(tr("Rename profile"));deleteProfileAction->setText(tr("Delete profile"));
     trayProfileMenu->setTitle(tr("Profiles"));trayShowAction->setText(tr("Show window"));
     trayCloseAction->setText(tr("Exit %1").arg(QApplication::applicationName()));
-    connectionUiController->refreshActions();refreshProfileMenu();updateVersionInfo();updateConnectionState(connectionSession->state());updateDiagnostics();
+    connectionUiController->refreshActions();refreshProfileMenu();updateProfileSummary();updateVersionInfo();updateConnectionState(connectionSession->state());updateDiagnostics();
 }
 
 bool MainWindow::eventFilter(QObject *watched,QEvent *event)
@@ -348,7 +354,7 @@ void MainWindow::closeEvent(QCloseEvent *event)
     } else {
         PresentationHelpers::activateWindow(this);
         setProperty("trayUnavailable",true);
-        ui->statusHintLabel->setText(tr("System tray unavailable. Use Exit in Details to quit."));
+        ui->statusHintLabel->setText(tr("System tray unavailable. Use Exit in the application menu to quit."));
         ui->statusHintLabel->show();
     }
 }
@@ -391,8 +397,8 @@ void MainWindow::showConnectionSettings() {
 void MainWindow::clearLog()
 {
     ui->logPlainTextEdit->clear();
-    ui->logPlainTextEdit->appendPlainText(tr("Welcome to %1\nVersion: %2\nSystem: %3\nProfile: %4\nConfiguration: %5\n")
-        .arg(QApplication::applicationDisplayName(),QApplication::applicationVersion(),QSysInfo::prettyProductName(),
+    ui->logPlainTextEdit->appendPlainText(tr("Welcome to %1\nSystem: %2\nProfile: %3\nConfiguration: %4\n")
+        .arg(QApplication::applicationDisplayName(),QSysInfo::prettyProductName(),
             currentProfileId.isEmpty()?tr("Default"):currentProfileId,settings->fileName()));
 }
 
@@ -476,7 +482,7 @@ void MainWindow::updateConnectionState(ConnectionState state)
 
     const bool needsAttention=state==ConnectionState::Failed || state==ConnectionState::Interrupted || connectionSession->networkRecoveryFailed();
     const bool noTray=property("trayUnavailable").toBool();
-    ui->statusHintLabel->setText(noTray ? tr("System tray unavailable. Use Exit in Details to quit.") : needsAttention ? detail : QString());
+    ui->statusHintLabel->setText(noTray ? tr("System tray unavailable. Use Exit in the application menu to quit.") : needsAttention ? detail : QString());
     ui->statusHintLabel->setVisible(noTray || needsAttention);
     const QMap<QString,QString> results{{"running",tr("In progress")},{"succeeded",tr("Succeeded")},{"failed",tr("Failed")},{"required",tr("Sign in again")},{"disabled",tr("Disabled")},{"unavailable",tr("Unavailable")}};
     const auto traffic=connectionSession->observation("traffic");
@@ -491,11 +497,16 @@ void MainWindow::updateConnectionState(ConnectionState state)
     }
     if (traffic.result=="unavailable") detail += tr("\nNo authorized probe resource or campus DNS is available. Check the target and gateway authorization.");
     ui->statusTitleLabel->setText(title);
-    ui->statusIndicator->setPixmap(QIcon(propertyValue=="connected" ? ":/resource/connection-ready.svg" : ":/resource/connection.svg")
+    static const QIcon idleArtwork(":/resource/connection.svg");
+    static const QIcon connectedArtwork(":/resource/connection-ready.svg");
+    const bool connected = propertyValue == "connected";
+    ui->statusIndicator->setPixmap((connected ? connectedArtwork : idleArtwork)
         .pixmap(ui->statusIndicator->size(),devicePixelRatioF()));
     if (trayIcon) {
         trayIcon->setToolTip(QApplication::applicationName()+" · "+title+"\n"+detail);
-        trayIcon->setIcon(style()->standardIcon(connectionSession->phase()==ConnectionPhase::CampusReady && state==ConnectionState::Running ? QStyle::SP_MediaPlay : QStyle::SP_MediaStop));
+        const auto trayArtwork = connected ? connectedArtwork : QApplication::windowIcon();
+        if (trayIcon->icon().cacheKey() != trayArtwork.cacheKey())
+            trayIcon->setIcon(trayArtwork);
     }
     ui->statusDetailLabel->setText(detail);
 
@@ -528,9 +539,9 @@ void MainWindow::updateProfileSummary()
     QStringList details{protocol};
     details.append(server.isEmpty() ? tr("No server configured") : server);
 
-    const auto school = kind == "Custom" ? server : kindLabel;
-    auto caption = school.isEmpty() ? profileName : school;
-    if (!school.isEmpty() && !currentProfileId.isEmpty() && profileName != school)
+    const auto endpointLabel = kind == "Custom" ? server : kindLabel;
+    auto caption = endpointLabel.isEmpty() ? profileName : endpointLabel;
+    if (!endpointLabel.isEmpty() && !currentProfileId.isEmpty() && profileName != endpointLabel)
         caption += QStringLiteral(" · ") + profileName;
     ui->profileMenuButton->setText(caption);
     ui->profileMenuButton->setAccessibleName(tr("Connection profile: %1").arg(caption));
@@ -542,8 +553,7 @@ void MainWindow::setupTrayIcon()
 {
     // 系统托盘
     trayIcon = new QSystemTrayIcon(this);
-    trayIcon->setIcon(
-        QIcon(QPixmap(":/resource/icon.svg").scaled(512, 512, Qt::KeepAspectRatio, Qt::SmoothTransformation)));
+    trayIcon->setIcon(QApplication::windowIcon());
     trayIcon->setToolTip(QApplication::applicationName());
     connect(trayIcon, &QSystemTrayIcon::activated, this, [&](QSystemTrayIcon::ActivationReason reason) {
         switch (reason)
@@ -583,6 +593,7 @@ void MainWindow::setupProfileMenu()
     switchGroup->setExclusive(true);
     traySwitchGroup->setExclusive(true);
     ui->profileMenu->addAction(ui->settingAction);
+    ui->profileMenu->addMenu(ui->profileMaintenanceMenu);
     ui->profileMenu->addSeparator();
     newProfileAction = ui->profileMenu->addAction(tr("New profile"));
     renameProfileAction = ui->profileMenu->addAction(tr("Rename profile"));
@@ -697,7 +708,6 @@ bool MainWindow::switchProfile(const QString &profileId)
     currentProfileId = profileService->currentProfileId();
 
     upgradeSettings();
-    updateVersionInfo();
     resetConnectionUi();
     clearLog();
     refreshProfileMenu();
@@ -747,7 +757,6 @@ void MainWindow::createProfile()
     currentProfileId = profileService->currentProfileId();
     upgradeSettings();
     resetConnectionUi();
-    updateVersionInfo();
     clearLog();
     refreshProfileMenu();
 
@@ -793,7 +802,7 @@ void MainWindow::renameCurrentProfile()
         if (!result.succeeded()) {QMessageBox::warning(this,tr("Rename incomplete"),PresentationHelpers::credentialOperationMessage(result.status)+tr("\nComplete the legacy credential migration first, or create a new profile."));return;}
         if (!profileService->renameCurrent(normalizedName)) {QMessageBox::warning(this,tr("Could not rename profile"),tr("The destination exists or this profile cannot be renamed."));return;}
         currentProfileId=profileService->currentProfileId();settings=profileService->settings();
-        updateVersionInfo();refreshProfileMenu();clearLog();qInfo().noquote()<<tr("Profile renamed to: ")+currentProfileId;
+        updateProfileSummary();refreshProfileMenu();clearLog();qInfo().noquote()<<tr("Profile renamed to: ")+currentProfileId;
     });
 }
 
@@ -846,7 +855,6 @@ void MainWindow::deleteCurrentProfile()
     currentProfileId = profileService->currentProfileId();
     settings = profileService->settings();
     upgradeSettings();
-    updateVersionInfo();
     resetConnectionUi();
     clearLog();
     refreshProfileMenu();
@@ -872,7 +880,6 @@ void MainWindow::upgradeSettings()
 void MainWindow::updateVersionInfo()
 {
     const VersionInfo &versionInfo = updateChecker->versionInfo();
-    ui->versionLabel->setText(tr("Version %1").arg(versionInfo.uiVersion));
     QString latest;
     switch(versionInfo.updateState){
     case VersionInfo::UpdateState::Checking:latest=tr("Checking…");break;
@@ -880,9 +887,7 @@ void MainWindow::updateVersionInfo()
     case VersionInfo::UpdateState::Failed:latest=tr("Check failed");break;
     case VersionInfo::UpdateState::Ready:latest=versionInfo.uiLatest;break;
     }
-    ui->versionLabel->setToolTip(tr("Application: %1 (latest: %2)\nCore: %3")
-        .arg(versionInfo.uiVersion,latest,versionInfo.coreVersion.isEmpty() ? tr("Unavailable") : versionInfo.coreVersion));
-    updateProfileSummary();
+    ui->checkUpdateAction->setToolTip(tr("Update status: %1").arg(latest));
 }
 
 void MainWindow::showNotification(const QString &title, const QString &content, QSystemTrayIcon::MessageIcon icon)

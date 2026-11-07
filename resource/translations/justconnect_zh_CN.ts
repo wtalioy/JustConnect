@@ -75,8 +75,8 @@
     </message>
     <message>
         <location filename="../../presentation/widgets/applicationpreferenceswidget.cpp" line="91"/>
-        <source>No system tray is available. Use Exit in Details to quit.</source>
-        <translation>系统托盘不可用，可在详情中选择“退出”。</translation>
+        <source>No system tray is available. Use Exit in the application menu to quit.</source>
+        <translation>系统托盘不可用，可在应用菜单中选择“退出”。</translation>
     </message>
     <message>
         <location filename="../../presentation/widgets/applicationpreferenceswidget.cpp" line="93"/>
@@ -494,7 +494,7 @@ Clear the authentication cache for </source>
     <message>
         <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="373"/>
         <source>The certificate is not trusted or does not match the server. Check the address, system time and campus CA.</source>
-        <translation>服务器证书不受信任或与地址不匹配。请检查服务器地址、系统时间和学校 CA。</translation>
+        <translation>服务器证书不受信任或与地址不匹配。请检查服务器地址、系统时间和服务器 CA。</translation>
     </message>
     <message>
         <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="376"/>
@@ -701,6 +701,14 @@ Clear the authentication cache for </source>
 </context>
 <context>
     <name>MainWindow</name>
+    <message>
+        <source>Application menu</source>
+        <translation>应用菜单</translation>
+    </message>
+    <message>
+        <source>Profile maintenance</source>
+        <translation>配置维护</translation>
+    </message>
     <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="91"/>
         <source>Update available</source>
@@ -1035,7 +1043,7 @@ Clear the authentication cache for </source>
         <source>
 No authorized probe resource or campus DNS is available. Check the target and gateway authorization.</source>
         <translation>
-缺少获授权的探测资源或校园解析能力，请检查目标与学校授权。</translation>
+缺少获授权的探测资源或校园解析能力，请检查目标与服务器授权。</translation>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="533"/>
@@ -1073,14 +1081,6 @@ No authorized probe resource or campus DNS is available. Check the target and ga
         <translation>打开页面</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="129"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="129"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="328"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="328"/>
-        <source>Tools</source>
-        <translation>工具</translation>
-    </message>
-    <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="329"/>
         <location filename="../../presentation/main/mainwindow.cpp" line="592"/>
         <location filename="../../presentation/main/mainwindow.cpp" line="767"/>
@@ -1097,8 +1097,8 @@ No authorized probe resource or campus DNS is available. Check the target and ga
     <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="355"/>
         <location filename="../../presentation/main/mainwindow.cpp" line="483"/>
-        <source>System tray unavailable. Use Exit in Details to quit.</source>
-        <translation>系统托盘不可用，可在详情中选择“退出”。</translation>
+        <source>System tray unavailable. Use Exit in the application menu to quit.</source>
+        <translation>系统托盘不可用，可在应用菜单中选择“退出”。</translation>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="540"/>
@@ -1289,11 +1289,6 @@ Complete the legacy credential migration first, or create a new profile.</source
         <translation>未能保存升级后的配置，已保留旧版本以便重试。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="604"/>
-        <source>Version dev</source>
-        <translation>版本 dev</translation>
-    </message>
-    <message>
         <location filename="../../presentation/main/mainwindow.ui" line="232"/>
         <source>Overview</source>
         <translation>概览</translation>
@@ -1439,16 +1434,14 @@ Complete the legacy credential migration first, or create a new profile.</source
     <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="398"/>
         <source>Welcome to %1
-Version: %2
-System: %3
-Profile: %4
-Configuration: %5
+System: %2
+Profile: %3
+Configuration: %4
 </source>
         <translation>欢迎使用 %1
-当前版本：%2
-系统版本：%3
-当前配置：%4
-配置路径：%5
+系统版本：%2
+当前配置：%3
+配置路径：%4
 </translation>
     </message>
     <message>
@@ -1464,11 +1457,6 @@ Last %1: %2</source>
         <translation>将删除配置文件和旧版缓存。安全存储中的密码、TOTP、账号缓存及隔离副本会保留。如需移除，请先在“连接配置”中清除密码和 TOTP，再在“详情”的“工具”菜单中清除账号及旧版缓存。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="879"/>
-        <source>Version %1</source>
-        <translation>版本 %1</translation>
-    </message>
-    <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="882"/>
         <source>Checking…</source>
         <translation>正在检查…</translation>
@@ -1480,10 +1468,8 @@ Last %1: %2</source>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="887"/>
-        <source>Application: %1 (latest: %2)
-Core: %3</source>
-        <translation>应用版本：%1（最新：%2）
-内置核心：%3</translation>
+        <source>Update status: %1</source>
+        <translation>更新状态：%1</translation>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="819"/>
@@ -1727,8 +1713,8 @@ Core: %3</source>
     </message>
     <message>
         <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="239"/>
-        <source>Refreshing only reads the network. Choices do not expand school authorization. Switching sides may interrupt existing connections; a target cannot use both sides at once.</source>
-        <translation>这里展示最近读取的模型，刷新不自动应用；实际访问按已确认的网络策略及学校授权判断。</translation>
+        <source>Refreshing only reads the network. Choices do not expand server authorization. Switching sides may interrupt existing connections; a target cannot use both sides at once.</source>
+        <translation>这里展示最近读取的模型，刷新不自动应用；实际访问按已确认的网络策略及服务器授权判断。</translation>
     </message>
     <message>
         <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="280"/>
@@ -1743,7 +1729,7 @@ Core: %3</source>
     <message>
         <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="284"/>
         <source>Confirmed: %1 campus IPv4 and %2 name exceptions.</source>
-        <translation>已确认 %1 个校园 IPv4 例外、%2 个名称例外。选择仍需学校授权；切换地址侧可能中断该地址的已有连接，相同目标不能同时选择两侧。</translation>
+        <translation>已确认 %1 个校园 IPv4 例外、%2 个名称例外。选择仍需服务器授权；切换地址侧可能中断该地址的已有连接，相同目标不能同时选择两侧。</translation>
     </message>
     <message>
         <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="286"/>
@@ -1778,9 +1764,9 @@ Core: %3</source>
     <message>
         <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="300"/>
         <source>One IPv4 address in %1:
-The same address cannot use both networks. School authorization still applies.</source>
+The same address cannot use both networks. Server authorization still applies.</source>
         <translation>请输入 %1 内需要改走校园的单个 IPv4 地址：
-相同地址不能同时访问两侧，业务仍需学校授权。</translation>
+相同地址不能同时访问两侧，业务仍需服务器授权。</translation>
     </message>
     <message>
         <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="308"/>
@@ -1820,9 +1806,9 @@ The same address cannot use both networks. School authorization still applies.</
     <message>
         <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="346"/>
         <source>One protected name to use through campus:
-Wildcards and whole scopes are not accepted. School authorization still applies.</source>
+Wildcards and whole scopes are not accepted. Server authorization still applies.</source>
         <translation>请输入需要改走校园的单个受保护名称：
-不接受通配符或整个范围，业务仍须学校授权。</translation>
+不接受通配符或整个范围，业务仍须服务器授权。</translation>
     </message>
     <message>
         <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="348"/>
@@ -1873,6 +1859,10 @@ Wildcards and whole scopes are not accepted. School authorization still applies.
 </context>
 <context>
     <name>PresentationHelpers</name>
+    <message>
+        <source>Core version: %1</source>
+        <translation>核心版本：%1</translation>
+    </message>
     <message>
         <location filename="../../presentation/presentationhelpers.cpp" line="105"/>
         <source>Operation completed</source>
@@ -1990,13 +1980,13 @@ Some system settings may have changed. Check them before retrying.</source>
     <name>ServerSettingsWidget</name>
     <message>
         <location filename="../../presentation/widgets/serversettingswidget.cpp" line="92"/>
-        <source>Choose a school or server</source>
-        <translation>选择学校或服务器</translation>
+        <source>Choose a preset or custom server</source>
+        <translation>选择预设或自定义服务器</translation>
     </message>
     <message>
         <location filename="../../presentation/widgets/serversettingswidget.cpp" line="96"/>
-        <source>School</source>
-        <translation>学校</translation>
+        <source>Server preset</source>
+        <translation>服务器预设</translation>
     </message>
     <message>
         <location filename="../../presentation/widgets/serversettingswidget.cpp" line="97"/>
@@ -2026,8 +2016,8 @@ Some system settings may have changed. Check them before retrying.</source>
     <message>
         <location filename="../../presentation/widgets/serversettingswidget.cpp" line="103"/>
         <location filename="../../presentation/widgets/serversettingswidget.cpp" line="104"/>
-        <source>School CA (optional)</source>
-        <translation>学校 CA（可选）</translation>
+        <source>Server CA (optional)</source>
+        <translation>服务器 CA（可选）</translation>
     </message>
     <message>
         <location filename="../../presentation/widgets/serversettingswidget.cpp" line="107"/>
@@ -2041,8 +2031,8 @@ Some system settings may have changed. Check them before retrying.</source>
     </message>
     <message>
         <location filename="../../presentation/widgets/serversettingswidget.cpp" line="105"/>
-        <source>Optional school CA in PEM format. Leave empty to use system trust.</source>
-        <translation>可选：学校提供的 PEM 格式 CA 证书；留空使用系统信任。</translation>
+        <source>Optional server CA in PEM format. Leave empty to use system trust.</source>
+        <translation>可选的 PEM 格式服务器 CA。留空时使用系统信任。</translation>
     </message>
     <message>
         <location filename="../../presentation/widgets/serversettingswidget.cpp" line="106"/>
@@ -2089,8 +2079,8 @@ Some system settings may have changed. Check them before retrying.</source>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="22"/>
-        <source>School and server</source>
-        <translation>学校与服务器</translation>
+        <source>Server settings</source>
+        <translation>服务器设置</translation>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="49"/>
@@ -2240,7 +2230,7 @@ Some system settings may have changed. Check them before retrying.</source>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="71"/>
         <source>The server certificate is not trusted or does not match. Check the address, system time and campus CA.</source>
-        <translation>服务器证书不受信任或地址不匹配。请检查地址、系统时间和学校 CA。</translation>
+        <translation>服务器证书不受信任或地址不匹配。请检查地址、系统时间和服务器 CA。</translation>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="72"/>
@@ -2410,8 +2400,8 @@ Some system settings may have changed. Check them before retrying.</source>
     <name>SsoLoginWebView</name>
     <message>
         <location filename="../../presentation/dialogs/ssologinwebview/ssologinwebview.ui" line="14"/>
-        <source>School sign-in</source>
-        <translation>SSO 登录</translation>
+        <source>Server sign-in</source>
+        <translation>服务器登录</translation>
     </message>
     <message>
         <location filename="../../presentation/dialogs/ssologinwebview/ssologinwebview.ui" line="35"/>
@@ -2439,7 +2429,7 @@ Some system settings may have changed. Check them before retrying.</source>
     <message>
         <location filename="../../presentation/dialogs/ssologinwebview/ssologinwebview.cpp" line="137"/>
         <source>The sign-in page certificate is not trusted. Check the server, system time and campus CA.</source>
-        <translation>登录页证书验证失败，请检查服务器、系统时间和学校 CA。</translation>
+        <translation>登录页证书验证失败，请检查服务器、系统时间和服务器 CA。</translation>
     </message>
     <message>
         <location filename="../../presentation/dialogs/ssologinwebview/ssologinwebview.cpp" line="138"/>

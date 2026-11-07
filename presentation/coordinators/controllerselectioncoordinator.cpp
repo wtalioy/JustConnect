@@ -1,10 +1,10 @@
 #include "controllerselectioncoordinator.h"
 #include <QComboBox>
 #include <QIcon>
-#include <QStyle>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFormLayout>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
@@ -72,7 +72,23 @@ void ControllerSelectionCoordinator::showChoice(const EmbeddedCoreEngine::Contro
         choices->addItem(tr("%1 · PID %2 · %3").arg(item["name"].toString()).arg(item["pid"].toInt()).arg(item["endpoint"].toString()),item["endpoint"].toString());
     }
     const auto manualIndex=choices->count();choices->addItem(tr("Enter local address…"));
-    layout->addRow(tr("Controller"),choices);
+    auto *retry = new QPushButton(view);
+    retry->setObjectName("refreshControllersButton");
+    retry->setIcon(QIcon(":/resource/refresh.svg"));
+    retry->setIconSize(QSize(18,18));
+    retry->setToolTip(tr("Refresh"));
+    retry->setAccessibleName(tr("Refresh"));
+    retry->setProperty("iconOnly",true);
+    retry->setAutoDefault(false);
+    retry->setFlat(true);
+
+    auto *selector = new QHBoxLayout;
+    selector->setSpacing(8);
+    selector->addWidget(choices,1);
+    selector->addWidget(retry);
+    auto *controllerLabel = new QLabel(tr("Controller"),view);
+    controllerLabel->setBuddy(choices);
+    layout->addRow(controllerLabel,selector);
     auto *address=new QLineEdit(view);address->setObjectName("controllerAddress");
     address->setPlaceholderText(tr("A loopback HTTP(S), unix:// or pipe:// address"));
     auto *addressLabel=new QLabel(tr("Local address"),view);layout->addRow(addressLabel,address);
@@ -90,10 +106,7 @@ void ControllerSelectionCoordinator::showChoice(const EmbeddedCoreEngine::Contro
     auto *error=new QLabel(view);error->setObjectName("controllerError");error->setWordWrap(true);layout->addRow(error);
     auto *buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel,view);
     buttons->button(QDialogButtonBox::Ok)->setText(settings?tr("Save"):tr("Use controller"));
-    auto *retry=buttons->addButton(tr("Refresh"),QDialogButtonBox::ActionRole);layout->addRow(buttons);
-    retry->setText({});retry->setIcon(QIcon(":/resource/refresh.svg"));retry->setIconSize(QSize(18,18));
-    retry->setToolTip(tr("Refresh"));retry->setAccessibleName(tr("Refresh"));retry->setProperty("iconOnly",true);retry->setAutoDefault(false);retry->setFlat(true);
-    retry->style()->unpolish(retry);retry->style()->polish(retry);
+    layout->addRow(buttons);
     const auto generation=request;
     connect(view,&QDialog::rejected,this,[this,view,generation] {if (dialog==view && request==generation) finish(std::nullopt);});
     connect(retry,&QPushButton::clicked,this,[this,generation] {if (request!=generation || !completion) return;++request;closeDialog();read();});

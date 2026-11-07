@@ -138,14 +138,14 @@ static void profileMenusDoNotAccumulateGroups(MainWindow &window,const QString &
         check(checked(menu)==name && checked(trayMenu)==name,"main and tray profile selections stay synchronized");
         check(name==profile ? menuButton->text().contains("vpn.other-campus.invalid") && menuButton->text().contains(profile)
                             : menuButton->text()=="Fudan",
-            "home identifies the selected school or server together with a named profile");
+            "home identifies the selected preset or server together with a named profile");
         const auto accessible=QAccessible::queryAccessibleInterface(menuButton);
         check(accessible && accessible->text(QAccessible::Name).contains(name==profile ? "vpn.other-campus.invalid" : "Fudan"),
-            "the current school or server is also available to a screen reader");
+            "the current preset or server is also available to a screen reader");
         check(window.findChildren<QActionGroup *>().size()==groups,"profile changes retained old menu groups");
     }
     const auto report=qEnvironmentVariable("JC_UI_REPORT_DIR");
-    if (!report.isEmpty()) check(window.grab().save(QDir(report).filePath("home-configured.png")),"save the configured school identity on the actual home");
+    if (!report.isEmpty()) check(window.grab().save(QDir(report).filePath("home-configured.png")),"save the configured preset identity on the actual home");
     QTimer::singleShot(0,&window,[&] {
         auto *name=qobject_cast<QInputDialog *>(QApplication::activeModalWidget());
         check(name,"add control asks for the profile name");
@@ -213,12 +213,12 @@ static void languagePreferences(MainWindow &window) {
         && copy->accessibleName()==copy->toolTip() && !copy->icon().pixmap(18,18).isNull(),
         "icon actions retain translated hover text, accessibility and a rendered glyph");
     check(details->isVisible() && details->windowTitle()==QString::fromUtf8("连接详情")
-        && window.findChild<QLabel *>("versionLabel")->toolTip().contains(QString::fromUtf8("已禁用"))
+        && window.findChild<QAction *>("checkUpdateAction")->toolTip().contains(QString::fromUtf8("已禁用"))
         && window.findChild<QTreeWidget *>("diagnosticReport")->topLevelItem(2)->text(0)==QString::fromUtf8("解析来源"),
         "subsequent details and update status use the selected language without a network check");
     changeLanguageFromSettings(window,"en");
     check(details->isVisible() && details->windowTitle()=="Connection details" && action->text()=="Connect"
-        && window.findChild<QLabel *>("versionLabel")->toolTip().contains("Disabled")
+        && window.findChild<QAction *>("checkUpdateAction")->toolTip().contains("Disabled")
         && window.findChild<QTreeWidget *>("diagnosticReport")->topLevelItem(2)->text(0)=="DNS sources","switching back updates an already open details window");
     details->reject();
 }
@@ -305,8 +305,8 @@ static void authenticationLanguageChangesPreserveData(MainWindow &window) {
     QObject::connect(view,&SignInBrowser::loadFinished,view,[&](bool okay){check(okay,"load local browser translation fixture");loaded=true;});
     browser->setInitialUrl(QUrl(origin+"/page"));waitForUi([&]{return loaded;},UiWait::BrowserStartupTimeoutMs);language("zh_CN");language("en");
     bool read=false;QString text;view->runJavaScript("document.querySelector('#typed').value",[&](const QVariant &value){text=value.toString();read=true;});waitForUi([&]{return read;});
-    check(text=="typed-value" && loads==1 && browser->windowTitle()=="School sign-in","language switching preserves the school page without reloading it");
-    screenshot(browser,"school-sign-in.png");
+    check(text=="typed-value" && loads==1 && browser->windowTitle()=="Server sign-in","language switching preserves the preset page without reloading it");
+    screenshot(browser,"server-sign-in.png");
     browser->reject();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
 }
 
@@ -339,10 +339,10 @@ static void profileSetupLanguageChangesPreserveData(MainWindow &window) {
     const auto checkColumns=[&] {
         const auto originalSize=editor->size();editor->resize(800,originalSize.height());
         QCoreApplication::processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::LayoutRequest);QCoreApplication::processEvents();
-        auto *school=editor->findChild<QComboBox *>("profileKindComboBox");
-        check(school->mapTo(editor,QPoint()).x()==method->mapTo(editor,QPoint()).x()
+        auto *preset=editor->findChild<QComboBox *>("profileKindComboBox");
+        check(preset->mapTo(editor,QPoint()).x()==method->mapTo(editor,QPoint()).x()
             && method->mapTo(editor,QPoint()).x()==user->mapTo(editor,QPoint()).x(),
-            "school, authentication and credential fields share a column across settings groups");
+            "preset, authentication and credential fields share a column across settings groups");
         editor->resize(originalSize);QCoreApplication::processEvents();
     };
     checkColumns();
@@ -355,10 +355,10 @@ static void profileSetupLanguageChangesPreserveData(MainWindow &window) {
     const auto methodValue=method->currentData();auto *currentContent=scroll->widget();
     language("zh_CN");
     checkColumns();
-    auto *schools=editor->findChild<QComboBox *>("profileKindComboBox");
-    check(schools->itemText(schools->findData("Fudan"))==QString::fromUtf8("复旦大学")
-        && schools->itemText(schools->findData("Custom"))==QString::fromUtf8("自定义"),
-        "built-in school labels follow the selected language without changing their stored identities");
+    auto *presets=editor->findChild<QComboBox *>("profileKindComboBox");
+    check(presets->itemText(presets->findData("Fudan"))==QString::fromUtf8("复旦大学")
+        && presets->itemText(presets->findData("Custom"))==QString::fromUtf8("自定义"),
+        "built-in preset labels follow the selected language without changing their stored identities");
     check(secret->actions().size()==visibilityActions && show->text()==QString::fromUtf8("隐藏")
         && !show->shortcut().isEmpty() && !secret->accessibleDescription().isEmpty(),
         "language changes keep one trailing visibility action, its state and keyboard description");
@@ -385,19 +385,32 @@ static void nativeHome(MainWindow &window) {
     auto *log=window.findChild<QPlainTextEdit *>("logPlainTextEdit");
     auto *session=window.findChild<ConnectionSession *>();
     const auto state=session->state();
-    if (QGuiApplication::platformName()!="cocoa" && QGuiApplication::platformName()!="windows")
-        check(!window.property("nativeBackdrop").toBool() && !window.testAttribute(Qt::WA_TranslucentBackground),"non-native Qt plugins cannot use or reinterpret native window handles");
+    auto *tray=window.findChild<QSystemTrayIcon *>();
+    const auto mark=QIcon(":/resource/icon.svg").pixmap(24,24).toImage();
+    check(!mark.isNull() && tray->icon().pixmap(24,24).toImage()==mark
+        && window.windowIcon().pixmap(24,24).toImage()==mark,
+        "the disconnected tray and window render the same link artwork");
+    auto *appMenu=window.findChild<QToolButton *>("applicationMenuButton")->menu();
+    auto *maintenance=window.findChild<QMenu *>("profileMaintenanceMenu");
+    check(appMenu->actions().contains(window.findChild<QAction *>("exitAction"))
+        && appMenu->actions().contains(window.findChild<QAction *>("aboutAction"))
+        && appMenu->actions().contains(window.findChild<QAction *>("checkUpdateAction"))
+        && maintenance->actions().contains(window.findChild<QAction *>("clearAuthenticationCacheAction"))
+        && maintenance->actions().contains(window.findChild<QAction *>("clearClientDataAction")),
+        "application and profile actions are accessible directly from home");
     check(details && details->isWindow() && !details->isVisible() && !log->isVisible(),"home keeps diagnostics in a separate closed native dialog");
     check(!window.findChild<QLabel *>("applicationNameLabel") && !window.windowIcon().isNull(),"branding appears once in the native window frame");
     check(window.findChild<QPushButton *>("connectButton")->isVisible() && qApp->styleHints()->colorScheme()!=Qt::ColorScheme::Dark,
         "redesigned home retains one accessible main action and the light appearance");
     window.findChild<QPushButton *>("detailsButton")->click();QCoreApplication::processEvents();
     check(details->isVisible() && !log->isVisible() && session->state()==state,"details opens its overview without exposing the live log or changing the session");
-    auto *body=window.findChild<QWidget *>("homeBody");
-    check(body && body->x()==8 && body->parentWidget()->width()-body->geometry().right()-1==8
-        && body->grab().toImage().pixelColor(12,12).alpha()==255
-        && !details->property("nativeBackdrop").toBool() && !details->testAttribute(Qt::WA_TranslucentBackground),
-        "the rounded home panel keeps an even material rim, with opaque content and detail dialogs");
+    check(!window.testAttribute(Qt::WA_TranslucentBackground)
+        && !details->testAttribute(Qt::WA_TranslucentBackground)
+        && window.grab().toImage().pixelColor(8,8).alpha()==255,
+        "home and details have opaque surfaces");
+    auto *reportView=details->findChild<QTreeWidget *>("diagnosticReport");
+    check(!reportView->hasFocus() && !details->findChild<QLabel *>("versionLabel"),
+        "overview opens without a focused diagnostics cell or version footer");
     auto *detailTabs=details->findChild<QTabWidget *>("detailsTabs");
     check(detailTabs && detailTabs->count()==2 && !details->findChild<QPushButton *>("proxyButton"),"details separates overview and logs and has no manual proxy action");
     window.findChild<QPushButton *>("copyDiagnosticsButton")->click();
@@ -421,10 +434,12 @@ static void nativeHome(MainWindow &window) {
             menu->setActiveAction(menu->actions().first());QCoreApplication::processEvents();
             check(menu->grab().save(QDir(detailsReport).filePath(name)),"save compact neutral menu styling");menu->hide();
         };
-        captureMenu(window.findChild<QToolButton *>("detailsToolsButton")->menu(),"details-menu.png");
+        captureMenu(appMenu,"application-menu.png");
         captureMenu(window.findChild<QSystemTrayIcon *>()->contextMenu(),"tray-menu.png");
-        captureMenu(window.findChild<QMenu *>("profileMenu"),"school-menu.png");
+        captureMenu(window.findChild<QMenu *>("profileMenu"),"profile-menu.png");
     }
+    check(!log->toPlainText().contains("QFont::setPointSize: Point size <= 0"),
+        "drawing the home and menus does not pass an invalid point size to Qt");
     window.findChild<QPushButton *>("copyLogPushButton")->click();
     check(QApplication::clipboard()->text()==log->toPlainText(),"diagnostics copy the same bounded live log");
     details->reject();QCoreApplication::processEvents();
@@ -452,7 +467,7 @@ static void nativeHome(MainWindow &window) {
     auto *editor=window.findChild<SettingWindow *>();
     check(editor && editor->isVisible() && !editor->findChild<QComboBox *>("languageComboBox")
         && !window.findChild<QDialog *>("applicationSettingsDialog"),
-        "the school menu opens a separate connection editor without application preferences");
+        "the preset menu opens a separate connection editor without application preferences");
     editor->reject();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     const auto report=qEnvironmentVariable("JC_UI_REPORT_DIR");
     if (!report.isEmpty()) check(window.grab().save(QDir(report).filePath("home.png")),"save actual Qt home screenshot");
@@ -462,13 +477,15 @@ static void nativeHome(MainWindow &window) {
     check(window.width()==320 && window.rect().contains(actionRect) && button->height()>=44,"compact home keeps its main action in bounds at 320 logical pixels");
     check(button->width()*3<window.width()*2 && qAbs(actionRect.center().x()-window.rect().center().x())<=1,
         "connect and disconnect use a centered compact action instead of stretching across the home");
+    check(button->width()==window.findChild<QPushButton *>("detailsButton")->width(),
+        "home actions share a centered visual width");
     auto *profile=window.findChild<QToolButton *>("profileMenuButton");
     check(profile->width()<=profile->sizeHint().width()+1,
-        "the school selector uses its natural width instead of stretching toward the settings gear");
+        "the preset selector uses its natural width instead of stretching toward the settings gear");
     const auto profileName=profile->text();
     profile->setText("X");QCoreApplication::processEvents();const auto shortWidth=profile->width();
-    profile->setText("A longer school");QCoreApplication::processEvents();
-    check(profile->width()>shortWidth,"the school selector adapts its width to its caption");
+    profile->setText("A longer preset");QCoreApplication::processEvents();
+    check(profile->width()>shortWidth,"the preset selector adapts its width to its caption");
     const auto longName=QString(64,QChar('W'));
     profile->setText(longName);QCoreApplication::processEvents();window.resize(320,460);QCoreApplication::processEvents();
     check(window.width()==320 && profile->text()==longName && profile->width()<=window.width(),
@@ -577,11 +594,11 @@ int main(int argc,char **argv) {
                 "window and tray distinguish observed renewal from unavailable traffic probing and show its time");
         }
         auto *preferencesAction=window.findChild<QAction *>("preferencesAction");
-        check(preferencesAction,"application preferences must be discoverable without a school configuration");
+        check(preferencesAction,"application preferences must be discoverable without a preset configuration");
         const auto openPreferences=[&] {
             preferencesAction->trigger();
             auto *dialog=window.findChild<QDialog *>("applicationSettingsDialog");
-            check(dialog && dialog->isVisible(),"application preferences open independently of school settings");
+            check(dialog && dialog->isVisible(),"application preferences open independently of preset settings");
             return dialog;
         };
         auto *preferences=openPreferences();
@@ -624,7 +641,7 @@ int main(int argc,char **argv) {
             changeLanguageFromSettings(window,"zh_CN");
             check(connection->isActive() && connection->state()==state && window.findChild<QPushButton *>("connectButton")->text()==QString::fromUtf8("取消"),"language changes preserve an active pending connection and its cancel action");
             changeLanguageFromSettings(window,"en");
-            check(profileFile.open(QIODevice::ReadOnly) && profileFile.readAll()==unchanged,"global language changes do not rewrite the school profile");profileFile.close();
+            check(profileFile.open(QIODevice::ReadOnly) && profileFile.readAll()==unchanged,"global language changes do not rewrite the preset profile");profileFile.close();
             check(connection->isActive() && connection->state()==ConnectionState::Starting,"preference saves must not stop or restart the active session");
             connection->stop();
         }
