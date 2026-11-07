@@ -105,6 +105,9 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
     });
     connect(ui->authSelectPushButton,&QPushButton::clicked,this,&SettingWindow::queryMethods);
     connect(saveButton,&QPushButton::clicked,this,&SettingWindow::saveSettings);
+    PresentationHelpers::setButtonIcon(ui->importPushButton,":/resource/import.svg");
+    PresentationHelpers::setButtonIcon(ui->exportPushButton,":/resource/export.svg");
+    PresentationHelpers::setButtonIcon(ui->resetDefaultPushButton,":/resource/undo.svg");
     connect(ui->resetDefaultPushButton,&QPushButton::clicked,this,[this] {
         if (QMessageBox::question(this,tr("Reset draft"),tr("Reset this draft to its defaults? Changes take effect after saving."))!=QMessageBox::Yes) return;
         QTemporaryDir folder;

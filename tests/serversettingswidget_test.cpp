@@ -73,8 +73,9 @@ int main(int argc,char **argv) {
     auto *caToggle=editor.findChild<QToolButton *>("serverCaToggle");
     app.processEvents();auto *caLabel=editor.findChild<QLabel *>("serverCaLabel");
     check(caLabel && caLabel->buddy()==caToggle && caLabel->x()==ca->x() && ca->x()==rules->x()
+        && caToggle->x()-caLabel->geometry().right()==9
         && std::abs(caLabel->geometry().center().y()-caToggle->geometry().center().y())<=1,
-        "CA disclosure title, trailing action and expanded editor align with the DNS section");
+        "the CA arrow stays beside its label and the editor aligns with the DNS section");
     check(caToggle->isChecked() && ca->isVisibleTo(&editor),"a saved private CA is immediately visible for review");
     caToggle->click();
     check(ca->isHidden() && editor.settingsValues().value("JustConnect/TLSCAPEM")=="explicit private CA",
