@@ -8,16 +8,16 @@
      <number>0</number>
     </property>
     <property name="leftMargin">
-     <number>0</number>
+     <number>8</number>
     </property>
     <property name="rightMargin">
-     <number>0</number>
+     <number>8</number>
     </property>
     <property name="topMargin">
-     <number>0</number>
+     <number>8</number>
     </property>
     <property name="bottomMargin">
-     <number>0</number>
+     <number>8</number>
     </property>
     <item>
      <widget class="QWidget" name="homeHeader">
@@ -29,13 +29,13 @@
       </property>
       <layout class="QVBoxLayout" name="homeHeaderLayout">
        <property name="leftMargin">
-        <number>24</number>
+        <number>16</number>
        </property>
        <property name="topMargin">
-        <number>24</number>
+        <number>16</number>
        </property>
        <property name="rightMargin">
-        <number>24</number>
+        <number>16</number>
        </property>
        <property name="bottomMargin">
         <number>16</number>
@@ -107,16 +107,16 @@
       </property>
       <layout class="QVBoxLayout" name="homeBodyLayout">
        <property name="leftMargin">
-        <number>24</number>
+        <number>16</number>
        </property>
        <property name="topMargin">
         <number>0</number>
        </property>
        <property name="rightMargin">
-        <number>24</number>
+        <number>16</number>
        </property>
        <property name="bottomMargin">
-        <number>24</number>
+        <number>16</number>
        </property>
        <property name="spacing">
         <number>20</number>

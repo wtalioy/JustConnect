@@ -56,13 +56,16 @@ int main(int argc,char **argv) {
     ObservedLabel title(&dialog);
     title.setGeometry(24,8,370,70);
     ObservedLabel content(&body);content.setGeometry(24,16,370,70);
+    ObservedLabel corner(&body);corner.setGeometry(0,0,4,4);
     for (int cycle=0;cycle<3;++cycle) {
         title.clear();const int beforeShow=title.paints;dialog.show();dialog.update();
         UiWait::until(__FILE__,__LINE__,[&]{return title.paints>beforeShow;});
         const auto clean=title.frame;
         check(!clean.isNull(),"capture the actual exposed content instead of repainting it with QWidget::grab");
         check(!content.frame.isNull() && content.frame.pixelColor(content.frame.width()/2,content.frame.height()/2).alpha()==255,
-            "main content stays opaque while the header alone can reveal a native material");
+            "main content stays opaque while the surrounding surface can reveal a native material");
+        check(!corner.frame.isNull() && corner.frame.pixelColor(0,0)!=content.frame.pixelColor(content.frame.width()/2,content.frame.height()/2),
+            "the content panel has rounded corners that reveal the continuous outer surface");
         if (dialog.property("nativeBackdrop").toBool()) {
             const int alpha=clean.pixelColor(clean.width()/2,clean.height()/2).alpha();
             if (!clean.hasAlphaChannel() || alpha==255)

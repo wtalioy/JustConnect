@@ -1,7 +1,8 @@
 QWidget { font-size: 14px; font-weight: 400; }
 QMainWindow, QDialog { background: #fafbfc; color: #182132; }
-QMainWindow[nativeBackdrop="true"] { background: rgba(250,251,252,210); }
-QWidget#homeBody { background: #fafbfc; }
+QMainWindow { background: #e9edf2; }
+QMainWindow[nativeBackdrop="true"] { background: rgba(232,237,244,235); }
+QWidget#homeBody { background: #fafbfc; border-radius: 8px; }
 QWidget#centralWidget { background: transparent; }
 QLabel { color: #182132; background: transparent; }
 QPushButton, QToolButton, QComboBox {
