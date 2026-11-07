@@ -99,4 +99,8 @@ jobs:
         env:
           QT_QPA_PLATFORM: cocoa
           QT_SCALE_FACTOR: '1.5'
-        run: lldb --batch -o run -k 'thread backtrace' -- build/mainwindow_test --profile-language
+        run: |
+          find ~/Library/Logs/DiagnosticReports -name 'mainwindow_test*.ips' -print -exec cat {} \;
+          export JC_UI_REPORT_DIR="$RUNNER_TEMP/window-crash"
+          mkdir -p "$JC_UI_REPORT_DIR"
+          lldb --batch -o run -k 'thread backtrace' -- build/mainwindow_test --profile-language

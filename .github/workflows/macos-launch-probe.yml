@@ -1,0 +1,19 @@
+name: macOS launch probe
+
+on:
+  push:
+    branches: [develop]
+    paths: [tests/macos_signing_smoke.py, .github/workflows/macos-launch-probe.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - run: |
+          sw_vers
+          python3 tests/macos_signing_smoke.py
