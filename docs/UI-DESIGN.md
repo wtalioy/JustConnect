@@ -46,7 +46,7 @@
 
 ## 原生实装进度
 
-首页沿用原生标题栏显示一次应用身份，内容区去掉重复 Logo／名称，顶部保留 24 px 外边距，使用 36 px 高／16 px 字号的自然宽度学校选择与独立的 22 px 设置图标；校名与箭头间距单独控制，文字宽度保留小数并向上取整，长名称省略但保留完整可访问文本，移除页头分隔线；学校标签从统一的展示映射翻译，保存的身份值不变，下面是实时状态和主操作；参考 [qBittorrent 主窗口](https://github.com/qbittorrent/qBittorrent/blob/master/src/gui/mainwindow.ui)与 [KeePassXC 主窗口](https://github.com/keepassxreboot/keepassxc/blob/develop/src/gui/MainWindow.ui)的标题栏／工作区分工，命名配置与可访问名称从当前设置派生，设置收在齿轮入口；日志与维护观察移入独立详情窗口。详情与托盘仍读取同一个会话，打开／关闭详情不改变连接；连接／断开使用居中的紧凑主按钮，下方是轻量的“详情”文字入口，删除旧页脚分隔与整行箭头，关闭复用原生窗口按钮，明确退出仍在菜单。公共浅色样式统一按钮、箭头、字号、输入及焦点反馈，替换并删除旧的三份主窗口样式，移除 Windows 固定字体。
+首页沿用原生标题栏显示一次应用身份，内容区去掉重复 Logo／名称，顶部保留 24 px 上边距，学校控件与设置图标的可见轮廓距两侧约 16 px（图标的透明点击区延伸到 8 px 外沿），使用 36 px 高／16 px 字号的自然宽度学校选择与独立的 22 px 设置图标；校名与箭头间距单独控制，文字宽度保留小数并向上取整，长名称省略但保留完整可访问文本，移除页头分隔线；学校标签从统一的展示映射翻译，保存的身份值不变，下面是实时状态和主操作；参考 [qBittorrent 主窗口](https://github.com/qbittorrent/qBittorrent/blob/master/src/gui/mainwindow.ui)与 [KeePassXC 主窗口](https://github.com/keepassxreboot/keepassxc/blob/develop/src/gui/MainWindow.ui)的标题栏／工作区分工，命名配置与可访问名称从当前设置派生，设置收在齿轮入口；日志与维护观察移入独立详情窗口。详情与托盘仍读取同一个会话，打开／关闭详情不改变连接；连接／断开使用居中的紧凑主按钮，下方是轻量的“详情”文字入口，删除旧页脚分隔与整行箭头，关闭复用原生窗口按钮，明确退出仍在菜单。公共浅色样式统一按钮、箭头、字号、输入及焦点反馈，替换并删除旧的三份主窗口样式，移除 Windows 固定字体。
 
 仅主窗口显式启用系统背景：Windows 使用 Desktop Acrylic 并保留标准窗口边框，macOS 使用 NSVisualEffectView；首页连接主体内缩 8 px，单独绘制不透明浅底与 8 px 圆角；顶部与四周细边形成连续外壳，避免横切一块材质。浅灰蓝叠层 alpha 为 235/255，降低桌面干扰，其余窗口不启用透明背景。材质上的学校选择与工具悬停使用半透明灰，不叠纯白色块。只在实际 Windows／Cocoa Qt 后端使用原生句柄，离屏等后端走清晰浅色回退。没有应用侧屏幕采集、逐帧模糊或持续动画。实现依据为 [DWM 背景材质](https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/ne-dwmapi-dwm_systembackdrop_type)及系统 AppKit；Windows 不支持该能力时回退浅色，不叠加旧版本私有 API。系统效果尚待对应桌面验证，不能用 离屏截图证明毛玻璃已生效。
 
