@@ -316,7 +316,10 @@ class VerifyPackageTest(unittest.TestCase):
             helper.parent.mkdir(parents=True)
             dependency.parent.mkdir(parents=True)
             dependency.touch()
-            (root / 'Contents/Info.plist').write_bytes(plistlib.dumps({'LSMinimumSystemVersion': '14.4', 'CFBundleIdentifier': 'app.fixture'}))
+            icon = root / 'Contents/Resources/JustConnect.icns'
+            icon.parent.mkdir()
+            (root / 'Contents/Info.plist').write_bytes(plistlib.dumps({'LSMinimumSystemVersion': '14.4',
+                'CFBundleIdentifier': 'app.fixture', 'CFBundleIconFile': icon.name}))
             relative = Path(os.path.relpath(dependency, helper.parent)).as_posix()
             def run(*args, **kwargs):
                 if args[0] == 'lipo':
@@ -329,6 +332,9 @@ class VerifyPackageTest(unittest.TestCase):
                     patch.object(package, 'check_macos_network_helper', return_value={}), \
                     patch.object(package.platform, 'mac_ver', return_value=('26.0', (), '')), \
                     patch.object(package.subprocess, 'run', return_value=SimpleNamespace(stderr=b'Signature=adhoc\nIdentifier=app.fixture')) as signature:
+                with self.assertRaisesRegex(RuntimeError, 'Packaged macOS app icon is missing'):
+                    package.macos_audit([helper], root, 'arm64', {})
+                icon.write_bytes((ROOT / 'resource' / icon.name).read_bytes())
                 audit = package.macos_audit([helper], root, 'arm64', {})
                 signature.return_value = SimpleNamespace(stderr=b'Signature=adhoc\nIdentifier=foreign.fixture')
                 with self.assertRaisesRegex(RuntimeError, 'Application signing identifier'):
