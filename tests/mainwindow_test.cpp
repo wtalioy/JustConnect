@@ -458,8 +458,9 @@ static void nativeHome(MainWindow &window) {
     if (!report.isEmpty()) check(window.grab().save(QDir(report).filePath("home.png")),"save actual Qt home screenshot");
     const auto original=window.size();window.resize(320,460);QCoreApplication::processEvents();
     auto *button=window.findChild<QPushButton *>("connectButton");
-    check(window.width()==320 && window.rect().contains(button->geometry()) && button->height()>=44,"compact home keeps its main action in bounds at 320 logical pixels");
-    check(button->width()*3<window.width()*2 && qAbs(button->geometry().center().x()-window.rect().center().x())<=1,
+    const QRect actionRect(button->mapTo(&window,QPoint()),button->size());
+    check(window.width()==320 && window.rect().contains(actionRect) && button->height()>=44,"compact home keeps its main action in bounds at 320 logical pixels");
+    check(button->width()*3<window.width()*2 && qAbs(actionRect.center().x()-window.rect().center().x())<=1,
         "connect and disconnect use a centered compact action instead of stretching across the home");
     auto *profile=window.findChild<QToolButton *>("profileMenuButton");
     check(profile->width()<=profile->sizeHint().width()+1,
