@@ -168,6 +168,11 @@ static void changeLanguageFromSettings(MainWindow &window,const QString &languag
     QCoreApplication::processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::LayoutRequest);QCoreApplication::processEvents();
     const auto report=qEnvironmentVariable("JC_UI_REPORT_DIR");
     if (!report.isEmpty()) check(dialog->grab().save(QDir(report).filePath("settings-"+ApplicationLanguage::instance().current()+".png")),"save native preferences screenshot");
+    if (!report.isEmpty()) {
+        choice->showPopup();UiWait::until(__FILE__,__LINE__,[&]{return choice->view()->isVisible();});
+        check(choice->view()->window()->grab().save(QDir(report).filePath("dropdown-"+ApplicationLanguage::instance().current()+".png")),
+            "save the actual dropdown panel and selected item");choice->hidePopup();
+    }
     check(!dialog->findChild<QLineEdit *>("serverAddressLineEdit") && !qobject_cast<SettingWindow *>(dialog),"the settings shortcut opens application preferences without connection fields");
     choice->setCurrentIndex(choice->findData(language));
     QCoreApplication::processEvents();
@@ -417,6 +422,7 @@ static void nativeHome(MainWindow &window) {
         };
         captureMenu(window.findChild<QToolButton *>("detailsToolsButton")->menu(),"details-menu.png");
         captureMenu(window.findChild<QSystemTrayIcon *>()->contextMenu(),"tray-menu.png");
+        captureMenu(window.findChild<QMenu *>("profileMenu"),"school-menu.png");
     }
     window.findChild<QPushButton *>("copyLogPushButton")->click();
     check(QApplication::clipboard()->text()==log->toPlainText(),"diagnostics copy the same bounded live log");

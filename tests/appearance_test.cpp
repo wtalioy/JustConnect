@@ -14,6 +14,8 @@
 #include <QWindow>
 #include <QLineEdit>
 #include <QComboBox>
+#include <QAbstractItemView>
+#include <QStandardItemModel>
 #include <QSpinBox>
 #include <QAbstractButton>
 #include <QStyleOption>
@@ -127,6 +129,17 @@ int main(int argc,char **argv) {
         std::cerr<<"text starts: line="<<lineStart<<" combo="<<comboStart<<" spin="<<spinStart<<'\n';
     check(std::abs(lineStart-comboStart)<=1 && std::abs(lineStart-spinStart)<=1,
         "line edits, dropdowns and numeric inputs align their text, not just their outer borders");
+    choice.addItem("Unavailable");choice.addItem("Another school");
+    qobject_cast<QStandardItemModel *>(choice.model())->item(1)->setEnabled(false);
+    choice.showPopup();QCoreApplication::processEvents();
+    auto *options=choice.view();
+    check(options->isVisible() && options->viewport()->rect().contains(options->visualRect(choice.model()->index(2,0))),
+        "the dropdown sizes its popup for padded rows without clipping the final option");
+    QKeyEvent next(QEvent::KeyPress,Qt::Key_Down,Qt::NoModifier);
+    QKeyEvent select(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
+    QApplication::sendEvent(options,&next);QApplication::sendEvent(options,&select);
+    check(choice.currentIndex()==2 && !options->isVisible(),
+        "styled dropdowns retain keyboard selection and skip disabled choices");
     ProfileMenuButton school;school.setObjectName("profileMenuButton");school.setText("MMM");
     layout.addWidget(&school);school.show();QCoreApplication::processEvents();
     const auto shortWidth=school.width();

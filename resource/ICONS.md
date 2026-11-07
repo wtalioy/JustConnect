@@ -27,4 +27,4 @@ Selected Lucide SVGs from [`53fab88ff9d1b48f4704b5b5b560d6b4d560bf4c`](https://g
 | `arrow-right.svg` | `arrow-right.svg` |
 | `arrow-left.svg` | `arrow-left.svg` |
 
-`icon.svg` and the connection-state illustrations are JustConnect artwork.
+`chevron-right.svg` rotates the existing Lucide chevron. `check.svg` is a matching geometric selection mark drawn for the application. `icon.svg` and the connection-state illustrations are JustConnect artwork.
