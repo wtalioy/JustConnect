@@ -1708,13 +1708,13 @@ Last %1: %2</source>
     <message>
         <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="238"/>
         <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="238"/>
-        <source>Refresh</source>
-        <translation>刷新</translation>
+        <source>Retry</source>
+        <translation>重试</translation>
     </message>
     <message>
         <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="239"/>
-        <source>Refreshing only reads the network. Choices do not expand server authorization. Switching sides may interrupt existing connections; a target cannot use both sides at once.</source>
-        <translation>这里展示最近读取的模型，刷新不自动应用；实际访问按已确认的网络策略及服务器授权判断。</translation>
+        <source>Inspection only reads the network. Choices require server authorization. Switching networks may interrupt existing connections. Each target can use one network at a time.</source>
+        <translation>检查只读取网络信息。选择仍需服务器授权，切换网络可能中断已有连接。每个目标同时只能使用一侧网络。</translation>
     </message>
     <message>
         <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="280"/>
@@ -1838,8 +1838,8 @@ Wildcards and whole scopes are not accepted. Server authorization still applies.
     </message>
     <message>
         <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="380"/>
-        <source>Could not read complete network information. Refresh to retry.</source>
-        <translation>网络信息无法完整读取或表示，可以刷新重试。</translation>
+        <source>Could not read complete network information.</source>
+        <translation>未能读取完整的网络信息。</translation>
     </message>
     <message>
         <location filename="../../presentation/dialogs/networkpolicywindow.cpp" line="421"/>

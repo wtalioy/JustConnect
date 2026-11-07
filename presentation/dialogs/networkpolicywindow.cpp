@@ -4,8 +4,6 @@
 #include "application/networkpolicysession.h"
 #include <QDialogButtonBox>
 #include <QEvent>
-#include <QIcon>
-#include <QStyle>
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QHostAddress>
@@ -13,6 +11,7 @@
 #include <QLabel>
 #include <QMap>
 #include <QPushButton>
+#include <QShowEvent>
 #include <QTabWidget>
 #include <QTreeWidget>
 #include <QVBoxLayout>
@@ -132,20 +131,17 @@ NetworkPolicyWindow::NetworkPolicyWindow(NetworkPolicySession *input, QWidget *p
     targets->setObjectName("networkPolicyTargets");
     targets->setRootIsDecorated(false);
     targets->setWordWrap(true);
-    targets->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-    targets->header()->setSectionResizeMode(1, QHeaderView::Stretch);
-    targets->header()->setSectionResizeMode(2, QHeaderView::Stretch);
-    targets->header()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
     namespaces->setObjectName("networkPolicyDnsNamespaces");
     namespaces->setRootIsDecorated(false);
     namespaces->setWordWrap(true);
-    namespaces->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-    namespaces->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-    namespaces->header()->setSectionResizeMode(2, QHeaderView::Stretch);
-    namespaces->header()->setSectionResizeMode(3, QHeaderView::Stretch);
+    for (auto *table : {targets,namespaces}) {
+        auto *header=table->header();
+        header->setStretchLastSection(false);
+        header->setSectionResizeMode(QHeaderView::Stretch);
+    }
     auto *addressPage = new QWidget(this);
     auto *addressLayout = new QVBoxLayout(addressPage);
-    addressLayout->setContentsMargins(0, 0, 0, 0);
+    addressLayout->setContentsMargins(0, 12, 0, 0);
     addressLayout->setSpacing(12);
     addressLayout->addWidget(targets);
     auto *actions = new QHBoxLayout;
@@ -164,7 +160,7 @@ NetworkPolicyWindow::NetworkPolicyWindow(NetworkPolicySession *input, QWidget *p
     policyMessage->setWordWrap(true);
     auto *namePage = new QWidget(this);
     auto *nameLayout = new QVBoxLayout(namePage);
-    nameLayout->setContentsMargins(0, 0, 0, 0);
+    nameLayout->setContentsMargins(0, 12, 0, 0);
     nameLayout->setSpacing(12);
     nameLayout->addWidget(namespaces);
     nameChoices = new QLabel(namePage);
@@ -188,10 +184,9 @@ NetworkPolicyWindow::NetworkPolicyWindow(NetworkPolicySession *input, QWidget *p
     tabs->addTab(addressPage, QString());
     tabs->addTab(namePage, QString());
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close,this);
-    refresh = buttons->addButton(QString(), QDialogButtonBox::ActionRole);
-    refresh->setObjectName("refreshNetworkPolicy");
-    refresh->setIcon(QIcon(":/resource/refresh.svg"));refresh->setIconSize(QSize(18,18));refresh->setProperty("iconOnly",true);refresh->setAutoDefault(false);refresh->setFlat(true);
-    refresh->style()->unpolish(refresh);refresh->style()->polish(refresh);
+    retry = buttons->addButton(QString(), QDialogButtonBox::ActionRole);
+    retry->setObjectName("retryNetworkPolicy");
+    retry->setAutoDefault(false);
     explanation = new QLabel(this);
     explanation->setWordWrap(true);
     auto *layout = new QVBoxLayout(this);
@@ -203,7 +198,7 @@ NetworkPolicyWindow::NetworkPolicyWindow(NetworkPolicySession *input, QWidget *p
     layout->addWidget(explanation);
     layout->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
-    connect(refresh, &QPushButton::clicked, this, [this] { if (session) session->refresh(); });
+    connect(retry, &QPushButton::clicked, this, [this] { if (session) session->refresh(); });
     connect(campus, &QPushButton::clicked, this, &NetworkPolicyWindow::chooseCampusAddress);
     connect(original, &QPushButton::clicked, this, &NetworkPolicyWindow::restoreOriginalAddress);
     connect(campusName, &QPushButton::clicked, this, [this] { editName(true); });
@@ -227,16 +222,30 @@ void NetworkPolicyWindow::changeEvent(QEvent *event)
         retranslate();updateModel();updateActions();updatePolicyMessage();
     }
 }
+void NetworkPolicyWindow::showEvent(QShowEvent *event)
+{
+    QDialog::showEvent(event);
+    if (!event->spontaneous() && session) session->refresh();
+}
+
 void NetworkPolicyWindow::retranslate()
 {
     setWindowTitle(tr("Network protection"));
     targets->setHeaderLabels({tr("Original network"),tr("Source"),tr("Campus overlap"),tr("Campus exceptions")});
     namespaces->setHeaderLabels({tr("Name or expression"),tr("Role"),tr("Source"),tr("Name matching")});
+    for (auto *table : {targets,namespaces}) {
+        auto *header=table->header();
+        header->setMinimumSectionSize(0);
+        int minimum=0;
+        for (int column=0;column<header->count();++column)
+            minimum=qMax(minimum,header->sectionSizeHint(column));
+        header->setMinimumSectionSize(minimum);
+    }
     campus->setText(tr("Use campus…"));original->setText(tr("Use original…"));
     campusName->setText(tr("Use campus…"));originalName->setText(tr("Use original…"));
     tabs->setTabText(0,tr("Addresses"));tabs->setTabText(1,tr("DNS sources"));
-    refresh->setToolTip(tr("Refresh"));refresh->setAccessibleName(tr("Refresh"));
-    explanation->setText(tr("Refreshing only reads the network. Choices do not expand server authorization. Switching sides may interrupt existing connections; a target cannot use both sides at once."));
+    retry->setText(tr("Retry"));
+    explanation->setText(tr("Inspection only reads the network. Choices require server authorization. Switching networks may interrupt existing connections. Each target can use one network at a time."));
 }
 QInputDialog *NetworkPolicyWindow::createEditor(std::function<void(QInputDialog *)> translate)
 {
@@ -371,18 +380,17 @@ void NetworkPolicyWindow::updateModel()
         PresentationHelpers::setTreeRows(namespaces,{});
     }
     if (editor && (!session || session->status() == CoreEngine::RequestStatus::Stale)) editor->reject();
-    refresh->setEnabled(false);
-    if (!session) { status->setText(NetworkPolicyWindow::tr("The connection has ended.")); return; }
     using Status = CoreEngine::RequestStatus;
-    const auto result = session->status();
+    const auto result = session ? session->status() : Status::Stale;
+    retry->setVisible(result != Status::Success && result != Status::Pending && result != Status::Stale && result != Status::Unavailable);
+    retry->setEnabled(session && !session->isBusy());
     if (result == Status::Stale) { status->setText(NetworkPolicyWindow::tr("The connection has ended.")); return; }
     if (result == Status::Unavailable) { status->setText(NetworkPolicyWindow::tr("No complete network results. Connect first, or check that network inspection is supported.")); return; }
-    refresh->setEnabled(!session->isBusy());
     if (result == Status::Pending) {
         status->setText(NetworkPolicyWindow::tr("Reading original networks and campus resources…"));
         if (displayedModel.isEmpty()) return;
     } else if (result == Status::Success) displayedModel = session->model();
-    else { status->setText(NetworkPolicyWindow::tr("Could not read complete network information. Refresh to retry.")); return; }
+    else { status->setText(NetworkPolicyWindow::tr("Could not read complete network information.")); return; }
     // Keep raw display data so language changes can translate retained rows during a refresh.
     const auto &model = displayedModel;
     const auto network = model["network"].toObject(), resources = model["resources"].toObject();

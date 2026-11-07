@@ -105,10 +105,15 @@ QListWidget::item { min-height: 22px; padding: 6px 8px; }
 
 QLabel[secondary="true"] { color: #737c8b; font-size: 9pt; }
 QLabel[warning="true"] { color: #835b1d; }
-QScrollBar:vertical { width: 12px; background: transparent; margin: 0 0 0 4px; }
-QScrollBar::handle:vertical { background: #b5c2d4; border-radius: 4px; min-height: 28px; }
+QScrollBar:vertical { width: 11px; background: transparent; margin: 4px 3px 4px 2px; }
+QScrollBar:horizontal { height: 11px; background: transparent; margin: 2px 4px 3px 4px; }
+QScrollBar::handle { background: #c0c7d1; border-radius: 3px; }
+QScrollBar::handle:hover { background: #9aa3af; }
+QScrollBar::handle:vertical { min-height: 28px; }
+QScrollBar::handle:horizontal { min-width: 28px; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
-QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }
+QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
 
 QPushButton[iconOnly="true"], QToolButton#applicationMenuButton, QToolButton#preferencesButton,
 QToolButton#backButton, QToolButton#forwardButton, QToolButton#reloadButton {

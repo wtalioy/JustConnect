@@ -10,6 +10,7 @@ class QPushButton;
 class QTreeWidget;
 class QInputDialog;
 class QTabWidget;
+class QShowEvent;
 
 class NetworkPolicyWindow : public QDialog
 {
@@ -18,6 +19,7 @@ public:
     explicit NetworkPolicyWindow(NetworkPolicySession *session, QWidget *parent = nullptr);
 protected:
     void changeEvent(QEvent *event) override;
+    void showEvent(QShowEvent *event) override;
 private:
     void retranslate();
     QInputDialog *createEditor(std::function<void(QInputDialog *)> translate);
@@ -39,6 +41,6 @@ private:
     QLabel *nameChoices;
     QTreeWidget *targets;
     QTreeWidget *namespaces;
-    QPushButton *refresh, *campus, *original, *campusName, *originalName;
+    QPushButton *retry, *campus, *original, *campusName, *originalName;
     QPointer<QInputDialog> editor;
 };
