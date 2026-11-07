@@ -61,6 +61,7 @@ QSpinBox::down-arrow { image: url(:/resource/chevron.svg); width: 12px; height: 
 QCheckBox, QRadioButton { spacing: 8px; color: #263143; min-height: 30px; }
 QGroupBox { font-weight: 600; background: transparent; border: none; border-top: 1px solid #dfe3eb; border-radius: 0; margin-top: 18px; padding: 20px 0 0 0; color: #182132; }
 QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 0; padding: 0 0 6px 0; }
+QWidget#applicationPreferencesContents QGroupBox { padding-top: 10px; }
 QTabWidget::pane { border: none; }
 QTabWidget::tab-bar { alignment: left; }
 QTabBar::tab { padding: 8px 16px; min-height: 18px; min-width: 48px; margin-right: 4px; color: #737c8b; border: 1px solid transparent; border-radius: 10px; font-weight: 600; }
@@ -100,7 +101,7 @@ QListWidget::item { min-height: 22px; padding: 6px 8px; }
 
 QLabel[secondary="true"] { color: #737c8b; font-size: 9pt; }
 QLabel[warning="true"] { color: #835b1d; }
-QScrollBar:vertical { width: 10px; background: transparent; margin: 0; }
+QScrollBar:vertical { width: 12px; background: transparent; margin: 0 0 0 4px; }
 QScrollBar::handle:vertical { background: #b5c2d4; border-radius: 4px; min-height: 28px; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
