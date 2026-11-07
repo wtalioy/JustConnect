@@ -1,5 +1,5 @@
 #pragma once
-#include <QIcon>
+#include <QPolygonF>
 #include <QStyleOptionToolButton>
 #include <QStylePainter>
 #include <QToolButton>
@@ -9,6 +9,7 @@ class ProfileMenuButton final : public QToolButton {
 public:
     explicit ProfileMenuButton(QWidget *parent=nullptr) : QToolButton(parent) {
         setPopupMode(InstantPopup);
+        setAutoRaise(true);
         setToolButtonStyle(Qt::ToolButtonTextOnly);
         setSizePolicy(QSizePolicy::Maximum,QSizePolicy::Fixed);
     }
@@ -31,10 +32,12 @@ protected:
         const int left=(width()-labelWidth-Gap-Arrow)/2;
         style()->drawItemText(&painter,QRect(left,0,labelWidth,height()),Qt::AlignLeft|Qt::AlignVCenter|Qt::TextSingleLine,
             option.palette,isEnabled(),label,QPalette::ButtonText);
-        chevron.paint(&painter,QRect(left+labelWidth+Gap,(height()-Arrow)/2,Arrow,Arrow),
-            Qt::AlignCenter,isEnabled()?QIcon::Normal:QIcon::Disabled);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.setPen(QPen(option.palette.color(isEnabled()?QPalette::Active:QPalette::Disabled,QPalette::ButtonText),
+            1.8,Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin));
+        painter.translate(left+labelWidth+Gap,(height()-Arrow)/2.0);
+        painter.drawPolyline(QPolygonF{QPointF(2,5),QPointF(8,11),QPointF(14,5)});
     }
 private:
-    static constexpr int Padding=10,Gap=8,Arrow=12,MinimumWidth=64;
-    const QIcon chevron{":/resource/chevron.svg"};
+    static constexpr int Padding=10,Gap=8,Arrow=16,MinimumWidth=64;
 };

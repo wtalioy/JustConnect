@@ -176,7 +176,8 @@ int main(int argc,char **argv) {
     layout.removeWidget(&school);school.setText("Default");
     auto fractionalFont=school.font();fractionalFont.setLetterSpacing(QFont::AbsoluteSpacing,0.2);school.setFont(fractionalFont);
     school.resize(school.sizeHint());const auto caption=school.grab().toImage();
-    const int captionWidth=school.width()-40;school.resize(school.width()+20,school.height());
+    const int captionWidth=qCeil(QFontMetricsF(school.font()).horizontalAdvance(school.text()));
+    school.resize(school.width()+20,school.height());
     const auto roomy=school.grab().toImage();const auto scale=caption.devicePixelRatio();
     check(caption.copy(10*scale,4*scale,captionWidth*scale,(school.height()-8)*scale)
         ==roomy.copy(20*scale,4*scale,captionWidth*scale,(school.height()-8)*scale),
