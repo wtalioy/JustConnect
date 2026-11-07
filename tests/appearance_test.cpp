@@ -10,6 +10,7 @@
 #include <QMouseEvent>
 #include <QKeyEvent>
 #include <QImage>
+#include <QPainter>
 #include <QLabel>
 #include <QWindow>
 #include <QLineEdit>
@@ -50,6 +51,34 @@ int main(int argc,char **argv) {
     QApplication app(argc,argv);
     ApplicationAppearance::install();
     QMainWindow dialog;
+    QPushButton disconnect("Disconnect",&dialog);
+    disconnect.setObjectName("connectButton");
+    disconnect.setDefault(true);
+    disconnect.setProperty("primaryAction",false);
+    disconnect.resize(152,46);
+    disconnect.ensurePolished();
+    const auto renderDisconnect=[&](QStyle::State state) {
+        QImage image(disconnect.size(),QImage::Format_RGB32);image.fill(QColor("#fafbfc"));
+        QPainter painter(&image);
+        QStyleOptionButton option;option.initFrom(&disconnect);
+        option.state=state | QStyle::State_Active | QStyle::State_Enabled;
+        option.features=QStyleOptionButton::DefaultButton;option.text=disconnect.text();
+        disconnect.style()->drawControl(QStyle::CE_PushButton,&option,&painter,&disconnect);
+        painter.end();
+        return image;
+    };
+    const auto resting=renderDisconnect(QStyle::State_None);
+    const auto hovered=renderDisconnect(QStyle::State_MouseOver);
+    const auto pressed=renderDisconnect(QStyle::State_MouseOver | QStyle::State_Sunken);
+    const QPoint fillSample(12,23);
+    check(resting.pixelColor(fillSample).lightness()>hovered.pixelColor(fillSample).lightness()
+        && hovered.pixelColor(fillSample)==QColor("#e4e7ec") && pressed.pixelColor(fillSample)==QColor("#dce0e6"),
+        "Disconnect stays neutral with distinct hover and press fills, including when it is the default button");
+    bool darkText=false;
+    for (int x=32;x<120;++x) for (int y=10;y<36;++y)
+        darkText|=hovered.pixelColor(x,y).lightness()<70;
+    check(darkText,"Disconnect keeps dark, legible text on hover");
+    disconnect.hide();
     dialog.resize(420,240);
     QWidget body(&dialog);body.setObjectName("homeBody");body.setGeometry(0,100,420,140);
     ObservedLabel title(&dialog);
@@ -195,5 +224,5 @@ int main(int argc,char **argv) {
     check(secret.hasFocus(),"clicking Details does not leave a persistent focus frame on the tool");
     QKeyEvent tab(QEvent::KeyPress,Qt::Key_Tab,Qt::NoModifier);QApplication::sendEvent(&secret,&tab);
     UiWait::until(__FILE__,__LINE__,[&]{return details.hasFocus();});
-    std::cout<<"PASS: transparent repaint, dialog reopening, and input action alignment\n";
+    std::cout<<"PASS: connection button feedback, opaque repaint, dialog reopening, and input alignment\n";
 }
