@@ -17,7 +17,7 @@
 #include <QVBoxLayout>
 
 ApplicationPreferencesWidget::ApplicationPreferencesWidget(QWidget *parent) : QWidget(parent) {
-    auto *layout=new QVBoxLayout(this);layout->setSpacing(14);layout->setContentsMargins(0,0,0,0);
+    auto *layout=new QVBoxLayout(this);layout->setSpacing(16);layout->setContentsMargins(0,0,0,0);
     behaviorGroup=new QGroupBox(this);layout->addWidget(behaviorGroup);
     auto *form=new QFormLayout(behaviorGroup);form->setHorizontalSpacing(12);form->setVerticalSpacing(8);form->setContentsMargins(0,0,0,0);
     form->setLabelAlignment(Qt::AlignLeft|Qt::AlignVCenter);
