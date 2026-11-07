@@ -79,6 +79,21 @@ int main(int argc,char **argv) {
         darkText|=hovered.pixelColor(x,y).lightness()<70;
     check(darkText,"Disconnect keeps dark, legible text on hover");
     disconnect.hide();
+    QToolButton gear(&dialog);gear.setObjectName("preferencesButton");gear.setAutoRaise(true);
+    gear.resize(40,40);gear.ensurePolished();
+    const auto gearFill=[&](QStyle::State state) {
+        QImage image(gear.size(),QImage::Format_RGB32);image.fill(QColor("#fafbfc"));
+        QPainter painter(&image);
+        QStyleOptionToolButton option;option.initFrom(&gear);
+        option.state=state | QStyle::State_Active | QStyle::State_Enabled | QStyle::State_AutoRaise;
+        option.subControls=QStyle::SC_ToolButton;
+        gear.style()->drawComplexControl(QStyle::CC_ToolButton,&option,&painter,&gear);
+        return image.pixelColor(20,20);
+    };
+    check(gearFill(QStyle::State_None)==QColor("#fafbfc") && gearFill(QStyle::State_HasFocus)==QColor("#fafbfc")
+        && gearFill(QStyle::State_MouseOver)==QColor("#e4e7ec"),
+        "settings only fills on hover or press, independent of keyboard focus");
+    gear.hide();
     dialog.resize(420,240);
     QWidget body(&dialog);body.setObjectName("homeBody");body.setGeometry(0,100,420,140);
     ObservedLabel title(&dialog);

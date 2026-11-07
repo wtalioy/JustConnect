@@ -84,7 +84,10 @@ int main(int argc,char **argv) {
     check(saved.value("JustConnect/ServerAddress")=="draft.example.edu" && saved.value("JustConnect/ProfileKind")=="Custom","explicit apply saves selected endpoint");
     settings.setValue("Common/NeedsConfiguration",true);
     editor.load(settings);
-    check(editor.serverAddress().isEmpty(),"legacy protocol requires an explicit new selection");
+    check(preset->count()==2 && preset->findData("Fudan")>=0 && preset->findData("Custom")>=0,
+        "the server popup lists only real choices");
+    check(preset->currentIndex()==-1 && !preset->placeholderText().isEmpty() && editor.serverAddress().isEmpty(),
+        "legacy protocol requires an explicit new selection with an inline prompt");
     preset->setCurrentIndex(preset->findData("Custom"));
     check(editor.serverAddress()=="draft.example.edu","legacy endpoint remains available for manual confirmation");
     settings.setValue("Common/NeedsConfiguration",false);

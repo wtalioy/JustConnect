@@ -85,8 +85,11 @@
                </item>
                <item>
                 <widget class="QPushButton" name="authSelectPushButton">
-                 <property name="text">
-                  <string>Get sign-in methods</string>
+                 <property name="sizePolicy">
+                  <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                   <horstretch>0</horstretch>
+                   <verstretch>0</verstretch>
+                  </sizepolicy>
                  </property>
                  <property name="autoDefault">
                   <bool>false</bool>
@@ -327,133 +330,6 @@
          </layout>
         </widget>
        </item>
-       <item>
-        <widget class="QWidget" name="profileGroup">
-         <layout class="QHBoxLayout" name="profileActions">
-          <item>
-           <widget class="QPushButton" name="importPushButton">
-            <property name="text">
-             <string />
-            </property>
-            <property name="toolTip">
-             <string>Import profile</string>
-            </property>
-            <property name="flat">
-             <bool>true</bool>
-            </property>
-            <property name="icon">
-             <iconset>
-              <normaloff>:/resource/import.svg</normaloff>
-             </iconset>
-            </property>
-            <property name="iconSize">
-             <size>
-              <width>18</width>
-              <height>18</height>
-             </size>
-            </property>
-            <property name="accessibleName">
-             <string>Import profile</string>
-            </property>
-            <property name="iconOnly" stdset="0">
-             <bool>true</bool>
-            </property>
-            <property name="autoDefault">
-             <bool>false</bool>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QPushButton" name="exportPushButton">
-            <property name="text">
-             <string />
-            </property>
-            <property name="toolTip">
-             <string>Export saved profile</string>
-            </property>
-            <property name="flat">
-             <bool>true</bool>
-            </property>
-            <property name="icon">
-             <iconset>
-              <normaloff>:/resource/export.svg</normaloff>
-             </iconset>
-            </property>
-            <property name="iconSize">
-             <size>
-              <width>18</width>
-              <height>18</height>
-             </size>
-            </property>
-            <property name="accessibleName">
-             <string>Export saved profile</string>
-            </property>
-            <property name="iconOnly" stdset="0">
-             <bool>true</bool>
-            </property>
-            <property name="autoDefault">
-             <bool>false</bool>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QPushButton" name="resetDefaultPushButton">
-            <property name="text">
-             <string />
-            </property>
-            <property name="toolTip">
-             <string>Reset draft</string>
-            </property>
-            <property name="flat">
-             <bool>true</bool>
-            </property>
-            <property name="icon">
-             <iconset>
-              <normaloff>:/resource/undo.svg</normaloff>
-             </iconset>
-            </property>
-            <property name="iconSize">
-             <size>
-              <width>18</width>
-              <height>18</height>
-             </size>
-            </property>
-            <property name="accessibleName">
-             <string>Reset draft</string>
-            </property>
-            <property name="iconOnly" stdset="0">
-             <bool>true</bool>
-            </property>
-            <property name="autoDefault">
-             <bool>false</bool>
-            </property>
-           </widget>
-          </item>
-          <property name="leftMargin">
-           <number>0</number>
-          </property>
-          <property name="topMargin">
-           <number>0</number>
-          </property>
-          <property name="rightMargin">
-           <number>0</number>
-          </property>
-          <property name="bottomMargin">
-           <number>0</number>
-          </property>
-          <item>
-           <spacer name="fileActionsSpacer">
-            <property name="orientation">
-             <enum>Qt::Horizontal</enum>
-            </property>
-           </spacer>
-          </item>
-          <property name="spacing">
-           <number>8</number>
-          </property>
-         </layout>
-        </widget>
-       </item>
        <property name="sizeConstraint">
         <enum>QLayout::SetMinAndMaxSize</enum>
        </property>
@@ -484,11 +360,136 @@
     </widget>
    </item>
    <item>
-    <widget class="QDialogButtonBox" name="buttonBox">
-     <property name="standardButtons">
-      <set>QDialogButtonBox::NoButton</set>
+    <layout class="QVBoxLayout" name="footerLayout">
+     <property name="spacing">
+      <number>8</number>
      </property>
-    </widget>
+     <item>
+      <widget class="QWidget" name="profileGroup">
+       <layout class="QHBoxLayout" name="profileActions">
+        <item>
+         <widget class="QPushButton" name="importPushButton">
+          <property name="text">
+           <string>Import</string>
+          </property>
+          <property name="toolTip">
+           <string>Import profile</string>
+          </property>
+          <property name="flat">
+           <bool>true</bool>
+          </property>
+          <property name="icon">
+           <iconset>
+            <normaloff>:/resource/import.svg</normaloff>
+           </iconset>
+          </property>
+          <property name="iconSize">
+           <size>
+            <width>18</width>
+            <height>18</height>
+           </size>
+          </property>
+          <property name="accessibleName">
+           <string>Import profile</string>
+          </property>
+          <property name="autoDefault">
+           <bool>false</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="exportPushButton">
+          <property name="text">
+           <string>Export</string>
+          </property>
+          <property name="toolTip">
+           <string>Export saved profile</string>
+          </property>
+          <property name="flat">
+           <bool>true</bool>
+          </property>
+          <property name="icon">
+           <iconset>
+            <normaloff>:/resource/export.svg</normaloff>
+           </iconset>
+          </property>
+          <property name="iconSize">
+           <size>
+            <width>18</width>
+            <height>18</height>
+           </size>
+          </property>
+          <property name="accessibleName">
+           <string>Export saved profile</string>
+          </property>
+          <property name="autoDefault">
+           <bool>false</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="resetDefaultPushButton">
+          <property name="text">
+           <string>Reset</string>
+          </property>
+          <property name="toolTip">
+           <string>Reset draft</string>
+          </property>
+          <property name="flat">
+           <bool>true</bool>
+          </property>
+          <property name="icon">
+           <iconset>
+            <normaloff>:/resource/undo.svg</normaloff>
+           </iconset>
+          </property>
+          <property name="iconSize">
+           <size>
+            <width>18</width>
+            <height>18</height>
+           </size>
+          </property>
+          <property name="accessibleName">
+           <string>Reset draft</string>
+          </property>
+          <property name="autoDefault">
+           <bool>false</bool>
+          </property>
+         </widget>
+        </item>
+        <property name="leftMargin">
+         <number>0</number>
+        </property>
+        <property name="topMargin">
+         <number>0</number>
+        </property>
+        <property name="rightMargin">
+         <number>0</number>
+        </property>
+        <property name="bottomMargin">
+         <number>0</number>
+        </property>
+        <item>
+         <spacer name="fileActionsSpacer">
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+         </spacer>
+        </item>
+        <property name="spacing">
+         <number>8</number>
+        </property>
+       </layout>
+      </widget>
+     </item>
+     <item>
+      <widget class="QDialogButtonBox" name="buttonBox">
+       <property name="standardButtons">
+        <set>QDialogButtonBox::NoButton</set>
+       </property>
+      </widget>
+     </item>
+    </layout>
    </item>
    <property name="spacing">
     <number>16</number>

@@ -255,6 +255,7 @@ void SettingWindow::setProfileEditable(bool editable) {
 }
 void SettingWindow::updateBusy() {
     ui->loginTabContents->setEnabled(profileEditable && !saving);
+    ui->profileGroup->setEnabled(profileEditable && !saving);
     profileHint->setVisible(!profileEditable);
     profileHint->setText(tr("Disconnect to edit this connection."));
     saveButton->setVisible(profileEditable);

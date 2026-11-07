@@ -31,10 +31,10 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     preset->setObjectName("profileKindComboBox");
     preset->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
     preset->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Fixed);
-    preset->addItem(QString(), "");
     const auto builtInKind=DefaultSettings::builtInProfile().value("JustConnect/ProfileKind").toString();
     preset->addItem(builtInKind,builtInKind);
     preset->addItem(QString(), "Custom");
+    preset->setCurrentIndex(-1);
     address = new QLineEdit(this);
     address->setObjectName("serverAddressLineEdit");
     address->setPlaceholderText("vpn.example.edu.cn");
@@ -106,7 +106,7 @@ void ServerSettingsWidget::changeEvent(QEvent *event) {
 }
 void ServerSettingsWidget::retranslate() {
     QSignalBlocker blocker(preset);
-    preset->setItemText(0,tr("Choose a preset or custom server"));
+    preset->setPlaceholderText(tr("Select server"));
     const auto builtIn=DefaultSettings::builtInProfile().value("JustConnect/ProfileKind").toString();
     preset->setItemText(preset->findData(builtIn),PresentationHelpers::profileKindLabel(builtIn));
     preset->setItemText(preset->findData("Custom"),PresentationHelpers::profileKindLabel("Custom"));

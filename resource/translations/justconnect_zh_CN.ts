@@ -1980,8 +1980,8 @@ Some system settings may have changed. Check them before retrying.</source>
     <name>ServerSettingsWidget</name>
     <message>
         <location filename="../../presentation/widgets/serversettingswidget.cpp" line="92"/>
-        <source>Choose a preset or custom server</source>
-        <translation>选择预设或自定义服务器</translation>
+        <source>Select server</source>
+        <translation>选择服务器</translation>
     </message>
     <message>
         <location filename="../../presentation/widgets/serversettingswidget.cpp" line="96"/>
@@ -2050,7 +2050,7 @@ Some system settings may have changed. Check them before retrying.</source>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="276"/>
         <source>Startup and connection</source>
-        <translation>应用偏好</translation>
+        <translation>启动与连接</translation>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="282"/>
@@ -2086,11 +2086,6 @@ Some system settings may have changed. Check them before retrying.</source>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="49"/>
         <source>Sign-in method</source>
         <translation>认证</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="89"/>
-        <source>Get sign-in methods</source>
-        <translation>从服务器获取认证方式</translation>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="57"/>
@@ -2394,6 +2389,18 @@ Some system settings may have changed. Check them before retrying.</source>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="367"/>
         <source>Could not save profile</source>
         <translation>保存设置未完成</translation>
+    </message>
+    <message>
+        <source>Import</source>
+        <translation>导入</translation>
+    </message>
+    <message>
+        <source>Export</source>
+        <translation>导出</translation>
+    </message>
+    <message>
+        <source>Reset</source>
+        <translation>重置</translation>
     </message>
 </context>
 <context>

@@ -65,6 +65,7 @@ MainWindow::MainWindow(
 
     QApplication::setWindowIcon(QIcon(":/resource/icon.svg"));
     ui->setupUi(this);
+    ui->centralWidget->setFocus(Qt::OtherFocusReason);
     ui->logPlainTextEdit->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
     ui->detailsDialog->resize(640,568);
     PresentationHelpers::setButtonIcon(ui->diagnosticRulesButton,":/resource/rules.svg");

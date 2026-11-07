@@ -489,12 +489,16 @@ static void nativeHome(MainWindow &window) {
     if (!report.isEmpty()) check(window.grab().save(QDir(report).filePath("home.png")),"save actual Qt home screenshot");
     const auto original=window.size();window.resize(320,460);QCoreApplication::processEvents();
     auto *button=window.findChild<QPushButton *>("connectButton");
+    auto *detailsButton=window.findChild<QPushButton *>("detailsButton");
     const QRect actionRect(button->mapTo(&window,QPoint()),button->size());
+    const QRect detailsRect(detailsButton->mapTo(&window,QPoint()),detailsButton->size());
     check(window.width()==320 && window.rect().contains(actionRect) && button->height()>=44,"compact home keeps its main action in bounds at 320 logical pixels");
-    check(button->width()*3<window.width()*2 && qAbs(actionRect.center().x()-window.rect().center().x())<=1,
-        "connect and disconnect use a centered compact action instead of stretching across the home");
-    check(button->width()==window.findChild<QPushButton *>("detailsButton")->width(),
-        "home actions share a centered visual width");
+    check(window.rect().contains(detailsRect) && detailsRect.left()-actionRect.right()==9
+        && actionRect.height()==detailsRect.height() && detailsRect.width()==detailsRect.height()
+        && qAbs(actionRect.united(detailsRect).center().x()-window.rect().center().x())<=1,
+        "the centered action pair uses a square, aligned details control at narrow widths");
+    check(detailsButton->text().isEmpty() && !detailsButton->icon().isNull() && !detailsButton->toolTip().isEmpty()
+        && !detailsButton->accessibleName().isEmpty(),"the diagnostics icon remains discoverable and accessible");
     auto *profile=window.findChild<QToolButton *>("profileMenuButton");
     check(profile->width()<=profile->sizeHint().width()+1,
         "the preset selector uses its natural width instead of stretching toward the settings gear");
@@ -557,6 +561,7 @@ int main(int argc,char **argv) {
         // UI preference tests retain the real core without requesting host network privileges.
         MainWindow window(&logger,&log,nullptr,[](CoreEngine *,NetworkPolicySession *) -> NetworkAccess * { return nullptr; });
         check(window.isVisible(),"normal startup must show the main window");
+        check(window.focusWidget()==window.centralWidget(),"startup leaves focus on the home surface");
         if (app.arguments().contains("--auth-language")) authenticationLanguageChangesPreserveData(window);
         if (app.arguments().contains("--profile-language")) profileSetupLanguageChangesPreserveData(window);
         if (app.arguments().contains("--chinese-startup")) {
