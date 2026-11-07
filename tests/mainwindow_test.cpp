@@ -93,16 +93,19 @@ static void recoveryStatus(ApplicationLogger &logger,ApplicationLogFile &log) {
     check(accessible->text(QAccessible::Name)==title->text(),"the accessible state follows confirmed recovery");
 }
 static void profileMenusDoNotAccumulateGroups(MainWindow &window,const QString &profile) {
-    auto *menu=window.findChild<QMenu *>("profileMenu");
+    auto *menuButton=window.findChild<QToolButton *>("profileMenuButton");
+    auto *menu=menuButton->menu();
+    auto *menuBarProfiles=window.findChild<QMenu *>("profileMenu");
     auto *tray=window.findChild<QSystemTrayIcon *>();
     QMenu *trayMenu=nullptr;
     for (auto *action:tray->contextMenu()->actions()) if (action->menu()) trayMenu=action->menu();
-    check(menu && trayMenu,"both profile menus are available");
-    auto *menuButton=window.findChild<QToolButton *>("profileMenuButton");
+    check(menu && trayMenu && menuBarProfiles && menu!=menuBarProfiles,
+        "home, tray and native menu bar use separate profile menus");
     auto *editAction=window.findChild<QAction *>("settingAction");
     auto *addAction=window.findChild<QAction *>("newProfileAction");
-    check(menuButton && menuButton->menu()==menu && menu->actions().contains(editAction)
-        && menu->actions().contains(addAction),"profile menu exposes edit, add and selection together");
+    check(menu->actions().contains(editAction) && menu->actions().contains(addAction)
+        && menuBarProfiles->actions().contains(editAction) && menuBarProfiles->actions().contains(addAction),
+        "the home and native profile menus expose the same edit and add actions");
     editAction->trigger();
     auto *editor=window.findChild<SettingWindow *>();
     check(editor && editor->isVisible(),"edit control opens the active profile");
@@ -120,7 +123,8 @@ static void profileMenusDoNotAccumulateGroups(MainWindow &window,const QString &
         return result;
     };
     const auto initial=checked(menu);
-    check(!initial.isEmpty() && checked(trayMenu)==initial,"profile menus start with the same selection");
+    check(!initial.isEmpty() && checked(trayMenu)==initial && checked(menuBarProfiles)==initial,
+        "profile menus start with the same selection");
     ProfileManager storage;
     QSettings defaultProfile(storage.profilePath(""),QSettings::IniFormat);
     defaultProfile.setValue("JustConnect/ProfileKind","Fudan");
@@ -135,7 +139,8 @@ static void profileMenusDoNotAccumulateGroups(MainWindow &window,const QString &
         for (auto *action:source->actions()) if (action->isCheckable() && action->text()==name) choice=action;
         check(choice,"target profile is present after rebuilding the menu");
         choice->trigger();
-        check(checked(menu)==name && checked(trayMenu)==name,"main and tray profile selections stay synchronized");
+        check(checked(menu)==name && checked(trayMenu)==name && checked(menuBarProfiles)==name,
+            "home, tray and native profile selections stay synchronized");
         check(name==profile ? menuButton->text().contains("vpn.other-campus.invalid") && menuButton->text().contains(profile)
                             : menuButton->text()=="Fudan",
             "home identifies the selected preset or server together with a named profile");
@@ -436,7 +441,7 @@ static void nativeHome(MainWindow &window) {
         };
         captureMenu(appMenu,"application-menu.png");
         captureMenu(window.findChild<QSystemTrayIcon *>()->contextMenu(),"tray-menu.png");
-        captureMenu(window.findChild<QMenu *>("profileMenu"),"profile-menu.png");
+        captureMenu(window.findChild<QToolButton *>("profileMenuButton")->menu(),"profile-menu.png");
     }
     check(!log->toPlainText().contains("QFont::setPointSize: Point size <= 0"),
         "drawing the home and menus does not pass an invalid point size to Qt");
