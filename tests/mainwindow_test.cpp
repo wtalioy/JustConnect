@@ -172,8 +172,12 @@ static void changeLanguageFromSettings(MainWindow &window,const QString &languag
     check(choice && choice->findData(language)>=0,"settings expose the requested language");
     QCoreApplication::processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::LayoutRequest);QCoreApplication::processEvents();
     const auto report=qEnvironmentVariable("JC_UI_REPORT_DIR");
-    if (!report.isEmpty()) check(dialog->grab().save(QDir(report).filePath("settings-"+ApplicationLanguage::instance().current()+".png")),"save native preferences screenshot");
     if (!report.isEmpty()) {
+        auto *viewport=dialog->findChild<QScrollArea *>()->viewport();
+        auto *controller=dialog->findChild<QPushButton *>("controllerSettingsButton");
+        check(viewport->rect().contains(QRect(controller->mapTo(viewport,QPoint()),controller->size())),
+            "the default native settings size exposes the complete Clash chooser");
+        check(dialog->grab().save(QDir(report).filePath("settings-"+ApplicationLanguage::instance().current()+".png")),"save native preferences screenshot");
         choice->showPopup();UiWait::until(__FILE__,__LINE__,[&]{return choice->view()->isVisible();});
         check(choice->view()->window()->grab().save(QDir(report).filePath("dropdown-"+ApplicationLanguage::instance().current()+".png")),
             "save the actual dropdown panel and selected item");choice->hidePopup();
