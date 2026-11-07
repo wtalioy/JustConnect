@@ -162,8 +162,12 @@ int main(int argc,char **argv) {
         const auto *surface=options->window()->windowHandle();
         return options->isVisible() && surface && surface->isExposed();
     });
-    check(options->viewport()->rect().contains(options->visualRect(choice.model()->index(2,0))),
+    const auto lastRow=options->visualRect(choice.model()->index(2,0));
+    check(options->viewport()->rect().contains(lastRow),
         "the dropdown sizes its popup for padded rows without clipping the final option");
+    const int textHeight=options->fontMetrics().height();
+    check(lastRow.height()>=qMax(24,textHeight) && lastRow.height()<=qMax(26,textHeight+16),
+        "the opened dropdown keeps full text height without adding excess padding to the native row");
     QKeyEvent next(QEvent::KeyPress,Qt::Key_Down,Qt::NoModifier);
     QKeyEvent selectOverride(QEvent::ShortcutOverride,Qt::Key_Return,Qt::NoModifier);
     QKeyEvent select(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
