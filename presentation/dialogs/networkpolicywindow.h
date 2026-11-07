@@ -1,5 +1,6 @@
 #pragma once
 #include <QDialog>
+#include <QJsonObject>
 #include <QPointer>
 #include <functional>
 
@@ -32,6 +33,7 @@ private:
     void restoreOriginalAddress();
     void editName(bool campus);
     QPointer<NetworkPolicySession> session;
+    QJsonObject displayedModel;
     QLabel *status;
     QLabel *policyMessage;
     QLabel *nameChoices;

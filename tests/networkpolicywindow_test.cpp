@@ -139,6 +139,19 @@ int main(int argc, char **argv) try
     check(session.status() == CoreEngine::RequestStatus::Pending && tree->topLevelItemCount() == 3
           && tree->currentItem() && tree->currentItem()->text(0) == "192.168.24.0/24" && !choose->isEnabled(),
           "Native observation cleared the selected scope or enabled stale policy actions");
+    if(app.arguments().size()==3 && app.arguments()[1]=="--catalog"){
+        QTranslator translation;check(translation.load(app.arguments()[2]),"load the application catalog during refresh");
+        app.installTranslator(&translation);QCoreApplication::sendPostedEvents(nullptr,QEvent::LanguageChange);
+        check(session.status()==CoreEngine::RequestStatus::Pending && !choose->isEnabled()
+            && lanRow() && lanRow()->text(1).contains(QString::fromUtf8("路由记录"))
+            && hostSource->text(1)==QString::fromUtf8("系统名称规则（原生表达式）")
+            && status->text()==QString::fromUtf8("正在读取原网络与校园资源…"),
+            "retained rows and pending status translate immediately without enabling stale actions");
+        app.removeTranslator(&translation);QCoreApplication::sendPostedEvents(nullptr,QEvent::LanguageChange);
+        check(session.status()==CoreEngine::RequestStatus::Pending && lanRow()->text(1).contains("Route")
+            && status->text()=="Reading original networks and campus resources…",
+            "English is restored in retained rows before the refresh completes");
+    }
     until([&] { return session.status() == CoreEngine::RequestStatus::Success; });
     check(tree->currentItem() && tree->currentItem()->text(0) == "192.168.24.0/24" && choose->isEnabled(),
           "Settled observation lost the selected scope");
