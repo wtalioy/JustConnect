@@ -11,6 +11,8 @@
 #include <QAbstractButton>
 #include <QIconEngine>
 #include <QPainter>
+#include <QTreeWidget>
+#include <QSignalBlocker>
 
 #include "application/applicationconstants.h"
 #include "application/defaultsettings.h"
@@ -31,6 +33,28 @@ public:
 private:
     QIcon icon;
 };
+}
+
+bool PresentationHelpers::setTreeRows(QTreeWidget *tree,const QList<QStringList> &rows)
+{
+    bool same=tree->topLevelItemCount()==rows.size();
+    for(int i=0;same && i<rows.size();++i)
+        for(int column=0;same && column<tree->columnCount();++column)
+            same=tree->topLevelItem(i)->text(column)==rows[i].value(column);
+    if(same) return false;
+    const QSignalBlocker blocker(tree);
+    const bool updates=tree->updatesEnabled();tree->setUpdatesEnabled(false);
+    while(tree->topLevelItemCount()>rows.size()) delete tree->takeTopLevelItem(rows.size());
+    for(int i=0;i<rows.size();++i) {
+        auto *row=tree->topLevelItem(i);
+        if(!row) row=new QTreeWidgetItem(tree);
+        for(int column=0;column<tree->columnCount();++column) {
+            const auto text=rows[i].value(column);
+            row->setText(column,text);row->setToolTip(column,text);
+        }
+    }
+    tree->setUpdatesEnabled(updates);
+    return true;
 }
 
 void PresentationHelpers::setButtonIcon(QAbstractButton *button,const QString &path)

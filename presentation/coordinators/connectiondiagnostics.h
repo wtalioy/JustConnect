@@ -24,5 +24,6 @@ class ConnectionDiagnostics final : public QObject
     QPointer<NetworkPolicySession> policy;
     QPointer<SystemProxySession> proxy;
     QString generation, mode, code;
+    QJsonObject confirmedModel;
     bool exitKnown = false, clashActive = false, tun = false;
 };

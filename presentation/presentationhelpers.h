@@ -2,6 +2,8 @@
 #define PRESENTATIONHELPERS_H
 
 #include <QString>
+#include <QStringList>
+#include <QList>
 #include "application/platformoperationresult.h"
 #include "application/credentialstore.h"
 
@@ -9,6 +11,7 @@ class QWidget;
 class QLineEdit;
 class QAction;
 class QAbstractButton;
+class QTreeWidget;
 
 namespace PresentationHelpers
 {
@@ -19,6 +22,7 @@ void activateWindow(QWidget *window);
 QAction *passwordVisibilityAction(QLineEdit *field);
 void setButtonIcon(QAbstractButton *button,const QString &path);
 QString profileKindLabel(const QString &kind);
+bool setTreeRows(QTreeWidget *tree,const QList<QStringList> &rows);
 }
 
 #endif // PRESENTATIONHELPERS_H

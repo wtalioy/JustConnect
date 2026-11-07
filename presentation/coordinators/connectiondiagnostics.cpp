@@ -12,6 +12,7 @@ ConnectionDiagnostics::ConnectionDiagnostics(CoreEngine *core, ConnectionSession
 {
     connect(core, &CoreEngine::sessionStarted, this, [this](const QString &id) {
         generation = id;
+        confirmedModel = {};
         exitKnown = false;
         mode.clear();
         code.clear();
@@ -19,6 +20,7 @@ ConnectionDiagnostics::ConnectionDiagnostics(CoreEngine *core, ConnectionSession
     });
     connect(core, &CoreEngine::finished, this, [this] {
         generation.clear();
+        confirmedModel = {};
         exitKnown = false;
         mode.clear();
         emit changed();
@@ -54,7 +56,14 @@ ConnectionDiagnostics::ConnectionDiagnostics(CoreEngine *core, ConnectionSession
     });
     connect(connection, &ConnectionSession::stateChanged, this, &ConnectionDiagnostics::changed);
     connect(connection, &ConnectionSession::progressChanged, this, &ConnectionDiagnostics::changed);
-    connect(policy, &NetworkPolicySession::changed, this, &ConnectionDiagnostics::changed);
+    connect(policy, &NetworkPolicySession::changed, this, [this] {
+        const bool current = !generation.isEmpty() && this->policy->currentGeneration() == generation;
+        // A read in flight keeps the last confirmed display; errors and generation changes invalidate it.
+        if (!current || this->policy->status() != CoreEngine::RequestStatus::Pending)
+            confirmedModel = current && this->policy->status() == CoreEngine::RequestStatus::Success
+                ? this->policy->model() : QJsonObject{};
+        emit changed();
+    });
     connect(proxy, &SystemProxySession::busyChanged, this, &ConnectionDiagnostics::changed);
     connect(proxy, &SystemProxySession::enabledChanged, this, &ConnectionDiagnostics::changed);
 }
@@ -64,9 +73,8 @@ QList<QPair<QString,QString>> ConnectionDiagnostics::fields() const
     const auto unknown = tr("Unknown");
     if (!connection || !policy || !proxy)
         return {};
-    const auto model = policy->model();
+    const auto model = confirmedModel;
     const bool confirmed = !generation.isEmpty() && policy->currentGeneration() == generation &&
-                           policy->status() == CoreEngine::RequestStatus::Success &&
                            model["schema_version"].toInteger() > 0;
     const auto resources = confirmed ? model["resources"].toObject() : QJsonObject();
     const auto endpoint = [&](const QString &key) {

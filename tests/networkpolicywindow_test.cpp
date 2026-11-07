@@ -1,6 +1,7 @@
 #include "presentation/dialogs/networkpolicywindow.h"
 #include "application/networkpolicysession.h"
 #include <QApplication>
+#include <QPersistentModelIndex>
 #include <QElapsedTimer>
 #include <QLabel>
 #include <QPushButton>
@@ -132,6 +133,8 @@ int main(int argc, char **argv) try
         return nullptr;
     };
     tree->setCurrentItem(lanRow());
+    const QPersistentModelIndex addressIndex=tree->indexFromItem(lanRow());
+    const QPersistentModelIndex dnsIndex=dns->model()->index(0,0);
     refresh->click();
     check(session.status() == CoreEngine::RequestStatus::Pending && tree->topLevelItemCount() == 3
           && tree->currentItem() && tree->currentItem()->text(0) == "192.168.24.0/24" && !choose->isEnabled(),
@@ -139,6 +142,8 @@ int main(int argc, char **argv) try
     until([&] { return session.status() == CoreEngine::RequestStatus::Success; });
     check(tree->currentItem() && tree->currentItem()->text(0) == "192.168.24.0/24" && choose->isEnabled(),
           "Settled observation lost the selected scope");
+    check(addressIndex.isValid() && dnsIndex.isValid(),
+        "an unchanged refresh preserves address and DNS rows instead of deleting and recreating them");
     auto activeInput = [&]() -> QInputDialog * {
         for (auto *input : window.findChildren<QInputDialog *>()) if (input->isVisible()) return input;
         check(false, "Address action did not open its input");
