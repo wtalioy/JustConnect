@@ -146,6 +146,8 @@ int main(int argc,char **argv) {
         "keyboard navigation skips disabled choices before committing a dropdown selection");
     // Qt commits popup Return in ShortcutOverride, before dispatching the key press.
     QApplication::sendEvent(options,&selectOverride);QApplication::sendEvent(options,&select);
+    // Native menu styles briefly flash the chosen row before hiding the popup.
+    UiWait::until(__FILE__,__LINE__,[&]{return choice.currentIndex()==2 && !options->isVisible();});
     check(choice.currentIndex()==2 && !options->isVisible(),
         "styled dropdowns retain keyboard selection and skip disabled choices");
     ProfileMenuButton school;school.setObjectName("profileMenuButton");school.setText("MMM");
