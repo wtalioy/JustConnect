@@ -364,7 +364,9 @@ void NetworkPolicyWindow::editName(bool campus)
 void NetworkPolicyWindow::updateModel()
 {
     const auto selected = targets->currentItem() ? targets->currentItem()->text(0) : QString();
-    if (!session || (session->status() != CoreEngine::RequestStatus::Pending && session->status() != CoreEngine::RequestStatus::Success)) {
+    if (!session || displayedModel["generation"] != session->currentGeneration()
+        || (session->status() != CoreEngine::RequestStatus::Pending && session->status() != CoreEngine::RequestStatus::Success)) {
+        displayedModel = {};
         PresentationHelpers::setTreeRows(targets,{});
         PresentationHelpers::setTreeRows(namespaces,{});
     }
@@ -376,9 +378,13 @@ void NetworkPolicyWindow::updateModel()
     if (result == Status::Stale) { status->setText(NetworkPolicyWindow::tr("The connection has ended.")); return; }
     if (result == Status::Unavailable) { status->setText(NetworkPolicyWindow::tr("No complete network results. Connect first, or check that network inspection is supported.")); return; }
     refresh->setEnabled(!session->isBusy());
-    if (result == Status::Pending) { status->setText(NetworkPolicyWindow::tr("Reading original networks and campus resources…")); return; }
-    if (result != Status::Success) { status->setText(NetworkPolicyWindow::tr("Could not read complete network information. Refresh to retry.")); return; }
-    const auto model = session->model();
+    if (result == Status::Pending) {
+        status->setText(NetworkPolicyWindow::tr("Reading original networks and campus resources…"));
+        if (displayedModel.isEmpty()) return;
+    } else if (result == Status::Success) displayedModel = session->model();
+    else { status->setText(NetworkPolicyWindow::tr("Could not read complete network information. Refresh to retry.")); return; }
+    // Keep raw display data so language changes can translate retained rows during a refresh.
+    const auto &model = displayedModel;
     const auto network = model["network"].toObject(), resources = model["resources"].toObject();
     const auto scopes = model["targets"].toArray(), conflicts = model["conflicts"].toArray();
     QMap<int, QStringList> overlapText;
@@ -430,6 +436,7 @@ void NetworkPolicyWindow::updateModel()
         dnsRows.append(QStringList{rule["value"].toString(), NetworkPolicyWindow::tr("System reserved name"), NetworkPolicyWindow::tr("Loopback"), nameRule(rule)});
     }
     PresentationHelpers::setTreeRows(namespaces,dnsRows);
-    status->setText(NetworkPolicyWindow::tr("%1 original scopes · %2 campus overlaps · %3 DNS sources")
-        .arg(scopes.size()).arg(conflicts.size()).arg(namespaces->topLevelItemCount()));
+    if (result == Status::Success)
+        status->setText(NetworkPolicyWindow::tr("%1 original scopes · %2 campus overlaps · %3 DNS sources")
+            .arg(scopes.size()).arg(conflicts.size()).arg(namespaces->topLevelItemCount()));
 }
