@@ -11,6 +11,8 @@
 #include <QStyleOptionFrame>
 #include <QPushButton>
 #include <QToolButton>
+#include <QComboBox>
+#include <QStyledItemDelegate>
 
 namespace {
 void prepareWindow(QWidget *window) {
@@ -25,6 +27,11 @@ public:
         if (event->type()!=QEvent::Create && event->type()!=QEvent::Polish && event->type()!=QEvent::Show) return false;
         auto *window=qobject_cast<QWidget *>(object);
         if(event->type()==QEvent::Polish) {
+            // Use the same inset item rendering instead of platform-specific combo menu delegates.
+            if(auto *combo=qobject_cast<QComboBox *>(window)) {
+                if(!qobject_cast<QStyledItemDelegate *>(combo->itemDelegate()))
+                    combo->setItemDelegate(new QStyledItemDelegate(combo));
+            }
             auto *push=qobject_cast<QPushButton *>(window);
             auto *tool=qobject_cast<QToolButton *>(window);
             if(((push && push->isFlat()) || (tool && tool->autoRaise()))
@@ -77,7 +84,7 @@ void ApplicationAppearance::install(QWidget *initialWindow) {
     palette.setColor(QPalette::Text,QColor("#182132"));
     palette.setColor(QPalette::Button,QColor("#ffffff"));
     palette.setColor(QPalette::ButtonText,QColor("#182132"));
-    palette.setColor(QPalette::Highlight,QColor("#c8ced6"));
+    palette.setColor(QPalette::Highlight,QColor("#dce0e6"));
     palette.setColor(QPalette::HighlightedText,QColor("#182132"));
     qApp->setPalette(palette);
     QFile sheet(":/resource/appearance.qss");
