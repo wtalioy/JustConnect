@@ -5,7 +5,6 @@
 #include <QDebug>
 #include <QFile>
 #include <QFileInfo>
-#include <QFontDatabase>
 #include <QCoreApplication>
 #include <QGuiApplication>
 #include <QActionGroup>
@@ -72,9 +71,6 @@ MainWindow::MainWindow(
     connect(coordinator->diagnostics(),&ConnectionDiagnostics::changed,this,[this]{if(ui->detailsDialog->isVisible())updateDiagnostics();});
     connect(ui->refreshDiagnosticsButton,&QPushButton::clicked,this,[this]{coordinator->networkPolicy()->refresh();updateDiagnostics();});
     connect(ui->copyDiagnosticsButton,&QPushButton::clicked,this,[this]{QApplication::clipboard()->setText(QApplication::applicationVersion()+"\n"+coordinator->diagnostics()->report());});
-    ui->logPlainTextEdit->setFont(
-        QFontDatabase::systemFont(QFontDatabase::FixedFont)
-    );
     authenticationDialogs = coordinator->authenticationDialogs();
     connectionSession = coordinator->connection();
     systemProxySession = coordinator->systemProxy();

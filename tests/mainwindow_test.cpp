@@ -388,6 +388,10 @@ static void nativeHome(MainWindow &window) {
         "redesigned home retains one accessible main action and the light appearance");
     window.findChild<QPushButton *>("detailsButton")->click();QCoreApplication::processEvents();
     check(details->isVisible() && !log->isVisible() && session->state()==state,"details opens its overview without exposing the live log or changing the session");
+    auto *body=window.findChild<QWidget *>("homeBody");
+    check(body && body->grab().toImage().pixelColor(2,2).alpha()==255
+        && !details->property("nativeBackdrop").toBool() && !details->testAttribute(Qt::WA_TranslucentBackground),
+        "home content and detail dialogs remain opaque instead of extending header glass across every page");
     auto *detailTabs=details->findChild<QTabWidget *>("detailsTabs");
     check(detailTabs && detailTabs->count()==2 && !details->findChild<QPushButton *>("proxyButton"),"details separates overview and logs and has no manual proxy action");
     window.findChild<QPushButton *>("copyDiagnosticsButton")->click();
@@ -404,6 +408,16 @@ static void nativeHome(MainWindow &window) {
     for (const auto *name:{"openLogPushButton","copyLogPushButton","clearLogPushButton"})
         check(!window.findChild<QPushButton *>(name)->isDefault(),"opening logs does not turn a toolbar icon into the dialog's submit action");
     if (!detailsReport.isEmpty()) check(details->grab().save(QDir(detailsReport).filePath("details-logs.png")),"save the native log layout and toolbar");
+    if(!detailsReport.isEmpty() && QGuiApplication::platformName()=="windows") {
+        // Native macOS tray menus are NSMenu surfaces, outside QWidget::grab.
+        const auto captureMenu=[&](QMenu *menu,const QString &name) {
+            menu->popup(details->mapToGlobal(QPoint(24,80)));waitForUi([&]{return menu->isVisible();});
+            menu->setActiveAction(menu->actions().first());QCoreApplication::processEvents();
+            check(menu->grab().save(QDir(detailsReport).filePath(name)),"save compact neutral menu styling");menu->hide();
+        };
+        captureMenu(window.findChild<QToolButton *>("detailsToolsButton")->menu(),"details-menu.png");
+        captureMenu(window.findChild<QSystemTrayIcon *>()->contextMenu(),"tray-menu.png");
+    }
     window.findChild<QPushButton *>("copyLogPushButton")->click();
     check(QApplication::clipboard()->text()==log->toPlainText(),"diagnostics copy the same bounded live log");
     details->reject();QCoreApplication::processEvents();
