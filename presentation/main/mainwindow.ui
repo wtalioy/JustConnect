@@ -32,13 +32,13 @@
         <number>8</number>
        </property>
        <property name="topMargin">
-        <number>16</number>
+        <number>8</number>
        </property>
        <property name="rightMargin">
         <number>0</number>
        </property>
        <property name="bottomMargin">
-        <number>16</number>
+        <number>8</number>
        </property>
        <property name="spacing">
         <number>0</number>
