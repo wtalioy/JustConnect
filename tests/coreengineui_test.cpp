@@ -1127,6 +1127,7 @@ static void gateway(const QJsonObject &config) {
         "formal ABI observations distinguish authentication, transport and unknown renewal");
     NetworkPolicyWindow inspection(&networkPolicy, &parent);
     inspection.show();
+    until([&]{return networkPolicy.status()==CoreEngine::RequestStatus::Success;});
     auto *targets=inspection.findChild<QTreeWidget *>("networkPolicyTargets");
     check(targets && targets->topLevelItemCount()==originalTargets.size(), "real Qt network inspection displays the collected native scopes");
     const auto namespaces=originalDnsNamespaces(networkPolicy.model()["dns"].toObject());

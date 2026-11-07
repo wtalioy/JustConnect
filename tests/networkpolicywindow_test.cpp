@@ -3,16 +3,20 @@
 #include <QApplication>
 #include <QPersistentModelIndex>
 #include <QElapsedTimer>
+#include <QFile>
+#include <QHeaderView>
 #include <QLabel>
 #include <QPushButton>
 #include <QInputDialog>
 #include <QPointer>
 #include <QPixmap>
+#include <QScrollBar>
 #include <QThread>
 #include <QTranslator>
 #include <QDialogButtonBox>
 #include <QTreeWidget>
 #include <QTabWidget>
+#include <QTabBar>
 #include <atomic>
 #include <iostream>
 #include <memory>
@@ -58,6 +62,9 @@ public:
 int main(int argc, char **argv) try
 {
     QApplication app(argc, argv);
+    QFile style(":/resource/appearance.qss");
+    check(style.open(QIODevice::ReadOnly),"load the shared network protection styles");
+    app.setStyleSheet(QString::fromUtf8(style.readAll()));
     Engine engine;
     std::atomic_bool fail = false;
     const auto readDns = [&] {
@@ -76,18 +83,33 @@ int main(int argc, char **argv) try
     NetworkPolicyWindow window(&session);
     window.show();
     auto *tree = window.findChild<QTreeWidget *>("networkPolicyTargets");
-    auto *refresh = window.findChild<QPushButton *>("refreshNetworkPolicy");
+    auto *retry = window.findChild<QPushButton *>("retryNetworkPolicy");
     auto *status = window.findChild<QLabel *>("networkPolicyStatus");
     auto *dns = window.findChild<QTreeWidget *>("networkPolicyDnsNamespaces");
     auto *tabs = window.findChild<QTabWidget *>();
-    check(tree && refresh && status && tree->topLevelItemCount() == 0 && !refresh->isEnabled(), "Inactive model became actionable");
-    check(refresh->text().isEmpty() && refresh->toolTip()=="Refresh" && refresh->accessibleName()==refresh->toolTip()
-        && !refresh->icon().pixmap(18,18).isNull(),"the refresh icon renders and retains hover and screen-reader meaning");
+    check(tree && retry && status && tree->topLevelItemCount() == 0 && retry->isHidden(), "Inactive model became actionable");
     emit engine.sessionStarted("1");
     check(tree->topLevelItemCount() == 0, "Pending model retained rows");
     emit engine.connectionEstablished();
     until([&] { return session.status() == CoreEngine::RequestStatus::Success; });
-    check(tree->topLevelItemCount() == 3 && refresh->isEnabled(), "Complete original ranges not shown");
+    check(tree->topLevelItemCount() == 3 && retry->isHidden(), "Complete original ranges not shown or retry visible on success");
+    const auto checkTable = [&](QTreeWidget *table) {
+        app.processEvents();
+        const auto *header=table->header();
+        check(header->length()==table->viewport()->width(),"table headings fill the viewport at the default width");
+        for (int column=0;column<header->count();++column)
+            check(header->sectionSize(column)>=header->sectionSizeHint(column),"table heading is clipped");
+        check(table->mapTo(&window,QPoint()).y() - tabs->tabBar()->mapTo(&window,QPoint()).y()
+            >= tabs->tabBar()->height()+12,"table has space below the tab bar");
+    };
+    checkTable(tree);
+    const auto originalSize=window.size();
+    window.resize(480,originalSize.height());
+    app.processEvents();
+    check(tree->header()->length()>=tree->viewport()->width()
+        && (tree->header()->length()==tree->viewport()->width() || tree->horizontalScrollBar()->maximum()>0),
+        "narrow tables either fit complete headings or let the user scroll to them");
+    window.resize(originalSize);
     QTreeWidgetItem *lan = nullptr;
     for (int i = 0; i < tree->topLevelItemCount(); ++i) {
         auto *item = tree->topLevelItem(i);
@@ -100,6 +122,7 @@ int main(int argc, char **argv) try
     check(lan->toolTip(2)==lan->text(2), "Long overlap details became inaccessible in a narrow column");
     check(dns && tabs && dns->topLevelItemCount() == 9, "Native and reserved DNS namespace sources are reachable in a separate tab");
     tabs->setCurrentIndex(1);
+    checkTable(dns);
     QTreeWidgetItem *rootSource=nullptr, *hostSource=nullptr, *boundSource=nullptr, *localhostSource=nullptr;
     for (int i=0;i<dns->topLevelItemCount();++i) {
         auto *item=dns->topLevelItem(i);
@@ -135,7 +158,7 @@ int main(int argc, char **argv) try
     tree->setCurrentItem(lanRow());
     const QPersistentModelIndex addressIndex=tree->indexFromItem(lanRow());
     const QPersistentModelIndex dnsIndex=dns->model()->index(0,0);
-    refresh->click();
+    window.hide();window.show();
     check(session.status() == CoreEngine::RequestStatus::Pending && tree->topLevelItemCount() == 3
           && tree->currentItem() && tree->currentItem()->text(0) == "192.168.24.0/24" && !choose->isEnabled(),
           "Native observation cleared the selected scope or enabled stale policy actions");
@@ -185,7 +208,6 @@ int main(int argc, char **argv) try
         QTranslator translation;check(translation.load(app.arguments()[2]),"load the actual application catalog");
         check(app.installTranslator(&translation),"activate Chinese with an address draft open");QCoreApplication::processEvents();
         check(window.windowTitle()==QString::fromUtf8("网络保护")
-            && refresh->toolTip()==QString::fromUtf8("刷新") && refresh->accessibleName()==refresh->toolTip()
             && input->findChild<QDialogButtonBox *>()->standardButtons()==(QDialogButtonBox::Ok|QDialogButtonBox::Cancel)
             && input->windowTitle()==QString::fromUtf8("选择校园地址") && input->textValue()=="192.168.24.12"
             && tree->currentItem() && tree->currentItem()->text(0)=="192.168.24.0/24"
@@ -210,9 +232,10 @@ int main(int argc, char **argv) try
           && preferenceStatus->text().contains("could not be applied"), "Failed preference replaced the confirmed UI state");
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     fail = true;
-    refresh->click();
+    check(session.refresh(),"simulate an automatic observation");
     until([&] { return session.status() == CoreEngine::RequestStatus::Failed; });
-    check(tree->topLevelItemCount() == 0 && dns->topLevelItemCount() == 0 && refresh->isEnabled(), "Failed refresh retained stale network details");
+    check(tree->topLevelItemCount() == 0 && dns->topLevelItemCount() == 0 && retry->isVisible() && retry->isEnabled(),
+        "failed observation clears stale results and exposes retry");
     check(!choose->isEnabled() && restore->isEnabled(), "Failed DNS inspection disabled owned recovery or enabled a new choice");
     restore->click(); input=activeInput();
     check(input->textValue()=="192.168.24.12", "Recovery offered something other than confirmed exceptions");
@@ -223,9 +246,9 @@ int main(int argc, char **argv) try
           && session.status()==CoreEngine::RequestStatus::Failed, "Recovery invented successful inspection or retained the exception");
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     fail = false;
-    refresh->click();
+    retry->click();
     until([&] { return session.status() == CoreEngine::RequestStatus::Success; });
-    check(tree->topLevelItemCount() == 3, "Retry did not restore complete inspection");
+    check(tree->topLevelItemCount() == 3 && retry->isHidden(), "Retry did not restore complete inspection");
     tree->setCurrentItem(lanRow()); choose->click();
     QPointer<QInputDialog> oldInput=activeInput(); oldInput->setTextValue("192.168.24.14");
     emit engine.sessionStarted("2");
@@ -241,7 +264,7 @@ int main(int argc, char **argv) try
     check(engine.policies==4 && session.campusAddresses().isEmpty() && !restore->isEnabled()
           && preferenceStatus->text().contains("cannot be updated"), "Unavailable first update was hidden as an untouched policy");
     engine.stop();
-    check(tree->topLevelItemCount() == 0 && dns->topLevelItemCount() == 0 && !refresh->isEnabled() && engine.policies == 4,
+    check(tree->topLevelItemCount() == 0 && dns->topLevelItemCount() == 0 && retry->isHidden() && engine.policies == 4,
           "Stop changed routing preference or retained disconnected facts");
     fail = false;
     emit engine.sessionStarted("3");emit engine.connectionEstablished();
@@ -271,7 +294,7 @@ int main(int argc, char **argv) try
         tabs->setCurrentIndex(0);QCoreApplication::processEvents();check(window.grab().save(app.arguments()[1]),"Save shared address and name preview");
     }
     QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
-    fail = true;refresh->click();
+    fail = true;check(session.refresh(),"simulate an automatic DNS observation failure");
     until([&]{return session.status()==CoreEngine::RequestStatus::Failed;});
     check(!chooseName->isEnabled() && restoreName->isEnabled() && nameChoices->text().contains("host.mesh.test"),
           "Failed inspection enabled a new name or hid confirmed recovery");
@@ -285,7 +308,7 @@ int main(int argc, char **argv) try
     check(session.campusNames().isEmpty() && !restoreName->isEnabled() && !nameChoices->text().contains("host.mesh.test")
           && session.campusAddresses()==QJsonArray{"192.168.24.12"},"Name recovery retained its exception or damaged unrelated choices");
     QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
-    fail = false;refresh->click();until([&]{return session.status()==CoreEngine::RequestStatus::Success;});
+    fail = false;retry->click();until([&]{return session.status()==CoreEngine::RequestStatus::Success;});
     chooseName->click();QPointer<QInputDialog> oldNameInput=activeInput();oldNameInput->setTextValue("old.mesh.test");
     const auto beforeNameGeneration=engine.policies;emit engine.sessionStarted("4");
     if(oldNameInput)oldNameInput->accept();
@@ -314,7 +337,7 @@ int main(int argc, char **argv) try
     if (detachedInput) { detachedInput->setTextValue("192.168.24.12"); detachedInput->accept(); }
     check(!detached.isVisible() && detached.findChild<QTreeWidget *>("networkPolicyTargets")->topLevelItemCount() == 0
           && detached.findChild<QTreeWidget *>("networkPolicyDnsNamespaces")->topLevelItemCount() == 0
-          && !detached.findChild<QPushButton *>("refreshNetworkPolicy")->isEnabled() && detachedEngine.policies==0,
+          && detached.findChild<QPushButton *>("retryNetworkPolicy")->isHidden() && detachedEngine.policies==0,
           "Destroyed model retained stale network details in its window");
     std::cout << "PASS: network sources, exact confirmed choices, failure recovery, stale input and owned window lifecycle\n";
     return 0;
