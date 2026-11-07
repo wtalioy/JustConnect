@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   probe:
@@ -17,3 +18,37 @@ jobs:
       - run: |
           sw_vers
           python3 tests/macos_signing_smoke.py
+      - name: Launch the reported preview on the same OS
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          unset QT_PLUGIN_PATH QML2_IMPORT_PATH DYLD_LIBRARY_PATH DYLD_FRAMEWORK_PATH
+          archive="$RUNNER_TEMP/original"
+          gh run download 42335326002 --repo "$GITHUB_REPOSITORY" \
+            -n JustConnect-preview-85c5064131ac40dfaa1745660450330c8f43389d-macos-arm64 -D "$archive"
+          unset GH_TOKEN
+          hdiutil attach "$archive"/*.dmg -readonly -nobrowse -mountpoint "$RUNNER_TEMP/original-dmg"
+          app=/Applications/JustConnect.app
+          test ! -e "$app"
+          ditto "$RUNNER_TEMP/original-dmg/JustConnect.app" "$app"
+          hdiutil detach "$RUNNER_TEMP/original-dmg"
+          exe="$app/Contents/MacOS/JustConnect"
+          svg="$app/Contents/Frameworks/QtSvg.framework/Versions/A/QtSvg"
+          dwarfdump --uuid "$exe" "$svg"
+          codesign --verify --deep --strict "$app"
+          for binary in "$exe" "$svg"; do
+            codesign -dvvv "$binary" 2>&1 | grep -E '^(Identifier|Authority|TeamIdentifier|CDHash|CodeDirectory)'
+          done
+          "$exe" --core-self-test
+          spctl --status || true
+          open -n -a "$app"
+          for attempt in {1..10}; do
+            pid=$(pgrep -fx "$exe" || true)
+            if [[ -n "$pid" ]]; then break; fi
+            sleep 1
+          done
+          test -n "$pid"
+          sleep 3
+          kill -0 "$pid"
+          kill -TERM "$pid"
