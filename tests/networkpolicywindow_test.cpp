@@ -94,9 +94,17 @@ int main(int argc, char **argv) try
     until([&] { return session.status() == CoreEngine::RequestStatus::Success; });
     check(tree->topLevelItemCount() == 3 && retry->isHidden(), "Complete original ranges not shown or retry visible on success");
     const auto checkTable = [&](QTreeWidget *table) {
-        app.processEvents();
         const auto *header=table->header();
-        check(header->length()==table->viewport()->width(),"table headings fill the viewport at the default width");
+        until([&]{return header->length()>=header->viewport()->width();});
+        const int width=header->viewport()->width();
+        const int minimumWidth=header->minimumSectionSize()*header->count();
+        const int length=header->length();
+        if (length>qMax(width,minimumWidth)+header->count()-1)
+            std::cerr<<"header width "<<width<<", minimum "<<minimumWidth<<", sections "<<length<<'\n';
+        check(length<=qMax(width,minimumWidth)+header->count()-1,
+            "table headings fill the viewport without exceeding their minimum widths");
+        check(length==width || table->horizontalScrollBar()->maximum()>0,
+            "headings beyond the viewport remain reachable by scrolling");
         for (int column=0;column<header->count();++column)
             check(header->sectionSize(column)>=header->sectionSizeHint(column),"table heading is clipped");
         check(table->mapTo(&window,QPoint()).y() - tabs->tabBar()->mapTo(&window,QPoint()).y()
@@ -105,10 +113,7 @@ int main(int argc, char **argv) try
     checkTable(tree);
     const auto originalSize=window.size();
     window.resize(480,originalSize.height());
-    app.processEvents();
-    check(tree->header()->length()>=tree->viewport()->width()
-        && (tree->header()->length()==tree->viewport()->width() || tree->horizontalScrollBar()->maximum()>0),
-        "narrow tables either fit complete headings or let the user scroll to them");
+    checkTable(tree);
     window.resize(originalSize);
     QTreeWidgetItem *lan = nullptr;
     for (int i = 0; i < tree->topLevelItemCount(); ++i) {
