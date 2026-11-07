@@ -174,6 +174,9 @@ static void changeLanguageFromSettings(MainWindow &window,const QString &languag
     const auto report=qEnvironmentVariable("JC_UI_REPORT_DIR");
     if (!report.isEmpty()) {
         auto *viewport=dialog->findChild<QScrollArea *>()->viewport();
+        auto *behavior=dialog->findChild<QComboBox *>("closeBehaviorComboBox");
+        check(choice->width()<behavior->width() && behavior->width()<=behavior->sizeHint().width(),
+            "application preference dropdowns use their content width instead of filling the column");
         auto *controller=dialog->findChild<QPushButton *>("controllerSettingsButton");
         check(viewport->rect().contains(QRect(controller->mapTo(viewport,QPoint()),controller->size())),
             "the default native settings size exposes the complete Clash chooser");
