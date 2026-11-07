@@ -139,8 +139,13 @@ int main(int argc,char **argv) {
     check(options->isVisible() && options->viewport()->rect().contains(options->visualRect(choice.model()->index(2,0))),
         "the dropdown sizes its popup for padded rows without clipping the final option");
     QKeyEvent next(QEvent::KeyPress,Qt::Key_Down,Qt::NoModifier);
+    QKeyEvent selectOverride(QEvent::ShortcutOverride,Qt::Key_Return,Qt::NoModifier);
     QKeyEvent select(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
-    QApplication::sendEvent(options,&next);QApplication::sendEvent(options,&select);
+    QApplication::sendEvent(options,&next);
+    check(options->currentIndex().row()==2 && choice.currentIndex()==0,
+        "keyboard navigation skips disabled choices before committing a dropdown selection");
+    // Qt commits popup Return in ShortcutOverride, before dispatching the key press.
+    QApplication::sendEvent(options,&selectOverride);QApplication::sendEvent(options,&select);
     check(choice.currentIndex()==2 && !options->isVisible(),
         "styled dropdowns retain keyboard selection and skip disabled choices");
     ProfileMenuButton school;school.setObjectName("profileMenuButton");school.setText("MMM");
