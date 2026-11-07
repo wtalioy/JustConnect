@@ -15,6 +15,7 @@
 #include <QLabel>
 #include <QHeaderView>
 #include <QTabBar>
+#include <QFontDatabase>
 #include <QDialogButtonBox>
 #include <QScrollArea>
 #include <QVBoxLayout>
@@ -64,6 +65,7 @@ MainWindow::MainWindow(
 
     QApplication::setWindowIcon(QIcon(":/resource/icon.svg"));
     ui->setupUi(this);
+    ui->logPlainTextEdit->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
     ui->detailsDialog->resize(640,568);
     PresentationHelpers::setButtonIcon(ui->diagnosticRulesButton,":/resource/rules.svg");
     connect(ui->detailsButton,&QPushButton::clicked,this,[this] {
@@ -588,21 +590,27 @@ void MainWindow::setupTrayIcon()
 void MainWindow::setupProfileMenu()
 {
     // 务必在 setupTrayIcon 之后调用，以确保 trayProfileMenu 已正确初始化
+    // Cocoa attaches a menu to one native item. Share actions between the menu bar and the popup.
+    auto *popup = new QMenu(ui->profileMenuButton);
+    ui->profileMenuButton->setMenu(popup);
     switchGroup = new QActionGroup(ui->profileMenu);
     traySwitchGroup = new QActionGroup(trayProfileMenu);
     switchGroup->setExclusive(true);
     traySwitchGroup->setExclusive(true);
     ui->profileMenu->addAction(ui->settingAction);
-    ui->profileMenu->addMenu(ui->profileMaintenanceMenu);
+    popup->addAction(ui->settingAction);
+    popup->addMenu(ui->profileMaintenanceMenu);
+    popup->addSeparator();
     ui->profileMenu->addSeparator();
     newProfileAction = ui->profileMenu->addAction(tr("New profile"));
     renameProfileAction = ui->profileMenu->addAction(tr("Rename profile"));
     deleteProfileAction = ui->profileMenu->addAction(tr("Delete profile"));
+    popup->addActions({newProfileAction, renameProfileAction, deleteProfileAction});
+    popup->addSeparator();
     ui->profileMenu->addSeparator();
 
     connect(newProfileAction, &QAction::triggered, this, &MainWindow::createProfile);
     newProfileAction->setObjectName("newProfileAction");
-    ui->profileMenuButton->setMenu(ui->profileMenu);
     connect(renameProfileAction, &QAction::triggered, this, &MainWindow::renameCurrentProfile);
     connect(deleteProfileAction, &QAction::triggered, this, &MainWindow::deleteCurrentProfile);
 
@@ -667,6 +675,7 @@ void MainWindow::refreshProfileMenu()
             });
         }
     }
+    ui->profileMenuButton->menu()->addActions(switchGroup->actions());
 
     const bool currentProfileIsManaged =
         !currentProfileId.isEmpty()

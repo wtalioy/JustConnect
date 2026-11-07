@@ -83,7 +83,7 @@ QLabel#statusHintLabel { color: #8c601b; font-size: 9.75pt; }
 QLabel#statusIndicator { background: transparent; border: none; }
 QLabel#statusDetailLabel { font-size: 9pt; color: #737c8b; }
 QLabel#profileDetailLabel { font-size: 10.5pt; color: #616b7c; }
-QPlainTextEdit#logPlainTextEdit { font-family: "Cascadia Mono", Consolas, "SFMono-Regular", Menlo, monospace; font-size: 9pt; background: #f3f5f9; border: none; }
+QPlainTextEdit#logPlainTextEdit { font-size: 9pt; background: #f3f5f9; border: none; }
 QFrame#logPanel { background: transparent; border: none; }
 QFrame[divider="true"] { background: #dfe3eb; min-height: 1px; max-height: 1px; border: none; }
 QPushButton#detailsButton { min-height: 32px; padding: 0 16px; font-size: 9.75pt; }
