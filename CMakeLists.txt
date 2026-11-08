@@ -309,4 +309,12 @@ if(BUILD_TESTING)
     add_test(NAME graphcaptchawindow_test COMMAND graphcaptchawindow_test)
     set_tests_properties(graphcaptchawindow_test PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    if(APPLE AND TARGET Qt6::QOffscreenIntegrationPlugin)
+        # Static Qt only imports Cocoa by default. The offscreen backend is used by these tests.
+        foreach(test_target IN ITEMS serversettingswidget_test settingwindow_test coreengineui_test
+                networkpolicywindow_test mainwindow_test graphcaptchawindow_test)
+            qt_import_plugins(${test_target} INCLUDE Qt6::QOffscreenIntegrationPlugin)
+        endforeach()
+    endif()
 endif()
