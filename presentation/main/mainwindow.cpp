@@ -372,6 +372,16 @@ void MainWindow::showApplicationPreferences() {
         auto *layout=new QVBoxLayout(view);layout->setContentsMargins(24,24,24,24);layout->setSpacing(16);
         auto *scroll=new QScrollArea(view);scroll->setWidgetResizable(true);scroll->setFrameShape(QFrame::NoFrame);
         auto *contents=new ApplicationPreferencesWidget(scroll);
+        connect(contents, &ApplicationPreferencesWidget::startupSaveStarted, view, [view] {
+            view->setAttribute(Qt::WA_DeleteOnClose, false);
+        });
+        connect(contents, &ApplicationPreferencesWidget::startupSaveFinished, view, [this, view] {
+            view->setAttribute(Qt::WA_DeleteOnClose);
+            if (!view->isVisible()) {
+                preferencesWindow = nullptr;
+                view->deleteLater();
+            }
+        });
         scroll->setWidget(contents);layout->addWidget(scroll);
         auto *buttons=new QDialogButtonBox(QDialogButtonBox::Close,view);buttons->setObjectName("applicationSettingsButtons");
         connect(buttons,&QDialogButtonBox::rejected,view,&QDialog::reject);layout->addWidget(buttons);

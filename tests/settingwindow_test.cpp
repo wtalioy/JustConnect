@@ -23,6 +23,7 @@
 #include <QScrollArea>
 #include <QScrollBar>
 #include "presentation/widgets/applicationpreferenceswidget.h"
+#include "tests/uiwait.h"
 #include "presentation/i18n/applicationlanguage.h"
 #include <QTemporaryDir>
 #include <QTimer>
@@ -195,9 +196,13 @@ int main(int argc,char **argv) {
     auto *method=window->findChild<QComboBox *>("authTypeComboBox");method->setCurrentIndex(method->findData("psw"));
     const auto startup=AutoStart::setEnabled(true);
     check(!startup.succeeded() && !startup.mayHaveChanged,"invalid test startup identity is rejected before mutation");
-    preferences.findChild<QCheckBox *>("autoStartCheckBox")->setChecked(true);
+    auto *autoStart = preferences.findChild<QCheckBox *>("autoStartCheckBox");
+    autoStart->setChecked(true);
+    check(preferences.isSavingStartup() && !autoStart->isEnabled(),
+        "autostart keeps its control busy while the system command runs outside the UI");
+    UiWait::until(__FILE__, __LINE__, [&] { return !preferences.isSavingStartup(); });
     check(window->isVisible() && !ProfileManager().autoStartEnabled()
-        && !preferences.findChild<QCheckBox *>("autoStartCheckBox")->isChecked()
+        && autoStart->isEnabled() && !autoStart->isChecked()
         && preferences.findChild<QLabel *>("preferenceError")->text()==PresentationHelpers::platformOperationMessage(startup),
         "autostart failure is inline, restores the choice, and keeps the connection draft");
     const auto startupMessage=preferences.findChild<QLabel *>("preferenceError")->text();

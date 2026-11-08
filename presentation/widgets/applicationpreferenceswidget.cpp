@@ -15,8 +15,10 @@
 #include <QSignalBlocker>
 #include <QSystemTrayIcon>
 #include <QVBoxLayout>
+#include <QtConcurrentRun>
 
 ApplicationPreferencesWidget::ApplicationPreferencesWidget(QWidget *parent) : QWidget(parent) {
+    const ProfileManager preferences;
     auto *layout=new QVBoxLayout(this);layout->setSpacing(16);layout->setContentsMargins(0,0,0,0);
     behaviorGroup=new QGroupBox(this);layout->addWidget(behaviorGroup);
     auto *form=new QFormLayout(behaviorGroup);form->setHorizontalSpacing(12);form->setVerticalSpacing(8);form->setContentsMargins(0,0,0,0);
@@ -30,16 +32,16 @@ ApplicationPreferencesWidget::ApplicationPreferencesWidget(QWidget *parent) : QW
     languageLabel=new QLabel(this);languageLabel->setBuddy(language);form->addRow(languageLabel,language);
     behavior=new QComboBox(this);behavior->setObjectName("closeBehaviorComboBox");
     behavior->addItem(QString(),true);behavior->addItem(QString(),false);
-    behavior->setCurrentIndex(ProfileManager().closeToTray()?0:1);
+    behavior->setCurrentIndex(preferences.closeToTray()?0:1);
     behaviorLabel=new QLabel(this);behaviorLabel->setBuddy(behavior);form->addRow(behaviorLabel,behavior);
     for (auto *choice:{language,behavior}) choice->setSizeAdjustPolicy(QComboBox::AdjustToContents);
     for(auto *label:{languageLabel,behaviorLabel}) label->setSizePolicy(QSizePolicy::Preferred,QSizePolicy::Expanding);
     startupGroup=new QGroupBox(this);layout->addWidget(startupGroup);
     auto *startup=new QVBoxLayout(startupGroup);startup->setContentsMargins(0,0,0,0);startup->setSpacing(4);
     autoStart=new QCheckBox(this);autoStart->setObjectName("autoStartCheckBox");
-    autoStart->setChecked(ProfileManager().autoStartEnabled());startup->addWidget(autoStart);
+    autoStart->setChecked(preferences.autoStartEnabled());startup->addWidget(autoStart);
     silentStart=new QCheckBox(this);silentStart->setObjectName("silentStartCheckBox");
-    silentStart->setChecked(ProfileManager().silentStartEnabled());startup->addWidget(silentStart);
+    silentStart->setChecked(preferences.silentStartEnabled());startup->addWidget(silentStart);
     clashGroup=new QGroupBox(this);layout->addWidget(clashGroup);
     auto *clash=new QVBoxLayout(clashGroup);clash->setContentsMargins(0,0,0,0);clash->setSpacing(8);
     controller=new QPushButton(this);controller->setObjectName("controllerSettingsButton");controller->setAutoDefault(false);clash->addWidget(controller,0,Qt::AlignLeft);
@@ -60,14 +62,31 @@ ApplicationPreferencesWidget::ApplicationPreferencesWidget(QWidget *parent) : QW
         errorText=QT_TR_NOOP("Could not save background startup. Your previous setting is unchanged.");
         error->setText(tr(errorText));error->show();
     });
-    connect(autoStart,&QCheckBox::toggled,this,[this](bool enabled) {
-        const auto result=AutoStart::setEnabled(enabled);
-        if (result.succeeded() && ProfileManager().setAutoStartEnabled(enabled)) {error->hide();return;}
-        QSignalBlocker blocker(autoStart);autoStart->setChecked(ProfileManager().autoStartEnabled());
-        operationError=result;
-        if (!result.detail.isEmpty()) qWarning().noquote()<<"Startup preference:"<<result.detail;
-        errorText=result.succeeded() ? QT_TR_NOOP("Startup registration changed, but its preference could not be saved. Check it before retrying.") : nullptr;
-        error->setText(errorText ? tr(errorText) : PresentationHelpers::platformOperationMessage(result));error->show();
+    connect(autoStart, &QCheckBox::toggled, this, [this](bool enabled) {
+        if (isSavingStartup()) return;
+        error->hide();
+        pendingAutoStart = enabled;
+        autoStart->setEnabled(false);
+        emit startupSaveStarted();
+        startupOperation.setFuture(QtConcurrent::run([enabled] { return AutoStart::setEnabled(enabled); }));
+    });
+    connect(&startupOperation, &QFutureWatcher<PlatformOperationResult>::finished, this, [this] {
+        const auto result = startupOperation.result();
+        ProfileManager preferences;
+        if (!result.succeeded() || !preferences.setAutoStartEnabled(*pendingAutoStart)) {
+            const QSignalBlocker blocker(autoStart);
+            autoStart->setChecked(preferences.autoStartEnabled());
+            operationError = result;
+            if (!result.detail.isEmpty()) qWarning().noquote() << "Startup preference:" << result.detail;
+            errorText = result.succeeded()
+                ? QT_TR_NOOP("Startup registration changed, but its preference could not be saved. Check it before retrying.")
+                : nullptr;
+            error->setText(errorText ? tr(errorText) : PresentationHelpers::platformOperationMessage(result));
+            error->show();
+        }
+        pendingAutoStart.reset();
+        autoStart->setEnabled(true);
+        emit startupSaveFinished();
     });
     retranslate();
 }

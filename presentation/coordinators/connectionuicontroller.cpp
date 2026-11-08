@@ -3,6 +3,7 @@
 #include "authenticationcachecoordinator.h"
 #include "controllerselectioncoordinator.h"
 #include "presentation/presentationhelpers.h"
+#include "presentation/widgets/applicationpreferenceswidget.h"
 
 #include <QAction>
 #include <QApplication>
@@ -70,6 +71,8 @@ ConnectionUiController::ConnectionUiController(
         if (this->credentials->isBusy() || authenticationCache->isBinding() || controllerSelection->isReading()) return true;
         if (this->networkPolicy && this->networkPolicy->isBusy()) return true;
         for (auto *query:this->parentWidget->findChildren<AuthMethodsQuery *>()) if (query->isActive()) return true;
+        for (auto *preferences : this->parentWidget->findChildren<ApplicationPreferencesWidget *>())
+            if (preferences->isSavingStartup()) return true;
         return false;
     },this);
     connect(shutdown,&ApplicationShutdown::ready,this,&ConnectionUiController::readyToQuit);
