@@ -80,6 +80,7 @@ MainWindow::MainWindow(
     ui->logPlainTextEdit->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
     ui->detailsDialog->resize(640,568);
     PresentationHelpers::setButtonIcon(ui->diagnosticRulesButton,":/resource/rules.svg");
+    ui->inspectNetworkAction->setIcon(ui->diagnosticRulesButton->icon());
     connect(ui->detailsButton,&QPushButton::clicked,this,[this] {
         if (!ui->detailsDialog->isVisible()) {
             ui->detailsTabs->setCurrentIndex(0);
@@ -153,6 +154,8 @@ MainWindow::MainWindow(
     setupConnectionMenu();
     auto *applicationMenu = new QMenu(ui->applicationMenuButton);
     applicationMenu->setToolTipsVisible(true);
+    applicationMenu->addAction(ui->inspectNetworkAction);
+    applicationMenu->addSeparator();
     applicationMenu->addAction(ui->checkUpdateAction);
     applicationMenu->addAction(ui->projectAction);
     applicationMenu->addAction(ui->aboutAction);

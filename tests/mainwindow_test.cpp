@@ -444,6 +444,10 @@ static void nativeHome(MainWindow &window, ApplicationLogger &logger) {
         && connections->actions().contains(window.findChild<QAction *>("clearAuthenticationCacheAction"))
         && connections->actions().contains(window.findChild<QAction *>("clearClientDataAction")),
         "application and connection actions are accessible directly from home");
+    auto *networkProtection = window.findChild<QAction *>("inspectNetworkAction");
+    check(appMenu->actions().contains(networkProtection)
+        && networkProtection->text() == window.findChild<QPushButton *>("diagnosticRulesButton")->text(),
+        "the home menu and details use the same name for network protection");
     const auto connectionActions = connections->actions();
     check(connectionActions.first()->isChecked()
         && connectionActions.first()->text()=="Fudan"
@@ -544,6 +548,9 @@ static void nativeHome(MainWindow &window, ApplicationLogger &logger) {
     check(editorScroll->verticalScrollBar()->value() == 0
         && std::all_of(editorPaints.offsets.cbegin(), editorPaints.offsets.cend(), [](int value) { return value == 0; }),
         "the connection editor stays at the top from its first paint through credential loading");
+    auto *methodButton = initial->findChild<QPushButton *>("authSelectPushButton");
+    const auto methodButtonHeight = methodButton->sizeHint().height();
+    const auto methodButtonIconSize = methodButton->iconSize();
     initial->reject();
     QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     check(session->state()==state, "opening and cancelling the editor does not start a session");
@@ -554,6 +561,10 @@ static void nativeHome(MainWindow &window, ApplicationLogger &logger) {
     auto *settings=window.findChild<QDialog *>("applicationSettingsDialog");
     check(settings && settings->isVisible() && !qobject_cast<SettingWindow *>(settings)
         && !settings->findChild<QLineEdit *>("serverAddressLineEdit"),"the gear opens application settings with a separate responsibility");
+    auto *controllerButton = settings->findChild<QPushButton *>("controllerSettingsButton");
+    check(controllerButton->sizeHint().height() == methodButtonHeight
+        && controllerButton->iconSize() == methodButtonIconSize,
+        "controller and sign-in actions use the same compact button metrics");
     auto *preferencesScroll = settings->findChild<QScrollArea *>("applicationSettingsScroll");
     waitForUi([&] { return !preferencesPaints.offsets.isEmpty()
         && preferencesScroll->verticalScrollBarPolicy() == Qt::ScrollBarAsNeeded; });

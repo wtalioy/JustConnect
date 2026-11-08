@@ -1,6 +1,5 @@
 #include "serversettingswidget.h"
 #include <QEvent>
-#include <QToolButton>
 #include <QCheckBox>
 #include <QPlainTextEdit>
 #include <QLabel>
@@ -10,7 +9,6 @@
 #include <QSignalBlocker>
 #include <QSpinBox>
 #include <QVBoxLayout>
-#include <QHBoxLayout>
 #include "application/defaultsettings.h"
 #include "core/connectionoptions.h"
 
@@ -56,18 +54,10 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     tlsOptions->addWidget(allowUnverifiedNodes); tlsOptions->addWidget(nodeWarning);
     layout->addLayout(tlsOptions);
     auto *caSection=new QVBoxLayout;caSection->setContentsMargins(0,0,0,0);caSection->setSpacing(8);
-    auto *caHeader=new QHBoxLayout;caHeader->setContentsMargins(0,0,0,0);caHeader->setSpacing(8);
-    caLabel=new QLabel(this);caLabel->setObjectName("serverCaLabel");caLabel->setWordWrap(true);
-    caToggle=new QToolButton(this);caToggle->setObjectName("serverCaToggle");
-    caToggle->setCheckable(true);caToggle->setAutoRaise(true);
-    caToggle->setIcon(QIcon(":/resource/chevron.svg"));caToggle->setIconSize(QSize(16,16));
-    caLabel->setBuddy(caToggle);caHeader->addWidget(caLabel);caHeader->addWidget(caToggle);caHeader->addStretch();
-    caSection->addLayout(caHeader);
-    caPem=new QPlainTextEdit(this); caPem->setObjectName("tlsCaPemEdit"); caPem->setMaximumHeight(88);caPem->hide();
-    caSection->addWidget(caPem);layout->addLayout(caSection);
-    connect(caToggle,&QToolButton::toggled,this,[this](bool open) {
-        caPem->setVisible(open);caToggle->setIcon(QIcon(open?":/resource/chevron-up.svg":":/resource/chevron.svg"));
-    });
+    caLabel=new QLabel(this);caLabel->setObjectName("serverCaLabel");caLabel->setMinimumHeight(28);
+    caPem=new QPlainTextEdit(this);caPem->setObjectName("tlsCaPemEdit");caPem->setMaximumHeight(112);
+    caLabel->setBuddy(caPem);
+    caSection->addWidget(caLabel);caSection->addWidget(caPem);layout->addLayout(caSection);
     layout->addSpacing(8);
     domainDnsRules=new QPlainTextEdit(this);
     domainDnsRules->setObjectName("domainDnsRulesEdit");
@@ -99,9 +89,8 @@ void ServerSettingsWidget::retranslate() {
     warning->setText(tr("The server's identity will not be verified."));
     allowUnverifiedNodes->setText(tr("Skip tunnel verification"));
     nodeWarning->setText(tr("The tunnel peer will not be verified. Sign-in verification is unchanged."));
-    caLabel->setText(tr("Server CA (optional)"));
-    caToggle->setAccessibleName(tr("Server CA (optional)"));caToggle->setToolTip(tr("Server CA (optional)"));
-    caPem->setAccessibleName(tr("Server CA (optional)"));
+    caLabel->setText(tr("Server CA"));
+    caPem->setAccessibleName(tr("Server CA"));
     caPem->setPlaceholderText(tr("Optional server CA in PEM format. Leave empty to use system trust."));
     domainDnsLabel->setText(tr("Domain DNS"));
     QString help=tr("One domain per line; optional IPv4 DNS servers after it. Otherwise use gateway DNS.");
@@ -122,7 +111,6 @@ void ServerSettingsWidget::load(const QSettings &settings) {
     port->setButtonSymbols(builtIn ? QAbstractSpinBox::NoButtons : QAbstractSpinBox::UpDownArrows);
     verify->setChecked(settings.value("JustConnect/TLSVerify", TlsOptions{}.verify).toBool());
     caPem->setPlainText(settings.value("JustConnect/TLSCAPEM").toString());
-    caToggle->setChecked(!caPem->toPlainText().isEmpty());
     allowUnverifiedNodes->setChecked(settings.value("JustConnect/AllowUnverifiedNodes", TlsOptions{}.allowUnverifiedNodes).toBool());
     domainDnsRules->setPlainText(settings.value(DefaultSettings::DomainDnsRules).toString());
 }

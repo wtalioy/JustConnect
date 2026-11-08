@@ -8,7 +8,6 @@ class QPlainTextEdit;
 class QLineEdit;
 class QSettings;
 class QSpinBox;
-class QToolButton;
 
 class ServerSettingsWidget : public QWidget {
     Q_OBJECT
@@ -27,7 +26,6 @@ private:
     void retranslate();
     QFormLayout *form;
     QLabel *warning, *nodeWarning, *rulesHelp, *domainDnsLabel, *caLabel;
-    QToolButton *caToggle;
     QLineEdit *address;
     QSpinBox *port;
     QCheckBox *verify;

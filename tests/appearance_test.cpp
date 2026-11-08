@@ -223,6 +223,9 @@ int main(int argc,char **argv) {
     check(popupFrame && popupFrame->frameWidth() == 0
         && !choice.style()->styleHint(QStyle::SH_ComboBox_Popup, &combo, &choice),
         "only the styled option list provides a dropdown border");
+    const auto comboBottom = choice.mapToGlobal(QPoint(0, choice.height()));
+    check(popupFrame->geometry().topLeft() == comboBottom + QPoint(0, 4),
+        "a dropdown with room opens four pixels below and aligns with the field");
     const auto popupPixels = popupFrame->grab().toImage();
     const int borderX = popupPixels.width() / 2;
     int borderRows = 0;

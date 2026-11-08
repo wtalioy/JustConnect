@@ -430,7 +430,7 @@
               <bool>false</bool>
              </property>
              <property name="text">
-              <string>Rules and DNS</string>
+              <string>Network protection</string>
              </property>
             </widget>
            </item>
@@ -771,7 +771,7 @@
   </action>
   <action name="inspectNetworkAction">
    <property name="text">
-    <string>Network scope and conflicts…</string>
+    <string>Network protection</string>
    </property>
   </action>
   <action name="checkUpdateAction">

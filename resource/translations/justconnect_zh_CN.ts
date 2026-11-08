@@ -1103,8 +1103,8 @@ No authorized probe resource or campus DNS is available. Check the target and ga
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.ui" line="360"/>
-        <source>Rules and DNS</source>
-        <translation>规则与 DNS</translation>
+        <source>Network protection</source>
+        <translation>网络保护</translation>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.ui" line="323"/>
@@ -1161,11 +1161,6 @@ No authorized probe resource or campus DNS is available. Check the target and ga
         <location filename="../../presentation/main/mainwindow.ui" line="725"/>
         <source>Exit</source>
         <translation>退出</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="741"/>
-        <source>Network scope and conflicts…</source>
-        <translation>网络范围与校园地址重叠…</translation>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.ui" line="746"/>
@@ -1933,8 +1928,8 @@ Some system settings may have changed. Check them before retrying.</source>
     <message>
         <location filename="../../presentation/widgets/serversettingswidget.cpp" line="103"/>
         <location filename="../../presentation/widgets/serversettingswidget.cpp" line="104"/>
-        <source>Server CA (optional)</source>
-        <translation>服务器 CA（可选）</translation>
+        <source>Server CA</source>
+        <translation>服务器 CA</translation>
     </message>
     <message>
         <location filename="../../presentation/widgets/serversettingswidget.cpp" line="107"/>

@@ -10,7 +10,6 @@
 #include <QLineEdit>
 #include <QSettings>
 #include <QSpinBox>
-#include <QToolButton>
 #include <QTemporaryDir>
 #include <cstdlib>
 #include <iostream>
@@ -65,18 +64,13 @@ int main(int argc,char **argv) {
     check(SavedConnectionService::load(saved).dns.domainDnsRules=="service.custom.example 192.0.2.53","custom DNS rules survive save and reload");
     check(allowNodes->isChecked() && !nodeWarning->isHidden(),"explicit node policy and warning survive save and reload");
     check(!editor.settingsValues().value("JustConnect/TLSVerify").toBool() && editor.settingsValues().value("JustConnect/TLSCAPEM").toString()=="explicit private CA" && !warning->isHidden(),"explicit TLS policy survives save and reload");
-    auto *caToggle=editor.findChild<QToolButton *>("serverCaToggle");
-    app.processEvents();auto *caLabel=editor.findChild<QLabel *>("serverCaLabel");
-    check(caLabel && caLabel->buddy()==caToggle && caLabel->x()==ca->x() && ca->x()==rules->x()
-        && caToggle->x()-caLabel->geometry().right()==9
-        && std::abs(caLabel->geometry().center().y()-caToggle->geometry().center().y())<=1,
-        "the CA arrow stays beside its label and the editor aligns with the DNS section");
-    check(caToggle->isChecked() && ca->isVisibleTo(&editor),"a saved private CA is immediately visible for review");
-    caToggle->click();
-    check(ca->isHidden() && editor.settingsValues().value("JustConnect/TLSCAPEM")=="explicit private CA",
-        "collapsing optional CA settings never changes the saved trust draft");
-    caToggle->click();
-    check(ca->isVisibleTo(&editor) && ca->toPlainText()=="explicit private CA","reopening optional CA preserves the draft");
+    app.processEvents();
+    auto *caLabel=editor.findChild<QLabel *>("serverCaLabel");
+    check(caLabel && caLabel->buddy()==ca && caLabel->x()==ca->x() && ca->x()==rules->x()
+        && ca->width()==rules->width() && ca->maximumHeight()==rules->maximumHeight(),
+        "the CA and DNS editors use aligned labels and matching field sizes");
+    check(ca->isVisibleTo(&editor) && ca->toPlainText()=="explicit private CA",
+        "the CA editor is visible and preserves the stored certificate");
     check(saved.value("JustConnect/ServerAddress")=="draft.example.edu" && saved.value("JustConnect/ConnectionKind")=="Custom","explicit apply saves selected endpoint");
     settings.setValue("Common/NeedsConfiguration",true);
     editor.load(settings);
@@ -93,6 +87,8 @@ int main(int argc,char **argv) {
         "Fudan displays its fixed endpoint and retains its default DNS");
     settings.setValue(DefaultSettings::DomainDnsRules,"");
     editor.load(settings);
+    check(ca->isVisibleTo(&editor) && !ca->placeholderText().isEmpty(),
+        "the CA editor stays visible with its existing PEM hint");
     check(rules->toPlainText().isEmpty() && SavedConnectionService::load(settings).dns.domainDnsRules.isEmpty(),
         "an explicitly removed preset rule stays removed");
     std::cout<<"PASS: fixed Fudan endpoint, independent custom draft and explicit apply\n";
