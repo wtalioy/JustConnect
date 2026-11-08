@@ -2109,3 +2109,16 @@ func BenchmarkAuthResponseTupleLookup(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkBuildL3AuthRequest(b *testing.B) {
+	info := clientInfo{sid: "sid", deviceID: "device", connectionID: "connection"}
+	meta := packetMeta{atype: 4, proto: 17, srcIP: net.IPv4(192, 0, 2, 1), dstIP: net.IPv4(198, 51, 100, 2), srcPort: 12345, dstPort: 53}
+	ct := &conntrack{appID: "app", authID: 42}
+	key := []byte("signing-key")
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := buildAuthRequest(info, key, meta, ct); err != nil {
+			b.Fatal(err)
+		}
+	}
+}

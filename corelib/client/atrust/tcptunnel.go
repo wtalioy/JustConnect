@@ -68,38 +68,25 @@ type tcpTunnelAuthResponse struct {
 	Message string `json:"message"`
 }
 
-type tcpTunnelProcess struct {
-	Name             string `json:"name"`
-	DigitalSignature string `json:"digital_signature"`
-	Platform         string `json:"platform"`
-	Fingerprint      string `json:"fingerprint"`
-	Description      string `json:"description"`
-	Path             string `json:"path"`
-	Version          string `json:"version"`
-	SecurityEnv      string `json:"security_env"`
-}
+var (
+	tcpBrowserTrustEnv = newTrustEnv("google-chrome-stable", "/usr/bin/google-chrome-stable", auth.ClientPlatform)
+	tcpSSHTrustEnv     = newTrustEnv("ssh", "/usr/bin/ssh", auth.ClientPlatform)
+)
 
 type tcpTunnelAuthRequest struct {
-	SID           string `json:"sid"`
-	AppID         string `json:"appId"`
-	URL           string `json:"url"`
-	DeviceID      string `json:"deviceId"`
-	ConnectionID  string `json:"connectionId"`
-	ProcHash      string `json:"procHash"`
-	UserName      string `json:"userName"`
-	RCAppliedInfo int    `json:"rcAppliedInfo"`
-	Lang          string `json:"lang"`
-	DestAddr      string `json:"destAddr"`
-	DestIP        string `json:"destIP,omitempty"`
-	Env           struct {
-		Application struct {
-			Runtime struct {
-				Process        tcpTunnelProcess `json:"process"`
-				ProcessTrusted string           `json:"process_trusted"`
-			} `json:"runtime"`
-		} `json:"application"`
-	} `json:"env"`
-	XRequestSig string `json:"xRequestSig"`
+	SID           string   `json:"sid"`
+	AppID         string   `json:"appId"`
+	URL           string   `json:"url"`
+	DeviceID      string   `json:"deviceId"`
+	ConnectionID  string   `json:"connectionId"`
+	ProcHash      string   `json:"procHash"`
+	UserName      string   `json:"userName"`
+	RCAppliedInfo int      `json:"rcAppliedInfo"`
+	Lang          string   `json:"lang"`
+	DestAddr      string   `json:"destAddr"`
+	DestIP        string   `json:"destIP,omitempty"`
+	Env           trustEnv `json:"env"`
+	XRequestSig   string   `json:"xRequestSig"`
 }
 
 func marshalTCPTunnelAuthRequest(request tcpTunnelAuthRequest, signKey []byte) ([]byte, error) {
@@ -511,13 +498,10 @@ func (c *Client) DialTCP(ctx context.Context, addr *net.TCPAddr) (net.Conn, erro
 		_ = conn.Close()
 		return nil, fmt.Errorf("failed to set tcp tunnel handshake timeout: %w", err)
 	}
-	procName := "google-chrome-stable"
-	procPath := "/usr/bin/google-chrome-stable"
+	env := &tcpBrowserTrustEnv
 	if addr.Port == 22 {
-		procName = "ssh"
-		procPath = "/usr/bin/ssh"
+		env = &tcpSSHTrustEnv
 	}
-	procHash := fmt.Sprintf("%X", sha256.Sum256([]byte(procPath)))
 
 	realDstHost := tcpTunnelRealDstHost(addr, domain, addrPretend)
 	destAddr, destIP := tcpTunnelAuthDestinations(realDstHost, addr.Port, domain, addrPretend)
@@ -533,24 +517,14 @@ func (c *Client) DialTCP(ctx context.Context, addr *net.TCPAddr) (net.Conn, erro
 		URL:          "tcp://" + destAddr,
 		DeviceID:     c.DeviceID,
 		ConnectionID: c.ConnectionID,
-		ProcHash:     procHash,
+		ProcHash:     env.Application.Runtime.Process.Fingerprint,
+		Env:          *env,
 		UserName:     c.Username,
 		Lang:         c.requestLanguage(),
 		DestAddr:     destAddr,
 		DestIP:       destIP,
 		XRequestSig:  "",
 	}
-	authRequest.Env.Application.Runtime.Process = tcpTunnelProcess{
-		Name:             procName,
-		DigitalSignature: "TrustAppClosed",
-		Platform:         auth.ClientPlatform,
-		Fingerprint:      procHash,
-		Description:      "TrustAppClosed",
-		Path:             procPath,
-		Version:          "TrustAppClosed",
-		SecurityEnv:      "normal",
-	}
-	authRequest.Env.Application.Runtime.ProcessTrusted = "TRUSTED"
 	msgBytes, err := marshalTCPTunnelAuthRequest(authRequest, signKeyBytes)
 	if err != nil {
 		_ = conn.Close()

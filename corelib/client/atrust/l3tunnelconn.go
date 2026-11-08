@@ -3,7 +3,6 @@ package atrust
 import (
 	"bufio"
 	"context"
-	"crypto/sha256"
 	"crypto/tls"
 	"encoding/binary"
 	"encoding/hex"
@@ -146,24 +145,6 @@ type authResponseSID struct {
 	Data    struct {
 		DeviceID string `json:"deviceId"`
 	} `json:"data"`
-}
-
-type trustEnv struct {
-	Application struct {
-		Runtime struct {
-			Process struct {
-				Name             string `json:"name"`
-				DigitalSignature string `json:"digital_signature"`
-				Platform         string `json:"platform"`
-				Fingerprint      string `json:"fingerprint"`
-				Description      string `json:"description"`
-				Path             string `json:"path"`
-				Version          string `json:"version"`
-				SecurityEnv      string `json:"security_env"`
-			} `json:"process"`
-			ProcessTrusted string `json:"process_trusted"`
-		} `json:"runtime"`
-	} `json:"application"`
 }
 
 type packetMeta struct {
@@ -625,32 +606,39 @@ func (c *l3TunnelConn) writeRaw(data []byte) error {
 	return err
 }
 
+var l3TrustEnv = func() trustEnv {
+	platform := strings.Title(runtime.GOOS)
+	if runtime.GOOS == "darwin" {
+		platform = "macOS"
+	}
+	return newTrustEnv("zju-connect", "/usr/bin/zju-connect", platform)
+}()
+
 func buildAuthRequest(info clientInfo, signKey []byte, meta packetMeta, ct *conntrack) ([]byte, error) {
 	sid, err := info.currentSID()
 	if err != nil {
 		return nil, err
 	}
-	url := fmt.Sprintf("%s:%s:%d", protoName(meta.proto), meta.dstIP.String(), meta.dstPort)
-	env := defaultEnv()
+	destAddr := meta.dstIP.String()
 
 	req := authRequestIP{
 		Sid:           sid,
 		AppID:         ct.appID,
-		URL:           url,
+		URL:           fmt.Sprintf("%s:%s:%d", protoName(meta.proto), destAddr, meta.dstPort),
 		DeviceID:      info.deviceID,
 		ConnectionID:  info.connectionID,
-		Env:           env,
+		Env:           &l3TrustEnv,
 		ConntrackHash: ct.authID,
 		Lang:          protocolLanguage(info.language),
 		IP: authIP{
 			Atype:    authIPType(meta.atype),
 			Protocol: meta.proto,
-			DestAddr: meta.dstIP.String(),
+			DestAddr: destAddr,
 			DestPort: meta.dstPort,
 			SrcAddr:  meta.srcIP.String(),
 			SrcPort:  meta.srcPort,
 		},
-		ProcHash:    env.Application.Runtime.Process.Fingerprint,
+		ProcHash:    l3TrustEnv.Application.Runtime.Process.Fingerprint,
 		XRequestSig: "",
 	}
 
@@ -661,28 +649,6 @@ func buildAuthRequest(info clientInfo, signKey []byte, meta packetMeta, ct *conn
 	sig := calcXRequestSig(signKey, unsigned)
 	req.XRequestSig = sig
 	return json.Marshal(req)
-}
-
-func defaultEnv() *trustEnv {
-	procPath := "/usr/bin/zju-connect"
-	procName := "zju-connect"
-	fingerprint := fmt.Sprintf("%X", sha256.Sum256([]byte(procPath)))
-	platform := strings.Title(runtime.GOOS)
-	if platform == "Darwin" {
-		platform = "macOS"
-	}
-
-	var env trustEnv
-	env.Application.Runtime.Process.Name = procName
-	env.Application.Runtime.Process.DigitalSignature = "TrustAppClosed"
-	env.Application.Runtime.Process.Platform = platform
-	env.Application.Runtime.Process.Fingerprint = fingerprint
-	env.Application.Runtime.Process.Description = "TrustAppClosed"
-	env.Application.Runtime.Process.Path = procPath
-	env.Application.Runtime.Process.Version = "TrustAppClosed"
-	env.Application.Runtime.Process.SecurityEnv = "normal"
-	env.Application.Runtime.ProcessTrusted = "TRUSTED"
-	return &env
 }
 
 func getDataPayload(token string, packet []byte) *dataFrame {
