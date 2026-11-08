@@ -7,6 +7,8 @@ import io
 import json
 import os
 from pathlib import Path
+import time
+from urllib.error import HTTPError
 import urllib.request
 import zipfile
 
@@ -32,6 +34,18 @@ def unpack(data, asset):
     return binary
 
 
+def download_archive(url):
+    request = urllib.request.Request(url, headers={'Accept': 'application/octet-stream'})
+    for delay in (2, 6, None):
+        try:
+            with urllib.request.urlopen(request, timeout=45) as response:
+                return response.read(MAX_ARCHIVE + 1)
+        except HTTPError as error:
+            if delay is None or not 500 <= error.code < 600:
+                raise
+            time.sleep(delay)
+
+
 def main():
     lock = json.loads((Path(__file__).with_name('mihomo-runtime.json')).read_text())
     parser = argparse.ArgumentParser(description=__doc__)
@@ -39,9 +53,7 @@ def main():
     args = parser.parse_args()
     asset = lock['assets'][args.target]
     url = f"https://api.github.com/repos/MetaCubeX/mihomo/releases/assets/{asset['asset_id']}"
-    request = urllib.request.Request(url, headers={'Accept': 'application/octet-stream'})
-    with urllib.request.urlopen(request, timeout=45) as response:
-        binary = unpack(response.read(MAX_ARCHIVE + 1), asset)
+    binary = unpack(download_archive(url), asset)
     destination = ROOT / 'build/tools/test-mihomo' / args.target
     destination.mkdir(parents=True, exist_ok=True)
     path = destination / ('mihomo.exe' if args.target.startswith('windows-') else 'mihomo')

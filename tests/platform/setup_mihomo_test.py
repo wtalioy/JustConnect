@@ -2,6 +2,8 @@ import gzip
 import hashlib
 import io
 import unittest
+from unittest.mock import patch
+from urllib.error import HTTPError
 import zipfile
 
 import setup_mihomo
@@ -14,6 +16,16 @@ class RuntimeArchiveTests(unittest.TestCase):
         self.assertEqual(setup_mihomo.unpack(data, asset), b'native executable')
         with self.assertRaises(ValueError):
             setup_mihomo.unpack(data + b'tampered', asset)
+
+    def test_release_download_retries_transient_server_errors(self):
+        url = 'https://api.github.com/repos/example/releases/assets/123'
+        failure = HTTPError(url, 502, 'Bad Gateway', None, None)
+        with patch.object(setup_mihomo.urllib.request, 'urlopen',
+                          side_effect=[failure, io.BytesIO(b'archive')]) as request:
+            with patch.object(setup_mihomo.time, 'sleep') as sleep:
+                self.assertEqual(setup_mihomo.download_archive(url), b'archive')
+                sleep.assert_called_once_with(2)
+            self.assertEqual(request.call_count, 2)
 
     def test_zip_extracts_only_one_bounded_executable(self):
         stream = io.BytesIO()
