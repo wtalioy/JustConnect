@@ -83,9 +83,11 @@ void parser()
     damaged=JsonObject::Parse(winrt::to_hstring(encodeWindowsNetworkRecord(withDns)));
     auto originals=damaged.GetNamedArray(L"original_dns");originals.Append(originals.GetAt(0));damaged.SetNamedValue(L"original_dns",originals);
     refused([&]{decodeWindowsNetworkRecord(winrt::to_string(damaged.Stringify()));},"duplicate original DNS provider accepted");
+    damaged.SetNamedValue(L"original_dns",JsonArray::Parse(L"[false]"));
+    refused([&]{decodeWindowsNetworkRecord(winrt::to_string(damaged.Stringify()));},"non-object original DNS provider accepted");
     for(const auto &field:{L"id",L"marker",L"class",L"original",L"namespaces",L"server",L"global_policy",L"released"}){
-        auto invalid=JsonObject::Parse(winrt::to_hstring(encodeWindowsNrptRedirect(original)));invalid.Remove(field);
-        refused([&]{decodeWindowsNrptRedirect(winrt::to_string(invalid.Stringify()));},"incomplete original DNS record accepted");
+        auto invalid=encodeWindowsNrptRedirect(original);invalid.Remove(field);
+        refused([&]{decodeWindowsNrptRedirect(invalid);},"incomplete original DNS record accepted");
     }
 }
 void lockBoundary()

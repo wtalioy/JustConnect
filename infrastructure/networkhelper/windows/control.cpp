@@ -45,8 +45,8 @@ Request request(const std::string &message,const GUID &session) try
         if(owner.ValueType()!=JsonValueType::Null)fail("unexpected control owner");
     }else if(result.operation==L"recover" || result.operation==L"acknowledge" || result.operation==L"apply" || result.operation==L"routes" || result.operation==L"quiesce" || result.operation==L"restore" || result.operation==L"park")result.owner=identifier(owner.GetString());
     else fail("unknown control operation");
-    if(result.operation==L"apply")result.configuration=decodeWindowsNetworkConfiguration(winrt::to_string(value.GetNamedObject(L"configuration").Stringify()));
-    if(result.operation==L"routes"){result.captures=decodeWindowsCapturePrefixes(winrt::to_string(value.GetNamedArray(L"capture_prefixes").Stringify()));result.refreshDNS=value.GetNamedBoolean(L"refresh_dns");}
+    if(result.operation==L"apply")result.configuration=decodeWindowsNetworkConfiguration(value.GetNamedObject(L"configuration"));
+    if(result.operation==L"routes"){result.captures=decodeWindowsCapturePrefixes(value.GetNamedArray(L"capture_prefixes"));result.refreshDNS=value.GetNamedBoolean(L"refresh_dns");}
     return result;
 }catch(const winrt::hresult_error &){fail("invalid native control JSON");}
 JsonObject response(const GUID &session,const Request &request)
@@ -74,7 +74,7 @@ JsonObject metadata(const WindowsNetworkSession &session,const WindowsNetworkCon
     value.SetNamedValue(L"dns_id",configuration.dns?JsonValue::CreateStringValue(guid(configuration.dns->id)):JsonValue::CreateNullValue());
     JsonArray original;
     for(const auto &entry:configuration.originalDNS){
-        auto binding=JsonObject::Parse(winrt::to_hstring(encodeWindowsNrptRedirect(entry)));
+        auto binding=encodeWindowsNrptRedirect(entry);
         binding.Remove(L"released"); // Recovery progress belongs to the journal, not the activation snapshot.
         original.Append(binding);
     }

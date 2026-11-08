@@ -370,7 +370,7 @@ int wmain(int argc,wchar_t **argv) try
         snapshot.SetNamedValue(L"version",JsonValue::CreateNumberValue(WindowsDNS::NrptVersion));snapshot.SetNamedValue(L"options",JsonValue::CreateNumberValue(WindowsDNS::GenericServersOption));
         JsonObject source;source.SetNamedValue(L"source",snapshot);source.SetNamedValue(L"listen",JsonValue::CreateStringValue(L"127.0.0.1"));
         JsonArray servers;servers.Append(JsonValue::CreateStringValue(originalServer));source.SetNamedValue(L"servers",servers);
-        const auto decode=[&]{JsonArray sources;sources.Append(source);configuration.SetNamedValue(L"original_dns",sources);return decodeWindowsNetworkConfiguration(winrt::to_string(configuration.Stringify()));};
+        const auto decode=[&]{JsonArray sources;sources.Append(source);configuration.SetNamedValue(L"original_dns",sources);return decodeWindowsNetworkConfiguration(configuration);};
         check(decode().originalDNS.size()==1,"native session accepts the complete original source snapshot");
         for(const auto field:{L"id",L"class",L"servers"}){
             const auto saved=snapshot.GetNamedValue(field);snapshot.SetNamedValue(field,JsonValue::CreateStringValue(L"foreign"));

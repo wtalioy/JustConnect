@@ -6,6 +6,7 @@
 #include <thread>
 
 class WindowsPacketPipe;
+namespace winrt::Windows::Data::Json { struct JsonArray; }
 struct WindowsNetworkConfiguration {
     IN_ADDR source{},peer{};
     unsigned int mtu=0;
@@ -13,8 +14,9 @@ struct WindowsNetworkConfiguration {
     std::optional<WindowsDnsRule> dns;
     std::vector<WindowsNrptRedirect> originalDNS;
 };
-WindowsNetworkConfiguration decodeWindowsNetworkConfiguration(const std::string &message);
-std::vector<WindowsTunPrefix> decodeWindowsCapturePrefixes(const std::string &message);
+// Decode subobjects from the size-checked control frame.
+WindowsNetworkConfiguration decodeWindowsNetworkConfiguration(const winrt::Windows::Data::Json::JsonObject &value);
+std::vector<WindowsTunPrefix> decodeWindowsCapturePrefixes(const winrt::Windows::Data::Json::JsonArray &value);
 
 class WindowsNetworkSession final {
 public:

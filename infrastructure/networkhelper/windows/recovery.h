@@ -6,6 +6,8 @@
 #include <optional>
 #include <functional>
 
+namespace winrt::Windows::Data::Json { struct JsonObject; }
+
 enum class WindowsRecoveryPhase { Declared, Restoring, Restored, Parked };
 struct WindowsNetworkRecord {
     GUID owner{},adapter{};
@@ -17,8 +19,8 @@ struct WindowsNetworkRecord {
 
 std::string encodeWindowsNetworkRecord(const WindowsNetworkRecord &record);
 WindowsNetworkRecord decodeWindowsNetworkRecord(const std::string &data);
-std::string encodeWindowsNrptRedirect(const WindowsNrptRedirect &value);
-WindowsNrptRedirect decodeWindowsNrptRedirect(const std::string &data);
+winrt::Windows::Data::Json::JsonObject encodeWindowsNrptRedirect(const WindowsNrptRedirect &value);
+WindowsNrptRedirect decodeWindowsNrptRedirect(const winrt::Windows::Data::Json::JsonObject &value);
 
 // The service and active helper serialize every checkpoint and recovery under the same machine lock.
 class WindowsNetworkLock final {

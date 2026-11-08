@@ -42,10 +42,8 @@ void originalDnsExclusions(const std::vector<WindowsNrptRedirect> &sources,const
     }
 }
 }
-std::vector<WindowsTunPrefix> decodeWindowsCapturePrefixes(const std::string &message) try
+std::vector<WindowsTunPrefix> decodeWindowsCapturePrefixes(const JsonArray &value) try
 {
-    if(message.empty() || message.size()>WindowsNetworkContract::MaxMessageBytes)fail("invalid device configuration size");
-    const auto value=JsonArray::Parse(winrt::to_hstring(message));
     std::vector<WindowsTunPrefix> result;
     std::set<std::string> seen;
     for(const auto &item:value){
@@ -58,17 +56,15 @@ std::vector<WindowsTunPrefix> decodeWindowsCapturePrefixes(const std::string &me
     }
     return result;
 }catch(const winrt::hresult_error &){fail("invalid native capture JSON");}
-WindowsNetworkConfiguration decodeWindowsNetworkConfiguration(const std::string &message) try
+WindowsNetworkConfiguration decodeWindowsNetworkConfiguration(const JsonObject &value) try
 {
-    if(message.empty() || message.size()>WindowsNetworkContract::MaxMessageBytes)fail("invalid device configuration size");
-    const auto value=JsonObject::Parse(winrt::to_hstring(message));
     if(value.Size()!=6)fail("unknown device configuration fields");
     WindowsNetworkConfiguration result;
     result.source=address(value.GetNamedString(L"address"));result.peer=address(value.GetNamedString(L"peer"));
     const auto mtu=value.GetNamedNumber(L"mtu");
     if(!(mtu>=68 && mtu<=65535) || mtu!=static_cast<unsigned int>(mtu))fail("invalid device MTU");
     result.mtu=static_cast<unsigned int>(mtu);
-    result.captures=decodeWindowsCapturePrefixes(winrt::to_string(value.GetNamedArray(L"capture_prefixes").Stringify()));
+    result.captures=decodeWindowsCapturePrefixes(value.GetNamedArray(L"capture_prefixes"));
     WindowsTunDevice::validate(result.source,result.peer,result.mtu,result.captures);
     std::vector<std::wstring> domains;
     for(const auto &item:value.GetNamedArray(L"dns_domains")){const auto name=item.GetString();domains.emplace_back(name.data(),name.size());}

@@ -120,7 +120,7 @@ std::string encodeWindowsNetworkRecord(const WindowsNetworkRecord &value)
     if (value.dns) result.SetNamedValue(L"dns",dns(*value.dns));
     else result.SetNamedValue(L"dns",JsonValue::CreateNullValue());
     JsonArray original;
-    for(const auto &entry:value.originalDNS)original.Append(JsonObject::Parse(winrt::to_hstring(encodeWindowsNrptRedirect(entry))));
+    for(const auto &entry:value.originalDNS)original.Append(encodeWindowsNrptRedirect(entry));
     result.SetNamedValue(L"original_dns",original);
     const wchar_t *phase=nullptr;
     switch (value.phase) { case WindowsRecoveryPhase::Declared:phase=L"declared";break;case WindowsRecoveryPhase::Restoring:phase=L"restoring";break;case WindowsRecoveryPhase::Restored:phase=L"restored";break;case WindowsRecoveryPhase::Parked:phase=L"parked";break; }
@@ -143,7 +143,7 @@ WindowsNetworkRecord decodeWindowsNetworkRecord(const std::string &data) try
     const auto original=object.GetNamedArray(L"original_dns");
     if(original.Size()>NetworkDnsDomainLimit)fail("too many saved original DNS providers",ERROR_INVALID_DATA);
     for(const auto &item:original){
-        auto entry=decodeWindowsNrptRedirect(winrt::to_string(item.Stringify()));
+        auto entry=decodeWindowsNrptRedirect(item.GetObject());
         if(!originalIds.insert(guid(entry.id)).second)fail("duplicate original DNS provider",ERROR_INVALID_DATA);
         result.originalDNS.push_back(std::move(entry));
     }
@@ -158,7 +158,7 @@ WindowsNetworkRecord decodeWindowsNetworkRecord(const std::string &data) try
     return result;
 } catch (const winrt::hresult_error &) { fail("damaged native recovery record",ERROR_INVALID_DATA); }
 
-std::string encodeWindowsNrptRedirect(const WindowsNrptRedirect &value)
+JsonObject encodeWindowsNrptRedirect(const WindowsNrptRedirect &value)
 {
     if(!value.valid())fail("invalid original DNS record",ERROR_INVALID_DATA);
     JsonObject result;
@@ -173,12 +173,10 @@ std::string encodeWindowsNrptRedirect(const WindowsNrptRedirect &value)
     result.SetNamedValue(L"server",JsonValue::CreateStringValue(server));
     result.SetNamedValue(L"global_policy",JsonValue::CreateStringValue(std::to_wstring(value.globalPolicy)));
     result.SetNamedValue(L"released",JsonValue::CreateBooleanValue(value.released));
-    return winrt::to_string(result.Stringify());
+    return result;
 }
-WindowsNrptRedirect decodeWindowsNrptRedirect(const std::string &data) try
+WindowsNrptRedirect decodeWindowsNrptRedirect(const JsonObject &value) try
 {
-    if(data.empty() || data.size()>WindowsNetworkContract::MaxRecordBytes)fail("invalid original DNS record size",ERROR_INVALID_DATA);
-    const auto value=JsonObject::Parse(winrt::to_hstring(data));
     fields(value,{L"id",L"marker",L"class",L"original",L"namespaces",L"server",L"global_policy",L"released"});
     WindowsNrptRedirect result;
     result.id=parseGuid(value.GetNamedString(L"id"));result.marker=parseGuid(value.GetNamedString(L"marker"));
