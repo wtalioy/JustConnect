@@ -211,11 +211,11 @@ def main(args):
 
             def helper_pid():
                 service = run('/bin/launchctl', 'print', 'system/' + SERVICE).stdout.decode()
-                pid = re.search(r'^\s*pid = (\d+)\s*$', service, re.M); assert pid
-                return int(pid[1])
+                pid = re.search(r'^\s*pid = (\d+)\s*$', service, re.M)
+                return int(pid[1]) if pid else None
 
             def kill_helper():
-                pid = helper_pid()
+                pid = helper_pid(); assert pid
                 print('CHECK: kill managed helper pid', pid, flush=True)
                 os.kill(pid, signal.SIGKILL)
 
@@ -515,6 +515,7 @@ def main(args):
                         parent, uid = map(int, run('/bin/ps', '-p', pid, '-o', 'ppid=', '-o', 'uid=').stdout.split())
                         assert (parent, uid) == (core.pid, args.uid), 'Refusing an unrelated native process'
                         daemon = helper_pid()
+                        assert daemon
                         os.kill(daemon, signal.SIGSTOP)
                         try:
                             os.kill(pid, signal.SIGKILL)
@@ -610,6 +611,14 @@ def main(args):
                 if scenario != 'process-crash':
                     assert not list(user_state.iterdir()), 'Actual Qt/core session retained an ownership receipt'
                 wait_for(dns_restored, 'Actual Qt/core session left original DNS changed')
+            wait_for(lambda: helper_pid() is None, 'Idle helper kept the previous bundle alive')
+            bundle.rename(directory / 'previous.app')
+            (directory / 'wrong-certificate.app').rename(bundle)
+            upgraded = start('--publish', grant=True); active = event(upgraded, 'active')
+            publish(upgraded, active)
+            upgraded.stdin.write(b'restore\n'); upgraded.stdin.flush(); event(upgraded, 'restored'); finish(upgraded)
+            assert not list(user_state.iterdir()), 'Replacement bundle left an ownership receipt'
+            print('CHECK: a replacement bundle with a new certificate starts its own helper on demand', flush=True)
             print('PASS: signed root XPC, identity/network authorization boundaries, ordinary UDP/fd and system DNS, durable CoreEngine DNS publication, cancellation, EOF and daemon restart recovery', flush=True)
         finally:
             for process in processes:

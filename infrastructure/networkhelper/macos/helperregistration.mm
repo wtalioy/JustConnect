@@ -3,13 +3,17 @@
 #import <Foundation/Foundation.h>
 #import <ServiceManagement/ServiceManagement.h>
 
-PlatformOperationResult registerMacNetworkHelper()
+PlatformOperationResult registerMacNetworkHelper(bool refresh)
 {
     using Status = PlatformOperationResult::Status;
     @autoreleasepool {
         auto *service = [SMAppService daemonServiceWithPlistName:[NSString stringWithUTF8String:MacHelperPlist]];
-        if (service.status == SMAppServiceStatusNotRegistered || service.status == SMAppServiceStatusNotFound) {
-            NSError *error = nil;
+        const auto status = service.status;
+        const bool replace = refresh && status == SMAppServiceStatusEnabled;
+        NSError *error = nil;
+        if (replace && ![service unregisterAndReturnError:&error])
+            return {Status::PermissionDenied,QStringLiteral("Cannot refresh the network helper registration: ")+QString::fromUtf8(error.localizedDescription.UTF8String)};
+        if (replace || status == SMAppServiceStatusNotRegistered || status == SMAppServiceStatusNotFound) {
             if (![service registerAndReturnError:&error])
                 return {Status::PermissionDenied,QStringLiteral("Cannot register the network helper: ")+QString::fromUtf8(error.localizedDescription.UTF8String)};
         }

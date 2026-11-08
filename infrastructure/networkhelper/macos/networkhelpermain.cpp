@@ -7,6 +7,7 @@
 #include <QJsonDocument>
 #include <QMap>
 #include <QScopeGuard>
+#include <algorithm>
 #include <dispatch/dispatch.h>
 #include <dirent.h>
 #include <fcntl.h>
@@ -49,6 +50,7 @@ public:
     QMap<QString,std::shared_ptr<Ownership>> owners;
     QMap<quint64,xpc_connection_t> peers;
     quint64 serial = 0;
+    bool wasIdle = false;
     dispatch_queue_t queue = dispatch_queue_create(MacHelperIdentifier,DISPATCH_QUEUE_SERIAL);
 
     void discover()
@@ -73,6 +75,15 @@ public:
     {
         discover();
         for (const auto &entry : owners) if (!entry->peer && entry->state->phase() != "restored") entry->state->restore();
+    }
+    void maintain()
+    {
+        recoverOrphans();
+        const bool idle = peers.isEmpty() && std::all_of(owners.cbegin(), owners.cend(),
+            [](const auto &entry) { return entry->state->phase() == "restored"; });
+        // An idle daemon must not keep the previous bundle's signing identity alive across upgrades.
+        if (idle && wasIdle) std::exit(0);
+        wasIdle = idle;
     }
     void disconnected(quint64 peer)
     {
@@ -145,6 +156,7 @@ public:
     {
         const auto uid = xpc_connection_get_euid(connection);
         if (!uid || uid == uid_t(-1) || peers.size() >= MacHelperMaxPeers || !identity.constrain(connection)) { xpc_connection_cancel(connection); return; }
+        wasIdle = false;
         const auto peer = ++serial;
         xpc_retain(connection); peers.insert(peer,connection); xpc_connection_set_target_queue(connection,queue);
         xpc_connection_set_event_handler(connection,^(xpc_object_t message) {
@@ -176,7 +188,7 @@ int main(int argc, char **argv)
     dispatch_async(server->queue,^{ server->recoverOrphans(); });
     const auto timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER,0,0,server->queue);
     dispatch_source_set_timer(timer,dispatch_time(DISPATCH_TIME_NOW,5*NSEC_PER_SEC),5*NSEC_PER_SEC,NSEC_PER_SEC);
-    dispatch_source_set_event_handler(timer,^{ server->recoverOrphans(); }); dispatch_resume(timer);
+    dispatch_source_set_event_handler(timer,^{ server->maintain(); }); dispatch_resume(timer);
     ::signal(SIGTERM,SIG_IGN); ::signal(SIGINT,SIG_IGN);
     for (int number : {SIGTERM,SIGINT}) {
         const auto source = dispatch_source_create(DISPATCH_SOURCE_TYPE_SIGNAL,uintptr_t(number),0,server->queue);

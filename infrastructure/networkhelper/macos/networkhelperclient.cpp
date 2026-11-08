@@ -80,9 +80,10 @@ MacNetworkHelperClient::MacNetworkHelperClient(QObject *parent, AuthorizationPro
     if (authorization) native->authorize = std::move(authorization);
     native->client = this; deadline.setSingleShot(true); deadline.setInterval(MacHelperOperationTimeoutMs);
     connect(&deadline,&QTimer::timeout,this,[this] {
+        if (current == State::Inspecting && operation == Operation::Inspect) { probeFailed(); return; }
         pendingRequest = {}; closeDevice();
         const bool changed = current == State::Applying || current == State::Extending || current == State::Reconciling || current == State::Restoring || current == State::Acknowledging;
-        const Result result{Status::TimedOut,"Network helper timed out; pending ownership is retained.",changed};
+        const Result result{Status::TimedOut,changed ? "Network helper timed out; pending ownership is retained." : "Network helper timed out before applying changes.",changed};
         finish(result,current == State::Acknowledging ? State::CleanupRequired : changed ? State::RecoveryRequired : State::Idle);
         if (changed) emit ownershipLost(result);
     });
@@ -186,13 +187,18 @@ void MacNetworkHelperClient::probeFailed()
     setState(State::Registering);
     if (current != State::Registering || pendingRequest != request) return;
     const std::weak_ptr<Native> weak(native);
+    const bool refresh = operation == Operation::Inspect;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0),^{
-        const auto result = registerMacNetworkHelper();
+        const auto result = registerMacNetworkHelper(refresh);
         if (auto state = weak.lock()) dispatch_async(state->queue,^{ state->post([result,request](auto *target) {
             if (target->current != State::Registering || target->pendingRequest != request) return;
             if (target->cancelled) target->finish({Status::Cancelled,"Network setup cancelled.",false},State::Idle);
             else if (!result.succeeded()) target->finish(result,State::Idle);
-            else { target->setState(State::Inspecting); target->send("probe"); }
+            else {
+                const auto transport = target->native;
+                dispatch_async(transport->queue,^{ transport->invalid = true; });
+                target->setState(State::Inspecting); target->send("probe");
+            }
         }); });
     });
 }
