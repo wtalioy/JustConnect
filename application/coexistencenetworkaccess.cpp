@@ -97,6 +97,13 @@ CoexistenceNetworkAccess::CoexistenceNetworkAccess(NetworkAccess *nativeAccess, 
                 if (!proxy->handoff(frontend)) { pending = Pending::None; fail(failed("Cannot hand off the browser proxy.")); }
                 return;
             }
+            if (stage == Stage::Synchronizing && !proxy->needsCleanup()) {
+                if (!observed.result.succeeded()) emit core->diagnostic("browser_proxy_observation_unavailable");
+                else if (!observed.active) emit core->diagnostic("browser_proxy_inactive");
+                else if (observed.endpoints.isEmpty()) emit core->diagnostic("browser_proxy_settings_unsupported");
+                else if (!state["available"].toBool()) emit core->diagnostic("browser_proxy_listener_unverified");
+                else emit core->diagnostic("browser_proxy_endpoint_mismatch");
+            }
             finishCycle();
         }
     });

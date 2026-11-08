@@ -199,8 +199,8 @@ void ConnectionUiController::enableCampusAccess()
     QtConcurrent::run(officialClientProbe).then(this,[this,generation](std::optional<bool> running) {
         if(quitting || generation!=credentialGeneration)return;
         if(!running){qWarning()<<"Cannot inspect the official aTrust core process.";return;}
-        if(*running)notificationHandler(tr("The official aTrust client is running"),
-            tr("Its routes or DNS may conflict with JustConnect. Disconnect it manually first. JustConnect will not terminate its processes."),QSystemTrayIcon::Warning);
+        if(*running)notificationHandler(tr("aTrust background agent detected"),
+            tr("If aTrust is connected, disconnect it first to avoid routing or DNS conflicts."),QSystemTrayIcon::Warning);
     });
     credentials->load(source).then(this,[this,source,generation](const CredentialLoadResult &loaded) {
         if (generation!=credentialGeneration) return;

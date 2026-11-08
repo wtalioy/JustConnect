@@ -375,13 +375,13 @@ This connection remains usable. You may need to sign in again later.</source>
     </message>
     <message>
         <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="200"/>
-        <source>The official aTrust client is running</source>
-        <translation>检测到官方 aTrust 正在运行</translation>
+        <source>aTrust background agent detected</source>
+        <translation>检测到 aTrust 后台进程</translation>
     </message>
     <message>
         <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="201"/>
-        <source>Its routes or DNS may conflict with JustConnect. Disconnect it manually first. JustConnect will not terminate its processes.</source>
-        <translation>官方客户端可能与 JustConnect 的路由或 DNS 设置冲突。请先手动断开官方连接；JustConnect 不会结束它的进程。</translation>
+        <source>If aTrust is connected, disconnect it first to avoid routing or DNS conflicts.</source>
+        <translation>如果 aTrust 仍处于连接状态，请先断开，以免路由或 DNS 冲突。</translation>
     </message>
     <message>
         <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="207"/>

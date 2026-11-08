@@ -48,7 +48,9 @@ ConnectionDiagnostics::ConnectionDiagnostics(CoreEngine *core, ConnectionSession
                                          "local_controller_unavailable",   "coexistence_refresh_failed",
                                          "tls_node_verification_disabled", "tls_verification_disabled",
                                          "tls_authentication_failed",      "persistence_failed",
-                                         "browser_proxy_changed_externally"};
+                                         "browser_proxy_changed_externally", "browser_proxy_observation_unavailable",
+                                         "browser_proxy_settings_unsupported", "browser_proxy_listener_unverified",
+                                         "browser_proxy_endpoint_mismatch", "browser_proxy_inactive"};
         code = known.contains(value) ? value : QString();
         if (value == "coexistence_refresh_failed")
             exitKnown = false;

@@ -407,8 +407,8 @@ static void officialClientWarningIsReadOnlyAndDropsCancelledResults() {
     ConnectionUiController controller(&parent,&connectButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,
         &access,[&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
         [&](const QString &title,const QString &text,QSystemTrayIcon::MessageIcon icon){
-            check(title.contains("aTrust") && text.contains("DNS") && text.contains("will not terminate") && icon==QSystemTrayIcon::Warning,
-                "official client warning explains a possible conflict without claiming an authenticated connection");++warnings;
+            check(title.contains("aTrust background agent") && text.startsWith("If aTrust is connected") && text.contains("DNS") && icon==QSystemTrayIcon::Warning,
+                "agent warning must distinguish process presence from an active connection");++warnings;
         },nullptr,[&]() -> std::optional<bool>{++scans;release.acquire();return true;});
     struct FinishProbe{QSemaphore &release;~FinishProbe(){release.release(4);QThreadPool::globalInstance()->waitForDone(1000);}} finish{release};
     connectButton.click();until([&]{return scans==1;});until([&]{return engine->starts==1;});

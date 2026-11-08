@@ -21,7 +21,7 @@ class Proxy final : public SystemProxyBackend {
 public:
     QMutex mutex;
     QStringList endpoints{"127.0.0.1:7890"}, original;
-    bool owned = false, clearFails = false, blockApply = false, applyFails = false, blockClear = false;
+    bool owned = false, clearFails = false, blockApply = false, applyFails = false, blockClear = false, observationUnavailable = false;
     int applies = 0, clears = 0, inspections = 0;
     SystemProxyConfig installed;
     QSemaphore entered, release;
@@ -29,6 +29,7 @@ public:
     SystemProxyCheck check(const SystemProxyConfig &) override { return inspect(); }
     SystemProxyCheck inspect() override {
         QMutexLocker lock(&mutex); ++inspections;
+        if (observationUnavailable) return {{PlatformOperationResult::Status::Unsupported, "Observation unavailable"}};
         return {{}, false, !endpoints.isEmpty(), owned, owned ? original : endpoints};
     }
     PlatformOperationResult apply(const SystemProxyConfig &config) override {
@@ -192,6 +193,20 @@ void leavesUnrelatedProxyAndDisabledListenersAlone() {
     check(f.backend->endpoints == QStringList{"127.0.0.1:9988"} && !f.backend->clears,
           "disconnect modified an unrelated proxy");
 }
+void explainsWhyBrowserHandoffWasSkipped() {
+    for (bool observationUnavailable : {false, true}) {
+        Fixture f;
+        f.backend->observationUnavailable = observationUnavailable;
+        f.core.available = false;
+        f.core.verified.clear();
+        QStringList diagnostics;
+        QObject::connect(&f.core, &CoreEngine::diagnostic, [&](const QString &code) { diagnostics.append(code); });
+        f.start(); until([&] { return f.ready == 1; });
+        check(diagnostics == QStringList{observationUnavailable ? "browser_proxy_observation_unavailable" : "browser_proxy_listener_unverified"}
+            && !f.backend->applies && !f.proxy.needsCleanup(), "the skipped handoff did not distinguish observation from listener verification");
+        f.access.stop(f.attempt); until([&] { return f.stopped == 1; });
+    }
+}
 void preservesExternalProxyAfterHandoff() {
     Fixture f; f.start(); until([&] { return f.ready == 1; });
     int notices = 0;
@@ -224,4 +239,5 @@ int main(int argc, char **argv) {
     cancelsDuringApply(false); cancelsDuringApply(true);
     leavesUnrelatedProxyAndDisabledListenersAlone(); cancellationBeforeNativePreparationLeavesNoCapture();
     preservesExternalProxyAfterHandoff();
+    explainsWhyBrowserHandoffWasSkipped();
 }
