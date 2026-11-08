@@ -38,7 +38,11 @@ func TestProtocolQueryProxyStopAndRestart(t *testing.T) {
 			ctx, cancel = context.WithDeadline(ctx, deadline)
 			defer cancel()
 		}
-		command := exec.CommandContext(ctx, os.Args[0], "-test.v", "-test.run=^"+t.Name()+"$")
+		executable, err := os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		command := exec.CommandContext(ctx, executable, "-test.v", "-test.run=^"+t.Name()+"$")
 		command.Env = append(os.Environ(), childMarker+"=1")
 		output, err := command.CombinedOutput()
 		if err != nil || !bytes.Contains(output, []byte("--- PASS: "+t.Name()+" ")) {
