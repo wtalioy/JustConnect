@@ -330,16 +330,17 @@ def verify(root, executable, revision, application_version, output, archive, bro
         report['audit'] = macos_audit(files, root, arch, env)
     report['sign_in_browser'] = check_signin_browser(root, executable, browser_probe, env)
     report['offline_self_test_wall_ms'] = startup_ms
+    installed_files = [
+        {'path': str(path.relative_to(root)), 'bytes': path.stat().st_size}
+        for path in root.rglob('*') if path.is_file() and not path.is_symlink()
+    ]
     report['size_bytes'] = {
         'archive': archive_bytes,
-        'installed': sum(p.stat().st_size for p in root.rglob('*') if p.is_file() and not p.is_symlink()),
+        'installed': sum(item['bytes'] for item in installed_files),
         'executable': executable.stat().st_size,
         'runtime_dll': runtime.stat().st_size if system == 'windows' else 0,
     }
-    report['largest_files'] = sorted(
-        ({'path': str(path.relative_to(root)), 'bytes': path.stat().st_size}
-         for path in root.rglob('*') if path.is_file() and not path.is_symlink()),
-        key=lambda item: item['bytes'], reverse=True)[:15]
+    report['largest_files'] = sorted(installed_files, key=lambda item: item['bytes'], reverse=True)[:15]
     report['sha256'] = {}
     for path in [executable] + ([runtime, reader] if system == 'windows' else []):
         with path.open('rb') as stream:
