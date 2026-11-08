@@ -28,7 +28,6 @@
 #include <QJsonDocument>
 #include <QLabel>
 #include <QLineEdit>
-#include <QListWidget>
 #include <QMessageBox>
 #include <QPointer>
 #include <QPushButton>

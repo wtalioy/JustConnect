@@ -1453,8 +1453,8 @@ Last %1: %2</source>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="818"/>
-        <source>The profile file and legacy cache will be deleted. Passwords, TOTP, account caches and quarantined copies in secure storage are preserved. To remove them, first clear passwords and TOTP in Connection settings, then clear account and legacy caches from Details &gt; Tools.</source>
-        <translation>将删除配置文件和旧版缓存。安全存储中的密码、TOTP、账号缓存及隔离副本会保留。如需移除，请先在“连接配置”中清除密码和 TOTP，再在“详情”的“工具”菜单中清除账号及旧版缓存。</translation>
+        <source>The profile file and legacy cache will be deleted. Passwords, TOTP, account caches and quarantined copies in secure storage are preserved. To remove them, first clear passwords and TOTP in Connection settings, then clear account and legacy caches from Profile maintenance in the profile menu.</source>
+        <translation>将删除配置文件和旧版缓存。安全存储中的密码、TOTP、账号缓存及隔离副本会保留。如需移除，请先在“连接配置”中清除密码和 TOTP，再在配置菜单的“配置维护”中清除账号及旧版缓存。</translation>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="882"/>

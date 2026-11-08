@@ -718,7 +718,6 @@
     <addaction name="clearAuthenticationCacheAction" />
     <addaction name="clearClientDataAction" />
     <addaction name="separator" />
-    <addaction name="separator" />
     <addaction name="openLogAction" />
     <addaction name="preferencesAction" />
     <addaction name="settingAction" />

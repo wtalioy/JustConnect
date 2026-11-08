@@ -8,7 +8,7 @@ QPushButton, QToolButton, QComboBox {
 }
 QPushButton:hover, QToolButton:hover, QComboBox:hover { background: #e4e7ec; border-color: #cbd2dc; }
 QPushButton:pressed, QToolButton:pressed { background: #dce0e6; }
-QPushButton:focus, QToolButton:focus, QComboBox:focus, QLineEdit:focus, QSpinBox:focus, QPlainTextEdit:focus, QTreeWidget:focus, QListWidget:focus { border: 1px solid #9aa3af; }
+QPushButton:focus, QToolButton:focus, QComboBox:focus, QLineEdit:focus, QSpinBox:focus, QPlainTextEdit:focus, QTreeWidget:focus { border: 1px solid #9aa3af; }
 QPushButton[iconOnly="true"], QToolButton#applicationMenuButton { min-width: 38px; max-width: 38px; padding: 0; }
 QPushButton:disabled, QToolButton:disabled, QComboBox:disabled { color: #8a92a1; background: #f0f1f5; border-color: #e4e7ed; }
 QDialog QPushButton:default:enabled, QPushButton#connectButton[primaryAction="true"]:enabled { color: white; background: #5367e8; border-color: #5367e8; font-weight: 600; }
@@ -20,7 +20,6 @@ QPushButton:flat { border-color: transparent; background: transparent; color: #6
 QPushButton:flat:hover { background: #e4e7ec; }
 QPushButton:flat:focus { border-color: #9aa3af; }
 QToolButton#preferencesButton { padding: 0; min-width: 38px; }
-QToolButton#preferencesButton::menu-indicator { image: none; }
 QToolButton#applicationMenuButton::menu-indicator { image: none; }
 QToolButton#serverCaToggle { border-color: transparent; background: transparent; padding: 0; min-height: 26px; max-height: 26px; min-width: 26px; max-width: 26px; }
 QToolButton#serverCaToggle:hover { background: #e4e7ec; }
@@ -30,11 +29,10 @@ QToolButton#profileMenuButton { min-height: 34px; max-height: 34px; padding: 0; 
 QToolButton#profileMenuButton:hover { background: rgba(120,132,148,45); }
 QToolButton#profileMenuButton:pressed { background: rgba(120,132,148,70); }
 QToolButton#profileMenuButton:focus { border-color: #9aa3af; }
-QComboBox::down-arrow { image: url(:/resource/chevron.svg); width: 16px; height: 16px; }
+QComboBox::down-arrow { image: url(:/resource/chevron.svg); width: 16px; height: 16px; subcontrol-position: center; }
 QToolButton#profileMenuButton::menu-indicator { image: none; }
 QComboBox { min-height: 34px; max-height: 34px; padding-left: 12px; padding-right: 32px; }
 QComboBox::drop-down { border: none; width: 30px; subcontrol-origin: padding; subcontrol-position: right center; }
-QComboBox::down-arrow { subcontrol-position: center; }
 QComboBox:on { background: #e3e6eb; border-color: #9aa3af; }
 QComboBox QAbstractItemView {
     outline: none; border: 1px solid #dde2e9; border-radius: 10px; padding: 5px;
@@ -45,7 +43,7 @@ QComboBox QAbstractItemView::item { min-height: 24px; padding: 0 10px; margin: 1
 QComboBox QAbstractItemView::item:hover { background: #e4e7ec; }
 QComboBox QAbstractItemView::item:selected { background: #dce0e6; color: #182132; }
 QComboBox QAbstractItemView::item:disabled { color: #8792a3; background: transparent; }
-QLineEdit, QSpinBox, QPlainTextEdit, QListWidget, QTreeWidget {
+QLineEdit, QSpinBox, QPlainTextEdit, QTreeWidget {
     border: 1px solid #e0e4eb; border-radius: 10px; background: rgba(255,255,255,225); color: #182132; padding: 7px;
     selection-background-color: #dce0e6; selection-color: #182132;
 }
@@ -58,7 +56,7 @@ QSpinBox::up-button { subcontrol-origin: border; subcontrol-position: top right;
 QSpinBox::down-button { subcontrol-origin: border; subcontrol-position: bottom right; width: 32px; height: 17px; border: none; background: transparent; }
 QSpinBox::up-arrow { image: url(:/resource/chevron-up.svg); width: 12px; height: 12px; }
 QSpinBox::down-arrow { image: url(:/resource/chevron.svg); width: 12px; height: 12px; }
-QCheckBox, QRadioButton { spacing: 8px; color: #263143; min-height: 30px; }
+QCheckBox { spacing: 8px; color: #263143; min-height: 30px; }
 QGroupBox { font-size: 12pt; font-weight: 700; background: transparent; border: none; margin-top: 22px; padding: 8px 0 0; color: #182132; }
 /* Qt centers the heading in a native label rectangle that includes a trailing space. */
 QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: -0.15em; }
@@ -86,7 +84,6 @@ QLabel#statusDetailLabel { font-size: 9pt; color: #737c8b; }
 QLabel#profileDetailLabel { font-size: 10.5pt; color: #616b7c; }
 QPlainTextEdit#logPlainTextEdit { font-size: 9pt; background: #f3f5f9; border: none; }
 QFrame#logPanel { background: transparent; border: none; }
-QFrame[divider="true"] { background: #dfe3eb; min-height: 1px; max-height: 1px; border: none; }
 QPushButton#detailsButton { min-width: 44px; max-width: 44px; min-height: 44px; padding: 0; background: #edf0f4; }
 QPushButton#detailsButton:hover { background: #e4e7ec; }
 QPushButton#detailsButton:pressed { background: #dce0e6; }
@@ -100,8 +97,6 @@ QTreeWidget::item:selected { background: #dce0e6; color: #182132; }
 QTreeWidget#diagnosticReport::item { padding: 8px 12px; }
 QTreeWidget#diagnosticReport { outline: none; border: 1px solid transparent; background: #ffffff; }
 QTreeWidget#diagnosticReport:focus { border-color: #9aa3af; }
-
-QListWidget::item { min-height: 22px; padding: 6px 8px; }
 
 QLabel[secondary="true"] { color: #737c8b; font-size: 9pt; }
 QLabel[warning="true"] { color: #835b1d; }

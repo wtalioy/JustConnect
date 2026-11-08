@@ -807,7 +807,7 @@ void MainWindow::deleteCurrentProfile()
 
     QMessageBox messageBox(this);
     messageBox.setWindowTitle(tr("Delete profile"));
-    messageBox.setInformativeText(tr("The profile file and legacy cache will be deleted. Passwords, TOTP, account caches and quarantined copies in secure storage are preserved. To remove them, first clear passwords and TOTP in Connection settings, then clear account and legacy caches from Details > Tools."));
+    messageBox.setInformativeText(tr("The profile file and legacy cache will be deleted. Passwords, TOTP, account caches and quarantined copies in secure storage are preserved. To remove them, first clear passwords and TOTP in Connection settings, then clear account and legacy caches from Profile maintenance in the profile menu."));
     messageBox.setText(tr("Delete profile \"%1\"?").arg(currentProfileId));
     auto *remove=messageBox.addButton(QMessageBox::Yes);remove->setText(tr("Delete"));
     PresentationHelpers::setButtonIcon(remove,":/resource/file-remove.svg");
