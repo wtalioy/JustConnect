@@ -22,6 +22,7 @@
 #include "presentation/widgets/applicationpreferenceswidget.h"
 #include "presentation/widgets/localizeddialog.h"
 #include <QtAlgorithms>
+#include <algorithm>
 #include "infrastructure/settings/profilemanager.h"
 
 #include "mainwindow.h"
@@ -581,7 +582,7 @@ void MainWindow::setupTrayIcon()
     trayProfileMenu = new QMenu(tr("Profiles"), this);
     trayShowAction = new QAction(tr("Show window"), this);trayShowAction->setObjectName("trayShowAction");
     trayCloseAction = new QAction(tr("Exit %1").arg(QApplication::applicationName()), this);
-    trayMenu = new QMenu(this);
+    auto *trayMenu = new QMenu(this);
     trayMenu->addAction(trayConnectAction);
     trayMenu->addSeparator();
     trayMenu->addMenu(trayProfileMenu);
@@ -628,67 +629,35 @@ void MainWindow::setupProfileMenu()
 
 void MainWindow::refreshProfileMenu()
 {
-    qDeleteAll(switchGroup->actions());
-
-    if (trayProfileMenu != nullptr)
-    {
-        trayProfileMenu->clear();
-    }
-
-    QAction *action = ui->profileMenu->addAction(tr("Default"));
-    action->setCheckable(true);
-    action->setChecked(currentProfileId.isEmpty());
-    switchGroup->addAction(action);
-    connect(action, &QAction::triggered, this, [this]()
-    {
-        switchProfile("");
-    });
-    if (trayProfileMenu != nullptr)
-    {
-        QAction *trayAction = trayProfileMenu->addAction(tr("Default"));
-        trayAction->setCheckable(true);
-        trayAction->setChecked(currentProfileId.isEmpty());
-        traySwitchGroup->addAction(trayAction);
-        connect(trayAction, &QAction::triggered, this, [this]()
-        {
-            switchProfile("");
-        });
-    }
-
-    for (const QString &profileId : profileService->profiles())
-    {
-        QAction *action = ui->profileMenu->addAction(profileId);
-        action->setCheckable(true);
-        action->setChecked(
-            !profileService->usesOverrideConfiguration()
-            && profileId == currentProfileId
-        );
-        switchGroup->addAction(action);
-        connect(action, &QAction::triggered, this, [this, profileId]()
-        {
-            switchProfile(profileId);
-        });
-
-        if (trayProfileMenu != nullptr)
-        {
-            QAction *trayAction = trayProfileMenu->addAction(profileId);
-            trayAction->setCheckable(true);
-            trayAction->setChecked(
-                !profileService->usesOverrideConfiguration()
-                && profileId == currentProfileId
-            );
-            traySwitchGroup->addAction(trayAction);
-            connect(trayAction, &QAction::triggered, this, [this, profileId]()
-            {
-                switchProfile(profileId);
-            });
+    auto profiles = profileService->profiles();
+    profiles.prepend(QString());
+    const auto actions = switchGroup->actions();
+    const bool rebuild = actions.size() != profiles.size()
+        || !std::equal(actions.cbegin(), actions.cend(), profiles.cbegin(),
+            [](const QAction *action, const QString &id) { return action->data().toString() == id; });
+    const bool overrideConfiguration = profileService->usesOverrideConfiguration();
+    const auto updateMenu = [&](QMenu *menu, QActionGroup *group) {
+        if (rebuild) {
+            qDeleteAll(group->actions());
+            for (const auto &id : profiles) {
+                auto *action = menu->addAction(id);
+                action->setData(id);
+                action->setCheckable(true);
+                group->addAction(action);
+                connect(action, &QAction::triggered, this, [this, id] { switchProfile(id); });
+            }
         }
-    }
-    ui->profileMenuButton->menu()->addActions(switchGroup->actions());
+        for (auto *action : group->actions()) {
+            const auto id = action->data().toString();
+            if (id.isEmpty()) action->setText(tr("Default"));
+            action->setChecked(id == currentProfileId && (id.isEmpty() || !overrideConfiguration));
+        }
+    };
+    updateMenu(ui->profileMenu, switchGroup);
+    updateMenu(trayProfileMenu, traySwitchGroup);
+    if (rebuild) ui->profileMenuButton->menu()->addActions(switchGroup->actions());
 
-    const bool currentProfileIsManaged =
-        !currentProfileId.isEmpty()
-        && !profileService->usesOverrideConfiguration();
+    const bool currentProfileIsManaged = !currentProfileId.isEmpty() && !overrideConfiguration;
     renameProfileAction->setEnabled(currentProfileIsManaged);
     deleteProfileAction->setEnabled(currentProfileIsManaged);
 }

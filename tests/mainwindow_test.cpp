@@ -92,7 +92,7 @@ static void recoveryStatus(ApplicationLogger &logger,ApplicationLogFile &log) {
         && title->text()=="Disconnected","confirmed recovery distinguishes released capture from its retained earlier error");
     check(accessible->text(QAccessible::Name)==title->text(),"the accessible state follows confirmed recovery");
 }
-static void profileMenusDoNotAccumulateGroups(MainWindow &window,const QString &profile) {
+static void profileMenusKeepTheirActions(MainWindow &window,const QString &profile) {
     auto *menuButton=window.findChild<QToolButton *>("profileMenuButton");
     auto *menu=menuButton->menu();
     auto *menuBarProfiles=window.findChild<QMenu *>("profileMenu");
@@ -133,6 +133,9 @@ static void profileMenusDoNotAccumulateGroups(MainWindow &window,const QString &
     namedProfile.setValue("JustConnect/ProfileKind","Custom");
     namedProfile.setValue("JustConnect/ServerAddress","vpn.other-campus.invalid");namedProfile.sync();
     const auto groups=window.findChildren<QActionGroup *>().size();
+    const auto homeActions = menu->actions();
+    const auto trayActions = trayMenu->actions();
+    const auto menuBarActions = menuBarProfiles->actions();
     for (int i=0;i<10;++i) for (const auto &name:QStringList{profile,initial}) {
         auto *source=i%2?trayMenu:menu;
         QAction *choice=nullptr;
@@ -147,7 +150,9 @@ static void profileMenusDoNotAccumulateGroups(MainWindow &window,const QString &
         const auto accessible=QAccessible::queryAccessibleInterface(menuButton);
         check(accessible && accessible->text(QAccessible::Name).contains(name==profile ? "vpn.other-campus.invalid" : "Fudan"),
             "the current preset or server is also available to a screen reader");
-        check(window.findChildren<QActionGroup *>().size()==groups,"profile changes retained old menu groups");
+        check(window.findChildren<QActionGroup *>().size()==groups
+            && menu->actions()==homeActions && trayMenu->actions()==trayActions && menuBarProfiles->actions()==menuBarActions,
+            "switching between existing profiles preserves all menu actions and groups");
     }
     const auto report=qEnvironmentVariable("JC_UI_REPORT_DIR");
     if (!report.isEmpty()) check(window.grab().save(QDir(report).filePath("home-configured.png")),"save the configured preset identity on the actual home");
@@ -572,11 +577,12 @@ int main(int argc,char **argv) {
         }
         QLocale::setDefault(QLocale(QLocale::Chinese,QLocale::China));
         QString menuProfile;
-        if(app.arguments().size()==1 || app.arguments().contains("--native-home")) {
+        const bool native = app.arguments().contains("--native-home");
+        if (native) {
             menuProfile=manager.createProfile("menu-fixture",manager.profilePath(""));
             check(!menuProfile.isEmpty(),"create an isolated profile for menu switching");
-            recoveryStatus(logger,log);
         }
+        if (app.arguments().size()==1) recoveryStatus(logger,log);
         // UI preference tests retain the real core without requesting host network privileges.
         MainWindow window(&logger,&log,nullptr,[](CoreEngine *,NetworkPolicySession *) -> NetworkAccess * { return nullptr; });
         check(window.isVisible(),"normal startup must show the main window");
@@ -594,7 +600,11 @@ int main(int argc,char **argv) {
             bool explained=false;for (auto *label:invalid->findChildren<QLabel *>()) explained|=label->text().contains("saved language is invalid");
             check(explained,"invalid language fallback is visible in settings");invalid->reject();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
         }
-        if (app.arguments().size()==1 || app.arguments().contains("--native-home")) {nativeHome(window, logger);languagePreferences(window);profileMenusDoNotAccumulateGroups(window,menuProfile);}
+        if (native) {
+            nativeHome(window, logger);
+            languagePreferences(window);
+            profileMenusKeepTheirActions(window,menuProfile);
+        }
         check(window.findChild<QLabel *>("statusTitleLabel")->text()!="Connected","disconnected cannot claim campus readiness");
         window.showMinimized();QCoreApplication::processEvents();
         check(window.isVisible(),"minimization must not hide the only window");
