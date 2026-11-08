@@ -1,6 +1,6 @@
 # JustConnect 实施计划与进度
 
-更新日期：2026-11-08。支持 Windows／macOS x64／ARM64。S7 的 13 项已完成阶段验收，结合用户的 UI 实测确认、既有 Windows 校园主路径和原生自动回归收尾。S8 复用既有证据，两平台仅补最终包主路径实测。A13 的 macOS 新域名原生范围已实现，待原生 CI 与实机验收。
+更新日期：2026-11-09。支持 Windows／macOS x64／ARM64。S7 的 13 项已完成阶段验收，结合用户的 UI 实测确认、既有 Windows 校园主路径和原生自动回归收尾。S8 复用既有证据，两平台仅补最终包主路径实测。A13 的 macOS 新域名原生范围已通过 Apple Silicon 实测。
 
 ## 使用方式
 
@@ -15,8 +15,8 @@
 | --- | --- |
 | 阶段进度 | S3—S6 **23／23**，S7 **13／13**。S8 **2／5**。全计划 **60／64**，剩 S1-04、S8-01／03／05。 |
 | Windows 实测 | 2026-11-08 用户确认 S8 Windows 实测通过，反馈未注明包版本。`b2fbdb3` 既有实测覆盖动态代理／TUN、校园网页／SSH／登录、Tailscale 直连；同窗首次／复用接管 2480／38 ms。 |
-| 当前跟踪 | Fudan 随包配置已补网页登录域，已有配置可重新查询并保存认证方式。Apple Silicon 已完成认证与校园 SSH；Chrome 与 Clash 系统代理共存、`zb` 的系统 DNS 和最终连断仍待验收。 |
-| 最近已验证预览 | `026611c4` [Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/42487817388/artifacts/13621090513)／[Apple Silicon DMG](https://github.com/wtalioy/JustConnect/actions/runs/42487817388/artifacts/13620691110)。 |
+| 当前跟踪 | Fudan 随包配置已补网页登录域，已有配置可重新查询并保存认证方式。Apple Silicon 已完成认证与校园 SSH，`zb` 原生 DNS 已实测。预览换包后重新批准后台项可连接；助手注册刷新和 Clash 有效代理读取修复待原生验证。 |
+| 最近已验证预览 | `b86d167` [Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/42495744204/artifacts/13624115674)／[Apple Silicon DMG](https://github.com/wtalioy/JustConnect/actions/runs/42495744204/artifacts/13623078156)。 |
 
 ## 当前验收基线
 
@@ -235,7 +235,7 @@
 - [ ] **S8-01**：两台设备用已有浏览器和终端验证校园网页、普通 SSH、普通网站与正常断开。Windows 补 Clash 退出时的主路径，用同一可稳定直连的 Tailscale 对端核对 MagicDNS 与接管前／中／后的直连。三种 Clash 主组合和动态切换沿用既有 Windows 实测及当前两平台自动证据。
 - [x] **S8-02**：故障与恢复复用 S3-06／S4-06／S7-03—05 及当前两平台原生回归，涵盖取消、权限拒绝、部分失败、外部改值、超时、进程终止与独立恢复。真实注销／跨登录会话、长时间离线及少见网络环境未实测，出现实际问题时补验。正常断开和授权随 S8-01／03。
 - [ ] **S8-03**：在上述连断中验证实际包启动、正常认证和授权、连接状态与退出。Windows 复用 S7 UI 实测，macOS 补 Finder 安装、菜单栏恢复窗口与退出。取消、双语、偏好、键盘及异常流程复用已有回归。
-- [x] **S8-04**：`026611c4` 的[四组实际包和对应源码](https://github.com/wtalioy/JustConnect/actions/runs/42487817388)通过，另验 [Apple Silicon DMG 在 macOS 27.0.1 启动](https://github.com/wtalioy/JustConnect/actions/runs/42487817388/job/128757185874)。最终提交的发布附件随 S8-05 核对。
+- [x] **S8-04**：`b86d167` 的[四组实际包和对应源码](https://github.com/wtalioy/JustConnect/actions/runs/42495744204)通过，另验 [Apple Silicon DMG 在 macOS 27.0.1 启动](https://github.com/wtalioy/JustConnect/actions/runs/42495744204/job/128780969698)。最终提交的发布附件随 S8-05 核对。
 - [ ] **S8-05**：主路径实测通过后验收 [main／Release 交付](docs/DEVELOPMENT.md#分支与-actions)，核对附件与来源。macOS 正式交付须验证从 Release 用浏览器直接下载 DMG、拖入「应用程序」并按系统首次打开流程启动。
 
 ## 验收记录
@@ -243,8 +243,8 @@
 | ID | 场景 | Windows | macOS |
 | --- | --- | --- | --- |
 | V1 | Clash 未运行时的校园、普通网络及断开 | 本轮用户确认实测通过 | 受控 DNS／SSH／TCP／UDP 与恢复已验。真实校园／普通出口／连断待测 |
-| V2 | Clash 运行，系统代理关／TUN 关 | `dd1791a` 网页／SSH／断开实测通过 | `99c2454` Chrome 可打开 `icourse`；`zb` 仍显示校外，新增专用 DNS 原生范围待验收（A13） |
-| V3 | Clash 运行，系统代理开／TUN 关 | `b2fbdb3` 代理先开／后开、普通网站、校园网页／SSH／恢复实测通过 | `99c2454` 校园 SSH 可用。显式经 JustConnect HTTP 代理访问 `icourse`／`zb` 均返回 HTTPS 200；系统代理仍指向 Clash，Chrome 无法打开 `icourse`，代理交接待定位 |
+| V2 | Clash 运行，系统代理关／TUN 关 | `dd1791a` 网页／SSH／断开实测通过 | `99c2454` Chrome 可打开 `icourse`；`b86d167` 确认 `zb` 正常（A13） |
+| V3 | Clash 运行，系统代理开／TUN 关 | `b2fbdb3` 代理先开／后开、普通网站、校园网页／SSH／恢复实测通过 | `99c2454` 校园 SSH 可用。显式经 JustConnect HTTP 代理访问 `icourse`／`zb` 均返回 HTTPS 200；`b86d167` 确认系统代理生效时应用误读为关闭。已切换到系统有效代理来源，待实机复测 |
 | V4 | Clash 运行，系统代理关／TUN 开 | `b2fbdb3` 动态切换、校园网页／SSH／恢复和 Tailscale 直连实测通过。Fake-IP 个案沿用用户 Clash 配置 | 共存和恢复有双架构自动覆盖，未实机专项 |
 | V5 | Clash 系统代理和 TUN 双开 | 补充自动回归通过 | 补充自动回归通过 |
 | V6 | 动态切换、会话失效、崩溃、授权与按所有权恢复 | 受控自动证据见 S8-02，动态切换已实测 | 受控自动证据见 S8-02，真实注销未实测 |
@@ -280,7 +280,7 @@ Tailscale 对照保持同一对端及网络，记录解析和实际直连。Wind
 | A10 | Windows 主动断开告警、TUN／Tailscale 共存与性能 | **已收尾**。`e9993aa` 同窗两轮正常连断，接管 2149→63 ms；此前稳态 CPU 已大致正常，Tailscale 直连保持已有实测证据。新发现的未发布校园域名 Fake-IP 冲突独立归 V4。[测量与边界](docs/DEVELOPMENT.md#windows-网卡查询与-cpu-采样)。 |
 | A11 | 退出／取消错误及实际包链路故障 | **已收尾**。退出完成后延迟轮询不再误报超时，真实未完成／恢复失败仍拒绝退出；原生代理所有权校验保留取消原因。确定性旧源码回归、13 项退出调用链、官方 Mihomo／核心竞态及 47 项 Python 检查均已验证，最终两平台 Tests／四架构 ABI／四组实际包及源码通过，见当前验收基线。已清理临时镜像、展开目录、完成的监视日志和重复源码包；保留工具／SDK／构建与关键报告 `build/reports/shutdown-package-ef0caa7/` |
 | A12 | 两平台节点选线启动耗时 | **已收尾**。首次 TLS 探测去掉一个 500 ms 空等周期，同机三次真实 TLS 握手中位耗时 1502.93→1002.64 ms；保留三次采样、后续间隔、证书策略、WAN／LAN 回退和取消。旧源码失败回归、本地竞态／完整 Go／正式协议宿主、两平台 Tests 及四架构 ABI 全部通过。临时测量源码已清理，保留关键报告，不重复打包。[测量与边界](docs/DEVELOPMENT.md#节点探测启动等待)，`build/reports/node-probe-start/`。 |
-| A13 | 配置级域名专用 DNS | **Windows 范围已实测通过**。`b2fbdb3` 的 `zb`／统一认证已实测。`c215da2` 的透明入口被拒、命名代理正常，已修复 DNS 授权中域名丢失；`715e059` 真实 aTrust／TLS、原 IP／端口保护及全部原生 CI／实际包通过；用户已确认 `715e059` 的 icourse／zb／浏览器／SSH 正常；未单独确认统一认证全流程。macOS 新域名已接入会话补充解析器，普通子域保留原解析；原生 CI 与实机验收待完成。[实测和配置](docs/DEVELOPMENT.md#域名专用-dns)。 |
+| A13 | 配置级域名专用 DNS | **Windows 范围已实测通过**。`b2fbdb3` 的 `zb`／统一认证已实测。`c215da2` 的透明入口被拒、命名代理正常，已修复 DNS 授权中域名丢失；`715e059` 真实 aTrust／TLS、原 IP／端口保护及全部原生 CI／实际包通过；用户已确认 `715e059` 的 icourse／zb／浏览器／SSH 正常；未单独确认统一认证全流程。macOS 新域名通过会话补充解析器接入，普通子域保留原解析；`b86d167` Apple Silicon 实测关闭 Clash 代理与 TUN 时 Chrome 可访问 `zb`。[实测和配置](docs/DEVELOPMENT.md#域名专用-dns)。 |
 | A14 | 按职责与实际开销复查全仓 | **已收尾**。六个独立单元修复缓存、HTTP 转发、UDP 回收及配置缺陷，合并认证／数据报职责并减少 Windows 原生查询；删除专用缓存依赖。完整本地／竞态、两平台应用、四架构 ABI、四组实际包及 `b2fbdb3` Windows 合并实测通过；清理重复初验输出，保留当前构建／工具与关键报告。[范围、测量和保留依据](docs/DEVELOPMENT.md#全仓审查与测试保留范围)。 |
 | A15 | 全仓性能、职责与清理复查 | **已收尾**。收敛数据面分配、域名与路由查询、Qt ABI、DNS 快照、助手 JSON 和资源构建，清理无调用代码、重复夹具与九项模块依赖。最终 `3f6ba6f` 的[两平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/42454884365)、[四架构 ABI](https://github.com/wtalioy/JustConnect/actions/runs/42454884394)及[四组实际包、源码和 macOS 27 启动](https://github.com/wtalioy/JustConnect/actions/runs/42454884423)通过。ARM64 竞态复验保留原时限，发布实机矩阵归 S8。[审查与测量](docs/DEVELOPMENT.md#全仓审查与测试保留范围)，证据 `build/reports/review-2026-11-08/`。 |
 

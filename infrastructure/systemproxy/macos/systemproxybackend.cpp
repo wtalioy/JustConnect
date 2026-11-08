@@ -7,6 +7,8 @@
 #include <QSet>
 #include <QDeadlineTimer>
 #include <QThread>
+#include <algorithm>
+#include <iterator>
 #include <unistd.h>
 #include <vector>
 
@@ -241,11 +243,22 @@ SystemProxyCheck PlatformSystemProxyBackend::check(const SystemProxyConfig &conf
     if (auto valid = ProxyValidation::config(config); !valid.succeeded()) return {valid};
     return observe(&config);
 }
-SystemProxyCheck PlatformSystemProxyBackend::inspect() { return observe(nullptr); }
+SystemProxyCheck PlatformSystemProxyBackend::inspect() {
+    if (snapshot) return observe(nullptr);
+    const auto effective = api.copyEffective();
+    if (!effective) return {error("Read effective system proxy")};
+    const auto release = qScopeGuard([&] { CFRelease(effective); });
+    const bool active = std::any_of(std::begin(endpoints),std::end(endpoints),[&](const auto &endpoint) { return enabled(effective,endpoint.enabled); })
+        || std::any_of(std::begin(modes),std::end(modes),[&](auto mode) { return enabled(effective,mode); });
+    return {{},false,active,false,proxyEndpoints(effective)};
+}
 SystemProxyCheck PlatformSystemProxyBackend::observe(const SystemProxyConfig *config) {
-    Snapshot view; view.preferences = api.open(&view.authorization);
-    if (!view.preferences) return {error("Open proxy preferences")};
-    auto all = SCNetworkServiceCopyAll(view.preferences);
+    Snapshot view;
+    if (!snapshot) view.preferences = api.open(&view.authorization);
+    const auto prefs = snapshot ? snapshot->preferences : view.preferences;
+    if (!prefs) return {error("Open proxy preferences")};
+    SCPreferencesSynchronize(prefs);
+    auto all = SCNetworkServiceCopyAll(prefs);
     if (!all) return {error("Read network services")};
     const auto release = qScopeGuard([&] { CFRelease(all); });
     bool active = false, conflict = false, supported = false, managed=false;
@@ -255,7 +268,7 @@ SystemProxyCheck PlatformSystemProxyBackend::observe(const SystemProxyConfig *co
         if (!SCNetworkServiceGetEnabled(service)) continue;
         auto location = path(service); const auto releasePath = qScopeGuard([&] { CFRelease(location); });
         CFDictionaryRef current = nullptr;
-        if (auto result = read(view.preferences, location, current); !result.succeeded()) return {result};
+        if (auto result = read(prefs, location, current); !result.succeeded()) return {result};
         const auto desired = config?requested(current,*config):dictionary(current);
         const auto releaseDesired = qScopeGuard([&] { CFRelease(desired); });
         supported = true;

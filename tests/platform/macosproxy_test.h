@@ -82,6 +82,12 @@ static void backendTests() {
         check(nativeCommit(prefs),"commit private native fixture");
     };
     const auto value=[&](CFStringRef key){SCPreferencesSynchronize(prefs);return SCPreferencesPathGetValue(prefs,key);};
+    CFDictionaryRef effectiveOverride = nullptr;
+    api.copyEffective = [&] {
+        const auto effective = effectiveOverride ? effectiveOverride : static_cast<CFDictionaryRef>(value(firstPath));
+        return effective ? static_cast<CFDictionaryRef>(CFRetain(effective))
+            : CFDictionaryCreate(nullptr,nullptr,nullptr,0,&kCFTypeDictionaryKeyCallBacks,&kCFTypeDictionaryValueCallBacks);
+    };
     const auto restored=[&] {
         check(value(firstPath) && CFEqual(value(firstPath),original),"exact original proxy/PAC/bypass/authentication dictionary restored");
         check(!value(secondPath),"absent original proxy configuration restored without fabricated fields");
@@ -94,9 +100,13 @@ static void backendTests() {
         CFDictionarySetValue(local,kSCPropNetProxiesHTTPProxy,CFSTR("127.0.0.1"));number(local,kSCPropNetProxiesHTTPPort,7897);
         number(local,CFSTR("HTTPProxyAuthenticated"),0);
         number(local,kSCPropNetProxiesProxyAutoConfigEnable,0);number(local,kSCPropNetProxiesProxyAutoDiscoveryEnable,0);
-        check(SCPreferencesPathSetValue(prefs,firstPath,local) && nativeCommit(prefs),"Seed private local upstream");
         auto automatic=config;automatic.upstream={"127.0.0.1:7897"};
         PlatformSystemProxyBackend owner(api);
+        effectiveOverride = local;
+        check(owner.inspect().endpoints == automatic.upstream && owner.apply(automatic).status == Status::Unsupported,
+            "Observe the effective upstream while preserving preferences that do not own it");
+        effectiveOverride = nullptr;
+        check(SCPreferencesPathSetValue(prefs,firstPath,local) && nativeCommit(prefs),"Seed private local upstream");
         auto view=owner.inspect();
         check(view.result.succeeded() && view.active && !view.managed && view.endpoints==automatic.upstream,"Observe native local upstream");
         check(owner.apply(automatic).succeeded(),"Automatic native local upstream handoff");
