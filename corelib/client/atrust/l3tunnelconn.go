@@ -91,6 +91,7 @@ type l3TunnelConn struct {
 	heartbeatHasWrite  uint32
 	authWake           chan struct{}
 	writeFrameHook     func([]byte) error
+	readHeader         [3]byte
 	dataStream         []byte
 }
 
@@ -270,7 +271,8 @@ func (c *l3TunnelConn) readLoop() {
 			} else {
 				c.dataStream = append(c.dataStream, fr.payload...)
 			}
-			packets, remaining, err := splitIncomingIPPackets(c.dataStream)
+			var onePacket [1][]byte
+			packets, remaining, err := splitIncomingIPPackets(c.dataStream, onePacket[:0])
 			if err != nil {
 
 				_ = c.Close()
@@ -366,41 +368,35 @@ func (c *l3TunnelConn) sendHeartbeat(timeout time.Duration) bool {
 }
 
 func (c *l3TunnelConn) readFrame() (frame, error) {
-	header := make([]byte, 2)
+	header := c.readHeader[:2]
 	if _, err := io.ReadFull(c.reader, header); err != nil {
 		return frame{}, err
 	}
 	if header[0] != l3Version {
-
 		return frame{}, fmt.Errorf("unexpected L3 tunnel version 0x%02x", header[0])
 	}
 
 	cmd := header[1]
+	size := 2
 	switch cmd {
 	case cmdAuthResp, cmdSecondVipResp:
-		statusLen := make([]byte, 3)
-		if _, err := io.ReadFull(c.reader, statusLen); err != nil {
-			return frame{}, err
-		}
-		status := statusLen[0]
-		payloadLen := int(binary.BigEndian.Uint16(statusLen[1:3]))
-		payload := make([]byte, payloadLen)
-		if _, err := io.ReadFull(c.reader, payload); err != nil {
-			return frame{}, err
-		}
-
-		return frame{cmd: cmd, status: status, payload: payload}, nil
+		size = 3
 	case cmdDataResp, cmdHeartbeatResp:
-		payload, err := readDataRespPayload(c.reader)
-		if err != nil {
-			return frame{}, err
-		}
-
-		return frame{cmd: cmd, payload: payload}, nil
 	default:
-
 		return frame{}, fmt.Errorf("unexpected L3 tunnel command 0x%02x", cmd)
 	}
+	if _, err := io.ReadFull(c.reader, c.readHeader[:size]); err != nil {
+		return frame{}, err
+	}
+	var status byte
+	if size == 3 {
+		status = c.readHeader[0]
+	}
+	payload := make([]byte, binary.BigEndian.Uint16(c.readHeader[size-2:size]))
+	if _, err := io.ReadFull(c.reader, payload); err != nil {
+		return frame{}, err
+	}
+	return frame{cmd: cmd, status: status, payload: payload}, nil
 }
 
 func (c *l3TunnelConn) ReadPacket() ([]byte, error) {
@@ -716,20 +712,7 @@ func putDataPayload(frame *dataFrame) {
 
 const maxPooledDataPayload = 4096
 
-func readDataRespPayload(r *bufio.Reader) ([]byte, error) {
-	var lenBytes [2]byte
-	if _, err := io.ReadFull(r, lenBytes[:]); err != nil {
-		return nil, err
-	}
-	payload := make([]byte, int(binary.BigEndian.Uint16(lenBytes[:])))
-	if _, err := io.ReadFull(r, payload); err != nil {
-		return nil, err
-	}
-	return payload, nil
-}
-
-func splitIncomingIPPackets(stream []byte) ([][]byte, []byte, error) {
-	var packets [][]byte
+func splitIncomingIPPackets(stream []byte, packets [][]byte) ([][]byte, []byte, error) {
 	for len(stream) > 0 {
 		var packetLen int
 		switch stream[0] >> 4 {
@@ -753,7 +736,11 @@ func splitIncomingIPPackets(stream []byte) ([][]byte, []byte, error) {
 		if len(stream) < packetLen {
 			return packets, stream, nil
 		}
-		packet := append([]byte(nil), stream[:packetLen]...)
+		packet := stream[:packetLen:packetLen]
+		// A lone packet can own the frame. Copy coalesced packets to bound queue retention.
+		if len(packets) != 0 || len(stream) != packetLen {
+			packet = append([]byte(nil), packet...)
+		}
 		packets = append(packets, packet)
 		stream = stream[packetLen:]
 	}

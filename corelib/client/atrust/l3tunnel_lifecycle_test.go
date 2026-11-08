@@ -750,21 +750,6 @@ func TestPooledDataPayloadPreservesWireFormat(t *testing.T) {
 	putDataPayload(next)
 }
 
-func TestReadDataResponseUsesLengthPrefix(t *testing.T) {
-	payload := makeUDPPacket(12345, 53)
-	frame := make([]byte, 2+len(payload))
-	binary.BigEndian.PutUint16(frame[:2], uint16(len(payload)))
-	copy(frame[2:], payload)
-
-	got, err := readDataRespPayload(bufio.NewReader(bytes.NewReader(frame)))
-	if err != nil {
-		t.Fatalf("readDataRespPayload() error = %v", err)
-	}
-	if !bytes.Equal(got, payload) {
-		t.Fatalf("payload=% X, want % X", got, payload)
-	}
-}
-
 type limitedReader struct {
 	reader io.Reader
 	limit  int
@@ -780,6 +765,7 @@ func (r limitedReader) Read(p []byte) (int, error) {
 func TestReadFrameHandlesSplitAndCoalescedFrames(t *testing.T) {
 	data := []byte{
 		l3Version, cmdAuthResp, 0x84, 0x00, 0x02, 'o', 'k',
+		l3Version, cmdDataResp, 0x00, 0x03, 'i', 'p', '4',
 		l3Version, cmdHeartbeatResp, 0x00, 0x00,
 	}
 	conn := &l3TunnelConn{reader: bufio.NewReaderSize(limitedReader{reader: bytes.NewReader(data), limit: 1}, 2)}
@@ -790,6 +776,10 @@ func TestReadFrameHandlesSplitAndCoalescedFrames(t *testing.T) {
 	}
 	if authFrame.cmd != cmdAuthResp || authFrame.status != 0x84 || !bytes.Equal(authFrame.payload, []byte("ok")) {
 		t.Fatalf("auth frame = %#v", authFrame)
+	}
+	dataFrame, err := conn.readFrame()
+	if err != nil || dataFrame.cmd != cmdDataResp || dataFrame.status != 0 || !bytes.Equal(dataFrame.payload, []byte("ip4")) {
+		t.Fatalf("data frame = %#v, err = %v", dataFrame, err)
 	}
 	heartbeatFrame, err := conn.readFrame()
 	if err != nil {
@@ -824,10 +814,12 @@ func TestReadFrameRejectsUnknownProtocolHeaders(t *testing.T) {
 func TestReadLoopHandlesMultipleAndPartialPackets(t *testing.T) {
 	first := makeUDPPacket(12345, 53)
 	second := makeUDPPacket(23456, 443)
+	single := makeUDPPacket(34567, 80)
 	large := make([]byte, 2000)
 	large[0] = zctcpip.IPv4Version<<4 | 5
 	binary.BigEndian.PutUint16(large[2:4], uint16(len(large)))
 	fragments := [][]byte{
+		single,
 		append(append([]byte(nil), first...), second[:10]...),
 		append(append([]byte(nil), second[10:]...), large[:1000]...),
 		large[1000:],
@@ -839,15 +831,27 @@ func TestReadLoopHandlesMultipleAndPartialPackets(t *testing.T) {
 		stream = append(stream, l3Version, cmdHeartbeatResp, 0, 0)
 	}
 	conn := &l3TunnelConn{reader: bufio.NewReader(bytes.NewReader(stream)),
-		incoming: make(chan []byte, 3), closeCh: make(chan struct{}), conntrackMgr: newConntrackMgr()}
+		incoming: make(chan []byte, 4), closeCh: make(chan struct{}), conntrackMgr: newConntrackMgr()}
 	conn.readLoop()
-	if len(conn.dataStream) != 0 || len(conn.incoming) != 3 {
+	if len(conn.dataStream) != 0 || len(conn.incoming) != 4 {
 		t.Fatal("read loop lost packets or retained a complete fragment", len(conn.incoming), len(conn.dataStream))
 	}
-	for _, want := range [][]byte{first, second, large} {
+	for _, want := range [][]byte{single, first, second, large} {
 		if got := <-conn.incoming; !bytes.Equal(got, want) {
 			t.Fatalf("packet changed after later frames: got %d bytes, want %d", len(got), len(want))
 		}
+	}
+}
+
+func TestReadLoopRejectsWholeMalformedDataFrame(t *testing.T) {
+	packet := makeUDPPacket(12345, 53)
+	frame := append([]byte{l3Version, cmdDataResp, 0, byte(len(packet) + 1)}, packet...)
+	frame = append(frame, 0xff)
+	conn := &l3TunnelConn{reader: bufio.NewReader(bytes.NewReader(frame)),
+		incoming: make(chan []byte, 1), closeCh: make(chan struct{}), conntrackMgr: newConntrackMgr()}
+	conn.readLoop()
+	if len(conn.incoming) != 0 {
+		t.Fatal("read loop delivered a packet from a malformed frame")
 	}
 }
 

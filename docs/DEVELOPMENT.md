@@ -181,6 +181,8 @@ gVisor 出站端点复用依赖自带的 `PacketBuffer.ToView`／`View.Release`�
 
 当前 L3 跟踪索引直接使用定长数组，收发与认证回退共用同一元组编码。Windows x64 Go 1.27.2 三次组件基准中，`BenchmarkConnTrackKey` 为 48 B／1 次分配→0；1200 字节 `BenchmarkReadLoopPacket` 为 2668→2620 B／8→7 次分配，耗时样本重叠。回退查找仍为零分配，样本约 71→77 ns。原始样本归 `build/reports/review-2026-11-08/conntrack-*.log`。
 
+同一实际读取循环复用帧头。单包帧直接交付独占缓冲，合包仍逐包复制以限制排队内存，跨帧残包仍拼接。所有报文解析完成后再交付，畸形尾部仍拒绝整帧。以定长键版本为基线，Windows x64 三次 1200 字节样本为 1014—1032→799—817 ns，2620→1312 B／7→3 次分配。样本仅覆盖 `io.Pipe`、解析、跟踪与交付。aTrust 组件与竞态回归覆盖协议、合包、分帧、畸形与授权。证据归 `build/reports/review-2026-11-08/readloop-*.log`。
+
 空闲认证扫描按首个实际任务分配批次，并以当前连接数限制容量；扫描频率、重试、超时及批次上限保持原契约。`go -C corelib test -run '^$' -bench '^BenchmarkIdleAuthBatch$' -benchtime=1s -count=3 ./client/atrust` 在 256 条无待办连接下：Windows x64 1218—1465→461—482 ns／次；每次 6528 B／1 次分配→0。它消除每条 L3 隧道每秒四次的空批次分配，不改变扫描复杂度，也不外推整体 CPU。日志归同目录的 `idle-auth-*.log`。
 
 域名规则索引在单条命中时复用不可变资源，多条重叠时按总量一次分配并保留更具体规则优先及同组顺序。`go -C corelib test -run '^$' -bench '^BenchmarkDomainResourceMatch$' -benchtime=1s -count=3 ./resolve` 在 1001 条域名规则下，Windows x64 单条命中 375—377→355—357 ns、80 B／1 次分配→0；重叠命中 482—494→477—480 ns、224 B／2 次分配→144 B／1 次分配。未命中均约 12—14 ns／0 分配。此为纯索引查询，不代表整机 CPU／网络吞吐；旧线性扫描替身基准已由实际命中／未命中／重叠基准替换，原始样本归 `build/reports/review-0684a4b/domain-match-*.log`。
