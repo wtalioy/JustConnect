@@ -124,7 +124,7 @@ func (r *Resolver) bindDNSAnswer(request, reply *dns.Msg, publish func([]netip.A
 			return nil, err
 		}
 	}
-	if _, _, granted := matchDomainResource(r.domainIndex, host); !granted && !original {
+	if _, _, granted := r.domainIndex.Match(host); !granted && !original {
 		return result, nil
 	}
 	r.cacheMu.Lock()
@@ -246,7 +246,7 @@ func (r *Resolver) campusResources(ctx context.Context, address netip.Addr, name
 				return nil, 0
 			}
 		}
-		if _, resources, granted := matchDomainResource(r.domainIndex, binding.host); granted {
+		if _, resources, granted := r.domainIndex.Match(binding.host); granted {
 			if result == nil {
 				result = make(client.DomainResources)
 			}

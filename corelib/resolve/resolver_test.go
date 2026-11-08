@@ -233,34 +233,12 @@ func TestTCPPrefersL3UsesSelectedResource(t *testing.T) {
 func TestMatchDomainResourcePreservesNormalizedSuffixMatching(t *testing.T) {
 	want := client.DomainResource{AppID: "vpn-app"}
 	index := newDomainResourceIndex(client.DomainResources{".Example.COM.": {want}})
-	domain, got, ok := matchDomainResource(index, "service.example.com")
+	domain, got, ok := index.Match("service.example.com")
 	if !ok {
-		t.Fatal("matchDomainResource() did not find normalized suffix")
+		t.Fatal("Match() did not find normalized suffix")
 	}
 	if domain != ".Example.COM." || len(got) != 1 || got[0] != want {
-		t.Fatalf("matchDomainResource() = (%q, %#v), want original domain and %#v", domain, got, want)
-	}
-}
-
-func TestDomainResourceMatchRequiresLabelBoundary(t *testing.T) {
-	index := newDomainResourceIndex(client.DomainResources{"example.com": {{AppID: "vpn"}}})
-	for _, host := range []string{"example.com", "service.example.com"} {
-		if _, _, ok := index.Match(host); !ok {
-			t.Fatalf("expected %s to match", host)
-		}
-	}
-	if _, _, ok := index.Match("notexample.com"); ok {
-		t.Fatal("partial label suffix matched domain resource")
-	}
-}
-
-func TestWildcardDomainResourceRequiresSubdomain(t *testing.T) {
-	index := newDomainResourceIndex(client.DomainResources{"*.example.com": {{AppID: "vpn"}}})
-	if _, _, ok := index.Match("service.example.com"); !ok {
-		t.Fatal("wildcard did not match subdomain")
-	}
-	if _, _, ok := index.Match("example.com"); ok {
-		t.Fatal("wildcard unexpectedly matched apex domain")
+		t.Fatalf("Match() = (%q, %#v), want original domain and %#v", domain, got, want)
 	}
 }
 
@@ -276,6 +254,7 @@ func BenchmarkDomainResourceMatch(b *testing.B) {
 	index := newDomainResourceIndex(resources)
 	for _, test := range []struct{ name, host string }{
 		{"miss", "missing.invalid"},
+		{"same-zone-miss", "missing.example"},
 		{"single", "host.resource-0000.example"},
 		{"overlap", "host.resource-0500.example"},
 	} {
@@ -285,6 +264,45 @@ func BenchmarkDomainResourceMatch(b *testing.B) {
 				domainResourcePatternSink, domainResourceResultsSink, domainResourceMatchSink = index.Match(test.host)
 			}
 		})
+	}
+}
+
+var domainIndexSink domainResourceIndex
+
+func BenchmarkDomainResourceIndexBuild(b *testing.B) {
+	resources := make(client.DomainResources, 1000)
+	for i := range 1000 {
+		resources[fmt.Sprintf(".resource-%04d.example", i)] = []client.DomainResource{{AppID: "test"}}
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		domainIndexSink = newDomainResourceIndex(resources)
+	}
+}
+
+func TestDomainResourceMatchKeepsBothRulesAtOneLabelBoundary(t *testing.T) {
+	index := newDomainResourceIndex(client.DomainResources{
+		"example.com":   {{AppID: "ordinary"}},
+		"*.example.com": {{AppID: "wildcard"}},
+	})
+	for _, tc := range []struct {
+		host   string
+		domain string
+		ids    []string
+	}{
+		{"example.com", "example.com", []string{"ordinary"}},
+		{"child.example.com", "*.example.com", []string{"wildcard", "ordinary"}},
+		{"notexample.com", "", nil},
+	} {
+		domain, resources, ok := index.Match(tc.host)
+		if domain != tc.domain || ok != (len(tc.ids) != 0) || len(resources) != len(tc.ids) {
+			t.Fatalf("Match(%q) = (%q, %v, %t)", tc.host, domain, resources, ok)
+		}
+		for i, id := range tc.ids {
+			if resources[i].AppID != id {
+				t.Fatalf("Match(%q) authorization order = %v", tc.host, resources)
+			}
+		}
 	}
 }
 

@@ -28,7 +28,7 @@ type Resolver struct {
 	remoteUDPResolver *net.Resolver
 	remoteTCPResolver *net.Resolver
 	secondaryResolver *net.Resolver
-	domainIndex       *domainResourceIndex
+	domainIndex       domainResourceIndex
 	dnsResource       map[string][]net.IP
 	dnsResourceCursor sync.Map
 	useRemoteDNS      bool
@@ -145,7 +145,7 @@ func (r *Resolver) resolve(ctx context.Context, host string, campusOnly, allowDN
 			}
 		}
 	}
-	if _, resources, found := matchDomainResource(r.domainIndex, host); found {
+	if _, resources, found := r.domainIndex.Match(host); found {
 		ctx = context.WithValue(ctx, ContextKeyDomainResource, resources)
 		campusOnly = true
 	}
@@ -268,10 +268,6 @@ func (r *Resolver) releaseResolutionWaiter(host string, call *sharedResolution) 
 		}
 	}
 	r.resolutionMu.Unlock()
-}
-
-func matchDomainResource(index *domainResourceIndex, host string) (string, []client.DomainResource, bool) {
-	return index.Match(host)
 }
 
 func (r *Resolver) resolveRemote(ctx context.Context, host string) (net.IP, error) {
