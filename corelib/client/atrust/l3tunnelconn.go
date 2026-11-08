@@ -172,7 +172,7 @@ type packetMeta struct {
 	dstIP   net.IP
 	srcPort uint16
 	dstPort uint16
-	key     string
+	key     conntrackKey
 }
 
 type frame struct {
@@ -306,7 +306,7 @@ func (c *l3TunnelConn) refreshIncomingConntrack(packet []byte) {
 	}
 	meta.srcIP, meta.dstIP = meta.dstIP, meta.srcIP
 	meta.srcPort, meta.dstPort = meta.dstPort, meta.srcPort
-	c.conntrackMgr.observePacket(connTrackKey(meta), packet, true)
+	c.conntrackMgr.observePacket(makeConntrackKey(meta), packet, true)
 }
 
 func (c *l3TunnelConn) deliverIncoming(packet []byte) bool {

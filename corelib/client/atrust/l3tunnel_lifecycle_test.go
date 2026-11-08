@@ -319,7 +319,7 @@ func TestTunnelReconnectPreservesConntrackAndToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	manager := conn.conntrackMgr
-	ct := manager.getOrCreate("flow", "app", "group")
+	ct := manager.getOrCreate(testConntrackKey("flow"), "app", "group")
 	manager.completeAuth(ct.authID, "connect-token", nil)
 
 	tunnel.evictConn("group", conn)
@@ -463,7 +463,7 @@ func TestTunnelRecoversFromDataWriteFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	meta.key = connTrackKey(meta)
+	meta.key = makeConntrackKey(meta)
 	ct := manager.getOrCreate(meta.key, "app", "group")
 	manager.completeAuth(ct.authID, "connect-token", nil)
 	oldConn := &l3TunnelConn{
@@ -1102,7 +1102,7 @@ func TestConntrackCapacityIsBounded(t *testing.T) {
 	const maxEntries = 16384
 	manager := newConntrackMgr()
 	for i := 0; i < maxEntries+3616; i++ {
-		manager.getOrCreate(stringKey(i), "app", "group")
+		manager.getOrCreate(testConntrackKey(fmt.Sprint(i)), "app", "group")
 	}
 
 	manager.mu.Lock()
@@ -1113,7 +1113,7 @@ func TestConntrackCapacityIsBounded(t *testing.T) {
 	if entries := len(manager.byID); entries > maxEntries {
 		t.Fatalf("byID entries = %d, want at most %d", entries, maxEntries)
 	}
-	if manager.byKey["0"] != nil {
+	if manager.byKey[testConntrackKey("0")] != nil {
 		t.Fatal("least recently used conntrack entry was not evicted")
 	}
 }
@@ -1122,9 +1122,9 @@ func TestConntrackExpiryRemovesBothIndexes(t *testing.T) {
 	now := time.Unix(1000, 0)
 	manager := newConntrackMgr()
 	manager.now = func() time.Time { return now }
-	first := manager.getOrCreate("first", "app", "group")
+	first := manager.getOrCreate(testConntrackKey("first"), "app", "group")
 	now = now.Add(30 * time.Second)
-	second := manager.getOrCreate("second", "app", "group")
+	second := manager.getOrCreate(testConntrackKey("second"), "app", "group")
 	now = now.Add(31 * time.Second)
 
 	manager.removeExpired()
@@ -1141,7 +1141,7 @@ func TestConntrackExpiryCacheTracksExtendedAndShortenedTCPDeadlines(t *testing.T
 	now := time.Unix(1000, 0)
 	manager := newConntrackMgr()
 	manager.now = func() time.Time { return now }
-	ct := manager.getOrCreate("tcp", "app", "group")
+	ct := manager.getOrCreate(testConntrackKey("tcp"), "app", "group")
 	manager.observePacket(ct.key, makeTCPPacketWithSeq(zctcpip.TCPSyn, 100, 0), false)
 	manager.observePacket(ct.key, makeTCPPacketWithSeq(zctcpip.TCPSyn|zctcpip.TCPAck, 200, 101), true)
 	manager.observePacket(ct.key, makeTCPPacketWithSeq(zctcpip.TCPAck, 101, 201), false)
@@ -1169,11 +1169,11 @@ func TestConntrackCapacityReclaimsExpiredFlowBeforeAnOlderLiveFlow(t *testing.T)
 	manager := newConntrackMgr()
 	manager.now = func() time.Time { return now }
 	manager.maxEntries = 2
-	live := manager.getOrCreate("live", "app", "group")
+	live := manager.getOrCreate(testConntrackKey("live"), "app", "group")
 	manager.observePacket(live.key, makeUDPPacket(12345, 53), false)
-	expired := manager.getOrCreate("expired", "app", "group")
+	expired := manager.getOrCreate(testConntrackKey("expired"), "app", "group")
 	now = now.Add(defaultConntrackTTL)
-	manager.getOrCreate("new", "app", "group")
+	manager.getOrCreate(testConntrackKey("new"), "app", "group")
 	if manager.getByKey(live.key) != live || manager.getByID(live.authID) != live {
 		t.Fatal("capacity evicted an older live UDP flow instead of an expired flow")
 	}
@@ -1197,7 +1197,7 @@ func TestPendingPacketsFlushInOrderAfterAuthentication(t *testing.T) {
 	meta := packetMeta{
 		atype: 4, proto: 17,
 		srcIP: net.IPv4(192, 0, 2, 1), dstIP: net.IPv4(198, 51, 100, 1),
-		srcPort: 12345, dstPort: 53, key: "flow",
+		srcPort: 12345, dstPort: 53, key: testConntrackKey("flow"),
 	}
 	first := makeUDPPacket(12345, 53)
 	wantFirst := append([]byte(nil), first...)
@@ -1295,7 +1295,7 @@ func TestBuildAuthRequestMatchesOfficialFieldOrderAndSignature(t *testing.T) {
 func TestAuthSchedulerCollectsFlowsWithoutPerFlowWorkers(t *testing.T) {
 	manager := newConntrackMgr()
 	for i := 0; i < 3; i++ {
-		key := stringKey(i)
+		key := testConntrackKey(fmt.Sprint(i))
 		ct := manager.getOrCreate(key, "app", "group")
 		meta := packetMeta{key: key}
 		if _, err := manager.cachePacket(ct, meta, []byte{byte(i)}); err != nil {
@@ -1319,8 +1319,8 @@ func TestAuthSchedulerCollectsFlowsWithoutPerFlowWorkers(t *testing.T) {
 func TestAuthFailureClearsOnlyFailedConntrack(t *testing.T) {
 	manager := newConntrackMgr()
 	conn := &l3TunnelConn{closeCh: make(chan struct{}), conntrackMgr: manager}
-	failed := manager.getOrCreate("failed", "app", "group")
-	other := manager.getOrCreate("other", "app", "group")
+	failed := manager.getOrCreate(testConntrackKey("failed"), "app", "group")
+	other := manager.getOrCreate(testConntrackKey("other"), "app", "group")
 	if _, err := manager.cachePacket(failed, packetMeta{key: failed.key}, []byte{1}); err != nil {
 		t.Fatal(err)
 	}
@@ -1348,7 +1348,7 @@ func TestAuthFailureClearsOnlyFailedConntrack(t *testing.T) {
 func TestAuthResponseIgnoresJSONCode(t *testing.T) {
 	manager := newConntrackMgr()
 	conn := &l3TunnelConn{closeCh: make(chan struct{}), conntrackMgr: manager}
-	ct := manager.getOrCreate("flow", "app", "group")
+	ct := manager.getOrCreate(testConntrackKey("flow"), "app", "group")
 	response, err := json.Marshal(authResponseIP{
 		Code: 73600007, Message: "business message",
 		Data: authResponseIPData{ConntrackHash: ct.authID, ConnectToken: "token"},
@@ -1384,7 +1384,7 @@ func TestAuthResponseFallsBackOnlyToACompleteTuple(t *testing.T) {
 			manager := newConntrackMgr()
 			conn := &l3TunnelConn{closeCh: make(chan struct{}), conntrackMgr: manager, writeFrameHook: func([]byte) error { return nil }}
 			meta := packetMeta{atype: 4, proto: 17, srcIP: net.IPv4(192, 0, 2, 1), dstIP: net.IPv4(198, 51, 100, 2), srcPort: 12345, dstPort: 53}
-			meta.key = connTrackKey(meta)
+			meta.key = makeConntrackKey(meta)
 			ct := manager.getOrCreate(meta.key, "app", "group")
 			if _, err := manager.cachePacket(ct, meta, nil); err != nil {
 				t.Fatal(err)
@@ -1423,7 +1423,7 @@ func TestAuthSuccessAcceptsEmptyConnectToken(t *testing.T) {
 			return nil
 		},
 	}
-	ct := manager.getOrCreate("flow", "app", "group")
+	ct := manager.getOrCreate(testConntrackKey("flow"), "app", "group")
 	packet := makeUDPPacket(12345, 53)
 	if _, err := manager.cachePacket(ct, packetMeta{key: ct.key}, packet); err != nil {
 		t.Fatal(err)
@@ -1457,7 +1457,7 @@ func TestAuthResponsePreservesConnectTokenBytes(t *testing.T) {
 			return nil
 		},
 	}
-	ct := manager.getOrCreate("flow", "app", "group")
+	ct := manager.getOrCreate(testConntrackKey("flow"), "app", "group")
 	if _, err := manager.cachePacket(ct, packetMeta{key: ct.key}, makeUDPPacket(12345, 53)); err != nil {
 		t.Fatal(err)
 	}
@@ -1477,7 +1477,7 @@ func TestAuthResponsePreservesConnectTokenBytes(t *testing.T) {
 
 func TestPendingPacketCacheMatchesBinaryLimitAndAuthTimeoutRetries(t *testing.T) {
 	manager := newConntrackMgr()
-	ct := manager.getOrCreate("flow", "app", "group")
+	ct := manager.getOrCreate(testConntrackKey("flow"), "app", "group")
 	meta := packetMeta{key: ct.key}
 	packet := make([]byte, 300)
 	for i := 0; i < defaultPendingPacketLimit; i++ {
@@ -1493,7 +1493,7 @@ func TestPendingPacketCacheMatchesBinaryLimitAndAuthTimeoutRetries(t *testing.T)
 	if err := conn.WritePacket(meta, "app", "group", []byte{0xff}); err != nil {
 		t.Fatalf("WritePacket() returned fatal cache-full error: %v", err)
 	}
-	other := manager.getOrCreate("other", "app", "group")
+	other := manager.getOrCreate(testConntrackKey("other"), "app", "group")
 	jobs, _ := manager.nextAuthBatch(defaultAuthBatchSize)
 	if len(jobs) != 1 {
 		t.Fatalf("auth jobs = %d, want 1", len(jobs))
@@ -1528,7 +1528,7 @@ func TestAuthStatus84RetriesImmediately(t *testing.T) {
 	now := time.Unix(1000, 0)
 	manager := newConntrackMgr()
 	manager.now = func() time.Time { return now }
-	ct := manager.getOrCreate("flow", "app", "group")
+	ct := manager.getOrCreate(testConntrackKey("flow"), "app", "group")
 	if _, err := manager.cachePacket(ct, packetMeta{key: ct.key}, []byte{1}); err != nil {
 		t.Fatal(err)
 	}
@@ -1563,7 +1563,7 @@ func TestAuthRetryStatusesRecoverAfterRepeatedBusyResponses(t *testing.T) {
 			now := time.Unix(1000, 0)
 			manager := newConntrackMgr()
 			manager.now = func() time.Time { return now }
-			ct := manager.getOrCreate("flow", "app", "group")
+			ct := manager.getOrCreate(testConntrackKey("flow"), "app", "group")
 			packet := makeUDPPacket(12345, 53)
 			if _, err := manager.cachePacket(ct, packetMeta{key: ct.key}, packet); err != nil {
 				t.Fatal(err)
@@ -1624,7 +1624,7 @@ func TestAuthServerRetryPreservesConsumedTimeoutBudget(t *testing.T) {
 	now := time.Unix(1000, 0)
 	manager := newConntrackMgr()
 	manager.now = func() time.Time { return now }
-	ct := manager.getOrCreate("flow", "app", "group")
+	ct := manager.getOrCreate(testConntrackKey("flow"), "app", "group")
 	if _, err := manager.cachePacket(ct, packetMeta{key: ct.key}, []byte{1}); err != nil {
 		t.Fatal(err)
 	}
@@ -1667,7 +1667,7 @@ func TestTCPConntrackUsesDirectionalStateTimeouts(t *testing.T) {
 	now := time.Unix(1000, 0)
 	manager := newConntrackMgr()
 	manager.now = func() time.Time { return now }
-	ct := manager.getOrCreate("tcp", "app", "group")
+	ct := manager.getOrCreate(testConntrackKey("tcp"), "app", "group")
 
 	manager.observePacket(ct.key, makeTCPPacketWithSeq(zctcpip.TCPSyn, 100, 0), false)
 	if got := ct.expiresAt.Sub(now); got != tcpOutboundSynTTL {
@@ -1705,7 +1705,7 @@ func TestTCPResetUsesCleanupTimeout(t *testing.T) {
 	now := time.Unix(1000, 0)
 	manager := newConntrackMgr()
 	manager.now = func() time.Time { return now }
-	ct := manager.getOrCreate("tcp", "app", "group")
+	ct := manager.getOrCreate(testConntrackKey("tcp"), "app", "group")
 	manager.observePacket(ct.key, makeTCPPacket(zctcpip.TCPRst), true)
 	if manager.getByKey(ct.key) != ct {
 		t.Fatal("RST removed conntrack before cleanup timeout")
@@ -1719,7 +1719,7 @@ func TestInboundTCPHandshakeAndCloseTimeouts(t *testing.T) {
 	now := time.Unix(1000, 0)
 	manager := newConntrackMgr()
 	manager.now = func() time.Time { return now }
-	ct := manager.getOrCreate("tcp", "app", "group")
+	ct := manager.getOrCreate(testConntrackKey("tcp"), "app", "group")
 
 	manager.observePacket(ct.key, makeTCPPacketWithSeq(zctcpip.TCPSyn, 300, 0), true)
 	if got := ct.expiresAt.Sub(now); got != tcpInboundSynTTL {
@@ -1745,7 +1745,7 @@ func TestIncomingPacketRefreshesReverseConntrack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	meta.key = connTrackKey(meta)
+	meta.key = makeConntrackKey(meta)
 	ct := manager.getOrCreate(meta.key, "app", "group")
 	manager.observePacket(meta.key, outgoing, false)
 	now = now.Add(time.Minute)
@@ -1874,17 +1874,10 @@ func makeUDPPacket(srcPort, dstPort uint16) []byte {
 	return packet
 }
 
-func stringKey(value int) string {
-	var buf [20]byte
-	n := len(buf)
-	for {
-		n--
-		buf[n] = byte('0' + value%10)
-		value /= 10
-		if value == 0 {
-			return string(buf[n:])
-		}
-	}
+func testConntrackKey(label string) conntrackKey {
+	var key conntrackKey
+	copy(key[:], label)
+	return key
 }
 
 type trackingNetConn struct {
@@ -1935,7 +1928,7 @@ func TestTunnelAuthenticationCancellationWithoutDeadline(t *testing.T) {
 	}
 }
 
-func (m *conntrackMgr) getByKey(key string) *conntrack {
+func (m *conntrackMgr) getByKey(key conntrackKey) *conntrack {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.byKey[key]
@@ -2080,7 +2073,7 @@ var authBatchSink []conntrackAuthJob
 func BenchmarkIdleAuthBatch(b *testing.B) {
 	manager := newConntrackMgr()
 	for i := range 256 {
-		manager.getOrCreate(fmt.Sprint(i), "app", "group")
+		manager.getOrCreate(testConntrackKey(fmt.Sprint(i)), "app", "group")
 	}
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -2098,7 +2091,7 @@ func BenchmarkAuthResponseTupleLookup(b *testing.B) {
 	var response authIP
 	for i := 0; i < 1024; i++ {
 		meta := packetMeta{atype: 4, proto: 17, srcIP: net.IPv4(192, 0, 2, 1), dstIP: net.IPv4(198, 51, 100, 2), srcPort: uint16(10000 + i), dstPort: 53}
-		meta.key = connTrackKey(meta)
+		meta.key = makeConntrackKey(meta)
 		ct := manager.getOrCreate(meta.key, "app", "group")
 		if _, err := manager.cachePacket(ct, meta, nil); err != nil {
 			b.Fatal(err)

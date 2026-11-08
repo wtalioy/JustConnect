@@ -10,7 +10,7 @@ import (
 	"github.com/wtalioy/JustConnect/corelib/internal/zctcpip"
 )
 
-var conntrackKeySink string
+var conntrackKeySink conntrackKey
 
 func TestPacketMetadataRejectsMalformedHeaders(t *testing.T) {
 	packet := makeUDPPacket(12345, 53)
@@ -56,7 +56,7 @@ func TestConntrackKeySeparatesPacketTuples(t *testing.T) {
 			meta.srcIP, meta.dstIP = net.ParseIP("2001:db8::1"), net.ParseIP("2001:db8::2")
 			other = net.ParseIP("2001:db9::1")
 		}
-		key := connTrackKey(meta)
+		key := makeConntrackKey(meta)
 		variants := []packetMeta{meta, meta, meta, meta, meta, meta}
 		variants[0].atype = 10 - family
 		variants[1].proto = 6
@@ -64,9 +64,9 @@ func TestConntrackKeySeparatesPacketTuples(t *testing.T) {
 		variants[3].dstIP = other
 		variants[4].srcPort++
 		variants[5].dstPort++
-		seen := map[string]bool{key: true}
+		seen := map[conntrackKey]bool{key: true}
 		for _, variant := range variants {
-			value := connTrackKey(variant)
+			value := makeConntrackKey(variant)
 			if seen[value] {
 				t.Fatal("distinct packet tuples shared a conntrack key", family, variant)
 			}
@@ -74,7 +74,7 @@ func TestConntrackKeySeparatesPacketTuples(t *testing.T) {
 		}
 		if family == 4 {
 			meta.srcIP, meta.dstIP = meta.srcIP.To4(), meta.dstIP.To4()
-			if connTrackKey(meta) != key {
+			if makeConntrackKey(meta) != key {
 				t.Fatal("equivalent IPv4 representations changed the conntrack key")
 			}
 		}
@@ -86,7 +86,7 @@ func BenchmarkConnTrackKey(b *testing.B) {
 		srcIP: net.IPv4(192, 0, 2, 1), dstIP: net.IPv4(198, 51, 100, 2), srcPort: 12345, dstPort: 53}
 	b.ReportAllocs()
 	for b.Loop() {
-		conntrackKeySink = connTrackKey(meta)
+		conntrackKeySink = makeConntrackKey(meta)
 	}
 }
 

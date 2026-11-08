@@ -13,21 +13,17 @@ import (
 	"github.com/wtalioy/JustConnect/corelib/internal/zctcpip"
 )
 
-const connTrackKeySize = 2 + 2*net.IPv6len + 4
+type conntrackKey [2 + 2*net.IPv6len + 4]byte
 
-func connTrackKey(meta packetMeta) string {
-	var key [connTrackKeySize]byte
-	encodeConntrackKey(&key, &meta)
-	return string(key[:])
-}
-
-func encodeConntrackKey(key *[connTrackKeySize]byte, meta *packetMeta) {
+func makeConntrackKey(meta packetMeta) conntrackKey {
+	var key conntrackKey
 	// Internal fixed-width keys avoid formatting validated packet tuples on every read/write.
 	key[0], key[1] = byte(meta.atype), byte(meta.proto)
 	copy(key[2:2+net.IPv6len], meta.srcIP.To16())
 	copy(key[2+net.IPv6len:2+2*net.IPv6len], meta.dstIP.To16())
 	binary.BigEndian.PutUint16(key[len(key)-4:], meta.srcPort)
 	binary.BigEndian.PutUint16(key[len(key)-2:], meta.dstPort)
+	return key
 }
 
 func (t *L3Tunnel) processIPV4(packet zctcpip.IPv4Packet) error {
@@ -66,7 +62,7 @@ func matchL3IPResource(index *ipresource.Index, destination net.IP, protocol str
 }
 
 func (t *L3Tunnel) writePacket(packet zctcpip.IPv4Packet, meta packetMeta, appID, nodeGroupID string) error {
-	meta.key = connTrackKey(meta)
+	meta.key = makeConntrackKey(meta)
 
 	conn, err := t.getConn(nodeGroupID)
 	if err != nil {

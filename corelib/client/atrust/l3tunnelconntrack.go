@@ -47,7 +47,7 @@ type conntrackAuthJob struct {
 }
 
 type conntrack struct {
-	key          string
+	key          conntrackKey
 	authID       uint64
 	connectToken string
 	appID        string
@@ -71,7 +71,7 @@ type conntrack struct {
 type conntrackMgr struct {
 	mu         sync.Mutex
 	nextAuthID uint64
-	byKey      map[string]*conntrack
+	byKey      map[conntrackKey]*conntrack
 	byID       map[uint64]*conntrack
 	lru        list.List
 	nextExpiry time.Time
@@ -82,7 +82,7 @@ type conntrackMgr struct {
 
 func newConntrackMgr() *conntrackMgr {
 	return &conntrackMgr{
-		byKey:      make(map[string]*conntrack),
+		byKey:      make(map[conntrackKey]*conntrack),
 		byID:       make(map[uint64]*conntrack),
 		maxEntries: defaultConntrackMaxEntries,
 		now:        time.Now,
@@ -109,17 +109,16 @@ func (m *conntrackMgr) getByAuthResponseIP(ip authIP) *conntrack {
 	default:
 		return nil
 	}
-	var key [connTrackKeySize]byte
-	encodeConntrackKey(&key, &meta)
+	key := makeConntrackKey(meta)
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if ct := m.byKey[string(key[:])]; ct != nil && ct.authMeta.key == string(key[:]) && ct.authMeta.proto == ip.Protocol {
+	if ct := m.byKey[key]; ct != nil && ct.authMeta.key == key && ct.authMeta.proto == ip.Protocol {
 		return ct
 	}
 	return nil
 }
 
-func (m *conntrackMgr) getOrCreate(key, appID, nodeGroupID string) *conntrack {
+func (m *conntrackMgr) getOrCreate(key conntrackKey, appID, nodeGroupID string) *conntrack {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	now := m.now()
@@ -152,7 +151,7 @@ func (m *conntrackMgr) getOrCreate(key, appID, nodeGroupID string) *conntrack {
 	return ct
 }
 
-func (m *conntrackMgr) observePacket(key string, packet []byte, incoming bool) bool {
+func (m *conntrackMgr) observePacket(key conntrackKey, packet []byte, incoming bool) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	ct := m.byKey[key]
