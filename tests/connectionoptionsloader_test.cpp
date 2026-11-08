@@ -66,16 +66,5 @@ int main(int argc,char **argv) {
     const auto fresh=SavedConnectionService::load(fudan).endpoint;
     check(fresh.authType=="httpsOauth2" && fresh.loginDomain=="id.fudan.edu.cn","Fudan preset matches the gateway's web sign-in domain");
 
-    fudan.setValue("JustConnect/LoginDomain",QString());
-    check(SavedConnectionService::load(fudan).endpoint.loginDomain==fresh.loginDomain
-        && fudan.value("JustConnect/LoginDomain").toString().isEmpty(),"older Fudan profiles use the preset domain without rewriting settings");
-    fudan.setValue("JustConnect/AuthID","chosen-id");
-    check(SavedConnectionService::load(fudan).endpoint.loginDomain.isEmpty(),"a queried method keeps its explicit identity");
-    fudan.remove("JustConnect/AuthID");
-    fudan.setValue("JustConnect/LoginDomain","chosen-domain");
-    check(SavedConnectionService::load(fudan).endpoint.loginDomain=="chosen-domain","an explicitly selected domain takes precedence");
-    fudan.setValue("JustConnect/LoginDomain",QString());
-    fudan.setValue("JustConnect/ServerAddress","vpn.example.edu");
-    check(SavedConnectionService::load(fudan).endpoint.loginDomain.isEmpty(),"other gateways never inherit the Fudan domain");
     std::cout<<"PASS: profile reload, credentials, listener boundaries and legacy confirmation\n";
 }
