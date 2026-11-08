@@ -41,7 +41,7 @@ void AuthenticationCacheCoordinator::rememberAuthentication(const Authentication
     const bool external=source.profile.endpoint.authType=="cas" || source.profile.endpoint.authType=="httpsOauth2";
     if (external && !source.profile.credentials.username.isEmpty() && !source.profile.matchesCacheAccount(cache.account)) {
         connectionSession->forgetAuthenticationCache();cacheSource.reset();++cacheGeneration;emit forgotten();
-        emit warning(tr("The signed-in account differs from the selected profile. Confirm the account before reconnecting."));return;
+        emit warning(tr("The signed-in account differs from the account set for this connection. Confirm the account before reconnecting."));return;
     }
     if (external && source.profile.credentials.username.isEmpty()) {
         pendingCache=cache;

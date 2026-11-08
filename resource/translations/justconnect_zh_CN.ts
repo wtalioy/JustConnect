@@ -169,8 +169,8 @@ This connection remains usable. You may need to sign in again later.</source>
     </message>
     <message>
         <location filename="../../presentation/coordinators/authenticationcachecoordinator.cpp" line="44"/>
-        <source>The signed-in account differs from the selected profile. Confirm the account before reconnecting.</source>
-        <translation>本次登录账户与配置中选定的账户不同，请确认账户后重新连接。</translation>
+        <source>The signed-in account differs from the account set for this connection. Confirm the account before reconnecting.</source>
+        <translation>本次登录账户与此连接设置的账户不同，请确认账户后重新连接。</translation>
     </message>
 </context>
 <context>
@@ -1073,8 +1073,8 @@ No authorized probe resource or campus DNS is available. Check the target and ga
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="872"/>
-        <source>The upgraded profile could not be saved. The old version is preserved for retry.</source>
-        <translation>未能保存升级后的配置，已保留旧版本以便重试。</translation>
+        <source>The upgraded connection settings could not be saved. The previous settings were kept for retry.</source>
+        <translation>未能保存升级后的连接设置，已保留原设置以便重试。</translation>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.ui" line="232"/>
@@ -1185,13 +1185,13 @@ No authorized probe resource or campus DNS is available. Check the target and ga
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.ui" line="33"/>
-        <source>Connection profile</source>
-        <translation>连接配置</translation>
+        <source>Connection selector</source>
+        <translation>连接选择器</translation>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.ui" line="30"/>
-        <source>Choose a profile</source>
-        <translation>选择配置</translation>
+        <source>Choose a connection</source>
+        <translation>选择连接</translation>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.ui" line="665"/>
@@ -1355,8 +1355,8 @@ Use letters, numbers, underscores or hyphens.</source>
         <translation>正在保存连接</translation>
     </message>
     <message>
-        <source>Switched connection: </source>
-        <translation>已切换连接：</translation>
+        <source>Switched connection to %1</source>
+        <translation>已切换至连接 %1</translation>
     </message>
     <message>
         <source>The connection name cannot be empty.</source>
@@ -2081,8 +2081,8 @@ Some system settings may have changed. Check them before retrying.</source>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="339"/>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="356"/>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="116"/>
-        <source>Import profile</source>
-        <translation>导入配置</translation>
+        <source>Import connection</source>
+        <translation>导入连接</translation>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="120"/>
@@ -2094,8 +2094,8 @@ Some system settings may have changed. Check them before retrying.</source>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="372"/>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="389"/>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="128"/>
-        <source>Export saved profile</source>
-        <translation>导出已保存配置</translation>
+        <source>Export saved connection</source>
+        <translation>导出已保存的连接</translation>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="132"/>

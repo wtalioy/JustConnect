@@ -725,7 +725,7 @@ bool MainWindow::switchProfile(const QString &profileId)
     resetProfileLog();
     refreshProfileMenu();
 
-    qInfo().noquote() << tr("Switched connection: ") + currentProfileId;
+    qInfo().noquote() << tr("Switched connection to %1").arg(connectionName());
     return true;
 }
 
@@ -887,7 +887,7 @@ void MainWindow::upgradeSettings()
     }
     if (action == SettingsMigrationAction::Failed || !SettingsMigrator::finish(*settings))
     {
-        QMessageBox::warning(this, tr("Connection settings migration incomplete"), tr("The upgraded profile could not be saved. The old version is preserved for retry."));
+        QMessageBox::warning(this, tr("Connection settings migration incomplete"), tr("The upgraded connection settings could not be saved. The previous settings were kept for retry."));
     }
 }
 

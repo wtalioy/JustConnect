@@ -373,10 +373,10 @@
            <string>Import</string>
           </property>
           <property name="toolTip">
-           <string>Import profile</string>
+           <string>Import connection</string>
           </property>
           <property name="accessibleName">
-           <string>Import profile</string>
+           <string>Import connection</string>
           </property>
           <property name="autoDefault">
            <bool>false</bool>
@@ -389,10 +389,10 @@
            <string>Export</string>
           </property>
           <property name="toolTip">
-           <string>Export saved profile</string>
+           <string>Export saved connection</string>
           </property>
           <property name="accessibleName">
-           <string>Export saved profile</string>
+           <string>Export saved connection</string>
           </property>
           <property name="autoDefault">
            <bool>false</bool>

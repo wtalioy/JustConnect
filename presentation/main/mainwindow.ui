@@ -51,10 +51,10 @@
          <item>
           <widget class="ProfileMenuButton" name="profileMenuButton">
            <property name="text">
-            <string>Choose a profile</string>
+            <string>Choose a connection</string>
            </property>
            <property name="accessibleName">
-            <string>Connection profile</string>
+            <string>Connection selector</string>
            </property>
           </widget>
          </item>
