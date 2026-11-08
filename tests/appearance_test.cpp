@@ -65,17 +65,26 @@ int main(int argc,char **argv) {
     checkbox.setChecked(true);
     const auto mark = checkbox.grab();
     const auto pixels = mark.toImage();
-    QRect squarePixels, captionPixels;
+    QRect squarePixels;
+    qint64 captionRowSum = 0;
+    int captionInk = 0;
     for (int y = 0; y < pixels.height(); ++y) {
         for (int x = 0; x < pixels.width(); ++x) {
             const auto color = pixels.pixelColor(x, y);
-            const QRect pixel(x, y, 1, 1);
-            if (color == QColor("#5362df")) squarePixels = squarePixels.united(pixel);
-            if (color == QColor("#263143")) captionPixels = captionPixels.united(pixel);
+            if (x < checkboxCaption.left() * mark.devicePixelRatio() && color == QColor("#5362df"))
+                squarePixels = squarePixels.united(QRect(x, y, 1, 1));
+            if (x >= checkboxCaption.left() * mark.devicePixelRatio()
+                && color.red() < 105 && color.green() < 115 && color.blue() < 130) {
+                captionRowSum += y;
+                ++captionInk;
+            }
         }
     }
-    check(!squarePixels.isEmpty() && !captionPixels.isEmpty()
-        && qAbs(squarePixels.center().y() - captionPixels.center().y()) <= 2 * mark.devicePixelRatio(),
+    check(!squarePixels.isEmpty() && captionInk > 0, "the captured checkbox contains its square and caption");
+    const auto captionCenter = double(captionRowSum) / captionInk;
+    if (qAbs(squarePixels.center().y() - captionCenter) > 2 * mark.devicePixelRatio())
+        std::cerr << "Checkbox square center: " << squarePixels.center().y() << ", caption ink center: " << captionCenter << '\n';
+    check(qAbs(squarePixels.center().y() - captionCenter) <= 2 * mark.devicePixelRatio(),
         "the painted checkbox square is vertically centered on its visible caption");
     bool checkMarkPainted = false;
     const auto insideSquare = squarePixels.adjusted(3, 3, -3, -3);

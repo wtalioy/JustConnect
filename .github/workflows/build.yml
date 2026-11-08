@@ -208,7 +208,7 @@ jobs:
 
   macos_preview_launch:
     name: Open macOS 27 Apple Silicon preview
-    if: github.ref == 'refs/heads/develop' && inputs.verify_macos_27
+    if: ${{ !cancelled() && github.ref == 'refs/heads/develop' && inputs.verify_macos_27 }}
     needs: build
     runs-on: xcode-27
     timeout-minutes: 5
