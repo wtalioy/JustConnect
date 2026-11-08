@@ -174,6 +174,7 @@ void AuthDialogCoordinator::requestAuthentication(const QJsonObject &request, co
         emit responseSubmitted(CoreEngine::responseFor(request, fields));
     };
     QDialog *dialog = nullptr;
+    SsoLoginWebView *signIn = nullptr;
     if (kind == "click_captcha" || kind == "text_captcha") {
         auto *captcha = new GraphCaptchaWindow(parentWidget);
         captcha->setGraph(QByteArray::fromBase64(challenge["image"].toString().toUtf8()), kind == "text_captcha");
@@ -186,12 +187,11 @@ void AuthDialogCoordinator::requestAuthentication(const QJsonObject &request, co
         auto callback=callbackServer;
         callback.setPath(kind=="cas" ? "/passport/v1/auth/cas" : "/passport/v1/auth/httpsOauth2");
         callback.setQuery(QString());callback.setFragment(QString());
-        auto *web = new SsoLoginWebView(parentWidget,callback,tls);
-        web->setInitialUrl(QUrl(challenge["login_url"].toString()));
-        connect(web, &SsoLoginWebView::loginCompleted, this, [submit](const QString &url) {
+        signIn = new SsoLoginWebView(parentWidget,callback,tls);
+        connect(signIn, &SsoLoginWebView::loginCompleted, this, [submit](const QString &url) {
             if (!url.isEmpty()) submit({{"action", "submit"}, {"callback_url", url}});
         });
-        dialog = web;
+        dialog = signIn;
     } else if (kind == "trusted_device") {
         auto *input=new LocalizedDialog<QDialog>(parentWidget);dialog=input;
         auto *layout = new QVBoxLayout(dialog);
@@ -247,4 +247,5 @@ void AuthDialogCoordinator::requestAuthentication(const QJsonObject &request, co
     dialog->setWindowModality(Qt::WindowModal);
     connect(dialog, &QDialog::rejected, this, [submit] { submit({{"action", "cancel"}}); });
     PresentationHelpers::activateWindow(parentWidget);PresentationHelpers::activateWindow(dialog);
+    if (signIn) signIn->setInitialUrl(QUrl(challenge["login_url"].toString()));
 }
