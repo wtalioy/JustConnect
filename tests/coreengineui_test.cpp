@@ -209,7 +209,7 @@ static void manualCredentialsAndLateResults() {
         "the refreshed profile snapshot cannot receive credentials loaded for an earlier account");
     store->beforeRead={};
     settings.remove("JustConnect/TLSCAPEM");settings.setValue(ConnectionCredentialVault::ScopeSetting,"invalid-existing-namespace");settings.sync();
-    warnings=0;expectedWarnings={"The profile or credentials changed. Reopen settings or retry.\nYou can sign in manually for this connection."};
+    warnings=0;expectedWarnings={"The connection settings or credentials changed. Reopen settings or retry.\nYou can sign in manually for this connection."};
     dismiss.start(1);login(false,"manual-without-storage");
     check(engine->connectionOptions.credentials.username=="manual-without-storage" && settings.value(ConnectionCredentialVault::ScopeSetting)=="invalid-existing-namespace"
         && !settings.contains("Credential/Password"),"invalid storage namespace still permits explicit manual login without overwriting the namespace");

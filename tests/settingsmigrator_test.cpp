@@ -28,7 +28,7 @@ bool seedsOnlyNewManagedDefaults()
                 || settings.value(DefaultSettings::DomainDnsRules) != "zb.fudan.edu.cn") return false;
         } else if (scenario == "custom") {
             if (server != "other.example.invalid" || settings.value("JustConnect/AuthType") != "psw") return false;
-        } else if (!server.isEmpty()) {
+        } else if (!server.isEmpty() || !settings.value("JustConnect/AuthType").toString().isEmpty()) {
             return false;
         }
     }

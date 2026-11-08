@@ -39,7 +39,12 @@ SettingsMigrationAction SettingsMigrator::prepare(QSettings &settings, bool seed
 {
     if (settings.status()!=QSettings::NoError
         || (QFileInfo::exists(settings.fileName()) && !readableFile(settings.fileName()))) return SettingsMigrationAction::Failed;
-    if (seedBuiltInConnection && settings.allKeys().isEmpty()) DefaultSettings::applyBuiltInConnection(settings);
+    if (settings.allKeys().isEmpty()) {
+        if (seedBuiltInConnection)
+            DefaultSettings::applyBuiltInConnection(settings);
+        else
+            settings.setValue("JustConnect/AuthType", QString());
+    }
     settings.beginGroup("ZJUConnect");
     const QStringList previousKeys = settings.allKeys();
     settings.endGroup();
