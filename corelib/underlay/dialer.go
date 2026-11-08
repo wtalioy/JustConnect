@@ -145,15 +145,17 @@ func (d *Dialer) DialContext(ctx context.Context, network, address string) (net.
 		return nil, err
 	}
 	defer finish()
-	if err := d.prepareController(ctx, address); err != nil {
-		return nil, err
-	}
 	if isLoopbackAddress(address) {
 		connection, err := d.dial(ctx, network, address, "")
 		if err != nil {
 			return nil, err
 		}
 		return d.observeConnection(connection), nil
+	}
+	if d.localDNSServer == "" {
+		if err := d.ensureController(ctx); err != nil {
+			return nil, err
+		}
 	}
 	interfaceName := d.ensureInterface(ctx, address)
 	if err := ctx.Err(); err != nil {
@@ -162,12 +164,12 @@ func (d *Dialer) DialContext(ctx context.Context, network, address string) (net.
 	d.mu.RLock()
 	autoDetect := d.autoDetect
 	requireBound := d.requireBound
-	controllerTunnel := d.tunDevice != ""
+	tunDevice := d.tunDevice
 	d.mu.RUnlock()
-	if d.isTunnel(interfaceName) {
+	if mihomo.SameInterface(interfaceName, tunDevice) {
 		return nil, mihomo.ErrUnavailable
 	}
-	if requireBound && interfaceName == "" && (autoDetect || controllerTunnel) {
+	if requireBound && interfaceName == "" && (autoDetect || tunDevice != "") {
 		interfaceName = d.refreshInterface()
 		if interfaceName == "" {
 			return nil, fmt.Errorf("no usable underlay interface")

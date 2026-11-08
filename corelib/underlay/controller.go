@@ -11,13 +11,6 @@ import (
 
 var discoverController = mihomo.Discover
 
-func (d *Dialer) prepareController(ctx context.Context, address string) error {
-	if d.localDNSServer != "" || isLoopbackAddress(address) {
-		return nil
-	}
-	return d.ensureController(ctx)
-}
-
 func (d *Dialer) ensureController(ctx context.Context) error {
 	d.mu.Lock()
 	if d.controllerGate == nil {
@@ -82,12 +75,6 @@ func (d *Dialer) ensureController(ctx context.Context) error {
 		d.diagnostic("local_controller_real_dns")
 	}
 	return nil
-}
-
-func (d *Dialer) isTunnel(name string) bool {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-	return mihomo.SameInterface(name, d.tunDevice)
 }
 
 func (d *Dialer) dial(ctx context.Context, network, address, interfaceName string) (net.Conn, error) {
