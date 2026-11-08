@@ -61,7 +61,7 @@ func (p *Listeners) OriginalDNSRecords() map[string][]string {
 		return nil
 	}
 	// Read reservations before committed bindings to cover the acknowledgement handoff.
-	result := make(map[string][]string)
+	var pending map[string][]string
 	p.mu.Lock()
 	ingress := p.tun
 	p.mu.Unlock()
@@ -69,19 +69,25 @@ func (p *Listeners) OriginalDNSRecords() map[string][]string {
 		ingress.mu.Lock()
 		for publication := range ingress.publishingDNS {
 			if publication.originalName != "" {
-				result[publication.originalName] = append(result[publication.originalName], publication.address.String())
+				if pending == nil {
+					pending = make(map[string][]string)
+				}
+				pending[publication.originalName] = append(pending[publication.originalName], publication.address.String())
 			}
 		}
 		ingress.mu.Unlock()
 	}
+	var result map[string][]string
 	if p.resolver != nil {
-		for name, addresses := range p.resolver.OriginalDNSRecords() {
-			result[name] = append(result[name], addresses...)
-		}
+		result = p.resolver.OriginalDNSRecords()
 	}
-	for name := range result {
-		slices.Sort(result[name])
-		result[name] = slices.Compact(result[name])
+	if result == nil {
+		result = make(map[string][]string)
+	}
+	for name, addresses := range pending {
+		merged := append(result[name], addresses...)
+		slices.Sort(merged)
+		result[name] = slices.Compact(merged)
 	}
 	return result
 }
