@@ -52,24 +52,34 @@ func (s *Session) setResources(resources corelib.Resources) Status {
 		return Cancelled
 	}
 	s.mu.Unlock()
-	snapshot := resourceSnapshot{IPs: []ipResource{}, PrivateIPRanges: resources.PrivateIPRanges, Domains: map[string][]resourcePermission{}, DNSRecords: map[string][]string{}, CampusDNS: resources.CampusDNS, CampusDNSEnabled: resources.CampusDNSEnabled, DomainDNSNames: resources.DomainDNSNames, UnderlayInterface: resources.UnderlayInterface, Listeners: resources.Listeners}
+	snapshot := resourceSnapshot{
+		IPs:               make([]ipResource, len(resources.IPs)),
+		PrivateIPRanges:   resources.PrivateIPRanges,
+		Domains:           make(map[string][]resourcePermission, len(resources.Domains)),
+		DNSRecords:        make(map[string][]string, len(resources.DNSRecords)),
+		CampusDNS:         resources.CampusDNS,
+		CampusDNSEnabled:  resources.CampusDNSEnabled,
+		DomainDNSNames:    resources.DomainDNSNames,
+		UnderlayInterface: resources.UnderlayInterface,
+		Listeners:         resources.Listeners,
+	}
 	if resources.OriginalAuthenticationAddress.IsValid() {
 		snapshot.OriginalAuthenticationAddress = resources.OriginalAuthenticationAddress.String()
 	}
-	for _, row := range resources.IPs {
-		snapshot.IPs = append(snapshot.IPs, ipResource{row.IPMin.String(), row.IPMax.String(), resourcePermission{row.Protocol, row.PortMin, row.PortMax}})
+	for i, row := range resources.IPs {
+		snapshot.IPs[i] = ipResource{row.IPMin.String(), row.IPMax.String(), resourcePermission{row.Protocol, row.PortMin, row.PortMax}}
 	}
 	for domain, rows := range resources.Domains {
-		permissions := []resourcePermission{}
-		for _, row := range rows {
-			permissions = append(permissions, resourcePermission{row.Protocol, row.PortMin, row.PortMax})
+		permissions := make([]resourcePermission, len(rows))
+		for i, row := range rows {
+			permissions[i] = resourcePermission{row.Protocol, row.PortMin, row.PortMax}
 		}
 		snapshot.Domains[domain] = permissions
 	}
 	for domain, addresses := range resources.DNSRecords {
-		values := []string{}
-		for _, address := range addresses {
-			values = append(values, address.String())
+		values := make([]string, len(addresses))
+		for i, address := range addresses {
+			values[i] = address.String()
 		}
 		snapshot.DNSRecords[domain] = values
 	}

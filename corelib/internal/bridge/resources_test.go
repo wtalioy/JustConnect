@@ -3,6 +3,7 @@ package bridge
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"strings"
 	"testing"
@@ -81,5 +82,23 @@ func TestResourcesAreOwnedBoundedAndScopedToTheActiveGeneration(t *testing.T) {
 	}
 	if data, status := e.Resources(h, g2); status != Limit || len(data) != 0 {
 		t.Fatal("oversized snapshot was truncated or exposed", status)
+	}
+}
+
+func BenchmarkPublishResourceSnapshot(b *testing.B) {
+	s := &Session{running: true, generation: 1}
+	ip := net.IPv4(192, 0, 2, 10)
+	resources := corelib.Resources{Domains: make(client.DomainResources), DNSRecords: make(map[string][]net.IP)}
+	for i := range 256 {
+		resources.IPs = append(resources.IPs, client.IPResource{IPMin: ip, IPMax: ip, Protocol: "tcp", PortMin: 22, PortMax: 22})
+		name := fmt.Sprintf("service-%d.campus.test", i)
+		resources.Domains[name] = []client.DomainResource{{Protocol: "tcp", PortMin: 22, PortMax: 22}, {Protocol: "tcp", PortMin: 443, PortMax: 443}}
+		resources.DNSRecords[name] = []net.IP{ip}
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		if status := s.setResources(resources); status != OK {
+			b.Fatal(status)
+		}
 	}
 }
