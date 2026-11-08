@@ -138,6 +138,7 @@ static void manualCredentialsAndLateResults() {
     QTemporaryDir folder;QSettings settings(folder.filePath("manual.ini"),QSettings::IniFormat);
     settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");settings.setValue("JustConnect/ServerPort",443);
     settings.setValue("JustConnect/AuthType","psw");settings.setValue("Credential/Username","alice");
+    settings.setValue(DefaultSettings::RememberAuthentication,false);
     QWidget parent;QPushButton connectButton(&parent);QAction trayAction(&parent);
     auto *engine=new QueryEngine;ConnectionSession session(engine);SystemProxySession proxy(std::make_unique<ProxyBackend>());
     AuthDialogCoordinator dialogs(&parent);ApplicationLogger logger;QString logs;
