@@ -1,3 +1,5 @@
+include("${CMAKE_CURRENT_LIST_DIR}/../cmake/UiResources.cmake")
+
 function(justconnect_core_ui_tests TARGET ENGINE LIBRARY PLATFORM)
     add_executable(coexistencenetworkaccess_test "${REPO}/tests/coexistencenetworkaccess_test.cpp")
     set_target_properties(coexistencenetworkaccess_test PROPERTIES AUTOMOC ON)
@@ -6,7 +8,6 @@ function(justconnect_core_ui_tests TARGET ENGINE LIBRARY PLATFORM)
     add_test(NAME coexistencenetworkaccess_test COMMAND coexistencenetworkaccess_test)
     set_tests_properties(coexistencenetworkaccess_test PROPERTIES TIMEOUT 30)
     add_executable(${TARGET}
-        "${REPO}/resource.qrc"
         "${REPO}/tests/coreengineui_test.cpp"
         "${REPO}/presentation/dialogs/networkpolicywindow.cpp"
         "${REPO}/infrastructure/settings/credentialaccess.cpp"
@@ -25,8 +26,8 @@ function(justconnect_core_ui_tests TARGET ENGINE LIBRARY PLATFORM)
         "${REPO}/presentation/dialogs/ssologinwebview/ssologinwebview.cpp"
         "${REPO}/presentation/dialogs/loginwindow/loginwindow.cpp"
         "${REPO}/presentation/presentationhelpers.cpp")
-    set_target_properties(${TARGET} PROPERTIES AUTOMOC ON AUTOUIC ON AUTORCC ON)
-    target_link_libraries(${TARGET} PRIVATE ${ENGINE} ${PLATFORM} justconnect_signin_browser Qt6::Concurrent)
+    set_target_properties(${TARGET} PROPERTIES AUTOMOC ON AUTOUIC ON)
+    target_link_libraries(${TARGET} PRIVATE ${ENGINE} ${PLATFORM} justconnect_signin_browser Qt6::Concurrent justconnect_ui_resources)
     justconnect_core_runtime(${TARGET} ${LIBRARY})
     add_test(NAME ${TARGET} COMMAND ${TARGET})
     set_tests_properties(${TARGET} PROPERTIES TIMEOUT 60 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
@@ -59,12 +60,11 @@ function(justconnect_network_policy_tests)
     add_test(NAME networkpolicysession_test COMMAND networkpolicysession_test)
     set_tests_properties(networkpolicysession_test PROPERTIES TIMEOUT 15)
     add_executable(networkpolicywindow_test "${REPO}/tests/networkpolicywindow_test.cpp"
-        "${REPO}/resource.qrc"
         "${REPO}/presentation/presentationhelpers.cpp"
         "${REPO}/presentation/dialogs/networkpolicywindow.cpp")
-    set_target_properties(networkpolicywindow_test PROPERTIES AUTOMOC ON AUTORCC ON)
+    set_target_properties(networkpolicywindow_test PROPERTIES AUTOMOC ON)
     target_include_directories(networkpolicywindow_test PRIVATE "${REPO}")
-    target_link_libraries(networkpolicywindow_test PRIVATE Qt6::Widgets Qt6::Network Qt6::Concurrent justconnect_application)
+    target_link_libraries(networkpolicywindow_test PRIVATE Qt6::Widgets Qt6::Network Qt6::Concurrent justconnect_application justconnect_ui_resources)
     add_test(NAME networkpolicywindow_test COMMAND networkpolicywindow_test)
     set_tests_properties(networkpolicywindow_test PROPERTIES TIMEOUT 15 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endfunction()

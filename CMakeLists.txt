@@ -58,6 +58,7 @@ install(FILES "${CORE}/UPSTREAM.md" "${CORE}/LICENSE.zju-connect" "${REPO}/LICEN
 install(FILES "${CORE}/internal/ping/LICENSE"
     DESTINATION "${CORE_DATA_DESTINATION}/licenses" RENAME LICENSE.ping COMPONENT CoreRuntime)
 
+include(cmake/UiResources.cmake)
 add_library(justconnect_desktop OBJECT
     infrastructure/process/terminationrequests.cpp
     presentation/i18n/applicationlanguage.cpp
@@ -88,8 +89,8 @@ add_library(justconnect_desktop OBJECT
     presentation/dialogs/graphcaptchawindow/graphcaptchawindow.ui
     presentation/dialogs/graphcaptchawindow/captchacanvas.cpp
     infrastructure/settings/profilemanager.cpp
-    resource.qrc
 )
+target_sources(justconnect_desktop INTERFACE "$<TARGET_OBJECTS:justconnect_ui_resources>")
 
 find_package(Qt6 REQUIRED COMPONENTS LinguistTools)
 set(justconnect_desktop_catalog "${CMAKE_CURRENT_SOURCE_DIR}/resource/translations/justconnect_zh_CN.ts")
@@ -151,8 +152,8 @@ include(CTest)
 
 
 if(BUILD_TESTING)
-    add_executable(appearance_test tests/appearance_test.cpp presentation/appearance/applicationappearance.cpp resource.qrc)
-    target_link_libraries(appearance_test PRIVATE Qt6::Widgets)
+    add_executable(appearance_test tests/appearance_test.cpp presentation/appearance/applicationappearance.cpp)
+    target_link_libraries(appearance_test PRIVATE Qt6::Widgets justconnect_ui_resources)
     target_include_directories(appearance_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME appearance_test COMMAND appearance_test)
     add_test(NAME appearance_scaled_test COMMAND appearance_test)
@@ -163,10 +164,9 @@ if(BUILD_TESTING)
     add_test(NAME singleapplication_test COMMAND singleapplication_test)
     set_tests_properties(singleapplication_test PROPERTIES TIMEOUT 20 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_executable(serversettingswidget_test tests/serversettingswidget_test.cpp
-        resource.qrc
         presentation/presentationhelpers.cpp
         presentation/widgets/serversettingswidget.cpp)
-    target_link_libraries(serversettingswidget_test PRIVATE Qt6::Widgets justconnect_application)
+    target_link_libraries(serversettingswidget_test PRIVATE Qt6::Widgets justconnect_application justconnect_ui_resources)
     add_test(NAME serversettingswidget_test COMMAND serversettingswidget_test)
     set_tests_properties(serversettingswidget_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
     justconnect_system_integration_tests(platformbackend_test justconnect_platform)
@@ -302,11 +302,10 @@ if(BUILD_TESTING)
 
     add_executable(graphcaptchawindow_test
         tests/graphcaptchawindow_test.cpp
-        resource.qrc
         presentation/dialogs/graphcaptchawindow/graphcaptchawindow.cpp
         presentation/dialogs/graphcaptchawindow/captchacanvas.cpp)
     target_include_directories(graphcaptchawindow_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(graphcaptchawindow_test Qt::Core Qt::Gui Qt::Widgets)
+    target_link_libraries(graphcaptchawindow_test Qt::Core Qt::Gui Qt::Widgets justconnect_ui_resources)
     add_test(NAME graphcaptchawindow_test COMMAND graphcaptchawindow_test)
     set_tests_properties(graphcaptchawindow_test PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
