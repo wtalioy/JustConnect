@@ -38,8 +38,9 @@ def main():
     parser.add_argument('--target', required=True, choices=lock['assets'])
     args = parser.parse_args()
     asset = lock['assets'][args.target]
-    url = f"https://github.com/MetaCubeX/mihomo/releases/download/{lock['version']}/{asset['file']}"
-    with urllib.request.urlopen(url, timeout=45) as response:
+    url = f"https://api.github.com/repos/MetaCubeX/mihomo/releases/assets/{asset['asset_id']}"
+    request = urllib.request.Request(url, headers={'Accept': 'application/octet-stream'})
+    with urllib.request.urlopen(request, timeout=45) as response:
         binary = unpack(response.read(MAX_ARCHIVE + 1), asset)
     destination = ROOT / 'build/tools/test-mihomo' / args.target
     destination.mkdir(parents=True, exist_ok=True)
