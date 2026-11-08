@@ -1860,6 +1860,10 @@ Wildcards and whole scopes are not accepted. Server authorization still applies.
 <context>
     <name>PresentationHelpers</name>
     <message>
+        <source>Copied to clipboard</source>
+        <translation>已复制到剪贴板</translation>
+    </message>
+    <message>
         <source>Core version: %1</source>
         <translation>核心版本：%1</translation>
     </message>

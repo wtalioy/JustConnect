@@ -1,6 +1,9 @@
 #include "presentationhelpers.h"
 
 #include <QApplication>
+#include <QAccessibleAnnouncementEvent>
+#include <QAccessibilityHints>
+#include <QClipboard>
 #include <QMessageBox>
 #include <QPixmap>
 #include <QWidget>
@@ -11,8 +14,12 @@
 #include <QAbstractButton>
 #include <QIconEngine>
 #include <QPainter>
+#include <QStyle>
+#include <QStyleHints>
+#include <QVariantAnimation>
 #include <QTreeWidget>
 #include <QSignalBlocker>
+#include <utility>
 
 #include "application/applicationconstants.h"
 #include "application/defaultsettings.h"
@@ -61,6 +68,69 @@ void PresentationHelpers::setButtonIcon(QAbstractButton *button,const QString &p
 {
     // Qt's button label adds 4 px; reserve another 4 px while preserving an 18 px vector glyph at every scale.
     button->setIcon(QIcon(new ButtonIcon(path)));button->setIconSize(QSize(22,18));
+}
+
+void PresentationHelpers::connectCopyButton(QAbstractButton *button, std::function<QString()> text)
+{
+    constexpr int fadeMs = 140;
+    constexpr int durationMs = 2 * fadeMs + 1000;
+    const auto copy = button->icon();
+    const QIcon check(":/resource/check.svg");
+    auto *animation = new QVariantAnimation(button);
+    animation->setDuration(durationMs);
+    animation->setStartValue(0.0);
+    animation->setKeyValueAt(double(fadeMs) / durationMs, 1.0);
+    animation->setKeyValueAt(double(durationMs - fadeMs) / durationMs, 1.0);
+    animation->setEndValue(0.0);
+
+    const auto reduceMotion = [button] {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 12, 0)
+        if (QApplication::styleHints()->accessibility()->motionPreference() == Qt::MotionPreference::ReducedMotion)
+            return true;
+#endif
+        return button->style()->styleHint(QStyle::SH_Widget_Animation_Duration, nullptr, button) == 0;
+    };
+    QObject::connect(animation, &QVariantAnimation::valueChanged, button, [=](const QVariant &value) {
+        const auto opacity = value.toReal();
+        if (opacity == 0.0 || opacity == 1.0 || reduceMotion()) {
+            button->setIcon(opacity == 1.0 ? check : copy);
+            return;
+        }
+        const auto size = button->iconSize();
+        const auto dpr = button->devicePixelRatioF();
+        const auto outgoing = copy.pixmap(size, dpr);
+        QPixmap frame(outgoing.size());
+        frame.setDevicePixelRatio(dpr);
+        frame.fill(Qt::transparent);
+        QPainter painter(&frame);
+        const auto blend = QEasingCurve(QEasingCurve::InOutQuad).valueForProgress(opacity);
+        painter.setOpacity(1.0 - blend);
+        painter.drawPixmap(0, 0, outgoing);
+        painter.setCompositionMode(QPainter::CompositionMode_Plus);
+        painter.setOpacity(blend);
+        painter.drawPixmap(0, 0, check.pixmap(size, dpr));
+        painter.end();
+        button->setIcon(QIcon(frame));
+    });
+    QObject::connect(button, &QAbstractButton::clicked, button, [=, text = std::move(text)] {
+        auto *clipboard = QApplication::clipboard();
+        const auto value = text();
+        clipboard->setText(value);
+        if (value.isEmpty() || clipboard->text() != value) {
+            animation->stop();
+            animation->setCurrentTime(0);
+            return;
+        }
+
+        if (animation->state() != QAbstractAnimation::Running) animation->start();
+        const int time = animation->currentTime();
+        // Repeated copies extend the check, or reverse the return fade without a jump.
+        if (reduceMotion()) animation->setCurrentTime(fadeMs);
+        else if (time >= fadeMs) animation->setCurrentTime(qMin(fadeMs, durationMs - time));
+
+        QAccessibleAnnouncementEvent announcement(button, QCoreApplication::translate("PresentationHelpers", "Copied to clipboard"));
+        QAccessible::updateAccessibility(&announcement);
+    });
 }
 
 QString PresentationHelpers::profileKindLabel(const QString &kind)

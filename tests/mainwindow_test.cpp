@@ -476,6 +476,15 @@ static void nativeHome(MainWindow &window, ApplicationLogger &logger) {
     check(QApplication::clipboard()->text()==log->toPlainText()
         && log->toPlainText().endsWith("Queued first\nQueued second\nQueued third"),
         "copy includes all pending log entries in arrival order");
+    const QIcon copyIcon(":/resource/copy.svg");
+    const QIcon checkIcon(":/resource/check.svg");
+    const auto iconMatches = [](const QPushButton *button, const QIcon &icon) {
+        return button->icon().pixmap(button->iconSize()).toImage() == icon.pixmap(button->iconSize()).toImage();
+    };
+    waitForUi([&]{return iconMatches(copyLog, checkIcon);});
+    copyLog->click();
+    check(iconMatches(copyLog, checkIcon), "repeated copying keeps the confirmation visible");
+    waitForUi([&]{return iconMatches(copyLog, copyIcon);});
     emit logger.entryAdded("Cleared before flush");
     clearLog->click();
     for (int i=0;i<1003;++i) emit logger.entryAdded(QString::number(i));

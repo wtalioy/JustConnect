@@ -1,6 +1,5 @@
 #include <QMessageBox>
 #include <QSysInfo>
-#include <QClipboard>
 #include <QDesktopServices>
 #include <QDebug>
 #include <QFile>
@@ -91,7 +90,9 @@ MainWindow::MainWindow(
     });
     connect(ui->refreshDiagnosticsButton, &QPushButton::clicked,
         coordinator->networkPolicy(), &NetworkPolicySession::refresh);
-    connect(ui->copyDiagnosticsButton,&QPushButton::clicked,this,[this]{QApplication::clipboard()->setText(QApplication::applicationVersion()+"\n"+coordinator->diagnostics()->report());});
+    PresentationHelpers::connectCopyButton(ui->copyDiagnosticsButton, [this] {
+        return QApplication::applicationVersion() + "\n" + coordinator->diagnostics()->report();
+    });
     authenticationDialogs = coordinator->authenticationDialogs();
     connectionSession = coordinator->connection();
     systemProxySession = coordinator->systemProxy();
@@ -244,9 +245,9 @@ MainWindow::MainWindow(
                 PresentationHelpers::showAboutDialog(this, updateChecker->versionInfo().coreVersion);
             });
 
-    connect(ui->copyLogPushButton, &QPushButton::clicked, this, [this] {
+    PresentationHelpers::connectCopyButton(ui->copyLogPushButton, [this] {
         flushLog();
-        QApplication::clipboard()->setText(ui->logPlainTextEdit->toPlainText());
+        return ui->logPlainTextEdit->toPlainText();
     });
     connect(ui->clearLogPushButton, &QPushButton::clicked, this, &MainWindow::clearLog);
 
