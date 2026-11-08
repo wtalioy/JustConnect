@@ -446,11 +446,10 @@ void NetworkPolicyWindow::updateAddressRows()
         }
         targetRows.append({prefix, origins.join('\n'), overlaps.join('\n'), exceptions.join('\n')});
     }
-    if(PresentationHelpers::setTreeRows(targets,targetRows)) {
-        targets->setCurrentItem(nullptr);
-        for(int i=0;i<targets->topLevelItemCount();++i)
-            if(targets->topLevelItem(i)->text(0)==selected) targets->setCurrentItem(targets->topLevelItem(i));
-    }
+    if (!PresentationHelpers::setTreeRows(targets, targetRows)) return;
+    if (const auto *current = targets->currentItem(); current && current->text(0) == selected) return;
+    const auto matching = targets->findItems(selected, Qt::MatchExactly);
+    targets->setCurrentItem(matching.isEmpty() ? nullptr : matching.first());
 }
 
 void NetworkPolicyWindow::updateDnsRows()

@@ -186,12 +186,15 @@ int main(int argc, char **argv) try
           "Settled observation lost the selected scope");
     check(addressIndex.isValid() && dnsIndex.isValid(),
         "an unchanged refresh preserves address and DNS rows instead of deleting and recreating them");
+    int selectionChanges = 0;
+    const auto selection = QObject::connect(tree, &QTreeWidget::currentItemChanged, &window, [&] { ++selectionChanges; });
     engine.lanName = "Renamed LAN";
     check(session.refresh(), "refresh a changed snapshot without reconnecting");
     until([&] { return session.status() == CoreEngine::RequestStatus::Success; });
     check(tree->currentItem() == lanRow() && lanRow()->text(1).contains(engine.lanName)
-          && boundSource->text(2).contains(engine.lanName),
-          "a changed snapshot updates both tables while keeping the selected scope");
+          && boundSource->text(2).contains(engine.lanName) && selectionChanges == 0,
+          "a changed snapshot updates both tables without reselecting the unchanged scope");
+    QObject::disconnect(selection);
     auto activeInput = [&]() -> QInputDialog * {
         for (auto *input : window.findChildren<QInputDialog *>()) if (input->isVisible()) return input;
         check(false, "Address action did not open its input");

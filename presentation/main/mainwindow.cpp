@@ -14,6 +14,7 @@
 #include <QPushButton>
 #include <QLabel>
 #include <QHeaderView>
+#include <QHash>
 #include <QTabBar>
 #include <QFontDatabase>
 #include <QDialogButtonBox>
@@ -434,8 +435,7 @@ void MainWindow::resetProfileLog()
 
 void MainWindow::resetConnectionUi()
 {
-    if (connectionUiController) connectionUiController->cancelPendingCredentials();
-    if (connectionUiController) connectionUiController->refreshActions();
+    connectionUiController->cancelPendingCredentials();
     updateConnectionState(ConnectionState::Disconnected);
     updateProfileSummary();
 }
@@ -508,15 +508,19 @@ void MainWindow::updateConnectionState(ConnectionState state)
     const bool noTray=property("trayUnavailable").toBool();
     ui->statusHintLabel->setText(noTray ? tr("System tray unavailable. Use Exit in the application menu to quit.") : needsAttention ? detail : QString());
     ui->statusHintLabel->setVisible(noTray || needsAttention);
-    const QMap<QString,QString> results{{"running",tr("In progress")},{"succeeded",tr("Succeeded")},{"failed",tr("Failed")},{"required",tr("Sign in again")},{"disabled",tr("Disabled")},{"unavailable",tr("Unavailable")}};
+    static const QHash<QString, const char *> results{
+        {"running", QT_TR_NOOP("In progress")}, {"succeeded", QT_TR_NOOP("Succeeded")},
+        {"failed", QT_TR_NOOP("Failed")}, {"required", QT_TR_NOOP("Sign in again")},
+        {"disabled", QT_TR_NOOP("Disabled")}, {"unavailable", QT_TR_NOOP("Unavailable")},
+    };
     const auto traffic=connectionSession->observation("traffic");
     const auto mode=connectionSession->keepAliveOptions().mode;
-    const QList<QPair<QString,QString>> maintenance{{"renewal",tr("Session renewal")},
+    const QPair<QString, QString> maintenance[]{{"renewal",tr("Session renewal")},
         {"traffic",mode=="target" ? tr("Traffic keepalive (HTTP GET)") : mode=="off" ? tr("Traffic keepalive") : tr("Traffic keepalive (campus DNS)")},
         {"nodes",tr("Node maintenance")},{"tunnel",tr("Tunnel maintenance")}};
     for (const auto &[stage,label]:maintenance) {
         const auto observed=connectionSession->observation(stage);
-        detail += tr("\nLast %1: %2").arg(label,results.value(observed.result,tr("Unknown")));
+        detail += tr("\nLast %1: %2").arg(label, tr(results.value(observed.result, QT_TR_NOOP("Unknown"))));
         if (observed.observedAt.isValid()) detail += " · "+observed.observedAt.toLocalTime().toString(Qt::ISODate);
     }
     if (traffic.result=="unavailable") detail += tr("\nNo authorized probe resource or campus DNS is available. Check the target and gateway authorization.");
