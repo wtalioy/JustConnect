@@ -9,10 +9,8 @@
 
 CaptchaCanvas::CaptchaCanvas(QWidget *parent) : QWidget(parent)
 {
-    setMouseTracking(false);
     setFocusPolicy(Qt::StrongFocus);
     setAttribute(Qt::WA_OpaquePaintEvent, true);
-    setAutoFillBackground(false);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 }
 
@@ -52,16 +50,12 @@ void CaptchaCanvas::paintEvent(QPaintEvent *)
         }
     }
 
-    QPen blackPen;
-    blackPen.setWidth(2);
-    blackPen.setColor(Qt::black);
-    QBrush whiteBrush;
-    whiteBrush.setStyle(Qt::SolidPattern);
-    whiteBrush.setColor(Qt::white);
+    if (m_pointsPx.isEmpty()) return;
+
     QFont font;
     font.setPixelSize(14);
-    p.setBrush(whiteBrush);
-    p.setPen(blackPen);
+    p.setBrush(Qt::white);
+    p.setPen(QPen(Qt::black, 2));
     p.setFont(font);
 
     for (int i = 0; i < m_pointsPx.size(); ++i)
@@ -80,13 +74,15 @@ void CaptchaCanvas::mousePressEvent(QMouseEvent *ev)
     const QPointF pos = ev->position();
     if (ev->button() == Qt::LeftButton && !m_img.isNull())
     {
-        m_keyboardCursor=false;update();
+        const bool hideCursor = m_keyboardCursor;
+        m_keyboardCursor = false;
         const QRectF target = imageRect();
         if (target.contains(pos))
         {
             addPoint(QPointF(qBound(0.0,(pos.x()-target.left())*m_img.width()/target.width(),double(m_img.width()-1)),
                 qBound(0.0,(pos.y()-target.top())*m_img.height()/target.height(),double(m_img.height()-1))));
         }
+        if (hideCursor) update();
     }
 }
 

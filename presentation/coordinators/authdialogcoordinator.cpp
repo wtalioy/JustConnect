@@ -3,10 +3,7 @@
 #include "presentation/presentationhelpers.h"
 
 #include <QCheckBox>
-#include <QDebug>
 #include <QDialog>
-#include <QEvent>
-#include <functional>
 #include <QDialogButtonBox>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -47,7 +44,6 @@ void AuthDialogCoordinator::requestLogin(
     }
 
     loginWindow = new LoginWindow(parentWidget);
-    loginWindow->setAttribute(Qt::WA_DeleteOnClose);
     loginWindow->setDetail(username, password);
     const QPointer<LoginWindow> dialog=loginWindow;
     connect(dialog,&LoginWindow::login,this,[this,dialog](const QString &username,const QString &password,bool save) {
@@ -109,7 +105,7 @@ void AuthDialogCoordinator::requestPhoneNumber(
     connect(
         buttonBox,
         &QDialogButtonBox::accepted,
-        dialog,
+        this,
         [this, dialog, countryCodeEdit, phoneNumberEdit, saveCheckBox]()
         {
             if (phoneNumberDialog!=dialog) return;

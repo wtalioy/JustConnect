@@ -10,7 +10,6 @@
 #include <QImageReader>
 #include "corelib/abi/constants.h"
 #include <QJsonArray>
-#include <QJsonDocument>
 #include <QJsonObject>
 #include <QLineEdit>
 #include <QMessageBox>
