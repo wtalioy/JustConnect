@@ -60,6 +60,7 @@ install(FILES "${CORE}/internal/ping/LICENSE"
 
 include(cmake/UiResources.cmake)
 add_library(justconnect_desktop OBJECT
+    infrastructure/process/applicationinstancelock.cpp
     infrastructure/process/terminationrequests.cpp
     presentation/i18n/applicationlanguage.cpp
     presentation/widgets/applicationpreferenceswidget.cpp
@@ -122,8 +123,6 @@ else()
         PROPERTIES MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/resource/Info.plist")
 endif()
 
-add_subdirectory(singleapplication)
-
 target_link_libraries(justconnect_desktop
         PUBLIC
         Qt::Core
@@ -136,7 +135,6 @@ target_link_libraries(justconnect_desktop
         justconnect_engine
         justconnect_network_access
         justconnect_platform
-        SingleApplication::SingleApplication
         ${PLATFORM_LIBS}
 )
 
@@ -159,10 +157,12 @@ if(BUILD_TESTING)
     add_test(NAME appearance_scaled_test COMMAND appearance_test)
     set_tests_properties(appearance_scaled_test PROPERTIES TIMEOUT 30 ENVIRONMENT "QT_QPA_PLATFORM=${JC_BROWSER_QPA};QT_SCALE_FACTOR=2")
     set_tests_properties(appearance_test PROPERTIES TIMEOUT 30 ENVIRONMENT "QT_QPA_PLATFORM=${JC_BROWSER_QPA}")
-    add_executable(singleapplication_test tests/singleapplication_test.cpp)
-    target_link_libraries(singleapplication_test PRIVATE SingleApplication::SingleApplication)
-    add_test(NAME singleapplication_test COMMAND singleapplication_test)
-    set_tests_properties(singleapplication_test PROPERTIES TIMEOUT 20 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    add_executable(applicationinstancelock_test tests/applicationinstancelock_test.cpp
+        infrastructure/process/applicationinstancelock.cpp)
+    target_include_directories(applicationinstancelock_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+    target_link_libraries(applicationinstancelock_test PRIVATE Qt6::Core)
+    add_test(NAME applicationinstancelock_test COMMAND applicationinstancelock_test)
+    set_tests_properties(applicationinstancelock_test PROPERTIES TIMEOUT 40)
     add_executable(serversettingswidget_test tests/serversettingswidget_test.cpp
         presentation/presentationhelpers.cpp
         presentation/widgets/serversettingswidget.cpp)

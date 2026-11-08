@@ -26,6 +26,8 @@ macOS 使用 Go 静态归档；Windows 的 cgo 使用固定校验和的 LLVM-Min
 
 Windows 路径为 `build/Release/JustConnect.exe`，macOS 为 `build/JustConnect.app/Contents/MacOS/JustConnect`。离屏界面测试设置 `QT_QPA_PLATFORM=offscreen`；offscreen 通过不代替真实桌面验收。
 
+普通启动在本用户的应用数据目录取得 `instance.lock` 后才创建主窗口。来自不同目录的新版副本共用同一锁，重复启动直接退出；从旧版升级时先退出旧版。此锁与网络接管的所有权检查独立。CTest 的 `applicationinstancelock_test` 用隔离目录验证并发启动、正常退出及强制结束后的重开。
+
 真实网页、JavaScript、Cookie、TLS 与浏览器语言切换测试使用 `windows`／`cocoa` 原生桌面后端；其余模型与常规控件继续离屏执行。CMake 按实际测试设置后端，不用离屏通过代替原生网页验证。
 
 macOS 原生分配测试复用正式 utun、地址、MTU 与捕获后端，在交付 fd 前回读所属配置；普通接收方验证真实 TCP／UDP、系统 DNS、fd 独占及正常／强杀后的设备和路由恢复。脚本只允许一次性 macOS runner；运行入口见[设备与权限](CORELINK-PROBE.md#设备与权限边界)。
@@ -247,7 +249,7 @@ Fudan Windows 实机验收步骤：启用记住认证并连接；分别测试普
 
 ## S8 实测步骤
 
-使用同一 [`3f6ba6f` 预览构建](https://github.com/wtalioy/JustConnect/actions/runs/42454884423)。先从托盘或菜单栏退出旧版，保留现有配置和 Tailscale。
+下列 [`3f6ba6f` 预览构建](https://github.com/wtalioy/JustConnect/actions/runs/42454884423) 是单实例重构前的基线。待重构预览包通过检查后更新下载入口。测试前先从托盘或菜单栏退出旧版，保留现有配置和 Tailscale。
 
 - **Windows x64**。下载并完整解压 [Windows 预览包](https://github.com/wtalioy/JustConnect/actions/runs/42454884423/artifacts/13607337088)，运行 `JustConnect.exe`。本轮退出 Clash，用来补无 Clash 的主路径。按下方命令检查同一台通常可直连的 Tailscale 设备，分别在连接前、校园接管就绪后和断开后运行一次。
 - **Apple Silicon**。在 Mac 终端用 GitHub CLI 下载 [Apple Silicon 预览包](https://github.com/wtalioy/JustConnect/actions/runs/42454884423/artifacts/13606533915)并挂载 DMG。从 Finder 把完整应用拷入「应用程序」后打开。本轮确认菜单栏能恢复主窗口，并在断开后用菜单退出应用。浏览器下载后的 macOS 首次打开路径仍待验证，见[签名与部署说明](#不需申请签名的开发与发行)。

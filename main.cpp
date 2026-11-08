@@ -2,12 +2,12 @@
 #include <QDebug>
 #include <QFile>
 #include <QJsonDocument>
+#include <cstdlib>
 #include <cstring>
 #include "infrastructure/coreengine/embeddedcoreengine.h"
 #include <QSessionManager>
+#include "infrastructure/process/applicationinstancelock.h"
 #include "infrastructure/process/terminationrequests.h"
-
-#include "SingleApplication"
 
 #include "application/applicationlogger.h"
 #include "application/applicationconstants.h"
@@ -31,10 +31,18 @@ int main(int argc, char *argv[])
         if (output.write(bytes) != bytes.size() || !output.flush()) return 1;
         return report["ok"].toBool() ? 0 : 1;
     }
-    SingleApplication app(argc, argv, false, SingleApplication::Mode::System);
+    QApplication app(argc, argv);
     QApplication::setApplicationName(ApplicationConstants::ApplicationName);
     QApplication::setApplicationDisplayName(ApplicationConstants::ApplicationName);
     QApplication::setApplicationVersion(PROJ_VER);
+
+    const ApplicationInstanceLock instanceLock;
+    const auto lockError = instanceLock.error();
+    if (lockError == QLockFile::LockFailedError) return EXIT_SUCCESS;
+    if (lockError != QLockFile::NoError) {
+        qCritical() << "Cannot acquire the JustConnect instance lock:" << lockError;
+        return EXIT_FAILURE;
+    }
 
     ApplicationLogFile applicationLogFile(ApplicationPaths::logFile());
     ApplicationLogger applicationLogger;
@@ -54,7 +62,7 @@ int main(int argc, char *argv[])
         mainWindow.endSystemSession();
     },Qt::DirectConnection);
 
-    QObject::connect(&app, &SingleApplication::aboutToQuit, &mainWindow, &MainWindow::cleanUpWhenQuit);
+    QObject::connect(&app, &QApplication::aboutToQuit, &mainWindow, &MainWindow::cleanUpWhenQuit);
 
     return QApplication::exec();
 }
