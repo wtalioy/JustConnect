@@ -106,6 +106,46 @@ func TestReadInterfacesMatchesSystemInterfaces(t *testing.T) {
 	}
 }
 
+func TestDefaultIPv4ExitUsesCombinedMetricAndRejectsVirtualRoutes(t *testing.T) {
+	rows := []windows.MibIpForwardRow2{
+		{InterfaceLuid: 1, Metric: 1},
+		{InterfaceLuid: 2, Metric: 1},
+		{InterfaceLuid: 3, Metric: 1},
+		{InterfaceLuid: 4, Metric: 1},
+		{InterfaceLuid: 5, Metric: 1},
+		{InterfaceLuid: 6, Metric: 10},
+		{InterfaceLuid: 7, Metric: 15},
+		{InterfaceLuid: 8, Metric: ^uint32(0)},
+	}
+	rows[0].DestinationPrefix.PrefixLength = 24
+	*(*windows.RawSockaddrInet4)(unsafe.Pointer(&rows[1].NextHop)) =
+		windows.RawSockaddrInet4{Family: windows.AF_INET, Addr: [4]byte{25, 255, 255, 254}}
+	names := []string{"subnet", "synthetic", "down", "virtual", "loopback", "ordinary", "higher priority", "overflow"}
+	readInterface := func(luid uint64) (windows.MibIfRow2, error) {
+		alias, err := windows.UTF16FromString(names[luid-1])
+		iface := windows.MibIfRow2{OperStatus: windows.IfOperStatusUp}
+		copy(iface.Alias[:], alias)
+		switch luid {
+		case 3:
+			iface.OperStatus = windows.IfOperStatusDown
+		case 4:
+			iface.Type = 53 // IF_TYPE_PROP_VIRTUAL.
+		case 5:
+			iface.Type = windows.IF_TYPE_SOFTWARE_LOOPBACK
+		}
+		return iface, err
+	}
+	readMetric := func(luid uint64) (uint32, error) {
+		if luid == 6 {
+			return 20, nil
+		}
+		return 1, nil
+	}
+	if got := selectDefaultIPv4Interface(rows, readInterface, readMetric); got != "higher priority" {
+		t.Fatalf("default IPv4 exit = %q, want combined-metric winner", got)
+	}
+}
+
 func BenchmarkInterfaces(b *testing.B) {
 	for _, tc := range []struct {
 		name string

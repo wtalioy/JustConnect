@@ -309,3 +309,15 @@ func TestDialContextResolvesThroughConfiguredLocalDNSServer(t *testing.T) {
 	}
 	_ = conn.Close()
 }
+
+func BenchmarkDefaultIPv4Interface(b *testing.B) {
+	if findDefaultInterface() == "" {
+		b.Skip("no IPv4 default interface")
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		if findDefaultInterface() == "" {
+			b.Fatal("IPv4 default interface disappeared")
+		}
+	}
+}

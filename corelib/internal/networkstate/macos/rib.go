@@ -22,12 +22,45 @@ func routeAddress(value route.Addr) net.IP {
 	return nil
 }
 
-func ReadRoutes(_ []model.Interface) ([]model.Route, error) {
+func routingMessages() ([]route.Message, error) {
 	rib, err := route.FetchRIB(unix.AF_UNSPEC, route.RIBTypeRoute, 0)
 	if err != nil {
 		return nil, err
 	}
-	messages, err := route.ParseRIB(route.RIBTypeRoute, rib)
+	return route.ParseRIB(route.RIBTypeRoute, rib)
+}
+
+func defaultIPv4RouteIndex(messages []route.Message) int {
+	const required = unix.RTF_UP | unix.RTF_GATEWAY
+	for _, message := range messages {
+		row, ok := message.(*route.RouteMessage)
+		if !ok || row.Flags&required != required || len(row.Addrs) <= unix.RTAX_NETMASK {
+			continue
+		}
+		destination, isIPv4 := row.Addrs[unix.RTAX_DST].(*route.Inet4Addr)
+		mask, isIPv4Mask := row.Addrs[unix.RTAX_NETMASK].(*route.Inet4Addr)
+		if isIPv4 && isIPv4Mask && destination.IP == ([4]byte{}) && mask.IP == ([4]byte{}) {
+			return row.Index
+		}
+	}
+	return 0
+}
+
+func DefaultIPv4Interface() string {
+	messages, err := routingMessages()
+	if err != nil {
+		return ""
+	}
+	if index := defaultIPv4RouteIndex(messages); index != 0 {
+		if iface, err := net.InterfaceByIndex(index); err == nil {
+			return iface.Name
+		}
+	}
+	return ""
+}
+
+func ReadRoutes(_ []model.Interface) ([]model.Route, error) {
+	messages, err := routingMessages()
 	if err != nil {
 		return nil, err
 	}

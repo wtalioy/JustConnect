@@ -18,6 +18,56 @@ func windowsAddress(value *windows.RawSockaddrInet) (netip.Addr, bool) {
 	return ip, ok
 }
 
+// DefaultIPv4Interface selects the usable default route by combined route and interface metric.
+func DefaultIPv4Interface() string {
+	var table *windows.MibIpForwardTable2
+	if windows.GetIpForwardTable2(windows.AF_INET, &table) != nil {
+		return ""
+	}
+	defer windows.FreeMibTable(unsafe.Pointer(table))
+	return selectDefaultIPv4Interface(table.Rows(), func(luid uint64) (windows.MibIfRow2, error) {
+		iface := windows.MibIfRow2{InterfaceLuid: luid}
+		err := windows.GetIfEntry2Ex(windows.MibIfEntryNormalWithoutStatistics, &iface)
+		return iface, err
+	}, func(luid uint64) (uint32, error) {
+		ip := windows.MibIpInterfaceRow{Family: windows.AF_INET, InterfaceLuid: luid}
+		err := windows.GetIpInterfaceEntry(&ip)
+		return ip.Metric, err
+	})
+}
+
+func selectDefaultIPv4Interface(routes []windows.MibIpForwardRow2,
+	readInterface func(uint64) (windows.MibIfRow2, error), readMetric func(uint64) (uint32, error)) string {
+	const propVirtualInterface = 53 // IF_TYPE_PROP_VIRTUAL in ipifcons.h.
+	zeroTierGateway := netip.AddrFrom4([4]byte{25, 255, 255, 254})
+	bestMetric := uint64(^uint32(0))
+	name := ""
+	for _, row := range routes {
+		if row.DestinationPrefix.PrefixLength != 0 {
+			continue
+		}
+		// ZeroTier's synthetic gateway is not an ordinary default exit.
+		if gateway, _ := windowsAddress(&row.NextHop); gateway == zeroTierGateway {
+			continue
+		}
+		iface, err := readInterface(row.InterfaceLuid)
+		if err != nil || iface.OperStatus != windows.IfOperStatusUp ||
+			iface.Type == propVirtualInterface || iface.Type == windows.IF_TYPE_SOFTWARE_LOOPBACK {
+			continue
+		}
+		interfaceMetric, err := readMetric(row.InterfaceLuid)
+		if err != nil {
+			continue
+		}
+		metric := uint64(row.Metric) + uint64(interfaceMetric)
+		if metric < bestMetric {
+			bestMetric = metric
+			name = windows.UTF16ToString(iface.Alias[:])
+		}
+	}
+	return name
+}
+
 func ReadRoutes(_ []model.Interface) ([]model.Route, error) {
 	var table *windows.MibIpForwardTable2
 	if err := windows.GetIpForwardTable2(windows.AF_UNSPEC, &table); err != nil {

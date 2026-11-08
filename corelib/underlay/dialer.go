@@ -9,12 +9,9 @@ import (
 	"sync"
 	"time"
 
-	tun "github.com/mythologyli/sing-tun"
 	socketdialer "github.com/wtalioy/JustConnect/corelib/internal/dialer"
 	"github.com/wtalioy/JustConnect/corelib/internal/mihomo"
 	"github.com/wtalioy/JustConnect/corelib/internal/networkstate"
-
-	"github.com/sagernet/sing/common/logger"
 )
 
 // Dialer creates connections on the interface that was used to reach the VPN
@@ -367,7 +364,7 @@ func (d *Dialer) refreshInterface() string {
 	return interfaceName
 }
 
-var findDefaultInterface = detectDefaultInterface
+var findDefaultInterface = networkstate.DefaultIPv4Interface
 
 // The pre-VPN control socket identifies its real exit, including an overlay interface.
 func interfaceForSource(source netip.Addr) string {
@@ -391,30 +388,6 @@ func interfaceForSource(source netip.Addr) string {
 		}
 	}
 	return selected
-}
-
-func detectDefaultInterface() string {
-	networkMonitor, err := tun.NewNetworkUpdateMonitor(logger.NOP())
-	if err != nil {
-		return ""
-	}
-	if err := networkMonitor.Start(); err != nil {
-		_ = networkMonitor.Close()
-		return ""
-	}
-	defer networkMonitor.Close()
-
-	interfaceMonitor, err := tun.NewDefaultInterfaceMonitor(networkMonitor, logger.NOP(), tun.DefaultInterfaceMonitorOptions{})
-	if err != nil {
-		return ""
-	}
-	if err := interfaceMonitor.Start(); err != nil {
-		_ = interfaceMonitor.Close()
-		return ""
-	}
-	defer interfaceMonitor.Close()
-
-	return interfaceMonitor.DefaultInterfaceName(netip.IPv4Unspecified())
 }
 
 func usableInterface(interfaceName string, excludedIPs []net.IP) bool {
