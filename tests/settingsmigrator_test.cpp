@@ -12,25 +12,34 @@
 
 namespace
 {
-bool seedsOnlyNewManagedDefaults()
+bool seedsOnlyUnconfiguredManagedDefaults()
 {
     QTemporaryDir folder;
-    for (const auto &name : {"fresh", "custom", "named"}) {
+    for (const auto &name : {"fresh", "previous", "custom", "named", "new-named", "edited"}) {
         QSettings settings(folder.filePath(QString::fromLatin1(name) + ".ini"), QSettings::IniFormat);
         const auto scenario = QLatin1String(name);
         if (scenario == "custom") settings.setValue("JustConnect/ServerAddress", "other.example.invalid");
+        if (scenario == "previous" || scenario == "named" || scenario == "edited") {
+            DefaultSettings::reset(settings);
+            settings.setValue("JustConnect/ProfileKind", "Custom");
+            settings.setValue("Credential/StoreID", "preserved-scope");
+        }
+        if (scenario == "edited") settings.setValue("Credential/Username", "kept");
         settings.sync();
-        if (SettingsMigrator::prepare(settings, scenario != "named") == SettingsMigrationAction::Failed
+        if (SettingsMigrator::prepare(settings, scenario != "named" && scenario != "new-named") == SettingsMigrationAction::Failed
             || !SettingsMigrator::finish(settings)) return false;
         const auto server = settings.value("JustConnect/ServerAddress").toString();
-        if (scenario == "fresh") {
+        if (scenario == "fresh" || scenario == "previous") {
             if (server != "vpn.fudan.edu.cn" || settings.value("JustConnect/AuthType") != "httpsOauth2"
                 || settings.value(DefaultSettings::DomainDnsRules) != "zb.fudan.edu.cn") return false;
         } else if (scenario == "custom") {
             if (server != "other.example.invalid" || settings.value("JustConnect/AuthType") != "psw") return false;
-        } else if (!server.isEmpty() || !settings.value("JustConnect/AuthType").toString().isEmpty()) {
+        } else if (!server.isEmpty()) {
             return false;
         }
+        if (scenario == "previous" && settings.value("Credential/StoreID") != "preserved-scope") return false;
+        if (scenario == "edited" && settings.value("Credential/Username") != "kept") return false;
+        if (scenario == "new-named" && !settings.value("JustConnect/AuthType").toString().isEmpty()) return false;
     }
     return true;
 }
@@ -282,7 +291,7 @@ bool failedSaveRemainsRetryable()
 int main(int argc, char *argv[])
 {
     QCoreApplication app(argc, argv);
-    return seedsOnlyNewManagedDefaults()
+    return seedsOnlyUnconfiguredManagedDefaults()
         && preservesKeepAliveChoices()
         && validatesReadOnlySourcesWithoutChangingThem()
         && preparesPublicDraftWithoutCopyingSecrets()

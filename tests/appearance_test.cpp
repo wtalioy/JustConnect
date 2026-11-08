@@ -61,6 +61,28 @@ int main(int argc,char **argv) {
     const auto checkboxCaption = checkbox.style()->subElementRect(QStyle::SE_CheckBoxContents, &checkboxOption, &checkbox);
     check(!indicator.isEmpty() && !checkboxCaption.isEmpty() && qAbs(indicator.center().y()-checkboxCaption.center().y())<=1,
         "the checkbox indicator and caption share a vertical center in the active native style");
+    checkbox.setText("Launch at sign-in");
+    checkbox.setChecked(true);
+    const auto mark = checkbox.grab();
+    const auto pixels = mark.toImage();
+    QRect squarePixels, captionPixels;
+    for (int y = 0; y < pixels.height(); ++y) {
+        for (int x = 0; x < pixels.width(); ++x) {
+            const auto color = pixels.pixelColor(x, y);
+            const QRect pixel(x, y, 1, 1);
+            if (color == QColor("#5362df")) squarePixels = squarePixels.united(pixel);
+            if (color == QColor("#263143")) captionPixels = captionPixels.united(pixel);
+        }
+    }
+    check(!squarePixels.isEmpty() && !captionPixels.isEmpty()
+        && qAbs(squarePixels.center().y() - captionPixels.center().y()) <= 2 * mark.devicePixelRatio(),
+        "the painted checkbox square is vertically centered on its visible caption");
+    bool checkMarkPainted = false;
+    const auto insideSquare = squarePixels.adjusted(3, 3, -3, -3);
+    for (int y = insideSquare.top(); y <= insideSquare.bottom(); ++y)
+        for (int x = insideSquare.left(); x <= insideSquare.right(); ++x)
+            checkMarkPainted |= pixels.pixelColor(x, y).lightness() > 220;
+    check(checkMarkPainted, "the checked square paints its contrasting check mark");
     QMainWindow dialog;
     QPushButton disconnect("Disconnect",&dialog);
     disconnect.setObjectName("connectButton");

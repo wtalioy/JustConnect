@@ -153,6 +153,7 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
     });
     readCredentials();
     resize(600,680);
+    ui->loginTab->setFocus(Qt::OtherFocusReason);
 
 }
 SettingWindow::~SettingWindow() { delete ui; }

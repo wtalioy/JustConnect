@@ -13,6 +13,7 @@ const QVariantMap &builtInConnection();
 bool isBuiltInConnection(const QSettings &settings);
 void reset(QSettings &settings);
 void initialize(QSettings &settings);
+bool isUnconfiguredDefault(const QSettings &settings);
 void applyBuiltInConnection(QSettings &settings);
 QVariantMap publicValues(const QSettings &settings);
 bool isPublicKey(const QString &key);

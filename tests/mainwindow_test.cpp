@@ -176,6 +176,26 @@ static void profileMenusKeepTheirActions(MainWindow &window,const QString &profi
     created->reject();
 }
 
+class ScrollPaints final : public QObject {
+public:
+    explicit ScrollPaints(QString name) : name(std::move(name)) { qApp->installEventFilter(this); }
+    QList<int> offsets;
+    bool barPainted = false;
+protected:
+    bool eventFilter(QObject *target, QEvent *event) override {
+        if (event->type() != QEvent::Paint) return false;
+        auto *area = qobject_cast<QScrollArea *>(target->parent());
+        if (area && area->objectName() == name && target == area->viewport()) {
+            auto *bar = area->verticalScrollBar();
+            offsets.append(bar->value());
+            barPainted |= bar->isVisible();
+        }
+        return false;
+    }
+private:
+    QString name;
+};
+
 static void changeLanguageFromSettings(MainWindow &window,const QString &language) {
     window.findChild<QAction *>("preferencesAction")->trigger();
     auto *dialog=window.findChild<QDialog *>("applicationSettingsDialog");
@@ -505,6 +525,7 @@ static void nativeHome(MainWindow &window, ApplicationLogger &logger) {
         check(details->isVisible() && session->state()==state,"reopening details preserves the session");
         details->reject();QCoreApplication::processEvents();
     }
+    ScrollPaints editorPaints("loginTab");
     window.findChild<QAction *>("settingAction")->trigger();
     auto *initial = window.findChild<SettingWindow *>();
     check(initial && initial->isVisible(), "the first connection can be edited directly");
@@ -514,15 +535,27 @@ static void nativeHome(MainWindow &window, ApplicationLogger &logger) {
         && method->currentData() == "httpsOauth2"
         && !initial->findChild<QComboBox *>("profileKindComboBox"),
         "Fudan has a fixed server and Web sign-in, with no second connection selector");
+    auto *editorScroll = initial->findChild<QScrollArea *>("loginTab");
+    waitForUi([&] { return !editorPaints.offsets.isEmpty()
+        && initial->findChild<QPushButton *>("saveProfileButton")->isEnabled(); });
+    check(editorScroll->verticalScrollBar()->value() == 0
+        && std::all_of(editorPaints.offsets.cbegin(), editorPaints.offsets.cend(), [](int value) { return value == 0; }),
+        "the connection editor stays at the top from its first paint through credential loading");
     initial->reject();
     QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     check(session->state()==state, "opening and cancelling the editor does not start a session");
     auto *gear=window.findChild<QToolButton *>("preferencesButton");
     check(!gear->menu(),"the settings gear opens settings without an extra menu layer");
+    ScrollPaints preferencesPaints("applicationSettingsScroll");
     gear->click();QCoreApplication::processEvents();
     auto *settings=window.findChild<QDialog *>("applicationSettingsDialog");
     check(settings && settings->isVisible() && !qobject_cast<SettingWindow *>(settings)
         && !settings->findChild<QLineEdit *>("serverAddressLineEdit"),"the gear opens application settings with a separate responsibility");
+    waitForUi([&] { return !preferencesPaints.offsets.isEmpty(); });
+    check(!preferencesPaints.barPainted, "application settings paint without a temporary scrollbar");
+    settings->resize(320, 360);
+    auto *preferencesScroll = settings->findChild<QScrollArea *>("applicationSettingsScroll");
+    waitForUi([&] { return preferencesScroll->verticalScrollBar()->isVisible(); });
     settings->reject();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     window.findChild<QAction *>("settingAction")->trigger();
     auto *editor=window.findChild<SettingWindow *>();
@@ -600,6 +633,9 @@ int main(int argc,char **argv) {
         QLocale::setDefault(QLocale(QLocale::Chinese,QLocale::China));
         QString menuProfile;
         if (native) {
+            DefaultSettings::reset(settings);
+            settings.setValue("JustConnect/ProfileKind", "Custom");
+            settings.sync();
             menuProfile=manager.createConnection("menu-fixture");
             check(!menuProfile.isEmpty(),"create an isolated profile for menu switching");
         }

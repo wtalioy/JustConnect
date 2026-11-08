@@ -8,6 +8,7 @@
 #include <QVariant>
 
 #include "application/applicationconstants.h"
+#include "application/connectioncredentialvault.h"
 #include "core/connectionoptions.h"
 
 namespace {
@@ -65,6 +66,25 @@ void apply(QSettings &settings, bool overwrite)
 
 void DefaultSettings::reset(QSettings &settings) { apply(settings, true); }
 void DefaultSettings::initialize(QSettings &settings) { apply(settings, false); }
+
+bool DefaultSettings::isUnconfiguredDefault(const QSettings &settings)
+{
+    if (settings.value("Common/ConfigVersion").toInt() > ApplicationConstants::ConfigVersion)
+        return false;
+    for (const auto &key : settings.allKeys()) {
+        const auto value = settings.value(key).toString();
+        if (key == "Common/ConfigVersion" || key == ConnectionCredentialVault::ScopeSetting)
+            continue;
+        // Earlier builds wrote these fields before a server was ever chosen.
+        if ((key == "JustConnect/ProfileKind" && value == "Custom")
+            || (key == "JustConnect/AuthType" && value.isEmpty())
+            || (key == DomainDnsRules && value.isEmpty()))
+            continue;
+        if (!defaults().contains(key) || value != defaults().value(key).toString())
+            return false;
+    }
+    return true;
+}
 
 void DefaultSettings::applyBuiltInConnection(QSettings &settings)
 {
