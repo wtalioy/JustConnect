@@ -22,6 +22,7 @@ import (
 
 	"github.com/miekg/dns"
 	"github.com/wtalioy/JustConnect/corelib/internal/zctcpip"
+	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
 // This gateway speaks the actual HTTP authentication and TCP/IP tunnel framing.
@@ -454,11 +455,11 @@ func echo(t *testing.T, conn net.Conn) {
 // L3 framing and UDP checksums match the production tunnel, with an echo endpoint.
 func (g *gateway) serveL3(conn net.Conn) {
 	for {
-		var header [2]byte
-		if _, err := io.ReadFull(conn, header[:]); err != nil || header[0] != 5 {
+		var frameHeader [2]byte
+		if _, err := io.ReadFull(conn, frameHeader[:]); err != nil || frameHeader[0] != 5 {
 			return
 		}
-		switch header[1] {
+		switch frameHeader[1] {
 		case 0x13, 0x15:
 			var length [2]byte
 			if _, err := io.ReadFull(conn, length[:]); err != nil {
@@ -469,7 +470,7 @@ func (g *gateway) serveL3(conn net.Conn) {
 				return
 			}
 			response := []byte{5, 0x95, 0, 0}
-			if header[1] == 0x13 {
+			if frameHeader[1] == 0x13 {
 				var request struct {
 					ConntrackHash uint64 `json:"conntrackHash"`
 				}
@@ -541,14 +542,14 @@ func (g *gateway) serveL3(conn net.Conn) {
 						binary.BigEndian.PutUint16(udp[4:6], uint16(len(udp)))
 					}
 				}
-				source, destination := ip.SourceIP(), ip.DestinationIP()
-				ip.SetSourceIP(destination)
-				ip.SetDestinationIP(source)
-				sourcePort, destinationPort := udp.SourcePort(), udp.DestinationPort()
-				udp.SetSourcePort(destinationPort)
-				udp.SetDestinationPort(sourcePort)
-				udp.ResetChecksum(ip.PseudoSum())
-				ip.ResetChecksum()
+				wireIP, wireUDP := header.IPv4(ip), header.UDP(udp)
+				source, destination := wireIP.SourceAddress(), wireIP.DestinationAddress()
+				wireIP.SetSourceAddress(destination)
+				wireIP.SetDestinationAddress(source)
+				sourcePort, destinationPort := wireUDP.SourcePort(), wireUDP.DestinationPort()
+				wireUDP.SetSourcePort(destinationPort)
+				wireUDP.SetDestinationPort(sourcePort)
+				updateFixtureUDPChecksums(wireIP, wireUDP)
 				time.Sleep(time.Duration(g.delay.Load()))
 				response := append([]byte{5, 0x94, byte(len(packet) >> 8), byte(len(packet))}, packet...)
 				// Count received traffic before its reply can become visible to the caller.

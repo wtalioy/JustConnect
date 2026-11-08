@@ -2,13 +2,10 @@ package bridge
 
 import (
 	"bytes"
-	"encoding/binary"
 	"io"
 	"net"
 	"testing"
 	"time"
-
-	"github.com/wtalioy/JustConnect/corelib/internal/zctcpip"
 )
 
 type observedUDPReply struct {
@@ -32,17 +29,7 @@ func TestGatewayCountsUDPBeforeReplyCanBeObserved(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close(); _ = server.Close(); <-done })
 	_ = client.SetDeadline(time.Now().Add(5 * time.Second))
 	payload := []byte("observed UDP")
-	packet := make([]byte, 20+8+len(payload))
-	packet[0], packet[8], packet[9] = 0x45, 64, byte(zctcpip.UDP)
-	binary.BigEndian.PutUint16(packet[2:4], uint16(len(packet)))
-	copy(packet[12:20], []byte{192, 0, 2, 1, 192, 0, 2, 10})
-	ip, udp := zctcpip.IPv4Packet(packet), zctcpip.UDPPacket(packet[20:])
-	udp.SetSourcePort(12345)
-	udp.SetDestinationPort(53)
-	binary.BigEndian.PutUint16(udp[4:6], uint16(len(udp)))
-	copy(udp[8:], payload)
-	udp.ResetChecksum(ip.PseudoSum())
-	ip.ResetChecksum()
+	packet := fixtureUDPPacket([4]byte{192, 0, 2, 1}, [4]byte{192, 0, 2, 10}, 12345, 53, payload)
 	frame := append([]byte{5, 0x14, 0, 0, 0, 1, byte(len(packet) >> 8), byte(len(packet))}, packet...)
 	if _, err := client.Write(frame); err != nil {
 		t.Fatal(err)

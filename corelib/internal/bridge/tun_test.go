@@ -2,7 +2,6 @@ package bridge
 
 import (
 	"bytes"
-	"encoding/binary"
 	"errors"
 	"net"
 	"os"
@@ -13,6 +12,9 @@ import (
 
 	"github.com/miekg/dns"
 	"github.com/wtalioy/JustConnect/corelib/internal/zctcpip"
+	"gvisor.dev/gvisor/pkg/tcpip"
+	"gvisor.dev/gvisor/pkg/tcpip/checksum"
+	"gvisor.dev/gvisor/pkg/tcpip/header"
 )
 
 func tunDatagram(t *testing.T) (*net.UDPConn, *net.UDPConn) {
@@ -30,21 +32,33 @@ func tunDatagram(t *testing.T) (*net.UDPConn, *net.UDPConn) {
 	return device, peer
 }
 
+func fixtureUDPPacket(source, destination [4]byte, sourcePort, destinationPort uint16, payload []byte) []byte {
+	packet := make([]byte, header.IPv4MinimumSize+header.UDPMinimumSize+len(payload))
+	ip := header.IPv4(packet)
+	ip.Encode(&header.IPv4Fields{
+		TotalLength: uint16(len(packet)), TTL: 64, Protocol: uint8(header.UDPProtocolNumber),
+		SrcAddr: tcpip.AddrFrom4(source), DstAddr: tcpip.AddrFrom4(destination),
+	})
+	udp := header.UDP(ip.Payload())
+	udp.Encode(&header.UDPFields{SrcPort: sourcePort, DstPort: destinationPort, Length: uint16(len(udp))})
+	copy(udp.Payload(), payload)
+	updateFixtureUDPChecksums(ip, udp)
+	return packet
+}
+
+func updateFixtureUDPChecksums(ip header.IPv4, udp header.UDP) {
+	udp.SetChecksum(0)
+	pseudo := header.PseudoHeaderChecksum(header.UDPProtocolNumber, ip.SourceAddress(), ip.DestinationAddress(), uint16(len(udp)))
+	udp.SetChecksum(^checksum.Checksum(udp, pseudo))
+	ip.SetChecksum(0)
+	ip.SetChecksum(^ip.CalculateChecksum())
+}
+
 func exchangeProtocolTUN(t *testing.T, peer *net.UDPConn, address *net.UDPAddr, payload []byte) []byte {
 	t.Helper()
-	packet := make([]byte, zctcpip.IPv4HeaderSize+zctcpip.UDPHeaderSize+len(payload))
-	packet[0], packet[8], packet[9] = 0x45, 64, zctcpip.UDP
-	binary.BigEndian.PutUint16(packet[2:], uint16(len(packet)))
+	packet := fixtureUDPPacket([4]byte{198, 18, 0, 1}, [4]byte{192, 0, 2, 10}, 40000, 53, payload)
 	ip := zctcpip.IPv4Packet(packet)
-	ip.SetSourceIP(net.IPv4(198, 18, 0, 1))
-	ip.SetDestinationIP(net.IPv4(192, 0, 2, 10))
 	udp := zctcpip.UDPPacket(ip.Payload())
-	udp.SetSourcePort(40000)
-	udp.SetDestinationPort(53)
-	binary.BigEndian.PutUint16(udp[4:], uint16(len(udp)))
-	copy(udp.Payload(), payload)
-	udp.ResetChecksum(ip.PseudoSum())
-	ip.ResetChecksum()
 	if err := peer.SetDeadline(time.Now().Add(30 * time.Second)); err != nil {
 		t.Fatal(err)
 	}
@@ -57,8 +71,8 @@ func exchangeProtocolTUN(t *testing.T, peer *net.UDPConn, address *net.UDPAddr, 
 		t.Fatal(err)
 	}
 	reply := zctcpip.IPv4Packet(response[:n])
-	if err := reply.Verify(); err != nil {
-		t.Fatal(err)
+	if !reply.Valid() || !header.IPv4(reply).IsChecksumValid() {
+		t.Fatal("invalid IPv4 reply or checksum")
 	}
 	if !reply.SourceIP().Equal(ip.DestinationIP()) || !reply.DestinationIP().Equal(ip.SourceIP()) || reply.Protocol() != zctcpip.UDP {
 		t.Fatal("packet did not return from the campus tunnel")

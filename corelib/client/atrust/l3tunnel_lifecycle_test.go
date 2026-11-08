@@ -1755,8 +1755,8 @@ func TestIncomingPacketRefreshesReverseConntrack(t *testing.T) {
 	now = now.Add(time.Minute)
 
 	incoming := zctcpip.IPv4Packet(makeUDPPacket(53, 12345))
-	incoming.SetSourceIP(meta.dstIP)
-	incoming.SetDestinationIP(meta.srcIP)
+	copy(incoming[12:16], meta.dstIP.To4())
+	copy(incoming[16:20], meta.srcIP.To4())
 	conn := &l3TunnelConn{conntrackMgr: manager}
 	conn.refreshIncomingConntrack(incoming)
 
@@ -1869,11 +1869,10 @@ func makeUDPPacket(srcPort, dstPort uint16) []byte {
 	packet[0] = zctcpip.IPv4Version<<4 | zctcpip.IPv4HeaderSize/4
 	binary.BigEndian.PutUint16(packet[2:4], uint16(len(packet)))
 	packet[9] = zctcpip.UDP
-	packet.SetSourceIP(net.IPv4(192, 0, 2, 1))
-	packet.SetDestinationIP(net.IPv4(198, 51, 100, 1))
+	copy(packet[12:20], []byte{192, 0, 2, 1, 198, 51, 100, 1})
 	udpPacket := zctcpip.UDPPacket(packet.Payload())
-	udpPacket.SetSourcePort(srcPort)
-	udpPacket.SetDestinationPort(dstPort)
+	binary.BigEndian.PutUint16(udpPacket, srcPort)
+	binary.BigEndian.PutUint16(udpPacket[2:], dstPort)
 	binary.BigEndian.PutUint16(udpPacket[4:6], zctcpip.UDPHeaderSize)
 	return packet
 }
