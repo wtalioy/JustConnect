@@ -252,9 +252,10 @@ void SettingWindow::setConnectAfterSave(bool connect) {
     connectAfterSave=connect;retranslate();
 }
 void SettingWindow::setProfileEditable(bool editable) {
-    profileEditable=editable;
-    if (!editable) cancelQuery();
-    updateBusy();
+    if (profileEditable == editable) return;
+    profileEditable = editable;
+    if (editable) updateBusy();
+    else cancelQuery();
 }
 void SettingWindow::updateBusy() {
     ui->loginTabContents->setEnabled(profileEditable && !saving);

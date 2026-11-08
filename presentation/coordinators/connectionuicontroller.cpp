@@ -13,7 +13,6 @@
 #include <QSettings>
 #include <QWidget>
 #include <QUrl>
-#include <QTimer>
 #include <QtConcurrent>
 
 #include <utility>
@@ -59,7 +58,7 @@ ConnectionUiController::ConnectionUiController(
 {
     refreshActions();
 
-    connect(connectionSession, &ConnectionSession::diagnostic, applicationLogger,
+    connect(connectionSession, &ConnectionSession::diagnostic, this,
         [this,applicationLogger](const QString &code) {
             applicationLogger->appendCoreOutput("[core] " + code);
             if (code == "browser_proxy_changed_externally")

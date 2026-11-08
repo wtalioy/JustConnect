@@ -454,6 +454,13 @@ static void nativeHome(MainWindow &window, ApplicationLogger &logger) {
         captureMenu(window.findChild<QSystemTrayIcon *>()->contextMenu(),"tray-menu.png");
         captureMenu(window.findChild<QToolButton *>("profileMenuButton")->menu(),"profile-menu.png");
     }
+    emit session->diagnostic("authentication_started");
+    check(reportView->findItems("authentication_started", Qt::MatchExactly, 1).isEmpty(),
+        "the hidden overview does not render incoming diagnostics");
+    detailTabs->setCurrentIndex(0);
+    check(reportView->findItems("authentication_started", Qt::MatchExactly, 1).size()==1,
+        "opening the overview immediately renders the latest diagnostics");
+    detailTabs->setCurrentIndex(1);
     check(!log->toPlainText().contains("QFont::setPointSize: Point size <= 0"),
         "drawing the home and menus does not pass an invalid point size to Qt");
     auto *copyLog = window.findChild<QPushButton *>("copyLogPushButton");

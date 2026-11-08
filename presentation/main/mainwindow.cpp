@@ -81,8 +81,14 @@ MainWindow::MainWindow(
     ui->diagnosticReport->header()->setSectionResizeMode(1,QHeaderView::Stretch);
     ui->diagnosticReport->setSelectionMode(QAbstractItemView::NoSelection);
     ui->diagnosticReport->setFocusPolicy(Qt::TabFocus);
-    connect(coordinator->diagnostics(),&ConnectionDiagnostics::changed,this,[this]{if(ui->detailsDialog->isVisible())updateDiagnostics();});
-    connect(ui->refreshDiagnosticsButton,&QPushButton::clicked,this,[this]{coordinator->networkPolicy()->refresh();updateDiagnostics();});
+    connect(coordinator->diagnostics(), &ConnectionDiagnostics::changed, this, [this] {
+        if (ui->overviewTab->isVisible()) updateDiagnostics();
+    });
+    connect(ui->detailsTabs, &QTabWidget::currentChanged, this, [this] {
+        if (ui->overviewTab->isVisible()) updateDiagnostics();
+    });
+    connect(ui->refreshDiagnosticsButton, &QPushButton::clicked,
+        coordinator->networkPolicy(), &NetworkPolicySession::refresh);
     connect(ui->copyDiagnosticsButton,&QPushButton::clicked,this,[this]{QApplication::clipboard()->setText(QApplication::applicationVersion()+"\n"+coordinator->diagnostics()->report());});
     authenticationDialogs = coordinator->authenticationDialogs();
     connectionSession = coordinator->connection();
@@ -327,7 +333,8 @@ void MainWindow::changeEvent(QEvent *event)
     newProfileAction->setText(tr("New profile"));renameProfileAction->setText(tr("Rename profile"));deleteProfileAction->setText(tr("Delete profile"));
     trayProfileMenu->setTitle(tr("Profiles"));trayShowAction->setText(tr("Show window"));
     trayCloseAction->setText(tr("Exit %1").arg(QApplication::applicationName()));
-    connectionUiController->refreshActions();refreshProfileMenu();updateProfileSummary();updateVersionInfo();updateConnectionState(connectionSession->state());updateDiagnostics();
+    connectionUiController->refreshActions();refreshProfileMenu();updateProfileSummary();updateVersionInfo();updateConnectionState(connectionSession->state());
+    if (ui->overviewTab->isVisible()) updateDiagnostics();
 }
 
 bool MainWindow::eventFilter(QObject *watched,QEvent *event)
@@ -425,20 +432,19 @@ void MainWindow::resetConnectionUi()
 void MainWindow::updateConnectionState(ConnectionState state)
 {
     if (settingWindow) settingWindow->setProfileEditable(!connectionSession->isActive());
-    QString propertyValue;
+    const auto phase = connectionSession->phase();
+    const bool recoveryFailed = connectionSession->networkRecoveryFailed();
     QString title;
     QString detail;
 
     switch (state)
     {
     case ConnectionState::Disconnected:
-        propertyValue = "disconnected";
         title = tr("Not connected");
         detail = tr("Connect to access campus resources.");
         break;
     case ConnectionState::Starting:
-        propertyValue = "starting";
-        switch (connectionSession->phase()) {
+        switch (phase) {
         case ConnectionPhase::Initializing: title=tr("Initializing");break;
         case ConnectionPhase::Starting: title=tr("Starting session");break;
         case ConnectionPhase::Restoring: title=tr("Restoring authentication");break;
@@ -454,11 +460,10 @@ void MainWindow::updateConnectionState(ConnectionState state)
         detail = tr("Campus access is not ready yet.");
         break;
     case ConnectionState::Running:
-        propertyValue = connectionSession->phase() == ConnectionPhase::CampusReady ? "connected" : "starting";
-        title = connectionSession->phase() == ConnectionPhase::CampusReady ? tr("Connected")
-            : connectionSession->phase() == ConnectionPhase::NetworkRestoring ? tr("Restoring network") : tr("Tunnel ready");
-        detail = connectionSession->phase() == ConnectionPhase::CampusReady ? tr("Campus IPv4 access is ready.")
-            : connectionSession->phase() == ConnectionPhase::NetworkRestoring ? tr("Campus access is paused until network recovery is confirmed.")
+        title = phase == ConnectionPhase::CampusReady ? tr("Connected")
+            : phase == ConnectionPhase::NetworkRestoring ? tr("Restoring network") : tr("Tunnel ready");
+        detail = phase == ConnectionPhase::CampusReady ? tr("Campus IPv4 access is ready.")
+            : phase == ConnectionPhase::NetworkRestoring ? tr("Campus access is paused until network recovery is confirmed.")
             : systemProxySession->needsCleanup() && !systemProxySession->isEnabled()
             ? tr("System proxy state is unconfirmed. Check remaining settings.")
             : systemProxySession->isEnabled()
@@ -466,33 +471,29 @@ void MainWindow::updateConnectionState(ConnectionState state)
             : tr("Tunnel and local proxy are available; campus access is not ready yet.");
         break;
     case ConnectionState::Stopping:
-        propertyValue = connectionSession->networkRecoveryFailed() ? "failed" : "stopping";
-        title = connectionSession->networkRecoveryFailed() ? tr("Recovery incomplete") : tr("Disconnecting");
-        detail = connectionSession->networkRecoveryFailed() ? tr("Select Retry recovery to finish restoring your network.") : tr("Safely closing this connection.");
+        title = recoveryFailed ? tr("Recovery incomplete") : tr("Disconnecting");
+        detail = recoveryFailed ? tr("Select Retry recovery to finish restoring your network.") : tr("Safely closing this connection.");
         break;
     case ConnectionState::Reconnecting:
-        propertyValue = "reconnecting";
         title = tr("Reconnecting");
         detail = tr("Reconnect %1/%2 is waiting for its next attempt.").arg(connectionSession->reconnectAttempt()).arg(ConnectionSessionState::MaxReconnectAttempts);
         break;
     case ConnectionState::Interrupted:
-        propertyValue = "failed";
         title = tr("Connection interrupted");
         detail = tr("The core stopped unexpectedly. See Details for the log.");
         break;
     case ConnectionState::Failed:
-        propertyValue = "failed";
-        if(connectionSession->phase()==ConnectionPhase::NetworkRestoring){
+        if(phase==ConnectionPhase::NetworkRestoring){
             title=tr("Disconnected");
             detail=tr("Network recovery is confirmed. See Details for the earlier error.");
         }else{
-            title = connectionSession->phase()==ConnectionPhase::ReauthenticationRequired ? tr("Sign in again") : tr("Connection failed");
+            title = phase==ConnectionPhase::ReauthenticationRequired ? tr("Sign in again") : tr("Connection failed");
             detail = tr("Check your network and account settings. See Details for the log.");
         }
         break;
     }
 
-    const bool needsAttention=state==ConnectionState::Failed || state==ConnectionState::Interrupted || connectionSession->networkRecoveryFailed();
+    const bool needsAttention=state==ConnectionState::Failed || state==ConnectionState::Interrupted || recoveryFailed;
     const bool noTray=property("trayUnavailable").toBool();
     ui->statusHintLabel->setText(noTray ? tr("System tray unavailable. Use Exit in the application menu to quit.") : needsAttention ? detail : QString());
     ui->statusHintLabel->setVisible(noTray || needsAttention);
@@ -511,7 +512,7 @@ void MainWindow::updateConnectionState(ConnectionState state)
     ui->statusTitleLabel->setText(title);
     static const QIcon idleArtwork(":/resource/connection.svg");
     static const QIcon connectedArtwork(":/resource/connection-ready.svg");
-    const bool connected = propertyValue == "connected";
+    const bool connected = state == ConnectionState::Running && phase == ConnectionPhase::CampusReady;
     ui->statusIndicator->setPixmap((connected ? connectedArtwork : idleArtwork)
         .pixmap(ui->statusIndicator->size(),devicePixelRatioF()));
     if (trayIcon) {
@@ -522,7 +523,8 @@ void MainWindow::updateConnectionState(ConnectionState state)
     }
     ui->statusDetailLabel->setText(detail);
 
-    const bool primary = propertyValue == "disconnected" || propertyValue == "failed";
+    const bool primary = state == ConnectionState::Disconnected || state == ConnectionState::Failed
+        || state == ConnectionState::Interrupted || (state == ConnectionState::Stopping && recoveryFailed);
     auto *button = ui->connectButton;
     const auto oldPrimary = button->property("primaryAction");
     if (!oldPrimary.isValid() || oldPrimary.toBool() != primary) {
