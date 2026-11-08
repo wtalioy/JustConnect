@@ -249,18 +249,12 @@ Fudan Windows 实机验收步骤：启用记住认证并连接；分别测试普
 
 ## S8 实测步骤
 
-使用 [`c1bee9e` 预览构建](https://github.com/wtalioy/JustConnect/actions/runs/42459643616)。测试前先从托盘或菜单栏退出旧版，保留现有配置和 Tailscale。
+测试前先从托盘或菜单栏退出旧版，保留现有配置和 Tailscale。Windows 实测已通过，本轮只复测 Apple Silicon。
 
 - **Windows x64**。下载并完整解压 [Windows 预览包](https://github.com/wtalioy/JustConnect/actions/runs/42459643616/artifacts/13608569373)，运行 `JustConnect.exe`。本轮退出 Clash，用来补无 Clash 的主路径。按下方命令检查同一台通常可直连的 Tailscale 设备，分别在连接前、校园接管就绪后和断开后运行一次。
-- **Apple Silicon**。在 Mac 终端用已登录的 GitHub CLI 下载并挂载 DMG。先把旧 App 移出「应用程序」，再从新挂载的 DMG 拷入完整应用并打开。本轮确认菜单栏能恢复主窗口，并在断开后用菜单退出应用。下载方式与系统限制见[签名与部署说明](#不需申请签名的开发与发行)。
+- **Apple Silicon**。用浏览器[直接下载 `da6a750` DMG](https://github.com/wtalioy/JustConnect/actions/runs/42465420951/artifacts/13611114629)。先把旧 App 移出「应用程序」，再从新挂载的 DMG 拷入完整应用并打开。本轮确认菜单栏能恢复主窗口，并在断开后用菜单退出应用。首次打开按系统提示确认，见[签名与部署说明](#不需申请签名的开发与发行)。
 
-```bash
-download_dir=$(mktemp -d) &&
-gh run download 42459643616 --repo wtalioy/JustConnect --pattern 'JustConnect-preview-c1bee9e*-macos-arm64' --dir "$download_dir" &&
-hdiutil attach "$download_dir"/*.dmg -readonly
-```
-
-两台设备各连断一轮。预先打开浏览器和终端，按平时方式连接、登录和授权。已连接时打开一个平时使用的校园网页和一个普通网站，并用已有终端或 Codex 运行一次日常校园 SSH。点一次断开，确认没有恢复提示，普通网站仍可打开。
+在待测设备连断一轮。预先打开浏览器和终端，按平时方式连接、登录和授权。已连接时打开一个平时使用的校园网页和一个普通网站，并用已有终端或 Codex 运行一次日常校园 SSH。点一次断开，确认没有恢复提示，普通网站仍可打开。
 
 ```powershell
 $peer = '替换为现有设备的完整 MagicDNS 名称'
@@ -299,23 +293,15 @@ Windows 的三次 DNS 查询应返回同一设备地址。若连接前已稳定�
 
 后续包的来源、摘要和文件体积见[当前验收基线](../plan.md#当前验收基线)。历史对照 `85c5064` 的包报告归 `build/reports/ui-feedback/verification.json`。外层 Actions artifact 封装体积与安装归档分别记录。
 
-不再分发 WebEngine、Chromium 资源、QML 或 Quick。macOS 的 QtGui 仍硬链接 QtDBus，保留该实际依赖；翻译 SDK 的 qtdeclarative 用途见本地构建说明。Windows 核心省略本地符号表，正式 C ABI 导出和 Go 回溯仍保留。关键报告与原始字节对比在 `build/reports/s7-native-browser-packages/ca16758/`，未代替校园登录和桌面视觉实测。
+不再分发 WebEngine、Chromium 资源、QML 或 Quick。历史 macOS 动态包包含 QtDBus，当前静态包仅加载系统动态库。翻译 SDK 的 qtdeclarative 用途见本地构建说明。Windows 核心省略本地符号表，正式 C ABI 导出和 Go 回溯仍保留。历史报告在 `build/reports/s7-native-browser-packages/ca16758/`。
 
 ## 不需申请签名的开发与发行
 
-功能实现、权限助手、开发、预览、main 和 Release 均不依赖需要申请的公开签名或公证；当前工作流不配置签名 Secrets、不注册签名服务，也不向系统导入根证书。未来取得公开签名时，可作为独立发行步骤附加发布者身份，不改变功能、授权、网络或恢复逻辑，也不预建签名服务框架。Windows 使用管理员授权的受保护助手部署；macOS 构建在私有临时目录自动生成本地签名身份，为应用、助手与 Qt 框架签名后销毁私钥和临时钥匙串。本地叶证书有效期十年，仅绑定同一构建的组件，不提供公开发行者信任；成功、失败及取消均清理本次密钥材料。使用 macOS 自带 OpenSSL 导出系统钥匙串可接受的 PKCS#12；Tests 与打包流程在下载 Qt 前用真实 Mach-O 小包验证签名、hardened runtime、应用／助手角色和同一叶证书、深度校验、系统服务注册／撤销及密钥清理，完整 Qt 包另按实际产物验收。系统可能先报告服务未找到，首次连接仍应尝试注册并按真实结果提示用户批准；已有注册不重复安装。
+构建和功能运行均支持本地签名身份。Windows 使用管理员授权的受保护助手部署。macOS 构建为应用和助手生成同一本地签名，打包后清理私钥和临时钥匙串。本地叶证书用于绑定同一构建的组件，公开发行者身份仍属于 Developer ID 签名与公证流程。原生夹具验证签名、hardened runtime、库验证、应用／助手角色、系统服务注册／撤销与密钥清理。首次连接按系统提示完成后台服务授权。
 
 macOS 仍校验相同叶证书、角色标识与 hardened runtime；系统管理员授权、受保护部署、对端身份和网络恢复校验保持。签名夹具还运行实际链接包内动态库的应用和助手。系统服务的首次桌面批准与真实网络仍须实测。
 
-macOS 27.0.1 上，浏览器下载后带隔离标记的 `85c5064` 能通过 `codesign --verify --deep --strict`，启动时仍被 dyld 以 Team ID 不匹配为由拒绝加载 QtSvg。应用与 QtSvg 使用同一本地叶证书，该证书没有 Apple Team ID。2026-11-08 的 S8 实机报告出现相同错误，报告未注明包版本和下载方式。当前 `c1bee9e` [通过同版系统的 Apple Silicon CI 启动检查](https://github.com/wtalioy/JustConnect/actions/runs/42459643616/job/128668739357)，范围为 CI 下载的 DMG，Gatekeeper 保持启用。请按 [S8 步骤](#s8-实测步骤)用 GitHub CLI 获取预览并在实机确认。
-
-对本仓库的可信开发预览，可用 GitHub CLI 从指定打包运行下载 DMG。将下方 `RUN_ID` 替换为对应的打包运行编号，Intel Mac 把 `arm64` 换成 `x64`。挂载后可对卷内的 `JustConnect.app` 运行 `codesign --verify --deep --strict`，再用 Finder 将旧 App 移出「应用程序」并拷入新的完整 App。此流程保留系统安全设置与已有用户配置。
-
-```bash
-download_dir=$(mktemp -d)
-gh run download RUN_ID --repo wtalioy/JustConnect --pattern 'JustConnect-preview-*-macos-arm64' --dir "$download_dir"
-hdiutil attach "$download_dir"/*.dmg -readonly
-```
+macOS 27.0.1 实机曾在启动时因 Team ID 拒绝加载动态 QtSvg，即使系统允许来自任何来源的应用。正式打包改为静态 Qt，包检查要求主程序、权限助手和恢复进程只链接系统动态库，并保留显式库验证。Apple Silicon 的 [`da6a750` 启动检查](https://github.com/wtalioy/JustConnect/actions/runs/42466011248)使用同版系统、真实 DMG 和模拟首次批准的隔离标记。浏览器直接下载和系统首次确认仍需实机验证，见 [S8 步骤](#s8-实测步骤)。
 
 ### 无外部证书的 Windows 助手部署
 

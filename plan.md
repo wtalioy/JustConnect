@@ -15,8 +15,8 @@
 | --- | --- |
 | 阶段进度 | S3—S6 **23／23**，S7 **13／13**。S8 **1／5**。全计划 **59／64**，剩 S1-04、S8-01／03—05。 |
 | Windows 实测 | 2026-11-08 用户确认 S8 Windows 实测通过，反馈未注明包版本。`b2fbdb3` 既有实测覆盖动态代理／TUN、校园网页／SSH／登录、Tailscale 直连；同窗首次／复用接管 2480／38 ms。 |
-| 当前跟踪 | macOS 27.0.1 Apple Silicon 实机报告 QtSvg 在启动时被库验证拒绝。macOS 交付改用静态 Qt 和直接下载 DMG，等待新包验证与实机复测。 |
-| 最近已验证预览 | `c1bee9e` [Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/42459643616/artifacts/13608569373)／[Apple Silicon 打包运行](https://github.com/wtalioy/JustConnect/actions/runs/42459643616)。 |
+| 当前跟踪 | macOS 动态 QtSvg 启动故障改用静态 Qt 修复。Apple Silicon 的实际 DMG 与 macOS 27.0.1 启动检查已通过，待浏览器直下实机复测。 |
+| 最近已验证预览 | `c1bee9e` [Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/42459643616/artifacts/13608569373)／`da6a750` [Apple Silicon 直接下载 DMG](https://github.com/wtalioy/JustConnect/actions/runs/42465420951/artifacts/13611114629)。 |
 
 ## 当前验收基线
 
@@ -232,8 +232,8 @@
 - [ ] **S8-01**：两台设备用已有浏览器和终端验证校园网页、普通 SSH、普通网站与正常断开。Windows 补 Clash 退出时的主路径，用同一可稳定直连的 Tailscale 对端核对 MagicDNS 与接管前／中／后的直连。三种 Clash 主组合和动态切换沿用既有 Windows 实测及当前两平台自动证据。
 - [x] **S8-02**：故障与恢复复用 S3-06／S4-06／S7-03—05 及当前两平台原生回归，涵盖取消、权限拒绝、部分失败、外部改值、超时、进程终止与独立恢复。真实注销／跨登录会话、长时间离线及少见网络环境未实测，出现实际问题时补验。正常断开和授权随 S8-01／03。
 - [ ] **S8-03**：在上述连断中验证实际包启动、正常认证和授权、连接状态与退出。Windows 复用 S7 UI 实测，macOS 补 Finder 安装、菜单栏恢复窗口与退出。取消、双语、偏好、键盘及异常流程复用已有回归。
-- [ ] **S8-04**：`c1bee9e` 的自动与包证据见当前验收基线。macOS 新包待验静态 Qt、强制库校验、DMG 下载和首次批准后的启动。
-- [ ] **S8-05**：主路径实测通过后验收 [main／Release 交付](docs/DEVELOPMENT.md#分支与-actions)，核对附件与来源。macOS 正式交付须验证从 Release 用浏览器下载 DMG、拖入「应用程序」后在默认安全设置下启动。此前浏览器下载实测失败。GitHub CLI 下载仅用于开发预览，已通过 CI，仍待实机确认。
+- [ ] **S8-04**：`da6a750` 的 [Apple Silicon 包](https://github.com/wtalioy/JustConnect/actions/runs/42465420951/job/128683798885)及 [macOS 27.0.1 启动检查](https://github.com/wtalioy/JustConnect/actions/runs/42466011248)通过。仅加载系统动态库，显式库验证保持。等待同提交其余包的验收结果。
+- [ ] **S8-05**：主路径实测通过后验收 [main／Release 交付](docs/DEVELOPMENT.md#分支与-actions)，核对附件与来源。macOS 正式交付须验证从 Release 用浏览器直接下载 DMG、拖入「应用程序」并按系统首次打开流程启动。
 
 ## 验收记录
 
@@ -245,7 +245,7 @@
 | V4 | Clash 运行，系统代理关／TUN 开 | `b2fbdb3` 动态切换、校园网页／SSH／恢复和 Tailscale 直连实测通过。Fake-IP 个案沿用用户 Clash 配置 | 同 V2 |
 | V5 | Clash 系统代理和 TUN 双开 | 补充自动回归通过 | 补充自动回归通过 |
 | V6 | 动态切换、会话失效、崩溃、授权与按所有权恢复 | 受控自动证据见 S8-02，动态切换已实测 | 受控自动证据见 S8-02，真实注销未实测 |
-| V7 | 实际包、正常认证及桌面操作 | 用户确认本轮实测通过，UI 沿用 S7 | 实际包自检与 CI 启动通过。macOS 27.0.1 实机 DMG 安装后 dyld 拒绝加载 QtSvg，下载途径与包版本未注明 |
+| V7 | 实际包、正常认证及桌面操作 | 用户确认本轮实测通过，UI 沿用 S7 | 旧动态包曾被 dyld 拒绝加载 QtSvg。新静态包自检和首次批准后的 CI 启动通过，待实机确认 |
 
 Tailscale 对照保持同一对端及网络，记录解析和实际直连。Windows ARM64／Intel Mac、校园 UDP、浏览器预热 Fake-IP 缓存、特殊 DNS 来源及少见桌面／网络状态均无本次实机门槛。平台能力与安全要求见 R1—R15。
 
