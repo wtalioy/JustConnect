@@ -545,6 +545,27 @@ func TestTUNBoundsFlowsAndJoinsFullCapacityOnShutdown(t *testing.T) {
 	}
 }
 
+func BenchmarkActiveTUNAddresses(b *testing.B) {
+	for _, destinations := range []int{1, maxTUNFlows} {
+		b.Run(fmt.Sprint(destinations), func(b *testing.B) {
+			p := &Listeners{tun: &tunIngress{flows: make(map[tunFlow]struct{})}}
+			for i := range maxTUNFlows {
+				id := stack.TransportEndpointID{
+					LocalAddress: tcpip.AddrFrom4([4]byte{203, 0, 113, byte(i % destinations)}),
+					RemotePort:   uint16(i),
+				}
+				p.tun.flows[tunFlow{udp.ProtocolNumber, id}] = struct{}{}
+			}
+			b.ReportAllocs()
+			for b.Loop() {
+				if got := p.ActiveTUNAddresses(); len(got) != destinations {
+					b.Fatal(got)
+				}
+			}
+		})
+	}
+}
+
 type observedUDPConn struct {
 	net.Conn
 	operations atomic.Int32

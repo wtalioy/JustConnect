@@ -65,22 +65,22 @@ func (p *Listeners) ActiveTUNAddresses() []string {
 		return nil
 	}
 	ingress.mu.Lock()
-	defer ingress.mu.Unlock()
-	addresses := make(map[string]struct{})
+	addresses := make(map[[4]byte]struct{})
 	for flow := range ingress.flows {
 		address, ok := netip.AddrFromSlice(flow.id.LocalAddress.AsSlice())
 		if ok && address.Is4() && address != ingress.local && address != ingress.peer {
-			addresses[address.String()] = struct{}{}
+			addresses[address.As4()] = struct{}{}
 		}
 	}
 	for publication := range ingress.publishingDNS {
-		if publication.originalName == "" {
-			addresses[publication.address.String()] = struct{}{}
+		if publication.originalName == "" && publication.address.Is4() {
+			addresses[publication.address.As4()] = struct{}{}
 		}
 	}
+	ingress.mu.Unlock()
 	result := make([]string, 0, len(addresses))
 	for address := range addresses {
-		result = append(result, address)
+		result = append(result, netip.AddrFrom4(address).String())
 	}
 	slices.Sort(result)
 	return result
