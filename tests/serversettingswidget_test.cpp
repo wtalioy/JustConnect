@@ -2,7 +2,6 @@
 #include "presentation/widgets/serversettingswidget.h"
 #include "application/defaultsettings.h"
 #include <QApplication>
-#include <QComboBox>
 #include <QCheckBox>
 #include <QPlainTextEdit>
 #include <QLabel>
@@ -28,7 +27,6 @@ int main(int argc,char **argv) {
     settings.setValue("JustConnect/ServerPort",8443); settings.sync();
     ServerSettingsWidget editor;
     editor.load(settings);
-    auto *preset=editor.findChild<QComboBox *>("profileKindComboBox");
     auto *address=editor.findChild<QLineEdit *>("serverAddressLineEdit");
     auto *port=editor.findChild<QSpinBox *>("serverPortSpinBox");
     auto *verify=editor.findChild<QCheckBox *>("tlsVerifyCheckBox");
@@ -41,10 +39,10 @@ int main(int argc,char **argv) {
     check(!allowNodes->isChecked() && nodeWarning->isHidden(),"node verification remains enabled by default");
     editor.resize(540,560);editor.show();app.processEvents();
     auto *form=editor.findChild<QFormLayout *>();
-    for(auto *field:QList<QWidget *>{preset,address,port}) {
+    for(auto *field:QList<QWidget *>{address,port}) {
         auto *label=qobject_cast<QLabel *>(form->labelForField(field));
         check(label && label->buddy()==field && std::abs(label->geometry().center().y()-field->geometry().center().y())<=1,
-            "preset, server and port labels are centered beside their styled fields");
+            "server address and port labels are centered beside their styled fields");
     }
     check(rules->isVisibleTo(&editor),"domain DNS is directly editable without another settings layer");
     allowNodes->setChecked(true);
@@ -52,28 +50,13 @@ int main(int argc,char **argv) {
     check(nodePolicy.tls.verify && nodePolicy.tls.allowUnverifiedNodes && !nodeWarning->isHidden() && warning->isHidden(),"node exception is explicit and leaves authentication verification enabled");
     verify->setChecked(false); ca->setPlainText("explicit private CA");
     check(!warning->isHidden(),"explicit unsafe choice shows an identity-protection warning");
-    address->setText("draft.example.edu"); port->setValue(9443);
-    rules->setPlainText("service.custom.example 192.0.2.53");
     int endpointChanges = 0;
-    QString notifiedAddress;
-    int notifiedPort = 0;
-    QObject::connect(&editor, &ServerSettingsWidget::serverChanged, &editor, [&] {
-        ++endpointChanges;
-        notifiedAddress = editor.serverAddress();
-        notifiedPort = editor.serverPort();
-    });
-    preset->setCurrentIndex(preset->findData("Fudan"));
-    check(endpointChanges == 1 && notifiedAddress == "vpn.fudan.edu.cn" && notifiedPort == 443,
-        "a preset change notifies once with its complete endpoint");
-    check(editor.prefersOAuth() && editor.serverAddress()=="vpn.fudan.edu.cn" && editor.serverPort()==443,"Fudan selects its server");
-    check(rules->toPlainText()=="zb.fudan.edu.cn","preset supplies a name and uses the gateway DNS");
-    rules->clear();
-    check(address->isReadOnly() && !port->isEnabled(),"Fudan cannot retain a conflicting manual endpoint");
-    preset->setCurrentIndex(preset->findData("Custom"));
-    check(endpointChanges == 2 && notifiedAddress == "draft.example.edu" && notifiedPort == 9443,
-        "returning to a custom endpoint also notifies once");
-    check(editor.serverAddress()=="draft.example.edu" && editor.serverPort()==9443,"Custom draft survives preset switching");
-    check(rules->toPlainText()=="service.custom.example 192.0.2.53","preset DNS rules do not leak into Custom");
+    QObject::connect(&editor, &ServerSettingsWidget::serverChanged, &editor, [&] { ++endpointChanges; });
+    address->setText("draft.example.edu");
+    port->setValue(9443);
+    rules->setPlainText("service.custom.example 192.0.2.53");
+    check(endpointChanges == 2 && editor.serverAddress() == "draft.example.edu" && editor.serverPort() == 9443,
+        "custom endpoint changes notify and preserve the edited values");
     QSettings unchanged(path,QSettings::IniFormat);
     check(unchanged.value("JustConnect/ServerAddress")=="custom.example.edu" && unchanged.value("JustConnect/ServerPort")==8443,"editing and cancelling do not save");
     if (!ProfileService::writePublic(settings,editor.settingsValues())) return 1;
@@ -97,21 +80,22 @@ int main(int argc,char **argv) {
     check(saved.value("JustConnect/ServerAddress")=="draft.example.edu" && saved.value("JustConnect/ProfileKind")=="Custom","explicit apply saves selected endpoint");
     settings.setValue("Common/NeedsConfiguration",true);
     editor.load(settings);
-    check(preset->count()==2 && preset->findData("Fudan")>=0 && preset->findData("Custom")>=0,
-        "the server popup lists only real choices");
-    check(preset->currentIndex()==-1 && !preset->placeholderText().isEmpty() && editor.serverAddress().isEmpty(),
-        "legacy protocol requires an explicit new selection with an inline prompt");
-    preset->setCurrentIndex(preset->findData("Custom"));
-    check(editor.serverAddress()=="draft.example.edu","legacy endpoint remains available for manual confirmation");
+    check(!address->isReadOnly() && !port->isReadOnly() && editor.serverAddress() == "draft.example.edu",
+        "an older server remains editable for explicit confirmation");
     settings.setValue("Common/NeedsConfiguration",false);
     settings.setValue("JustConnect/ProfileKind","Fudan");
     editor.load(settings);
-    check(!editor.prefersOAuth() && editor.serverAddress()=="draft.example.edu","inconsistent saved preset never overwrites a valid custom endpoint");
+    check(!editor.isBuiltIn() && editor.serverAddress()=="draft.example.edu","inconsistent saved preset never overwrites a valid custom endpoint");
     settings.setValue("JustConnect/ServerAddress","vpn.fudan.edu.cn");
     settings.setValue("JustConnect/ServerPort",443);
+    settings.remove(DefaultSettings::DomainDnsRules);
+    editor.load(settings);
+    check(editor.isBuiltIn() && address->isReadOnly() && port->isReadOnly()
+        && editor.serverAddress() == "vpn.fudan.edu.cn" && rules->toPlainText() == "zb.fudan.edu.cn",
+        "Fudan displays its fixed endpoint and retains its default DNS");
     settings.setValue(DefaultSettings::DomainDnsRules,"");
     editor.load(settings);
     check(rules->toPlainText().isEmpty() && ProfileService::load(settings).dns.domainDnsRules.isEmpty(),
         "an explicitly removed preset rule stays removed");
-    std::cout<<"PASS: Fudan/Custom switching, draft preservation and explicit apply\n";
+    std::cout<<"PASS: fixed Fudan endpoint, independent custom draft and explicit apply\n";
 }

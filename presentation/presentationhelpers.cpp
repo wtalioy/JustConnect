@@ -137,7 +137,6 @@ QString PresentationHelpers::profileKindLabel(const QString &kind)
 {
     if (kind==DefaultSettings::builtInProfile().value("JustConnect/ProfileKind").toString())
         return QCoreApplication::translate("PresentationHelpers","Fudan");
-    if (kind=="Custom") return QCoreApplication::translate("PresentationHelpers","Custom");
     return kind;
 }
 

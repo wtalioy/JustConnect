@@ -19,10 +19,7 @@ public:
 
     QString profilePath(const QString &profileId) const override;
 
-    QString createProfile(
-        const QString &requestedName,
-        const QString &sourcePath = QString()
-    ) const override;
+    QString createProfile(const QString &requestedName) const override;
 
     bool renameProfile(const QString &oldId, const QString &newId) const override;
 

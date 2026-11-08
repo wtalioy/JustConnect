@@ -1,6 +1,4 @@
 #include "serversettingswidget.h"
-#include "presentation/presentationhelpers.h"
-#include <QComboBox>
 #include <QEvent>
 #include <QToolButton>
 #include <QCheckBox>
@@ -27,21 +25,13 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     form->setHorizontalSpacing(12);
     form->setVerticalSpacing(8);
     form->setLabelAlignment(Qt::AlignLeft|Qt::AlignVCenter);
-    preset = new QComboBox(this);
-    preset->setObjectName("profileKindComboBox");
-    preset->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
-    preset->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Fixed);
-    const auto builtInKind=DefaultSettings::builtInProfile().value("JustConnect/ProfileKind").toString();
-    preset->addItem(builtInKind,builtInKind);
-    preset->addItem(QString(), "Custom");
-    preset->setCurrentIndex(-1);
     address = new QLineEdit(this);
     address->setObjectName("serverAddressLineEdit");
     address->setPlaceholderText("vpn.example.edu.cn");
     port = new QSpinBox(this);
     port->setObjectName("serverPortSpinBox");
     port->setRange(1,65535); port->setValue(443);
-    for(auto *field:QList<QWidget *>{preset,address,port}) {
+    for(auto *field:QList<QWidget *>{address,port}) {
         auto *label=new QLabel(this);label->setBuddy(field);
         // QFormLayout otherwise caps label height at 7/4 of its text height, above our taller inputs.
         label->setSizePolicy(QSizePolicy::Preferred,QSizePolicy::Expanding);
@@ -94,23 +84,15 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     layout->addStretch();
     connect(verify,&QCheckBox::toggled,warning,[this](bool checked){warning->setVisible(!checked);});
     connect(allowUnverifiedNodes,&QCheckBox::toggled,nodeWarning,&QLabel::setVisible);
-    connect(preset,&QComboBox::currentIndexChanged,this,&ServerSettingsWidget::selectPreset);
     connect(address,&QLineEdit::textChanged,this,&ServerSettingsWidget::serverChanged);
     connect(port,&QSpinBox::valueChanged,this,&ServerSettingsWidget::serverChanged);
     retranslate();
-    selectPreset();
 }
 void ServerSettingsWidget::changeEvent(QEvent *event) {
     QWidget::changeEvent(event);
     if(event->type()==QEvent::LanguageChange) retranslate();
 }
 void ServerSettingsWidget::retranslate() {
-    QSignalBlocker blocker(preset);
-    preset->setPlaceholderText(tr("Select server"));
-    const auto builtIn=DefaultSettings::builtInProfile().value("JustConnect/ProfileKind").toString();
-    preset->setItemText(preset->findData(builtIn),PresentationHelpers::profileKindLabel(builtIn));
-    preset->setItemText(preset->findData("Custom"),PresentationHelpers::profileKindLabel("Custom"));
-    qobject_cast<QLabel *>(form->labelForField(preset))->setText(tr("Preset"));
     qobject_cast<QLabel *>(form->labelForField(address))->setText(tr("Address"));
     qobject_cast<QLabel *>(form->labelForField(port))->setText(tr("Port"));
     verify->setText(tr("Verify server certificate"));
@@ -129,51 +111,33 @@ void ServerSettingsWidget::retranslate() {
     rulesHelp->setText(help);
 }
 void ServerSettingsWidget::load(const QSettings &settings) {
-    QSignalBlocker blocker(this), presetBlocker(preset);
-    verify->setChecked(settings.value("JustConnect/TLSVerify",TlsOptions{}.verify).toBool());
+    const QSignalBlocker blocker(this);
+    const auto host = settings.value("JustConnect/ServerAddress").toString();
+    const auto number = settings.value("JustConnect/ServerPort", 443).toInt();
+    const auto kind = settings.value("JustConnect/ProfileKind").toString();
+    builtIn = !settings.value("Common/NeedsConfiguration").toBool()
+        && kind == DefaultSettings::builtInProfile().value("JustConnect/ProfileKind")
+        && kind == DefaultSettings::profileKindForEndpoint(host, number);
+    address->setText(host);
+    address->setReadOnly(builtIn);
+    port->setValue(number);
+    port->setReadOnly(builtIn);
+    port->setButtonSymbols(builtIn ? QAbstractSpinBox::NoButtons : QAbstractSpinBox::UpDownArrows);
+    verify->setChecked(settings.value("JustConnect/TLSVerify", TlsOptions{}.verify).toBool());
     caPem->setPlainText(settings.value("JustConnect/TLSCAPEM").toString());
     caToggle->setChecked(!caPem->toPlainText().isEmpty());
-    allowUnverifiedNodes->setChecked(settings.value("JustConnect/AllowUnverifiedNodes",TlsOptions{}.allowUnverifiedNodes).toBool());
-    customAddress = settings.value("JustConnect/ServerAddress").toString();
-    customPort = settings.value("JustConnect/ServerPort",443).toInt();
-    QString kind = settings.value("JustConnect/ProfileKind","Custom").toString();
-    if (settings.value("Common/NeedsConfiguration",false).toBool()) kind.clear();
-    if (!kind.isEmpty() && kind!="Custom" && kind!=DefaultSettings::profileKindForEndpoint(customAddress,customPort)) kind="Custom";
-    const auto saved = DefaultSettings::publicValues(settings);
-    domainDnsDrafts.clear();
-    if (!kind.isEmpty()) domainDnsDrafts[kind]=DefaultSettings::domainDnsRules(saved);
-    preset->setCurrentIndex(preset->findData(kind));
-    previousPreset.clear();
-    selectPreset();
+    allowUnverifiedNodes->setChecked(settings.value("JustConnect/AllowUnverifiedNodes", TlsOptions{}.allowUnverifiedNodes).toBool());
+    domainDnsRules->setPlainText(DefaultSettings::domainDnsRules(DefaultSettings::publicValues(settings)));
 }
-void ServerSettingsWidget::selectPreset() {
-    const auto kind = preset->currentData().toString();
-    if (previousPreset == "Custom") { customAddress = address->text(); customPort = port->value(); }
-    if (!previousPreset.isEmpty()) domainDnsDrafts[previousPreset]=domainDnsRules->toPlainText();
-    const auto &defaults=DefaultSettings::builtInProfile();
-    const bool builtIn=defaults.value("JustConnect/ProfileKind")==kind;
-    {
-        const QSignalBlocker addressChange(address), portChange(port);
-        address->setText(builtIn ? defaults.value("JustConnect/ServerAddress").toString() : customAddress);
-        port->setValue(builtIn ? defaults.value("JustConnect/ServerPort").toInt() : customPort);
-    }
-    address->setReadOnly(kind != "Custom"); port->setEnabled(kind == "Custom");
-    form->setRowVisible(address,kind=="Custom");form->setRowVisible(port,kind=="Custom");
-    domainDnsRules->setPlainText(domainDnsDrafts.value(kind,builtIn ? defaults.value(DefaultSettings::DomainDnsRules).toString() : QString()));
-    domainDnsRules->setEnabled(!kind.isEmpty());
-    previousPreset = kind;
-    emit serverChanged();
-}
-QString ServerSettingsWidget::serverAddress() const { return preset->currentData().toString().isEmpty() ? QString() : address->text().trimmed(); }
+
+QString ServerSettingsWidget::serverAddress() const { return address->text().trimmed(); }
 int ServerSettingsWidget::serverPort() const { return port->value(); }
-bool ServerSettingsWidget::prefersOAuth() const {
-    const auto &defaults=DefaultSettings::builtInProfile();
-    return preset->currentData()==defaults.value("JustConnect/ProfileKind") && defaults.value("JustConnect/AuthType")=="httpsOauth2";
-}
+bool ServerSettingsWidget::isBuiltIn() const { return builtIn; }
+
 QVariantMap ServerSettingsWidget::settingsValues() const {
     return {{"JustConnect/TLSVerify",verify->isChecked()},{"JustConnect/TLSCAPEM",caPem->toPlainText()},
         {"JustConnect/AllowUnverifiedNodes",allowUnverifiedNodes->isChecked()},
-        {"JustConnect/ProfileKind",preset->currentData()},{"JustConnect/ServerAddress",serverAddress()},
+        {"JustConnect/ProfileKind", builtIn ? DefaultSettings::profileKindForEndpoint(serverAddress(), serverPort()) : QStringLiteral("Custom")},{"JustConnect/ServerAddress",serverAddress()},
         {"JustConnect/ServerPort",serverPort()},{DefaultSettings::DomainDnsRules,domainDnsRules->toPlainText().trimmed()},
         {"Common/NeedsConfiguration",false}};
 }

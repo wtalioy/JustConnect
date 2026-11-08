@@ -70,7 +70,7 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
             if (type=="httpsOauth2") {preferred=index;++oauthCount;}
         }
         if (!selected && methods.size()==1) selected=1;
-        if (!selected && (selectedAuthType=="httpsOauth2" || serverEditor->prefersOAuth()) && oauthCount==1) selected=preferred;
+        if (!selected && (selectedAuthType=="httpsOauth2" || serverEditor->isBuiltIn()) && oauthCount==1) selected=preferred;
         ui->authTypeComboBox->setCurrentIndex(selected);
         blocker.unblock();
         emit ui->authTypeComboBox->currentIndexChanged(selected);
@@ -104,11 +104,8 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
         cancelQuery();
         clearDraftCredentials();
         selectedAuthId.clear(); selectedAuthSubType.clear(); selectedAuthDomain.clear();
-        selectedAuthType = serverEditor->prefersOAuth()
-            ? DefaultSettings::builtInProfile().value("JustConnect/AuthType").toString() : QString();
-        const QSignalBlocker blocker(ui->authTypeComboBox);
+        selectedAuthType.clear();
         resetAuthChoices();
-        ui->authTypeComboBox->setCurrentIndex(ui->authTypeComboBox->findData(selectedAuthType));
         updateAuthFields();
     });
     connect(ui->usernameLineEdit,&QLineEdit::textChanged,this,&SettingWindow::clearDraftCredentials);
@@ -131,7 +128,9 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
         QTemporaryDir folder;
         if (!folder.isValid()) { QMessageBox::warning(this,tr("Reset failed"),tr("Could not create temporary connection settings.")); return; }
         QSettings draft(folder.filePath("defaults.ini"),QSettings::IniFormat);
-        DefaultSettings::reset(draft); loadSettings(draft);
+        DefaultSettings::reset(draft);
+        if (serverEditor->isBuiltIn()) DefaultSettings::initializeBuiltInIfUntouched(draft);
+        loadSettings(draft);
     });
     connect(ui->importPushButton,&QPushButton::clicked,this,[this] {
         const auto path=QFileDialog::getOpenFileName(this,tr("Import connection settings"),{},tr("INI files (*.ini)"));
@@ -206,12 +205,15 @@ void SettingWindow::loadSettings(const QSettings &source) {
     ui->usernameLineEdit->setText(source.value("Credential/Username").toString());
     rememberAuthentication->setChecked(source.value(DefaultSettings::RememberAuthentication,ConnectionBehavior{}.rememberAuthentication).toBool());
     clearDraftCredentials();
-    const auto method=source.value("JustConnect/AuthType","psw").toString();
+    const bool needsSignInMethod = source.value("Common/NeedsConfiguration").toBool()
+        || serverEditor->serverAddress().isEmpty();
+    const auto method = needsSignInMethod ? QString() : source.value("JustConnect/AuthType", "psw").toString();
     int index=ui->authTypeComboBox->findData(method);
     if (index<0) { ui->authTypeComboBox->addItem(method,method); index=ui->authTypeComboBox->count()-1; }
     ui->authTypeComboBox->setCurrentIndex(index);
-    selectedAuthId=source.value("JustConnect/AuthID").toString(); selectedAuthSubType=source.value("JustConnect/AuthSubType").toString();
-    selectedAuthDomain=source.value("JustConnect/LoginDomain").toString();
+    selectedAuthId = needsSignInMethod ? QString() : source.value("JustConnect/AuthID").toString();
+    selectedAuthSubType = needsSignInMethod ? QString() : source.value("JustConnect/AuthSubType").toString();
+    selectedAuthDomain = needsSignInMethod ? QString() : source.value("JustConnect/LoginDomain").toString();
     ui->countryCodeLineEdit->setText(source.value("JustConnect/PhoneCountryCode","86").toString());
     ui->phoneNumberLineEdit->setText(source.value("JustConnect/PhoneNumber").toString());
     ui->connectAfterStartCheckBox->setChecked(source.value("Common/ConnectAfterStart").toBool());

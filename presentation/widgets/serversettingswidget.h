@@ -1,8 +1,6 @@
 #pragma once
 #include <QWidget>
-#include <QMap>
 #include <QVariantMap>
-class QComboBox;
 class QFormLayout;
 class QLabel;
 class QCheckBox;
@@ -20,25 +18,21 @@ public:
     QVariantMap settingsValues() const;
     QString serverAddress() const;
     int serverPort() const;
-    bool prefersOAuth() const;
+    bool isBuiltIn() const;
 signals:
     void serverChanged();
 protected:
     void changeEvent(QEvent *event) override;
 private:
     void retranslate();
-    void selectPreset();
     QFormLayout *form;
     QLabel *warning, *nodeWarning, *rulesHelp, *domainDnsLabel, *caLabel;
     QToolButton *caToggle;
-    QComboBox *preset;
     QLineEdit *address;
     QSpinBox *port;
     QCheckBox *verify;
     QCheckBox *allowUnverifiedNodes;
     QPlainTextEdit *caPem;
     QPlainTextEdit *domainDnsRules;
-    QString previousPreset, customAddress;
-    QMap<QString,QString> domainDnsDrafts;
-    int customPort = 443;
+    bool builtIn = false;
 };

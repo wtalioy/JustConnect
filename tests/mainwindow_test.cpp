@@ -167,7 +167,12 @@ static void profileMenusKeepTheirActions(MainWindow &window,const QString &profi
     auto *created=window.findChild<SettingWindow *>();
     check(created && created->isVisible() && checked(menu)=="direct-add" && checked(trayMenu)=="direct-add"
         && !created->findChild<QComboBox *>("languageComboBox"),
-        "new profile is active and opens the existing connection editor directly");
+        "adding a connection opens its own editor directly");
+    check(created->findChild<QLineEdit *>("serverAddressLineEdit")->text().isEmpty()
+        && created->findChild<QLineEdit *>("usernameLineEdit")->text().isEmpty()
+        && created->findChild<QComboBox *>("authTypeComboBox")->currentData().toString().isEmpty()
+        && created->findChild<QPlainTextEdit *>("domainDnsRulesEdit")->toPlainText().isEmpty(),
+        "a new connection starts blank even when added from Fudan");
     created->reject();
 }
 
@@ -361,10 +366,10 @@ static void profileSetupLanguageChangesPreserveData(MainWindow &window) {
     const auto checkColumns=[&] {
         const auto originalSize=editor->size();editor->resize(800,originalSize.height());
         QCoreApplication::processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::LayoutRequest);QCoreApplication::processEvents();
-        auto *preset=editor->findChild<QComboBox *>("profileKindComboBox");
-        check(preset->mapTo(editor,QPoint()).x()==method->mapTo(editor,QPoint()).x()
+        auto *address=editor->findChild<QLineEdit *>("serverAddressLineEdit");
+        check(address->mapTo(editor,QPoint()).x()==method->mapTo(editor,QPoint()).x()
             && method->mapTo(editor,QPoint()).x()==user->mapTo(editor,QPoint()).x(),
-            "preset, authentication and credential fields share a column across settings groups");
+            "address, authentication and credential fields share a column across settings groups");
         editor->resize(originalSize);QCoreApplication::processEvents();
     };
     checkColumns();
@@ -377,10 +382,6 @@ static void profileSetupLanguageChangesPreserveData(MainWindow &window) {
     const auto methodValue=method->currentData();auto *currentContent=scroll->widget();
     language("zh_CN");
     checkColumns();
-    auto *presets=editor->findChild<QComboBox *>("profileKindComboBox");
-    check(presets->itemText(presets->findData("Fudan"))==QString::fromUtf8("复旦大学")
-        && presets->itemText(presets->findData("Custom"))==QString::fromUtf8("自定义"),
-        "built-in preset labels follow the selected language without changing their stored identities");
     check(secret->actions().size()==visibilityActions && show->text()==QString::fromUtf8("隐藏")
         && !show->shortcut().isEmpty() && !secret->accessibleDescription().isEmpty(),
         "language changes keep one trailing visibility action, its state and keyboard description");
@@ -507,17 +508,15 @@ static void nativeHome(MainWindow &window, ApplicationLogger &logger) {
     window.findChild<QAction *>("settingAction")->trigger();
     auto *initial = window.findChild<SettingWindow *>();
     check(initial && initial->isVisible(), "the first connection can be edited directly");
-    auto *preset = initial->findChild<QComboBox *>("profileKindComboBox");
+    auto *address = initial->findChild<QLineEdit *>("serverAddressLineEdit");
     auto *method = initial->findChild<QComboBox *>("authTypeComboBox");
-    check(preset->currentData()=="Fudan" && method->currentData()=="httpsOauth2",
-        "a fresh installation opens Fudan with Web sign-in selected");
-    preset->setCurrentIndex(preset->findData("Custom"));
-    check(method->currentData().toString().isEmpty(), "a new custom server requires its own sign-in method");
-    preset->setCurrentIndex(preset->findData("Fudan"));
-    check(method->currentData()=="httpsOauth2", "choosing Fudan restores its Web sign-in method");
+    check(address->text() == "vpn.fudan.edu.cn" && address->isReadOnly()
+        && method->currentData() == "httpsOauth2"
+        && !initial->findChild<QComboBox *>("profileKindComboBox"),
+        "Fudan has a fixed server and Web sign-in, with no second connection selector");
     initial->reject();
     QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
-    check(session->state()==state, "preset selection and cancelling the editor do not start a session");
+    check(session->state()==state, "opening and cancelling the editor does not start a session");
     auto *gear=window.findChild<QToolButton *>("preferencesButton");
     check(!gear->menu(),"the settings gear opens settings without an extra menu layer");
     gear->click();QCoreApplication::processEvents();
@@ -602,7 +601,7 @@ int main(int argc,char **argv) {
         QLocale::setDefault(QLocale(QLocale::Chinese,QLocale::China));
         QString menuProfile;
         if (native) {
-            menuProfile=manager.createProfile("menu-fixture",{});
+            menuProfile=manager.createProfile("menu-fixture");
             check(!menuProfile.isEmpty(),"create an isolated profile for menu switching");
         }
         if (app.arguments().size()==1) recoveryStatus(logger,log);

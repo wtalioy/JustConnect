@@ -63,14 +63,12 @@ public:
         );
     }
 
-    QString createProfile(
-        const QString &requestedName,
-        const QString &sourcePath
-    ) const override
+    QString createProfile(const QString &requestedName) const override
     {
         ++creates;
         const QString id = normalizeProfileId(requestedName);
-        return !id.isEmpty() && QFile::copy(sourcePath, profilePath(id)) ? id : QString();
+        QFile file(profilePath(id));
+        return !id.isEmpty() && file.open(QIODevice::WriteOnly | QIODevice::NewOnly) ? id : QString();
     }
 
     bool renameProfile(
@@ -174,6 +172,8 @@ bool managesCurrentProfileAsOneUnit()
     FakeProfileBackend *fake = backend.get();
     ProfileService service(std::move(backend));
     service.settings()->setValue("Credential/Username", "alice");
+    service.settings()->setValue("JustConnect/ServerAddress", "vpn.example.invalid");
+    service.settings()->setValue("JustConnect/AuthType", "httpsOauth2");
     service.settings()->sync();
 
     fake->allowActiveProfileChange = false;
@@ -198,9 +198,9 @@ bool managesCurrentProfileAsOneUnit()
 
     if (service.createAndSwitch("work") != "work"
         || service.currentProfileId() != "work"
-        || service.settings()->value("Credential/Username").toString() != "alice")
+        || !service.settings()->allKeys().isEmpty())
     {
-        qCritical() << "profile creation failed";
+        qCritical() << "new connection inherited settings from the active connection";
         return false;
     }
 

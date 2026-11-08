@@ -13,10 +13,7 @@ public:
     virtual QString activeProfile() const = 0;
     virtual bool setActiveProfile(const QString &profileId) const = 0;
     virtual QString profilePath(const QString &profileId) const = 0;
-    virtual QString createProfile(
-        const QString &requestedName,
-        const QString &sourcePath = {}
-    ) const = 0;
+    virtual QString createProfile(const QString &requestedName) const = 0;
     virtual bool renameProfile(
         const QString &oldId,
         const QString &newId

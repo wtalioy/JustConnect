@@ -6,7 +6,6 @@
 #include <QRegularExpression>
 #include <QSettings>
 #include <QStandardPaths>
-#include <QTemporaryDir>
 #include "application/settingsmigrator.h"
 
 namespace
@@ -112,29 +111,11 @@ QString ProfileManager::profilePath(const QString &profileId) const
     return QDir(profilesPath).filePath(normalizedId + ".ini");
 }
 
-QString ProfileManager::createProfile(const QString &requestedName, const QString &sourcePath) const
+QString ProfileManager::createProfile(const QString &requestedName) const
 {
     const QString normalizedId = ensureUniqueProfileId(normalizeProfileId(requestedName));
-    const QString path = profilePath(normalizedId);
-
-    if (!sourcePath.isEmpty())
-    {
-        if (!QFileInfo(sourcePath).isFile()) return {};
-        QTemporaryDir folder;
-        if (!folder.isValid()) return {};
-        QSettings source(sourcePath,QSettings::IniFormat);
-        QSettings draft(folder.filePath("public.ini"),QSettings::IniFormat);
-        if (!SettingsMigrator::publicDraft(source,draft) || !QFile::copy(draft.fileName(),path)) return {};
-    }
-    else
-    {
-        if (!createEmptyFile(path))
-        {
-            return {};
-        }
-    }
-
-    return normalizedId;
+    QFile file(profilePath(normalizedId));
+    return file.open(QIODevice::WriteOnly | QIODevice::NewOnly) ? normalizedId : QString();
 }
 
 bool ProfileManager::renameProfile(const QString &oldId, const QString &newId) const

@@ -1894,11 +1894,6 @@ Some system settings may have changed. Check them before retrying.</source>
         <translation>复旦大学</translation>
     </message>
     <message>
-        <location filename="../../presentation/presentationhelpers.cpp" line="46"/>
-        <source>Custom</source>
-        <translation>自定义</translation>
-    </message>
-    <message>
         <location filename="../../presentation/presentationhelpers.cpp" line="63"/>
         <source>Hide</source>
         <translation>隐藏</translation>
@@ -1916,11 +1911,6 @@ Some system settings may have changed. Check them before retrying.</source>
 </context>
 <context>
     <name>ServerSettingsWidget</name>
-    <message>
-        <location filename="../../presentation/widgets/serversettingswidget.cpp" line="92"/>
-        <source>Select server</source>
-        <translation>选择服务器</translation>
-    </message>
     <message>
         <location filename="../../presentation/widgets/serversettingswidget.cpp" line="98"/>
         <source>Port</source>
@@ -1975,10 +1965,6 @@ Some system settings may have changed. Check them before retrying.</source>
     <message>
         <source>Address</source>
         <translation>地址</translation>
-    </message>
-    <message>
-        <source>Preset</source>
-        <translation>预设</translation>
     </message>
 </context>
 <context>
