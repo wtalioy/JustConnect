@@ -6,7 +6,8 @@ architecture="${2:?Specify arm64 or x86_64}"
 version=6.12.0
 work=$(mktemp -d)
 trap 'rm -rf -- "$work"' EXIT
-cd "$work"
+cd -P "$work"
+work="$PWD"
 
 download_module() {
   local archive="$1-everywhere-src-$version.tar.xz"
@@ -36,6 +37,6 @@ done
 
 cd "$work/svg"
 "$prefix/bin/qt-configure-module" "$work/qtsvg-everywhere-src-$version" \
-  -- -DCMAKE_BUILD_TYPE=Release
+  -- -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="$architecture" -DCMAKE_OSX_DEPLOYMENT_TARGET=14.4
 cmake --build . --parallel "$(sysctl -n hw.logicalcpu)"
 cmake --install .

@@ -63,10 +63,10 @@ jobs:
           host: ${{ matrix.qt_host }}
           arch: ${{ matrix.qt_arch }}
 
-      - name: Cache static macOS Qt
+      - name: Restore static macOS Qt
         if: runner.os == 'macOS'
         id: macos-qt
-        uses: actions/cache@v5
+        uses: actions/cache/restore@v5
         with:
           path: ${{ runner.temp }}/qt-static
           key: macos-static-qt-${{ matrix.os }}-${{ hashFiles('scripts/build-macos-qt.sh') }}
@@ -74,6 +74,13 @@ jobs:
       - name: Build static macOS Qt
         if: runner.os == 'macOS' && steps.macos-qt.outputs.cache-hit != 'true'
         run: bash scripts/build-macos-qt.sh "$RUNNER_TEMP/qt-static" "${{ matrix.native_arch }}"
+
+      - name: Save static macOS Qt
+        if: runner.os == 'macOS' && steps.macos-qt.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: ${{ runner.temp }}/qt-static
+          key: ${{ steps.macos-qt.outputs.cache-primary-key }}
 
       - name: Prepare Go and cgo toolchain
         uses: ./.github/actions/setup-core-toolchain
