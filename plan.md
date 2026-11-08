@@ -15,7 +15,7 @@
 | --- | --- |
 | 阶段进度 | S3—S6 **23／23**，S7 **13／13**。S8 **1／5**。全计划 **59／64**，剩 S1-04、S8-01／03—05。 |
 | Windows 实测 | 2026-11-08 用户确认 S8 Windows 实测通过，反馈未注明包版本。`b2fbdb3` 既有实测覆盖动态代理／TUN、校园网页／SSH／登录、Tailscale 直连；同窗首次／复用接管 2480／38 ms。 |
-| 当前跟踪 | macOS 动态 QtSvg 启动故障改用静态 Qt 修复。Apple Silicon 的实际 DMG 与 macOS 27.0.1 启动检查已通过，待浏览器直下实机复测。 |
+| 当前跟踪 | Apple Silicon 实机已打开 App。Fudan 内置配置缺少网页登录域，连接在认证窗口前退出。已补齐预设及旧配置加载，待新包复测认证与连断。 |
 | 最近已验证预览 | `c1bee9e` [Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/42459643616/artifacts/13608569373)／`da6a750` [Apple Silicon 直接下载 DMG](https://github.com/wtalioy/JustConnect/actions/runs/42465420951/artifacts/13611114629)。 |
 
 ## 当前验收基线

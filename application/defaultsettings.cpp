@@ -113,6 +113,11 @@ const QVariantMap &DefaultSettings::builtInConnection()
 
 bool DefaultSettings::isBuiltInConnection(const QSettings &settings)
 {
+    return isBuiltInConnection(publicValues(settings));
+}
+
+bool DefaultSettings::isBuiltInConnection(const QVariantMap &settings)
+{
     const auto &connection = builtInConnection();
     return !settings.value("Common/NeedsConfiguration").toBool()
         && settings.value("JustConnect/ConnectionKind") == connection.value("JustConnect/ConnectionKind")

@@ -16,6 +16,13 @@ ConnectionOptions SavedConnectionService::load(const QVariantMap &settings) {
     p.endpoint.authSubType=settings.value("JustConnect/AuthSubType").toString();
     p.endpoint.authType=settings.value("JustConnect/AuthType").toString();
     p.endpoint.loginDomain=settings.value("JustConnect/LoginDomain").toString();
+    // Older Fudan presets saved only the web sign-in type.
+    if (p.endpoint.loginDomain.isEmpty() && p.endpoint.authId.isEmpty() && p.endpoint.authSubType.isEmpty()
+        && DefaultSettings::isBuiltInConnection(settings)) {
+        const auto &preset=DefaultSettings::builtInConnection();
+        if (p.endpoint.authType==preset.value("JustConnect/AuthType").toString())
+            p.endpoint.loginDomain=preset.value("JustConnect/LoginDomain").toString();
+    }
     const auto country=settings.value("JustConnect/PhoneCountryCode").toString(), phone=settings.value("JustConnect/PhoneNumber").toString();
     if (!country.isEmpty() && !phone.isEmpty()) p.endpoint.phone=country+'-'+phone;
     if (!settings.value("Common/NeedsConfiguration",false).toBool()) p.endpoint.server=settings.value("JustConnect/ServerAddress").toString();
