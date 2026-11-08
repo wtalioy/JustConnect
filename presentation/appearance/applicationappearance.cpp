@@ -3,6 +3,7 @@
 #include <QEvent>
 #include <QFile>
 #include <QPalette>
+#include <QRegularExpression>
 #include <QStyleHints>
 #include <QScreen>
 #include <QAbstractItemView>
@@ -84,11 +85,18 @@ void ApplicationAppearance::install() {
     if (sheet.open(QIODevice::ReadOnly)) {
         auto style = QString::fromUtf8(sheet.readAll());
 #ifdef Q_OS_MACOS
-        style += QStringLiteral(R"(
-QWidget, QLabel#profileDetailLabel { font-size: 11.5pt; }
-QMenu, QLabel#statusHintLabel { font-size: 10.5pt; }
-QLabel[secondary="true"], QLabel#statusDetailLabel, QPlainTextEdit#logPlainTextEdit { font-size: 10pt; }
-)");
+        static const QRegularExpression pointSize(QStringLiteral(R"(font-size:\s*(\d+(?:\.\d+)?)pt)"));
+        QString larger;
+        qsizetype next = 0;
+        auto sizes = pointSize.globalMatch(style);
+        while (sizes.hasNext()) {
+            const auto size = sizes.next();
+            larger += QStringView(style).mid(next, size.capturedStart(1) - next);
+            larger += QString::number(size.captured(1).toDouble() + 1.0);
+            next = size.capturedEnd(1);
+        }
+        larger += QStringView(style).mid(next);
+        style.swap(larger);
 #elif defined(Q_OS_WIN)
         // The native Windows text baseline sits below the indicator's geometric center.
         style += QStringLiteral("\nQCheckBox::indicator { position: relative; top: 2px; }");
