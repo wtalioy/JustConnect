@@ -216,11 +216,9 @@ if(BUILD_TESTING)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/ui-report")
     set_property(TEST mainwindow_native_test mainwindow_profile_language_test mainwindow_auth_language_test
         APPEND PROPERTY ENVIRONMENT "JC_UI_REPORT_DIR=${CMAKE_CURRENT_BINARY_DIR}/ui-report")
+    # The package verifier runs this probe against the installed runtime.
     add_executable(signinbrowser_test tests/signinbrowser_test.cpp)
     target_link_libraries(signinbrowser_test PRIVATE justconnect_signin_browser)
-    add_test(NAME signinbrowser_test COMMAND signinbrowser_test)
-    set_tests_properties(signinbrowser_test PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM=${JC_BROWSER_QPA}" TIMEOUT 30)
 
     add_executable(applicationlogger_test
         tests/applicationlogger_test.cpp)
