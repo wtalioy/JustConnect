@@ -95,6 +95,10 @@ QByteArray configurationBytes(const ConnectionProfile &profile, CoreEngine::Oper
     if (config.size() > JC_MAX_INPUT) config.clear();
     return config;
 }
+QJsonObject coreObject(const QByteArray &bytes, uint32_t length) {
+    if (length > uint32_t(bytes.size())) return {};
+    return QJsonValue::fromJson(QByteArrayView(bytes.constData(), length)).toObject();
+}
 ConnectionError connectionError(int status) {
     if (status == JC_OK || status == JC_CANCELLED) return ConnectionError::NONE;
     if (status == JC_TLS_TRUST) return ConnectionError::TLS_TRUST;
@@ -142,10 +146,8 @@ NativeSnapshot readNativeSnapshot(CoreEngine::Snapshot kind, uint64_t handle = 0
         ? api.jc_session_resources(handle, generation, reinterpret_cast<uint8_t *>(bytes.data()), uint32_t(bytes.size()), &length)
         : api.jc_network_snapshot(JC_ABI_VERSION, reinterpret_cast<uint8_t *>(bytes.data()), uint32_t(bytes.size()), &length);
     if (status != JC_OK) return {status, {}};
-    QJsonParseError error{};
-    const auto doc = length <= uint32_t(bytes.size()) ? QJsonDocument::fromJson(bytes.first(length), &error) : QJsonDocument();
-    const auto snapshot = doc.object();
-    if (error.error != QJsonParseError::NoError || !doc.isObject() || snapshot["schema_version"].toInt() != JC_ABI_VERSION
+    const auto snapshot = coreObject(bytes, length);
+    if (snapshot["schema_version"].toInt() != JC_ABI_VERSION
         || !snapshot[key].isObject()
         || ((resources || coexistence) && snapshot["generation"].toString() != QString::number(generation))) return {JC_INTERNAL, {}};
     return {JC_OK, snapshot};
@@ -339,18 +341,14 @@ public:
             QTimer::singleShot(status == JC_CANCELLED ? 10 : 0, this, &CoreEventPump::poll);
             return;
         }
-        QJsonParseError error{};
-        const auto doc = length <= uint32_t(buffer.size())
-            ? QJsonDocument::fromJson(buffer.first(length), &error) : QJsonDocument();
-        if (status != JC_OK || error.error != QJsonParseError::NoError || !doc.isObject()
-            || doc.object()["schema_version"].toInt() != JC_ABI_VERSION
-            || doc.object()["generation"].toString() != QString::number(generation)) {
+        const auto event = status == JC_OK ? coreObject(buffer, length) : QJsonObject{};
+        if (event["schema_version"].toInt() != JC_ABI_VERSION
+            || event["generation"].toString() != QString::number(generation)) {
             stop();
             while (library().jc_session_destroy(handle, JC_MAX_WAIT_MS) == JC_TIMEOUT) {}
             handle = 0; active = false; buffer.clear();
             emit failed(serial, JC_INTERNAL); return;
         }
-        const auto event = doc.object();
         if (event["type"] == "terminal") { active = false; buffer.clear(); }
         // The receiver acknowledges each event: at most one Qt event is in flight.
         const bool starting = event["type"] == "state" && event["state"] == "starting";
@@ -429,7 +427,9 @@ bool EmbeddedCoreEngine::start(const ConnectionProfile &profile, Operation opera
     pump->cancelled.store(false);
     const auto id = ++serial;
     auto config = configurationBytes(profile, operation);
-    QMetaObject::invokeMethod(pump, [this, id, config] { pump->start(id, config); }, Qt::QueuedConnection);
+    QMetaObject::invokeMethod(pump, [this, id, config=std::move(config)]() mutable {
+        pump->start(id, std::move(config));
+    }, Qt::QueuedConnection);
     return true;
 }
 ConnectionError EmbeddedCoreEngine::validateConfiguration(const ConnectionProfile &profile) {
@@ -448,11 +448,10 @@ EmbeddedCoreEngine::ControllerDiscovery EmbeddedCoreEngine::discoverControllers(
     uint32_t length=0;
     const int status=api.jc_controller_snapshot(JC_ABI_VERSION,reinterpret_cast<uint8_t *>(bytes.data()),uint32_t(bytes.size()),&length);
     if (status!=JC_OK) return {requestStatus(status),{}};
-    QJsonParseError error{};
-    const auto doc=length<=uint32_t(bytes.size())?QJsonDocument::fromJson(bytes.first(length),&error):QJsonDocument();
-    if (error.error!=QJsonParseError::NoError || !doc.isObject() || doc.object()["schema_version"].toInt()!=JC_ABI_VERSION
-        || !doc.object()["controllers"].isArray()) return {RequestStatus::Failed,{}};
-    const auto candidates=doc.object()["controllers"].toArray();
+    const auto snapshot = coreObject(bytes, length);
+    if (snapshot["schema_version"].toInt()!=JC_ABI_VERSION
+        || !snapshot["controllers"].isArray()) return {RequestStatus::Failed,{}};
+    const auto candidates=snapshot["controllers"].toArray();
     for (const auto &value:candidates) {
         const auto item=value.toObject();
         if (!value.isObject() || item.size()!=3 || !item["pid"].isDouble() || item["pid"].toDouble()<1
@@ -477,7 +476,9 @@ void EmbeddedCoreEngine::respond(const QJsonObject &response) {
     if (!active || stopping) return;
     auto bytes = QJsonDocument(response).toJson(QJsonDocument::Compact);
     if (bytes.size() > JC_MAX_INPUT) bytes.clear();
-    QMetaObject::invokeMethod(pump, [this, bytes] { pump->respond(bytes); }, Qt::QueuedConnection);
+    QMetaObject::invokeMethod(pump, [this, bytes=std::move(bytes)]() mutable {
+        pump->respond(std::move(bytes));
+    }, Qt::QueuedConnection);
 }
 void EmbeddedCoreEngine::updatePolicy(const QJsonObject &policy) {
     const auto generation = policy["generation"].toString(), revision = policy["revision"].toString();
@@ -485,7 +486,9 @@ void EmbeddedCoreEngine::updatePolicy(const QJsonObject &policy) {
     auto bytes = QJsonDocument(policy).toJson(QJsonDocument::Compact);
     if (bytes.size() > JC_MAX_INPUT) bytes.clear();
     const auto id = serial;
-    QMetaObject::invokeMethod(pump, [this, id, bytes, generation, revision] { pump->updatePolicy(id, bytes, generation, revision); }, Qt::QueuedConnection);
+    QMetaObject::invokeMethod(pump, [this, id, bytes=std::move(bytes), generation, revision]() mutable {
+        pump->updatePolicy(id, std::move(bytes), generation, revision);
+    }, Qt::QueuedConnection);
 }
 void EmbeddedCoreEngine::updateCoexistence(const QString &generation,const QStringList &endpoints,bool managed) {
     if (!active || stopping) { emit coexistenceUpdated(generation,RequestStatus::Stale);return; }
@@ -518,7 +521,9 @@ void EmbeddedCoreEngine::prepareOriginalDNS(const QString &generation, const QJs
     auto bytes = QJsonDocument(QJsonObject{{"schema_version", int(JC_ABI_VERSION)}, {"generation", generation}, {"sources", sources}}).toJson(QJsonDocument::Compact);
     if (bytes.size() > JC_MAX_INPUT) bytes.clear();
     const auto id = serial;
-    QMetaObject::invokeMethod(pump, [this, id, generation, bytes] { pump->prepareOriginalDNS(id, generation, bytes); }, Qt::QueuedConnection);
+    QMetaObject::invokeMethod(pump, [this, id, generation, bytes=std::move(bytes)]() mutable {
+        pump->prepareOriginalDNS(id, generation, std::move(bytes));
+    }, Qt::QueuedConnection);
 }
 void EmbeddedCoreEngine::attachTUN(const QString &generation, qint32 descriptor, quint32 mtu, bool publishDNSRoutes) {
     if (!active || stopping) { emit tunAttached(generation, RequestStatus::Stale); return; }
@@ -633,8 +638,8 @@ QJsonObject EmbeddedCoreEngine::buildInfo() {
         QByteArray buffer(JC_MAX_OUTPUT, Qt::Uninitialized);
         uint32_t length = 0;
         if (api.jc_build_info(JC_ABI_VERSION, reinterpret_cast<uint8_t *>(buffer.data()),
-                uint32_t(buffer.size()), &length) != JC_OK || length > uint32_t(buffer.size())) return {};
-        return QJsonDocument::fromJson(buffer.first(length)).object();
+                uint32_t(buffer.size()), &length) != JC_OK) return {};
+        return coreObject(buffer, length);
     }();
     return info;
 }
