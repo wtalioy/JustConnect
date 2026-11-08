@@ -233,7 +233,7 @@ static void manualCredentialsAndLateResults() {
     const auto startsBeforeMalformed=engine->starts;const auto nativeBeforeMalformed=store->values;
     const QByteArray malformed="[unclosed section\n";
     {QFile file(settings.fileName());check(file.open(QIODevice::Append) && file.write(malformed)==malformed.size(),"malformed active configuration");}
-    warnings=0;expectedWarnings={"The current profile could not be read. Check file permissions and contents, then reopen it.","The current profile could not be read. Check file permissions and contents, then reopen it."};
+    warnings=0;expectedWarnings={"The current connection settings could not be read. Check the file permissions and contents, then reopen the connection.","The current connection settings could not be read. Check the file permissions and contents, then reopen the connection."};
     dismiss.start(1);connectButton.click();connectButton.click();dismiss.stop();
     check(warnings==2 && engine->starts==startsBeforeMalformed && !session.isActive() && store->values==nativeBeforeMalformed,
         "repeated malformed configuration attempts cannot start authentication or change native credentials");

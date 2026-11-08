@@ -715,25 +715,15 @@
      <string>File</string>
     </property>
     <addaction name="inspectNetworkAction" />
-    <addaction name="clearAuthenticationCacheAction" />
-    <addaction name="clearClientDataAction" />
     <addaction name="separator" />
     <addaction name="openLogAction" />
     <addaction name="preferencesAction" />
-    <addaction name="settingAction" />
     <addaction name="exitAction" />
    </widget>
    <widget class="QMenu" name="profileMenu">
     <property name="title">
-     <string>Profiles</string>
+     <string>Connections</string>
     </property>
-    <widget class="QMenu" name="profileMaintenanceMenu">
-     <property name="title">
-      <string>Profile maintenance</string>
-     </property>
-     <addaction name="clearAuthenticationCacheAction" />
-     <addaction name="clearClientDataAction" />
-    </widget>
    </widget>
    <widget class="QMenu" name="helpMenu">
     <property name="title">
@@ -773,7 +763,7 @@
   </action>
   <action name="settingAction">
    <property name="text">
-    <string>Edit connection…</string>
+    <string>Edit current connection…</string>
    </property>
    <property name="menuRole">
     <enum>QAction::MenuRole::NoRole</enum>

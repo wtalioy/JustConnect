@@ -57,6 +57,7 @@ QSpinBox::down-button { subcontrol-origin: border; subcontrol-position: bottom r
 QSpinBox::up-arrow { image: url(:/resource/chevron-up.svg); width: 12px; height: 12px; }
 QSpinBox::down-arrow { image: url(:/resource/chevron.svg); width: 12px; height: 12px; }
 QCheckBox { spacing: 8px; color: #263143; min-height: 30px; }
+QCheckBox::indicator { subcontrol-position: left center; }
 QGroupBox { font-size: 12pt; font-weight: 700; background: transparent; border: none; margin-top: 22px; padding: 8px 0 0; color: #182132; }
 /* Qt centers the heading in a native label rectangle that includes a trailing space. */
 QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: -0.15em; }

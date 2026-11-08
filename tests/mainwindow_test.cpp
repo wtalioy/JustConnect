@@ -1,3 +1,4 @@
+#include <algorithm>
 #include "presentation/browser/signinbrowser.h"
 #include "presentation/presentationhelpers.h"
 #include "presentation/main/mainwindow.h"
@@ -144,11 +145,11 @@ static void profileMenusKeepTheirActions(MainWindow &window,const QString &profi
         choice->trigger();
         check(checked(menu)==name && checked(trayMenu)==name && checked(menuBarProfiles)==name,
             "home, tray and native profile selections stay synchronized");
-        check(name==profile ? menuButton->text().contains("vpn.other-campus.invalid") && menuButton->text().contains(profile)
-                            : menuButton->text()=="Fudan",
-            "home identifies the selected preset or server together with a named profile");
+        check(menuButton->text()==name && menuButton->toolTip().contains(
+            name==profile ? "vpn.other-campus.invalid" : "vpn.fudan.edu.cn"),
+            "home shows the selected connection name and its tooltip shows the server address");
         const auto accessible=QAccessible::queryAccessibleInterface(menuButton);
-        check(accessible && accessible->text(QAccessible::Name).contains(name==profile ? "vpn.other-campus.invalid" : "Fudan"),
+        check(accessible && accessible->text(QAccessible::Name).contains(name),
             "the current preset or server is also available to a screen reader");
         check(window.findChildren<QActionGroup *>().size()==groups
             && menu->actions()==homeActions && trayMenu->actions()==trayActions && menuBarProfiles->actions()==menuBarActions,
@@ -412,13 +413,18 @@ static void nativeHome(MainWindow &window, ApplicationLogger &logger) {
         && window.windowIcon().pixmap(24,24).toImage()==mark,
         "the disconnected tray and window render the same link artwork");
     auto *appMenu=window.findChild<QToolButton *>("applicationMenuButton")->menu();
-    auto *maintenance=window.findChild<QMenu *>("profileMaintenanceMenu");
+    auto *connections=window.findChild<QToolButton *>("profileMenuButton")->menu();
     check(appMenu->actions().contains(window.findChild<QAction *>("exitAction"))
         && appMenu->actions().contains(window.findChild<QAction *>("aboutAction"))
         && appMenu->actions().contains(window.findChild<QAction *>("checkUpdateAction"))
-        && maintenance->actions().contains(window.findChild<QAction *>("clearAuthenticationCacheAction"))
-        && maintenance->actions().contains(window.findChild<QAction *>("clearClientDataAction")),
-        "application and profile actions are accessible directly from home");
+        && connections->actions().contains(window.findChild<QAction *>("clearAuthenticationCacheAction"))
+        && connections->actions().contains(window.findChild<QAction *>("clearClientDataAction")),
+        "application and connection actions are accessible directly from home");
+    const auto connectionActions = connections->actions();
+    check(connectionActions.first()->isChecked()
+        && connectionActions.first()->text()=="Fudan"
+        && std::none_of(connectionActions.cbegin(), connectionActions.cend(), [](QAction *action) { return action->menu(); }),
+        "the selected Fudan connection appears first and every management action is directly reachable");
     check(details && details->isWindow() && !details->isVisible() && !log->isVisible(),"home keeps diagnostics in a separate closed native dialog");
     check(!window.findChild<QLabel *>("applicationNameLabel") && !window.windowIcon().isNull(),"branding appears once in the native window frame");
     check(window.findChild<QPushButton *>("connectButton")->isVisible() && qApp->styleHints()->colorScheme()!=Qt::ColorScheme::Dark,
@@ -498,13 +504,20 @@ static void nativeHome(MainWindow &window, ApplicationLogger &logger) {
         check(details->isVisible() && session->state()==state,"reopening details preserves the session");
         details->reject();QCoreApplication::processEvents();
     }
-    window.findChild<QPushButton *>("connectButton")->click();QCoreApplication::processEvents();
-    auto *initial=window.findChild<SettingWindow *>();
-    check(initial && initial->isVisible() && !initial->findChild<QComboBox *>("languageComboBox")
-        && initial->findChild<QPushButton *>("saveProfileButton")->text()=="Save and connect",
-        "an unconfigured connection opens the shared editor without a welcome dialog or wizard");
-    initial->reject();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
-    check(session->state()==state,"cancelling implicit setup never starts a session");
+    window.findChild<QAction *>("settingAction")->trigger();
+    auto *initial = window.findChild<SettingWindow *>();
+    check(initial && initial->isVisible(), "the first connection can be edited directly");
+    auto *preset = initial->findChild<QComboBox *>("profileKindComboBox");
+    auto *method = initial->findChild<QComboBox *>("authTypeComboBox");
+    check(preset->currentData()=="Fudan" && method->currentData()=="httpsOauth2",
+        "a fresh installation opens Fudan with Web sign-in selected");
+    preset->setCurrentIndex(preset->findData("Custom"));
+    check(method->currentData().toString().isEmpty(), "a new custom server requires its own sign-in method");
+    preset->setCurrentIndex(preset->findData("Fudan"));
+    check(method->currentData()=="httpsOauth2", "choosing Fudan restores its Web sign-in method");
+    initial->reject();
+    QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    check(session->state()==state, "preset selection and cancelling the editor do not start a session");
     auto *gear=window.findChild<QToolButton *>("preferencesButton");
     check(!gear->menu(),"the settings gear opens settings without an extra menu layer");
     gear->click();QCoreApplication::processEvents();
@@ -579,22 +592,27 @@ int main(int argc,char **argv) {
     ApplicationLogger logger;ApplicationLogFile log(folder.filePath("app.log"));
     {
         ProfileManager manager;
-        QSettings settings(manager.profilePath(""),QSettings::IniFormat);DefaultSettings::reset(settings);settings.sync();
+        QSettings settings(manager.profilePath(""),QSettings::IniFormat);
+        const bool native = app.arguments().contains("--native-home");
+        if (!native) { DefaultSettings::reset(settings); settings.sync(); }
         if (app.arguments().contains("--chinese-startup")) check(manager.setApplicationPreferences("zh_CN",true),"prepare persisted Chinese preference");
         if (app.arguments().contains("--invalid-language")) {
             QSettings state(QDir(configRoot).filePath("state.ini"),QSettings::IniFormat);state.setValue("Global/Language","unsupported");state.sync();
         }
         QLocale::setDefault(QLocale(QLocale::Chinese,QLocale::China));
         QString menuProfile;
-        const bool native = app.arguments().contains("--native-home");
         if (native) {
-            menuProfile=manager.createProfile("menu-fixture",manager.profilePath(""));
+            menuProfile=manager.createProfile("menu-fixture",{});
             check(!menuProfile.isEmpty(),"create an isolated profile for menu switching");
         }
         if (app.arguments().size()==1) recoveryStatus(logger,log);
         // UI preference tests retain the real core without requesting host network privileges.
         MainWindow window(&logger,&log,nullptr,[](CoreEngine *,NetworkPolicySession *) -> NetworkAccess * { return nullptr; });
         check(window.isVisible(),"normal startup must show the main window");
+        settings.sync();
+        check(settings.value("JustConnect/ServerAddress")=="vpn.fudan.edu.cn"
+            && settings.value("JustConnect/AuthType")=="httpsOauth2",
+            "startup persists the ready-to-use Fudan connection");
         check(window.focusWidget()==window.centralWidget(),"startup leaves focus on the home surface");
         if (app.arguments().contains("--auth-language")) authenticationLanguageChangesPreserveData(window);
         if (app.arguments().contains("--profile-language")) profileSetupLanguageChangesPreserveData(window);

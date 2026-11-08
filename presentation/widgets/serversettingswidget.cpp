@@ -110,8 +110,8 @@ void ServerSettingsWidget::retranslate() {
     const auto builtIn=DefaultSettings::builtInProfile().value("JustConnect/ProfileKind").toString();
     preset->setItemText(preset->findData(builtIn),PresentationHelpers::profileKindLabel(builtIn));
     preset->setItemText(preset->findData("Custom"),PresentationHelpers::profileKindLabel("Custom"));
-    qobject_cast<QLabel *>(form->labelForField(preset))->setText(tr("Server preset"));
-    qobject_cast<QLabel *>(form->labelForField(address))->setText(tr("Server"));
+    qobject_cast<QLabel *>(form->labelForField(preset))->setText(tr("Preset"));
+    qobject_cast<QLabel *>(form->labelForField(address))->setText(tr("Address"));
     qobject_cast<QLabel *>(form->labelForField(port))->setText(tr("Port"));
     verify->setText(tr("Verify server certificate"));
     warning->setText(tr("The server's identity will not be verified."));

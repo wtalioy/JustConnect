@@ -349,12 +349,6 @@ This connection remains usable. You may need to sign in again later.</source>
     </message>
     <message>
         <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="185"/>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="322"/>
-        <source>Saving profile</source>
-        <translation>正在保存配置</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="185"/>
         <source>Wait for the save before connecting.</source>
         <translation>请等待保存完成后再连接。</translation>
     </message>
@@ -362,16 +356,6 @@ This connection remains usable. You may need to sign in again later.</source>
         <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="399"/>
         <source>Error</source>
         <translation>错误</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="193"/>
-        <source>Profile unavailable</source>
-        <translation>配置不可用</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="193"/>
-        <source>The current profile could not be read. Check file permissions and contents, then reopen it.</source>
-        <translation>无法读取当前配置，请检查文件权限与内容后重新打开配置。</translation>
     </message>
     <message>
         <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="142"/>
@@ -438,11 +422,6 @@ You will sign in again for this connection.</source>
         <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="325"/>
         <source>Authentication cache</source>
         <translation>认证缓存</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="325"/>
-        <source>This profile has no bound account cache to clear.</source>
-        <translation>当前配置尚无可清除的已绑定账户。</translation>
     </message>
     <message>
         <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="328"/>
@@ -524,12 +503,6 @@ Clear the authentication cache for </source>
 请检查安装包是否完整及核心 ABI 是否匹配。</translation>
     </message>
     <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="391"/>
-        <source>The profile is invalid or has unsupported legacy options. Use aTrust and supported network settings.</source>
-        <translation>配置无效或含有当前核心不支持的旧选项。
-请使用 aTrust 和受支持的网络设置。</translation>
-    </message>
-    <message>
         <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="394"/>
         <source>Unexpected error. Share the diagnostic log with the developer for investigation.</source>
         <translation>其它错误！
@@ -539,6 +512,26 @@ Clear the authentication cache for </source>
         <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="141"/>
         <source>Disconnecting…</source>
         <translation>正在断开…</translation>
+    </message>
+    <message>
+        <source>Connection unavailable</source>
+        <translation>无法使用此连接</translation>
+    </message>
+    <message>
+        <source>Saving connection</source>
+        <translation>正在保存连接</translation>
+    </message>
+    <message>
+        <source>The connection settings are invalid or use unsupported legacy options.</source>
+        <translation>连接配置无效，或使用了已停止支持的旧版选项。</translation>
+    </message>
+    <message>
+        <source>The current connection settings could not be read. Check the file permissions and contents, then reopen the connection.</source>
+        <translation>无法读取当前连接配置。请检查文件权限和内容，再重新打开连接。</translation>
+    </message>
+    <message>
+        <source>This connection has no saved sign-in cache.</source>
+        <translation>此连接没有已保存的登录缓存。</translation>
     </message>
 </context>
 <context>
@@ -706,20 +699,9 @@ Clear the authentication cache for </source>
         <translation>应用菜单</translation>
     </message>
     <message>
-        <source>Profile maintenance</source>
-        <translation>配置维护</translation>
-    </message>
-    <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="91"/>
         <source>Update available</source>
         <translation>UI 版本更新</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="380"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="687"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="716"/>
-        <source>Saving profile</source>
-        <translation>正在保存配置</translation>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="380"/>
@@ -755,19 +737,9 @@ Clear the authentication cache for </source>
         <translation>清理旧版缓存</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="199"/>
-        <source>Delete this profile&apos;s legacy cache and its quarantined copy in secure storage? This unbound data is not used for login. Current account caches, passwords, TOTP and other profiles are preserved.</source>
-        <translation>删除当前配置的旧版缓存文件及其系统凭据库隔离副本？这些材料未绑定账户，不用于登录。当前账户认证缓存、密码、TOTP 和其他配置保持不变。</translation>
-    </message>
-    <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="204"/>
         <source>Legacy data cleanup incomplete</source>
         <translation>旧版缓存清理未完成</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="205"/>
-        <source>Legacy data cleared for the current profile</source>
-        <translation>已清理当前配置的旧版缓存</translation>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="287"/>
@@ -783,14 +755,6 @@ Clear the authentication cache for </source>
         <location filename="../../presentation/main/mainwindow.cpp" line="351"/>
         <source>JustConnect is running in the system tray. Click its icon to restore the window; use Exit to quit.</source>
         <translation>程序继续在系统托盘运行，单击图标可恢复窗口；退出请使用菜单。</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="400"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="523"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="614"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="624"/>
-        <source>Default</source>
-        <translation>默认</translation>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.ui" line="172"/>
@@ -1051,24 +1015,10 @@ No authorized probe resource or campus DNS is available. Check the target and ga
         <translation>尚未配置服务器</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="692"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="330"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="564"/>
-        <source>Profiles</source>
-        <translation>配置选择</translation>
-    </message>
-    <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="330"/>
         <location filename="../../presentation/main/mainwindow.cpp" line="565"/>
         <source>Show window</source>
         <translation>显示主界面</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="329"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="591"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="727"/>
-        <source>New profile</source>
-        <translation>新建配置</translation>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="93"/>
@@ -1081,83 +1031,10 @@ No authorized probe resource or campus DNS is available. Check the target and ga
         <translation>打开页面</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="329"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="592"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="767"/>
-        <source>Rename profile</source>
-        <translation>重命名当前配置</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="329"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="593"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="817"/>
-        <source>Delete profile</source>
-        <translation>删除当前配置</translation>
-    </message>
-    <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="355"/>
         <location filename="../../presentation/main/mainwindow.cpp" line="483"/>
         <source>System tray unavailable. Use Exit in the application menu to quit.</source>
         <translation>系统托盘不可用，可在应用菜单中选择“退出”。</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="540"/>
-        <source>Connection profile: %1</source>
-        <translation>连接配置：%1</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="681"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="696"/>
-        <source>Could not switch profile</source>
-        <translation>切换失败</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="681"/>
-        <source>Disconnect before switching profiles.</source>
-        <translation>请先断开 VPN 连接，再切换配置。</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="687"/>
-        <source>Wait for the save before switching profiles.</source>
-        <translation>请等待保存完成后再切换。</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="696"/>
-        <source>Could not save the current profile or read the selected profile. Check file permissions and contents. Your selection is unchanged.</source>
-        <translation>无法保存当前配置或读取目标配置，请检查文件权限及内容后重试。当前选择未改变。</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="709"/>
-        <source>Switched profile: </source>
-        <translation>已切换到配置：</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="716"/>
-        <source>Wait for the save before creating a profile.</source>
-        <translation>请等待保存完成后再创建配置。</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="720"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="746"/>
-        <source>Could not create profile</source>
-        <translation>新建失败</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="720"/>
-        <source>Disconnect before creating a profile.</source>
-        <translation>请先断开 VPN 连接，再新建配置。</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="728"/>
-        <source>Profile name:
-Use letters, numbers, underscores or hyphens.</source>
-        <translation>请输入配置名称：
-（仅支持字母、数字、下划线和连字符）</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="746"/>
-        <source>The new profile could not be created.</source>
-        <translation>无法创建新配置。</translation>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="764"/>
@@ -1165,73 +1042,9 @@ Use letters, numbers, underscores or hyphens.</source>
         <translation>请等待操作完成后再重命名。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="767"/>
-        <source>New profile name:
-Use letters, numbers or underscores.</source>
-        <translation>请输入新配置名称：
-（仅支持字母、数字、下划线）</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="776"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="785"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="798"/>
-        <source>Could not rename profile</source>
-        <translation>重命名失败</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="776"/>
-        <source>The profile name cannot be empty.</source>
-        <translation>配置名称不能为空。</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="785"/>
-        <source>Disconnect before renaming a profile.</source>
-        <translation>请先断开 VPN 连接，再重命名配置。</translation>
-    </message>
-    <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="797"/>
         <source>Rename incomplete</source>
         <translation>重命名未完成</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="797"/>
-        <source>
-Complete the legacy credential migration first, or create a new profile.</source>
-        <translation>
-请先完成旧凭据／缓存迁移，或创建新配置。</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="798"/>
-        <source>The destination exists or this profile cannot be renamed.</source>
-        <translation>目标配置已存在，或当前配置不可重命名。</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="800"/>
-        <source>Profile renamed to: </source>
-        <translation>当前配置已重命名为：</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="806"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="812"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="832"/>
-        <location filename="../../presentation/main/mainwindow.cpp" line="846"/>
-        <source>Could not delete profile</source>
-        <translation>删除失败</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="806"/>
-        <source>External profiles cannot be deleted here.</source>
-        <translation>外部配置不能在此删除。</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="808"/>
-        <source>Wait for the current operation before deleting a profile.</source>
-        <translation>请等待操作完成后再删除配置。</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="812"/>
-        <source>The default profile cannot be deleted.</source>
-        <translation>默认配置不可删除。</translation>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="820"/>
@@ -1244,29 +1057,9 @@ Complete the legacy credential migration first, or create a new profile.</source
         <translation>取消</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="832"/>
-        <source>Disconnect before deleting a profile.</source>
-        <translation>请先断开 VPN 连接，再删除配置。</translation>
-    </message>
-    <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="842"/>
         <source>Delete incomplete</source>
         <translation>删除未完成</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="842"/>
-        <source>The legacy cache could not be removed, so the profile was preserved. Check access permissions and retry.</source>
-        <translation>旧版缓存未能删除，配置文件已保留。请检查访问权限后重试。</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="846"/>
-        <source>The profile file could not be deleted.</source>
-        <translation>无法删除该配置文件。</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="857"/>
-        <source>Deleted profile: </source>
-        <translation>已删除配置：</translation>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="866"/>
@@ -1277,11 +1070,6 @@ Complete the legacy credential migration first, or create a new profile.</source
         <location filename="../../presentation/main/mainwindow.cpp" line="866"/>
         <source>The previous startup preference could not be saved. The old configuration is preserved for retry.</source>
         <translation>未能保存原有自启动偏好，已保留旧配置以便重试。</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="872"/>
-        <source>Profile migration incomplete</source>
-        <translation>配置迁移未完成</translation>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="872"/>
@@ -1366,11 +1154,6 @@ Complete the legacy credential migration first, or create a new profile.</source
         <translation>关于本软件</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.ui" line="733"/>
-        <source>Edit connection…</source>
-        <translation>编辑连接…</translation>
-    </message>
-    <message>
         <location filename="../../presentation/main/mainwindow.ui" line="725"/>
         <source>Exit</source>
         <translation>退出</translation>
@@ -1432,29 +1215,11 @@ Complete the legacy credential migration first, or create a new profile.</source
         <translation>退出 %1</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="398"/>
-        <source>Welcome to %1
-System: %2
-Profile: %3
-Configuration: %4
-</source>
-        <translation>欢迎使用 %1
-系统版本：%2
-当前配置：%3
-配置路径：%4
-</translation>
-    </message>
-    <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="493"/>
         <source>
 Last %1: %2</source>
         <translation>
 最近%1：%2</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="818"/>
-        <source>The profile file and legacy cache will be deleted. Passwords, TOTP, account caches and quarantined copies in secure storage are preserved. To remove them, first clear passwords and TOTP in Connection settings, then clear account and legacy caches from Profile maintenance in the profile menu.</source>
-        <translation>将删除配置文件和旧版缓存。安全存储中的密码、TOTP、账号缓存及隔离副本会保留。如需移除，请先在“连接配置”中清除密码和 TOTP，再在配置菜单的“配置维护”中清除账号及旧版缓存。</translation>
     </message>
     <message>
         <location filename="../../presentation/main/mainwindow.cpp" line="882"/>
@@ -1472,9 +1237,178 @@ Last %1: %2</source>
         <translation>更新状态：%1</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="819"/>
-        <source>Delete profile &quot;%1&quot;?</source>
-        <translation>确认删除配置“%1”？</translation>
+        <source>
+Complete the legacy credential migration first, or add a new connection.</source>
+        <translation>
+请先完成旧版凭据迁移，或添加新连接。</translation>
+    </message>
+    <message>
+        <source>Add connection…</source>
+        <translation>添加连接…</translation>
+    </message>
+    <message>
+        <source>Connection name:
+Use letters, numbers, underscores or hyphens.</source>
+        <translation>连接名称：
+可使用字母、数字、下划线或连字符。</translation>
+    </message>
+    <message>
+        <source>Connection renamed to: </source>
+        <translation>连接已重命名为：</translation>
+    </message>
+    <message>
+        <source>Connection settings migration incomplete</source>
+        <translation>连接配置迁移未完成</translation>
+    </message>
+    <message>
+        <source>Connections</source>
+        <translation>连接</translation>
+    </message>
+    <message>
+        <source>Could not add connection</source>
+        <translation>无法添加连接</translation>
+    </message>
+    <message>
+        <source>Could not delete connection</source>
+        <translation>无法删除连接</translation>
+    </message>
+    <message>
+        <source>Could not rename connection</source>
+        <translation>无法重命名连接</translation>
+    </message>
+    <message>
+        <source>Could not save the current connection or read the selected connection. Check the file permissions and contents.</source>
+        <translation>无法保存当前连接或读取所选连接。请检查文件权限和内容。</translation>
+    </message>
+    <message>
+        <source>Could not switch connection</source>
+        <translation>无法切换连接</translation>
+    </message>
+    <message>
+        <source>Current connection: %1</source>
+        <translation>当前连接：%1</translation>
+    </message>
+    <message>
+        <source>Delete connection</source>
+        <translation>删除连接</translation>
+    </message>
+    <message>
+        <source>Delete connection “%1”?</source>
+        <translation>删除连接“%1”？</translation>
+    </message>
+    <message>
+        <source>Delete connection…</source>
+        <translation>删除连接…</translation>
+    </message>
+    <message>
+        <source>Delete this connection's legacy cache and its quarantined copy in secure storage? This unbound data is not used for login. Current account caches, passwords, TOTP and other connections are preserved.</source>
+        <translation>删除此连接的旧版缓存及安全存储中的隔离副本？这些未绑定数据不用于登录。当前账号的缓存、密码、动态口令密钥及其他连接会保留。</translation>
+    </message>
+    <message>
+        <source>Deleted connection: </source>
+        <translation>已删除连接：</translation>
+    </message>
+    <message>
+        <source>Deleting this connection removes its settings file and legacy cache. To also remove saved credentials, clear them in Connection settings and use the cache actions in the Connections menu before deleting.</source>
+        <translation>删除连接会移除配置文件和旧版缓存。如需同时清除已保存的凭据，请先在「连接配置」中清除凭据，并通过「连接」菜单清除相关缓存。</translation>
+    </message>
+    <message>
+        <source>Disconnect before adding a connection.</source>
+        <translation>请先断开当前连接，再添加连接。</translation>
+    </message>
+    <message>
+        <source>Disconnect before deleting a connection.</source>
+        <translation>请先断开当前连接，再删除连接。</translation>
+    </message>
+    <message>
+        <source>Disconnect before renaming a connection.</source>
+        <translation>请先断开当前连接，再重命名连接。</translation>
+    </message>
+    <message>
+        <source>Disconnect before switching connections.</source>
+        <translation>请先断开当前连接，再切换连接。</translation>
+    </message>
+    <message>
+        <source>Edit current connection…</source>
+        <translation>编辑当前连接…</translation>
+    </message>
+    <message>
+        <source>External connections cannot be deleted here.</source>
+        <translation>外部连接无法在这里删除。</translation>
+    </message>
+    <message>
+        <source>Legacy data cleared for the current connection</source>
+        <translation>已清除当前连接的旧版数据</translation>
+    </message>
+    <message>
+        <source>New connection name:
+Use letters, numbers, underscores or hyphens.</source>
+        <translation>新连接名称：
+可使用字母、数字、下划线或连字符。</translation>
+    </message>
+    <message>
+        <source>Rename connection…</source>
+        <translation>重命名连接…</translation>
+    </message>
+    <message>
+        <source>Saving connection</source>
+        <translation>正在保存连接</translation>
+    </message>
+    <message>
+        <source>Switched connection: </source>
+        <translation>已切换连接：</translation>
+    </message>
+    <message>
+        <source>The connection name cannot be empty.</source>
+        <translation>连接名称不能为空。</translation>
+    </message>
+    <message>
+        <source>The connection settings file could not be deleted.</source>
+        <translation>无法删除连接配置文件。</translation>
+    </message>
+    <message>
+        <source>The legacy cache could not be removed. The connection was preserved. Check access permissions and retry.</source>
+        <translation>无法删除旧版缓存，连接已保留。请检查访问权限后重试。</translation>
+    </message>
+    <message>
+        <source>The name is already in use or the connection cannot be renamed.</source>
+        <translation>此名称已被使用，或此连接无法重命名。</translation>
+    </message>
+    <message>
+        <source>The new connection could not be created.</source>
+        <translation>无法创建新连接。</translation>
+    </message>
+    <message>
+        <source>The primary connection cannot be deleted.</source>
+        <translation>主连接无法删除。</translation>
+    </message>
+    <message>
+        <source>Unnamed connection</source>
+        <translation>未命名连接</translation>
+    </message>
+    <message>
+        <source>Wait for the current operation before deleting the connection.</source>
+        <translation>请等待当前操作完成，再删除连接。</translation>
+    </message>
+    <message>
+        <source>Wait for the save before adding a connection.</source>
+        <translation>请等待保存完成，再添加连接。</translation>
+    </message>
+    <message>
+        <source>Wait for the save before switching connections.</source>
+        <translation>请等待保存完成，再切换连接。</translation>
+    </message>
+    <message>
+        <source>Welcome to %1
+System: %2
+Connection: %3
+Configuration: %4
+</source>
+        <translation>欢迎使用 %1
+系统：%2
+连接：%3
+配置文件：%4
+</translation>
     </message>
 </context>
 <context>
@@ -1988,16 +1922,6 @@ Some system settings may have changed. Check them before retrying.</source>
         <translation>选择服务器</translation>
     </message>
     <message>
-        <location filename="../../presentation/widgets/serversettingswidget.cpp" line="96"/>
-        <source>Server preset</source>
-        <translation>服务器预设</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/widgets/serversettingswidget.cpp" line="97"/>
-        <source>Server</source>
-        <translation>服务器</translation>
-    </message>
-    <message>
         <location filename="../../presentation/widgets/serversettingswidget.cpp" line="98"/>
         <source>Port</source>
         <translation>端口</translation>
@@ -2048,6 +1972,14 @@ Some system settings may have changed. Check them before retrying.</source>
         <source>Use the local application proxy for domains not published by the gateway.</source>
         <translation>网关未发布的域名请通过应用本地代理访问。</translation>
     </message>
+    <message>
+        <source>Address</source>
+        <translation>地址</translation>
+    </message>
+    <message>
+        <source>Preset</source>
+        <translation>预设</translation>
+    </message>
 </context>
 <context>
     <name>SettingWindow</name>
@@ -2080,16 +2012,6 @@ Some system settings may have changed. Check them before retrying.</source>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="6"/>
         <source>Connection settings</source>
         <translation>连接配置</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="22"/>
-        <source>Server settings</source>
-        <translation>服务器设置</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="49"/>
-        <source>Sign-in method</source>
-        <translation>认证</translation>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="57"/>
@@ -2156,11 +2078,6 @@ Some system settings may have changed. Check them before retrying.</source>
         <translation>重置失败</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="111"/>
-        <source>Could not create a temporary profile.</source>
-        <translation>无法创建临时配置。</translation>
-    </message>
-    <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="339"/>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="356"/>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="116"/>
@@ -2168,26 +2085,10 @@ Some system settings may have changed. Check them before retrying.</source>
         <translation>导入配置</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="116"/>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="128"/>
-        <source>INI profiles (*.ini)</source>
-        <translation>INI 配置文件 (*.ini)</translation>
-    </message>
-    <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="120"/>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="123"/>
         <source>Import failed</source>
         <translation>导入失败</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="120"/>
-        <source>Could not read this profile.</source>
-        <translation>无法读取配置。</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="123"/>
-        <source>Could not prepare this profile. The current draft is unchanged.</source>
-        <translation>无法准备配置，当前设置未修改。</translation>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="372"/>
@@ -2200,11 +2101,6 @@ Some system settings may have changed. Check them before retrying.</source>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="132"/>
         <source>Export failed</source>
         <translation>导出失败</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="132"/>
-        <source>Could not write the export. The current profile cannot be overwritten.</source>
-        <translation>无法提交导出文件；不能覆盖当前配置。</translation>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="169"/>
@@ -2320,19 +2216,8 @@ Some system settings may have changed. Check them before retrying.</source>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="321"/>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="344"/>
-        <source>Profile changed</source>
-        <translation>配置已变化</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="321"/>
         <source>Reopen the editor before clearing credentials.</source>
         <translation>请重新打开设置后再清除凭据。</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="325"/>
-        <source>the current profile</source>
-        <translation>当前配置</translation>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="326"/>
@@ -2375,24 +2260,9 @@ Some system settings may have changed. Check them before retrying.</source>
         <translation>核心不可用</translation>
     </message>
     <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="357"/>
-        <source>Invalid profile</source>
-        <translation>配置无效</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="358"/>
-        <source>Cannot validate this profile. Check the application installation. Nothing was saved.</source>
-        <translation>无法校验配置，请检查应用安装是否完整。配置未保存。</translation>
-    </message>
-    <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="358"/>
         <source>Check the server, sign-in method, ports, DNS and probe target. Nothing was saved.</source>
         <translation>请检查服务器、认证方式、本地端口、DNS 地址及保活目标。配置未保存。</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="367"/>
-        <source>Could not save profile</source>
-        <translation>保存设置未完成</translation>
     </message>
     <message>
         <source>Import</source>
@@ -2405,6 +2275,62 @@ Some system settings may have changed. Check them before retrying.</source>
     <message>
         <source>Reset</source>
         <translation>重置</translation>
+    </message>
+    <message>
+        <source>Cannot validate the connection settings. Check the application installation.</source>
+        <translation>无法验证连接配置。请检查应用安装是否完整。</translation>
+    </message>
+    <message>
+        <source>Connection changed</source>
+        <translation>连接已更改</translation>
+    </message>
+    <message>
+        <source>Could not create temporary connection settings.</source>
+        <translation>无法创建临时连接配置。</translation>
+    </message>
+    <message>
+        <source>Could not export the connection settings. Choose a different file.</source>
+        <translation>无法导出连接配置。请选择另一个文件。</translation>
+    </message>
+    <message>
+        <source>Could not import these connection settings. Your draft was preserved.</source>
+        <translation>无法导入连接配置，已保留当前草稿。</translation>
+    </message>
+    <message>
+        <source>Could not read these connection settings.</source>
+        <translation>无法读取此连接配置。</translation>
+    </message>
+    <message>
+        <source>Could not save connection</source>
+        <translation>无法保存连接</translation>
+    </message>
+    <message>
+        <source>Export connection settings</source>
+        <translation>导出连接配置</translation>
+    </message>
+    <message>
+        <source>INI files (*.ini)</source>
+        <translation>INI 文件 (*.ini)</translation>
+    </message>
+    <message>
+        <source>Import connection settings</source>
+        <translation>导入连接配置</translation>
+    </message>
+    <message>
+        <source>Invalid connection</source>
+        <translation>连接配置无效</translation>
+    </message>
+    <message>
+        <source>Server</source>
+        <translation>服务器</translation>
+    </message>
+    <message>
+        <source>Sign-in</source>
+        <translation>登录</translation>
+    </message>
+    <message>
+        <source>the current connection</source>
+        <translation>当前连接</translation>
     </message>
 </context>
 <context>

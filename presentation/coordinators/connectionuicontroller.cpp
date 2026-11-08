@@ -184,7 +184,7 @@ void ConnectionUiController::enableCampusAccess()
 {
     if (quitting || connectionSession->isActive() || credentialsPending) return;
     if (auto *modal=QApplication::activeModalWidget()) {modal->raise();modal->activateWindow();return;}
-    if (isConfigurationSaving()) {QMessageBox::information(parentWidget,tr("Saving profile"),tr("Wait for the save before connecting."));return;}
+    if (isConfigurationSaving()) {QMessageBox::information(parentWidget,tr("Saving connection"),tr("Wait for the save before connecting."));return;}
     cancelPendingCredentials();
     const auto profile=ProfileService::load(*settings());
     if (settings()->value("Common/NeedsConfiguration",false).toBool() || profile.endpoint.server.isEmpty() || profile.endpoint.authType.isEmpty()) {
@@ -192,7 +192,7 @@ void ConnectionUiController::enableCampusAccess()
     }
     const auto source=credentialSourceProvider();const auto generation=credentialGeneration;
     if (!SettingsMigrator::readableFile(source.path)) {
-        QMessageBox::warning(parentWidget,tr("Profile unavailable"),tr("The current profile could not be read. Check file permissions and contents, then reopen it."));return;
+        QMessageBox::warning(parentWidget,tr("Connection unavailable"),tr("The current connection settings could not be read. Check the file permissions and contents, then reopen the connection."));return;
     }
     credentialsPending=true;refreshActions();
     // The vendor's three desktop clients use aTrustAgent; this is advisory, never ownership or authentication evidence.
@@ -326,10 +326,10 @@ void ConnectionUiController::clearAuthenticationCache()
     if (quitting) return;
     const auto source=credentialSourceProvider();
     if (isConfigurationSaving()) {
-        QMessageBox::information(parentWidget,tr("Saving profile"),tr("Wait for the save before clearing authentication caches."));return;
+        QMessageBox::information(parentWidget,tr("Saving connection"),tr("Wait for the save before clearing authentication caches."));return;
     }
     if (ProfileCredentials::authenticationCacheKey(source.scope,source.profile).isEmpty()) {
-        QMessageBox::information(parentWidget,tr("Authentication cache"),tr("This profile has no bound account cache to clear."));return;
+        QMessageBox::information(parentWidget,tr("Authentication cache"),tr("This connection has no saved sign-in cache."));return;
     }
     const auto account=source.profile.credentials.username.isEmpty() ? source.profile.endpoint.phone : source.profile.credentials.username;
     QMessageBox confirm(QMessageBox::Question,tr("Clear authentication cache"),source.profile.endpoint.server+tr("\nClear the authentication cache for ")+account+tr("? The next connection may require sign-in. Passwords, TOTP and other accounts are preserved."),QMessageBox::Yes|QMessageBox::No,parentWidget);
@@ -395,7 +395,7 @@ void ConnectionUiController::showConnectionError(ConnectionError error)
         message = tr("The core library is unavailable. Check that the package is complete and its ABI matches.");
         break;
     case ConnectionError::INVALID_CONFIGURATION:
-        message = tr("The profile is invalid or has unsupported legacy options. Use aTrust and supported network settings.");
+        message = tr("The connection settings are invalid or use unsupported legacy options.");
         break;
     case ConnectionError::OTHER:
         message = tr("Unexpected error. Share the diagnostic log with the developer for investigation.");

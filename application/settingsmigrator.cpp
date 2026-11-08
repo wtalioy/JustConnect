@@ -35,10 +35,11 @@ bool SettingsMigrator::readableFile(const QString &path)
     return original.status()==QSettings::NoError;
 }
 
-SettingsMigrationAction SettingsMigrator::prepare(QSettings &settings)
+SettingsMigrationAction SettingsMigrator::prepare(QSettings &settings, bool seedManagedDefault)
 {
     if (settings.status()!=QSettings::NoError
         || (QFileInfo::exists(settings.fileName()) && !readableFile(settings.fileName()))) return SettingsMigrationAction::Failed;
+    if (seedManagedDefault) DefaultSettings::initializeBuiltInIfUntouched(settings);
     settings.beginGroup("ZJUConnect");
     const QStringList previousKeys = settings.allKeys();
     settings.endGroup();

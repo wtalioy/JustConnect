@@ -103,8 +103,13 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
     connect(serverEditor,&ServerSettingsWidget::serverChanged,this,[this] {
         cancelQuery();
         clearDraftCredentials();
-        selectedAuthId.clear(); selectedAuthSubType.clear(); selectedAuthDomain.clear();selectedAuthType.clear();
-        resetAuthChoices();updateAuthFields();
+        selectedAuthId.clear(); selectedAuthSubType.clear(); selectedAuthDomain.clear();
+        selectedAuthType = serverEditor->prefersOAuth()
+            ? DefaultSettings::builtInProfile().value("JustConnect/AuthType").toString() : QString();
+        const QSignalBlocker blocker(ui->authTypeComboBox);
+        resetAuthChoices();
+        ui->authTypeComboBox->setCurrentIndex(ui->authTypeComboBox->findData(selectedAuthType));
+        updateAuthFields();
     });
     connect(ui->usernameLineEdit,&QLineEdit::textChanged,this,&SettingWindow::clearDraftCredentials);
     connect(ui->countryCodeLineEdit,&QLineEdit::textChanged,this,&SettingWindow::clearDraftCredentials);
@@ -124,28 +129,28 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
     connect(ui->resetDefaultPushButton,&QPushButton::clicked,this,[this] {
         if (QMessageBox::question(this,tr("Reset draft"),tr("Reset this draft to its defaults? Changes take effect after saving."))!=QMessageBox::Yes) return;
         QTemporaryDir folder;
-        if (!folder.isValid()) { QMessageBox::warning(this,tr("Reset failed"),tr("Could not create a temporary profile.")); return; }
+        if (!folder.isValid()) { QMessageBox::warning(this,tr("Reset failed"),tr("Could not create temporary connection settings.")); return; }
         QSettings draft(folder.filePath("defaults.ini"),QSettings::IniFormat);
         DefaultSettings::reset(draft); loadSettings(draft);
     });
     connect(ui->importPushButton,&QPushButton::clicked,this,[this] {
-        const auto path=QFileDialog::getOpenFileName(this,tr("Import profile"),{},tr("INI profiles (*.ini)"));
+        const auto path=QFileDialog::getOpenFileName(this,tr("Import connection settings"),{},tr("INI files (*.ini)"));
         if (path.isEmpty()) return;
         QTemporaryDir folder;
         QSettings source(path,QSettings::IniFormat);
-        if (!folder.isValid() || source.status()!=QSettings::NoError) { QMessageBox::warning(this,tr("Import failed"),tr("Could not read this profile.")); return; }
+        if (!folder.isValid() || source.status()!=QSettings::NoError) { QMessageBox::warning(this,tr("Import failed"),tr("Could not read these connection settings.")); return; }
         QSettings draft(folder.filePath("import.ini"),QSettings::IniFormat);
         if (!SettingsMigrator::publicDraft(source,draft)) {
-            QMessageBox::warning(this,tr("Import failed"),tr("Could not prepare this profile. The current draft is unchanged.")); return;
+            QMessageBox::warning(this,tr("Import failed"),tr("Could not import these connection settings. Your draft was preserved.")); return;
         }
         loadSettings(draft);
     });
     connect(ui->exportPushButton,&QPushButton::clicked,this,[this] {
-        const auto path=QFileDialog::getSaveFileName(this,tr("Export saved profile"),{},tr("INI profiles (*.ini)"));
+        const auto path=QFileDialog::getSaveFileName(this,tr("Export connection settings"),{},tr("INI files (*.ini)"));
         if (path.isEmpty()) return;
         settings.sync();
         if (settings.status()!=QSettings::NoError || !SettingsMigrator::readableFile(settings.fileName()) || !DefaultSettings::exportTo(settings,path))
-            QMessageBox::warning(this,tr("Export failed"),tr("Could not write the export. The current profile cannot be overwritten."));
+            QMessageBox::warning(this,tr("Export failed"),tr("Could not export the connection settings. Choose a different file."));
     });
     readCredentials();
     resize(600,680);
@@ -335,11 +340,11 @@ void SettingWindow::readCredentials() {
 void SettingWindow::clearCredentials() {
     if (closed || !profileEditable || loading || saving) return;
     if (!CredentialAccess::matches(credentialSource,settings)) {
-        QMessageBox::warning(this,tr("Profile changed"),tr("Reopen the editor before clearing credentials."));return;
+        QMessageBox::warning(this,tr("Connection changed"),tr("Reopen the editor before clearing credentials."));return;
     }
     auto account=credentialSource.profile.credentials.username;
     if (account.isEmpty()) account=credentialSource.profile.endpoint.phone;
-    if (account.isEmpty()) account=tr("the current profile");
+    if (account.isEmpty()) account=tr("the current connection");
     if (QMessageBox::question(this,tr("Clear saved credentials"),tr("Clear saved passwords and authenticator keys for %1? Other accounts are unaffected.").arg(account))!=QMessageBox::Yes) return;
     const auto source=credentialSource;++loadGeneration;saving=true;updateBusy();
     credentials->clear(source).then(this,[this](const CredentialResult &result) {
@@ -358,7 +363,7 @@ void SettingWindow::clearCredentials() {
 void SettingWindow::saveSettings() {
     if (closed || !profileEditable || loading || saving) return;
     if (!CredentialAccess::matches(credentialSource,settings) || credentialSource.publicValues!=DefaultSettings::publicValues(settings)) {
-        QMessageBox::warning(this,tr("Profile changed"),tr("Reopen the editor before applying changes."));return;
+        QMessageBox::warning(this,tr("Connection changed"),tr("Reopen the editor before applying changes."));return;
     }
     auto profile=currentProfile();
     if (profile.authenticationIdentity()==credentialSource.profile.authenticationIdentity()) {
@@ -371,8 +376,8 @@ void SettingWindow::saveSettings() {
     const auto validation=EmbeddedCoreEngine::validateConfiguration(profile);
     if (validation!=ConnectionError::NONE) {
         const bool unavailable=validation==ConnectionError::CORE_UNAVAILABLE;
-        QMessageBox::warning(this,unavailable ? tr("Core unavailable") : tr("Invalid profile"),
-            unavailable ? tr("Cannot validate this profile. Check the application installation. Nothing was saved.") : tr("Check the server, sign-in method, ports, DNS and probe target. Nothing was saved."));return;
+        QMessageBox::warning(this,unavailable ? tr("Core unavailable") : tr("Invalid connection"),
+            unavailable ? tr("Cannot validate the connection settings. Check the application installation.") : tr("Check the server, sign-in method, ports, DNS and probe target. Nothing was saved."));return;
     }
     const auto changes=publicChanges();
     const bool edited=(!ui->passwordLineEdit->text().isEmpty() && ui->passwordLineEdit->text()!=loadedCredentials.password)
@@ -381,7 +386,7 @@ void SettingWindow::saveSettings() {
     credentials->save(source,profile,edited,changes).then(this,[this,source,profile](const CredentialResult &result) {
         if (closed) return;
         saving=false;updateBusy();
-        if (!result.succeeded()) {QMessageBox::warning(this,tr("Could not save profile"),PresentationHelpers::credentialOperationMessage(result.status));return;}
+        if (!result.succeeded()) {QMessageBox::warning(this,tr("Could not save connection"),PresentationHelpers::credentialOperationMessage(result.status));return;}
         if (settings.fileName()!=source.path || settings.value(ProfileCredentials::ScopeSetting)!=source.scope) return;
         credentialSource=CredentialAccess::source(settings,source.legacyCachePath);
         accept();if(connectAfterSave)emit connectRequested();

@@ -15,6 +15,7 @@
 #include <QWindow>
 #include <QLineEdit>
 #include <QComboBox>
+#include <QCheckBox>
 #include <QAbstractItemView>
 #include <QStandardItemModel>
 #include <QSpinBox>
@@ -50,6 +51,16 @@ protected:
 int main(int argc,char **argv) {
     QApplication app(argc,argv);
     ApplicationAppearance::install();
+    QCheckBox checkbox("Verify server certificate");
+    checkbox.resize(240, 36);
+    checkbox.ensurePolished();
+    QStyleOptionButton checkboxOption;
+    checkboxOption.initFrom(&checkbox);
+    checkboxOption.text = checkbox.text();
+    const auto indicator = checkbox.style()->subElementRect(QStyle::SE_CheckBoxIndicator, &checkboxOption, &checkbox);
+    const auto checkboxCaption = checkbox.style()->subElementRect(QStyle::SE_CheckBoxContents, &checkboxOption, &checkbox);
+    check(!indicator.isEmpty() && !checkboxCaption.isEmpty() && qAbs(indicator.center().y()-checkboxCaption.center().y())<=1,
+        "the checkbox indicator and caption share a vertical center in the active native style");
     QMainWindow dialog;
     QPushButton disconnect("Disconnect",&dialog);
     disconnect.setObjectName("connectButton");

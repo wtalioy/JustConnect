@@ -71,6 +71,7 @@ private:
 
     void updateConnectionState(ConnectionState state);
 
+    QString connectionName() const;
     void updateProfileSummary();
 
     void showNotification(
@@ -104,6 +105,7 @@ private:
     QAction *trayConnectAction;
     QAction *trayShowAction;
     QAction *trayCloseAction;
+    QAction *connectionActionsSeparator;
     QActionGroup *switchGroup;
     QActionGroup *traySwitchGroup;
     QAction *newProfileAction;

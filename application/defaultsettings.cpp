@@ -8,6 +8,7 @@
 #include <QVariant>
 
 #include "application/applicationconstants.h"
+#include "application/profilecredentials.h"
 #include "core/connectionprofile.h"
 
 namespace {
@@ -65,6 +66,21 @@ void apply(QSettings &settings, bool overwrite)
 
 void DefaultSettings::reset(QSettings &settings) { apply(settings, true); }
 void DefaultSettings::initialize(QSettings &settings) { apply(settings, false); }
+
+void DefaultSettings::initializeBuiltInIfUntouched(QSettings &settings)
+{
+    const auto keys = settings.allKeys();
+    if (!keys.isEmpty() && settings.value("Common/ConfigVersion").toInt() != ApplicationConstants::ConfigVersion)
+        return;
+    for (const auto &key : keys) {
+        if (key == "Common/ConfigVersion" || key == ProfileCredentials::ScopeSetting) continue;
+        if (!defaults().contains(key) || settings.value(key).toString() != defaults().value(key).toString())
+            return;
+    }
+    const auto &preset = builtInProfile();
+    for (auto it = preset.cbegin(); it != preset.cend(); ++it)
+        settings.setValue(it.key(), it.value());
+}
 
 bool DefaultSettings::isPublicKey(const QString &key)
 {

@@ -19,7 +19,7 @@
        <item>
         <widget class="QGroupBox" name="serverGroup">
          <property name="title">
-          <string>Server settings</string>
+          <string>Server</string>
          </property>
          <layout class="QVBoxLayout" name="serverLayout">
           <item>
@@ -46,7 +46,7 @@
        <item>
         <widget class="QGroupBox" name="authInfoGroupBox">
          <property name="title">
-          <string>Sign-in method</string>
+          <string>Sign-in</string>
          </property>
          <layout class="QVBoxLayout" name="authLayout">
           <item>
