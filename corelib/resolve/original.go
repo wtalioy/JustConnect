@@ -215,8 +215,8 @@ func (r *Resolver) OriginalDNSProtectedIP(ctx context.Context, address netip.Add
 	if !captured && r.ProtectionPolicy != nil {
 		snapshot = r.ProtectionPolicy()
 	}
-	r.cacheMu.Lock()
-	defer r.cacheMu.Unlock()
+	r.cacheMu.RLock()
+	defer r.cacheMu.RUnlock()
 	protectedIP := false
 	for _, binding := range r.dnsBindings[address.Unmap()] {
 		if !binding.original {

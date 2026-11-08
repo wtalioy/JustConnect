@@ -38,17 +38,22 @@ func (r *Resolver) dnsRecords(original bool) map[string][]string {
 	if closed {
 		return nil
 	}
-	r.cacheMu.Lock()
-	defer r.cacheMu.Unlock()
+	r.cacheMu.RLock()
 	result := make(map[string][]string)
 	now := time.Now()
 	for address, bindings := range r.dnsBindings {
+		var text string
 		for _, binding := range bindings {
-			if (original || binding.expires.After(now)) && binding.original == original {
-				result[binding.host] = append(result[binding.host], address.String())
+			if binding.original != original || (!original && !binding.expires.After(now)) {
+				continue
 			}
+			if text == "" {
+				text = address.String()
+			}
+			result[binding.host] = append(result[binding.host], text)
 		}
 	}
+	r.cacheMu.RUnlock()
 	for host := range result {
 		slices.Sort(result[host])
 		result[host] = slices.Compact(result[host])
@@ -226,8 +231,8 @@ func (r *Resolver) campusResources(ctx context.Context, address netip.Addr, name
 	if !captured && r.ProtectionPolicy != nil {
 		snapshot = r.ProtectionPolicy()
 	}
-	r.cacheMu.Lock()
-	defer r.cacheMu.Unlock()
+	r.cacheMu.RLock()
+	defer r.cacheMu.RUnlock()
 	var result client.DomainResources
 	ttl := r.dnsTTL
 	now := time.Now()
