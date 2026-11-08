@@ -120,6 +120,10 @@ int main(int argc, char **argv) try
         if (!applied.succeeded()) std::cerr << QJsonDocument(readMacRoutes().rows).toJson().constData();
         check(applied.succeeded(),qPrintable(applied.detail));
         check(capture.snapshot()["routes"].toArray().size() == 2 && routes(first).size() == 1 && routes(second).size() == 1, "Applied captures differ from their ownership record");
+        for (const auto &prefix : {first, second}) {
+            const auto selected = readMacRoutes(prefix);
+            check(selected.result.succeeded() && selected.rows == routes(prefix), "Targeted route snapshot differs from the full native snapshot");
+        }
         const auto lookup = runPlatformCommand("/sbin/route", {"-n","get","198.18.1.1"},5000, QProcessEnvironment{});
         check(lookup.result.succeeded() && lookup.output.contains("interface: "+device.name()), "The actual subnet destination did not select the owned utun");
         check(capture.extend(device,{"198.18.0.7","198.18.0.7","198.18.1.1"},checkpoint).succeeded()

@@ -11,12 +11,6 @@
 namespace {
 using Result = PlatformOperationResult;
 using Status = Result::Status;
-QJsonArray matching(const QJsonArray &rows, const QString &prefix)
-{
-    QJsonArray result;
-    for (const auto &row : rows) if (row.toObject()["prefix"] == prefix) result.append(row);
-    return result;
-}
 bool unscopedRoute(const QJsonArray &rows, const QString &prefix)
 {
     for (const auto &value : rows) {
@@ -27,8 +21,12 @@ bool unscopedRoute(const QJsonArray &rows, const QString &prefix)
 }
 int exactMatches(const QJsonArray &rows, const QJsonObject &applied)
 {
+    const auto prefix = applied["prefix"];
     int count = 0;
-    for (const auto &row : rows) if (row.toObject() == applied) ++count;
+    for (const auto &value : rows) {
+        const auto row = value.toObject();
+        if (row["prefix"] == prefix && row == applied) ++count;
+    }
     return count;
 }
 bool utunName(const QString &name)
@@ -146,7 +144,7 @@ Result MacTunRoutes::extend(const MacTunDevice &device, const QStringList &addre
     const auto current = readMacRoutes();
     if (!current.result.succeeded()) return current.result;
     for (const auto &entry : entries)
-        if (entry.deleting || entry.applied.isEmpty() || exactMatches(matching(current.rows,entry.prefix),entry.applied) != 1)
+        if (entry.deleting || entry.applied.isEmpty() || exactMatches(current.rows,entry.applied) != 1)
             return {Status::Failed,"Existing capture ownership changed before DNS publication.",true};
     QStringList additions;
     for (const auto &address : addresses) {
@@ -175,7 +173,7 @@ Result MacTunRoutes::reconcile(const MacTunDevice &device, const QStringList &pr
     if (!current.result.succeeded()) return current.result;
     QStringList before, additions, removals;
     for (const auto &entry : entries) {
-        if (entry.deleting || entry.applied.isEmpty() || exactMatches(matching(current.rows,entry.prefix),entry.applied) != 1)
+        if (entry.deleting || entry.applied.isEmpty() || exactMatches(current.rows,entry.applied) != 1)
             return {Status::Failed,"Capture ownership changed before reconciliation.",true};
         before.append(entry.prefix);
         if (!prefixes.contains(entry.prefix)) removals.append(entry.prefix);
@@ -202,23 +200,22 @@ Result MacTunRoutes::append(const QStringList &prefixes, const CheckpointWriter 
     QDeadlineTimer deadline(MacRouteOperationTimeoutMs);
     const auto failed = [](Result result) { result.mayHaveChanged = true; return result; };
     for (const auto &prefix : prefixes) {
-        const auto before = readMacRoutes();
+        const auto before = readMacRoutes(prefix);
         if (!before.result.succeeded()) return failed(before.result);
         if (!identity() || unscopedRoute(before.rows, prefix)) return failed({Status::Failed, "Route or utun identity changed before capture."});
         entries.append({prefix, {}, false});
         if (const auto saved = save(checkpoint); !saved.succeeded()) { entries.removeLast(); return failed(saved); }
-        const auto verified = readMacRoutes();
+        const auto verified = readMacRoutes(prefix);
         if (!verified.result.succeeded()) { entries.removeLast(); return failed(verified.result); }
         if (!identity() || unscopedRoute(verified.rows, prefix)) {
             entries.removeLast(); return failed({Status::Failed, "Capture state changed while publishing intent."});
         }
         const auto written = change("add", prefix, int(deadline.remainingTime()));
-        const auto after = readMacRoutes();
+        const auto after = readMacRoutes(prefix);
         if (!after.result.succeeded()) return failed(after.result);
-        const auto rows = matching(after.rows, prefix);
         if (!written.succeeded()) return failed(written);
         QJsonArray owned;
-        for (const auto &row : rows) if (shape(row.toObject())) owned.append(row);
+        for (const auto &row : after.rows) if (shape(row.toObject())) owned.append(row);
         if (!identity() || owned.size() != 1)
             return failed({Status::Failed, "Cannot confirm the complete applied capture route."});
         entries.last().applied = owned.first().toObject();
@@ -285,9 +282,9 @@ Result MacTunRoutes::remove(const QStringList &prefixes, const CheckpointWriter 
     bool unresolved = false;
     for (auto it = entries.begin(); it != entries.end();) {
         if (!prefixes.contains(it->prefix)) { ++it; continue; }
-        auto read = readMacRoutes();
+        auto read = readMacRoutes(it->prefix);
         if (!read.result.succeeded()) { read.result.mayHaveChanged = true; return read.result; }
-        const auto rows = matching(read.rows, it->prefix);
+        const auto &rows = read.rows;
         const int exact = exactMatches(rows,it->applied);
         if (rows.isEmpty() || (!it->applied.isEmpty() && exact == 0)) {
             it = entries.erase(it); continue;
@@ -295,17 +292,16 @@ Result MacTunRoutes::remove(const QStringList &prefixes, const CheckpointWriter 
         if (exact != 1 || it->applied.isEmpty() || it->deleting) { unresolved = true; ++it; continue; }
         it->deleting = true;
         if (const auto saved = save(checkpoint); !saved.succeeded()) { it->deleting = false; return saved; }
-        const auto verified = readMacRoutes();
-        if (!verified.result.succeeded() || !identity() || exactMatches(matching(verified.rows, it->prefix),it->applied) != 1) {
+        const auto verified = readMacRoutes(it->prefix);
+        if (!verified.result.succeeded() || !identity() || exactMatches(verified.rows,it->applied) != 1) {
             it->deleting = false; const auto saved = save(checkpoint);
             if (!saved.succeeded()) return saved;
             return {Status::Failed, "Capture route changed while publishing deletion; it was preserved.", true};
         }
         auto removed = change("delete", it->prefix, int(deadline.remainingTime()));
-        auto after = readMacRoutes();
+        auto after = readMacRoutes(it->prefix);
         if (!after.result.succeeded()) { after.result.mayHaveChanged = true; return after.result; }
-        const auto remaining = matching(after.rows, it->prefix);
-        if (exactMatches(remaining,it->applied) == 0) it = entries.erase(it);
+        if (exactMatches(after.rows,it->applied) == 0) it = entries.erase(it);
         else {
             removed.mayHaveChanged = true;
             return removed.succeeded() ? Result{Status::Failed, "Cannot confirm capture removal; ownership is retained.", true} : removed;

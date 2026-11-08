@@ -10,7 +10,7 @@
 struct MacRouteSnapshot { PlatformOperationResult result; QJsonArray rows; };
 inline constexpr qsizetype MacRouteSnapshotRows = 4096;
 inline constexpr int MacRouteOperationTimeoutMs = 10000;
-MacRouteSnapshot readMacRoutes();
+MacRouteSnapshot readMacRoutes(const QString &onlyPrefix = {});
 QString macRoutePrefix(const QJsonObject &addresses, quint32 flags);
 QString macBootSession();
 
