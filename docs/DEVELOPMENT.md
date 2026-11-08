@@ -249,14 +249,14 @@ Fudan Windows 实机验收步骤：启用记住认证并连接；分别测试普
 
 ## S8 实测步骤
 
-下列 [`3f6ba6f` 预览构建](https://github.com/wtalioy/JustConnect/actions/runs/42454884423) 是单实例重构前的基线。待重构预览包通过检查后更新下载入口。测试前先从托盘或菜单栏退出旧版，保留现有配置和 Tailscale。
+使用 [`c1bee9e` 预览构建](https://github.com/wtalioy/JustConnect/actions/runs/42459643616)。测试前先从托盘或菜单栏退出旧版，保留现有配置和 Tailscale。
 
-- **Windows x64**。下载并完整解压 [Windows 预览包](https://github.com/wtalioy/JustConnect/actions/runs/42454884423/artifacts/13607337088)，运行 `JustConnect.exe`。本轮退出 Clash，用来补无 Clash 的主路径。按下方命令检查同一台通常可直连的 Tailscale 设备，分别在连接前、校园接管就绪后和断开后运行一次。
-- **Apple Silicon**。在 Mac 终端用 GitHub CLI 下载 [Apple Silicon 预览包](https://github.com/wtalioy/JustConnect/actions/runs/42454884423/artifacts/13606533915)并挂载 DMG。从 Finder 把完整应用拷入「应用程序」后打开。本轮确认菜单栏能恢复主窗口，并在断开后用菜单退出应用。浏览器下载后的 macOS 首次打开路径仍待验证，见[签名与部署说明](#不需申请签名的开发与发行)。
+- **Windows x64**。下载并完整解压 [Windows 预览包](https://github.com/wtalioy/JustConnect/actions/runs/42459643616/artifacts/13608569373)，运行 `JustConnect.exe`。本轮退出 Clash，用来补无 Clash 的主路径。按下方命令检查同一台通常可直连的 Tailscale 设备，分别在连接前、校园接管就绪后和断开后运行一次。
+- **Apple Silicon**。在 Mac 终端用已登录的 GitHub CLI 下载并挂载 DMG。先把旧 App 移出「应用程序」，再从新挂载的 DMG 拷入完整应用并打开。本轮确认菜单栏能恢复主窗口，并在断开后用菜单退出应用。下载方式与系统限制见[签名与部署说明](#不需申请签名的开发与发行)。
 
 ```bash
-download_dir=$(mktemp -d)
-gh run download 42454884423 --repo wtalioy/JustConnect --pattern 'JustConnect-preview-3f6ba6f*-macos-arm64' --dir "$download_dir"
+download_dir=$(mktemp -d) &&
+gh run download 42459643616 --repo wtalioy/JustConnect --pattern 'JustConnect-preview-c1bee9e*-macos-arm64' --dir "$download_dir" &&
 hdiutil attach "$download_dir"/*.dmg -readonly
 ```
 
@@ -307,7 +307,7 @@ Windows 为 ZIP（完整解压并保留核心 DLL），macOS 为 DMG；Actions a
 
 macOS 仍校验相同叶证书、角色标识与 hardened runtime；系统管理员授权、受保护部署、对端身份和网络恢复校验保持。签名夹具还运行实际链接包内动态库的应用和助手。系统服务的首次桌面批准与真实网络仍须实测。
 
-macOS 27.0.1 上，浏览器下载后带隔离标记的 `85c5064` 安装在一台实机上通过 `codesign --verify --deep --strict`，但启动时系统拒绝加载 QtSvg。同一 DMG 的应用和 QtSvg 由同一本地叶证书签名，两者均无 Apple Team ID。通过 GitHub CLI 下载同一产物并安装到 `/Applications` 后，[同版本原生 CI](https://github.com/wtalioy/JustConnect/actions/runs/42357245026)在 Gatekeeper 启用时成功打开应用。浏览器下载后的首次打开路径仍待验收。
+macOS 27.0.1 上，浏览器下载后带隔离标记的 `85c5064` 能通过 `codesign --verify --deep --strict`，启动时仍被 dyld 以 Team ID 不匹配为由拒绝加载 QtSvg。应用与 QtSvg 使用同一本地叶证书，该证书没有 Apple Team ID。2026-11-08 的 S8 实机报告出现相同错误，报告未注明包版本和下载方式。当前 `c1bee9e` [通过同版系统的 Apple Silicon CI 启动检查](https://github.com/wtalioy/JustConnect/actions/runs/42459643616/job/128668739357)，范围为 CI 下载的 DMG，Gatekeeper 保持启用。请按 [S8 步骤](#s8-实测步骤)用 GitHub CLI 获取预览并在实机确认。
 
 对本仓库的可信开发预览，可用 GitHub CLI 从指定打包运行下载 DMG。将下方 `RUN_ID` 替换为对应的打包运行编号，Intel Mac 把 `arm64` 换成 `x64`。挂载后可对卷内的 `JustConnect.app` 运行 `codesign --verify --deep --strict`，再用 Finder 将旧 App 移出「应用程序」并拷入新的完整 App。此流程保留系统安全设置与已有用户配置。
 

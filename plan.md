@@ -13,17 +13,17 @@
 
 | 项目 | 当前记录 |
 | --- | --- |
-| 阶段进度 | S3—S6 **23／23**，S7 **13／13**。S8 **1／5**。全计划 **59／64**，剩 S1-04、S8-01／03—05。 |
-| Windows 实测 | `b2fbdb3`／Windows 11 26H2：用户确认合并实测全部正常，含代理先开／后开、TUN 动态切换、校园网页／SSH／登录、Tailscale 直连与 CPU 观察。同窗首次／复用接管 2480／38 ms；所附断开日志 quiesce 53 ms、park 17 ms，无错误。未新增量化 CPU 或吞吐采样。 |
-| 当前跟踪 | **S7 已收尾**。2026-11-08 用户确认自行完善后的 UI 实测未见问题。此前 Windows／Fudan 校园访问和共存实测继续有效。S8 先验证单实例重构及对应预览包，再做主路径实测。 |
-| 最近已验证预览 | `3f6ba6f` [Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/42454884423/artifacts/13607337088)／[Apple Silicon](https://github.com/wtalioy/JustConnect/actions/runs/42454884423/artifacts/13606533915)。 |
+| 阶段进度 | S3—S6 **23／23**，S7 **13／13**。S8 **2／5**。全计划 **60／64**，剩 S1-04、S8-01／03／05。 |
+| Windows 实测 | 2026-11-08 用户确认 S8 Windows 实测通过，反馈未注明包版本。`b2fbdb3` 既有实测覆盖动态代理／TUN、校园网页／SSH／登录、Tailscale 直连；同窗首次／复用接管 2480／38 ms。 |
+| 当前跟踪 | macOS 27.0.1 Apple Silicon 实机报告 QtSvg 在启动时被库验证拒绝。待用 GitHub CLI 获取当前包复测启动及校园主路径，见 [S8 实测步骤](docs/DEVELOPMENT.md#s8-实测步骤)。 |
+| 最近已验证预览 | `c1bee9e` [Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/42459643616/artifacts/13608569373)／[Apple Silicon 打包运行](https://github.com/wtalioy/JustConnect/actions/runs/42459643616)。 |
 
 ## 当前验收基线
 
 | 范围 | 当前结论与证据 |
 | --- | --- |
-| 自动检查 | `3f6ba6f` [两平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/42454884365)和[四架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/42454884394)通过。覆盖应用交互、原生认证、共存和恢复。 |
-| 实际包／源码 | `3f6ba6f` [四组实际包、对应源码及 macOS 27 Apple Silicon 启动检查](https://github.com/wtalioy/JustConnect/actions/runs/42454884423)通过。架构、来源、原生浏览器及依赖报告归 `build/reports/review-2026-11-08/packages-3f6ba6f/`。压缩 16.9—19.4 MiB。 |
+| 自动检查 | `c1bee9e` [两平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/42459636422)和[四架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/42459636423)通过。新增单实例回归覆盖跨目录并发、退出及强杀后重开。 |
+| 实际包／源码 | `c1bee9e` [四组实际包和对应源码](https://github.com/wtalioy/JustConnect/actions/runs/42459643616)通过，源码内容和权限与 Git 归档一致。macOS 27.0.1 [Apple Silicon 启动检查](https://github.com/wtalioy/JustConnect/actions/runs/42459643616/job/128668739357)通过，范围为 CI 下载的 DMG。 |
 | Windows 修复／性能 | 正常断开修复已实测；DNS 批量刷新、持久进度、部分失败和后续所有权已双架构原生验证。接口查询及 `70f90a5` 接管／断开 CPU 优化已实测通过；`build/reports/windows-restore-9d95b37/summary.json`、`build/reports/windows-dns-cpu-da23405/summary.json` |
 | 阶段矩阵 | V1—V7 区分既有实测、自动证据及最终包待测项 |
 
@@ -232,20 +232,20 @@
 - [ ] **S8-01**：两台设备用已有浏览器和终端验证校园网页、普通 SSH、普通网站与正常断开。Windows 补 Clash 退出时的主路径，用同一可稳定直连的 Tailscale 对端核对 MagicDNS 与接管前／中／后的直连。三种 Clash 主组合和动态切换沿用既有 Windows 实测及当前两平台自动证据。
 - [x] **S8-02**：故障与恢复复用 S3-06／S4-06／S7-03—05 及当前两平台原生回归，涵盖取消、权限拒绝、部分失败、外部改值、超时、进程终止与独立恢复。真实注销／跨登录会话、长时间离线及少见网络环境未实测，出现实际问题时补验。正常断开和授权随 S8-01／03。
 - [ ] **S8-03**：在上述连断中验证实际包启动、正常认证和授权、连接状态与退出。Windows 复用 S7 UI 实测，macOS 补 Finder 安装、菜单栏恢复窗口与退出。取消、双语、偏好、键盘及异常流程复用已有回归。
-- [ ] **S8-04**：`3f6ba6f` 的两平台 Tests、四架构 Core ABI、四组实际包、同提交源码与 macOS 27 启动检查已通过。更换启动锁后，待核对当前提交的原生回归与交付包。
-- [ ] **S8-05**：安装／使用说明及签名边界已整理。主路径实测通过后执行 [main／Release 工作流](docs/DEVELOPMENT.md#分支与-actions)，核对发布附件与来源。浏览器下载后的 macOS 隔离标记路径仍未验证，预览采用已验证的 GitHub CLI 获取方式。
+- [x] **S8-04**：`c1bee9e` 两平台 Tests、四架构 Core ABI、四组实际包、同提交源码与 macOS 27.0.1 CI 启动通过，见当前验收基线。
+- [ ] **S8-05**：主路径实测通过后执行 [main／Release 工作流](docs/DEVELOPMENT.md#分支与-actions)，核对发布附件与来源。macOS 浏览器下载的隔离标记路径曾实测失败；GitHub CLI 路径已通过 CI，仍待实机确认。
 
 ## 验收记录
 
 | ID | 场景 | Windows | macOS |
 | --- | --- | --- | --- |
-| V1 | Clash 未运行时的校园、普通网络及断开 | `929e24d` 校园网页／SSH／恢复实测通过。最终包补 Clash 退出、普通出口、MagicDNS 与直连 | 受控 DNS／SSH／TCP／UDP 与恢复已验。真实校园／普通出口／连断待测 |
+| V1 | Clash 未运行时的校园、普通网络及断开 | 本轮用户确认实测通过 | 受控 DNS／SSH／TCP／UDP 与恢复已验。真实校园／普通出口／连断待测 |
 | V2 | Clash 运行，系统代理关／TUN 关 | `dd1791a` 网页／SSH／断开实测通过 | 共存和恢复有双架构自动覆盖，未实机专项 |
 | V3 | Clash 运行，系统代理开／TUN 关 | `b2fbdb3` 代理先开／后开、普通网站、校园网页／SSH／恢复实测通过 | 同 V2 |
 | V4 | Clash 运行，系统代理关／TUN 开 | `b2fbdb3` 动态切换、校园网页／SSH／恢复和 Tailscale 直连实测通过。Fake-IP 个案沿用用户 Clash 配置 | 同 V2 |
 | V5 | Clash 系统代理和 TUN 双开 | 补充自动回归通过 | 补充自动回归通过 |
 | V6 | 动态切换、会话失效、崩溃、授权与按所有权恢复 | 受控自动证据见 S8-02，动态切换已实测 | 受控自动证据见 S8-02，真实注销未实测 |
-| V7 | 实际包、正常认证及桌面操作 | 用户 UI 实测与实际包自检通过，最终包主路径待测 | 实际包自检与 CI 启动通过，实机主路径待测 |
+| V7 | 实际包、正常认证及桌面操作 | 用户确认本轮实测通过，UI 沿用 S7 | 实际包自检与 CI 启动通过。macOS 27.0.1 实机 DMG 安装后 dyld 拒绝加载 QtSvg，下载途径与包版本未注明 |
 
 Tailscale 对照保持同一对端及网络，记录解析和实际直连。Windows ARM64／Intel Mac、校园 UDP、浏览器预热 Fake-IP 缓存、特殊 DNS 来源及少见桌面／网络状态均无本次实机门槛。平台能力与安全要求见 R1—R15。
 
