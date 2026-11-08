@@ -219,7 +219,7 @@ void NetworkPolicyWindow::changeEvent(QEvent *event)
 {
     QDialog::changeEvent(event);
     if(event->type()==QEvent::LanguageChange){
-        retranslate();updateModel();updateActions();updatePolicyMessage();
+        retranslate();updateModel(true);updateActions();updatePolicyMessage();
     }
 }
 void NetworkPolicyWindow::showEvent(QShowEvent *event)
@@ -282,8 +282,11 @@ void NetworkPolicyWindow::updateActions()
 void NetworkPolicyWindow::updatePolicyMessage()
 {
     using Status = CoreEngine::RequestStatus;
-    nameChoices->clear();
-    if (!session || session->currentGeneration().isEmpty()) { policyMessage->clear(); return; }
+    if (!session || session->currentGeneration().isEmpty()) {
+        nameChoices->clear();
+        policyMessage->clear();
+        return;
+    }
     QStringList names;
     for (const auto &value : session->campusNames()) names.append(value.toString());
     nameChoices->setText(names.isEmpty() ? NetworkPolicyWindow::tr("No confirmed campus name exceptions.")
@@ -370,33 +373,58 @@ void NetworkPolicyWindow::editName(bool campus)
     updateActions();
 }
 
-void NetworkPolicyWindow::updateModel()
+void NetworkPolicyWindow::updateModel(bool languageChanged)
 {
-    const auto selected = targets->currentItem() ? targets->currentItem()->text(0) : QString();
-    if (!session || displayedModel["generation"] != session->currentGeneration()
-        || (session->status() != CoreEngine::RequestStatus::Pending && session->status() != CoreEngine::RequestStatus::Success)) {
-        displayedModel = {};
-        PresentationHelpers::setTreeRows(targets,{});
-        PresentationHelpers::setTreeRows(namespaces,{});
-    }
-    if (editor && (!session || session->status() == CoreEngine::RequestStatus::Stale)) editor->reject();
     using Status = CoreEngine::RequestStatus;
     const auto result = session ? session->status() : Status::Stale;
+    if (editor && result == Status::Stale) editor->reject();
     retry->setVisible(result != Status::Success && result != Status::Pending && result != Status::Stale && result != Status::Unavailable);
     retry->setEnabled(session && !session->isBusy());
-    if (result == Status::Stale) { status->setText(NetworkPolicyWindow::tr("The connection has ended.")); return; }
-    if (result == Status::Unavailable) { status->setText(NetworkPolicyWindow::tr("No complete network results. Connect first, or check that network inspection is supported.")); return; }
-    if (result == Status::Pending) {
-        status->setText(NetworkPolicyWindow::tr("Reading original networks and campus resources…"));
-        if (displayedModel.isEmpty()) return;
-    } else if (result == Status::Success) displayedModel = session->model();
-    else { status->setText(NetworkPolicyWindow::tr("Could not read complete network information.")); return; }
-    // Keep raw display data so language changes can translate retained rows during a refresh.
+
+    QJsonObject model;
+    if (result == Status::Success)
+        model = session->model();
+    else if (result == Status::Pending && displayedModel["generation"] == session->currentGeneration())
+        model = displayedModel;
+    const auto addresses = model.isEmpty() ? QJsonArray{} : session->campusAddresses();
+    const bool modelChanged = model != displayedModel;
+    const bool addressesChanged = addresses != displayedCampusAddresses;
+    displayedModel = model;
+    displayedCampusAddresses = addresses;
+    if (modelChanged || languageChanged) updateDnsRows();
+    if (modelChanged || addressesChanged || languageChanged) updateAddressRows();
+
+    switch (result) {
+    case Status::Success:
+        status->setText(tr("%1 original scopes · %2 campus overlaps · %3 DNS sources")
+            .arg(model["targets"].toArray().size()).arg(model["conflicts"].toArray().size()).arg(namespaces->topLevelItemCount()));
+        break;
+    case Status::Pending:
+        status->setText(tr("Reading original networks and campus resources…"));
+        break;
+    case Status::Stale:
+        status->setText(tr("The connection has ended."));
+        break;
+    case Status::Unavailable:
+        status->setText(tr("No complete network results. Connect first, or check that network inspection is supported."));
+        break;
+    default:
+        status->setText(tr("Could not read complete network information."));
+        break;
+    }
+}
+
+void NetworkPolicyWindow::updateAddressRows()
+{
+    const auto selected = targets->currentItem() ? targets->currentItem()->text(0) : QString();
     const auto &model = displayedModel;
     const auto network = model["network"].toObject(), resources = model["resources"].toObject();
     const auto scopes = model["targets"].toArray(), conflicts = model["conflicts"].toArray();
     QMap<int, QStringList> overlapText;
-    QList<QStringList> targetRows,dnsRows;
+    QList<QStringList> targetRows;
+    QList<QHostAddress> campusAddresses;
+    for (const auto &address : displayedCampusAddresses)
+        campusAddresses.append(QHostAddress(address.toString()));
     for (const auto &value : conflicts) {
         const auto conflict = value.toObject();
         const int index = conflict["target"].toInt(-1);
@@ -409,18 +437,27 @@ void NetworkPolicyWindow::updateModel()
         origins.removeDuplicates();
         auto overlaps = overlapText.value(i);
         overlaps.removeDuplicates();
+        const auto prefix = scope["prefix"].toString();
         QStringList exceptions;
-        for (const auto &address : session->campusAddresses())
-            if (QHostAddress(address.toString()).isInSubnet(QHostAddress::parseSubnet(scope["prefix"].toString())))
-                exceptions.append(address.toString() + "/32");
-        targetRows.append(QStringList{scope["prefix"].toString(), origins.join('\n'), overlaps.join('\n'), exceptions.join('\n')});
+        if (!campusAddresses.isEmpty()) {
+            const auto subnet = QHostAddress::parseSubnet(prefix);
+            for (const auto &address : campusAddresses)
+                if (address.isInSubnet(subnet)) exceptions.append(address.toString() + "/32");
+        }
+        targetRows.append({prefix, origins.join('\n'), overlaps.join('\n'), exceptions.join('\n')});
     }
     if(PresentationHelpers::setTreeRows(targets,targetRows)) {
         targets->setCurrentItem(nullptr);
         for(int i=0;i<targets->topLevelItemCount();++i)
             if(targets->topLevelItem(i)->text(0)==selected) targets->setCurrentItem(targets->topLevelItem(i));
     }
+}
+
+void NetworkPolicyWindow::updateDnsRows()
+{
+    const auto &model = displayedModel;
     const auto domains = model["dns_namespaces"].toArray();
+    QList<QStringList> dnsRows;
     QMap<int, QStringList> namePatterns;
     QJsonArray reservedNames;
     for (const auto &value : model["name_targets"].toArray()) {
@@ -444,7 +481,4 @@ void NetworkPolicyWindow::updateModel()
         dnsRows.append(QStringList{rule["value"].toString(), NetworkPolicyWindow::tr("System reserved name"), NetworkPolicyWindow::tr("Loopback"), nameRule(rule)});
     }
     PresentationHelpers::setTreeRows(namespaces,dnsRows);
-    if (result == Status::Success)
-        status->setText(NetworkPolicyWindow::tr("%1 original scopes · %2 campus overlaps · %3 DNS sources")
-            .arg(scopes.size()).arg(conflicts.size()).arg(namespaces->topLevelItemCount()));
 }

@@ -1,5 +1,6 @@
 #pragma once
 #include <QDialog>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QPointer>
 #include <functional>
@@ -28,7 +29,9 @@ private:
     QString inputErrorScope;
     QTabWidget *tabs;
     QLabel *explanation;
-    void updateModel();
+    void updateModel(bool languageChanged = false);
+    void updateAddressRows();
+    void updateDnsRows();
     void updateActions();
     void updatePolicyMessage();
     void chooseCampusAddress();
@@ -36,6 +39,7 @@ private:
     void editName(bool campus);
     QPointer<NetworkPolicySession> session;
     QJsonObject displayedModel;
+    QJsonArray displayedCampusAddresses;
     QLabel *status;
     QLabel *policyMessage;
     QLabel *nameChoices;

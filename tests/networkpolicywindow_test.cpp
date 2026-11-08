@@ -37,6 +37,7 @@ class Engine : public CoreEngine
 {
 public:
     int policies = 0;
+    QString lanName = "LAN <bridge>&";
     QJsonObject lastPolicy;
     bool start(const ConnectionProfile &, Operation) override { return true; }
     void stop() override { emit finished(ConnectionError::NONE); }
@@ -47,7 +48,7 @@ public:
         if (kind == Snapshot::Network) data = {{"schema_version", 1},
             {"network", QJsonObject{
                 {"interfaces", QJsonArray{QJsonObject{{"index", qint64(2147483648LL)}, {"name", "OTHER"}, {"addresses", QJsonArray{}}},
-                    QJsonObject{{"index", qint64(2147483649LL)}, {"name", "LAN <bridge>&"}, {"up", true},
+                    QJsonObject{{"index", qint64(2147483649LL)}, {"name", lanName}, {"up", true},
                     {"addresses", QJsonArray{"192.168.24.19/24"}}}}},
                 {"routes", QJsonArray{QJsonObject{{"destination", "192.168.24.0/24"}, {"interface_index", qint64(2147483649LL)}}}}}}};
         else data = {{"resources", QJsonObject{
@@ -185,6 +186,12 @@ int main(int argc, char **argv) try
           "Settled observation lost the selected scope");
     check(addressIndex.isValid() && dnsIndex.isValid(),
         "an unchanged refresh preserves address and DNS rows instead of deleting and recreating them");
+    engine.lanName = "Renamed LAN";
+    check(session.refresh(), "refresh a changed snapshot without reconnecting");
+    until([&] { return session.status() == CoreEngine::RequestStatus::Success; });
+    check(tree->currentItem() == lanRow() && lanRow()->text(1).contains(engine.lanName)
+          && boundSource->text(2).contains(engine.lanName),
+          "a changed snapshot updates both tables while keeping the selected scope");
     auto activeInput = [&]() -> QInputDialog * {
         for (auto *input : window.findChildren<QInputDialog *>()) if (input->isVisible()) return input;
         check(false, "Address action did not open its input");
