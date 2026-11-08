@@ -208,10 +208,15 @@ void ConnectionUiController::enableCampusAccess()
         if (!loaded.result.succeeded() && loaded.result.status!=CredentialStatus::NotFound) {
             QMessageBox::warning(parentWidget,tr("Saved credentials unavailable"),PresentationHelpers::credentialOperationMessage(loaded.result.status)+tr("\nYou can sign in manually for this connection."));
         }
-        if (generation!=credentialGeneration || !sourceStillCurrent(source)) return;
-        auto profile=ProfileService::load(*settings());
-        if (loaded.result.succeeded()) profile.credentials=loaded.credentials;
+        if (generation!=credentialGeneration) return;
         const auto current=credentialSourceProvider();
+        if (current.path!=source.path || current.profile.authenticationIdentity()!=source.profile.authenticationIdentity()
+            || (loaded.result.succeeded() && current.scope!=source.scope)) {
+            cancelPendingCredentials();
+            return;
+        }
+        auto profile=current.profile;
+        if (loaded.result.succeeded()) profile.credentials=loaded.credentials;
         if (profile.behavior.rememberAuthentication && !current.scope.isEmpty()) loadAuthenticationCache(current,profile,generation);
         else {
             credentialsPending=false;

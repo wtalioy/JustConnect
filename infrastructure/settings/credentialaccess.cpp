@@ -13,7 +13,9 @@ CredentialSource CredentialAccess::source(QSettings &settings,const QString &leg
     settings.sync();
     const bool valid=settings.status()==QSettings::NoError
         && (!QFileInfo::exists(settings.fileName()) || SettingsMigrator::readableFile(settings.fileName()));
-    return {settings.fileName(),valid ? ProfileCredentials::ensureScope(settings) : QString(),legacyCachePath,ProfileService::load(settings),DefaultSettings::publicValues(settings)};
+    const auto scope = valid ? ProfileCredentials::ensureScope(settings) : QString();
+    const auto publicValues = DefaultSettings::publicValues(settings);
+    return {settings.fileName(), scope, legacyCachePath, ProfileService::load(publicValues), publicValues};
 }
 bool CredentialAccess::matches(const CredentialSource &source,const QSettings &settings) {
     return !source.scope.isEmpty() && settings.status()==QSettings::NoError && source.path==settings.fileName()

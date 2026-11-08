@@ -143,8 +143,9 @@ static void manualCredentialsAndLateResults() {
     AuthDialogCoordinator dialogs(&parent);ApplicationLogger logger;QString logs;
     QObject::connect(&logger,&ApplicationLogger::entryAdded,[&](const QString &entry){logs+=entry;});
     auto backend=std::make_unique<MemoryCredentialStore>();auto *store=backend.get();CredentialAccess access(std::move(backend));
+    std::function<void()> beforeSource;
     ConnectionUiController controller(&parent,&connectButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,
-        &access,[&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
+        &access,[&]{return &settings;},[&]{if (beforeSource) beforeSource(); return CredentialAccess::source(settings,{});},
         [](const QString &,const QString &,QSystemTrayIcon::MessageIcon){},nullptr,noOfficialClient);
     auto login=[&](bool save,const QString &name) {
         connectButton.click();until([&]{
@@ -195,6 +196,17 @@ static void manualCredentialsAndLateResults() {
     connectButton.click();check(entered.tryAcquire(1,1000),"account switch while loading");
     settings.setValue("Credential/Username","bob");settings.sync();resume.release();until([&]{return !access.isBusy(settings.fileName());});
     check(engine->starts==starts+1 && !session.isActive(),"late account read does not start or deliver old account secrets");
+    settings.setValue("Credential/Username","remembered");settings.sync();
+    connectButton.click();check(entered.tryAcquire(1,1000),"native read before an external account change");
+    beforeSource=[&] {
+        settings.setValue("Credential/Username","external-account");
+        settings.sync();
+    };
+    resume.release();
+    until([&]{return !access.isBusy(settings.fileName()) && connectButton.text()=="Connect";});
+    beforeSource={};
+    check(engine->starts==starts+1 && !session.isActive() && settings.value("Credential/Username")=="external-account",
+        "the refreshed profile snapshot cannot receive credentials loaded for an earlier account");
     store->beforeRead={};
     settings.remove("JustConnect/TLSCAPEM");settings.setValue(ProfileCredentials::ScopeSetting,"invalid-existing-namespace");settings.sync();
     warnings=0;expectedWarnings={"The profile or credentials changed. Reopen settings or retry.\nYou can sign in manually for this connection."};
