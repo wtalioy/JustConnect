@@ -115,11 +115,15 @@ MainWindow::MainWindow(
                     );
                 }
             });
-    connect(applicationLogger, &ApplicationLogger::entryAdded, this,
-            [this](const QString &entry)
-            {
-                ui->logPlainTextEdit->appendPlainText(entry);
-            });
+    logFlushTimer.setSingleShot(true);
+    connect(&logFlushTimer, &QTimer::timeout, this, &MainWindow::flushLog);
+    connect(applicationLogger, &ApplicationLogger::entryAdded, this, [this](const QString &entry) {
+        pendingLogEntries.append(entry);
+        if (pendingLogEntries.size() >= ui->logPlainTextEdit->maximumBlockCount())
+            flushLog();
+        else if (!logFlushTimer.isActive())
+            logFlushTimer.start();
+    });
     connect(systemProxySession,&SystemProxySession::enabledChanged,this,[this] {
         updateProfileSummary();updateConnectionState(connectionSession->state());
     });
@@ -232,24 +236,13 @@ MainWindow::MainWindow(
                 PresentationHelpers::showAboutDialog(this, updateChecker->versionInfo().coreVersion);
             });
 
-    // 复制日志
-    connect(ui->copyLogPushButton, &QPushButton::clicked,
-            [&]()
-            {
-                auto logText = ui->logPlainTextEdit->toPlainText();
-                QApplication::clipboard()->setText(logText);
-            }
-    );
+    connect(ui->copyLogPushButton, &QPushButton::clicked, this, [this] {
+        flushLog();
+        QApplication::clipboard()->setText(ui->logPlainTextEdit->toPlainText());
+    });
+    connect(ui->clearLogPushButton, &QPushButton::clicked, this, &MainWindow::clearLog);
 
-    // 清空日志
-    connect(ui->clearLogPushButton, &QPushButton::clicked,
-            [&]()
-            {
-                ui->logPlainTextEdit->clear();
-            }
-    );
-
-    clearLog();
+    resetProfileLog();
     connectionUiController = new ConnectionUiController(
         this,
         ui->connectButton,
@@ -397,9 +390,25 @@ void MainWindow::showConnectionSettings() {
     PresentationHelpers::activateWindow(settingWindow);
 }
 
+void MainWindow::flushLog()
+{
+    logFlushTimer.stop();
+    if (pendingLogEntries.isEmpty()) return;
+    const auto text = pendingLogEntries.join(u'\n');
+    pendingLogEntries.clear();
+    ui->logPlainTextEdit->appendPlainText(text);
+}
+
 void MainWindow::clearLog()
 {
+    logFlushTimer.stop();
+    pendingLogEntries.clear();
     ui->logPlainTextEdit->clear();
+}
+
+void MainWindow::resetProfileLog()
+{
+    clearLog();
     ui->logPlainTextEdit->appendPlainText(tr("Welcome to %1\nSystem: %2\nProfile: %3\nConfiguration: %4\n")
         .arg(QApplication::applicationDisplayName(),QSysInfo::prettyProductName(),
             currentProfileId.isEmpty()?tr("Default"):currentProfileId,settings->fileName()));
@@ -716,7 +725,7 @@ bool MainWindow::switchProfile(const QString &profileId)
 
     upgradeSettings();
     resetConnectionUi();
-    clearLog();
+    resetProfileLog();
     refreshProfileMenu();
 
     qInfo().noquote() << tr("Switched profile: ") + currentProfileId;
@@ -764,7 +773,7 @@ void MainWindow::createProfile()
     currentProfileId = profileService->currentProfileId();
     upgradeSettings();
     resetConnectionUi();
-    clearLog();
+    resetProfileLog();
     refreshProfileMenu();
 
     showConnectionSettings();
@@ -809,7 +818,7 @@ void MainWindow::renameCurrentProfile()
         if (!result.succeeded()) {QMessageBox::warning(this,tr("Rename incomplete"),PresentationHelpers::credentialOperationMessage(result.status)+tr("\nComplete the legacy credential migration first, or create a new profile."));return;}
         if (!profileService->renameCurrent(normalizedName)) {QMessageBox::warning(this,tr("Could not rename profile"),tr("The destination exists or this profile cannot be renamed."));return;}
         currentProfileId=profileService->currentProfileId();settings=profileService->settings();
-        updateProfileSummary();refreshProfileMenu();clearLog();qInfo().noquote()<<tr("Profile renamed to: ")+currentProfileId;
+        updateProfileSummary();refreshProfileMenu();resetProfileLog();qInfo().noquote()<<tr("Profile renamed to: ")+currentProfileId;
     });
 }
 
@@ -863,7 +872,7 @@ void MainWindow::deleteCurrentProfile()
     settings = profileService->settings();
     upgradeSettings();
     resetConnectionUi();
-    clearLog();
+    resetProfileLog();
     refreshProfileMenu();
     qInfo().noquote() << tr("Deleted profile: ") + removedProfileId;
 }

@@ -6,6 +6,7 @@
 #include <QCloseEvent>
 #include <QSettings>
 #include <QPointer>
+#include <QTimer>
 
 #include "application/connectionsession.h"
 #include "application/profileservice.h"
@@ -62,7 +63,9 @@ private:
     void showApplicationPreferences();
     void showConnectionSettings();
 
+    void flushLog();
     void clearLog();
+    void resetProfileLog();
 
     void resetConnectionUi();
 
@@ -93,6 +96,8 @@ private:
 
     void deleteCurrentProfile();
 
+    QTimer logFlushTimer;
+    QStringList pendingLogEntries;
     Ui::MainWindow *ui;
     QSystemTrayIcon *trayIcon;
     QMenu *trayMenu;

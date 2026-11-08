@@ -396,7 +396,7 @@ static void profileSetupLanguageChangesPreserveData(MainWindow &window) {
     QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
 }
 
-static void nativeHome(MainWindow &window) {
+static void nativeHome(MainWindow &window, ApplicationLogger &logger) {
     auto *details=window.findChild<QDialog *>("detailsDialog");
     auto *log=window.findChild<QPlainTextEdit *>("logPlainTextEdit");
     auto *session=window.findChild<ConnectionSession *>();
@@ -456,8 +456,20 @@ static void nativeHome(MainWindow &window) {
     }
     check(!log->toPlainText().contains("QFont::setPointSize: Point size <= 0"),
         "drawing the home and menus does not pass an invalid point size to Qt");
-    window.findChild<QPushButton *>("copyLogPushButton")->click();
-    check(QApplication::clipboard()->text()==log->toPlainText(),"diagnostics copy the same bounded live log");
+    auto *copyLog = window.findChild<QPushButton *>("copyLogPushButton");
+    auto *clearLog = window.findChild<QPushButton *>("clearLogPushButton");
+    emit logger.entryAdded("Queued first\nQueued second");
+    emit logger.entryAdded("Queued third");
+    copyLog->click();
+    check(QApplication::clipboard()->text()==log->toPlainText()
+        && log->toPlainText().endsWith("Queued first\nQueued second\nQueued third"),
+        "copy includes all pending log entries in arrival order");
+    emit logger.entryAdded("Cleared before flush");
+    clearLog->click();
+    for (int i=0;i<1003;++i) emit logger.entryAdded(QString::number(i));
+    waitForUi([&]{return log->toPlainText().endsWith("\n1002");});
+    check(log->blockCount()==1000 && log->toPlainText().startsWith("3\n"),
+        "the live log discards cleared entries and keeps the latest 1000 lines across batches");
     details->reject();QCoreApplication::processEvents();
     check(window.isVisible() && !details->isVisible() && session->state()==state,"closing details preserves the accessible home and connection");
     for (int i=0;i<2;++i) {
@@ -575,7 +587,7 @@ int main(int argc,char **argv) {
             bool explained=false;for (auto *label:invalid->findChildren<QLabel *>()) explained|=label->text().contains("saved language is invalid");
             check(explained,"invalid language fallback is visible in settings");invalid->reject();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
         }
-        if (app.arguments().size()==1 || app.arguments().contains("--native-home")) {nativeHome(window);languagePreferences(window);profileMenusDoNotAccumulateGroups(window,menuProfile);}
+        if (app.arguments().size()==1 || app.arguments().contains("--native-home")) {nativeHome(window, logger);languagePreferences(window);profileMenusDoNotAccumulateGroups(window,menuProfile);}
         check(window.findChild<QLabel *>("statusTitleLabel")->text()!="Connected","disconnected cannot claim campus readiness");
         window.showMinimized();QCoreApplication::processEvents();
         check(window.isVisible(),"minimization must not hide the only window");
