@@ -63,6 +63,18 @@ jobs:
           host: ${{ matrix.qt_host }}
           arch: ${{ matrix.qt_arch }}
 
+      - name: Cache static macOS Qt
+        if: runner.os == 'macOS'
+        id: macos-qt
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/qt-static
+          key: macos-static-qt-${{ matrix.os }}-${{ hashFiles('scripts/build-macos-qt.sh') }}
+
+      - name: Build static macOS Qt
+        if: runner.os == 'macOS' && steps.macos-qt.outputs.cache-hit != 'true'
+        run: bash scripts/build-macos-qt.sh "$RUNNER_TEMP/qt-static" "${{ matrix.native_arch }}"
+
       - name: Prepare Go and cgo toolchain
         uses: ./.github/actions/setup-core-toolchain
 
@@ -91,7 +103,13 @@ jobs:
           fi
           platform_args=()
           if [[ "$RUNNER_OS" == 'macOS' ]]; then
-            platform_args=("-DCMAKE_OSX_ARCHITECTURES=$BUILD_ARCH")
+            platform_args=(
+              "-DCMAKE_OSX_ARCHITECTURES=$BUILD_ARCH"
+              "-DCMAKE_OSX_DEPLOYMENT_TARGET=14.4"
+              "-DQt6_DIR=$RUNNER_TEMP/qt-static/lib/cmake/Qt6"
+              "-DQt6LinguistTools_DIR=$QT_ROOT_DIR/lib/cmake/Qt6LinguistTools"
+              "-DQT_INTERNAL_ABSOLUTE_TRANSLATIONS_DIR=$QT_ROOT_DIR/translations"
+            )
           fi
           cmake -S . -B build -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release "${version_args[@]}" "${platform_args[@]}"
 
@@ -132,9 +150,7 @@ jobs:
 
       - name: Prepare macOS bundle
         if: runner.os == 'macOS'
-        env:
-          NATIVE_ARCH: ${{ matrix.native_arch }}
-        run: ./scripts/deploy-macos.sh "$TARGET_NAME" build "$NATIVE_ARCH"
+        run: ./scripts/deploy-macos.sh "$TARGET_NAME" build "$RUNNER_TEMP/qt-static"
 
       - name: Sign macOS bundle
         if: runner.os == 'macOS'
@@ -195,7 +211,7 @@ jobs:
           name: JustConnect-preview-${{ github.sha }}-macos-arm64.dmg
           path: ${{ runner.temp }}/preview
 
-      - name: Install and open with Gatekeeper enabled
+      - name: Open an installed DMG app after simulated first-open approval
         run: |
           set -euo pipefail
           sw_vers
@@ -209,9 +225,11 @@ jobs:
           codesign --verify --deep --strict "$app"
           exe="$app/Contents/MacOS/JustConnect"
           "$exe" --core-self-test | jq -e --arg rev "$GITHUB_SHA" '.ok and .core.build.revision == $rev'
+          # Exercise a quarantined launch after the per-app approval step.
+          xattr -r -w com.apple.quarantine "00c3;$(printf %x "$(date +%s)");JustConnectPreview;" "$app"
           open -n -a "$app"
           for attempt in {1..10}; do
-            pid=$(pgrep -fx "$exe" || true)
+            pid=$(pgrep -fx "$exe" || pgrep -f '^/private/var/folders/.*/AppTranslocation/[^/]+/d/JustConnect[.]app/Contents/MacOS/JustConnect$' || true)
             if [[ -n "$pid" ]]; then break; fi
             sleep 1
           done

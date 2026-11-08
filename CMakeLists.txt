@@ -115,7 +115,7 @@ else()
     message("Building for MacOS")
 
     set_source_files_properties(resource/JustConnect.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
-    add_executable(${PROJECT_NAME} MACOSX_BUNDLE
+    qt_add_executable(${PROJECT_NAME} MACOSX_BUNDLE
         main.cpp
         resource/JustConnect.icns)
 
@@ -217,7 +217,7 @@ if(BUILD_TESTING)
     set_property(TEST mainwindow_native_test mainwindow_profile_language_test mainwindow_auth_language_test
         APPEND PROPERTY ENVIRONMENT "JC_UI_REPORT_DIR=${CMAKE_CURRENT_BINARY_DIR}/ui-report")
     # The package verifier runs this probe against the installed runtime.
-    add_executable(signinbrowser_test tests/signinbrowser_test.cpp)
+    qt_add_executable(signinbrowser_test tests/signinbrowser_test.cpp)
     target_link_libraries(signinbrowser_test PRIVATE justconnect_signin_browser)
 
     add_executable(applicationlogger_test

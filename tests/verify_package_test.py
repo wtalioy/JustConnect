@@ -234,8 +234,8 @@ class VerifyPackageTest(unittest.TestCase):
                 self.assertEqual(Path(args[0]).read_bytes(), probe.read_bytes())
                 env = kwargs['env']
                 self.assertEqual(env['QT_QPA_PLATFORM'], 'cocoa')
-                self.assertEqual(Path(env['DYLD_FRAMEWORK_PATH']), root / 'Contents/Frameworks')
-                self.assertEqual(Path(env['QT_QPA_PLATFORM_PLUGIN_PATH']), root / 'Contents/PlugIns/platforms')
+                self.assertNotIn('DYLD_FRAMEWORK_PATH', env)
+                self.assertNotIn('QT_QPA_PLATFORM_PLUGIN_PATH', env)
                 return ''
             with patch.object(package.sys, 'platform', 'darwin'), patch.object(package, 'run', side_effect=run):
                 self.assertEqual(package.check_signin_browser(root, executable, probe, {}), 'WKWebView')
@@ -296,9 +296,10 @@ class VerifyPackageTest(unittest.TestCase):
             def run(*args, **kwargs):
                 return {'lipo': 'arm64', 'otool': ('cmd LC_BUILD_VERSION\n minos 26.0\n'
                                                   if args[1] == '-l' else 'app:\n')}[args[0]]
-            with patch.object(package, 'run', side_effect=run):
+            with patch.object(package, 'run', side_effect=run), \
+                    patch.object(package, 'macos_signature', return_value='flags=0x12000'):
                 with self.assertRaisesRegex(RuntimeError, 'Invalid macOS floor'):
-                    package.macos_audit([root / 'app'], root, 'arm64', {})
+                    package.macos_audit([root / 'Contents/MacOS/app'], root, 'arm64', {})
 
     def test_macos_rejects_embedded_sdk_search_path(self):
         def run(*args, **kwargs):
@@ -306,12 +307,12 @@ class VerifyPackageTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder, patch.object(package, 'run', side_effect=run):
             root = Path(folder)
             with self.assertRaisesRegex(RuntimeError, 'Non-relocatable Mach-O search path'):
-                package.macos_audit([root / 'app'], root, 'arm64', {})
+                package.macos_audit([root / 'Contents/MacOS/app'], root, 'arm64', {})
 
-    def test_macos_helper_resolves_its_own_executable_directory(self):
+    def test_macos_package_requires_static_dependencies_and_hardened_signature(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
-            helper = root / 'Contents/Helpers/Helper.app/Contents/MacOS/helper'
+            helper = root / 'Contents/MacOS/helper'
             dependency = root / 'Contents/Frameworks/libQt.dylib'
             helper.parent.mkdir(parents=True)
             dependency.parent.mkdir(parents=True)
@@ -320,23 +321,29 @@ class VerifyPackageTest(unittest.TestCase):
             icon.parent.mkdir()
             (root / 'Contents/Info.plist').write_bytes(plistlib.dumps({'LSMinimumSystemVersion': '14.4',
                 'CFBundleIdentifier': 'app.fixture', 'CFBundleIconFile': icon.name}))
-            relative = Path(os.path.relpath(dependency, helper.parent)).as_posix()
+            dependency_name = '@executable_path/../Frameworks/libQt.dylib'
             def run(*args, **kwargs):
                 if args[0] == 'lipo':
                     return 'arm64'
                 if args[0] == 'otool':
                     return ('cmd LC_BUILD_VERSION\n minos 14.4.0\n' if args[1] == '-l'
-                            else f'helper:\n @executable_path/{relative} (compatibility version 1.0)\n')
+                            else f'helper:\n {dependency_name} (compatibility version 1.0)\n')
                 return ''
             with patch.object(package, 'run', side_effect=run), \
                     patch.object(package, 'check_macos_network_helper', return_value={}), \
                     patch.object(package.platform, 'mac_ver', return_value=('26.0', (), '')), \
-                    patch.object(package.subprocess, 'run', return_value=SimpleNamespace(stderr=b'Signature=adhoc\nIdentifier=app.fixture')) as signature:
+                    patch.object(package, 'macos_signature', return_value='flags=0x10000\nIdentifier=app.fixture') as signature:
+                with self.assertRaisesRegex(RuntimeError, 'non-system dynamic library'):
+                    package.macos_audit([helper], root, 'arm64', {})
+                dependency_name = '/usr/lib/libSystem.B.dylib'
+                with self.assertRaisesRegex(RuntimeError, 'lacks hardened runtime or library validation'):
+                    package.macos_audit([helper], root, 'arm64', {})
+                signature.return_value = 'flags=0x12000\nIdentifier=app.fixture'
                 with self.assertRaisesRegex(RuntimeError, 'Packaged macOS app icon is missing'):
                     package.macos_audit([helper], root, 'arm64', {})
                 icon.write_bytes((ROOT / 'resource' / icon.name).read_bytes())
                 audit = package.macos_audit([helper], root, 'arm64', {})
-                signature.return_value = SimpleNamespace(stderr=b'Signature=adhoc\nIdentifier=foreign.fixture')
+                signature.return_value = 'flags=0x12000\nIdentifier=foreign.fixture'
                 with self.assertRaisesRegex(RuntimeError, 'Application signing identifier'):
                     package.macos_audit([helper], root, 'arm64', {})
             self.assertEqual(package.version(audit['binary_minimum']), package.version('14.4'))

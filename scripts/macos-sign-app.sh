@@ -50,5 +50,5 @@ subprocess.run(['security', 'list-keychains', '-d', 'user', '-s', *current, sys.
 PY
 local_identity=$(/usr/bin/openssl x509 -in "$signing_directory/identity.pem" -noout -fingerprint -sha1 | cut -d= -f2 | tr -d ':')
 read -r MAC_HELPER MAC_HELPER_ID < <(python3 -c 'import json,plistlib; c=json.load(open("resource/network-helper-macos.json")); p=plistlib.load(open("resource/Info.plist","rb")); print(c["executable"],p["CFBundleIdentifier"]+c["service_suffix"])')
-codesign --verbose --force --options runtime --keychain "$keychain" --identifier "$MAC_HELPER_ID" --sign "$local_identity" "$APP_PATH/Contents/MacOS/$MAC_HELPER"
-codesign --verbose --force --options runtime --keychain "$keychain" --deep --preserve-metadata=entitlements,identifier --sign "$local_identity" "$APP_PATH"
+codesign --verbose --force --options runtime,library --keychain "$keychain" --identifier "$MAC_HELPER_ID" --sign "$local_identity" "$APP_PATH/Contents/MacOS/$MAC_HELPER"
+codesign --verbose --force --options runtime,library --keychain "$keychain" --deep --preserve-metadata=entitlements,identifier --sign "$local_identity" "$APP_PATH"

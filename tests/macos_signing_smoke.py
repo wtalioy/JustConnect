@@ -36,11 +36,21 @@ def main():
         source = b'''
 #import <Foundation/Foundation.h>
 #import <ServiceManagement/ServiceManagement.h>
+#include <dlfcn.h>
 #include <stdio.h>
 #include <string.h>
 extern int fixture(void);
 int main(int argc, char **argv) {
     if (fixture() != 42) return 2;
+    if (argc == 3 && !strcmp(argv[1], "--load-foreign")) {
+        void *handle = dlopen(argv[2], RTLD_NOW);
+        if (handle) {
+            dlclose(handle);
+            return 3;
+        }
+        fprintf(stderr, "%s\\n", dlerror());
+        return 0;
+    }
     if (argc != 3 || strcmp(argv[1], "--registration-probe")) return 0;
     @autoreleasepool {
         SMAppService *service = [SMAppService daemonServiceWithPlistName:[NSString stringWithUTF8String:argv[2]]];
@@ -79,21 +89,17 @@ int main(int argc, char **argv) {
         launch = (ROOT / 'resource/network-helper-macos.plist.in').read_text().replace(
             '@JC_MAC_HELPER_ID@', app_id+layout['service_suffix']).replace('@JC_MAC_HELPER_EXECUTABLE@', helper.name)
         daemon.write_text(launch)
-        framework = app / 'Contents/Frameworks/QtCore.framework'
-        version = framework / 'Versions/A'
-        version.mkdir(parents=True)
-        library = version / 'QtCore'
+        frameworks = app / 'Contents/Frameworks'
+        frameworks.mkdir()
+        library = frameworks / 'foreign.dylib'
         run('/usr/bin/clang', '-dynamiclib', '-x', 'c', '-', '-o', library,
-            '-install_name', '@rpath/QtCore.framework/Versions/A/QtCore',
+            input=b'int foreign(void) { return 91; }\n')
+        fixture = root / 'fixture.o'
+        run('/usr/bin/clang', '-c', '-x', 'c', '-', '-o', fixture,
             input=b'int fixture(void) { return 42; }\n')
-        run('/usr/bin/clang', '-x', 'objective-c', '-', '-x', 'none', library,
-            '-Wl,-rpath,@executable_path/../Frameworks', '-framework', 'Foundation',
-            '-framework', 'ServiceManagement', '-o', host, input=source)
+        run('/usr/bin/clang', '-x', 'objective-c', '-', '-x', 'none', fixture,
+            '-framework', 'Foundation', '-framework', 'ServiceManagement', '-o', host, input=source)
         shutil.copy2(host, helper)
-        info(version / 'Resources/Info.plist', app_id+'.signing.framework', library.name, 'FMWK')
-        (framework / 'Versions/Current').symlink_to('A')
-        for name in ('QtCore', 'Resources'):
-            (framework / name).symlink_to('Versions/Current/'+name)
         scratch = root / 'private-signing'
         scratch.mkdir()
         run('/bin/bash', ROOT / 'scripts/macos-sign-app.sh', app, cwd=ROOT,
@@ -111,10 +117,12 @@ int main(int argc, char **argv) {
         assert len(set(leaves)) == 1, 'App/helper/framework have different signing identities'
         assert not list(scratch.iterdir()), 'Private signing material survived'
         run(helper)
+        rejection = run(host, '--load-foreign', library).stderr.decode()
+        assert 'team' in rejection.lower(), rejection
         registration = run(host, '--registration-probe', daemon_name)
         print(registration.stderr.decode(), end='')
     assert run('/usr/bin/security', 'list-keychains', '-d', 'user').stdout == keychains
-    print('PASS: local signing, same leaf, hardened roles, library loading, service registration and key cleanup')
+    print('PASS: local signing, same leaf, hardened roles, static startup, foreign library rejection, service registration and key cleanup')
 
 
 if __name__ == '__main__':

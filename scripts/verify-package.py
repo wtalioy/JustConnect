@@ -103,12 +103,13 @@ def macos_signature(path, env):
 def macos_audit(files, root, arch, env):
     evidence, minimum = [], '0'
     for path in files:
+        if path.parent != root / 'Contents/MacOS':
+            raise RuntimeError(f'Unexpected packaged macOS code outside the executable directory: {path}')
         expected = 'arm64' if arch == 'arm64' else 'x86_64'
         if run('lipo', '-archs', path, env=env).strip() != expected:
             raise RuntimeError(f'Wrong Mach-O architecture: {path}')
         commands = run('otool', '-l', path, env=env)
-        rpaths = re.findall(r'\bpath (.*?) \(offset', commands)
-        for rpath in rpaths:
+        for rpath in re.findall(r'\bpath (.*?) \(offset', commands):
             if rpath.startswith('/') and not rpath.startswith(('/System/Library/', '/usr/lib/')):
                 raise RuntimeError(f'Non-relocatable Mach-O search path: {path}: {rpath}')
         for block in commands.split('Load command '):
@@ -116,23 +117,16 @@ def macos_audit(files, root, arch, env):
                 match = re.search(r'^\s+(?:minos|version)\s+([0-9.]+)', block, re.M)
                 if match and version(match[1]) > version(minimum):
                     minimum = match[1]
-        executable_dir = path.parent if path.parent.name == 'MacOS' else root / 'Contents/MacOS'
         dependencies = run('otool', '-L', path, env=env)
         for line in dependencies.splitlines()[1:]:
             dependency = line.strip().split(' (', 1)[0]
-            if dependency.startswith(('/System/Library/', '/usr/lib/')):
-                continue
-            candidates = [Path(dependency.replace('@loader_path', str(path.parent))
-                               .replace('@executable_path', str(executable_dir)))]
-            if dependency.startswith('@rpath/'):
-                suffix = dependency.removeprefix('@rpath/')
-                candidates = [root / 'Contents/Frameworks' / suffix]
-                for rpath in rpaths:
-                    candidates.append(Path(rpath.replace('@loader_path', str(path.parent))
-                                           .replace('@executable_path', str(executable_dir))) / suffix)
-            if not any(candidate.exists() and inside(candidate, root) for candidate in candidates):
-                raise RuntimeError(f'Dependency outside bundle/system: {path}: {dependency}')
-        evidence.append({'file': str(path.relative_to(root)), 'dependencies': dependencies, 'rpaths': rpaths})
+            if not dependency.startswith(('/System/Library/', '/usr/lib/')):
+                raise RuntimeError(f'Packaged macOS executable links a non-system dynamic library: {path}: {dependency}')
+        signing_flags = re.search(r'\bflags=0x([0-9a-f]+)', macos_signature(path, env))
+        required_flags = 0x10000 | 0x2000  # CS_RUNTIME | CS_REQUIRE_LV
+        if not signing_flags or (int(signing_flags[1], 16) & required_flags) != required_flags:
+            raise RuntimeError(f'Packaged macOS executable lacks hardened runtime or library validation: {path}')
+        evidence.append({'file': str(path.relative_to(root)), 'dependencies': dependencies})
     info = plistlib.loads((root / 'Contents/Info.plist').read_bytes())
     declared = info['LSMinimumSystemVersion']
     host_macos = platform.mac_ver()[0]
@@ -256,11 +250,6 @@ def check_signin_browser(root, executable, probe, env):
             probe_env = dict(env, QT_QPA_PLATFORM='windows' if sys.platform == 'win32' else 'cocoa')
             if sys.platform == 'win32':
                 probe_env['QT_QPA_PLATFORM_PLUGIN_PATH'] = str(root / 'platforms')
-            else:
-                # DMGs are mounted read-only; force the external probe to use the installed bundle.
-                frameworks = root / 'Contents/Frameworks'
-                probe_env.update(DYLD_FRAMEWORK_PATH=str(frameworks), DYLD_LIBRARY_PATH=str(frameworks),
-                                 QT_QPA_PLATFORM_PLUGIN_PATH=str(root / 'Contents/PlugIns/platforms'))
             run(installed_probe, cwd=working, env=probe_env, timeout=30)
         finally:
             installed_probe.unlink()
