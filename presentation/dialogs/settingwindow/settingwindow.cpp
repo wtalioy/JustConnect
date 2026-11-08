@@ -24,6 +24,19 @@
 #include "presentation/presentationhelpers.h"
 #include "presentation/widgets/serversettingswidget.h"
 
+namespace {
+constexpr struct {
+    const char *type;
+    const char *label;
+} DefaultAuthChoices[]{
+    {"", QT_TRANSLATE_NOOP("SettingWindow", "Choose a method")},
+    {"psw", QT_TRANSLATE_NOOP("SettingWindow", "Password")},
+    {"smsCheckCode", QT_TRANSLATE_NOOP("SettingWindow", "SMS code")},
+    {"cas", QT_TRANSLATE_NOOP("SettingWindow", "CAS")},
+    {"httpsOauth2", QT_TRANSLATE_NOOP("SettingWindow", "Web sign-in")},
+};
+}
+
 SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const CredentialSource &source,CoreEngine *queryEngine)
     : QDialog(parent),ui(new Ui::SettingWindow),settings(source.path,QSettings::IniFormat),credentials(credentials),credentialSource(source) {
     ui->setupUi(this);
@@ -134,7 +147,6 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
         if (settings.status()!=QSettings::NoError || !SettingsMigrator::readableFile(settings.fileName()) || !DefaultSettings::exportTo(settings,path))
             QMessageBox::warning(this,tr("Export failed"),tr("Could not write the export. The current profile cannot be overwritten."));
     });
-    retranslate();
     readCredentials();
     resize(600,680);
 
@@ -163,11 +175,10 @@ void SettingWindow::retranslate() {
     for (auto *label:labels) label->setMinimumWidth(labelWidth);
     PresentationHelpers::passwordVisibilityAction(ui->passwordLineEdit);
     PresentationHelpers::passwordVisibilityAction(ui->totpSecretLineEdit);
-    const QStringList types{"","psw","smsCheckCode","cas","httpsOauth2"};
-    const QStringList names{tr("Choose a method"),tr("Password"),tr("SMS code"),tr("CAS"),tr("Web sign-in")};
-    for (int i=0;i<ui->authTypeComboBox->count();++i) {
-        const int known=types.indexOf(ui->authTypeComboBox->itemData(i).toString());
-        if (known>=0 && !ui->authTypeComboBox->itemData(i,Qt::UserRole+1).isValid()) ui->authTypeComboBox->setItemText(i,names[known]);
+    for (const auto &choice : DefaultAuthChoices) {
+        const int index = ui->authTypeComboBox->findData(QString::fromLatin1(choice.type));
+        if (index >= 0 && !ui->authTypeComboBox->itemData(index, Qt::UserRole + 1).isValid())
+            ui->authTypeComboBox->setItemText(index, tr(choice.label));
     }
     if (queryStatusText) queryStatus->setText(tr(queryStatusText));
     rememberAuthentication->setText(tr("Remember authentication"));
@@ -234,8 +245,8 @@ void SettingWindow::clearDraftCredentials() {
 void SettingWindow::resetAuthChoices() {
     const QSignalBlocker blocker(ui->authTypeComboBox);
     ui->authTypeComboBox->clear();
-    for (const auto &method:QStringList{"","psw","smsCheckCode","cas","httpsOauth2"}) ui->authTypeComboBox->addItem(method,method);
-    retranslate();
+    for (const auto &choice : DefaultAuthChoices)
+        ui->authTypeComboBox->addItem(tr(choice.label), QString::fromLatin1(choice.type));
 }
 void SettingWindow::updateAuthFields() {
     const bool sms=ui->authTypeComboBox->currentData()=="smsCheckCode";
@@ -249,7 +260,7 @@ void SettingWindow::updateAuthFields() {
     ui->authForm->setRowVisible(ui->phoneNumberLineEdit,sms);
 }
 void SettingWindow::setConnectAfterSave(bool connect) {
-    connectAfterSave=connect;retranslate();
+    connectAfterSave=connect;updateBusy();
 }
 void SettingWindow::setProfileEditable(bool editable) {
     if (profileEditable == editable) return;

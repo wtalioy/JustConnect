@@ -54,12 +54,24 @@ int main(int argc,char **argv) {
     check(!warning->isHidden(),"explicit unsafe choice shows an identity-protection warning");
     address->setText("draft.example.edu"); port->setValue(9443);
     rules->setPlainText("service.custom.example 192.0.2.53");
+    int endpointChanges = 0;
+    QString notifiedAddress;
+    int notifiedPort = 0;
+    QObject::connect(&editor, &ServerSettingsWidget::serverChanged, &editor, [&] {
+        ++endpointChanges;
+        notifiedAddress = editor.serverAddress();
+        notifiedPort = editor.serverPort();
+    });
     preset->setCurrentIndex(preset->findData("Fudan"));
+    check(endpointChanges == 1 && notifiedAddress == "vpn.fudan.edu.cn" && notifiedPort == 443,
+        "a preset change notifies once with its complete endpoint");
     check(editor.prefersOAuth() && editor.serverAddress()=="vpn.fudan.edu.cn" && editor.serverPort()==443,"Fudan selects its server");
     check(rules->toPlainText()=="zb.fudan.edu.cn","preset supplies a name and uses the gateway DNS");
     rules->clear();
     check(address->isReadOnly() && !port->isEnabled(),"Fudan cannot retain a conflicting manual endpoint");
     preset->setCurrentIndex(preset->findData("Custom"));
+    check(endpointChanges == 2 && notifiedAddress == "draft.example.edu" && notifiedPort == 9443,
+        "returning to a custom endpoint also notifies once");
     check(editor.serverAddress()=="draft.example.edu" && editor.serverPort()==9443,"Custom draft survives preset switching");
     check(rules->toPlainText()=="service.custom.example 192.0.2.53","preset DNS rules do not leak into Custom");
     QSettings unchanged(path,QSettings::IniFormat);

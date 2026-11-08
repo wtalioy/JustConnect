@@ -152,8 +152,11 @@ void ServerSettingsWidget::selectPreset() {
     if (!previousPreset.isEmpty()) domainDnsDrafts[previousPreset]=domainDnsRules->toPlainText();
     const auto &defaults=DefaultSettings::builtInProfile();
     const bool builtIn=defaults.value("JustConnect/ProfileKind")==kind;
-    address->setText(builtIn ? defaults.value("JustConnect/ServerAddress").toString() : customAddress);
-    port->setValue(builtIn ? defaults.value("JustConnect/ServerPort").toInt() : customPort);
+    {
+        const QSignalBlocker addressChange(address), portChange(port);
+        address->setText(builtIn ? defaults.value("JustConnect/ServerAddress").toString() : customAddress);
+        port->setValue(builtIn ? defaults.value("JustConnect/ServerPort").toInt() : customPort);
+    }
     address->setReadOnly(kind != "Custom"); port->setEnabled(kind == "Custom");
     form->setRowVisible(address,kind=="Custom");form->setRowVisible(port,kind=="Custom");
     domainDnsRules->setPlainText(domainDnsDrafts.value(kind,builtIn ? defaults.value(DefaultSettings::DomainDnsRules).toString() : QString()));
