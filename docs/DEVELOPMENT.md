@@ -157,7 +157,7 @@ Windows 原生设备基准使用同一固定官方签名 DLL：首次创建约 1
 
 ## 域名专用 DNS
 
-点击主页显示学校／服务器的配置按钮，可编辑、新建、切换、重命名或删除配置。编辑前先断开连接；选择 `Edit current profile…` 后，在 `Account` 页展开学校／服务器表单的 `Advanced`，在 `Domain DNS`（域名专用 DNS）中编辑并应用。新建时输入名称即可打开配置引导。规则每行一个完整域名，可用空格追加 DNS 服务器 IPv4。省略服务器时使用当前会话的网关 DNS，重新连接后应用。Fudan 的随包配置为 `application/profiles/fudan.ini`，使用与用户配置相同的 INI 格式。默认配置写入 `config.ini`，其他配置分别写入 `profiles/<名称>.ini`，清空并保存后不会补回预填条目。
+断开连接后，打开主页上的配置菜单，选择 `Edit connection…`，在 `Server settings` 的 `Domain DNS` 中编辑并点 `Save`。新建命名配置会打开同一编辑页。规则每行一个完整域名，可用空格追加 DNS 服务器 IPv4。省略服务器时使用当前会话的网关 DNS，重新连接后应用。Fudan 的随包配置为 `application/profiles/fudan.ini`，使用与用户配置相同的 INI 格式。默认配置写入 `config.ini`，其他配置分别写入 `profiles/<名称>.ini`，清空并保存后不会补回预填条目。
 
 2026-11-04 用实际 Fudan 登录验证网关下发的 `202.120.224.6`。在现有网关 ACL 下，通过隧道查询 `zb.fudan.edu.cn` 返回 `10.108.67.94`，保留域名与 TLS 验证访问返回 HTTPS 200。经同一隧道显式查询复旦信息办公布的 `202.120.224.26` 也返回同一结果。预设因此只提供域名，由会话选择网关 DNS。[复旦校园网 DNS 说明](https://xxb.fudan.edu.cn/wlgzpc/list.htm)
 
@@ -231,7 +231,7 @@ macOS TUN DNS 夹具按 context 剩余预算设置 I/O，保留 5 秒总上限�
 
 ## aTrust 配置与升级
 
-设置页与引导共用 Fudan／Custom 入口。Fudan 只预填 `vpn.fudan.edu.cn:443`，认证方式从服务器查询，优先 UIS OAuth2；不写死登录 URL／认证编号。保存前使用实际 C ABI 的纯校验接口，不联网、不占用会话。公开字段映射、账户绑定及迁移由既有模块统一维护，详见[架构说明](ARCHITECTURE.md)。
+连接配置页提供 Fudan 和 Custom，首次连接缺少配置时也会打开同一页。Fudan 预填 `vpn.fudan.edu.cn:443` 和上述域名 DNS 规则，认证方式从服务器查询并优先选择 UIS OAuth2。保存前使用实际 C ABI 的纯校验接口，不联网、不占用会话。公开字段映射、账户绑定及迁移由既有模块统一维护，详见[架构说明](ARCHITECTURE.md)。
 
 默认验证服务器证书，可附加学校 PEM CA。“跳过隧道证书校验”默认关闭，为所有 aTrust 配置共用；显式开启后只影响探测及 IP／TCP／L3，登录／资源 HTTPS 和认证页面维持原校验策略。隧道仍加密，但失去对端身份验证；不按学校分支或因连接失败自动降级。
 
