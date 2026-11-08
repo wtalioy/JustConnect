@@ -1,5 +1,5 @@
 #pragma once
-#include "application/profilecredentials.h"
+#include "application/connectioncredentialvault.h"
 #include <QFuture>
 #include <QHash>
 #include <QObject>
@@ -10,7 +10,7 @@
 
 struct CredentialSource {
     QString path,scope,legacyCachePath;
-    ConnectionProfile profile;
+    ConnectionOptions connectionOptions;
     QVariantMap publicValues;
 };
 struct CredentialLoadResult {
@@ -33,7 +33,7 @@ public:
     bool isBusy() const {return !pending.isEmpty();}
     bool isSaving(const QString &path) const;
     QFuture<CredentialLoadResult> load(const CredentialSource &source);
-    QFuture<CredentialResult> save(const CredentialSource &source,const ConnectionProfile &profile,bool updateCredentials,const QVariantMap &publicChanges);
+    QFuture<CredentialResult> save(const CredentialSource &source,const ConnectionOptions &connectionOptions,bool updateCredentials,const QVariantMap &publicChanges);
     QFuture<CredentialResult> migrate(const CredentialSource &source);
     QFuture<CredentialResult> clear(const CredentialSource &source);
     QFuture<CredentialResult> clearLegacyCache(const CredentialSource &source);
@@ -52,5 +52,5 @@ private:
     void begin(const QString &path,bool saving);
     void end(const QString &path,bool saving);
     static CredentialResult checkSource(const CredentialSource &source,QSettings &settings,bool unchangedPublic=false);
-    CredentialResult prepare(const CredentialSource &source,QSettings &settings,ProfileCredentials &credentials,bool unchangedPublic=false);
+    CredentialResult prepare(const CredentialSource &source,QSettings &settings,ConnectionCredentialVault &credentials,bool unchangedPublic=false);
 };

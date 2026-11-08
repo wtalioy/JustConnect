@@ -37,7 +37,7 @@ private:
     void queryMethods();
     void cancelQuery();
     QVariantMap publicChanges() const;
-    ConnectionProfile currentProfile() const;
+    ConnectionOptions currentOptions() const;
     Ui::SettingWindow *ui;
     QSettings settings;
     CredentialAccess *credentials;

@@ -23,7 +23,7 @@
 #include "application/applicationshutdown.h"
 #include "application/authmethodsquery.h"
 #include "application/systemproxysession.h"
-#include "application/profileservice.h"
+#include "application/savedconnectionservice.h"
 #include "application/settingsmigrator.h"
 #include "application/defaultsettings.h"
 #include "infrastructure/coreengine/embeddedcoreengine.h"
@@ -106,7 +106,7 @@ ConnectionUiController::ConnectionUiController(
                 cacheCredentialsRequired=false;
                 promptSource=this->credentialSourceProvider();
                 refreshActions();
-                this->authenticationDialogs->requestLogin(promptSource->profile.credentials.username,{});
+                this->authenticationDialogs->requestLogin(promptSource->connectionOptions.credentials.username,{});
                 return;
             }
             promptCredentials={};cacheCredentialsRequired=false;
@@ -157,7 +157,7 @@ QSettings *ConnectionUiController::settings() const
 bool ConnectionUiController::sourceStillCurrent(const CredentialSource &source) const
 {
     return settings()->fileName()==source.path
-        && ProfileService::load(*settings()).authenticationIdentity()==source.profile.authenticationIdentity();
+        && SavedConnectionService::load(*settings()).authenticationIdentity()==source.connectionOptions.authenticationIdentity();
 }
 
 bool ConnectionUiController::isConfigurationSaving() const
@@ -186,8 +186,8 @@ void ConnectionUiController::enableCampusAccess()
     if (auto *modal=QApplication::activeModalWidget()) {modal->raise();modal->activateWindow();return;}
     if (isConfigurationSaving()) {QMessageBox::information(parentWidget,tr("Saving connection"),tr("Wait for the save before connecting."));return;}
     cancelPendingCredentials();
-    const auto profile=ProfileService::load(*settings());
-    if (settings()->value("Common/NeedsConfiguration",false).toBool() || profile.endpoint.server.isEmpty() || profile.endpoint.authType.isEmpty()) {
+    const auto connectionOptions=SavedConnectionService::load(*settings());
+    if (settings()->value("Common/NeedsConfiguration",false).toBool() || connectionOptions.endpoint.server.isEmpty() || connectionOptions.endpoint.authType.isEmpty()) {
         emit configurationRequested();return;
     }
     const auto source=credentialSourceProvider();const auto generation=credentialGeneration;
@@ -210,107 +210,107 @@ void ConnectionUiController::enableCampusAccess()
         }
         if (generation!=credentialGeneration) return;
         const auto current=credentialSourceProvider();
-        if (current.path!=source.path || current.profile.authenticationIdentity()!=source.profile.authenticationIdentity()
+        if (current.path!=source.path || current.connectionOptions.authenticationIdentity()!=source.connectionOptions.authenticationIdentity()
             || (loaded.result.succeeded() && current.scope!=source.scope)) {
             cancelPendingCredentials();
             return;
         }
-        auto profile=current.profile;
-        if (loaded.result.succeeded()) profile.credentials=loaded.credentials;
-        if (profile.behavior.rememberAuthentication && !current.scope.isEmpty()) loadAuthenticationCache(current,profile,generation);
+        auto connectionOptions=current.connectionOptions;
+        if (loaded.result.succeeded()) connectionOptions.credentials=loaded.credentials;
+        if (connectionOptions.behavior.rememberAuthentication && !current.scope.isEmpty()) loadAuthenticationCache(current,connectionOptions,generation);
         else {
             credentialsPending=false;
             refreshActions();
-            requestConnection(current,profile,credentials->authenticationCacheRevision(current));
+            requestConnection(current,connectionOptions,credentials->authenticationCacheRevision(current));
         }
     });
 }
-void ConnectionUiController::loadAuthenticationCache(const CredentialSource &source,ConnectionProfile profile,quint64 generation)
+void ConnectionUiController::loadAuthenticationCache(const CredentialSource &source,ConnectionOptions connectionOptions,quint64 generation)
 {
-    credentials->loadAuthenticationCache(source).then(this,[this,source,profile,generation](const AuthenticationCacheLoadResult &loaded) mutable {
+    credentials->loadAuthenticationCache(source).then(this,[this,source,connectionOptions,generation](const AuthenticationCacheLoadResult &loaded) mutable {
         if (generation!=credentialGeneration) return;
         if (!sourceStillCurrent(source) || !CredentialAccess::matches(source,*settings())
             || source.publicValues!=DefaultSettings::publicValues(*settings())
             || loaded.revision!=credentials->authenticationCacheRevision(source)) {cancelPendingCredentials();return;}
         credentialsPending=false;
-        if (loaded.result.succeeded()) profile.authenticationCache=loaded.cache;
+        if (loaded.result.succeeded()) connectionOptions.authenticationCache=loaded.cache;
         else if (loaded.result.status!=CredentialStatus::NotFound)
             notificationHandler(tr("Authentication cache was not restored"),PresentationHelpers::credentialOperationMessage(loaded.result.status)+tr("\nYou will sign in again for this connection."),QSystemTrayIcon::Warning);
         refreshActions();
-        requestConnection(source,profile,loaded.revision);
+        requestConnection(source,connectionOptions,loaded.revision);
     });
 }
-void ConnectionUiController::requestConnection(const CredentialSource &source,ConnectionProfile profile,quint64 revision)
+void ConnectionUiController::requestConnection(const CredentialSource &source,ConnectionOptions connectionOptions,quint64 revision)
 {
-    if (profile.endpoint.authType=="smsCheckCode" && profile.endpoint.phone.isEmpty()) {
-        promptSource=source;promptCredentials=profile.credentials;
+    if (connectionOptions.endpoint.authType=="smsCheckCode" && connectionOptions.endpoint.phone.isEmpty()) {
+        promptSource=source;promptCredentials=connectionOptions.credentials;
         auto country=settings()->value("JustConnect/PhoneCountryCode","86").toString().trimmed();
         if (country.isEmpty()) country="86";
         authenticationDialogs->requestPhoneNumber(country,settings()->value("JustConnect/PhoneNumber").toString());return;
     }
-    if (profile.endpoint.authType=="psw" && (profile.credentials.username.isEmpty()
-        || (profile.credentials.password.isEmpty() && profile.authenticationCache.data.isEmpty()))) {
-        promptSource=source;promptCredentials=profile.credentials;
-        authenticationDialogs->requestLogin(profile.credentials.username,profile.credentials.password);return;
+    if (connectionOptions.endpoint.authType=="psw" && (connectionOptions.credentials.username.isEmpty()
+        || (connectionOptions.credentials.password.isEmpty() && connectionOptions.authenticationCache.data.isEmpty()))) {
+        promptSource=source;promptCredentials=connectionOptions.credentials;
+        authenticationDialogs->requestLogin(connectionOptions.credentials.username,connectionOptions.credentials.password);return;
     }
-    startConnection(profile,source,revision);
+    startConnection(connectionOptions,source,revision);
 }
 void ConnectionUiController::submitLogin(const QString &username,const QString &password,bool save)
 {
     if (!promptSource || !sourceStillCurrent(*promptSource)) return;
-    const auto source=*promptSource;auto profile=ProfileService::load(*settings());
-    const auto totp=username.trimmed()==source.profile.credentials.username && CredentialAccess::matches(source,*settings())
+    const auto source=*promptSource;auto connectionOptions=SavedConnectionService::load(*settings());
+    const auto totp=username.trimmed()==source.connectionOptions.credentials.username && CredentialAccess::matches(source,*settings())
         ? promptCredentials.totpSecret : QString();
-    profile.credentials={username.trimmed(),password,totp};promptSource.reset();promptCredentials={};
-    submitManual(source,profile,save,{{"Credential/Username",profile.credentials.username}},
-        !profile.credentials.password.isEmpty() || !profile.credentials.totpSecret.isEmpty());
+    connectionOptions.credentials={username.trimmed(),password,totp};promptSource.reset();promptCredentials={};
+    submitManual(source,connectionOptions,save,{{"Credential/Username",connectionOptions.credentials.username}},
+        !connectionOptions.credentials.password.isEmpty() || !connectionOptions.credentials.totpSecret.isEmpty());
 }
 void ConnectionUiController::submitPhone(const QString &country,const QString &phone,bool save)
 {
     if (!promptSource || !sourceStillCurrent(*promptSource)) return;
-    const auto source=*promptSource;auto profile=ProfileService::load(*settings());
-    profile.endpoint.phone=country+"-"+phone;promptSource.reset();promptCredentials={};
-    submitManual(source,profile,save,{{"JustConnect/PhoneCountryCode",country},{"JustConnect/PhoneNumber",phone}},false);
+    const auto source=*promptSource;auto connectionOptions=SavedConnectionService::load(*settings());
+    connectionOptions.endpoint.phone=country+"-"+phone;promptSource.reset();promptCredentials={};
+    submitManual(source,connectionOptions,save,{{"JustConnect/PhoneCountryCode",country},{"JustConnect/PhoneNumber",phone}},false);
 }
-void ConnectionUiController::submitManual(const CredentialSource &source,const ConnectionProfile &profile,bool save,const QVariantMap &changes,bool updateCredentials)
+void ConnectionUiController::submitManual(const CredentialSource &source,const ConnectionOptions &connectionOptions,bool save,const QVariantMap &changes,bool updateCredentials)
 {
-    const auto validation=EmbeddedCoreEngine::validateConfiguration(profile);
+    const auto validation=EmbeddedCoreEngine::validateConfiguration(connectionOptions);
     if (validation!=ConnectionError::NONE) {showConnectionError(validation);return;}
-    if (!save) {const auto current=credentialSourceProvider();startConnection(profile,current,credentials->authenticationCacheRevision(current));return;}
+    if (!save) {const auto current=credentialSourceProvider();startConnection(connectionOptions,current,credentials->authenticationCacheRevision(current));return;}
     const auto generation=++credentialGeneration;
     credentialsPending=true;refreshActions();
-    credentials->save(source,profile,updateCredentials,changes).then(this,[this,source,profile,generation](const CredentialResult &result) {
+    credentials->save(source,connectionOptions,updateCredentials,changes).then(this,[this,source,connectionOptions,generation](const CredentialResult &result) {
         if (generation!=credentialGeneration) return;
         credentialsPending=false;
         const bool sameFile=settings()->fileName()==source.path;
         if (!sameFile) {cancelPendingCredentials();return;}
         if (!result.succeeded()) QMessageBox::warning(parentWidget,tr("Login details were not saved"),PresentationHelpers::credentialOperationMessage(result.status)+tr("\nYou can sign in manually for this connection."));
         if (generation!=credentialGeneration) return;
-        const auto current=ProfileService::load(*settings());
-        const auto expected=result.succeeded() ? profile.authenticationIdentity() : source.profile.authenticationIdentity();
+        const auto current=SavedConnectionService::load(*settings());
+        const auto expected=result.succeeded() ? connectionOptions.authenticationIdentity() : source.connectionOptions.authenticationIdentity();
         if (current.authenticationIdentity()!=expected) {cancelPendingCredentials();return;}
         const auto currentSource=credentialSourceProvider();
-        startConnection(profile,currentSource,credentials->authenticationCacheRevision(currentSource));
+        startConnection(connectionOptions,currentSource,credentials->authenticationCacheRevision(currentSource));
     });
 }
 
-void ConnectionUiController::startConnection(ConnectionProfile profile,const CredentialSource &source,quint64 revision)
+void ConnectionUiController::startConnection(ConnectionOptions connectionOptions,const CredentialSource &source,quint64 revision)
 {
     const auto generation=credentialGeneration;
     credentialsPending=true;refreshActions();
-    controllerSelection->choose([this,profile=std::move(profile),source,revision,generation](std::optional<QString> address) mutable {
+    controllerSelection->choose([this,connectionOptions=std::move(connectionOptions),source,revision,generation](std::optional<QString> address) mutable {
         if (generation!=credentialGeneration || quitting) return;
         credentialsPending=false;
         if (!address || !sourceStillCurrent(source)) { cancelPendingCredentials();return; }
-        profile.behavior.controllerAddress=*address;
-        promptSource.reset();promptCredentials=profile.credentials;
-        profile=authenticationCache->prepare(std::move(profile),source,revision);
-        cacheCredentialsRequired=profile.endpoint.authType=="psw" && profile.credentials.password.isEmpty() && !profile.authenticationCache.data.isEmpty();
+        connectionOptions.behavior.controllerAddress=*address;
+        promptSource.reset();promptCredentials=connectionOptions.credentials;
+        connectionOptions=authenticationCache->prepare(std::move(connectionOptions),source,revision);
+        cacheCredentialsRequired=connectionOptions.endpoint.authType=="psw" && connectionOptions.credentials.password.isEmpty() && !connectionOptions.authenticationCache.data.isEmpty();
         const ReconnectPolicy reconnectPolicy{
             settings()->value("Common/AutoReconnect", false).toBool(),
             qBound(1, settings()->value("Common/ReconnectTime", 1).toInt(), ConnectionSessionState::MaxReconnectDelayMs / 1000) * 1000
         };
-        if (!connectionSession->start(profile, reconnectPolicy)
+        if (!connectionSession->start(connectionOptions, reconnectPolicy)
             || !connectionSession->isActive())
         {
             return;
@@ -328,11 +328,11 @@ void ConnectionUiController::clearAuthenticationCache()
     if (isConfigurationSaving()) {
         QMessageBox::information(parentWidget,tr("Saving connection"),tr("Wait for the save before clearing authentication caches."));return;
     }
-    if (ProfileCredentials::authenticationCacheKey(source.scope,source.profile).isEmpty()) {
+    if (ConnectionCredentialVault::authenticationCacheKey(source.scope,source.connectionOptions).isEmpty()) {
         QMessageBox::information(parentWidget,tr("Authentication cache"),tr("This connection has no saved sign-in cache."));return;
     }
-    const auto account=source.profile.credentials.username.isEmpty() ? source.profile.endpoint.phone : source.profile.credentials.username;
-    QMessageBox confirm(QMessageBox::Question,tr("Clear authentication cache"),source.profile.endpoint.server+tr("\nClear the authentication cache for ")+account+tr("? The next connection may require sign-in. Passwords, TOTP and other accounts are preserved."),QMessageBox::Yes|QMessageBox::No,parentWidget);
+    const auto account=source.connectionOptions.credentials.username.isEmpty() ? source.connectionOptions.endpoint.phone : source.connectionOptions.credentials.username;
+    QMessageBox confirm(QMessageBox::Question,tr("Clear authentication cache"),source.connectionOptions.endpoint.server+tr("\nClear the authentication cache for ")+account+tr("? The next connection may require sign-in. Passwords, TOTP and other accounts are preserved."),QMessageBox::Yes|QMessageBox::No,parentWidget);
     confirm.setTextFormat(Qt::PlainText);confirm.setDefaultButton(QMessageBox::No);
     if (confirm.exec()!=QMessageBox::Yes) return;
     if (credentialsPending) cancelPendingCredentials();

@@ -15,7 +15,7 @@ class SettingsMigrator
 {
 public:
     static bool readableFile(const QString &path);
-    static SettingsMigrationAction prepare(QSettings &settings, bool seedManagedDefault = false);
+    static SettingsMigrationAction prepare(QSettings &settings, bool seedBuiltInConnection = false);
     static bool finish(QSettings &settings);
     static bool publicDraft(const QSettings &source,QSettings &draft);
 };

@@ -14,9 +14,9 @@ public:
     QJsonObject lastResponse;
     bool acceptResponse = true;
     bool completeDuringStop = false;
-    ConnectionProfile lastProfile;
+    ConnectionOptions lastProfile;
 
-    bool start(const ConnectionProfile &profile, Operation = Operation::Connect) override
+    bool start(const ConnectionOptions &profile, Operation = Operation::Connect) override
     {
         lastProfile=profile;
         ++startCalls;
@@ -53,7 +53,7 @@ public:
     QUuid attempt;
     int preparations = 0, activations = 0, stops = 0;
     void prepare(const QUuid &id) override { attempt = id; ++preparations; }
-    void activate(const QUuid &id, const ConnectionProfile &) override { if (id == attempt) ++activations; }
+    void activate(const QUuid &id, const ConnectionOptions &) override { if (id == attempt) ++activations; }
     void stop(const QUuid &id) override { if (id == attempt) ++stops; }
 };
 
@@ -332,7 +332,7 @@ bool delegatesSessionLifecycleThroughPort()
 {
     auto *engine = new FakeCoreEngine();
     ConnectionSession session(engine);
-    ConnectionProfile profile;
+    ConnectionOptions profile;
     int finishedCalls = 0;
     QObject::connect(
         &session,
@@ -380,7 +380,7 @@ bool distinguishesInterruptedConnectionFromStartupFailure()
 {
     auto *engine = new FakeCoreEngine();
     ConnectionSession session(engine);
-    ConnectionProfile profile;
+    ConnectionOptions profile;
 
     session.start(profile, {});
     engine->establishConnection();
@@ -398,7 +398,7 @@ bool authenticatesOnlyTheCurrentRequest()
 {
     auto *engine = new FakeCoreEngine;
     ConnectionSession session(engine);
-    ConnectionProfile profile;
+    ConnectionOptions profile;
     session.start(profile, {});
     QJsonObject request{{"schema_version", 1}, {"generation", "1"}, {"request_id", "1"}};
     emit engine->authenticationRequired(request);
@@ -439,7 +439,7 @@ bool authenticationTimeoutEndsWaitAndAllowsManualRetry()
 {
     auto *engine=new FakeCoreEngine;
     ConnectionSession session(engine);
-    ConnectionProfile profile;
+    ConnectionOptions profile;
     int reconnects=0;
     QObject::connect(&session,&ConnectionSession::reconnectScheduled,[&](int){++reconnects;});
     session.start(profile,{true,1});
@@ -463,7 +463,7 @@ bool cacheFollowsSessionPolicyAndExplicitClear()
 {
     auto *engine=new FakeCoreEngine;
     ConnectionSession session(engine);
-    ConnectionProfile profile;
+    ConnectionOptions profile;
     profile.behavior.rememberAuthentication=true;
     profile.credentials.username="login-alias";
     profile.authenticationCache={"canonical-account","original"};

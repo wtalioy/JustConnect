@@ -5,7 +5,7 @@
 
 namespace ApplicationPaths
 {
-QString clientDataFile(const QString &profileId);
+QString clientDataFile(const QString &connectionId);
 QString logDirectory();
 QString logFile();
 

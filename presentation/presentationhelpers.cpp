@@ -22,7 +22,6 @@
 #include <utility>
 
 #include "application/applicationconstants.h"
-#include "application/defaultsettings.h"
 
 namespace {
 class ButtonIcon final : public QIconEngine {
@@ -133,13 +132,6 @@ void PresentationHelpers::connectCopyButton(QAbstractButton *button, std::functi
     });
 }
 
-QString PresentationHelpers::profileKindLabel(const QString &kind)
-{
-    if (kind==DefaultSettings::builtInProfile().value("JustConnect/ProfileKind").toString())
-        return QCoreApplication::translate("PresentationHelpers","Fudan");
-    return kind;
-}
-
 QAction *PresentationHelpers::passwordVisibilityAction(QLineEdit *field)
 {
     auto *action=field->findChild<QAction *>("visibilityAction",Qt::FindDirectChildrenOnly);
@@ -212,11 +204,11 @@ QString PresentationHelpers::credentialOperationMessage(CredentialStatus status)
     case CredentialStatus::Locked: return QCoreApplication::translate("PresentationHelpers","Secure storage is locked. Unlock it first.");
     case CredentialStatus::Unavailable: return QCoreApplication::translate("PresentationHelpers","Secure storage is unavailable. You can sign in manually.");
     case CredentialStatus::PermissionDenied: return QCoreApplication::translate("PresentationHelpers","Secure storage permission was denied. Check authorization.");
-    case CredentialStatus::Cancelled: return QCoreApplication::translate("PresentationHelpers","The profile or credentials changed. Reopen settings or retry.");
+    case CredentialStatus::Cancelled: return QCoreApplication::translate("PresentationHelpers","The connection settings or credentials changed. Reopen settings or retry.");
     case CredentialStatus::Limit: return QCoreApplication::translate("PresentationHelpers","These credentials exceed secure storage limits. You can enter them when connecting.");
-    case CredentialStatus::InvalidArgument: return QCoreApplication::translate("PresentationHelpers","Legacy credential format or account identity could not be confirmed. Original data is preserved. Create a new profile to sign in manually.");
+    case CredentialStatus::InvalidArgument: return QCoreApplication::translate("PresentationHelpers","Legacy credential format or account identity could not be confirmed. Original data is preserved. Add a new connection to sign in manually.");
     case CredentialStatus::Conflict: return QCoreApplication::translate("PresentationHelpers","Legacy data conflicts with secure storage. Original data is preserved. Sign in manually before clearing the old credentials or cache.");
-    case CredentialStatus::Failed: return QCoreApplication::translate("PresentationHelpers","The secure storage or profile operation did not complete. Check it and retry.");
+    case CredentialStatus::Failed: return QCoreApplication::translate("PresentationHelpers","The secure storage or connection settings operation did not complete. Check it and retry.");
     }
     return {};
 }

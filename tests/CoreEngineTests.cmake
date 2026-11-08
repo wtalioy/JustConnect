@@ -15,7 +15,7 @@ function(justconnect_core_ui_tests TARGET ENGINE LIBRARY PLATFORM)
         "${REPO}/presentation/coordinators/authenticationcachecoordinator.cpp"
         "${REPO}/presentation/coordinators/connectionuicontroller.cpp"
         "${REPO}/presentation/coordinators/controllerselectioncoordinator.cpp"
-        "${REPO}/infrastructure/settings/profilemanager.cpp"
+        "${REPO}/infrastructure/settings/savedconnectionstore.cpp"
         "${REPO}/presentation/dialogs/settingwindow/settingwindow.cpp"
         "${REPO}/presentation/widgets/serversettingswidget.cpp"
         "${REPO}/presentation/widgets/applicationpreferenceswidget.cpp"

@@ -14,7 +14,7 @@ public:
     CoexistenceNetworkAccess(NetworkAccess *native, CoreEngine *core, NetworkPolicySession *policy,
                              SystemProxySession *proxy, QObject *parent = nullptr);
     void prepare(const QUuid &attempt) override;
-    void activate(const QUuid &attempt, const ConnectionProfile &profile) override;
+    void activate(const QUuid &attempt, const ConnectionOptions &connectionOptions) override;
     void stop(const QUuid &attempt) override;
     void systemProxyChanged();
 private:

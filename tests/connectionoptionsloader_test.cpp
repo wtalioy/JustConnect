@@ -1,4 +1,4 @@
-#include "application/profileservice.h"
+#include "application/savedconnectionservice.h"
 #include <QCoreApplication>
 #include <QSettings>
 #include <QTemporaryDir>
@@ -38,21 +38,21 @@ int main(int argc,char **argv) {
         settings.sync(); check(settings.status()==QSettings::NoError,"persist profile fixture");
     }
     QSettings saved(path,QSettings::IniFormat);
-    const auto profile=ProfileService::load(saved);
+    const auto profile=SavedConnectionService::load(saved);
     check(profile.keepAlive.mode=="off" && profile.keepAlive.url=="https://campus.example.invalid/status","disabled traffic keepalive retains its target for later use");
     saved.remove("JustConnect/KeepAliveMode");
-    check(ProfileService::load(saved).keepAlive.mode=="auto","missing mode defaults to automatic traffic keepalive");
+    check(SavedConnectionService::load(saved).keepAlive.mode=="auto","missing mode defaults to automatic traffic keepalive");
     check(profile.credentials.username=="saved-user" && profile.credentials.password.isEmpty() && profile.credentials.totpSecret.isEmpty(),"public profile loading never reads legacy secrets");
     check(profile.endpoint.server=="vpn.example.edu" && profile.endpoint.port==8443 && profile.endpoint.authType=="smsCheckCode" && profile.endpoint.authId=="returned-id" && profile.endpoint.authSubType=="sms" && profile.endpoint.loginDomain=="selected-domain" && profile.endpoint.phone=="86-123456","selected endpoint and authentication survive reload");
     check(!profile.tls.verify && profile.tls.caPem=="stored CA" && profile.tls.allowUnverifiedNodes,"explicit session TLS policy survives disk reload");
     saved.remove("JustConnect/TLSVerify"); saved.remove("JustConnect/TLSCAPEM");
     saved.remove("JustConnect/AllowUnverifiedNodes");
-    const auto strict=ProfileService::load(saved).tls;
+    const auto strict=SavedConnectionService::load(saved).tls;
     check(strict.verify && !strict.allowUnverifiedNodes,"legacy profiles default to authentication and node certificate validation");
     check(profile.proxy.socksBind.isEmpty() && profile.proxy.httpBind=="127.0.0.1:11081","zero disables listener; legacy outside-access option never exposes it");
     check(profile.dns.secondary=="10.0.0.2" && profile.dns.localDnsServer=="127.0.0.1:5353" && profile.dns.ttl==60 && profile.dns.disableRemoteDns && profile.behavior.bindInterface=="fixture0" && profile.behavior.autoDetectInterface,"supported network settings survive reload");
     saved.setValue("Common/NeedsConfiguration",true);
-    check(ProfileService::load(saved).endpoint.server.isEmpty(),"legacy protocol cannot connect before explicit configuration");
+    check(SavedConnectionService::load(saved).endpoint.server.isEmpty(),"legacy protocol cannot connect before explicit configuration");
     check(saved.value("JustConnect/ServerAddress")=="vpn.example.edu","legacy endpoint is retained for manual recovery");
     std::cout<<"PASS: profile reload, credentials, listener boundaries and legacy confirmation\n";
 }

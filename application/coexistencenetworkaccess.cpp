@@ -121,10 +121,10 @@ void CoexistenceNetworkAccess::prepare(const QUuid &id) {
     stage = Stage::Recovering;
     drive();
 }
-void CoexistenceNetworkAccess::activate(const QUuid &id, const ConnectionProfile &profile) {
+void CoexistenceNetworkAccess::activate(const QUuid &id, const ConnectionOptions &connectionOptions) {
     if (id != attempt || stage != Stage::Prepared) return;
     stage = Stage::Activating;
-    native->activate(id, profile);
+    native->activate(id, connectionOptions);
 }
 void CoexistenceNetworkAccess::stop(const QUuid &id) {
     if (id != attempt || stage == Stage::Idle || (stage == Stage::Stopping && nativeStopping)) return;

@@ -1,16 +1,16 @@
-#include "profileservice.h"
+#include "savedconnectionservice.h"
 
 #include <QFileInfo>
 #include <QSettings>
 
 #include <utility>
 
-#include "application/profilebackend.h"
+#include "application/savedconnectionbackend.h"
 #include "application/defaultsettings.h"
 #include "application/settingsmigrator.h"
 
 namespace {
-std::unique_ptr<QSettings> readableProfile(const QString &path)
+std::unique_ptr<QSettings> readableSettings(const QString &path)
 {
     if (!SettingsMigrator::readableFile(path)) return {};
     auto settings = std::make_unique<QSettings>(path, QSettings::IniFormat);
@@ -20,20 +20,20 @@ std::unique_ptr<QSettings> readableProfile(const QString &path)
 }
 }
 
-ProfileService::ProfileService(
-    std::unique_ptr<ProfileBackend> backend,
+SavedConnectionService::SavedConnectionService(
+    std::unique_ptr<SavedConnectionBackend> backend,
     const QString &overrideConfigPath,
     QObject *parent
 )
     : QObject(parent),
-      profileBackend(std::move(backend)),
+      connectionBackend(std::move(backend)),
       overrideConfiguration(!overrideConfigPath.isEmpty())
 {
     if (!overrideConfiguration)
     {
-        currentId = profileBackend->activeProfile();
+        currentId = connectionBackend->activeConnectionId();
         currentSettings = std::make_unique<QSettings>(
-            profileBackend->profilePath(currentId),
+            connectionBackend->connectionPath(currentId),
             QSettings::IniFormat
         );
     }
@@ -44,67 +44,67 @@ ProfileService::ProfileService(
     }
 }
 
-ProfileService::~ProfileService()
+SavedConnectionService::~SavedConnectionService()
 {
     currentSettings->sync();
 }
 
-QSettings *ProfileService::settings() const
+QSettings *SavedConnectionService::settings() const
 {
     return currentSettings.get();
 }
 
-QString ProfileService::currentProfileId() const
+QString SavedConnectionService::currentConnectionId() const
 {
     return currentId;
 }
 
-QStringList ProfileService::profiles() const
+QStringList SavedConnectionService::connections() const
 {
-    return profileBackend->listProfiles();
+    return connectionBackend->listConnections();
 }
 
-bool ProfileService::usesOverrideConfiguration() const
+bool SavedConnectionService::usesOverrideConfiguration() const
 {
     return overrideConfiguration;
 }
 
-bool ProfileService::switchTo(const QString &profileId)
+bool SavedConnectionService::switchTo(const QString &connectionId)
 {
-    if (!overrideConfiguration && profileId == currentId)
+    if (!overrideConfiguration && connectionId == currentId)
     {
         return true;
     }
 
-    auto next = readableProfile(profileBackend->profilePath(profileId));
+    auto next = readableSettings(connectionBackend->connectionPath(connectionId));
     if (!next || !syncCurrent()) return false;
-    if (!profileBackend->setActiveProfile(profileId))
+    if (!connectionBackend->setActiveConnection(connectionId))
     {
         return false;
     }
 
     currentSettings = std::move(next);
-    currentId = profileId;
+    currentId = connectionId;
     overrideConfiguration = false;
     return true;
 }
 
-QString ProfileService::createAndSwitch(const QString &requestedName)
+QString SavedConnectionService::createAndSwitch(const QString &requestedName)
 {
     if (!syncCurrent()) return {};
-    const QString profileId = profileBackend->createProfile(requestedName);
-    if (profileId.isEmpty() || !switchTo(profileId))
+    const QString connectionId = connectionBackend->createConnection(requestedName);
+    if (connectionId.isEmpty() || !switchTo(connectionId))
     {
-        if (!profileId.isEmpty())
+        if (!connectionId.isEmpty())
         {
-            profileBackend->removeProfile(profileId);
+            connectionBackend->removeConnection(connectionId);
         }
         return {};
     }
-    return profileId;
+    return connectionId;
 }
 
-bool ProfileService::renameCurrent(const QString &newProfileId)
+bool SavedConnectionService::renameCurrent(const QString &newConnectionId)
 {
     if (currentId.isEmpty() || overrideConfiguration)
     {
@@ -112,44 +112,44 @@ bool ProfileService::renameCurrent(const QString &newProfileId)
     }
 
     if (!syncCurrent()) return false;
-    if (!profileBackend->renameProfile(currentId, newProfileId))
+    if (!connectionBackend->renameConnection(currentId, newConnectionId))
     {
         return false;
     }
 
     const QString previousId = currentId;
-    if (!profileBackend->setActiveProfile(newProfileId))
+    if (!connectionBackend->setActiveConnection(newConnectionId))
     {
-        profileBackend->renameProfile(newProfileId, previousId);
+        connectionBackend->renameConnection(newConnectionId, previousId);
         return false;
     }
 
-    currentId = newProfileId;
+    currentId = newConnectionId;
     currentSettings = std::make_unique<QSettings>(
-        profileBackend->profilePath(currentId),
+        connectionBackend->connectionPath(currentId),
         QSettings::IniFormat
     );
     return true;
 }
 
-bool ProfileService::removeCurrentAndSwitchToDefault()
+bool SavedConnectionService::removeCurrentAndSwitchToDefault()
 {
     if (currentId.isEmpty() || overrideConfiguration)
     {
         return false;
     }
 
-    const QString removedProfileId = currentId;
-    auto next = readableProfile(profileBackend->profilePath(""));
+    const QString removedConnectionId = currentId;
+    auto next = readableSettings(connectionBackend->connectionPath(""));
     if (!next || !syncCurrent()) return false;
-    if (!profileBackend->setActiveProfile(""))
+    if (!connectionBackend->setActiveConnection(""))
     {
         return false;
     }
 
-    if (!profileBackend->removeProfile(removedProfileId))
+    if (!connectionBackend->removeConnection(removedConnectionId))
     {
-        profileBackend->setActiveProfile(removedProfileId);
+        connectionBackend->setActiveConnection(removedConnectionId);
         return false;
     }
 
@@ -158,35 +158,35 @@ bool ProfileService::removeCurrentAndSwitchToDefault()
     return true;
 }
 
-QString ProfileService::normalizeProfileId(const QString &name) const
+QString SavedConnectionService::normalizeConnectionId(const QString &name) const
 {
-    return profileBackend->normalizeProfileId(name);
+    return connectionBackend->normalizeConnectionId(name);
 }
 
-bool ProfileService::silentStartEnabled() const
+bool SavedConnectionService::silentStartEnabled() const
 {
-    return profileBackend->silentStartEnabled();
+    return connectionBackend->silentStartEnabled();
 }
 
-bool ProfileService::migrateAutoStartSetting(bool enabled)
+bool SavedConnectionService::migrateAutoStartSetting(bool enabled)
 {
-    return profileBackend->setAutoStartEnabled(enabled);
+    return connectionBackend->setAutoStartEnabled(enabled);
 }
 
-bool ProfileService::syncCurrent()
+bool SavedConnectionService::syncCurrent()
 {
     if (QFileInfo::exists(currentSettings->fileName()) && !SettingsMigrator::readableFile(currentSettings->fileName())) return false;
     currentSettings->sync();
     return currentSettings->status() == QSettings::NoError;
 }
 
-bool ProfileService::validPublicChanges(const QVariantMap &changes)
+bool SavedConnectionService::validPublicChanges(const QVariantMap &changes)
 {
     for (auto it=changes.cbegin();it!=changes.cend();++it)
         if (!DefaultSettings::isPublicKey(it.key()) || it.key()=="Common/ConfigVersion") return false;
     return true;
 }
-bool ProfileService::writePublic(QSettings &settings,const QVariantMap &changes)
+bool SavedConnectionService::writePublic(QSettings &settings,const QVariantMap &changes)
 {
     if (settings.status()!=QSettings::NoError || !validPublicChanges(changes)) return false;
     if (QFileInfo::exists(settings.fileName()) && !SettingsMigrator::readableFile(settings.fileName())) return false;

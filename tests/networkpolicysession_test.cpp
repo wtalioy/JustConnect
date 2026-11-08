@@ -32,7 +32,7 @@ public:
     QList<std::pair<Kind, QString>> requests;
     bool unsupported = false;
     QList<QJsonObject> policies;
-    bool start(const ConnectionProfile &, Operation) override { return true; }
+    bool start(const ConnectionOptions &, Operation) override { return true; }
     void stop() override { emit finished(ConnectionError::NONE); }
     void respond(const QJsonObject &) override {}
     void updatePolicy(const QJsonObject &policy) override { policies.append(policy); }

@@ -35,11 +35,11 @@ bool SettingsMigrator::readableFile(const QString &path)
     return original.status()==QSettings::NoError;
 }
 
-SettingsMigrationAction SettingsMigrator::prepare(QSettings &settings, bool seedManagedDefault)
+SettingsMigrationAction SettingsMigrator::prepare(QSettings &settings, bool seedBuiltInConnection)
 {
     if (settings.status()!=QSettings::NoError
         || (QFileInfo::exists(settings.fileName()) && !readableFile(settings.fileName()))) return SettingsMigrationAction::Failed;
-    if (seedManagedDefault) DefaultSettings::initializeBuiltInIfUntouched(settings);
+    if (seedBuiltInConnection && settings.allKeys().isEmpty()) DefaultSettings::applyBuiltInConnection(settings);
     settings.beginGroup("ZJUConnect");
     const QStringList previousKeys = settings.allKeys();
     settings.endGroup();
@@ -76,10 +76,6 @@ SettingsMigrationAction SettingsMigrator::prepare(QSettings &settings, bool seed
     if ((configVersion == 4 && protocol.isEmpty())
         || (!protocol.isEmpty() && protocol.compare("atrust",Qt::CaseInsensitive) != 0))
         settings.setValue("Common/NeedsConfiguration",true);
-    if (!settings.contains("JustConnect/ProfileKind"))
-        settings.setValue("JustConnect/ProfileKind",
-            DefaultSettings::profileKindForEndpoint(settings.value("JustConnect/ServerAddress").toString(),
-                settings.value("JustConnect/ServerPort",443).toInt()));
     if (!settings.contains("JustConnect/KeepAliveMode")) {
         const bool disabled=settings.contains("JustConnect/KeepAlive") && !settings.value("JustConnect/KeepAlive").toBool();
         settings.setValue("JustConnect/KeepAliveMode", disabled ? "off"

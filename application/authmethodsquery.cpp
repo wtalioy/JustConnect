@@ -16,12 +16,12 @@ AuthMethodsQuery::AuthMethodsQuery(CoreEngine *engine,QObject *parent) : QObject
         else emit failed(error==ConnectionError::NONE ? ConnectionError::INVALID_CONFIGURATION : error);
     });
 }
-bool AuthMethodsQuery::start(const ConnectionProfile &profile) {
+bool AuthMethodsQuery::start(const ConnectionOptions &connectionOptions) {
     if (active) return false;
-    ConnectionProfile query;
-    query.tls=profile.tls;
-    query.behavior.controllerAddress=profile.behavior.controllerAddress;
-    query.endpoint.server=profile.endpoint.server; query.endpoint.port=profile.endpoint.port;
+    ConnectionOptions query;
+    query.tls=connectionOptions.tls;
+    query.behavior.controllerAddress=connectionOptions.behavior.controllerAddress;
+    query.endpoint.server=connectionOptions.endpoint.server; query.endpoint.port=connectionOptions.endpoint.port;
     active=true; cancelled=received=false; methods={};
     if (engine->start(query,CoreEngine::Operation::AuthMethods)) return true;
     active=false;

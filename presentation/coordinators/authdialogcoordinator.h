@@ -5,7 +5,7 @@
 #include <QPointer>
 #include <QJsonObject>
 #include <QUrl>
-#include "core/connectionprofile.h"
+#include "core/connectionoptions.h"
 
 class GraphCaptchaWindow;
 class LoginWindow;

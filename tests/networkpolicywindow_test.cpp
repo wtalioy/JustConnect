@@ -39,7 +39,7 @@ public:
     int policies = 0;
     QString lanName = "LAN <bridge>&";
     QJsonObject lastPolicy;
-    bool start(const ConnectionProfile &, Operation) override { return true; }
+    bool start(const ConnectionOptions &, Operation) override { return true; }
     void stop() override { emit finished(ConnectionError::NONE); }
     void respond(const QJsonObject &) override {}
     void updatePolicy(const QJsonObject &policy) override { ++policies; lastPolicy = policy; }

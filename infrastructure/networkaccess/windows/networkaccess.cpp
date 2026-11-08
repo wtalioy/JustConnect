@@ -101,12 +101,12 @@ void WindowsNetworkAccess::prepare(const QUuid &id)
     if(!lock->tryLock()){fail({Status::Failed,"This account already has a JustConnect connection or recovery operation."});return;}
     helper.inspect(attempt);
 }
-void WindowsNetworkAccess::activate(const QUuid &id,const ConnectionProfile &profile)
+void WindowsNetworkAccess::activate(const QUuid &id,const ConnectionOptions &connectionOptions)
 {
     if(id!=attempt || stage!=Stage::Prepared || !lock || !lock->isLocked()){
         emit ready(id,{Status::Failed,"Network preparation is incomplete."});return;
     }
-    stage=Stage::Activating;generation=policy->currentGeneration();localDNS=profile.dns.localDnsServer;prepareConfiguration();
+    stage=Stage::Activating;generation=policy->currentGeneration();localDNS=connectionOptions.dns.localDnsServer;prepareConfiguration();
 }
 void WindowsNetworkAccess::prepareConfiguration()
 {

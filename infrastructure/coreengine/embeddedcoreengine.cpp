@@ -55,7 +55,7 @@ Library &library() {
     static Library instance; // Go runtime stays loaded until process exit.
     return instance;
 }
-QJsonObject configuration(const ConnectionProfile &p, CoreEngine::Operation operation) {
+QJsonObject configuration(const ConnectionOptions &p, CoreEngine::Operation operation) {
     QJsonObject config{{"schema_version", int(JC_ABI_VERSION)},
         {"operation", operation == CoreEngine::Operation::AuthMethods ? "auth_methods" : "connect"},
         {"tls",QJsonObject{{"skip_verify",!p.tls.verify},{"ca_pem",p.tls.caPem},{"allow_unverified_nodes",p.tls.allowUnverifiedNodes}}},
@@ -90,8 +90,8 @@ QJsonObject configuration(const ConnectionProfile &p, CoreEngine::Operation oper
     }
     return config;
 }
-QByteArray configurationBytes(const ConnectionProfile &profile, CoreEngine::Operation operation) {
-    auto config = QJsonDocument(configuration(profile, operation)).toJson(QJsonDocument::Compact);
+QByteArray configurationBytes(const ConnectionOptions &connectionOptions, CoreEngine::Operation operation) {
+    auto config = QJsonDocument(configuration(connectionOptions, operation)).toJson(QJsonDocument::Compact);
     if (config.size() > JC_MAX_INPUT) config.clear();
     return config;
 }
@@ -420,22 +420,22 @@ EmbeddedCoreEngine::~EmbeddedCoreEngine() {
     thread.quit();
     thread.wait();
 }
-bool EmbeddedCoreEngine::start(const ConnectionProfile &profile, Operation operation) {
+bool EmbeddedCoreEngine::start(const ConnectionOptions &connectionOptions, Operation operation) {
     if (active) return false;
     if (!pump) startWorker();
     active = true; stopping = false;
     pump->cancelled.store(false);
     const auto id = ++serial;
-    auto config = configurationBytes(profile, operation);
+    auto config = configurationBytes(connectionOptions, operation);
     QMetaObject::invokeMethod(pump, [this, id, config=std::move(config)]() mutable {
         pump->start(id, std::move(config));
     }, Qt::QueuedConnection);
     return true;
 }
-ConnectionError EmbeddedCoreEngine::validateConfiguration(const ConnectionProfile &profile) {
+ConnectionError EmbeddedCoreEngine::validateConfiguration(const ConnectionOptions &connectionOptions) {
     auto &api = library();
     if (!api.available) return ConnectionError::CORE_UNAVAILABLE;
-    auto bytes = configurationBytes(profile, Operation::Connect);
+    auto bytes = configurationBytes(connectionOptions, Operation::Connect);
     const int status = api.jc_config_validate(JC_ABI_VERSION,
         reinterpret_cast<const uint8_t *>(bytes.constData()), uint32_t(bytes.size()));
     bytes.fill('\0');

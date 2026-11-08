@@ -1,4 +1,4 @@
-#include "profilecredentials.h"
+#include "connectioncredentialvault.h"
 #include "application/applicationconstants.h"
 #include <QCryptographicHash>
 #include <QFile>
@@ -18,7 +18,7 @@ bool validScope(const QString &scope) {
 QString digest(const QJsonArray &values) {
     return QString::fromLatin1(QCryptographicHash::hash(QJsonDocument(values).toJson(QJsonDocument::Compact),QCryptographicHash::Sha256).toHex());
 }
-QString profileKey(const QString &scope,const ConnectionProfile &p,const QString &kind) {
+QString profileKey(const QString &scope,const ConnectionOptions &p,const QString &kind) {
     if (!validScope(scope) || p.endpoint.server.isEmpty() || p.endpoint.port<1 || p.endpoint.port>65535 || p.endpoint.authType.isEmpty()) return {};
     auto identity=p.authenticationIdentity();identity.prepend(scope);identity.prepend(kind);
     return digest(identity);
@@ -36,9 +36,9 @@ bool decode(const QByteArray &bytes,ConnectionCredentials &credentials) {
     credentials.totpSecret=object.value("totp_secret").toString();
     return true;
 }
-QString archiveKey(const QString &scope,const ConnectionProfile &profile,const QSettings &settings) {
+QString archiveKey(const QString &scope,const ConnectionOptions &connectionOptions,const QSettings &settings) {
     if (!validScope(scope)) return {};
-    auto saved=profile;
+    auto saved=connectionOptions;
     // Unconfirmed addresses identify an archive, never a login credential.
     if (saved.endpoint.server.isEmpty()) saved.endpoint.server=settings.value("JustConnect/ServerAddress").toString();
     return digest({"legacy-credentials-v1",scope,saved.authenticationIdentity()});
@@ -55,7 +55,7 @@ CredentialResult eraseLegacy(QSettings &settings,const QVariant &password,const 
 }
 }
 
-bool ProfileCredentials::hasLegacyCredentials(const QSettings &settings) {
+bool ConnectionCredentialVault::hasLegacyCredentials(const QSettings &settings) {
     for (const auto &key:{"Credential/Password","Credential/TOTPSecret"}) {
         const auto value=settings.value(key);
         if (!value.isValid()) continue;
@@ -65,7 +65,7 @@ bool ProfileCredentials::hasLegacyCredentials(const QSettings &settings) {
     }
     return false;
 }
-QString ProfileCredentials::ensureScope(QSettings &settings) {
+QString ConnectionCredentialVault::ensureScope(QSettings &settings) {
     if (settings.status()!=QSettings::NoError) return {};
     if (settings.contains(ScopeSetting)) {
         const auto scope=settings.value(ScopeSetting).toString();
@@ -75,17 +75,17 @@ QString ProfileCredentials::ensureScope(QSettings &settings) {
     settings.setValue(ScopeSetting,scope);settings.sync();
     return settings.status()==QSettings::NoError ? scope : QString();
 }
-QString ProfileCredentials::key(const QString &scope,const ConnectionProfile &p) {
+QString ConnectionCredentialVault::key(const QString &scope,const ConnectionOptions &p) {
     return profileKey(scope,p,"credentials-v1");
 }
-QString ProfileCredentials::authenticationCacheKey(const QString &scope,const ConnectionProfile &p) {
+QString ConnectionCredentialVault::authenticationCacheKey(const QString &scope,const ConnectionOptions &p) {
     if (p.credentials.username.isEmpty() && (p.endpoint.authType!="smsCheckCode" || p.endpoint.phone.isEmpty())) return {};
     return profileKey(scope,p,"authentication-cache-v1");
 }
-QString ProfileCredentials::legacyCacheKey(const QString &scope) {
+QString ConnectionCredentialVault::legacyCacheKey(const QString &scope) {
     return validScope(scope) ? digest({"legacy-cache-v1",scope}) : QString();
 }
-CredentialResult ProfileCredentials::writeVerified(const QString &key,const QByteArray &value) {
+CredentialResult ConnectionCredentialVault::writeVerified(const QString &key,const QByteArray &value) {
     if (!CredentialStore::validKey(key)) return {Status::InvalidArgument,{}};
     if (value.size()>CredentialStore::MaxBytes) return {Status::Limit,{}};
     const auto written=store.write(key,value);
@@ -96,7 +96,7 @@ CredentialResult ProfileCredentials::writeVerified(const QString &key,const QByt
     if (verified.value!=value) return {Status::Failed,{}};
     return {Status::Success,{}};
 }
-CredentialResult ProfileCredentials::load(const QString &scope,const ConnectionProfile &p,ConnectionCredentials &credentials) {
+CredentialResult ConnectionCredentialVault::load(const QString &scope,const ConnectionOptions &p,ConnectionCredentials &credentials) {
     credentials={};
     const auto id=key(scope,p);
     if (id.isEmpty()) return {Status::InvalidArgument,{}};
@@ -107,12 +107,12 @@ CredentialResult ProfileCredentials::load(const QString &scope,const ConnectionP
     credentials.username=p.credentials.username;
     return {Status::Success,{}};
 }
-CredentialResult ProfileCredentials::save(const QString &scope,const ConnectionProfile &p) {
+CredentialResult ConnectionCredentialVault::save(const QString &scope,const ConnectionOptions &p) {
     if (p.credentials.username.isEmpty() && p.endpoint.phone.isEmpty()) return {Status::InvalidArgument,{}};
     if (p.credentials.password.isEmpty() && p.credentials.totpSecret.isEmpty()) return {Status::InvalidArgument,{}};
     return writeVerified(key(scope,p),encode(p.credentials));
 }
-CredentialResult ProfileCredentials::loadAuthenticationCache(const QString &scope,const ConnectionProfile &p,AuthenticationCache &cache) {
+CredentialResult ConnectionCredentialVault::loadAuthenticationCache(const QString &scope,const ConnectionOptions &p,AuthenticationCache &cache) {
     cache={};
     const auto id=authenticationCacheKey(scope,p);
     if (id.isEmpty()) return {Status::InvalidArgument,{}};
@@ -130,17 +130,17 @@ CredentialResult ProfileCredentials::loadAuthenticationCache(const QString &scop
     cache={object.value("account").toString(),decoded.decoded};
     return {Status::Success,{}};
 }
-CredentialResult ProfileCredentials::saveAuthenticationCache(const QString &scope,const ConnectionProfile &p,const AuthenticationCache &cache) {
+CredentialResult ConnectionCredentialVault::saveAuthenticationCache(const QString &scope,const ConnectionOptions &p,const AuthenticationCache &cache) {
     const auto id=authenticationCacheKey(scope,p);
     if (id.isEmpty() || !p.matchesCacheAccount(cache.account) || cache.data.isEmpty()) return {Status::InvalidArgument,{}};
     if (cache.data.size()>CredentialStore::MaxBytes) return {Status::Limit,{}};
     const auto encoded=QJsonDocument(QJsonObject{{"version",1},{"binding",id},{"account",cache.account},{"data",QString::fromLatin1(cache.data.toBase64())}}).toJson(QJsonDocument::Compact);
     return writeVerified(id,encoded);
 }
-CredentialResult ProfileCredentials::clearAuthenticationCache(const QString &scope,const ConnectionProfile &p) {
+CredentialResult ConnectionCredentialVault::clearAuthenticationCache(const QString &scope,const ConnectionOptions &p) {
     return removeVerified(authenticationCacheKey(scope,p));
 }
-CredentialResult ProfileCredentials::removeVerified(const QString &id) {
+CredentialResult ConnectionCredentialVault::removeVerified(const QString &id) {
     if (!CredentialStore::validKey(id)) return {Status::InvalidArgument,{}};
     auto result=store.remove(id);
     if (!result.succeeded() && result.status!=Status::NotFound) return result;
@@ -149,7 +149,7 @@ CredentialResult ProfileCredentials::removeVerified(const QString &id) {
     if (result.succeeded()) return {Status::Failed,{}};
     result.value.clear();return result;
 }
-CredentialResult ProfileCredentials::preserveVerified(const QString &id,const QByteArray &value) {
+CredentialResult ConnectionCredentialVault::preserveVerified(const QString &id,const QByteArray &value) {
     if (!CredentialStore::validKey(id)) return {Status::InvalidArgument,{}};
     if (value.size()>CredentialStore::MaxBytes) return {Status::Limit,{}};
     const auto existing=store.read(id);
@@ -157,7 +157,7 @@ CredentialResult ProfileCredentials::preserveVerified(const QString &id,const QB
     if (!existing.succeeded()) return existing;
     return {existing.value==value ? Status::Success : Status::Conflict,{}};
 }
-CredentialResult ProfileCredentials::clear(QSettings &settings,const QString &scope,const ConnectionProfile &p) {
+CredentialResult ConnectionCredentialVault::clear(QSettings &settings,const QString &scope,const ConnectionOptions &p) {
     const auto password=settings.value("Credential/Password"),totp=settings.value("Credential/TOTPSecret");
     if (settings.status()!=QSettings::NoError) return {Status::Failed,{}};
     if (hasLegacyCredentials(settings) && settings.value("Common/ConfigVersion").toInt()>ApplicationConstants::ConfigVersion) return {Status::InvalidArgument,{}};
@@ -170,7 +170,7 @@ CredentialResult ProfileCredentials::clear(QSettings &settings,const QString &sc
     if (!removed.succeeded()) return removed;
     return eraseLegacy(settings,password,totp,p.credentials.username);
 }
-CredentialResult ProfileCredentials::migrate(QSettings &settings,const QString &scope,const ConnectionProfile &p) {
+CredentialResult ConnectionCredentialVault::migrate(QSettings &settings,const QString &scope,const ConnectionOptions &p) {
     const auto password=settings.value("Credential/Password"),totp=settings.value("Credential/TOTPSecret");
     if (settings.status()!=QSettings::NoError) return {Status::Failed,{}};
     if (hasLegacyCredentials(settings) && settings.value("Common/ConfigVersion").toInt()>ApplicationConstants::ConfigVersion) return {Status::InvalidArgument,{}};
@@ -201,7 +201,7 @@ CredentialResult ProfileCredentials::migrate(QSettings &settings,const QString &
     }
     return eraseLegacy(settings,password,totp,legacy.username);
 }
-CredentialResult ProfileCredentials::quarantine(const QString &path,const QString &scope) {
+CredentialResult ConnectionCredentialVault::quarantine(const QString &path,const QString &scope) {
     const auto id=legacyCacheKey(scope);
     if (id.isEmpty()) return {Status::InvalidArgument,{}};
     const QFileInfo info(path);
@@ -224,7 +224,7 @@ CredentialResult ProfileCredentials::quarantine(const QString &path,const QStrin
     return {source.remove() ? Status::Success : Status::Failed,{}};
 }
 
-CredentialResult ProfileCredentials::clearLegacyCache(const QString &path,const QString &scope) {
+CredentialResult ConnectionCredentialVault::clearLegacyCache(const QString &path,const QString &scope) {
     const QFileInfo info(path);
     if (!path.isEmpty() && (info.isSymLink() || (info.exists() && !info.isFile()))) return {Status::InvalidArgument,{}};
     const auto removed=removeVerified(legacyCacheKey(scope));

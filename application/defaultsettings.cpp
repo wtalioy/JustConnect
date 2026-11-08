@@ -8,8 +8,7 @@
 #include <QVariant>
 
 #include "application/applicationconstants.h"
-#include "application/profilecredentials.h"
-#include "core/connectionprofile.h"
+#include "core/connectionoptions.h"
 
 namespace {
 const QVariantMap &defaults()
@@ -24,7 +23,7 @@ const QVariantMap &defaults()
         {"Common/AutoReconnect", false},
 
         {"Common/NeedsConfiguration", false},
-        {"JustConnect/ProfileKind", "Custom"},
+        {"JustConnect/ConnectionKind", "Custom"},
         {"JustConnect/ServerAddress", ""},
         {"JustConnect/ServerPort", 443},
         {"JustConnect/TLSVerify", TlsOptions{}.verify},
@@ -67,18 +66,10 @@ void apply(QSettings &settings, bool overwrite)
 void DefaultSettings::reset(QSettings &settings) { apply(settings, true); }
 void DefaultSettings::initialize(QSettings &settings) { apply(settings, false); }
 
-void DefaultSettings::initializeBuiltInIfUntouched(QSettings &settings)
+void DefaultSettings::applyBuiltInConnection(QSettings &settings)
 {
-    const auto keys = settings.allKeys();
-    if (!keys.isEmpty() && settings.value("Common/ConfigVersion").toInt() != ApplicationConstants::ConfigVersion)
-        return;
-    for (const auto &key : keys) {
-        if (key == "Common/ConfigVersion" || key == ProfileCredentials::ScopeSetting) continue;
-        if (!defaults().contains(key) || settings.value(key).toString() != defaults().value(key).toString())
-            return;
-    }
-    const auto &preset = builtInProfile();
-    for (auto it = preset.cbegin(); it != preset.cend(); ++it)
+    const auto &connection = builtInConnection();
+    for (auto it = connection.cbegin(); it != connection.cend(); ++it)
         settings.setValue(it.key(), it.value());
 }
 
@@ -87,32 +78,24 @@ bool DefaultSettings::isPublicKey(const QString &key)
     return key=="Common/ConfigVersion" || key==DomainDnsRules || defaults().contains(key);
 }
 
-const QVariantMap &DefaultSettings::builtInProfile()
+const QVariantMap &DefaultSettings::builtInConnection()
 {
     static const auto values=[] {
-        const QSettings input(QStringLiteral(JC_BUNDLED_PROFILE),QSettings::IniFormat);
+        const QSettings input(QStringLiteral(JC_BUNDLED_CONNECTION),QSettings::IniFormat);
         auto values=publicValues(input);
-        if (input.status()!=QSettings::NoError || values.isEmpty()) qFatal("Cannot read the bundled profile.");
+        if (input.status()!=QSettings::NoError || values.isEmpty()) qFatal("Cannot read the bundled connection.");
         return values;
     }();
     return values;
 }
 
-QString DefaultSettings::profileKindForEndpoint(const QString &host, int port)
+bool DefaultSettings::isBuiltInConnection(const QSettings &settings)
 {
-    const auto &profile=builtInProfile();
-    if (profile.value("JustConnect/ServerAddress")==host && profile.value("JustConnect/ServerPort").toInt()==port)
-        return profile.value("JustConnect/ProfileKind").toString();
-    return "Custom";
-}
-
-QString DefaultSettings::domainDnsRules(const QVariantMap &settings)
-{
-    if (settings.contains(DomainDnsRules)) return settings.value(DomainDnsRules).toString();
-    const auto kind=settings.value("JustConnect/ProfileKind").toString();
-    if (kind!=profileKindForEndpoint(settings.value("JustConnect/ServerAddress").toString(),
-        settings.value("JustConnect/ServerPort").toInt())) return {};
-    return builtInProfile().value("JustConnect/ProfileKind")==kind ? builtInProfile().value(DomainDnsRules).toString() : QString();
+    const auto &connection = builtInConnection();
+    return !settings.value("Common/NeedsConfiguration").toBool()
+        && settings.value("JustConnect/ConnectionKind") == connection.value("JustConnect/ConnectionKind")
+        && settings.value("JustConnect/ServerAddress") == connection.value("JustConnect/ServerAddress")
+        && settings.value("JustConnect/ServerPort").toInt() == connection.value("JustConnect/ServerPort").toInt();
 }
 
 QVariantMap DefaultSettings::publicValues(const QSettings &settings)

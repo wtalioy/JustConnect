@@ -159,7 +159,7 @@ Windows 原生设备基准使用同一固定官方签名 DLL：首次创建约 1
 
 ## 域名专用 DNS
 
-断开连接后，打开主页上的连接菜单，选择 `Edit connection…`，在 `Server` 的 `Domain DNS` 中编辑并点 `Save`。新建命名配置会打开同一编辑页。规则每行一个完整域名，可用空格追加 DNS 服务器 IPv4。省略服务器时使用当前会话的网关 DNS，重新连接后应用。Fudan 的随包配置为 `application/profiles/fudan.ini`，使用与用户配置相同的 INI 格式。默认配置写入 `config.ini`，其他配置分别写入 `profiles/<名称>.ini`，清空并保存后不会补回预填条目。
+断开连接后，打开主页上的连接菜单，选择 `Edit connection…`，在 `Server` 的 `Domain DNS` 中编辑并点 `Save`。新建命名配置会打开同一编辑页。规则每行一个完整域名，可用空格追加 DNS 服务器 IPv4。省略服务器时使用当前会话的网关 DNS，重新连接后应用。Fudan 的随包配置为 `application/connections/fudan.ini`，使用与用户配置相同的 INI 格式。默认配置写入 `config.ini`，其他配置分别写入 `connections/<名称>.ini`，当前项记录在 `state.ini` 的 `Connection/Active`。旧命名连接文件仍在原目录，应用从新目录读取连接。清空 DNS 规则并保存后不会补回预填条目。
 
 2026-11-04 用实际 Fudan 登录验证网关下发的 `202.120.224.6`。在现有网关 ACL 下，通过隧道查询 `zb.fudan.edu.cn` 返回 `10.108.67.94`，保留域名与 TLS 验证访问返回 HTTPS 200。经同一隧道显式查询复旦信息办公布的 `202.120.224.26` 也返回同一结果。预设因此只提供域名，由会话选择网关 DNS。[复旦校园网 DNS 说明](https://xxb.fudan.edu.cn/wlgzpc/list.htm)
 

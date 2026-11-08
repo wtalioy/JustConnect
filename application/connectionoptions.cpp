@@ -1,13 +1,13 @@
-#include "application/profileservice.h"
+#include "application/savedconnectionservice.h"
 #include "application/defaultsettings.h"
 #include <QSettings>
 
-ConnectionProfile ProfileService::load(const QSettings &settings) {
+ConnectionOptions SavedConnectionService::load(const QSettings &settings) {
     return load(DefaultSettings::publicValues(settings));
 }
 
-ConnectionProfile ProfileService::load(const QVariantMap &settings) {
-    ConnectionProfile p;
+ConnectionOptions SavedConnectionService::load(const QVariantMap &settings) {
+    ConnectionOptions p;
     p.tls.verify=settings.value("JustConnect/TLSVerify",p.tls.verify).toBool();
     p.tls.caPem=settings.value("JustConnect/TLSCAPEM").toString();
     p.tls.allowUnverifiedNodes=settings.value("JustConnect/AllowUnverifiedNodes",p.tls.allowUnverifiedNodes).toBool();
@@ -22,7 +22,7 @@ ConnectionProfile ProfileService::load(const QVariantMap &settings) {
     p.endpoint.port=settings.value("JustConnect/ServerPort").toInt();
     p.dns.secondary=settings.value("JustConnect/SecondaryDNS").toString();
     p.dns.localDnsServer=settings.value("JustConnect/LocalDNSServer").toString();
-    p.dns.domainDnsRules=DefaultSettings::domainDnsRules(settings);
+    p.dns.domainDnsRules=settings.value(DefaultSettings::DomainDnsRules).toString();
     p.dns.ttl=settings.value("JustConnect/DNSTTL",p.dns.ttl).toInt();
     p.dns.disableRemoteDns=settings.value("JustConnect/DisableRemoteDNS",p.dns.disableRemoteDns).toBool();
     const auto bind=[](int port) { return port ? "127.0.0.1:"+QString::number(port) : QString(); };

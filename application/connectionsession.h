@@ -10,7 +10,7 @@
 #include "application/platformoperationresult.h"
 
 #include "application/coreengine.h"
-#include "core/connectionprofile.h"
+#include "core/connectionoptions.h"
 #include "core/connectionsessionstate.h"
 
 struct SessionObservation { QString result; QDateTime observedAt; };
@@ -23,7 +23,7 @@ class NetworkAccess : public QObject
 public:
     using QObject::QObject;
     virtual void prepare(const QUuid &attempt) = 0;
-    virtual void activate(const QUuid &attempt, const ConnectionProfile &profile) = 0;
+    virtual void activate(const QUuid &attempt, const ConnectionOptions &connectionOptions) = 0;
     virtual void stop(const QUuid &attempt) = 0;
 signals:
     void prepared(const QUuid &attempt, PlatformOperationResult result);
@@ -42,7 +42,7 @@ Q_OBJECT
 public:
     explicit ConnectionSession(CoreEngine *coreEngine, QObject *parent = nullptr, NetworkAccess *network = nullptr);
 
-    bool start(const ConnectionProfile &profile, const ReconnectPolicy &policy);
+    bool start(const ConnectionOptions &connectionOptions, const ReconnectPolicy &policy);
     void stop();
     void blockNewConnections();
     void submitResponse(const QJsonObject &response);
@@ -54,8 +54,8 @@ public:
     bool isActive() const;
     bool networkRecoveryFailed() const { return networkRestore == NetworkRestoreState::Failed; }
     int reconnectAttempt() const { return sessionState.reconnectAttempt(); }
-    ProxyOptions proxyOptions() const { return currentProfile.proxy; }
-    KeepAliveOptions keepAliveOptions() const { return currentProfile.keepAlive; }
+    ProxyOptions proxyOptions() const { return currentOptions.proxy; }
+    KeepAliveOptions keepAliveOptions() const { return currentOptions.keepAlive; }
 
 signals:
     void stateChanged(ConnectionState state);
@@ -87,7 +87,7 @@ private:
     QTimer reconnectTimer;
     QTimer stableTimer;
     ConnectionSessionState sessionState;
-    ConnectionProfile currentProfile;
+    ConnectionOptions currentOptions;
     ConnectionPhase currentPhase = ConnectionPhase::Initializing;
     QMap<QString,SessionObservation> observations;
     QJsonObject pendingAuthentication;

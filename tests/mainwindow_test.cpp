@@ -14,7 +14,7 @@
 #include "presentation/widgets/serversettingswidget.h"
 #include "infrastructure/process/terminationrequests.h"
 #include "infrastructure/logging/applicationlogfile.h"
-#include "infrastructure/settings/profilemanager.h"
+#include "infrastructure/settings/savedconnectionstore.h"
 
 #include <QApplication>
 #include <QAction>
@@ -67,7 +67,7 @@ class RecoveryNetwork : public NetworkAccess {
 public:
     QUuid attempt;
     void prepare(const QUuid &id) override {attempt=id;}
-    void activate(const QUuid &,const ConnectionProfile &) override {}
+    void activate(const QUuid &,const ConnectionOptions &) override {}
     void stop(const QUuid &) override {}
 };
 static void recoveryStatus(ApplicationLogger &logger,ApplicationLogFile &log) {
@@ -103,7 +103,7 @@ static void profileMenusKeepTheirActions(MainWindow &window,const QString &profi
     check(menu && trayMenu && menuBarProfiles && menu!=menuBarProfiles,
         "home, tray and native menu bar use separate profile menus");
     auto *editAction=window.findChild<QAction *>("settingAction");
-    auto *addAction=window.findChild<QAction *>("newProfileAction");
+    auto *addAction=window.findChild<QAction *>("addConnectionAction");
     check(menu->actions().contains(editAction) && menu->actions().contains(addAction)
         && menuBarProfiles->actions().contains(editAction) && menuBarProfiles->actions().contains(addAction),
         "the home and native profile menus expose the same edit and add actions");
@@ -126,12 +126,12 @@ static void profileMenusKeepTheirActions(MainWindow &window,const QString &profi
     const auto initial=checked(menu);
     check(!initial.isEmpty() && checked(trayMenu)==initial && checked(menuBarProfiles)==initial,
         "profile menus start with the same selection");
-    ProfileManager storage;
-    QSettings defaultProfile(storage.profilePath(""),QSettings::IniFormat);
-    defaultProfile.setValue("JustConnect/ProfileKind","Fudan");
+    SavedConnectionStore storage;
+    QSettings defaultProfile(storage.connectionPath(""),QSettings::IniFormat);
+    defaultProfile.setValue("JustConnect/ConnectionKind","Fudan");
     defaultProfile.setValue("JustConnect/ServerAddress","vpn.fudan.edu.cn");defaultProfile.sync();
-    QSettings namedProfile(storage.profilePath(profile),QSettings::IniFormat);
-    namedProfile.setValue("JustConnect/ProfileKind","Custom");
+    QSettings namedProfile(storage.connectionPath(profile),QSettings::IniFormat);
+    namedProfile.setValue("JustConnect/ConnectionKind","Custom");
     namedProfile.setValue("JustConnect/ServerAddress","vpn.other-campus.invalid");namedProfile.sync();
     const auto groups=window.findChildren<QActionGroup *>().size();
     const auto homeActions = menu->actions();
@@ -214,9 +214,9 @@ static void changeLanguageFromSettings(MainWindow &window,const QString &languag
 }
 static void languagePreferences(MainWindow &window) {
     auto *action=window.findChild<QPushButton *>("connectButton");
-    check(ProfileManager().language()=="en" && ApplicationLanguage::instance().current()=="en" && action->text()=="Connect","a fresh application defaults to English");
+    check(SavedConnectionStore().language()=="en" && ApplicationLanguage::instance().current()=="en" && action->text()=="Connect","a fresh application defaults to English");
     changeLanguageFromSettings(window,"zh_CN");
-    check(ApplicationLanguage::instance().current()=="zh_CN" && ProfileManager().language()=="zh_CN" && action->text()==QString::fromUtf8("连接")
+    check(ApplicationLanguage::instance().current()=="zh_CN" && SavedConnectionStore().language()=="zh_CN" && action->text()==QString::fromUtf8("连接")
         && window.findChild<QSystemTrayIcon *>()->toolTip().contains(QString::fromUtf8("尚未连接")),"saving Chinese updates the existing main window and tray without recreating them");
     window.findChild<QPushButton *>("detailsButton")->click();
     auto *details=window.findChild<QDialog *>("detailsDialog");
@@ -257,7 +257,7 @@ static void authenticationLanguageChangesPreserveData(MainWindow &window) {
         if (!report.isEmpty()) check(widget->grab().save(QDir(report).filePath(name)),"save synthetic native authentication UI screenshot");
     };
     const auto language=[](const QString &next) {
-        check(ApplicationLanguage::instance().savePreferences(next,ProfileManager().closeToTray()),"save the active authentication language");
+        check(ApplicationLanguage::instance().savePreferences(next,SavedConnectionStore().closeToTray()),"save the active authentication language");
         QCoreApplication::processEvents();
         QCoreApplication::sendPostedEvents(nullptr,QEvent::LayoutRequest);
         QCoreApplication::processEvents();
@@ -351,7 +351,7 @@ static void profileSetupLanguageChangesPreserveData(MainWindow &window) {
     settings.setValue("JustConnect/AllowUnverifiedNodes",true);
     CredentialAccess access(std::make_unique<MemoryCredentialStore>());
     const auto language=[&](const QString &value) {
-        check(ApplicationLanguage::instance().savePreferences(value,ProfileManager().closeToTray()),"change language with a profile draft open");
+        check(ApplicationLanguage::instance().savePreferences(value,SavedConnectionStore().closeToTray()),"change language with a profile draft open");
         QCoreApplication::processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::LayoutRequest);QCoreApplication::processEvents();
     };
     language("en");
@@ -590,10 +590,9 @@ int main(int argc,char **argv) {
     QTemporaryDir folder;
     ApplicationLogger logger;ApplicationLogFile log(folder.filePath("app.log"));
     {
-        ProfileManager manager;
-        QSettings settings(manager.profilePath(""),QSettings::IniFormat);
+        SavedConnectionStore manager;
+        QSettings settings(manager.connectionPath(""),QSettings::IniFormat);
         const bool native = app.arguments().contains("--native-home");
-        if (!native) { DefaultSettings::reset(settings); settings.sync(); }
         if (app.arguments().contains("--chinese-startup")) check(manager.setApplicationPreferences("zh_CN",true),"prepare persisted Chinese preference");
         if (app.arguments().contains("--invalid-language")) {
             QSettings state(QDir(configRoot).filePath("state.ini"),QSettings::IniFormat);state.setValue("Global/Language","unsupported");state.sync();
@@ -601,7 +600,7 @@ int main(int argc,char **argv) {
         QLocale::setDefault(QLocale(QLocale::Chinese,QLocale::China));
         QString menuProfile;
         if (native) {
-            menuProfile=manager.createProfile("menu-fixture");
+            menuProfile=manager.createConnection("menu-fixture");
             check(!menuProfile.isEmpty(),"create an isolated profile for menu switching");
         }
         if (app.arguments().size()==1) recoveryStatus(logger,log);
@@ -656,7 +655,7 @@ int main(int argc,char **argv) {
         const bool activePreferences=app.arguments().contains("--active-preferences");
         if (activePreferences) {
             check(stalledGateway.listen(QHostAddress::LocalHost),"isolated active preference gateway");
-            ConnectionProfile profile;profile.endpoint.server="127.0.0.1";profile.endpoint.port=stalledGateway.serverPort();
+            ConnectionOptions profile;profile.endpoint.server="127.0.0.1";profile.endpoint.port=stalledGateway.serverPort();
             check(connection && connection->start(profile,{}),"start a cancellable real core operation before editing preferences");
             auto *core=connection->findChild<CoreEngine *>();
             check(core,"session owns its core event source");
@@ -689,7 +688,7 @@ int main(int argc,char **argv) {
             editor->reject();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
         }
         if (app.arguments().contains("--preferences-failure")) {
-            check(ProfileManager().setCloseToTray(true),"prepare previous global preference");
+            check(SavedConnectionStore().setCloseToTray(true),"prepare previous global preference");
             const auto state=QDir(configRoot).filePath("state.ini");
             QFile input(state);check(input.open(QIODevice::ReadOnly),"read original preference");const auto original=input.readAll();input.close();
             check(QFile::remove(state) && QDir().mkdir(state),"inject isolated preference storage failure");
@@ -702,17 +701,17 @@ int main(int argc,char **argv) {
                 "failed immediate preference saves restore both controls and show the error");
             check(QDir().rmdir(state),"remove isolated failure fixture");
             QFile restore(state);check(restore.open(QIODevice::WriteOnly) && restore.write(original)==original.size(),"restore original preference fixture");restore.close();
-            check(ProfileManager().closeToTray(),"failed save cannot replace the previous preference");
+            check(SavedConnectionStore().closeToTray(),"failed save cannot replace the previous preference");
         } else {
             preferences->findChild<QComboBox *>("closeBehaviorComboBox")->setCurrentIndex(1);
-            check(window.isVisible() && !ProfileManager().closeToTray(),"general preferences persist immediately without closing or disconnecting");
-            if (!app.arguments().contains("--close-exits")) check(ProfileManager().setCloseToTray(true),"restore default preference for explicit exit tests");
+            check(window.isVisible() && !SavedConnectionStore().closeToTray(),"general preferences persist immediately without closing or disconnecting");
+            if (!app.arguments().contains("--close-exits")) check(SavedConnectionStore().setCloseToTray(true),"restore default preference for explicit exit tests");
         }
         preferences->reject();
         QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
         if (activePreferences) {
             const auto state=connection->state();
-            const auto source=manager.profilePath("");QFile profileFile(source);check(profileFile.open(QIODevice::ReadOnly),"read active public profile");
+            const auto source=manager.connectionPath("");QFile profileFile(source);check(profileFile.open(QIODevice::ReadOnly),"read active public profile");
             const auto unchanged=profileFile.readAll();profileFile.close();
             changeLanguageFromSettings(window,"zh_CN");
             check(connection->isActive() && connection->state()==state && window.findChild<QPushButton *>("connectButton")->text()==QString::fromUtf8("取消"),"language changes preserve an active pending connection and its cancel action");

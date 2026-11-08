@@ -55,7 +55,7 @@ public:
     bool available = true, lastManaged = false, selected = false, listenersEnabled = true;
     int updates = 0, networkReads = 0;
     RequestStatus refreshStatus = RequestStatus::Success;
-    bool start(const ConnectionProfile &, Operation) override { return true; }
+    bool start(const ConnectionOptions &, Operation) override { return true; }
     void stop() override {}
     void respond(const QJsonObject &) override {}
     void updateCoexistence(const QString &id, const QStringList &endpoints, bool managed) override {
@@ -81,7 +81,7 @@ public:
     SystemProxySession *proxy;
     explicit Native(SystemProxySession *proxy) : proxy(proxy) {}
     void prepare(const QUuid &id) override { ++prepares; emit prepared(id, {}); }
-    void activate(const QUuid &id, const ConnectionProfile &) override { ++activations; emit ready(id, {}); }
+    void activate(const QUuid &id, const ConnectionOptions &) override { ++activations; emit ready(id, {}); }
     void stop(const QUuid &id) override {
         check(!proxy->isBusy() && !proxy->needsCleanup(), "native capture released before browser restoration");
         ++stops; emit quiesced(id); emit stopped(id, {});

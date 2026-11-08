@@ -12,27 +12,23 @@
 
 namespace
 {
-bool seedsOnlyUntouchedManagedDefaults()
+bool seedsOnlyNewManagedDefaults()
 {
     QTemporaryDir folder;
-    for (const auto &name : {"fresh", "blank", "custom", "legacy", "named"}) {
+    for (const auto &name : {"fresh", "custom", "named"}) {
         QSettings settings(folder.filePath(QString::fromLatin1(name) + ".ini"), QSettings::IniFormat);
         const auto scenario = QLatin1String(name);
-        if (scenario != "fresh") DefaultSettings::reset(settings);
-        if (scenario == "blank") settings.setValue("Credential/StoreID", "retained");
         if (scenario == "custom") settings.setValue("JustConnect/ServerAddress", "other.example.invalid");
-        if (scenario == "legacy") settings.setValue("Common/NeedsConfiguration", true);
         settings.sync();
         if (SettingsMigrator::prepare(settings, scenario != "named") == SettingsMigrationAction::Failed
             || !SettingsMigrator::finish(settings)) return false;
         const auto server = settings.value("JustConnect/ServerAddress").toString();
-        if (scenario == "fresh" || scenario == "blank") {
+        if (scenario == "fresh") {
             if (server != "vpn.fudan.edu.cn" || settings.value("JustConnect/AuthType") != "httpsOauth2"
                 || settings.value(DefaultSettings::DomainDnsRules) != "zb.fudan.edu.cn") return false;
-            if (scenario == "blank" && settings.value("Credential/StoreID") != "retained") return false;
         } else if (scenario == "custom") {
             if (server != "other.example.invalid" || settings.value("JustConnect/AuthType") != "psw") return false;
-        } else if (!server.isEmpty() || settings.value("Common/NeedsConfiguration").toBool() != (scenario == "legacy")) {
+        } else if (!server.isEmpty()) {
             return false;
         }
     }
@@ -286,7 +282,7 @@ bool failedSaveRemainsRetryable()
 int main(int argc, char *argv[])
 {
     QCoreApplication app(argc, argv);
-    return seedsOnlyUntouchedManagedDefaults()
+    return seedsOnlyNewManagedDefaults()
         && preservesKeepAliveChoices()
         && validatesReadOnlySourcesWithoutChangingThem()
         && preparesPublicDraftWithoutCopyingSecrets()

@@ -20,7 +20,7 @@ struct ProxyOptions { QString socksBind, httpBind; };
 struct KeepAliveOptions { QString mode = "auto", url; };
 struct ConnectionBehavior { QString bindInterface; QString controllerAddress; bool autoDetectInterface = false; bool rememberAuthentication = false; };
 struct TlsOptions { bool verify = true; QString caPem; bool allowUnverifiedNodes = false; };
-struct ConnectionProfile {
+struct ConnectionOptions {
     TlsOptions tls;
     ConnectionCredentials credentials;
     ConnectionEndpoint endpoint;

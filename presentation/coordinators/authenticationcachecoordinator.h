@@ -15,7 +15,7 @@ class AuthenticationCacheCoordinator : public QObject
 public:
     using SourceProvider=std::function<CredentialSource()>;
     AuthenticationCacheCoordinator(ConnectionSession *session,CredentialAccess *credentials,SourceProvider sourceProvider,QObject *parent=nullptr);
-    ConnectionProfile prepare(ConnectionProfile profile,const CredentialSource &source,quint64 revision);
+    ConnectionOptions prepare(ConnectionOptions connectionOptions,const CredentialSource &source,quint64 revision);
     QFuture<CredentialResult> clear(const CredentialSource &source);
     const std::optional<CredentialSource> &source() const { return cacheSource; }
     bool isBinding() const { return bindingCacheAccount; }

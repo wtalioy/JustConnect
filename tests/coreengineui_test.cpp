@@ -48,17 +48,17 @@
 using ProxyCheck::check;
 static std::optional<bool> noOfficialClient(){return false;}
 #define until(...) UiWait::until(__FILE__, __LINE__, __VA_ARGS__)
-static SettingWindow *openQuery(QWidget *parent,const ConnectionProfile &profile,CoreEngine *engine=nullptr) {
+static SettingWindow *openQuery(QWidget *parent,const ConnectionOptions &connectionOptions,CoreEngine *engine=nullptr) {
     static QTemporaryDir folder;
     check(folder.isValid(),"isolated inline authentication queries");
     QSettings settings(folder.filePath(QUuid::createUuid().toString(QUuid::Id128)+".ini"),QSettings::IniFormat);
     DefaultSettings::reset(settings);
-    settings.setValue("JustConnect/ServerAddress",profile.endpoint.server);
-    settings.setValue("JustConnect/ServerPort",profile.endpoint.port);
-    settings.setValue("JustConnect/AuthType",profile.endpoint.authType);
-    settings.setValue("JustConnect/TLSVerify",profile.tls.verify);
-    settings.setValue("JustConnect/TLSCAPEM",profile.tls.caPem);
-    settings.setValue("JustConnect/AllowUnverifiedNodes",profile.tls.allowUnverifiedNodes);settings.sync();
+    settings.setValue("JustConnect/ServerAddress",connectionOptions.endpoint.server);
+    settings.setValue("JustConnect/ServerPort",connectionOptions.endpoint.port);
+    settings.setValue("JustConnect/AuthType",connectionOptions.endpoint.authType);
+    settings.setValue("JustConnect/TLSVerify",connectionOptions.tls.verify);
+    settings.setValue("JustConnect/TLSCAPEM",connectionOptions.tls.caPem);
+    settings.setValue("JustConnect/AllowUnverifiedNodes",connectionOptions.tls.allowUnverifiedNodes);settings.sync();
     auto *access=new CredentialAccess(std::make_unique<MemoryCredentialStore>(),parent);
     auto *window=new SettingWindow(parent,access,CredentialAccess::source(settings,{}),engine);
     window->show();window->findChild<QPushButton *>("authSelectPushButton")->click();
@@ -85,10 +85,10 @@ static void enterCode(QWidget &parent, const QString &value) {
 }
 class QueryEngine : public CoreEngine {
 public:
-    ConnectionProfile profile;
+    ConnectionOptions connectionOptions;
     Operation operation = Operation::Connect;
     int stops = 0,starts=0;
-    bool start(const ConnectionProfile &p, Operation op) override { ++starts;profile = p; operation = op; return true; }
+    bool start(const ConnectionOptions &p, Operation op) override { ++starts;connectionOptions = p; operation = op; return true; }
     void stop() override { ++stops; }
     void respond(const QJsonObject &) override { check(false, "query never takes interactive input"); }
 };
@@ -161,11 +161,11 @@ static void manualCredentialsAndLateResults() {
     };
     auto finish=[&]{session.stop();emit engine->finished(ConnectionError::NONE);};
     login(false,"temporary");
-    check(engine->profile.credentials.username=="temporary" && engine->profile.credentials.password=="manual-secret"
+    check(engine->connectionOptions.credentials.username=="temporary" && engine->connectionOptions.credentials.password=="manual-secret"
         && settings.value("Credential/Username")=="alice" && store->values.isEmpty(),"unchecked remember uses memory only");finish();
     login(true,"remembered");
-    ConnectionCredentials loaded;ProfileCredentials vault(*store);const auto source=CredentialAccess::source(settings,{});
-    check(settings.value("Credential/Username")=="remembered" && vault.load(source.scope,source.profile,loaded).succeeded()
+    ConnectionCredentials loaded;ConnectionCredentialVault vault(*store);const auto source=CredentialAccess::source(settings,{});
+    check(settings.value("Credential/Username")=="remembered" && vault.load(source.scope,source.connectionOptions,loaded).succeeded()
         && loaded.password=="manual-secret" && !settings.contains("Credential/Password"),"checked remember stores account and native credentials without plaintext fallback");finish();
     int warnings=0;QTimer dismiss;
     QStringList expectedWarnings{
@@ -182,7 +182,7 @@ static void manualCredentialsAndLateResults() {
         }
     });dismiss.start(1);store->failure=CredentialStatus::PermissionDenied;
     login(true,"unsaved");
-    check(warnings==2 && engine->profile.credentials.username=="unsaved" && engine->profile.credentials.password=="manual-secret"
+    check(warnings==2 && engine->connectionOptions.credentials.username=="unsaved" && engine->connectionOptions.credentials.password=="manual-secret"
         && settings.value("Credential/Username")=="remembered" && !settings.contains("Credential/Password"),"native read/save failure still permits manual login and preserves public account binding");
     finish();dismiss.stop();store->failure=CredentialStatus::Success;
     QSemaphore entered,resume;store->beforeRead=[&]{entered.release();check(resume.tryAcquire(1,5000),"release blocked UI native read");};
@@ -192,7 +192,7 @@ static void manualCredentialsAndLateResults() {
     connectButton.click();check(entered.tryAcquire(1,1000),"fresh pending native read");
     settings.setValue("JustConnect/TLSVerify",false);settings.setValue("JustConnect/TLSCAPEM","new policy");settings.sync();resume.release();
     until([&]{return session.state()==ConnectionState::Starting;});
-    check(!engine->profile.tls.verify && engine->profile.tls.caPem=="new policy","connection reads current public TLS policy after native I/O");finish();
+    check(!engine->connectionOptions.tls.verify && engine->connectionOptions.tls.caPem=="new policy","connection reads current public TLS policy after native I/O");finish();
     connectButton.click();check(entered.tryAcquire(1,1000),"account switch while loading");
     settings.setValue("Credential/Username","bob");settings.sync();resume.release();until([&]{return !access.isBusy(settings.fileName());});
     check(engine->starts==starts+1 && !session.isActive(),"late account read does not start or deliver old account secrets");
@@ -208,26 +208,26 @@ static void manualCredentialsAndLateResults() {
     check(engine->starts==starts+1 && !session.isActive() && settings.value("Credential/Username")=="external-account",
         "the refreshed profile snapshot cannot receive credentials loaded for an earlier account");
     store->beforeRead={};
-    settings.remove("JustConnect/TLSCAPEM");settings.setValue(ProfileCredentials::ScopeSetting,"invalid-existing-namespace");settings.sync();
+    settings.remove("JustConnect/TLSCAPEM");settings.setValue(ConnectionCredentialVault::ScopeSetting,"invalid-existing-namespace");settings.sync();
     warnings=0;expectedWarnings={"The profile or credentials changed. Reopen settings or retry.\nYou can sign in manually for this connection."};
     dismiss.start(1);login(false,"manual-without-storage");
-    check(engine->profile.credentials.username=="manual-without-storage" && settings.value(ProfileCredentials::ScopeSetting)=="invalid-existing-namespace"
+    check(engine->connectionOptions.credentials.username=="manual-without-storage" && settings.value(ConnectionCredentialVault::ScopeSetting)=="invalid-existing-namespace"
         && !settings.contains("Credential/Password"),"invalid storage namespace still permits explicit manual login without overwriting the namespace");
     finish();dismiss.stop();
-    settings.setValue(ProfileCredentials::ScopeSetting,source.scope);settings.setValue("Credential/Username","remembered");settings.sync();
-    auto totpOnly=source.profile;totpOnly.credentials.password.clear();totpOnly.credentials.totpSecret="JBSWY3DPEHPK3PXP";
+    settings.setValue(ConnectionCredentialVault::ScopeSetting,source.scope);settings.setValue("Credential/Username","remembered");settings.sync();
+    auto totpOnly=source.connectionOptions;totpOnly.credentials.password.clear();totpOnly.credentials.totpSecret="JBSWY3DPEHPK3PXP";
     check(vault.save(source.scope,totpOnly).succeeded(),"native TOTP without a password");
     connectButton.click();until([&]{
         for (auto *dialog:parent.findChildren<QDialog *>())
             if (dialog->isVisible() && dialog->findChild<QLineEdit *>("usernameLineEdit")) return true;
         return false;
     });
-    settings.setValue(ProfileCredentials::ScopeSetting,QUuid::createUuid().toString(QUuid::WithoutBraces));settings.sync();
+    settings.setValue(ConnectionCredentialVault::ScopeSetting,QUuid::createUuid().toString(QUuid::WithoutBraces));settings.sync();
     auto *dialog=challenge(parent);dialog->findChild<QLineEdit *>("passwordLineEdit")->setText("manual-secret");
     dialog->findChild<QCheckBox *>("saveLoginDetailCheckBox")->setChecked(false);
     dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
     until([&]{return session.state()==ConnectionState::Starting;});
-    check(engine->profile.credentials.totpSecret.isEmpty() && engine->profile.credentials.password=="manual-secret",
+    check(engine->connectionOptions.credentials.totpSecret.isEmpty() && engine->connectionOptions.credentials.password=="manual-secret",
         "explicit manual login does not reuse native TOTP after the storage namespace changes");finish();
     check(vault.load(source.scope,totpOnly,loaded).succeeded() && loaded.totpSecret=="JBSWY3DPEHPK3PXP","manual input never deletes another namespace's native credentials");
     const auto startsBeforeMalformed=engine->starts;const auto nativeBeforeMalformed=store->values;
@@ -252,39 +252,39 @@ static void authenticationCacheLifecycle() {
     ConnectionUiController controller(&parent,&connectButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,
         &access,[&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
         [&](const QString &title,const QString &body,QSystemTrayIcon::MessageIcon){notices.append(title+body);},nullptr,noOfficialClient);
-    auto source=CredentialAccess::source(settings,{});ProfileCredentials vault(*store);
-    auto totp=source.profile;totp.credentials.totpSecret="private-totp";
+    auto source=CredentialAccess::source(settings,{});ConnectionCredentialVault vault(*store);
+    auto totp=source.connectionOptions;totp.credentials.totpSecret="private-totp";
     check(vault.save(source.scope,totp).succeeded(),"cache fixture keeps TOTP without storing a password");
     AuthenticationCache cached{"canonical-account","private-cookie"};
-    check(vault.saveAuthenticationCache(source.scope,source.profile,cached).succeeded(),"seed bound authentication");
-    auto bob=source.profile;bob.credentials.username="bob";
+    check(vault.saveAuthenticationCache(source.scope,source.connectionOptions,cached).succeeded(),"seed bound authentication");
+    auto bob=source.connectionOptions;bob.credentials.username="bob";
     check(vault.saveAuthenticationCache(source.scope,bob,{"bob-account","bob-cookie"}).succeeded(),"seed other account cache");
     const auto ready=[&]{until([&]{return !access.isBusy(settings.fileName());});};
     const auto finish=[&]{session.stop();emit engine->finished(ConnectionError::NONE);};
     connectButton.click();until([&]{return engine->starts==1;});
-    check(engine->profile.authenticationCache.data==cached.data && engine->profile.credentials.password.isEmpty()
-        && engine->profile.credentials.totpSecret=="private-totp" && !parent.findChild<QLineEdit *>("usernameLineEdit"),
+    check(engine->connectionOptions.authenticationCache.data==cached.data && engine->connectionOptions.credentials.password.isEmpty()
+        && engine->connectionOptions.credentials.totpSecret=="private-totp" && !parent.findChild<QLineEdit *>("usernameLineEdit"),
         "valid authentication is attempted before asking for a missing password");
     emit engine->authenticationCacheUpdated({cached.account,"refreshed-cookie"});ready();
     AuthenticationCache loaded;
-    check(vault.loadAuthenticationCache(source.scope,source.profile,loaded).succeeded() && loaded.data=="refreshed-cookie","server refresh reaches the scoped native record");
+    check(vault.loadAuthenticationCache(source.scope,source.connectionOptions,loaded).succeeded() && loaded.data=="refreshed-cookie","server refresh reaches the scoped native record");
     store->failure=CredentialStatus::Locked;
     emit engine->authenticationCacheUpdated({cached.account,"unsaved-refresh"});
     emit engine->authenticationCacheUpdated({cached.account,"another-unsaved-refresh"});ready();
     store->failure=CredentialStatus::Success;
-    check(session.isActive() && notices.size()==1 && vault.loadAuthenticationCache(source.scope,source.profile,loaded).succeeded()
+    check(session.isActive() && notices.size()==1 && vault.loadAuthenticationCache(source.scope,source.connectionOptions,loaded).succeeded()
         && loaded.data=="refreshed-cookie","native save failure keeps the connection and previous record, with one warning");
     finish();
     connectButton.click();until([&]{return engine->starts==2;});
-    check(engine->profile.authenticationCache.data=="refreshed-cookie","ordinary disconnect preserves and reloads saved authentication");
+    check(engine->connectionOptions.authenticationCache.data=="refreshed-cookie","ordinary disconnect preserves and reloads saved authentication");
     emit engine->authenticationCacheInvalidated();emit engine->finished(ConnectionError::CREDENTIALS_REQUIRED);
     until([&]{auto *edit=parent.findChild<QLineEdit *>("usernameLineEdit");return edit && edit->isVisible();});
     auto *login=challenge(parent);login->findChild<QLineEdit *>("passwordLineEdit")->setText("manual-private-password");
     login->findChild<QCheckBox *>("saveLoginDetailCheckBox")->setChecked(false);
     login->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
     until([&]{return engine->starts==3;});ready();
-    check(engine->profile.authenticationCache.data.isEmpty() && engine->profile.credentials.password=="manual-private-password"
-        && engine->profile.credentials.totpSecret=="private-totp" && vault.loadAuthenticationCache(source.scope,source.profile,loaded).status==CredentialStatus::NotFound,
+    check(engine->connectionOptions.authenticationCache.data.isEmpty() && engine->connectionOptions.credentials.password=="manual-private-password"
+        && engine->connectionOptions.credentials.totpSecret=="private-totp" && vault.loadAuthenticationCache(source.scope,source.connectionOptions,loaded).status==CredentialStatus::NotFound,
         "definitive rejection clears old cache and asks for one necessary password while preserving scoped TOTP");
     emit engine->authenticationCacheUpdated({cached.account,"fresh-authentication"});ready();
     emit engine->connectionEstablished();
@@ -298,18 +298,18 @@ static void authenticationCacheLifecycle() {
     });confirm.start(1);controller.clearAuthenticationCache();confirm.stop();
     emit engine->authenticationCacheUpdated({cached.account,"late-authentication"});ready();
     ConnectionCredentials credentials;
-    check(confirmed && vault.loadAuthenticationCache(source.scope,source.profile,loaded).status==CredentialStatus::NotFound
+    check(confirmed && vault.loadAuthenticationCache(source.scope,source.connectionOptions,loaded).status==CredentialStatus::NotFound
         && vault.loadAuthenticationCache(source.scope,bob,loaded).succeeded() && loaded.data=="bob-cookie"
-        && vault.load(source.scope,source.profile,credentials).succeeded() && credentials.totpSecret=="private-totp" && credentials.password.isEmpty(),
+        && vault.load(source.scope,source.connectionOptions,credentials).succeeded() && credentials.totpSecret=="private-totp" && credentials.password.isEmpty(),
         "explicit clear rejects late refresh while retaining other accounts and independent secrets");
     finish();
-    auto password=source.profile;password.credentials.password="saved-private-password";
-    check(vault.save(source.scope,password).succeeded() && vault.saveAuthenticationCache(source.scope,source.profile,cached).succeeded(),"seed opted-out account");
+    auto password=source.connectionOptions;password.credentials.password="saved-private-password";
+    check(vault.save(source.scope,password).succeeded() && vault.saveAuthenticationCache(source.scope,source.connectionOptions,cached).succeeded(),"seed opted-out account");
     settings.setValue(DefaultSettings::RememberAuthentication,false);settings.sync();
     connectButton.click();until([&]{return engine->starts==4;});
     emit engine->authenticationCacheUpdated({cached.account,"not-allowed"});ready();
-    check(!engine->profile.behavior.rememberAuthentication && engine->profile.authenticationCache.data.isEmpty()
-        && vault.loadAuthenticationCache(source.scope,source.profile,loaded).succeeded() && loaded.data==cached.data,
+    check(!engine->connectionOptions.behavior.rememberAuthentication && engine->connectionOptions.authenticationCache.data.isEmpty()
+        && vault.loadAuthenticationCache(source.scope,source.connectionOptions,loaded).succeeded() && loaded.data==cached.data,
         "disabled consent neither restores nor updates existing authentication");finish();
     settings.setValue(DefaultSettings::RememberAuthentication,true);settings.setValue("JustConnect/AuthType","httpsOauth2");
     settings.setValue("Credential/Username","");settings.sync();
@@ -329,16 +329,16 @@ static void authenticationCacheLifecycle() {
     until([&]{
         if (settings.value("Credential/Username")!="server-confirmed-user" || access.isBusy(settings.fileName())) return false;
         const auto current=CredentialAccess::source(settings,{});
-        return vault.loadAuthenticationCache(current.scope,current.profile,loaded).succeeded();
+        return vault.loadAuthenticationCache(current.scope,current.connectionOptions,loaded).succeeded();
     });
     QObject::disconnect(bindingObserver);bindingNotice.stop();
     check(!controller.isConfigurationSaving(),"completed SSO binding releases configuration operations");
     source=CredentialAccess::source(settings,{});
-    check(deferredClear && vault.loadAuthenticationCache(source.scope,source.profile,loaded).succeeded() && loaded.account=="server-confirmed-user"
+    check(deferredClear && vault.loadAuthenticationCache(source.scope,source.connectionOptions,loaded).succeeded() && loaded.account=="server-confirmed-user"
         && loaded.data=="private-sso-cookie","first SSO binds the server-confirmed public account before storing authentication");
     const auto noticesBeforeMismatch=notices.size();
     emit engine->authenticationCacheUpdated({"different-user","must-not-reassign"});ready();
-    check(vault.loadAuthenticationCache(source.scope,source.profile,loaded).succeeded() && loaded.account=="server-confirmed-user"
+    check(vault.loadAuthenticationCache(source.scope,source.connectionOptions,loaded).succeeded() && loaded.account=="server-confirmed-user"
         && loaded.data=="private-sso-cookie" && notices.size()==noticesBeforeMismatch+1,"different SSO account cannot replace the selected account's cache");finish();
     check(!logs.contains("private-cookie") && !logs.contains("manual-private-password") && !logs.contains("private-totp")
         && !logs.contains("private-sso-cookie"),"authentication cache and credentials do not enter application logs");
@@ -368,8 +368,8 @@ static void onlineExpiryOffersOneReauthentication() {
         &access,[&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},
         [&](const QString &,const QString &,QSystemTrayIcon::MessageIcon){++notices;},nullptr,noOfficialClient);
     QObject::connect(&session,&ConnectionSession::finished,[&](ConnectionError){++finishes;});
-    const auto source=CredentialAccess::source(settings,{});ProfileCredentials vault(*store);
-    check(vault.saveAuthenticationCache(source.scope,source.profile,{"alice","expired-cookie"}).succeeded(),"seed online session authentication");
+    const auto source=CredentialAccess::source(settings,{});ConnectionCredentialVault vault(*store);
+    check(vault.saveAuthenticationCache(source.scope,source.connectionOptions,{"alice","expired-cookie"}).succeeded(),"seed online session authentication");
     connectButton.click();until([&]{return engine->starts==1;});emit engine->connectionEstablished();
     int errors=0;QTimer dismiss;
     QObject::connect(&dismiss,&QTimer::timeout,[&] {
@@ -383,13 +383,13 @@ static void onlineExpiryOffersOneReauthentication() {
     AuthenticationCache cached;
     check(session.state()==ConnectionState::Failed && session.phase()==ConnectionPhase::ReauthenticationRequired
         && engine->starts==1 && engine->stops==0 && finishes==1 && errors==1 && notices==1
-        && vault.loadAuthenticationCache(source.scope,source.profile,cached).status==CredentialStatus::NotFound,
+        && vault.loadAuthenticationCache(source.scope,source.connectionOptions,cached).status==CredentialStatus::NotFound,
         "online expiry completes once, clears authentication and never silently relogs in");
     connectButton.click();until([&]{auto *edit=parent.findChild<QLineEdit *>("usernameLineEdit");return edit && edit->isVisible();});
     auto *login=challenge(parent);login->findChild<QLineEdit *>("passwordLineEdit")->setText("manual-after-expiry");
     login->findChild<QCheckBox *>("saveLoginDetailCheckBox")->setChecked(false);
     login->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();until([&]{return engine->starts==2;});
-    check(engine->profile.authenticationCache.data.isEmpty(),"manual reauthentication cannot restore the expired cache");
+    check(engine->connectionOptions.authenticationCache.data.isEmpty(),"manual reauthentication cannot restore the expired cache");
     emit engine->authenticationRequired({{"schema_version",1},{"generation","2"},{"request_id","2"},{"challenge",QJsonObject{{"kind","sms"}}}});
     enterCode(parent,"123456");
     check(engine->responses==1 && session.state()==ConnectionState::Running,"one manual MFA flow restores transport readiness");
@@ -441,15 +441,15 @@ static void authenticationSurvivesTunnelFailure() {
     });closeError.start(1);
     emit engine->authenticationCacheUpdated({"authenticated-user","private-before-tunnel"});
     emit engine->finished(ConnectionError::TLS_TRUST);closeError.stop();
-    AuthenticationCache saved;ProfileCredentials vault(*store);
+    AuthenticationCache saved;ConnectionCredentialVault vault(*store);
     until([&]{
         const auto source=CredentialAccess::source(settings,{});
-        return !access.isBusy() && !controller.isConfigurationSaving() && vault.loadAuthenticationCache(source.scope,source.profile,saved).succeeded();
+        return !access.isBusy() && !controller.isConfigurationSaving() && vault.loadAuthenticationCache(source.scope,source.connectionOptions,saved).succeeded();
     });
     check(errorShown && saved.account=="authenticated-user" && saved.data=="private-before-tunnel",
         "terminal tunnel failure retains authorized first SSO account binding and native authentication");
     connectButton.click();until([&]{return engine->starts==2;});
-    check(engine->profile.authenticationCache.account==saved.account && engine->profile.authenticationCache.data==saved.data,
+    check(engine->connectionOptions.authenticationCache.account==saved.account && engine->connectionOptions.authenticationCache.data==saved.data,
         "retry restores the authenticated account instead of starting with an empty cache");
     emit engine->finished(ConnectionError::NONE);
 }
@@ -459,7 +459,7 @@ static void failedNetworkRecoveryOffersRetryWhileCoreStops() {
     public:
         QUuid attempt;int stops=0;
         void prepare(const QUuid &id) override {attempt=id;}
-        void activate(const QUuid &,const ConnectionProfile &) override {}
+        void activate(const QUuid &,const ConnectionOptions &) override {}
         void stop(const QUuid &) override {++stops;}
     };
     QTemporaryDir folder;QSettings settings(folder.filePath("recovery.ini"),QSettings::IniFormat);DefaultSettings::reset(settings);
@@ -557,8 +557,8 @@ static void quitWaitsForInitialSsoCache() {
         [](const QString &,const QString &,QSystemTrayIcon::MessageIcon){check(false,"exit preserves authorized SSO cache persistence");},nullptr,noOfficialClient);
     int ready=0;
     QObject::connect(&controller,&ConnectionUiController::readyToQuit,[&]{
-        const auto source=CredentialAccess::source(settings,{});AuthenticationCache saved;ProfileCredentials vault(*store);
-        check(!access.isBusy() && vault.loadAuthenticationCache(source.scope,source.profile,saved).succeeded()
+        const auto source=CredentialAccess::source(settings,{});AuthenticationCache saved;ConnectionCredentialVault vault(*store);
+        check(!access.isBusy() && vault.loadAuthenticationCache(source.scope,source.connectionOptions,saved).succeeded()
             && saved.account=="exit-account" && saved.data=="private-exit-cookie","quit becomes ready only after the chained native cache write is verified");
         ++ready;
     });
@@ -715,7 +715,7 @@ static void browserValidatesCallbackNavigation() {
 
 static void campusIntentsShareOneController() {
     QTemporaryDir folder;QSettings settings(folder.filePath("intents.ini"),QSettings::IniFormat);DefaultSettings::reset(settings);
-    settings.setValue("JustConnect/ProfileKind","Custom");settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");
+    settings.setValue("JustConnect/ConnectionKind","Custom");settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");
     settings.setValue("JustConnect/AuthType","cas");settings.setValue("Common/NeedsConfiguration",false);settings.sync();
     QWidget parent;QPushButton button(&parent);QAction tray(&parent);
     auto *engine=new QueryEngine;ConnectionSession session(engine);SystemProxySession proxy(std::make_unique<ProxyBackend>());
@@ -757,7 +757,7 @@ static void controllerSelectionContracts() {
     choices->setCurrentIndex(2);
     dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
     check(callbacks==1 && chosen==QString("http://127.0.0.1:31002")
-        && ProfileManager(root.path()).controllerAddress()==*chosen,"multiple controllers require explicit selection and persist only the endpoint");
+        && SavedConnectionStore(root.path()).controllerAddress()==*chosen,"multiple controllers require explicit selection and persist only the endpoint");
     selection.choose([&](std::optional<QString> address){++callbacks;chosen=std::move(address);});
     check(callbacks==2 && reads==1 && chosen==QString("http://127.0.0.1:31002"),"a stored choice does not repeat discovery or show a dialog");
     QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
@@ -770,7 +770,7 @@ static void controllerSelectionContracts() {
     address->setText("http://secret@127.0.0.1:31003");
     auto *save=dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok);save->click();
     check(callbacks==2 && !dialog->findChild<QLabel *>("controllerError")->text().isEmpty()
-        && ProfileManager(root.path()).controllerAddress()=="http://127.0.0.1:31002","credentials in a manual URL cannot be saved or selected");
+        && SavedConnectionStore(root.path()).controllerAddress()=="http://127.0.0.1:31002","credentials in a manual URL cannot be saved or selected");
     address->setText("https://[::1]:31003");save->click();
     check(callbacks==3 && chosen==QString("https://[::1]:31003"),"valid manual local endpoints use shared core validation");
     QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
@@ -796,7 +796,7 @@ static void controllerSelectionContracts() {
     until([&]{return entered.available()==1;});entered.acquire();queued.cancel();
     queued.choose([&](std::optional<QString> address){check(address && address->isEmpty(),"new discovery uses its own empty candidate result");++newResult;});
     release.release();until([&]{return newResult==1;});
-    check(cancelled==1 && queuedReads==2 && ProfileManager(queuedRoot.path()).controllerAddress().isEmpty(),"late cancelled discovery cannot select or persist a new request's controller");
+    check(cancelled==1 && queuedReads==2 && SavedConnectionStore(queuedRoot.path()).controllerAddress().isEmpty(),"late cancelled discovery cannot select or persist a new request's controller");
 }
 
 static void browserPreservesChallengeIdentity() {
@@ -863,23 +863,23 @@ static void uiContracts() {
     }
     auto *selectedEngine=new QueryEngine;
     AuthMethodsQuery selectedQuery(selectedEngine);
-    ConnectionProfile selectedProfile;selectedProfile.endpoint.server="query.example.invalid";
+    ConnectionOptions selectedProfile;selectedProfile.endpoint.server="query.example.invalid";
     selectedProfile.behavior.controllerAddress="http://127.0.0.1:31002";
     selectedProfile.credentials.password="private";selectedProfile.authenticationCache={"private-account","private-cache"};
-    check(selectedQuery.start(selectedProfile) && selectedEngine->profile.behavior.controllerAddress==selectedProfile.behavior.controllerAddress
-        && selectedEngine->profile.credentials.password.isEmpty() && selectedEngine->profile.authenticationCache.data.isEmpty(),
+    check(selectedQuery.start(selectedProfile) && selectedEngine->connectionOptions.behavior.controllerAddress==selectedProfile.behavior.controllerAddress
+        && selectedEngine->connectionOptions.credentials.password.isEmpty() && selectedEngine->connectionOptions.authenticationCache.data.isEmpty(),
         "authentication queries preserve the selected controller while removing credentials and cached sessions");
     selectedQuery.stop();emit selectedEngine->finished(ConnectionError::NONE);
     auto *fake = new QueryEngine;
-    ConnectionProfile queryProfile; queryProfile.endpoint.server="vpn.example.invalid"; queryProfile.endpoint.port=8443;
+    ConnectionOptions queryProfile; queryProfile.endpoint.server="vpn.example.invalid"; queryProfile.endpoint.port=8443;
     queryProfile.credentials.password="must-not-be-queried"; queryProfile.tls={false,"query CA"};
     queryProfile.behavior.rememberAuthentication=true;queryProfile.authenticationCache={"private-account","private-cache"};
     auto *query=openQuery(&parent,queryProfile,fake);
     until([&]{return fake->starts==1;});
     check(!query->findChild<QCheckBox *>("tlsVerifyCheckBox")->isEnabled(),"a running query locks its server trust policy until completion or cancellation");
-    check(fake->operation == CoreEngine::Operation::AuthMethods && fake->profile.endpoint.port == 8443 && fake->profile.credentials.password.isEmpty()
-        && fake->profile.authenticationCache.data.isEmpty() && fake->profile.authenticationCache.account.isEmpty() && !fake->profile.behavior.rememberAuthentication
-        && !fake->profile.tls.verify && fake->profile.tls.caPem=="query CA",
+    check(fake->operation == CoreEngine::Operation::AuthMethods && fake->connectionOptions.endpoint.port == 8443 && fake->connectionOptions.credentials.password.isEmpty()
+        && fake->connectionOptions.authenticationCache.data.isEmpty() && fake->connectionOptions.authenticationCache.account.isEmpty() && !fake->connectionOptions.behavior.rememberAuthentication
+        && !fake->connectionOptions.tls.verify && fake->connectionOptions.tls.caPem=="query CA",
         "query uses the engine port and configured server");
     emit fake->authMethodsReady({QJsonObject{{"type", "auth/cas"}, {"domain", "campus"}, {"name", "校园登录"}, {"login_url", "https://vpn.example.invalid/login"}}});
     auto *list=queryChoices(query);
@@ -942,7 +942,7 @@ static void uiContracts() {
     failed->reject(); QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
 
 }
-static void browserTlsPolicy(const ConnectionProfile &gatewayProfile) {
+static void browserTlsPolicy(const ConnectionOptions &gatewayProfile) {
     QUrl target;target.setScheme("https");target.setHost(gatewayProfile.endpoint.server);target.setPort(gatewayProfile.endpoint.port);target.setPath("/browser");
     QString foreignUrl;
     for (const auto &policy:QList<TlsOptions>{{},{true,gatewayProfile.tls.caPem},{true,{},true},{false,{}}}) {
@@ -950,7 +950,7 @@ static void browserTlsPolicy(const ConnectionProfile &gatewayProfile) {
                   << ", unverified nodes=" << policy.allowUnverifiedNodes << '\n';
         QWidget parent;auto *engine=new QueryEngine;ConnectionSession session(engine);AuthDialogCoordinator dialogs(&parent);
         QObject::connect(&session,&ConnectionSession::authenticationRequired,&dialogs,&AuthDialogCoordinator::requestAuthentication);
-        auto profile=gatewayProfile;profile.tls=policy;check(session.start(profile,{}),"start immutable browser TLS policy context");profile.tls={};
+        auto connectionOptions=gatewayProfile;connectionOptions.tls=policy;check(session.start(connectionOptions,{}),"start immutable browser TLS policy context");connectionOptions.tls={};
         auto loginTarget=target;if(!policy.verify)loginTarget.setQuery("scope=unsafe");
         const QJsonObject request{{"schema_version",1},{"generation","1"},{"request_id","1"},
             {"challenge",QJsonObject{{"kind","oauth2"},{"login_url",""}}}};
@@ -988,7 +988,7 @@ static void gateway(const QJsonObject &config) {
     AuthDialogCoordinator dialogs(&parent);
     auto *engine = new EmbeddedCoreEngine;
     ConnectionSession session(engine);
-    ConnectionProfile p;
+    ConnectionOptions p;
     const auto server = config["server"].toObject();
     const auto auth = config["auth"].toObject();
     p.tls.caPem=config["tls"].toObject()["ca_pem"].toString();
@@ -1258,8 +1258,8 @@ static void gateway(const QJsonObject &config) {
     inspection.close();
     QObject::disconnect(snapshotObserver);
     check(savedCache.account=="fixture-user" && !savedCache.data.isEmpty(),"Qt receives server-confirmed cache after authentication");
-    const auto source=CredentialAccess::source(settings,{});ProfileCredentials vault(*store);AuthenticationCache nativeCache;
-    check(vault.loadAuthenticationCache(source.scope,source.profile,nativeCache).succeeded() && nativeCache.data==savedCache.data,
+    const auto source=CredentialAccess::source(settings,{});ConnectionCredentialVault vault(*store);AuthenticationCache nativeCache;
+    check(vault.loadAuthenticationCache(source.scope,source.connectionOptions,nativeCache).succeeded() && nativeCache.data==savedCache.data,
         "production Qt workflow verifies its scoped native record");
     {
         QSettings restartedSettings(settings.fileName(),QSettings::IniFormat);

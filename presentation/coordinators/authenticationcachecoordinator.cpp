@@ -1,6 +1,6 @@
 #include "authenticationcachecoordinator.h"
 #include "application/connectionsession.h"
-#include "application/profilecredentials.h"
+#include "application/connectioncredentialvault.h"
 #include "presentation/presentationhelpers.h"
 #include <utility>
 
@@ -17,15 +17,15 @@ AuthenticationCacheCoordinator::AuthenticationCacheCoordinator(ConnectionSession
     });
 }
 
-ConnectionProfile AuthenticationCacheCoordinator::prepare(ConnectionProfile profile,const CredentialSource &source,quint64 revision)
+ConnectionOptions AuthenticationCacheCoordinator::prepare(ConnectionOptions connectionOptions,const CredentialSource &source,quint64 revision)
 {
     ++cacheGeneration;bindingCacheAccount=false;pendingCache={};cacheWarningShown=false;cacheSource.reset();
-    if (profile.behavior.rememberAuthentication && !source.scope.isEmpty()
-        && profile.authenticationIdentity()==source.profile.authenticationIdentity()) {
+    if (connectionOptions.behavior.rememberAuthentication && !source.scope.isEmpty()
+        && connectionOptions.authenticationIdentity()==source.connectionOptions.authenticationIdentity()) {
         cacheSource=source;cacheRevision=revision;
-        if (revision!=credentials->authenticationCacheRevision(source)) profile.authenticationCache={};
-    } else {profile.behavior.rememberAuthentication=false;profile.authenticationCache={};}
-    return profile;
+        if (revision!=credentials->authenticationCacheRevision(source)) connectionOptions.authenticationCache={};
+    } else {connectionOptions.behavior.rememberAuthentication=false;connectionOptions.authenticationCache={};}
+    return connectionOptions;
 }
 
 void AuthenticationCacheCoordinator::reportCacheFailure(CredentialStatus status)
@@ -38,22 +38,22 @@ void AuthenticationCacheCoordinator::rememberAuthentication(const Authentication
 {
     if (!cacheSource) return;
     const auto source=*cacheSource;const auto generation=cacheGeneration;
-    const bool external=source.profile.endpoint.authType=="cas" || source.profile.endpoint.authType=="httpsOauth2";
-    if (external && !source.profile.credentials.username.isEmpty() && !source.profile.matchesCacheAccount(cache.account)) {
+    const bool external=source.connectionOptions.endpoint.authType=="cas" || source.connectionOptions.endpoint.authType=="httpsOauth2";
+    if (external && !source.connectionOptions.credentials.username.isEmpty() && !source.connectionOptions.matchesCacheAccount(cache.account)) {
         connectionSession->forgetAuthenticationCache();cacheSource.reset();++cacheGeneration;emit forgotten();
         emit warning(tr("The signed-in account differs from the account set for this connection. Confirm the account before reconnecting."));return;
     }
-    if (external && source.profile.credentials.username.isEmpty()) {
+    if (external && source.connectionOptions.credentials.username.isEmpty()) {
         pendingCache=cache;
         if (bindingCacheAccount) return;
         bindingCacheAccount=true;
-        auto profile=source.profile;profile.credentials.username=cache.account;
-        credentials->save(source,profile,false,{{"Credential/Username",cache.account}}).then(this,[this,source,profile,generation](const CredentialResult &result) {
+        auto connectionOptions=source.connectionOptions;connectionOptions.credentials.username=cache.account;
+        credentials->save(source,connectionOptions,false,{{"Credential/Username",cache.account}}).then(this,[this,source,connectionOptions,generation](const CredentialResult &result) {
             if (generation!=cacheGeneration || !cacheSource) return;
             bindingCacheAccount=false;
             if (!result.succeeded()) {pendingCache={};reportCacheFailure(result.status);return;}
             const auto current=credentialSourceProvider();
-            if (current.path!=source.path || current.scope!=source.scope || current.profile.authenticationIdentity()!=profile.authenticationIdentity()) {pendingCache={};return;}
+            if (current.path!=source.path || current.scope!=source.scope || current.connectionOptions.authenticationIdentity()!=connectionOptions.authenticationIdentity()) {pendingCache={};return;}
             cacheSource=current;cacheRevision=credentials->authenticationCacheRevision(current);
             const auto latest=std::exchange(pendingCache,{});
             rememberAuthentication(latest);
@@ -66,7 +66,7 @@ void AuthenticationCacheCoordinator::rememberAuthentication(const Authentication
 void AuthenticationCacheCoordinator::invalidateAuthenticationCache()
 {
     ++cacheGeneration;bindingCacheAccount=false;pendingCache={};
-    if (!cacheSource || ProfileCredentials::authenticationCacheKey(cacheSource->scope,cacheSource->profile).isEmpty()) return;
+    if (!cacheSource || ConnectionCredentialVault::authenticationCacheKey(cacheSource->scope,cacheSource->connectionOptions).isEmpty()) return;
     const auto generation=cacheGeneration;
     credentials->clearAuthenticationCache(*cacheSource).then(this,[this,generation](const CredentialResult &result) {
         if (generation==cacheGeneration) reportCacheFailure(result.status);
@@ -75,7 +75,7 @@ void AuthenticationCacheCoordinator::invalidateAuthenticationCache()
 }
 QFuture<CredentialResult> AuthenticationCacheCoordinator::clear(const CredentialSource &source)
 {
-    if (cacheSource && ProfileCredentials::authenticationCacheKey(cacheSource->scope,cacheSource->profile)==ProfileCredentials::authenticationCacheKey(source.scope,source.profile)) {
+    if (cacheSource && ConnectionCredentialVault::authenticationCacheKey(cacheSource->scope,cacheSource->connectionOptions)==ConnectionCredentialVault::authenticationCacheKey(source.scope,source.connectionOptions)) {
         connectionSession->forgetAuthenticationCache();cacheSource.reset();++cacheGeneration;bindingCacheAccount=false;pendingCache={};emit forgotten();
     }
     return credentials->clearAuthenticationCache(source);

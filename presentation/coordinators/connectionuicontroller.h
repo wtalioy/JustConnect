@@ -67,12 +67,12 @@ signals:
     void readyToQuit();
     void quitFailed(const QString &code);
 private:
-    void startConnection(ConnectionProfile profile,const CredentialSource &source,quint64 cacheRevision);
-    void requestConnection(const CredentialSource &source,ConnectionProfile profile,quint64 cacheRevision);
-    void loadAuthenticationCache(const CredentialSource &source,ConnectionProfile profile,quint64 generation);
+    void startConnection(ConnectionOptions connectionOptions,const CredentialSource &source,quint64 cacheRevision);
+    void requestConnection(const CredentialSource &source,ConnectionOptions connectionOptions,quint64 cacheRevision);
+    void loadAuthenticationCache(const CredentialSource &source,ConnectionOptions connectionOptions,quint64 generation);
     void submitLogin(const QString &username,const QString &password,bool save);
     void submitPhone(const QString &country,const QString &phone,bool save);
-    void submitManual(const CredentialSource &source,const ConnectionProfile &profile,bool save,const QVariantMap &changes,bool updateCredentials);
+    void submitManual(const CredentialSource &source,const ConnectionOptions &connectionOptions,bool save,const QVariantMap &changes,bool updateCredentials);
     void showConnectionError(ConnectionError error);
     QSettings *settings() const;
     bool sourceStillCurrent(const CredentialSource &source) const;

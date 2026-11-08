@@ -12,12 +12,12 @@
 #include "infrastructure/networkaccess/windows/networkaccess.h"
 #endif
 #include "application/networkpolicysession.h"
-#include "application/profileservice.h"
+#include "application/savedconnectionservice.h"
 #include "application/systemproxysession.h"
 #include "infrastructure/coreengine/embeddedcoreengine.h"
 #include "infrastructure/systemproxy/proxyrecovery.h"
 #include "infrastructure/dns/dnssnapshot.h"
-#include "infrastructure/settings/profilemanager.h"
+#include "infrastructure/settings/savedconnectionstore.h"
 #include "infrastructure/settings/credentialaccess.h"
 #include "infrastructure/credentialstore/systemcredentialstore.h"
 #include "infrastructure/storage/applicationpaths.h"
@@ -47,8 +47,8 @@ MainWindowCoordinator::MainWindowCoordinator(
     NetworkFactory networkFactory
 )
     : QObject(parent),
-      profileService(new ProfileService(
-          std::make_unique<ProfileManager>(),
+      savedConnections(new SavedConnectionService(
+          std::make_unique<SavedConnectionStore>(),
           overrideConfigPath,
           this
       )),
@@ -83,19 +83,19 @@ MainWindowCoordinator::MainWindowCoordinator(
 
 MainWindowCoordinator::~MainWindowCoordinator()
 {
-    // Finish worker writes before ProfileService synchronizes and destroys its settings.
+    // Finish worker writes before SavedConnectionService synchronizes and destroys its settings.
     delete credentialAccess;
 }
 
-ProfileService *MainWindowCoordinator::profiles() const
+SavedConnectionService *MainWindowCoordinator::connectionSettingsService() const
 {
-    return profileService;
+    return savedConnections;
 }
 
 CredentialAccess *MainWindowCoordinator::credentials() const {return credentialAccess;}
 CredentialSource MainWindowCoordinator::credentialSource() {
-    const auto legacy=profileService->usesOverrideConfiguration() ? QString() : ApplicationPaths::clientDataFile(profileService->currentProfileId());
-    return CredentialAccess::source(*profileService->settings(),legacy);
+    const auto legacy=savedConnections->usesOverrideConfiguration() ? QString() : ApplicationPaths::clientDataFile(savedConnections->currentConnectionId());
+    return CredentialAccess::source(*savedConnections->settings(),legacy);
 }
 
 ConnectionSession *MainWindowCoordinator::connection() const

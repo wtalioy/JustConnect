@@ -1,7 +1,7 @@
 #pragma once
 
 #include "infrastructure/coreengine/embeddedcoreengine.h"
-#include "infrastructure/settings/profilemanager.h"
+#include "infrastructure/settings/savedconnectionstore.h"
 #include <QFutureWatcher>
 #include <QPointer>
 #include <functional>
@@ -28,7 +28,7 @@ private:
     void closeDialog();
     void finish(std::optional<QString> address);
     QWidget *window;
-    ProfileManager preferences;
+    SavedConnectionStore preferences;
     Reader reader;
     QFutureWatcher<EmbeddedCoreEngine::ControllerDiscovery> watcher;
     QPointer<QDialog> dialog;

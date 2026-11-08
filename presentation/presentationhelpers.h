@@ -23,7 +23,6 @@ void activateWindow(QWidget *window);
 QAction *passwordVisibilityAction(QLineEdit *field);
 void setButtonIcon(QAbstractButton *button,const QString &path);
 void connectCopyButton(QAbstractButton *button, std::function<QString()> text);
-QString profileKindLabel(const QString &kind);
 bool setTreeRows(QTreeWidget *tree,const QList<QStringList> &rows);
 }
 

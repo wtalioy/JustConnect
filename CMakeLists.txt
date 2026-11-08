@@ -89,7 +89,7 @@ add_library(justconnect_desktop OBJECT
     presentation/dialogs/graphcaptchawindow/graphcaptchawindow.cpp
     presentation/dialogs/graphcaptchawindow/graphcaptchawindow.ui
     presentation/dialogs/graphcaptchawindow/captchacanvas.cpp
-    infrastructure/settings/profilemanager.cpp
+    infrastructure/settings/savedconnectionstore.cpp
 )
 target_sources(justconnect_desktop INTERFACE "$<TARGET_OBJECTS:justconnect_ui_resources>")
 
@@ -238,15 +238,15 @@ if(BUILD_TESTING)
     add_test(NAME credentialaccess_test COMMAND credentialaccess_test)
     set_tests_properties(credentialaccess_test PROPERTIES TIMEOUT 20)
 
-    add_executable(profilecredentials_test tests/profilecredentials_test.cpp)
-    target_link_libraries(profilecredentials_test PRIVATE Qt6::Core justconnect_application)
-    add_test(NAME profilecredentials_test COMMAND profilecredentials_test)
+    add_executable(connectioncredentialvault_test tests/connectioncredentialvault_test.cpp)
+    target_link_libraries(connectioncredentialvault_test PRIVATE Qt6::Core justconnect_application)
+    add_test(NAME connectioncredentialvault_test COMMAND connectioncredentialvault_test)
 
-    add_executable(settingsprofileloader_test
-        tests/settingsprofileloader_test.cpp)
-    target_include_directories(settingsprofileloader_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(settingsprofileloader_test Qt::Core justconnect_application)
-    add_test(NAME settingsprofileloader_test COMMAND settingsprofileloader_test)
+    add_executable(connectionoptionsloader_test
+        tests/connectionoptionsloader_test.cpp)
+    target_include_directories(connectionoptionsloader_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(connectionoptionsloader_test Qt::Core justconnect_application)
+    add_test(NAME connectionoptionsloader_test COMMAND connectionoptionsloader_test)
 
     add_executable(connectionsessionstate_test
         tests/connectionsessionstate_test.cpp)
@@ -287,18 +287,18 @@ if(BUILD_TESTING)
     target_link_libraries(settingsmigrator_test Qt::Core justconnect_application)
     add_test(NAME settingsmigrator_test COMMAND settingsmigrator_test)
 
-    add_executable(profileservice_test
-        tests/profileservice_test.cpp)
-    target_include_directories(profileservice_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(profileservice_test Qt::Core justconnect_application)
-    add_test(NAME profileservice_test COMMAND profileservice_test)
+    add_executable(savedconnectionservice_test
+        tests/savedconnectionservice_test.cpp)
+    target_include_directories(savedconnectionservice_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(savedconnectionservice_test Qt::Core justconnect_application)
+    add_test(NAME savedconnectionservice_test COMMAND savedconnectionservice_test)
 
-    add_executable(profilemanager_test
-        tests/profilemanager_test.cpp
-        infrastructure/settings/profilemanager.cpp)
-    target_include_directories(profilemanager_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(profilemanager_test Qt::Core justconnect_application)
-    add_test(NAME profilemanager_test COMMAND profilemanager_test)
+    add_executable(savedconnectionstore_test
+        tests/savedconnectionstore_test.cpp
+        infrastructure/settings/savedconnectionstore.cpp)
+    target_include_directories(savedconnectionstore_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(savedconnectionstore_test Qt::Core justconnect_application)
+    add_test(NAME savedconnectionstore_test COMMAND savedconnectionstore_test)
 
     add_executable(graphcaptchawindow_test
         tests/graphcaptchawindow_test.cpp

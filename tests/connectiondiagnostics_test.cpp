@@ -18,7 +18,7 @@ class Engine final : public CoreEngine
   public:
     int starts = 0, reads = 0;
     bool failNetwork=false;
-    bool start(const ConnectionProfile &, Operation) override
+    bool start(const ConnectionOptions &, Operation) override
     {
         emit sessionStarted(QString::number(++starts));
         return true;
@@ -63,7 +63,7 @@ class Network final : public NetworkAccess
     {
         emit prepared(id, {});
     }
-    void activate(const QUuid &id, const ConnectionProfile &) override
+    void activate(const QUuid &id, const ConnectionOptions &) override
     {
         emit ready(id, {});
     }

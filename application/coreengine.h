@@ -7,7 +7,7 @@
 #include <QDateTime>
 
 #include "core/connectionerror.h"
-#include "core/connectionprofile.h"
+#include "core/connectionoptions.h"
 
 // Authentication keeps the ABI's string generation/request IDs through the UI.
 class CoreEngine : public QObject
@@ -20,7 +20,7 @@ public:
     enum class Snapshot { Network, Resources, Coexistence };
     Q_ENUM(Snapshot)
     using QObject::QObject;
-    virtual bool start(const ConnectionProfile &profile, Operation operation = Operation::Connect) = 0;
+    virtual bool start(const ConnectionOptions &connectionOptions, Operation operation = Operation::Connect) = 0;
     virtual void stop() = 0;
     virtual void respond(const QJsonObject &response) = 0;
     virtual void updatePolicy(const QJsonObject &policy) {

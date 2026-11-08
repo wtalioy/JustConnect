@@ -39,7 +39,7 @@ static QJsonObject policy(const QString &generation, const QString &revision) {
         {"protected",QJsonArray{"192.168.50.0/24"}},{"campus",QJsonArray{}}};
 }
 #if (defined(Q_OS_MACOS) || defined(Q_OS_WIN)) && !defined(ABI_FIXTURE)
-static void rejectedDeviceHandoffReleasesItsBorrowedHandle(const ConnectionProfile &profile) {
+static void rejectedDeviceHandoffReleasesItsBorrowedHandle(const ConnectionOptions &profile) {
     EmbeddedCoreEngine engine;int finished=0,replies=0;
 #if defined(Q_OS_WIN)
     HANDLE reading=nullptr;
@@ -84,7 +84,7 @@ static int originalDNSPreparation(const QJsonObject &config) {
     const auto server = config["server"].toObject(), auth = config["auth"].toObject();
     const auto sources = config["network"].toObject()["original_dns"].toArray();
     check(!sources.isEmpty(), "explicit native DNS fixture sources");
-    ConnectionProfile profile;
+    ConnectionOptions profile;
     profile.endpoint.server = server["host"].toString(); profile.endpoint.port = server["port"].toInt();
     profile.endpoint.authType = auth["method"].toString().mid(QStringLiteral("auth/").size());
     profile.endpoint.authId = auth["auth_id"].toString(); profile.endpoint.authSubType = auth["sub_type"].toString();
@@ -139,7 +139,7 @@ int main(int argc, char **argv) {
 #endif
     const auto info = EmbeddedCoreEngine::buildInfo();
     check(info["abi_version"].toInt() == JC_ABI_VERSION, "loaded library ABI metadata");
-    ConnectionProfile profile;
+    ConnectionOptions profile;
     profile.endpoint.server = "127.0.0.1";
     profile.endpoint.port = 1;
     profile.credentials.password = QString::fromUtf8("private-验证");

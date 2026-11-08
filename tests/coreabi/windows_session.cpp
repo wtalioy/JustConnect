@@ -131,7 +131,7 @@ int main(int argc,char **argv) try
     std::memcpy(baseline.dns.data(),dnsHash.constData(),baseline.dns.size());
     std::memcpy(baseline.interfaces.data(),interfaceHash.constData(),baseline.interfaces.size());
     const auto config=QJsonDocument::fromJson(qgetenv("JC_WINDOWS_SESSION_CONFIG")).object();
-    const auto server=config["server"].toObject(),auth=config["auth"].toObject();ConnectionProfile profile;
+    const auto server=config["server"].toObject(),auth=config["auth"].toObject();ConnectionOptions profile;
     profile.endpoint.server=server["host"].toString();profile.endpoint.port=server["port"].toInt();
     profile.endpoint.authType=auth["method"].toString().mid(QStringLiteral("auth/").size());
     profile.endpoint.phone=auth["phone"].toString();profile.endpoint.loginDomain=auth["domain"].toString();

@@ -90,12 +90,12 @@ void MacNetworkAccess::prepare(const QUuid &id)
     if (!lock->tryLock()) { stage = Stage::Prepared; emit prepared(id,{Status::Failed,QStringLiteral("This account already has a JustConnect connection or recovery operation.")}); return; }
     helper.inspect(attempt);
 }
-void MacNetworkAccess::activate(const QUuid &id,const ConnectionProfile &profile)
+void MacNetworkAccess::activate(const QUuid &id,const ConnectionOptions &connectionOptions)
 {
     if (id != attempt || stage != Stage::Prepared || !lock || !lock->isLocked()) {
         emit ready(id,{Status::Failed,QStringLiteral("Network preparation is incomplete.")}); return;
     }
-    stage = Stage::Activating; generation = policy->currentGeneration(); localDNS = profile.dns.localDnsServer;
+    stage = Stage::Activating; generation = policy->currentGeneration(); localDNS = connectionOptions.dns.localDnsServer;
     prepareConfiguration();
 }
 void MacNetworkAccess::prepareConfiguration()

@@ -9,7 +9,7 @@
 #include <QTimer>
 
 #include "application/connectionsession.h"
-#include "application/profileservice.h"
+#include "application/savedconnectionservice.h"
 #include "application/systemproxysession.h"
 #include "presentation/dialogs/settingwindow/settingwindow.h"
 #include "presentation/coordinators/authdialogcoordinator.h"
@@ -65,14 +65,14 @@ private:
 
     void flushLog();
     void clearLog();
-    void resetProfileLog();
+    void resetConnectionLog();
 
     void resetConnectionUi();
 
     void updateConnectionState(ConnectionState state);
 
     QString connectionName() const;
-    void updateProfileSummary();
+    void updateConnectionSummary();
 
     void showNotification(
         const QString &title,
@@ -85,32 +85,32 @@ private:
 
     void setupTrayIcon();
 
-    void setupProfileMenu();
+    void setupConnectionMenu();
 
-    void refreshProfileMenu();
+    void refreshConnectionMenu();
 
-    bool switchProfile(const QString &profileId);
+    bool switchConnection(const QString &connectionId);
 
-    void createProfile();
+    void createConnection();
 
-    void renameCurrentProfile();
+    void renameCurrentConnection();
 
-    void deleteCurrentProfile();
+    void deleteCurrentConnection();
 
     QTimer logFlushTimer;
     QStringList pendingLogEntries;
     Ui::MainWindow *ui;
     QSystemTrayIcon *trayIcon;
-    QMenu *trayProfileMenu;
+    QMenu *trayConnectionMenu;
     QAction *trayConnectAction;
     QAction *trayShowAction;
     QAction *trayCloseAction;
     QAction *connectionActionsSeparator;
     QActionGroup *switchGroup;
     QActionGroup *traySwitchGroup;
-    QAction *newProfileAction;
-    QAction *renameProfileAction;
-    QAction *deleteProfileAction;
+    QAction *addConnectionAction;
+    QAction *renameConnectionAction;
+    QAction *deleteConnectionAction;
     ConnectionSession *connectionSession = nullptr;
     SystemProxySession *systemProxySession = nullptr;
     AuthDialogCoordinator *authenticationDialogs = nullptr;
@@ -120,8 +120,8 @@ private:
     ApplicationLogFile *applicationLogFile;
     UpdateChecker *updateChecker;
     QSettings *settings;
-    ProfileService *profileService;
-    QString currentProfileId;
+    SavedConnectionService *savedConnections;
+    QString currentConnectionId;
 
     QPointer<SettingWindow> settingWindow;
     QPointer<QDialog> preferencesWindow;

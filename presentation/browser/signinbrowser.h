@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/connectionprofile.h"
+#include "core/connectionoptions.h"
 #include <QWidget>
 #include <QUrl>
 #include <QVariant>

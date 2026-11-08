@@ -18,7 +18,7 @@
 #include "application/defaultsettings.h"
 #include "infrastructure/coreengine/embeddedcoreengine.h"
 #include "application/settingsmigrator.h"
-#include "application/profileservice.h"
+#include "application/savedconnectionservice.h"
 #include "application/authmethodsquery.h"
 #include "presentation/coordinators/controllerselectioncoordinator.h"
 #include "presentation/presentationhelpers.h"
@@ -129,7 +129,7 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
         if (!folder.isValid()) { QMessageBox::warning(this,tr("Reset failed"),tr("Could not create temporary connection settings.")); return; }
         QSettings draft(folder.filePath("defaults.ini"),QSettings::IniFormat);
         DefaultSettings::reset(draft);
-        if (serverEditor->isBuiltIn()) DefaultSettings::initializeBuiltInIfUntouched(draft);
+        if (serverEditor->isBuiltIn()) DefaultSettings::applyBuiltInConnection(draft);
         loadSettings(draft);
     });
     connect(ui->importPushButton,&QPushButton::clicked,this,[this] {
@@ -237,11 +237,11 @@ QVariantMap SettingWindow::publicChanges() const {
     return changes;
 }
 
-ConnectionProfile SettingWindow::currentProfile() const {
-    auto profile=ProfileService::load(publicChanges());
-    profile.credentials.password=ui->passwordLineEdit->text();
-    profile.credentials.totpSecret=ui->totpSecretLineEdit->text().trimmed();
-    return profile;
+ConnectionOptions SettingWindow::currentOptions() const {
+    auto connectionOptions=SavedConnectionService::load(publicChanges());
+    connectionOptions.credentials.password=ui->passwordLineEdit->text();
+    connectionOptions.credentials.totpSecret=ui->totpSecretLineEdit->text().trimmed();
+    return connectionOptions;
 }
 
 void SettingWindow::clearDraftCredentials() {
@@ -301,10 +301,10 @@ void SettingWindow::queryMethods() {
     if (querying) {cancelQuery();return;}
     querying=true;updateBusy();const auto generation=++queryGeneration;
     queryStatusText=QT_TR_NOOP("Loading sign-in methods…");queryStatus->setText(tr(queryStatusText));queryStatus->show();
-    controllerSelection->choose([this,generation,profile=currentProfile()](std::optional<QString> address) mutable {
+    controllerSelection->choose([this,generation,connectionOptions=currentOptions()](std::optional<QString> address) mutable {
         if (closed || generation!=queryGeneration) return;
-        if (address) profile.behavior.controllerAddress=*address;
-        if (!address || !authQuery->start(profile)) {
+        if (address) connectionOptions.behavior.controllerAddress=*address;
+        if (!address || !authQuery->start(connectionOptions)) {
             querying=false;updateBusy();queryStatusText=QT_TR_NOOP("Query cancelled. Try again when ready.");
             queryStatus->setText(tr(queryStatusText));
         }
@@ -330,7 +330,7 @@ void SettingWindow::readCredentials() {
         }
         credentialStatusText=nullptr;credentialLoadStatus=loaded.result.status;updateAuthFields();
         credentialStatus->setText(PresentationHelpers::credentialOperationMessage(credentialLoadStatus));
-        if (loaded.result.succeeded() && currentProfile().authenticationIdentity()==source.profile.authenticationIdentity()) {
+        if (loaded.result.succeeded() && currentOptions().authenticationIdentity()==source.connectionOptions.authenticationIdentity()) {
             const bool passwordUntouched=ui->passwordLineEdit->text()==loadedCredentials.password;
             const bool totpUntouched=ui->totpSecretLineEdit->text()==loadedCredentials.totpSecret;
             loadedCredentials=loaded.credentials;
@@ -344,8 +344,8 @@ void SettingWindow::clearCredentials() {
     if (!CredentialAccess::matches(credentialSource,settings)) {
         QMessageBox::warning(this,tr("Connection changed"),tr("Reopen the editor before clearing credentials."));return;
     }
-    auto account=credentialSource.profile.credentials.username;
-    if (account.isEmpty()) account=credentialSource.profile.endpoint.phone;
+    auto account=credentialSource.connectionOptions.credentials.username;
+    if (account.isEmpty()) account=credentialSource.connectionOptions.endpoint.phone;
     if (account.isEmpty()) account=tr("the current connection");
     if (QMessageBox::question(this,tr("Clear saved credentials"),tr("Clear saved passwords and authenticator keys for %1? Other accounts are unaffected.").arg(account))!=QMessageBox::Yes) return;
     const auto source=credentialSource;++loadGeneration;saving=true;updateBusy();
@@ -367,15 +367,15 @@ void SettingWindow::saveSettings() {
     if (!CredentialAccess::matches(credentialSource,settings) || credentialSource.publicValues!=DefaultSettings::publicValues(settings)) {
         QMessageBox::warning(this,tr("Connection changed"),tr("Reopen the editor before applying changes."));return;
     }
-    auto profile=currentProfile();
-    if (profile.authenticationIdentity()==credentialSource.profile.authenticationIdentity()) {
-        if (profile.credentials.password.isEmpty()) profile.credentials.password=loadedCredentials.password;
-        if (profile.credentials.totpSecret.isEmpty()) profile.credentials.totpSecret=loadedCredentials.totpSecret;
+    auto connectionOptions=currentOptions();
+    if (connectionOptions.authenticationIdentity()==credentialSource.connectionOptions.authenticationIdentity()) {
+        if (connectionOptions.credentials.password.isEmpty()) connectionOptions.credentials.password=loadedCredentials.password;
+        if (connectionOptions.credentials.totpSecret.isEmpty()) connectionOptions.credentials.totpSecret=loadedCredentials.totpSecret;
     }
-    if (profile.endpoint.authType.isEmpty()) {
+    if (connectionOptions.endpoint.authType.isEmpty()) {
         QMessageBox::warning(this,tr("Choose a sign-in method"),tr("Choose a method from the list provided by your server."));return;
     }
-    const auto validation=EmbeddedCoreEngine::validateConfiguration(profile);
+    const auto validation=EmbeddedCoreEngine::validateConfiguration(connectionOptions);
     if (validation!=ConnectionError::NONE) {
         const bool unavailable=validation==ConnectionError::CORE_UNAVAILABLE;
         QMessageBox::warning(this,unavailable ? tr("Core unavailable") : tr("Invalid connection"),
@@ -385,11 +385,11 @@ void SettingWindow::saveSettings() {
     const bool edited=(!ui->passwordLineEdit->text().isEmpty() && ui->passwordLineEdit->text()!=loadedCredentials.password)
         || (!ui->totpSecretLineEdit->text().isEmpty() && ui->totpSecretLineEdit->text()!=loadedCredentials.totpSecret);
     saving=true;updateBusy();const auto source=credentialSource;
-    credentials->save(source,profile,edited,changes).then(this,[this,source,profile](const CredentialResult &result) {
+    credentials->save(source,connectionOptions,edited,changes).then(this,[this,source,connectionOptions](const CredentialResult &result) {
         if (closed) return;
         saving=false;updateBusy();
         if (!result.succeeded()) {QMessageBox::warning(this,tr("Could not save connection"),PresentationHelpers::credentialOperationMessage(result.status));return;}
-        if (settings.fileName()!=source.path || settings.value(ProfileCredentials::ScopeSetting)!=source.scope) return;
+        if (settings.fileName()!=source.path || settings.value(ConnectionCredentialVault::ScopeSetting)!=source.scope) return;
         credentialSource=CredentialAccess::source(settings,source.legacyCachePath);
         accept();if(connectAfterSave)emit connectRequested();
     });

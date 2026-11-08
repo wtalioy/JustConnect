@@ -12,7 +12,7 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include "application/defaultsettings.h"
-#include "core/connectionprofile.h"
+#include "core/connectionoptions.h"
 
 ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     auto *layout = new QVBoxLayout(this);
@@ -114,10 +114,7 @@ void ServerSettingsWidget::load(const QSettings &settings) {
     const QSignalBlocker blocker(this);
     const auto host = settings.value("JustConnect/ServerAddress").toString();
     const auto number = settings.value("JustConnect/ServerPort", 443).toInt();
-    const auto kind = settings.value("JustConnect/ProfileKind").toString();
-    builtIn = !settings.value("Common/NeedsConfiguration").toBool()
-        && kind == DefaultSettings::builtInProfile().value("JustConnect/ProfileKind")
-        && kind == DefaultSettings::profileKindForEndpoint(host, number);
+    builtIn = DefaultSettings::isBuiltInConnection(settings);
     address->setText(host);
     address->setReadOnly(builtIn);
     port->setValue(number);
@@ -127,7 +124,7 @@ void ServerSettingsWidget::load(const QSettings &settings) {
     caPem->setPlainText(settings.value("JustConnect/TLSCAPEM").toString());
     caToggle->setChecked(!caPem->toPlainText().isEmpty());
     allowUnverifiedNodes->setChecked(settings.value("JustConnect/AllowUnverifiedNodes", TlsOptions{}.allowUnverifiedNodes).toBool());
-    domainDnsRules->setPlainText(DefaultSettings::domainDnsRules(DefaultSettings::publicValues(settings)));
+    domainDnsRules->setPlainText(settings.value(DefaultSettings::DomainDnsRules).toString());
 }
 
 QString ServerSettingsWidget::serverAddress() const { return address->text().trimmed(); }
@@ -137,7 +134,7 @@ bool ServerSettingsWidget::isBuiltIn() const { return builtIn; }
 QVariantMap ServerSettingsWidget::settingsValues() const {
     return {{"JustConnect/TLSVerify",verify->isChecked()},{"JustConnect/TLSCAPEM",caPem->toPlainText()},
         {"JustConnect/AllowUnverifiedNodes",allowUnverifiedNodes->isChecked()},
-        {"JustConnect/ProfileKind", builtIn ? DefaultSettings::profileKindForEndpoint(serverAddress(), serverPort()) : QStringLiteral("Custom")},{"JustConnect/ServerAddress",serverAddress()},
+        {"JustConnect/ConnectionKind", builtIn ? DefaultSettings::builtInConnection().value("JustConnect/ConnectionKind") : QVariant("Custom")},{"JustConnect/ServerAddress",serverAddress()},
         {"JustConnect/ServerPort",serverPort()},{DefaultSettings::DomainDnsRules,domainDnsRules->toPlainText().trimmed()},
         {"Common/NeedsConfiguration",false}};
 }

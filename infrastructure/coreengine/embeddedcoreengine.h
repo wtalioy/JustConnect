@@ -11,7 +11,7 @@ class EmbeddedCoreEngine final : public CoreEngine
 public:
     explicit EmbeddedCoreEngine(QObject *parent = nullptr);
     ~EmbeddedCoreEngine() override;
-    bool start(const ConnectionProfile &profile, Operation operation = Operation::Connect) override;
+    bool start(const ConnectionOptions &connectionOptions, Operation operation = Operation::Connect) override;
     void stop() override;
     void respond(const QJsonObject &response) override;
     void updatePolicy(const QJsonObject &policy) override;
@@ -22,7 +22,7 @@ public:
         const QString &source, const QString &peer, bool publishDNSRoutes = false) override;
     void acknowledgeDNSRoutes(const QString &generation, const QString &request, bool applied) override;
     void prepareOriginalDNS(const QString &generation, const QJsonArray &sources) override;
-    static ConnectionError validateConfiguration(const ConnectionProfile &profile);
+    static ConnectionError validateConfiguration(const ConnectionOptions &connectionOptions);
     struct ControllerDiscovery { RequestStatus status = RequestStatus::Unavailable; QJsonArray candidates; };
     // Blocking read-only query; call from a worker.
     static ControllerDiscovery discoverControllers();

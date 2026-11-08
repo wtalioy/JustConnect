@@ -2,7 +2,7 @@
 #include "presentation/i18n/applicationlanguage.h"
 #include "presentation/coordinators/controllerselectioncoordinator.h"
 #include "presentation/presentationhelpers.h"
-#include "infrastructure/settings/profilemanager.h"
+#include "infrastructure/settings/savedconnectionstore.h"
 #include "infrastructure/autostart/autostart.h"
 #include <QCheckBox>
 #include <QComboBox>
@@ -18,7 +18,7 @@
 #include <QtConcurrentRun>
 
 ApplicationPreferencesWidget::ApplicationPreferencesWidget(QWidget *parent) : QWidget(parent) {
-    const ProfileManager preferences;
+    const SavedConnectionStore preferences;
     auto *layout=new QVBoxLayout(this);layout->setSpacing(16);layout->setContentsMargins(0,0,0,0);
     behaviorGroup=new QGroupBox(this);layout->addWidget(behaviorGroup);
     auto *form=new QFormLayout(behaviorGroup);form->setHorizontalSpacing(12);form->setVerticalSpacing(8);form->setContentsMargins(0,0,0,0);
@@ -57,8 +57,8 @@ ApplicationPreferencesWidget::ApplicationPreferencesWidget(QWidget *parent) : QW
     connect(language,&QComboBox::currentIndexChanged,this,&ApplicationPreferencesWidget::savePreferences);
     connect(behavior,&QComboBox::currentIndexChanged,this,&ApplicationPreferencesWidget::savePreferences);
     connect(silentStart,&QCheckBox::toggled,this,[this](bool enabled) {
-        if (ProfileManager().setSilentStartEnabled(enabled)) {error->hide();return;}
-        QSignalBlocker blocker(silentStart);silentStart->setChecked(ProfileManager().silentStartEnabled());
+        if (SavedConnectionStore().setSilentStartEnabled(enabled)) {error->hide();return;}
+        QSignalBlocker blocker(silentStart);silentStart->setChecked(SavedConnectionStore().silentStartEnabled());
         errorText=QT_TR_NOOP("Could not save background startup. Your previous setting is unchanged.");
         error->setText(tr(errorText));error->show();
     });
@@ -72,7 +72,7 @@ ApplicationPreferencesWidget::ApplicationPreferencesWidget(QWidget *parent) : QW
     });
     connect(&startupOperation, &QFutureWatcher<PlatformOperationResult>::finished, this, [this] {
         const auto result = startupOperation.result();
-        ProfileManager preferences;
+        SavedConnectionStore preferences;
         if (!result.succeeded() || !preferences.setAutoStartEnabled(*pendingAutoStart)) {
             const QSignalBlocker blocker(autoStart);
             autoStart->setChecked(preferences.autoStartEnabled());
@@ -96,7 +96,7 @@ void ApplicationPreferencesWidget::savePreferences() {
     }
     const QSignalBlocker languageBlocker(language),behaviorBlocker(behavior);
     language->setCurrentIndex(language->findData(ApplicationLanguage::instance().current()));
-    behavior->setCurrentIndex(ProfileManager().closeToTray()?0:1);
+    behavior->setCurrentIndex(SavedConnectionStore().closeToTray()?0:1);
     errorText=QT_TR_NOOP("Could not save preferences. Your previous settings are unchanged.");
     error->setText(tr(errorText));error->show();
 }
@@ -107,7 +107,7 @@ void ApplicationPreferencesWidget::retranslate() {
     behavior->setItemText(0,tr("Keep running in the system tray"));behavior->setItemText(1,tr("Disconnect and exit"));
     autoStart->setText(tr("Launch at sign-in"));silentStart->setText(tr("Start in the background"));
     QString explanation=tr("Changes save automatically.");
-    if (!ProfileManager::supportsLanguage(ProfileManager().language()))
+    if (!SavedConnectionStore::supportsLanguage(SavedConnectionStore().language()))
         explanation+='\n'+tr("The saved language is invalid. English is being used.");
     else if (!QSystemTrayIcon::isSystemTrayAvailable())
         explanation+='\n'+tr("No system tray is available. Use Exit in the application menu to quit.");

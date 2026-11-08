@@ -5,7 +5,7 @@ class AuthMethodsQuery : public QObject {
     Q_OBJECT
 public:
     explicit AuthMethodsQuery(CoreEngine *engine,QObject *parent=nullptr);
-    bool start(const ConnectionProfile &profile);
+    bool start(const ConnectionOptions &connectionOptions);
     void stop();
     bool isActive() const { return active; }
 signals:

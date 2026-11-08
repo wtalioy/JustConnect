@@ -23,7 +23,7 @@
 #include "presentation/widgets/localizeddialog.h"
 #include <QtAlgorithms>
 #include <algorithm>
-#include "infrastructure/settings/profilemanager.h"
+#include "infrastructure/settings/savedconnectionstore.h"
 
 #include "mainwindow.h"
 #include "presentation/appearance/applicationappearance.h"
@@ -48,10 +48,7 @@ QString unnamedConnectionLabel(const QSettings &settings)
 {
     const auto server = settings.value("JustConnect/ServerAddress").toString().trimmed();
     if (server.isEmpty()) return MainWindow::tr("Unnamed connection");
-    const auto kind = settings.value("JustConnect/ProfileKind").toString();
-    return kind != "Custom" && kind == DefaultSettings::profileKindForEndpoint(
-        server, settings.value("JustConnect/ServerPort", 443).toInt())
-        ? PresentationHelpers::profileKindLabel(kind) : server;
+    return DefaultSettings::isBuiltInConnection(settings) ? MainWindow::tr("Fudan") : server;
 }
 }
 
@@ -71,9 +68,9 @@ MainWindow::MainWindow(
     const QString overrideConfigPath =
         CommandLineOptions::value(QCoreApplication::arguments(), "--config-path");
     coordinator = new MainWindowCoordinator(this, overrideConfigPath, this, networkFactory);
-    profileService = coordinator->profiles();
-    currentProfileId = profileService->currentProfileId();
-    settings = profileService->settings();
+    savedConnections = coordinator->connectionSettingsService();
+    currentConnectionId = savedConnections->currentConnectionId();
+    settings = savedConnections->settings();
 
     upgradeSettings();
 
@@ -112,8 +109,8 @@ MainWindow::MainWindow(
     updateChecker = coordinator->updates();
     connect(coordinator->credentials(),&CredentialAccess::configurationSaved,this,[this](const QString &path) {
         if (settings && settings->fileName()==path) {
-            updateProfileSummary();
-            if (currentProfileId.isEmpty()) refreshProfileMenu();
+            updateConnectionSummary();
+            if (currentConnectionId.isEmpty()) refreshConnectionMenu();
         }
     });
     connect(updateChecker, &UpdateChecker::versionInfoChanged, this,
@@ -150,10 +147,10 @@ MainWindow::MainWindow(
             logFlushTimer.start();
     });
     connect(systemProxySession,&SystemProxySession::enabledChanged,this,[this] {
-        updateProfileSummary();updateConnectionState(connectionSession->state());
+        updateConnectionSummary();updateConnectionState(connectionSession->state());
     });
     setupTrayIcon();
-    setupProfileMenu();
+    setupConnectionMenu();
     auto *applicationMenu = new QMenu(ui->applicationMenuButton);
     applicationMenu->setToolTipsVisible(true);
     applicationMenu->addAction(ui->checkUpdateAction);
@@ -172,7 +169,7 @@ MainWindow::MainWindow(
 #endif
 
 
-    updateProfileSummary();
+    updateConnectionSummary();
     updateVersionInfo();
     updateConnectionState(connectionSession->state());
 
@@ -267,7 +264,7 @@ MainWindow::MainWindow(
     });
     connect(ui->clearLogPushButton, &QPushButton::clicked, this, &MainWindow::clearLog);
 
-    resetProfileLog();
+    resetConnectionLog();
     connectionUiController = new ConnectionUiController(
         this,
         ui->connectButton,
@@ -278,7 +275,7 @@ MainWindow::MainWindow(
         authenticationDialogs,
         applicationLogger,
         coordinator->credentials(),
-        [this]() { return profileService->settings(); },
+        [this]() { return savedConnections->settings(); },
         [this]() { return coordinator->credentialSource(); },
         [this](
             const QString &title,
@@ -337,7 +334,7 @@ MainWindow::MainWindow(
         updateChecker->markDisabled();
     }
 
-    if (!profileService->silentStartEnabled() || !QSystemTrayIcon::isSystemTrayAvailable())
+    if (!savedConnections->silentStartEnabled() || !QSystemTrayIcon::isSystemTrayAvailable())
     {
         show();
 
@@ -349,10 +346,10 @@ void MainWindow::changeEvent(QEvent *event)
     QMainWindow::changeEvent(event);
     if (event->type()!=QEvent::LanguageChange || !viewsInitialized) return;
     ui->retranslateUi(this);
-    newProfileAction->setText(tr("Add connection…"));renameProfileAction->setText(tr("Rename connection…"));deleteProfileAction->setText(tr("Delete connection…"));
-    trayProfileMenu->setTitle(tr("Connections"));trayShowAction->setText(tr("Show window"));
+    addConnectionAction->setText(tr("Add connection…"));renameConnectionAction->setText(tr("Rename connection…"));deleteConnectionAction->setText(tr("Delete connection…"));
+    trayConnectionMenu->setTitle(tr("Connections"));trayShowAction->setText(tr("Show window"));
     trayCloseAction->setText(tr("Exit %1").arg(QApplication::applicationName()));
-    connectionUiController->refreshActions();refreshProfileMenu();updateProfileSummary();updateVersionInfo();updateConnectionState(connectionSession->state());
+    connectionUiController->refreshActions();refreshConnectionMenu();updateConnectionSummary();updateVersionInfo();updateConnectionState(connectionSession->state());
     if (ui->overviewTab->isVisible()) updateDiagnostics();
 }
 
@@ -369,7 +366,7 @@ void MainWindow::closeEvent(QCloseEvent *event)
 {
     if (exitReady) { event->accept();return; }
     event->ignore();
-    if (!ProfileManager().closeToTray()) { gracefullyQuit();return; }
+    if (!SavedConnectionStore().closeToTray()) { gracefullyQuit();return; }
     if (trayIcon && trayIcon->isVisible() && QSystemTrayIcon::isSystemTrayAvailable()) {
         hide();
         showNotification("JustConnect", tr("JustConnect is running in the system tray. Click its icon to restore the window; use Exit to quit."), QSystemTrayIcon::Information);
@@ -442,7 +439,7 @@ void MainWindow::clearLog()
     ui->logPlainTextEdit->clear();
 }
 
-void MainWindow::resetProfileLog()
+void MainWindow::resetConnectionLog()
 {
     clearLog();
     ui->logPlainTextEdit->appendPlainText(tr("Welcome to %1\nSystem: %2\nConnection: %3\nConfiguration: %4\n")
@@ -454,7 +451,7 @@ void MainWindow::resetConnectionUi()
 {
     connectionUiController->cancelPendingCredentials();
     updateConnectionState(ConnectionState::Disconnected);
-    updateProfileSummary();
+    updateConnectionSummary();
 }
 
 void MainWindow::updateConnectionState(ConnectionState state)
@@ -569,12 +566,12 @@ void MainWindow::updateConnectionState(ConnectionState state)
 
 QString MainWindow::connectionName() const
 {
-    if (profileService->usesOverrideConfiguration())
+    if (savedConnections->usesOverrideConfiguration())
         return QFileInfo(settings->fileName()).completeBaseName();
-    return currentProfileId.isEmpty() ? unnamedConnectionLabel(*settings) : currentProfileId;
+    return currentConnectionId.isEmpty() ? unnamedConnectionLabel(*settings) : currentConnectionId;
 }
 
-void MainWindow::updateProfileSummary()
+void MainWindow::updateConnectionSummary()
 {
     const auto name = connectionName();
     const auto server = settings->value("JustConnect/ServerAddress").toString().trimmed();
@@ -604,13 +601,13 @@ void MainWindow::setupTrayIcon()
     });
 
     trayConnectAction = new QAction(tr("Connect"), this);
-    trayProfileMenu = new QMenu(tr("Connections"), this);
+    trayConnectionMenu = new QMenu(tr("Connections"), this);
     trayShowAction = new QAction(tr("Show window"), this);trayShowAction->setObjectName("trayShowAction");
     trayCloseAction = new QAction(tr("Exit %1").arg(QApplication::applicationName()), this);
     auto *trayMenu = new QMenu(this);
     trayMenu->addAction(trayConnectAction);
     trayMenu->addSeparator();
-    trayMenu->addMenu(trayProfileMenu);
+    trayMenu->addMenu(trayConnectionMenu);
     trayMenu->addSeparator();
     trayMenu->addAction(trayShowAction);
     trayMenu->addAction(trayCloseAction);
@@ -622,76 +619,76 @@ void MainWindow::setupTrayIcon()
     trayIcon->show();
 }
 
-void MainWindow::setupProfileMenu()
+void MainWindow::setupConnectionMenu()
 {
     // Cocoa uses separate menu surfaces. Share their actions instead of sharing submenus.
     auto *popup = new QMenu(ui->profileMenuButton);
     ui->profileMenuButton->setMenu(popup);
     switchGroup = new QActionGroup(ui->profileMenu);
-    traySwitchGroup = new QActionGroup(trayProfileMenu);
+    traySwitchGroup = new QActionGroup(trayConnectionMenu);
     switchGroup->setExclusive(true);
     traySwitchGroup->setExclusive(true);
     connectionActionsSeparator = ui->profileMenu->addSeparator();
     ui->profileMenu->addAction(ui->settingAction);
-    newProfileAction = ui->profileMenu->addAction(tr("Add connection…"));
-    renameProfileAction = ui->profileMenu->addAction(tr("Rename connection…"));
-    deleteProfileAction = ui->profileMenu->addAction(tr("Delete connection…"));
+    addConnectionAction = ui->profileMenu->addAction(tr("Add connection…"));
+    renameConnectionAction = ui->profileMenu->addAction(tr("Rename connection…"));
+    deleteConnectionAction = ui->profileMenu->addAction(tr("Delete connection…"));
     ui->profileMenu->addSeparator();
     ui->profileMenu->addAction(ui->clearAuthenticationCacheAction);
     ui->profileMenu->addAction(ui->clearClientDataAction);
     popup->addActions(ui->profileMenu->actions());
 
-    connect(newProfileAction, &QAction::triggered, this, &MainWindow::createProfile);
-    newProfileAction->setObjectName("newProfileAction");
-    connect(renameProfileAction, &QAction::triggered, this, &MainWindow::renameCurrentProfile);
-    connect(deleteProfileAction, &QAction::triggered, this, &MainWindow::deleteCurrentProfile);
+    connect(addConnectionAction, &QAction::triggered, this, &MainWindow::createConnection);
+    addConnectionAction->setObjectName("addConnectionAction");
+    connect(renameConnectionAction, &QAction::triggered, this, &MainWindow::renameCurrentConnection);
+    connect(deleteConnectionAction, &QAction::triggered, this, &MainWindow::deleteCurrentConnection);
 
-    refreshProfileMenu();
+    refreshConnectionMenu();
 }
 
-void MainWindow::refreshProfileMenu()
+void MainWindow::refreshConnectionMenu()
 {
-    auto profiles = profileService->profiles();
-    profiles.prepend(QString());
+    auto connectionIds = savedConnections->connections();
+    connectionIds.prepend(QString());
     const auto actions = switchGroup->actions();
-    const bool rebuild = actions.size() != profiles.size()
-        || !std::equal(actions.cbegin(), actions.cend(), profiles.cbegin(),
+    const bool rebuild = actions.size() != connectionIds.size()
+        || !std::equal(actions.cbegin(), actions.cend(), connectionIds.cbegin(),
             [](const QAction *action, const QString &id) { return action->data().toString() == id; });
-    const bool overrideConfiguration = profileService->usesOverrideConfiguration();
-    const auto defaultName = currentProfileId.isEmpty() && !overrideConfiguration
+    const bool overrideConfiguration = savedConnections->usesOverrideConfiguration();
+    const auto defaultName = currentConnectionId.isEmpty() && !overrideConfiguration
         ? connectionName()
-        : unnamedConnectionLabel(QSettings(ProfileManager().profilePath({}), QSettings::IniFormat));
+        : unnamedConnectionLabel(QSettings(SavedConnectionStore().connectionPath({}), QSettings::IniFormat));
     const auto updateMenu = [&](QMenu *menu, QActionGroup *group, QAction *before = nullptr) {
         if (rebuild) {
             qDeleteAll(group->actions());
-            for (const auto &id : profiles) {
+            for (const auto &id : connectionIds) {
                 auto *action = new QAction(id, menu);
                 menu->insertAction(before, action);
                 action->setData(id);
                 action->setCheckable(true);
                 group->addAction(action);
-                connect(action, &QAction::triggered, this, [this, id] { switchProfile(id); });
+                connect(action, &QAction::triggered, this, [this, id] { switchConnection(id); });
             }
         }
         for (auto *action : group->actions()) {
             const auto id = action->data().toString();
             if (id.isEmpty()) action->setText(defaultName);
-            action->setChecked(id == currentProfileId && (id.isEmpty() || !overrideConfiguration));
+            action->setChecked(id == currentConnectionId && (id.isEmpty() || !overrideConfiguration));
         }
     };
     updateMenu(ui->profileMenu, switchGroup, connectionActionsSeparator);
-    updateMenu(trayProfileMenu, traySwitchGroup);
+    updateMenu(trayConnectionMenu, traySwitchGroup);
     if (rebuild) ui->profileMenuButton->menu()->insertActions(connectionActionsSeparator, switchGroup->actions());
 
-    const bool currentProfileIsManaged = !currentProfileId.isEmpty() && !overrideConfiguration;
-    renameProfileAction->setEnabled(currentProfileIsManaged);
-    deleteProfileAction->setEnabled(currentProfileIsManaged);
+    const bool currentProfileIsManaged = !currentConnectionId.isEmpty() && !overrideConfiguration;
+    renameConnectionAction->setEnabled(currentProfileIsManaged);
+    deleteConnectionAction->setEnabled(currentProfileIsManaged);
 }
 
-bool MainWindow::switchProfile(const QString &profileId)
+bool MainWindow::switchConnection(const QString &connectionId)
 {
-    if (!profileService->usesOverrideConfiguration()
-        && profileId == currentProfileId)
+    if (!savedConnections->usesOverrideConfiguration()
+        && connectionId == currentConnectionId)
     {
         return true;
     }
@@ -699,37 +696,37 @@ bool MainWindow::switchProfile(const QString &profileId)
     if (connectionSession != nullptr && connectionSession->isActive())
     {
         QMessageBox::warning(this, tr("Could not switch connection"), tr("Disconnect before switching connections."));
-        refreshProfileMenu();
+        refreshConnectionMenu();
         return false;
     }
 
     if (connectionUiController->isConfigurationSaving() || (settingWindow && settingWindow->isSaving())) {
-        QMessageBox::information(this,tr("Saving connection"),tr("Wait for the save before switching connections."));refreshProfileMenu();return false;
+        QMessageBox::information(this,tr("Saving connection"),tr("Wait for the save before switching connections."));refreshConnectionMenu();return false;
     }
     if (settingWindow != nullptr)
     {
         settingWindow->close();
     }
 
-    if (!profileService->switchTo(profileId))
+    if (!savedConnections->switchTo(connectionId))
     {
         QMessageBox::warning(this,tr("Could not switch connection"),tr("Could not save the current connection or read the selected connection. Check the file permissions and contents."));
-        refreshProfileMenu();
+        refreshConnectionMenu();
         return false;
     }
-    settings = profileService->settings();
-    currentProfileId = profileService->currentProfileId();
+    settings = savedConnections->settings();
+    currentConnectionId = savedConnections->currentConnectionId();
 
     upgradeSettings();
     resetConnectionUi();
-    resetProfileLog();
-    refreshProfileMenu();
+    resetConnectionLog();
+    refreshConnectionMenu();
 
     qInfo().noquote() << tr("Switched connection to %1").arg(connectionName());
     return true;
 }
 
-void MainWindow::createProfile()
+void MainWindow::createConnection()
 {
     if (connectionUiController->isConfigurationSaving() || (settingWindow && settingWindow->isSaving())) {
         QMessageBox::information(this,tr("Saving connection"),tr("Wait for the save before adding a connection."));return;
@@ -759,42 +756,42 @@ void MainWindow::createProfile()
         settingWindow->close();
     }
 
-    const QString newProfileId = profileService->createAndSwitch(name);
-    if (newProfileId.isEmpty())
+    const QString newConnectionId = savedConnections->createAndSwitch(name);
+    if (newConnectionId.isEmpty())
     {
         QMessageBox::critical(this, tr("Could not add connection"), tr("The new connection could not be created."));
         return;
     }
 
-    settings = profileService->settings();
-    currentProfileId = profileService->currentProfileId();
+    settings = savedConnections->settings();
+    currentConnectionId = savedConnections->currentConnectionId();
     upgradeSettings();
     resetConnectionUi();
-    resetProfileLog();
-    refreshProfileMenu();
+    resetConnectionLog();
+    refreshConnectionMenu();
 
     showConnectionSettings();
 }
 
-void MainWindow::renameCurrentProfile()
+void MainWindow::renameCurrentConnection()
 {
     if (coordinator->credentials()->isBusy(settings->fileName()) || connectionUiController->isConfigurationSaving() || (settingWindow && settingWindow->isSaving())) {
         QMessageBox::information(this,tr("Secure storage is busy"),tr("Wait for the current operation before renaming."));return;
     }
     bool ok = false;
-    QString name = QInputDialog::getText(this, tr("Rename connection…"), tr("New connection name:\nUse letters, numbers, underscores or hyphens."), QLineEdit::Normal, currentProfileId, &ok);
+    QString name = QInputDialog::getText(this, tr("Rename connection…"), tr("New connection name:\nUse letters, numbers, underscores or hyphens."), QLineEdit::Normal, currentConnectionId, &ok);
     if (!ok)
     {
         return;
     }
 
-    const QString normalizedName = profileService->normalizeProfileId(name);
+    const QString normalizedName = savedConnections->normalizeConnectionId(name);
     if (normalizedName.isEmpty())
     {
         QMessageBox::warning(this, tr("Could not rename connection"), tr("The connection name cannot be empty."));
         return;
     }
-    if (normalizedName == currentProfileId)
+    if (normalizedName == currentConnectionId)
     {
         return;
     }
@@ -813,19 +810,19 @@ void MainWindow::renameCurrentProfile()
     coordinator->credentials()->migrate(source).then(this,[this,source,normalizedName](const CredentialResult &result) {
         if (!CredentialAccess::matches(source,*settings)) return;
         if (!result.succeeded()) {QMessageBox::warning(this,tr("Rename incomplete"),PresentationHelpers::credentialOperationMessage(result.status)+tr("\nComplete the legacy credential migration first, or add a new connection."));return;}
-        if (!profileService->renameCurrent(normalizedName)) {QMessageBox::warning(this,tr("Could not rename connection"),tr("The name is already in use or the connection cannot be renamed."));return;}
-        currentProfileId=profileService->currentProfileId();settings=profileService->settings();
-        updateProfileSummary();refreshProfileMenu();resetProfileLog();qInfo().noquote()<<tr("Connection renamed to: ")+currentProfileId;
+        if (!savedConnections->renameCurrent(normalizedName)) {QMessageBox::warning(this,tr("Could not rename connection"),tr("The name is already in use or the connection cannot be renamed."));return;}
+        currentConnectionId=savedConnections->currentConnectionId();settings=savedConnections->settings();
+        updateConnectionSummary();refreshConnectionMenu();resetConnectionLog();qInfo().noquote()<<tr("Connection renamed to: ")+currentConnectionId;
     });
 }
 
-void MainWindow::deleteCurrentProfile()
+void MainWindow::deleteCurrentConnection()
 {
-    if (profileService->usesOverrideConfiguration()) {QMessageBox::warning(this,tr("Could not delete connection"),tr("External connections cannot be deleted here."));return;}
+    if (savedConnections->usesOverrideConfiguration()) {QMessageBox::warning(this,tr("Could not delete connection"),tr("External connections cannot be deleted here."));return;}
     if (coordinator->credentials()->isBusy(settings->fileName()) || connectionUiController->isConfigurationSaving() || (settingWindow && settingWindow->isSaving())) {
         QMessageBox::information(this,tr("Secure storage is busy"),tr("Wait for the current operation before deleting the connection."));return;
     }
-    if (currentProfileId.isEmpty())
+    if (currentConnectionId.isEmpty())
     {
         QMessageBox::warning(this, tr("Could not delete connection"), tr("The primary connection cannot be deleted."));
         return;
@@ -834,7 +831,7 @@ void MainWindow::deleteCurrentProfile()
     QMessageBox messageBox(this);
     messageBox.setWindowTitle(tr("Delete connection"));
     messageBox.setInformativeText(tr("Deleting this connection removes its settings file and legacy cache. To also remove saved credentials, clear them in Connection settings and use the cache actions in the Connections menu before deleting."));
-    messageBox.setText(tr("Delete connection “%1”?").arg(currentProfileId));
+    messageBox.setText(tr("Delete connection “%1”?").arg(currentConnectionId));
     auto *remove=messageBox.addButton(QMessageBox::Yes);remove->setText(tr("Delete"));
     PresentationHelpers::setButtonIcon(remove,":/resource/file-remove.svg");
     messageBox.addButton(QMessageBox::No)->setText(tr("Cancel"));
@@ -844,7 +841,7 @@ void MainWindow::deleteCurrentProfile()
         return;
     }
 
-    const QString removedProfileId = currentProfileId;
+    const QString removedConnectionId = currentConnectionId;
     if (connectionSession != nullptr && connectionSession->isActive())
     {
         QMessageBox::warning(this, tr("Could not delete connection"), tr("Disconnect before deleting a connection."));
@@ -859,28 +856,28 @@ void MainWindow::deleteCurrentProfile()
     if (!legacy.isEmpty() && QFileInfo::exists(legacy) && !QFile::remove(legacy)) {
         QMessageBox::warning(this,tr("Delete incomplete"),tr("The legacy cache could not be removed. The connection was preserved. Check access permissions and retry."));return;
     }
-    if (!profileService->removeCurrentAndSwitchToDefault())
+    if (!savedConnections->removeCurrentAndSwitchToDefault())
     {
         QMessageBox::warning(this, tr("Could not delete connection"), tr("The connection settings file could not be deleted."));
         return;
     }
 
-    currentProfileId = profileService->currentProfileId();
-    settings = profileService->settings();
+    currentConnectionId = savedConnections->currentConnectionId();
+    settings = savedConnections->settings();
     upgradeSettings();
     resetConnectionUi();
-    resetProfileLog();
-    refreshProfileMenu();
-    qInfo().noquote() << tr("Deleted connection: ") + removedProfileId;
+    resetConnectionLog();
+    refreshConnectionMenu();
+    qInfo().noquote() << tr("Deleted connection: ") + removedConnectionId;
 }
 
 void MainWindow::upgradeSettings()
 {
     const SettingsMigrationAction action = SettingsMigrator::prepare(*settings,
-        currentProfileId.isEmpty() && !profileService->usesOverrideConfiguration());
+        currentConnectionId.isEmpty() && !savedConnections->usesOverrideConfiguration());
     if (action == SettingsMigrationAction::MigrateAutoStart)
     {
-        if (!profileService->migrateAutoStartSetting(settings->value("Common/AutoStart", false).toBool())) {
+        if (!savedConnections->migrateAutoStartSetting(settings->value("Common/AutoStart", false).toBool())) {
             QMessageBox::warning(this, tr("Startup preference migration failed"), tr("The previous startup preference could not be saved. The old configuration is preserved for retry."));
             return;
         }

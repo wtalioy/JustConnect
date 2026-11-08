@@ -21,7 +21,7 @@ template<class Predicate> static void until(Predicate done) {
 class Engine : public CoreEngine {
 public:
     int starts=0,stops=0;
-    bool start(const ConnectionProfile &,Operation) override {++starts;return true;}
+    bool start(const ConnectionOptions &,Operation) override {++starts;return true;}
     void respond(const QJsonObject &) override {}
     void stop() override {++stops;}
 };
@@ -48,7 +48,7 @@ public:
     QUuid attempt;
     int stops = 0;
     void prepare(const QUuid &id) override { attempt = id; emit prepared(id, {}); }
-    void activate(const QUuid &id, const ConnectionProfile &) override { emit ready(id, {}); }
+    void activate(const QUuid &id, const ConnectionOptions &) override { emit ready(id, {}); }
     void stop(const QUuid &) override { ++stops; }
 };
 static void retainsCoreAndEventLoopUntilNetworkRestoration() {

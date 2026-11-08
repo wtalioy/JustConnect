@@ -3,10 +3,10 @@
 #include <QDir>
 #include <QStandardPaths>
 
-QString ApplicationPaths::clientDataFile(const QString &profileId)
+QString ApplicationPaths::clientDataFile(const QString &connectionId)
 {
     const QDir dataDirectory(QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation));
-    return QDir::cleanPath(dataDirectory.filePath("profiles/" + profileId + "/client-data.json"));
+    return QDir::cleanPath(dataDirectory.filePath("profiles/" + connectionId + "/client-data.json"));
 }
 
 QString ApplicationPaths::logDirectory()

@@ -69,15 +69,15 @@ ConnectionSession::ConnectionSession(CoreEngine *coreEngine, QObject *parent, Ne
         emit progressChanged();
     });
     connect(coreEngine,&CoreEngine::authenticationCacheUpdated,this,[this](const AuthenticationCache &cache) {
-        if (!currentProfile.behavior.rememberAuthentication
+        if (!currentOptions.behavior.rememberAuthentication
             || (state()!=ConnectionState::Starting && state()!=ConnectionState::Running)) return;
-        currentProfile.authenticationCache=cache;
+        currentOptions.authenticationCache=cache;
         emit authenticationCacheUpdated(cache);
     });
     connect(coreEngine,&CoreEngine::authenticationCacheInvalidated,this,[this] {
-        if (!currentProfile.behavior.rememberAuthentication
+        if (!currentOptions.behavior.rememberAuthentication
             || (state()!=ConnectionState::Starting && state()!=ConnectionState::Running)) return;
-        currentProfile.authenticationCache={};
+        currentOptions.authenticationCache={};
         emit authenticationCacheInvalidated();
     });
     connect(coreEngine, &CoreEngine::authenticationRequired, this, [this](const QJsonObject &request) {
@@ -87,12 +87,12 @@ ConnectionSession::ConnectionSession(CoreEngine *coreEngine, QObject *parent, Ne
         sessionState.authenticationRequested();
         pendingAuthentication = request;
         responseAction.clear();
-        emit authenticationRequired(request, serverUrl(),currentProfile.tls);
+        emit authenticationRequired(request, serverUrl(),currentOptions.tls);
     });
     connect(coreEngine, &CoreEngine::responseRejected, this, [this] {
         responseAction.clear();
         if (!pendingAuthentication.isEmpty() && sessionState.state() == ConnectionState::Starting)
-            emit authenticationRequired(pendingAuthentication, serverUrl(),currentProfile.tls);
+            emit authenticationRequired(pendingAuthentication, serverUrl(),currentOptions.tls);
     });
     connect(coreEngine, &CoreEngine::responseAccepted, this, [this] {
         if (responseAction == "cancel") stop();
@@ -105,7 +105,7 @@ ConnectionSession::ConnectionSession(CoreEngine *coreEngine, QObject *parent, Ne
         if (this->network) {
             currentPhase = ConnectionPhase::NetworkPreparing;
             emit progressChanged();
-            this->network->activate(attempt, currentProfile);
+            this->network->activate(attempt, currentOptions);
         } else becameReady(ConnectionPhase::TransportReady);
     });
     connect(coreEngine, &CoreEngine::finished, this, [this](ConnectionError error) {
@@ -132,15 +132,15 @@ ConnectionSession::ConnectionSession(CoreEngine *coreEngine, QObject *parent, Ne
     });
 }
 
-bool ConnectionSession::start(const ConnectionProfile &profile, const ReconnectPolicy &policy)
+bool ConnectionSession::start(const ConnectionOptions &connectionOptions, const ReconnectPolicy &policy)
 {
     if (blocked || !sessionState.requestStart(policy))
     {
         return false;
     }
 
-    currentProfile = profile;
-    if (!currentProfile.behavior.rememberAuthentication) currentProfile.authenticationCache={};
+    currentOptions = connectionOptions;
+    if (!currentOptions.behavior.rememberAuthentication) currentOptions.authenticationCache={};
     emit stateChanged(sessionState.state());
     startCore();
     return true;
@@ -176,8 +176,8 @@ void ConnectionSession::stop()
 
 void ConnectionSession::forgetAuthenticationCache()
 {
-    currentProfile.authenticationCache={};
-    currentProfile.behavior.rememberAuthentication=false;
+    currentOptions.authenticationCache={};
+    currentOptions.behavior.rememberAuthentication=false;
 }
 
 void ConnectionSession::submitResponse(const QJsonObject &response)
@@ -194,8 +194,8 @@ QUrl ConnectionSession::serverUrl() const
 {
     QUrl url;
     url.setScheme("https");
-    url.setHost(currentProfile.endpoint.server);
-    url.setPort(currentProfile.endpoint.port);
+    url.setHost(currentOptions.endpoint.server);
+    url.setPort(currentOptions.endpoint.port);
     return url;
 }
 
@@ -228,7 +228,7 @@ void ConnectionSession::startEngine()
     currentPhase = ConnectionPhase::Initializing;
     emit progressChanged();
     coreActive = true;
-    if (!coreEngine->start(currentProfile) && coreActive) {
+    if (!coreEngine->start(currentOptions) && coreActive) {
         coreActive = false;
         sessionState.recordError(ConnectionError::OTHER);
         if (!networkStopped) stopNetwork();

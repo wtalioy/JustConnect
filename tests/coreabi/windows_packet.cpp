@@ -45,7 +45,7 @@ int main(int argc,char **argv) {
     check(dns.result.succeeded(),"Ordinary Windows caller can read the real original DNS snapshot");
     const auto config = QJsonDocument::fromJson(argv[2]).object();
     const auto server = config["server"].toObject(), auth = config["auth"].toObject();
-    ConnectionProfile profile;
+    ConnectionOptions profile;
     profile.endpoint.server = server["host"].toString(); profile.endpoint.port = server["port"].toInt();
     profile.endpoint.authType = auth["method"].toString().mid(QStringLiteral("auth/").size());
     profile.endpoint.phone = auth["phone"].toString(); profile.endpoint.loginDomain = auth["domain"].toString();

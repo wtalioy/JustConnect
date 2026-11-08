@@ -11,7 +11,7 @@ class NetworkAccess;
 class NetworkPolicySession;
 class CredentialAccess;
 struct CredentialSource;
-class ProfileService;
+class SavedConnectionService;
 class SystemProxySession;
 class UpdateChecker;
 class QWidget;
@@ -32,7 +32,7 @@ public:
 
     ~MainWindowCoordinator() override;
 
-    ProfileService *profiles() const;
+    SavedConnectionService *connectionSettingsService() const;
     CredentialAccess *credentials() const;
     CredentialSource credentialSource();
     ConnectionSession *connection() const;
@@ -44,7 +44,7 @@ public:
 
 
 private:
-    ProfileService *profileService;
+    SavedConnectionService *savedConnections;
     CoreEngine *coreEngine; // Owned by ConnectionSession and shared with the collector.
     NetworkPolicySession *networkPolicySession;
     SystemProxySession *systemProxySession;

@@ -1,4 +1,4 @@
-#include "application/profileservice.h"
+#include "application/savedconnectionservice.h"
 #include "presentation/widgets/serversettingswidget.h"
 #include "application/defaultsettings.h"
 #include <QApplication>
@@ -46,7 +46,7 @@ int main(int argc,char **argv) {
     }
     check(rules->isVisibleTo(&editor),"domain DNS is directly editable without another settings layer");
     allowNodes->setChecked(true);
-    const auto nodePolicy=ProfileService::load(editor.settingsValues());
+    const auto nodePolicy=SavedConnectionService::load(editor.settingsValues());
     check(nodePolicy.tls.verify && nodePolicy.tls.allowUnverifiedNodes && !nodeWarning->isHidden() && warning->isHidden(),"node exception is explicit and leaves authentication verification enabled");
     verify->setChecked(false); ca->setPlainText("explicit private CA");
     check(!warning->isHidden(),"explicit unsafe choice shows an identity-protection warning");
@@ -59,10 +59,10 @@ int main(int argc,char **argv) {
         "custom endpoint changes notify and preserve the edited values");
     QSettings unchanged(path,QSettings::IniFormat);
     check(unchanged.value("JustConnect/ServerAddress")=="custom.example.edu" && unchanged.value("JustConnect/ServerPort")==8443,"editing and cancelling do not save");
-    if (!ProfileService::writePublic(settings,editor.settingsValues())) return 1;
+    if (!SavedConnectionService::writePublic(settings,editor.settingsValues())) return 1;
     QSettings saved(path,QSettings::IniFormat);
     editor.load(saved);
-    check(ProfileService::load(saved).dns.domainDnsRules=="service.custom.example 192.0.2.53","custom DNS rules survive save and reload");
+    check(SavedConnectionService::load(saved).dns.domainDnsRules=="service.custom.example 192.0.2.53","custom DNS rules survive save and reload");
     check(allowNodes->isChecked() && !nodeWarning->isHidden(),"explicit node policy and warning survive save and reload");
     check(!editor.settingsValues().value("JustConnect/TLSVerify").toBool() && editor.settingsValues().value("JustConnect/TLSCAPEM").toString()=="explicit private CA" && !warning->isHidden(),"explicit TLS policy survives save and reload");
     auto *caToggle=editor.findChild<QToolButton *>("serverCaToggle");
@@ -77,25 +77,23 @@ int main(int argc,char **argv) {
         "collapsing optional CA settings never changes the saved trust draft");
     caToggle->click();
     check(ca->isVisibleTo(&editor) && ca->toPlainText()=="explicit private CA","reopening optional CA preserves the draft");
-    check(saved.value("JustConnect/ServerAddress")=="draft.example.edu" && saved.value("JustConnect/ProfileKind")=="Custom","explicit apply saves selected endpoint");
+    check(saved.value("JustConnect/ServerAddress")=="draft.example.edu" && saved.value("JustConnect/ConnectionKind")=="Custom","explicit apply saves selected endpoint");
     settings.setValue("Common/NeedsConfiguration",true);
     editor.load(settings);
     check(!address->isReadOnly() && !port->isReadOnly() && editor.serverAddress() == "draft.example.edu",
         "an older server remains editable for explicit confirmation");
     settings.setValue("Common/NeedsConfiguration",false);
-    settings.setValue("JustConnect/ProfileKind","Fudan");
+    settings.setValue("JustConnect/ConnectionKind","Fudan");
     editor.load(settings);
     check(!editor.isBuiltIn() && editor.serverAddress()=="draft.example.edu","inconsistent saved preset never overwrites a valid custom endpoint");
-    settings.setValue("JustConnect/ServerAddress","vpn.fudan.edu.cn");
-    settings.setValue("JustConnect/ServerPort",443);
-    settings.remove(DefaultSettings::DomainDnsRules);
+    DefaultSettings::applyBuiltInConnection(settings);
     editor.load(settings);
     check(editor.isBuiltIn() && address->isReadOnly() && port->isReadOnly()
         && editor.serverAddress() == "vpn.fudan.edu.cn" && rules->toPlainText() == "zb.fudan.edu.cn",
         "Fudan displays its fixed endpoint and retains its default DNS");
     settings.setValue(DefaultSettings::DomainDnsRules,"");
     editor.load(settings);
-    check(rules->toPlainText().isEmpty() && ProfileService::load(settings).dns.domainDnsRules.isEmpty(),
+    check(rules->toPlainText().isEmpty() && SavedConnectionService::load(settings).dns.domainDnsRules.isEmpty(),
         "an explicitly removed preset rule stays removed");
     std::cout<<"PASS: fixed Fudan endpoint, independent custom draft and explicit apply\n";
 }

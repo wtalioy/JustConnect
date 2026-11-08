@@ -1,4 +1,4 @@
-#include "profilemanager.h"
+#include "savedconnectionstore.h"
 
 #include <QDir>
 #include <QFile>
@@ -50,85 +50,85 @@ bool createEmptyFile(const QString &path)
 }
 }
 
-ProfileManager::ProfileManager(const QString &storageRoot)
+SavedConnectionStore::SavedConnectionStore(const QString &storageRoot)
 {
     configRootPath = storageRoot.isEmpty()
         ? QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation)
         : storageRoot;
-    profilesPath = QDir(configRootPath).filePath("profiles");
+    connectionsPath = QDir(configRootPath).filePath("connections");
     statePath = QDir(configRootPath).filePath("state.ini");
-    defaultProfilePath = QDir(configRootPath).filePath("config.ini");
+    defaultConnectionPath = QDir(configRootPath).filePath("config.ini");
 
     ensureStorage();
 }
 
-QStringList ProfileManager::listProfiles() const
+QStringList SavedConnectionStore::listConnections() const
 {
-    QDir profilesDir(profilesPath);
-    QStringList profiles;
-    for (const QFileInfo &entry : profilesDir.entryInfoList(QStringList() << "*.ini", QDir::Files, QDir::Name))
+    QDir connectionsDir(connectionsPath);
+    QStringList connectionIds;
+    for (const QFileInfo &entry : connectionsDir.entryInfoList(QStringList() << "*.ini", QDir::Files, QDir::Name))
     {
-        profiles << entry.baseName();
+        connectionIds << entry.baseName();
     }
-    return profiles;
+    return connectionIds;
 }
 
-QString ProfileManager::activeProfile() const
+QString SavedConnectionStore::activeConnectionId() const
 {
     QSettings state(statePath, QSettings::IniFormat);
-    QString profileId = normalizeProfileId(state.value("Profile/Active").toString());
+    QString connectionId = normalizeConnectionId(state.value("Connection/Active").toString());
 
-    if (!QFileInfo::exists(profilePath(profileId)))
+    if (!QFileInfo::exists(connectionPath(connectionId)))
     {
-        profileId = "";
-        if (!QFileInfo::exists(profilePath(profileId)))
+        connectionId = "";
+        if (!QFileInfo::exists(connectionPath(connectionId)))
         {
-            createEmptyFile(profilePath(profileId));
+            createEmptyFile(connectionPath(connectionId));
         }
-        writeState(statePath,"Profile/Active",profileId);
+        writeState(statePath,"Connection/Active",connectionId);
     }
-    return profileId;
+    return connectionId;
 }
 
-bool ProfileManager::setActiveProfile(const QString &profileId) const
+bool SavedConnectionStore::setActiveConnection(const QString &connectionId) const
 {
-    const QString normalizedId = normalizeProfileId(profileId);
-    if (!QFileInfo(profilePath(normalizedId)).isFile())
+    const QString normalizedId = normalizeConnectionId(connectionId);
+    if (!QFileInfo(connectionPath(normalizedId)).isFile())
     {
         return false;
     }
 
-    return writeState(statePath,"Profile/Active",normalizedId);
+    return writeState(statePath,"Connection/Active",normalizedId);
 }
 
-QString ProfileManager::profilePath(const QString &profileId) const
+QString SavedConnectionStore::connectionPath(const QString &connectionId) const
 {
-    QString normalizedId = normalizeProfileId(profileId);
+    QString normalizedId = normalizeConnectionId(connectionId);
     if (normalizedId.isEmpty())
     {
-        return defaultProfilePath;
+        return defaultConnectionPath;
     }
-    return QDir(profilesPath).filePath(normalizedId + ".ini");
+    return QDir(connectionsPath).filePath(normalizedId + ".ini");
 }
 
-QString ProfileManager::createProfile(const QString &requestedName) const
+QString SavedConnectionStore::createConnection(const QString &requestedName) const
 {
-    const QString normalizedId = ensureUniqueProfileId(normalizeProfileId(requestedName));
-    QFile file(profilePath(normalizedId));
+    const QString normalizedId = ensureUniqueConnectionId(normalizeConnectionId(requestedName));
+    QFile file(connectionPath(normalizedId));
     return file.open(QIODevice::WriteOnly | QIODevice::NewOnly) ? normalizedId : QString();
 }
 
-bool ProfileManager::renameProfile(const QString &oldId, const QString &newId) const
+bool SavedConnectionStore::renameConnection(const QString &oldId, const QString &newId) const
 {
-    const QString sourceId = normalizeProfileId(oldId);
-    const QString targetId = normalizeProfileId(newId);
+    const QString sourceId = normalizeConnectionId(oldId);
+    const QString targetId = normalizeConnectionId(newId);
     if (sourceId.isEmpty() || targetId.isEmpty() || sourceId == targetId)
     {
         return false;
     }
 
-    const QString sourcePath = profilePath(sourceId);
-    const QString targetPath = profilePath(targetId);
+    const QString sourcePath = connectionPath(sourceId);
+    const QString targetPath = connectionPath(targetId);
     if (!QFileInfo::exists(sourcePath) || QFileInfo::exists(targetPath))
     {
         return false;
@@ -137,17 +137,17 @@ bool ProfileManager::renameProfile(const QString &oldId, const QString &newId) c
     return QFile::rename(sourcePath, targetPath);
 }
 
-bool ProfileManager::removeProfile(const QString &profileId) const
+bool SavedConnectionStore::removeConnection(const QString &connectionId) const
 {
-    const QString normalizedId = normalizeProfileId(profileId);
+    const QString normalizedId = normalizeConnectionId(connectionId);
     if (normalizedId.isEmpty())
     {
         return false;
     }
-    return QFile::remove(profilePath(normalizedId));
+    return QFile::remove(connectionPath(normalizedId));
 }
 
-QString ProfileManager::normalizeProfileId(const QString &name) const
+QString SavedConnectionStore::normalizeConnectionId(const QString &name) const
 {
     QString normalized = name.trimmed();
     normalized.replace(QRegularExpression("[^a-zA-Z0-9_-]"), "_");
@@ -163,73 +163,73 @@ QString ProfileManager::normalizeProfileId(const QString &name) const
     return normalized;
 }
 
-bool ProfileManager::autoStartEnabled() const
+bool SavedConnectionStore::autoStartEnabled() const
 {
     QSettings state(statePath, QSettings::IniFormat);
     return state.value("Global/AutoStart", false).toBool();
 }
 
-bool ProfileManager::setAutoStartEnabled(bool enabled) const
+bool SavedConnectionStore::setAutoStartEnabled(bool enabled) const
 {
     return writeState(statePath,"Global/AutoStart",enabled);
 }
 
-bool ProfileManager::silentStartEnabled() const
+bool SavedConnectionStore::silentStartEnabled() const
 {
     QSettings state(statePath, QSettings::IniFormat);
     return state.value("Global/SilentStart", false).toBool();
 }
 
-bool ProfileManager::setSilentStartEnabled(bool enabled) const
+bool SavedConnectionStore::setSilentStartEnabled(bool enabled) const
 {
     return writeState(statePath,"Global/SilentStart",enabled);
 }
 
-QString ProfileManager::controllerAddress() const
+QString SavedConnectionStore::controllerAddress() const
 {
     QSettings state(statePath,QSettings::IniFormat);
     return state.value("Global/ControllerAddress").toString();
 }
 
-bool ProfileManager::setControllerAddress(const QString &address) const
+bool SavedConnectionStore::setControllerAddress(const QString &address) const
 {
     return writeState(statePath,"Global/ControllerAddress",address);
 }
 
-bool ProfileManager::closeToTray() const
+bool SavedConnectionStore::closeToTray() const
 {
     QSettings state(statePath,QSettings::IniFormat);
     const auto value=state.value("Global/CloseToTray",true).toString().toLower();
     return value!="false" && value!="0";
 }
 
-bool ProfileManager::setCloseToTray(bool enabled) const
+bool SavedConnectionStore::setCloseToTray(bool enabled) const
 {
     return writeState(statePath,"Global/CloseToTray",enabled);
 }
 
-QString ProfileManager::ensureUniqueProfileId(const QString &baseId) const
+QString SavedConnectionStore::ensureUniqueConnectionId(const QString &baseId) const
 {
     QString candidate = baseId;
     if (candidate.isEmpty())
     {
-        candidate = "profile";
+        candidate = "connection";
     }
 
-    if (!QFileInfo::exists(profilePath(candidate)))
+    if (!QFileInfo::exists(connectionPath(candidate)))
     {
         return candidate;
     }
 
     int suffix = 2;
-    while (QFileInfo::exists(profilePath(candidate + "_" + QString::number(suffix))))
+    while (QFileInfo::exists(connectionPath(candidate + "_" + QString::number(suffix))))
     {
         suffix++;
     }
     return candidate + "_" + QString::number(suffix);
 }
 
-void ProfileManager::ensureStorage() const
+void SavedConnectionStore::ensureStorage() const
 {
     QDir configRoot(configRootPath);
     if (!configRoot.exists())
@@ -237,24 +237,24 @@ void ProfileManager::ensureStorage() const
         configRoot.mkpath(".");
     }
 
-    QDir profilesDir(profilesPath);
-    if (!profilesDir.exists())
+    QDir connectionsDir(connectionsPath);
+    if (!connectionsDir.exists())
     {
-        profilesDir.mkpath(".");
+        connectionsDir.mkpath(".");
     }
 }
 
-QString ProfileManager::language() const
+QString SavedConnectionStore::language() const
 {
     return QSettings(statePath,QSettings::IniFormat).value("Global/Language","en").toString();
 }
-bool ProfileManager::setApplicationPreferences(const QString &language,bool closeToTray) const
+bool SavedConnectionStore::setApplicationPreferences(const QString &language,bool closeToTray) const
 {
     if (!supportsLanguage(language)) return false;
     return writeState(statePath,{{"Global/Language",language},{"Global/CloseToTray",closeToTray}});
 }
 
-bool ProfileManager::supportsLanguage(const QString &language)
+bool SavedConnectionStore::supportsLanguage(const QString &language)
 {
     return language=="en" || language=="zh_CN";
 }

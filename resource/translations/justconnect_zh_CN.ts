@@ -695,6 +695,10 @@ Clear the authentication cache for </source>
 <context>
     <name>MainWindow</name>
     <message>
+        <source>Fudan</source>
+        <translation>复旦大学</translation>
+    </message>
+    <message>
         <source>Application menu</source>
         <translation>应用菜单</translation>
     </message>
@@ -1860,7 +1864,7 @@ Some system settings may have changed. Check them before retrying.</source>
     </message>
     <message>
         <location filename="../../presentation/presentationhelpers.cpp" line="124"/>
-        <source>The profile or credentials changed. Reopen settings or retry.</source>
+        <source>The connection settings or credentials changed. Reopen settings or retry.</source>
         <translation>配置或凭据已变化，请重新打开设置或重试。</translation>
     </message>
     <message>
@@ -1870,7 +1874,7 @@ Some system settings may have changed. Check them before retrying.</source>
     </message>
     <message>
         <location filename="../../presentation/presentationhelpers.cpp" line="126"/>
-        <source>Legacy credential format or account identity could not be confirmed. Original data is preserved. Create a new profile to sign in manually.</source>
+        <source>Legacy credential format or account identity could not be confirmed. Original data is preserved. Add a new connection to sign in manually.</source>
         <translation>旧凭据格式或帐号信息无法确认，原数据保留。可创建新配置后手动登录。</translation>
     </message>
     <message>
@@ -1880,18 +1884,13 @@ Some system settings may have changed. Check them before retrying.</source>
     </message>
     <message>
         <location filename="../../presentation/presentationhelpers.cpp" line="128"/>
-        <source>The secure storage or profile operation did not complete. Check it and retry.</source>
+        <source>The secure storage or connection settings operation did not complete. Check it and retry.</source>
         <translation>安全存储或配置操作未完成，请检查后重试。</translation>
     </message>
     <message>
         <location filename="../../presentation/presentationhelpers.cpp" line="82"/>
         <source>About</source>
         <translation>关于</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/presentationhelpers.cpp" line="45"/>
-        <source>Fudan</source>
-        <translation>复旦大学</translation>
     </message>
     <message>
         <location filename="../../presentation/presentationhelpers.cpp" line="63"/>

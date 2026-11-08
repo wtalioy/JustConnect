@@ -13,7 +13,7 @@ public:
         MacNetworkHelperClient::AuthorizationProvider authorization = {});
     ~MacNetworkAccess() override;
     void prepare(const QUuid &attempt) override;
-    void activate(const QUuid &attempt,const ConnectionProfile &profile) override;
+    void activate(const QUuid &attempt,const ConnectionOptions &connectionOptions) override;
     void stop(const QUuid &attempt) override;
 private:
     enum class Stage { Idle, Preparing, Prepared, Activating, Ready, Updating, Stopping };

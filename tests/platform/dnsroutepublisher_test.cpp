@@ -7,7 +7,7 @@ class Core final : public CoreEngine
 {
 public:
     using CoreEngine::CoreEngine;
-    bool start(const ConnectionProfile &, Operation) override { return false; }
+    bool start(const ConnectionOptions &, Operation) override { return false; }
     void stop() override {}
     void respond(const QJsonObject &) override {}
     void acknowledgeDNSRoutes(const QString &generation, const QString &id, bool applied) override {

@@ -4,7 +4,7 @@
 #include <QDialog>
 #include <QUrl>
 #include <QString>
-#include "core/connectionprofile.h"
+#include "core/connectionoptions.h"
 
 class SignInBrowser;
 
