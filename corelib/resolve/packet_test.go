@@ -61,6 +61,51 @@ func TestDomainDNSOverridesExactNamesWithoutCreatingGrants(t *testing.T) {
 	}
 }
 
+func TestSupplementalDomainDNSPreservesOriginalChildLookup(t *testing.T) {
+	socket, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const child = "child.exact.campus.test."
+	var calls atomic.Int32
+	server := &dns.Server{PacketConn: socket, Handler: dns.HandlerFunc(func(w dns.ResponseWriter, request *dns.Msg) {
+		calls.Add(1)
+		reply := new(dns.Msg).SetReply(request)
+		reply.Answer = []dns.RR{&dns.A{Hdr: dns.RR_Header{Name: request.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET}, A: net.IPv4(192, 0, 2, 12)}}
+		_ = w.WriteMsg(reply)
+	})}
+	go func() { _ = server.ActivateAndServe() }()
+	t.Cleanup(func() { _ = server.Shutdown(); _ = socket.Close() })
+	r := NewResolver(nil, "192.0.2.54", "", 30, nil, nil, true)
+	defer r.Close()
+	r.DomainDNS = map[string]string{"exact.campus.test": ""}
+	r.OriginalDNS, err = NewOriginalDNS([]OriginalDNSRoute{{Name: policy.NameRule{Kind: "suffix", Value: "exact.campus.test"},
+		Servers: []string{socket.LocalAddr().String()}, SupplementalFallback: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	dial := func(context.Context, string, string) (net.Conn, error) {
+		t.Fatal("ordinary child lookup used campus DNS")
+		return nil, nil
+	}
+	request := new(dns.Msg).SetQuestion(child, dns.TypeA)
+	reply, err := r.ExchangeTUN(ctx, request, "udp", dial, func(context.Context, []netip.Addr, bool) error {
+		t.Fatal("ordinary child lookup changed data routes")
+		return nil
+	})
+	if err != nil || len(reply.Answer) != 1 || reply.Answer[0].(*dns.A).A.String() != "192.0.2.12" || calls.Load() != 1 {
+		t.Fatalf("original child reply %v, %v", reply, err)
+	}
+	if _, err := r.ExchangeCampus(ctx, request, "udp", dial, nil); !errors.Is(err, ErrOriginalDNSRequired) {
+		t.Fatalf("campus-only listener accepted an ordinary child: %v", err)
+	}
+	if _, err := r.ExchangeTUN(ctx, new(dns.Msg).SetQuestion("outside.test.", dns.TypeA), "udp", dial, nil); !errors.Is(err, ErrOriginalDNSRequired) {
+		t.Fatalf("fallback applied outside its suffix: %v", err)
+	}
+}
+
 func TestCampusDNSPacketsPreserveRecordsAndRejectOriginalNames(t *testing.T) {
 	r := NewResolver(nil, "203.0.113.53", "", 30, client.DomainResources{"*.campus.test": {{Protocol: "all", PortMin: 1, PortMax: 65535}}},
 		map[string][]net.IP{"static.campus.test": {net.IPv4(203, 0, 113, 7), net.ParseIP("2001:db8::7")}}, true)

@@ -93,7 +93,7 @@ func (r *Resolver) exchangeDNS(ctx context.Context, request *dns.Msg, transport 
 					if selected != nil {
 						return r.exchangeOriginalRoute(ctx, request, transport, *selected, publish, true)
 					}
-					return r.exchangeOriginal(ctx, request, transport, publish)
+					return r.exchangeOriginal(ctx, request, transport, publish, false)
 				}
 				return nil, policy.ErrProtectedTarget
 			}
@@ -127,6 +127,9 @@ func (r *Resolver) exchangeDNS(ctx context.Context, request *dns.Msg, transport 
 	if !granted && !known && !explicit {
 		if selected != nil {
 			return r.exchangeOriginalRoute(ctx, request, transport, *selected, nil, false)
+		}
+		if !campusOnly {
+			return r.exchangeOriginal(ctx, request, transport, nil, true)
 		}
 		return nil, ErrOriginalDNSRequired
 	}

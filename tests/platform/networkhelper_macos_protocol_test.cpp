@@ -83,6 +83,28 @@ int main(int argc,char **argv) try
         && prepared.configuration.dnsDomains == QStringList{"campus.test"},"Mac preparation lost actual resource scopes");
     for (const auto &address : {prepared.configuration.address,prepared.configuration.peer})
         check(address != "10.0.0.1" && address != "10.0.0.2" && address != "10.0.0.3","Mac preparation captured an existing DNS endpoint");
+    auto overrides=resources; overrides["domain_dns_names"]=QJsonArray{"host.extra.test","known.campus.test"};
+    const QJsonObject defaultResolver{{"scope","unscoped"},{"resolver",1},{"servers",QJsonArray{"203.0.113.8"}},
+        {"interface_index",0},{"flags",QJsonArray{"Request A records"}}};
+    auto overrideDns=dns;overrideDns["macos_resolvers"]=QJsonArray{defaultResolver};
+    const auto override=prepareMacNetworkHelper(overrides,protection,network,overrideDns,{},1400);
+    check(override.result.succeeded() && override.configuration.dnsDomains==QStringList{"campus.test","host.extra.test"}
+        && override.configuration.originalDns.isEmpty() && override.originalSources.size()==1
+        && override.originalSources.first().toObject().value("servers").toArray()==QJsonArray{"203.0.113.8:53"}
+        && override.configuration.capturePrefixes==QStringList{"203.0.113.9/32","203.0.113.53/32"},
+        "Exact override did not install its scope while preserving the original fallback server");
+    check(updatedMacCapturePrefixes(overrides,protection,override.configuration,override.originalSources,network,overrideDns)
+        ==std::optional(override.configuration.capturePrefixes),"Active exact override rejected an unchanged fallback");
+    auto changedDefault=defaultResolver;changedDefault["servers"]=QJsonArray{"192.0.2.53"};
+    overrideDns["macos_resolvers"]=QJsonArray{changedDefault};
+    check(!updatedMacCapturePrefixes(overrides,protection,override.configuration,override.originalSources,network,overrideDns),
+        "Active exact override kept using a stale original fallback");
+    auto overlapping=protection;overlapping["protected_names"]=QJsonArray{QJsonObject{{"kind","suffix"},{"value","child.host.extra.test"}}};
+    const auto safe=prepareMacNetworkHelper(overrides,overlapping,network,overrideDns,{},1400);
+    check(safe.result.succeeded() && safe.configuration.dnsDomains==QStringList{"campus.test"},"Exact override shadowed protected split DNS");
+    overrideDns["dynamic_store"]=QJsonObject{{"State:/Network/Global/DNS",QJsonObject{{"EncryptedServers",QJsonArray{QJsonObject{}}}}}};
+    const auto encryptedDefault=prepareMacNetworkHelper(overrides,protection,network,overrideDns,{},1400);
+    check(encryptedDefault.result.succeeded() && encryptedDefault.configuration.dnsDomains==QStringList{"campus.test"},"Exact override downgraded encrypted DNS");
     auto missing = resources; missing["underlay_interface"] = "justconnect-nonexistent-interface";
     check(!prepareMacNetworkHelper(missing,protection,network,dns,{},1400).result.succeeded(),"Missing selected underlay was silently ignored");
     const auto service=QUuid::createUuid().toString(QUuid::WithoutBraces).toUpper();
@@ -111,7 +133,7 @@ int main(int argc,char **argv) try
     const auto completed=completeMacOriginalDNS(original.configuration,{{service,"192.0.2.1:54321"}});
     check(completed && completed->originalDns.first().toObject()["listen"]=="192.0.2.1:54321",
         "Core-confirmed listener endpoint did not complete native ownership");
-    check(updatedMacCapturePrefixes(resources,protectedNames,*completed,original.originalSources)==std::optional(original.configuration.capturePrefixes),
+    check(updatedMacCapturePrefixes(resources,protectedNames,*completed,original.originalSources,sourceNetwork,sourceDns)==std::optional(original.configuration.capturePrefixes),
         "Native source dispatch required a conflicting second supplemental resolver or lost live capture updates");
     auto duplicate=*completed;auto repeated=duplicate.originalDns.first().toObject();repeated["service"]=service.toLower();duplicate.originalDns.append(repeated);
     check(!parseMacHelperApply(macHelperApplyRequest(owner,request,duplicate)),"Case variants duplicated one native DNS service at the privilege boundary");

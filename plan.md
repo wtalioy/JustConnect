@@ -1,6 +1,6 @@
 # JustConnect 实施计划与进度
 
-更新日期：2026-11-08。支持 Windows／macOS x64／ARM64。S7 的 13 项已完成阶段验收，结合用户的 UI 实测确认、既有 Windows 校园主路径和原生自动回归收尾。S8 复用既有证据，两平台仅补最终包主路径实测。A13 的 macOS 新域名原生范围仍待实现。
+更新日期：2026-11-08。支持 Windows／macOS x64／ARM64。S7 的 13 项已完成阶段验收，结合用户的 UI 实测确认、既有 Windows 校园主路径和原生自动回归收尾。S8 复用既有证据，两平台仅补最终包主路径实测。A13 的 macOS 新域名原生范围已实现，待原生 CI 与实机验收。
 
 ## 使用方式
 
@@ -280,7 +280,7 @@ Tailscale 对照保持同一对端及网络，记录解析和实际直连。Wind
 | A10 | Windows 主动断开告警、TUN／Tailscale 共存与性能 | **已收尾**。`e9993aa` 同窗两轮正常连断，接管 2149→63 ms；此前稳态 CPU 已大致正常，Tailscale 直连保持已有实测证据。新发现的未发布校园域名 Fake-IP 冲突独立归 V4。[测量与边界](docs/DEVELOPMENT.md#windows-网卡查询与-cpu-采样)。 |
 | A11 | 退出／取消错误及实际包链路故障 | **已收尾**。退出完成后延迟轮询不再误报超时，真实未完成／恢复失败仍拒绝退出；原生代理所有权校验保留取消原因。确定性旧源码回归、13 项退出调用链、官方 Mihomo／核心竞态及 47 项 Python 检查均已验证，最终两平台 Tests／四架构 ABI／四组实际包及源码通过，见当前验收基线。已清理临时镜像、展开目录、完成的监视日志和重复源码包；保留工具／SDK／构建与关键报告 `build/reports/shutdown-package-ef0caa7/` |
 | A12 | 两平台节点选线启动耗时 | **已收尾**。首次 TLS 探测去掉一个 500 ms 空等周期，同机三次真实 TLS 握手中位耗时 1502.93→1002.64 ms；保留三次采样、后续间隔、证书策略、WAN／LAN 回退和取消。旧源码失败回归、本地竞态／完整 Go／正式协议宿主、两平台 Tests 及四架构 ABI 全部通过。临时测量源码已清理，保留关键报告，不重复打包。[测量与边界](docs/DEVELOPMENT.md#节点探测启动等待)，`build/reports/node-probe-start/`。 |
-| A13 | 配置级域名专用 DNS | **Windows 范围已实测通过**。`b2fbdb3` 的 `zb`／统一认证已实测。`c215da2` 的透明入口被拒、命名代理正常，已修复 DNS 授权中域名丢失；`715e059` 真实 aTrust／TLS、原 IP／端口保护及全部原生 CI／实际包通过；用户已确认 `715e059` 的 icourse／zb／浏览器／SSH 正常；未单独确认统一认证全流程。macOS 新域名的独立原生范围仍待实现与验收。[实测和配置](docs/DEVELOPMENT.md#域名专用-dns)。 |
+| A13 | 配置级域名专用 DNS | **Windows 范围已实测通过**。`b2fbdb3` 的 `zb`／统一认证已实测。`c215da2` 的透明入口被拒、命名代理正常，已修复 DNS 授权中域名丢失；`715e059` 真实 aTrust／TLS、原 IP／端口保护及全部原生 CI／实际包通过；用户已确认 `715e059` 的 icourse／zb／浏览器／SSH 正常；未单独确认统一认证全流程。macOS 新域名已接入会话补充解析器，普通子域保留原解析；原生 CI 与实机验收待完成。[实测和配置](docs/DEVELOPMENT.md#域名专用-dns)。 |
 | A14 | 按职责与实际开销复查全仓 | **已收尾**。六个独立单元修复缓存、HTTP 转发、UDP 回收及配置缺陷，合并认证／数据报职责并减少 Windows 原生查询；删除专用缓存依赖。完整本地／竞态、两平台应用、四架构 ABI、四组实际包及 `b2fbdb3` Windows 合并实测通过；清理重复初验输出，保留当前构建／工具与关键报告。[范围、测量和保留依据](docs/DEVELOPMENT.md#全仓审查与测试保留范围)。 |
 | A15 | 全仓性能、职责与清理复查 | **已收尾**。收敛数据面分配、域名与路由查询、Qt ABI、DNS 快照、助手 JSON 和资源构建，清理无调用代码、重复夹具与九项模块依赖。最终 `3f6ba6f` 的[两平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/42454884365)、[四架构 ABI](https://github.com/wtalioy/JustConnect/actions/runs/42454884394)及[四组实际包、源码和 macOS 27 启动](https://github.com/wtalioy/JustConnect/actions/runs/42454884423)通过。ARM64 竞态复验保留原时限，发布实机矩阵归 S8。[审查与测量](docs/DEVELOPMENT.md#全仓审查与测试保留范围)，证据 `build/reports/review-2026-11-08/`。 |
 

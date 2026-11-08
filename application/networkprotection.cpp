@@ -1,4 +1,5 @@
 #include "networkprotection.h"
+#include "infrastructure/dns/dnsdomains.h"
 #include <QHostAddress>
 #include <QMap>
 #include <QSet>
@@ -468,13 +469,31 @@ std::optional<QJsonArray> requiredOriginalDnsNames(const QJsonObject &resources,
     return result;
 }
 
+std::optional<QStringList> domainDnsOverrideNames(const QJsonObject &resources)
+{
+    const auto exact = resources.value("domain_dns_names");
+    if (exact.isUndefined()) return QStringList{};
+    if (!exact.isArray() || exact.toArray().size() > MaxModelItems) return {};
+    QStringList result;
+    QSet<QString> seen;
+    for (const auto &entry : exact.toArray()) {
+        const auto host = entry.toString();
+        if (!canonicalDnsDomain(host) || !canonicalProtectionName(host) || !host.contains('.') || seen.contains(host)) return {};
+        seen.insert(host);
+        result.append(host);
+    }
+    return result;
+}
+
 QStringList campusDnsDomainsToInstall(const QStringList &domains,const QJsonArray &sources)
 {
     QStringList result;
     for(const auto &domain:domains){
         bool covered=false;
         for(const auto &value:sources){
-            const auto name=value.toObject()["name"].toObject();const auto scope=name["value"].toString();
+            const auto source=value.toObject();
+            if (source["supplemental_fallback"]==true) continue;
+            const auto name=source["name"].toObject();const auto scope=name["value"].toString();
             covered|=(name["kind"]=="suffix" && (domain==scope || domain.endsWith('.'+scope)))
                 || (name["kind"]=="single_label" && !domain.contains('.'));
         }
@@ -500,15 +519,22 @@ std::optional<CampusCaptureTargets> campusCaptureTargets(const QJsonObject &reso
     for (const auto size : {ips.size(), protectedIPs.size(), choices.size(), domains.size(), records.size(), names.size(), campusNames.size(), dynamicAddresses.size()})
         if (size > MaxModelItems) return fail(QStringLiteral("Campus capture input exceeds the rule limit (%1 > %2).").arg(size).arg(MaxModelItems));
     const auto required = requiredOriginalDnsNames(resources,policy);
-    if (!required || originalDNS.size() > MaxModelItems) return {};
+    const auto exact = domainDnsOverrideNames(resources);
+    if (!required || !exact || originalDNS.size() > MaxModelItems) return {};
     QJsonArray forwarded;
     IPv4Ranges included, excluded, selected;
     IPv4Ranges originalServers;
     for (const auto &value : originalDNS) {
         if (!value.isObject()) return {};
         const auto row = value.toObject();
-        if (!row["name"].isObject() || !names.contains(row["name"]) || !row["servers"].isArray() || row["servers"].toArray().isEmpty()) return {};
-        forwarded.append(row["name"]);
+        if (!row["name"].isObject() || !row["servers"].isArray() || row["servers"].toArray().isEmpty()) return {};
+        if (row["supplemental_fallback"] == true) {
+            const auto name = row["name"].toObject();
+            if (name["kind"] != "suffix" || !exact->contains(name["value"].toString())) return {};
+        } else {
+            if (!names.contains(row["name"])) return {};
+            forwarded.append(row["name"]);
+        }
         for (const auto &server : row["servers"].toArray()) {
             if (!server.isString()) return {};
             const QUrl endpoint("dns://"+server.toString());

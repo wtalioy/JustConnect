@@ -14,14 +14,10 @@ std::optional<QStringList> windowsDnsDomains(const QStringList &scopes, const QJ
     const QJsonObject &policy, const QJsonArray &original)
 {
     auto result=campusDnsDomainsToInstall(scopes,original);
-    const auto exact=resources.value("domain_dns_names");
-    if (!exact.isUndefined() && !exact.isArray()) return {};
+    const auto exact=domainDnsOverrideNames(resources);
+    if (!exact) return {};
     const auto protectedNames=policy["protected_names"].toArray(), choices=policy["campus_names"].toArray();
-    QSet<QString> seen;
-    for (const auto &entry:exact.toArray()) {
-        const auto host=entry.toString();
-        if (!canonicalDnsDomain(host) || !host.contains('.') || seen.contains(host)) return {};
-        seen.insert(host);
+    for (const auto &host:*exact) {
         if (!choices.contains(host) && std::any_of(protectedNames.begin(),protectedNames.end(),[&](const auto &item){
             const auto rule=item.toObject();
             const auto kind=rule["kind"].toString(), value=rule["value"].toString();

@@ -13,4 +13,4 @@ MacHelperPreparation prepareMacNetworkHelper(const QJsonObject &resources,const 
     const QJsonObject &network,const QJsonObject &dns,const QString &localDNS,int mtu,const MacOriginalDnsReader &read = {});
 std::optional<MacHelperConfiguration> completeMacOriginalDNS(MacHelperConfiguration configuration,const QJsonObject &listeners);
 std::optional<QStringList> updatedMacCapturePrefixes(const QJsonObject &resources,const QJsonObject &policy,
-    const MacHelperConfiguration &configuration,const QJsonArray &originalSources);
+    const MacHelperConfiguration &configuration,const QJsonArray &originalSources,const QJsonObject &network,const QJsonObject &dns);

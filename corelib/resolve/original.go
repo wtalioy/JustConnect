@@ -24,6 +24,8 @@ type OriginalDNSRoute struct {
 	Source    string `json:"source,omitempty"`
 	// Default also supplies unmatched/root queries on this explicit native listener.
 	Default bool `json:"default,omitempty"`
+	// SupplementalFallback preserves ordinary DNS inside an OS suffix scope used for an exact override.
+	SupplementalFallback bool `json:"supplemental_fallback,omitempty"`
 }
 
 type originalDNSRoute struct {
@@ -66,6 +68,9 @@ func NewOriginalDNS(routes []OriginalDNSRoute) (*OriginalDNS, error) {
 		}
 		if route.Default && route.Listen == "" {
 			return nil, errors.New("original DNS default requires a native listener")
+		}
+		if route.SupplementalFallback && (route.Name.Kind != "suffix" || route.Listen != "" || route.Source != "") {
+			return nil, errors.New("invalid supplemental DNS fallback")
 		}
 		for _, server := range route.Servers {
 			endpoint, err := netip.ParseAddrPort(server)
@@ -159,19 +164,19 @@ func (o *OriginalDNS) nativeRoute(source, host string) *originalDNSRoute {
 }
 
 func (r *Resolver) exchangeOriginal(ctx context.Context, request *dns.Msg, transport string,
-	publish func(context.Context, []netip.Addr, bool) error) (*dns.Msg, error) {
+	publish func(context.Context, []netip.Addr, bool) error, supplemental bool) (*dns.Msg, error) {
 	host := normalizeHostname(request.Question[0].Name)
 	if r.OriginalDNS == nil {
 		return nil, ErrOriginalDNSRequired
 	}
 	for _, route := range r.OriginalDNS.routes {
-		if !route.Name.Matches(host) {
+		if route.SupplementalFallback != supplemental || !route.Name.Matches(host) {
 			continue
 		}
 		if route.requiresSource {
 			return nil, ErrOriginalDNSRequired
 		}
-		return r.exchangeOriginalRoute(ctx, request, transport, route, publish, true)
+		return r.exchangeOriginalRoute(ctx, request, transport, route, publish, !supplemental)
 	}
 	return nil, ErrOriginalDNSRequired
 }

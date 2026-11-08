@@ -168,7 +168,8 @@ void MacNetworkAccess::observeModel()
     if (!exit || *exit != originalExit || (owned && !macOriginalDnsSourcesMatch(*owned,model["network"].toObject(),model["dns"].toObject()))) {
         stage = Stage::Prepared; observation.stop(); emit restartRequired(attempt,QStringLiteral("Original network exit changed; restoring before reconnecting.")); return;
     }
-    const auto prefixes = owned ? updatedMacCapturePrefixes(model["resources"].toObject(),policy->confirmedProtection(),*owned,originalSources) : std::nullopt;
+    const auto prefixes = owned ? updatedMacCapturePrefixes(model["resources"].toObject(),policy->confirmedProtection(),*owned,originalSources,
+        model["network"].toObject(),model["dns"].toObject()) : std::nullopt;
     if (!prefixes) { stage = Stage::Prepared; observation.stop(); emit restartRequired(attempt,QStringLiteral("Original DNS or campus scope changed; restoring before reconnecting.")); return; }
     auto actual = owned->capturePrefixes, expected = *prefixes; actual.sort(); expected.sort();
     if (actual != expected) { helper.reconcile(*prefixes); return; }
@@ -183,8 +184,9 @@ void MacNetworkAccess::observeModel()
 void MacNetworkAccess::applyPolicy(const QJsonObject &value)
 {
     const auto owned = helper.ownedConfiguration();
-    const auto prefixes = owned ? updatedMacCapturePrefixes(policy->model()["resources"].toObject(),
-        value,*owned,originalSources) : std::nullopt;
+    const auto model = policy->model();
+    const auto prefixes = owned ? updatedMacCapturePrefixes(model["resources"].toObject(),value,*owned,originalSources,
+        model["network"].toObject(),model["dns"].toObject()) : std::nullopt;
     if (stage != Stage::Ready || helper.state() != HelperState::Active || !prefixes) {
         const bool automatic = automaticPolicy; automaticPolicy = false;
         policy->completePolicy(value["generation"].toString(),value["revision"].toString(),CoreEngine::RequestStatus::Unavailable);

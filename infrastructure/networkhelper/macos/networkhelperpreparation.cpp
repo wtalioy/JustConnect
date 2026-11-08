@@ -12,8 +12,78 @@
 #include <QSet>
 #include <QNetworkInterface>
 #include <QUrl>
+#include <algorithm>
 
 namespace {
+QJsonArray resolverEndpoints(const QJsonObject &resolver, const QString &interface)
+{
+    const auto port=resolver["port"].toInteger(DnsServerPort);
+    if(port<1 || port>65535)return {};
+    QJsonArray endpoints;
+    for(const auto &value:resolver["servers"].toArray()){
+        QHostAddress address(value.toString());
+        if(address.protocol()==QAbstractSocket::IPv6Protocol && address.isLinkLocal() && address.scopeId().isEmpty())address.setScopeId(interface);
+        if(address.isNull() || address.isMulticast() || address==QHostAddress::AnyIPv4 || address==QHostAddress::AnyIPv6
+            || address==QHostAddress::Broadcast || (address.protocol()==QAbstractSocket::IPv6Protocol && address.isLinkLocal() && address.scopeId().isEmpty()))return {};
+        endpoints.append((address.protocol()==QAbstractSocket::IPv6Protocol?'['+address.toString()+']':address.toString())+':'+QString::number(port));
+    }
+    return endpoints;
+}
+
+QJsonArray supplementalFallbacks(const QStringList &exact, const QStringList &scopes, const QJsonObject &protection,
+    const QJsonObject &network, const QJsonObject &dns)
+{
+    if(exact.isEmpty())return {};
+    QJsonObject primary;
+    for(const auto &value:dns["macos_resolvers"].toArray()){
+        const auto row=value.toObject();
+        if(row["scope"]!="unscoped" || !row["domain"].toString().isEmpty() || row["flags"].toArray().contains("Supplemental"))continue;
+        if(!primary.isEmpty() || row["resolver"]!=1 || !row["options"].toString().isEmpty() || !row["properties"].toObject().isEmpty())return {};
+        primary=row;
+    }
+    if(primary.isEmpty())return {};
+    const auto sources=dns["dynamic_store"].toObject();
+    for(auto it=sources.begin();it!=sources.end();++it){
+        const auto source=it.value().toObject();
+        if(source["EncryptedServers"].toArray().isEmpty())continue;
+        if(it.key()=="State:/Network/Global/DNS" || macDnsServersBelongTo(primary["servers"].toArray(),source["ServerAddresses"].toArray()))return {};
+    }
+    QString interface;
+    if(const auto index=primary["interface_index"].toInteger();index>0){
+        interface=primary["interface_name"].toString();
+        const auto interfaces=network["interfaces"].toArray();
+        if(interface.isEmpty() || std::none_of(interfaces.begin(),interfaces.end(),[&](const auto &value){
+            const auto row=value.toObject();return row["up"]==true && row["name"]==interface && row["index"]==index;
+        }))return {};
+    }
+    const auto endpoints=resolverEndpoints(primary,interface);
+    if(endpoints.isEmpty())return {};
+    QJsonArray result;
+    const auto covers=[](const QString &scope,const QString &name){return name==scope || name.endsWith('.'+scope);};
+    const auto protectedNames=protection["protected_names"].toArray();
+    for(const auto &host:exact){
+        if(std::any_of(scopes.begin(),scopes.end(),[&](const auto &scope){return covers(scope,host);}))continue;
+        // A more specific supplemental resolver must not shadow an original split-DNS scope.
+        if(std::any_of(protectedNames.begin(),protectedNames.end(),[&](const auto &value){
+            const auto rule=value.toObject();const auto kind=rule["kind"].toString(), name=rule["value"].toString();
+            return kind=="prefix" || ((kind=="exact" || kind=="suffix") && covers(host,name)) || (kind=="suffix" && covers(name,host));
+        }))continue;
+        result.append(QJsonObject{{"name",QJsonObject{{"kind","suffix"},{"value",host}}},
+            {"servers",endpoints},{"interface",interface},{"supplemental_fallback",true}});
+    }
+    return result;
+}
+
+QStringList supplementalDomains(QStringList scopes,const QJsonArray &sources)
+{
+    for(const auto &value:sources){
+        const auto row=value.toObject();
+        if(row["supplemental_fallback"]==true)scopes.append(row["name"].toObject()["value"].toString());
+    }
+    scopes.sort();
+    return scopes;
+}
+
 MacHelperPreparation prepareOriginalDNS(const QJsonArray &required,const QJsonObject &network,const QJsonObject &dns,MacOriginalDnsReader read)
 {
     using Status=PlatformOperationResult::Status;
@@ -91,19 +161,11 @@ MacHelperPreparation prepareOriginalDNS(const QJsonArray &required,const QJsonOb
                     }
                 }
                 if(local.isEmpty())return unsupported("The DNS source has no assigned IPv4 listener address.");
-                QJsonArray endpoints;const auto port=resolver["port"].toInteger(DnsServerPort);
-                if(port<1 || port>65535)return unsupported("The native DNS server port is invalid.");
-                for(const auto &value:resolver["servers"].toArray()){
-                    QHostAddress address(value.toString());
-                    if(address.protocol()==QAbstractSocket::IPv6Protocol && address.isLinkLocal() && address.scopeId().isEmpty()
-                        && resolver["interface_index"].toInteger()>0)address.setScopeId(snapshot.data["interface"].toString());
-                    if(address.isNull() || address.isMulticast() || address==QHostAddress::AnyIPv4 || address==QHostAddress::AnyIPv6
-                        || address==QHostAddress::Broadcast || (address.protocol()==QAbstractSocket::IPv6Protocol && address.isLinkLocal() && address.scopeId().isEmpty()))
-                        return unsupported("The native DNS server is not a complete unicast endpoint.");
-                    endpoints.append((address.protocol()==QAbstractSocket::IPv6Protocol?'['+address.toString()+']':address.toString())+':'+QString::number(port));
-                }
-                servers+=endpoints.size();if(servers>qsizetype(NetworkDnsDomainLimit))return unsupported("The original DNS source plan exceeds its bound.");
                 const auto bound=resolver["interface_index"].toInteger();
+                const auto endpoints=resolverEndpoints(resolver,bound?snapshot.data["interface"].toString():QString{});
+                if(endpoints.isEmpty())return unsupported("The native DNS server is not a complete unicast endpoint.");
+                const auto port=resolver["port"].toInteger(DnsServerPort);
+                servers+=endpoints.size();if(servers>qsizetype(NetworkDnsDomainLimit))return unsupported("The original DNS source plan exceeds its bound.");
                 const QJsonObject source{{"name",rule},{"servers",endpoints},{"interface",bound?snapshot.data["interface"]:QJsonValue("")},{"source",service},{"listen",local+":0"}};
                 if(!result.originalSources.contains(source))result.originalSources.append(source);
                 const auto state=inputs.value("State:/Network/Service/"+service+"/DNS");
@@ -133,12 +195,16 @@ MacHelperPreparation prepareMacNetworkHelper(const QJsonObject &resources,const 
 {
     using Status = PlatformOperationResult::Status;
     const auto required=requiredOriginalDnsNames(resources,protection);
-    if(!required)return {{Status::Unsupported,"Cannot determine complete original DNS requirements."},{}};
+    const auto scopes=campusDnsDomains(resources), exact=domainDnsOverrideNames(resources);
+    if(!required || !scopes || !exact)return {{Status::Unsupported,"Cannot determine complete original DNS requirements."},{}};
     auto original=required->isEmpty()?MacHelperPreparation{}:prepareOriginalDNS(*required,network,dns,read);
     if(!original.result.succeeded())return original;
+    for(const auto &fallback:supplementalFallbacks(*exact,*scopes,protection,network,dns))original.originalSources.append(fallback);
     QString captureDiagnostic;
     const auto targets = campusCaptureTargets(resources,protection,{},original.originalSources, &captureDiagnostic);
-    if (!targets || (targets->ipv4Prefixes.isEmpty() && targets->dnsDomains.isEmpty())) return {{Status::Unsupported,captureDiagnostic},{}};
+    if (!targets) return {{Status::Unsupported,captureDiagnostic},{}};
+    const auto domains=supplementalDomains(campusDnsDomainsToInstall(targets->dnsDomains,original.originalSources),original.originalSources);
+    if (targets->ipv4Prefixes.isEmpty() && domains.isEmpty()) return {{Status::Unsupported,captureDiagnostic},{}};
     const auto capture = prepareCampusTunCapture(*targets,network,dns,localDNS);
     if (!capture.result.succeeded()) return {capture.result,{}};
     if (!resources["underlay_interface"].isString()) return {{Status::Failed,"Missing original underlay preference."},{}};
@@ -148,19 +214,22 @@ MacHelperPreparation prepareMacNetworkHelper(const QJsonObject &resources,const 
         if (!actual.isValid() || !(actual.flags() & QNetworkInterface::IsUp))
             return {{Status::Failed,"The confirmed underlay interface is no longer available."},{}};
     }
-    MacHelperConfiguration result{capture.address,capture.peer,mtu,capture.prefixes,targets->dnsDomains};
+    MacHelperConfiguration result{capture.address,capture.peer,mtu,capture.prefixes,domains};
     if (!parseMacHelperApply(macHelperApplyRequest(QUuid::createUuid(),QUuid::createUuid(),result)))
         return {{Status::Failed,"Invalid or unsupported macOS capture configuration."},{}};
     result.originalDns=original.configuration.originalDns;
-    result.dnsDomains=campusDnsDomainsToInstall(result.dnsDomains,original.originalSources);
     return {{},result,original.originalSources};
 }
 
 std::optional<QStringList> updatedMacCapturePrefixes(const QJsonObject &resources,const QJsonObject &policy,
-    const MacHelperConfiguration &configuration,const QJsonArray &originalSources)
+    const MacHelperConfiguration &configuration,const QJsonArray &originalSources,const QJsonObject &network,const QJsonObject &dns)
 {
-    const auto domains=campusDnsDomains(resources);
-    if(!domains || campusDnsDomainsToInstall(*domains,originalSources)!=configuration.dnsDomains)return {};
+    const auto domains=campusDnsDomains(resources), exact=domainDnsOverrideNames(resources);
+    if(!domains || !exact)return {};
+    QJsonArray fallback;
+    for(const auto &value:originalSources)if(value.toObject()["supplemental_fallback"]==true)fallback.append(value);
+    if(fallback!=supplementalFallbacks(*exact,*domains,policy,network,dns)
+        || supplementalDomains(campusDnsDomainsToInstall(*domains,originalSources),originalSources)!=configuration.dnsDomains)return {};
     return updatedCampusCapturePrefixes(resources,policy,*domains,originalSources,{configuration.address,configuration.peer});
 }
 
