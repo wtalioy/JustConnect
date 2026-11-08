@@ -243,7 +243,30 @@ Fudan Windows 实机验收步骤：启用记住认证并连接；分别测试普
 
 当前 `authentication_started` 不能单独证明重新登录，`transport_connected` 只表示通道／本地代理就绪。TLS 阶段及原因等固定诊断码见 [ABI 事件契约](CORE-ABI.md#事件与认证回应)；这些诊断不记录账号材料、原始证书或请求 URL。
 
-当前统一连接入口按 R11 完成认证、分流／DNS 与网络接管，确认就绪后才发布校园可用。Windows／Fudan 的浏览器和已有终端 SSH 已按三种主要组合实测通过；S7 的界面实测与原生认证回归已收尾，最终包的逐项操作、macOS 实机与发布矩阵归 S8。日常访问无需另设 SSH 代理。
+当前统一连接入口按 R11 完成认证、分流／DNS 与网络接管，确认就绪后才发布校园可用。Windows／Fudan 的浏览器和已有终端 SSH 已按三种主要组合实测通过。日常访问无需另设 SSH 代理。
+
+## S8 实测步骤
+
+使用同一 [`3f6ba6f` 预览构建](https://github.com/wtalioy/JustConnect/actions/runs/42454884423)。先从托盘或菜单栏退出旧版，保留现有配置和 Tailscale。
+
+- **Windows x64**。下载并完整解压 [Windows 预览包](https://github.com/wtalioy/JustConnect/actions/runs/42454884423/artifacts/13607337088)，运行 `JustConnect.exe`。本轮退出 Clash，用来补无 Clash 的主路径。按下方命令检查同一台通常可直连的 Tailscale 设备，分别在连接前、校园接管就绪后和断开后运行一次。
+- **Apple Silicon**。在 Mac 终端用 GitHub CLI 下载 [Apple Silicon 预览包](https://github.com/wtalioy/JustConnect/actions/runs/42454884423/artifacts/13606533915)并挂载 DMG。从 Finder 把完整应用拷入「应用程序」后打开。本轮确认菜单栏能恢复主窗口，并在断开后用菜单退出应用。浏览器下载后的 macOS 首次打开路径仍待验证，见[签名与部署说明](#不需申请签名的开发与发行)。
+
+```bash
+download_dir=$(mktemp -d)
+gh run download 42454884423 --repo wtalioy/JustConnect --pattern 'JustConnect-preview-3f6ba6f*-macos-arm64' --dir "$download_dir"
+hdiutil attach "$download_dir"/*.dmg -readonly
+```
+
+两台设备各连断一轮。预先打开浏览器和终端，按平时方式连接、登录和授权。已连接时打开一个平时使用的校园网页和一个普通网站，并用已有终端或 Codex 运行一次日常校园 SSH。点一次断开，确认没有恢复提示，普通网站仍可打开。
+
+```powershell
+$peer = '替换为现有设备的完整 MagicDNS 名称'
+Resolve-DnsName ($peer.TrimEnd('.') + '.') -Type A -DnsOnly
+tailscale ping $peer
+```
+
+Windows 的三次 DNS 查询应返回同一设备地址。若连接前已稳定直连，连接中和断开后仍应能建立直连。若本轮起始就走中继，注明基线即可。可用 `tailscale status` 查看对端名称。如果命令不在 PATH，用 `& "$env:ProgramFiles\Tailscale\tailscale.exe" ping $peer`。回复两台设备的结果，失败时附对应步骤和错误，日志可从详情复制并去除个人信息。
 
 ## 分支与 Actions
 
@@ -310,26 +333,9 @@ Windows 包单独构建静态 CRT 的 C++ 助手，`WindowsNetworkHelper` 安装
 
 Windows 日志中的 `network apply stages` 给出所有权记录、设备／路由、DNS 三段耗时及捕获前缀数量；`network apply` 是完整助手操作耗时，认证和交互授权另计。比较同一机器的普通连接／断开，保留这些行即可定位耗时，不能用 CI 延迟代替校园实测。新增路由由系统创建 API 原子拒绝重复项，创建后的身份／属性回读和删除前核对继续保留。
 
-### Windows MagicDNS 实测
-
-[MagicDNS](https://tailscale.com/docs/features/magicdns) 为 Tailscale 设备提供名称。保持 Tailscale 开启，先在 PowerShell 列出已有设备：
-
-```powershell
-$ts = tailscale status --json | ConvertFrom-Json
-$ts.Peer.PSObject.Properties.Value | Select-Object HostName,DNSName
-```
-
-选一条实际 `DNSName`，在 JustConnect 连接前、校园接管就绪后、断开恢复确认后分别运行：
-
-```powershell
-Resolve-DnsName '替换为那条DNSName' -Type A -DnsOnly
-```
-
-三次应返回相同设备的 Tailscale 地址；若该设备提供 SSH，再用相同名称连接，验证实际访问。记录所用包版本和三个阶段的结果。若 `tailscale` 不在 PATH，可将首条命令中的它改为 `& "$env:ProgramFiles\Tailscale\tailscale.exe"`。此检查不替代校园／普通出口、桌面授权和注销验收。
-
 ## 任务与验证记录
 
-每个工作单元先验证、独立提交，再更新任务状态；未完成要求不得提前勾选。CI、安装包自检、受控网关和真实校园／桌面结果分开记录。最新证据只维护在计划，历史过程由 Git 追溯，不在本文追加流水或另存重复历史文档。README 待 [S8](../plan.md#s8-实测与交付) 流程稳定后补写。
+每个工作单元先验证、独立提交，再更新任务状态；未完成要求不得提前勾选。CI、安装包自检、受控网关和真实校园／桌面结果分开记录。最新证据只维护在计划，历史过程由 Git 追溯，不在本文追加流水或另存重复历史文档。
 
 ### Mihomo 控制连接真实解析
 
