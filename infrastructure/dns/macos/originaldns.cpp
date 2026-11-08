@@ -62,17 +62,19 @@ bool sameEndpoint(CFDictionaryRef a,CFDictionaryRef b)
 bool localEndpoint(const QString &text,QString &address,int &port,const QJsonObject &context)
 {
     const auto separator=text.lastIndexOf(':');
+    if(separator<=0)return false;
     address=text.first(separator);const auto number=text.mid(separator+1);bool valid=false;
     port=number.toInt(&valid);
-    if(separator<=0 || !canonicalUnicastIpv4(address) || !valid || port<1 || port>65535 || QString::number(port)!=number)return false;
+    const auto host=unixIpv4::unicastAddress(address);
+    if(!host || !valid || port<1 || port>65535 || QString::number(port)!=number)return false;
     ifaddrs *interfaces=nullptr;if(::getifaddrs(&interfaces)!=0)return false;
     const auto release=qScopeGuard([&]{::freeifaddrs(interfaces);});
-    in_addr expected{};if(::inet_pton(AF_INET,address.toLatin1().constData(),&expected)!=1)return false;
+    const auto expected=htonl(*host);
     const auto name=context["interface"].toString().toLatin1();const auto index=context["interface_index"].toInteger();
     if(index>0 && ::if_nametoindex(name.constData())!=quint32(index))return false;
     for(auto *row=interfaces;row;row=row->ifa_next)
         if(row->ifa_addr && row->ifa_addr->sa_family==AF_INET && (row->ifa_flags&IFF_UP) && name==row->ifa_name
-            && reinterpret_cast<sockaddr_in *>(row->ifa_addr)->sin_addr.s_addr==expected.s_addr)return true;
+            && reinterpret_cast<sockaddr_in *>(row->ifa_addr)->sin_addr.s_addr==expected)return true;
     return false;
 }
 std::optional<QJsonValue> dnsState(const QString &service)

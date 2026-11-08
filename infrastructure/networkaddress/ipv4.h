@@ -1,61 +1,84 @@
 #pragma once
 
 #include <QString>
+#include <QStringView>
 #include <QScopeGuard>
 #include <arpa/inet.h>
 #include <ifaddrs.h>
 #include <net/if.h>
+#include <optional>
 
-inline bool canonicalIpv4Prefix(const QString &value, int minimum = 2)
+namespace unixIpv4 {
+struct Prefix { quint32 network, mask; };
+
+inline std::optional<quint32> canonicalAddress(QStringView value)
 {
-    const auto parts = value.split('/');
-    if (parts.size() != 2) return false;
-    bool valid = false;
-    const int bits = parts[1].toInt(&valid);
+    if (value.size() >= INET_ADDRSTRLEN) return {};
     in_addr address{};
-    if (!valid || bits < minimum || bits > 32 || QString::number(bits) != parts[1]
-        || ::inet_pton(AF_INET, parts[0].toLatin1().constData(), &address) != 1) return false;
     char canonical[INET_ADDRSTRLEN]{};
-    if (!::inet_ntop(AF_INET, &address, canonical, sizeof(canonical)) || parts[0] != QString::fromLatin1(canonical)) return false;
-    const quint32 host = ntohl(address.s_addr), mask = bits == 0 ? 0 : 0xffffffffu << (32 - bits);
-    return (host & mask) == host;
+    if (::inet_pton(AF_INET, value.toLatin1().constData(), &address) != 1
+        || !::inet_ntop(AF_INET, &address, canonical, sizeof(canonical))
+        || value != QLatin1StringView(canonical)) return {};
+    return ntohl(address.s_addr);
+}
+
+inline std::optional<Prefix> canonicalPrefix(QStringView value)
+{
+    const auto slash = value.indexOf(u'/');
+    if (slash <= 0) return {};
+    const auto length = value.sliced(slash+1);
+    bool valid = false;
+    const auto bits = length.toInt(&valid);
+    if (!valid || bits < 2 || bits > 32 || length != QString::number(bits)) return {};
+    const auto network = canonicalAddress(value.first(slash));
+    const quint32 mask = 0xffffffffu << (32-bits);
+    if (!network || (*network & mask) != *network) return {};
+    return Prefix{*network, mask};
+}
+
+inline bool unicastRange(quint32 first, quint32 last)
+{
+    // Captures exclude the unspecified, loopback and non-unicast ranges.
+    return first >= 0x01000000u && last < 0xe0000000u && !(first <= 0x7fffffffu && last >= 0x7f000000u);
+}
+
+inline std::optional<quint32> unicastAddress(QStringView value)
+{
+    const auto address = canonicalAddress(value);
+    return address && unicastRange(*address, *address) ? address : std::nullopt;
+}
+}
+
+inline bool canonicalIpv4Prefix(const QString &value)
+{
+    return unixIpv4::canonicalPrefix(value).has_value();
 }
 
 inline bool canonicalUnicastIpv4Prefix(const QString &value)
 {
-    if (!canonicalIpv4Prefix(value)) return false;
-    const auto parts = value.split('/');
-    in_addr address{}; ::inet_pton(AF_INET,parts[0].toLatin1().constData(),&address);
-    const quint64 first = ntohl(address.s_addr), last = first+(quint64(1)<<(32-parts[1].toInt()))-1;
-    // Captures must exclude IPv4's unspecified, loopback and non-unicast ranges.
-    return first >= 0x01000000ULL && last < 0xe0000000ULL && !(first <= 0x7fffffffULL && last >= 0x7f000000ULL);
+    const auto prefix = unixIpv4::canonicalPrefix(value);
+    return prefix && unixIpv4::unicastRange(prefix->network, prefix->network | ~prefix->mask);
 }
 
 inline bool canonicalUnicastIpv4(const QString &value)
 {
-    if (!canonicalIpv4Prefix(value+"/32")) return false;
-    const int first=value.section('.',0,0).toInt();
-    return first>0 && first<224 && first!=127;
+    return unixIpv4::unicastAddress(value).has_value();
 }
 
 inline bool ipv4PrefixContainsAddress(const QString &prefix, const QString &address)
 {
-    if (!canonicalIpv4Prefix(prefix) || !canonicalUnicastIpv4(address)) return false;
-    const auto parts = prefix.split('/');
-    in_addr network{}, host{};
-    ::inet_pton(AF_INET, parts[0].toLatin1().constData(), &network);
-    ::inet_pton(AF_INET, address.toLatin1().constData(), &host);
-    const quint32 mask = 0xffffffffu << (32 - parts[1].toInt());
-    return (ntohl(host.s_addr) & mask) == ntohl(network.s_addr);
+    const auto range = unixIpv4::canonicalPrefix(prefix);
+    if (!range) return false;
+    const auto host = unixIpv4::unicastAddress(address);
+    return host && (*host & range->mask) == range->network;
 }
 
 inline bool assignedUnixTunPair(const QString &name, quint32 index, const QString &source, const QString &peer)
 {
-    if (!index || ::if_nametoindex(name.toLatin1().constData()) != index
-        || !canonicalUnicastIpv4(source) || !canonicalUnicastIpv4(peer) || source == peer) return false;
-    in_addr local{}, remote{};
-    ::inet_pton(AF_INET, source.toLatin1().constData(), &local);
-    ::inet_pton(AF_INET, peer.toLatin1().constData(), &remote);
+    if (!index || ::if_nametoindex(name.toLatin1().constData()) != index) return false;
+    const auto sourceAddress = unixIpv4::unicastAddress(source), peerAddress = unixIpv4::unicastAddress(peer);
+    if (!sourceAddress || !peerAddress || sourceAddress == peerAddress) return false;
+    const auto local = htonl(*sourceAddress), remote = htonl(*peerAddress);
     ifaddrs *addresses = nullptr;
     if (::getifaddrs(&addresses) != 0) return false;
     const auto release = qScopeGuard([&] { ::freeifaddrs(addresses); });
@@ -63,8 +86,8 @@ inline bool assignedUnixTunPair(const QString &name, quint32 index, const QStrin
         if (QString::fromLatin1(entry->ifa_name) == name && (entry->ifa_flags & IFF_POINTOPOINT)
             && entry->ifa_addr && entry->ifa_addr->sa_family == AF_INET
             && entry->ifa_dstaddr && entry->ifa_dstaddr->sa_family == AF_INET
-            && reinterpret_cast<const sockaddr_in *>(entry->ifa_addr)->sin_addr.s_addr == local.s_addr
-            && reinterpret_cast<const sockaddr_in *>(entry->ifa_dstaddr)->sin_addr.s_addr == remote.s_addr) return true;
+            && reinterpret_cast<const sockaddr_in *>(entry->ifa_addr)->sin_addr.s_addr == local
+            && reinterpret_cast<const sockaddr_in *>(entry->ifa_dstaddr)->sin_addr.s_addr == remote) return true;
     }
     return false;
 }

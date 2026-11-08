@@ -287,8 +287,9 @@ void MacNetworkHelperClient::receive(const QJsonObject &request, const QJsonObje
         auto next = configuration;
         if (name == "routes") next.capturePrefixes = pendingTargets;
         else for (const auto &address : pendingTargets) {
-            bool covered = false;
-            for (const auto &prefix : next.capturePrefixes) covered |= ipv4PrefixContainsAddress(prefix,address);
+            const bool covered = std::any_of(next.capturePrefixes.cbegin(), next.capturePrefixes.cend(), [&](const auto &prefix) {
+                return ipv4PrefixContainsAddress(prefix,address);
+            });
             if (!covered) next.capturePrefixes.append(address+"/32");
         }
         const auto view = response["network"].toObject(), capture = view["capture"].toObject();

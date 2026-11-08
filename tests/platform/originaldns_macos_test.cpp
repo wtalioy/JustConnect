@@ -178,6 +178,9 @@ int main(int argc,char **argv) try
     const auto before=read();
     {
         MacOriginalDns dns(preferences,inspect);
+        auto missingPort=sources.first().toObject();missingPort["listen"]=local;
+        check(!dns.apply(owner,QJsonArray{missingPort},checkpoint).succeeded() && record.isEmpty()
+            && dns.snapshot().isEmpty() && read()==before,"Listener without a port changed DNS preferences");
         const auto rejected=dns.apply(owner,sources,[](const QJsonObject &){return PlatformOperationResult{PlatformOperationResult::Status::Failed,"write ahead refused"};});
         check(!rejected.succeeded() && dns.snapshot().isEmpty() && read()==before,"Failed write-ahead changed DNS preferences");
         check(dns.apply(owner,sources,checkpoint).succeeded() && MacOriginalDns::valid(owner,record),"Apply durable private DNS source");

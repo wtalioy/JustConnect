@@ -4,6 +4,7 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QSet>
+#include <algorithm>
 #include <cstring>
 #include <net/if_dl.h>
 #include <net/route.h>
@@ -150,8 +151,9 @@ Result MacTunRoutes::extend(const MacTunDevice &device, const QStringList &addre
     for (const auto &address : addresses) {
         if (!canonicalUnicastIpv4(address) || address == sourceAddress || address == peerAddress)
             return {Status::Failed,"Invalid or self-capturing DNS address.",true};
-        bool covered = false;
-        for (const auto &entry : entries) covered |= ipv4PrefixContainsAddress(entry.prefix,address);
+        const bool covered = std::any_of(entries.cbegin(), entries.cend(), [&](const auto &entry) {
+            return ipv4PrefixContainsAddress(entry.prefix,address);
+        });
         const auto prefix = address+"/32";
         if (!covered && !additions.contains(prefix)) {
             if (unscopedRoute(current.rows,prefix)) return {Status::Failed,"External unscoped DNS address route is preserved.",true};
