@@ -23,6 +23,8 @@
 #include <QMenu>
 #include <QDir>
 #include <QEvent>
+#include <QElapsedTimer>
+#include <QKeySequence>
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QPushButton>
@@ -184,8 +186,9 @@ public:
 protected:
     bool eventFilter(QObject *target, QEvent *event) override {
         if (event->type() != QEvent::Paint) return false;
-        auto *area = qobject_cast<QScrollArea *>(target->parent());
-        if (area && area->objectName() == name && target == area->viewport()) {
+        auto *dialog = qobject_cast<QDialog *>(target);
+        auto *area = dialog ? dialog->findChild<QScrollArea *>(name) : nullptr;
+        if (area && area->isVisible()) {
             auto *bar = area->verticalScrollBar();
             offsets.append(bar->value());
             barPainted |= bar->isVisible();
@@ -757,6 +760,7 @@ int main(int argc,char **argv) {
             connection->stop();
         }
         bool quitIntercepted=false;
+        QElapsedTimer idleQuit;
         TerminationRequests termination;
         QObject::connect(&termination,&TerminationRequests::requested,&window,[&] {
             check(QThread::currentThread()==app.thread(),"termination request must reach the GUI thread");
@@ -774,11 +778,24 @@ int main(int argc,char **argv) {
             if (app.arguments().contains("--interrupt")) {std::raise(SIGINT);return;}
             if (app.arguments().contains("--hangup")) {std::raise(SIGHUP);return;}
 #endif
+            if (native) {
+                check(!connection->isActive(), "idle menu quit must be measured without an active connection");
+                idleQuit.start();
+                auto *exitAction = window.findChild<QAction *>("exitAction");
+                check(exitAction->menuRole() == QAction::QuitRole && exitAction->shortcut().matches(QKeySequence::Quit)
+                    == QKeySequence::ExactMatch, "the native menu and Quit shortcut share the exit action");
+                exitAction->trigger();
+                quitIntercepted = true;
+                return;
+            }
             QEvent quit(QEvent::Quit);
-            quitIntercepted=QCoreApplication::sendEvent(&app,&quit);
+            quitIntercepted = QCoreApplication::sendEvent(&app, &quit);
+            check(!quit.isAccepted(), "the original platform quit request is deferred until ordered cleanup");
         });
         QTimer::singleShot(10000,&app,[&]{check(false,"ordered quit did not complete");});
         check(app.exec()==0 && quitIntercepted,"application quit must enter the shared asynchronous shutdown");
+        if (native) check(idleQuit.isValid() && idleQuit.elapsed() < 1500,
+            "idle menu exit reaches application shutdown promptly");
     }
     check(QDir(configRoot).removeRecursively(),"isolated window-test settings cleanup");
 }

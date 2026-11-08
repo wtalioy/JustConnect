@@ -296,7 +296,7 @@ MainWindow::MainWindow(
     connect(connectionUiController,&ConnectionUiController::readyToQuit,this,[this] {
         exitReady=true;
         emit shutdownSettled(true);
-        QApplication::quit();
+        QMetaObject::invokeMethod(qApp, &QCoreApplication::quit, Qt::QueuedConnection);
     });
     connect(connectionUiController,&ConnectionUiController::quitFailed,this,[this](const QString &code) {
         emit shutdownSettled(false);
@@ -356,6 +356,7 @@ void MainWindow::changeEvent(QEvent *event)
 bool MainWindow::eventFilter(QObject *watched,QEvent *event)
 {
     if (watched==qApp && event->type()==QEvent::Quit && !exitReady) {
+        event->ignore();
         gracefullyQuit();
         return true;
     }

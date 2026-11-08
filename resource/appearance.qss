@@ -31,9 +31,10 @@ QToolButton#profileMenuButton:pressed { background: rgba(120,132,148,70); }
 QToolButton#profileMenuButton:focus { border-color: #9aa3af; }
 QComboBox::down-arrow { image: url(:/resource/chevron.svg); width: 16px; height: 16px; subcontrol-position: center; }
 QToolButton#profileMenuButton::menu-indicator { image: none; }
-QComboBox { min-height: 34px; max-height: 34px; padding-left: 12px; padding-right: 32px; }
+QComboBox { min-height: 34px; max-height: 34px; padding-left: 12px; padding-right: 32px; combobox-popup: 0; }
 QComboBox::drop-down { border: none; width: 30px; subcontrol-origin: padding; subcontrol-position: right center; }
 QComboBox:on { background: #e3e6eb; border-color: #9aa3af; }
+QComboBox > QFrame { border: none; }
 QComboBox QAbstractItemView {
     outline: none; border: 1px solid #dde2e9; border-radius: 10px; padding: 5px;
     background: #ffffff; color: #182132;

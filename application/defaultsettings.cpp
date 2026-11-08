@@ -69,7 +69,8 @@ void DefaultSettings::initialize(QSettings &settings) { apply(settings, false); 
 
 bool DefaultSettings::isUnconfiguredDefault(const QSettings &settings)
 {
-    if (settings.value("Common/ConfigVersion").toInt() > ApplicationConstants::ConfigVersion)
+    if (settings.contains("Common/ConfigVersion")
+        && settings.value("Common/ConfigVersion").toInt() != ApplicationConstants::ConfigVersion)
         return false;
     for (const auto &key : settings.allKeys()) {
         const auto value = settings.value(key).toString();

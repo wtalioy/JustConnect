@@ -243,7 +243,27 @@ jobs:
           test -n "$pid"
           sleep 3
           kill -0 "$pid"
-          kill -TERM "$pid"
+          cat > "$RUNNER_TEMP/quit-preview.swift" <<'SWIFT'
+          import AppKit
+          import Darwin
+
+          let pid = pid_t(CommandLine.arguments[1])!
+          let clock = ContinuousClock()
+          let started = clock.now
+          guard let app = NSRunningApplication(processIdentifier: pid), app.terminate() else {
+              fatalError("AppKit rejected the quit request")
+          }
+          while clock.now - started < .seconds(3) {
+              if kill(pid, 0) == -1 && errno == ESRCH {
+                  print("Installed idle app quit in \(clock.now - started)")
+                  exit(0)
+              }
+              usleep(25_000)
+          }
+          fatalError("Installed idle app did not quit within 3 seconds")
+          SWIFT
+          xcrun swiftc "$RUNNER_TEMP/quit-preview.swift" -o "$RUNNER_TEMP/quit-preview"
+          "$RUNNER_TEMP/quit-preview" "$pid"
 
   source:
     if: github.ref == 'refs/heads/main' || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/develop')

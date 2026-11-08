@@ -210,6 +210,17 @@ int main(int argc,char **argv) {
         const auto *surface=options->window()->windowHandle();
         return options->isVisible() && surface && surface->isExposed();
     });
+    auto *popupFrame = qobject_cast<QFrame *>(options->window());
+    check(popupFrame && popupFrame->frameWidth() == 0
+        && !choice.style()->styleHint(QStyle::SH_ComboBox_Popup, &combo, &choice),
+        "only the styled option list provides a dropdown border");
+    const auto popupPixels = popupFrame->grab().toImage();
+    const int borderX = popupPixels.width() / 2;
+    int borderRows = 0;
+    while (borderRows < popupPixels.height() && popupPixels.pixelColor(borderX, borderRows) == QColor("#dde2e9"))
+        ++borderRows;
+    check(borderRows > 0 && borderRows <= qCeil(popupPixels.devicePixelRatio()),
+        "the popup has one painted border at the top edge");
     const auto lastRow=options->visualRect(choice.model()->index(2,0));
     check(options->viewport()->rect().contains(lastRow),
         "the dropdown sizes its popup for padded rows without clipping the final option");
