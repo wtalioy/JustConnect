@@ -1,4 +1,5 @@
 #include "application/savedconnectionservice.h"
+#include "application/defaultsettings.h"
 #include <QCoreApplication>
 #include <QSettings>
 #include <QTemporaryDir>
@@ -49,6 +50,10 @@ int main(int argc,char **argv) {
     saved.remove("JustConnect/AllowUnverifiedNodes");
     const auto strict=SavedConnectionService::load(saved).tls;
     check(strict.verify && !strict.allowUnverifiedNodes,"legacy profiles default to authentication and node certificate validation");
+    check(profile.behavior.rememberAuthentication,"a connection remembers authentication by default");
+    saved.setValue(DefaultSettings::RememberAuthentication,false);
+    DefaultSettings::initialize(saved);
+    check(!SavedConnectionService::load(saved).behavior.rememberAuthentication,"a saved authentication opt-out survives initialization");
     check(profile.proxy.socksBind.isEmpty() && profile.proxy.httpBind=="127.0.0.1:11081","zero disables listener; legacy outside-access option never exposes it");
     check(profile.dns.secondary=="10.0.0.2" && profile.dns.localDnsServer=="127.0.0.1:5353" && profile.dns.ttl==60 && profile.dns.disableRemoteDns && profile.behavior.bindInterface=="fixture0" && profile.behavior.autoDetectInterface,"supported network settings survive reload");
     saved.setValue("Common/NeedsConfiguration",true);

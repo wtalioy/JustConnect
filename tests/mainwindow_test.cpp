@@ -654,6 +654,7 @@ int main(int argc,char **argv) {
         if (native) {
             DefaultSettings::reset(settings);
             settings.setValue("JustConnect/ProfileKind", "Custom");
+            settings.setValue(DefaultSettings::RememberAuthentication, false);
             settings.sync();
             menuProfile=manager.createConnection("menu-fixture");
             check(!menuProfile.isEmpty(),"create an isolated profile for menu switching");
@@ -666,6 +667,9 @@ int main(int argc,char **argv) {
         check(settings.value("JustConnect/ServerAddress")=="vpn.fudan.edu.cn"
             && settings.value("JustConnect/AuthType")=="httpsOauth2",
             "startup persists the ready-to-use Fudan connection");
+        const auto options = SavedConnectionService::load(settings);
+        check(options.tls.verify && options.tls.allowUnverifiedNodes && options.behavior.rememberAuthentication != native,
+            "Fudan starts with tunnel verification skipped and preserves any saved authentication opt-out");
         check(window.focusWidget()==window.centralWidget(),"startup leaves focus on the home surface");
         if (app.arguments().contains("--auth-language")) authenticationLanguageChangesPreserveData(window);
         if (app.arguments().contains("--profile-language")) profileSetupLanguageChangesPreserveData(window);

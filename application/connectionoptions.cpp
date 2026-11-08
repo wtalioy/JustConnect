@@ -32,6 +32,6 @@ ConnectionOptions SavedConnectionService::load(const QVariantMap &settings) {
     p.keepAlive.url=settings.value("JustConnect/KeepAliveURL").toString();
     p.behavior.bindInterface=settings.value("JustConnect/BindInterface").toString();
     p.behavior.autoDetectInterface=settings.value("JustConnect/AutoDetectInterface",p.behavior.autoDetectInterface).toBool();
-    p.behavior.rememberAuthentication=settings.value(DefaultSettings::RememberAuthentication,p.behavior.rememberAuthentication).toBool();
+    p.behavior.rememberAuthentication=settings.value(DefaultSettings::RememberAuthentication,DefaultSettings::RememberAuthenticationByDefault).toBool();
     return p;
 }

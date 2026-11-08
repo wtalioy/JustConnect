@@ -85,6 +85,15 @@ int main(int argc,char **argv) {
     check(editor.isBuiltIn() && address->isReadOnly() && port->isReadOnly()
         && editor.serverAddress() == "vpn.fudan.edu.cn" && rules->toPlainText() == "zb.fudan.edu.cn",
         "Fudan displays its fixed endpoint and retains its default DNS");
+    settings.remove("JustConnect/TLSVerify");
+    editor.load(settings);
+    check(verify->isChecked() && allowNodes->isChecked() && SavedConnectionService::load(settings).tls.allowUnverifiedNodes,
+        "Fudan skips tunnel verification by default while verifying the sign-in server");
+    settings.setValue("JustConnect/AllowUnverifiedNodes",false);
+    DefaultSettings::initialize(settings);
+    editor.load(settings);
+    check(!allowNodes->isChecked() && !SavedConnectionService::load(settings).tls.allowUnverifiedNodes,
+        "initialization preserves a saved choice to verify the tunnel");
     settings.setValue(DefaultSettings::DomainDnsRules,"");
     editor.load(settings);
     check(ca->isVisibleTo(&editor) && !ca->placeholderText().isEmpty(),

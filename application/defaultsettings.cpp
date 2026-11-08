@@ -16,7 +16,7 @@ const QVariantMap &defaults()
 {
     static const QVariantMap values{
         {"Credential/Username", ""},
-        {DefaultSettings::RememberAuthentication, ConnectionBehavior{}.rememberAuthentication},
+        {DefaultSettings::RememberAuthentication, DefaultSettings::RememberAuthenticationByDefault},
 
         {"Common/ConnectAfterStart", false},
         {"Common/CheckUpdateAfterStart", false},
@@ -79,6 +79,7 @@ bool DefaultSettings::isUnconfiguredDefault(const QSettings &settings)
         // Earlier builds wrote these fields before a server was ever chosen.
         if ((key == "JustConnect/ProfileKind" && value == "Custom")
             || (key == "JustConnect/AuthType" && value.isEmpty())
+            || (key == RememberAuthentication && value == "false")
             || (key == DomainDnsRules && value.isEmpty()))
             continue;
         if (!defaults().contains(key) || value != defaults().value(key).toString())

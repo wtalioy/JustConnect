@@ -204,7 +204,7 @@ void SettingWindow::loadSettings(const QSettings &source) {
     draftValues.remove("Common/ConfigVersion"); // Schema revisions belong to SettingsMigrator.
     serverEditor->load(source);
     ui->usernameLineEdit->setText(source.value("Credential/Username").toString());
-    rememberAuthentication->setChecked(source.value(DefaultSettings::RememberAuthentication,ConnectionBehavior{}.rememberAuthentication).toBool());
+    rememberAuthentication->setChecked(source.value(DefaultSettings::RememberAuthentication,DefaultSettings::RememberAuthenticationByDefault).toBool());
     clearDraftCredentials();
     const bool needsSignInMethod = source.value("Common/NeedsConfiguration").toBool()
         || serverEditor->serverAddress().isEmpty();

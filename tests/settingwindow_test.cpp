@@ -124,8 +124,7 @@ int main(int argc,char **argv) {
       check(initial->findChild<QGroupBox *>("serverGroup")->font().pointSizeF()>query->font().pointSizeF(),
           "section headings have a larger type size than form controls");
       auto *remember=initial->findChild<QCheckBox *>("rememberAuthenticationCheckBox");
-      check(remember && !remember->isChecked(),"new profiles do not persist authentication without consent");
-      remember->setChecked(true);
+      check(remember && remember->isChecked(),"remember authentication is checked by default");
       initial->findChild<QCheckBox *>("tlsVerifyCheckBox")->setChecked(false);
       check(!initial->findChild<QSpinBox *>("socks5PortSpinBox") && !initial->findChild<QComboBox *>("keepAliveModeComboBox"),
           "technical proxy and traffic-probe controls are absent from everyday settings");
@@ -226,7 +225,7 @@ int main(int argc,char **argv) {
     window=open();window->setConnectAfterSave(true);int cancelledIntents=0;QObject::connect(window,&SettingWindow::connectRequested,[&]{++cancelledIntents;}); expectedText=QCoreApplication::translate("SettingWindow","Reset this draft to its defaults? Changes take effect after saving."); messageResult=QMessageBox::Yes;
     window->findChild<QPushButton *>("resetDefaultPushButton")->click(); expectedText.clear(); messageResult=QMessageBox::Ok;
     check(window->findChild<QLineEdit *>("serverAddressLineEdit")->text().isEmpty()
-        && !window->findChild<QCheckBox *>("rememberAuthenticationCheckBox")->isChecked(),"reset changes the window draft and clears cache consent in the draft");
+        && window->findChild<QCheckBox *>("rememberAuthenticationCheckBox")->isChecked(),"reset restores default connection values in the draft");
     window->findChild<QPushButton *>("dismissSettingsButton")->click(); ready();
     check(cancelledIntents==0 && settings.value("JustConnect/ServerAddress")=="changed.example.invalid" && read(cache)=="preserved authentication"
         && SavedConnectionService::load(settings).behavior.rememberAuthentication,"cancelled reset preserves configuration, cache consent and pending legacy archive");

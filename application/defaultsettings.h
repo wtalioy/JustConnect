@@ -8,6 +8,7 @@ class QString;
 namespace DefaultSettings
 {
 inline constexpr const char *RememberAuthentication="JustConnect/RememberAuthentication";
+inline constexpr bool RememberAuthenticationByDefault=true;
 inline constexpr const char *DomainDnsRules="JustConnect/DomainDNSRules";
 const QVariantMap &builtInConnection();
 bool isBuiltInConnection(const QSettings &settings);
