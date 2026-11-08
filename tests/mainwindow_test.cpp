@@ -778,6 +778,7 @@ int main(int argc,char **argv) {
         bool quitIntercepted=false;
         QElapsedTimer idleQuit;
         TerminationRequests termination;
+        QObject::connect(&app, &QGuiApplication::commitDataRequest, &window, &MainWindow::endSystemSession);
         QObject::connect(&termination,&TerminationRequests::requested,&window,[&] {
             check(QThread::currentThread()==app.thread(),"termination request must reach the GUI thread");
             quitIntercepted=true;window.gracefullyQuit();
@@ -788,7 +789,16 @@ int main(int argc,char **argv) {
                 QFile output;check(output.open(stdout,QIODevice::WriteOnly),"signal child output");
                 output.write("READY\n");output.flush();return;
             }
-            if (app.arguments().contains("--system-session")) {quitIntercepted=true;window.endSystemSession();return;}
+            if (app.arguments().contains("--system-session")) {
+                quitIntercepted=true;
+                window.endSystemSession();
+                QElapsedTimer repeatedCommit;
+                repeatedCommit.start();
+                window.endSystemSession();
+                check(repeatedCommit.elapsed() < 1000,
+                    "a system session callback after cleanup must not wait for a second completion");
+                return;
+            }
             if (app.arguments().contains("--termination")) {std::raise(SIGTERM);return;}
 #ifdef Q_OS_UNIX
             if (app.arguments().contains("--interrupt")) {std::raise(SIGINT);return;}

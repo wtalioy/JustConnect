@@ -967,6 +967,8 @@ MainWindow::~MainWindow()
 
 void MainWindow::endSystemSession()
 {
+    // Cocoa can ask again when the final Qt quit is delivered after cleanup.
+    if (exitReady) return;
     QEventLoop cleanup;
     bool settled=false;
     const auto finished=connect(this,&MainWindow::shutdownSettled,&cleanup,[&](bool) {settled=true;cleanup.quit();});
