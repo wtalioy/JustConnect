@@ -554,10 +554,15 @@ static void nativeHome(MainWindow &window, ApplicationLogger &logger) {
     auto *settings=window.findChild<QDialog *>("applicationSettingsDialog");
     check(settings && settings->isVisible() && !qobject_cast<SettingWindow *>(settings)
         && !settings->findChild<QLineEdit *>("serverAddressLineEdit"),"the gear opens application settings with a separate responsibility");
-    waitForUi([&] { return !preferencesPaints.offsets.isEmpty(); });
+    auto *preferencesScroll = settings->findChild<QScrollArea *>("applicationSettingsScroll");
+    waitForUi([&] { return !preferencesPaints.offsets.isEmpty()
+        && preferencesScroll->verticalScrollBarPolicy() == Qt::ScrollBarAsNeeded; });
+    if (preferencesPaints.barPainted)
+        std::cerr << "Preferences viewport: " << preferencesScroll->viewport()->height()
+                  << ", content: " << preferencesScroll->widget()->height()
+                  << ", range: " << preferencesScroll->verticalScrollBar()->maximum() << '\n';
     check(!preferencesPaints.barPainted, "application settings paint without a temporary scrollbar");
     settings->resize(320, 360);
-    auto *preferencesScroll = settings->findChild<QScrollArea *>("applicationSettingsScroll");
     waitForUi([&] { return preferencesScroll->verticalScrollBar()->isVisible(); });
     settings->reject();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     window.findChild<QAction *>("settingAction")->trigger();

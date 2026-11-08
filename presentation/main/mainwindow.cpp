@@ -389,6 +389,7 @@ void MainWindow::showApplicationPreferences() {
         auto *scroll=new QScrollArea(view);scroll->setObjectName("applicationSettingsScroll");
         scroll->setWidgetResizable(true);scroll->setFrameShape(QFrame::NoFrame);
         scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         layout->addWidget(scroll);
         auto *contents=new ApplicationPreferencesWidget(scroll);
         connect(contents, &ApplicationPreferencesWidget::startupSaveStarted, view, [view] {
@@ -410,6 +411,12 @@ void MainWindow::showApplicationPreferences() {
         contents->layout()->activate();
         scroll->setWidget(contents);
         scroll->setFocus(Qt::OtherFocusReason);
+        PresentationHelpers::activateWindow(view);
+        // A hidden scroll area can calculate a range before its viewport has its final size.
+        QTimer::singleShot(0, scroll, [scroll] {
+            scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        });
+        return;
     }
     PresentationHelpers::activateWindow(preferencesWindow);
 }
