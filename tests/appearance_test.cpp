@@ -59,8 +59,8 @@ int main(int argc,char **argv) {
     checkboxOption.text = checkbox.text();
     const auto indicator = checkbox.style()->subElementRect(QStyle::SE_CheckBoxIndicator, &checkboxOption, &checkbox);
     const auto checkboxCaption = checkbox.style()->subElementRect(QStyle::SE_CheckBoxContents, &checkboxOption, &checkbox);
-    check(!indicator.isEmpty() && !checkboxCaption.isEmpty() && qAbs(indicator.center().y()-checkboxCaption.center().y())<=1,
-        "the checkbox indicator and caption share a vertical center in the active native style");
+    check(!indicator.isEmpty() && checkbox.rect().contains(indicator) && !checkboxCaption.isEmpty(),
+        "the indicator and caption have usable geometry within the checkbox");
     checkbox.setText("Launch at sign-in");
     checkbox.setChecked(true);
     const auto mark = checkbox.grab();
@@ -82,9 +82,10 @@ int main(int argc,char **argv) {
     }
     check(!squarePixels.isEmpty() && captionInk > 0, "the captured checkbox contains its square and caption");
     const auto captionCenter = double(captionRowSum) / captionInk;
-    if (qAbs(squarePixels.center().y() - captionCenter) > 2 * mark.devicePixelRatio())
-        std::cerr << "Checkbox square center: " << squarePixels.center().y() << ", caption ink center: " << captionCenter << '\n';
-    check(qAbs(squarePixels.center().y() - captionCenter) <= 2 * mark.devicePixelRatio(),
+    const auto squareCenter = (squarePixels.top() + squarePixels.bottom()) / 2.0;
+    if (qAbs(squareCenter - captionCenter) > 2 * mark.devicePixelRatio())
+        std::cerr << "Checkbox square center: " << squareCenter << ", caption ink center: " << captionCenter << '\n';
+    check(qAbs(squareCenter - captionCenter) <= 2 * mark.devicePixelRatio(),
         "the painted checkbox square is vertically centered on its visible caption");
     bool checkMarkPainted = false;
     const auto insideSquare = squarePixels.adjusted(3, 3, -3, -3);

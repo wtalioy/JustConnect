@@ -118,7 +118,6 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
         selectedAuthId=id;selectedAuthSubType=subtype;selectedAuthDomain=domain;
         selectedAuthType=ui->authTypeComboBox->currentData().toString();updateAuthFields();
     });
-    ui->authSelectPushButton->setProperty("compactAction", true);
     connect(ui->authSelectPushButton,&QPushButton::clicked,this,&SettingWindow::queryMethods);
     connect(saveButton,&QPushButton::clicked,this,&SettingWindow::saveSettings);
     PresentationHelpers::setButtonIcon(ui->importPushButton,":/resource/import.svg");

@@ -89,6 +89,9 @@ QWidget, QLabel#profileDetailLabel { font-size: 11.5pt; }
 QMenu, QLabel#statusHintLabel { font-size: 10.5pt; }
 QLabel[secondary="true"], QLabel#statusDetailLabel, QPlainTextEdit#logPlainTextEdit { font-size: 10pt; }
 )");
+#elif defined(Q_OS_WIN)
+        // The native Windows text baseline sits below the indicator's geometric center.
+        style += QStringLiteral("\nQCheckBox::indicator { position: relative; top: 2px; }");
 #endif
         qApp->setStyleSheet(style);
     }
