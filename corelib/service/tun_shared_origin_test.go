@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -41,13 +42,8 @@ func TestTUNCampusSharesAuthenticationAddress(t *testing.T) {
 }
 
 func testSharedAuthenticationAddress(t *testing.T, pretend bool) {
-	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Host != "example.com" || r.TLS.ServerName != "example.com" {
-			t.Error("relay lost the original TLS name", r.Host, r.TLS.ServerName)
-		}
-		io.WriteString(w, "campus-course")
-	}))
-	t.Cleanup(server.Close)
+	server := httptest.NewTLSServer(nil)
+	server.Close()
 	shared := netip.MustParseAddr("192.0.2.7")
 	campus := newDomainTunnel(t, server, pretend)
 	resources := client.DomainResources{
@@ -106,6 +102,7 @@ func testSharedAuthenticationAddress(t *testing.T, pretend bool) {
 	roots.AddCert(server.Certificate())
 	for _, mode := range []string{"transparent", "named"} {
 		t.Run(mode, func(t *testing.T) {
+			started := time.Now()
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
 			var conn net.Conn
@@ -116,19 +113,25 @@ func testSharedAuthenticationAddress(t *testing.T, pretend bool) {
 				conn, err = d.Dial(ctx, "tcp", "example.com:443")
 			}
 			if err != nil {
-				t.Fatal(err)
+				t.Fatalf("connect after %s: %v", time.Since(started), err)
 			}
 			defer conn.Close()
+			connected := time.Since(started)
 			secure := tls.Client(conn, &tls.Config{RootCAs: roots, ServerName: "example.com", MinVersion: tls.VersionTLS12})
 			if err := secure.HandshakeContext(ctx); err != nil {
+				t.Fatalf("TLS after %s (connected at %s): %v", time.Since(started), connected, err)
+			}
+			handshaken := time.Since(started)
+			deadline, _ := ctx.Deadline()
+			if err := secure.SetDeadline(deadline); err != nil {
 				t.Fatal(err)
 			}
-			deadline, _ := ctx.Deadline()
-			secure.SetDeadline(deadline)
-			io.WriteString(secure, "GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n")
+			if _, err := io.WriteString(secure, "GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n"); err != nil {
+				t.Fatalf("write request after %s (TLS at %s): %v", time.Since(started), handshaken, err)
+			}
 			response, err := http.ReadResponse(bufio.NewReader(secure), nil)
 			if err != nil {
-				t.Fatal(err)
+				t.Fatalf("read response after %s (connected at %s, TLS at %s): %v", time.Since(started), connected, handshaken, err)
 			}
 			body, err := io.ReadAll(response.Body)
 			response.Body.Close()
@@ -274,18 +277,25 @@ func newDomainTunnel(t *testing.T, backend *httptest.Server, pretend bool) *doma
 					t.Error(err)
 					return
 				}
-				target, err := net.DialTimeout("tcp", backend.Listener.Addr().String(), time.Second)
+				// Handle the campus TLS stream inside the node instead of relaying it over another loopback socket.
+				target := tls.Server(conn, backend.TLS)
+				defer target.Close()
+				httpRequest, err := http.ReadRequest(bufio.NewReader(target))
 				if err != nil {
-					t.Error(err)
+					t.Errorf("read campus request: %v", err)
 					return
 				}
-				defer target.Close()
-				target.SetDeadline(time.Now().Add(5 * time.Second))
-				done := make(chan struct{})
-				go func() { io.Copy(target, conn); target.Close(); close(done) }()
-				io.Copy(conn, target)
-				conn.Close()
-				<-done
+				httpRequest.Body.Close()
+				if name := target.ConnectionState().ServerName; httpRequest.Host != "example.com" || name != "example.com" {
+					t.Error("relay lost the original TLS name", httpRequest.Host, name)
+					return
+				}
+				const body = "campus-course"
+				reply := http.Response{StatusCode: http.StatusOK, ProtoMajor: 1, ProtoMinor: 1, Close: true,
+					ContentLength: int64(len(body)), Body: io.NopCloser(strings.NewReader(body))}
+				if err := reply.Write(target); err != nil {
+					t.Errorf("write campus response: %v", err)
+				}
 			})
 		}
 	})
