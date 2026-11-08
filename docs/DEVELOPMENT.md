@@ -227,7 +227,7 @@ Windows 权限助手直接读取已解析的控制请求和恢复记录子对象
 
 macOS TUN DNS 夹具按 context 剩余预算设置 I/O，保留 5 秒总上限、路由确认前禁止回复及失败时的诊断。该调整针对旧客户端的 2 秒默认读超时。生产 DNS 预算由所属模块维护。证据在 `build/reports/s6/dns-deadline-*.log` 与 `macos-arm64-tun-dns-failure.txt`。
 
-审查结论、测量边界、当前构建和实机待验项见[计划](../plan.md#当前验收基线)。原始复查记录保存在 `build/reports/review-0684a4b/`、`build/reports/review-2aedac8/` 和 `build/reports/review-whole-repo/`。
+A15 按调用方复查了应用与界面、认证与分流、Go 数据面、原生网络与恢复、构建、打包及夹具。最终 `3f6ba6f` 核对了 176 个 C++／Objective-C++／Qt 界面文件的构建入口、29 个 Qt 资源和两平台正式 ABI 依赖。保留独有的权限、路由、DNS、取消和协议边界回归。源码归档的 689 个跟踪条目与 Git 一致，四组包报告对应同一正式构建。测量边界见上文，发布实机验收见[计划 S8](../plan.md#s8-实测与交付)。本轮报告归 `build/reports/review-2026-11-08/`，早期关键证据保存在 `build/reports/review-0684a4b/`、`build/reports/review-2aedac8/` 和 `build/reports/review-whole-repo/`。
 
 ## aTrust 配置与升级
 
