@@ -371,7 +371,10 @@ signals:
     void snapshotResult(quint64 serial, CoreEngine::Snapshot kind, const QString &generation, const QJsonObject &snapshot, int status);
 };
 
-EmbeddedCoreEngine::EmbeddedCoreEngine(QObject *parent) : CoreEngine(parent), pump(new CoreEventPump) {
+EmbeddedCoreEngine::EmbeddedCoreEngine(QObject *parent) : CoreEngine(parent) {}
+
+void EmbeddedCoreEngine::startWorker() {
+    pump = new CoreEventPump;
     pump->moveToThread(&thread);
     connect(&thread, &QThread::finished, pump, &QObject::deleteLater);
     connect(pump, &CoreEventPump::received, this, &EmbeddedCoreEngine::deliver, Qt::QueuedConnection);
@@ -412,6 +415,7 @@ EmbeddedCoreEngine::EmbeddedCoreEngine(QObject *parent) : CoreEngine(parent), pu
     thread.start();
 }
 EmbeddedCoreEngine::~EmbeddedCoreEngine() {
+    if (!pump) return;
     active = false;
     pump->stop();
     thread.requestInterruption();
@@ -420,6 +424,7 @@ EmbeddedCoreEngine::~EmbeddedCoreEngine() {
 }
 bool EmbeddedCoreEngine::start(const ConnectionProfile &profile, Operation operation) {
     if (active) return false;
+    if (!pump) startWorker();
     active = true; stopping = false;
     pump->cancelled.store(false);
     const auto id = ++serial;
@@ -622,13 +627,16 @@ void EmbeddedCoreEngine::deliver(quint64 id, const QJsonObject &event, const QJs
     else if (type == "state" && event["state"] == "ready") { emit connectionEstablished(); }
 }
 QJsonObject EmbeddedCoreEngine::buildInfo() {
-    auto &api = library();
-    if (!api.available) return {};
-    QByteArray buffer(JC_MAX_OUTPUT, Qt::Uninitialized);
-    uint32_t length = 0;
-    if (api.jc_build_info(JC_ABI_VERSION, reinterpret_cast<uint8_t *>(buffer.data()),
-            uint32_t(buffer.size()), &length) != JC_OK || length > uint32_t(buffer.size())) return {};
-    return QJsonDocument::fromJson(buffer.first(length)).object();
+    static const auto info = []() -> QJsonObject {
+        auto &api = library();
+        if (!api.available) return {};
+        QByteArray buffer(JC_MAX_OUTPUT, Qt::Uninitialized);
+        uint32_t length = 0;
+        if (api.jc_build_info(JC_ABI_VERSION, reinterpret_cast<uint8_t *>(buffer.data()),
+                uint32_t(buffer.size()), &length) != JC_OK || length > uint32_t(buffer.size())) return {};
+        return QJsonDocument::fromJson(buffer.first(length)).object();
+    }();
+    return info;
 }
 
 QJsonObject EmbeddedCoreEngine::selfTest() {

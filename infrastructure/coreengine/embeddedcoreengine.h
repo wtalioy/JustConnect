@@ -31,9 +31,10 @@ public:
     static QJsonObject selfTest();
 
 private:
+    void startWorker();
     void deliver(quint64 serial, const QJsonObject &event, const QJsonObject &initialPolicy);
     QThread thread;
-    CoreEventPump *pump;
+    CoreEventPump *pump = nullptr;
     quint64 serial = 0;
     bool active = false;
     bool stopping = false;
