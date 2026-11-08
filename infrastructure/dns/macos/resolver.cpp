@@ -9,6 +9,7 @@
 #include <QSet>
 #include <QThread>
 #include <limits>
+#include <utility>
 
 bool macDnsServersBelongTo(const QJsonArray &effective,const QJsonArray &configured)
 {
@@ -60,20 +61,23 @@ std::optional<QJsonArray> parseMacDnsResolvers(const QString &configuration)
 {
     if (configuration.toUtf8().size() > MacDnsSnapshotBytes || configuration.contains(QChar::Null)) return {};
     if (configuration.trimmed() == "No DNS configuration available") return QJsonArray{};
-    const QRegularExpression header(QStringLiteral("^resolver #([0-9]+)$"));
-    const QRegularExpression indexed(QStringLiteral("^(nameserver|search domain)\\[([0-9]+)\\]$"));
-    const QRegularExpression interface(QStringLiteral("^([0-9]+)(?: \\(([^()]*)\\))?$"));
+    thread_local const QRegularExpression header(QStringLiteral("^resolver #([0-9]+)$"));
+    thread_local const QRegularExpression indexed(QStringLiteral("^(nameserver|search domain)\\[([0-9]+)\\]$"));
+    thread_local const QRegularExpression interface(QStringLiteral("^([0-9]+)(?: \\(([^()]*)\\))?$"));
     QJsonArray result;
+    QJsonArray servers, search;
     QJsonObject row, properties;
     QSet<QString> fields;
     QString scope = "unscoped";
     bool section = false;
     const auto finish = [&] {
         if (!row.isEmpty()) {
+            row["servers"] = std::move(servers);
+            row["search"] = std::move(search);
             if (!properties.isEmpty()) row["properties"] = properties;
             result.append(row);
         }
-        row = {}; properties = {}; fields.clear();
+        row = {}; properties = {}; servers = {}; search = {}; fields.clear();
     };
     for (const auto &raw : configuration.split('\n')) {
         const auto line = raw.trimmed();
@@ -91,8 +95,7 @@ std::optional<QJsonArray> parseMacDnsResolvers(const QString &configuration)
             finish();
             bool valid = false; const auto id = match.captured(1).toUInt(&valid);
             if (!valid || !id || result.size() >= qsizetype(NetworkDnsDomainLimit)) return {};
-            row = {{"scope",scope},{"resolver",qint64(id)},{"servers",QJsonArray{}},{"search",QJsonArray{}},
-                {"flags",QJsonArray{}},{"interface_index",0}};
+            row = {{"scope",scope},{"resolver",qint64(id)},{"flags",QJsonArray{}},{"interface_index",0}};
             continue;
         }
         const auto colon = line.indexOf(':');
@@ -102,11 +105,11 @@ std::optional<QJsonArray> parseMacDnsResolvers(const QString &configuration)
         fields.insert(key);
         const auto index = indexed.match(key);
         if (index.hasMatch()) {
-            const auto field = index.captured(1) == "nameserver" ? "servers" : "search";
-            auto values = row[field].toArray(); bool valid = false;
+            auto &values = index.captured(1) == "nameserver" ? servers : search;
+            bool valid = false;
             const auto number = index.captured(2).toUInt(&valid);
             if (!valid || number != quint64(values.size()) || values.size() >= qsizetype(NetworkDnsDomainLimit) || value.isEmpty()) return {};
-            values.append(value); row[field] = values;
+            values.append(value);
         } else if (key.startsWith("nameserver[") || key.startsWith("search domain[")) return {};
         else if (key == "domain" || key == "options") row[key] = value;
         else if (key == "port" || key == "order" || key == "timeout") {

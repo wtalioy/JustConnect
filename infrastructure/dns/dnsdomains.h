@@ -2,11 +2,12 @@
 #include "infrastructure/dns/domainlimits.h"
 #include <QSet>
 #include <QStringList>
+#include <QStringView>
 
 inline bool canonicalDnsDomain(const QString &name)
 {
-    if (name.isEmpty() || name.size() > 253 || name.toLower() != name) return false;
-    for (const auto &label : name.split('.')) {
+    if (name.isEmpty() || name.size() > 253) return false;
+    for (const auto label : QStringView(name).tokenize(u'.')) {
         if (label.isEmpty() || label.size() > 63 || label.front() == '-' || label.back() == '-') return false;
         for (const auto c : label) if (!(c >= 'a' && c <= 'z') && !(c >= '0' && c <= '9') && c != '-') return false;
     }
