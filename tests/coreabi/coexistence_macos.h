@@ -17,11 +17,29 @@ class MacCoexistenceFixture
 public:
     QJsonObject runtime = QJsonDocument::fromJson(qgetenv("JC_NATIVE_MAC_COEXISTENCE")).object();
     QJsonObject resources, coexistence;
-    int observations = 0;
+    int observations = 0, dnsUpdates = 0;
     MacProxyApi api;
 
     QHostAddress campusUDP() const { return QHostAddress(runtime["campus_udp"].toString()); }
     QHostAddress campusTCP() const { return QHostAddress(campusUDP().toIPv4Address()+1); }
+    DnsSnapshot readDNS() const
+    {
+        auto snapshot=readSystemDnsSnapshot();
+        if (!snapshot.result.succeeded()) return snapshot;
+        auto resolvers=snapshot.data["macos_resolvers"].toArray();
+        for (auto entry=resolvers.begin(); entry!=resolvers.end(); ++entry) {
+            auto row=(*entry).toObject();
+            if (row["scope"]!="unscoped" || row["resolver"]!=1) continue;
+            row["servers"]=QJsonArray{"127.0.0.1"};
+            row["port"]=runtime["fallback_dns_ports"].toArray().at(tunDNS.load() ? 1 : 0);
+            row["interface_index"]=0;
+            row.remove("interface_name");
+            *entry=row;
+            break;
+        }
+        snapshot.data["macos_resolvers"]=resolvers;
+        return snapshot;
+    }
 
     explicit MacCoexistenceFixture(const AuthorizationExternalForm &grant)
     {
@@ -39,6 +57,9 @@ public:
     }
     void observe(CoreEngine *engine)
     {
+        QObject::connect(engine,&CoreEngine::originalDNSPrepared,engine,[this](const QString &,const QJsonObject &,CoreEngine::RequestStatus status) {
+            if (status==CoreEngine::RequestStatus::Success) ++dnsUpdates;
+        });
         QObject::connect(engine,&CoreEngine::snapshotReady,engine,[this](CoreEngine::Snapshot kind,const QString &,const QJsonObject &data,CoreEngine::RequestStatus status) {
             if (status != CoreEngine::RequestStatus::Success) return;
             if (kind == CoreEngine::Snapshot::Resources) resources = data["resources"].toObject();
@@ -87,16 +108,27 @@ public:
         for (const auto *mode : {"rule","global","direct"}) {
             for (const auto &flags : {qMakePair(true,false),qMakePair(true,true),qMakePair(false,true),qMakePair(false,false)}) {
                 const bool enabled = flags.first, tun = flags.second; const auto previous = observations;
+                const auto previousDNS=dnsUpdates;
+                const bool dnsChanged=tunDNS.exchange(tun)!=tun;
                 std::cerr << "CHECK: macOS composed mode=" << mode << " system_proxy=" << enabled << " tun=" << tun << '\n';
                 patch({{"mode",mode},{"tun",QJsonObject{{"enable",tun}}}}); systemProxy(enabled);
                 until([&] {
                     if (session.state() != ConnectionState::Running) return true;
                     return observations > previous && !policy.isBusy() && !proxy.isBusy() && coexistence["mode"] == mode
+                        && (!dnsChanged || dnsUpdates>previousDNS)
                         && coexistence["tun"].toBool() == tun && coexistence["active"].toBool() == (enabled || tun)
                         && proxy.isEnabled() == enabled && (enabled || !proxy.needsCleanup())
                         && (enabled ? resources["listeners"].toObject()["http"].toString() == "127.0.0.1:"+QString::number(httpPort()) : httpPort() == 0);
                 });
                 check(session.state() == ConnectionState::Running,"independent switches retain the authenticated campus session");
+                if (dnsChanged) {
+                    const auto host=("case-"+QByteArray::number(dnsUpdates)+".exact.override.test.");
+                    auto query=std::async(std::launch::async,[host] { return addresses(host.constData()); });
+                    until([&] { return query.wait_for(std::chrono::milliseconds(0))==std::future_status::ready; });
+                    auto resolved=query.get();resolved.removeDuplicates();
+                    check(resolved==QStringList{tun ? QStringLiteral("192.0.2.51") : QStringLiteral("192.0.2.50")},
+                        "Native child lookup followed the refreshed DNS upstream without replacing the session");
+                }
                 until([&] {
                     const auto route = runPlatformCommand("/sbin/route",{"-n","get","-inet",runtime["ordinary_address"].toString()});
                     const auto match = QRegularExpression("(?:^|\\n)\\s*interface:\\s*(\\S+)").match(route.output);
@@ -142,6 +174,7 @@ public:
         }
     }
 private:
+    std::atomic_bool tunDNS{false};
     SystemProxyConfig config;
     std::unique_ptr<PlatformSystemProxyBackend> original;
     QNetworkAccessManager browser;

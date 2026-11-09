@@ -5,9 +5,38 @@ package bridge
 import (
 	"bytes"
 	"encoding/json"
+	"net"
 	"os"
 	"testing"
+
+	"github.com/miekg/dns"
 )
+
+func macFallbackDNS(t *testing.T, last byte) int {
+	t.Helper()
+	socket, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	server := &dns.Server{PacketConn: socket, NotifyStartedFunc: func() { close(started) },
+		Handler: dns.HandlerFunc(func(w dns.ResponseWriter, request *dns.Msg) {
+			reply := new(dns.Msg).SetReply(request)
+			for _, q := range request.Question {
+				if q.Qtype == dns.TypeA {
+					reply.Answer = append(reply.Answer, &dns.A{
+						Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeA, Class: dns.ClassINET},
+						A:   net.IPv4(192, 0, 2, last),
+					})
+				}
+			}
+			_ = w.WriteMsg(reply)
+		})}
+	go func() { _ = server.ActivateAndServe() }()
+	<-started
+	t.Cleanup(func() { _ = server.Shutdown() })
+	return socket.LocalAddr().(*net.UDPAddr).Port
+}
 
 func TestNativeMacCoexistence(t *testing.T) {
 	input := os.Getenv("JC_NATIVE_MAC_COEXISTENCE")
@@ -21,6 +50,7 @@ func TestNativeMacCoexistence(t *testing.T) {
 	for key, url := range protectedHTTPPeers(t) {
 		facts[key] = url
 	}
+	facts["fallback_dns_ports"] = []int{macFallbackDNS(t, 50), macFallbackDNS(t, 51)}
 	data, err := json.Marshal(facts)
 	if err != nil {
 		t.Fatal(err)

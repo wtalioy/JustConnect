@@ -126,10 +126,11 @@ int main(int argc,char **argv)
         profile.behavior.bindInterface = coexistence.runtime["original_interface"].toString();
         check(!profile.behavior.bindInterface.isEmpty(),"actual original interface supplied by the private fixture");
         profile.proxy.httpBind = "127.0.0.1:0"; profile.proxy.socksBind = "127.0.0.1:0";
+        profile.dns.domainDnsRules = "exact.override.test";
     }
     auto *engine = new EmbeddedCoreEngine;
     if (composed) coexistence.observe(engine);
-    NetworkPolicySession policy(engine,readSystemDnsSnapshot);
+    NetworkPolicySession policy(engine,[&] { return composed ? coexistence.readDNS() : readSystemDnsSnapshot(); });
     auto *access = new MacNetworkAccess(engine,&policy,1400,nullptr,authorization);
     SystemProxySession proxy(access->makeProxyBackend());
     NetworkAccess *network = access;
