@@ -71,6 +71,9 @@ static void actionPromptLayout(QWidget &parent,QDialogButtonBox::StandardButton 
         check(text->height()>=text->heightForWidth(text->width()) && dialog->rect().contains(box->geometry())
             && action->height()==cancel->height() && box->rect().contains(action->geometry()),
             "wrapped copy and both actions fit inside the prompt");
+        check(heading->height()<=heading->heightForWidth(heading->width())+2
+            && text->height()<=text->heightForWidth(text->width())+2,
+            "the dialog leaves no extra vertical space around the wrapped copy");
         for (auto *button : {action,cancel}) {
             QStyleOptionButton option;
             option.initFrom(button);

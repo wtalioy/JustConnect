@@ -100,6 +100,8 @@ bool PresentationHelpers::actionPrompt(QWidget *parent,const QString &title,cons
     QObject::connect(buttons,&QDialogButtonBox::clicked,&dialog,[&](QAbstractButton *button) {
         dialog.done(button==primaryButton ? QDialog::Accepted : QDialog::Rejected);
     });
+    dialog.ensurePolished();
+    dialog.resize(dialog.width(),layout->totalHeightForWidth(dialog.width()));
     return dialog.exec()==QDialog::Accepted;
 }
 
