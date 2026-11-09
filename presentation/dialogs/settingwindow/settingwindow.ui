@@ -309,21 +309,21 @@
          </property>
          <layout class="QFormLayout" name="commonForm">
           <item row="0" column="0" colspan="2">
-           <widget class="QCheckBox" name="checkUpdateAfterStartCheckBox">
+           <widget class="AlignedCheckBox" name="checkUpdateAfterStartCheckBox">
             <property name="text">
              <string>Check for updates at startup</string>
             </property>
            </widget>
           </item>
           <item row="1" column="0" colspan="2">
-           <widget class="QCheckBox" name="connectAfterStartCheckBox">
+           <widget class="AlignedCheckBox" name="connectAfterStartCheckBox">
             <property name="text">
              <string>Connect at startup</string>
             </property>
            </widget>
           </item>
           <item row="2" column="0" colspan="2">
-           <widget class="QCheckBox" name="autoReconnectCheckBox">
+           <widget class="AlignedCheckBox" name="autoReconnectCheckBox">
             <property name="text">
              <string>Reconnect automatically</string>
             </property>
@@ -512,6 +512,13 @@
    </size>
   </property>
  </widget>
+ <customwidgets>
+  <customwidget>
+   <class>AlignedCheckBox</class>
+   <extends>QCheckBox</extends>
+   <header>presentation/widgets/alignedcheckbox.h</header>
+  </customwidget>
+ </customwidgets>
  <resources />
  <connections>
   <connection>

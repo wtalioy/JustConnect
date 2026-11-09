@@ -1,6 +1,6 @@
 #include "settingwindow.h"
 #include "ui_settingwindow.h"
-#include <QCheckBox>
+#include "presentation/widgets/alignedcheckbox.h"
 #include <QComboBox>
 #include <QCoreApplication>
 #include <QDialogButtonBox>
@@ -124,7 +124,7 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
     });
     credentialStatus=new QLabel(ui->credentialsGroup);credentialStatus->setObjectName("credentialStatusLabel");credentialStatus->setWordWrap(true);
     ui->credentialsForm->addRow(credentialStatus);
-    rememberAuthentication=new QCheckBox(ui->credentialsGroup);
+    rememberAuthentication=new AlignedCheckBox(ui->credentialsGroup);
     rememberAuthentication->setObjectName("rememberAuthenticationCheckBox");
     ui->credentialsForm->addRow(rememberAuthentication);
     clearCredentialButton=new QPushButton(ui->credentialsGroup);clearCredentialButton->setObjectName("clearCredentialButton");clearCredentialButton->setAutoDefault(false);

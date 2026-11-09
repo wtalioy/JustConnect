@@ -17,7 +17,7 @@
 #include <QWindow>
 #include <QLineEdit>
 #include <QComboBox>
-#include <QCheckBox>
+#include "presentation/widgets/alignedcheckbox.h"
 #include <QAbstractItemView>
 #include <QStandardItemModel>
 #include <QSpinBox>
@@ -107,7 +107,7 @@ static void actionPromptLayout(QWidget &parent,QDialogButtonBox::StandardButton 
 }
 
 static void checkboxAlignment(const QString &caption) {
-    QCheckBox checkbox(caption);
+    AlignedCheckBox checkbox(caption);
     checkbox.resize(240, 36);
     checkbox.ensurePolished();
     QStyleOptionButton checkboxOption;

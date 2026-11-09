@@ -4,7 +4,7 @@
 #include "presentation/presentationhelpers.h"
 #include "infrastructure/settings/savedconnectionstore.h"
 #include "infrastructure/autostart/autostart.h"
-#include <QCheckBox>
+#include "presentation/widgets/alignedcheckbox.h"
 #include <QComboBox>
 #include <QEvent>
 #include <QDebug>
@@ -38,9 +38,9 @@ ApplicationPreferencesWidget::ApplicationPreferencesWidget(QWidget *parent) : QW
     for(auto *label:{languageLabel,behaviorLabel}) label->setSizePolicy(QSizePolicy::Preferred,QSizePolicy::Expanding);
     startupGroup=new QGroupBox(this);layout->addWidget(startupGroup);
     auto *startup=new QVBoxLayout(startupGroup);startup->setContentsMargins(0,0,0,0);startup->setSpacing(4);
-    autoStart=new QCheckBox(this);autoStart->setObjectName("autoStartCheckBox");
+    autoStart=new AlignedCheckBox(this);autoStart->setObjectName("autoStartCheckBox");
     autoStart->setChecked(preferences.autoStartEnabled());startup->addWidget(autoStart);
-    silentStart=new QCheckBox(this);silentStart->setObjectName("silentStartCheckBox");
+    silentStart=new AlignedCheckBox(this);silentStart->setObjectName("silentStartCheckBox");
     silentStart->setChecked(preferences.silentStartEnabled());startup->addWidget(silentStart);
     clashGroup=new QGroupBox(this);layout->addWidget(clashGroup);
     auto *clash=new QVBoxLayout(clashGroup);clash->setContentsMargins(0,0,0,0);clash->setSpacing(8);

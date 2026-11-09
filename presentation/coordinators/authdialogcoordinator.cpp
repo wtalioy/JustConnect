@@ -2,7 +2,7 @@
 #include "presentation/widgets/localizeddialog.h"
 #include "presentation/presentationhelpers.h"
 
-#include <QCheckBox>
+#include "presentation/widgets/alignedcheckbox.h"
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QHBoxLayout>
@@ -89,7 +89,7 @@ void AuthDialogCoordinator::requestPhoneNumber(
     phoneLayout->addWidget(phoneNumberEdit);
     layout->addLayout(phoneLayout);
 
-    auto *saveCheckBox = new QCheckBox(dialog);
+    auto *saveCheckBox = new AlignedCheckBox(dialog);
     phoneLabel->setBuddy(phoneNumberEdit);
     dialog->setTranslation([dialog,phoneLabel,countryCodeEdit,phoneNumberEdit,saveCheckBox] {
         dialog->setWindowTitle(tr("SMS verification"));phoneLabel->setText(tr("Phone number"));
@@ -216,7 +216,7 @@ void AuthDialogCoordinator::requestAuthentication(const QJsonObject &request, co
         auto *code = new QLineEdit(dialog);
         code->setObjectName("authCodeEdit");
         layout->addWidget(code);
-        auto *skip = new QCheckBox(dialog);
+        auto *skip = new AlignedCheckBox(dialog);
         prompt->setBuddy(code);
         input->setTranslation([input,prompt,skip,kind] {
             input->setWindowTitle(kind=="sms"?tr("SMS code"):kind=="totp"?tr("Authenticator code"):tr("RADIUS passcode"));

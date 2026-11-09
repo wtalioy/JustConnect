@@ -1,6 +1,6 @@
 #include "serversettingswidget.h"
 #include <QEvent>
-#include <QCheckBox>
+#include "presentation/widgets/alignedcheckbox.h"
 #include <QPlainTextEdit>
 #include <QLabel>
 #include <QFormLayout>
@@ -39,12 +39,12 @@ ServerSettingsWidget::ServerSettingsWidget(QWidget *parent) : QWidget(parent) {
     layout->addLayout(form);
     layout->addSpacing(8);
 
-    verify=new QCheckBox(this);
+    verify=new AlignedCheckBox(this);
     verify->setObjectName("tlsVerifyCheckBox"); verify->setChecked(TlsOptions{}.verify);
     warning=new QLabel(this);
     warning->setObjectName("tlsWarningLabel"); warning->setWordWrap(true); warning->hide();
     warning->setProperty("warning",true);
-    allowUnverifiedNodes=new QCheckBox(this);
+    allowUnverifiedNodes=new AlignedCheckBox(this);
     allowUnverifiedNodes->setObjectName("allowUnverifiedNodesCheckBox");
     nodeWarning=new QLabel(this);
     nodeWarning->setObjectName("nodeTlsWarningLabel"); nodeWarning->setWordWrap(true); nodeWarning->hide();

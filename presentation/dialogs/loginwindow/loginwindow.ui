@@ -45,7 +45,7 @@
     </widget>
    </item>
    <item>
-    <widget class="QCheckBox" name="saveLoginDetailCheckBox">
+    <widget class="AlignedCheckBox" name="saveLoginDetailCheckBox">
      <property name="text">
       <string>Remember login</string>
      </property>
@@ -83,6 +83,13 @@
   <tabstop>passwordLineEdit</tabstop>
   <tabstop>saveLoginDetailCheckBox</tabstop>
  </tabstops>
+ <customwidgets>
+  <customwidget>
+   <class>AlignedCheckBox</class>
+   <extends>QCheckBox</extends>
+   <header>presentation/widgets/alignedcheckbox.h</header>
+  </customwidget>
+ </customwidgets>
  <resources />
  <connections>
   <connection>
