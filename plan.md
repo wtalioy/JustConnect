@@ -15,14 +15,14 @@
 | --- | --- |
 | 阶段进度 | S3—S6 **23／23**，S7 **13／13**。S8 **2／5**。全计划 **60／64**，剩 S1-04、S8-01／03／05。 |
 | Windows 实测 | 2026-11-08 用户确认 S8 Windows 实测通过，反馈未注明包版本。`b2fbdb3` 既有实测覆盖动态代理／TUN、校园网页／SSH／登录、Tailscale 直连；同窗首次／复用接管 2480／38 ms。 |
-| 当前跟踪 | Apple Silicon `f0a816c` 重新批准后台项后，Clash 系统代理开启时的校园网页、SSH 与 Tailscale 实测通过。连接中关闭 Clash 系统代理曾触发授权和恢复失败，已修正外部关闭后的无写入释放，待复测。 |
-| 最近已验证预览 | `f0a816c` [Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/42559150378/artifacts/13648996714)／[Apple Silicon DMG](https://github.com/wtalioy/JustConnect/actions/runs/42559150378/artifacts/13649186196)。 |
+| 当前跟踪 | Apple Silicon 已实测 Clash 系统代理开启时的校园网页、SSH 和 Tailscale。`7f143d2` 修正外部关闭代理后的无写入释放，禁用钥匙串交互并复用有效网络授权。动态关闭代理和弹窗仍待实测。 |
+| 最近已验证预览 | `7f143d2` [Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/42564325187/artifacts/13650689784)／[Apple Silicon DMG](https://github.com/wtalioy/JustConnect/actions/runs/42564325187/artifacts/13651415398)。 |
 
 ## 当前验收基线
 
 | 范围 | 当前结论与证据 |
 | --- | --- |
-| 自动检查 | `f0a816c` [两平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/42559150208)和[四架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/42559150174)通过。Apple Silicon 签名夹具的 20 次重复 TCP 监听校验平均 3.54 ms，含 XPC、签名核验与描述符读取。 |
+| 自动检查 | `7f143d2` [两平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/42564325140)及[四架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/42564325181)通过，覆盖外部关闭代理后的只读释放及已授予权限的复用。 |
 | 实际包／源码 | 见 S8-04。 |
 | Windows 修复／性能 | 正常断开修复已实测；DNS 批量刷新、持久进度、部分失败和后续所有权已双架构原生验证。接口查询及 `70f90a5` 接管／断开 CPU 优化已实测通过；`build/reports/windows-restore-9d95b37/summary.json`、`build/reports/windows-dns-cpu-da23405/summary.json` |
 | 阶段矩阵 | V1—V7 区分既有实测、自动证据及最终包待测项 |
@@ -235,8 +235,8 @@
 - [ ] **S8-01**：两台设备用已有浏览器和终端验证校园网页、普通 SSH、普通网站与正常断开。Windows 补 Clash 退出时的主路径，用同一可稳定直连的 Tailscale 对端核对 MagicDNS 与接管前／中／后的直连。三种 Clash 主组合和动态切换沿用既有 Windows 实测及当前两平台自动证据。
 - [x] **S8-02**：故障与恢复复用 S3-06／S4-06／S7-03—05 及当前两平台原生回归，涵盖取消、权限拒绝、部分失败、外部改值、超时、进程终止与独立恢复。真实注销／跨登录会话、长时间离线及少见网络环境未实测，出现实际问题时补验。正常断开和授权随 S8-01／03。
 - [ ] **S8-03**：在上述连断中验证实际包启动、正常认证和授权、连接状态与退出。Windows 复用 S7 UI 实测，macOS 补 Finder 安装、菜单栏恢复窗口与退出。取消、双语、偏好、键盘及异常流程复用已有回归。
-  - macOS 27 换包后的助手注册和 Clash 浏览器共存仍待实测。应用包校验版本元数据，按实际授权状态提示。代理恢复回执改用当前用户的私有文件，后台进程禁止钥匙串弹窗，仍需恢复的代理快照保留在钥匙串。
-- [x] **S8-04**：`f0a816c` 的[四组实际包和对应源码](https://github.com/wtalioy/JustConnect/actions/runs/42559150378)通过，另验 [Apple Silicon DMG 在 macOS 27.0.1 启动](https://github.com/wtalioy/JustConnect/actions/runs/42559150378/job/128977959182)。最终提交的发布附件随 S8-05 核对。
+  - macOS 27 首次／换包后的后台项批准与连接中关闭 Clash 系统代理待复测。需批准时应用可打开系统设置。代理恢复回执使用当前用户的私有文件，需要恢复的代理快照保留在钥匙串。
+- [x] **S8-04**：`7f143d2` 的[四组实际包和对应源码](https://github.com/wtalioy/JustConnect/actions/runs/42564325187)通过，另验 [Apple Silicon DMG 在 macOS 27.0.1 安装、启动和退出](https://github.com/wtalioy/JustConnect/actions/runs/42564325187/job/128991447192)。最终提交的发布附件随 S8-05 核对。
 - [ ] **S8-05**：主路径实测通过后验收 [main／Release 交付](docs/DEVELOPMENT.md#分支与-actions)，核对附件与来源。macOS 正式交付须验证从 Release 用浏览器直接下载 DMG、拖入「应用程序」并按系统首次打开流程启动。
 
 ## 验收记录
