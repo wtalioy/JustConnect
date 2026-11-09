@@ -12,6 +12,8 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSettings>
+#include <QScrollBar>
+#include <QShowEvent>
 #include <QTemporaryDir>
 #include <QJsonArray>
 #include <QVBoxLayout>
@@ -153,10 +155,21 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
     });
     readCredentials();
     resize(600,680);
-    ui->loginTab->setFocus(Qt::OtherFocusReason);
-
 }
 SettingWindow::~SettingWindow() { delete ui; }
+
+void SettingWindow::showEvent(QShowEvent *event)
+{
+    if (!opened && !event->spontaneous()) {
+        opened=true;
+        // Establish the viewport and its focus before the native window can paint.
+        ui->dialogLayout->activate();
+        ui->loginTabLayout->activate();
+        ui->loginTab->setFocus(Qt::OtherFocusReason);
+        ui->loginTab->verticalScrollBar()->setValue(0);
+    }
+    QDialog::showEvent(event);
+}
 
 void SettingWindow::changeEvent(QEvent *event) {
     QDialog::changeEvent(event);

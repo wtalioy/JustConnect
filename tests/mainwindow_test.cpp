@@ -35,6 +35,7 @@
 #include <QStackedWidget>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QSemaphore>
 #include <QToolButton>
 #include <QMessageBox>
 #include <QTcpServer>
@@ -182,15 +183,17 @@ class ScrollPaints final : public QObject {
 public:
     explicit ScrollPaints(QString name) : name(std::move(name)) { qApp->installEventFilter(this); }
     QList<int> offsets;
+    QList<int> contentPositions;
     bool barPainted = false;
 protected:
     bool eventFilter(QObject *target, QEvent *event) override {
         if (event->type() != QEvent::Paint) return false;
-        auto *dialog = qobject_cast<QDialog *>(target);
-        auto *area = dialog ? dialog->findChild<QScrollArea *>(name) : nullptr;
-        if (area && area->isVisible()) {
+        auto *widget = qobject_cast<QWidget *>(target);
+        auto *area = widget ? widget->window()->findChild<QScrollArea *>(name) : nullptr;
+        if (area && area->isVisible() && (widget==area->window() || widget==area->viewport() || widget==area->widget())) {
             auto *bar = area->verticalScrollBar();
             offsets.append(bar->value());
+            contentPositions.append(area->widget()->y());
             barPainted |= bar->isVisible();
         }
         return false;
@@ -372,17 +375,42 @@ static void profileSetupLanguageChangesPreserveData(MainWindow &window) {
     settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");
     settings.setValue("JustConnect/AuthID","opaque-method");
     settings.setValue("JustConnect/AllowUnverifiedNodes",true);
-    CredentialAccess access(std::make_unique<MemoryCredentialStore>());
+    settings.setValue("Credential/Username","stored-user");
+    QSemaphore credentialRead;
+    auto store=std::make_unique<MemoryCredentialStore>();
+    store->beforeRead=[&] {
+        check(credentialRead.tryAcquire(1,UiWait::OperationTimeoutMs),"release the delayed credential read");
+        credentialRead.release();
+    };
+    CredentialAccess access(std::move(store));
     const auto language=[&](const QString &value) {
         check(ApplicationLanguage::instance().savePreferences(value,SavedConnectionStore().closeToTray()),"change language with a profile draft open");
         QCoreApplication::processEvents();QCoreApplication::sendPostedEvents(nullptr,QEvent::LayoutRequest);QCoreApplication::processEvents();
     };
     language("en");
     QPointer<SettingWindow> editor=new SettingWindow(&window,&access,CredentialAccess::source(settings,{}));
-    editor->show();waitForUi([&]{return !access.isBusy(settings.fileName());});
+    editor->resize(560,480);
     auto *scroll=editor->findChild<QScrollArea *>("loginTab");
     auto *user=editor->findChild<QLineEdit *>("usernameLineEdit");
     auto *secret=editor->findChild<QLineEdit *>("passwordLineEdit");
+    secret->setFocus(); // Exercise a pending focus request below the first viewport.
+    ScrollPaints editorPaints("loginTab");
+    PresentationHelpers::activateWindow(editor);
+    auto *save=editor->findChild<QPushButton *>("saveProfileButton");
+    waitForUi([&]{return !editorPaints.offsets.isEmpty();});
+    check(!save->isEnabled() && editor->focusWidget()==scroll,"first paint stays on the scroll surface during credential loading");
+    credentialRead.release();
+    waitForUi([&]{return save->isEnabled();});
+    scroll->viewport()->repaint();
+    check(std::all_of(editorPaints.offsets.cbegin(),editorPaints.offsets.cend(),[](int value){return value==0;})
+        && std::all_of(editorPaints.contentPositions.cbegin(),editorPaints.contentPositions.cend(),[](int value){return value==0;}),
+        "neither the scroll thumb nor the painted content moves during opening and credential loading");
+    auto *bar=scroll->verticalScrollBar();
+    check(bar->maximum()>0,"the editing fixture extends below the viewport");
+    bar->setValue(bar->maximum());
+    PresentationHelpers::activateWindow(editor);
+    check(bar->value()==bar->maximum(),"activating an open editor preserves the user's scroll position");
+    bar->setValue(0);
     auto *method=editor->findChild<QComboBox *>("authTypeComboBox");
     auto *show=secret->findChild<QAction *>("visibilityAction");
     const auto visibilityActions=secret->actions().size();
@@ -554,7 +582,11 @@ static void nativeHome(MainWindow &window, ApplicationLogger &logger) {
         details->reject();QCoreApplication::processEvents();
     }
     ScrollPaints editorPaints("loginTab");
-    window.findChild<QAction *>("settingAction")->trigger();
+    auto *profileMenu=window.findChild<QToolButton *>("profileMenuButton")->menu();
+    profileMenu->popup(window.mapToGlobal(QPoint(24,60)));
+    profileMenu->setActiveAction(window.findChild<QAction *>("settingAction"));
+    QKeyEvent openEditor(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
+    QCoreApplication::sendEvent(profileMenu,&openEditor);
     auto *initial = window.findChild<SettingWindow *>();
     check(initial && initial->isVisible(), "the first connection can be edited directly");
     auto *address = initial->findChild<QLineEdit *>("serverAddressLineEdit");
@@ -567,7 +599,8 @@ static void nativeHome(MainWindow &window, ApplicationLogger &logger) {
     waitForUi([&] { return !editorPaints.offsets.isEmpty()
         && initial->findChild<QPushButton *>("saveProfileButton")->isEnabled(); });
     check(editorScroll->verticalScrollBar()->value() == 0
-        && std::all_of(editorPaints.offsets.cbegin(), editorPaints.offsets.cend(), [](int value) { return value == 0; }),
+        && std::all_of(editorPaints.offsets.cbegin(), editorPaints.offsets.cend(), [](int value) { return value == 0; })
+        && std::all_of(editorPaints.contentPositions.cbegin(),editorPaints.contentPositions.cend(),[](int value){return value==0;}),
         "the connection editor stays at the top from its first paint through credential loading");
     auto *methodButton = initial->findChild<QPushButton *>("authSelectPushButton");
     const auto methodButtonHeight = methodButton->sizeHint().height();

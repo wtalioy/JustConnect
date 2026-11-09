@@ -23,6 +23,7 @@ signals:
     void connectRequested();
 protected:
     void changeEvent(QEvent *event) override;
+    void showEvent(QShowEvent *event) override;
     void done(int result) override;
 private:
     void retranslate();
@@ -49,6 +50,7 @@ private:
     QPushButton *clearCredentialButton,*saveButton,*dismissButton;
     QCheckBox *rememberAuthentication;
     bool loading=false,saving=false,closed=false,profileEditable=true,querying=false,connectAfterSave=false;
+    bool opened=false;
     quint64 loadGeneration=0;
     ServerSettingsWidget *serverEditor;
     QString selectedAuthId, selectedAuthSubType, selectedAuthDomain, selectedAuthType;
