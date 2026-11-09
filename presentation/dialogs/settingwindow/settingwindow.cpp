@@ -274,9 +274,10 @@ void SettingWindow::loadSettings(const QSettings &source) {
     selectedAuthSubType = method.isEmpty() ? QString() : source.value("JustConnect/AuthSubType").toString();
     selectedAuthDomain = method.isEmpty() ? QString() : source.value("JustConnect/LoginDomain").toString();
     selectedAuthName = method.isEmpty() ? QString() : source.value(DefaultSettings::SignInMethodName).toString();
-    if (selectedAuthName.isEmpty() && serverEditor->isBuiltIn()) {
+    if (selectedAuthName.isEmpty() && DefaultSettings::matchesBuiltInServer(serverEditor->serverAddress())) {
         const auto &preset=DefaultSettings::builtInConnection();
-        if (method==preset.value("JustConnect/AuthType").toString()
+        if (serverEditor->serverPort()==preset.value("JustConnect/ServerPort").toInt()
+            && method==preset.value("JustConnect/AuthType").toString()
             && selectedAuthDomain==preset.value("JustConnect/LoginDomain").toString())
             selectedAuthName=preset.value(DefaultSettings::SignInMethodName).toString();
     }

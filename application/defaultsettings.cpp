@@ -112,6 +112,12 @@ const QVariantMap &DefaultSettings::builtInConnection()
     return values;
 }
 
+bool DefaultSettings::matchesBuiltInServer(const QString &server)
+{
+    const auto bundledServer=builtInConnection().value("JustConnect/ServerAddress").toString();
+    return server.trimmed().compare(bundledServer,Qt::CaseInsensitive)==0;
+}
+
 bool DefaultSettings::isBuiltInConnection(const QSettings &settings)
 {
     const auto &connection = builtInConnection();

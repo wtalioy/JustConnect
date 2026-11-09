@@ -49,8 +49,7 @@ QString defaultConnectionLabel(const QSettings &settings)
 {
     const auto server = settings.value("JustConnect/ServerAddress").toString().trimmed();
     if (server.isEmpty()) return MainWindow::tr("Unnamed connection");
-    const auto bundledServer = DefaultSettings::builtInConnection().value("JustConnect/ServerAddress").toString();
-    return server.compare(bundledServer,Qt::CaseInsensitive)==0 ? MainWindow::tr("Fudan") : server;
+    return DefaultSettings::matchesBuiltInServer(server) ? MainWindow::tr("Fudan") : server;
 }
 }
 

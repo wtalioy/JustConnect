@@ -132,6 +132,7 @@ static void profileMenusKeepTheirActions(MainWindow &window,const QString &profi
     SavedConnectionStore storage;
     QSettings defaultProfile(storage.connectionPath(""),QSettings::IniFormat);
     defaultProfile.setValue("JustConnect/ConnectionKind","Custom");
+    defaultProfile.remove(DefaultSettings::SignInMethodName);
     defaultProfile.setValue("JustConnect/ServerAddress","vpn.fudan.edu.cn");defaultProfile.sync();
     QSettings namedProfile(storage.connectionPath(profile),QSettings::IniFormat);
     namedProfile.setValue("JustConnect/ConnectionKind","Custom");
@@ -161,6 +162,14 @@ static void profileMenusKeepTheirActions(MainWindow &window,const QString &profi
     defaultProfile.sync();
     check(defaultProfile.value("JustConnect/ConnectionKind")=="Custom" && menuButton->text()==initial,
         "the default connection displays Fudan for its known server without converting the saved connection kind");
+    editAction->trigger();
+    auto *defaultEditor=window.findChild<SettingWindow *>();
+    check(defaultEditor && defaultEditor->isVisible(),"open the existing unnamed connection in the editor");
+    auto *defaultMethod=defaultEditor->findChild<QComboBox *>("authTypeComboBox");
+    check(defaultMethod->currentText()=="Fudan UIS" && defaultMethod->count()==2
+        && !defaultEditor->findChild<QLineEdit *>("serverAddressLineEdit")->isReadOnly(),
+        "an existing Fudan endpoint and sign-in realm use the preset caption with a compact picker");
+    defaultEditor->reject();QApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     const auto report=qEnvironmentVariable("JC_UI_REPORT_DIR");
     if (!report.isEmpty()) check(window.grab().save(QDir(report).filePath("home-configured.png")),"save the configured preset identity on the actual home");
     QTimer::singleShot(0,&window,[&] {

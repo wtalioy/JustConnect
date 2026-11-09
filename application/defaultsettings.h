@@ -12,6 +12,7 @@ inline constexpr bool RememberAuthenticationByDefault=true;
 inline constexpr const char *DomainDnsRules="JustConnect/DomainDNSRules";
 inline constexpr const char *SignInMethodName="JustConnect/AuthName";
 const QVariantMap &builtInConnection();
+bool matchesBuiltInServer(const QString &server);
 bool isBuiltInConnection(const QSettings &settings);
 void reset(QSettings &settings);
 void initialize(QSettings &settings);
