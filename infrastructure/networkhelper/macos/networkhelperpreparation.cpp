@@ -221,16 +221,30 @@ MacHelperPreparation prepareMacNetworkHelper(const QJsonObject &resources,const 
     return {{},result,original.originalSources};
 }
 
-std::optional<QStringList> updatedMacCapturePrefixes(const QJsonObject &resources,const QJsonObject &policy,
+std::optional<MacCaptureUpdate> updatedMacCapture(const QJsonObject &resources,const QJsonObject &policy,
     const MacHelperConfiguration &configuration,const QJsonArray &originalSources,const QJsonObject &network,const QJsonObject &dns)
 {
     const auto domains=campusDnsDomains(resources), exact=domainDnsOverrideNames(resources);
     if(!domains || !exact)return {};
-    QJsonArray fallback;
-    for(const auto &value:originalSources)if(value.toObject()["supplemental_fallback"]==true)fallback.append(value);
-    if(fallback!=supplementalFallbacks(*exact,*domains,policy,network,dns)
-        || supplementalDomains(campusDnsDomainsToInstall(*domains,originalSources),originalSources)!=configuration.dnsDomains)return {};
-    return updatedCampusCapturePrefixes(resources,policy,*domains,originalSources,{configuration.address,configuration.peer});
+    const auto fallbacks=supplementalFallbacks(*exact,*domains,policy,network,dns);
+    if(supplementalDomains(campusDnsDomainsToInstall(*domains,originalSources),fallbacks)!=configuration.dnsDomains)return {};
+    // Keep earlier DNS upstreams outside campus capture for queries already in flight.
+    auto reserved=originalSources;
+    for(const auto &value:fallbacks){
+        const auto fallback=value.toObject();
+        const auto found=std::find_if(reserved.begin(),reserved.end(),[&](const auto &entry){
+            const auto row=entry.toObject();
+            return row["supplemental_fallback"]==true && row["name"]==fallback["name"];
+        });
+        if(found==reserved.end())return {};
+        auto row=(*found).toObject();
+        auto servers=row["servers"].toArray();
+        for(const auto &server:fallback["servers"].toArray())if(!servers.contains(server))servers.append(server);
+        if(servers!=row["servers"].toArray()){row["servers"]=servers;*found=row;}
+    }
+    auto prefixes=updatedCampusCapturePrefixes(resources,policy,*domains,reserved,{configuration.address,configuration.peer});
+    if(!prefixes)return {};
+    return MacCaptureUpdate{std::move(*prefixes),std::move(reserved),fallbacks};
 }
 
 std::optional<MacHelperConfiguration> completeMacOriginalDNS(MacHelperConfiguration configuration,const QJsonObject &listeners)

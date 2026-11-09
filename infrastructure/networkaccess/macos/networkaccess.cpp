@@ -23,7 +23,9 @@ MacNetworkAccess::MacNetworkAccess(CoreEngine *core,NetworkPolicySession *policy
         if (state != HelperState::Idle && state != HelperState::Active) this->policy->setNetworkBusy(generation,true);
     });
     connect(&helper,&MacNetworkHelperClient::ownershipLost,this,[this](Result result) {
-        if (stage == Stage::Ready || stage == Stage::Updating) { observation.stop(); stage = Stage::Prepared; emit lost(attempt,result); }
+        if (stage == Stage::Ready || stage == Stage::Updating || stage == Stage::RefreshingDNS) {
+            observation.stop(); stage = Stage::Prepared; emit lost(attempt,result);
+        }
     });
     new DNSRoutePublisher<MacNetworkHelperClient>(core, &helper, this, [this] { return stage == Stage::Ready; },
         [this](const QStringList &addresses) -> std::optional<QStringList> {
@@ -43,12 +45,28 @@ MacNetworkAccess::MacNetworkAccess(CoreEngine *core,NetworkPolicySession *policy
             stage = Stage::Prepared; this->policy->setNetworkBusy(generation,false); emit ready(attempt,value.result); return;
         }
         originalSources=value.originalSources;
+        for (const auto &source:originalSources) if (source.toObject()["supplemental_fallback"]==true) activeFallbacks.append(source);
         if(!originalSources.isEmpty()){
             pendingConfiguration=value.configuration;
             this->core->prepareOriginalDNS(generation,originalSources);
         }else helper.apply(attempt,value.configuration);
     });
     connect(core,&CoreEngine::originalDNSPrepared,this,[this](const QString &id,const QJsonObject &listeners,CoreEngine::RequestStatus status){
+        if (stage==Stage::RefreshingDNS && id==generation && pendingDNS) {
+            auto update=std::move(*pendingDNS);
+            pendingDNS.reset();
+            if (status!=CoreEngine::RequestStatus::Success) {
+                stage=Stage::Prepared; observation.stop();
+                emit restartRequired(attempt,QStringLiteral("Cannot refresh the original supplemental DNS upstreams."));
+                return;
+            }
+            originalSources=std::move(update.originalSources);
+            activeFallbacks=std::move(update.fallbacks);
+            stage=Stage::Ready;
+            this->policy->setNetworkBusy(generation,false);
+            this->policy->refresh();
+            return;
+        }
         if(stage!=Stage::Activating || id!=generation || !pendingConfiguration)return;
         const auto configuration=status==CoreEngine::RequestStatus::Success?completeMacOriginalDNS(*pendingConfiguration,listeners):std::nullopt;
         pendingConfiguration.reset();
@@ -136,7 +154,13 @@ void MacNetworkAccess::helperFinished(Operation operation,Result result)
         const auto configuration = helper.ownedConfiguration();
         const auto filter = configuration ? macOriginalNetworkView(helper.owner(),*configuration,helper.ownedDevice(),helper.ownedNetwork()) : NetworkPolicySession::OriginalViewFilter{};
         if (!filter) { stage = Stage::Prepared; emit lost(attempt,{Status::Failed,QStringLiteral("Cannot identify the active network capture read scope."),true}); return; }
-        policy->setOriginalViewFilter(generation,filter); policy->setNetworkBusy(generation,false);
+        policy->setOriginalViewFilter(generation,filter);
+        if (stage!=Stage::RefreshingDNS) policy->setNetworkBusy(generation,false);
+    }
+    if (operation==Operation::Routes && stage==Stage::RefreshingDNS) {
+        if (result.succeeded()) core->prepareOriginalDNS(generation,pendingDNS->fallbacks,true);
+        else { stage=Stage::Prepared; observation.stop(); emit lost(attempt,result); }
+        return;
     }
     if (operation == Operation::Routes && stage == Stage::Updating) {
         const auto revision = changingPolicy["revision"].toString();
@@ -168,11 +192,19 @@ void MacNetworkAccess::observeModel()
     if (!exit || *exit != originalExit || (owned && !macOriginalDnsSourcesMatch(*owned,model["network"].toObject(),model["dns"].toObject()))) {
         stage = Stage::Prepared; observation.stop(); emit restartRequired(attempt,QStringLiteral("Original network exit changed; restoring before reconnecting.")); return;
     }
-    const auto prefixes = owned ? updatedMacCapturePrefixes(model["resources"].toObject(),policy->confirmedProtection(),*owned,originalSources,
+    const auto update = owned ? updatedMacCapture(model["resources"].toObject(),policy->confirmedProtection(),*owned,originalSources,
         model["network"].toObject(),model["dns"].toObject()) : std::nullopt;
-    if (!prefixes) { stage = Stage::Prepared; observation.stop(); emit restartRequired(attempt,QStringLiteral("Original DNS or campus scope changed; restoring before reconnecting.")); return; }
-    auto actual = owned->capturePrefixes, expected = *prefixes; actual.sort(); expected.sort();
-    if (actual != expected) { helper.reconcile(*prefixes); return; }
+    if (!update) { stage = Stage::Prepared; observation.stop(); emit restartRequired(attempt,QStringLiteral("Original DNS or campus scope changed; restoring before reconnecting.")); return; }
+    auto actual = owned->capturePrefixes, expected = update->prefixes; actual.sort(); expected.sort();
+    if (update->fallbacks!=activeFallbacks) {
+        pendingDNS=update;
+        stage=Stage::RefreshingDNS;
+        policy->setNetworkBusy(generation,true);
+        if (actual!=expected) helper.reconcile(update->prefixes);
+        else core->prepareOriginalDNS(generation,update->fallbacks,true);
+        return;
+    }
+    if (actual != expected) { helper.reconcile(update->prefixes); return; }
     automaticPolicy = true;
     const auto result = policy->synchronizeProtection();
     if (result == CoreEngine::RequestStatus::Pending) return;
@@ -185,15 +217,15 @@ void MacNetworkAccess::applyPolicy(const QJsonObject &value)
 {
     const auto owned = helper.ownedConfiguration();
     const auto model = policy->model();
-    const auto prefixes = owned ? updatedMacCapturePrefixes(model["resources"].toObject(),value,*owned,originalSources,
+    const auto update = owned ? updatedMacCapture(model["resources"].toObject(),value,*owned,originalSources,
         model["network"].toObject(),model["dns"].toObject()) : std::nullopt;
-    if (stage != Stage::Ready || helper.state() != HelperState::Active || !prefixes) {
+    if (stage != Stage::Ready || helper.state() != HelperState::Active || !update || update->fallbacks!=activeFallbacks) {
         const bool automatic = automaticPolicy; automaticPolicy = false;
         policy->completePolicy(value["generation"].toString(),value["revision"].toString(),CoreEngine::RequestStatus::Unavailable);
         if (automatic) { stage = Stage::Prepared; observation.stop(); emit restartRequired(attempt,QStringLiteral("Cannot apply updated network protection; restoring before reconnecting.")); }
         return;
     }
-    changingPolicy = value; nextCapture = *prefixes; stage = Stage::Updating;
+    changingPolicy = value; nextCapture = update->prefixes; stage = Stage::Updating;
     policy->setNetworkBusy(generation,true); core->updatePolicy(value);
 }
 void MacNetworkAccess::finishPolicy(CoreEngine::RequestStatus status)
@@ -217,7 +249,8 @@ void MacNetworkAccess::driveStop()
     if (stage != Stage::Stopping || preparing) return;
     switch (helper.state()) {
     case HelperState::Idle:
-        lock.reset(); stage = Stage::Idle; generation.clear(); changingPolicy = {}; nextCapture.clear(); originalExit = {}; originalSources={};pendingConfiguration.reset();attaching = automaticPolicy = false;
+        lock.reset(); stage = Stage::Idle; generation.clear(); changingPolicy = {}; nextCapture.clear(); originalExit = {}; originalSources={}; activeFallbacks={};
+        pendingConfiguration.reset(); pendingDNS.reset(); attaching = automaticPolicy = false;
         emit stopped(attempt,{}); return;
     case HelperState::Active: helper.restore(); return;
     case HelperState::RecoveryRequired: helper.recover(helper.owner()); return;

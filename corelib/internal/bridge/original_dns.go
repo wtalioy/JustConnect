@@ -17,12 +17,14 @@ func compileOriginalDNS(routes []resolve.OriginalDNSRoute) (*resolve.OriginalDNS
 	return resolve.NewOriginalDNS(routes)
 }
 
-// PrepareOriginalDNS seals sources once, after authentication and before device attachment.
+// PrepareOriginalDNS seals native sources before attachment; an attached device can
+// refresh the upstreams of its existing supplemental fallback scopes.
 func (e *Engine) PrepareOriginalDNS(handle uint64, input []byte) (uint64, Status) {
 	var request struct {
-		SchemaVersion int                        `json:"schema_version"`
-		Generation    uint64                     `json:"generation,string"`
-		Sources       []resolve.OriginalDNSRoute `json:"sources"`
+		SchemaVersion    int                        `json:"schema_version"`
+		Generation       uint64                     `json:"generation,string"`
+		Sources          []resolve.OriginalDNSRoute `json:"sources"`
+		ReplaceFallbacks bool                       `json:"replace_fallbacks,omitempty"`
 	}
 	if !decode(input, &request) || request.SchemaVersion != ABIVersion || request.Generation == 0 || len(request.Sources) == 0 {
 		return 0, InvalidArgument
@@ -55,7 +57,12 @@ func (e *Engine) PrepareOriginalDNS(handle uint64, input []byte) (uint64, Status
 	if s.policy == nil {
 		return 0, InvalidArgument
 	}
-	if err := s.protocol.PrepareOriginalDNS(original); err != nil {
+	if request.ReplaceFallbacks {
+		err = s.protocol.ReplaceSupplementalFallbacks(original)
+	} else {
+		err = s.protocol.PrepareOriginalDNS(original)
+	}
+	if err != nil {
 		if errors.Is(err, service.ErrOriginalDNSSealed) {
 			return 0, Busy
 		}

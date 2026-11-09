@@ -39,6 +39,18 @@ func (p *Listeners) PrepareOriginalDNS(original *resolve.OriginalDNS) error {
 	return p.prepareOriginalDNS(original, false)
 }
 
+func (p *Listeners) ReplaceSupplementalFallbacks(original *resolve.OriginalDNS) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed.Load() || p.ctx.Err() != nil {
+		return net.ErrClosed
+	}
+	if p.tun == nil || p.resolver == nil || p.resolver.OriginalDNS == nil {
+		return ErrOriginalDNSSealed
+	}
+	return p.resolver.OriginalDNS.ReplaceSupplementalFallbacks(original)
+}
+
 func (p *Listeners) prepareOriginalDNS(original *resolve.OriginalDNS, startup bool) error {
 	p.mu.Lock()
 	if p.closed.Load() || p.ctx.Err() != nil {

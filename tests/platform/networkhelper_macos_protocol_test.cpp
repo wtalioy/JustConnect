@@ -93,15 +93,25 @@ int main(int argc,char **argv) try
         && override.originalSources.first().toObject().value("servers").toArray()==QJsonArray{"203.0.113.8:53"}
         && override.configuration.capturePrefixes==QStringList{"203.0.113.9/32","203.0.113.53/32"},
         "Exact override did not install its scope while preserving the original fallback server");
-    check(updatedMacCapturePrefixes(overrides,protection,override.configuration,override.originalSources,network,overrideDns)
-        ==std::optional(override.configuration.capturePrefixes),"Active exact override rejected an unchanged fallback");
-    auto changedDefault=defaultResolver;changedDefault["servers"]=QJsonArray{"192.0.2.53"};
+    const auto unchanged=updatedMacCapture(overrides,protection,override.configuration,override.originalSources,network,overrideDns);
+    check(unchanged && unchanged->prefixes==override.configuration.capturePrefixes
+        && unchanged->fallbacks==override.originalSources,"Active exact override rejected an unchanged fallback");
+    auto changedDefault=defaultResolver;changedDefault["servers"]=QJsonArray{"203.0.113.9"};
     overrideDns["macos_resolvers"]=QJsonArray{changedDefault};
-    check(!updatedMacCapturePrefixes(overrides,protection,override.configuration,override.originalSources,network,overrideDns),
-        "Active exact override kept using a stale original fallback");
+    const auto changed=updatedMacCapture(overrides,protection,override.configuration,override.originalSources,network,overrideDns);
+    check(changed && changed->fallbacks.size()==1 && changed->fallbacks.first().toObject()["servers"]==QJsonArray{"203.0.113.9:53"}
+        && changed->prefixes==QStringList{"203.0.113.53/32"} && changed->originalSources.size()==1
+        && changed->originalSources.first().toObject()["servers"]==QJsonArray{"203.0.113.8:53","203.0.113.9:53"},
+        "Replacing the default resolver changed the installed scope or captured an old or new DNS upstream");
+    overrideDns["macos_resolvers"]=QJsonArray{defaultResolver};
+    const auto switchedBack=updatedMacCapture(overrides,protection,override.configuration,changed->originalSources,network,overrideDns);
+    check(switchedBack && switchedBack->fallbacks==override.originalSources && switchedBack->originalSources==changed->originalSources,
+        "Returning to the initial DNS source duplicated exclusions or retained the wrong upstream");
     auto overlapping=protection;overlapping["protected_names"]=QJsonArray{QJsonObject{{"kind","suffix"},{"value","child.host.extra.test"}}};
     const auto safe=prepareMacNetworkHelper(overrides,overlapping,network,overrideDns,{},1400);
     check(safe.result.succeeded() && safe.configuration.dnsDomains==QStringList{"campus.test"},"Exact override shadowed protected split DNS");
+    check(!updatedMacCapture(overrides,overlapping,override.configuration,override.originalSources,network,overrideDns),
+        "A protected split-DNS change was accepted as a server-only refresh");
     overrideDns["dynamic_store"]=QJsonObject{{"State:/Network/Global/DNS",QJsonObject{{"EncryptedServers",QJsonArray{QJsonObject{}}}}}};
     const auto encryptedDefault=prepareMacNetworkHelper(overrides,protection,network,overrideDns,{},1400);
     check(encryptedDefault.result.succeeded() && encryptedDefault.configuration.dnsDomains==QStringList{"campus.test"},"Exact override downgraded encrypted DNS");
@@ -133,7 +143,8 @@ int main(int argc,char **argv) try
     const auto completed=completeMacOriginalDNS(original.configuration,{{service,"192.0.2.1:54321"}});
     check(completed && completed->originalDns.first().toObject()["listen"]=="192.0.2.1:54321",
         "Core-confirmed listener endpoint did not complete native ownership");
-    check(updatedMacCapturePrefixes(resources,protectedNames,*completed,original.originalSources,sourceNetwork,sourceDns)==std::optional(original.configuration.capturePrefixes),
+    const auto nativeUpdate=updatedMacCapture(resources,protectedNames,*completed,original.originalSources,sourceNetwork,sourceDns);
+    check(nativeUpdate && nativeUpdate->prefixes==original.configuration.capturePrefixes && nativeUpdate->fallbacks.isEmpty(),
         "Native source dispatch required a conflicting second supplemental resolver or lost live capture updates");
     auto duplicate=*completed;auto repeated=duplicate.originalDns.first().toObject();repeated["service"]=service.toLower();duplicate.originalDns.append(repeated);
     check(!parseMacHelperApply(macHelperApplyRequest(owner,request,duplicate)),"Case variants duplicated one native DNS service at the privilege boundary");

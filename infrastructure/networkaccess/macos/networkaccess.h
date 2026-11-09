@@ -17,7 +17,7 @@ public:
     void stop(const QUuid &attempt) override;
     std::unique_ptr<SystemProxyBackend> makeProxyBackend() const { return helper.makeProxyBackend(); }
 private:
-    enum class Stage { Idle, Preparing, Prepared, Activating, Ready, Updating, Stopping };
+    enum class Stage { Idle, Preparing, Prepared, Activating, Ready, Updating, RefreshingDNS, Stopping };
     void prepareConfiguration();
     void helperFinished(MacNetworkHelperClient::Operation operation,PlatformOperationResult result);
     void driveStop();
@@ -33,7 +33,8 @@ private:
     QUuid attempt;
     QString generation,localDNS;
     QJsonObject changingPolicy, originalExit;
-    QJsonArray originalSources;
+    QJsonArray originalSources, activeFallbacks;
+    std::optional<MacCaptureUpdate> pendingDNS;
     std::optional<MacHelperConfiguration> pendingConfiguration;
     QStringList nextCapture;
     Stage stage = Stage::Idle;

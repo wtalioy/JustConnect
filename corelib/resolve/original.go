@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"slices"
 	"strings"
+	"sync/atomic"
 
 	"github.com/miekg/dns"
 	"github.com/wtalioy/JustConnect/corelib/internal/dialer"
@@ -36,6 +37,28 @@ type originalDNSRoute struct {
 type OriginalDNS struct {
 	routes    []originalDNSRoute
 	listeners map[string]originalDNSSource
+	fallbacks atomic.Pointer[[]originalDNSRoute]
+}
+
+// ReplaceSupplementalFallbacks changes servers for already installed suffixes.
+// Native resolver listeners and the set of intercepted names remain sealed.
+func (o *OriginalDNS) ReplaceSupplementalFallbacks(next *OriginalDNS) error {
+	var names []policy.NameRule
+	for _, route := range o.routes {
+		if route.SupplementalFallback {
+			names = append(names, route.Name)
+		}
+	}
+	if len(names) != len(next.routes) || len(names) == 0 {
+		return errors.New("supplemental DNS scopes changed")
+	}
+	for index, route := range next.routes {
+		if !route.SupplementalFallback || route.Name != names[index] {
+			return errors.New("supplemental DNS scopes changed")
+		}
+	}
+	o.fallbacks.Store(&next.routes)
+	return nil
 }
 
 type originalDNSSource struct {
@@ -169,7 +192,13 @@ func (r *Resolver) exchangeOriginal(ctx context.Context, request *dns.Msg, trans
 	if r.OriginalDNS == nil {
 		return nil, ErrOriginalDNSRequired
 	}
-	for _, route := range r.OriginalDNS.routes {
+	routes := r.OriginalDNS.routes
+	if supplemental {
+		if fallback := r.OriginalDNS.fallbacks.Load(); fallback != nil {
+			routes = *fallback
+		}
+	}
+	for _, route := range routes {
 		if route.SupplementalFallback != supplemental || !route.Name.Matches(host) {
 			continue
 		}

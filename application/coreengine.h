@@ -44,7 +44,7 @@ public:
 
     virtual void acknowledgeDNSRoutes(const QString &, const QString &, bool) {}
 
-    virtual void prepareOriginalDNS(const QString &generation, const QJsonArray &) {
+    virtual void prepareOriginalDNS(const QString &generation, const QJsonArray &, bool = false) {
         emit originalDNSPrepared(generation, {}, RequestStatus::Unavailable);
     }
 

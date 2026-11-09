@@ -101,6 +101,13 @@ func (s *Session) PrepareOriginalDNS(sources *resolve.OriginalDNS) error {
 	return net.ErrClosed
 }
 
+func (s *Session) ReplaceSupplementalFallbacks(sources *resolve.OriginalDNS) error {
+	if listeners := s.listeners.Load(); listeners != nil {
+		return listeners.ReplaceSupplementalFallbacks(sources)
+	}
+	return net.ErrClosed
+}
+
 func (s *Session) OriginalDNSListeners() map[string]string {
 	if listeners := s.listeners.Load(); listeners != nil {
 		return listeners.OriginalDNSListeners()

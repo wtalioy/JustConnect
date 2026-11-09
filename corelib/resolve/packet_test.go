@@ -98,6 +98,38 @@ func TestSupplementalDomainDNSPreservesOriginalChildLookup(t *testing.T) {
 	if err != nil || len(reply.Answer) != 1 || reply.Answer[0].(*dns.A).A.String() != "192.0.2.12" || calls.Load() != 1 {
 		t.Fatalf("original child reply %v, %v", reply, err)
 	}
+	nextSocket, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextServer := &dns.Server{PacketConn: nextSocket, Handler: dns.HandlerFunc(func(w dns.ResponseWriter, request *dns.Msg) {
+		reply := new(dns.Msg).SetReply(request)
+		reply.Answer = []dns.RR{&dns.A{Hdr: dns.RR_Header{Name: request.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET}, A: net.IPv4(192, 0, 2, 13)}}
+		_ = w.WriteMsg(reply)
+	})}
+	go func() { _ = nextServer.ActivateAndServe() }()
+	t.Cleanup(func() { _ = nextServer.Shutdown(); _ = nextSocket.Close() })
+	nextRoute := OriginalDNSRoute{Name: policy.NameRule{Kind: "suffix", Value: "exact.campus.test"},
+		Servers: []string{nextSocket.LocalAddr().String()}, SupplementalFallback: true}
+	replacement, err := NewOriginalDNS([]OriginalDNSRoute{nextRoute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.OriginalDNS.ReplaceSupplementalFallbacks(replacement); err != nil {
+		t.Fatal(err)
+	}
+	nextRoute.Name.Value = "other.test"
+	widened, err := NewOriginalDNS([]OriginalDNSRoute{nextRoute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.OriginalDNS.ReplaceSupplementalFallbacks(widened); err == nil {
+		t.Fatal("replacement changed the installed DNS scope")
+	}
+	reply, err = r.ExchangeTUN(ctx, request, "udp", dial, nil)
+	if err != nil || len(reply.Answer) != 1 || reply.Answer[0].(*dns.A).A.String() != "192.0.2.13" || calls.Load() != 1 {
+		t.Fatalf("child query did not use the new ordinary DNS upstream: %v, %v", reply, err)
+	}
 	if _, err := r.ExchangeCampus(ctx, request, "udp", dial, nil); !errors.Is(err, ErrOriginalDNSRequired) {
 		t.Fatalf("campus-only listener accepted an ordinary child: %v", err)
 	}

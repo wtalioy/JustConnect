@@ -511,7 +511,7 @@ void EmbeddedCoreEngine::readSnapshot(Snapshot kind, const QString &generation) 
     const auto id = serial;
     QMetaObject::invokeMethod(pump, [this, id, kind, generation] { pump->readSnapshot(id, kind, generation); }, Qt::QueuedConnection);
 }
-void EmbeddedCoreEngine::prepareOriginalDNS(const QString &generation, const QJsonArray &sources) {
+void EmbeddedCoreEngine::prepareOriginalDNS(const QString &generation, const QJsonArray &sources, bool replaceFallbacks) {
     if (!active || stopping) { emit originalDNSPrepared(generation, {}, RequestStatus::Stale); return; }
     const auto capabilities = buildInfo()["capabilities"].toObject();
     if (!library().jc_session_prepare_original_dns || !capabilities["original_dns_preparation"].toBool()
@@ -523,7 +523,9 @@ void EmbeddedCoreEngine::prepareOriginalDNS(const QString &generation, const QJs
             emit originalDNSPrepared(generation, {}, RequestStatus::Unavailable); return;
         }
     }
-    auto bytes = QJsonDocument(QJsonObject{{"schema_version", int(JC_ABI_VERSION)}, {"generation", generation}, {"sources", sources}}).toJson(QJsonDocument::Compact);
+    QJsonObject request{{"schema_version", int(JC_ABI_VERSION)}, {"generation", generation}, {"sources", sources}};
+    if (replaceFallbacks) request["replace_fallbacks"] = true;
+    auto bytes = QJsonDocument(request).toJson(QJsonDocument::Compact);
     if (bytes.size() > JC_MAX_INPUT) bytes.clear();
     const auto id = serial;
     QMetaObject::invokeMethod(pump, [this, id, generation, bytes=std::move(bytes)]() mutable {

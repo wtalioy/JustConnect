@@ -21,7 +21,7 @@ public:
     void attachWindowsPipe(const QString &generation, quint64 handle, quint32 helperPID, quint32 mtu,
         const QString &source, const QString &peer, bool publishDNSRoutes = false) override;
     void acknowledgeDNSRoutes(const QString &generation, const QString &request, bool applied) override;
-    void prepareOriginalDNS(const QString &generation, const QJsonArray &sources) override;
+    void prepareOriginalDNS(const QString &generation, const QJsonArray &sources, bool replaceFallbacks = false) override;
     static ConnectionError validateConfiguration(const ConnectionOptions &connectionOptions);
     struct ControllerDiscovery { RequestStatus status = RequestStatus::Unavailable; QJsonArray candidates; };
     // Blocking read-only query; call from a worker.
