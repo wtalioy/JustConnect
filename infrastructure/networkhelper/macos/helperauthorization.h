@@ -4,4 +4,5 @@
 #include <xpc/xpc.h>
 
 OSStatus acquireMacNetworkAuthorization(AuthorizationRef *authorization);
+bool validMacNetworkAuthorization(AuthorizationRef authorization);
 bool authorizedMacNetworkMessage(xpc_object_t message);

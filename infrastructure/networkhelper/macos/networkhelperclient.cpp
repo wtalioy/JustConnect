@@ -281,27 +281,42 @@ void MacNetworkHelperClient::authorize()
     if (current != State::Authorizing || pendingRequest != request) return;
     const std::weak_ptr<Native> weak(native);
     const auto provider = native->authorize;
-    const auto authorization = std::shared_ptr<AuthorizationRef>(new AuthorizationRef(nullptr),[](AuthorizationRef *value) {
-        if (*value) AuthorizationFree(*value,kAuthorizationFlagDestroyRights);
-        delete value;
-    });
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0),^{
-        const auto status = provider(authorization.get());
+    dispatch_async(native->queue,^{
         const auto state = weak.lock();
         if (!state) return;
-        dispatch_async(state->queue,^{
-            state->post([status,authorization,request](auto *target) {
+        if (validMacNetworkAuthorization(state->authorization)) {
+            state->post([request](auto *target) {
                 if (target->current != State::Authorizing || target->pendingRequest != request) return;
-                if (target->cancelled || status == errAuthorizationCanceled) target->finish({Status::Cancelled,"Network authorization cancelled.",false},State::Idle);
-                else if (status != errAuthorizationSuccess) target->finish({Status::PermissionDenied,"Network administrator authorization was denied.",false},State::Idle);
-                else {
-                    const auto accepted = target->native;
-                    dispatch_async(accepted->queue,^{
-                        if (accepted->authorization) AuthorizationFree(accepted->authorization,kAuthorizationFlagDestroyRights);
-                        accepted->authorization = *authorization; *authorization = nullptr;
-                    });
-                    target->send("apply"); target->setState(State::Applying);
-                }
+                target->send("apply"); target->setState(State::Applying);
+            });
+            return;
+        }
+        if (state->authorization) {
+            AuthorizationFree(state->authorization,kAuthorizationFlagDestroyRights);
+            state->authorization = nullptr;
+        }
+        const auto authorization = std::shared_ptr<AuthorizationRef>(new AuthorizationRef(nullptr),[](AuthorizationRef *value) {
+            if (*value) AuthorizationFree(*value,kAuthorizationFlagDestroyRights);
+            delete value;
+        });
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0),^{
+            const auto status = provider(authorization.get());
+            const auto state = weak.lock();
+            if (!state) return;
+            dispatch_async(state->queue,^{
+                state->post([status,authorization,request](auto *target) {
+                    if (target->current != State::Authorizing || target->pendingRequest != request) return;
+                    if (target->cancelled || status == errAuthorizationCanceled) target->finish({Status::Cancelled,"Network authorization cancelled.",false},State::Idle);
+                    else if (status != errAuthorizationSuccess) target->finish({Status::PermissionDenied,"Network administrator authorization was denied.",false},State::Idle);
+                    else {
+                        const auto accepted = target->native;
+                        dispatch_async(accepted->queue,^{
+                            if (accepted->authorization) AuthorizationFree(accepted->authorization,kAuthorizationFlagDestroyRights);
+                            accepted->authorization = *authorization; *authorization = nullptr;
+                        });
+                        target->send("apply"); target->setState(State::Applying);
+                    }
+                });
             });
         });
     });

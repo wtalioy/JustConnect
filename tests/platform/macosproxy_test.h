@@ -124,8 +124,14 @@ static void backendTests() {
         } else {
             auto disabledProxy=CFDictionaryCreateMutableCopy(nullptr,0,installed);number(disabledProxy,kSCPropNetProxiesHTTPEnable,0);
             check(SCPreferencesPathSetValue(prefs,firstPath,disabledProxy) && nativeCommit(prefs),"Externally disable the owned private frontend");CFRelease(disabledProxy);
-            check(!owner.inspect().active && owner.clear().succeeded() && !enabled(static_cast<CFDictionaryRef>(value(firstPath)),kSCPropNetProxiesHTTPEnable),
-                  "Automatic native restoration re-enabled an external OFF choice");
+            check(!owner.inspect().active && SCPreferencesLock(prefs,false),"Hold another writer's lock after external OFF");
+            const auto setters=changes, writes=commits;
+            failApply=true;
+            const auto release=owner.clear();
+            failApply=false;
+            check(SCPreferencesUnlock(prefs) && release.succeeded() && owner.recoverySnapshot().isEmpty()
+                && changes==setters && commits==writes && !enabled(static_cast<CFDictionaryRef>(value(firstPath)),kSCPropNetProxiesHTTPEnable),
+                "External OFF must release ownership without locking, writing or applying preferences");
         }
     }
     seed();PlatformSystemProxyBackend backend(api);

@@ -14,6 +14,12 @@ OSStatus acquireMacNetworkAuthorization(AuthorizationRef *authorization)
     if (status != errAuthorizationSuccess) { AuthorizationFree(*authorization,kAuthorizationFlagDestroyRights); *authorization = nullptr; }
     return status;
 }
+bool validMacNetworkAuthorization(AuthorizationRef authorization)
+{
+    if (!authorization) return false;
+    AuthorizationItem right{MacHelperAuthorizationRight,0,nullptr,0}; AuthorizationRights rights{1,&right};
+    return AuthorizationCopyRights(authorization,&rights,kAuthorizationEmptyEnvironment,kAuthorizationFlagDefaults,nullptr) == errAuthorizationSuccess;
+}
 bool authorizedMacNetworkMessage(xpc_object_t message)
 {
     const auto value = xpc_dictionary_get_value(message,"authorization");
@@ -23,7 +29,6 @@ bool authorizedMacNetworkMessage(xpc_object_t message)
     AuthorizationRef authorization = nullptr;
     if (AuthorizationCreateFromExternalForm(&external,&authorization) != errAuthorizationSuccess) return false;
     const auto release = qScopeGuard([&] { AuthorizationFree(authorization,kAuthorizationFlagDefaults); });
-    AuthorizationItem right{MacHelperAuthorizationRight,0,nullptr,0}; AuthorizationRights rights{1,&right};
     // Only validate an already granted right; the daemon never prompts or extends rights.
-    return AuthorizationCopyRights(authorization,&rights,kAuthorizationEmptyEnvironment,kAuthorizationFlagDefaults,nullptr) == errAuthorizationSuccess;
+    return validMacNetworkAuthorization(authorization);
 }

@@ -15,5 +15,6 @@ enum class ConnectionError
     NETWORK_FAILED,
     TIMED_OUT,
     CLIENT_FAILED,
+    BACKGROUND_APPROVAL_REQUIRED,
     OTHER,
 };

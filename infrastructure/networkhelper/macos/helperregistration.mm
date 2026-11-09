@@ -28,24 +28,32 @@ void registerService(SMAppService *service, Completion completion, bool afterUnr
         const bool registered = [service registerAndReturnError:&error];
         status = service.status;
         if (!registered && status != SMAppServiceStatusRequiresApproval) {
+            const bool denied = error.code==EPERM && [error.domain isEqualToString:@"SMAppServiceErrorDomain"];
             // Service Management can return EPERM while a just-removed job is still retiring.
-            if (afterUnregister && error.code==EPERM && [error.domain isEqualToString:@"SMAppServiceErrorDomain"]) {
+            if (afterUnregister && denied) {
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW,2*NSEC_PER_SEC),registrationQueue(),^{
                     @autoreleasepool { registerService(service,completion,false); }
                 });
                 return;
             }
-            completion(permissionFailure("Cannot register the network helper",error,status));
+            auto result = permissionFailure("Cannot register the network helper",error,status);
+            result.requiresBackgroundApproval = denied;
+            completion(result);
             return;
         }
     }
     if (status == SMAppServiceStatusRequiresApproval)
-        completion({Status::PermissionDenied,QStringLiteral("Approve JustConnect in System Settings > General > Login Items & Extensions, then retry.")});
+        completion({Status::PermissionDenied,QStringLiteral("Approve JustConnect in System Settings > General > Login Items & Extensions, then retry."),false,true});
     else if (status != SMAppServiceStatusEnabled)
         completion({Status::Unsupported,QStringLiteral("The signed application bundle does not contain an available network helper.")});
     else
         completion({});
 }
+}
+
+void openMacBackgroundApprovalSettings()
+{
+    [SMAppService openSystemSettingsLoginItems];
 }
 
 void registerMacNetworkHelper(bool refresh, std::function<void(PlatformOperationResult)> completion)

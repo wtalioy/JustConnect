@@ -4,3 +4,4 @@
 
 // Completion runs off the Qt event thread.
 void registerMacNetworkHelper(bool refresh, std::function<void(PlatformOperationResult)> completion);
+void openMacBackgroundApprovalSettings();

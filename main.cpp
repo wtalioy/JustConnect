@@ -14,6 +14,9 @@
 #include "infrastructure/logging/applicationlogfile.h"
 #include "infrastructure/storage/applicationpaths.h"
 #include "presentation/main/mainwindow.h"
+#if defined(Q_OS_MACOS)
+#include <Security/Security.h>
+#endif
 
 #ifndef PROJ_VER
 #define PROJ_VER "unknown"
@@ -43,6 +46,11 @@ int main(int argc, char *argv[])
         qCritical() << "Cannot acquire the JustConnect instance lock:" << lockError;
         return EXIT_FAILURE;
     }
+#if defined(Q_OS_MACOS)
+    // An ACL from an earlier build should fall back to campus sign-in without a Keychain prompt.
+    if (SecKeychainSetUserInteractionAllowed(false) != errSecSuccess)
+        qWarning() << "Could not disable interactive Keychain access.";
+#endif
 
     ApplicationLogFile applicationLogFile(ApplicationPaths::logFile());
     ApplicationLogger applicationLogger;

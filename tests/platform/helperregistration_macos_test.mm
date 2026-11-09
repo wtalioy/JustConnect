@@ -10,6 +10,7 @@
 namespace {
 QSemaphore unregisterStarted, allowUnregister;
 std::atomic_int registrations{0};
+bool requiresApproval = false;
 }
 
 @interface RegistrationFixture : NSObject
@@ -20,7 +21,7 @@ std::atomic_int registrations{0};
 }
 - (instancetype)init
 {
-    if ((self = [super init])) current = SMAppServiceStatusEnabled;
+    if ((self = [super init])) current = requiresApproval ? SMAppServiceStatusRequiresApproval : SMAppServiceStatusEnabled;
     return self;
 }
 - (SMAppServiceStatus)status { return current; }
@@ -60,8 +61,16 @@ int main()
         const bool waited = unregisterStarted.tryAcquire(1,2000) && registrations == 0;
         allowUnregister.release();
         if (!finished.tryAcquire(1,5000)) return 1;
+        if (!waited || !result.succeeded() || registrations != 2) return 1;
+        requiresApproval = true;
+        registerMacNetworkHelper(false,[&](PlatformOperationResult outcome) {
+            result = std::move(outcome);
+            finished.release();
+        });
+        if (!finished.tryAcquire(1,2000)) return 1;
         method_setImplementation(method,previous);
         imp_removeBlock(fixture);
-        return waited && result.succeeded() && registrations == 2 ? 0 : 1;
+        return result.status == PlatformOperationResult::Status::PermissionDenied
+            && result.requiresBackgroundApproval && registrations == 2 ? 0 : 1;
     }
 }

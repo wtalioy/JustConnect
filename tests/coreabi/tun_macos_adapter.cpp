@@ -375,6 +375,8 @@ int main(int argc,char **argv)
         check(!proxy.isBusy() && !proxy.needsCleanup(),"release browser ownership before completing the composed matrix");
         coexistence.restore();
     }
+    if (!composed && !helperLoss && !policyChanges && !exitChange && !originalDNS && authorizationMode.isEmpty())
+        check(waiting->calls == 1,"The second connection requested authorization despite retaining a valid grant");
     ::close(authorizationFd);
     if (exitChange) std::cout << "PASS: changed macOS original exit restores before automatic reconnect with a fresh generation and ownership\n";
     if (helperLoss) std::cout << "PASS: full macOS application releases core/device on helper loss and reconnects with fresh ownership\n";

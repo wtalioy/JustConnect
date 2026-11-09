@@ -451,6 +451,18 @@ Clear the authentication cache for </source>
         <translation>网络操作权限不足，请检查接口访问或授权结果后重试。</translation>
     </message>
     <message>
+        <source>Allow JustConnect to run in the background, then connect again.</source>
+        <translation>请在系统设置中允许 JustConnect 在后台运行，然后重新连接。</translation>
+    </message>
+    <message>
+        <source>Background approval required</source>
+        <translation>需要后台运行授权</translation>
+    </message>
+    <message>
+        <source>Open System Settings</source>
+        <translation>打开系统设置</translation>
+    </message>
+    <message>
         <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="361"/>
         <source>The server ended the session. Select Connect to sign in again.</source>
         <translation>服务器已明确终止会话。请点击连接完成一次重新认证。</translation>

@@ -10,6 +10,9 @@
 #include <QCheckBox>
 #include <QDebug>
 #include <QMessageBox>
+#if defined(Q_OS_MACOS)
+#include "infrastructure/networkhelper/macos/helperregistration.h"
+#endif
 #include <QPushButton>
 #include <QSettings>
 #include <QWidget>
@@ -361,6 +364,18 @@ void ConnectionUiController::showConnectionError(ConnectionError error)
     QString message;
     switch (error)
     {
+    case ConnectionError::BACKGROUND_APPROVAL_REQUIRED: {
+        message=tr("Allow JustConnect to run in the background, then connect again.");
+#if defined(Q_OS_MACOS)
+        QMessageBox approval(QMessageBox::Information,tr("Background approval required"),message,QMessageBox::Cancel,parentWidget);
+        const auto settingsButton=approval.addButton(tr("Open System Settings"),QMessageBox::ActionRole);
+        approval.exec();
+        if (approval.clickedButton()==settingsButton) openMacBackgroundApprovalSettings();
+        return;
+#else
+        break;
+#endif
+    }
     case ConnectionError::PERMISSION_DENIED:
         message=tr("Network permission was denied. Check interface access or authorization, then retry.");
         break;

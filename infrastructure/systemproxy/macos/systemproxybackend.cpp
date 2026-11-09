@@ -129,6 +129,38 @@ bool sameGroup(CFDictionaryRef a, CFDictionaryRef b, size_t group) {
     for (auto key : groups[group]) if (!same(a,b,key)) return false;
     return true;
 }
+bool releasedGroup(CFDictionaryRef current, CFDictionaryRef before, CFDictionaryRef installed, size_t group) {
+    if (sameGroup(current,before,group)) return true;
+    return std::any_of(groups[group].begin(),groups[group].end(),[&](auto key) {
+        return !same(current,before,key) && !same(current,installed,key);
+    });
+}
+bool frontendActive(CFTypeRef value, const SystemProxyConfig &config, int depth = 0) {
+    if (depth == 8) return true;
+    if (CFGetTypeID(value) == CFArrayGetTypeID()) {
+        const auto array = static_cast<CFArrayRef>(value);
+        for (CFIndex i=0; i<CFArrayGetCount(array); ++i)
+            if (frontendActive(CFArrayGetValueAtIndex(array,i),config,depth+1)) return true;
+    } else if (CFGetTypeID(value) == CFDictionaryGetTypeID()) {
+        const auto proxies = static_cast<CFDictionaryRef>(value);
+        for (size_t i=0; i<std::size(endpoints); ++i) {
+            const auto &endpoint = endpoints[i];
+            const auto host = CFDictionaryGetValue(proxies,endpoint.host);
+            const auto port = CFDictionaryGetValue(proxies,endpoint.port);
+            int number = 0;
+            if (enabled(proxies,endpoint.enabled) && host && CFEqual(host,CFSTR("127.0.0.1"))
+                && port && CFGetTypeID(port)==CFNumberGetTypeID() && CFNumberGetValue(static_cast<CFNumberRef>(port),kCFNumberIntType,&number)
+                && number==(i==2 ? config.socksPort : config.httpPort)) return true;
+        }
+        struct Scan { const SystemProxyConfig &config; int depth; bool found = false; } scan{config,depth};
+        CFDictionaryApplyFunction(proxies,[](const void *,const void *child,void *context) {
+            auto &scan = *static_cast<Scan *>(context);
+            if (!scan.found) scan.found = frontendActive(child,scan.config,scan.depth+1);
+        },&scan);
+        return scan.found;
+    }
+    return false;
+}
 bool matches(CFDictionaryRef actual, CFDictionaryRef expected) {
     if (!actual) return false;
     for (size_t group=0;group<groups.size();++group)
@@ -368,6 +400,26 @@ PlatformOperationResult PlatformSystemProxyBackend::clear() {
         snapshot.reset();return {};
     }
     auto prefs = saved->preferences;
+    if (!saved->restorationCommitted && !saved->config.upstream.isEmpty()) {
+        // An external proxy switch may already have released the handoff.
+        const auto effective = api.copyEffective();
+        const auto releaseEffective = qScopeGuard([&] { if (effective) CFRelease(effective); });
+        if (effective && !frontendActive(effective,saved->config)) {
+            SCPreferencesSynchronize(prefs);
+            const bool released = std::all_of(saved->services.begin(),saved->services.end(),[&](const auto &service) {
+                CFDictionaryRef current = nullptr;
+                if (!read(prefs,service.path,current).succeeded()) return false;
+                for (size_t group=0; group<groups.size(); ++group)
+                    if ((service.intent&~service.released&(1u<<group))
+                        && !releasedGroup(current,service.before,service.installed,group)) return false;
+                return true;
+            });
+            if (released) {
+                if (auto result=checkpoint(true);!result.succeeded()) return result;
+                snapshot.reset();return {};
+            }
+        }
+    }
     if (auto result=lockPreferences(prefs,"Lock proxy preferences for restoration",true);!result.succeeded()) return result;
     const auto unlock = qScopeGuard([&] { SCPreferencesUnlock(prefs); });
     if (saved->restorationCommitted) {
@@ -393,10 +445,7 @@ PlatformOperationResult PlatformSystemProxyBackend::clear() {
         const auto restore = [&](size_t group, bool allowRestore=true) {
             const auto bit=1u<<group;
             if (!(service.intent&bit) || (service.released&bit)) {service.released|=bit;return;}
-            bool original=sameGroup(current,service.before,group),external=false;
-            for (auto key : groups[group])
-                external|=!same(current,service.before,key) && !same(current,service.installed,key);
-            if (original || external) {service.released|=bit;service.uncertain&=~bit;return;}
+            if (releasedGroup(current,service.before,service.installed,group)) {service.released|=bit;service.uncertain&=~bit;return;}
             if (service.uncertain&bit) {unresolved=true;return;}
             if (!allowRestore) {service.pendingRestore&=~bit;unresolved=true;return;}
             for (auto key : groups[group]) {
