@@ -45,11 +45,12 @@
 #include "ui_mainwindow.h"
 
 namespace {
-QString unnamedConnectionLabel(const QSettings &settings)
+QString defaultConnectionLabel(const QSettings &settings)
 {
     const auto server = settings.value("JustConnect/ServerAddress").toString().trimmed();
     if (server.isEmpty()) return MainWindow::tr("Unnamed connection");
-    return DefaultSettings::isBuiltInConnection(settings) ? MainWindow::tr("Fudan") : server;
+    const auto bundledServer = DefaultSettings::builtInConnection().value("JustConnect/ServerAddress").toString();
+    return server.compare(bundledServer,Qt::CaseInsensitive)==0 ? MainWindow::tr("Fudan") : server;
 }
 }
 
@@ -596,7 +597,7 @@ QString MainWindow::connectionName() const
 {
     if (savedConnections->usesOverrideConfiguration())
         return QFileInfo(settings->fileName()).completeBaseName();
-    return currentConnectionId.isEmpty() ? unnamedConnectionLabel(*settings) : currentConnectionId;
+    return currentConnectionId.isEmpty() ? defaultConnectionLabel(*settings) : currentConnectionId;
 }
 
 void MainWindow::updateConnectionSummary()
@@ -678,7 +679,7 @@ void MainWindow::refreshConnectionMenu()
     const bool overrideConfiguration = savedConnections->usesOverrideConfiguration();
     const auto defaultName = currentConnectionId.isEmpty() && !overrideConfiguration
         ? connectionName()
-        : unnamedConnectionLabel(QSettings(SavedConnectionStore().connectionPath({}), QSettings::IniFormat));
+        : defaultConnectionLabel(QSettings(SavedConnectionStore().connectionPath({}), QSettings::IniFormat));
     const auto updateMenu = [&](QMenu *menu, QActionGroup *group, QAction *before = nullptr) {
         if (rebuild) {
             qDeleteAll(group->actions());
