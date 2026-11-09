@@ -106,6 +106,9 @@ public:
             discover();
             for (const auto &saved : owners) if (saved->state->uid() == uid)
                 receipts.append(QJsonObject{{"owner",saved->state->owner().toString(QUuid::WithoutBraces)},{"phase",saved->state->phase()}});
+        } else if (operation == "tcp_listener") {
+            if (!macOwnsLoopbackTCPListener(packet["pid"].toInt(),quint16(packet["port"].toInt()),quint32(packet["ipv4"].toInteger())))
+                result = {Status::Failed,"The process does not own the requested loopback TCP listener.",false};
         } else if (entry && entry->peer && entry->peer != peer) {
             result = {Status::PermissionDenied,"Connection ownership belongs to another live client.",false};
         } else if (operation == "apply") {

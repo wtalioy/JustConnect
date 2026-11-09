@@ -15,7 +15,7 @@
 | --- | --- |
 | 阶段进度 | S3—S6 **23／23**，S7 **13／13**。S8 **2／5**。全计划 **60／64**，剩 S1-04、S8-01／03／05。 |
 | Windows 实测 | 2026-11-08 用户确认 S8 Windows 实测通过，反馈未注明包版本。`b2fbdb3` 既有实测覆盖动态代理／TUN、校园网页／SSH／登录、Tailscale 直连；同窗首次／复用接管 2480／38 ms。 |
-| 当前跟踪 | Apple Silicon 已实测认证、校园 SSH 和 `zb` 原生 DNS。新版换包后的助手启动、钥匙串弹窗和 Clash 系统代理开启时的 Chrome 待实测。 |
+| 当前跟踪 | Apple Silicon 在重新批准后台项后连接成功；关 Clash 系统代理时校园网页可访问。macOS 27 普通应用读到空 TCP 表，Clash 浏览器接管改由已签名助手核验回环监听，待新包实测。 |
 | 最近已验证预览 | `d840487` [Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/42548164459/artifacts/13644457509)／[Apple Silicon DMG](https://github.com/wtalioy/JustConnect/actions/runs/42548164459/artifacts/13644064525)。 |
 
 ## 当前验收基线

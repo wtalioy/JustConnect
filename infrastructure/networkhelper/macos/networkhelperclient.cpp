@@ -9,6 +9,7 @@
 #include <dispatch/dispatch.h>
 #include <functional>
 #include <algorithm>
+#include <mutex>
 #include <net/if.h>
 #include <unistd.h>
 
@@ -29,7 +30,76 @@ std::shared_ptr<int> ownedFd(int descriptor = -1)
 {
     return {new int(descriptor),[](int *value) { if (*value >= 0) ::close(*value); delete value; }};
 }
+
+class TCPListenerVerifier {
+    std::mutex mutex;
+    xpc_connection_t channel = nullptr;
+public:
+    MacHelperIdentity identity{MacHelperAppIdentifier,MacHelperIdentifier};
+    ~TCPListenerVerifier()
+    {
+        if (channel) { xpc_connection_cancel(channel); xpc_release(channel); }
+    }
+    xpc_connection_t connection()
+    {
+        const std::lock_guard lock(mutex);
+        if (!channel && identity.ready()) {
+            channel = xpc_connection_create_mach_service(MacHelperIdentifier,
+                dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0),XPC_CONNECTION_MACH_SERVICE_PRIVILEGED);
+            if (channel) {
+                xpc_connection_set_event_handler(channel,^(xpc_object_t) {});
+                const bool trusted = identity.constrain(channel);
+                xpc_connection_resume(channel);
+                if (!trusted) { xpc_connection_cancel(channel); xpc_release(channel); channel = nullptr; }
+            }
+        }
+        if (channel) xpc_retain(channel);
+        return channel;
+    }
+    void invalidate(xpc_connection_t transport)
+    {
+        const std::lock_guard lock(mutex);
+        if (channel != transport) return;
+        xpc_connection_cancel(channel); xpc_release(channel); channel = nullptr;
+    }
+};
 }
+
+// Called by the embedded Go core. A negative result means the verifier was unavailable.
+extern "C" int jc_macos_owns_tcp_listener(int pid, unsigned short port, uint32_t ipv4)
+{
+    static const auto verifier = std::make_shared<TCPListenerVerifier>();
+    const auto transport = verifier->connection();
+    if (!transport) return -1;
+    const auto release = qScopeGuard([&]{xpc_release(transport);});
+    const auto id = QUuid::createUuid();
+    auto packet = macHelperRequest("tcp_listener",id,id);
+    packet["pid"] = pid;
+    packet["port"] = int(port);
+    packet["ipv4"] = qint64(ipv4);
+    const auto message = macHelperMessage(packet);
+    if (!message) return -1;
+    struct Reply {
+        dispatch_semaphore_t ready = dispatch_semaphore_create(0);
+        int owned = -1;
+        ~Reply() { dispatch_release(ready); }
+    };
+    const auto reply = std::make_shared<Reply>();
+    const auto service = verifier;
+    xpc_connection_send_message_with_reply(transport,message,dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0),^(xpc_object_t response) {
+        QJsonObject decoded;
+        if (xpc_connection_get_euid(transport) == 0 && service->identity.accepts(response) && readMacHelperMessage(response,decoded))
+            if (const auto result = parseMacHelperResponse(decoded,packet); result && !result->mayHaveChanged)
+                reply->owned = result->succeeded() ? 1 : 0;
+        dispatch_semaphore_signal(reply->ready);
+    });
+    xpc_release(message);
+    if (dispatch_semaphore_wait(reply->ready,dispatch_time(DISPATCH_TIME_NOW,2*NSEC_PER_SEC)) == 0 && reply->owned >= 0)
+        return reply->owned;
+    verifier->invalidate(transport);
+    return -1;
+}
+
 struct MacNetworkHelperClient::Native {
     MacNetworkHelperClient *client = nullptr;
     dispatch_queue_t queue = dispatch_queue_create("JustConnect.network.client",DISPATCH_QUEUE_SERIAL);
@@ -186,10 +256,10 @@ void MacNetworkHelperClient::probeFailed()
     const auto request = pendingRequest = QUuid::createUuid();
     setState(State::Registering);
     if (current != State::Registering || pendingRequest != request) return;
+    deadline.start();
     const std::weak_ptr<Native> weak(native);
     const bool refresh = operation == Operation::Inspect;
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0),^{
-        const auto result = registerMacNetworkHelper(refresh);
+    registerMacNetworkHelper(refresh,[weak,request](Result result) {
         if (auto state = weak.lock()) dispatch_async(state->queue,^{ state->post([result,request](auto *target) {
             if (target->current != State::Registering || target->pendingRequest != request) return;
             if (target->cancelled) target->finish({Status::Cancelled,"Network setup cancelled.",false},State::Idle);

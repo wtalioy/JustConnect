@@ -35,6 +35,7 @@ function(justconnect_mac_network_helper)
         "${REPO}/infrastructure/networkhelper/macos/helperauthorization.cpp"
         "${REPO}/infrastructure/networkhelper/macos/helperidentity.cpp"
         "${REPO}/infrastructure/networkhelper/macos/helpertransport.cpp"
+        "${REPO}/infrastructure/networkhelper/macos/tcplistener.cpp"
         "${REPO}/infrastructure/tundevice/macos/tundevice.cpp"
         "${REPO}/infrastructure/routing/macos/routesnapshot.cpp"
         "${REPO}/infrastructure/routing/macos/tunroutes.cpp"

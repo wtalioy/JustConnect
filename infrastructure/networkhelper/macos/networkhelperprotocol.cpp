@@ -1,4 +1,5 @@
 #include "infrastructure/networkhelper/macos/networkhelper.h"
+#include <limits>
 #include "infrastructure/dns/macos/resolver.h"
 #include "infrastructure/networkaddress/ipv4.h"
 #include "infrastructure/dns/dnsdomains.h"
@@ -38,6 +39,12 @@ bool validMacHelperRequest(const QJsonObject &packet)
     if (QJsonDocument(packet).toJson(QJsonDocument::Compact).size() > MacHelperRequestBytes || packet["schema_version"] != MacHelperProtocol || !canonicalUuid(packet["owner"])
         || !canonicalUuid(packet["request_id"])) return false;
     const auto operation = packet["operation"].toString();
+    if (operation == "tcp_listener") {
+        const auto pid = packet["pid"].toInteger(-1), port = packet["port"].toInteger(-1);
+        const auto ipv4 = packet["ipv4"].toInteger(-1);
+        return packet.size() == 7 && pid > 0 && pid <= std::numeric_limits<int>::max()
+            && port > 0 && port <= 65535 && (ipv4 == 0 || (ipv4 >= 0 && (ipv4 >> 24) == 127));
+    }
     if (operation == "extend") return packet.size() == 5 && packet["addresses"].isArray();
     if (operation == "routes") return packet.size() == 5 && packet["prefixes"].isArray();
     if (operation == "apply") return packet.size() == 5 && packet["configuration"].isObject();

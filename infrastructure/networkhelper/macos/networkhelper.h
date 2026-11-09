@@ -30,6 +30,7 @@ std::optional<QStringList> parseMacHelperExtend(const QJsonObject &packet);
 QJsonObject macHelperRoutesRequest(const QUuid &owner, const QUuid &request, const QStringList &prefixes);
 std::optional<QStringList> parseMacHelperRoutes(const QJsonObject &packet);
 bool validMacHelperRequest(const QJsonObject &packet);
+bool macOwnsLoopbackTCPListener(int pid, quint16 port, quint32 ipv4);
 std::optional<MacHelperConfiguration> parseMacHelperApply(const QJsonObject &packet);
 QJsonObject macHelperResponse(const QJsonObject &request, const PlatformOperationResult &result, const QJsonObject &device = {});
 std::optional<PlatformOperationResult> parseMacHelperResponse(const QJsonObject &packet, const QJsonObject &request);

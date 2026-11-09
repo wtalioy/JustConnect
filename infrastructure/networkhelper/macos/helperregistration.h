@@ -1,5 +1,6 @@
 #pragma once
 #include "application/platformoperationresult.h"
+#include <functional>
 
-// May prompt for system approval; call from a worker, never from the Qt event thread.
-PlatformOperationResult registerMacNetworkHelper(bool refresh);
+// Completion runs off the Qt event thread.
+void registerMacNetworkHelper(bool refresh, std::function<void(PlatformOperationResult)> completion);

@@ -18,6 +18,8 @@
 #include <sys/uio.h>
 #include <unistd.h>
 
+extern "C" int jc_macos_owns_tcp_listener(int pid, unsigned short port, uint32_t ipv4);
+
 class PublicationCore final : public CoreEngine
 {
 public:
@@ -28,6 +30,27 @@ public:
     std::function<void(const QString &,const QString &,bool)> acknowledged;
 };
 static void check(bool ok, const char *message) { if (!ok) throw std::runtime_error(message); }
+static void checkTCPListenerOwnership()
+{
+    const auto listener = ::socket(AF_INET,SOCK_STREAM,0);
+    check(listener >= 0,"Create loopback TCP ownership fixture");
+    sockaddr_in local{};
+    local.sin_len = sizeof(local); local.sin_family = AF_INET;
+    local.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    socklen_t length = sizeof(local);
+    check(::bind(listener,reinterpret_cast<sockaddr *>(&local),length) == 0 && ::listen(listener,1) == 0
+        && ::getsockname(listener,reinterpret_cast<sockaddr *>(&local),&length) == 0,
+        "Start owned loopback TCP listener");
+    const auto port = ntohs(local.sin_port);
+    check(jc_macos_owns_tcp_listener(getpid(),port,INADDR_LOOPBACK) == 1
+        && jc_macos_owns_tcp_listener(getpid(),port,INADDR_LOOPBACK+1) == 0
+        && jc_macos_owns_tcp_listener(getpid(),port,0) == 0,
+        "Signed root service did not confirm the exact listening address");
+    ::close(listener);
+    check(jc_macos_owns_tcp_listener(getpid(),port,INADDR_LOOPBACK) == 0,
+        "Signed root service accepted a closed listener");
+}
+
 static void report(const QJsonObject &value) { std::cout << QJsonDocument(value).toJson(QJsonDocument::Compact).constData() << std::endl; }
 static const MacHelperConfiguration configuration{"198.18.0.1","198.18.0.2",1400,{"198.18.0.6/32"},{"campus.justconnect-fixture.test"}};
 static void checkOriginalView(const MacNetworkHelperClient &client)
@@ -136,6 +159,7 @@ int main(int argc,char **argv) try
         }
         if (ungranted) AuthorizationFree(ungranted,kAuthorizationFlagDefaults);
         xpc_release(reply); xpc_release(message); xpc_connection_cancel(connection); xpc_release(connection);
+        if (arguments[1] == "--wire-denied") checkTCPListenerOwnership();
         report({{"event","wire-denied"}}); return 0;
     }
     check(arguments.size() == 3 || arguments.size() == 4,"Invalid native client fixture arguments");

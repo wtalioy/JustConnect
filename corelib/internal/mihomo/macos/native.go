@@ -101,9 +101,21 @@ func Read(ctx context.Context) ([]model.Process, error) {
 	return result, nil
 }
 
+var verifyTCPListener func(pid int, port uint16, ipv4 uint32) int
+
 func OwnsTCP(ctx context.Context, p model.Process, target netip.AddrPort) bool {
-	if ctx.Err() != nil || !Valid(p) {
+	if ctx.Err() != nil || !target.Addr().IsLoopback() || target.Port() == 0 || !Valid(p) {
 		return false
+	}
+	if verifyTCPListener != nil {
+		var ipv4 uint32
+		if host := target.Addr().Unmap(); host.Is4() {
+			address := host.As4()
+			ipv4 = binary.BigEndian.Uint32(address[:])
+		}
+		if result := verifyTCPListener(p.PID, target.Port(), ipv4); result >= 0 {
+			return result == 1 && ctx.Err() == nil && Valid(p)
+		}
 	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
