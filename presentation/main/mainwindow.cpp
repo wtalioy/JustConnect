@@ -14,6 +14,7 @@
 #include <QPushButton>
 #include <QLabel>
 #include <QHeaderView>
+#include <QHBoxLayout>
 #include <QHash>
 #include <QTabBar>
 #include <QFontDatabase>
@@ -78,12 +79,19 @@ std::optional<QString> requestConnectionName(QWidget *parent,const QString &titl
     layout->addWidget(label);
     layout->addWidget(name);
     layout->addWidget(hint);
-    auto *buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel,&dialog);
-    buttons->button(QDialogButtonBox::Ok)->setText(action);
-    buttons->button(QDialogButtonBox::Ok)->setDefault(true);
-    layout->addWidget(buttons);
-    QObject::connect(buttons,&QDialogButtonBox::accepted,&dialog,&QDialog::accept);
-    QObject::connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+    auto *cancel=new QPushButton(MainWindow::tr("Cancel"),&dialog);
+    cancel->setObjectName("connectionNameCancel");
+    auto *primary=new QPushButton(action,&dialog);
+    primary->setObjectName("connectionNamePrimary");
+    primary->setDefault(true);
+    auto *buttons=new QHBoxLayout;
+    buttons->setSpacing(12);
+    buttons->addStretch();
+    buttons->addWidget(cancel);
+    buttons->addWidget(primary);
+    layout->addLayout(buttons);
+    QObject::connect(cancel,&QPushButton::clicked,&dialog,&QDialog::reject);
+    QObject::connect(primary,&QPushButton::clicked,&dialog,&QDialog::accept);
     name->setFocus(Qt::OtherFocusReason);
     name->selectAll();
     if (dialog.exec()!=QDialog::Accepted) return std::nullopt;

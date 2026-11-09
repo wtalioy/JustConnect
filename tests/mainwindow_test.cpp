@@ -178,7 +178,10 @@ static void profileMenusKeepTheirActions(MainWindow &window,const QString &profi
             auto *name=dialog->findChild<QLineEdit *>("connectionNameEdit");
             auto *label=dialog->findChild<QLabel *>("connectionNameLabel");
             auto *hint=dialog->findChild<QLabel *>("connectionNameHint");
-            auto *next=dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok);
+            auto *next=dialog->findChild<QPushButton *>("connectionNamePrimary");
+            auto *cancel=dialog->findChild<QPushButton *>("connectionNameCancel");
+            check(cancel && next && cancel->geometry().right()<next->geometry().left() && next->isDefault(),
+                "add places Cancel to the left of the default action");
             check(next->text()=="Continue" && label->buddy()==name && hint->geometry().top()>name->geometry().bottom()
                 && hint->font().pointSizeF()<label->font().pointSizeF() && name->accessibleDescription()==hint->text(),
                 "add explains its next step and shows naming rules as a secondary field hint");
@@ -227,13 +230,16 @@ static void profileMenusKeepTheirActions(MainWindow &window,const QString &profi
         auto *name=dialog->findChild<QLineEdit *>("connectionNameEdit");
         auto *label=dialog->findChild<QLabel *>("connectionNameLabel");
         auto *hint=dialog->findChild<QLabel *>("connectionNameHint");
-        auto *buttons=dialog->findChild<QDialogButtonBox *>();
-        check(name->text()=="direct-add" && buttons->button(QDialogButtonBox::Ok)->text()=="Rename"
+        auto *primary=dialog->findChild<QPushButton *>("connectionNamePrimary");
+        auto *cancel=dialog->findChild<QPushButton *>("connectionNameCancel");
+        check(cancel && primary && cancel->geometry().right()<primary->geometry().left() && primary->isDefault(),
+            "rename places Cancel to the left of the default action");
+        check(name->text()=="direct-add" && primary->text()=="Rename"
             && hint->geometry().top()>name->geometry().bottom() && hint->font().pointSizeF()<label->font().pointSizeF(),
             "rename describes the action and places its secondary hint below the current name");
         if (!report.isEmpty()) check(dialog->grab().save(QDir(report).filePath("rename-connection-prompt.png")),
             "save the native rename dialog");
-        buttons->button(QDialogButtonBox::Cancel)->click();
+        cancel->click();
     });
     window.findChild<QAction *>("renameConnectionAction")->trigger();
     auto *credentials=window.findChild<CredentialAccess *>();
