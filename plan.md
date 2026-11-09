@@ -15,14 +15,14 @@
 | --- | --- |
 | 阶段进度 | S3—S6 **23／23**，S7 **13／13**。S8 **2／5**。全计划 **60／64**，剩 S1-04、S8-01／03／05。 |
 | Windows 实测 | 2026-11-08 用户确认 S8 Windows 实测通过，反馈未注明包版本。`b2fbdb3` 既有实测覆盖动态代理／TUN、校园网页／SSH／登录、Tailscale 直连；同窗首次／复用接管 2480／38 ms。 |
-| 当前跟踪 | Apple Silicon `f28f69b` 实测后台项关闭／批准后预检 60／8 ms，后续 2–5 ms。校园网页、SSH、代理／TUN 动态切换及同进程授权复用已在 `3f601a7` 实测。旧认证缓存被拒绝时，手动清理当前账户缓存后登录一次即可恢复复用；新版在成功认证后自动替换不可读写的缓存，待实测。 |
-| 最近已验证预览 | `f28f69b` [Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/42597791056/artifacts/13663604674)／[Apple Silicon DMG](https://github.com/wtalioy/JustConnect/actions/runs/42597791056/artifacts/13663654422)。 |
+| macOS 实测 | Apple Silicon 校园网页、SSH、代理／TUN 动态切换和同进程授权复用已通过。`f28f69b` 后台项关闭／批准后预检 60／8 ms，后续 2–5 ms。`96c6c09` 保留旧缓存换包后，认证复用、退出重开及关开后台项复测通过。 |
+| 最近已验证预览 | `96c6c09` [Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/42603167416/artifacts/13667551157)／[Apple Silicon DMG](https://github.com/wtalioy/JustConnect/actions/runs/42603167416/artifacts/13667281545)。 |
 
 ## 当前验收基线
 
 | 范围 | 当前结论与证据 |
 | --- | --- |
-| 自动检查 | `f28f69b` [两平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/42597791391)及[四架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/42597791418)通过。macOS 原生测试覆盖 TUN 切换时 DNS 上游更新、代理崩溃恢复、同进程授权复用及助手不回应时的预检。Apple Silicon 模拟助手不回应时在 6.2 秒后提供设置入口。 |
+| 自动检查 | `96c6c09` [两平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/42603165942)及[四架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/42603165961)通过，覆盖不可访问认证缓存的独立替换、助手无响应、授权复用、代理崩溃恢复及 TUN 切换时 DNS 上游更新。 |
 | 实际包／源码 | 见 S8-04。 |
 | Windows 修复／性能 | 正常断开修复已实测；DNS 批量刷新、持久进度、部分失败和后续所有权已双架构原生验证。接口查询及 `70f90a5` 接管／断开 CPU 优化已实测通过；`build/reports/windows-restore-9d95b37/summary.json`、`build/reports/windows-dns-cpu-da23405/summary.json` |
 | 阶段矩阵 | V1—V7 区分既有实测、自动证据及最终包待测项 |
@@ -235,8 +235,8 @@
 - [ ] **S8-01**：两台设备用已有浏览器和终端验证校园网页、普通 SSH、普通网站与正常断开。Windows 补 Clash 退出时的主路径，用同一可稳定直连的 Tailscale 对端核对 MagicDNS 与接管前／中／后的直连。三种 Clash 主组合和动态切换沿用既有 Windows 实测及当前两平台自动证据。
 - [x] **S8-02**：故障与恢复复用 S3-06／S4-06／S7-03—05 及当前两平台原生回归，涵盖取消、权限拒绝、部分失败、外部改值、超时、进程终止与独立恢复。真实注销／跨登录会话、长时间离线及少见网络环境未实测，出现实际问题时补验。正常断开和授权随 S8-01／03。
 - [ ] **S8-03**：在上述连断中验证实际包启动、正常认证和授权、连接状态与退出。Windows 复用 S7 UI 实测，macOS 补 Finder 安装、菜单栏恢复窗口与退出。取消、双语、偏好、键盘及异常流程复用已有回归。
-  - macOS 27 后台批准提示、批准后连断、系统代理／TUN 切换及同进程授权复用已实测。待复测新版替换不可访问的认证缓存，以及退出重开、关开后台项后仍能复用校园认证。新版助手保管代理恢复快照，旧独立恢复工具仍保留用于已发布版本的待恢复记录。
-- [x] **S8-04**：`f28f69b` 的[四组实际包和对应源码](https://github.com/wtalioy/JustConnect/actions/runs/42597791056)通过，另验 [Apple Silicon DMG 在 macOS 27.0.1 安装、启动和退出](https://github.com/wtalioy/JustConnect/actions/runs/42597791056/job/129101500361)。最终提交的发布附件随 S8-05 核对。
+  - macOS 27 已实测安装启动、批准、连断、退出及认证缓存复用，菜单栏恢复窗口待记录。旧独立恢复工具保留用于已发布版本的待恢复记录。
+- [x] **S8-04**：`96c6c09` 的[四组实际包和对应源码](https://github.com/wtalioy/JustConnect/actions/runs/42603167416)通过，另验 [Apple Silicon DMG 在 macOS 27.0.1 安装、启动和退出](https://github.com/wtalioy/JustConnect/actions/runs/42603167416/job/129120657414)。最终提交的发布附件随 S8-05 核对。
 - [ ] **S8-05**：主路径实测通过后验收 [main／Release 交付](docs/DEVELOPMENT.md#分支与-actions)，核对附件与来源。macOS 正式交付须验证从 Release 用浏览器直接下载 DMG、拖入「应用程序」并按系统首次打开流程启动。
 
 ## 验收记录
@@ -245,11 +245,11 @@
 | --- | --- | --- | --- |
 | V1 | Clash 未运行时的校园、普通网络及断开 | 本轮用户确认实测通过 | 受控 DNS／SSH／TCP／UDP 与恢复已验。真实校园／普通出口／连断待测 |
 | V2 | Clash 运行，系统代理关／TUN 关 | `dd1791a` 网页／SSH／断开实测通过 | `99c2454` Chrome 可打开 `icourse`；`b86d167` 确认 `zb` 正常（A13） |
-| V3 | Clash 运行，系统代理开／TUN 关 | `b2fbdb3` 代理先开／后开、普通网站、校园网页／SSH／恢复实测通过 | `99c2454` 校园 SSH 可用。显式经 JustConnect HTTP 代理访问 `icourse`／`zb` 均返回 HTTPS 200；`b86d167` 确认系统代理生效时应用误读为关闭。已切换到系统有效代理来源，待实机复测 |
-| V4 | Clash 运行，系统代理关／TUN 开 | `b2fbdb3` 动态切换、校园网页／SSH／恢复和 Tailscale 直连实测通过。Fake-IP 个案沿用用户 Clash 配置 | 共存和恢复有双架构自动覆盖，未实机专项 |
+| V3 | Clash 运行，系统代理开／TUN 关 | `b2fbdb3` 代理先开／后开、普通网站、校园网页／SSH／恢复实测通过 | `3f601a7` 校园网页／SSH、系统代理动态开关及恢复实测通过 |
+| V4 | Clash 运行，系统代理关／TUN 开 | `b2fbdb3` 动态切换、校园网页／SSH／恢复和 Tailscale 直连实测通过。Fake-IP 个案沿用用户 Clash 配置 | `3f601a7` TUN 动态开关实测通过，共存与恢复另有双架构自动覆盖 |
 | V5 | Clash 系统代理和 TUN 双开 | 补充自动回归通过 | 补充自动回归通过 |
 | V6 | 动态切换、会话失效、崩溃、授权与按所有权恢复 | 受控自动证据见 S8-02，动态切换已实测 | 受控自动证据见 S8-02，真实注销未实测 |
-| V7 | 实际包、正常认证及桌面操作 | 用户确认本轮实测通过，UI 沿用 S7 | Apple Silicon 静态包已实机启动并认证；最终包的菜单栏、退出与直接下载 DMG 流程待验收 |
+| V7 | 实际包、正常认证及桌面操作 | 用户确认本轮实测通过，UI 沿用 S7 | Apple Silicon `96c6c09` 安装、认证复用和重启通过；菜单栏恢复窗口待记录，Release 直接下载 DMG 随 S8-05 |
 
 Tailscale 对照保持同一对端及网络，记录解析和实际直连。Windows ARM64／Intel Mac、校园 UDP、浏览器预热 Fake-IP 缓存、特殊 DNS 来源及少见桌面／网络状态均无本次实机门槛。平台能力与安全要求见 R1—R15。
 

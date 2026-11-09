@@ -249,14 +249,14 @@ Fudan Windows 实机验收步骤：启用记住认证并连接；分别测试普
 
 ## S8 实测步骤
 
-测试前先从托盘或菜单栏退出旧版，保留现有配置和 Tailscale。Windows 实测已通过，本轮只复测 Apple Silicon。
+测试前先从托盘或菜单栏退出旧版，保留现有配置和 Tailscale。当前待验收项见 [S8 计划](../plan.md#s8-实测与交付)。
 
-- **Windows x64**。下载并完整解压 [Windows 预览包](https://github.com/wtalioy/JustConnect/actions/runs/42597791056/artifacts/13663604674)，运行 `JustConnect.exe`。验证无 Clash 的主路径时先退出 Clash。按下方命令检查同一台通常可直连的 Tailscale 设备，分别在连接前、校园接管就绪后和断开后运行一次。
-- **Apple Silicon**。用浏览器[直接下载 `f28f69b` DMG](https://github.com/wtalioy/JustConnect/actions/runs/42597791056/artifacts/13663654422)。先把旧 App 移出「应用程序」，再从新挂载的 DMG 拷入完整应用并打开。本轮确认菜单栏能恢复主窗口，并在断开后用菜单退出应用。首次打开按系统提示确认，见[签名与部署说明](#不需申请签名的开发与发行)。若新版本读不到钥匙串中先前保存的数据，按校园网页提示重新登录。旧缓存可从连接菜单的「清除当前账户认证缓存」清理。
+- **Windows x64**。下载并完整解压 [Windows 预览包](https://github.com/wtalioy/JustConnect/actions/runs/42603167416/artifacts/13667551157)，运行 `JustConnect.exe`。验证无 Clash 的主路径时先退出 Clash。按下方命令检查同一台通常可直连的 Tailscale 设备，分别在连接前、校园接管就绪后和断开后运行一次。
+- **Apple Silicon**。用浏览器[直接下载 `96c6c09` DMG](https://github.com/wtalioy/JustConnect/actions/runs/42603167416/artifacts/13667281545)。先把旧 App 移出「应用程序」，再从新挂载的 DMG 拷入完整应用并打开。首次打开按系统提示确认，见[签名与部署说明](#不需申请签名的开发与发行)。
 
 在待测设备连断一轮。预先打开浏览器和终端，按平时方式连接、登录和授权。已连接时打开一个平时使用的校园网页和一个普通网站，并用已有终端或 Codex 运行一次日常校园 SSH。点一次断开，确认没有恢复提示，普通网站仍可打开。
 
-Apple Silicon 本轮在后台项关闭时点连接，记录出现系统设置入口前的耗时；从该入口重新批准后，验证正常连断。校园网页、SSH、代理／TUN 切换及间隔 45 秒的重连授权已在 `3f601a7` 实测。若预检仍等待较久，附上日志中的 `macOS network helper preflight` 和紧接的诊断；若报助手错误，再附上以下只读检查输出。
+Apple Silicon 换包时保留钥匙串中的认证缓存。按需完成一次校园认证后，断开再连，确认可以复用认证；也可断开并退出应用，关开后台项后再启动验证。若仍反复要求校园认证，附上 `Saved authentication unavailable` 或 `Could not save authentication` 日志。若报助手错误，再附上以下只读检查输出。
 
 ```sh
 /usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' /Applications/JustConnect.app/Contents/Info.plist
