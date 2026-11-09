@@ -265,7 +265,7 @@ void SettingWindow::updateAuthFields() {
     const bool password=ui->authTypeComboBox->currentData()=="psw";
     ui->credentialsForm->setRowVisible(ui->usernameLineEdit,password);
     ui->credentialsForm->setRowVisible(ui->passwordLineEdit,password);
-    ui->credentialsForm->setRowVisible(ui->totpSecretLineEdit,password);
+    ui->credentialsForm->setRowVisible(ui->totpSecretRow,password);
     clearCredentialButton->setVisible(password);
     credentialStatus->setVisible(credentialStatusText || (credentialLoadStatus!=CredentialStatus::Success && credentialLoadStatus!=CredentialStatus::NotFound));
     ui->authForm->setRowVisible(ui->countryCodeLineEdit,sms);

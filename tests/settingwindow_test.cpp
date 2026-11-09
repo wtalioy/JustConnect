@@ -48,8 +48,12 @@ static int checkFormRows(QWidget *view) {
         for(int row=0;row<form->rowCount();++row) {
             auto *labelItem=form->itemAt(row,QFormLayout::LabelRole),*fieldItem=form->itemAt(row,QFormLayout::FieldRole);
             auto *label=labelItem?labelItem->widget():nullptr,*field=fieldItem?fieldItem->widget():nullptr;
+            if (fieldItem && fieldItem->layout() && fieldItem->layout()->count()==1)
+                field=fieldItem->layout()->itemAt(0)->widget();
             if(!label || !field || !label->isVisible() || !field->isVisible() || label->geometry().right()>=field->x()) continue;
-            check(std::abs(label->geometry().center().y()-field->geometry().center().y())<=1,
+            const auto offset=label->geometry().center().y()-field->geometry().center().y();
+            if (std::abs(offset)>1) std::cerr<<label->objectName().toStdString()<<" offset: "<<offset<<'\n';
+            check(std::abs(offset)<=1,
                 "visible form labels are vertically centered beside their fields");
             ++checked;
         }
