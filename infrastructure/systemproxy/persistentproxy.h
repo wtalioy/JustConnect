@@ -20,6 +20,7 @@ public:
     SystemProxyCheck inspect() override;
     PlatformOperationResult apply(const SystemProxyConfig &config) override;
     PlatformOperationResult clear() override;
+    PlatformOperationResult clearAfterDisconnect() override;
     PlatformOperationResult beginRecovery(const QString &owner, bool resume) override;
     PlatformOperationResult configureRecovery(const QString &owner, bool resume);
 private:

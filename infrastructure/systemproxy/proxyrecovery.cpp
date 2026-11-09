@@ -240,9 +240,9 @@ int runProxyRecoveryWorker(SystemProxyBackend &backend, const QString &endpoint,
     // The host may already be gone; keep the original backend alive until its recovery succeeds.
     unsigned delay = 1;
     for (;;) {
-        const auto result=backend.clear();
+        const auto result=backend.clearAfterDisconnect();
         if (result.succeeded()) return 0;
-        if (!result.mayHaveChanged || result.status==Status::Unsupported) return 1;
+        if (!result.mayHaveChanged) return 1;
         QThread::sleep(delay);
         delay = qMin(delay*2,30u);
     }

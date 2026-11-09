@@ -28,6 +28,7 @@ public:
     virtual SystemProxyCheck inspect() { return {{PlatformOperationResult::Status::Unsupported, "Proxy observation is unavailable"}}; }
     virtual PlatformOperationResult apply(const SystemProxyConfig &config) = 0;
     virtual PlatformOperationResult clear() = 0;
+    virtual PlatformOperationResult clearAfterDisconnect() { return clear(); }
     virtual PlatformOperationResult beginRecovery(const QString &, bool resume)
     {
         return resume ? PlatformOperationResult{PlatformOperationResult::Status::Unsupported,

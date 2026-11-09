@@ -434,6 +434,9 @@ static void backendTests() {
         const auto denied=fresh.clear();
         check(denied.status==Status::PermissionDenied && denied.mayHaveChanged && opens==beforeOpens && changes==beforeChanges,
               "Locked Mac recovery storage reached native preferences or discarded responsibility");
+        const auto detached=fresh.clearAfterDisconnect();
+        check(detached.status==Status::PermissionDenied && !detached.mayHaveChanged && opens==beforeOpens && changes==beforeChanges,
+              "Detached worker must release its lock without touching the pending proxy snapshot");
         unlock();restoring=true;
         const auto recovered=fresh.check(config);
         check(recovered.result.succeeded() && recovered.conflict && recovered.active

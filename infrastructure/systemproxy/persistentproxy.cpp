@@ -121,7 +121,7 @@ PlatformOperationResult PersistentProxyBackend::recover() {
     if (!saved.succeeded()) {
 #ifdef Q_OS_MACOS
         if (saved.status==CredentialStatus::Locked || saved.status==CredentialStatus::PermissionDenied)
-            return {Status::Unsupported,"Cannot check the saved proxy snapshot because the local Keychain is locked or inaccessible. Unlock the login Keychain and retry.",true};
+            return {Status::PermissionDenied,"Cannot check the saved proxy snapshot because the local Keychain is locked or inaccessible. Unlock the login Keychain and retry.",true};
 #endif
         const auto result=failure(saved.status);
         if (saved.status==CredentialStatus::Failed || saved.status==CredentialStatus::Limit
@@ -183,4 +183,14 @@ PlatformOperationResult PersistentProxyBackend::clear() {
     if(state==State::Complete)return {};
     const auto result=native.clear();
     return result.succeeded()?finishUnowned():result;
+}
+
+PlatformOperationResult PersistentProxyBackend::clearAfterDisconnect() {
+    auto result=clear();
+#ifdef Q_OS_MACOS
+    // A detached worker cannot unlock the Keychain. Leave the snapshot for a new attempt.
+    if (state==State::Unloaded && result.status==Status::PermissionDenied)
+        result.mayHaveChanged=false;
+#endif
+    return result;
 }
