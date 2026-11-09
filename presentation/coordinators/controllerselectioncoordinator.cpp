@@ -3,11 +3,11 @@
 #include <QIcon>
 #include <QDialog>
 #include <QDialogButtonBox>
-#include <QFormLayout>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QVBoxLayout>
 #include <QtConcurrent>
 
 ControllerSelectionCoordinator::ControllerSelectionCoordinator(QWidget *window,QObject *parent,
@@ -58,13 +58,12 @@ void ControllerSelectionCoordinator::showChoice(const EmbeddedCoreEngine::Contro
     auto *view=new QDialog(window);dialog=view;
     view->setObjectName("controllerSelectionDialog");view->setWindowTitle(tr("Clash coexistence"));
     view->setWindowModality(Qt::WindowModal);view->setAttribute(Qt::WA_DeleteOnClose);
-    auto *layout=new QFormLayout(view);layout->setRowWrapPolicy(QFormLayout::WrapAllRows);
-    layout->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+    auto *layout=new QVBoxLayout(view);
     layout->setContentsMargins(24,24,24,24);layout->setSpacing(12);view->setMinimumWidth(320);
     auto *hint=new QLabel(result.status==CoreEngine::RequestStatus::Success
         ? tr("Choose the local controller to use. Changes apply to the next connection.")
         : tr("Automatic discovery is unavailable. Retry or enter a local controller address."),view);
-    hint->setWordWrap(true);layout->addRow(hint);
+    hint->setWordWrap(true);layout->addWidget(hint);
     auto *choices=new QComboBox(view);choices->setObjectName("controllerChoices");
     choices->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
     choices->addItem(tr("Automatically discover"),QString());
@@ -92,10 +91,14 @@ void ControllerSelectionCoordinator::showChoice(const EmbeddedCoreEngine::Contro
     selector->addWidget(retry);
     auto *controllerLabel = new QLabel(tr("Controller"),view);
     controllerLabel->setBuddy(choices);
-    layout->addRow(controllerLabel,selector);
+    layout->addWidget(controllerLabel);
+    layout->addLayout(selector);
     auto *address=new QLineEdit(view);address->setObjectName("controllerAddress");
     address->setPlaceholderText(tr("A loopback HTTP(S), unix:// or pipe:// address"));
-    auto *addressLabel=new QLabel(tr("Local address"),view);layout->addRow(addressLabel,address);
+    auto *addressLabel=new QLabel(tr("Local address"),view);
+    addressLabel->setBuddy(address);
+    layout->addWidget(addressLabel);
+    layout->addWidget(address);
     const auto current=preferences.controllerAddress();
     int selected=choices->findData(current);
     if (selected<0) {selected=manualIndex;address->setText(current);}
@@ -104,13 +107,13 @@ void ControllerSelectionCoordinator::showChoice(const EmbeddedCoreEngine::Contro
     const auto update=[choices,address,addressLabel,manualIndex] {
         address->setVisible(choices->currentIndex()==manualIndex);
         addressLabel->setVisible(address->isVisibleTo(address->parentWidget()));
-        choices->setToolTip(choices->currentData().toString());
+        choices->setToolTip(choices->currentData(Qt::ToolTipRole).toString());
     };
     connect(choices,&QComboBox::currentIndexChanged,view,update);update();
-    auto *error=new QLabel(view);error->setObjectName("controllerError");error->setWordWrap(true);layout->addRow(error);
+    auto *error=new QLabel(view);error->setObjectName("controllerError");error->setWordWrap(true);layout->addWidget(error);
     auto *buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel,view);
     buttons->button(QDialogButtonBox::Ok)->setText(settings?tr("Save"):tr("Use controller"));
-    layout->addRow(buttons);
+    layout->addWidget(buttons);
     const auto generation=request;
     connect(view,&QDialog::rejected,this,[this,view,generation] {if (dialog==view && request==generation) finish(std::nullopt);});
     connect(retry,&QPushButton::clicked,this,[this,generation] {if (request!=generation || !completion) return;++request;closeDialog();read();});
