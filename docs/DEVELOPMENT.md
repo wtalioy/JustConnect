@@ -256,6 +256,13 @@ Fudan Windows 实机验收步骤：启用记住认证并连接；分别测试普
 
 在待测设备连断一轮。预先打开浏览器和终端，按平时方式连接、登录和授权。已连接时打开一个平时使用的校园网页和一个普通网站，并用已有终端或 Codex 运行一次日常校园 SSH。点一次断开，确认没有恢复提示，普通网站仍可打开。
 
+Apple Silicon 本轮用 Clash 系统代理开、TUN 关复测。连接后用 Chrome 打开 `https://icourse.fudan.edu.cn/`，同时验证普通网站与校园 SSH，断开后再确认普通网站可访问。若 macOS 请求访问钥匙串，记录项目名称即可。若认证前就报助手错误，附上 JustConnect 的错误和以下只读检查输出。
+
+```sh
+/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' /Applications/JustConnect.app/Contents/Info.plist
+launchctl print system/com.github.wtalioy.JustConnect.NetworkHelper | grep -E 'job state|program identifier|parent bundle version|last exit code'
+```
+
 ```powershell
 $peer = '替换为现有设备的完整 MagicDNS 名称'
 Resolve-DnsName ($peer.TrimEnd('.') + '.') -Type A -DnsOnly
