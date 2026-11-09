@@ -48,6 +48,14 @@
 using ProxyCheck::check;
 static std::optional<bool> noOfficialClient(){return false;}
 #define until(...) UiWait::until(__FILE__, __LINE__, __VA_ARGS__)
+static QComboBox *queryChoices(SettingWindow *window) { return window->findChild<QComboBox *>("authTypeComboBox"); }
+static void findSignInMethods(SettingWindow *window) {
+    auto *choices=queryChoices(window);
+    const int action=choices->count()-1;
+    check(choices->itemText(action)==QCoreApplication::translate("SettingWindow","Find sign-in methods…"),
+        "discovery is an action in the sign-in dropdown");
+    choices->setCurrentIndex(action);
+}
 static SettingWindow *openQuery(QWidget *parent,const ConnectionOptions &connectionOptions,CoreEngine *engine=nullptr) {
     static QTemporaryDir folder;
     check(folder.isValid(),"isolated inline authentication queries");
@@ -56,15 +64,15 @@ static SettingWindow *openQuery(QWidget *parent,const ConnectionOptions &connect
     settings.setValue("JustConnect/ServerAddress",connectionOptions.endpoint.server);
     settings.setValue("JustConnect/ServerPort",connectionOptions.endpoint.port);
     settings.setValue("JustConnect/AuthType",connectionOptions.endpoint.authType);
+    settings.setValue("JustConnect/LoginDomain",connectionOptions.endpoint.loginDomain);
     settings.setValue("JustConnect/TLSVerify",connectionOptions.tls.verify);
     settings.setValue("JustConnect/TLSCAPEM",connectionOptions.tls.caPem);
     settings.setValue("JustConnect/AllowUnverifiedNodes",connectionOptions.tls.allowUnverifiedNodes);settings.sync();
     auto *access=new CredentialAccess(std::make_unique<MemoryCredentialStore>(),parent);
     auto *window=new SettingWindow(parent,access,CredentialAccess::source(settings,{}),engine);
-    window->show();window->findChild<QPushButton *>("authSelectPushButton")->click();
+    window->show();findSignInMethods(window);
     return window;
 }
-static QComboBox *queryChoices(SettingWindow *window) { return window->findChild<QComboBox *>("authTypeComboBox"); }
 static int returnedMethods(SettingWindow *window) {
     auto *choices=queryChoices(window);int count=0;
     for(int i=0;i<choices->count();++i) if(choices->itemData(i,Qt::UserRole+1).isValid()) ++count;
@@ -921,27 +929,45 @@ static void uiContracts() {
     check(returnedMethods(oauth)==0,"preferred query also waits for terminal cleanup");
     emit oauthEngine->finished(ConnectionError::NONE);
     auto *methods=queryChoices(oauth);
-    check(methods->currentData().toString().isEmpty(),"multiple OAuth methods require an explicit choice without preset-name heuristics");
-    methods->setCurrentIndex(3);
+    check(methods->currentData()=="httpsOauth2" && methods->currentData(Qt::UserRole+1).toJsonObject()["auth_id"].toString().isEmpty(),
+        "discovering several methods preserves the configured choice without binding it to a guessed ID");
+    methods->setCurrentIndex(methods->findText("Campus sign-in"));
     const auto choice=methods->currentData(Qt::UserRole+1).toJsonObject();
     check(choice["domain"]=="returned-domain" && choice["login_url"]=="https://returned.example.invalid/uis"
         && choice["auth_id"]=="selected-opaque-id" && choice["sub_type"]=="https","explicit selection retains complete returned identity");
-    oauth->findChild<QPushButton *>("authSelectPushButton")->click();until([&]{return oauthEngine->starts==2;});
+    findSignInMethods(oauth);until([&]{return oauthEngine->starts==2;});
     emit oauthEngine->authMethodsReady({QJsonObject{{"type","auth/psw"},{"name","Password"}},
         QJsonObject{{"type","auth/httpsOauth2"},{"name","Federated sign-in"},{"auth_id","single-id"}}});
     emit oauthEngine->finished(ConnectionError::NONE);
-    check(methods->currentData(Qt::UserRole+1).toJsonObject()["auth_id"]=="single-id","a unique preferred OAuth method is selected without inspecting preset names");
+    check(methods->currentData(Qt::UserRole+1).toJsonObject()["auth_id"]=="selected-opaque-id",
+        "refreshing discovery does not silently replace a configured server identity");
+    methods->setCurrentIndex(methods->findText("Federated sign-in"));
+    check(methods->currentData(Qt::UserRole+1).toJsonObject()["auth_id"]=="single-id",
+        "a discovered replacement can be selected explicitly");
     oauth->reject(); QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    auto *defaultEngine=new QueryEngine;
+    queryProfile.endpoint.loginDomain="campus.example.invalid";
+    auto *automatic=openQuery(&parent,queryProfile,defaultEngine);
+    until([&]{return defaultEngine->starts==1;});
+    emit defaultEngine->authMethodsReady({QJsonObject{{"type","auth/httpsOauth2"},{"name","Campus identity"},
+        {"auth_id","live-id"},{"sub_type","https"},{"domain",queryProfile.endpoint.loginDomain}}});
+    emit defaultEngine->finished(ConnectionError::NONE);
+    auto *automaticChoice=queryChoices(automatic);
+    check(automaticChoice->currentText()=="Campus identity" && automaticChoice->count()==3
+        && !automaticChoice->currentData(Qt::UserRole+1).toJsonObject().contains("auth_id"),
+        "a unique live match names the automatic choice without pinning a new server ID");
+    automatic->reject();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    queryProfile.endpoint.loginDomain.clear();
     auto *cancelEngine=new QueryEngine;
     auto *cancelled=openQuery(&parent,queryProfile,cancelEngine);
     until([&]{return cancelEngine->starts==1;});
-    cancelled->findChild<QPushButton *>("authSelectPushButton")->click();
+    cancelled->findChild<QPushButton *>("cancelAuthQueryButton")->click();
     check(cancelEngine->stops==1 && cancelled->isVisible(),"the inline query can be cancelled without closing settings");
     emit cancelEngine->authMethodsReady({QJsonObject{{"type","auth/psw"},{"domain","late"}}});
     emit cancelEngine->finished(ConnectionError::NONE);
     check(returnedMethods(cancelled)==0 && cancelled->findChild<QCheckBox *>("tlsVerifyCheckBox")->isEnabled(),
         "cancelled results are rejected and server trust controls are released");
-    cancelled->findChild<QPushButton *>("authSelectPushButton")->click();until([&]{return cancelEngine->starts==2;});
+    findSignInMethods(cancelled);until([&]{return cancelEngine->starts==2;});
     cancelled->reject();emit cancelEngine->authMethodsReady({QJsonObject{{"type","auth/psw"},{"domain","closed"}}});
     emit cancelEngine->finished(ConnectionError::NONE);
     check(returnedMethods(cancelled)==0,"closed settings reject a retried query's late results");

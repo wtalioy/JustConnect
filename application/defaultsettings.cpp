@@ -42,6 +42,7 @@ const QVariantMap &defaults()
         {"JustConnect/AuthType", "psw"},
         {"JustConnect/AuthID", ""},
         {"JustConnect/AuthSubType", ""},
+        {DefaultSettings::SignInMethodName, ""},
         {"JustConnect/PhoneCountryCode", "86"},
         {"JustConnect/PhoneNumber", ""},
 

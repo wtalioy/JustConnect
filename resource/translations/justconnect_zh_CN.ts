@@ -466,8 +466,8 @@ You may need to sign in again. Passwords, TOTP and other accounts are kept.</sou
     </message>
     <message>
         <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="370"/>
-        <source>Sign-in methods changed or are ambiguous. Query and select the method again.</source>
-        <translation>认证方式已变化或不唯一，请重新获取并选择认证方式。</translation>
+        <source>Open the connection settings and choose Find sign-in methods, then select the method to use.</source>
+        <translation>请打开连接设置，选择「查找登录方式」，再选择要使用的方式。</translation>
     </message>
     <message>
         <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="373"/>
@@ -1994,14 +1994,8 @@ Some system settings may have changed. Check them before retrying.</source>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="57"/>
-        <source>Method</source>
-        <translation>认证方式</translation>
-    </message>
-    <message>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="48"/>
-        <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="163"/>
-        <source>Choose a method</source>
-        <translation>请选择认证方式</translation>
+        <source>Sign-in method</source>
+        <translation>登录方式</translation>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.ui" line="206"/>
@@ -2179,8 +2173,12 @@ Some system settings may have changed. Check them before retrying.</source>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="266"/>
-        <source>Get methods</source>
-        <translation>获取方式</translation>
+        <source>Find sign-in methods…</source>
+        <translation>查找登录方式…</translation>
+    </message>
+    <message>
+        <source>Enter a server address to find sign-in methods.</source>
+        <translation>输入服务器地址后即可查找登录方式。</translation>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="279"/>
@@ -2230,7 +2228,7 @@ Some system settings may have changed. Check them before retrying.</source>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="352"/>
         <source>Choose a sign-in method</source>
-        <translation>请选择认证方式</translation>
+        <translation>选择登录方式</translation>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="352"/>

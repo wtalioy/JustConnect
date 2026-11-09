@@ -448,6 +448,7 @@ static void profileSetupLanguageChangesPreserveData(MainWindow &window) {
         && !editor->findChild<QComboBox *>("languageComboBox")
         && editor->findChild<QPushButton *>("saveProfileButton")->text()==QString::fromUtf8("保存")
         && editor->findChild<QPushButton *>("dismissSettingsButton")->text()==QString::fromUtf8("取消")
+        && method->itemText(method->count()-1)==QString::fromUtf8("查找登录方式…")
         && method->currentData()==methodValue && editor->findChild<QPlainTextEdit *>("domainDnsRulesEdit")->toPlainText()=="service.example.invalid" && secret->text()=="editor-password"
         && user->text()=="editor-user" && show->isChecked() && secret->echoMode()==QLineEdit::Normal,
         "profile editor translation preserves its tab, method identity, probe target and secret draft");
@@ -600,7 +601,8 @@ static void nativeHome(MainWindow &window, ApplicationLogger &logger) {
     auto *address = initial->findChild<QLineEdit *>("serverAddressLineEdit");
     auto *method = initial->findChild<QComboBox *>("authTypeComboBox");
     check(address->text() == "vpn.fudan.edu.cn" && address->isReadOnly()
-        && method->currentData() == "httpsOauth2"
+        && method->currentData() == "httpsOauth2" && method->currentText()=="Fudan UIS"
+        && initial->findChild<QPushButton *>("cancelAuthQueryButton")->isHidden()
         && !initial->findChild<QComboBox *>("profileKindComboBox"),
         "Fudan has a fixed server and Web sign-in, with no second connection selector");
     auto *editorScroll = initial->findChild<QScrollArea *>("loginTab");
@@ -614,9 +616,9 @@ static void nativeHome(MainWindow &window, ApplicationLogger &logger) {
         "the Fudan editor opens without a horizontal scrollbar and with Save as the primary action");
     if (const auto report=qEnvironmentVariable("JC_UI_REPORT_DIR"); !report.isEmpty())
         check(initial->grab().save(QDir(report).filePath("fudan-editor.png")),"save the native Fudan editor screenshot");
-    auto *methodButton = initial->findChild<QPushButton *>("authSelectPushButton");
-    const auto methodButtonHeight = methodButton->sizeHint().height();
-    const auto methodButtonIconSize = methodButton->iconSize();
+    auto *importButton = initial->findChild<QPushButton *>("importPushButton");
+    const auto importButtonHeight = importButton->sizeHint().height();
+    const auto importButtonIconSize = importButton->iconSize();
     initial->reject();
     QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     check(session->state()==state, "opening and cancelling the editor does not start a session");
@@ -628,9 +630,9 @@ static void nativeHome(MainWindow &window, ApplicationLogger &logger) {
     check(settings && settings->isVisible() && !qobject_cast<SettingWindow *>(settings)
         && !settings->findChild<QLineEdit *>("serverAddressLineEdit"),"the gear opens application settings with a separate responsibility");
     auto *controllerButton = settings->findChild<QPushButton *>("controllerSettingsButton");
-    check(controllerButton->sizeHint().height() == methodButtonHeight
-        && controllerButton->iconSize() == methodButtonIconSize,
-        "controller and sign-in actions use the same compact button metrics");
+    check(controllerButton->sizeHint().height() == importButtonHeight
+        && controllerButton->iconSize() == importButtonIconSize,
+        "controller selection and import use the same compact button metrics");
     auto *preferencesScroll = settings->findChild<QScrollArea *>("applicationSettingsScroll");
     waitForUi([&] { return !preferencesPaints.offsets.isEmpty()
         && preferencesScroll->verticalScrollBarPolicy() == Qt::ScrollBarAsNeeded; });

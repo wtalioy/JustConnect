@@ -83,6 +83,7 @@ int main(int argc,char **argv) {
     settings.setValue("Credential/Password",QString::fromLatin1(QByteArray("fixture-password").toBase64()));
     settings.setValue("JustConnect/ServerAddress","vpn.example.invalid");
     settings.setValue("JustConnect/AuthID","persisted-id"); settings.setValue("JustConnect/AuthSubType","password");
+    settings.setValue(DefaultSettings::SignInMethodName,"Campus password");
     settings.setValue("Credential/OtherAccount/Ticket","retained-ticket");
     settings.setValue("OtherApplication/Value","retained-value"); settings.sync();
     settings.setValue("JustConnect/SOCKS5Port",0);settings.setValue("JustConnect/HTTPPort",19443);
@@ -122,10 +123,11 @@ int main(int argc,char **argv) {
               && initial->rect().contains(QRect(action->mapTo(initial,QPoint()),action->size())),
               "labeled profile actions stay visible in the fixed footer");
       }
-      auto *query=initial->findChild<QPushButton *>("authSelectPushButton");
-      check(query->width()<=query->sizeHint().width() && query->height()==initial->findChild<QComboBox *>("authTypeComboBox")->height(),
-          "the method query action fits its label and aligns with the dropdown");
-      check(initial->findChild<QGroupBox *>("serverGroup")->font().pointSizeF()>query->font().pointSizeF(),
+      auto *method=initial->findChild<QComboBox *>("authTypeComboBox");
+      check(method->currentText()=="Campus password" && method->itemText(method->count()-1)=="Find sign-in methods…"
+          && initial->findChild<QPushButton *>("cancelAuthQueryButton")->isHidden(),
+          "the saved sign-in name and discovery share one dropdown in the idle editor");
+      check(initial->findChild<QGroupBox *>("serverGroup")->font().pointSizeF()>method->font().pointSizeF(),
           "section headings have a larger type size than form controls");
       auto *remember=initial->findChild<QCheckBox *>("rememberAuthenticationCheckBox");
       check(remember && remember->isChecked(),"remember authentication is checked by default");
@@ -136,7 +138,9 @@ int main(int argc,char **argv) {
       QObject::connect(initial,&SettingWindow::connectRequested,[&]{++intents;});
       initial->findChild<QPushButton *>("saveProfileButton")->click(); ready();
       check(intents==1,"implicit setup resumes the requested connection once after a successful save");
-      check(settings.value("JustConnect/AuthID")=="persisted-id" && settings.value("JustConnect/AuthSubType")=="password","selected authentication identity survives settings reload/apply");
+      check(settings.value("JustConnect/AuthID")=="persisted-id" && settings.value("JustConnect/AuthSubType")=="password"
+          && settings.value(DefaultSettings::SignInMethodName)=="Campus password",
+          "the selected authentication identity and displayed name survive settings reload/apply");
       const auto reloaded=SavedConnectionService::load(settings);
       check(!reloaded.tls.verify && reloaded.proxy.socksBind.isEmpty()
           && reloaded.proxy.httpBind=="127.0.0.1:19443" && reloaded.dns.ttl==61 && reloaded.behavior.rememberAuthentication

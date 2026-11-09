@@ -54,7 +54,8 @@ private:
     bool opened=false;
     quint64 loadGeneration=0;
     ServerSettingsWidget *serverEditor;
-    QString selectedAuthId, selectedAuthSubType, selectedAuthDomain, selectedAuthType;
+    QString selectedAuthId, selectedAuthSubType, selectedAuthDomain, selectedAuthType, selectedAuthName;
+    int selectedAuthIndex=0;
     QVariantMap draftValues;
     AuthMethodsQuery *authQuery;
     ControllerSelectionCoordinator *controllerSelection;

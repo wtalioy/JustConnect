@@ -388,7 +388,7 @@ void ConnectionUiController::showConnectionError(ConnectionError error)
         message=tr("The next sign-in step is not supported. Ask your administrator to confirm the authentication policy.");
         break;
     case ConnectionError::AUTHENTICATION_CHANGED:
-        message = tr("Sign-in methods changed or are ambiguous. Query and select the method again.");
+        message = tr("Open the connection settings and choose Find sign-in methods, then select the method to use.");
         break;
     case ConnectionError::TLS_TRUST:
         message=tr("The certificate is not trusted or does not match the server. Check the address, system time and campus CA.");
