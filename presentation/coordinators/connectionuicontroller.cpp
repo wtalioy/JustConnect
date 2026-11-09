@@ -238,7 +238,7 @@ void ConnectionUiController::loadAuthenticationCache(const CredentialSource &sou
         credentialsPending=false;
         if (loaded.result.succeeded()) connectionOptions.authenticationCache=loaded.cache;
         else if (loaded.result.status!=CredentialStatus::NotFound)
-            qWarning() << "Saved authentication unavailable:" << int(loaded.result.status);
+            qWarning() << "Saved authentication unavailable:" << int(loaded.result.status) << "native:" << loaded.result.nativeCode;
         refreshActions();
         requestConnection(source,connectionOptions,loaded.revision);
     });

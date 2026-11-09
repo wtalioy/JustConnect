@@ -20,14 +20,17 @@ void expect(const CredentialResult &result,Status status,const char *message) {r
 class Store final:public CredentialStore {
 public:
     QHash<QString,QByteArray> values;
+    QString deniedExistingKey;
     Status readStatus=Status::Success,writeStatus=Status::Success,removeStatus=Status::Success;
     bool loseWrite=false,loseRemoval=false;
     std::function<void()> afterWrite;
     CredentialResult read(const QString &key) override {
+        if (key==deniedExistingKey && values.contains(key)) return {Status::PermissionDenied,{}};
         if (readStatus!=Status::Success) return {readStatus,{}};
         return values.contains(key) ? CredentialResult{Status::Success,values.value(key)} : CredentialResult{Status::NotFound,{}};
     }
     CredentialResult write(const QString &key,const QByteArray &value) override {
+        if (key==deniedExistingKey && values.contains(key)) return {Status::PermissionDenied,{}};
         if (writeStatus!=Status::Success) return {writeStatus,{}};
         if (!loseWrite) values.insert(key,value);
         if (afterWrite) afterWrite();
@@ -35,7 +38,10 @@ public:
     }
     CredentialResult remove(const QString &key) override {
         if (removeStatus!=Status::Success) return {removeStatus,{}};
-        if (!loseRemoval) values.remove(key);
+        if (!loseRemoval) {
+            values.remove(key);
+            if (key==deniedExistingKey) deniedExistingKey.clear();
+        }
         return {Status::Success,{}};
     }
 };
@@ -122,6 +128,18 @@ void authenticationCacheIsSeparateAndScoped() {
     expect(vault.loadAuthenticationCache(scope,other,loaded),Status::Success,"cache clear preserves other account");
     expect(vault.loadAuthenticationCache(otherScope,p,loaded),Status::Success,"cache clear preserves other profile namespace");
     expect(vault.saveAuthenticationCache(scope,p,original),Status::Success,"restore original cache");
+    store.deniedExistingKey=id;
+    expect(reopened.loadAuthenticationCache(scope,p,loaded),Status::PermissionDenied,"old cache denied after signing identity changes");
+    const AuthenticationCache replacement{original.account,"fresh authentication"};
+    store.removeStatus=Status::PermissionDenied;
+    expect(vault.saveAuthenticationCache(scope,p,replacement),Status::PermissionDenied,"denied native deletion stops replacement");
+    require(store.values.value(id)==saved,"denied deletion preserves the old cache");
+    store.removeStatus=Status::Success;
+    expect(vault.saveAuthenticationCache(scope,p,replacement),Status::Success,"fresh login replaces only the unreadable cache");
+    expect(reopened.loadAuthenticationCache(scope,p,loaded),Status::Success,"reopen the new cache");
+    require(loaded.data==replacement.data && store.values.value(otherId)==another,"replacement preserves other account data");
+    expect(vault.load(scope,p,credentials),Status::Success,"replacement preserves password and TOTP");
+    require(credentials.password==p.credentials.password && credentials.totpSecret==p.credentials.totpSecret,"replacement leaves credentials intact");
     QTemporaryDir folder;QSettings settings(folder.filePath("clear-password.ini"),QSettings::IniFormat);settings.setValue("Credential/Username",p.credentials.username);
     expect(vault.clear(settings,scope,p),Status::Success,"clear password independently");
     expect(vault.loadAuthenticationCache(scope,p,loaded),Status::Success,"password clear preserves authentication cache");

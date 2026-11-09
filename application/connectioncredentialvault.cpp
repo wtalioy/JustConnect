@@ -135,7 +135,11 @@ CredentialResult ConnectionCredentialVault::saveAuthenticationCache(const QStrin
     if (id.isEmpty() || !p.matchesCacheAccount(cache.account) || cache.data.isEmpty()) return {Status::InvalidArgument,{}};
     if (cache.data.size()>CredentialStore::MaxBytes) return {Status::Limit,{}};
     const auto encoded=QJsonDocument(QJsonObject{{"version",1},{"binding",id},{"account",cache.account},{"data",QString::fromLatin1(cache.data.toBase64())}}).toJson(QJsonDocument::Compact);
-    return writeVerified(id,encoded);
+    const auto saved=writeVerified(id,encoded);
+    if (saved.status!=Status::PermissionDenied || store.read(id).status!=Status::PermissionDenied) return saved;
+    // Freshly authenticated data can replace a cache blocked by an old Keychain access rule.
+    const auto removed=removeVerified(id);
+    return removed.succeeded() ? writeVerified(id,encoded) : removed;
 }
 CredentialResult ConnectionCredentialVault::clearAuthenticationCache(const QString &scope,const ConnectionOptions &p) {
     return removeVerified(authenticationCacheKey(scope,p));

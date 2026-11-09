@@ -2,6 +2,7 @@
 #include "application/connectionsession.h"
 #include "application/connectioncredentialvault.h"
 #include "presentation/presentationhelpers.h"
+#include <QDebug>
 #include <utility>
 
 AuthenticationCacheCoordinator::AuthenticationCacheCoordinator(ConnectionSession *session,CredentialAccess *credentials,SourceProvider sourceProvider,QObject *parent)
@@ -60,7 +61,10 @@ void AuthenticationCacheCoordinator::rememberAuthentication(const Authentication
         });return;
     }
     credentials->saveAuthenticationCache(source,cache,cacheRevision).then(this,[this,generation](const CredentialResult &result) {
-        if (generation==cacheGeneration) reportCacheFailure(result.status);
+        if (generation!=cacheGeneration) return;
+        if (!result.succeeded() && result.status!=CredentialStatus::Cancelled)
+            qWarning() << "Could not save authentication:" << int(result.status) << "native:" << result.nativeCode;
+        reportCacheFailure(result.status);
     });
 }
 void AuthenticationCacheCoordinator::invalidateAuthenticationCache()
