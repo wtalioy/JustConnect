@@ -1245,6 +1245,10 @@ Complete the legacy credential migration first, or add a new connection.</source
         <translation>添加连接…</translation>
     </message>
     <message>
+        <source>Continue</source>
+        <translation>继续</translation>
+    </message>
+    <message>
         <source>Connection name</source>
         <translation>连接名称</translation>
     </message>
@@ -1343,6 +1347,10 @@ Complete the legacy credential migration first, or add a new connection.</source
     <message>
         <source>Rename connection…</source>
         <translation>重命名连接…</translation>
+    </message>
+    <message>
+        <source>Rename</source>
+        <translation>重命名</translation>
     </message>
     <message>
         <source>Saving connection</source>
@@ -2272,6 +2280,10 @@ Some system settings may have changed. Check them before retrying.</source>
     <message>
         <source>Could not create temporary connection settings.</source>
         <translation>无法创建临时连接配置。</translation>
+    </message>
+    <message>
+        <source>Could not create the connection. Check file permissions and try again.</source>
+        <translation>无法创建连接。请检查文件权限后重试。</translation>
     </message>
     <message>
         <source>Could not export the connection settings. Choose a different file.</source>

@@ -89,10 +89,10 @@ bool SavedConnectionService::switchTo(const QString &connectionId)
     return true;
 }
 
-QString SavedConnectionService::createAndSwitch(const QString &requestedName)
+QString SavedConnectionService::createAndSwitch(const QString &requestedName,const QString &draftPath)
 {
     if (!syncCurrent()) return {};
-    const QString connectionId = connectionBackend->createConnection(requestedName);
+    const QString connectionId = connectionBackend->createConnection(requestedName,draftPath);
     if (connectionId.isEmpty() || !switchTo(connectionId))
     {
         if (!connectionId.isEmpty())

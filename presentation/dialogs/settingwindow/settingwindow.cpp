@@ -48,8 +48,10 @@ QString defaultAuthLabel(const QString &type)
 }
 }
 
-SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const CredentialSource &source,CoreEngine *queryEngine)
-    : QDialog(parent),ui(new Ui::SettingWindow),settings(source.path,QSettings::IniFormat),credentials(credentials),credentialSource(source) {
+SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const CredentialSource &source,
+    CoreEngine *queryEngine,DraftPublisher publishDraft)
+    : QDialog(parent),ui(new Ui::SettingWindow),publishDraft(std::move(publishDraft)),
+      settings(source.path,QSettings::IniFormat),credentials(credentials),credentialSource(source) {
     ui->setupUi(this);
     saveButton=ui->buttonBox->addButton(QString(),QDialogButtonBox::AcceptRole);
     saveButton->setObjectName("saveProfileButton");saveButton->setDefault(true);
@@ -194,7 +196,8 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
         if (settings.status()!=QSettings::NoError || !SettingsMigrator::readableFile(settings.fileName()) || !DefaultSettings::exportTo(settings,path))
             QMessageBox::warning(this,tr("Export failed"),tr("Could not export the connection settings. Choose a different file."));
     });
-    readCredentials();
+    if (this->publishDraft) ui->exportPushButton->setEnabled(false);
+    else readCredentials();
     resize(600,680);
 }
 SettingWindow::~SettingWindow() { delete ui; }
@@ -348,7 +351,7 @@ void SettingWindow::updateAuthFields() {
     ui->credentialsForm->setRowVisible(ui->usernameLineEdit,password);
     ui->credentialsForm->setRowVisible(ui->passwordLineEdit,password);
     ui->credentialsForm->setRowVisible(ui->totpSecretRow,password);
-    clearCredentialButton->setVisible(password);
+    clearCredentialButton->setVisible(password && !publishDraft);
     credentialStatus->setVisible(credentialStatusText || (credentialLoadStatus!=CredentialStatus::Success && credentialLoadStatus!=CredentialStatus::NotFound));
     ui->authForm->setRowVisible(ui->countryCodeLineEdit,sms);
     ui->authForm->setRowVisible(ui->phoneNumberLineEdit,sms);
@@ -372,6 +375,7 @@ void SettingWindow::updateBusy() {
     saveButton->setEnabled(canEdit && !querying);
     saveButton->setText(connectAfterSave ? tr("Save and connect") : tr("Save"));
     dismissButton->setText(profileEditable ? tr("Cancel") : tr("Close"));
+    dismissButton->setEnabled(!publishDraft || !saving);
     serverEditor->setEnabled(canEdit && !querying);
     ui->authTypeComboBox->setEnabled(canEdit && !querying);
     clearCredentialButton->setEnabled(canEdit && !loading);
@@ -435,6 +439,7 @@ void SettingWindow::showQueriedMethods() {
     if (isActiveWindow() && ui->authTypeComboBox->isEnabled()) ui->authTypeComboBox->showPopup();
 }
 void SettingWindow::done(int result) {
+    if (publishDraft && saving) return;
     cancelQuery();
     if (authQuery->isActive()) {
         setAttribute(Qt::WA_DeleteOnClose,false);
@@ -520,6 +525,10 @@ void SettingWindow::saveSettings() {
     const auto changes=publicChanges();
     const bool edited=(!ui->passwordLineEdit->text().isEmpty() && ui->passwordLineEdit->text()!=loadedCredentials.password)
         || (!ui->totpSecretLineEdit->text().isEmpty() && ui->totpSecretLineEdit->text()!=loadedCredentials.totpSecret);
+    if (publishDraft) {
+        saveDraft(changes,connectionOptions,edited);
+        return;
+    }
     saving=true;updateBusy();const auto source=credentialSource;
     credentials->save(source,connectionOptions,edited,changes).then(this,[this,source,connectionOptions](const CredentialResult &result) {
         if (closed) return;
@@ -528,5 +537,41 @@ void SettingWindow::saveSettings() {
         if (settings.fileName()!=source.path || settings.value(ConnectionCredentialVault::ScopeSetting)!=source.scope) return;
         credentialSource=CredentialAccess::source(settings,source.legacyCachePath);
         accept();if(connectAfterSave)emit connectRequested();
+    });
+}
+
+void SettingWindow::saveDraft(const QVariantMap &changes,const ConnectionOptions &options,bool edited)
+{
+    const auto failure=[this] {
+        QMessageBox::warning(this,tr("Could not save connection"),
+            tr("Could not create the connection. Check file permissions and try again."));
+    };
+    if (!SavedConnectionService::writePublic(settings,changes)) {failure();return;}
+    credentialSource=CredentialAccess::source(settings,{});
+    if (credentialSource.scope.isEmpty()) {failure();return;}
+    const auto publish=[this] {
+        if (!publishDraft()) return false;
+        saving=false;
+        accept();
+        if (connectAfterSave) emit connectRequested();
+        return true;
+    };
+    if (!edited) {
+        if (!publish()) failure();
+        return;
+    }
+
+    // The staged public identity lets a failed publication remove only this draft's credentials.
+    saving=true;updateBusy();
+    const auto source=credentialSource;
+    credentials->save(source,options,true,{}).then(this,[this,source,failure,publish](const CredentialResult &result) {
+        if (result.succeeded() && publish()) return;
+        credentials->clear(source).then(this,[this,result,failure](const CredentialResult &cleanup) {
+            saving=false;updateBusy();
+            if (!cleanup.succeeded() || !result.succeeded())
+                QMessageBox::warning(this,tr("Could not save connection"),
+                    PresentationHelpers::credentialOperationMessage(cleanup.succeeded()?result.status:cleanup.status));
+            else failure();
+        });
     });
 }

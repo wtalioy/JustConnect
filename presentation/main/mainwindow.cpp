@@ -20,11 +20,13 @@
 #include <QDialogButtonBox>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QTemporaryDir>
 #include <QVBoxLayout>
 #include "presentation/widgets/applicationpreferenceswidget.h"
 #include "presentation/widgets/localizeddialog.h"
 #include <QtAlgorithms>
 #include <algorithm>
+#include <memory>
 #include <optional>
 #include "infrastructure/settings/savedconnectionstore.h"
 
@@ -54,7 +56,7 @@ QString defaultConnectionLabel(const QSettings &settings)
     return DefaultSettings::matchesBuiltInServer(server) ? MainWindow::tr("Fudan") : server;
 }
 
-std::optional<QString> requestConnectionName(QWidget *parent,const QString &title,const QString &initial={})
+std::optional<QString> requestConnectionName(QWidget *parent,const QString &title,const QString &action,const QString &initial={})
 {
     QDialog dialog(parent);
     dialog.setObjectName("connectionNameDialog");
@@ -77,6 +79,7 @@ std::optional<QString> requestConnectionName(QWidget *parent,const QString &titl
     layout->addWidget(name);
     layout->addWidget(hint);
     auto *buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel,&dialog);
+    buttons->button(QDialogButtonBox::Ok)->setText(action);
     buttons->button(QDialogButtonBox::Ok)->setDefault(true);
     layout->addWidget(buttons);
     QObject::connect(buttons,&QDialogButtonBox::accepted,&dialog,&QDialog::accept);
@@ -688,6 +691,7 @@ void MainWindow::setupConnectionMenu()
     ui->profileMenu->addAction(ui->settingAction);
     addConnectionAction = ui->profileMenu->addAction(tr("Add connection…"));
     renameConnectionAction = ui->profileMenu->addAction(tr("Rename connection…"));
+    renameConnectionAction->setObjectName("renameConnectionAction");
     deleteConnectionAction = ui->profileMenu->addAction(tr("Delete connection…"));
     deleteConnectionAction->setObjectName("deleteConnectionAction");
     ui->profileMenu->addSeparator();
@@ -794,32 +798,40 @@ void MainWindow::createConnection()
         return;
     }
 
-    const auto name=requestConnectionName(this,tr("Add connection…"));
+    const auto name=requestConnectionName(this,tr("Add connection…"),tr("Continue"));
     if (!name)
     {
         return;
     }
 
-    if (settingWindow != nullptr)
-    {
-        settingWindow->close();
-    }
-
-    const QString newConnectionId = savedConnections->createAndSwitch(*name);
-    if (newConnectionId.isEmpty())
+    const auto draft=std::make_shared<QTemporaryDir>();
+    if (!draft->isValid())
     {
         QMessageBox::critical(this, tr("Could not add connection"), tr("The new connection could not be created."));
         return;
     }
-
-    settings = savedConnections->settings();
-    currentConnectionId = savedConnections->currentConnectionId();
-    upgradeSettings();
-    resetConnectionUi();
-    resetConnectionLog();
-    refreshConnectionMenu();
-
-    showConnectionSettings();
+    QSettings draftSettings(draft->filePath("connection.ini"),QSettings::IniFormat);
+    DefaultSettings::reset(draftSettings);
+    const auto source=CredentialAccess::source(draftSettings,{});
+    if (source.scope.isEmpty()) {
+        QMessageBox::critical(this,tr("Could not add connection"),tr("The new connection could not be created."));
+        return;
+    }
+    if (settingWindow) settingWindow->close();
+    connectionUiController->cancelPendingCredentials();
+    settingWindow=new SettingWindow(this,coordinator->credentials(),source,nullptr,[this,draft,requestedName=*name] {
+        if (connectionSession->isActive()
+            || savedConnections->createAndSwitch(requestedName,draft->filePath("connection.ini")).isEmpty()) return false;
+        settings=savedConnections->settings();
+        currentConnectionId=savedConnections->currentConnectionId();
+        resetConnectionUi();
+        resetConnectionLog();
+        refreshConnectionMenu();
+        return true;
+    });
+    settingWindow->setObjectName("connectionSettingsDialog");
+    connect(settingWindow,&SettingWindow::connectRequested,connectionUiController,&ConnectionUiController::enableCampusAccess,Qt::QueuedConnection);
+    PresentationHelpers::activateWindow(settingWindow);
 }
 
 void MainWindow::renameCurrentConnection()
@@ -827,7 +839,7 @@ void MainWindow::renameCurrentConnection()
     if (coordinator->credentials()->isBusy(settings->fileName()) || connectionUiController->isConfigurationSaving() || (settingWindow && settingWindow->isSaving())) {
         QMessageBox::information(this,tr("Secure storage is busy"),tr("Wait for the current operation before renaming."));return;
     }
-    const auto name=requestConnectionName(this,tr("Rename connection…"),currentConnectionId);
+    const auto name=requestConnectionName(this,tr("Rename connection…"),tr("Rename"),currentConnectionId);
     if (!name)
     {
         return;

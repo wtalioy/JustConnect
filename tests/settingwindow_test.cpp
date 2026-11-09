@@ -332,6 +332,40 @@ int main(int argc,char **argv) {
         && vault.load(bob.scope,bob.connectionOptions,loaded).succeeded() && loaded.password=="manual-draft"
         && loaded.totpSecret=="saved-totp",
         "a queued save applies the password edit to the correct account and preserves its unread TOTP");
+    QSettings newDraft(directory.filePath("new-draft.ini"),QSettings::IniFormat);
+    DefaultSettings::reset(newDraft);
+    const auto draftSource=CredentialAccess::source(newDraft,{});
+    int publicationAttempts=0;
+    bool allowPublish=false,draftAccepted=false;
+    QPointer<SettingWindow> draft=new SettingWindow(nullptr,&access,draftSource,nullptr,[&] {
+        ++publicationAttempts;
+        return allowPublish;
+    });
+    QObject::connect(draft.data(),&QDialog::accepted,[&]{draftAccepted=true;});
+    draft->show();
+    draft->findChild<QLineEdit *>("serverAddressLineEdit")->setText("draft.example.invalid");
+    auto *draftMethod=draft->findChild<QComboBox *>("authTypeComboBox");
+    draftMethod->setCurrentIndex(draftMethod->findData("psw"));
+    draft->findChild<QLineEdit *>("usernameLineEdit")->setText("draft-account");
+    draft->findChild<QLineEdit *>("passwordLineEdit")->setText("draft-secret");
+    auto *draftSave=draft->findChild<QPushButton *>("saveProfileButton");
+    expectedText=QCoreApplication::translate("SettingWindow","Could not create the connection. Check file permissions and try again.");
+    shown=false;
+    draftSave->click();
+    until([&]{return shown && publicationAttempts==1 && !draft->isSaving();});
+    newDraft.sync();
+    const auto staged=SavedConnectionService::load(newDraft);
+    check(draft->isVisible() && !draftAccepted && staged.credentials.username=="draft-account"
+        && vault.load(draftSource.scope,staged,loaded).status==CredentialStatus::NotFound
+        && !read(newDraft.fileName()).contains("draft-secret")
+        && draft->findChild<QLineEdit *>("passwordLineEdit")->text()=="draft-secret",
+        "failed publication removes staged secure credentials and keeps the editable draft");
+    allowPublish=true;
+    expectedText.clear();
+    draftSave->click();
+    until([&]{return draftAccepted && !access.isBusy(draftSource.path);});
+    check(publicationAttempts==2 && vault.load(draftSource.scope,staged,loaded).succeeded() && loaded.password=="draft-secret",
+        "retry publishes the same draft and preserves its securely stored credential");
     // Retain the SMS/SSO contracts of the removed wizard in the shared editor.
     for (const auto &method:QStringList{"smsCheckCode","cas","httpsOauth2"}) {
         QSettings account(directory.filePath(method+".ini"),QSettings::IniFormat);DefaultSettings::reset(account);

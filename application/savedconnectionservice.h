@@ -33,7 +33,7 @@ public:
     bool usesOverrideConfiguration() const;
 
     bool switchTo(const QString &connectionId);
-    QString createAndSwitch(const QString &requestedName);
+    QString createAndSwitch(const QString &requestedName,const QString &draftPath={});
     bool renameCurrent(const QString &newConnectionId);
     bool removeCurrentAndSwitchToDefault();
 

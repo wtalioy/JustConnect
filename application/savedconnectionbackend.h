@@ -13,7 +13,7 @@ public:
     virtual QString activeConnectionId() const = 0;
     virtual bool setActiveConnection(const QString &connectionId) const = 0;
     virtual QString connectionPath(const QString &connectionId) const = 0;
-    virtual QString createConnection(const QString &requestedName) const = 0;
+    virtual QString createConnection(const QString &requestedName,const QString &draftPath={}) const = 0;
     virtual bool renameConnection(
         const QString &oldId,
         const QString &newId

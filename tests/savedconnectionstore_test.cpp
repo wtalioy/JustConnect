@@ -32,6 +32,22 @@ bool createsIndependentEmptyConnections()
         && QFileInfo(manager.connectionPath("work_2")).size() == 0;
 }
 
+bool publishesDraftWithItsCredentialScope()
+{
+    QTemporaryDir directory,staging;
+    SavedConnectionStore manager(directory.path());
+    QSettings draft(staging.filePath("draft.ini"),QSettings::IniFormat);
+    draft.setValue("JustConnect/ServerAddress","vpn.new-campus.invalid");
+    draft.setValue("Credential/StoreID","eb721658-b0cc-48d4-ace0-a4e469e992b8");
+    draft.sync();
+    const auto expected=read(draft.fileName());
+    if (expected.isEmpty() || !manager.createConnection("missing",staging.filePath("missing.ini")).isEmpty()
+        || !manager.listConnections().isEmpty() || manager.createConnection("campus")!="campus"
+        || manager.createConnection("campus",draft.fileName())!="campus_2") return false;
+    return QFileInfo(manager.connectionPath("campus")).size()==0
+        && read(manager.connectionPath("campus_2"))==expected && read(draft.fileName())==expected;
+}
+
 bool rejectsMalformedStateAndRecovers()
 {
     QTemporaryDir directory;
@@ -143,5 +159,5 @@ bool createsPhysicalFilesForEmptyProfiles()
 int main(int argc, char *argv[])
 {
     QCoreApplication application(argc, argv);
-    return languageAndClosePreferencesAreGlobalAndSavedTogether() && controllerChoiceIsGlobalAndFailedWritesPreserveIt() && closeBehaviorIsGlobalAndFailedWritesRetainThePreference() && createsIndependentEmptyConnections() && createsPhysicalFilesForEmptyProfiles() && rejectsMalformedStateAndRecovers() ? 0 : 1;
+    return languageAndClosePreferencesAreGlobalAndSavedTogether() && controllerChoiceIsGlobalAndFailedWritesPreserveIt() && closeBehaviorIsGlobalAndFailedWritesRetainThePreference() && createsIndependentEmptyConnections() && publishesDraftWithItsCredentialScope() && createsPhysicalFilesForEmptyProfiles() && rejectsMalformedStateAndRecovers() ? 0 : 1;
 }

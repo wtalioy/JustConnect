@@ -2,6 +2,7 @@
 #include <QDialog>
 #include <QElapsedTimer>
 #include <QSettings>
+#include <functional>
 #include "infrastructure/settings/credentialaccess.h"
 class QLabel;
 class QCheckBox;
@@ -15,7 +16,9 @@ namespace Ui { class SettingWindow; }
 class SettingWindow : public QDialog {
     Q_OBJECT
 public:
-    SettingWindow(QWidget *parent,CredentialAccess *credentials,const CredentialSource &source,CoreEngine *queryEngine=nullptr);
+    using DraftPublisher=std::function<bool()>;
+    SettingWindow(QWidget *parent,CredentialAccess *credentials,const CredentialSource &source,
+        CoreEngine *queryEngine=nullptr,DraftPublisher publishDraft={});
     void setProfileEditable(bool editable);
     void setConnectAfterSave(bool connect);
     ~SettingWindow() override;
@@ -36,6 +39,7 @@ private:
     void updateBusy();
     void clearDraftCredentials();
     void saveSettings();
+    void saveDraft(const QVariantMap &changes,const ConnectionOptions &options,bool edited);
     void queryMethods();
     void cancelQuery();
     void finishQueryPresentation(bool letProgressSettle=true);
@@ -43,6 +47,7 @@ private:
     QVariantMap publicChanges() const;
     ConnectionOptions currentOptions() const;
     Ui::SettingWindow *ui;
+    DraftPublisher publishDraft;
     QSettings settings;
     CredentialAccess *credentials;
     CredentialSource credentialSource;

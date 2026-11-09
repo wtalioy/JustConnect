@@ -171,25 +171,32 @@ static void profileMenusKeepTheirActions(MainWindow &window,const QString &profi
     defaultEditor->reject();QApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     const auto report=qEnvironmentVariable("JC_UI_REPORT_DIR");
     if (!report.isEmpty()) check(window.grab().save(QDir(report).filePath("home-configured.png")),"save the configured preset identity on the actual home");
-    QTimer::singleShot(0,&window,[&] {
-        auto *dialog=qobject_cast<QDialog *>(QApplication::activeModalWidget());
-        check(dialog && dialog->objectName()=="connectionNameDialog","add control asks for the profile name");
-        auto *name=dialog->findChild<QLineEdit *>("connectionNameEdit");
-        auto *label=dialog->findChild<QLabel *>("connectionNameLabel");
-        auto *hint=dialog->findChild<QLabel *>("connectionNameHint");
-        check(label->buddy()==name && hint->geometry().top()>name->geometry().bottom()
-            && hint->font().pointSizeF()<label->font().pointSizeF() && name->accessibleDescription()==hint->text(),
-            "naming rules are a secondary field hint with an accessible description");
-        if (!report.isEmpty()) check(dialog->grab().save(QDir(report).filePath("add-connection-prompt.png")),
-            "save the native connection name dialog");
-        name->setText("direct-add");
-        dialog->accept();
-    });
-    addAction->trigger();
-    auto *created=window.findChild<SettingWindow *>();
-    check(created && created->isVisible() && checked(menu)=="direct-add" && checked(trayMenu)=="direct-add"
-        && !created->findChild<QComboBox *>("languageComboBox"),
-        "adding a connection opens its own editor directly");
+    const auto openDraft=[&] {
+        QTimer::singleShot(0,&window,[&] {
+            auto *dialog=qobject_cast<QDialog *>(QApplication::activeModalWidget());
+            check(dialog && dialog->objectName()=="connectionNameDialog","add control asks for the profile name");
+            auto *name=dialog->findChild<QLineEdit *>("connectionNameEdit");
+            auto *label=dialog->findChild<QLabel *>("connectionNameLabel");
+            auto *hint=dialog->findChild<QLabel *>("connectionNameHint");
+            auto *next=dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok);
+            check(next->text()=="Continue" && label->buddy()==name && hint->geometry().top()>name->geometry().bottom()
+                && hint->font().pointSizeF()<label->font().pointSizeF() && name->accessibleDescription()==hint->text(),
+                "add explains its next step and shows naming rules as a secondary field hint");
+            if (!report.isEmpty()) check(dialog->grab().save(QDir(report).filePath("add-connection-prompt.png")),
+                "save the native connection name dialog");
+            name->setText("direct-add");
+            next->click();
+        });
+        addAction->trigger();
+        auto *draft=window.findChild<SettingWindow *>();
+        check(draft && draft->isVisible() && !draft->findChild<QComboBox *>("languageComboBox"),
+            "Continue opens the connection editor directly");
+        return draft;
+    };
+    const auto newPath=storage.connectionPath("direct-add");
+    auto *created=openDraft();
+    check(!QFileInfo::exists(newPath) && checked(menu)==initial && checked(trayMenu)==initial,
+        "opening a draft leaves the current connection selected and adds no file");
     auto *newMethod=created->findChild<QComboBox *>("authTypeComboBox");
     check(created->findChild<QLineEdit *>("serverAddressLineEdit")->text().isEmpty()
         && created->findChild<QLineEdit *>("usernameLineEdit")->text().isEmpty()
@@ -197,9 +204,38 @@ static void profileMenusKeepTheirActions(MainWindow &window,const QString &profi
         && newMethod->findText(newMethod->placeholderText())==-1 && newMethod->findData("psw")>=0
         && created->findChild<QPlainTextEdit *>("domainDnsRulesEdit")->toPlainText().isEmpty(),
         "a new connection starts blank even when added from Fudan");
-    created->reject();
+    created->findChild<QPushButton *>("dismissSettingsButton")->click();
     QApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
-    const auto newPath=storage.connectionPath("direct-add");
+    check(!QFileInfo::exists(newPath) && checked(menu)==initial && checked(trayMenu)==initial,
+        "cancelling the editor discards the new connection");
+    created=openDraft();
+    created->findChild<QLineEdit *>("serverAddressLineEdit")->setText("vpn.new-campus.invalid");
+    auto *method=created->findChild<QComboBox *>("authTypeComboBox");
+    method->setCurrentIndex(method->findData("psw"));
+    created->findChild<QLineEdit *>("usernameLineEdit")->setText("new-account");
+    created->findChild<QPushButton *>("saveProfileButton")->click();
+    QApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    QSettings saved(newPath,QSettings::IniFormat);
+    check(!window.findChild<SettingWindow *>() && QFileInfo::exists(newPath)
+        && checked(menu)=="direct-add" && checked(trayMenu)=="direct-add" && checked(menuBarProfiles)=="direct-add"
+        && saved.value("JustConnect/ServerAddress")=="vpn.new-campus.invalid"
+        && saved.value("Credential/Username")=="new-account",
+        "Save publishes the configured connection once and selects it everywhere");
+    QTimer::singleShot(0,&window,[&] {
+        auto *dialog=qobject_cast<QDialog *>(QApplication::activeModalWidget());
+        check(dialog && dialog->objectName()=="connectionNameDialog","rename opens the shared name dialog");
+        auto *name=dialog->findChild<QLineEdit *>("connectionNameEdit");
+        auto *label=dialog->findChild<QLabel *>("connectionNameLabel");
+        auto *hint=dialog->findChild<QLabel *>("connectionNameHint");
+        auto *buttons=dialog->findChild<QDialogButtonBox *>();
+        check(name->text()=="direct-add" && buttons->button(QDialogButtonBox::Ok)->text()=="Rename"
+            && hint->geometry().top()>name->geometry().bottom() && hint->font().pointSizeF()<label->font().pointSizeF(),
+            "rename describes the action and places its secondary hint below the current name");
+        if (!report.isEmpty()) check(dialog->grab().save(QDir(report).filePath("rename-connection-prompt.png")),
+            "save the native rename dialog");
+        buttons->button(QDialogButtonBox::Cancel)->click();
+    });
+    window.findChild<QAction *>("renameConnectionAction")->trigger();
     auto *credentials=window.findChild<CredentialAccess *>();
     UiWait::until(__FILE__,__LINE__,[&]{return !credentials->isBusy(newPath);});
     bool confirmedLayout=false;

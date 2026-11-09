@@ -19,7 +19,7 @@ public:
 
     QString connectionPath(const QString &connectionId) const override;
 
-    QString createConnection(const QString &requestedName) const override;
+    QString createConnection(const QString &requestedName,const QString &draftPath={}) const override;
 
     bool renameConnection(const QString &oldId, const QString &newId) const override;
 

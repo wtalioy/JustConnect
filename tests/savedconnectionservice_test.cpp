@@ -63,10 +63,11 @@ public:
         );
     }
 
-    QString createConnection(const QString &requestedName) const override
+    QString createConnection(const QString &requestedName,const QString &draftPath) const override
     {
         ++creates;
         const QString id = normalizeConnectionId(requestedName);
+        if (!draftPath.isEmpty()) return !id.isEmpty() && QFile::copy(draftPath,connectionPath(id)) ? id : QString();
         QFile file(connectionPath(id));
         return !id.isEmpty() && file.open(QIODevice::WriteOnly | QIODevice::NewOnly) ? id : QString();
     }
@@ -176,8 +177,13 @@ bool managesCurrentProfileAsOneUnit()
     service.settings()->setValue("JustConnect/AuthType", "httpsOauth2");
     service.settings()->sync();
 
+    QTemporaryDir staging;
+    QSettings draft(staging.filePath("draft.ini"),QSettings::IniFormat);
+    draft.setValue("JustConnect/ServerAddress","vpn.new-campus.invalid");
+    draft.sync();
     fake->allowActiveProfileChange = false;
-    if (!service.createAndSwitch("blocked").isEmpty()
+    if (!service.createAndSwitch("blocked",draft.fileName()).isEmpty()
+        || !QFileInfo::exists(draft.fileName())
         || service.currentConnectionId() != ""
         || QFileInfo::exists(fake->connectionPath("blocked")))
     {

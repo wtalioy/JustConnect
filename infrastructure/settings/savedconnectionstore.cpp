@@ -111,10 +111,12 @@ QString SavedConnectionStore::connectionPath(const QString &connectionId) const
     return QDir(connectionsPath).filePath(normalizedId + ".ini");
 }
 
-QString SavedConnectionStore::createConnection(const QString &requestedName) const
+QString SavedConnectionStore::createConnection(const QString &requestedName,const QString &draftPath) const
 {
     const QString normalizedId = ensureUniqueConnectionId(normalizeConnectionId(requestedName));
-    QFile file(connectionPath(normalizedId));
+    const auto path=connectionPath(normalizedId);
+    if (!draftPath.isEmpty()) return QFile::copy(draftPath,path) ? normalizedId : QString();
+    QFile file(path);
     return file.open(QIODevice::WriteOnly | QIODevice::NewOnly) ? normalizedId : QString();
 }
 
