@@ -439,12 +439,12 @@ Clear the authentication cache for </source>
         <translation>网络操作权限不足，请检查接口访问或授权结果后重试。</translation>
     </message>
     <message>
-        <source>Allow JustConnect to run in the background, then connect again.</source>
-        <translation>请在系统设置中允许 JustConnect 在后台运行，然后重新连接。</translation>
+        <source>Check that JustConnect is allowed to run in the background, then connect again.</source>
+        <translation>请在系统设置中确认已允许 JustConnect 在后台运行，然后重新连接。</translation>
     </message>
     <message>
-        <source>Background approval required</source>
-        <translation>需要后台运行授权</translation>
+        <source>Network helper unavailable</source>
+        <translation>网络助手不可用</translation>
     </message>
     <message>
         <source>Open System Settings</source>

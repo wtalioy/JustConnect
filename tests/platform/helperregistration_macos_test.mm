@@ -71,6 +71,6 @@ int main()
         method_setImplementation(method,previous);
         imp_removeBlock(fixture);
         return result.status == PlatformOperationResult::Status::PermissionDenied
-            && result.requiresBackgroundApproval && registrations == 2 ? 0 : 1;
+            && result.offerBackgroundSettings && registrations == 2 ? 0 : 1;
     }
 }

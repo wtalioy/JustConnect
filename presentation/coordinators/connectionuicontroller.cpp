@@ -364,10 +364,10 @@ void ConnectionUiController::showConnectionError(ConnectionError error)
     QString message;
     switch (error)
     {
-    case ConnectionError::BACKGROUND_APPROVAL_REQUIRED: {
-        message=tr("Allow JustConnect to run in the background, then connect again.");
+    case ConnectionError::BACKGROUND_HELPER_UNAVAILABLE: {
+        message=tr("Check that JustConnect is allowed to run in the background, then connect again.");
 #if defined(Q_OS_MACOS)
-        QMessageBox approval(QMessageBox::Information,tr("Background approval required"),message,QMessageBox::Cancel,parentWidget);
+        QMessageBox approval(QMessageBox::Information,tr("Network helper unavailable"),message,QMessageBox::Cancel,parentWidget);
         const auto settingsButton=approval.addButton(tr("Open System Settings"),QMessageBox::ActionRole);
         approval.exec();
         if (approval.clickedButton()==settingsButton) openMacBackgroundApprovalSettings();

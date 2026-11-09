@@ -42,7 +42,7 @@ void registerService(SMAppService *service, Completion completion, bool afterUnr
                 return;
             }
             auto result = permissionFailure("Cannot register the network helper",error,status);
-            result.requiresBackgroundApproval = denied;
+            result.offerBackgroundSettings = denied;
             completion(result);
             return;
         }

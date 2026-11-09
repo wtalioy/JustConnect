@@ -8,7 +8,7 @@ struct PlatformOperationResult
     Status status = Status::Success;
     QString detail;
     bool mayHaveChanged = false;
-    bool requiresBackgroundApproval = false;
+    bool offerBackgroundSettings = false;
     bool succeeded() const { return status == Status::Success; }
 };
 Q_DECLARE_METATYPE(PlatformOperationResult)

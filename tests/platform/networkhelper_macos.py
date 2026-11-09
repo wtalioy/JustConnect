@@ -248,6 +248,13 @@ def main(args):
             run('/bin/launchctl', 'bootstrap', 'system', launch_path)
             bootstrapped = True
             wait_for(lambda: user_state.parent.exists(), 'Signed root daemon did not start')
+            daemon = helper_pid(); assert daemon
+            os.kill(daemon, signal.SIGSTOP)
+            try:
+                client = start('--silent-helper'); event(client, 'unavailable'); finish(client)
+            finally:
+                os.kill(daemon, signal.SIGCONT)
+            assert not user_state.exists(), 'Silent helper preflight created ownership state'
             for mode in ('--wire-denied', '--wire-invalid-auth', '--wire-ungranted-auth'):
                 target = pwd.getpwnam('nobody') if mode == '--wire-ungranted-auth' else account
                 denied = start(mode, target=target); event(denied, 'wire-denied'); finish(denied)

@@ -19,7 +19,7 @@
 namespace {
 using Result = PlatformOperationResult;
 using Status = Result::Status;
-constexpr int FirstHelperProbeTimeoutMs=2000;
+constexpr int HelperInspectionProbeTimeoutMs=3000;
 bool confirmedCaptures(const QJsonObject &capture,QStringList expected)
 {
     QStringList actual;
@@ -314,8 +314,8 @@ void MacNetworkHelperClient::send(const char *name)
         : QByteArray(name) == "routes" ? macHelperRoutesRequest(connection,pendingRequest,pendingTargets)
         : macHelperRequest(name,connection,pendingRequest);
     const bool probe = request["operation"]=="probe";
-    deadline.start(probe && operation==Operation::Inspect && !helperConfirmed && !registered
-        ? FirstHelperProbeTimeoutMs : MacHelperOperationTimeoutMs);
+    // A read-only probe cannot leave pending network changes, even after registration.
+    deadline.start(probe && operation==Operation::Inspect ? HelperInspectionProbeTimeoutMs : MacHelperOperationTimeoutMs);
     const std::weak_ptr<Native> weak(native);
     dispatch_async(native->queue,^{
         const auto state = weak.lock(); if (!state || !state->client) return;
@@ -350,7 +350,7 @@ void MacNetworkHelperClient::send(const char *name)
 void MacNetworkHelperClient::probeFailed()
 {
     if (cancelled) { finish({Status::Cancelled,"Network setup cancelled.",false},State::Idle); return; }
-    if (registered) { finish({Status::Failed,"The trusted root network helper is unavailable.",false},State::Idle); return; }
+    if (registered) { finish({Status::Failed,"The trusted root network helper is unavailable.",false,true},State::Idle); return; }
     registered = true; deadline.stop();
     const auto request = pendingRequest = QUuid::createUuid();
     setState(State::Registering);

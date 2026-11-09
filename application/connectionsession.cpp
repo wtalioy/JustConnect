@@ -265,7 +265,7 @@ void ConnectionSession::networkFailure(const PlatformOperationResult &result)
 {
     // User-requested teardown failures remain retryable; confirmed recovery resolves that error.
     if (sessionState.wantsConnection() && result.status != PlatformOperationResult::Status::Cancelled)
-        sessionState.recordError(result.requiresBackgroundApproval ? ConnectionError::BACKGROUND_APPROVAL_REQUIRED
+        sessionState.recordError(result.offerBackgroundSettings ? ConnectionError::BACKGROUND_HELPER_UNAVAILABLE
             : result.status == PlatformOperationResult::Status::PermissionDenied
             ? ConnectionError::PERMISSION_DENIED : ConnectionError::OTHER);
     emit diagnostic(result.detail);

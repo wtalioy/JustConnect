@@ -9,6 +9,8 @@
 #include <QElapsedTimer>
 #include <QJsonDocument>
 #include <QSocketNotifier>
+#import <ServiceManagement/ServiceManagement.h>
+#import <objc/runtime.h>
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <iostream>
@@ -18,6 +20,15 @@
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <unistd.h>
+
+@interface RegisteredServiceFixture : NSObject
+@end
+
+@implementation RegisteredServiceFixture
+- (SMAppServiceStatus)status { return SMAppServiceStatusEnabled; }
+- (void)unregisterWithCompletionHandler:(void (^)(NSError *))completion { completion(nil); }
+- (BOOL)registerAndReturnError:(NSError **)error { return YES; }
+@end
 
 class PublicationCore final : public CoreEngine
 {
@@ -122,6 +133,25 @@ int main(int argc,char **argv) try
 {
     QCoreApplication app(argc,argv); const auto arguments = app.arguments();
     check(::geteuid() != 0,"Client fixture must run as an ordinary account");
+    if (arguments.size() == 3 && arguments[1] == "--silent-helper") {
+        const auto method=class_getClassMethod(SMAppService.class,@selector(daemonServiceWithPlistName:));
+        check(method,"Find SMAppService registration entry point");
+        const auto fixture=imp_implementationWithBlock(^id(id, NSString *) { return [[RegisteredServiceFixture new] autorelease]; });
+        const auto previous=method_setImplementation(method,fixture);
+        MacNetworkHelperClient client;
+        QObject::connect(&client,&MacNetworkHelperClient::finished,&app,[&](auto operation,auto result) {
+            const bool bounded=operation==MacNetworkHelperClient::Operation::Inspect
+                && result.status==PlatformOperationResult::Status::Failed && !result.mayHaveChanged && result.offerBackgroundSettings;
+            if (bounded) report({{"event","unavailable"}});
+            app.exit(bounded ? 0 : 1);
+        });
+        QTimer::singleShot(12000,&app,[&] { app.exit(1); });
+        client.inspect(QUuid::createUuid());
+        const int result=app.exec();
+        method_setImplementation(method,previous);
+        imp_removeBlock(fixture);
+        return result;
+    }
     if (arguments.size() == 2 && arguments[1] == "--unavailable") {
         MacNetworkHelperClient client; bool completed = false;
         QObject::connect(&client,&MacNetworkHelperClient::finished,&app,[&](auto,auto result) {
