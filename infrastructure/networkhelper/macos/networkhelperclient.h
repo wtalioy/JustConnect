@@ -2,6 +2,7 @@
 #include "infrastructure/networkhelper/macos/networkhelper.h"
 #include "application/systemproxybackend.h"
 #include <QObject>
+#include <QElapsedTimer>
 #include <QTimer>
 #include <Security/Authorization.h>
 #include <functional>
@@ -60,6 +61,7 @@ private:
     QJsonArray receipts;
     QStringList pendingTargets;
     QTimer deadline;
+    QElapsedTimer inspectionTime;
     int device = -1;
     bool cancelled = false, registered = false;
     PlatformOperationResult outcome;

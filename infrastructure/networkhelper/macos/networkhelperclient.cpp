@@ -8,6 +8,7 @@
 #include "infrastructure/systemproxy/platformsystemproxybackend.h"
 #include "infrastructure/systemproxy/proxyvalidation.h"
 #include <QScopeGuard>
+#include <QDebug>
 #include <dispatch/dispatch.h>
 #include <functional>
 #include <algorithm>
@@ -237,6 +238,10 @@ MacNetworkHelperClient::~MacNetworkHelperClient()
 void MacNetworkHelperClient::setState(State state) { if (current != state) { current = state; emit stateChanged(state); } }
 void MacNetworkHelperClient::finish(const Result &result, State state)
 {
+    if (operation==Operation::Inspect && inspectionTime.isValid()) {
+        qInfo() << "macOS network helper preflight:" << inspectionTime.elapsed() << "ms, status" << int(result.status);
+        inspectionTime.invalidate();
+    }
     deadline.stop(); pendingRequest = {}; setState(state); emit finished(operation,result);
 }
 void MacNetworkHelperClient::closeDevice()
@@ -250,7 +255,20 @@ void MacNetworkHelperClient::inspect(const QUuid &attempt)
     operation = Operation::Inspect;
     if (!native->identity.ready()) { finish({Status::Unsupported,"A certificate-signed application with hardened runtime is required for network authorization.",false},State::Idle); return; }
     connection = attempt; cancelled = false; registered = false; receipts = {}; outcome = {};
-    setState(State::Inspecting); send("probe");
+    const auto request=pendingRequest=QUuid::createUuid();
+    inspectionTime.start();
+    setState(State::Inspecting);
+    if (current!=State::Inspecting || pendingRequest!=request) return;
+    deadline.start();
+    checkMacNetworkHelperApproval([weak=std::weak_ptr<Native>(native),request](Result result) {
+        if (auto state=weak.lock()) dispatch_async(state->queue,^{
+            state->post([request,result](auto *target) {
+                if (target->current!=State::Inspecting || target->pendingRequest!=request) return;
+                if (!result.succeeded()) target->finish(result,State::Idle);
+                else target->send("probe");
+            });
+        });
+    });
 }
 void MacNetworkHelperClient::apply(const QUuid &owner, const MacHelperConfiguration &config)
 {

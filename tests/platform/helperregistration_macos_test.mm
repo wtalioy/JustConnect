@@ -63,7 +63,7 @@ int main()
         if (!finished.tryAcquire(1,5000)) return 1;
         if (!waited || !result.succeeded() || registrations != 2) return 1;
         requiresApproval = true;
-        registerMacNetworkHelper(false,[&](PlatformOperationResult outcome) {
+        checkMacNetworkHelperApproval([&](PlatformOperationResult outcome) {
             result = std::move(outcome);
             finished.release();
         });

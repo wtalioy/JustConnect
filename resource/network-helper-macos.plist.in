@@ -7,6 +7,7 @@
   <key>MachServices</key><dict><key>@JC_MAC_HELPER_ID@</key><true/></dict>
   <key>UserName</key><string>root</string>
   <key>RunAtLoad</key><true/>
+  <key>ThrottleInterval</key><integer>2</integer>
   <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
   <key>ProcessType</key><string>Adaptive</string>
 </dict>

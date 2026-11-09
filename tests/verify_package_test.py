@@ -361,7 +361,7 @@ class VerifyPackageTest(unittest.TestCase):
         app_id = plistlib.loads((ROOT / 'resource/Info.plist').read_bytes())['CFBundleIdentifier']
         identifier = app_id + layout['service_suffix']
         launch = {'Label': identifier, 'BundleProgram': 'Contents/MacOS/' + layout['executable'],
-                  'MachServices': {identifier: True}, 'UserName': 'root', 'RunAtLoad': True,
+                  'MachServices': {identifier: True}, 'UserName': 'root', 'RunAtLoad': True, 'ThrottleInterval': 2,
                   'KeepAlive': {'SuccessfulExit': False}, 'ProcessType': 'Adaptive'}
         facts = {'protocol': layout['protocol'], 'storage_version': layout['storage_version'],
                  'revision': 'a' * 40, 'source_state': 'clean', 'identity_ready': True}

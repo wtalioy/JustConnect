@@ -157,7 +157,8 @@ def check_macos_network_helper(root, env):
     helper = root / 'Contents/MacOS' / layout['executable']
     launch = plistlib.loads((root / 'Contents/Library/LaunchDaemons' / (identifier + '.plist')).read_bytes())
     if launch != {'Label': identifier, 'BundleProgram': 'Contents/MacOS/' + layout['executable'], 'MachServices': {identifier: True},
-                  'UserName': 'root', 'RunAtLoad': True, 'KeepAlive': {'SuccessfulExit': False}, 'ProcessType': 'Adaptive'}:
+                  'UserName': 'root', 'RunAtLoad': True, 'ThrottleInterval': 2,
+                  'KeepAlive': {'SuccessfulExit': False}, 'ProcessType': 'Adaptive'}:
         raise RuntimeError('Packaged network daemon expands its fixed privilege contract')
     facts = json.loads(run(helper, '--version', env=env, timeout=10))
     if (not isinstance(facts, dict) or set(facts) != {'protocol', 'storage_version', 'revision', 'source_state', 'identity_ready'}

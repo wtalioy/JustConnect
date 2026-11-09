@@ -11,6 +11,11 @@ using Status = Result::Status;
 using Completion = std::function<void(Result)>;
 
 auto registrationQueue() { return dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0); }
+auto networkService() { return [SMAppService daemonServiceWithPlistName:[NSString stringWithUTF8String:MacHelperPlist]]; }
+Result approvalRequired()
+{
+    return {Status::PermissionDenied,QStringLiteral("Approve JustConnect in System Settings > General > Login Items & Extensions, then retry."),false,true};
+}
 
 Result permissionFailure(const char *operation, NSError *error, SMAppServiceStatus status)
 {
@@ -43,7 +48,7 @@ void registerService(SMAppService *service, Completion completion, bool afterUnr
         }
     }
     if (status == SMAppServiceStatusRequiresApproval)
-        completion({Status::PermissionDenied,QStringLiteral("Approve JustConnect in System Settings > General > Login Items & Extensions, then retry."),false,true});
+        completion(approvalRequired());
     else if (status != SMAppServiceStatusEnabled)
         completion({Status::Unsupported,QStringLiteral("The signed application bundle does not contain an available network helper.")});
     else
@@ -56,11 +61,20 @@ void openMacBackgroundApprovalSettings()
     [SMAppService openSystemSettingsLoginItems];
 }
 
+void checkMacNetworkHelperApproval(std::function<void(PlatformOperationResult)> completion)
+{
+    dispatch_async(registrationQueue(),^{
+        @autoreleasepool {
+            completion(networkService().status==SMAppServiceStatusRequiresApproval ? approvalRequired() : Result{});
+        }
+    });
+}
+
 void registerMacNetworkHelper(bool refresh, std::function<void(PlatformOperationResult)> completion)
 {
     dispatch_async(registrationQueue(),^{
         @autoreleasepool {
-            auto *service = [SMAppService daemonServiceWithPlistName:[NSString stringWithUTF8String:MacHelperPlist]];
+            auto *service = networkService();
             if (!refresh || service.status != SMAppServiceStatusEnabled) {
                 registerService(service,completion,false);
                 return;
