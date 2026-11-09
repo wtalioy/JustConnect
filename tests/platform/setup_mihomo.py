@@ -35,10 +35,9 @@ def unpack(data, asset):
 
 
 def download_archive(url):
-    request = urllib.request.Request(url, headers={'Accept': 'application/octet-stream'})
     for delay in (2, 6, None):
         try:
-            with urllib.request.urlopen(request, timeout=45) as response:
+            with urllib.request.urlopen(url, timeout=45) as response:
                 return response.read(MAX_ARCHIVE + 1)
         except HTTPError as error:
             if delay is None or not 500 <= error.code < 600:
@@ -52,7 +51,8 @@ def main():
     parser.add_argument('--target', required=True, choices=lock['assets'])
     args = parser.parse_args()
     asset = lock['assets'][args.target]
-    url = f"https://api.github.com/repos/MetaCubeX/mihomo/releases/assets/{asset['asset_id']}"
+    release = lock['source'].replace('/releases/tag/', '/releases/download/', 1)
+    url = f"{release}/{asset['file']}"
     binary = unpack(download_archive(url), asset)
     destination = ROOT / 'build/tools/test-mihomo' / args.target
     destination.mkdir(parents=True, exist_ok=True)

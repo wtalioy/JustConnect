@@ -18,7 +18,7 @@ class RuntimeArchiveTests(unittest.TestCase):
             setup_mihomo.unpack(data + b'tampered', asset)
 
     def test_release_download_retries_transient_server_errors(self):
-        url = 'https://api.github.com/repos/example/releases/assets/123'
+        url = 'https://github.com/example/project/releases/download/v1/asset.gz'
         failure = HTTPError(url, 502, 'Bad Gateway', None, None)
         with patch.object(setup_mihomo.urllib.request, 'urlopen',
                           side_effect=[failure, io.BytesIO(b'archive')]) as request:
