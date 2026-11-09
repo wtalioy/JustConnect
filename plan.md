@@ -16,13 +16,13 @@
 | 阶段进度 | S3—S6 **23／23**，S7 **13／13**。S8 **2／5**。全计划 **60／64**，剩 S1-04、S8-01／03／05。 |
 | Windows 实测 | 2026-11-08 用户确认 S8 Windows 实测通过，反馈未注明包版本。`b2fbdb3` 既有实测覆盖动态代理／TUN、校园网页／SSH／登录、Tailscale 直连；同窗首次／复用接管 2480／38 ms。 |
 | 当前跟踪 | Apple Silicon `7f143d2` 实测校园网页、SSH、Tailscale 和连接中关闭 Clash 系统代理均正常，重新打开仍触发授权与恢复失败。代理写入移入既有授权助手，认证缓存读取失败直接走校园认证，重新打开代理待验收。 |
-| 最近已验证预览 | `7f143d2` [Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/42564325187/artifacts/13650689784)／[Apple Silicon DMG](https://github.com/wtalioy/JustConnect/actions/runs/42564325187/artifacts/13651415398)。 |
+| 最近已验证预览 | `26c320d` [Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/42568631103/artifacts/13651784652)／[Apple Silicon DMG](https://github.com/wtalioy/JustConnect/actions/runs/42568631103/artifacts/13651734047)。 |
 
 ## 当前验收基线
 
 | 范围 | 当前结论与证据 |
 | --- | --- |
-| 自动检查 | `7f143d2` [两平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/42564325140)及[四架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/42564325181)通过，覆盖外部关闭代理后的只读释放及已授予权限的复用。 |
+| 自动检查 | `26c320d` [两平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/42568630847)及[四架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/42568630785)通过。Apple Silicon 覆盖新助手路径、未持有端口的拒绝、代理与 TUN 动态切换及校园／普通出口验证。 |
 | 实际包／源码 | 见 S8-04。 |
 | Windows 修复／性能 | 正常断开修复已实测；DNS 批量刷新、持久进度、部分失败和后续所有权已双架构原生验证。接口查询及 `70f90a5` 接管／断开 CPU 优化已实测通过；`build/reports/windows-restore-9d95b37/summary.json`、`build/reports/windows-dns-cpu-da23405/summary.json` |
 | 阶段矩阵 | V1—V7 区分既有实测、自动证据及最终包待测项 |
@@ -236,7 +236,7 @@
 - [x] **S8-02**：故障与恢复复用 S3-06／S4-06／S7-03—05 及当前两平台原生回归，涵盖取消、权限拒绝、部分失败、外部改值、超时、进程终止与独立恢复。真实注销／跨登录会话、长时间离线及少见网络环境未实测，出现实际问题时补验。正常断开和授权随 S8-01／03。
 - [ ] **S8-03**：在上述连断中验证实际包启动、正常认证和授权、连接状态与退出。Windows 复用 S7 UI 实测，macOS 补 Finder 安装、菜单栏恢复窗口与退出。取消、双语、偏好、键盘及异常流程复用已有回归。
   - macOS 27 换包后可能需要批准后台项，可从应用提示打开系统设置。当前版验证连接中重新开启 Clash 系统代理和正常断开，确认无额外网络授权和恢复提示。新版助手保管代理恢复快照，旧独立恢复工具仍保留用于已发布版本的待恢复记录。
-- [x] **S8-04**：`7f143d2` 的[四组实际包和对应源码](https://github.com/wtalioy/JustConnect/actions/runs/42564325187)通过，另验 [Apple Silicon DMG 在 macOS 27.0.1 安装、启动和退出](https://github.com/wtalioy/JustConnect/actions/runs/42564325187/job/128991447192)。最终提交的发布附件随 S8-05 核对。
+- [x] **S8-04**：`26c320d` 的[四组实际包和对应源码](https://github.com/wtalioy/JustConnect/actions/runs/42568631103)通过，另验 [Apple Silicon DMG 在 macOS 27.0.1 安装、启动和退出](https://github.com/wtalioy/JustConnect/actions/runs/42568631103/job/129004857102)。最终提交的发布附件随 S8-05 核对。
 - [ ] **S8-05**：主路径实测通过后验收 [main／Release 交付](docs/DEVELOPMENT.md#分支与-actions)，核对附件与来源。macOS 正式交付须验证从 Release 用浏览器直接下载 DMG、拖入「应用程序」并按系统首次打开流程启动。
 
 ## 验收记录
