@@ -755,11 +755,6 @@ You may need to sign in again. Passwords, TOTP and other accounts are kept.</sou
         <translation>清理失败或超时。已停止重连及新连接；请检查代理残留，完成清理后重试退出或重启系统。程序将保留事件循环，不强制销毁仍在运行的核心或存储线程。</translation>
     </message>
     <message>
-        <location filename="../../presentation/main/mainwindow.cpp" line="351"/>
-        <source>JustConnect is running in the system tray. Click its icon to restore the window; use Exit to quit.</source>
-        <translation>程序继续在系统托盘运行，单击图标可恢复窗口；退出请使用菜单。</translation>
-    </message>
-    <message>
         <location filename="../../presentation/main/mainwindow.ui" line="172"/>
         <location filename="../../presentation/main/mainwindow.cpp" line="563"/>
         <source>Connect</source>

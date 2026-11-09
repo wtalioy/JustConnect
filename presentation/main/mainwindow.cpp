@@ -407,7 +407,6 @@ void MainWindow::closeEvent(QCloseEvent *event)
     if (!SavedConnectionStore().closeToTray()) { gracefullyQuit();return; }
     if (trayIcon && trayIcon->isVisible() && QSystemTrayIcon::isSystemTrayAvailable()) {
         hide();
-        showNotification("JustConnect", tr("JustConnect is running in the system tray. Click its icon to restore the window; use Exit to quit."), QSystemTrayIcon::Information);
     } else {
         PresentationHelpers::activateWindow(this);
         setProperty("trayUnavailable",true);
