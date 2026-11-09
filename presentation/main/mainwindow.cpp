@@ -18,6 +18,7 @@
 #include <QFontDatabase>
 #include <QDialogButtonBox>
 #include <QScrollArea>
+#include <QScrollBar>
 #include <QVBoxLayout>
 #include "presentation/widgets/applicationpreferenceswidget.h"
 #include "presentation/widgets/localizeddialog.h"
@@ -404,11 +405,12 @@ void MainWindow::showApplicationPreferences() {
         connect(buttons,&QDialogButtonBox::rejected,view,&QDialog::reject);layout->addWidget(buttons);
         view->setTranslation([view,this]{view->setWindowTitle(tr("App settings"));});
         view->setMinimumSize(320,360);view->resize(560,560);
+        scroll->setWidget(contents);
         view->ensurePolished();
         layout->activate();
         contents->layout()->activate();
-        scroll->setWidget(contents);
         scroll->setFocus(Qt::OtherFocusReason);
+        scroll->verticalScrollBar()->setValue(0);
         PresentationHelpers::activateWindow(view);
         // A hidden scroll area can calculate a range before its viewport has its final size.
         QTimer::singleShot(0, scroll, [scroll] {

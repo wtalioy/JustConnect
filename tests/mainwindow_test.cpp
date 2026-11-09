@@ -627,6 +627,8 @@ static void nativeHome(MainWindow &window, ApplicationLogger &logger) {
                   << ", content: " << preferencesScroll->widget()->height()
                   << ", range: " << preferencesScroll->verticalScrollBar()->maximum() << '\n';
     check(!preferencesPaints.barPainted, "application settings paint without a temporary scrollbar");
+    check(std::all_of(preferencesPaints.contentPositions.cbegin(),preferencesPaints.contentPositions.cend(),[](int value){return value==0;}),
+        "application settings paint from the top before the scrollbar policy settles");
     settings->resize(320, 360);
     waitForUi([&] { return preferencesScroll->verticalScrollBar()->isVisible(); });
     settings->reject();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
