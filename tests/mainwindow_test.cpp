@@ -29,7 +29,6 @@
 #include <QDialogButtonBox>
 #include <QPushButton>
 #include <QPlainTextEdit>
-#include <QInputDialog>
 #include <QTabWidget>
 #include <QTreeWidget>
 #include <QStackedWidget>
@@ -173,10 +172,18 @@ static void profileMenusKeepTheirActions(MainWindow &window,const QString &profi
     const auto report=qEnvironmentVariable("JC_UI_REPORT_DIR");
     if (!report.isEmpty()) check(window.grab().save(QDir(report).filePath("home-configured.png")),"save the configured preset identity on the actual home");
     QTimer::singleShot(0,&window,[&] {
-        auto *name=qobject_cast<QInputDialog *>(QApplication::activeModalWidget());
-        check(name,"add control asks for the profile name");
-        name->setTextValue("direct-add");
-        name->accept();
+        auto *dialog=qobject_cast<QDialog *>(QApplication::activeModalWidget());
+        check(dialog && dialog->objectName()=="connectionNameDialog","add control asks for the profile name");
+        auto *name=dialog->findChild<QLineEdit *>("connectionNameEdit");
+        auto *label=dialog->findChild<QLabel *>("connectionNameLabel");
+        auto *hint=dialog->findChild<QLabel *>("connectionNameHint");
+        check(label->buddy()==name && hint->geometry().top()>name->geometry().bottom()
+            && hint->font().pointSizeF()<label->font().pointSizeF() && name->accessibleDescription()==hint->text(),
+            "naming rules are a secondary field hint with an accessible description");
+        if (!report.isEmpty()) check(dialog->grab().save(QDir(report).filePath("add-connection-prompt.png")),
+            "save the native connection name dialog");
+        name->setText("direct-add");
+        dialog->accept();
     });
     addAction->trigger();
     auto *created=window.findChild<SettingWindow *>();

@@ -7,7 +7,8 @@
 #include <QCoreApplication>
 #include <QGuiApplication>
 #include <QActionGroup>
-#include <QInputDialog>
+#include <QDialog>
+#include <QLineEdit>
 #include <QStyle>
 #include <QTimer>
 #include <QPushButton>
@@ -24,6 +25,7 @@
 #include "presentation/widgets/localizeddialog.h"
 #include <QtAlgorithms>
 #include <algorithm>
+#include <optional>
 #include "infrastructure/settings/savedconnectionstore.h"
 
 #include "mainwindow.h"
@@ -50,6 +52,39 @@ QString defaultConnectionLabel(const QSettings &settings)
     const auto server = settings.value("JustConnect/ServerAddress").toString().trimmed();
     if (server.isEmpty()) return MainWindow::tr("Unnamed connection");
     return DefaultSettings::matchesBuiltInServer(server) ? MainWindow::tr("Fudan") : server;
+}
+
+std::optional<QString> requestConnectionName(QWidget *parent,const QString &title,const QString &initial={})
+{
+    QDialog dialog(parent);
+    dialog.setObjectName("connectionNameDialog");
+    dialog.setWindowTitle(title);
+    dialog.setMinimumWidth(320);
+    auto *layout=new QVBoxLayout(&dialog);
+    layout->setContentsMargins(20,20,20,20);
+    layout->setSpacing(8);
+    auto *label=new QLabel(MainWindow::tr("Connection name"),&dialog);
+    label->setObjectName("connectionNameLabel");
+    auto *name=new QLineEdit(initial,&dialog);
+    name->setObjectName("connectionNameEdit");
+    label->setBuddy(name);
+    auto *hint=new QLabel(MainWindow::tr("Use letters, numbers, underscores or hyphens."),&dialog);
+    hint->setObjectName("connectionNameHint");
+    hint->setProperty("secondary",true);
+    hint->setWordWrap(true);
+    name->setAccessibleDescription(hint->text());
+    layout->addWidget(label);
+    layout->addWidget(name);
+    layout->addWidget(hint);
+    auto *buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel,&dialog);
+    buttons->button(QDialogButtonBox::Ok)->setDefault(true);
+    layout->addWidget(buttons);
+    QObject::connect(buttons,&QDialogButtonBox::accepted,&dialog,&QDialog::accept);
+    QObject::connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+    name->setFocus(Qt::OtherFocusReason);
+    name->selectAll();
+    if (dialog.exec()!=QDialog::Accepted) return std::nullopt;
+    return name->text();
 }
 }
 
@@ -759,16 +794,8 @@ void MainWindow::createConnection()
         return;
     }
 
-    bool ok = false;
-    const QString name = QInputDialog::getText(
-        this,
-        tr("Add connection…"),
-        tr("Connection name:\nUse letters, numbers, underscores or hyphens."),
-        QLineEdit::Normal,
-        "",
-        &ok
-    );
-    if (!ok)
+    const auto name=requestConnectionName(this,tr("Add connection…"));
+    if (!name)
     {
         return;
     }
@@ -778,7 +805,7 @@ void MainWindow::createConnection()
         settingWindow->close();
     }
 
-    const QString newConnectionId = savedConnections->createAndSwitch(name);
+    const QString newConnectionId = savedConnections->createAndSwitch(*name);
     if (newConnectionId.isEmpty())
     {
         QMessageBox::critical(this, tr("Could not add connection"), tr("The new connection could not be created."));
@@ -800,14 +827,13 @@ void MainWindow::renameCurrentConnection()
     if (coordinator->credentials()->isBusy(settings->fileName()) || connectionUiController->isConfigurationSaving() || (settingWindow && settingWindow->isSaving())) {
         QMessageBox::information(this,tr("Secure storage is busy"),tr("Wait for the current operation before renaming."));return;
     }
-    bool ok = false;
-    QString name = QInputDialog::getText(this, tr("Rename connection…"), tr("New connection name:\nUse letters, numbers, underscores or hyphens."), QLineEdit::Normal, currentConnectionId, &ok);
-    if (!ok)
+    const auto name=requestConnectionName(this,tr("Rename connection…"),currentConnectionId);
+    if (!name)
     {
         return;
     }
 
-    const QString normalizedName = savedConnections->normalizeConnectionId(name);
+    const QString normalizedName = savedConnections->normalizeConnectionId(*name);
     if (normalizedName.isEmpty())
     {
         QMessageBox::warning(this, tr("Could not rename connection"), tr("The connection name cannot be empty."));

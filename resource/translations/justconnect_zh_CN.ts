@@ -1245,10 +1245,12 @@ Complete the legacy credential migration first, or add a new connection.</source
         <translation>添加连接…</translation>
     </message>
     <message>
-        <source>Connection name:
-Use letters, numbers, underscores or hyphens.</source>
-        <translation>连接名称：
-可使用字母、数字、下划线或连字符。</translation>
+        <source>Connection name</source>
+        <translation>连接名称</translation>
+    </message>
+    <message>
+        <source>Use letters, numbers, underscores or hyphens.</source>
+        <translation>可使用字母、数字、下划线或连字符。</translation>
     </message>
     <message>
         <source>Connection renamed to: </source>
@@ -1337,12 +1339,6 @@ Use letters, numbers, underscores or hyphens.</source>
     <message>
         <source>Legacy data cleared for the current connection</source>
         <translation>已清除当前连接的旧版数据</translation>
-    </message>
-    <message>
-        <source>New connection name:
-Use letters, numbers, underscores or hyphens.</source>
-        <translation>新连接名称：
-可使用字母、数字、下划线或连字符。</translation>
     </message>
     <message>
         <source>Rename connection…</source>
