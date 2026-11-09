@@ -61,18 +61,18 @@ static void actionPromptLayout(QWidget &parent,QDialogButtonBox::StandardButton 
         check(dialog && dialog->objectName()=="actionPrompt","the styled prompt is the active modal dialog");
         auto *box=dialog->findChild<QDialogButtonBox *>();
         auto *icon=dialog->findChild<QLabel *>("promptIcon");
-        auto *heading=dialog->findChild<QLabel *>("promptHeading");
         auto *text=dialog->findChild<QLabel *>("promptBody");
         auto *action=box->button(primary);
         auto *cancel=box->button(dismiss);
-        check(icon->size()==QSize(36,36) && qAbs(icon->geometry().center().y()
-            -(heading->geometry().top()+text->geometry().bottom())/2)<=1,
-            "prompt icon is aligned with the heading and body");
+        check(dialog->windowTitle()==title && text->text()==body
+            && dialog->findChildren<QLabel *>().size()==2,
+            "the native title is the only heading and the body appears once");
+        check(icon->size()==QSize(36,36) && qAbs(icon->geometry().center().y()-text->geometry().center().y())<=1,
+            "prompt icon is aligned with the body");
         check(text->height()>=text->heightForWidth(text->width()) && dialog->rect().contains(box->geometry())
             && action->height()==cancel->height() && box->rect().contains(action->geometry()),
             "wrapped copy and both actions fit inside the prompt");
-        check(heading->height()<=heading->heightForWidth(heading->width())+2
-            && text->height()<=text->heightForWidth(text->width())+2,
+        check(text->height()<=qMax(icon->height(),text->heightForWidth(text->width()))+2,
             "the dialog leaves no extra vertical space around the wrapped copy");
         for (auto *button : {action,cancel}) {
             QStyleOptionButton option;

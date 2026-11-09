@@ -67,19 +67,12 @@ bool PresentationHelpers::actionPrompt(QWidget *parent,const QString &title,cons
     const QIcon artwork(primary==QDialogButtonBox::Yes ? ":/resource/prompt-question.svg" : ":/resource/prompt-info.svg");
     icon->setPixmap(artwork.pixmap(icon->size(),dialog.devicePixelRatioF()));
     row->addWidget(icon,0,Qt::AlignVCenter);
-    auto *copy = new QVBoxLayout;
-    copy->setSpacing(4);
-    const auto addText = [&dialog,copy](const QString &text,const char *name) {
-        auto *label = new QLabel(text,&dialog);
-        label->setObjectName(name);
-        label->setTextFormat(Qt::PlainText);
-        label->setWordWrap(true);
-        label->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Preferred);
-        copy->addWidget(label);
-    };
-    addText(title,"promptHeading");
-    addText(body,"promptBody");
-    row->addLayout(copy,1);
+    auto *copy = new QLabel(body,&dialog);
+    copy->setObjectName("promptBody");
+    copy->setTextFormat(Qt::PlainText);
+    copy->setWordWrap(true);
+    copy->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Preferred);
+    row->addWidget(copy,1);
     layout->addLayout(row);
 
     auto *buttons = new QDialogButtonBox(primary|dismiss,&dialog);
