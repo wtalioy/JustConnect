@@ -335,9 +335,9 @@ void ConnectionUiController::clearAuthenticationCache()
         QMessageBox::information(parentWidget,tr("Authentication cache"),tr("This connection has no saved sign-in cache."));return;
     }
     const auto account=source.connectionOptions.credentials.username.isEmpty() ? source.connectionOptions.endpoint.phone : source.connectionOptions.credentials.username;
-    QMessageBox confirm(QMessageBox::Question,tr("Clear authentication cache"),source.connectionOptions.endpoint.server+tr("\nClear the authentication cache for ")+account+tr("? The next connection may require sign-in. Passwords, TOTP and other accounts are preserved."),QMessageBox::Yes|QMessageBox::No,parentWidget);
-    confirm.setTextFormat(Qt::PlainText);confirm.setDefaultButton(QMessageBox::No);
-    if (confirm.exec()!=QMessageBox::Yes) return;
+    if (!PresentationHelpers::actionPrompt(parentWidget,tr("Clear authentication cache"),
+        tr("Clear the saved sign-in for %1 on %2?\nYou may need to sign in again. Passwords, TOTP and other accounts are kept.")
+            .arg(account,source.connectionOptions.endpoint.server))) return;
     if (credentialsPending) cancelPendingCredentials();
     authenticationCache->clear(source).then(this,[this](const CredentialResult &result) {
         if (!result.succeeded()) QMessageBox::warning(parentWidget,tr("Authentication cache cleanup incomplete"),PresentationHelpers::credentialOperationMessage(result.status));
@@ -365,14 +365,13 @@ void ConnectionUiController::showConnectionError(ConnectionError error)
     switch (error)
     {
     case ConnectionError::BACKGROUND_HELPER_UNAVAILABLE: {
-        message=tr("Check that JustConnect is allowed to run in the background, then connect again.");
 #if defined(Q_OS_MACOS)
-        QMessageBox approval(QMessageBox::Information,tr("Network helper unavailable"),message,QMessageBox::Cancel,parentWidget);
-        const auto settingsButton=approval.addButton(tr("Open System Settings"),QMessageBox::ActionRole);
-        approval.exec();
-        if (approval.clickedButton()==settingsButton) openMacBackgroundApprovalSettings();
+        if (PresentationHelpers::actionPrompt(parentWidget,tr("Background access required"),
+            tr("Allow JustConnect under Login Items & Extensions, then connect again."),
+            QDialogButtonBox::Open,QDialogButtonBox::Cancel,tr("Open System Settings"))) openMacBackgroundApprovalSettings();
         return;
 #else
+        message=tr("Check that JustConnect is allowed to run in the background, then connect again.");
         break;
 #endif
     }

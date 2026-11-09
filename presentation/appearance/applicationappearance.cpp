@@ -92,7 +92,7 @@ void ApplicationAppearance::install() {
         while (sizes.hasNext()) {
             const auto size = sizes.next();
             larger += QStringView(style).mid(next, size.capturedStart(1) - next);
-            larger += QString::number(size.captured(1).toDouble() + 1.0);
+            larger += QString::number(size.captured(1).toDouble() + 2.0);
             next = size.capturedEnd(1);
         }
         larger += QStringView(style).mid(next);

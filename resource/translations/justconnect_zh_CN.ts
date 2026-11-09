@@ -418,15 +418,10 @@ You can sign in manually for this connection.</source>
     </message>
     <message>
         <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="328"/>
-        <source>
-Clear the authentication cache for </source>
-        <translation>
-清除 </translation>
-    </message>
-    <message>
-        <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="328"/>
-        <source>? The next connection may require sign-in. Passwords, TOTP and other accounts are preserved.</source>
-        <translation> 的认证缓存？下次连接可能需要重新认证，密码、TOTP 和其他账户保持不变。</translation>
+        <source>Clear the saved sign-in for %1 on %2?
+You may need to sign in again. Passwords, TOTP and other accounts are kept.</source>
+        <translation>清除 %1 在 %2 上的登录状态？
+下次可能需要重新登录。密码、动态口令密钥和其他账户会保留。</translation>
     </message>
     <message>
         <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="333"/>
@@ -443,8 +438,12 @@ Clear the authentication cache for </source>
         <translation>请在系统设置中确认已允许 JustConnect 在后台运行，然后重新连接。</translation>
     </message>
     <message>
-        <source>Network helper unavailable</source>
-        <translation>网络助手不可用</translation>
+        <source>Background access required</source>
+        <translation>需要后台运行权限</translation>
+    </message>
+    <message>
+        <source>Allow JustConnect under Login Items &amp; Extensions, then connect again.</source>
+        <translation>请在「登录项与扩展」中允许 JustConnect 在后台运行，然后重新连接。</translation>
     </message>
     <message>
         <source>Open System Settings</source>
@@ -1300,8 +1299,8 @@ Use letters, numbers, underscores or hyphens.</source>
         <translation>删除连接…</translation>
     </message>
     <message>
-        <source>Delete this connection's legacy cache and its quarantined copy in secure storage? This unbound data is not used for login. Current account caches, passwords, TOTP and other connections are preserved.</source>
-        <translation>删除此连接的旧版缓存及安全存储中的隔离副本？这些未绑定数据不用于登录。当前账号的缓存、密码、动态口令密钥及其他连接会保留。</translation>
+        <source>Delete old sign-in data for this connection? Current sign-ins and saved credentials will be kept.</source>
+        <translation>删除此连接的旧版登录数据？当前登录状态和已保存的凭据会保留。</translation>
     </message>
     <message>
         <source>Deleted connection: </source>

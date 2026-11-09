@@ -28,4 +28,4 @@ Selected Lucide SVGs from [`53fab88ff9d1b48f4704b5b5b560d6b4d560bf4c`](https://g
 
 `chevron-right.svg` rotates the existing Lucide chevron. `check.svg` and `menu.svg` are geometric marks drawn for the application. `icon.svg` and the connection-state illustrations are JustConnect artwork.
 
-`JustConnect.ico` and `JustConnect.icns` package RGBA PNG renders at native icon sizes. The Windows icon uses `icon.svg`; the macOS Finder icon uses `macos-app-icon.svg` with a white tile behind the same mark. The tray uses the same SVG at rest and `connection-ready.svg` when connected.
+`JustConnect.ico` and `JustConnect.icns` package RGBA PNG renders at native icon sizes. The Windows icon uses `icon.svg`; the macOS Finder icon uses `macos-app-icon.svg` with a white tile behind the same mark. The Windows tray uses the colored link at rest and `connection-ready.svg` when connected. The macOS menu bar uses `tray-link.svg` and `tray-link-ready.svg` as monochrome templates tinted by AppKit. The confirmation and background approval prompts use the local `prompt-question.svg` and `prompt-info.svg` marks.

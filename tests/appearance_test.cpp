@@ -1,9 +1,11 @@
 #include "presentation/appearance/applicationappearance.h"
+#include "presentation/presentationhelpers.h"
 #include "presentation/widgets/profilemenubutton.h"
 #include "tests/uiwait.h"
 #include <QApplication>
 #include <QBackingStore>
 #include <QDialog>
+#include <QDir>
 #include <QMainWindow>
 #include <QPushButton>
 #include <QToolButton>
@@ -22,6 +24,7 @@
 #include <QAbstractButton>
 #include <QStyleOption>
 #include <QStyle>
+#include <QTimer>
 #include <QVBoxLayout>
 #include <cstdlib>
 #include <iostream>
@@ -48,9 +51,70 @@ protected:
         ++paints;
     }
 };
+static void actionPromptLayout(QWidget &parent,QDialogButtonBox::StandardButton primary,
+    QDialogButtonBox::StandardButton dismiss,const QString &title,const QString &body,
+    const QString &label,const QString &reportName)
+{
+    bool observed=false;
+    QTimer::singleShot(0,&parent,[&] {
+        auto *dialog=qobject_cast<QDialog *>(QApplication::activeModalWidget());
+        check(dialog && dialog->objectName()=="actionPrompt","the styled prompt is the active modal dialog");
+        auto *box=dialog->findChild<QDialogButtonBox *>();
+        auto *icon=dialog->findChild<QLabel *>("promptIcon");
+        auto *heading=dialog->findChild<QLabel *>("promptHeading");
+        auto *text=dialog->findChild<QLabel *>("promptBody");
+        auto *action=box->button(primary);
+        auto *cancel=box->button(dismiss);
+        check(icon->size()==QSize(36,36) && qAbs(icon->geometry().center().y()
+            -(heading->geometry().top()+text->geometry().bottom())/2)<=1,
+            "prompt icon is aligned with the heading and body");
+        check(text->height()>=text->heightForWidth(text->width()) && dialog->rect().contains(box->geometry())
+            && action->height()==cancel->height() && box->rect().contains(action->geometry()),
+            "wrapped copy and both actions fit inside the prompt");
+        for (auto *button : {action,cancel}) {
+            QStyleOptionButton option;
+            option.initFrom(button);
+            option.text=button->text();
+            const auto contents=button->style()->subElementRect(QStyle::SE_PushButtonContents,&option,button);
+            check(contents.width()>=button->fontMetrics().size(Qt::TextShowMnemonic,button->text()).width(),
+                "button text fits with the shared padding");
+        }
+        check(action->property("promptPrimary").toBool() && cancel->isDefault() && !action->isDefault(),
+            "the blue action and safe keyboard default are independent");
+        const auto fill = [](QPushButton *button) {
+            const auto pixels = button->grab().toImage();
+            return pixels.pixelColor(pixels.width()/2,qRound(8*button->devicePixelRatioF()));
+        };
+        const auto actionFill=fill(action), cancelFill=fill(cancel);
+        check(actionFill.blue()>actionFill.red()+60 && actionFill.green()<170
+            && cancelFill.red()>220 && cancelFill.green()>220,
+            "the affirmative button renders blue and the keyboard default renders neutral");
+        const auto report=qEnvironmentVariable("JC_UI_REPORT_DIR");
+        if (!report.isEmpty()) check(dialog->grab().save(QDir(report).filePath(reportName)),"save styled prompt screenshot");
+        observed=true;
+        if (primary==QDialogButtonBox::Yes) {
+            QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
+            QCoreApplication::sendEvent(dialog,&enter);
+        } else {
+            action->click();
+        }
+    });
+    const bool accepted=PresentationHelpers::actionPrompt(&parent,title,body,primary,dismiss,label);
+    check(observed && accepted==(primary!=QDialogButtonBox::Yes),"Return dismisses a deletion and the settings button accepts");
+}
+
 int main(int argc,char **argv) {
     QApplication app(argc,argv);
     ApplicationAppearance::install();
+    QWidget promptParent;
+    promptParent.show();
+    actionPromptLayout(promptParent,QDialogButtonBox::Yes,QDialogButtonBox::No,"Clear authentication cache",
+        "Clear the saved sign-in for account@example.edu on vpn.example.edu?\nYou may need to sign in again. Passwords, TOTP and other accounts are kept.",
+        {},"cache-prompt.png");
+    actionPromptLayout(promptParent,QDialogButtonBox::Open,QDialogButtonBox::Cancel,"Background access required",
+        "Allow JustConnect under Login Items & Extensions, then connect again.",
+        "Open System Settings","background-prompt.png");
+    promptParent.hide();
     QCheckBox checkbox("Verify server certificate");
     checkbox.resize(240, 36);
     checkbox.ensurePolished();

@@ -80,7 +80,6 @@ MainWindow::MainWindow(
     ui->logPlainTextEdit->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
     ui->detailsDialog->resize(640,568);
     PresentationHelpers::setButtonIcon(ui->diagnosticRulesButton,":/resource/rules.svg");
-    ui->inspectNetworkAction->setIcon(ui->diagnosticRulesButton->icon());
     connect(ui->detailsButton,&QPushButton::clicked,this,[this] {
         if (!ui->detailsDialog->isVisible()) {
             ui->detailsTabs->setCurrentIndex(0);
@@ -154,8 +153,6 @@ MainWindow::MainWindow(
     setupConnectionMenu();
     auto *applicationMenu = new QMenu(ui->applicationMenuButton);
     applicationMenu->setToolTipsVisible(true);
-    applicationMenu->addAction(ui->inspectNetworkAction);
-    applicationMenu->addSeparator();
     applicationMenu->addAction(ui->checkUpdateAction);
     applicationMenu->addAction(ui->projectAction);
     applicationMenu->addAction(ui->aboutAction);
@@ -175,6 +172,7 @@ MainWindow::MainWindow(
     updateConnectionSummary();
     updateVersionInfo();
     updateConnectionState(connectionSession->state());
+    trayIcon->show();
 
     connect(connectionSession, &ConnectionSession::stateChanged, this,
             &MainWindow::updateConnectionState);
@@ -230,11 +228,8 @@ MainWindow::MainWindow(
             QMessageBox::information(this,tr("Secure storage is busy"),tr("Wait for the current operation before clearing legacy data."));return;
         }
         const auto source=coordinator->credentialSource();
-        QMessageBox confirm(QMessageBox::Question,tr("Clear legacy data"),
-            tr("Delete this connection's legacy cache and its quarantined copy in secure storage? This unbound data is not used for login. Current account caches, passwords, TOTP and other connections are preserved."),
-            QMessageBox::Yes|QMessageBox::No,this);
-        confirm.setDefaultButton(QMessageBox::No);
-        if (confirm.exec()!=QMessageBox::Yes) return;
+        if (!PresentationHelpers::actionPrompt(this,tr("Clear legacy data"),
+            tr("Delete old sign-in data for this connection? Current sign-ins and saved credentials will be kept."))) return;
         coordinator->credentials()->clearLegacyCache(source).then(this,[this](const CredentialResult &result) {
             if (!result.succeeded()) QMessageBox::warning(this,tr("Legacy data cleanup incomplete"),PresentationHelpers::credentialOperationMessage(result.status));
             else qInfo().noquote()<<tr("Legacy data cleared for the current connection");
@@ -564,7 +559,17 @@ void MainWindow::updateConnectionState(ConnectionState state)
         .pixmap(ui->statusIndicator->size(),devicePixelRatioF()));
     if (trayIcon) {
         trayIcon->setToolTip(QApplication::applicationName()+" · "+title+"\n"+detail);
+#ifdef Q_OS_MACOS
+        static const QIcon idleTrayArtwork = [] {
+            QIcon icon(":/resource/tray-link.svg");icon.setIsMask(true);return icon;
+        }();
+        static const QIcon connectedTrayArtwork = [] {
+            QIcon icon(":/resource/tray-link-ready.svg");icon.setIsMask(true);return icon;
+        }();
+        const auto &trayArtwork = connected ? connectedTrayArtwork : idleTrayArtwork;
+#else
         const auto trayArtwork = connected ? connectedArtwork : QApplication::windowIcon();
+#endif
         if (trayIcon->icon().cacheKey() != trayArtwork.cacheKey())
             trayIcon->setIcon(trayArtwork);
     }
@@ -605,18 +610,7 @@ void MainWindow::setupTrayIcon()
 {
     // 系统托盘
     trayIcon = new QSystemTrayIcon(this);
-    trayIcon->setIcon(QApplication::windowIcon());
     trayIcon->setToolTip(QApplication::applicationName());
-    connect(trayIcon, &QSystemTrayIcon::activated, this, [&](QSystemTrayIcon::ActivationReason reason) {
-        switch (reason)
-        {
-        case QSystemTrayIcon::Context:
-            break;
-        default:
-            PresentationHelpers::activateWindow(this);
-            break;
-        }
-    });
 
     trayConnectAction = new QAction(tr("Connect"), this);
     trayConnectionMenu = new QMenu(tr("Connections"), this);
@@ -634,7 +628,11 @@ void MainWindow::setupTrayIcon()
     });
     connect(trayCloseAction, &QAction::triggered, this, &MainWindow::gracefullyQuit);
     trayIcon->setContextMenu(trayMenu);
-    trayIcon->show();
+#ifndef Q_OS_MACOS
+    connect(trayIcon, &QSystemTrayIcon::activated, this, [this](QSystemTrayIcon::ActivationReason reason) {
+        if (reason != QSystemTrayIcon::Context) PresentationHelpers::activateWindow(this);
+    });
+#endif
 }
 
 void MainWindow::setupConnectionMenu()

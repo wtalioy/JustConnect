@@ -15,6 +15,14 @@ QDialog QPushButton:default:enabled, QPushButton#connectButton[primaryAction="tr
 QDialog QPushButton:default:enabled:hover, QPushButton#connectButton[primaryAction="true"]:enabled:hover { background: #4458d5; }
 QDialog QPushButton:default:enabled:pressed, QPushButton#connectButton[primaryAction="true"]:enabled:pressed { background: #394bbd; }
 QDialog QPushButton:default:focus, QPushButton#connectButton[primaryAction="true"]:focus { border-color: #182132; }
+QDialog#actionPrompt QLabel#promptHeading { font-weight: 700; }
+QDialog#actionPrompt QPushButton[promptPrimary="false"] { color: #182132; background: #ffffff; border-color: #e0e4eb; font-weight: 400; }
+QDialog#actionPrompt QPushButton[promptPrimary="false"]:hover { background: #e4e7ec; }
+QDialog#actionPrompt QPushButton[promptPrimary="false"]:pressed { background: #dce0e6; }
+QDialog#actionPrompt QPushButton[promptPrimary="true"] { color: white; background: #5367e8; border-color: #5367e8; font-weight: 600; }
+QDialog#actionPrompt QPushButton[promptPrimary="true"]:hover { background: #4458d5; }
+QDialog#actionPrompt QPushButton[promptPrimary="true"]:pressed { background: #394bbd; }
+QDialog#actionPrompt QPushButton[promptPrimary]:focus { border-color: #8994a5; }
 QPushButton#connectButton { min-height: 44px; }
 QPushButton:flat { border-color: transparent; background: transparent; color: #616b7c; }
 QPushButton:flat:hover { background: #e4e7ec; }

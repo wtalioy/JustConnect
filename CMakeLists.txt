@@ -157,13 +157,14 @@ include(CTest)
 
 
 if(BUILD_TESTING)
-    add_executable(appearance_test tests/appearance_test.cpp presentation/appearance/applicationappearance.cpp)
+    add_executable(appearance_test tests/appearance_test.cpp presentation/appearance/applicationappearance.cpp presentation/presentationhelpers.cpp)
     target_link_libraries(appearance_test PRIVATE Qt6::Widgets justconnect_ui_resources)
     target_include_directories(appearance_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME appearance_test COMMAND appearance_test)
     add_test(NAME appearance_scaled_test COMMAND appearance_test)
     set_tests_properties(appearance_scaled_test PROPERTIES TIMEOUT 30 ENVIRONMENT "QT_QPA_PLATFORM=${JC_BROWSER_QPA};QT_SCALE_FACTOR=2")
     set_tests_properties(appearance_test PROPERTIES TIMEOUT 30 ENVIRONMENT "QT_QPA_PLATFORM=${JC_BROWSER_QPA}")
+    set_property(TEST appearance_test APPEND PROPERTY ENVIRONMENT "JC_UI_REPORT_DIR=${CMAKE_CURRENT_BINARY_DIR}/ui-report")
     add_executable(applicationinstancelock_test tests/applicationinstancelock_test.cpp
         infrastructure/process/applicationinstancelock.cpp)
     target_include_directories(applicationinstancelock_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

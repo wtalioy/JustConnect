@@ -433,9 +433,30 @@ static void nativeHome(MainWindow &window, ApplicationLogger &logger) {
     const auto state=session->state();
     auto *tray=window.findChild<QSystemTrayIcon *>();
     const auto mark=QIcon(":/resource/icon.svg").pixmap(24,24).toImage();
-    check(!mark.isNull() && tray->icon().pixmap(24,24).toImage()==mark
-        && window.windowIcon().pixmap(24,24).toImage()==mark,
-        "the disconnected tray and window render the same link artwork");
+    check(!mark.isNull() && window.windowIcon().pixmap(24,24).toImage()==mark,"the window uses the standard link artwork");
+#ifdef Q_OS_MACOS
+    const auto connectedMark=QIcon(":/resource/tray-link-ready.svg").pixmap(24,24).toImage();
+    check(tray->icon().isMask() && !tray->icon().pixmap(24,24).isNull()
+        && !connectedMark.isNull() && connectedMark!=tray->icon().pixmap(24,24).toImage(),
+        "macOS uses adaptive template artwork with a distinct connected mark");
+    auto *trayMenu=tray->contextMenu();
+    auto *showWindow=window.findChild<QAction *>("trayShowAction");
+    check(trayMenu && trayMenu->actions().contains(showWindow),"macOS binds the native tray menu and its show-window action");
+    window.hide();
+    emit tray->activated(QSystemTrayIcon::Trigger);
+    emit tray->activated(QSystemTrayIcon::Context);
+    emit tray->activated(QSystemTrayIcon::Unknown);
+    check(!window.isVisible(),"macOS menu activation never opens the main window");
+    showWindow->trigger();
+    check(window.isVisible(),"the tray menu opens the main window on explicit request");
+#else
+    check(tray->icon().pixmap(24,24).toImage()==mark,"the tray uses the colored link artwork");
+    window.hide();
+    emit tray->activated(QSystemTrayIcon::Context);
+    check(!window.isVisible() && tray->contextMenu(),"Windows secondary activation stays in the tray menu");
+    emit tray->activated(QSystemTrayIcon::Trigger);
+    check(window.isVisible(),"Windows primary tray activation opens the window");
+#endif
     auto *appMenu=window.findChild<QToolButton *>("applicationMenuButton")->menu();
     auto *connections=window.findChild<QToolButton *>("profileMenuButton")->menu();
     check(appMenu->actions().contains(window.findChild<QAction *>("exitAction"))
@@ -445,9 +466,10 @@ static void nativeHome(MainWindow &window, ApplicationLogger &logger) {
         && connections->actions().contains(window.findChild<QAction *>("clearClientDataAction")),
         "application and connection actions are accessible directly from home");
     auto *networkProtection = window.findChild<QAction *>("inspectNetworkAction");
-    check(appMenu->actions().contains(networkProtection)
+    check(!appMenu->actions().contains(networkProtection) && networkProtection->icon().isNull()
+        && window.findChild<QMenu *>("fileMenu")->actions().contains(networkProtection)
         && networkProtection->text() == window.findChild<QPushButton *>("diagnosticRulesButton")->text(),
-        "the home menu and details use the same name for network protection");
+        "network protection remains in details and the icon-free File menu");
     const auto connectionActions = connections->actions();
     check(connectionActions.first()->isChecked()
         && connectionActions.first()->text()=="Fudan"
@@ -483,14 +505,13 @@ static void nativeHome(MainWindow &window, ApplicationLogger &logger) {
         check(!window.findChild<QPushButton *>(name)->isDefault(),"opening logs does not turn a toolbar icon into the dialog's submit action");
     if (!detailsReport.isEmpty()) check(details->grab().save(QDir(detailsReport).filePath("details-logs.png")),"save the native log layout and toolbar");
     if(!detailsReport.isEmpty() && QGuiApplication::platformName()=="windows") {
-        // Native macOS tray menus are NSMenu surfaces, outside QWidget::grab.
         const auto captureMenu=[&](QMenu *menu,const QString &name) {
             menu->popup(details->mapToGlobal(QPoint(24,80)));waitForUi([&]{return menu->isVisible();});
             menu->setActiveAction(menu->actions().first());QCoreApplication::processEvents();
             check(menu->grab().save(QDir(detailsReport).filePath(name)),"save compact neutral menu styling");menu->hide();
         };
         captureMenu(appMenu,"application-menu.png");
-        captureMenu(window.findChild<QSystemTrayIcon *>()->contextMenu(),"tray-menu.png");
+        captureMenu(tray->contextMenu(),"tray-menu.png");
         captureMenu(window.findChild<QToolButton *>("profileMenuButton")->menu(),"profile-menu.png");
     }
     emit session->diagnostic("authentication_started");

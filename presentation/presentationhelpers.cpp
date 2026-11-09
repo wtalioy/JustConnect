@@ -5,6 +5,12 @@
 #include <QAccessibilityHints>
 #include <QClipboard>
 #include <QMessageBox>
+#include <QDialog>
+#include <QLabel>
+#include <QPushButton>
+#include <QScreen>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
 #include <QPixmap>
 #include <QWidget>
 #include <QAction>
@@ -39,6 +45,62 @@ public:
 private:
     QIcon icon;
 };
+}
+
+bool PresentationHelpers::actionPrompt(QWidget *parent,const QString &title,const QString &body,
+    QDialogButtonBox::StandardButton primary,QDialogButtonBox::StandardButton dismiss,const QString &primaryText)
+{
+    QDialog dialog(parent);
+    dialog.setObjectName("actionPrompt");
+    dialog.setWindowTitle(title);
+    dialog.setFixedWidth(qMin(440,dialog.screen()->availableGeometry().width()-32));
+    auto *layout = new QVBoxLayout(&dialog);
+    layout->setContentsMargins(24,24,24,24);
+    layout->setSpacing(20);
+
+    auto *row = new QHBoxLayout;
+    row->setSpacing(14);
+    auto *icon = new QLabel(&dialog);
+    icon->setObjectName("promptIcon");
+    icon->setFixedSize(36,36);
+    icon->setAlignment(Qt::AlignCenter);
+    const QIcon artwork(primary==QDialogButtonBox::Yes ? ":/resource/prompt-question.svg" : ":/resource/prompt-info.svg");
+    icon->setPixmap(artwork.pixmap(icon->size(),dialog.devicePixelRatioF()));
+    row->addWidget(icon,0,Qt::AlignVCenter);
+    auto *copy = new QVBoxLayout;
+    copy->setSpacing(4);
+    const auto addText = [&dialog,copy](const QString &text,const char *name) {
+        auto *label = new QLabel(text,&dialog);
+        label->setObjectName(name);
+        label->setTextFormat(Qt::PlainText);
+        label->setWordWrap(true);
+        label->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Preferred);
+        copy->addWidget(label);
+    };
+    addText(title,"promptHeading");
+    addText(body,"promptBody");
+    row->addLayout(copy,1);
+    layout->addLayout(row);
+
+    auto *buttons = new QDialogButtonBox(primary|dismiss,&dialog);
+    auto *primaryButton = buttons->button(primary);
+    if (!primaryText.isEmpty()) primaryButton->setText(primaryText);
+    primaryButton->setProperty("promptPrimary",true);
+    auto *dismissButton = buttons->button(dismiss);
+    dismissButton->setProperty("promptPrimary",false);
+    for (auto *button : {primaryButton,dismissButton}) {
+        button->setAutoDefault(false);
+        // The button box may have queried the style before assigning these roles.
+        button->style()->unpolish(button);
+        button->style()->polish(button);
+    }
+    dismissButton->setDefault(true);
+    dismissButton->setFocus(Qt::OtherFocusReason);
+    layout->addWidget(buttons,0,Qt::AlignRight);
+    QObject::connect(buttons,&QDialogButtonBox::clicked,&dialog,[&](QAbstractButton *button) {
+        dialog.done(button==primaryButton ? QDialog::Accepted : QDialog::Rejected);
+    });
+    return dialog.exec()==QDialog::Accepted;
 }
 
 bool PresentationHelpers::setTreeRows(QTreeWidget *tree,const QList<QStringList> &rows)

@@ -291,10 +291,12 @@ static void authenticationCacheLifecycle() {
     emit engine->connectionEstablished();
     bool confirmed=false;QTimer confirm;
     QObject::connect(&confirm,&QTimer::timeout,[&]{
-        for(auto *widget:QApplication::topLevelWidgets()) if(auto *box=qobject_cast<QMessageBox *>(widget);box && box->isVisible()) {
-            check(box->icon()==QMessageBox::Question && box->text().contains("login-alias")
-                && box->defaultButton()==box->button(QMessageBox::No),"cache clear identifies the selected account and defaults to cancel");
-            confirmed=true;box->button(QMessageBox::Yes)->click();
+        for(auto *widget:QApplication::topLevelWidgets()) {
+            if (widget->objectName()!="actionPrompt" || !widget->isVisible()) continue;
+            auto *box=widget->findChild<QDialogButtonBox *>();
+            check(widget->findChild<QLabel *>("promptBody")->text().contains("login-alias")
+                && box->button(QDialogButtonBox::No)->isDefault(),"cache clear identifies the selected account and defaults to cancel");
+            confirmed=true;box->button(QDialogButtonBox::Yes)->click();
         }
     });confirm.start(1);controller.clearAuthenticationCache();confirm.stop();
     emit engine->authenticationCacheUpdated({cached.account,"late-authentication"});ready();
