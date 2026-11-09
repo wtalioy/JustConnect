@@ -75,7 +75,9 @@ static SettingWindow *openQuery(QWidget *parent,const ConnectionOptions &connect
 }
 static int returnedMethods(SettingWindow *window) {
     auto *choices=queryChoices(window);int count=0;
-    for(int i=0;i<choices->count();++i) if(choices->itemData(i,Qt::UserRole+1).isValid()) ++count;
+    for(int i=0;i<choices->count();++i)
+        if(const auto method=choices->itemData(i,Qt::UserRole+1).toJsonObject();
+            method.contains("type") && !method["previousChoice"].toBool()) ++count;
     return count;
 }
 static QDialog *challenge(QWidget &parent) {
@@ -519,7 +521,13 @@ static void quitWaitsForAuthenticationQueryWithoutBlockingTheGui() {
     ConnectionUiController controller(&parent,&connectButton,&trayAction,&session,&proxy,nullptr,&dialogs,&logger,&access,
         [&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},[](const QString &,const QString &,QSystemTrayIcon::MessageIcon){},nullptr,noOfficialClient);
     auto *queryEngine=new QueryEngine;QPointer<QueryEngine> guarded=queryEngine;
-    auto *window=openQuery(&parent,{},queryEngine);until([&]{return queryEngine->starts==1;});window->close();
+    auto *window=openQuery(&parent,{},queryEngine);
+    check(queryEngine->starts==0 && window->findChild<QLabel *>("authQueryStatus")->text()=="Enter a server address to find sign-in methods.",
+        "an empty server address prompts for input without starting discovery");
+    window->findChild<QLineEdit *>("serverAddressLineEdit")->setText("query.example.invalid");
+    findSignInMethods(window);
+    until([&]{return queryEngine->starts==1;});
+    window->close();
     QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     check(guarded && guarded->stops==1,"closing a query cancels it without destroying its running thread");
     int ready=0;QObject::connect(&controller,&ConnectionUiController::readyToQuit,[&]{++ready;});
@@ -953,9 +961,12 @@ static void uiContracts() {
         {"auth_id","live-id"},{"sub_type","https"},{"domain",queryProfile.endpoint.loginDomain}}});
     emit defaultEngine->finished(ConnectionError::NONE);
     auto *automaticChoice=queryChoices(automatic);
-    check(automaticChoice->currentText()=="Campus identity" && automaticChoice->count()==3
-        && !automaticChoice->currentData(Qt::UserRole+1).toJsonObject().contains("auth_id"),
-        "a unique live match names the automatic choice without pinning a new server ID");
+    check(automaticChoice->currentText()=="Web sign-in (previous choice)"
+        && automaticChoice->currentData(Qt::UserRole+1).toJsonObject()["auth_id"].toString().isEmpty(),
+        "finding a replacement preserves the automatic choice until the user selects a server result");
+    automaticChoice->setCurrentIndex(automaticChoice->findText("Campus identity"));
+    check(automaticChoice->currentData(Qt::UserRole+1).toJsonObject()["auth_id"]=="live-id",
+        "the discovered choice keeps its returned ID even when it matches the existing automatic choice");
     automatic->reject();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     queryProfile.endpoint.loginDomain.clear();
     auto *cancelEngine=new QueryEngine;
@@ -1056,7 +1067,13 @@ static void gateway(const QJsonObject &config) {
     untrustedQuery->close(); QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     auto *queryWindow=openQuery(&parent,p);
     until([&]{return returnedMethods(queryWindow)>0;});
-    auto *methodsList=queryChoices(queryWindow);methodsList->setCurrentIndex(1);
+    auto *methodsList=queryChoices(queryWindow);
+    for (int index=0;index<methodsList->count();++index) {
+        if (methodsList->itemData(index,Qt::UserRole+1).toJsonObject()["auth_id"]=="fixture-primary") {
+            methodsList->setCurrentIndex(index);
+            break;
+        }
+    }
     const auto method=methodsList->currentData(Qt::UserRole+1).toJsonObject();
     p.endpoint.authType=method["type"].toString().mid(QString("auth/").size());
     p.endpoint.loginDomain=method["domain"].toString();

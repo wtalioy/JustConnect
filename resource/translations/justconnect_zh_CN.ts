@@ -2181,6 +2181,10 @@ Some system settings may have changed. Check them before retrying.</source>
         <translation>输入服务器地址后即可查找登录方式。</translation>
     </message>
     <message>
+        <source>%1 (previous choice)</source>
+        <translation>%1（原先选择）</translation>
+    </message>
+    <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="279"/>
         <source>Loading sign-in methods…</source>
         <translation>正在获取认证方式，请稍候...</translation>

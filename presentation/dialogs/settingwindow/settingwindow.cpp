@@ -74,10 +74,9 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
             return;
         }
         QSignalBlocker blocker(ui->authTypeComboBox);
-        const auto currentText=ui->authTypeComboBox->currentText();
-        const auto currentMethod=ui->authTypeComboBox->currentData(Qt::UserRole+1);
+        auto currentMethod=ui->authTypeComboBox->currentData(Qt::UserRole+1).toJsonObject();
         ui->authTypeComboBox->clear();ui->authTypeComboBox->addItem(tr("Choose a sign-in method"),"");
-        int selected=0, matchingDefault=0, defaultMatches=0;
+        int selected=0;
         for (const auto &entry:methods) {
             const auto method=entry.toObject();auto type=method["type"].toString();
             if (type.startsWith("auth/")) type.remove(0,5);
@@ -85,25 +84,16 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
             ui->authTypeComboBox->addItem(name.isEmpty()?defaultAuthLabel(type):name,type);
             const int index=ui->authTypeComboBox->count()-1;
             ui->authTypeComboBox->setItemData(index,method,Qt::UserRole+1);
-            if (type==selectedAuthType && method["domain"].toString()==selectedAuthDomain) {
-                if (method["auth_id"].toString()==selectedAuthId && method["sub_type"].toString()==selectedAuthSubType)
-                    selected=index;
-                if (selectedAuthId.isEmpty() && selectedAuthSubType.isEmpty()) {
-                    matchingDefault=index;
-                    ++defaultMatches;
-                }
-            }
-        }
-        if (!selected && defaultMatches==1) {
-            selected=matchingDefault;
-            auto method=ui->authTypeComboBox->itemData(selected,Qt::UserRole+1).toJsonObject();
-            method.remove("auth_id");method.remove("sub_type");
-            ui->authTypeComboBox->setItemData(selected,method,Qt::UserRole+1);
+            if (type==selectedAuthType && method["domain"].toString()==selectedAuthDomain
+                && method["auth_id"].toString()==selectedAuthId && method["sub_type"].toString()==selectedAuthSubType)
+                selected=index;
         }
         const bool keptPreviousChoice=!selected && !selectedAuthType.isEmpty();
         if (keptPreviousChoice) {
             selected=1;
-            ui->authTypeComboBox->insertItem(selected,currentText,selectedAuthType);
+            currentMethod["previousChoice"]=true;
+            const auto name=selectedAuthName.isEmpty()?defaultAuthLabel(selectedAuthType):selectedAuthName;
+            ui->authTypeComboBox->insertItem(selected,tr("%1 (previous choice)").arg(name),selectedAuthType);
             ui->authTypeComboBox->setItemData(selected,currentMethod,Qt::UserRole+1);
         } else if (!selected && methods.size()==1) selected=1;
         ui->authTypeComboBox->addItem(tr("Find sign-in methods…"));
@@ -242,8 +232,10 @@ void SettingWindow::retranslate() {
     PresentationHelpers::passwordVisibilityAction(ui->totpSecretLineEdit);
     const int findMethodsIndex=ui->authTypeComboBox->count()-1;
     for (int index=0;index<findMethodsIndex;++index) {
-        if (ui->authTypeComboBox->itemData(index,Qt::UserRole+1).toJsonObject()["name"].toString().isEmpty())
-            ui->authTypeComboBox->setItemText(index,defaultAuthLabel(ui->authTypeComboBox->itemData(index).toString()));
+        const auto method=ui->authTypeComboBox->itemData(index,Qt::UserRole+1).toJsonObject();
+        auto name=method["name"].toString();
+        if (name.isEmpty()) name=defaultAuthLabel(ui->authTypeComboBox->itemData(index).toString());
+        ui->authTypeComboBox->setItemText(index,method["previousChoice"].toBool()?tr("%1 (previous choice)").arg(name):name);
     }
     ui->authTypeComboBox->setItemText(findMethodsIndex,tr("Find sign-in methods…"));
     ui->cancelAuthQueryButton->setText(tr("Cancel"));
