@@ -263,6 +263,14 @@ Apple Silicon 本轮用 Clash 系统代理开、TUN 关复测。连接后用 Chr
 launchctl print system/com.github.wtalioy.JustConnect.NetworkHelper | grep -E 'job state|program identifier|parent bundle version|last exit code'
 ```
 
+如果旧版曾显示 `JustConnectProxyRecovery` 的钥匙串弹窗，退出旧版并确认代理已恢复后，可删除旧的完成回执。以下命令只匹配这一个回执，保留实际恢复快照和校园登录数据。新版回执不使用钥匙串。
+
+```sh
+security delete-generic-password -s com.github.wtalioy.JustConnect.credentials.v1 \
+  -a fe873709744fed515b0fb2e43ca46cfee39834be8d9d059bedfea0519908b1cd \
+  "$HOME/Library/Keychains/login.keychain-db"
+```
+
 ```powershell
 $peer = '替换为现有设备的完整 MagicDNS 名称'
 Resolve-DnsName ($peer.TrimEnd('.') + '.') -Type A -DnsOnly

@@ -11,7 +11,7 @@ public:
 #ifdef Q_OS_WIN
     PersistentProxyBackend(CredentialStore &credentials, QString key, WindowsProxyApi api = {});
 #elif defined(Q_OS_MACOS)
-    PersistentProxyBackend(CredentialStore &credentials, QString key, MacProxyApi api = {});
+    PersistentProxyBackend(CredentialStore &credentials, QString key, MacProxyApi api = {}, CredentialStore *receiptStore = nullptr);
 #else
     PersistentProxyBackend(CredentialStore &credentials, QString key,
         PlatformCommandRunner runner = [](const QString &p,const QStringList &a) { return runPlatformCommand(p,a); });

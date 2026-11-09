@@ -1,6 +1,7 @@
 #pragma once
 #include "infrastructure/credentialstore/macos/credentialstore.h"
 #include "infrastructure/systemproxy/persistentproxy.h"
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -130,6 +131,12 @@ static void nativeMacPersistentRecovery() {
     nativeWorkerCheck(!QFile::exists(MacProxyRecoveryLockFile),"An unknown Mac system proxy owner already exists");
     NativeMacKeychain provider;
     const auto key=PersistentProxyBackend::credentialKey();
+    // An older executable's receipt must not participate in a new worker's Keychain access.
+    const auto legacyReceiptKey=QString::fromLatin1(QCryptographicHash::hash(
+        "com.github.wtalioy.JustConnect/system-proxy-completion/v1/"+key.toUtf8(),QCryptographicHash::Sha256).toHex());
+    auto legacyStore=createMacCredentialStore(nullptr);
+    const QByteArray legacyReceipt="receipt created by another executable";
+    nativeWorkerCheck(legacyStore->write(legacyReceiptKey,legacyReceipt).succeeded(),"Seed an old Keychain proxy receipt");
     // Observe item identity without requesting another executable's protected secret or weakening its ACL.
     const auto recordReference=[&] {
         auto query=CFDictionaryCreateMutable(nullptr,0,&kCFTypeDictionaryKeyCallBacks,&kCFTypeDictionaryValueCallBacks);
@@ -197,7 +204,9 @@ static void nativeMacPersistentRecovery() {
         previousOwner=owner.recoveryOwner();
     }
     {NativeProxyWorker fresh(true,previousOwner,true);fresh.call("clear");restored();fresh.stop();}
+    {NativeProxyWorker completed(true,previousOwner,true);completed.call("clear");restored();completed.stop();}
     nativeWorkerCheck(!QFile::exists(MacProxyRecoveryLockFile),"Persistent Mac recovery left a machine owner lock");
+    nativeWorkerCheck(legacyStore->read(legacyReceiptKey).value==legacyReceipt,"New worker used or removed the old Keychain receipt");
     cleanup.dismiss();provider.finish();
     std::cout<<"PASS: product macOS persistent worker, native endpoints, concurrent refusal, EOF and fresh process after owned termination\n";
 }

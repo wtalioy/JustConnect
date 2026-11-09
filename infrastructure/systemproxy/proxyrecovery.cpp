@@ -242,7 +242,7 @@ int runProxyRecoveryWorker(SystemProxyBackend &backend, const QString &endpoint,
     for (;;) {
         const auto result=backend.clear();
         if (result.succeeded()) return 0;
-        if (!result.mayHaveChanged) return 1;
+        if (!result.mayHaveChanged || result.status==Status::Unsupported) return 1;
         QThread::sleep(delay);
         delay = qMin(delay*2,30u);
     }

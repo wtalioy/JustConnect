@@ -25,12 +25,18 @@ QString PersistentProxyBackend::credentialKey() {
 #ifdef Q_OS_WIN
 PersistentProxyBackend::PersistentProxyBackend(CredentialStore &credentials, QString key, WindowsProxyApi api)
 #elif defined(Q_OS_MACOS)
-PersistentProxyBackend::PersistentProxyBackend(CredentialStore &credentials, QString key, MacProxyApi api)
+PersistentProxyBackend::PersistentProxyBackend(CredentialStore &credentials, QString key, MacProxyApi api, CredentialStore *receiptStore)
 #else
 PersistentProxyBackend::PersistentProxyBackend(CredentialStore &credentials, QString key, PlatformCommandRunner api)
 #endif
     : journal(credentials,key),
-      completion(credentials,QString::fromLatin1(QCryptographicHash::hash(
+      completion(
+#ifdef Q_OS_MACOS
+          receiptStore ? *receiptStore : credentials,
+#else
+          credentials,
+#endif
+          QString::fromLatin1(QCryptographicHash::hash(
           "com.github.wtalioy.JustConnect/system-proxy-completion/v1/"+key.toUtf8(),QCryptographicHash::Sha256).toHex())),
       native(std::move(api),[this](const QJsonObject &record) {
         if (!record.isEmpty() && record["machine"].toString().isEmpty())
@@ -113,6 +119,10 @@ PlatformOperationResult PersistentProxyBackend::recover() {
         state=State::Ready;return {};
     }
     if (!saved.succeeded()) {
+#ifdef Q_OS_MACOS
+        if (saved.status==CredentialStatus::Locked || saved.status==CredentialStatus::PermissionDenied)
+            return {Status::Unsupported,"Cannot check the saved proxy snapshot because the local Keychain is locked or inaccessible. Unlock the login Keychain and retry.",true};
+#endif
         const auto result=failure(saved.status);
         if (saved.status==CredentialStatus::Failed || saved.status==CredentialStatus::Limit
             || saved.status==CredentialStatus::InvalidArgument) {

@@ -12,6 +12,8 @@
 #if defined(Q_OS_WIN)
 #include "infrastructure/systemproxy/windows/proxyrecoverylock.h"
 #else
+#include "infrastructure/systemproxy/macos/proxyreceiptstore.h"
+#include <Security/Security.h>
 #include <sys/stat.h>
 #endif
 
@@ -32,8 +34,17 @@ int main(int argc, char **argv)
     QCoreApplication::setApplicationName("JustConnect");
     const auto directory = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
     if (directory.isEmpty() || !QDir().mkpath(directory)) return 1;
+#ifdef Q_OS_MACOS
+    // The detached process cannot receive interactive Keychain authorization.
+    if (SecKeychainSetUserInteractionAllowed(false)!=errSecSuccess) return 1;
+    MacProxyReceiptStore receipts(directory);
+#endif
     auto credentials=createSystemCredentialStore();
+#ifdef Q_OS_MACOS
+    PersistentProxyBackend backend(*credentials,PersistentProxyBackend::credentialKey(),{},&receipts);
+#else
     PersistentProxyBackend backend(*credentials,PersistentProxyBackend::credentialKey());
+#endif
     if(!backend.configureRecovery(owner,resume).succeeded())return 1;
 #if defined(Q_OS_WIN)
     WindowsProxyRecoveryLock ownership;
