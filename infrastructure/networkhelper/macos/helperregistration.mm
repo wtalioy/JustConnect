@@ -8,18 +8,20 @@ PlatformOperationResult registerMacNetworkHelper(bool refresh)
     using Status = PlatformOperationResult::Status;
     @autoreleasepool {
         auto *service = [SMAppService daemonServiceWithPlistName:[NSString stringWithUTF8String:MacHelperPlist]];
-        const auto status = service.status;
+        auto status = service.status;
         const bool replace = refresh && status == SMAppServiceStatusEnabled;
         NSError *error = nil;
         if (replace && ![service unregisterAndReturnError:&error])
             return {Status::PermissionDenied,QStringLiteral("Cannot refresh the network helper registration: ")+QString::fromUtf8(error.localizedDescription.UTF8String)};
         if (replace || status == SMAppServiceStatusNotRegistered || status == SMAppServiceStatusNotFound) {
-            if (![service registerAndReturnError:&error])
+            const bool registered = [service registerAndReturnError:&error];
+            status = service.status;
+            if (!registered && status != SMAppServiceStatusRequiresApproval)
                 return {Status::PermissionDenied,QStringLiteral("Cannot register the network helper: ")+QString::fromUtf8(error.localizedDescription.UTF8String)};
         }
-        if (service.status == SMAppServiceStatusRequiresApproval)
+        if (status == SMAppServiceStatusRequiresApproval)
             return {Status::PermissionDenied,QStringLiteral("Approve JustConnect in System Settings > General > Login Items & Extensions, then retry.")};
-        if (service.status != SMAppServiceStatusEnabled)
+        if (status != SMAppServiceStatusEnabled)
             return {Status::Unsupported,QStringLiteral("The signed application bundle does not contain an available network helper.")};
         return {};
     }

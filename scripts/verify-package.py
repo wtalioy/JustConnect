@@ -128,6 +128,11 @@ def macos_audit(files, root, arch, env):
             raise RuntimeError(f'Packaged macOS executable lacks hardened runtime or library validation: {path}')
         evidence.append({'file': str(path.relative_to(root)), 'dependencies': dependencies})
     info = plistlib.loads((root / 'Contents/Info.plist').read_bytes())
+    for key, pattern in (('CFBundleVersion', r'[0-9]+(?:\.[0-9]+){0,2}'),
+                         ('CFBundleShortVersionString', r'[0-9]+(?:\.[0-9]+){2}')):
+        value = info.get(key)
+        if not isinstance(value, str) or not re.fullmatch(pattern, value):
+            raise RuntimeError(f'Invalid macOS bundle version: {key}')
     declared = info['LSMinimumSystemVersion']
     host_macos = platform.mac_ver()[0]
     if version(minimum) > version(declared) or version(declared) > version(host_macos):

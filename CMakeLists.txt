@@ -114,6 +114,13 @@ if(WIN32)
 else()
     message("Building for MacOS")
 
+    string(REGEX MATCH "^[0-9]+\\.[0-9]+\\.[0-9]+" MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJ_VER}")
+    if(NOT MACOSX_BUNDLE_SHORT_VERSION_STRING)
+        set(MACOSX_BUNDLE_SHORT_VERSION_STRING "0.0.0")
+    endif()
+    if(NOT DEFINED MACOSX_BUNDLE_BUNDLE_VERSION)
+        set(MACOSX_BUNDLE_BUNDLE_VERSION "1")
+    endif()
     set_source_files_properties(resource/JustConnect.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
     qt_add_executable(${PROJECT_NAME} MACOSX_BUNDLE
         main.cpp

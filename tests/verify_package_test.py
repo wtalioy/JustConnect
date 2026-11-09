@@ -292,7 +292,8 @@ class VerifyPackageTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             (root / 'Contents').mkdir()
-            (root / 'Contents/Info.plist').write_bytes(plistlib.dumps({'LSMinimumSystemVersion': '14.4'}))
+            (root / 'Contents/Info.plist').write_bytes(plistlib.dumps({'LSMinimumSystemVersion': '14.4',
+                'CFBundleVersion': '1', 'CFBundleShortVersionString': '0.0.0'}))
             def run(*args, **kwargs):
                 return {'lipo': 'arm64', 'otool': ('cmd LC_BUILD_VERSION\n minos 26.0\n'
                                                   if args[1] == '-l' else 'app:\n')}[args[0]]
@@ -319,8 +320,10 @@ class VerifyPackageTest(unittest.TestCase):
             dependency.touch()
             icon = root / 'Contents/Resources/JustConnect.icns'
             icon.parent.mkdir()
-            (root / 'Contents/Info.plist').write_bytes(plistlib.dumps({'LSMinimumSystemVersion': '14.4',
-                'CFBundleIdentifier': 'app.fixture', 'CFBundleIconFile': icon.name}))
+            plist = root / 'Contents/Info.plist'
+            info = {'LSMinimumSystemVersion': '14.4', 'CFBundleIdentifier': 'app.fixture',
+                    'CFBundleIconFile': icon.name, 'CFBundleVersion': '1', 'CFBundleShortVersionString': '0.0.0'}
+            plist.write_bytes(plistlib.dumps(info))
             dependency_name = '@executable_path/../Frameworks/libQt.dylib'
             def run(*args, **kwargs):
                 if args[0] == 'lipo':
@@ -343,6 +346,11 @@ class VerifyPackageTest(unittest.TestCase):
                     package.macos_audit([helper], root, 'arm64', {})
                 icon.write_bytes((ROOT / 'resource' / icon.name).read_bytes())
                 audit = package.macos_audit([helper], root, 'arm64', {})
+                for key in ('CFBundleVersion', 'CFBundleShortVersionString'):
+                    plist.write_bytes(plistlib.dumps(dict(info, **{key: ''})))
+                    with self.assertRaisesRegex(RuntimeError, f'Invalid macOS bundle version: {key}'):
+                        package.macos_audit([helper], root, 'arm64', {})
+                plist.write_bytes(plistlib.dumps(info))
                 signature.return_value = 'flags=0x12000\nIdentifier=foreign.fixture'
                 with self.assertRaisesRegex(RuntimeError, 'Application signing identifier'):
                     package.macos_audit([helper], root, 'arm64', {})

@@ -113,6 +113,7 @@ jobs:
             platform_args=(
               "-DCMAKE_OSX_ARCHITECTURES=$BUILD_ARCH"
               "-DCMAKE_OSX_DEPLOYMENT_TARGET=14.4"
+              "-DMACOSX_BUNDLE_BUNDLE_VERSION=$GITHUB_RUN_NUMBER"
               "-DQt6_DIR=$RUNNER_TEMP/qt-static/lib/cmake/Qt6"
               "-DQt6LinguistTools_DIR=$QT_ROOT_DIR/lib/cmake/Qt6LinguistTools"
               "-DQT_INTERNAL_ABSOLUTE_TRANSLATIONS_DIR=$QT_ROOT_DIR/translations"
