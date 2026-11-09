@@ -4,15 +4,29 @@ package macos
 
 /*
 #include <stdint.h>
-extern int jc_macos_owns_tcp_listener(int pid, unsigned short port, uint32_t ipv4) __attribute__((weak_import));
-static int verify_tcp_listener(int pid, unsigned short port, uint32_t ipv4) {
-	return jc_macos_owns_tcp_listener ? jc_macos_owns_tcp_listener(pid, port, ipv4) : -1;
+static int verify_tcp_listener(void *verifier, int pid, uint16_t port, uint32_t ipv4) {
+	return ((int (*)(int, uint16_t, uint32_t))verifier)(pid, port, ipv4);
 }
 */
 import "C"
 
+import (
+	"sync/atomic"
+	"unsafe"
+)
+
+var tcpListenerVerifier atomic.Pointer[byte]
+
+func SetTCPListenerVerifier(verifier unsafe.Pointer) {
+	tcpListenerVerifier.Store((*byte)(verifier))
+}
+
 func init() {
 	verifyTCPListener = func(pid int, port uint16, ipv4 uint32) int {
-		return int(C.verify_tcp_listener(C.int(pid), C.ushort(port), C.uint32_t(ipv4)))
+		verifier := tcpListenerVerifier.Load()
+		if verifier == nil {
+			return -1
+		}
+		return int(C.verify_tcp_listener(unsafe.Pointer(verifier), C.int(pid), C.uint16_t(port), C.uint32_t(ipv4)))
 	}
 }

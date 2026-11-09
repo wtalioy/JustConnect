@@ -66,7 +66,7 @@ public:
 }
 
 // Called by the embedded Go core. A negative result means the verifier was unavailable.
-extern "C" int jc_macos_owns_tcp_listener(int pid, unsigned short port, uint32_t ipv4)
+extern "C" int jc_macos_owns_tcp_listener(int pid, uint16_t port, uint32_t ipv4)
 {
     static const auto verifier = std::make_shared<TCPListenerVerifier>();
     const auto transport = verifier->connection();

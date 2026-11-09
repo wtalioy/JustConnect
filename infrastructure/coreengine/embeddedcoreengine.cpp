@@ -10,6 +10,8 @@
 #include <QHostAddress>
 #endif
 #if defined(Q_OS_MACOS)
+#include "infrastructure/networkhelper/macos/networkhelperclient.h"
+#include "macos_listener.h"
 #include <fcntl.h>
 #include <unistd.h>
 #endif
@@ -49,6 +51,9 @@ struct Library {
         CORE_EXTENSIONS(LOAD_OPTIONAL)
 #undef LOAD_OPTIONAL
         available = jc_abi_version() == JC_ABI_VERSION;
+#if defined(Q_OS_MACOS)
+        if (available) jc_macos_set_tcp_listener_verifier(jc_macos_owns_tcp_listener);
+#endif
     }
 };
 Library &library() {

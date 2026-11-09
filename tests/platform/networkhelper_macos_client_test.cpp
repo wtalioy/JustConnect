@@ -6,6 +6,7 @@
 #include "infrastructure/routing/macos/tunroutes.h"
 #include <QCoreApplication>
 #include <QDeadlineTimer>
+#include <QElapsedTimer>
 #include <QJsonDocument>
 #include <QSocketNotifier>
 #include <arpa/inet.h>
@@ -17,8 +18,6 @@
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <unistd.h>
-
-extern "C" int jc_macos_owns_tcp_listener(int pid, unsigned short port, uint32_t ipv4);
 
 class PublicationCore final : public CoreEngine
 {
@@ -46,6 +45,11 @@ static void checkTCPListenerOwnership()
         && jc_macos_owns_tcp_listener(getpid(),port,INADDR_LOOPBACK+1) == 0
         && jc_macos_owns_tcp_listener(getpid(),port,0) == 0,
         "Signed root service did not confirm the exact listening address");
+    constexpr int samples = 20;
+    QElapsedTimer elapsed; elapsed.start();
+    for (int sample = 0; sample < samples; ++sample)
+        check(jc_macos_owns_tcp_listener(getpid(),port,INADDR_LOOPBACK) == 1,"Repeated TCP ownership was not confirmed");
+    std::cerr << "TCP listener verification mean: " << elapsed.nsecsElapsed()/samples/1000 << " us\n";
     ::close(listener);
     check(jc_macos_owns_tcp_listener(getpid(),port,INADDR_LOOPBACK) == 0,
         "Signed root service accepted a closed listener");

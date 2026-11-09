@@ -6,6 +6,8 @@
 #include <functional>
 #include <memory>
 
+extern "C" int jc_macos_owns_tcp_listener(int pid, uint16_t port, uint32_t ipv4);
+
 class MacNetworkHelperClient final : public QObject
 {
     Q_OBJECT
