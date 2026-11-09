@@ -63,6 +63,6 @@ private:
     QTimer deadline;
     QElapsedTimer inspectionTime;
     int device = -1;
-    bool cancelled = false, registered = false;
+    bool cancelled = false, registered = false, helperConfirmed = false;
     PlatformOperationResult outcome;
 };

@@ -222,7 +222,10 @@ int main(int argc,char **argv) try
     auto receipts = macHelperResponse(probe,{});
     check(!parseMacHelperResponse(receipts,probe),"Incomplete ownership discovery was accepted");
     receipts["owners"] = QJsonArray{QJsonObject{{"owner",owner.toString(QUuid::WithoutBraces)},{"phase","active"}}};
+    receipts["authorized"]=false;
     check(parseMacHelperResponse(receipts,probe).has_value(),"Current user ownership discovery was rejected");
+    auto invalidGrant=receipts;invalidGrant["authorized"]=1;
+    check(!parseMacHelperResponse(invalidGrant,probe),"An untyped authorization state crossed the XPC boundary");
     auto invalid = receipts;auto list = invalid["owners"].toArray();list.append(list.first());invalid["owners"] = list;
     check(!parseMacHelperResponse(invalid,probe),"Duplicate recovery responsibility was accepted");
     invalid = receipts;invalid["owners"] = QJsonArray{QJsonObject{{"owner",owner.toString(QUuid::WithoutBraces)},{"phase","invented"}}};

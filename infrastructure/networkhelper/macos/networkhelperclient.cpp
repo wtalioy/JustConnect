@@ -19,6 +19,7 @@
 namespace {
 using Result = PlatformOperationResult;
 using Status = Result::Status;
+constexpr int FirstHelperProbeTimeoutMs=2000;
 bool confirmedCaptures(const QJsonObject &capture,QStringList expected)
 {
     QStringList actual;
@@ -108,6 +109,7 @@ struct MacNetworkHelperClient::Native {
     dispatch_queue_t queue = dispatch_queue_create("JustConnect.network.client",DISPATCH_QUEUE_SERIAL);
     xpc_connection_t connection = nullptr;
     bool invalid = false;
+    bool peerAuthorized = false;
     MacHelperIdentity identity{MacHelperAppIdentifier,MacHelperIdentifier};
     AuthorizationRef authorization = nullptr;
     QUuid proxyOwner;
@@ -131,6 +133,7 @@ struct MacNetworkHelperClient::Native {
         if (connection && !invalid) return;
         if (connection) { xpc_connection_cancel(connection); xpc_release(connection); connection = nullptr; }
         invalid = false;
+        peerAuthorized = false;
         connection = xpc_connection_create_mach_service(MacHelperIdentifier,queue,XPC_CONNECTION_MACH_SERVICE_PRIVILEGED);
         if (!connection) return;
         const auto transport = connection;
@@ -255,17 +258,17 @@ void MacNetworkHelperClient::inspect(const QUuid &attempt)
     operation = Operation::Inspect;
     if (!native->identity.ready()) { finish({Status::Unsupported,"A certificate-signed application with hardened runtime is required for network authorization.",false},State::Idle); return; }
     connection = attempt; cancelled = false; registered = false; receipts = {}; outcome = {};
-    const auto request=pendingRequest=QUuid::createUuid();
     inspectionTime.start();
     setState(State::Inspecting);
-    if (current!=State::Inspecting || pendingRequest!=request) return;
-    deadline.start();
+    if (current!=State::Inspecting) return;
+    send("probe");
+    if (helperConfirmed) return;
+    const auto request=pendingRequest;
     checkMacNetworkHelperApproval([weak=std::weak_ptr<Native>(native),request](Result result) {
-        if (auto state=weak.lock()) dispatch_async(state->queue,^{
+        if (auto state=weak.lock(); state && !result.succeeded()) dispatch_async(state->queue,^{
             state->post([request,result](auto *target) {
                 if (target->current!=State::Inspecting || target->pendingRequest!=request) return;
-                if (!result.succeeded()) target->finish(result,State::Idle);
-                else target->send("probe");
+                target->finish(result,State::Idle);
             });
         });
     });
@@ -310,18 +313,21 @@ void MacNetworkHelperClient::send(const char *name)
         : QByteArray(name) == "extend" ? macHelperExtendRequest(connection,pendingRequest,pendingTargets)
         : QByteArray(name) == "routes" ? macHelperRoutesRequest(connection,pendingRequest,pendingTargets)
         : macHelperRequest(name,connection,pendingRequest);
-    deadline.start();
+    const bool probe = request["operation"]=="probe";
+    deadline.start(probe && operation==Operation::Inspect && !helperConfirmed && !registered
+        ? FirstHelperProbeTimeoutMs : MacHelperOperationTimeoutMs);
     const std::weak_ptr<Native> weak(native);
     dispatch_async(native->queue,^{
         const auto state = weak.lock(); if (!state || !state->client) return;
         state->connect(weak);
         AuthorizationExternalForm external{};
         const bool apply = request["operation"] == "apply";
-        if (!state->connection || !state->identity.ready() || (apply && (!state->authorization
+        const bool needsGrant = apply && !state->peerAuthorized;
+        if (!state->connection || !state->identity.ready() || (needsGrant && (!state->authorization
             || AuthorizationMakeExternalForm(state->authorization,&external) != errAuthorizationSuccess))) {
             state->post([request](auto *target) { target->receive(request,{},ownedFd(),false); }); return;
         }
-        const auto message = macHelperMessage(request,-1,apply ? &external : nullptr);
+        const auto message = macHelperMessage(request,-1,needsGrant ? &external : nullptr);
         if (!message) { state->post([request](auto *target) { target->receive(request,{},ownedFd(),false); }); return; }
         const auto transport = state->connection;
         xpc_connection_send_message_with_reply(transport,message,state->queue,^(xpc_object_t reply) {
@@ -330,7 +336,8 @@ void MacNetworkHelperClient::send(const char *name)
             const bool trusted = xpc_connection_get_euid(transport) == 0 && accepted->identity.accepts(reply)
                 && readMacHelperMessage(reply,response,&fd);
             if (trusted && response["status"]==int(Status::Success)) {
-                if (apply) accepted->proxyOwner=QUuid(request["owner"].toString());
+                if (probe && response["authorized"].isBool()) accepted->peerAuthorized=response["authorized"].toBool();
+                else if (apply) accepted->proxyOwner=QUuid(request["owner"].toString());
                 else if (request["operation"]=="cleanup" && accepted->proxyOwner==QUuid(request["owner"].toString())) accepted->proxyOwner={};
             }
             const bool unavailable = reply == XPC_ERROR_CONNECTION_INVALID || reply == XPC_ERROR_CONNECTION_INTERRUPTED;
@@ -348,7 +355,7 @@ void MacNetworkHelperClient::probeFailed()
     const auto request = pendingRequest = QUuid::createUuid();
     setState(State::Registering);
     if (current != State::Registering || pendingRequest != request) return;
-    deadline.start();
+    deadline.start(MacHelperOperationTimeoutMs);
     const std::weak_ptr<Native> weak(native);
     const bool refresh = operation == Operation::Inspect;
     registerMacNetworkHelper(refresh,[weak,request](Result result) {
@@ -431,10 +438,12 @@ void MacNetworkHelperClient::receive(const QJsonObject &request, const QJsonObje
     const auto result = *parsed;
     if (name == "probe") {
         if (!result.succeeded()) { finish(result,State::Idle); return; }
+        helperConfirmed=true;
         receipts = response["owners"].toArray();
         if (cancelled) finish({Status::Cancelled,"Network setup cancelled.",false},State::Idle);
         else if (operation == Operation::Inspect) finish(result,State::Idle);
         else if (!receipts.isEmpty()) finish({Status::Failed,"Recover or acknowledge previous network ownership before starting a new connection.",false},State::Idle);
+        else if (response["authorized"].toBool()) { send("apply"); setState(State::Applying); }
         else authorize();
         return;
     }
@@ -524,6 +533,7 @@ void MacNetworkHelperClient::cancel()
 }
 void MacNetworkHelperClient::disconnected(const QString &detail)
 {
+    helperConfirmed=false;
     if (current != State::Active && current != State::Extending && current != State::Reconciling) return;
     closeDevice(); const Result result{Status::Failed,"Network helper ownership was lost; stop the core and recover before reconnecting. "+detail,true};
     finish(result,State::RecoveryRequired); emit ownershipLost(result);

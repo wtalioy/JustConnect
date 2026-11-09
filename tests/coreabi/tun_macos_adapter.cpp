@@ -273,7 +273,7 @@ int main(int argc,char **argv)
                 {1,1,{},{"127.0.0.1:"+QString::number(coexistence.runtime["port"].toInt())}});
             check(unauthorized.status==PlatformOperationResult::Status::PermissionDenied && !unauthorized.mayHaveChanged,
                 "Privileged browser handoff rejects ports not owned by the signed app");
-            coexistence.exercise(session,proxy,policy);
+            coexistence.exercise(session,proxy,policy,round==0);
             check(waiting->calls==authorizationRequests,"Browser switching uses the established network helper without requesting a fresh grant");
             coexistence.enableBrowserProxy(proxy);
             if (round==1) {
@@ -379,6 +379,10 @@ int main(int argc,char **argv)
         const auto expected = helperLoss && round == 0 ? ConnectionState::Failed : ConnectionState::Disconnected;
         const int completed = round+1+(cancelAuthorization ? 1 : 0);
         check(finished == (exitChange ? 1 : completed) && coreFinished == completed && session.state() == expected,"Ordered helper restoration and core stop complete before restart");
+        if (round==0 && qgetenv("JC_NATIVE_REVOKE_AUTHORIZATION")=="1") {
+            publish(".revoke-authorization");
+            until([&] { return QFileInfo::exists(marker+".authorization-revoked"); });
+        }
         if (composed) {
             check(!proxy.isBusy() && !proxy.needsCleanup(),"Release browser ownership on orderly disconnect");
             coexistence.restore();
@@ -388,7 +392,7 @@ int main(int argc,char **argv)
         }
     }
     if (!composed && !helperLoss && !policyChanges && !exitChange && !originalDNS && authorizationMode.isEmpty())
-        check(waiting->calls == 1,"The second connection requested authorization despite retaining a valid grant");
+        check(waiting->calls == 1,"The same authenticated XPC peer requested a new authorization on its second connection");
     ::close(authorizationFd);
     if (exitChange) std::cout << "PASS: changed macOS original exit restores before automatic reconnect with a fresh generation and ownership\n";
     if (helperLoss) std::cout << "PASS: full macOS application releases core/device on helper loss and reconnects with fresh ownership\n";

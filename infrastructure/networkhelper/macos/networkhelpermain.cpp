@@ -30,6 +30,11 @@ struct Ownership {
     std::unique_ptr<MacNetworkHelperState> state;
     quint64 peer = 0;
 };
+struct Peer {
+    xpc_connection_t channel=nullptr;
+    pid_t authorizedPid=0;
+    uid_t authorizedUser=0;
+};
 QString key(uid_t uid, const QUuid &owner) { return QString::number(uid)+'/'+owner.toString(QUuid::WithoutBraces); }
 QStringList children(int directory)
 {
@@ -51,7 +56,7 @@ public:
     int directory = -1;
     MacHelperIdentity identity{MacHelperIdentifier,MacHelperAppIdentifier};
     QMap<QString,std::shared_ptr<Ownership>> owners;
-    QMap<quint64,xpc_connection_t> peers;
+    QMap<quint64,Peer> peers;
     quint64 serial = 0;
     quint64 proxyPeer = 0;
     MacPrivilegedProxy proxy;
@@ -94,7 +99,7 @@ public:
     }
     void disconnected(quint64 peer)
     {
-        const auto connection = peers.take(peer);
+        const auto connection = peers.take(peer).channel;
         if (!connection) return;
         if (proxyPeer==peer) { proxyPeer=0; proxy.restore(); }
         for (const auto &entry : owners) if (entry->peer == peer) { entry->peer = 0; entry->state->restore(); }
@@ -102,11 +107,14 @@ public:
     }
     void request(quint64 peer, xpc_object_t message)
     {
-        const auto connection = peers.value(peer,nullptr);
-        if (!connection || !identity.accepts(message)) { disconnected(peer); return; }
+        const auto session=peers.find(peer);
+        if (session==peers.end() || !identity.accepts(message)) { disconnected(peer); return; }
+        const auto connection=session->channel;
         const auto uid = xpc_connection_get_euid(connection);
+        const auto pid = xpc_connection_get_pid(connection);
         QJsonObject packet;
-        if (!uid || uid == uid_t(-1) || !readMacHelperMessage(message,packet) || !validMacHelperRequest(packet)) { disconnected(peer); return; }
+        if (!uid || uid == uid_t(-1) || pid<=0 || !readMacHelperMessage(message,packet) || !validMacHelperRequest(packet)) { disconnected(peer); return; }
+        const bool authorized=session->authorizedPid==pid && session->authorizedUser==uid;
         const QUuid owner(packet["owner"].toString()); const auto operation = packet["operation"].toString();
         auto entry = owners.value(key(uid,owner));
         Result result; QJsonObject device, proxyView; int descriptor = -1; QJsonArray receipts;
@@ -134,7 +142,6 @@ public:
                 if (result.succeeded()) proxyPeer=0;
             } else {
                 const auto configuration=ProxyValidation::parse(packet["configuration"].toObject());
-                const auto pid=xpc_connection_get_pid(connection);
                 if (!configuration || configuration->upstream.isEmpty() || !configuration->bypass.isEmpty()
                     || !macOwnsLoopbackTCPListener(pid,quint16(configuration->httpPort),INADDR_LOOPBACK)
                     || !macOwnsLoopbackTCPListener(pid,quint16(configuration->socksPort),INADDR_LOOPBACK))
@@ -148,7 +155,8 @@ public:
         } else if (operation == "apply") {
             const auto configuration = parseMacHelperApply(packet);
             if (!configuration) result = {Status::Failed,"Invalid bounded network configuration.",false};
-            else if (!authorizedMacNetworkMessage(message)) result = {Status::PermissionDenied,"Network administrator authorization is required.",false};
+            else if (!authorized && !authorizedMacNetworkMessage(message))
+                result = {Status::PermissionDenied,"Network administrator authorization is required.",false};
             else if (entry || owners.size() >= MaximumOwners) result = {Status::Failed,"Existing or exhausted connection ownership is preserved.",false};
             else {
                 entry = std::make_shared<Ownership>(); entry->state = std::make_unique<MacNetworkHelperState>();
@@ -186,7 +194,14 @@ public:
         }
         auto response = macHelperResponse(packet,result,device);
         if (result.succeeded() && (operation == "apply" || operation == "extend" || operation == "routes")) response["network"] = network;
-        if (operation == "probe" && result.succeeded()) response["owners"] = receipts;
+        if (operation == "apply" && result.succeeded()) {
+            session->authorizedPid=pid;
+            session->authorizedUser=uid;
+        }
+        if (operation == "probe" && result.succeeded()) {
+            response["owners"] = receipts;
+            response["authorized"]=authorized;
+        }
         if (operation == "proxy_inspect" && result.succeeded()) response["proxy"]=proxyView;
         const auto reply = xpc_dictionary_create_reply(message);
         const auto encoded = macHelperMessage(response,descriptor);
@@ -200,7 +215,7 @@ public:
         if (!uid || uid == uid_t(-1) || peers.size() >= MacHelperMaxPeers || !identity.constrain(connection)) { xpc_connection_cancel(connection); return; }
         wasIdle = false;
         const auto peer = ++serial;
-        xpc_retain(connection); peers.insert(peer,connection); xpc_connection_set_target_queue(connection,queue);
+        xpc_retain(connection); peers.insert(peer,Peer{connection}); xpc_connection_set_target_queue(connection,queue);
         xpc_connection_set_event_handler(connection,^(xpc_object_t message) {
             if (xpc_get_type(message) == XPC_TYPE_DICTIONARY) request(peer,message);
             else if (message == XPC_ERROR_CONNECTION_INVALID || message == XPC_ERROR_CONNECTION_INTERRUPTED) disconnected(peer);

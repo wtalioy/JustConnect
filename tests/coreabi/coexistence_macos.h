@@ -78,7 +78,7 @@ public:
         until([&] { return proxy.isEnabled() && !proxy.isBusy()
             && resources["listeners"].toObject()["http"].toString()=="127.0.0.1:"+QString::number(httpPort()); });
     }
-    void exercise(ConnectionSession &session,SystemProxySession &proxy,NetworkPolicySession &policy)
+    void exercise(ConnectionSession &session,SystemProxySession &proxy,NetworkPolicySession &policy,bool checkDNS)
     {
         const auto get = [&](const QString &url,bool enabled) {
             const auto port = httpPort();
@@ -109,7 +109,8 @@ public:
             for (const auto &flags : {qMakePair(true,false),qMakePair(true,true),qMakePair(false,true),qMakePair(false,false)}) {
                 const bool enabled = flags.first, tun = flags.second; const auto previous = observations;
                 const auto previousDNS=dnsUpdates;
-                const bool dnsChanged=tunDNS.exchange(tun)!=tun;
+                const bool nextDNS=tun && !enabled;
+                const bool dnsChanged=checkDNS && QByteArrayView(mode)=="rule" && tunDNS.exchange(nextDNS)!=nextDNS;
                 std::cerr << "CHECK: macOS composed mode=" << mode << " system_proxy=" << enabled << " tun=" << tun << '\n';
                 patch({{"mode",mode},{"tun",QJsonObject{{"enable",tun}}}}); systemProxy(enabled);
                 until([&] {

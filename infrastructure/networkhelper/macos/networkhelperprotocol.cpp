@@ -134,12 +134,13 @@ std::optional<PlatformOperationResult> parseMacHelperResponse(const QJsonObject 
 {
     const auto status = packet["status"].toInteger(-1);
     const bool owners = packet.contains("owners"), network = packet.contains("network"), proxy = packet.contains("proxy");
+    const bool probe = status==0 && request["operation"]=="probe";
     const bool needsNetwork = status == 0 && (request["operation"] == "apply" || request["operation"] == "extend" || request["operation"] == "routes");
     if (!bounded(packet) || packet["schema_version"] != MacHelperProtocol || packet["request_id"] != request["request_id"]
         || packet["owner"] != request["owner"] || packet["operation"] != request["operation"]
         || !packet["detail"].isString() || !packet["changed"].isBool() || status < 0 || status > int(PlatformOperationResult::Status::TimedOut)
         || packet["status"].toDouble(-1) != double(status)
-        || packet.size() != 7+int(packet.contains("device"))+int(owners)+int(network)+int(proxy)
+        || packet.size() != 7+int(packet.contains("device"))+int(owners)+int(network)+int(proxy)+int(probe)
         || (packet.contains("device") && (request["operation"] != "apply" || status != 0 || !packet["device"].isObject()))) return {};
     if (proxy != (status==0 && request["operation"]=="proxy_inspect")) return {};
     if (proxy) {
@@ -167,6 +168,6 @@ std::optional<PlatformOperationResult> parseMacHelperResponse(const QJsonObject 
             seen.insert(item["owner"].toString());
         }
     }
-    if (request["operation"] == "probe" && status == 0 && !owners) return {};
+    if (probe && (!owners || !packet["authorized"].isBool())) return {};
     return PlatformOperationResult{PlatformOperationResult::Status(status),packet["detail"].toString(),packet["changed"].toBool()};
 }

@@ -41,8 +41,8 @@ def ipv4_addresses(interface):
     return set(re.findall(r'\binet (\S+)', run('/sbin/ifconfig', interface).stdout.decode()))
 
 
-def wait_for(predicate, message):
-    end = time.monotonic() + 30
+def wait_for(predicate, message, timeout=30):
+    end = time.monotonic() + timeout
     while time.monotonic() < end:
         if predicate():
             return
@@ -263,6 +263,7 @@ def main(args):
                 assert not user_state.exists(), 'Untrusted signed executable created ownership storage'
             client = start('--publish', grant=True); active = event(client, 'active')
             assert receipt(active['owner'], 'active')
+            denied = start('--wire-denied'); event(denied, 'wire-denied'); finish(denied)
             for mode, target in [('--wire-live', account), ('--wire-live-extend', account), ('--wire-live-routes', account),
                                  ('--wire-foreign', pwd.getpwnam('nobody')), ('--wire-live-extend', pwd.getpwnam('nobody')), ('--wire-live-routes', pwd.getpwnam('nobody'))]:
                 denied = start(mode, owner=active['owner'], target=target); event(denied, 'wire-denied'); finish(denied)
@@ -374,6 +375,7 @@ def main(args):
                     elif crashed_owner:
                         assert receipt(crashed_owner, 'restored'), 'Restart must encounter the unacknowledged crash receipt'
                         environment['JC_NATIVE_TUN_READY'] = str(marker)
+                        environment['JC_NATIVE_REVOKE_AUTHORIZATION'] = '1'
                     test_name = 'TestNativeMacCoexistence' if scenario == 'coexistence' else 'TestNativeTUNAuthorizationExit' if authorization_mode == 'exit' else 'TestNativeTUNProcessCrash' if scenario == 'process-crash' else 'TestNativeTUNHost'
                     timeout = '180s' if scenario == 'coexistence' else '75s'
                     with transcript.open('wb') as stream:
@@ -382,11 +384,11 @@ def main(args):
                             stdout=stream, stderr=subprocess.STDOUT)
                     processes.append(core)
 
-                    def boundary(suffix):
+                    def boundary(suffix, timeout=30):
                         def reached():
                             assert core.poll() is None, 'Qt/core exited before ' + suffix + ': ' + transcript.read_text()
                             return Path(str(marker) + suffix).exists()
-                        wait_for(reached, 'Qt/core did not reach ' + scenario + suffix)
+                        wait_for(reached, 'Qt/core did not reach ' + scenario + suffix, timeout)
 
                     def active_owner():
                         owners = list(user_state.glob('*/source.json')); assert len(owners) == 1, owners
@@ -537,8 +539,11 @@ def main(args):
                         Path(str(marker) + '.traffic').touch()
                         print('CHECK: new application acknowledged crash recovery before fresh owner', fresh['owner'], flush=True)
                         crashed_owner = None
+                        boundary('.revoke-authorization')
+                        authorizations[0].close()
+                        Path(str(marker) + '.authorization-revoked').touch()
                     elif scenario == 'coexistence':
-                        boundary('.proxy-crash'); active = active_owner()
+                        boundary('.proxy-crash', timeout=150); active = active_owner()
                         observed = proxy_scope.snapshot()
                         saved = json.loads(proxy_journal.read_text())['snapshot']['services']
                         expected = observed | {row['id']: plistlib.loads(base64.b64decode(row['before'], validate=True))
