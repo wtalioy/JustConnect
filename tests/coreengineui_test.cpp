@@ -32,6 +32,7 @@
 #include <QPointer>
 #include <QPushButton>
 #include <QSettings>
+#include <QStyleOptionComboBox>
 #include <QFile>
 #include <QSemaphore>
 #include <QThreadPool>
@@ -786,6 +787,12 @@ static void controllerSelectionContracts() {
         && qAbs(retry->geometry().center().y()-choices->geometry().center().y())<=1
         && retry->x()>choices->geometry().right(),
         "refresh sits beside the controller field, away from confirmation actions");
+    QStyleOptionComboBox choiceStyle;choiceStyle.initFrom(choices);
+    const auto textArea=choices->style()->subControlRect(QStyle::CC_ComboBox,&choiceStyle,QStyle::SC_ComboBoxEditField,choices);
+    check(choices->count()==4 && choices->width()>dialog->width()/2
+        && textArea.width()>=choices->fontMetrics().horizontalAdvance(choices->itemText(1))
+        && choices->itemData(1,Qt::ToolTipRole)==choices->itemText(1),
+        "the controller picker fills the row and has room for the default, discovered, and manual choices");
     choices->setCurrentIndex(2);
     dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
     check(callbacks==1 && chosen==QString("http://127.0.0.1:31002")

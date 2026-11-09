@@ -59,6 +59,7 @@ void ControllerSelectionCoordinator::showChoice(const EmbeddedCoreEngine::Contro
     view->setObjectName("controllerSelectionDialog");view->setWindowTitle(tr("Clash coexistence"));
     view->setWindowModality(Qt::WindowModal);view->setAttribute(Qt::WA_DeleteOnClose);
     auto *layout=new QFormLayout(view);layout->setRowWrapPolicy(QFormLayout::WrapAllRows);
+    layout->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
     layout->setContentsMargins(24,24,24,24);layout->setSpacing(12);view->setMinimumWidth(320);
     auto *hint=new QLabel(result.status==CoreEngine::RequestStatus::Success
         ? tr("Choose the local controller to use. Changes apply to the next connection.")
@@ -69,7 +70,10 @@ void ControllerSelectionCoordinator::showChoice(const EmbeddedCoreEngine::Contro
     choices->addItem(tr("Automatically discover"),QString());
     for (const auto &value:result.candidates) {
         const auto item=value.toObject();
-        choices->addItem(tr("%1 · PID %2 · %3").arg(item["name"].toString()).arg(item["pid"].toInt()).arg(item["endpoint"].toString()),item["endpoint"].toString());
+        const auto endpoint=item["endpoint"].toString();
+        const auto caption=tr("%1 · PID %2 · %3").arg(item["name"].toString()).arg(item["pid"].toInt()).arg(endpoint);
+        choices->addItem(caption,endpoint);
+        choices->setItemData(choices->count()-1,caption,Qt::ToolTipRole);
     }
     const auto manualIndex=choices->count();choices->addItem(tr("Enter local address…"));
     auto *retry = new QPushButton(view);
