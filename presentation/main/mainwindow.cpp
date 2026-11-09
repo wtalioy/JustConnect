@@ -384,13 +384,15 @@ void MainWindow::showApplicationPreferences() {
         auto *view=new LocalizedDialog<QDialog>(this);preferencesWindow=view;
         view->setObjectName("applicationSettingsDialog");view->setAttribute(Qt::WA_DeleteOnClose);
         view->setWindowModality(Qt::WindowModal);
-        auto *layout=new QVBoxLayout(view);layout->setContentsMargins(24,24,24,24);layout->setSpacing(16);
+        constexpr int padding=24,scrollInset=8;
+        auto *layout=new QVBoxLayout(view);layout->setContentsMargins(padding,padding,scrollInset,padding);layout->setSpacing(16);
         auto *scroll=new QScrollArea(view);scroll->setObjectName("applicationSettingsScroll");
         scroll->setWidgetResizable(true);scroll->setFrameShape(QFrame::NoFrame);
         scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         layout->addWidget(scroll);
         auto *contents=new ApplicationPreferencesWidget(scroll);
+        contents->layout()->setContentsMargins(0,0,padding-scrollInset,0);
         connect(contents, &ApplicationPreferencesWidget::startupSaveStarted, view, [view] {
             view->setAttribute(Qt::WA_DeleteOnClose, false);
         });
@@ -402,6 +404,7 @@ void MainWindow::showApplicationPreferences() {
             }
         });
         auto *buttons=new QDialogButtonBox(QDialogButtonBox::Close,view);buttons->setObjectName("applicationSettingsButtons");
+        buttons->setContentsMargins(0,0,padding-scrollInset,0);
         connect(buttons,&QDialogButtonBox::rejected,view,&QDialog::reject);layout->addWidget(buttons);
         view->setTranslation([view,this]{view->setWindowTitle(tr("App settings"));});
         view->setMinimumSize(320,360);view->resize(560,560);

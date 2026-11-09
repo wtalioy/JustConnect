@@ -171,9 +171,11 @@ static void profileMenusKeepTheirActions(MainWindow &window,const QString &profi
     check(created && created->isVisible() && checked(menu)=="direct-add" && checked(trayMenu)=="direct-add"
         && !created->findChild<QComboBox *>("languageComboBox"),
         "adding a connection opens its own editor directly");
+    auto *newMethod=created->findChild<QComboBox *>("authTypeComboBox");
     check(created->findChild<QLineEdit *>("serverAddressLineEdit")->text().isEmpty()
         && created->findChild<QLineEdit *>("usernameLineEdit")->text().isEmpty()
-        && created->findChild<QComboBox *>("authTypeComboBox")->currentData().toString().isEmpty()
+        && newMethod->currentIndex()==-1 && !newMethod->placeholderText().isEmpty()
+        && newMethod->findText(newMethod->placeholderText())==-1 && newMethod->findData("psw")>=0
         && created->findChild<QPlainTextEdit *>("domainDnsRulesEdit")->toPlainText().isEmpty(),
         "a new connection starts blank even when added from Fudan");
     created->reject();
@@ -602,6 +604,7 @@ static void nativeHome(MainWindow &window, ApplicationLogger &logger) {
     auto *method = initial->findChild<QComboBox *>("authTypeComboBox");
     check(address->text() == "vpn.fudan.edu.cn" && address->isReadOnly()
         && method->currentData() == "httpsOauth2" && method->currentText()=="Fudan UIS"
+        && method->count()==2 && method->itemText(1)=="Find sign-in methods…"
         && initial->findChild<QPushButton *>("cancelAuthQueryButton")->isHidden()
         && !initial->findChild<QComboBox *>("profileKindComboBox"),
         "Fudan has a fixed server and Web sign-in, with no second connection selector");
@@ -614,8 +617,20 @@ static void nativeHome(MainWindow &window, ApplicationLogger &logger) {
         "the connection editor stays at the top from its first paint through credential loading");
     check(!editorPaints.horizontalBarPainted && !editorPaints.saveWasInactive,
         "the Fudan editor opens without a horizontal scrollbar and with Save as the primary action");
-    if (const auto report=qEnvironmentVariable("JC_UI_REPORT_DIR"); !report.isEmpty())
+    auto *editorBar=editorScroll->verticalScrollBar();
+    const auto scrollbarX=editorBar->mapTo(initial,QPoint()).x();
+    check(editorBar->isVisible() && initial->width()-(scrollbarX+editorBar->width())<=10
+        && scrollbarX-(address->mapTo(initial,QPoint()).x()+address->width())>=12,
+        "the vertical scrollbar sits near the window edge with a gutter beside the fields");
+    if (const auto report=qEnvironmentVariable("JC_UI_REPORT_DIR"); !report.isEmpty()) {
         check(initial->grab().save(QDir(report).filePath("fudan-editor.png")),"save the native Fudan editor screenshot");
+        editorScroll->ensureWidgetVisible(method);
+        method->showPopup();
+        waitForUi([&]{return method->view()->isVisible();});
+        check(method->view()->window()->grab().save(QDir(report).filePath("fudan-sign-in-picker.png")),
+            "save the native menu for a named sign-in method");
+        method->hidePopup();
+    }
     auto *importButton = initial->findChild<QPushButton *>("importPushButton");
     const auto importButtonHeight = importButton->sizeHint().height();
     const auto importButtonIconSize = importButton->iconSize();
@@ -646,6 +661,9 @@ static void nativeHome(MainWindow &window, ApplicationLogger &logger) {
         "application settings paint from the top before the scrollbar policy settles");
     settings->resize(320, 360);
     waitForUi([&] { return preferencesScroll->verticalScrollBar()->isVisible(); });
+    auto *preferencesBar=preferencesScroll->verticalScrollBar();
+    check(settings->width()-(preferencesBar->mapTo(settings,QPoint()).x()+preferencesBar->width())<=10,
+        "application settings use the same scrollbar inset when they need to scroll");
     settings->reject();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
     window.findChild<QAction *>("settingAction")->trigger();
     auto *editor=window.findChild<SettingWindow *>();

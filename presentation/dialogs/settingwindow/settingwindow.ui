@@ -372,7 +372,7 @@
         <number>0</number>
        </property>
        <property name="rightMargin">
-        <number>0</number>
+        <number>16</number>
        </property>
        <property name="bottomMargin">
         <number>0</number>
@@ -385,6 +385,9 @@
     <layout class="QVBoxLayout" name="footerLayout">
      <property name="spacing">
       <number>8</number>
+     </property>
+     <property name="rightMargin">
+      <number>16</number>
      </property>
      <item>
       <widget class="QWidget" name="profileGroup">
@@ -481,7 +484,7 @@
     <number>24</number>
    </property>
    <property name="rightMargin">
-    <number>24</number>
+    <number>8</number>
    </property>
    <property name="bottomMargin">
     <number>24</number>

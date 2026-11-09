@@ -28,7 +28,7 @@ protected:
 private:
     void retranslate();
     void updateAuthFields();
-    void resetAuthChoices();
+    void resetAuthChoices(const QString &namedType={});
     void loadSettings(const QSettings &source);
     void readCredentials();
     void clearCredentials();
@@ -55,7 +55,7 @@ private:
     quint64 loadGeneration=0;
     ServerSettingsWidget *serverEditor;
     QString selectedAuthId, selectedAuthSubType, selectedAuthDomain, selectedAuthType, selectedAuthName;
-    int selectedAuthIndex=0;
+    int selectedAuthIndex=-1;
     QVariantMap draftValues;
     AuthMethodsQuery *authQuery;
     ControllerSelectionCoordinator *controllerSelection;

@@ -32,7 +32,6 @@ constexpr struct {
     const char *type;
     const char *label;
 } DefaultAuthChoices[]{
-    {"", QT_TRANSLATE_NOOP("SettingWindow", "Choose a sign-in method")},
     {"psw", QT_TRANSLATE_NOOP("SettingWindow", "Password")},
     {"smsCheckCode", QT_TRANSLATE_NOOP("SettingWindow", "SMS code")},
     {"cas", QT_TRANSLATE_NOOP("SettingWindow", "CAS")},
@@ -55,6 +54,7 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
     dismissButton=ui->buttonBox->addButton(QString(),QDialogButtonBox::RejectRole);
     dismissButton->setObjectName("dismissSettingsButton");
     profileHint=new QLabel(this);profileHint->setObjectName("profileReadOnlyHint");profileHint->setWordWrap(true);profileHint->setProperty("secondary",true);profileHint->hide();
+    profileHint->setContentsMargins(0,0,ui->footerLayout->contentsMargins().right(),0);
     ui->dialogLayout->insertWidget(0,profileHint);
     setWindowModality(Qt::WindowModal); setAttribute(Qt::WA_DeleteOnClose);
     serverEditor = new ServerSettingsWidget(ui->serverSettingsContainer);
@@ -75,8 +75,8 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
         }
         QSignalBlocker blocker(ui->authTypeComboBox);
         auto currentMethod=ui->authTypeComboBox->currentData(Qt::UserRole+1).toJsonObject();
-        ui->authTypeComboBox->clear();ui->authTypeComboBox->addItem(tr("Choose a sign-in method"),"");
-        int selected=0;
+        ui->authTypeComboBox->clear();
+        int selected=-1;
         for (const auto &entry:methods) {
             const auto method=entry.toObject();auto type=method["type"].toString();
             if (type.startsWith("auth/")) type.remove(0,5);
@@ -88,14 +88,14 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
                 && method["auth_id"].toString()==selectedAuthId && method["sub_type"].toString()==selectedAuthSubType)
                 selected=index;
         }
-        const bool keptPreviousChoice=!selected && !selectedAuthType.isEmpty();
+        const bool keptPreviousChoice=selected<0 && !selectedAuthType.isEmpty();
         if (keptPreviousChoice) {
-            selected=1;
+            selected=0;
             currentMethod["previousChoice"]=true;
             const auto name=selectedAuthName.isEmpty()?defaultAuthLabel(selectedAuthType):selectedAuthName;
             ui->authTypeComboBox->insertItem(selected,tr("%1 (previous choice)").arg(name),selectedAuthType);
             ui->authTypeComboBox->setItemData(selected,currentMethod,Qt::UserRole+1);
-        } else if (!selected && methods.size()==1) selected=1;
+        } else if (selected<0 && methods.size()==1) selected=0;
         ui->authTypeComboBox->addItem(tr("Find sign-in methods…"));
         ui->authTypeComboBox->setCurrentIndex(selected);
         blocker.unblock();
@@ -230,6 +230,7 @@ void SettingWindow::retranslate() {
     for (auto *label:labels) label->setMinimumWidth(labelWidth);
     PresentationHelpers::passwordVisibilityAction(ui->passwordLineEdit);
     PresentationHelpers::passwordVisibilityAction(ui->totpSecretLineEdit);
+    ui->authTypeComboBox->setPlaceholderText(tr("Choose a sign-in method"));
     const int findMethodsIndex=ui->authTypeComboBox->count()-1;
     for (int index=0;index<findMethodsIndex;++index) {
         const auto method=ui->authTypeComboBox->itemData(index,Qt::UserRole+1).toJsonObject();
@@ -256,7 +257,6 @@ void SettingWindow::retranslate() {
 void SettingWindow::loadSettings(const QSettings &source) {
     cancelQuery();
     const QSignalBlocker methodBlocker(ui->authTypeComboBox);
-    resetAuthChoices();
     ++loadGeneration;loading=false;savePending=false;updateBusy();
     draftValues=DefaultSettings::publicValues(source);
     draftValues.remove("Common/ConfigVersion"); // Schema revisions belong to SettingsMigrator.
@@ -267,20 +267,21 @@ void SettingWindow::loadSettings(const QSettings &source) {
     const bool needsSignInMethod = source.value("Common/NeedsConfiguration").toBool()
         || serverEditor->serverAddress().isEmpty();
     const auto method = needsSignInMethod ? QString() : source.value("JustConnect/AuthType", "psw").toString();
-    int index=ui->authTypeComboBox->findData(method);
-    if (index<0) {
-        index=ui->authTypeComboBox->count()-1;
-        ui->authTypeComboBox->insertItem(index,method,method);
-    }
-    selectedAuthId = needsSignInMethod ? QString() : source.value("JustConnect/AuthID").toString();
-    selectedAuthSubType = needsSignInMethod ? QString() : source.value("JustConnect/AuthSubType").toString();
-    selectedAuthDomain = needsSignInMethod ? QString() : source.value("JustConnect/LoginDomain").toString();
+    selectedAuthId = method.isEmpty() ? QString() : source.value("JustConnect/AuthID").toString();
+    selectedAuthSubType = method.isEmpty() ? QString() : source.value("JustConnect/AuthSubType").toString();
+    selectedAuthDomain = method.isEmpty() ? QString() : source.value("JustConnect/LoginDomain").toString();
     selectedAuthName = method.isEmpty() ? QString() : source.value(DefaultSettings::SignInMethodName).toString();
     if (selectedAuthName.isEmpty() && serverEditor->isBuiltIn()) {
         const auto &preset=DefaultSettings::builtInConnection();
         if (method==preset.value("JustConnect/AuthType").toString()
             && selectedAuthDomain==preset.value("JustConnect/LoginDomain").toString())
             selectedAuthName=preset.value(DefaultSettings::SignInMethodName).toString();
+    }
+    resetAuthChoices(selectedAuthName.isEmpty()?QString():method);
+    int index=ui->authTypeComboBox->findData(method);
+    if (index<0 && !method.isEmpty()) {
+        index=ui->authTypeComboBox->count()-1;
+        ui->authTypeComboBox->insertItem(index,defaultAuthLabel(method),method);
     }
     if (!selectedAuthName.isEmpty()) ui->authTypeComboBox->setItemText(index,selectedAuthName);
     if (!selectedAuthName.isEmpty() || !selectedAuthId.isEmpty() || !selectedAuthSubType.isEmpty() || !selectedAuthDomain.isEmpty())
@@ -324,13 +325,18 @@ void SettingWindow::clearDraftCredentials() {
     ui->passwordLineEdit->setText({});ui->totpSecretLineEdit->setText({});
     credentialStatusText=nullptr;credentialStatus->clear();credentialStatus->hide();
 }
-void SettingWindow::resetAuthChoices() {
+void SettingWindow::resetAuthChoices(const QString &namedType) {
     const QSignalBlocker blocker(ui->authTypeComboBox);
     ui->authTypeComboBox->clear();
-    for (const auto &choice : DefaultAuthChoices)
-        ui->authTypeComboBox->addItem(tr(choice.label), QString::fromLatin1(choice.type));
+    if (namedType.isEmpty()) {
+        for (const auto &choice : DefaultAuthChoices)
+            ui->authTypeComboBox->addItem(tr(choice.label), QString::fromLatin1(choice.type));
+    } else {
+        ui->authTypeComboBox->addItem(selectedAuthName,namedType);
+    }
     ui->authTypeComboBox->addItem(tr("Find sign-in methods…"));
-    selectedAuthIndex=0;
+    ui->authTypeComboBox->setCurrentIndex(-1);
+    selectedAuthIndex=-1;
 }
 void SettingWindow::updateAuthFields() {
     const bool sms=ui->authTypeComboBox->currentData()=="smsCheckCode";

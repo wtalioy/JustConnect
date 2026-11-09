@@ -917,7 +917,7 @@ static void uiContracts() {
     check(!ok->isEnabled(), "method selection waits for query cleanup before releasing the global slot");
     emit fake->finished(ConnectionError::NONE);
     check(returnedMethods(query)==1,"successful query delivers its methods inside settings");
-    list->setCurrentIndex(1);
+    list->setCurrentIndex(list->findData("cas"));
     until([&]{return ok->isEnabled();});
     const auto selected=list->currentData(Qt::UserRole+1).toJsonObject();
     check(selected["type"]=="auth/cas" && selected["domain"]=="campus" && selected["login_url"]=="https://vpn.example.invalid/login",
