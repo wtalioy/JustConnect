@@ -5,6 +5,8 @@
 #include "infrastructure/networkhelper/macos/helpertransport.h"
 #include "infrastructure/routing/macos/tunroutes.h"
 #include "infrastructure/networkaddress/ipv4.h"
+#include "infrastructure/systemproxy/platformsystemproxybackend.h"
+#include "infrastructure/systemproxy/proxyvalidation.h"
 #include <QScopeGuard>
 #include <dispatch/dispatch.h>
 #include <functional>
@@ -107,6 +109,7 @@ struct MacNetworkHelperClient::Native {
     bool invalid = false;
     MacHelperIdentity identity{MacHelperAppIdentifier,MacHelperIdentifier};
     AuthorizationRef authorization = nullptr;
+    QUuid proxyOwner;
     AuthorizationProvider authorize = acquireMacNetworkAuthorization;
     ~Native()
     {
@@ -144,6 +147,73 @@ struct MacNetworkHelperClient::Native {
         xpc_connection_resume(connection);
     }
 };
+
+std::unique_ptr<SystemProxyBackend> MacNetworkHelperClient::makeProxyBackend() const
+{
+    using Request = std::function<std::optional<SystemProxyCheck>(const char *,const SystemProxyConfig &)>;
+    class Backend final : public SystemProxyBackend {
+        Request request;
+    public:
+        explicit Backend(Request request) : request(std::move(request)) {}
+        SystemProxyCheck check(const SystemProxyConfig &) override { return inspect(); }
+        SystemProxyCheck inspect() override {
+            const auto result=request("proxy_inspect",{});
+            return result ? *result : PlatformSystemProxyBackend{}.inspect();
+        }
+        PlatformOperationResult apply(const SystemProxyConfig &config) override {
+            const auto result=request("proxy_apply",config);
+            return result ? result->result : Result{Status::PermissionDenied,"Browser proxy handoff requires active network ownership."};
+        }
+        PlatformOperationResult clear() override {
+            const auto result=request("proxy_clear",{});
+            return result ? result->result : Result{Status::Failed,"Cannot verify browser proxy restoration without the network helper.",true};
+        }
+    };
+    return std::make_unique<Backend>([weak=std::weak_ptr<Native>(native)](const char *operation,const SystemProxyConfig &config) -> std::optional<SystemProxyCheck> {
+        const auto state=weak.lock();
+        if (!state) return {};
+        struct Reply {
+            dispatch_semaphore_t ready=dispatch_semaphore_create(0);
+            std::optional<SystemProxyCheck> result;
+            ~Reply() { dispatch_release(ready); }
+        };
+        const auto response=std::make_shared<Reply>();
+        const auto name=QByteArray(operation);
+        const bool inspect=name=="proxy_inspect";
+        const auto configuration=inspect || name=="proxy_clear" ? QJsonObject{} : ProxyValidation::json(config);
+        dispatch_async(state->queue,^{
+            if (state->proxyOwner.isNull()) { dispatch_semaphore_signal(response->ready); return; }
+            state->connect(weak);
+            auto packet=macHelperRequest(name.constData(),state->proxyOwner,QUuid::createUuid());
+            if (!configuration.isEmpty()) packet["configuration"]=configuration;
+            const auto message=macHelperMessage(packet);
+            if (!state->connection || !message) {
+                if (message) xpc_release(message);
+                response->result=SystemProxyCheck{{Status::Failed,"The trusted browser proxy channel is unavailable.",!inspect}};
+                dispatch_semaphore_signal(response->ready);
+                return;
+            }
+            const auto transport=state->connection;
+            xpc_connection_send_message_with_reply(transport,message,state->queue,^(xpc_object_t reply) {
+                QJsonObject decoded;
+                const auto trusted=xpc_connection_get_euid(transport)==0 && state->identity.accepts(reply) && readMacHelperMessage(reply,decoded);
+                const auto parsed=trusted ? parseMacHelperResponse(decoded,packet) : std::nullopt;
+                SystemProxyCheck view{parsed.value_or(Result{Status::Failed,"The trusted browser proxy reply is missing or invalid.",!inspect})};
+                if (parsed && parsed->succeeded() && inspect) {
+                    const auto fields=decoded["proxy"].toObject();
+                    view.active=fields["active"].toBool();view.managed=fields["managed"].toBool();
+                    for (const auto &value:fields["endpoints"].toArray()) view.endpoints.append(value.toString());
+                }
+                response->result=view;
+                dispatch_semaphore_signal(response->ready);
+            });
+            xpc_release(message);
+        });
+        if (dispatch_semaphore_wait(response->ready,dispatch_time(DISPATCH_TIME_NOW,qint64(MacHelperOperationTimeoutMs)*NSEC_PER_MSEC))!=0)
+            return SystemProxyCheck{{Status::TimedOut,"The network helper timed out while handling the browser proxy.",!inspect}};
+        return response->result;
+    });
+}
 
 MacNetworkHelperClient::MacNetworkHelperClient(QObject *parent, AuthorizationProvider authorization) : QObject(parent), native(std::make_shared<Native>())
 {
@@ -241,6 +311,10 @@ void MacNetworkHelperClient::send(const char *name)
             QJsonObject response; int fd = -1;
             const bool trusted = xpc_connection_get_euid(transport) == 0 && accepted->identity.accepts(reply)
                 && readMacHelperMessage(reply,response,&fd);
+            if (trusted && response["status"]==int(Status::Success)) {
+                if (apply) accepted->proxyOwner=QUuid(request["owner"].toString());
+                else if (request["operation"]=="cleanup" && accepted->proxyOwner==QUuid(request["owner"].toString())) accepted->proxyOwner={};
+            }
             const bool unavailable = reply == XPC_ERROR_CONNECTION_INVALID || reply == XPC_ERROR_CONNECTION_INTERRUPTED;
             auto descriptor = ownedFd(fd);
             accepted->post([request,response,descriptor,trusted,unavailable](auto *target) { target->receive(request,response,descriptor,trusted,unavailable); });

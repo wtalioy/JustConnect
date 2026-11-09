@@ -97,12 +97,13 @@ bool MacNetworkJournal::unchanged(const SavedFile &file) const
 {
     return file.present==known.present && (!file.present || (file.device==known.device && file.inode==known.inode && file.bytes==known.bytes));
 }
-PlatformOperationResult MacNetworkJournal::load(QJsonObject &record)
+PlatformOperationResult MacNetworkJournal::load(QJsonObject &record, bool allowMissing)
 {
     record = {};
     SavedFile current;
     const auto result = read(current);
     if (!result.succeeded()) return result;
+    if (!current.present && allowMissing && !known.present) return {};
     if (!current.present || (bound && !unchanged(current))) return {Status::Failed,"Saved source ownership is absent or was externally replaced."};
     const auto parsed = QJsonDocument::fromJson(current.bytes);
     if (!parsed.isObject() || parsed.object()["owner"]!=owner.toString(QUuid::WithoutBraces))

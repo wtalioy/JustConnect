@@ -1,5 +1,5 @@
 {
-  "protocol": 9,
+  "protocol": 10,
   "storage_version": 3,
   "service_suffix": ".NetworkHelper",
   "executable": "JustConnectNetworkHelper",

@@ -36,6 +36,8 @@ function(justconnect_mac_network_helper)
         "${REPO}/infrastructure/networkhelper/macos/helperidentity.cpp"
         "${REPO}/infrastructure/networkhelper/macos/helpertransport.cpp"
         "${REPO}/infrastructure/networkhelper/macos/tcplistener.cpp"
+        "${REPO}/infrastructure/systemproxy/macos/privilegedproxy.cpp"
+        "${REPO}/infrastructure/systemproxy/macos/systemproxybackend.cpp"
         "${REPO}/infrastructure/tundevice/macos/tundevice.cpp"
         "${REPO}/infrastructure/routing/macos/routesnapshot.cpp"
         "${REPO}/infrastructure/routing/macos/tunroutes.cpp"
@@ -47,7 +49,7 @@ function(justconnect_mac_network_helper)
         "${REPO}/infrastructure/process/command.cpp")
     target_include_directories(justconnect_macos_network_helper PUBLIC "${REPO}" "${CMAKE_CURRENT_BINARY_DIR}")
     target_compile_options(justconnect_macos_network_helper PRIVATE -fblocks)
-    target_link_libraries(justconnect_macos_network_helper PUBLIC Qt6::Core "-framework Security" "-framework CoreFoundation" "-framework SystemConfiguration")
+    target_link_libraries(justconnect_macos_network_helper PUBLIC Qt6::Core Qt6::Network "-framework Security" "-framework CoreFoundation" "-framework SystemConfiguration")
     add_executable(JustConnectNetworkHelper "${REPO}/infrastructure/networkhelper/macos/networkhelpermain.cpp")
     target_link_libraries(JustConnectNetworkHelper PRIVATE justconnect_macos_network_helper)
     target_compile_options(JustConnectNetworkHelper PRIVATE -fblocks)

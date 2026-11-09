@@ -5,6 +5,7 @@
 #include "infrastructure/dns/dnsdomains.h"
 #include "infrastructure/tundevice/macos/tundevice.h"
 #include "infrastructure/routing/macos/tunroutes.h"
+#include "infrastructure/systemproxy/proxyvalidation.h"
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QSet>
@@ -48,6 +49,8 @@ bool validMacHelperRequest(const QJsonObject &packet)
     if (operation == "extend") return packet.size() == 5 && packet["addresses"].isArray();
     if (operation == "routes") return packet.size() == 5 && packet["prefixes"].isArray();
     if (operation == "apply") return packet.size() == 5 && packet["configuration"].isObject();
+    if (operation == "proxy_apply") return packet.size() == 5 && packet["configuration"].isObject();
+    if (operation == "proxy_clear" || operation == "proxy_inspect") return packet.size() == 4;
     return packet.size() == 4 && (operation == "probe" || operation == "restore" || operation == "recover" || operation == "cleanup");
 }
 QJsonObject macHelperExtendRequest(const QUuid &owner, const QUuid &request, const QStringList &addresses)
@@ -130,14 +133,27 @@ QJsonObject macHelperResponse(const QJsonObject &request, const PlatformOperatio
 std::optional<PlatformOperationResult> parseMacHelperResponse(const QJsonObject &packet, const QJsonObject &request)
 {
     const auto status = packet["status"].toInteger(-1);
-    const bool owners = packet.contains("owners"), network = packet.contains("network");
+    const bool owners = packet.contains("owners"), network = packet.contains("network"), proxy = packet.contains("proxy");
     const bool needsNetwork = status == 0 && (request["operation"] == "apply" || request["operation"] == "extend" || request["operation"] == "routes");
     if (!bounded(packet) || packet["schema_version"] != MacHelperProtocol || packet["request_id"] != request["request_id"]
         || packet["owner"] != request["owner"] || packet["operation"] != request["operation"]
         || !packet["detail"].isString() || !packet["changed"].isBool() || status < 0 || status > int(PlatformOperationResult::Status::TimedOut)
         || packet["status"].toDouble(-1) != double(status)
-        || packet.size() != 7+int(packet.contains("device"))+int(owners)+int(network)
+        || packet.size() != 7+int(packet.contains("device"))+int(owners)+int(network)+int(proxy)
         || (packet.contains("device") && (request["operation"] != "apply" || status != 0 || !packet["device"].isObject()))) return {};
+    if (proxy != (status==0 && request["operation"]=="proxy_inspect")) return {};
+    if (proxy) {
+        const auto view=packet["proxy"].toObject();
+        if (view.size()!=3 || !view["active"].isBool() || !view["managed"].isBool() || !view["endpoints"].isArray()) return {};
+        const auto endpoints=view["endpoints"].toArray();
+        if (endpoints.size()>3) return {};
+        QSet<QString> seen;
+        for (const auto &entry:endpoints) {
+            const auto endpoint=entry.toString();
+            if (endpoint.isEmpty() || ProxyValidation::endpoint(endpoint)!=endpoint || seen.contains(endpoint)) return {};
+            seen.insert(endpoint);
+        }
+    }
     if (network != needsNetwork || (network && (!packet["network"].isObject() || packet["network"].toObject().size() != 4
         || !packet["network"].toObject()["capture"].isObject() || !packet["network"].toObject()["dns"].isObject()
         || !packet["network"].toObject()["device_routes"].isArray() || !packet["network"].toObject()["original_dns"].isObject()))) return {};

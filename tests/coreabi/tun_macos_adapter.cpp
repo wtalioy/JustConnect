@@ -131,10 +131,7 @@ int main(int argc,char **argv)
     if (composed) coexistence.observe(engine);
     NetworkPolicySession policy(engine,readSystemDnsSnapshot);
     auto *access = new MacNetworkAccess(engine,&policy,1400,nullptr,authorization);
-    std::unique_ptr<SystemProxyBackend> proxyBackend = composed
-        ? std::unique_ptr<SystemProxyBackend>(new PlatformSystemProxyBackend(coexistence.api))
-        : std::unique_ptr<SystemProxyBackend>(new ProxyRecoveryBackend);
-    SystemProxySession proxy(std::move(proxyBackend));
+    SystemProxySession proxy(access->makeProxyBackend());
     NetworkAccess *network = access;
     if (composed) {
         auto *handoff = new CoexistenceNetworkAccess(access,engine,&policy,&proxy); network = handoff;
@@ -269,7 +266,15 @@ int main(int argc,char **argv)
         for (const auto &address : addresses("localhost")) check(QHostAddress(address).isLoopback(),"localhost remains on this computer");
         originalView();
         refresh(); originalView();
-        if (composed) coexistence.exercise(session,proxy,policy);
+        if (composed) {
+            const auto authorizationRequests=waiting->calls.load();
+            const auto unauthorized=access->makeProxyBackend()->apply(
+                {1,1,{},{"127.0.0.1:"+QString::number(coexistence.runtime["port"].toInt())}});
+            check(unauthorized.status==PlatformOperationResult::Status::PermissionDenied && !unauthorized.mayHaveChanged,
+                "Privileged browser handoff rejects ports not owned by the signed app");
+            coexistence.exercise(session,proxy,policy);
+            check(waiting->calls==authorizationRequests,"Browser switching uses the established network helper without requesting a fresh grant");
+        }
         if (exitChange && round == 0) {
             previousGeneration = policy.currentGeneration(); changingNetwork = true;
             const auto barrier = QObject::connect(&session,&ConnectionSession::reconnectScheduled,&session,[&](int) {

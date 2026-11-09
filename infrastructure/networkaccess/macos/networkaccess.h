@@ -15,6 +15,7 @@ public:
     void prepare(const QUuid &attempt) override;
     void activate(const QUuid &attempt,const ConnectionOptions &connectionOptions) override;
     void stop(const QUuid &attempt) override;
+    std::unique_ptr<SystemProxyBackend> makeProxyBackend() const { return helper.makeProxyBackend(); }
 private:
     enum class Stage { Idle, Preparing, Prepared, Activating, Ready, Updating, Stopping };
     void prepareConfiguration();

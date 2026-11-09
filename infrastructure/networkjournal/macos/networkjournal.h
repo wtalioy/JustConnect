@@ -18,7 +18,7 @@ public:
     MacNetworkJournal &operator=(const MacNetworkJournal &) = delete;
     PlatformOperationResult open(int trustedDirectory, const QUuid &owner, bool *alreadyOwned = nullptr);
     PlatformOperationResult store(const QJsonObject &record);
-    PlatformOperationResult load(QJsonObject &record);
+    PlatformOperationResult load(QJsonObject &record, bool allowMissing = false);
     PlatformOperationResult remove();
     void close();
 private:

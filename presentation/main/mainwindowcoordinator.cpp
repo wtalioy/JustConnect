@@ -25,14 +25,22 @@
 #include "presentation/coordinators/authdialogcoordinator.h"
 
 namespace {
-NetworkAccess *createNetworkAccess(CoreEngine *core, NetworkPolicySession *policy, SystemProxySession *proxy)
+NetworkAccess *createNetworkAccess(CoreEngine *core, NetworkPolicySession *policy, SystemProxySession *&proxy,
+    QObject *parent, MainWindowCoordinator::NetworkFactory factory)
 {
+    if (factory) {
+        proxy = new SystemProxySession(std::make_unique<ProxyRecoveryBackend>(),parent);
+        return factory(core,policy);
+    }
     const auto mtu = EmbeddedCoreEngine::buildInfo()["capabilities"].toObject()["tunnel_mtu"].toInt();
 #if defined(Q_OS_MACOS)
     auto *native = new MacNetworkAccess(core, policy, mtu);
+    auto backend = native->makeProxyBackend();
 #else
     auto *native = new WindowsNetworkAccess(core, policy, mtu);
+    auto backend = std::make_unique<ProxyRecoveryBackend>();
 #endif
+    proxy = new SystemProxySession(std::move(backend),parent);
     auto *network = new CoexistenceNetworkAccess(native, core, policy, proxy);
     auto *changes = new ProxyChanges(network);
     QObject::connect(changes, &ProxyChanges::changed, network, &CoexistenceNetworkAccess::systemProxyChanged);
@@ -54,13 +62,9 @@ MainWindowCoordinator::MainWindowCoordinator(
       )),
       coreEngine(new EmbeddedCoreEngine()),
       networkPolicySession(new NetworkPolicySession(coreEngine, observeSystemDnsSnapshot(), this)),
-      systemProxySession(new SystemProxySession(
-          std::make_unique<ProxyRecoveryBackend>(),
-          this
-      )),
+      systemProxySession(nullptr),
       connectionSession(new ConnectionSession(coreEngine, this,
-          networkFactory ? networkFactory(coreEngine, networkPolicySession)
-                         : createNetworkAccess(coreEngine, networkPolicySession, systemProxySession))),
+          createNetworkAccess(coreEngine, networkPolicySession, systemProxySession, this, networkFactory))),
       updateChecker(new UpdateChecker(this)),
       authenticationCoordinator(new AuthDialogCoordinator(
           parentWidget,

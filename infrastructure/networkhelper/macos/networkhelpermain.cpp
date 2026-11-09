@@ -2,6 +2,8 @@
 #include "infrastructure/networkhelper/macos/helperidentity.h"
 #include "infrastructure/networkhelper/macos/helpertransport.h"
 #include "infrastructure/networkhelper/macos/networkhelperstate.h"
+#include "infrastructure/systemproxy/macos/privilegedproxy.h"
+#include "infrastructure/systemproxy/proxyvalidation.h"
 #include <QCoreApplication>
 #include <QDebug>
 #include <QJsonDocument>
@@ -12,6 +14,7 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <memory>
+#include <netinet/in.h>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -50,6 +53,8 @@ public:
     QMap<QString,std::shared_ptr<Ownership>> owners;
     QMap<quint64,xpc_connection_t> peers;
     quint64 serial = 0;
+    quint64 proxyPeer = 0;
+    MacPrivilegedProxy proxy;
     bool wasIdle = false;
     dispatch_queue_t queue = dispatch_queue_create(MacHelperIdentifier,DISPATCH_QUEUE_SERIAL);
 
@@ -71,15 +76,17 @@ public:
             }
         }
     }
-    void recoverOrphans()
+    bool recoverOrphans()
     {
+        const bool proxyRecovered=proxyPeer || proxy.restore().succeeded();
         discover();
         for (const auto &entry : owners) if (!entry->peer && entry->state->phase() != "restored") entry->state->restore();
+        return proxyRecovered;
     }
     void maintain()
     {
-        recoverOrphans();
-        const bool idle = peers.isEmpty() && std::all_of(owners.cbegin(), owners.cend(),
+        const bool proxyRecovered=recoverOrphans();
+        const bool idle = proxyRecovered && peers.isEmpty() && std::all_of(owners.cbegin(), owners.cend(),
             [](const auto &entry) { return entry->state->phase() == "restored"; });
         // An idle daemon must not keep the previous bundle's signing identity alive across upgrades.
         if (idle && wasIdle) std::exit(0);
@@ -89,6 +96,7 @@ public:
     {
         const auto connection = peers.take(peer);
         if (!connection) return;
+        if (proxyPeer==peer) { proxyPeer=0; proxy.restore(); }
         for (const auto &entry : owners) if (entry->peer == peer) { entry->peer = 0; entry->state->restore(); }
         xpc_connection_cancel(connection); xpc_release(connection);
     }
@@ -101,8 +109,12 @@ public:
         if (!uid || uid == uid_t(-1) || !readMacHelperMessage(message,packet) || !validMacHelperRequest(packet)) { disconnected(peer); return; }
         const QUuid owner(packet["owner"].toString()); const auto operation = packet["operation"].toString();
         auto entry = owners.value(key(uid,owner));
-        Result result; QJsonObject device; int descriptor = -1; QJsonArray receipts;
+        Result result; QJsonObject device, proxyView; int descriptor = -1; QJsonArray receipts;
         if (operation == "probe") {
+            if (!proxyPeer) {
+                result=proxy.restore();
+                if (!result.succeeded()) result.mayHaveChanged=true;
+            }
             discover();
             for (const auto &saved : owners) if (saved->state->uid() == uid)
                 receipts.append(QJsonObject{{"owner",saved->state->owner().toString(QUuid::WithoutBraces)},{"phase",saved->state->phase()}});
@@ -111,6 +123,28 @@ public:
                 result = {Status::Failed,"The process does not own the requested loopback TCP listener.",false};
         } else if (entry && entry->peer && entry->peer != peer) {
             result = {Status::PermissionDenied,"Connection ownership belongs to another live client.",false};
+        } else if (operation == "proxy_inspect" || operation == "proxy_apply" || operation == "proxy_clear") {
+            if ((proxyPeer && proxyPeer!=peer) || (operation!="proxy_clear" && (!entry || entry->peer!=peer || entry->state->phase()!="active"))) {
+                result={Status::PermissionDenied,"Browser proxy changes require the live network owner.",false};
+            } else if (operation == "proxy_inspect") {
+                const auto check=proxy.inspect();result=check.result;
+                proxyView={{"active",check.active},{"managed",check.managed},{"endpoints",QJsonArray::fromStringList(check.endpoints)}};
+            } else if (operation == "proxy_clear") {
+                result=proxy.restore();
+                if (result.succeeded()) proxyPeer=0;
+            } else {
+                const auto configuration=ProxyValidation::parse(packet["configuration"].toObject());
+                const auto pid=xpc_connection_get_pid(connection);
+                if (!configuration || configuration->upstream.isEmpty() || !configuration->bypass.isEmpty()
+                    || !macOwnsLoopbackTCPListener(pid,quint16(configuration->httpPort),INADDR_LOOPBACK)
+                    || !macOwnsLoopbackTCPListener(pid,quint16(configuration->socksPort),INADDR_LOOPBACK))
+                    result={Status::PermissionDenied,"Browser proxy handoff requires verified local listeners owned by this app.",false};
+                else {
+                    result=proxyPeer ? Result{} : proxy.restore();
+                    if (result.succeeded()) result=proxy.apply(*configuration);
+                    if (result.succeeded() || result.mayHaveChanged) proxyPeer=peer;
+                }
+            }
         } else if (operation == "apply") {
             const auto configuration = parseMacHelperApply(packet);
             if (!configuration) result = {Status::Failed,"Invalid bounded network configuration.",false};
@@ -135,7 +169,11 @@ public:
             result = entry->state->cleanup();
             if (result.succeeded()) owners.remove(key(uid,owner));
         } else {
-            result = entry->state->restore();
+            if (proxyPeer==peer) {
+                result=proxy.restore();
+                if (result.succeeded()) proxyPeer=0;
+            }
+            if (result.succeeded()) result = entry->state->restore();
             if (result.succeeded()) entry->peer = 0;
         }
         QJsonObject network;
@@ -149,6 +187,7 @@ public:
         auto response = macHelperResponse(packet,result,device);
         if (result.succeeded() && (operation == "apply" || operation == "extend" || operation == "routes")) response["network"] = network;
         if (operation == "probe" && result.succeeded()) response["owners"] = receipts;
+        if (operation == "proxy_inspect" && result.succeeded()) response["proxy"]=proxyView;
         const auto reply = xpc_dictionary_create_reply(message);
         const auto encoded = macHelperMessage(response,descriptor);
         if (!reply || !encoded) { if (reply) xpc_release(reply); if (encoded) xpc_release(encoded); disconnected(peer); return; }
@@ -183,6 +222,7 @@ int main(int argc, char **argv)
     if (argc != 1 || ::geteuid() != 0) return 2;
     auto *server = new Server;
     if (!server->identity.ready() || (server->directory = openMacHelperBootDirectory()) < 0) return 3;
+    if (!server->proxy.open(server->directory).succeeded()) return 3;
     const auto listener = xpc_connection_create_mach_service(MacHelperIdentifier,server->queue,XPC_CONNECTION_MACH_SERVICE_LISTENER);
     if (!listener) return 4;
     xpc_connection_set_event_handler(listener,^(xpc_object_t connection) {
@@ -196,6 +236,7 @@ int main(int argc, char **argv)
     for (int number : {SIGTERM,SIGINT}) {
         const auto source = dispatch_source_create(DISPATCH_SOURCE_TYPE_SIGNAL,uintptr_t(number),0,server->queue);
         dispatch_source_set_event_handler(source,^{
+            server->proxy.restore();
             for (const auto &entry : server->owners) entry->state->restore();
             std::exit(0);
         });

@@ -1,5 +1,6 @@
 #pragma once
 #include "infrastructure/networkhelper/macos/networkhelper.h"
+#include "application/systemproxybackend.h"
 #include <QObject>
 #include <QTimer>
 #include <Security/Authorization.h>
@@ -27,6 +28,7 @@ public:
     void recover(const QUuid &owner);
     void cleanupRestored(const QUuid &owner);
     void cancel();
+    std::unique_ptr<SystemProxyBackend> makeProxyBackend() const;
     State state() const { return current; }
     QUuid owner() const { return connection; }
     QJsonArray pendingOwners() const { return receipts; }

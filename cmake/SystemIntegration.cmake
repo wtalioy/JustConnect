@@ -18,8 +18,7 @@ function(justconnect_system_integration TARGET)
     else()
         set(PLATFORM macos)
     endif()
-    add_library(${TARGET} STATIC "${REPO}/infrastructure/systemproxy/${PLATFORM}/systemproxybackend.cpp"
-        "${REPO}/infrastructure/credentialstore/${PLATFORM}/credentialstore.cpp"
+    add_library(${TARGET} STATIC "${REPO}/infrastructure/credentialstore/${PLATFORM}/credentialstore.cpp"
         "${REPO}/infrastructure/systemproxy/proxyrecovery.cpp"
         "${REPO}/infrastructure/systemproxy/proxyjournal.cpp"
         "${REPO}/infrastructure/systemproxy/persistentproxy.cpp"
@@ -32,7 +31,8 @@ function(justconnect_system_integration TARGET)
     set_target_properties(${TARGET} PROPERTIES AUTOMOC ON)
     target_sources(${TARGET} PRIVATE "${REPO}/infrastructure/systemproxy/proxychanges.h")
     if(WIN32)
-        target_sources(${TARGET} PRIVATE "${REPO}/infrastructure/systemproxy/windows/proxychanges.cpp")
+        target_sources(${TARGET} PRIVATE "${REPO}/infrastructure/systemproxy/windows/systemproxybackend.cpp"
+            "${REPO}/infrastructure/systemproxy/windows/proxychanges.cpp")
     else()
         target_sources(${TARGET} PRIVATE "${REPO}/infrastructure/systemproxy/macos/proxychanges.cpp")
     endif()
