@@ -15,14 +15,14 @@
 | --- | --- |
 | 阶段进度 | S3—S6 **23／23**，S7 **13／13**。S8 **2／5**。全计划 **60／64**，剩 S1-04、S8-01／03／05。 |
 | Windows 实测 | 2026-11-08 用户确认 S8 Windows 实测通过，反馈未注明包版本。`b2fbdb3` 既有实测覆盖动态代理／TUN、校园网页／SSH／登录、Tailscale 直连；同窗首次／复用接管 2480／38 ms。 |
-| 当前跟踪 | Apple Silicon `39c49d2` 实测校园网页、SSH、系统代理及 TUN 动态切换均正常。未批准／批准后冷启动的助手预检分别耗时 30.1／32.0 秒，随后为 25–33 ms；间隔约半分钟后重连仍重复请求系统网络授权。缩短首次探测并按同一受信 XPC 连接复用授权，待实测。 |
-| 最近已验证预览 | `39c49d2` [Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/42573729916/artifacts/13654822717)／[Apple Silicon DMG](https://github.com/wtalioy/JustConnect/actions/runs/42573729916/artifacts/13654632061)。 |
+| 当前跟踪 | Apple Silicon `39c49d2` 实测校园网页、SSH、系统代理及 TUN 动态切换均正常。旧版冷启动的助手预检约 30–32 秒，后续约 25–33 ms。`3f601a7` 缩短首次探测并按同一受信 XPC 连接复用授权，待实测首次提示耗时及间隔至少 45 秒的重连。 |
+| 最近已验证预览 | `3f601a7` [Windows x64](https://github.com/wtalioy/JustConnect/actions/runs/42578063095/artifacts/13656138798)／[Apple Silicon DMG](https://github.com/wtalioy/JustConnect/actions/runs/42578063095/artifacts/13656222343)。 |
 
 ## 当前验收基线
 
 | 范围 | 当前结论与证据 |
 | --- | --- |
-| 自动检查 | `39c49d2` [两平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/42573726253)及[四架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/42573726199)通过，覆盖 DNS 上游更新、代理／TUN 切换和应用与助手强制结束后的独立代理恢复。Apple Silicon 助手预检样本 3–12 ms，实机冷启动另验。 |
+| 自动检查 | `3f601a7` [两平台 Tests](https://github.com/wtalioy/JustConnect/actions/runs/42578064124)及[四架构 Core ABI](https://github.com/wtalioy/JustConnect/actions/runs/42578062831)通过。macOS 原生测试覆盖 TUN 切换时 DNS 上游更新、进程强制结束后的代理恢复，以及撤销首次授权令牌后由原应用重连并拒绝其他进程复用授权。 |
 | 实际包／源码 | 见 S8-04。 |
 | Windows 修复／性能 | 正常断开修复已实测；DNS 批量刷新、持久进度、部分失败和后续所有权已双架构原生验证。接口查询及 `70f90a5` 接管／断开 CPU 优化已实测通过；`build/reports/windows-restore-9d95b37/summary.json`、`build/reports/windows-dns-cpu-da23405/summary.json` |
 | 阶段矩阵 | V1—V7 区分既有实测、自动证据及最终包待测项 |
@@ -236,7 +236,7 @@
 - [x] **S8-02**：故障与恢复复用 S3-06／S4-06／S7-03—05 及当前两平台原生回归，涵盖取消、权限拒绝、部分失败、外部改值、超时、进程终止与独立恢复。真实注销／跨登录会话、长时间离线及少见网络环境未实测，出现实际问题时补验。正常断开和授权随 S8-01／03。
 - [ ] **S8-03**：在上述连断中验证实际包启动、正常认证和授权、连接状态与退出。Windows 复用 S7 UI 实测，macOS 补 Finder 安装、菜单栏恢复窗口与退出。取消、双语、偏好、键盘及异常流程复用已有回归。
   - macOS 27 换包后可能需要批准后台项，可从应用提示打开系统设置。当前待复测批准提示、批准后冷启动及同一应用中间隔较长的重连授权。系统代理和 TUN 开关已实测。新版助手保管代理恢复快照，旧独立恢复工具仍保留用于已发布版本的待恢复记录。
-- [x] **S8-04**：`39c49d2` 的[四组实际包和对应源码](https://github.com/wtalioy/JustConnect/actions/runs/42573729916)通过，另验 [Apple Silicon DMG 在 macOS 27.0.1 安装、启动和退出](https://github.com/wtalioy/JustConnect/actions/runs/42573729916/job/129022569144)。最终提交的发布附件随 S8-05 核对。
+- [x] **S8-04**：`3f601a7` 的[四组实际包和对应源码](https://github.com/wtalioy/JustConnect/actions/runs/42578063095)通过，另验 [Apple Silicon DMG 在 macOS 27.0.1 安装、启动和退出](https://github.com/wtalioy/JustConnect/actions/runs/42578063095/job/129036046660)。最终提交的发布附件随 S8-05 核对。
 - [ ] **S8-05**：主路径实测通过后验收 [main／Release 交付](docs/DEVELOPMENT.md#分支与-actions)，核对附件与来源。macOS 正式交付须验证从 Release 用浏览器直接下载 DMG、拖入「应用程序」并按系统首次打开流程启动。
 
 ## 验收记录
