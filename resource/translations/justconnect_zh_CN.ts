@@ -466,8 +466,8 @@ You may need to sign in again. Passwords, TOTP and other accounts are kept.</sou
     </message>
     <message>
         <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="370"/>
-        <source>Open the connection settings and choose Find sign-in methods, then select the method to use.</source>
-        <translation>请打开连接设置，选择「查找登录方式」，再选择要使用的方式。</translation>
+        <source>In connection settings, choose “Load from server…” and select a sign-in method.</source>
+        <translation>在连接设置中选择「从服务器获取…」，然后选择登录方式。</translation>
     </message>
     <message>
         <location filename="../../presentation/coordinators/connectionuicontroller.cpp" line="373"/>
@@ -2121,8 +2121,8 @@ Some system settings may have changed. Check them before retrying.</source>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="75"/>
-        <source>Sign-in methods changed. Query them again.</source>
-        <translation>认证方式已变化，请重新查询。</translation>
+        <source>Sign-in options changed. Reload from the server.</source>
+        <translation>登录选项已变化，请从服务器重新获取。</translation>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="76"/>
@@ -2173,12 +2173,12 @@ Some system settings may have changed. Check them before retrying.</source>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="266"/>
-        <source>Find sign-in methods…</source>
-        <translation>查找登录方式…</translation>
+        <source>Load from server…</source>
+        <translation>从服务器获取…</translation>
     </message>
     <message>
-        <source>Enter a server address to find sign-in methods.</source>
-        <translation>输入服务器地址后即可查找登录方式。</translation>
+        <source>Enter the server address first.</source>
+        <translation>请先输入服务器地址。</translation>
     </message>
     <message>
         <source>%1 (previous choice)</source>
@@ -2186,12 +2186,12 @@ Some system settings may have changed. Check them before retrying.</source>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="279"/>
-        <source>Searching…</source>
-        <translation>正在查找…</translation>
+        <source>Loading options…</source>
+        <translation>正在获取选项…</translation>
     </message>
     <message>
-        <source>Cancel search</source>
-        <translation>取消查找</translation>
+        <source>Stop loading</source>
+        <translation>停止获取</translation>
     </message>
     <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="284"/>

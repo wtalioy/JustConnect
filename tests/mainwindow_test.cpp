@@ -462,7 +462,7 @@ static void profileSetupLanguageChangesPreserveData(MainWindow &window) {
         && !editor->findChild<QComboBox *>("languageComboBox")
         && editor->findChild<QPushButton *>("saveProfileButton")->text()==QString::fromUtf8("保存")
         && editor->findChild<QPushButton *>("dismissSettingsButton")->text()==QString::fromUtf8("取消")
-        && method->itemText(method->count()-1)==QString::fromUtf8("查找登录方式…")
+        && method->itemText(method->count()-1)==QString::fromUtf8("从服务器获取…")
         && method->currentData()==methodValue && editor->findChild<QPlainTextEdit *>("domainDnsRulesEdit")->toPlainText()=="service.example.invalid" && secret->text()=="editor-password"
         && user->text()=="editor-user" && show->isChecked() && secret->echoMode()==QLineEdit::Normal,
         "profile editor translation preserves its tab, method identity, probe target and secret draft");
@@ -616,7 +616,7 @@ static void nativeHome(MainWindow &window, ApplicationLogger &logger) {
     auto *method = initial->findChild<QComboBox *>("authTypeComboBox");
     check(address->text() == "vpn.fudan.edu.cn" && address->isReadOnly()
         && method->currentData() == "httpsOauth2" && method->currentText()=="Fudan UIS"
-        && method->count()==2 && method->itemText(1)=="Find sign-in methods…"
+        && method->count()==2 && method->itemText(1)=="Load from server…"
         && !initial->findChild<QPushButton *>("cancelAuthQueryButton")->isVisibleTo(initial)
         && !initial->findChild<QComboBox *>("profileKindComboBox"),
         "Fudan has a fixed server and Web sign-in, with no second connection selector");

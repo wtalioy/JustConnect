@@ -124,7 +124,7 @@ int main(int argc,char **argv) {
               "labeled profile actions stay visible in the fixed footer");
       }
       auto *method=initial->findChild<QComboBox *>("authTypeComboBox");
-      check(method->currentText()=="Campus password" && method->itemText(method->count()-1)=="Find sign-in methods…"
+      check(method->currentText()=="Campus password" && method->itemText(method->count()-1)=="Load from server…"
           && !initial->findChild<QPushButton *>("cancelAuthQueryButton")->isVisibleTo(initial),
           "the saved sign-in name and discovery share one dropdown in the idle editor");
       check(initial->findChild<QGroupBox *>("serverGroup")->font().pointSizeF()>method->font().pointSizeF(),

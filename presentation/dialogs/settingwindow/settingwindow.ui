@@ -93,15 +93,15 @@
                 <property name="spacing"><number>8</number></property>
                 <item>
                  <widget class="QLabel" name="authQueryProgress">
-                  <property name="text"><string>Searching…</string></property>
+                  <property name="text"><string>Loading options…</string></property>
                   <property name="secondary" stdset="0"><bool>true</bool></property>
                  </widget>
                 </item>
                 <item>
                  <widget class="QPushButton" name="cancelAuthQueryButton">
                   <property name="flat"><bool>true</bool></property>
-                  <property name="toolTip"><string>Cancel search</string></property>
-                  <property name="accessibleName"><string>Cancel search</string></property>
+                  <property name="toolTip"><string>Stop loading</string></property>
+                  <property name="accessibleName"><string>Stop loading</string></property>
                   <property name="sizePolicy">
                    <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                     <horstretch>0</horstretch>

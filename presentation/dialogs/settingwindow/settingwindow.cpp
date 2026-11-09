@@ -98,7 +98,7 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
             ui->authTypeComboBox->insertItem(selected,tr("%1 (previous choice)").arg(name),selectedAuthType);
             ui->authTypeComboBox->setItemData(selected,currentMethod,Qt::UserRole+1);
         } else if (selected<0 && methods.size()==1) selected=0;
-        ui->authTypeComboBox->addItem(tr("Find sign-in methods…"));
+        ui->authTypeComboBox->addItem(tr("Load from server…"));
         ui->authTypeComboBox->setCurrentIndex(selected);
         blocker.unblock();
         emit ui->authTypeComboBox->currentIndexChanged(selected);
@@ -115,7 +115,7 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
         case ConnectionError::TLS_PROTOCOL: queryStatusText=QT_TR_NOOP("TLS negotiation failed. Check the server port and TLS compatibility.");break;
         case ConnectionError::NETWORK_FAILED: queryStatusText=QT_TR_NOOP("Connection failed. Check DNS, connectivity and the server address.");break;
         case ConnectionError::TIMED_OUT: queryStatusText=QT_TR_NOOP("The query timed out. Check your network and retry.");break;
-        case ConnectionError::AUTHENTICATION_CHANGED: queryStatusText=QT_TR_NOOP("Sign-in methods changed. Query them again.");break;
+        case ConnectionError::AUTHENTICATION_CHANGED: queryStatusText=QT_TR_NOOP("Sign-in options changed. Reload from the server.");break;
         default: queryStatusText=QT_TR_NOOP("Could not query sign-in methods. Check the server and connection, then retry.");break;
         }
         queryStatus->setText(tr(queryStatusText));queryStatus->setVisible(!querying);
@@ -242,7 +242,7 @@ void SettingWindow::retranslate() {
         if (name.isEmpty()) name=defaultAuthLabel(ui->authTypeComboBox->itemData(index).toString());
         ui->authTypeComboBox->setItemText(index,method["previousChoice"].toBool()?tr("%1 (previous choice)").arg(name):name);
     }
-    ui->authTypeComboBox->setItemText(findMethodsIndex,tr("Find sign-in methods…"));
+    ui->authTypeComboBox->setItemText(findMethodsIndex,tr("Load from server…"));
     if (queryStatusText) queryStatus->setText(tr(queryStatusText));
     rememberAuthentication->setText(tr("Remember authentication"));
     auto rememberHelp=tr("Use the system credential store to resume after disconnecting or restarting, for as long as the server allows. Turning this off stops saving and resuming. Use Clear current account authentication cache to delete existing data.");
@@ -338,7 +338,7 @@ void SettingWindow::resetAuthChoices(const QString &namedType) {
     } else {
         ui->authTypeComboBox->addItem(selectedAuthName,namedType);
     }
-    ui->authTypeComboBox->addItem(tr("Find sign-in methods…"));
+    ui->authTypeComboBox->addItem(tr("Load from server…"));
     ui->authTypeComboBox->setCurrentIndex(-1);
     selectedAuthIndex=-1;
 }
@@ -390,7 +390,7 @@ void SettingWindow::cancelQuery() {
 void SettingWindow::queryMethods() {
     if (!profileEditable || isSaving() || querying) return;
     if (serverEditor->serverAddress().isEmpty()) {
-        queryStatusText=QT_TR_NOOP("Enter a server address to find sign-in methods.");
+        queryStatusText=QT_TR_NOOP("Enter the server address first.");
         queryStatus->setText(tr(queryStatusText));
         queryStatus->show();
         return;

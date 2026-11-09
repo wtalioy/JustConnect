@@ -56,7 +56,7 @@ static void waitForQueryPicker(SettingWindow *window) {
 static void findSignInMethods(SettingWindow *window) {
     auto *choices=queryChoices(window);
     const int action=choices->count()-1;
-    check(choices->itemText(action)==QCoreApplication::translate("SettingWindow","Find sign-in methods…"),
+    check(choices->itemText(action)==QCoreApplication::translate("SettingWindow","Load from server…"),
         "discovery is an action in the sign-in dropdown");
     choices->setCurrentIndex(action);
 }
@@ -526,7 +526,7 @@ static void quitWaitsForAuthenticationQueryWithoutBlockingTheGui() {
         [&]{return &settings;},[&]{return CredentialAccess::source(settings,{});},[](const QString &,const QString &,QSystemTrayIcon::MessageIcon){},nullptr,noOfficialClient);
     auto *queryEngine=new QueryEngine;QPointer<QueryEngine> guarded=queryEngine;
     auto *window=openQuery(&parent,{},queryEngine);
-    check(queryEngine->starts==0 && window->findChild<QLabel *>("authQueryStatus")->text()=="Enter a server address to find sign-in methods.",
+    check(queryEngine->starts==0 && window->findChild<QLabel *>("authQueryStatus")->text()=="Enter the server address first.",
         "an empty server address prompts for input without starting discovery");
     window->findChild<QLineEdit *>("serverAddressLineEdit")->setText("query.example.invalid");
     findSignInMethods(window);
@@ -997,7 +997,7 @@ static void uiContracts() {
     const auto accountPosition=account->mapTo(cancelled,QPoint());
     auto *cancelSearch=cancelled->findChild<QPushButton *>("cancelAuthQueryButton");
     check(cancelSearch->isVisibleTo(cancelled) && cancelSearch->text().isEmpty() && !cancelSearch->icon().isNull()
-        && cancelSearch->accessibleName()=="Cancel search" && cancelled->findChild<QLabel *>("authQueryStatus")->isHidden(),
+        && cancelSearch->accessibleName()=="Stop loading" && cancelled->findChild<QLabel *>("authQueryStatus")->isHidden(),
         "the picker offers a directly clickable stop icon with an accessible name");
     cancelSearch->click();
     check(cancelEngine->stops==1 && cancelled->isVisible(),"the inline query can be cancelled without closing settings");
