@@ -63,6 +63,7 @@ QSpinBox::up-arrow { image: url(:/resource/chevron-up.svg); width: 12px; height:
 QSpinBox::down-arrow { image: url(:/resource/chevron.svg); width: 12px; height: 12px; }
 /* Keep the styled spin box geometry when the read-only field hides its arrows. */
 QSpinBox[readOnly="true"]::up-button, QSpinBox[readOnly="true"]::down-button { width: 0; height: 0; }
+QSpinBox[readOnly="true"]::up-arrow, QSpinBox[readOnly="true"]::down-arrow { width: 0; height: 0; }
 QCheckBox { spacing: 8px; color: #263143; min-height: 30px; }
 QCheckBox::indicator {
     subcontrol-position: left center;

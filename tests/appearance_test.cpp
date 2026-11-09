@@ -283,8 +283,8 @@ int main(int argc,char **argv) {
     const auto paintsArrows=[](QSpinBox &field) {
         const auto frame=field.grab().toImage();
         const auto ratio=frame.devicePixelRatio();
-        for (int y=3*ratio;y<frame.height()-3*ratio;++y) {
-            for (int x=frame.width()-25*ratio;x<frame.width()-7*ratio;++x) {
+        for (int y=1;y<frame.height()-1;++y) {
+            for (int x=frame.width()-32*ratio;x<frame.width()-1;++x) {
                 const auto color=frame.pixelColor(x,y);
                 if (color.red()<180 && color.green()<180 && color.blue()<180) return true;
             }
