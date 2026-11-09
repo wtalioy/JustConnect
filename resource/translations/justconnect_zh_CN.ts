@@ -1291,8 +1291,8 @@ Use letters, numbers, underscores or hyphens.</source>
         <translation>删除连接</translation>
     </message>
     <message>
-        <source>Delete connection “%1”?</source>
-        <translation>删除连接“%1”？</translation>
+        <source>Delete “%1”?</source>
+        <translation>删除「%1」？</translation>
     </message>
     <message>
         <source>Delete connection…</source>
@@ -1307,8 +1307,8 @@ Use letters, numbers, underscores or hyphens.</source>
         <translation>已删除连接：</translation>
     </message>
     <message>
-        <source>Deleting this connection removes its settings file and legacy cache. To also remove saved credentials, clear them in Connection settings and use the cache actions in the Connections menu before deleting.</source>
-        <translation>删除连接会移除配置文件和旧版缓存。如需同时清除已保存的凭据，请先在「连接配置」中清除凭据，并通过「连接」菜单清除相关缓存。</translation>
+        <source>This removes its settings and old cache. Clear saved credentials and sign-ins first if you want them removed too.</source>
+        <translation>设置和旧缓存会被删除。如需一并移除已保存的凭据和登录数据，请先清除它们。</translation>
     </message>
     <message>
         <source>Disconnect before adding a connection.</source>

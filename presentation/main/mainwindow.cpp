@@ -654,6 +654,7 @@ void MainWindow::setupConnectionMenu()
     addConnectionAction = ui->profileMenu->addAction(tr("Add connection…"));
     renameConnectionAction = ui->profileMenu->addAction(tr("Rename connection…"));
     deleteConnectionAction = ui->profileMenu->addAction(tr("Delete connection…"));
+    deleteConnectionAction->setObjectName("deleteConnectionAction");
     ui->profileMenu->addSeparator();
     ui->profileMenu->addAction(ui->clearAuthenticationCacheAction);
     ui->profileMenu->addAction(ui->clearClientDataAction);
@@ -850,8 +851,8 @@ void MainWindow::deleteCurrentConnection()
     }
 
     if (!PresentationHelpers::actionPrompt(this,tr("Delete connection"),
-        tr("Delete connection “%1”?").arg(currentConnectionId) + "\n\n" +
-        tr("Deleting this connection removes its settings file and legacy cache. To also remove saved credentials, clear them in Connection settings and use the cache actions in the Connections menu before deleting."),
+        tr("Delete “%1”?").arg(currentConnectionId) + "\n\n" +
+        tr("This removes its settings and old cache. Clear saved credentials and sign-ins first if you want them removed too."),
         QDialogButtonBox::Yes,QDialogButtonBox::Cancel,tr("Delete"))) return;
 
     const QString removedConnectionId = currentConnectionId;

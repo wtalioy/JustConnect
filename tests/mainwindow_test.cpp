@@ -191,6 +191,29 @@ static void profileMenusKeepTheirActions(MainWindow &window,const QString &profi
         && created->findChild<QPlainTextEdit *>("domainDnsRulesEdit")->toPlainText().isEmpty(),
         "a new connection starts blank even when added from Fudan");
     created->reject();
+    QApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+    const auto newPath=storage.connectionPath("direct-add");
+    auto *credentials=window.findChild<CredentialAccess *>();
+    UiWait::until(__FILE__,__LINE__,[&]{return !credentials->isBusy(newPath);});
+    bool confirmedLayout=false;
+    QTimer::singleShot(0,&window,[&] {
+        auto *prompt=QApplication::activeModalWidget();
+        check(prompt && prompt->objectName()=="actionPrompt","delete uses the shared confirmation");
+        auto *buttons=prompt->findChild<QDialogButtonBox *>();
+        auto *remove=buttons->button(QDialogButtonBox::Yes);
+        auto *cancel=buttons->button(QDialogButtonBox::Cancel);
+        check(remove->text()=="Delete" && remove->icon().isNull() && remove->property("promptPrimary").toBool()
+            && cancel->isDefault() && prompt->findChild<QLabel *>("promptBody")->text().startsWith("Delete “direct-add”?"),
+            "delete uses short copy, a blue text-only action and a safe keyboard default");
+        if (!report.isEmpty()) check(prompt->grab().save(QDir(report).filePath("delete-connection-prompt.png")),
+            "save the native delete confirmation");
+        confirmedLayout=true;
+        QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
+        QApplication::sendEvent(prompt,&enter);
+    });
+    window.findChild<QAction *>("deleteConnectionAction")->trigger();
+    check(confirmedLayout && QFileInfo::exists(newPath) && checked(menu)=="direct-add",
+        "Return cancels deletion and keeps the selected connection");
 }
 
 class ScrollPaints final : public QObject {
