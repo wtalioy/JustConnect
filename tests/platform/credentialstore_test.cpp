@@ -109,6 +109,23 @@ int main(int argc,char **argv) {
             const auto cleanup=qScopeGuard([&]{store->remove(a);store->remove(b);store->remove(proxyKey(a));});
             prepare(*store,a,b);
 #if defined(Q_OS_MACOS)
+            // Read item attributes from the isolated store without requesting secret data.
+            const auto account=a.toCFString();
+            const void *items[]{keychain};
+            const auto search=CFArrayCreate(nullptr,items,1,&kCFTypeArrayCallBacks);
+            const void *keys[]{kSecClass,kSecAttrService,kSecAttrAccount,kSecMatchSearchList,kSecReturnAttributes};
+            const void *values[]{kSecClassGenericPassword,MacCredentialService,account,search,kCFBooleanTrue};
+            const auto query=CFDictionaryCreate(nullptr,keys,values,5,&kCFTypeDictionaryKeyCallBacks,&kCFTypeDictionaryValueCallBacks);
+            CFRelease(account);
+            CFRelease(search);
+            CFTypeRef attributes=nullptr;
+            const auto copied=SecItemCopyMatching(query,&attributes);
+            CFRelease(query);
+            const auto releaseAttributes=qScopeGuard([&]{if (attributes) CFRelease(attributes);});
+            require(copied==errSecSuccess && attributes && CFGetTypeID(attributes)==CFDictionaryGetTypeID(),
+                    "read saved Keychain item attributes");
+            const auto label=CFDictionaryGetValue(static_cast<CFDictionaryRef>(attributes),kSecAttrLabel);
+            require(label && CFEqual(label,CFSTR("JustConnect Saved Data")),"Keychain item label describes JustConnect data");
             require(SecKeychainLock(keychain)==errSecSuccess,"lock isolated keychain");locked(*store,a);
             require(SecKeychainUnlock(keychain,UInt32(password.size()),password.constData(),true)==errSecSuccess,"unlock isolated keychain");
 #else

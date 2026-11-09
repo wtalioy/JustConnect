@@ -70,6 +70,7 @@ public:
         const auto releaseData=qScopeGuard([&]{CFRelease(data);});
         auto dict=query(key,true);const auto release=qScopeGuard([&]{CFRelease(dict);});
         CFDictionarySetValue(dict,kSecValueData,data);
+        CFDictionarySetValue(dict,kSecAttrLabel,CFSTR("JustConnect Saved Data"));
         auto code=SecItemAdd(dict,nullptr);
         if (code==errSecDuplicateItem) {
             auto match=query(key);const auto releaseMatch=qScopeGuard([&]{CFRelease(match);});

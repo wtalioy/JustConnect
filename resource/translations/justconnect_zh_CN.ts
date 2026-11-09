@@ -2093,6 +2093,10 @@ Some system settings may have changed. Check them before retrying.</source>
         <translation>通过系统凭据库在断开和重启后恢复认证，有效期由服务器决定。关闭后停止保存与恢复，删除已有材料请使用“清除当前账户认证缓存”。</translation>
     </message>
     <message>
+        <source>macOS may ask for your local Keychain password to access JustConnect Saved Data and resume your campus sign-in.</source>
+        <translation>恢复校园登录时，macOS 可能要求输入本机钥匙串密码，以访问 JustConnect Saved Data。</translation>
+    </message>
+    <message>
         <location filename="../../presentation/dialogs/settingwindow/settingwindow.cpp" line="64"/>
         <source>No sign-in methods are available.</source>
         <translation>服务器没有返回可用的认证方式。</translation>
