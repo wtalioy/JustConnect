@@ -106,19 +106,8 @@ static void actionPromptLayout(QWidget &parent,QDialogButtonBox::StandardButton 
     check(observed && accepted==(primary!=QDialogButtonBox::Yes),"Return dismisses a deletion and the settings button accepts");
 }
 
-int main(int argc,char **argv) {
-    QApplication app(argc,argv);
-    ApplicationAppearance::install();
-    QWidget promptParent;
-    promptParent.show();
-    actionPromptLayout(promptParent,QDialogButtonBox::Yes,QDialogButtonBox::No,"Clear authentication cache",
-        "Clear the saved sign-in for account@example.edu on vpn.example.edu?\nYou may need to sign in again. Passwords, TOTP and other accounts are kept.",
-        {},"cache-prompt.png");
-    actionPromptLayout(promptParent,QDialogButtonBox::Open,QDialogButtonBox::Cancel,"Background access required",
-        "Allow JustConnect under Login Items & Extensions, then connect again.",
-        "Open System Settings","background-prompt.png");
-    promptParent.hide();
-    QCheckBox checkbox("Verify server certificate");
+static void checkboxAlignment(const QString &caption) {
+    QCheckBox checkbox(caption);
     checkbox.resize(240, 36);
     checkbox.ensurePolished();
     QStyleOptionButton checkboxOption;
@@ -126,9 +115,9 @@ int main(int argc,char **argv) {
     checkboxOption.text = checkbox.text();
     const auto indicator = checkbox.style()->subElementRect(QStyle::SE_CheckBoxIndicator, &checkboxOption, &checkbox);
     const auto checkboxCaption = checkbox.style()->subElementRect(QStyle::SE_CheckBoxContents, &checkboxOption, &checkbox);
-    check(!indicator.isEmpty() && checkbox.rect().contains(indicator) && !checkboxCaption.isEmpty(),
-        "the indicator and caption have usable geometry within the checkbox");
-    checkbox.setText("Launch at sign-in");
+    check(!indicator.isEmpty() && checkbox.rect().contains(indicator) && !checkboxCaption.isEmpty()
+        && qAbs(indicator.center().y()-checkboxCaption.center().y())<=1,
+        "the indicator and caption share the vertical center of the checkbox");
     checkbox.setChecked(true);
     const auto mark = checkbox.grab();
     const auto pixels = mark.toImage();
@@ -160,6 +149,26 @@ int main(int argc,char **argv) {
         for (int x = insideSquare.left(); x <= insideSquare.right(); ++x)
             checkMarkPainted |= pixels.pixelColor(x, y).lightness() > 220;
     check(checkMarkPainted, "the checked square paints its contrasting check mark");
+}
+
+int main(int argc,char **argv) {
+    QApplication app(argc,argv);
+    ApplicationAppearance::install();
+    if (app.arguments().contains("--checkbox-only")) {
+        checkboxAlignment(QStringLiteral("Remember authentication"));
+        checkboxAlignment(QStringLiteral("Check for updates at startup"));
+        return 0;
+    }
+    QWidget promptParent;
+    promptParent.show();
+    actionPromptLayout(promptParent,QDialogButtonBox::Yes,QDialogButtonBox::No,"Clear authentication cache",
+        "Clear the saved sign-in for account@example.edu on vpn.example.edu?\nYou may need to sign in again. Passwords, TOTP and other accounts are kept.",
+        {},"cache-prompt.png");
+    actionPromptLayout(promptParent,QDialogButtonBox::Open,QDialogButtonBox::Cancel,"Background access required",
+        "Allow JustConnect under Login Items & Extensions, then connect again.",
+        "Open System Settings","background-prompt.png");
+    promptParent.hide();
+    checkboxAlignment(QStringLiteral("Launch at sign-in"));
     QMainWindow dialog;
     QPushButton disconnect("Disconnect",&dialog);
     disconnect.setObjectName("connectButton");

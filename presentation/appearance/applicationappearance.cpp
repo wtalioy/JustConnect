@@ -97,9 +97,6 @@ void ApplicationAppearance::install() {
         }
         larger += QStringView(style).mid(next);
         style.swap(larger);
-#elif defined(Q_OS_WIN)
-        // The native Windows text baseline sits below the indicator's geometric center.
-        style += QStringLiteral("\nQCheckBox::indicator { position: relative; top: 2px; }");
 #endif
         qApp->setStyleSheet(style);
     }
