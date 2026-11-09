@@ -850,18 +850,10 @@ void MainWindow::deleteCurrentConnection()
         return;
     }
 
-    QMessageBox messageBox(this);
-    messageBox.setWindowTitle(tr("Delete connection"));
-    messageBox.setInformativeText(tr("Deleting this connection removes its settings file and legacy cache. To also remove saved credentials, clear them in Connection settings and use the cache actions in the Connections menu before deleting."));
-    messageBox.setText(tr("Delete connection “%1”?").arg(currentConnectionId));
-    auto *remove=messageBox.addButton(QMessageBox::Yes);remove->setText(tr("Delete"));
-    PresentationHelpers::setButtonIcon(remove,":/resource/file-remove.svg");
-    messageBox.addButton(QMessageBox::No)->setText(tr("Cancel"));
-    messageBox.setDefaultButton(QMessageBox::No);
-    if (messageBox.exec() != QMessageBox::Yes)
-    {
-        return;
-    }
+    if (!PresentationHelpers::actionPrompt(this,tr("Delete connection"),
+        tr("Delete connection “%1”?").arg(currentConnectionId) + "\n\n" +
+        tr("Deleting this connection removes its settings file and legacy cache. To also remove saved credentials, clear them in Connection settings and use the cache actions in the Connections menu before deleting."),
+        QDialogButtonBox::Yes,QDialogButtonBox::Cancel,tr("Delete"))) return;
 
     const QString removedConnectionId = currentConnectionId;
     if (connectionSession != nullptr && connectionSession->isActive())

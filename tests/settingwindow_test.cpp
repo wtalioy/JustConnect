@@ -159,6 +159,20 @@ int main(int argc,char **argv) {
                 check(!expectedText.isEmpty() && message->text()==expectedText,"only the expected operation message is shown");
                 shown=true; auto *choice=message->button(QMessageBox::StandardButton(messageResult));
                 check(choice!=nullptr,"expected dialog choice exists"); choice->click();
+            } else if (widget->objectName()=="actionPrompt" && widget->isVisible()) {
+                auto *body=widget->findChild<QLabel *>("promptBody");
+                auto *buttons=widget->findChild<QDialogButtonBox *>();
+                auto *yes=buttons->button(QDialogButtonBox::Yes);
+                auto *no=buttons->button(QDialogButtonBox::No);
+                check(!expectedText.isEmpty() && body->text()==expectedText && yes->property("promptPrimary").toBool()
+                    && !no->property("promptPrimary").toBool() && no->isDefault() && !yes->isDefault(),
+                    "the settings confirmation uses the expected copy, primary color and safe default");
+                if (messageResult==QMessageBox::Yes) yes->click();
+                else {
+                    check(messageResult==QMessageBox::No,"an explicit confirmation decision is expected");
+                    QKeyEvent enter(QEvent::KeyPress,Qt::Key_Return,Qt::NoModifier);
+                    QApplication::sendEvent(widget,&enter);
+                }
             } else if (auto *dialog=qobject_cast<QFileDialog *>(widget); dialog && dialog->isVisible() && !fileSelection.isEmpty()) {
                 const auto path=fileSelection; fileSelection.clear();
                 dialog->setDirectory(QFileInfo(path).absolutePath()); dialog->selectFile(QFileInfo(path).fileName());
@@ -230,7 +244,12 @@ int main(int argc,char **argv) {
     window=open(); window->findChild<QPlainTextEdit *>("domainDnsRulesEdit")->setPlainText("service.example.invalid");
     window->findChild<QPushButton *>("saveProfileButton")->click(); ready();
     check(!settings.contains("JustConnect/ExtraArguments") && settings.value("JustConnect/DNSTTL")==61 && settings.value(DefaultSettings::DomainDnsRules)=="service.example.invalid" && read(cache)=="preserved authentication","obsolete-field cleanup, network edits and refreshed URL previews retain valid authentication");
-    window=open();window->setConnectAfterSave(true);int cancelledIntents=0;QObject::connect(window,&SettingWindow::connectRequested,[&]{++cancelledIntents;}); expectedText=QCoreApplication::translate("SettingWindow","Reset this draft to its defaults? Changes take effect after saving."); messageResult=QMessageBox::Yes;
+    window=open();window->setConnectAfterSave(true);int cancelledIntents=0;QObject::connect(window,&SettingWindow::connectRequested,[&]{++cancelledIntents;}); expectedText=QCoreApplication::translate("SettingWindow","Reset this draft to its defaults? Changes take effect after saving.");
+    messageResult=QMessageBox::No;
+    window->findChild<QPushButton *>("resetDefaultPushButton")->click();
+    check(window->findChild<QLineEdit *>("serverAddressLineEdit")->text()=="changed.example.invalid",
+        "pressing Return in the reset confirmation keeps the draft");
+    messageResult=QMessageBox::Yes;
     window->findChild<QPushButton *>("resetDefaultPushButton")->click(); expectedText.clear(); messageResult=QMessageBox::Ok;
     check(window->findChild<QLineEdit *>("serverAddressLineEdit")->text().isEmpty()
         && window->findChild<QCheckBox *>("rememberAuthenticationCheckBox")->isChecked(),"reset restores default connection values in the draft");

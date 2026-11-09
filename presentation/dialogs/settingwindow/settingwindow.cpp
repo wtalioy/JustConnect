@@ -166,7 +166,8 @@ SettingWindow::SettingWindow(QWidget *parent,CredentialAccess *credentials,const
     PresentationHelpers::setButtonIcon(ui->exportPushButton,":/resource/export.svg");
     PresentationHelpers::setButtonIcon(ui->resetDefaultPushButton,":/resource/undo.svg");
     connect(ui->resetDefaultPushButton,&QPushButton::clicked,this,[this] {
-        if (QMessageBox::question(this,tr("Reset draft"),tr("Reset this draft to its defaults? Changes take effect after saving."))!=QMessageBox::Yes) return;
+        if (!PresentationHelpers::actionPrompt(this,tr("Reset draft"),
+            tr("Reset this draft to its defaults? Changes take effect after saving."))) return;
         QTemporaryDir folder;
         if (!folder.isValid()) { QMessageBox::warning(this,tr("Reset failed"),tr("Could not create temporary connection settings.")); return; }
         QSettings draft(folder.filePath("defaults.ini"),QSettings::IniFormat);
@@ -474,7 +475,8 @@ void SettingWindow::clearCredentials() {
     auto account=credentialSource.connectionOptions.credentials.username;
     if (account.isEmpty()) account=credentialSource.connectionOptions.endpoint.phone;
     if (account.isEmpty()) account=tr("the current connection");
-    if (QMessageBox::question(this,tr("Clear saved credentials"),tr("Clear saved passwords and authenticator keys for %1? Other accounts are unaffected.").arg(account))!=QMessageBox::Yes) return;
+    if (!PresentationHelpers::actionPrompt(this,tr("Clear saved credentials"),
+        tr("Clear saved passwords and authenticator keys for %1? Other accounts are unaffected.").arg(account))) return;
     const auto source=credentialSource;++loadGeneration;saving=true;updateBusy();
     credentials->clear(source).then(this,[this](const CredentialResult &result) {
         if (closed) return;

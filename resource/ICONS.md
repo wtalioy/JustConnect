@@ -16,7 +16,6 @@ Selected Lucide SVGs from [`53fab88ff9d1b48f4704b5b5b560d6b4d560bf4c`](https://g
 | `campus.svg` | `university.svg` |
 | `network.svg` | `globe.svg` |
 | `controller.svg` | `server.svg` |
-| `file-remove.svg` | `file-minus-corner.svg` |
 | `close.svg` | `x.svg` |
 | `eye.svg` | `eye.svg` |
 | `eye-off.svg` | `eye-off.svg` |
