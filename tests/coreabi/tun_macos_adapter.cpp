@@ -276,6 +276,7 @@ int main(int argc,char **argv)
             check(waiting->calls==authorizationRequests,"Browser switching uses the established network helper without requesting a fresh grant");
             coexistence.enableBrowserProxy(proxy);
             if (round==1) {
+                std::cout.flush();
                 publish(".proxy-crash");
                 until([] { return false; });
             }

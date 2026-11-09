@@ -98,14 +98,15 @@ int main(int argc,char **argv) try
         && unchanged->fallbacks==override.originalSources,"Active exact override rejected an unchanged fallback");
     auto changedDefault=defaultResolver;changedDefault["servers"]=QJsonArray{"203.0.113.9"};
     overrideDns["macos_resolvers"]=QJsonArray{changedDefault};
-    const auto changed=updatedMacCapture(overrides,protection,override.configuration,override.originalSources,network,overrideDns);
-    check(changed && changed->fallbacks.size()==1 && changed->fallbacks.first().toObject()["servers"]==QJsonArray{"203.0.113.9:53"}
-        && changed->prefixes==QStringList{"203.0.113.53/32"} && changed->originalSources.size()==1
-        && changed->originalSources.first().toObject()["servers"]==QJsonArray{"203.0.113.8:53","203.0.113.9:53"},
+    const auto fallbackUpdate=updatedMacCapture(overrides,protection,override.configuration,override.originalSources,network,overrideDns);
+    check(fallbackUpdate && fallbackUpdate->fallbacks.size()==1
+        && fallbackUpdate->fallbacks.first().toObject()["servers"].toArray()==QJsonArray{"203.0.113.9:53"}
+        && fallbackUpdate->prefixes==QStringList{"203.0.113.53/32"} && fallbackUpdate->originalSources.size()==1
+        && fallbackUpdate->originalSources.first().toObject()["servers"].toArray()==QJsonArray{"203.0.113.8:53","203.0.113.9:53"},
         "Replacing the default resolver changed the installed scope or captured an old or new DNS upstream");
     overrideDns["macos_resolvers"]=QJsonArray{defaultResolver};
-    const auto switchedBack=updatedMacCapture(overrides,protection,override.configuration,changed->originalSources,network,overrideDns);
-    check(switchedBack && switchedBack->fallbacks==override.originalSources && switchedBack->originalSources==changed->originalSources,
+    const auto switchedBack=updatedMacCapture(overrides,protection,override.configuration,fallbackUpdate->originalSources,network,overrideDns);
+    check(switchedBack && switchedBack->fallbacks==override.originalSources && switchedBack->originalSources==fallbackUpdate->originalSources,
         "Returning to the initial DNS source duplicated exclusions or retained the wrong upstream");
     auto overlapping=protection;overlapping["protected_names"]=QJsonArray{QJsonObject{{"kind","suffix"},{"value","child.host.extra.test"}}};
     const auto safe=prepareMacNetworkHelper(overrides,overlapping,network,overrideDns,{},1400);
